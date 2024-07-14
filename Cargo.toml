@@ -1,0 +1,8 @@
+[package]
+name = "unin"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+x11 = "2.18.2"
+libc = "0.2"
