@@ -25,11 +25,11 @@
 
 //     for (wrong, correct) in korean_input_map {
 //         if input == wrong {
-//             return correct.to_string();
+//             return correct;
 //         }
 //     }
 
-//     input.to_string()
+//     input
 // }
 
 // fn main() {
@@ -61,7 +61,7 @@
 //             let input = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
 //                 .to_str()
 //                 .unwrap_or("")
-//                 .to_string();
+//                 ;
 //             let corrected_input = correct_input(&input);
 //             let language = detect_language(&corrected_input);
 //             println!("눌린 키: {:?}, 수정된 입력: {}, 언어: {}", input, corrected_input, language);
@@ -71,54 +71,54 @@
 
 pub mod hangul;
 
-use crate::hangul::char::HangulChar;
-use crate::hangul::jamo::{Cho, Jung, Jong};
+use crate::hangul::hangul::Hangul;
+use crate::hangul::phoneme::{Onset, Nucleus, Coda};
 
 fn main() {
-    // Test case 1: Creating HangulChar from jamos
-    let hangul1 = HangulChar::from_jamo(Cho::G, Jung::A, Jong::NG);
-    println!("Hangul from jamo (G, A, NG): {}", hangul1.to_string());
+    // Test case 1: Creating Hangul from phonemes
+    let hangul1 = Hangul::from_phoneme(Onset::G, Nucleus::A, Coda::NG);
+    println!("Hangul from phoneme (G, A, NG): {}", hangul1);
 
-    // Test case 2: Creating HangulChar from indices
-    let hangul2 = HangulChar::from_indices(0, 0, 0); // 가
-    println!("Hangul from indices (0, 0, 0): {}", hangul2.to_string());
+    // Test case 2: Creating Hangul from indices
+    let hangul2 = Hangul::from_indices(0, 0, 0); // 가
+    println!("Hangul from indices (0, 0, 0): {}", hangul2);
 
-    // Test case 3: Creating HangulChar from names
-    let hangul3 = HangulChar::from_names("G", "A", "NG");
-    println!("Hangul from names (G, A, NG): {}", hangul3.to_string());
+    // Test case 3: Creating Hangul from names
+    let hangul3 = Hangul::from_names("G", "A", "NG");
+    println!("Hangul from names (G, A, NG): {}", hangul3);
 
-    // Test case 4: Creating HangulChar from a syllable
-    let hangul4 = HangulChar::from_syllable('강');
-    println!("Hangul from syllable '강': {}", hangul4.to_string());
+    // Test case 4: Creating Hangul from a syllable
+    let hangul4 = Hangul::from_syllable('강');
+    println!("Hangul from syllable '강': {}", hangul4);
 
-    // Test case 5: Setting jamos by indices
-    let mut hangul5 = HangulChar::new();
-    hangul5.set_jamo_by_indices(2, 0, 0); // 나
-    println!("Hangul set by indices (2, 0, 0): {}", hangul5.to_string());
+    // Test case 5: Setting phonemes by indices
+    let mut hangul5 = Hangul::new();
+    hangul5.set_phoneme_by_indices(2, 0, 0); // 나
+    println!("Hangul set by indices (2, 0, 0): {}", hangul5);
 
-    // Test case 6: Setting jamos by names
-    let mut hangul6 = HangulChar::new();
-    hangul6.set_jamo_by_names("N", "A", "NG"); // 낭
-    println!("Hangul set by names (N, A, NG): {}", hangul6.to_string());
+    // Test case 6: Setting phonemes by names
+    let mut hangul6 = Hangul::new();
+    hangul6.set_phoneme_by_names("N", "A", "NG"); // 낭
+    println!("Hangul set by names (N, A, NG): {}", hangul6);
 
     // Test case 7: Getting Unicode values
-    let hangul7 = HangulChar::from_jamo(Cho::D, Jung::U, Jong::L);
+    let hangul7 = Hangul::from_phoneme(Onset::D, Nucleus::U, Coda::L);
     println!("Unicode values of '둘': {:?}", hangul7.get_unicodes());
 
     // Test case 8: Getting the syllable
-    let hangul8 = HangulChar::from_jamo(Cho::B, Jung::O, Jong::S);
+    let hangul8 = Hangul::from_phoneme(Onset::B, Nucleus::O, Coda::S);
     println!("Syllable of '봇': {}", hangul8.get_syllable());
 
     // Test case 9: Checking if filled
-    let mut hangul9 = HangulChar::new();
-    hangul9.set_jamo(Cho::G, Jung::A, Jong::NG);
-    println!("Is filled only cho: {}", hangul9.is_filled_only_cho());
-    println!("Is filled only jung: {}", hangul9.is_filled_only_jung());
-    println!("Is filled only jong: {}", hangul9.is_filled_only_jong());
-    println!("Is filled only jong: {}", hangul9.to_string());
+    let mut hangul9 = Hangul::new();
+    hangul9.set_phoneme(Onset::G, Nucleus::A, Coda::NG);
+    println!("Is filled only cho: {}", hangul9.is_filled_only_onset());
+    println!("Is filled only jung: {}", hangul9.is_filled_only_nucleus());
+    println!("Is filled only jong: {}", hangul9.is_filled_only_coda());
+    println!("Is filled only jong: {}", hangul9);
 
-    // Test case 10: Clear all jamos
-    let mut hangul10 = HangulChar::from_jamo(Cho::S, Jung::O, Jong::N);
+    // Test case 10: Clear all phonemes
+    let mut hangul10 = Hangul::from_phoneme(Onset::S, Nucleus::O, Coda::N);
     hangul10.clear();
-    println!("Cleared HangulChar: '{}'", hangul10.to_string());
+    println!("Cleared Hangul: '{}'", hangul10);
 }
