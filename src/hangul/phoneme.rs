@@ -4,13 +4,72 @@ use std::any::Any;
 use std::hash::Hash;
 use std::str::FromStr;
 
-pub trait Phoneme: Eq + Hash {
+pub trait Phoneme
+where
+    Self: Eq + Hash + Copy + Clone + std::fmt::Debug, {
     fn get_unicode_compat(&self) -> char;
     fn get_unicode(&self) -> char;
     fn get_index(&self) -> i32;
     fn as_any(&self) -> &dyn Any; // 이 메서드를 추가하여 객체 안전성 확보
 }
 
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum PhonemeEnum {
+    Coda(Coda),
+    Nucleus(Nucleus),
+    Onset(Onset),
+}
+impl From<Onset> for PhonemeEnum {
+    fn from(item: Onset) -> Self {
+        PhonemeEnum::Onset(item)
+    }
+}
+
+impl From<Nucleus> for PhonemeEnum {
+    fn from(item: Nucleus) -> Self {
+        PhonemeEnum::Nucleus(item)
+    }
+}
+
+impl From<Coda> for PhonemeEnum {
+    fn from(item: Coda) -> Self {
+        PhonemeEnum::Coda(item)
+    }
+}
+impl Phoneme for PhonemeEnum {
+    fn get_unicode_compat(&self) -> char {
+        match self {
+            PhonemeEnum::Coda(coda) => coda.get_unicode_compat(),
+            PhonemeEnum::Nucleus(nucleus) => nucleus.get_unicode_compat(),
+            PhonemeEnum::Onset(onset) => onset.get_unicode_compat(),
+        }
+    }
+
+    fn get_unicode(&self) -> char {
+        match self {
+            PhonemeEnum::Coda(coda) => coda.get_unicode(),
+            PhonemeEnum::Nucleus(nucleus) => nucleus.get_unicode(),
+            PhonemeEnum::Onset(onset) => onset.get_unicode(),
+        }
+    }
+
+    fn get_index(&self) -> i32 {
+        match self {
+            PhonemeEnum::Coda(coda) => coda.get_index(),
+            PhonemeEnum::Nucleus(nucleus) => nucleus.get_index(),
+            PhonemeEnum::Onset(onset) => onset.get_index(),
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        match self {
+            PhonemeEnum::Coda(coda) => coda.as_any(),
+            PhonemeEnum::Nucleus(nucleus) => nucleus.as_any(),
+            PhonemeEnum::Onset(onset) => onset.as_any(),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Onset {

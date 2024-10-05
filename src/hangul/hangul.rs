@@ -5,10 +5,11 @@ use super::phoneme::{
     get_coda_by_index, get_nucleus_by_index, get_onset_by_index, Coda, Nucleus, Onset, Phoneme,
 };
 
+#[derive(Clone, Debug)]
 pub struct Hangul {
-    onset: Option<Onset>,
-    nucleus: Option<Nucleus>,
-    coda: Option<Coda>,
+    pub(crate) onset: Option<Onset>,
+    pub(crate) nucleus: Option<Nucleus>,
+    pub(crate) coda: Option<Coda>,
 }
 
 impl Default for Hangul {

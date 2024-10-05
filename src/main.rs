@@ -1,124 +1,83 @@
-// use std::ptr; // 표준 라이브러리의 ptr 모듈을 가져옵니다.
-// use x11::xlib::{
-//     KeyPress, KeyPressMask, KeyReleaseMask, KeySym, XDefaultRootWindow, XLookupString, XNextEvent,
-//     XOpenDisplay, XSelectInput,
-// };
-
-// fn is_hangul(c: char) -> bool {
-//     ('\u{1100}'..='\u{11FF}').contains(&c) || ('\u{AC00}'..='\u{D7AF}').contains(&c)
-// }
-
-// fn detect_language(input: &str) -> &str {
-//     if input.chars().all(|c| c.is_ascii_alphabetic()) {
-//         "영어"
-//     } else if input.chars().all(is_hangul) {
-//         "한국어"
-//     } else {
-//         "알 수 없음"
-//     }
-// }
-
-// fn correct_input(input: &str) -> String {
-//     let korean_input_map = vec![
-//         ("dkssudgktpdy", "안녕하세요"),
-//     ];
-
-//     for (wrong, correct) in korean_input_map {
-//         if input == wrong {
-//             return correct;
-//         }
-//     }
-
-//     input
-// }
-
-// fn main() {
-//     let display = unsafe { XOpenDisplay(ptr::null()) };
-//     if display.is_null() {
-//         eprintln!("X 디스플레이를 열 수 없습니다.");
-//         return;
-//     }
-//     let root = unsafe { XDefaultRootWindow(display) };
-//     unsafe {
-//         XSelectInput(display, root, KeyPressMask | KeyReleaseMask);
-//     }
-//     loop {
-//         let mut event = unsafe { std::mem::zeroed() };
-//         unsafe { XNextEvent(display, &mut event) };
-//         if unsafe { event.type_ } == KeyPress {
-//             let mut buffer: [i8; 32] = [0; 32];
-//             let mut keysym: KeySym = 0;
-//             let mut key_event = unsafe { event.key };
-//             unsafe {
-//                 XLookupString(
-//                     &mut key_event,
-//                     buffer.as_mut_ptr(),
-//                     32,
-//                     &mut keysym,
-//                     ptr::null_mut(),
-//                 );
-//             }
-//             let input = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
-//                 .to_str()
-//                 .unwrap_or("")
-//                 ;
-//             let corrected_input = correct_input(&input);
-//             let language = detect_language(&corrected_input);
-//             println!("눌린 키: {:?}, 수정된 입력: {}, 언어: {}", input, corrected_input, language);
-//         }
-//     }
-// }
+use std::collections::HashMap;
+use std::io::{self, Read};
+use crate::hangul::phoneme::{Onset, Nucleus, Coda, Jamo};
+use crate::hangul::builder::HangulBuilder2Bul;
 
 pub mod hangul;
 
-use crate::hangul::hangul::Hangul;
-use crate::hangul::phoneme::{Onset, Nucleus, Coda};
+fn main() -> io::Result<()> {
+    let mut km2 = HashMap::new();
+    init_keyboard_map(&mut km2);
 
-fn main() {
-    // Test case 1: Creating Hangul from phonemes
-    let hangul1 = Hangul::from_phoneme(Onset::G, Nucleus::A, Coda::NG);
-    println!("Hangul from phoneme (G, A, NG): {}", hangul1);
+    let mut hb2 = HangulBuilder2Bul::new();
+    let mut buffer = [0; 1];
 
-    // Test case 2: Creating Hangul from indices
-    let hangul2 = Hangul::from_indices(0, 0, 0); // 가
-    println!("Hangul from indices (0, 0, 0): {}", hangul2);
+    loop {
+        if io::stdin().read_exact(&mut buffer).is_err() {
+            break;
+        }
 
-    // Test case 3: Creating Hangul from names
-    let hangul3 = Hangul::from_names("G", "A", "NG");
-    println!("Hangul from names (G, A, NG): {}", hangul3);
+        let c = buffer[0] as char;
+        if c == '.' {
+            break;
+        }
 
-    // Test case 4: Creating Hangul from a syllable
-    let hangul4 = Hangul::from_syllable('강');
-    println!("Hangul from syllable '강': {}", hangul4);
+        if let Some(jamo) = km2.get(&c) {
+            if let Some(hangul) = hb2.add_jamo(*jamo) {
+                print!("{}", hangul);
+            }
+        } else {
+            if hb2.is_build() {
+                if let Some(hangul) = hb2.force_build_hangul() {
+                    print!("{}", hangul);
+                }
+            }
+            print!("{}", c);
+        }
+    }
 
-    // Test case 5: Setting phonemes by indices
-    let mut hangul5 = Hangul::new();
-    hangul5.set_phoneme_by_indices(2, 0, 0); // 나
-    println!("Hangul set by indices (2, 0, 0): {}", hangul5);
+    Ok(())
+}
 
-    // Test case 6: Setting phonemes by names
-    let mut hangul6 = Hangul::new();
-    hangul6.set_phoneme_by_names("N", "A", "NG"); // 낭
-    println!("Hangul set by names (N, A, NG): {}", hangul6);
+fn init_keyboard_map(km2: &mut HashMap<char, Jamo>) {
+    // 초성
+    km2.insert('q', Jamo::Onset(Onset::B));
+    km2.insert('w', Jamo::Onset(Onset::J));
+    km2.insert('e', Jamo::Onset(Onset::D));
+    km2.insert('r', Jamo::Onset(Onset::G));
+    km2.insert('t', Jamo::Onset(Onset::S));
+    km2.insert('a', Jamo::Onset(Onset::M));
+    km2.insert('s', Jamo::Onset(Onset::N));
+    km2.insert('d', Jamo::Onset(Onset::E));
+    km2.insert('f', Jamo::Onset(Onset::R));
+    km2.insert('g', Jamo::Onset(Onset::H));
+    km2.insert('z', Jamo::Onset(Onset::K));
+    km2.insert('x', Jamo::Onset(Onset::T));
+    km2.insert('c', Jamo::Onset(Onset::C));
+    km2.insert('v', Jamo::Onset(Onset::P));
 
-    // Test case 7: Getting Unicode values
-    let hangul7 = Hangul::from_phoneme(Onset::D, Nucleus::U, Coda::L);
-    println!("Unicode values of '둘': {:?}", hangul7.get_unicodes());
+    // 중성
+    km2.insert('y', Jamo::Nucleus(Nucleus::YO));
+    km2.insert('u', Jamo::Nucleus(Nucleus::YEO));
+    km2.insert('i', Jamo::Nucleus(Nucleus::YA));
+    km2.insert('o', Jamo::Nucleus(Nucleus::AE));
+    km2.insert('p', Jamo::Nucleus(Nucleus::E));
+    km2.insert('h', Jamo::Nucleus(Nucleus::O));
+    km2.insert('j', Jamo::Nucleus(Nucleus::EO));
+    km2.insert('k', Jamo::Nucleus(Nucleus::A));
+    km2.insert('l', Jamo::Nucleus(Nucleus::I));
+    km2.insert('b', Jamo::Nucleus(Nucleus::YU));
+    km2.insert('n', Jamo::Nucleus(Nucleus::U));
+    km2.insert('m', Jamo::Nucleus(Nucleus::EU));
 
-    // Test case 8: Getting the syllable
-    let hangul8 = Hangul::from_phoneme(Onset::B, Nucleus::O, Coda::S);
-    println!("Syllable of '봇': {}", hangul8.get_syllable());
+    // 대문자 (쌍자음)
+    km2.insert('Q', Jamo::Onset(Onset::BB));
+    km2.insert('W', Jamo::Onset(Onset::JJ));
+    km2.insert('E', Jamo::Onset(Onset::DD));
+    km2.insert('R', Jamo::Onset(Onset::GG));
+    km2.insert('T', Jamo::Onset(Onset::SS));
 
-    // Test case 9: Checking if filled
-    let mut hangul9 = Hangul::new();
-    hangul9.set_phoneme(Onset::G, Nucleus::A, Coda::NG);
-    println!("Is filled only cho: {}", hangul9.is_filled_only_onset());
-    println!("Is filled only jung: {}", hangul9.is_filled_only_nucleus());
-    println!("Is filled only jong: {}", hangul9.is_filled_only_coda());
-    println!("Is filled only jong: {}", hangul9);
-
-    // Test case 10: Clear all phonemes
-    let mut hangul10 = Hangul::from_phoneme(Onset::S, Nucleus::O, Coda::N);
-    hangul10.clear();
-    println!("Cleared Hangul: '{}'", hangul10);
+    // 대문자 (복합 모음)
+    km2.insert('O', Jamo::Nucleus(Nucleus::YAE));
+    km2.insert('P', Jamo::Nucleus(Nucleus::YE));
 }
