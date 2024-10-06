@@ -10,7 +10,7 @@ pub trait HangulBuilder {
     fn last_jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum>;
     
     // 자모 조합 테이블
-    fn combined_jamo(&self) -> &HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>;
+    fn combined_jamo(&mut self) -> &mut HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>;
     
     // 현재 조합 중인 한글
     fn current_hangul(&mut self) -> &mut Hangul;
@@ -43,14 +43,9 @@ pub trait HangulBuilder {
                 _ => unreachable!(),
             };
             for phoneme in onset_phonemes.iter().skip(1) {
-                if let Some(combined) = self.combine_phonemes(&PhonemeEnum::Onset(onset), phoneme) {
-                    if let PhonemeEnum::Onset(new_onset) = combined {
-                        onset = new_onset;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
+                let combined = self.combine_phonemes(&PhonemeEnum::Onset(onset), phoneme);
+                if let Some(PhonemeEnum::Onset(new_onset)) = combined {
+                    onset = new_onset;
                 }
             }
             self.current_hangul().set_onset(Some(onset));
@@ -132,14 +127,14 @@ pub trait HangulBuilder {
     }
 
     // 조합 중인지 여부
-    fn is_build(&self) -> bool {
+    fn is_build(&mut self) -> bool {
         !self.jamo_queue().is_empty()
     }
 
     // 자모 조합
-    fn combine_phonemes(&self, first: &PhonemeEnum, second: &PhonemeEnum) -> Option<PhonemeEnum> {
-        self.combined_jamo().get(first)
-            .and_then(|map| map.get(second))
+    fn combine_phonemes(&mut self, a: &PhonemeEnum, b: &PhonemeEnum) -> Option<PhonemeEnum> {
+        self.combined_jamo().get(a)
+            .and_then(|map| map.get(b))
             .cloned()
     }
 

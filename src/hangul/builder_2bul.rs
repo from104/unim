@@ -1,236 +1,146 @@
-use std::collections::HashMap;
-use serde_json::Value;
+use std::collections::{HashMap, VecDeque};
 use crate::hangul::phoneme::{Onset, Nucleus, Coda, PhonemeEnum};
 use crate::hangul::hangul::Hangul;
-use std::str::FromStr;
+use crate::hangul::builder::HangulBuilder;
 
 pub struct HangulBuilder2Bul {
-    phoneme_stack: Vec<PhonemeEnum>,
-    last_phoneme_stack: Vec<PhonemeEnum>,
-    combined_phoneme: HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>,
+    jamo_queue: VecDeque<PhonemeEnum>,
+    last_jamo_queue: VecDeque<PhonemeEnum>,
+    combined_jamo: HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>,
     current_hangul: Hangul,
 }
 
 impl HangulBuilder2Bul {
     pub fn new() -> Self {
         let mut builder = HangulBuilder2Bul {
-            phoneme_stack: Vec::new(),
-            last_phoneme_stack: Vec::new(),
-            combined_phoneme: HashMap::new(),
+            jamo_queue: VecDeque::new(),
+            last_jamo_queue: VecDeque::new(),
+            combined_jamo: HashMap::new(),
             current_hangul: Hangul::new(),
         };
-        builder.init_combined_phoneme();
+        builder.init_combined_jamo();
         builder
     }
 
-    fn init_combined_phoneme(&mut self) {
-        let combined_phoneme_data = r#"
-        {
-            "Nucleus": {
-                "O": {
-                    "A": "WA",
-                    "AE": "WAE",
-                    "I": "OE"
-                },
-                "U": {
-                    "EO": "WEO",
-                    "E": "WE",
-                    "I": "WI"
-                },
-                "EU": {
-                    "I": "YI"
-                }
-            },
-            "Coda": {
-                "G": {
-                    "S": "GS"
-                },
-                "N": {
-                    "J": "NJ",
-                    "H": "NH"
-                },
-                "L": {
-                    "G": "LG",
-                    "M": "LM",
-                    "B": "LB",
-                    "S": "LS",
-                    "T": "LT",
-                    "P": "LP",
-                    "H": "LH"
-                },
-                "B": {
-                    "S": "BS"
-                }
-            }
-        }
-        "#;
+    fn init_combined_jamo(&mut self) {
+        // 중성 조합
+        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::O), PhonemeEnum::Nucleus(Nucleus::A), PhonemeEnum::Nucleus(Nucleus::WA));
+        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::O), PhonemeEnum::Nucleus(Nucleus::AE), PhonemeEnum::Nucleus(Nucleus::WAE));
+        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::O), PhonemeEnum::Nucleus(Nucleus::I), PhonemeEnum::Nucleus(Nucleus::OE));
+        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::U), PhonemeEnum::Nucleus(Nucleus::EO), PhonemeEnum::Nucleus(Nucleus::WEO));
+        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::U), PhonemeEnum::Nucleus(Nucleus::E), PhonemeEnum::Nucleus(Nucleus::WE));
+        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::U), PhonemeEnum::Nucleus(Nucleus::I), PhonemeEnum::Nucleus(Nucleus::WI));
+        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::EU), PhonemeEnum::Nucleus(Nucleus::I), PhonemeEnum::Nucleus(Nucleus::YI));
 
-        let data: serde_json::Value = serde_json::from_str(combined_phoneme_data).unwrap();
-
-        for (phoneme_type, combinations) in data.as_object().unwrap() {
-            for (base, targets) in combinations.as_object().unwrap() {
-                let base_phoneme = match phoneme_type.as_str() {
-                    "Nucleus" => PhonemeEnum::Nucleus(Nucleus::from_str(base.as_str()).unwrap()),
-                    "Coda" => PhonemeEnum::Coda(Coda::from_str(base.as_str()).unwrap()),
-                    _ => continue,
-                };
-
-                let mut inner_map = HashMap::new();
-                for (target, result) in targets.as_object().unwrap() {
-                    let target_phoneme = match phoneme_type.as_str() {
-                        "Nucleus" => PhonemeEnum::Nucleus(Nucleus::from_str(target).unwrap()),
-                        "Coda" => PhonemeEnum::Coda(Coda::from_str(target).unwrap()),
-                        _ => continue,
-                    };
-                    let result_phoneme = match phoneme_type.as_str() {
-                        "Nucleus" => PhonemeEnum::Nucleus(Nucleus::from_str(result.as_str().unwrap()).unwrap()),
-                        "Coda" => PhonemeEnum::Coda(Coda::from_str(result.as_str().unwrap()).unwrap()),
-                        _ => continue,
-                    };
-                    inner_map.insert(target_phoneme, result_phoneme);
-                }
-                self.combined_phoneme.insert(base_phoneme, inner_map);
-            }
-        }
+        // 종성 조합
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::G), PhonemeEnum::Coda(Coda::S), PhonemeEnum::Coda(Coda::GS));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::N), PhonemeEnum::Coda(Coda::J), PhonemeEnum::Coda(Coda::NJ));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::N), PhonemeEnum::Coda(Coda::H), PhonemeEnum::Coda(Coda::NH));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::G), PhonemeEnum::Coda(Coda::LG));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::M), PhonemeEnum::Coda(Coda::LM));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::B), PhonemeEnum::Coda(Coda::LB));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::S), PhonemeEnum::Coda(Coda::LS));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::T), PhonemeEnum::Coda(Coda::LT));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::P), PhonemeEnum::Coda(Coda::LP));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::H), PhonemeEnum::Coda(Coda::LH));
+        self.add_combined_jamo(PhonemeEnum::Coda(Coda::B), PhonemeEnum::Coda(Coda::S), PhonemeEnum::Coda(Coda::BS));
     }
 
-    pub fn add_phoneme(&mut self, phoneme: PhonemeEnum) -> Option<char> {
-        self.phoneme_stack.push(phoneme);
+    fn add_combined_jamo(&mut self, first: PhonemeEnum, second: PhonemeEnum, result: PhonemeEnum) {
+        self.combined_jamo.entry(first)
+            .or_insert_with(HashMap::new)
+            .insert(second, result);
+    }
+}
+
+impl HangulBuilder for HangulBuilder2Bul {
+    fn jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum> {
+        &mut self.jamo_queue
+    }
+
+    fn last_jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum> {
+        &mut self.last_jamo_queue
+    }
+
+    fn combined_jamo(&self) -> &HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>> {
+        &self.combined_jamo
+    }
+
+    fn current_hangul(&mut self) -> &mut Hangul {
+        &mut self.current_hangul
+    }
+
+    fn add_jamo(&mut self, jamo: PhonemeEnum) -> Option<char> {
+        self.jamo_queue.push_back(jamo);
         if self.build_hangul() {
-            if self.is_complete() {
-                let result = self.current_hangul.to_string().chars().next().unwrap();
-                self.clear();
-                Some(result)
+            None
+        } else {
+            self.jamo_queue.pop_back();
+            if let Some(PhonemeEnum::Coda(_)) = self.jamo_queue.back() {
+                if let PhonemeEnum::Nucleus(_) = jamo {
+                    // 도깨비불 현상 처리
+                    let coda = self.jamo_queue.pop_back().unwrap();
+                    self.build_hangul();
+                    let complete_hangul = self.current_hangul.to_char();
+                    self.last_jamo_queue = self.jamo_queue.clone();
+                    self.jamo_queue.clear();
+                    if let PhonemeEnum::Coda(c) = coda {
+                        self.jamo_queue.push_back(PhonemeEnum::Onset(c.to_onset()));
+                    }
+                    self.jamo_queue.push_back(jamo);
+                    self.clear();
+                    self.build_hangul();
+                    complete_hangul
+                } else {
+                    self.build_hangul();
+                    let complete_hangul = self.current_hangul.to_char();
+                    self.last_jamo_queue = self.jamo_queue.clone();
+                    self.jamo_queue.clear();
+                    self.jamo_queue.push_back(jamo);
+                    self.clear();
+                    self.build_hangul();
+                    complete_hangul
+                }
             } else {
                 None
             }
-        } else {
-            None
         }
-    }
-
-    pub fn remove_phoneme(&mut self) -> Option<PhonemeEnum> {
-        self.phoneme_stack.pop().map(|phoneme| {
-            self.build_hangul();
-            phoneme
-        })
-    }
-
-    fn build_onset(&mut self) -> bool {
-        let onset_phonemes: Vec<&PhonemeEnum> = self.phoneme_stack.iter()
-            .filter(|&p| matches!(p, PhonemeEnum::Onset(_)))
-            .collect();
-
-        if onset_phonemes.is_empty() {
-            self.current_hangul.set_onset(None);
-        } else {
-            let mut onset = match onset_phonemes[0] {
-                PhonemeEnum::Onset(onset) => *onset,
-                _ => unreachable!(),
-            };
-            for phoneme in onset_phonemes.iter().skip(1) {
-                if let Some(combined) = self.combine_phonemes(&PhonemeEnum::Onset(onset), phoneme) {
-                    if let PhonemeEnum::Onset(new_onset) = combined {
-                        onset = new_onset;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            self.current_hangul.set_onset(Some(onset));
-        }
-        true
-    }
-
-    fn build_nucleus(&mut self) -> bool {
-        let nucleus_phonemes: Vec<&PhonemeEnum> = self.phoneme_stack.iter()
-            .filter(|&p| matches!(p, PhonemeEnum::Nucleus(_)))
-            .collect();
-
-        if nucleus_phonemes.is_empty() {
-            self.current_hangul.set_nucleus(None);
-        } else {
-            let mut nucleus = match nucleus_phonemes[0] {
-                PhonemeEnum::Nucleus(nucleus) => *nucleus,
-                _ => unreachable!(),
-            };
-            for phoneme in nucleus_phonemes.iter().skip(1) {
-                if let Some(combined) = self.combine_phonemes(&PhonemeEnum::Nucleus(nucleus), phoneme) {
-                    if let PhonemeEnum::Nucleus(new_nucleus) = combined {
-                        nucleus = new_nucleus;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            self.current_hangul.set_nucleus(Some(nucleus));
-        }
-        true
-    }
-
-    fn build_coda(&mut self) -> bool {
-        let coda_phonemes: Vec<&PhonemeEnum> = self.phoneme_stack.iter()
-            .filter(|&p| matches!(p, PhonemeEnum::Coda(_)))
-            .collect();
-
-        if coda_phonemes.is_empty() {
-            self.current_hangul.set_coda(None);
-        } else {
-            let mut coda = match coda_phonemes[0] {
-                PhonemeEnum::Coda(coda) => *coda,
-                _ => unreachable!(),
-            };
-            for phoneme in coda_phonemes.iter().skip(1) {
-                if let Some(combined) = self.combine_phonemes(&PhonemeEnum::Coda(coda), phoneme) {
-                    if let PhonemeEnum::Coda(new_coda) = combined {
-                        coda = new_coda;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            self.current_hangul.set_coda(Some(coda));
-        }
-        true
     }
 
     fn build_hangul(&mut self) -> bool {
-        self.build_onset() && self.build_nucleus() && self.build_coda()
-    }
-
-    pub fn force_build_hangul(&mut self) -> Option<char> {
-        if self.is_complete() {
-            let result = self.current_hangul.to_char().unwrap();
+        if self.jamo_queue.is_empty() {
             self.clear();
-            Some(result)
-        } else {
-            None
+            return true;
         }
-    }
 
-    pub fn is_complete(&self) -> bool {
-        self.current_hangul.is_complete()
-    }
+        let last_jamo = self.jamo_queue.back().unwrap();
+        let last_prev_jamo = self.jamo_queue.get(self.jamo_queue.len() - 2);
 
-    fn clear(&mut self) {
-        self.phoneme_stack.clear();
-        self.last_phoneme_stack.clear();
-        self.current_hangul = Hangul::new();
-    }
+        // 중성 다음으로 초성이 들어오면 종성으로 변환
+        if self.current_hangul.nucleus().is_some() && matches!(last_jamo, PhonemeEnum::Onset(_)) {
+            if let Some(PhonemeEnum::Onset(cho)) = self.jamo_queue.pop_back() {
+                if let Ok(jong) = cho.to_coda() {
+                    self.jamo_queue.push_back(PhonemeEnum::Coda(jong));
+                } else {
+                    self.jamo_queue.push_back(PhonemeEnum::Onset(cho));
+                    return false;
+                }
+            }
+        }
 
-    fn combine_phonemes(&self, first: &PhonemeEnum, second: &PhonemeEnum) -> Option<PhonemeEnum> {
-        self.combined_phoneme.get(first)
-            .and_then(|map| map.get(second))
-            .cloned()
-    }
+        // 초성이 없고 중성 다음에 종성이 오면 실패
+        if self.current_hangul.onset().is_none() && 
+           matches!(last_prev_jamo, Some(PhonemeEnum::Nucleus(_))) && 
+           matches!(last_jamo, PhonemeEnum::Coda(_)) {
+            return false;
+        }
 
-    pub fn is_build(&self) -> bool {
-        !self.phoneme_stack.is_empty()
+        // 종성 다음에 중성이 오면 실패
+        if matches!(last_prev_jamo, Some(PhonemeEnum::Coda(_))) && 
+           matches!(last_jamo, PhonemeEnum::Nucleus(_)) {
+            return false;
+        }
+
+        self.build_onset() && self.build_nucleus() && self.build_coda()
     }
 }
