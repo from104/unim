@@ -346,7 +346,13 @@ impl Hangul {
             '?'
         }
     }
+    pub fn to_char(&self) -> Option<char> {
+        Some(self.get_syllable())
+    }
 
+    pub fn is_complete(&self) -> bool {
+        self.onset.is_some() && self.nucleus.is_some() && self.coda.is_some()
+    }
 }
 
 impl fmt::Display for Hangul {
