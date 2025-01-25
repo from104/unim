@@ -668,34 +668,34 @@ impl std::str::FromStr for Jong {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PhonemeEnum {
+pub enum JamoEnum {
     Cho(Cho),
     Jung(Jung),
     Jong(Jong),
 }
 
-impl Jamo for PhonemeEnum {
+impl Jamo for JamoEnum {
     fn get_sequence(&self) -> i32 {
         match self {
-            PhonemeEnum::Cho(cho) => cho.get_sequence(),
-            PhonemeEnum::Jung(jung) => jung.get_sequence(),
-            PhonemeEnum::Jong(jong) => jong.get_sequence(),
+            JamoEnum::Cho(cho) => cho.get_sequence(),
+            JamoEnum::Jung(jung) => jung.get_sequence(),
+            JamoEnum::Jong(jong) => jong.get_sequence(),
         }
     }
 
     fn get_unicode(&self) -> char {
         match self {
-            PhonemeEnum::Cho(cho) => cho.get_unicode(),
-            PhonemeEnum::Jung(jung) => jung.get_unicode(),
-            PhonemeEnum::Jong(jong) => jong.get_unicode(),
+            JamoEnum::Cho(cho) => cho.get_unicode(),
+            JamoEnum::Jung(jung) => jung.get_unicode(),
+            JamoEnum::Jong(jong) => jong.get_unicode(),
         }
     }
 
     fn get_unicode_compat(&self) -> char {
         match self {
-            PhonemeEnum::Cho(cho) => cho.get_unicode_compat(),
-            PhonemeEnum::Jung(jung) => jung.get_unicode_compat(),
-            PhonemeEnum::Jong(jong) => jong.get_unicode_compat(),
+            JamoEnum::Cho(cho) => cho.get_unicode_compat(),
+            JamoEnum::Jung(jung) => jung.get_unicode_compat(),
+            JamoEnum::Jong(jong) => jong.get_unicode_compat(),
         }
     }
 }

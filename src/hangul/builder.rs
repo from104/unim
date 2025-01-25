@@ -1,5 +1,5 @@
 use crate::hangul::char::HangulChar;
-use crate::hangul::jamo::PhonemeEnum;
+use crate::hangul::jamo::JamoEnum;
 use crate::hangul::jamo::*;
 /**
  * 한글 조합 취상위 클래스
@@ -18,13 +18,13 @@ pub trait HangulBuilder {
      * @param jamo 자모 객체
      * @return 조합이 완료되면 완성된 한글 객체를 넘겨주고 조합중이면 None을 넘겨줌.
      */
-    fn add_jamo(&mut self, jamo: PhonemeEnum) -> Option<char>;
+    fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char>;
 
     /**
      * 한글 자모 삭제. 마지막으로 입력했던 자모부터 삭제 후에 다시 조합.
      * @return 삭제된 자모 객체 또는 None
      */
-    fn remove_jamo(&mut self) -> Option<PhonemeEnum>;
+    fn remove_jamo(&mut self) -> Option<JamoEnum>;
 
     /**
      * 스택에 쌓인 자모들로 한글 조합
@@ -108,16 +108,16 @@ pub trait HangulBuilder {
     /**
      * 자모 조합 테이블 접근 (필요한 경우)
      */
-    fn get_combined_jamo(&self) -> &HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>;
+    fn get_combined_jamo(&self) -> &HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>>;
 
     // 자모가 입력되는 순서대로 저장하는 큐
-    fn jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum>;
+    fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum>;
 
     // 직전 큐
-    fn last_jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum>;
+    fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum>;
 
     // 자모 조합 테이블
-    fn combined_jamo(&mut self) -> &mut HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>;
+    fn combined_jamo(&mut self) -> &mut HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>>;
 
     // 현재 조합 중인 한글
     fn current_hangul(&mut self) -> &mut HangulChar;
@@ -128,9 +128,9 @@ pub trait HangulBuilder {
  */
 #[derive(Debug, Default)]
 pub struct BaseHangulBuilder {
-    m_jamo_queue: VecDeque<PhonemeEnum>,
-    m_last_jamo_queue: VecDeque<PhonemeEnum>,
-    combined_jamo: HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>,
+    m_jamo_queue: VecDeque<JamoEnum>,
+    m_last_jamo_queue: VecDeque<JamoEnum>,
+    combined_jamo: HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>>,
     current_hangul_char: HangulChar,
 }
 
@@ -139,90 +139,246 @@ impl BaseHangulBuilder {
         BaseHangulBuilder::default()
     }
 
+    /// 입력된 문자열을 한글로 변환합니다.
+    /// 키보드 입력에 해당하는 문자들을 한글로 조합하여 반환합니다.
+    pub fn convert_string<T: HangulBuilder>(
+        input: &str,
+        keyboard_map: &HashMap<char, JamoEnum>,
+        builder: &mut T,
+    ) -> String {
+        let mut result = String::new();
+
+        for c in input.chars() {
+            // 키보드 맵에서 자모를 찾음
+            if let Some(jamo) = keyboard_map.get(&c) {
+                // 자모를 추가하고 조합이 완료되면 출력
+                if let Some(completed_char) = builder.add_jamo(*jamo) {
+                    result.push(completed_char);
+                }
+            } else {
+                // 한글이 아닌 문자가 입력되었을 때 현재 조합 중인 글자가 있다면 출력
+                if builder.is_build() {
+                    if let Some(hangul_char) = builder.force_build_hangul() {
+                        result.push(hangul_char);
+                    }
+                }
+                result.push(c);
+            }
+        }
+
+        // 마지막으로 조합 중이던 글자가 있다면 출력
+        if builder.is_build() {
+            if let Some(hangul_char) = builder.force_build_hangul() {
+                result.push(hangul_char);
+            }
+        }
+
+        result
+    }
+
     pub fn is_new_syllable_internal(&self) -> bool {
         self.m_jamo_queue
             .back()
-            .map_or(false, |last_jamo| matches!(last_jamo, PhonemeEnum::Cho(_) if self.current_hangul_char.is_filled_jung()))
+            .map_or(false, |last_jamo| matches!(last_jamo, JamoEnum::Cho(_) if self.current_hangul_char.is_filled_jung()))
     }
 
-    pub fn peek_jamo_queue(&self) -> &VecDeque<PhonemeEnum> {
-        &self.m_jamo_queue
+    pub fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
+        &mut self.m_jamo_queue
+    }
+
+    pub fn get_cho(&self) -> Option<Cho> {
+        self.current_hangul_char.get_cho()
+    }
+
+    pub fn get_jung(&self) -> Option<Jung> {
+        self.current_hangul_char.get_jung()
+    }
+
+    pub fn get_jong(&self) -> Option<Jong> {
+        self.current_hangul_char.get_jong()
+    }
+
+    pub fn set_cho(&mut self, cho: Option<Cho>) {
+        self.current_hangul_char.set_cho_object(cho);
+    }
+
+    pub fn set_jung(&mut self, jung: Option<Jung>) {
+        self.current_hangul_char.set_jung_object(jung);
+    }
+
+    pub fn set_jong(&mut self, jong: Option<Jong>) {
+        self.current_hangul_char.set_jong_object(jong);
+    }
+
+    pub fn clear_cho(&mut self) {
+        self.current_hangul_char.clear_cho();
+    }
+
+    pub fn clear_jung(&mut self) {
+        self.current_hangul_char.clear_jung();
+    }
+
+    pub fn clear_jong(&mut self) {
+        self.current_hangul_char.clear_jong();
+    }
+
+    pub fn clear(&mut self) {
+        self.current_hangul_char.clear();
+    }
+
+    pub fn is_filled_cho(&self) -> bool {
+        self.current_hangul_char.is_filled_cho()
+    }
+
+    pub fn is_filled_jung(&self) -> bool {
+        self.current_hangul_char.is_filled_jung()
+    }
+
+    pub fn is_filled_jong(&self) -> bool {
+        self.current_hangul_char.is_filled_jong()
+    }
+
+    fn build_cho(&mut self) -> bool {
+        let mut cho_vec = Vec::new();
+
+        // 초성만 걸러냄
+        for jamo in &self.m_jamo_queue {
+            if let JamoEnum::Cho(cho) = jamo {
+                cho_vec.push(*cho);
+            }
+        }
+
+        if cho_vec.is_empty() {
+            self.clear_cho();
+        } else {
+            self.set_cho(Some(cho_vec[0]));
+            if cho_vec.len() > 1 {
+                cho_vec.remove(0);
+                for cho in cho_vec {
+                    let first_jamo = JamoEnum::Cho(self.get_cho().unwrap());
+                    let second_jamo = JamoEnum::Cho(cho);
+
+                    if let Some(combined_map) = self.combined_jamo.get(&first_jamo) {
+                        if let Some(JamoEnum::Cho(combined_cho)) = combined_map.get(&second_jamo) {
+                            self.set_cho(Some(*combined_cho));
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn build_jung(&mut self) -> bool {
+        let mut jung_vec = Vec::new();
+
+        // 중성만 걸러냄
+        for jamo in &self.m_jamo_queue {
+            if let JamoEnum::Jung(jung) = jamo {
+                jung_vec.push(*jung);
+            }
+        }
+
+        if jung_vec.is_empty() {
+            self.clear_jung();
+        } else {
+            self.set_jung(Some(jung_vec[0]));
+            if jung_vec.len() > 1 {
+                jung_vec.remove(0);
+                for jung in jung_vec {
+                    let first_jamo = JamoEnum::Jung(self.get_jung().unwrap());
+                    let second_jamo = JamoEnum::Jung(jung);
+
+                    if let Some(combined_map) = self.combined_jamo.get(&first_jamo) {
+                        if let Some(JamoEnum::Jung(combined_jung)) = combined_map.get(&second_jamo)
+                        {
+                            self.set_jung(Some(*combined_jung));
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    fn build_jong(&mut self) -> bool {
+        let mut jong_vec = Vec::new();
+
+        // 종성만 걸러냄
+        for jamo in &self.m_jamo_queue {
+            if let JamoEnum::Jong(jong) = jamo {
+                jong_vec.push(*jong);
+            }
+        }
+
+        if jong_vec.is_empty() {
+            self.clear_jong();
+        } else {
+            self.set_jong(Some(jong_vec[0]));
+            if jong_vec.len() > 1 {
+                jong_vec.remove(0);
+                for jong in jong_vec {
+                    let first_jamo = JamoEnum::Jong(self.get_jong().unwrap());
+                    let second_jamo = JamoEnum::Jong(jong);
+
+                    if let Some(combined_map) = self.combined_jamo.get(&first_jamo) {
+                        if let Some(JamoEnum::Jong(combined_jong)) = combined_map.get(&second_jamo)
+                        {
+                            self.set_jong(Some(*combined_jong));
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 }
 
 impl HangulBuilder for BaseHangulBuilder {
-    fn add_jamo(&mut self, jamo: PhonemeEnum) -> Option<char> {
-        let mut completed_char = None;
-
-        // 초성이 들어왔고 이전에 중성이 있었다면 이전 글자를 완성
-        if matches!(jamo, PhonemeEnum::Cho(_))
-            && self.current_hangul_char.is_filled_jung()
-            && self.build_hangul()
-        {
-            completed_char = Some(self.current_hangul_char.get_syllable());
-            self.current_hangul_char.clear();
-            self.m_jamo_queue.clear();
-        }
-
-        // 새로운 자모 추가
+    fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
         self.m_jamo_queue.push_back(jamo);
         if !self.build_hangul() {
             self.m_jamo_queue.pop_back();
             self.build_hangul();
+            let complete_hangul = self.current_hangul_char.get_syllable();
+            self.m_last_jamo_queue.clear();
+            self.m_last_jamo_queue.extend(&self.m_jamo_queue);
+            self.m_jamo_queue.clear();
+            self.m_jamo_queue.push_back(jamo);
+            self.clear();
+            self.build_hangul();
+            Some(complete_hangul)
+        } else {
+            None
         }
-
-        completed_char
     }
 
-    fn remove_jamo(&mut self) -> Option<PhonemeEnum> {
+    fn remove_jamo(&mut self) -> Option<JamoEnum> {
         if self.m_jamo_queue.is_empty() {
             None
         } else {
-            let jamo = self.m_jamo_queue.pop_back().unwrap();
+            let jamo = self.m_jamo_queue.pop_back();
             self.build_hangul();
-            Some(jamo)
+            jamo
         }
     }
 
     fn build_hangul(&mut self) -> bool {
         if self.m_jamo_queue.is_empty() {
-            self.current_hangul_char.clear();
+            self.clear();
             return true;
-        }
-
-        let last_jamo = *self.m_jamo_queue.back().unwrap();
-        let last_prev_jamo = if self.m_jamo_queue.len() > 1 {
-            Some(*self.m_jamo_queue.get(self.m_jamo_queue.len() - 2).unwrap())
-        } else {
-            None
-        };
-
-        // 중성 다음으로 초성이 들어오면 종성으로
-        if self.current_hangul_char.is_filled_jung() {
-            if let PhonemeEnum::Cho(cho) = last_jamo {
-                match cho.to_jong() {
-                    Ok(jong) => {
-                        self.m_jamo_queue.pop_back();
-                        self.m_jamo_queue.push_back(PhonemeEnum::Jong(jong));
-                    }
-                    Err(_) => return false,
-                }
-            }
-        }
-
-        // 초성이 없고 중성 다음에 종성이 오면
-        if !self.current_hangul_char.is_filled_cho()
-            && last_prev_jamo.map_or(false, |j| matches!(j, PhonemeEnum::Jung(_)))
-            && matches!(last_jamo, PhonemeEnum::Jong(_))
-        {
-            return false;
-        }
-
-        // 종성 다음에 중성이 오면
-        if last_prev_jamo.map_or(false, |j| matches!(j, PhonemeEnum::Jong(_)))
-            && matches!(last_jamo, PhonemeEnum::Jung(_))
-        {
-            return false;
         }
 
         if !self.build_cho() || !self.build_jung() || !self.build_jong() {
@@ -236,7 +392,7 @@ impl HangulBuilder for BaseHangulBuilder {
         if self.is_build() {
             self.build_hangul();
             let complete_hangul = self.current_hangul_char.get_syllable();
-            self.current_hangul_char.clear();
+            self.clear();
             self.m_jamo_queue.clear();
             self.m_last_jamo_queue.clear();
             Some(complete_hangul)
@@ -260,7 +416,7 @@ impl HangulBuilder for BaseHangulBuilder {
             .m_jamo_queue
             .iter()
             .filter_map(|p| {
-                if let PhonemeEnum::Cho(c) = p {
+                if let JamoEnum::Cho(c) = p {
                     Some(*c)
                 } else {
                     None
@@ -273,9 +429,9 @@ impl HangulBuilder for BaseHangulBuilder {
         } else {
             let mut cho = cho_phonemes[0];
             for next_cho in cho_phonemes.iter().skip(1) {
-                if let Some(combined_map) = self.combined_jamo.get(&PhonemeEnum::Cho(cho)) {
-                    if let Some(PhonemeEnum::Cho(new_cho)) =
-                        combined_map.get(&PhonemeEnum::Cho(*next_cho))
+                if let Some(combined_map) = self.combined_jamo.get(&JamoEnum::Cho(cho)) {
+                    if let Some(JamoEnum::Cho(new_cho)) =
+                        combined_map.get(&JamoEnum::Cho(*next_cho))
                     {
                         cho = *new_cho;
                     } else {
@@ -295,7 +451,7 @@ impl HangulBuilder for BaseHangulBuilder {
             .m_jamo_queue
             .iter()
             .filter_map(|p| {
-                if let PhonemeEnum::Jung(j) = p {
+                if let JamoEnum::Jung(j) = p {
                     Some(*j)
                 } else {
                     None
@@ -308,9 +464,9 @@ impl HangulBuilder for BaseHangulBuilder {
         } else {
             let mut jung = jung_phonemes[0];
             for next_jung in jung_phonemes.iter().skip(1) {
-                if let Some(combined_map) = self.combined_jamo.get(&PhonemeEnum::Jung(jung)) {
-                    if let Some(PhonemeEnum::Jung(new_jung)) =
-                        combined_map.get(&PhonemeEnum::Jung(*next_jung))
+                if let Some(combined_map) = self.combined_jamo.get(&JamoEnum::Jung(jung)) {
+                    if let Some(JamoEnum::Jung(new_jung)) =
+                        combined_map.get(&JamoEnum::Jung(*next_jung))
                     {
                         jung = *new_jung;
                     } else {
@@ -330,7 +486,7 @@ impl HangulBuilder for BaseHangulBuilder {
             .m_jamo_queue
             .iter()
             .filter_map(|p| {
-                if let PhonemeEnum::Jong(j) = p {
+                if let JamoEnum::Jong(j) = p {
                     Some(*j)
                 } else {
                     None
@@ -343,9 +499,9 @@ impl HangulBuilder for BaseHangulBuilder {
         } else {
             let mut jong = jong_phonemes[0];
             for next_jong in jong_phonemes.iter().skip(1) {
-                if let Some(combined_map) = self.combined_jamo.get(&PhonemeEnum::Jong(jong)) {
-                    if let Some(PhonemeEnum::Jong(new_jong)) =
-                        combined_map.get(&PhonemeEnum::Jong(*next_jong))
+                if let Some(combined_map) = self.combined_jamo.get(&JamoEnum::Jong(jong)) {
+                    if let Some(JamoEnum::Jong(new_jong)) =
+                        combined_map.get(&JamoEnum::Jong(*next_jong))
                     {
                         jong = *new_jong;
                     } else {
@@ -388,19 +544,19 @@ impl HangulBuilder for BaseHangulBuilder {
         self.current_hangul_char.set_jong_object(jong)
     }
 
-    fn get_combined_jamo(&self) -> &HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>> {
+    fn get_combined_jamo(&self) -> &HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
         &self.combined_jamo
     }
 
-    fn jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum> {
+    fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
         &mut self.m_jamo_queue
     }
 
-    fn last_jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum> {
+    fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
         &mut self.m_last_jamo_queue
     }
 
-    fn combined_jamo(&mut self) -> &mut HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>> {
+    fn combined_jamo(&mut self) -> &mut HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
         &mut self.combined_jamo
     }
 
