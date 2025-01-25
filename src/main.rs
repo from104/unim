@@ -1,8 +1,9 @@
+use hangul::builder::HangulBuilder;
+use hangul::builder_2bul::HangulBuilder2Bul;
 use std::collections::HashMap;
 use std::io::{self, Read};
-use hangul::builder_2bul::HangulBuilder2Bul;
 
-use crate::hangul::phoneme::{Onset, Nucleus, PhonemeEnum};
+use crate::hangul::jamo::{Cho, Jung, PhonemeEnum};
 
 pub mod hangul;
 
@@ -20,66 +21,77 @@ fn main() -> io::Result<()> {
 
         let input_char = input_buffer[0] as char;
         if input_char == '.' {
-            break;
-        }
-
-        if let Some(phoneme) = keyboard_map.get(&input_char) {
-            println!("자모 추가? {:?}", phoneme);
-            if let Some(hangul_char) = hangul_builder.add_phoneme(*phoneme) {
-                println!("자모 추가? {}", hangul_char);
-            }
-        } else {
-            if hangul_builder.is_complete() {
+            // 입력이 끝났을 때 마지막으로 조합 중이던 글자가 있다면 출력
+            if hangul_builder.is_build() {
                 if let Some(hangul_char) = hangul_builder.force_build_hangul() {
                     print!("{}", hangul_char);
                 }
             }
-            println!("{}", input_char);
+            break;
+        }
+
+        if let Some(phoneme) = keyboard_map.get(&input_char) {
+            // add_jamo의 결과를 바로 출력하지 않고, 새로운 글자가 시작될 때만 이전 글자를 출력
+            if let Some(completed_char) = hangul_builder.add_jamo(*phoneme) {
+                // 새로운 글자가 시작될 때만 이전 글자를 출력
+                if hangul_builder.is_new_syllable() {
+                    print!("{}", completed_char);
+                }
+            }
+        } else {
+            // 한글이 아닌 문자가 입력되었을 때 현재 조합 중인 글자가 있다면 출력
+            if hangul_builder.is_build() {
+                if let Some(hangul_char) = hangul_builder.force_build_hangul() {
+                    print!("{}", hangul_char);
+                }
+            }
+            print!("{}", input_char);
         }
     }
 
+    println!(); // 마지막 줄바꿈 추가
     Ok(())
 }
 
 fn init_keyboard_map(keyboard_map: &mut HashMap<char, PhonemeEnum>) {
     // 초성 (Consonants)
-    keyboard_map.insert('q', PhonemeEnum::Onset(Onset::B));
-    keyboard_map.insert('w', PhonemeEnum::Onset(Onset::J));
-    keyboard_map.insert('e', PhonemeEnum::Onset(Onset::D));
-    keyboard_map.insert('r', PhonemeEnum::Onset(Onset::G));
-    keyboard_map.insert('t', PhonemeEnum::Onset(Onset::S));
-    keyboard_map.insert('a', PhonemeEnum::Onset(Onset::M));
-    keyboard_map.insert('s', PhonemeEnum::Onset(Onset::N));
-    keyboard_map.insert('d', PhonemeEnum::Onset(Onset::E));
-    keyboard_map.insert('f', PhonemeEnum::Onset(Onset::R));
-    keyboard_map.insert('g', PhonemeEnum::Onset(Onset::H));
-    keyboard_map.insert('z', PhonemeEnum::Onset(Onset::K));
-    keyboard_map.insert('x', PhonemeEnum::Onset(Onset::T));
-    keyboard_map.insert('c', PhonemeEnum::Onset(Onset::C));
-    keyboard_map.insert('v', PhonemeEnum::Onset(Onset::P));
+    keyboard_map.insert('q', PhonemeEnum::Cho(Cho::B));
+    keyboard_map.insert('w', PhonemeEnum::Cho(Cho::J));
+    keyboard_map.insert('e', PhonemeEnum::Cho(Cho::D));
+    keyboard_map.insert('r', PhonemeEnum::Cho(Cho::G));
+    keyboard_map.insert('t', PhonemeEnum::Cho(Cho::S));
+    keyboard_map.insert('a', PhonemeEnum::Cho(Cho::M));
+    keyboard_map.insert('s', PhonemeEnum::Cho(Cho::N));
+    keyboard_map.insert('d', PhonemeEnum::Cho(Cho::E));
+    keyboard_map.insert('f', PhonemeEnum::Cho(Cho::R));
+    keyboard_map.insert('g', PhonemeEnum::Cho(Cho::H));
+    keyboard_map.insert('z', PhonemeEnum::Cho(Cho::K));
+    keyboard_map.insert('x', PhonemeEnum::Cho(Cho::T));
+    keyboard_map.insert('c', PhonemeEnum::Cho(Cho::C));
+    keyboard_map.insert('v', PhonemeEnum::Cho(Cho::P));
 
     // 중성 (Vowels)
-    keyboard_map.insert('y', PhonemeEnum::Nucleus(Nucleus::YO));
-    keyboard_map.insert('u', PhonemeEnum::Nucleus(Nucleus::YEO));
-    keyboard_map.insert('i', PhonemeEnum::Nucleus(Nucleus::YA));
-    keyboard_map.insert('o', PhonemeEnum::Nucleus(Nucleus::AE));
-    keyboard_map.insert('p', PhonemeEnum::Nucleus(Nucleus::E));
-    keyboard_map.insert('h', PhonemeEnum::Nucleus(Nucleus::O));
-    keyboard_map.insert('j', PhonemeEnum::Nucleus(Nucleus::EO));
-    keyboard_map.insert('k', PhonemeEnum::Nucleus(Nucleus::A));
-    keyboard_map.insert('l', PhonemeEnum::Nucleus(Nucleus::I));
-    keyboard_map.insert('b', PhonemeEnum::Nucleus(Nucleus::YU));
-    keyboard_map.insert('n', PhonemeEnum::Nucleus(Nucleus::U));
-    keyboard_map.insert('m', PhonemeEnum::Nucleus(Nucleus::EU));
+    keyboard_map.insert('y', PhonemeEnum::Jung(Jung::YO));
+    keyboard_map.insert('u', PhonemeEnum::Jung(Jung::YEO));
+    keyboard_map.insert('i', PhonemeEnum::Jung(Jung::YA));
+    keyboard_map.insert('o', PhonemeEnum::Jung(Jung::AE));
+    keyboard_map.insert('p', PhonemeEnum::Jung(Jung::E));
+    keyboard_map.insert('h', PhonemeEnum::Jung(Jung::O));
+    keyboard_map.insert('j', PhonemeEnum::Jung(Jung::EO));
+    keyboard_map.insert('k', PhonemeEnum::Jung(Jung::A));
+    keyboard_map.insert('l', PhonemeEnum::Jung(Jung::I));
+    keyboard_map.insert('b', PhonemeEnum::Jung(Jung::YU));
+    keyboard_map.insert('n', PhonemeEnum::Jung(Jung::U));
+    keyboard_map.insert('m', PhonemeEnum::Jung(Jung::EU));
 
     // 대문자 (쌍자음) (Double Consonants)
-    keyboard_map.insert('Q', PhonemeEnum::Onset(Onset::BB));
-    keyboard_map.insert('W', PhonemeEnum::Onset(Onset::JJ));
-    keyboard_map.insert('E', PhonemeEnum::Onset(Onset::DD));
-    keyboard_map.insert('R', PhonemeEnum::Onset(Onset::GG));
-    keyboard_map.insert('T', PhonemeEnum::Onset(Onset::SS));
+    keyboard_map.insert('Q', PhonemeEnum::Cho(Cho::BB));
+    keyboard_map.insert('W', PhonemeEnum::Cho(Cho::JJ));
+    keyboard_map.insert('E', PhonemeEnum::Cho(Cho::DD));
+    keyboard_map.insert('R', PhonemeEnum::Cho(Cho::GG));
+    keyboard_map.insert('T', PhonemeEnum::Cho(Cho::SS));
 
     // 대문자 (복합 모음) (Complex Vowels)
-    keyboard_map.insert('O', PhonemeEnum::Nucleus(Nucleus::YAE));
-    keyboard_map.insert('P', PhonemeEnum::Nucleus(Nucleus::YE));
+    keyboard_map.insert('O', PhonemeEnum::Jung(Jung::YAE));
+    keyboard_map.insert('P', PhonemeEnum::Jung(Jung::YE));
 }

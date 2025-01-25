@@ -1,146 +1,158 @@
+// builder2bul.rs
+use crate::hangul::builder::*;
+use crate::hangul::char::HangulChar;
+use crate::hangul::jamo::{Cho, Jong, Jung, PhonemeEnum};
 use std::collections::{HashMap, VecDeque};
-use crate::hangul::phoneme::{Onset, Nucleus, Coda, PhonemeEnum};
-use crate::hangul::hangul::Hangul;
-use crate::hangul::builder::HangulBuilder;
 
+/**
+ * HangulBuilder2Bul 구조체 (Java의 HangulBuilder2Bul 클래스에 해당)
+ */
+#[derive(Debug, Default)]
 pub struct HangulBuilder2Bul {
-    jamo_queue: VecDeque<PhonemeEnum>,
-    last_jamo_queue: VecDeque<PhonemeEnum>,
-    combined_jamo: HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>>,
-    current_hangul: Hangul,
+    base_builder: BaseHangulBuilder,
 }
 
 impl HangulBuilder2Bul {
     pub fn new() -> Self {
         let mut builder = HangulBuilder2Bul {
-            jamo_queue: VecDeque::new(),
-            last_jamo_queue: VecDeque::new(),
-            combined_jamo: HashMap::new(),
-            current_hangul: Hangul::new(),
+            base_builder: BaseHangulBuilder::new(),
         };
-        builder.init_combined_jamo();
+        builder.initialize_combined_jamo(); // combinedJamo 초기화
         builder
     }
 
-    fn init_combined_jamo(&mut self) {
-        // 중성 조합
-        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::O), PhonemeEnum::Nucleus(Nucleus::A), PhonemeEnum::Nucleus(Nucleus::WA));
-        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::O), PhonemeEnum::Nucleus(Nucleus::AE), PhonemeEnum::Nucleus(Nucleus::WAE));
-        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::O), PhonemeEnum::Nucleus(Nucleus::I), PhonemeEnum::Nucleus(Nucleus::OE));
-        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::U), PhonemeEnum::Nucleus(Nucleus::EO), PhonemeEnum::Nucleus(Nucleus::WEO));
-        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::U), PhonemeEnum::Nucleus(Nucleus::E), PhonemeEnum::Nucleus(Nucleus::WE));
-        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::U), PhonemeEnum::Nucleus(Nucleus::I), PhonemeEnum::Nucleus(Nucleus::WI));
-        self.add_combined_jamo(PhonemeEnum::Nucleus(Nucleus::EU), PhonemeEnum::Nucleus(Nucleus::I), PhonemeEnum::Nucleus(Nucleus::YI));
+    fn initialize_combined_jamo(&mut self) {
+        let mut combined_jamo = HashMap::new();
 
-        // 종성 조합
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::G), PhonemeEnum::Coda(Coda::S), PhonemeEnum::Coda(Coda::GS));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::N), PhonemeEnum::Coda(Coda::J), PhonemeEnum::Coda(Coda::NJ));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::N), PhonemeEnum::Coda(Coda::H), PhonemeEnum::Coda(Coda::NH));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::G), PhonemeEnum::Coda(Coda::LG));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::M), PhonemeEnum::Coda(Coda::LM));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::B), PhonemeEnum::Coda(Coda::LB));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::S), PhonemeEnum::Coda(Coda::LS));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::T), PhonemeEnum::Coda(Coda::LT));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::P), PhonemeEnum::Coda(Coda::LP));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::L), PhonemeEnum::Coda(Coda::H), PhonemeEnum::Coda(Coda::LH));
-        self.add_combined_jamo(PhonemeEnum::Coda(Coda::B), PhonemeEnum::Coda(Coda::S), PhonemeEnum::Coda(Coda::BS));
-    }
+        // Jung 조합
+        let mut o_map = HashMap::new();
+        o_map.insert(PhonemeEnum::Jung(Jung::A), PhonemeEnum::Jung(Jung::WA));
+        o_map.insert(PhonemeEnum::Jung(Jung::AE), PhonemeEnum::Jung(Jung::WAE));
+        o_map.insert(PhonemeEnum::Jung(Jung::I), PhonemeEnum::Jung(Jung::OE));
+        combined_jamo.insert(PhonemeEnum::Jung(Jung::O), o_map);
 
-    fn add_combined_jamo(&mut self, first: PhonemeEnum, second: PhonemeEnum, result: PhonemeEnum) {
-        self.combined_jamo.entry(first)
-            .or_insert_with(HashMap::new)
-            .insert(second, result);
+        let mut u_map = HashMap::new();
+        u_map.insert(PhonemeEnum::Jung(Jung::EO), PhonemeEnum::Jung(Jung::WEO));
+        u_map.insert(PhonemeEnum::Jung(Jung::E), PhonemeEnum::Jung(Jung::WE));
+        u_map.insert(PhonemeEnum::Jung(Jung::I), PhonemeEnum::Jung(Jung::WI));
+        combined_jamo.insert(PhonemeEnum::Jung(Jung::U), u_map);
+
+        let mut eu_map = HashMap::new();
+        eu_map.insert(PhonemeEnum::Jung(Jung::I), PhonemeEnum::Jung(Jung::YI));
+        combined_jamo.insert(PhonemeEnum::Jung(Jung::EU), eu_map);
+
+        // Jong 조합
+        let mut g_map = HashMap::new();
+        g_map.insert(PhonemeEnum::Jong(Jong::S), PhonemeEnum::Jong(Jong::GS));
+        combined_jamo.insert(PhonemeEnum::Jong(Jong::G), g_map);
+
+        let mut n_map = HashMap::new();
+        n_map.insert(PhonemeEnum::Jong(Jong::J), PhonemeEnum::Jong(Jong::NJ));
+        n_map.insert(PhonemeEnum::Jong(Jong::H), PhonemeEnum::Jong(Jong::NH));
+        combined_jamo.insert(PhonemeEnum::Jong(Jong::N), n_map);
+
+        let mut l_map = HashMap::new();
+        l_map.insert(PhonemeEnum::Jong(Jong::G), PhonemeEnum::Jong(Jong::LG));
+        l_map.insert(PhonemeEnum::Jong(Jong::M), PhonemeEnum::Jong(Jong::LM));
+        l_map.insert(PhonemeEnum::Jong(Jong::B), PhonemeEnum::Jong(Jong::LB));
+        l_map.insert(PhonemeEnum::Jong(Jong::S), PhonemeEnum::Jong(Jong::LS));
+        l_map.insert(PhonemeEnum::Jong(Jong::T), PhonemeEnum::Jong(Jong::LT));
+        l_map.insert(PhonemeEnum::Jong(Jong::P), PhonemeEnum::Jong(Jong::LP));
+        l_map.insert(PhonemeEnum::Jong(Jong::H), PhonemeEnum::Jong(Jong::LH));
+        combined_jamo.insert(PhonemeEnum::Jong(Jong::L), l_map);
+
+        let mut b_map = HashMap::new();
+        b_map.insert(PhonemeEnum::Jong(Jong::S), PhonemeEnum::Jong(Jong::BS));
+        combined_jamo.insert(PhonemeEnum::Jong(Jong::B), b_map);
+
+        *self.base_builder.combined_jamo() = combined_jamo;
     }
 }
 
 impl HangulBuilder for HangulBuilder2Bul {
     fn jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum> {
-        &mut self.jamo_queue
+        self.base_builder.jamo_queue()
     }
 
     fn last_jamo_queue(&mut self) -> &mut VecDeque<PhonemeEnum> {
-        &mut self.last_jamo_queue
+        self.base_builder.last_jamo_queue()
     }
 
-    fn combined_jamo(&self) -> &HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>> {
-        &self.combined_jamo
+    fn combined_jamo(&mut self) -> &mut HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>> {
+        self.base_builder.combined_jamo()
     }
 
-    fn current_hangul(&mut self) -> &mut Hangul {
-        &mut self.current_hangul
+    fn current_hangul(&mut self) -> &mut HangulChar {
+        self.base_builder.current_hangul()
     }
 
     fn add_jamo(&mut self, jamo: PhonemeEnum) -> Option<char> {
-        self.jamo_queue.push_back(jamo);
-        if self.build_hangul() {
-            None
-        } else {
-            self.jamo_queue.pop_back();
-            if let Some(PhonemeEnum::Coda(_)) = self.jamo_queue.back() {
-                if let PhonemeEnum::Nucleus(_) = jamo {
-                    // 도깨비불 현상 처리
-                    let coda = self.jamo_queue.pop_back().unwrap();
-                    self.build_hangul();
-                    let complete_hangul = self.current_hangul.to_char();
-                    self.last_jamo_queue = self.jamo_queue.clone();
-                    self.jamo_queue.clear();
-                    if let PhonemeEnum::Coda(c) = coda {
-                        self.jamo_queue.push_back(PhonemeEnum::Onset(c.to_onset()));
-                    }
-                    self.jamo_queue.push_back(jamo);
-                    self.clear();
-                    self.build_hangul();
-                    complete_hangul
-                } else {
-                    self.build_hangul();
-                    let complete_hangul = self.current_hangul.to_char();
-                    self.last_jamo_queue = self.jamo_queue.clone();
-                    self.jamo_queue.clear();
-                    self.jamo_queue.push_back(jamo);
-                    self.clear();
-                    self.build_hangul();
-                    complete_hangul
-                }
-            } else {
-                None
-            }
-        }
+        self.base_builder.add_jamo(jamo)
+    }
+
+    fn remove_jamo(&mut self) -> Option<PhonemeEnum> {
+        self.base_builder.remove_jamo()
     }
 
     fn build_hangul(&mut self) -> bool {
-        if self.jamo_queue.is_empty() {
-            self.clear();
-            return true;
-        }
+        self.base_builder.build_hangul()
+    }
 
-        let last_jamo = self.jamo_queue.back().unwrap();
-        let last_prev_jamo = self.jamo_queue.get(self.jamo_queue.len() - 2);
+    fn force_build_hangul(&mut self) -> Option<char> {
+        self.base_builder.force_build_hangul()
+    }
 
-        // 중성 다음으로 초성이 들어오면 종성으로 변환
-        if self.current_hangul.nucleus().is_some() && matches!(last_jamo, PhonemeEnum::Onset(_)) {
-            if let Some(PhonemeEnum::Onset(cho)) = self.jamo_queue.pop_back() {
-                if let Ok(jong) = cho.to_coda() {
-                    self.jamo_queue.push_back(PhonemeEnum::Coda(jong));
-                } else {
-                    self.jamo_queue.push_back(PhonemeEnum::Onset(cho));
-                    return false;
-                }
-            }
-        }
+    fn is_build(&self) -> bool {
+        self.base_builder.is_build()
+    }
 
-        // 초성이 없고 중성 다음에 종성이 오면 실패
-        if self.current_hangul.onset().is_none() && 
-           matches!(last_prev_jamo, Some(PhonemeEnum::Nucleus(_))) && 
-           matches!(last_jamo, PhonemeEnum::Coda(_)) {
-            return false;
-        }
+    // --- 내부 조합 함수 위임 ---
+    fn build_cho(&mut self) -> bool {
+        self.base_builder.build_cho()
+    }
 
-        // 종성 다음에 중성이 오면 실패
-        if matches!(last_prev_jamo, Some(PhonemeEnum::Coda(_))) && 
-           matches!(last_jamo, PhonemeEnum::Nucleus(_)) {
-            return false;
-        }
+    fn build_jung(&mut self) -> bool {
+        self.base_builder.build_jung()
+    }
 
-        self.build_onset() && self.build_nucleus() && self.build_coda()
+    fn build_jong(&mut self) -> bool {
+        self.base_builder.build_jong()
+    }
+
+    fn clear_jamo(&mut self) {
+        self.base_builder.clear_jamo()
+    }
+    fn get_current_cho(&self) -> Option<Cho> {
+        self.base_builder.get_current_cho()
+    }
+
+    fn get_current_jung(&self) -> Option<Jung> {
+        self.base_builder.get_current_jung()
+    }
+
+    fn get_current_jong(&self) -> Option<Jong> {
+        self.base_builder.get_current_jong()
+    }
+    fn set_current_cho(&mut self, cho: Option<Cho>) -> bool {
+        self.base_builder.set_current_cho(cho)
+    }
+
+    fn set_current_jung(&mut self, jung: Option<Jung>) -> bool {
+        self.base_builder.set_current_jung(jung)
+    }
+
+    fn set_current_jong(&mut self, jong: Option<Jong>) -> bool {
+        self.base_builder.set_current_jong(jong)
+    }
+
+    fn get_combined_jamo(&self) -> &HashMap<PhonemeEnum, HashMap<PhonemeEnum, PhonemeEnum>> {
+        self.base_builder.get_combined_jamo()
+    }
+
+    fn is_new_syllable(&self) -> bool {
+        self.base_builder
+            .peek_jamo_queue()
+            .back()
+            .map_or(false, |last_jamo| matches!(last_jamo, PhonemeEnum::Cho(_) if self.base_builder.get_current_jung().is_some()))
     }
 }
