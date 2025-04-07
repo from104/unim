@@ -121,6 +121,58 @@ impl HangulBuilder2Bul {
         let keyboard_map = self.create_keyboard_map();
         BaseHangulBuilder::convert_string(input, &keyboard_map, self)
     }
+
+    /// 한글 문자열을 두벌식 영문 자판 입력으로 변환합니다.
+    pub fn convert_korean_to_english(&self, input: &str) -> String {
+        let keyboard_map = self.create_keyboard_map();
+        let mut reverse_map = HashMap::new();
+
+        // 키보드 맵을 뒤집어서 자모 -> 키 매핑 생성
+        for (key, jamo) in keyboard_map.iter() {
+            reverse_map.insert(*jamo, *key);
+        }
+
+        let mut result = String::new();
+
+        for c in input.chars() {
+            if c as u32 >= 0xAC00 && c as u32 <= 0xD7A3 {
+                // 한글 완성형 문자인 경우
+                let mut hangul_char = HangulChar::new();
+                hangul_char.set_jamo_by_syllable(c);
+
+                // 초성 변환
+                if let Some(cho) = hangul_char.get_cho() {
+                    if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
+                        result.push(key);
+                    }
+                }
+
+                // 중성 변환
+                if let Some(jung) = hangul_char.get_jung() {
+                    if let Some(&key) = reverse_map.get(&JamoEnum::Jung(jung)) {
+                        result.push(key);
+                    }
+                }
+
+                // 종성 변환
+                if let Some(jong) = hangul_char.get_jong() {
+                    // Jong::E는 빈 종성을 의미함
+                    if jong != Jong::E {
+                        // 종성을 초성으로 변환해야 하는 경우
+                        let cho = jong.to_cho();
+                        if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
+                            result.push(key);
+                        }
+                    }
+                }
+            } else {
+                // 한글이 아닌 경우 그대로 추가
+                result.push(c);
+            }
+        }
+
+        result
+    }
 }
 
 impl HangulBuilder for HangulBuilder2Bul {

@@ -125,8 +125,15 @@ fn run(config: Config) -> io::Result<()> {
             }
         }
         ConversionMode::KoreanToEnglish => {
-            // 한글 -> 영문 변환은 향후 구현
-            writeln!(output, "한글 -> 영문 변환은 아직 지원되지 않습니다.")?;
+            // 한글 -> 영문 변환
+            match config.keyboard_mode {
+                KeyboardMode::TwoBul => {
+                    process_korean_to_english_2bul(input, &mut output)?;
+                }
+                KeyboardMode::ThreeBul => {
+                    process_korean_to_english_3bul(input, &mut output)?;
+                }
+            }
         }
     }
 
@@ -165,6 +172,50 @@ fn process_with_3bul(input: Box<dyn BufRead>, output: &mut Box<dyn Write>) -> io
         }
 
         let result = hangul_builder.convert_string(&input_line);
+        writeln!(output, "{}", result)?;
+    }
+
+    Ok(())
+}
+
+fn process_korean_to_english_2bul(
+    input: Box<dyn BufRead>,
+    output: &mut Box<dyn Write>,
+) -> io::Result<()> {
+    let hangul_builder = HangulBuilder2Bul::new();
+
+    for line in input.lines() {
+        let input_line = line?;
+
+        // 비어있는 줄은 그대로 출력
+        if input_line.is_empty() {
+            writeln!(output)?;
+            continue;
+        }
+
+        let result = hangul_builder.convert_korean_to_english(&input_line);
+        writeln!(output, "{}", result)?;
+    }
+
+    Ok(())
+}
+
+fn process_korean_to_english_3bul(
+    input: Box<dyn BufRead>,
+    output: &mut Box<dyn Write>,
+) -> io::Result<()> {
+    let hangul_builder = HangulBuilder3Bul::new();
+
+    for line in input.lines() {
+        let input_line = line?;
+
+        // 비어있는 줄은 그대로 출력
+        if input_line.is_empty() {
+            writeln!(output)?;
+            continue;
+        }
+
+        let result = hangul_builder.convert_korean_to_english(&input_line);
         writeln!(output, "{}", result)?;
     }
 
