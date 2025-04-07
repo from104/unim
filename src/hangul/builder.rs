@@ -178,8 +178,7 @@ impl BaseHangulBuilder {
 
     pub fn is_new_syllable_internal(&self) -> bool {
         self.m_jamo_queue
-            .back()
-            .map_or(false, |last_jamo| matches!(last_jamo, JamoEnum::Cho(_) if self.current_hangul_char.is_filled_jung()))
+            .back().is_some_and(|last_jamo| matches!(last_jamo, JamoEnum::Cho(_) if self.current_hangul_char.is_filled_jung()))
     }
 
     pub fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {

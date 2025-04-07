@@ -1,11 +1,4 @@
 /**
- * 한글 자모 열거 상수 정의
- * @author "KiHyeon Seo" <from104@gmail.com>
- * @version 0.0.1
- */
-// 패키지 선언은 Rust에서는 모듈로 표현됩니다.
-
-/**
  * 한글 자모 인터페이스 (Rust에서는 트레잇으로 표현)
  */
 pub trait Jamo: std::fmt::Debug + Clone + Copy + PartialEq + Eq + std::hash::Hash {

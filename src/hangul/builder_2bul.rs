@@ -198,14 +198,14 @@ impl HangulBuilder for HangulBuilder2Bul {
 
         // 초성이 없고 중성 다음에 종성이 오면
         if !self.base_builder.is_filled_cho()
-            && last_prev_jamo.map_or(false, |j| matches!(j, JamoEnum::Jung(_)))
+            && last_prev_jamo.is_some_and(|j| matches!(j, JamoEnum::Jung(_)))
             && matches!(last_jamo, JamoEnum::Jong(_))
         {
             return false;
         }
 
         // 종성 다음에 중성이 오면
-        if last_prev_jamo.map_or(false, |j| matches!(j, JamoEnum::Jong(_)))
+        if last_prev_jamo.is_some_and(|j| matches!(j, JamoEnum::Jong(_)))
             && matches!(last_jamo, JamoEnum::Jung(_))
         {
             return false;
