@@ -1,11 +1,11 @@
-use hangul::builder_2bul::HangulBuilder2Bul;
+use hangul::builder_3bul::HangulBuilder3Bul;
 use std::io::{self, BufRead};
 
 
 pub mod hangul;
 
 fn main() -> io::Result<()> {
-    let mut hangul_builder = HangulBuilder2Bul::new();
+    let mut hangul_builder = HangulBuilder3Bul::new();
     let stdin = io::stdin();
     let reader = stdin.lock();
 
