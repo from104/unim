@@ -141,7 +141,7 @@ fn process_with_2bul(input: Box<dyn BufRead>, output: &mut Box<dyn Write>) -> io
 
         // 비어있는 줄은 그대로 출력
         if input_line.is_empty() {
-            writeln!(output, "")?;
+            writeln!(output)?;
             continue;
         }
 
@@ -160,7 +160,7 @@ fn process_with_3bul(input: Box<dyn BufRead>, output: &mut Box<dyn Write>) -> io
 
         // 비어있는 줄은 그대로 출력
         if input_line.is_empty() {
-            writeln!(output, "")?;
+            writeln!(output)?;
             continue;
         }
 
