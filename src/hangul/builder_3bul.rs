@@ -163,6 +163,38 @@ impl HangulBuilder3Bul {
             reverse_map.insert(*jamo, *key);
         }
 
+        // 이중 모음 및 쌍자음 분해 매핑 정의 (분해되는 문자 -> 기본 구성 요소)
+        let mut compound_jung_map = HashMap::new();
+        compound_jung_map.insert(Jung::WA, vec![Jung::O, Jung::A]); // ㅘ -> ㅗ + ㅏ
+        compound_jung_map.insert(Jung::WAE, vec![Jung::O, Jung::AE]); // ㅙ -> ㅗ + ㅐ
+        compound_jung_map.insert(Jung::OE, vec![Jung::O, Jung::I]); // ㅚ -> ㅗ + ㅣ
+        compound_jung_map.insert(Jung::WEO, vec![Jung::U, Jung::EO]); // ㅝ -> ㅜ + ㅓ
+        compound_jung_map.insert(Jung::WE, vec![Jung::U, Jung::E]); // ㅞ -> ㅜ + ㅔ
+        compound_jung_map.insert(Jung::WI, vec![Jung::U, Jung::I]); // ㅟ -> ㅜ + ㅣ
+        compound_jung_map.insert(Jung::YI, vec![Jung::EU, Jung::I]); // ㅢ -> ㅡ + ㅣ
+
+        let mut compound_cho_map = HashMap::new();
+        compound_cho_map.insert(Cho::GG, vec![Cho::G, Cho::G]); // ㄲ -> ㄱ + ㄱ
+        compound_cho_map.insert(Cho::DD, vec![Cho::D, Cho::D]); // ㄸ -> ㄷ + ㄷ
+        compound_cho_map.insert(Cho::BB, vec![Cho::B, Cho::B]); // ㅃ -> ㅂ + ㅂ
+        compound_cho_map.insert(Cho::SS, vec![Cho::S, Cho::S]); // ㅆ -> ㅅ + ㅅ
+        compound_cho_map.insert(Cho::JJ, vec![Cho::J, Cho::J]); // ㅉ -> ㅈ + ㅈ
+
+        let mut compound_jong_map = HashMap::new();
+        compound_jong_map.insert(Jong::GG, vec![Jong::G, Jong::G]); // ㄲ -> ㄱ + ㄱ
+        compound_jong_map.insert(Jong::GS, vec![Jong::G, Jong::S]); // ㄳ -> ㄱ + ㅅ
+        compound_jong_map.insert(Jong::NJ, vec![Jong::N, Jong::J]); // ㄵ -> ㄴ + ㅈ
+        compound_jong_map.insert(Jong::NH, vec![Jong::N, Jong::H]); // ㄶ -> ㄴ + ㅎ
+        compound_jong_map.insert(Jong::LG, vec![Jong::L, Jong::G]); // ㄺ -> ㄹ + ㄱ
+        compound_jong_map.insert(Jong::LM, vec![Jong::L, Jong::M]); // ㄻ -> ㄹ + ㅁ
+        compound_jong_map.insert(Jong::LB, vec![Jong::L, Jong::B]); // ㄼ -> ㄹ + ㅂ
+        compound_jong_map.insert(Jong::LS, vec![Jong::L, Jong::S]); // ㄽ -> ㄹ + ㅅ
+        compound_jong_map.insert(Jong::LT, vec![Jong::L, Jong::T]); // ㄾ -> ㄹ + ㅌ
+        compound_jong_map.insert(Jong::LP, vec![Jong::L, Jong::P]); // ㄿ -> ㄹ + ㅍ
+        compound_jong_map.insert(Jong::LH, vec![Jong::L, Jong::H]); // ㅀ -> ㄹ + ㅎ
+        compound_jong_map.insert(Jong::BS, vec![Jong::B, Jong::S]); // ㅄ -> ㅂ + ㅅ
+        compound_jong_map.insert(Jong::SS, vec![Jong::S, Jong::S]); // ㅆ -> ㅅ + ㅅ
+
         let mut result = String::new();
 
         for c in input.chars() {
@@ -171,26 +203,56 @@ impl HangulBuilder3Bul {
                 let mut hangul_char = HangulChar::new();
                 hangul_char.set_jamo_by_syllable(c);
 
-                // 초성 변환
+                // 초성 변환 (쌍자음 처리)
                 if let Some(cho) = hangul_char.get_cho() {
-                    if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
-                        result.push(key);
+                    if let Some(components) = compound_cho_map.get(&cho) {
+                        // 쌍자음인 경우 분해해서 처리
+                        for &base_cho in components {
+                            if let Some(&key) = reverse_map.get(&JamoEnum::Cho(base_cho)) {
+                                result.push(key);
+                            }
+                        }
+                    } else {
+                        // 기본 자음인 경우 그대로 처리
+                        if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
+                            result.push(key);
+                        }
                     }
                 }
 
-                // 중성 변환
+                // 중성 변환 (이중 모음 처리)
                 if let Some(jung) = hangul_char.get_jung() {
-                    if let Some(&key) = reverse_map.get(&JamoEnum::Jung(jung)) {
-                        result.push(key);
+                    if let Some(components) = compound_jung_map.get(&jung) {
+                        // 이중 모음인 경우 분해해서 처리
+                        for &base_jung in components {
+                            if let Some(&key) = reverse_map.get(&JamoEnum::Jung(base_jung)) {
+                                result.push(key);
+                            }
+                        }
+                    } else {
+                        // 기본 모음인 경우 그대로 처리
+                        if let Some(&key) = reverse_map.get(&JamoEnum::Jung(jung)) {
+                            result.push(key);
+                        }
                     }
                 }
 
-                // 종성 변환 (세벌식은 종성이 직접 매핑됨)
+                // 종성 변환 (세벌식은 종성이 직접 매핑됨, 겹받침 처리)
                 if let Some(jong) = hangul_char.get_jong() {
                     // Jong::E는 빈 종성을 의미함
                     if jong != Jong::E {
-                        if let Some(&key) = reverse_map.get(&JamoEnum::Jong(jong)) {
-                            result.push(key);
+                        if let Some(components) = compound_jong_map.get(&jong) {
+                            // 겹받침인 경우 분해해서 처리
+                            for &base_jong in components {
+                                if let Some(&key) = reverse_map.get(&JamoEnum::Jong(base_jong)) {
+                                    result.push(key);
+                                }
+                            }
+                        } else {
+                            // 기본 받침인 경우 그대로 처리
+                            if let Some(&key) = reverse_map.get(&JamoEnum::Jong(jong)) {
+                                result.push(key);
+                            }
                         }
                     }
                 }
@@ -205,11 +267,22 @@ impl HangulBuilder3Bul {
                     if let Some(cho) = get_cho_by_sequence(cho_val) {
                         let jamo_enum = JamoEnum::Cho(cho);
                         if jamo_enum.get_unicode_compat() == c {
-                            if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                result.push(key);
-                                found = true;
-                                break;
+                            // 쌍자음 처리
+                            if let Some(components) = compound_cho_map.get(&cho) {
+                                // 쌍자음인 경우 분해해서 처리
+                                for &base_cho in components {
+                                    if let Some(&key) = reverse_map.get(&JamoEnum::Cho(base_cho)) {
+                                        result.push(key);
+                                    }
+                                }
+                            } else {
+                                // 기본 자음인 경우 그대로 처리
+                                if let Some(&key) = reverse_map.get(&jamo_enum) {
+                                    result.push(key);
+                                }
                             }
+                            found = true;
+                            break;
                         }
                     }
                 }
@@ -220,11 +293,24 @@ impl HangulBuilder3Bul {
                         if let Some(jung) = get_jung_by_sequence(jung_val) {
                             let jamo_enum = JamoEnum::Jung(jung);
                             if jamo_enum.get_unicode_compat() == c {
-                                if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                    result.push(key);
-                                    found = true;
-                                    break;
+                                // 이중 모음 처리
+                                if let Some(components) = compound_jung_map.get(&jung) {
+                                    // 이중 모음인 경우 분해해서 처리
+                                    for &base_jung in components {
+                                        if let Some(&key) =
+                                            reverse_map.get(&JamoEnum::Jung(base_jung))
+                                        {
+                                            result.push(key);
+                                        }
+                                    }
+                                } else {
+                                    // 기본 모음인 경우 그대로 처리
+                                    if let Some(&key) = reverse_map.get(&jamo_enum) {
+                                        result.push(key);
+                                    }
                                 }
+                                found = true;
+                                break;
                             }
                         }
                     }
@@ -237,11 +323,24 @@ impl HangulBuilder3Bul {
                         if let Some(jong) = get_jong_by_sequence(jong_val) {
                             let jamo_enum = JamoEnum::Jong(jong);
                             if jamo_enum.get_unicode_compat() == c {
-                                if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                    result.push(key);
-                                    found = true;
-                                    break;
+                                // 겹받침 처리
+                                if let Some(components) = compound_jong_map.get(&jong) {
+                                    // 겹받침인 경우 분해해서 처리
+                                    for &base_jong in components {
+                                        if let Some(&key) =
+                                            reverse_map.get(&JamoEnum::Jong(base_jong))
+                                        {
+                                            result.push(key);
+                                        }
+                                    }
+                                } else {
+                                    // 기본 받침인 경우 그대로 처리
+                                    if let Some(&key) = reverse_map.get(&jamo_enum) {
+                                        result.push(key);
+                                    }
                                 }
+                                found = true;
+                                break;
                             }
                         }
                     }

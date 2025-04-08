@@ -692,4 +692,3 @@ impl Jamo for JamoEnum {
         }
     }
 }
-
