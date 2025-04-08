@@ -1,7 +1,8 @@
 // builder2bul.rs
-use crate::hangul::builder::*;
+use crate::hangul::builder::BaseHangulBuilder;
+use crate::hangul::builder::HangulBuilder;
 use crate::hangul::char::HangulChar;
-use crate::hangul::jamo::{Cho, JamoEnum, Jong, Jung};
+use crate::hangul::jamo::*;
 use std::collections::{HashMap, VecDeque};
 
 /**
@@ -164,6 +165,67 @@ impl HangulBuilder2Bul {
                             result.push(key);
                         }
                     }
+                }
+            } else if c as u32 >= 0x3131 && c as u32 <= 0x318E {
+                // 한글 호환용 자모인 경우 (ㄱ, ㄴ, ㅏ, ㅑ 등)
+
+                // 1. 각 자모 enum 값을 확인하여 유니코드가 일치하는지 검사
+
+                // 먼저 초성으로 시도
+                let mut found = false;
+
+                // 초성(Cho) 확인
+                for cho_val in 0..19 {
+                    if let Some(cho) = get_cho_by_sequence(cho_val) {
+                        let jamo_enum = JamoEnum::Cho(cho);
+                        if jamo_enum.get_unicode_compat() == c {
+                            if let Some(&key) = reverse_map.get(&jamo_enum) {
+                                result.push(key);
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 중성(Jung) 확인
+                if !found {
+                    for jung_val in 0..21 {
+                        if let Some(jung) = get_jung_by_sequence(jung_val) {
+                            let jamo_enum = JamoEnum::Jung(jung);
+                            if jamo_enum.get_unicode_compat() == c {
+                                if let Some(&key) = reverse_map.get(&jamo_enum) {
+                                    result.push(key);
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 종성(Jong) 확인 - 두벌식에서는 종성이 초성으로 변환됨
+                if !found {
+                    for jong_val in 1..28 {
+                        // 0은 종성 없음이므로 1부터 시작
+                        if let Some(jong) = get_jong_by_sequence(jong_val) {
+                            let jamo_enum = JamoEnum::Jong(jong);
+                            if jamo_enum.get_unicode_compat() == c {
+                                // 종성을 초성으로 변환
+                                let cho = jong.to_cho();
+                                if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
+                                    result.push(key);
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 매칭되는 키를 찾지 못한 경우 그대로 추가
+                if !found {
+                    result.push(c);
                 }
             } else {
                 // 한글이 아닌 경우 그대로 추가
