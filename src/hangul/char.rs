@@ -452,7 +452,7 @@ impl HangulChar {
      */
     pub fn get_unicodes(&self) -> Vec<char> {
         if self.is_empty() {
-            panic!("자모가 비었음");
+            vec![]
         } else if self.is_filled_cho() && !self.is_filled_jung() && self.is_filled_jong() {
             vec!['?']
         } else if !self.is_filled_jong() || self.jongseong == Some(Jong::E) {
@@ -481,7 +481,7 @@ impl HangulChar {
      */
     pub fn get_syllable(&self) -> char {
         if self.is_empty() {
-            panic!("자모가 비었음");
+            '\u{0}'
         } else if self.is_filled_only_cho() {
             self.get_cho_unicode_compat()
         } else if self.is_filled_only_jung() {

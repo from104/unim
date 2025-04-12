@@ -151,9 +151,22 @@ impl BaseHangulBuilder {
         for c in input.chars() {
             // 키보드 맵에서 자모를 찾음
             if let Some(jamo) = keyboard_map.get(&c) {
-                // 자모를 추가하고 조합이 완료되면 출력
-                if let Some(completed_char) = builder.add_jamo(*jamo) {
-                    result.push(completed_char);
+                match jamo {
+                    JamoEnum::Special(special_char) => {
+                        // 특수 문자는 바로 출력
+                        if builder.is_build() {
+                            if let Some(hangul_char) = builder.force_build_hangul() {
+                                result.push(hangul_char);
+                            }
+                        }
+                        result.push(*special_char);
+                    }
+                    _ => {
+                        // 자모는 조합 시도
+                        if let Some(completed_char) = builder.add_jamo(*jamo) {
+                            result.push(completed_char);
+                        }
+                    }
                 }
             } else {
                 // 한글이 아닌 문자가 입력되었을 때 현재 조합 중인 글자가 있다면 출력

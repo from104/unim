@@ -3,7 +3,10 @@ use crate::hangul::builder::BaseHangulBuilder;
 use crate::hangul::builder::HangulBuilder;
 use crate::hangul::char::HangulChar;
 use crate::hangul::jamo::*;
+use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
+use std::fs::File;
+use std::io::Read;
 
 /**
  * HangulBuilder2Bul 구조체 (Java의 HangulBuilder2Bul 클래스에 해당)
@@ -11,61 +14,160 @@ use std::collections::{HashMap, VecDeque};
 #[derive(Debug, Default)]
 pub struct HangulBuilder2Bul {
     base_builder: BaseHangulBuilder,
+    en_keymap_file: String,
+    ko_keymap_file: String,
 }
 
 impl HangulBuilder2Bul {
-    pub fn new() -> Self {
+    pub fn new(en_keymap_file: &str, ko_keymap_file: &str) -> Self {
         let mut builder = HangulBuilder2Bul {
             base_builder: BaseHangulBuilder::new(),
+            en_keymap_file: en_keymap_file.to_string(),
+            ko_keymap_file: ko_keymap_file.to_string(),
         };
         builder.initialize_combined_jamo();
         builder
     }
 
     /// 2벌식 키보드 매핑을 생성합니다.
-    fn create_keyboard_map(&self) -> HashMap<char, JamoEnum> {
+    pub fn create_keyboard_map(
+        &self,
+        en_keymap_file: &str,
+        ko_keymap_file: &str,
+    ) -> HashMap<char, JamoEnum> {
         let mut keyboard_map = HashMap::new();
 
-        // 초성 (Consonants)
-        keyboard_map.insert('q', JamoEnum::Cho(Cho::B));
-        keyboard_map.insert('w', JamoEnum::Cho(Cho::J));
-        keyboard_map.insert('e', JamoEnum::Cho(Cho::D));
-        keyboard_map.insert('r', JamoEnum::Cho(Cho::G));
-        keyboard_map.insert('t', JamoEnum::Cho(Cho::S));
-        keyboard_map.insert('a', JamoEnum::Cho(Cho::M));
-        keyboard_map.insert('s', JamoEnum::Cho(Cho::N));
-        keyboard_map.insert('d', JamoEnum::Cho(Cho::E));
-        keyboard_map.insert('f', JamoEnum::Cho(Cho::R));
-        keyboard_map.insert('g', JamoEnum::Cho(Cho::H));
-        keyboard_map.insert('z', JamoEnum::Cho(Cho::K));
-        keyboard_map.insert('x', JamoEnum::Cho(Cho::T));
-        keyboard_map.insert('c', JamoEnum::Cho(Cho::C));
-        keyboard_map.insert('v', JamoEnum::Cho(Cho::P));
+        // 영문 키맵 로드
+        let mut file = File::open(en_keymap_file).expect("Failed to open English keymap file");
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .expect("Failed to read English keymap file");
+        let en_keymap: Value =
+            serde_json::from_str(&contents).expect("Failed to parse English keymap JSON");
 
-        // 중성 (Vowels)
-        keyboard_map.insert('y', JamoEnum::Jung(Jung::YO));
-        keyboard_map.insert('u', JamoEnum::Jung(Jung::YEO));
-        keyboard_map.insert('i', JamoEnum::Jung(Jung::YA));
-        keyboard_map.insert('o', JamoEnum::Jung(Jung::AE));
-        keyboard_map.insert('p', JamoEnum::Jung(Jung::E));
-        keyboard_map.insert('h', JamoEnum::Jung(Jung::O));
-        keyboard_map.insert('j', JamoEnum::Jung(Jung::EO));
-        keyboard_map.insert('k', JamoEnum::Jung(Jung::A));
-        keyboard_map.insert('l', JamoEnum::Jung(Jung::I));
-        keyboard_map.insert('b', JamoEnum::Jung(Jung::YU));
-        keyboard_map.insert('n', JamoEnum::Jung(Jung::U));
-        keyboard_map.insert('m', JamoEnum::Jung(Jung::EU));
+        // 한글 키맵 로드
+        let mut file = File::open(ko_keymap_file).expect("Failed to open Korean keymap file");
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .expect("Failed to read Korean keymap file");
+        let ko_keymap: Value =
+            serde_json::from_str(&contents).expect("Failed to parse Korean keymap JSON");
 
-        // 대문자 (쌍자음) (Double Consonants)
-        keyboard_map.insert('Q', JamoEnum::Cho(Cho::BB));
-        keyboard_map.insert('W', JamoEnum::Cho(Cho::JJ));
-        keyboard_map.insert('E', JamoEnum::Cho(Cho::DD));
-        keyboard_map.insert('R', JamoEnum::Cho(Cho::GG));
-        keyboard_map.insert('T', JamoEnum::Cho(Cho::SS));
+        // 영문-한글 매핑 생성 (lower 케이스를 우선적으로 처리)
+        let rows = ["2nd", "3nd", "4th"];
 
-        // 대문자 (복합 모음) (Complex Vowels)
-        keyboard_map.insert('O', JamoEnum::Jung(Jung::YAE));
-        keyboard_map.insert('P', JamoEnum::Jung(Jung::YE));
+        // lower 케이스 먼저 처리
+        for row in rows.iter() {
+            if let (Some(en_row), Some(ko_row)) = (
+                en_keymap["layout"]["lower"][row].as_array(),
+                ko_keymap["layout"]["lower"][row].as_array(),
+            ) {
+                for (en_char, ko_char) in en_row.iter().zip(ko_row.iter()) {
+                    if let (Some(en), Some(ko)) = (en_char.as_str(), ko_char.as_str()) {
+                        if let Some(c) = en.chars().next() {
+                            // 한글 자모를 JamoEnum으로 변환
+                            if let Some(jamo) = match ko.chars().next() {
+                                Some('ㄱ') => Some(JamoEnum::Cho(Cho::G)),
+                                Some('ㄲ') => Some(JamoEnum::Cho(Cho::GG)),
+                                Some('ㄴ') => Some(JamoEnum::Cho(Cho::N)),
+                                Some('ㄷ') => Some(JamoEnum::Cho(Cho::D)),
+                                Some('ㄸ') => Some(JamoEnum::Cho(Cho::DD)),
+                                Some('ㄹ') => Some(JamoEnum::Cho(Cho::R)),
+                                Some('ㅁ') => Some(JamoEnum::Cho(Cho::M)),
+                                Some('ㅂ') => Some(JamoEnum::Cho(Cho::B)),
+                                Some('ㅃ') => Some(JamoEnum::Cho(Cho::BB)),
+                                Some('ㅅ') => Some(JamoEnum::Cho(Cho::S)),
+                                Some('ㅆ') => Some(JamoEnum::Cho(Cho::SS)),
+                                Some('ㅇ') => Some(JamoEnum::Cho(Cho::E)),
+                                Some('ㅈ') => Some(JamoEnum::Cho(Cho::J)),
+                                Some('ㅉ') => Some(JamoEnum::Cho(Cho::JJ)),
+                                Some('ㅊ') => Some(JamoEnum::Cho(Cho::C)),
+                                Some('ㅋ') => Some(JamoEnum::Cho(Cho::K)),
+                                Some('ㅌ') => Some(JamoEnum::Cho(Cho::T)),
+                                Some('ㅍ') => Some(JamoEnum::Cho(Cho::P)),
+                                Some('ㅎ') => Some(JamoEnum::Cho(Cho::H)),
+                                Some('ㅏ') => Some(JamoEnum::Jung(Jung::A)),
+                                Some('ㅐ') => Some(JamoEnum::Jung(Jung::AE)),
+                                Some('ㅑ') => Some(JamoEnum::Jung(Jung::YA)),
+                                Some('ㅒ') => Some(JamoEnum::Jung(Jung::YAE)),
+                                Some('ㅓ') => Some(JamoEnum::Jung(Jung::EO)),
+                                Some('ㅔ') => Some(JamoEnum::Jung(Jung::E)),
+                                Some('ㅕ') => Some(JamoEnum::Jung(Jung::YEO)),
+                                Some('ㅖ') => Some(JamoEnum::Jung(Jung::YE)),
+                                Some('ㅗ') => Some(JamoEnum::Jung(Jung::O)),
+                                Some('ㅛ') => Some(JamoEnum::Jung(Jung::YO)),
+                                Some('ㅜ') => Some(JamoEnum::Jung(Jung::U)),
+                                Some('ㅠ') => Some(JamoEnum::Jung(Jung::YU)),
+                                Some('ㅡ') => Some(JamoEnum::Jung(Jung::EU)),
+                                Some('ㅣ') => Some(JamoEnum::Jung(Jung::I)),
+                                _ => None,
+                            } {
+                                keyboard_map.insert(c, jamo);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // upper 케이스는 lower에 없는 경우에만 처리
+        for row in rows.iter() {
+            if let (Some(en_row), Some(ko_row)) = (
+                en_keymap["layout"]["upper"][row].as_array(),
+                ko_keymap["layout"]["upper"][row].as_array(),
+            ) {
+                for (en_char, ko_char) in en_row.iter().zip(ko_row.iter()) {
+                    if let (Some(en), Some(ko)) = (en_char.as_str(), ko_char.as_str()) {
+                        if let Some(c) = en.chars().next() {
+                            // 이미 매핑된 키는 건너뛰기
+                            if keyboard_map.contains_key(&c) {
+                                continue;
+                            }
+
+                            // 한글 자모를 JamoEnum으로 변환
+                            if let Some(jamo) = match ko.chars().next() {
+                                Some('ㄱ') => Some(JamoEnum::Cho(Cho::G)),
+                                Some('ㄲ') => Some(JamoEnum::Cho(Cho::GG)),
+                                Some('ㄴ') => Some(JamoEnum::Cho(Cho::N)),
+                                Some('ㄷ') => Some(JamoEnum::Cho(Cho::D)),
+                                Some('ㄸ') => Some(JamoEnum::Cho(Cho::DD)),
+                                Some('ㄹ') => Some(JamoEnum::Cho(Cho::R)),
+                                Some('ㅁ') => Some(JamoEnum::Cho(Cho::M)),
+                                Some('ㅂ') => Some(JamoEnum::Cho(Cho::B)),
+                                Some('ㅃ') => Some(JamoEnum::Cho(Cho::BB)),
+                                Some('ㅅ') => Some(JamoEnum::Cho(Cho::S)),
+                                Some('ㅆ') => Some(JamoEnum::Cho(Cho::SS)),
+                                Some('ㅇ') => Some(JamoEnum::Cho(Cho::E)),
+                                Some('ㅈ') => Some(JamoEnum::Cho(Cho::J)),
+                                Some('ㅉ') => Some(JamoEnum::Cho(Cho::JJ)),
+                                Some('ㅊ') => Some(JamoEnum::Cho(Cho::C)),
+                                Some('ㅋ') => Some(JamoEnum::Cho(Cho::K)),
+                                Some('ㅌ') => Some(JamoEnum::Cho(Cho::T)),
+                                Some('ㅍ') => Some(JamoEnum::Cho(Cho::P)),
+                                Some('ㅎ') => Some(JamoEnum::Cho(Cho::H)),
+                                Some('ㅏ') => Some(JamoEnum::Jung(Jung::A)),
+                                Some('ㅐ') => Some(JamoEnum::Jung(Jung::AE)),
+                                Some('ㅑ') => Some(JamoEnum::Jung(Jung::YA)),
+                                Some('ㅒ') => Some(JamoEnum::Jung(Jung::YAE)),
+                                Some('ㅓ') => Some(JamoEnum::Jung(Jung::EO)),
+                                Some('ㅔ') => Some(JamoEnum::Jung(Jung::E)),
+                                Some('ㅕ') => Some(JamoEnum::Jung(Jung::YEO)),
+                                Some('ㅖ') => Some(JamoEnum::Jung(Jung::YE)),
+                                Some('ㅗ') => Some(JamoEnum::Jung(Jung::O)),
+                                Some('ㅛ') => Some(JamoEnum::Jung(Jung::YO)),
+                                Some('ㅜ') => Some(JamoEnum::Jung(Jung::U)),
+                                Some('ㅠ') => Some(JamoEnum::Jung(Jung::YU)),
+                                Some('ㅡ') => Some(JamoEnum::Jung(Jung::EU)),
+                                Some('ㅣ') => Some(JamoEnum::Jung(Jung::I)),
+                                _ => None,
+                            } {
+                                keyboard_map.insert(c, jamo);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         keyboard_map
     }
@@ -119,21 +221,31 @@ impl HangulBuilder2Bul {
 
     /// 문자열을 한글로 변환합니다.
     pub fn convert_string(&mut self, input: &str) -> String {
-        let keyboard_map = self.create_keyboard_map();
+        let keyboard_map = self.create_keyboard_map(&self.en_keymap_file, &self.ko_keymap_file);
         BaseHangulBuilder::convert_string(input, &keyboard_map, self)
     }
 
     /// 한글 문자열을 두벌식 영문 자판 입력으로 변환합니다.
     pub fn convert_korean_to_english(&self, input: &str) -> String {
-        let keyboard_map = self.create_keyboard_map();
+        let keyboard_map = self.create_keyboard_map(&self.en_keymap_file, &self.ko_keymap_file);
         let mut reverse_map = HashMap::new();
 
-        // 키보드 맵을 뒤집어서 자모 -> 키 매핑 생성
+        // 키보드 맵을 뒤집어서 자모 -> 키 매핑 생성할 때, lower 케이스 우선 적용
+        // 우선 lower case 문자만 체크 (특수문자도 포함)
         for (key, jamo) in keyboard_map.iter() {
-            reverse_map.insert(*jamo, *key);
+            if !key.is_ascii_uppercase() {
+                reverse_map.insert(*jamo, *key);
+            }
         }
 
-        // 이중 모음 및 쌍자음 분해 매핑 정의 (분해되는 문자 -> 기본 구성 요소)
+        // 이후 upper case 문자는 매핑되지 않은 자모에 대해서만 처리
+        for (key, jamo) in keyboard_map.iter() {
+            if key.is_ascii_uppercase() && !reverse_map.contains_key(jamo) {
+                reverse_map.insert(*jamo, *key);
+            }
+        }
+
+        // 이중 모음 분해 매핑 정의 (분해되는 문자 -> 기본 구성 요소)
         let mut compound_jung_map = HashMap::new();
         compound_jung_map.insert(Jung::WA, vec![Jung::O, Jung::A]); // ㅘ -> ㅗ + ㅏ
         compound_jung_map.insert(Jung::WAE, vec![Jung::O, Jung::AE]); // ㅙ -> ㅗ + ㅐ
@@ -143,13 +255,7 @@ impl HangulBuilder2Bul {
         compound_jung_map.insert(Jung::WI, vec![Jung::U, Jung::I]); // ㅟ -> ㅜ + ㅣ
         compound_jung_map.insert(Jung::YI, vec![Jung::EU, Jung::I]); // ㅢ -> ㅡ + ㅣ
 
-        let mut compound_cho_map = HashMap::new();
-        compound_cho_map.insert(Cho::GG, vec![Cho::G, Cho::G]); // ㄲ -> ㄱ + ㄱ
-        compound_cho_map.insert(Cho::DD, vec![Cho::D, Cho::D]); // ㄸ -> ㄷ + ㄷ
-        compound_cho_map.insert(Cho::BB, vec![Cho::B, Cho::B]); // ㅃ -> ㅂ + ㅂ
-        compound_cho_map.insert(Cho::SS, vec![Cho::S, Cho::S]); // ㅆ -> ㅅ + ㅅ
-        compound_cho_map.insert(Cho::JJ, vec![Cho::J, Cho::J]); // ㅉ -> ㅈ + ㅈ
-
+        // 겹받침 분해 매핑 정의
         let mut compound_jong_map = HashMap::new();
         compound_jong_map.insert(Jong::GG, vec![Jong::G, Jong::G]); // ㄲ -> ㄱ + ㄱ
         compound_jong_map.insert(Jong::GS, vec![Jong::G, Jong::S]); // ㄳ -> ㄱ + ㅅ
@@ -173,21 +279,10 @@ impl HangulBuilder2Bul {
                 let mut hangul_char = HangulChar::new();
                 hangul_char.set_jamo_by_syllable(c);
 
-                // 초성 변환 (쌍자음 처리)
+                // 초성 변환
                 if let Some(cho) = hangul_char.get_cho() {
-                    // 쌍자음은 대문자로 변환
-                    match cho {
-                        Cho::GG => result.push('R'),
-                        Cho::DD => result.push('E'),
-                        Cho::BB => result.push('Q'),
-                        Cho::SS => result.push('T'),
-                        Cho::JJ => result.push('W'),
-                        _ => {
-                            // 기본 자음인 경우 그대로 처리
-                            if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
-                                result.push(key);
-                            }
-                        }
+                    if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
+                        result.push(key);
                     }
                 }
 
@@ -210,137 +305,24 @@ impl HangulBuilder2Bul {
 
                 // 종성 변환 (겹받침 처리)
                 if let Some(jong) = hangul_char.get_jong() {
-                    // Jong::E는 빈 종성을 의미함
                     if jong != Jong::E {
-                        // 종성 쌍자음 처리 (직접 대문자로 매핑)
-                        match jong {
-                            Jong::GG => result.push('R'), // ㄲ -> R
-                            Jong::SS => result.push('T'), // ㅆ -> T
-                            _ => {
-                                if let Some(components) = compound_jong_map.get(&jong) {
-                                    // 겹받침인 경우 분해해서 처리 (두벌식에서는 초성으로 변환)
-                                    for &base_jong in components {
-                                        let cho = base_jong.to_cho();
-                                        if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
-                                            result.push(key);
-                                        }
-                                    }
-                                } else {
-                                    // 기본 받침인 경우 그대로 처리 (두벌식에서는 초성으로 변환)
-                                    let cho = jong.to_cho();
-                                    if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
-                                        result.push(key);
-                                    }
+                        if let Some(components) = compound_jong_map.get(&jong) {
+                            // 겹받침인 경우 분해해서 처리
+                            for &base_jong in components {
+                                // 각 기본 종성에 대해 초성으로 변환하여 매핑
+                                let cho = base_jong.to_cho();
+                                if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
+                                    result.push(key);
                                 }
+                            }
+                        } else {
+                            // 기본 받침인 경우 초성으로 변환하여 처리
+                            let cho = jong.to_cho();
+                            if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
+                                result.push(key);
                             }
                         }
                     }
-                }
-            } else if c as u32 >= 0x3131 && c as u32 <= 0x318E {
-                // 한글 호환용 자모인 경우 (ㄱ, ㄴ, ㅏ, ㅑ 등)
-
-                // 1. 각 자모 enum 값을 확인하여 유니코드가 일치하는지 검사
-
-                // 먼저 초성으로 시도
-                let mut found = false;
-
-                // 초성(Cho) 확인
-                for cho_val in 0..19 {
-                    if let Some(cho) = get_cho_by_sequence(cho_val) {
-                        let jamo_enum = JamoEnum::Cho(cho);
-                        if jamo_enum.get_unicode_compat() == c {
-                            // 쌍자음은 대문자로 변환
-                            match cho {
-                                Cho::GG => result.push('R'),
-                                Cho::DD => result.push('E'),
-                                Cho::BB => result.push('Q'),
-                                Cho::SS => result.push('T'),
-                                Cho::JJ => result.push('W'),
-                                _ => {
-                                    // 기본 자음인 경우 그대로 처리
-                                    if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                        result.push(key);
-                                    }
-                                }
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-
-                // 중성(Jung) 확인
-                if !found {
-                    for jung_val in 0..21 {
-                        if let Some(jung) = get_jung_by_sequence(jung_val) {
-                            let jamo_enum = JamoEnum::Jung(jung);
-                            if jamo_enum.get_unicode_compat() == c {
-                                // 이중 모음 처리
-                                if let Some(components) = compound_jung_map.get(&jung) {
-                                    // 이중 모음인 경우 분해해서 처리
-                                    for &base_jung in components {
-                                        if let Some(&key) =
-                                            reverse_map.get(&JamoEnum::Jung(base_jung))
-                                        {
-                                            result.push(key);
-                                        }
-                                    }
-                                } else {
-                                    // 기본 모음인 경우 그대로 처리
-                                    if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                        result.push(key);
-                                    }
-                                }
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // 종성(Jong) 확인 - 두벌식에서는 종성이 초성으로 변환됨
-                if !found {
-                    for jong_val in 1..28 {
-                        // 0은 종성 없음이므로 1부터 시작
-                        if let Some(jong) = get_jong_by_sequence(jong_val) {
-                            let jamo_enum = JamoEnum::Jong(jong);
-                            if jamo_enum.get_unicode_compat() == c {
-                                // 종성 쌍자음 처리 (직접 대문자로 매핑)
-                                match jong {
-                                    Jong::GG => result.push('R'), // ㄲ -> R
-                                    Jong::SS => result.push('T'), // ㅆ -> T
-                                    _ => {
-                                        // 겹받침 처리
-                                        if let Some(components) = compound_jong_map.get(&jong) {
-                                            // 겹받침인 경우 분해해서 처리 (두벌식에서는 초성으로 변환)
-                                            for &base_jong in components {
-                                                let cho = base_jong.to_cho();
-                                                if let Some(&key) =
-                                                    reverse_map.get(&JamoEnum::Cho(cho))
-                                                {
-                                                    result.push(key);
-                                                }
-                                            }
-                                        } else {
-                                            // 기본 받침인 경우 그대로 처리 (두벌식에서는 초성으로 변환)
-                                            let cho = jong.to_cho();
-                                            if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho))
-                                            {
-                                                result.push(key);
-                                            }
-                                        }
-                                    }
-                                }
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // 매칭되는 키를 찾지 못한 경우 그대로 추가
-                if !found {
-                    result.push(c);
                 }
             } else {
                 // 한글이 아닌 경우 그대로 추가

@@ -665,6 +665,7 @@ pub enum JamoEnum {
     Cho(Cho),
     Jung(Jung),
     Jong(Jong),
+    Special(char), // 자모가 아닌 특수 문자
 }
 
 impl Jamo for JamoEnum {
@@ -673,6 +674,7 @@ impl Jamo for JamoEnum {
             JamoEnum::Cho(cho) => cho.get_sequence(),
             JamoEnum::Jung(jung) => jung.get_sequence(),
             JamoEnum::Jong(jong) => jong.get_sequence(),
+            JamoEnum::Special(_) => -1,
         }
     }
 
@@ -681,6 +683,7 @@ impl Jamo for JamoEnum {
             JamoEnum::Cho(cho) => cho.get_unicode(),
             JamoEnum::Jung(jung) => jung.get_unicode(),
             JamoEnum::Jong(jong) => jong.get_unicode(),
+            JamoEnum::Special(c) => *c,
         }
     }
 
@@ -689,6 +692,7 @@ impl Jamo for JamoEnum {
             JamoEnum::Cho(cho) => cho.get_unicode_compat(),
             JamoEnum::Jung(jung) => jung.get_unicode_compat(),
             JamoEnum::Jong(jong) => jong.get_unicode_compat(),
+            JamoEnum::Special(c) => *c,
         }
     }
 }

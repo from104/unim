@@ -2,7 +2,10 @@ use crate::hangul::builder::BaseHangulBuilder;
 use crate::hangul::builder::HangulBuilder;
 use crate::hangul::char::HangulChar;
 use crate::hangul::jamo::*;
+use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
+use std::fs::File;
+use std::io::Read;
 
 /**
  * 3벌식 한글 조합기
@@ -10,66 +13,232 @@ use std::collections::{HashMap, VecDeque};
 #[derive(Debug, Default)]
 pub struct HangulBuilder3Bul {
     base_builder: BaseHangulBuilder,
+    en_keymap_file: String,
+    ko_keymap_file: String,
 }
 
 impl HangulBuilder3Bul {
-    pub fn new() -> Self {
+    pub fn new(en_keymap_file: &str, ko_keymap_file: &str) -> Self {
         let mut builder = HangulBuilder3Bul {
             base_builder: BaseHangulBuilder::new(),
+            en_keymap_file: en_keymap_file.to_string(),
+            ko_keymap_file: ko_keymap_file.to_string(),
         };
         builder.initialize_combined_jamo();
         builder
     }
 
     /// 3벌식 키보드 매핑을 생성합니다.
-    fn create_keyboard_map(&self) -> HashMap<char, JamoEnum> {
+    pub fn create_keyboard_map(
+        &self,
+        en_keymap_file: &str,
+        ko_keymap_file: &str,
+    ) -> HashMap<char, JamoEnum> {
         let mut keyboard_map = HashMap::new();
 
-        // 숫자 키 매핑
-        keyboard_map.insert('1', JamoEnum::Jong(Jong::H));
-        keyboard_map.insert('2', JamoEnum::Jong(Jong::SS));
-        keyboard_map.insert('3', JamoEnum::Jong(Jong::B));
-        keyboard_map.insert('4', JamoEnum::Jung(Jung::YO));
-        keyboard_map.insert('5', JamoEnum::Jung(Jung::YU));
-        keyboard_map.insert('6', JamoEnum::Jung(Jung::YA));
-        keyboard_map.insert('7', JamoEnum::Jung(Jung::YE));
-        keyboard_map.insert('8', JamoEnum::Jung(Jung::YI));
-        keyboard_map.insert('9', JamoEnum::Jung(Jung::U));
-        keyboard_map.insert('0', JamoEnum::Cho(Cho::K));
+        // 영문 키맵 로드
+        let mut file = File::open(en_keymap_file).expect("Failed to open English keymap file");
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .expect("Failed to read English keymap file");
+        let en_keymap: Value =
+            serde_json::from_str(&contents).expect("Failed to parse English keymap JSON");
 
-        // 첫번째 행
-        keyboard_map.insert('q', JamoEnum::Jong(Jong::S));
-        keyboard_map.insert('w', JamoEnum::Jong(Jong::L));
-        keyboard_map.insert('e', JamoEnum::Jung(Jung::YEO));
-        keyboard_map.insert('r', JamoEnum::Jung(Jung::AE));
-        keyboard_map.insert('t', JamoEnum::Jung(Jung::EO));
-        keyboard_map.insert('y', JamoEnum::Cho(Cho::R));
-        keyboard_map.insert('u', JamoEnum::Cho(Cho::D));
-        keyboard_map.insert('i', JamoEnum::Cho(Cho::M));
-        keyboard_map.insert('o', JamoEnum::Cho(Cho::C));
-        keyboard_map.insert('p', JamoEnum::Cho(Cho::P));
+        // 한글 키맵 로드
+        let mut file = File::open(ko_keymap_file).expect("Failed to open Korean keymap file");
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .expect("Failed to read Korean keymap file");
+        let ko_keymap: Value =
+            serde_json::from_str(&contents).expect("Failed to parse Korean keymap JSON");
 
-        // 두번째 행
-        keyboard_map.insert('a', JamoEnum::Jong(Jong::NG));
-        keyboard_map.insert('s', JamoEnum::Jong(Jong::N));
-        keyboard_map.insert('d', JamoEnum::Jung(Jung::I));
-        keyboard_map.insert('f', JamoEnum::Jung(Jung::A));
-        keyboard_map.insert('g', JamoEnum::Jung(Jung::EU));
-        keyboard_map.insert('h', JamoEnum::Cho(Cho::N));
-        keyboard_map.insert('j', JamoEnum::Cho(Cho::E));
-        keyboard_map.insert('k', JamoEnum::Cho(Cho::G));
-        keyboard_map.insert('l', JamoEnum::Cho(Cho::J));
-        keyboard_map.insert(';', JamoEnum::Cho(Cho::B));
-        keyboard_map.insert('\'', JamoEnum::Cho(Cho::T));
+        // 영문-한글 매핑 생성
+        let rows = ["1st", "2nd", "3nd", "4th"];
 
-        // 세번째 행
-        keyboard_map.insert('z', JamoEnum::Jong(Jong::M));
-        keyboard_map.insert('x', JamoEnum::Jong(Jong::G));
-        keyboard_map.insert('c', JamoEnum::Jung(Jung::E));
-        keyboard_map.insert('v', JamoEnum::Jung(Jung::O));
-        keyboard_map.insert('b', JamoEnum::Jung(Jung::U));
-        keyboard_map.insert('n', JamoEnum::Cho(Cho::S));
-        keyboard_map.insert('m', JamoEnum::Cho(Cho::H));
+        // 먼저 lower 케이스만 처리
+        for row in rows.iter() {
+            if let (Some(en_row), Some(ko_row)) = (
+                en_keymap["layout"]["lower"][row].as_array(),
+                ko_keymap["layout"]["lower"][row].as_array(),
+            ) {
+                for (en_char, ko_char) in en_row.iter().zip(ko_row.iter()) {
+                    if let (Some(en), Some(ko)) = (en_char.as_str(), ko_char.as_str()) {
+                        if let Some(c) = en.chars().next() {
+                            // 한글 자모를 JamoEnum으로 변환
+                            let jamo = match ko.chars().next() {
+                                Some('ㄱ') => Some(JamoEnum::Cho(Cho::G)),
+                                Some('ㄲ') => Some(JamoEnum::Cho(Cho::GG)),
+                                Some('ㄴ') => Some(JamoEnum::Cho(Cho::N)),
+                                Some('ㄷ') => Some(JamoEnum::Cho(Cho::D)),
+                                Some('ㄸ') => Some(JamoEnum::Cho(Cho::DD)),
+                                Some('ㄹ') => Some(JamoEnum::Cho(Cho::R)),
+                                Some('ㅁ') => Some(JamoEnum::Cho(Cho::M)),
+                                Some('ㅂ') => Some(JamoEnum::Cho(Cho::B)),
+                                Some('ㅃ') => Some(JamoEnum::Cho(Cho::BB)),
+                                Some('ㅅ') => Some(JamoEnum::Cho(Cho::S)),
+                                Some('ㅆ') => Some(JamoEnum::Cho(Cho::SS)),
+                                Some('ㅇ') => Some(JamoEnum::Cho(Cho::E)),
+                                Some('ㅈ') => Some(JamoEnum::Cho(Cho::J)),
+                                Some('ㅉ') => Some(JamoEnum::Cho(Cho::JJ)),
+                                Some('ㅊ') => Some(JamoEnum::Cho(Cho::C)),
+                                Some('ㅋ') => Some(JamoEnum::Cho(Cho::K)),
+                                Some('ㅌ') => Some(JamoEnum::Cho(Cho::T)),
+                                Some('ㅍ') => Some(JamoEnum::Cho(Cho::P)),
+                                Some('ㅎ') => Some(JamoEnum::Cho(Cho::H)),
+                                Some('ㅏ') => Some(JamoEnum::Jung(Jung::A)),
+                                Some('ㅐ') => Some(JamoEnum::Jung(Jung::AE)),
+                                Some('ㅑ') => Some(JamoEnum::Jung(Jung::YA)),
+                                Some('ㅒ') => Some(JamoEnum::Jung(Jung::YAE)),
+                                Some('ㅓ') => Some(JamoEnum::Jung(Jung::EO)),
+                                Some('ㅔ') => Some(JamoEnum::Jung(Jung::E)),
+                                Some('ㅕ') => Some(JamoEnum::Jung(Jung::YEO)),
+                                Some('ㅖ') => Some(JamoEnum::Jung(Jung::YE)),
+                                Some('ㅗ') => Some(JamoEnum::Jung(Jung::O)),
+                                Some('ㅘ') => Some(JamoEnum::Jung(Jung::WA)),
+                                Some('ㅙ') => Some(JamoEnum::Jung(Jung::WAE)),
+                                Some('ㅚ') => Some(JamoEnum::Jung(Jung::OE)),
+                                Some('ㅛ') => Some(JamoEnum::Jung(Jung::YO)),
+                                Some('ㅜ') => Some(JamoEnum::Jung(Jung::U)),
+                                Some('ㅝ') => Some(JamoEnum::Jung(Jung::WEO)),
+                                Some('ㅞ') => Some(JamoEnum::Jung(Jung::WE)),
+                                Some('ㅟ') => Some(JamoEnum::Jung(Jung::WI)),
+                                Some('ㅠ') => Some(JamoEnum::Jung(Jung::YU)),
+                                Some('ㅡ') => Some(JamoEnum::Jung(Jung::EU)),
+                                Some('ㅢ') => Some(JamoEnum::Jung(Jung::YI)),
+                                Some('ㅣ') => Some(JamoEnum::Jung(Jung::I)),
+                                Some('ᆨ') => Some(JamoEnum::Jong(Jong::G)),
+                                Some('ᆩ') => Some(JamoEnum::Jong(Jong::GG)),
+                                Some('ᆪ') => Some(JamoEnum::Jong(Jong::GS)),
+                                Some('ᆫ') => Some(JamoEnum::Jong(Jong::N)),
+                                Some('ᆬ') => Some(JamoEnum::Jong(Jong::NJ)),
+                                Some('ᆭ') => Some(JamoEnum::Jong(Jong::NH)),
+                                Some('ᆮ') => Some(JamoEnum::Jong(Jong::D)),
+                                Some('ᆯ') => Some(JamoEnum::Jong(Jong::L)),
+                                Some('ᆰ') => Some(JamoEnum::Jong(Jong::LG)),
+                                Some('ᆱ') => Some(JamoEnum::Jong(Jong::LM)),
+                                Some('ᆲ') => Some(JamoEnum::Jong(Jong::LB)),
+                                Some('ᆳ') => Some(JamoEnum::Jong(Jong::LS)),
+                                Some('ᆴ') => Some(JamoEnum::Jong(Jong::LT)),
+                                Some('ᆵ') => Some(JamoEnum::Jong(Jong::LP)),
+                                Some('ᆶ') => Some(JamoEnum::Jong(Jong::LH)),
+                                Some('ᆷ') => Some(JamoEnum::Jong(Jong::M)),
+                                Some('ᆸ') => Some(JamoEnum::Jong(Jong::B)),
+                                Some('ᆹ') => Some(JamoEnum::Jong(Jong::BS)),
+                                Some('ᆺ') => Some(JamoEnum::Jong(Jong::S)),
+                                Some('ᆻ') => Some(JamoEnum::Jong(Jong::SS)),
+                                Some('ᆼ') => Some(JamoEnum::Jong(Jong::NG)),
+                                Some('ᆽ') => Some(JamoEnum::Jong(Jong::J)),
+                                Some('ᆾ') => Some(JamoEnum::Jong(Jong::C)),
+                                Some('ᆿ') => Some(JamoEnum::Jong(Jong::K)),
+                                Some('ᇀ') => Some(JamoEnum::Jong(Jong::T)),
+                                Some('ᇁ') => Some(JamoEnum::Jong(Jong::P)),
+                                Some('ᇂ') => Some(JamoEnum::Jong(Jong::H)),
+                                Some(c) => Some(JamoEnum::Special(c)), // 자모가 아닌 문자도 매핑
+                                None => None,
+                            };
+                            if let Some(jamo) = jamo {
+                                keyboard_map.insert(c, jamo);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 그 다음 upper 케이스 처리 (lower에 없는 경우만)
+        for row in rows.iter() {
+            if let (Some(en_row), Some(ko_row)) = (
+                en_keymap["layout"]["upper"][row].as_array(),
+                ko_keymap["layout"]["upper"][row].as_array(),
+            ) {
+                for (en_char, ko_char) in en_row.iter().zip(ko_row.iter()) {
+                    if let (Some(en), Some(ko)) = (en_char.as_str(), ko_char.as_str()) {
+                        if let Some(c) = en.chars().next() {
+                            // 이미 매핑된 키는 건너뛰기
+                            if keyboard_map.contains_key(&c) {
+                                continue;
+                            }
+
+                            // 한글 자모를 JamoEnum으로 변환
+                            let jamo = match ko.chars().next() {
+                                Some('ㄱ') => Some(JamoEnum::Cho(Cho::G)),
+                                Some('ㄲ') => Some(JamoEnum::Cho(Cho::GG)),
+                                Some('ㄴ') => Some(JamoEnum::Cho(Cho::N)),
+                                Some('ㄷ') => Some(JamoEnum::Cho(Cho::D)),
+                                Some('ㄸ') => Some(JamoEnum::Cho(Cho::DD)),
+                                Some('ㄹ') => Some(JamoEnum::Cho(Cho::R)),
+                                Some('ㅁ') => Some(JamoEnum::Cho(Cho::M)),
+                                Some('ㅂ') => Some(JamoEnum::Cho(Cho::B)),
+                                Some('ㅃ') => Some(JamoEnum::Cho(Cho::BB)),
+                                Some('ㅅ') => Some(JamoEnum::Cho(Cho::S)),
+                                Some('ㅆ') => Some(JamoEnum::Cho(Cho::SS)),
+                                Some('ㅇ') => Some(JamoEnum::Cho(Cho::E)),
+                                Some('ㅈ') => Some(JamoEnum::Cho(Cho::J)),
+                                Some('ㅉ') => Some(JamoEnum::Cho(Cho::JJ)),
+                                Some('ㅊ') => Some(JamoEnum::Cho(Cho::C)),
+                                Some('ㅋ') => Some(JamoEnum::Cho(Cho::K)),
+                                Some('ㅌ') => Some(JamoEnum::Cho(Cho::T)),
+                                Some('ㅍ') => Some(JamoEnum::Cho(Cho::P)),
+                                Some('ㅎ') => Some(JamoEnum::Cho(Cho::H)),
+                                Some('ㅏ') => Some(JamoEnum::Jung(Jung::A)),
+                                Some('ㅐ') => Some(JamoEnum::Jung(Jung::AE)),
+                                Some('ㅑ') => Some(JamoEnum::Jung(Jung::YA)),
+                                Some('ㅒ') => Some(JamoEnum::Jung(Jung::YAE)),
+                                Some('ㅓ') => Some(JamoEnum::Jung(Jung::EO)),
+                                Some('ㅔ') => Some(JamoEnum::Jung(Jung::E)),
+                                Some('ㅕ') => Some(JamoEnum::Jung(Jung::YEO)),
+                                Some('ㅖ') => Some(JamoEnum::Jung(Jung::YE)),
+                                Some('ㅗ') => Some(JamoEnum::Jung(Jung::O)),
+                                Some('ㅘ') => Some(JamoEnum::Jung(Jung::WA)),
+                                Some('ㅙ') => Some(JamoEnum::Jung(Jung::WAE)),
+                                Some('ㅚ') => Some(JamoEnum::Jung(Jung::OE)),
+                                Some('ㅛ') => Some(JamoEnum::Jung(Jung::YO)),
+                                Some('ㅜ') => Some(JamoEnum::Jung(Jung::U)),
+                                Some('ㅝ') => Some(JamoEnum::Jung(Jung::WEO)),
+                                Some('ㅞ') => Some(JamoEnum::Jung(Jung::WE)),
+                                Some('ㅟ') => Some(JamoEnum::Jung(Jung::WI)),
+                                Some('ㅠ') => Some(JamoEnum::Jung(Jung::YU)),
+                                Some('ㅡ') => Some(JamoEnum::Jung(Jung::EU)),
+                                Some('ㅢ') => Some(JamoEnum::Jung(Jung::YI)),
+                                Some('ㅣ') => Some(JamoEnum::Jung(Jung::I)),
+                                Some('ᆨ') => Some(JamoEnum::Jong(Jong::G)),
+                                Some('ᆩ') => Some(JamoEnum::Jong(Jong::GG)),
+                                Some('ᆪ') => Some(JamoEnum::Jong(Jong::GS)),
+                                Some('ᆫ') => Some(JamoEnum::Jong(Jong::N)),
+                                Some('ᆬ') => Some(JamoEnum::Jong(Jong::NJ)),
+                                Some('ᆭ') => Some(JamoEnum::Jong(Jong::NH)),
+                                Some('ᆮ') => Some(JamoEnum::Jong(Jong::D)),
+                                Some('ᆯ') => Some(JamoEnum::Jong(Jong::L)),
+                                Some('ᆰ') => Some(JamoEnum::Jong(Jong::LG)),
+                                Some('ᆱ') => Some(JamoEnum::Jong(Jong::LM)),
+                                Some('ᆲ') => Some(JamoEnum::Jong(Jong::LB)),
+                                Some('ᆳ') => Some(JamoEnum::Jong(Jong::LS)),
+                                Some('ᆴ') => Some(JamoEnum::Jong(Jong::LT)),
+                                Some('ᆵ') => Some(JamoEnum::Jong(Jong::LP)),
+                                Some('ᆶ') => Some(JamoEnum::Jong(Jong::LH)),
+                                Some('ᆷ') => Some(JamoEnum::Jong(Jong::M)),
+                                Some('ᆸ') => Some(JamoEnum::Jong(Jong::B)),
+                                Some('ᆹ') => Some(JamoEnum::Jong(Jong::BS)),
+                                Some('ᆺ') => Some(JamoEnum::Jong(Jong::S)),
+                                Some('ᆻ') => Some(JamoEnum::Jong(Jong::SS)),
+                                Some('ᆼ') => Some(JamoEnum::Jong(Jong::NG)),
+                                Some('ᆽ') => Some(JamoEnum::Jong(Jong::J)),
+                                Some('ᆾ') => Some(JamoEnum::Jong(Jong::C)),
+                                Some('ᆿ') => Some(JamoEnum::Jong(Jong::K)),
+                                Some('ᇀ') => Some(JamoEnum::Jong(Jong::T)),
+                                Some('ᇁ') => Some(JamoEnum::Jong(Jong::P)),
+                                Some('ᇂ') => Some(JamoEnum::Jong(Jong::H)),
+                                Some(c) => Some(JamoEnum::Special(c)), // 자모가 아닌 문자도 매핑
+                                None => None,
+                            };
+                            if let Some(jamo) = jamo {
+                                keyboard_map.insert(c, jamo);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         keyboard_map
     }
@@ -149,21 +318,31 @@ impl HangulBuilder3Bul {
 
     /// 문자열을 한글로 변환합니다.
     pub fn convert_string(&mut self, input: &str) -> String {
-        let keyboard_map = self.create_keyboard_map();
+        let keyboard_map = self.create_keyboard_map(&self.en_keymap_file, &self.ko_keymap_file);
         BaseHangulBuilder::convert_string(input, &keyboard_map, self)
     }
 
     /// 한글 문자열을 세벌식 영문 자판 입력으로 변환합니다.
     pub fn convert_korean_to_english(&self, input: &str) -> String {
-        let keyboard_map = self.create_keyboard_map();
+        let keyboard_map = self.create_keyboard_map(&self.en_keymap_file, &self.ko_keymap_file);
         let mut reverse_map = HashMap::new();
 
-        // 키보드 맵을 뒤집어서 자모 -> 키 매핑 생성
+        // 키보드 맵을 뒤집어서 자모 -> 키 매핑 생성할 때, lower 케이스 우선 적용
+        // 우선 lower case 문자만 체크
         for (key, jamo) in keyboard_map.iter() {
-            reverse_map.insert(*jamo, *key);
+            if !key.is_ascii_uppercase() {
+                reverse_map.insert(*jamo, *key);
+            }
         }
 
-        // 이중 모음 및 쌍자음 분해 매핑 정의 (분해되는 문자 -> 기본 구성 요소)
+        // 이후 upper case 문자는 매핑되지 않은 자모에 대해서만 처리
+        for (key, jamo) in keyboard_map.iter() {
+            if key.is_ascii_uppercase() && !reverse_map.contains_key(jamo) {
+                reverse_map.insert(*jamo, *key);
+            }
+        }
+
+        // 이중 모음 분해 매핑 정의
         let mut compound_jung_map = HashMap::new();
         compound_jung_map.insert(Jung::WA, vec![Jung::O, Jung::A]); // ㅘ -> ㅗ + ㅏ
         compound_jung_map.insert(Jung::WAE, vec![Jung::O, Jung::AE]); // ㅙ -> ㅗ + ㅐ
@@ -173,6 +352,7 @@ impl HangulBuilder3Bul {
         compound_jung_map.insert(Jung::WI, vec![Jung::U, Jung::I]); // ㅟ -> ㅜ + ㅣ
         compound_jung_map.insert(Jung::YI, vec![Jung::EU, Jung::I]); // ㅢ -> ㅡ + ㅣ
 
+        // 이중 자음(쌍자음) 분해 매핑 정의
         let mut compound_cho_map = HashMap::new();
         compound_cho_map.insert(Cho::GG, vec![Cho::G, Cho::G]); // ㄲ -> ㄱ + ㄱ
         compound_cho_map.insert(Cho::DD, vec![Cho::D, Cho::D]); // ㄸ -> ㄷ + ㄷ
@@ -180,6 +360,7 @@ impl HangulBuilder3Bul {
         compound_cho_map.insert(Cho::SS, vec![Cho::S, Cho::S]); // ㅆ -> ㅅ + ㅅ
         compound_cho_map.insert(Cho::JJ, vec![Cho::J, Cho::J]); // ㅉ -> ㅈ + ㅈ
 
+        // 이중 종성(겹받침) 분해 매핑
         let mut compound_jong_map = HashMap::new();
         compound_jong_map.insert(Jong::GG, vec![Jong::G, Jong::G]); // ㄲ -> ㄱ + ㄱ
         compound_jong_map.insert(Jong::GS, vec![Jong::G, Jong::S]); // ㄳ -> ㄱ + ㅅ
@@ -203,10 +384,10 @@ impl HangulBuilder3Bul {
                 let mut hangul_char = HangulChar::new();
                 hangul_char.set_jamo_by_syllable(c);
 
-                // 초성 변환 (쌍자음 처리)
+                // 초성 변환 (이중자음 처리)
                 if let Some(cho) = hangul_char.get_cho() {
                     if let Some(components) = compound_cho_map.get(&cho) {
-                        // 쌍자음인 경우 분해해서 처리
+                        // 이중자음인 경우 분해해서 처리
                         for &base_cho in components {
                             if let Some(&key) = reverse_map.get(&JamoEnum::Cho(base_cho)) {
                                 result.push(key);
@@ -237,9 +418,8 @@ impl HangulBuilder3Bul {
                     }
                 }
 
-                // 종성 변환 (세벌식은 종성이 직접 매핑됨, 겹받침 처리)
+                // 종성 변환 (겹받침 처리)
                 if let Some(jong) = hangul_char.get_jong() {
-                    // Jong::E는 빈 종성을 의미함
                     if jong != Jong::E {
                         if let Some(components) = compound_jong_map.get(&jong) {
                             // 겹받침인 경우 분해해서 처리
@@ -258,18 +438,15 @@ impl HangulBuilder3Bul {
                 }
             } else if c as u32 >= 0x3131 && c as u32 <= 0x318E {
                 // 한글 호환용 자모인 경우 (ㄱ, ㄴ, ㅏ, ㅑ 등)
-
-                // 먼저 초성으로 시도
                 let mut found = false;
 
-                // 초성(Cho) 확인
+                // 초성(Cho) 확인 (이중자음 처리)
                 for cho_val in 0..19 {
                     if let Some(cho) = get_cho_by_sequence(cho_val) {
                         let jamo_enum = JamoEnum::Cho(cho);
                         if jamo_enum.get_unicode_compat() == c {
-                            // 쌍자음 처리
                             if let Some(components) = compound_cho_map.get(&cho) {
-                                // 쌍자음인 경우 분해해서 처리
+                                // 이중자음인 경우 분해해서 처리
                                 for &base_cho in components {
                                     if let Some(&key) = reverse_map.get(&JamoEnum::Cho(base_cho)) {
                                         result.push(key);
@@ -287,13 +464,12 @@ impl HangulBuilder3Bul {
                     }
                 }
 
-                // 중성(Jung) 확인
+                // 중성(Jung) 확인 (이중모음 처리)
                 if !found {
                     for jung_val in 0..21 {
                         if let Some(jung) = get_jung_by_sequence(jung_val) {
                             let jamo_enum = JamoEnum::Jung(jung);
                             if jamo_enum.get_unicode_compat() == c {
-                                // 이중 모음 처리
                                 if let Some(components) = compound_jung_map.get(&jung) {
                                     // 이중 모음인 경우 분해해서 처리
                                     for &base_jung in components {
@@ -316,14 +492,13 @@ impl HangulBuilder3Bul {
                     }
                 }
 
-                // 종성(Jong) 확인 - 세벌식은 종성을 직접 사용
+                // 종성(Jong) 확인 (겹받침 처리)
                 if !found {
                     for jong_val in 1..28 {
                         // 0은 종성 없음이므로 1부터 시작
                         if let Some(jong) = get_jong_by_sequence(jong_val) {
                             let jamo_enum = JamoEnum::Jong(jong);
                             if jamo_enum.get_unicode_compat() == c {
-                                // 겹받침 처리
                                 if let Some(components) = compound_jong_map.get(&jong) {
                                     // 겹받침인 경우 분해해서 처리
                                     for &base_jong in components {
