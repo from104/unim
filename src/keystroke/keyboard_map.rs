@@ -252,13 +252,4 @@ impl KeyboardMap {
 
         keyboard_map
     }
-
-    /// 한글 문자열을 영문 자판 입력으로 변환합니다.
-    pub fn hangul_to_keystrokes(
-        input: &str,
-        keyboard_map: &HashMap<char, JamoEnum>,
-        is_3bul: bool, // true면 3벌식, false면 2벌식
-    ) -> String {
-        crate::hangul::hangul_to_keystrokes::hangul_to_keystrokes(input, keyboard_map, is_3bul)
-    }
 }
