@@ -1,93 +1,164 @@
-/**
- * 한글 자모 인터페이스 (Rust에서는 트레잇으로 표현)
- */
+/// 한글 자모(초성, 중성, 종성)를 나타내는 타입들이 구현해야 하는 공통 트레이트입니다.
+///
+/// 이 트레이트는 각 자모 타입이 가져야 하는 기본적인 기능들을 정의합니다.
+/// 예를 들어, 음절 조합에 사용될 순서 값이나 유니코드 문자 표현을 얻는 기능을 포함합니다.
 pub trait Jamo: std::fmt::Debug + Clone + Copy + PartialEq + Eq + std::hash::Hash {
-    /**
-     * 음절 조합을 위한 순서 얻기
-     */
+    /// 음절을 구성할 때 사용되는 자모의 순서 값을 반환합니다.
+    ///
+    /// 한글 음절은 초성, 중성, 종성의 순서로 조합됩니다. 이 순서 값은
+    /// 유니코드 표준에 정의된 계산 방식(Hangul Syllables algorithm)에 따라
+    /// 음절 문자의 코드 포인트를 결정하는 데 사용됩니다.
+    ///
+    /// - 초성(Cho): 0부터 18까지의 값을 가집니다. (채움 문자는 -1)
+    /// - 중성(Jung): 0부터 20까지의 값을 가집니다. (채움 문자는 -1)
+    /// - 종성(Jong): 0부터 27까지의 값을 가집니다. (종성 없음은 0)
+    ///
+    /// # 반환값
+    ///
+    /// 해당 자모의 순서 값을 나타내는 `i32` 정수.
     fn get_sequence(&self) -> i32;
 
-    /**
-     * 유니코드(첫가끝) 얻기
-     */
+    /// 유니코드 첫가끝(Hangul Jamo) 영역(U+1100-U+11FF)의 문자를 반환합니다.
+    ///
+    /// 이 영역의 문자들은 주로 음절 조합 알고리즘이나 언어 처리 시스템 내부에서 사용됩니다.
+    /// 일반적인 텍스트 표시에는 호환용 자모 영역 문자가 더 자주 사용될 수 있습니다.
+    ///
+    /// # 반환값
+    ///
+    /// 해당 자모의 첫가끝 유니코드 문자 `char`.
+    /// 종성 비움(`Jong::E`)의 경우 널 문자(`\u{0000}`)를 반환합니다.
+    /// 초성/중성 채움(`Cho::F`, `Jung::F`)의 경우 각각 해당하는 첫가끝 채움 문자를 반환합니다.
     fn get_unicode(&self) -> char;
 
-    /**
-     * 유니코드(호환용 자모) 얻기
-     */
+    /// 유니코드 호환용 자모(Hangul Compatibility Jamo) 영역(U+3130-U+318F)의 문자를 반환합니다.
+    ///
+    /// 이 영역의 문자들은 키보드 입력이나 일반 텍스트 표시 등에서 흔히 사용되는 완성형 형태의 자모 문자입니다.
+    ///
+    /// # 반환값
+    ///
+    /// 해당 자모의 호환용 유니코드 문자 `char`.
+    /// 종성 비움(`Jong::E`)의 경우 널 문자(`\u{0000}`)를 반환합니다.
+    /// 초성/중성 채움(`Cho::F`, `Jung::F`)의 경우 호환용 한글 채움 문자(`\u{3164}`)를 반환합니다.
     fn get_unicode_compat(&self) -> char;
 }
 
-/**
- * 초성 상수 (Rust에서는 enum으로 표현)
- */
+/// 한글 초성을 나타내는 열거형입니다.
+///
+/// 현대 한글에서 사용되는 19개의 초성과 음절 구성 시 초성이 없는 경우를 나타내는
+/// 초성 채움 문자(`F`)를 포함합니다. 각 variant는 해당 초성의 로마자 표기법을 따릅니다.
+///
+/// # 예시
+///
+/// ```
+/// use unin::hangul::jamo::{Cho, Jamo};
+///
+/// let giyeok = Cho::G;
+/// assert_eq!(giyeok.get_sequence(), 0);
+/// assert_eq!(giyeok.get_unicode(), '\u{1100}'); // ᄀ
+/// assert_eq!(giyeok.get_unicode_compat(), '\u{3131}'); // ㄱ
+///
+/// let filler = Cho::F;
+/// assert_eq!(filler.get_sequence(), -1);
+/// assert_eq!(filler.get_unicode(), '\u{115f}'); // ᅟ
+/// assert_eq!(filler.get_unicode_compat(), '\u{3164}'); // filler
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cho {
-    // 상수 데이터 (Rust enum은 데이터와 함께 열거형을 가질 수 있습니다.)
-    F = -1,  // 초성 채움
-    G = 0,   // ㄱ
-    GG = 1,  // ㄲ
-    N = 2,   // ㄴ
-    D = 3,   // ㄷ
-    DD = 4,  // ㄸ
-    R = 5,   // ㄹ
-    M = 6,   // ㅁ
-    B = 7,   // ㅂ
-    BB = 8,  // ㅃ
-    S = 9,   // ㅅ
-    SS = 10, // ㅆ
-    E = 11,  // ㅇ
-    J = 12,  // ㅈ
-    JJ = 13, // ㅉ
-    C = 14,  // ㅊ
-    K = 15,  // ㅋ
-    T = 16,  // ㅌ
-    P = 17,  // ㅍ
-    H = 18,  // ㅎ
+    /// 초성 채움 문자 (U+115F). 음절에 초성이 없을 때 사용됩니다.
+    F = -1,
+    /// ㄱ (giyeok)
+    G = 0,
+    /// ㄲ (ssanggiyeok)
+    GG = 1,
+    /// ㄴ (nieun)
+    N = 2,
+    /// ㄷ (digeut)
+    D = 3,
+    /// ㄸ (ssangdigeut)
+    DD = 4,
+    /// ㄹ (rieul)
+    R = 5,
+    /// ㅁ (mieum)
+    M = 6,
+    /// ㅂ (bieup)
+    B = 7,
+    /// ㅃ (ssangbieup)
+    BB = 8,
+    /// ㅅ (siot)
+    S = 9,
+    /// ㅆ (ssangsiot)
+    SS = 10,
+    /// ㅇ (ieung) - 초성으로 사용될 때 (예: "아")
+    E = 11,
+    /// ㅈ (jieut)
+    J = 12,
+    /// ㅉ (ssangjieut)
+    JJ = 13,
+    /// ㅊ (chieut)
+    C = 14,
+    /// ㅋ (kieuk)
+    K = 15,
+    /// ㅌ (tieut)
+    T = 16,
+    /// ㅍ (pieup)
+    P = 17,
+    /// ㅎ (hieut)
+    H = 18,
 }
 
 impl Jamo for Cho {
-    /**
-     * 음절 조합을 위한 순서 얻기
-     */
+    /// 초성의 순서 값을 반환합니다. (0 ~ 18, 채움 문자는 -1)
+    #[inline]
     fn get_sequence(&self) -> i32 {
-        *self as i32 // enum 값을 i32로 캐스팅
+        *self as i32
     }
 
-    /**
-     * 유니코드(첫가끝) 얻기
-     */
+    /// 유니코드 첫가끝 영역의 초성 문자를 반환합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Cho, Jamo};
+    /// assert_eq!(Cho::G.get_unicode(), 'ᄀ'); // U+1100
+    /// assert_eq!(Cho::F.get_unicode(), 'ᅟ'); // U+115F
+    /// ```
     fn get_unicode(&self) -> char {
         match self {
-            Cho::F => '\u{115f}',  // 초성 채움
-            Cho::G => '\u{1100}',  // ㄱ
-            Cho::GG => '\u{1101}', // ㄲ
-            Cho::N => '\u{1102}',  // ㄴ
-            Cho::D => '\u{1103}',  // ㄷ
-            Cho::DD => '\u{1104}', // ㄸ
-            Cho::R => '\u{1105}',  // ㄹ
-            Cho::M => '\u{1106}',  // ㅁ
-            Cho::B => '\u{1107}',  // ㅂ
-            Cho::BB => '\u{1108}', // ㅃ
-            Cho::S => '\u{1109}',  // ㅅ
-            Cho::SS => '\u{110a}', // ㅆ
-            Cho::E => '\u{110b}',  // ㅇ
-            Cho::J => '\u{110c}',  // ㅈ
-            Cho::JJ => '\u{110d}', // ㅉ
-            Cho::C => '\u{110e}',  // ㅊ
-            Cho::K => '\u{110f}',  // ㅋ
-            Cho::T => '\u{1110}',  // ㅌ
-            Cho::P => '\u{1111}',  // ㅍ
-            Cho::H => '\u{1112}',  // ㅎ
+            Cho::F => '\u{115f}',  // Hangul Choseong Filler
+            Cho::G => '\u{1100}',  // ㄱ G
+            Cho::GG => '\u{1101}', // ㄲ GG
+            Cho::N => '\u{1102}',  // ㄴ N
+            Cho::D => '\u{1103}',  // ㄷ D
+            Cho::DD => '\u{1104}', // ㄸ DD
+            Cho::R => '\u{1105}',  // ㄹ R
+            Cho::M => '\u{1106}',  // ㅁ M
+            Cho::B => '\u{1107}',  // ㅂ B
+            Cho::BB => '\u{1108}', // ㅃ BB
+            Cho::S => '\u{1109}',  // ㅅ S
+            Cho::SS => '\u{110a}', // ㅆ SS
+            Cho::E => '\u{110b}',  // ㅇ E
+            Cho::J => '\u{110c}',  // ㅈ J
+            Cho::JJ => '\u{110d}', // ㅉ JJ
+            Cho::C => '\u{110e}',  // ㅊ C
+            Cho::K => '\u{110f}',  // ㅋ K
+            Cho::T => '\u{1110}',  // ㅌ T
+            Cho::P => '\u{1111}',  // ㅍ P
+            Cho::H => '\u{1112}',  // ㅎ H
         }
     }
 
-    /**
-     * 유니코드(호환용 자모) 얻기
-     */
+    /// 유니코드 호환용 자모 영역의 초성 문자를 반환합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Cho, Jamo};
+    /// assert_eq!(Cho::G.get_unicode_compat(), 'ㄱ'); // U+3131
+    /// assert_eq!(Cho::F.get_unicode_compat(), 'ㅤ'); // U+3164 (Hangul Filler)
+    /// ```
     fn get_unicode_compat(&self) -> char {
         match self {
-            Cho::F => '\u{3164}',  // 초성 채움
+            Cho::F => '\u{3164}',  // Hangul Filler (호환용 초성 채움 문자는 별도로 없음)
             Cho::G => '\u{3131}',  // ㄱ
             Cho::GG => '\u{3132}', // ㄲ
             Cho::N => '\u{3134}',  // ㄴ
@@ -112,109 +183,238 @@ impl Jamo for Cho {
 }
 
 impl Cho {
-    /**
-     * 초성을 종성으로 변환
-     */
+    /// 순서 값으로부터 초성(`Cho`)을 생성합니다.
+    ///
+    /// 유효한 초성 순서 값(-1 ~ 18)이 주어지면 해당하는 `Cho` variant를 `Some`으로 감싸 반환하고,
+    /// 그 외의 값이 주어지면 `None`을 반환합니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `seq`: 초성의 순서 값 (`i32`).
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(Cho)`: 주어진 순서 값에 해당하는 초성.
+    /// * `None`: 유효하지 않은 순서 값인 경우.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::Cho;
+    ///
+    /// assert_eq!(Cho::from_sequence(0), Some(Cho::G));
+    /// assert_eq!(Cho::from_sequence(11), Some(Cho::E));
+    /// assert_eq!(Cho::from_sequence(-1), Some(Cho::F));
+    /// assert_eq!(Cho::from_sequence(19), None);
+    /// ```
+    pub fn from_sequence(seq: i32) -> Option<Cho> {
+        match seq {
+            -1 => Some(Cho::F),
+            0 => Some(Cho::G),
+            1 => Some(Cho::GG),
+            2 => Some(Cho::N),
+            3 => Some(Cho::D),
+            4 => Some(Cho::DD),
+            5 => Some(Cho::R),
+            6 => Some(Cho::M),
+            7 => Some(Cho::B),
+            8 => Some(Cho::BB),
+            9 => Some(Cho::S),
+            10 => Some(Cho::SS),
+            11 => Some(Cho::E),
+            12 => Some(Cho::J),
+            13 => Some(Cho::JJ),
+            14 => Some(Cho::C),
+            15 => Some(Cho::K),
+            16 => Some(Cho::T),
+            17 => Some(Cho::P),
+            18 => Some(Cho::H),
+            _ => None,
+        }
+    }
+
+    /// 주어진 초성을 해당하는 종성으로 변환합니다.
+    ///
+    /// 모든 초성이 종성으로 변환될 수 있는 것은 아닙니다. 예를 들어, 초성 'ㄸ'(DD), 'ㅃ'(BB), 'ㅉ'(JJ)는
+    /// 현대 한글에서 종성으로 사용되지 않으므로 변환할 수 없습니다. 초성 채움 문자(`F`) 또한 변환할 수 없습니다.
+    ///
+    /// 변환 규칙:
+    /// * `ㅇ`(E) -> `ㅇ`(NG) (종성 'ㅇ')
+    /// * `ㄹ`(R) -> `ㄹ`(L)
+    /// * 그 외 대부분의 홑자음 초성은 동일한 형태의 종성으로 변환됩니다. (예: `ㄱ`(G) -> `ㄱ`(G))
+    ///
+    /// # 반환값
+    ///
+    /// * `Ok(Jong)`: 변환에 성공한 경우, 해당하는 종성(`Jong`) variant.
+    /// * `Err(&'static str)`: 변환할 수 없는 초성인 경우, 에러 메시지 문자열 슬라이스.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Cho, Jong};
+    ///
+    /// assert_eq!(Cho::G.to_jong(), Ok(Jong::G)); // ㄱ -> ㄱ
+    /// assert_eq!(Cho::E.to_jong(), Ok(Jong::NG)); // ㅇ -> ㅇ (종성)
+    /// assert!(Cho::DD.to_jong().is_err()); // ㄸ는 변환 불가
+    /// assert!(Cho::F.to_jong().is_err()); // 채움 문자는 변환 불가
+    /// ```
     pub fn to_jong(&self) -> Result<Jong, &'static str> {
         match self {
-            Cho::E => Ok(Jong::NG),
-            Cho::R => Ok(Jong::L),
-            Cho::G => Ok(Jong::G),
-            Cho::GG => Ok(Jong::GG),
-            Cho::N => Ok(Jong::N),
-            Cho::D => Ok(Jong::D),
-            Cho::DD => Err("초성 ㄸ는 종성으로 변환할 수 없습니다."),
-            Cho::M => Ok(Jong::M),
-            Cho::B => Ok(Jong::B),
-            Cho::BB => Err("초성 ㅃ는 종성으로 변환할 수 없습니다."),
-            Cho::S => Ok(Jong::S),
-            Cho::SS => Ok(Jong::SS),
-            Cho::J => Ok(Jong::J),
-            Cho::JJ => Err("초성 ㅉ는 종성으로 변환할 수 없습니다."),
-            Cho::C => Ok(Jong::C),
-            Cho::K => Ok(Jong::K),
-            Cho::T => Ok(Jong::T),
-            Cho::P => Ok(Jong::P),
-            Cho::H => Ok(Jong::H),
+            Cho::G => Ok(Jong::G),   // ㄱ
+            Cho::GG => Ok(Jong::GG), // ㄲ
+            Cho::N => Ok(Jong::N),   // ㄴ
+            Cho::D => Ok(Jong::D),   // ㄷ
+            Cho::R => Ok(Jong::L),   // ㄹ
+            Cho::M => Ok(Jong::M),   // ㅁ
+            Cho::B => Ok(Jong::B),   // ㅂ
+            Cho::S => Ok(Jong::S),   // ㅅ
+            Cho::SS => Ok(Jong::SS), // ㅆ
+            Cho::E => Ok(Jong::NG),  // ㅇ (초성) -> ㅇ (종성)
+            Cho::J => Ok(Jong::J),   // ㅈ
+            Cho::C => Ok(Jong::C),   // ㅊ
+            Cho::K => Ok(Jong::K),   // ㅋ
+            Cho::T => Ok(Jong::T),   // ㅌ
+            Cho::P => Ok(Jong::P),   // ㅍ
+            Cho::H => Ok(Jong::H),   // ㅎ
+            // 변환 불가 초성들
+            Cho::DD => Err("초성 'ㄸ'는 종성으로 변환할 수 없습니다."),
+            Cho::BB => Err("초성 'ㅃ'는 종성으로 변환할 수 없습니다."),
+            Cho::JJ => Err("초성 'ㅉ'는 종성으로 변환할 수 없습니다."),
             Cho::F => Err("초성 채움은 종성으로 변환할 수 없습니다."),
         }
     }
 }
 
-/**
- * 중성 상수 (Rust에서는 enum으로 표현)
- */
+/// 한글 중성을 나타내는 열거형입니다.
+///
+/// 현대 한글에서 사용되는 21개의 중성(단모음 및 복모음)과 음절 구성 시 중성이 없는 경우를 나타내는
+/// 중성 채움 문자(`F`)를 포함합니다. 각 variant는 해당 중성의 로마자 표기법을 따릅니다.
+///
+/// # 예시
+///
+/// ```
+/// use unin::hangul::jamo::{Jung, Jamo};
+///
+/// let a = Jung::A;
+/// assert_eq!(a.get_sequence(), 0);
+/// assert_eq!(a.get_unicode(), '\u{1161}'); // ᅡ
+/// assert_eq!(a.get_unicode_compat(), '\u{314f}'); // ㅏ
+///
+/// let wa = Jung::WA;
+/// assert_eq!(wa.get_sequence(), 9);
+/// assert_eq!(wa.get_unicode(), '\u{116a}'); // ᅪ
+/// assert_eq!(wa.get_unicode_compat(), '\u{3158}'); // ㅘ
+///
+/// let filler = Jung::F;
+/// assert_eq!(filler.get_sequence(), -1);
+/// assert_eq!(filler.get_unicode(), '\u{1160}'); // ᅠ
+/// assert_eq!(filler.get_unicode_compat(), '\u{3164}'); // filler
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Jung {
-    // 상수 데이터
-    F = -1,   // 중성 채움
-    A = 0,    // ㅏ
-    AE = 1,   // ㅐ
-    YA = 2,   // ㅑ
-    YAE = 3,  // ㅒ
-    EO = 4,   // ㅓ
-    E = 5,    // ㅔ
-    YEO = 6,  // ㅕ
-    YE = 7,   // ㅖ
-    O = 8,    // ㅗ
-    WA = 9,   // ㅘ
-    WAE = 10, // ㅙ
-    OE = 11,  // ㅚ
-    YO = 12,  // ㅛ
-    U = 13,   // ㅜ
-    WEO = 14, // ㅝ
-    WE = 15,  // ㅞ
-    WI = 16,  // ㅟ
-    YU = 17,  // ㅠ
-    EU = 18,  // ㅡ
-    YI = 19,  // ㅢ
-    I = 20,   // ㅣ
+    /// 중성 채움 문자 (U+1160). 음절에 중성이 없을 때 사용됩니다. (이론상으로만 존재, 실제 한글 표기에는 거의 사용되지 않음)
+    F = -1,
+    /// ㅏ (a)
+    A = 0,
+    /// ㅐ (ae)
+    AE = 1,
+    /// ㅑ (ya)
+    YA = 2,
+    /// ㅒ (yae)
+    YAE = 3,
+    /// ㅓ (eo)
+    EO = 4,
+    /// ㅔ (e)
+    E = 5,
+    /// ㅕ (yeo)
+    YEO = 6,
+    /// ㅖ (ye)
+    YE = 7,
+    /// ㅗ (o)
+    O = 8,
+    /// ㅘ (wa)
+    WA = 9,
+    /// ㅙ (wae)
+    WAE = 10,
+    /// ㅚ (oe)
+    OE = 11,
+    /// ㅛ (yo)
+    YO = 12,
+    /// ㅜ (u)
+    U = 13,
+    /// ㅝ (weo)
+    WEO = 14,
+    /// ㅞ (we)
+    WE = 15,
+    /// ㅟ (wi)
+    WI = 16,
+    /// ㅠ (yu)
+    YU = 17,
+    /// ㅡ (eu)
+    EU = 18,
+    /// ㅢ (yi)
+    YI = 19,
+    /// ㅣ (i)
+    I = 20,
 }
 
 impl Jamo for Jung {
-    /**
-     * 음절 조합을 위한 순서 얻기
-     */
+    /// 중성의 순서 값을 반환합니다. (0 ~ 20, 채움 문자는 -1)
+    #[inline]
     fn get_sequence(&self) -> i32 {
         *self as i32
     }
 
-    /**
-     * 유니코드(첫가끝) 얻기
-     */
+    /// 유니코드 첫가끝 영역의 중성 문자를 반환합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Jung, Jamo};
+    /// assert_eq!(Jung::A.get_unicode(), 'ᅡ'); // U+1161
+    /// assert_eq!(Jung::WA.get_unicode(), 'ᅪ'); // U+116A
+    /// assert_eq!(Jung::F.get_unicode(), 'ᅠ'); // U+1160
+    /// ```
     fn get_unicode(&self) -> char {
         match self {
-            Jung::F => '\u{1160}',   // 중성 채움
-            Jung::A => '\u{1161}',   // ㅏ
-            Jung::AE => '\u{1162}',  // ㅐ
-            Jung::YA => '\u{1163}',  // ㅑ
-            Jung::YAE => '\u{1164}', // ㅒ
-            Jung::EO => '\u{1165}',  // ㅓ
-            Jung::E => '\u{1166}',   // ㅔ
-            Jung::YEO => '\u{1167}', // ㅕ
-            Jung::YE => '\u{1168}',  // ㅖ
-            Jung::O => '\u{1169}',   // ㅗ
-            Jung::WA => '\u{116a}',  // ㅘ
-            Jung::WAE => '\u{116b}', // ㅙ
-            Jung::OE => '\u{116c}',  // ㅚ
-            Jung::YO => '\u{116d}',  // ㅛ
-            Jung::U => '\u{116e}',   // ㅜ
-            Jung::WEO => '\u{116f}', // ㅝ
-            Jung::WE => '\u{1170}',  // ㅞ
-            Jung::WI => '\u{1171}',  // ㅟ
-            Jung::YU => '\u{1172}',  // ㅠ
-            Jung::EU => '\u{1173}',  // ㅡ
-            Jung::YI => '\u{1174}',  // ㅢ
-            Jung::I => '\u{1175}',   // ㅣ
+            Jung::F => '\u{1160}',   // Hangul Jungseong Filler
+            Jung::A => '\u{1161}',   // ㅏ A
+            Jung::AE => '\u{1162}',  // ㅐ AE
+            Jung::YA => '\u{1163}',  // ㅑ YA
+            Jung::YAE => '\u{1164}', // ㅒ YAE
+            Jung::EO => '\u{1165}',  // ㅓ EO
+            Jung::E => '\u{1166}',   // ㅔ E
+            Jung::YEO => '\u{1167}', // ㅕ YEO
+            Jung::YE => '\u{1168}',  // ㅖ YE
+            Jung::O => '\u{1169}',   // ㅗ O
+            Jung::WA => '\u{116a}',  // ㅘ WA
+            Jung::WAE => '\u{116b}', // ㅙ WAE
+            Jung::OE => '\u{116c}',  // ㅚ OE
+            Jung::YO => '\u{116d}',  // ㅛ YO
+            Jung::U => '\u{116e}',   // ㅜ U
+            Jung::WEO => '\u{116f}', // ㅝ WEO
+            Jung::WE => '\u{1170}',  // ㅞ WE
+            Jung::WI => '\u{1171}',  // ㅟ WI
+            Jung::YU => '\u{1172}',  // ㅠ YU
+            Jung::EU => '\u{1173}',  // ㅡ EU
+            Jung::YI => '\u{1174}',  // ㅢ YI
+            Jung::I => '\u{1175}',   // ㅣ I
         }
     }
 
-    /**
-     * 유니코드(호환용 자모) 얻기
-     */
+    /// 유니코드 호환용 자모 영역의 중성 문자를 반환합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Jung, Jamo};
+    /// assert_eq!(Jung::A.get_unicode_compat(), 'ㅏ'); // U+314F
+    /// assert_eq!(Jung::WA.get_unicode_compat(), 'ㅘ'); // U+3158
+    /// assert_eq!(Jung::F.get_unicode_compat(), 'ㅤ'); // U+3164 (Hangul Filler)
+    /// ```
     fn get_unicode_compat(&self) -> char {
         match self {
-            Jung::F => '\u{3164}',   // 중성 채움
+            Jung::F => '\u{3164}',   // Hangul Filler (호환용 중성 채움 문자는 별도로 없음)
             Jung::A => '\u{314f}',   // ㅏ
             Jung::AE => '\u{3150}',  // ㅐ
             Jung::YA => '\u{3151}',  // ㅑ
@@ -240,100 +440,219 @@ impl Jamo for Jung {
     }
 }
 
-/**
- * 종성 상수 (Rust에서는 enum으로 표현)
- */
+impl Jung {
+    /// 순서 값으로부터 중성(`Jung`)을 생성합니다.
+    ///
+    /// 유효한 중성 순서 값(-1 ~ 20)이 주어지면 해당하는 `Jung` variant를 `Some`으로 감싸 반환하고,
+    /// 그 외의 값이 주어지면 `None`을 반환합니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `seq`: 중성의 순서 값 (`i32`).
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(Jung)`: 주어진 순서 값에 해당하는 중성.
+    /// * `None`: 유효하지 않은 순서 값인 경우.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::Jung;
+    ///
+    /// assert_eq!(Jung::from_sequence(0), Some(Jung::A));
+    /// assert_eq!(Jung::from_sequence(20), Some(Jung::I));
+    /// assert_eq!(Jung::from_sequence(-1), Some(Jung::F));
+    /// assert_eq!(Jung::from_sequence(21), None);
+    /// ```
+    pub fn from_sequence(seq: i32) -> Option<Jung> {
+        match seq {
+            -1 => Some(Jung::F),
+            0 => Some(Jung::A),
+            1 => Some(Jung::AE),
+            2 => Some(Jung::YA),
+            3 => Some(Jung::YAE),
+            4 => Some(Jung::EO),
+            5 => Some(Jung::E),
+            6 => Some(Jung::YEO),
+            7 => Some(Jung::YE),
+            8 => Some(Jung::O),
+            9 => Some(Jung::WA),
+            10 => Some(Jung::WAE),
+            11 => Some(Jung::OE),
+            12 => Some(Jung::YO),
+            13 => Some(Jung::U),
+            14 => Some(Jung::WEO),
+            15 => Some(Jung::WE),
+            16 => Some(Jung::WI),
+            17 => Some(Jung::YU),
+            18 => Some(Jung::EU),
+            19 => Some(Jung::YI),
+            20 => Some(Jung::I),
+            _ => None,
+        }
+    }
+}
+
+/// 한글 종성을 나타내는 열거형입니다.
+///
+/// 현대 한글에서 사용되는 27개의 종성(홑받침 및 겹받침)과 음절에 종성이 없는 경우를 나타내는
+/// 종성 비움 문자(`E`)를 포함합니다. 각 variant는 해당 종성의 로마자 표기법을 따릅니다.
+/// 종성 'ㅇ'은 `NG`로 표기됩니다.
+///
+/// # 예시
+///
+/// ```
+/// use unin::hangul::jamo::{Jong, Jamo};
+///
+/// let giyeok_batchim = Jong::G;
+/// assert_eq!(giyeok_batchim.get_sequence(), 1);
+/// assert_eq!(giyeok_batchim.get_unicode(), '\u{11a8}'); // ᆨ
+/// assert_eq!(giyeok_batchim.get_unicode_compat(), '\u{3131}'); // ㄱ
+///
+/// let ieung_batchim = Jong::NG; // 종성 'ㅇ'
+/// assert_eq!(ieung_batchim.get_sequence(), 21);
+/// assert_eq!(ieung_batchim.get_unicode(), '\u{11bc}'); // ᆼ
+/// assert_eq!(ieung_batchim.get_unicode_compat(), '\u{3147}'); // ㅇ
+///
+/// let no_batchim = Jong::E; // 종성 없음
+/// assert_eq!(no_batchim.get_sequence(), 0);
+/// assert_eq!(no_batchim.get_unicode(), '\u{0000}'); // Null character
+/// assert_eq!(no_batchim.get_unicode_compat(), '\u{0000}'); // Null character
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Jong {
-    // 상수 데이터
-    E = 0,   // 종성 비움
-    G = 1,   // ㄱ
-    GG = 2,  // ㄲ
-    GS = 3,  // ㄳ
-    N = 4,   // ㄴ
-    NJ = 5,  // ㄵ
-    NH = 6,  // ㄶ
-    D = 7,   // ㄷ
-    L = 8,   // ㄹ
-    LG = 9,  // ㄺ
-    LM = 10, // ㄻ
-    LB = 11, // ㄼ
-    LS = 12, // ㄽ
-    LT = 13, // ㄾ
-    LP = 14, // ㄿ
-    LH = 15, // ㅀ
-    M = 16,  // ㅁ
-    B = 17,  // ㅂ
-    BS = 18, // ㅄ
-    S = 19,  // ㅅ
-    SS = 20, // ㅆ
-    NG = 21, // ㅇ
-    J = 22,  // ㅈ
-    C = 23,  // ㅊ
-    K = 24,  // ㅋ
-    T = 25,  // ㅌ
-    P = 26,  // ㅍ
-    H = 27,  // ㅎ
+    /// 종성 비움 (받침 없음). 순서 값은 0입니다.
+    E = 0,
+    /// ㄱ (giyeok)
+    G = 1,
+    /// ㄲ (ssanggiyeok)
+    GG = 2,
+    /// ㄳ (giyeok-siot)
+    GS = 3,
+    /// ㄴ (nieun)
+    N = 4,
+    /// ㄵ (nieun-jieut)
+    NJ = 5,
+    /// ㄶ (nieun-hieut)
+    NH = 6,
+    /// ㄷ (digeut)
+    D = 7,
+    /// ㄹ (rieul)
+    L = 8,
+    /// ㄺ (rieul-giyeok)
+    LG = 9,
+    /// ㄻ (rieul-mieum)
+    LM = 10,
+    /// ㄼ (rieul-bieup)
+    LB = 11,
+    /// ㄽ (rieul-siot)
+    LS = 12,
+    /// ㄾ (rieul-tieut)
+    LT = 13,
+    /// ㄿ (rieul-pieup)
+    LP = 14,
+    /// ㅀ (rieul-hieut)
+    LH = 15,
+    /// ㅁ (mieum)
+    M = 16,
+    /// ㅂ (bieup)
+    B = 17,
+    /// ㅄ (bieup-siot)
+    BS = 18,
+    /// ㅅ (siot)
+    S = 19,
+    /// ㅆ (ssangsiot)
+    SS = 20,
+    /// ㅇ (ieung) - 종성으로 사용될 때 (예: "강")
+    NG = 21,
+    /// ㅈ (jieut)
+    J = 22,
+    /// ㅊ (chieut)
+    C = 23,
+    /// ㅋ (kieuk)
+    K = 24,
+    /// ㅌ (tieut)
+    T = 25,
+    /// ㅍ (pieup)
+    P = 26,
+    /// ㅎ (hieut)
+    H = 27,
 }
 
 impl Jamo for Jong {
-    /**
-     * 음절 조합을 위한 순서 얻기
-     */
+    /// 종성의 순서 값을 반환합니다. (0 ~ 27)
+    #[inline]
     fn get_sequence(&self) -> i32 {
         *self as i32
     }
 
-    /**
-     * 유니코드(첫가끝) 얻기
-     */
+    /// 유니코드 첫가끝 영역의 종성 문자를 반환합니다.
+    /// 종성 비움(`E`)의 경우 널 문자(`\u{0000}`)를 반환합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Jong, Jamo};
+    /// assert_eq!(Jong::G.get_unicode(), 'ᆨ'); // U+11A8
+    /// assert_eq!(Jong::LG.get_unicode(), 'ᆰ'); // U+11B0
+    /// assert_eq!(Jong::E.get_unicode(), '\u{0000}'); // Null
+    /// ```
     fn get_unicode(&self) -> char {
         match self {
-            Jong::E => '\u{0000}', // 종성 비움 (null 문자, 필요에 따라 다른 값으로 변경 가능)
-            Jong::G => '\u{11a8}', // ㄱ
-            Jong::GG => '\u{11a9}', // ㄲ
-            Jong::GS => '\u{11aa}', // ㄳ
-            Jong::N => '\u{11ab}', // ㄴ
-            Jong::NJ => '\u{11ac}', // ㄵ
-            Jong::NH => '\u{11ad}', // ㄶ
-            Jong::D => '\u{11ae}', // ㄷ
-            Jong::L => '\u{11af}', // ㄹ
-            Jong::LG => '\u{11b0}', // ㄺ
-            Jong::LM => '\u{11b1}', // ㄻ
-            Jong::LB => '\u{11b2}', // ㄼ
-            Jong::LS => '\u{11b3}', // ㄽ
-            Jong::LT => '\u{11b4}', // ㄾ
-            Jong::LP => '\u{11b5}', // ㄿ
-            Jong::LH => '\u{11b6}', // ㅀ
-            Jong::M => '\u{11b7}', // ㅁ
-            Jong::B => '\u{11b8}', // ㅂ
-            Jong::BS => '\u{11b9}', // ㅄ
-            Jong::S => '\u{11ba}', // ㅅ
-            Jong::SS => '\u{11bb}', // ㅆ
-            Jong::NG => '\u{11bc}', // ㅇ
-            Jong::J => '\u{11bd}', // ㅈ
-            Jong::C => '\u{11be}', // ㅊ
-            Jong::K => '\u{11bf}', // ㅋ
-            Jong::T => '\u{11c0}', // ㅌ
-            Jong::P => '\u{11c1}', // ㅍ
-            Jong::H => '\u{11c2}', // ㅎ
+            Jong::E => '\u{0000}',  // 종성 없음 (널 문자 사용)
+            Jong::G => '\u{11a8}',  // ㄱ G
+            Jong::GG => '\u{11a9}', // ㄲ GG
+            Jong::GS => '\u{11aa}', // ㄳ GS
+            Jong::N => '\u{11ab}',  // ㄴ N
+            Jong::NJ => '\u{11ac}', // ㄵ NJ
+            Jong::NH => '\u{11ad}', // ㄶ NH
+            Jong::D => '\u{11ae}',  // ㄷ D
+            Jong::L => '\u{11af}',  // ㄹ L
+            Jong::LG => '\u{11b0}', // ㄺ LG
+            Jong::LM => '\u{11b1}', // ㄻ LM
+            Jong::LB => '\u{11b2}', // ㄼ LB
+            Jong::LS => '\u{11b3}', // ㄽ LS
+            Jong::LT => '\u{11b4}', // ㄾ LT
+            Jong::LP => '\u{11b5}', // ㄿ LP
+            Jong::LH => '\u{11b6}', // ㅀ LH
+            Jong::M => '\u{11b7}',  // ㅁ M
+            Jong::B => '\u{11b8}',  // ㅂ B
+            Jong::BS => '\u{11b9}', // ㅄ BS
+            Jong::S => '\u{11ba}',  // ㅅ S
+            Jong::SS => '\u{11bb}', // ㅆ SS
+            Jong::NG => '\u{11bc}', // ㅇ NG
+            Jong::J => '\u{11bd}',  // ㅈ J
+            Jong::C => '\u{11be}',  // ㅊ C
+            Jong::K => '\u{11bf}',  // ㅋ K
+            Jong::T => '\u{11c0}',  // ㅌ T
+            Jong::P => '\u{11c1}',  // ㅍ P
+            Jong::H => '\u{11c2}',  // ㅎ H
         }
     }
 
-    /**
-     * 유니코드(호환용 자모) 얻기
-     */
+    /// 유니코드 호환용 자모 영역의 종성 문자를 반환합니다.
+    /// 종성 비움(`E`)의 경우 널 문자(`\u{0000}`)를 반환합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Jong, Jamo};
+    /// assert_eq!(Jong::G.get_unicode_compat(), 'ㄱ'); // U+3131
+    /// assert_eq!(Jong::LG.get_unicode_compat(), 'ㄺ'); // U+313A
+    /// assert_eq!(Jong::E.get_unicode_compat(), '\u{0000}'); // Null
+    /// ```
     fn get_unicode_compat(&self) -> char {
         match self {
-            Jong::E => '\u{0000}', // 종성 비움 (null 문자, 필요에 따라 다른 값으로 변경 가능)
-            Jong::G => '\u{3131}', // ㄱ
+            Jong::E => '\u{0000}',  // 종성 없음 (널 문자 사용)
+            Jong::G => '\u{3131}',  // ㄱ
             Jong::GG => '\u{3132}', // ㄲ
             Jong::GS => '\u{3133}', // ㄳ
-            Jong::N => '\u{3134}', // ㄴ
+            Jong::N => '\u{3134}',  // ㄴ
             Jong::NJ => '\u{3135}', // ㄵ
             Jong::NH => '\u{3136}', // ㄶ
-            Jong::D => '\u{3137}', // ㄷ
-            Jong::L => '\u{3139}', // ㄹ
+            Jong::D => '\u{3137}',  // ㄷ
+            Jong::L => '\u{3139}',  // ㄹ
             Jong::LG => '\u{313a}', // ㄺ
             Jong::LM => '\u{313b}', // ㄻ
             Jong::LB => '\u{313c}', // ㄼ
@@ -341,131 +660,282 @@ impl Jamo for Jong {
             Jong::LT => '\u{313e}', // ㄾ
             Jong::LP => '\u{313f}', // ㄿ
             Jong::LH => '\u{3140}', // ㅀ
-            Jong::M => '\u{3141}', // ㅁ
-            Jong::B => '\u{3142}', // ㅂ
+            Jong::M => '\u{3141}',  // ㅁ
+            Jong::B => '\u{3142}',  // ㅂ
             Jong::BS => '\u{3144}', // ㅄ
-            Jong::S => '\u{3145}', // ㅅ
+            Jong::S => '\u{3145}',  // ㅅ
             Jong::SS => '\u{3146}', // ㅆ
             Jong::NG => '\u{3147}', // ㅇ
-            Jong::J => '\u{3148}', // ㅈ
-            Jong::C => '\u{314a}', // ㅊ
-            Jong::K => '\u{314b}', // ㅋ
-            Jong::T => '\u{314c}', // ㅌ
-            Jong::P => '\u{314d}', // ㅍ
-            Jong::H => '\u{314e}', // ㅎ
+            Jong::J => '\u{3148}',  // ㅈ
+            Jong::C => '\u{314a}',  // ㅊ
+            Jong::K => '\u{314b}',  // ㅋ
+            Jong::T => '\u{314c}',  // ㅌ
+            Jong::P => '\u{314d}',  // ㅍ
+            Jong::H => '\u{314e}',  // ㅎ
         }
     }
 }
 
 impl Jong {
-    /**
-     * 종성을 초성으로 변환
-     * @throws IllegalArgumentException (Rust에서는 panic! 또는 Result<T, E>를 사용)
-     */
+    /// 순서 값으로부터 종성(`Jong`)을 생성합니다.
+    ///
+    /// 유효한 종성 순서 값(0 ~ 27)이 주어지면 해당하는 `Jong` variant를 `Some`으로 감싸 반환하고,
+    /// 그 외의 값이 주어지면 `None`을 반환합니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `seq`: 종성의 순서 값 (`i32`).
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(Jong)`: 주어진 순서 값에 해당하는 종성.
+    /// * `None`: 유효하지 않은 순서 값인 경우.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::Jong;
+    ///
+    /// assert_eq!(Jong::from_sequence(1), Some(Jong::G)); // ㄱ 받침
+    /// assert_eq!(Jong::from_sequence(21), Some(Jong::NG)); // ㅇ 받침
+    /// assert_eq!(Jong::from_sequence(0), Some(Jong::E)); // 받침 없음
+    /// assert_eq!(Jong::from_sequence(28), None);
+    /// ```
+    pub fn from_sequence(seq: i32) -> Option<Jong> {
+        match seq {
+            0 => Some(Jong::E),
+            1 => Some(Jong::G),
+            2 => Some(Jong::GG),
+            3 => Some(Jong::GS),
+            4 => Some(Jong::N),
+            5 => Some(Jong::NJ),
+            6 => Some(Jong::NH),
+            7 => Some(Jong::D),
+            8 => Some(Jong::L),
+            9 => Some(Jong::LG),
+            10 => Some(Jong::LM),
+            11 => Some(Jong::LB),
+            12 => Some(Jong::LS),
+            13 => Some(Jong::LT),
+            14 => Some(Jong::LP),
+            15 => Some(Jong::LH),
+            16 => Some(Jong::M),
+            17 => Some(Jong::B),
+            18 => Some(Jong::BS),
+            19 => Some(Jong::S),
+            20 => Some(Jong::SS),
+            21 => Some(Jong::NG),
+            22 => Some(Jong::J),
+            23 => Some(Jong::C),
+            24 => Some(Jong::K),
+            25 => Some(Jong::T),
+            26 => Some(Jong::P),
+            27 => Some(Jong::H),
+            _ => None,
+        }
+    }
+
+    /// 주어진 종성을 해당하는 초성으로 변환합니다.
+    ///
+    /// 홑받침 종성만 초성으로 변환 가능합니다. 종성 'ㅇ'(NG)은 초성 'ㅇ'(E)으로 변환됩니다.
+    /// 겹받침 종성이나 종성 비움(`E`)은 초성으로 변환할 수 없으며, 이 경우 패닉이 발생합니다.
+    /// 이 함수는 주로 음운 규칙 적용 등 특정 상황에서 사용될 수 있습니다.
+    ///
+    /// # 반환값
+    ///
+    /// * `Cho`: 변환된 초성(`Cho`) variant.
+    ///
+    /// # Panics
+    ///
+    /// 다음의 경우 패닉이 발생합니다:
+    /// * 종성 비움(`Jong::E`)을 변환하려고 할 때.
+    /// * 겹받침 종성(예: `Jong::GS`, `Jong::LG` 등)을 변환하려고 할 때.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::jamo::{Cho, Jong};
+    ///
+    /// assert_eq!(Jong::G.to_cho(), Cho::G); // ㄱ 받침 -> ㄱ 초성
+    /// assert_eq!(Jong::NG.to_cho(), Cho::E); // ㅇ 받침 -> ㅇ 초성
+    /// // assert_eq!(Jong::LG.to_cho(), ...); // 패닉 발생!
+    /// // assert_eq!(Jong::E.to_cho(), ...); // 패닉 발생!
+    /// ```
+    ///
+    /// ```should_panic
+    /// use unin::hangul::jamo::Jong;
+    /// // 겹받침 변환 시도 (패닉)
+    /// let _ = Jong::LG.to_cho();
+    /// ```
+    ///
+    /// ```should_panic
+    /// use unin::hangul::jamo::Jong;
+    /// // 종성 비움 변환 시도 (패닉)
+    /// let _ = Jong::E.to_cho();
+    /// ```
     pub fn to_cho(&self) -> Cho {
         match self {
             Jong::NG => Cho::E,
             Jong::L => Cho::R,
-            _ => {
-                match self {
-                    Jong::G => Cho::G,
-                    Jong::GG => Cho::GG,
-                    Jong::N => Cho::N,
-                    Jong::D => Cho::D,
-                    Jong::M => Cho::M,
-                    Jong::B => Cho::B,
-                    Jong::S => Cho::S,
-                    Jong::SS => Cho::SS,
-                    Jong::J => Cho::J,
-                    Jong::C => Cho::C,
-                    Jong::K => Cho::K,
-                    Jong::T => Cho::T,
-                    Jong::P => Cho::P,
-                    Jong::H => Cho::H,
-                    Jong::E => panic!("종성 비움은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::GS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::NJ => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::NH => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::LG => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::LM => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::LB => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::LS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::LT => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::LP => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::LH => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    Jong::BS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."), // 또는 Result를 사용하여 에러 처리
-                    _ => panic!("알 수 없는 종성입니다."), // 예외 처리 또는 Result 반환 고려
-                }
-            }
+            Jong::G => Cho::G,
+            Jong::GG => Cho::GG,
+            Jong::N => Cho::N,
+            Jong::D => Cho::D,
+            Jong::M => Cho::M,
+            Jong::B => Cho::B,
+            Jong::S => Cho::S,
+            Jong::SS => Cho::SS,
+            Jong::J => Cho::J,
+            Jong::C => Cho::C,
+            Jong::K => Cho::K,
+            Jong::T => Cho::T,
+            Jong::P => Cho::P,
+            Jong::H => Cho::H,
+            Jong::E => panic!("종성 비움은 초성으로 변환할 수 없습니다."),
+            Jong::GS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::NJ => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::NH => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::LG => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::LM => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::LB => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::LS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::LT => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::LP => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::LH => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::BS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
         }
     }
 }
 
-/**
- * 객체가 초성인지 판별
- */
-pub fn is_cho<T>(o: &T) -> bool
-where
-    T: Jamo,
-{
-    // Rust에서는 enum을 직접 비교하는 것이 더 일반적입니다.
-    // 여기서는 trait object를 사용하는 대신, 제네릭과 trait bound를 사용하여
-    // 컴파일 타임에 타입 체크를 수행합니다.
-    match o.get_sequence() {
-        // sequence 값의 범위로 초성 여부를 판단하는 것은 정확하지 않습니다.
-        // Rust의 enum은 타입 기반으로 판별하는 것이 더 안전하고 효율적입니다.
-        -1..=18 => {
-            // Cho enum의 sequence 범위 (수정 필요)
-            // 이 범위 체크는 Cho enum의 실제 sequence 값과 일치해야 합니다.
-            // 하지만 더 좋은 방법은 타입 자체를 확인하는 것입니다.
-            // 여기서는 단순화를 위해 Java 코드와 유사하게 sequence 범위 체크를 유지합니다.
-            true
-        }
-        _ => false,
-    }
-    // o.is::<Cho>() // 이렇게 직접 타입 체크를 하는 것이 더 정확하지만,
-    // trait object를 사용하거나 enum 자체를 비교하는 것이 더 Rust 스타일입니다.
+// --- Helper Functions ---
+
+/// 주어진 `Jamo` 객체가 초성인지 판별합니다.
+///
+/// # 매개변수
+///
+/// * `o` - 검사할 Jamo 객체
+///
+/// # 반환값
+///
+/// 초성이면 `true`, 아니면 `false`.
+///
+/// # 예시
+///
+/// ```
+/// use unin::hangul::jamo::{is_cho, Cho, Jung, Jong};
+///
+/// assert!(is_cho(&Cho::G));
+/// assert!(is_cho(&Cho::F));
+/// assert!(!is_cho(&Jung::A));
+/// assert!(!is_cho(&Jong::G));
+/// ```
+pub fn is_cho<T: Jamo>(o: &T) -> bool {
+    matches!(o.get_sequence(), -1..=18)
 }
 
-/**
- * 객체가 중성인지 판별
- */
-pub fn is_jung<T>(o: &T) -> bool
-where
-    T: Jamo,
-{
-    match o.get_sequence() {
-        -1..=20 => true, // Jung enum의 sequence 범위 (수정 필요)
-        _ => false,
-    }
+/// 주어진 `Jamo` 객체가 중성인지 판별합니다.
+///
+/// # 매개변수
+///
+/// * `o` - 검사할 Jamo 객체
+///
+/// # 반환값
+///
+/// 중성이면 `true`, 아니면 `false`.
+///
+/// # 예시
+///
+/// ```
+/// use unin::hangul::jamo::{is_jung, Cho, Jung, Jong};
+///
+/// assert!(is_jung(&Jung::A));
+/// assert!(is_jung(&Jung::F));
+/// assert!(!is_jung(&Cho::G));
+/// assert!(!is_jung(&Jong::G));
+/// ```
+pub fn is_jung<T: Jamo>(o: &T) -> bool {
+    matches!(o.get_sequence(), -1..=20)
 }
 
-/**
- * 객체가 종성인지 판별
- */
-pub fn is_jong<T>(o: &T) -> bool
-where
-    T: Jamo,
-{
-    match o.get_sequence() {
-        0..=27 => true, // Jong enum의 sequence 범위 (수정 필요)
-        _ => false,
-    }
+/// 주어진 `Jamo` 객체가 종성인지 판별합니다.
+///
+/// # 매개변수
+///
+/// * `o` - 검사할 Jamo 객체
+///
+/// # 반환값
+///
+/// 종성이면 `true`, 아니면 `false`.
+///
+/// # 예시
+///
+/// ```
+/// use unin::hangul::jamo::{is_jong, Cho, Jung, Jong};
+///
+/// assert!(is_jong(&Jong::G));
+/// assert!(is_jong(&Jong::E)); // 종성 없음도 종성 범위에 포함
+/// assert!(!is_jong(&Cho::G));
+/// assert!(!is_jong(&Jung::A));
+/// ```
+pub fn is_jong<T: Jamo>(o: &T) -> bool {
+    matches!(o.get_sequence(), 0..=27)
 }
 
-/**
- * 객체가 자모인지 판별 (Rust에서는 trait bound로 대체 가능, 여기서는 함수로 유지)
- */
-pub fn is_jamo<T>(o: &T) -> bool
-where
-    T: Jamo,
-{
+/// 주어진 `Jamo` 객체가 한글 자모(초성, 중성, 종성)인지 판별합니다.
+///
+/// `is_cho()`, `is_jung()`, `is_jong()` 함수 중 하나라도 `true`를 반환하면 `true`를 반환합니다.
+/// 이는 해당 객체가 유효한 한글 자모 순서 값을 가지고 있음을 의미합니다.
+///
+/// # 타입 매개변수
+///
+/// * `T`: `Jamo` 트레이트를 구현하는 타입.
+///
+/// # 매개변수
+///
+/// * `o`: 자모인지 검사할 `Jamo` 객체에 대한 참조.
+///
+/// # 반환값
+///
+/// 초성, 중성, 종성 중 하나이면 `true`, 아니면 `false`.
+///
+/// # 예시
+///
+/// ```
+/// use unin::hangul::jamo::{is_jamo, Cho, Jung, Jong, JamoEnum};
+///
+/// assert!(is_jamo(&Cho::G));
+/// assert!(is_jamo(&Jung::A));
+/// assert!(is_jamo(&Jong::G));
+/// assert!(is_jamo(&Jong::E)); // 종성 없음도 자모로 간주
+///
+/// // JamoEnum 예시
+/// let cho_enum = JamoEnum::Cho(Cho::N);
+/// assert!(is_jamo(&cho_enum));
+///
+/// // Special 문자는 자모가 아님
+/// let special_enum = JamoEnum::Special('a');
+/// // assert!(!is_jamo(&special_enum)); // JamoEnum::Special의 sequence는 -1이므로 is_cho나 is_jung은 true 반환 가능성 있음.
+/// // 이 함수는 sequence 기반이므로 Special 문자의 경우 의도대로 동작하지 않을 수 있음.
+/// // 타입을 직접 확인하는 것이 더 안전합니다.
+/// ```
+///
+/// # 주의
+/// 이 함수는 `get_sequence()` 값에만 의존하므로, `JamoEnum::Special`과 같이
+/// 자모가 아니면서 우연히 자모 순서 범위 내의 값을 반환하는 `Jamo` 구현체가 있다면
+/// 잘못된 결과를 반환할 수 있습니다. 타입을 명시적으로 확인하는 것이 더 안전할 수 있습니다.
+pub fn is_jamo<T: Jamo>(o: &T) -> bool {
     is_cho(o) || is_jung(o) || is_jong(o)
 }
 
-/**
- * 순서로 초성 얻기
- */
+/// 순서 값으로 초성을 얻습니다.
+///
+/// # 매개변수
+///
+/// * `seq` - 초성의 순서 값
+///
+/// # 반환값
+///
+/// 해당 순서 값의 초성이 있으면 `Some(Cho)`, 없으면 `None`을 반환합니다.
 pub fn get_cho_by_sequence(seq: i32) -> Option<Cho> {
     match seq {
         -1 => Some(Cho::F),
@@ -492,9 +962,15 @@ pub fn get_cho_by_sequence(seq: i32) -> Option<Cho> {
     }
 }
 
-/**
- * 순서로 중성 얻기
- */
+/// 순서 값으로 중성을 얻습니다.
+///
+/// # 매개변수
+///
+/// * `seq` - 중성의 순서 값
+///
+/// # 반환값
+///
+/// 해당 순서 값의 중성이 있으면 `Some(Jung)`, 없으면 `None`을 반환합니다.
 pub fn get_jung_by_sequence(seq: i32) -> Option<Jung> {
     match seq {
         -1 => Some(Jung::F),
@@ -523,9 +999,15 @@ pub fn get_jung_by_sequence(seq: i32) -> Option<Jung> {
     }
 }
 
-/**
- * 순서로 종성 얻기
- */
+/// 순서 값으로 종성을 얻습니다.
+///
+/// # 매개변수
+///
+/// * `seq` - 종성의 순서 값
+///
+/// # 반환값
+///
+/// 해당 순서 값의 종성이 있으면 `Some(Jong)`, 없으면 `None`을 반환합니다.
 pub fn get_jong_by_sequence(seq: i32) -> Option<Jong> {
     match seq {
         0 => Some(Jong::E),
@@ -560,6 +1042,10 @@ pub fn get_jong_by_sequence(seq: i32) -> Option<Jong> {
     }
 }
 
+/// 문자열을 초성으로 변환하는 구현
+///
+/// 문자열로부터 초성을 생성합니다.
+/// 한글 자모 문자나 영문 알파벳 표기를 사용할 수 있습니다.
 impl std::str::FromStr for Cho {
     type Err = String;
 
@@ -585,11 +1071,15 @@ impl std::str::FromStr for Cho {
             "ㅌ" | "T" => Ok(Cho::T),
             "ㅍ" | "P" => Ok(Cho::P),
             "ㅎ" | "H" => Ok(Cho::H),
-            _ => Err(format!("Invalid Cho: {}", s)),
+            _ => Err(format!("유효하지 않은 초성 문자열입니다: '{}'", s)),
         }
     }
 }
 
+/// 문자열을 중성으로 변환하는 구현
+///
+/// 문자열로부터 중성을 생성합니다.
+/// 한글 자모 문자나 영문 알파벳 표기를 사용할 수 있습니다.
 impl std::str::FromStr for Jung {
     type Err = String;
 
@@ -617,11 +1107,16 @@ impl std::str::FromStr for Jung {
             "ㅡ" | "EU" => Ok(Jung::EU),
             "ㅢ" | "YI" => Ok(Jung::YI),
             "ㅣ" | "I" => Ok(Jung::I),
-            _ => Err(format!("Invalid Jung: {}", s)),
+            _ => Err(format!("유효하지 않은 중성 문자열입니다: '{}'", s)),
         }
     }
 }
 
+/// 문자열을 종성으로 변환하는 구현
+///
+/// 문자열로부터 종성을 생성합니다.
+/// 한글 자모 문자나 영문 알파벳 표기를 사용할 수 있습니다.
+/// 빈 문자열은 종성 비움(E)으로 처리됩니다.
 impl std::str::FromStr for Jong {
     type Err = String;
 
@@ -655,20 +1150,28 @@ impl std::str::FromStr for Jong {
             "ㅌ" | "T" => Ok(Jong::T),
             "ㅍ" | "P" => Ok(Jong::P),
             "ㅎ" | "H" => Ok(Jong::H),
-            _ => Err(format!("Invalid Jong: {}", s)),
+            _ => Err(format!("유효하지 않은 종성 문자열입니다: '{}'", s)),
         }
     }
 }
 
+/// 자모를 통합적으로 다루는 열거형
+///
+/// 초성, 중성, 종성 및 특수 문자를 모두 포함할 수 있는 통합 타입입니다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JamoEnum {
+    /// 초성
     Cho(Cho),
+    /// 중성
     Jung(Jung),
+    /// 종성
     Jong(Jong),
-    Special(char), // 자모가 아닌 특수 문자
+    /// 자모가 아닌 특수 문자
+    Special(char),
 }
 
 impl Jamo for JamoEnum {
+    /// 자모의 순서 값을 반환합니다.
     fn get_sequence(&self) -> i32 {
         match self {
             JamoEnum::Cho(cho) => cho.get_sequence(),
@@ -678,6 +1181,7 @@ impl Jamo for JamoEnum {
         }
     }
 
+    /// 유니코드 첫가끝 영역의 문자를 반환합니다.
     fn get_unicode(&self) -> char {
         match self {
             JamoEnum::Cho(cho) => cho.get_unicode(),
@@ -687,6 +1191,7 @@ impl Jamo for JamoEnum {
         }
     }
 
+    /// 유니코드 호환용 자모 영역의 문자를 반환합니다.
     fn get_unicode_compat(&self) -> char {
         match self {
             JamoEnum::Cho(cho) => cho.get_unicode_compat(),

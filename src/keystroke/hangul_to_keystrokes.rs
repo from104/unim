@@ -1,232 +1,344 @@
+use crate::hangul::char::HangulChar;
 use crate::hangul::jamo::*;
 use std::collections::HashMap;
 
-/// 한글 문자열을 영문 자판 입력으로 변환하는 함수
+/// 한글 문자열을 해당하는 영문 키보드 입력 시퀀스로 변환하는 기능을 제공합니다.
+///
+/// 2벌식 표준 자판과 3벌식 390 자판을 지원하며, 입력된 `keyboard_map`과
+/// `is_3bul` 플래그를 기반으로 변환 로직을 결정합니다.
+/// 완성형 한글 음절, 호환용 한글 자모(3벌식의 경우), 그리고 기타 문자를 처리합니다.
+///
+/// 복합 자모 분해 규칙을 담는 구조체
+struct CompoundMaps {
+    jung: HashMap<Jung, Vec<Jung>>,
+    cho: HashMap<Cho, Vec<Cho>>, // 3벌식 쌍자음용
+    jong: HashMap<Jong, Vec<Jong>>,
+}
+
+/// 한글 문자열을 해당하는 영문 키보드 입력 시퀀스로 변환합니다.
+///
+/// # Arguments
+/// * `input` - 변환할 한글 문자열.
+/// * `keyboard_map` - 영문 키(`char`)와 한글 자모(`JamoEnum`) 매핑 정보.
+///                    `keyboard_map::KeyboardMap::create_keyboard_map` 함수로 생성됩니다.
+/// * `is_3bul` - `true`이면 3벌식(390), `false`이면 2벌식(표준) 규칙을 적용합니다.
+///
+/// # Returns
+/// * 입력된 한글 문자열을 타이핑하기 위한 영문 키스트로크 시퀀스 문자열.
+/// * 한글 외 문자는 그대로 반환됩니다.
+/// * 매핑되지 않는 자모가 포함된 경우 해당 자모는 무시될 수 있습니다.
 pub fn hangul_to_keystrokes(
     input: &str,
     keyboard_map: &HashMap<char, JamoEnum>,
-    is_3bul: bool, // true면 3벌식, false면 2벌식
+    is_3bul: bool,
 ) -> String {
-    let mut reverse_map = HashMap::new();
+    // 1. 자모 -> 영문 키 역방향 매핑 생성 (소문자 우선)
+    let reverse_map = build_reverse_keyboard_map(keyboard_map);
 
-    // 키보드 맵을 뒤집어서 자모 -> 키 매핑 생성할 때, lower 케이스 우선 적용
-    // 우선 lower case 문자만 체크
-    for (key, jamo) in keyboard_map.iter() {
-        if !key.is_ascii_uppercase() {
-            reverse_map.insert(*jamo, *key);
-        }
-    }
-
-    // 이후 upper case 문자는 매핑되지 않은 자모에 대해서만 처리
-    for (key, jamo) in keyboard_map.iter() {
-        if key.is_ascii_uppercase() && !reverse_map.contains_key(jamo) {
-            reverse_map.insert(*jamo, *key);
-        }
-    }
-
-    // 이중 모음 분해 매핑 정의
-    let mut compound_jung_map = HashMap::new();
-    compound_jung_map.insert(Jung::WA, vec![Jung::O, Jung::A]); // ㅘ -> ㅗ + ㅏ
-    compound_jung_map.insert(Jung::WAE, vec![Jung::O, Jung::AE]); // ㅙ -> ㅗ + ㅐ
-    compound_jung_map.insert(Jung::OE, vec![Jung::O, Jung::I]); // ㅚ -> ㅗ + ㅣ
-    compound_jung_map.insert(Jung::WEO, vec![Jung::U, Jung::EO]); // ㅝ -> ㅜ + ㅓ
-    compound_jung_map.insert(Jung::WE, vec![Jung::U, Jung::E]); // ㅞ -> ㅜ + ㅔ
-    compound_jung_map.insert(Jung::WI, vec![Jung::U, Jung::I]); // ㅟ -> ㅜ + ㅣ
-    compound_jung_map.insert(Jung::YI, vec![Jung::EU, Jung::I]); // ㅢ -> ㅡ + ㅣ
-
-    // 이중 자음(쌍자음) 분해 매핑 정의 (3벌식용)
-    let mut compound_cho_map = HashMap::new();
-    compound_cho_map.insert(Cho::GG, vec![Cho::G, Cho::G]); // ㄲ -> ㄱ + ㄱ
-    compound_cho_map.insert(Cho::DD, vec![Cho::D, Cho::D]); // ㄸ -> ㄷ + ㄷ
-    compound_cho_map.insert(Cho::BB, vec![Cho::B, Cho::B]); // ㅃ -> ㅂ + ㅂ
-    compound_cho_map.insert(Cho::SS, vec![Cho::S, Cho::S]); // ㅆ -> ㅅ + ㅅ
-    compound_cho_map.insert(Cho::JJ, vec![Cho::J, Cho::J]); // ㅉ -> ㅈ + ㅈ
-
-    // 겹받침 분해 매핑 정의
-    let mut compound_jong_map = HashMap::new();
-    compound_jong_map.insert(Jong::GG, vec![Jong::G, Jong::G]); // ㄲ -> ㄱ + ㄱ
-    compound_jong_map.insert(Jong::GS, vec![Jong::G, Jong::S]); // ㄳ -> ㄱ + ㅅ
-    compound_jong_map.insert(Jong::NJ, vec![Jong::N, Jong::J]); // ㄵ -> ㄴ + ㅈ
-    compound_jong_map.insert(Jong::NH, vec![Jong::N, Jong::H]); // ㄶ -> ㄴ + ㅎ
-    compound_jong_map.insert(Jong::LG, vec![Jong::L, Jong::G]); // ㄺ -> ㄹ + ㄱ
-    compound_jong_map.insert(Jong::LM, vec![Jong::L, Jong::M]); // ㄻ -> ㄹ + ㅁ
-    compound_jong_map.insert(Jong::LB, vec![Jong::L, Jong::B]); // ㄼ -> ㄹ + ㅂ
-    compound_jong_map.insert(Jong::LS, vec![Jong::L, Jong::S]); // ㄽ -> ㄹ + ㅅ
-    compound_jong_map.insert(Jong::LT, vec![Jong::L, Jong::T]); // ㄾ -> ㄹ + ㅌ
-    compound_jong_map.insert(Jong::LP, vec![Jong::L, Jong::P]); // ㄿ -> ㄹ + ㅍ
-    compound_jong_map.insert(Jong::LH, vec![Jong::L, Jong::H]); // ㅀ -> ㄹ + ㅎ
-    compound_jong_map.insert(Jong::BS, vec![Jong::B, Jong::S]); // ㅄ -> ㅂ + ㅅ
-    compound_jong_map.insert(Jong::SS, vec![Jong::S, Jong::S]); // ㅆ -> ㅅ + ㅅ
+    // 2. 복합 자모(이중모음, 쌍자음, 겹받침) 분해 규칙 정의
+    let compound_maps = define_compound_maps();
 
     let mut result = String::new();
 
+    // 3. 입력 문자열 순회 및 변환
     for c in input.chars() {
-        if c as u32 >= 0xAC00 && c as u32 <= 0xD7A3 {
-            // 한글 완성형 문자인 경우
-            let mut hangul_char = crate::hangul::char::HangulChar::new();
-            hangul_char.set_jamo_by_syllable(c);
-
-            // 초성 변환 (이중자음 처리 - 3벌식일 경우만)
-            if let Some(cho) = hangul_char.get_cho() {
-                if is_3bul && compound_cho_map.contains_key(&cho) {
-                    // 3벌식이고 이중자음인 경우 분해해서 처리
-                    for &base_cho in compound_cho_map.get(&cho).unwrap() {
-                        if let Some(&key) = reverse_map.get(&JamoEnum::Cho(base_cho)) {
-                            result.push(key);
-                        }
-                    }
-                } else {
-                    // 기본 자음인 경우 그대로 처리
-                    if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
-                        result.push(key);
-                    }
-                }
-            }
-
-            // 중성 변환 (이중 모음 처리)
-            if let Some(jung) = hangul_char.get_jung() {
-                if let Some(components) = compound_jung_map.get(&jung) {
-                    // 이중 모음인 경우 분해해서 처리
-                    for &base_jung in components {
-                        if let Some(&key) = reverse_map.get(&JamoEnum::Jung(base_jung)) {
-                            result.push(key);
-                        }
-                    }
-                } else {
-                    // 기본 모음인 경우 그대로 처리
-                    if let Some(&key) = reverse_map.get(&JamoEnum::Jung(jung)) {
-                        result.push(key);
-                    }
-                }
-            }
-
-            // 종성 변환 (겹받침 처리)
-            if let Some(jong) = hangul_char.get_jong() {
-                if jong != Jong::E {
-                    if let Some(components) = compound_jong_map.get(&jong) {
-                        // 겹받침인 경우 분해해서 처리
-                        for &base_jong in components {
-                            if is_3bul {
-                                // 3벌식은 종성을 그대로 사용
-                                if let Some(&key) = reverse_map.get(&JamoEnum::Jong(base_jong)) {
-                                    result.push(key);
-                                }
-                            } else {
-                                // 2벌식은 종성을 초성으로 변환하여 매핑
-                                let cho = base_jong.to_cho();
-                                if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
-                                    result.push(key);
-                                }
-                            }
-                        }
-                    } else {
-                        // 기본 받침인 경우
-                        if is_3bul {
-                            // 3벌식은 종성을 그대로 사용
-                            if let Some(&key) = reverse_map.get(&JamoEnum::Jong(jong)) {
-                                result.push(key);
-                            }
-                        } else {
-                            // 2벌식은 종성을 초성으로 변환하여 처리
-                            let cho = jong.to_cho();
-                            if let Some(&key) = reverse_map.get(&JamoEnum::Cho(cho)) {
-                                result.push(key);
-                            }
-                        }
-                    }
-                }
-            }
-        } else if c as u32 >= 0x3131 && c as u32 <= 0x318E && is_3bul {
-            // 한글 호환용 자모인 경우 (ㄱ, ㄴ, ㅏ, ㅑ 등) - 3벌식에서만 처리
-            let mut found = false;
-
-            // 초성(Cho) 확인 (이중자음 처리)
-            for cho_val in 0..19 {
-                if let Some(cho) = get_cho_by_sequence(cho_val) {
-                    let jamo_enum = JamoEnum::Cho(cho);
-                    if jamo_enum.get_unicode_compat() == c {
-                        if let Some(components) = compound_cho_map.get(&cho) {
-                            // 이중자음인 경우 분해해서 처리
-                            for &base_cho in components {
-                                if let Some(&key) = reverse_map.get(&JamoEnum::Cho(base_cho)) {
-                                    result.push(key);
-                                }
-                            }
-                        } else {
-                            // 기본 자음인 경우 그대로 처리
-                            if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                result.push(key);
-                            }
-                        }
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            // 중성(Jung) 확인 (이중모음 처리)
-            if !found {
-                for jung_val in 0..21 {
-                    if let Some(jung) = get_jung_by_sequence(jung_val) {
-                        let jamo_enum = JamoEnum::Jung(jung);
-                        if jamo_enum.get_unicode_compat() == c {
-                            if let Some(components) = compound_jung_map.get(&jung) {
-                                // 이중 모음인 경우 분해해서 처리
-                                for &base_jung in components {
-                                    if let Some(&key) = reverse_map.get(&JamoEnum::Jung(base_jung))
-                                    {
-                                        result.push(key);
-                                    }
-                                }
-                            } else {
-                                // 기본 모음인 경우 그대로 처리
-                                if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                    result.push(key);
-                                }
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // 종성(Jong) 확인 (겹받침 처리)
-            if !found {
-                for jong_val in 1..28 {
-                    if let Some(jong) = get_jong_by_sequence(jong_val) {
-                        let jamo_enum = JamoEnum::Jong(jong);
-                        if jamo_enum.get_unicode_compat() == c {
-                            if let Some(components) = compound_jong_map.get(&jong) {
-                                // 겹받침인 경우 분해해서 처리
-                                for &base_jong in components {
-                                    if let Some(&key) = reverse_map.get(&JamoEnum::Jong(base_jong))
-                                    {
-                                        result.push(key);
-                                    }
-                                }
-                            } else {
-                                // 기본 받침인 경우 그대로 처리
-                                if let Some(&key) = reverse_map.get(&jamo_enum) {
-                                    result.push(key);
-                                }
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // 매칭되는 키를 찾지 못한 경우 그대로 추가
-            if !found {
-                result.push(c);
-            }
+        if ('\u{AC00}'..='\u{D7A3}').contains(&c) {
+            // 3.1. 완성형 한글 음절 처리
+            append_syllable_keystrokes(c, &reverse_map, &compound_maps, is_3bul, &mut result);
+        } else if is_3bul && ('\u{3131}'..='\u{318E}').contains(&c) {
+            // 3.2. 호환용 한글 자모 처리 (3벌식에서만)
+            append_compat_jamo_keystrokes(c, &reverse_map, &compound_maps, &mut result);
         } else {
-            // 한글이 아닌 경우 그대로 추가
+            // 3.3. 한글이 아닌 다른 문자 처리
             result.push(c);
         }
     }
 
     result
+}
+
+/// `keyboard_map` (영문 키 -> 자모)을 기반으로 역방향 맵 (자모 -> 영문 키)을 생성합니다.
+///
+/// 동일한 자모에 대해 대문자와 소문자 키가 모두 매핑된 경우, 소문자 키를 우선합니다.
+///
+/// # Arguments
+/// * `keyboard_map` - 원본 영문 키 -> 자모 매핑.
+///
+/// # Returns
+/// 자모(`JamoEnum`)에서 영문 키(`char`)로의 역방향 `HashMap`.
+fn build_reverse_keyboard_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<JamoEnum, char> {
+    let mut reverse_map = HashMap::<JamoEnum, char>::new();
+
+    // 1단계: 모든 키-자모 쌍을 순회하며 소문자 우선으로 삽입
+    for (&key, &jamo) in keyboard_map {
+        // 현재 자모에 대한 기존 매핑 확인
+        match reverse_map.get(&jamo) {
+            Some(&existing_key) => {
+                // 이미 매핑이 있고, 현재 키가 소문자인데 기존 키가 대문자이면 교체
+                if key.is_ascii_lowercase() && existing_key.is_ascii_uppercase() {
+                    reverse_map.insert(jamo, key);
+                }
+                // 그 외의 경우 (기존 키가 소문자이거나, 현재 키가 대문자)는 기존 매핑 유지
+            }
+            None => {
+                // 매핑이 없으면 현재 키-자모 쌍 삽입
+                reverse_map.insert(jamo, key);
+            }
+        }
+    }
+    reverse_map
+}
+
+/// 복합 자모(이중모음, 쌍자음, 겹받침)의 분해 규칙을 정의하는 `HashMap`들을 생성합니다.
+///
+/// # Returns
+/// `CompoundMaps` 구조체 인스턴스.
+fn define_compound_maps() -> CompoundMaps {
+    // 이중 모음 분해 매핑 (Jung::WA -> [Jung::O, Jung::A])
+    let compound_jung_map = HashMap::<Jung, Vec<Jung>>::from([
+        (Jung::WA, vec![Jung::O, Jung::A]),   // ㅘ -> ㅗ + ㅏ
+        (Jung::WAE, vec![Jung::O, Jung::AE]), // ㅙ -> ㅗ + ㅐ
+        (Jung::OE, vec![Jung::O, Jung::I]),   // ㅚ -> ㅗ + ㅣ
+        (Jung::WEO, vec![Jung::U, Jung::EO]), // ㅝ -> ㅜ + ㅓ
+        (Jung::WE, vec![Jung::U, Jung::E]),   // ㅞ -> ㅜ + ㅔ
+        (Jung::WI, vec![Jung::U, Jung::I]),   // ㅟ -> ㅜ + ㅣ
+        (Jung::YI, vec![Jung::EU, Jung::I]),  // ㅢ -> ㅡ + ㅣ
+    ]);
+
+    // 이중 자음(쌍자음) 분해 매핑 (Cho::GG -> [Cho::G, Cho::G]) - 3벌식용
+    let compound_cho_map = HashMap::<Cho, Vec<Cho>>::from([
+        (Cho::GG, vec![Cho::G, Cho::G]), // ㄲ -> ㄱ + ㄱ
+        (Cho::DD, vec![Cho::D, Cho::D]), // ㄸ -> ㄷ + ㄷ
+        (Cho::BB, vec![Cho::B, Cho::B]), // ㅃ -> ㅂ + ㅂ
+        (Cho::SS, vec![Cho::S, Cho::S]), // ㅆ -> ㅅ + ㅅ
+        (Cho::JJ, vec![Cho::J, Cho::J]), // ㅉ -> ㅈ + ㅈ
+    ]);
+
+    // 겹받침 분해 매핑 (Jong::GS -> [Jong::G, Jong::S])
+    let compound_jong_map = HashMap::<Jong, Vec<Jong>>::from([
+        (Jong::GG, vec![Jong::G, Jong::G]), // ㄲ -> ㄱ + ㄱ
+        (Jong::GS, vec![Jong::G, Jong::S]), // ㄳ -> ㄱ + ㅅ
+        (Jong::NJ, vec![Jong::N, Jong::J]), // ㄵ -> ㄴ + ㅈ
+        (Jong::NH, vec![Jong::N, Jong::H]), // ㄶ -> ㄴ + ㅎ
+        (Jong::LG, vec![Jong::L, Jong::G]), // ㄺ -> ㄹ + ㄱ
+        (Jong::LM, vec![Jong::L, Jong::M]), // ㄻ -> ㄹ + ㅁ
+        (Jong::LB, vec![Jong::L, Jong::B]), // ㄼ -> ㄹ + ㅂ
+        (Jong::LS, vec![Jong::L, Jong::S]), // ㄽ -> ㄹ + ㅅ
+        (Jong::LT, vec![Jong::L, Jong::T]), // ㄾ -> ㄹ + ㅌ
+        (Jong::LP, vec![Jong::L, Jong::P]), // ㄿ -> ㄹ + ㅍ
+        (Jong::LH, vec![Jong::L, Jong::H]), // ㅀ -> ㄹ + ㅎ
+        (Jong::BS, vec![Jong::B, Jong::S]), // ㅄ -> ㅂ + ㅅ
+        (Jong::SS, vec![Jong::S, Jong::S]), // ㅆ -> ㅅ + ㅅ (종성)
+    ]);
+
+    CompoundMaps {
+        jung: compound_jung_map,
+        cho: compound_cho_map,
+        jong: compound_jong_map,
+    }
+}
+
+/// 완성형 한글 음절(`c`)을 받아 초/중/종성으로 분해하고, 각 자모에 해당하는 키스트로크를
+/// `result` 문자열에 추가합니다.
+///
+/// # Arguments
+/// * `c` - 처리할 완성형 한글 음절 문자.
+/// * `reverse_map` - 자모 -> 영문 키 역방향 매핑.
+/// * `compound_maps` - 복합 자모 분해 규칙.
+/// * `is_3bul` - 3벌식 여부 플래그.
+/// * `result` - 키스트로크를 추가할 대상 문자열 버퍼.
+fn append_syllable_keystrokes(
+    c: char,
+    reverse_map: &HashMap<JamoEnum, char>,
+    compound_maps: &CompoundMaps,
+    is_3bul: bool,
+    result: &mut String,
+) {
+    let mut hangul_char = HangulChar::new();
+    // 음절 분해 시 발생할 수 있는 오류는 무시 (예: 잘못된 유니코드). 이후 get_jamo에서 None으로 처리됨.
+    let _ = hangul_char.set_jamo_by_syllable(c);
+
+    // 초성 처리
+    if let Some(cho) = hangul_char.get_cho() {
+        append_jamo_keystrokes(
+            &JamoEnum::Cho(cho),
+            reverse_map,
+            compound_maps,
+            is_3bul,
+            result,
+        );
+    }
+    // 중성 처리
+    if let Some(jung) = hangul_char.get_jung() {
+        append_jamo_keystrokes(
+            &JamoEnum::Jung(jung),
+            reverse_map,
+            compound_maps,
+            is_3bul,
+            result,
+        );
+    }
+    // 종성 처리 (종성이 있는 경우 '\u{11A7}' (Jong::E - 없음)이 아님)
+    if let Some(jong) = hangul_char.get_jong() {
+        if jong != Jong::E {
+            append_jamo_keystrokes(
+                &JamoEnum::Jong(jong),
+                reverse_map,
+                compound_maps,
+                is_3bul,
+                result,
+            );
+        }
+    }
+}
+
+/// 한글 호환용 자모 문자(`c`)를 받아 해당하는 키스트로크를 `result` 문자열에 추가합니다.
+///
+/// **주의:** 이 함수는 3벌식(`is_3bul = true`)일 경우에만 호출되어야 합니다.
+/// 함수는 초성, 중성, 종성 범위의 모든 자모에 대해 일치하는 자모를 찾고,
+/// 해당 자모에 대한 키스트로크를 추가합니다. 매칭되는 키가 없으면 원본 문자를 그대로 추가합니다.
+///
+/// # Arguments
+/// * `c` - 처리할 한글 호환용 자모 문자 (ㄱ, ㅏ, ㄳ 등).
+/// * `reverse_map` - 자모 -> 영문 키 역방향 매핑.
+/// * `compound_maps` - 복합 자모 분해 규칙.
+/// * `result` - 키스트로크를 추가할 대상 문자열 버퍼.
+fn append_compat_jamo_keystrokes(
+    c: char,
+    reverse_map: &HashMap<JamoEnum, char>,
+    compound_maps: &CompoundMaps,
+    result: &mut String,
+) {
+    let mut found = false;
+
+    // 초성(Cho) 확인 (이중자음 처리)
+    for cho_val in 0..19 {
+        if let Some(cho) = get_cho_by_sequence(cho_val) {
+            let jamo_enum = JamoEnum::Cho(cho);
+            if jamo_enum.get_unicode_compat() == c {
+                append_jamo_keystrokes(&jamo_enum, reverse_map, compound_maps, true, result);
+                found = true;
+                break;
+            }
+        }
+    }
+
+    // 중성(Jung) 확인 (이중모음 처리)
+    if !found {
+        for jung_val in 0..21 {
+            if let Some(jung) = get_jung_by_sequence(jung_val) {
+                let jamo_enum = JamoEnum::Jung(jung);
+                if jamo_enum.get_unicode_compat() == c {
+                    append_jamo_keystrokes(&jamo_enum, reverse_map, compound_maps, true, result);
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 종성(Jong) 확인 (겹받침 처리)
+    if !found {
+        for jong_val in 1..28 {
+            if let Some(jong) = get_jong_by_sequence(jong_val) {
+                let jamo_enum = JamoEnum::Jong(jong);
+                if jamo_enum.get_unicode_compat() == c {
+                    append_jamo_keystrokes(&jamo_enum, reverse_map, compound_maps, true, result);
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 매칭되는 키를 찾지 못한 경우 그대로 추가
+    if !found {
+        result.push(c);
+    }
+}
+
+/// 단일 `JamoEnum` (초성, 중성, 또는 종성)을 받아 해당하는 키스트로크(들)를
+/// `result` 문자열에 추가합니다.
+///
+/// 복합 자모(이중모음, 쌍자음, 겹받침)를 분해하고, 2벌식/3벌식 규칙에 따라
+/// (특히 종성의 경우) 올바른 키를 찾아 추가합니다.
+///
+/// # Arguments
+/// * `jamo_enum` - 처리할 자모 (`JamoEnum::Cho`, `JamoEnum::Jung`, `JamoEnum::Jong`).
+/// * `reverse_map` - 자모 -> 영문 키 역방향 매핑.
+/// * `compound_maps` - 복합 자모 분해 규칙.
+/// * `is_3bul` - 3벌식 여부 플래그.
+/// * `result` - 키스트로크를 추가할 대상 문자열 버퍼.
+fn append_jamo_keystrokes(
+    jamo_enum: &JamoEnum,
+    reverse_map: &HashMap<JamoEnum, char>,
+    compound_maps: &CompoundMaps,
+    is_3bul: bool,
+    result: &mut String,
+) {
+    match jamo_enum {
+        JamoEnum::Cho(cho) => {
+            // 3벌식이고 복합 초성(쌍자음)인 경우 분해
+            if is_3bul {
+                if let Some(components) = compound_maps.cho.get(cho) {
+                    for &base_cho in components {
+                        if let Some(&key) = reverse_map.get(&JamoEnum::Cho(base_cho)) {
+                            result.push(key);
+                        }
+                    }
+                    return; // 분해 처리 했으므로 종료
+                }
+            }
+            // 단일 초성 또는 2벌식의 경우
+            if let Some(&key) = reverse_map.get(jamo_enum) {
+                result.push(key);
+            }
+        }
+        JamoEnum::Jung(jung) => {
+            // 복합 중성(이중모음)인 경우 분해
+            if let Some(components) = compound_maps.jung.get(jung) {
+                for &base_jung in components {
+                    if let Some(&key) = reverse_map.get(&JamoEnum::Jung(base_jung)) {
+                        result.push(key);
+                    }
+                }
+            } else {
+                // 단일 중성
+                if let Some(&key) = reverse_map.get(jamo_enum) {
+                    result.push(key);
+                }
+            }
+        }
+        JamoEnum::Jong(jong) => {
+            // 복합 종성(겹받침)인 경우 분해
+            if let Some(components) = compound_maps.jong.get(jong) {
+                for &base_jong in components {
+                    let jamo_to_lookup = if is_3bul {
+                        // 3벌식: 분해된 종성 자모 그대로 사용
+                        JamoEnum::Jong(base_jong)
+                    } else {
+                        // 2벌식: 분해된 종성 자모를 초성으로 변환하여 사용
+                        JamoEnum::Cho(base_jong.to_cho())
+                    };
+                    if let Some(&key) = reverse_map.get(&jamo_to_lookup) {
+                        result.push(key);
+                    }
+                }
+            } else {
+                // 단일 종성
+                let jamo_to_lookup = if is_3bul {
+                    // 3벌식: 단일 종성 자모 그대로 사용
+                    *jamo_enum
+                } else {
+                    // 2벌식: 단일 종성 자모를 초성으로 변환하여 사용
+                    JamoEnum::Cho(jong.to_cho())
+                };
+                if let Some(&key) = reverse_map.get(&jamo_to_lookup) {
+                    result.push(key);
+                }
+            }
+        }
+        // JamoEnum::Special은 이 함수에서 직접 처리하지 않음 (keyboard_map 정의에 따름)
+        _ => { /* Do nothing for Special or potential future variants */ }
+    }
 }

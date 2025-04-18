@@ -8,105 +8,137 @@ use crate::hangul::jamo::*;
 // builder.rs
 use std::collections::{HashMap, VecDeque};
 
-/**
- * 한글 빌더 트레잇 (Java의 abstract class HangulBuilder에 해당)
- */
+/// 한글 자모를 조합하여 한글 음절을 만드는 기능을 정의하는 트레이트입니다.
+///
+/// 이 트레이트는 자모 입력, 삭제, 조합 상태 확인 등의 기본적인 인터페이스를 제공합니다.
+/// 구체적인 조합 로직은 이 트레이트를 구현하는 타입에서 정의됩니다.
 pub trait HangulComposer {
-    /**
-     * 한글 자모 입력.
-     * @param jamo 자모 객체
-     * @return 조합이 완료되면 완성된 한글 객체를 넘겨주고 조합중이면 None을 넘겨줌.
-     */
+    /// 한글 자모를 입력받아 현재 조합 상태에 추가합니다.
+    ///
+    /// 입력된 자모로 인해 새로운 음절 조합이 시작되어 이전 음절이 완성되면,
+    /// 완성된 한글 음절 문자를 `Some(char)`로 반환합니다.
+    /// 조합이 계속 진행 중이면 `None`을 반환합니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `jamo`: 입력할 한글 자모 (`JamoEnum`). 초성, 중성, 종성 또는 특수 문자일 수 있습니다.
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(char)`: 입력된 자모로 인해 이전 음절 조합이 완료된 경우, 완성된 한글 음절.
+    /// * `None`: 조합이 계속 진행 중인 경우.
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char>;
 
-    /**
-     * 한글 자모 삭제. 마지막으로 입력했던 자모부터 삭제 후에 다시 조합.
-     * @return 삭제된 자모 객체 또는 None
-     */
+    /// 마지막으로 입력된 한글 자모를 제거하고 조합 상태를 갱신합니다.
+    ///
+    /// 제거 후 조합 상태가 변경됩니다.
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(JamoEnum)`: 성공적으로 제거된 자모.
+    /// * `None`: 제거할 자모가 없는 경우 (조합 큐가 비어 있는 경우).
     fn remove_jamo(&mut self) -> Option<JamoEnum>;
 
-    /**
-     * 스택에 쌓인 자모들로 한글 조합
-     * @return 조합 성공 여부
-     */
+    /// 현재 `jamo_queue`에 저장된 자모들을 바탕으로 한글 음절을 조합합니다.
+    ///
+    /// 내부적으로 `compose_cho`, `compose_jung`, `compose_jong`을 호출하여
+    /// `current_hangul_char`의 상태를 업데이트합니다.
+    ///
+    /// # 반환값
+    ///
+    /// * `true`: 조합에 성공했거나, 큐가 비어 있어 초기화된 경우.
+    /// * `false`: 자모 조합 규칙에 맞지 않아 조합에 실패한 경우.
     fn compose_hangul(&mut self) -> bool;
 
-    /**
-     * 강제로 조합 완료
-     * @return 완성된 한글 객체 또는 None
-     */
+    /// 현재까지 입력된 자모들을 강제로 조합하여 완성된 한글 음절을 반환하고, 조합 상태를 초기화합니다.
+    ///
+    /// 조합 중인 상태(`is_compose()`가 `true`인 경우)에만 동작합니다.
+    /// 성공적으로 조합되면 현재 조합 상태(`jamo_queue`, `last_jamo_queue`, `current_hangul_char`)가 모두 초기화됩니다.
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(char)`: 조합이 성공한 경우, 완성된 한글 음절.
+    /// * `None`: 조합 중인 상태가 아니거나 조합에 실패한 경우.
     fn force_compose_hangul(&mut self) -> Option<char>;
 
-    /**
-     * 조합 중인지 여부
-     * @return
-     */
+    /// 현재 한글 조합이 진행 중인지 여부를 확인합니다.
+    ///
+    /// `jamo_queue`에 자모가 하나 이상 있으면 조합 중인 것으로 간주합니다.
+    ///
+    /// # 반환값
+    ///
+    /// * `true`: 조합 중인 경우.
+    /// * `false`: 조합 중이 아닌 경우 (큐가 비어 있음).
     fn is_compose(&self) -> bool;
 
-    /**
-     * 새로운 음절이 시작되는지 확인
-     * @return 새로운 음절 시작 여부
-     */
+    /// 다음에 입력될 자모가 새로운 음절을 시작해야 하는지 여부를 판단합니다.
+    ///
+    /// 현재 조합 상태를 기준으로 판단하며, 구체적인 로직은 구현체에 따라 다를 수 있습니다.
+    /// 예를 들어, 마지막 입력이 초성이었고 현재 중성이 채워져 있다면 새로운 음절 시작으로 볼 수 있습니다.
+    ///
+    /// # 반환값
+    ///
+    /// * `true`: 새로운 음절 시작 조건에 맞는 경우.
+    /// * `false`: 그렇지 않은 경우.
     fn is_new_syllable(&self) -> bool;
 
     // --- 내부적으로 사용되는 함수들 (Java의 protected methods) ---
 
-    /**
-     * 한글 초성 조합 (내부 사용)
-     * @return 성공 또는 실패
-     */
+    /// 한글 초성 조합 (내부 사용)
+    ///
+    /// # 반환값
+    ///
+    /// * `true`: 성공 또는 실패
     fn compose_cho(&mut self) -> bool;
 
-    /**
-     * 한글 중성 조합 (내부 사용)
-     * @return 성공 또는 실패
-     */
+    /// 한글 중성 조합 (내부 사용)
+    ///
+    /// # 반환값
+    ///
+    /// * `true`: 성공 또는 실패
     fn compose_jung(&mut self) -> bool;
 
-    /**
-     * 한글 종성 조합 (내부 사용)
-     * @return 성공 또는 실패
-     */
+    /// 한글 종성 조합 (내부 사용)
+    ///
+    /// # 반환값
+    ///
+    /// * `true`: 성공 또는 실패
     fn compose_jong(&mut self) -> bool;
 
-    /**
-     * 자모 모두 지우기 (HangulChar의 clear() 와 유사, 필요에 따라 트레잇에 추가하거나 구현체에서 제공)
-     */
+    /// 자모 모두 지우기 (HangulChar의 clear() 와 유사, 필요에 따라 트레잇에 추가하거나 구현체에서 제공)
     fn clear_jamo(&mut self);
 
-    /**
-     * 현재 조합된 초성 얻기 (HangulChar의 get_cho() 와 유사)
-     */
+    /// 현재 조합된 초성 얻기 (HangulChar의 get_cho() 와 유사)
     fn get_current_cho(&self) -> Option<Cho>;
 
-    /**
-     * 현재 조합된 중성 얻기 (HangulChar의 get_jung() 와 유사)
-     */
+    /// 현재 조합된 중성 얻기 (HangulChar의 get_jung() 와 유사)
     fn get_current_jung(&self) -> Option<Jung>;
 
-    /**
-     * 현재 조합된 종성 얻기 (HangulChar의 get_jong() 와 유사)
-     */
+    /// 현재 조합된 종성 얻기 (HangulChar의 get_jong() 와 유사)
     fn get_current_jong(&self) -> Option<Jong>;
 
-    /**
-     * 초성 설정 (HangulChar의 set_cho_object() 와 유사)
-     */
+    /// 초성 설정 (HangulChar의 set_cho_object() 와 유사)
+    ///
+    /// # 반환값
+    ///
+    /// 설정 성공 여부 (현재 구현에서는 항상 `true`).
     fn set_current_cho(&mut self, cho: Option<Cho>) -> bool;
 
-    /**
-     * 중성 설정 (HangulChar의 set_jung_object() 와 유사)
-     */
+    /// 중성 설정 (HangulChar의 set_jung_object() 와 유사)
+    ///
+    /// # 반환값
+    ///
+    /// 설정 성공 여부 (현재 구현에서는 항상 `true`).
     fn set_current_jung(&mut self, jung: Option<Jung>) -> bool;
 
-    /**
-     * 종성 설정 (HangulChar의 set_jong_object() 와 유사)
-     */
+    /// 종성 설정 (HangulChar의 set_jong_object() 와 유사)
+    ///
+    /// # 반환값
+    ///
+    /// 설정 성공 여부 (현재 구현에서는 항상 `true`).
     fn set_current_jong(&mut self, jong: Option<Jong>) -> bool;
 
-    /**
-     * 자모 조합 테이블 접근 (필요한 경우)
-     */
+    /// 자모 조합 테이블 접근 (필요한 경우)
     fn get_combined_jamo(&self) -> &HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>>;
 
     // 자모가 입력되는 순서대로 저장하는 큐
@@ -320,7 +352,7 @@ impl HangulComposer for BaseHangulComposer {
             self.jamo_queue.push_back(jamo);
             self.clear();
             self.compose_hangul();
-            Some(complete_hangul)
+            complete_hangul.ok()
         } else {
             None
         }
@@ -356,7 +388,7 @@ impl HangulComposer for BaseHangulComposer {
             self.clear();
             self.jamo_queue.clear();
             self.last_jamo_queue.clear();
-            Some(complete_hangul)
+            complete_hangul.ok()
         } else {
             None
         }
