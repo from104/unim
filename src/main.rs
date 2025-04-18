@@ -1,6 +1,7 @@
-use crate::hangul::builder::BaseHangulBuilder;
-use hangul::builder_2bul::HangulBuilder2Bul;
-use hangul::builder_3bul::HangulBuilder3Bul;
+use crate::keystroke::keyboard_map::KeyboardMap;
+use crate::keystroke::keystrokes_to_hangul::keystrokes_to_hangul;
+use hangul::composer_with_2bul::HangulComposer2Bul;
+use hangul::composer_with_3bul::HangulComposer3Bul;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
@@ -157,11 +158,11 @@ fn run(config: Config) -> io::Result<()> {
             // 영문 -> 한글 변환
             match config.keyboard_mode {
                 KeyboardMode::TwoBulStd => {
-                    let mut _builder = HangulBuilder2Bul::new(english_keymap, korean_keymap);
+                    // let mut _composer = HangulComposer2Bul::new();
                     process_with_2bul(input, &mut output, english_keymap, korean_keymap)?;
                 }
                 KeyboardMode::ThreeBul390 | KeyboardMode::ThreeBul391 => {
-                    let mut _builder = HangulBuilder3Bul::new(english_keymap, korean_keymap);
+                    // let mut _composer = HangulComposer3Bul::new();
                     process_with_3bul(input, &mut output, english_keymap, korean_keymap)?;
                 }
             }
@@ -170,7 +171,6 @@ fn run(config: Config) -> io::Result<()> {
             // 한글 -> 영문 변환
             match config.keyboard_mode {
                 KeyboardMode::TwoBulStd => {
-                    let mut _builder = HangulBuilder2Bul::new(english_keymap, korean_keymap);
                     process_korean_to_english_2bul(
                         input,
                         &mut output,
@@ -179,7 +179,6 @@ fn run(config: Config) -> io::Result<()> {
                     )?;
                 }
                 KeyboardMode::ThreeBul390 | KeyboardMode::ThreeBul391 => {
-                    let _builder = HangulBuilder3Bul::new(english_keymap, korean_keymap);
                     process_korean_to_english_3bul(
                         input,
                         &mut output,
@@ -200,7 +199,7 @@ fn process_with_2bul(
     en_keymap: &str,
     ko_keymap: &str,
 ) -> io::Result<()> {
-    let mut hangul_builder = HangulBuilder2Bul::new(en_keymap, ko_keymap);
+    let mut hangul_composer = HangulComposer2Bul::new();
 
     for line in input.lines() {
         let input_line = line?;
@@ -211,9 +210,8 @@ fn process_with_2bul(
             continue;
         }
 
-        let keyboard_map = hangul_builder.create_keyboard_map(en_keymap, ko_keymap);
-        let result =
-            BaseHangulBuilder::convert_string(&input_line, &keyboard_map, &mut hangul_builder);
+        let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, false);
+        let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
         writeln!(output, "{}", result)?;
     }
 
@@ -226,7 +224,7 @@ fn process_with_3bul(
     en_keymap: &str,
     ko_keymap: &str,
 ) -> io::Result<()> {
-    let mut hangul_builder = HangulBuilder3Bul::new(en_keymap, ko_keymap);
+    let mut hangul_composer = HangulComposer3Bul::new();
 
     for line in input.lines() {
         let input_line = line?;
@@ -237,9 +235,8 @@ fn process_with_3bul(
             continue;
         }
 
-        let keyboard_map = hangul_builder.create_keyboard_map(en_keymap, ko_keymap);
-        let result =
-            BaseHangulBuilder::convert_string(&input_line, &keyboard_map, &mut hangul_builder);
+        let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, true);
+        let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
         writeln!(output, "{}", result)?;
     }
 
@@ -252,8 +249,6 @@ fn process_korean_to_english_2bul(
     en_keymap: &str,
     ko_keymap: &str,
 ) -> io::Result<()> {
-    let hangul_builder = HangulBuilder2Bul::new(en_keymap, ko_keymap);
-
     for line in input.lines() {
         let input_line = line?;
 
@@ -263,8 +258,8 @@ fn process_korean_to_english_2bul(
             continue;
         }
 
-        let _keyboard_map = hangul_builder.create_keyboard_map(en_keymap, ko_keymap);
-        let result = hangul_builder.convert_korean_to_english(&input_line);
+        let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, false);
+        let result = KeyboardMap::hangul_to_keystrokes(&input_line, &keyboard_map, false);
         writeln!(output, "{}", result)?;
     }
 
@@ -277,8 +272,6 @@ fn process_korean_to_english_3bul(
     en_keymap: &str,
     ko_keymap: &str,
 ) -> io::Result<()> {
-    let hangul_builder = HangulBuilder3Bul::new(en_keymap, ko_keymap);
-
     for line in input.lines() {
         let input_line = line?;
 
@@ -288,8 +281,8 @@ fn process_korean_to_english_3bul(
             continue;
         }
 
-        let _keyboard_map = hangul_builder.create_keyboard_map(en_keymap, ko_keymap);
-        let result = hangul_builder.convert_korean_to_english(&input_line);
+        let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, true);
+        let result = KeyboardMap::hangul_to_keystrokes(&input_line, &keyboard_map, true);
         writeln!(output, "{}", result)?;
     }
 
