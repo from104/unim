@@ -743,66 +743,61 @@ impl Jong {
     ///
     /// # 반환값
     ///
-    /// * `Cho`: 변환된 초성(`Cho`) variant.
-    ///
-    /// # Panics
-    ///
-    /// 다음의 경우 패닉이 발생합니다:
-    /// * 종성 비움(`Jong::E`)을 변환하려고 할 때.
-    /// * 겹받침 종성(예: `Jong::GS`, `Jong::LG` 등)을 변환하려고 할 때.
+    /// * `Ok(Cho)`: 변환된 초성(`Cho`) variant.
+    /// * `Err(&'static str)`: 변환할 수 없는 종성인 경우, 에러 메시지 문자열 슬라이스.
     ///
     /// # 예시
     ///
     /// ```
     /// use unin::hangul::jamo::{Cho, Jong};
     ///
-    /// assert_eq!(Jong::G.to_cho(), Cho::G); // ㄱ 받침 -> ㄱ 초성
-    /// assert_eq!(Jong::NG.to_cho(), Cho::E); // ㅇ 받침 -> ㅇ 초성
+    /// assert_eq!(Jong::G.to_cho(), Ok(Cho::G)); // ㄱ 받침 -> ㄱ 초성
+    /// assert_eq!(Jong::NG.to_cho(), Ok(Cho::E)); // ㅇ 받침 -> ㅇ 초성
     /// // assert_eq!(Jong::LG.to_cho(), ...); // 패닉 발생!
     /// // assert_eq!(Jong::E.to_cho(), ...); // 패닉 발생!
     /// ```
     ///
-    /// ```should_panic
+    /// ```
     /// use unin::hangul::jamo::Jong;
-    /// // 겹받침 변환 시도 (패닉)
-    /// let _ = Jong::LG.to_cho();
+    /// // 겹받침 변환 시도 (Err 반환)
+    /// assert!(Jong::LG.to_cho().is_err());
     /// ```
     ///
-    /// ```should_panic
-    /// use unin::hangul::jamo::Jong;
-    /// // 종성 비움 변환 시도 (패닉)
-    /// let _ = Jong::E.to_cho();
     /// ```
-    pub fn to_cho(&self) -> Cho {
+    /// use unin::hangul::jamo::Jong;
+    /// // 종성 비움 변환 시도 (Err 반환)
+    /// assert!(Jong::E.to_cho().is_err());
+    /// ```
+    pub fn to_cho(&self) -> Result<Cho, &'static str> {
         match self {
-            Jong::NG => Cho::E,
-            Jong::L => Cho::R,
-            Jong::G => Cho::G,
-            Jong::GG => Cho::GG,
-            Jong::N => Cho::N,
-            Jong::D => Cho::D,
-            Jong::M => Cho::M,
-            Jong::B => Cho::B,
-            Jong::S => Cho::S,
-            Jong::SS => Cho::SS,
-            Jong::J => Cho::J,
-            Jong::C => Cho::C,
-            Jong::K => Cho::K,
-            Jong::T => Cho::T,
-            Jong::P => Cho::P,
-            Jong::H => Cho::H,
-            Jong::E => panic!("종성 비움은 초성으로 변환할 수 없습니다."),
-            Jong::GS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::NJ => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::NH => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::LG => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::LM => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::LB => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::LS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::LT => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::LP => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::LH => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
-            Jong::BS => panic!("겹받침 종성은 초성으로 변환할 수 없습니다."),
+            Jong::NG => Ok(Cho::E),
+            Jong::L => Ok(Cho::R),
+            Jong::G => Ok(Cho::G),
+            Jong::GG => Ok(Cho::GG),
+            Jong::N => Ok(Cho::N),
+            Jong::D => Ok(Cho::D),
+            Jong::M => Ok(Cho::M),
+            Jong::B => Ok(Cho::B),
+            Jong::S => Ok(Cho::S),
+            Jong::SS => Ok(Cho::SS),
+            Jong::J => Ok(Cho::J),
+            Jong::C => Ok(Cho::C),
+            Jong::K => Ok(Cho::K),
+            Jong::T => Ok(Cho::T),
+            Jong::P => Ok(Cho::P),
+            Jong::H => Ok(Cho::H),
+            Jong::E => Err("종성 비움은 초성으로 변환할 수 없습니다."),
+            Jong::GS => Err("겹받침 종성 'ㄳ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::NJ => Err("겹받침 종성 'ㄵ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::NH => Err("겹받침 종성 'ㄶ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::LG => Err("겹받침 종성 'ㄺ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::LM => Err("겹받침 종성 'ㄻ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::LB => Err("겹받침 종성 'ㄼ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::LS => Err("겹받침 종성 'ㄽ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::LT => Err("겹받침 종성 'ㄾ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::LP => Err("겹받침 종성 'ㄿ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::LH => Err("겹받침 종성 'ㅀ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::BS => Err("겹받침 종성 'ㅄ'는(은) 초성으로 변환할 수 없습니다."),
         }
     }
 }

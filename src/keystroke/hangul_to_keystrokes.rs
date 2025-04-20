@@ -1,4 +1,5 @@
 use crate::hangul::char::HangulChar;
+use crate::hangul::char::HangulCharExt;
 use crate::hangul::jamo::*;
 use std::collections::HashMap;
 
@@ -42,10 +43,10 @@ pub fn hangul_to_keystrokes(
 
     // 3. 입력 문자열 순회 및 변환
     for c in input.chars() {
-        if ('\u{AC00}'..='\u{D7A3}').contains(&c) {
+        if c.is_hangul() {
             // 3.1. 완성형 한글 음절 처리
             append_syllable_keystrokes(c, &reverse_map, &compound_maps, is_3bul, &mut result);
-        } else if is_3bul && ('\u{3131}'..='\u{318E}').contains(&c) {
+        } else if is_3bul && c.is_hangul_compat_jamo() {
             // 3.2. 호환용 한글 자모 처리 (3벌식에서만)
             append_compat_jamo_keystrokes(c, &reverse_map, &compound_maps, &mut result);
         } else {
@@ -318,7 +319,7 @@ fn append_jamo_keystrokes(
                         JamoEnum::Jong(base_jong)
                     } else {
                         // 2벌식: 분해된 종성 자모를 초성으로 변환하여 사용
-                        JamoEnum::Cho(base_jong.to_cho())
+                        JamoEnum::Cho(base_jong.to_cho().unwrap())
                     };
                     if let Some(&key) = reverse_map.get(&jamo_to_lookup) {
                         result.push(key);
@@ -331,7 +332,7 @@ fn append_jamo_keystrokes(
                     *jamo_enum
                 } else {
                     // 2벌식: 단일 종성 자모를 초성으로 변환하여 사용
-                    JamoEnum::Cho(jong.to_cho())
+                    JamoEnum::Cho(jong.to_cho().unwrap())
                 };
                 if let Some(&key) = reverse_map.get(&jamo_to_lookup) {
                     result.push(key);

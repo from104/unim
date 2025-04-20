@@ -53,69 +53,8 @@ impl HangulComposer2Bul {
      * 이 함수는 `new` 생성자에서 내부적으로 호출됩니다.
      */
     fn initialize_combined_jamo(&mut self) {
-        let mut combined_jamo = HashMap::new();
-
-        // --- 중성 조합 규칙 ---
-        // 'ㅗ' + 'ㅏ' -> 'ㅘ'
-        // 'ㅗ' + 'ㅐ' -> 'ㅙ'
-        // 'ㅗ' + 'ㅣ' -> 'ㅚ'
-        let mut o_map = HashMap::new();
-        o_map.insert(JamoEnum::Jung(Jung::A), JamoEnum::Jung(Jung::WA));
-        o_map.insert(JamoEnum::Jung(Jung::AE), JamoEnum::Jung(Jung::WAE));
-        o_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::OE));
-        combined_jamo.insert(JamoEnum::Jung(Jung::O), o_map);
-
-        // 'ㅜ' + 'ㅓ' -> 'ㅝ'
-        // 'ㅜ' + 'ㅔ' -> 'ㅞ'
-        // 'ㅜ' + 'ㅣ' -> 'ㅟ'
-        let mut u_map = HashMap::new();
-        u_map.insert(JamoEnum::Jung(Jung::EO), JamoEnum::Jung(Jung::WEO));
-        u_map.insert(JamoEnum::Jung(Jung::E), JamoEnum::Jung(Jung::WE));
-        u_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::WI));
-        combined_jamo.insert(JamoEnum::Jung(Jung::U), u_map);
-
-        // 'ㅡ' + 'ㅣ' -> 'ㅢ'
-        let mut eu_map = HashMap::new();
-        eu_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::YI));
-        combined_jamo.insert(JamoEnum::Jung(Jung::EU), eu_map);
-
-        // --- 종성 조합 규칙 ---
-        // 'ㄱ' + 'ㅅ' -> 'ㄳ'
-        let mut g_map = HashMap::new();
-        g_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::GS));
-        combined_jamo.insert(JamoEnum::Jong(Jong::G), g_map);
-
-        // 'ㄴ' + 'ㅈ' -> 'ㄵ'
-        // 'ㄴ' + 'ㅎ' -> 'ㄶ'
-        let mut n_map = HashMap::new();
-        n_map.insert(JamoEnum::Jong(Jong::J), JamoEnum::Jong(Jong::NJ));
-        n_map.insert(JamoEnum::Jong(Jong::H), JamoEnum::Jong(Jong::NH));
-        combined_jamo.insert(JamoEnum::Jong(Jong::N), n_map);
-
-        // 'ㄹ' + 'ㄱ' -> 'ㄺ'
-        // 'ㄹ' + 'ㅁ' -> 'ㄻ'
-        // 'ㄹ' + 'ㅂ' -> 'ㄼ'
-        // 'ㄹ' + 'ㅅ' -> 'ㄽ'
-        // 'ㄹ' + 'ㅌ' -> 'ㄾ'
-        // 'ㄹ' + 'ㅍ' -> 'ㄿ'
-        // 'ㄹ' + 'ㅎ' -> 'ㅀ'
-        let mut l_map = HashMap::new();
-        l_map.insert(JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::LG));
-        l_map.insert(JamoEnum::Jong(Jong::M), JamoEnum::Jong(Jong::LM));
-        l_map.insert(JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::LB));
-        l_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::LS));
-        l_map.insert(JamoEnum::Jong(Jong::T), JamoEnum::Jong(Jong::LT));
-        l_map.insert(JamoEnum::Jong(Jong::P), JamoEnum::Jong(Jong::LP));
-        l_map.insert(JamoEnum::Jong(Jong::H), JamoEnum::Jong(Jong::LH));
-        combined_jamo.insert(JamoEnum::Jong(Jong::L), l_map);
-
-        // 'ㅂ' + 'ㅅ' -> 'ㅄ'
-        let mut b_map = HashMap::new();
-        b_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::BS));
-        combined_jamo.insert(JamoEnum::Jong(Jong::B), b_map);
-
-        // `base_composer`의 조합 맵 업데이트
-        *self.base_composer.combined_jamo() = combined_jamo;
+        // 두벌식이므로 초성 조합 규칙 없이 초기화
+        self.base_composer.initialize_combined_jamo(false);
     }
 }
 
@@ -179,53 +118,19 @@ impl HangulComposer for HangulComposer2Bul {
      * * `None`: 조합이 계속 진행 중이거나, 특수 입력 변환에 실패한 경우.
      */
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
-        // 입력된 자모가 초성, 중성, 종성 중 하나인지 확인
-        if !matches!(
-            jamo,
-            JamoEnum::Cho(_) | JamoEnum::Jung(_) | JamoEnum::Jong(_)
-        ) {
-            // 유효한 한글 자모가 아니면 아무 처리도 하지 않음
+        // 입력된 자모가 유효한지 확인
+        if !self.base_composer.is_valid_jamo(&jamo) {
             return None;
         }
 
         // 1. 중성 뒤 초성 입력 처리
-        if self.base_composer.is_filled_jung() {
-            if let JamoEnum::Cho(cho) = jamo {
-                // 입력된 초성을 종성으로 변환 시도
-                if let Ok(jong) = cho.to_jong() {
-                    // 변환 성공 시, 종성으로 기본 조합 로직 호출
-                    return self.base_composer.add_jamo(JamoEnum::Jong(jong));
-                }
-                // 변환 실패 시 (e.g., 'ㄸ', 'ㅃ', 'ㅉ'), 기본 로직으로 넘어감
-                // (BaseHangulComposer::add_jamo 에서 조합 실패 처리)
-            }
+        if let Some(result_opt) = self.base_composer.handle_cho_after_jung(jamo) {
+            return result_opt;
         }
 
         // 2. 도깨비불 현상 처리 (종성 + 중성 입력)
-        // 마지막 입력된 자모가 종성인지 확인
-        let last_jamo = self.base_composer.jamo_queue().back().copied();
-        if let Some(JamoEnum::Jong(jong)) = last_jamo {
-            // 새로 입력된 자모가 중성인지 확인
-            if matches!(jamo, JamoEnum::Jung(_)) {
-                // 마지막 종성을 큐에서 제거
-                self.base_composer.jamo_queue().pop_back();
-                // 현재까지 조합된 글자를 강제로 완성 (초성+중성 상태)
-                let current_char = self.base_composer.force_compose_hangul();
-
-                // 제거된 종성을 초성으로 변환하여 새로운 글자의 초성으로 추가
-                // Jong::to_cho()는 겹받침 등에 대해 panic 발생 가능성이 있으나,
-                // 일반적인 두벌식 입력 과정에서는 겹받침이 마지막에 오는 경우는 드묾.
-                // (겹받침 입력 중 중성이 오면 base_composer.add_jamo 에서 처리됨)
-                // 좀 더 안정적인 처리를 위해선 to_cho의 결과를 Result로 처리할 수 있음.
-                let new_cho = jong.to_cho(); // Panic 가능성 주석 참고
-                self.base_composer.add_jamo(JamoEnum::Cho(new_cho));
-
-                // 새로 입력된 중성을 추가
-                self.base_composer.add_jamo(jamo);
-
-                // 완성된 이전 글자를 반환
-                return current_char;
-            }
+        if let Some(result_opt) = self.base_composer.handle_dokkaebi_effect(jamo) {
+            return result_opt;
         }
 
         // 위 특수 경우에 해당하지 않으면 기본 자모 추가 로직 수행

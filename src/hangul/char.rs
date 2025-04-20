@@ -1,12 +1,10 @@
 /**
- * 한글 음절 조합 및 분해 (유니코드 5.2)
+ * 한글 음절 조합 및 검사 기능 (유니코드 5.2)
  *
- * @author "KiHyeon Seo" <from104@gmail.com>
- * @version 0.0.1
+ * 한글 자모를 사용하여 음절을 조합하거나 검사하는 기능을 제공합니다.
+ * 유니코드 5.2 기준의 한글 음절 규칙을 따릅니다.
  */
-// phoneme.rs 모듈을 가져옵니다. (phoneme.rs 파일이 같은 디렉토리에 있다고 가정)
 use crate::hangul::jamo::*;
-// 또는 use super::phoneme::*; // 모듈 구조에 따라
 
 /**
  * 한글 처리 관련 오류를 나타내는 열거형입니다.
@@ -101,17 +99,34 @@ impl HangulChar {
     }
 
     /**
-     * 한글 생성자 (초종중성 객체 이름으로)
-     * @param cho
-     * @param jung
-     * @param jong
+     * 자모 이름 문자열로부터 한글 객체를 생성합니다.
+     * 
+     * 각 자모 이름을 파싱하여 해당하는 초성, 중성, 종성 객체를 생성하고
+     * 이를 조합하여 HangulChar 객체를 반환합니다.
+     * 
+     * @param cho_name - 초성 이름 문자열 (예: "ㄱ", "G", "기역" 등)
+     * @param jung_name - 중성 이름 문자열 (예: "ㅏ", "A", "아" 등)
+     * @param jong_name - 종성 이름 문자열 (예: "ㄴ", "N", "니은" 등)
+     * @return Result<HangulChar, HangulError> - 성공 시 HangulChar 객체, 실패 시 에러
+     * 
+     * 특징:
+     * - 빈 문자열이 입력되면 해당 자모는 None으로 설정됩니다.
+     * - 종성의 경우 "E" 또는 빈 문자열이면 종성 없음(None)으로 처리됩니다.
+     * - 모든 입력은 대소문자 구분 없이 처리됩니다(내부적으로 대문자로 변환).
+     * - 파싱 실패 시 구체적인 에러 메시지와 함께 HangulError를 반환합니다.
+     * 
+     * 예시:
+     * - from_jamo_names("ㄱ", "ㅏ", "ㄴ") -> '간' 음절에 해당하는 HangulChar
+     * - from_jamo_names("ㅎ", "ㅏ", "E") -> '하' 음절에 해당하는 HangulChar
+     * - from_jamo_names("ㄱ", "", "") -> 'ㄱ' 자모에 해당하는 HangulChar
      */
     pub fn from_jamo_names(
         cho_name: &str,
         jung_name: &str,
         jong_name: &str,
     ) -> Result<Self, HangulError> {
-        // 각 자모 이름 파싱 시도
+        // 초성 파싱: 빈 문자열이면 None, 아니면 Cho 열거형으로 변환 시도
+        // 대문자로 변환하여 대소문자 구분 없이 처리
         let cho = if cho_name.is_empty() {
             Ok(None)
         } else {
@@ -120,6 +135,8 @@ impl HangulChar {
                 .map_err(|_| HangulError::JamoParse(format!("초성 파싱 실패: {}", cho_name)))
         }?;
 
+        // 중성 파싱: 빈 문자열이면 None, 아니면 Jung 열거형으로 변환 시도
+        // 대문자로 변환하여 대소문자 구분 없이 처리
         let jung = if jung_name.is_empty() {
             Ok(None)
         } else {
@@ -128,7 +145,8 @@ impl HangulChar {
                 .map_err(|_| HangulError::JamoParse(format!("중성 파싱 실패: {}", jung_name)))
         }?;
 
-        // 종성은 이름이 "E" 이거나 비어있으면 None으로 처리
+        // 종성 파싱: 빈 문자열이거나 "E"(종성 없음)이면 None, 아니면 Jong 열거형으로 변환 시도
+        // 대문자로 변환하여 대소문자 구분 없이 처리
         let jong = if jong_name.is_empty() || jong_name.to_uppercase() == "E" {
             Ok(None)
         } else {
@@ -137,6 +155,7 @@ impl HangulChar {
                 .map_err(|_| HangulError::JamoParse(format!("종성 파싱 실패: {}", jong_name)))
         }?;
 
+        // 파싱된 자모들로 HangulChar 객체 생성 및 반환
         Ok(HangulChar {
             choseong: cho,
             jungseong: jung,
@@ -145,22 +164,55 @@ impl HangulChar {
     }
 
     /**
-     * 한글 생성자 (한글 음절로)
-     * @param syllable
+     * 한글 음절 문자로부터 `HangulChar` 객체를 생성합니다.
+     * 
+     * 유니코드 한글 음절 영역(0xAC00-0xD7A3)에 있는 문자를 분해하여
+     * 초성, 중성, 종성 정보를 가진 `HangulChar` 객체로 변환합니다.
+     * 
+     * # 작동 원리
+     * 1. 입력된 문자가 한글 음절 영역에 있는지 검사합니다.
+     * 2. 한글 음절 시작점(0xAC00)을 기준으로 상대적 위치를 계산합니다.
+     * 3. 상대적 위치를 이용해 초성, 중성, 종성의 인덱스를 계산합니다:
+     *    - 초성 인덱스 = 상대코드 / (중성 수 * 종성 수)
+     *    - 중성 인덱스 = (상대코드 % (중성 수 * 종성 수)) / 종성 수
+     *    - 종성 인덱스 = 상대코드 % 종성 수
+     * 4. 계산된 인덱스로 `HangulChar` 객체를 생성합니다.
+     * 
+     * # 매개변수
+     * * `syllable` - 분해할 한글 음절 문자 (예: '가', '한', '꿈')
+     * 
+     * # 반환값
+     * * `Ok(HangulChar)` - 성공적으로 분해된 `HangulChar` 객체
+     * * `Err(HangulError::InvalidSyllable)` - 입력된 문자가 한글 음절 영역에 없는 경우
+     * 
+     * # 예시
+     * ```
+     * let hangul = HangulChar::from_syllable('한').unwrap();
+     * assert_eq!(hangul.get_cho(), Some(Cho::H));
+     * assert_eq!(hangul.get_jung(), Some(Jung::A));
+     * assert_eq!(hangul.get_jong(), Some(Jong::N));
+     * ```
      */
     pub fn from_syllable(syllable: char) -> Result<Self, HangulError> {
         let syllable_u32 = syllable as u32;
 
+        // 입력된 문자가 한글 음절 영역(0xAC00-0xD7A3)에 있는지 검사
         if !(SYLLABLE_BASE..=SYLLABLE_BASE + SYLLABLE_NUMBER as u32 - 1).contains(&syllable_u32) {
             return Err(HangulError::InvalidSyllable(syllable));
         }
 
+        // 한글 음절 시작점(0xAC00)을 기준으로 상대적 위치 계산
         let relative_code = (syllable_u32 - SYLLABLE_BASE) as usize;
 
+        // 초성, 중성, 종성의 인덱스 계산
+        // 초성 인덱스 = 상대코드 / (중성 수 * 종성 수)
         let cho_seq = relative_code / (JUNGSEONG_NUMBER * JONGSEONG_NUMBER);
+        // 중성 인덱스 = (상대코드 % (중성 수 * 종성 수)) / 종성 수
         let jung_seq = (relative_code % (JUNGSEONG_NUMBER * JONGSEONG_NUMBER)) / JONGSEONG_NUMBER;
+        // 종성 인덱스 = 상대코드 % 종성 수
         let jong_seq = relative_code % JONGSEONG_NUMBER;
 
+        // 계산된 인덱스로 HangulChar 객체 생성 및 반환
         Ok(HangulChar::from_jamo_sequences(
             cho_seq as i32,
             jung_seq as i32,
@@ -632,6 +684,114 @@ impl FromStr for HangulChar {
                 s
             )))
         }
+    }
+}
+
+/// 한글 문자 관련 확장 메서드를 제공하는 trait입니다.
+pub trait HangulCharExt {
+    /// 현재 문자가 완성형 한글 음절인지 확인합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::char::HangulCharExt;
+    ///
+    /// assert!('한'.is_hangul());
+    /// assert!('가'.is_hangul());
+    /// assert!(!'a'.is_hangul());
+    /// assert!(!'ㄱ'.is_hangul());
+    /// ```
+    fn is_hangul(&self) -> bool;
+
+    /// 현재 문자가 호환용 한글 자모인지 확인합니다. (0x3130-0x318F)
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::char::HangulCharExt;
+    ///
+    /// assert!('ㄱ'.is_hangul_compat_jamo());
+    /// assert!('ㅏ'.is_hangul_compat_jamo());
+    /// assert!(!'가'.is_hangul_compat_jamo());
+    /// ```
+    fn is_hangul_compat_jamo(&self) -> bool;
+
+    /// 현재 문자가 첫가끝 영역의 초성인지 확인합니다. (0x1100-0x115F)
+    fn is_hangul_choseong(&self) -> bool;
+
+    /// 현재 문자가 첫가끝 영역의 중성인지 확인합니다. (0x1160-0x11A7)
+    fn is_hangul_jungseong(&self) -> bool;
+
+    /// 현재 문자가 첫가끝 영역의 종성인지 확인합니다. (0x11A8-0x11FF)
+    fn is_hangul_jongseong(&self) -> bool;
+
+    /// 현재 문자가 첫가끝 영역의 자모인지 확인합니다. (0x1100-0x11FF)
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::char::HangulCharExt;
+    ///
+    /// assert!('ᄀ'.is_hangul_jamo());  // 첫가끝 초성 'ㄱ'
+    /// assert!('ᅡ'.is_hangul_jamo());  // 첫가끝 중성 'ㅏ'
+    /// assert!('ᆨ'.is_hangul_jamo());  // 첫가끝 종성 'ㄱ'
+    /// assert!(!'가'.is_hangul_jamo()); // 완성형 음절
+    /// assert!(!'ㄱ'.is_hangul_jamo()); // 호환용 자모
+    /// ```
+    fn is_hangul_jamo(&self) -> bool;
+
+    /// 현재 문자가 한글(완성형 음절, 첫가끝 자모, 호환용 자모)인지 확인합니다.
+    ///
+    /// # 예시
+    ///
+    /// ```
+    /// use unin::hangul::char::HangulCharExt;
+    ///
+    /// assert!('한'.is_korean());   // 완성형 음절
+    /// assert!('ㄱ'.is_korean());   // 호환용 자모
+    /// assert!('ᄀ'.is_korean());   // 첫가끝 자모
+    /// assert!(!'a'.is_korean());
+    /// ```
+    fn is_korean(&self) -> bool;
+}
+
+impl HangulCharExt for char {
+    fn is_hangul(&self) -> bool {
+        let c = *self as u32;
+        (SYLLABLE_BASE..=SYLLABLE_BASE + SYLLABLE_NUMBER as u32 - 1).contains(&c)
+    }
+
+    fn is_hangul_compat_jamo(&self) -> bool {
+        let c = *self as u32;
+        // 호환용 한글 자모 영역 (0x3130-0x318F)
+        (0x3130..=0x318F).contains(&c)
+    }
+
+    fn is_hangul_choseong(&self) -> bool {
+        let c = *self as u32;
+        // 첫가끝 초성 영역 (0x1100-0x115F)
+        (0x1100..=0x115F).contains(&c)
+    }
+
+    fn is_hangul_jungseong(&self) -> bool {
+        let c = *self as u32;
+        // 첫가끝 중성 영역 (0x1160-0x11A7)
+        (0x1160..=0x11A7).contains(&c)
+    }
+
+    fn is_hangul_jongseong(&self) -> bool {
+        let c = *self as u32;
+        // 첫가끝 종성 영역 (0x11A8-0x11FF)
+        (0x11A8..=0x11FF).contains(&c)
+    }
+
+    fn is_hangul_jamo(&self) -> bool {
+        // 첫가끝 자모 영역 전체 (0x1100-0x11FF)
+        self.is_hangul_choseong() || self.is_hangul_jungseong() || self.is_hangul_jongseong()
+    }
+
+    fn is_korean(&self) -> bool {
+        self.is_hangul() || self.is_hangul_jamo() || self.is_hangul_compat_jamo()
     }
 }
 
