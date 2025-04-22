@@ -1,3 +1,10 @@
+use std::env;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Write};
+use std::path::Path;
+use std::process;
+use unin::hangul::composer_with_2bul::HangulComposer2Bul;
+use unin::hangul::composer_with_3bul::HangulComposer3Bul;
 /// UNIN (Unicode Input) - 한/영 자판 변환기
 ///
 /// 이 프로그램은 한글과 영문 자판 간의 변환을 수행합니다.
@@ -5,19 +12,9 @@
 /// - 한글 타이핑을 영문으로 변환
 /// - 다양한 자판 지원 (두벌식 표준, 세벌식 390, 세벌식 391)
 /// - 다양한 영문 자판 지원 (QWERTY, Dvorak)
-use crate::keystroke::hangul_to_keystrokes::hangul_to_keystrokes;
-use crate::keystroke::keyboard_map::KeyboardMap;
-use crate::keystroke::keystrokes_to_hangul::keystrokes_to_hangul;
-use hangul::composer_with_2bul::HangulComposer2Bul;
-use hangul::composer_with_3bul::HangulComposer3Bul;
-use std::env;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
-use std::process;
-
-pub mod hangul;
-pub mod keystroke;
+use unin::keystroke::hangul_to_keystrokes::hangul_to_keystrokes;
+use unin::keystroke::keyboard_map::KeyboardMap;
+use unin::keystroke::keystrokes_to_hangul::keystrokes_to_hangul;
 
 /// 한글 자판 모드
 ///

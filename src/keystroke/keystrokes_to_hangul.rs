@@ -1,6 +1,6 @@
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::jamo::JamoEnum;
-use crate::keystroke::input_context::HangulInputContext;
+use crate::hangul::input_context::HangulInputContext;
 use std::collections::HashMap;
 
 /// 영문 키보드 입력 문자열을 한글로 변환하는 기능을 제공합니다.

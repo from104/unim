@@ -116,16 +116,6 @@ impl HangulComposer for HangulComposer3Bul {
             return None;
         }
 
-        // 1. 중성 뒤 초성 입력 처리
-        if let Some(result_opt) = self.base_composer.handle_cho_after_jung(jamo) {
-            return result_opt;
-        }
-
-        // 2. 도깨비불 현상 처리 (종성 + 중성 입력)
-        if let Some(result_opt) = self.base_composer.handle_dokkaebi_effect(jamo) {
-            return result_opt;
-        }
-
         // 현재 큐 상태를 복사하여 실패 시 복원 용도로 사용
         let original_queue = self.base_composer.jamo_queue().clone();
 

@@ -49,9 +49,9 @@ pub fn hangul_to_keystrokes(
         if c.is_hangul() {
             // 3.1. 완성형 한글 음절 처리
             append_syllable_keystrokes(c, &reverse_jamo_map, &compound_maps, is_3bul, &mut result);
-        } else if is_3bul && c.is_hangul_compat_jamo() {
-            // 3.2. 호환용 한글 자모 처리 (3벌식에서만)
-            append_compat_jamo_keystrokes(c, &reverse_jamo_map, &compound_maps, &mut result);
+        // } else if is_3bul && c.is_hangul_compat_jamo() {
+        //     // 3.2. 호환용 한글 자모 처리 (3벌식에서만)
+        //     append_compat_jamo_keystrokes(c, &reverse_jamo_map, &compound_maps, &mut result);
         } else {
             // 3.3. 한글이 아닌 다른 문자 처리 (수정됨)
             // 기타 문자 역방향 맵에서 문자에 해당하는 키를 찾습니다.
@@ -227,70 +227,6 @@ fn append_syllable_keystrokes(
     }
 }
 
-/// 한글 호환용 자모 문자(`c`)를 받아 해당하는 키스트로크를 `result` 문자열에 추가합니다.
-///
-/// **주의:** 이 함수는 3벌식(`is_3bul = true`)일 경우에만 호출되어야 합니다.
-/// 함수는 초성, 중성, 종성 범위의 모든 자모에 대해 일치하는 자모를 찾고,
-/// 해당 자모에 대한 키스트로크를 추가합니다. 매칭되는 키가 없으면 원본 문자를 그대로 추가합니다.
-///
-/// # Arguments
-/// * `c` - 처리할 한글 호환용 자모 문자 (ㄱ, ㅏ, ㄳ 등).
-/// * `reverse_map` - 자모 -> 영문 키 역방향 매핑.
-/// * `compound_maps` - 복합 자모 분해 규칙.
-/// * `result` - 키스트로크를 추가할 대상 문자열 버퍼.
-fn append_compat_jamo_keystrokes(
-    c: char,
-    reverse_map: &HashMap<JamoEnum, char>,
-    compound_maps: &CompoundMaps,
-    result: &mut String,
-) {
-    let mut found = false;
-
-    // 초성(Cho) 확인 (이중자음 처리)
-    for cho_val in 0..19 {
-        if let Some(cho) = get_cho_by_sequence(cho_val) {
-            let jamo_enum = JamoEnum::Cho(cho);
-            if jamo_enum.get_unicode_compat() == c {
-                append_jamo_keystrokes(&jamo_enum, reverse_map, compound_maps, true, result);
-                found = true;
-                break;
-            }
-        }
-    }
-
-    // 중성(Jung) 확인 (이중모음 처리)
-    if !found {
-        for jung_val in 0..21 {
-            if let Some(jung) = get_jung_by_sequence(jung_val) {
-                let jamo_enum = JamoEnum::Jung(jung);
-                if jamo_enum.get_unicode_compat() == c {
-                    append_jamo_keystrokes(&jamo_enum, reverse_map, compound_maps, true, result);
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    // 종성(Jong) 확인 (겹받침 처리)
-    if !found {
-        for jong_val in 1..28 {
-            if let Some(jong) = get_jong_by_sequence(jong_val) {
-                let jamo_enum = JamoEnum::Jong(jong);
-                if jamo_enum.get_unicode_compat() == c {
-                    append_jamo_keystrokes(&jamo_enum, reverse_map, compound_maps, true, result);
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    // 매칭되는 키를 찾지 못한 경우 그대로 추가
-    if !found {
-        result.push(c);
-    }
-}
 
 /// 단일 `JamoEnum` (초성, 중성, 또는 종성)을 받아 해당하는 키스트로크(들)를
 /// `result` 문자열에 추가합니다.

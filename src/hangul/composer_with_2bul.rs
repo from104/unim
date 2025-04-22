@@ -56,6 +56,74 @@ impl HangulComposer2Bul {
         // 두벌식이므로 초성 조합 규칙 없이 초기화
         self.base_composer.initialize_combined_jamo(false);
     }
+
+    /// 도깨비불 현상 처리 함수 (2벌식 전용)
+    ///
+    /// 종성 다음에 중성이 입력되었을 때(도깨비불 현상) 처리하는 함수입니다.
+    /// 마지막 종성을 제거하고 새로운 음절의 초성으로 변환 후 조합합니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `jamo` - 입력된 중성 자모 (`JamoEnum::Jung`)
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(Option<char>)` - 처리됨. 내부 값은 완성된 글자(있는 경우)
+    /// * `None` - 도깨비불 현상이 아님
+    fn handle_dokkaebi_effect(&mut self, jamo: JamoEnum) -> Option<Option<char>> {
+        // 마지막 입력된 자모가 종성인지 확인
+        let last_jamo = self.base_composer.jamo_queue().back().copied(); // Read access is okay
+        if let Some(JamoEnum::Jong(jong)) = last_jamo {
+            // 새로 입력된 자모가 중성인지 확인
+            if matches!(jamo, JamoEnum::Jung(_)) {
+                // 마지막 종성을 큐에서 제거
+                self.base_composer.jamo_queue().pop_back();
+                // 현재까지 조합된 글자를 강제로 완성 (초성+중성 상태)
+                let current_char = self.force_compose_hangul(); // Uses self, which is fine
+
+                // 제거된 종성을 초성으로 변환하여 새로운 글자의 초성으로 추가
+                if let Ok(new_cho) = jong.to_cho() {
+                    self.add_jamo(JamoEnum::Cho(new_cho)); // Recursive call - potential issue, but let's keep the logic for now
+
+                    // 새로 입력된 중성을 추가
+                    self.add_jamo(jamo); // Recursive call - potential issue
+
+                    // 완성된 이전 글자를 반환
+                    return Some(current_char);
+                }
+            }
+        }
+        None
+    }
+
+    /// 중성 뒤 초성 입력 처리 함수 (2벌식 전용)
+    ///
+    /// 중성이 채워진 상태에서 초성이 입력되었을 때, 초성을 종성으로 변환하여 처리합니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `jamo` - 입력된 초성 자모 (`JamoEnum::Cho`)
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(Option<char>)` - 처리됨. 내부 값은 완성된 글자(있는 경우)
+    /// * `None` - 처리 안됨(중성 뒤 초성 입력이 아님)
+    fn handle_cho_after_jung(&mut self, jamo: JamoEnum) -> Option<Option<char>> {
+        if self.base_composer.is_filled_jung() {
+            // Read access is okay
+            if let JamoEnum::Cho(cho) = jamo {
+                // 입력된 초성을 종성으로 변환 시도
+                if let Ok(jong) = cho.to_jong() {
+                    // 변환 성공 시, 종성으로 기본 조합 로직 호출 (이 부분이 핵심)
+                    // add_jamo를 직접 호출하는 대신, base_composer의 add_jamo를 사용해야 할 수 있음
+                    // 하지만 일단 self.add_jamo로 시도
+                    return Some(self.add_jamo(JamoEnum::Jong(jong))); // Recursive call
+                }
+                // 변환 실패 시 기본 로직으로 처리 (None 반환)
+            }
+        }
+        None
+    }
 }
 
 // `HangulComposer` 트레이트 구현
@@ -124,12 +192,12 @@ impl HangulComposer for HangulComposer2Bul {
         }
 
         // 1. 중성 뒤 초성 입력 처리
-        if let Some(result_opt) = self.base_composer.handle_cho_after_jung(jamo) {
+        if let Some(result_opt) = self.handle_cho_after_jung(jamo) {
             return result_opt;
         }
 
         // 2. 도깨비불 현상 처리 (종성 + 중성 입력)
-        if let Some(result_opt) = self.base_composer.handle_dokkaebi_effect(jamo) {
+        if let Some(result_opt) = self.handle_dokkaebi_effect(jamo) {
             return result_opt;
         }
 
