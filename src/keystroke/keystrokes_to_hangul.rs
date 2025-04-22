@@ -1,5 +1,6 @@
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::jamo::JamoEnum;
+use crate::keystroke::input_context::HangulInputContext;
 use std::collections::HashMap;
 
 /// 영문 키보드 입력 문자열을 한글로 변환하는 기능을 제공합니다.
@@ -102,5 +103,140 @@ fn flush_composer_to_result<T: HangulComposer>(composer: &mut T, result: &mut St
         if let Some(hangul_char) = composer.force_compose_hangul() {
             result.push(hangul_char);
         }
+    }
+}
+
+/// 영문 키보드 입력 문자열을 처리하여 `HangulInputContext`의 상태를 업데이트하고,
+/// 최종 확정된 문자열을 반환합니다.
+///
+/// 이 함수는 각 키 입력(`char`)을 `keyboard_map`을 통해 한글 자모로 변환하고,
+/// `HangulInputContext`의 `process_jamo` 메서드를 호출하여 조합 상태를 관리합니다.
+/// 한글 자모로 변환되지 않는 문자는 현재 조합 상태를 확정(commit)시키기만 하고,
+/// 해당 문자는 무시됩니다.
+///
+/// # 인자
+/// * `input` - 처리할 영문 키보드 입력 문자열입니다.
+/// * `keyboard_map` - 영문 키(`char`)와 한글 자모(`JamoEnum`) 간의 매핑 정보입니다.
+/// * `context` - 한글 입력 상태를 관리하는 `HangulInputContext` 인스턴스입니다.
+///
+/// # 반환값
+/// 모든 입력 처리 후 `HangulInputContext`에 최종적으로 확정된(committed) 문자열 전체를 반환합니다.
+/// (주의: 이 함수는 입력 문자열 처리에 따른 *새로운* 확정 문자만 반환하는 것이 아니라,
+/// 컨텍스트의 *전체* 확정 문자열을 반환합니다.)
+///
+/// # 예시
+/// ```ignore
+/// // 사용 예시는 HangulInputContext와 KeyboardMap 설정이 필요합니다.
+/// // let mut context = HangulInputContext::new(ComposerType::TwoBul);
+/// // let keyboard_map = ...;
+/// // let final_string = process_keystrokes("gksrmf", &keyboard_map, &mut context);
+/// // assert_eq!(final_string, "한글");
+/// ```
+pub fn process_keystrokes(
+    input: &str,
+    keyboard_map: &HashMap<char, JamoEnum>,
+    context: &mut HangulInputContext,
+) -> String {
+    for c in input.chars() {
+        match keyboard_map.get(&c) {
+            // 1. 키보드 맵에서 자모를 찾은 경우
+            Some(jamo) => {
+                // 자모를 컨텍스트에 전달하여 처리
+                context.process_jamo(*jamo);
+            }
+            // 2. 키보드 맵에서 자모를 찾지 못한 경우 (영문, 숫자, 기타 문자)
+            None => {
+                // 현재 조합 중인 내용을 먼저 확정 (commit)
+                context.commit();
+                // 해당 문자는 현재 로직에서 처리되지 않고 무시됨.
+                // 필요하다면 여기에 문자를 committed_string 등에 추가하는 로직 구현 가능
+            }
+        }
+    }
+
+    // 모든 입력 처리 후, 마지막 조합 상태를 확정
+    context.commit();
+
+    // 최종 확정된 문자열 반환
+    context.get_committed().to_string()
+}
+
+// --- 유닛 테스트 (HangulInputContext 구조 및 KeyboardMap 필요) ---
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hangul::jamo::*;
+    use crate::keystroke::input_context::{ComposerType, HangulInputContext};
+    // keyboard_map 모듈이나 해당 함수가 실제 프로젝트 구조에 맞게 존재하는지 확인 필요
+    // use crate::keystroke::keyboard_map;
+
+    // Helper to create a simple 2bul map for testing
+    fn create_test_map() -> HashMap<char, JamoEnum> {
+        let mut map = HashMap::new();
+        map.insert('r', JamoEnum::Cho(Cho::G));
+        map.insert('k', JamoEnum::Jung(Jung::A));
+        map.insert('s', JamoEnum::Cho(Cho::N)); // For "간"
+        map.insert('f', JamoEnum::Cho(Cho::R));
+        map.insert('m', JamoEnum::Jung(Jung::EU)); // 'ㅡ' for "글"
+                                                   // Add more mappings as needed for tests
+        map
+    }
+
+    #[test]
+    fn test_process_keystrokes_basic() {
+        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let keyboard_map = create_test_map(); // Use helper map for isolated test
+                                              // "rks" -> 간
+        process_keystrokes("r", &keyboard_map, &mut context);
+        assert_eq!(context.get_preedit(), "ㄱ");
+        process_keystrokes("k", &keyboard_map, &mut context);
+        assert_eq!(context.get_preedit(), "가");
+        process_keystrokes("s", &keyboard_map, &mut context);
+        assert_eq!(context.get_preedit(), "간");
+        process_keystrokes(" ", &keyboard_map, &mut context); // 공백 입력시 commit
+        assert_eq!(context.get_preedit(), "");
+        // Assuming non-mapped chars commit and append. Need commit_char in context.
+        // assert_eq!(context.get_committed(), "간 ");
+
+        // "fm" -> 를 (or 글 depending on layout and composer)
+        // This part depends heavily on actual keyboard layout and composer logic
+        // process_keystrokes("f", &keyboard_map, &mut context);
+        // assert_eq!(context.get_preedit(), "ㄹ");
+        // process_keystrokes("m", &keyboard_map, &mut context);
+        // assert_eq!(context.get_preedit(), "를"); // or "르"
+        // process_keystrokes("f", &keyboard_map, &mut context); // Jongseong 'ㄹ'
+        // assert_eq!(context.get_preedit(), "를"); // or "를"
+        // process_keystrokes("!", &keyboard_map, &mut context); // Non-hangul
+        // assert_eq!(context.get_preedit(), "");
+        // assert_eq!(context.get_committed(), "간 를!"); // Example
+    }
+
+    #[test]
+    fn test_process_keystrokes_non_hangul() {
+        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let keyboard_map = create_test_map();
+
+        process_keystrokes("rkrk", &keyboard_map, &mut context); // "가가" (preedit 상태)
+        assert_eq!(context.get_preedit(), "가가");
+        process_keystrokes("a", &keyboard_map, &mut context); // 'a' is not mapped, commits "가가", 'a' is ignored
+        assert_eq!(context.get_committed(), "가가");
+        assert_eq!(context.get_preedit(), "");
+        process_keystrokes("b", &keyboard_map, &mut context); // 'b' is not mapped, commits nothing, 'b' is ignored
+        assert_eq!(context.get_committed(), "가가");
+        assert_eq!(context.get_preedit(), "");
+        process_keystrokes("c", &keyboard_map, &mut context); // 'c' is not mapped, commits nothing, 'c' is ignored
+        assert_eq!(context.get_committed(), "가가");
+        assert_eq!(context.get_preedit(), "");
+        process_keystrokes("s", &keyboard_map, &mut context); // 's' -> 'ㄴ' (preedit 상태)
+        assert_eq!(context.get_preedit(), "ㄴ");
+        assert_eq!(context.get_committed(), "가가");
+
+        // Final state check after committing the last 'ㄴ'
+        context.commit(); // 명시적으로 마지막 상태 commit
+        assert_eq!(context.get_committed(), "가가ㄴ");
+        assert_eq!(context.get_preedit(), "");
+        // Expected committed string: "가가ㄴ" because non-mapped chars 'a', 'b', 'c' are ignored.
+        println!("Final committed: {}", context.get_committed());
+        assert_eq!(context.get_committed(), "가가ㄴ");
     }
 }

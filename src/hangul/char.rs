@@ -100,21 +100,21 @@ impl HangulChar {
 
     /**
      * 자모 이름 문자열로부터 한글 객체를 생성합니다.
-     * 
+     *
      * 각 자모 이름을 파싱하여 해당하는 초성, 중성, 종성 객체를 생성하고
      * 이를 조합하여 HangulChar 객체를 반환합니다.
-     * 
+     *
      * @param cho_name - 초성 이름 문자열 (예: "ㄱ", "G", "기역" 등)
      * @param jung_name - 중성 이름 문자열 (예: "ㅏ", "A", "아" 등)
      * @param jong_name - 종성 이름 문자열 (예: "ㄴ", "N", "니은" 등)
      * @return Result<HangulChar, HangulError> - 성공 시 HangulChar 객체, 실패 시 에러
-     * 
+     *
      * 특징:
      * - 빈 문자열이 입력되면 해당 자모는 None으로 설정됩니다.
      * - 종성의 경우 "E" 또는 빈 문자열이면 종성 없음(None)으로 처리됩니다.
      * - 모든 입력은 대소문자 구분 없이 처리됩니다(내부적으로 대문자로 변환).
      * - 파싱 실패 시 구체적인 에러 메시지와 함께 HangulError를 반환합니다.
-     * 
+     *
      * 예시:
      * - from_jamo_names("ㄱ", "ㅏ", "ㄴ") -> '간' 음절에 해당하는 HangulChar
      * - from_jamo_names("ㅎ", "ㅏ", "E") -> '하' 음절에 해당하는 HangulChar
@@ -165,10 +165,10 @@ impl HangulChar {
 
     /**
      * 한글 음절 문자로부터 `HangulChar` 객체를 생성합니다.
-     * 
+     *
      * 유니코드 한글 음절 영역(0xAC00-0xD7A3)에 있는 문자를 분해하여
      * 초성, 중성, 종성 정보를 가진 `HangulChar` 객체로 변환합니다.
-     * 
+     *
      * # 작동 원리
      * 1. 입력된 문자가 한글 음절 영역에 있는지 검사합니다.
      * 2. 한글 음절 시작점(0xAC00)을 기준으로 상대적 위치를 계산합니다.
@@ -177,14 +177,14 @@ impl HangulChar {
      *    - 중성 인덱스 = (상대코드 % (중성 수 * 종성 수)) / 종성 수
      *    - 종성 인덱스 = 상대코드 % 종성 수
      * 4. 계산된 인덱스로 `HangulChar` 객체를 생성합니다.
-     * 
+     *
      * # 매개변수
      * * `syllable` - 분해할 한글 음절 문자 (예: '가', '한', '꿈')
-     * 
+     *
      * # 반환값
      * * `Ok(HangulChar)` - 성공적으로 분해된 `HangulChar` 객체
      * * `Err(HangulError::InvalidSyllable)` - 입력된 문자가 한글 음절 영역에 없는 경우
-     * 
+     *
      * # 예시
      * ```
      * let hangul = HangulChar::from_syllable('한').unwrap();
@@ -618,6 +618,47 @@ impl HangulChar {
             _ => Err(HangulError::CompositionFailure), // 그 외 조합 불가 (비어있거나, 초성+종성 등)
         }
     }
+
+    /**
+     * 현재 `HangulChar` 객체에 설정된 자모들을 호환용 자모 문자열로 변환합니다.
+     *
+     * 초성, 중성, 종성이 설정된 경우, 각각에 해당하는 호환용 한글 자모 문자를 찾아
+     * 순서대로 이어붙인 문자열을 반환합니다.
+     * 설정되지 않은 성분은 무시됩니다.
+     *
+     * # 반환값
+     * * `String` - 변환된 호환용 자모 문자열 (예: "ㄱㅏㄴ" 또는 "ㅎㅏ")
+     *
+     * # 예시
+     * ```
+     * let hangul = HangulChar::from_syllable('한').unwrap();
+     * assert_eq!(hangul.to_compat_jamo_string(), "ㅎㅏㄴ");
+     *
+     * let hangul_ga = HangulChar::from_syllable('가').unwrap();
+     * assert_eq!(hangul_ga.to_compat_jamo_string(), "ㄱㅏ");
+     *
+     * let mut hangul_g = HangulChar::new();
+     * hangul_g.set_cho_object(Some(Cho::G));
+     * assert_eq!(hangul_g.to_compat_jamo_string(), "ㄱ");
+     * ```
+     */
+    pub fn to_compat_jamo_string(&self) -> String {
+        let mut s = String::new();
+        if let Some(cho) = self.choseong {
+            s.push(JamoEnum::Cho(cho).get_unicode_compat());
+        }
+        if let Some(jung) = self.jungseong {
+            s.push(JamoEnum::Jung(jung).get_unicode_compat());
+        }
+        // 종성은 None이 아닌 경우, 그리고 실제 종성 값이 있는 경우 (Jong::E 제외)에만 추가
+        if let Some(jong) = self.jongseong {
+            if jong != Jong::E {
+                // 종성 없음을 나타내는 Jong::E는 추가하지 않음
+                s.push(JamoEnum::Jong(jong).get_unicode_compat());
+            }
+        }
+        s
+    }
 }
 
 use std::fmt;
@@ -848,5 +889,35 @@ mod tests {
 
         let invalid_char_result = "abc".parse::<HangulChar>();
         assert!(invalid_char_result.is_err());
+    }
+
+    #[test]
+    fn test_to_compat_jamo_string() {
+        let hangul_han = HangulChar::from_syllable('한').unwrap();
+        assert_eq!(hangul_han.to_compat_jamo_string(), "ㅎㅏㄴ");
+
+        let hangul_ga = HangulChar::from_syllable('가').unwrap();
+        assert_eq!(hangul_ga.to_compat_jamo_string(), "ㄱㅏ");
+
+        let hangul_gg = HangulChar::from_syllable('까').unwrap();
+        assert_eq!(hangul_gg.to_compat_jamo_string(), "ㄲㅏ");
+
+        let hangul_eobs = HangulChar::from_syllable('없').unwrap();
+        assert_eq!(hangul_eobs.to_compat_jamo_string(), "ㅇㅓㅄ");
+
+        let mut hangul_cho = HangulChar::new();
+        hangul_cho.set_cho_object(Some(Cho::B));
+        assert_eq!(hangul_cho.to_compat_jamo_string(), "ㅂ");
+
+        let mut hangul_jung = HangulChar::new();
+        hangul_jung.set_jung_object(Some(Jung::YA));
+        assert_eq!(hangul_jung.to_compat_jamo_string(), "ㅑ");
+
+        let mut hangul_jong = HangulChar::new();
+        hangul_jong.set_jong_object(Some(Jong::L));
+        assert_eq!(hangul_jong.to_compat_jamo_string(), "ㄹ"); // Jong::E 가 아니므로 추가됨
+
+        let hangul_empty = HangulChar::new();
+        assert_eq!(hangul_empty.to_compat_jamo_string(), "");
     }
 }

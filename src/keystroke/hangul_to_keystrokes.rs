@@ -34,7 +34,10 @@ pub fn hangul_to_keystrokes(
     is_3bul: bool,
 ) -> String {
     // 1. 자모 -> 영문 키 역방향 매핑 생성 (소문자 우선)
-    let reverse_map = build_reverse_keyboard_map(keyboard_map);
+    let reverse_jamo_map = build_reverse_jamo_map(keyboard_map);
+
+    // 1.1 기타 문자 -> 영문 키 역방향 매핑 생성 (JamoEnum::Other, JamoEnum::Special)
+    let reverse_char_map = build_reverse_char_map(keyboard_map);
 
     // 2. 복합 자모(이중모음, 쌍자음, 겹받침) 분해 규칙 정의
     let compound_maps = define_compound_maps();
@@ -45,13 +48,19 @@ pub fn hangul_to_keystrokes(
     for c in input.chars() {
         if c.is_hangul() {
             // 3.1. 완성형 한글 음절 처리
-            append_syllable_keystrokes(c, &reverse_map, &compound_maps, is_3bul, &mut result);
+            append_syllable_keystrokes(c, &reverse_jamo_map, &compound_maps, is_3bul, &mut result);
         } else if is_3bul && c.is_hangul_compat_jamo() {
             // 3.2. 호환용 한글 자모 처리 (3벌식에서만)
-            append_compat_jamo_keystrokes(c, &reverse_map, &compound_maps, &mut result);
+            append_compat_jamo_keystrokes(c, &reverse_jamo_map, &compound_maps, &mut result);
         } else {
-            // 3.3. 한글이 아닌 다른 문자 처리
-            result.push(c);
+            // 3.3. 한글이 아닌 다른 문자 처리 (수정됨)
+            // 기타 문자 역방향 맵에서 문자에 해당하는 키를 찾습니다.
+            if let Some(&key) = reverse_char_map.get(&c) {
+                result.push(key);
+            } else {
+                // 매핑되는 키가 없으면 원본 문자를 그대로 추가 (또는 오류 처리)
+                result.push(c);
+            }
         }
     }
 
@@ -59,7 +68,7 @@ pub fn hangul_to_keystrokes(
 }
 
 /// `keyboard_map` (영문 키 -> 자모)을 기반으로 역방향 맵 (자모 -> 영문 키)을 생성합니다.
-///
+/// JamoEnum::Cho, JamoEnum::Jung, JamoEnum::Jong 만 포함합니다.
 /// 동일한 자모에 대해 대문자와 소문자 키가 모두 매핑된 경우, 소문자 키를 우선합니다.
 ///
 /// # Arguments
@@ -67,24 +76,49 @@ pub fn hangul_to_keystrokes(
 ///
 /// # Returns
 /// 자모(`JamoEnum`)에서 영문 키(`char`)로의 역방향 `HashMap`.
-fn build_reverse_keyboard_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<JamoEnum, char> {
+fn build_reverse_jamo_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<JamoEnum, char> {
     let mut reverse_map = HashMap::<JamoEnum, char>::new();
 
-    // 1단계: 모든 키-자모 쌍을 순회하며 소문자 우선으로 삽입
     for (&key, &jamo) in keyboard_map {
-        // 현재 자모에 대한 기존 매핑 확인
-        match reverse_map.get(&jamo) {
-            Some(&existing_key) => {
-                // 이미 매핑이 있고, 현재 키가 소문자인데 기존 키가 대문자이면 교체
-                if key.is_ascii_lowercase() && existing_key.is_ascii_uppercase() {
+        // 자모 타입인 경우에만 처리
+        if matches!(
+            jamo,
+            JamoEnum::Cho(_) | JamoEnum::Jung(_) | JamoEnum::Jong(_)
+        ) {
+            match reverse_map.get(&jamo) {
+                Some(&existing_key) => {
+                    if key.is_ascii_lowercase() && existing_key.is_ascii_uppercase() {
+                        reverse_map.insert(jamo, key);
+                    }
+                }
+                None => {
                     reverse_map.insert(jamo, key);
                 }
-                // 그 외의 경우 (기존 키가 소문자이거나, 현재 키가 대문자)는 기존 매핑 유지
             }
-            None => {
-                // 매핑이 없으면 현재 키-자모 쌍 삽입
-                reverse_map.insert(jamo, key);
+        }
+    }
+    reverse_map
+}
+
+/// `keyboard_map` (영문 키 -> 자모)을 기반으로 기타 문자 역방향 맵 (문자 -> 영문 키)을 생성합니다.
+/// JamoEnum::Other 및 JamoEnum::Special 을 포함합니다.
+/// 동일한 문자에 대해 대문자와 소문자 키가 모두 매핑된 경우, 어떤 키가 선택될지는 HashMap 구현에 따라 다름.
+/// (필요하다면 소문자 우선 로직 추가)
+///
+/// # Arguments
+/// * `keyboard_map` - 원본 영문 키 -> 자모 매핑.
+///
+/// # Returns
+/// 문자(`char`)에서 영문 키(`char`)로의 역방향 `HashMap`.
+fn build_reverse_char_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<char, char> {
+    let mut reverse_map = HashMap::<char, char>::new();
+    for (&key, &jamo) in keyboard_map {
+        match jamo {
+            JamoEnum::Special(c) => {
+                // TODO: 소문자 우선 로직 필요시 추가
+                reverse_map.insert(c, key);
             }
+            _ => {}
         }
     }
     reverse_map
