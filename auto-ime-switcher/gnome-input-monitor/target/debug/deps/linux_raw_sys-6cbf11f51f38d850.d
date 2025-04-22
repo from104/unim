@@ -1,0 +1,10 @@
+/home/from104/work/unin/auto-ime-switcher/gnome-input-monitor/target/debug/deps/liblinux_raw_sys-6cbf11f51f38d850.rmeta: /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/lib.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/errno.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/general.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/ioctl.rs
+
+/home/from104/work/unin/auto-ime-switcher/gnome-input-monitor/target/debug/deps/liblinux_raw_sys-6cbf11f51f38d850.rlib: /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/lib.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/errno.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/general.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/ioctl.rs
+
+/home/from104/work/unin/auto-ime-switcher/gnome-input-monitor/target/debug/deps/linux_raw_sys-6cbf11f51f38d850.d: /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/lib.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/errno.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/general.rs /home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/ioctl.rs
+
+/home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/lib.rs:
+/home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/errno.rs:
+/home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/general.rs:
+/home/from104/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/linux-raw-sys-0.3.8/src/x86_64/ioctl.rs:
