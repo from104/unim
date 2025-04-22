@@ -444,6 +444,145 @@ impl BaseHangulComposer {
         true
     }
 
+    /// 입력된 자모가 유효한 초성, 중성, 종성인지 확인합니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `jamo` - 검사할 자모
+    ///
+    /// # 반환값
+    ///
+    /// * `true` - 유효한 자모
+    /// * `false` - 유효하지 않은 자모
+    pub fn is_valid_jamo(&self, jamo: &JamoEnum) -> bool {
+        matches!(
+            jamo,
+            JamoEnum::Cho(_) | JamoEnum::Jung(_) | JamoEnum::Jong(_)
+        )
+    }
+
+    /// 중성 조합 규칙(복모음)을 초기화합니다.
+    ///
+    /// # 반환값
+    ///
+    /// 중성 조합 규칙이 담긴 해시맵
+    pub fn initialize_jung_combinations(&self) -> HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+        let mut combined_jamo = HashMap::new();
+
+        // 'ㅗ' + 'ㅏ' -> 'ㅘ'
+        // 'ㅗ' + 'ㅐ' -> 'ㅙ'
+        // 'ㅗ' + 'ㅣ' -> 'ㅚ'
+        let mut o_map = HashMap::new();
+        o_map.insert(JamoEnum::Jung(Jung::A), JamoEnum::Jung(Jung::WA));
+        o_map.insert(JamoEnum::Jung(Jung::AE), JamoEnum::Jung(Jung::WAE));
+        o_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::OE));
+        combined_jamo.insert(JamoEnum::Jung(Jung::O), o_map);
+
+        // 'ㅜ' + 'ㅓ' -> 'ㅝ'
+        // 'ㅜ' + 'ㅔ' -> 'ㅞ'
+        // 'ㅜ' + 'ㅣ' -> 'ㅟ'
+        let mut u_map = HashMap::new();
+        u_map.insert(JamoEnum::Jung(Jung::EO), JamoEnum::Jung(Jung::WEO));
+        u_map.insert(JamoEnum::Jung(Jung::E), JamoEnum::Jung(Jung::WE));
+        u_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::WI));
+        combined_jamo.insert(JamoEnum::Jung(Jung::U), u_map);
+
+        // 'ㅡ' + 'ㅣ' -> 'ㅢ'
+        let mut eu_map = HashMap::new();
+        eu_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::YI));
+        combined_jamo.insert(JamoEnum::Jung(Jung::EU), eu_map);
+
+        combined_jamo
+    }
+
+    /// 종성 조합 규칙(겹받침)을 초기화합니다.
+    ///
+    /// # 반환값
+    ///
+    /// 종성 조합 규칙이 담긴 해시맵
+    pub fn initialize_jong_combinations(&self) -> HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+        let mut combined_jamo = HashMap::new();
+
+        // 'ㄱ' + 'ㄱ' -> 'ㄲ'
+        // 'ㄱ' + 'ㅅ' -> 'ㄳ'
+        let mut g_map = HashMap::new();
+        g_map.insert(JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::GG));
+        g_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::GS));
+        combined_jamo.insert(JamoEnum::Jong(Jong::G), g_map);
+
+        // 'ㄴ' + 'ㅈ' -> 'ㄵ'
+        // 'ㄴ' + 'ㅎ' -> 'ㄶ'
+        let mut n_map = HashMap::new();
+        n_map.insert(JamoEnum::Jong(Jong::J), JamoEnum::Jong(Jong::NJ));
+        n_map.insert(JamoEnum::Jong(Jong::H), JamoEnum::Jong(Jong::NH));
+        combined_jamo.insert(JamoEnum::Jong(Jong::N), n_map);
+
+        // 'ㄹ' + 'ㄱ' -> 'ㄺ'
+        // 'ㄹ' + 'ㅁ' -> 'ㄻ'
+        // 'ㄹ' + 'ㅂ' -> 'ㄼ'
+        // 'ㄹ' + 'ㅅ' -> 'ㄽ'
+        // 'ㄹ' + 'ㅌ' -> 'ㄾ'
+        // 'ㄹ' + 'ㅍ' -> 'ㄿ'
+        // 'ㄹ' + 'ㅎ' -> 'ㅀ'
+        let mut l_map = HashMap::new();
+        l_map.insert(JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::LG));
+        l_map.insert(JamoEnum::Jong(Jong::M), JamoEnum::Jong(Jong::LM));
+        l_map.insert(JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::LB));
+        l_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::LS));
+        l_map.insert(JamoEnum::Jong(Jong::T), JamoEnum::Jong(Jong::LT));
+        l_map.insert(JamoEnum::Jong(Jong::P), JamoEnum::Jong(Jong::LP));
+        l_map.insert(JamoEnum::Jong(Jong::H), JamoEnum::Jong(Jong::LH));
+        combined_jamo.insert(JamoEnum::Jong(Jong::L), l_map);
+
+        // 'ㅂ' + 'ㅅ' -> 'ㅄ'
+        let mut b_map = HashMap::new();
+        b_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::BS));
+        combined_jamo.insert(JamoEnum::Jong(Jong::B), b_map);
+
+        // 'ㅅ' + 'ㅅ' -> 'ㅆ'
+        let mut s_map = HashMap::new();
+        s_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::SS));
+        combined_jamo.insert(JamoEnum::Jong(Jong::S), s_map);
+
+        combined_jamo
+    }
+
+    /// 초성 조합 규칙(쌍자음)을 초기화합니다. 3벌식 전용입니다.
+    ///
+    /// # 반환값
+    ///
+    /// 초성 조합 규칙이 담긴 해시맵
+    pub fn initialize_cho_combinations(&self) -> HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+        let mut combined_jamo = HashMap::new();
+
+        // 'ㄱ' + 'ㄱ' -> 'ㄲ'
+        let mut g_map = HashMap::new();
+        g_map.insert(JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::GG));
+        combined_jamo.insert(JamoEnum::Cho(Cho::G), g_map);
+
+        // 'ㄷ' + 'ㄷ' -> 'ㄸ'
+        let mut d_map = HashMap::new();
+        d_map.insert(JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::DD));
+        combined_jamo.insert(JamoEnum::Cho(Cho::D), d_map);
+
+        // 'ㅂ' + 'ㅂ' -> 'ㅃ'
+        let mut b_map = HashMap::new();
+        b_map.insert(JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::BB));
+        combined_jamo.insert(JamoEnum::Cho(Cho::B), b_map);
+
+        // 'ㅅ' + 'ㅅ' -> 'ㅆ'
+        let mut s_map = HashMap::new();
+        s_map.insert(JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::SS));
+        combined_jamo.insert(JamoEnum::Cho(Cho::S), s_map);
+
+        // 'ㅈ' + 'ㅈ' -> 'ㅉ'
+        let mut j_map = HashMap::new();
+        j_map.insert(JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::JJ));
+        combined_jamo.insert(JamoEnum::Cho(Cho::J), j_map);
+
+        combined_jamo
+    }
+
     /// 자모 조합 테이블을 초기화합니다.
     ///
     /// 중성, 종성 조합 규칙을 초기화하고, 필요에 따라 초성 조합 규칙도 추가합니다.
