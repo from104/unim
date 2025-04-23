@@ -26,8 +26,8 @@ use std::collections::{HashMap, VecDeque};
  *
  * # 예시
  * ```
- * use unin::hangul::composer_with_3bul::HangulComposer3Bul;
- * use unin::hangul::jamo::*;
+ * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
+ * use unim::hangul::jamo::*;
  *
  * let mut composer = HangulComposer3Bul::new();
  * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
@@ -102,8 +102,8 @@ impl HangulComposer for HangulComposer3Bul {
      *
      * # 예시
      * ```
-     * use unin::hangul::composer_with_3bul::HangulComposer3Bul;
-     * use unin::hangul::jamo::*;
+     * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
+     * use unim::hangul::jamo::*;
      *
      * let mut composer = HangulComposer3Bul::new();
      * assert_eq!(composer.add_jamo(JamoEnum::Cho(Cho::G)), None);  // 'ㄱ'
@@ -174,8 +174,8 @@ impl HangulComposer for HangulComposer3Bul {
      *
      * # 예시
      * ```
-     * use unin::hangul::composer_with_3bul::HangulComposer3Bul;
-     * use unin::hangul::jamo::*;
+     * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
+     * use unim::hangul::jamo::*;
      *
      * let mut composer = HangulComposer3Bul::new();
      * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
@@ -274,8 +274,8 @@ impl HangulComposer for HangulComposer3Bul {
      *
      * # 예시
      * ```
-     * use unin::hangul::composer_with_3bul::HangulComposer3Bul;
-     * use unin::hangul::jamo::*;
+     * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
+     * use unim::hangul::jamo::*;
      *
      * let mut composer = HangulComposer3Bul::new();
      * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'

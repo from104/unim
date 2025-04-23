@@ -735,7 +735,7 @@ pub trait HangulCharExt {
     /// # 예시
     ///
     /// ```
-    /// use unin::hangul::char::HangulCharExt;
+    /// use unim::hangul::char::HangulCharExt;
     ///
     /// assert!('한'.is_hangul());
     /// assert!('가'.is_hangul());
@@ -749,7 +749,7 @@ pub trait HangulCharExt {
     /// # 예시
     ///
     /// ```
-    /// use unin::hangul::char::HangulCharExt;
+    /// use unim::hangul::char::HangulCharExt;
     ///
     /// assert!('ㄱ'.is_hangul_compat_jamo());
     /// assert!('ㅏ'.is_hangul_compat_jamo());
@@ -771,7 +771,7 @@ pub trait HangulCharExt {
     /// # 예시
     ///
     /// ```
-    /// use unin::hangul::char::HangulCharExt;
+    /// use unim::hangul::char::HangulCharExt;
     ///
     /// assert!('ᄀ'.is_hangul_jamo());  // 첫가끝 초성 'ㄱ'
     /// assert!('ᅡ'.is_hangul_jamo());  // 첫가끝 중성 'ㅏ'
@@ -786,7 +786,7 @@ pub trait HangulCharExt {
     /// # 예시
     ///
     /// ```
-    /// use unin::hangul::char::HangulCharExt;
+    /// use unim::hangul::char::HangulCharExt;
     ///
     /// assert!('한'.is_korean());   // 완성형 음절
     /// assert!('ㄱ'.is_korean());   // 호환용 자모

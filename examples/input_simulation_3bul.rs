@@ -1,4 +1,4 @@
-use unin::hangul::{composer::HangulComposer, composer_with_3bul::HangulComposer3Bul, jamo::*};
+use unim::hangul::{composer::HangulComposer, composer_with_3bul::HangulComposer3Bul, jamo::*};
 
 fn main() {
     let mut composer = HangulComposer3Bul::new();

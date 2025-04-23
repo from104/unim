@@ -1,5 +1,5 @@
 [package]
-name = "unin"
+name = "unim"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,5 +9,5 @@ libc = "0.2.172"
 serde_json = "1.0.140"
 
 [lib]
-name = "unin"
+name = "unim"
 path = "src/lib.rs"

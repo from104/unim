@@ -1,4 +1,4 @@
-use unin::hangul::{char::HangulChar, jamo::*};
+use unim::hangul::{char::HangulChar, jamo::*};
 
 // Helper to convert JamoEnum to char, handling potential None cases
 fn jamo_enum_to_char(jamo: &JamoEnum) -> char {

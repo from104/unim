@@ -1,6 +1,6 @@
-# Unin - 한글 입력 시스템
+# unim - 한글 입력 시스템
 
-Unin은 Rust로 작성된 한글 입력 시스템입니다. 이 프로젝트는 다양한 한글 입력 방식을 지원하며, 특히 2벌식과 3벌식 입력 방식을 구현하고 있습니다.
+unim은 Rust로 작성된 한글 입력 시스템입니다. 이 프로젝트는 다양한 한글 입력 방식을 지원하며, 특히 2벌식과 3벌식 입력 방식을 구현하고 있습니다.
 
 ## 주요 기능
 
@@ -77,4 +77,4 @@ cargo run --release
 
 프로젝트 관리자 - [@your-username](https://github.com/your-username)
 
-프로젝트 링크: [https://github.com/your-username/unin](https://github.com/your-username/unin)
+프로젝트 링크: [https://github.com/your-username/unim](https://github.com/your-username/unim)

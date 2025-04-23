@@ -1,4 +1,4 @@
-use unin::hangul::{char::HangulChar, jamo::*};
+use unim::hangul::{char::HangulChar, jamo::*};
 
 fn process_string(input: &str) {
     println!("문자열 처리: \"{}\"", input);
@@ -30,6 +30,6 @@ fn process_string(input: &str) {
 
 fn main() {
     process_string("안녕하세요");
-    process_string("UniN 라이브러리 예제");
+    process_string("unim 라이브러리 예제");
     process_string("ㄱㅏㄴㅏㄷㅏㄹㅏ"); // 자모가 포함된 경우
 }

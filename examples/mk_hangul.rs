@@ -1,5 +1,5 @@
-use unin::hangul::char::{CHOSEONG_NUMBER, JONGSEONG_NUMBER, JUNGSEONG_NUMBER};
-use unin::hangul::HangulChar;
+use unim::hangul::char::{CHOSEONG_NUMBER, JONGSEONG_NUMBER, JUNGSEONG_NUMBER};
+use unim::hangul::HangulChar;
 
 fn main() {
     // 초성 (0..19), 중성 (0..21), 종성 (0..28) 순서로 반복
