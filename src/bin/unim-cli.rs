@@ -55,8 +55,8 @@ enum ConversionMode {
 ///
 /// 명령행 인자로부터 파싱된 프로그램 설정을 포함합니다.
 struct Config {
-    /// 입력 파일 경로 (None인 경우 표준 입력 사용)
-    input_file: Option<String>,
+    /// 입력 파일 경로 목록 (비어 있는 경우 표준 입력 사용)
+    input_files: Vec<String>,
     /// 출력 파일 경로 (None인 경우 표준 출력 사용)
     output_file: Option<String>,
     /// 한글 자판 모드
@@ -80,7 +80,7 @@ impl Config {
     fn new(args: env::Args) -> Result<Config, &'static str> {
         let args: Vec<String> = args.collect();
 
-        let mut input_file = None;
+        let mut input_files = Vec::new();
         let mut output_file = None;
         let mut keyboard_mode = KeyboardMode::TwoBulStd;
         let mut english_keyboard_mode = EnglishKeyboardMode::Qwerty;
@@ -127,10 +127,10 @@ impl Config {
                 }
                 _ => {
                     // 입력 파일로 간주
-                    if !args[i].starts_with('-') && input_file.is_none() {
-                        input_file = Some(args[i].clone());
+                    if !args[i].starts_with('-') {
+                        input_files.push(args[i].clone());
                     } else {
-                        return Err("알 수 없는 인자: 입력 파일은 하나만 지정할 수 있습니다");
+                        return Err("알 수 없는 인자");
                     }
                 }
             }
@@ -138,7 +138,7 @@ impl Config {
         }
 
         Ok(Config {
-            input_file,
+            input_files,
             output_file,
             keyboard_mode,
             english_keyboard_mode,
@@ -151,7 +151,7 @@ impl Config {
 fn print_help() {
     println!("unim (Unicode Input) - 한/영 자판 변환기");
     println!();
-    println!("사용법: unim [옵션] [입력파일]");
+    println!("사용법: unim [옵션] [입력파일...]");
     println!();
     println!("옵션:");
     println!("  -h, --help       이 도움말을 표시합니다");
@@ -166,6 +166,11 @@ fn print_help() {
     println!("    -390, --3bul390  세벌식 390");
     println!("    -391, --3bul391  세벌식 391");
     println!("  -o, --output <FILE>  출력 파일 지정");
+    println!();
+    println!("입력 파일이 지정되지 않으면 표준 입력에서 읽습니다.");
+    println!("여러 입력 파일을 지정하면 순서대로 처리합니다.");
+    println!("입력 파일 이름이 '-'인 경우 표준 입력에서 읽습니다.");
+    println!("출력 파일 이름이 '-'인 경우 표준 출력으로 씁니다.");
 }
 
 /// 프로그램의 주요 실행 함수입니다.
@@ -181,17 +186,27 @@ fn print_help() {
 /// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn run(config: Config) -> io::Result<()> {
     // 입력 스트림 설정
-    let input: Box<dyn BufRead> = match config.input_file {
-        Some(file) => {
-            let file = File::open(Path::new(&file))?;
-            Box::new(BufReader::new(file))
+    let mut inputs: Vec<Box<dyn BufRead>> = Vec::new();
+    if config.input_files.is_empty() {
+        // 입력 파일이 없으면 표준 입력 사용
+        inputs.push(Box::new(BufReader::new(io::stdin())));
+    } else {
+        // 입력 파일들을 열어서 추가
+        for file in &config.input_files {
+            if file == "-" {
+                // 파일 이름이 '-'인 경우 표준 입력을 사용
+                inputs.push(Box::new(BufReader::new(io::stdin())));
+            } else {
+                let input = File::open(Path::new(file))?;
+                inputs.push(Box::new(BufReader::new(input)));
+            }
         }
-        None => Box::new(BufReader::new(io::stdin())),
-    };
+    }
 
     // 출력 스트림 설정
-    let mut output: Box<dyn Write> = match config.output_file {
-        Some(file) => Box::new(File::create(Path::new(&file))?),
+    let mut output: Box<dyn Write> = match &config.output_file {
+        Some(file) if file == "-" => Box::new(io::stdout()),
+        Some(file) => Box::new(File::create(Path::new(file))?),
         None => Box::new(io::stdout()),
     };
 
@@ -217,15 +232,15 @@ fn run(config: Config) -> io::Result<()> {
         ConversionMode::EnglishToKorean => {
             // 영문 -> 한글 변환
             if is_three_bul {
-                process_with_3bul(input, &mut output, english_keymap, korean_keymap)?;
+                process_with_3bul(inputs, &mut output, english_keymap, korean_keymap)?;
             } else {
-                process_with_2bul(input, &mut output, english_keymap, korean_keymap)?;
+                process_with_2bul(inputs, &mut output, english_keymap, korean_keymap)?;
             }
         }
         ConversionMode::KoreanToEnglish => {
             // 한글 -> 영문 변환
             process_korean_to_english(
-                input,
+                inputs,
                 &mut output,
                 english_keymap,
                 korean_keymap,
@@ -243,7 +258,7 @@ fn run(config: Config) -> io::Result<()> {
 ///
 /// # 인자
 ///
-/// * `input` - 입력 스트림
+/// * `inputs` - 입력 스트림 목록
 /// * `output` - 출력 스트림
 /// * `en_keymap` - 영문 키맵 파일 경로
 /// * `ko_keymap` - 한글 키맵 파일 경로
@@ -252,7 +267,7 @@ fn run(config: Config) -> io::Result<()> {
 ///
 /// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn process_with_2bul(
-    input: Box<dyn BufRead>,
+    inputs: Vec<Box<dyn BufRead>>,
     output: &mut Box<dyn Write>,
     en_keymap: &str,
     ko_keymap: &str,
@@ -260,17 +275,19 @@ fn process_with_2bul(
     let mut hangul_composer = HangulComposer2Bul::new();
     let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, false);
 
-    for line in input.lines() {
-        let input_line = line?;
+    for input in inputs {
+        for line in input.lines() {
+            let input_line = line?;
 
-        // 비어있는 줄은 그대로 출력
-        if input_line.is_empty() {
-            writeln!(output)?;
-            continue;
+            // 비어있는 줄은 그대로 출력
+            if input_line.is_empty() {
+                writeln!(output)?;
+                continue;
+            }
+
+            let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
+            writeln!(output, "{}", result)?;
         }
-
-        let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
-        writeln!(output, "{}", result)?;
     }
 
     Ok(())
@@ -282,7 +299,7 @@ fn process_with_2bul(
 ///
 /// # 인자
 ///
-/// * `input` - 입력 스트림
+/// * `inputs` - 입력 스트림 목록
 /// * `output` - 출력 스트림
 /// * `en_keymap` - 영문 키맵 파일 경로
 /// * `ko_keymap` - 한글 키맵 파일 경로
@@ -291,7 +308,7 @@ fn process_with_2bul(
 ///
 /// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn process_with_3bul(
-    input: Box<dyn BufRead>,
+    inputs: Vec<Box<dyn BufRead>>,
     output: &mut Box<dyn Write>,
     en_keymap: &str,
     ko_keymap: &str,
@@ -299,17 +316,19 @@ fn process_with_3bul(
     let mut hangul_composer = HangulComposer3Bul::new();
     let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, true);
 
-    for line in input.lines() {
-        let input_line = line?;
+    for input in inputs {
+        for line in input.lines() {
+            let input_line = line?;
 
-        // 비어있는 줄은 그대로 출력
-        if input_line.is_empty() {
-            writeln!(output)?;
-            continue;
+            // 비어있는 줄은 그대로 출력
+            if input_line.is_empty() {
+                writeln!(output)?;
+                continue;
+            }
+
+            let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
+            writeln!(output, "{}", result)?;
         }
-
-        let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
-        writeln!(output, "{}", result)?;
     }
 
     Ok(())
@@ -321,7 +340,7 @@ fn process_with_3bul(
 ///
 /// # 인자
 ///
-/// * `input` - 입력 스트림
+/// * `inputs` - 입력 스트림 목록
 /// * `output` - 출력 스트림
 /// * `en_keymap` - 영문 키맵 파일 경로
 /// * `ko_keymap` - 한글 키맵 파일 경로
@@ -331,7 +350,7 @@ fn process_with_3bul(
 ///
 /// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn process_korean_to_english(
-    input: Box<dyn BufRead>,
+    inputs: Vec<Box<dyn BufRead>>,
     output: &mut Box<dyn Write>,
     en_keymap: &str,
     ko_keymap: &str,
@@ -339,17 +358,19 @@ fn process_korean_to_english(
 ) -> io::Result<()> {
     let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, is_three_bul);
 
-    for line in input.lines() {
-        let input_line = line?;
+    for input in inputs {
+        for line in input.lines() {
+            let input_line = line?;
 
-        // 비어있는 줄은 그대로 출력
-        if input_line.is_empty() {
-            writeln!(output)?;
-            continue;
+            // 비어있는 줄은 그대로 출력
+            if input_line.is_empty() {
+                writeln!(output)?;
+                continue;
+            }
+
+            let result = hangul_to_keystrokes(&input_line, &keyboard_map, is_three_bul);
+            writeln!(output, "{}", result)?;
         }
-
-        let result = hangul_to_keystrokes(&input_line, &keyboard_map, is_three_bul);
-        writeln!(output, "{}", result)?;
     }
 
     Ok(())
