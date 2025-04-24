@@ -1,3 +1,9 @@
+use clap::{Parser, ValueEnum};
+/// UNIM-cli (Universal Next-generation Input Method for command-line) - 한/영 자판 변환기
+///
+/// 이 프로그램은 한글과 영문 자판 간의 변환을 수행합니다.
+/// - 영문 타이핑을 한글로 변환
+/// - 한글 타이핑을 영문으로 변환
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
@@ -5,13 +11,6 @@ use std::path::Path;
 use std::process;
 use unim::hangul::composer_with_2bul::HangulComposer2Bul;
 use unim::hangul::composer_with_3bul::HangulComposer3Bul;
-/// UNIM-cli (Universal Next-generation Input Method for command-line) - 한/영 자판 변환기
-///
-/// 이 프로그램은 한글과 영문 자판 간의 변환을 수행합니다.
-/// - 영문 타이핑을 한글로 변환
-/// - 한글 타이핑을 영문으로 변환
-/// - 다양한 자판 지원 (두벌식 표준, 세벌식 390, 세벌식 391)
-/// - 다양한 영문 자판 지원 (QWERTY, Dvorak)
 use unim::keystroke::hangul_to_keystrokes::hangul_to_keystrokes;
 use unim::keystroke::keyboard_map::KeyboardMap;
 use unim::keystroke::keystrokes_to_hangul::keystrokes_to_hangul;
@@ -19,36 +18,74 @@ use unim::keystroke::keystrokes_to_hangul::keystrokes_to_hangul;
 /// 한글 자판 모드
 ///
 /// 사용할 한글 자판의 종류를 정의합니다.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum KeyboardMode {
     /// 두벌식 표준 자판
+    #[value(name = "2bul")]
     TwoBulStd,
     /// 세벌식 390 자판
+    #[value(name = "390")]
     ThreeBul390,
     /// 세벌식 391 자판
+    #[value(name = "391")]
     ThreeBul391,
 }
 
 /// 영문 자판 모드
 ///
 /// 사용할 영문 자판의 종류를 정의합니다.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum EnglishKeyboardMode {
     /// QWERTY 자판
+    #[value(name = "qwerty")]
     Qwerty,
     /// Dvorak 자판
+    #[value(name = "dvorak")]
     Dvorak,
 }
 
 /// 변환 모드
 ///
 /// 한/영 변환 방향을 정의합니다.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 enum ConversionMode {
     /// 한글을 영문으로 변환
+    #[value(name = "ko2en")]
     KoreanToEnglish,
     /// 영문을 한글로 변환
+    #[value(name = "en2ko")]
     EnglishToKorean,
+}
+
+/// 유니코드 입력 방식 변환 프로그램 (UNIM)
+///
+/// 한글과 영문 자판 간의 변환을 수행합니다.
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// 입력 파일들 (지정하지 않으면 표준 입력을 사용)
+    #[arg(name = "FILE")]
+    input_files: Vec<String>,
+
+    /// 출력 파일 (지정하지 않으면 표준 출력을 사용)
+    #[arg(short, long, value_name = "FILE")]
+    output: Option<String>,
+
+    /// 영문자판 스트림을 한글로 조합 (기본 모드)
+    #[arg(short, long, group = "conversion", default_value_t = true)]
+    compose: bool,
+
+    /// 한글을 영문자판 스트림으로 분해
+    #[arg(short, long, group = "conversion")]
+    decompose: bool,
+
+    /// 한글 자판 레이아웃 (기본 2bul)
+    #[arg(short = 'k', long = "korean-keyboard", value_enum, default_value_t = KeyboardMode::TwoBulStd)]
+    korean_keyboard: KeyboardMode,
+
+    /// 영문 자판 레이아웃 (기본 qwerty)
+    #[arg(short = 'e', long = "english-keyboard", value_enum, default_value_t = EnglishKeyboardMode::Qwerty)]
+    english_keyboard: EnglishKeyboardMode,
 }
 
 /// 프로그램 설정
@@ -65,112 +102,64 @@ struct Config {
     english_keyboard_mode: EnglishKeyboardMode,
     /// 변환 모드
     conversion_mode: ConversionMode,
+    /// 경고 메시지 목록
+    warnings: Vec<String>,
 }
 
 impl Config {
-    /// 명령행 인자로부터 설정을 생성합니다.
+    /// Clap 파서로부터 설정을 생성합니다.
     ///
     /// # 인자
     ///
-    /// * `args` - 명령행 인자
+    /// * `cli` - Clap 파서로 파싱된 명령행 인자
     ///
     /// # 반환 값
     ///
-    /// * `Result<Config, &'static str>` - 성공 시 Config 인스턴스, 실패 시 오류 메시지
-    fn new(args: env::Args) -> Result<Config, &'static str> {
-        let args: Vec<String> = args.collect();
-
+    /// * `Config` - 설정 인스턴스
+    fn from_cli(cli: Cli) -> Self {
         let mut input_files = Vec::new();
-        let mut output_file = None;
-        let mut keyboard_mode = KeyboardMode::TwoBulStd;
-        let mut english_keyboard_mode = EnglishKeyboardMode::Qwerty;
-        let mut conversion_mode = ConversionMode::EnglishToKorean;
+        let mut warnings = Vec::new();
+        let mut has_stdin_input = false;
 
-        let mut i = 1;
-        while i < args.len() {
-            match args[i].as_str() {
-                "-h" | "--help" => {
-                    print_help();
-                    process::exit(0);
-                }
-                "-k" | "--korean" => {
-                    conversion_mode = ConversionMode::EnglishToKorean;
-                }
-                "-e" | "--english" => {
-                    conversion_mode = ConversionMode::KoreanToEnglish;
-                }
-                "-2" | "--2bulsik" => {
-                    keyboard_mode = KeyboardMode::TwoBulStd;
-                }
-                "-3" | "--3bulsik" => {
-                    keyboard_mode = KeyboardMode::ThreeBul390;
-                }
-                "-390" | "--3bul390" => {
-                    keyboard_mode = KeyboardMode::ThreeBul390;
-                }
-                "-391" | "--3bul391" => {
-                    keyboard_mode = KeyboardMode::ThreeBul391;
-                }
-                "-q" | "--qwerty" => {
-                    english_keyboard_mode = EnglishKeyboardMode::Qwerty;
-                }
-                "-d" | "--dvorak" => {
-                    english_keyboard_mode = EnglishKeyboardMode::Dvorak;
-                }
-                "-o" | "--output" => {
-                    if i + 1 < args.len() {
-                        output_file = Some(args[i + 1].clone());
-                        i += 1;
+        // 입력 파일 처리
+        if cli.input_files.is_empty() {
+            // 입력 파일이 없으면 표준 입력을 사용
+            input_files.push("-".to_string());
+        } else {
+            // 입력 파일 처리, 중복된 표준 입력은 경고로 처리
+            for file in cli.input_files {
+                if file == "-" {
+                    if has_stdin_input {
+                        warnings.push(
+                            "표준 입력('-')이 여러 번 지정되었습니다. 중복된 항목은 무시됩니다."
+                                .to_string(),
+                        );
                     } else {
-                        return Err("출력 파일 이름이 필요합니다");
+                        has_stdin_input = true;
+                        input_files.push(file);
                     }
-                }
-                _ => {
-                    // 입력 파일로 간주
-                    if !args[i].starts_with('-') {
-                        input_files.push(args[i].clone());
-                    } else {
-                        return Err("알 수 없는 인자");
-                    }
+                } else {
+                    input_files.push(file);
                 }
             }
-            i += 1;
         }
 
-        Ok(Config {
-            input_files,
-            output_file,
-            keyboard_mode,
-            english_keyboard_mode,
-            conversion_mode,
-        })
-    }
-}
+        // 변환 모드 결정
+        let conversion_mode = if cli.decompose {
+            ConversionMode::KoreanToEnglish
+        } else {
+            ConversionMode::EnglishToKorean
+        };
 
-/// 도움말 메시지를 출력합니다.
-fn print_help() {
-    println!("unim (Unicode Input) - 한/영 자판 변환기");
-    println!();
-    println!("사용법: unim [옵션] [입력파일...]");
-    println!();
-    println!("옵션:");
-    println!("  -h, --help       이 도움말을 표시합니다");
-    println!("  -k, --korean     영문 타자를 한글로 변환 (기본값)");
-    println!("  -e, --english    한글 타자를 영문으로 변환");
-    println!("  영어 자판:");
-    println!("    -q, --qwerty   QWERTY 자판 (기본값)");
-    println!("    -d, --dvorak   Dvorak 자판");
-    println!("  한글 자판:");
-    println!("    -2, --2bulsik  두벌식 표준 (기본값)");
-    println!("    -3, --3bulsik  세벌식 390");
-    println!("    -390, --3bul390  세벌식 390");
-    println!("    -391, --3bul391  세벌식 391");
-    println!("  -o, --output <FILE>  출력 파일 지정");
-    println!();
-    println!("입력 파일이 지정되지 않으면 표준 입력에서 읽습니다.");
-    println!("여러 입력 파일을 지정하면 순서대로 처리합니다.");
-    println!("입력 파일 이름이 '-'인 경우 표준 입력에서 읽습니다.");
-    println!("출력 파일 이름이 '-'인 경우 표준 출력으로 씁니다.");
+        Config {
+            input_files,
+            output_file: cli.output,
+            keyboard_mode: cli.korean_keyboard,
+            english_keyboard_mode: cli.english_keyboard,
+            conversion_mode,
+            warnings,
+        }
+    }
 }
 
 /// 프로그램의 주요 실행 함수입니다.
@@ -384,14 +373,13 @@ fn process_korean_to_english(
 ///
 /// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn main() -> io::Result<()> {
-    let config = match Config::new(env::args()) {
-        Ok(config) => config,
-        Err(err) => {
-            eprintln!("설정 오류: {}", err);
-            eprintln!("사용법을 보려면 unim --help를 실행하세요");
-            process::exit(1);
-        }
-    };
+    let cli = Cli::parse();
+    let config = Config::from_cli(cli);
+
+    // 경고 메시지가 있으면 출력
+    for warning in &config.warnings {
+        eprintln!("경고: {}", warning);
+    }
 
     if let Err(e) = run(config) {
         eprintln!("실행 오류: {}", e);
