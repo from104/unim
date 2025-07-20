@@ -4,7 +4,7 @@ use clap::{Parser, ValueEnum};
 /// 이 프로그램은 한글과 영문 자판 간의 변환을 수행합니다.
 /// - 영문 타이핑을 한글로 변환
 /// - 한글 타이핑을 영문으로 변환
-use std::env;
+// use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;

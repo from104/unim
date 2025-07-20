@@ -1,0 +1,7 @@
+{
+    "uuid": "unim-autocorrect@from104.github.io",
+    "name": "unim-autocorrect",
+    "description": "GNOME Shell extension for unim",
+    "version": "0.0.1",
+    "shell-version": [ "46" ]
+} 
