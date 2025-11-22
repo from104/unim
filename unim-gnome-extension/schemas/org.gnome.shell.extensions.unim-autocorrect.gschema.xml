@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.unim-autocorrect" path="/org/gnome/shell/extensions/unim-autocorrect/" gettext-domain="gnome-shell-extensions">
+    <!-- General Settings -->
+    <key type="b" name="enable-extension">
+      <default>true</default>
+      <summary>Enable Extension</summary>
+      <description>Whether to enable the entire unim autocorrect extension</description>
+    </key>
+
+    <key type="b" name="show-indicator">
+      <default>true</default>
+      <summary>Show Panel Indicator</summary>
+      <description>Whether to show the input method status icon in the system panel</description>
+    </key>
+
+    <!-- Automatic Conversion Settings -->
+    <key type="b" name="enable-automatic-conversion">
+      <default>true</default>
+      <summary>Enable Automatic Conversion</summary>
+      <description>Whether to automatically convert Korean/English mistyping</description>
+    </key>
+
+    <key type="b" name="show-notification">
+      <default>true</default>
+      <summary>Show Notification</summary>
+      <description>Whether to show a notification when text is converted</description>
+    </key>
+
+    <!-- Keyboard Layout Settings -->
+    <key type="s" name="korean-layout">
+      <default>'2bul'</default>
+      <summary>Korean Keyboard Layout</summary>
+      <description>The Korean keyboard layout to use: '2bul', '390', or '391'</description>
+    </key>
+
+    <key type="s" name="english-layout">
+      <default>'qwerty'</default>
+      <summary>English Keyboard Layout</summary>
+      <description>The English keyboard layout to use: 'qwerty' or 'dvorak'</description>
+    </key>
+
+    <!-- Manual Conversion Settings -->
+    <key type="b" name="enable-manual-conversion">
+      <default>true</default>
+      <summary>Enable Manual Conversion</summary>
+      <description>Whether to allow manual Korean/English conversion via shortcut</description>
+    </key>
+
+    <key type="as" name="manual-conversion-shortcut">
+      <default>['&lt;Super&gt;i']</default>
+      <summary>Manual Conversion Shortcut</summary>
+      <description>The keyboard shortcut for manual conversion</description>
+    </key>
+  </schema>
+</schemalist>

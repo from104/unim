@@ -1,1 +1,53 @@
-/target
+# Rust build artifacts
+/target/
+**/target/
+Cargo.lock
+*.pdb
+
+# Rust backup files
+**/*.rs.bk
+**/*.orig
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# GNOME Extension build artifacts
+*.zip
+unim-gnome-extension/lib/
+unim-gnome-extension/schemas/gschemas.compiled
+
+# Editor and IDE files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Test artifacts
+*.test
+*.profdata

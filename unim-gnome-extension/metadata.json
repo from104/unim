@@ -1,7 +1,8 @@
 {
     "uuid": "unim-autocorrect@from104.github.io",
     "name": "unim-autocorrect",
-    "description": "GNOME Shell extension for unim",
+    "description": "GNOME Shell extension for automatic Korean/English conversion",
     "version": "0.0.1",
-    "shell-version": [ "46" ]
+    "shell-version": [ "46" ],
+    "settings-schema": "org.gnome.shell.extensions.unim-autocorrect"
 } 
