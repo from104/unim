@@ -1,8 +1,7 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
-pub mod hangul;
-pub mod keystroke;
+use unim::keystroke;
 
 pub fn unim_core_main() {
     println!("Hello from unim-core");

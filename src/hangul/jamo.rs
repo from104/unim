@@ -1,3 +1,5 @@
+use crate::hangul::char::HangulError;
+
 /// 한글 자모(초성, 중성, 종성)를 나타내는 타입들이 구현해야 하는 공통 트레이트입니다.
 ///
 /// 이 트레이트는 각 자모 타입이 가져야 하는 기본적인 기능들을 정의합니다.
@@ -258,7 +260,7 @@ impl Cho {
     /// assert!(Cho::DD.to_jong().is_err()); // ㄸ는 변환 불가
     /// assert!(Cho::F.to_jong().is_err()); // 채움 문자는 변환 불가
     /// ```
-    pub fn to_jong(&self) -> Result<Jong, &'static str> {
+    pub fn to_jong(&self) -> Result<Jong, HangulError> {
         match self {
             Cho::G => Ok(Jong::G),   // ㄱ
             Cho::GG => Ok(Jong::GG), // ㄲ
@@ -277,10 +279,10 @@ impl Cho {
             Cho::P => Ok(Jong::P),   // ㅍ
             Cho::H => Ok(Jong::H),   // ㅎ
             // 변환 불가 초성들
-            Cho::DD => Err("초성 'ㄸ'는 종성으로 변환할 수 없습니다."),
-            Cho::BB => Err("초성 'ㅃ'는 종성으로 변환할 수 없습니다."),
-            Cho::JJ => Err("초성 'ㅉ'는 종성으로 변환할 수 없습니다."),
-            Cho::F => Err("초성 채움은 종성으로 변환할 수 없습니다."),
+            Cho::DD => Err(HangulError::ConversionError("Cho::DD cannot be converted to Jong")),
+            Cho::BB => Err(HangulError::ConversionError("Cho::BB cannot be converted to Jong")),
+            Cho::JJ => Err(HangulError::ConversionError("Cho::JJ cannot be converted to Jong")),
+            Cho::F => Err(HangulError::ConversionError("Cho::F cannot be converted to Jong")),
         }
     }
 }
@@ -768,7 +770,7 @@ impl Jong {
     /// // 종성 비움 변환 시도 (Err 반환)
     /// assert!(Jong::E.to_cho().is_err());
     /// ```
-    pub fn to_cho(&self) -> Result<Cho, &'static str> {
+    pub fn to_cho(&self) -> Result<Cho, HangulError> {
         match self {
             Jong::NG => Ok(Cho::E),
             Jong::L => Ok(Cho::R),
@@ -786,18 +788,18 @@ impl Jong {
             Jong::T => Ok(Cho::T),
             Jong::P => Ok(Cho::P),
             Jong::H => Ok(Cho::H),
-            Jong::E => Err("종성 비움은 초성으로 변환할 수 없습니다."),
-            Jong::GS => Err("겹받침 종성 'ㄳ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::NJ => Err("겹받침 종성 'ㄵ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::NH => Err("겹받침 종성 'ㄶ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::LG => Err("겹받침 종성 'ㄺ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::LM => Err("겹받침 종성 'ㄻ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::LB => Err("겹받침 종성 'ㄼ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::LS => Err("겹받침 종성 'ㄽ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::LT => Err("겹받침 종성 'ㄾ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::LP => Err("겹받침 종성 'ㄿ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::LH => Err("겹받침 종성 'ㅀ'는(은) 초성으로 변환할 수 없습니다."),
-            Jong::BS => Err("겹받침 종성 'ㅄ'는(은) 초성으로 변환할 수 없습니다."),
+            Jong::E => Err(HangulError::ConversionError("Jong::E cannot be converted to Cho")),
+            Jong::GS => Err(HangulError::ConversionError("Jong::GS cannot be converted to Cho")),
+            Jong::NJ => Err(HangulError::ConversionError("Jong::NJ cannot be converted to Cho")),
+            Jong::NH => Err(HangulError::ConversionError("Jong::NH cannot be converted to Cho")),
+            Jong::LG => Err(HangulError::ConversionError("Jong::LG cannot be converted to Cho")),
+            Jong::LM => Err(HangulError::ConversionError("Jong::LM cannot be converted to Cho")),
+            Jong::LB => Err(HangulError::ConversionError("Jong::LB cannot be converted to Cho")),
+            Jong::LS => Err(HangulError::ConversionError("Jong::LS cannot be converted to Cho")),
+            Jong::LT => Err(HangulError::ConversionError("Jong::LT cannot be converted to Cho")),
+            Jong::LP => Err(HangulError::ConversionError("Jong::LP cannot be converted to Cho")),
+            Jong::LH => Err(HangulError::ConversionError("Jong::LH cannot be converted to Cho")),
+            Jong::BS => Err(HangulError::ConversionError("Jong::BS cannot be converted to Cho")),
         }
     }
 }

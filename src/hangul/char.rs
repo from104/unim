@@ -21,6 +21,8 @@ pub enum HangulError {
     CompositionFailure,
     /// 문자열로부터 `HangulChar`를 파싱하는 데 실패했을 때 발생하는 오류입니다.
     ParseError(String),
+    /// 자모 변환에 실패했을 때 발생하는 오류입니다. (예: 초성→종성 변환 불가)
+    ConversionError(&'static str),
 }
 
 impl fmt::Display for HangulError {
@@ -35,6 +37,7 @@ impl fmt::Display for HangulError {
             HangulError::JamoParse(s) => write!(f, "자모 문자열 파싱 실패: {}", s),
             HangulError::CompositionFailure => write!(f, "올바른 한글 음절 조합이 아닙니다."),
             HangulError::ParseError(s) => write!(f, "HangulChar 파싱 실패: {}", s),
+            HangulError::ConversionError(s) => write!(f, "자모 변환 실패: {}", s),
         }
     }
 }

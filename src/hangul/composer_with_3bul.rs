@@ -1,8 +1,50 @@
 use crate::hangul::char::HangulChar;
 use crate::hangul::composer::BaseHangulComposer;
+use crate::hangul::composer::CombinedJamoMap;
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::jamo::*;
+use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
+
+/// 3벌식 자모 조합 테이블 (초성 + 중성 + 종성)
+/// 프로그램 시작 시 한 번만 초기화됩니다.
+static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(|| {
+    let mut map = HashMap::new();
+
+    // === 중성 조합 (복모음) ===
+    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::A)), JamoEnum::Jung(Jung::WA));
+    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::AE)), JamoEnum::Jung(Jung::WAE));
+    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::OE));
+    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::EO)), JamoEnum::Jung(Jung::WEO));
+    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::E)), JamoEnum::Jung(Jung::WE));
+    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::WI));
+    map.insert((JamoEnum::Jung(Jung::EU), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::YI));
+
+    // === 종성 조합 (겹받침) ===
+    map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::GG));
+    map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::GS));
+    map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::J)), JamoEnum::Jong(Jong::NJ));
+    map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::NH));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::LG));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::M)), JamoEnum::Jong(Jong::LM));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::B)), JamoEnum::Jong(Jong::LB));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::LS));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::T)), JamoEnum::Jong(Jong::LT));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::P)), JamoEnum::Jong(Jong::LP));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::LH));
+    map.insert((JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::BS));
+    map.insert((JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::SS));
+
+    // === 초성 조합 (쌍자음) - 3벌식 전용 ===
+    map.insert((JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::G)), JamoEnum::Cho(Cho::GG));
+    map.insert((JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::D)), JamoEnum::Cho(Cho::DD));
+    map.insert((JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::B)), JamoEnum::Cho(Cho::BB));
+    map.insert((JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::S)), JamoEnum::Cho(Cho::SS));
+    map.insert((JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::J)), JamoEnum::Cho(Cho::JJ));
+
+    map
+});
+
 
 /**
  * 3벌식 자판 레이아웃에 특화된 한글 조합기입니다.
@@ -61,23 +103,9 @@ impl HangulComposer3Bul {
         let mut composer = HangulComposer3Bul {
             base_composer: BaseHangulComposer::new(),
         };
-        composer.initialize_combined_jamo();
+        // 정적 3벌식 조합 테이블을 복제하여 사용
+        *composer.combined_jamo() = COMBINED_JAMO_3BUL.clone();
         composer
-    }
-
-    /**
-     * 3벌식 조합 규칙에 필요한 복합 자모 테이블을 초기화합니다.
-     *
-     * 이 메서드는 `BaseHangulComposer`가 가지고 있는 `combined_jamo` 해시맵에
-     * 3벌식에서 사용되는 초성, 중성, 종성의 조합 규칙을 설정합니다.
-     * 예를 들어, 'ㄱ' + 'ㄱ' -> 'ㄲ', 'ㅗ' + 'ㅏ' -> 'ㅘ', 'ㄴ' + 'ㅈ' -> 'ㄵ' 등의
-     * 규칙을 정의합니다.
-     *
-     * `new` 함수 내부에서 호출되어 인스턴스 생성 시 초기화됩니다.
-     */
-    fn initialize_combined_jamo(&mut self) {
-        // 세벌식이므로 초성 조합 규칙 포함하여 초기화
-        self.base_composer.initialize_combined_jamo(true);
     }
 }
 
@@ -447,7 +475,7 @@ impl HangulComposer for HangulComposer3Bul {
      *
      * 자모 조합 규칙을 담고 있는 해시맵에 대한 참조.
      */
-    fn get_combined_jamo(&self) -> &HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+    fn get_combined_jamo(&self) -> &CombinedJamoMap {
         self.base_composer.get_combined_jamo()
     }
 
@@ -487,7 +515,7 @@ impl HangulComposer for HangulComposer3Bul {
      *
      * 자모 조합 규칙을 담고 있는 해시맵에 대한 가변 참조.
      */
-    fn combined_jamo(&mut self) -> &mut HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+    fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
         self.base_composer.combined_jamo()
     }
 

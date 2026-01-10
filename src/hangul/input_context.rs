@@ -165,6 +165,11 @@ impl HangulInputContext {
     pub fn is_composing(&self) -> bool {
         self.composer.is_compose() || !self.preedit_string.is_empty()
     }
+
+    pub fn append_to_committed(&mut self, c: char) {
+        self.commit();
+        self.committed_string.push(c);
+    }
 }
 
 // --- 유닛 테스트 ---
@@ -291,7 +296,6 @@ mod tests {
 
     // TODO: 3벌식 테스트 추가 (HangulComposer3Bul 구현 후)
     #[test]
-    #[ignore] // Ignore until HangulComposer3Bul is ready and imported
     fn test_context_3bul_basic() {
         let mut context = HangulInputContext::new(ComposerType::ThreeBul);
         // Add 3bul specific tests here

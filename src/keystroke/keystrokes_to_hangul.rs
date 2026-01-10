@@ -166,7 +166,7 @@ pub fn process_keystrokes(
 mod tests {
     use super::*;
     use crate::hangul::jamo::*;
-    use crate::keystroke::input_context::{ComposerType, HangulInputContext};
+    use crate::hangul::input_context::{ComposerType, HangulInputContext};
     // keyboard_map 모듈이나 해당 함수가 실제 프로젝트 구조에 맞게 존재하는지 확인 필요
     // use crate::keystroke::keyboard_map;
 

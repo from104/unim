@@ -9,13 +9,13 @@ all: build
 
 build:
 	@echo "Building Rust core library..."
-	@cd unim-core && cargo build --release
+	@cargo build -p unim-core --release
 	@echo "Building unim-cli binary..."
-	@cargo build --release --bin unim-cli
+	@cargo build -p unim-cli --release
 	@echo "Copying library and binary to extension directory..."
 	@mkdir -p unim-gnome-extension/lib
 	@mkdir -p unim-gnome-extension/bin
-	@cp unim-core/target/release/libunim_core.so unim-gnome-extension/lib/
+	@cp target/release/libunim_core.so unim-gnome-extension/lib/
 	@cp target/release/unim-cli unim-gnome-extension/bin/
 	@echo "Compiling GSettings schema..."
 	@mkdir -p unim-gnome-extension/schemas

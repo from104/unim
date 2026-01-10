@@ -1,0 +1,13 @@
+[package]
+name = "unim-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+unim = { path = ".." }
+unim-core = { path = "../unim-core" }
+clap = { version = "4.5.1", features = ["derive"] }
+rust-i18n = "3"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+io-lifetimes = "1.0.11" # For some IO operations if needed

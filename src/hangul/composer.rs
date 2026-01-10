@@ -8,6 +8,10 @@ use crate::hangul::jamo::*;
 // builder.rs
 use std::collections::{HashMap, VecDeque};
 
+/// 자모 조합 규칙을 정의하는 해시맵 타입 앨리어스입니다.
+/// 튜플 키 `(첫번째 자모, 두번째 자모)`를 사용하여 조합된 자모를 조회합니다.
+pub type CombinedJamoMap = HashMap<(JamoEnum, JamoEnum), JamoEnum>;
+
 /// 한글 자모를 조합하여 한글 음절을 만드는 기능을 정의하는 트레이트입니다.
 ///
 /// 이 트레이트는 자모 입력, 삭제, 조합 상태 확인 등의 기본적인 인터페이스를 제공합니다.
@@ -139,7 +143,7 @@ pub trait HangulComposer {
     fn set_current_jong(&mut self, jong: Option<Jong>) -> bool;
 
     /// 자모 조합 테이블 접근 (필요한 경우)
-    fn get_combined_jamo(&self) -> &HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>>;
+    fn get_combined_jamo(&self) -> &CombinedJamoMap;
 
     // 자모가 입력되는 순서대로 저장하는 큐
     fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum>;
@@ -148,7 +152,7 @@ pub trait HangulComposer {
     fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum>;
 
     // 자모 조합 테이블
-    fn combined_jamo(&mut self) -> &mut HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>>;
+    fn combined_jamo(&mut self) -> &mut CombinedJamoMap;
 
     // 현재 조합 중인 한글
     fn current_hangul(&mut self) -> &mut HangulChar;
@@ -170,7 +174,7 @@ pub trait HangulComposer {
 pub struct BaseHangulComposer {
     jamo_queue: VecDeque<JamoEnum>,
     last_jamo_queue: VecDeque<JamoEnum>,
-    combined_jamo: HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>>,
+    combined_jamo: CombinedJamoMap,
     current_hangul_char: HangulChar,
 }
 
@@ -181,7 +185,12 @@ impl BaseHangulComposer {
     ///
     /// 초기화된 `BaseHangulComposer` 인스턴스
     pub fn new() -> Self {
-        BaseHangulComposer::default()
+        BaseHangulComposer {
+            jamo_queue: VecDeque::with_capacity(6),
+            last_jamo_queue: VecDeque::with_capacity(6),
+            combined_jamo: HashMap::new(),
+            current_hangul_char: HangulChar::default(),
+        }
     }
 
     /// 내부적으로 새로운 음절 시작 여부를 판단합니다.
@@ -341,12 +350,8 @@ impl BaseHangulComposer {
                     let first_jamo = JamoEnum::Cho(self.get_cho().unwrap());
                     let second_jamo = JamoEnum::Cho(cho);
 
-                    if let Some(combined_map) = self.combined_jamo.get(&first_jamo) {
-                        if let Some(JamoEnum::Cho(combined_cho)) = combined_map.get(&second_jamo) {
-                            self.set_cho(Some(*combined_cho));
-                        } else {
-                            return false;
-                        }
+                    if let Some(JamoEnum::Cho(combined_cho)) = self.combined_jamo.get(&(first_jamo, second_jamo)) {
+                        self.set_cho(Some(*combined_cho));
                     } else {
                         return false;
                     }
@@ -384,13 +389,8 @@ impl BaseHangulComposer {
                     let first_jamo = JamoEnum::Jung(self.get_jung().unwrap());
                     let second_jamo = JamoEnum::Jung(jung);
 
-                    if let Some(combined_map) = self.combined_jamo.get(&first_jamo) {
-                        if let Some(JamoEnum::Jung(combined_jung)) = combined_map.get(&second_jamo)
-                        {
-                            self.set_jung(Some(*combined_jung));
-                        } else {
-                            return false;
-                        }
+                    if let Some(JamoEnum::Jung(combined_jung)) = self.combined_jamo.get(&(first_jamo, second_jamo)) {
+                        self.set_jung(Some(*combined_jung));
                     } else {
                         return false;
                     }
@@ -428,13 +428,8 @@ impl BaseHangulComposer {
                     let first_jamo = JamoEnum::Jong(self.get_jong().unwrap());
                     let second_jamo = JamoEnum::Jong(jong);
 
-                    if let Some(combined_map) = self.combined_jamo.get(&first_jamo) {
-                        if let Some(JamoEnum::Jong(combined_jong)) = combined_map.get(&second_jamo)
-                        {
-                            self.set_jong(Some(*combined_jong));
-                        } else {
-                            return false;
-                        }
+                    if let Some(JamoEnum::Jong(combined_jong)) = self.combined_jamo.get(&(first_jamo, second_jamo)) {
+                        self.set_jong(Some(*combined_jong));
                     } else {
                         return false;
                     }
@@ -466,33 +461,27 @@ impl BaseHangulComposer {
     /// # 반환값
     ///
     /// 중성 조합 규칙이 담긴 해시맵
-    pub fn initialize_jung_combinations(&self) -> HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
-        let mut combined_jamo = HashMap::new();
+    pub fn initialize_jung_combinations(&self) -> CombinedJamoMap {
+        let mut map = HashMap::new();
 
         // 'ㅗ' + 'ㅏ' -> 'ㅘ'
         // 'ㅗ' + 'ㅐ' -> 'ㅙ'
         // 'ㅗ' + 'ㅣ' -> 'ㅚ'
-        let mut o_map = HashMap::new();
-        o_map.insert(JamoEnum::Jung(Jung::A), JamoEnum::Jung(Jung::WA));
-        o_map.insert(JamoEnum::Jung(Jung::AE), JamoEnum::Jung(Jung::WAE));
-        o_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::OE));
-        combined_jamo.insert(JamoEnum::Jung(Jung::O), o_map);
+        map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::A)), JamoEnum::Jung(Jung::WA));
+        map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::AE)), JamoEnum::Jung(Jung::WAE));
+        map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::OE));
 
         // 'ㅜ' + 'ㅓ' -> 'ㅝ'
         // 'ㅜ' + 'ㅔ' -> 'ㅞ'
         // 'ㅜ' + 'ㅣ' -> 'ㅟ'
-        let mut u_map = HashMap::new();
-        u_map.insert(JamoEnum::Jung(Jung::EO), JamoEnum::Jung(Jung::WEO));
-        u_map.insert(JamoEnum::Jung(Jung::E), JamoEnum::Jung(Jung::WE));
-        u_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::WI));
-        combined_jamo.insert(JamoEnum::Jung(Jung::U), u_map);
+        map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::EO)), JamoEnum::Jung(Jung::WEO));
+        map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::E)), JamoEnum::Jung(Jung::WE));
+        map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::WI));
 
         // 'ㅡ' + 'ㅣ' -> 'ㅢ'
-        let mut eu_map = HashMap::new();
-        eu_map.insert(JamoEnum::Jung(Jung::I), JamoEnum::Jung(Jung::YI));
-        combined_jamo.insert(JamoEnum::Jung(Jung::EU), eu_map);
+        map.insert((JamoEnum::Jung(Jung::EU), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::YI));
 
-        combined_jamo
+        map
     }
 
     /// 종성 조합 규칙(겹받침)을 초기화합니다.
@@ -500,51 +489,35 @@ impl BaseHangulComposer {
     /// # 반환값
     ///
     /// 종성 조합 규칙이 담긴 해시맵
-    pub fn initialize_jong_combinations(&self) -> HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
-        let mut combined_jamo = HashMap::new();
+    pub fn initialize_jong_combinations(&self) -> CombinedJamoMap {
+        let mut map = HashMap::new();
 
         // 'ㄱ' + 'ㄱ' -> 'ㄲ'
         // 'ㄱ' + 'ㅅ' -> 'ㄳ'
-        let mut g_map = HashMap::new();
-        g_map.insert(JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::GG));
-        g_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::GS));
-        combined_jamo.insert(JamoEnum::Jong(Jong::G), g_map);
+        map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::GG));
+        map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::GS));
 
         // 'ㄴ' + 'ㅈ' -> 'ㄵ'
         // 'ㄴ' + 'ㅎ' -> 'ㄶ'
-        let mut n_map = HashMap::new();
-        n_map.insert(JamoEnum::Jong(Jong::J), JamoEnum::Jong(Jong::NJ));
-        n_map.insert(JamoEnum::Jong(Jong::H), JamoEnum::Jong(Jong::NH));
-        combined_jamo.insert(JamoEnum::Jong(Jong::N), n_map);
+        map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::J)), JamoEnum::Jong(Jong::NJ));
+        map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::NH));
 
-        // 'ㄹ' + 'ㄱ' -> 'ㄺ'
-        // 'ㄹ' + 'ㅁ' -> 'ㄻ'
-        // 'ㄹ' + 'ㅂ' -> 'ㄼ'
-        // 'ㄹ' + 'ㅅ' -> 'ㄽ'
-        // 'ㄹ' + 'ㅌ' -> 'ㄾ'
-        // 'ㄹ' + 'ㅍ' -> 'ㄿ'
-        // 'ㄹ' + 'ㅎ' -> 'ㅀ'
-        let mut l_map = HashMap::new();
-        l_map.insert(JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::LG));
-        l_map.insert(JamoEnum::Jong(Jong::M), JamoEnum::Jong(Jong::LM));
-        l_map.insert(JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::LB));
-        l_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::LS));
-        l_map.insert(JamoEnum::Jong(Jong::T), JamoEnum::Jong(Jong::LT));
-        l_map.insert(JamoEnum::Jong(Jong::P), JamoEnum::Jong(Jong::LP));
-        l_map.insert(JamoEnum::Jong(Jong::H), JamoEnum::Jong(Jong::LH));
-        combined_jamo.insert(JamoEnum::Jong(Jong::L), l_map);
+        // 'ㄹ' + 겹받침 조합
+        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::LG));
+        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::M)), JamoEnum::Jong(Jong::LM));
+        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::B)), JamoEnum::Jong(Jong::LB));
+        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::LS));
+        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::T)), JamoEnum::Jong(Jong::LT));
+        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::P)), JamoEnum::Jong(Jong::LP));
+        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::LH));
 
         // 'ㅂ' + 'ㅅ' -> 'ㅄ'
-        let mut b_map = HashMap::new();
-        b_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::BS));
-        combined_jamo.insert(JamoEnum::Jong(Jong::B), b_map);
+        map.insert((JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::BS));
 
         // 'ㅅ' + 'ㅅ' -> 'ㅆ'
-        let mut s_map = HashMap::new();
-        s_map.insert(JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::SS));
-        combined_jamo.insert(JamoEnum::Jong(Jong::S), s_map);
+        map.insert((JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::SS));
 
-        combined_jamo
+        map
     }
 
     /// 초성 조합 규칙(쌍자음)을 초기화합니다. 3벌식 전용입니다.
@@ -552,35 +525,25 @@ impl BaseHangulComposer {
     /// # 반환값
     ///
     /// 초성 조합 규칙이 담긴 해시맵
-    pub fn initialize_cho_combinations(&self) -> HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
-        let mut combined_jamo = HashMap::new();
+    pub fn initialize_cho_combinations(&self) -> CombinedJamoMap {
+        let mut map = HashMap::new();
 
         // 'ㄱ' + 'ㄱ' -> 'ㄲ'
-        let mut g_map = HashMap::new();
-        g_map.insert(JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::GG));
-        combined_jamo.insert(JamoEnum::Cho(Cho::G), g_map);
+        map.insert((JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::G)), JamoEnum::Cho(Cho::GG));
 
         // 'ㄷ' + 'ㄷ' -> 'ㄸ'
-        let mut d_map = HashMap::new();
-        d_map.insert(JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::DD));
-        combined_jamo.insert(JamoEnum::Cho(Cho::D), d_map);
+        map.insert((JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::D)), JamoEnum::Cho(Cho::DD));
 
         // 'ㅂ' + 'ㅂ' -> 'ㅃ'
-        let mut b_map = HashMap::new();
-        b_map.insert(JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::BB));
-        combined_jamo.insert(JamoEnum::Cho(Cho::B), b_map);
+        map.insert((JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::B)), JamoEnum::Cho(Cho::BB));
 
         // 'ㅅ' + 'ㅅ' -> 'ㅆ'
-        let mut s_map = HashMap::new();
-        s_map.insert(JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::SS));
-        combined_jamo.insert(JamoEnum::Cho(Cho::S), s_map);
+        map.insert((JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::S)), JamoEnum::Cho(Cho::SS));
 
         // 'ㅈ' + 'ㅈ' -> 'ㅉ'
-        let mut j_map = HashMap::new();
-        j_map.insert(JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::JJ));
-        combined_jamo.insert(JamoEnum::Cho(Cho::J), j_map);
+        map.insert((JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::J)), JamoEnum::Cho(Cho::JJ));
 
-        combined_jamo
+        map
     }
 
     /// 자모 조합 테이블을 초기화합니다.
@@ -591,23 +554,17 @@ impl BaseHangulComposer {
     ///
     /// * `with_cho_combinations` - 초성 조합 규칙을 추가할지 여부 (3벌식의 경우 true)
     pub fn initialize_combined_jamo(&mut self, with_cho_combinations: bool) {
-        let mut combined_jamo = HashMap::new();
+        let mut combined_jamo: CombinedJamoMap = HashMap::new();
 
         // 1. 중성 조합 규칙 초기화
-        for (key, value) in self.initialize_jung_combinations() {
-            combined_jamo.insert(key, value);
-        }
+        combined_jamo.extend(self.initialize_jung_combinations());
 
         // 2. 종성 조합 규칙 초기화
-        for (key, value) in self.initialize_jong_combinations() {
-            combined_jamo.insert(key, value);
-        }
+        combined_jamo.extend(self.initialize_jong_combinations());
 
         // 3. 필요한 경우 초성 조합 규칙 초기화 (3벌식용)
         if with_cho_combinations {
-            for (key, value) in self.initialize_cho_combinations() {
-                combined_jamo.insert(key, value);
-            }
+            combined_jamo.extend(self.initialize_cho_combinations());
         }
 
         *self.combined_jamo() = combined_jamo;
@@ -751,14 +708,8 @@ impl HangulComposer for BaseHangulComposer {
         } else {
             let mut cho = cho_phonemes[0];
             for next_cho in cho_phonemes.iter().skip(1) {
-                if let Some(combined_map) = self.combined_jamo.get(&JamoEnum::Cho(cho)) {
-                    if let Some(JamoEnum::Cho(new_cho)) =
-                        combined_map.get(&JamoEnum::Cho(*next_cho))
-                    {
-                        cho = *new_cho;
-                    } else {
-                        return false;
-                    }
+                if let Some(JamoEnum::Cho(new_cho)) = self.combined_jamo.get(&(JamoEnum::Cho(cho), JamoEnum::Cho(*next_cho))) {
+                    cho = *new_cho;
                 } else {
                     return false;
                 }
@@ -792,14 +743,8 @@ impl HangulComposer for BaseHangulComposer {
         } else {
             let mut jung = jung_phonemes[0];
             for next_jung in jung_phonemes.iter().skip(1) {
-                if let Some(combined_map) = self.combined_jamo.get(&JamoEnum::Jung(jung)) {
-                    if let Some(JamoEnum::Jung(new_jung)) =
-                        combined_map.get(&JamoEnum::Jung(*next_jung))
-                    {
-                        jung = *new_jung;
-                    } else {
-                        return false;
-                    }
+                if let Some(JamoEnum::Jung(new_jung)) = self.combined_jamo.get(&(JamoEnum::Jung(jung), JamoEnum::Jung(*next_jung))) {
+                    jung = *new_jung;
                 } else {
                     return false;
                 }
@@ -833,14 +778,8 @@ impl HangulComposer for BaseHangulComposer {
         } else {
             let mut jong = jong_phonemes[0];
             for next_jong in jong_phonemes.iter().skip(1) {
-                if let Some(combined_map) = self.combined_jamo.get(&JamoEnum::Jong(jong)) {
-                    if let Some(JamoEnum::Jong(new_jong)) =
-                        combined_map.get(&JamoEnum::Jong(*next_jong))
-                    {
-                        jong = *new_jong;
-                    } else {
-                        return false;
-                    }
+                if let Some(JamoEnum::Jong(new_jong)) = self.combined_jamo.get(&(JamoEnum::Jong(jong), JamoEnum::Jong(*next_jong))) {
+                    jong = *new_jong;
                 } else {
                     return false;
                 }
@@ -929,7 +868,7 @@ impl HangulComposer for BaseHangulComposer {
     /// # 반환값
     ///
     /// 자모 조합 테이블의 참조
-    fn get_combined_jamo(&self) -> &HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+    fn get_combined_jamo(&self) -> &CombinedJamoMap {
         &self.combined_jamo
     }
 
@@ -956,7 +895,7 @@ impl HangulComposer for BaseHangulComposer {
     /// # 반환값
     ///
     /// 자모 조합 테이블의 가변 참조
-    fn combined_jamo(&mut self) -> &mut HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+    fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
         &mut self.combined_jamo
     }
 

@@ -1,9 +1,44 @@
 // builder2bul.rs
 use crate::hangul::char::HangulChar;
 use crate::hangul::composer::BaseHangulComposer;
+use crate::hangul::composer::CombinedJamoMap;
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::jamo::*;
+use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
+
+/// 2벌식 자모 조합 테이블 (중성 + 종성)
+/// 프로그램 시작 시 한 번만 초기화됩니다.
+static COMBINED_JAMO_2BUL: Lazy<CombinedJamoMap> = Lazy::new(|| {
+    let mut map = HashMap::new();
+
+    // === 중성 조합 (복모음) ===
+    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::A)), JamoEnum::Jung(Jung::WA));
+    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::AE)), JamoEnum::Jung(Jung::WAE));
+    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::OE));
+    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::EO)), JamoEnum::Jung(Jung::WEO));
+    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::E)), JamoEnum::Jung(Jung::WE));
+    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::WI));
+    map.insert((JamoEnum::Jung(Jung::EU), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::YI));
+
+    // === 종성 조합 (겹받침) ===
+    map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::GG));
+    map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::GS));
+    map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::J)), JamoEnum::Jong(Jong::NJ));
+    map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::NH));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::LG));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::M)), JamoEnum::Jong(Jong::LM));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::B)), JamoEnum::Jong(Jong::LB));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::LS));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::T)), JamoEnum::Jong(Jong::LT));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::P)), JamoEnum::Jong(Jong::LP));
+    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::LH));
+    map.insert((JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::BS));
+    map.insert((JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::SS));
+
+    map
+});
+
 
 /**
  * 두벌식 한글 입력 방식의 조합 로직을 구현한 한글 컴포저입니다.
@@ -36,25 +71,9 @@ impl HangulComposer2Bul {
         let mut composer = HangulComposer2Bul {
             base_composer: BaseHangulComposer::new(),
         };
-        // 두벌식 자모 조합 규칙 초기화
-        composer.initialize_combined_jamo();
+        // 정적 2벌식 조합 테이블을 복제하여 사용
+        *composer.combined_jamo() = COMBINED_JAMO_2BUL.clone();
         composer
-    }
-
-    /**
-     * 두벌식 입력 방식에 따른 자모 조합 규칙을 초기화합니다.
-     *
-     * `base_composer`의 `combined_jamo` 해시맵에 두벌식에서 사용되는
-     * 복모음 및 겹받침 조합 규칙을 설정합니다.
-     *
-     * 예를 들어, 'ㅗ' 다음에 'ㅏ'가 입력되면 'ㅘ'로 조합되도록 규칙을 추가합니다.
-     * 마찬가지로, 'ㄱ' 다음에 'ㅅ'이 입력되면 'ㄳ'으로 조합되도록 설정합니다.
-     *
-     * 이 함수는 `new` 생성자에서 내부적으로 호출됩니다.
-     */
-    fn initialize_combined_jamo(&mut self) {
-        // 두벌식이므로 초성 조합 규칙 없이 초기화
-        self.base_composer.initialize_combined_jamo(false);
     }
 
     /// 도깨비불 현상 처리 함수 (2벌식 전용)
@@ -148,7 +167,7 @@ impl HangulComposer for HangulComposer2Bul {
      * 자모 조합 규칙이 정의된 해시맵에 대한 가변 참조를 반환합니다.
      * 이 맵은 `BaseHangulComposer`에 의해 관리됩니다.
      */
-    fn combined_jamo(&mut self) -> &mut HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+    fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
         self.base_composer.combined_jamo()
     }
 
@@ -386,7 +405,7 @@ impl HangulComposer for HangulComposer2Bul {
      * 자모 조합 규칙이 정의된 해시맵에 대한 불변 참조를 반환합니다.
      * `BaseHangulComposer::get_combined_jamo`에 위임합니다.
      */
-    fn get_combined_jamo(&self) -> &HashMap<JamoEnum, HashMap<JamoEnum, JamoEnum>> {
+    fn get_combined_jamo(&self) -> &CombinedJamoMap {
         self.base_composer.get_combined_jamo()
     }
 
