@@ -1,4 +1,5 @@
-use clap::{Parser, ValueEnum};
+use clap::{FromArgMatches, Parser, ValueEnum};
+use rust_i18n::t;
 /// UNIM-cli (Universal Next-generation Input Method for command-line) - 한/영 자판 변환기
 ///
 /// 이 프로그램은 한글과 영문 자판 간의 변환을 수행합니다.
@@ -14,6 +15,9 @@ use unim::hangul::composer_with_3bul::HangulComposer3Bul;
 use unim::keystroke::hangul_to_keystrokes::hangul_to_keystrokes;
 use unim::keystroke::keyboard_map::KeyboardMap;
 use unim::keystroke::keystrokes_to_hangul::keystrokes_to_hangul;
+
+// i18n 초기화
+rust_i18n::i18n!("locales");
 
 /// 한글 자판 모드
 ///
@@ -57,33 +61,31 @@ enum ConversionMode {
     EnglishToKorean,
 }
 
-/// 유니코드 입력 방식 변환 프로그램 (UNIM)
-///
-/// 한글과 영문 자판 간의 변환을 수행합니다.
+/// Unicode Input Method Converter (UNIM)
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version)]
 struct Cli {
-    /// 입력 파일들 (지정하지 않으면 표준 입력을 사용)
+    /// Input files (uses standard input if not specified)
     #[arg(name = "FILE")]
     input_files: Vec<String>,
 
-    /// 출력 파일 (지정하지 않으면 표준 출력을 사용)
+    /// Output file (uses standard output if not specified)
     #[arg(short, long, value_name = "FILE")]
     output: Option<String>,
 
-    /// 영문자판 스트림을 한글로 조합 (기본 모드)
+    /// Compose English keyboard stream into Korean (default mode)
     #[arg(short, long, group = "conversion", default_value_t = true)]
     compose: bool,
 
-    /// 한글을 영문자판 스트림으로 분해
+    /// Decompose Korean into English keyboard stream
     #[arg(short, long, group = "conversion")]
     decompose: bool,
 
-    /// 한글 자판 레이아웃 (기본 2bul)
+    /// Korean keyboard layout (default: 2bul)
     #[arg(short = 'k', long = "korean-keyboard", value_enum, default_value_t = KeyboardMode::TwoBulStd)]
     korean_keyboard: KeyboardMode,
 
-    /// 영문 자판 레이아웃 (기본 qwerty)
+    /// English keyboard layout (default: qwerty)
     #[arg(short = 'e', long = "english-keyboard", value_enum, default_value_t = EnglishKeyboardMode::Qwerty)]
     english_keyboard: EnglishKeyboardMode,
 }
@@ -130,10 +132,7 @@ impl Config {
             for file in cli.input_files {
                 if file == "-" {
                     if has_stdin_input {
-                        warnings.push(
-                            "표준 입력('-')이 여러 번 지정되었습니다. 중복된 항목은 무시됩니다."
-                                .to_string(),
-                        );
+                        warnings.push(t!("warning_multiple_stdin").to_string());
                     } else {
                         has_stdin_input = true;
                         input_files.push(file);
@@ -368,21 +367,45 @@ fn process_korean_to_english(
 /// 프로그램의 진입점입니다.
 ///
 /// 명령행 인자를 처리하고 프로그램을 실행합니다.
-///
-/// # 반환 값
-///
-/// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn main() -> io::Result<()> {
-    let cli = Cli::parse();
+    // 로케일 설정
+    let locale = std::env::var("LANG")
+        .or_else(|_| std::env::var("LC_ALL"))
+        .unwrap_or_else(|_| "en".to_string());
+    let locale = locale.split('.').next().unwrap_or("en");
+    let locale = locale.split('_').next().unwrap_or("en");
+    rust_i18n::set_locale(locale);
+
+    use clap::CommandFactory;
+    let mut cmd = Cli::command();
+    cmd = cmd
+        .about(t!("unim_cli_about").to_string())
+        .long_about(t!("unim_cli_long_about").to_string());
+
+    // 인자들에 대한 도움말 업데이트
+    cmd = cmd
+        .mut_arg("FILE", |a| a.help(t!("input_files_desc").to_string()))
+        .mut_arg("output", |a| a.help(t!("output_file_desc").to_string()))
+        .mut_arg("compose", |a| a.help(t!("compose_desc").to_string()))
+        .mut_arg("decompose", |a| a.help(t!("decompose_desc").to_string()))
+        .mut_arg("korean_keyboard", |a| a.help(t!("korean_keyboard_layout_desc").to_string()))
+        .mut_arg("english_keyboard", |a| a.help(t!("english_keyboard_layout_desc").to_string()));
+
+    let matches = cmd.get_matches();
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(s) => s,
+        Err(e) => e.exit(),
+    };
+
     let config = Config::from_cli(cli);
 
     // 경고 메시지가 있으면 출력
     for warning in &config.warnings {
-        eprintln!("경고: {}", warning);
+        eprintln!("{}", t!("warning_label", warning = warning));
     }
 
     if let Err(e) = run(config) {
-        eprintln!("실행 오류: {}", e);
+        eprintln!("{}", t!("error_label", error = e));
         process::exit(1);
     }
 

@@ -44,23 +44,6 @@ export default class UnimPreferences extends ExtensionPreferences {
         );
 
 
-        // 2. Automation Settings Group
-        const automationGroup = new Adw.PreferencesGroup({
-            title: 'Automation',
-            description: 'Configure automatic conversion behavior'
-        });
-        page.add(automationGroup);
-
-        // Enable Automatic Conversion
-        this._addToggle(
-            automationGroup,
-            settings,
-            'enable-automatic-conversion',
-            'Automatic Conversion',
-            'Automatically detect and fix Korean/English typos'
-        );
-
-
         // 3. Keyboard Layout Settings Group
         const layoutGroup = new Adw.PreferencesGroup({
             title: 'Keyboard Layouts',

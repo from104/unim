@@ -8,12 +8,6 @@
       <description>Whether to enable the entire unim autocorrect extension</description>
     </key>
 
-    <!-- Automatic Conversion Settings -->
-    <key type="b" name="enable-automatic-conversion">
-      <default>true</default>
-      <summary>Enable Automatic Conversion</summary>
-      <description>Whether to automatically convert Korean/English mistyping</description>
-    </key>
 
     <key type="b" name="show-notification">
       <default>true</default>
@@ -41,8 +35,8 @@
       <description>Whether to allow manual Korean/English conversion via shortcut</description>
     </key>
 
-    <key type="s" name="manual-conversion-shortcut">
-      <default>''</default>
+    <key type="as" name="manual-conversion-shortcut">
+      <default>['&lt;Super&gt;i']</default>
       <summary>Manual Conversion Shortcut</summary>
       <description>The keyboard shortcut for manual conversion</description>
     </key>
