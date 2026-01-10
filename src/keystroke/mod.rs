@@ -7,7 +7,7 @@ pub use keyboard_map::{Key, Keystroke, KeyboardMap};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 
 /// Converts a string to a vector of `Keystroke`s based on a given keyboard layout.
-pub fn string_to_keystrokes(s: &str, layout: &str) -> Vec<Keystroke> {
+pub fn string_to_keystrokes(s: &str, _layout: &str) -> Vec<Keystroke> {
     // This is a simplified version. For now, we assume standard mapping or raw chars.
     // In a full implementation, this would use a reverse keymap for the English layout.
     s.chars().map(|c| Keystroke {

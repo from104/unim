@@ -19,6 +19,7 @@ Cargo.lock
 # GNOME Extension build artifacts
 *.zip
 unim-gnome-extension/lib/
+unim-gnome-extension/bin/
 unim-gnome-extension/schemas/gschemas.compiled
 
 # Editor and IDE files

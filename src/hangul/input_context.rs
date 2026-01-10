@@ -1,7 +1,7 @@
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::composer_with_2bul::HangulComposer2Bul;
 use crate::hangul::composer_with_3bul::HangulComposer3Bul; // TODO: Add 3bul composer if needed
-use crate::hangul::jamo::{Jamo, JamoEnum}; // Import Jamo trait
+use crate::hangul::jamo::JamoEnum; // Import JamoEnum
 
 /// 한글 입력 과정을 관리하는 컨텍스트입니다.
 ///
@@ -135,14 +135,9 @@ impl HangulInputContext {
         if let Ok(composed_char) = self.composer.current_hangul().get_syllable() {
             self.preedit_string = composed_char.to_string();
         } else {
-            // 조합된 글자가 없는 경우 (예: 초성만 입력)
-            // Use get_unicode_compat() to get the character representation
-            if let Some(first_jamo) = self.composer.jamo_queue().front() {
-                // 첫 자모만이라도 표시 (예: 'ㄱ')
-                self.preedit_string = first_jamo.get_unicode_compat().to_string();
-            } else {
-                self.preedit_string.clear();
-            }
+            // 조합된 글자가 없는 경우 (예: 자모가 하나만 있거나 잘못된 조합)
+            // 호환용 자모 문자열로 표시
+            self.preedit_string = self.composer.current_hangul().to_compat_jamo_string();
         }
     }
 

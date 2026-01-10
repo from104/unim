@@ -586,7 +586,7 @@ impl HangulChar {
             (Some(cho), Some(jung), Some(jong)) => {
                 let cho_seq = cho.get_sequence() as u32;
                 let jung_seq = jung.get_sequence() as u32;
-                let jong_seq = jong.get_sequence() as u32; // Jong::E는 None으로 처리되므로 0이 아님
+                let jong_seq = jong.get_sequence() as u32;
 
                 let syllable_code = SYLLABLE_BASE
                     + cho_seq * (JUNGSEONG_NUMBER * JONGSEONG_NUMBER) as u32
@@ -594,7 +594,6 @@ impl HangulChar {
                     + jong_seq;
 
                 char::from_u32(syllable_code).ok_or(HangulError::InvalidSyllable(
-                    // 이 오류는 이론상 발생하기 어렵지만, 안전을 위해 추가
                     char::from_u32(syllable_code).unwrap_or('?'),
                 ))
             }
@@ -602,7 +601,7 @@ impl HangulChar {
             (Some(cho), Some(jung), None) => {
                 let cho_seq = cho.get_sequence() as u32;
                 let jung_seq = jung.get_sequence() as u32;
-                let jong_seq = 0; // 종성 없음
+                let jong_seq = 0;
 
                 let syllable_code = SYLLABLE_BASE
                     + cho_seq * (JUNGSEONG_NUMBER * JONGSEONG_NUMBER) as u32
@@ -613,12 +612,11 @@ impl HangulChar {
                     char::from_u32(syllable_code).unwrap_or('?'),
                 ))
             }
-            // --- 단독 자모 처리 (선택적) ---
-            // 현재 요구사항은 완전한 음절만 처리하므로, 아래 경우는 오류로 처리
-            // (Some(cho), None, None) => Ok(cho.get_unicode_compat()), // 초성만
-            // (None, Some(jung), None) => Ok(jung.get_unicode_compat()), // 중성만
-            // (None, None, Some(jong)) => Ok(jong.get_unicode_compat()), // 종성만 (Jong::E 제외)
-            _ => Err(HangulError::CompositionFailure), // 그 외 조합 불가 (비어있거나, 초성+종성 등)
+            // --- 단독 자모 처리 ---
+            (Some(cho), None, None) => Ok(cho.get_unicode_compat()), // 초성만
+            (None, Some(jung), None) => Ok(jung.get_unicode_compat()), // 중성만
+            (None, None, Some(jong)) if jong != Jong::E => Ok(jong.get_unicode_compat()), // 종성만
+            _ => Err(HangulError::CompositionFailure), // 그 외 조합 불가
         }
     }
 
@@ -669,13 +667,14 @@ use std::str::FromStr;
 
 impl fmt::Display for HangulChar {
     /**
-     * 조합된 한글을 문자열 변환
-     * @return 한글 음절 또는 첫가끝 코드 문자열
+     * 조합된 한글을 문자얼로 변환합니다.
+     * 조합이 가능한 경우 한글 음절 문자를 반환하고,
+     * 불가능한 경우(예: 자모가 하나만 있거나 잘못된 조합) 호환용 자모들을 반환합니다.
      */
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.get_syllable() {
             Ok(syllable) => write!(f, "{}", syllable),
-            Err(_) => Ok(()), // 조합 불가능하면 빈 문자열 출력 (혹은 다른 처리 방식 선택 가능)
+            Err(_) => write!(f, "{}", self.to_compat_jamo_string()),
         }
     }
 }
