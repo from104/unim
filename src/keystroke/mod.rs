@@ -4,6 +4,23 @@ pub mod keystrokes_to_hangul;
 
 pub use keyboard_map::{Key, Keystroke, KeyboardMap};
 
+const EN_QWERTY: &str = include_str!("keymap/en_qwerty.json");
+const EN_DVORAK: &str = include_str!("keymap/en_dvorak.json");
+const KO_2BULSTD: &str = include_str!("keymap/ko_2bulstd.json");
+const KO_3BUL390: &str = include_str!("keymap/ko_3bul390.json");
+const KO_3BUL391: &str = include_str!("keymap/ko_3bul391.json");
+
+pub fn get_keymap_json(name: &str) -> &'static str {
+    match name {
+        "en_qwerty" => EN_QWERTY,
+        "en_dvorak" => EN_DVORAK,
+        "ko_2bulstd" | "2bul" => KO_2BULSTD,
+        "ko_3bul390" | "390" => KO_3BUL390,
+        "ko_3bul391" | "391" => KO_3BUL391,
+        _ => KO_2BULSTD,
+    }
+}
+
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 
 /// Converts a string to a vector of `Keystroke`s based on a given keyboard layout.
@@ -26,12 +43,11 @@ pub fn keystrokes_to_string(keystrokes: &[Keystroke], layout: &str) -> String {
     };
     
     let mut context = HangulInputContext::new(composer_type);
+
+    let en_json = get_keymap_json(if layout.contains("dvorak") { "en_dvorak" } else { "en_qwerty" });
+    let ko_json = get_keymap_json(layout);
     
-    // Keymap files are relative to root
-    let en_keymap = "src/keystroke/keymap/en_qwerty.json";
-    let ko_keymap = format!("src/keystroke/keymap/{}.json", layout);
-    
-    let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, &ko_keymap, is_three_bul);
+    let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul);
     
     for ks in keystrokes {
         match ks.key {

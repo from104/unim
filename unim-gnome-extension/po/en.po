@@ -1,0 +1,121 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: unim-autocorrect\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-11 16:10+0900\n"
+"PO-Revision-Date: 2024-01-11 16:10+0900\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: extension.js:133
+msgid "UNIM Autocorrect"
+msgstr "UNIM Autocorrect"
+
+#: extension.js:133
+#, javascript-format
+msgid "Conversion complete: %s"
+msgstr "Conversion complete: %s"
+
+#: prefs.js:14
+msgid "General Settings"
+msgstr "General Settings"
+
+#: prefs.js:15
+msgid "Basic configuration for the extension"
+msgstr "Basic configuration for the extension"
+
+#: prefs.js:24
+msgid "Enable Extension"
+msgstr "Enable Extension"
+
+#: prefs.js:25
+msgid "Turn the extension functionality on or off"
+msgstr "Turn the extension functionality on or off"
+
+#: prefs.js:34
+msgid "Show Notifications"
+msgstr "Show Notifications"
+
+#: prefs.js:35
+msgid "Show a notification when text is converted"
+msgstr "Show a notification when text is converted"
+
+#: prefs.js:41
+msgid "Keyboard Layouts"
+msgstr "Keyboard Layouts"
+
+#: prefs.js:42
+msgid "Select your keyboard layouts for accurate conversion"
+msgstr "Select your keyboard layouts for accurate conversion"
+
+#: prefs.js:50
+msgid "Korean Layout"
+msgstr "Korean Layout"
+
+#: prefs.js:51
+msgid "Select the Korean keyboard layout"
+msgstr "Select the Korean keyboard layout"
+
+#: prefs.js:53
+msgid "2-Set Standard (두벌식 표준)"
+msgstr "2-Set Standard"
+
+#: prefs.js:54
+msgid "3-Set 390 (세벌식 390)"
+msgstr "3-Set 390"
+
+#: prefs.js:55
+msgid "3-Set 391 (세벌식 391/최종)"
+msgstr "3-Set 391 (Final)"
+
+#: prefs.js:63
+msgid "English Layout"
+msgstr "English Layout"
+
+#: prefs.js:64
+msgid "Select the English keyboard layout"
+msgstr "Select the English keyboard layout"
+
+#: prefs.js:67
+msgid "QWERTY"
+msgstr "QWERTY"
+
+#: prefs.js:68
+msgid "Dvorak"
+msgstr "Dvorak"
+
+#: prefs.js:75
+msgid "Manual Conversion"
+msgstr "Manual Conversion"
+
+#: prefs.js:76
+msgid "Shortcuts for manual text conversion"
+msgstr "Shortcuts for manual text conversion"
+
+#: prefs.js:85
+msgid "Enable Shortcut"
+msgstr "Enable Shortcut"
+
+#: prefs.js:86
+msgid "Allow manual conversion via keyboard shortcut"
+msgstr "Allow manual conversion via keyboard shortcut"
+
+#: prefs.js:91
+msgid "Conversion Shortcut"
+msgstr "Conversion Shortcut"
+
+#: prefs.js:92
+msgid "Shortcut key string (e.g., \"<Super>k\")"
+msgstr "Shortcut key string (e.g., \"<Super>k\")"
+
+#: prefs.js:118
+msgid "Auto Paste"
+msgstr "Auto Paste"
+
+#: prefs.js:119
+msgid "Automatically paste converted text after copying to clipboard"
+msgstr "Automatically paste converted text after copying to clipboard"

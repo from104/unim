@@ -4,11 +4,12 @@
 
 This project, `unim`, is a Korean Input Method Engine (IME). It is primarily written in Rust and designed to be a modular and extensible system for handling Korean character input.
 
-The project has a multi-part architecture:
+The project has a multi-part architecture and a long-term cross-platform vision:
 
-1.  **`unim-core`**: A Rust crate (`unim-core`) that contains the core Hangul composition logic. It is compiled as a C-style dynamic library (`.so`), allowing it to be used by other languages, particularly the JavaScript environment of the GNOME Shell extension.
-2.  **GNOME Shell Extension**: A GNOME Shell extension located in `unim-gnome-extension/`. This component is written in JavaScript and provides the front-end integration with the desktop environment. It calls the functions exported by the `unim-core` library to perform the actual input composition.
-3.  **Command-Line Interface (CLI)**: A command-line tool, `unim-cli`, for testing and interacting with the core library directly.
+1.  **UNIM Core**: The core Rust library (`src/`) that contains the core Hangul composition logic.
+2.  **GNOME Shell Extension**: A GNOME Shell extension providing native Linux integration for manual conversion via `<Super>k`.
+3.  **Command-Line Interface (CLI)**: `unim-cli`, a standalone testing and interaction tool that powers the extension's conversion logic.
+4.  **Ultimate Vision (Roadmap)**: Expanding into a **Tauri-based tray application** for Windows, macOS, and Linux to provide global autocorrect and automatic language status switching.
 
 The core logic supports various Hangul input methods, including 2-bul and 3-bul standards.
 
@@ -22,19 +23,19 @@ The project uses a `Makefile` to streamline the build and installation process.
     ```bash
     make build
     ```
-    This command compiles the `unim-core` Rust library and copies the resulting `libunim_core.so` file into the `unim-gnome-extension/lib/` directory, making it available to the GNOME extension.
+    This command compiles the `unim-cli` binary and prepares it for use within the GNOME extension.
 
 *   **Install the GNOME Extension:**
     ```bash
     make install
     ```
-    This copies the extension files from `unim-gnome-extension/` into the local user's GNOME Shell extensions directory.
+    This copies the extension files and the `unim-cli` binary into the local user's GNOME Shell extensions directory.
 
 *   **Enable the Extension:**
     ```bash
     make enable
     ```
-    Activates the extension within GNOME Shell. You may need to restart the shell (Alt+F2, then `r`, then Enter on X11) for it to take effect.
+    Activates the extension within GNOME Shell.
 
 *   **Disable the Extension:**
     ```bash
@@ -45,7 +46,7 @@ The project uses a `Makefile` to streamline the build and installation process.
     ```bash
     make pack
     ```
-    This creates a distributable `.zip` file of the GNOME extension.
+    This creates a distributable `.zip` file of the GNOME extension, including the bundled binary.
 
 *   **View Logs for Debugging:**
     ```bash
@@ -60,7 +61,6 @@ The project uses a `Makefile` to streamline the build and installation process.
 
 ## Development Conventions
 
-*   The core logic is isolated in the `unim-core` crate. Any changes to the fundamental input logic should be made there.
-*   The `unim-core` crate is built as a `cdylib`, meaning it exposes a C-compatible Application Binary Interface (ABI). Functions intended to be called from the JavaScript extension must be marked with `#[no_mangle]` and use C-compatible types.
-*   The GNOME extension communicates with the Rust library by loading the `libunim_core.so` shared object.
+*   The core logic is isolated in the root `src/` directory. Any changes to the fundamental input logic should be made there.
+*   The GNOME extension communicates with the Rust engine by executing the `unim-cli` binary as a subprocess. This provides a stable and sandbox-friendly integration.
 *   The `Makefile` is the source of truth for the standard build and installation process.

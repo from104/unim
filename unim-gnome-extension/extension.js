@@ -1,219 +1,181 @@
-import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
-import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import Gio from 'gi://Gio';
+/**
+ * UNIM Autocorrect - GNOME Shell Extension
+ * Hybrid Version: unim-cli + Native Shell APIs
+ */
+
 import GLib from 'gi://GLib';
-import GObject from 'gi://GObject';
-import St from 'gi://St';
-import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
+import Clutter from 'gi://Clutter';
+import St from 'gi://St';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
-import UnimLib from './unimlib.js';
+import { VirtualKeyboard } from './vkbd.js';
 
-
-const Indicator = GObject.registerClass(
-class Indicator extends PanelMenu.Button {
-    _init(extension) {
-        super._init(0.0, extension.metadata.name, false);
-        
-        this._extension = extension;
-        this._settings = extension.getSettings();
-
-        // UI Setup
-        this._icon = new St.Icon({
-            icon_name: 'input-keyboard-symbolic',
-            style_class: 'system-status-icon',
-        });
-        this.add_child(this._icon);
-
-        this._buildMenu();
-
-
-        this._settings.connect('changed::show-indicator', () => {
-            this.visible = this._settings.get_boolean('show-indicator');
-        });
-        this.visible = this._settings.get_boolean('show-indicator');
-
-        this._updateStatus();
+export default class UnimAutocorrectExtension extends Extension {
+    constructor(metadata) {
+        super(metadata);
+        this._settings = null;
+        this._shortcutId = null;
+        this._vkbd = null;
+        this._clipboard = null;
     }
 
-    _buildMenu() {
-        const titleItem = new PopupMenu.PopupMenuItem('Unim IME Control');
-        titleItem.sensitive = false;
-        this.menu.addMenuItem(titleItem);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        const settingsItem = new PopupMenu.PopupMenuItem('Settings');
-        settingsItem.connect('activate', () => this._extension.openPreferences());
-        this.menu.addMenuItem(settingsItem);
-    }
-
-    _updateStatus() {
-        this._updateIcon();
-    }
-
-    _updateIcon() {
-        // Since we are not tracking engine, we just use a static icon or simple style
-        this._icon.style_class = 'system-status-icon';
-    }
-});
-
-export default class UnimExtension extends Extension {
     enable() {
-        console.log('[unim] Enabling extension...');
-        this._settings = this.getSettings();
-        
-        // Setup Virtual Keyboard for automation
+        console.log('[unim-autocorrect] Enabling hybrid extension...');
         try {
-            const seat = Clutter.get_default_backend().get_default_seat();
-            this._virtualKeyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+            this._settings = this.getSettings();
+            this._clipboard = St.Clipboard.get_default();
+            this._vkbd = new VirtualKeyboard();
+            
+            this._bindShortcut();
+            
+            this._settingsChangedId = this._settings.connect(
+                'changed::manual-conversion-shortcut',
+                () => this._bindShortcut()
+            );
+            
+            console.log('[unim-autocorrect] Hybrid extension enabled');
         } catch (e) {
-            console.error(`[unim] Failed to create virtual keyboard: ${e.message}`);
+            console.error(`[unim-autocorrect] Enable failed: ${e.message}`);
         }
-
-        // Initialize Rust Core Library (CLI binary)
-        const libPath = this.dir.get_child('lib').get_child('libunim_core.so').get_path();
-        this._unimLib = new UnimLib(libPath);
-        if (this._unimLib.init()) {
-            console.log('[unim] Rust core library initialized');
-        } else {
-            console.error('[unim] Failed to initialize Rust core library');
-        }
-
-        this._indicator = new Indicator(this);
-        Main.panel.addToStatusArea(this.uuid, this._indicator);
-
-        this._initKeybinding();
-        
-        // Settings listener for manual conversion shortcut changes
-        this._settingsId = this._settings.connect('changed::enable-manual-conversion', () => {
-            this._removeKeybinding();
-            this._initKeybinding();
-        });
     }
 
     disable() {
-        console.log('[unim] Disabling extension...');
-        
-        if (this._settingsId) {
-            this._settings.disconnect(this._settingsId);
-            this._settingsId = null;
+        this._unbindShortcut();
+        if (this._settingsChangedId) {
+            this._settings.disconnect(this._settingsChangedId);
+            this._settingsChangedId = null;
         }
-
-        this._removeKeybinding();
-
-        if (this._indicator) {
-            this._indicator.destroy();
-            this._indicator = null;
-        }
-
-        if (this._unimLib) {
-            this._unimLib.close();
-            this._unimLib = null;
-        }
-
-        this._virtualKeyboard = null;
         this._settings = null;
+        this._vkbd = null;
+        this._clipboard = null;
+        console.log('[unim-autocorrect] Hybrid extension disabled');
     }
 
+    _bindShortcut() {
+        this._unbindShortcut();
+        const shortcut = this._settings.get_strv('manual-conversion-shortcut');
+        if (!shortcut || shortcut.length === 0) return;
+        
+        Main.wm.addKeybinding(
+            'manual-conversion-shortcut',
+            this._settings,
+            Meta.KeyBindingFlags.NONE,
+            Shell.ActionMode.ALL,
+            () => this._onConversionShortcut()
+        );
+        
+        this._shortcutId = 'manual-conversion-shortcut';
+        console.log(`[unim-autocorrect] Shortcut bound: ${shortcut[0]}`);
+    }
 
-    _initKeybinding() {
-        if (!this._settings.get_boolean('enable-manual-conversion')) return;
-
-        console.log(`[unim] Registering keybinding, Meta: ${typeof Meta}`);
-        try {
-            Main.wm.addKeybinding(
-                'manual-conversion-shortcut',
-                this._settings,
-                0,
-                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                () => this._onManualConversion()
-            );
-        } catch (e) {
-            console.error(`[unim] Failed to register keybinding: ${e.message}`);
+    _unbindShortcut() {
+        if (this._shortcutId) {
+            Main.wm.removeKeybinding(this._shortcutId);
+            this._shortcutId = null;
         }
     }
 
-    _removeKeybinding() {
+    _onConversionShortcut() {
+        if (!this._settings.get_boolean('enable-extension')) return;
+        
+        const autoPaste = this._settings.get_boolean('auto-paste');
+        const koreanLayout = this._settings.get_string('korean-layout');
+        const englishLayout = this._settings.get_string('english-layout');
+        
+        this._doConversion(autoPaste, koreanLayout, englishLayout);
+    }
+
+    async _doConversion(autoPaste, koreanLayout, englishLayout) {
         try {
-            Main.wm.removeKeybinding('manual-conversion-shortcut');
-        } catch (e) {
-            console.debug(`[unim] Keybinding removal: ${e.message}`);
-        }
-    }
-
-    _sendKeyCombo(keySymbol, modifiers = 0) {
-        if (!this._virtualKeyboard) return;
-
-        const time = GLib.get_monotonic_time();
-        
-        if (modifiers & Clutter.ModifierType.CONTROL_MASK)
-            this._virtualKeyboard.notify_key(time, Clutter.KEY_Control_L, Clutter.KeyState.PRESSED);
-        
-        this._virtualKeyboard.notify_key(time, keySymbol, Clutter.KeyState.PRESSED);
-        this._virtualKeyboard.notify_key(time, keySymbol, Clutter.KeyState.RELEASED);
-        
-        if (modifiers & Clutter.ModifierType.CONTROL_MASK)
-            this._virtualKeyboard.notify_key(time, Clutter.KEY_Control_L, Clutter.KeyState.RELEASED);
-    }
-
-    async _sleep(ms) {
-        return new Promise(resolve => {
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
-                resolve();
-                return GLib.SOURCE_REMOVE;
-            });
-        });
-    }
-
-    async _onManualConversion() {
-        console.log('[unim] Manual conversion triggered (Copy -> Convert -> Paste)');
-        
-        // 1. Simulate Copy (Ctrl+C)
-        this._sendKeyCombo(Clutter.KEY_c, Clutter.ModifierType.CONTROL_MASK);
-        
-        // Wait for clipboard to update
-        await this._sleep(150);
-        
-        const clipboard = St.Clipboard.get_default();
-        clipboard.get_text(St.ClipboardType.CLIPBOARD, async (clipboard, text) => {
-            if (!text) {
-                console.log('[unim] Clipboard empty or not updated');
-                return;
-            }
-
-            const koLayout = `ko_${this._settings.get_string('korean-layout')}std`;
-            const enLayout = `en_${this._settings.get_string('english-layout')}`;
-            
-            const hasKorean = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(text);
-            let fromLayout, toLayout;
-
-            if (hasKorean) {
-                fromLayout = koLayout;
-                toLayout = enLayout;
-            } else {
-                fromLayout = enLayout;
-                toLayout = koLayout;
-            }
-
-            console.log(`[unim] Auto-converting from ${fromLayout} to ${toLayout}`);
-            const transformed = await this._unimLib.transformString(text, fromLayout, toLayout);
-            
-            if (transformed && transformed !== text) {
-                // 2. Set transformed text to clipboard
-                clipboard.set_text(St.ClipboardType.CLIPBOARD, transformed);
-                
-                // Wait for clipboard to settle
-                await this._sleep(100);
-                
-                // 3. Simulate Paste (Ctrl+V)
-                this._sendKeyCombo(Clutter.KEY_v, Clutter.ModifierType.CONTROL_MASK);
-                
-                if (this._settings.get_boolean('show-notification')) {
-                    Main.notify('Unim', `Converted: ${text.substring(0, 10)}... → ${transformed.substring(0, 10)}...`);
+            // Primary Selection (Highlight)
+            this._clipboard.get_text(St.ClipboardType.PRIMARY, (clipboard, text) => {
+                if (!text || text.trim() === '') {
+                    // Regular Clipboard fallback
+                    this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (cb, cbText) => {
+                        if (cbText) this._processConvertedText(cbText, autoPaste, koreanLayout, englishLayout);
+                    });
+                } else {
+                    this._processConvertedText(text, autoPaste, koreanLayout, englishLayout);
                 }
+            });
+        } catch (e) {
+            console.error(`[unim-autocorrect] Conversion trigger error: ${e.message}`);
+        }
+    }
+
+    async _processConvertedText(text, autoPaste, koreanLayout, englishLayout) {
+        console.log(`[unim-autocorrect] Transforming: "${text}"`);
+        try {
+            const converted = await this._convertText(text, koreanLayout, englishLayout);
+            if (!converted) return;
+            
+            console.log(`[unim-autocorrect] Result: "${converted}"`);
+            
+            // Set both selections for maximum compatibility
+            this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
+            this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
+            console.log('[unim-autocorrect] Clipboard updated');
+            
+            if (autoPaste) {
+                // Increase timeout to give clipboard time to settle
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                    console.log('[unim-autocorrect] Triggering auto-paste...');
+                    this._vkbd.paste();
+                    return GLib.SOURCE_REMOVE;
+                });
+            }
+            
+            if (this._settings.get_boolean('show-notification')) {
+                Main.notify(_('UNIM Autocorrect'), _('Conversion complete: %s').format(converted));
+            }
+        } catch (e) {
+            console.error(`[unim-autocorrect] Transform error: ${e.message}`);
+        }
+    }
+
+    _convertText(text, koreanLayout, englishLayout) {
+        return new Promise((resolve, reject) => {
+            const extensionPath = this.path;
+            const binPath = GLib.build_filenamev([extensionPath, 'bin', 'unim-cli']);
+            
+            const kLayout = koreanLayout || '2bul';
+            const eLayout = englishLayout || 'qwerty';
+
+            const argv = [
+                binPath,
+                '--compose',
+                '--korean-keyboard', kLayout === '391' ? '391' : (kLayout === '390' ? '390' : '2bul'),
+                '--english-keyboard', eLayout === 'dvorak' ? 'dvorak' : 'qwerty'
+            ];
+
+            console.log(`[unim-autocorrect] Executing: ${argv.join(' ')} with input: "${text}"`);
+
+            try {
+                const proc = new Gio.Subprocess({
+                    argv: argv,
+                    flags: Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                });
+                proc.init(null);
+                proc.communicate_utf8_async(text, null, (proc, res) => {
+                    try {
+                        const [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
+                        if (stderr) console.error(`[unim-autocorrect] CLI Stderr: ${stderr}`);
+                        
+                        const result = stdout ? stdout.trim() : '';
+                        console.log(`[unim-autocorrect] CLI Stdout: "${result}"`);
+                        resolve(result);
+                    } catch (e) { 
+                        console.error(`[unim-autocorrect] communicate_utf8_finish error: ${e.message}`);
+                        reject(e); 
+                    }
+                });
+            } catch (e) { 
+                console.error(`[unim-autocorrect] Subprocess spawn error: ${e.message}`);
+                reject(e); 
             }
         });
     }

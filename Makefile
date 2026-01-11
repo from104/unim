@@ -8,18 +8,25 @@ ZIP_FILE := $(UUID)-$(VERSION).zip
 all: build
 
 build:
-	@echo "Building Rust core library..."
-	@cargo build -p unim-core --release
 	@echo "Building unim-cli binary..."
 	@cargo build -p unim-cli --release
-	@echo "Copying library and binary to extension directory..."
-	@mkdir -p unim-gnome-extension/lib
+	@echo "Copying binary to extension directory..."
 	@mkdir -p unim-gnome-extension/bin
-	@cp target/release/libunim_core.so unim-gnome-extension/lib/
-	@cp target/release/unim-cli unim-gnome-extension/bin/
 	@echo "Compiling GSettings schema..."
 	@mkdir -p unim-gnome-extension/schemas
+	@cp unim-gnome-extension/org.gnome.shell.extensions.unim-autocorrect.gschema.xml unim-gnome-extension/schemas/
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || echo "Note: glib-compile-schemas not available in this environment"
+	@echo "Compiling translations..."
+	@if command -v msgfmt >/dev/null 2>&1; then \
+		for po in unim-gnome-extension/po/*.po; do \
+			lang=$$(basename $$po .po); \
+			mkdir -p unim-gnome-extension/locale/$$lang/LC_MESSAGES; \
+			msgfmt $$po -o unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo; \
+		done; \
+	else \
+		echo "Warning: msgfmt not found, skipping translation compilation. Please install gettext."; \
+	fi
+
 
 pack: build
 	@echo "Packing extension into $(ZIP_FILE)..."
@@ -62,11 +69,6 @@ test:
 	else \
 		echo "   ✗ extension.js 미설치"; \
 	fi
-	@if [ -f ~/.local/share/gnome-shell/extensions/$(UUID)/lib/libunim_core.so ]; then \
-		echo "   ✓ libunim_core.so 설치됨"; \
-	else \
-		echo "   ✗ libunim_core.so 미설치"; \
-	fi
 	@if [ -f ~/.local/share/gnome-shell/extensions/$(UUID)/prefs.js ]; then \
 		echo "   ✓ prefs.js (설정 UI) 설치됨"; \
 	else \
@@ -104,6 +106,6 @@ test:
 clean:
 	@echo "Cleaning up..."
 	@rm -f $(ZIP_FILE)
-	@cd unim-core && cargo clean
-	@rm -rf unim-gnome-extension/lib
-	@rm -rf unim-gnome-extension/schemas 
+	@rm -rf unim-gnome-extension/bin
+	@rm -rf unim-gnome-extension/schemas
+	@rm -rf unim-gnome-extension/locale

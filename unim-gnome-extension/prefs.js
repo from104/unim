@@ -1,7 +1,7 @@
 import Gio from 'gi://Gio';
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
-import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
+import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 export default class UnimPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -11,8 +11,8 @@ export default class UnimPreferences extends ExtensionPreferences {
 
         // 1. General Settings Group
         const generalGroup = new Adw.PreferencesGroup({
-            title: 'General Settings',
-            description: 'Basic configuration for the extension'
+            title: _('General Settings'),
+            description: _('Basic configuration for the extension')
         });
         page.add(generalGroup);
 
@@ -21,17 +21,8 @@ export default class UnimPreferences extends ExtensionPreferences {
             generalGroup,
             settings,
             'enable-extension',
-            'Enable Extension',
-            'Turn the extension functionality on or off'
-        );
-
-        // Show Panel Indicator
-        this._addToggle(
-            generalGroup,
-            settings,
-            'show-indicator',
-            'Show Panel Indicator',
-            'Show the input method status icon in the system panel'
+            _('Enable Extension'),
+            _('Turn the extension functionality on or off')
         );
 
         // Show Notification
@@ -39,15 +30,15 @@ export default class UnimPreferences extends ExtensionPreferences {
             generalGroup,
             settings,
             'show-notification',
-            'Show Notifications',
-            'Show a notification when text is converted'
+            _('Show Notifications'),
+            _('Show a notification when text is converted')
         );
 
 
         // 3. Keyboard Layout Settings Group
         const layoutGroup = new Adw.PreferencesGroup({
-            title: 'Keyboard Layouts',
-            description: 'Select your keyboard layouts for accurate conversion'
+            title: _('Keyboard Layouts'),
+            description: _('Select your keyboard layouts for accurate conversion')
         });
         page.add(layoutGroup);
 
@@ -56,12 +47,12 @@ export default class UnimPreferences extends ExtensionPreferences {
             layoutGroup,
             settings,
             'korean-layout',
-            'Korean Layout',
-            'Select the Korean keyboard layout',
+            _('Korean Layout'),
+            _('Select the Korean keyboard layout'),
             [
-                ['2bul', '2-Set Standard (두벌식 표준)'],
-                ['390', '3-Set 390 (세벌식 390)'],
-                ['391', '3-Set 391 (세벌식 391/최종)']
+                ['2bul', _('2-Set Standard (두벌식 표준)')],
+                ['390', _('3-Set 390 (세벌식 390)')],
+                ['391', _('3-Set 391 (세벌식 391/최종)')]
             ]
         );
 
@@ -70,19 +61,19 @@ export default class UnimPreferences extends ExtensionPreferences {
             layoutGroup,
             settings,
             'english-layout',
-            'English Layout',
-            'Select the English keyboard layout',
+            _('English Layout'),
+            _('Select the English keyboard layout'),
             [
-                ['qwerty', 'QWERTY'],
-                ['dvorak', 'Dvorak']
+                ['qwerty', _('QWERTY')],
+                ['dvorak', _('Dvorak')]
             ]
         );
 
 
         // 4. Manual Conversion Group
         const manualGroup = new Adw.PreferencesGroup({
-            title: 'Manual Conversion',
-            description: 'Shortcuts for manual text conversion'
+            title: _('Manual Conversion'),
+            description: _('Shortcuts for manual text conversion')
         });
         page.add(manualGroup);
 
@@ -91,22 +82,19 @@ export default class UnimPreferences extends ExtensionPreferences {
             manualGroup,
             settings,
             'enable-manual-conversion',
-            'Enable Shortcut',
-            'Allow manual conversion via keyboard shortcut'
+            _('Enable Shortcut'),
+            _('Allow manual conversion via keyboard shortcut')
         );
 
-        // Shortcut Row (Note: Shortcut UI handling is complex in GTK4/Adw, using simple entry for now or ActionRow)
-        // For simplicity and stability in Adw 1, we use an ActionRow with a simple label indicating it's handled via GNOME Settings for now, 
-        // or a simple Entry if we want to store the string. The schema has 'manual-conversion-shortcut' as string.
-        
+        // Shortcut Row
         const shortcutRow = new Adw.ActionRow({
-            title: 'Conversion Shortcut',
-            subtitle: 'Shortcut key string (e.g., "<Super>i")'
+            title: _('Conversion Shortcut'),
+            subtitle: _('Shortcut key string (e.g., "<Super>k")')
         });
         manualGroup.add(shortcutRow);
 
         const shortcutEntry = new Gtk.Entry({
-            placeholder_text: '<Super>i',
+            placeholder_text: '<Super>k',
             text: settings.get_strv('manual-conversion-shortcut')[0] || '',
             valign: Gtk.Align.CENTER,
             hexpand: true
@@ -120,6 +108,16 @@ export default class UnimPreferences extends ExtensionPreferences {
         });
 
         shortcutRow.add_suffix(shortcutEntry);
+
+
+        // Auto Paste Toggle
+        this._addToggle(
+            manualGroup,
+            settings,
+            'auto-paste',
+            _('Auto Paste'),
+            _('Automatically paste converted text after copying to clipboard')
+        );
     }
 
     // Helper to add a switch row

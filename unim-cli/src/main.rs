@@ -198,17 +198,20 @@ fn run(config: Config) -> io::Result<()> {
         None => Box::new(io::stdout()),
     };
 
-    // 키맵 파일 경로 설정
-    let english_keymap = match config.english_keyboard_mode {
-        EnglishKeyboardMode::Qwerty => "src/keystroke/keymap/en_qwerty.json",
-        EnglishKeyboardMode::Dvorak => "src/keystroke/keymap/en_dvorak.json",
+    // 키맵 설정 (임베디드 리소스 사용)
+    let en_keymap_name = match config.english_keyboard_mode {
+        EnglishKeyboardMode::Qwerty => "en_qwerty",
+        EnglishKeyboardMode::Dvorak => "en_dvorak",
     };
 
-    let korean_keymap = match config.keyboard_mode {
-        KeyboardMode::TwoBulStd => "src/keystroke/keymap/ko_2bulstd.json",
-        KeyboardMode::ThreeBul390 => "src/keystroke/keymap/ko_3bul390.json",
-        KeyboardMode::ThreeBul391 => "src/keystroke/keymap/ko_3bul391.json",
+    let korean_keymap_name = match config.keyboard_mode {
+        KeyboardMode::TwoBulStd => "ko_2bulstd",
+        KeyboardMode::ThreeBul390 => "ko_3bul390",
+        KeyboardMode::ThreeBul391 => "ko_3bul391",
     };
+    
+    let en_json = unim::keystroke::get_keymap_json(en_keymap_name);
+    let ko_json = unim::keystroke::get_keymap_json(korean_keymap_name);
 
     // 변환 모드에 따른 처리
     let is_three_bul = matches!(
@@ -220,9 +223,9 @@ fn run(config: Config) -> io::Result<()> {
         ConversionMode::EnglishToKorean => {
             // 영문 -> 한글 변환
             if is_three_bul {
-                process_with_3bul(inputs, &mut output, english_keymap, korean_keymap)?;
+                process_with_3bul(inputs, &mut output, en_json, ko_json)?;
             } else {
-                process_with_2bul(inputs, &mut output, english_keymap, korean_keymap)?;
+                process_with_2bul(inputs, &mut output, en_json, ko_json)?;
             }
         }
         ConversionMode::KoreanToEnglish => {
@@ -230,8 +233,8 @@ fn run(config: Config) -> io::Result<()> {
             process_korean_to_english(
                 inputs,
                 &mut output,
-                english_keymap,
-                korean_keymap,
+                en_json,
+                ko_json,
                 is_three_bul,
             )?;
         }
@@ -241,126 +244,74 @@ fn run(config: Config) -> io::Result<()> {
 }
 
 /// 두벌식 한글 변환 처리를 수행합니다.
-///
-/// 영문 키 입력을 두벌식 한글로 변환합니다.
-///
-/// # 인자
-///
-/// * `inputs` - 입력 스트림 목록
-/// * `output` - 출력 스트림
-/// * `en_keymap` - 영문 키맵 파일 경로
-/// * `ko_keymap` - 한글 키맵 파일 경로
-///
-/// # 반환 값
-///
-/// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn process_with_2bul(
     inputs: Vec<Box<dyn BufRead>>,
     output: &mut Box<dyn Write>,
-    en_keymap: &str,
-    ko_keymap: &str,
+    en_json: &str,
+    ko_json: &str,
 ) -> io::Result<()> {
     let mut hangul_composer = HangulComposer2Bul::new();
-    let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, false);
+    let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, false);
 
     for input in inputs {
         for line in input.lines() {
             let input_line = line?;
-
-            // 비어있는 줄은 그대로 출력
             if input_line.is_empty() {
                 writeln!(output)?;
                 continue;
             }
-
             let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
             writeln!(output, "{}", result)?;
         }
     }
-
     Ok(())
 }
 
 /// 세벌식 한글 변환 처리를 수행합니다.
-///
-/// 영문 키 입력을 세벌식 한글로 변환합니다.
-///
-/// # 인자
-///
-/// * `inputs` - 입력 스트림 목록
-/// * `output` - 출력 스트림
-/// * `en_keymap` - 영문 키맵 파일 경로
-/// * `ko_keymap` - 한글 키맵 파일 경로
-///
-/// # 반환 값
-///
-/// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn process_with_3bul(
     inputs: Vec<Box<dyn BufRead>>,
     output: &mut Box<dyn Write>,
-    en_keymap: &str,
-    ko_keymap: &str,
+    en_json: &str,
+    ko_json: &str,
 ) -> io::Result<()> {
     let mut hangul_composer = HangulComposer3Bul::new();
-    let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, true);
+    let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, true);
 
     for input in inputs {
         for line in input.lines() {
             let input_line = line?;
-
-            // 비어있는 줄은 그대로 출력
             if input_line.is_empty() {
                 writeln!(output)?;
                 continue;
             }
-
             let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
             writeln!(output, "{}", result)?;
         }
     }
-
     Ok(())
 }
 
 /// 한글을 영문으로 변환 처리를 수행합니다.
-///
-/// 한글 입력을 영문 키 입력으로 변환합니다.
-///
-/// # 인자
-///
-/// * `inputs` - 입력 스트림 목록
-/// * `output` - 출력 스트림
-/// * `en_keymap` - 영문 키맵 파일 경로
-/// * `ko_keymap` - 한글 키맵 파일 경로
-/// * `is_three_bul` - 세벌식 여부
-///
-/// # 반환 값
-///
-/// * `io::Result<()>` - 성공 시 Ok(()), 실패 시 IO 오류
 fn process_korean_to_english(
     inputs: Vec<Box<dyn BufRead>>,
     output: &mut Box<dyn Write>,
-    en_keymap: &str,
-    ko_keymap: &str,
+    en_json: &str,
+    ko_json: &str,
     is_three_bul: bool,
 ) -> io::Result<()> {
-    let keyboard_map = KeyboardMap::create_keyboard_map(en_keymap, ko_keymap, is_three_bul);
+    let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul);
 
     for input in inputs {
         for line in input.lines() {
             let input_line = line?;
-
-            // 비어있는 줄은 그대로 출력
             if input_line.is_empty() {
                 writeln!(output)?;
                 continue;
             }
-
             let result = hangul_to_keystrokes(&input_line, &keyboard_map, is_three_bul);
             writeln!(output, "{}", result)?;
         }
     }
-
     Ok(())
 }
 
