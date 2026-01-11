@@ -1,53 +1,63 @@
+//! 3-Set (3-bul) Hangul Input Simulation
+//!
+//! This example shows how the `HangulComposer3Bul` handles 3-set input.
+//! 3-set layouts distinguish between initial, middle, and final characters
+//! at the hardware/layout level.
+
 use unim::hangul::{composer::HangulComposer, composer_with_3bul::HangulComposer3Bul, jamo::*};
 
 fn main() {
     let mut composer = HangulComposer3Bul::new();
     let mut result = String::new();
 
-    // 입력 순서 (3벌식 스타일): ㄱ, ㅏ, ㄱ, ㅅ, (완성), ㄴ, ㅐ, (완성) ...
-    // 3벌식은 초성, 중성, 종성을 구분하여 입력합니다.
+    // Input sequence for 3-set layout.
+    // Unlike 2-set, the input type (Cho/Jung/Jong) is explicitly provided by the layout.
     let inputs = vec![
-        JamoEnum::Cho(Chosung::Giyeok),   // ㄱ (초성)
-        JamoEnum::Jung(Jungsung::A),      // ㅏ (중성) -> 가
-        JamoEnum::Jong(Jongsung::Giyeok), // ㄱ (종성) -> 각
-        JamoEnum::Jong(Jongsung::Siot),   // ㅅ (종성) -> 갃 (겹받침 조합)
-        // 새 글자 시작 시 이전 글자 자동 완성되어야 함
-        JamoEnum::Cho(Chosung::Nieun), // ㄴ (초성) -> 갃 나오고, 나 시작
-        JamoEnum::Jung(Jungsung::Ae),  // ㅐ (중성) -> 갃, 내
-        JamoEnum::Jong(Jongsung::Nieun), // ㄴ (종성) -> 갃, 낸
-        JamoEnum::Jong(Jongsung::Jieut), // ㅈ (종성) -> 갃, 낸ㅈ (겹받침 조합)
-        // 모음 입력으로 새 글자 시작
-        JamoEnum::Jung(Jungsung::Eo), // ㅓ (중성) -> 갃낸ㅈ 나오고, ㅓ 시작 (초성 없이)
-        JamoEnum::Jong(Jongsung::Rieul), // ㄹ (종성) -> 갃낸ㅈ, 얼
-        // 자음 입력으로 새 글자 시작
-        JamoEnum::Cho(Chosung::Rieul), // ㄹ (초성) -> 갃낸ㅈ얼 나오고, 라 시작
-        JamoEnum::Jung(Jungsung::A),   // ㅏ (중성) -> 갃낸ㅈ얼, 라
+        JamoEnum::Cho(Chosung::Giyeok),   // Cho (Initial) ㄱ
+        JamoEnum::Jung(Jungsung::A),      // Jung (Middle) ㅏ -> 가
+        JamoEnum::Jong(Jongsung::Giyeok), // Jong (Final) ㄱ -> 각
+        JamoEnum::Jong(Jongsung::Siot),   // Jong (Final) ㅅ -> 갃 (Complex final)
+
+        // New character starts
+        JamoEnum::Cho(Chosung::Nieun),    // Cho ㄴ -> Previous '갃' is finalized
+        JamoEnum::Jung(Jungsung::Ae),     // Jung ㅐ -> 내
+        JamoEnum::Jong(Jongsung::Nieun),  // Jong ㄴ -> 낸
+        JamoEnum::Jong(Jongsung::Jieut),  // Jong ㅈ -> 낸ㅈ (Complex final)
+
+        // Starting with a vowel (Middle)
+        JamoEnum::Jung(Jungsung::Eo),     // Jung ㅓ -> Previous '낸ㅈ' is finalized, starts standalone Middle
+        JamoEnum::Jong(Jongsung::Rieul),  // Jong ㄹ -> 얼
+
+        // Starting with initial (Cho)
+        JamoEnum::Cho(Chosung::Rieul),    // Cho ㄹ -> '얼' is finalized
+        JamoEnum::Jung(Jungsung::A),      // Jung ㅏ -> 라
     ];
 
-    println!("3벌식 입력 시뮬레이션:");
+    println!("--- 3-Set Hangul Input Simulation ---");
 
     for jamo in inputs {
-        print!(" 입력: {:?} -> ", jamo.to_char());
+        print!("Input: {:?} -> ", jamo.to_char());
+        
+        // add_jamo processes the input and returns a char if the buffer shifts.
         let completed_char = composer.add_jamo(jamo);
 
         if let Some(c) = completed_char {
             result.push(c);
-            print!("완성: '{}', ", c);
+            print!("Composed: '{}', ", c);
         }
 
         let current_syllable = composer.current_hangul().to_char();
         if current_syllable != '\0' {
-            println!("현재 조합: '{}'", current_syllable);
+            println!("Current: '{}'", current_syllable);
         } else {
-            println!("현재 조합: -");
+            println!("Current: -");
         }
     }
 
-    // 마지막 조합 중인 글자 처리
+    // Capture the final character in the buffer.
     if let Some(last_char) = composer.force_compose_hangul() {
         result.push(last_char);
     }
 
-    println!("\n최종 결과: {}", result);
-    // 예상 결과: 갃낸ㅈ얼라
+    println!("\nFinal Result: {}", result);
 }

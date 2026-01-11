@@ -29,6 +29,21 @@ A production-ready extension for GNOME users that provides `<Super>k` conversion
 2.  **Phase 2 (Expansion)**: Development of a **Tauri-based Tray Application** to provide global shortcut and clipboard support across Linux (X11/Wayland), Windows, and macOS.
 3.  **Phase 3 (Intelligence)**: Implementation of context-aware automatic language detection.
 
+## 📚 Examples
+
+The project includes several examples in the `examples/` directory to help you get started with the UNIM library:
+
+- **[Input Simulation (2-Set)](file:///home/from104/work/unim/examples/input_simulation_2bul.rs)**: See how the 2-set/2-bul standard handles real-time composition and "Dokkaebibul".
+- **[Input Simulation (3-Set)](file:///home/from104/work/unim/examples/input_simulation_3bul.rs)**: Explore the logic behind 3-set/3-bul layout processing.
+- **[Jamo Pattern Search](file:///home/from104/work/unim/examples/jamo_pattern_search.rs)**: An advanced example showing fuzzy search by decomposing text into Jamo components.
+- **[String Processing](file:///home/from104/work/unim/examples/string_processing.rs)**: Basic deconstruction of Hangul syllables into their Initial, Middle, and Final components.
+- **[Syllable Matrix](file:///home/from104/work/unim/examples/mk_hangul.rs)**: Generates the entire Hangul syllable range programmatically.
+
+To run an example:
+```bash
+cargo run --example string_processing
+```
+
 ---
 
 For detailed installation and usage of the GNOME extension, see [unim-gnome-extension/README.md](file:///home/from104/work/unim/unim-gnome-extension/README.md).

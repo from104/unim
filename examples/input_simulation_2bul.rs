@@ -1,70 +1,68 @@
+//! 2-Set (2-bul) Hangul Input Simulation
+//!
+//! This example demonstrates how the `HangulComposer2Bul` handles 2-set Hangul input.
+//! It simulates consecutive key presses and shows the state of composition including
+//! "Dokkaebibul" (shifting a consonant to the next syllable's initial position).
+
 use unim::hangul::{composer::HangulComposer, composer_with_2bul::HangulComposer2Bul, jamo::*};
 
 fn main() {
     let mut composer = HangulComposer2Bul::new();
     let mut result = String::new();
 
-    // 입력 순서: ㅎ, ㅏ, ㄴ, ㄱ, ㅡ, ㄹ, ㅇ, ㅣ (안녕하세요) + 추가 테스트
+    // Input sequence simulating key presses for "안녕하세요" and more.
+    // In 2-set, the composer automatically decides if a consonant is an initial (Cho) or final (Jong).
     let inputs = vec![
         JamoEnum::Cho(Chosung::Hieuh),  // ㅎ
         JamoEnum::Jung(Jungsung::A),    // ㅏ -> 하
         JamoEnum::Cho(Chosung::Nieun),  // ㄴ -> 한
-        JamoEnum::Cho(Chosung::Giyeok), // ㄱ (종성 뒤 초성 -> 받침으로?) -> 한ㄱ? 아니면 안? -> 안
-        JamoEnum::Jung(Jungsung::Eu),   // ㅡ (도깨비불: ㄱ받침 탈락 후 초성ㄱ + ㅡ) -> 안, 그
-        JamoEnum::Cho(Chosung::Rieul),  // ㄹ -> 글
-        JamoEnum::Cho(Chosung::Ieung),  // ㅇ -> 글ㅇ? -> 그ㄹ? -> 글
-        JamoEnum::Jung(Jungsung::I),    // ㅣ -> 글, 이
-        // 추가: 겹받침 및 복모음 테스트
-        JamoEnum::Cho(Chosung::Giyeok), // ㄱ -> 이ㄱ
-        JamoEnum::Jung(Jungsung::O),    // ㅗ -> 이, 고
-        JamoEnum::Jung(Jungsung::A),    // ㅏ -> 이, 과
-        JamoEnum::Cho(Chosung::Nieun),  // ㄴ -> 이, 관
-        JamoEnum::Cho(Chosung::Jieut),  // ㅈ -> 이, 관ㅈ -> 관? -> 관
-        JamoEnum::Jung(Jungsung::Eu),   // ㅡ (도깨비불: ㅈ 탈락 -> 초성ㅈ + ㅡ) -> 관, 즈
-        JamoEnum::Cho(Chosung::Siot),   // ㅅ -> 관, 즛
+        JamoEnum::Cho(Chosung::Giyeok), // ㄱ -> In 2-set, this becomes a final: '한' (but may shift later)
+        JamoEnum::Jung(Jungsung::Eu),   // ㅡ -> Dokkaebibul: 'ㄴ' stays as final of '한', 'ㄱ' becomes initial of '그'
+        JamoEnum::Cho(Chosung::Rieul),  // ㄹ -> '글'
+        JamoEnum::Cho(Chosung::Ieung),  // ㅇ -> '글' complete, 'ㅇ' starts new char
+        JamoEnum::Jung(Jungsung::I),    // ㅣ -> '이'
+        
+        // Complex combinations and double vowels
+        JamoEnum::Cho(Chosung::Giyeok), // ㄱ
+        JamoEnum::Jung(Jungsung::O),    // ㅗ -> 고
+        JamoEnum::Jung(Jungsung::A),    // ㅏ -> 과 (vowel combination)
+        JamoEnum::Cho(Chosung::Nieun),  // ㄴ -> 관
+        JamoEnum::Cho(Chosung::Jieut),  // ㅈ -> 관zzz? (composition logic determines final/initial)
+        JamoEnum::Jung(Jungsung::Eu),   // ㅡ -> Shifts 'ㅈ' to '즈'
+        JamoEnum::Cho(Chosung::Siot),   // ㅅ -> 즛
     ];
 
-    println!("2벌식 입력 시뮬레이션:");
+    println!("--- 2-Set Hangul Input Simulation ---");
 
     for jamo in inputs {
-        print!(" 입력: {:?} -> ", jamo.to_char());
+        print!("Input: {:?} -> ", jamo.to_char());
+        
+        // add_jamo returns a character if a previous syllable is finalized.
         let completed_char = composer.add_jamo(jamo);
 
         if let Some(c) = completed_char {
             result.push(c);
-            print!("완성: '{}', ", c);
+            print!("Composed: '{}', ", c);
         }
 
+        // Check the character currently being composed.
         let current_syllable = composer.current_hangul().to_char();
         if current_syllable != '\0' {
-            // Check if there's a composing character
-            println!("현재 조합: '{}'", current_syllable);
+            println!("Current: '{}'", current_syllable);
         } else {
-            println!("현재 조합: -");
+            println!("Current: -");
         }
     }
 
-    // 마지막 조합 중인 글자 처리
+    // Force finalize any remaining composition buffer.
     if let Some(last_char) = composer.force_compose_hangul() {
         result.push(last_char);
     }
 
-    println!("\n최종 결과: {}", result);
-
-    // 예상 결과: 안녕하세요 관즛 (시뮬레이션 동작에 따라 약간 다를 수 있음)
-    // 실제 테스트 결과: 안 글이 관즛
-    // 이유:
-    // 1. 한 + ㄱ -> '한' 완성, 'ㄱ' 시작
-    // 2. ㄱ + ㅡ -> '그'
-    // 3. 그 + ㄹ -> '글'
-    // 4. 글 + ㅇ -> '글' 완성, 'ㅇ' 시작
-    // 5. ㅇ + ㅣ -> '이'
-    // 6. 이 + ㄱ -> '익'
-    // 7. 익 + ㅗ -> '이', '고'
-    // 8. 고 + ㅏ -> '과'
-    // 9. 과 + ㄴ -> '관'
-    // 10. 관 + ㅈ -> '관' 완성, 'ㅈ' 시작
-    // 11. ㅈ + ㅡ -> '즈'
-    // 12. 즈 + ㅅ -> '즛'
-    // 최종: 안글이관즛
+    println!("\nFinal Result: {}", result);
+    // Explanation:
+    // 1. "한" + "ㄱ" -> composition waits.
+    // 2. + "ㅡ" -> "한" finalized, "그" starts.
+    // 3. "그" + "ㄹ" -> "글".
+    // 4. "글" + "ㅇ" -> "글" finalized, "ㅇ" starts.
 }

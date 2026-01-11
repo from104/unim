@@ -1,35 +1,47 @@
+//! String Deconstruction Example
+//!
+//! Demonstrates how to iterate through a string and deconstruct each Hangul 
+//! syllable into its individual Jamo components (Initial, Middle, Final).
+
 use unim::hangul::{char::HangulChar, jamo::*};
 
-fn process_string(input: &str) {
-    println!("문자열 처리: \"{}\"", input);
+fn deconstruct_string(input: &str) {
+    println!("Processing: \"{}\"", input);
+    
     for c in input.chars() {
         if let Some(hangul_char) = HangulChar::from_char(c) {
+            // Attempt to get the (Cho, Jung, Jong) tuple
             if let Some((cho, jung, jong)) = hangul_char.to_jamo_tuple() {
                 println!(
-                    "  '{}': 초성 '{}', 중성 '{}', 종성 '{}'",
+                    "  '{}' -> Cho: '{}', Jung: '{}', Jong: '{}'",
                     c,
                     cho.to_char(),
                     jung.to_char(),
                     jong.map_or(' ', |j| j.to_char())
                 );
             } else if let Some(jamo) = hangul_char.to_jamo() {
-                // 만약 입력된 문자가 완성형 한글이 아니라 자모 자체라면
+                // If the character is a standalone Jamo (not a composed syllable)
                 match jamo {
-                    JamoEnum::Cho(cho) => println!("  '{}': 초성 자모 '{}'", c, cho.to_char()),
-                    JamoEnum::Jung(jung) => println!("  '{}': 중성 자모 '{}'", c, jung.to_char()),
-                    JamoEnum::Jong(jong) => println!("  '{}': 종성 자모 '{}'", c, jong.to_char()),
-                    JamoEnum::Special(_) => println!("  '{}': 특수 문자 (HangulChar로 처리됨)", c),
+                    JamoEnum::Cho(v) => println!("  '{}' -> Standalone Initial: '{}'", c, v.to_char()),
+                    JamoEnum::Jung(v) => println!("  '{}' -> Standalone Middle: '{}'", c, v.to_char()),
+                    JamoEnum::Jong(v) => println!("  '{}' -> Standalone Final: '{}'", c, v.to_char()),
+                    _ => println!("  '{}' -> Other Hangul unit", c),
                 }
             }
         } else {
-            println!("  '{}': 한글 아님", c);
+            println!("  '{}' -> Non-Hangul character", c);
         }
     }
-    println!("---");
+    println!("----------------------------------");
 }
 
 fn main() {
-    process_string("안녕하세요");
-    process_string("unim 라이브러리 예제");
-    process_string("ㄱㅏㄴㅏㄷㅏㄹㅏ"); // 자모가 포함된 경우
+    // 1. Standard composed syllables
+    deconstruct_string("안녕");
+    
+    // 2. Mixed content
+    deconstruct_string("Rust 1.0");
+    
+    // 3. Standalone Jamo sequence
+    deconstruct_string("ㄱㅏㄴㅏ");
 }
