@@ -55,4 +55,15 @@ export class VirtualKeyboard {
     copy() {
         this.sendKeyCombination([Clutter.KEY_Control_L], Clutter.KEY_c);
     }
+
+    backspace() {
+        this.sendKeyCombination([], Clutter.KEY_BackSpace);
+    }
+
+    backspaceMultiple(count) {
+        console.log(`[unim] Virtual Keyboard: Backspace x${count}`);
+        for (let i = 0; i < count; i++) {
+            this.backspace();
+        }
+    }
 }

@@ -21,7 +21,7 @@ Written in **Rust**, the core library handles all Hangul composition and decompo
 A portable Command-Line Interface to the core logic. It can be used as a standalone converter or as a backend for other integrations.
 
 ### 3. [GNOME Shell Extension](file:///home/from104/work/unim/unim-gnome-extension/): Native Linux Integration
-A production-ready extension for GNOME users that provides `<Super>k` conversion using native Shell APIs (`St.Clipboard`, `Clutter`).
+A production-ready extension for GNOME that fixes text typed with the wrong keyboard layout (e.g., 'gksrmf' ↔ '한글') using hotkeys. Supports terminal-aware pasting and copy-only modes.
 
 ## 🗺️ Long-term Roadmap
 

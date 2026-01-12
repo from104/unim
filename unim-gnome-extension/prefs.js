@@ -68,56 +68,6 @@ export default class UnimPreferences extends ExtensionPreferences {
                 ['dvorak', _('Dvorak')]
             ]
         );
-
-
-        // 4. Manual Conversion Group
-        const manualGroup = new Adw.PreferencesGroup({
-            title: _('Manual Conversion'),
-            description: _('Shortcuts for manual text conversion')
-        });
-        page.add(manualGroup);
-
-        // Enable Manual Conversion
-        this._addToggle(
-            manualGroup,
-            settings,
-            'enable-manual-conversion',
-            _('Enable Shortcut'),
-            _('Allow manual conversion via keyboard shortcut')
-        );
-
-        // Shortcut Row
-        const shortcutRow = new Adw.ActionRow({
-            title: _('Conversion Shortcut'),
-            subtitle: _('Shortcut key string (e.g., "<Super>k")')
-        });
-        manualGroup.add(shortcutRow);
-
-        const shortcutEntry = new Gtk.Entry({
-            placeholder_text: '<Super>k',
-            text: settings.get_strv('manual-conversion-shortcut')[0] || '',
-            valign: Gtk.Align.CENTER,
-            hexpand: true
-        });
-
-        shortcutEntry.connect('changed', (entry) => {
-            const text = entry.get_text();
-            if (text) {
-                settings.set_strv('manual-conversion-shortcut', [text]);
-            }
-        });
-
-        shortcutRow.add_suffix(shortcutEntry);
-
-
-        // Auto Paste Toggle
-        this._addToggle(
-            manualGroup,
-            settings,
-            'auto-paste',
-            _('Auto Paste'),
-            _('Automatically paste converted text after copying to clipboard')
-        );
     }
 
     // Helper to add a switch row

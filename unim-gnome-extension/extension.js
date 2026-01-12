@@ -7,18 +7,24 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
-import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import { VirtualKeyboard } from './vkbd.js';
 
+// Paste mode
+const PasteMode = {
+    NORMAL: 'normal',       // Just paste
+    TERMINAL: 'terminal',   // Backspace then paste
+    COPY_ONLY: 'copy_only', // No paste, copy to clipboard only
+};
+
 export default class UnimAutocorrectExtension extends Extension {
     constructor(metadata) {
         super(metadata);
         this._settings = null;
-        this._shortcutId = null;
+        this._shortcutIds = [];
         this._vkbd = null;
         this._clipboard = null;
     }
@@ -30,12 +36,7 @@ export default class UnimAutocorrectExtension extends Extension {
             this._clipboard = St.Clipboard.get_default();
             this._vkbd = new VirtualKeyboard();
             
-            this._bindShortcut();
-            
-            this._settingsChangedId = this._settings.connect(
-                'changed::manual-conversion-shortcut',
-                () => this._bindShortcut()
-            );
+            this._bindAllShortcuts();
             
             console.log('[unim-autocorrect] Hybrid extension enabled');
         } catch (e) {
@@ -44,62 +45,71 @@ export default class UnimAutocorrectExtension extends Extension {
     }
 
     disable() {
-        this._unbindShortcut();
-        if (this._settingsChangedId) {
-            this._settings.disconnect(this._settingsChangedId);
-            this._settingsChangedId = null;
-        }
+        this._unbindAllShortcuts();
         this._settings = null;
         this._vkbd = null;
         this._clipboard = null;
         console.log('[unim-autocorrect] Hybrid extension disabled');
     }
 
-    _bindShortcut() {
-        this._unbindShortcut();
-        const shortcut = this._settings.get_strv('manual-conversion-shortcut');
+    _bindAllShortcuts() {
+        this._unbindAllShortcuts();
+
+        // 6 shortcut combinations:
+        // isReverse: true = Korean to English (decompose), false = English to Korean (compose)
+        this._bindShortcut('shortcut-normal', PasteMode.NORMAL, false);
+        this._bindShortcut('shortcut-normal-reverse', PasteMode.NORMAL, true);
+        this._bindShortcut('shortcut-terminal', PasteMode.TERMINAL, false);
+        this._bindShortcut('shortcut-terminal-reverse', PasteMode.TERMINAL, true);
+        this._bindShortcut('shortcut-copy-only', PasteMode.COPY_ONLY, false);
+        this._bindShortcut('shortcut-copy-only-reverse', PasteMode.COPY_ONLY, true);
+    }
+
+    _bindShortcut(settingKey, pasteMode, isReverse) {
+        const shortcut = this._settings.get_strv(settingKey);
         if (!shortcut || shortcut.length === 0) return;
-        
+
         Main.wm.addKeybinding(
-            'manual-conversion-shortcut',
+            settingKey,
             this._settings,
             Meta.KeyBindingFlags.NONE,
             Shell.ActionMode.ALL,
-            () => this._onConversionShortcut()
+            () => this._onShortcutTriggered(pasteMode, isReverse)
         );
         
-        this._shortcutId = 'manual-conversion-shortcut';
-        console.log(`[unim-autocorrect] Shortcut bound: ${shortcut[0]}`);
+        this._shortcutIds.push(settingKey);
+        console.log(`[unim-autocorrect] Shortcut bound: ${settingKey} -> ${shortcut[0]} (paste: ${pasteMode}, reverse: ${isReverse})`);
     }
 
-    _unbindShortcut() {
-        if (this._shortcutId) {
-            Main.wm.removeKeybinding(this._shortcutId);
-            this._shortcutId = null;
+    _unbindAllShortcuts() {
+        for (const id of this._shortcutIds) {
+            Main.wm.removeKeybinding(id);
         }
+        this._shortcutIds = [];
     }
 
-    _onConversionShortcut() {
+    _onShortcutTriggered(pasteMode, isReverse) {
         if (!this._settings.get_boolean('enable-extension')) return;
-        
-        const autoPaste = this._settings.get_boolean('auto-paste');
+
+        console.log(`[unim-autocorrect] Shortcut triggered: paste=${pasteMode}, reverse=${isReverse}`);
+
         const koreanLayout = this._settings.get_string('korean-layout');
         const englishLayout = this._settings.get_string('english-layout');
         
-        this._doConversion(autoPaste, koreanLayout, englishLayout);
+        this._doConversion(koreanLayout, englishLayout, pasteMode, isReverse);
     }
 
-    async _doConversion(autoPaste, koreanLayout, englishLayout) {
+    async _doConversion(koreanLayout, englishLayout, pasteMode, isReverse) {
         try {
             // Primary Selection (Highlight)
             this._clipboard.get_text(St.ClipboardType.PRIMARY, (clipboard, text) => {
                 if (!text || text.trim() === '') {
                     // Regular Clipboard fallback
                     this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (cb, cbText) => {
-                        if (cbText) this._processConvertedText(cbText, autoPaste, koreanLayout, englishLayout);
+                        if (cbText) this._processConvertedText(cbText, koreanLayout, englishLayout, pasteMode, isReverse);
                     });
                 } else {
-                    this._processConvertedText(text, autoPaste, koreanLayout, englishLayout);
+                    this._processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse);
                 }
             });
         } catch (e) {
@@ -107,10 +117,10 @@ export default class UnimAutocorrectExtension extends Extension {
         }
     }
 
-    async _processConvertedText(text, autoPaste, koreanLayout, englishLayout) {
-        console.log(`[unim-autocorrect] Transforming: "${text}"`);
+    async _processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse) {
+        console.log(`[unim-autocorrect] Transforming: "${text}" (paste: ${pasteMode}, reverse: ${isReverse})`);
         try {
-            const converted = await this._convertText(text, koreanLayout, englishLayout);
+            const converted = await this._convertText(text, koreanLayout, englishLayout, isReverse);
             if (!converted) return;
             
             console.log(`[unim-autocorrect] Result: "${converted}"`);
@@ -120,10 +130,19 @@ export default class UnimAutocorrectExtension extends Extension {
             this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
             console.log('[unim-autocorrect] Clipboard updated');
             
-            if (autoPaste) {
-                // Increase timeout to give clipboard time to settle
+            // Handle paste mode
+            if (pasteMode === PasteMode.COPY_ONLY) {
+                console.log('[unim-autocorrect] Copy-only mode: skipping paste');
+            } else {
                 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
-                    console.log('[unim-autocorrect] Triggering auto-paste...');
+                    console.log('[unim-autocorrect] Triggering paste action...');
+                    
+                    if (pasteMode === PasteMode.TERMINAL) {
+                        const deleteCount = text.length;
+                        console.log(`[unim-autocorrect] Terminal mode: deleting ${deleteCount} chars before paste`);
+                        this._vkbd.backspaceMultiple(deleteCount);
+                    }
+                    
                     this._vkbd.paste();
                     return GLib.SOURCE_REMOVE;
                 });
@@ -137,7 +156,7 @@ export default class UnimAutocorrectExtension extends Extension {
         }
     }
 
-    _convertText(text, koreanLayout, englishLayout) {
+    _convertText(text, koreanLayout, englishLayout, isReverse) {
         return new Promise((resolve, reject) => {
             const extensionPath = this.path;
             const binPath = GLib.build_filenamev([extensionPath, 'bin', 'unim-cli']);
@@ -147,7 +166,7 @@ export default class UnimAutocorrectExtension extends Extension {
 
             const argv = [
                 binPath,
-                '--compose',
+                isReverse ? '--decompose' : '--compose',
                 '--korean-keyboard', kLayout === '391' ? '391' : (kLayout === '390' ? '390' : '2bul'),
                 '--english-keyboard', eLayout === 'dvorak' ? 'dvorak' : 'qwerty'
             ];
