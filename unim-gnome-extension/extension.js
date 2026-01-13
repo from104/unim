@@ -30,7 +30,7 @@ export default class UnimAutocorrectExtension extends Extension {
     }
 
     enable() {
-        console.log('[unim-autocorrect] Enabling hybrid extension...');
+        console.log('[unim-typefix] Enabling hybrid extension...');
         try {
             this._settings = this.getSettings();
             this._clipboard = St.Clipboard.get_default();
@@ -38,9 +38,9 @@ export default class UnimAutocorrectExtension extends Extension {
             
             this._bindAllShortcuts();
             
-            console.log('[unim-autocorrect] Hybrid extension enabled');
+            console.log('[unim-typefix] Hybrid extension enabled');
         } catch (e) {
-            console.error(`[unim-autocorrect] Enable failed: ${e.message}`);
+            console.error(`[unim-typefix] Enable failed: ${e.message}`);
         }
     }
 
@@ -49,7 +49,7 @@ export default class UnimAutocorrectExtension extends Extension {
         this._settings = null;
         this._vkbd = null;
         this._clipboard = null;
-        console.log('[unim-autocorrect] Hybrid extension disabled');
+        console.log('[unim-typefix] Hybrid extension disabled');
     }
 
     _bindAllShortcuts() {
@@ -78,7 +78,7 @@ export default class UnimAutocorrectExtension extends Extension {
         );
         
         this._shortcutIds.push(settingKey);
-        console.log(`[unim-autocorrect] Shortcut bound: ${settingKey} -> ${shortcut[0]} (paste: ${pasteMode}, reverse: ${isReverse})`);
+        console.log(`[unim-typefix] Shortcut bound: ${settingKey} -> ${shortcut[0]} (paste: ${pasteMode}, reverse: ${isReverse})`);
     }
 
     _unbindAllShortcuts() {
@@ -91,7 +91,7 @@ export default class UnimAutocorrectExtension extends Extension {
     _onShortcutTriggered(pasteMode, isReverse) {
         if (!this._settings.get_boolean('enable-extension')) return;
 
-        console.log(`[unim-autocorrect] Shortcut triggered: paste=${pasteMode}, reverse=${isReverse}`);
+        console.log(`[unim-typefix] Shortcut triggered: paste=${pasteMode}, reverse=${isReverse}`);
 
         const koreanLayout = this._settings.get_string('korean-layout');
         const englishLayout = this._settings.get_string('english-layout');
@@ -113,33 +113,33 @@ export default class UnimAutocorrectExtension extends Extension {
                 }
             });
         } catch (e) {
-            console.error(`[unim-autocorrect] Conversion trigger error: ${e.message}`);
+            console.error(`[unim-typefix] Conversion trigger error: ${e.message}`);
         }
     }
 
     async _processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse) {
-        console.log(`[unim-autocorrect] Transforming: "${text}" (paste: ${pasteMode}, reverse: ${isReverse})`);
+        console.log(`[unim-typefix] Transforming: "${text}" (paste: ${pasteMode}, reverse: ${isReverse})`);
         try {
             const converted = await this._convertText(text, koreanLayout, englishLayout, isReverse);
             if (!converted) return;
             
-            console.log(`[unim-autocorrect] Result: "${converted}"`);
+            console.log(`[unim-typefix] Result: "${converted}"`);
             
             // Set both selections for maximum compatibility
             this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
             this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
-            console.log('[unim-autocorrect] Clipboard updated');
+            console.log('[unim-typefix] Clipboard updated');
             
             // Handle paste mode
             if (pasteMode === PasteMode.COPY_ONLY) {
-                console.log('[unim-autocorrect] Copy-only mode: skipping paste');
+                console.log('[unim-typefix] Copy-only mode: skipping paste');
             } else {
                 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
-                    console.log('[unim-autocorrect] Triggering paste action...');
+                    console.log('[unim-typefix] Triggering paste action...');
                     
                     if (pasteMode === PasteMode.TERMINAL) {
                         const deleteCount = text.length;
-                        console.log(`[unim-autocorrect] Terminal mode: deleting ${deleteCount} chars before paste`);
+                        console.log(`[unim-typefix] Terminal mode: deleting ${deleteCount} chars before paste`);
                         this._vkbd.backspaceMultiple(deleteCount);
                     }
                     
@@ -149,10 +149,10 @@ export default class UnimAutocorrectExtension extends Extension {
             }
             
             if (this._settings.get_boolean('show-notification')) {
-                Main.notify(_('UNIM Autocorrect'), _('Conversion complete: %s').format(converted));
+                Main.notify(_('UNIM TypeFIX'), _('Conversion complete: %s').format(converted));
             }
         } catch (e) {
-            console.error(`[unim-autocorrect] Transform error: ${e.message}`);
+            console.error(`[unim-typefix] Transform error: ${e.message}`);
         }
     }
 
@@ -171,7 +171,7 @@ export default class UnimAutocorrectExtension extends Extension {
                 '--english-keyboard', eLayout === 'dvorak' ? 'dvorak' : 'qwerty'
             ];
 
-            console.log(`[unim-autocorrect] Executing: ${argv.join(' ')} with input: "${text}"`);
+            console.log(`[unim-typefix] Executing: ${argv.join(' ')} with input: "${text}"`);
 
             try {
                 const proc = new Gio.Subprocess({
@@ -182,18 +182,18 @@ export default class UnimAutocorrectExtension extends Extension {
                 proc.communicate_utf8_async(text, null, (proc, res) => {
                     try {
                         const [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
-                        if (stderr) console.error(`[unim-autocorrect] CLI Stderr: ${stderr}`);
+                        if (stderr) console.error(`[unim-typefix] CLI Stderr: ${stderr}`);
                         
                         const result = stdout ? stdout.trim() : '';
-                        console.log(`[unim-autocorrect] CLI Stdout: "${result}"`);
+                        console.log(`[unim-typefix] CLI Stdout: "${result}"`);
                         resolve(result);
                     } catch (e) { 
-                        console.error(`[unim-autocorrect] communicate_utf8_finish error: ${e.message}`);
+                        console.error(`[unim-typefix] communicate_utf8_finish error: ${e.message}`);
                         reject(e); 
                     }
                 });
             } catch (e) { 
-                console.error(`[unim-autocorrect] Subprocess spawn error: ${e.message}`);
+                console.error(`[unim-typefix] Subprocess spawn error: ${e.message}`);
                 reject(e); 
             }
         });

@@ -1,4 +1,4 @@
-# UNIM Autocorrect - GNOME Shell Extension
+# UNIM TypeFIX - GNOME Shell Extension
 
 A GNOME Shell extension for **seamless Korean-English text conversion** triggered by a single shortcut.
 
@@ -19,17 +19,27 @@ A GNOME Shell extension for **seamless Korean-English text conversion** triggere
 - QWERTY
 - Dvorak
 
-### 3. Preferences UI
+### 3. Multiple Conversion Modes
+- **Normal Mode**: Standard English-to-Korean and Korean-to-English conversion.
+- **Terminal Mode**: Terminal-friendly conversion that sends backspaces before pasting.
+- **Copy-only Mode**: Converts text and saves to clipboard without automatic pasting.
+
+### 4. Preferences UI
 - **Toggle Extension**: Easily enable/disable the entire feature.
 - **Layout Selection**: Choose your specific Korean and English keyboard layouts.
-- **Custom Shortcut**: Define your preferred key combination (default is `<Super>k`).
-- **Auto-Paste**: Toggle whether converted text should be automatically pasted back into the active field.
+- **Notification**: Toggle completion notifications.
 
 ## 🛠️ How to Use
 
-1.  **Select** the text you want to convert (highlight with mouse or keyboard).
-2.  Press **`<Super>k`** (or your custom shortcut).
-3.  The text will be converted and **automatically pasted** back into the field.
+1.  **Select** text (highlight with mouse or keyboard).
+2.  Press the shortcut for your desired mode:
+    - **`<Super>k`**: English → Korean
+    - **`<Shift><Super>k`**: Korean → English
+    - **`<Ctrl><Super>k`**: Terminal (E → K)
+    - **`<Shift><Ctrl><Super>k`**: Terminal (K → E)
+    - **`<Alt><Super>k`**: Copy only (E → K)
+    - **`<Shift><Alt><Super>k`**: Copy only (K → E)
+3.  The text will be converted and handled according to the mode.
 
 ## 🛠️ Installation
 
@@ -67,11 +77,14 @@ unim-gnome-extension/
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enable-extension` | boolean | true | Master toggle for the extension |
-| `korean-layout` | string | '2bul' | '2bul', '390' or '391' |
+| `korean-layout` | string | '2bul' | '2bul', '390', or '391' |
 | `english-layout` | string | 'qwerty' | 'qwerty' or 'dvorak' |
-| `manual-conversion-shortcut` | strv | `['<Super>k']` | The shortcut to trigger conversion |
-| `auto-paste` | boolean | true | Automatically paste after conversion |
+| `shortcut-normal` | strv | `['<Super>k']` | English to Korean + Paste |
+| `shortcut-normal-reverse` | strv | `['<Shift><Super>k']` | Korean to English + Paste |
+| `shortcut-terminal` | strv | `['<Ctrl><Super>k']` | E to K + Backspace + Paste |
+| `shortcut-terminal-reverse` | strv | `['<Shift><Ctrl><Super>k']` | K to E + Backspace + Paste |
+| `shortcut-copy-only` | strv | `['<Alt><Super>k']` | E to K + Copy Only |
+| `shortcut-copy-only-reverse` | strv | `['<Shift><Alt><Super>k']` | K to E + Copy Only |
 
 ## � Debugging
 

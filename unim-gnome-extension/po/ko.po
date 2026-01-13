@@ -13,7 +13,7 @@ msgstr ""
 
 #: extension.js:133
 msgid "UNIM Autocorrect"
-msgstr "UNIM 한영 자동 변환"
+msgstr "UNIM TypeFIX (한영 자동 변환)"
 
 #: extension.js:133
 #, javascript-format
@@ -89,33 +89,59 @@ msgid "Dvorak"
 msgstr "드보락 (Dvorak)"
 
 #: prefs.js:75
-msgid "Manual Conversion"
-msgstr "수동 변환"
+msgid "Keyboard Shortcuts"
+msgstr "키보드 단축키"
 
 #: prefs.js:76
-msgid "Shortcuts for manual text conversion"
-msgstr "수동 텍스트 변환을 위한 단축키 설정"
+msgid "Current keybindings for various conversion modes. These can be configured in the GNOME Settings or Extension Manager."
+msgstr "다양한 변환 모드에 대한 현재 단축키 설정입니다. 설정 앱이나 확장 프로그램 관리자에서 변경할 수 있습니다."
+
+#: prefs.js:84
+msgid "English → Korean"
+msgstr "영어 → 한국어"
 
 #: prefs.js:85
-msgid "Enable Shortcut"
-msgstr "단축키 사용"
-
-#: prefs.js:86
-msgid "Allow manual conversion via keyboard shortcut"
-msgstr "키보드 단축키를 통한 수동 변환을 허용합니다"
+msgid "Converts English typed with Korean layout and pastes it."
+msgstr "한국어 키보드 배열로 입력한 영어를 한국어로 변환하여 붙여넣습니다."
 
 #: prefs.js:91
-msgid "Conversion Shortcut"
-msgstr "변환 단축키"
+msgid "Korean → English"
+msgstr "한국어 → 영어"
 
 #: prefs.js:92
-msgid "Shortcut key string (e.g., \"<Super>k\")"
-msgstr "단축키 문자열 (예: \"<Super>k\")"
+msgid "Converts Korean typed with English layout and pastes it."
+msgstr "영어 키보드 배열로 입력한 한국어를 영어로 변환하여 붙여넣습니다."
+
+#: prefs.js:98
+msgid "Terminal (E → K)"
+msgstr "터미널 (영 → 한)"
+
+#: prefs.js:99
+#: prefs.js:106
+msgid "Converts with backspaces before pasting, suitable for terminals."
+msgstr "붙여넣기 전에 기존 글자를 백스페이스로 지웁니다. 터미널 환경에 적합합니다."
+
+#: prefs.js:105
+msgid "Terminal (K → E)"
+msgstr "터미널 (한 → 영)"
+
+#: prefs.js:112
+msgid "Copy Only (E → K)"
+msgstr "복사 전용 (영 → 한)"
+
+#: prefs.js:113
+#: prefs.js:120
+msgid "Converts and copies to clipboard without pasting."
+msgstr "문자를 변환하여 클립보드에 복사만 하고 붙여넣지는 않습니다."
+
+#: prefs.js:119
+msgid "Copy Only (K → E)"
+msgstr "복사 전용 (한 → 영)"
 
 #: prefs.js:118
 msgid "Auto Paste"
 msgstr "자동 붙여넣기"
 
-#: prefs.js:119
-msgid "Automatically paste converted text after copying to clipboard"
-msgstr "클립보드에 복사된 후 변환된 텍스트를 자동으로 붙여넣습니다"
+#: prefs.js:122
+msgid "Reset to default"
+msgstr "기본값으로 초기화"

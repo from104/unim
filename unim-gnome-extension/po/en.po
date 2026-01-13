@@ -13,7 +13,7 @@ msgstr ""
 
 #: extension.js:133
 msgid "UNIM Autocorrect"
-msgstr "UNIM Autocorrect"
+msgstr "UNIM TypeFIX"
 
 #: extension.js:133
 #, javascript-format
@@ -89,33 +89,59 @@ msgid "Dvorak"
 msgstr "Dvorak"
 
 #: prefs.js:75
-msgid "Manual Conversion"
-msgstr "Manual Conversion"
+msgid "Keyboard Shortcuts"
+msgstr "Keyboard Shortcuts"
 
 #: prefs.js:76
-msgid "Shortcuts for manual text conversion"
-msgstr "Shortcuts for manual text conversion"
+msgid "Current keybindings for various conversion modes. These can be configured in the GNOME Settings or Extension Manager."
+msgstr "Current keybindings for various conversion modes. These can be configured in the GNOME Settings or Extension Manager."
+
+#: prefs.js:84
+msgid "English → Korean"
+msgstr "English → Korean"
 
 #: prefs.js:85
-msgid "Enable Shortcut"
-msgstr "Enable Shortcut"
-
-#: prefs.js:86
-msgid "Allow manual conversion via keyboard shortcut"
-msgstr "Allow manual conversion via keyboard shortcut"
+msgid "Converts English typed with Korean layout and pastes it."
+msgstr "Converts English typed with Korean layout and pastes it."
 
 #: prefs.js:91
-msgid "Conversion Shortcut"
-msgstr "Conversion Shortcut"
+msgid "Korean → English"
+msgstr "Korean → English"
 
 #: prefs.js:92
-msgid "Shortcut key string (e.g., \"<Super>k\")"
-msgstr "Shortcut key string (e.g., \"<Super>k\")"
+msgid "Converts Korean typed with English layout and pastes it."
+msgstr "Converts Korean typed with English layout and pastes it."
+
+#: prefs.js:98
+msgid "Terminal (E → K)"
+msgstr "Terminal (E → K)"
+
+#: prefs.js:99
+#: prefs.js:106
+msgid "Converts with backspaces before pasting, suitable for terminals."
+msgstr "Converts with backspaces before pasting, suitable for terminals."
+
+#: prefs.js:105
+msgid "Terminal (K → E)"
+msgstr "Terminal (K → E)"
+
+#: prefs.js:112
+msgid "Copy Only (E → K)"
+msgstr "Copy Only (E → K)"
+
+#: prefs.js:113
+#: prefs.js:120
+msgid "Converts and copies to clipboard without pasting."
+msgstr "Converts and copies to clipboard without pasting."
+
+#: prefs.js:119
+msgid "Copy Only (K → E)"
+msgstr "Copy Only (K → E)"
 
 #: prefs.js:118
 msgid "Auto Paste"
 msgstr "Auto Paste"
 
-#: prefs.js:119
-msgid "Automatically paste converted text after copying to clipboard"
-msgstr "Automatically paste converted text after copying to clipboard"
+#: prefs.js:122
+msgid "Reset to default"
+msgstr "Reset to default"

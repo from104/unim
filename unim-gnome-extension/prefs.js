@@ -68,6 +68,105 @@ export default class UnimPreferences extends ExtensionPreferences {
                 ['dvorak', _('Dvorak')]
             ]
         );
+
+
+        // 4. Keyboard Shortcuts Group
+        const shortcutGroup = new Adw.PreferencesGroup({
+            title: _('Keyboard Shortcuts'),
+            description: _('Current keybindings for various conversion modes. These can be configured in the GNOME Settings or Extension Manager.')
+        });
+        page.add(shortcutGroup);
+
+        this._addShortcutRow(
+            shortcutGroup,
+            settings,
+            'shortcut-normal',
+            _('English → Korean'),
+            _('Converts English typed with Korean layout and pastes it.')
+        );
+        this._addShortcutRow(
+            shortcutGroup,
+            settings,
+            'shortcut-normal-reverse',
+            _('Korean → English'),
+            _('Converts Korean typed with English layout and pastes it.')
+        );
+        this._addShortcutRow(
+            shortcutGroup,
+            settings,
+            'shortcut-terminal',
+            _('Terminal (E → K)'),
+            _('Converts with backspaces before pasting, suitable for terminals.')
+        );
+        this._addShortcutRow(
+            shortcutGroup,
+            settings,
+            'shortcut-terminal-reverse',
+            _('Terminal (K → E)'),
+            _('Converts with backspaces before pasting, suitable for terminals.')
+        );
+        this._addShortcutRow(
+            shortcutGroup,
+            settings,
+            'shortcut-copy-only',
+            _('Copy Only (E → K)'),
+            _('Converts and copies to clipboard without pasting.')
+        );
+        this._addShortcutRow(
+            shortcutGroup,
+            settings,
+            'shortcut-copy-only-reverse',
+            _('Copy Only (K → E)'),
+            _('Converts and copies to clipboard without pasting.')
+        );
+    }
+
+    // Helper to add an editable shortcut row with a reset button
+    _addShortcutRow(group, settings, key, title, subtitle) {
+        const row = new Adw.ActionRow({
+            title: title,
+            subtitle: subtitle
+        });
+        group.add(row);
+
+        const entry = new Gtk.Entry({
+            text: settings.get_strv(key)[0] || '',
+            valign: Gtk.Align.CENTER,
+            hexpand: true
+        });
+
+        // Update settings when the entry changes
+        entry.connect('changed', (e) => {
+            const text = e.get_text();
+            if (text) {
+                // Simplified validation: just check if it's not empty
+                // In a production extension, you might want to validate the combo string
+                settings.set_strv(key, [text]);
+            }
+        });
+
+        // Listen for external changes (like reset)
+        settings.connect(`changed::${key}`, () => {
+            const newVal = settings.get_strv(key)[0] || '';
+            if (entry.get_text() !== newVal) {
+                entry.set_text(newVal);
+            }
+        });
+
+        row.add_suffix(entry);
+
+        const resetButton = new Gtk.Button({
+            icon_name: 'edit-clear-all-symbolic',
+            tooltip_text: _('Reset to default'),
+            valign: Gtk.Align.CENTER,
+            css_classes: ['flat']
+        });
+
+        resetButton.connect('clicked', () => {
+            settings.reset(key);
+        });
+
+        row.add_suffix(resetButton);
     }
 
     // Helper to add a switch row

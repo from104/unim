@@ -1,6 +1,6 @@
 {
     "uuid": "unim-autocorrect@from104.github.io",
-    "name": "UNIM Autocorrect",
+    "name": "UNIM TypeFIX",
     "description": "Fix text typed with the wrong keyboard layout (e.g., 'gksrmf' ↔ '한글') using hotkeys. Supports terminal-aware pasting and copy-only modes.",
     "url": "https://github.com/from104/unim",
     "version": "0.1.0",
