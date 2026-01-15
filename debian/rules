@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Skip build - use pre-built binaries from target/release and frontends/*/build
+	@echo "Using pre-built binaries..."
+
+override_dh_auto_install:
+	dh_auto_install
+
+override_dh_auto_clean:
+	# Don't clean pre-built binaries
+	@echo "Skipping clean to preserve pre-built binaries..."

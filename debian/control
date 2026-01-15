@@ -1,0 +1,23 @@
+Source: unim
+Section: utils
+Priority: optional
+Maintainer: from104 <from104@github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.0
+Homepage: https://github.com/from104/unim
+Rules-Requires-Root: no
+
+Package: unim
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: im-config
+Description: Korean Input Method Engine
+ UNIM is a modular Korean Input Method Engine supporting 2-bul (두벌식)
+ and 3-bul (세벌식) keyboard layouts.
+ .
+ Features:
+  * GTK3/GTK4 IM modules for native integration
+  * Qt5/Qt6 platform input context plugins
+  * XIM server for X11 legacy applications
+  * Wayland text-input protocol support
+  * Command-line tool for text conversion

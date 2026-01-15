@@ -1,0 +1,10 @@
+unim (0.1.0-1) unstable; urgency=medium
+
+  * Initial release.
+  * Korean Input Method Engine with 2-bul and 3-bul support.
+  * GTK3/GTK4 IM modules.
+  * Qt5/Qt6 platform input context plugins.
+  * XIM and Wayland protocol support.
+  * im-config integration.
+
+ -- from104 <from104@github.com>  Thu, 16 Jan 2026 02:55:00 +0900

@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Update GTK3 IM modules cache
+        if command -v gtk-query-immodules-3.0 >/dev/null 2>&1; then
+            gtk-query-immodules-3.0 --update-cache || true
+        fi
+        
+        # Update GTK4 IM modules cache (if applicable)
+        if command -v gtk4-query-immodules >/dev/null 2>&1; then
+            gtk4-query-immodules --update-cache || true
+        fi
+        
+        # Update library cache
+        ldconfig || true
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
