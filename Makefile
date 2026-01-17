@@ -16,8 +16,6 @@ build:
 	@mkdir -p unim-gnome-extension/bin
 	@cp target/release/unim-cli unim-gnome-extension/bin/
 	@echo "Compiling GSettings schema..."
-	@mkdir -p unim-gnome-extension/schemas
-	@cp unim-gnome-extension/org.gnome.shell.extensions.unim-typefix.gschema.xml unim-gnome-extension/schemas/
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || echo "Note: glib-compile-schemas not available in this environment"
 	@echo "Compiling translations..."
 	@if command -v msgfmt >/dev/null 2>&1; then \
@@ -110,5 +108,5 @@ clean:
 	@echo "Cleaning up..."
 	@rm -f $(ZIP_FILE)
 	@rm -rf unim-gnome-extension/bin
-	@rm -rf unim-gnome-extension/schemas
+	@rm -f unim-gnome-extension/schemas/gschemas.compiled
 	@rm -rf unim-gnome-extension/locale
