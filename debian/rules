@@ -11,8 +11,8 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 	dh $@
 
 override_dh_auto_build:
-	# Build core and CLI
-	cargo build --release
+	# Build workspace (core, CLI, daemon, config, etc.)
+	cargo build --release --workspace
 	# Build GNOME extension assets
 	$(MAKE) build
 	# Build GTK settings tool

@@ -75,6 +75,7 @@ debian/gnome-shell-extension-unim/
 *.upload
 *.tar.gz
 *.tar.xz
+*.mo
 pkg-build/
 
 # Frontend build and IDE cache
