@@ -1,0 +1,8 @@
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/im-unim-gtk4.dir
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/install-local.dir
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/edit_cache.dir
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/rebuild_cache.dir
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/list_install_components.dir
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/install.dir
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/install/local.dir
+/home/from104/work/unim/unim-frontends/gtk4/build/CMakeFiles/install/strip.dir

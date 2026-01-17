@@ -1,0 +1,15 @@
+[package]
+name = "unim-config"
+version = "0.1.0"
+edition = "2021"
+description = "UNIM 입력기 설정 관리 도구"
+authors = ["from104"]
+
+[[bin]]
+name = "unim-config"
+path = "src/main.rs"
+
+[dependencies]
+unim = { path = ".." }
+clap = { version = "4.4", features = ["derive"] }
+rust-i18n = "3"

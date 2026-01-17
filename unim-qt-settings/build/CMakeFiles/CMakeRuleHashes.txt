@@ -1,0 +1,4 @@
+# Hashes of file build rules.
+4b709bcb6f03337f196d5116ba59a5d9 CMakeFiles/unim-qt-settings_autogen
+b0642ceff86f68f0b097cd3cdd69414c unim-qt-settings_autogen/EWIEGA46WW/qrc_i18n.cpp
+fb54fddfefe7de13f51a4df9995f426f unim-qt-settings_autogen/timestamp

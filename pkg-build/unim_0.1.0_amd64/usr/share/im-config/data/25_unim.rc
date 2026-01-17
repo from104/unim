@@ -1,0 +1,14 @@
+# start UNIM
+# vim: set sts=4 expandtab:
+
+if [ "$IM_CONFIG_PHASE" = 2 ]; then
+# start UNIM daemon
+/usr/local/bin/unim-daemon &
+fi
+
+if [ "$IM_CONFIG_PHASE" = 1 ]; then
+# set variables for UNIM (GTK4 is supported via XIM/Wayland protocol)
+XMODIFIERS=@im=unim
+GTK_IM_MODULE=unim
+QT_IM_MODULE=unim
+fi

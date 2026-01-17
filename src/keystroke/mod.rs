@@ -15,8 +15,8 @@ pub fn get_keymap_json(name: &str) -> &'static str {
         "en_qwerty" => EN_QWERTY,
         "en_dvorak" => EN_DVORAK,
         "ko_2bulstd" | "2bul" => KO_2BULSTD,
-        "ko_3bul390" | "390" => KO_3BUL390,
-        "ko_3bul391" | "391" => KO_3BUL391,
+        "ko_3bul390" | "390" | "3bul390" => KO_3BUL390,
+        "ko_3bul391" | "391" | "3bul391" => KO_3BUL391,
         _ => KO_2BULSTD,
     }
 }

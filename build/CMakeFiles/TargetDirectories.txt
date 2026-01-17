@@ -1,0 +1,8 @@
+/home/from104/work/unim/build/CMakeFiles/im-unim.dir
+/home/from104/work/unim/build/CMakeFiles/install-local.dir
+/home/from104/work/unim/build/CMakeFiles/edit_cache.dir
+/home/from104/work/unim/build/CMakeFiles/rebuild_cache.dir
+/home/from104/work/unim/build/CMakeFiles/list_install_components.dir
+/home/from104/work/unim/build/CMakeFiles/install.dir
+/home/from104/work/unim/build/CMakeFiles/install/local.dir
+/home/from104/work/unim/build/CMakeFiles/install/strip.dir

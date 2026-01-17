@@ -2,6 +2,7 @@
     "rust-analyzer.checkOnSave.command": "clippy",
     "rust-analyzer.cargo.loadOutDirsFromCheck": true,
     "rust-analyzer.procMacro.enable": true,
-    "rust-analyzer.checkOnSave": false
+    "rust-analyzer.checkOnSave": false,
+    "cmake.sourceDirectory": "/home/from104/work/unim/unim-frontends/qt5"
 }
 

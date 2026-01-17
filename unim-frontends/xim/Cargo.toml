@@ -1,0 +1,16 @@
+[package]
+name = "unim-xim"
+version = "0.1.0"
+edition = "2021"
+description = "UNIM XIM (X Input Method) Frontend"
+
+[[bin]]
+name = "unim-xim"
+path = "src/main.rs"
+
+[dependencies]
+unim = { path = "../.." }
+x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
+xim = { version = "0.5", features = ["x11rb-xcb", "x11rb-server", "server"] }
+log = "0.4"
+env_logger = "0.11"

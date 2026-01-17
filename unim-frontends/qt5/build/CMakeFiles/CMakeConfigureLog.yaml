@@ -1,0 +1,2778 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      The system is: Linux - 6.8.0-90-generic - x86_64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeUnixFindMake.cmake:5 (find_program)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_MAKE_PROGRAM"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "gmake"
+      - "make"
+      - "smake"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/gmake"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompiler.cmake:73 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:69 (_cmake_find_compiler)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_CXX_COMPILER"
+    description: "CXX compiler"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "c++"
+      - "CC"
+      - "g++"
+      - "aCC"
+      - "cl"
+      - "bcc"
+      - "xlC"
+      - "icpx"
+      - "icx"
+      - "clang++"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/c++"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake:462 (find_file)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake:500 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/"
+    found: "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler: /usr/bin/c++ 
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "a.out"
+      
+      The CXX compiler identification is GNU, found in:
+        /home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/4.2.1/CompilerIdCXX/a.out
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_AR"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ar"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/ar"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_RANLIB"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ranlib"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/ranlib"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_STRIP"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "strip"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/strip"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_LINKER"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ld"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/ld"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_NM"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "nm"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/nm"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_OBJDUMP"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "objdump"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/objdump"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_OBJCOPY"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "objcopy"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/objcopy"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_READELF"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "readelf"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/readelf"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_DLLTOOL"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "dlltool"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    searched_directories:
+      - "/usr/bin/dlltool"
+      - "/home/from104/.yarn/bin/dlltool"
+      - "/snap/ghostty/420/bin/dlltool"
+      - "/home/from104/anaconda3/bin/dlltool"
+      - "/home/from104/anaconda3/condabin/dlltool"
+      - "/home/from104/.cargo/bin/dlltool"
+      - "/home/from104/.local/bin/dlltool"
+      - "/home/from104/bin/dlltool"
+      - "/usr/local/sbin/dlltool"
+      - "/usr/local/bin/dlltool"
+      - "/usr/sbin/dlltool"
+      - "/sbin/dlltool"
+      - "/bin/dlltool"
+      - "/usr/games/dlltool"
+      - "/usr/local/games/dlltool"
+      - "/snap/bin/dlltool"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_ADDR2LINE"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "addr2line"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    found: "/usr/bin/addr2line"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeFindBinUtils.cmake:243 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_TAPI"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "tapi"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    searched_directories:
+      - "/usr/bin/tapi"
+      - "/home/from104/.yarn/bin/tapi"
+      - "/snap/ghostty/420/bin/tapi"
+      - "/home/from104/anaconda3/bin/tapi"
+      - "/home/from104/anaconda3/condabin/tapi"
+      - "/home/from104/.cargo/bin/tapi"
+      - "/home/from104/.local/bin/tapi"
+      - "/home/from104/bin/tapi"
+      - "/usr/local/sbin/tapi"
+      - "/usr/local/bin/tapi"
+      - "/usr/sbin/tapi"
+      - "/sbin/tapi"
+      - "/bin/tapi"
+      - "/usr/games/tapi"
+      - "/usr/local/games/tapi"
+      - "/snap/bin/tapi"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/Compiler/GNU-FindBinUtils.cmake:18 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:207 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_CXX_COMPILER_AR"
+    description: "A wrapper around 'ar' adding the appropriate '--plugin' option for the GCC compiler"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "gcc-ar-13.3"
+      - "gcc-ar-13"
+      - "gcc-ar13"
+      - "gcc-ar"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    searched_directories:
+      - "/usr/bin/gcc-ar-13.3"
+      - "/home/from104/.yarn/bin/gcc-ar-13.3"
+      - "/snap/ghostty/420/bin/gcc-ar-13.3"
+      - "/home/from104/anaconda3/bin/gcc-ar-13.3"
+      - "/home/from104/anaconda3/condabin/gcc-ar-13.3"
+      - "/home/from104/.cargo/bin/gcc-ar-13.3"
+      - "/home/from104/.local/bin/gcc-ar-13.3"
+      - "/home/from104/bin/gcc-ar-13.3"
+      - "/usr/local/sbin/gcc-ar-13.3"
+      - "/usr/local/bin/gcc-ar-13.3"
+      - "/usr/sbin/gcc-ar-13.3"
+      - "/sbin/gcc-ar-13.3"
+      - "/bin/gcc-ar-13.3"
+      - "/usr/games/gcc-ar-13.3"
+      - "/usr/local/games/gcc-ar-13.3"
+      - "/snap/bin/gcc-ar-13.3"
+    found: "/usr/bin/gcc-ar-13"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/Compiler/GNU-FindBinUtils.cmake:30 (find_program)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCXXCompiler.cmake:207 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_CXX_COMPILER_RANLIB"
+    description: "A wrapper around 'ranlib' adding the appropriate '--plugin' option for the GCC compiler"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "gcc-ranlib-13.3"
+      - "gcc-ranlib-13"
+      - "gcc-ranlib13"
+      - "gcc-ranlib"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    searched_directories:
+      - "/usr/bin/gcc-ranlib-13.3"
+      - "/home/from104/.yarn/bin/gcc-ranlib-13.3"
+      - "/snap/ghostty/420/bin/gcc-ranlib-13.3"
+      - "/home/from104/anaconda3/bin/gcc-ranlib-13.3"
+      - "/home/from104/anaconda3/condabin/gcc-ranlib-13.3"
+      - "/home/from104/.cargo/bin/gcc-ranlib-13.3"
+      - "/home/from104/.local/bin/gcc-ranlib-13.3"
+      - "/home/from104/bin/gcc-ranlib-13.3"
+      - "/usr/local/sbin/gcc-ranlib-13.3"
+      - "/usr/local/bin/gcc-ranlib-13.3"
+      - "/usr/sbin/gcc-ranlib-13.3"
+      - "/sbin/gcc-ranlib-13.3"
+      - "/bin/gcc-ranlib-13.3"
+      - "/usr/games/gcc-ranlib-13.3"
+      - "/usr/local/games/gcc-ranlib-13.3"
+      - "/snap/bin/gcc-ranlib-13.3"
+    found: "/usr/bin/gcc-ranlib-13"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/CMakeScratch/TryCompile-KoCKxW"
+      binary: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/CMakeScratch/TryCompile-KoCKxW"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/CMakeScratch/TryCompile-KoCKxW'
+        
+        Run Build Command(s): /home/from104/.local/lib/python3.12/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_cd871/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_cd871.dir/build.make CMakeFiles/cmTC_cd871.dir/build
+        gmake[1]: Entering directory '/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/CMakeScratch/TryCompile-KoCKxW'
+        Building CXX object CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o
+        /usr/bin/c++   -v -o CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o -c /home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeCXXCompilerABI.cpp
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/c++
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_cd871.dir/'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/cc1plus -quiet -v -imultiarch x86_64-linux-gnu -D_GNU_SOURCE /home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_cd871.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -mtune=generic -march=x86-64 -version -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/ccg9RHVR.s
+        GNU C++17 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)
+        	compiled by GNU C version 13.3.0, GMP version 6.3.0, MPFR version 4.2.1, MPC version 1.3.1, isl version isl-0.26-GMP
+        
+        GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
+        ignoring duplicate directory "/usr/include/x86_64-linux-gnu/c++/13"
+        ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /usr/include/c++/13
+         /usr/include/x86_64-linux-gnu/c++/13
+         /usr/include/c++/13/backward
+         /usr/lib/gcc/x86_64-linux-gnu/13/include
+         /usr/local/include
+         /usr/x86_64-linux-gnu/include
+         /usr/include/x86_64-linux-gnu
+         /usr/include
+        End of search list.
+        Compiler executable checksum: c81c05345ce537099dafd5580045814a
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_cd871.dir/'
+         as -v --64 -o CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o /tmp/ccg9RHVR.s
+        GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.'
+        Linking CXX executable cmTC_cd871
+        /home/from104/.local/lib/python3.12/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_cd871.dir/link.txt --verbose=1
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/c++
+        COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_cd871' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_cd871.'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccdDe3Qy.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_cd871 /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. -v CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crtn.o
+        collect2 version 13.3.0
+        /usr/bin/ld -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccdDe3Qy.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_cd871 /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. -v CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crtn.o
+        GNU ld (GNU Binutils for Ubuntu) 2.42
+        COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_cd871' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_cd871.'
+        /usr/bin/c++  -v -Wl,-v CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_cd871
+        gmake[1]: Leaving directory '/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/CMakeScratch/TryCompile-KoCKxW'
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerABI.cmake:217 (message)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Parsed CXX implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/usr/include/c++/13]
+          add: [/usr/include/x86_64-linux-gnu/c++/13]
+          add: [/usr/include/c++/13/backward]
+          add: [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+          add: [/usr/local/include]
+          add: [/usr/x86_64-linux-gnu/include]
+          add: [/usr/include/x86_64-linux-gnu]
+          add: [/usr/include]
+        end of search list found
+        collapse include dir [/usr/include/c++/13] ==> [/usr/include/c++/13]
+        collapse include dir [/usr/include/x86_64-linux-gnu/c++/13] ==> [/usr/include/x86_64-linux-gnu/c++/13]
+        collapse include dir [/usr/include/c++/13/backward] ==> [/usr/include/c++/13/backward]
+        collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/include] ==> [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+        collapse include dir [/usr/local/include] ==> [/usr/local/include]
+        collapse include dir [/usr/x86_64-linux-gnu/include] ==> [/usr/x86_64-linux-gnu/include]
+        collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
+        collapse include dir [/usr/include] ==> [/usr/include]
+        implicit include dirs: [/usr/include/c++/13;/usr/include/x86_64-linux-gnu/c++/13;/usr/include/c++/13/backward;/usr/lib/gcc/x86_64-linux-gnu/13/include;/usr/local/include;/usr/x86_64-linux-gnu/include;/usr/include/x86_64-linux-gnu;/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|"|[0-9]+>[ 	-]*Build:[ 	0-9]+ ms[ 	]*)?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)))("|,| |$)]
+        ignore line: [Change Dir: '/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/CMakeScratch/TryCompile-KoCKxW']
+        ignore line: []
+        ignore line: [Run Build Command(s): /home/from104/.local/lib/python3.12/site-packages/cmake/data/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_cd871/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_cd871.dir/build.make CMakeFiles/cmTC_cd871.dir/build]
+        ignore line: [gmake[1]: Entering directory '/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/CMakeScratch/TryCompile-KoCKxW']
+        ignore line: [Building CXX object CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o]
+        ignore line: [/usr/bin/c++   -v -o CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o -c /home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/c++]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_cd871.dir/']
+        ignore line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/cc1plus -quiet -v -imultiarch x86_64-linux-gnu -D_GNU_SOURCE /home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeCXXCompilerABI.cpp -quiet -dumpdir CMakeFiles/cmTC_cd871.dir/ -dumpbase CMakeCXXCompilerABI.cpp.cpp -dumpbase-ext .cpp -mtune=generic -march=x86-64 -version -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/ccg9RHVR.s]
+        ignore line: [GNU C++17 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)]
+        ignore line: [	compiled by GNU C version 13.3.0  GMP version 6.3.0  MPFR version 4.2.1  MPC version 1.3.1  isl version isl-0.26-GMP]
+        ignore line: []
+        ignore line: [GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072]
+        ignore line: [ignoring duplicate directory "/usr/include/x86_64-linux-gnu/c++/13"]
+        ignore line: [ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /usr/include/c++/13]
+        ignore line: [ /usr/include/x86_64-linux-gnu/c++/13]
+        ignore line: [ /usr/include/c++/13/backward]
+        ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/include]
+        ignore line: [ /usr/local/include]
+        ignore line: [ /usr/x86_64-linux-gnu/include]
+        ignore line: [ /usr/include/x86_64-linux-gnu]
+        ignore line: [ /usr/include]
+        ignore line: [End of search list.]
+        ignore line: [Compiler executable checksum: c81c05345ce537099dafd5580045814a]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_cd871.dir/']
+        ignore line: [ as -v --64 -o CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o /tmp/ccg9RHVR.s]
+        ignore line: [GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o' '-c' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.']
+        ignore line: [Linking CXX executable cmTC_cd871]
+        ignore line: [/home/from104/.local/lib/python3.12/site-packages/cmake/data/bin/cmake -E cmake_link_script CMakeFiles/cmTC_cd871.dir/link.txt --verbose=1]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/c++]
+        ignore line: [COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-v' '-o' 'cmTC_cd871' '-shared-libgcc' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_cd871.']
+        link line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccdDe3Qy.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_cd871 /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. -v CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crtn.o]
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/collect2] ==> ignore
+          arg [-plugin] ==> ignore
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so] ==> ignore
+          arg [-plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper] ==> ignore
+          arg [-plugin-opt=-fresolution=/tmp/ccdDe3Qy.res] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [--build-id] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [elf_x86_64] ==> ignore
+          arg [--hash-style=gnu] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
+          arg [-pie] ==> ignore
+          arg [-znow] ==> ignore
+          arg [-zrelro] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_cd871] ==> ignore
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/Scrt1.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/Scrt1.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crti.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crti.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib]
+          arg [-L/lib/x86_64-linux-gnu] ==> dir [/lib/x86_64-linux-gnu]
+          arg [-L/lib/../lib] ==> dir [/lib/../lib]
+          arg [-L/usr/lib/x86_64-linux-gnu] ==> dir [/usr/lib/x86_64-linux-gnu]
+          arg [-L/usr/lib/../lib] ==> dir [/usr/lib/../lib]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..]
+          arg [-v] ==> ignore
+          arg [CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
+          arg [-lstdc++] ==> lib [stdc++]
+          arg [-lm] ==> lib [m]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+          arg [-lc] ==> lib [c]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crtn.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crtn.o]
+        ignore line: [collect2 version 13.3.0]
+        ignore line: [/usr/bin/ld -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccdDe3Qy.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_cd871 /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. -v CMakeFiles/cmTC_cd871.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crtn.o]
+        linker tool for 'CXX': /usr/bin/ld
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/Scrt1.o] ==> [/usr/x86_64-linux-gnu/lib/Scrt1.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crti.o] ==> [/usr/x86_64-linux-gnu/lib/crti.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib/crtn.o] ==> [/usr/x86_64-linux-gnu/lib/crtn.o]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13] ==> [/usr/lib/gcc/x86_64-linux-gnu/13]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib/../lib] ==> [/usr/x86_64-linux-gnu/lib]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> [/usr/lib]
+        collapse library dir [/lib/x86_64-linux-gnu] ==> [/lib/x86_64-linux-gnu]
+        collapse library dir [/lib/../lib] ==> [/lib]
+        collapse library dir [/usr/lib/x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/../lib] ==> [/usr/lib]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/lib] ==> [/usr/x86_64-linux-gnu/lib]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> [/usr/lib]
+        implicit libs: [stdc++;m;gcc_s;gcc;c;gcc_s;gcc]
+        implicit objs: [/usr/x86_64-linux-gnu/lib/Scrt1.o;/usr/x86_64-linux-gnu/lib/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/usr/x86_64-linux-gnu/lib/crtn.o]
+        implicit dirs: [/usr/lib/gcc/x86_64-linux-gnu/13;/usr/x86_64-linux-gnu/lib;/usr/lib/x86_64-linux-gnu;/usr/lib;/lib/x86_64-linux-gnu;/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/Internal/CMakeDetermineLinkerId.cmake:38 (message)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/share/cmake-4.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Running the CXX compiler's linker: "/usr/bin/ld" "-v"
+      GNU ld (GNU Binutils for Ubuntu) 2.42
+  -
+    kind: "find_package-v1"
+    backtrace:
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5/Qt5Config.cmake:28 (find_package)"
+      - "CMakeLists.txt:11 (find_package)"
+    name: "Qt5Core"
+    configs:
+      -
+        filename: "Qt5CoreConfig.cmake"
+        kind: "cmake"
+      -
+        filename: "qt5core-config.cmake"
+        kind: "cmake"
+    version_request:
+      exact: false
+    settings:
+      required: "required_explicit"
+      quiet: false
+      global: false
+      policy_scope: true
+      bypass_provider: false
+      names:
+        - "Qt5Core"
+      search_paths:
+        - "/usr/lib/x86_64-linux-gnu/cmake"
+      path_suffixes:
+        - ""
+      paths:
+        CMAKE_FIND_USE_CMAKE_PATH: false
+        CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+        CMAKE_FIND_USE_INSTALL_PREFIX: true
+        CMAKE_FIND_USE_PACKAGE_ROOT_PATH: true
+        CMAKE_FIND_USE_CMAKE_PACKAGE_REGISTRY: true
+        CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY: true
+        CMAKE_FIND_ROOT_PATH_MODE: "BOTH"
+    candidates:
+      -
+        path: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/pkgRedirects/Qt5CoreConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/pkgRedirects/qt5core-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5CoreConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/qt5core-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+    found:
+      path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Core/Qt5CoreConfig.cmake"
+      mode: "config"
+      version: "5.15.13"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:22 (find_library)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:67 (_qt5gui_find_extra_libs)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfig.cmake:244 (include)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5/Qt5Config.cmake:28 (find_package)"
+      - "CMakeLists.txt:11 (find_package)"
+    mode: "library"
+    variable: "Qt5Gui_EGL_LIBRARY"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "EGL"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/usr/local/lib/x86_64-linux-gnu/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+      - "/usr/lib/x86_64-linux-gnu/"
+      - "/usr/lib/"
+      - "/usr/"
+      - "/lib/x86_64-linux-gnu/"
+      - "/lib/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/lib/x86_64-linux-gnu/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/lib/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/"
+      - "/usr/X11R6/lib/x86_64-linux-gnu/"
+      - "/usr/X11R6/lib/"
+      - "/usr/X11R6/"
+      - "/usr/pkg/lib/x86_64-linux-gnu/"
+      - "/usr/pkg/lib/"
+      - "/usr/pkg/"
+      - "/opt/lib/x86_64-linux-gnu/"
+      - "/opt/lib/"
+      - "/opt/"
+      - "/usr/lib/X11/"
+    searched_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/usr/local/lib/x86_64-linux-gnu/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+    found: "/usr/lib/x86_64-linux-gnu/libEGL.so"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:50 (find_library)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:67 (_qt5gui_find_extra_libs)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfig.cmake:244 (include)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5/Qt5Config.cmake:28 (find_package)"
+      - "CMakeLists.txt:11 (find_package)"
+    mode: "library"
+    variable: "Qt5Gui_EGL_LIBRARY_DEBUG"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "EGLd"
+    candidate_directories:
+      - "/home/from104/work/unim/unim-frontends/qt5/"
+    searched_directories:
+      - "/home/from104/work/unim/unim-frontends/qt5/"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:22 (find_library)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:69 (_qt5gui_find_extra_libs)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfig.cmake:244 (include)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5/Qt5Config.cmake:28 (find_package)"
+      - "CMakeLists.txt:11 (find_package)"
+    mode: "library"
+    variable: "Qt5Gui_GL_LIBRARY"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "GL"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/usr/local/lib/x86_64-linux-gnu/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+      - "/usr/lib/x86_64-linux-gnu/"
+      - "/usr/lib/"
+      - "/usr/"
+      - "/lib/x86_64-linux-gnu/"
+      - "/lib/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/lib/x86_64-linux-gnu/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/lib/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/"
+      - "/usr/X11R6/lib/x86_64-linux-gnu/"
+      - "/usr/X11R6/lib/"
+      - "/usr/X11R6/"
+      - "/usr/pkg/lib/x86_64-linux-gnu/"
+      - "/usr/pkg/lib/"
+      - "/usr/pkg/"
+      - "/opt/lib/x86_64-linux-gnu/"
+      - "/opt/lib/"
+      - "/opt/"
+      - "/usr/lib/X11/"
+    searched_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/usr/local/lib/x86_64-linux-gnu/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+    found: "/usr/lib/x86_64-linux-gnu/libGL.so"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:50 (find_library)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake:69 (_qt5gui_find_extra_libs)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfig.cmake:244 (include)"
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5/Qt5Config.cmake:28 (find_package)"
+      - "CMakeLists.txt:11 (find_package)"
+    mode: "library"
+    variable: "Qt5Gui_GL_LIBRARY_DEBUG"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "GLd"
+    candidate_directories:
+      - "/home/from104/work/unim/unim-frontends/qt5/"
+    searched_directories:
+      - "/home/from104/work/unim/unim-frontends/qt5/"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "find_package-v1"
+    backtrace:
+      - "/usr/lib/x86_64-linux-gnu/cmake/Qt5/Qt5Config.cmake:28 (find_package)"
+      - "CMakeLists.txt:11 (find_package)"
+    name: "Qt5Gui"
+    configs:
+      -
+        filename: "Qt5GuiConfig.cmake"
+        kind: "cmake"
+      -
+        filename: "qt5gui-config.cmake"
+        kind: "cmake"
+    version_request:
+      exact: false
+    settings:
+      required: "required_explicit"
+      quiet: false
+      global: false
+      policy_scope: true
+      bypass_provider: false
+      names:
+        - "Qt5Gui"
+      search_paths:
+        - "/usr/lib/x86_64-linux-gnu/cmake"
+      path_suffixes:
+        - ""
+      paths:
+        CMAKE_FIND_USE_CMAKE_PATH: false
+        CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+        CMAKE_FIND_USE_INSTALL_PREFIX: true
+        CMAKE_FIND_USE_PACKAGE_ROOT_PATH: true
+        CMAKE_FIND_USE_CMAKE_PACKAGE_REGISTRY: true
+        CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY: true
+        CMAKE_FIND_ROOT_PATH_MODE: "BOTH"
+    candidates:
+      -
+        path: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/pkgRedirects/Qt5GuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/pkgRedirects/qt5gui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5GuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/qt5gui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+    found:
+      path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5GuiConfig.cmake"
+      mode: "config"
+      version: "5.15.13"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+  -
+    kind: "find_package-v1"
+    backtrace:
+      - "CMakeLists.txt:11 (find_package)"
+    name: "Qt5"
+    components:
+      -
+        name: "Core"
+        required: true
+        found: false
+      -
+        name: "Gui"
+        required: true
+        found: false
+    configs:
+      -
+        filename: "Qt5Config.cmake"
+        kind: "cmake"
+      -
+        filename: "qt5-config.cmake"
+        kind: "cmake"
+    version_request:
+      exact: false
+    settings:
+      required: "required_explicit"
+      quiet: false
+      global: false
+      policy_scope: true
+      bypass_provider: false
+      names:
+        - "Qt5"
+      path_suffixes:
+        - ""
+      paths:
+        CMAKE_FIND_USE_CMAKE_PATH: true
+        CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+        CMAKE_FIND_USE_INSTALL_PREFIX: true
+        CMAKE_FIND_USE_PACKAGE_ROOT_PATH: true
+        CMAKE_FIND_USE_CMAKE_PACKAGE_REGISTRY: true
+        CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY: true
+        CMAKE_FIND_ROOT_PATH_MODE: "BOTH"
+    candidates:
+      -
+        path: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/pkgRedirects/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/from104/work/unim/unim-frontends/qt5/build/CMakeFiles/pkgRedirects/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Xml/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Xml/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5XkbCommonSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5XkbCommonSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5XcbQpa/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5XcbQpa/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Widgets/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Widgets/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5VulkanSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5VulkanSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5ThemeSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5ThemeSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Test/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Test/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Sql/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Sql/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5ServiceSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5ServiceSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5PrintSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5PrintSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5PlatformCompositorSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5PlatformCompositorSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5OpenGLExtensions/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5OpenGLExtensions/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5OpenGL/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5OpenGL/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Network/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Network/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5LinuxAccessibilitySupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5LinuxAccessibilitySupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5KmsSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5KmsSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5InputSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5InputSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Gui/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5GlxSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5GlxSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5FontDatabaseSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5FontDatabaseSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5FbSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5FbSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EventDispatcherSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EventDispatcherSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EglSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EglSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EglFsKmsSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EglFsKmsSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EglFSDeviceIntegration/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EglFSDeviceIntegration/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EdidSupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5EdidSupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5DeviceDiscoverySupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5DeviceDiscoverySupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5DBus/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5DBus/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Core/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Core/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Concurrent/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5Concurrent/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5AccessibilitySupport/Qt5Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5AccessibilitySupport/qt5-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+    found:
+      path: "/usr/lib/x86_64-linux-gnu/cmake/Qt5/Qt5Config.cmake"
+      mode: "config"
+      version: "5.15.13"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "CMakeLists.txt:19 (find_library)"
+    mode: "library"
+    variable: "UNIM_CAPI_LIB"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "unim_capi"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/usr/local/lib/x86_64-linux-gnu/"
+      - "/usr/local/lib/"
+      - "/usr/local/"
+      - "/usr/lib/x86_64-linux-gnu/"
+      - "/usr/lib/"
+      - "/usr/"
+      - "/lib/x86_64-linux-gnu/"
+      - "/lib/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/lib/x86_64-linux-gnu/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/lib/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/"
+      - "/usr/X11R6/lib/x86_64-linux-gnu/"
+      - "/usr/X11R6/lib/"
+      - "/usr/X11R6/"
+      - "/usr/pkg/lib/x86_64-linux-gnu/"
+      - "/usr/pkg/lib/"
+      - "/usr/pkg/"
+      - "/opt/lib/x86_64-linux-gnu/"
+      - "/opt/lib/"
+      - "/opt/"
+      - "/usr/lib/X11/"
+      - "/usr/local/lib/"
+      - "/usr/lib/"
+    searched_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/usr/local/lib/x86_64-linux-gnu/"
+    found: "/usr/local/lib/libunim_capi.so"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "CMakeLists.txt:20 (find_path)"
+    mode: "path"
+    variable: "UNIM_CAPI_INCLUDE"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "unim.h"
+    candidate_directories:
+      - "/usr/bin/"
+      - "/home/from104/.yarn/bin/"
+      - "/snap/ghostty/420/bin/"
+      - "/home/from104/anaconda3/bin/"
+      - "/home/from104/anaconda3/condabin/"
+      - "/home/from104/.cargo/bin/"
+      - "/home/from104/.local/bin/"
+      - "/home/from104/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/usr/local/include/x86_64-linux-gnu/"
+      - "/usr/local/include/"
+      - "/usr/local/"
+      - "/usr/include/x86_64-linux-gnu/"
+      - "/usr/include/"
+      - "/usr/"
+      - "/include/x86_64-linux-gnu/"
+      - "/include/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/include/x86_64-linux-gnu/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/include/"
+      - "/home/from104/.local/lib/python3.12/site-packages/cmake/data/"
+      - "/usr/X11R6/include/x86_64-linux-gnu/"
+      - "/usr/X11R6/include/"
+      - "/usr/X11R6/"
+      - "/usr/pkg/include/x86_64-linux-gnu/"
+      - "/usr/pkg/include/"
+      - "/usr/pkg/"
+      - "/opt/include/x86_64-linux-gnu/"
+      - "/opt/include/"
+      - "/opt/"
+      - "/usr/include/X11/"
+      - "/usr/local/include/"
+      - "/usr/include/"
+    searched_directories:
+      - "/usr/bin/unim.h"
+      - "/home/from104/.yarn/bin/unim.h"
+      - "/snap/ghostty/420/bin/unim.h"
+      - "/home/from104/anaconda3/bin/unim.h"
+      - "/home/from104/anaconda3/condabin/unim.h"
+      - "/home/from104/.cargo/bin/unim.h"
+      - "/home/from104/.local/bin/unim.h"
+      - "/home/from104/bin/unim.h"
+      - "/usr/local/sbin/unim.h"
+      - "/usr/local/bin/unim.h"
+      - "/usr/sbin/unim.h"
+      - "/sbin/unim.h"
+      - "/bin/unim.h"
+      - "/usr/games/unim.h"
+      - "/usr/local/games/unim.h"
+      - "/snap/bin/unim.h"
+      - "/usr/local/include/x86_64-linux-gnu/unim.h"
+    found: "/usr/local/include/"
+    search_context:
+      ENV{PATH}:
+        - "/usr/bin"
+        - "/home/from104/.yarn/bin"
+        - "/usr/bin"
+        - "/snap/ghostty/420/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/bin"
+        - "/usr/bin"
+        - "/home/from104/anaconda3/condabin"
+        - "/usr/bin"
+        - "/home/from104/.cargo/bin"
+        - "/usr/bin"
+        - "/home/from104/.local/bin"
+        - "/usr/bin"
+        - "/home/from104/bin"
+        - "/usr/bin"
+        - "/usr/local/sbin"
+        - "/usr/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/bin"
+        - "/usr/games"
+        - "/usr/bin"
+        - "/usr/local/games"
+        - "/usr/bin"
+        - "/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/from104/.local/lib/python3.12/site-packages/cmake/data"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_INCLUDE_PATH:
+        - "/usr/include/X11"
+...
