@@ -1,1 +1,0 @@
-/usr/bin/cc -fPIC -shared -Wl,--dependency-file=CMakeFiles/im-unim.dir/link.d  -o libim-unim.so "CMakeFiles/im-unim.dir/src/immodule.c.o"   -L/usr/local/lib  -Wl,-rpath,/usr/local/lib: -lgtk-3 -lgdk-3 -lz -lpangocairo-1.0 -lpango-1.0 -lharfbuzz -latk-1.0 -lcairo-gobject -lcairo -lgdk_pixbuf-2.0 -lgio-2.0 -lgobject-2.0 -lglib-2.0 -lunim_capi

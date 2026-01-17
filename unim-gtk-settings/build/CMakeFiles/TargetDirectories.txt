@@ -1,7 +1,0 @@
-/home/from104/work/unim/unim-gtk-settings/build/CMakeFiles/unim-gtk-settings.dir
-/home/from104/work/unim/unim-gtk-settings/build/CMakeFiles/edit_cache.dir
-/home/from104/work/unim/unim-gtk-settings/build/CMakeFiles/rebuild_cache.dir
-/home/from104/work/unim/unim-gtk-settings/build/CMakeFiles/list_install_components.dir
-/home/from104/work/unim/unim-gtk-settings/build/CMakeFiles/install.dir
-/home/from104/work/unim/unim-gtk-settings/build/CMakeFiles/install/local.dir
-/home/from104/work/unim/unim-gtk-settings/build/CMakeFiles/install/strip.dir
