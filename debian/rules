@@ -15,6 +15,10 @@ override_dh_auto_build:
 	cargo build --release
 	# Build GNOME extension assets
 	$(MAKE) build
+	# Build GTK settings tool
+	mkdir -p unim-gtk-settings/build && cd unim-gtk-settings/build && cmake .. && make
+	# Build Qt settings tool
+	mkdir -p unim-qt-settings/build && cd unim-qt-settings/build && cmake .. && make
 
 override_dh_auto_test:
 	# Skip tests for now to speed up packaging

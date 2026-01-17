@@ -9,7 +9,7 @@ The project has a multi-part architecture and a long-term cross-platform vision:
 1.  **UNIM Core**: The core Rust library (`src/`) that contains the core Hangul composition logic.
 2.  **GNOME Shell Extension**: A GNOME Shell extension providing native Linux integration for manual conversion via `<Super>k`.
 3.  **Command-Line Interface (CLI)**: `unim-cli`, a standalone testing and interaction tool that powers the extension's conversion logic.
-4.  **Ultimate Vision (Roadmap)**: Expanding into a **Tauri-based tray application** for Windows, macOS, and Linux to provide global autocorrect and automatic language status switching.
+4.  **Ultimate Vision (Roadmap)**: Expanding into a **Tauri-based tray application** for Windows, macOS, and Linux to provide global typefix and automatic language status switching.
 
 The core logic supports various Hangul input methods, including 2-bul and 3-bul standards.
 

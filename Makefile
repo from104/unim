@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-UUID := unim-autocorrect@from104.github.io
+UUID := unim-typefix@from104.github.io
 VERSION := $(shell sed -n 's/.*"version": "\([^"]*\)".*/\1/p' unim-gnome-extension/metadata.json)
 ZIP_FILE := $(UUID)-$(VERSION).zip
 
@@ -16,7 +16,7 @@ build:
 	@mkdir -p unim-gnome-extension/bin
 	@echo "Compiling GSettings schema..."
 	@mkdir -p unim-gnome-extension/schemas
-	@cp unim-gnome-extension/org.gnome.shell.extensions.unim-autocorrect.gschema.xml unim-gnome-extension/schemas/
+	@cp unim-gnome-extension/org.gnome.shell.extensions.unim-typefix.gschema.xml unim-gnome-extension/schemas/
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || echo "Note: glib-compile-schemas not available in this environment"
 	@echo "Compiling translations..."
 	@if command -v msgfmt >/dev/null 2>&1; then \
@@ -62,7 +62,7 @@ log:
 test:
 	@echo "Running extension tests..."
 	@echo "════════════════════════════════════════════════════════════"
-	@echo "🔍 unim-autocorrect GNOME Extension 테스트"
+	@echo "🔍 unim-typefix GNOME Extension 테스트"
 	@echo "════════════════════════════════════════════════════════════"
 	@echo
 	@echo "✅ 1. 설치 상태"
@@ -92,11 +92,11 @@ test:
 	@echo "✅ 3. GSettings 스키마"
 	@SCHEMA_DIR="$(HOME)/.local/share/gnome-shell/extensions/$(UUID)/schemas"; \
 	export GSETTINGS_SCHEMA_DIR="$$SCHEMA_DIR:$$GSETTINGS_SCHEMA_DIR"; \
-	if gsettings list-schemas 2>/dev/null | grep -q "org.gnome.shell.extensions.unim-autocorrect"; then \
+	if gsettings list-schemas 2>/dev/null | grep -q "org.gnome.shell.extensions.unim-typefix"; then \
 		echo "   ✓ 스키마 등록됨"; \
 		echo "   설정 값:"; \
-		echo "   - enable-extension: $$(gsettings get org.gnome.shell.extensions.unim-autocorrect enable-extension 2>/dev/null || echo 'N/A')"; \
-		echo "   - korean-layout: $$(gsettings get org.gnome.shell.extensions.unim-autocorrect korean-layout 2>/dev/null || echo 'N/A')"; \
+		echo "   - enable-extension: $$(gsettings get org.gnome.shell.extensions.unim-typefix enable-extension 2>/dev/null || echo 'N/A')"; \
+		echo "   - korean-layout: $$(gsettings get org.gnome.shell.extensions.unim-typefix korean-layout 2>/dev/null || echo 'N/A')"; \
 	else \
 		echo "   ✗ 스키마 미등록"; \
 	fi

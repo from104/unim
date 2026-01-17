@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: unim-autocorrect\n"
+"Project-Id-Version: unim-typefix
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2024-01-11 16:10+0900\n"
 "PO-Revision-Date: 2024-01-11 16:10+0900\n"
@@ -12,7 +12,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: extension.js:133
-msgid "UNIM Autocorrect"
+msgid "UNIM typefix
 msgstr "UNIM TypeFIX"
 
 #: extension.js:133

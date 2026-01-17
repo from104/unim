@@ -1,5 +1,5 @@
 /**
- * UNIM Autocorrect - GNOME Shell Extension
+ * UNIM typefixNOME Shell Extension
  * Hybrid Version: unim-cli + Native Shell APIs
  */
 
@@ -20,7 +20,7 @@ const PasteMode = {
     COPY_ONLY: 'copy_only', // No paste, copy to clipboard only
 };
 
-export default class UnimAutocorrectExtension extends Extension {
+export default class Unimtypefixnsion extends Extension {
     constructor(metadata) {
         super(metadata);
         this._settings = null;

@@ -1,6 +1,6 @@
 # Publishing GNOME Shell Extension
 
-This guide outlines the process of packaging, registering, and distributing the **UNIM Autocorrect** GNOME Shell extension.
+This guide outlines the process of packaging, registering, and distributing the **UNIM typefix** GNOME Shell extension.
 
 ## 1. Prerequisites
 
@@ -25,7 +25,7 @@ make pack
 1. Builds `unim-cli` in release mode.
 2. Compiles GSettings schemas (`gschemas.compiled`).
 3. Copies all required files (metadata, extension logic, schemas, and binary) into a temporary structure.
-4. Creates a ZIP file named `unim-autocorrect@from104.github.io-<version>.zip`.
+4. Creates a ZIP file named `unim-typefix@from104.github.io-<version>.zip`.
 
 ### Manual Packaging Checklist
 If you need to package manually, ensure the ZIP contains:

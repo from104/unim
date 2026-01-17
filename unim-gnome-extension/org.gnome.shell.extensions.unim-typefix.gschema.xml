@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.unim-autocorrect" path="/org/gnome/shell/extensions/unim-autocorrect/" gettext-domain="gnome-shell-extensions">
+  <schema id="org.gnome.shell.extensions.unim-typefix" path="/org/gnome/shell/extensions/unim-typefix/" gettext-domain="gnome-shell-extensions">
     <!-- General Settings -->
     <key type="b" name="enable-extension">
       <default>true</default>
       <summary>Enable Extension</summary>
-      <description>Whether to enable the entire unim autocorrect extension</description>
+      <description>Whether to enable the entire unim typefix extension</description>
     </key>
 
     <key type="b" name="show-notification">
