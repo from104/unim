@@ -98,11 +98,25 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         .num_lock = false
     };
 
+    // 설정 파일 변경 체크 (mtime 기반, 매우 가벼움)
+    if (m_config && unim_config_reload(m_config)) {
+        // 설정이 변경되었으면 엔진에 새 레이아웃 적용
+        if (m_engine) {
+            unim_engine_set_hangul_layout(m_engine,
+                unim_config_get_hangul_layout(m_config));
+            unim_engine_set_latin_layout(m_engine,
+                unim_config_get_latin_layout(m_config));
+        }
+    }
+
     // 키 입력 처리
+    // X11에서 nativeScanCode() = X11 keycode = evdev + 8
+    quint32 scanCode = keyEvent->nativeScanCode();
+    uint16_t evdev_code = (scanCode > 8) ? static_cast<uint16_t>(scanCode - 8) : 0;
     UnimInputResult result = unim_engine_press_key(
         m_engine,
         m_config,
-        static_cast<uint16_t>(keyEvent->nativeScanCode()),
+        evdev_code,
         state
     );
 

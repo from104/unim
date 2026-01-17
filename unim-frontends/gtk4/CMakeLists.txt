@@ -8,9 +8,25 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED gtk4)
 
-# unim-capi 라이브러리 (시스템 설치 또는 로컬)
-find_library(UNIM_CAPI_LIB unim_capi PATHS /usr/local/lib /usr/lib)
-find_path(UNIM_CAPI_INCLUDE unim.h PATHS /usr/local/include /usr/include)
+# unim-capi 라이브러리 (로컬 빌드 우선, 시스템 설치 fallback)
+set(UNIM_LOCAL_ROOT "${CMAKE_SOURCE_DIR}/../..")
+set(UNIM_CAPI_LOCAL_INCLUDE "${UNIM_LOCAL_ROOT}/unim-capi/include")
+set(UNIM_CAPI_LOCAL_LIB "${UNIM_LOCAL_ROOT}/target/debug/libunim_capi.so")
+
+if(EXISTS ${UNIM_CAPI_LOCAL_INCLUDE}/unim.h)
+    set(UNIM_CAPI_INCLUDE ${UNIM_CAPI_LOCAL_INCLUDE})
+else()
+    find_path(UNIM_CAPI_INCLUDE unim.h PATHS /usr/local/include /usr/include)
+endif()
+
+if(EXISTS ${UNIM_CAPI_LOCAL_LIB})
+    set(UNIM_CAPI_LIB ${UNIM_CAPI_LOCAL_LIB})
+else()
+    find_library(UNIM_CAPI_LIB unim_capi PATHS /usr/local/lib /usr/lib)
+endif()
+
+message(STATUS "UNIM C API include: ${UNIM_CAPI_INCLUDE}")
+message(STATUS "UNIM C API lib: ${UNIM_CAPI_LIB}")
 
 # IM 모듈 빌드
 add_library(im-unim-gtk4 MODULE

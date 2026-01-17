@@ -54,6 +54,25 @@ impl UnimHandler {
     pub fn configure_notify(&mut self, _event: &ConfigureNotifyEvent) {
         // TODO: 윈도우 크기/위치 변경 처리
     }
+
+    /// 설정 파일이 변경되었는지 확인하고 필요 시 다시 로드합니다.
+    ///
+    /// # Returns
+    ///
+    /// 설정이 변경되어 리로드되었으면 true
+    pub fn reload_config_if_changed(&mut self) -> bool {
+        if self.config.reload_if_changed() {
+            debug!("설정 파일 변경 감지, 리로드 완료");
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 현재 설정에 대한 참조를 반환합니다.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
 }
 
 impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> for UnimHandler {
@@ -171,6 +190,14 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             xev.detail,
             xev.state
         );
+
+        // 설정 파일 변경 체크 (mtime 기반, 매우 가벼움)
+        if self.config.reload_if_changed() {
+            debug!("설정 파일 변경 감지, 리로드 완료");
+            // 엔진에 새 레이아웃 적용
+            user_ic.user_data.engine.set_hangul_layout(self.config.engine.hangul.layout);
+            user_ic.user_data.engine.set_latin_layout(self.config.engine.latin.layout);
+        }
 
         // X11 키코드를 UNIM KeyCode로 변환 (X11 keycode = evdev + 8)
         let key = KeyCode::from_x11_keycode(xev.detail as u16);

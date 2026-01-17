@@ -11,11 +11,17 @@
 #include <gdk/gdkevents.h>
 #include <gio/gio.h>
 #include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <unim.h>
 
 /* 모듈 정보 */
 #define UNIM_IM_CONTEXT_ID "unim"
 #define UNIM_IM_CONTEXT_NAME "UNIM 한글 입력기"
+
+#ifndef GTK_IM_MODULE_EXTENSION_POINT_NAME
+#define GTK_IM_MODULE_EXTENSION_POINT_NAME "gtk-im-module"
+#endif
 
 /* 타입 정의 */
 #define UNIM_TYPE_IM_CONTEXT (unim_im_context_get_type())
@@ -39,12 +45,20 @@ static void unim_im_context_get_preedit_string(GtkIMContext *context, char **str
                                                 PangoAttrList **attrs, int *cursor_pos);
 static void unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area);
 
+/* Unim C API 추가 선언 (IDE 린트 지원용) */
+bool unim_config_reload(UnimConfig *config);
+UnimHangulLayout unim_config_get_hangul_layout(const UnimConfig *config);
+UnimLatinLayout unim_config_get_latin_layout(const UnimConfig *config);
+void unim_engine_set_hangul_layout(UnimEngine *engine, UnimHangulLayout layout);
+void unim_engine_set_latin_layout(UnimEngine *engine, UnimLatinLayout layout);
+
 static void
 unim_im_context_class_init(UnimIMContextClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS(klass);
     GtkIMContextClass *im_class = GTK_IM_CONTEXT_CLASS(klass);
 
+    /* GTK4에서는 filter_keypress가 GdkEvent*를 받음 */
     im_class->filter_keypress = unim_im_context_filter_keypress;
     im_class->focus_in = unim_im_context_focus_in;
     im_class->focus_out = unim_im_context_focus_out;
@@ -124,14 +138,27 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         .alt = (state & GDK_ALT_MASK) != 0,
         .super_key = (state & GDK_SUPER_MASK) != 0,
         .caps_lock = (state & GDK_LOCK_MASK) != 0,
-        .num_lock = FALSE
+        .num_lock = false
     };
 
+    /* 설정 파일 변경 체크 (mtime 기반, 매우 가벼움) */
+    if (unim->config && unim_config_reload(unim->config)) {
+        /* 설정이 변경되었으면 엔진에 새 레이아웃 적용 */
+        if (unim->engine) {
+            unim_engine_set_hangul_layout(unim->engine, 
+                unim_config_get_hangul_layout(unim->config));
+            unim_engine_set_latin_layout(unim->engine,
+                unim_config_get_latin_layout(unim->config));
+        }
+    }
+
     /* 키 입력 처리 */
+    /* GDK keycode = X11 keycode = evdev + 8, 엔진은 evdev 형식 기대 */
+    uint16_t evdev_code = (keycode > 8) ? (uint16_t)(keycode - 8) : 0;
     UnimInputResult result = unim_engine_press_key(
         unim->engine,
         unim->config,
-        (uint16_t)keycode,
+        evdev_code,
         mod_state
     );
 

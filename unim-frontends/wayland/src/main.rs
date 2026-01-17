@@ -5,12 +5,11 @@
 
 mod im_handler;
 
-use log::{error, info, warn};
-use std::sync::Arc;
+use log::{error, info};
 use wayland_client::{
     globals::{registry_queue_init, GlobalListContents},
     protocol::wl_seat::WlSeat,
-    Connection, Dispatch, EventQueue, QueueHandle,
+    Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols_misc::zwp_input_method_v2::client::{
     zwp_input_method_manager_v2::ZwpInputMethodManagerV2,
@@ -194,7 +193,7 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppData {
                 }
                 Event::Done => {
                     log::trace!("Done 이벤트");
-                    handler.done(proxy);
+                    handler.done(proxy, &mut state.config);
                 }
                 Event::Unavailable => {
                     log::warn!("입력 방식 사용 불가");

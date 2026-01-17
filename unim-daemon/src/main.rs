@@ -12,7 +12,6 @@ use std::sync::Arc;
 enum Module {
     Xim,
     Wayland,
-    Indicator,
 }
 
 impl Module {
@@ -20,7 +19,6 @@ impl Module {
         match self {
             Module::Xim => "unim-xim",
             Module::Wayland => "unim-wayland",
-            Module::Indicator => "unim-indicator",
         }
     }
 
@@ -28,7 +26,6 @@ impl Module {
         match self {
             Module::Xim => "XIM 서버",
             Module::Wayland => "Wayland IM",
-            Module::Indicator => "상태 표시기",
         }
     }
 }
@@ -47,11 +44,6 @@ fn detect_required_modules() -> Vec<Module> {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
         modules.push(Module::Wayland);
         info!("Wayland 환경 감지 - Wayland IM 추가");
-    }
-
-    // 인디케이터는 항상 추가 (GUI 환경에서)
-    if !modules.is_empty() {
-        modules.push(Module::Indicator);
     }
 
     modules

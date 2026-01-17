@@ -35,6 +35,14 @@ impl InputMethodHandler {
         }
     }
 
+    /// 설정을 업데이트합니다.
+    pub fn update_config(&mut self, config: &Config) {
+        self.config = config.clone();
+        self.engine.set_hangul_layout(config.engine.hangul.layout);
+        self.engine.set_latin_layout(config.engine.latin.layout);
+        log::debug!("핸들러 설정 업데이트 완료");
+    }
+
     /// 입력 방식 활성화
     pub fn activate(&mut self) {
         self.active = true;
@@ -70,7 +78,13 @@ impl InputMethodHandler {
     }
 
     /// Done 이벤트 처리 (상태 커밋)
-    pub fn done(&mut self, im: &ZwpInputMethodV2) {
+    pub fn done(&mut self, im: &ZwpInputMethodV2, config: &mut unim::config::Config) {
+        // 설정 파일 변경 체크 (mtime 기반, 매우 가벼움)
+        if config.reload_if_changed() {
+            log::debug!("설정 파일 변경 감지, 리로드 완료");
+            self.update_config(config);
+        }
+
         self.serial = self.serial.wrapping_add(1);
 
         // 대기 중인 커밋이 있으면 전송

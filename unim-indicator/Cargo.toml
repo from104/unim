@@ -1,0 +1,25 @@
+[package]
+name = "unim-indicator"
+version = "0.1.0"
+edition = "2021"
+description = "UNIM Input Method Status Indicator"
+
+[[bin]]
+name = "unim-indicator"
+path = "src/main.rs"
+
+[dependencies]
+# Core
+unim = { path = ".." }
+dirs = "5.0"
+
+# System tray
+libappindicator = "0.9"
+gtk = "0.18"
+
+# File watching
+inotify = "0.10"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"

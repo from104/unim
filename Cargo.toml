@@ -24,5 +24,6 @@ members = [
     "unim-frontends/xim",
     "unim-frontends/wayland",
     "unim-daemon",
+    "unim-indicator",
 ]
 resolver = "2"

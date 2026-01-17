@@ -56,7 +56,7 @@ pub extern "C" fn unim_api_version() -> usize {
 
 /// 기본 경로에서 설정을 로드합니다.
 ///
-/// 설정 파일이 없거나 파싱 실패 시 기본값을 반환합니다.
+/// 설정 파일이 없거나 파싱 실패 시 기본 설정을 생성하고 저장합니다.
 ///
 /// # 반환값
 ///
@@ -65,6 +65,18 @@ pub extern "C" fn unim_api_version() -> usize {
 pub extern "C" fn unim_config_load() -> *mut Config {
     let config = Config::load_from_default_path();
     Box::into_raw(Box::new(config))
+}
+
+/// 설정 파일 존재 및 유효성을 보장합니다.
+///
+/// 파일이 없거나 유효하지 않으면 기본 설정으로 생성합니다.
+///
+/// # 반환값
+///
+/// 성공 시 true, 실패 시 false
+#[no_mangle]
+pub extern "C" fn unim_config_ensure_file() -> bool {
+    Config::ensure_config_file().is_some()
 }
 
 /// 기본 설정을 생성합니다.
@@ -87,6 +99,34 @@ pub unsafe extern "C" fn unim_config_delete(config: *mut Config) {
     if !config.is_null() {
         drop(Box::from_raw(config));
     }
+}
+
+/// 설정 파일이 변경되어 다시 로드가 필요한지 확인합니다.
+///
+/// # Arguments
+///
+/// * `config` - Config 참조
+///
+/// # 반환값
+///
+/// 재로드가 필요하면 true
+#[no_mangle]
+pub extern "C" fn unim_config_needs_reload(config: &Config) -> bool {
+    config.needs_reload()
+}
+
+/// 설정 파일이 변경되었으면 다시 로드합니다.
+///
+/// # Arguments
+///
+/// * `config` - Config 참조 (mutable)
+///
+/// # 반환값
+///
+/// 재로드 성공 시 true, 변경이 없거나 실패 시 false
+#[no_mangle]
+pub extern "C" fn unim_config_reload(config: &mut Config) -> bool {
+    config.reload_if_changed()
 }
 
 // ============================================
@@ -368,6 +408,43 @@ pub extern "C" fn unim_latin_layout_display_name(layout: unim::config::LatinLayo
         unim::config::LatinLayout::Dvorak => "Dvorak",
     };
     UnimStr::new(name)
+}
+
+// ============================================
+// 상태 파일 관리
+// ============================================
+
+/// 상태 파일에서 현재 입력 모드를 읽습니다.
+///
+/// # 반환값
+///
+/// 0 = Latin, 1 = Hangul, -1 = 오류
+#[no_mangle]
+pub extern "C" fn unim_status_get() -> i32 {
+    match unim::status::get_status() {
+        Ok(unim::status::InputCategory::Latin) => 0,
+        Ok(unim::status::InputCategory::Hangul) => 1,
+        Err(_) => -1,
+    }
+}
+
+/// 상태 파일에 입력 모드를 씁니다.
+///
+/// # Arguments
+///
+/// * `category` - 0 = Latin, 1 = Hangul
+///
+/// # 반환값
+///
+/// 성공 시 true, 실패 시 false
+#[no_mangle]
+pub extern "C" fn unim_status_set(category: i32) -> bool {
+    let cat = match category {
+        0 => unim::status::InputCategory::Latin,
+        1 => unim::status::InputCategory::Hangul,
+        _ => return false,
+    };
+    unim::status::set_status(cat).is_ok()
 }
 
 #[cfg(test)]

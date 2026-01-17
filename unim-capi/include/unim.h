@@ -104,11 +104,36 @@ UnimConfig *unim_config_load(void);
 UnimConfig *unim_config_default(void);
 
 /**
+ * Ensures the config file exists and is valid.
+ * 
+ * Creates default config file if missing or invalid.
+ * 
+ * @return true if config file is valid, false on error.
+ */
+bool unim_config_ensure_file(void);
+
+/**
  * Frees a Config object.
  * 
  * @param config Config pointer created by unim_config_load or unim_config_default.
  */
 void unim_config_delete(UnimConfig *config);
+
+/**
+ * Checks if the config file has been modified and needs reload.
+ * 
+ * @param config Config pointer.
+ * @return true if reload is needed.
+ */
+bool unim_config_needs_reload(const UnimConfig *config);
+
+/**
+ * Reloads the config from file if it has been modified.
+ * 
+ * @param config Config pointer (will be updated in place).
+ * @return true if reload was successful, false if no change or failed.
+ */
+bool unim_config_reload(UnimConfig *config);
 
 /**
  * Sets the Hangul layout in the configuration.
@@ -231,10 +256,21 @@ bool unim_engine_is_composing(const UnimEngine *engine);
  */
 bool unim_engine_check_ready(const UnimEngine *engine);
 
-/**
- * Ends ready state.
- */
 UnimInputResult unim_engine_end_ready(UnimEngine *engine);
+
+/* ============================================
+ * Configuration Getters
+ * ============================================ */
+
+/**
+ * Gets the current Hangul layout from configuration.
+ */
+UnimHangulLayout unim_config_get_hangul_layout(const UnimConfig *config);
+
+/**
+ * Gets the current Latin layout from configuration.
+ */
+UnimLatinLayout unim_config_get_latin_layout(const UnimConfig *config);
 
 #ifdef __cplusplus
 }

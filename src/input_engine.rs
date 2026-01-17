@@ -294,6 +294,9 @@ impl InputEngine {
             InputCategory::Hangul => InputCategory::Latin,
             InputCategory::Latin => InputCategory::Hangul,
         };
+
+        // 상태 파일 업데이트
+        self.update_status_file();
     }
 
     /// 현재 입력 카테고리를 반환합니다.
@@ -306,7 +309,19 @@ impl InputEngine {
         if self.input_category != category {
             self.flush_preedit();
             self.input_category = category;
+            // 상태 파일 업데이트
+            self.update_status_file();
         }
+    }
+
+    /// 상태 파일을 업데이트합니다.
+    fn update_status_file(&self) {
+        let status_category = match self.input_category {
+            InputCategory::Hangul => crate::status::InputCategory::Hangul,
+            InputCategory::Latin => crate::status::InputCategory::Latin,
+        };
+        // 오류 발생 시 무시 (로깅은 하지 않음 - 성능을 위해)
+        let _ = crate::status::set_status(status_category);
     }
 
     /// commit 문자열을 반환합니다.

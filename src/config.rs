@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 /// 입력 카테고리 (한글/영문)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -69,6 +70,7 @@ impl LatinLayout {
 
 /// 자동 전환 설정
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AutoSwitchConfig {
     /// 자동 전환 활성화 여부
     pub enabled: bool,
@@ -80,6 +82,7 @@ pub struct AutoSwitchConfig {
 
 /// 한글 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HangulConfig {
     /// 한글 키보드 레이아웃
     pub layout: HangulLayout,
@@ -101,6 +104,7 @@ impl Default for HangulConfig {
 
 /// 영문 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LatinConfig {
     /// 영문 키보드 레이아웃
     pub layout: LatinLayout,
@@ -119,6 +123,7 @@ impl Default for LatinConfig {
 
 /// 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EngineConfig {
     /// 기본 입력 카테고리
     pub default_category: InputCategory,
@@ -143,9 +148,13 @@ impl Default for EngineConfig {
 
 /// UNIM 전체 설정
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// 엔진 설정
     pub engine: EngineConfig,
+    /// 마지막 로드 시점의 파일 수정 시간 (직렬화 제외)
+    #[serde(skip)]
+    pub last_modified: Option<SystemTime>,
 }
 
 impl Config {
@@ -165,11 +174,81 @@ impl Config {
 
     /// 기본 경로에서 설정을 로드합니다.
     ///
-    /// 설정 파일이 없거나 파싱 실패 시 기본값을 반환합니다.
+    /// 설정 파일이 없거나 파싱 실패 시:
+    /// - 기본 설정을 생성하고 파일로 저장을 시도합니다.
+    /// - 저장 실패 시 (퍼미션 등) 로그로 해결 방법을 안내합니다.
     pub fn load_from_default_path() -> Self {
-        Self::default_config_path()
-            .and_then(|path| Self::load_from_path(&path).ok())
-            .unwrap_or_default()
+        let Some(path) = Self::default_config_path() else {
+            eprintln!("[UNIM] 설정 디렉터리 경로를 찾을 수 없습니다.");
+            return Self::default();
+        };
+
+        match Self::load_from_path(&path) {
+            Ok(config) => config,
+            Err(e) => {
+                // 오류 원인에 따라 복구 시도
+                Self::handle_load_error(&path, e)
+            }
+        }
+    }
+
+    /// 설정 로드 오류를 처리하고 복구를 시도합니다.
+    fn handle_load_error(path: &PathBuf, error: ConfigError) -> Self {
+        let mut default_config = Self::default();
+
+        match &error {
+            ConfigError::IoError(msg) => {
+                if msg.contains("No such file") || msg.contains("찾을 수 없") {
+                    // 파일이 없음 - 새로 생성
+                    eprintln!("[UNIM] 설정 파일이 없습니다. 기본 설정을 생성합니다: {:?}", path);
+                } else if msg.contains("Permission denied") || msg.contains("권한") {
+                    // 퍼미션 문제
+                    Self::log_permission_error(path);
+                    return default_config;
+                } else {
+                    eprintln!("[UNIM] 설정 파일 읽기 오류: {}. 기본 설정을 사용합니다.", msg);
+                }
+            }
+            ConfigError::ParseError(msg) => {
+                // 파싱 오류 - 기본 설정으로 덮어쓰기
+                eprintln!("[UNIM] 설정 파일 형식 오류: {}. 기본 설정으로 복구합니다.", msg);
+            }
+            _ => {
+                eprintln!("[UNIM] 설정 로드 오류: {:?}. 기본 설정을 사용합니다.", error);
+            }
+        }
+
+        // 기본 설정 저장 시도
+        match default_config.save_to_path(path) {
+            Ok(_) => {
+                eprintln!("[UNIM] 기본 설정 파일을 생성했습니다: {:?}", path);
+                // 저장 후 mtime 갱신
+                default_config.last_modified = Self::get_config_mtime(path);
+            }
+            Err(save_err) => {
+                if let ConfigError::IoError(msg) = &save_err {
+                    if msg.contains("Permission denied") || msg.contains("권한") {
+                        Self::log_permission_error(path);
+                    } else {
+                        eprintln!("[UNIM] 설정 파일 저장 실패: {}", msg);
+                    }
+                }
+            }
+        }
+
+        default_config
+    }
+
+    /// 퍼미션 오류 시 해결 방법을 로그로 안내합니다.
+    fn log_permission_error(path: &PathBuf) {
+        eprintln!("[UNIM] ⚠️ 설정 파일 접근 권한 오류: {:?}", path);
+        eprintln!("[UNIM] 다음 명령어로 해결할 수 있습니다:");
+        if let Some(parent) = path.parent() {
+            eprintln!("[UNIM]   mkdir -p {:?} && chmod 755 {:?}", parent, parent);
+        }
+        eprintln!("[UNIM]   touch {:?} && chmod 644 {:?}", path, path);
+        eprintln!("[UNIM] 또는 관리자 권한으로 설정 도구를 실행하세요:");
+        eprintln!("[UNIM]   unim-config");
     }
 
     /// 지정된 경로에서 설정을 로드합니다.
@@ -182,8 +261,13 @@ impl Config {
     ///
     /// 로드된 설정 또는 오류
     pub fn load_from_path(path: &PathBuf) -> Result<Self, ConfigError> {
+        let metadata = fs::metadata(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
+        let mtime = metadata.modified().ok();
+        
         let content = fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
-        serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))
+        let mut config: Self = serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        config.last_modified = mtime;
+        Ok(config)
     }
 
     /// 설정을 기본 경로에 저장합니다.
@@ -208,6 +292,82 @@ impl Config {
         let content =
             serde_yaml::to_string(self).map_err(|e| ConfigError::SerializeError(e.to_string()))?;
         fs::write(path, content).map_err(|e| ConfigError::IoError(e.to_string()))
+    }
+
+    /// 설정 파일이 변경되어 다시 로드가 필요한지 확인합니다.
+    ///
+    /// # Returns
+    ///
+    /// 재로드가 필요하면 true
+    pub fn needs_reload(&self) -> bool {
+        let Some(path) = Self::default_config_path() else {
+            return false;
+        };
+        
+        let Some(current_mtime) = Self::get_config_mtime(&path) else {
+            return false;
+        };
+        
+        match self.last_modified {
+            Some(saved_mtime) => current_mtime > saved_mtime,
+            None => true, // mtime이 없으면 항상 reload
+        }
+    }
+
+    /// 설정 파일이 변경되었으면 다시 로드합니다.
+    ///
+    /// 리로드 실패 시 현재 설정을 유지하고 로그를 출력합니다.
+    ///
+    /// # Returns
+    ///
+    /// 재로드 성공 시 true
+    pub fn reload_if_changed(&mut self) -> bool {
+        if !self.needs_reload() {
+            return false;
+        }
+
+        let Some(path) = Self::default_config_path() else {
+            return false;
+        };
+        
+        match Self::load_from_path(&path) {
+            Ok(new_config) => {
+                *self = new_config;
+                true
+            }
+            Err(e) => {
+                // 리로드 실패 시 현재 설정 유지
+                eprintln!("[UNIM] 설정 리로드 실패: {:?}. 현재 설정을 유지합니다.", e);
+                false
+            }
+        }
+    }
+
+    /// 설정 파일 존재 및 유효성을 보장합니다.
+    ///
+    /// 파일이 없거나 유효하지 않으면 기본 설정으로 생성합니다.
+    ///
+    /// # Returns
+    ///
+    /// 설정 파일 경로 (성공 시)
+    pub fn ensure_config_file() -> Option<PathBuf> {
+        let path = Self::default_config_path()?;
+        
+        // 파일 유효성 확인
+        if Self::load_from_path(&path).is_err() {
+            // 기본 설정 저장
+            let default_config = Self::default();
+            if default_config.save_to_path(&path).is_ok() {
+                eprintln!("[UNIM] 설정 파일을 초기화했습니다: {:?}", path);
+            }
+        }
+        
+        Some(path)
+    }
+
+    /// 파일의 수정 시간을 가져옵니다.
+    fn get_config_mtime(path: &PathBuf) -> Option<SystemTime> {
+        fs::metadata(path).ok()?.modified().ok()
     }
 }
 

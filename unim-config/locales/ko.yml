@@ -54,3 +54,15 @@ error_invalid_layout: "잘못된 %{kind} 레이아웃: %{value}. 가능한 값: 
 error_invalid_threshold: "잘못된 임계값: %{value}. 0.0 ~ 1.0 사이의 숫자를 입력하세요."
 error_save_failed: "설정 저장 실패: %{error}"
 error_path_not_found: "설정 파일 경로를 찾을 수 없습니다."
+
+# 인터렉티브 설정
+select_setting: "설정할 항목을 선택하세요"
+select_hangul_layout: "한글 레이아웃 선택"
+select_latin_layout: "영문 레이아웃 선택"
+enable_auto_switch: "자동 전환을 활성화하시겠습니까?"
+enter_threshold: "자동 전환 임계값 입력 (0.0 ~ 1.0)"
+confirm_reset: "정말로 설정을 초기화하시겠습니까?"
+save_and_exit: "저장 및 종료"
+exit_without_save: "저장하지 않고 종료"
+exit_canceled: "설정이 취소되었습니다."
+help_hint: "(도움말을 보려면 --help 옵션을 사용하세요)"

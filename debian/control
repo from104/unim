@@ -50,3 +50,10 @@ Architecture: all
 Depends: unim-cli (= ${binary:Version}), ${misc:Depends}, gnome-shell
 Description: UNIM GNOME Shell Extension
  GNOME Shell extension for UNIM, providing native integration and hotkeys.
+
+Package: unim-indicator
+Architecture: amd64
+Depends: unim-core (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
+Description: Korean Input Method Engine (Status Indicator)
+ System tray indicator for UNIM that displays current input mode (Hangul/Latin).
+ Works on GNOME, KDE, XFCE, and other desktop environments.
