@@ -52,3 +52,31 @@ Thumbs.db
 # Test artifacts
 *.test
 *.profdata
+
+# Debian packaging
+debian/.debhelper/
+debian/*.debhelper.log
+debian/*.substvars
+debian/debhelper-build-stamp
+debian/files
+debian/tmp/
+debian/unim-core/
+debian/unim-cli/
+debian/unim-xim/
+debian/unim-wayland/
+debian/unim-gtk/
+debian/unim-qt/
+debian/gnome-shell-extension-unim/
+*.deb
+*.ddeb
+*.changes
+*.buildinfo
+*.dsc
+*.upload
+*.tar.gz
+*.tar.xz
+
+# Frontend build and IDE cache
+**/build/
+**/.cache/
+

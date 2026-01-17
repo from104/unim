@@ -1,0 +1,5 @@
+# GTK3 IM Module
+unim-frontends/gtk3/build/libim-unim.so                                  usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/
+
+# GTK4 IM Module
+unim-frontends/gtk4/build/libim-unim-gtk4.so                             usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules/

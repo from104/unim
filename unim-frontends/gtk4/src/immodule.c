@@ -6,8 +6,10 @@
  */
 
 #include <gtk/gtk.h>
+#include <gtk/gtkimmodule.h>
 #include <gdk/gdk.h>
 #include <gdk/gdkevents.h>
+#include <gio/gio.h>
 #include <string.h>
 #include <unim.h>
 
@@ -230,4 +232,33 @@ unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
     /* 커서 위치 저장 */
 }
 
-/* GTK4 IM 모듈 엔트리 포인트 (참고: GTK4는 빌트인 또는 프로토콜 기반 권장) */
+/* GTK4 IM 모듈 엔트리 포인트 (GIO 모듈로 등록) */
+
+G_MODULE_EXPORT void
+g_io_module_load(GIOModule *module)
+{
+    unim_im_context_register_type(G_TYPE_MODULE(module));
+
+    g_io_extension_point_implement(
+        GTK_IM_MODULE_EXTENSION_POINT_NAME,
+        UNIM_TYPE_IM_CONTEXT,
+        UNIM_IM_CONTEXT_ID,
+        10  /* priority */
+    );
+}
+
+G_MODULE_EXPORT void
+g_io_module_unload(GIOModule *module)
+{
+    /* 언로드 시 정리 */
+}
+
+G_MODULE_EXPORT char **
+g_io_module_query(void)
+{
+    char *eps[] = {
+        (char *)GTK_IM_MODULE_EXTENSION_POINT_NAME,
+        NULL
+    };
+    return g_strdupv(eps);
+}

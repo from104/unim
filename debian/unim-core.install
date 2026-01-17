@@ -1,0 +1,8 @@
+# Core library and daemon
+target/release/libunim_capi.so                                          usr/lib/x86_64-linux-gnu/
+target/release/unim-daemon                                               usr/libexec/
+unim-capi/include/unim.h                                                 usr/include/
+
+# im-config integration
+im-config/25_unim.conf                                                   usr/share/im-config/data/
+im-config/25_unim.rc                                                     usr/share/im-config/data/

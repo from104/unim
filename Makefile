@@ -7,9 +7,11 @@ ZIP_FILE := $(UUID)-$(VERSION).zip
 
 all: build
 
+CARGO := cargo
+
 build:
 	@echo "Building unim-cli binary..."
-	@cargo build -p unim-cli --release
+	@$(CARGO) build -p unim-cli --release
 	@echo "Copying binary to extension directory..."
 	@mkdir -p unim-gnome-extension/bin
 	@echo "Compiling GSettings schema..."

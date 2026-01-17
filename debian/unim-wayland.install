@@ -1,0 +1,2 @@
+# Wayland support
+target/release/unim-wayland                                              usr/libexec/

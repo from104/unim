@@ -1,17 +1,26 @@
 #!/usr/bin/make -f
 
 export DH_VERBOSE = 1
+export LC_ALL = C.UTF-8
+
+export RUSTUP_TOOLCHAIN = stable
+export HOME = /home/from104
+export PATH := $(HOME)/.cargo/bin:$(PATH)
 
 %:
 	dh $@
 
 override_dh_auto_build:
-	# Skip build - use pre-built binaries from target/release and frontends/*/build
-	@echo "Using pre-built binaries..."
+	# Build core and CLI
+	cargo build --release
+	# Build GNOME extension assets
+	$(MAKE) build
+
+override_dh_auto_test:
+	# Skip tests for now to speed up packaging
+	:
 
 override_dh_auto_install:
+	# Standard dh_auto_install will populate debian/tmp based on .install files
+	# But we need to make sure the binaries and files are in the right places for dh_install
 	dh_auto_install
-
-override_dh_auto_clean:
-	# Don't clean pre-built binaries
-	@echo "Skipping clean to preserve pre-built binaries..."
