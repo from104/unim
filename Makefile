@@ -14,6 +14,7 @@ build:
 	@$(CARGO) build -p unim-cli --release
 	@echo "Copying binary to extension directory..."
 	@mkdir -p unim-gnome-extension/bin
+	@cp target/release/unim-cli unim-gnome-extension/bin/
 	@echo "Compiling GSettings schema..."
 	@mkdir -p unim-gnome-extension/schemas
 	@cp unim-gnome-extension/org.gnome.shell.extensions.unim-typefix.gschema.xml unim-gnome-extension/schemas/
