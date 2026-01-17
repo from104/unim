@@ -60,13 +60,10 @@ debian/*.substvars
 debian/debhelper-build-stamp
 debian/files
 debian/tmp/
-debian/unim-core/
-debian/unim-cli/
-debian/unim-xim/
-debian/unim-wayland/
-debian/unim-gtk/
-debian/unim-qt/
-debian/gnome-shell-extension-unim/
+# Ignore all subdirectories in debian/ except source/ (required for packaging)
+debian/*/
+!debian/source/
+
 *.deb
 *.ddeb
 *.changes
@@ -80,5 +77,7 @@ pkg-build/
 
 # Frontend build and IDE cache
 **/build/
+.cache/
 **/.cache/
+
 

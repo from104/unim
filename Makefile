@@ -3,7 +3,7 @@ UUID := unim-typefix@from104.github.io
 VERSION := $(shell sed -n 's/.*"version": "\([^"]*\)".*/\1/p' unim-gnome-extension/metadata.json)
 ZIP_FILE := $(UUID)-$(VERSION).zip
 
-.PHONY: all clean build pack install uninstall enable disable log test
+.PHONY: all clean build pack install uninstall enable disable log test deb clean-deb-files
 
 all: build
 
@@ -104,9 +104,19 @@ test:
 	@echo "✅ 설치 및 활성화 완료!"
 	@echo "════════════════════════════════════════════════════════════"
 
+deb:
+	@echo "Building Debian packages..."
+	@dpkg-buildpackage -us -uc -b
+
+clean-deb-files:
+	@echo "Cleaning up Debian build artifacts..."
+	@rm -f ../unim_*.deb ../unim_*.ddeb ../unim_*.changes ../unim_*.buildinfo ../unim_*.tar.gz ../unim_*.dsc
+
 clean:
 	@echo "Cleaning up..."
 	@rm -f $(ZIP_FILE)
 	@rm -rf unim-gnome-extension/bin
 	@rm -f unim-gnome-extension/schemas/gschemas.compiled
 	@rm -rf unim-gnome-extension/locale
+	@rm -rf unim-gtk-settings/build
+	@rm -rf unim-qt-settings/build
