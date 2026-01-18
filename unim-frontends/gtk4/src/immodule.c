@@ -216,10 +216,10 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         UnimStr preedit = unim_engine_preedit_str(unim->engine);
         if (preedit.len > 0) {
             char *pstr = g_strndup((const char *)preedit.ptr, preedit.len);
-            UNIM_DEBUG("preedit: \"%s\"", pstr);
+            UNIM_DEBUG("preedit11: \"%s\"", pstr);
             g_free(pstr);
         } else {
-            UNIM_DEBUG("preedit: (empty)");
+            UNIM_DEBUG("preedit22: (empty)");
         }
         g_signal_emit_by_name(context, "preedit-changed");
     }

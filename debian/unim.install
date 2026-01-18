@@ -1,24 +1,30 @@
-# Core library and daemon
-target/release/libunim_capi.so                                          usr/lib/x86_64-linux-gnu/
-target/release/unim-daemon                                               usr/libexec/
-target/release/unim-config                                               usr/bin/
-unim-capi/include/unim.h                                                 usr/include/
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIM Core Package
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Core library
+debian/tmp/usr/lib/x86_64-linux-gnu/libunim_capi.so     usr/lib/x86_64-linux-gnu/
+
+# Header file
+debian/tmp/usr/include/unim.h                           usr/include/
+
+# CLI tools and executables
+debian/tmp/usr/bin/unim-cli                             usr/bin/
+debian/tmp/usr/bin/unim-config                          usr/bin/
+debian/tmp/usr/bin/unim-indicator                       usr/bin/
+
+# Daemons and servers
+debian/tmp/usr/libexec/unim-daemon                      usr/libexec/
+debian/tmp/usr/libexec/unim-xim                         usr/libexec/
+debian/tmp/usr/libexec/unim-wayland                     usr/libexec/
 
 # im-config integration
-im-config/25_unim.conf                                                   usr/share/im-config/data/
-im-config/25_unim.rc                                                     usr/share/im-config/data/
+debian/tmp/usr/share/im-config/data/25_unim.conf        usr/share/im-config/data/
+debian/tmp/usr/share/im-config/data/25_unim.rc          usr/share/im-config/data/
 
-# CLI tool
-target/release/unim-cli                                                  usr/bin/
+# Icons
+debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-hangul.svg   usr/share/icons/hicolor/scalable/apps/
+debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-latin.svg    usr/share/icons/hicolor/scalable/apps/
 
-# XIM server
-target/release/unim-xim                                                  usr/libexec/
-
-# Wayland support
-target/release/unim-wayland                                              usr/libexec/
-
-# System tray indicator
-target/release/unim-indicator                                            usr/bin/
-unim-indicator/data/icons/hicolor/scalable/apps/unim-hangul.svg          usr/share/icons/hicolor/scalable/apps/
-unim-indicator/data/icons/hicolor/scalable/apps/unim-latin.svg           usr/share/icons/hicolor/scalable/apps/
-unim-indicator/data/unim-indicator.desktop                               etc/xdg/autostart/
+# Autostart
+debian/tmp/etc/xdg/autostart/unim-indicator.desktop     etc/xdg/autostart/

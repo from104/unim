@@ -57,6 +57,7 @@ fn main() {
 
     // 상태 파일 감시 스레드
     let state_watcher = state.clone();
+    #[allow(deprecated)]
     let (tx, rx) = glib::MainContext::channel::<InputCategory>(glib::Priority::DEFAULT);
 
     thread::spawn(move || {

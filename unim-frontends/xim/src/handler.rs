@@ -31,13 +31,12 @@ const EVENT_MASK: u32 = 1; // KeyPressMask
 
 /// UNIM XIM 핸들러
 pub struct UnimHandler {
-    screen_num: usize,
     config: Config,
 }
 
 impl UnimHandler {
-    pub fn new(screen_num: usize, config: Config) -> Self {
-        Self { screen_num, config }
+    pub fn new(_screen_num: usize, config: Config) -> Self {
+        Self { config }
     }
 
     /// Expose 이벤트 처리 (preedit 윈도우 다시 그리기)
@@ -53,25 +52,6 @@ impl UnimHandler {
     /// ConfigureNotify 이벤트 처리
     pub fn configure_notify(&mut self, _event: &ConfigureNotifyEvent) {
         // TODO: 윈도우 크기/위치 변경 처리
-    }
-
-    /// 설정 파일이 변경되었는지 확인하고 필요 시 다시 로드합니다.
-    ///
-    /// # Returns
-    ///
-    /// 설정이 변경되어 리로드되었으면 true
-    pub fn reload_config_if_changed(&mut self) -> bool {
-        if self.config.reload_if_changed() {
-            debug!("설정 파일 변경 감지, 리로드 완료");
-            true
-        } else {
-            false
-        }
-    }
-
-    /// 현재 설정에 대한 참조를 반환합니다.
-    pub fn config(&self) -> &Config {
-        &self.config
     }
 }
 

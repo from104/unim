@@ -1,8 +1,12 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIM GTK Package (GTK3/GTK4 IM Modules + Settings)
+# ─────────────────────────────────────────────────────────────────────────────
+
 # GTK3 IM Module
-unim-frontends/gtk3/build/libim-unim.so                                  usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/
+debian/tmp/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/libim-unim.so        usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/
 
 # GTK4 IM Module
-unim-frontends/gtk4/build/libim-unim-gtk4.so                             usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules/
+debian/tmp/usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules/libim-unim-gtk4.so   usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules/
 
 # GTK Settings Tool
-unim-gtk-settings/build/unim-gtk-settings                                usr/bin/
+debian/tmp/usr/bin/unim-gtk-settings                                              usr/bin/

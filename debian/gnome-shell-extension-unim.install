@@ -1,2 +1,5 @@
-# GNOME Shell Extension
-unim-gnome-extension/*                                                  usr/share/gnome-shell/extensions/unim-typefix@from104.github.io/
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIM GNOME Shell Extension
+# ─────────────────────────────────────────────────────────────────────────────
+
+debian/tmp/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io   usr/share/gnome-shell/extensions/

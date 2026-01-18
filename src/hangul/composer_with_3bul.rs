@@ -6,6 +6,15 @@ use crate::hangul::jamo::*;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
 
+/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
+macro_rules! unim_debug {
+    ($($arg:tt)*) => {
+        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
+            eprintln!("[UNIM-3BUL] {}", format!($($arg)*));
+        }
+    };
+}
+
 /// 3벌식 자모 조합 테이블 (초성 + 중성 + 종성)
 /// 프로그램 시작 시 한 번만 초기화됩니다.
 static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(|| {
@@ -139,8 +148,13 @@ impl HangulComposer for HangulComposer3Bul {
      * ```
      */
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
+        unim_debug!("add_jamo: {:?}", jamo);
+        unim_debug!("  queue BEFORE: {:?}", self.base_composer.jamo_queue());
+        unim_debug!("  current_hangul BEFORE: {:?}", self.base_composer.current_hangul());
+        
         // 입력된 자모가 유효한지 확인
         if !self.base_composer.is_valid_jamo(&jamo) {
+            unim_debug!("  -> 유효하지 않은 자모, None 반환");
             return None;
         }
 
@@ -149,22 +163,30 @@ impl HangulComposer for HangulComposer3Bul {
 
         // 새로운 자모 추가
         self.base_composer.jamo_queue().push_back(jamo);
+        unim_debug!("  queue AFTER push: {:?}", self.base_composer.jamo_queue());
 
         // 조합 시도
-        if self.compose_hangul() {
+        let compose_result = self.compose_hangul();
+        unim_debug!("  compose_hangul() = {}", compose_result);
+        
+        if compose_result {
             // 조합 성공: 조합 계속 진행
+            unim_debug!("  -> 조합 성공, None 반환 (current_hangul={:?})", self.base_composer.current_hangul());
             None
         } else {
             // 조합 실패: 이전 음절 완성 및 새 음절 시작
+            unim_debug!("  -> 조합 실패, 음절 분리 처리 시작");
 
             // 1. 추가했던 자모 제거 (큐 복원으로 대체)
             *self.base_composer.jamo_queue() = original_queue;
+            unim_debug!("  queue 복원: {:?}", self.base_composer.jamo_queue());
 
             // 2. 이전 상태로 `current_hangul` 복원 (조합 재실행)
             self.compose_hangul(); // 실패할 수 없음 (이전 상태는 유효했으므로)
 
             // 3. 완성된 음절 얻기
             let complete_hangul = self.base_composer.current_hangul().get_syllable().ok();
+            unim_debug!("  완성된 음절: {:?}", complete_hangul);
 
             // 4. 이전 큐 상태를 last_jamo_queue에 저장
             let current_jamo_queue_content: Vec<_> =
@@ -177,14 +199,17 @@ impl HangulComposer for HangulComposer3Bul {
             // 5. 현재 큐를 비우고 새 자모만 추가
             self.base_composer.jamo_queue().clear();
             self.base_composer.jamo_queue().push_back(jamo);
+            unim_debug!("  새 큐: {:?}", self.base_composer.jamo_queue());
 
             // 6. current_hangul 상태 초기화
             self.clear_jamo();
 
             // 7. 새 자모로 current_hangul 상태 설정
             self.compose_hangul();
+            unim_debug!("  새 current_hangul: {:?}", self.base_composer.current_hangul());
 
             // 8. 완성된 이전 음절 반환
+            unim_debug!("  -> Some({:?}) 반환", complete_hangul);
             complete_hangul
         }
     }

@@ -1,8 +1,12 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIM Qt Package (Qt5/Qt6 IM Plugins + Settings)
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Qt5 Platform Input Context Plugin
-unim-frontends/qt5/build/libunimplatforminputcontextplugin.so            usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/
+debian/tmp/usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/libunimplatforminputcontextplugin.so   usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/
 
 # Qt6 Platform Input Context Plugin
-unim-frontends/qt6/build/libunimplatforminputcontextplugin.so            usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/
+debian/tmp/usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/libunimplatforminputcontextplugin.so   usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/
 
 # Qt Settings Tool
-unim-qt-settings/build/unim-qt-settings                                  usr/bin/
+debian/tmp/usr/bin/unim-qt-settings                                                                           usr/bin/

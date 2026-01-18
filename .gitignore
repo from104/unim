@@ -74,6 +74,7 @@ debian/*/
 *.tar.xz
 *.mo
 pkg-build/
+debs/
 
 # Frontend build and IDE cache
 **/build/
@@ -81,3 +82,4 @@ pkg-build/
 **/.cache/
 
 
+.gemini/

@@ -1,7 +1,16 @@
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::composer_with_2bul::HangulComposer2Bul;
-use crate::hangul::composer_with_3bul::HangulComposer3Bul; // TODO: Add 3bul composer if needed
-use crate::hangul::jamo::JamoEnum; // Import JamoEnum
+use crate::hangul::composer_with_3bul::HangulComposer3Bul;
+use crate::hangul::jamo::JamoEnum;
+
+/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
+macro_rules! unim_debug {
+    ($($arg:tt)*) => {
+        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
+            eprintln!("[UNIM-CONTEXT] {}", format!($($arg)*));
+        }
+    };
+}
 
 /// 한글 입력 과정을 관리하는 컨텍스트입니다.
 ///
@@ -58,15 +67,23 @@ impl HangulInputContext {
     /// * `bool` - 입력 처리 성공 여부. 현재는 항상 true를 반환하지만,
     ///            향후 유효성 검사 등을 추가할 수 있습니다.
     pub fn process_jamo(&mut self, jamo: JamoEnum) -> bool {
+        unim_debug!("process_jamo: {:?}", jamo);
+        unim_debug!("  BEFORE: preedit='{}', committed='{}', composer={:?}", 
+                   self.preedit_string, self.committed_string, self.composer.current_hangul());
+        
         if let Some(committed_char) = self.composer.add_jamo(jamo) {
             // 이전 글자가 완성되어 commit됨
+            unim_debug!("  -> composer.add_jamo 반환: Some('{}')", committed_char);
             self.committed_string.push(committed_char);
             self.update_preedit(); // 새 글자 조합 시작으로 preedit 업데이트
         } else {
             // 조합 계속 진행
+            unim_debug!("  -> composer.add_jamo 반환: None (조합 계속)");
             self.update_preedit();
         }
-        true // Indicate success, could add validation later
+        
+        unim_debug!("  AFTER: preedit='{}', committed='{}'", self.preedit_string, self.committed_string);
+        true
     }
 
     /// 마지막 입력된 자모를 제거하고, 조합 상태 및 문자열을 업데이트합니다. (Backspace 기능)
@@ -132,12 +149,18 @@ impl HangulInputContext {
     /// `HangulComposer`의 현재 상태를 기반으로 preedit 문자열을 업데이트합니다.
     fn update_preedit(&mut self) {
         // Use get_syllable() which returns Result<char, HangulError>
-        if let Ok(composed_char) = self.composer.current_hangul().get_syllable() {
+        let current = self.composer.current_hangul();
+        unim_debug!("update_preedit: composer.current_hangul()={:?}", current);
+        
+        if let Ok(composed_char) = current.get_syllable() {
+            unim_debug!("  -> get_syllable() = Ok('{}')", composed_char);
             self.preedit_string = composed_char.to_string();
         } else {
             // 조합된 글자가 없는 경우 (예: 자모가 하나만 있거나 잘못된 조합)
             // 호환용 자모 문자열로 표시
-            self.preedit_string = self.composer.current_hangul().to_compat_jamo_string();
+            let compat = self.composer.current_hangul().to_compat_jamo_string();
+            unim_debug!("  -> get_syllable() = Err, to_compat_jamo_string()='{}'", compat);
+            self.preedit_string = compat;
         }
     }
 

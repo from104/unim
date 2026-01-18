@@ -6,6 +6,15 @@
  */
 use crate::hangul::jamo::*;
 
+/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
+macro_rules! unim_debug {
+    ($($arg:tt)*) => {
+        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
+            eprintln!("[UNIM-CHAR] {}", format!($($arg)*));
+        }
+    };
+}
+
 /**
  * 한글 처리 관련 오류를 나타내는 열거형입니다.
  */
@@ -581,7 +590,9 @@ impl HangulChar {
      * @return 한글 음절 또는 호환용 자모
      */
     pub fn get_syllable(&self) -> Result<char, HangulError> {
-        match (self.choseong, self.jungseong, self.jongseong) {
+        unim_debug!("get_syllable: cho={:?}, jung={:?}, jong={:?}", self.choseong, self.jungseong, self.jongseong);
+        
+        let result = match (self.choseong, self.jungseong, self.jongseong) {
             // 완전한 음절 (초성 + 중성 + 종성)
             (Some(cho), Some(jung), Some(jong)) => {
                 let cho_seq = cho.get_sequence() as u32;
@@ -617,7 +628,10 @@ impl HangulChar {
             (None, Some(jung), None) => Ok(jung.get_unicode_compat()), // 중성만
             (None, None, Some(jong)) if jong != Jong::E => Ok(jong.get_unicode_compat()), // 종성만
             _ => Err(HangulError::CompositionFailure), // 그 외 조합 불가
-        }
+        };
+        
+        unim_debug!("  -> result: {:?}", result);
+        result
     }
 
     /**

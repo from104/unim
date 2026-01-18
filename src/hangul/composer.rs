@@ -8,6 +8,15 @@ use crate::hangul::jamo::*;
 // builder.rs
 use std::collections::{HashMap, VecDeque};
 
+/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
+macro_rules! unim_debug {
+    ($($arg:tt)*) => {
+        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
+            eprintln!("[UNIM-COMPOSER] {}", format!($($arg)*));
+        }
+    };
+}
+
 /// 자모 조합 규칙을 정의하는 해시맵 타입 앨리어스입니다.
 /// 튜플 키 `(첫번째 자모, 두번째 자모)`를 사용하여 조합된 자모를 조회합니다.
 pub type CombinedJamoMap = HashMap<(JamoEnum, JamoEnum), JamoEnum>;
@@ -587,19 +596,23 @@ impl HangulComposer for BaseHangulComposer {
     /// * `Some(char)` - 입력된 자모로 인해 이전 음절 조합이 완료된 경우, 완성된 한글 음절.
     /// * `None` - 조합이 계속 진행 중인 경우.
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
+        unim_debug!("BaseComposer.add_jamo: {:?}", jamo);
         self.jamo_queue.push_back(jamo);
         if !self.compose_hangul() {
             self.jamo_queue.pop_back();
             self.compose_hangul();
             let complete_hangul = self.current_hangul_char.get_syllable();
+            unim_debug!("  -> 음절 분리: complete={:?}", complete_hangul);
             self.last_jamo_queue.clear();
             self.last_jamo_queue.extend(&self.jamo_queue);
             self.jamo_queue.clear();
             self.jamo_queue.push_back(jamo);
             self.clear();
             self.compose_hangul();
+            unim_debug!("  -> 새 current_hangul: {:?}", self.current_hangul_char);
             complete_hangul.ok()
         } else {
+            unim_debug!("  -> 조합 계속: current_hangul={:?}", self.current_hangul_char);
             None
         }
     }
@@ -630,12 +643,20 @@ impl HangulComposer for BaseHangulComposer {
     /// * `true` - 조합에 성공했거나, 큐가 비어 있어 초기화된 경우.
     /// * `false` - 자모 조합 규칙에 맞지 않아 조합에 실패한 경우.
     fn compose_hangul(&mut self) -> bool {
+        unim_debug!("BaseComposer.compose_hangul: queue={:?}", self.jamo_queue);
         if self.jamo_queue.is_empty() {
             self.clear();
+            unim_debug!("  -> 큐 비어있음, true");
             return true;
         }
 
-        if !self.compose_cho() || !self.compose_jung() || !self.compose_jong() {
+        let cho_ok = self.compose_cho();
+        let jung_ok = self.compose_jung();
+        let jong_ok = self.compose_jong();
+        unim_debug!("  -> compose_cho={}, compose_jung={}, compose_jong={}", cho_ok, jung_ok, jong_ok);
+        unim_debug!("  -> current_hangul: {:?}", self.current_hangul_char);
+        
+        if !cho_ok || !jung_ok || !jong_ok {
             return false;
         }
 

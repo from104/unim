@@ -1,30 +1,77 @@
 #!/usr/bin/make -f
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIM Debian Package Build Rules
+# Uses the project Makefile for build and install
+# ─────────────────────────────────────────────────────────────────────────────
 
 export DH_VERBOSE = 1
 export LC_ALL = C.UTF-8
 
+# Rust toolchain
 export RUSTUP_TOOLCHAIN = stable
 export HOME = /home/from104
-export PATH := $(HOME)/.cargo/bin:$(PATH)
+
+# Clean PATH: Remove Anaconda/Conda to ensure system Qt is used
+# This prevents linking against Anaconda's Qt libraries
+CLEAN_PATH := $(shell echo "$$PATH" | tr ':' '\n' | grep -v -E '(anaconda|conda|miniconda)' | tr '\n' ':' | sed 's/:$$//')
+export PATH := $(HOME)/.cargo/bin:$(CLEAN_PATH)
+
+# Ensure system libraries are used (not Anaconda)
+unexport LD_LIBRARY_PATH
+unexport LIBRARY_PATH
+unexport CPATH
+unexport C_INCLUDE_PATH
+unexport CPLUS_INCLUDE_PATH
+unexport CMAKE_PREFIX_PATH
+unexport QT_PLUGIN_PATH
+unexport CONDA_PREFIX
+unexport CONDA_DEFAULT_ENV
+
+# Makefile variables for Debian packaging
+export PREFIX = /usr
+export LIBDIR = /usr/lib/x86_64-linux-gnu
+export DESTDIR = $(CURDIR)/debian/tmp
 
 %:
 	dh $@
 
-override_dh_auto_build:
-	# Build workspace (core, CLI, daemon, config, etc.)
-	cargo build --release --workspace
-	# Build GNOME extension assets
-	$(MAKE) build
-	# Build GTK settings tool
-	mkdir -p unim-gtk-settings/build && cd unim-gtk-settings/build && cmake .. && make
-	# Build Qt settings tool
-	mkdir -p unim-qt-settings/build && cd unim-qt-settings/build && cmake .. && make
+# ─────────────────────────────────────────────────────────────────────────────
+# Build: Use Makefile's build targets
+# ─────────────────────────────────────────────────────────────────────────────
 
-override_dh_auto_test:
-	# Skip tests for now to speed up packaging
-	:
+override_dh_auto_build:
+	# Full build using Makefile
+	$(MAKE) build
+	# Build GNOME extension assets
+	$(MAKE) gnome-extension
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Install: Use Makefile's install targets with DESTDIR
+# ─────────────────────────────────────────────────────────────────────────────
 
 override_dh_auto_install:
-	# Standard dh_auto_install will populate debian/tmp based on .install files
-	# But we need to make sure the binaries and files are in the right places for dh_install
-	dh_auto_install
+	# Install to staging directory using Makefile
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp PREFIX=/usr \
+		LIBDIR=/usr/lib/x86_64-linux-gnu \
+		GTK3_IMMODULE_DIR=/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules \
+		GTK4_IMMODULE_DIR=/usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules \
+		QT5_PLUGIN_DIR=/usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts \
+		QT6_PLUGIN_DIR=/usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts
+	
+	# Install GNOME extension to staging directory
+	install -d $(CURDIR)/debian/tmp/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io
+	cp -r unim-gnome-extension/* $(CURDIR)/debian/tmp/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Skip default test (speed up packaging)
+# ─────────────────────────────────────────────────────────────────────────────
+
+override_dh_auto_test:
+	:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Clean: Use Makefile's clean target
+# ─────────────────────────────────────────────────────────────────────────────
+
+override_dh_auto_clean:
+	$(MAKE) clean || true
