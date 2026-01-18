@@ -8,6 +8,12 @@
 #include <locale.h>
 #include <libintl.h>
 
+static void on_activate(GtkApplication *app, gpointer user_data G_GNUC_UNUSED) {
+    UnimSettingsDialog *dialog = unim_settings_dialog_new();
+    gtk_window_set_application(GTK_WINDOW(dialog), app);
+    gtk_window_present(GTK_WINDOW(dialog));
+}
+
 int main(int argc, char *argv[]) {
     /* 로케일 설정 */
     setlocale(LC_ALL, "");
@@ -20,7 +26,7 @@ int main(int argc, char *argv[]) {
         G_APPLICATION_DEFAULT_FLAGS
     );
     
-    g_signal_connect(app, "activate", G_CALLBACK((void (*)(void))unim_settings_dialog_new), NULL);
+    g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
     
     /* 애플리케이션 실행 */
     int status = g_application_run(G_APPLICATION(app), argc, argv);
