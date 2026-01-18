@@ -17,8 +17,8 @@ enum Module {
 impl Module {
     fn process_name(&self) -> &'static str {
         match self {
-            Module::Xim => "unim-xim",
-            Module::Wayland => "unim-wayland",
+            Module::Xim => "/usr/libexec/unim-xim",
+            Module::Wayland => "/usr/libexec/unim-wayland",
         }
     }
 

@@ -1,4 +1,4 @@
-unim (0.1.0-1) unstable; urgency=medium
+unim (0.0.1-1) unstable; urgency=medium
 
   * Initial release.
   * Korean Input Method Engine with 2-bul and 3-bul support.

@@ -1,4 +1,0 @@
-target/release/unim-indicator usr/bin
-unim-indicator/data/icons/hicolor/scalable/apps/unim-hangul.svg usr/share/icons/hicolor/scalable/apps
-unim-indicator/data/icons/hicolor/scalable/apps/unim-latin.svg usr/share/icons/hicolor/scalable/apps
-unim-indicator/data/unim-indicator.desktop etc/xdg/autostart

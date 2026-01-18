@@ -7,53 +7,31 @@ Standards-Version: 4.6.0
 Homepage: https://github.com/from104/unim
 Rules-Requires-Root: no
 
-Package: unim-core
+Package: unim
 Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
 Recommends: im-config
-Description: Korean Input Method Engine (Core)
+Description: Korean Input Method Engine
  UNIM is a modular Korean Input Method Engine.
- This package contains the core daemon, C-API library, and configuration integration.
-
-Package: unim-cli
-Architecture: amd64
-Depends: unim-core (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Description: Korean Input Method Engine (CLI Tool)
- UNIM command-line interface for text conversion and testing.
-
-Package: unim-xim
-Architecture: amd64
-Depends: unim-core (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Description: Korean Input Method Engine (XIM Server)
- XIM server for UNIM to support X11 legacy applications.
-
-Package: unim-wayland
-Architecture: amd64
-Depends: unim-core (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Description: Korean Input Method Engine (Wayland support)
- Wayland text-input protocol support for UNIM.
+ This package contains the core daemon, C-API library, CLI tools,
+ XIM/Wayland protocol support, and system tray indicator.
 
 Package: unim-gtk
 Architecture: amd64
-Depends: unim-core (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
 Description: Korean Input Method Engine (GTK modules)
  GTK3 and GTK4 input method modules for UNIM.
+ Includes GTK settings tool.
 
 Package: unim-qt
 Architecture: amd64
-Depends: unim-core (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
 Description: Korean Input Method Engine (Qt plugins)
  Qt5 and Qt6 platform input context plugins for UNIM.
+ Includes Qt settings tool.
 
 Package: gnome-shell-extension-unim
 Architecture: all
-Depends: unim-cli (= ${binary:Version}), ${misc:Depends}, gnome-shell
+Depends: unim (= ${binary:Version}), ${misc:Depends}, gnome-shell
 Description: UNIM GNOME Shell Extension
  GNOME Shell extension for UNIM, providing native integration and hotkeys.
-
-Package: unim-indicator
-Architecture: amd64
-Depends: unim-core (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
-Description: Korean Input Method Engine (Status Indicator)
- System tray indicator for UNIM that displays current input mode (Hangul/Latin).
- Works on GNOME, KDE, XFCE, and other desktop environments.

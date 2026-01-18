@@ -1,0 +1,24 @@
+# Core library and daemon
+target/release/libunim_capi.so                                          usr/lib/x86_64-linux-gnu/
+target/release/unim-daemon                                               usr/libexec/
+target/release/unim-config                                               usr/bin/
+unim-capi/include/unim.h                                                 usr/include/
+
+# im-config integration
+im-config/25_unim.conf                                                   usr/share/im-config/data/
+im-config/25_unim.rc                                                     usr/share/im-config/data/
+
+# CLI tool
+target/release/unim-cli                                                  usr/bin/
+
+# XIM server
+target/release/unim-xim                                                  usr/libexec/
+
+# Wayland support
+target/release/unim-wayland                                              usr/libexec/
+
+# System tray indicator
+target/release/unim-indicator                                            usr/bin/
+unim-indicator/data/icons/hicolor/scalable/apps/unim-hangul.svg          usr/share/icons/hicolor/scalable/apps/
+unim-indicator/data/icons/hicolor/scalable/apps/unim-latin.svg           usr/share/icons/hicolor/scalable/apps/
+unim-indicator/data/unim-indicator.desktop                               etc/xdg/autostart/
