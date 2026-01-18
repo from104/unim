@@ -52,6 +52,30 @@ UnimLatinLayout unim_config_get_latin_layout(const UnimConfig *config);
 void unim_engine_set_hangul_layout(UnimEngine *engine, UnimHangulLayout layout);
 void unim_engine_set_latin_layout(UnimEngine *engine, UnimLatinLayout layout);
 
+/* 디버그 로깅 시스템 */
+static gboolean unim_debug_enabled = FALSE;
+
+#define UNIM_DEBUG(fmt, ...) \
+    do { \
+        if (unim_debug_enabled) { \
+            g_print("[UNIM-GTK4] " fmt "\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
+
+static void
+unim_check_debug_env(void)
+{
+    static gboolean checked = FALSE;
+    if (!checked) {
+        const char *env = g_getenv("UNIM_DEVELOP");
+        if (env && g_strcmp0(env, "1") == 0) {
+            unim_debug_enabled = TRUE;
+            g_print("[UNIM-GTK4] 디버그 모드 활성화 (UNIM_DEVELOP=1)\n");
+        }
+        checked = TRUE;
+    }
+}
+
 static void
 unim_im_context_class_init(UnimIMContextClass *klass)
 {
@@ -59,7 +83,9 @@ unim_im_context_class_init(UnimIMContextClass *klass)
     GtkIMContextClass *im_class = GTK_IM_CONTEXT_CLASS(klass);
 
     /* GTK4에서는 filter_keypress가 GdkEvent*를 받음 */
-    im_class->filter_keypress = unim_im_context_filter_keypress;
+    /* 참고: IDE clang이 GTK3 헤더를 참조할 경우 경고가 발생할 수 있으나,
+     * GTK4 빌드 시에는 정상 동작함 */
+    im_class->filter_keypress = (gboolean (*)(GtkIMContext *, GdkEvent *))unim_im_context_filter_keypress;
     im_class->focus_in = unim_im_context_focus_in;
     im_class->focus_out = unim_im_context_focus_out;
     im_class->reset = unim_im_context_reset;
@@ -75,9 +101,11 @@ unim_im_context_class_finalize(UnimIMContextClass *klass)
 static void
 unim_im_context_init(UnimIMContext *context)
 {
+    unim_check_debug_env();
     context->config = unim_config_load();
     context->engine = unim_engine_new(context->config);
     context->is_focused = FALSE;
+    UNIM_DEBUG("IMContext 초기화 완료");
 }
 
 static void
@@ -104,6 +132,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
 
     if (!unim->engine || !unim->config) {
+        UNIM_DEBUG("엔진 또는 설정 없음, 키 무시");
         return FALSE;
     }
 
@@ -132,6 +161,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
 #endif
 
     /* 수정자 상태 변환 (GDK4 대응) */
+    /* GDK4에서 Alt 키는 GDK_ALT_MASK (1 << 3)로 정의됨 */
     UnimModifierState mod_state = {
         .shift = (state & GDK_SHIFT_MASK) != 0,
         .control = (state & GDK_CONTROL_MASK) != 0,
@@ -155,18 +185,26 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     /* 키 입력 처리 */
     /* GDK keycode = X11 keycode = evdev + 8, 엔진은 evdev 형식 기대 */
     uint16_t evdev_code = (keycode > 8) ? (uint16_t)(keycode - 8) : 0;
+    
+    UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, shift=%d, ctrl=%d, alt=%d",
+               keyval, keycode, evdev_code, mod_state.shift, mod_state.control, mod_state.alt);
+    
     UnimInputResult result = unim_engine_press_key(
         unim->engine,
         unim->config,
         evdev_code,
         mod_state
     );
+    
+    UNIM_DEBUG("엔진 결과: consumed=%d, preedit_changed=%d, commit_changed=%d",
+               result.consumed, result.preedit_changed, result.commit_changed);
 
     /* 커밋 처리 */
     if (result.commit_changed) {
         UnimStr commit = unim_engine_commit_str(unim->engine);
         if (commit.len > 0) {
             char *str = g_strndup((const char *)commit.ptr, commit.len);
+            UNIM_DEBUG("커밋: \"%s\"", str);
             g_signal_emit_by_name(context, "commit", str);
             g_free(str);
         }
@@ -175,6 +213,14 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
 
     /* preedit 변경 처리 */
     if (result.preedit_changed) {
+        UnimStr preedit = unim_engine_preedit_str(unim->engine);
+        if (preedit.len > 0) {
+            char *pstr = g_strndup((const char *)preedit.ptr, preedit.len);
+            UNIM_DEBUG("preedit: \"%s\"", pstr);
+            g_free(pstr);
+        } else {
+            UNIM_DEBUG("preedit: (empty)");
+        }
         g_signal_emit_by_name(context, "preedit-changed");
     }
 

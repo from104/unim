@@ -156,6 +156,13 @@ impl HangulInputContext {
         self.committed_string.clear();
     }
 
+    /// Committed 문자열만 비웁니다. (Preedit, Composer 상태 유지)
+    /// 
+    /// 조합 중인 상태를 유지하면서 이미 확정된 문자열만 비우고 싶을 때 사용합니다.
+    pub fn clear_committed(&mut self) {
+        self.committed_string.clear();
+    }
+
     /// 현재 조합 중인지 여부를 반환합니다.
     pub fn is_composing(&self) -> bool {
         self.composer.is_compose() || !self.preedit_string.is_empty()

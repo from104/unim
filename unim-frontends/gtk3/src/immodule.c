@@ -61,6 +61,30 @@ UnimLatinLayout unim_config_get_latin_layout(const UnimConfig *config);
 void unim_engine_set_hangul_layout(UnimEngine *engine, UnimHangulLayout layout);
 void unim_engine_set_latin_layout(UnimEngine *engine, UnimLatinLayout layout);
 
+/* 디버그 로깅 시스템 */
+static gboolean unim_debug_enabled = FALSE;
+
+#define UNIM_DEBUG(fmt, ...) \
+    do { \
+        if (unim_debug_enabled) { \
+            g_print("[UNIM-GTK3] " fmt "\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
+
+static void
+unim_check_debug_env(void)
+{
+    static gboolean checked = FALSE;
+    if (!checked) {
+        const char *env = g_getenv("UNIM_DEVELOP");
+        if (env && g_strcmp0(env, "1") == 0) {
+            unim_debug_enabled = TRUE;
+            g_print("[UNIM-GTK3] 디버그 모드 활성화 (UNIM_DEVELOP=1)\n");
+        }
+        checked = TRUE;
+    }
+}
+
 /* GType 등록 */
 G_DEFINE_DYNAMIC_TYPE(UnimIMContext, unim_im_context, GTK_TYPE_IM_CONTEXT)
 
@@ -90,10 +114,12 @@ unim_im_context_class_finalize(UnimIMContextClass *klass)
 static void
 unim_im_context_init(UnimIMContext *context)
 {
+    unim_check_debug_env();
     context->config = unim_config_load();
     context->engine = unim_engine_new(context->config);
     context->is_focused = FALSE;
     context->client_window = NULL;
+    UNIM_DEBUG("IMContext 초기화 완료");
 }
 
 static void
@@ -120,6 +146,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
 
     if (!unim->engine || !unim->config) {
+        UNIM_DEBUG("엔진 또는 설정 없음, 키 무시");
         return FALSE;
     }
 
@@ -152,18 +179,27 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     /* 키 입력 처리 */
     /* GDK hardware_keycode = X11 keycode = evdev + 8, 엔진은 evdev 형식 기대 */
     uint16_t evdev_code = (event->hardware_keycode > 8) ? (uint16_t)(event->hardware_keycode - 8) : 0;
+    
+    UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, shift=%d, ctrl=%d, alt=%d",
+               event->keyval, event->hardware_keycode, evdev_code, 
+               state.shift, state.control, state.alt);
+    
     UnimInputResult result = unim_engine_press_key(
         unim->engine,
         unim->config,
         evdev_code,
         state
     );
+    
+    UNIM_DEBUG("엔진 결과: consumed=%d, preedit_changed=%d, commit_changed=%d",
+               result.consumed, result.preedit_changed, result.commit_changed);
 
     /* 커밋 처리 */
     if (result.commit_changed) {
         UnimStr commit = unim_engine_commit_str(unim->engine);
         if (commit.len > 0) {
             gchar *str = g_strndup((const gchar *)commit.ptr, commit.len);
+            UNIM_DEBUG("커밋: \"%s\"", str);
             g_signal_emit_by_name(context, "commit", str);
             g_free(str);
         }
@@ -172,6 +208,14 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
 
     /* preedit 변경 처리 */
     if (result.preedit_changed) {
+        UnimStr preedit = unim_engine_preedit_str(unim->engine);
+        if (preedit.len > 0) {
+            gchar *pstr = g_strndup((const gchar *)preedit.ptr, preedit.len);
+            UNIM_DEBUG("preedit: \"%s\"", pstr);
+            g_free(pstr);
+        } else {
+            UNIM_DEBUG("preedit: (empty)");
+        }
         g_signal_emit_by_name(context, "preedit-changed");
     }
 

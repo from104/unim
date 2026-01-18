@@ -231,8 +231,8 @@ impl InputEngine {
                     let committed = self.hangul_context.get_committed();
                     if !committed.is_empty() {
                         self.commit_buffer.push_str(committed);
-                        // committed 비우기
-                        self.hangul_context.clear();
+                        // committed 문자열만 비우기 (preedit은 유지)
+                        self.hangul_context.clear_committed();
                     }
 
                     self.update_preedit_cache();
