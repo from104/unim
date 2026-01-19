@@ -234,35 +234,64 @@ unim_im_context_focus_in(GtkIMContext *context)
     unim->is_focused = TRUE;
 }
 
+/**
+ * 조합 중인 문자를 커밋하고 버퍼를 초기화하는 헬퍼 함수
+ * focus_out, reset 등에서 공통으로 사용
+ */
+static void
+commit_and_clear(UnimIMContext *unim, GtkIMContext *context)
+{
+    if (!unim->engine || !unim_engine_is_composing(unim->engine)) {
+        return;
+    }
+
+    UNIM_DEBUG("commit_and_clear: 조합 중인 문자 커밋");
+
+    /* 1. 현재 조합 중인 문자열(preedit)을 가져옴 */
+    UnimStr preedit = unim_engine_preedit_str(unim->engine);
+    if (preedit.len > 0) {
+        /* 2. preedit 문자열을 그대로 commit */
+        char *str = g_strndup((const char *)preedit.ptr, preedit.len);
+        UNIM_DEBUG("commit_and_clear: 커밋 문자열 = \"%s\"", str);
+        g_signal_emit_by_name(context, "commit", str);
+        g_free(str);
+    }
+
+    /* 3. 엔진 상태 초기화 */
+    unim_engine_reset(unim->engine);
+
+    /* 4. preedit 변경 알림 (화면에서 밑줄 제거) */
+    g_signal_emit_by_name(context, "preedit-changed");
+}
+
 static void
 unim_im_context_focus_out(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
 
-    if (unim->engine && unim_engine_is_composing(unim->engine)) {
-        unim_engine_clear_preedit(unim->engine);
-        UnimStr commit = unim_engine_commit_str(unim->engine);
-        if (commit.len > 0) {
-            char *str = g_strndup((const char *)commit.ptr, commit.len);
-            g_signal_emit_by_name(context, "commit", str);
-            g_free(str);
-        }
-        unim_engine_clear_commit(unim->engine);
-        g_signal_emit_by_name(context, "preedit-changed");
-    }
+    UNIM_DEBUG("focus_out 호출");
+
+    /* 포커스를 잃기 전에 현재 조합 중인 글자 커밋 */
+    commit_and_clear(unim, context);
 
     unim->is_focused = FALSE;
 }
 
+/**
+ * reset 가상 함수
+ * GTK 위젯은 커서 위치가 변경되거나 입력 상태를 초기화해야 할 때
+ * gtk_im_context_reset()을 호출합니다. (마우스 클릭, 프로그래밍적 커서 이동 등)
+ * 데이터 손실 방지를 위해 조합 중인 문자를 커밋합니다.
+ */
 static void
 unim_im_context_reset(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
 
-    if (unim->engine) {
-        unim_engine_reset(unim->engine);
-        g_signal_emit_by_name(context, "preedit-changed");
-    }
+    UNIM_DEBUG("reset 호출 (마우스 클릭 또는 커서 이동)");
+
+    /* 리셋 요청이 오면 현재 조합 중인 글자를 커밋하여 보존 */
+    commit_and_clear(unim, context);
 }
 
 /* 위젯 참조 저장 (GTK4에서는 방식 변경됨) */
