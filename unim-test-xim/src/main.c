@@ -3,12 +3,15 @@
  * 
  * 순수 X11/Xlib를 사용하여 XIM 입력기를 테스트하는 앱입니다.
  * GTK, Qt 등의 툴킷을 사용하지 않습니다.
+ * 
+ * [2026-01-19] Xft를 사용하여 폰트 렌더링 개선 (D2Coding)
  */
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xlocale.h>
 #include <X11/keysym.h>
+#include <X11/Xft/Xft.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,8 +23,8 @@
 /* 창 크기 */
 #define WINDOW_WIDTH 700
 #define WINDOW_HEIGHT 600
-#define MARGIN 10
-#define LINE_HEIGHT 20
+#define MARGIN 20
+#define LINE_HEIGHT 30
 
 /* 텍스트 버퍼 */
 #define TEXT_BUFFER_SIZE 4096
@@ -31,10 +34,15 @@
 /* 전역 변수 */
 static Display *display = NULL;
 static Window window;
+static int screen;
 static GC gc;
 static XIM xim = NULL;
 static XIC xic = NULL;
-static XFontSet fontset = NULL;
+
+/* Xft 리소스 */
+static XftFont *font = NULL;
+static XftDraw *xft_draw = NULL;
+static XftColor color_black, color_white, color_gray, color_bg;
 
 /* 입력 텍스트 버퍼 */
 static char text_buffer[TEXT_BUFFER_SIZE] = "";
@@ -82,144 +90,109 @@ static void add_log(const char *format, ...) {
     printf("%s%s\n", timestamp, message);
 }
 
+/* 유틸리티: 문자열 폭 계산 */
+static int get_text_width(const char *text) {
+    if (!font || !text) return 0;
+    XGlyphInfo extents;
+    XftTextExtentsUtf8(display, font, (const FcChar8 *)text, strlen(text), &extents);
+    return extents.xOff;
+}
+
 /* 화면 다시 그리기 */
 static void redraw(void) {
     /* 배경 지우기 */
-    XSetForeground(display, gc, WhitePixel(display, DefaultScreen(display)));
+    XSetForeground(display, gc, WhitePixel(display, screen));
     XFillRectangle(display, window, gc, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
     
-    XSetForeground(display, gc, BlackPixel(display, DefaultScreen(display)));
+    /* XftColor 할당 (매번 redraw 때 하기보다 초기화 때 하는게 좋지만, 간단하게 여기서 처리하거나 전역 사용) */
     
     int y = MARGIN + LINE_HEIGHT;
     int line_num = 0;
     
     /* 제목 */
     const char *title = "UNIM XIM 입력기 테스트";
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN, y, title, strlen(title));
-    } else {
-        XDrawString(display, window, gc, MARGIN, y, title, strlen(title));
-    }
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y, (const FcChar8 *)title, strlen(title));
     y += LINE_HEIGHT + 10;
     line_num++;
     
     /* 구분선 */
+    XSetForeground(display, gc, 0xCCCCCC);
     XDrawLine(display, window, gc, MARGIN, y - LINE_HEIGHT/2, WINDOW_WIDTH - MARGIN, y - LINE_HEIGHT/2);
-    y += 5;
+    y += 10;
     
     /* 입력기 상태 섹션 */
     const char *status_title = "=== 입력기 상태 ===";
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN, y, status_title, strlen(status_title));
-    } else {
-        XDrawString(display, window, gc, MARGIN, y, status_title, strlen(status_title));
-    }
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y, (const FcChar8 *)status_title, strlen(status_title));
     y += LINE_HEIGHT;
     
     /* XIM 상태 */
     char status_line[512];
     snprintf(status_line, sizeof(status_line), "XIM 상태: %s", im_status);
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN + 10, y, status_line, strlen(status_line));
-    } else {
-        XDrawString(display, window, gc, MARGIN + 10, y, status_line, strlen(status_line));
-    }
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 20, y, (const FcChar8 *)status_line, strlen(status_line));
     y += LINE_HEIGHT;
     
     /* 포커스 상태 */
     snprintf(status_line, sizeof(status_line), "포커스: %s", focus_status);
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN + 10, y, status_line, strlen(status_line));
-    } else {
-        XDrawString(display, window, gc, MARGIN + 10, y, status_line, strlen(status_line));
-    }
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 20, y, (const FcChar8 *)status_line, strlen(status_line));
     y += LINE_HEIGHT;
     
     /* Preedit 문자열 */
     snprintf(status_line, sizeof(status_line), "Preedit: [%s]", preedit_string);
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN + 10, y, status_line, strlen(status_line));
-    } else {
-        XDrawString(display, window, gc, MARGIN + 10, y, status_line, strlen(status_line));
-    }
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 20, y, (const FcChar8 *)status_line, strlen(status_line));
     y += LINE_HEIGHT + 10;
     
     /* 구분선 */
+    XSetForeground(display, gc, 0xCCCCCC);
     XDrawLine(display, window, gc, MARGIN, y - LINE_HEIGHT/2, WINDOW_WIDTH - MARGIN, y - LINE_HEIGHT/2);
-    y += 5;
+    y += 10;
     
     /* 입력 영역 섹션 */
     const char *input_title = "=== 입력 영역 ===";
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN, y, input_title, strlen(input_title));
-    } else {
-        XDrawString(display, window, gc, MARGIN, y, input_title, strlen(input_title));
-    }
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y, (const FcChar8 *)input_title, strlen(input_title));
     y += LINE_HEIGHT;
     
     /* 입력 박스 배경 */
-    XSetForeground(display, gc, 0xF0F0F0);
-    XFillRectangle(display, window, gc, MARGIN, y, WINDOW_WIDTH - 2 * MARGIN, LINE_HEIGHT * 3);
-    XSetForeground(display, gc, BlackPixel(display, DefaultScreen(display)));
-    XDrawRectangle(display, window, gc, MARGIN, y, WINDOW_WIDTH - 2 * MARGIN, LINE_HEIGHT * 3);
+    XSetForeground(display, gc, 0xF5F5F5); // 연한 회색 배경
+    XFillRectangle(display, window, gc, MARGIN, y - LINE_HEIGHT + 10, WINDOW_WIDTH - 2 * MARGIN, LINE_HEIGHT * 4);
+    XSetForeground(display, gc, 0x888888); // 테두리
+    XDrawRectangle(display, window, gc, MARGIN, y - LINE_HEIGHT + 10, WINDOW_WIDTH - 2 * MARGIN, LINE_HEIGHT * 4);
     
     /* 입력된 텍스트 + preedit */
     char display_text[TEXT_BUFFER_SIZE * 2];
     snprintf(display_text, sizeof(display_text), "%s%s", text_buffer, preedit_string);
     
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN + 5, y + LINE_HEIGHT, display_text, strlen(display_text));
-    } else {
-        XDrawString(display, window, gc, MARGIN + 5, y + LINE_HEIGHT, display_text, strlen(display_text));
-    }
+    /* 텍스트 그리기 */
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 10, y + 10, (const FcChar8 *)display_text, strlen(display_text));
     
     /* 커서 표시 (preedit 뒤에) */
-    int cursor_x = MARGIN + 5;
-    if (fontset) {
-        XRectangle ink, logical;
-        XmbTextExtents(fontset, display_text, strlen(display_text), &ink, &logical);
-        cursor_x += logical.width;
-    } else {
-        cursor_x += strlen(display_text) * 8; /* 대략적인 폭 */
-    }
-    XDrawLine(display, window, gc, cursor_x, y + 5, cursor_x, y + LINE_HEIGHT * 2);
+    int cursor_x = MARGIN + 10 + get_text_width(display_text);
+    XSetForeground(display, gc, 0x000000); // 검은색 커서
+    XDrawLine(display, window, gc, cursor_x, y - LINE_HEIGHT + 15, cursor_x, y + 15);
     
-    y += LINE_HEIGHT * 3 + 10;
+    y += LINE_HEIGHT * 4 + 10;
     
     /* 안내 메시지 */
     const char *help_msg = "(여기에 한글/영문을 입력하세요. Backspace: 삭제, Ctrl+C: 종료)";
-    XSetForeground(display, gc, 0x666666);
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN, y, help_msg, strlen(help_msg));
-    } else {
-        XDrawString(display, window, gc, MARGIN, y, help_msg, strlen(help_msg));
-    }
-    XSetForeground(display, gc, BlackPixel(display, DefaultScreen(display)));
+    XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN, y, (const FcChar8 *)help_msg, strlen(help_msg));
     y += LINE_HEIGHT + 10;
     
     /* 구분선 */
+    XSetForeground(display, gc, 0xCCCCCC);
     XDrawLine(display, window, gc, MARGIN, y, WINDOW_WIDTH - MARGIN, y);
     y += 10;
     
     /* 로그 섹션 */
     const char *log_title = "=== 이벤트 로그 ===";
-    if (fontset) {
-        XmbDrawString(display, window, fontset, gc, MARGIN, y, log_title, strlen(log_title));
-    } else {
-        XDrawString(display, window, gc, MARGIN, y, log_title, strlen(log_title));
-    }
-    y += LINE_HEIGHT;
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y + LINE_HEIGHT, (const FcChar8 *)log_title, strlen(log_title));
+    y += LINE_HEIGHT * 2;
     
     /* 로그 출력 (최근 것만) */
-    int start_log = log_count > 15 ? log_count - 15 : 0;
+    int visible_lines = (WINDOW_HEIGHT - y - MARGIN) / (LINE_HEIGHT - 8);
+    int start_log = log_count > visible_lines ? log_count - visible_lines : 0;
+    
     for (int i = start_log; i < log_count && y < WINDOW_HEIGHT - MARGIN; i++) {
-        XSetForeground(display, gc, 0x333333);
-        if (fontset) {
-            XmbDrawString(display, window, fontset, gc, MARGIN + 10, y, log_buffer[i], strlen(log_buffer[i]));
-        } else {
-            XDrawString(display, window, gc, MARGIN + 10, y, log_buffer[i], strlen(log_buffer[i]));
-        }
-        y += LINE_HEIGHT - 4;
+        XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN + 20, y, (const FcChar8 *)log_buffer[i], strlen(log_buffer[i]));
+        y += LINE_HEIGHT - 8;
     }
     
     XFlush(display);
@@ -352,21 +325,8 @@ static int init_xim(void) {
             XNFocusWindow, window,
             XNPreeditAttributes, preedit_attr,
             NULL);
-    } else if (best_style & XIMPreeditPosition) {
-        /* 위치 기반 preedit */
-        XPoint spot = { MARGIN + 5, 200 };
-        preedit_attr = XVaCreateNestedList(0,
-            XNSpotLocation, &spot,
-            XNFontSet, fontset,
-            NULL);
-        
-        xic = XCreateIC(xim,
-            XNInputStyle, best_style,
-            XNClientWindow, window,
-            XNFocusWindow, window,
-            XNPreeditAttributes, preedit_attr,
-            NULL);
     } else {
+        /* 그 외 스타일 (fallback) */
         xic = XCreateIC(xim,
             XNInputStyle, best_style,
             XNClientWindow, window,
@@ -450,8 +410,8 @@ static void handle_key_event(XKeyEvent *event) {
                     add_log("Backspace: \"%s\"", text_buffer);
                 }
             } else if (keysym == XK_Return || keysym == XK_KP_Enter) {
-                strcat(text_buffer, "\n");
-                add_log("Enter 키");
+                // Enter: 줄바꿈 대신 그냥 로그만 남김 (한 줄 입력기 컨셉)
+                add_log("Enter 키 (Commit)");
             } else if (keysym == XK_Escape) {
                 preedit_string[0] = '\0';
                 add_log("Escape 키 - preedit 취소");
@@ -484,28 +444,43 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    add_log("UNIM XIM 입력기 테스트 앱 시작");
+    screen = DefaultScreen(display);
+    
+    add_log("UNIM XIM 입력기 테스트 앱 시작 (Xft 적용)");
     add_log("DISPLAY=%s", getenv("DISPLAY") ? getenv("DISPLAY") : "(unset)");
     
-    int screen = DefaultScreen(display);
     Window root = RootWindow(display, screen);
     
-    /* 폰트셋 생성 */
-    char **missing_list;
-    int missing_count;
-    char *def_string;
+    /* 폰트 초기화 (Xft) */
+    /* 1순위: D2Coding, 2순위: NanumGothicCoding, 3순위: Monospace */
+    const char *font_names[] = {
+        "D2Coding:size=14",
+        "NanumGothicCoding:size=14",
+        "Monospace:size=14", 
+        NULL
+    };
     
-    fontset = XCreateFontSet(display, 
-        "-*-*-medium-r-normal--14-*-*-*-*-*-*-*,"
-        "-*-fixed-medium-r-normal--14-*-*-*-*-*-*-*",
-        &missing_list, &missing_count, &def_string);
-    
-    if (fontset == NULL) {
-        add_log("경고: 폰트셋 생성 실패, 기본 폰트 사용");
-    } else if (missing_count > 0) {
-        add_log("경고: %d개 폰트 누락", missing_count);
-        XFreeStringList(missing_list);
+    for (int i = 0; font_names[i] != NULL; i++) {
+        font = XftFontOpenName(display, screen, font_names[i]);
+        if (font) {
+            add_log("폰트 로드 성공: %s", font_names[i]);
+            break;
+        }
     }
+    
+    if (!font) {
+        add_log("오류: 적절한 폰트를 찾을 수 없습니다. 기본값 사용 시도...");
+        font = XftFontOpenName(display, screen, "fixed");
+    }
+    
+    /* 색상 할당 */
+    Visual *visual = DefaultVisual(display, screen);
+    Colormap cmap = DefaultColormap(display, screen);
+    
+    XftColorAllocName(display, visual, cmap, "black", &color_black);
+    XftColorAllocName(display, visual, cmap, "white", &color_white);
+    XftColorAllocName(display, visual, cmap, "#666666", &color_gray);
+    XftColorAllocName(display, visual, cmap, "#F5F5F5", &color_bg);
     
     /* 윈도우 속성 */
     XSetWindowAttributes attrs;
@@ -532,8 +507,9 @@ int main(int argc, char *argv[]) {
     
     /* GC 생성 */
     gc = XCreateGC(display, window, 0, NULL);
-    XSetForeground(display, gc, BlackPixel(display, screen));
-    XSetBackground(display, gc, WhitePixel(display, screen));
+    
+    /* Xft Draw Context 생성 */
+    xft_draw = XftDrawCreate(display, window, visual, cmap);
     
     /* 윈도우 표시 */
     XMapWindow(display, window);
@@ -619,9 +595,13 @@ int main(int argc, char *argv[]) {
     if (xim) {
         XCloseIM(xim);
     }
-    if (fontset) {
-        XFreeFontSet(display, fontset);
-    }
+    
+    /* Xft 리소스 해제 */
+    if (font) XftFontClose(display, font);
+    if (xft_draw) XftDrawDestroy(xft_draw);
+    XftColorFree(display, DefaultVisual(display, screen), DefaultColormap(display, screen), &color_black);
+    XftColorFree(display, DefaultVisual(display, screen), DefaultColormap(display, screen), &color_white);
+    
     XFreeGC(display, gc);
     XDestroyWindow(display, window);
     XCloseDisplay(display);
