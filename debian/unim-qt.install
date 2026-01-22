@@ -3,10 +3,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Qt5 Platform Input Context Plugin
-debian/tmp/usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/libunimplatforminputcontextplugin.so   usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/
+debian/tmp/usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/libunim.so   usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/
 
 # Qt6 Platform Input Context Plugin
-debian/tmp/usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/libunimplatforminputcontextplugin.so   usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/
+debian/tmp/usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/libunim.so   usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/
 
 # Qt Settings Tool
 debian/tmp/usr/bin/unim-qt-settings                                                                           usr/bin/

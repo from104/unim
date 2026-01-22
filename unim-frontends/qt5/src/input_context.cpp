@@ -13,6 +13,32 @@
 #include <QKeyEvent>
 #include <QTextCharFormat>
 #include <QTextFormat>
+#include <QDebug>
+#include <cstdlib>
+#include <cstring>
+
+/* 디버그 로깅 시스템 (GTK4 모듈과 동일한 패턴) */
+static bool unim_debug_enabled = false;
+
+#define UNIM_DEBUG(...) \
+    do { \
+        if (unim_debug_enabled) { \
+            qDebug() << "[UNIM-QT5-IM]" << __VA_ARGS__; \
+        } \
+    } while (0)
+
+static void unim_check_debug_env()
+{
+    static bool checked = false;
+    if (!checked) {
+        const char *env = std::getenv("UNIM_DEVELOP");
+        if (env && std::strcmp(env, "1") == 0) {
+            unim_debug_enabled = true;
+            qDebug() << "[UNIM-QT5-IM] 디버그 모드 활성화 (UNIM_DEVELOP=1)";
+        }
+        checked = true;
+    }
+}
 
 Q_DECLARE_METATYPE(QTextCharFormat)
 
@@ -23,8 +49,11 @@ UnimInputContext::UnimInputContext()
     , m_focusObject(nullptr)
     , m_composing(false)
 {
+    unim_check_debug_env();
+    UNIM_DEBUG("UnimInputContext 생성 시작");
     m_config = unim_config_load();
     m_engine = unim_engine_new(m_config);
+    UNIM_DEBUG("UnimInputContext 생성 완료, engine=" << m_engine << ", config=" << m_config);
 }
 
 UnimInputContext::~UnimInputContext()
@@ -153,6 +182,12 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         }
 
         return true;
+    } else {
+        // 엔진이 소비하지 않은 키: 조합 중이었다면 강제 커밋
+        if (m_composing) {
+            UNIM_DEBUG("Bypassed non-text key while composing -> Committing current preedit");
+            commit();
+        }
     }
 
     return false;

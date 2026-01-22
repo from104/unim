@@ -9,6 +9,32 @@
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QTextCharFormat>
+#include <QDebug>
+#include <cstdlib>
+#include <cstring>
+
+/* 디버그 로깅 시스템 (GTK4 모듈과 동일한 패턴) */
+static bool unim_debug_enabled = false;
+
+#define UNIM_DEBUG(...) \
+    do { \
+        if (unim_debug_enabled) { \
+            qDebug() << "[UNIM-QT6-IM]" << __VA_ARGS__; \
+        } \
+    } while (0)
+
+static void unim_check_debug_env()
+{
+    static bool checked = false;
+    if (!checked) {
+        const char *env = std::getenv("UNIM_DEVELOP");
+        if (env && std::strcmp(env, "1") == 0) {
+            unim_debug_enabled = true;
+            qDebug() << "[UNIM-QT6-IM] 디버그 모드 활성화 (UNIM_DEVELOP=1)";
+        }
+        checked = true;
+    }
+}
 
 UnimInputContext::UnimInputContext()
     : QPlatformInputContext()
@@ -17,8 +43,11 @@ UnimInputContext::UnimInputContext()
     , m_focusObject(nullptr)
     , m_composing(false)
 {
+    unim_check_debug_env();
+    UNIM_DEBUG("UnimInputContext 생성 시작");
     m_config = unim_config_load();
     m_engine = unim_engine_new(m_config);
+    UNIM_DEBUG("UnimInputContext 생성 완료, engine=" << m_engine << ", config=" << m_config);
 }
 
 UnimInputContext::~UnimInputContext()
@@ -79,6 +108,7 @@ void UnimInputContext::invokeAction(QInputMethod::Action action, int cursorPosit
 bool UnimInputContext::filterEvent(const QEvent *event)
 {
     if (!m_engine || !m_config || !m_focusObject) {
+        UNIM_DEBUG("filterEvent: 엔진/설정/포커스 없음, 키 무시");
         return false;
     }
 
@@ -113,12 +143,20 @@ bool UnimInputContext::filterEvent(const QEvent *event)
     // X11에서 nativeScanCode() = X11 keycode = evdev + 8
     quint32 scanCode = keyEvent->nativeScanCode();
     uint16_t evdev_code = (scanCode > 8) ? static_cast<uint16_t>(scanCode - 8) : 0;
+    
+    UNIM_DEBUG("키 입력: key=" << keyEvent->key() << ", scanCode=" << scanCode << ", evdev=" << evdev_code
+               << ", shift=" << state.shift << ", ctrl=" << state.control << ", alt=" << state.alt);
+    
     UnimInputResult result = unim_engine_press_key(
         m_engine,
         m_config,
         evdev_code,
         state
     );
+    
+    UNIM_DEBUG("엔진 결과: consumed=" << result.consumed 
+               << ", preedit_changed=" << result.preedit_changed 
+               << ", commit_changed=" << result.commit_changed);
 
     if (result.consumed) {
         // 커밋 처리
@@ -141,6 +179,12 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         }
 
         return true;
+    } else {
+        // 엔진이 소비하지 않은 키: 조합 중이었다면 강제 커밋
+        if (m_composing) {
+            UNIM_DEBUG("Bypassed non-text key while composing -> Committing current preedit");
+            commit();
+        }
     }
 
     return false;
@@ -181,7 +225,9 @@ Qt::LayoutDirection UnimInputContext::inputDirection() const
 
 void UnimInputContext::setFocusObject(QObject *object)
 {
+    UNIM_DEBUG("setFocusObject: object=" << object);
     if (m_focusObject && m_composing) {
+        UNIM_DEBUG("setFocusObject: 조합 중, 커밋 수행");
         commit();
     }
     m_focusObject = object;

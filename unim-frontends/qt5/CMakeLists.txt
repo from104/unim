@@ -20,19 +20,19 @@ find_library(UNIM_CAPI_LIB unim_capi PATHS /usr/local/lib /usr/lib)
 find_path(UNIM_CAPI_INCLUDE unim.h PATHS /usr/local/include /usr/include)
 
 # IM 플러그인 빌드
-add_library(unimplatforminputcontextplugin MODULE
+add_library(unim MODULE
     src/plugin.cpp
     src/input_context.cpp
 )
 
-target_include_directories(unimplatforminputcontextplugin PRIVATE
+target_include_directories(unim PRIVATE
     ${UNIM_CAPI_INCLUDE}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${Qt5Gui_PRIVATE_INCLUDE_DIRS}
 )
 
 
-target_link_libraries(unimplatforminputcontextplugin
+target_link_libraries(unim
     Qt5::Core
     Qt5::Gui
     Qt5::GuiPrivate
@@ -48,12 +48,12 @@ execute_process(
 )
 set(QT5_IM_PLUGINS_DIR "${QT5_PLUGINS_DIR}/platforminputcontexts")
 
-install(TARGETS unimplatforminputcontextplugin
+install(TARGETS unim
     LIBRARY DESTINATION ${QT5_IM_PLUGINS_DIR}
 )
 
 # 개발용 로컬 설치
 add_custom_target(install-local
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:unimplatforminputcontextplugin> ${CMAKE_SOURCE_DIR}/libunimplatforminputcontextplugin.so
-    DEPENDS unimplatforminputcontextplugin
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:unim> ${CMAKE_SOURCE_DIR}/libunim.so
+    DEPENDS unim
 )

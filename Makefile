@@ -199,10 +199,10 @@ install-frontends:
 	install -m 755 unim-frontends/gtk4/build/libim-unim-gtk4.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/
 	@# Qt5
 	install -d $(DESTDIR)$(QT5_PLUGIN_DIR)
-	install -m 755 unim-frontends/qt5/build/libunimplatforminputcontextplugin.so $(DESTDIR)$(QT5_PLUGIN_DIR)/
+	install -m 755 unim-frontends/qt5/build/libunim.so $(DESTDIR)$(QT5_PLUGIN_DIR)/
 	@# Qt6
 	install -d $(DESTDIR)$(QT6_PLUGIN_DIR)
-	install -m 755 unim-frontends/qt6/build/libunimplatforminputcontextplugin.so $(DESTDIR)$(QT6_PLUGIN_DIR)/
+	install -m 755 unim-frontends/qt6/build/libunim.so $(DESTDIR)$(QT6_PLUGIN_DIR)/
 
 install-settings:
 	@echo "Installing settings tools..."
@@ -247,8 +247,8 @@ uninstall-frontends:
 	@echo "Removing IM modules..."
 	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/libim-unim.so
 	rm -f $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim-gtk4.so
-	rm -f $(DESTDIR)$(QT5_PLUGIN_DIR)/libunimplatforminputcontextplugin.so
-	rm -f $(DESTDIR)$(QT6_PLUGIN_DIR)/libunimplatforminputcontextplugin.so
+	rm -f $(DESTDIR)$(QT5_PLUGIN_DIR)/libunim.so
+	rm -f $(DESTDIR)$(QT6_PLUGIN_DIR)/libunim.so
 
 uninstall-settings:
 	@echo "Removing settings tools..."
@@ -373,12 +373,12 @@ test:
 	fi
 	@echo ""
 	@echo "✅ 3. Qt IM 플러그인"
-	@if [ -f $(QT5_PLUGIN_DIR)/libunimplatforminputcontextplugin.so ]; then \
+	@if [ -f $(QT5_PLUGIN_DIR)/libunim.so ]; then \
 		echo "   ✓ Qt5 플러그인 설치됨"; \
 	else \
 		echo "   ✗ Qt5 플러그인 미설치"; \
 	fi
-	@if [ -f $(QT6_PLUGIN_DIR)/libunimplatforminputcontextplugin.so ]; then \
+	@if [ -f $(QT6_PLUGIN_DIR)/libunim.so ]; then \
 		echo "   ✓ Qt6 플러그인 설치됨"; \
 	else \
 		echo "   ✗ Qt6 플러그인 미설치"; \
@@ -446,4 +446,24 @@ test-gtk3:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ 빌드 완료! 실행: ./unim-test-gtk3/build/unim-test-gtk3"
 	@echo "   또는: GTK_IM_MODULE=unim ./unim-test-gtk3/build/unim-test-gtk3"
+	@echo "════════════════════════════════════════════════════════════"
+
+test-q6:
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🔨 Building Qt6 Test Application..."
+	@echo "════════════════════════════════════════════════════════════"
+	@mkdir -p unim-test-qt6/build && cd unim-test-qt6/build && cmake .. && make
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "✅ 빌드 완료! 실행: ./unim-test-qt6/build/unim-test-qt6"
+	@echo "   또는: QT_IM_MODULE=unim ./unim-test-qt6/build/unim-test-qt6"
+	@echo "════════════════════════════════════════════════════════════"
+
+test-q5:
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🔨 Building Qt5 Test Application..."
+	@echo "════════════════════════════════════════════════════════════"
+	@mkdir -p unim-test-qt5/build && cd unim-test-qt5/build && cmake .. && make
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "✅ 빌드 완료! 실행: ./unim-test-qt5/build/unim-test-qt5"
+	@echo "   또는: QT_IM_MODULE=unim ./unim-test-qt5/build/unim-test-qt5"
 	@echo "════════════════════════════════════════════════════════════"

@@ -1,7 +1,7 @@
 /*
- * UNIM Qt6 Input Method Test Application
+ * UNIM Qt5 Input Method Test Application
  *
- * 다양한 Qt6 위젯에서 UNIM 입력기를 테스트하기 위한 앱입니다.
+ * 다양한 Qt5 위젯에서 UNIM 입력기를 테스트하기 위한 앱입니다.
  */
 
 #include <QApplication>
@@ -30,7 +30,7 @@ static bool unim_debug_enabled = false;
 #define UNIM_DEBUG(...) \
     do { \
         if (unim_debug_enabled) { \
-            qDebug() << "[UNIM-QT6]" << __VA_ARGS__; \
+            qDebug() << "[UNIM-QT5]" << __VA_ARGS__; \
         } \
     } while (0)
 
@@ -41,7 +41,7 @@ static void unim_check_debug_env()
         const char *env = std::getenv("UNIM_DEVELOP");
         if (env && strcmp(env, "1") == 0) {
             unim_debug_enabled = true;
-            qDebug() << "[UNIM-QT6] 디버그 모드 활성화 (UNIM_DEVELOP=1)";
+            qDebug() << "[UNIM-QT5] 디버그 모드 활성화 (UNIM_DEVELOP=1)";
         }
         checked = true;
     }
@@ -57,13 +57,13 @@ public:
         UNIM_DEBUG("TestWindow 초기화 시작");
         UNIM_DEBUG("Platform:" << QGuiApplication::platformName());
 
-        setWindowTitle("UNIM Qt6 입력기 테스트");
+        setWindowTitle("UNIM Qt5 입력기 테스트");
         resize(700, 800);
         
         setupUI();
         
         // 초기 로그 메시지
-        logMessage("UNIM Qt6 입력기 테스트 앱 시작");
+        logMessage("UNIM Qt5 입력기 테스트 앱 시작");
         QString qtImModule = qEnvironmentVariable("QT_IM_MODULE");
         logMessage(QString("QT_IM_MODULE=%1").arg(qtImModule.isEmpty() ? "(unset)" : qtImModule));
         
