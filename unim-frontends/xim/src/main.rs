@@ -3,16 +3,41 @@
 //! X11 환경에서 한글 입력을 제공하는 XIM 서버입니다.
 
 mod handler;
+mod pe_window;
 
 use log::{error, info};
+use std::sync::atomic::{AtomicBool, Ordering};
 use x11rb::connection::Connection;
 use x11rb::protocol::Event;
 use xim::x11rb::{HasConnection, X11rbServer};
 use xim::XimConnections;
 
+/// 디버그 모드 플래그 (UNIM_DEVELOP=1 시 활성화)
+pub static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// UNIM_DEVELOP 환경변수 체크 및 디버그 모드 초기화
+fn init_debug_mode() -> bool {
+    if let Ok(val) = std::env::var("UNIM_DEVELOP") {
+        if val == "1" {
+            DEBUG_ENABLED.store(true, Ordering::Relaxed);
+            return true;
+        }
+    }
+    false
+}
+
 fn main() {
-    // 로거 초기화
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // 디버그 모드 체크
+    let debug_mode = init_debug_mode();
+
+    // 로거 초기화 (디버그 모드 시 debug 레벨, 아니면 info 레벨)
+    let default_level = if debug_mode { "debug" } else { "info" };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_level)).init();
+
+    // 디버그 모드 활성화 메시지 (GTK4와 동일한 형식)
+    if debug_mode {
+        println!("[UNIM-XIM] 디버그 모드 활성화 (UNIM_DEVELOP=1)");
+    }
 
     info!("UNIM XIM 서버 시작...");
 

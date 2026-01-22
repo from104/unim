@@ -5,6 +5,7 @@
  * GTK, Qt 등의 툴킷을 사용하지 않습니다.
  * 
  * [2026-01-19] Xft를 사용하여 폰트 렌더링 개선 (D2Coding)
+ * [2026-01-22] 여러 입력 필드 지원 추가
  */
 
 #include <X11/Xlib.h>
@@ -22,14 +23,28 @@
 
 /* 창 크기 */
 #define WINDOW_WIDTH 700
-#define WINDOW_HEIGHT 600
+#define WINDOW_HEIGHT 700
 #define MARGIN 20
 #define LINE_HEIGHT 30
+#define FIELD_HEIGHT 28
+#define FIELD_PADDING 6
 
 /* 텍스트 버퍼 */
-#define TEXT_BUFFER_SIZE 4096
+#define TEXT_BUFFER_SIZE 1024
 #define LOG_BUFFER_SIZE 8192
-#define MAX_LOG_LINES 100
+#define MAX_LOG_LINES 50
+
+/* 입력 필드 개수 */
+#define NUM_FIELDS 4
+
+/* 입력 필드 구조체 */
+typedef struct {
+    int x, y, width, height;
+    char label[64];
+    char text[TEXT_BUFFER_SIZE];
+    char preedit[TEXT_BUFFER_SIZE];
+    int focused;
+} InputField;
 
 /* 전역 변수 */
 static Display *display = NULL;
@@ -42,14 +57,11 @@ static XIC xic = NULL;
 /* Xft 리소스 */
 static XftFont *font = NULL;
 static XftDraw *xft_draw = NULL;
-static XftColor color_black, color_white, color_gray, color_bg;
+static XftColor color_black, color_white, color_gray, color_blue, color_bg;
 
-/* 입력 텍스트 버퍼 */
-static char text_buffer[TEXT_BUFFER_SIZE] = "";
-static int text_cursor = 0;
-
-/* Preedit 문자열 */
-static char preedit_string[TEXT_BUFFER_SIZE] = "";
+/* 입력 필드들 */
+static InputField fields[NUM_FIELDS];
+static int active_field = 0;
 
 /* 로그 버퍼 */
 static char log_buffer[MAX_LOG_LINES][256];
@@ -57,27 +69,22 @@ static int log_count = 0;
 
 /* 상태 정보 */
 static char im_status[256] = "(XIM 연결 중...)";
-static char focus_status[256] = "포커스 있음";
 
 /* 로그 추가 함수 */
 static void add_log(const char *format, ...) {
     va_list args;
     va_start(args, format);
     
-    /* 시간 타임스탬프 */
     time_t now = time(NULL);
     struct tm *tm_info = localtime(&now);
     char timestamp[32];
     strftime(timestamp, sizeof(timestamp), "[%H:%M:%S] ", tm_info);
     
-    /* 로그 메시지 생성 */
     char message[224];
     vsnprintf(message, sizeof(message), format, args);
     va_end(args);
     
-    /* 로그 버퍼에 추가 (순환) */
     if (log_count >= MAX_LOG_LINES) {
-        /* 오래된 로그 삭제 (shift up) */
         for (int i = 0; i < MAX_LOG_LINES - 1; i++) {
             strcpy(log_buffer[i], log_buffer[i + 1]);
         }
@@ -86,94 +93,121 @@ static void add_log(const char *format, ...) {
     snprintf(log_buffer[log_count], sizeof(log_buffer[log_count]), "%s%s", timestamp, message);
     log_count++;
     
-    /* 콘솔에도 출력 */
     printf("%s%s\n", timestamp, message);
 }
 
 /* 유틸리티: 문자열 폭 계산 */
 static int get_text_width(const char *text) {
-    if (!font || !text) return 0;
+    if (!font || !text || !*text) return 0;
     XGlyphInfo extents;
     XftTextExtentsUtf8(display, font, (const FcChar8 *)text, strlen(text), &extents);
     return extents.xOff;
 }
 
+/* 입력 필드 초기화 */
+static void init_fields(void) {
+    int y_start = 100;
+    int field_width = WINDOW_WIDTH - 2 * MARGIN - 100;
+    
+    for (int i = 0; i < NUM_FIELDS; i++) {
+        fields[i].x = MARGIN + 100;
+        fields[i].y = y_start + i * (FIELD_HEIGHT + 20);
+        fields[i].width = field_width;
+        fields[i].height = FIELD_HEIGHT;
+        fields[i].text[0] = '\0';
+        fields[i].preedit[0] = '\0';
+        fields[i].focused = (i == 0) ? 1 : 0;
+    }
+    
+    strcpy(fields[0].label, "이름:");
+    strcpy(fields[1].label, "주소:");
+    strcpy(fields[2].label, "전화번호:");
+    strcpy(fields[3].label, "메모:");
+}
+
+/* 입력 필드 그리기 */
+static void draw_field(InputField *field, int is_active) {
+    /* 라벨 */
+    XftDrawStringUtf8(xft_draw, &color_black, font, 
+        MARGIN, field->y + FIELD_HEIGHT - 8,
+        (const FcChar8 *)field->label, strlen(field->label));
+    
+    /* 필드 배경 */
+    if (is_active) {
+        XSetForeground(display, gc, 0xFFFFE0);  /* 연한 노란색 */
+    } else {
+        XSetForeground(display, gc, 0xFFFFFF);  /* 흰색 */
+    }
+    XFillRectangle(display, window, gc, 
+        field->x, field->y, field->width, field->height);
+    
+    /* 테두리 */
+    if (is_active) {
+        XSetForeground(display, gc, 0x4169E1);  /* 파란색 */
+        XDrawRectangle(display, window, gc, 
+            field->x, field->y, field->width, field->height);
+        XDrawRectangle(display, window, gc, 
+            field->x + 1, field->y + 1, field->width - 2, field->height - 2);
+    } else {
+        XSetForeground(display, gc, 0xAAAAAA);  /* 회색 */
+        XDrawRectangle(display, window, gc, 
+            field->x, field->y, field->width, field->height);
+    }
+    
+    /* 텍스트 + preedit */
+    char display_text[TEXT_BUFFER_SIZE * 2];
+    snprintf(display_text, sizeof(display_text), "%s%s", field->text, field->preedit);
+    
+    XftDrawStringUtf8(xft_draw, &color_black, font,
+        field->x + FIELD_PADDING, field->y + FIELD_HEIGHT - 8,
+        (const FcChar8 *)display_text, strlen(display_text));
+    
+    /* 커서 (활성 필드만) */
+    if (is_active) {
+        int cursor_x = field->x + FIELD_PADDING + get_text_width(display_text);
+        XSetForeground(display, gc, 0x000000);
+        XDrawLine(display, window, gc, 
+            cursor_x, field->y + 4, cursor_x, field->y + field->height - 4);
+    }
+}
+
 /* 화면 다시 그리기 */
 static void redraw(void) {
     /* 배경 지우기 */
-    XSetForeground(display, gc, WhitePixel(display, screen));
+    XSetForeground(display, gc, 0xF0F0F0);
     XFillRectangle(display, window, gc, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
     
-    /* XftColor 할당 (매번 redraw 때 하기보다 초기화 때 하는게 좋지만, 간단하게 여기서 처리하거나 전역 사용) */
-    
     int y = MARGIN + LINE_HEIGHT;
-    int line_num = 0;
     
     /* 제목 */
-    const char *title = "UNIM XIM 입력기 테스트";
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y, (const FcChar8 *)title, strlen(title));
-    y += LINE_HEIGHT + 10;
-    line_num++;
-    
-    /* 구분선 */
-    XSetForeground(display, gc, 0xCCCCCC);
-    XDrawLine(display, window, gc, MARGIN, y - LINE_HEIGHT/2, WINDOW_WIDTH - MARGIN, y - LINE_HEIGHT/2);
-    y += 10;
-    
-    /* 입력기 상태 섹션 */
-    const char *status_title = "=== 입력기 상태 ===";
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y, (const FcChar8 *)status_title, strlen(status_title));
+    const char *title = "UNIM XIM 입력기 테스트 - 다중 입력 필드";
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y, 
+        (const FcChar8 *)title, strlen(title));
     y += LINE_HEIGHT;
     
-    /* XIM 상태 */
-    char status_line[512];
-    snprintf(status_line, sizeof(status_line), "XIM 상태: %s", im_status);
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 20, y, (const FcChar8 *)status_line, strlen(status_line));
-    y += LINE_HEIGHT;
-    
-    /* 포커스 상태 */
-    snprintf(status_line, sizeof(status_line), "포커스: %s", focus_status);
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 20, y, (const FcChar8 *)status_line, strlen(status_line));
-    y += LINE_HEIGHT;
-    
-    /* Preedit 문자열 */
-    snprintf(status_line, sizeof(status_line), "Preedit: [%s]", preedit_string);
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 20, y, (const FcChar8 *)status_line, strlen(status_line));
+    /* 상태 표시 */
+    char status_line[256];
+    snprintf(status_line, sizeof(status_line), "XIM: %s | 현재 필드: %s (Tab으로 이동)", 
+        im_status, fields[active_field].label);
+    XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN, y, 
+        (const FcChar8 *)status_line, strlen(status_line));
     y += LINE_HEIGHT + 10;
     
     /* 구분선 */
     XSetForeground(display, gc, 0xCCCCCC);
-    XDrawLine(display, window, gc, MARGIN, y - LINE_HEIGHT/2, WINDOW_WIDTH - MARGIN, y - LINE_HEIGHT/2);
-    y += 10;
+    XDrawLine(display, window, gc, MARGIN, y, WINDOW_WIDTH - MARGIN, y);
+    y += 20;
     
-    /* 입력 영역 섹션 */
-    const char *input_title = "=== 입력 영역 ===";
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y, (const FcChar8 *)input_title, strlen(input_title));
-    y += LINE_HEIGHT;
-    
-    /* 입력 박스 배경 */
-    XSetForeground(display, gc, 0xF5F5F5); // 연한 회색 배경
-    XFillRectangle(display, window, gc, MARGIN, y - LINE_HEIGHT + 10, WINDOW_WIDTH - 2 * MARGIN, LINE_HEIGHT * 4);
-    XSetForeground(display, gc, 0x888888); // 테두리
-    XDrawRectangle(display, window, gc, MARGIN, y - LINE_HEIGHT + 10, WINDOW_WIDTH - 2 * MARGIN, LINE_HEIGHT * 4);
-    
-    /* 입력된 텍스트 + preedit */
-    char display_text[TEXT_BUFFER_SIZE * 2];
-    snprintf(display_text, sizeof(display_text), "%s%s", text_buffer, preedit_string);
-    
-    /* 텍스트 그리기 */
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN + 10, y + 10, (const FcChar8 *)display_text, strlen(display_text));
-    
-    /* 커서 표시 (preedit 뒤에) */
-    int cursor_x = MARGIN + 10 + get_text_width(display_text);
-    XSetForeground(display, gc, 0x000000); // 검은색 커서
-    XDrawLine(display, window, gc, cursor_x, y - LINE_HEIGHT + 15, cursor_x, y + 15);
-    
-    y += LINE_HEIGHT * 4 + 10;
+    /* 입력 필드들 그리기 */
+    for (int i = 0; i < NUM_FIELDS; i++) {
+        draw_field(&fields[i], i == active_field);
+    }
     
     /* 안내 메시지 */
-    const char *help_msg = "(여기에 한글/영문을 입력하세요. Backspace: 삭제, Ctrl+C: 종료)";
-    XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN, y, (const FcChar8 *)help_msg, strlen(help_msg));
+    y = fields[NUM_FIELDS - 1].y + FIELD_HEIGHT + 30;
+    const char *help_msg = "Tab: 다음 필드, Shift+Tab: 이전 필드, Ctrl+C: 종료";
+    XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN, y, 
+        (const FcChar8 *)help_msg, strlen(help_msg));
     y += LINE_HEIGHT + 10;
     
     /* 구분선 */
@@ -183,64 +217,107 @@ static void redraw(void) {
     
     /* 로그 섹션 */
     const char *log_title = "=== 이벤트 로그 ===";
-    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y + LINE_HEIGHT, (const FcChar8 *)log_title, strlen(log_title));
+    XftDrawStringUtf8(xft_draw, &color_black, font, MARGIN, y + LINE_HEIGHT, 
+        (const FcChar8 *)log_title, strlen(log_title));
     y += LINE_HEIGHT * 2;
     
-    /* 로그 출력 (최근 것만) */
-    int visible_lines = (WINDOW_HEIGHT - y - MARGIN) / (LINE_HEIGHT - 8);
+    /* 로그 출력 */
+    int visible_lines = (WINDOW_HEIGHT - y - MARGIN) / (LINE_HEIGHT - 10);
     int start_log = log_count > visible_lines ? log_count - visible_lines : 0;
     
     for (int i = start_log; i < log_count && y < WINDOW_HEIGHT - MARGIN; i++) {
-        XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN + 20, y, (const FcChar8 *)log_buffer[i], strlen(log_buffer[i]));
-        y += LINE_HEIGHT - 8;
+        XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN + 20, y, 
+            (const FcChar8 *)log_buffer[i], strlen(log_buffer[i]));
+        y += LINE_HEIGHT - 10;
     }
     
     XFlush(display);
 }
 
+/* 필드 변경 시 XIC 갱신 */
+static void update_spot_location(void) {
+    if (!xic) return;
+    
+    InputField *field = &fields[active_field];
+    char display_text[TEXT_BUFFER_SIZE * 2];
+    snprintf(display_text, sizeof(display_text), "%s%s", field->text, field->preedit);
+    
+    XPoint spot;
+    spot.x = field->x + FIELD_PADDING + get_text_width(display_text);
+    spot.y = field->y + FIELD_HEIGHT - 4;
+    
+    XVaNestedList preedit_attr = XVaCreateNestedList(0, XNSpotLocation, &spot, NULL);
+    XSetICValues(xic, XNPreeditAttributes, preedit_attr, NULL);
+    XFree(preedit_attr);
+}
+
+/* 필드 전환 */
+static void switch_field(int direction) {
+    /* 현재 필드의 preedit 커밋 */
+    InputField *current = &fields[active_field];
+    if (current->preedit[0] != '\0') {
+        strcat(current->text, current->preedit);
+        current->preedit[0] = '\0';
+        add_log("필드 전환 시 preedit 커밋: \"%s\"", current->text);
+    }
+    
+    /* XIC 리셋 */
+    if (xic) {
+        char *committed = XmbResetIC(xic);
+        if (committed && *committed) {
+            strcat(current->text, committed);
+            XFree(committed);
+        }
+    }
+    
+    /* 다음/이전 필드로 이동 */
+    active_field = (active_field + direction + NUM_FIELDS) % NUM_FIELDS;
+    
+    add_log("필드 전환: %s", fields[active_field].label);
+    
+    /* spot location 갱신 */
+    update_spot_location();
+    
+    redraw();
+}
+
 /* XIM preedit 콜백들 */
 static int preedit_start_callback(XIC ic, XPointer client_data, XPointer call_data) {
-    (void)ic;
-    (void)client_data;
-    (void)call_data;
-    add_log("Preedit Start");
-    return -1; /* 제한 없음 */
+    (void)ic; (void)client_data; (void)call_data;
+    add_log("[%s] Preedit Start", fields[active_field].label);
+    return -1;
 }
 
 static void preedit_done_callback(XIC ic, XPointer client_data, XPointer call_data) {
-    (void)ic;
-    (void)client_data;
-    (void)call_data;
-    add_log("Preedit Done");
-    preedit_string[0] = '\0';
+    (void)ic; (void)client_data; (void)call_data;
+    add_log("[%s] Preedit Done", fields[active_field].label);
+    fields[active_field].preedit[0] = '\0';
     redraw();
 }
 
 static void preedit_draw_callback(XIC ic, XPointer client_data, XIMPreeditDrawCallbackStruct *call_data) {
-    (void)ic;
-    (void)client_data;
+    (void)ic; (void)client_data;
+    
+    InputField *field = &fields[active_field];
     
     if (call_data && call_data->text && call_data->text->string.multi_byte) {
-        strncpy(preedit_string, call_data->text->string.multi_byte, sizeof(preedit_string) - 1);
-        preedit_string[sizeof(preedit_string) - 1] = '\0';
-        add_log("Preedit Draw: \"%s\"", preedit_string);
+        strncpy(field->preedit, call_data->text->string.multi_byte, sizeof(field->preedit) - 1);
+        field->preedit[sizeof(field->preedit) - 1] = '\0';
+        add_log("[%s] Preedit: \"%s\"", field->label, field->preedit);
     } else {
-        preedit_string[0] = '\0';
-        add_log("Preedit Draw: (empty)");
+        field->preedit[0] = '\0';
     }
+    
+    update_spot_location();
     redraw();
 }
 
 static void preedit_caret_callback(XIC ic, XPointer client_data, XIMPreeditCaretCallbackStruct *call_data) {
-    (void)ic;
-    (void)client_data;
-    (void)call_data;
-    add_log("Preedit Caret");
+    (void)ic; (void)client_data; (void)call_data;
 }
 
 /* XIM 초기화 */
 static int init_xim(void) {
-    /* 로케일 설정 */
     if (setlocale(LC_ALL, "") == NULL) {
         add_log("경고: 로케일 설정 실패");
     }
@@ -253,28 +330,24 @@ static int init_xim(void) {
         add_log("경고: XSetLocaleModifiers 실패");
     }
     
-    /* XMODIFIERS 환경변수 확인 */
     const char *xmodifiers = getenv("XMODIFIERS");
     add_log("XMODIFIERS=%s", xmodifiers ? xmodifiers : "(unset)");
     
-    /* XIM 열기 */
     xim = XOpenIM(display, NULL, NULL, NULL);
     if (xim == NULL) {
-        add_log("오류: XOpenIM 실패 - XIM 서버 연결 불가");
-        strcpy(im_status, "연결 실패 (XIM 서버 없음)");
+        add_log("오류: XOpenIM 실패");
+        strcpy(im_status, "연결 실패");
         return 0;
     }
     
     add_log("XIM 열기 성공");
     
-    /* 지원되는 입력 스타일 확인 */
     XIMStyles *im_styles = NULL;
     if (XGetIMValues(xim, XNQueryInputStyle, &im_styles, NULL) != NULL || im_styles == NULL) {
         add_log("오류: 입력 스타일 쿼리 실패");
         return 0;
     }
     
-    /* 원하는 스타일: On-the-spot (preedit callbacks) */
     XIMStyle best_style = 0;
     XIMStyle wanted_styles[] = {
         XIMPreeditCallbacks | XIMStatusNothing,
@@ -302,11 +375,9 @@ static int init_xim(void) {
     
     add_log("입력 스타일: 0x%lx", (unsigned long)best_style);
     
-    /* XIC 생성 */
     XVaNestedList preedit_attr = NULL;
     
     if (best_style & XIMPreeditCallbacks) {
-        /* Preedit 콜백 설정 */
         XIMCallback preedit_start_cb = { NULL, (XIMProc)preedit_start_callback };
         XIMCallback preedit_done_cb = { NULL, (XIMProc)preedit_done_callback };
         XIMCallback preedit_draw_cb = { NULL, (XIMProc)preedit_draw_callback };
@@ -325,8 +396,22 @@ static int init_xim(void) {
             XNFocusWindow, window,
             XNPreeditAttributes, preedit_attr,
             NULL);
+    } else if (best_style & XIMPreeditPosition) {
+        /* Over-the-spot 스타일 */
+        XPoint spot = { fields[0].x + FIELD_PADDING, fields[0].y + FIELD_HEIGHT - 4 };
+        XFontSet font_set = NULL;  /* 필요시 설정 */
+        
+        preedit_attr = XVaCreateNestedList(0,
+            XNSpotLocation, &spot,
+            NULL);
+        
+        xic = XCreateIC(xim,
+            XNInputStyle, best_style,
+            XNClientWindow, window,
+            XNFocusWindow, window,
+            XNPreeditAttributes, preedit_attr,
+            NULL);
     } else {
-        /* 그 외 스타일 (fallback) */
         xic = XCreateIC(xim,
             XNInputStyle, best_style,
             XNClientWindow, window,
@@ -345,15 +430,14 @@ static int init_xim(void) {
     }
     
     add_log("XIC 생성 성공");
-    strcpy(im_status, "XIM 연결됨");
+    strcpy(im_status, "연결됨");
     
-    /* XIC에서 처리할 이벤트 마스크 가져오기 */
     long im_event_mask = 0;
     if (XGetICValues(xic, XNFilterEvents, &im_event_mask, NULL) == NULL) {
         add_log("XIC 이벤트 마스크: 0x%lx", im_event_mask);
         XSelectInput(display, window, 
             ExposureMask | KeyPressMask | KeyReleaseMask | 
-            FocusChangeMask | StructureNotifyMask | im_event_mask);
+            FocusChangeMask | StructureNotifyMask | ButtonPressMask | im_event_mask);
     }
     
     return 1;
@@ -366,78 +450,100 @@ static void handle_key_event(XKeyEvent *event) {
     char buf[256] = "";
     int len = 0;
     
+    InputField *field = &fields[active_field];
+    
     if (xic) {
-        /* XIM을 통한 키 처리 */
         len = XmbLookupString(xic, event, buf, sizeof(buf) - 1, &keysym, &status);
         
-        const char *status_str;
-        switch (status) {
-            case XLookupNone: status_str = "None"; break;
-            case XLookupChars: status_str = "Chars"; break;
-            case XLookupKeySym: status_str = "KeySym"; break;
-            case XLookupBoth: status_str = "Both"; break;
-            case XBufferOverflow: status_str = "Overflow"; break;
-            default: status_str = "Unknown"; break;
+        /* Tab 키: 필드 전환 */
+        if (keysym == XK_Tab || keysym == XK_ISO_Left_Tab) {
+            int direction = (event->state & ShiftMask) ? -1 : 1;
+            switch_field(direction);
+            return;
         }
-        add_log("XmbLookupString: status=%s, len=%d, keysym=0x%lx", status_str, len, keysym);
         
         if (status == XLookupChars || status == XLookupBoth) {
             buf[len] = '\0';
-            add_log("  -> 문자: \"%s\"", buf);
             
-            /* 텍스트 버퍼에 추가 */
-            int cur_len = strlen(text_buffer);
+            int cur_len = strlen(field->text);
             if (cur_len + len < TEXT_BUFFER_SIZE - 1) {
-                strcat(text_buffer, buf);
-                add_log("버퍼 업데이트: \"%s\"", text_buffer);
+                strcat(field->text, buf);
+                add_log("[%s] 입력: \"%s\"", field->label, buf);
             }
             
-            /* preedit이 있으면 비우기 (commit 후) */
-            preedit_string[0] = '\0';
+            field->preedit[0] = '\0';
         }
         
         if (status == XLookupKeySym || status == XLookupBoth) {
-            /* 특수 키 처리 */
             if (keysym == XK_BackSpace) {
-                int text_len = strlen(text_buffer);
+                int text_len = strlen(field->text);
                 if (text_len > 0) {
-                    /* UTF-8 문자 경계 찾기 */
                     int i = text_len - 1;
-                    while (i > 0 && (text_buffer[i] & 0xC0) == 0x80) {
+                    while (i > 0 && (field->text[i] & 0xC0) == 0x80) {
                         i--;
                     }
-                    text_buffer[i] = '\0';
-                    add_log("Backspace: \"%s\"", text_buffer);
+                    field->text[i] = '\0';
+                    add_log("[%s] Backspace", field->label);
                 }
             } else if (keysym == XK_Return || keysym == XK_KP_Enter) {
-                // Enter: 줄바꿈 대신 그냥 로그만 남김 (한 줄 입력기 컨셉)
-                add_log("Enter 키 (Commit)");
+                add_log("[%s] Enter", field->label);
+                switch_field(1);  /* 다음 필드로 이동 */
+                return;
             } else if (keysym == XK_Escape) {
-                preedit_string[0] = '\0';
-                add_log("Escape 키 - preedit 취소");
+                field->preedit[0] = '\0';
+                add_log("[%s] Escape - preedit 취소", field->label);
             }
         }
     } else {
-        /* XIM 없이 기본 처리 */
         len = XLookupString(event, buf, sizeof(buf) - 1, &keysym, NULL);
         if (len > 0) {
             buf[len] = '\0';
-            strcat(text_buffer, buf);
-            add_log("직접 입력 (XIM 없음): \"%s\"", buf);
+            strcat(field->text, buf);
         }
     }
     
+    update_spot_location();
     redraw();
 }
 
+/* 마우스 클릭으로 필드 선택 */
+static void handle_button_press(XButtonEvent *event) {
+    for (int i = 0; i < NUM_FIELDS; i++) {
+        InputField *field = &fields[i];
+        if (event->x >= field->x && event->x <= field->x + field->width &&
+            event->y >= field->y && event->y <= field->y + field->height) {
+            
+            if (i != active_field) {
+                /* 현재 필드 preedit 커밋 */
+                InputField *current = &fields[active_field];
+                if (current->preedit[0] != '\0') {
+                    strcat(current->text, current->preedit);
+                    current->preedit[0] = '\0';
+                }
+                
+                if (xic) {
+                    char *committed = XmbResetIC(xic);
+                    if (committed && *committed) {
+                        strcat(current->text, committed);
+                        XFree(committed);
+                    }
+                }
+                
+                active_field = i;
+                add_log("마우스로 필드 선택: %s", fields[active_field].label);
+                update_spot_location();
+                redraw();
+            }
+            break;
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
-    (void)argc;
-    (void)argv;
+    (void)argc; (void)argv;
     
-    /* 로케일 초기화 */
     setlocale(LC_ALL, "");
     
-    /* X 디스플레이 열기 */
     display = XOpenDisplay(NULL);
     if (display == NULL) {
         fprintf(stderr, "오류: X 디스플레이를 열 수 없습니다.\n");
@@ -446,93 +552,72 @@ int main(int argc, char *argv[]) {
     
     screen = DefaultScreen(display);
     
-    add_log("UNIM XIM 입력기 테스트 앱 시작 (Xft 적용)");
+    add_log("UNIM XIM 입력기 테스트 앱 시작 (다중 필드)");
     add_log("DISPLAY=%s", getenv("DISPLAY") ? getenv("DISPLAY") : "(unset)");
     
-    Window root = RootWindow(display, screen);
+    /* 창 생성 */
+    window = XCreateSimpleWindow(display, RootWindow(display, screen),
+        100, 100, WINDOW_WIDTH, WINDOW_HEIGHT,
+        1, BlackPixel(display, screen), WhitePixel(display, screen));
     
-    /* 폰트 초기화 (Xft) */
-    /* 1순위: D2Coding, 2순위: NanumGothicCoding, 3순위: Monospace */
-    const char *font_names[] = {
-        "D2Coding:size=14",
-        "NanumGothicCoding:size=14",
-        "Monospace:size=14", 
-        NULL
-    };
-    
-    for (int i = 0; font_names[i] != NULL; i++) {
-        font = XftFontOpenName(display, screen, font_names[i]);
-        if (font) {
-            add_log("폰트 로드 성공: %s", font_names[i]);
-            break;
-        }
-    }
-    
-    if (!font) {
-        add_log("오류: 적절한 폰트를 찾을 수 없습니다. 기본값 사용 시도...");
-        font = XftFontOpenName(display, screen, "fixed");
-    }
-    
-    /* 색상 할당 */
-    Visual *visual = DefaultVisual(display, screen);
-    Colormap cmap = DefaultColormap(display, screen);
-    
-    XftColorAllocName(display, visual, cmap, "black", &color_black);
-    XftColorAllocName(display, visual, cmap, "white", &color_white);
-    XftColorAllocName(display, visual, cmap, "#666666", &color_gray);
-    XftColorAllocName(display, visual, cmap, "#F5F5F5", &color_bg);
-    
-    /* 윈도우 속성 */
-    XSetWindowAttributes attrs;
-    attrs.background_pixel = WhitePixel(display, screen);
-    attrs.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | 
-                       FocusChangeMask | StructureNotifyMask;
-    
-    /* 윈도우 생성 */
-    window = XCreateWindow(display, root, 
-        100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, 
-        1, CopyFromParent, InputOutput, CopyFromParent,
-        CWBackPixel | CWEventMask, &attrs);
-    
-    /* 윈도우 제목 설정 */
-    XTextProperty window_name;
-    const char *title = "UNIM XIM 입력기 테스트";
-    XmbTextListToTextProperty(display, (char **)&title, 1, XStdICCTextStyle, &window_name);
-    XSetWMName(display, window, &window_name);
-    XFree(window_name.value);
-    
-    /* WM_DELETE_WINDOW 프로토콜 등록 */
-    Atom wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(display, window, &wm_delete, 1);
+    XStoreName(display, window, "UNIM XIM Test - Multiple Fields");
     
     /* GC 생성 */
     gc = XCreateGC(display, window, 0, NULL);
     
-    /* Xft Draw Context 생성 */
-    xft_draw = XftDrawCreate(display, window, visual, cmap);
+    /* Xft 초기화 */
+    font = XftFontOpenName(display, screen, "D2Coding:size=14");
+    if (!font) {
+        font = XftFontOpenName(display, screen, "monospace:size=14");
+    }
     
-    /* 윈도우 표시 */
+    if (!font) {
+        fprintf(stderr, "오류: 폰트를 열 수 없습니다.\n");
+        return 1;
+    }
+    add_log("폰트 로드 성공");
+    
+    xft_draw = XftDrawCreate(display, window, 
+        DefaultVisual(display, screen), DefaultColormap(display, screen));
+    
+    /* 색상 할당 */
+    XRenderColor render_black = { 0, 0, 0, 0xFFFF };
+    XRenderColor render_white = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF };
+    XRenderColor render_gray = { 0x6666, 0x6666, 0x6666, 0xFFFF };
+    XRenderColor render_blue = { 0x4141, 0x6969, 0xE1E1, 0xFFFF };
+    
+    XftColorAllocValue(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &render_black, &color_black);
+    XftColorAllocValue(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &render_white, &color_white);
+    XftColorAllocValue(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &render_gray, &color_gray);
+    XftColorAllocValue(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &render_blue, &color_blue);
+    
+    /* 입력 필드 초기화 */
+    init_fields();
+    
+    /* 창 표시 */
     XMapWindow(display, window);
     XFlush(display);
     
     /* XIM 초기화 */
     init_xim();
     
-    /* 포커스 설정 */
-    if (xic) {
-        XSetICFocus(xic);
-    }
+    /* WM_DELETE_WINDOW 처리 */
+    Atom wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(display, window, &wm_delete, 1);
     
     add_log("이벤트 루프 시작");
     
     /* 이벤트 루프 */
-    int running = 1;
     XEvent event;
+    int running = 1;
     
-    while (running && XPending(display) >= 0) {
+    while (running) {
         XNextEvent(display, &event);
         
-        /* XIM 필터링 */
         if (XFilterEvent(&event, None)) {
             continue;
         }
@@ -546,30 +631,21 @@ int main(int argc, char *argv[]) {
                 
             case KeyPress:
                 handle_key_event(&event.xkey);
+                break;
                 
-                /* Ctrl+C로 종료 */
-                if ((event.xkey.state & ControlMask) && 
-                    XLookupKeysym(&event.xkey, 0) == XK_c) {
-                    add_log("Ctrl+C - 종료");
-                    running = 0;
-                }
+            case ButtonPress:
+                handle_button_press(&event.xbutton);
                 break;
                 
             case FocusIn:
                 add_log("FocusIn");
-                strcpy(focus_status, "포커스 있음");
-                if (xic) {
-                    XSetICFocus(xic);
-                }
+                if (xic) XSetICFocus(xic);
                 redraw();
                 break;
                 
             case FocusOut:
                 add_log("FocusOut");
-                strcpy(focus_status, "포커스 없음");
-                if (xic) {
-                    XUnsetICFocus(xic);
-                }
+                if (xic) XUnsetICFocus(xic);
                 redraw();
                 break;
                 
@@ -579,28 +655,26 @@ int main(int argc, char *argv[]) {
                     running = 0;
                 }
                 break;
-                
-            case DestroyNotify:
-                running = 0;
-                break;
         }
     }
     
+    /* 정리 */
     add_log("앱 종료");
     
-    /* 정리 */
-    if (xic) {
-        XDestroyIC(xic);
-    }
-    if (xim) {
-        XCloseIM(xim);
-    }
+    if (xic) XDestroyIC(xic);
+    if (xim) XCloseIM(xim);
     
-    /* Xft 리소스 해제 */
-    if (font) XftFontClose(display, font);
+    XftColorFree(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &color_black);
+    XftColorFree(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &color_white);
+    XftColorFree(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &color_gray);
+    XftColorFree(display, DefaultVisual(display, screen),
+        DefaultColormap(display, screen), &color_blue);
+    
     if (xft_draw) XftDrawDestroy(xft_draw);
-    XftColorFree(display, DefaultVisual(display, screen), DefaultColormap(display, screen), &color_black);
-    XftColorFree(display, DefaultVisual(display, screen), DefaultColormap(display, screen), &color_white);
+    if (font) XftFontClose(display, font);
     
     XFreeGC(display, gc);
     XDestroyWindow(display, window);
