@@ -2,7 +2,7 @@
 //!
 //! 시스템 트레이에 입력 모드를 표시하고,
 //! 상태 파일 변경을 감시하여 아이콘을 업데이트합니다.
-//! XIM 데몬을 자식 프로세스로 관리합니다.
+//! UNIM 데몬을 자식 프로세스로 관리합니다.
 //! 현대적인 GTK4/libadwaita 기반 팝업 윈도우를 제공합니다.
 
 use std::path::PathBuf;
@@ -24,49 +24,54 @@ use log::{debug, error, info, warn};
 use unim::status::{get_status, set_status, status_file_path, InputCategory};
 
 // ============================================================================
-// XIM 데몬 관리자
+// 데몬 관리자
 // ============================================================================
 
-/// XIM 데몬 관리자
-struct XimManager {
+/// UNIM 데몬 관리자
+struct DaemonManager {
     child: Option<Child>,
     binary_path: PathBuf,
 }
 
-impl XimManager {
-    /// 새 XimManager 생성
+impl DaemonManager {
+    /// 새 DaemonManager 생성
     fn new() -> Self {
-        let binary_path = Self::find_xim_binary();
+        let binary_path = Self::find_daemon_binary();
         Self {
             child: None,
             binary_path,
         }
     }
 
-    /// XIM 바이너리 경로 탐색
-    fn find_xim_binary() -> PathBuf {
+    /// 데몬 바이너리 경로 탐색
+    fn find_daemon_binary() -> PathBuf {
         // 1. 환경 변수
-        if let Ok(path) = std::env::var("UNIM_XIM_PATH") {
+        if let Ok(path) = std::env::var("UNIM_DAEMON_PATH") {
             let p = PathBuf::from(&path);
             if p.exists() {
-                info!("XIM 바이너리 (환경변수): {:?}", p);
+                info!("데몬 바이너리 (환경변수): {:?}", p);
                 return p;
             }
         }
 
         // 2. 시스템 경로
-        let system_path = PathBuf::from("/usr/bin/unim-xim");
-        if system_path.exists() {
-            info!("XIM 바이너리 (시스템): {:?}", system_path);
-            return system_path;
+        let system_paths = [
+            PathBuf::from("/usr/libexec/unim-daemon"),
+            PathBuf::from("/usr/bin/unim-daemon"),
+        ];
+        for p in system_paths {
+            if p.exists() {
+                info!("데몬 바이너리 (시스템): {:?}", p);
+                return p;
+            }
         }
 
         // 3. 현재 실행 파일과 동일 디렉토리
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                let sibling_path = exe_dir.join("unim-xim");
+                let sibling_path = exe_dir.join("unim-daemon");
                 if sibling_path.exists() {
-                    info!("XIM 바이너리 (동일 디렉토리): {:?}", sibling_path);
+                    info!("데몬 바이너리 (동일 디렉토리): {:?}", sibling_path);
                     return sibling_path;
                 }
             }
@@ -74,71 +79,71 @@ impl XimManager {
 
         // 4. 빌드 디렉토리 (개발용)
         let dev_paths = [
-            PathBuf::from("/home/from104/work/unim/target/release/unim-xim"),
-            PathBuf::from("/home/from104/work/unim/target/debug/unim-xim"),
+            PathBuf::from("/home/from104/work/unim/target/release/unim-daemon"),
+            PathBuf::from("/home/from104/work/unim/target/debug/unim-daemon"),
         ];
         for p in dev_paths {
             if p.exists() {
-                info!("XIM 바이너리 (개발): {:?}", p);
+                info!("데몬 바이너리 (개발): {:?}", p);
                 return p;
             }
         }
 
         // 기본값 (PATH에서 찾기)
-        warn!("XIM 바이너리를 찾을 수 없음. PATH에서 탐색 예정.");
-        PathBuf::from("unim-xim")
+        warn!("데몬 바이너리를 찾을 수 없음. PATH에서 탐색 예정.");
+        PathBuf::from("unim-daemon")
     }
 
-    /// XIM 데몬 시작
+    /// 데몬 시작
     fn start(&mut self) -> Result<(), String> {
         if self.is_running() {
-            info!("XIM 데몬이 이미 실행 중");
+            info!("데몬이 이미 실행 중");
             return Ok(());
         }
 
-        info!("XIM 데몬 시작: {:?}", self.binary_path);
+        info!("데몬 시작: {:?}", self.binary_path);
 
-        match Command::new(&self.binary_path).spawn() {
+        match Command::new(&self.binary_path).arg("-n").spawn() {
             Ok(child) => {
-                info!("XIM 데몬 시작됨 (PID: {})", child.id());
+                info!("데몬 시작됨 (PID: {})", child.id());
                 self.child = Some(child);
                 Ok(())
             }
             Err(e) => {
-                error!("XIM 데몬 시작 실패: {}", e);
-                Err(format!("XIM 시작 실패: {}", e))
+                error!("데몬 시작 실패: {}", e);
+                Err(format!("데몬 시작 실패: {}", e))
             }
         }
     }
 
-    /// XIM 데몬 중지
+    /// 데몬 중지
     fn stop(&mut self) {
         if let Some(ref mut child) = self.child {
-            info!("XIM 데몬 중지 (PID: {})", child.id());
+            info!("데몬 중지 (PID: {})", child.id());
             let _ = child.kill();
             let _ = child.wait();
         }
         self.child = None;
     }
 
-    /// XIM 데몬 재시작
+    /// 데몬 재시작
     fn restart(&mut self) -> Result<(), String> {
         self.stop();
         thread::sleep(Duration::from_millis(500));
         self.start()
     }
 
-    /// XIM 데몬 실행 상태 확인
+    /// 데몬 실행 상태 확인
     fn is_running(&mut self) -> bool {
         if let Some(ref mut child) = self.child {
             match child.try_wait() {
                 Ok(None) => true,  // 아직 실행 중
                 Ok(Some(status)) => {
-                    info!("XIM 데몬 종료됨: {:?}", status);
+                    info!("데몬 종료됨: {:?}", status);
                     false
                 }
                 Err(e) => {
-                    error!("XIM 상태 확인 오류: {}", e);
+                    error!("데몬 상태 확인 오류: {}", e);
                     false
                 }
             }
@@ -150,16 +155,16 @@ impl XimManager {
     /// 주기적으로 상태 확인 및 자동 재시작
     fn monitor_and_restart(&mut self) {
         if !self.is_running() && self.child.is_some() {
-            warn!("XIM 데몬이 예기치 않게 종료됨. 재시작 시도...");
+            warn!("데몬이 예기치 않게 종료됨. 재시작 시도...");
             self.child = None;
             if let Err(e) = self.start() {
-                error!("XIM 자동 재시작 실패: {}", e);
+                error!("데몬 자동 재시작 실패: {}", e);
             }
         }
     }
 }
 
-impl Drop for XimManager {
+impl Drop for DaemonManager {
     fn drop(&mut self) {
         self.stop();
     }
@@ -173,24 +178,14 @@ impl Drop for XimManager {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct IndicatorState {
     category: InputCategory,
-    xim_running: bool,
 }
 
 impl Default for IndicatorState {
     fn default() -> Self {
         Self {
             category: InputCategory::Latin,
-            xim_running: false,
         }
     }
-}
-
-/// XIM 제어 액션
-#[derive(Debug, Clone)]
-enum XimAction {
-    Restart,
-    Stop,
-    Start,
 }
 
 /// 팝업 액션
@@ -205,7 +200,6 @@ enum PopupAction {
 struct UnimTray {
     state: Arc<RwLock<IndicatorState>>,
     popup_tx: Sender<PopupAction>,
-    xim_tx: Sender<XimAction>,
 }
 
 impl ksni::Tray for UnimTray {
@@ -242,21 +236,20 @@ impl ksni::Tray for UnimTray {
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
-        let (category, xim_running) = self
+        let category = self
             .state
             .read()
-            .map(|s| (s.category, s.xim_running))
-            .unwrap_or((InputCategory::Latin, false));
+            .map(|s| s.category)
+            .unwrap_or(InputCategory::Latin);
         
         let mode_desc = match category {
             InputCategory::Hangul => "한글 모드",
             InputCategory::Latin => "영문 모드",
         };
-        let xim_status = if xim_running { "XIM 활성" } else { "XIM 비활성" };
         
         ksni::ToolTip {
             title: "UNIM 입력기".into(),
-            description: format!("{} | {}", mode_desc, xim_status),
+            description: mode_desc.into(),
             ..Default::default()
         }
     }
@@ -267,55 +260,7 @@ impl ksni::Tray for UnimTray {
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        let xim_running = self
-            .state
-            .read()
-            .map(|s| s.xim_running)
-            .unwrap_or(false);
-
-        let xim_status_label = if xim_running {
-            "✓ XIM 활성"
-        } else {
-            "✗ XIM 비활성"
-        };
-
         vec![
-            // XIM 상태 표시
-            StandardItem {
-                label: xim_status_label.into(),
-                enabled: false,
-                ..Default::default()
-            }
-            .into(),
-            // XIM 제어 서브메뉴
-            SubMenu {
-                label: "XIM 제어".into(),
-                submenu: vec![
-                    StandardItem {
-                        label: "재시작".into(),
-                        activate: Box::new(|this: &mut Self| {
-                            let _ = this.xim_tx.send(XimAction::Restart);
-                        }),
-                        ..Default::default()
-                    }
-                    .into(),
-                    StandardItem {
-                        label: if xim_running { "중지" } else { "시작" }.into(),
-                        activate: Box::new(move |this: &mut Self| {
-                            if xim_running {
-                                let _ = this.xim_tx.send(XimAction::Stop);
-                            } else {
-                                let _ = this.xim_tx.send(XimAction::Start);
-                            }
-                        }),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            }
-            .into(),
-            ksni::MenuItem::Separator,
             // 모드 전환 (현재 모드에 체크 표시)
             {
                 let current_category = self
@@ -404,58 +349,33 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("UNIM 인디케이터 시작...");
 
-    // XIM 데몬 관리자 생성 및 시작
-    let xim_manager = Arc::new(Mutex::new(XimManager::new()));
+    // 데몬 관리자 생성 및 시작
+    let daemon_manager = Arc::new(Mutex::new(DaemonManager::new()));
     {
-        let mut mgr = xim_manager.lock().unwrap();
+        let mut mgr = daemon_manager.lock().unwrap();
         if let Err(e) = mgr.start() {
-            error!("XIM 초기 시작 실패: {}", e);
+            error!("데몬 초기 시작 실패: {}", e);
         }
     }
 
     // 상태 초기화 (파일에서 읽기)
     let initial_category = get_status().unwrap_or(InputCategory::Latin);
-    let xim_running = xim_manager.lock().map(|mut m| m.is_running()).unwrap_or(false);
     let state = Arc::new(RwLock::new(IndicatorState {
         category: initial_category,
-        xim_running,
     }));
 
     // 채널들
     let (popup_tx, popup_rx) = mpsc::channel::<PopupAction>();
     let popup_rx = Arc::new(Mutex::new(popup_rx));
-    let (xim_tx, xim_rx) = mpsc::channel::<XimAction>();
 
-    // XIM 제어 및 모니터링 스레드
-    let xim_manager_ctrl = xim_manager.clone();
-    let state_xim = state.clone();
+    // 데몬 모니터링 스레드
+    let daemon_manager_ctrl = daemon_manager.clone();
     thread::spawn(move || {
         loop {
-            // XIM 액션 처리
-            while let Ok(action) = xim_rx.try_recv() {
-                let mut mgr = xim_manager_ctrl.lock().unwrap();
-                match action {
-                    XimAction::Restart => {
-                        let _ = mgr.restart();
-                    }
-                    XimAction::Stop => {
-                        mgr.stop();
-                    }
-                    XimAction::Start => {
-                        let _ = mgr.start();
-                    }
-                }
-            }
-
             // 상태 모니터링 및 자동 재시작
-            if let Ok(mut mgr) = xim_manager_ctrl.lock() {
+            if let Ok(mut mgr) = daemon_manager_ctrl.lock() {
                 mgr.monitor_and_restart();
-                let running = mgr.is_running();
-                if let Ok(mut s) = state_xim.write() {
-                    s.xim_running = running;
-                }
             }
-
             thread::sleep(Duration::from_secs(2));
         }
     });
@@ -469,7 +389,6 @@ fn main() {
         let tray = UnimTray {
             state: tray_state,
             popup_tx: popup_tx.clone(),
-            xim_tx,
         };
         match tray.spawn() {
             Ok(handle) => {
