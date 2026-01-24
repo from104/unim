@@ -28,9 +28,8 @@ unexport CONDA_PREFIX
 unexport CONDA_DEFAULT_ENV
 
 # Makefile variables for Debian packaging
-export PREFIX = /usr
-export LIBDIR = /usr/lib/x86_64-linux-gnu
-export DESTDIR = $(CURDIR)/debian/tmp
+PREFIX ?= /usr
+DESTDIR ?= $(CURDIR)/debian/tmp
 
 %:
 	dh $@
@@ -51,16 +50,12 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	# Install to staging directory using Makefile
-	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp PREFIX=/usr \
-		LIBDIR=/usr/lib/x86_64-linux-gnu \
-		GTK3_IMMODULE_DIR=/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules \
-		GTK4_IMMODULE_DIR=/usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules \
-		QT5_PLUGIN_DIR=/usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts \
-		QT6_PLUGIN_DIR=/usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts
+	# REAL_LIBDIR and MULTIARCH will be automatically detected by Makefile
+	$(MAKE) install DESTDIR=$(DESTDIR) PREFIX=$(PREFIX)
 	
 	# Install GNOME extension to staging directory
-	install -d $(CURDIR)/debian/tmp/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io
-	cp -r unim-gnome-extension/* $(CURDIR)/debian/tmp/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io/
+	install -d $(DESTDIR)/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io
+	cp -r unim-gnome-extension/* $(DESTDIR)/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Skip default test (speed up packaging)

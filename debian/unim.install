@@ -3,7 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Core library
-debian/tmp/usr/lib/x86_64-linux-gnu/libunim_capi.so     usr/lib/x86_64-linux-gnu/
+debian/tmp/usr/lib/*/libunim_capi.so     usr/lib/*/
 
 # Header file
 debian/tmp/usr/include/unim.h                           usr/include/

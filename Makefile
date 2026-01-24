@@ -6,28 +6,38 @@ SHELL := /bin/bash
 
 # Installation prefix (default: /usr/local, use PREFIX=/usr for system-wide)
 PREFIX ?= /usr/local
-LIBDIR ?= $(PREFIX)/lib
-BINDIR ?= $(PREFIX)/bin
-LIBEXECDIR ?= $(PREFIX)/libexec
+EXEC_PREFIX ?= $(PREFIX)
+BINDIR ?= $(EXEC_PREFIX)/bin
+LIBDIR ?= $(EXEC_PREFIX)/lib
+LIBEXECDIR ?= $(EXEC_PREFIX)/libexec
 INCLUDEDIR ?= $(PREFIX)/include
 DATADIR ?= $(PREFIX)/share
 SYSCONFDIR ?= /etc
+LOCALEDIR ?= $(DATADIR)/locale
 
-# Architecture detection
-ARCH := $(shell uname -m)
-ifeq ($(ARCH),x86_64)
-    MULTIARCH := x86_64-linux-gnu
-else ifeq ($(ARCH),aarch64)
-    MULTIARCH := aarch64-linux-gnu
+# Attempt to detect multiarch (primarily for Debian/Ubuntu)
+MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -print-multiarch 2>/dev/null)
+
+# Adjusted LIBDIR for Debian Multiarch
+ifeq ($(MULTIARCH),)
+    REAL_LIBDIR := $(LIBDIR)
 else
-    MULTIARCH := $(ARCH)-linux-gnu
+    # Only use multiarch if we are installing to /usr
+    ifeq ($(PREFIX),/usr)
+        REAL_LIBDIR := $(LIBDIR)/$(MULTIARCH)
+    else
+        REAL_LIBDIR := $(LIBDIR)
+    endif
 endif
 
-# GTK/Qt module paths (system paths, not affected by PREFIX for compatibility)
-GTK3_IMMODULE_DIR ?= $(LIBDIR)/$(MULTIARCH)/gtk-3.0/3.0.0/immodules
-GTK4_IMMODULE_DIR ?= $(LIBDIR)/$(MULTIARCH)/gtk-4.0/4.0.0/immodules
-QT5_PLUGIN_DIR ?= $(LIBDIR)/$(MULTIARCH)/qt5/plugins/platforminputcontexts
-QT6_PLUGIN_DIR ?= $(LIBDIR)/$(MULTIARCH)/qt6/plugins/platforminputcontexts
+# GTK/Qt module paths (respecting PREFIX)
+GTK3_IMMODULE_DIR ?= $(REAL_LIBDIR)/gtk-3.0/3.0.0/immodules
+GTK4_IMMODULE_DIR ?= $(REAL_LIBDIR)/gtk-4.0/4.0.0/immodules
+QT5_PLUGIN_DIR ?= $(REAL_LIBDIR)/qt5/plugins/platforminputcontexts
+QT6_PLUGIN_DIR ?= $(REAL_LIBDIR)/qt6/plugins/platforminputcontexts
+
+# im-config integration path
+IM_CONFIG_DATA_DIR ?= $(DATADIR)/im-config/data
 
 # GNOME Extension settings
 UUID := unim-typefix@from104.github.io
@@ -169,12 +179,12 @@ install-core:
 	@echo "Installing core components to $(DESTDIR)$(PREFIX)..."
 	@# Directories
 	install -d $(DESTDIR)$(BINDIR)
-	install -d $(DESTDIR)$(LIBDIR)
+	install -d $(DESTDIR)$(REAL_LIBDIR)
 	install -d $(DESTDIR)$(LIBEXECDIR)
 	install -d $(DESTDIR)$(INCLUDEDIR)
-	install -d $(DESTDIR)$(DATADIR)/im-config/data
+	install -d $(DESTDIR)$(IM_CONFIG_DATA_DIR)
 	@# Core library
-	install -m 755 target/release/libunim_capi.so $(DESTDIR)$(LIBDIR)/
+	install -m 755 target/release/libunim_capi.so $(DESTDIR)$(REAL_LIBDIR)/
 	@# Header file
 	install -m 644 unim-capi/include/unim.h $(DESTDIR)$(INCLUDEDIR)/
 	@# Executables
@@ -186,8 +196,8 @@ install-core:
 	install -m 755 target/release/unim-xim $(DESTDIR)$(LIBEXECDIR)/
 	install -m 755 target/release/unim-wayland $(DESTDIR)$(LIBEXECDIR)/
 	@# im-config integration
-	install -m 644 im-config/25_unim.conf $(DESTDIR)$(DATADIR)/im-config/data/
-	install -m 644 im-config/25_unim.rc $(DESTDIR)$(DATADIR)/im-config/data/
+	install -m 644 im-config/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
+	install -m 644 im-config/25_unim.rc $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
 
 install-frontends:
 	@echo "Installing IM modules..."
@@ -232,7 +242,7 @@ uninstall: uninstall-core uninstall-frontends uninstall-settings uninstall-icons
 
 uninstall-core:
 	@echo "Removing core components from $(DESTDIR)$(PREFIX)..."
-	rm -f $(DESTDIR)$(LIBDIR)/libunim_capi.so
+	rm -f $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so
 	rm -f $(DESTDIR)$(INCLUDEDIR)/unim.h
 	rm -f $(DESTDIR)$(BINDIR)/unim-cli
 	rm -f $(DESTDIR)$(BINDIR)/unim-config
@@ -240,8 +250,8 @@ uninstall-core:
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-daemon
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-xim
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-wayland
-	rm -f $(DESTDIR)$(DATADIR)/im-config/data/25_unim.conf
-	rm -f $(DESTDIR)$(DATADIR)/im-config/data/25_unim.rc
+	rm -f $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf
+	rm -f $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
 
 uninstall-frontends:
 	@echo "Removing IM modules..."
@@ -354,31 +364,31 @@ test:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo ""
 	@echo "✅ 1. 코어 라이브러리"
-	@if [ -f $(LIBDIR)/libunim_capi.so ]; then \
+	@if [ -f $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so ]; then \
 		echo "   ✓ libunim_capi.so 설치됨"; \
 	else \
 		echo "   ✗ libunim_capi.so 미설치"; \
 	fi
 	@echo ""
 	@echo "✅ 2. GTK IM 모듈"
-	@if [ -f $(GTK3_IMMODULE_DIR)/libim-unim.so ]; then \
+	@if [ -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/libim-unim.so ]; then \
 		echo "   ✓ GTK3 모듈 설치됨"; \
 	else \
 		echo "   ✗ GTK3 모듈 미설치"; \
 	fi
-	@if [ -f $(GTK4_IMMODULE_DIR)/libim-unim-gtk4.so ]; then \
+	@if [ -f $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim-gtk4.so ]; then \
 		echo "   ✓ GTK4 모듈 설치됨"; \
 	else \
 		echo "   ✗ GTK4 모듈 미설치"; \
 	fi
 	@echo ""
 	@echo "✅ 3. Qt IM 플러그인"
-	@if [ -f $(QT5_PLUGIN_DIR)/libunim.so ]; then \
+	@if [ -f $(DESTDIR)$(QT5_PLUGIN_DIR)/libunim.so ]; then \
 		echo "   ✓ Qt5 플러그인 설치됨"; \
 	else \
 		echo "   ✗ Qt5 플러그인 미설치"; \
 	fi
-	@if [ -f $(QT6_PLUGIN_DIR)/libunim.so ]; then \
+	@if [ -f $(DESTDIR)$(QT6_PLUGIN_DIR)/libunim.so ]; then \
 		echo "   ✓ Qt6 플러그인 설치됨"; \
 	else \
 		echo "   ✗ Qt6 플러그인 미설치"; \
@@ -386,7 +396,7 @@ test:
 	@echo ""
 	@echo "✅ 4. CLI 및 데몬"
 	@for cmd in unim-cli unim-config unim-indicator; do \
-		if command -v $$cmd >/dev/null 2>&1; then \
+		if [ -f $(DESTDIR)$(BINDIR)/$$cmd ]; then \
 			echo "   ✓ $$cmd 설치됨"; \
 		else \
 			echo "   ✗ $$cmd 미설치"; \
