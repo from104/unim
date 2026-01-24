@@ -16,8 +16,10 @@ use unim::config::Config;
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
 
-use xim::x11rb::X11rbServer;
-use xim::{InputStyle, Server, ServerError, ServerHandler, UserInputContext};
+use xim::{
+    x11rb::{HasConnection, X11rbServer},
+    InputStyle, Server, ServerError, ServerHandler, UserInputContext,
+};
 
 use crate::pe_window::PeWindow;
 
@@ -60,8 +62,6 @@ pub struct UnimHandler {
     config: Config,
     /// preedit 윈도우들 (윈도우 ID -> PeWindow)
     preedit_windows: AHashMap<NonZeroU32, PeWindow>,
-    /// 스크린 번호
-    screen_num: usize,
     /// Xlib Display (단일 연결, 핸들러가 소유)
     display: *mut x11::xlib::Display,
     /// 스크린 번호 (c_int)
@@ -84,7 +84,6 @@ impl UnimHandler {
         Self {
             config,
             preedit_windows: AHashMap::new(),
-            screen_num,
             display,
             screen: screen_num as c_int,
         }
@@ -126,59 +125,65 @@ impl UnimHandler {
     ) -> Result<(), ServerError> {
         let preedit_str = user_ic.user_data.engine.preedit_str();
 
-        // PREEDIT_CALLBACKS 스타일이면 xim crate의 콜백 사용
-        if user_ic.ic.input_style().contains(InputStyle::PREEDIT_CALLBACKS) {
-            server.preedit_draw(&mut user_ic.ic, preedit_str)?;
-            return Ok(());
-        }
+        // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw 호출
+        // 클라이언트가 콜백을 등록했다면 수신함
+        server.preedit_draw(&mut user_ic.ic, preedit_str)?;
 
-        if !user_ic.user_data.show_preedit_window {
-            return Ok(());
-        }
+        // PREEDIT_CALLBACKS가 아니면 Over-The-Spot 렌더링도 수행
+        if !user_ic.ic.input_style().contains(InputStyle::PREEDIT_CALLBACKS) {
+            if !user_ic.user_data.show_preedit_window {
+                return Ok(());
+            }
 
-        if preedit_str.is_empty() {
-            return self.clear_preedit(server, user_ic);
-        }
+            if preedit_str.is_empty() {
+                // PeWindow 정리
+                if let Some(pe_id) = user_ic.user_data.pe_window.take() {
+                    if let Some(pe) = self.preedit_windows.remove(&pe_id) {
+                        unim_debug!("PeWindow 삭제: id={}", pe_id);
+                        pe.clean(self.display, self.screen);
+                    }
+                }
+                return Ok(());
+            }
 
-        // PeWindow로 렌더링
-        if let Some(pe_id) = user_ic.user_data.pe_window {
-            if let Some(pe) = self.preedit_windows.get_mut(&pe_id) {
+            // PeWindow로 렌더링
+            if let Some(pe_id) = user_ic.user_data.pe_window {
+                if let Some(pe) = self.preedit_windows.get_mut(&pe_id) {
+                    pe.set_preedit(preedit_str);
+                    pe.refresh(self.display);
+                }
+            } else {
+                // 새 PeWindow 생성
+                let mut pe = PeWindow::new(
+                    self.display,
+                    self.screen,
+                    user_ic.ic.app_win(),
+                    user_ic.ic.preedit_spot(),
+                )?;
+
+                let pe_id = pe.window();
+                user_ic.user_data.pe_window = Some(pe_id);
+
                 pe.set_preedit(preedit_str);
                 pe.refresh(self.display);
+
+                self.preedit_windows.insert(pe_id, pe);
+                unim_debug!("PeWindow 생성: id={}", pe_id);
             }
-        } else {
-            // 새 PeWindow 생성
-            let mut pe = PeWindow::new(
-                self.display,
-                self.screen,
-                user_ic.ic.app_win(),
-                user_ic.ic.preedit_spot(),
-            )?;
-
-            let pe_id = pe.window();
-            user_ic.user_data.pe_window = Some(pe_id);
-
-            pe.set_preedit(preedit_str);
-            pe.refresh(self.display);
-
-            self.preedit_windows.insert(pe_id, pe);
-            unim_debug!("PeWindow 생성: id={}", pe_id);
         }
 
         Ok(())
     }
 
-    /// Preedit 윈도우 삭제
     fn clear_preedit<C: Connection + xim::x11rb::HasConnection>(
         &mut self,
         server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<UnimInputContext>,
     ) -> Result<(), ServerError> {
-        if user_ic.ic.input_style().contains(InputStyle::PREEDIT_CALLBACKS) {
-            server.preedit_draw(&mut user_ic.ic, "")?;
-            return Ok(());
-        }
+        // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw("") 호출
+        server.preedit_draw(&mut user_ic.ic, "")?;
 
+        // PeWindow도 정리
         if let Some(pe_id) = user_ic.user_data.pe_window.take() {
             if let Some(pe) = self.preedit_windows.remove(&pe_id) {
                 unim_debug!("PeWindow 삭제: id={}", pe_id);
@@ -350,63 +355,46 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
 
         let result = user_ic.user_data.engine.press_key(key, modifier, &self.config);
 
-        unim_debug!(
-            "엔진 결과: consumed={}, preedit_changed={}, commit_changed={}",
-            result.consumed, result.preedit_changed, result.commit_changed
-        );
+        let consumed = result.consumed;
 
-        if result.consumed {
-            // 중요: commit이 발생하면 이전 preedit을 먼저 종료 (PreeditDone)
-            // 그래야 새 조합 시작 시 PreeditStart가 제대로 전송됨
-            if result.commit_changed {
-                // 1. 먼저 이전 preedit 정리 (PreeditDone 전송)
-                unim_debug!("preedit done (commit 전)");
-                self.clear_preedit(server, user_ic)?;
+        // kime 패턴 적용:
+        // 1. Preedit이 없을 때만 clear (커밋이 없는 경우)
+        // 2. Commit이 있으면 처리 (내부에서 clear 호출)
+        // 3. Preedit이 있으면 그리기 (clear 없이)
 
-                // 2. 그 다음 commit
-                let commit = user_ic.user_data.engine.commit_str();
-                if !commit.is_empty() {
-                    unim_debug!("커밋: \"{}\"", commit);
-                    server.commit(&user_ic.ic, commit)?;
-                    user_ic.user_data.engine.clear_commit();
-                }
-            }
+        let has_preedit = !user_ic.user_data.engine.preedit_str().is_empty();
+        let has_commit = !user_ic.user_data.engine.commit_str().is_empty();
 
-            // 3. 새 preedit이 있으면 표시 (PreeditStart + PreeditDraw)
-            if result.preedit_changed {
-                let preedit = user_ic.user_data.engine.preedit_str();
-                if !preedit.is_empty() {
-                    unim_debug!("preedit: \"{}\"", preedit);
-                    self.preedit(server, user_ic)?;
-                } else if !result.commit_changed {
-                    // commit 없이 preedit만 비워지는 경우 (예: Escape)
-                    unim_debug!("preedit: (empty)");
-                    self.clear_preedit(server, user_ic)?;
-                }
-            }
-
-            Ok(true)
-        } else {
-            // consumed=false: 키를 앱으로 전달해야 함
-            // ibus-hangul 패턴: clear_preedit → commit 순서
-            
-            if result.commit_changed {
-                // 1. 먼저 이전 preedit 정리 (PreeditDone 전송)
-                self.clear_preedit(server, user_ic)?;
-
-                // 2. 그 다음 commit
-                let commit = user_ic.user_data.engine.commit_str();
-                if !commit.is_empty() {
-                    unim_debug!("committed-passthrough: \"{}\"", commit);
-                    server.commit(&user_ic.ic, commit)?;
-                    user_ic.user_data.engine.clear_commit();
-                }
-            } else if result.preedit_changed {
-                // commit 없이 preedit만 변경되는 경우
-                self.clear_preedit(server, user_ic)?;
-            }
-            
-            Ok(false)
+        // 1. Preedit이 없고 commit도 없을 때만 clear (조합 취소 등)
+        if result.preedit_changed && !has_preedit && !has_commit {
+            unim_debug!("Preedit 세션 종료 (조합 취소)");
+            self.clear_preedit(server, user_ic)?;
         }
+
+        // 2. Commit 처리
+        if has_commit {
+            let commit = user_ic.user_data.engine.commit_str().to_string();
+            
+            // [순서 복구] Clear(Done) -> Commit
+            // ibus처럼 각 메시지 사이에 flush를 수행하여 패킷을 분리 전송
+            // 이는 클라이언트가 뭉쳐진 패킷을 처리하지 못하는 문제를 방지함
+            self.clear_preedit(server, user_ic)?;
+            server.conn().flush().ok();
+
+            unim_debug!("커밋: \"{}\"", commit);
+            server.commit(&user_ic.ic, &commit)?;
+            server.conn().flush().ok();
+            
+            user_ic.user_data.engine.clear_commit();
+        }
+
+        // 3. Preedit이 있으면 그리기 (clear 없이 바로)
+        if has_preedit {
+            unim_debug!("Preedit: \"{}\"", user_ic.user_data.engine.preedit_str());
+            self.preedit(server, user_ic)?;
+            server.conn().flush().ok();
+        }
+
+        Ok(consumed)
     }
 }
