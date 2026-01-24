@@ -260,7 +260,7 @@ void UnimInputContext::updatePreedit()
             QInputMethodEvent::TextFormat,
             0,
             preeditStr.length(),
-            QVariant::fromValue(charFormat)
+            charFormat
         );
     }
 

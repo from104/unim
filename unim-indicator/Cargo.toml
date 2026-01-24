@@ -13,9 +13,12 @@ path = "src/main.rs"
 unim = { path = ".." }
 dirs = "5.0"
 
-# System tray
-libappindicator = "0.9"
-gtk = "0.18"
+# System tray (StatusNotifierItem)
+ksni = { version = "0.3", features = ["blocking"] }
+
+# Modern GTK4 UI (popup window)
+gtk4 = "0.9"
+libadwaita = "0.7"
 
 # File watching
 inotify = "0.10"
