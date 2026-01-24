@@ -87,6 +87,7 @@ fn main() {
         match server.filter_event(&event, &mut connections, &mut unim_handler) {
             Ok(true) => {
                 // 이벤트가 필터링됨 (XIM에서 처리)
+                server.conn().flush().ok();
             }
             Ok(false) => {
                 // XIM에서 처리하지 않은 이벤트
