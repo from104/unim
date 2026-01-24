@@ -316,35 +316,59 @@ impl ksni::Tray for UnimTray {
             }
             .into(),
             ksni::MenuItem::Separator,
-            // 모드 전환
-            StandardItem {
-                label: "한글 모드 (Hangul)".into(),
-                activate: Box::new(|this: &mut Self| {
-                    if let Ok(mut s) = this.state.write() {
-                        s.category = InputCategory::Hangul;
-                        let _ = set_status(InputCategory::Hangul);
-                        let _ = this
-                            .popup_tx
-                            .send(PopupAction::UpdateCategory(InputCategory::Hangul));
-                        info!("한글 모드로 전환");
-                    }
-                }),
-                ..Default::default()
+            // 모드 전환 (현재 모드에 체크 표시)
+            {
+                let current_category = self
+                    .state
+                    .read()
+                    .map(|s| s.category)
+                    .unwrap_or(InputCategory::Latin);
+                let hangul_label = if current_category == InputCategory::Hangul {
+                    "✓ 한글 모드 (Hangul)"
+                } else {
+                    "   한글 모드 (Hangul)"
+                };
+                StandardItem {
+                    label: hangul_label.into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(mut s) = this.state.write() {
+                            s.category = InputCategory::Hangul;
+                            let _ = set_status(InputCategory::Hangul);
+                            let _ = this
+                                .popup_tx
+                                .send(PopupAction::UpdateCategory(InputCategory::Hangul));
+                            info!("한글 모드로 전환");
+                        }
+                    }),
+                    ..Default::default()
+                }
             }
             .into(),
-            StandardItem {
-                label: "영문 모드 (Latin)".into(),
-                activate: Box::new(|this: &mut Self| {
-                    if let Ok(mut s) = this.state.write() {
-                        s.category = InputCategory::Latin;
-                        let _ = set_status(InputCategory::Latin);
-                        let _ = this
-                            .popup_tx
-                            .send(PopupAction::UpdateCategory(InputCategory::Latin));
-                        info!("영문 모드로 전환");
-                    }
-                }),
-                ..Default::default()
+            {
+                let current_category = self
+                    .state
+                    .read()
+                    .map(|s| s.category)
+                    .unwrap_or(InputCategory::Latin);
+                let latin_label = if current_category == InputCategory::Latin {
+                    "✓ 영문 모드 (Latin)"
+                } else {
+                    "   영문 모드 (Latin)"
+                };
+                StandardItem {
+                    label: latin_label.into(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Ok(mut s) = this.state.write() {
+                            s.category = InputCategory::Latin;
+                            let _ = set_status(InputCategory::Latin);
+                            let _ = this
+                                .popup_tx
+                                .send(PopupAction::UpdateCategory(InputCategory::Latin));
+                            info!("영문 모드로 전환");
+                        }
+                    }),
+                    ..Default::default()
+                }
             }
             .into(),
             ksni::MenuItem::Separator,
@@ -580,21 +604,27 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
 
     // 모드 버튼들
     let hangul_btn = gtk4::Button::builder()
-        .label("한")
         .tooltip_text("한글 모드로 전환")
         .build();
     hangul_btn.add_css_class("mode-button");
 
     let latin_btn = gtk4::Button::builder()
-        .label("A")
         .tooltip_text("영문 모드로 전환")
         .build();
     latin_btn.add_css_class("mode-button");
 
     // 초기 활성 상태 설정
     match current_category {
-        InputCategory::Hangul => hangul_btn.add_css_class("mode-active"),
-        InputCategory::Latin => latin_btn.add_css_class("mode-active"),
+        InputCategory::Hangul => {
+            hangul_btn.set_label("한");
+            hangul_btn.add_css_class("mode-active");
+            latin_btn.set_label("A");
+        }
+        InputCategory::Latin => {
+            hangul_btn.set_label("한");
+            latin_btn.set_label("A");
+            latin_btn.add_css_class("mode-active");
+        }
     }
 
     // 버튼 박스
