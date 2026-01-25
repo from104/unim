@@ -1,6 +1,6 @@
 //! UNIM XIM (X Input Method) 프론트엔드
 //!
-//! X11 환경에서 한글 입력을 제공하는 XIM 서버입니다.
+//! X11 환경에서 한국어 입력을 제공하는 XIM 서버입니다.
 //! DBus를 통해 unim-daemon과 통신합니다.
 
 mod handler;

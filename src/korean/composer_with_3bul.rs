@@ -1,8 +1,8 @@
-use crate::hangul::char::HangulChar;
-use crate::hangul::composer::BaseHangulComposer;
-use crate::hangul::composer::CombinedJamoMap;
-use crate::hangul::composer::HangulComposer;
-use crate::hangul::jamo::*;
+use crate::korean::char::KoreanChar;
+use crate::korean::composer::BaseKoreanComposer;
+use crate::korean::composer::CombinedJamoMap;
+use crate::korean::composer::KoreanComposer;
+use crate::korean::jamo::*;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
 
@@ -56,10 +56,10 @@ static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(|| {
 
 
 /**
- * 3벌식 자판 레이아웃에 특화된 한글 조합기입니다.
+ * 3벌식 자판 레이아웃에 특화된 한국어 조합기입니다.
  *
- * 이 조합기는 [`BaseHangulComposer`]를 기반으로 하며, 3벌식 입력 방식의 특수한 규칙을 적용하여
- * 한글 음절을 조합합니다. 3벌식 자판은 초성, 중성, 종성이 별도의 키에 할당되어 있어,
+ * 이 조합기는 [`BaseKoreanComposer`]를 기반으로 하며, 3벌식 입력 방식의 특수한 규칙을 적용하여
+ * 한국어 음절을 조합합니다. 3벌식 자판은 초성, 중성, 종성이 별도의 키에 할당되어 있어,
  * 2벌식과는 다른 조합 규칙이 필요합니다.
  *
  * # 특징
@@ -71,46 +71,46 @@ static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(|| {
  * # 주요 기능
  * - [`JamoEnum`] 자모를 입력받아 조합 (`add_jamo`)
  * - 마지막 입력 자모 제거 (`remove_jamo`)
- * - 현재 큐의 자모를 바탕으로 음절 조합 시도 (`compose_hangul`)
- * - 강제 음절 완성 및 상태 초기화 (`force_compose_hangul`)
+ * - 현재 큐의 자모를 바탕으로 음절 조합 시도 (`compose_korean`)
+ * - 강제 음절 완성 및 상태 초기화 (`force_compose_korean`)
  * - 3벌식 조합 규칙에 따른 자모 조합 테이블 초기화 (`initialize_combined_jamo`)
  *
  * # 예시
  * ```
- * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
- * use unim::hangul::jamo::*;
+ * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
+ * use unim::korean::jamo::*;
  *
- * let mut composer = HangulComposer3Bul::new();
+ * let mut composer = KoreanComposer3Bul::new();
  * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
  * composer.add_jamo(JamoEnum::Jung(Jung::A)); // 'ㅏ'
- * assert_eq!(composer.force_compose_hangul(), Some('가'));
+ * assert_eq!(composer.force_compose_korean(), Some('가'));
  * ```
  *
  * # 관련 모듈
- * - [`crate::hangul::jamo`]: 한글 자모(초성, 중성, 종성) 정의
- * - [`crate::hangul::char`]: 한글 음절 구조체 및 관련 기능
- * - [`crate::hangul::composer`]: 한글 조합기 트레이트 및 기본 구현
+ * - [`crate::korean::jamo`]: 한국어 자모(초성, 중성, 종성) 정의
+ * - [`crate::korean::char`]: 한국어 음절 구조체 및 관련 기능
+ * - [`crate::korean::composer`]: 한국어 조합기 트레이트 및 기본 구현
  */
 #[derive(Debug, Default)]
-pub struct HangulComposer3Bul {
-    /// 기본적인 한글 조합 로직을 처리하는 내부 조합기 인스턴스입니다.
-    base_composer: BaseHangulComposer,
+pub struct KoreanComposer3Bul {
+    /// 기본적인 한국어 조합 로직을 처리하는 내부 조합기 인스턴스입니다.
+    base_composer: BaseKoreanComposer,
 }
 
-impl HangulComposer3Bul {
+impl KoreanComposer3Bul {
     /**
-     * 새로운 `HangulComposer3Bul` 인스턴스를 생성합니다.
+     * 새로운 `KoreanComposer3Bul` 인스턴스를 생성합니다.
      *
-     * 내부적으로 `BaseHangulComposer`를 생성하고, 3벌식에 필요한
+     * 내부적으로 `BaseKoreanComposer`를 생성하고, 3벌식에 필요한
      * 자모 조합 규칙 테이블을 초기화합니다.
      *
      * # 반환값
      *
-     * 초기화된 `HangulComposer3Bul` 인스턴스.
+     * 초기화된 `KoreanComposer3Bul` 인스턴스.
      */
     pub fn new() -> Self {
-        let mut composer = HangulComposer3Bul {
-            base_composer: BaseHangulComposer::new(),
+        let mut composer = KoreanComposer3Bul {
+            base_composer: BaseKoreanComposer::new(),
         };
         // 정적 3벌식 조합 테이블을 복제하여 사용
         *composer.combined_jamo() = COMBINED_JAMO_3BUL.clone();
@@ -118,9 +118,9 @@ impl HangulComposer3Bul {
     }
 }
 
-impl HangulComposer for HangulComposer3Bul {
+impl KoreanComposer for KoreanComposer3Bul {
     /**
-     * 3벌식 규칙에 따라 한글 자모를 입력받아 현재 조합 상태에 추가합니다.
+     * 3벌식 규칙에 따라 한국어 자모를 입력받아 현재 조합 상태에 추가합니다.
      *
      * # 동작 방식
      * 1. 입력된 자모를 현재 조합 중인 자모 시퀀스에 추가
@@ -131,18 +131,18 @@ impl HangulComposer for HangulComposer3Bul {
      *    - 새로운 음절 시작을 위한 상태 초기화
      *
      * # 매개변수
-     * * `jamo` - 입력할 한글 자모
+     * * `jamo` - 입력할 한국어 자모
      *
      * # 반환값
-     * * `Some(char)` - 이전 음절이 완성된 경우, 완성된 한글 음절
+     * * `Some(char)` - 이전 음절이 완성된 경우, 완성된 한국어 음절
      * * `None` - 조합이 계속 진행 중인 경우
      *
      * # 예시
      * ```
-     * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
-     * use unim::hangul::jamo::*;
+     * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
+     * use unim::korean::jamo::*;
      *
-     * let mut composer = HangulComposer3Bul::new();
+     * let mut composer = KoreanComposer3Bul::new();
      * assert_eq!(composer.add_jamo(JamoEnum::Cho(Cho::G)), None);  // 'ㄱ'
      * assert_eq!(composer.add_jamo(JamoEnum::Jung(Jung::A)), Some('가')); // 'ㅏ'
      * ```
@@ -150,7 +150,7 @@ impl HangulComposer for HangulComposer3Bul {
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
         unim_debug!("add_jamo: {:?}", jamo);
         unim_debug!("  queue BEFORE: {:?}", self.base_composer.jamo_queue());
-        unim_debug!("  current_hangul BEFORE: {:?}", self.base_composer.current_hangul());
+        unim_debug!("  current_korean BEFORE: {:?}", self.base_composer.current_korean());
         
         // 입력된 자모가 유효한지 확인
         if !self.base_composer.is_valid_jamo(&jamo) {
@@ -166,12 +166,12 @@ impl HangulComposer for HangulComposer3Bul {
         unim_debug!("  queue AFTER push: {:?}", self.base_composer.jamo_queue());
 
         // 조합 시도
-        let compose_result = self.compose_hangul();
-        unim_debug!("  compose_hangul() = {}", compose_result);
+        let compose_result = self.compose_korean();
+        unim_debug!("  compose_korean() = {}", compose_result);
         
         if compose_result {
             // 조합 성공: 조합 계속 진행
-            unim_debug!("  -> 조합 성공, None 반환 (current_hangul={:?})", self.base_composer.current_hangul());
+            unim_debug!("  -> 조합 성공, None 반환 (current_korean={:?})", self.base_composer.current_korean());
             None
         } else {
             // 조합 실패: 이전 음절 완성 및 새 음절 시작
@@ -181,12 +181,12 @@ impl HangulComposer for HangulComposer3Bul {
             *self.base_composer.jamo_queue() = original_queue;
             unim_debug!("  queue 복원: {:?}", self.base_composer.jamo_queue());
 
-            // 2. 이전 상태로 `current_hangul` 복원 (조합 재실행)
-            self.compose_hangul(); // 실패할 수 없음 (이전 상태는 유효했으므로)
+            // 2. 이전 상태로 `current_korean` 복원 (조합 재실행)
+            self.compose_korean(); // 실패할 수 없음 (이전 상태는 유효했으므로)
 
             // 3. 완성된 음절 얻기
-            let complete_hangul = self.base_composer.current_hangul().get_syllable().ok();
-            unim_debug!("  완성된 음절: {:?}", complete_hangul);
+            let complete_korean = self.base_composer.current_korean().get_syllable().ok();
+            unim_debug!("  완성된 음절: {:?}", complete_korean);
 
             // 4. 이전 큐 상태를 last_jamo_queue에 저장
             let current_jamo_queue_content: Vec<_> =
@@ -201,21 +201,21 @@ impl HangulComposer for HangulComposer3Bul {
             self.base_composer.jamo_queue().push_back(jamo);
             unim_debug!("  새 큐: {:?}", self.base_composer.jamo_queue());
 
-            // 6. current_hangul 상태 초기화
+            // 6. current_korean 상태 초기화
             self.clear_jamo();
 
-            // 7. 새 자모로 current_hangul 상태 설정
-            self.compose_hangul();
-            unim_debug!("  새 current_hangul: {:?}", self.base_composer.current_hangul());
+            // 7. 새 자모로 current_korean 상태 설정
+            self.compose_korean();
+            unim_debug!("  새 current_korean: {:?}", self.base_composer.current_korean());
 
             // 8. 완성된 이전 음절 반환
-            unim_debug!("  -> Some({:?}) 반환", complete_hangul);
-            complete_hangul
+            unim_debug!("  -> Some({:?}) 반환", complete_korean);
+            complete_korean
         }
     }
 
     /**
-     * 마지막으로 입력된 한글 자모를 제거하고 조합 상태를 갱신합니다.
+     * 마지막으로 입력된 한국어 자모를 제거하고 조합 상태를 갱신합니다.
      *
      * # 동작 방식
      * 1. 큐에서 마지막 자모 제거
@@ -227,10 +227,10 @@ impl HangulComposer for HangulComposer3Bul {
      *
      * # 예시
      * ```
-     * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
-     * use unim::hangul::jamo::*;
+     * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
+     * use unim::korean::jamo::*;
      *
-     * let mut composer = HangulComposer3Bul::new();
+     * let mut composer = KoreanComposer3Bul::new();
      * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
      * assert_eq!(composer.remove_jamo(), Some(JamoEnum::Cho(Cho::G)));
      * ```
@@ -240,7 +240,7 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 현재 자모 큐의 내용을 바탕으로 한글 음절을 조합합니다.
+     * 현재 자모 큐의 내용을 바탕으로 한국어 음절을 조합합니다.
      *
      * # 동작 방식
      * 1. 큐가 비어있는지 확인
@@ -257,7 +257,7 @@ impl HangulComposer for HangulComposer3Bul {
      * * `true` - 조합 성공
      * * `false` - 조합 실패
      */
-    fn compose_hangul(&mut self) -> bool {
+    fn compose_korean(&mut self) -> bool {
         // 큐가 비어있는지 먼저 확인
         if self.base_composer.jamo_queue().is_empty() {
             self.clear_jamo();
@@ -276,8 +276,8 @@ impl HangulComposer for HangulComposer3Bul {
             (last, prev) // 첫 번째 mutable borrow 끝
         };
         let is_filled_jung = {
-            // current_hangul()이 &mut HangulChar를 반환하므로 mutable borrow 발생
-            self.base_composer.current_hangul().is_filled_jung() // 두 번째 mutable borrow 시작 및 끝
+            // current_korean()이 &mut KoreanChar를 반환하므로 mutable borrow 발생
+            self.base_composer.current_korean().is_filled_jung() // 두 번째 mutable borrow 시작 및 끝
         };
 
         // 3벌식 특수 규칙 검사
@@ -322,22 +322,22 @@ impl HangulComposer for HangulComposer3Bul {
      * 3. 조합 실패 시 `None` 반환
      *
      * # 반환값
-     * * `Some(char)` - 완성된 한글 음절
+     * * `Some(char)` - 완성된 한국어 음절
      * * `None` - 조합 실패
      *
      * # 예시
      * ```
-     * use unim::hangul::composer_with_3bul::HangulComposer3Bul;
-     * use unim::hangul::jamo::*;
+     * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
+     * use unim::korean::jamo::*;
      *
-     * let mut composer = HangulComposer3Bul::new();
+     * let mut composer = KoreanComposer3Bul::new();
      * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
      * composer.add_jamo(JamoEnum::Jung(Jung::A)); // 'ㅏ'
-     * assert_eq!(composer.force_compose_hangul(), Some('가'));
+     * assert_eq!(composer.force_compose_korean(), Some('가'));
      * ```
      */
-    fn force_compose_hangul(&mut self) -> Option<char> {
-        self.base_composer.force_compose_hangul()
+    fn force_compose_korean(&mut self) -> Option<char> {
+        self.base_composer.force_compose_korean()
     }
 
     /**
@@ -363,9 +363,9 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 한글 초성 조합을 수행합니다. (내부 사용)
+     * 한국어 초성 조합을 수행합니다. (내부 사용)
      *
-     * `BaseHangulComposer`의 `compose_cho` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `compose_cho` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -377,9 +377,9 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 한글 중성 조합을 수행합니다. (내부 사용)
+     * 한국어 중성 조합을 수행합니다. (내부 사용)
      *
-     * `BaseHangulComposer`의 `compose_jung` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `compose_jung` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -391,9 +391,9 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 한글 종성 조합을 수행합니다. (내부 사용)
+     * 한국어 종성 조합을 수행합니다. (내부 사용)
      *
-     * `BaseHangulComposer`의 `compose_jong` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `compose_jong` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -405,9 +405,9 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 현재 조합 중인 한글 문자(`current_hangul`)의 자모를 모두 지웁니다.
+     * 현재 조합 중인 한국어 문자(`current_korean`)의 자모를 모두 지웁니다.
      *
-     * `BaseHangulComposer`의 `clear_jamo` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `clear_jamo` 구현을 그대로 사용합니다.
      */
     fn clear_jamo(&mut self) {
         self.base_composer.clear_jamo()
@@ -416,7 +416,7 @@ impl HangulComposer for HangulComposer3Bul {
     /**
      * 현재 조합된 초성을 얻습니다.
      *
-     * `BaseHangulComposer`의 `get_current_cho` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `get_current_cho` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -429,7 +429,7 @@ impl HangulComposer for HangulComposer3Bul {
     /**
      * 현재 조합된 중성을 얻습니다.
      *
-     * `BaseHangulComposer`의 `get_current_jung` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `get_current_jung` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -442,7 +442,7 @@ impl HangulComposer for HangulComposer3Bul {
     /**
      * 현재 조합된 종성을 얻습니다.
      *
-     * `BaseHangulComposer`의 `get_current_jong` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `get_current_jong` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -453,9 +453,9 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 현재 조합 중인 한글 문자의 초성을 설정합니다.
+     * 현재 조합 중인 한국어 문자의 초성을 설정합니다.
      *
-     * `BaseHangulComposer`의 `set_current_cho` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `set_current_cho` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -466,9 +466,9 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 현재 조합 중인 한글 문자의 중성을 설정합니다.
+     * 현재 조합 중인 한국어 문자의 중성을 설정합니다.
      *
-     * `BaseHangulComposer`의 `set_current_jung` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `set_current_jung` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -479,9 +479,9 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 현재 조합 중인 한글 문자의 종성을 설정합니다.
+     * 현재 조합 중인 한국어 문자의 종성을 설정합니다.
      *
-     * `BaseHangulComposer`의 `set_current_jong` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `set_current_jong` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -494,7 +494,7 @@ impl HangulComposer for HangulComposer3Bul {
     /**
      * 내부적으로 사용되는 자모 조합 테이블에 대한 읽기 전용 참조를 반환합니다.
      *
-     * `BaseHangulComposer`의 `get_combined_jamo` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `get_combined_jamo` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -507,7 +507,7 @@ impl HangulComposer for HangulComposer3Bul {
     /**
      * 현재 조합 중인 자모들이 순서대로 저장된 큐에 대한 가변 참조를 반환합니다.
      *
-     * `BaseHangulComposer`의 `jamo_queue` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `jamo_queue` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -520,7 +520,7 @@ impl HangulComposer for HangulComposer3Bul {
     /**
      * 직전에 완성된 음절을 구성했던 자모 큐에 대한 가변 참조를 반환합니다.
      *
-     * `BaseHangulComposer`의 `last_jamo_queue` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `last_jamo_queue` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
@@ -533,7 +533,7 @@ impl HangulComposer for HangulComposer3Bul {
     /**
      * 내부적으로 사용되는 자모 조합 테이블에 대한 가변 참조를 반환합니다.
      *
-     * `BaseHangulComposer`의 `combined_jamo` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `combined_jamo` 구현을 그대로 사용합니다.
      * (주의: 이 메서드는 `initialize_combined_jamo` 외에는 직접 사용할 일이 거의 없습니다.)
      *
      * # 반환값
@@ -545,15 +545,15 @@ impl HangulComposer for HangulComposer3Bul {
     }
 
     /**
-     * 현재 조합 중인 한글 문자(`HangulChar`)의 상태를 나타내는 구조체에 대한 가변 참조를 반환합니다.
+     * 현재 조합 중인 한국어 문자(`KoreanChar`)의 상태를 나타내는 구조체에 대한 가변 참조를 반환합니다.
      *
-     * `BaseHangulComposer`의 `current_hangul` 구현을 그대로 사용합니다.
+     * `BaseKoreanComposer`의 `current_korean` 구현을 그대로 사용합니다.
      *
      * # 반환값
      *
-     * 현재 조합 중인 `HangulChar`에 대한 가변 참조.
+     * 현재 조합 중인 `KoreanChar`에 대한 가변 참조.
      */
-    fn current_hangul(&mut self) -> &mut HangulChar {
-        self.base_composer.current_hangul()
+    fn current_korean(&mut self) -> &mut KoreanChar {
+        self.base_composer.current_korean()
     }
 }

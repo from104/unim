@@ -15,13 +15,13 @@ The ultimate goal of UNIM is to become a **complete cross-platform solution** fo
 Currently, the project is structured as follows:
 
 ### 1. [UNIM Core](file:///home/from104/work/unim/src/): The Heart of UNIM
-Written in **Rust**, the core library handles all Hangul composition and decomposition logic (2-bul, 3-90, 3-91 standards). It is now designed to be zero-dependency and asset-embedded.
+Written in **Rust**, the core library handles all Korean composition and decomposition logic (2-bul, 3-90, 3-91 standards). It is now designed to be zero-dependency and asset-embedded.
 
 ### 2. [unim-cli](file:///home/from104/work/unim/unim-cli/): Standalone Engine
 A portable Command-Line Interface to the core logic. It can be used as a standalone converter or as a backend for other integrations.
 
 ### 3. [GNOME Shell Extension](file:///home/from104/work/unim/unim-gnome-extension/): Native Linux Integration
-A production-ready extension for GNOME that fixes text typed with the wrong keyboard layout (e.g., 'gksrmf' ↔ '한글') using hotkeys. Supports terminal-aware pasting and copy-only modes.
+A production-ready extension for GNOME that fixes text typed with the wrong keyboard layout (e.g., 'gksrmf' ↔ '한국어') using hotkeys. Supports terminal-aware pasting and copy-only modes.
 
 ## 🗺️ Long-term Roadmap
 
@@ -36,8 +36,8 @@ The project includes several examples in the `examples/` directory to help you g
 - **[Input Simulation (2-Set)](file:///home/from104/work/unim/examples/input_simulation_2bul.rs)**: See how the 2-set/2-bul standard handles real-time composition and "Dokkaebibul".
 - **[Input Simulation (3-Set)](file:///home/from104/work/unim/examples/input_simulation_3bul.rs)**: Explore the logic behind 3-set/3-bul layout processing.
 - **[Jamo Pattern Search](file:///home/from104/work/unim/examples/jamo_pattern_search.rs)**: An advanced example showing fuzzy search by decomposing text into Jamo components.
-- **[String Processing](file:///home/from104/work/unim/examples/string_processing.rs)**: Basic deconstruction of Hangul syllables into their Initial, Middle, and Final components.
-- **[Syllable Matrix](file:///home/from104/work/unim/examples/mk_hangul.rs)**: Generates the entire Hangul syllable range programmatically.
+- **[String Processing](file:///home/from104/work/unim/examples/string_processing.rs)**: Basic deconstruction of Korean syllables into their Initial, Middle, and Final components.
+- **[Syllable Matrix](file:///home/from104/work/unim/examples/mk_korean.rs)**: Generates the entire Korean syllable range programmatically.
 
 To run an example:
 ```bash

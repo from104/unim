@@ -28,7 +28,7 @@ add_executable(unim-gtk-settings
 
 target_include_directories(unim-gtk-settings PRIVATE
     ${GTK4_INCLUDE_DIRS}
-    ${UNIM_CAPI_INCLUDE}
+    ${UNIM_CAPI_INCLUDE}/include
 )
 
 target_compile_options(unim-gtk-settings PRIVATE

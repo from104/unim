@@ -2,18 +2,25 @@
  * UNIM GTK3 Input Method Test Application
  * 
  * 다양한 GTK3 위젯에서 UNIM 입력기를 테스트하기 위한 앱입니다.
+ * DBus를 통해 unim-daemon과 통신하여 한/영 상태를 실시간으로 표시합니다.
  */
 
 #include <gtk/gtk.h>
+#include <gio/gio.h>
 
 /* 상태 라벨 업데이트용 전역 변수 */
 static GtkWidget *status_label = NULL;
 static GtkWidget *preedit_label = NULL;
 static GtkWidget *commit_label = NULL;
 static GtkWidget *focus_label = NULL;
+static GtkWidget *dbus_status_label = NULL;
 
 /* 입력 이벤트 로그 */
 static GtkTextBuffer *log_buffer = NULL;
+
+/* DBus */
+static GDBusProxy *dbus_proxy = NULL;
+static guint dbus_signal_id = 0;
 
 static void log_message(const char *format, ...) {
     va_list args;
@@ -41,6 +48,127 @@ static void log_message(const char *format, ...) {
         GtkTextMark *mark = gtk_text_buffer_get_insert(log_buffer);
         gtk_text_buffer_get_end_iter(log_buffer, &end);
         gtk_text_buffer_move_mark(log_buffer, mark, &end);
+    }
+}
+
+/* 입력 모드 표시 업데이트 */
+static void update_mode_display(gboolean is_korean) {
+    if (status_label) {
+        if (is_korean) {
+            gtk_label_set_text(GTK_LABEL(status_label), "🇰🇷 한국어");
+        } else {
+            gtk_label_set_text(GTK_LABEL(status_label), "🔤 영어");
+        }
+    }
+}
+
+/* DBus GlobalModeChanged 시그널 핸들러 */
+static void on_dbus_signal(GDBusProxy *proxy,
+                           const gchar *sender_name,
+                           const gchar *signal_name,
+                           GVariant *parameters,
+                           gpointer user_data) {
+    (void)proxy;
+    (void)sender_name;
+    (void)user_data;
+    
+    if (g_strcmp0(signal_name, "GlobalModeChanged") == 0) {
+        gboolean is_korean;
+        g_variant_get(parameters, "(b)", &is_korean);
+        update_mode_display(is_korean);
+        log_message("입력 모드 변경: %s", is_korean ? "한국어" : "영어");
+    }
+}
+
+/* DBus 연결 설정 */
+static void setup_dbus(void) {
+    GError *error = NULL;
+    
+    dbus_proxy = g_dbus_proxy_new_for_bus_sync(
+        G_BUS_TYPE_SESSION,
+        G_DBUS_PROXY_FLAGS_NONE,
+        NULL,
+        "org.atit.unim.InputMethod",
+        "/org/atit/unim/InputMethod",
+        "org.atit.unim.InputMethod",
+        NULL,
+        &error
+    );
+    
+    if (error) {
+        gtk_label_set_text(GTK_LABEL(dbus_status_label), "❌ unim-daemon 없음");
+        log_message("DBus 연결 실패: %s", error->message);
+        g_error_free(error);
+        return;
+    }
+    
+    /* 시그널 연결 */
+    dbus_signal_id = g_signal_connect(dbus_proxy, "g-signal", 
+                                       G_CALLBACK(on_dbus_signal), NULL);
+    
+    gtk_label_set_text(GTK_LABEL(dbus_status_label), "✅ DBus 연결됨");
+    log_message("DBus 연결 성공 - GlobalModeChanged 시그널 구독");
+    
+    /* 초기 모드 조회 */
+    GVariant *result = g_dbus_proxy_call_sync(
+        dbus_proxy,
+        "GetGlobalMode",
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        -1,
+        NULL,
+        &error
+    );
+    
+    if (result) {
+        gboolean is_korean;
+        g_variant_get(result, "(b)", &is_korean);
+        update_mode_display(is_korean);
+        log_message("초기 입력 모드: %s", is_korean ? "한국어" : "영어");
+        g_variant_unref(result);
+    }
+}
+
+/* 한/영 토글 버튼 핸들러 */
+static void on_toggle_mode(GtkButton *button, gpointer user_data) {
+    (void)button;
+    (void)user_data;
+    
+    if (!dbus_proxy) {
+        log_message("DBus 연결 없음");
+        return;
+    }
+    
+    GError *error = NULL;
+    GVariant *result = g_dbus_proxy_call_sync(
+        dbus_proxy,
+        "GetGlobalMode",
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        -1,
+        NULL,
+        &error
+    );
+    
+    if (result) {
+        gboolean current_mode;
+        g_variant_get(result, "(b)", &current_mode);
+        g_variant_unref(result);
+        
+        /* 토글 */
+        g_dbus_proxy_call_sync(
+            dbus_proxy,
+            "SetGlobalMode",
+            g_variant_new("(b)", !current_mode),
+            G_DBUS_CALL_FLAGS_NONE,
+            -1,
+            NULL,
+            NULL
+        );
+    }
+    
+    if (error) {
+        g_error_free(error);
     }
 }
 
@@ -192,8 +320,8 @@ static GtkWidget *create_combo_box_row(const char *label_text, const char *widge
     gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
     
     GtkWidget *combo = gtk_combo_box_text_new_with_entry();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "한글 옵션 1");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "한글 옵션 2");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "한국어 옵션 1");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "한국어 옵션 2");
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), "Option 3");
     gtk_widget_set_hexpand(combo, TRUE);
     g_object_set_data(G_OBJECT(combo), "widget-name", (gpointer)widget_name);
@@ -255,42 +383,52 @@ static GtkWidget *create_status_panel(void) {
     gtk_widget_set_margin_top(grid, 10);
     gtk_widget_set_margin_bottom(grid, 10);
     
+    /* DBus 상태 */
+    GtkWidget *dbus_title = gtk_label_new("DBus 연결:");
+    gtk_label_set_xalign(GTK_LABEL(dbus_title), 0);
+    gtk_grid_attach(GTK_GRID(grid), dbus_title, 0, 0, 1, 1);
+    
+    dbus_status_label = gtk_label_new("(연결 중...)");
+    gtk_label_set_xalign(GTK_LABEL(dbus_status_label), 0);
+    gtk_widget_set_hexpand(dbus_status_label, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), dbus_status_label, 1, 0, 1, 1);
+    
     /* Focus */
     GtkWidget *focus_title = gtk_label_new("현재 포커스:");
     gtk_label_set_xalign(GTK_LABEL(focus_title), 0);
-    gtk_grid_attach(GTK_GRID(grid), focus_title, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), focus_title, 0, 1, 1, 1);
     
     focus_label = gtk_label_new("(없음)");
     gtk_label_set_xalign(GTK_LABEL(focus_label), 0);
     gtk_widget_set_hexpand(focus_label, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), focus_label, 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), focus_label, 1, 1, 1, 1);
     
     /* IM 상태 */
     GtkWidget *status_title = gtk_label_new("입력 모드:");
     gtk_label_set_xalign(GTK_LABEL(status_title), 0);
-    gtk_grid_attach(GTK_GRID(grid), status_title, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), status_title, 0, 2, 1, 1);
     
     status_label = gtk_label_new("(감지 중...)");
     gtk_label_set_xalign(GTK_LABEL(status_label), 0);
-    gtk_grid_attach(GTK_GRID(grid), status_label, 1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), status_label, 1, 2, 1, 1);
     
     /* Preedit */
     GtkWidget *preedit_title = gtk_label_new("Preedit:");
     gtk_label_set_xalign(GTK_LABEL(preedit_title), 0);
-    gtk_grid_attach(GTK_GRID(grid), preedit_title, 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), preedit_title, 0, 3, 1, 1);
     
     preedit_label = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(preedit_label), 0);
-    gtk_grid_attach(GTK_GRID(grid), preedit_label, 1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), preedit_label, 1, 3, 1, 1);
     
     /* Commit */
     GtkWidget *commit_title = gtk_label_new("Last Commit:");
     gtk_label_set_xalign(GTK_LABEL(commit_title), 0);
-    gtk_grid_attach(GTK_GRID(grid), commit_title, 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), commit_title, 0, 4, 1, 1);
     
     commit_label = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(commit_label), 0);
-    gtk_grid_attach(GTK_GRID(grid), commit_label, 1, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), commit_label, 1, 4, 1, 1);
     
     gtk_container_add(GTK_CONTAINER(frame), grid);
     
@@ -350,6 +488,10 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header), TRUE);
     gtk_header_bar_set_title(GTK_HEADER_BAR(header), "UNIM GTK3 입력기 테스트");
     
+    GtkWidget *toggle_btn = gtk_button_new_with_label("한/영 전환");
+    g_signal_connect(toggle_btn, "clicked", G_CALLBACK(on_toggle_mode), NULL);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), toggle_btn);
+    
     GtkWidget *clear_btn = gtk_button_new_with_label("로그 지우기");
     g_signal_connect(clear_btn, "clicked", G_CALLBACK(on_clear_log), NULL);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), clear_btn);
@@ -379,7 +521,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_box_pack_start(GTK_BOX(content_box), entry_label, FALSE, FALSE, 0);
     
     gtk_box_pack_start(GTK_BOX(content_box), 
-        create_entry_row("일반 Entry:", "Entry-일반", "한글/영문 입력 테스트"), FALSE, FALSE, 0);
+        create_entry_row("일반 Entry:", "Entry-일반", "한국어/영어 입력 테스트"), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content_box), 
         create_entry_row("숫자 Entry:", "Entry-숫자", "123-456"), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content_box), 
@@ -418,7 +560,19 @@ static void activate(GtkApplication *app, gpointer user_data) {
     log_message("UNIM GTK3 입력기 테스트 앱 시작");
     log_message("GTK_IM_MODULE=%s", g_getenv("GTK_IM_MODULE") ? g_getenv("GTK_IM_MODULE") : "(unset)");
     
+    /* DBus 설정 */
+    setup_dbus();
+    
     gtk_widget_show_all(window);
+}
+
+static void cleanup(void) {
+    if (dbus_proxy) {
+        if (dbus_signal_id > 0) {
+            g_signal_handler_disconnect(dbus_proxy, dbus_signal_id);
+        }
+        g_object_unref(dbus_proxy);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -427,6 +581,8 @@ int main(int argc, char *argv[]) {
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
     
     int status = g_application_run(G_APPLICATION(app), argc, argv);
+    
+    cleanup();
     g_object_unref(app);
     
     return status;

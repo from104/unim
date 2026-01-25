@@ -3,9 +3,11 @@
  * 
  * 순수 X11/Xlib를 사용하여 XIM 입력기를 테스트하는 앱입니다.
  * GTK, Qt 등의 툴킷을 사용하지 않습니다.
+ * DBus를 통해 unim-daemon과 통신하여 한/영 상태를 실시간으로 표시합니다.
  * 
  * [2026-01-19] Xft를 사용하여 폰트 렌더링 개선 (D2Coding)
  * [2026-01-22] 여러 입력 필드 지원 추가
+ * [2026-01-25] DBus 통합 추가
  */
 
 #include <X11/Xlib.h>
@@ -13,6 +15,7 @@
 #include <X11/Xlocale.h>
 #include <X11/keysym.h>
 #include <X11/Xft/Xft.h>
+#include <gio/gio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,8 +70,103 @@ static int active_field = 0;
 static char log_buffer[MAX_LOG_LINES][256];
 static int log_count = 0;
 
+/* DBus */
+static GDBusProxy *dbus_proxy = NULL;
+static int dbus_connected = 0;
+static int is_korean_mode = 1;  /* 1: 한국어, 0: 영어 */
+
 /* 상태 정보 */
 static char im_status[256] = "(XIM 연결 중...)";
+static char dbus_status[256] = "(DBus 연결 중...)";
+static char mode_status[32] = "(감지 중...)";
+
+/* 전방 선언 */
+static void add_log(const char *format, ...);
+static void redraw(void);
+
+/* DBus 시그널 핸들러 */
+static void on_dbus_signal(GDBusProxy *proxy,
+                           const gchar *sender_name,
+                           const gchar *signal_name,
+                           GVariant *parameters,
+                           gpointer user_data) {
+    (void)proxy; (void)sender_name; (void)user_data;
+    
+    if (g_strcmp0(signal_name, "GlobalModeChanged") == 0) {
+        gboolean is_korean;
+        g_variant_get(parameters, "(b)", &is_korean);
+        is_korean_mode = is_korean ? 1 : 0;
+        snprintf(mode_status, sizeof(mode_status), is_korean ? "🇰🇷 한국어" : "🔤 영어");
+        add_log("입력 모드 변경: %s", is_korean ? "한국어" : "영어");
+    }
+}
+
+/* DBus 초기화 */
+static void init_dbus(void) {
+    GError *error = NULL;
+    
+    dbus_proxy = g_dbus_proxy_new_for_bus_sync(
+        G_BUS_TYPE_SESSION,
+        G_DBUS_PROXY_FLAGS_NONE,
+        NULL,
+        "org.atit.unim.InputMethod",
+        "/org/atit/unim/InputMethod",
+        "org.atit.unim.InputMethod",
+        NULL,
+        &error
+    );
+    
+    if (error) {
+        snprintf(dbus_status, sizeof(dbus_status), "❌ unim-daemon 없음");
+        add_log("DBus 연결 실패: %s", error->message);
+        g_error_free(error);
+        return;
+    }
+    
+    /* 시그널 연결 */
+    g_signal_connect(dbus_proxy, "g-signal", G_CALLBACK(on_dbus_signal), NULL);
+    
+    dbus_connected = 1;
+    snprintf(dbus_status, sizeof(dbus_status), "✅ DBus 연결됨");
+    add_log("DBus 연결 성공 - GlobalModeChanged 시그널 구독");
+    
+    /* 초기 모드 조회 */
+    GVariant *result = g_dbus_proxy_call_sync(
+        dbus_proxy, "GetGlobalMode", NULL,
+        G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL);
+    
+    if (result) {
+        gboolean is_korean;
+        g_variant_get(result, "(b)", &is_korean);
+        is_korean_mode = is_korean ? 1 : 0;
+        snprintf(mode_status, sizeof(mode_status), is_korean ? "🇰🇷 한국어" : "🔤 영어");
+        add_log("초기 입력 모드: %s", is_korean ? "한국어" : "영어");
+        g_variant_unref(result);
+    }
+}
+
+/* 한/영 토글 */
+static void toggle_mode(void) {
+    if (!dbus_proxy) {
+        add_log("DBus 연결 없음");
+        return;
+    }
+    
+    GVariant *result = g_dbus_proxy_call_sync(
+        dbus_proxy, "GetGlobalMode", NULL,
+        G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL);
+    
+    if (result) {
+        gboolean current_mode;
+        g_variant_get(result, "(b)", &current_mode);
+        g_variant_unref(result);
+        
+        g_dbus_proxy_call_sync(
+            dbus_proxy, "SetGlobalMode",
+            g_variant_new("(b)", !current_mode),
+            G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL);
+    }
+}
 
 /* 로그 추가 함수 */
 static void add_log(const char *format, ...) {
@@ -186,9 +284,15 @@ static void redraw(void) {
     y += LINE_HEIGHT;
     
     /* 상태 표시 */
-    char status_line[256];
-    snprintf(status_line, sizeof(status_line), "XIM: %s | 현재 필드: %s (Tab으로 이동)", 
-        im_status, fields[active_field].label);
+    char status_line[512];
+    snprintf(status_line, sizeof(status_line), "XIM: %s | DBus: %s | 모드: %s", 
+        im_status, dbus_status, mode_status);
+    XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN, y, 
+        (const FcChar8 *)status_line, strlen(status_line));
+    y += LINE_HEIGHT;
+    
+    snprintf(status_line, sizeof(status_line), "현재 필드: %s (Tab: 이동, F9: 한/영 전환)", 
+        fields[active_field].label);
     XftDrawStringUtf8(xft_draw, &color_gray, font, MARGIN, y, 
         (const FcChar8 *)status_line, strlen(status_line));
     y += LINE_HEIGHT + 10;
@@ -462,6 +566,12 @@ static void handle_key_event(XKeyEvent *event) {
             return;
         }
         
+        /* F9: 한/영 전환 */
+        if (keysym == XK_F9) {
+            toggle_mode();
+            return;
+        }
+        
         if (status == XLookupChars || status == XLookupBoth) {
             buf[len] = '\0';
             
@@ -602,6 +712,9 @@ int main(int argc, char *argv[]) {
     XMapWindow(display, window);
     XFlush(display);
     
+    /* DBus 초기화 */
+    init_dbus();
+    
     /* XIM 초기화 */
     init_xim();
     
@@ -612,49 +725,71 @@ int main(int argc, char *argv[]) {
     add_log("이벤트 루프 시작");
     
     /* 이벤트 루프 */
-    XEvent event;
+    XEvent xevent;
     int running = 1;
+    int x11_fd = ConnectionNumber(display);
     
     while (running) {
-        XNextEvent(display, &event);
+        /* DBus 이벤트 처리 */
+        GMainContext *context = g_main_context_default();
+        while (g_main_context_pending(context)) {
+            g_main_context_iteration(context, FALSE);
+        }
         
-        if (XFilterEvent(&event, None)) {
+        /* X11 이벤트 대기 (타임아웃: 100ms) */
+        fd_set fds;
+        struct timeval tv;
+        FD_ZERO(&fds);
+        FD_SET(x11_fd, &fds);
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000;  /* 100ms */
+        
+        if (select(x11_fd + 1, &fds, NULL, NULL, &tv) <= 0) {
+            /* 타임아웃 또는 에러 - 다시 DBus 체크 */
             continue;
         }
         
-        switch (event.type) {
-            case Expose:
-                if (event.xexpose.count == 0) {
+        while (XPending(display)) {
+            XNextEvent(display, &xevent);
+        
+            if (XFilterEvent(&xevent, None)) {
+                continue;
+            }
+            
+            switch (xevent.type) {
+                case Expose:
+                    if (xevent.xexpose.count == 0) {
+                        redraw();
+                    }
+                    break;
+                    
+                case KeyPress:
+                    handle_key_event(&xevent.xkey);
+                    break;
+                    
+                case ButtonPress:
+                    handle_button_press(&xevent.xbutton);
+                    break;
+                    
+                case FocusIn:
+                    add_log("FocusIn");
+                    if (xic) XSetICFocus(xic);
                     redraw();
-                }
-                break;
-                
-            case KeyPress:
-                handle_key_event(&event.xkey);
-                break;
-                
-            case ButtonPress:
-                handle_button_press(&event.xbutton);
-                break;
-                
-            case FocusIn:
-                add_log("FocusIn");
-                if (xic) XSetICFocus(xic);
-                redraw();
-                break;
-                
-            case FocusOut:
-                add_log("FocusOut");
-                if (xic) XUnsetICFocus(xic);
-                redraw();
-                break;
-                
-            case ClientMessage:
-                if ((Atom)event.xclient.data.l[0] == wm_delete) {
-                    add_log("창 닫기 요청");
-                    running = 0;
-                }
-                break;
+                    break;
+                    
+                case FocusOut:
+                    add_log("FocusOut");
+                    if (xic) XUnsetICFocus(xic);
+                    redraw();
+                    break;
+                    
+                case ClientMessage:
+                    if ((Atom)xevent.xclient.data.l[0] == wm_delete) {
+                        add_log("창 닫기 요청");
+                        running = 0;
+                    }
+                    break;
+            }
         }
     }
     
@@ -663,6 +798,7 @@ int main(int argc, char *argv[]) {
     
     if (xic) XDestroyIC(xic);
     if (xim) XCloseIM(xim);
+    if (dbus_proxy) g_object_unref(dbus_proxy);
     
     XftColorFree(display, DefaultVisual(display, screen),
         DefaultColormap(display, screen), &color_black);

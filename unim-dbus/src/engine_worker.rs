@@ -21,21 +21,20 @@ use unim::keycode::{KeyCode, ModifierState};
 /// 엔진 워커에게 요청을 보낼 수 있는 `mpsc::Sender`
 pub fn spawn_engine_worker(config: Config) -> mpsc::Sender<EngineRequest> {
     let (tx, rx) = mpsc::channel::<EngineRequest>(256);
-    
+
     thread::spawn(move || {
         run_engine_worker(rx, config);
     });
-    
+
     tx
 }
 
 /// 엔진 워커 메인 루프 (블로킹)
-fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, config: Config) {
+fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) {
     let mut contexts: HashMap<u32, InputEngine> = HashMap::new();
-    let config = config;
-    
+
     log::info!("[Engine Worker] 시작됨");
-    
+
     // 블로킹으로 요청 수신 (tokio 런타임 밖에서 실행)
     while let Some(request) = rx.blocking_recv() {
         match request {
@@ -45,48 +44,58 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, config: Config) {
                 log::debug!("[Engine Worker] 컨텍스트 생성: id={}", id);
                 let _ = response.send(());
             }
-            
+
             EngineRequest::DestroyContext { id } => {
                 contexts.remove(&id);
                 log::debug!("[Engine Worker] 컨텍스트 파괴: id={}", id);
             }
-            
-            EngineRequest::ProcessKey { context_id, keyval: _, keycode, state, response } => {
+
+            EngineRequest::ProcessKey {
+                context_id,
+                keyval: _,
+                keycode,
+                state,
+                response,
+            } => {
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // keycode를 KeyCode로 변환
                     let key = KeyCode::from_evdev_keycode(keycode as u16);
                     let modifier = ModifierState::from_x11_mask(state);
-                    
+
                     // 처리 전 상태 저장
                     let prev_mode = engine.input_category();
-                    
+
                     // 키 처리
                     let result = engine.press_key(key, modifier, &config);
-                    
+
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
                     let mode_changed = if prev_mode != current_mode {
-                        Some(current_mode == unim::config::InputCategory::Hangul)
+                        Some(current_mode == unim::config::InputCategory::Korean)
                     } else {
                         None
                     };
-                    
+
                     // 응답 생성
                     let preedit = if result.preedit_changed {
                         Some(engine.preedit_str().to_string())
                     } else {
                         None
                     };
-                    
+
                     let commit = if result.commit_changed {
                         let s = engine.commit_str().to_string();
                         // 커밋 버퍼를 읽은 후 반드시 비워야 함 (누적 방지)
                         engine.clear_commit();
-                        if !s.is_empty() { Some(s) } else { None }
+                        if !s.is_empty() {
+                            Some(s)
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     };
-                    
+
                     EngineResponse {
                         consumed: result.consumed,
                         preedit,
@@ -101,11 +110,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, config: Config) {
                         mode_changed: None,
                     }
                 };
-                
+
                 let _ = response.send(resp);
             }
-            
-            EngineRequest::FocusOut { context_id, response } => {
+
+            EngineRequest::FocusOut {
+                context_id,
+                response,
+            } => {
                 let commit = if let Some(engine) = contexts.get_mut(&context_id) {
                     let preedit = engine.preedit_str();
                     if !preedit.is_empty() {
@@ -122,14 +134,32 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, config: Config) {
                 };
                 let _ = response.send(commit);
             }
-            
+
             EngineRequest::Reset { context_id } => {
                 if let Some(engine) = contexts.get_mut(&context_id) {
                     *engine = InputEngine::new(&config);
                 }
             }
+
+            EngineRequest::SetGlobalMode { is_korean } => {
+                let category = if is_korean {
+                    unim::config::InputCategory::Korean
+                } else {
+                    unim::config::InputCategory::English
+                };
+
+                // config의 기본 카테고리도 업데이트 (새 컨텍스트 생성/리셋 시 적용)
+                config.engine.default_category = category;
+
+                // 모든 컨텍스트의 입력 카테고리 변경
+                for engine in contexts.values_mut() {
+                    engine.set_input_category(category);
+                }
+
+                log::info!("[Engine Worker] 전역 모드 변경: {:?}", category);
+            }
         }
     }
-    
+
     log::info!("[Engine Worker] 종료됨");
 }

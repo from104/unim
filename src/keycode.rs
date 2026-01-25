@@ -100,8 +100,8 @@ pub enum KeyCode {
     Down = 0x51,
     Up = 0x52,
 
-    // 한글/한자 키
-    Hangul = 0x90,        // 한/영 전환
+    // 한국어/한자 키
+    Korean = 0x90,        // 한/영 전환
     Hanja = 0x91,         // 한자 변환
 
     // 수정자 키
@@ -236,8 +236,8 @@ impl KeyCode {
             108 => KeyCode::Down,
             103 => KeyCode::Up,
 
-            // 한글/한자
-            122 => KeyCode::Hangul,
+            // 한국어/한자
+            122 => KeyCode::Korean,
             123 => KeyCode::Hanja,
 
             // 수정자

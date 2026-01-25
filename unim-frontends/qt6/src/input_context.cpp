@@ -1,8 +1,11 @@
 /**
  * UNIM Qt6 Input Context 구현
+ *
+ * DBus를 통해 unim-daemon과 통신합니다.
  */
 
 #include "input_context.hpp"
+#include "unim_dbus_client.hpp"
 
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -13,7 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 
-/* 디버그 로깅 시스템 (GTK4 모듈과 동일한 패턴) */
+/* 디버그 로깅 시스템 */
 static bool unim_debug_enabled = false;
 
 #define UNIM_DEBUG(...) \
@@ -38,39 +41,42 @@ static void unim_check_debug_env()
 
 UnimInputContext::UnimInputContext()
     : QPlatformInputContext()
-    , m_engine(nullptr)
-    , m_config(nullptr)
+    , m_dbus(nullptr)
     , m_focusObject(nullptr)
     , m_composing(false)
 {
     unim_check_debug_env();
     UNIM_DEBUG("UnimInputContext 생성 시작");
-    m_config = unim_config_load();
-    m_engine = unim_engine_new(m_config);
-    UNIM_DEBUG("UnimInputContext 생성 완료, engine=" << m_engine << ", config=" << m_config);
+    
+    m_dbus = new UnimDbusClient(QStringLiteral("qt6-unim"));
+    
+    if (m_dbus && m_dbus->isValid()) {
+        UNIM_DEBUG("UnimInputContext 생성 완료 (DBus 연결됨)");
+    } else {
+        UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
+    }
 }
 
 UnimInputContext::~UnimInputContext()
 {
-    if (m_engine) {
-        unim_engine_delete(m_engine);
-        m_engine = nullptr;
-    }
-    if (m_config) {
-        unim_config_delete(m_config);
-        m_config = nullptr;
+    if (m_dbus) {
+        delete m_dbus;
+        m_dbus = nullptr;
     }
 }
 
 bool UnimInputContext::isValid() const
 {
-    return m_engine != nullptr && m_config != nullptr;
+    return m_dbus != nullptr && m_dbus->isValid();
 }
 
 void UnimInputContext::reset()
 {
-    if (m_engine) {
-        unim_engine_reset(m_engine);
+    if (m_dbus) {
+        QString commit = m_dbus->reset();
+        if (!commit.isEmpty()) {
+            commitString(commit);
+        }
         m_composing = false;
         updatePreedit();
     }
@@ -78,17 +84,12 @@ void UnimInputContext::reset()
 
 void UnimInputContext::commit()
 {
-    if (m_engine && m_composing) {
-        unim_engine_clear_preedit(m_engine);
-        UnimStr commitStr = unim_engine_commit_str(m_engine);
-        if (commitStr.len > 0) {
-            QString str = QString::fromUtf8(
-                reinterpret_cast<const char *>(commitStr.ptr),
-                static_cast<qsizetype>(commitStr.len)
-            );
-            commitString(str);
+    if (m_dbus && m_composing) {
+        // reset()을 사용하여 조합 중인 문자를 커밋 (focusOut은 포커스 상실용)
+        QString commit = m_dbus->reset();
+        if (!commit.isEmpty()) {
+            commitString(commit);
         }
-        unim_engine_clear_commit(m_engine);
         m_composing = false;
         updatePreedit();
     }
@@ -107,8 +108,8 @@ void UnimInputContext::invokeAction(QInputMethod::Action action, int cursorPosit
 
 bool UnimInputContext::filterEvent(const QEvent *event)
 {
-    if (!m_engine || !m_config || !m_focusObject) {
-        UNIM_DEBUG("filterEvent: 엔진/설정/포커스 없음, 키 무시");
+    if (!m_dbus || !m_dbus->isValid() || !m_focusObject) {
+        UNIM_DEBUG("filterEvent: DBus/포커스 없음, 키 무시");
         return false;
     }
 
@@ -118,70 +119,55 @@ bool UnimInputContext::filterEvent(const QEvent *event)
 
     const QKeyEvent *keyEvent = static_cast<const QKeyEvent *>(event);
 
-    // 수정자 상태 변환
-    UnimModifierState state = {
-        .shift = (keyEvent->modifiers() & Qt::ShiftModifier) != 0,
-        .control = (keyEvent->modifiers() & Qt::ControlModifier) != 0,
-        .alt = (keyEvent->modifiers() & Qt::AltModifier) != 0,
-        .super_key = (keyEvent->modifiers() & Qt::MetaModifier) != 0,
-        .caps_lock = false,
-        .num_lock = false
-    };
-
-    // 설정 파일 변경 체크 (mtime 기반, 매우 가벼움)
-    if (m_config && unim_config_reload(m_config)) {
-        // 설정이 변경되었으면 엔진에 새 레이아웃 적용
-        if (m_engine) {
-            unim_engine_set_hangul_layout(m_engine,
-                unim_config_get_hangul_layout(m_config));
-            unim_engine_set_latin_layout(m_engine,
-                unim_config_get_latin_layout(m_config));
-        }
+    /* 수정자 키만 눌린 경우 바이패스 (preedit에 영향 없이 앱으로 전달) */
+    int key = keyEvent->key();
+    if (key == Qt::Key_Shift || key == Qt::Key_Control ||
+        key == Qt::Key_Alt || key == Qt::Key_Meta ||
+        key == Qt::Key_Super_L || key == Qt::Key_Super_R ||
+        key == Qt::Key_AltGr) {
+        return false;
     }
 
-    // 키 입력 처리
-    // X11에서 nativeScanCode() = X11 keycode = evdev + 8
+    /* 수정자 상태 변환 - DBus 호출용 비트필드 */
+    quint32 mod_state = 0;
+    if (keyEvent->modifiers() & Qt::ShiftModifier) mod_state |= (1 << 0);
+    if (keyEvent->modifiers() & Qt::ControlModifier) mod_state |= (1 << 2);
+    if (keyEvent->modifiers() & Qt::AltModifier) mod_state |= (1 << 3);
+    if (keyEvent->modifiers() & Qt::MetaModifier) mod_state |= (1 << 26);
+
+    /* X11에서 nativeScanCode() = X11 keycode = evdev + 8 */
     quint32 scanCode = keyEvent->nativeScanCode();
-    uint16_t evdev_code = (scanCode > 8) ? static_cast<uint16_t>(scanCode - 8) : 0;
+    quint32 evdev_code = (scanCode > 8) ? (scanCode - 8) : 0;
     
-    UNIM_DEBUG("키 입력: key=" << keyEvent->key() << ", scanCode=" << scanCode << ", evdev=" << evdev_code
-               << ", shift=" << state.shift << ", ctrl=" << state.control << ", alt=" << state.alt);
-    
-    UnimInputResult result = unim_engine_press_key(
-        m_engine,
-        m_config,
-        evdev_code,
-        state
-    );
+    UNIM_DEBUG("키 입력: key=" << keyEvent->key() << ", scanCode=" << scanCode 
+               << ", evdev=" << evdev_code << ", state=" << mod_state);
+
+    /* DBus를 통해 키 처리 */
+    UnimDbusKeyResult result = m_dbus->processKey(keyEvent->key(), evdev_code, mod_state);
     
     UNIM_DEBUG("엔진 결과: consumed=" << result.consumed 
-               << ", preedit_changed=" << result.preedit_changed 
-               << ", commit_changed=" << result.commit_changed);
+               << ", preedit=" << result.preedit 
+               << ", commit=" << result.commit);
 
     if (result.consumed) {
-        // 커밋 처리
-        if (result.commit_changed) {
-            UnimStr commitStr = unim_engine_commit_str(m_engine);
-            if (commitStr.len > 0) {
-                QString str = QString::fromUtf8(
-                    reinterpret_cast<const char *>(commitStr.ptr),
-                    static_cast<qsizetype>(commitStr.len)
-                );
-                commitString(str);
-            }
-            unim_engine_clear_commit(m_engine);
+        /* 커밋 처리 */
+        if (!result.commit.isEmpty()) {
+            commitString(result.commit);
         }
 
-        // preedit 변경
-        if (result.preedit_changed) {
-            m_composing = unim_engine_is_composing(m_engine);
-            updatePreedit();
-        }
+        /* preedit 업데이트 */
+        m_composing = !result.preedit.isEmpty();
+        updatePreedit();
 
         return true;
     } else {
-        // 엔진이 소비하지 않은 키: 조합 중이었다면 강제 커밋
-        if (m_composing) {
+        /* 엔진이 소비하지 않은 키: 커밋이 있으면 처리 (Enter, Tab 등) */
+        if (!result.commit.isEmpty()) {
+            commitString(result.commit);
+            m_composing = false;
+            updatePreedit();
+        } else if (m_composing) {
+            /* 조합 중이었다면 로컬 캐시의 preedit을 커밋 */
             UNIM_DEBUG("Bypassed non-text key while composing -> Committing current preedit");
             commit();
         }
@@ -226,11 +212,20 @@ Qt::LayoutDirection UnimInputContext::inputDirection() const
 void UnimInputContext::setFocusObject(QObject *object)
 {
     UNIM_DEBUG("setFocusObject: object=" << object);
-    if (m_focusObject && m_composing) {
+    if (m_focusObject && m_composing && m_dbus) {
         UNIM_DEBUG("setFocusObject: 조합 중, 커밋 수행");
-        commit();
+        QString commitStr = m_dbus->focusOut();
+        if (!commitStr.isEmpty()) {
+            commitString(commitStr);
+        }
+        m_composing = false;
+        updatePreedit();
     }
     m_focusObject = object;
+    
+    if (m_dbus && object) {
+        m_dbus->focusIn();
+    }
 }
 
 void UnimInputContext::updatePreedit()
@@ -240,14 +235,8 @@ void UnimInputContext::updatePreedit()
     }
 
     QString preeditStr;
-    if (m_engine) {
-        UnimStr preedit = unim_engine_preedit_str(m_engine);
-        if (preedit.len > 0) {
-            preeditStr = QString::fromUtf8(
-                reinterpret_cast<const char *>(preedit.ptr),
-                static_cast<qsizetype>(preedit.len)
-            );
-        }
+    if (m_dbus) {
+        preeditStr = m_dbus->getPreedit();
     }
 
     QList<QInputMethodEvent::Attribute> attrs;

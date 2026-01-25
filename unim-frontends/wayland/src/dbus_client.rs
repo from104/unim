@@ -2,13 +2,13 @@
 //!
 //! XIM 프론트엔드에서 unim-daemon과 통신하기 위한 비동기 DBus 클라이언트입니다.
 
+use log::{debug, error, info};
 use std::sync::mpsc as std_mpsc;
 use tokio::sync::mpsc;
-use log::{debug, error, info};
 
-use zbus::Connection;
+use unim_dbus::client::{InputContextProxy, InputMethodProxy};
 use zbus::zvariant::ObjectPath;
-use unim_dbus::client::{InputMethodProxy, InputContextProxy};
+use zbus::Connection;
 
 /// DBus 요청 타입
 #[derive(Debug)]
@@ -19,10 +19,9 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 컨텍스트 파괴
-    DestroyContext {
-        context_path: String,
-    },
+    DestroyContext { context_path: String },
     /// 키 이벤트 처리
+    #[allow(dead_code)]
     ProcessKey {
         context_path: String,
         keyval: u32,
@@ -31,18 +30,15 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 포커스 인
-    FocusIn {
-        context_path: String,
-    },
+    FocusIn { context_path: String },
     /// 포커스 아웃
     FocusOut {
         context_path: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 리셋
-    Reset {
-        context_path: String,
-    },
+    #[allow(dead_code)]
+    Reset { context_path: String },
 }
 
 /// DBus 응답 타입
@@ -51,6 +47,7 @@ pub enum DbusResponse {
     /// 컨텍스트 생성 성공
     ContextCreated { path: String },
     /// 키 처리 결과
+    #[allow(dead_code)]
     KeyProcessed {
         consumed: bool,
         preedit: Option<String>,
@@ -69,7 +66,7 @@ impl DbusClient {
     /// 새 DBus 클라이언트 생성 및 백그라운드 태스크 시작
     pub fn new() -> (Self, mpsc::Sender<DbusRequest>) {
         let (tx, rx) = mpsc::channel::<DbusRequest>(256);
-        
+
         // 백그라운드 스레드에서 tokio 런타임 실행
         let tx_clone = tx.clone();
         std::thread::spawn(move || {
@@ -77,15 +74,20 @@ impl DbusClient {
                 .enable_all()
                 .build()
                 .expect("tokio 런타임 생성 실패");
-            
+
             rt.block_on(async {
                 if let Err(e) = run_dbus_client(rx).await {
                     error!("DBus 클라이언트 오류: {}", e);
                 }
             });
         });
-        
-        (Self { _tx: tx_clone.clone() }, tx_clone)
+
+        (
+            Self {
+                _tx: tx_clone.clone(),
+            },
+            tx_clone,
+        )
     }
 }
 
@@ -94,28 +96,29 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
     // DBus 세션 버스에 연결
     let connection = Connection::session().await?;
     info!("[XIM-DBus] 세션 버스 연결 성공");
-    
+
     // InputMethod 프록시 생성
     let im_proxy = InputMethodProxy::new(&connection).await?;
     info!("[XIM-DBus] InputMethod 프록시 생성 완료");
-    
+
     // 요청 처리 루프
     while let Some(request) = rx.recv().await {
         match request {
-            DbusRequest::CreateContext { client_name, response } => {
-                match im_proxy.create_input_context(&client_name).await {
-                    Ok(path) => {
-                        debug!("[XIM-DBus] 컨텍스트 생성: {}", path);
-                        if let Some(tx) = response {
-                            let _ = tx.send(DbusResponse::ContextCreated { path });
-                        }
-                    }
-                    Err(e) => {
-                        error!("[XIM-DBus] 컨텍스트 생성 실패: {}", e);
+            DbusRequest::CreateContext {
+                client_name,
+                response,
+            } => match im_proxy.create_input_context(&client_name).await {
+                Ok(path) => {
+                    debug!("[XIM-DBus] 컨텍스트 생성: {}", path);
+                    if let Some(tx) = response {
+                        let _ = tx.send(DbusResponse::ContextCreated { path });
                     }
                 }
-            }
-            
+                Err(e) => {
+                    error!("[XIM-DBus] 컨텍스트 생성 실패: {}", e);
+                }
+            },
+
             DbusRequest::DestroyContext { context_path } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
@@ -129,15 +132,22 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                     }
                 }
             }
-            
-            DbusRequest::ProcessKey { context_path, keyval, keycode, state, response } => {
-                let result = process_key_event(&connection, &context_path, keyval, keycode, state).await;
-                
+
+            DbusRequest::ProcessKey {
+                context_path,
+                keyval,
+                keycode,
+                state,
+                response,
+            } => {
+                let result =
+                    process_key_event(&connection, &context_path, keyval, keycode, state).await;
+
                 if let Some(tx) = response {
                     let _ = tx.send(result);
                 }
             }
-            
+
             DbusRequest::FocusIn { context_path } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
@@ -151,8 +161,11 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                     }
                 }
             }
-            
-            DbusRequest::FocusOut { context_path, response } => {
+
+            DbusRequest::FocusOut {
+                context_path,
+                response,
+            } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
                         .path(obj_path)
@@ -162,14 +175,16 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                     {
                         let _ = proxy.focus_out().await;
                         debug!("[XIM-DBus] FocusOut: {}", context_path);
-                        
+
                         if let Some(tx) = response {
-                            let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                            let _ = tx.send(DbusResponse::CommitText {
+                                text: String::new(),
+                            });
                         }
                     }
                 }
             }
-            
+
             DbusRequest::Reset { context_path } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
@@ -185,7 +200,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -207,7 +222,7 @@ async fn process_key_event(
             };
         }
     };
-    
+
     let ctx_proxy = match InputContextProxy::builder(connection)
         .path(obj_path)
         .expect("path error")
@@ -224,24 +239,33 @@ async fn process_key_event(
             };
         }
     };
-    
+
     // 키 이벤트 처리 - 반환값: (consumed, preedit, commit)
-    let (consumed, preedit, commit) = match ctx_proxy.process_key_event(keyval, keycode, state).await {
-        Ok(result) => result,
-        Err(e) => {
-            error!("[XIM-DBus] 키 처리 실패: {}", e);
-            return DbusResponse::KeyProcessed {
-                consumed: false,
-                preedit: None,
-                commit: None,
-            };
-        }
-    };
-    
+    let (consumed, preedit, commit) =
+        match ctx_proxy.process_key_event(keyval, keycode, state).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("[XIM-DBus] 키 처리 실패: {}", e);
+                return DbusResponse::KeyProcessed {
+                    consumed: false,
+                    preedit: None,
+                    commit: None,
+                };
+            }
+        };
+
     // TODO: preedit/commit 시그널 수신 구현
     DbusResponse::KeyProcessed {
         consumed,
-        preedit: if preedit.is_empty() { None } else { Some(preedit) },
-        commit: if commit.is_empty() { None } else { Some(commit) },
+        preedit: if preedit.is_empty() {
+            None
+        } else {
+            Some(preedit)
+        },
+        commit: if commit.is_empty() {
+            None
+        } else {
+            Some(commit)
+        },
     }
 }

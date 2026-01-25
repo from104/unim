@@ -6,7 +6,7 @@
 debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-3.0/3.0.0/immodules/libim-unim.so
 
 # GTK4 IM Module (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-4.0/4.0.0/immodules/libim-unim-gtk4.so
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-4.0/4.0.0/immodules/libim-unim.so
 
 # GTK Settings Tool
 debian/tmp/usr/bin/unim-gtk-settings

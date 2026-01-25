@@ -24,7 +24,7 @@ debian/tmp/usr/share/im-config/data/25_unim.rc
 
 # Icons
 debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-hangul.svg
-debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-latin.svg
+debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-english.svg
 
 # Autostart
 debian/tmp/etc/xdg/autostart/unim-indicator.desktop

@@ -1,7 +1,7 @@
-use crate::hangul::composer::HangulComposer;
-use crate::hangul::composer_with_2bul::HangulComposer2Bul;
-use crate::hangul::composer_with_3bul::HangulComposer3Bul;
-use crate::hangul::jamo::JamoEnum;
+use crate::korean::composer::KoreanComposer;
+use crate::korean::composer_with_2bul::KoreanComposer2Bul;
+use crate::korean::composer_with_3bul::KoreanComposer3Bul;
+use crate::korean::jamo::JamoEnum;
 
 /// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
 macro_rules! unim_debug {
@@ -12,14 +12,14 @@ macro_rules! unim_debug {
     };
 }
 
-/// 한글 입력 과정을 관리하는 컨텍스트입니다.
+/// 한국어 입력 과정을 관리하는 컨텍스트입니다.
 ///
 /// 키보드 레이아웃, 현재 조합 중인 컴포저 인스턴스,
 /// 조합 전/후 텍스트 상태 등을 관리합니다.
-pub struct HangulInputContext {
-    /// 현재 사용 중인 한글 컴포저 (`HangulComposer` 트레이트 객체).
+pub struct KoreanInputContext {
+    /// 현재 사용 중인 한국어 컴포저 (`KoreanComposer` 트레이트 객체).
     /// 두벌식, 세벌식 등 다양한 컴포저 구현체를 담을 수 있습니다.
-    composer: Box<dyn HangulComposer>,
+    composer: Box<dyn KoreanComposer>,
     /// 현재 조합 중인 문자열 (Preedit). 사용자에게 보여지는 중간 결과입니다.
     preedit_string: String,
     /// 확정된(Commit) 문자열. 입력이 완료된 결과입니다.
@@ -27,29 +27,29 @@ pub struct HangulInputContext {
     // TODO: Add keyboard layout management if needed within this context
 }
 
-/// 지원하는 한글 컴포저 타입을 나타내는 열거형.
+/// 지원하는 한국어 컴포저 타입을 나타내는 열거형.
 pub enum ComposerType {
     TwoBul,
     ThreeBul, // TODO: Add other composer types like ThreeBulFinal, etc.
 }
 
-impl HangulInputContext {
-    /// 새로운 `HangulInputContext`를 생성합니다.
+impl KoreanInputContext {
+    /// 새로운 `KoreanInputContext`를 생성합니다.
     ///
     /// # Arguments
     ///
-    /// * `composer_type` - 사용할 한글 컴포저의 타입 (`ComposerType`).
+    /// * `composer_type` - 사용할 한국어 컴포저의 타입 (`ComposerType`).
     ///
     /// # Returns
     ///
-    /// 초기화된 `HangulInputContext` 인스턴스.
+    /// 초기화된 `KoreanInputContext` 인스턴스.
     pub fn new(composer_type: ComposerType) -> Self {
-        let composer: Box<dyn HangulComposer> = match composer_type {
-            ComposerType::TwoBul => Box::new(HangulComposer2Bul::new()),
-            ComposerType::ThreeBul => Box::new(HangulComposer3Bul::new()), // Ensure HangulComposer3Bul implements HangulComposer and has a new()
+        let composer: Box<dyn KoreanComposer> = match composer_type {
+            ComposerType::TwoBul => Box::new(KoreanComposer2Bul::new()),
+            ComposerType::ThreeBul => Box::new(KoreanComposer3Bul::new()), // Ensure KoreanComposer3Bul implements KoreanComposer and has a new()
         };
 
-        HangulInputContext {
+        KoreanInputContext {
             composer,
             preedit_string: String::new(),
             committed_string: String::new(),
@@ -60,7 +60,7 @@ impl HangulInputContext {
     ///
     /// # Arguments
     ///
-    /// * `jamo` - 입력할 한글 자모 (`JamoEnum`).
+    /// * `jamo` - 입력할 한국어 자모 (`JamoEnum`).
     ///
     /// # Returns
     ///
@@ -69,7 +69,7 @@ impl HangulInputContext {
     pub fn process_jamo(&mut self, jamo: JamoEnum) -> bool {
         unim_debug!("process_jamo: {:?}", jamo);
         unim_debug!("  BEFORE: preedit='{}', committed='{}', composer={:?}", 
-                   self.preedit_string, self.committed_string, self.composer.current_hangul());
+                   self.preedit_string, self.committed_string, self.composer.current_korean());
         
         if let Some(committed_char) = self.composer.add_jamo(jamo) {
             // 이전 글자가 완성되어 commit됨
@@ -128,7 +128,7 @@ impl HangulInputContext {
     ///
     /// * `Option<char>` - 강제 조합으로 확정된 문자 (있을 경우).
     pub fn commit(&mut self) -> Option<char> {
-        let composed_char = self.composer.force_compose_hangul();
+        let composed_char = self.composer.force_compose_korean();
         if let Some(c) = composed_char {
             self.committed_string.push(c);
         }
@@ -136,7 +136,7 @@ impl HangulInputContext {
         composed_char
     }
 
-    /// 비-한글 문자를 확정 문자열에 추가합니다.
+    /// 비-한국어 문자를 확정 문자열에 추가합니다.
     /// 이 메서드는 현재 조합 상태를 변경하지 않습니다. (commit()은 별도 호출 필요)
     ///
     /// # Arguments
@@ -146,11 +146,11 @@ impl HangulInputContext {
         self.committed_string.push(c);
     }
 
-    /// `HangulComposer`의 현재 상태를 기반으로 preedit 문자열을 업데이트합니다.
+    /// `KoreanComposer`의 현재 상태를 기반으로 preedit 문자열을 업데이트합니다.
     fn update_preedit(&mut self) {
-        // Use get_syllable() which returns Result<char, HangulError>
-        let current = self.composer.current_hangul();
-        unim_debug!("update_preedit: composer.current_hangul()={:?}", current);
+        // Use get_syllable() which returns Result<char, KoreanError>
+        let current = self.composer.current_korean();
+        unim_debug!("update_preedit: composer.current_korean()={:?}", current);
         
         if let Ok(composed_char) = current.get_syllable() {
             unim_debug!("  -> get_syllable() = Ok('{}')", composed_char);
@@ -158,7 +158,7 @@ impl HangulInputContext {
         } else {
             // 조합된 글자가 없는 경우 (예: 자모가 하나만 있거나 잘못된 조합)
             // 호환용 자모 문자열로 표시
-            let compat = self.composer.current_hangul().to_compat_jamo_string();
+            let compat = self.composer.current_korean().to_compat_jamo_string();
             unim_debug!("  -> get_syllable() = Err, to_compat_jamo_string()='{}'", compat);
             self.preedit_string = compat;
         }
@@ -168,13 +168,13 @@ impl HangulInputContext {
     fn clear_preedit(&mut self) {
         self.preedit_string.clear();
         // Composer의 상태도 초기화해야 할 수 있음 (상황에 따라)
-        // 예: self.composer.clear() 또는 force_compose_hangul() 호출
+        // 예: self.composer.clear() 또는 force_compose_korean() 호출
     }
 
     /// 입력 컨텍스트의 상태를 초기화합니다. (Preedit, Committed 문자열 비우기)
     /// Composer 자체의 리셋은 포함하지 않을 수 있습니다 (선택 사항).
     pub fn clear(&mut self) {
-        self.composer.force_compose_hangul(); // 남아있는 조합 강제 완료 시도
+        self.composer.force_compose_korean(); // 남아있는 조합 강제 완료 시도
         self.clear_preedit();
         self.committed_string.clear();
     }
@@ -201,11 +201,11 @@ impl HangulInputContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hangul::jamo::*;
+    use crate::korean::jamo::*;
 
     #[test]
     fn test_context_basic_composition() {
-        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let mut context = KoreanInputContext::new(ComposerType::TwoBul);
 
         // ㄱ 입력
         context.process_jamo(JamoEnum::Cho(Cho::G));
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_context_commit() {
-        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let mut context = KoreanInputContext::new(ComposerType::TwoBul);
         context.process_jamo(JamoEnum::Cho(Cho::G));
         context.process_jamo(JamoEnum::Jung(Jung::A));
         context.process_jamo(JamoEnum::Cho(Cho::G)); // 각
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_context_backspace() {
-        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let mut context = KoreanInputContext::new(ComposerType::TwoBul);
         context.process_jamo(JamoEnum::Cho(Cho::G)); // ㄱ
         context.process_jamo(JamoEnum::Jung(Jung::A)); // 가
         context.process_jamo(JamoEnum::Cho(Cho::G)); // 각
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_context_dokkaebi() {
-        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let mut context = KoreanInputContext::new(ComposerType::TwoBul);
         context.process_jamo(JamoEnum::Cho(Cho::G));
         context.process_jamo(JamoEnum::Jung(Jung::A));
         context.process_jamo(JamoEnum::Cho(Cho::G)); // 각
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_context_clear() {
-        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let mut context = KoreanInputContext::new(ComposerType::TwoBul);
         context.process_jamo(JamoEnum::Cho(Cho::G));
         context.process_jamo(JamoEnum::Jung(Jung::A));
         context.process_jamo(JamoEnum::Cho(Cho::G)); // 각
@@ -319,10 +319,10 @@ mod tests {
         assert!(!context.is_composing());
     }
 
-    // TODO: 3벌식 테스트 추가 (HangulComposer3Bul 구현 후)
+    // TODO: 3벌식 테스트 추가 (KoreanComposer3Bul 구현 후)
     #[test]
     fn test_context_3bul_basic() {
-        let mut context = HangulInputContext::new(ComposerType::ThreeBul);
+        let mut context = KoreanInputContext::new(ComposerType::ThreeBul);
         // Add 3bul specific tests here
         context.process_jamo(JamoEnum::Cho(Cho::G));
         assert_eq!(context.get_preedit(), "ㄱ");

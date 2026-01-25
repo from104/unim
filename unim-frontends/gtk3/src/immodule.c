@@ -2,15 +2,19 @@
  * UNIM GTK3 Input Method Module
  *
  * GTK3 애플리케이션에서 한글 입력을 제공하는 IM 모듈입니다.
+ * DBus를 통해 unim-daemon과 통신합니다.
  */
 
 #include <gtk/gtk.h>
 #include <gtk/gtkimmodule.h>
 #include <gdk/gdkkeysyms.h>
+#include <gio/gio.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <unim.h>
+
+/* DBus 클라이언트 헤더 */
+#include "unim_dbus_client.h"
 
 /* 모듈 정보 */
 #define UNIM_IM_CONTEXT_ID "unim"
@@ -30,8 +34,7 @@ typedef struct _UnimIMContextClass UnimIMContextClass;
 
 struct _UnimIMContext {
     GtkIMContext parent;
-    UnimEngine *engine;
-    UnimConfig *config;
+    UnimDbusContext *dbus_ctx;  /* DBus 클라이언트 컨텍스트 */
     gboolean is_focused;
     GdkWindow *client_window;
 };
@@ -53,13 +56,6 @@ static void unim_im_context_set_client_window(GtkIMContext *context, GdkWindow *
 static void unim_im_context_get_preedit_string(GtkIMContext *context, gchar **str,
                                                 PangoAttrList **attrs, gint *cursor_pos);
 static void unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area);
-
-/* Unim C API 추가 선언 (IDE 린트 지원용) */
-bool unim_config_reload(UnimConfig *config);
-UnimHangulLayout unim_config_get_hangul_layout(const UnimConfig *config);
-UnimLatinLayout unim_config_get_latin_layout(const UnimConfig *config);
-void unim_engine_set_hangul_layout(UnimEngine *engine, UnimHangulLayout layout);
-void unim_engine_set_latin_layout(UnimEngine *engine, UnimLatinLayout layout);
 
 /* 디버그 로깅 시스템 */
 static gboolean unim_debug_enabled = FALSE;
@@ -115,11 +111,17 @@ static void
 unim_im_context_init(UnimIMContext *context)
 {
     unim_check_debug_env();
-    context->config = unim_config_load();
-    context->engine = unim_engine_new(context->config);
+    
+    /* DBus 클라이언트 생성 */
+    context->dbus_ctx = unim_dbus_context_new("gtk3-unim");
     context->is_focused = FALSE;
     context->client_window = NULL;
-    UNIM_DEBUG("IMContext 초기화 완료");
+    
+    if (context->dbus_ctx) {
+        UNIM_DEBUG("IMContext 초기화 완료 (DBus 연결됨)");
+    } else {
+        UNIM_DEBUG("IMContext 초기화 (DBus 연결 실패)");
+    }
 }
 
 static void
@@ -127,14 +129,9 @@ unim_im_context_finalize(GObject *obj)
 {
     UnimIMContext *context = UNIM_IM_CONTEXT(obj);
 
-    if (context->engine) {
-        unim_engine_delete(context->engine);
-        context->engine = NULL;
-    }
-
-    if (context->config) {
-        unim_config_delete(context->config);
-        context->config = NULL;
+    if (context->dbus_ctx) {
+        unim_dbus_context_free(context->dbus_ctx);
+        context->dbus_ctx = NULL;
     }
 
     G_OBJECT_CLASS(unim_im_context_parent_class)->finalize(obj);
@@ -145,8 +142,8 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
 
-    if (!unim->engine || !unim->config) {
-        UNIM_DEBUG("엔진 또는 설정 없음, 키 무시");
+    if (!unim->dbus_ctx) {
+        UNIM_DEBUG("DBus 컨텍스트 없음, 키 무시");
         return FALSE;
     }
 
@@ -155,69 +152,53 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         return FALSE;
     }
 
-    /* 수정자 상태 변환 */
-    UnimModifierState state = {
-        .shift = (event->state & GDK_SHIFT_MASK) != 0,
-        .control = (event->state & GDK_CONTROL_MASK) != 0,
-        .alt = (event->state & GDK_MOD1_MASK) != 0,
-        .super_key = (event->state & GDK_SUPER_MASK) != 0,
-        .caps_lock = (event->state & GDK_LOCK_MASK) != 0,
-        .num_lock = false
-    };
-
-    /* 설정 파일 변경 체크 (mtime 기반, 매우 가벼움) */
-    if (unim->config && unim_config_reload(unim->config)) {
-        /* 설정이 변경되었으면 엔진에 새 레이아웃 적용 */
-        if (unim->engine) {
-            unim_engine_set_hangul_layout(unim->engine, 
-                unim_config_get_hangul_layout(unim->config));
-            unim_engine_set_latin_layout(unim->engine,
-                unim_config_get_latin_layout(unim->config));
-        }
+    /* 수정자 키만 눌린 경우 바이패스 (preedit에 영향 없이 앱으로 전달) */
+    if (event->keyval == GDK_KEY_Shift_L || event->keyval == GDK_KEY_Shift_R ||
+        event->keyval == GDK_KEY_Control_L || event->keyval == GDK_KEY_Control_R ||
+        event->keyval == GDK_KEY_Alt_L || event->keyval == GDK_KEY_Alt_R ||
+        event->keyval == GDK_KEY_Super_L || event->keyval == GDK_KEY_Super_R ||
+        event->keyval == GDK_KEY_Meta_L || event->keyval == GDK_KEY_Meta_R ||
+        event->keyval == GDK_KEY_ISO_Level3_Shift) {
+        return FALSE;
     }
 
-    /* 키 입력 처리 */
-    /* GDK hardware_keycode = X11 keycode = evdev + 8, 엔진은 evdev 형식 기대 */
-    uint16_t evdev_code = (event->hardware_keycode > 8) ? (uint16_t)(event->hardware_keycode - 8) : 0;
+    /* 수정자 상태 변환 - DBus 호출용 비트필드 */
+    guint mod_state = 0;
+    if (event->state & GDK_SHIFT_MASK) mod_state |= (1 << 0);
+    if (event->state & GDK_CONTROL_MASK) mod_state |= (1 << 2);
+    if (event->state & GDK_MOD1_MASK) mod_state |= (1 << 3);  /* Alt */
+    if (event->state & GDK_SUPER_MASK) mod_state |= (1 << 26);
+    if (event->state & GDK_LOCK_MASK) mod_state |= (1 << 1);  /* CapsLock */
+
+    /* GDK hardware_keycode = X11 keycode = evdev + 8 */
+    guint evdev_code = (event->hardware_keycode > 8) ? (event->hardware_keycode - 8) : 0;
     
-    UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, shift=%d, ctrl=%d, alt=%d",
-               event->keyval, event->hardware_keycode, evdev_code, 
-               state.shift, state.control, state.alt);
-    
-    UnimInputResult result = unim_engine_press_key(
-        unim->engine,
-        unim->config,
-        evdev_code,
-        state
-    );
-    
-    UNIM_DEBUG("엔진 결과: consumed=%d, preedit_changed=%d, commit_changed=%d",
-               result.consumed, result.preedit_changed, result.commit_changed);
+    UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, state=0x%x",
+               event->keyval, event->hardware_keycode, evdev_code, mod_state);
+
+    /* DBus를 통해 키 처리 */
+    UnimDbusKeyResult result;
+    if (!unim_dbus_process_key(unim->dbus_ctx, event->keyval, evdev_code, mod_state, &result)) {
+        UNIM_DEBUG("DBus 키 처리 실패");
+        return FALSE;
+    }
+
+    UNIM_DEBUG("엔진 결과: consumed=%d, preedit=\"%s\", commit=\"%s\"",
+               result.consumed, result.preedit ? result.preedit : "(null)",
+               result.commit ? result.commit : "(null)");
 
     /* 커밋 처리 */
-    if (result.commit_changed) {
-        UnimStr commit = unim_engine_commit_str(unim->engine);
-        if (commit.len > 0) {
-            gchar *str = g_strndup((const gchar *)commit.ptr, commit.len);
-            UNIM_DEBUG("커밋: \"%s\"", str);
-            g_signal_emit_by_name(context, "commit", str);
-            g_free(str);
-        }
-        unim_engine_clear_commit(unim->engine);
+    if (result.commit && strlen(result.commit) > 0) {
+        UNIM_DEBUG("커밋: \"%s\"", result.commit);
+        g_signal_emit_by_name(context, "commit", result.commit);
     }
 
     /* preedit 변경 처리 */
-    if (result.preedit_changed) {
-        UnimStr preedit = unim_engine_preedit_str(unim->engine);
-        if (preedit.len > 0) {
-            gchar *pstr = g_strndup((const gchar *)preedit.ptr, preedit.len);
-            UNIM_DEBUG("preedit: \"%s\"", pstr);
-            g_free(pstr);
-        } else {
-            UNIM_DEBUG("preedit: (empty)");
-        }
-        g_signal_emit_by_name(context, "preedit-changed");
-    }
+    g_signal_emit_by_name(context, "preedit-changed");
+
+    /* 메모리 해제 */
+    g_free(result.preedit);
+    g_free(result.commit);
 
     return result.consumed;
 }
@@ -226,67 +207,62 @@ static void
 unim_im_context_focus_in(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
+    
+    UNIM_DEBUG("focus_in 호출");
+    
+    if (unim->dbus_ctx) {
+        unim_dbus_focus_in(unim->dbus_ctx);
+    }
+    
     unim->is_focused = TRUE;
-}
-
-/**
- * 조합 중인 문자를 커밋하고 버퍼를 초기화하는 헬퍼 함수
- * focus_out, reset 등에서 공통으로 사용
- */
-static void
-commit_and_clear(UnimIMContext *unim, GtkIMContext *context)
-{
-    if (!unim->engine || !unim_engine_is_composing(unim->engine)) {
-        return;
-    }
-
-    UNIM_DEBUG("commit_and_clear: 조합 중인 문자 커밋");
-
-    /* 1. 현재 조합 중인 문자열(preedit)을 가져옴 */
-    UnimStr preedit = unim_engine_preedit_str(unim->engine);
-    if (preedit.len > 0) {
-        /* 2. preedit 문자열을 그대로 commit */
-        gchar *str = g_strndup((const gchar *)preedit.ptr, preedit.len);
-        UNIM_DEBUG("commit_and_clear: 커밋 문자열 = \"%s\"", str);
-        g_signal_emit_by_name(context, "commit", str);
-        g_free(str);
-    }
-
-    /* 3. 엔진 상태 초기화 */
-    unim_engine_reset(unim->engine);
-
-    /* 4. preedit 변경 알림 (화면에서 밑줄 제거) */
-    g_signal_emit_by_name(context, "preedit-changed");
 }
 
 static void
 unim_im_context_focus_out(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
+    gchar *commit = NULL;
 
     UNIM_DEBUG("focus_out 호출");
 
-    /* 포커스를 잃기 전에 현재 조합 중인 글자 커밋 */
-    commit_and_clear(unim, context);
+    if (unim->dbus_ctx) {
+        unim_dbus_focus_out(unim->dbus_ctx, &commit);
+        
+        /* 조합 중이던 문자 커밋 */
+        if (commit && strlen(commit) > 0) {
+            UNIM_DEBUG("focus_out 커밋: \"%s\"", commit);
+            g_signal_emit_by_name(context, "commit", commit);
+        }
+        g_free(commit);
+        
+        /* preedit 업데이트 */
+        g_signal_emit_by_name(context, "preedit-changed");
+    }
 
     unim->is_focused = FALSE;
 }
 
-/**
- * reset 가상 함수
- * GTK 위젯은 커서 위치가 변경되거나 입력 상태를 초기화해야 할 때
- * gtk_im_context_reset()을 호출합니다. (마우스 클릭, 프로그래밍적 커서 이동 등)
- * 데이터 손실 방지를 위해 조합 중인 문자를 커밋합니다.
- */
 static void
 unim_im_context_reset(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
+    gchar *commit = NULL;
 
-    UNIM_DEBUG("reset 호출 (마우스 클릭 또는 커서 이동)");
+    UNIM_DEBUG("reset 호출");
 
-    /* 리셋 요청이 오면 현재 조합 중인 글자를 커밋하여 보존 */
-    commit_and_clear(unim, context);
+    if (unim->dbus_ctx) {
+        unim_dbus_reset(unim->dbus_ctx, &commit);
+        
+        /* 조합 중이던 문자 커밋 */
+        if (commit && strlen(commit) > 0) {
+            UNIM_DEBUG("reset 커밋: \"%s\"", commit);
+            g_signal_emit_by_name(context, "commit", commit);
+        }
+        g_free(commit);
+        
+        /* preedit 업데이트 */
+        g_signal_emit_by_name(context, "preedit-changed");
+    }
 }
 
 static void
@@ -302,13 +278,8 @@ unim_im_context_get_preedit_string(GtkIMContext *context, gchar **str,
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
 
-    if (unim->engine) {
-        UnimStr preedit = unim_engine_preedit_str(unim->engine);
-        if (preedit.len > 0) {
-            *str = g_strndup((const gchar *)preedit.ptr, preedit.len);
-        } else {
-            *str = g_strdup("");
-        }
+    if (unim->dbus_ctx) {
+        *str = unim_dbus_get_preedit(unim->dbus_ctx);
     } else {
         *str = g_strdup("");
     }

@@ -4,11 +4,11 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process;
-use unim::hangul::composer_with_2bul::HangulComposer2Bul;
-use unim::hangul::composer_with_3bul::HangulComposer3Bul;
-use unim::keystroke::hangul_to_keystrokes::hangul_to_keystrokes;
+use unim::korean::composer_with_2bul::KoreanComposer2Bul;
+use unim::korean::composer_with_3bul::KoreanComposer3Bul;
+use unim::keystroke::korean_to_keystrokes::korean_to_keystrokes;
 use unim::keystroke::keyboard_map::KeyboardMap;
-use unim::keystroke::keystrokes_to_hangul::keystrokes_to_hangul;
+use unim::keystroke::keystrokes_to_korean::keystrokes_to_korean;
 
 // i18n 초기화
 rust_i18n::i18n!("locales");
@@ -42,7 +42,7 @@ struct Cli {
     english_keyboard: EnglishKeyboardMode,
 }
 
-/// 한글 자판 모드
+/// 한국어 자판 모드
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum KeyboardMode {
     /// 두벌식 표준 자판
@@ -56,7 +56,7 @@ enum KeyboardMode {
     ThreeBul391,
 }
 
-/// 영문 자판 모드
+/// 영어 자판 모드
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum EnglishKeyboardMode {
     /// QWERTY 자판
@@ -185,7 +185,7 @@ fn process_with_2bul(
     en_json: &str,
     ko_json: &str,
 ) -> io::Result<()> {
-    let mut hangul_composer = HangulComposer2Bul::new();
+    let mut korean_composer = KoreanComposer2Bul::new();
     let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, false);
 
     for input in inputs {
@@ -195,7 +195,7 @@ fn process_with_2bul(
                 writeln!(output)?;
                 continue;
             }
-            let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
+            let result = keystrokes_to_korean(&input_line, &keyboard_map, &mut korean_composer);
             writeln!(output, "{}", result)?;
         }
     }
@@ -208,7 +208,7 @@ fn process_with_3bul(
     en_json: &str,
     ko_json: &str,
 ) -> io::Result<()> {
-    let mut hangul_composer = HangulComposer3Bul::new();
+    let mut korean_composer = KoreanComposer3Bul::new();
     let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, true);
 
     for input in inputs {
@@ -218,7 +218,7 @@ fn process_with_3bul(
                 writeln!(output)?;
                 continue;
             }
-            let result = keystrokes_to_hangul(&input_line, &keyboard_map, &mut hangul_composer);
+            let result = keystrokes_to_korean(&input_line, &keyboard_map, &mut korean_composer);
             writeln!(output, "{}", result)?;
         }
     }
@@ -241,7 +241,7 @@ fn process_korean_to_english(
                 writeln!(output)?;
                 continue;
             }
-            let result = hangul_to_keystrokes(&input_line, &keyboard_map, is_three_bul);
+            let result = korean_to_keystrokes(&input_line, &keyboard_map, is_three_bul);
             writeln!(output, "{}", result)?;
         }
     }

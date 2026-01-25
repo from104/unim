@@ -1,6 +1,6 @@
 //! UNIM Wayland 입력 방식 프론트엔드
 //!
-//! Wayland 환경에서 한글 입력을 제공합니다.
+//! Wayland 환경에서 한국어 입력을 제공합니다.
 //! input-method-v2 프로토콜을 사용합니다.
 //! DBus를 통해 unim-daemon과 통신합니다.
 

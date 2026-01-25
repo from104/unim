@@ -18,29 +18,29 @@ extern "C" {
  * ============================================ */
 
 /**
- * Input category (Hangul/Latin)
+ * Input category (Korean/English)
  */
 typedef enum {
-    UNIM_INPUT_CATEGORY_HANGUL = 0,
-    UNIM_INPUT_CATEGORY_LATIN = 1,
+    UNIM_INPUT_CATEGORY_KOREAN = 0,
+    UNIM_INPUT_CATEGORY_ENGLISH = 1,
 } UnimInputCategory;
 
 /**
- * Hangul keyboard layout
+ * Korean keyboard layout
  */
 typedef enum {
-    UNIM_HANGUL_LAYOUT_DUBEOLSIK = 0,
-    UNIM_HANGUL_LAYOUT_SEBEOLSIK_390 = 1,
-    UNIM_HANGUL_LAYOUT_SEBEOLSIK_391 = 2,
-} UnimHangulLayout;
+    UNIM_KOREAN_LAYOUT_DUBEOLSIK = 0,
+    UNIM_KOREAN_LAYOUT_SEBEOLSIK_390 = 1,
+    UNIM_KOREAN_LAYOUT_SEBEOLSIK_391 = 2,
+} UnimKoreanLayout;
 
 /**
- * Latin keyboard layout
+ * English keyboard layout
  */
 typedef enum {
-    UNIM_LATIN_LAYOUT_QWERTY = 0,
-    UNIM_LATIN_LAYOUT_DVORAK = 1,
-} UnimLatinLayout;
+    UNIM_ENGLISH_LAYOUT_QWERTY = 0,
+    UNIM_ENGLISH_LAYOUT_DVORAK = 1,
+} UnimEnglishLayout;
 
 /**
  * Modifier key state
@@ -136,14 +136,14 @@ bool unim_config_needs_reload(const UnimConfig *config);
 bool unim_config_reload(UnimConfig *config);
 
 /**
- * Sets the Hangul layout in the configuration.
+ * Sets the Korean layout in the configuration.
  */
-void unim_config_set_hangul_layout(UnimConfig *config, UnimHangulLayout layout);
+void unim_config_set_korean_layout(UnimConfig *config, UnimKoreanLayout layout);
 
 /**
- * Sets the Latin layout in the configuration.
+ * Sets the English layout in the configuration.
  */
-void unim_config_set_latin_layout(UnimConfig *config, UnimLatinLayout layout);
+void unim_config_set_english_layout(UnimConfig *config, UnimEnglishLayout layout);
 
 /* ============================================
  * Engine Lifecycle
@@ -217,14 +217,14 @@ void unim_engine_set_input_category(UnimEngine *engine, UnimInputCategory catego
 UnimInputCategory unim_engine_get_input_category(const UnimEngine *engine);
 
 /**
- * Set the Hangul layout of the engine immediately.
+ * Set the Korean layout of the engine immediately.
  */
-void unim_engine_set_hangul_layout(UnimEngine *engine, UnimHangulLayout layout);
+void unim_engine_set_korean_layout(UnimEngine *engine, UnimKoreanLayout layout);
 
 /**
- * Set the Latin layout of the engine immediately.
+ * Set the English layout of the engine immediately.
  */
-void unim_engine_set_latin_layout(UnimEngine *engine, UnimLatinLayout layout);
+void unim_engine_set_english_layout(UnimEngine *engine, UnimEnglishLayout layout);
 
 /**
  * Resets the engine state.
@@ -263,14 +263,109 @@ UnimInputResult unim_engine_end_ready(UnimEngine *engine);
  * ============================================ */
 
 /**
- * Gets the current Hangul layout from configuration.
+ * Gets the current Korean layout from configuration.
  */
-UnimHangulLayout unim_config_get_hangul_layout(const UnimConfig *config);
+UnimKoreanLayout unim_config_get_korean_layout(const UnimConfig *config);
 
 /**
- * Gets the current Latin layout from configuration.
+ * Gets the current English layout from configuration.
  */
-UnimLatinLayout unim_config_get_latin_layout(const UnimConfig *config);
+UnimEnglishLayout unim_config_get_english_layout(const UnimConfig *config);
+
+/**
+ * Saves the configuration to the default path.
+ *
+ * @param config Config pointer.
+ * @return true if save was successful, false on error.
+ */
+bool unim_config_save(const UnimConfig *config);
+
+/* ============================================
+ * Auto Switch Configuration
+ * ============================================ */
+
+/**
+ * Gets the auto switch enabled state.
+ */
+bool unim_config_get_auto_switch_enabled(const UnimConfig *config);
+
+/**
+ * Sets the auto switch enabled state.
+ */
+void unim_config_set_auto_switch_enabled(UnimConfig *config, bool enabled);
+
+/**
+ * Gets the auto switch threshold (0.0 to 1.0).
+ */
+float unim_config_get_auto_switch_threshold(const UnimConfig *config);
+
+/**
+ * Sets the auto switch threshold (0.0 to 1.0).
+ */
+void unim_config_set_auto_switch_threshold(UnimConfig *config, float threshold);
+
+/**
+ * Gets the auto switch notification enabled state.
+ */
+bool unim_config_get_auto_switch_notification(const UnimConfig *config);
+
+/**
+ * Sets the auto switch notification enabled state.
+ */
+void unim_config_set_auto_switch_notification(UnimConfig *config, bool show);
+
+/* ============================================
+ * Layout Enumeration Helpers
+ * ============================================ */
+
+/**
+ * Returns the number of supported Korean layouts.
+ */
+size_t unim_korean_layout_count(void);
+
+/**
+ * Returns the internal name of a Korean layout.
+ */
+UnimStr unim_korean_layout_name(UnimKoreanLayout layout);
+
+/**
+ * Returns the display name of a Korean layout (for UI).
+ */
+UnimStr unim_korean_layout_display_name(UnimKoreanLayout layout);
+
+/**
+ * Returns the number of supported English layouts.
+ */
+size_t unim_english_layout_count(void);
+
+/**
+ * Returns the internal name of an English layout.
+ */
+UnimStr unim_english_layout_name(UnimEnglishLayout layout);
+
+/**
+ * Returns the display name of an English layout (for UI).
+ */
+UnimStr unim_english_layout_display_name(UnimEnglishLayout layout);
+
+/* ============================================
+ * Status File Management
+ * ============================================ */
+
+/**
+ * Gets the current input mode from status file.
+ *
+ * @return 0 = English, 1 = Korean, -1 = error
+ */
+int32_t unim_status_get(void);
+
+/**
+ * Sets the input mode to status file.
+ *
+ * @param category 0 = English, 1 = Korean
+ * @return true if successful, false on error.
+ */
+bool unim_status_set(int32_t category);
 
 #ifdef __cplusplus
 }

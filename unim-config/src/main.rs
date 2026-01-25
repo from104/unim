@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use dialoguer::{theme::ColorfulTheme, Select, Input, Confirm};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use rust_i18n::t;
 use std::process;
-use unim::config::{Config as UnimConfig, HangulLayout, LatinLayout};
+use unim::config::{Config as UnimConfig, EnglishLayout, KoreanLayout};
 
 // i18n 초기화
 rust_i18n::i18n!("locales");
@@ -37,12 +37,12 @@ enum Commands {
 
 #[derive(Clone, Debug, ValueEnum)]
 enum ConfigKey {
-    /// 한글 레이아웃 (2bul, 3bul390, 3bul391)
-    #[value(name = "hangul-layout")]
-    HangulLayout,
-    /// 영문 레이아웃 (qwerty, dvorak)
-    #[value(name = "latin-layout")]
-    LatinLayout,
+    /// 한국어 레이아웃 (2bul, 3bul390, 3bul391)
+    #[value(name = "korean-layout")]
+    KoreanLayout,
+    /// 영어 레이아웃 (qwerty, dvorak)
+    #[value(name = "english-layout")]
+    EnglishLayout,
     /// 자동 전환 활성화 (true, false)
     #[value(name = "auto-switch")]
     AutoSwitch,
@@ -53,26 +53,44 @@ enum ConfigKey {
 
 fn config_show() {
     let config = UnimConfig::load_from_default_path();
-    
-    let hangul_name = match config.engine.hangul.layout {
-        HangulLayout::Dubeolsik => t!("twobul_std"),
-        HangulLayout::Sebeolsik390 => t!("threebul_390"),
-        HangulLayout::Sebeolsik391 => t!("threebul_391"),
+
+    let korean_name = match config.engine.korean.layout {
+        KoreanLayout::Dubeolsik => t!("twobul_std"),
+        KoreanLayout::Sebeolsik390 => t!("threebul_390"),
+        KoreanLayout::Sebeolsik391 => t!("threebul_391"),
     };
-    
-    let latin_name = match config.engine.latin.layout {
-        LatinLayout::Qwerty => t!("qwerty"),
-        LatinLayout::Dvorak => t!("dvorak"),
+
+    let english_name = match config.engine.english.layout {
+        EnglishLayout::Qwerty => t!("qwerty"),
+        EnglishLayout::Dvorak => t!("dvorak"),
     };
-    
-    let auto_switch_status = if config.engine.auto_switch.enabled { t!("enabled") } else { t!("disabled") };
-    
+
+    let auto_switch_status = if config.engine.auto_switch.enabled {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+
     println!("{}", t!("settings_title"));
     println!("================");
-    println!("{}: {} ({})", t!("hangul_layout_label"), hangul_name, config.engine.hangul.layout.name());
-    println!("{}: {} ({})", t!("latin_layout_label"), latin_name, config.engine.latin.layout.name());
+    println!(
+        "{}: {} ({})",
+        t!("korean_layout_label"),
+        korean_name,
+        config.engine.korean.layout.name()
+    );
+    println!(
+        "{}: {} ({})",
+        t!("english_layout_label"),
+        english_name,
+        config.engine.english.layout.name()
+    );
     println!("{}: {}", t!("auto_switch_label"), auto_switch_status);
-    println!("{}: {:.2}", t!("auto_switch_threshold_label"), config.engine.auto_switch.threshold);
+    println!(
+        "{}: {:.2}",
+        t!("auto_switch_threshold_label"),
+        config.engine.auto_switch.threshold
+    );
     println!();
     if let Some(path) = UnimConfig::default_config_path() {
         println!("{}: {}", t!("config_file_label"), path.display());
@@ -81,34 +99,52 @@ fn config_show() {
 
 fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
     let mut config = UnimConfig::load_from_default_path();
-    
+
     match key {
-        ConfigKey::HangulLayout => {
+        ConfigKey::KoreanLayout => {
             let layout = match value {
-                "2bul" | "dubeolsik" => HangulLayout::Dubeolsik,
-                "3bul390" | "390" => HangulLayout::Sebeolsik390,
-                "3bul391" | "391" => HangulLayout::Sebeolsik391,
+                "2bul" | "dubeolsik" => KoreanLayout::Dubeolsik,
+                "3bul390" | "390" => KoreanLayout::Sebeolsik390,
+                "3bul391" | "391" => KoreanLayout::Sebeolsik391,
                 _ => {
-                    let kind = t!("hangul_layout_label").to_string();
-                    return Err(t!("error_invalid_layout", kind = kind, value = value, allowed = "2bul, 3bul390, 3bul391").to_string());
+                    let kind = t!("korean_layout_label").to_string();
+                    return Err(t!(
+                        "error_invalid_layout",
+                        kind = kind,
+                        value = value,
+                        allowed = "2bul, 3bul390, 3bul391"
+                    )
+                    .to_string());
                 }
             };
-            config.engine.hangul.layout = layout;
-            let kind = t!("hangul_layout_label").to_string();
-            println!("{}", t!("layout_changed", kind = kind, layout = layout.name()));
+            config.engine.korean.layout = layout;
+            let kind = t!("korean_layout_label").to_string();
+            println!(
+                "{}",
+                t!("layout_changed", kind = kind, layout = layout.name())
+            );
         }
-        ConfigKey::LatinLayout => {
+        ConfigKey::EnglishLayout => {
             let layout = match value {
-                "qwerty" => LatinLayout::Qwerty,
-                "dvorak" => LatinLayout::Dvorak,
+                "qwerty" => EnglishLayout::Qwerty,
+                "dvorak" => EnglishLayout::Dvorak,
                 _ => {
-                    let kind = t!("latin_layout_label").to_string();
-                    return Err(t!("error_invalid_layout", kind = kind, value = value, allowed = "qwerty, dvorak").to_string());
+                    let kind = t!("english_layout_label").to_string();
+                    return Err(t!(
+                        "error_invalid_layout",
+                        kind = kind,
+                        value = value,
+                        allowed = "qwerty, dvorak"
+                    )
+                    .to_string());
                 }
             };
-            config.engine.latin.layout = layout;
-            let kind = t!("latin_layout_label").to_string();
-            println!("{}", t!("layout_changed", kind = kind, layout = layout.name()));
+            config.engine.english.layout = layout;
+            let kind = t!("english_layout_label").to_string();
+            println!(
+                "{}",
+                t!("layout_changed", kind = kind, layout = layout.name())
+            );
         }
         ConfigKey::AutoSwitch => {
             let enabled = match value.to_lowercase().as_str() {
@@ -117,21 +153,31 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 _ => return Err(format!("Invalid value for auto-switch: {}", value)),
             };
             config.engine.auto_switch.enabled = enabled;
-            let status = if enabled { t!("enabled") } else { t!("disabled") };
+            let status = if enabled {
+                t!("enabled")
+            } else {
+                t!("disabled")
+            };
             println!("{}", t!("auto_switch_changed", status = status));
         }
         ConfigKey::AutoSwitchThreshold => {
-            let threshold: f32 = value.parse()
+            let threshold: f32 = value
+                .parse()
                 .map_err(|_| t!("error_invalid_threshold", value = value).to_string())?;
             if !(0.0..=1.0).contains(&threshold) {
                 return Err(t!("error_invalid_threshold", value = value).to_string());
             }
             config.engine.auto_switch.threshold = threshold;
-            println!("{}", t!("threshold_changed", value = format!("{:.2}", threshold)));
+            println!(
+                "{}",
+                t!("threshold_changed", value = format!("{:.2}", threshold))
+            );
         }
     }
-    
-    config.save_to_default_path().map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+
+    config
+        .save_to_default_path()
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
     println!("{}", t!("config_saved"));
     Ok(())
 }
@@ -146,7 +192,9 @@ fn config_path() {
 
 fn config_reset() -> Result<(), String> {
     let config = UnimConfig::default();
-    config.save_to_default_path().map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    config
+        .save_to_default_path()
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
     println!("{}", t!("config_reset_done"));
     config_show();
     Ok(())
@@ -159,10 +207,10 @@ fn config_interactive() {
     loop {
         println!("\x1B[2J\x1B[1;1H"); // Clear screen
         config_show();
-        
+
         let options = vec![
-            t!("hangul_layout_label").to_string(),
-            t!("latin_layout_label").to_string(),
+            t!("korean_layout_label").to_string(),
+            t!("english_layout_label").to_string(),
             t!("auto_switch_label").to_string(),
             t!("auto_switch_threshold_label").to_string(),
             t!("config_reset_desc").to_string(),
@@ -181,38 +229,38 @@ fn config_interactive() {
             0 => {
                 let layouts = vec!["2bul", "3bul390", "3bul391"];
                 let s = Select::with_theme(&theme)
-                    .with_prompt(t!("select_hangul_layout").to_string())
+                    .with_prompt(t!("select_korean_layout").to_string())
                     .items(&layouts)
-                    .default(match config.engine.hangul.layout {
-                        HangulLayout::Dubeolsik => 0,
-                        HangulLayout::Sebeolsik390 => 1,
-                        HangulLayout::Sebeolsik391 => 2,
+                    .default(match config.engine.korean.layout {
+                        KoreanLayout::Dubeolsik => 0,
+                        KoreanLayout::Sebeolsik390 => 1,
+                        KoreanLayout::Sebeolsik391 => 2,
                     })
                     .interact()
                     .unwrap();
-                
-                config.engine.hangul.layout = match s {
-                    0 => HangulLayout::Dubeolsik,
-                    1 => HangulLayout::Sebeolsik390,
-                    2 => HangulLayout::Sebeolsik391,
+
+                config.engine.korean.layout = match s {
+                    0 => KoreanLayout::Dubeolsik,
+                    1 => KoreanLayout::Sebeolsik390,
+                    2 => KoreanLayout::Sebeolsik391,
                     _ => unreachable!(),
                 };
             }
             1 => {
                 let layouts = vec!["qwerty", "dvorak"];
                 let s = Select::with_theme(&theme)
-                    .with_prompt(t!("select_latin_layout").to_string())
+                    .with_prompt(t!("select_english_layout").to_string())
                     .items(&layouts)
-                    .default(match config.engine.latin.layout {
-                        LatinLayout::Qwerty => 0,
-                        LatinLayout::Dvorak => 1,
+                    .default(match config.engine.english.layout {
+                        EnglishLayout::Qwerty => 0,
+                        EnglishLayout::Dvorak => 1,
                     })
                     .interact()
                     .unwrap();
-                
-                config.engine.latin.layout = match s {
-                    0 => LatinLayout::Qwerty,
-                    1 => LatinLayout::Dvorak,
+
+                config.engine.english.layout = match s {
+                    0 => EnglishLayout::Qwerty,
+                    1 => EnglishLayout::Dvorak,
                     _ => unreachable!(),
                 };
             }
@@ -243,7 +291,7 @@ fn config_interactive() {
                     .with_prompt(t!("confirm_reset").to_string())
                     .default(false)
                     .interact()
-                    .unwrap() 
+                    .unwrap()
                 {
                     config = UnimConfig::default();
                     println!("{}", t!("config_reset_done"));

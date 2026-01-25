@@ -1,7 +1,8 @@
 /**
  * UNIM Qt6 Settings Dialog
- * 
+ *
  * 입력기 설정을 위한 Qt6 기반 다이얼로그
+ * unim-capi를 사용하여 설정 관리
  */
 
 #ifndef SETTINGS_DIALOG_H
@@ -14,16 +15,21 @@
 #include <QLabel>
 #include <QPushButton>
 
+/* UNIM C API */
+extern "C" {
+#include "unim.h"
+}
+
 class SettingsDialog : public QDialog {
     Q_OBJECT
 
 public:
     explicit SettingsDialog(QWidget *parent = nullptr);
-    ~SettingsDialog() override = default;
+    ~SettingsDialog() override;
 
 private slots:
-    void onHangulLayoutChanged(int index);
-    void onLatinLayoutChanged(int index);
+    void onKoreanLayoutChanged(int index);
+    void onEnglishLayoutChanged(int index);
     void onAutoSwitchToggled(bool checked);
     void onThresholdChanged(int value);
     void onSave();
@@ -34,20 +40,22 @@ private:
     void loadConfig();
     bool saveConfig();
     void updateThresholdLabel();
-    QString getConfigPath();
 
     // UI 위젯
-    QComboBox *m_hangulLayoutCombo;
-    QComboBox *m_latinLayoutCombo;
+    QComboBox *m_koreanLayoutCombo;
+    QComboBox *m_englishLayoutCombo;
     QCheckBox *m_autoSwitchCheck;
     QSlider *m_thresholdSlider;
     QLabel *m_thresholdLabel;
     QPushButton *m_saveButton;
     QPushButton *m_cancelButton;
 
+    // UNIM 설정 객체
+    UnimConfig *m_config;
+
     // 설정 상태
-    int m_hangulLayout;     // 0: 두벌식, 1: 세벌식390, 2: 세벌식391
-    int m_latinLayout;      // 0: QWERTY, 1: Dvorak
+    int m_koreanLayout;     // 0: 두벌식, 1: 세벌식390, 2: 세벌식391
+    int m_englishLayout;    // 0: QWERTY, 1: Dvorak
     bool m_autoSwitchEnabled;
     double m_autoSwitchThreshold;
 };

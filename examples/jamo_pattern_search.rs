@@ -1,10 +1,10 @@
-//! Hangul Jamo Pattern Search
+//! Korean Jamo Pattern Search
 //!
 //! This advanced example demonstrates how to perform a "fuzzy" search by decomposing
 //! target text into its component Jamo and matching against a Jamo pattern.
 //! This is useful for features like Jamo-based autocompletion or filtering.
 
-use unim::hangul::{char::HangulChar, jamo::*};
+use unim::korean::{char::KoreanChar, jamo::*};
 
 /// Helper to extract raw char from JamoEnum
 fn jamo_enum_to_raw(jamo: &JamoEnum) -> char {
@@ -25,8 +25,8 @@ fn decompose_with_mapping(text: &str) -> (String, Vec<usize>) {
     for (idx, c) in text.char_indices() {
         let mut added = false;
 
-        if let Some(hangul_char) = HangulChar::from_char(c) {
-            if let Some((cho, jung, jong_opt)) = hangul_char.to_jamo_tuple() {
+        if let Some(korean_char) = KoreanChar::from_char(c) {
+            if let Some((cho, jung, jong_opt)) = korean_char.to_jamo_tuple() {
                 // Initial
                 jamo_seq.push(cho.to_char());
                 mapping.push(idx);
@@ -39,7 +39,7 @@ fn decompose_with_mapping(text: &str) -> (String, Vec<usize>) {
                     mapping.push(idx);
                 }
                 added = true;
-            } else if let Some(jamo) = hangul_char.to_jamo() {
+            } else if let Some(jamo) = korean_char.to_jamo() {
                 // Standalone Jamo (non-composed)
                 jamo_seq.push(jamo_enum_to_raw(&jamo));
                 mapping.push(idx);
@@ -47,7 +47,7 @@ fn decompose_with_mapping(text: &str) -> (String, Vec<usize>) {
             }
         }
 
-        // Non-Hangul or fallback
+        // Non-Korean or fallback
         if !added {
             jamo_seq.push(c);
             mapping.push(idx);

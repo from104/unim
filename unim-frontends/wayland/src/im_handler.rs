@@ -26,11 +26,14 @@ impl InputMethodHandler {
     pub fn new(dbus_tx: mpsc::Sender<DbusRequest>) -> Self {
         // DBus를 통해 입력 컨텍스트 생성
         let (response_tx, response_rx) = std::sync::mpsc::channel();
-        
-        let context_path = if dbus_tx.blocking_send(DbusRequest::CreateContext {
-            client_name: "unim-wayland".to_string(),
-            response: Some(response_tx),
-        }).is_ok() {
+
+        let context_path = if dbus_tx
+            .blocking_send(DbusRequest::CreateContext {
+                client_name: "unim-wayland".to_string(),
+                response: Some(response_tx),
+            })
+            .is_ok()
+        {
             match response_rx.recv_timeout(std::time::Duration::from_millis(500)) {
                 Ok(DbusResponse::ContextCreated { path }) => path,
                 _ => {
@@ -45,7 +48,7 @@ impl InputMethodHandler {
         } else {
             "/local/context_0".to_string()
         };
-        
+
         Self {
             active: false,
             serial: 0,
@@ -59,10 +62,11 @@ impl InputMethodHandler {
         }
     }
 
+    /*
     /// DBus 요청 전송 (동기적)
     fn send_dbus_request(&self, request: DbusRequest) -> Option<DbusResponse> {
         let (response_tx, response_rx) = std::sync::mpsc::channel();
-        
+
         let request_with_response = match request {
             DbusRequest::ProcessKey { context_path, keyval, keycode, state, .. } => {
                 DbusRequest::ProcessKey {
@@ -78,13 +82,14 @@ impl InputMethodHandler {
                 None
             },
         };
-        
+
         if self.dbus_tx.blocking_send(request_with_response).is_err() {
             return None;
         }
-        
+
         response_rx.recv_timeout(std::time::Duration::from_millis(500)).ok()
     }
+    */
 
     /// 입력 방식 활성화
     pub fn activate(&mut self) {
@@ -104,13 +109,15 @@ impl InputMethodHandler {
                 context_path: self.context_path.clone(),
                 response: Some(response_tx),
             });
-            
-            if let Ok(DbusResponse::CommitText { text }) = response_rx.recv_timeout(std::time::Duration::from_millis(500)) {
+
+            if let Ok(DbusResponse::CommitText { text }) =
+                response_rx.recv_timeout(std::time::Duration::from_millis(500))
+            {
                 if !text.is_empty() {
                     im.commit_string(text);
                 }
             }
-            
+
             im.set_preedit_string(String::new(), 0, 0);
         }
         self.active = false;
@@ -124,6 +131,7 @@ impl InputMethodHandler {
         self.surrounding_anchor = anchor;
     }
 
+    /*
     /// 키 이벤트 처리
     pub fn process_key(&mut self, keyval: u32, keycode: u32, state: u32) -> bool {
         let response = self.send_dbus_request(DbusRequest::ProcessKey {
@@ -133,7 +141,7 @@ impl InputMethodHandler {
             state,
             response: None,
         });
-        
+
         match response {
             Some(DbusResponse::KeyProcessed { consumed, preedit, commit }) => {
                 if let Some(commit_text) = commit {
@@ -149,6 +157,7 @@ impl InputMethodHandler {
             _ => false,
         }
     }
+    */
 
     /// Done 이벤트 처리 (상태 커밋)
     pub fn done(&mut self, im: &ZwpInputMethodV2) {

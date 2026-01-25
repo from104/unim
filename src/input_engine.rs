@@ -1,10 +1,10 @@
 //! 입력 엔진 모듈
 //!
-//! 실시간 키 입력을 처리하고 한글 조합을 관리하는 핵심 엔진입니다.
+//! 실시간 키 입력을 처리하고 한국어 조합을 관리하는 핵심 엔진입니다.
 
-use crate::config::{Config, HangulLayout, InputCategory, LatinLayout};
-use crate::hangul::input_context::{ComposerType, HangulInputContext};
-use crate::hangul::jamo::JamoEnum;
+use crate::config::{Config, EnglishLayout, InputCategory, KoreanLayout};
+use crate::korean::input_context::{ComposerType, KoreanInputContext};
+use crate::korean::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
 use std::collections::HashMap;
 
@@ -82,20 +82,20 @@ impl InputResult {
 
 /// 입력 엔진
 ///
-/// 키 입력을 받아 한글 조합을 처리하고 preedit/commit 문자열을 관리합니다.
+/// 키 입력을 받아 한국어 조합을 처리하고 preedit/commit 문자열을 관리합니다.
 pub struct InputEngine {
-    /// 현재 입력 카테고리 (한글/영문)
+    /// 현재 입력 카테고리 (한국어/영어)
     input_category: InputCategory,
-    /// 한글 입력 컨텍스트
-    hangul_context: HangulInputContext,
+    /// 한국어 입력 컨텍스트
+    korean_context: KoreanInputContext,
     /// commit 버퍼
     commit_buffer: String,
     /// preedit 버퍼 (캐시)
     preedit_cache: String,
-    /// 키보드 맵 (한글) - 영문 키 -> 한글 자모 매핑
+    /// 키보드 맵 (한국어) - 영어 키 -> 한국어 자모 매핑
     keyboard_map: Option<HashMap<char, JamoEnum>>,
     /// 설정 캐시
-    hangul_layout: HangulLayout,
+    korean_layout: KoreanLayout,
 }
 
 impl InputEngine {
@@ -105,21 +105,21 @@ impl InputEngine {
     ///
     /// * `config` - 엔진 설정
     pub fn new(config: &Config) -> Self {
-        let composer_type = if config.engine.hangul.layout.is_sebeolsik() {
+        let composer_type = if config.engine.korean.layout.is_sebeolsik() {
             ComposerType::ThreeBul
         } else {
             ComposerType::TwoBul
         };
 
-        let keyboard_map = Self::create_keyboard_map(&config.engine.hangul.layout);
+        let keyboard_map = Self::create_keyboard_map(&config.engine.korean.layout);
 
         Self {
             input_category: config.engine.default_category,
-            hangul_context: HangulInputContext::new(composer_type),
+            korean_context: KoreanInputContext::new(composer_type),
             commit_buffer: String::new(),
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
-            hangul_layout: config.engine.hangul.layout,
+            korean_layout: config.engine.korean.layout,
         }
     }
 
@@ -129,7 +129,7 @@ impl InputEngine {
     }
 
     /// 키보드 맵을 생성합니다.
-    fn create_keyboard_map(layout: &HangulLayout) -> HashMap<char, JamoEnum> {
+    fn create_keyboard_map(layout: &KoreanLayout) -> HashMap<char, JamoEnum> {
         let en_json = crate::keystroke::get_keymap_json("en_qwerty");
         let ko_json = crate::keystroke::get_keymap_json(layout.name());
         let is_three_bul = layout.is_sebeolsik();
@@ -182,7 +182,7 @@ impl InputEngine {
         // Control/Alt가 눌린 경우 (단축키) 무시
         if modifier.control || modifier.alt || modifier.super_key {
             // 조합 중이면 먼저 커밋
-            if self.hangul_context.is_composing() {
+            if self.korean_context.is_composing() {
                 self.flush_preedit();
                 return InputResult::committed();
             }
@@ -190,26 +190,38 @@ impl InputEngine {
         }
 
         // 한/영 전환 처리
-        if keycode == KeyCode::Hangul || keycode == KeyCode::RightAlt {
+        if keycode == KeyCode::Korean || keycode == KeyCode::RightAlt {
+            // 조합 중이면 먼저 커밋
+            let was_composing = self.korean_context.is_composing();
             self.toggle_input_category();
+
+            // 조합 중이었으면 commit이 발생했으므로 committed() 반환
+            if was_composing {
+                return InputResult::committed();
+            }
             return InputResult::consumed();
         }
 
         // 입력 카테고리에 따른 처리
         match self.input_category {
-            InputCategory::Hangul => self.process_hangul_key(keycode, modifier),
-            InputCategory::Latin => self.process_latin_key(keycode, modifier),
+            InputCategory::Korean => self.process_korean_key(keycode, modifier),
+            InputCategory::English => self.process_english_key(keycode, modifier),
         }
     }
 
-    /// 한글 키 입력을 처리합니다.
-    fn process_hangul_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
-        unim_debug!("process_hangul_key: keycode={:?}, shift={}, caps={}", keycode, modifier.shift, modifier.caps_lock);
-        
+    /// 한국어 키 입력을 처리합니다.
+    fn process_korean_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
+        unim_debug!(
+            "process_korean_key: keycode={:?}, shift={}, caps={}",
+            keycode,
+            modifier.shift,
+            modifier.caps_lock
+        );
+
         // Backspace 처리
         if keycode == KeyCode::Backspace {
-            if self.hangul_context.is_composing() {
-                self.hangul_context.backspace();
+            if self.korean_context.is_composing() {
+                self.korean_context.backspace();
                 self.update_preedit_cache();
                 unim_debug!("Backspace -> preedit='{}'", self.preedit_cache);
                 return InputResult::preedit_updated();
@@ -219,7 +231,7 @@ impl InputEngine {
 
         // Enter 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Enter {
-            if self.hangul_context.is_composing() {
+            if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_debug!("Enter -> 조합 커밋 후 키 통과");
                 return InputResult::committed_passthrough();
@@ -229,7 +241,7 @@ impl InputEngine {
 
         // Tab 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Tab {
-            if self.hangul_context.is_composing() {
+            if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_debug!("Tab -> 조합 커밋 후 키 통과");
                 return InputResult::committed_passthrough();
@@ -239,7 +251,7 @@ impl InputEngine {
 
         // Escape 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Escape {
-            if self.hangul_context.is_composing() {
+            if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_debug!("Escape -> 조합 커밋 후 키 통과");
                 return InputResult::committed_passthrough();
@@ -249,7 +261,7 @@ impl InputEngine {
 
         // Space 처리
         if keycode == KeyCode::Space {
-            if self.hangul_context.is_composing() {
+            if self.korean_context.is_composing() {
                 self.flush_preedit();
             }
             self.commit_buffer.push(' ');
@@ -257,7 +269,8 @@ impl InputEngine {
         }
 
         // 문자 키 처리
-        let ch = if modifier.shift || modifier.caps_lock {
+        // 한국어 모드에서는 CapsLock을 무시하고 Shift만 적용 (쌍자음 입력용)
+        let ch = if modifier.shift {
             keycode.to_shifted_char()
         } else {
             keycode.to_char()
@@ -265,13 +278,13 @@ impl InputEngine {
 
         if let Some(c) = ch {
             unim_debug!("문자 키: '{}'", c);
-            
+
             // 키보드 맵에서 자모 찾기
             if let Some(ref keyboard_map) = self.keyboard_map {
                 if let Some(jamo) = keyboard_map.get(&c) {
                     unim_debug!("자모 매핑: {:?}", jamo);
-                    
-                    // Special 자모는 비-한글 문자이므로 별도 처리
+
+                    // Special 자모는 비-한국어 문자이므로 별도 처리
                     if let JamoEnum::Special(special_char) = jamo {
                         let ch_to_commit = *special_char; // 먼저 복사
                         unim_debug!("Special 자모 처리: '{}'", ch_to_commit);
@@ -281,18 +294,22 @@ impl InputEngine {
                         self.commit_buffer.push(ch_to_commit);
                         return InputResult::committed();
                     }
-                    
+
                     // 일반 자모 입력
-                    self.hangul_context.process_jamo(jamo.clone());
+                    self.korean_context.process_jamo(jamo.clone());
 
                     // committed 문자가 있으면 commit_buffer에 추가
-                    let committed = self.hangul_context.get_committed();
-                    unim_debug!("context.committed='{}', context.preedit='{}'", committed, self.hangul_context.get_preedit());
-                    
+                    let committed = self.korean_context.get_committed();
+                    unim_debug!(
+                        "context.committed='{}', context.preedit='{}'",
+                        committed,
+                        self.korean_context.get_preedit()
+                    );
+
                     if !committed.is_empty() {
                         self.commit_buffer.push_str(committed);
                         // committed 문자열만 비우기 (preedit은 유지)
-                        self.hangul_context.clear_committed();
+                        self.korean_context.clear_committed();
                         unim_debug!("commit_buffer에 추가 후: '{}'", self.commit_buffer);
                     }
 
@@ -315,7 +332,7 @@ impl InputEngine {
         }
 
         // 조합 중에 문자가 아닌 키(화살표, F키 등) 입력 시 커밋 후 키 통과
-        if self.hangul_context.is_composing() {
+        if self.korean_context.is_composing() {
             self.flush_preedit();
             unim_debug!("비문자키 -> 조합 커밋 후 키 통과");
             return InputResult::committed_passthrough();
@@ -324,8 +341,8 @@ impl InputEngine {
         InputResult::not_consumed()
     }
 
-    /// 영문 키 입력을 처리합니다.
-    fn process_latin_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
+    /// 영어 키 입력을 처리합니다.
+    fn process_english_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
         let ch = if modifier.shift || modifier.caps_lock {
             keycode.to_shifted_char()
         } else {
@@ -342,16 +359,16 @@ impl InputEngine {
 
     /// preedit 캐시를 업데이트합니다.
     fn update_preedit_cache(&mut self) {
-        self.preedit_cache = self.hangul_context.get_preedit().to_string();
+        self.preedit_cache = self.korean_context.get_preedit().to_string();
     }
 
     /// preedit을 commit_buffer로 플러시합니다.
     fn flush_preedit(&mut self) {
-        if self.hangul_context.is_composing() {
-            self.hangul_context.commit();
-            let committed = self.hangul_context.get_committed();
+        if self.korean_context.is_composing() {
+            self.korean_context.commit();
+            let committed = self.korean_context.get_committed();
             self.commit_buffer.push_str(committed);
-            self.hangul_context.clear();
+            self.korean_context.clear();
             self.preedit_cache.clear();
         }
     }
@@ -362,8 +379,8 @@ impl InputEngine {
         self.flush_preedit();
 
         self.input_category = match self.input_category {
-            InputCategory::Hangul => InputCategory::Latin,
-            InputCategory::Latin => InputCategory::Hangul,
+            InputCategory::Korean => InputCategory::English,
+            InputCategory::English => InputCategory::Korean,
         };
 
         // 상태 파일 업데이트
@@ -388,8 +405,8 @@ impl InputEngine {
     /// 상태 파일을 업데이트합니다.
     fn update_status_file(&self) {
         let status_category = match self.input_category {
-            InputCategory::Hangul => crate::status::InputCategory::Hangul,
-            InputCategory::Latin => crate::status::InputCategory::Latin,
+            InputCategory::Korean => crate::status::InputCategory::Korean,
+            InputCategory::English => crate::status::InputCategory::English,
         };
         // 오류 발생 시 무시 (로깅은 하지 않음 - 성능을 위해)
         let _ = crate::status::set_status(status_category);
@@ -417,20 +434,20 @@ impl InputEngine {
 
     /// preedit을 제거합니다 (commit 없이).
     pub fn remove_preedit(&mut self) {
-        self.hangul_context.clear();
+        self.korean_context.clear();
         self.preedit_cache.clear();
     }
 
     /// 엔진 상태를 리셋합니다.
     pub fn reset(&mut self) {
-        self.hangul_context.clear();
+        self.korean_context.clear();
         self.commit_buffer.clear();
         self.preedit_cache.clear();
     }
 
     /// 조합 중인지 확인합니다.
     pub fn is_composing(&self) -> bool {
-        self.hangul_context.is_composing()
+        self.korean_context.is_composing()
     }
 
     /// ready 상태 확인 (프론트엔드 호환용)
@@ -451,28 +468,28 @@ impl InputEngine {
         }
     }
 
-    /// 한글 레이아웃을 설정합니다.
-    pub fn set_hangul_layout(&mut self, layout: HangulLayout) {
-        if self.hangul_layout != layout {
+    /// 한국어 레이아웃을 설정합니다.
+    pub fn set_korean_layout(&mut self, layout: KoreanLayout) {
+        if self.korean_layout != layout {
             self.flush_preedit();
-            self.hangul_layout = layout;
-            
+            self.korean_layout = layout;
+
             // 키보드 맵 업데이트
             self.keyboard_map = Some(Self::create_keyboard_map(&layout));
-            
+
             // 컨텍스트 업데이트
             let composer_type = if layout.is_sebeolsik() {
                 ComposerType::ThreeBul
             } else {
                 ComposerType::TwoBul
             };
-            self.hangul_context = HangulInputContext::new(composer_type);
+            self.korean_context = KoreanInputContext::new(composer_type);
         }
     }
 
-    /// 영문 레이아웃을 설정합니다.
-    pub fn set_latin_layout(&mut self, _layout: LatinLayout) {
-        // 현재 영문 레이아웃은 키보드 맵에 직접 영향을 주지 않고 (항상 QWERTY로 가정하거나 OS 레벨 처리)
+    /// 영어 레이아웃을 설정합니다.
+    pub fn set_english_layout(&mut self, _layout: EnglishLayout) {
+        // 현재 영어 레이아웃은 키보드 맵에 직접 영향을 주지 않고 (항상 QWERTY로 가정하거나 OS 레벨 처리)
         // 엔진 수준에서는 자리 매김만 기록합니다.
         // 향후 Dvorak 등을 위해 키보드 맵을 재생성하도록 확장 가능합니다.
     }
@@ -490,14 +507,14 @@ mod tests {
     #[test]
     fn test_engine_creation() {
         let engine = create_test_engine();
-        assert_eq!(engine.input_category(), InputCategory::Hangul);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
         assert!(!engine.is_composing());
     }
 
     #[test]
-    fn test_latin_input() {
+    fn test_english_input() {
         let mut engine = create_test_engine();
-        engine.set_input_category(InputCategory::Latin);
+        engine.set_input_category(InputCategory::English);
 
         let config = Config::default();
         let modifier = ModifierState::default();
@@ -511,16 +528,16 @@ mod tests {
     #[test]
     fn test_input_category_toggle() {
         let mut engine = create_test_engine();
-        assert_eq!(engine.input_category(), InputCategory::Hangul);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
 
         let config = Config::default();
         let modifier = ModifierState::default();
 
-        engine.press_key(KeyCode::Hangul, modifier, &config);
-        assert_eq!(engine.input_category(), InputCategory::Latin);
+        engine.press_key(KeyCode::Korean, modifier, &config);
+        assert_eq!(engine.input_category(), InputCategory::English);
 
-        engine.press_key(KeyCode::Hangul, modifier, &config);
-        assert_eq!(engine.input_category(), InputCategory::Hangul);
+        engine.press_key(KeyCode::Korean, modifier, &config);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
     }
 
     #[test]

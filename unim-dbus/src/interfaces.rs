@@ -30,23 +30,23 @@ impl Default for PreeditText {
 /// 입력 모드
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub enum InputMode {
-    /// 한글 모드
-    Hangul,
-    /// 영문(라틴) 모드
-    Latin,
+    /// 한국어 모드
+    Korean,
+    /// 영어(English) 모드
+    English,
 }
 
 impl Default for InputMode {
     fn default() -> Self {
-        Self::Hangul
+        Self::Korean
     }
 }
 
 impl From<unim::config::InputCategory> for InputMode {
     fn from(category: unim::config::InputCategory) -> Self {
         match category {
-            unim::config::InputCategory::Hangul => InputMode::Hangul,
-            unim::config::InputCategory::Latin => InputMode::Latin,
+            unim::config::InputCategory::Korean => InputMode::Korean,
+            unim::config::InputCategory::English => InputMode::English,
         }
     }
 }
@@ -54,8 +54,8 @@ impl From<unim::config::InputCategory> for InputMode {
 impl From<InputMode> for unim::config::InputCategory {
     fn from(mode: InputMode) -> Self {
         match mode {
-            InputMode::Hangul => unim::config::InputCategory::Hangul,
-            InputMode::Latin => unim::config::InputCategory::Latin,
+            InputMode::Korean => unim::config::InputCategory::Korean,
+            InputMode::English => unim::config::InputCategory::English,
         }
     }
 }

@@ -2,6 +2,7 @@
  * UNIM Qt5 Input Context
  *
  * Qt5 애플리케이션에서 한글 입력을 제공하는 Input Context 구현입니다.
+ * DBus를 통해 unim-daemon과 통신합니다.
  */
 
 #ifndef UNIM_INPUT_CONTEXT_HPP
@@ -11,9 +12,8 @@
 #include <QObject>
 #include <QString>
 
-extern "C" {
-#include <unim.h>
-}
+/* 전방 선언 */
+class UnimDbusClient;
 
 class UnimInputContext : public QPlatformInputContext
 {
@@ -44,8 +44,7 @@ private:
     void updatePreedit();
     void commitString(const QString &str);
 
-    UnimEngine *m_engine;
-    UnimConfig *m_config;
+    UnimDbusClient *m_dbus;
     QObject *m_focusObject;
     bool m_composing;
 };

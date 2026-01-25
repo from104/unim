@@ -10,24 +10,24 @@ use std::path::PathBuf;
 /// 입력 카테고리
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputCategory {
-    Hangul,
-    Latin,
+    Korean,
+    English,
 }
 
 impl InputCategory {
     /// 문자열로 변환
     pub fn as_str(&self) -> &'static str {
         match self {
-            InputCategory::Hangul => "hangul",
-            InputCategory::Latin => "latin",
+            InputCategory::Korean => "korean",
+            InputCategory::English => "english",
         }
     }
 
     /// 문자열에서 파싱
     pub fn from_str(s: &str) -> Option<Self> {
         match s.trim() {
-            "hangul" => Some(InputCategory::Hangul),
-            "latin" => Some(InputCategory::Latin),
+            "korean" => Some(InputCategory::Korean),
+            "english" => Some(InputCategory::English),
             _ => None,
         }
     }
@@ -74,13 +74,22 @@ mod tests {
 
     #[test]
     fn test_input_category_conversion() {
-        assert_eq!(InputCategory::Hangul.as_str(), "hangul");
-        assert_eq!(InputCategory::Latin.as_str(), "latin");
+        assert_eq!(InputCategory::Korean.as_str(), "korean");
+        assert_eq!(InputCategory::English.as_str(), "english");
 
-        assert_eq!(InputCategory::from_str("hangul"), Some(InputCategory::Hangul));
-        assert_eq!(InputCategory::from_str("latin"), Some(InputCategory::Latin));
+        assert_eq!(
+            InputCategory::from_str("korean"),
+            Some(InputCategory::Korean)
+        );
+        assert_eq!(
+            InputCategory::from_str("english"),
+            Some(InputCategory::English)
+        );
         assert_eq!(InputCategory::from_str("invalid"), None);
-        assert_eq!(InputCategory::from_str("  hangul  "), Some(InputCategory::Hangul));
+        assert_eq!(
+            InputCategory::from_str("  korean  "),
+            Some(InputCategory::Korean)
+        );
     }
 
     #[test]

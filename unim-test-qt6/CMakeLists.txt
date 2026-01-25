@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
 # Qt6 찾기
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core DBus)
 
 # 실행 파일
 add_executable(unim-test-qt6
@@ -21,6 +21,7 @@ target_compile_options(unim-test-qt6 PRIVATE
 target_link_libraries(unim-test-qt6 PRIVATE
     Qt6::Widgets
     Qt6::Core
+    Qt6::DBus
 )
 
 # 설치

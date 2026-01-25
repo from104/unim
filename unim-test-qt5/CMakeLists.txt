@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
 # Qt5 찾기
-find_package(Qt5 REQUIRED COMPONENTS Widgets Core)
+find_package(Qt5 REQUIRED COMPONENTS Widgets Core DBus)
 
 # 실행 파일
 add_executable(unim-test-qt5
@@ -21,6 +21,7 @@ target_compile_options(unim-test-qt5 PRIVATE
 target_link_libraries(unim-test-qt5 PRIVATE
     Qt5::Widgets
     Qt5::Core
+    Qt5::DBus
 )
 
 # 설치

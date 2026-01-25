@@ -140,19 +140,19 @@ build-frontends: build-rust
 	@# GTK3 IM Module
 	@echo "  → Building GTK3 IM Module..."
 	@mkdir -p unim-frontends/gtk3/build && cd unim-frontends/gtk3/build && \
-		cmake .. -DUNIM_CAPI_LIB=$(CAPI_LIB) -DUNIM_CAPI_INCLUDE=$(CAPI_INC) && make
+		cmake .. && make
 	@# GTK4 IM Module
 	@echo "  → Building GTK4 IM Module..."
 	@mkdir -p unim-frontends/gtk4/build && cd unim-frontends/gtk4/build && \
-		cmake .. -DUNIM_CAPI_LIB=$(CAPI_LIB) -DUNIM_CAPI_INCLUDE=$(CAPI_INC) && make
+		cmake .. && make
 	@# Qt5 IM Plugin
 	@echo "  → Building Qt5 IM Plugin..."
 	@mkdir -p unim-frontends/qt5/build && cd unim-frontends/qt5/build && \
-		cmake .. -DUNIM_CAPI_LIB=$(CAPI_LIB) -DUNIM_CAPI_INCLUDE=$(CAPI_INC) && make
+		cmake .. && make
 	@# Qt6 IM Plugin
 	@echo "  → Building Qt6 IM Plugin..."
 	@mkdir -p unim-frontends/qt6/build && cd unim-frontends/qt6/build && \
-		cmake .. -DUNIM_CAPI_LIB=$(CAPI_LIB) -DUNIM_CAPI_INCLUDE=$(CAPI_INC) && make
+		cmake .. && make
 
 # Build GTK/Qt settings tools
 build-settings: build-rust
@@ -216,7 +216,7 @@ install-frontends:
 	install -m 755 unim-frontends/gtk3/build/libim-unim.so $(DESTDIR)$(GTK3_IMMODULE_DIR)/
 	@# GTK4
 	install -d $(DESTDIR)$(GTK4_IMMODULE_DIR)
-	install -m 755 unim-frontends/gtk4/build/libim-unim-gtk4.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/
+	install -m 755 unim-frontends/gtk4/build/libim-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/
 	@# Qt5
 	install -d $(DESTDIR)$(QT5_PLUGIN_DIR)
 	install -m 755 unim-frontends/qt5/build/libunim.so $(DESTDIR)$(QT5_PLUGIN_DIR)/
@@ -233,8 +233,8 @@ install-settings:
 install-icons:
 	@echo "Installing icons..."
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
-	install -m 644 unim-indicator/data/icons/hicolor/scalable/apps/unim-hangul.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
-	install -m 644 unim-indicator/data/icons/hicolor/scalable/apps/unim-latin.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 unim-indicator/data/icons/hicolor/scalable/apps/unim-korean.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 unim-indicator/data/icons/hicolor/scalable/apps/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
 install-autostart:
 	@echo "Installing autostart entry..."
@@ -267,7 +267,7 @@ uninstall-core:
 uninstall-frontends:
 	@echo "Removing IM modules..."
 	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/libim-unim.so
-	rm -f $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim-gtk4.so
+	rm -f $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so
 	rm -f $(DESTDIR)$(QT5_PLUGIN_DIR)/libunim.so
 	rm -f $(DESTDIR)$(QT6_PLUGIN_DIR)/libunim.so
 
@@ -278,8 +278,8 @@ uninstall-settings:
 
 uninstall-icons:
 	@echo "Removing icons..."
-	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-hangul.svg
-	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-latin.svg
+	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-korean.svg
+	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg
 
 uninstall-autostart:
 	@echo "Removing autostart entry..."
@@ -387,7 +387,7 @@ test:
 	else \
 		echo "   ✗ GTK3 모듈 미설치"; \
 	fi
-	@if [ -f $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim-gtk4.so ]; then \
+	@if [ -f $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so ]; then \
 		echo "   ✓ GTK4 모듈 설치됨"; \
 	else \
 		echo "   ✗ GTK4 모듈 미설치"; \
@@ -438,6 +438,8 @@ clean:
 	@# Test apps
 	@rm -rf unim-test-gtk3/build
 	@rm -rf unim-test-gtk4/build
+	@rm -rf unim-test-qt5/build
+	@rm -rf unim-test-qt6/build
 	@echo "Done."
 
 clean-all: clean clean-deb
@@ -469,7 +471,7 @@ test-gtk3:
 	@echo "   또는: GTK_IM_MODULE=unim ./unim-test-gtk3/build/unim-test-gtk3"
 	@echo "════════════════════════════════════════════════════════════"
 
-test-q6:
+test-qt6:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "🔨 Building Qt6 Test Application..."
 	@echo "════════════════════════════════════════════════════════════"
@@ -479,7 +481,7 @@ test-q6:
 	@echo "   또는: QT_IM_MODULE=unim ./unim-test-qt6/build/unim-test-qt6"
 	@echo "════════════════════════════════════════════════════════════"
 
-test-q5:
+test-qt5:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "🔨 Building Qt5 Test Application..."
 	@echo "════════════════════════════════════════════════════════════"

@@ -15,14 +15,14 @@ trait InputMethod {
     fn create_input_context(&self, client_name: &str) -> Result<String>;
     
     /// 전역 입력 모드 설정
-    fn set_global_mode(&self, is_hangul: bool) -> Result<()>;
+    fn set_global_mode(&self, is_korean: bool) -> Result<()>;
     
     /// 전역 입력 모드 조회
     fn get_global_mode(&self) -> Result<bool>;
     
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
-    fn global_mode_changed(&self, is_hangul: bool) -> Result<()>;
+    fn global_mode_changed(&self, is_korean: bool) -> Result<()>;
 }
 
 /// InputContext 프록시 생성을 위한 trait

@@ -1,7 +1,7 @@
 //! Over-The-Spot Preedit 윈도우 모듈
 //!
 //! PREEDIT_POSITION 스타일에서 서버가 직접 X11 윈도우를 생성하여
-//! preedit 문자열을 렌더링합니다. XftFont를 사용하여 한글을 렌더링합니다.
+//! preedit 문자열을 렌더링합니다. XftFont를 사용하여 한국어을 렌더링합니다.
 //!
 //! 중요: Display 연결은 UnimHandler에서 관리하고 참조로 전달받음
 
@@ -45,7 +45,7 @@ impl PeWindow {
         let padding_x = 8u16;  // 좌우 여백
         let padding_y = 4u16;  // 상하 여백
         let size = (
-            (font_size as f32 * 1.5) as u16 + padding_x * 2,  // 한글 1글자 너비 + 좌우 여백
+            (font_size as f32 * 1.5) as u16 + padding_x * 2,  // 한국어 1글자 너비 + 좌우 여백
             font_size + padding_y * 2,  // 폰트 높이 + 상하 여백
         );
 

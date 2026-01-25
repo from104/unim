@@ -7,21 +7,21 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-/// 입력 카테고리 (한글/영문)
+/// 입력 카테고리 (한국어/영어)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(C)]
 pub enum InputCategory {
-    /// 한글 입력 모드
+    /// 한국어 (Korean) 입력 모드
     #[default]
-    Hangul,
-    /// 영문 (라틴) 입력 모드
-    Latin,
+    Korean,
+    /// 영어 (English) 입력 모드
+    English,
 }
 
-/// 한글 키보드 레이아웃
+/// 한국어 키보드 레이아웃
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(u32)]
-pub enum HangulLayout {
+pub enum KoreanLayout {
     /// 두벌식 표준
     #[default]
     Dubeolsik = 0,
@@ -31,26 +31,29 @@ pub enum HangulLayout {
     Sebeolsik391 = 2,
 }
 
-impl HangulLayout {
+impl KoreanLayout {
     /// 레이아웃 이름을 반환합니다.
     pub fn name(&self) -> &'static str {
         match self {
-            HangulLayout::Dubeolsik => "2bul",
-            HangulLayout::Sebeolsik390 => "3bul390",
-            HangulLayout::Sebeolsik391 => "3bul391",
+            KoreanLayout::Dubeolsik => "2bul",
+            KoreanLayout::Sebeolsik390 => "3bul390",
+            KoreanLayout::Sebeolsik391 => "3bul391",
         }
     }
 
     /// 세벌식 레이아웃인지 확인합니다.
     pub fn is_sebeolsik(&self) -> bool {
-        matches!(self, HangulLayout::Sebeolsik390 | HangulLayout::Sebeolsik391)
+        matches!(
+            self,
+            KoreanLayout::Sebeolsik390 | KoreanLayout::Sebeolsik391
+        )
     }
 }
 
-/// 영문 키보드 레이아웃
+/// 영어 키보드 레이아웃
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(u32)]
-pub enum LatinLayout {
+pub enum EnglishLayout {
     /// QWERTY
     #[default]
     Qwerty = 0,
@@ -58,12 +61,12 @@ pub enum LatinLayout {
     Dvorak = 1,
 }
 
-impl LatinLayout {
+impl EnglishLayout {
     /// 레이아웃 이름을 반환합니다.
     pub fn name(&self) -> &'static str {
         match self {
-            LatinLayout::Qwerty => "qwerty",
-            LatinLayout::Dvorak => "dvorak",
+            EnglishLayout::Qwerty => "qwerty",
+            EnglishLayout::Dvorak => "dvorak",
         }
     }
 }
@@ -80,42 +83,42 @@ pub struct AutoSwitchConfig {
     pub show_notification: bool,
 }
 
-/// 한글 엔진 설정
+/// 한국어 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HangulConfig {
-    /// 한글 키보드 레이아웃
-    pub layout: HangulLayout,
+pub struct KoreanConfig {
+    /// 한국어 키보드 레이아웃
+    pub layout: KoreanLayout,
     /// 조합 중 문자 표시 (Johab 형식)
     pub preedit_johab: bool,
     /// 단어 단위 커밋
     pub word_commit: bool,
 }
 
-impl Default for HangulConfig {
+impl Default for KoreanConfig {
     fn default() -> Self {
         Self {
-            layout: HangulLayout::default(),
+            layout: KoreanLayout::default(),
             preedit_johab: false,
             word_commit: false,
         }
     }
 }
 
-/// 영문 엔진 설정
+/// 영어 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
-pub struct LatinConfig {
-    /// 영문 키보드 레이아웃
-    pub layout: LatinLayout,
+pub struct EnglishConfig {
+    /// 영어 키보드 레이아웃
+    pub layout: EnglishLayout,
     /// 다이렉트 입력 선호
     pub preferred_direct: bool,
 }
 
-impl Default for LatinConfig {
+impl Default for EnglishConfig {
     fn default() -> Self {
         Self {
-            layout: LatinLayout::default(),
+            layout: EnglishLayout::default(),
             preferred_direct: true,
         }
     }
@@ -127,10 +130,10 @@ impl Default for LatinConfig {
 pub struct EngineConfig {
     /// 기본 입력 카테고리
     pub default_category: InputCategory,
-    /// 한글 설정
-    pub hangul: HangulConfig,
-    /// 영문 설정
-    pub latin: LatinConfig,
+    /// 한국어 설정
+    pub korean: KoreanConfig,
+    /// 영어 설정
+    pub english: EnglishConfig,
     /// 자동 전환 설정
     pub auto_switch: AutoSwitchConfig,
 }
@@ -139,8 +142,8 @@ impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             default_category: InputCategory::default(),
-            hangul: HangulConfig::default(),
-            latin: LatinConfig::default(),
+            korean: KoreanConfig::default(),
+            english: EnglishConfig::default(),
             auto_switch: AutoSwitchConfig::default(),
         }
     }
@@ -200,21 +203,33 @@ impl Config {
             ConfigError::IoError(msg) => {
                 if msg.contains("No such file") || msg.contains("찾을 수 없") {
                     // 파일이 없음 - 새로 생성
-                    eprintln!("[UNIM] 설정 파일이 없습니다. 기본 설정을 생성합니다: {:?}", path);
+                    eprintln!(
+                        "[UNIM] 설정 파일이 없습니다. 기본 설정을 생성합니다: {:?}",
+                        path
+                    );
                 } else if msg.contains("Permission denied") || msg.contains("권한") {
                     // 퍼미션 문제
                     Self::log_permission_error(path);
                     return default_config;
                 } else {
-                    eprintln!("[UNIM] 설정 파일 읽기 오류: {}. 기본 설정을 사용합니다.", msg);
+                    eprintln!(
+                        "[UNIM] 설정 파일 읽기 오류: {}. 기본 설정을 사용합니다.",
+                        msg
+                    );
                 }
             }
             ConfigError::ParseError(msg) => {
                 // 파싱 오류 - 기본 설정으로 덮어쓰기
-                eprintln!("[UNIM] 설정 파일 형식 오류: {}. 기본 설정으로 복구합니다.", msg);
+                eprintln!(
+                    "[UNIM] 설정 파일 형식 오류: {}. 기본 설정으로 복구합니다.",
+                    msg
+                );
             }
             _ => {
-                eprintln!("[UNIM] 설정 로드 오류: {:?}. 기본 설정을 사용합니다.", error);
+                eprintln!(
+                    "[UNIM] 설정 로드 오류: {:?}. 기본 설정을 사용합니다.",
+                    error
+                );
             }
         }
 
@@ -263,18 +278,18 @@ impl Config {
     pub fn load_from_path(path: &PathBuf) -> Result<Self, ConfigError> {
         let metadata = fs::metadata(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
         let mtime = metadata.modified().ok();
-        
+
         let content = fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
-        let mut config: Self = serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        let mut config: Self =
+            serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
         config.last_modified = mtime;
         Ok(config)
     }
 
     /// 설정을 기본 경로에 저장합니다.
     pub fn save_to_default_path(&self) -> Result<(), ConfigError> {
-        let path = Self::default_config_path().ok_or_else(|| {
-            ConfigError::IoError("설정 디렉터리를 찾을 수 없습니다.".to_string())
-        })?;
+        let path = Self::default_config_path()
+            .ok_or_else(|| ConfigError::IoError("설정 디렉터리를 찾을 수 없습니다.".to_string()))?;
         self.save_to_path(&path)
     }
 
@@ -303,11 +318,11 @@ impl Config {
         let Some(path) = Self::default_config_path() else {
             return false;
         };
-        
+
         let Some(current_mtime) = Self::get_config_mtime(&path) else {
             return false;
         };
-        
+
         match self.last_modified {
             Some(saved_mtime) => current_mtime > saved_mtime,
             None => true, // mtime이 없으면 항상 reload
@@ -329,7 +344,7 @@ impl Config {
         let Some(path) = Self::default_config_path() else {
             return false;
         };
-        
+
         match Self::load_from_path(&path) {
             Ok(new_config) => {
                 *self = new_config;
@@ -352,7 +367,7 @@ impl Config {
     /// 설정 파일 경로 (성공 시)
     pub fn ensure_config_file() -> Option<PathBuf> {
         let path = Self::default_config_path()?;
-        
+
         // 파일 유효성 확인
         if Self::load_from_path(&path).is_err() {
             // 기본 설정 저장
@@ -361,7 +376,7 @@ impl Config {
                 eprintln!("[UNIM] 설정 파일을 초기화했습니다: {:?}", path);
             }
         }
-        
+
         Some(path)
     }
 
@@ -401,22 +416,22 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.engine.default_category, InputCategory::Hangul);
-        assert_eq!(config.engine.hangul.layout, HangulLayout::Dubeolsik);
-        assert_eq!(config.engine.latin.layout, LatinLayout::Qwerty);
+        assert_eq!(config.engine.default_category, InputCategory::Korean);
+        assert_eq!(config.engine.korean.layout, KoreanLayout::Dubeolsik);
+        assert_eq!(config.engine.english.layout, EnglishLayout::Qwerty);
     }
 
     #[test]
-    fn test_hangul_layout() {
-        assert_eq!(HangulLayout::Dubeolsik.name(), "2bul");
-        assert!(!HangulLayout::Dubeolsik.is_sebeolsik());
-        assert!(HangulLayout::Sebeolsik390.is_sebeolsik());
+    fn test_korean_layout() {
+        assert_eq!(KoreanLayout::Dubeolsik.name(), "2bul");
+        assert!(!KoreanLayout::Dubeolsik.is_sebeolsik());
+        assert!(KoreanLayout::Sebeolsik390.is_sebeolsik());
     }
 
     #[test]
     fn test_input_category() {
-        let hangul = InputCategory::Hangul;
-        let latin = InputCategory::Latin;
-        assert_ne!(hangul, latin);
+        let korean = InputCategory::Korean;
+        let english = InputCategory::English;
+        assert_ne!(korean, english);
     }
 }

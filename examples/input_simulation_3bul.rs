@@ -1,13 +1,13 @@
-//! 3-Set (3-bul) Hangul Input Simulation
+//! 3-Set (3-bul) Korean Input Simulation
 //!
-//! This example shows how the `HangulComposer3Bul` handles 3-set input.
+//! This example shows how the `KoreanComposer3Bul` handles 3-set input.
 //! 3-set layouts distinguish between initial, middle, and final characters
 //! at the hardware/layout level.
 
-use unim::hangul::{composer::HangulComposer, composer_with_3bul::HangulComposer3Bul, jamo::*};
+use unim::korean::{composer::KoreanComposer, composer_with_3bul::KoreanComposer3Bul, jamo::*};
 
 fn main() {
-    let mut composer = HangulComposer3Bul::new();
+    let mut composer = KoreanComposer3Bul::new();
     let mut result = String::new();
 
     // Input sequence for 3-set layout.
@@ -33,7 +33,7 @@ fn main() {
         JamoEnum::Jung(Jungsung::A),      // Jung ㅏ -> 라
     ];
 
-    println!("--- 3-Set Hangul Input Simulation ---");
+    println!("--- 3-Set Korean Input Simulation ---");
 
     for jamo in inputs {
         print!("Input: {:?} -> ", jamo.to_char());
@@ -46,7 +46,7 @@ fn main() {
             print!("Composed: '{}', ", c);
         }
 
-        let current_syllable = composer.current_hangul().to_char();
+        let current_syllable = composer.current_korean().to_char();
         if current_syllable != '\0' {
             println!("Current: '{}'", current_syllable);
         } else {
@@ -55,7 +55,7 @@ fn main() {
     }
 
     // Capture the final character in the buffer.
-    if let Some(last_char) = composer.force_compose_hangul() {
+    if let Some(last_char) = composer.force_compose_korean() {
         result.push(last_char);
     }
 

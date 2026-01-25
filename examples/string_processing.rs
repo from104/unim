@@ -1,17 +1,17 @@
 //! String Deconstruction Example
 //!
-//! Demonstrates how to iterate through a string and deconstruct each Hangul 
+//! Demonstrates how to iterate through a string and deconstruct each Korean 
 //! syllable into its individual Jamo components (Initial, Middle, Final).
 
-use unim::hangul::{char::HangulChar, jamo::*};
+use unim::korean::{char::KoreanChar, jamo::*};
 
 fn deconstruct_string(input: &str) {
     println!("Processing: \"{}\"", input);
     
     for c in input.chars() {
-        if let Some(hangul_char) = HangulChar::from_char(c) {
+        if let Some(korean_char) = KoreanChar::from_char(c) {
             // Attempt to get the (Cho, Jung, Jong) tuple
-            if let Some((cho, jung, jong)) = hangul_char.to_jamo_tuple() {
+            if let Some((cho, jung, jong)) = korean_char.to_jamo_tuple() {
                 println!(
                     "  '{}' -> Cho: '{}', Jung: '{}', Jong: '{}'",
                     c,
@@ -19,17 +19,17 @@ fn deconstruct_string(input: &str) {
                     jung.to_char(),
                     jong.map_or(' ', |j| j.to_char())
                 );
-            } else if let Some(jamo) = hangul_char.to_jamo() {
+            } else if let Some(jamo) = korean_char.to_jamo() {
                 // If the character is a standalone Jamo (not a composed syllable)
                 match jamo {
                     JamoEnum::Cho(v) => println!("  '{}' -> Standalone Initial: '{}'", c, v.to_char()),
                     JamoEnum::Jung(v) => println!("  '{}' -> Standalone Middle: '{}'", c, v.to_char()),
                     JamoEnum::Jong(v) => println!("  '{}' -> Standalone Final: '{}'", c, v.to_char()),
-                    _ => println!("  '{}' -> Other Hangul unit", c),
+                    _ => println!("  '{}' -> Other Korean unit", c),
                 }
             }
         } else {
-            println!("  '{}' -> Non-Hangul character", c);
+            println!("  '{}' -> Non-Korean character", c);
         }
     }
     println!("----------------------------------");

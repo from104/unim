@@ -1,0 +1,113 @@
+/**
+ * UNIM DBus Client for GTK IM Modules
+ *
+ * GDBus를 사용하여 unim-daemon과 통신하는 클라이언트 헬퍼입니다.
+ * GTK3/GTK4 IM 모듈에서 공통으로 사용됩니다.
+ */
+
+#ifndef UNIM_DBUS_CLIENT_H
+#define UNIM_DBUS_CLIENT_H
+
+#include <glib.h>
+#include <gio/gio.h>
+
+G_BEGIN_DECLS
+
+/* DBus 서비스 정보 */
+#define UNIM_DBUS_SERVICE       "org.atit.unim.InputMethod"
+#define UNIM_DBUS_PATH          "/org/atit/unim/InputMethod"
+#define UNIM_DBUS_INTERFACE     "org.atit.unim.InputMethod"
+#define UNIM_DBUS_IC_INTERFACE  "org.atit.unim.InputContext"
+
+/* 타임아웃 (밀리초) */
+#define UNIM_DBUS_TIMEOUT_MS    500
+
+/**
+ * DBus 클라이언트 컨텍스트
+ */
+typedef struct _UnimDbusContext UnimDbusContext;
+
+/**
+ * 키 처리 결과
+ */
+typedef struct {
+    gboolean consumed;   /* 키가 소비되었는지 */
+    gchar *preedit;      /* preedit 문자열 (NULL 또는 빈 문자열이면 없음) */
+    gchar *commit;       /* commit 문자열 (NULL 또는 빈 문자열이면 없음) */
+} UnimDbusKeyResult;
+
+/**
+ * 새 DBus 컨텍스트 생성
+ * 
+ * @param client_name 클라이언트 이름 (예: "gtk4-unim")
+ * @return 새 컨텍스트 또는 실패 시 NULL
+ */
+UnimDbusContext* unim_dbus_context_new(const gchar *client_name);
+
+/**
+ * DBus 컨텍스트 해제
+ * 
+ * @param ctx 해제할 컨텍스트
+ */
+void unim_dbus_context_free(UnimDbusContext *ctx);
+
+/**
+ * 키 이벤트 처리
+ * 
+ * @param ctx 컨텍스트
+ * @param keyval GDK keyval (사용되지 않음, 향후 호환성용)
+ * @param keycode 키코드 (evdev 형식)
+ * @param state 수정자 상태 비트필드
+ * @param result 결과를 저장할 포인터 (호출자가 preedit/commit을 g_free해야 함)
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_process_key(UnimDbusContext *ctx,
+                                guint keyval,
+                                guint keycode,
+                                guint state,
+                                UnimDbusKeyResult *result);
+
+/**
+ * 포커스 획득 알림
+ * 
+ * @param ctx 컨텍스트
+ */
+void unim_dbus_focus_in(UnimDbusContext *ctx);
+
+/**
+ * 포커스 상실 알림
+ * 조합 중인 문자가 있으면 커밋 문자열을 반환합니다.
+ * 
+ * @param ctx 컨텍스트
+ * @param commit 커밋 문자열을 저장할 포인터 (호출자가 g_free해야 함)
+ */
+void unim_dbus_focus_out(UnimDbusContext *ctx, gchar **commit);
+
+/**
+ * 입력 상태 초기화
+ * 조합 중인 문자가 있으면 커밋 문자열을 반환합니다.
+ * 
+ * @param ctx 컨텍스트
+ * @param commit 커밋 문자열을 저장할 포인터 (호출자가 g_free해야 함)
+ */
+void unim_dbus_reset(UnimDbusContext *ctx, gchar **commit);
+
+/**
+ * 현재 preedit 문자열 가져오기
+ * 
+ * @param ctx 컨텍스트
+ * @return preedit 문자열 (호출자가 g_free해야 함)
+ */
+gchar* unim_dbus_get_preedit(UnimDbusContext *ctx);
+
+/**
+ * 조합 중인지 확인
+ * 
+ * @param ctx 컨텍스트
+ * @return 조합 중이면 TRUE
+ */
+gboolean unim_dbus_is_composing(UnimDbusContext *ctx);
+
+G_END_DECLS
+
+#endif /* UNIM_DBUS_CLIENT_H */

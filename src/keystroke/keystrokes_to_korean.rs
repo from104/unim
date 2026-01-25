@@ -1,53 +1,53 @@
-use crate::hangul::composer::HangulComposer;
-use crate::hangul::jamo::JamoEnum;
-use crate::hangul::input_context::HangulInputContext;
+use crate::korean::composer::KoreanComposer;
+use crate::korean::jamo::JamoEnum;
+use crate::korean::input_context::KoreanInputContext;
 use std::collections::HashMap;
 
-/// 영문 키보드 입력 문자열을 한글로 변환하는 기능을 제공합니다.
+/// 영어 키보드 입력 문자열을 한국어로 변환하는 기능을 제공합니다.
 ///
-/// 이 모듈은 사용자가 입력한 영문 키보드 문자를 한글 자모로 변환하고,
-/// `HangulComposer` 인터페이스를 통해 자모를 조합하여 한글 음절을 생성합니다.
-/// 한글이 아닌 문자(예: 영문, 숫자, 특수 문자)는 그대로 출력됩니다.
+/// 이 모듈은 사용자가 입력한 영어 키보드 문자를 한국어 자모로 변환하고,
+/// `KoreanComposer` 인터페이스를 통해 자모를 조합하여 한국어 음절을 생성합니다.
+/// 한국어이 아닌 문자(예: 영어, 숫자, 특수 문자)는 그대로 출력됩니다.
 ///
-/// 영문 키보드 입력 문자열을 한글로 변환합니다.
+/// 영어 키보드 입력 문자열을 한국어로 변환합니다.
 ///
 /// 입력된 각 문자에 대해 다음과 같은 처리를 수행합니다:
 /// 1. `keyboard_map`을 사용하여 문자에 해당하는 자모를 찾습니다.
 /// 2. 자모가 발견되면:
 ///    - 특수 문자(`JamoEnum::Special`)인 경우 현재 조합 중인 글자를 완성하고 특수 문자를 추가합니다.
-///    - 일반 자모인 경우 `HangulComposer`에 추가하여 조합을 시도합니다.
+///    - 일반 자모인 경우 `KoreanComposer`에 추가하여 조합을 시도합니다.
 ///      완성된 음절이 있으면 결과에 추가합니다.
-/// 3. 자모가 발견되지 않으면(한글이 아닌 문자):
+/// 3. 자모가 발견되지 않으면(한국어이 아닌 문자):
 ///    - 현재 조합 중인 글자가 있다면 완성하여 결과에 추가합니다.
 ///    - 입력 문자를 그대로 결과에 추가합니다.
 /// 4. 모든 문자 처리 후 아직 조합 중인 글자가 있다면 강제로 완성하여 결과에 추가합니다.
 ///
 /// # 타입 매개변수
-/// * `T` - 한글 자모 조합을 담당하는 `HangulComposer` 트레이트를 구현한 타입입니다.
+/// * `T` - 한국어 자모 조합을 담당하는 `KoreanComposer` 트레이트를 구현한 타입입니다.
 ///
 /// # 인자
-/// * `input` - 변환할 영문 키보드 입력 문자열입니다.
-/// * `keyboard_map` - 영문 키(`char`)와 한글 자모(`JamoEnum`) 간의 매핑 정보입니다.
-/// * `composer` - 한글 자모를 조합하는 `HangulComposer` 인스턴스입니다.
+/// * `input` - 변환할 영어 키보드 입력 문자열입니다.
+/// * `keyboard_map` - 영어 키(`char`)와 한국어 자모(`JamoEnum`) 간의 매핑 정보입니다.
+/// * `composer` - 한국어 자모를 조합하는 `KoreanComposer` 인스턴스입니다.
 ///
 /// # 반환값
-/// 변환된 한글 문자열을 반환합니다. 완성된 한글 음절, 특수 문자, 기타 입력 문자가 포함됩니다.
+/// 변환된 한국어 문자열을 반환합니다. 완성된 한국어 음절, 특수 문자, 기타 입력 문자가 포함됩니다.
 ///
 /// # 예시
 /// ```
 /// use std::collections::HashMap;
-/// use my_crate::hangul::jamo::JamoEnum;
-/// use my_crate::hangul::composer::StandardHangulComposer;
-/// use my_crate::keystroke::keystrokes_to_hangul;
+/// use my_crate::korean::jamo::JamoEnum;
+/// use my_crate::korean::composer::StandardKoreanComposer;
+/// use my_crate::keystroke::keystrokes_to_korean;
 ///
 /// let mut keyboard_map = HashMap::new();
 /// // 키보드 맵 초기화... (예: 'g' -> JamoEnum::Cho(Cho::G))
 ///
-/// let mut composer = StandardHangulComposer::new();
-/// let result = keystrokes_to_hangul("gksrmf", &keyboard_map, &mut composer);
-/// assert_eq!(result, "한글");
+/// let mut composer = StandardKoreanComposer::new();
+/// let result = keystrokes_to_korean("gksrmf", &keyboard_map, &mut composer);
+/// assert_eq!(result, "한국어");
 /// ```
-pub fn keystrokes_to_hangul<T: HangulComposer>(
+pub fn keystrokes_to_korean<T: KoreanComposer>(
     input: &str,
     keyboard_map: &HashMap<char, JamoEnum>,
     composer: &mut T,
@@ -73,7 +73,7 @@ pub fn keystrokes_to_hangul<T: HangulComposer>(
                     }
                 }
             },
-            // 2. 키보드 맵에서 자모를 찾지 못한 경우 (영문, 숫자, 기타 문자)
+            // 2. 키보드 맵에서 자모를 찾지 못한 경우 (영어, 숫자, 기타 문자)
             None => {
                 // 현재 조합 중인 글자가 있으면 먼저 완성
                 flush_composer_to_result(composer, &mut result);
@@ -92,50 +92,50 @@ pub fn keystrokes_to_hangul<T: HangulComposer>(
 /// 조합기에 현재 조합 중인 글자가 있는 경우, 강제로 완성하여 결과 문자열에 추가합니다.
 ///
 /// # 인자
-/// * `composer` - 한글 자모 조합기입니다.
+/// * `composer` - 한국어 자모 조합기입니다.
 /// * `result` - 완성된 글자를 추가할 결과 문자열 버퍼입니다.
 ///
 /// 이 함수는 코드 중복을 줄이기 위해 사용됩니다. 조합 중인 글자를 강제로 완성시켜야 할
-/// 여러 시점(특수 문자 만남, 비한글 문자 만남, 처리 완료 등)에서 호출됩니다.
+/// 여러 시점(특수 문자 만남, 비한국어 문자 만남, 처리 완료 등)에서 호출됩니다.
 #[inline]
-fn flush_composer_to_result<T: HangulComposer>(composer: &mut T, result: &mut String) {
+fn flush_composer_to_result<T: KoreanComposer>(composer: &mut T, result: &mut String) {
     if composer.is_compose() {
-        if let Some(hangul_char) = composer.force_compose_hangul() {
-            result.push(hangul_char);
+        if let Some(korean_char) = composer.force_compose_korean() {
+            result.push(korean_char);
         }
     }
 }
 
-/// 영문 키보드 입력 문자열을 처리하여 `HangulInputContext`의 상태를 업데이트하고,
+/// 영어 키보드 입력 문자열을 처리하여 `KoreanInputContext`의 상태를 업데이트하고,
 /// 최종 확정된 문자열을 반환합니다.
 ///
-/// 이 함수는 각 키 입력(`char`)을 `keyboard_map`을 통해 한글 자모로 변환하고,
-/// `HangulInputContext`의 `process_jamo` 메서드를 호출하여 조합 상태를 관리합니다.
-/// 한글 자모로 변환되지 않는 문자는 현재 조합 상태를 확정(commit)시키기만 하고,
+/// 이 함수는 각 키 입력(`char`)을 `keyboard_map`을 통해 한국어 자모로 변환하고,
+/// `KoreanInputContext`의 `process_jamo` 메서드를 호출하여 조합 상태를 관리합니다.
+/// 한국어 자모로 변환되지 않는 문자는 현재 조합 상태를 확정(commit)시키기만 하고,
 /// 해당 문자는 무시됩니다.
 ///
 /// # 인자
-/// * `input` - 처리할 영문 키보드 입력 문자열입니다.
-/// * `keyboard_map` - 영문 키(`char`)와 한글 자모(`JamoEnum`) 간의 매핑 정보입니다.
-/// * `context` - 한글 입력 상태를 관리하는 `HangulInputContext` 인스턴스입니다.
+/// * `input` - 처리할 영어 키보드 입력 문자열입니다.
+/// * `keyboard_map` - 영어 키(`char`)와 한국어 자모(`JamoEnum`) 간의 매핑 정보입니다.
+/// * `context` - 한국어 입력 상태를 관리하는 `KoreanInputContext` 인스턴스입니다.
 ///
 /// # 반환값
-/// 모든 입력 처리 후 `HangulInputContext`에 최종적으로 확정된(committed) 문자열 전체를 반환합니다.
+/// 모든 입력 처리 후 `KoreanInputContext`에 최종적으로 확정된(committed) 문자열 전체를 반환합니다.
 /// (주의: 이 함수는 입력 문자열 처리에 따른 *새로운* 확정 문자만 반환하는 것이 아니라,
 /// 컨텍스트의 *전체* 확정 문자열을 반환합니다.)
 ///
 /// # 예시
 /// ```ignore
-/// // 사용 예시는 HangulInputContext와 KeyboardMap 설정이 필요합니다.
-/// // let mut context = HangulInputContext::new(ComposerType::TwoBul);
+/// // 사용 예시는 KoreanInputContext와 KeyboardMap 설정이 필요합니다.
+/// // let mut context = KoreanInputContext::new(ComposerType::TwoBul);
 /// // let keyboard_map = ...;
 /// // let final_string = process_keystrokes("gksrmf", &keyboard_map, &mut context);
-/// // assert_eq!(final_string, "한글");
+/// // assert_eq!(final_string, "한국어");
 /// ```
 pub fn process_keystrokes(
     input: &str,
     keyboard_map: &HashMap<char, JamoEnum>,
-    context: &mut HangulInputContext,
+    context: &mut KoreanInputContext,
 ) -> String {
     for c in input.chars() {
         match keyboard_map.get(&c) {
@@ -144,7 +144,7 @@ pub fn process_keystrokes(
                 // 자모를 컨텍스트에 전달하여 처리
                 context.process_jamo(*jamo);
             }
-            // 2. 키보드 맵에서 자모를 찾지 못한 경우 (영문, 숫자, 기타 문자)
+            // 2. 키보드 맵에서 자모를 찾지 못한 경우 (영어, 숫자, 기타 문자)
             None => {
                 // 현재 조합 중인 내용을 먼저 확정 (commit)
                 context.commit();
@@ -161,12 +161,12 @@ pub fn process_keystrokes(
     context.get_committed().to_string()
 }
 
-// --- 유닛 테스트 (HangulInputContext 구조 및 KeyboardMap 필요) ---
+// --- 유닛 테스트 (KoreanInputContext 구조 및 KeyboardMap 필요) ---
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hangul::jamo::*;
-    use crate::hangul::input_context::{ComposerType, HangulInputContext};
+    use crate::korean::jamo::*;
+    use crate::korean::input_context::{ComposerType, KoreanInputContext};
     // keyboard_map 모듈이나 해당 함수가 실제 프로젝트 구조에 맞게 존재하는지 확인 필요
     // use crate::keystroke::keyboard_map;
 
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_process_keystrokes_basic() {
-        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+        let mut context = KoreanInputContext::new(ComposerType::TwoBul);
         let keyboard_map = create_test_map(); // Use helper map for isolated test
                                               // "rks" -> 간
         process_keystrokes("r", &keyboard_map, &mut context);
@@ -206,14 +206,14 @@ mod tests {
         // assert_eq!(context.get_preedit(), "를"); // or "르"
         // process_keystrokes("f", &keyboard_map, &mut context); // Jongseong 'ㄹ'
         // assert_eq!(context.get_preedit(), "를"); // or "를"
-        // process_keystrokes("!", &keyboard_map, &mut context); // Non-hangul
+        // process_keystrokes("!", &keyboard_map, &mut context); // Non-korean
         // assert_eq!(context.get_preedit(), "");
         // assert_eq!(context.get_committed(), "간 를!"); // Example
     }
 
     #[test]
-    fn test_process_keystrokes_non_hangul() {
-        let mut context = HangulInputContext::new(ComposerType::TwoBul);
+    fn test_process_keystrokes_non_korean() {
+        let mut context = KoreanInputContext::new(ComposerType::TwoBul);
         let keyboard_map = create_test_map();
 
         process_keystrokes("rkrk", &keyboard_map, &mut context); // "가가" (preedit 상태)

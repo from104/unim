@@ -176,7 +176,7 @@ struct IndicatorState {
 impl Default for IndicatorState {
     fn default() -> Self {
         Self {
-            category: InputCategory::Latin,
+            category: InputCategory::English,
         }
     }
 }
@@ -209,10 +209,10 @@ impl ksni::Tray for UnimTray {
             .state
             .read()
             .map(|s| s.category)
-            .unwrap_or(InputCategory::Latin);
+            .unwrap_or(InputCategory::English);
         match category {
-            InputCategory::Hangul => "unim-hangul".into(),
-            InputCategory::Latin => "unim-latin".into(),
+            InputCategory::Korean => "unim-korean".into(),
+            InputCategory::English => "unim-english".into(),
         }
     }
 
@@ -221,10 +221,10 @@ impl ksni::Tray for UnimTray {
             .state
             .read()
             .map(|s| s.category)
-            .unwrap_or(InputCategory::Latin);
+            .unwrap_or(InputCategory::English);
         match category {
-            InputCategory::Hangul => "UNIM - 한글".into(),
-            InputCategory::Latin => "UNIM - 영문".into(),
+            InputCategory::Korean => "UNIM - 한국어".into(),
+            InputCategory::English => "UNIM - 영어".into(),
         }
     }
 
@@ -233,13 +233,13 @@ impl ksni::Tray for UnimTray {
             .state
             .read()
             .map(|s| s.category)
-            .unwrap_or(InputCategory::Latin);
-        
+            .unwrap_or(InputCategory::English);
+
         let mode_desc = match category {
-            InputCategory::Hangul => "한글 모드",
-            InputCategory::Latin => "영문 모드",
+            InputCategory::Korean => "한국어 모드",
+            InputCategory::English => "영어 모드",
         };
-        
+
         ksni::ToolTip {
             title: "UNIM 입력기".into(),
             description: mode_desc.into(),
@@ -258,21 +258,21 @@ impl ksni::Tray for UnimTray {
                     .state
                     .read()
                     .map(|s| s.category)
-                    .unwrap_or(InputCategory::Latin);
-                let hangul_label = if current_category == InputCategory::Hangul {
-                    "✓ 한글 모드 (Hangul)"
+                    .unwrap_or(InputCategory::English);
+                let korean_label = if current_category == InputCategory::Korean {
+                    "✓ 한국어 모드 (Korean)"
                 } else {
-                    "   한글 모드 (Hangul)"
+                    "   한국어 모드 (Korean)"
                 };
                 StandardItem {
-                    label: hangul_label.into(),
+                    label: korean_label.into(),
                     activate: Box::new(|this: &mut Self| {
                         if let Ok(mut s) = this.state.write() {
-                            s.category = InputCategory::Hangul;
+                            s.category = InputCategory::Korean;
                             let _ = this
                                 .popup_tx
-                                .send(PopupAction::UpdateCategory(InputCategory::Hangul));
-                            info!("한글 모드로 전환");
+                                .send(PopupAction::UpdateCategory(InputCategory::Korean));
+                            info!("한국어 모드로 전환");
                         }
                     }),
                     ..Default::default()
@@ -284,21 +284,21 @@ impl ksni::Tray for UnimTray {
                     .state
                     .read()
                     .map(|s| s.category)
-                    .unwrap_or(InputCategory::Latin);
-                let latin_label = if current_category == InputCategory::Latin {
-                    "✓ 영문 모드 (Latin)"
+                    .unwrap_or(InputCategory::English);
+                let english_label = if current_category == InputCategory::English {
+                    "✓ 영어 모드 (English)"
                 } else {
-                    "   영문 모드 (Latin)"
+                    "   영어 모드 (English)"
                 };
                 StandardItem {
-                    label: latin_label.into(),
+                    label: english_label.into(),
                     activate: Box::new(|this: &mut Self| {
                         if let Ok(mut s) = this.state.write() {
-                            s.category = InputCategory::Latin;
+                            s.category = InputCategory::English;
                             let _ = this
                                 .popup_tx
-                                .send(PopupAction::UpdateCategory(InputCategory::Latin));
-                            info!("영문 모드로 전환");
+                                .send(PopupAction::UpdateCategory(InputCategory::English));
+                            info!("영어 모드로 전환");
                         }
                     }),
                     ..Default::default()
@@ -359,13 +359,11 @@ fn main() {
 
     // 데몬 모니터링 스레드
     let daemon_manager_ctrl = daemon_manager.clone();
-    thread::spawn(move || {
-        loop {
-            if let Ok(mut mgr) = daemon_manager_ctrl.lock() {
-                mgr.monitor_and_restart();
-            }
-            thread::sleep(Duration::from_secs(2));
+    thread::spawn(move || loop {
+        if let Ok(mut mgr) = daemon_manager_ctrl.lock() {
+            mgr.monitor_and_restart();
         }
+        thread::sleep(Duration::from_secs(2));
     });
 
     // DBus 시그널 감시 스레드 (ksni와 완전 분리)
@@ -373,7 +371,7 @@ fn main() {
     let dbus_popup_tx = popup_tx.clone();
     // 트레이 업데이트 요청 채널 (DBus -> ksni)
     let (tray_update_tx, tray_update_rx) = std::sync::mpsc::channel::<()>();
-    
+
     thread::spawn(move || {
         // 별도의 tokio 런타임 생성 (독립 스레드)
         let rt = match tokio::runtime::Builder::new_current_thread()
@@ -386,9 +384,13 @@ fn main() {
                 return;
             }
         };
-        
+
         // handle을 전달하지 않고, 채널만 사용
-        rt.block_on(watch_dbus_signals(dbus_state, tray_update_tx, dbus_popup_tx));
+        rt.block_on(watch_dbus_signals(
+            dbus_state,
+            tray_update_tx,
+            dbus_popup_tx,
+        ));
     });
 
     // ksni 트레이 시작 (별도 스레드)
@@ -461,11 +463,11 @@ async fn watch_dbus_signals(
 
     // 초기 모드 조회
     match proxy.get_global_mode().await {
-        Ok(is_hangul) => {
-            let category = if is_hangul {
-                InputCategory::Hangul
+        Ok(is_korean) => {
+            let category = if is_korean {
+                InputCategory::Korean
             } else {
-                InputCategory::Latin
+                InputCategory::English
             };
             if let Ok(mut s) = state.write() {
                 s.category = category;
@@ -481,7 +483,7 @@ async fn watch_dbus_signals(
 
     // GlobalModeChanged 시그널 구독
     info!("[DBus] GlobalModeChanged 시그널 구독 시작...");
-    
+
     let mut stream = match proxy.receive_global_mode_changed().await {
         Ok(s) => s,
         Err(e) => {
@@ -491,17 +493,17 @@ async fn watch_dbus_signals(
     };
 
     use futures_util::StreamExt;
-    
+
     while let Some(signal) = stream.next().await {
         match signal.args() {
             Ok(args) => {
-                let is_hangul = args.is_hangul;
-                let category = if is_hangul {
-                    InputCategory::Hangul
+                let is_korean = args.is_korean;
+                let category = if is_korean {
+                    InputCategory::Korean
                 } else {
-                    InputCategory::Latin
+                    InputCategory::English
                 };
-                
+
                 let should_update = {
                     if let Ok(s) = state.read() {
                         s.category != category
@@ -633,28 +635,28 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
     let current_category = state
         .read()
         .map(|s| s.category)
-        .unwrap_or(InputCategory::Latin);
+        .unwrap_or(InputCategory::English);
 
-    let hangul_btn = gtk4::Button::builder()
-        .tooltip_text("한글 모드로 전환")
+    let korean_btn = gtk4::Button::builder()
+        .tooltip_text("한국어 모드로 전환")
         .build();
-    hangul_btn.add_css_class("mode-button");
+    korean_btn.add_css_class("mode-button");
 
-    let latin_btn = gtk4::Button::builder()
-        .tooltip_text("영문 모드로 전환")
+    let english_btn = gtk4::Button::builder()
+        .tooltip_text("영어 모드로 전환")
         .build();
-    latin_btn.add_css_class("mode-button");
+    english_btn.add_css_class("mode-button");
 
     match current_category {
-        InputCategory::Hangul => {
-            hangul_btn.set_label("한");
-            hangul_btn.add_css_class("mode-active");
-            latin_btn.set_label("A");
+        InputCategory::Korean => {
+            korean_btn.set_label("한");
+            korean_btn.add_css_class("mode-active");
+            english_btn.set_label("A");
         }
-        InputCategory::Latin => {
-            hangul_btn.set_label("한");
-            latin_btn.set_label("A");
-            latin_btn.add_css_class("mode-active");
+        InputCategory::English => {
+            korean_btn.set_label("한");
+            english_btn.set_label("A");
+            english_btn.add_css_class("mode-active");
         }
     }
 
@@ -662,42 +664,42 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
     button_box.set_halign(gtk4::Align::Center);
     button_box.set_margin_top(20);
     button_box.set_margin_bottom(16);
-    button_box.append(&hangul_btn);
-    button_box.append(&latin_btn);
+    button_box.append(&korean_btn);
+    button_box.append(&english_btn);
 
     let status_label = gtk4::Label::new(Some(match current_category {
-        InputCategory::Hangul => "현재: 한글 모드",
-        InputCategory::Latin => "현재: 영문 모드",
+        InputCategory::Korean => "현재: 한국어 모드",
+        InputCategory::English => "현재: 영어 모드",
     }));
     status_label.add_css_class("status-label");
     status_label.set_margin_bottom(16);
 
-    let hangul_btn_clone = hangul_btn.clone();
-    let latin_btn_clone = latin_btn.clone();
+    let korean_btn_clone = korean_btn.clone();
+    let english_btn_clone = english_btn.clone();
     let status_label_clone = status_label.clone();
     let state_clone = state.clone();
-    hangul_btn.connect_clicked(move |_| {
+    korean_btn.connect_clicked(move |_| {
         if let Ok(mut s) = state_clone.write() {
-            s.category = InputCategory::Hangul;
+            s.category = InputCategory::Korean;
         }
-        hangul_btn_clone.add_css_class("mode-active");
-        latin_btn_clone.remove_css_class("mode-active");
-        status_label_clone.set_text("현재: 한글 모드");
-        info!("한글 모드로 전환");
+        korean_btn_clone.add_css_class("mode-active");
+        english_btn_clone.remove_css_class("mode-active");
+        status_label_clone.set_text("현재: 한국어 모드");
+        info!("한국어 모드로 전환");
     });
 
-    let hangul_btn_clone2 = hangul_btn.clone();
-    let latin_btn_clone2 = latin_btn.clone();
+    let korean_btn_clone2 = korean_btn.clone();
+    let english_btn_clone2 = english_btn.clone();
     let status_label_clone2 = status_label.clone();
     let state_clone2 = state.clone();
-    latin_btn.connect_clicked(move |_| {
+    english_btn.connect_clicked(move |_| {
         if let Ok(mut s) = state_clone2.write() {
-            s.category = InputCategory::Latin;
+            s.category = InputCategory::English;
         }
-        latin_btn_clone2.add_css_class("mode-active");
-        hangul_btn_clone2.remove_css_class("mode-active");
-        status_label_clone2.set_text("현재: 영문 모드");
-        info!("영문 모드로 전환");
+        english_btn_clone2.add_css_class("mode-active");
+        korean_btn_clone2.remove_css_class("mode-active");
+        status_label_clone2.set_text("현재: 영어 모드");
+        info!("영어 모드로 전환");
     });
 
     let settings_btn = gtk4::Button::builder()
@@ -760,10 +762,7 @@ fn open_settings() {
         };
 
         if std::process::Command::new(fallback).spawn().is_err() {
-            error!(
-                "대체 설정 도구도 실패 ({}). 터미널 모드 시도...",
-                fallback
-            );
+            error!("대체 설정 도구도 실패 ({}). 터미널 모드 시도...", fallback);
             run_interactive_config_in_terminal();
         }
     }

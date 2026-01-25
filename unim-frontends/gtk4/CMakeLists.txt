@@ -4,60 +4,49 @@ project(unim-gtk4 C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# GTK4 찾기
+# GTK4 및 GIO 찾기 (GDBus 포함)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED gtk4)
+pkg_check_modules(GIO REQUIRED gio-2.0)
 
-# unim-capi 라이브러리 (로컬 빌드 우선, 시스템 설치 fallback)
-set(UNIM_LOCAL_ROOT "${CMAKE_SOURCE_DIR}/../..")
-set(UNIM_CAPI_LOCAL_INCLUDE "${UNIM_LOCAL_ROOT}/unim-capi/include")
-
-if(EXISTS ${UNIM_CAPI_LOCAL_INCLUDE}/unim.h)
-    set(UNIM_CAPI_INCLUDE ${UNIM_CAPI_LOCAL_INCLUDE})
-else()
-    find_path(UNIM_CAPI_INCLUDE unim.h PATHS /usr/local/include /usr/include)
-endif()
-
-if(NOT DEFINED UNIM_CAPI_LIB)
-    if(EXISTS "${UNIM_LOCAL_ROOT}/target/release/libunim_capi.so")
-        set(UNIM_CAPI_LIB "${UNIM_LOCAL_ROOT}/target/release/libunim_capi.so")
-    elseif(EXISTS "${UNIM_LOCAL_ROOT}/target/debug/libunim_capi.so")
-        set(UNIM_CAPI_LIB "${UNIM_LOCAL_ROOT}/target/debug/libunim_capi.so")
-    else()
-        find_library(UNIM_CAPI_LIB unim_capi PATHS /usr/local/lib /usr/lib)
-    endif()
-endif()
-
-message(STATUS "UNIM C API include: ${UNIM_CAPI_INCLUDE}")
-message(STATUS "UNIM C API lib: ${UNIM_CAPI_LIB}")
+# 공통 DBus 클라이언트 경로
+set(GTK_COMMON_DIR "${CMAKE_SOURCE_DIR}/../gtk-common")
 
 # IM 모듈 빌드
-add_library(im-unim-gtk4 MODULE
+add_library(im-unim MODULE
     src/immodule.c
+    ${GTK_COMMON_DIR}/src/unim_dbus_client.c
 )
 
-target_include_directories(im-unim-gtk4 PRIVATE
+target_include_directories(im-unim PRIVATE
     ${GTK4_INCLUDE_DIRS}
-    ${UNIM_CAPI_INCLUDE}
+    ${GIO_INCLUDE_DIRS}
+    ${GTK_COMMON_DIR}/include
 )
 
-target_link_libraries(im-unim-gtk4
+target_link_libraries(im-unim
     ${GTK4_LIBRARIES}
-    ${UNIM_CAPI_LIB}
+    ${GIO_LIBRARIES}
 )
 
-target_compile_options(im-unim-gtk4 PRIVATE ${GTK4_CFLAGS_OTHER})
+target_compile_options(im-unim PRIVATE 
+    ${GTK4_CFLAGS_OTHER}
+    ${GIO_CFLAGS_OTHER}
+)
 
 # 설치 경로 설정
 pkg_get_variable(GTK4_LIBDIR gtk4 libdir)
 set(GTK4_IM_MODULEDIR "${GTK4_LIBDIR}/gtk-4.0/4.0.0/immodules")
 
-install(TARGETS im-unim-gtk4
+install(TARGETS im-unim
     LIBRARY DESTINATION ${GTK4_IM_MODULEDIR}
 )
 
 # 개발용 로컬 설치
 add_custom_target(install-local
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:im-unim-gtk4> ${CMAKE_SOURCE_DIR}/im-unim-gtk4.so
-    DEPENDS im-unim-gtk4
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:im-unim> ${CMAKE_SOURCE_DIR}/libim-unim.so
+    DEPENDS im-unim
 )
+
+message(STATUS "GTK4 IM Module: Using DBus client")
+message(STATUS "GTK Common Dir: ${GTK_COMMON_DIR}")

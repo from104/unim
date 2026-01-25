@@ -1,16 +1,16 @@
-//! 2-Set (2-bul) Hangul Input Simulation
+//! 2-Set (2-bul) Korean Input Simulation
 //!
-//! This example demonstrates how the `HangulComposer2Bul` handles 2-set Hangul input.
+//! This example demonstrates how the `KoreanComposer2Bul` handles 2-set Korean input.
 //! It simulates consecutive key presses and shows the state of composition including
 //! "Dokkaebibul" (shifting a consonant to the next syllable's initial position).
 
-use unim::hangul::{composer::HangulComposer, composer_with_2bul::HangulComposer2Bul, jamo::*};
+use unim::korean::{composer::KoreanComposer, composer_with_2bul::KoreanComposer2Bul, jamo::*};
 
 fn main() {
-    let mut composer = HangulComposer2Bul::new();
+    let mut composer = KoreanComposer2Bul::new();
     let mut result = String::new();
 
-    // Input sequence simulating key presses for "안녕하세요" and more.
+    // Input sequence simuenglishg key presses for "안녕하세요" and more.
     // In 2-set, the composer automatically decides if a consonant is an initial (Cho) or final (Jong).
     let inputs = vec![
         JamoEnum::Cho(Chosung::Hieuh),  // ㅎ
@@ -32,7 +32,7 @@ fn main() {
         JamoEnum::Cho(Chosung::Siot),   // ㅅ -> 즛
     ];
 
-    println!("--- 2-Set Hangul Input Simulation ---");
+    println!("--- 2-Set Korean Input Simulation ---");
 
     for jamo in inputs {
         print!("Input: {:?} -> ", jamo.to_char());
@@ -46,7 +46,7 @@ fn main() {
         }
 
         // Check the character currently being composed.
-        let current_syllable = composer.current_hangul().to_char();
+        let current_syllable = composer.current_korean().to_char();
         if current_syllable != '\0' {
             println!("Current: '{}'", current_syllable);
         } else {
@@ -55,7 +55,7 @@ fn main() {
     }
 
     // Force finalize any remaining composition buffer.
-    if let Some(last_char) = composer.force_compose_hangul() {
+    if let Some(last_char) = composer.force_compose_korean() {
         result.push(last_char);
     }
 

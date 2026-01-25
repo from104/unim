@@ -1,6 +1,6 @@
-pub mod hangul_to_keystrokes;
+pub mod korean_to_keystrokes;
 pub mod keyboard_map;
-pub mod keystrokes_to_hangul;
+pub mod keystrokes_to_korean;
 
 pub use keyboard_map::{Key, Keystroke, KeyboardMap};
 
@@ -21,7 +21,7 @@ pub fn get_keymap_json(name: &str) -> &'static str {
     }
 }
 
-use crate::hangul::input_context::{ComposerType, HangulInputContext};
+use crate::korean::input_context::{ComposerType, KoreanInputContext};
 
 /// Converts a string to a vector of `Keystroke`s based on a given keyboard layout.
 pub fn string_to_keystrokes(s: &str, _layout: &str) -> Vec<Keystroke> {
@@ -42,7 +42,7 @@ pub fn keystrokes_to_string(keystrokes: &[Keystroke], layout: &str) -> String {
         ComposerType::TwoBul
     };
     
-    let mut context = HangulInputContext::new(composer_type);
+    let mut context = KoreanInputContext::new(composer_type);
 
     let en_json = get_keymap_json(if layout.contains("dvorak") { "en_dvorak" } else { "en_qwerty" });
     let ko_json = get_keymap_json(layout);

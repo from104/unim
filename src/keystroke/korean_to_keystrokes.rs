@@ -1,13 +1,13 @@
-use crate::hangul::char::HangulChar;
-use crate::hangul::char::HangulCharExt;
-use crate::hangul::jamo::*;
+use crate::korean::char::KoreanChar;
+use crate::korean::char::KoreanCharExt;
+use crate::korean::jamo::*;
 use std::collections::HashMap;
 
-/// 한글 문자열을 해당하는 영문 키보드 입력 시퀀스로 변환하는 기능을 제공합니다.
+/// 한국어 문자열을 해당하는 영어 키보드 입력 시퀀스로 변환하는 기능을 제공합니다.
 ///
 /// 2벌식 표준 자판과 3벌식 390 자판을 지원하며, 입력된 `keyboard_map`과
 /// `is_3bul` 플래그를 기반으로 변환 로직을 결정합니다.
-/// 완성형 한글 음절, 호환용 한글 자모(3벌식의 경우), 그리고 기타 문자를 처리합니다.
+/// 완성형 한국어 음절, 호환용 한국어 자모(3벌식의 경우), 그리고 기타 문자를 처리합니다.
 ///
 /// 복합 자모 분해 규칙을 담는 구조체
 struct CompoundMaps {
@@ -16,27 +16,27 @@ struct CompoundMaps {
     jong: HashMap<Jong, Vec<Jong>>,
 }
 
-/// 한글 문자열을 해당하는 영문 키보드 입력 시퀀스로 변환합니다.
+/// 한국어 문자열을 해당하는 영어 키보드 입력 시퀀스로 변환합니다.
 ///
 /// # Arguments
-/// * `input` - 변환할 한글 문자열.
-/// * `keyboard_map` - 영문 키(`char`)와 한글 자모(`JamoEnum`) 매핑 정보.
+/// * `input` - 변환할 한국어 문자열.
+/// * `keyboard_map` - 영어 키(`char`)와 한국어 자모(`JamoEnum`) 매핑 정보.
 ///                    `keyboard_map::KeyboardMap::create_keyboard_map` 함수로 생성됩니다.
 /// * `is_3bul` - `true`이면 3벌식(390), `false`이면 2벌식(표준) 규칙을 적용합니다.
 ///
 /// # Returns
-/// * 입력된 한글 문자열을 타이핑하기 위한 영문 키스트로크 시퀀스 문자열.
-/// * 한글 외 문자는 그대로 반환됩니다.
+/// * 입력된 한국어 문자열을 타이핑하기 위한 영어 키스트로크 시퀀스 문자열.
+/// * 한국어 외 문자는 그대로 반환됩니다.
 /// * 매핑되지 않는 자모가 포함된 경우 해당 자모는 무시될 수 있습니다.
-pub fn hangul_to_keystrokes(
+pub fn korean_to_keystrokes(
     input: &str,
     keyboard_map: &HashMap<char, JamoEnum>,
     is_3bul: bool,
 ) -> String {
-    // 1. 자모 -> 영문 키 역방향 매핑 생성 (소문자 우선)
+    // 1. 자모 -> 영어 키 역방향 매핑 생성 (소문자 우선)
     let reverse_jamo_map = build_reverse_jamo_map(keyboard_map);
 
-    // 1.1 기타 문자 -> 영문 키 역방향 매핑 생성 (JamoEnum::Other, JamoEnum::Special)
+    // 1.1 기타 문자 -> 영어 키 역방향 매핑 생성 (JamoEnum::Other, JamoEnum::Special)
     let reverse_char_map = build_reverse_char_map(keyboard_map);
 
     // 2. 복합 자모(이중모음, 쌍자음, 겹받침) 분해 규칙 정의
@@ -46,14 +46,14 @@ pub fn hangul_to_keystrokes(
 
     // 3. 입력 문자열 순회 및 변환
     for c in input.chars() {
-        if c.is_hangul() {
-            // 3.1. 완성형 한글 음절 처리
+        if c.is_korean() {
+            // 3.1. 완성형 한국어 음절 처리
             append_syllable_keystrokes(c, &reverse_jamo_map, &compound_maps, is_3bul, &mut result);
-        // } else if is_3bul && c.is_hangul_compat_jamo() {
-        //     // 3.2. 호환용 한글 자모 처리 (3벌식에서만)
+        // } else if is_3bul && c.is_korean_compat_jamo() {
+        //     // 3.2. 호환용 한국어 자모 처리 (3벌식에서만)
         //     append_compat_jamo_keystrokes(c, &reverse_jamo_map, &compound_maps, &mut result);
         } else {
-            // 3.3. 한글이 아닌 다른 문자 처리 (수정됨)
+            // 3.3. 한국어이 아닌 다른 문자 처리 (수정됨)
             // 기타 문자 역방향 맵에서 문자에 해당하는 키를 찾습니다.
             if let Some(&key) = reverse_char_map.get(&c) {
                 result.push(key);
@@ -67,15 +67,15 @@ pub fn hangul_to_keystrokes(
     result
 }
 
-/// `keyboard_map` (영문 키 -> 자모)을 기반으로 역방향 맵 (자모 -> 영문 키)을 생성합니다.
+/// `keyboard_map` (영어 키 -> 자모)을 기반으로 역방향 맵 (자모 -> 영어 키)을 생성합니다.
 /// JamoEnum::Cho, JamoEnum::Jung, JamoEnum::Jong 만 포함합니다.
 /// 동일한 자모에 대해 대문자와 소문자 키가 모두 매핑된 경우, 소문자 키를 우선합니다.
 ///
 /// # Arguments
-/// * `keyboard_map` - 원본 영문 키 -> 자모 매핑.
+/// * `keyboard_map` - 원본 영어 키 -> 자모 매핑.
 ///
 /// # Returns
-/// 자모(`JamoEnum`)에서 영문 키(`char`)로의 역방향 `HashMap`.
+/// 자모(`JamoEnum`)에서 영어 키(`char`)로의 역방향 `HashMap`.
 fn build_reverse_jamo_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<JamoEnum, char> {
     let mut reverse_map = HashMap::<JamoEnum, char>::new();
 
@@ -100,16 +100,16 @@ fn build_reverse_jamo_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<Jam
     reverse_map
 }
 
-/// `keyboard_map` (영문 키 -> 자모)을 기반으로 기타 문자 역방향 맵 (문자 -> 영문 키)을 생성합니다.
+/// `keyboard_map` (영어 키 -> 자모)을 기반으로 기타 문자 역방향 맵 (문자 -> 영어 키)을 생성합니다.
 /// JamoEnum::Other 및 JamoEnum::Special 을 포함합니다.
 /// 동일한 문자에 대해 대문자와 소문자 키가 모두 매핑된 경우, 어떤 키가 선택될지는 HashMap 구현에 따라 다름.
 /// (필요하다면 소문자 우선 로직 추가)
 ///
 /// # Arguments
-/// * `keyboard_map` - 원본 영문 키 -> 자모 매핑.
+/// * `keyboard_map` - 원본 영어 키 -> 자모 매핑.
 ///
 /// # Returns
-/// 문자(`char`)에서 영문 키(`char`)로의 역방향 `HashMap`.
+/// 문자(`char`)에서 영어 키(`char`)로의 역방향 `HashMap`.
 fn build_reverse_char_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<char, char> {
     let mut reverse_map = HashMap::<char, char>::new();
     for (&key, &jamo) in keyboard_map {
@@ -173,12 +173,12 @@ fn define_compound_maps() -> CompoundMaps {
     }
 }
 
-/// 완성형 한글 음절(`c`)을 받아 초/중/종성으로 분해하고, 각 자모에 해당하는 키스트로크를
+/// 완성형 한국어 음절(`c`)을 받아 초/중/종성으로 분해하고, 각 자모에 해당하는 키스트로크를
 /// `result` 문자열에 추가합니다.
 ///
 /// # Arguments
-/// * `c` - 처리할 완성형 한글 음절 문자.
-/// * `reverse_map` - 자모 -> 영문 키 역방향 매핑.
+/// * `c` - 처리할 완성형 한국어 음절 문자.
+/// * `reverse_map` - 자모 -> 영어 키 역방향 매핑.
 /// * `compound_maps` - 복합 자모 분해 규칙.
 /// * `is_3bul` - 3벌식 여부 플래그.
 /// * `result` - 키스트로크를 추가할 대상 문자열 버퍼.
@@ -189,12 +189,12 @@ fn append_syllable_keystrokes(
     is_3bul: bool,
     result: &mut String,
 ) {
-    let mut hangul_char = HangulChar::new();
+    let mut korean_char = KoreanChar::new();
     // 음절 분해 시 발생할 수 있는 오류는 무시 (예: 잘못된 유니코드). 이후 get_jamo에서 None으로 처리됨.
-    let _ = hangul_char.set_jamo_by_syllable(c);
+    let _ = korean_char.set_jamo_by_syllable(c);
 
     // 초성 처리
-    if let Some(cho) = hangul_char.get_cho() {
+    if let Some(cho) = korean_char.get_cho() {
         append_jamo_keystrokes(
             &JamoEnum::Cho(cho),
             reverse_map,
@@ -204,7 +204,7 @@ fn append_syllable_keystrokes(
         );
     }
     // 중성 처리
-    if let Some(jung) = hangul_char.get_jung() {
+    if let Some(jung) = korean_char.get_jung() {
         append_jamo_keystrokes(
             &JamoEnum::Jung(jung),
             reverse_map,
@@ -214,7 +214,7 @@ fn append_syllable_keystrokes(
         );
     }
     // 종성 처리 (종성이 있는 경우 '\u{11A7}' (Jong::E - 없음)이 아님)
-    if let Some(jong) = hangul_char.get_jong() {
+    if let Some(jong) = korean_char.get_jong() {
         if jong != Jong::E {
             append_jamo_keystrokes(
                 &JamoEnum::Jong(jong),
@@ -236,7 +236,7 @@ fn append_syllable_keystrokes(
 ///
 /// # Arguments
 /// * `jamo_enum` - 처리할 자모 (`JamoEnum::Cho`, `JamoEnum::Jung`, `JamoEnum::Jong`).
-/// * `reverse_map` - 자모 -> 영문 키 역방향 매핑.
+/// * `reverse_map` - 자모 -> 영어 키 역방향 매핑.
 /// * `compound_maps` - 복합 자모 분해 규칙.
 /// * `is_3bul` - 3벌식 여부 플래그.
 /// * `result` - 키스트로크를 추가할 대상 문자열 버퍼.

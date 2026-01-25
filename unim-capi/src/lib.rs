@@ -215,32 +215,47 @@ pub extern "C" fn unim_engine_preedit_str(engine: &InputEngine) -> UnimStr {
 
 /// 입력 카테고리를 설정합니다.
 #[no_mangle]
-pub extern "C" fn unim_engine_set_input_category(engine: &mut InputEngine, category: InputCategory) {
+pub extern "C" fn unim_engine_set_input_category(
+    engine: &mut InputEngine,
+    category: InputCategory,
+) {
     engine.set_input_category(category);
 }
 
-/// 한글 레이아웃을 설정합니다.
+/// 한국어 레이아웃을 설정합니다.
 #[no_mangle]
-pub extern "C" fn unim_config_set_hangul_layout(config: &mut Config, layout: unim::config::HangulLayout) {
-    config.engine.hangul.layout = layout;
+pub extern "C" fn unim_config_set_korean_layout(
+    config: &mut Config,
+    layout: unim::config::KoreanLayout,
+) {
+    config.engine.korean.layout = layout;
 }
 
-/// 영문 레이아웃을 설정합니다.
+/// 영어 레이아웃을 설정합니다.
 #[no_mangle]
-pub extern "C" fn unim_config_set_latin_layout(config: &mut Config, layout: unim::config::LatinLayout) {
-    config.engine.latin.layout = layout;
+pub extern "C" fn unim_config_set_english_layout(
+    config: &mut Config,
+    layout: unim::config::EnglishLayout,
+) {
+    config.engine.english.layout = layout;
 }
 
-/// 엔진의 한글 레이아웃을 즉시 변경합니다.
+/// 엔진의 한국어 레이아웃을 즉시 변경합니다.
 #[no_mangle]
-pub extern "C" fn unim_engine_set_hangul_layout(engine: &mut InputEngine, layout: unim::config::HangulLayout) {
-    engine.set_hangul_layout(layout);
+pub extern "C" fn unim_engine_set_korean_layout(
+    engine: &mut InputEngine,
+    layout: unim::config::KoreanLayout,
+) {
+    engine.set_korean_layout(layout);
 }
 
-/// 엔진의 영문 레이아웃을 즉시 변경합니다.
+/// 엔진의 영어 레이아웃을 즉시 변경합니다.
 #[no_mangle]
-pub extern "C" fn unim_engine_set_latin_layout(engine: &mut InputEngine, layout: unim::config::LatinLayout) {
-    engine.set_latin_layout(layout);
+pub extern "C" fn unim_engine_set_english_layout(
+    engine: &mut InputEngine,
+    layout: unim::config::EnglishLayout,
+) {
+    engine.set_english_layout(layout);
 }
 
 /// 현재 입력 카테고리를 반환합니다.
@@ -305,16 +320,16 @@ pub extern "C" fn unim_config_save(config: &Config) -> bool {
     config.save_to_default_path().is_ok()
 }
 
-/// 현재 한글 레이아웃을 반환합니다.
+/// 현재 한국어 레이아웃을 반환합니다.
 #[no_mangle]
-pub extern "C" fn unim_config_get_hangul_layout(config: &Config) -> unim::config::HangulLayout {
-    config.engine.hangul.layout
+pub extern "C" fn unim_config_get_korean_layout(config: &Config) -> unim::config::KoreanLayout {
+    config.engine.korean.layout
 }
 
-/// 현재 영문 레이아웃을 반환합니다.
+/// 현재 영어 레이아웃을 반환합니다.
 #[no_mangle]
-pub extern "C" fn unim_config_get_latin_layout(config: &Config) -> unim::config::LatinLayout {
-    config.engine.latin.layout
+pub extern "C" fn unim_config_get_english_layout(config: &Config) -> unim::config::EnglishLayout {
+    config.engine.english.layout
 }
 
 /// 자동 전환 활성화 여부를 반환합니다.
@@ -357,13 +372,13 @@ pub extern "C" fn unim_config_set_auto_switch_notification(config: &mut Config, 
 // 레이아웃 열거형 헬퍼 (UI 표시용)
 // ============================================
 
-/// 지원하는 한글 레이아웃 개수를 반환합니다.
+/// 지원하는 한국어 레이아웃 개수를 반환합니다.
 #[no_mangle]
-pub extern "C" fn unim_hangul_layout_count() -> usize {
+pub extern "C" fn unim_korean_layout_count() -> usize {
     3 // Dubeolsik, Sebeolsik390, Sebeolsik391
 }
 
-/// 한글 레이아웃 이름을 반환합니다.
+/// 한국어 레이아웃 이름을 반환합니다.
 ///
 /// # Arguments
 ///
@@ -373,39 +388,39 @@ pub extern "C" fn unim_hangul_layout_count() -> usize {
 ///
 /// 레이아웃 이름 문자열 (lifetime: static)
 #[no_mangle]
-pub extern "C" fn unim_hangul_layout_name(layout: unim::config::HangulLayout) -> UnimStr {
+pub extern "C" fn unim_korean_layout_name(layout: unim::config::KoreanLayout) -> UnimStr {
     UnimStr::new(layout.name())
 }
 
-/// 한글 레이아웃 표시 이름을 반환합니다 (UI용).
+/// 한국어 레이아웃 표시 이름을 반환합니다 (UI용).
 #[no_mangle]
-pub extern "C" fn unim_hangul_layout_display_name(layout: unim::config::HangulLayout) -> UnimStr {
+pub extern "C" fn unim_korean_layout_display_name(layout: unim::config::KoreanLayout) -> UnimStr {
     let name = match layout {
-        unim::config::HangulLayout::Dubeolsik => "두벌식 표준",
-        unim::config::HangulLayout::Sebeolsik390 => "세벌식 390",
-        unim::config::HangulLayout::Sebeolsik391 => "세벌식 최종",
+        unim::config::KoreanLayout::Dubeolsik => "두벌식 표준",
+        unim::config::KoreanLayout::Sebeolsik390 => "세벌식 390",
+        unim::config::KoreanLayout::Sebeolsik391 => "세벌식 최종",
     };
     UnimStr::new(name)
 }
 
-/// 지원하는 영문 레이아웃 개수를 반환합니다.
+/// 지원하는 영어 레이아웃 개수를 반환합니다.
 #[no_mangle]
-pub extern "C" fn unim_latin_layout_count() -> usize {
+pub extern "C" fn unim_english_layout_count() -> usize {
     2 // Qwerty, Dvorak
 }
 
-/// 영문 레이아웃 이름을 반환합니다.
+/// 영어 레이아웃 이름을 반환합니다.
 #[no_mangle]
-pub extern "C" fn unim_latin_layout_name(layout: unim::config::LatinLayout) -> UnimStr {
+pub extern "C" fn unim_english_layout_name(layout: unim::config::EnglishLayout) -> UnimStr {
     UnimStr::new(layout.name())
 }
 
-/// 영문 레이아웃 표시 이름을 반환합니다 (UI용).
+/// 영어 레이아웃 표시 이름을 반환합니다 (UI용).
 #[no_mangle]
-pub extern "C" fn unim_latin_layout_display_name(layout: unim::config::LatinLayout) -> UnimStr {
+pub extern "C" fn unim_english_layout_display_name(layout: unim::config::EnglishLayout) -> UnimStr {
     let name = match layout {
-        unim::config::LatinLayout::Qwerty => "QWERTY",
-        unim::config::LatinLayout::Dvorak => "Dvorak",
+        unim::config::EnglishLayout::Qwerty => "QWERTY",
+        unim::config::EnglishLayout::Dvorak => "Dvorak",
     };
     UnimStr::new(name)
 }
@@ -418,12 +433,12 @@ pub extern "C" fn unim_latin_layout_display_name(layout: unim::config::LatinLayo
 ///
 /// # 반환값
 ///
-/// 0 = Latin, 1 = Hangul, -1 = 오류
+/// 0 = English, 1 = Korean, -1 = 오류
 #[no_mangle]
 pub extern "C" fn unim_status_get() -> i32 {
     match unim::status::get_status() {
-        Ok(unim::status::InputCategory::Latin) => 0,
-        Ok(unim::status::InputCategory::Hangul) => 1,
+        Ok(unim::status::InputCategory::English) => 0,
+        Ok(unim::status::InputCategory::Korean) => 1,
         Err(_) => -1,
     }
 }
@@ -432,7 +447,7 @@ pub extern "C" fn unim_status_get() -> i32 {
 ///
 /// # Arguments
 ///
-/// * `category` - 0 = Latin, 1 = Hangul
+/// * `category` - 0 = English, 1 = Korean
 ///
 /// # 반환값
 ///
@@ -440,8 +455,8 @@ pub extern "C" fn unim_status_get() -> i32 {
 #[no_mangle]
 pub extern "C" fn unim_status_set(category: i32) -> bool {
     let cat = match category {
-        0 => unim::status::InputCategory::Latin,
-        1 => unim::status::InputCategory::Hangul,
+        0 => unim::status::InputCategory::English,
+        1 => unim::status::InputCategory::Korean,
         _ => return false,
     };
     unim::status::set_status(cat).is_ok()
