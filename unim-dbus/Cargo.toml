@@ -1,0 +1,25 @@
+[package]
+name = "unim-dbus"
+version = "0.1.0"
+edition = "2021"
+description = "UNIM DBus IPC Library"
+
+[lib]
+name = "unim_dbus"
+path = "src/lib.rs"
+
+[dependencies]
+# Core UNIM library
+unim = { path = ".." }
+
+# DBus with async support
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+
+# Async runtime
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Logging
+log = "0.4"

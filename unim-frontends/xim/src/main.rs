@@ -1,9 +1,11 @@
 //! UNIM XIM (X Input Method) 프론트엔드
 //!
 //! X11 환경에서 한글 입력을 제공하는 XIM 서버입니다.
+//! DBus를 통해 unim-daemon과 통신합니다.
 
 mod handler;
 mod pe_window;
+mod dbus_client;
 
 use log::{error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +13,8 @@ use x11rb::connection::Connection;
 use x11rb::protocol::Event;
 use xim::x11rb::{HasConnection, X11rbServer};
 use xim::XimConnections;
+
+use dbus_client::DbusClient;
 
 /// 디버그 모드 플래그 (UNIM_DEVELOP=1 시 활성화)
 pub static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -45,6 +49,10 @@ fn main() {
     let config = unim::config::Config::load_from_default_path();
     info!("설정 로드 완료");
 
+    // DBus 클라이언트 시작
+    let (_dbus_client, dbus_tx) = DbusClient::new();
+    info!("DBus 클라이언트 시작됨");
+
     // X11 연결
     let (conn, screen_num) = match x11rb::rust_connection::RustConnection::connect(None) {
         Ok(result) => result,
@@ -56,8 +64,8 @@ fn main() {
 
     info!("X11 연결 성공 (screen: {})", screen_num);
 
-    // 핸들러 생성
-    let mut unim_handler = handler::UnimHandler::new(screen_num, config);
+    // 핸들러 생성 (DBus 채널 전달)
+    let mut unim_handler = handler::UnimHandler::new(screen_num, config, dbus_tx);
 
     // XIM 서버 초기화
     let mut server = match X11rbServer::init(conn, screen_num, "unim", xim::ALL_LOCALES) {

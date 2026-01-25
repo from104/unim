@@ -1,6 +1,6 @@
 //! XIM 핸들러 모듈
 //!
-//! XIM 프로토콜 이벤트를 처리하고 UNIM 엔진과 연동합니다.
+//! XIM 프로토콜 이벤트를 처리하고 DBus를 통해 UNIM 데몬과 연동합니다.
 
 use std::ffi::CString;
 use std::num::NonZeroU32;
@@ -9,12 +9,11 @@ use std::sync::atomic::Ordering;
 
 use ahash::AHashMap;
 use log::debug;
+use tokio::sync::mpsc;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{ConfigureNotifyEvent, KeyPressEvent};
 
 use unim::config::Config;
-use unim::input_engine::InputEngine;
-use unim::keycode::{KeyCode, ModifierState};
 
 use xim::{
     x11rb::{HasConnection, X11rbServer},
@@ -22,6 +21,7 @@ use xim::{
 };
 
 use crate::pe_window::PeWindow;
+use crate::dbus_client::{DbusRequest, DbusResponse};
 
 /// 디버그 로깅 매크로 (UNIM_DEVELOP 환경변수 활성화 시)
 macro_rules! unim_debug {
@@ -34,22 +34,26 @@ macro_rules! unim_debug {
 
 /// 입력 컨텍스트별 상태
 pub struct UnimInputContext {
-    engine: InputEngine,
+    /// DBus 컨텍스트 경로
+    context_path: String,
     /// preedit 윈도우 ID (Over-The-Spot 스타일일 때만 사용)
     pe_window: Option<NonZeroU32>,
     /// preedit 윈도우를 표시할지 여부
     show_preedit_window: bool,
+    /// 현재 preedit 문자열 (캐시)
+    preedit_cache: String,
 }
 
 impl UnimInputContext {
-    fn new(config: &Config, input_style: InputStyle) -> Self {
+    fn new(context_path: String, input_style: InputStyle) -> Self {
         let show_preedit_window = !input_style.contains(InputStyle::PREEDIT_CALLBACKS)
             && !input_style.contains(InputStyle::PREEDIT_NOTHING);
 
         Self {
-            engine: InputEngine::new(config),
+            context_path,
             pe_window: None,
             show_preedit_window,
+            preedit_cache: String::new(),
         }
     }
 }
@@ -59,6 +63,7 @@ const EVENT_MASK: u32 = 1;
 
 /// UNIM XIM 핸들러
 pub struct UnimHandler {
+    #[allow(dead_code)]
     config: Config,
     /// preedit 윈도우들 (윈도우 ID -> PeWindow)
     preedit_windows: AHashMap<NonZeroU32, PeWindow>,
@@ -66,10 +71,12 @@ pub struct UnimHandler {
     display: *mut x11::xlib::Display,
     /// 스크린 번호 (c_int)
     screen: c_int,
+    /// DBus 클라이언트 (요청 전송 채널)
+    dbus_tx: mpsc::Sender<DbusRequest>,
 }
 
 impl UnimHandler {
-    pub fn new(screen_num: usize, config: Config) -> Self {
+    pub fn new(screen_num: usize, config: Config, dbus_tx: mpsc::Sender<DbusRequest>) -> Self {
         // 단일 Xlib Display 연결 열기
         let display = unsafe {
             let display_name = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
@@ -86,7 +93,41 @@ impl UnimHandler {
             preedit_windows: AHashMap::new(),
             display,
             screen: screen_num as c_int,
+            dbus_tx,
         }
+    }
+
+    /// DBus 요청 전송 (동기적 - 블로킹)
+    fn send_dbus_request(&self, request: DbusRequest) -> Option<DbusResponse> {
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
+        
+        // 요청과 함께 응답 채널 전송
+        let request_with_response = match request {
+            DbusRequest::ProcessKey { context_path, keyval, keycode, state, .. } => {
+                DbusRequest::ProcessKey {
+                    context_path,
+                    keyval,
+                    keycode,
+                    state,
+                    response: Some(response_tx),
+                }
+            }
+            DbusRequest::CreateContext { client_name, .. } => {
+                DbusRequest::CreateContext {
+                    client_name,
+                    response: Some(response_tx),
+                }
+            }
+            other => other,
+        };
+        
+        // tokio 채널에 전송 (blocking)
+        if self.dbus_tx.blocking_send(request_with_response).is_err() {
+            return None;
+        }
+        
+        // 응답 대기 (타임아웃 500ms)
+        response_rx.recv_timeout(std::time::Duration::from_millis(500)).ok()
     }
 
     /// Expose 이벤트 처리   
@@ -122,11 +163,12 @@ impl UnimHandler {
         &mut self,
         server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<UnimInputContext>,
+        preedit_str: &str,
     ) -> Result<(), ServerError> {
-        let preedit_str = user_ic.user_data.engine.preedit_str();
+        // preedit 캐시 업데이트
+        user_ic.user_data.preedit_cache = preedit_str.to_string();
 
         // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw 호출
-        // 클라이언트가 콜백을 등록했다면 수신함
         server.preedit_draw(&mut user_ic.ic, preedit_str)?;
 
         // PREEDIT_CALLBACKS가 아니면 Over-The-Spot 렌더링도 수행
@@ -180,6 +222,8 @@ impl UnimHandler {
         server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<UnimInputContext>,
     ) -> Result<(), ServerError> {
+        user_ic.user_data.preedit_cache.clear();
+        
         // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw("") 호출
         server.preedit_draw(&mut user_ic.ic, "")?;
 
@@ -218,7 +262,25 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         input_style: InputStyle,
     ) -> Result<Self::InputContextData, ServerError> {
         debug!("새 IC 데이터 생성 (style: {:?})", input_style);
-        Ok(UnimInputContext::new(&self.config, input_style))
+        
+        // DBus를 통해 InputContext 생성
+        let context_path = match self.send_dbus_request(DbusRequest::CreateContext {
+            client_name: "unim-xim".to_string(),
+            response: None,
+        }) {
+            Some(DbusResponse::ContextCreated { path }) => path,
+            _ => {
+                // DBus 연결 실패 시 로컬 ID 생성
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let id = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u32)
+                    .unwrap_or(0);
+                format!("/local/context_{}", id)
+            }
+        };
+        
+        Ok(UnimInputContext::new(context_path, input_style))
     }
 
     fn input_styles(&self) -> Self::InputStyleArray {
@@ -254,6 +316,11 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     ) -> Result<(), ServerError> {
         debug!("IC 삭제: id={:?}", user_ic.ic.input_context_id());
 
+        // DBus 컨텍스트 파괴
+        let _ = self.dbus_tx.blocking_send(DbusRequest::DestroyContext {
+            context_path: user_ic.user_data.context_path.clone(),
+        });
+
         if let Some(pe_id) = user_ic.user_data.pe_window {
             if let Some(pe) = self.preedit_windows.remove(&pe_id) {
                 pe.clean(self.display, self.screen);
@@ -270,14 +337,13 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     ) -> Result<String, ServerError> {
         unim_debug!("reset 호출");
 
-        if !user_ic.user_data.engine.is_composing() {
-            return Ok(String::new());
-        }
+        let preedit = user_ic.user_data.preedit_cache.clone();
+        
+        // DBus Reset 호출
+        let _ = self.dbus_tx.blocking_send(DbusRequest::Reset {
+            context_path: user_ic.user_data.context_path.clone(),
+        });
 
-        let preedit = user_ic.user_data.engine.preedit_str().to_string();
-        unim_debug!("commit_and_clear: \"{}\"", preedit);
-
-        user_ic.user_data.engine.reset();
         self.clear_preedit(server, user_ic)?;
 
         Ok(preedit)
@@ -289,6 +355,11 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         user_ic: &mut UserInputContext<Self::InputContextData>,
     ) -> Result<(), ServerError> {
         debug!("포커스 인: id={:?}", user_ic.ic.input_context_id());
+        
+        let _ = self.dbus_tx.blocking_send(DbusRequest::FocusIn {
+            context_path: user_ic.user_data.context_path.clone(),
+        });
+        
         Ok(())
     }
 
@@ -299,17 +370,19 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     ) -> Result<(), ServerError> {
         unim_debug!("focus_out 호출");
 
-        if !user_ic.user_data.engine.is_composing() {
-            return Ok(());
+        // DBus FocusOut 호출 - 커밋 텍스트 반환
+        if let Some(DbusResponse::CommitText { text }) = self.send_dbus_request(
+            DbusRequest::FocusOut {
+                context_path: user_ic.user_data.context_path.clone(),
+                response: None,
+            }
+        ) {
+            if !text.is_empty() {
+                unim_debug!("commit_and_clear: \"{}\"", text);
+                server.commit(&user_ic.ic, &text)?;
+            }
         }
 
-        let preedit = user_ic.user_data.engine.preedit_str();
-        if !preedit.is_empty() {
-            unim_debug!("commit_and_clear: \"{}\"", preedit);
-            server.commit(&user_ic.ic, preedit)?;
-        }
-
-        user_ic.user_data.engine.reset();
         self.clear_preedit(server, user_ic)?;
 
         Ok(())
@@ -323,9 +396,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         debug!("IC 값 설정 (spot: {:?})", user_ic.ic.preedit_spot());
 
         // spot_location 변경 시 preedit 윈도우 재생성
-        if user_ic.user_data.pe_window.is_some() && user_ic.user_data.engine.is_composing() {
+        if user_ic.user_data.pe_window.is_some() && !user_ic.user_data.preedit_cache.is_empty() {
+            let preedit = user_ic.user_data.preedit_cache.clone();
             self.clear_preedit(server, user_ic)?;
-            self.preedit(server, user_ic)?;
+            self.preedit(server, user_ic, &preedit)?;
         }
 
         Ok(())
@@ -337,61 +411,52 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         user_ic: &mut UserInputContext<Self::InputContextData>,
         xev: &KeyPressEvent,
     ) -> Result<bool, ServerError> {
-        if self.config.reload_if_changed() {
-            unim_debug!("설정 파일 변경 감지, 리로드 완료");
-            user_ic.user_data.engine.set_hangul_layout(self.config.engine.hangul.layout);
-            user_ic.user_data.engine.set_latin_layout(self.config.engine.latin.layout);
-        }
-
-        let key = KeyCode::from_x11_keycode(xev.detail as u16);
         let evdev_code = if xev.detail > 8 { xev.detail - 8 } else { 0 };
-        let modifier = ModifierState::from_x11_mask(u16::from(xev.state) as u32);
 
         unim_debug!(
-            "키 입력: keyval={}, keycode={}, evdev={}, shift={}, ctrl={}, alt={}",
-            xev.detail, xev.detail, evdev_code,
-            modifier.shift, modifier.control, modifier.alt
+            "키 입력: keycode={}, evdev={}, state={:?}",
+            xev.detail, evdev_code, xev.state
         );
 
-        let result = user_ic.user_data.engine.press_key(key, modifier, &self.config);
+        // DBus를 통해 키 이벤트 처리
+        let response = self.send_dbus_request(DbusRequest::ProcessKey {
+            context_path: user_ic.user_data.context_path.clone(),
+            keyval: xev.detail as u32,
+            keycode: evdev_code as u32,
+            state: u16::from(xev.state) as u32,
+            response: None,
+        });
 
-        let consumed = result.consumed;
+        let (consumed, preedit, commit) = match response {
+            Some(DbusResponse::KeyProcessed { consumed, preedit, commit }) => {
+                (consumed, preedit, commit)
+            }
+            _ => {
+                // DBus 실패 시 키 통과
+                return Ok(false);
+            }
+        };
 
-        // kime 패턴 적용:
-        // 1. Preedit이 없을 때만 clear (커밋이 없는 경우)
-        // 2. Commit이 있으면 처리 (내부에서 clear 호출)
-        // 3. Preedit이 있으면 그리기 (clear 없이)
+        // Commit 처리
+        if let Some(commit_text) = commit {
+            if !commit_text.is_empty() {
+                self.clear_preedit(server, user_ic)?;
+                server.conn().flush().ok();
 
-        let has_preedit = !user_ic.user_data.engine.preedit_str().is_empty();
-        let has_commit = !user_ic.user_data.engine.commit_str().is_empty();
-
-        // 1. Preedit이 없고 commit도 없을 때만 clear (조합 취소 등)
-        if result.preedit_changed && !has_preedit && !has_commit {
-            unim_debug!("Preedit 세션 종료 (조합 취소)");
-            self.clear_preedit(server, user_ic)?;
+                unim_debug!("커밋: \"{}\"", commit_text);
+                server.commit(&user_ic.ic, &commit_text)?;
+                server.conn().flush().ok();
+            }
         }
 
-        // 2. Commit 처리
-        if has_commit {
-            let commit = user_ic.user_data.engine.commit_str().to_string();
-            
-            // [순서 복구] Clear(Done) -> Commit
-            // ibus처럼 각 메시지 사이에 flush를 수행하여 패킷을 분리 전송
-            // 이는 클라이언트가 뭉쳐진 패킷을 처리하지 못하는 문제를 방지함
-            self.clear_preedit(server, user_ic)?;
-            server.conn().flush().ok();
-
-            unim_debug!("커밋: \"{}\"", commit);
-            server.commit(&user_ic.ic, &commit)?;
-            server.conn().flush().ok();
-            
-            user_ic.user_data.engine.clear_commit();
-        }
-
-        // 3. Preedit이 있으면 그리기 (clear 없이 바로)
-        if has_preedit {
-            unim_debug!("Preedit: \"{}\"", user_ic.user_data.engine.preedit_str());
-            self.preedit(server, user_ic)?;
+        // Preedit 처리
+        if let Some(preedit_text) = preedit {
+            if preedit_text.is_empty() {
+                self.clear_preedit(server, user_ic)?;
+            } else {
+                unim_debug!("Preedit: \"{}\"", preedit_text);
+                self.preedit(server, user_ic, &preedit_text)?;
+            }
             server.conn().flush().ok();
         }
 

@@ -39,6 +39,9 @@ QT6_PLUGIN_DIR ?= $(REAL_LIBDIR)/qt6/plugins/platforminputcontexts
 # im-config integration path
 IM_CONFIG_DATA_DIR ?= $(DATADIR)/im-config/data
 
+# DBus service directory (session bus)
+DBUS_SERVICES_DIR ?= $(DATADIR)/dbus-1/services
+
 # GNOME Extension settings
 UUID := unim-typefix@from104.github.io
 VERSION := $(shell sed -n 's/.*"version": "\([^"]*\)".*/\1/p' unim-gnome-extension/metadata.json)
@@ -54,7 +57,7 @@ CARGO := cargo
 .PHONY: all clean build build-rust build-frontends build-settings \
         install install-core install-frontends install-settings install-icons install-autostart \
         uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart \
-        pack install-gnome-extension uninstall-gnome-extension enable disable log test \
+        pack install-gnome-extension uninstall-gnome-extension enable disable log test test-dbus test-xim \
         deb clean-deb clean-all help \
         test-gtk3 test-gtk4
 
@@ -95,6 +98,10 @@ help:
 	@echo "Clean:"
 	@echo "  clean            - Remove build artifacts"
 	@echo "  clean-all        - Remove all artifacts including Cargo target"
+	@echo ""
+	@echo "DBus / XIM Testing:"
+	@echo "  test-dbus        - Verify DBus service registration"
+	@echo "  test-xim         - Build and run XIM test application"
 	@echo ""
 	@echo "Variables:"
 	@echo "  PREFIX           - Installation prefix (default: /usr/local)"
@@ -198,6 +205,9 @@ install-core:
 	@# im-config integration
 	install -m 644 im-config/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
 	install -m 644 im-config/25_unim.rc $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
+	@# DBus service (session bus auto-activation)
+	install -d $(DESTDIR)$(DBUS_SERVICES_DIR)
+	install -m 644 scripts/org.atit.unim.InputMethod.service $(DESTDIR)$(DBUS_SERVICES_DIR)/
 
 install-frontends:
 	@echo "Installing IM modules..."
@@ -252,6 +262,7 @@ uninstall-core:
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-wayland
 	rm -f $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf
 	rm -f $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
+	rm -f $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
 
 uninstall-frontends:
 	@echo "Removing IM modules..."
@@ -476,4 +487,32 @@ test-q5:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ 빌드 완료! 실행: ./unim-test-qt5/build/unim-test-qt5"
 	@echo "   또는: QT_IM_MODULE=unim ./unim-test-qt5/build/unim-test-qt5"
+	@echo "════════════════════════════════════════════════════════════"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DBus / XIM Testing
+# ─────────────────────────────────────────────────────────────────────────────
+
+test-dbus: build-rust
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🔍 DBus 서비스 검증..."
+	@echo "════════════════════════════════════════════════════════════"
+	@./target/debug/unim-daemon -n &
+	@sleep 2
+	@echo "✅ DBus 버스 이름 확인:"
+	@busctl --user list 2>/dev/null | grep -i unim || echo "   ⚠️  unim 서비스 없음"
+	@echo ""
+	@echo "✅ DBus 인터페이스 확인:"
+	@busctl --user introspect org.atit.unim.InputMethod /org/atit/unim/InputMethod 2>/dev/null | head -15 || echo "   ⚠️  introspect 실패"
+	@pkill -f "unim-daemon" 2>/dev/null || true
+	@echo "════════════════════════════════════════════════════════════"
+
+test-xim:
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🔨 Building XIM Test Application..."
+	@echo "════════════════════════════════════════════════════════════"
+	@mkdir -p unim-test-xim/build && cd unim-test-xim/build && cmake .. && make
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "✅ 빌드 완료! 실행: ./unim-test-xim/build/unim-test-xim"
+	@echo "   또는: XMODIFIERS=@im=unim ./unim-test-xim/build/unim-test-xim"
 	@echo "════════════════════════════════════════════════════════════"

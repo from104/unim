@@ -2,8 +2,10 @@
 //!
 //! Wayland 환경에서 한글 입력을 제공합니다.
 //! input-method-v2 프로토콜을 사용합니다.
+//! DBus를 통해 unim-daemon과 통신합니다.
 
 mod im_handler;
+mod dbus_client;
 
 use log::{error, info};
 use wayland_client::{
@@ -16,11 +18,11 @@ use wayland_protocols_misc::zwp_input_method_v2::client::{
     zwp_input_method_v2::ZwpInputMethodV2,
 };
 
+use dbus_client::DbusClient;
 use im_handler::InputMethodHandler;
 
 /// Wayland 애플리케이션 상태
 struct AppData {
-    config: unim::config::Config,
     seat: Option<WlSeat>,
     im_manager: Option<ZwpInputMethodManagerV2>,
     input_method: Option<ZwpInputMethodV2>,
@@ -28,9 +30,8 @@ struct AppData {
 }
 
 impl AppData {
-    fn new(config: unim::config::Config) -> Self {
+    fn new() -> Self {
         Self {
-            config,
             seat: None,
             im_manager: None,
             input_method: None,
@@ -45,9 +46,9 @@ fn main() {
 
     info!("UNIM Wayland 입력 방식 시작...");
 
-    // 설정 로드
-    let config = unim::config::Config::load_from_default_path();
-    info!("설정 로드 완료");
+    // DBus 클라이언트 시작
+    let (_dbus_client, dbus_tx) = DbusClient::new();
+    info!("DBus 클라이언트 시작됨");
 
     // Wayland 연결
     let conn = match Connection::connect_to_env() {
@@ -70,7 +71,7 @@ fn main() {
     };
 
     let qh = event_queue.handle();
-    let mut app_data = AppData::new(config);
+    let mut app_data = AppData::new();
 
     // wl_seat 바인딩
     let seat: WlSeat = match globals.bind(&qh, 1..=9, ()) {
@@ -100,8 +101,8 @@ fn main() {
     app_data.input_method = Some(input_method);
     info!("zwp_input_method_v2 생성 완료");
 
-    // 핸들러 초기화
-    app_data.handler = Some(InputMethodHandler::new(&app_data.config));
+    // 핸들러 초기화 (DBus 채널 전달)
+    app_data.handler = Some(InputMethodHandler::new(dbus_tx));
 
     info!("이벤트 루프 시작...");
 
@@ -193,7 +194,7 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppData {
                 }
                 Event::Done => {
                     log::trace!("Done 이벤트");
-                    handler.done(proxy, &mut state.config);
+                    handler.done(proxy);
                 }
                 Event::Unavailable => {
                     log::warn!("입력 방식 사용 불가");

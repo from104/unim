@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.atit.unim.InputMethod
+Exec=/usr/libexec/unim-daemon -n

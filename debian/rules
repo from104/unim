@@ -7,6 +7,9 @@
 export DH_VERBOSE = 1
 export LC_ALL = C.UTF-8
 
+# Multi-arch support
+export DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
 # Rust toolchain
 export RUSTUP_TOOLCHAIN = stable
 export HOME = /home/from104

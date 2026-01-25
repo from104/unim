@@ -1,0 +1,296 @@
+//! DBus 서비스 구현 (서버 측)
+//!
+//! `org.atit.unim.InputMethod` 및 `org.atit.unim.InputContext` 서비스를 구현합니다.
+//!
+//! # 아키텍처 노트
+//!
+//! `InputEngine`은 `Send + Sync`를 구현하지 않으므로 (HangulComposer trait object),
+//! 엔진은 별도의 전용 스레드에서 실행하고 채널을 통해 통신합니다.
+
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+
+use tokio::sync::{mpsc, oneshot, RwLock};
+use zbus::{interface, Connection, SignalContext};
+
+use crate::interfaces::InputMode;
+use unim::config::{Config, InputCategory};
+
+/// 엔진에 보내는 요청
+#[derive(Debug)]
+pub enum EngineRequest {
+    /// 키 이벤트 처리
+    ProcessKey {
+        context_id: u32,
+        keyval: u32,
+        keycode: u32,
+        state: u32,
+        response: oneshot::Sender<EngineResponse>,
+    },
+    /// 컨텍스트 생성
+    CreateContext {
+        id: u32,
+        response: oneshot::Sender<()>,
+    },
+    /// 컨텍스트 파괴
+    DestroyContext {
+        id: u32,
+    },
+    /// 포커스 아웃 (preedit 플러시)
+    FocusOut {
+        context_id: u32,
+        response: oneshot::Sender<Option<String>>,
+    },
+    /// 리셋
+    Reset {
+        context_id: u32,
+    },
+}
+
+/// 엔진 응답
+#[derive(Debug)]
+pub struct EngineResponse {
+    /// 키가 소비되었는지
+    pub consumed: bool,
+    /// preedit 텍스트 (변경된 경우)
+    pub preedit: Option<String>,
+    /// 커밋 텍스트 (있는 경우)
+    pub commit: Option<String>,
+    /// 모드 변경됨 (Some(true) = 한글, Some(false) = 영문, None = 변경 없음)
+    pub mode_changed: Option<bool>,
+}
+
+/// InputMethod 서비스 (팩토리 역할)
+pub struct InputMethodService {
+    /// 컨텍스트 카운터
+    context_counter: AtomicU32,
+    /// 설정
+    config: Arc<RwLock<Config>>,
+    /// 전역 입력 모드
+    global_mode: Arc<RwLock<InputMode>>,
+    /// 엔진 스레드로 요청을 보내는 채널
+    engine_tx: mpsc::Sender<EngineRequest>,
+    /// DBus Connection (동적 객체 등록용)
+    connection: Connection,
+}
+
+impl InputMethodService {
+    /// 새 서비스 생성
+    ///
+    /// `engine_tx`는 엔진 스레드와 통신하기 위한 채널의 송신 측입니다.
+    /// `connection`은 동적으로 InputContext 객체를 등록하기 위해 필요합니다.
+    pub fn new(config: Config, engine_tx: mpsc::Sender<EngineRequest>, connection: Connection) -> Self {
+        let global_mode = InputMode::from(config.engine.default_category);
+        Self {
+            context_counter: AtomicU32::new(0),
+            config: Arc::new(RwLock::new(config)),
+            global_mode: Arc::new(RwLock::new(global_mode)),
+            engine_tx,
+            connection,
+        }
+    }
+    
+    /// 설정 참조 반환
+    pub fn config(&self) -> Arc<RwLock<Config>> {
+        Arc::clone(&self.config)
+    }
+    
+    /// 전역 모드 참조 반환
+    pub fn global_mode(&self) -> Arc<RwLock<InputMode>> {
+        Arc::clone(&self.global_mode)
+    }
+    
+    /// 엔진 채널 복제
+    pub fn engine_channel(&self) -> mpsc::Sender<EngineRequest> {
+        self.engine_tx.clone()
+    }
+}
+
+#[interface(name = "org.atit.unim.InputMethod")]
+impl InputMethodService {
+    /// 새 입력 컨텍스트 생성
+    async fn create_input_context(&self, client_name: &str) -> zbus::fdo::Result<String> {
+        let id = self.context_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let path = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, id);
+        
+        // 엔진 스레드에 컨텍스트 생성 요청
+        let (response_tx, response_rx) = oneshot::channel();
+        self.engine_tx.send(EngineRequest::CreateContext { id, response: response_tx })
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("Engine not available: {}", e)))?;
+        
+        response_rx.await.map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        
+        // InputContext 핸들러를 DBus에 등록
+        let handler = InputContextHandler::new(id, self.engine_tx.clone(), self.connection.clone());
+        let obj_path = zbus::zvariant::ObjectPath::try_from(path.as_str())
+            .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
+        self.connection
+            .object_server()
+            .at(obj_path, handler)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("Failed to register InputContext: {}", e)))?;
+        
+        log::info!("[DBus] InputContext 생성 및 등록: {} (client: {})", path, client_name);
+        Ok(path)
+    }
+    
+    /// 전역 입력 모드 설정
+    async fn set_global_mode(
+        &self,
+        #[zbus(signal_context)]
+        signal_ctx: SignalContext<'_>,
+        is_hangul: bool,
+    ) -> zbus::fdo::Result<()> {
+        let new_mode = if is_hangul { InputMode::Hangul } else { InputMode::Latin };
+        
+        {
+            let mut mode = self.global_mode.write().await;
+            *mode = new_mode;
+        }
+        
+        // 설정에도 반영
+        {
+            let mut config = self.config.write().await;
+            config.engine.default_category = InputCategory::from(new_mode);
+        }
+        
+        // 시그널 전송
+        Self::global_mode_changed(&signal_ctx, is_hangul).await?;
+        
+        log::info!("[DBus] 전역 모드 변경: {:?}", new_mode);
+        Ok(())
+    }
+    
+    /// 전역 입력 모드 조회
+    async fn get_global_mode(&self) -> zbus::fdo::Result<bool> {
+        let mode = self.global_mode.read().await;
+        Ok(*mode == InputMode::Hangul)
+    }
+    
+    /// 전역 모드 변경 시그널
+    #[zbus(signal)]
+    async fn global_mode_changed(signal_ctx: &SignalContext<'_>, is_hangul: bool) -> zbus::Result<()>;
+}
+
+/// InputContext 인터페이스 구현을 위한 핸들러
+///
+/// 이 핸들러는 엔진을 직접 소유하지 않고, 채널을 통해 엔진 스레드와 통신합니다.
+pub struct InputContextHandler {
+    /// 컨텍스트 ID
+    id: u32,
+    /// 엔진 스레드로 요청을 보내는 채널
+    engine_tx: mpsc::Sender<EngineRequest>,
+    /// DBus 연결 (시그널 발송용)
+    connection: Connection,
+}
+
+impl InputContextHandler {
+    /// 새 핸들러 생성
+    pub fn new(id: u32, engine_tx: mpsc::Sender<EngineRequest>, connection: Connection) -> Self {
+        Self { id, engine_tx, connection }
+    }
+}
+
+#[interface(name = "org.atit.unim.InputContext")]
+impl InputContextHandler {
+    /// 키 이벤트 처리
+    /// 반환값: (consumed, preedit, commit)
+    async fn process_key_event(
+        &self,
+        keyval: u32,
+        keycode: u32,
+        state: u32,
+    ) -> zbus::fdo::Result<(bool, String, String)> {
+        let (response_tx, response_rx) = oneshot::channel();
+        
+        self.engine_tx.send(EngineRequest::ProcessKey {
+            context_id: self.id,
+            keyval,
+            keycode,
+            state,
+            response: response_tx,
+        }).await.map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        
+        let response = response_rx.await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        
+        let preedit = response.preedit.unwrap_or_default();
+        let commit = response.commit.unwrap_or_default();
+        
+        // 모드 변경 시그널 발송
+        if let Some(is_hangul) = response.mode_changed {
+            log::info!("[DBus] 모드 변경 감지: is_hangul={}", is_hangul);
+            // InputMethod 경로에서 GlobalModeChanged 시그널 발송
+            let signal_ctx = zbus::SignalContext::new(&self.connection, crate::INPUT_METHOD_PATH)
+                .map_err(|e| zbus::fdo::Error::Failed(format!("Signal context error: {}", e)))?;
+            InputMethodService::global_mode_changed(&signal_ctx, is_hangul).await.ok();
+        }
+        
+        log::trace!("[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit='{}', commit='{}'", 
+            keyval, response.consumed, preedit, commit);
+        
+        Ok((response.consumed, preedit, commit))
+    }
+    
+    /// 포커스 획득
+    async fn focus_in(&self) -> zbus::fdo::Result<()> {
+        log::debug!("[DBus] FocusIn: context_id={}", self.id);
+        Ok(())
+    }
+    
+    /// 포커스 상실
+    async fn focus_out(
+        &self,
+        #[zbus(signal_context)]
+        signal_ctx: SignalContext<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+        
+        self.engine_tx.send(EngineRequest::FocusOut {
+            context_id: self.id,
+            response: response_tx,
+        }).await.ok();
+        
+        if let Ok(Some(commit)) = response_rx.await {
+            if !commit.is_empty() {
+                Self::commit_text(&signal_ctx, &commit).await.ok();
+            }
+        }
+        
+        log::debug!("[DBus] FocusOut: context_id={}", self.id);
+        Ok(())
+    }
+    
+    /// 입력 상태 초기화
+    async fn reset(
+        &self,
+        #[zbus(signal_context)]
+        signal_ctx: SignalContext<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.engine_tx.send(EngineRequest::Reset { context_id: self.id }).await.ok();
+        Self::update_preedit_text(&signal_ctx, "", 0, false).await.ok();
+        log::debug!("[DBus] Reset: context_id={}", self.id);
+        Ok(())
+    }
+    
+    /// 컨텍스트 파괴
+    async fn destroy(&self) -> zbus::fdo::Result<()> {
+        self.engine_tx.send(EngineRequest::DestroyContext { id: self.id }).await.ok();
+        log::info!("[DBus] Context 파괴: id={}", self.id);
+        Ok(())
+    }
+    
+    /// Preedit 텍스트 업데이트 시그널
+    #[zbus(signal)]
+    async fn update_preedit_text(
+        signal_ctx: &SignalContext<'_>,
+        text: &str,
+        cursor_pos: u32,
+        visible: bool,
+    ) -> zbus::Result<()>;
+    
+    /// 텍스트 커밋 시그널
+    #[zbus(signal)]
+    async fn commit_text(signal_ctx: &SignalContext<'_>, text: &str) -> zbus::Result<()>;
+}

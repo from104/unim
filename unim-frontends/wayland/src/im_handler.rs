@@ -1,15 +1,14 @@
 //! 입력 방식 핸들러 모듈
 //!
-//! Wayland input-method-v2 이벤트를 처리하고 UNIM 엔진과 연동합니다.
+//! Wayland input-method-v2 이벤트를 처리하고 DBus를 통해 unim-daemon과 연동합니다.
 
-use unim::config::Config;
-use unim::input_engine::InputEngine;
+use tokio::sync::mpsc;
 use wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_v2::ZwpInputMethodV2;
+
+use crate::dbus_client::{DbusRequest, DbusResponse};
 
 /// 입력 방식 핸들러
 pub struct InputMethodHandler {
-    engine: InputEngine,
-    config: Config,
     active: bool,
     serial: u32,
     surrounding_text: String,
@@ -17,13 +16,37 @@ pub struct InputMethodHandler {
     surrounding_anchor: u32,
     pending_commit: Option<String>,
     pending_preedit: Option<String>,
+    /// DBus 컨텍스트 경로
+    context_path: String,
+    /// DBus 요청 채널
+    dbus_tx: mpsc::Sender<DbusRequest>,
 }
 
 impl InputMethodHandler {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(dbus_tx: mpsc::Sender<DbusRequest>) -> Self {
+        // DBus를 통해 입력 컨텍스트 생성
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
+        
+        let context_path = if dbus_tx.blocking_send(DbusRequest::CreateContext {
+            client_name: "unim-wayland".to_string(),
+            response: Some(response_tx),
+        }).is_ok() {
+            match response_rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                Ok(DbusResponse::ContextCreated { path }) => path,
+                _ => {
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    let id = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u32)
+                        .unwrap_or(0);
+                    format!("/local/context_{}", id)
+                }
+            }
+        } else {
+            "/local/context_0".to_string()
+        };
+        
         Self {
-            engine: InputEngine::new(config),
-            config: config.clone(),
             active: false,
             serial: 0,
             surrounding_text: String::new(),
@@ -31,39 +54,64 @@ impl InputMethodHandler {
             surrounding_anchor: 0,
             pending_commit: None,
             pending_preedit: None,
+            context_path,
+            dbus_tx,
         }
     }
 
-    /// 설정을 업데이트합니다.
-    pub fn update_config(&mut self, config: &Config) {
-        self.config = config.clone();
-        self.engine.set_hangul_layout(config.engine.hangul.layout);
-        self.engine.set_latin_layout(config.engine.latin.layout);
-        log::debug!("핸들러 설정 업데이트 완료");
+    /// DBus 요청 전송 (동기적)
+    fn send_dbus_request(&self, request: DbusRequest) -> Option<DbusResponse> {
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
+        
+        let request_with_response = match request {
+            DbusRequest::ProcessKey { context_path, keyval, keycode, state, .. } => {
+                DbusRequest::ProcessKey {
+                    context_path,
+                    keyval,
+                    keycode,
+                    state,
+                    response: Some(response_tx),
+                }
+            }
+            other => return {
+                let _ = self.dbus_tx.blocking_send(other);
+                None
+            },
+        };
+        
+        if self.dbus_tx.blocking_send(request_with_response).is_err() {
+            return None;
+        }
+        
+        response_rx.recv_timeout(std::time::Duration::from_millis(500)).ok()
     }
 
     /// 입력 방식 활성화
     pub fn activate(&mut self) {
         self.active = true;
-        self.engine.reset();
+        let _ = self.dbus_tx.blocking_send(DbusRequest::FocusIn {
+            context_path: self.context_path.clone(),
+        });
         log::info!("입력 방식 활성화됨");
     }
 
     /// 입력 방식 비활성화
-    pub fn deactivate(&mut self, _im: &ZwpInputMethodV2) {
+    pub fn deactivate(&mut self, im: &ZwpInputMethodV2) {
         if self.active {
-            // 조합 중이면 커밋
-            if self.engine.is_composing() {
-                self.engine.clear_preedit();
-                let commit = self.engine.commit_str();
-                if !commit.is_empty() {
-                    _im.commit_string(commit.to_string());
-                    self.engine.clear_commit();
+            // DBus FocusOut 호출
+            let (response_tx, response_rx) = std::sync::mpsc::channel();
+            let _ = self.dbus_tx.blocking_send(DbusRequest::FocusOut {
+                context_path: self.context_path.clone(),
+                response: Some(response_tx),
+            });
+            
+            if let Ok(DbusResponse::CommitText { text }) = response_rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                if !text.is_empty() {
+                    im.commit_string(text);
                 }
-                // preedit 지우기
-                _im.set_preedit_string(String::new(), 0, 0);
             }
-            self.engine.reset();
+            
+            im.set_preedit_string(String::new(), 0, 0);
         }
         self.active = false;
         log::info!("입력 방식 비활성화됨");
@@ -76,14 +124,34 @@ impl InputMethodHandler {
         self.surrounding_anchor = anchor;
     }
 
-    /// Done 이벤트 처리 (상태 커밋)
-    pub fn done(&mut self, im: &ZwpInputMethodV2, config: &mut unim::config::Config) {
-        // 설정 파일 변경 체크 (mtime 기반, 매우 가벼움)
-        if config.reload_if_changed() {
-            log::debug!("설정 파일 변경 감지, 리로드 완료");
-            self.update_config(config);
+    /// 키 이벤트 처리
+    pub fn process_key(&mut self, keyval: u32, keycode: u32, state: u32) -> bool {
+        let response = self.send_dbus_request(DbusRequest::ProcessKey {
+            context_path: self.context_path.clone(),
+            keyval,
+            keycode,
+            state,
+            response: None,
+        });
+        
+        match response {
+            Some(DbusResponse::KeyProcessed { consumed, preedit, commit }) => {
+                if let Some(commit_text) = commit {
+                    if !commit_text.is_empty() {
+                        self.pending_commit = Some(commit_text);
+                    }
+                }
+                if let Some(preedit_text) = preedit {
+                    self.pending_preedit = Some(preedit_text);
+                }
+                consumed
+            }
+            _ => false,
         }
+    }
 
+    /// Done 이벤트 처리 (상태 커밋)
+    pub fn done(&mut self, im: &ZwpInputMethodV2) {
         self.serial = self.serial.wrapping_add(1);
 
         // 대기 중인 커밋이 있으면 전송
@@ -98,5 +166,13 @@ impl InputMethodHandler {
         }
 
         im.commit(self.serial);
+    }
+}
+
+impl Drop for InputMethodHandler {
+    fn drop(&mut self) {
+        let _ = self.dbus_tx.blocking_send(DbusRequest::DestroyContext {
+            context_path: self.context_path.clone(),
+        });
     }
 }

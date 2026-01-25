@@ -1,11 +1,18 @@
 //! UNIM 데몬 프로세스
 //!
-//! 프론트엔드 모듈들을 관리하고 백그라운드에서 실행합니다.
+//! DBus 기반 입력 서비스를 제공하고 프론트엔드 모듈들을 관리합니다.
 
 use log::{error, info};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+use tokio::sync::mpsc;
+use zbus::Connection;
+
+use unim_dbus::engine_worker::spawn_engine_worker;
+use unim_dbus::service::InputMethodService;
+use unim_dbus::{BUS_NAME, INPUT_METHOD_PATH};
 
 /// 프론트엔드 모듈 종류
 #[derive(Clone, Copy, Debug)]
@@ -70,14 +77,36 @@ fn start_module(module: &Module) -> Option<(String, Child)> {
     }
 }
 
-fn main() {
+/// DBus 서비스를 시작합니다.
+async fn start_dbus_service(engine_tx: mpsc::Sender<unim_dbus::service::EngineRequest>) -> zbus::Result<Connection> {
+    let config = unim::config::Config::load_from_default_path();
+    
+    // 세션 버스에 먼저 연결
+    let connection = Connection::session().await?;
+    
+    // 버스 이름 등록
+    connection.request_name(BUS_NAME).await?;
+    info!("[DBus] 버스 이름 등록: {}", BUS_NAME);
+    
+    // DBus 서비스 생성 (Connection 전달)
+    let service = InputMethodService::new(config, engine_tx, connection.clone());
+    
+    // 서비스 객체 등록
+    connection.object_server().at(INPUT_METHOD_PATH, service).await?;
+    info!("[DBus] 서비스 등록: {}", INPUT_METHOD_PATH);
+    
+    Ok(connection)
+}
+
+#[tokio::main]
+async fn main() {
     // 로거 초기화
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     info!("UNIM 데몬 시작...");
 
     // 설정 로드
-    let _config = unim::config::Config::load_from_default_path();
+    let config = unim::config::Config::load_from_default_path();
     info!("설정 로드 완료");
 
     // 데몬화 옵션 확인
@@ -101,22 +130,31 @@ fn main() {
         }
     }
 
-    // 종료 시그널 핸들러
+    // 종료 플래그
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
-    ctrlc::set_handler(move || {
-        info!("종료 시그널 수신");
-        r.store(false, Ordering::SeqCst);
-    })
-    .expect("시그널 핸들러 설정 실패");
+    // 엔진 워커 시작
+    let engine_tx = spawn_engine_worker(config);
+    info!("엔진 워커 시작됨");
+
+    // DBus 서비스 시작
+    let _connection = match start_dbus_service(engine_tx).await {
+        Ok(conn) => {
+            info!("[DBus] 서비스 시작 성공");
+            conn
+        }
+        Err(err) => {
+            error!("[DBus] 서비스 시작 실패: {}", err);
+            std::process::exit(1);
+        }
+    };
 
     // 필요한 모듈 감지 및 시작
     let modules = detect_required_modules();
 
     if modules.is_empty() {
-        error!("감지된 디스플레이 서버가 없습니다");
-        std::process::exit(1);
+        info!("감지된 디스플레이 서버가 없습니다 (DBus 서비스만 실행)");
     }
 
     let mut processes: Vec<(String, Child)> = modules
@@ -124,30 +162,45 @@ fn main() {
         .filter_map(|module| start_module(module))
         .collect();
 
-    if processes.is_empty() {
-        error!("시작된 프론트엔드가 없습니다");
-        std::process::exit(1);
-    }
+    info!("{}개 프론트엔드 실행 중, DBus 서비스 활성", processes.len());
 
-    info!("{}개 프론트엔드 실행 중", processes.len());
+    // Ctrl+C 핸들러 (tokio)
+    let shutdown_signal = async move {
+        tokio::signal::ctrl_c().await.ok();
+        info!("종료 시그널 수신");
+        r.store(false, Ordering::SeqCst);
+    };
 
-    // 메인 루프 - 프로세스 모니터링
-    while running.load(Ordering::SeqCst) && !processes.is_empty() {
-        processes.retain_mut(|(name, process)| {
-            match process.try_wait() {
-                Ok(Some(status)) => {
-                    info!("{} 종료: {}", name, status);
-                    false // 목록에서 제거
-                }
-                Ok(None) => true, // 계속 실행 중
-                Err(err) => {
-                    error!("{} 상태 확인 오류: {}", name, err);
-                    false
-                }
+    // 프로세스 모니터링 태스크
+    let monitor_task = async {
+        loop {
+            if !running.load(Ordering::SeqCst) {
+                break;
             }
-        });
+            
+            // 프로세스 상태 확인
+            processes.retain_mut(|(name, process)| {
+                match process.try_wait() {
+                    Ok(Some(status)) => {
+                        info!("{} 종료: {}", name, status);
+                        false
+                    }
+                    Ok(None) => true,
+                    Err(err) => {
+                        error!("{} 상태 확인 오류: {}", name, err);
+                        false
+                    }
+                }
+            });
 
-        std::thread::sleep(std::time::Duration::from_secs(1));
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    };
+
+    // 동시 실행: 종료 시그널 또는 모니터링
+    tokio::select! {
+        _ = shutdown_signal => {}
+        _ = monitor_task => {}
     }
 
     // 정리 - 남은 프로세스 종료

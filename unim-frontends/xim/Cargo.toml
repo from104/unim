@@ -10,9 +10,12 @@ path = "src/main.rs"
 
 [dependencies]
 unim = { path = "../.." }
+unim-dbus = { path = "../../unim-dbus" }
 x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
 xim = { version = "0.5", features = ["x11rb-xcb", "x11rb-server", "server"] }
 x11 = { version = "2.21", features = ["xlib", "xft", "xrender"] }
 ahash = "0.8"
 log = "0.4"
 env_logger = "0.11"
+tokio = { version = "1", features = ["rt", "sync"] }
+zbus = { version = "4", default-features = false, features = ["tokio"] }
