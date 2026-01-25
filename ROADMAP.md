@@ -1,34 +1,27 @@
-# UNIM Project Roadmap
+# UNIM 프로젝트 로드맵
 
-This document outlines the long-term goals and development phases of the **UNIM** project.
+이 문서는 **UNIM** 프로젝트의 장기 목표와 개발 단계별 계획을 설명합니다.
 
-## 🎯 High-Level Objective
-To create a unified, cross-platform (Windows, macOS, Linux) Korean Input Method Engine (IME) that handles automatic language status detection and manual text conversion.
+## 🎯 핵심 목표
 
-## 🛣️ Development Phases
+언어 상태 자동 감지 및 수동 텍스트 변환 기능을 갖춘, 하나로 통합된 크로스 플랫폼(Windows, macOS, Linux) 한국어 입력기 엔진(IME)을 구축하는 것입니다.
 
-### Phase 1: Foundation & Linux Native (Completed)
-- [x] Robust Rust core library for Hangul composition.
-- [x] Portable `unim-cli` with embedded assets.
-- [x] Native GNOME Shell extension using `St.Clipboard` and `Clutter`.
-- [x] Hybrid architecture (CLI + Native APIs) for stability.
+## 🛣️ 개발 단계
 
-### Phase 2: Cross-Platform Bridge (Tauri Expansion)
-- [ ] **Tauri Integration**: Design a background tray application using [Tauri](https://tauri.app/).
-- [ ] **Global Shortcuts**: Implement cross-platform global shortcut listeners (using `tau-input` or similar Rust crates).
-- [ ] **Clipboard Management**: Implement a secure, cross-platform clipboard handler in Rust to replace environment-specific APIs.
-- [ ] **Windows Support**: Build and test `.exe` installers.
-- [ ] **macOS Support**: Build and test `.app` bundles with appropriate permissions.
+### 1단계: 기반 구축 및 리눅스 네이티브 (완료)
 
-### Phase 3: Automatic Status Switching (Intelligence)
-- [ ] **Context Detection**: Research methods to detect the current input field state or language context.
-- [ ] **Auto-Correct Engine**: Implement real-time "mistyping" detection (e.g., typing `gksrmf` and automatically converting it to `한글` as you type).
-- [ ] **User Learning**: Optional local dictionary to learn user-specific typing patterns.
+- [x] 한글 조합 로직을 갖춘 견고한 Rust 코어 라이브러리 개발.
+- [x] 데이터 자산이 내장된 이식 가능한 `unim-cli` 구현.
+- [x] `St.Clipboard`와 `Clutter`를 사용한 네이티브 GNOME Shell 확장 프로그램 개발.
+- [x] 안정성을 위한 하이브리드 아키텍처(CLI + 네이티브 API) 적용.
 
-### Phase 4: Modern IME Implementation
-- [ ] **Input Context Integration**: Move from a "conversion tool" to a full-fledged IME provider (`ibus`, `fcitx5` for Linux, TSF for Windows).
+### 2단계: 자동 상태 전환 (지능화)
 
----
+- [ ] **문맥 감지**: 현재 입력 필드 상태나 언어 문맥을 감지하는 방법 연구.
+- [ ] **자동 교정 엔진**: 실시간 "오타" 감지 구현 (예: `gksrmf` 입력 시 타이핑 중에 자동으로 `한글`로 변환).
+- [ ] **사용자 학습**: 사용자별 타이핑 패턴을 학습하는 선택적 로컬 사전 기능.
 
-## 💡 Why Tauri?
-Tauri allows us to leverage our existing Rust core (`unim`) for the heavy lifting while provides a lightweight, secure web-based frontend for the settings UI and tray interactions. This dramatically reduces the memory footprint compared to Electron while maintaining the same level of cross-platform ease.
+### 3단계: 현대적 입력기(IME) 구현
+
+- [ ] **입력 컨텍스트 통합**: 단순 "변환 도구"에서 완전한 입력기(IME) 서비스로 진화 (리눅스용 `ibus`, `fcitx5`, 윈도우용 TSF 연동).
+- [ ] **크로스 플랫폼 지원**: Windows 및 macOS용 네이티브 백그라운드 서비스 및 연동 방안 조사.
