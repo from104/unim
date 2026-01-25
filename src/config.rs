@@ -158,6 +158,9 @@ pub struct Config {
     /// 마지막 로드 시점의 파일 수정 시간 (직렬화 제외)
     #[serde(skip)]
     pub last_modified: Option<SystemTime>,
+    /// 마지막으로 파일 시스템을 확인한 시간 (Throttling용)
+    #[serde(skip)]
+    pub last_checked: Option<SystemTime>,
 }
 
 impl Config {
@@ -283,6 +286,7 @@ impl Config {
         let mut config: Self =
             serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
         config.last_modified = mtime;
+        config.last_checked = Some(SystemTime::now());
         Ok(config)
     }
 
@@ -329,7 +333,7 @@ impl Config {
         }
     }
 
-    /// 설정 파일이 변경되었으면 다시 로드합니다.
+    /// 설정 파일이 변경되었으면 다시 로드합니다. (2초 throttling 적용)
     ///
     /// 리로드 실패 시 현재 설정을 유지하고 로그를 출력합니다.
     ///
@@ -337,6 +341,19 @@ impl Config {
     ///
     /// 재로드 성공 시 true
     pub fn reload_if_changed(&mut self) -> bool {
+        let now = SystemTime::now();
+
+        // 2초 이내에 이미 확인했다면 건너뜀 (성능 최적화)
+        if let Some(last) = self.last_checked {
+            if let Ok(duration) = now.duration_since(last) {
+                if duration.as_secs() < 2 {
+                    return false;
+                }
+            }
+        }
+
+        self.last_checked = Some(now);
+
         if !self.needs_reload() {
             return false;
         }
@@ -347,7 +364,9 @@ impl Config {
 
         match Self::load_from_path(&path) {
             Ok(new_config) => {
+                let last_checked = self.last_checked;
                 *self = new_config;
+                self.last_checked = last_checked;
                 true
             }
             Err(e) => {

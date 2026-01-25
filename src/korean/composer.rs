@@ -359,7 +359,9 @@ impl BaseKoreanComposer {
                     let first_jamo = JamoEnum::Cho(self.get_cho().unwrap());
                     let second_jamo = JamoEnum::Cho(cho);
 
-                    if let Some(JamoEnum::Cho(combined_cho)) = self.combined_jamo.get(&(first_jamo, second_jamo)) {
+                    if let Some(JamoEnum::Cho(combined_cho)) =
+                        self.combined_jamo.get(&(first_jamo, second_jamo))
+                    {
                         self.set_cho(Some(*combined_cho));
                     } else {
                         return false;
@@ -398,7 +400,9 @@ impl BaseKoreanComposer {
                     let first_jamo = JamoEnum::Jung(self.get_jung().unwrap());
                     let second_jamo = JamoEnum::Jung(jung);
 
-                    if let Some(JamoEnum::Jung(combined_jung)) = self.combined_jamo.get(&(first_jamo, second_jamo)) {
+                    if let Some(JamoEnum::Jung(combined_jung)) =
+                        self.combined_jamo.get(&(first_jamo, second_jamo))
+                    {
                         self.set_jung(Some(*combined_jung));
                     } else {
                         return false;
@@ -437,7 +441,9 @@ impl BaseKoreanComposer {
                     let first_jamo = JamoEnum::Jong(self.get_jong().unwrap());
                     let second_jamo = JamoEnum::Jong(jong);
 
-                    if let Some(JamoEnum::Jong(combined_jong)) = self.combined_jamo.get(&(first_jamo, second_jamo)) {
+                    if let Some(JamoEnum::Jong(combined_jong)) =
+                        self.combined_jamo.get(&(first_jamo, second_jamo))
+                    {
                         self.set_jong(Some(*combined_jong));
                     } else {
                         return false;
@@ -465,6 +471,58 @@ impl BaseKoreanComposer {
         )
     }
 
+    /// 콜백 기반 자모 추가 메서드
+    ///
+    /// 외부에서 주입된 `compose_fn` 함수를 사용하여 조합 규칙을 적용합니다.
+    /// 이를 통해 2벌식/3벌식이 각자의 compose_korean 로직을 사용할 수 있습니다.
+    ///
+    /// # 매개변수
+    ///
+    /// * `jamo` - 추가할 자모
+    /// * `compose_fn` - 조합을 시도하는 클로저 (성공 시 true, 실패 시 false 반환)
+    ///
+    /// # 반환값
+    ///
+    /// * `Some(char)` - 이전 음절이 완성된 경우
+    /// * `None` - 조합이 계속 진행 중인 경우
+    pub fn add_jamo_with<F>(&mut self, jamo: JamoEnum, compose_fn: F) -> Option<char>
+    where
+        F: Fn(&mut Self) -> bool,
+    {
+        unim_debug!("BaseComposer.add_jamo_with: {:?}", jamo);
+
+        if !self.is_valid_jamo(&jamo) {
+            return None;
+        }
+
+        self.jamo_queue.push_back(jamo);
+
+        if compose_fn(self) {
+            unim_debug!(
+                "  -> 조합 계속: current_korean={:?}",
+                self.current_korean_char
+            );
+            None
+        } else {
+            // 조합 실패 -> 이전 글자 완성 후 새 글자 시작
+            self.jamo_queue.pop_back();
+            compose_fn(self);
+            let complete_korean = self.current_korean_char.get_syllable();
+            unim_debug!("  -> 음절 분리: complete={:?}", complete_korean);
+
+            // 큐 상태 백업 및 초기화
+            self.last_jamo_queue.clear();
+            self.last_jamo_queue.extend(&self.jamo_queue);
+            self.jamo_queue.clear();
+            self.jamo_queue.push_back(jamo);
+            self.clear();
+            compose_fn(self);
+            unim_debug!("  -> 새 current_korean: {:?}", self.current_korean_char);
+
+            complete_korean.ok()
+        }
+    }
+
     /// 중성 조합 규칙(복모음)을 초기화합니다.
     ///
     /// # 반환값
@@ -476,19 +534,40 @@ impl BaseKoreanComposer {
         // 'ㅗ' + 'ㅏ' -> 'ㅘ'
         // 'ㅗ' + 'ㅐ' -> 'ㅙ'
         // 'ㅗ' + 'ㅣ' -> 'ㅚ'
-        map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::A)), JamoEnum::Jung(Jung::WA));
-        map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::AE)), JamoEnum::Jung(Jung::WAE));
-        map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::OE));
+        map.insert(
+            (JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::A)),
+            JamoEnum::Jung(Jung::WA),
+        );
+        map.insert(
+            (JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::AE)),
+            JamoEnum::Jung(Jung::WAE),
+        );
+        map.insert(
+            (JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::I)),
+            JamoEnum::Jung(Jung::OE),
+        );
 
         // 'ㅜ' + 'ㅓ' -> 'ㅝ'
         // 'ㅜ' + 'ㅔ' -> 'ㅞ'
         // 'ㅜ' + 'ㅣ' -> 'ㅟ'
-        map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::EO)), JamoEnum::Jung(Jung::WEO));
-        map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::E)), JamoEnum::Jung(Jung::WE));
-        map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::WI));
+        map.insert(
+            (JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::EO)),
+            JamoEnum::Jung(Jung::WEO),
+        );
+        map.insert(
+            (JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::E)),
+            JamoEnum::Jung(Jung::WE),
+        );
+        map.insert(
+            (JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::I)),
+            JamoEnum::Jung(Jung::WI),
+        );
 
         // 'ㅡ' + 'ㅣ' -> 'ㅢ'
-        map.insert((JamoEnum::Jung(Jung::EU), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::YI));
+        map.insert(
+            (JamoEnum::Jung(Jung::EU), JamoEnum::Jung(Jung::I)),
+            JamoEnum::Jung(Jung::YI),
+        );
 
         map
     }
@@ -503,28 +582,67 @@ impl BaseKoreanComposer {
 
         // 'ㄱ' + 'ㄱ' -> 'ㄲ'
         // 'ㄱ' + 'ㅅ' -> 'ㄳ'
-        map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::GG));
-        map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::GS));
+        map.insert(
+            (JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::G)),
+            JamoEnum::Jong(Jong::GG),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::S)),
+            JamoEnum::Jong(Jong::GS),
+        );
 
         // 'ㄴ' + 'ㅈ' -> 'ㄵ'
         // 'ㄴ' + 'ㅎ' -> 'ㄶ'
-        map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::J)), JamoEnum::Jong(Jong::NJ));
-        map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::NH));
+        map.insert(
+            (JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::J)),
+            JamoEnum::Jong(Jong::NJ),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::H)),
+            JamoEnum::Jong(Jong::NH),
+        );
 
         // 'ㄹ' + 겹받침 조합
-        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::LG));
-        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::M)), JamoEnum::Jong(Jong::LM));
-        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::B)), JamoEnum::Jong(Jong::LB));
-        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::LS));
-        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::T)), JamoEnum::Jong(Jong::LT));
-        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::P)), JamoEnum::Jong(Jong::LP));
-        map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::LH));
+        map.insert(
+            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::G)),
+            JamoEnum::Jong(Jong::LG),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::M)),
+            JamoEnum::Jong(Jong::LM),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::B)),
+            JamoEnum::Jong(Jong::LB),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::S)),
+            JamoEnum::Jong(Jong::LS),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::T)),
+            JamoEnum::Jong(Jong::LT),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::P)),
+            JamoEnum::Jong(Jong::LP),
+        );
+        map.insert(
+            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::H)),
+            JamoEnum::Jong(Jong::LH),
+        );
 
         // 'ㅂ' + 'ㅅ' -> 'ㅄ'
-        map.insert((JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::BS));
+        map.insert(
+            (JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::S)),
+            JamoEnum::Jong(Jong::BS),
+        );
 
         // 'ㅅ' + 'ㅅ' -> 'ㅆ'
-        map.insert((JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::SS));
+        map.insert(
+            (JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::S)),
+            JamoEnum::Jong(Jong::SS),
+        );
 
         map
     }
@@ -538,19 +656,34 @@ impl BaseKoreanComposer {
         let mut map = HashMap::new();
 
         // 'ㄱ' + 'ㄱ' -> 'ㄲ'
-        map.insert((JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::G)), JamoEnum::Cho(Cho::GG));
+        map.insert(
+            (JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::G)),
+            JamoEnum::Cho(Cho::GG),
+        );
 
         // 'ㄷ' + 'ㄷ' -> 'ㄸ'
-        map.insert((JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::D)), JamoEnum::Cho(Cho::DD));
+        map.insert(
+            (JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::D)),
+            JamoEnum::Cho(Cho::DD),
+        );
 
         // 'ㅂ' + 'ㅂ' -> 'ㅃ'
-        map.insert((JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::B)), JamoEnum::Cho(Cho::BB));
+        map.insert(
+            (JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::B)),
+            JamoEnum::Cho(Cho::BB),
+        );
 
         // 'ㅅ' + 'ㅅ' -> 'ㅆ'
-        map.insert((JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::S)), JamoEnum::Cho(Cho::SS));
+        map.insert(
+            (JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::S)),
+            JamoEnum::Cho(Cho::SS),
+        );
 
         // 'ㅈ' + 'ㅈ' -> 'ㅉ'
-        map.insert((JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::J)), JamoEnum::Cho(Cho::JJ));
+        map.insert(
+            (JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::J)),
+            JamoEnum::Cho(Cho::JJ),
+        );
 
         map
     }
@@ -612,7 +745,10 @@ impl KoreanComposer for BaseKoreanComposer {
             unim_debug!("  -> 새 current_korean: {:?}", self.current_korean_char);
             complete_korean.ok()
         } else {
-            unim_debug!("  -> 조합 계속: current_korean={:?}", self.current_korean_char);
+            unim_debug!(
+                "  -> 조합 계속: current_korean={:?}",
+                self.current_korean_char
+            );
             None
         }
     }
@@ -653,9 +789,14 @@ impl KoreanComposer for BaseKoreanComposer {
         let cho_ok = self.compose_cho();
         let jung_ok = self.compose_jung();
         let jong_ok = self.compose_jong();
-        unim_debug!("  -> compose_cho={}, compose_jung={}, compose_jong={}", cho_ok, jung_ok, jong_ok);
+        unim_debug!(
+            "  -> compose_cho={}, compose_jung={}, compose_jong={}",
+            cho_ok,
+            jung_ok,
+            jong_ok
+        );
         unim_debug!("  -> current_korean: {:?}", self.current_korean_char);
-        
+
         if !cho_ok || !jung_ok || !jong_ok {
             return false;
         }
@@ -729,7 +870,10 @@ impl KoreanComposer for BaseKoreanComposer {
         } else {
             let mut cho = cho_phonemes[0];
             for next_cho in cho_phonemes.iter().skip(1) {
-                if let Some(JamoEnum::Cho(new_cho)) = self.combined_jamo.get(&(JamoEnum::Cho(cho), JamoEnum::Cho(*next_cho))) {
+                if let Some(JamoEnum::Cho(new_cho)) = self
+                    .combined_jamo
+                    .get(&(JamoEnum::Cho(cho), JamoEnum::Cho(*next_cho)))
+                {
                     cho = *new_cho;
                 } else {
                     return false;
@@ -764,7 +908,10 @@ impl KoreanComposer for BaseKoreanComposer {
         } else {
             let mut jung = jung_phonemes[0];
             for next_jung in jung_phonemes.iter().skip(1) {
-                if let Some(JamoEnum::Jung(new_jung)) = self.combined_jamo.get(&(JamoEnum::Jung(jung), JamoEnum::Jung(*next_jung))) {
+                if let Some(JamoEnum::Jung(new_jung)) = self
+                    .combined_jamo
+                    .get(&(JamoEnum::Jung(jung), JamoEnum::Jung(*next_jung)))
+                {
                     jung = *new_jung;
                 } else {
                     return false;
@@ -799,7 +946,10 @@ impl KoreanComposer for BaseKoreanComposer {
         } else {
             let mut jong = jong_phonemes[0];
             for next_jong in jong_phonemes.iter().skip(1) {
-                if let Some(JamoEnum::Jong(new_jong)) = self.combined_jamo.get(&(JamoEnum::Jong(jong), JamoEnum::Jong(*next_jong))) {
+                if let Some(JamoEnum::Jong(new_jong)) = self
+                    .combined_jamo
+                    .get(&(JamoEnum::Jong(jong), JamoEnum::Jong(*next_jong)))
+                {
                     jong = *new_jong;
                 } else {
                     return false;

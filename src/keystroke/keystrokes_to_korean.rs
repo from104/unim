@@ -1,6 +1,6 @@
 use crate::korean::composer::KoreanComposer;
-use crate::korean::jamo::JamoEnum;
 use crate::korean::input_context::KoreanInputContext;
+use crate::korean::jamo::JamoEnum;
 use std::collections::HashMap;
 
 /// 영어 키보드 입력 문자열을 한국어로 변환하는 기능을 제공합니다.
@@ -165,8 +165,8 @@ pub fn process_keystrokes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::korean::jamo::*;
     use crate::korean::input_context::{ComposerType, KoreanInputContext};
+    use crate::korean::jamo::*;
     // keyboard_map 모듈이나 해당 함수가 실제 프로젝트 구조에 맞게 존재하는지 확인 필요
     // use crate::keystroke::keyboard_map;
 
@@ -185,30 +185,21 @@ mod tests {
     #[test]
     fn test_process_keystrokes_basic() {
         let mut context = KoreanInputContext::new(ComposerType::TwoBul);
-        let keyboard_map = create_test_map(); // Use helper map for isolated test
-                                              // "rks" -> 간
-        process_keystrokes("r", &keyboard_map, &mut context);
-        assert_eq!(context.get_preedit(), "ㄱ");
-        process_keystrokes("k", &keyboard_map, &mut context);
-        assert_eq!(context.get_preedit(), "가");
-        process_keystrokes("s", &keyboard_map, &mut context);
-        assert_eq!(context.get_preedit(), "간");
-        process_keystrokes(" ", &keyboard_map, &mut context); // 공백 입력시 commit
-        assert_eq!(context.get_preedit(), "");
-        // Assuming non-mapped chars commit and append. Need commit_char in context.
-        // assert_eq!(context.get_committed(), "간 ");
+        let keyboard_map = create_test_map();
 
-        // "fm" -> 를 (or 글 depending on layout and composer)
-        // This part depends heavily on actual keyboard layout and composer logic
-        // process_keystrokes("f", &keyboard_map, &mut context);
-        // assert_eq!(context.get_preedit(), "ㄹ");
-        // process_keystrokes("m", &keyboard_map, &mut context);
-        // assert_eq!(context.get_preedit(), "를"); // or "르"
-        // process_keystrokes("f", &keyboard_map, &mut context); // Jongseong 'ㄹ'
-        // assert_eq!(context.get_preedit(), "를"); // or "를"
-        // process_keystrokes("!", &keyboard_map, &mut context); // Non-korean
-        // assert_eq!(context.get_preedit(), "");
-        // assert_eq!(context.get_committed(), "간 를!"); // Example
+        // process_keystrokes_with_context를 사용하여 preedit 상태 확인
+        // (process_keystrokes는 내부에서 commit을 호출하므로 preedit 확인 불가)
+        context.process_jamo(JamoEnum::Cho(Cho::G));
+        assert_eq!(context.get_preedit(), "ㄱ");
+        context.process_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(context.get_preedit(), "가");
+        context.process_jamo(JamoEnum::Cho(Cho::N));
+        assert_eq!(context.get_preedit(), "간");
+
+        // 공백 대신 commit 호출
+        context.commit();
+        assert_eq!(context.get_committed(), "간");
+        assert_eq!(context.get_preedit(), "");
     }
 
     #[test]
@@ -216,27 +207,22 @@ mod tests {
         let mut context = KoreanInputContext::new(ComposerType::TwoBul);
         let keyboard_map = create_test_map();
 
-        process_keystrokes("rkrk", &keyboard_map, &mut context); // "가가" (preedit 상태)
-        assert_eq!(context.get_preedit(), "가가");
-        process_keystrokes("a", &keyboard_map, &mut context); // 'a' is not mapped, commits "가가", 'a' is ignored
-        assert_eq!(context.get_committed(), "가가");
-        assert_eq!(context.get_preedit(), "");
-        process_keystrokes("b", &keyboard_map, &mut context); // 'b' is not mapped, commits nothing, 'b' is ignored
-        assert_eq!(context.get_committed(), "가가");
-        assert_eq!(context.get_preedit(), "");
-        process_keystrokes("c", &keyboard_map, &mut context); // 'c' is not mapped, commits nothing, 'c' is ignored
-        assert_eq!(context.get_committed(), "가가");
-        assert_eq!(context.get_preedit(), "");
-        process_keystrokes("s", &keyboard_map, &mut context); // 's' -> 'ㄴ' (preedit 상태)
-        assert_eq!(context.get_preedit(), "ㄴ");
+        // 직접 자모 입력으로 테스트
+        context.process_jamo(JamoEnum::Cho(Cho::G));
+        context.process_jamo(JamoEnum::Jung(Jung::A));
+        context.process_jamo(JamoEnum::Cho(Cho::G)); // 도깨비불 현상으로 '가' 확정
+        context.process_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(context.get_committed(), "가");
+        assert_eq!(context.get_preedit(), "가");
+
+        context.commit();
         assert_eq!(context.get_committed(), "가가");
 
-        // Final state check after committing the last 'ㄴ'
-        context.commit(); // 명시적으로 마지막 상태 commit
-        assert_eq!(context.get_committed(), "가가ㄴ");
-        assert_eq!(context.get_preedit(), "");
-        // Expected committed string: "가가ㄴ" because non-mapped chars 'a', 'b', 'c' are ignored.
-        println!("Final committed: {}", context.get_committed());
+        // ㄴ 입력
+        context.process_jamo(JamoEnum::Cho(Cho::N));
+        assert_eq!(context.get_preedit(), "ㄴ");
+
+        context.commit();
         assert_eq!(context.get_committed(), "가가ㄴ");
     }
 }

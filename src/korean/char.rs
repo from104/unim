@@ -597,12 +597,17 @@ impl KoreanChar {
             self.jongseong
         );
 
-        let result = match (self.choseong, self.jungseong, self.jongseong) {
+        // 채움 문자(F, E)를 None으로 정규화
+        let cho = self.choseong.filter(|c| *c != Cho::F);
+        let jung = self.jungseong.filter(|j| *j != Jung::F);
+        let jong = self.jongseong.filter(|j| *j != Jong::E);
+
+        let result = match (cho, jung, jong) {
             // 완전한 음절 (초성 + 중성 + 종성)
-            (Some(cho), Some(jung), Some(jong)) => {
-                let cho_seq = cho.get_sequence() as u32;
-                let jung_seq = jung.get_sequence() as u32;
-                let jong_seq = jong.get_sequence() as u32;
+            (Some(c), Some(j), Some(jo)) => {
+                let cho_seq = c.get_sequence() as u32;
+                let jung_seq = j.get_sequence() as u32;
+                let jong_seq = jo.get_sequence() as u32;
 
                 let syllable_code = SYLLABLE_BASE
                     + cho_seq * (JUNGSEONG_NUMBER * JONGSEONG_NUMBER) as u32
@@ -614,25 +619,23 @@ impl KoreanChar {
                 ))
             }
             // 완전한 음절 (초성 + 중성, 종성 없음)
-            (Some(cho), Some(jung), None) => {
-                let cho_seq = cho.get_sequence() as u32;
-                let jung_seq = jung.get_sequence() as u32;
-                let jong_seq = 0;
+            (Some(c), Some(j), None) => {
+                let cho_seq = c.get_sequence() as u32;
+                let jung_seq = j.get_sequence() as u32;
 
                 let syllable_code = SYLLABLE_BASE
                     + cho_seq * (JUNGSEONG_NUMBER * JONGSEONG_NUMBER) as u32
-                    + jung_seq * JONGSEONG_NUMBER as u32
-                    + jong_seq;
+                    + jung_seq * JONGSEONG_NUMBER as u32;
 
                 char::from_u32(syllable_code).ok_or(KoreanError::InvalidSyllable(
                     char::from_u32(syllable_code).unwrap_or('?'),
                 ))
             }
             // --- 단독 자모 처리 ---
-            (Some(cho), None, None) => Ok(cho.get_unicode_compat()), // 초성만
-            (None, Some(jung), None) => Ok(jung.get_unicode_compat()), // 중성만
-            (None, None, Some(jong)) if jong != Jong::E => Ok(jong.get_unicode_compat()), // 종성만
-            _ => Err(KoreanError::CompositionFailure),               // 그 외 조합 불가
+            (Some(c), None, None) => Ok(c.get_unicode_compat()), // 초성만
+            (None, Some(j), None) => Ok(j.get_unicode_compat()), // 중성만
+            (None, None, Some(jo)) => Ok(jo.get_unicode_compat()), // 종성만
+            _ => Err(KoreanError::CompositionFailure),           // 그 외 조합 불가
         };
 
         unim_debug!("  -> result: {:?}", result);
@@ -886,8 +889,7 @@ mod tests {
         assert_eq!(korean_char_only_cho.get_syllable().unwrap(), '\u{3131}'); // ㄱ 호환용 자모
 
         let korean_char_empty = KoreanChar::new();
-        assert!(std::panic::catch_unwind(|| korean_char_empty.get_syllable()).is_err());
-        // 패닉 발생
+        assert!(korean_char_empty.get_syllable().is_err()); // 빈 상태는 Err 반환
     }
 
     #[test]

@@ -1,3 +1,6 @@
+// composer_with_3bul.rs
+//! 세벌식 한국어 입력 방식의 조합 로직을 구현합니다.
+
 use crate::korean::char::KoreanChar;
 use crate::korean::composer::BaseKoreanComposer;
 use crate::korean::composer::CombinedJamoMap;
@@ -6,553 +9,249 @@ use crate::korean::jamo::*;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
 
-/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
-macro_rules! unim_debug {
-    ($($arg:tt)*) => {
-        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
-            eprintln!("[UNIM-3BUL] {}", format!($($arg)*));
-        }
-    };
-}
+// ============================================================================
+// 자모 조합 규칙 정의 (배열 기반)
+// ============================================================================
 
-/// 3벌식 자모 조합 테이블 (초성 + 중성 + 종성)
-/// 프로그램 시작 시 한 번만 초기화됩니다.
-static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(|| {
-    let mut map = HashMap::new();
+/// 중성 조합 규칙: (첫째 모음, 둘째 모음) => 결과 모음
+const JUNG_COMBINATIONS: &[(Jung, Jung, Jung)] = &[
+    (Jung::O, Jung::A, Jung::WA),   // ㅗ + ㅏ = ㅘ
+    (Jung::O, Jung::AE, Jung::WAE), // ㅗ + ㅐ = ㅙ
+    (Jung::O, Jung::I, Jung::OE),   // ㅗ + ㅣ = ㅚ
+    (Jung::U, Jung::EO, Jung::WEO), // ㅜ + ㅓ = ㅝ
+    (Jung::U, Jung::E, Jung::WE),   // ㅜ + ㅔ = ㅞ
+    (Jung::U, Jung::I, Jung::WI),   // ㅜ + ㅣ = ㅟ
+    (Jung::EU, Jung::I, Jung::YI),  // ㅡ + ㅣ = ㅢ
+];
 
-    // === 중성 조합 (복모음) ===
-    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::A)), JamoEnum::Jung(Jung::WA));
-    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::AE)), JamoEnum::Jung(Jung::WAE));
-    map.insert((JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::OE));
-    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::EO)), JamoEnum::Jung(Jung::WEO));
-    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::E)), JamoEnum::Jung(Jung::WE));
-    map.insert((JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::WI));
-    map.insert((JamoEnum::Jung(Jung::EU), JamoEnum::Jung(Jung::I)), JamoEnum::Jung(Jung::YI));
+/// 종성 조합 규칙: (첫째 받침, 둘째 받침) => 결과 겹받침
+const JONG_COMBINATIONS: &[(Jong, Jong, Jong)] = &[
+    (Jong::G, Jong::G, Jong::GG), // ㄱ + ㄱ = ㄲ
+    (Jong::G, Jong::S, Jong::GS), // ㄱ + ㅅ = ㄳ
+    (Jong::N, Jong::J, Jong::NJ), // ㄴ + ㅈ = ㄵ
+    (Jong::N, Jong::H, Jong::NH), // ㄴ + ㅎ = ㄶ
+    (Jong::L, Jong::G, Jong::LG), // ㄹ + ㄱ = ㄺ
+    (Jong::L, Jong::M, Jong::LM), // ㄹ + ㅁ = ㄻ
+    (Jong::L, Jong::B, Jong::LB), // ㄹ + ㅂ = ㄼ
+    (Jong::L, Jong::S, Jong::LS), // ㄹ + ㅅ = ㄽ
+    (Jong::L, Jong::T, Jong::LT), // ㄹ + ㅌ = ㄾ
+    (Jong::L, Jong::P, Jong::LP), // ㄹ + ㅍ = ㄿ
+    (Jong::L, Jong::H, Jong::LH), // ㄹ + ㅎ = ㅀ
+    (Jong::B, Jong::S, Jong::BS), // ㅂ + ㅅ = ㅄ
+    (Jong::S, Jong::S, Jong::SS), // ㅅ + ㅅ = ㅆ
+];
 
-    // === 종성 조합 (겹받침) ===
-    map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::GG));
-    map.insert((JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::GS));
-    map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::J)), JamoEnum::Jong(Jong::NJ));
-    map.insert((JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::NH));
-    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::G)), JamoEnum::Jong(Jong::LG));
-    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::M)), JamoEnum::Jong(Jong::LM));
-    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::B)), JamoEnum::Jong(Jong::LB));
-    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::LS));
-    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::T)), JamoEnum::Jong(Jong::LT));
-    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::P)), JamoEnum::Jong(Jong::LP));
-    map.insert((JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::H)), JamoEnum::Jong(Jong::LH));
-    map.insert((JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::BS));
-    map.insert((JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::S)), JamoEnum::Jong(Jong::SS));
+/// 초성 조합 규칙: (첫째 초성, 둘째 초성) => 결과 쌍자음 (3벌식 전용)
+const CHO_COMBINATIONS: &[(Cho, Cho, Cho)] = &[
+    (Cho::G, Cho::G, Cho::GG), // ㄱ + ㄱ = ㄲ
+    (Cho::D, Cho::D, Cho::DD), // ㄷ + ㄷ = ㄸ
+    (Cho::B, Cho::B, Cho::BB), // ㅂ + ㅂ = ㅃ
+    (Cho::S, Cho::S, Cho::SS), // ㅅ + ㅅ = ㅆ
+    (Cho::J, Cho::J, Cho::JJ), // ㅈ + ㅈ = ㅉ
+];
 
-    // === 초성 조합 (쌍자음) - 3벌식 전용 ===
-    map.insert((JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::G)), JamoEnum::Cho(Cho::GG));
-    map.insert((JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::D)), JamoEnum::Cho(Cho::DD));
-    map.insert((JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::B)), JamoEnum::Cho(Cho::BB));
-    map.insert((JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::S)), JamoEnum::Cho(Cho::SS));
-    map.insert((JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::J)), JamoEnum::Cho(Cho::JJ));
+/// 배열 기반 조합 규칙으로 HashMap 빌드
+fn build_jamo_map() -> CombinedJamoMap {
+    let capacity = JUNG_COMBINATIONS.len() + JONG_COMBINATIONS.len() + CHO_COMBINATIONS.len();
+    let mut map = HashMap::with_capacity(capacity);
+
+    for &(a, b, c) in JUNG_COMBINATIONS {
+        map.insert((JamoEnum::Jung(a), JamoEnum::Jung(b)), JamoEnum::Jung(c));
+    }
+    for &(a, b, c) in JONG_COMBINATIONS {
+        map.insert((JamoEnum::Jong(a), JamoEnum::Jong(b)), JamoEnum::Jong(c));
+    }
+    for &(a, b, c) in CHO_COMBINATIONS {
+        map.insert((JamoEnum::Cho(a), JamoEnum::Cho(b)), JamoEnum::Cho(c));
+    }
 
     map
-});
+}
 
+/// 3벌식 자모 조합 테이블 (프로그램 시작 시 한 번만 초기화)
+static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(build_jamo_map);
 
-/**
- * 3벌식 자판 레이아웃에 특화된 한국어 조합기입니다.
- *
- * 이 조합기는 [`BaseKoreanComposer`]를 기반으로 하며, 3벌식 입력 방식의 특수한 규칙을 적용하여
- * 한국어 음절을 조합합니다. 3벌식 자판은 초성, 중성, 종성이 별도의 키에 할당되어 있어,
- * 2벌식과는 다른 조합 규칙이 필요합니다.
- *
- * # 특징
- * - 초성, 중성, 종성이 별도의 키로 할당됨
- * - 종성은 중성이 입력된 후에만 입력 가능
- * - 중성이나 종성 다음에 초성이 오면 새로운 음절 시작
- * - 종성 다음에 중성이 오면 새로운 음절 시작
- *
- * # 주요 기능
- * - [`JamoEnum`] 자모를 입력받아 조합 (`add_jamo`)
- * - 마지막 입력 자모 제거 (`remove_jamo`)
- * - 현재 큐의 자모를 바탕으로 음절 조합 시도 (`compose_korean`)
- * - 강제 음절 완성 및 상태 초기화 (`force_compose_korean`)
- * - 3벌식 조합 규칙에 따른 자모 조합 테이블 초기화 (`initialize_combined_jamo`)
- *
- * # 예시
- * ```
- * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
- * use unim::korean::jamo::*;
- *
- * let mut composer = KoreanComposer3Bul::new();
- * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
- * composer.add_jamo(JamoEnum::Jung(Jung::A)); // 'ㅏ'
- * assert_eq!(composer.force_compose_korean(), Some('가'));
- * ```
- *
- * # 관련 모듈
- * - [`crate::korean::jamo`]: 한국어 자모(초성, 중성, 종성) 정의
- * - [`crate::korean::char`]: 한국어 음절 구조체 및 관련 기능
- * - [`crate::korean::composer`]: 한국어 조합기 트레이트 및 기본 구현
- */
+// ============================================================================
+// 3벌식 조합 규칙 검사 헬퍼
+// ============================================================================
+
+/// 3벌식 조합 규칙 위반 유형
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Compose3BulViolation {
+    /// 중성 없이 종성 입력 (처음 또는 초성 다음에 바로 종성)
+    JongWithoutJung,
+    /// 중성/종성 다음에 초성 입력 - 새 음절 시작
+    ChoAfterJungOrJong,
+    /// 종성 다음에 중성 입력 - 새 음절 시작
+    JungAfterJong,
+}
+
+/// 현재 큐 상태에서 3벌식 규칙 위반 여부를 검사합니다.
+fn check_3bul_violation(base: &mut BaseKoreanComposer) -> Option<Compose3BulViolation> {
+    let queue = base.jamo_queue();
+    if queue.is_empty() {
+        return None;
+    }
+
+    let last = *queue.back().unwrap();
+    let prev = if queue.len() > 1 {
+        Some(queue[queue.len() - 2])
+    } else {
+        None
+    };
+    let is_filled_jung = base.current_korean().is_filled_jung();
+
+    match (prev, last) {
+        // 규칙 1: 중성 없이 종성이 오는 경우
+        (_, l)
+            if l.is_jong()
+                && !is_filled_jung
+                && (prev.is_none() || prev.is_some_and(|p| p.is_cho())) =>
+        {
+            Some(Compose3BulViolation::JongWithoutJung)
+        }
+        // 규칙 2: 중성이나 종성 다음에 초성이 오는 경우
+        (Some(p), l) if (p.is_jung() || p.is_jong()) && l.is_cho() => {
+            Some(Compose3BulViolation::ChoAfterJungOrJong)
+        }
+        // 규칙 3: 종성 다음에 중성이 오는 경우
+        (Some(p), l) if p.is_jong() && l.is_jung() => Some(Compose3BulViolation::JungAfterJong),
+        _ => None,
+    }
+}
+
+// ============================================================================
+// KoreanComposer3Bul 구현
+// ============================================================================
+
+/// 세벌식 한국어 입력 방식의 조합 로직을 구현한 컴포저입니다.
+///
+/// # 특징
+/// - 초성, 중성, 종성이 별도의 키에 할당됨
+/// - 종성은 중성이 입력된 후에만 입력 가능
+/// - 중성/종성 다음에 초성이 오면 새 음절 시작
+/// - 초성 조합 지원 (ㄱ+ㄱ=ㄲ 등)
 #[derive(Debug, Default)]
 pub struct KoreanComposer3Bul {
-    /// 기본적인 한국어 조합 로직을 처리하는 내부 조합기 인스턴스입니다.
     base_composer: BaseKoreanComposer,
 }
 
 impl KoreanComposer3Bul {
-    /**
-     * 새로운 `KoreanComposer3Bul` 인스턴스를 생성합니다.
-     *
-     * 내부적으로 `BaseKoreanComposer`를 생성하고, 3벌식에 필요한
-     * 자모 조합 규칙 테이블을 초기화합니다.
-     *
-     * # 반환값
-     *
-     * 초기화된 `KoreanComposer3Bul` 인스턴스.
-     */
+    /// 새로운 `KoreanComposer3Bul` 인스턴스를 생성합니다.
     pub fn new() -> Self {
         let mut composer = KoreanComposer3Bul {
             base_composer: BaseKoreanComposer::new(),
         };
-        // 정적 3벌식 조합 테이블을 복제하여 사용
-        *composer.combined_jamo() = COMBINED_JAMO_3BUL.clone();
+        *composer.base_composer.combined_jamo() = COMBINED_JAMO_3BUL.clone();
         composer
     }
 }
 
 impl KoreanComposer for KoreanComposer3Bul {
-    /**
-     * 3벌식 규칙에 따라 한국어 자모를 입력받아 현재 조합 상태에 추가합니다.
-     *
-     * # 동작 방식
-     * 1. 입력된 자모를 현재 조합 중인 자모 시퀀스에 추가
-     * 2. 조합 시도
-     * 3. 조합 실패 시:
-     *    - 이전 상태로 복원
-     *    - 완성된 음절 생성
-     *    - 새로운 음절 시작을 위한 상태 초기화
-     *
-     * # 매개변수
-     * * `jamo` - 입력할 한국어 자모
-     *
-     * # 반환값
-     * * `Some(char)` - 이전 음절이 완성된 경우, 완성된 한국어 음절
-     * * `None` - 조합이 계속 진행 중인 경우
-     *
-     * # 예시
-     * ```
-     * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
-     * use unim::korean::jamo::*;
-     *
-     * let mut composer = KoreanComposer3Bul::new();
-     * assert_eq!(composer.add_jamo(JamoEnum::Cho(Cho::G)), None);  // 'ㄱ'
-     * assert_eq!(composer.add_jamo(JamoEnum::Jung(Jung::A)), Some('가')); // 'ㅏ'
-     * ```
-     */
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
-        unim_debug!("add_jamo: {:?}", jamo);
-        unim_debug!("  queue BEFORE: {:?}", self.base_composer.jamo_queue());
-        unim_debug!("  current_korean BEFORE: {:?}", self.base_composer.current_korean());
-        
-        // 입력된 자모가 유효한지 확인
         if !self.base_composer.is_valid_jamo(&jamo) {
-            unim_debug!("  -> 유효하지 않은 자모, None 반환");
             return None;
         }
 
-        // 현재 큐 상태를 복사하여 실패 시 복원 용도로 사용
-        let original_queue = self.base_composer.jamo_queue().clone();
+        self.base_composer.add_jamo_with(jamo, |base| {
+            if base.jamo_queue().is_empty() {
+                base.clear();
+                return true;
+            }
 
-        // 새로운 자모 추가
-        self.base_composer.jamo_queue().push_back(jamo);
-        unim_debug!("  queue AFTER push: {:?}", self.base_composer.jamo_queue());
+            if check_3bul_violation(base).is_some() {
+                return false;
+            }
 
-        // 조합 시도
-        let compose_result = self.compose_korean();
-        unim_debug!("  compose_korean() = {}", compose_result);
-        
-        if compose_result {
-            // 조합 성공: 조합 계속 진행
-            unim_debug!("  -> 조합 성공, None 반환 (current_korean={:?})", self.base_composer.current_korean());
-            None
-        } else {
-            // 조합 실패: 이전 음절 완성 및 새 음절 시작
-            unim_debug!("  -> 조합 실패, 음절 분리 처리 시작");
-
-            // 1. 추가했던 자모 제거 (큐 복원으로 대체)
-            *self.base_composer.jamo_queue() = original_queue;
-            unim_debug!("  queue 복원: {:?}", self.base_composer.jamo_queue());
-
-            // 2. 이전 상태로 `current_korean` 복원 (조합 재실행)
-            self.compose_korean(); // 실패할 수 없음 (이전 상태는 유효했으므로)
-
-            // 3. 완성된 음절 얻기
-            let complete_korean = self.base_composer.current_korean().get_syllable().ok();
-            unim_debug!("  완성된 음절: {:?}", complete_korean);
-
-            // 4. 이전 큐 상태를 last_jamo_queue에 저장
-            let current_jamo_queue_content: Vec<_> =
-                self.base_composer.jamo_queue().iter().copied().collect();
-            self.base_composer.last_jamo_queue().clear();
-            self.base_composer
-                .last_jamo_queue()
-                .extend(current_jamo_queue_content);
-
-            // 5. 현재 큐를 비우고 새 자모만 추가
-            self.base_composer.jamo_queue().clear();
-            self.base_composer.jamo_queue().push_back(jamo);
-            unim_debug!("  새 큐: {:?}", self.base_composer.jamo_queue());
-
-            // 6. current_korean 상태 초기화
-            self.clear_jamo();
-
-            // 7. 새 자모로 current_korean 상태 설정
-            self.compose_korean();
-            unim_debug!("  새 current_korean: {:?}", self.base_composer.current_korean());
-
-            // 8. 완성된 이전 음절 반환
-            unim_debug!("  -> Some({:?}) 반환", complete_korean);
-            complete_korean
-        }
+            base.compose_korean()
+        })
     }
 
-    /**
-     * 마지막으로 입력된 한국어 자모를 제거하고 조합 상태를 갱신합니다.
-     *
-     * # 동작 방식
-     * 1. 큐에서 마지막 자모 제거
-     * 2. 남은 자모로 조합 상태 갱신
-     *
-     * # 반환값
-     * * `Some(JamoEnum)` - 제거된 자모
-     * * `None` - 제거할 자모가 없는 경우
-     *
-     * # 예시
-     * ```
-     * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
-     * use unim::korean::jamo::*;
-     *
-     * let mut composer = KoreanComposer3Bul::new();
-     * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
-     * assert_eq!(composer.remove_jamo(), Some(JamoEnum::Cho(Cho::G)));
-     * ```
-     */
     fn remove_jamo(&mut self) -> Option<JamoEnum> {
         self.base_composer.remove_jamo()
     }
 
-    /**
-     * 현재 자모 큐의 내용을 바탕으로 한국어 음절을 조합합니다.
-     *
-     * # 동작 방식
-     * 1. 큐가 비어있는지 확인
-     * 2. 3벌식 특수 규칙 검사:
-     *    - 중성 없이 종성 입력 시도
-     *    - 중성/종성 다음 초성 입력
-     *    - 종성 다음 중성 입력
-     * 3. 자모 조합 수행:
-     *    - 초성 조합
-     *    - 중성 조합
-     *    - 종성 조합
-     *
-     * # 반환값
-     * * `true` - 조합 성공
-     * * `false` - 조합 실패
-     */
     fn compose_korean(&mut self) -> bool {
-        // 큐가 비어있는지 먼저 확인
         if self.base_composer.jamo_queue().is_empty() {
-            self.clear_jamo();
+            self.base_composer.clear();
             return true;
         }
 
-        // 마지막 두 자모와 현재 중성 채움 상태 확인
-        let (last_jamo, last_prev_jamo) = {
-            let queue = self.base_composer.jamo_queue(); // 첫 번째 mutable borrow 시작
-            let last = *queue.back().unwrap(); // 값 복사 (JamoEnum은 Copy)
-            let prev = if queue.len() > 1 {
-                Some(queue[queue.len() - 2]) // 값 복사
-            } else {
-                None
-            };
-            (last, prev) // 첫 번째 mutable borrow 끝
-        };
-        let is_filled_jung = {
-            // current_korean()이 &mut KoreanChar를 반환하므로 mutable borrow 발생
-            self.base_composer.current_korean().is_filled_jung() // 두 번째 mutable borrow 시작 및 끝
-        };
-
-        // 3벌식 특수 규칙 검사
-        match (last_prev_jamo, last_jamo) {
-            // 중성 없이 종성이 먼저 오는 경우 (첫 자모가 종성이거나, 초성 다음에 종성)
-            (_, JamoEnum::Jong(_))
-                if !is_filled_jung
-                    && (last_prev_jamo.is_none()
-                        || matches!(last_prev_jamo, Some(JamoEnum::Cho(_)))) =>
-            {
-                return false;
-            }
-            // 중성이나 종성 다음에 초성이 오는 경우
-            (Some(JamoEnum::Jung(_) | JamoEnum::Jong(_)), JamoEnum::Cho(_)) => return false,
-            // 종성 다음에 중성이 오는 경우
-            (Some(JamoEnum::Jong(_)), JamoEnum::Jung(_)) => return false,
-            // 그 외 경우는 3벌식 특수 규칙에 해당하지 않음
-            _ => {}
-        }
-
-        // 기본 조합 로직 위임 (초성, 중성, 종성 순서로 조합)
-        if !self.base_composer.compose_cho() {
-            return false;
-        }
-        if !self.base_composer.compose_jung() {
-            return false;
-        }
-        if !self.base_composer.compose_jong() {
+        if check_3bul_violation(&mut self.base_composer).is_some() {
             return false;
         }
 
-        // 모든 검사와 조합이 성공
-        true
+        self.base_composer.compose_korean()
     }
 
-    /**
-     * 현재 조합 중인 자모들을 강제로 음절로 완성합니다.
-     *
-     * # 동작 방식
-     * 1. 현재 자모 큐의 내용으로 음절 조합 시도
-     * 2. 조합 성공 시 완성된 음절 반환
-     * 3. 조합 실패 시 `None` 반환
-     *
-     * # 반환값
-     * * `Some(char)` - 완성된 한국어 음절
-     * * `None` - 조합 실패
-     *
-     * # 예시
-     * ```
-     * use unim::korean::composer_with_3bul::KoreanComposer3Bul;
-     * use unim::korean::jamo::*;
-     *
-     * let mut composer = KoreanComposer3Bul::new();
-     * composer.add_jamo(JamoEnum::Cho(Cho::G));  // 'ㄱ'
-     * composer.add_jamo(JamoEnum::Jung(Jung::A)); // 'ㅏ'
-     * assert_eq!(composer.force_compose_korean(), Some('가'));
-     * ```
-     */
     fn force_compose_korean(&mut self) -> Option<char> {
         self.base_composer.force_compose_korean()
     }
 
-    /**
-     * 현재 자모 큐에 조합 가능한 자모가 있는지 확인합니다.
-     *
-     * # 반환값
-     * * `true` - 조합 가능한 자모가 있음
-     * * `false` - 조합 가능한 자모가 없음
-     */
     fn is_compose(&self) -> bool {
         self.base_composer.is_compose()
     }
 
-    /**
-     * 새로운 음절의 시작인지 확인합니다.
-     *
-     * # 반환값
-     * * `true` - 새로운 음절의 시작
-     * * `false` - 기존 음절의 연속
-     */
     fn is_new_syllable(&self) -> bool {
         self.base_composer.is_new_syllable()
     }
 
-    /**
-     * 한국어 초성 조합을 수행합니다. (내부 사용)
-     *
-     * `BaseKoreanComposer`의 `compose_cho` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * * `true`: 초성 조합 성공 또는 초성 없음.
-     * * `false`: 유효하지 않은 초성 조합 시도.
-     */
     fn compose_cho(&mut self) -> bool {
         self.base_composer.compose_cho()
     }
 
-    /**
-     * 한국어 중성 조합을 수행합니다. (내부 사용)
-     *
-     * `BaseKoreanComposer`의 `compose_jung` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * * `true`: 중성 조합 성공 또는 중성 없음.
-     * * `false`: 유효하지 않은 중성 조합 시도.
-     */
     fn compose_jung(&mut self) -> bool {
         self.base_composer.compose_jung()
     }
 
-    /**
-     * 한국어 종성 조합을 수행합니다. (내부 사용)
-     *
-     * `BaseKoreanComposer`의 `compose_jong` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * * `true`: 종성 조합 성공 또는 종성 없음.
-     * * `false`: 유효하지 않은 종성 조합 시도.
-     */
     fn compose_jong(&mut self) -> bool {
         self.base_composer.compose_jong()
     }
 
-    /**
-     * 현재 조합 중인 한국어 문자(`current_korean`)의 자모를 모두 지웁니다.
-     *
-     * `BaseKoreanComposer`의 `clear_jamo` 구현을 그대로 사용합니다.
-     */
     fn clear_jamo(&mut self) {
         self.base_composer.clear_jamo()
     }
 
-    /**
-     * 현재 조합된 초성을 얻습니다.
-     *
-     * `BaseKoreanComposer`의 `get_current_cho` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 현재 조합된 초성 (`Option<Cho>`).
-     */
     fn get_current_cho(&self) -> Option<Cho> {
         self.base_composer.get_current_cho()
     }
 
-    /**
-     * 현재 조합된 중성을 얻습니다.
-     *
-     * `BaseKoreanComposer`의 `get_current_jung` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 현재 조합된 중성 (`Option<Jung>`).
-     */
     fn get_current_jung(&self) -> Option<Jung> {
         self.base_composer.get_current_jung()
     }
 
-    /**
-     * 현재 조합된 종성을 얻습니다.
-     *
-     * `BaseKoreanComposer`의 `get_current_jong` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 현재 조합된 종성 (`Option<Jong>`).
-     */
     fn get_current_jong(&self) -> Option<Jong> {
         self.base_composer.get_current_jong()
     }
 
-    /**
-     * 현재 조합 중인 한국어 문자의 초성을 설정합니다.
-     *
-     * `BaseKoreanComposer`의 `set_current_cho` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 설정 성공 여부 (현재 구현에서는 항상 `true`).
-     */
     fn set_current_cho(&mut self, cho: Option<Cho>) -> bool {
         self.base_composer.set_current_cho(cho)
     }
 
-    /**
-     * 현재 조합 중인 한국어 문자의 중성을 설정합니다.
-     *
-     * `BaseKoreanComposer`의 `set_current_jung` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 설정 성공 여부 (현재 구현에서는 항상 `true`).
-     */
     fn set_current_jung(&mut self, jung: Option<Jung>) -> bool {
         self.base_composer.set_current_jung(jung)
     }
 
-    /**
-     * 현재 조합 중인 한국어 문자의 종성을 설정합니다.
-     *
-     * `BaseKoreanComposer`의 `set_current_jong` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 설정 성공 여부 (현재 구현에서는 항상 `true`).
-     */
     fn set_current_jong(&mut self, jong: Option<Jong>) -> bool {
         self.base_composer.set_current_jong(jong)
     }
 
-    /**
-     * 내부적으로 사용되는 자모 조합 테이블에 대한 읽기 전용 참조를 반환합니다.
-     *
-     * `BaseKoreanComposer`의 `get_combined_jamo` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 자모 조합 규칙을 담고 있는 해시맵에 대한 참조.
-     */
     fn get_combined_jamo(&self) -> &CombinedJamoMap {
         self.base_composer.get_combined_jamo()
     }
 
-    /**
-     * 현재 조합 중인 자모들이 순서대로 저장된 큐에 대한 가변 참조를 반환합니다.
-     *
-     * `BaseKoreanComposer`의 `jamo_queue` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 자모 큐 (`VecDeque<JamoEnum>`)에 대한 가변 참조.
-     */
     fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
         self.base_composer.jamo_queue()
     }
 
-    /**
-     * 직전에 완성된 음절을 구성했던 자모 큐에 대한 가변 참조를 반환합니다.
-     *
-     * `BaseKoreanComposer`의 `last_jamo_queue` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 이전 자모 큐 (`VecDeque<JamoEnum>`)에 대한 가변 참조.
-     */
     fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
         self.base_composer.last_jamo_queue()
     }
 
-    /**
-     * 내부적으로 사용되는 자모 조합 테이블에 대한 가변 참조를 반환합니다.
-     *
-     * `BaseKoreanComposer`의 `combined_jamo` 구현을 그대로 사용합니다.
-     * (주의: 이 메서드는 `initialize_combined_jamo` 외에는 직접 사용할 일이 거의 없습니다.)
-     *
-     * # 반환값
-     *
-     * 자모 조합 규칙을 담고 있는 해시맵에 대한 가변 참조.
-     */
     fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
         self.base_composer.combined_jamo()
     }
 
-    /**
-     * 현재 조합 중인 한국어 문자(`KoreanChar`)의 상태를 나타내는 구조체에 대한 가변 참조를 반환합니다.
-     *
-     * `BaseKoreanComposer`의 `current_korean` 구현을 그대로 사용합니다.
-     *
-     * # 반환값
-     *
-     * 현재 조합 중인 `KoreanChar`에 대한 가변 참조.
-     */
     fn current_korean(&mut self) -> &mut KoreanChar {
         self.base_composer.current_korean()
     }

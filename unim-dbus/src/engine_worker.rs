@@ -37,6 +37,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
     // 블로킹으로 요청 수신 (tokio 런타임 밖에서 실행)
     while let Some(request) = rx.blocking_recv() {
+        // 설정 파일 변경 여부 확인 및 리로드 (Throttling 적용됨)
+        if config.reload_if_changed() {
+            log::info!("[Engine Worker] 설정 파일 변경 감지 - 리로드 완료");
+            // 기존 엔진들의 레이아웃도 업데이트
+            for engine in contexts.values_mut() {
+                engine.set_korean_layout(config.engine.korean.layout);
+                engine.set_english_layout(config.engine.english.layout);
+            }
+        }
+
         match request {
             EngineRequest::CreateContext { id, response } => {
                 let engine = InputEngine::new(&config);

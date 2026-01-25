@@ -117,70 +117,49 @@ impl Jamo for Cho {
 
     /// 유니코드 첫가끝 영역의 초성 문자를 반환합니다.
     ///
-    /// # 예시
-    ///
-    /// ```
-    /// use unim::korean::jamo::{Cho, Jamo};
-    /// assert_eq!(Cho::G.get_unicode(), 'ᄀ'); // U+1100
-    /// assert_eq!(Cho::F.get_unicode(), 'ᅟ'); // U+115F
-    /// ```
+    /// 초성 유니코드는 U+1100부터 연속, 채움 문자는 U+115F입니다.
+    #[inline]
     fn get_unicode(&self) -> char {
-        match self {
-            Cho::F => '\u{115f}',  // Korean Choseong Filler
-            Cho::G => '\u{1100}',  // ㄱ G
-            Cho::GG => '\u{1101}', // ㄲ GG
-            Cho::N => '\u{1102}',  // ㄴ N
-            Cho::D => '\u{1103}',  // ㄷ D
-            Cho::DD => '\u{1104}', // ㄸ DD
-            Cho::R => '\u{1105}',  // ㄹ R
-            Cho::M => '\u{1106}',  // ㅁ M
-            Cho::B => '\u{1107}',  // ㅂ B
-            Cho::BB => '\u{1108}', // ㅃ BB
-            Cho::S => '\u{1109}',  // ㅅ S
-            Cho::SS => '\u{110a}', // ㅆ SS
-            Cho::E => '\u{110b}',  // ㅇ E
-            Cho::J => '\u{110c}',  // ㅈ J
-            Cho::JJ => '\u{110d}', // ㅉ JJ
-            Cho::C => '\u{110e}',  // ㅊ C
-            Cho::K => '\u{110f}',  // ㅋ K
-            Cho::T => '\u{1110}',  // ㅌ T
-            Cho::P => '\u{1111}',  // ㅍ P
-            Cho::H => '\u{1112}',  // ㅎ H
+        const CHO_BASE: u32 = 0x1100; // ᄀ
+        const CHO_FILLER: char = '\u{115F}'; // ᅟ
+
+        match *self as i32 {
+            -1 => CHO_FILLER,
+            seq => char::from_u32(CHO_BASE + seq as u32).unwrap_or(CHO_FILLER),
         }
     }
 
     /// 유니코드 호환용 자모 영역의 초성 문자를 반환합니다.
     ///
-    /// # 예시
-    ///
-    /// ```
-    /// use unim::korean::jamo::{Cho, Jamo};
-    /// assert_eq!(Cho::G.get_unicode_compat(), 'ㄱ'); // U+3131
-    /// assert_eq!(Cho::F.get_unicode_compat(), 'ㅤ'); // U+3164 (Korean Filler)
-    /// ```
+    /// 호환용 자모는 연속되지 않아 배열 매핑을 사용합니다.
+    #[inline]
     fn get_unicode_compat(&self) -> char {
-        match self {
-            Cho::F => '\u{3164}',  // Korean Filler (호환용 초성 채움 문자는 별도로 없음)
-            Cho::G => '\u{3131}',  // ㄱ
-            Cho::GG => '\u{3132}', // ㄲ
-            Cho::N => '\u{3134}',  // ㄴ
-            Cho::D => '\u{3137}',  // ㄷ
-            Cho::DD => '\u{3138}', // ㄸ
-            Cho::R => '\u{3139}',  // ㄹ
-            Cho::M => '\u{3141}',  // ㅁ
-            Cho::B => '\u{3142}',  // ㅂ
-            Cho::BB => '\u{3143}', // ㅃ
-            Cho::S => '\u{3145}',  // ㅅ
-            Cho::SS => '\u{3146}', // ㅆ
-            Cho::E => '\u{3147}',  // ㅇ
-            Cho::J => '\u{3148}',  // ㅈ
-            Cho::JJ => '\u{3149}', // ㅉ
-            Cho::C => '\u{314a}',  // ㅊ
-            Cho::K => '\u{314b}',  // ㅋ
-            Cho::T => '\u{314c}',  // ㅌ
-            Cho::P => '\u{314d}',  // ㅍ
-            Cho::H => '\u{314e}',  // ㅎ
-        }
+        // 인덱스: F=-1 -> [0], G=0 -> [1], ... H=18 -> [19]
+        const CHO_COMPAT: [char; 20] = [
+            '\u{3164}', // F (Filler)
+            '\u{3131}', // G  ㄱ
+            '\u{3132}', // GG ㄲ
+            '\u{3134}', // N  ㄴ
+            '\u{3137}', // D  ㄷ
+            '\u{3138}', // DD ㄸ
+            '\u{3139}', // R  ㄹ
+            '\u{3141}', // M  ㅁ
+            '\u{3142}', // B  ㅂ
+            '\u{3143}', // BB ㅃ
+            '\u{3145}', // S  ㅅ
+            '\u{3146}', // SS ㅆ
+            '\u{3147}', // E  ㅇ
+            '\u{3148}', // J  ㅈ
+            '\u{3149}', // JJ ㅉ
+            '\u{314a}', // C  ㅊ
+            '\u{314b}', // K  ㅋ
+            '\u{314c}', // T  ㅌ
+            '\u{314d}', // P  ㅍ
+            '\u{314e}', // H  ㅎ
+        ];
+
+        let idx = (*self as i32 + 1) as usize; // -1 -> 0, 0 -> 1, ..., 18 -> 19
+        CHO_COMPAT.get(idx).copied().unwrap_or('\u{3164}')
     }
 }
 
@@ -279,10 +258,18 @@ impl Cho {
             Cho::P => Ok(Jong::P),   // ㅍ
             Cho::H => Ok(Jong::H),   // ㅎ
             // 변환 불가 초성들
-            Cho::DD => Err(KoreanError::ConversionError("Cho::DD cannot be converted to Jong")),
-            Cho::BB => Err(KoreanError::ConversionError("Cho::BB cannot be converted to Jong")),
-            Cho::JJ => Err(KoreanError::ConversionError("Cho::JJ cannot be converted to Jong")),
-            Cho::F => Err(KoreanError::ConversionError("Cho::F cannot be converted to Jong")),
+            Cho::DD => Err(KoreanError::ConversionError(
+                "Cho::DD cannot be converted to Jong",
+            )),
+            Cho::BB => Err(KoreanError::ConversionError(
+                "Cho::BB cannot be converted to Jong",
+            )),
+            Cho::JJ => Err(KoreanError::ConversionError(
+                "Cho::JJ cannot be converted to Jong",
+            )),
+            Cho::F => Err(KoreanError::ConversionError(
+                "Cho::F cannot be converted to Jong",
+            )),
         }
     }
 }
@@ -369,75 +356,29 @@ impl Jamo for Jung {
 
     /// 유니코드 첫가끝 영역의 중성 문자를 반환합니다.
     ///
-    /// # 예시
-    ///
-    /// ```
-    /// use unim::korean::jamo::{Jung, Jamo};
-    /// assert_eq!(Jung::A.get_unicode(), 'ᅡ'); // U+1161
-    /// assert_eq!(Jung::WA.get_unicode(), 'ᅪ'); // U+116A
-    /// assert_eq!(Jung::F.get_unicode(), 'ᅠ'); // U+1160
-    /// ```
+    /// 중성 유니코드는 U+1160(채움)부터 연속입니다.
+    #[inline]
     fn get_unicode(&self) -> char {
-        match self {
-            Jung::F => '\u{1160}',   // Korean Jungseong Filler
-            Jung::A => '\u{1161}',   // ㅏ A
-            Jung::AE => '\u{1162}',  // ㅐ AE
-            Jung::YA => '\u{1163}',  // ㅑ YA
-            Jung::YAE => '\u{1164}', // ㅒ YAE
-            Jung::EO => '\u{1165}',  // ㅓ EO
-            Jung::E => '\u{1166}',   // ㅔ E
-            Jung::YEO => '\u{1167}', // ㅕ YEO
-            Jung::YE => '\u{1168}',  // ㅖ YE
-            Jung::O => '\u{1169}',   // ㅗ O
-            Jung::WA => '\u{116a}',  // ㅘ WA
-            Jung::WAE => '\u{116b}', // ㅙ WAE
-            Jung::OE => '\u{116c}',  // ㅚ OE
-            Jung::YO => '\u{116d}',  // ㅛ YO
-            Jung::U => '\u{116e}',   // ㅜ U
-            Jung::WEO => '\u{116f}', // ㅝ WEO
-            Jung::WE => '\u{1170}',  // ㅞ WE
-            Jung::WI => '\u{1171}',  // ㅟ WI
-            Jung::YU => '\u{1172}',  // ㅠ YU
-            Jung::EU => '\u{1173}',  // ㅡ EU
-            Jung::YI => '\u{1174}',  // ㅢ YI
-            Jung::I => '\u{1175}',   // ㅣ I
+        const JUNG_BASE: u32 = 0x1161; // ᅡ (A)
+        const JUNG_FILLER: char = '\u{1160}'; // ᅠ
+
+        match *self as i32 {
+            -1 => JUNG_FILLER,
+            seq => char::from_u32(JUNG_BASE + seq as u32).unwrap_or(JUNG_FILLER),
         }
     }
 
     /// 유니코드 호환용 자모 영역의 중성 문자를 반환합니다.
     ///
-    /// # 예시
-    ///
-    /// ```
-    /// use unim::korean::jamo::{Jung, Jamo};
-    /// assert_eq!(Jung::A.get_unicode_compat(), 'ㅏ'); // U+314F
-    /// assert_eq!(Jung::WA.get_unicode_compat(), 'ㅘ'); // U+3158
-    /// assert_eq!(Jung::F.get_unicode_compat(), 'ㅤ'); // U+3164 (Korean Filler)
-    /// ```
+    /// 중성 호환용 유니코드는 U+314F부터 연속입니다.
+    #[inline]
     fn get_unicode_compat(&self) -> char {
-        match self {
-            Jung::F => '\u{3164}',   // Korean Filler (호환용 중성 채움 문자는 별도로 없음)
-            Jung::A => '\u{314f}',   // ㅏ
-            Jung::AE => '\u{3150}',  // ㅐ
-            Jung::YA => '\u{3151}',  // ㅑ
-            Jung::YAE => '\u{3152}', // ㅒ
-            Jung::EO => '\u{3153}',  // ㅓ
-            Jung::E => '\u{3154}',   // ㅔ
-            Jung::YEO => '\u{3155}', // ㅕ
-            Jung::YE => '\u{3156}',  // ㅖ
-            Jung::O => '\u{3157}',   // ㅗ
-            Jung::WA => '\u{3158}',  // ㅘ
-            Jung::WAE => '\u{3159}', // ㅙ
-            Jung::OE => '\u{315a}',  // ㅚ
-            Jung::YO => '\u{315b}',  // ㅛ
-            Jung::U => '\u{315c}',   // ㅜ
-            Jung::WEO => '\u{315d}', // ㅝ
-            Jung::WE => '\u{315e}',  // ㅞ
-            Jung::WI => '\u{315f}',  // ㅟ
-            Jung::YU => '\u{3160}',  // ㅠ
-            Jung::EU => '\u{3161}',  // ㅡ
-            Jung::YI => '\u{3162}',  // ㅢ
-            Jung::I => '\u{3163}',   // ㅣ
+        const JUNG_COMPAT_BASE: u32 = 0x314F; // ㅏ (A=0)
+        const JUNG_FILLER: char = '\u{3164}';
+
+        match *self as i32 {
+            -1 => JUNG_FILLER,
+            seq => char::from_u32(JUNG_COMPAT_BASE + seq as u32).unwrap_or(JUNG_FILLER),
         }
     }
 }
@@ -600,81 +541,55 @@ impl Jamo for Jong {
     /// assert_eq!(Jong::LG.get_unicode(), 'ᆰ'); // U+11B0
     /// assert_eq!(Jong::E.get_unicode(), '\u{0000}'); // Null
     /// ```
+    #[inline]
     fn get_unicode(&self) -> char {
-        match self {
-            Jong::E => '\u{0000}',  // 종성 없음 (널 문자 사용)
-            Jong::G => '\u{11a8}',  // ㄱ G
-            Jong::GG => '\u{11a9}', // ㄲ GG
-            Jong::GS => '\u{11aa}', // ㄳ GS
-            Jong::N => '\u{11ab}',  // ㄴ N
-            Jong::NJ => '\u{11ac}', // ㄵ NJ
-            Jong::NH => '\u{11ad}', // ㄶ NH
-            Jong::D => '\u{11ae}',  // ㄷ D
-            Jong::L => '\u{11af}',  // ㄹ L
-            Jong::LG => '\u{11b0}', // ㄺ LG
-            Jong::LM => '\u{11b1}', // ㄻ LM
-            Jong::LB => '\u{11b2}', // ㄼ LB
-            Jong::LS => '\u{11b3}', // ㄽ LS
-            Jong::LT => '\u{11b4}', // ㄾ LT
-            Jong::LP => '\u{11b5}', // ㄿ LP
-            Jong::LH => '\u{11b6}', // ㅀ LH
-            Jong::M => '\u{11b7}',  // ㅁ M
-            Jong::B => '\u{11b8}',  // ㅂ B
-            Jong::BS => '\u{11b9}', // ㅄ BS
-            Jong::S => '\u{11ba}',  // ㅅ S
-            Jong::SS => '\u{11bb}', // ㅆ SS
-            Jong::NG => '\u{11bc}', // ㅇ NG
-            Jong::J => '\u{11bd}',  // ㅈ J
-            Jong::C => '\u{11be}',  // ㅊ C
-            Jong::K => '\u{11bf}',  // ㅋ K
-            Jong::T => '\u{11c0}',  // ㅌ T
-            Jong::P => '\u{11c1}',  // ㅍ P
-            Jong::H => '\u{11c2}',  // ㅎ H
+        const JONG_BASE: u32 = 0x11A7; // E=0 -> '\0', seq=1 -> U+11A8
+
+        match *self as i32 {
+            0 => '\u{0000}', // 종성 없음
+            seq => char::from_u32(JONG_BASE + seq as u32).unwrap_or('\u{0000}'),
         }
     }
 
     /// 유니코드 호환용 자모 영역의 종성 문자를 반환합니다.
-    /// 종성 비움(`E`)의 경우 널 문자(`\u{0000}`)를 반환합니다.
     ///
-    /// # 예시
-    ///
-    /// ```
-    /// use unim::korean::jamo::{Jong, Jamo};
-    /// assert_eq!(Jong::G.get_unicode_compat(), 'ㄱ'); // U+3131
-    /// assert_eq!(Jong::LG.get_unicode_compat(), 'ㄺ'); // U+313A
-    /// assert_eq!(Jong::E.get_unicode_compat(), '\u{0000}'); // Null
-    /// ```
+    /// 종성 호환용 유니코드는 연속되지 않아 배열 매핑을 사용합니다.
+    #[inline]
     fn get_unicode_compat(&self) -> char {
-        match self {
-            Jong::E => '\u{0000}',  // 종성 없음 (널 문자 사용)
-            Jong::G => '\u{3131}',  // ㄱ
-            Jong::GG => '\u{3132}', // ㄲ
-            Jong::GS => '\u{3133}', // ㄳ
-            Jong::N => '\u{3134}',  // ㄴ
-            Jong::NJ => '\u{3135}', // ㄵ
-            Jong::NH => '\u{3136}', // ㄶ
-            Jong::D => '\u{3137}',  // ㄷ
-            Jong::L => '\u{3139}',  // ㄹ
-            Jong::LG => '\u{313a}', // ㄺ
-            Jong::LM => '\u{313b}', // ㄻ
-            Jong::LB => '\u{313c}', // ㄼ
-            Jong::LS => '\u{313d}', // ㄽ
-            Jong::LT => '\u{313e}', // ㄾ
-            Jong::LP => '\u{313f}', // ㄿ
-            Jong::LH => '\u{3140}', // ㅀ
-            Jong::M => '\u{3141}',  // ㅁ
-            Jong::B => '\u{3142}',  // ㅂ
-            Jong::BS => '\u{3144}', // ㅄ
-            Jong::S => '\u{3145}',  // ㅅ
-            Jong::SS => '\u{3146}', // ㅆ
-            Jong::NG => '\u{3147}', // ㅇ
-            Jong::J => '\u{3148}',  // ㅈ
-            Jong::C => '\u{314a}',  // ㅊ
-            Jong::K => '\u{314b}',  // ㅋ
-            Jong::T => '\u{314c}',  // ㅌ
-            Jong::P => '\u{314d}',  // ㅍ
-            Jong::H => '\u{314e}',  // ㅎ
-        }
+        // 인덱스: E=0 -> [0], G=1 -> [1], ..., H=27 -> [27]
+        const JONG_COMPAT: [char; 28] = [
+            '\u{0000}', // E  (없음)
+            '\u{3131}', // G  ㄱ
+            '\u{3132}', // GG ㄲ
+            '\u{3133}', // GS ㄳ
+            '\u{3134}', // N  ㄴ
+            '\u{3135}', // NJ ㄵ
+            '\u{3136}', // NH ㄶ
+            '\u{3137}', // D  ㄷ
+            '\u{3139}', // L  ㄹ
+            '\u{313a}', // LG ㄺ
+            '\u{313b}', // LM ㄻ
+            '\u{313c}', // LB ㄼ
+            '\u{313d}', // LS ㄽ
+            '\u{313e}', // LT ㄾ
+            '\u{313f}', // LP ㄿ
+            '\u{3140}', // LH ㅀ
+            '\u{3141}', // M  ㅁ
+            '\u{3142}', // B  ㅂ
+            '\u{3144}', // BS ㅄ
+            '\u{3145}', // S  ㅅ
+            '\u{3146}', // SS ㅆ
+            '\u{3147}', // NG ㅇ
+            '\u{3148}', // J  ㅈ
+            '\u{314a}', // C  ㅊ
+            '\u{314b}', // K  ㅋ
+            '\u{314c}', // T  ㅌ
+            '\u{314d}', // P  ㅍ
+            '\u{314e}', // H  ㅎ
+        ];
+
+        let idx = *self as usize;
+        JONG_COMPAT.get(idx).copied().unwrap_or('\u{0000}')
     }
 }
 
@@ -788,18 +703,42 @@ impl Jong {
             Jong::T => Ok(Cho::T),
             Jong::P => Ok(Cho::P),
             Jong::H => Ok(Cho::H),
-            Jong::E => Err(KoreanError::ConversionError("Jong::E cannot be converted to Cho")),
-            Jong::GS => Err(KoreanError::ConversionError("Jong::GS cannot be converted to Cho")),
-            Jong::NJ => Err(KoreanError::ConversionError("Jong::NJ cannot be converted to Cho")),
-            Jong::NH => Err(KoreanError::ConversionError("Jong::NH cannot be converted to Cho")),
-            Jong::LG => Err(KoreanError::ConversionError("Jong::LG cannot be converted to Cho")),
-            Jong::LM => Err(KoreanError::ConversionError("Jong::LM cannot be converted to Cho")),
-            Jong::LB => Err(KoreanError::ConversionError("Jong::LB cannot be converted to Cho")),
-            Jong::LS => Err(KoreanError::ConversionError("Jong::LS cannot be converted to Cho")),
-            Jong::LT => Err(KoreanError::ConversionError("Jong::LT cannot be converted to Cho")),
-            Jong::LP => Err(KoreanError::ConversionError("Jong::LP cannot be converted to Cho")),
-            Jong::LH => Err(KoreanError::ConversionError("Jong::LH cannot be converted to Cho")),
-            Jong::BS => Err(KoreanError::ConversionError("Jong::BS cannot be converted to Cho")),
+            Jong::E => Err(KoreanError::ConversionError(
+                "Jong::E cannot be converted to Cho",
+            )),
+            Jong::GS => Err(KoreanError::ConversionError(
+                "Jong::GS cannot be converted to Cho",
+            )),
+            Jong::NJ => Err(KoreanError::ConversionError(
+                "Jong::NJ cannot be converted to Cho",
+            )),
+            Jong::NH => Err(KoreanError::ConversionError(
+                "Jong::NH cannot be converted to Cho",
+            )),
+            Jong::LG => Err(KoreanError::ConversionError(
+                "Jong::LG cannot be converted to Cho",
+            )),
+            Jong::LM => Err(KoreanError::ConversionError(
+                "Jong::LM cannot be converted to Cho",
+            )),
+            Jong::LB => Err(KoreanError::ConversionError(
+                "Jong::LB cannot be converted to Cho",
+            )),
+            Jong::LS => Err(KoreanError::ConversionError(
+                "Jong::LS cannot be converted to Cho",
+            )),
+            Jong::LT => Err(KoreanError::ConversionError(
+                "Jong::LT cannot be converted to Cho",
+            )),
+            Jong::LP => Err(KoreanError::ConversionError(
+                "Jong::LP cannot be converted to Cho",
+            )),
+            Jong::LH => Err(KoreanError::ConversionError(
+                "Jong::LH cannot be converted to Cho",
+            )),
+            Jong::BS => Err(KoreanError::ConversionError(
+                "Jong::BS cannot be converted to Cho",
+            )),
         }
     }
 }
@@ -1196,5 +1135,31 @@ impl Jamo for JamoEnum {
             JamoEnum::Jong(jong) => jong.get_unicode_compat(),
             JamoEnum::Special(c) => *c,
         }
+    }
+}
+
+impl JamoEnum {
+    /// 초성인지 확인합니다.
+    #[inline]
+    pub fn is_cho(&self) -> bool {
+        matches!(self, JamoEnum::Cho(_))
+    }
+
+    /// 중성인지 확인합니다.
+    #[inline]
+    pub fn is_jung(&self) -> bool {
+        matches!(self, JamoEnum::Jung(_))
+    }
+
+    /// 종성인지 확인합니다.
+    #[inline]
+    pub fn is_jong(&self) -> bool {
+        matches!(self, JamoEnum::Jong(_))
+    }
+
+    /// 특수 문자인지 확인합니다.
+    #[inline]
+    pub fn is_special(&self) -> bool {
+        matches!(self, JamoEnum::Special(_))
     }
 }
