@@ -1,13 +1,13 @@
-use crate::korean::char::KoreanError;
+use crate::hangul::char::HangulError;
 
-/// 한국어 자모(초성, 중성, 종성)를 나타내는 타입들이 구현해야 하는 공통 트레이트입니다.
+/// 한글 자모(초성, 중성, 종성)를 나타내는 타입들이 구현해야 하는 공통 트레이트입니다.
 ///
 /// 이 트레이트는 각 자모 타입이 가져야 하는 기본적인 기능들을 정의합니다.
 /// 예를 들어, 음절 조합에 사용될 순서 값이나 유니코드 문자 표현을 얻는 기능을 포함합니다.
 pub trait Jamo: std::fmt::Debug + Clone + Copy + PartialEq + Eq + std::hash::Hash {
     /// 음절을 구성할 때 사용되는 자모의 순서 값을 반환합니다.
     ///
-    /// 한국어 음절은 초성, 중성, 종성의 순서로 조합됩니다. 이 순서 값은
+    /// 한글 음절은 초성, 중성, 종성의 순서로 조합됩니다. 이 순서 값은
     /// 유니코드 표준에 정의된 계산 방식(Korean Syllables algorithm)에 따라
     /// 음절 문자의 코드 포인트를 결정하는 데 사용됩니다.
     ///
@@ -40,13 +40,31 @@ pub trait Jamo: std::fmt::Debug + Clone + Copy + PartialEq + Eq + std::hash::Has
     ///
     /// 해당 자모의 호환용 유니코드 문자 `char`.
     /// 종성 비움(`Jong::E`)의 경우 널 문자(`\u{0000}`)를 반환합니다.
-    /// 초성/중성 채움(`Cho::F`, `Jung::F`)의 경우 호환용 한국어 채움 문자(`\u{3164}`)를 반환합니다.
+    /// 초성/중성 채움(`Cho::F`, `Jung::F`)의 경우 호환용 한글 채움 문자(`\u{3164}`)를 반환합니다.
     fn get_unicode_compat(&self) -> char;
+
+    /// 유니코드 호환용 자모를 반환합니다. (호환성 메서드)
+    fn to_char(&self) -> char {
+        self.get_unicode_compat()
+    }
+
+    /// 초성인지 확인합니다.
+    fn is_cho(&self) -> bool {
+        false
+    }
+    /// 중성인지 확인합니다.
+    fn is_jung(&self) -> bool {
+        false
+    }
+    /// 종성인지 확인합니다.
+    fn is_jong(&self) -> bool {
+        false
+    }
 }
 
-/// 한국어 초성을 나타내는 열거형입니다.
+/// 한글 초성을 나타내는 열거형입니다.
 ///
-/// 현대 한국어에서 사용되는 19개의 초성과 음절 구성 시 초성이 없는 경우를 나타내는
+/// 현대 한글에서 사용되는 19개의 초성과 음절 구성 시 초성이 없는 경우를 나타내는
 /// 초성 채움 문자(`F`)를 포함합니다. 각 variant는 해당 초성의 로마자 표기법을 따릅니다.
 ///
 /// # 예시
@@ -66,7 +84,7 @@ pub trait Jamo: std::fmt::Debug + Clone + Copy + PartialEq + Eq + std::hash::Has
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cho {
-    /// 초성 채움 문자 (U+115F). 음절에 초성이 없을 때 사용됩니다.
+    /// 초성 채움 문자 (U+115F).
     F = -1,
     /// ㄱ (giyeok)
     G = 0,
@@ -90,7 +108,7 @@ pub enum Cho {
     S = 9,
     /// ㅆ (ssangsiot)
     SS = 10,
-    /// ㅇ (ieung) - 초성으로 사용될 때 (예: "아")
+    /// ㅇ (ieung)
     E = 11,
     /// ㅈ (jieut)
     J = 12,
@@ -106,6 +124,30 @@ pub enum Cho {
     P = 17,
     /// ㅎ (hieut)
     H = 18,
+}
+
+#[allow(non_upper_case_globals)]
+impl Cho {
+    pub const Filler: Cho = Cho::F;
+    pub const Giyeok: Cho = Cho::G;
+    pub const SsangGiyeok: Cho = Cho::GG;
+    pub const Nieun: Cho = Cho::N;
+    pub const Digeut: Cho = Cho::D;
+    pub const SsangDigeut: Cho = Cho::DD;
+    pub const Rieul: Cho = Cho::R;
+    pub const Mieum: Cho = Cho::M;
+    pub const Bieup: Cho = Cho::B;
+    pub const SsangBieup: Cho = Cho::BB;
+    pub const Siot: Cho = Cho::S;
+    pub const SsangSiot: Cho = Cho::SS;
+    pub const Ieung: Cho = Cho::E;
+    pub const Jieut: Cho = Cho::J;
+    pub const SsangJieut: Cho = Cho::JJ;
+    pub const Chieut: Cho = Cho::C;
+    pub const Kieuk: Cho = Cho::K;
+    pub const Tieut: Cho = Cho::T;
+    pub const Pieup: Cho = Cho::P;
+    pub const Hieuh: Cho = Cho::H;
 }
 
 impl Jamo for Cho {
@@ -160,6 +202,13 @@ impl Jamo for Cho {
 
         let idx = (*self as i32 + 1) as usize; // -1 -> 0, 0 -> 1, ..., 18 -> 19
         CHO_COMPAT.get(idx).copied().unwrap_or('\u{3164}')
+    }
+    fn to_char(&self) -> char {
+        self.get_unicode_compat()
+    }
+
+    fn is_cho(&self) -> bool {
+        true
     }
 }
 
@@ -217,7 +266,7 @@ impl Cho {
     /// 주어진 초성을 해당하는 종성으로 변환합니다.
     ///
     /// 모든 초성이 종성으로 변환될 수 있는 것은 아닙니다. 예를 들어, 초성 'ㄸ'(DD), 'ㅃ'(BB), 'ㅉ'(JJ)는
-    /// 현대 한국어에서 종성으로 사용되지 않으므로 변환할 수 없습니다. 초성 채움 문자(`F`) 또한 변환할 수 없습니다.
+    /// 현대 한글에서 종성으로 사용되지 않으므로 변환할 수 없습니다. 초성 채움 문자(`F`) 또한 변환할 수 없습니다.
     ///
     /// 변환 규칙:
     /// * `ㅇ`(E) -> `ㅇ`(NG) (종성 'ㅇ')
@@ -239,7 +288,7 @@ impl Cho {
     /// assert!(Cho::DD.to_jong().is_err()); // ㄸ는 변환 불가
     /// assert!(Cho::F.to_jong().is_err()); // 채움 문자는 변환 불가
     /// ```
-    pub fn to_jong(&self) -> Result<Jong, KoreanError> {
+    pub fn to_jong(&self) -> Result<Jong, HangulError> {
         match self {
             Cho::G => Ok(Jong::G),   // ㄱ
             Cho::GG => Ok(Jong::GG), // ㄲ
@@ -258,25 +307,25 @@ impl Cho {
             Cho::P => Ok(Jong::P),   // ㅍ
             Cho::H => Ok(Jong::H),   // ㅎ
             // 변환 불가 초성들
-            Cho::DD => Err(KoreanError::ConversionError(
+            Cho::DD => Err(HangulError::ConversionError(
                 "Cho::DD cannot be converted to Jong",
             )),
-            Cho::BB => Err(KoreanError::ConversionError(
+            Cho::BB => Err(HangulError::ConversionError(
                 "Cho::BB cannot be converted to Jong",
             )),
-            Cho::JJ => Err(KoreanError::ConversionError(
+            Cho::JJ => Err(HangulError::ConversionError(
                 "Cho::JJ cannot be converted to Jong",
             )),
-            Cho::F => Err(KoreanError::ConversionError(
+            Cho::F => Err(HangulError::ConversionError(
                 "Cho::F cannot be converted to Jong",
             )),
         }
     }
 }
 
-/// 한국어 중성을 나타내는 열거형입니다.
+/// 한글 중성을 나타내는 열거형입니다.
 ///
-/// 현대 한국어에서 사용되는 21개의 중성(단모음 및 복모음)과 음절 구성 시 중성이 없는 경우를 나타내는
+/// 현대 한글에서 사용되는 21개의 중성(단모음 및 복모음)과 음절 구성 시 중성이 없는 경우를 나타내는
 /// 중성 채움 문자(`F`)를 포함합니다. 각 variant는 해당 중성의 로마자 표기법을 따릅니다.
 ///
 /// # 예시
@@ -301,7 +350,7 @@ impl Cho {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Jung {
-    /// 중성 채움 문자 (U+1160). 음절에 중성이 없을 때 사용됩니다. (이론상으로만 존재, 실제 한국어 표기에는 거의 사용되지 않음)
+    /// 중성 채움 문자 (U+1160).
     F = -1,
     /// ㅏ (a)
     A = 0,
@@ -347,6 +396,27 @@ pub enum Jung {
     I = 20,
 }
 
+#[allow(non_upper_case_globals)]
+impl Jung {
+    pub const Filler: Jung = Jung::F;
+    pub const Ae: Jung = Jung::AE;
+    pub const Ya: Jung = Jung::YA;
+    pub const Yae: Jung = Jung::YAE;
+    pub const Eo: Jung = Jung::EO;
+    pub const Yeo: Jung = Jung::YEO;
+    pub const Ye: Jung = Jung::YE;
+    pub const Wa: Jung = Jung::WA;
+    pub const Wae: Jung = Jung::WAE;
+    pub const Oe: Jung = Jung::OE;
+    pub const Yo: Jung = Jung::YO;
+    pub const Weo: Jung = Jung::WEO;
+    pub const We: Jung = Jung::WE;
+    pub const Wi: Jung = Jung::WI;
+    pub const Yu: Jung = Jung::YU;
+    pub const Eu: Jung = Jung::EU;
+    pub const Yi: Jung = Jung::YI;
+}
+
 impl Jamo for Jung {
     /// 중성의 순서 값을 반환합니다. (0 ~ 20, 채움 문자는 -1)
     #[inline]
@@ -380,6 +450,13 @@ impl Jamo for Jung {
             -1 => JUNG_FILLER,
             seq => char::from_u32(JUNG_COMPAT_BASE + seq as u32).unwrap_or(JUNG_FILLER),
         }
+    }
+    fn to_char(&self) -> char {
+        self.get_unicode_compat()
+    }
+
+    fn is_jung(&self) -> bool {
+        true
     }
 }
 
@@ -437,9 +514,9 @@ impl Jung {
     }
 }
 
-/// 한국어 종성을 나타내는 열거형입니다.
+/// 한글 종성을 나타내는 열거형입니다.
 ///
-/// 현대 한국어에서 사용되는 27개의 종성(홑받침 및 겹받침)과 음절에 종성이 없는 경우를 나타내는
+/// 현대 한글에서 사용되는 27개의 종성(홑받침 및 겹받침)과 음절에 종성이 없는 경우를 나타내는
 /// 종성 비움 문자(`E`)를 포함합니다. 각 variant는 해당 종성의 로마자 표기법을 따릅니다.
 /// 종성 'ㅇ'은 `NG`로 표기됩니다.
 ///
@@ -523,6 +600,38 @@ pub enum Jong {
     H = 27,
 }
 
+#[allow(non_upper_case_globals)]
+impl Jong {
+    pub const Empty: Jong = Jong::E;
+    pub const Giyeok: Jong = Jong::G;
+    pub const SsangGiyeok: Jong = Jong::GG;
+    pub const GiyeokSiot: Jong = Jong::GS;
+    pub const Nieun: Jong = Jong::N;
+    pub const NieunJieut: Jong = Jong::NJ;
+    pub const NieunHieuh: Jong = Jong::NH;
+    pub const Digeut: Jong = Jong::D;
+    pub const Rieul: Jong = Jong::L;
+    pub const RieulGiyeok: Jong = Jong::LG;
+    pub const RieulMieum: Jong = Jong::LM;
+    pub const RieulBieup: Jong = Jong::LB;
+    pub const RieulSiot: Jong = Jong::LS;
+    pub const RieulTieut: Jong = Jong::LT;
+    pub const RieulPieup: Jong = Jong::LP;
+    pub const RieulHieuh: Jong = Jong::LH;
+    pub const Mieum: Jong = Jong::M;
+    pub const Bieup: Jong = Jong::B;
+    pub const BieupSiot: Jong = Jong::BS;
+    pub const Siot: Jong = Jong::S;
+    pub const SsangSiot: Jong = Jong::SS;
+    pub const Ieung: Jong = Jong::NG;
+    pub const Jieut: Jong = Jong::J;
+    pub const Chieut: Jong = Jong::C;
+    pub const Kieuk: Jong = Jong::K;
+    pub const Tieut: Jong = Jong::T;
+    pub const Pieup: Jong = Jong::P;
+    pub const Hieuh: Jong = Jong::H;
+}
+
 impl Jamo for Jong {
     /// 종성의 순서 값을 반환합니다. (0 ~ 27)
     #[inline]
@@ -590,6 +699,13 @@ impl Jamo for Jong {
 
         let idx = *self as usize;
         JONG_COMPAT.get(idx).copied().unwrap_or('\u{0000}')
+    }
+    fn to_char(&self) -> char {
+        self.get_unicode_compat()
+    }
+
+    fn is_jong(&self) -> bool {
+        true
     }
 }
 
@@ -685,7 +801,7 @@ impl Jong {
     /// // 종성 비움 변환 시도 (Err 반환)
     /// assert!(Jong::E.to_cho().is_err());
     /// ```
-    pub fn to_cho(&self) -> Result<Cho, KoreanError> {
+    pub fn to_cho(&self) -> Result<Cho, HangulError> {
         match self {
             Jong::NG => Ok(Cho::E),
             Jong::L => Ok(Cho::R),
@@ -703,40 +819,40 @@ impl Jong {
             Jong::T => Ok(Cho::T),
             Jong::P => Ok(Cho::P),
             Jong::H => Ok(Cho::H),
-            Jong::E => Err(KoreanError::ConversionError(
+            Jong::E => Err(HangulError::ConversionError(
                 "Jong::E cannot be converted to Cho",
             )),
-            Jong::GS => Err(KoreanError::ConversionError(
+            Jong::GS => Err(HangulError::ConversionError(
                 "Jong::GS cannot be converted to Cho",
             )),
-            Jong::NJ => Err(KoreanError::ConversionError(
+            Jong::NJ => Err(HangulError::ConversionError(
                 "Jong::NJ cannot be converted to Cho",
             )),
-            Jong::NH => Err(KoreanError::ConversionError(
+            Jong::NH => Err(HangulError::ConversionError(
                 "Jong::NH cannot be converted to Cho",
             )),
-            Jong::LG => Err(KoreanError::ConversionError(
+            Jong::LG => Err(HangulError::ConversionError(
                 "Jong::LG cannot be converted to Cho",
             )),
-            Jong::LM => Err(KoreanError::ConversionError(
+            Jong::LM => Err(HangulError::ConversionError(
                 "Jong::LM cannot be converted to Cho",
             )),
-            Jong::LB => Err(KoreanError::ConversionError(
+            Jong::LB => Err(HangulError::ConversionError(
                 "Jong::LB cannot be converted to Cho",
             )),
-            Jong::LS => Err(KoreanError::ConversionError(
+            Jong::LS => Err(HangulError::ConversionError(
                 "Jong::LS cannot be converted to Cho",
             )),
-            Jong::LT => Err(KoreanError::ConversionError(
+            Jong::LT => Err(HangulError::ConversionError(
                 "Jong::LT cannot be converted to Cho",
             )),
-            Jong::LP => Err(KoreanError::ConversionError(
+            Jong::LP => Err(HangulError::ConversionError(
                 "Jong::LP cannot be converted to Cho",
             )),
-            Jong::LH => Err(KoreanError::ConversionError(
+            Jong::LH => Err(HangulError::ConversionError(
                 "Jong::LH cannot be converted to Cho",
             )),
-            Jong::BS => Err(KoreanError::ConversionError(
+            Jong::BS => Err(HangulError::ConversionError(
                 "Jong::BS cannot be converted to Cho",
             )),
         }
@@ -766,7 +882,7 @@ impl Jong {
 /// assert!(!is_cho(&Jong::G));
 /// ```
 pub fn is_cho<T: Jamo>(o: &T) -> bool {
-    matches!(o.get_sequence(), -1..=18)
+    o.is_cho()
 }
 
 /// 주어진 `Jamo` 객체가 중성인지 판별합니다.
@@ -790,7 +906,7 @@ pub fn is_cho<T: Jamo>(o: &T) -> bool {
 /// assert!(!is_jung(&Jong::G));
 /// ```
 pub fn is_jung<T: Jamo>(o: &T) -> bool {
-    matches!(o.get_sequence(), -1..=20)
+    o.is_jung()
 }
 
 /// 주어진 `Jamo` 객체가 종성인지 판별합니다.
@@ -814,13 +930,13 @@ pub fn is_jung<T: Jamo>(o: &T) -> bool {
 /// assert!(!is_jong(&Jung::A));
 /// ```
 pub fn is_jong<T: Jamo>(o: &T) -> bool {
-    matches!(o.get_sequence(), 0..=27)
+    o.is_jong()
 }
 
-/// 주어진 `Jamo` 객체가 한국어 자모(초성, 중성, 종성)인지 판별합니다.
+/// 주어진 `Jamo` 객체가 한글 자모(초성, 중성, 종성)인지 판별합니다.
 ///
 /// `is_cho()`, `is_jung()`, `is_jong()` 함수 중 하나라도 `true`를 반환하면 `true`를 반환합니다.
-/// 이는 해당 객체가 유효한 한국어 자모 순서 값을 가지고 있음을 의미합니다.
+/// 이는 해당 객체가 유효한 한글 자모 순서 값을 가지고 있음을 의미합니다.
 ///
 /// # 타입 매개변수
 ///
@@ -981,7 +1097,7 @@ pub fn get_jong_by_sequence(seq: i32) -> Option<Jong> {
 /// 문자열을 초성으로 변환하는 구현
 ///
 /// 문자열로부터 초성을 생성합니다.
-/// 한국어 자모 문자나 영어 알파벳 표기를 사용할 수 있습니다.
+/// 한글 자모 문자나 영어 알파벳 표기를 사용할 수 있습니다.
 impl std::str::FromStr for Cho {
     type Err = String;
 
@@ -1091,6 +1207,10 @@ impl std::str::FromStr for Jong {
     }
 }
 
+pub use Cho as Chosung;
+pub use Jong as Jongsung;
+pub use Jung as Jungsung;
+
 /// 자모를 통합적으로 다루는 열거형
 ///
 /// 초성, 중성, 종성 및 특수 문자를 모두 포함할 수 있는 통합 타입입니다.
@@ -1135,6 +1255,18 @@ impl Jamo for JamoEnum {
             JamoEnum::Jong(jong) => jong.get_unicode_compat(),
             JamoEnum::Special(c) => *c,
         }
+    }
+
+    fn is_cho(&self) -> bool {
+        matches!(self, JamoEnum::Cho(_))
+    }
+
+    fn is_jung(&self) -> bool {
+        matches!(self, JamoEnum::Jung(_))
+    }
+
+    fn is_jong(&self) -> bool {
+        matches!(self, JamoEnum::Jong(_))
     }
 }
 

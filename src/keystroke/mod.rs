@@ -1,8 +1,8 @@
-pub mod korean_to_keystrokes;
 pub mod keyboard_map;
 pub mod keystrokes_to_korean;
+pub mod korean_to_keystrokes;
 
-pub use keyboard_map::{Key, Keystroke, KeyboardMap};
+pub use keyboard_map::{Key, KeyboardMap, Keystroke};
 
 const EN_QWERTY: &str = include_str!("keymap/en_qwerty.json");
 const EN_DVORAK: &str = include_str!("keymap/en_dvorak.json");
@@ -21,16 +21,18 @@ pub fn get_keymap_json(name: &str) -> &'static str {
     }
 }
 
-use crate::korean::input_context::{ComposerType, KoreanInputContext};
+use crate::korean::input_context::{ComposerType, HangulInputContext};
 
 /// Converts a string to a vector of `Keystroke`s based on a given keyboard layout.
 pub fn string_to_keystrokes(s: &str, _layout: &str) -> Vec<Keystroke> {
     // This is a simplified version. For now, we assume standard mapping or raw chars.
     // In a full implementation, this would use a reverse keymap for the English layout.
-    s.chars().map(|c| Keystroke {
-        key: Key::Raw(c),
-        shifted: c.is_uppercase(),
-    }).collect()
+    s.chars()
+        .map(|c| Keystroke {
+            key: Key::Raw(c),
+            shifted: c.is_uppercase(),
+        })
+        .collect()
 }
 
 /// Converts a vector of `Keystroke`s to a string based on a given keyboard layout.
@@ -41,14 +43,18 @@ pub fn keystrokes_to_string(keystrokes: &[Keystroke], layout: &str) -> String {
     } else {
         ComposerType::TwoBul
     };
-    
-    let mut context = KoreanInputContext::new(composer_type);
 
-    let en_json = get_keymap_json(if layout.contains("dvorak") { "en_dvorak" } else { "en_qwerty" });
+    let mut context = HangulInputContext::new(composer_type);
+
+    let en_json = get_keymap_json(if layout.contains("dvorak") {
+        "en_dvorak"
+    } else {
+        "en_qwerty"
+    });
     let ko_json = get_keymap_json(layout);
-    
+
     let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul);
-    
+
     for ks in keystrokes {
         match ks.key {
             Key::Raw(c) | Key::Char(c) => {
@@ -61,7 +67,7 @@ pub fn keystrokes_to_string(keystrokes: &[Keystroke], layout: &str) -> String {
             _ => {}
         }
     }
-    
+
     context.commit();
     context.get_committed().to_string()
 }

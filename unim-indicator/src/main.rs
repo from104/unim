@@ -45,7 +45,9 @@ impl DaemonManager {
 
     /// 데몬 바이너리 경로 탐색
     fn find_daemon_binary() -> PathBuf {
-        // 1. 환경 변수
+        let binary_name = "unim-daemon";
+
+        // 1. 환경 변수 (최우선)
         if let Ok(path) = std::env::var("UNIM_DAEMON_PATH") {
             let p = PathBuf::from(&path);
             if p.exists() {
@@ -54,44 +56,70 @@ impl DaemonManager {
             }
         }
 
-        // 2. 시스템 경로
-        let system_paths = [
-            PathBuf::from("/usr/libexec/unim-daemon"),
-            PathBuf::from("/usr/bin/unim-daemon"),
-        ];
-        for p in system_paths {
-            if p.exists() {
-                info!("데몬 바이너리 (시스템): {:?}", p);
-                return p;
-            }
-        }
-
-        // 3. 현재 실행 파일과 동일 디렉토리
+        // 2. 현재 실행 파일 기준 탐색 (자가 설치 경로 대응)
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                let sibling_path = exe_dir.join("unim-daemon");
+                // Case A: /bin/unim-indicator -> /libexec/unim-daemon
+                if let Some(prefix) = exe_dir.parent() {
+                    let libexec_path = prefix.join("libexec").join(binary_name);
+                    if libexec_path.exists() {
+                        info!("데몬 바이너리 (상대 경로 libexec): {:?}", libexec_path);
+                        return libexec_path;
+                    }
+                }
+                // Case B: 같은 디렉토리에 있는 경우 (개발 환경 또는 /libexec에 같이 설치된 경우)
+                let sibling_path = exe_dir.join(binary_name);
                 if sibling_path.exists() {
-                    info!("데몬 바이너리 (동일 디렉토리): {:?}", sibling_path);
+                    info!("데몬 바이너리 (상대 경로 sibling): {:?}", sibling_path);
                     return sibling_path;
                 }
             }
         }
 
-        // 4. 빌드 디렉토리 (개발용)
-        let dev_paths = [
-            PathBuf::from("/home/from104/work/unim/target/release/unim-daemon"),
-            PathBuf::from("/home/from104/work/unim/target/debug/unim-daemon"),
+        // 3. 빌드 디렉토리 탐색 (개발용 보조)
+        if std::env::var("UNIM_DEVELOP").is_ok() {
+            if let Ok(cwd) = std::env::current_dir() {
+                let dev_paths = [
+                    cwd.join("target/release").join(binary_name),
+                    cwd.join("target/debug").join(binary_name),
+                    // 프로젝트 루트 외부에서 실행될 경우를 대비한 부모 디렉토리 검색
+                    cwd.join("../target/release").join(binary_name),
+                    cwd.join("../target/debug").join(binary_name),
+                ];
+                for p in dev_paths {
+                    if p.exists() {
+                        info!("데몬 바이너리 (개발 디렉토리): {:?}", p);
+                        return p;
+                    }
+                }
+            }
+        }
+
+        // 4. 시스템 표준 경로
+        let system_paths = [
+            PathBuf::from("/usr/local/libexec").join(binary_name),
+            PathBuf::from("/usr/libexec").join(binary_name),
+            PathBuf::from("/usr/local/bin").join(binary_name),
+            PathBuf::from("/usr/bin").join(binary_name),
         ];
-        for p in dev_paths {
+        for p in system_paths {
             if p.exists() {
-                info!("데몬 바이너리 (개발): {:?}", p);
+                info!("데몬 바이너리 (시스템 경로): {:?}", p);
                 return p;
             }
         }
 
-        // 기본값 (PATH에서 찾기)
-        warn!("데몬 바이너리를 찾을 수 없음. PATH에서 탐색 예정.");
-        PathBuf::from("unim-daemon")
+        // 5. PATH에서 탐색 (마지막 수단)
+        match which::which(binary_name) {
+            Ok(p) => {
+                info!("데몬 바이너리 (PATH): {:?}", p);
+                p
+            }
+            Err(_) => {
+                warn!("데몬 바이너리를 찾을 수 없음. 'unim-daemon'으로 시도.");
+                PathBuf::from(binary_name)
+            }
+        }
     }
 
     /// 데몬 시작

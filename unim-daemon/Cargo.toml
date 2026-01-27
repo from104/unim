@@ -1,6 +1,6 @@
 [package]
 name = "unim-daemon"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 description = "UNIM Input Method Daemon"
 
@@ -16,5 +16,6 @@ env_logger = "0.11"
 daemonize = "0.5"
 ctrlc = "3.4"
 dirs = "5.0"
+which = "6.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }

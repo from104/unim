@@ -4,7 +4,7 @@
 //!
 //! # 아키텍처 노트
 //!
-//! `InputEngine`은 `Send + Sync`를 구현하지 않으므로 (KoreanComposer trait object),
+//! `InputEngine`은 `Send + Sync`를 구현하지 않으므로 (HangulComposer trait object),
 //! 엔진은 별도의 전용 스레드에서 실행하고 채널을 통해 통신합니다.
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -283,10 +283,11 @@ impl InputContextHandler {
     }
 
     /// 포커스 상실
+    /// 반환값: 커밋된 텍스트 (조합 중이던 문자열)
     async fn focus_out(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
-    ) -> zbus::fdo::Result<()> {
+    ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -297,14 +298,19 @@ impl InputContextHandler {
             .await
             .ok();
 
-        if let Ok(Some(commit)) = response_rx.await {
-            if !commit.is_empty() {
-                Self::commit_text(&signal_ctx, &commit).await.ok();
-            }
+        let commit = response_rx.await.ok().flatten().unwrap_or_default();
+
+        // 시그널도 발송 (호환성 유지)
+        if !commit.is_empty() {
+            Self::commit_text(&signal_ctx, &commit).await.ok();
         }
 
-        log::debug!("[DBus] FocusOut: context_id={}", self.id);
-        Ok(())
+        log::debug!(
+            "[DBus] FocusOut: context_id={}, commit='{}'",
+            self.id,
+            commit
+        );
+        Ok(commit)
     }
 
     /// 입력 상태 초기화

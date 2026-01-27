@@ -1,13 +1,13 @@
 //! 3-Set (3-bul) Korean Input Simulation
 //!
-//! This example shows how the `KoreanComposer3Bul` handles 3-set input.
+//! This example shows how the `HangulComposer3Bul` handles 3-set input.
 //! 3-set layouts distinguish between initial, middle, and final characters
 //! at the hardware/layout level.
 
-use unim::korean::{composer::KoreanComposer, composer_with_3bul::KoreanComposer3Bul, jamo::*};
+use unim::korean::{composer::HangulComposer, composer_with_3bul::HangulComposer3Bul, jamo::*};
 
 fn main() {
-    let mut composer = KoreanComposer3Bul::new();
+    let mut composer = HangulComposer3Bul::new();
     let mut result = String::new();
 
     // Input sequence for 3-set layout.

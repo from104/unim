@@ -3,13 +3,13 @@
 //! Demonstrates how to iterate through a string and deconstruct each Korean 
 //! syllable into its individual Jamo components (Initial, Middle, Final).
 
-use unim::korean::{char::KoreanChar, jamo::*};
+use unim::korean::{char::HangulChar, jamo::*};
 
 fn deconstruct_string(input: &str) {
     println!("Processing: \"{}\"", input);
     
     for c in input.chars() {
-        if let Some(korean_char) = KoreanChar::from_char(c) {
+        if let Some(korean_char) = HangulChar::from_char(c) {
             // Attempt to get the (Cho, Jung, Jong) tuple
             if let Some((cho, jung, jong)) = korean_char.to_jamo_tuple() {
                 println!(

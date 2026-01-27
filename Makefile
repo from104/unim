@@ -204,10 +204,12 @@ install-core:
 	install -m 755 target/release/unim-wayland $(DESTDIR)$(LIBEXECDIR)/
 	@# im-config integration
 	install -m 644 im-config/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
-	install -m 644 im-config/25_unim.rc $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
+	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" im-config/25_unim.rc > $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
+	chmod 644 $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
 	@# DBus service (session bus auto-activation)
 	install -d $(DESTDIR)$(DBUS_SERVICES_DIR)
-	install -m 644 scripts/org.atit.unim.InputMethod.service $(DESTDIR)$(DBUS_SERVICES_DIR)/
+	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" scripts/org.atit.unim.InputMethod.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
+	chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
 
 install-frontends:
 	@echo "Installing IM modules..."

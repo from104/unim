@@ -4,7 +4,7 @@
 //! by iterating through all possible Initial (Cho), Middle (Jung), and Final (Jong) sequences.
 
 use unim::korean::char::{CHOSEONG_NUMBER, JONGSEONG_NUMBER, JUNGSEONG_NUMBER};
-use unim::korean::KoreanChar;
+use unim::korean::HangulChar;
 
 fn main() {
     println!("--- Korean Syllable Matrix Generation ---");
@@ -17,7 +17,7 @@ fn main() {
         for jung_seq in 0..JUNGSEONG_NUMBER {
             for jong_seq in 0..JONGSEONG_NUMBER {
                 // Direct calculation using the Unicode Korean algorithm
-                let syllable = KoreanChar::from_jamo_sequences(
+                let syllable = HangulChar::from_jamo_sequences(
                     cho_seq as i32,
                     jung_seq as i32,
                     jong_seq as i32,

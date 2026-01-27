@@ -1,13 +1,13 @@
 //! 2-Set (2-bul) Korean Input Simulation
 //!
-//! This example demonstrates how the `KoreanComposer2Bul` handles 2-set Korean input.
+//! This example demonstrates how the `HangulComposer2Bul` handles 2-set Korean input.
 //! It simulates consecutive key presses and shows the state of composition including
 //! "Dokkaebibul" (shifting a consonant to the next syllable's initial position).
 
-use unim::korean::{composer::KoreanComposer, composer_with_2bul::KoreanComposer2Bul, jamo::*};
+use unim::korean::{composer::HangulComposer, composer_with_2bul::HangulComposer2Bul, jamo::*};
 
 fn main() {
-    let mut composer = KoreanComposer2Bul::new();
+    let mut composer = HangulComposer2Bul::new();
     let mut result = String::new();
 
     // Input sequence simuenglishg key presses for "안녕하세요" and more.

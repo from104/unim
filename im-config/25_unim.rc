@@ -3,7 +3,7 @@
 
 if [ "$IM_CONFIG_PHASE" = 2 ]; then
 # start UNIM daemon
-/usr/libexec/unim-daemon &
+@LIBEXECDIR@/unim-daemon &
 fi
 
 if [ "$IM_CONFIG_PHASE" = 1 ]; then

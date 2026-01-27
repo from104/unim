@@ -1,5 +1,5 @@
-use crate::korean::char::KoreanChar;
-use crate::korean::char::KoreanCharExt;
+use crate::korean::char::HangulChar;
+use crate::korean::char::HangulCharExt;
 use crate::korean::jamo::*;
 use std::collections::HashMap;
 
@@ -189,7 +189,7 @@ fn append_syllable_keystrokes(
     is_3bul: bool,
     result: &mut String,
 ) {
-    let mut korean_char = KoreanChar::new();
+    let mut korean_char = HangulChar::new();
     // 음절 분해 시 발생할 수 있는 오류는 무시 (예: 잘못된 유니코드). 이후 get_jamo에서 None으로 처리됨.
     let _ = korean_char.set_jamo_by_syllable(c);
 
@@ -226,7 +226,6 @@ fn append_syllable_keystrokes(
         }
     }
 }
-
 
 /// 단일 `JamoEnum` (초성, 중성, 또는 종성)을 받아 해당하는 키스트로크(들)를
 /// `result` 문자열에 추가합니다.

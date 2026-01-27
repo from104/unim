@@ -4,8 +4,8 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process;
-use unim::korean::composer_with_2bul::KoreanComposer2Bul;
-use unim::korean::composer_with_3bul::KoreanComposer3Bul;
+use unim::korean::composer_with_2bul::HangulComposer2Bul;
+use unim::korean::composer_with_3bul::HangulComposer3Bul;
 use unim::keystroke::korean_to_keystrokes::korean_to_keystrokes;
 use unim::keystroke::keyboard_map::KeyboardMap;
 use unim::keystroke::keystrokes_to_korean::keystrokes_to_korean;
@@ -185,7 +185,7 @@ fn process_with_2bul(
     en_json: &str,
     ko_json: &str,
 ) -> io::Result<()> {
-    let mut korean_composer = KoreanComposer2Bul::new();
+    let mut korean_composer = HangulComposer2Bul::new();
     let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, false);
 
     for input in inputs {
@@ -208,7 +208,7 @@ fn process_with_3bul(
     en_json: &str,
     ko_json: &str,
 ) -> io::Result<()> {
-    let mut korean_composer = KoreanComposer3Bul::new();
+    let mut korean_composer = HangulComposer3Bul::new();
     let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, true);
 
     for input in inputs {

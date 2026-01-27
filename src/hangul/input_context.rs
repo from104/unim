@@ -1,11 +1,11 @@
-//! 한국어 입력 컨텍스트 관리 모듈
+//! 한글 입력 컨텍스트 관리 모듈
 //!
 //! 키보드 레이아웃, 현재 조합 상태, preedit/committed 문자열 등을 관리합니다.
 
-use crate::korean::composer::KoreanComposer;
-use crate::korean::composer_with_2bul::KoreanComposer2Bul;
-use crate::korean::composer_with_3bul::KoreanComposer3Bul;
-use crate::korean::jamo::JamoEnum;
+use crate::hangul::composer::HangulComposer;
+use crate::hangul::composer_with_2bul::HangulComposer2Bul;
+use crate::hangul::composer_with_3bul::HangulComposer3Bul;
+use crate::hangul::jamo::JamoEnum;
 
 /// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
 macro_rules! unim_debug {
@@ -16,7 +16,7 @@ macro_rules! unim_debug {
     };
 }
 
-/// 지원하는 한국어 컴포저 타입
+/// 지원하는 한글 컴포저 타입
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ComposerType {
     #[default]
@@ -27,38 +27,38 @@ pub enum ComposerType {
 
 impl ComposerType {
     /// 컴포저 타입에 맞는 인스턴스를 생성합니다.
-    fn create_composer(self) -> Box<dyn KoreanComposer> {
+    fn create_composer(self) -> Box<dyn HangulComposer> {
         match self {
-            ComposerType::TwoBul => Box::new(KoreanComposer2Bul::new()),
-            ComposerType::ThreeBul => Box::new(KoreanComposer3Bul::new()),
+            ComposerType::TwoBul => Box::new(HangulComposer2Bul::new()),
+            ComposerType::ThreeBul => Box::new(HangulComposer3Bul::new()),
         }
     }
 }
 
-/// 한국어 입력 과정을 관리하는 컨텍스트
+/// 한글 입력 과정을 관리하는 컨텍스트
 ///
 /// # 예시
 /// ```ignore
-/// let mut ctx = KoreanInputContext::new(ComposerType::TwoBul);
+/// let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
 /// ctx.process_jamo(JamoEnum::Cho(Cho::G));  // ㄱ
 /// ctx.process_jamo(JamoEnum::Jung(Jung::A)); // 가
 /// assert_eq!(ctx.get_preedit(), "가");
 /// ```
-pub struct KoreanInputContext {
-    composer: Box<dyn KoreanComposer>,
+pub struct HangulInputContext {
+    composer: Box<dyn HangulComposer>,
     preedit: String,
     committed: String,
     composer_type: ComposerType,
 }
 
-impl Default for KoreanInputContext {
+impl Default for HangulInputContext {
     fn default() -> Self {
         Self::new(ComposerType::default())
     }
 }
 
-impl KoreanInputContext {
-    /// 새로운 `KoreanInputContext`를 생성합니다.
+impl HangulInputContext {
+    /// 새로운 `HangulInputContext`를 생성합니다.
     pub fn new(composer_type: ComposerType) -> Self {
         Self {
             composer: composer_type.create_composer(),
@@ -133,7 +133,7 @@ impl KoreanInputContext {
         c
     }
 
-    /// 비-한국어 문자를 확정 문자열에 추가합니다.
+    /// 비-한글 문자를 확정 문자열에 추가합니다.
     #[inline]
     pub fn commit_char(&mut self, c: char) {
         self.committed.push(c);
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_basic_composition() {
-        let mut ctx = KoreanInputContext::new(ComposerType::TwoBul);
+        let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
 
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
         assert!(ctx.is_composing());
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_commit() {
-        let mut ctx = KoreanInputContext::new(ComposerType::TwoBul);
+        let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
         ctx.process_jamo(JamoEnum::Jung(Jung::A));
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_backspace() {
-        let mut ctx = KoreanInputContext::new(ComposerType::TwoBul);
+        let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
         ctx.process_jamo(JamoEnum::Jung(Jung::A));
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_dokkaebi() {
-        let mut ctx = KoreanInputContext::new(ComposerType::TwoBul);
+        let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
         ctx.process_jamo(JamoEnum::Jung(Jung::A));
         ctx.process_jamo(JamoEnum::Cho(Cho::G)); // 각
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let mut ctx = KoreanInputContext::new(ComposerType::TwoBul);
+        let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
         ctx.process_jamo(JamoEnum::Jung(Jung::A));
         ctx.commit();
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_composer_type_change() {
-        let mut ctx = KoreanInputContext::new(ComposerType::TwoBul);
+        let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
         assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
 
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
@@ -302,14 +302,14 @@ mod tests {
 
     #[test]
     fn test_3bul_basic() {
-        let mut ctx = KoreanInputContext::new(ComposerType::ThreeBul);
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
         assert_eq!(ctx.get_preedit(), "ㄱ");
     }
 
     #[test]
     fn test_default() {
-        let ctx = KoreanInputContext::default();
+        let ctx = HangulInputContext::default();
         assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
     }
 }

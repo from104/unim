@@ -1,8 +1,8 @@
-use crate::korean::char::KoreanChar;
-use crate::korean::jamo::JamoEnum;
-use crate::korean::jamo::*;
+use crate::hangul::char::HangulChar;
+use crate::hangul::jamo::JamoEnum;
+use crate::hangul::jamo::*;
 /**
- * 한국어 조합 취상위 클래스
+ * 한글 조합 취상위 클래스
  * @author "KiHyeon Seo" <from104@gmail.com>
  */
 // builder.rs
@@ -21,28 +21,28 @@ macro_rules! unim_debug {
 /// 튜플 키 `(첫번째 자모, 두번째 자모)`를 사용하여 조합된 자모를 조회합니다.
 pub type CombinedJamoMap = HashMap<(JamoEnum, JamoEnum), JamoEnum>;
 
-/// 한국어 자모를 조합하여 한국어 음절을 만드는 기능을 정의하는 트레이트입니다.
+/// 한글 자모를 조합하여 한글 음절을 만드는 기능을 정의하는 트레이트입니다.
 ///
 /// 이 트레이트는 자모 입력, 삭제, 조합 상태 확인 등의 기본적인 인터페이스를 제공합니다.
 /// 구체적인 조합 로직은 이 트레이트를 구현하는 타입에서 정의됩니다.
-pub trait KoreanComposer {
-    /// 한국어 자모를 입력받아 현재 조합 상태에 추가합니다.
+pub trait HangulComposer {
+    /// 한글 자모를 입력받아 현재 조합 상태에 추가합니다.
     ///
     /// 입력된 자모로 인해 새로운 음절 조합이 시작되어 이전 음절이 완성되면,
-    /// 완성된 한국어 음절 문자를 `Some(char)`로 반환합니다.
+    /// 완성된 한글 음절 문자를 `Some(char)`로 반환합니다.
     /// 조합이 계속 진행 중이면 `None`을 반환합니다.
     ///
     /// # 매개변수
     ///
-    /// * `jamo`: 입력할 한국어 자모 (`JamoEnum`). 초성, 중성, 종성 또는 특수 문자일 수 있습니다.
+    /// * `jamo`: 입력할 한글 자모 (`JamoEnum`). 초성, 중성, 종성 또는 특수 문자일 수 있습니다.
     ///
     /// # 반환값
     ///
-    /// * `Some(char)`: 입력된 자모로 인해 이전 음절 조합이 완료된 경우, 완성된 한국어 음절.
+    /// * `Some(char)`: 입력된 자모로 인해 이전 음절 조합이 완료된 경우, 완성된 한글 음절.
     /// * `None`: 조합이 계속 진행 중인 경우.
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char>;
 
-    /// 마지막으로 입력된 한국어 자모를 제거하고 조합 상태를 갱신합니다.
+    /// 마지막으로 입력된 한글 자모를 제거하고 조합 상태를 갱신합니다.
     ///
     /// 제거 후 조합 상태가 변경됩니다.
     ///
@@ -52,7 +52,7 @@ pub trait KoreanComposer {
     /// * `None`: 제거할 자모가 없는 경우 (조합 큐가 비어 있는 경우).
     fn remove_jamo(&mut self) -> Option<JamoEnum>;
 
-    /// 현재 `jamo_queue`에 저장된 자모들을 바탕으로 한국어 음절을 조합합니다.
+    /// 현재 `jamo_queue`에 저장된 자모들을 바탕으로 한글 음절을 조합합니다.
     ///
     /// 내부적으로 `compose_cho`, `compose_jung`, `compose_jong`을 호출하여
     /// `current_korean_char`의 상태를 업데이트합니다.
@@ -63,18 +63,18 @@ pub trait KoreanComposer {
     /// * `false`: 자모 조합 규칙에 맞지 않아 조합에 실패한 경우.
     fn compose_korean(&mut self) -> bool;
 
-    /// 현재까지 입력된 자모들을 강제로 조합하여 완성된 한국어 음절을 반환하고, 조합 상태를 초기화합니다.
+    /// 현재까지 입력된 자모들을 강제로 조합하여 완성된 한글 음절을 반환하고, 조합 상태를 초기화합니다.
     ///
     /// 조합 중인 상태(`is_compose()`가 `true`인 경우)에만 동작합니다.
     /// 성공적으로 조합되면 현재 조합 상태(`jamo_queue`, `last_jamo_queue`, `current_korean_char`)가 모두 초기화됩니다.
     ///
     /// # 반환값
     ///
-    /// * `Some(char)`: 조합이 성공한 경우, 완성된 한국어 음절.
+    /// * `Some(char)`: 조합이 성공한 경우, 완성된 한글 음절.
     /// * `None`: 조합 중인 상태가 아니거나 조합에 실패한 경우.
     fn force_compose_korean(&mut self) -> Option<char>;
 
-    /// 현재 한국어 조합이 진행 중인지 여부를 확인합니다.
+    /// 현재 한글 조합이 진행 중인지 여부를 확인합니다.
     ///
     /// `jamo_queue`에 자모가 하나 이상 있으면 조합 중인 것으로 간주합니다.
     ///
@@ -97,54 +97,54 @@ pub trait KoreanComposer {
 
     // --- 내부적으로 사용되는 함수들 (Java의 protected methods) ---
 
-    /// 한국어 초성 조합 (내부 사용)
+    /// 한글 초성 조합 (내부 사용)
     ///
     /// # 반환값
     ///
     /// * `true`: 성공 또는 실패
     fn compose_cho(&mut self) -> bool;
 
-    /// 한국어 중성 조합 (내부 사용)
+    /// 한글 중성 조합 (내부 사용)
     ///
     /// # 반환값
     ///
     /// * `true`: 성공 또는 실패
     fn compose_jung(&mut self) -> bool;
 
-    /// 한국어 종성 조합 (내부 사용)
+    /// 한글 종성 조합 (내부 사용)
     ///
     /// # 반환값
     ///
     /// * `true`: 성공 또는 실패
     fn compose_jong(&mut self) -> bool;
 
-    /// 자모 모두 지우기 (KoreanChar의 clear() 와 유사, 필요에 따라 트레잇에 추가하거나 구현체에서 제공)
+    /// 자모 모두 지우기 (HangulChar의 clear() 와 유사, 필요에 따라 트레잇에 추가하거나 구현체에서 제공)
     fn clear_jamo(&mut self);
 
-    /// 현재 조합된 초성 얻기 (KoreanChar의 get_cho() 와 유사)
+    /// 현재 조합된 초성 얻기 (HangulChar의 get_cho() 와 유사)
     fn get_current_cho(&self) -> Option<Cho>;
 
-    /// 현재 조합된 중성 얻기 (KoreanChar의 get_jung() 와 유사)
+    /// 현재 조합된 중성 얻기 (HangulChar의 get_jung() 와 유사)
     fn get_current_jung(&self) -> Option<Jung>;
 
-    /// 현재 조합된 종성 얻기 (KoreanChar의 get_jong() 와 유사)
+    /// 현재 조합된 종성 얻기 (HangulChar의 get_jong() 와 유사)
     fn get_current_jong(&self) -> Option<Jong>;
 
-    /// 초성 설정 (KoreanChar의 set_cho_object() 와 유사)
+    /// 초성 설정 (HangulChar의 set_cho_object() 와 유사)
     ///
     /// # 반환값
     ///
     /// 설정 성공 여부 (현재 구현에서는 항상 `true`).
     fn set_current_cho(&mut self, cho: Option<Cho>) -> bool;
 
-    /// 중성 설정 (KoreanChar의 set_jung_object() 와 유사)
+    /// 중성 설정 (HangulChar의 set_jung_object() 와 유사)
     ///
     /// # 반환값
     ///
     /// 설정 성공 여부 (현재 구현에서는 항상 `true`).
     fn set_current_jung(&mut self, jung: Option<Jung>) -> bool;
 
-    /// 종성 설정 (KoreanChar의 set_jong_object() 와 유사)
+    /// 종성 설정 (HangulChar의 set_jong_object() 와 유사)
     ///
     /// # 반환값
     ///
@@ -163,14 +163,14 @@ pub trait KoreanComposer {
     // 자모 조합 테이블
     fn combined_jamo(&mut self) -> &mut CombinedJamoMap;
 
-    // 현재 조합 중인 한국어
-    fn current_korean(&mut self) -> &mut KoreanChar;
+    // 현재 조합 중인 한글
+    fn current_korean(&mut self) -> &mut HangulChar;
 }
 
-/// `KoreanComposer` 트레이트의 기본 구현을 제공하는 구조체입니다.
+/// `HangulComposer` 트레이트의 기본 구현을 제공하는 구조체입니다.
 ///
-/// 이 구조체는 한국어 자모를 조합하여 한국어 음절을 생성하는 기본적인 기능을 구현합니다.
-/// 자모 입력, 삭제, 조합 상태 확인 등의 기능을 제공하며, 한국어 입력기나 텍스트 편집기에서
+/// 이 구조체는 한글 자모를 조합하여 한글 음절을 생성하는 기본적인 기능을 구현합니다.
+/// 자모 입력, 삭제, 조합 상태 확인 등의 기능을 제공하며, 한글 입력기나 텍스트 편집기에서
 /// 사용할 수 있습니다.
 ///
 /// # 필드
@@ -178,27 +178,27 @@ pub trait KoreanComposer {
 /// * `jamo_queue` - 현재 입력 중인 자모들을 순서대로 저장하는 큐
 /// * `last_jamo_queue` - 직전에 입력된 자모들을 저장하는 큐
 /// * `combined_jamo` - 자모 조합 규칙을 정의하는 테이블
-/// * `current_korean_char` - 현재 조합 중인 한국어 음절
+/// * `current_korean_char` - 현재 조합 중인 한글 음절
 #[derive(Debug, Default)]
-pub struct BaseKoreanComposer {
+pub struct BaseHangulComposer {
     jamo_queue: VecDeque<JamoEnum>,
     last_jamo_queue: VecDeque<JamoEnum>,
     combined_jamo: CombinedJamoMap,
-    current_korean_char: KoreanChar,
+    current_korean_char: HangulChar,
 }
 
-impl BaseKoreanComposer {
-    /// 새로운 `BaseKoreanComposer` 인스턴스를 생성합니다.
+impl BaseHangulComposer {
+    /// 새로운 `BaseHangulComposer` 인스턴스를 생성합니다.
     ///
     /// # 반환값
     ///
-    /// 초기화된 `BaseKoreanComposer` 인스턴스
+    /// 초기화된 `BaseHangulComposer` 인스턴스
     pub fn new() -> Self {
-        BaseKoreanComposer {
+        BaseHangulComposer {
             jamo_queue: VecDeque::with_capacity(6),
             last_jamo_queue: VecDeque::with_capacity(6),
             combined_jamo: HashMap::new(),
-            current_korean_char: KoreanChar::default(),
+            current_korean_char: HangulChar::default(),
         }
     }
 
@@ -536,37 +536,37 @@ impl BaseKoreanComposer {
         // 'ㅗ' + 'ㅣ' -> 'ㅚ'
         map.insert(
             (JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::A)),
-            JamoEnum::Jung(Jung::WA),
+            JamoEnum::Jung(Jung::Wa),
         );
         map.insert(
-            (JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::AE)),
-            JamoEnum::Jung(Jung::WAE),
+            (JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::Ae)),
+            JamoEnum::Jung(Jung::Wae),
         );
         map.insert(
             (JamoEnum::Jung(Jung::O), JamoEnum::Jung(Jung::I)),
-            JamoEnum::Jung(Jung::OE),
+            JamoEnum::Jung(Jung::Oe),
         );
 
         // 'ㅜ' + 'ㅓ' -> 'ㅝ'
         // 'ㅜ' + 'ㅔ' -> 'ㅞ'
         // 'ㅜ' + 'ㅣ' -> 'ㅟ'
         map.insert(
-            (JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::EO)),
-            JamoEnum::Jung(Jung::WEO),
+            (JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::Eo)),
+            JamoEnum::Jung(Jung::Weo),
         );
         map.insert(
             (JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::E)),
-            JamoEnum::Jung(Jung::WE),
+            JamoEnum::Jung(Jung::We),
         );
         map.insert(
             (JamoEnum::Jung(Jung::U), JamoEnum::Jung(Jung::I)),
-            JamoEnum::Jung(Jung::WI),
+            JamoEnum::Jung(Jung::Wi),
         );
 
         // 'ㅡ' + 'ㅣ' -> 'ㅢ'
         map.insert(
-            (JamoEnum::Jung(Jung::EU), JamoEnum::Jung(Jung::I)),
-            JamoEnum::Jung(Jung::YI),
+            (JamoEnum::Jung(Jung::Eu), JamoEnum::Jung(Jung::I)),
+            JamoEnum::Jung(Jung::Yi),
         );
 
         map
@@ -583,65 +583,65 @@ impl BaseKoreanComposer {
         // 'ㄱ' + 'ㄱ' -> 'ㄲ'
         // 'ㄱ' + 'ㅅ' -> 'ㄳ'
         map.insert(
-            (JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::G)),
-            JamoEnum::Jong(Jong::GG),
+            (JamoEnum::Jong(Jong::Giyeok), JamoEnum::Jong(Jong::Giyeok)),
+            JamoEnum::Jong(Jong::SsangGiyeok),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::G), JamoEnum::Jong(Jong::S)),
-            JamoEnum::Jong(Jong::GS),
+            (JamoEnum::Jong(Jong::Giyeok), JamoEnum::Jong(Jong::Siot)),
+            JamoEnum::Jong(Jong::GiyeokSiot),
         );
 
         // 'ㄴ' + 'ㅈ' -> 'ㄵ'
         // 'ㄴ' + 'ㅎ' -> 'ㄶ'
         map.insert(
-            (JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::J)),
-            JamoEnum::Jong(Jong::NJ),
+            (JamoEnum::Jong(Jong::Nieun), JamoEnum::Jong(Jong::Jieut)),
+            JamoEnum::Jong(Jong::NieunJieut),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::N), JamoEnum::Jong(Jong::H)),
-            JamoEnum::Jong(Jong::NH),
+            (JamoEnum::Jong(Jong::Nieun), JamoEnum::Jong(Jong::Hieuh)),
+            JamoEnum::Jong(Jong::NieunHieuh),
         );
 
         // 'ㄹ' + 겹받침 조합
         map.insert(
-            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::G)),
-            JamoEnum::Jong(Jong::LG),
+            (JamoEnum::Jong(Jong::Rieul), JamoEnum::Jong(Jong::Giyeok)),
+            JamoEnum::Jong(Jong::RieulGiyeok),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::M)),
-            JamoEnum::Jong(Jong::LM),
+            (JamoEnum::Jong(Jong::Rieul), JamoEnum::Jong(Jong::Mieum)),
+            JamoEnum::Jong(Jong::RieulMieum),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::B)),
-            JamoEnum::Jong(Jong::LB),
+            (JamoEnum::Jong(Jong::Rieul), JamoEnum::Jong(Jong::Bieup)),
+            JamoEnum::Jong(Jong::RieulBieup),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::S)),
-            JamoEnum::Jong(Jong::LS),
+            (JamoEnum::Jong(Jong::Rieul), JamoEnum::Jong(Jong::Siot)),
+            JamoEnum::Jong(Jong::RieulSiot),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::T)),
-            JamoEnum::Jong(Jong::LT),
+            (JamoEnum::Jong(Jong::Rieul), JamoEnum::Jong(Jong::Tieut)),
+            JamoEnum::Jong(Jong::RieulTieut),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::P)),
-            JamoEnum::Jong(Jong::LP),
+            (JamoEnum::Jong(Jong::Rieul), JamoEnum::Jong(Jong::Pieup)),
+            JamoEnum::Jong(Jong::RieulPieup),
         );
         map.insert(
-            (JamoEnum::Jong(Jong::L), JamoEnum::Jong(Jong::H)),
-            JamoEnum::Jong(Jong::LH),
+            (JamoEnum::Jong(Jong::Rieul), JamoEnum::Jong(Jong::Hieuh)),
+            JamoEnum::Jong(Jong::RieulHieuh),
         );
 
         // 'ㅂ' + 'ㅅ' -> 'ㅄ'
         map.insert(
-            (JamoEnum::Jong(Jong::B), JamoEnum::Jong(Jong::S)),
-            JamoEnum::Jong(Jong::BS),
+            (JamoEnum::Jong(Jong::Bieup), JamoEnum::Jong(Jong::Siot)),
+            JamoEnum::Jong(Jong::BieupSiot),
         );
 
         // 'ㅅ' + 'ㅅ' -> 'ㅆ'
         map.insert(
-            (JamoEnum::Jong(Jong::S), JamoEnum::Jong(Jong::S)),
-            JamoEnum::Jong(Jong::SS),
+            (JamoEnum::Jong(Jong::Siot), JamoEnum::Jong(Jong::Siot)),
+            JamoEnum::Jong(Jong::SsangSiot),
         );
 
         map
@@ -657,32 +657,32 @@ impl BaseKoreanComposer {
 
         // 'ㄱ' + 'ㄱ' -> 'ㄲ'
         map.insert(
-            (JamoEnum::Cho(Cho::G), JamoEnum::Cho(Cho::G)),
-            JamoEnum::Cho(Cho::GG),
+            (JamoEnum::Cho(Cho::Giyeok), JamoEnum::Cho(Cho::Giyeok)),
+            JamoEnum::Cho(Cho::SsangGiyeok),
         );
 
         // 'ㄷ' + 'ㄷ' -> 'ㄸ'
         map.insert(
-            (JamoEnum::Cho(Cho::D), JamoEnum::Cho(Cho::D)),
-            JamoEnum::Cho(Cho::DD),
+            (JamoEnum::Cho(Cho::Digeut), JamoEnum::Cho(Cho::Digeut)),
+            JamoEnum::Cho(Cho::SsangDigeut),
         );
 
         // 'ㅂ' + 'ㅂ' -> 'ㅃ'
         map.insert(
-            (JamoEnum::Cho(Cho::B), JamoEnum::Cho(Cho::B)),
-            JamoEnum::Cho(Cho::BB),
+            (JamoEnum::Cho(Cho::Bieup), JamoEnum::Cho(Cho::Bieup)),
+            JamoEnum::Cho(Cho::SsangBieup),
         );
 
         // 'ㅅ' + 'ㅅ' -> 'ㅆ'
         map.insert(
-            (JamoEnum::Cho(Cho::S), JamoEnum::Cho(Cho::S)),
-            JamoEnum::Cho(Cho::SS),
+            (JamoEnum::Cho(Cho::Siot), JamoEnum::Cho(Cho::Siot)),
+            JamoEnum::Cho(Cho::SsangSiot),
         );
 
         // 'ㅈ' + 'ㅈ' -> 'ㅉ'
         map.insert(
-            (JamoEnum::Cho(Cho::J), JamoEnum::Cho(Cho::J)),
-            JamoEnum::Cho(Cho::JJ),
+            (JamoEnum::Cho(Cho::Jieut), JamoEnum::Cho(Cho::Jieut)),
+            JamoEnum::Cho(Cho::SsangJieut),
         );
 
         map
@@ -713,7 +713,7 @@ impl BaseKoreanComposer {
     }
 }
 
-impl KoreanComposer for BaseKoreanComposer {
+impl HangulComposer for BaseHangulComposer {
     /// 한국어 자모를 입력받아 현재 조합 상태에 추가합니다.
     ///
     /// 입력된 자모로 인해 새로운 음절 조합이 시작되어 이전 음절이 완성되면,
@@ -1075,7 +1075,7 @@ impl KoreanComposer for BaseKoreanComposer {
     /// # 반환값
     ///
     /// 현재 조합 중인 한국어의 가변 참조
-    fn current_korean(&mut self) -> &mut KoreanChar {
+    fn current_korean(&mut self) -> &mut HangulChar {
         &mut self.current_korean_char
     }
 }

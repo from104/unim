@@ -1,11 +1,13 @@
 // composer_with_3bul.rs
-//! 세벌식 한국어 입력 방식의 조합 로직을 구현합니다.
+//! 세벌식 한글 입력 방식의 조합 로직을 구현합니다.
 
-use crate::korean::char::KoreanChar;
-use crate::korean::composer::BaseKoreanComposer;
-use crate::korean::composer::CombinedJamoMap;
-use crate::korean::composer::KoreanComposer;
-use crate::korean::jamo::*;
+use crate::hangul::HangulChar;
+use crate::hangul::composer::BaseHangulComposer;
+use crate::hangul::composer::CombinedJamoMap;
+use crate::hangul::composer::HangulComposer;
+use crate::hangul::jamo::*;
+
+// Compatibility aliases for submodule access
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
 
@@ -15,39 +17,39 @@ use std::collections::{HashMap, VecDeque};
 
 /// 중성 조합 규칙: (첫째 모음, 둘째 모음) => 결과 모음
 const JUNG_COMBINATIONS: &[(Jung, Jung, Jung)] = &[
-    (Jung::O, Jung::A, Jung::WA),   // ㅗ + ㅏ = ㅘ
-    (Jung::O, Jung::AE, Jung::WAE), // ㅗ + ㅐ = ㅙ
-    (Jung::O, Jung::I, Jung::OE),   // ㅗ + ㅣ = ㅚ
-    (Jung::U, Jung::EO, Jung::WEO), // ㅜ + ㅓ = ㅝ
-    (Jung::U, Jung::E, Jung::WE),   // ㅜ + ㅔ = ㅞ
-    (Jung::U, Jung::I, Jung::WI),   // ㅜ + ㅣ = ㅟ
-    (Jung::EU, Jung::I, Jung::YI),  // ㅡ + ㅣ = ㅢ
+    (Jung::O, Jung::A, Jung::Wa),   // ㅗ + ㅏ = ㅘ
+    (Jung::O, Jung::Ae, Jung::Wae), // ㅗ + ㅐ = ㅙ
+    (Jung::O, Jung::I, Jung::Oe),   // ㅗ + ㅣ = ㅚ
+    (Jung::U, Jung::Eo, Jung::Weo), // ㅜ + ㅓ = ㅝ
+    (Jung::U, Jung::E, Jung::We),   // ㅜ + ㅔ = ㅞ
+    (Jung::U, Jung::I, Jung::Wi),   // ㅜ + ㅣ = ㅟ
+    (Jung::Eu, Jung::I, Jung::Yi),  // ㅡ + ㅣ = ㅢ
 ];
 
 /// 종성 조합 규칙: (첫째 받침, 둘째 받침) => 결과 겹받침
 const JONG_COMBINATIONS: &[(Jong, Jong, Jong)] = &[
-    (Jong::G, Jong::G, Jong::GG), // ㄱ + ㄱ = ㄲ
-    (Jong::G, Jong::S, Jong::GS), // ㄱ + ㅅ = ㄳ
-    (Jong::N, Jong::J, Jong::NJ), // ㄴ + ㅈ = ㄵ
-    (Jong::N, Jong::H, Jong::NH), // ㄴ + ㅎ = ㄶ
-    (Jong::L, Jong::G, Jong::LG), // ㄹ + ㄱ = ㄺ
-    (Jong::L, Jong::M, Jong::LM), // ㄹ + ㅁ = ㄻ
-    (Jong::L, Jong::B, Jong::LB), // ㄹ + ㅂ = ㄼ
-    (Jong::L, Jong::S, Jong::LS), // ㄹ + ㅅ = ㄽ
-    (Jong::L, Jong::T, Jong::LT), // ㄹ + ㅌ = ㄾ
-    (Jong::L, Jong::P, Jong::LP), // ㄹ + ㅍ = ㄿ
-    (Jong::L, Jong::H, Jong::LH), // ㄹ + ㅎ = ㅀ
-    (Jong::B, Jong::S, Jong::BS), // ㅂ + ㅅ = ㅄ
-    (Jong::S, Jong::S, Jong::SS), // ㅅ + ㅅ = ㅆ
+    (Jong::Giyeok, Jong::Giyeok, Jong::SsangGiyeok), // ㄱ + ㄱ = ㄲ
+    (Jong::Giyeok, Jong::Siot, Jong::GiyeokSiot),    // ㄱ + ㅅ = ㄳ
+    (Jong::Nieun, Jong::Jieut, Jong::NieunJieut),    // ㄴ + ㅈ = ㄵ
+    (Jong::Nieun, Jong::Hieuh, Jong::NieunHieuh),    // ㄴ + ㅎ = ㄶ
+    (Jong::Rieul, Jong::Giyeok, Jong::RieulGiyeok),  // ㄹ + ㄱ = ㄺ
+    (Jong::Rieul, Jong::Mieum, Jong::RieulMieum),    // ㄹ + ㅁ = ㄻ
+    (Jong::Rieul, Jong::Bieup, Jong::RieulBieup),    // ㄹ + ㅂ = ㄼ
+    (Jong::Rieul, Jong::Siot, Jong::RieulSiot),      // ㄹ + ㅅ = ㄽ
+    (Jong::Rieul, Jong::Tieut, Jong::RieulTieut),    // ㄹ + ㅌ = ㄾ
+    (Jong::Rieul, Jong::Pieup, Jong::RieulPieup),    // ㄹ + ㅍ = ㄿ
+    (Jong::Rieul, Jong::Hieuh, Jong::RieulHieuh),    // ㄹ + ㅎ = ㅀ
+    (Jong::Bieup, Jong::Siot, Jong::BieupSiot),      // ㅂ + ㅅ = ㅄ
+    (Jong::Siot, Jong::Siot, Jong::SsangSiot),       // ㅅ + ㅅ = ㅆ
 ];
 
 /// 초성 조합 규칙: (첫째 초성, 둘째 초성) => 결과 쌍자음 (3벌식 전용)
 const CHO_COMBINATIONS: &[(Cho, Cho, Cho)] = &[
-    (Cho::G, Cho::G, Cho::GG), // ㄱ + ㄱ = ㄲ
-    (Cho::D, Cho::D, Cho::DD), // ㄷ + ㄷ = ㄸ
-    (Cho::B, Cho::B, Cho::BB), // ㅂ + ㅂ = ㅃ
-    (Cho::S, Cho::S, Cho::SS), // ㅅ + ㅅ = ㅆ
-    (Cho::J, Cho::J, Cho::JJ), // ㅈ + ㅈ = ㅉ
+    (Cho::Giyeok, Cho::Giyeok, Cho::SsangGiyeok), // ㄱ + ㄱ = ㄲ
+    (Cho::Digeut, Cho::Digeut, Cho::SsangDigeut), // ㄷ + ㄷ = ㄸ
+    (Cho::Bieup, Cho::Bieup, Cho::SsangBieup),    // ㅂ + ㅂ = ㅃ
+    (Cho::Siot, Cho::Siot, Cho::SsangSiot),       // ㅅ + ㅅ = ㅆ
+    (Cho::Jieut, Cho::Jieut, Cho::SsangJieut),    // ㅈ + ㅈ = ㅉ
 ];
 
 /// 배열 기반 조합 규칙으로 HashMap 빌드
@@ -87,7 +89,7 @@ enum Compose3BulViolation {
 }
 
 /// 현재 큐 상태에서 3벌식 규칙 위반 여부를 검사합니다.
-fn check_3bul_violation(base: &mut BaseKoreanComposer) -> Option<Compose3BulViolation> {
+fn check_3bul_violation(base: &mut BaseHangulComposer) -> Option<Compose3BulViolation> {
     let queue = base.jamo_queue();
     if queue.is_empty() {
         return None;
@@ -121,10 +123,10 @@ fn check_3bul_violation(base: &mut BaseKoreanComposer) -> Option<Compose3BulViol
 }
 
 // ============================================================================
-// KoreanComposer3Bul 구현
+// HangulComposer3Bul 구현
 // ============================================================================
 
-/// 세벌식 한국어 입력 방식의 조합 로직을 구현한 컴포저입니다.
+/// 세벌식 한글 입력 방식의 조합 로직을 구현한 컴포저입니다.
 ///
 /// # 특징
 /// - 초성, 중성, 종성이 별도의 키에 할당됨
@@ -132,22 +134,22 @@ fn check_3bul_violation(base: &mut BaseKoreanComposer) -> Option<Compose3BulViol
 /// - 중성/종성 다음에 초성이 오면 새 음절 시작
 /// - 초성 조합 지원 (ㄱ+ㄱ=ㄲ 등)
 #[derive(Debug, Default)]
-pub struct KoreanComposer3Bul {
-    base_composer: BaseKoreanComposer,
+pub struct HangulComposer3Bul {
+    base_composer: BaseHangulComposer,
 }
 
-impl KoreanComposer3Bul {
-    /// 새로운 `KoreanComposer3Bul` 인스턴스를 생성합니다.
+impl HangulComposer3Bul {
+    /// 새로운 `HangulComposer3Bul` 인스턴스를 생성합니다.
     pub fn new() -> Self {
-        let mut composer = KoreanComposer3Bul {
-            base_composer: BaseKoreanComposer::new(),
+        let mut composer = HangulComposer3Bul {
+            base_composer: BaseHangulComposer::new(),
         };
         *composer.base_composer.combined_jamo() = COMBINED_JAMO_3BUL.clone();
         composer
     }
 }
 
-impl KoreanComposer for KoreanComposer3Bul {
+impl HangulComposer for HangulComposer3Bul {
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
         if !self.base_composer.is_valid_jamo(&jamo) {
             return None;
@@ -252,7 +254,7 @@ impl KoreanComposer for KoreanComposer3Bul {
         self.base_composer.combined_jamo()
     }
 
-    fn current_korean(&mut self) -> &mut KoreanChar {
+    fn current_korean(&mut self) -> &mut HangulChar {
         self.base_composer.current_korean()
     }
 }

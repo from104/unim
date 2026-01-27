@@ -3,7 +3,7 @@
 //! 실시간 키 입력을 처리하고 한국어 조합을 관리하는 핵심 엔진입니다.
 
 use crate::config::{Config, EnglishLayout, InputCategory, KoreanLayout};
-use crate::korean::input_context::{ComposerType, KoreanInputContext};
+use crate::korean::input_context::{ComposerType, HangulInputContext};
 use crate::korean::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
 use std::collections::HashMap;
@@ -87,7 +87,7 @@ pub struct InputEngine {
     /// 현재 입력 카테고리 (한국어/영어)
     input_category: InputCategory,
     /// 한국어 입력 컨텍스트
-    korean_context: KoreanInputContext,
+    korean_context: HangulInputContext,
     /// commit 버퍼
     commit_buffer: String,
     /// preedit 버퍼 (캐시)
@@ -115,7 +115,7 @@ impl InputEngine {
 
         Self {
             input_category: config.engine.default_category,
-            korean_context: KoreanInputContext::new(composer_type),
+            korean_context: HangulInputContext::new(composer_type),
             commit_buffer: String::new(),
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
@@ -483,7 +483,7 @@ impl InputEngine {
             } else {
                 ComposerType::TwoBul
             };
-            self.korean_context = KoreanInputContext::new(composer_type);
+            self.korean_context = HangulInputContext::new(composer_type);
         }
     }
 

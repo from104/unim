@@ -4,7 +4,7 @@
 //! target text into its component Jamo and matching against a Jamo pattern.
 //! This is useful for features like Jamo-based autocompletion or filtering.
 
-use unim::korean::{char::KoreanChar, jamo::*};
+use unim::korean::{char::HangulChar, jamo::*};
 
 /// Helper to extract raw char from JamoEnum
 fn jamo_enum_to_raw(jamo: &JamoEnum) -> char {
@@ -12,7 +12,7 @@ fn jamo_enum_to_raw(jamo: &JamoEnum) -> char {
         JamoEnum::Cho(c) => c.to_char(),
         JamoEnum::Jung(j) => j.to_char(),
         JamoEnum::Jong(j) => j.to_char(),
-        JamoEnum::Special(s) => s.to_char(),
+        JamoEnum::Special(s) => *s,
     }
 }
 
@@ -21,11 +21,11 @@ fn jamo_enum_to_raw(jamo: &JamoEnum) -> char {
 fn decompose_with_mapping(text: &str) -> (String, Vec<usize>) {
     let mut jamo_seq = String::new();
     let mut mapping = Vec::new();
-    
+
     for (idx, c) in text.char_indices() {
         let mut added = false;
 
-        if let Some(korean_char) = KoreanChar::from_char(c) {
+        if let Some(korean_char) = HangulChar::from_char(c) {
             if let Some((cho, jung, jong_opt)) = korean_char.to_jamo_tuple() {
                 // Initial
                 jamo_seq.push(cho.to_char());
@@ -58,16 +58,20 @@ fn decompose_with_mapping(text: &str) -> (String, Vec<usize>) {
 
 /// Finds a Jamo pattern within the text and returns original string ranges.
 fn find_pattern(text: &str, pattern: &str) -> Vec<(usize, usize)> {
-    if pattern.is_empty() { return vec![]; }
+    if pattern.is_empty() {
+        return vec![];
+    }
 
     let (jamo_seq, mapping) = decompose_with_mapping(text);
     let mut matches = Vec::new();
-    
+
     let jamo_chars: Vec<char> = jamo_seq.chars().collect();
     let pattern_chars: Vec<char> = pattern.chars().collect();
     let p_len = pattern_chars.len();
 
-    if jamo_chars.len() < p_len { return vec![]; }
+    if jamo_chars.len() < p_len {
+        return vec![];
+    }
 
     for i in 0..=(jamo_chars.len() - p_len) {
         if jamo_chars[i..i + p_len] == pattern_chars[..] {
@@ -75,7 +79,8 @@ fn find_pattern(text: &str, pattern: &str) -> Vec<(usize, usize)> {
             let last_jamo_byte = mapping[i + p_len - 1];
 
             // Calculate the end byte based on the UTF-8 length of the last character
-            let end_byte = text.char_indices()
+            let end_byte = text
+                .char_indices()
                 .find(|(idx, _)| *idx == last_jamo_byte)
                 .map(|(idx, c)| idx + c.len_utf8())
                 .unwrap_or(text.len());
@@ -98,20 +103,30 @@ fn main() {
     println!("---");
 
     let results = find_pattern(text, pattern);
-    
+
     if results.is_empty() {
         println!("No matches found.");
     } else {
         for (start, end) in results {
-            println!("Match at offset {}..{}: \"{}\"", start, end, &text[start..end]);
+            println!(
+                "Match at offset {}..{}: \"{}\"",
+                start,
+                end,
+                &text[start..end]
+            );
         }
     }
-    
+
     // Additional Test with simple consonants
     let char_pattern = "ㄹㅏ";
     let char_results = find_pattern(text, char_pattern);
     println!("\nPattern:   \"{}\"", char_pattern);
     for (start, end) in char_results {
-        println!("Match at offset {}..{}: \"{}\"", start, end, &text[start..end]);
+        println!(
+            "Match at offset {}..{}: \"{}\"",
+            start,
+            end,
+            &text[start..end]
+        );
     }
 }

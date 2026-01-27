@@ -1,6 +1,6 @@
 [package]
 name = "unim-indicator"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 description = "UNIM Input Method Status Indicator"
 
@@ -13,6 +13,7 @@ path = "src/main.rs"
 unim = { path = ".." }
 unim-dbus = { path = "../unim-dbus" }
 dirs = "5.0"
+which = "6.0"
 
 # System tray (StatusNotifierItem)
 ksni = { version = "0.3", features = ["blocking"] }
