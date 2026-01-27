@@ -1,0 +1,76 @@
+/* UNIM GTK4 Settings - Adwaita Dark Style (Qt6 일치) */
+
+/* 섹션 타이틀 - 파란색 */
+.section-title {
+    color: #3584e4;
+    font-weight: bold;
+    font-size: 13px;
+    padding: 16px 4px 8px 4px;
+}
+
+/* 카드 스타일 - 둥근 배경 박스 */
+.settings-card {
+    background-color: #2b2b2b;
+    border-radius: 12px;
+    padding: 0;
+    margin-bottom: 4px;
+}
+
+/* 설정 행 스타일 */
+.settings-row {
+    padding: 10px 16px;
+    min-height: 44px;
+}
+
+/* 행 구분선 */
+separator {
+    background-color: #3d3d3d;
+    min-height: 1px;
+    margin: 0 16px;
+}
+
+/* 드롭다운 스타일 */
+dropdown {
+    min-width: 160px;
+}
+
+dropdown > button {
+    padding: 6px 12px;
+    background-color: #333;
+    border: 1px solid #444;
+    border-radius: 6px;
+}
+
+dropdown > button:hover {
+    background-color: #3d3d3d;
+    border-color: #3584e4;
+}
+
+/* 스위치 스타일 */
+switch {
+    margin: 4px 0;
+}
+
+/* 슬라이더 스타일 */
+scale {
+    margin-right: 8px;
+}
+
+scale trough {
+    min-height: 4px;
+    background-color: #444;
+    border-radius: 2px;
+}
+
+scale trough highlight {
+    background-color: #3584e4;
+    border-radius: 2px;
+}
+
+scale slider {
+    background-color: #fff;
+    border: 1px solid #888;
+    min-width: 18px;
+    min-height: 18px;
+    border-radius: 9px;
+}

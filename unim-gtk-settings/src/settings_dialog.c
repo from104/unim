@@ -1,16 +1,11 @@
 /**
- * UNIM GTK4 Settings Dialog - Implementation
- *
- * 입력기 설정을 위한 GTK4 기반 다이얼로그 구현
- * unim-capi를 사용하여 설정 관리
+ * UNIM GTK4 Settings Dialog - Qt6 디자인 완벽 일치 버전
  */
 
 #include "settings_dialog.h"
+#include <unim.h>
+#include <glib/gi18n.h>
 #include <stdio.h>
-#include <libintl.h>
-
-/* UNIM C API */
-#include "unim.h"
 
 #define _(String) gettext (String)
 
@@ -18,82 +13,56 @@ struct _UnimSettingsDialog {
     GtkWindow parent_instance;
 
     /* UI 위젯 */
-    GtkWidget *korean_layout_combo;
-    GtkWidget *english_layout_combo;
-    GtkWidget *auto_switch_check;
+    GtkWidget *korean_layout_dropdown;
+    GtkWidget *english_layout_dropdown;
+    GtkWidget *auto_switch_switch;
     GtkWidget *threshold_scale;
     GtkWidget *threshold_label;
-    GtkWidget *save_button;
-    GtkWidget *cancel_button;
+
+    /* 레이아웃 모델 */
+    GListModel *korean_layout_model;
+    GListModel *english_layout_model;
 
     /* UNIM 설정 객체 */
     UnimConfig *config;
 
-    /* 설정 상태 (UI 상태) */
-    int korean_layout;  /* 0: 두벌식, 1: 세벌식390, 2: 세벌식391 */
-    int english_layout; /* 0: QWERTY, 1: Dvorak */
+    /* 현재 설정값 캐시 */
+    int korean_layout;
+    int english_layout;
     gboolean auto_switch_enabled;
     double auto_switch_threshold;
 };
 
 G_DEFINE_TYPE(UnimSettingsDialog, unim_settings_dialog, GTK_TYPE_WINDOW)
 
-/* C API를 통해 설정 로드 */
-static void load_config(UnimSettingsDialog *self) {
-    /* 기본값 설정 */
-    self->korean_layout = 0;
-    self->english_layout = 0;
-    self->auto_switch_enabled = FALSE;
-    self->auto_switch_threshold = 0.7;
-
-    /* C API로 설정 로드 */
-    self->config = unim_config_load();
-    if (!self->config) {
-        g_warning("Failed to load config, using defaults");
-        self->config = unim_config_default();
-        return;
-    }
-
-    /* C API로 값 읽기 */
-    self->korean_layout = (int)unim_config_get_korean_layout(self->config);
-    self->english_layout = (int)unim_config_get_english_layout(self->config);
-    self->auto_switch_enabled = unim_config_get_auto_switch_enabled(self->config);
-    self->auto_switch_threshold = (double)unim_config_get_auto_switch_threshold(self->config);
-}
-
-/* C API를 통해 설정 저장 */
+/* 설정 저장 함수 */
 static gboolean save_config(UnimSettingsDialog *self) {
-    if (!self->config) {
-        g_warning("No config object");
-        return FALSE;
-    }
+    if (!self->config) return FALSE;
 
-    /* C API로 값 설정 */
     unim_config_set_korean_layout(self->config, (UnimKoreanLayout)self->korean_layout);
     unim_config_set_english_layout(self->config, (UnimEnglishLayout)self->english_layout);
     unim_config_set_auto_switch_enabled(self->config, self->auto_switch_enabled);
     unim_config_set_auto_switch_threshold(self->config, (float)self->auto_switch_threshold);
 
-    /* C API로 저장 */
     return unim_config_save(self->config);
 }
 
 /* UI 이벤트 핸들러 */
-static void on_korean_layout_changed(GtkComboBox *combo, UnimSettingsDialog *self) {
-    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-    self->korean_layout = gtk_combo_box_get_active(combo);
-    G_GNUC_END_IGNORE_DEPRECATIONS
+static void on_korean_layout_changed(GtkDropDown *dropdown, GParamSpec *pspec G_GNUC_UNUSED, UnimSettingsDialog *self) {
+    self->korean_layout = (int)gtk_drop_down_get_selected(dropdown);
+    save_config(self);
 }
 
-static void on_english_layout_changed(GtkComboBox *combo, UnimSettingsDialog *self) {
-    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-    self->english_layout = gtk_combo_box_get_active(combo);
-    G_GNUC_END_IGNORE_DEPRECATIONS
+static void on_english_layout_changed(GtkDropDown *dropdown, GParamSpec *pspec G_GNUC_UNUSED, UnimSettingsDialog *self) {
+    self->english_layout = (int)gtk_drop_down_get_selected(dropdown);
+    save_config(self);
 }
 
-static void on_auto_switch_toggled(GtkCheckButton *check, UnimSettingsDialog *self) {
-    self->auto_switch_enabled = gtk_check_button_get_active(check);
+static void on_auto_switch_toggled(GtkSwitch *sw, GParamSpec *pspec G_GNUC_UNUSED, UnimSettingsDialog *self) {
+    self->auto_switch_enabled = gtk_switch_get_active(sw);
     gtk_widget_set_sensitive(self->threshold_scale, self->auto_switch_enabled);
+    gtk_widget_set_sensitive(self->threshold_label, self->auto_switch_enabled);
+    save_config(self);
 }
 
 static void update_threshold_label(UnimSettingsDialog *self) {
@@ -105,157 +74,188 @@ static void update_threshold_label(UnimSettingsDialog *self) {
 static void on_threshold_changed(GtkRange *range, UnimSettingsDialog *self) {
     self->auto_switch_threshold = gtk_range_get_value(range);
     update_threshold_label(self);
+    save_config(self);
 }
 
-static void on_save_clicked(GtkButton *button G_GNUC_UNUSED, UnimSettingsDialog *self) {
-    if (save_config(self)) {
-        g_message("%s", _("Settings saved successfully."));
-        gtk_window_close(GTK_WINDOW(self));
-    } else {
-        g_warning("Failed to save config");
-    }
+/* CSS 인라인 로드 - Qt6와 동일한 스타일 */
+static void load_css(void) {
+    GtkCssProvider *provider = gtk_css_provider_new();
+    
+    const char *css = 
+        "/* 섹션 타이틀 - 파란색 */\n"
+        ".section-title {\n"
+        "    color: #3584e4;\n"
+        "    font-weight: bold;\n"
+        "    font-size: 18px;\n"
+        "    padding: 20px 4px 8px 4px;\n"
+        "}\n"
+        "\n"
+        "/* 카드 스타일 - 둥근 배경 박스 */\n"
+        ".settings-card {\n"
+        "    background-color: #3a3a3a;\n"
+        "    border-radius: 12px;\n"
+        "    padding: 2px 0;\n"
+        "}\n"
+        "\n"
+        "/* 설정 행 스타일 */\n"
+        ".settings-row {\n"
+        "    padding: 8px 16px;\n"
+        "    min-height: 40px;\n"
+        "}\n"
+        "\n"
+        "/* 행 구분선 */\n"
+        ".row-separator {\n"
+        "    background-color: #3d3d3d;\n"
+        "    min-height: 1px;\n"
+        "    margin: 0 16px;\n"
+        "}\n"
+        "\n"
+        "/* 드롭다운 스타일 */\n"
+        "dropdown button {\n"
+        "    padding: 6px 12px;\n"
+        "    background-color: #333;\n"
+        "    border-radius: 6px;\n"
+        "    min-width: 140px;\n"
+        "}\n"
+        "\n"
+        "dropdown button:hover {\n"
+        "    background-color: #3d3d3d;\n"
+        "}\n";
+
+    gtk_css_provider_load_from_string(provider, css);
+    gtk_style_context_add_provider_for_display(
+        gdk_display_get_default(),
+        GTK_STYLE_PROVIDER(provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+    );
+    g_object_unref(provider);
 }
 
-static void on_cancel_clicked(GtkButton *button G_GNUC_UNUSED, UnimSettingsDialog *self) {
-    gtk_window_close(GTK_WINDOW(self));
+/* 설정 행 생성 - 라벨 + 컨트롤 */
+static GtkWidget *create_settings_row(const char *label_text, GtkWidget *control) {
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_add_css_class(row, "settings-row");
+
+    GtkWidget *label = gtk_label_new(label_text);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(label, TRUE);
+    gtk_box_append(GTK_BOX(row), label);
+
+    gtk_widget_set_halign(control, GTK_ALIGN_END);
+    gtk_widget_set_valign(control, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(row), control);
+
+    return row;
 }
 
-/* 다이얼로그 파괴 시 정리 */
-static void unim_settings_dialog_dispose(GObject *object) {
-    UnimSettingsDialog *self = UNIM_SETTINGS_DIALOG(object);
-
-    if (self->config) {
-        unim_config_delete(self->config);
-        self->config = NULL;
-    }
-
-    G_OBJECT_CLASS(unim_settings_dialog_parent_class)->dispose(object);
+/* 구분선 생성 */
+static GtkWidget *create_separator(void) {
+    GtkWidget *sep = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(sep, "row-separator");
+    gtk_widget_set_size_request(sep, -1, 1);
+    return sep;
 }
 
-/* UI 구성 */
 static void unim_settings_dialog_init(UnimSettingsDialog *self) {
-    /* API 버전 확인 */
-    if (unim_api_version() != UNIM_API_VERSION) {
-        g_warning("UNIM API version mismatch: expected %d, got %zu",
-                  UNIM_API_VERSION, unim_api_version());
-    }
+    load_css();
 
     /* 설정 로드 */
-    load_config(self);
+    self->config = unim_config_load();
+    if (!self->config) {
+        self->config = unim_config_default();
+    }
+    self->korean_layout = (int)unim_config_get_korean_layout(self->config);
+    self->english_layout = (int)unim_config_get_english_layout(self->config);
+    self->auto_switch_enabled = unim_config_get_auto_switch_enabled(self->config);
+    self->auto_switch_threshold = (double)unim_config_get_auto_switch_threshold(self->config);
 
-    /* 윈도우 설정 */
     gtk_window_set_title(GTK_WINDOW(self), _("UNIM Settings"));
-    gtk_window_set_default_size(GTK_WINDOW(self), 400, 300);
+    gtk_window_set_default_size(GTK_WINDOW(self), 480, -1);
     gtk_window_set_resizable(GTK_WINDOW(self), FALSE);
 
-    /* 메인 박스 */
-    GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_margin_start(main_box, 20);
-    gtk_widget_set_margin_end(main_box, 20);
-    gtk_widget_set_margin_top(main_box, 20);
-    gtk_widget_set_margin_bottom(main_box, 20);
+    GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_margin_start(main_box, 24);
+    gtk_widget_set_margin_end(main_box, 24);
+    gtk_widget_set_margin_top(main_box, 8);
+    gtk_widget_set_margin_bottom(main_box, 32);
     gtk_window_set_child(GTK_WINDOW(self), main_box);
 
-    /* 헤더 */
-    GtkWidget *header = gtk_label_new(NULL);
-    char *header_markup = g_strdup_printf("<span size='large' weight='bold'>%s</span>", _("UNIM Settings"));
-    gtk_label_set_markup(GTK_LABEL(header), header_markup);
-    g_free(header_markup);
-    gtk_box_append(GTK_BOX(main_box), header);
+    /* === Keyboard Layout Section === */
+    GtkWidget *layout_title = gtk_label_new(_("Keyboard Layout"));
+    gtk_widget_add_css_class(layout_title, "section-title");
+    gtk_widget_set_halign(layout_title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(main_box), layout_title);
 
-    /* 구분선 */
-    gtk_box_append(GTK_BOX(main_box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    GtkWidget *layout_card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_add_css_class(layout_card, "settings-card");
 
-    /* 설정 그리드 */
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 12);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
-    gtk_box_append(GTK_BOX(main_box), grid);
+    /* Korean Layout Row */
+    const char *korean_layouts[] = {_("2-bul Standard"), _("3-bul 390"), _("3-bul Final"), NULL};
+    self->korean_layout_model = G_LIST_MODEL(gtk_string_list_new(korean_layouts));
+    self->korean_layout_dropdown = gtk_drop_down_new(self->korean_layout_model, NULL);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(self->korean_layout_dropdown), (guint)self->korean_layout);
+    g_signal_connect(self->korean_layout_dropdown, "notify::selected", G_CALLBACK(on_korean_layout_changed), self);
+    gtk_box_append(GTK_BOX(layout_card), create_settings_row(_("Korean Layout"), self->korean_layout_dropdown));
 
-    int row = 0;
+    /* Separator */
+    gtk_box_append(GTK_BOX(layout_card), create_separator());
 
-    /* 한국어 레이아웃 */
-    GtkWidget *korean_label = gtk_label_new(_("Korean Layout:"));
-    gtk_widget_set_halign(korean_label, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid), korean_label, 0, row, 1, 1);
+    /* English Layout Row */
+    const char *english_layouts[] = {"QWERTY", "Dvorak", NULL};
+    self->english_layout_model = G_LIST_MODEL(gtk_string_list_new(english_layouts));
+    self->english_layout_dropdown = gtk_drop_down_new(self->english_layout_model, NULL);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(self->english_layout_dropdown), (guint)self->english_layout);
+    g_signal_connect(self->english_layout_dropdown, "notify::selected", G_CALLBACK(on_english_layout_changed), self);
+    gtk_box_append(GTK_BOX(layout_card), create_settings_row(_("English Layout"), self->english_layout_dropdown));
 
-    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-    self->korean_layout_combo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(self->korean_layout_combo), _("2-bul Standard"));
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(self->korean_layout_combo), _("3-bul 390"));
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(self->korean_layout_combo), _("3-bul Final"));
-    gtk_combo_box_set_active(GTK_COMBO_BOX(self->korean_layout_combo), self->korean_layout);
-    G_GNUC_END_IGNORE_DEPRECATIONS
-    gtk_widget_set_hexpand(self->korean_layout_combo, TRUE);
-    g_signal_connect(self->korean_layout_combo, "changed", G_CALLBACK(on_korean_layout_changed), self);
-    gtk_grid_attach(GTK_GRID(grid), self->korean_layout_combo, 1, row, 1, 1);
-    row++;
+    gtk_box_append(GTK_BOX(main_box), layout_card);
 
-    /* 영문 레이아웃 */
-    GtkWidget *english_label = gtk_label_new(_("English Layout:"));
-    gtk_widget_set_halign(english_label, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid), english_label, 0, row, 1, 1);
+    /* === Auto Switch Section === */
+    GtkWidget *switch_title = gtk_label_new(_("Auto Switch"));
+    gtk_widget_add_css_class(switch_title, "section-title");
+    gtk_widget_set_halign(switch_title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(main_box), switch_title);
 
-    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-    self->english_layout_combo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(self->english_layout_combo), "QWERTY");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(self->english_layout_combo), "Dvorak");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(self->english_layout_combo), self->english_layout);
-    G_GNUC_END_IGNORE_DEPRECATIONS
-    gtk_widget_set_hexpand(self->english_layout_combo, TRUE);
-    g_signal_connect(self->english_layout_combo, "changed", G_CALLBACK(on_english_layout_changed), self);
-    gtk_grid_attach(GTK_GRID(grid), self->english_layout_combo, 1, row, 1, 1);
-    row++;
+    GtkWidget *switch_card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_add_css_class(switch_card, "settings-card");
 
-    /* 자동 전환 */
-    GtkWidget *auto_label = gtk_label_new(_("Auto Switch:"));
-    gtk_widget_set_halign(auto_label, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid), auto_label, 0, row, 1, 1);
+    /* Enable Auto Switch Row */
+    self->auto_switch_switch = gtk_switch_new();
+    gtk_switch_set_active(GTK_SWITCH(self->auto_switch_switch), self->auto_switch_enabled);
+    g_signal_connect(self->auto_switch_switch, "notify::active", G_CALLBACK(on_auto_switch_toggled), self);
+    gtk_box_append(GTK_BOX(switch_card), create_settings_row(_("Enable Auto Switch"), self->auto_switch_switch));
 
-    self->auto_switch_check = gtk_check_button_new_with_label(_("Enabled"));
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(self->auto_switch_check), self->auto_switch_enabled);
-    g_signal_connect(self->auto_switch_check, "toggled", G_CALLBACK(on_auto_switch_toggled), self);
-    gtk_grid_attach(GTK_GRID(grid), self->auto_switch_check, 1, row, 1, 1);
-    row++;
+    /* Separator */
+    gtk_box_append(GTK_BOX(switch_card), create_separator());
 
-    /* 임계값 */
-    GtkWidget *threshold_label_title = gtk_label_new(_("Threshold:"));
-    gtk_widget_set_halign(threshold_label_title, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(grid), threshold_label_title, 0, row, 1, 1);
-
+    /* Threshold Row */
     GtkWidget *threshold_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    self->threshold_scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.0, 1.0, 0.05);
+    
+    self->threshold_scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1, 0.05);
+    gtk_scale_set_draw_value(GTK_SCALE(self->threshold_scale), FALSE);
     gtk_range_set_value(GTK_RANGE(self->threshold_scale), self->auto_switch_threshold);
-    gtk_widget_set_hexpand(self->threshold_scale, TRUE);
+    gtk_widget_set_size_request(self->threshold_scale, 140, -1);
     gtk_widget_set_sensitive(self->threshold_scale, self->auto_switch_enabled);
     g_signal_connect(self->threshold_scale, "value-changed", G_CALLBACK(on_threshold_changed), self);
     gtk_box_append(GTK_BOX(threshold_box), self->threshold_scale);
 
-    self->threshold_label = gtk_label_new("");
+    self->threshold_label = gtk_label_new(NULL);
+    gtk_widget_set_sensitive(self->threshold_label, self->auto_switch_enabled);
     update_threshold_label(self);
     gtk_box_append(GTK_BOX(threshold_box), self->threshold_label);
 
-    gtk_grid_attach(GTK_GRID(grid), threshold_box, 1, row, 1, 1);
-    row++;
+    gtk_box_append(GTK_BOX(switch_card), create_settings_row(_("Threshold"), threshold_box));
 
-    /* 스페이서 */
-    GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_set_vexpand(spacer, TRUE);
-    gtk_box_append(GTK_BOX(main_box), spacer);
+    gtk_box_append(GTK_BOX(main_box), switch_card);
+}
 
-    /* 버튼 영역 */
-    GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_halign(button_box, GTK_ALIGN_END);
-    gtk_box_append(GTK_BOX(main_box), button_box);
-
-    self->cancel_button = gtk_button_new_with_label(_("Cancel"));
-    g_signal_connect(self->cancel_button, "clicked", G_CALLBACK(on_cancel_clicked), self);
-    gtk_box_append(GTK_BOX(button_box), self->cancel_button);
-
-    self->save_button = gtk_button_new_with_label(_("Save"));
-    gtk_widget_add_css_class(self->save_button, "suggested-action");
-    g_signal_connect(self->save_button, "clicked", G_CALLBACK(on_save_clicked), self);
-    gtk_box_append(GTK_BOX(button_box), self->save_button);
+static void unim_settings_dialog_dispose(GObject *object) {
+    UnimSettingsDialog *self = UNIM_SETTINGS_DIALOG(object);
+    if (self->config) {
+        unim_config_delete(self->config);
+        self->config = NULL;
+    }
+    G_OBJECT_CLASS(unim_settings_dialog_parent_class)->dispose(object);
 }
 
 static void unim_settings_dialog_class_init(UnimSettingsDialogClass *klass) {

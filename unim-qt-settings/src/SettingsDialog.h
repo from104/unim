@@ -13,7 +13,7 @@
 #include <QCheckBox>
 #include <QSlider>
 #include <QLabel>
-#include <QPushButton>
+#include <QGroupBox>
 
 /* UNIM C API */
 extern "C" {
@@ -32,14 +32,17 @@ private slots:
     void onEnglishLayoutChanged(int index);
     void onAutoSwitchToggled(bool checked);
     void onThresholdChanged(int value);
-    void onSave();
-    void onCancel();
 
 private:
     void setupUI();
     void loadConfig();
     bool saveConfig();
     void updateThresholdLabel();
+    void loadStyleSheet();
+
+    // 섹션 생성 메서드
+    QGroupBox* createLayoutSection();
+    QGroupBox* createAutoSwitchSection();
 
     // UI 위젯
     QComboBox *m_koreanLayoutCombo;
@@ -47,8 +50,6 @@ private:
     QCheckBox *m_autoSwitchCheck;
     QSlider *m_thresholdSlider;
     QLabel *m_thresholdLabel;
-    QPushButton *m_saveButton;
-    QPushButton *m_cancelButton;
 
     // UNIM 설정 객체
     UnimConfig *m_config;
