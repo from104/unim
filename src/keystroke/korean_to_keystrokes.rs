@@ -1,6 +1,6 @@
-use crate::korean::char::HangulChar;
-use crate::korean::char::HangulCharExt;
-use crate::korean::jamo::*;
+use crate::hangul::char::HangulChar;
+use crate::hangul::char::HangulCharExt;
+use crate::hangul::jamo::*;
 use std::collections::HashMap;
 
 /// 한국어 문자열을 해당하는 영어 키보드 입력 시퀀스로 변환하는 기능을 제공합니다.

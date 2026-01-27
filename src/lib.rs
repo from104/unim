@@ -5,5 +5,3 @@ pub mod keycode;
 pub mod keystroke;
 pub mod status;
 
-/// Compatibility alias for the old korean module
-pub use crate::hangul as korean;

@@ -3,8 +3,8 @@
 //! 실시간 키 입력을 처리하고 한국어 조합을 관리하는 핵심 엔진입니다.
 
 use crate::config::{Config, EnglishLayout, InputCategory, KoreanLayout};
-use crate::korean::input_context::{ComposerType, HangulInputContext};
-use crate::korean::jamo::JamoEnum;
+use crate::hangul::input_context::{ComposerType, HangulInputContext};
+use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
 use std::collections::HashMap;
 

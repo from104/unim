@@ -622,6 +622,18 @@ fn load_css() {
         .mode-active:hover {
             background: shade(@accent_bg_color, 1.1);
         }
+
+        .korean-btn.mode-active {
+            background: #3584e4;
+            color: white;
+            border: 2px solid white;
+        }
+
+        .english-btn.mode-active {
+            background: #5e5c64;
+            color: white;
+            border: 2px solid #d5d3d0;
+        }
         
         .title-label {
             font-size: 18px;
@@ -669,11 +681,13 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
         .tooltip_text("한국어 모드로 전환")
         .build();
     korean_btn.add_css_class("mode-button");
+    korean_btn.add_css_class("korean-btn");
 
     let english_btn = gtk4::Button::builder()
         .tooltip_text("영어 모드로 전환")
         .build();
     english_btn.add_css_class("mode-button");
+    english_btn.add_css_class("english-btn");
 
     match current_category {
         InputCategory::Korean => {

@@ -21,7 +21,7 @@ pub fn get_keymap_json(name: &str) -> &'static str {
     }
 }
 
-use crate::korean::input_context::{ComposerType, HangulInputContext};
+use crate::hangul::input_context::{ComposerType, HangulInputContext};
 
 /// Converts a string to a vector of `Keystroke`s based on a given keyboard layout.
 pub fn string_to_keystrokes(s: &str, _layout: &str) -> Vec<Keystroke> {
