@@ -2,21 +2,29 @@ pub mod keyboard_map;
 pub mod keystrokes_to_korean;
 pub mod korean_to_keystrokes;
 
-pub use keyboard_map::{Key, KeyboardMap, Keystroke};
+pub use keyboard_map::{EnglishKeymap, Key, KeyboardMap, Keystroke};
 
 const EN_QWERTY: &str = include_str!("keymap/en_qwerty.json");
 const EN_DVORAK: &str = include_str!("keymap/en_dvorak.json");
+const EN_COLEMAK: &str = include_str!("keymap/en_colemak.json");
+const EN_COLEMAK_DH: &str = include_str!("keymap/en_colemak_dh.json");
+const EN_WORKMAN: &str = include_str!("keymap/en_workman.json");
 const KO_2BULSTD: &str = include_str!("keymap/ko_2bulstd.json");
 const KO_3BUL390: &str = include_str!("keymap/ko_3bul390.json");
 const KO_3BUL391: &str = include_str!("keymap/ko_3bul391.json");
+const KO_3BUL_NOSHIFT: &str = include_str!("keymap/ko_3bul_noshift.json");
 
 pub fn get_keymap_json(name: &str) -> &'static str {
     match name {
         "en_qwerty" => EN_QWERTY,
         "en_dvorak" => EN_DVORAK,
+        "en_colemak" => EN_COLEMAK,
+        "en_colemak_dh" => EN_COLEMAK_DH,
+        "en_workman" => EN_WORKMAN,
         "ko_2bulstd" | "2bul" => KO_2BULSTD,
         "ko_3bul390" | "390" | "3bul390" => KO_3BUL390,
         "ko_3bul391" | "391" | "3bul391" => KO_3BUL391,
+        "ko_3bul_noshift" | "noshift" | "3bul_noshift" => KO_3BUL_NOSHIFT,
         _ => KO_2BULSTD,
     }
 }

@@ -54,16 +54,9 @@ enum ConfigKey {
 fn config_show() {
     let config = UnimConfig::load_from_default_path();
 
-    let korean_name = match config.engine.korean.layout {
-        KoreanLayout::Dubeolsik => t!("twobul_std"),
-        KoreanLayout::Sebeolsik390 => t!("threebul_390"),
-        KoreanLayout::Sebeolsik391 => t!("threebul_391"),
-    };
+    let korean_name = config.engine.korean.layout.display_name();
 
-    let english_name = match config.engine.english.layout {
-        EnglishLayout::Qwerty => t!("qwerty"),
-        EnglishLayout::Dvorak => t!("dvorak"),
-    };
+    let english_name = config.engine.english.layout.display_name();
 
     let auto_switch_status = if config.engine.auto_switch.enabled {
         t!("enabled")
@@ -106,13 +99,14 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 "2bul" | "dubeolsik" => KoreanLayout::Dubeolsik,
                 "3bul390" | "390" => KoreanLayout::Sebeolsik390,
                 "3bul391" | "391" => KoreanLayout::Sebeolsik391,
+                "3bul_noshift" | "noshift" => KoreanLayout::SebeolsikNoShift,
                 _ => {
                     let kind = t!("korean_layout_label").to_string();
                     return Err(t!(
                         "error_invalid_layout",
                         kind = kind,
                         value = value,
-                        allowed = "2bul, 3bul390, 3bul391"
+                        allowed = "2bul, 3bul390, 3bul391, 3bul_noshift"
                     )
                     .to_string());
                 }
@@ -128,13 +122,16 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             let layout = match value {
                 "qwerty" => EnglishLayout::Qwerty,
                 "dvorak" => EnglishLayout::Dvorak,
+                "colemak" => EnglishLayout::Colemak,
+                "colemak_dh" | "colemak-dh" => EnglishLayout::ColemakDh,
+                "workman" => EnglishLayout::Workman,
                 _ => {
                     let kind = t!("english_layout_label").to_string();
                     return Err(t!(
                         "error_invalid_layout",
                         kind = kind,
                         value = value,
-                        allowed = "qwerty, dvorak"
+                        allowed = "qwerty, dvorak, colemak, colemak_dh, workman"
                     )
                     .to_string());
                 }
@@ -227,42 +224,36 @@ fn config_interactive() {
 
         match selection {
             0 => {
-                let layouts = vec!["2bul", "3bul390", "3bul391"];
+                let layouts = KoreanLayout::all();
+                let layout_names: Vec<&str> = layouts.iter().map(|l| l.display_name()).collect();
+                let current_idx = layouts
+                    .iter()
+                    .position(|l| *l == config.engine.korean.layout)
+                    .unwrap_or(0);
                 let s = Select::with_theme(&theme)
                     .with_prompt(t!("select_korean_layout").to_string())
-                    .items(&layouts)
-                    .default(match config.engine.korean.layout {
-                        KoreanLayout::Dubeolsik => 0,
-                        KoreanLayout::Sebeolsik390 => 1,
-                        KoreanLayout::Sebeolsik391 => 2,
-                    })
+                    .items(&layout_names)
+                    .default(current_idx)
                     .interact()
                     .unwrap();
 
-                config.engine.korean.layout = match s {
-                    0 => KoreanLayout::Dubeolsik,
-                    1 => KoreanLayout::Sebeolsik390,
-                    2 => KoreanLayout::Sebeolsik391,
-                    _ => unreachable!(),
-                };
+                config.engine.korean.layout = layouts[s];
             }
             1 => {
-                let layouts = vec!["qwerty", "dvorak"];
+                let layouts = EnglishLayout::all();
+                let layout_names: Vec<&str> = layouts.iter().map(|l| l.display_name()).collect();
+                let current_idx = layouts
+                    .iter()
+                    .position(|l| *l == config.engine.english.layout)
+                    .unwrap_or(0);
                 let s = Select::with_theme(&theme)
                     .with_prompt(t!("select_english_layout").to_string())
-                    .items(&layouts)
-                    .default(match config.engine.english.layout {
-                        EnglishLayout::Qwerty => 0,
-                        EnglishLayout::Dvorak => 1,
-                    })
+                    .items(&layout_names)
+                    .default(current_idx)
                     .interact()
                     .unwrap();
 
-                config.engine.english.layout = match s {
-                    0 => EnglishLayout::Qwerty,
-                    1 => EnglishLayout::Dvorak,
-                    _ => unreachable!(),
-                };
+                config.engine.english.layout = layouts[s];
             }
             2 => {
                 config.engine.auto_switch.enabled = Confirm::with_theme(&theme)

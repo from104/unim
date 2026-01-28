@@ -32,6 +32,7 @@ typedef enum {
     UNIM_KOREAN_LAYOUT_DUBEOLSIK = 0,
     UNIM_KOREAN_LAYOUT_SEBEOLSIK_390 = 1,
     UNIM_KOREAN_LAYOUT_SEBEOLSIK_391 = 2,
+    UNIM_KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT = 3,
 } UnimKoreanLayout;
 
 /**
@@ -40,6 +41,9 @@ typedef enum {
 typedef enum {
     UNIM_ENGLISH_LAYOUT_QWERTY = 0,
     UNIM_ENGLISH_LAYOUT_DVORAK = 1,
+    UNIM_ENGLISH_LAYOUT_COLEMAK = 2,
+    UNIM_ENGLISH_LAYOUT_COLEMAK_DH = 3,
+    UNIM_ENGLISH_LAYOUT_WORKMAN = 4,
 } UnimEnglishLayout;
 
 /**
@@ -347,6 +351,20 @@ UnimStr unim_english_layout_name(UnimEnglishLayout layout);
  * Returns the display name of an English layout (for UI).
  */
 UnimStr unim_english_layout_display_name(UnimEnglishLayout layout);
+
+/**
+ * Returns the Korean layout at the specified index.
+ * @param index Index (0 to unim_korean_layout_count()-1)
+ * @return Korean layout enum value
+ */
+UnimKoreanLayout unim_korean_layout_at(size_t index);
+
+/**
+ * Returns the English layout at the specified index.
+ * @param index Index (0 to unim_english_layout_count()-1)
+ * @return English layout enum value
+ */
+UnimEnglishLayout unim_english_layout_at(size_t index);
 
 /* ============================================
  * Status File Management

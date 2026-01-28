@@ -189,9 +189,16 @@ static void unim_settings_dialog_init(UnimSettingsDialog *self) {
     GtkWidget *layout_card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_add_css_class(layout_card, "settings-card");
 
-    /* Korean Layout Row */
-    const char *korean_layouts[] = {_("2-bul Standard"), _("3-bul 390"), _("3-bul Final"), NULL};
-    self->korean_layout_model = G_LIST_MODEL(gtk_string_list_new(korean_layouts));
+    /* Korean Layout Row - 동적 생성 */
+    size_t korean_count = unim_korean_layout_count();
+    GtkStringList *korean_list = gtk_string_list_new(NULL);
+    for (size_t i = 0; i < korean_count; i++) {
+        UnimStr name = unim_korean_layout_display_name(unim_korean_layout_at(i));
+        char *name_str = g_strndup((const char *)name.ptr, name.len);
+        gtk_string_list_append(korean_list, name_str);
+        g_free(name_str);
+    }
+    self->korean_layout_model = G_LIST_MODEL(korean_list);
     self->korean_layout_dropdown = gtk_drop_down_new(self->korean_layout_model, NULL);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(self->korean_layout_dropdown), (guint)self->korean_layout);
     g_signal_connect(self->korean_layout_dropdown, "notify::selected", G_CALLBACK(on_korean_layout_changed), self);
@@ -200,9 +207,16 @@ static void unim_settings_dialog_init(UnimSettingsDialog *self) {
     /* Separator */
     gtk_box_append(GTK_BOX(layout_card), create_separator());
 
-    /* English Layout Row */
-    const char *english_layouts[] = {"QWERTY", "Dvorak", NULL};
-    self->english_layout_model = G_LIST_MODEL(gtk_string_list_new(english_layouts));
+    /* English Layout Row - 동적 생성 */
+    size_t english_count = unim_english_layout_count();
+    GtkStringList *english_list = gtk_string_list_new(NULL);
+    for (size_t i = 0; i < english_count; i++) {
+        UnimStr name = unim_english_layout_display_name(unim_english_layout_at(i));
+        char *name_str = g_strndup((const char *)name.ptr, name.len);
+        gtk_string_list_append(english_list, name_str);
+        g_free(name_str);
+    }
+    self->english_layout_model = G_LIST_MODEL(english_list);
     self->english_layout_dropdown = gtk_drop_down_new(self->english_layout_model, NULL);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(self->english_layout_dropdown), (guint)self->english_layout);
     g_signal_connect(self->english_layout_dropdown, "notify::selected", G_CALLBACK(on_english_layout_changed), self);

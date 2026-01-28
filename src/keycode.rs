@@ -59,17 +59,17 @@ pub enum KeyCode {
     Space = 0x2C,
 
     // 기호 키
-    Minus = 0x2D,         // - _
-    Equal = 0x2E,         // = +
-    BracketLeft = 0x2F,   // [ {
-    BracketRight = 0x30,  // ] }
-    Backslash = 0x31,     // \ |
-    Semicolon = 0x33,     // ; :
-    Quote = 0x34,         // ' "
-    Backquote = 0x35,     // ` ~
-    Comma = 0x36,         // , <
-    Period = 0x37,        // . >
-    Slash = 0x38,         // / ?
+    Minus = 0x2D,        // - _
+    Equal = 0x2E,        // = +
+    BracketLeft = 0x2F,  // [ {
+    BracketRight = 0x30, // ] }
+    Backslash = 0x31,    // \ |
+    Semicolon = 0x33,    // ; :
+    Quote = 0x34,        // ' "
+    Backquote = 0x35,    // ` ~
+    Comma = 0x36,        // , <
+    Period = 0x37,       // . >
+    Slash = 0x38,        // / ?
 
     // 기능 키
     CapsLock = 0x39,
@@ -101,8 +101,8 @@ pub enum KeyCode {
     Up = 0x52,
 
     // 한국어/한자 키
-    Korean = 0x90,        // 한/영 전환
-    Hanja = 0x91,         // 한자 변환
+    Korean = 0x90, // 한/영 전환
+    Hanja = 0x91,  // 한자 변환
 
     // 수정자 키
     LeftControl = 0xE0,
@@ -440,8 +440,8 @@ impl ModifierState {
         const SHIFT_MASK: u32 = 1 << 0;
         const LOCK_MASK: u32 = 1 << 1;
         const CONTROL_MASK: u32 = 1 << 2;
-        const MOD1_MASK: u32 = 1 << 3;  // Alt
-        const MOD4_MASK: u32 = 1 << 6;  // Super
+        const MOD1_MASK: u32 = 1 << 3; // Alt
+        const MOD4_MASK: u32 = 1 << 6; // Super
 
         Self {
             shift: (mask & SHIFT_MASK) != 0,
@@ -491,8 +491,8 @@ mod tests {
     #[test]
     fn test_keycode_from_x11() {
         // X11 keycode = evdev + 8
-        assert_eq!(KeyCode::from_x11_keycode(38), KeyCode::A);  // 30 + 8
-        assert_eq!(KeyCode::from_x11_keycode(56), KeyCode::B);  // 48 + 8
+        assert_eq!(KeyCode::from_x11_keycode(38), KeyCode::A); // 30 + 8
+        assert_eq!(KeyCode::from_x11_keycode(56), KeyCode::B); // 48 + 8
     }
 
     #[test]

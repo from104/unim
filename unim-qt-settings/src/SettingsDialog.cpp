@@ -107,20 +107,25 @@ void SettingsDialog::setupUI() {
     layoutCardLayout->setContentsMargins(0, 4, 0, 4);
     layoutCardLayout->setSpacing(0);
 
-    // Korean Row
+    // Korean Row - 동적 생성
     m_koreanLayoutCombo = new QComboBox();
-    m_koreanLayoutCombo->addItem(tr("2-bul Standard"));
-    m_koreanLayoutCombo->addItem(tr("3-bul 390"));
-    m_koreanLayoutCombo->addItem(tr("3-bul Final"));
+    size_t koreanCount = unim_korean_layout_count();
+    for (size_t i = 0; i < koreanCount; i++) {
+        UnimStr name = unim_korean_layout_display_name(unim_korean_layout_at(i));
+        m_koreanLayoutCombo->addItem(QString::fromUtf8(reinterpret_cast<const char*>(name.ptr), static_cast<int>(name.len)));
+    }
     m_koreanLayoutCombo->setCurrentIndex(m_koreanLayout);
     connect(m_koreanLayoutCombo, &QComboBox::currentIndexChanged, this, &SettingsDialog::onKoreanLayoutChanged);
     layoutCardLayout->addWidget(createRow(tr("Korean Layout"), m_koreanLayoutCombo));
 
 
-    // English Row
+    // English Row - 동적 생성
     m_englishLayoutCombo = new QComboBox();
-    m_englishLayoutCombo->addItem("QWERTY");
-    m_englishLayoutCombo->addItem("Dvorak");
+    size_t englishCount = unim_english_layout_count();
+    for (size_t i = 0; i < englishCount; i++) {
+        UnimStr name = unim_english_layout_display_name(unim_english_layout_at(i));
+        m_englishLayoutCombo->addItem(QString::fromUtf8(reinterpret_cast<const char*>(name.ptr), static_cast<int>(name.len)));
+    }
     m_englishLayoutCombo->setCurrentIndex(m_englishLayout);
     connect(m_englishLayoutCombo, &QComboBox::currentIndexChanged, this, &SettingsDialog::onEnglishLayoutChanged);
     layoutCardLayout->addWidget(createRow(tr("English Layout"), m_englishLayoutCombo));

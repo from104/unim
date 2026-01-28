@@ -375,7 +375,7 @@ pub extern "C" fn unim_config_set_auto_switch_notification(config: &mut Config, 
 /// 지원하는 한국어 레이아웃 개수를 반환합니다.
 #[no_mangle]
 pub extern "C" fn unim_korean_layout_count() -> usize {
-    3 // Dubeolsik, Sebeolsik390, Sebeolsik391
+    4 // Dubeolsik, Sebeolsik390, Sebeolsik391, SebeolsikNoShift
 }
 
 /// 한국어 레이아웃 이름을 반환합니다.
@@ -395,18 +395,13 @@ pub extern "C" fn unim_korean_layout_name(layout: unim::config::KoreanLayout) ->
 /// 한국어 레이아웃 표시 이름을 반환합니다 (UI용).
 #[no_mangle]
 pub extern "C" fn unim_korean_layout_display_name(layout: unim::config::KoreanLayout) -> UnimStr {
-    let name = match layout {
-        unim::config::KoreanLayout::Dubeolsik => "두벌식 표준",
-        unim::config::KoreanLayout::Sebeolsik390 => "세벌식 390",
-        unim::config::KoreanLayout::Sebeolsik391 => "세벌식 최종",
-    };
-    UnimStr::new(name)
+    UnimStr::new(layout.display_name())
 }
 
 /// 지원하는 영어 레이아웃 개수를 반환합니다.
 #[no_mangle]
 pub extern "C" fn unim_english_layout_count() -> usize {
-    2 // Qwerty, Dvorak
+    5 // Qwerty, Dvorak, Colemak, ColemakDh, Workman
 }
 
 /// 영어 레이아웃 이름을 반환합니다.
@@ -418,11 +413,25 @@ pub extern "C" fn unim_english_layout_name(layout: unim::config::EnglishLayout) 
 /// 영어 레이아웃 표시 이름을 반환합니다 (UI용).
 #[no_mangle]
 pub extern "C" fn unim_english_layout_display_name(layout: unim::config::EnglishLayout) -> UnimStr {
-    let name = match layout {
-        unim::config::EnglishLayout::Qwerty => "QWERTY",
-        unim::config::EnglishLayout::Dvorak => "Dvorak",
-    };
-    UnimStr::new(name)
+    UnimStr::new(layout.display_name())
+}
+
+/// 인덱스로 한국어 레이아웃을 가져옵니다.
+#[no_mangle]
+pub extern "C" fn unim_korean_layout_at(index: usize) -> unim::config::KoreanLayout {
+    unim::config::KoreanLayout::all()
+        .get(index)
+        .copied()
+        .unwrap_or(unim::config::KoreanLayout::Dubeolsik)
+}
+
+/// 인덱스로 영어 레이아웃을 가져옵니다.
+#[no_mangle]
+pub extern "C" fn unim_english_layout_at(index: usize) -> unim::config::EnglishLayout {
+    unim::config::EnglishLayout::all()
+        .get(index)
+        .copied()
+        .unwrap_or(unim::config::EnglishLayout::Qwerty)
 }
 
 // ============================================

@@ -6,6 +6,7 @@ use crate::config::{Config, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
+use crate::keystroke::EnglishKeymap;
 use std::collections::HashMap;
 
 /// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
@@ -94,7 +95,11 @@ pub struct InputEngine {
     preedit_cache: String,
     /// 키보드 맵 (한국어) - 영어 키 -> 한국어 자모 매핑
     keyboard_map: Option<HashMap<char, JamoEnum>>,
-    /// 설정 캐시
+    /// 영어 키보드 레이아웃 맵 (JSON 기반 동적 로드)
+    english_keymap: EnglishKeymap,
+    /// 영어 키보드 레이아웃 설정
+    english_layout: EnglishLayout,
+    /// 한국어 키보드 레이아웃 설정 캐시
     korean_layout: KoreanLayout,
 }
 
@@ -111,7 +116,10 @@ impl InputEngine {
             ComposerType::TwoBul
         };
 
-        let keyboard_map = Self::create_keyboard_map(&config.engine.korean.layout);
+        let keyboard_map =
+            Self::create_keyboard_map(&config.engine.korean.layout, &config.engine.english.layout);
+
+        let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
         Self {
             input_category: config.engine.default_category,
@@ -119,7 +127,9 @@ impl InputEngine {
             commit_buffer: String::new(),
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
+            english_keymap,
             korean_layout: config.engine.korean.layout,
+            english_layout: config.engine.english.layout,
         }
     }
 
@@ -129,11 +139,29 @@ impl InputEngine {
     }
 
     /// 키보드 맵을 생성합니다.
-    fn create_keyboard_map(layout: &KoreanLayout) -> HashMap<char, JamoEnum> {
-        let en_json = crate::keystroke::get_keymap_json("en_qwerty");
-        let ko_json = crate::keystroke::get_keymap_json(layout.name());
-        let is_three_bul = layout.is_sebeolsik();
+    ///
+    /// # Arguments
+    ///
+    /// * `korean_layout` - 한국어 키보드 레이아웃
+    /// * `english_layout` - 영어 키보드 레이아웃
+    fn create_keyboard_map(
+        korean_layout: &KoreanLayout,
+        english_layout: &EnglishLayout,
+    ) -> HashMap<char, JamoEnum> {
+        let en_json = crate::keystroke::get_keymap_json(english_layout.keymap_name());
+        let ko_json = crate::keystroke::get_keymap_json(korean_layout.name());
+        let is_three_bul = korean_layout.is_sebeolsik();
         crate::keystroke::KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul)
+    }
+
+    /// 영어 키맵을 생성합니다.
+    ///
+    /// # Arguments
+    ///
+    /// * `layout` - 영어 키보드 레이아웃
+    fn create_english_keymap(layout: &EnglishLayout) -> EnglishKeymap {
+        let json = crate::keystroke::get_keymap_json(layout.keymap_name());
+        EnglishKeymap::from_json(json)
     }
 
     /// 키 코드를 처리합니다.
@@ -270,11 +298,8 @@ impl InputEngine {
 
         // 문자 키 처리
         // 한국어 모드에서는 CapsLock을 무시하고 Shift만 적용 (쌍자음 입력용)
-        let ch = if modifier.shift {
-            keycode.to_shifted_char()
-        } else {
-            keycode.to_char()
-        };
+        // JSON 키맵 기반으로 레이아웃에 따른 문자 변환
+        let ch = self.english_keymap.get_char(keycode, modifier.shift);
 
         if let Some(c) = ch {
             unim_debug!("문자 키: '{}'", c);
@@ -343,11 +368,11 @@ impl InputEngine {
 
     /// 영어 키 입력을 처리합니다.
     fn process_english_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
-        let ch = if modifier.shift || modifier.caps_lock {
-            keycode.to_shifted_char()
-        } else {
-            keycode.to_char()
-        };
+        // JSON 키맵 기반으로 레이아웃에 따른 문자 변환
+        // Shift 또는 CapsLock이 눌리면 대문자/기호
+        let ch = self
+            .english_keymap
+            .get_char(keycode, modifier.shift || modifier.caps_lock);
 
         if let Some(c) = ch {
             self.commit_buffer.push(c);
@@ -475,7 +500,7 @@ impl InputEngine {
             self.korean_layout = layout;
 
             // 키보드 맵 업데이트
-            self.keyboard_map = Some(Self::create_keyboard_map(&layout));
+            self.keyboard_map = Some(Self::create_keyboard_map(&layout, &self.english_layout));
 
             // 컨텍스트 업데이트
             let composer_type = if layout.is_sebeolsik() {
@@ -488,10 +513,19 @@ impl InputEngine {
     }
 
     /// 영어 레이아웃을 설정합니다.
-    pub fn set_english_layout(&mut self, _layout: EnglishLayout) {
-        // 현재 영어 레이아웃은 키보드 맵에 직접 영향을 주지 않고 (항상 QWERTY로 가정하거나 OS 레벨 처리)
-        // 엔진 수준에서는 자리 매김만 기록합니다.
-        // 향후 Dvorak 등을 위해 키보드 맵을 재생성하도록 확장 가능합니다.
+    ///
+    /// 레이아웃이 변경되면 키보드 맵과 영어 키맵을 재생성합니다.
+    pub fn set_english_layout(&mut self, layout: EnglishLayout) {
+        if self.english_layout != layout {
+            self.flush_preedit();
+            self.english_layout = layout;
+
+            // 한국어 키보드 맵 재생성 (영어 레이아웃과 연동)
+            self.keyboard_map = Some(Self::create_keyboard_map(&self.korean_layout, &layout));
+
+            // 영어 키맵 재생성
+            self.english_keymap = Self::create_english_keymap(&layout);
+        }
     }
 }
 

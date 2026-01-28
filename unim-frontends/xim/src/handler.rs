@@ -487,6 +487,14 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 self.preedit(server, user_ic, &preedit_text)?;
             }
             server.conn().flush().ok();
+        } else {
+            // preedit이 None이지만 캐시에 preedit이 남아있으면 정리
+            // (백스페이스로 마지막 글자를 지운 경우 등)
+            if !user_ic.user_data.preedit_cache.is_empty() {
+                unim_debug!("Preedit 캐시 정리 (preedit=None)");
+                self.clear_preedit(server, user_ic)?;
+                server.conn().flush().ok();
+            }
         }
 
         Ok(consumed)

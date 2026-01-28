@@ -29,6 +29,8 @@ pub enum KoreanLayout {
     Sebeolsik390 = 1,
     /// 세벌식 최종
     Sebeolsik391 = 2,
+    /// 세벌식 순아래 (No-Shift)
+    SebeolsikNoShift = 3,
 }
 
 impl KoreanLayout {
@@ -38,6 +40,7 @@ impl KoreanLayout {
             KoreanLayout::Dubeolsik => "2bul",
             KoreanLayout::Sebeolsik390 => "3bul390",
             KoreanLayout::Sebeolsik391 => "3bul391",
+            KoreanLayout::SebeolsikNoShift => "3bul_noshift",
         }
     }
 
@@ -45,8 +48,30 @@ impl KoreanLayout {
     pub fn is_sebeolsik(&self) -> bool {
         matches!(
             self,
-            KoreanLayout::Sebeolsik390 | KoreanLayout::Sebeolsik391
+            KoreanLayout::Sebeolsik390
+                | KoreanLayout::Sebeolsik391
+                | KoreanLayout::SebeolsikNoShift
         )
+    }
+
+    /// 표시용 레이블을 반환합니다.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            KoreanLayout::Dubeolsik => "두벌식 표준",
+            KoreanLayout::Sebeolsik390 => "세벌식 390",
+            KoreanLayout::Sebeolsik391 => "세벌식 최종",
+            KoreanLayout::SebeolsikNoShift => "세벌식 순아래",
+        }
+    }
+
+    /// 사용 가능한 모든 레이아웃을 반환합니다.
+    pub fn all() -> &'static [KoreanLayout] {
+        &[
+            KoreanLayout::Dubeolsik,
+            KoreanLayout::Sebeolsik390,
+            KoreanLayout::Sebeolsik391,
+            KoreanLayout::SebeolsikNoShift,
+        ]
     }
 }
 
@@ -59,6 +84,12 @@ pub enum EnglishLayout {
     Qwerty = 0,
     /// Dvorak
     Dvorak = 1,
+    /// Colemak
+    Colemak = 2,
+    /// Colemak-DH (Colemak의 인체공학적 개선 버전)
+    ColemakDh = 3,
+    /// Workman
+    Workman = 4,
 }
 
 impl EnglishLayout {
@@ -67,7 +98,47 @@ impl EnglishLayout {
         match self {
             EnglishLayout::Qwerty => "qwerty",
             EnglishLayout::Dvorak => "dvorak",
+            EnglishLayout::Colemak => "colemak",
+            EnglishLayout::ColemakDh => "colemak_dh",
+            EnglishLayout::Workman => "workman",
         }
+    }
+
+    /// Keymap JSON 파일명을 반환합니다.
+    ///
+    /// # Returns
+    ///
+    /// 해당 레이아웃의 keymap JSON 파일 식별자 (예: "en_qwerty", "en_dvorak")
+    pub fn keymap_name(&self) -> &'static str {
+        match self {
+            EnglishLayout::Qwerty => "en_qwerty",
+            EnglishLayout::Dvorak => "en_dvorak",
+            EnglishLayout::Colemak => "en_colemak",
+            EnglishLayout::ColemakDh => "en_colemak_dh",
+            EnglishLayout::Workman => "en_workman",
+        }
+    }
+
+    /// 표시용 레이블을 반환합니다.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            EnglishLayout::Qwerty => "QWERTY",
+            EnglishLayout::Dvorak => "Dvorak",
+            EnglishLayout::Colemak => "Colemak",
+            EnglishLayout::ColemakDh => "Colemak-DH",
+            EnglishLayout::Workman => "Workman",
+        }
+    }
+
+    /// 사용 가능한 모든 레이아웃을 반환합니다.
+    pub fn all() -> &'static [EnglishLayout] {
+        &[
+            EnglishLayout::Qwerty,
+            EnglishLayout::Dvorak,
+            EnglishLayout::Colemak,
+            EnglishLayout::ColemakDh,
+            EnglishLayout::Workman,
+        ]
     }
 }
 
