@@ -15,6 +15,7 @@
 #include <QDebug>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 
 /* 디버그 로깅 시스템 */
 static bool unim_debug_enabled = false;
@@ -150,6 +151,24 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                << ", commit=" << result.commit);
 
     if (result.consumed) {
+        /* 선택 영역 삭제 처리 */
+        if (m_focusObject) {
+            QInputMethodQueryEvent query(Qt::ImAnchorPosition | Qt::ImCursorPosition);
+            QCoreApplication::sendEvent(m_focusObject, &query);
+            int anchorPos = query.value(Qt::ImAnchorPosition).toInt();
+            int cursorPos = query.value(Qt::ImCursorPosition).toInt();
+
+            if (anchorPos != cursorPos) {
+                int start = std::min(anchorPos, cursorPos);
+                int end = std::max(anchorPos, cursorPos);
+                UNIM_DEBUG("Qt 선택 영역 삭제: start=" << start << ", end=" << end);
+                
+                QInputMethodEvent deleteEvent;
+                deleteEvent.setCommitString("", start - cursorPos, end - start);
+                QCoreApplication::sendEvent(m_focusObject, &deleteEvent);
+            }
+        }
+
         /* 커밋 처리 */
         if (!result.commit.isEmpty()) {
             commitString(result.commit);

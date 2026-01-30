@@ -37,6 +37,11 @@ struct _UnimIMContext {
     UnimDbusContext *dbus_ctx;  /* DBus 클라이언트 컨텍스트 */
     gboolean is_focused;
     GdkWindow *client_window;
+
+    /* 주변 텍스트 정보 캐시 */
+    gchar *surrounding_text;
+    gint cursor_index;    /* 바이트 오프셋 */
+    gint selection_index; /* 바이트 오프셋 */
 };
 
 struct _UnimIMContextClass {
@@ -56,6 +61,8 @@ static void unim_im_context_set_client_window(GtkIMContext *context, GdkWindow *
 static void unim_im_context_get_preedit_string(GtkIMContext *context, gchar **str,
                                                 PangoAttrList **attrs, gint *cursor_pos);
 static void unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area);
+static void unim_im_context_set_surrounding(GtkIMContext *context, const gchar *text,
+                                             gint len, gint cursor_index);
 
 /* 디버그 로깅 시스템 */
 static gboolean unim_debug_enabled = FALSE;
@@ -99,6 +106,7 @@ unim_im_context_class_init(UnimIMContextClass *klass)
     im_class->set_client_window = unim_im_context_set_client_window;
     im_class->get_preedit_string = unim_im_context_get_preedit_string;
     im_class->set_cursor_location = unim_im_context_set_cursor_location;
+    im_class->set_surrounding = unim_im_context_set_surrounding;
 }
 
 static void
@@ -116,6 +124,9 @@ unim_im_context_init(UnimIMContext *context)
     context->dbus_ctx = unim_dbus_context_new("gtk3-unim");
     context->is_focused = FALSE;
     context->client_window = NULL;
+    context->surrounding_text = NULL;
+    context->cursor_index = 0;
+    context->selection_index = 0;
     
     if (context->dbus_ctx) {
         UNIM_DEBUG("IMContext 초기화 완료 (DBus 연결됨)");
@@ -133,6 +144,9 @@ unim_im_context_finalize(GObject *obj)
         unim_dbus_context_free(context->dbus_ctx);
         context->dbus_ctx = NULL;
     }
+
+    g_free(context->surrounding_text);
+    context->surrounding_text = NULL;
 
     G_OBJECT_CLASS(unim_im_context_parent_class)->finalize(obj);
 }
@@ -186,6 +200,34 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     UNIM_DEBUG("엔진 결과: consumed=%d, preedit=\"%s\", commit=\"%s\"",
                result.consumed, result.preedit ? result.preedit : "(null)",
                result.commit ? result.commit : "(null)");
+
+    /* 선택 영역 삭제 처리 */
+    if (result.consumed) {
+        /* 최신 주변 텍스트 획득 요청 */
+        gboolean handled = FALSE;
+        g_signal_emit_by_name(context, "retrieve-surrounding", &handled);
+
+        if (handled && unim->surrounding_text && unim->cursor_index != unim->selection_index) {
+            gint start_index = MIN(unim->cursor_index, unim->selection_index);
+            gint end_index = MAX(unim->cursor_index, unim->selection_index);
+            
+            /* 바이트 오프셋을 문자 오프셋으로 변환 */
+            gint start_char = g_utf8_pointer_to_offset(unim->surrounding_text, 
+                                                       unim->surrounding_text + start_index);
+            gint end_char = g_utf8_pointer_to_offset(unim->surrounding_text, 
+                                                     unim->surrounding_text + end_index);
+            
+            gint offset = start_char - g_utf8_pointer_to_offset(unim->surrounding_text, 
+                                                              unim->surrounding_text + unim->cursor_index);
+            gint len = end_char - start_char;
+
+            UNIM_DEBUG("선택 영역 삭제: offset=%d, len=%d", offset, len);
+            g_signal_emit_by_name(context, "delete-surrounding", offset, len);
+            
+            /* 삭제 후 캐시 무효화 */
+            unim->cursor_index = unim->selection_index = start_index;
+        }
+    }
 
     /* 커밋 처리 */
     if (result.commit && strlen(result.commit) > 0) {
@@ -303,6 +345,28 @@ static void
 unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
 {
     /* 커서 위치 저장 (팝업 후보창 등에 사용) */
+}
+
+static void
+unim_im_context_set_surrounding(GtkIMContext *context, const gchar *text,
+                                 gint len, gint cursor_index)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(context);
+
+    g_free(unim->surrounding_text);
+    if (len < 0) {
+        unim->surrounding_text = g_strdup(text);
+    } else {
+        unim->surrounding_text = g_strndup(text, len);
+    }
+    unim->cursor_index = cursor_index;
+    
+    /* GTK3에서는 anchor 정보가 별도로 없으므로 cursor_index와 동일하게 설정 */
+    /* 다만 retrieve-surrounding 신호 시 위젯이 정보를 업데이트해주길 기대함 */
+    unim->selection_index = cursor_index;
+
+    UNIM_DEBUG("surrounding 업데이트: cursor=%d, text=\"%s\"",
+               cursor_index, unim->surrounding_text);
 }
 
 /* 모듈 정보 */

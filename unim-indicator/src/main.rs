@@ -366,7 +366,9 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("UNIM 인디케이터 시작...");
 
-    // 데몬 관리자 생성 및 시작
+    // 1. 싱글톤 보장: 이미 실행 중인 인디케이터가 있는지 확인 (DBus 이름 등록 시도)
+    // 여기서는 간단히 데몬 관리 로직만 강화하고, 실제 싱글톤은 ksni나 별도 락파일로 처리 가능하지만
+    // 데몬이 이미 실행 중이라면 불필요한 시작 시도를 건너뛰도록 합니다.
     let daemon_manager = Arc::new(Mutex::new(DaemonManager::new()));
     {
         let mut mgr = daemon_manager.lock().unwrap();
@@ -568,6 +570,9 @@ fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Receiver<
         .build();
 
     app.connect_activate(move |app| {
+        // 시스템 팔레트와 무관하게 다크 모드 강제 적용
+        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+
         load_css();
         let window = build_popup_window(app, state.clone());
         let window_clone = window.clone();
@@ -597,53 +602,88 @@ fn load_css() {
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(
         r#"
-        .popup-window {
-            background: alpha(@window_bg_color, 0.95);
+        /* 프리미엄 다크 테마 디자인 */
+        window.popup-window {
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .main-container {
+            padding: 24px;
         }
         
+        .mode-tile-container {
+            margin-bottom: 20px;
+        }
+
         .mode-button {
-            min-width: 80px;
-            min-height: 80px;
-            font-size: 32px;
-            font-weight: bold;
+            min-width: 100px;
+            min-height: 100px;
+            font-size: 38px;
+            font-weight: 800;
             border-radius: 16px;
-            transition: all 200ms ease;
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.6);
+            border: 2px solid transparent;
+            transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         
         .mode-button:hover {
-            background: alpha(@accent_bg_color, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
         }
         
-        .mode-active {
-            background: @accent_bg_color;
-            color: @accent_fg_color;
-        }
-        
-        .mode-active:hover {
-            background: shade(@accent_bg_color, 1.1);
-        }
-
         .korean-btn.mode-active {
-            background: #3584e4;
+            background: linear-gradient(135deg, #3584e4 0%, #1c71d8 100%);
             color: white;
-            border: 2px solid white;
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 20px rgba(53, 132, 228, 0.4);
         }
 
         .english-btn.mode-active {
-            background: #5e5c64;
+            background: linear-gradient(135deg, #5e5c64 0%, #3d3d3d 100%);
             color: white;
-            border: 2px solid #d5d3d0;
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
         }
         
+        .title-section {
+            margin-bottom: 16px;
+        }
+
         .title-label {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 8px;
+            font-size: 20px;
+            font-weight: 800;
+            color: white;
+            letter-spacing: -0.5px;
         }
         
-        .status-label {
-            font-size: 14px;
-            color: alpha(@window_fg_color, 0.7);
+        .status-badge {
+            font-size: 13px;
+            font-weight: 500;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .settings-button {
+            background: transparent;
+            color: rgba(255, 255, 255, 0.5);
+            font-weight: 600;
+            border-radius: 12px;
+            padding: 8px 0;
+            transition: all 200ms ease;
+        }
+
+        .settings-button:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
         }
         "#,
     );
@@ -659,110 +699,118 @@ fn load_css() {
 fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>) -> adw::Window {
     let window = adw::Window::builder()
         .application(app)
-        .title("UNIM")
-        .default_width(300)
-        .default_height(240)
+        .default_width(320)
         .resizable(false)
         .deletable(true)
         .build();
 
     window.add_css_class("popup-window");
 
-    let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new("UNIM 입력기", "입력 모드 전환"))
-        .build();
-
     let current_category = state
         .read()
         .map(|s| s.category)
         .unwrap_or(InputCategory::English);
 
+    // 메인 컨테이너
+    let main_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    main_box.add_css_class("main-container");
+
+    // 타이틀 섹션
+    let title_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    title_box.add_css_class("title-section");
+
+    let title_label = gtk4::Label::builder()
+        .label("UNIM")
+        .halign(gtk4::Align::Start)
+        .build();
+    title_label.add_css_class("title-label");
+
+    let status_badge = gtk4::Label::builder()
+        .label(match current_category {
+            InputCategory::Korean => "한국어 입력 중",
+            InputCategory::English => "영어 입력 중",
+        })
+        .halign(gtk4::Align::Start)
+        .build();
+    status_badge.add_css_class("status-badge");
+
+    title_box.append(&title_label);
+    title_box.append(&status_badge);
+
+    // 타일 버튼 섹션
+    let button_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 16);
+    button_box.add_css_class("mode-tile-container");
+    button_box.set_halign(gtk4::Align::Center);
+
     let korean_btn = gtk4::Button::builder()
+        .label("한")
         .tooltip_text("한국어 모드로 전환")
         .build();
     korean_btn.add_css_class("mode-button");
     korean_btn.add_css_class("korean-btn");
 
     let english_btn = gtk4::Button::builder()
+        .label("A")
         .tooltip_text("영어 모드로 전환")
         .build();
     english_btn.add_css_class("mode-button");
     english_btn.add_css_class("english-btn");
 
     match current_category {
-        InputCategory::Korean => {
-            korean_btn.set_label("한");
-            korean_btn.add_css_class("mode-active");
-            english_btn.set_label("A");
-        }
-        InputCategory::English => {
-            korean_btn.set_label("한");
-            english_btn.set_label("A");
-            english_btn.add_css_class("mode-active");
-        }
+        InputCategory::Korean => korean_btn.add_css_class("mode-active"),
+        InputCategory::English => english_btn.add_css_class("mode-active"),
     }
 
-    let button_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 24);
-    button_box.set_halign(gtk4::Align::Center);
-    button_box.set_margin_top(20);
-    button_box.set_margin_bottom(16);
     button_box.append(&korean_btn);
     button_box.append(&english_btn);
 
-    let status_label = gtk4::Label::new(Some(match current_category {
-        InputCategory::Korean => "현재: 한국어 모드",
-        InputCategory::English => "현재: 영어 모드",
-    }));
-    status_label.add_css_class("status-label");
-    status_label.set_margin_bottom(16);
+    // 설정 버튼
+    let settings_btn = gtk4::Button::builder()
+        .label("설정 도구 열기")
+        .halign(gtk4::Align::Fill)
+        .build();
+    settings_btn.add_css_class("settings-button");
 
+    main_box.append(&title_box);
+    main_box.append(&button_box);
+    main_box.append(&settings_btn);
+
+    window.set_content(Some(&main_box));
+
+    // 이벤트 핸들러
+    let status_badge_clone = status_badge.clone();
     let korean_btn_clone = korean_btn.clone();
     let english_btn_clone = english_btn.clone();
-    let status_label_clone = status_label.clone();
     let state_clone = state.clone();
     korean_btn.connect_clicked(move |_| {
         if let Ok(mut s) = state_clone.write() {
             s.category = InputCategory::Korean;
+            korean_btn_clone.add_css_class("mode-active");
+            english_btn_clone.remove_css_class("mode-active");
+            status_badge_clone.set_text("한국어 입력 중");
+            info!("한국어 모드로 전환");
         }
-        korean_btn_clone.add_css_class("mode-active");
-        english_btn_clone.remove_css_class("mode-active");
-        status_label_clone.set_text("현재: 한국어 모드");
-        info!("한국어 모드로 전환");
     });
 
+    let status_badge_clone2 = status_badge.clone();
     let korean_btn_clone2 = korean_btn.clone();
     let english_btn_clone2 = english_btn.clone();
-    let status_label_clone2 = status_label.clone();
     let state_clone2 = state.clone();
     english_btn.connect_clicked(move |_| {
         if let Ok(mut s) = state_clone2.write() {
             s.category = InputCategory::English;
+            english_btn_clone2.add_css_class("mode-active");
+            korean_btn_clone2.remove_css_class("mode-active");
+            status_badge_clone2.set_text("영어 입력 중");
+            info!("영어 모드로 전환");
         }
-        english_btn_clone2.add_css_class("mode-active");
-        korean_btn_clone2.remove_css_class("mode-active");
-        status_label_clone2.set_text("현재: 영어 모드");
-        info!("영어 모드로 전환");
     });
 
-    let settings_btn = gtk4::Button::builder()
-        .label("설정...")
-        .margin_start(40)
-        .margin_end(40)
-        .margin_bottom(8)
-        .build();
-    settings_btn.add_css_class("pill");
     settings_btn.connect_clicked(|_| {
         open_settings();
     });
 
-    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    content.append(&header);
-    content.append(&button_box);
-    content.append(&status_label);
-    content.append(&settings_btn);
-
-    window.set_content(Some(&content));
-
+    // 창 닫기 관련 제어
     let window_clone = window.clone();
     let key_controller = gtk4::EventControllerKey::new();
     key_controller.connect_key_pressed(move |_, key, _, _| {
@@ -775,10 +823,10 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
     });
     window.add_controller(key_controller);
 
-    let window_clone2 = window.clone();
+    let window_focus_clone = window.clone();
     window.connect_is_active_notify(move |w| {
         if !w.is_active() {
-            window_clone2.set_visible(false);
+            window_focus_clone.set_visible(false);
         }
     });
 
