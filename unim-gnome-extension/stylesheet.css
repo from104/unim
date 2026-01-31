@@ -1,0 +1,29 @@
+/* UNIM Panel Indicator Styles */
+
+/* 패널 레이블 기본 스타일 */
+.unim-indicator-label {
+    font-weight: bold;
+    font-size: 1.1em;
+    padding: 0 6px;
+    min-width: 24px;
+    text-align: center;
+    border-radius: 4px;
+    margin: 0 2px;
+}
+
+/* 한국어 모드 - 파란색 강조 */
+.unim-indicator-label.hangul-mode {
+    color: #78aeed;
+    background-color: rgba(120, 174, 237, 0.15);
+}
+
+/* 영어 모드 - 회색 */
+.unim-indicator-label.english-mode {
+    color: #aaaaaa;
+    background-color: transparent;
+}
+
+/* 연결 안됨 */
+.unim-indicator-label.disconnected-mode {
+    color: #f66151;
+}

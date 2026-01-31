@@ -1,180 +1,218 @@
 import Gio from 'gi://Gio';
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
+import GLib from 'gi://GLib';
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 export default class UnimPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
-        const page = new Adw.PreferencesPage();
-        window.add(page);
-
-        // 1. General Settings Group
-        const generalGroup = new Adw.PreferencesGroup({
-            title: _('General Settings'),
-            description: _('Basic configuration for the extension')
+        
+        // ============================================
+        // Page 1: Input Method Settings
+        // ============================================
+        const inputPage = new Adw.PreferencesPage({
+            title: _('입력기'),
+            icon_name: 'input-keyboard-symbolic'
         });
-        page.add(generalGroup);
+        window.add(inputPage);
 
-        // Enable/Disable Extension
-        this._addToggle(
-            generalGroup,
-            settings,
-            'enable-extension',
-            _('Enable Extension'),
-            _('Turn the extension functionality on or off')
-        );
-
-        // Show Notification
-        this._addToggle(
-            generalGroup,
-            settings,
-            'show-notification',
-            _('Show Notifications'),
-            _('Show a notification when text is converted')
-        );
-
-
-        // 3. Keyboard Layout Settings Group
+        // Keyboard Layout Settings
         const layoutGroup = new Adw.PreferencesGroup({
-            title: _('Keyboard Layouts'),
-            description: _('Select your keyboard layouts for accurate conversion')
+            title: _('키보드 레이아웃'),
+            description: _('한글/영어 키보드 배열 설정 (변경 시 자동 저장)')
         });
-        page.add(layoutGroup);
+        inputPage.add(layoutGroup);
 
-        // Korean Layout Combo
         this._addCombo(
             layoutGroup,
             settings,
             'korean-layout',
-            _('Korean Layout'),
-            _('Select the Korean keyboard layout'),
+            _('한글 레이아웃'),
+            _('한글 키보드 배열'),
             [
-                ['2bul', _('2-Set Standard (두벌식 표준)')],
-                ['390', _('3-Set 390 (세벌식 390)')],
-                ['391', _('3-Set 391 (세벌식 391/최종)')]
-            ]
+                ['2bul', _('두벌식 표준')],
+                ['3bul390', _('세벌식 390')],
+                ['3bul391', _('세벌식 최종')],
+                ['3bul_noshift', _('세벌식 순아래')]
+            ],
+            true
         );
 
-        // English Layout Combo
         this._addCombo(
             layoutGroup,
             settings,
             'english-layout',
-            _('English Layout'),
-            _('Select the English keyboard layout'),
+            _('영어 레이아웃'),
+            _('영어 키보드 배열'),
             [
                 ['qwerty', _('QWERTY')],
-                ['dvorak', _('Dvorak')]
-            ]
+                ['dvorak', _('Dvorak')],
+                ['colemak', _('Colemak')],
+                ['colemak_dh', _('Colemak-DH')],
+                ['workman', _('Workman')]
+            ],
+            true
         );
 
-
-        // 4. Keyboard Shortcuts Group
-        const shortcutGroup = new Adw.PreferencesGroup({
-            title: _('Keyboard Shortcuts'),
-            description: _('Current keybindings for various conversion modes. These can be configured in the GNOME Settings or Extension Manager.')
+        // Note about config sync
+        const noteGroup = new Adw.PreferencesGroup();
+        inputPage.add(noteGroup);
+        
+        const noteRow = new Adw.ActionRow({
+            title: _('ℹ️ 설정 동기화'),
+            subtitle: _('레이아웃 변경 시 ~/.config/unim/config.yaml에 자동 저장됩니다.')
         });
-        page.add(shortcutGroup);
+        noteGroup.add(noteRow);
 
-        this._addShortcutRow(
-            shortcutGroup,
+        // ============================================
+        // Page 2: TypeFix (Manual Han/Eng Typo Conversion)
+        // ============================================
+        const typefixPage = new Adw.PreferencesPage({
+            title: _('오타 변환'),
+            icon_name: 'preferences-desktop-keyboard-shortcuts-symbolic'
+        });
+        window.add(typefixPage);
+
+        // Usage Guide
+        const guideGroup = new Adw.PreferencesGroup({
+            title: _('수동 한영 오타 변환'),
+            description: _('한글 자판으로 영어를 입력했거나, 영어 자판으로 한글을 입력했을 때 변환합니다. 사용법: 잘못 입력한 텍스트를 선택(드래그) → 단축키 입력 → 변환된 텍스트로 자동 교체')
+        });
+        typefixPage.add(guideGroup);
+
+        this._addToggle(
+            guideGroup,
             settings,
-            'shortcut-normal',
-            _('English → Korean'),
-            _('Converts English typed with Korean layout and pastes it.')
+            'show-notification',
+            _('변환 알림 표시'),
+            _('텍스트 변환 시 알림 표시')
         );
-        this._addShortcutRow(
-            shortcutGroup,
-            settings,
-            'shortcut-normal-reverse',
-            _('Korean → English'),
-            _('Converts Korean typed with English layout and pastes it.')
-        );
-        this._addShortcutRow(
-            shortcutGroup,
-            settings,
-            'shortcut-terminal',
-            _('Terminal (E → K)'),
-            _('Converts with backspaces before pasting, suitable for terminals.')
-        );
-        this._addShortcutRow(
-            shortcutGroup,
-            settings,
-            'shortcut-terminal-reverse',
-            _('Terminal (K → E)'),
-            _('Converts with backspaces before pasting, suitable for terminals.')
-        );
-        this._addShortcutRow(
-            shortcutGroup,
-            settings,
-            'shortcut-copy-only',
-            _('Copy Only (E → K)'),
-            _('Converts and copies to clipboard without pasting.')
-        );
-        this._addShortcutRow(
-            shortcutGroup,
-            settings,
-            'shortcut-copy-only-reverse',
-            _('Copy Only (K → E)'),
-            _('Converts and copies to clipboard without pasting.')
-        );
+
+        // Normal Mode Shortcuts
+        const normalGroup = new Adw.PreferencesGroup({
+            title: _('일반 변환'),
+            description: _('선택한 텍스트를 변환 후 붙여넣기')
+        });
+        typefixPage.add(normalGroup);
+
+        this._addShortcutRow(normalGroup, settings, 'shortcut-normal',
+            _('영어 → 한글'), _('gksrmf → 한글'));
+        this._addShortcutRow(normalGroup, settings, 'shortcut-normal-reverse',
+            _('한글 → 영어'), _('ㅗ디ㅣㅐ → hello'));
+
+        // Terminal Mode Shortcuts
+        const terminalGroup = new Adw.PreferencesGroup({
+            title: _('터미널 변환'),
+            description: _('Backspace 처리 후 붙여넣기 (터미널 호환)')
+        });
+        typefixPage.add(terminalGroup);
+
+        this._addShortcutRow(terminalGroup, settings, 'shortcut-terminal',
+            _('터미널 (E → K)'), null);
+        this._addShortcutRow(terminalGroup, settings, 'shortcut-terminal-reverse',
+            _('터미널 (K → E)'), null);
+
+        // Copy Only Shortcuts
+        const copyGroup = new Adw.PreferencesGroup({
+            title: _('복사만'),
+            description: _('변환 후 클립보드에 복사 (붙여넣기 안함)')
+        });
+        typefixPage.add(copyGroup);
+
+        this._addShortcutRow(copyGroup, settings, 'shortcut-copy-only',
+            _('복사 (E → K)'), null);
+        this._addShortcutRow(copyGroup, settings, 'shortcut-copy-only-reverse',
+            _('복사 (K → E)'), null);
     }
 
-    // Helper to add an editable shortcut row with a reset button
+    // Sync layout settings to ~/.config/unim/config.yaml
+    _syncToConfigFile(settings) {
+        try {
+            const configDir = GLib.build_filenamev([GLib.get_home_dir(), '.config', 'unim']);
+            const configPath = GLib.build_filenamev([configDir, 'config.yaml']);
+            
+            GLib.mkdir_with_parents(configDir, 0o755);
+            
+            const koreanLayoutMap = {
+                '2bul': 'Dubeolsik',
+                '3bul390': 'Sebeolsik390',
+                '3bul391': 'Sebeolsik391',
+                '3bul_noshift': 'SebeolsikNoShift'
+            };
+            
+            const englishLayoutMap = {
+                'qwerty': 'Qwerty',
+                'dvorak': 'Dvorak',
+                'colemak': 'Colemak',
+                'colemak_dh': 'ColemakDh',
+                'workman': 'Workman'
+            };
+            
+            const koreanLayout = koreanLayoutMap[settings.get_string('korean-layout')] || 'Dubeolsik';
+            const englishLayout = englishLayoutMap[settings.get_string('english-layout')] || 'Qwerty';
+            
+            const yamlContent = `# UNIM Configuration (synced from GNOME Extension)
+engine:
+  default_category: Korean
+  korean:
+    layout: ${koreanLayout}
+    preedit_johab: false
+    word_commit: false
+  english:
+    layout: ${englishLayout}
+    preferred_direct: true
+  auto_switch:
+    enabled: false
+    threshold: 0.8
+    show_notification: true
+`;
+            
+            GLib.file_set_contents(configPath, yamlContent);
+            console.log('[unim-prefs] Config synced: ' + configPath);
+            return true;
+        } catch (e) {
+            console.error('[unim-prefs] Sync failed: ' + e.message);
+            return false;
+        }
+    }
+
+    // Helper: Shortcut row
     _addShortcutRow(group, settings, key, title, subtitle) {
-        const row = new Adw.ActionRow({
-            title: title,
-            subtitle: subtitle
-        });
+        const row = new Adw.ActionRow({ title, subtitle: subtitle || '' });
         group.add(row);
 
         const entry = new Gtk.Entry({
             text: settings.get_strv(key)[0] || '',
             valign: Gtk.Align.CENTER,
-            hexpand: true
+            width_chars: 20
         });
 
-        // Update settings when the entry changes
         entry.connect('changed', (e) => {
             const text = e.get_text();
-            if (text) {
-                // Simplified validation: just check if it's not empty
-                // In a production extension, you might want to validate the combo string
-                settings.set_strv(key, [text]);
-            }
+            if (text) settings.set_strv(key, [text]);
         });
 
-        // Listen for external changes (like reset)
         settings.connect(`changed::${key}`, () => {
             const newVal = settings.get_strv(key)[0] || '';
-            if (entry.get_text() !== newVal) {
-                entry.set_text(newVal);
-            }
+            if (entry.get_text() !== newVal) entry.set_text(newVal);
         });
 
         row.add_suffix(entry);
 
-        const resetButton = new Gtk.Button({
-            icon_name: 'edit-clear-all-symbolic',
-            tooltip_text: _('Reset to default'),
+        const resetBtn = new Gtk.Button({
+            icon_name: 'edit-undo-symbolic',
+            tooltip_text: _('기본값 복원'),
             valign: Gtk.Align.CENTER,
             css_classes: ['flat']
         });
-
-        resetButton.connect('clicked', () => {
-            settings.reset(key);
-        });
-
-        row.add_suffix(resetButton);
+        resetBtn.connect('clicked', () => settings.reset(key));
+        row.add_suffix(resetBtn);
     }
 
-    // Helper to add a switch row
+    // Helper: Toggle switch
     _addToggle(group, settings, key, title, subtitle) {
-        const row = new Adw.ActionRow({
-            title: title,
-            subtitle: subtitle
-        });
+        const row = new Adw.ActionRow({ title, subtitle });
         group.add(row);
 
         const toggle = new Gtk.Switch({
@@ -184,37 +222,32 @@ export default class UnimPreferences extends ExtensionPreferences {
 
         settings.bind(key, toggle, 'active', Gio.SettingsBindFlags.DEFAULT);
         row.add_suffix(toggle);
+        row.activatable_widget = toggle;
     }
 
-    // Helper to add a combo row
-    _addCombo(group, settings, key, title, subtitle, options) {
-        const row = new Adw.ActionRow({
-            title: title,
-            subtitle: subtitle
-        });
+    // Helper: Combo dropdown with optional config sync
+    _addCombo(group, settings, key, title, subtitle, options, syncToConfig = false) {
+        const row = new Adw.ActionRow({ title, subtitle });
         group.add(row);
 
         const model = new Gtk.StringList();
         options.forEach(([id, label]) => model.append(label));
 
-        const combo = new Gtk.DropDown({
-            model: model,
-            valign: Gtk.Align.CENTER
-        });
+        const combo = new Gtk.DropDown({ model, valign: Gtk.Align.CENTER });
 
-        // Bind initial value
         const currentId = settings.get_string(key);
         const index = options.findIndex(([id]) => id === currentId);
-        if (index !== -1) {
-            combo.set_selected(index);
-        }
+        if (index !== -1) combo.set_selected(index);
 
-        // Save on change
         combo.connect('notify::selected', () => {
-            const selectedIdx = combo.get_selected();
-            if (selectedIdx !== Gtk.INVALID_LIST_POSITION) {
-                const [id] = options[selectedIdx];
+            const idx = combo.get_selected();
+            if (idx !== Gtk.INVALID_LIST_POSITION) {
+                const [id] = options[idx];
                 settings.set_string(key, id);
+                
+                if (syncToConfig) {
+                    this._syncToConfigFile(settings);
+                }
             }
         });
 

@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.unim-typefix" path="/org/gnome/shell/extensions/unim-typefix/" gettext-domain="gnome-shell-extensions">
-    <!-- General Settings -->
+  <schema id="org.gnome.shell.extensions.unim-indicator" path="/org/gnome/shell/extensions/unim-indicator/" gettext-domain="gnome-shell-extensions">
+    
+    <!-- ============================================ -->
+    <!-- Extension Settings -->
+    <!-- ============================================ -->
+    
     <key type="b" name="enable-extension">
       <default>true</default>
       <summary>Enable Extension</summary>
-      <description>Whether to enable the entire unim typefix extension</description>
+      <description>Whether to enable the entire UNIM indicator extension</description>
     </key>
 
     <key type="b" name="show-notification">
@@ -14,20 +18,32 @@
       <description>Whether to show a notification when text is converted</description>
     </key>
 
-    <!-- Keyboard Layout Settings -->
+    <key type="b" name="show-panel-indicator">
+      <default>true</default>
+      <summary>Show Panel Indicator</summary>
+      <description>Whether to show the Korean/English status indicator in the panel</description>
+    </key>
+
+    <!-- ============================================ -->
+    <!-- Input Method Settings (synced to config.yaml) -->
+    <!-- ============================================ -->
+    
     <key type="s" name="korean-layout">
       <default>'2bul'</default>
       <summary>Korean Keyboard Layout</summary>
-      <description>The Korean keyboard layout to use: '2bul', '390', or '391'</description>
+      <description>The Korean keyboard layout: '2bul' (Dubeolsik), '3bul390' (Sebeolsik 390), '3bul391' (Sebeolsik Final), '3bul_noshift' (Sebeolsik No-Shift)</description>
     </key>
 
     <key type="s" name="english-layout">
       <default>'qwerty'</default>
       <summary>English Keyboard Layout</summary>
-      <description>The English keyboard layout to use: 'qwerty' or 'dvorak'</description>
+      <description>The English keyboard layout: 'qwerty', 'dvorak', 'colemak', 'colemak_dh', 'workman'</description>
     </key>
 
-    <!-- Shortcut Settings: Normal Mode (English to Korean) -->
+    <!-- ============================================ -->
+    <!-- TypeFix Shortcut Settings -->
+    <!-- ============================================ -->
+
     <key type="as" name="shortcut-normal">
       <default>['&lt;Super&gt;k']</default>
       <summary>Normal Conversion</summary>
@@ -40,7 +56,6 @@
       <description>Convert Korean to English and paste</description>
     </key>
 
-    <!-- Shortcut Settings: Terminal Mode -->
     <key type="as" name="shortcut-terminal">
       <default>['&lt;Ctrl&gt;&lt;Super&gt;k']</default>
       <summary>Terminal Conversion</summary>
@@ -53,7 +68,6 @@
       <description>Convert Korean to English with backspace before paste (terminal friendly)</description>
     </key>
 
-    <!-- Shortcut Settings: Copy Only Mode -->
     <key type="as" name="shortcut-copy-only">
       <default>['&lt;Alt&gt;&lt;Super&gt;k']</default>
       <summary>Copy Only</summary>

@@ -124,6 +124,18 @@ impl DaemonManager {
 
     /// 데몬 시작
     fn start(&mut self) -> Result<(), String> {
+        // 시스템에 이미 데몬이 실행 중인지 확인 (다른 프로세스가 시작한 경우 포함)
+        if Command::new("pgrep")
+            .args(["-x", "unim-daemon"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            info!("시스템에 데몬이 이미 실행 중");
+            return Ok(());
+        }
+
+        // 자신이 시작한 자식 프로세스가 실행 중인지 확인
         if self.is_running() {
             info!("데몬이 이미 실행 중");
             return Ok(());

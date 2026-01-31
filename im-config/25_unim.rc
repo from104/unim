@@ -2,16 +2,16 @@
 # vim: set sts=4 expandtab:
 
 if [ "$IM_CONFIG_PHASE" = 2 ]; then
-# start UNIM daemon if not running
-if ! pgrep -x unim-daemon > /dev/null; then
-    @LIBEXECDIR@/unim-daemon &
-fi
+    # X11/XIM/Clutter: unim-xim (via unim-daemon)
+    if ! pgrep -x unim-daemon > /dev/null; then
+        @LIBEXECDIR@/unim-daemon &
+    fi
 fi
 
 if [ "$IM_CONFIG_PHASE" = 1 ]; then
-# set variables for UNIM
-XMODIFIERS=@im=unim
-GTK_IM_MODULE=unim
-QT_IM_MODULE=unim
-CLUTTER_IM_MODULE=unim
+    # set variables for UNIM
+    XMODIFIERS=@im=unim
+    GTK_IM_MODULE=unim
+    QT_IM_MODULE=unim
+    CLUTTER_IM_MODULE=xim
 fi

@@ -54,11 +54,11 @@ DEB_DIR := $(CURDIR)/debs
 
 CARGO := cargo
 
-.PHONY: all clean build build-rust build-frontends build-settings \
+.PHONY: all clean build build-rust build-frontends build-settings build-tests \
         install install-core install-frontends install-settings install-icons install-autostart \
         uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart \
         pack install-gnome-extension uninstall-gnome-extension enable disable log test test-dbus test-xim \
-        deb clean-deb clean-all help \
+        deb clean-deb clean-all help sandbox \
         test-gtk3 test-gtk4
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -103,6 +103,12 @@ help:
 	@echo "  test-dbus        - Verify DBus service registration"
 	@echo "  test-xim         - Build and run XIM test application"
 	@echo ""
+	@echo "Sandbox (isolated testing):"
+	@echo "  sandbox          - Launch Xephyr sandbox with default terminal"
+	@echo "  sandbox-gtk4     - Launch sandbox with GTK4 test app"
+	@echo "  sandbox-xim      - Launch sandbox with XIM test app"
+	@echo "  build-tests      - Build all test applications"
+	@echo ""
 	@echo "Variables:"
 	@echo "  PREFIX           - Installation prefix (default: /usr/local)"
 	@echo "  DESTDIR          - Staging directory for packaging"
@@ -111,6 +117,7 @@ help:
 	@echo "  make build"
 	@echo "  sudo make install PREFIX=/usr"
 	@echo "  sudo make uninstall PREFIX=/usr"
+	@echo "  make sandbox-gtk4  (Xephyr sandbox with GTK4 test)"
 	@echo "════════════════════════════════════════════════════════════════════"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -520,3 +527,67 @@ test-xim:
 	@echo "✅ 빌드 완료! 실행: ./unim-test-xim/build/unim-test-xim"
 	@echo "   또는: XMODIFIERS=@im=unim ./unim-test-xim/build/unim-test-xim"
 	@echo "════════════════════════════════════════════════════════════"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build All Test Applications
+# ─────────────────────────────────────────────────────────────────────────────
+
+build-tests: build-frontends
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🔨 Building All Test Applications..."
+	@echo "════════════════════════════════════════════════════════════"
+	@# GTK3 Test
+	@echo "  → Building GTK3 Test App..."
+	@mkdir -p unim-test-gtk3/build && cd unim-test-gtk3/build && cmake .. && make
+	@# GTK4 Test
+	@echo "  → Building GTK4 Test App..."
+	@mkdir -p unim-test-gtk4/build && cd unim-test-gtk4/build && cmake .. && make
+	@# Qt5 Test
+	@echo "  → Building Qt5 Test App..."
+	@mkdir -p unim-test-qt5/build && cd unim-test-qt5/build && cmake .. && make
+	@# Qt6 Test
+	@echo "  → Building Qt6 Test App..."
+	@mkdir -p unim-test-qt6/build && cd unim-test-qt6/build && cmake .. && make
+	@# XIM Test
+	@echo "  → Building XIM Test App..."
+	@mkdir -p unim-test-xim/build && cd unim-test-xim/build && cmake .. && make
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "✅ 모든 테스트 앱 빌드 완료!"
+	@echo "════════════════════════════════════════════════════════════"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sandbox Environment (Xephyr-based isolated testing)
+# ─────────────────────────────────────────────────────────────────────────────
+
+sandbox: build build-tests
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🧪 Launching UNIM Sandbox Environment..."
+	@echo "════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "이 명령은 Xephyr 기반 격리 환경에서 UNIM을 테스트합니다."
+	@echo "시스템 IM 설정에 영향을 주지 않습니다."
+	@echo ""
+	@./scripts/sandbox.sh $(SANDBOX_APP)
+
+sandbox-gtk3: build build-tests
+	@./scripts/sandbox.sh gtk3
+
+sandbox-gtk4: build build-tests
+	@./scripts/sandbox.sh gtk4
+
+sandbox-qt5: build build-tests
+	@./scripts/sandbox.sh qt5
+
+sandbox-qt6: build build-tests
+	@./scripts/sandbox.sh qt6
+
+sandbox-xim: build build-tests
+	@./scripts/sandbox.sh xim
+
+sandbox-indicator: build build-tests
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🧪 Launching UNIM Sandbox with Indicator..."
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "stalonetray가 설치되어 있어야 합니다: sudo apt install stalonetray"
+	@echo ""
+	@./scripts/sandbox.sh --indicator

@@ -1,5 +1,5 @@
 /**
- * UNIM typefixNOME Shell Extension
+ * UNIM Indicator GNOME Shell Extension
  * Hybrid Version: unim-cli + Native Shell APIs
  */
 
@@ -12,6 +12,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import { VirtualKeyboard } from './vkbd.js';
+import { UnimIndicator } from './indicator.js';
 
 // Paste mode
 const PasteMode = {
@@ -20,36 +21,49 @@ const PasteMode = {
     COPY_ONLY: 'copy_only', // No paste, copy to clipboard only
 };
 
-export default class Unimtypefixnsion extends Extension {
+export default class UnimTypefixExtension extends Extension {
     constructor(metadata) {
         super(metadata);
         this._settings = null;
         this._shortcutIds = [];
         this._vkbd = null;
         this._clipboard = null;
+        this._indicator = null;
     }
 
     enable() {
-        console.log('[unim-typefix] Enabling hybrid extension...');
+        console.log('[unim-indicator] Enabling hybrid extension...');
         try {
             this._settings = this.getSettings();
             this._clipboard = St.Clipboard.get_default();
             this._vkbd = new VirtualKeyboard();
             
+            // 패널 인디케이터 추가
+            if (this._settings.get_boolean('show-panel-indicator')) {
+                this._indicator = new UnimIndicator(this);
+                Main.panel.addToStatusArea('unim-indicator', this._indicator);
+            }
+            
             this._bindAllShortcuts();
             
-            console.log('[unim-typefix] Hybrid extension enabled');
+            console.log('[unim-indicator] Hybrid extension enabled');
         } catch (e) {
-            console.error(`[unim-typefix] Enable failed: ${e.message}`);
+            console.error(`[unim-indicator] Enable failed: ${e.message}`);
         }
     }
 
     disable() {
         this._unbindAllShortcuts();
+        
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
+        }
+        
         this._settings = null;
         this._vkbd = null;
         this._clipboard = null;
-        console.log('[unim-typefix] Hybrid extension disabled');
+        console.log('[unim-indicator] Hybrid extension disabled');
     }
 
     _bindAllShortcuts() {
@@ -78,7 +92,7 @@ export default class Unimtypefixnsion extends Extension {
         );
         
         this._shortcutIds.push(settingKey);
-        console.log(`[unim-typefix] Shortcut bound: ${settingKey} -> ${shortcut[0]} (paste: ${pasteMode}, reverse: ${isReverse})`);
+        console.log(`[unim-indicator] Shortcut bound: ${settingKey} -> ${shortcut[0]} (paste: ${pasteMode}, reverse: ${isReverse})`);
     }
 
     _unbindAllShortcuts() {
@@ -91,7 +105,7 @@ export default class Unimtypefixnsion extends Extension {
     _onShortcutTriggered(pasteMode, isReverse) {
         if (!this._settings.get_boolean('enable-extension')) return;
 
-        console.log(`[unim-typefix] Shortcut triggered: paste=${pasteMode}, reverse=${isReverse}`);
+        console.log(`[unim-indicator] Shortcut triggered: paste=${pasteMode}, reverse=${isReverse}`);
 
         const koreanLayout = this._settings.get_string('korean-layout');
         const englishLayout = this._settings.get_string('english-layout');
@@ -113,33 +127,33 @@ export default class Unimtypefixnsion extends Extension {
                 }
             });
         } catch (e) {
-            console.error(`[unim-typefix] Conversion trigger error: ${e.message}`);
+            console.error(`[unim-indicator] Conversion trigger error: ${e.message}`);
         }
     }
 
     async _processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse) {
-        console.log(`[unim-typefix] Transforming: "${text}" (paste: ${pasteMode}, reverse: ${isReverse})`);
+        console.log(`[unim-indicator] Transforming: "${text}" (paste: ${pasteMode}, reverse: ${isReverse})`);
         try {
             const converted = await this._convertText(text, koreanLayout, englishLayout, isReverse);
             if (!converted) return;
             
-            console.log(`[unim-typefix] Result: "${converted}"`);
+            console.log(`[unim-indicator] Result: "${converted}"`);
             
             // Set both selections for maximum compatibility
             this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
             this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
-            console.log('[unim-typefix] Clipboard updated');
+            console.log('[unim-indicator] Clipboard updated');
             
             // Handle paste mode
             if (pasteMode === PasteMode.COPY_ONLY) {
-                console.log('[unim-typefix] Copy-only mode: skipping paste');
+                console.log('[unim-indicator] Copy-only mode: skipping paste');
             } else {
                 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
-                    console.log('[unim-typefix] Triggering paste action...');
+                    console.log('[unim-indicator] Triggering paste action...');
                     
                     if (pasteMode === PasteMode.TERMINAL) {
                         const deleteCount = text.length;
-                        console.log(`[unim-typefix] Terminal mode: deleting ${deleteCount} chars before paste`);
+                        console.log(`[unim-indicator] Terminal mode: deleting ${deleteCount} chars before paste`);
                         this._vkbd.backspaceMultiple(deleteCount);
                     }
                     
@@ -152,7 +166,7 @@ export default class Unimtypefixnsion extends Extension {
                 Main.notify(_('UNIM TypeFIX'), _('Conversion complete: %s').format(converted));
             }
         } catch (e) {
-            console.error(`[unim-typefix] Transform error: ${e.message}`);
+            console.error(`[unim-indicator] Transform error: ${e.message}`);
         }
     }
 
@@ -161,17 +175,37 @@ export default class Unimtypefixnsion extends Extension {
             const extensionPath = this.path;
             const binPath = GLib.build_filenamev([extensionPath, 'bin', 'unim-cli']);
             
-            const kLayout = koreanLayout || '2bul';
-            const eLayout = englishLayout || 'qwerty';
+            // GSettings에서 레이아웃 읽기
+            const kLayout = koreanLayout || this._settings.get_string('korean-layout') || '2bul';
+            const eLayout = englishLayout || this._settings.get_string('english-layout') || 'qwerty';
+
+            // 레이아웃 값을 unim-cli 옵션으로 매핑
+            const koreanLayoutMap = {
+                '2bul': '2bul',
+                '3bul390': '390',
+                '3bul391': '391',
+                '3bul_noshift': 'noshift',
+                // 호환성: 기존 값도 지원
+                '390': '390',
+                '391': '391'
+            };
+            
+            const englishLayoutMap = {
+                'qwerty': 'qwerty',
+                'dvorak': 'dvorak',
+                'colemak': 'colemak',
+                'colemak_dh': 'colemak-dh',
+                'workman': 'workman'
+            };
 
             const argv = [
                 binPath,
                 isReverse ? '--decompose' : '--compose',
-                '--korean-keyboard', kLayout === '391' ? '391' : (kLayout === '390' ? '390' : '2bul'),
-                '--english-keyboard', eLayout === 'dvorak' ? 'dvorak' : 'qwerty'
+                '--korean-keyboard', koreanLayoutMap[kLayout] || '2bul',
+                '--english-keyboard', englishLayoutMap[eLayout] || 'qwerty'
             ];
 
-            console.log(`[unim-typefix] Executing: ${argv.join(' ')} with input: "${text}"`);
+            console.log(`[unim-indicator] Executing: ${argv.join(' ')} with input: "${text}"`);
 
             try {
                 const proc = new Gio.Subprocess({
@@ -182,18 +216,18 @@ export default class Unimtypefixnsion extends Extension {
                 proc.communicate_utf8_async(text, null, (proc, res) => {
                     try {
                         const [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
-                        if (stderr) console.error(`[unim-typefix] CLI Stderr: ${stderr}`);
+                        if (stderr) console.error(`[unim-indicator] CLI Stderr: ${stderr}`);
                         
                         const result = stdout ? stdout.trim() : '';
-                        console.log(`[unim-typefix] CLI Stdout: "${result}"`);
+                        console.log(`[unim-indicator] CLI Stdout: "${result}"`);
                         resolve(result);
                     } catch (e) { 
-                        console.error(`[unim-typefix] communicate_utf8_finish error: ${e.message}`);
+                        console.error(`[unim-indicator] communicate_utf8_finish error: ${e.message}`);
                         reject(e); 
                     }
                 });
             } catch (e) { 
-                console.error(`[unim-typefix] Subprocess spawn error: ${e.message}`);
+                console.error(`[unim-indicator] Subprocess spawn error: ${e.message}`);
                 reject(e); 
             }
         });
