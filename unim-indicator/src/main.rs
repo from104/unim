@@ -2,11 +2,8 @@
 //!
 //! 시스템 트레이에 입력 모드를 표시하고,
 //! DBus 시그널을 구독하여 아이콘을 업데이트합니다.
-//! UNIM 데몬을 자식 프로세스로 관리합니다.
 //! 현대적인 GTK4/libadwaita 기반 팝업 윈도우를 제공합니다.
 
-use std::path::PathBuf;
-use std::process::{Child, Command};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -18,190 +15,10 @@ use ksni::blocking::TrayMethods;
 use ksni::menu::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 use unim::status::InputCategory;
 use unim_dbus::client::InputMethodProxy;
-
-// ============================================================================
-// 데몬 관리자
-// ============================================================================
-
-/// UNIM 데몬 관리자
-struct DaemonManager {
-    child: Option<Child>,
-    binary_path: PathBuf,
-}
-
-impl DaemonManager {
-    /// 새 DaemonManager 생성
-    fn new() -> Self {
-        let binary_path = Self::find_daemon_binary();
-        Self {
-            child: None,
-            binary_path,
-        }
-    }
-
-    /// 데몬 바이너리 경로 탐색
-    fn find_daemon_binary() -> PathBuf {
-        let binary_name = "unim-daemon";
-
-        // 1. 환경 변수 (최우선)
-        if let Ok(path) = std::env::var("UNIM_DAEMON_PATH") {
-            let p = PathBuf::from(&path);
-            if p.exists() {
-                info!("데몬 바이너리 (환경변수): {:?}", p);
-                return p;
-            }
-        }
-
-        // 2. 현재 실행 파일 기준 탐색 (자가 설치 경로 대응)
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                // Case A: /bin/unim-indicator -> /libexec/unim-daemon
-                if let Some(prefix) = exe_dir.parent() {
-                    let libexec_path = prefix.join("libexec").join(binary_name);
-                    if libexec_path.exists() {
-                        info!("데몬 바이너리 (상대 경로 libexec): {:?}", libexec_path);
-                        return libexec_path;
-                    }
-                }
-                // Case B: 같은 디렉토리에 있는 경우 (개발 환경 또는 /libexec에 같이 설치된 경우)
-                let sibling_path = exe_dir.join(binary_name);
-                if sibling_path.exists() {
-                    info!("데몬 바이너리 (상대 경로 sibling): {:?}", sibling_path);
-                    return sibling_path;
-                }
-            }
-        }
-
-        // 3. 빌드 디렉토리 탐색 (개발용 보조)
-        if std::env::var("UNIM_DEVELOP").is_ok() {
-            if let Ok(cwd) = std::env::current_dir() {
-                let dev_paths = [
-                    cwd.join("target/release").join(binary_name),
-                    cwd.join("target/debug").join(binary_name),
-                    // 프로젝트 루트 외부에서 실행될 경우를 대비한 부모 디렉토리 검색
-                    cwd.join("../target/release").join(binary_name),
-                    cwd.join("../target/debug").join(binary_name),
-                ];
-                for p in dev_paths {
-                    if p.exists() {
-                        info!("데몬 바이너리 (개발 디렉토리): {:?}", p);
-                        return p;
-                    }
-                }
-            }
-        }
-
-        // 4. 시스템 표준 경로
-        let system_paths = [
-            PathBuf::from("/usr/local/libexec").join(binary_name),
-            PathBuf::from("/usr/libexec").join(binary_name),
-            PathBuf::from("/usr/local/bin").join(binary_name),
-            PathBuf::from("/usr/bin").join(binary_name),
-        ];
-        for p in system_paths {
-            if p.exists() {
-                info!("데몬 바이너리 (시스템 경로): {:?}", p);
-                return p;
-            }
-        }
-
-        // 5. PATH에서 탐색 (마지막 수단)
-        match which::which(binary_name) {
-            Ok(p) => {
-                info!("데몬 바이너리 (PATH): {:?}", p);
-                p
-            }
-            Err(_) => {
-                warn!("데몬 바이너리를 찾을 수 없음. 'unim-daemon'으로 시도.");
-                PathBuf::from(binary_name)
-            }
-        }
-    }
-
-    /// 데몬 시작
-    fn start(&mut self) -> Result<(), String> {
-        // 시스템에 이미 데몬이 실행 중인지 확인 (다른 프로세스가 시작한 경우 포함)
-        if Command::new("pgrep")
-            .args(["-x", "unim-daemon"])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            info!("시스템에 데몬이 이미 실행 중");
-            return Ok(());
-        }
-
-        // 자신이 시작한 자식 프로세스가 실행 중인지 확인
-        if self.is_running() {
-            info!("데몬이 이미 실행 중");
-            return Ok(());
-        }
-
-        info!("데몬 시작: {:?}", self.binary_path);
-
-        match Command::new(&self.binary_path).arg("-n").spawn() {
-            Ok(child) => {
-                info!("데몬 시작됨 (PID: {})", child.id());
-                self.child = Some(child);
-                Ok(())
-            }
-            Err(e) => {
-                error!("데몬 시작 실패: {}", e);
-                Err(format!("데몬 시작 실패: {}", e))
-            }
-        }
-    }
-
-    /// 데몬 중지
-    fn stop(&mut self) {
-        if let Some(ref mut child) = self.child {
-            info!("데몬 중지 (PID: {})", child.id());
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        self.child = None;
-    }
-
-    /// 데몬 실행 상태 확인
-    fn is_running(&mut self) -> bool {
-        if let Some(ref mut child) = self.child {
-            match child.try_wait() {
-                Ok(None) => true,
-                Ok(Some(status)) => {
-                    info!("데몬 종료됨: {:?}", status);
-                    false
-                }
-                Err(e) => {
-                    error!("데몬 상태 확인 오류: {}", e);
-                    false
-                }
-            }
-        } else {
-            false
-        }
-    }
-
-    /// 주기적으로 상태 확인 및 자동 재시작
-    fn monitor_and_restart(&mut self) {
-        if !self.is_running() && self.child.is_some() {
-            warn!("데몬이 예기치 않게 종료됨. 재시작 시도...");
-            self.child = None;
-            if let Err(e) = self.start() {
-                error!("데몬 자동 재시작 실패: {}", e);
-            }
-        }
-    }
-}
-
-impl Drop for DaemonManager {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
 
 // ============================================================================
 // 인디케이터 상태 및 트레이
@@ -378,35 +195,12 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("UNIM 인디케이터 시작...");
 
-    // 1. 싱글톤 보장: 이미 실행 중인 인디케이터가 있는지 확인 (DBus 이름 등록 시도)
-    // 여기서는 간단히 데몬 관리 로직만 강화하고, 실제 싱글톤은 ksni나 별도 락파일로 처리 가능하지만
-    // 데몬이 이미 실행 중이라면 불필요한 시작 시도를 건너뛰도록 합니다.
-    let daemon_manager = Arc::new(Mutex::new(DaemonManager::new()));
-    {
-        let mut mgr = daemon_manager.lock().unwrap();
-        if let Err(e) = mgr.start() {
-            error!("데몬 초기 시작 실패: {}", e);
-        }
-    }
-
-    // kDaemon이 DBus 서비스를 시작할 때까지 잠시 대기
-    thread::sleep(Duration::from_millis(500));
-
     // 상태 초기화
     let state = Arc::new(RwLock::new(IndicatorState::default()));
 
     // 채널들
     let (popup_tx, popup_rx) = mpsc::channel::<PopupAction>();
     let popup_rx = Arc::new(Mutex::new(popup_rx));
-
-    // 데몬 모니터링 스레드
-    let daemon_manager_ctrl = daemon_manager.clone();
-    thread::spawn(move || loop {
-        if let Ok(mut mgr) = daemon_manager_ctrl.lock() {
-            mgr.monitor_and_restart();
-        }
-        thread::sleep(Duration::from_secs(2));
-    });
 
     // DBus 시그널 감시 스레드 (ksni와 완전 분리)
     let dbus_state = state.clone();

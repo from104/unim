@@ -2279,7 +2279,6 @@ dependencies = [
  "tokio",
  "unim",
  "unim-dbus",
- "which",
  "zbus 4.4.0",
 ]
 
