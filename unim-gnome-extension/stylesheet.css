@@ -1,29 +1,22 @@
 /* UNIM Panel Indicator Styles */
 
-/* 패널 레이블 기본 스타일 */
-.unim-indicator-label {
-    font-weight: bold;
-    font-size: 1.1em;
-    padding: 0 6px;
-    min-width: 24px;
-    text-align: center;
-    border-radius: 4px;
-    margin: 0 2px;
+/* 아이콘 기본 스타일 */
+.unim-indicator-icon {
+    icon-size: 16px;
+    padding: 0 2px;
 }
 
-/* 한국어 모드 - 파란색 강조 */
-.unim-indicator-label.hangul-mode {
-    color: #78aeed;
-    background-color: rgba(120, 174, 237, 0.15);
+/* 한국어 모드 */
+.unim-indicator-icon.hangul-mode {
+    /* 아이콘 자체에 스타일이 있으므로 추가 스타일 불필요 */
 }
 
-/* 영어 모드 - 회색 */
-.unim-indicator-label.english-mode {
-    color: #aaaaaa;
-    background-color: transparent;
+/* 영어 모드 */
+.unim-indicator-icon.english-mode {
+    /* 아이콘 자체에 스타일이 있으므로 추가 스타일 불필요 */
 }
 
-/* 연결 안됨 */
-.unim-indicator-label.disconnected-mode {
+/* 연결 안됨 - 시스템 아이콘 사용 시 색상 적용 */
+.unim-indicator-icon.disconnected-mode {
     color: #f66151;
 }

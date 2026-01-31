@@ -305,6 +305,10 @@ gnome-extension: build-rust
 	@echo "  → Copying unim-cli binary..."
 	@mkdir -p unim-gnome-extension/bin
 	@cp target/release/unim-cli unim-gnome-extension/bin/
+	@echo "  → Copying icons from unim-indicator..."
+	@mkdir -p unim-gnome-extension/icons
+	@cp unim-indicator/data/icons/hicolor/scalable/apps/unim-korean.svg unim-gnome-extension/icons/
+	@cp unim-indicator/data/icons/hicolor/scalable/apps/unim-english.svg unim-gnome-extension/icons/
 	@echo "  → Compiling GSettings schema..."
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || echo "Note: glib-compile-schemas not available"
 	@echo "  → Compiling translations..."
@@ -434,6 +438,7 @@ clean:
 	@# GNOME extension artifacts
 	@rm -f $(ZIP_FILE)
 	@rm -rf unim-gnome-extension/bin
+	@rm -rf unim-gnome-extension/icons
 	@rm -f unim-gnome-extension/schemas/gschemas.compiled
 	@rm -rf unim-gnome-extension/locale
 	@# Frontend build directories

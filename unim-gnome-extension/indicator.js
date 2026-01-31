@@ -36,17 +36,23 @@ class UnimIndicator extends PanelMenu.Button {
         this._isKorean = true;
         this._connected = false;
         
-        // 패널 버튼 - 박스로 구성 (아이콘 + 레이블)
+        // 확장 디렉토리 경로 (아이콘 로드용)
+        this._extensionPath = extension.path;
+        
+        // 패널 버튼 - 박스로 구성 (아이콘)
         this._box = new St.BoxLayout({ style_class: 'panel-status-menu-box' });
         
-        this._label = new St.Label({
-            text: '한',
-            y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'unim-indicator-label hangul-mode'
+        // 아이콘 위젯 생성
+        this._icon = new St.Icon({
+            style_class: 'unim-indicator-icon system-status-icon',
+            y_align: Clutter.ActorAlign.CENTER
         });
-        this._box.add_child(this._label);
+        this._box.add_child(this._icon);
         
         this.add_child(this._box);
+        
+        // 초기 아이콘 설정
+        this._updateIcon();
         
         // 팝업 메뉴 생성
         this._buildMenu();
@@ -103,17 +109,33 @@ class UnimIndicator extends PanelMenu.Button {
         this._englishItem.setOrnament(!this._isKorean ? PopupMenu.Ornament.CHECK : PopupMenu.Ornament.NONE);
     }
     
-    _updateLabel() {
+    _updateIcon() {
+        let iconName;
+        let styleClass = 'unim-indicator-icon system-status-icon';
+        
         if (this._connected) {
-            this._label.set_text(this._isKorean ? '한' : 'A');
-            this._label.remove_style_class_name(this._isKorean ? 'english-mode' : 'hangul-mode');
-            this._label.add_style_class_name(this._isKorean ? 'hangul-mode' : 'english-mode');
+            // 확장 디렉토리의 아이콘 파일 사용
+            iconName = this._isKorean ? 'unim-korean' : 'unim-english';
+            styleClass += this._isKorean ? ' hangul-mode' : ' english-mode';
         } else {
-            this._label.set_text('?');
-            this._label.remove_style_class_name('hangul-mode');
-            this._label.remove_style_class_name('english-mode');
-            this._label.add_style_class_name('disconnected-mode');
+            // 연결 안됨 상태에서는 시스템 아이콘 사용
+            iconName = 'dialog-question-symbolic';
+            styleClass += ' disconnected-mode';
         }
+        
+        // 확장 디렉토리의 icons 폴더에서 SVG 로드
+        const iconPath = GLib.build_filenamev([this._extensionPath, 'icons', `${iconName}.svg`]);
+        const iconFile = Gio.File.new_for_path(iconPath);
+        
+        if (iconFile.query_exists(null)) {
+            const gicon = Gio.FileIcon.new(iconFile);
+            this._icon.set_gicon(gicon);
+        } else {
+            // 아이콘 파일이 없으면 시스템 아이콘 사용
+            this._icon.set_icon_name(iconName);
+        }
+        
+        this._icon.set_style_class_name(styleClass);
     }
     
     async _connectDbus() {
@@ -148,7 +170,7 @@ class UnimIndicator extends PanelMenu.Button {
         } catch (e) {
             console.log(`[unim-indicator] DBus connection failed: ${e.message}`);
             this._connected = false;
-            this._updateLabel();
+            this._updateIcon();
             this._updateMenuItems();
             
             // 재시도 (5초 후)
@@ -183,7 +205,7 @@ class UnimIndicator extends PanelMenu.Button {
     
     _onModeChanged(isKorean) {
         this._isKorean = isKorean;
-        this._updateLabel();
+        this._updateIcon();
         this._updateMenuItems();
         console.log(`[unim-indicator] Mode changed: ${isKorean ? 'Korean' : 'English'}`);
     }
