@@ -40,9 +40,20 @@ export default class UnimTypefixExtension extends Extension {
             
             // 패널 인디케이터 추가
             if (this._settings.get_boolean('show-panel-indicator')) {
-                this._indicator = new UnimIndicator(this);
-                Main.panel.addToStatusArea('unim-indicator', this._indicator);
+                this._addIndicator();
             }
+            
+            // 설정 변경 리스너 (즉시 반영)
+            this._settingsChangedId = this._settings.connect('changed::show-panel-indicator', () => {
+                const showIndicator = this._settings.get_boolean('show-panel-indicator');
+                if (showIndicator && !this._indicator) {
+                    this._addIndicator();
+                    console.log('[unim-indicator] Panel indicator added');
+                } else if (!showIndicator && this._indicator) {
+                    this._removeIndicator();
+                    console.log('[unim-indicator] Panel indicator removed');
+                }
+            });
             
             this._bindAllShortcuts();
             
@@ -51,14 +62,31 @@ export default class UnimTypefixExtension extends Extension {
             console.error(`[unim-indicator] Enable failed: ${e.message}`);
         }
     }
-
-    disable() {
-        this._unbindAllShortcuts();
-        
+    
+    _addIndicator() {
+        if (!this._indicator) {
+            this._indicator = new UnimIndicator(this);
+            Main.panel.addToStatusArea('unim-indicator', this._indicator);
+        }
+    }
+    
+    _removeIndicator() {
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
         }
+    }
+
+    disable() {
+        this._unbindAllShortcuts();
+        
+        // 설정 변경 리스너 정리
+        if (this._settings && this._settingsChangedId) {
+            this._settings.disconnect(this._settingsChangedId);
+            this._settingsChangedId = 0;
+        }
+        
+        this._removeIndicator();
         
         this._settings = null;
         this._vkbd = null;

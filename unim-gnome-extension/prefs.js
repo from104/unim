@@ -17,6 +17,21 @@ export default class UnimPreferences extends ExtensionPreferences {
         });
         window.add(inputPage);
 
+        // Panel Indicator Settings
+        const indicatorGroup = new Adw.PreferencesGroup({
+            title: _('패널 표시'),
+            description: _('GNOME Shell 상단 패널에 한/영 상태 표시')
+        });
+        inputPage.add(indicatorGroup);
+
+        this._addToggle(
+            indicatorGroup,
+            settings,
+            'show-panel-indicator',
+            _('패널 인디케이터 표시'),
+            _('상단 패널에 한/영 상태 아이콘 표시')
+        );
+
         // Keyboard Layout Settings
         const layoutGroup = new Adw.PreferencesGroup({
             title: _('키보드 레이아웃'),
@@ -51,6 +66,19 @@ export default class UnimPreferences extends ExtensionPreferences {
                 ['colemak', _('Colemak')],
                 ['colemak_dh', _('Colemak-DH')],
                 ['workman', _('Workman')]
+            ],
+            true
+        );
+
+        this._addCombo(
+            layoutGroup,
+            settings,
+            'initial-mode',
+            _('초기 입력 모드'),
+            _('세션 시작 시 기본 입력 모드'),
+            [
+                ['Korean', _('한글')],
+                ['English', _('영문')]
             ],
             true
         );
@@ -151,10 +179,11 @@ export default class UnimPreferences extends ExtensionPreferences {
             
             const koreanLayout = koreanLayoutMap[settings.get_string('korean-layout')] || 'Dubeolsik';
             const englishLayout = englishLayoutMap[settings.get_string('english-layout')] || 'Qwerty';
+            const initialMode = settings.get_string('initial-mode') || 'English';
             
             const yamlContent = `# UNIM Configuration (synced from GNOME Extension)
 engine:
-  default_category: Korean
+  default_category: ${initialMode}
   korean:
     layout: ${koreanLayout}
     preedit_johab: false

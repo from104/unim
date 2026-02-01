@@ -42,10 +42,14 @@ IM_CONFIG_DATA_DIR ?= $(DATADIR)/im-config/data
 # DBus service directory (session bus)
 DBUS_SERVICES_DIR ?= $(DATADIR)/dbus-1/services
 
+# Systemd user service directory
+SYSTEMD_USER_DIR ?= $(REAL_LIBDIR)/systemd/user
+
 # GNOME Extension settings
-UUID := unim-typefix@from104.github.io
+UUID := unim-indicator@from104.github.io
 VERSION := $(shell sed -n 's/.*"version": "\([^"]*\)".*/\1/p' unim-gnome-extension/metadata.json)
 ZIP_FILE := $(UUID)-$(VERSION).zip
+GNOME_EXTENSION_DIR := $(DATADIR)/gnome-shell/extensions/$(UUID)
 
 # Build paths
 CAPI_LIB := $(CURDIR)/target/release/libunim_capi.so
@@ -56,6 +60,7 @@ CARGO := cargo
 
 .PHONY: all clean build build-rust build-frontends build-settings build-tests \
         install install-core install-frontends install-settings install-icons install-autostart \
+        install-systemd uninstall-systemd enable-systemd disable-systemd status-systemd \
         uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart \
         pack install-gnome-extension uninstall-gnome-extension enable disable log test test-dbus test-xim \
         deb clean-deb clean-all help sandbox \
@@ -91,6 +96,12 @@ help:
 	@echo "  install-gnome-extension   - Install to user's GNOME Shell"
 	@echo "  uninstall-gnome-extension - Remove from user's GNOME Shell"
 	@echo "  pack             - Create distributable .zip file"
+	@echo ""
+	@echo "Systemd User Service:"
+	@echo "  install-systemd  - Install systemd user service file"
+	@echo "  enable-systemd   - Enable and start the service"
+	@echo "  disable-systemd  - Disable and stop the service"
+	@echo "  status-systemd   - Show service status and recent logs"
 	@echo ""
 	@echo "Packaging:"
 	@echo "  deb              - Build Debian packages (saved to ./debs/)"
@@ -177,7 +188,7 @@ build-settings: build-rust
 # Install Targets
 # ─────────────────────────────────────────────────────────────────────────────
 
-install: install-core install-frontends install-settings install-icons install-autostart
+install: install-core install-frontends install-settings install-icons install-autostart install-gnome-extension
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 	@echo ""
@@ -242,8 +253,8 @@ install-settings:
 install-icons:
 	@echo "Installing icons..."
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
-	install -m 644 unim-indicator/data/icons/hicolor/scalable/apps/unim-korean.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
-	install -m 644 unim-indicator/data/icons/hicolor/scalable/apps/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 data/icons/unim-korean.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
 install-autostart:
 	@echo "Installing autostart entry..."
@@ -254,7 +265,7 @@ install-autostart:
 # Uninstall Targets
 # ─────────────────────────────────────────────────────────────────────────────
 
-uninstall: uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart
+uninstall: uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart uninstall-gnome-extension
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 제거 완료!"
 	@echo "════════════════════════════════════════════════════════════"
@@ -295,6 +306,47 @@ uninstall-autostart:
 	rm -f $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-indicator.desktop
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Systemd User Service
+# ─────────────────────────────────────────────────────────────────────────────
+
+install-systemd:
+	@echo "Installing systemd user service..."
+	install -d $(DESTDIR)$(SYSTEMD_USER_DIR)
+	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" scripts/unim-daemon.service > $(DESTDIR)$(SYSTEMD_USER_DIR)/unim-daemon.service
+	chmod 644 $(DESTDIR)$(SYSTEMD_USER_DIR)/unim-daemon.service
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "✅ Systemd 서비스 설치 완료!"
+	@echo ""
+	@echo "서비스 활성화:"
+	@echo "  systemctl --user daemon-reload"
+	@echo "  systemctl --user enable --now unim-daemon.service"
+	@echo ""
+	@echo "상태 확인:"
+	@echo "  systemctl --user status unim-daemon.service"
+	@echo "════════════════════════════════════════════════════════════"
+
+uninstall-systemd:
+	@echo "Removing systemd user service..."
+	rm -f $(DESTDIR)$(SYSTEMD_USER_DIR)/unim-daemon.service
+	@echo "서비스 비활성화: systemctl --user disable --now unim-daemon.service"
+
+enable-systemd:
+	@echo "Enabling and starting unim-daemon service..."
+	systemctl --user daemon-reload
+	systemctl --user enable --now unim-daemon.service
+	@systemctl --user status unim-daemon.service --no-pager
+
+disable-systemd:
+	@echo "Disabling and stopping unim-daemon service..."
+	systemctl --user disable --now unim-daemon.service
+
+status-systemd:
+	@systemctl --user status unim-daemon.service --no-pager || true
+	@echo ""
+	@journalctl --user -u unim-daemon.service -n 10 --no-pager || true
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GNOME Shell Extension (User-level installation)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -305,10 +357,9 @@ gnome-extension: build-rust
 	@echo "  → Copying unim-cli binary..."
 	@mkdir -p unim-gnome-extension/bin
 	@cp target/release/unim-cli unim-gnome-extension/bin/
-	@echo "  → Copying icons from unim-indicator..."
+	@echo "  → Copying icons from data/icons/..."
 	@mkdir -p unim-gnome-extension/icons
-	@cp unim-indicator/data/icons/hicolor/scalable/apps/unim-korean.svg unim-gnome-extension/icons/
-	@cp unim-indicator/data/icons/hicolor/scalable/apps/unim-english.svg unim-gnome-extension/icons/
+	@cp data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/
 	@echo "  → Compiling GSettings schema..."
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || echo "Note: glib-compile-schemas not available"
 	@echo "  → Compiling translations..."
@@ -328,17 +379,16 @@ pack: gnome-extension
 	@cd unim-gnome-extension && zip -r ../$(ZIP_FILE) .
 
 install-gnome-extension: gnome-extension
-	@echo "Installing GNOME extension to user directory..."
-	@INSTALL_DIR="$(HOME)/.local/share/gnome-shell/extensions/$(UUID)"; \
-	mkdir -p "$$INSTALL_DIR"; \
-	cp -rf unim-gnome-extension/* "$$INSTALL_DIR/"; \
-	echo "Compiling schemas in target directory..."; \
-	glib-compile-schemas "$$INSTALL_DIR/schemas" || (echo "Error: Failed to compile schemas"; exit 1)
+	@echo "Installing GNOME extension to $(DESTDIR)$(GNOME_EXTENSION_DIR)..."
+	@install -d "$(DESTDIR)$(GNOME_EXTENSION_DIR)"
+	@cp -rf unim-gnome-extension/* "$(DESTDIR)$(GNOME_EXTENSION_DIR)/"
+	@echo "Compiling schemas in target directory..."
+	@glib-compile-schemas "$(DESTDIR)$(GNOME_EXTENSION_DIR)/schemas" || (echo "Error: Failed to compile schemas"; exit 1)
 	@echo "✅ GNOME Extension 설치 완료!"
 
 uninstall-gnome-extension:
-	@echo "Uninstalling GNOME extension..."
-	@rm -rf "$(HOME)/.local/share/gnome-shell/extensions/$(UUID)"
+	@echo "Uninstalling GNOME extension from $(DESTDIR)$(GNOME_EXTENSION_DIR)..."
+	@rm -rf "$(DESTDIR)$(GNOME_EXTENSION_DIR)"
 	@echo "✅ GNOME Extension 제거 완료!"
 
 enable-gnome-extension:

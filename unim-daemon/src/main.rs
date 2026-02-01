@@ -2,19 +2,39 @@
 //!
 //! DBus 기반 입력 서비스를 제공하고 프론트엔드 모듈들을 관리합니다.
 
-use log::{error, info};
+use clap::Parser;
+use log::{error, info, warn};
+use std::fs;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use zbus::Connection;
 
-use std::path::PathBuf;
-use std::time::Duration;
 use unim_dbus::engine_worker::spawn_engine_worker;
 use unim_dbus::service::InputMethodService;
 use unim_dbus::{BUS_NAME, INPUT_METHOD_PATH};
+
+/// UNIM 입력기 데몬
+#[derive(Parser, Debug)]
+#[command(name = "unim-daemon", version, about = "UNIM 입력기 데몬")]
+struct Args {
+    /// 데몬화 없이 포그라운드에서 실행
+    #[arg(short = 'n', long)]
+    no_daemon: bool,
+
+    /// 기존 데몬을 강제 종료하고 교체 실행
+    #[arg(short = 'r', long)]
+    replace: bool,
+
+    /// 기존 데몬 실행 여부 확인 (실행 중이면 exit 0, 아니면 exit 1)
+    #[arg(long)]
+    check: bool,
+}
 /// 프론트엔드 모듈 종류
 #[derive(Clone, Copy, Debug)]
 enum Module {
@@ -162,7 +182,8 @@ async fn start_dbus_service(
             "DBus 이름 '{}'이(가) 이미 사용 중입니다. 기존 프로세스 종료를 시도합니다.",
             BUS_NAME
         );
-        kill_existing_daemon();
+        let pid_file = get_pid_file_path();
+        kill_existing_daemon(&pid_file);
 
         // 프로세스가 종료될 때까지 잠시 대기 후 재시도
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -194,10 +215,19 @@ async fn start_dbus_service(
 }
 
 /// 기존에 실행 중인 unim-daemon 프로세스를 찾아 종료합니다.
-fn kill_existing_daemon() {
+fn kill_existing_daemon(pid_file: &PathBuf) {
     let my_pid = std::process::id();
 
-    // pgrep으로 모든 unim-daemon 프로세스 PID 조회
+    // 1. PID 파일에서 읽은 PID 먼저 시도
+    if let Some(pid) = read_pid_file(pid_file) {
+        if pid != my_pid && is_process_running(pid) {
+            info!("PID 파일에서 기존 데몬 감지 (PID: {}), 종료 시도", pid);
+            let _ = Command::new("kill").arg(pid.to_string()).status();
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    // 2. pgrep으로 모든 unim-daemon 프로세스 PID 조회 (폴백)
     let output = Command::new("pgrep").arg("-f").arg("unim-daemon").output();
 
     if let Ok(out) = output {
@@ -215,25 +245,100 @@ fn kill_existing_daemon() {
     }
 }
 
+/// PID 파일 경로 반환
+fn get_pid_file_path() -> PathBuf {
+    let run_dir = dirs::runtime_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    run_dir.join("unim-daemon.pid")
+}
+
+/// PID 파일에서 PID 읽기
+fn read_pid_file(path: &PathBuf) -> Option<u32> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).ok()?;
+    contents.trim().parse().ok()
+}
+
+/// PID 파일 쓰기
+fn write_pid_file(path: &PathBuf) -> std::io::Result<()> {
+    let mut file = fs::File::create(path)?;
+    write!(file, "{}", std::process::id())?;
+    Ok(())
+}
+
+/// PID 파일 삭제
+fn remove_pid_file(path: &PathBuf) {
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// 프로세스가 실행 중인지 확인 (kill -0 사용)
+fn is_process_running(pid: u32) -> bool {
+    // /proc/{pid} 존재 여부로 확인 (Linux 전용)
+    PathBuf::from(format!("/proc/{}", pid)).exists()
+}
+
+/// 기존 데몬 실행 여부 확인
+fn check_existing_daemon(pid_file: &PathBuf) -> Option<u32> {
+    if let Some(pid) = read_pid_file(pid_file) {
+        if is_process_running(pid) {
+            return Some(pid);
+        } else {
+            // stale PID 파일 정리
+            warn!("Stale PID 파일 발견 (PID: {}), 삭제합니다", pid);
+            remove_pid_file(pid_file);
+        }
+    }
+    None
+}
+
 #[tokio::main]
 async fn main() {
     // 로거 초기화
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // CLI 인수 파싱
+    let args = Args::parse();
+
+    // PID 파일 경로
+    let pid_file = get_pid_file_path();
+
+    // --check 모드: 기존 데몬 실행 여부만 확인
+    if args.check {
+        if let Some(pid) = check_existing_daemon(&pid_file) {
+            info!("unim-daemon이 실행 중입니다 (PID: {})", pid);
+            std::process::exit(0);
+        } else {
+            info!("unim-daemon이 실행 중이지 않습니다");
+            std::process::exit(1);
+        }
+    }
+
     info!("UNIM 데몬 시작...");
+
+    // 기존 데몬 확인
+    if let Some(existing_pid) = check_existing_daemon(&pid_file) {
+        if args.replace {
+            info!("기존 데몬 (PID: {}) 강제 종료 후 교체합니다", existing_pid);
+            kill_existing_daemon(&pid_file);
+            // 프로세스 종료 대기
+            std::thread::sleep(Duration::from_millis(500));
+        } else {
+            error!(
+                "unim-daemon이 이미 실행 중입니다 (PID: {}). --replace 옵션으로 강제 교체할 수 있습니다.",
+                existing_pid
+            );
+            std::process::exit(1);
+        }
+    }
 
     // 설정 로드
     let config = unim::config::Config::load_from_default_path();
     info!("설정 로드 완료");
 
-    // 데몬화 옵션 확인
-    let no_daemon = std::env::args().any(|a| a == "--no-daemon" || a == "-n");
-
-    if !no_daemon {
-        // PID 파일 경로
-        let run_dir = dirs::runtime_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-        let pid_file = run_dir.join("unim.pid");
-
+    // 데몬화
+    if !args.no_daemon {
         match daemonize::Daemonize::new()
             .pid_file(&pid_file)
             .working_directory("/tmp")
@@ -245,11 +350,19 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+    } else {
+        // 포그라운드 모드에서는 수동으로 PID 파일 작성
+        if let Err(err) = write_pid_file(&pid_file) {
+            warn!("PID 파일 작성 실패: {}", err);
+        }
     }
 
     // 종료 플래그
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
+
+    // 종료 시 PID 파일 정리를 위한 클론
+    let pid_file_cleanup = pid_file.clone();
 
     // 엔진 워커 시작
     let engine_tx = spawn_engine_worker(config);
@@ -263,6 +376,7 @@ async fn main() {
         }
         Err(err) => {
             error!("[DBus] 서비스 시작 실패: {}", err);
+            remove_pid_file(&pid_file);
             std::process::exit(1);
         }
     };
@@ -325,6 +439,9 @@ async fn main() {
             error!("{} 종료 실패: {}", name, err);
         }
     }
+
+    // PID 파일 정리
+    remove_pid_file(&pid_file_cleanup);
 
     info!("UNIM 데몬 종료");
 }

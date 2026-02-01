@@ -30,6 +30,7 @@ public:
 private slots:
     void onKoreanLayoutChanged(int index);
     void onEnglishLayoutChanged(int index);
+    void onInitialModeChanged(int index);
     void onAutoSwitchToggled(bool checked);
     void onThresholdChanged(int value);
 
@@ -47,6 +48,7 @@ private:
     // UI 위젯
     QComboBox *m_koreanLayoutCombo;
     QComboBox *m_englishLayoutCombo;
+    QComboBox *m_initialModeCombo;
     QCheckBox *m_autoSwitchCheck;
     QSlider *m_thresholdSlider;
     QLabel *m_thresholdLabel;
@@ -55,8 +57,9 @@ private:
     UnimConfig *m_config;
 
     // 설정 상태
-    int m_koreanLayout;     // 0: 두벌식, 1: 세벌식390, 2: 세벌식391
+    int m_koreanLayout;     // 0: 두벨식, 1: 세벨식390, 2: 세베식391
     int m_englishLayout;    // 0: QWERTY, 1: Dvorak
+    int m_initialMode;      // 0: Korean, 1: English
     bool m_autoSwitchEnabled;
     double m_autoSwitchThreshold;
 };

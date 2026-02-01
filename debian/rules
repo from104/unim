@@ -55,10 +55,6 @@ override_dh_auto_install:
 	# Install to staging directory using Makefile
 	# REAL_LIBDIR and MULTIARCH will be automatically detected by Makefile
 	$(MAKE) install DESTDIR=$(DESTDIR) PREFIX=$(PREFIX)
-	
-	# Install GNOME extension to staging directory
-	install -d $(DESTDIR)/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io
-	cp -r unim-gnome-extension/* $(DESTDIR)/usr/share/gnome-shell/extensions/unim-typefix@from104.github.io/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Skip default test (speed up packaging)

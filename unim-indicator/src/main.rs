@@ -268,28 +268,127 @@ fn main() {
     run_gtk_app(state, popup_rx);
 }
 
-// ============================================================================
-// DBus 시그널 감시 (inotify 대체)
-// ============================================================================
+/// DBus 서비스 이름
+const UNIM_BUS_NAME: &str = "org.atit.unim.InputMethod";
 
 /// DBus GlobalModeChanged 시그널 구독하여 트레이 업데이트 (비동기)
-/// handle을 직접 사용하지 않고 채널로 업데이트 요청
+/// NameOwnerChanged 시그널을 감시하여 데몬 시작/종료 시 자동 재연결
 async fn watch_dbus_signals(
     state: Arc<RwLock<IndicatorState>>,
     tray_update_tx: std::sync::mpsc::Sender<()>,
     popup_tx: Sender<PopupAction>,
 ) {
-    // DBus 연결
-    let connection = match zbus::Connection::session().await {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("DBus 세션 연결 실패: {}", e);
-            return;
+    use futures_util::StreamExt;
+
+    loop {
+        // DBus 연결
+        let connection = match zbus::Connection::session().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                error!("DBus 세션 연결 실패: {}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        info!("[DBus] 세션 버스 연결됨, 서비스 감시 시작...");
+
+        // org.freedesktop.DBus 프록시 (NameOwnerChanged 감시용)
+        let dbus_proxy = match zbus::fdo::DBusProxy::new(&connection).await {
+            Ok(p) => p,
+            Err(e) => {
+                error!("DBusProxy 생성 실패: {}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        // 현재 서비스 소유자 확인
+        let has_owner = match dbus_proxy
+            .name_has_owner(UNIM_BUS_NAME.try_into().unwrap())
+            .await
+        {
+            Ok(has) => has,
+            Err(_) => false,
+        };
+
+        if has_owner {
+            info!("[DBus] {} 서비스 발견, 연결 시도...", UNIM_BUS_NAME);
+            // 서비스가 있으면 즉시 연결 시도
+            watch_mode_signals(
+                &connection,
+                state.clone(),
+                tray_update_tx.clone(),
+                popup_tx.clone(),
+            )
+            .await;
+        } else {
+            info!("[DBus] {} 서비스 없음, 대기 중...", UNIM_BUS_NAME);
         }
-    };
+
+        // NameOwnerChanged 시그널 구독
+        let mut stream = match dbus_proxy.receive_name_owner_changed().await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("NameOwnerChanged 구독 실패: {}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        // 서비스 소유자 변경 감시
+        while let Some(signal) = stream.next().await {
+            if let Ok(args) = signal.args() {
+                let name = args.name.as_str();
+                if name != UNIM_BUS_NAME {
+                    continue;
+                }
+
+                let old_owner = args.old_owner.as_ref().map(|s| s.as_str()).unwrap_or("");
+                let new_owner = args.new_owner.as_ref().map(|s| s.as_str()).unwrap_or("");
+
+                if old_owner.is_empty() && !new_owner.is_empty() {
+                    // 서비스 등장
+                    info!(
+                        "[DBus] {} 서비스 등장 (owner: {})",
+                        UNIM_BUS_NAME, new_owner
+                    );
+
+                    // 모드 시그널 감시 시작 (서비스 종료될 때까지)
+                    watch_mode_signals(
+                        &connection,
+                        state.clone(),
+                        tray_update_tx.clone(),
+                        popup_tx.clone(),
+                    )
+                    .await;
+                } else if !old_owner.is_empty() && new_owner.is_empty() {
+                    // 서비스 소멸
+                    info!("[DBus] {} 서비스 소멸", UNIM_BUS_NAME);
+
+                    // 연결 안됨 상태로 표시 (기본값 English로 리셋하지 않음)
+                    let _ = tray_update_tx.send(());
+                }
+            }
+        }
+
+        // 스트림 종료 시 재연결 시도
+        error!("[DBus] NameOwnerChanged 스트림 종료, 재연결 시도...");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
+/// GlobalModeChanged 시그널 감시 (서비스가 연결된 상태에서 호출)
+async fn watch_mode_signals(
+    connection: &zbus::Connection,
+    state: Arc<RwLock<IndicatorState>>,
+    tray_update_tx: std::sync::mpsc::Sender<()>,
+    popup_tx: Sender<PopupAction>,
+) {
+    use futures_util::StreamExt;
 
     // InputMethod 프록시 생성
-    let proxy = match InputMethodProxy::new(&connection).await {
+    let proxy = match InputMethodProxy::new(connection).await {
         Ok(p) => p,
         Err(e) => {
             error!("InputMethod 프록시 생성 실패: {}", e);
@@ -308,12 +407,12 @@ async fn watch_dbus_signals(
             if let Ok(mut s) = state.write() {
                 s.category = category;
             }
-            // 채널로 업데이트 요청 (트레이 스레드에서 처리)
             let _ = tray_update_tx.send(());
+            let _ = popup_tx.send(PopupAction::UpdateCategory(category));
             info!("[DBus] 초기 모드 조회: {:?}", category);
         }
         Err(e) => {
-            debug!("초기 모드 조회 실패 (아직 데몬 미시작?): {}", e);
+            debug!("초기 모드 조회 실패: {}", e);
         }
     }
 
@@ -327,8 +426,6 @@ async fn watch_dbus_signals(
             return;
         }
     };
-
-    use futures_util::StreamExt;
 
     while let Some(signal) = stream.next().await {
         match signal.args() {
@@ -353,7 +450,6 @@ async fn watch_dbus_signals(
                         s.category = category;
                     }
                     debug!("[DBus] 모드 변경 감지: {:?}", category);
-                    // 채널로 업데이트 요청 (트레이 스레드에서 처리)
                     let _ = tray_update_tx.send(());
                     let _ = popup_tx.send(PopupAction::UpdateCategory(category));
                 }
@@ -363,6 +459,8 @@ async fn watch_dbus_signals(
             }
         }
     }
+
+    info!("[DBus] GlobalModeChanged 스트림 종료 (서비스 종료?)");
 }
 
 // ============================================================================

@@ -57,6 +57,33 @@ DBus는 UNIM 시스템의 **중추신경계** 역할을 하며 다음과 같이 
 - **`unim-capi`**: Rust 코어를 C 언어에서 사용할 수 있도록 래핑한 계층입니다.
 - 설정 도구(`unim-config`)나 일부 성능이 중요한 툴킷 모듈은 DBus 대신 이 C-API를 통해 엔진 데이터에 직접 접근하거나 설정을 관리합니다.
 
+### 4. 데몬 관리 및 Systemd 통합
+
+`unim-daemon`은 PID 파일 기반 싱글톤 관리와 systemd 사용자 서비스 통합을 지원합니다.
+
+#### 명령줄 옵션
+
+```bash
+unim-daemon [OPTIONS]
+  -n, --no-daemon  포그라운드 실행 (데몬화 없이)
+  -r, --replace    기존 데몬 강제 종료 후 교체
+      --check      실행 여부 확인 (exit 0=실행중, 1=미실행)
+```
+
+#### Systemd 사용자 서비스
+
+```bash
+# 서비스 파일 설치
+sudo make install-systemd PREFIX=/usr
+
+# 서비스 활성화 및 시작
+systemctl --user daemon-reload
+systemctl --user enable --now unim-daemon.service
+
+# 상태 확인
+systemctl --user status unim-daemon
+```
+
 ---
 
 ## 🗺️ 장기 로드맵

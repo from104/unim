@@ -2242,6 +2242,7 @@ dependencies = [
 name = "unim-daemon"
 version = "0.0.1"
 dependencies = [
+ "clap",
  "ctrlc",
  "daemonize",
  "dirs",

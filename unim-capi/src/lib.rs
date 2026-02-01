@@ -332,6 +332,26 @@ pub extern "C" fn unim_config_get_english_layout(config: &Config) -> unim::confi
     config.engine.english.layout
 }
 
+/// 기본(초기) 입력 카테고리를 반환합니다.
+///
+/// # 반환값
+///
+/// 0 = English, 1 = Korean
+#[no_mangle]
+pub extern "C" fn unim_config_get_default_category(config: &Config) -> InputCategory {
+    config.engine.default_category
+}
+
+/// 기본(초기) 입력 카테고리를 설정합니다.
+///
+/// # Arguments
+///
+/// * `category` - InputCategory 열거형 값 (Korean 또는 English)
+#[no_mangle]
+pub extern "C" fn unim_config_set_default_category(config: &mut Config, category: InputCategory) {
+    config.engine.default_category = category;
+}
+
 /// 자동 전환 활성화 여부를 반환합니다.
 #[no_mangle]
 pub extern "C" fn unim_config_get_auto_switch_enabled(config: &Config) -> bool {

@@ -18,6 +18,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_config(nullptr)
     , m_koreanLayout(0)
     , m_englishLayout(0)
+    , m_initialMode(1)  // Default: English
     , m_autoSwitchEnabled(false)
     , m_autoSwitchThreshold(0.7)
 {
@@ -63,6 +64,7 @@ void SettingsDialog::loadConfig() {
     }
     m_koreanLayout = static_cast<int>(unim_config_get_korean_layout(m_config));
     m_englishLayout = static_cast<int>(unim_config_get_english_layout(m_config));
+    m_initialMode = static_cast<int>(unim_config_get_default_category(m_config));
     m_autoSwitchEnabled = unim_config_get_auto_switch_enabled(m_config);
     m_autoSwitchThreshold = static_cast<double>(unim_config_get_auto_switch_threshold(m_config));
 }
@@ -71,6 +73,7 @@ bool SettingsDialog::saveConfig() {
     if (!m_config) return false;
     unim_config_set_korean_layout(m_config, static_cast<UnimKoreanLayout>(m_koreanLayout));
     unim_config_set_english_layout(m_config, static_cast<UnimEnglishLayout>(m_englishLayout));
+    unim_config_set_default_category(m_config, static_cast<UnimInputCategory>(m_initialMode));
     unim_config_set_auto_switch_enabled(m_config, m_autoSwitchEnabled);
     unim_config_set_auto_switch_threshold(m_config, static_cast<float>(m_autoSwitchThreshold));
     return unim_config_save(m_config);
@@ -130,6 +133,14 @@ void SettingsDialog::setupUI() {
     connect(m_englishLayoutCombo, &QComboBox::currentIndexChanged, this, &SettingsDialog::onEnglishLayoutChanged);
     layoutCardLayout->addWidget(createRow(tr("English Layout"), m_englishLayoutCombo));
 
+    // Initial Mode Row
+    m_initialModeCombo = new QComboBox();
+    m_initialModeCombo->addItem(tr("Korean"));
+    m_initialModeCombo->addItem(tr("English"));
+    m_initialModeCombo->setCurrentIndex(m_initialMode);
+    connect(m_initialModeCombo, &QComboBox::currentIndexChanged, this, &SettingsDialog::onInitialModeChanged);
+    layoutCardLayout->addWidget(createRow(tr("Initial Mode"), m_initialModeCombo));
+
     mainLayout->addWidget(layoutCard);
 
     // --- Auto Switch Section ---
@@ -188,6 +199,11 @@ void SettingsDialog::onKoreanLayoutChanged(int index) {
 
 void SettingsDialog::onEnglishLayoutChanged(int index) {
     m_englishLayout = index;
+    saveConfig();
+}
+
+void SettingsDialog::onInitialModeChanged(int index) {
+    m_initialMode = index;
     saveConfig();
 }
 

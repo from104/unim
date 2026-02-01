@@ -33,6 +33,7 @@ class UnimIndicator extends PanelMenu.Button {
         this._settings = extension.getSettings();
         this._dbusProxy = null;
         this._dbusSignalId = 0;
+        this._nameWatcherId = 0;
         this._isKorean = true;
         this._connected = false;
         
@@ -57,8 +58,8 @@ class UnimIndicator extends PanelMenu.Button {
         // 팝업 메뉴 생성
         this._buildMenu();
         
-        // DBus 연결
-        this._connectDbus();
+        // DBus 서비스 감시 시작
+        this._watchDbusService();
         
         console.log('[unim-indicator] Panel indicator initialized');
     }
@@ -138,7 +139,54 @@ class UnimIndicator extends PanelMenu.Button {
         this._icon.set_style_class_name(styleClass);
     }
     
-    async _connectDbus() {
+    /**
+     * DBus 서비스 감시 시작
+     * 
+     * Gio.DBus.watch_name()을 사용하여 unim-daemon 서비스의 등장/소멸을 감시합니다.
+     * 데몬이 시작되면 자동으로 연결하고, 종료되면 UI를 업데이트합니다.
+     */
+    _watchDbusService() {
+        this._nameWatcherId = Gio.DBus.watch_name(
+            Gio.BusType.SESSION,
+            UNIM_BUS_NAME,
+            Gio.BusNameWatcherFlags.NONE,
+            this._onServiceAppeared.bind(this),
+            this._onServiceVanished.bind(this)
+        );
+        console.log('[unim-indicator] Started watching DBus service');
+    }
+    
+    /**
+     * DBus 서비스 등장 시 호출
+     */
+    _onServiceAppeared(connection, name, nameOwner) {
+        console.log(`[unim-indicator] DBus service appeared: ${name} (owner: ${nameOwner})`);
+        this._setupDbusProxy();
+    }
+    
+    /**
+     * DBus 서비스 소멸 시 호출
+     */
+    _onServiceVanished(connection, name) {
+        console.log(`[unim-indicator] DBus service vanished: ${name}`);
+        
+        // 기존 프록시 정리
+        if (this._dbusProxy && this._dbusSignalId > 0) {
+            this._dbusProxy.disconnect(this._dbusSignalId);
+            this._dbusSignalId = 0;
+        }
+        this._dbusProxy = null;
+        this._connected = false;
+        
+        // UI 업데이트 (연결 안됨 상태 표시)
+        this._updateIcon();
+        this._updateMenuItems();
+    }
+    
+    /**
+     * DBus 프록시 설정 및 시그널 연결
+     */
+    _setupDbusProxy() {
         try {
             this._dbusProxy = Gio.DBusProxy.new_for_bus_sync(
                 Gio.BusType.SESSION,
@@ -162,25 +210,16 @@ class UnimIndicator extends PanelMenu.Button {
                 );
                 
                 this._connected = true;
-                console.log('[unim-indicator] DBus connected');
+                console.log('[unim-indicator] DBus proxy connected');
                 
                 // 초기 상태 조회
                 this._fetchInitialMode();
             }
         } catch (e) {
-            console.log(`[unim-indicator] DBus connection failed: ${e.message}`);
+            console.log(`[unim-indicator] DBus proxy setup failed: ${e.message}`);
             this._connected = false;
             this._updateIcon();
             this._updateMenuItems();
-            
-            // 재시도 (5초 후)
-            GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
-                if (!this._connected) {
-                    console.log('[unim-indicator] Retrying DBus connection...');
-                    this._connectDbus();
-                }
-                return GLib.SOURCE_REMOVE;
-            });
         }
     }
     
@@ -260,6 +299,13 @@ class UnimIndicator extends PanelMenu.Button {
     }
     
     destroy() {
+        // DBus 이름 감시 정리
+        if (this._nameWatcherId > 0) {
+            Gio.DBus.unwatch_name(this._nameWatcherId);
+            this._nameWatcherId = 0;
+        }
+        
+        // DBus 프록시 정리
         if (this._dbusProxy && this._dbusSignalId > 0) {
             this._dbusProxy.disconnect(this._dbusSignalId);
             this._dbusSignalId = 0;

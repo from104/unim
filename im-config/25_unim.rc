@@ -4,7 +4,7 @@
 if [ "$IM_CONFIG_PHASE" = 2 ]; then
     # X11/XIM/Clutter: unim-xim (via unim-daemon)
     if ! pgrep -x unim-daemon > /dev/null; then
-        @LIBEXECDIR@/unim-daemon &
+        setsid @LIBEXECDIR@/unim-daemon </dev/null &>/dev/null &
     fi
 fi
 

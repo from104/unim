@@ -40,6 +40,12 @@
       <description>The English keyboard layout: 'qwerty', 'dvorak', 'colemak', 'colemak_dh', 'workman'</description>
     </key>
 
+    <key type="s" name="initial-mode">
+      <default>'English'</default>
+      <summary>Initial Input Mode</summary>
+      <description>The initial input mode when the session starts: 'Korean' or 'English'</description>
+    </key>
+
     <!-- ============================================ -->
     <!-- TypeFix Shortcut Settings -->
     <!-- ============================================ -->

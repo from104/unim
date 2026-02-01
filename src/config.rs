@@ -12,9 +12,9 @@ use std::time::SystemTime;
 #[repr(C)]
 pub enum InputCategory {
     /// 한국어 (Korean) 입력 모드
-    #[default]
     Korean,
     /// 영어 (English) 입력 모드
+    #[default]
     English,
 }
 
@@ -506,7 +506,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.engine.default_category, InputCategory::Korean);
+        assert_eq!(config.engine.default_category, InputCategory::English);
         assert_eq!(config.engine.korean.layout, KoreanLayout::Dubeolsik);
         assert_eq!(config.engine.english.layout, EnglishLayout::Qwerty);
     }

@@ -29,6 +29,7 @@ struct _UnimSettingsDialog {
     /* 현재 설정값 캐시 */
     int korean_layout;
     int english_layout;
+    int initial_mode;  /* 0 = Korean, 1 = English */
     gboolean auto_switch_enabled;
     double auto_switch_threshold;
 };
@@ -41,6 +42,7 @@ static gboolean save_config(UnimSettingsDialog *self) {
 
     unim_config_set_korean_layout(self->config, (UnimKoreanLayout)self->korean_layout);
     unim_config_set_english_layout(self->config, (UnimEnglishLayout)self->english_layout);
+    unim_config_set_default_category(self->config, (UnimInputCategory)self->initial_mode);
     unim_config_set_auto_switch_enabled(self->config, self->auto_switch_enabled);
     unim_config_set_auto_switch_threshold(self->config, (float)self->auto_switch_threshold);
 
@@ -55,6 +57,11 @@ static void on_korean_layout_changed(GtkDropDown *dropdown, GParamSpec *pspec G_
 
 static void on_english_layout_changed(GtkDropDown *dropdown, GParamSpec *pspec G_GNUC_UNUSED, UnimSettingsDialog *self) {
     self->english_layout = (int)gtk_drop_down_get_selected(dropdown);
+    save_config(self);
+}
+
+static void on_initial_mode_changed(GtkDropDown *dropdown, GParamSpec *pspec G_GNUC_UNUSED, UnimSettingsDialog *self) {
+    self->initial_mode = (int)gtk_drop_down_get_selected(dropdown);
     save_config(self);
 }
 
@@ -166,6 +173,7 @@ static void unim_settings_dialog_init(UnimSettingsDialog *self) {
     }
     self->korean_layout = (int)unim_config_get_korean_layout(self->config);
     self->english_layout = (int)unim_config_get_english_layout(self->config);
+    self->initial_mode = (int)unim_config_get_default_category(self->config);
     self->auto_switch_enabled = unim_config_get_auto_switch_enabled(self->config);
     self->auto_switch_threshold = (double)unim_config_get_auto_switch_threshold(self->config);
 
@@ -221,6 +229,17 @@ static void unim_settings_dialog_init(UnimSettingsDialog *self) {
     gtk_drop_down_set_selected(GTK_DROP_DOWN(self->english_layout_dropdown), (guint)self->english_layout);
     g_signal_connect(self->english_layout_dropdown, "notify::selected", G_CALLBACK(on_english_layout_changed), self);
     gtk_box_append(GTK_BOX(layout_card), create_settings_row(_("English Layout"), self->english_layout_dropdown));
+
+    /* Separator */
+    gtk_box_append(GTK_BOX(layout_card), create_separator());
+
+    /* Initial Mode Row */
+    const char *initial_modes[] = { _("Korean"), _("English"), NULL };
+    GtkStringList *initial_mode_list = gtk_string_list_new(initial_modes);
+    GtkWidget *initial_mode_dropdown = gtk_drop_down_new(G_LIST_MODEL(initial_mode_list), NULL);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(initial_mode_dropdown), (guint)self->initial_mode);
+    g_signal_connect(initial_mode_dropdown, "notify::selected", G_CALLBACK(on_initial_mode_changed), self);
+    gtk_box_append(GTK_BOX(layout_card), create_settings_row(_("Initial Mode"), initial_mode_dropdown));
 
     gtk_box_append(GTK_BOX(main_box), layout_card);
 

@@ -277,6 +277,22 @@ UnimKoreanLayout unim_config_get_korean_layout(const UnimConfig *config);
 UnimEnglishLayout unim_config_get_english_layout(const UnimConfig *config);
 
 /**
+ * Gets the default (initial) input category.
+ *
+ * @param config Config pointer.
+ * @return Input category (KOREAN=0, ENGLISH=1).
+ */
+UnimInputCategory unim_config_get_default_category(const UnimConfig *config);
+
+/**
+ * Sets the default (initial) input category.
+ *
+ * @param config Config pointer.
+ * @param category Input category (KOREAN=0, ENGLISH=1).
+ */
+void unim_config_set_default_category(UnimConfig *config, UnimInputCategory category);
+
+/**
  * Saves the configuration to the default path.
  *
  * @param config Config pointer.
