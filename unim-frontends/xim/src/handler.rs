@@ -5,7 +5,6 @@
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::os::raw::c_int;
-use std::sync::atomic::Ordering;
 
 use ahash::AHashMap;
 use tokio::sync::mpsc;
@@ -107,8 +106,13 @@ impl UnimHandler {
                 state,
                 response: Some(response_tx),
             },
-            DbusRequest::CreateContext { client_name, .. } => DbusRequest::CreateContext {
+            DbusRequest::CreateContext {
                 client_name,
+                window_id,
+                ..
+            } => DbusRequest::CreateContext {
+                client_name,
+                window_id,
                 response: Some(response_tx),
             },
             DbusRequest::FocusOut { context_path, .. } => DbusRequest::FocusOut {
@@ -273,24 +277,52 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             input_style
         );
 
-        // DBus를 통해 InputContext 생성
-        let context_path = match self.send_dbus_request(DbusRequest::CreateContext {
-            client_name: "unim-xim".to_string(),
-            response: None,
-        }) {
-            Some(DbusResponse::ContextCreated { path }) => path,
-            _ => {
-                // DBus 연결 실패 시 로컬 ID 생성
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let id = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u32)
-                    .unwrap_or(0);
-                format!("/local/context_{}", id)
+        // DBus를 통해 InputContext 생성 (재시도 포함)
+        let mut context_path = None;
+        for attempt in 1..=3 {
+            match self.send_dbus_request(DbusRequest::CreateContext {
+                client_name: "unim-xim".to_string(),
+                window_id: "unim-xim".to_string(),
+                response: None,
+            }) {
+                Some(DbusResponse::ContextCreated { path }) => {
+                    context_path = Some(path);
+                    break;
+                }
+                Some(DbusResponse::ContextCreationFailed) => {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "DBus 컨텍스트 생성 실패 (시도 {}/3)",
+                        attempt
+                    );
+                }
+                _ => {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "DBus 응답 없음 (시도 {}/3) - daemon 실행 여부 확인 필요",
+                        attempt
+                    );
+                }
             }
-        };
+            // 마지막 시도가 아니면 잠시 대기 후 재시도
+            if attempt < 3 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
 
-        Ok(UnimInputContext::new(context_path, input_style))
+        match context_path {
+            Some(path) => Ok(UnimInputContext::new(path, input_style)),
+            None => {
+                unim_log!(
+                    "XIM_HANDLER",
+                    "DBus 컨텍스트 생성 최종 실패 - unim-daemon 실행 필요"
+                );
+                Err(ServerError::Other(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "unim-daemon not running",
+                ))))
+            }
+        }
     }
 
     fn input_styles(&self) -> Self::InputStyleArray {
@@ -381,6 +413,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
 
         let _ = self.dbus_tx.blocking_send(DbusRequest::FocusIn {
             context_path: user_ic.user_data.context_path.clone(),
+            window_id: "unim-xim".to_string(),
         });
 
         Ok(())

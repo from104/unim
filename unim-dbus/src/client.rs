@@ -11,8 +11,8 @@ use zbus::{proxy, Connection, Result};
     default_path = "/org/atit/unim/InputMethod"
 )]
 trait InputMethod {
-    /// 새 입력 컨텍스트 생성
-    fn create_input_context(&self, client_name: &str) -> Result<String>;
+    /// 새 입력 컨텍스트 생성 (window_id: 창 식별자, 빈 문자열이면 client_name 사용)
+    fn create_input_context(&self, client_name: &str, window_id: &str) -> Result<String>;
 
     /// 전역 입력 모드 설정
     fn set_global_mode(&self, is_korean: bool) -> Result<()>;
@@ -39,8 +39,8 @@ trait InputContext {
         state: u32,
     ) -> Result<(bool, String, String)>;
 
-    /// 포커스 획득
-    fn focus_in(&self) -> Result<()>;
+    /// 포커스 획득 (window_id: 창 식별자)
+    fn focus_in(&self, window_id: &str) -> Result<()>;
 
     /// 포커스 상실 - 반환: 커밋된 텍스트
     fn focus_out(&self) -> Result<String>;
@@ -86,8 +86,8 @@ impl UnimClient {
     }
 
     /// 새 입력 컨텍스트 생성 후 경로 반환
-    pub async fn create_context(&self, client_name: &str) -> Result<String> {
+    pub async fn create_context(&self, client_name: &str, window_id: &str) -> Result<String> {
         let im = self.input_method().await?;
-        im.create_input_context(client_name).await
+        im.create_input_context(client_name, window_id).await
     }
 }

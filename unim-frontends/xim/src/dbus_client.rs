@@ -16,6 +16,7 @@ pub enum DbusRequest {
     /// 새 입력 컨텍스트 생성
     CreateContext {
         client_name: String,
+        window_id: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 컨텍스트 파괴
@@ -29,7 +30,10 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 포커스 인
-    FocusIn { context_path: String },
+    FocusIn {
+        context_path: String,
+        window_id: String,
+    },
     /// 포커스 아웃
     FocusOut {
         context_path: String,
@@ -44,6 +48,8 @@ pub enum DbusRequest {
 pub enum DbusResponse {
     /// 컨텍스트 생성 성공
     ContextCreated { path: String },
+    /// 컨텍스트 생성 실패
+    ContextCreationFailed,
     /// 키 처리 결과
     KeyProcessed {
         consumed: bool,
@@ -103,8 +109,12 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
         match request {
             DbusRequest::CreateContext {
                 client_name,
+                window_id,
                 response,
-            } => match im_proxy.create_input_context(&client_name).await {
+            } => match im_proxy
+                .create_input_context(&client_name, &window_id)
+                .await
+            {
                 Ok(path) => {
                     unim_log!("XIM_DBUS", "[XIM-DBus] 컨텍스트 생성: {}", path);
                     if let Some(tx) = response {
@@ -113,6 +123,10 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 }
                 Err(e) => {
                     unim_log!("XIM_DBUS", "[XIM-DBus] 컨텍스트 생성 실패: {}", e);
+                    // 실패 응답 전송 - 핸들러가 타임아웃까지 대기하지 않도록
+                    if let Some(tx) = response {
+                        let _ = tx.send(DbusResponse::ContextCreationFailed);
+                    }
                 }
             },
 
@@ -145,7 +159,10 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 }
             }
 
-            DbusRequest::FocusIn { context_path } => {
+            DbusRequest::FocusIn {
+                context_path,
+                window_id,
+            } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
                         .path(obj_path)
@@ -153,7 +170,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                         .build()
                         .await
                     {
-                        let _ = proxy.focus_in().await;
+                        let _ = proxy.focus_in(&window_id).await;
                         unim_log!("XIM_DBUS", "[XIM-DBus] FocusIn: {}", context_path);
                     }
                 }

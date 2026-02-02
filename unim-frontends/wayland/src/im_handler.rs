@@ -31,6 +31,7 @@ impl InputMethodHandler {
         let context_path = if dbus_tx
             .blocking_send(DbusRequest::CreateContext {
                 client_name: "unim-wayland".to_string(),
+                window_id: "unim-wayland".to_string(),
                 response: Some(response_tx),
             })
             .is_ok()
@@ -97,6 +98,7 @@ impl InputMethodHandler {
         self.active = true;
         let _ = self.dbus_tx.blocking_send(DbusRequest::FocusIn {
             context_path: self.context_path.clone(),
+            window_id: "unim-wayland".to_string(),
         });
         unim_log!("WAYLAND_HANDLER", "입력 방식 활성화됨");
     }
