@@ -201,10 +201,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let commit = if let Some(engine) = contexts.get_mut(&context_id) {
                     let preedit = engine.preedit_str();
                     if !preedit.is_empty() {
+                        // 현재 모드 저장 (Global 모드가 아닌 경우)
+                        let current_mode = engine.input_category();
                         // 조합 중인 텍스트를 커밋으로 변환하기 위해 엔진 리셋
                         // (flush_preedit이 private이므로 대안)
                         let commit_text = preedit.to_string();
                         *engine = InputEngine::new(&config);
+                        // Global 모드가 아닌 경우 저장된 모드 복원 (PerApp, PerWindow)
+                        if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
+                            engine.set_input_category(current_mode);
+                        }
                         Some(commit_text)
                     } else {
                         None
@@ -217,7 +223,17 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
             EngineRequest::Reset { context_id } => {
                 if let Some(engine) = contexts.get_mut(&context_id) {
+                    // Global 모드가 아닌 경우 현재 모드를 유지 (PerApp, PerWindow)
+                    let current_mode =
+                        if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
+                            Some(engine.input_category())
+                        } else {
+                            None
+                        };
                     *engine = InputEngine::new(&config);
+                    if let Some(mode) = current_mode {
+                        engine.set_input_category(mode);
+                    }
                 }
             }
 

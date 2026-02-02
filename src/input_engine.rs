@@ -371,10 +371,21 @@ impl InputEngine {
     /// 영어 키 입력을 처리합니다.
     fn process_english_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
         // JSON 키맵 기반으로 레이아웃에 따른 문자 변환
-        // Shift 또는 CapsLock이 눌리면 대문자/기호
-        let ch = self
-            .english_keymap
-            .get_char(keycode, modifier.shift || modifier.caps_lock);
+        // CapsLock은 알파벳 문자에만 적용 (숫자/기호는 Shift만)
+
+        // 먼저 lower case 문자를 확인하여 알파벳인지 판단
+        // 이렇게 하면 Dvorak/Colemak 등 커스텀 키맵에서도 정상 동작
+        let lower_char = self.english_keymap.get_char(keycode, false);
+        let is_alpha_output = lower_char.map(|c| c.is_ascii_alphabetic()).unwrap_or(false);
+
+        let shifted = if is_alpha_output {
+            // 알파벳 출력: Shift XOR CapsLock (둘 다 켜면 소문자)
+            modifier.shift ^ modifier.caps_lock
+        } else {
+            // 숫자/기호 출력: Shift만 적용, CapsLock 무시
+            modifier.shift
+        };
+        let ch = self.english_keymap.get_char(keycode, shifted);
 
         if let Some(c) = ch {
             self.commit_buffer.push(c);
