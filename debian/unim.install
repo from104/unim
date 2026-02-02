@@ -11,7 +11,6 @@ debian/tmp/usr/include/unim.h
 # CLI tools and executables
 debian/tmp/usr/bin/unim-cli
 debian/tmp/usr/bin/unim-config
-debian/tmp/usr/bin/unim-indicator
 
 # Daemons and servers
 debian/tmp/usr/libexec/unim-daemon
@@ -25,9 +24,6 @@ debian/tmp/usr/share/im-config/data/25_unim.rc
 # Icons
 debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-korean.svg
 debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-english.svg
-
-# Autostart
-debian/tmp/etc/xdg/autostart/unim-indicator.desktop
 
 # DBus services (session bus auto-activation)
 debian/tmp/usr/share/dbus-1/services/org.atit.unim.InputMethod.service

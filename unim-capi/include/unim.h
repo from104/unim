@@ -47,6 +47,14 @@ typedef enum {
 } UnimEnglishLayout;
 
 /**
+ * Mode sharing mode (Global/PerApp)
+ */
+typedef enum {
+    UNIM_MODE_SHARING_GLOBAL = 0,   /**< All apps share the same input mode */
+    UNIM_MODE_SHARING_PER_APP = 1,  /**< Each app maintains its own input mode */
+} UnimModeSharingMode;
+
+/**
  * Modifier key state
  */
 typedef struct {
@@ -333,6 +341,37 @@ bool unim_config_get_auto_switch_notification(const UnimConfig *config);
  * Sets the auto switch notification enabled state.
  */
 void unim_config_set_auto_switch_notification(UnimConfig *config, bool show);
+
+/* ============================================
+ * Mode Sharing Configuration
+ * ============================================ */
+
+/**
+ * Gets the mode sharing mode.
+ *
+ * @return GLOBAL=0, PER_APP=1
+ */
+UnimModeSharingMode unim_config_get_mode_sharing(const UnimConfig *config);
+
+/**
+ * Sets the mode sharing mode.
+ */
+void unim_config_set_mode_sharing(UnimConfig *config, UnimModeSharingMode mode);
+
+/**
+ * Returns the number of supported mode sharing modes.
+ */
+size_t unim_mode_sharing_count(void);
+
+/**
+ * Returns the display name of a mode sharing mode (for UI).
+ */
+UnimStr unim_mode_sharing_display_name(UnimModeSharingMode mode);
+
+/**
+ * Returns the mode sharing mode at the specified index.
+ */
+UnimModeSharingMode unim_mode_sharing_at(size_t index);
 
 /* ============================================
  * Layout Enumeration Helpers

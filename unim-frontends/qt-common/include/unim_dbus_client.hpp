@@ -40,8 +40,9 @@ public:
     /**
      * 생성자
      * @param clientName 클라이언트 이름 (예: "qt6-unim")
+     * @param windowId 창 식별자 (예: "qt6-ctx-0x12345")
      */
-    explicit UnimDbusClient(const QString &clientName);
+    explicit UnimDbusClient(const QString &clientName, const QString &windowId = QString());
     
     /**
      * 소멸자
@@ -64,8 +65,9 @@ public:
     
     /**
      * 포커스 획득 알림
+     * @param windowId 창 식별자 (비어있으면 빈 문자열 전달)
      */
-    void focusIn();
+    void focusIn(const QString &windowId = QString());
     
     /**
      * 포커스 상실 알림

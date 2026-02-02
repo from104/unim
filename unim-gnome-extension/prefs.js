@@ -3,6 +3,7 @@ import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
 import GLib from 'gi://GLib';
 import {ExtensionPreferences, gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
+import { unimLog, unimError } from './logging.js';
 
 export default class UnimPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -79,6 +80,20 @@ export default class UnimPreferences extends ExtensionPreferences {
             [
                 ['Korean', _('한글')],
                 ['English', _('영문')]
+            ],
+            true
+        );
+
+        this._addCombo(
+            layoutGroup,
+            settings,
+            'mode-sharing',
+            _('모드 공유 방식'),
+            _('앱 간 한/영 상태 공유 방식'),
+            [
+                ['global', _('전역 공유')],
+                ['per_app', _('앱별 독립')],
+                ['per_window', _('창별 독립')]
             ],
             true
         );
@@ -181,9 +196,17 @@ export default class UnimPreferences extends ExtensionPreferences {
             const englishLayout = englishLayoutMap[settings.get_string('english-layout')] || 'Qwerty';
             const initialMode = settings.get_string('initial-mode') || 'English';
             
+            const modeSharingMap = {
+                'global': 'Global',
+                'per_app': 'PerApp',
+                'per_window': 'PerWindow'
+            };
+            const modeSharing = modeSharingMap[settings.get_string('mode-sharing')] || 'Global';
+            
             const yamlContent = `# UNIM Configuration (synced from GNOME Extension)
 engine:
   default_category: ${initialMode}
+  mode_sharing: ${modeSharing}
   korean:
     layout: ${koreanLayout}
     preedit_johab: false
@@ -198,10 +221,10 @@ engine:
 `;
             
             GLib.file_set_contents(configPath, yamlContent);
-            console.log('[unim-prefs] Config synced: ' + configPath);
+            unimLog('PREFS', 'Config synced: ' + configPath);
             return true;
         } catch (e) {
-            console.error('[unim-prefs] Sync failed: ' + e.message);
+            unimError('PREFS', 'Sync failed: ' + e.message);
             return false;
         }
     }

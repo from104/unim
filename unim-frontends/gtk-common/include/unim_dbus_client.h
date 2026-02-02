@@ -40,9 +40,10 @@ typedef struct {
  * 새 DBus 컨텍스트 생성
  * 
  * @param client_name 클라이언트 이름 (예: "gtk4-unim")
+ * @param window_id 창 식별자 (XID 또는 고유 문자열, NULL이면 client_name 사용)
  * @return 새 컨텍스트 또는 실패 시 NULL
  */
-UnimDbusContext* unim_dbus_context_new(const gchar *client_name);
+UnimDbusContext* unim_dbus_context_new(const gchar *client_name, const gchar *window_id);
 
 /**
  * DBus 컨텍스트 해제
@@ -71,8 +72,9 @@ gboolean unim_dbus_process_key(UnimDbusContext *ctx,
  * 포커스 획득 알림
  * 
  * @param ctx 컨텍스트
+ * @param window_id 창 식별자 (NULL이면 빈 문자열 전달)
  */
-void unim_dbus_focus_in(UnimDbusContext *ctx);
+void unim_dbus_focus_in(UnimDbusContext *ctx, const gchar *window_id);
 
 /**
  * 포커스 상실 알림

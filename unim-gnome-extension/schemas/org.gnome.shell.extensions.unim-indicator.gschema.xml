@@ -46,6 +46,12 @@
       <description>The initial input mode when the session starts: 'Korean' or 'English'</description>
     </key>
 
+    <key type="s" name="mode-sharing">
+      <default>'global'</default>
+      <summary>Mode Sharing Mode</summary>
+      <description>How input mode is shared across apps: 'global' (all apps share), 'per_app' (each app independent), 'per_window' (each window independent)</description>
+    </key>
+
     <!-- ============================================ -->
     <!-- TypeFix Shortcut Settings -->
     <!-- ============================================ -->

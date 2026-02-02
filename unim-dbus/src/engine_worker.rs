@@ -13,6 +13,7 @@ use crate::service::{EngineRequest, EngineResponse};
 use unim::config::Config;
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
+use unim::unim_log;
 
 /// 엔진 워커를 시작하고 요청 수신 채널을 반환합니다.
 ///
@@ -32,14 +33,21 @@ pub fn spawn_engine_worker(config: Config) -> mpsc::Sender<EngineRequest> {
 /// 엔진 워커 메인 루프 (블로킹)
 fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) {
     let mut contexts: HashMap<u32, InputEngine> = HashMap::new();
+    // 창별 모드 저장: window_id -> InputCategory
+    let mut window_modes: HashMap<String, unim::config::InputCategory> = HashMap::new();
+    // 컨텍스트 -> 창 ID 매핑
+    let mut context_windows: HashMap<u32, String> = HashMap::new();
 
-    log::info!("[Engine Worker] 시작됨");
+    unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
     // 블로킹으로 요청 수신 (tokio 런타임 밖에서 실행)
     while let Some(request) = rx.blocking_recv() {
         // 설정 파일 변경 여부 확인 및 리로드 (Throttling 적용됨)
         if config.reload_if_changed() {
-            log::info!("[Engine Worker] 설정 파일 변경 감지 - 리로드 완료");
+            unim_log!(
+                "ENGINE_WORKER",
+                "[Engine Worker] 설정 파일 변경 감지 - 리로드 완료"
+            );
             // 기존 엔진들의 레이아웃도 업데이트
             for engine in contexts.values_mut() {
                 engine.set_korean_layout(config.engine.korean.layout);
@@ -48,16 +56,35 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
         }
 
         match request {
-            EngineRequest::CreateContext { id, response } => {
-                let engine = InputEngine::new(&config);
+            EngineRequest::CreateContext {
+                id,
+                window_id,
+                response,
+            } => {
+                let mut engine = InputEngine::new(&config);
+
+                // PerWindow 모드에서는 창별 저장된 모드 적용
+                if config.engine.mode_sharing == unim::config::ModeSharingMode::PerWindow {
+                    if let Some(&saved_mode) = window_modes.get(&window_id) {
+                        engine.set_input_category(saved_mode);
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] 창별 모드 복원: window_id={}, mode={:?}",
+                            window_id,
+                            saved_mode
+                        );
+                    }
+                }
+
+                context_windows.insert(id, window_id);
                 contexts.insert(id, engine);
-                log::debug!("[Engine Worker] 컨텍스트 생성: id={}", id);
+                unim_log!("ENGINE_WORKER", "[Engine Worker] 컨텍스트 생성: id={}", id);
                 let _ = response.send(());
             }
 
             EngineRequest::DestroyContext { id } => {
                 contexts.remove(&id);
-                log::debug!("[Engine Worker] 컨텍스트 파괴: id={}", id);
+                unim_log!("ENGINE_WORKER", "[Engine Worker] 컨텍스트 파괴: id={}", id);
             }
 
             EngineRequest::ProcessKey {
@@ -81,6 +108,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
                     let mode_changed = if prev_mode != current_mode {
+                        // PerWindow 모드에서는 창별 모드 저장
+                        if config.engine.mode_sharing == unim::config::ModeSharingMode::PerWindow {
+                            if let Some(window_id) = context_windows.get(&context_id) {
+                                window_modes.insert(window_id.clone(), current_mode);
+                                unim_log!(
+                                    "ENGINE_WORKER",
+                                    "[Engine Worker] 창별 모드 저장: window_id={}, mode={:?}",
+                                    window_id,
+                                    current_mode
+                                );
+                            }
+                        }
                         Some(current_mode == unim::config::InputCategory::Korean)
                     } else {
                         None
@@ -124,6 +163,37 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(resp);
             }
 
+            EngineRequest::FocusIn {
+                context_id,
+                window_id,
+                response,
+            } => {
+                // PerWindow 모드에서는 창별 모드를 적용
+                if config.engine.mode_sharing == unim::config::ModeSharingMode::PerWindow {
+                    if let Some(engine) = contexts.get_mut(&context_id) {
+                        if let Some(&saved_mode) = window_modes.get(&window_id) {
+                            engine.set_input_category(saved_mode);
+                        }
+                    }
+                    // 컨텍스트-창 매핑 업데이트
+                    context_windows.insert(context_id, window_id.clone());
+                }
+
+                // 현재 컨텍스트의 입력 모드 반환 (UI 동기화용)
+                let is_korean = contexts
+                    .get(&context_id)
+                    .map(|e| e.input_category() == unim::config::InputCategory::Korean)
+                    .unwrap_or(false);
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] FocusIn: context_id={}, window_id={}, is_korean={}",
+                    context_id,
+                    window_id,
+                    is_korean
+                );
+                let _ = response.send(is_korean);
+            }
+
             EngineRequest::FocusOut {
                 context_id,
                 response,
@@ -158,18 +228,28 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     unim::config::InputCategory::English
                 };
 
-                // config의 기본 카테고리도 업데이트 (새 컨텍스트 생성/리셋 시 적용)
+                // config의 기본 카테고리는 항상 업데이트 (새 컨텍스트 생성/리셋 시 적용)
                 config.engine.default_category = category;
 
-                // 모든 컨텍스트의 입력 카테고리 변경
-                for engine in contexts.values_mut() {
-                    engine.set_input_category(category);
+                // Global 모드에서만 모든 컨텍스트의 입력 카테고리 변경
+                if config.engine.mode_sharing == unim::config::ModeSharingMode::Global {
+                    for engine in contexts.values_mut() {
+                        engine.set_input_category(category);
+                    }
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] 전역 모드 변경: {:?}",
+                        category
+                    );
+                } else {
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] PerApp 모드 - 전역 동기화 생략"
+                    );
                 }
-
-                log::info!("[Engine Worker] 전역 모드 변경: {:?}", category);
             }
         }
     }
 
-    log::info!("[Engine Worker] 종료됨");
+    unim_log!("ENGINE_WORKER", "[Engine Worker] 종료됨");
 }

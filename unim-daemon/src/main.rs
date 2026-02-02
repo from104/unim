@@ -3,7 +3,6 @@
 //! DBus 기반 입력 서비스를 제공하고 프론트엔드 모듈들을 관리합니다.
 
 use clap::Parser;
-use log::{error, info, warn};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -11,6 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use unim::unim_log;
 
 use tokio::sync::mpsc;
 use zbus::Connection;
@@ -125,13 +125,13 @@ fn detect_required_modules() -> Vec<Module> {
     // X11 감지 (DISPLAY 환경 변수)
     if std::env::var("DISPLAY").is_ok() {
         modules.push(Module::Xim);
-        info!("X11 환경 감지 - XIM 서버 추가");
+        unim_log!("DAEMON", "X11 환경 감지 - XIM 서버 추가");
     }
 
     // Wayland 감지 (WAYLAND_DISPLAY 환경 변수)
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
         modules.push(Module::Wayland);
-        info!("Wayland 환경 감지 - Wayland IM 추가");
+        unim_log!("DAEMON", "Wayland 환경 감지 - Wayland IM 추가");
     }
 
     modules
@@ -149,11 +149,17 @@ fn start_module(module: &Module) -> Option<(String, Child)> {
         .spawn()
     {
         Ok(child) => {
-            info!("{} ({:?}) 시작됨", module.description(), path);
+            unim_log!("DAEMON", "{} ({:?}) 시작됨", module.description(), path);
             Some((name.to_string(), child))
         }
         Err(err) => {
-            error!("{} ({:?}) 시작 실패: {}", module.description(), path, err);
+            unim_log!(
+                "DAEMON",
+                "{} ({:?}) 시작 실패: {}",
+                module.description(),
+                path,
+                err
+            );
             None
         }
     }
@@ -178,7 +184,8 @@ async fn start_dbus_service(
         .await?;
 
     if reply == RequestNameReply::Exists {
-        info!(
+        unim_log!(
+            "DAEMON",
             "DBus 이름 '{}'이(가) 이미 사용 중입니다. 기존 프로세스 종료를 시도합니다.",
             BUS_NAME
         );
@@ -194,11 +201,20 @@ async fn start_dbus_service(
     }
 
     match reply {
-        RequestNameReply::PrimaryOwner => info!("[DBus] 버스 이름 등록 성공: {}", BUS_NAME),
-        RequestNameReply::AlreadyOwner => info!("[DBus] 이미 버스 이름의 소유자입니다"),
-        RequestNameReply::InQueue => info!("[DBus] 버스 이름 대기열에 추가되었습니다"),
+        RequestNameReply::PrimaryOwner => {
+            unim_log!("DAEMON", "[DBus] 버스 이름 등록 성공: {}", BUS_NAME)
+        }
+        RequestNameReply::AlreadyOwner => {
+            unim_log!("DAEMON", "[DBus] 이미 버스 이름의 소유자입니다")
+        }
+        RequestNameReply::InQueue => {
+            unim_log!("DAEMON", "[DBus] 버스 이름 대기열에 추가되었습니다")
+        }
         RequestNameReply::Exists => {
-            error!("[DBus] 버스 이름 등록 실패: 이미 다른 프로세스가 소유 중입니다.");
+            unim_log!(
+                "DAEMON",
+                "[DBus] 버스 이름 등록 실패: 이미 다른 프로세스가 소유 중입니다."
+            );
             return Err(zbus::Error::Failure("Name already taken".to_string()));
         }
     }
@@ -209,7 +225,7 @@ async fn start_dbus_service(
         .object_server()
         .at(INPUT_METHOD_PATH, service)
         .await?;
-    info!("[DBus] 서비스 등록: {}", INPUT_METHOD_PATH);
+    unim_log!("DAEMON", "[DBus] 서비스 등록: {}", INPUT_METHOD_PATH);
 
     Ok(connection)
 }
@@ -221,7 +237,11 @@ fn kill_existing_daemon(pid_file: &PathBuf) {
     // 1. PID 파일에서 읽은 PID 먼저 시도
     if let Some(pid) = read_pid_file(pid_file) {
         if pid != my_pid && is_process_running(pid) {
-            info!("PID 파일에서 기존 데몬 감지 (PID: {}), 종료 시도", pid);
+            unim_log!(
+                "DAEMON",
+                "PID 파일에서 기존 데몬 감지 (PID: {}), 종료 시도",
+                pid
+            );
             let _ = Command::new("kill").arg(pid.to_string()).status();
             std::thread::sleep(Duration::from_millis(200));
         }
@@ -236,7 +256,11 @@ fn kill_existing_daemon(pid_file: &PathBuf) {
             if let Ok(pid) = pid_line.trim().parse::<u32>() {
                 // 자기 자신은 제외
                 if pid != my_pid {
-                    info!("기존 unim-daemon 프로세스 종료 시도 (PID: {})", pid);
+                    unim_log!(
+                        "DAEMON",
+                        "기존 unim-daemon 프로세스 종료 시도 (PID: {})",
+                        pid
+                    );
                     // SIGTERM 전송
                     let _ = Command::new("kill").arg(pid.to_string()).status();
                 }
@@ -286,7 +310,7 @@ fn check_existing_daemon(pid_file: &PathBuf) -> Option<u32> {
             return Some(pid);
         } else {
             // stale PID 파일 정리
-            warn!("Stale PID 파일 발견 (PID: {}), 삭제합니다", pid);
+            unim_log!("DAEMON", "Stale PID 파일 발견 (PID: {}), 삭제합니다", pid);
             remove_pid_file(pid_file);
         }
     }
@@ -307,25 +331,29 @@ async fn main() {
     // --check 모드: 기존 데몬 실행 여부만 확인
     if args.check {
         if let Some(pid) = check_existing_daemon(&pid_file) {
-            info!("unim-daemon이 실행 중입니다 (PID: {})", pid);
+            unim_log!("DAEMON", "unim-daemon이 실행 중입니다 (PID: {})", pid);
             std::process::exit(0);
         } else {
-            info!("unim-daemon이 실행 중이지 않습니다");
+            unim_log!("DAEMON", "unim-daemon이 실행 중이지 않습니다");
             std::process::exit(1);
         }
     }
 
-    info!("UNIM 데몬 시작...");
+    unim_log!("DAEMON", "UNIM 데몬 시작...");
 
     // 기존 데몬 확인
     if let Some(existing_pid) = check_existing_daemon(&pid_file) {
         if args.replace {
-            info!("기존 데몬 (PID: {}) 강제 종료 후 교체합니다", existing_pid);
+            unim_log!(
+                "DAEMON",
+                "기존 데몬 (PID: {}) 강제 종료 후 교체합니다",
+                existing_pid
+            );
             kill_existing_daemon(&pid_file);
             // 프로세스 종료 대기
             std::thread::sleep(Duration::from_millis(500));
         } else {
-            error!(
+            unim_log!("DAEMON",
                 "unim-daemon이 이미 실행 중입니다 (PID: {}). --replace 옵션으로 강제 교체할 수 있습니다.",
                 existing_pid
             );
@@ -335,7 +363,7 @@ async fn main() {
 
     // 설정 로드
     let config = unim::config::Config::load_from_default_path();
-    info!("설정 로드 완료");
+    unim_log!("DAEMON", "설정 로드 완료");
 
     // 데몬화
     if !args.no_daemon {
@@ -344,16 +372,16 @@ async fn main() {
             .working_directory("/tmp")
             .start()
         {
-            Ok(_) => info!("데몬화 성공"),
+            Ok(_) => unim_log!("DAEMON", "데몬화 성공"),
             Err(err) => {
-                error!("데몬화 실패: {}", err);
+                unim_log!("DAEMON", "데몬화 실패: {}", err);
                 std::process::exit(1);
             }
         }
     } else {
         // 포그라운드 모드에서는 수동으로 PID 파일 작성
         if let Err(err) = write_pid_file(&pid_file) {
-            warn!("PID 파일 작성 실패: {}", err);
+            unim_log!("DAEMON", "PID 파일 작성 실패: {}", err);
         }
     }
 
@@ -366,16 +394,16 @@ async fn main() {
 
     // 엔진 워커 시작
     let engine_tx = spawn_engine_worker(config);
-    info!("엔진 워커 시작됨");
+    unim_log!("DAEMON", "엔진 워커 시작됨");
 
     // DBus 서비스 시작
     let _connection = match start_dbus_service(engine_tx).await {
         Ok(conn) => {
-            info!("[DBus] 서비스 시작 성공");
+            unim_log!("DAEMON", "[DBus] 서비스 시작 성공");
             conn
         }
         Err(err) => {
-            error!("[DBus] 서비스 시작 실패: {}", err);
+            unim_log!("DAEMON", "[DBus] 서비스 시작 실패: {}", err);
             remove_pid_file(&pid_file);
             std::process::exit(1);
         }
@@ -385,7 +413,10 @@ async fn main() {
     let modules = detect_required_modules();
 
     if modules.is_empty() {
-        info!("감지된 디스플레이 서버가 없습니다 (DBus 서비스만 실행)");
+        unim_log!(
+            "DAEMON",
+            "감지된 디스플레이 서버가 없습니다 (DBus 서비스만 실행)"
+        );
     }
 
     let mut processes: Vec<(String, Child)> = modules
@@ -393,12 +424,16 @@ async fn main() {
         .filter_map(|module| start_module(module))
         .collect();
 
-    info!("{}개 프론트엔드 실행 중, DBus 서비스 활성", processes.len());
+    unim_log!(
+        "DAEMON",
+        "{}개 프론트엔드 실행 중, DBus 서비스 활성",
+        processes.len()
+    );
 
     // Ctrl+C 핸들러 (tokio)
     let shutdown_signal = async move {
         tokio::signal::ctrl_c().await.ok();
-        info!("종료 시그널 수신");
+        unim_log!("DAEMON", "종료 시그널 수신");
         r.store(false, Ordering::SeqCst);
     };
 
@@ -412,12 +447,12 @@ async fn main() {
             // 프로세스 상태 확인
             processes.retain_mut(|(name, process)| match process.try_wait() {
                 Ok(Some(status)) => {
-                    info!("{} 종료: {}", name, status);
+                    unim_log!("DAEMON", "{} 종료: {}", name, status);
                     false
                 }
                 Ok(None) => true,
                 Err(err) => {
-                    error!("{} 상태 확인 오류: {}", name, err);
+                    unim_log!("DAEMON", "{} 상태 확인 오류: {}", name, err);
                     false
                 }
             });
@@ -434,14 +469,14 @@ async fn main() {
 
     // 정리 - 남은 프로세스 종료
     for (name, mut process) in processes {
-        info!("{} 종료 중...", name);
+        unim_log!("DAEMON", "{} 종료 중...", name);
         if let Err(err) = process.kill() {
-            error!("{} 종료 실패: {}", name, err);
+            unim_log!("DAEMON", "{} 종료 실패: {}", name, err);
         }
     }
 
     // PID 파일 정리
     remove_pid_file(&pid_file_cleanup);
 
-    info!("UNIM 데몬 종료");
+    unim_log!("DAEMON", "UNIM 데몬 종료");
 }

@@ -1,21 +1,13 @@
 use crate::hangul::char::HangulChar;
 use crate::hangul::jamo::JamoEnum;
 use crate::hangul::jamo::*;
+use crate::unim_log;
 /**
  * 한글 조합 취상위 클래스
  * @author "KiHyeon Seo" <from104@gmail.com>
  */
 // builder.rs
 use std::collections::{HashMap, VecDeque};
-
-/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
-macro_rules! unim_debug {
-    ($($arg:tt)*) => {
-        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
-            eprintln!("[UNIM-COMPOSER] {}", format!($($arg)*));
-        }
-    };
-}
 
 /// 자모 조합 규칙을 정의하는 해시맵 타입 앨리어스입니다.
 /// 튜플 키 `(첫번째 자모, 두번째 자모)`를 사용하여 조합된 자모를 조회합니다.
@@ -489,7 +481,7 @@ impl BaseHangulComposer {
     where
         F: Fn(&mut Self) -> bool,
     {
-        unim_debug!("BaseComposer.add_jamo_with: {:?}", jamo);
+        unim_log!("COMPOSER", "BaseComposer.add_jamo_with: {:?}", jamo);
 
         if !self.is_valid_jamo(&jamo) {
             return None;
@@ -498,7 +490,8 @@ impl BaseHangulComposer {
         self.jamo_queue.push_back(jamo);
 
         if compose_fn(self) {
-            unim_debug!(
+            unim_log!(
+                "COMPOSER",
                 "  -> 조합 계속: current_korean={:?}",
                 self.current_korean_char
             );
@@ -508,7 +501,7 @@ impl BaseHangulComposer {
             self.jamo_queue.pop_back();
             compose_fn(self);
             let complete_korean = self.current_korean_char.get_syllable();
-            unim_debug!("  -> 음절 분리: complete={:?}", complete_korean);
+            unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
 
             // 큐 상태 백업 및 초기화
             self.last_jamo_queue.clear();
@@ -517,7 +510,11 @@ impl BaseHangulComposer {
             self.jamo_queue.push_back(jamo);
             self.clear();
             compose_fn(self);
-            unim_debug!("  -> 새 current_korean: {:?}", self.current_korean_char);
+            unim_log!(
+                "COMPOSER",
+                "  -> 새 current_korean: {:?}",
+                self.current_korean_char
+            );
 
             complete_korean.ok()
         }
@@ -729,23 +726,28 @@ impl HangulComposer for BaseHangulComposer {
     /// * `Some(char)` - 입력된 자모로 인해 이전 음절 조합이 완료된 경우, 완성된 한국어 음절.
     /// * `None` - 조합이 계속 진행 중인 경우.
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
-        unim_debug!("BaseComposer.add_jamo: {:?}", jamo);
+        unim_log!("COMPOSER", "BaseComposer.add_jamo: {:?}", jamo);
         self.jamo_queue.push_back(jamo);
         if !self.compose_korean() {
             self.jamo_queue.pop_back();
             self.compose_korean();
             let complete_korean = self.current_korean_char.get_syllable();
-            unim_debug!("  -> 음절 분리: complete={:?}", complete_korean);
+            unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
             self.last_jamo_queue.clear();
             self.last_jamo_queue.extend(&self.jamo_queue);
             self.jamo_queue.clear();
             self.jamo_queue.push_back(jamo);
             self.clear();
             self.compose_korean();
-            unim_debug!("  -> 새 current_korean: {:?}", self.current_korean_char);
+            unim_log!(
+                "COMPOSER",
+                "  -> 새 current_korean: {:?}",
+                self.current_korean_char
+            );
             complete_korean.ok()
         } else {
-            unim_debug!(
+            unim_log!(
+                "COMPOSER",
                 "  -> 조합 계속: current_korean={:?}",
                 self.current_korean_char
             );
@@ -779,23 +781,32 @@ impl HangulComposer for BaseHangulComposer {
     /// * `true` - 조합에 성공했거나, 큐가 비어 있어 초기화된 경우.
     /// * `false` - 자모 조합 규칙에 맞지 않아 조합에 실패한 경우.
     fn compose_korean(&mut self) -> bool {
-        unim_debug!("BaseComposer.compose_korean: queue={:?}", self.jamo_queue);
+        unim_log!(
+            "COMPOSER",
+            "BaseComposer.compose_korean: queue={:?}",
+            self.jamo_queue
+        );
         if self.jamo_queue.is_empty() {
             self.clear();
-            unim_debug!("  -> 큐 비어있음, true");
+            unim_log!("COMPOSER", "  -> 큐 비어있음, true");
             return true;
         }
 
         let cho_ok = self.compose_cho();
         let jung_ok = self.compose_jung();
         let jong_ok = self.compose_jong();
-        unim_debug!(
+        unim_log!(
+            "COMPOSER",
             "  -> compose_cho={}, compose_jung={}, compose_jong={}",
             cho_ok,
             jung_ok,
             jong_ok
         );
-        unim_debug!("  -> current_korean: {:?}", self.current_korean_char);
+        unim_log!(
+            "COMPOSER",
+            "  -> current_korean: {:?}",
+            self.current_korean_char
+        );
 
         if !cho_ok || !jung_ok || !jong_ok {
             return false;

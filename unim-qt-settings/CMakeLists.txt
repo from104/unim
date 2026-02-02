@@ -8,7 +8,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 # Qt6 찾기 (LinguistTools 생략)
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core DBus)
 
 # unim-capi 라이브러리 경로
 set(UNIM_ROOT "${CMAKE_SOURCE_DIR}/..")
@@ -38,6 +38,7 @@ target_link_directories(unim-qt-settings PRIVATE
 target_link_libraries(unim-qt-settings PRIVATE
     Qt6::Widgets
     Qt6::Core
+    Qt6::DBus
     unim_capi
     pthread
     m

@@ -5,6 +5,7 @@
 #include "settings_dialog.h"
 #include <unim.h>
 #include <glib/gi18n.h>
+#include <gio/gio.h>
 #include <stdio.h>
 
 #define _(String) gettext (String)
@@ -30,8 +31,14 @@ struct _UnimSettingsDialog {
     int korean_layout;
     int english_layout;
     int initial_mode;  /* 0 = Korean, 1 = English */
+    int mode_sharing;  /* 0 = Global, 1 = PerApp */
     gboolean auto_switch_enabled;
     double auto_switch_threshold;
+
+    /* DBus 연결 */
+    GDBusConnection *dbus_conn;
+    guint signal_subscription_id;
+    gboolean updating_from_signal;  /* 시그널 처리 중 플래그 */
 };
 
 G_DEFINE_TYPE(UnimSettingsDialog, unim_settings_dialog, GTK_TYPE_WINDOW)
@@ -43,6 +50,7 @@ static gboolean save_config(UnimSettingsDialog *self) {
     unim_config_set_korean_layout(self->config, (UnimKoreanLayout)self->korean_layout);
     unim_config_set_english_layout(self->config, (UnimEnglishLayout)self->english_layout);
     unim_config_set_default_category(self->config, (UnimInputCategory)self->initial_mode);
+    unim_config_set_mode_sharing(self->config, (UnimModeSharingMode)self->mode_sharing);
     unim_config_set_auto_switch_enabled(self->config, self->auto_switch_enabled);
     unim_config_set_auto_switch_threshold(self->config, (float)self->auto_switch_threshold);
 
@@ -65,6 +73,11 @@ static void on_initial_mode_changed(GtkDropDown *dropdown, GParamSpec *pspec G_G
     save_config(self);
 }
 
+static void on_mode_sharing_changed(GtkDropDown *dropdown, GParamSpec *pspec G_GNUC_UNUSED, UnimSettingsDialog *self) {
+    self->mode_sharing = (int)gtk_drop_down_get_selected(dropdown);
+    save_config(self);
+}
+
 static void on_auto_switch_toggled(GtkSwitch *sw, GParamSpec *pspec G_GNUC_UNUSED, UnimSettingsDialog *self) {
     self->auto_switch_enabled = gtk_switch_get_active(sw);
     gtk_widget_set_sensitive(self->threshold_scale, self->auto_switch_enabled);
@@ -82,6 +95,96 @@ static void on_threshold_changed(GtkRange *range, UnimSettingsDialog *self) {
     self->auto_switch_threshold = gtk_range_get_value(range);
     update_threshold_label(self);
     save_config(self);
+}
+
+/* DBus를 통해 설정 변경 알림 */
+static void notify_config_via_dbus(UnimSettingsDialog *self, const char *key, const char *value) {
+    if (!self->dbus_conn) return;
+
+    GError *error = NULL;
+    GVariant *result = g_dbus_connection_call_sync(
+        self->dbus_conn,
+        "org.atit.unim",
+        "/org/atit/unim/InputMethod",
+        "org.atit.unim.InputMethod",
+        "SetConfig",
+        g_variant_new("(ss)", key, value),
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        1000,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        g_warning("DBus SetConfig failed: %s", error->message);
+        g_error_free(error);
+    } else if (result) {
+        g_variant_unref(result);
+    }
+}
+
+/* DBus ConfigChanged 시그널 핸들러 */
+static void on_dbus_config_changed(GDBusConnection *connection G_GNUC_UNUSED,
+                                    const gchar *sender_name G_GNUC_UNUSED,
+                                    const gchar *object_path G_GNUC_UNUSED,
+                                    const gchar *interface_name G_GNUC_UNUSED,
+                                    const gchar *signal_name G_GNUC_UNUSED,
+                                    GVariant *parameters,
+                                    gpointer user_data) {
+    UnimSettingsDialog *self = UNIM_SETTINGS_DIALOG(user_data);
+    if (self->updating_from_signal) return;
+
+    const gchar *key = NULL;
+    const gchar *value = NULL;
+    g_variant_get(parameters, "(&s&s)", &key, &value);
+
+    self->updating_from_signal = TRUE;
+
+    /* 설정값 업데이트 및 UI 반영 */
+    if (g_strcmp0(key, "korean_layout") == 0) {
+        int idx = 0;
+        if (g_strcmp0(value, "Sebeolsik390") == 0) idx = 1;
+        else if (g_strcmp0(value, "Sebeolsik391") == 0) idx = 2;
+        else if (g_strcmp0(value, "SebeolsikNoShift") == 0) idx = 3;
+        self->korean_layout = idx;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(self->korean_layout_dropdown), idx);
+    } else if (g_strcmp0(key, "english_layout") == 0) {
+        int idx = 0;
+        if (g_strcmp0(value, "Dvorak") == 0) idx = 1;
+        else if (g_strcmp0(value, "Colemak") == 0) idx = 2;
+        else if (g_strcmp0(value, "ColemakDh") == 0) idx = 3;
+        else if (g_strcmp0(value, "Workman") == 0) idx = 4;
+        self->english_layout = idx;
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(self->english_layout_dropdown), idx);
+    }
+    /* 필요시 다른 설정 키도 처리 가능 */
+
+    self->updating_from_signal = FALSE;
+}
+
+/* DBus 연결 초기화 */
+static void setup_dbus_connection(UnimSettingsDialog *self) {
+    GError *error = NULL;
+    self->dbus_conn = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+    if (error) {
+        g_warning("Failed to connect to session bus: %s", error->message);
+        g_error_free(error);
+        return;
+    }
+
+    self->signal_subscription_id = g_dbus_connection_signal_subscribe(
+        self->dbus_conn,
+        "org.atit.unim",
+        "org.atit.unim.InputMethod",
+        "ConfigChanged",
+        "/org/atit/unim/InputMethod",
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_dbus_config_changed,
+        self,
+        NULL
+    );
 }
 
 /* CSS 인라인 로드 - Qt6와 동일한 스타일 */
@@ -174,8 +277,13 @@ static void unim_settings_dialog_init(UnimSettingsDialog *self) {
     self->korean_layout = (int)unim_config_get_korean_layout(self->config);
     self->english_layout = (int)unim_config_get_english_layout(self->config);
     self->initial_mode = (int)unim_config_get_default_category(self->config);
+    self->mode_sharing = (int)unim_config_get_mode_sharing(self->config);
     self->auto_switch_enabled = unim_config_get_auto_switch_enabled(self->config);
     self->auto_switch_threshold = (double)unim_config_get_auto_switch_threshold(self->config);
+
+    /* DBus 연결 초기화 */
+    self->updating_from_signal = FALSE;
+    setup_dbus_connection(self);
 
     gtk_window_set_title(GTK_WINDOW(self), _("UNIM Settings"));
     gtk_window_set_default_size(GTK_WINDOW(self), 480, -1);
@@ -240,6 +348,23 @@ static void unim_settings_dialog_init(UnimSettingsDialog *self) {
     gtk_drop_down_set_selected(GTK_DROP_DOWN(initial_mode_dropdown), (guint)self->initial_mode);
     g_signal_connect(initial_mode_dropdown, "notify::selected", G_CALLBACK(on_initial_mode_changed), self);
     gtk_box_append(GTK_BOX(layout_card), create_settings_row(_("Initial Mode"), initial_mode_dropdown));
+
+    /* Separator */
+    gtk_box_append(GTK_BOX(layout_card), create_separator());
+
+    /* Mode Sharing Row - 동적 생성 */
+    size_t mode_sharing_count = unim_mode_sharing_count();
+    GtkStringList *mode_sharing_list = gtk_string_list_new(NULL);
+    for (size_t i = 0; i < mode_sharing_count; i++) {
+        UnimStr name = unim_mode_sharing_display_name(unim_mode_sharing_at(i));
+        char *name_str = g_strndup((const char *)name.ptr, name.len);
+        gtk_string_list_append(mode_sharing_list, name_str);
+        g_free(name_str);
+    }
+    GtkWidget *mode_sharing_dropdown = gtk_drop_down_new(G_LIST_MODEL(mode_sharing_list), NULL);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(mode_sharing_dropdown), (guint)self->mode_sharing);
+    g_signal_connect(mode_sharing_dropdown, "notify::selected", G_CALLBACK(on_mode_sharing_changed), self);
+    gtk_box_append(GTK_BOX(layout_card), create_settings_row(_("Mode Sharing"), mode_sharing_dropdown));
 
     gtk_box_append(GTK_BOX(main_box), layout_card);
 

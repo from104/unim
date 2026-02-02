@@ -5,15 +5,7 @@
  * 유니코드 5.2 기준의 한글 음절 규칙을 따릅니다.
  */
 use crate::hangul::jamo::*;
-
-/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
-macro_rules! unim_debug {
-    ($($arg:tt)*) => {
-        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
-            eprintln!("[UNIM-CHAR] {}", format!($($arg)*));
-        }
-    };
-}
+use crate::unim_log;
 
 /**
  * 한글 처리 관련 오류를 나타내는 열거형입니다.
@@ -207,7 +199,7 @@ impl HangulChar {
      * ```
      */
     pub fn from_syllable(syllable: char) -> Result<Self, HangulError> {
-        unim_debug!("HangulChar::from_syllable: '{}'", syllable);
+        unim_log!("CHAR", "HangulChar::from_syllable: '{}'", syllable);
         let syllable_u32 = syllable as u32;
 
         // 입력된 문자가 한글 음절 영역(0xAC00-0xD7A3)에 있는지 검사
@@ -595,7 +587,8 @@ impl HangulChar {
      * @return 한글 음절 또는 호환용 자모
      */
     pub fn get_syllable(&self) -> Result<char, HangulError> {
-        unim_debug!(
+        unim_log!(
+            "CHAR",
             "get_syllable: cho={:?}, jung={:?}, jong={:?}",
             self.choseong,
             self.jungseong,
@@ -642,7 +635,7 @@ impl HangulChar {
             (None, None, Some(jo)) => Ok(jo.get_unicode_compat()), // 종성만
             _ => Err(HangulError::CompositionFailure),           // 그 외 조합 불가
         };
-        unim_debug!("  -> result: {:?}", result);
+        unim_log!("CHAR", "  -> result: {:?}", result);
         result
     }
 

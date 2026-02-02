@@ -2,9 +2,9 @@
 //!
 //! XIM 프론트엔드에서 unim-daemon과 통신하기 위한 비동기 DBus 클라이언트입니다.
 
-use log::{debug, error, info};
 use std::sync::mpsc as std_mpsc;
 use tokio::sync::mpsc;
+use unim::unim_log;
 
 use unim_dbus::client::{InputContextProxy, InputMethodProxy};
 use zbus::zvariant::ObjectPath;
@@ -77,7 +77,7 @@ impl DbusClient {
 
             rt.block_on(async {
                 if let Err(e) = run_dbus_client(rx).await {
-                    error!("DBus 클라이언트 오류: {}", e);
+                    unim_log!("WAYLAND_DBUS", "DBus 클라이언트 오류: {}", e);
                 }
             });
         });
@@ -95,11 +95,11 @@ impl DbusClient {
 async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()> {
     // DBus 세션 버스에 연결
     let connection = Connection::session().await?;
-    info!("[XIM-DBus] 세션 버스 연결 성공");
+    unim_log!("WAYLAND_DBUS", "[XIM-DBus] 세션 버스 연결 성공");
 
     // InputMethod 프록시 생성
     let im_proxy = InputMethodProxy::new(&connection).await?;
-    info!("[XIM-DBus] InputMethod 프록시 생성 완료");
+    unim_log!("WAYLAND_DBUS", "[XIM-DBus] InputMethod 프록시 생성 완료");
 
     // 요청 처리 루프
     while let Some(request) = rx.recv().await {
@@ -109,13 +109,13 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 response,
             } => match im_proxy.create_input_context(&client_name).await {
                 Ok(path) => {
-                    debug!("[XIM-DBus] 컨텍스트 생성: {}", path);
+                    unim_log!("WAYLAND_DBUS", "[XIM-DBus] 컨텍스트 생성: {}", path);
                     if let Some(tx) = response {
                         let _ = tx.send(DbusResponse::ContextCreated { path });
                     }
                 }
                 Err(e) => {
-                    error!("[XIM-DBus] 컨텍스트 생성 실패: {}", e);
+                    unim_log!("WAYLAND_DBUS", "[XIM-DBus] 컨텍스트 생성 실패: {}", e);
                 }
             },
 
@@ -128,7 +128,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                         .await
                     {
                         let _ = proxy.destroy().await;
-                        debug!("[XIM-DBus] 컨텍스트 파괴: {}", context_path);
+                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] 컨텍스트 파괴: {}", context_path);
                     }
                 }
             }
@@ -157,7 +157,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                         .await
                     {
                         let _ = proxy.focus_in().await;
-                        debug!("[XIM-DBus] FocusIn: {}", context_path);
+                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] FocusIn: {}", context_path);
                     }
                 }
             }
@@ -174,7 +174,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                         .await
                     {
                         let _ = proxy.focus_out().await;
-                        debug!("[XIM-DBus] FocusOut: {}", context_path);
+                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] FocusOut: {}", context_path);
 
                         if let Some(tx) = response {
                             let _ = tx.send(DbusResponse::CommitText {
@@ -194,7 +194,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                         .await
                     {
                         let _ = proxy.reset().await;
-                        debug!("[XIM-DBus] Reset: {}", context_path);
+                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] Reset: {}", context_path);
                     }
                 }
             }
@@ -231,7 +231,7 @@ async fn process_key_event(
     {
         Ok(proxy) => proxy,
         Err(e) => {
-            error!("[XIM-DBus] 프록시 생성 실패: {}", e);
+            unim_log!("WAYLAND_DBUS", "[XIM-DBus] 프록시 생성 실패: {}", e);
             return DbusResponse::KeyProcessed {
                 consumed: false,
                 preedit: None,
@@ -245,7 +245,7 @@ async fn process_key_event(
         match ctx_proxy.process_key_event(keyval, keycode, state).await {
             Ok(result) => result,
             Err(e) => {
-                error!("[XIM-DBus] 키 처리 실패: {}", e);
+                unim_log!("WAYLAND_DBUS", "[XIM-DBus] 키 처리 실패: {}", e);
                 return DbusResponse::KeyProcessed {
                     consumed: false,
                     preedit: None,

@@ -1,0 +1,9 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIM Indicator Package (non-GNOME environments)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Indicator executable
+debian/tmp/usr/bin/unim-indicator
+
+# Autostart entry
+debian/tmp/etc/xdg/autostart/unim-indicator.desktop

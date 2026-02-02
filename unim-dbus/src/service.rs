@@ -15,6 +15,7 @@ use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
 use unim::config::{Config, InputCategory};
+use unim::unim_log;
 
 /// 엔진에 보내는 요청
 #[derive(Debug)]
@@ -30,10 +31,17 @@ pub enum EngineRequest {
     /// 컨텍스트 생성
     CreateContext {
         id: u32,
+        window_id: String,
         response: oneshot::Sender<()>,
     },
     /// 컨텍스트 파괴
     DestroyContext { id: u32 },
+    /// 포커스 인 (모드 조회용)
+    FocusIn {
+        context_id: u32,
+        window_id: String,
+        response: oneshot::Sender<bool>,
+    },
     /// 포커스 아웃 (preedit 플러시)
     FocusOut {
         context_id: u32,
@@ -110,16 +118,28 @@ impl InputMethodService {
 
 #[interface(name = "org.atit.unim.InputMethod")]
 impl InputMethodService {
-    /// 새 입력 컨텍스트 생성
-    async fn create_input_context(&self, client_name: &str) -> zbus::fdo::Result<String> {
+    /// 새 입력 컨텍스트 생성 (window_id: 창 식별자, 빈 문자열이면 client_name 사용)
+    async fn create_input_context(
+        &self,
+        client_name: &str,
+        window_id: &str,
+    ) -> zbus::fdo::Result<String> {
         let id = self.context_counter.fetch_add(1, Ordering::SeqCst) + 1;
         let path = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, id);
+
+        // window_id가 비어있으면 client_name을 사용
+        let effective_window_id = if window_id.is_empty() {
+            client_name.to_string()
+        } else {
+            window_id.to_string()
+        };
 
         // 엔진 스레드에 컨텍스트 생성 요청
         let (response_tx, response_rx) = oneshot::channel();
         self.engine_tx
             .send(EngineRequest::CreateContext {
                 id,
+                window_id: effective_window_id,
                 response: response_tx,
             })
             .await
@@ -141,10 +161,12 @@ impl InputMethodService {
                 zbus::fdo::Error::Failed(format!("Failed to register InputContext: {}", e))
             })?;
 
-        log::info!(
-            "[DBus] InputContext 생성 및 등록: {} (client: {})",
+        unim_log!(
+            "DBUS",
+            "[DBus] InputContext 생성 및 등록: {} (client: {}, window: {})",
             path,
-            client_name
+            client_name,
+            window_id
         );
         Ok(path)
     }
@@ -181,7 +203,7 @@ impl InputMethodService {
             .await
             .ok();
 
-        log::info!("[DBus] 전역 모드 변경: {:?}", new_mode);
+        unim_log!("DBUS", "[DBus] 전역 모드 변경: {:?}", new_mode);
         Ok(())
     }
 
@@ -197,6 +219,133 @@ impl InputMethodService {
         signal_ctx: &SignalContext<'_>,
         is_korean: bool,
     ) -> zbus::Result<()>;
+
+    /// 설정 변경 시그널
+    #[zbus(signal)]
+    async fn config_changed(
+        signal_ctx: &SignalContext<'_>,
+        key: &str,
+        value: &str,
+    ) -> zbus::Result<()>;
+
+    /// 설정값 조회
+    async fn get_config(&self, key: &str) -> zbus::fdo::Result<String> {
+        let config = self.config.read().await;
+        let value = match key {
+            "korean_layout" => config.engine.korean.layout.name().to_string(),
+            "english_layout" => config.engine.english.layout.name().to_string(),
+            "default_category" => match config.engine.default_category {
+                InputCategory::Korean => "Korean".to_string(),
+                InputCategory::English => "English".to_string(),
+            },
+            "mode_sharing" => match config.engine.mode_sharing {
+                unim::config::ModeSharingMode::Global => "Global".to_string(),
+                unim::config::ModeSharingMode::PerApp => "PerApp".to_string(),
+                unim::config::ModeSharingMode::PerWindow => "PerWindow".to_string(),
+            },
+            "auto_switch_enabled" => config.engine.auto_switch.enabled.to_string(),
+            "auto_switch_threshold" => config.engine.auto_switch.threshold.to_string(),
+            _ => {
+                return Err(zbus::fdo::Error::InvalidArgs(format!(
+                    "Unknown key: {}",
+                    key
+                )))
+            }
+        };
+        Ok(value)
+    }
+
+    /// 설정값 변경 및 시그널 브로드캐스트
+    async fn set_config(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        key: &str,
+        value: &str,
+    ) -> zbus::fdo::Result<()> {
+        {
+            let mut config = self.config.write().await;
+            match key {
+                "korean_layout" => {
+                    config.engine.korean.layout = match value {
+                        "Dubeolsik" => unim::config::KoreanLayout::Dubeolsik,
+                        "Sebeolsik390" => unim::config::KoreanLayout::Sebeolsik390,
+                        "Sebeolsik391" => unim::config::KoreanLayout::Sebeolsik391,
+                        "SebeolsikNoShift" => unim::config::KoreanLayout::SebeolsikNoShift,
+                        _ => {
+                            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid value: {}",
+                                value
+                            )))
+                        }
+                    };
+                }
+                "english_layout" => {
+                    config.engine.english.layout = match value {
+                        "Qwerty" => unim::config::EnglishLayout::Qwerty,
+                        "Dvorak" => unim::config::EnglishLayout::Dvorak,
+                        "Colemak" => unim::config::EnglishLayout::Colemak,
+                        "ColemakDh" => unim::config::EnglishLayout::ColemakDh,
+                        "Workman" => unim::config::EnglishLayout::Workman,
+                        _ => {
+                            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid value: {}",
+                                value
+                            )))
+                        }
+                    };
+                }
+                "default_category" => {
+                    config.engine.default_category = match value {
+                        "Korean" => InputCategory::Korean,
+                        "English" => InputCategory::English,
+                        _ => {
+                            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid value: {}",
+                                value
+                            )))
+                        }
+                    };
+                }
+                "mode_sharing" => {
+                    config.engine.mode_sharing = match value {
+                        "Global" => unim::config::ModeSharingMode::Global,
+                        "PerApp" => unim::config::ModeSharingMode::PerApp,
+                        _ => {
+                            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid value: {}",
+                                value
+                            )))
+                        }
+                    };
+                }
+                "auto_switch_enabled" => {
+                    config.engine.auto_switch.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_switch_threshold" => {
+                    config.engine.auto_switch.threshold = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid float".to_string()))?;
+                }
+                _ => {
+                    return Err(zbus::fdo::Error::InvalidArgs(format!(
+                        "Unknown key: {}",
+                        key
+                    )))
+                }
+            }
+            // 파일에도 저장
+            if let Err(e) = config.save_to_default_path() {
+                unim_log!("DBUS", "[DBus] Config save failed: {}", e);
+            }
+        }
+
+        // 시그널 브로드캐스트
+        Self::config_changed(&signal_ctx, key, value).await?;
+        unim_log!("DBUS", "[DBus] Config changed: {} = {}", key, value);
+        Ok(())
+    }
 }
 
 /// InputContext 인터페이스 구현을 위한 핸들러
@@ -254,7 +403,7 @@ impl InputContextHandler {
 
         // 모드 변경 시그널 발송
         if let Some(is_korean) = response.mode_changed {
-            log::info!("[DBus] 모드 변경 감지: is_korean={}", is_korean);
+            unim_log!("DBUS", "[DBus] 모드 변경 감지: is_korean={}", is_korean);
             // InputMethod 경로에서 GlobalModeChanged 시그널 발송
             let signal_ctx = zbus::SignalContext::new(&self.connection, crate::INPUT_METHOD_PATH)
                 .map_err(|e| {
@@ -265,7 +414,8 @@ impl InputContextHandler {
                 .ok();
         }
 
-        log::trace!(
+        unim_log!(
+            "DBUS",
             "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit='{}', commit='{}'",
             keyval,
             response.consumed,
@@ -276,9 +426,40 @@ impl InputContextHandler {
         Ok((response.consumed, preedit, commit))
     }
 
-    /// 포커스 획득
-    async fn focus_in(&self) -> zbus::fdo::Result<()> {
-        log::debug!("[DBus] FocusIn: context_id={}", self.id);
+    /// 포커스 획득 - 현재 컨텍스트의 모드를 시그널로 발송 (window_id: 창 식별자)
+    async fn focus_in(&self, window_id: &str) -> zbus::fdo::Result<()> {
+        // 현재 컨텍스트의 모드 조회
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::FocusIn {
+                context_id: self.id,
+                window_id: window_id.to_string(),
+                response: response_tx,
+            })
+            .await
+            .ok();
+
+        if let Ok(is_korean) = response_rx.await {
+            // InputMethod 경로에서 GlobalModeChanged 시그널 발송 (UI 동기화)
+            unim_log!(
+                "DBUS",
+                "[DBus] FocusIn: context_id={}, window_id={}, mode={}",
+                self.id,
+                window_id,
+                if is_korean { "Korean" } else { "English" }
+            );
+            let signal_ctx = zbus::SignalContext::new(&self.connection, crate::INPUT_METHOD_PATH)
+                .map_err(|e| {
+                zbus::fdo::Error::Failed(format!("Signal context error: {}", e))
+            })?;
+            InputMethodService::global_mode_changed(&signal_ctx, is_korean)
+                .await
+                .ok();
+        } else {
+            unim_log!("DBUS", "[DBus] FocusIn: context_id={}", self.id);
+        }
+
         Ok(())
     }
 
@@ -305,7 +486,8 @@ impl InputContextHandler {
             Self::commit_text(&signal_ctx, &commit).await.ok();
         }
 
-        log::debug!(
+        unim_log!(
+            "DBUS",
             "[DBus] FocusOut: context_id={}, commit='{}'",
             self.id,
             commit
@@ -327,7 +509,7 @@ impl InputContextHandler {
         Self::update_preedit_text(&signal_ctx, "", 0, false)
             .await
             .ok();
-        log::debug!("[DBus] Reset: context_id={}", self.id);
+        unim_log!("DBUS", "[DBus] Reset: context_id={}", self.id);
         Ok(())
     }
 
@@ -337,7 +519,7 @@ impl InputContextHandler {
             .send(EngineRequest::DestroyContext { id: self.id })
             .await
             .ok();
-        log::info!("[DBus] Context 파괴: id={}", self.id);
+        unim_log!("DBUS", "[DBus] Context 파괴: id={}", self.id);
         Ok(())
     }
 

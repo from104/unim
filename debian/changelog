@@ -1,3 +1,10 @@
+unim (0.0.1-2) unstable; urgency=medium
+
+  * Split unim-indicator into separate package.
+  * unim-indicator now recommended for non-GNOME desktops only.
+
+ -- from104 <from104@github.com>  Sat, 01 Feb 2026 14:47:00 +0900
+
 unim (0.0.1-1) unstable; urgency=medium
 
   * Initial release.

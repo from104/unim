@@ -350,13 +350,10 @@ status-systemd:
 # GNOME Shell Extension (User-level installation)
 # ─────────────────────────────────────────────────────────────────────────────
 
-gnome-extension: build-rust
+gnome-extension:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "🔨 Building GNOME Shell Extension..."
 	@echo "════════════════════════════════════════════════════════════"
-	@echo "  → Copying unim-cli binary..."
-	@mkdir -p unim-gnome-extension/bin
-	@cp target/release/unim-cli unim-gnome-extension/bin/
 	@echo "  → Copying icons from data/icons/..."
 	@mkdir -p unim-gnome-extension/icons
 	@cp data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/
@@ -487,7 +484,6 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@# GNOME extension artifacts
 	@rm -f $(ZIP_FILE)
-	@rm -rf unim-gnome-extension/bin
 	@rm -rf unim-gnome-extension/icons
 	@rm -f unim-gnome-extension/schemas/gschemas.compiled
 	@rm -rf unim-gnome-extension/locale

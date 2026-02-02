@@ -14,6 +14,8 @@
 #include <QSlider>
 #include <QLabel>
 #include <QGroupBox>
+#include <QDBusConnection>
+#include <QDBusInterface>
 
 /* UNIM C API */
 extern "C" {
@@ -31,6 +33,7 @@ private slots:
     void onKoreanLayoutChanged(int index);
     void onEnglishLayoutChanged(int index);
     void onInitialModeChanged(int index);
+    void onModeSharingChanged(int index);
     void onAutoSwitchToggled(bool checked);
     void onThresholdChanged(int value);
 
@@ -49,6 +52,7 @@ private:
     QComboBox *m_koreanLayoutCombo;
     QComboBox *m_englishLayoutCombo;
     QComboBox *m_initialModeCombo;
+    QComboBox *m_modeSharingCombo;
     QCheckBox *m_autoSwitchCheck;
     QSlider *m_thresholdSlider;
     QLabel *m_thresholdLabel;
@@ -60,8 +64,15 @@ private:
     int m_koreanLayout;     // 0: 두벨식, 1: 세벨식390, 2: 세베식391
     int m_englishLayout;    // 0: QWERTY, 1: Dvorak
     int m_initialMode;      // 0: Korean, 1: English
+    int m_modeSharing;      // 0: Global, 1: PerApp
     bool m_autoSwitchEnabled;
     double m_autoSwitchThreshold;
+
+    // DBus 관련
+    bool m_updatingFromSignal;
+
+private slots:
+    void onConfigChanged(const QString &key, const QString &value);
 };
 
 #endif // SETTINGS_DIALOG_H

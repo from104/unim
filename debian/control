@@ -2,19 +2,27 @@ Source: unim
 Section: utils
 Priority: optional
 Maintainer: from104 <from104@github.com>
-Build-Depends: debhelper-compat (= 13), cmake, pkg-config, libgtk-3-dev, libgtk-4-dev, qtbase5-dev, qtbase5-private-dev, qt6-base-dev, qt6-base-private-dev, libglib2.0-dev
+Build-Depends: debhelper-compat (= 13), cmake, pkg-config, libgtk-3-dev, libgtk-4-dev, qtbase5-dev, qtbase5-private-dev, qt6-base-dev, qt6-base-private-dev, libqt6dbus6, libglib2.0-dev
 Standards-Version: 4.6.0
 Homepage: https://github.com/from104/unim
 Rules-Requires-Root: no
 
 Package: unim
 Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
+Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: im-config
 Description: Korean Input Method Engine
  UNIM is a modular Korean Input Method Engine.
  This package contains the core daemon, C-API library, CLI tools,
- XIM/Wayland protocol support, and system tray indicator.
+ and XIM/Wayland protocol support.
+
+Package: unim-indicator
+Architecture: amd64
+Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
+Description: UNIM Status Indicator (non-GNOME)
+ System tray status indicator for UNIM in non-GNOME desktop environments.
+ Uses StatusNotifierItem (SNI) protocol for tray integration.
+ Not needed if using GNOME Shell Extension.
 
 Package: unim-gtk
 Architecture: amd64

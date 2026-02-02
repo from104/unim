@@ -37,6 +37,7 @@ struct _UnimIMContext {
     UnimDbusContext *dbus_ctx;  /* DBus 클라이언트 컨텍스트 */
     gboolean is_focused;
     GdkWindow *client_window;
+    gchar *window_id;           /* 창 식별자 */
 
     /* 주변 텍스트 정보 캐시 */
     gchar *surrounding_text;
@@ -66,27 +67,70 @@ static void unim_im_context_set_surrounding(GtkIMContext *context, const gchar *
 
 /* 디버그 로깅 시스템 */
 static gboolean unim_debug_enabled = FALSE;
+static gboolean unim_debug_checked = FALSE;
+
+#include <stdio.h>
+#include <stdarg.h>
+#include <time.h>
+
+/* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
+static void
+unim_log_message(const char *module, const char *format, ...)
+{
+    if (!unim_debug_enabled) return;
+
+    va_list args;
+    char message[1024];
+    char timestamp[32];
+    char log_line[2048];
+    time_t now;
+    struct tm *tm_info;
+
+    /* 메시지 포맷팅 */
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+
+    /* 타임스탬프 생성 */
+    time(&now);
+    tm_info = localtime(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y/%m/%d %H:%M:%S", tm_info);
+
+    /* 로그 라인 생성 */
+    snprintf(log_line, sizeof(log_line), "[%s] - [%s] - %s", timestamp, module, message);
+
+    /* 콘솔 출력 */
+    g_print("%s\n", log_line);
+
+    /* 파일 출력 */
+    const gchar *home = g_get_home_dir();
+    if (home) {
+        gchar *log_path = g_build_filename(home, ".unim-errors.log", NULL);
+        FILE *f = fopen(log_path, "a");
+        if (f) {
+            fprintf(f, "%s\n", log_line);
+            fclose(f);
+        }
+        g_free(log_path);
+    }
+}
 
 #define UNIM_DEBUG(fmt, ...) \
-    do { \
-        if (unim_debug_enabled) { \
-            g_print("[UNIM-GTK3] " fmt "\n", ##__VA_ARGS__); \
-        } \
-    } while (0)
+    unim_log_message("GTK3_IM", fmt, ##__VA_ARGS__)
 
 static void
 unim_check_debug_env(void)
 {
-    static gboolean checked = FALSE;
-    if (!checked) {
+    if (!unim_debug_checked) {
         const char *env = g_getenv("UNIM_DEVELOP");
         if (env && g_strcmp0(env, "1") == 0) {
             unim_debug_enabled = TRUE;
-            g_print("[UNIM-GTK3] 디버그 모드 활성화 (UNIM_DEVELOP=1)\n");
+            unim_log_message("GTK3_IM", "디버그 모드 활성화 (UNIM_DEVELOP=1)");
         }
-        checked = TRUE;
+        unim_debug_checked = TRUE;
     }
 }
+
 
 /* GType 등록 */
 G_DEFINE_DYNAMIC_TYPE(UnimIMContext, unim_im_context, GTK_TYPE_IM_CONTEXT)
@@ -120,8 +164,11 @@ unim_im_context_init(UnimIMContext *context)
 {
     unim_check_debug_env();
     
-    /* DBus 클라이언트 생성 */
-    context->dbus_ctx = unim_dbus_context_new("gtk3-unim");
+    /* 창 식별자 생성 (컨텍스트 포인터 기반) */
+    context->window_id = g_strdup_printf("gtk3-ctx-%p", (void*)context);
+    
+    /* DBus 클라이언트 생성 (window_id 포함) */
+    context->dbus_ctx = unim_dbus_context_new("gtk3-unim", context->window_id);
     context->is_focused = FALSE;
     context->client_window = NULL;
     context->surrounding_text = NULL;
@@ -129,7 +176,7 @@ unim_im_context_init(UnimIMContext *context)
     context->selection_index = 0;
     
     if (context->dbus_ctx) {
-        UNIM_DEBUG("IMContext 초기화 완료 (DBus 연결됨)");
+        UNIM_DEBUG("IMContext 초기화 완료 (window_id: %s)", context->window_id);
     } else {
         UNIM_DEBUG("IMContext 초기화 (DBus 연결 실패)");
     }
@@ -145,6 +192,9 @@ unim_im_context_finalize(GObject *obj)
         context->dbus_ctx = NULL;
     }
 
+    g_free(context->window_id);
+    context->window_id = NULL;
+    
     g_free(context->surrounding_text);
     context->surrounding_text = NULL;
 
@@ -250,10 +300,10 @@ unim_im_context_focus_in(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
     
-    UNIM_DEBUG("focus_in 호출");
+    UNIM_DEBUG("focus_in 호출 (window_id: %s)", unim->window_id);
     
     if (unim->dbus_ctx) {
-        unim_dbus_focus_in(unim->dbus_ctx);
+        unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
     }
     
     unim->is_focused = TRUE;

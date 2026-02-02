@@ -19,14 +19,26 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_koreanLayout(0)
     , m_englishLayout(0)
     , m_initialMode(1)  // Default: English
+    , m_modeSharing(0)  // Default: Global
     , m_autoSwitchEnabled(false)
     , m_autoSwitchThreshold(0.7)
+    , m_updatingFromSignal(false)
 {
     setWindowTitle(tr("UNIM Settings"));
     setMinimumWidth(480);
     loadConfig();
     loadStyleSheet();
     setupUI();
+    
+    // DBus 시그널 구독
+    QDBusConnection::sessionBus().connect(
+        "org.atit.unim",
+        "/org/atit/unim/InputMethod",
+        "org.atit.unim.InputMethod",
+        "ConfigChanged",
+        this,
+        SLOT(onConfigChanged(QString, QString))
+    );
     
     // 창 크기 자동 조절
     adjustSize();
@@ -65,6 +77,7 @@ void SettingsDialog::loadConfig() {
     m_koreanLayout = static_cast<int>(unim_config_get_korean_layout(m_config));
     m_englishLayout = static_cast<int>(unim_config_get_english_layout(m_config));
     m_initialMode = static_cast<int>(unim_config_get_default_category(m_config));
+    m_modeSharing = static_cast<int>(unim_config_get_mode_sharing(m_config));
     m_autoSwitchEnabled = unim_config_get_auto_switch_enabled(m_config);
     m_autoSwitchThreshold = static_cast<double>(unim_config_get_auto_switch_threshold(m_config));
 }
@@ -74,6 +87,7 @@ bool SettingsDialog::saveConfig() {
     unim_config_set_korean_layout(m_config, static_cast<UnimKoreanLayout>(m_koreanLayout));
     unim_config_set_english_layout(m_config, static_cast<UnimEnglishLayout>(m_englishLayout));
     unim_config_set_default_category(m_config, static_cast<UnimInputCategory>(m_initialMode));
+    unim_config_set_mode_sharing(m_config, static_cast<UnimModeSharingMode>(m_modeSharing));
     unim_config_set_auto_switch_enabled(m_config, m_autoSwitchEnabled);
     unim_config_set_auto_switch_threshold(m_config, static_cast<float>(m_autoSwitchThreshold));
     return unim_config_save(m_config);
@@ -141,6 +155,17 @@ void SettingsDialog::setupUI() {
     connect(m_initialModeCombo, &QComboBox::currentIndexChanged, this, &SettingsDialog::onInitialModeChanged);
     layoutCardLayout->addWidget(createRow(tr("Initial Mode"), m_initialModeCombo));
 
+    // Mode Sharing Row - 동적 생성
+    m_modeSharingCombo = new QComboBox();
+    size_t modeSharingCount = unim_mode_sharing_count();
+    for (size_t i = 0; i < modeSharingCount; i++) {
+        UnimStr name = unim_mode_sharing_display_name(unim_mode_sharing_at(i));
+        m_modeSharingCombo->addItem(QString::fromUtf8(reinterpret_cast<const char*>(name.ptr), static_cast<int>(name.len)));
+    }
+    m_modeSharingCombo->setCurrentIndex(m_modeSharing);
+    connect(m_modeSharingCombo, &QComboBox::currentIndexChanged, this, &SettingsDialog::onModeSharingChanged);
+    layoutCardLayout->addWidget(createRow(tr("Mode Sharing"), m_modeSharingCombo));
+
     mainLayout->addWidget(layoutCard);
 
     // --- Auto Switch Section ---
@@ -207,6 +232,11 @@ void SettingsDialog::onInitialModeChanged(int index) {
     saveConfig();
 }
 
+void SettingsDialog::onModeSharingChanged(int index) {
+    m_modeSharing = index;
+    saveConfig();
+}
+
 void SettingsDialog::onAutoSwitchToggled(bool checked) {
     m_autoSwitchEnabled = checked;
     m_thresholdSlider->setEnabled(checked);
@@ -218,4 +248,32 @@ void SettingsDialog::onThresholdChanged(int value) {
     m_autoSwitchThreshold = value / 100.0;
     updateThresholdLabel();
     saveConfig();
+}
+
+void SettingsDialog::onConfigChanged(const QString &key, const QString &value) {
+    if (m_updatingFromSignal) return;
+    m_updatingFromSignal = true;
+
+    if (key == "korean_layout") {
+        int idx = 0;
+        if (value == "Sebeolsik390") idx = 1;
+        else if (value == "Sebeolsik391") idx = 2;
+        else if (value == "SebeolsikNoShift") idx = 3;
+        m_koreanLayout = idx;
+        m_koreanLayoutCombo->setCurrentIndex(idx);
+    } else if (key == "english_layout") {
+        int idx = 0;
+        if (value == "Dvorak") idx = 1;
+        else if (value == "Colemak") idx = 2;
+        else if (value == "ColemakDh") idx = 3;
+        else if (value == "Workman") idx = 4;
+        m_englishLayout = idx;
+        m_englishLayoutCombo->setCurrentIndex(idx);
+    } else if (key == "mode_sharing") {
+        int idx = (value == "PerApp") ? 1 : 0;
+        m_modeSharing = idx;
+        m_modeSharingCombo->setCurrentIndex(idx);
+    }
+
+    m_updatingFromSignal = false;
 }

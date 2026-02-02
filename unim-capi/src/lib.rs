@@ -388,6 +388,50 @@ pub extern "C" fn unim_config_set_auto_switch_notification(config: &mut Config, 
     config.engine.auto_switch.show_notification = show;
 }
 
+/// 입력 모드 공유 방식을 반환합니다.
+///
+/// # 반환값
+///
+/// 0 = Global (전역 공유), 1 = PerApp (앱별 독립)
+#[no_mangle]
+pub extern "C" fn unim_config_get_mode_sharing(config: &Config) -> unim::config::ModeSharingMode {
+    config.engine.mode_sharing
+}
+
+/// 입력 모드 공유 방식을 설정합니다.
+///
+/// # Arguments
+///
+/// * `mode` - ModeSharingMode 열거형 값
+#[no_mangle]
+pub extern "C" fn unim_config_set_mode_sharing(
+    config: &mut Config,
+    mode: unim::config::ModeSharingMode,
+) {
+    config.engine.mode_sharing = mode;
+}
+
+/// 모드 공유 방식 개수를 반환합니다.
+#[no_mangle]
+pub extern "C" fn unim_mode_sharing_count() -> usize {
+    unim::config::ModeSharingMode::all().len()
+}
+
+/// 모드 공유 방식 표시 이름을 반환합니다 (UI용).
+#[no_mangle]
+pub extern "C" fn unim_mode_sharing_display_name(mode: unim::config::ModeSharingMode) -> UnimStr {
+    UnimStr::new(mode.display_name())
+}
+
+/// 인덱스로 모드 공유 방식을 가져옵니다.
+#[no_mangle]
+pub extern "C" fn unim_mode_sharing_at(index: usize) -> unim::config::ModeSharingMode {
+    unim::config::ModeSharingMode::all()
+        .get(index)
+        .copied()
+        .unwrap_or(unim::config::ModeSharingMode::Global)
+}
+
 // ============================================
 // 레이아웃 열거형 헬퍼 (UI 표시용)
 // ============================================

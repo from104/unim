@@ -1,12 +1,9 @@
 # start UNIM
 # vim: set sts=4 expandtab:
 
-if [ "$IM_CONFIG_PHASE" = 2 ]; then
-    # X11/XIM/Clutter: unim-xim (via unim-daemon)
-    if ! pgrep -x unim-daemon > /dev/null; then
-        setsid @LIBEXECDIR@/unim-daemon </dev/null &>/dev/null &
-    fi
-fi
+# Note: unim-daemon is started via DBus auto-activation
+# (see /usr/share/dbus-1/services/org.atit.unim.InputMethod.service)
+# No explicit daemon startup is needed here.
 
 if [ "$IM_CONFIG_PHASE" = 1 ]; then
     # set variables for UNIM

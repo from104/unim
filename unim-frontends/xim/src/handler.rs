@@ -8,12 +8,12 @@ use std::os::raw::c_int;
 use std::sync::atomic::Ordering;
 
 use ahash::AHashMap;
-use log::debug;
 use tokio::sync::mpsc;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{ConfigureNotifyEvent, KeyPressEvent};
 
 use unim::config::Config;
+use unim::unim_log;
 
 use xim::{
     x11rb::{HasConnection, X11rbServer},
@@ -22,15 +22,6 @@ use xim::{
 
 use crate::dbus_client::{DbusRequest, DbusResponse};
 use crate::pe_window::PeWindow;
-
-/// 디버그 로깅 매크로 (UNIM_DEVELOP 환경변수 활성화 시)
-macro_rules! unim_debug {
-    ($($arg:tt)*) => {
-        if crate::DEBUG_ENABLED.load(Ordering::Relaxed) {
-            println!("[UNIM-XIM] {}", format!($($arg)*));
-        }
-    };
-}
 
 /// 입력 컨텍스트별 상태
 pub struct UnimInputContext {
@@ -146,7 +137,7 @@ impl UnimHandler {
     ) -> Result<(), x11rb::errors::ConnectionError> {
         if let Some(win) = NonZeroU32::new(window) {
             if let Some(pe) = self.preedit_windows.get_mut(&win) {
-                unim_debug!("Expose 이벤트: window={}", window);
+                unim_log!("XIM_HANDLER", "Expose 이벤트: window={}", window);
                 pe.expose(self.display);
             }
         }
@@ -157,7 +148,8 @@ impl UnimHandler {
     pub fn configure_notify(&mut self, event: &ConfigureNotifyEvent) {
         if let Some(win) = NonZeroU32::new(event.window) {
             if let Some(pe) = self.preedit_windows.get_mut(&win) {
-                unim_debug!(
+                unim_log!(
+                    "XIM_HANDLER",
                     "ConfigureNotify: window={}, width={}, height={}",
                     event.window,
                     event.width,
@@ -195,7 +187,7 @@ impl UnimHandler {
                 // PeWindow 정리
                 if let Some(pe_id) = user_ic.user_data.pe_window.take() {
                     if let Some(pe) = self.preedit_windows.remove(&pe_id) {
-                        unim_debug!("PeWindow 삭제: id={}", pe_id);
+                        unim_log!("XIM_HANDLER", "PeWindow 삭제: id={}", pe_id);
                         pe.clean(self.display, self.screen);
                     }
                 }
@@ -224,7 +216,7 @@ impl UnimHandler {
                 pe.refresh(self.display);
 
                 self.preedit_windows.insert(pe_id, pe);
-                unim_debug!("PeWindow 생성: id={}", pe_id);
+                unim_log!("XIM_HANDLER", "PeWindow 생성: id={}", pe_id);
             }
         }
 
@@ -244,7 +236,7 @@ impl UnimHandler {
         // PeWindow도 정리
         if let Some(pe_id) = user_ic.user_data.pe_window.take() {
             if let Some(pe) = self.preedit_windows.remove(&pe_id) {
-                unim_debug!("PeWindow 삭제: id={}", pe_id);
+                unim_log!("XIM_HANDLER", "PeWindow 삭제: id={}", pe_id);
                 pe.clean(self.display, self.screen);
             }
         }
@@ -275,7 +267,11 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         _server: &mut X11rbServer<C>,
         input_style: InputStyle,
     ) -> Result<Self::InputContextData, ServerError> {
-        debug!("새 IC 데이터 생성 (style: {:?})", input_style);
+        unim_log!(
+            "XIM_HANDLER",
+            "새 IC 데이터 생성 (style: {:?})",
+            input_style
+        );
 
         // DBus를 통해 InputContext 생성
         let context_path = match self.send_dbus_request(DbusRequest::CreateContext {
@@ -310,7 +306,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     }
 
     fn handle_connect(&mut self, _server: &mut X11rbServer<C>) -> Result<(), ServerError> {
-        debug!("XIM 클라이언트 연결됨");
+        unim_log!("XIM_HANDLER", "XIM 클라이언트 연결됨");
         Ok(())
     }
 
@@ -319,7 +315,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<Self::InputContextData>,
     ) -> Result<(), ServerError> {
-        debug!(
+        unim_log!(
+            "XIM_HANDLER",
             "IC 생성: id={:?}, style={:?}",
             user_ic.ic.input_context_id(),
             user_ic.ic.input_style()
@@ -332,7 +329,11 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         _server: &mut X11rbServer<C>,
         user_ic: UserInputContext<Self::InputContextData>,
     ) -> Result<(), ServerError> {
-        debug!("IC 삭제: id={:?}", user_ic.ic.input_context_id());
+        unim_log!(
+            "XIM_HANDLER",
+            "IC 삭제: id={:?}",
+            user_ic.ic.input_context_id()
+        );
 
         // DBus 컨텍스트 파괴
         let _ = self.dbus_tx.blocking_send(DbusRequest::DestroyContext {
@@ -353,7 +354,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<Self::InputContextData>,
     ) -> Result<String, ServerError> {
-        unim_debug!("reset 호출");
+        unim_log!("XIM_HANDLER", "reset 호출");
 
         let preedit = user_ic.user_data.preedit_cache.clone();
 
@@ -372,7 +373,11 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         _server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<Self::InputContextData>,
     ) -> Result<(), ServerError> {
-        debug!("포커스 인: id={:?}", user_ic.ic.input_context_id());
+        unim_log!(
+            "XIM_HANDLER",
+            "포커스 인: id={:?}",
+            user_ic.ic.input_context_id()
+        );
 
         let _ = self.dbus_tx.blocking_send(DbusRequest::FocusIn {
             context_path: user_ic.user_data.context_path.clone(),
@@ -386,7 +391,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<Self::InputContextData>,
     ) -> Result<(), ServerError> {
-        unim_debug!("focus_out 호출");
+        unim_log!("XIM_HANDLER", "focus_out 호출");
 
         // DBus FocusOut 호출 - 커밋 텍스트 반환
         if let Some(DbusResponse::CommitText { text }) =
@@ -396,7 +401,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             })
         {
             if !text.is_empty() {
-                unim_debug!("commit_and_clear: \"{}\"", text);
+                unim_log!("XIM_HANDLER", "commit_and_clear: \"{}\"", text);
                 server.commit(&user_ic.ic, &text)?;
             }
         }
@@ -411,7 +416,11 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         _server: &mut X11rbServer<C>,
         user_ic: &mut UserInputContext<Self::InputContextData>,
     ) -> Result<(), ServerError> {
-        debug!("IC 값 설정 (spot: {:?})", user_ic.ic.preedit_spot());
+        unim_log!(
+            "XIM_HANDLER",
+            "IC 값 설정 (spot: {:?})",
+            user_ic.ic.preedit_spot()
+        );
 
         // spot_location 변경 시 preedit 윈도우 재생성
         // 단, preedit이 활성 상태일 때만 (preedit_cache가 비어있지 않을 때)
@@ -438,7 +447,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     ) -> Result<bool, ServerError> {
         let evdev_code = if xev.detail > 8 { xev.detail - 8 } else { 0 };
 
-        unim_debug!(
+        unim_log!(
+            "XIM_HANDLER",
             "키 입력: keycode={}, evdev={}, state={:?}",
             xev.detail,
             evdev_code,
@@ -472,7 +482,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 self.clear_preedit(server, user_ic)?;
                 server.conn().flush().ok();
 
-                unim_debug!("커밋: \"{}\"", commit_text);
+                unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
                 server.commit(&user_ic.ic, &commit_text)?;
                 server.conn().flush().ok();
             }
@@ -483,7 +493,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             if preedit_text.is_empty() {
                 self.clear_preedit(server, user_ic)?;
             } else {
-                unim_debug!("Preedit: \"{}\"", preedit_text);
+                unim_log!("XIM_HANDLER", "Preedit: \"{}\"", preedit_text);
                 self.preedit(server, user_ic, &preedit_text)?;
             }
             server.conn().flush().ok();
@@ -491,7 +501,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             // preedit이 None이지만 캐시에 preedit이 남아있으면 정리
             // (백스페이스로 마지막 글자를 지운 경우 등)
             if !user_ic.user_data.preedit_cache.is_empty() {
-                unim_debug!("Preedit 캐시 정리 (preedit=None)");
+                unim_log!("XIM_HANDLER", "Preedit 캐시 정리 (preedit=None)");
                 self.clear_preedit(server, user_ic)?;
                 server.conn().flush().ok();
             }

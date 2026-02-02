@@ -13,32 +13,54 @@
 #include <QKeyEvent>
 #include <QTextCharFormat>
 #include <QDebug>
+#include <QStandardPaths>
+#include <QDateTime>
+#include <QFile>
+#include <QTextStream>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
 
 /* 디버그 로깅 시스템 */
 static bool unim_debug_enabled = false;
+static bool unim_debug_checked = false;
+
+/* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
+static void unim_log_message(const char *module, const QString &message)
+{
+    if (!unim_debug_enabled) return;
+
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss");
+    QString logLine = QString("[%1] - [%2] - %3").arg(timestamp, module, message);
+
+    /* 콘솔 출력 */
+    qDebug().noquote() << logLine;
+
+    /* 파일 출력 */
+    QString logPath = QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/.unim-errors.log";
+    QFile file(logPath);
+    if (file.open(QIODevice::Append | QIODevice::Text)) {
+        QTextStream out(&file);
+        out << logLine << "\n";
+        file.close();
+    }
+}
 
 #define UNIM_DEBUG(...) \
-    do { \
-        if (unim_debug_enabled) { \
-            qDebug() << "[UNIM-QT5-IM]" << __VA_ARGS__; \
-        } \
-    } while (0)
+    unim_log_message("QT5_IM", QString(__VA_ARGS__))
 
 static void unim_check_debug_env()
 {
-    static bool checked = false;
-    if (!checked) {
+    if (!unim_debug_checked) {
         const char *env = std::getenv("UNIM_DEVELOP");
         if (env && std::strcmp(env, "1") == 0) {
             unim_debug_enabled = true;
-            qDebug() << "[UNIM-QT5-IM] 디버그 모드 활성화 (UNIM_DEVELOP=1)";
+            unim_log_message("QT5_IM", "디버그 모드 활성화 (UNIM_DEVELOP=1)");
         }
-        checked = true;
+        unim_debug_checked = true;
     }
 }
+
 
 UnimInputContext::UnimInputContext()
     : m_dbus(nullptr)
@@ -48,10 +70,13 @@ UnimInputContext::UnimInputContext()
     unim_check_debug_env();
     UNIM_DEBUG("UnimInputContext 생성 시작");
     
-    m_dbus = new UnimDbusClient(QStringLiteral("qt5-unim"));
+    // 창 식별자 생성 (컨텍스트 포인터 기반)
+    m_windowId = QString::asprintf("qt5-ctx-%p", static_cast<void*>(this));
+    
+    m_dbus = new UnimDbusClient(QStringLiteral("qt5-unim"), m_windowId);
     
     if (m_dbus && m_dbus->isValid()) {
-        UNIM_DEBUG("UnimInputContext 생성 완료 (DBus 연결됨)");
+        UNIM_DEBUG(QString::asprintf("UnimInputContext 생성 완료 (window_id: %s)", qPrintable(m_windowId)));
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }
@@ -139,15 +164,14 @@ bool UnimInputContext::filterEvent(const QEvent *event)
     quint32 scanCode = keyEvent->nativeScanCode();
     quint32 evdev_code = (scanCode > 8) ? (scanCode - 8) : 0;
     
-    UNIM_DEBUG("키 입력: key=" << keyEvent->key() << ", scanCode=" << scanCode 
-               << ", evdev=" << evdev_code << ", state=" << mod_state);
+    UNIM_DEBUG(QString::asprintf("키 입력: key=%d, scanCode=%u, evdev=%u, state=%u",
+               keyEvent->key(), scanCode, evdev_code, mod_state));
 
     /* DBus를 통해 키 처리 */
     UnimDbusKeyResult result = m_dbus->processKey(keyEvent->key(), evdev_code, mod_state);
     
-    UNIM_DEBUG("엔진 결과: consumed=" << result.consumed 
-               << ", preedit=" << result.preedit 
-               << ", commit=" << result.commit);
+    UNIM_DEBUG(QString::asprintf("엔진 결과: consumed=%d, preedit=%s, commit=%s",
+               result.consumed, qPrintable(result.preedit), qPrintable(result.commit)));
 
     if (result.consumed) {
         /* 선택 영역 삭제 처리 */
@@ -160,7 +184,7 @@ bool UnimInputContext::filterEvent(const QEvent *event)
             if (anchorPos != cursorPos) {
                 int start = std::min(anchorPos, cursorPos);
                 int end = std::max(anchorPos, cursorPos);
-                UNIM_DEBUG("Qt 선택 영역 삭제: start=" << start << ", end=" << end);
+                UNIM_DEBUG(QString::asprintf("Qt 선택 영역 삭제: start=%d, end=%d", start, end));
                 
                 QInputMethodEvent deleteEvent;
                 deleteEvent.setCommitString("", start - cursorPos, end - start);
@@ -229,7 +253,7 @@ Qt::LayoutDirection UnimInputContext::inputDirection() const
 
 void UnimInputContext::setFocusObject(QObject *object)
 {
-    UNIM_DEBUG("setFocusObject: object=" << object);
+    UNIM_DEBUG(QString::asprintf("setFocusObject: object=%p", static_cast<void*>(object)));
     if (m_focusObject && m_composing && m_dbus) {
         UNIM_DEBUG("setFocusObject: 조합 중, 커밋 수행");
         QString commitStr = m_dbus->focusOut();
@@ -242,7 +266,7 @@ void UnimInputContext::setFocusObject(QObject *object)
     m_focusObject = object;
     
     if (m_dbus && object) {
-        m_dbus->focusIn();
+        m_dbus->focusIn(m_windowId);
     }
 }
 

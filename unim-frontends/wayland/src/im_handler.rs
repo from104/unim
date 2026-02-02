@@ -3,6 +3,7 @@
 //! Wayland input-method-v2 이벤트를 처리하고 DBus를 통해 unim-daemon과 연동합니다.
 
 use tokio::sync::mpsc;
+use unim::unim_log;
 use wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_v2::ZwpInputMethodV2;
 
 use crate::dbus_client::{DbusRequest, DbusResponse};
@@ -97,7 +98,7 @@ impl InputMethodHandler {
         let _ = self.dbus_tx.blocking_send(DbusRequest::FocusIn {
             context_path: self.context_path.clone(),
         });
-        log::info!("입력 방식 활성화됨");
+        unim_log!("WAYLAND_HANDLER", "입력 방식 활성화됨");
     }
 
     /// 입력 방식 비활성화
@@ -121,7 +122,7 @@ impl InputMethodHandler {
             im.set_preedit_string(String::new(), 0, 0);
         }
         self.active = false;
-        log::info!("입력 방식 비활성화됨");
+        unim_log!("WAYLAND_HANDLER", "입력 방식 비활성화됨");
     }
 
     /// 주변 텍스트 설정

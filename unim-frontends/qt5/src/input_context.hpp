@@ -46,6 +46,7 @@ private:
 
     UnimDbusClient *m_dbus;
     QObject *m_focusObject;
+    QString m_windowId;
     bool m_composing;
 };
 

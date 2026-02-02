@@ -6,15 +6,7 @@ use crate::hangul::composer::HangulComposer;
 use crate::hangul::composer_with_2bul::HangulComposer2Bul;
 use crate::hangul::composer_with_3bul::HangulComposer3Bul;
 use crate::hangul::jamo::JamoEnum;
-
-/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
-macro_rules! unim_debug {
-    ($($arg:tt)*) => {
-        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
-            eprintln!("[UNIM-CONTEXT] {}", format!($($arg)*));
-        }
-    };
-}
+use crate::unim_log;
 
 /// 지원하는 한글 컴포저 타입
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -73,8 +65,9 @@ impl HangulInputContext {
     /// # Returns
     /// 입력 처리 성공 여부
     pub fn process_jamo(&mut self, jamo: JamoEnum) -> bool {
-        unim_debug!("process_jamo: {:?}", jamo);
-        unim_debug!(
+        unim_log!("CONTEXT", "process_jamo: {:?}", jamo);
+        unim_log!(
+            "CONTEXT",
             "  BEFORE: preedit='{}', committed='{}', composer={:?}",
             self.preedit,
             self.committed,
@@ -82,12 +75,13 @@ impl HangulInputContext {
         );
 
         if let Some(committed_char) = self.composer.add_jamo(jamo) {
-            unim_debug!("  -> 음절 완성: '{}'", committed_char);
+            unim_log!("CONTEXT", "  -> 음절 완성: '{}'", committed_char);
             self.committed.push(committed_char);
         }
 
         self.update_preedit();
-        unim_debug!(
+        unim_log!(
+            "CONTEXT",
             "  AFTER: preedit='{}', committed='{}'",
             self.preedit,
             self.committed
@@ -190,16 +184,21 @@ impl HangulInputContext {
     /// preedit 문자열을 업데이트합니다 (내부용).
     fn update_preedit(&mut self) {
         let current = self.composer.current_korean();
-        unim_debug!("update_preedit: composer.current_korean()={:?}", current);
+        unim_log!(
+            "CONTEXT",
+            "update_preedit: composer.current_korean()={:?}",
+            current
+        );
 
         self.preedit = match current.get_syllable() {
             Ok(ch) => {
-                unim_debug!("  -> get_syllable() = Ok('{}')", ch);
+                unim_log!("CONTEXT", "  -> get_syllable() = Ok('{}')", ch);
                 ch.to_string()
             }
             Err(_) => {
                 let compat = current.to_compat_jamo_string();
-                unim_debug!(
+                unim_log!(
+                    "CONTEXT",
                     "  -> get_syllable() = Err, to_compat_jamo_string()='{}'",
                     compat
                 );

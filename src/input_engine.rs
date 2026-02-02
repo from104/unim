@@ -7,16 +7,8 @@ use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::keystroke::EnglishKeymap;
+use crate::unim_log;
 use std::collections::HashMap;
-
-/// 디버그 로깅 매크로 (UNIM_DEVELOP=1 환경변수로 활성화)
-macro_rules! unim_debug {
-    ($($arg:tt)*) => {
-        if std::env::var("UNIM_DEVELOP").map(|v| v == "1").unwrap_or(false) {
-            eprintln!("[UNIM-ENGINE] {}", format!($($arg)*));
-        }
-    };
-}
 
 /// 입력 처리 결과
 ///
@@ -239,7 +231,8 @@ impl InputEngine {
 
     /// 한국어 키 입력을 처리합니다.
     fn process_korean_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
-        unim_debug!(
+        unim_log!(
+            "ENGINE",
             "process_korean_key: keycode={:?}, shift={}, caps={}",
             keycode,
             modifier.shift,
@@ -251,7 +244,7 @@ impl InputEngine {
             if self.korean_context.is_composing() {
                 self.korean_context.backspace();
                 self.update_preedit_cache();
-                unim_debug!("Backspace -> preedit='{}'", self.preedit_cache);
+                unim_log!("ENGINE", "Backspace -> preedit='{}'", self.preedit_cache);
                 return InputResult::preedit_updated();
             }
             return InputResult::not_consumed();
@@ -261,7 +254,7 @@ impl InputEngine {
         if keycode == KeyCode::Enter {
             if self.korean_context.is_composing() {
                 self.flush_preedit();
-                unim_debug!("Enter -> 조합 커밋 후 키 통과");
+                unim_log!("ENGINE", "Enter -> 조합 커밋 후 키 통과");
                 return InputResult::committed_passthrough();
             }
             return InputResult::not_consumed();
@@ -271,7 +264,7 @@ impl InputEngine {
         if keycode == KeyCode::Tab {
             if self.korean_context.is_composing() {
                 self.flush_preedit();
-                unim_debug!("Tab -> 조합 커밋 후 키 통과");
+                unim_log!("ENGINE", "Tab -> 조합 커밋 후 키 통과");
                 return InputResult::committed_passthrough();
             }
             return InputResult::not_consumed();
@@ -281,7 +274,7 @@ impl InputEngine {
         if keycode == KeyCode::Escape {
             if self.korean_context.is_composing() {
                 self.flush_preedit();
-                unim_debug!("Escape -> 조합 커밋 후 키 통과");
+                unim_log!("ENGINE", "Escape -> 조합 커밋 후 키 통과");
                 return InputResult::committed_passthrough();
             }
             return InputResult::not_consumed();
@@ -302,17 +295,17 @@ impl InputEngine {
         let ch = self.english_keymap.get_char(keycode, modifier.shift);
 
         if let Some(c) = ch {
-            unim_debug!("문자 키: '{}'", c);
+            unim_log!("ENGINE", "문자 키: '{}'", c);
 
             // 키보드 맵에서 자모 찾기
             if let Some(ref keyboard_map) = self.keyboard_map {
                 if let Some(jamo) = keyboard_map.get(&c) {
-                    unim_debug!("자모 매핑: {:?}", jamo);
+                    unim_log!("ENGINE", "자모 매핑: {:?}", jamo);
 
                     // Special 자모는 비-한국어 문자이므로 별도 처리
                     if let JamoEnum::Special(special_char) = jamo {
                         let ch_to_commit = *special_char; // 먼저 복사
-                        unim_debug!("Special 자모 처리: '{}'", ch_to_commit);
+                        unim_log!("ENGINE", "Special 자모 처리: '{}'", ch_to_commit);
                         // 조합 중이면 먼저 커밋
                         self.flush_preedit();
                         // Special 문자를 commit_buffer에 추가
@@ -325,7 +318,8 @@ impl InputEngine {
 
                     // committed 문자가 있으면 commit_buffer에 추가
                     let committed = self.korean_context.get_committed();
-                    unim_debug!(
+                    unim_log!(
+                        "ENGINE",
                         "context.committed='{}', context.preedit='{}'",
                         committed,
                         self.korean_context.get_preedit()
@@ -335,17 +329,25 @@ impl InputEngine {
                         self.commit_buffer.push_str(committed);
                         // committed 문자열만 비우기 (preedit은 유지)
                         self.korean_context.clear_committed();
-                        unim_debug!("commit_buffer에 추가 후: '{}'", self.commit_buffer);
+                        unim_log!(
+                            "ENGINE",
+                            "commit_buffer에 추가 후: '{}'",
+                            self.commit_buffer
+                        );
                     }
 
                     self.update_preedit_cache();
-                    unim_debug!("preedit_cache 업데이트 후: '{}'", self.preedit_cache);
+                    unim_log!(
+                        "ENGINE",
+                        "preedit_cache 업데이트 후: '{}'",
+                        self.preedit_cache
+                    );
 
                     if !self.commit_buffer.is_empty() {
-                        unim_debug!("-> InputResult::committed()");
+                        unim_log!("ENGINE", "-> InputResult::committed()");
                         return InputResult::committed();
                     }
-                    unim_debug!("-> InputResult::preedit_updated()");
+                    unim_log!("ENGINE", "-> InputResult::preedit_updated()");
                     return InputResult::preedit_updated();
                 }
             }
@@ -359,7 +361,7 @@ impl InputEngine {
         // 조합 중에 문자가 아닌 키(화살표, F키 등) 입력 시 커밋 후 키 통과
         if self.korean_context.is_composing() {
             self.flush_preedit();
-            unim_debug!("비문자키 -> 조합 커밋 후 키 통과");
+            unim_log!("ENGINE", "비문자키 -> 조합 커밋 후 키 통과");
             return InputResult::committed_passthrough();
         }
 

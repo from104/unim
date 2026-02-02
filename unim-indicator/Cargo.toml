@@ -25,7 +25,3 @@ libadwaita = "0.7"
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 futures-util = "0.3"
-
-# Logging
-log = "0.4"
-env_logger = "0.11"

@@ -6,16 +6,21 @@ use std::path::Path;
 use std::process;
 use unim::hangul::composer_with_2bul::HangulComposer2Bul;
 use unim::hangul::composer_with_3bul::HangulComposer3Bul;
-use unim::keystroke::korean_to_keystrokes::korean_to_keystrokes;
 use unim::keystroke::keyboard_map::KeyboardMap;
 use unim::keystroke::keystrokes_to_korean::keystrokes_to_korean;
+use unim::keystroke::korean_to_keystrokes::korean_to_keystrokes;
+use unim::unim_log;
 
 // i18n 초기화
 rust_i18n::i18n!("locales");
 
 /// UNIM-cli (Universal Next-generation Input Method for command-line)
 #[derive(Parser, Debug)]
-#[command(author, version, about = "UNIM-cli - Korean/English Keyboard Converter")]
+#[command(
+    author,
+    version,
+    about = "UNIM-cli - Korean/English Keyboard Converter"
+)]
 struct Cli {
     /// Input files (uses standard input if not specified)
     #[arg(name = "FILE")]
@@ -154,7 +159,14 @@ fn run_convert(config: ConvertConfig) -> io::Result<()> {
         KeyboardMode::ThreeBul390 => "ko_3bul390",
         KeyboardMode::ThreeBul391 => "ko_3bul391",
     };
-    
+
+    unim_log!(
+        "CLI",
+        "변환 시작: 영어자판={}, 한글자판={}",
+        en_keymap_name,
+        korean_keymap_name
+    );
+
     let en_json = unim::keystroke::get_keymap_json(en_keymap_name);
     let ko_json = unim::keystroke::get_keymap_json(korean_keymap_name);
 
@@ -165,6 +177,7 @@ fn run_convert(config: ConvertConfig) -> io::Result<()> {
 
     match config.conversion_mode {
         ConversionMode::EnglishToKorean => {
+            unim_log!("CLI", "변환 모드: 영어 -> 한글");
             if is_three_bul {
                 process_with_3bul(inputs, &mut output, en_json, ko_json)?;
             } else {
@@ -172,10 +185,12 @@ fn run_convert(config: ConvertConfig) -> io::Result<()> {
             }
         }
         ConversionMode::KoreanToEnglish => {
+            unim_log!("CLI", "변환 모드: 한글 -> 영어");
             process_korean_to_english(inputs, &mut output, en_json, ko_json, is_three_bul)?;
         }
     }
 
+    unim_log!("CLI", "변환 완료");
     Ok(())
 }
 
@@ -259,11 +274,11 @@ fn main() -> io::Result<()> {
 
     let cli = Cli::parse();
     let config = ConvertConfig::from_cli(&cli);
-    
+
     for warning in &config.warnings {
         eprintln!("{}", t!("warning_label", warning = warning));
     }
-    
+
     if let Err(e) = run_convert(config) {
         eprintln!("{}", t!("error_label", error = e));
         process::exit(1);

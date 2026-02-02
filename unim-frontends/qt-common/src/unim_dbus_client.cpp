@@ -8,6 +8,10 @@
 #include <QDebug>
 #include <QDBusMessage>
 #include <QDBusPendingReply>
+#include <QStandardPaths>
+#include <QDateTime>
+#include <QFile>
+#include <QTextStream>
 #include <cstdlib>
 #include <cstring>
 
@@ -15,12 +19,29 @@
 static bool unim_dbus_debug_enabled = false;
 static bool unim_dbus_debug_checked = false;
 
+/* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
+static void unim_log_message(const char *module, const QString &message)
+{
+    if (!unim_dbus_debug_enabled) return;
+
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss");
+    QString logLine = QString("[%1] - [%2] - %3").arg(timestamp, module, message);
+
+    /* 콘솔 출력 */
+    qDebug().noquote() << logLine;
+
+    /* 파일 출력 */
+    QString logPath = QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/.unim-errors.log";
+    QFile file(logPath);
+    if (file.open(QIODevice::Append | QIODevice::Text)) {
+        QTextStream out(&file);
+        out << logLine << "\n";
+        file.close();
+    }
+}
+
 #define UNIM_DBUS_DEBUG(...) \
-    do { \
-        if (unim_dbus_debug_enabled) { \
-            qDebug() << "[UNIM-DBUS]" << __VA_ARGS__; \
-        } \
-    } while (0)
+    unim_log_message("QT_DBUS", QString(__VA_ARGS__))
 
 static void unim_dbus_check_debug_env()
 {
@@ -33,7 +54,8 @@ static void unim_dbus_check_debug_env()
     }
 }
 
-UnimDbusClient::UnimDbusClient(const QString &clientName)
+
+UnimDbusClient::UnimDbusClient(const QString &clientName, const QString &windowId)
     : m_bus(QDBusConnection::sessionBus())
     , m_isComposing(false)
     , m_connected(false)
@@ -41,32 +63,35 @@ UnimDbusClient::UnimDbusClient(const QString &clientName)
     unim_dbus_check_debug_env();
     
     if (!m_bus.isConnected()) {
-        UNIM_DBUS_DEBUG("DBus 세션 버스 연결 실패");
+        UNIM_DBUS_DEBUG("디버그 세션 버스 연결 실패");
         return;
     }
     
-    UNIM_DBUS_DEBUG("DBus 세션 버스 연결 성공");
+    UNIM_DBUS_DEBUG("디버그 세션 버스 연결 성공");
     
-    // InputContext 생성 요청
+    // window_id가 비어있으면 빈 문자열 사용
+    QString effectiveWindowId = windowId.isEmpty() ? QString() : windowId;
+    
+    // InputContext 생성 요청 (window_id 포함)
     QDBusMessage msg = QDBusMessage::createMethodCall(
         UNIM_DBUS_SERVICE,
         UNIM_DBUS_PATH,
         UNIM_DBUS_INTERFACE,
         QStringLiteral("CreateInputContext")
     );
-    msg << clientName;
+    msg << clientName << effectiveWindowId;
     
     QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
     
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        UNIM_DBUS_DEBUG("CreateInputContext 실패:" << reply.errorMessage());
+        UNIM_DBUS_DEBUG(QString::asprintf("CreateInputContext 실패: %s", qPrintable(reply.errorMessage())));
         return;
     }
     
     if (reply.arguments().size() > 0) {
         m_contextPath = reply.arguments().at(0).toString();
         m_connected = true;
-        UNIM_DBUS_DEBUG("InputContext 생성:" << m_contextPath);
+        UNIM_DBUS_DEBUG(QString::asprintf("InputContext 생성: %s (window_id: %s)", qPrintable(m_contextPath), qPrintable(effectiveWindowId)));
     }
 }
 
@@ -82,7 +107,7 @@ UnimDbusClient::~UnimDbusClient()
     );
     
     m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
-    UNIM_DBUS_DEBUG("InputContext 파괴:" << m_contextPath);
+    UNIM_DBUS_DEBUG(QString::asprintf("InputContext 파괴: %s", qPrintable(m_contextPath)));
 }
 
 bool UnimDbusClient::isValid() const
@@ -97,7 +122,7 @@ UnimDbusKeyResult UnimDbusClient::processKey(quint32 keyval, quint32 keycode, qu
     
     if (!isValid()) return result;
     
-    UNIM_DBUS_DEBUG("ProcessKeyEvent: keyval=" << keyval << "keycode=" << keycode << "state=" << state);
+    UNIM_DBUS_DEBUG(QString::asprintf("ProcessKeyEvent: keyval=%u, keycode=%u, state=%u", keyval, keycode, state));
     
     QDBusMessage msg = QDBusMessage::createMethodCall(
         UNIM_DBUS_SERVICE,
@@ -110,7 +135,7 @@ UnimDbusKeyResult UnimDbusClient::processKey(quint32 keyval, quint32 keycode, qu
     QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
     
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        UNIM_DBUS_DEBUG("ProcessKeyEvent 실패:" << reply.errorMessage());
+        UNIM_DBUS_DEBUG(QString::asprintf("ProcessKeyEvent 실패: %s", qPrintable(reply.errorMessage())));
         return result;
     }
     
@@ -124,18 +149,19 @@ UnimDbusKeyResult UnimDbusClient::processKey(quint32 keyval, quint32 keycode, qu
         m_preeditCache = result.preedit;
         m_isComposing = !result.preedit.isEmpty();
         
-        UNIM_DBUS_DEBUG("ProcessKeyEvent 결과: consumed=" << result.consumed 
-                        << "preedit=" << result.preedit << "commit=" << result.commit);
+        UNIM_DBUS_DEBUG(QString::asprintf("ProcessKeyEvent 결과: consumed=%d, preedit=%s, commit=%s",
+                        result.consumed, qPrintable(result.preedit), qPrintable(result.commit)));
     }
     
     return result;
 }
 
-void UnimDbusClient::focusIn()
+void UnimDbusClient::focusIn(const QString &windowId)
 {
     if (!isValid()) return;
     
-    UNIM_DBUS_DEBUG("FocusIn");
+    QString effectiveWindowId = windowId.isEmpty() ? QString() : windowId;
+    UNIM_DBUS_DEBUG(QString::asprintf("FocusIn (window_id: %s)", qPrintable(effectiveWindowId)));
     
     QDBusMessage msg = QDBusMessage::createMethodCall(
         UNIM_DBUS_SERVICE,
@@ -143,6 +169,7 @@ void UnimDbusClient::focusIn()
         UNIM_DBUS_IC_INTERFACE,
         QStringLiteral("FocusIn")
     );
+    msg << effectiveWindowId;
     
     m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
 }
@@ -158,7 +185,7 @@ QString UnimDbusClient::focusOut()
     // 조합 중인 문자가 있으면 반환
     if (m_isComposing && !m_preeditCache.isEmpty()) {
         commitStr = m_preeditCache;
-        UNIM_DBUS_DEBUG("FocusOut 커밋:" << commitStr);
+        UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋: %s", qPrintable(commitStr)));
     }
     
     QDBusMessage msg = QDBusMessage::createMethodCall(
@@ -188,7 +215,7 @@ QString UnimDbusClient::reset()
     // 조합 중인 문자가 있으면 반환
     if (m_isComposing && !m_preeditCache.isEmpty()) {
         commitStr = m_preeditCache;
-        UNIM_DBUS_DEBUG("Reset 커밋:" << commitStr);
+        UNIM_DBUS_DEBUG(QString::asprintf("Reset 커밋: %s", qPrintable(commitStr)));
     }
     
     QDBusMessage msg = QDBusMessage::createMethodCall(

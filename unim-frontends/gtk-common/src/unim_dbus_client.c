@@ -6,17 +6,58 @@
 
 #include "unim_dbus_client.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <time.h>
 
 /* 디버그 로깅 */
 static gboolean unim_dbus_debug_enabled = FALSE;
 static gboolean unim_dbus_debug_checked = FALSE;
 
+/* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
+static void
+unim_log_message(const char *module, const char *format, ...)
+{
+    if (!unim_dbus_debug_enabled) return;
+
+    va_list args;
+    char message[1024];
+    char timestamp[32];
+    char log_line[2048];
+    time_t now;
+    struct tm *tm_info;
+
+    /* 메시지 포맷팅 */
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+
+    /* 타임스탬프 생성 */
+    time(&now);
+    tm_info = localtime(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y/%m/%d %H:%M:%S", tm_info);
+
+    /* 로그 라인 생성 */
+    snprintf(log_line, sizeof(log_line), "[%s] - [%s] - %s", timestamp, module, message);
+
+    /* 콘솔 출력 */
+    g_print("%s\n", log_line);
+
+    /* 파일 출력 */
+    const gchar *home = g_get_home_dir();
+    if (home) {
+        gchar *log_path = g_build_filename(home, ".unim-errors.log", NULL);
+        FILE *f = fopen(log_path, "a");
+        if (f) {
+            fprintf(f, "%s\n", log_line);
+            fclose(f);
+        }
+        g_free(log_path);
+    }
+}
+
 #define UNIM_DBUS_DEBUG(fmt, ...) \
-    do { \
-        if (unim_dbus_debug_enabled) { \
-            g_print("[UNIM-DBUS] " fmt "\n", ##__VA_ARGS__); \
-        } \
-    } while (0)
+    unim_log_message("GTK_DBUS", fmt, ##__VA_ARGS__)
 
 static void
 unim_dbus_check_debug_env(void)
@@ -30,6 +71,7 @@ unim_dbus_check_debug_env(void)
     }
 }
 
+
 /* 내부 구조체 */
 struct _UnimDbusContext {
     GDBusConnection *connection;
@@ -39,7 +81,7 @@ struct _UnimDbusContext {
 };
 
 UnimDbusContext*
-unim_dbus_context_new(const gchar *client_name)
+unim_dbus_context_new(const gchar *client_name, const gchar *window_id)
 {
     GError *error = NULL;
     GVariant *result;
@@ -60,14 +102,17 @@ unim_dbus_context_new(const gchar *client_name)
 
     UNIM_DBUS_DEBUG("DBus 세션 버스 연결 성공");
 
-    /* InputContext 생성 요청 */
+    /* window_id가 NULL이면 빈 문자열 사용 */
+    const gchar *effective_window_id = window_id ? window_id : "";
+
+    /* InputContext 생성 요청 (window_id 포함) */
     result = g_dbus_connection_call_sync(
         ctx->connection,
         UNIM_DBUS_SERVICE,
         UNIM_DBUS_PATH,
         UNIM_DBUS_INTERFACE,
         "CreateInputContext",
-        g_variant_new("(s)", client_name),
+        g_variant_new("(ss)", client_name, effective_window_id),
         G_VARIANT_TYPE("(s)"),
         G_DBUS_CALL_FLAGS_NONE,
         UNIM_DBUS_TIMEOUT_MS,
@@ -89,7 +134,7 @@ unim_dbus_context_new(const gchar *client_name)
     ctx->preedit_cache = g_strdup("");
     ctx->is_composing = FALSE;
 
-    UNIM_DBUS_DEBUG("InputContext 생성: %s", ctx->context_path);
+    UNIM_DBUS_DEBUG("InputContext 생성: %s (window_id: %s)", ctx->context_path, effective_window_id);
 
     return ctx;
 }
@@ -194,13 +239,16 @@ unim_dbus_process_key(UnimDbusContext *ctx,
 }
 
 void
-unim_dbus_focus_in(UnimDbusContext *ctx)
+unim_dbus_focus_in(UnimDbusContext *ctx, const gchar *window_id)
 {
     GError *error = NULL;
 
     if (!ctx || !ctx->connection || !ctx->context_path) return;
 
-    UNIM_DBUS_DEBUG("FocusIn 호출");
+    /* window_id가 NULL이면 빈 문자열 사용 */
+    const gchar *effective_window_id = window_id ? window_id : "";
+
+    UNIM_DBUS_DEBUG("FocusIn 호출 (window_id: %s)", effective_window_id);
 
     g_dbus_connection_call_sync(
         ctx->connection,
@@ -208,7 +256,7 @@ unim_dbus_focus_in(UnimDbusContext *ctx)
         ctx->context_path,
         UNIM_DBUS_IC_INTERFACE,
         "FocusIn",
-        NULL,
+        g_variant_new("(s)", effective_window_id),
         NULL,
         G_DBUS_CALL_FLAGS_NONE,
         UNIM_DBUS_TIMEOUT_MS,

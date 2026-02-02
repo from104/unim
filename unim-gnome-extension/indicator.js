@@ -13,6 +13,7 @@ import Clutter from 'gi://Clutter';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { unimLog, unimError } from './logging.js';
 
 /** DBus 서비스 정보 */
 const UNIM_BUS_NAME = 'org.atit.unim.InputMethod';
@@ -61,7 +62,7 @@ class UnimIndicator extends PanelMenu.Button {
         // DBus 서비스 감시 시작
         this._watchDbusService();
         
-        console.log('[unim-indicator] Panel indicator initialized');
+        unimLog('INDICATOR', ' Panel indicator initialized');
     }
     
     _buildMenu() {
@@ -153,14 +154,52 @@ class UnimIndicator extends PanelMenu.Button {
             this._onServiceAppeared.bind(this),
             this._onServiceVanished.bind(this)
         );
-        console.log('[unim-indicator] Started watching DBus service');
+        unimLog('INDICATOR', ' Started watching DBus service');
+        
+        // DBus Activation: 프록시 생성 시도로 데몬 자동 시작 트리거
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+            this._tryActivateDaemon();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+    
+    /**
+     * DBus Activation을 통해 데몬 시작을 시도합니다.
+     * 
+     * 데몬이 실행 중이지 않으면 DBus 서비스 파일에 의해 자동으로 시작됩니다.
+     */
+    _tryActivateDaemon() {
+        unimLog('INDICATOR', ' Attempting DBus activation...');
+        try {
+            Gio.DBusProxy.new_for_bus(
+                Gio.BusType.SESSION,
+                Gio.DBusProxyFlags.NONE,
+                null,
+                UNIM_BUS_NAME,
+                UNIM_OBJECT_PATH,
+                UNIM_INTERFACE,
+                null,
+                (source, result) => {
+                    try {
+                        const proxy = Gio.DBusProxy.new_for_bus_finish(result);
+                        if (proxy) {
+                            unimLog('INDICATOR', ' DBus activation successful');
+                        }
+                    } catch (e) {
+                        unimLog('INDICATOR', ` DBus activation attempt: ${e.message}`);
+                    }
+                }
+            );
+        } catch (e) {
+            unimLog('INDICATOR', ` DBus activation failed: ${e.message}`);
+        }
     }
     
     /**
      * DBus 서비스 등장 시 호출
      */
     _onServiceAppeared(connection, name, nameOwner) {
-        console.log(`[unim-indicator] DBus service appeared: ${name} (owner: ${nameOwner})`);
+        unimLog('INDICATOR', ` DBus service appeared: ${name} (owner: ${nameOwner})`);
         this._setupDbusProxy();
     }
     
@@ -168,7 +207,7 @@ class UnimIndicator extends PanelMenu.Button {
      * DBus 서비스 소멸 시 호출
      */
     _onServiceVanished(connection, name) {
-        console.log(`[unim-indicator] DBus service vanished: ${name}`);
+        unimLog('INDICATOR', ` DBus service vanished: ${name}`);
         
         // 기존 프록시 정리
         if (this._dbusProxy && this._dbusSignalId > 0) {
@@ -210,13 +249,13 @@ class UnimIndicator extends PanelMenu.Button {
                 );
                 
                 this._connected = true;
-                console.log('[unim-indicator] DBus proxy connected');
+                unimLog('INDICATOR', ' DBus proxy connected');
                 
                 // 초기 상태 조회
                 this._fetchInitialMode();
             }
         } catch (e) {
-            console.log(`[unim-indicator] DBus proxy setup failed: ${e.message}`);
+            unimLog('INDICATOR', ` DBus proxy setup failed: ${e.message}`);
             this._connected = false;
             this._updateIcon();
             this._updateMenuItems();
@@ -238,7 +277,7 @@ class UnimIndicator extends PanelMenu.Button {
                 this._onModeChanged(isKorean);
             }
         } catch (e) {
-            console.log(`[unim-indicator] GetGlobalMode failed: ${e.message}`);
+            unimLog('INDICATOR', ` GetGlobalMode failed: ${e.message}`);
         }
     }
     
@@ -246,7 +285,7 @@ class UnimIndicator extends PanelMenu.Button {
         this._isKorean = isKorean;
         this._updateIcon();
         this._updateMenuItems();
-        console.log(`[unim-indicator] Mode changed: ${isKorean ? 'Korean' : 'English'}`);
+        unimLog('INDICATOR', ` Mode changed: ${isKorean ? 'Korean' : 'English'}`);
     }
     
     _setMode(isKorean) {
@@ -264,7 +303,7 @@ class UnimIndicator extends PanelMenu.Button {
                 null
             );
         } catch (e) {
-            console.error(`[unim-indicator] SetGlobalMode failed: ${e.message}`);
+            unimError('INDICATOR', ` SetGlobalMode failed: ${e.message}`);
         }
     }
     
@@ -294,7 +333,7 @@ class UnimIndicator extends PanelMenu.Button {
             const argv = ['gnome-extensions', 'prefs', this._extension.metadata.uuid];
             GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
         } catch (e) {
-            console.error(`[unim-indicator] Failed to open extension settings: ${e.message}`);
+            unimError('INDICATOR', ` Failed to open extension settings: ${e.message}`);
         }
     }
     
@@ -313,6 +352,6 @@ class UnimIndicator extends PanelMenu.Button {
         this._dbusProxy = null;
         
         super.destroy();
-        console.log('[unim-indicator] Panel indicator destroyed');
+        unimLog('INDICATOR', ' Panel indicator destroyed');
     }
 });

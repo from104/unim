@@ -18,6 +18,39 @@ pub enum InputCategory {
     English,
 }
 
+/// 입력 모드 공유 방식
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(C)]
+pub enum ModeSharingMode {
+    /// 모든 앱/창이 동일한 한/영 상태를 공유 (기본)
+    #[default]
+    Global,
+    /// 각 앱(InputContext)이 독립적인 한/영 상태를 유지
+    PerApp,
+    /// 각 창이 독립적인 한/영 상태를 유지
+    PerWindow,
+}
+
+impl ModeSharingMode {
+    /// 표시용 레이블을 반환합니다.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ModeSharingMode::Global => "전역 공유",
+            ModeSharingMode::PerApp => "앱별 독립",
+            ModeSharingMode::PerWindow => "창별 독립",
+        }
+    }
+
+    /// 사용 가능한 모든 모드를 반환합니다.
+    pub fn all() -> &'static [ModeSharingMode] {
+        &[
+            ModeSharingMode::Global,
+            ModeSharingMode::PerApp,
+            ModeSharingMode::PerWindow,
+        ]
+    }
+}
+
 /// 한국어 키보드 레이아웃
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(u32)]
@@ -201,6 +234,8 @@ impl Default for EnglishConfig {
 pub struct EngineConfig {
     /// 기본 입력 카테고리
     pub default_category: InputCategory,
+    /// 입력 모드 공유 방식
+    pub mode_sharing: ModeSharingMode,
     /// 한국어 설정
     pub korean: KoreanConfig,
     /// 영어 설정
@@ -213,6 +248,7 @@ impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             default_category: InputCategory::default(),
+            mode_sharing: ModeSharingMode::default(),
             korean: KoreanConfig::default(),
             english: EnglishConfig::default(),
             auto_switch: AutoSwitchConfig::default(),
