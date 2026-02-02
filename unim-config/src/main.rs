@@ -2,7 +2,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use rust_i18n::t;
 use std::process;
-use unim::config::{Config as UnimConfig, EnglishLayout, KoreanLayout};
+use unim::config::{
+    Config as UnimConfig, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode,
+};
 
 // i18n 초기화
 rust_i18n::i18n!("locales");
@@ -37,12 +39,18 @@ enum Commands {
 
 #[derive(Clone, Debug, ValueEnum)]
 enum ConfigKey {
-    /// 한국어 레이아웃 (2bul, 3bul390, 3bul391)
+    /// 한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift)
     #[value(name = "korean-layout")]
     KoreanLayout,
-    /// 영어 레이아웃 (qwerty, dvorak)
+    /// 영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)
     #[value(name = "english-layout")]
     EnglishLayout,
+    /// 초기 입력 모드 (korean, english)
+    #[value(name = "default-category")]
+    DefaultCategory,
+    /// 모드 공유 방식 (global, per-app, per-window)
+    #[value(name = "mode-sharing")]
+    ModeSharing,
     /// 자동 전환 활성화 (true, false)
     #[value(name = "auto-switch")]
     AutoSwitch,
@@ -55,8 +63,14 @@ fn config_show() {
     let config = UnimConfig::load_from_default_path();
 
     let korean_name = config.engine.korean.layout.display_name();
-
     let english_name = config.engine.english.layout.display_name();
+
+    let default_category_name = match config.engine.default_category {
+        InputCategory::Korean => t!("korean_mode"),
+        InputCategory::English => t!("english_mode"),
+    };
+
+    let mode_sharing_name = config.engine.mode_sharing.display_name();
 
     let auto_switch_status = if config.engine.auto_switch.enabled {
         t!("enabled")
@@ -78,6 +92,12 @@ fn config_show() {
         english_name,
         config.engine.english.layout.name()
     );
+    println!(
+        "{}: {}",
+        t!("default_category_label"),
+        default_category_name
+    );
+    println!("{}: {}", t!("mode_sharing_label"), mode_sharing_name);
     println!("{}: {}", t!("auto_switch_label"), auto_switch_status);
     println!(
         "{}: {:.2}",
@@ -142,6 +162,46 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 "{}",
                 t!("layout_changed", kind = kind, layout = layout.name())
             );
+        }
+        ConfigKey::DefaultCategory => {
+            let category = match value.to_lowercase().as_str() {
+                "korean" | "ko" | "한글" | "한국어" => InputCategory::Korean,
+                "english" | "en" | "영어" => InputCategory::English,
+                _ => {
+                    return Err(t!(
+                        "error_invalid_category",
+                        value = value,
+                        allowed = "korean, english"
+                    )
+                    .to_string());
+                }
+            };
+            config.engine.default_category = category;
+            let category_name = match category {
+                InputCategory::Korean => t!("korean_mode"),
+                InputCategory::English => t!("english_mode"),
+            };
+            println!(
+                "{}",
+                t!("default_category_changed", category = category_name)
+            );
+        }
+        ConfigKey::ModeSharing => {
+            let mode = match value.to_lowercase().as_str() {
+                "global" | "전역" => ModeSharingMode::Global,
+                "per-app" | "perapp" | "앱별" => ModeSharingMode::PerApp,
+                "per-window" | "perwindow" | "창별" => ModeSharingMode::PerWindow,
+                _ => {
+                    return Err(t!(
+                        "error_invalid_mode_sharing",
+                        value = value,
+                        allowed = "global, per-app, per-window"
+                    )
+                    .to_string());
+                }
+            };
+            config.engine.mode_sharing = mode;
+            println!("{}", t!("mode_sharing_changed", mode = mode.display_name()));
         }
         ConfigKey::AutoSwitch => {
             let enabled = match value.to_lowercase().as_str() {
@@ -208,6 +268,8 @@ fn config_interactive() {
         let options = vec![
             t!("korean_layout_label").to_string(),
             t!("english_layout_label").to_string(),
+            t!("default_category_label").to_string(),
+            t!("mode_sharing_label").to_string(),
             t!("auto_switch_label").to_string(),
             t!("auto_switch_threshold_label").to_string(),
             t!("config_reset_desc").to_string(),
@@ -256,13 +318,51 @@ fn config_interactive() {
                 config.engine.english.layout = layouts[s];
             }
             2 => {
+                let categories = [InputCategory::Korean, InputCategory::English];
+                let category_names: Vec<String> = categories
+                    .iter()
+                    .map(|c| match c {
+                        InputCategory::Korean => t!("korean_mode").to_string(),
+                        InputCategory::English => t!("english_mode").to_string(),
+                    })
+                    .collect();
+                let current_idx = categories
+                    .iter()
+                    .position(|c| *c == config.engine.default_category)
+                    .unwrap_or(0);
+                let s = Select::with_theme(&theme)
+                    .with_prompt(t!("select_default_category").to_string())
+                    .items(&category_names)
+                    .default(current_idx)
+                    .interact()
+                    .unwrap();
+
+                config.engine.default_category = categories[s];
+            }
+            3 => {
+                let modes = ModeSharingMode::all();
+                let mode_names: Vec<&str> = modes.iter().map(|m| m.display_name()).collect();
+                let current_idx = modes
+                    .iter()
+                    .position(|m| *m == config.engine.mode_sharing)
+                    .unwrap_or(0);
+                let s = Select::with_theme(&theme)
+                    .with_prompt(t!("select_mode_sharing").to_string())
+                    .items(&mode_names)
+                    .default(current_idx)
+                    .interact()
+                    .unwrap();
+
+                config.engine.mode_sharing = modes[s];
+            }
+            4 => {
                 config.engine.auto_switch.enabled = Confirm::with_theme(&theme)
                     .with_prompt(t!("enable_auto_switch").to_string())
                     .default(config.engine.auto_switch.enabled)
                     .interact()
                     .unwrap();
             }
-            3 => {
+            5 => {
                 let threshold: f32 = Input::with_theme(&theme)
                     .with_prompt(t!("enter_threshold").to_string())
                     .default(config.engine.auto_switch.threshold)
@@ -277,7 +377,7 @@ fn config_interactive() {
                     .unwrap();
                 config.engine.auto_switch.threshold = threshold;
             }
-            4 => {
+            6 => {
                 if Confirm::with_theme(&theme)
                     .with_prompt(t!("confirm_reset").to_string())
                     .default(false)
@@ -288,7 +388,7 @@ fn config_interactive() {
                     println!("{}", t!("config_reset_done"));
                 }
             }
-            5 => {
+            7 => {
                 if let Err(e) = config.save_to_default_path() {
                     eprintln!("{}: {}", t!("error_label"), e);
                 } else {
@@ -296,7 +396,7 @@ fn config_interactive() {
                 }
                 break;
             }
-            6 => {
+            8 => {
                 println!("{}", t!("exit_canceled"));
                 break;
             }

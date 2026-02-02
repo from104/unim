@@ -310,6 +310,7 @@ impl InputMethodService {
                     config.engine.mode_sharing = match value {
                         "Global" => unim::config::ModeSharingMode::Global,
                         "PerApp" => unim::config::ModeSharingMode::PerApp,
+                        "PerWindow" => unim::config::ModeSharingMode::PerWindow,
                         _ => {
                             return Err(zbus::fdo::Error::InvalidArgs(format!(
                                 "Invalid value: {}",

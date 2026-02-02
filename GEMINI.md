@@ -8,6 +8,50 @@
 
 ---
 
+# 설정 항목 연동 가이드라인 (Settings Synchronization)
+
+## 개요
+
+UNIM의 설정 항목(`src/config.rs`)이 변경될 때는 **모든 관련 컴포넌트에 동일한 설정이 반영**되어야 합니다.
+설정 변경 시 반드시 아래 체크리스트를 확인하세요.
+
+## 연동 대상 컴포넌트
+
+| 컴포넌트 | 파일 위치 | 역할 |
+| -------- | --------- | ---- |
+| **설정 코어** | `src/config.rs` | 설정 구조체 및 직렬화 정의 (Source of Truth) |
+| **unim-config (CLI)** | `unim-config/src/main.rs` | CLI 설정 관리 도구 |
+| **unim-dbus** | `unim-dbus/src/service.rs` | `get_config`/`set_config` DBus 메서드 |
+| **GTK 설정 도구** | `unim-gtk-settings/src/settings_dialog.c` | GTK 기반 GUI 설정 |
+| **Qt 설정 도구** | `unim-qt-settings/src/SettingsDialog.cpp` | Qt 기반 GUI 설정 |
+| **GNOME Extension 설정** | `unim-gnome-extension/prefs.js` | GNOME Extension Preferences |
+| **C-API** | `unim-capi/src/lib.rs` | FFI 바인딩 (필요 시) |
+
+## 설정 항목 추가/변경 시 체크리스트
+
+1. [ ] `src/config.rs` - 설정 구조체에 새 필드 추가
+2. [ ] `unim-config/src/main.rs` - `ConfigKey` enum 및 관련 함수 업데이트
+3. [ ] `unim-config/locales/*.yml` - 번역 문자열 추가
+4. [ ] `unim-dbus/src/service.rs` - `get_config`/`set_config` 매칭 업데이트
+5. [ ] `unim-gtk-settings` - UI 위젯 및 DBus 연동 추가
+6. [ ] `unim-qt-settings` - UI 위젯 및 DBus 연동 추가
+7. [ ] `unim-gnome-extension/prefs.js` - GSettings 스키마 및 UI 추가
+8. [ ] `unim-gnome-extension/*.gschema.xml` - GSchema 정의 업데이트
+9. [ ] `unim-capi/src/lib.rs` - FFI 함수 추가 (필요 시)
+
+## 예시: `mode_sharing` 설정 추가 시
+
+```text
+src/config.rs           → ModeSharingMode enum 정의
+unim-config/main.rs     → ConfigKey::ModeSharing 추가
+unim-dbus/service.rs    → get_config("mode_sharing"), set_config("mode_sharing", ...) 처리
+unim-gtk-settings       → ComboBox 추가, DBus 연동
+unim-qt-settings        → QComboBox 추가, DBus 연동
+prefs.js + gschema.xml  → 'mode-sharing' 키 추가
+```
+
+---
+
 # Logging System (로깅 시스템)
 
 ## 개요
