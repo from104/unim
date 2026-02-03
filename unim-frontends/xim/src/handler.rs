@@ -411,9 +411,13 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             user_ic.ic.input_context_id()
         );
 
+        let window_id = format!(
+            "xim-win-0x{:x}",
+            user_ic.ic.app_win().map(u32::from).unwrap_or(0)
+        );
         let _ = self.dbus_tx.blocking_send(DbusRequest::FocusIn {
             context_path: user_ic.user_data.context_path.clone(),
-            window_id: "unim-xim".to_string(),
+            window_id,
         });
 
         Ok(())
@@ -478,11 +482,31 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         user_ic: &mut UserInputContext<Self::InputContextData>,
         xev: &KeyPressEvent,
     ) -> Result<bool, ServerError> {
+        // ======================================================================
+        // [중요] WezTerm 호환성: KeyRelease 이벤트 무시
+        // ======================================================================
+        // WezTerm(xcb-imdkit 기반)은 KeyPress와 KeyRelease를 모두 ForwardEvent로
+        // 전송하여 이중 입력 문제가 발생함. KeyRelease는 문자 입력에 사용되지
+        // 않으므로 무시해도 안전함.
+        // response_type: 2=KeyPress, 3=KeyRelease
+        // ======================================================================
+        const KEY_RELEASE: u8 = 3;
+        if xev.response_type == KEY_RELEASE {
+            unim_log!(
+                "XIM_HANDLER",
+                "KeyRelease 이벤트 무시: type={}, keycode={}",
+                xev.response_type,
+                xev.detail
+            );
+            return Ok(true); // 소비된 것으로 처리
+        }
+
         let evdev_code = if xev.detail > 8 { xev.detail - 8 } else { 0 };
 
         unim_log!(
             "XIM_HANDLER",
-            "키 입력: keycode={}, evdev={}, state={:?}",
+            "키 입력: type={}, keycode={}, evdev={}, state={:?}",
+            xev.response_type,
             xev.detail,
             evdev_code,
             xev.state

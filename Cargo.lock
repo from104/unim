@@ -2363,6 +2363,7 @@ name = "unim-xim"
 version = "0.0.1"
 dependencies = [
  "ahash",
+ "ctrlc",
  "env_logger",
  "log",
  "tokio",

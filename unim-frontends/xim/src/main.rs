@@ -8,6 +8,7 @@ mod handler;
 mod pe_window;
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use unim::unim_log;
 use x11rb::connection::Connection;
 use x11rb::protocol::Event;
@@ -83,10 +84,26 @@ fn main() {
 
     unim_log!("XIM", "이벤트 루프 시작...");
 
-    // 이벤트 루프
-    loop {
-        let event = match server.conn().wait_for_event() {
-            Ok(event) => event,
+    // 종료 신호 핸들러 설정
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    // 이벤트 루프 (논블로킹 체크를 위해 poll_for_event 고려 가능하나,
+    // 여기선 일단 wait_for_event를 유지하되 루프 플래그 확인)
+    while running.load(Ordering::SeqCst) {
+        // x11rb의 wait_for_event는 블로킹이므로,
+        // 실제로는 신호가 와도 다음 이벤트까지 대기할 수 있음.
+        // 하지만 종료 시퀀스를 타는 것이 중요.
+        let event = match server.conn().poll_for_event() {
+            Ok(Some(event)) => event,
+            Ok(None) => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            }
             Err(err) => {
                 unim_log!("XIM", "이벤트 대기 오류: {}", err);
                 break;
