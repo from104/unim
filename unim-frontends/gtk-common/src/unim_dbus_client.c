@@ -373,3 +373,168 @@ unim_dbus_is_composing(UnimDbusContext *ctx)
     if (!ctx) return FALSE;
     return ctx->is_composing;
 }
+
+/* =========================================
+ * 한자 변환 관련 함수 구현
+ * ========================================= */
+
+gboolean
+unim_dbus_get_hanja_candidates(UnimDbusContext *ctx,
+                                gchar **target,
+                                UnimHanjaCandidate **candidates,
+                                gsize *count)
+{
+    GError *error = NULL;
+    GVariant *ret;
+    const gchar *target_str;
+    GVariantIter *iter;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return FALSE;
+
+    if (target) *target = NULL;
+    if (candidates) *candidates = NULL;
+    if (count) *count = 0;
+
+    UNIM_DBUS_DEBUG("GetHanjaCandidates 호출");
+
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "GetHanjaCandidates",
+        NULL,
+        G_VARIANT_TYPE("(sa(ss))"),
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("GetHanjaCandidates 실패: %s", error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    g_variant_get(ret, "(&sa(ss))", &target_str, &iter);
+
+    if (target) {
+        *target = g_strdup(target_str);
+    }
+
+    /* 후보 개수 파악 */
+    gsize n_candidates = g_variant_iter_n_children(iter);
+    
+    if (candidates && n_candidates > 0) {
+        *candidates = g_new0(UnimHanjaCandidate, n_candidates);
+        
+        const gchar *hanja_str, *meaning_str;
+        gsize i = 0;
+        while (g_variant_iter_loop(iter, "(&s&s)", &hanja_str, &meaning_str)) {
+            (*candidates)[i].hanja = g_strdup(hanja_str);
+            (*candidates)[i].meaning = g_strdup(meaning_str);
+            i++;
+        }
+    }
+
+    g_variant_iter_free(iter);
+    g_variant_unref(ret);
+
+    if (count) {
+        *count = n_candidates;
+    }
+
+    UNIM_DBUS_DEBUG("GetHanjaCandidates 결과: target='%s', count=%zu",
+                     target_str, n_candidates);
+
+    return TRUE;
+}
+
+gboolean
+unim_dbus_select_hanja(UnimDbusContext *ctx,
+                        guint index,
+                        gchar **selected_hanja)
+{
+    GError *error = NULL;
+    GVariant *ret;
+    const gchar *hanja_str;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return FALSE;
+
+    if (selected_hanja) *selected_hanja = NULL;
+
+    UNIM_DBUS_DEBUG("SelectHanja 호출: index=%u", index);
+
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "SelectHanja",
+        g_variant_new("(u)", index),
+        G_VARIANT_TYPE("(s)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("SelectHanja 실패: %s", error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    g_variant_get(ret, "(&s)", &hanja_str);
+
+    if (selected_hanja) {
+        *selected_hanja = g_strdup(hanja_str);
+    }
+
+    UNIM_DBUS_DEBUG("SelectHanja 결과: '%s'", hanja_str);
+
+    g_variant_unref(ret);
+    return TRUE;
+}
+
+void
+unim_dbus_cancel_hanja(UnimDbusContext *ctx)
+{
+    GError *error = NULL;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    UNIM_DBUS_DEBUG("CancelHanja 호출");
+
+    g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "CancelHanja",
+        NULL,
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("CancelHanja 실패: %s", error->message);
+        g_error_free(error);
+    }
+}
+
+void
+unim_hanja_candidates_free(UnimHanjaCandidate *candidates, gsize count)
+{
+    if (!candidates) return;
+
+    for (gsize i = 0; i < count; i++) {
+        g_free(candidates[i].hanja);
+        g_free(candidates[i].meaning);
+    }
+    g_free(candidates);
+}

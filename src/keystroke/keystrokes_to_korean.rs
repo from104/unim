@@ -1,6 +1,6 @@
-use crate::hangul::JamoEnum;
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::input_context::HangulInputContext;
+use crate::hangul::JamoEnum;
 use std::collections::HashMap;
 
 /// 영어 키보드 입력 문자열을 한국어로 변환하는 기능을 제공합니다.
@@ -167,8 +167,8 @@ pub fn process_keystrokes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::korean::input_context::{ComposerType, HangulInputContext};
-    use crate::korean::jamo::*;
+    use crate::hangul::input_context::{ComposerType, HangulInputContext};
+    use crate::hangul::jamo::*;
     // keyboard_map 모듈이나 해당 함수가 실제 프로젝트 구조에 맞게 존재하는지 확인 필요
     // use crate::keystroke::keyboard_map;
 

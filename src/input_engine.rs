@@ -23,6 +23,8 @@ pub struct InputResult {
     pub preedit_changed: bool,
     /// commit 문자열이 변경되었는지 여부  
     pub commit_changed: bool,
+    /// 한자 후보가 사용 가능한지 여부
+    pub hanja_candidates_available: bool,
 }
 
 impl InputResult {
@@ -32,6 +34,7 @@ impl InputResult {
             consumed: false,
             preedit_changed: false,
             commit_changed: false,
+            hanja_candidates_available: false,
         }
     }
 
@@ -41,6 +44,7 @@ impl InputResult {
             consumed: true,
             preedit_changed: false,
             commit_changed: false,
+            hanja_candidates_available: false,
         }
     }
 
@@ -50,6 +54,7 @@ impl InputResult {
             consumed: true,
             preedit_changed: true,
             commit_changed: false,
+            hanja_candidates_available: false,
         }
     }
 
@@ -59,6 +64,7 @@ impl InputResult {
             consumed: true,
             preedit_changed: true,
             commit_changed: true,
+            hanja_candidates_available: false,
         }
     }
 
@@ -69,6 +75,17 @@ impl InputResult {
             consumed: false,
             preedit_changed: true,
             commit_changed: true,
+            hanja_candidates_available: false,
+        }
+    }
+
+    /// 한자 후보 사용 가능
+    pub fn hanja_candidates() -> Self {
+        Self {
+            consumed: true,
+            preedit_changed: false,
+            commit_changed: false,
+            hanja_candidates_available: true,
         }
     }
 }
@@ -93,6 +110,14 @@ pub struct InputEngine {
     english_layout: EnglishLayout,
     /// 한국어 키보드 레이아웃 설정 캐시
     korean_layout: KoreanLayout,
+    /// 한자 사전 (Arc로 래핑하여 공유)
+    hanja_dict: std::sync::Arc<crate::hangul::HanjaDictionary>,
+    /// 현재 한자 후보 목록
+    hanja_candidates: Vec<crate::hangul::HanjaEntry>,
+    /// 한자 선택 모드 활성화 여부
+    hanja_mode: bool,
+    /// 한자 변환 대상 문자열 (preedit 또는 마지막 음절)
+    hanja_target: String,
 }
 
 impl InputEngine {
@@ -113,6 +138,9 @@ impl InputEngine {
 
         let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
+        // 한자 사전 초기화 (한 번만 로드하여 Arc로 공유)
+        let hanja_dict = std::sync::Arc::new(crate::hangul::HanjaDictionary::new());
+
         Self {
             input_category: config.engine.default_category,
             korean_context: HangulInputContext::new(composer_type),
@@ -122,6 +150,10 @@ impl InputEngine {
             english_keymap,
             korean_layout: config.engine.korean.layout,
             english_layout: config.engine.english.layout,
+            hanja_dict,
+            hanja_candidates: Vec::new(),
+            hanja_mode: false,
+            hanja_target: String::new(),
         }
     }
 
@@ -238,6 +270,11 @@ impl InputEngine {
             modifier.shift,
             modifier.caps_lock
         );
+
+        // Hanja 키 처리 - 한자 변환 모드 시작
+        if keycode == KeyCode::Hanja {
+            return self.start_hanja_conversion();
+        }
 
         // Backspace 처리
         if keycode == KeyCode::Backspace {
@@ -500,6 +537,7 @@ impl InputEngine {
                 consumed: true,
                 preedit_changed: !self.preedit_cache.is_empty(),
                 commit_changed: !self.commit_buffer.is_empty(),
+                hanja_candidates_available: false,
             }
         } else {
             InputResult::not_consumed()
@@ -539,6 +577,106 @@ impl InputEngine {
             // 영어 키맵 재생성
             self.english_keymap = Self::create_english_keymap(&layout);
         }
+    }
+
+    // =========================================
+    // 한자 변환 관련 메서드
+    // =========================================
+
+    /// 한자 변환 모드를 시작합니다.
+    ///
+    /// 현재 preedit 또는 마지막 음절에서 한자 후보를 검색합니다.
+    pub fn start_hanja_conversion(&mut self) -> InputResult {
+        // 이미 한자 모드이면 무시
+        if self.hanja_mode {
+            return InputResult::consumed();
+        }
+
+        // 변환 대상 결정: preedit 우선, 없으면 마지막 커밋 음절
+        let target = if !self.preedit_cache.is_empty() {
+            // preedit의 마지막 음절
+            self.preedit_cache.chars().last().map(|c| c.to_string())
+        } else {
+            // 커밋 버퍼의 마지막 음절 (이미 입력된 경우)
+            None
+        };
+
+        if let Some(target_syllable) = target {
+            let candidates = self.hanja_dict.search(&target_syllable);
+            if !candidates.is_empty() {
+                unim_log!(
+                    "ENGINE",
+                    "한자 후보 발견: '{}' -> {} 개",
+                    target_syllable,
+                    candidates.len()
+                );
+                self.hanja_target = target_syllable;
+                self.hanja_candidates = candidates;
+                self.hanja_mode = true;
+                return InputResult::hanja_candidates();
+            }
+        }
+
+        unim_log!("ENGINE", "한자 후보 없음");
+        InputResult::consumed()
+    }
+
+    /// 현재 한자 모드 상태를 반환합니다.
+    pub fn is_hanja_mode(&self) -> bool {
+        self.hanja_mode
+    }
+
+    /// 현재 한자 후보 목록을 반환합니다.
+    ///
+    /// 각 항목은 (한자, 뜻풀이) 튜플입니다.
+    pub fn get_hanja_candidates(&self) -> Vec<(String, String)> {
+        self.hanja_candidates
+            .iter()
+            .map(|entry| (entry.hanja.clone(), entry.meaning.clone()))
+            .collect()
+    }
+
+    /// 한자 변환 대상 문자열을 반환합니다.
+    pub fn get_hanja_target(&self) -> &str {
+        &self.hanja_target
+    }
+
+    /// 한자를 선택합니다.
+    ///
+    /// # 인자
+    ///
+    /// * `index` - 선택할 한자의 인덱스 (0부터 시작)
+    ///
+    /// # 반환
+    ///
+    /// 선택된 한자 문자열. 유효하지 않은 인덱스면 None.
+    pub fn select_hanja(&mut self, index: usize) -> Option<String> {
+        if !self.hanja_mode || index >= self.hanja_candidates.len() {
+            return None;
+        }
+
+        let selected = &self.hanja_candidates[index];
+        let hanja = selected.hanja.clone();
+
+        unim_log!("ENGINE", "한자 선택: [{}] '{}'", index, hanja);
+
+        // preedit에서 마지막 음절을 제거하고 한자로 교체
+        if !self.preedit_cache.is_empty() {
+            // 현재 조합을 한자로 교체
+            self.korean_context.clear();
+            self.preedit_cache.clear();
+            self.commit_buffer.push_str(&hanja);
+        }
+
+        self.cancel_hanja();
+        Some(hanja)
+    }
+
+    /// 한자 모드를 취소합니다.
+    pub fn cancel_hanja(&mut self) {
+        self.hanja_mode = false;
+        self.hanja_candidates.clear();
+        self.hanja_target.clear();
     }
 }
 

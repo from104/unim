@@ -51,6 +51,28 @@ pub enum EngineRequest {
     Reset { context_id: u32 },
     /// 전역 모드 설정 (모든 컨텍스트에 적용)
     SetGlobalMode { is_korean: bool },
+    /// 한자 후보 조회
+    GetHanjaCandidates {
+        context_id: u32,
+        response: oneshot::Sender<HanjaCandidateResponse>,
+    },
+    /// 한자 선택
+    SelectHanja {
+        context_id: u32,
+        index: usize,
+        response: oneshot::Sender<Option<String>>,
+    },
+    /// 한자 모드 취소
+    CancelHanja { context_id: u32 },
+}
+
+/// 한자 후보 응답
+#[derive(Debug)]
+pub struct HanjaCandidateResponse {
+    /// 변환 대상 문자열
+    pub target: String,
+    /// 후보 목록 (한자, 뜻풀이)
+    pub candidates: Vec<(String, String)>,
 }
 
 /// 엔진 응답
@@ -536,4 +558,77 @@ impl InputContextHandler {
     /// 텍스트 커밋 시그널
     #[zbus(signal)]
     async fn commit_text(signal_ctx: &SignalContext<'_>, text: &str) -> zbus::Result<()>;
+
+    // =========================================
+    // 한자 변환 관련 메서드
+    // =========================================
+
+    /// 한자 후보 목록 조회
+    /// 반환값: (변환 대상, [(한자, 뜻풀이), ...])
+    async fn get_hanja_candidates(&self) -> zbus::fdo::Result<(String, Vec<(String, String)>)> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::GetHanjaCandidates {
+                context_id: self.id,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let response = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        unim_log!(
+            "DBUS",
+            "[DBus] GetHanjaCandidates: target='{}', count={}",
+            response.target,
+            response.candidates.len()
+        );
+
+        Ok((response.target, response.candidates))
+    }
+
+    /// 한자 선택
+    /// 반환값: 선택된 한자 (실패 시 빈 문자열)
+    async fn select_hanja(&self, index: u32) -> zbus::fdo::Result<String> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::SelectHanja {
+                context_id: self.id,
+                index: index as usize,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let hanja = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
+            .unwrap_or_default();
+
+        unim_log!(
+            "DBUS",
+            "[DBus] SelectHanja: index={}, result='{}'",
+            index,
+            hanja
+        );
+
+        Ok(hanja)
+    }
+
+    /// 한자 모드 취소
+    async fn cancel_hanja(&self) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::CancelHanja {
+                context_id: self.id,
+            })
+            .await
+            .ok();
+
+        unim_log!("DBUS", "[DBus] CancelHanja: context_id={}", self.id);
+        Ok(())
+    }
 }

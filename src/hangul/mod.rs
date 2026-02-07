@@ -2,6 +2,7 @@ pub mod char;
 pub mod composer;
 pub mod composer_with_2bul;
 pub mod composer_with_3bul;
+pub mod hanja;
 pub mod input_context;
 pub mod jamo;
 
@@ -10,6 +11,7 @@ pub use char::{HangulChar, HangulCharExt, HangulError};
 pub use composer::HangulComposer;
 pub use composer_with_2bul::HangulComposer2Bul;
 pub use composer_with_3bul::HangulComposer3Bul;
+pub use hanja::{HanjaDictionary, HanjaEntry};
 pub use input_context::{ComposerType, HangulInputContext};
 pub use jamo::{Cho, JamoEnum, Jong, Jung};
 

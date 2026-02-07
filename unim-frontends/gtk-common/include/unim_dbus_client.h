@@ -110,6 +110,59 @@ gchar* unim_dbus_get_preedit(UnimDbusContext *ctx);
  */
 gboolean unim_dbus_is_composing(UnimDbusContext *ctx);
 
+/* =========================================
+ * 한자 변환 관련 함수
+ * ========================================= */
+
+/**
+ * 한자 후보 항목
+ */
+typedef struct {
+    gchar *hanja;    /* 한자 문자열 */
+    gchar *meaning;  /* 뜻풀이 */
+} UnimHanjaCandidate;
+
+/**
+ * 한자 후보 목록 조회
+ * 
+ * @param ctx 컨텍스트
+ * @param target 변환 대상 문자열을 저장할 포인터 (호출자가 g_free해야 함)
+ * @param candidates 후보 배열을 저장할 포인터 (호출자가 unim_hanja_candidates_free해야 함)
+ * @param count 후보 개수를 저장할 포인터
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_get_hanja_candidates(UnimDbusContext *ctx,
+                                         gchar **target,
+                                         UnimHanjaCandidate **candidates,
+                                         gsize *count);
+
+/**
+ * 한자 선택
+ * 
+ * @param ctx 컨텍스트
+ * @param index 선택할 한자의 인덱스 (0부터 시작)
+ * @param selected_hanja 선택된 한자를 저장할 포인터 (호출자가 g_free해야 함)
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_select_hanja(UnimDbusContext *ctx,
+                                 guint index,
+                                 gchar **selected_hanja);
+
+/**
+ * 한자 모드 취소
+ * 
+ * @param ctx 컨텍스트
+ */
+void unim_dbus_cancel_hanja(UnimDbusContext *ctx);
+
+/**
+ * 한자 후보 배열 해제
+ * 
+ * @param candidates 후보 배열
+ * @param count 후보 개수
+ */
+void unim_hanja_candidates_free(UnimHanjaCandidate *candidates, gsize count);
+
 G_END_DECLS
 
 #endif /* UNIM_DBUS_CLIENT_H */

@@ -212,7 +212,7 @@ impl HangulInputContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::korean::jamo::*;
+    use crate::hangul::jamo::*;
 
     #[test]
     fn test_basic_composition() {

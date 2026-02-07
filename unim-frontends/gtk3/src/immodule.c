@@ -226,6 +226,29 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         return FALSE;
     }
 
+    /* 조합 중이 아닌 경우, 특수키는 IM에서 처리하지 않고 앱으로 직접 전달 */
+    /* (터미널에서 방향키, Backspace 등이 동작하도록 함) */
+    if (!unim_dbus_is_composing(unim->dbus_ctx)) {
+        /* 기능키 (F1~F12) */
+        if (event->keyval >= GDK_KEY_F1 && event->keyval <= GDK_KEY_F12) {
+            return FALSE;
+        }
+        /* 방향키 */
+        if (event->keyval >= GDK_KEY_Left && event->keyval <= GDK_KEY_Down) {
+            return FALSE;
+        }
+        /* 네비게이션 키 */
+        if (event->keyval == GDK_KEY_Home || event->keyval == GDK_KEY_End ||
+            event->keyval == GDK_KEY_Page_Up || event->keyval == GDK_KEY_Page_Down ||
+            event->keyval == GDK_KEY_Insert || event->keyval == GDK_KEY_Delete) {
+            return FALSE;
+        }
+        /* Escape (조합 중이 아니면 앱으로) */
+        if (event->keyval == GDK_KEY_Escape) {
+            return FALSE;
+        }
+    }
+
     /* 수정자 상태 변환 - DBus 호출용 비트필드 */
     guint mod_state = 0;
     if (event->state & GDK_SHIFT_MASK) mod_state |= (1 << 0);

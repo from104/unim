@@ -264,6 +264,49 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     );
                 }
             }
+
+            // =========================================
+            // 한자 변환 요청 처리
+            // =========================================
+            EngineRequest::GetHanjaCandidates {
+                context_id,
+                response,
+            } => {
+                let resp = if let Some(engine) = contexts.get_mut(&context_id) {
+                    // 먼저 한자 변환을 시작하여 후보를 생성
+                    engine.start_hanja_conversion();
+
+                    crate::service::HanjaCandidateResponse {
+                        target: engine.get_hanja_target().to_string(),
+                        candidates: engine.get_hanja_candidates(),
+                    }
+                } else {
+                    crate::service::HanjaCandidateResponse {
+                        target: String::new(),
+                        candidates: Vec::new(),
+                    }
+                };
+                let _ = response.send(resp);
+            }
+
+            EngineRequest::SelectHanja {
+                context_id,
+                index,
+                response,
+            } => {
+                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.select_hanja(index)
+                } else {
+                    None
+                };
+                let _ = response.send(result);
+            }
+
+            EngineRequest::CancelHanja { context_id } => {
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.cancel_hanja();
+                }
+            }
         }
     }
 
