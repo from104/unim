@@ -677,6 +677,10 @@ impl InputEngine {
         self.hanja_mode = false;
         self.hanja_candidates.clear();
         self.hanja_target.clear();
+
+        // preedit도 클리어 (한자 선택 후 원래 한글이 남지 않도록)
+        self.korean_context.clear();
+        self.preedit_cache.clear();
     }
 }
 

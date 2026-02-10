@@ -9,6 +9,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED gtk4)
 pkg_check_modules(GIO REQUIRED gio-2.0)
 
+# X11 지원 (선택적)
+pkg_check_modules(X11 x11)
+pkg_check_modules(GTK4_X11 gtk4-x11)
+
 # 공통 DBus 클라이언트 경로
 set(GTK_COMMON_DIR "${CMAKE_SOURCE_DIR}/../gtk-common")
 
@@ -23,11 +27,15 @@ target_include_directories(im-unim PRIVATE
     ${GTK4_INCLUDE_DIRS}
     ${GIO_INCLUDE_DIRS}
     ${GTK_COMMON_DIR}/include
+    ${X11_INCLUDE_DIRS}
+    ${GTK4_X11_INCLUDE_DIRS}
 )
 
 target_link_libraries(im-unim
     ${GTK4_LIBRARIES}
     ${GIO_LIBRARIES}
+    ${X11_LIBRARIES}
+    ${GTK4_X11_LIBRARIES}
 )
 
 target_compile_options(im-unim PRIVATE 

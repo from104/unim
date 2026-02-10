@@ -7,6 +7,12 @@
 #include "unim_hanja_popup.h"
 #include <string.h>
 
+/* X11 override_redirect 설정을 위한 헤더 */
+#ifdef GDK_WINDOWING_X11
+#include <gdk/x11/gdkx.h>
+#include <X11/Xlib.h>
+#endif
+
 /* 최대 표시 후보 수 (한 페이지) */
 #define MAX_VISIBLE_CANDIDATES 9
 
@@ -182,6 +188,29 @@ on_row_activated(GtkListBox *listbox, GtkListBoxRow *row, gpointer user_data)
     }
 }
 
+/* X11에서 override_redirect 설정 (포커스 방지) */
+#ifdef GDK_WINDOWING_X11
+#if GTK_CHECK_VERSION(4, 0, 0)
+static void
+on_popup_realize_x11(GtkWidget *widget, gpointer user_data)
+{
+    (void)user_data;
+    GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(widget));
+    if (surface && GDK_IS_X11_SURFACE(surface)) {
+        Display *xdisplay = gdk_x11_display_get_xdisplay(
+            gdk_surface_get_display(surface));
+        Window xwindow = gdk_x11_surface_get_xid(surface);
+        
+        XSetWindowAttributes attrs;
+        attrs.override_redirect = True;
+        XChangeWindowAttributes(xdisplay, xwindow, CWOverrideRedirect, &attrs);
+        
+        POPUP_DEBUG("X11 override_redirect 설정 완료");
+    }
+}
+#endif
+#endif
+
 UnimHanjaPopup*
 unim_hanja_popup_new(void)
 {
@@ -198,9 +227,15 @@ unim_hanja_popup_new(void)
     gtk_window_set_resizable(GTK_WINDOW(popup->window), FALSE);
     gtk_window_set_default_size(GTK_WINDOW(popup->window), 300, -1);
     
-    /* 포커스를 가져가지 않도록 설정 */
+    /* GTK4 수준 포커스 비활성화 */
     gtk_widget_set_focusable(popup->window, FALSE);
     gtk_widget_set_can_focus(popup->window, FALSE);
+    
+    /* X11에서 override_redirect 설정 (realize 후) */
+#ifdef GDK_WINDOWING_X11
+    g_signal_connect(popup->window, "realize", G_CALLBACK(on_popup_realize_x11), NULL);
+#endif
+
 #else
     /* GTK3: 팝업 윈도우 (포커스 불가) */
     popup->window = gtk_window_new(GTK_WINDOW_POPUP);

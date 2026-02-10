@@ -525,6 +525,11 @@ unim_dbus_cancel_hanja(UnimDbusContext *ctx)
         UNIM_DBUS_DEBUG("CancelHanja 실패: %s", error->message);
         g_error_free(error);
     }
+    
+    /* 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화 */
+    g_free(ctx->preedit_cache);
+    ctx->preedit_cache = g_strdup("");
+    ctx->is_composing = FALSE;
 }
 
 void
