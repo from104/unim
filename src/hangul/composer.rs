@@ -509,7 +509,10 @@ impl BaseHangulComposer {
             self.jamo_queue.clear();
             self.jamo_queue.push_back(jamo);
             self.clear();
+            
+            // 새 음절 시작 시 compose_fn을 다시 호출하여 상태 업데이트
             compose_fn(self);
+            
             unim_log!(
                 "COMPOSER",
                 "  -> 새 current_korean: {:?}",

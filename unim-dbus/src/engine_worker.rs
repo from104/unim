@@ -126,9 +126,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     };
 
                     // 응답 생성
-                    // committed가 발생했을 때도 preedit 상태가 변경될 수 있음
-                    // (예: 완성된 음절 커밋 후 새 조합 시작)
-                    let preedit = if result.preedit_changed || result.commit_changed {
+                    let preedit = if result.preedit_changed {
                         Some(engine.preedit_str().to_string())
                     } else {
                         None

@@ -12,7 +12,7 @@ use x11rb::protocol::xproto::ConfigureNotifyEvent;
 use xim::ServerError;
 
 /// Preedit 윈도우
-/// 
+///
 /// Display는 소유하지 않고 참조만 가짐 (UnimHandler가 소유)
 pub struct PeWindow {
     /// 윈도우 ID
@@ -42,21 +42,21 @@ impl PeWindow {
         let black_pixel = unsafe { x11::xlib::XBlackPixel(display, screen) };
 
         let font_size = 16u16;
-        let padding_x = 8u16;  // 좌우 여백
-        let padding_y = 4u16;  // 상하 여백
+        let padding_x = 8u16; // 좌우 여백
+        let padding_y = 4u16; // 상하 여백
         let size = (
-            (font_size as f32 * 1.5) as u16 + padding_x * 2,  // 한국어 1글자 너비 + 좌우 여백
-            font_size + padding_y * 2,  // 폰트 높이 + 상하 여백
+            (font_size as f32 * 1.5) as u16 + padding_x * 2, // 한국어 1글자 너비 + 좌우 여백
+            font_size + padding_y * 2,                       // 폰트 높이 + 상하 여백
         );
 
         // 앱 윈도우가 있으면 앱 윈도우를 부모로 사용 (앱 종료 시 자동 삭제)
         let (parent, mut pos_x, mut pos_y) = match app_win {
-            Some(win) => {
-                (win.get() as c_ulong, spot_location.x as c_int, spot_location.y as c_int)
-            }
-            None => {
-                (root, spot_location.x as c_int, spot_location.y as c_int)
-            }
+            Some(win) => (
+                win.get() as c_ulong,
+                spot_location.x as c_int,
+                spot_location.y as c_int,
+            ),
+            None => (root, spot_location.x as c_int, spot_location.y as c_int),
         };
 
         // 부모 윈도우 크기를 가져와서 경계 검사
@@ -105,8 +105,10 @@ impl PeWindow {
                 x11::xlib::CopyFromParent,
                 x11::xlib::InputOutput as u32,
                 std::ptr::null_mut(),
-                x11::xlib::CWBackPixel | x11::xlib::CWBorderPixel 
-                    | x11::xlib::CWOverrideRedirect | x11::xlib::CWEventMask,
+                x11::xlib::CWBackPixel
+                    | x11::xlib::CWBorderPixel
+                    | x11::xlib::CWOverrideRedirect
+                    | x11::xlib::CWEventMask,
                 &mut swa,
             )
         };
@@ -172,12 +174,12 @@ impl PeWindow {
         let visual = unsafe { x11::xlib::XDefaultVisual(display, screen) };
         let colormap = unsafe { x11::xlib::XDefaultColormap(display, screen) };
 
-        let xft_draw = unsafe {
-            x11::xft::XftDrawCreate(display, window, visual, colormap)
-        };
+        let xft_draw = unsafe { x11::xft::XftDrawCreate(display, window, visual, colormap) };
 
         if xft_draw.is_null() {
-            unsafe { x11::xlib::XDestroyWindow(display, window); }
+            unsafe {
+                x11::xlib::XDestroyWindow(display, window);
+            }
             return Err(ServerError::Internal("XftDrawCreate failed".to_string()));
         }
 
@@ -242,7 +244,12 @@ impl PeWindow {
             let colormap = x11::xlib::XDefaultColormap(display, screen);
 
             // Xft 리소스 정리
-            x11::xft::XftColorFree(display, visual, colormap, &self.xft_color as *const _ as *mut _);
+            x11::xft::XftColorFree(
+                display,
+                visual,
+                colormap,
+                &self.xft_color as *const _ as *mut _,
+            );
             x11::xft::XftFontClose(display, self.xft_font);
             x11::xft::XftDrawDestroy(self.xft_draw);
 
@@ -300,7 +307,7 @@ impl PeWindow {
         // 윈도우 크기를 텍스트에 맞게 조정
         let new_width = text_width + (padding_x * 2) as u16;
         let new_height = text_height.max(16) + (padding_y * 2) as u16;
-        
+
         if new_width != self.size.0 || new_height != self.size.1 {
             self.size = (new_width, new_height);
             unsafe {
@@ -355,4 +362,3 @@ unsafe extern "C" fn dummy_error_handler(
     // 에러 무시 (앱 종료 시 윈도우가 이미 삭제되었을 수 있음)
     0
 }
-
