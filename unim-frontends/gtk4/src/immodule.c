@@ -18,6 +18,12 @@
 #include "unim_dbus_client.h"
 #include "unim_hanja_popup.h"
 
+/* X11 위치 계산을 위한 헤더 */
+#ifdef GDK_WINDOWING_X11
+#include <gdk/x11/gdkx.h>
+#include <X11/Xlib.h>
+#endif
+
 /* 모듈 정보 */
 #define UNIM_IM_CONTEXT_ID "unim"
 #define UNIM_IM_CONTEXT_NAME "UNIM 한글 입력기"
@@ -309,14 +315,44 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
                 unim->hanja_candidates = candidates;
                 unim->hanja_count = count;
                 
-                /* 팝업 표시 (커서 위치 기반) */
+                /* 화면 절대 좌표 계산 */
+                gint popup_x = unim->cursor_area.x;
+                gint popup_y = unim->cursor_area.y + unim->cursor_area.height;
+                
+#ifdef GDK_WINDOWING_X11
+                /* X11: surface의 절대 위치를 더해서 화면 좌표로 변환 */
+                {
+                    GdkSurface *surface = gdk_event_get_surface(event);
+                    if (surface && GDK_IS_X11_SURFACE(surface)) {
+                        Display *xdisplay = gdk_x11_display_get_xdisplay(
+                            gdk_surface_get_display(surface));
+                        Window xwindow = gdk_x11_surface_get_xid(surface);
+                        Window root_return;
+                        int abs_x = 0, abs_y = 0;
+                        Window child_return;
+                        
+                        XTranslateCoordinates(xdisplay, xwindow,
+                            DefaultRootWindow(xdisplay),
+                            0, 0, &abs_x, &abs_y, &child_return);
+                        
+                        popup_x += abs_x;
+                        popup_y += abs_y;
+                        UNIM_DEBUG("한자 팝업 위치: window=(%d,%d) + cursor=(%d,%d+%d) = (%d,%d)",
+                                   abs_x, abs_y,
+                                   unim->cursor_area.x, unim->cursor_area.y, unim->cursor_area.height,
+                                   popup_x, popup_y);
+                    }
+                }
+#endif
+                
+                /* 팝업 표시 (화면 절대 좌표) */
                 unim_hanja_popup_show(
                     unim->hanja_popup,
                     target,
                     candidates,
                     count,
-                    unim->cursor_area.x,
-                    unim->cursor_area.y + unim->cursor_area.height,
+                    popup_x,
+                    popup_y,
                     on_hanja_selected,
                     unim
                 );
@@ -341,39 +377,56 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, state=0x%x, composing=%d",
                keyval, keycode, evdev_code, (guint)state, unim_dbus_is_composing(unim->dbus_ctx));
 
-    /* 조합 중이 아닌 경우, 특수키는 IM에서 처리하지 않고 앱으로 직접 전달 */
-    /* (Ghostty 등 터미널에서 방향키, Backspace 등이 동작하도록 함) */
+    /* 조합 중이 아닌 경우, 엔진에서 처리해야 할 키만 통과시키고 나머지는 앱으로 직접 전달 */
+    /* (화이트리스트 방식: 문자 생성 가능한 키만 엔진으로 전달) */
     if (!unim_dbus_is_composing(unim->dbus_ctx)) {
-        /* 기능키 (F1~F12) */
-        if (keyval >= GDK_KEY_F1 && keyval <= GDK_KEY_F12) {
-            UNIM_DEBUG("바이패스: 기능키 (keyval=%u)", keyval);
-            return FALSE;
+        gboolean should_pass_to_engine = FALSE;
+
+        /* 한/영 전환키 */
+        if (keyval == GDK_KEY_Hangul || keyval == GDK_KEY_Hangul_Hanja || keyval == GDK_KEY_F9) {
+            should_pass_to_engine = TRUE;
         }
-        /* 방향키 */
-        if (keyval >= GDK_KEY_Left && keyval <= GDK_KEY_Down) {
-            UNIM_DEBUG("바이패스: 방향키 (keyval=%u)", keyval);
-            return FALSE;
+        /* 알파벳 */
+        else if (keyval >= GDK_KEY_a && keyval <= GDK_KEY_z) {
+            should_pass_to_engine = TRUE;
         }
-        /* 네비게이션 키 */
-        if (keyval == GDK_KEY_Home || keyval == GDK_KEY_End ||
-            keyval == GDK_KEY_Page_Up || keyval == GDK_KEY_Page_Down ||
-            keyval == GDK_KEY_Insert || keyval == GDK_KEY_Delete) {
-            UNIM_DEBUG("바이패스: 네비게이션 (keyval=%u)", keyval);
-            return FALSE;
+        else if (keyval >= GDK_KEY_A && keyval <= GDK_KEY_Z) {
+            should_pass_to_engine = TRUE;
         }
-        /* Enter, Tab */
-        if (keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter || keyval == GDK_KEY_Tab) {
-            UNIM_DEBUG("바이패스: Enter/Tab (keyval=%u)", keyval);
-            return FALSE;
+        /* 숫자 */
+        else if (keyval >= GDK_KEY_0 && keyval <= GDK_KEY_9) {
+            should_pass_to_engine = TRUE;
         }
-        /* Escape */
-        if (keyval == GDK_KEY_Escape) {
-            UNIM_DEBUG("바이패스: Escape");
-            return FALSE;
+        /* Space, Backspace (엔진에서 처리 가능) */
+        else if (keyval == GDK_KEY_space || keyval == GDK_KEY_BackSpace) {
+            should_pass_to_engine = TRUE;
         }
-        /* Backspace */
-        if (keyval == GDK_KEY_BackSpace) {
-            UNIM_DEBUG("바이패스: Backspace");
+        /* 기호키 */
+        else if (keyval == GDK_KEY_minus || keyval == GDK_KEY_equal ||
+                 keyval == GDK_KEY_bracketleft || keyval == GDK_KEY_bracketright ||
+                 keyval == GDK_KEY_backslash || keyval == GDK_KEY_semicolon ||
+                 keyval == GDK_KEY_apostrophe || keyval == GDK_KEY_grave ||
+                 keyval == GDK_KEY_comma || keyval == GDK_KEY_period ||
+                 keyval == GDK_KEY_slash) {
+            should_pass_to_engine = TRUE;
+        }
+        /* Shift+기호 (!, @, #, $, ...) */
+        else if (keyval == GDK_KEY_exclam || keyval == GDK_KEY_at ||
+                 keyval == GDK_KEY_numbersign || keyval == GDK_KEY_dollar ||
+                 keyval == GDK_KEY_percent || keyval == GDK_KEY_asciicircum ||
+                 keyval == GDK_KEY_ampersand || keyval == GDK_KEY_asterisk ||
+                 keyval == GDK_KEY_parenleft || keyval == GDK_KEY_parenright ||
+                 keyval == GDK_KEY_underscore || keyval == GDK_KEY_plus ||
+                 keyval == GDK_KEY_braceleft || keyval == GDK_KEY_braceright ||
+                 keyval == GDK_KEY_bar || keyval == GDK_KEY_colon ||
+                 keyval == GDK_KEY_quotedbl || keyval == GDK_KEY_asciitilde ||
+                 keyval == GDK_KEY_less || keyval == GDK_KEY_greater ||
+                 keyval == GDK_KEY_question) {
+            should_pass_to_engine = TRUE;
+        }
+
+        if (!should_pass_to_engine) {
+            UNIM_DEBUG("바이패스: 비문자키 (keyval=%u, 조합 중 아님)", keyval);
             return FALSE;
         }
     }
@@ -541,7 +594,11 @@ unim_im_context_get_preedit_string(GtkIMContext *context, char **str,
 static void
 unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
 {
-    /* 커서 위치 저장 (현재 사용하지 않음) */
+    UnimIMContext *unim = UNIM_IM_CONTEXT(context);
+    
+    if (area) {
+        unim->cursor_area = *area;
+    }
 }
 
 static void

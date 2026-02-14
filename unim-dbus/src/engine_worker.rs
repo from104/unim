@@ -223,17 +223,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
             EngineRequest::Reset { context_id } => {
                 if let Some(engine) = contexts.get_mut(&context_id) {
-                    // Global 모드가 아닌 경우 현재 모드를 유지 (PerApp, PerWindow)
-                    let current_mode =
-                        if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
-                            Some(engine.input_category())
-                        } else {
-                            None
-                        };
+                    // Reset은 조합 상태만 초기화 - 입력 모드(한/영)는 항상 유지
+                    let current_mode = engine.input_category();
                     *engine = InputEngine::new(&config);
-                    if let Some(mode) = current_mode {
-                        engine.set_input_category(mode);
-                    }
+                    engine.set_input_category(current_mode);
                 }
             }
 

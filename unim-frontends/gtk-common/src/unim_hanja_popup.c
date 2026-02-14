@@ -328,6 +328,20 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
 #if GTK_CHECK_VERSION(4, 0, 0)
     /* GTK4: visible로 표시 (포커스 가져가지 않음) */
     gtk_widget_set_visible(popup->window, TRUE);
+    
+    /* X11에서 위치 설정 */
+#ifdef GDK_WINDOWING_X11
+    {
+        GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(popup->window));
+        if (surface && GDK_IS_X11_SURFACE(surface)) {
+            Display *xdisplay = gdk_x11_display_get_xdisplay(
+                gdk_surface_get_display(surface));
+            Window xwindow = gdk_x11_surface_get_xid(surface);
+            XMoveWindow(xdisplay, xwindow, x, y);
+        }
+    }
+#endif
+
 #else
     gtk_window_move(GTK_WINDOW(popup->window), x, y);
     gtk_widget_show_all(popup->window);
