@@ -710,10 +710,15 @@ pub struct HanjaEntry {
 /// 특수문자 카테고리 (자모별)
 struct SpecialCharCategory {
     key: char,              // 자모 문자 ('ㄱ', 'ㄴ', ...)
-    top_row: &'static str,  // 열 헤더 라벨 (9자, 예: "QWERTYUIO")
+    top_row: &'static str,  // 열 헤더 라벨 (9자, 논리 문자 기준)
     chars: &'static [&'static str],  // 특수문자 배열
 }
 ```
+
+> [!NOTE]
+> `top_row`는 **논리 문자 기준**입니다 (드보락: `',.PYFGCR`, 콜맥: `QWFPGJLUY`, QWERTY: `QWERTYUIO`).
+> 프론트엔드 팝업에서는 열 헤더 **표시**에 사용되고, 열 점프 **키 매칭**은 항상 물리 키 `"qwertyuio"`로 수행합니다.
+> `config.rs`의 `EnglishLayout::top_row_labels()` 메서드가 레이아웃별 문자열을 반환합니다.
 
 ### 8.3 API
 

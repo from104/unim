@@ -21,6 +21,7 @@ add_library(im-unim MODULE
     src/immodule.c
     ${GTK_COMMON_DIR}/src/unim_dbus_client.c
     ${GTK_COMMON_DIR}/src/unim_hanja_popup.c
+    ${GTK_COMMON_DIR}/src/unim_special_popup.c
 )
 
 target_include_directories(im-unim PRIVATE

@@ -9,9 +9,13 @@
 #include <string.h>
 #include <stdio.h>
 
-/* X11 지원 */
+/* X11 override_redirect 설정을 위한 헤더 */
 #ifdef GDK_WINDOWING_X11
+#if GTK_MAJOR_VERSION >= 4
 #include <gdk/x11/gdkx.h>
+#else
+#include <gdk/gdkx.h>
+#endif
 #include <X11/Xlib.h>
 #endif
 
@@ -88,7 +92,31 @@ static void update_selection(UnimSpecialPopup *popup);
 static gint get_char_index(UnimSpecialPopup *popup, gint row, gint col);
 static gboolean cell_has_char(UnimSpecialPopup *popup, gint row, gint col);
 static void select_current(UnimSpecialPopup *popup);
+
+/* GTK3/4 호환 CSS class 관리 매크로 */
+#if GTK_CHECK_VERSION(4, 0, 0)
+#define WIDGET_ADD_CSS_CLASS(w, cls)    gtk_widget_add_css_class(w, cls)
+#define WIDGET_REMOVE_CSS_CLASS(w, cls) gtk_widget_remove_css_class(w, cls)
+#else
+static void
+widget_add_css_class_compat(GtkWidget *w, const char *cls) {
+    GtkStyleContext *ctx = gtk_widget_get_style_context(w);
+    gtk_style_context_add_class(ctx, cls);
+}
+static void
+widget_remove_css_class_compat(GtkWidget *w, const char *cls) {
+    GtkStyleContext *ctx = gtk_widget_get_style_context(w);
+    gtk_style_context_remove_class(ctx, cls);
+}
+#define WIDGET_ADD_CSS_CLASS(w, cls)    widget_add_css_class_compat(w, cls)
+#define WIDGET_REMOVE_CSS_CLASS(w, cls) widget_remove_css_class_compat(w, cls)
+#endif
+
+#if GTK_CHECK_VERSION(4, 0, 0)
 static void on_cell_clicked(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data);
+#else
+static gboolean on_grid_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_data);
+#endif
 
 UnimSpecialPopup*
 unim_special_popup_new(void)
@@ -97,11 +125,18 @@ unim_special_popup_new(void)
 
     UnimSpecialPopup *popup = g_new0(UnimSpecialPopup, 1);
 
-    /* override-redirect 팝업 윈도우 생성 */
+#if GTK_CHECK_VERSION(4, 0, 0)
+    /* GTK4: 포커스를 가져가지 않는 팝업 윈도우 */
     popup->window = gtk_window_new();
     gtk_window_set_decorated(GTK_WINDOW(popup->window), FALSE);
     gtk_window_set_resizable(GTK_WINDOW(popup->window), FALSE);
     gtk_widget_set_can_focus(popup->window, FALSE);
+#else
+    /* GTK3: 팝업 윈도우 (포커스 불가) */
+    popup->window = gtk_window_new(GTK_WINDOW_POPUP);
+    gtk_window_set_type_hint(GTK_WINDOW(popup->window), GDK_WINDOW_TYPE_HINT_POPUP_MENU);
+    gtk_widget_set_can_focus(popup->window, FALSE);
+#endif
 
     /* 메인 박스 */
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -109,7 +144,11 @@ unim_special_popup_new(void)
     gtk_widget_set_margin_end(vbox, 0);
     gtk_widget_set_margin_top(vbox, 0);
     gtk_widget_set_margin_bottom(vbox, 0);
+#if GTK_CHECK_VERSION(4, 0, 0)
     gtk_window_set_child(GTK_WINDOW(popup->window), vbox);
+#else
+    gtk_container_add(GTK_CONTAINER(popup->window), vbox);
+#endif
 
     /* 그리드 영역 */
     popup->grid = gtk_grid_new();
@@ -120,25 +159,37 @@ unim_special_popup_new(void)
     gtk_widget_set_margin_top(popup->grid, 4);
     gtk_widget_set_margin_bottom(popup->grid, 2);
 
-    /* 마우스 클릭 제스처 */
+    /* 마우스 클릭 처리 */
+#if GTK_CHECK_VERSION(4, 0, 0)
     GtkGesture *click = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), GDK_BUTTON_PRIMARY);
     g_signal_connect(click, "pressed", G_CALLBACK(on_cell_clicked), popup);
     gtk_widget_add_controller(popup->grid, GTK_EVENT_CONTROLLER(click));
     gtk_box_append(GTK_BOX(vbox), popup->grid);
+#else
+    gtk_widget_set_events(popup->grid, gtk_widget_get_events(popup->grid) | GDK_BUTTON_PRESS_MASK);
+    g_signal_connect(popup->grid, "button-press-event", G_CALLBACK(on_grid_button_press), popup);
+    gtk_box_pack_start(GTK_BOX(vbox), popup->grid, TRUE, TRUE, 0);
+#endif
 
-    /* 페이지 표시 (하단) - 한자 팝업과 동일한 패턴 */
+    /* 페이지 표시 (하단) */
     popup->footer_label = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(popup->footer_label), 0.5);
+#if GTK_CHECK_VERSION(4, 0, 0)
     gtk_box_append(GTK_BOX(vbox), popup->footer_label);
+#else
+    gtk_box_pack_start(GTK_BOX(vbox), popup->footer_label, FALSE, FALSE, 0);
+    /* show_all이 숨긴 footer를 다시 보이게 하는 것 방지 */
+    gtk_widget_set_no_show_all(popup->footer_label, TRUE);
+#endif
 
     /* 팝업 전용 CSS 클래스 */
-    gtk_widget_add_css_class(popup->window, "unim-special-popup");
-    gtk_widget_add_css_class(vbox, "unim-special-vbox");
+    WIDGET_ADD_CSS_CLASS(popup->window, "unim-special-popup");
+    WIDGET_ADD_CSS_CLASS(vbox, "unim-special-vbox");
 
     /* 스타일 */
     GtkCssProvider *css = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(css,
+    const gchar *css_text =
         "window.unim-special-popup {"
         "  background-color: #2d2d2d; border: 1px solid #555;"
         "  padding: 0; margin: 0; }"
@@ -155,13 +206,23 @@ unim_special_popup_new(void)
         ".unim-special-vbox label.cell-row-highlight { background-color: #383838; border-radius: 2px; }"
         ".unim-special-vbox label.cell-selected { background-color: #4a90d9; color: white; border-radius: 3px; }"
         ".unim-special-vbox label.cell-flash { background-color: #2ecc71; color: white; border-radius: 3px; }"
-        ".unim-special-vbox label.footer { color: #999; font-size: 11px; min-height: 0; padding: 0; margin: 0; }"
-    );
+        ".unim-special-vbox label.footer { color: #999; font-size: 11px; min-height: 0; padding: 0; margin: 0; }";
+
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_css_provider_load_from_string(css, css_text);
     gtk_style_context_add_provider_for_display(
         gdk_display_get_default(),
         GTK_STYLE_PROVIDER(css),
         GTK_STYLE_PROVIDER_PRIORITY_USER
     );
+#else
+    gtk_css_provider_load_from_data(css, css_text, -1, NULL);
+    gtk_style_context_add_provider_for_screen(
+        gdk_screen_get_default(),
+        GTK_STYLE_PROVIDER(css),
+        GTK_STYLE_PROVIDER_PRIORITY_USER
+    );
+#endif
     g_object_unref(css);
 
     popup->sel_row = 0;
@@ -179,20 +240,24 @@ unim_special_popup_free(UnimSpecialPopup *popup)
     if (!popup) return;
 
     if (popup->window) {
+#if GTK_CHECK_VERSION(4, 0, 0)
         gtk_window_destroy(GTK_WINDOW(popup->window));
+#else
+        gtk_widget_destroy(popup->window);
+#endif
     }
 
     g_free(popup);
 }
 
-/* 마우스 클릭 콜백 - 셀 클릭 시 해당 문자 선택 */
+/* 마우스 클릭 콜백 */
+#if GTK_CHECK_VERSION(4, 0, 0)
 static void
 on_cell_clicked(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gpointer user_data)
 {
     (void)gesture; (void)n_press; (void)x; (void)y;
     UnimSpecialPopup *popup = (UnimSpecialPopup *)user_data;
 
-    /* 클릭된 위젯 찾기 */
     GtkWidget *picked = gtk_widget_pick(popup->grid, x, y, GTK_PICK_DEFAULT);
     if (!picked) return;
 
@@ -208,15 +273,51 @@ on_cell_clicked(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gp
         }
     }
 }
+#else
+static gboolean
+on_grid_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
+{
+    (void)widget;
+    UnimSpecialPopup *popup = (UnimSpecialPopup *)user_data;
+    if (event->button != 1) return FALSE;
+
+    /* 클릭된 셀 찾기: 각 셀의 allocation 확인 */
+    for (gint r = 0; r < MAX_ROWS; r++) {
+        for (gint c = 0; c < MAX_COLS; c++) {
+            if (popup->cells[r][c]) {
+                GtkAllocation alloc;
+                gtk_widget_get_allocation(popup->cells[r][c], &alloc);
+                if (event->x >= alloc.x && event->x < alloc.x + alloc.width &&
+                    event->y >= alloc.y && event->y < alloc.y + alloc.height) {
+                    popup->sel_row = r;
+                    popup->sel_col = c;
+                    update_selection(popup);
+                    select_current(popup);
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+#endif
 
 static void
 clear_grid(UnimSpecialPopup *popup)
 {
     /* 기존 그리드 내용 모두 제거 */
+#if GTK_CHECK_VERSION(4, 0, 0)
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(popup->grid)) != NULL) {
         gtk_grid_remove(GTK_GRID(popup->grid), child);
     }
+#else
+    GList *children = gtk_container_get_children(GTK_CONTAINER(popup->grid));
+    for (GList *l = children; l != NULL; l = l->next) {
+        gtk_container_remove(GTK_CONTAINER(popup->grid), GTK_WIDGET(l->data));
+    }
+    g_list_free(children);
+#endif
     memset(popup->cells, 0, sizeof(popup->cells));
     memset(popup->col_headers, 0, sizeof(popup->col_headers));
     memset(popup->row_headers, 0, sizeof(popup->row_headers));
@@ -242,7 +343,7 @@ update_grid(UnimSpecialPopup *popup)
     /* 열 헤더 (A, B, C, ...) */
     /* 좌상단 빈 셀 */
     GtkWidget *corner = gtk_label_new("  ");
-    gtk_widget_add_css_class(corner, "header");
+    WIDGET_ADD_CSS_CLASS(corner, "header");
     gtk_grid_attach(GTK_GRID(popup->grid), corner, 0, 0, 1, 1);
 
     /* 열 헤더 (top_row 기반) */
@@ -250,7 +351,7 @@ update_grid(UnimSpecialPopup *popup)
         gchar header_text[4];
         g_snprintf(header_text, sizeof(header_text), "%c", popup->top_row[c]);
         GtkWidget *header = gtk_label_new(header_text);
-        gtk_widget_add_css_class(header, "header");
+        WIDGET_ADD_CSS_CLASS(header, "header");
         gtk_widget_set_halign(header, GTK_ALIGN_CENTER);
         gtk_grid_attach(GTK_GRID(popup->grid), header, c + 1, 0, 1, 1);
         popup->col_headers[c] = header;
@@ -267,8 +368,8 @@ update_grid(UnimSpecialPopup *popup)
                 gchar row_text[4];
                 g_snprintf(row_text, sizeof(row_text), "%d", r + 1);
                 GtkWidget *row_label = gtk_label_new(row_text);
-                gtk_widget_add_css_class(row_label, "header");
-                gtk_widget_add_css_class(row_label, "row-header");
+                WIDGET_ADD_CSS_CLASS(row_label, "header");
+                WIDGET_ADD_CSS_CLASS(row_label, "row-header");
                 gtk_widget_set_halign(row_label, GTK_ALIGN_CENTER);
                 gtk_grid_attach(GTK_GRID(popup->grid), row_label, 0, r + 1, 1, 1);
                 popup->row_headers[r] = row_label;
@@ -276,7 +377,7 @@ update_grid(UnimSpecialPopup *popup)
 
             /* 문자 셀 */
             GtkWidget *cell = gtk_label_new(popup->characters[idx]);
-            gtk_widget_add_css_class(cell, "cell");
+            WIDGET_ADD_CSS_CLASS(cell, "cell");
             gtk_widget_set_halign(cell, GTK_ALIGN_CENTER);
             gtk_grid_attach(GTK_GRID(popup->grid), cell, c + 1, r + 1, 1, 1);
             popup->cells[r][c] = cell;
@@ -289,13 +390,32 @@ update_grid(UnimSpecialPopup *popup)
         g_snprintf(page_text, sizeof(page_text), "%d / %d",
                    popup->current_page + 1, popup->total_pages);
         gtk_label_set_text(GTK_LABEL(popup->footer_label), page_text);
-        gtk_widget_add_css_class(popup->footer_label, "footer");
+        WIDGET_ADD_CSS_CLASS(popup->footer_label, "footer");
+#if GTK_CHECK_VERSION(4, 0, 0)
         gtk_widget_set_visible(popup->footer_label, TRUE);
+#else
+        gtk_widget_show(popup->footer_label);
+#endif
     } else if (popup->footer_label) {
+#if GTK_CHECK_VERSION(4, 0, 0)
         gtk_widget_set_visible(popup->footer_label, FALSE);
+#else
+        gtk_widget_hide(popup->footer_label);
+#endif
     }
 
     update_selection(popup);
+
+#if !GTK_CHECK_VERSION(4, 0, 0)
+    /* GTK3: 윈도우가 이미 보이는 상태에서 그리드가 변경되면 크기 재조정 */
+    if (gtk_widget_get_visible(popup->window)) {
+        gtk_window_resize(GTK_WINDOW(popup->window), 1, 1);
+        GtkRequisition req;
+        gtk_widget_get_preferred_size(popup->window, NULL, &req);
+        gtk_window_resize(GTK_WINDOW(popup->window), req.width, req.height);
+        gtk_widget_show_all(popup->window);
+    }
+#endif
 }
 
 static void
@@ -305,9 +425,9 @@ update_selection(UnimSpecialPopup *popup)
     for (gint r = 0; r < MAX_ROWS; r++) {
         for (gint c = 0; c < MAX_COLS; c++) {
             if (popup->cells[r][c]) {
-                gtk_widget_remove_css_class(popup->cells[r][c], "cell-selected");
-                gtk_widget_remove_css_class(popup->cells[r][c], "cell-col-highlight");
-                gtk_widget_remove_css_class(popup->cells[r][c], "cell-row-highlight");
+                WIDGET_REMOVE_CSS_CLASS(popup->cells[r][c], "cell-selected");
+                WIDGET_REMOVE_CSS_CLASS(popup->cells[r][c], "cell-col-highlight");
+                WIDGET_REMOVE_CSS_CLASS(popup->cells[r][c], "cell-row-highlight");
             }
         }
     }
@@ -315,16 +435,16 @@ update_selection(UnimSpecialPopup *popup)
     /* 열 헤더 스타일 초기화 */
     for (gint c = 0; c < MAX_COLS; c++) {
         if (popup->col_headers[c]) {
-            gtk_widget_remove_css_class(popup->col_headers[c], "header-active");
-            gtk_widget_add_css_class(popup->col_headers[c], "header");
+            WIDGET_REMOVE_CSS_CLASS(popup->col_headers[c], "header-active");
+            WIDGET_ADD_CSS_CLASS(popup->col_headers[c], "header");
         }
     }
 
     /* 행 헤더 스타일 초기화 */
     for (gint r = 0; r < MAX_ROWS; r++) {
         if (popup->row_headers[r]) {
-            gtk_widget_remove_css_class(popup->row_headers[r], "header-active");
-            gtk_widget_add_css_class(popup->row_headers[r], "header");
+            WIDGET_REMOVE_CSS_CLASS(popup->row_headers[r], "header-active");
+            WIDGET_ADD_CSS_CLASS(popup->row_headers[r], "header");
         }
     }
 
@@ -332,7 +452,7 @@ update_selection(UnimSpecialPopup *popup)
         /* 선택된 열 전체 강조 */
         for (gint r = 0; r < MAX_ROWS; r++) {
             if (popup->cells[r][popup->sel_col]) {
-                gtk_widget_add_css_class(popup->cells[r][popup->sel_col], "cell-col-highlight");
+                WIDGET_ADD_CSS_CLASS(popup->cells[r][popup->sel_col], "cell-col-highlight");
             }
         }
 
@@ -340,28 +460,28 @@ update_selection(UnimSpecialPopup *popup)
         if (popup->sel_row >= 0 && popup->sel_row < MAX_ROWS) {
             for (gint c = 0; c < popup->cols; c++) {
                 if (popup->cells[popup->sel_row][c]) {
-                    gtk_widget_add_css_class(popup->cells[popup->sel_row][c], "cell-row-highlight");
+                    WIDGET_ADD_CSS_CLASS(popup->cells[popup->sel_row][c], "cell-row-highlight");
                 }
             }
         }
 
         /* 선택된 열 헤더 강조 */
         if (popup->col_headers[popup->sel_col]) {
-            gtk_widget_remove_css_class(popup->col_headers[popup->sel_col], "header");
-            gtk_widget_add_css_class(popup->col_headers[popup->sel_col], "header-active");
+            WIDGET_REMOVE_CSS_CLASS(popup->col_headers[popup->sel_col], "header");
+            WIDGET_ADD_CSS_CLASS(popup->col_headers[popup->sel_col], "header-active");
         }
 
         /* 선택된 행 헤더 강조 */
         if (popup->sel_row >= 0 && popup->sel_row < MAX_ROWS &&
             popup->row_headers[popup->sel_row]) {
-            gtk_widget_remove_css_class(popup->row_headers[popup->sel_row], "header");
-            gtk_widget_add_css_class(popup->row_headers[popup->sel_row], "header-active");
+            WIDGET_REMOVE_CSS_CLASS(popup->row_headers[popup->sel_row], "header");
+            WIDGET_ADD_CSS_CLASS(popup->row_headers[popup->sel_row], "header-active");
         }
 
         /* 현재 선택 셀에 선택 스타일 적용 (강조 위에 겹침) */
         if (popup->sel_row >= 0 && popup->sel_row < MAX_ROWS &&
             popup->cells[popup->sel_row][popup->sel_col]) {
-            gtk_widget_add_css_class(
+            WIDGET_ADD_CSS_CLASS(
                 popup->cells[popup->sel_row][popup->sel_col], "cell-selected");
         }
     }
@@ -402,8 +522,8 @@ select_current(UnimSpecialPopup *popup)
         /* 플래시 스타일 적용 */
         GtkWidget *cell = popup->cells[popup->sel_row][popup->sel_col];
         if (cell) {
-            gtk_widget_remove_css_class(cell, "cell-selected");
-            gtk_widget_add_css_class(cell, "cell-flash");
+            WIDGET_REMOVE_CSS_CLASS(cell, "cell-selected");
+            WIDGET_ADD_CSS_CLASS(cell, "cell-flash");
         }
 
         /* 콜백 즉시 실행 (문자 커밋) */
@@ -451,18 +571,18 @@ unim_special_popup_show(UnimSpecialPopup *popup,
     /* 그리드 업데이트 */
     update_grid(popup);
 
-    /* realize 먼저 (창을 표시하지 않고 X11 윈도우만 생성) */
+    /* 크기 측정 및 위치 설정 */
+    gint final_x = x;
+    gint final_y = y;
+
+#if GTK_CHECK_VERSION(4, 0, 0)
+    /* GTK4: realize하여 X11 윈도우를 생성하되 아직 표시하지 않음 */
     gtk_widget_realize(popup->window);
 
-    /* 크기 측정 */
     GtkRequisition req;
     gtk_widget_get_preferred_size(popup->window, NULL, &req);
     gint width = req.width;
     gint height = req.height;
-
-    /* 위치 설정 */
-    gint final_x = x;
-    gint final_y = y;
 
 #ifdef GDK_WINDOWING_X11
     {
@@ -475,7 +595,6 @@ unim_special_popup_show(UnimSpecialPopup *popup,
             gint screen_w = DisplayWidth(xdisplay, screen_num);
             gint screen_h = DisplayHeight(xdisplay, screen_num);
 
-            /* 화면 경계 보정 */
             if (final_x + width > screen_w) {
                 final_x = screen_w - width;
                 if (final_x < 0) final_x = 0;
@@ -485,19 +604,48 @@ unim_special_popup_show(UnimSpecialPopup *popup,
                 if (final_y < 0) final_y = 0;
             }
 
-            /* override_redirect 설정 (WM이 이 창을 무시하도록) */
             XSetWindowAttributes attrs;
             attrs.override_redirect = True;
             XChangeWindowAttributes(xdisplay, xwindow, CWOverrideRedirect, &attrs);
-
-            /* 위치 이동 (표시 전에!) */
             XMoveWindow(xdisplay, xwindow, final_x, final_y);
         }
     }
 #endif
 
-    /* 위치 설정 완료 후 마지막에 표시 */
     gtk_widget_set_visible(popup->window, TRUE);
+
+#else
+    /* GTK3: 윈도우 크기 리셋 (이전 show의 크기 캐시를 해제하여 동적 리사이즈 가능) */
+    gtk_window_resize(GTK_WINDOW(popup->window), 1, 1);
+
+    /* 크기 측정 */
+    GtkRequisition req;
+    gtk_widget_get_preferred_size(popup->window, NULL, &req);
+    gint width = req.width;
+    gint height = req.height;
+
+    /* GTK3: GdkScreen으로 화면 크기 가져오기 */
+    {
+        GdkScreen *screen = gtk_window_get_screen(GTK_WINDOW(popup->window));
+        if (screen) {
+            gint screen_w = gdk_screen_get_width(screen);
+            gint screen_h = gdk_screen_get_height(screen);
+
+            if (final_x + width > screen_w) {
+                final_x = screen_w - width;
+                if (final_x < 0) final_x = 0;
+            }
+            if (final_y + height > screen_h) {
+                final_y = y - cursor_height - height;
+                if (final_y < 0) final_y = 0;
+            }
+        }
+    }
+
+    gtk_window_resize(GTK_WINDOW(popup->window), width, height);
+    gtk_window_move(GTK_WINDOW(popup->window), final_x, final_y);
+    gtk_widget_show_all(popup->window);
+#endif
 
     SPECIAL_DEBUG("팝업 위치: (%d, %d), 크기: %dx%d", final_x, final_y, width, height);
 }
@@ -507,7 +655,11 @@ unim_special_popup_hide(UnimSpecialPopup *popup)
 {
     if (!popup || !popup->window) return;
 
+#if GTK_CHECK_VERSION(4, 0, 0)
     gtk_widget_set_visible(popup->window, FALSE);
+#else
+    gtk_widget_hide(popup->window);
+#endif
     popup->characters = NULL;
     popup->total_count = 0;
 
@@ -528,15 +680,17 @@ unim_special_popup_handle_key(UnimSpecialPopup *popup, guint keyval)
 {
     if (!popup || !popup->characters || popup->pending_hide) return FALSE;
 
-    /* top_row 키: 열 점프 (영문 키맵의 상단 행 키) */
+    /* top_row 키: 열 점프 (물리 키 위치 기준)
+     * OS keyval은 QWERTY 기반이므로, 물리 키 위치 "qwertyuio"로 매칭.
+     * top_row는 표시 전용 (드보락: ',.PYFGCR 등). */
     {
+        static const char physical_keys[] = "qwertyuio";
         guint lower = gdk_keyval_to_lower(keyval);
         for (gint i = 0; i < 9; i++) {
-            if (popup->top_row[i] == '\0') break;
-            guint expected = gdk_unicode_to_keyval(
-                g_unichar_tolower((gunichar)popup->top_row[i]));
+            if (i >= popup->cols) break;
+            guint expected = gdk_unicode_to_keyval((gunichar)physical_keys[i]);
             if (lower == expected) {
-                if (i < popup->cols && cell_has_char(popup, 0, i)) {
+                if (cell_has_char(popup, 0, i)) {
                     popup->sel_col = i;
                     if (!cell_has_char(popup, popup->sel_row, popup->sel_col)) {
                         popup->sel_row = 0;

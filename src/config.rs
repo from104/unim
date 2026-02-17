@@ -180,7 +180,7 @@ impl EnglishLayout {
     pub fn top_row_labels(&self) -> &'static str {
         match self {
             EnglishLayout::Qwerty => "QWERTYUIO",
-            EnglishLayout::Dvorak => "QWERTYUIO", // 물리 키 위치 기준 (QWERTY 동일)
+            EnglishLayout::Dvorak => "',.PYFGCR", // 드보락 상단 행 앞 9개 (논리 문자 기준)
             EnglishLayout::Colemak => "QWFPGJLUY",
             EnglishLayout::ColemakDh => "QWFPBJLUY",
             EnglishLayout::Workman => "QDRWBJFUP",

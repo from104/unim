@@ -49,6 +49,7 @@ GTK3는 공유 라이브러리 형태의 IM 모듈을 동적으로 로드합니�
 | `im_module_create(context_id)` | `UnimIMContext` 인스턴스 생성 |
 
 모듈 정보:
+
 ```c
 context_id     = "unim"
 context_name   = "UNIM 한글 입력기"
@@ -61,15 +62,18 @@ default_locales = "ko:*"
 2. `window_id` 생성: `"gtk3-ctx-0x..."` (컨텍스트 포인터 기반)
 3. `unim_dbus_context_new("gtk3-unim", window_id)` → DBus 클라이언트 생성
 4. `unim_hanja_popup_new()` → 한자 팝업 인스턴스 생성
-5. 상태 필드 초기화 (focused, surrounding_text, cursor_area 등)
+5. `unim_special_popup_new()` → 특수문자 팝업 인스턴스 생성
+6. 상태 필드 초기화 (focused, surrounding_text, cursor_area 등)
 
 ### 2.3 컨텍스트 소멸 (`unim_im_context_finalize`)
 
-1. 한자 팝업 해제 (`unim_hanja_popup_free`)
-2. 한자 후보 배열 해제 (`unim_hanja_candidates_free`)
-3. DBus 클라이언트 해제 (`unim_dbus_context_free`)
-4. `window_id`, `surrounding_text` 메모리 해제
-5. 부모 클래스 `finalize` 호출
+1. 특수문자 팝업 해제 (`unim_special_popup_free`)
+2. 특수문자 후보 배열 해제 (`unim_special_chars_free`)
+3. 한자 팝업 해제 (`unim_hanja_popup_free`)
+4. 한자 후보 배열 해제 (`unim_hanja_candidates_free`)
+5. DBus 클라이언트 해제 (`unim_dbus_context_free`)
+6. `window_id`, `surrounding_text` 메모리 해제
+7. 부모 클래스 `finalize` 호출
 
 ---
 
@@ -93,6 +97,11 @@ struct _UnimIMContext {
     UnimHanjaCandidate *hanja_candidates;
     gsize hanja_count;
     GdkRectangle cursor_area;      /* 커서 위치 (팝업 좌표 계산용) */
+
+    /* 특수문자 입력 */
+    UnimSpecialPopup *special_popup;   /* 특수문자 후보 팝업 */
+    gchar **special_characters;        /* 현재 특수문자 목록 */
+    gsize special_count;               /* 특수문자 개수 */
 };
 ```
 
@@ -110,6 +119,7 @@ struct _UnimIMContext {
 ```
 
 **바이패스 대상 수정자 키:**
+
 - Shift_L/R, Control_L/R, Alt_L/R
 - Super_L/R, Meta_L/R, ISO_Level3_Shift
 
@@ -169,22 +179,64 @@ Escape 키 입력
 
 ### 4.3 한자 키 처리 (`F9` / `Hangul_Hanja`)
 
-한자 팝업이 **닫혀있을 때** F9 키 입력 시:
+한자/특수문자 팝업이 모두 **닫혀있을 때** F9 키 입력 시:
 
 ```
 F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
+  → 화면 좌표 계산 (cursor_area + X11 절대 좌표 변환)
   → DBus GetHanjaCandidates
-  → 후보가 있으면:
+  → 한자 후보가 있으면:
     1. 이전 후보 배열 정리
-    2. cursor_area 기반 팝업 위치 계산
-    3. X11: gdk_window_get_origin → 절대 좌표 변환
-    4. unim_hanja_popup_show(popup, target, candidates, count, x, y, h, callback, unim)
-  → 후보가 없으면:
-    로그 출력, 아무 동작 없음
+    2. unim_hanja_popup_show(popup, target, candidates, count, x, y, h, callback, unim)
+  → 한자 후보가 없으면:
+    **특수문자 폴백 →** DBus GetSpecialCharCandidates
+    → 특수문자 후보가 있으면:
+      1. 이전 특수문자 배열 정리
+      2. 특수문자/개수 저장
+      3. unim_special_popup_show(popup, target, chars, count, top_row, x, y, h, callback, unim)
+    → 특수문자 후보도 없으면:
+      로그 출력, 아무 동작 없음
   → return TRUE (키 소비)
 ```
 
-### 4.4 비조합 시 특수키 바이패스
+### 4.4 특수문자 팝업 표시 중 키 처리
+
+특수문자 팝업이 **보이는 동안** 모든 키는 먼저 팝업에서 처리됩니다:
+
+```
+특수문자 팝업 표시 중 키 입력
+  → Escape 키:
+    1. ProcessKey(0,0,0) → 조합 중 자모 커밋 (commit 시그널)
+    2. CancelSpecialChar (DBus)
+    3. preedit-changed 시그널
+    4. 팝업 숨김
+    5. return TRUE
+  → 팝업 내부 키 (열 점프/숫자/방향키/Enter/Tab/클릭):
+    unim_special_popup_handle_key() → return TRUE
+  → 미지원 키 (F1~F12, Home, End 등):
+    1. CancelSpecialChar (DBus)
+    2. 팝업 숨김
+    3. preedit-changed 시그널
+    4. fall-through → ProcessKey 경로로 전달
+```
+
+> [!NOTE]
+> 미지원 키 처리 시 `return FALSE`가 아닌 **fall-through**를 사용합니다.
+> 특수문자 모드를 취소한 후, 해당 키를 엔진의 `ProcessKey` 경로로 정상 전달합니다.
+
+### 4.5 특수문자 선택 콜백 (`on_special_char_selected`)
+
+팝업에서 문자 선택 (숫자 키, Enter, 클릭) 시 호출:
+
+```
+특수문자 선택 (e.g. '☃')
+  → 1. unim_special_popup_hide() → 팝업 닫기
+  → 2. unim_dbus_cancel_special_char() → 엔진 특수문자 모드 취소 (preedit 클리어)
+  → 3. preedit-changed 시그널 (빈 preedit)
+  → 4. commit 시그널 (선택된 특수문자)
+```
+
+### 4.6 비조합 시 특수키 바이패스
 
 조합 상태가 아닐 때(`!unim_dbus_is_composing`), 다음 키들은 엔진을 거치지 않고 앱에 직접 전달:
 
@@ -263,6 +315,7 @@ GTK focus_out 호출
        → commit 시그널 (커밋할 텍스트가 있으면)
        → preedit-changed 시그널
   → 2. 한자 팝업 열려있으면 닫기 + CancelHanja
+  → 3. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar
   → is_focused = FALSE
 ```
 
@@ -274,6 +327,7 @@ GTK reset 호출
        → commit 시그널 (커밋할 텍스트가 있으면)
        → preedit-changed 시그널
   → 2. 한자 팝업 열려있으면 닫기 + CancelHanja
+  → 3. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar
 ```
 
 ---
@@ -427,6 +481,7 @@ make dev-gtk3 PREFIX=/usr
 ```
 
 동작:
+
 1. `cmake` + `make` (gtk3/build)
 2. `sudo cp libim-unim.so $(GTK3_IM_MODULEDIR)/`
 
@@ -449,12 +504,15 @@ $(GTK3_LIBDIR)/gtk-3.0/3.0.0/immodules/libim-unim.so
 | `GTK3_IM` | `immodule.c` (키 처리, 포커스, preedit) |
 | `GTK3_DBUS` | `unim_dbus_client.c` (DBus 통신) |
 | `HANJA_POPUP` | `unim_hanja_popup.c` (한자 팝업) |
+| `SPECIAL_POPUP` | `unim_special_popup.c` (특수문자 팝업) |
 
 로그 포맷:
+
 ```
 [YYYY/MM/DD HH:MM:SS] - [GTK3_IM] - 메시지
 ```
 
 출력 대상:
+
 - 콘솔 (`g_print`)
 - 파일 (`~/.unim-errors.log`)
