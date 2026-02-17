@@ -64,6 +64,19 @@ pub enum EngineRequest {
     },
     /// 한자 모드 취소
     CancelHanja { context_id: u32 },
+    /// 특수문자 후보 조회
+    GetSpecialCharCandidates {
+        context_id: u32,
+        response: oneshot::Sender<SpecialCharResponse>,
+    },
+    /// 특수문자 선택
+    SelectSpecialChar {
+        context_id: u32,
+        index: usize,
+        response: oneshot::Sender<Option<String>>,
+    },
+    /// 특수문자 모드 취소
+    CancelSpecialChar { context_id: u32 },
 }
 
 /// 한자 후보 응답
@@ -73,6 +86,17 @@ pub struct HanjaCandidateResponse {
     pub target: String,
     /// 후보 목록 (한자, 뜻풀이)
     pub candidates: Vec<(String, String)>,
+}
+
+/// 특수문자 후보 응답
+#[derive(Debug)]
+pub struct SpecialCharResponse {
+    /// 변환 대상 초성
+    pub target: String,
+    /// 특수문자 목록
+    pub characters: Vec<String>,
+    /// 영문 키맵의 상단 행 레이블 (예: "QWERTYUIO")
+    pub top_row: String,
 }
 
 /// 엔진 응답
@@ -629,6 +653,82 @@ impl InputContextHandler {
             .ok();
 
         unim_log!("DBUS", "[DBus] CancelHanja: context_id={}", self.id);
+        Ok(())
+    }
+
+    // =========================================
+    // 특수문자 변환 관련 메서드
+    // =========================================
+
+    /// 특수문자 후보 목록 조회
+    /// 반환값: (변환 대상 초성, [특수문자, ...], 상단 행 레이블)
+    async fn get_special_char_candidates(
+        &self,
+    ) -> zbus::fdo::Result<(String, Vec<String>, String)> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::GetSpecialCharCandidates {
+                context_id: self.id,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let response = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        unim_log!(
+            "DBUS",
+            "[DBus] GetSpecialCharCandidates: target='{}', count={}, top_row='{}'",
+            response.target,
+            response.characters.len(),
+            response.top_row
+        );
+
+        Ok((response.target, response.characters, response.top_row))
+    }
+
+    /// 특수문자 선택
+    /// 반환값: 선택된 특수문자 (실패 시 빈 문자열)
+    async fn select_special_char(&self, index: u32) -> zbus::fdo::Result<String> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::SelectSpecialChar {
+                context_id: self.id,
+                index: index as usize,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let ch = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
+            .unwrap_or_default();
+
+        unim_log!(
+            "DBUS",
+            "[DBus] SelectSpecialChar: index={}, result='{}'",
+            index,
+            ch
+        );
+
+        Ok(ch)
+    }
+
+    /// 특수문자 모드 취소
+    async fn cancel_special_char(&self) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::CancelSpecialChar {
+                context_id: self.id,
+            })
+            .await
+            .ok();
+
+        unim_log!("DBUS", "[DBus] CancelSpecialChar: context_id={}", self.id);
         Ok(())
     }
 }

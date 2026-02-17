@@ -163,6 +163,52 @@ void unim_dbus_cancel_hanja(UnimDbusContext *ctx);
  */
 void unim_hanja_candidates_free(UnimHanjaCandidate *candidates, gsize count);
 
+/* =========================================
+ * 특수문자 변환 관련 함수
+ * ========================================= */
+
+/**
+ * 특수문자 후보 목록 조회
+ * 
+ * @param ctx 컨텍스트
+ * @param target 변환 대상 초성을 저장할 포인터 (호출자가 g_free해야 함)
+ * @param characters 특수문자 배열을 저장할 포인터 (호출자가 unim_special_chars_free해야 함)
+ * @param count 문자 개수를 저장할 포인터
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_get_special_char_candidates(UnimDbusContext *ctx,
+                                                gchar **target,
+                                                gchar ***characters,
+                                                gsize *count,
+                                                gchar **top_row);
+
+/**
+ * 특수문자 선택
+ * 
+ * @param ctx 컨텍스트
+ * @param index 선택할 특수문자의 인덱스 (0부터 시작)
+ * @param selected_char 선택된 특수문자를 저장할 포인터 (호출자가 g_free해야 함)
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_select_special_char(UnimDbusContext *ctx,
+                                        guint index,
+                                        gchar **selected_char);
+
+/**
+ * 특수문자 모드 취소
+ * 
+ * @param ctx 컨텍스트
+ */
+void unim_dbus_cancel_special_char(UnimDbusContext *ctx);
+
+/**
+ * 특수문자 배열 해제
+ * 
+ * @param characters 문자 배열
+ * @param count 문자 개수
+ */
+void unim_special_chars_free(gchar **characters, gsize count);
+
 G_END_DECLS
 
 #endif /* UNIM_DBUS_CLIENT_H */

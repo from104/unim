@@ -25,6 +25,8 @@ pub struct InputResult {
     pub commit_changed: bool,
     /// 한자 후보가 사용 가능한지 여부
     pub hanja_candidates_available: bool,
+    /// 특수문자 후보가 사용 가능한지 여부
+    pub special_char_candidates_available: bool,
 }
 
 impl InputResult {
@@ -35,6 +37,7 @@ impl InputResult {
             preedit_changed: false,
             commit_changed: false,
             hanja_candidates_available: false,
+            special_char_candidates_available: false,
         }
     }
 
@@ -45,6 +48,7 @@ impl InputResult {
             preedit_changed: false,
             commit_changed: false,
             hanja_candidates_available: false,
+            special_char_candidates_available: false,
         }
     }
 
@@ -55,6 +59,7 @@ impl InputResult {
             preedit_changed: true,
             commit_changed: false,
             hanja_candidates_available: false,
+            special_char_candidates_available: false,
         }
     }
 
@@ -65,6 +70,7 @@ impl InputResult {
             preedit_changed: true,
             commit_changed: true,
             hanja_candidates_available: false,
+            special_char_candidates_available: false,
         }
     }
 
@@ -76,6 +82,7 @@ impl InputResult {
             preedit_changed: true,
             commit_changed: true,
             hanja_candidates_available: false,
+            special_char_candidates_available: false,
         }
     }
 
@@ -86,6 +93,18 @@ impl InputResult {
             preedit_changed: false,
             commit_changed: false,
             hanja_candidates_available: true,
+            special_char_candidates_available: false,
+        }
+    }
+
+    /// 특수문자 후보 사용 가능
+    pub fn special_char_candidates() -> Self {
+        Self {
+            consumed: true,
+            preedit_changed: false,
+            commit_changed: false,
+            hanja_candidates_available: false,
+            special_char_candidates_available: true,
         }
     }
 }
@@ -118,6 +137,12 @@ pub struct InputEngine {
     hanja_mode: bool,
     /// 한자 변환 대상 문자열 (preedit 또는 마지막 음절)
     hanja_target: String,
+    /// 특수문자 모드 활성화 여부
+    special_char_mode: bool,
+    /// 현재 특수문자 후보 목록
+    special_char_candidates: Vec<char>,
+    /// 특수문자 변환 대상 초성
+    special_char_target: String,
 }
 
 impl InputEngine {
@@ -154,6 +179,9 @@ impl InputEngine {
             hanja_candidates: Vec::new(),
             hanja_mode: false,
             hanja_target: String::new(),
+            special_char_mode: false,
+            special_char_candidates: Vec::new(),
+            special_char_target: String::new(),
         }
     }
 
@@ -538,6 +566,7 @@ impl InputEngine {
                 preedit_changed: !self.preedit_cache.is_empty(),
                 commit_changed: !self.commit_buffer.is_empty(),
                 hanja_candidates_available: false,
+                special_char_candidates_available: false,
             }
         } else {
             InputResult::not_consumed()
@@ -615,9 +644,25 @@ impl InputEngine {
                 self.hanja_mode = true;
                 return InputResult::hanja_candidates();
             }
+
+            // 한자 후보 없음 → 초성이면 특수문자 검색 시도
+            let ch = target_syllable.chars().next().unwrap_or('\0');
+            if let Some(entry) = crate::hangul::special_chars::search_by_choseong(ch) {
+                unim_log!(
+                    "ENGINE",
+                    "특수문자 후보 발견: '{}' ({}) -> {} 개",
+                    ch,
+                    entry.category,
+                    entry.characters.len()
+                );
+                self.special_char_target = target_syllable;
+                self.special_char_candidates = entry.characters.to_vec();
+                self.special_char_mode = true;
+                return InputResult::special_char_candidates();
+            }
         }
 
-        unim_log!("ENGINE", "한자 후보 없음");
+        unim_log!("ENGINE", "한자/특수문자 후보 없음");
         InputResult::consumed()
     }
 
@@ -679,6 +724,62 @@ impl InputEngine {
         self.hanja_target.clear();
 
         // preedit도 클리어 (한자 선택 후 원래 한글이 남지 않도록)
+        self.korean_context.clear();
+        self.preedit_cache.clear();
+    }
+
+    // =========================================
+    // 특수문자 변환 관련 메서드
+    // =========================================
+
+    /// 현재 특수문자 모드 상태를 반환합니다.
+    pub fn is_special_char_mode(&self) -> bool {
+        self.special_char_mode
+    }
+
+    /// 현재 특수문자 후보 목록을 반환합니다.
+    pub fn get_special_char_candidates(&self) -> &[char] {
+        &self.special_char_candidates
+    }
+
+    /// 특수문자 변환 대상 문자열(초성)을 반환합니다.
+    pub fn get_special_char_target(&self) -> &str {
+        &self.special_char_target
+    }
+
+    /// 특수문자를 선택합니다.
+    ///
+    /// # 인자
+    ///
+    /// * `index` - 선택할 특수문자의 인덱스 (0부터 시작)
+    ///
+    /// # 반환
+    ///
+    /// 선택된 특수문자. 유효하지 않은 인덱스면 None.
+    pub fn select_special_char(&mut self, index: usize) -> Option<char> {
+        if !self.special_char_mode || index >= self.special_char_candidates.len() {
+            return None;
+        }
+
+        let selected = self.special_char_candidates[index];
+        unim_log!("ENGINE", "특수문자 선택: [{}] '{}'", index, selected);
+
+        // preedit(초성)을 제거하고 특수문자를 commit
+        self.korean_context.clear();
+        self.preedit_cache.clear();
+        self.commit_buffer.push(selected);
+
+        self.cancel_special_char();
+        Some(selected)
+    }
+
+    /// 특수문자 모드를 취소합니다.
+    pub fn cancel_special_char(&mut self) {
+        self.special_char_mode = false;
+        self.special_char_candidates.clear();
+        self.special_char_target.clear();
+
+        // preedit도 클리어
         self.korean_context.clear();
         self.preedit_cache.clear();
     }

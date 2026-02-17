@@ -543,3 +543,177 @@ unim_hanja_candidates_free(UnimHanjaCandidate *candidates, gsize count)
     }
     g_free(candidates);
 }
+
+/* =========================================
+ * 특수문자 변환 관련 함수 구현
+ * ========================================= */
+
+gboolean
+unim_dbus_get_special_char_candidates(UnimDbusContext *ctx,
+                                       gchar **target,
+                                       gchar ***characters,
+                                       gsize *count,
+                                       gchar **top_row)
+{
+    GError *error = NULL;
+    GVariant *ret;
+    const gchar *target_str;
+    const gchar *top_row_str;
+    GVariantIter *iter;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return FALSE;
+
+    if (target) *target = NULL;
+    if (characters) *characters = NULL;
+    if (count) *count = 0;
+    if (top_row) *top_row = NULL;
+
+    UNIM_DBUS_DEBUG("GetSpecialCharCandidates 호출");
+
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "GetSpecialCharCandidates",
+        NULL,
+        G_VARIANT_TYPE("(sass)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("GetSpecialCharCandidates 실패: %s", error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    g_variant_get(ret, "(&sas&s)", &target_str, &iter, &top_row_str);
+
+    if (target) {
+        *target = g_strdup(target_str);
+    }
+
+    if (top_row) {
+        *top_row = g_strdup(top_row_str);
+    }
+
+    gsize n_chars = g_variant_iter_n_children(iter);
+
+    if (characters && n_chars > 0) {
+        *characters = g_new0(gchar*, n_chars);
+
+        const gchar *ch_str;
+        gsize i = 0;
+        while (g_variant_iter_loop(iter, "&s", &ch_str)) {
+            (*characters)[i] = g_strdup(ch_str);
+            i++;
+        }
+    }
+
+    g_variant_iter_free(iter);
+    g_variant_unref(ret);
+
+    if (count) {
+        *count = n_chars;
+    }
+
+    UNIM_DBUS_DEBUG("GetSpecialCharCandidates 결과: target='%s', count=%zu, top_row='%s'",
+                     target_str, n_chars, top_row_str);
+
+    return TRUE;
+}
+
+gboolean
+unim_dbus_select_special_char(UnimDbusContext *ctx,
+                               guint index,
+                               gchar **selected_char)
+{
+    GError *error = NULL;
+    GVariant *ret;
+    const gchar *ch_str;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return FALSE;
+
+    if (selected_char) *selected_char = NULL;
+
+    UNIM_DBUS_DEBUG("SelectSpecialChar 호출: index=%u", index);
+
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "SelectSpecialChar",
+        g_variant_new("(u)", index),
+        G_VARIANT_TYPE("(s)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("SelectSpecialChar 실패: %s", error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    g_variant_get(ret, "(&s)", &ch_str);
+
+    if (selected_char) {
+        *selected_char = g_strdup(ch_str);
+    }
+
+    UNIM_DBUS_DEBUG("SelectSpecialChar 결과: '%s'", ch_str);
+
+    g_variant_unref(ret);
+    return TRUE;
+}
+
+void
+unim_dbus_cancel_special_char(UnimDbusContext *ctx)
+{
+    GError *error = NULL;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    UNIM_DBUS_DEBUG("CancelSpecialChar 호출");
+
+    g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "CancelSpecialChar",
+        NULL,
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("CancelSpecialChar 실패: %s", error->message);
+        g_error_free(error);
+    }
+
+    /* 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화 */
+    g_free(ctx->preedit_cache);
+    ctx->preedit_cache = g_strdup("");
+    ctx->is_composing = FALSE;
+}
+
+void
+unim_special_chars_free(gchar **characters, gsize count)
+{
+    if (!characters) return;
+
+    for (gsize i = 0; i < count; i++) {
+        g_free(characters[i]);
+    }
+    g_free(characters);
+}

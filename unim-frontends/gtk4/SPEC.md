@@ -15,6 +15,8 @@
 | `unim_dbus_client.h` | `gtk-common/include/` | DBus 클라이언트 API 헤더 |
 | `unim_hanja_popup.c` | `gtk-common/src/` | GTK 기반 한자 후보 팝업 윈도우 (GTK3/4 공용) |
 | `unim_hanja_popup.h` | `gtk-common/include/` | 한자 팝업 API 헤더 |
+| `unim_special_popup.c` | `gtk-common/src/` | GTK 기반 특수문자 그리드 팝업 윈도우 (GTK3/4 공용) |
+| `unim_special_popup.h` | `gtk-common/include/` | 특수문자 팝업 API 헤더 |
 
 ### 1.2 통신 구조
 
@@ -49,6 +51,7 @@ GTK4는 GTK3의 `im_module_*` 진입점 대신 **GIO Extension Point** 방식을
 | `g_io_module_query()` | `"gtk-im-module"` 반환 |
 
 등록 코드:
+
 ```c
 g_io_extension_point_implement(
     GTK_IM_MODULE_EXTENSION_POINT_NAME,  // "gtk-im-module"
@@ -78,7 +81,8 @@ GTK3의 수동 `G_TYPE_CHECK_INSTANCE_CAST` 매크로 대신 자동 생성됩니
 2. `window_id` 생성: `"gtk4-ctx-0x..."` (컨텍스트 포인터 기반)
 3. `unim_dbus_context_new("gtk4-unim", window_id)` → DBus 클라이언트 생성
 4. `unim_hanja_popup_new()` → 한자 팝업 인스턴스 생성
-5. 상태 필드 초기화 (focused, surrounding_text, cursor_area 등)
+5. `unim_special_popup_new()` → 특수문자 팝업 인스턴스 생성
+6. 상태 필드 초기화 (focused, surrounding_text, cursor_area 등)
 
 ### 2.4 컨텍스트 소멸 (`unim_im_context_dispose`)
 
@@ -112,6 +116,9 @@ struct _UnimIMContext {
     UnimHanjaCandidate *hanja_candidates;
     gsize hanja_count;
     GdkRectangle cursor_area;      /* 커서 위치 (위젯 로컬 좌표) */
+
+    /* 특수문자 입력 */
+    UnimSpecialPopup *special_popup;
 };
 ```
 
@@ -139,6 +146,7 @@ gdk_event_get_modifier_state(event)
 ```
 
 이벤트 타입 확인:
+
 ```c
 GdkEventType event_type = gdk_event_get_event_type(event);
 ```
@@ -155,6 +163,7 @@ GdkEventType event_type = gdk_event_get_event_type(event);
 ```
 
 **바이패스 대상 수정자 키:**
+
 - Shift_L/R, Control_L/R, Alt_L/R
 - Super_L/R, Meta_L/R, ISO_Level3_Shift
 
@@ -334,6 +343,7 @@ GTK focus_out 호출
        → commit 시그널 (커밋할 텍스트가 있으면)
        → preedit-changed 시그널
   → 2. 한자 팝업 열려있으면 닫기 + CancelHanja
+  → 3. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar
   → is_focused = FALSE
 ```
 
@@ -429,6 +439,9 @@ set_surrounding_with_selection(text, len, cursor_index, selection_index)
 | `unim_dbus_get_hanja_candidates` | `GetHanjaCandidates` | `{target, candidates[], count}` | 한자 후보 조회 |
 | `unim_dbus_select_hanja` | `SelectHanja` | `selected_hanja` | 한자 후보 선택 |
 | `unim_dbus_cancel_hanja` | `CancelHanja` | — | 한자 모드 취소 |
+| `unim_dbus_get_special_char_candidates` | `GetSpecialCharCandidates` | `{target, chars[], count, top_row}` | 특수문자 후보 조회 |
+| `unim_dbus_select_special_char` | `SelectSpecialChar` | — | 특수문자 선택 → 커밋 |
+| `unim_dbus_cancel_special_char` | `CancelSpecialChar` | — | 특수문자 모드 취소 |
 
 ---
 
@@ -463,7 +476,75 @@ set_surrounding_with_selection(text, len, cursor_index, selection_index)
 
 ---
 
-## 10. GTK4 vs GTK3 차이점 요약
+## 10. 특수문자 팝업 윈도우 (`unim_special_popup`)
+
+### 10.1 개요
+
+한자 후보가 없을 때, 조합 중인 자모에 매핑된 특수문자를 **9×9 그리드 팝업**으로 표시합니다.
+한자 키(F9)로 트리거되며, 한자 후보가 없으면 자동으로 특수문자 모드로 전환됩니다.
+
+### 10.2 윈도우 속성
+
+- GTK Window (`GTK_WINDOW_POPUP` 타입)
+- `override_redirect = True` (X11에서 WM 데코레이션 제거)
+- `can_focus = FALSE` (부모 앱의 포커스 유지)
+- GtkGrid 기반 문자 배치 (최대 9열 × 9행)
+- CSS 커스텀 스타일링 (`unim-special-popup` 클래스)
+
+### 10.3 레이아웃
+
+```text
+┌──────────────────────────────────────┐
+│      Q    W    E    R    T    ...    │  ← top_row 열 헤더
+│ 1    $    %    ₩    °F   ‰    ...    │  ← 행 1
+│ 2    ...                             │  ← 행 2
+│ ...                                  │
+│ 9    ...                             │  ← 행 9
+│               ← 1/3 →               │  ← 페이지 라벨 (2페이지 이상 시)
+└──────────────────────────────────────┘
+```
+
+### 10.4 키 처리
+
+immodule.c에서 팝업이 보이는 동안 모든 키를 먼저 팝업에게 전달합니다.
+
+| 동작 | 트리거 키 | 결과 |
+|------|-----------|------|
+| 숫자 선택 (행) | `1`-`9` | 선택된 열의 해당 행 문자 커밋 |
+| 방향키 이동 | `↑`/`↓`/`←`/`→` | 셀 선택 이동 (경계에서 순환) |
+| Enter 확정 | `Return`/`KP_Enter` | 현재 선택 셀의 문자 커밋 |
+| 다음 페이지 | `Tab` | 다음 페이지 (순환) |
+| 이전 페이지 | `Shift+Tab` | 이전 페이지 (순환) |
+| Escape | `Escape` | 조합 중 자모 커밋 + 특수문자 모드 취소 + 팝업 닫기 |
+| 마우스 클릭 | 좌클릭 | 클릭한 셀의 문자 커밋 |
+
+### 10.5 포커스 보존 패턴
+
+X11에서 팝업이 부모 앱의 포커스를 빼앗지 않도록 하는 핵심 순서:
+
+```text
+1. gtk_widget_realize() — X11 윈도우 생성 (미표시)
+2. XSetWindowAttributes.override_redirect = True — WM이 이 창 무시
+3. XMoveWindow() — 정확한 위치 설정
+4. gtk_widget_set_visible(TRUE) — 마지막에 표시
+```
+
+> [!IMPORTANT]
+> 이 순서가 반대이면 (set_visible → override_redirect) WM이 일반 창으로 맵핑하여
+> 부모 앱에 `focus_out`이 발생 → 팝업이 즉시 자동 닫힘되는 버그가 발생합니다.
+
+### 10.6 시각적 피드백
+
+| CSS 클래스 | 용도 |
+|-----------|------|
+| `cell-selected` | 현재 선택된 셀 하이라이트 |
+| `cell-col-highlight` | 선택된 열의 모든 셀 배경 |
+| `header-active` | 선택된 열의 헤더 강조 |
+| `cell-flash` | 문자 선택 시 200ms 플래시 효과 |
+
+---
+
+## 11. GTK4 vs GTK3 차이점 요약
 
 | 관점 | GTK3 | GTK4 |
 |------|------|------|
@@ -480,7 +561,7 @@ set_surrounding_with_selection(text, len, cursor_index, selection_index)
 
 ---
 
-## 11. 빌드 및 배포
+## 12. 빌드 및 배포
 
 ### 11.1 빌드
 
@@ -504,6 +585,7 @@ make dev-gtk4 PREFIX=/usr
 ```
 
 동작:
+
 1. `cmake` + `make` (gtk4/build)
 2. `sudo cp libim-unim.so $(GTK4_IM_MODULEDIR)/`
 3. `sudo gio-querymodules $(GTK4_IM_MODULEDIR)/`
@@ -522,7 +604,7 @@ $(GTK4_LIBDIR)/gtk-4.0/4.0.0/immodules/libim-unim.so
 
 ---
 
-## 12. 로깅
+## 13. 로깅
 
 `UNIM_DEVELOP=1` 환경변수 설정 시 활성화.
 
@@ -533,10 +615,12 @@ $(GTK4_LIBDIR)/gtk-4.0/4.0.0/immodules/libim-unim.so
 | `HANJA_POPUP` | `unim_hanja_popup.c` (한자 팝업) |
 
 로그 포맷:
+
 ```
 [YYYY/MM/DD HH:MM:SS] - [GTK4_IM] - 메시지
 ```
 
 출력 대상:
+
 - 콘솔 (`g_print`)
 - 파일 (`~/.unim-errors.log`)

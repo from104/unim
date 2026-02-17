@@ -173,6 +173,19 @@ impl EnglishLayout {
             EnglishLayout::Workman,
         ]
     }
+
+    /// 상단 행(2nd row)의 앞 9개 키 레이블을 반환합니다.
+    ///
+    /// 특수문자 팝업의 열 헤더 및 키 매핑에 사용됩니다.
+    pub fn top_row_labels(&self) -> &'static str {
+        match self {
+            EnglishLayout::Qwerty => "QWERTYUIO",
+            EnglishLayout::Dvorak => "QWERTYUIO", // 물리 키 위치 기준 (QWERTY 동일)
+            EnglishLayout::Colemak => "QWFPGJLUY",
+            EnglishLayout::ColemakDh => "QWFPBJLUY",
+            EnglishLayout::Workman => "QDRWBJFUP",
+        }
+    }
 }
 
 /// 자동 전환 설정

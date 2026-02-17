@@ -198,6 +198,9 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
 | `GetHanjaCandidates` | — | `(s, a(ss))` | 한자 후보 조회 → (target, [(한자, 뜻풀이)]) |
 | `SelectHanja` | `index: u` | `s` | 한자 선택 → 선택된 한자 반환 |
 | `CancelHanja` | — | — | 한자 모드 취소 |
+| `GetSpecialCharCandidates` | — | `(s, a(s), s)` | 특수문자 후보 조회 → (target, [문자열], top_row) |
+| `SelectSpecialChar` | `char_str: s` | — | 특수문자 선택 → preedit 교체 + 커밋 |
+| `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
 
 ### 6.2 시그널
 

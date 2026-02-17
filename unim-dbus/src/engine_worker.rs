@@ -300,6 +300,63 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     engine.cancel_hanja();
                 }
             }
+
+            // =========================================
+            // 특수문자 변환 요청 처리
+            // =========================================
+            EngineRequest::GetSpecialCharCandidates {
+                context_id,
+                response,
+            } => {
+                let top_row = config.engine.english.layout.top_row_labels().to_string();
+                let resp = if let Some(engine) = contexts.get_mut(&context_id) {
+                    // start_hanja_conversion이 이미 특수문자 fallback을 처리하므로
+                    // 엔진의 특수문자 모드 상태를 확인
+                    if engine.is_special_char_mode() {
+                        crate::service::SpecialCharResponse {
+                            target: engine.get_special_char_target().to_string(),
+                            characters: engine
+                                .get_special_char_candidates()
+                                .iter()
+                                .map(|c| c.to_string())
+                                .collect(),
+                            top_row: top_row,
+                        }
+                    } else {
+                        crate::service::SpecialCharResponse {
+                            target: String::new(),
+                            characters: Vec::new(),
+                            top_row: top_row,
+                        }
+                    }
+                } else {
+                    crate::service::SpecialCharResponse {
+                        target: String::new(),
+                        characters: Vec::new(),
+                        top_row: top_row,
+                    }
+                };
+                let _ = response.send(resp);
+            }
+
+            EngineRequest::SelectSpecialChar {
+                context_id,
+                index,
+                response,
+            } => {
+                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.select_special_char(index).map(|c| c.to_string())
+                } else {
+                    None
+                };
+                let _ = response.send(result);
+            }
+
+            EngineRequest::CancelSpecialChar { context_id } => {
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.cancel_special_char();
+                }
+            }
         }
     }
 

@@ -697,7 +697,56 @@ pub struct HanjaEntry {
 
 ---
 
-## 8. 상태 파일 공유 (`status.rs`)
+## 8. 특수문자 변환 시스템 (`hangul/special_chars.rs`)
+
+### 8.1 개요
+
+한자 후보가 없을 때 **자모(초성) 기반 특수문자** 후보를 제공합니다.
+한자 키(F9)로 트리거되며, 조합 중인 자모에 매핑된 특수문자 테이블을 반환합니다.
+
+### 8.2 데이터 구조
+
+```rust
+/// 특수문자 카테고리 (자모별)
+struct SpecialCharCategory {
+    key: char,              // 자모 문자 ('ㄱ', 'ㄴ', ...)
+    top_row: &'static str,  // 열 헤더 라벨 (9자, 예: "QWERTYUIO")
+    chars: &'static [&'static str],  // 특수문자 배열
+}
+```
+
+### 8.3 API
+
+| 함수 | 반환 | 설명 |
+|------|------|------|
+| `get_special_chars(jamo)` | `Option<(&str, &[&str])>` | `(top_row, chars[])` 반환 |
+| `get_special_chars_for_target(target)` | `Option<(&str, Vec<String>)>` | 문자열 기반 조회 (DBus용) |
+
+### 8.4 자모별 특수문자 매핑
+
+| 자모 | top_row | 문자 예시 | 총 개수 |
+|------|---------|-----------|---------|
+| ㄱ | `QWERTYUIO` | `$`, `%`, `₩`, `°F`, `‰`, `µℓ`, kℓ, mm, ... | ~162 |
+| ㄴ | (카테고리별) | 숫자 부호, 분수, 로마 숫자 등 | 카테고리별 |
+| ... | ... | ... | ... |
+
+### 8.5 팝업 그리드 배치
+
+```
+         Q    W    E    R    T    Y    U    I    O    ← top_row (열 헤더)
+    1    $    %    ₩    °F   ‰    µℓ   kℓ   mm   mg   ← row 0
+    2    ...                                           ← row 1
+    ...
+    9    ...                                           ← row 8
+```
+
+- **최대 9열 × 9행 = 81문자/페이지** (`PAGE_SIZE = 81`)
+- 81개 초과 시 **페이지 분할** (Tab/Shift+Tab으로 이동)
+- 배치 순서: **열 우선** (col 0의 row 0~8 → col 1의 row 0~8 → ...)
+
+---
+
+## 9. 상태 파일 공유 (`status.rs`)
 
 ```
 ~/.cache/unim/status
@@ -714,7 +763,7 @@ pub struct HanjaEntry {
 
 ---
 
-## 9. 로깅 시스템 (`logging.rs`)
+## 10. 로깅 시스템 (`logging.rs`)
 
 ### 9.1 활성화 조건
 
@@ -750,9 +799,9 @@ macro_rules! unim_log {
 
 ---
 
-## 10. 설계 원칙 및 핵심 의사결정
+## 11. 설계 원칙 및 핵심 의사결정
 
-### 10.1 프론트엔드 독립성
+### 11.1 프론트엔드 독립성
 
 | 설계 | 이유 |
 |------|------|
@@ -760,7 +809,7 @@ macro_rules! unim_log {
 | JSON 키맵 임베딩 | 런타임 파일 의존 제거 |
 | `InputResult` 값 객체 | 프론트엔드가 `consumed` 플래그만 보고 판단 |
 
-### 10.2 한글 조합 분리
+### 11.2 한글 조합 분리
 
 | 설계 | 이유 |
 |------|------|
@@ -768,7 +817,7 @@ macro_rules! unim_log {
 | `Box<dyn HangulComposer>` | 런타임 레이아웃 전환 지원 |
 | `BaseHangulComposer` 위임 | 공통 로직 중복 제거 |
 
-### 10.3 성능 최적화
+### 11.3 성능 최적화
 
 | 기법 | 적용 대상 |
 |------|-----------|
@@ -779,7 +828,7 @@ macro_rules! unim_log {
 | `preedit_cache` String | 매번 조합 재계산 방지 |
 | `config.reload_if_changed()` | 파일 mtime 비교로 불필요 파싱 방지 |
 
-### 10.4 committed_passthrough 패턴
+### 11.4 committed_passthrough 패턴
 
 ```
 Enter 키 → 조합 커밋 + 키 자체는 앱으로 전달
@@ -788,14 +837,15 @@ Enter 키 → 조합 커밋 + 키 자체는 앱으로 전달
 ```
 
 이 패턴이 없으면 Enter/Tab/Escape 입력 시:
+
 1. 조합만 커밋되고 Enter가 씹히거나
 2. Enter만 전달되고 조합이 소실됩니다.
 
 ---
 
-## 11. 테스트
+## 12. 테스트
 
-### 11.1 테스트 분포
+### 12.1 테스트 분포
 
 | 모듈 | 테스트 수 | 테스트 항목 |
 |------|-----------|------------|
@@ -806,7 +856,7 @@ Enter 키 → 조합 커밋 + 키 자체는 앱으로 전달
 | `keystroke/keystrokes_to_korean.rs` | 2 | 기본 변환, 비-한글 |
 | `status.rs` | 2 | 카테고리 변환, 파일 경로 |
 
-### 11.2 실행
+### 12.2 실행
 
 ```bash
 cargo test -p unim
@@ -814,7 +864,7 @@ cargo test -p unim
 
 ---
 
-## 12. 빌드
+## 13. 빌드
 
 ```bash
 # 라이브러리 빌드
