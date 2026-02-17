@@ -13,8 +13,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* DBus 클라이언트 헤더 */
+/* DBus 클라이언트 및 한자 팝업 헤더 */
 #include "unim_dbus_client.h"
+#include "unim_hanja_popup.h"
+
+/* X11 위치 계산을 위한 헤더 */
+#ifdef GDK_WINDOWING_X11
+#include <gdk/gdkx.h>
+#include <X11/Xlib.h>
+#endif
 
 /* 모듈 정보 */
 #define UNIM_IM_CONTEXT_ID "unim"
@@ -43,6 +50,12 @@ struct _UnimIMContext {
     gchar *surrounding_text;
     gint cursor_index;    /* 바이트 오프셋 */
     gint selection_index; /* 바이트 오프셋 */
+    
+    /* 한자 변환 관련 */
+    UnimHanjaPopup *hanja_popup;       /* 한자 후보 팝업 */
+    UnimHanjaCandidate *hanja_candidates; /* 현재 후보 목록 */
+    gsize hanja_count;                  /* 후보 개수 */
+    GdkRectangle cursor_area;           /* 커서 위치 */
 };
 
 struct _UnimIMContextClass {
@@ -175,6 +188,12 @@ unim_im_context_init(UnimIMContext *context)
     context->cursor_index = 0;
     context->selection_index = 0;
     
+    /* 한자 팝업 초기화 */
+    context->hanja_popup = unim_hanja_popup_new();
+    context->hanja_candidates = NULL;
+    context->hanja_count = 0;
+    memset(&context->cursor_area, 0, sizeof(GdkRectangle));
+    
     if (context->dbus_ctx) {
         UNIM_DEBUG("IMContext 초기화 완료 (window_id: %s)", context->window_id);
     } else {
@@ -182,10 +201,49 @@ unim_im_context_init(UnimIMContext *context)
     }
 }
 
+/* 한자 선택 콜백 - 팝업에서 한자 선택 시 호출됨 */
+static void
+on_hanja_selected(const gchar *hanja, gpointer user_data)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    
+    if (!unim || !hanja || !unim->dbus_ctx) {
+        return;
+    }
+    
+    UNIM_DEBUG("한자 선택 콜백: hanja='%s'", hanja);
+    
+    /* 팝업 숨기기 (먼저) */
+    if (unim->hanja_popup) {
+        unim_hanja_popup_hide(unim->hanja_popup);
+    }
+    
+    /* preedit 클리어 먼저 (엔진에서 preedit 제거) */
+    unim_dbus_cancel_hanja(unim->dbus_ctx);
+    
+    /* preedit-changed 시그널 (빈 preedit) */
+    g_signal_emit_by_name(unim, "preedit-changed");
+    
+    /* 한자만 커밋 */
+    g_signal_emit_by_name(unim, "commit", hanja);
+}
+
 static void
 unim_im_context_finalize(GObject *obj)
 {
     UnimIMContext *context = UNIM_IM_CONTEXT(obj);
+
+    /* 한자 팝업 해제 */
+    if (context->hanja_popup) {
+        unim_hanja_popup_free(context->hanja_popup);
+        context->hanja_popup = NULL;
+    }
+    
+    if (context->hanja_candidates) {
+        unim_hanja_candidates_free(context->hanja_candidates, context->hanja_count);
+        context->hanja_candidates = NULL;
+        context->hanja_count = 0;
+    }
 
     if (context->dbus_ctx) {
         unim_dbus_context_free(context->dbus_ctx);
@@ -226,10 +284,126 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         return FALSE;
     }
 
+    /* 한자 팝업이 표시 중이면 먼저 팝업에서 키 처리 */
+    if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
+        /* Escape → 조합 복원 + 팝업 닫기 */
+        if (event->keyval == GDK_KEY_Escape) {
+            UNIM_DEBUG("한자 팝업 Escape -> 조합 복원 + 팝업 닫기");
+
+            /* ProcessKey(0,0,0)로 엔진 리셋 → preedit/commit 응답 받기 */
+            UnimDbusKeyResult reset_result;
+            if (unim_dbus_process_key(unim->dbus_ctx, 0, 0, 0, &reset_result)) {
+                /* 커밋 텍스트가 있으면 커밋 */
+                if (reset_result.commit && strlen(reset_result.commit) > 0) {
+                    g_signal_emit_by_name(context, "commit", reset_result.commit);
+                }
+                g_free(reset_result.preedit);
+                g_free(reset_result.commit);
+            }
+
+            /* CancelHanja → 한자 모드 해제 */
+            unim_dbus_cancel_hanja(unim->dbus_ctx);
+
+            /* preedit-changed 시그널 (preedit 복원) */
+            g_signal_emit_by_name(context, "preedit-changed");
+
+            /* 팝업 닫기 */
+            unim_hanja_popup_hide(unim->hanja_popup);
+            return TRUE;
+        }
+
+        /* 팝업 내부 처리 (숫자 선택, 네비게이션, 모디파이어 등) */
+        if (unim_hanja_popup_handle_key(unim->hanja_popup, event->keyval)) {
+            return TRUE;
+        }
+
+        /* 미지원 키 → 조합 커밋 + 팝업 닫기 + fall-through (엔진에 키 전달) */
+        UNIM_DEBUG("한자 팝업 미지원 키 -> 조합 커밋 + 팝업 닫고 엔진에 키 전달");
+
+        /* 1. FocusOut으로 조합 중 한글 커밋 */
+        gchar *commit_text = NULL;
+        unim_dbus_focus_out(unim->dbus_ctx, &commit_text);
+        if (commit_text && strlen(commit_text) > 0) {
+            UNIM_DEBUG("조합 커밋: \"%s\"", commit_text);
+            g_signal_emit_by_name(context, "commit", commit_text);
+        }
+        g_free(commit_text);
+
+        /* preedit 클리어 */
+        g_signal_emit_by_name(context, "preedit-changed");
+
+        /* 2. CancelHanja + 팝업 닫기 */
+        unim_dbus_cancel_hanja(unim->dbus_ctx);
+        unim_hanja_popup_hide(unim->hanja_popup);
+
+        /* 3. FocusIn으로 컨텍스트 복원 (FocusOut 후 필요) */
+        unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
+
+        /* fall-through → 아래 ProcessKey 경로에서 엔진이 새 키 처리 */
+    }
+
+    /* 한자 키 처리 (Hangul_Hanja 또는 F9) */
+    if (event->keyval == GDK_KEY_Hangul_Hanja || event->keyval == GDK_KEY_F9) {
+        gchar *target = NULL;
+        UnimHanjaCandidate *candidates = NULL;
+        gsize count = 0;
+        
+        if (unim_dbus_get_hanja_candidates(unim->dbus_ctx, &target, &candidates, &count)) {
+            if (count > 0 && unim->hanja_popup) {
+                /* 이전 후보 정리 */
+                if (unim->hanja_candidates) {
+                    unim_hanja_candidates_free(unim->hanja_candidates, unim->hanja_count);
+                }
+                unim->hanja_candidates = candidates;
+                unim->hanja_count = count;
+                
+                /* 화면 좌표 계산 */
+                gint popup_x = unim->cursor_area.x;
+                gint popup_y = unim->cursor_area.y + unim->cursor_area.height;
+                
+#ifdef GDK_WINDOWING_X11
+                /* X11: 윈도우의 절대 위치를 더해서 화면 좌표로 변환 */
+                if (unim->client_window && GDK_IS_X11_WINDOW(unim->client_window)) {
+                    gint abs_x = 0, abs_y = 0;
+                    gdk_window_get_origin(unim->client_window, &abs_x, &abs_y);
+                    popup_x += abs_x;
+                    popup_y += abs_y;
+                    UNIM_DEBUG("한자 팝업 위치: window=(%d,%d) + cursor=(%d,%d+%d) = (%d,%d)",
+                               abs_x, abs_y,
+                               unim->cursor_area.x, unim->cursor_area.y, unim->cursor_area.height,
+                               popup_x, popup_y);
+                }
+#endif
+                
+                /* 팝업 표시 */
+                unim_hanja_popup_show(
+                    unim->hanja_popup,
+                    target,
+                    candidates,
+                    count,
+                    popup_x,
+                    popup_y,
+                    unim->cursor_area.height,
+                    on_hanja_selected,
+                    unim
+                );
+                
+                UNIM_DEBUG("한자 후보 표시: target='%s', count=%zu", target, count);
+            } else {
+                UNIM_DEBUG("한자 후보 없음");
+                if (candidates) {
+                    unim_hanja_candidates_free(candidates, count);
+                }
+            }
+        }
+        g_free(target);
+        return TRUE;
+    }
+
     /* 조합 중이 아닌 경우, 특수키는 IM에서 처리하지 않고 앱으로 직접 전달 */
     /* (터미널에서 방향키, Backspace 등이 동작하도록 함) */
     if (!unim_dbus_is_composing(unim->dbus_ctx)) {
-        /* 기능키 (F1~F12) */
+        /* 기능키 (F1~F12, 단 F9은 한자키로 위에서 처리됨) */
         if (event->keyval >= GDK_KEY_F1 && event->keyval <= GDK_KEY_F12) {
             return FALSE;
         }
@@ -340,6 +514,7 @@ unim_im_context_focus_out(GtkIMContext *context)
 
     UNIM_DEBUG("focus_out 호출");
 
+    /* 1. 조합 중인 글자를 먼저 커밋 */
     if (unim->dbus_ctx) {
         unim_dbus_focus_out(unim->dbus_ctx, &commit);
         
@@ -354,6 +529,15 @@ unim_im_context_focus_out(GtkIMContext *context)
         g_signal_emit_by_name(context, "preedit-changed");
     }
 
+    /* 2. 한자 팝업이 표시 중이면 닫기 */
+    if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
+        UNIM_DEBUG("focus_out: 한자 팝업 닫기");
+        unim_hanja_popup_hide(unim->hanja_popup);
+        if (unim->dbus_ctx) {
+            unim_dbus_cancel_hanja(unim->dbus_ctx);
+        }
+    }
+
     unim->is_focused = FALSE;
 }
 
@@ -365,10 +549,10 @@ unim_im_context_reset(GtkIMContext *context)
 
     UNIM_DEBUG("reset 호출");
 
+    /* 1. 조합 중인 글자를 먼저 커밋 */
     if (unim->dbus_ctx) {
         unim_dbus_reset(unim->dbus_ctx, &commit);
         
-        /* 조합 중이던 문자 커밋 */
         if (commit && strlen(commit) > 0) {
             UNIM_DEBUG("reset 커밋: \"%s\"", commit);
             g_signal_emit_by_name(context, "commit", commit);
@@ -377,6 +561,15 @@ unim_im_context_reset(GtkIMContext *context)
         
         /* preedit 업데이트 */
         g_signal_emit_by_name(context, "preedit-changed");
+    }
+
+    /* 2. 한자 팝업이 표시 중이면 닫기 */
+    if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
+        UNIM_DEBUG("reset: 한자 팝업 닫기");
+        unim_hanja_popup_hide(unim->hanja_popup);
+        if (unim->dbus_ctx) {
+            unim_dbus_cancel_hanja(unim->dbus_ctx);
+        }
     }
 }
 
@@ -417,7 +610,11 @@ unim_im_context_get_preedit_string(GtkIMContext *context, gchar **str,
 static void
 unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
 {
-    /* 커서 위치 저장 (팝업 후보창 등에 사용) */
+    UnimIMContext *unim = UNIM_IM_CONTEXT(context);
+    
+    if (area) {
+        unim->cursor_area = *area;
+    }
 }
 
 static void

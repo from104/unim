@@ -48,7 +48,8 @@ void unim_hanja_popup_free(UnimHanjaPopup *popup);
  * @param candidates 후보 배열
  * @param count 후보 개수
  * @param x 팝업 X 위치
- * @param y 팝업 Y 위치
+ * @param y 팝업 Y 위치 (커서 아래)
+ * @param cursor_height 커서(preedit 줄) 높이 (넘침 시 위로 올릴 때 사용)
  * @param callback 선택 콜백
  * @param user_data 콜백 사용자 데이터
  */
@@ -58,6 +59,7 @@ void unim_hanja_popup_show(UnimHanjaPopup *popup,
                             gsize count,
                             gint x,
                             gint y,
+                            gint cursor_height,
                             UnimHanjaSelectCallback callback,
                             gpointer user_data);
 

@@ -33,6 +33,14 @@ struct UnimDbusKeyResult {
 };
 
 /**
+ * 한자 후보 항목
+ */
+struct UnimHanjaCandidate {
+    QString hanja;    /* 한자 문자열 */
+    QString meaning;  /* 뜻풀이 */
+};
+
+/**
  * DBus 클라이언트 클래스
  */
 class UnimDbusClient {
@@ -90,6 +98,27 @@ public:
      * 조합 중인지 확인
      */
     bool isComposing() const;
+    
+    /**
+     * 한자 후보 목록 조회
+     * @param target 변환 대상 문자열 (출력)
+     * @param candidates 후보 목록 (출력)
+     * @return 성공 시 true
+     */
+    bool getHanjaCandidates(QString &target, QList<UnimHanjaCandidate> &candidates);
+    
+    /**
+     * 한자 선택
+     * @param index 선택할 인덱스 (0부터)
+     * @param selectedHanja 선택된 한자 (출력)
+     * @return 성공 시 true
+     */
+    bool selectHanja(quint32 index, QString &selectedHanja);
+    
+    /**
+     * 한자 모드 취소
+     */
+    void cancelHanja();
     
 private:
     QDBusConnection m_bus;

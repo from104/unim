@@ -9,7 +9,11 @@
 
 /* X11 override_redirect 설정을 위한 헤더 */
 #ifdef GDK_WINDOWING_X11
+#if GTK_MAJOR_VERSION >= 4
 #include <gdk/x11/gdkx.h>
+#else
+#include <gdk/gdkx.h>
+#endif
 #include <X11/Xlib.h>
 #endif
 
@@ -311,6 +315,7 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
                        gsize count,
                        gint x,
                        gint y,
+                       gint cursor_height,
                        UnimHanjaSelectCallback callback,
                        gpointer user_data)
 {
@@ -325,11 +330,20 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
 
     update_listbox(popup);
 
+    /* 팝업 크기 측정 및 화면 경계 보정 */
+    gint popup_w = 0, popup_h = 0;
+    gint final_x = x, final_y = y;
+
 #if GTK_CHECK_VERSION(4, 0, 0)
-    /* GTK4: visible로 표시 (포커스 가져가지 않음) */
-    gtk_widget_set_visible(popup->window, TRUE);
-    
-    /* X11에서 위치 설정 */
+    /* GTK4: realize하여 X11 윈도우를 생성하되 아직 표시하지 않음 */
+    gtk_widget_realize(popup->window);
+
+    GtkRequisition req;
+    gtk_widget_get_preferred_size(popup->window, NULL, &req);
+    popup_w = req.width;
+    popup_h = req.height;
+
+    /* 화면 크기 가져오기 (X11) */
 #ifdef GDK_WINDOWING_X11
     {
         GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(popup->window));
@@ -337,18 +351,70 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
             Display *xdisplay = gdk_x11_display_get_xdisplay(
                 gdk_surface_get_display(surface));
             Window xwindow = gdk_x11_surface_get_xid(surface);
-            XMoveWindow(xdisplay, xwindow, x, y);
+            int screen_num = DefaultScreen(xdisplay);
+            gint screen_w = DisplayWidth(xdisplay, screen_num);
+            gint screen_h = DisplayHeight(xdisplay, screen_num);
+
+            /* 오른쪽 넘침 보정 */
+            if (final_x + popup_w > screen_w) {
+                final_x = screen_w - popup_w;
+                if (final_x < 0) final_x = 0;
+            }
+            /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 */
+            if (final_y + popup_h > screen_h) {
+                /* y는 커서 아래쪽이므로, 커서 위로: y - cursor_height - popup_h */
+                final_y = y - cursor_height - popup_h;
+                if (final_y < 0) final_y = 0;
+            }
+
+            POPUP_DEBUG("화면 경계 보정: screen=(%d,%d), popup=(%d,%d), req=(%d,%d) -> final=(%d,%d)",
+                         screen_w, screen_h, x, y, popup_w, popup_h, final_x, final_y);
+
+            /* 위치 설정 후 표시 (GTK3과 동일 순서: move → show) */
+            XMoveWindow(xdisplay, xwindow, final_x, final_y);
         }
     }
 #endif
 
+    /* 위치 설정 완료 후 마지막에 표시 */
+    gtk_widget_set_visible(popup->window, TRUE);
+
 #else
-    gtk_window_move(GTK_WINDOW(popup->window), x, y);
+    /* GTK3: 먼저 크기 측정 */
+    GtkRequisition req;
+    gtk_widget_get_preferred_size(popup->window, NULL, &req);
+    popup_w = req.width;
+    popup_h = req.height;
+
+    /* GTK3: GdkScreen으로 화면 크기 가져오기 */
+    {
+        GdkScreen *screen = gtk_window_get_screen(GTK_WINDOW(popup->window));
+        if (screen) {
+            gint screen_w = gdk_screen_get_width(screen);
+            gint screen_h = gdk_screen_get_height(screen);
+
+            /* 오른쪽 넘침 보정 */
+            if (final_x + popup_w > screen_w) {
+                final_x = screen_w - popup_w;
+                if (final_x < 0) final_x = 0;
+            }
+            /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 */
+            if (final_y + popup_h > screen_h) {
+                final_y = y - cursor_height - popup_h;
+                if (final_y < 0) final_y = 0;
+            }
+
+            POPUP_DEBUG("화면 경계 보정: screen=(%d,%d), popup=(%d,%d), req=(%d,%d) -> final=(%d,%d)",
+                         screen_w, screen_h, x, y, popup_w, popup_h, final_x, final_y);
+        }
+    }
+
+    gtk_window_move(GTK_WINDOW(popup->window), final_x, final_y);
     gtk_widget_show_all(popup->window);
 #endif
 
     POPUP_DEBUG("한자 팝업 표시: target='%s', count=%zu, pos=(%d,%d)", 
-                 target, count, x, y);
+                 target, count, final_x, final_y);
 }
 
 void
@@ -413,8 +479,9 @@ unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval)
         return TRUE;
     }
 
-    /* 좌/우 화살표 페이지 전환 */
-    if (keyval == GDK_KEY_Left || keyval == GDK_KEY_Page_Up) {
+    /* 좌/우 화살표, BackSpace 페이지 전환 (이전) */
+    if (keyval == GDK_KEY_Left || keyval == GDK_KEY_Page_Up ||
+        keyval == GDK_KEY_BackSpace) {
         if (popup->current_page > 0) {
             popup->current_page--;
             popup->selected_index = 0;
@@ -423,7 +490,9 @@ unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval)
         return TRUE;
     }
 
-    if (keyval == GDK_KEY_Right || keyval == GDK_KEY_Page_Down) {
+    /* 우 화살표, Space 페이지 전환 (다음) */
+    if (keyval == GDK_KEY_Right || keyval == GDK_KEY_Page_Down ||
+        keyval == GDK_KEY_space) {
         if (popup->current_page < get_total_pages(popup) - 1) {
             popup->current_page++;
             popup->selected_index = 0;
@@ -445,11 +514,13 @@ unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval)
         }
     }
 
-    /* Escape로 취소 */
-    if (keyval == GDK_KEY_Escape) {
-        unim_hanja_popup_hide(popup);
+    /* 모디파이어 키 → 소비 (팝업 유지, 앱에 전달하지 않음) */
+    if ((keyval >= GDK_KEY_Shift_L && keyval <= GDK_KEY_Hyper_R) ||
+        keyval == GDK_KEY_Num_Lock || keyval == GDK_KEY_Scroll_Lock ||
+        keyval == GDK_KEY_Caps_Lock || keyval == GDK_KEY_ISO_Level3_Shift) {
         return TRUE;
     }
 
+    /* Escape, 기타 미지원 키 → FALSE (immodule에서 처리) */
     return FALSE;
 }

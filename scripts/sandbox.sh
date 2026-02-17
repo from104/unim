@@ -13,6 +13,9 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Rust 바이너리 경로
 RUST_BIN="$PROJECT_ROOT/target/release"
 
+# 로컬 모듈 경로 (sandbox용)
+SANDBOX_DIR="$PROJECT_ROOT/build/sandbox"
+
 # 테스트 앱 경로 (각각의 build 디렉토리)
 TEST_GTK3="$PROJECT_ROOT/unim-test-gtk3/build/unim-test-gtk3"
 TEST_GTK4="$PROJECT_ROOT/unim-test-gtk4/build/unim-test-gtk4"
@@ -79,6 +82,45 @@ check_build() {
     done
     
     log_success "빌드가 준비되었습니다."
+}
+
+# === 로컬 모듈 경로 설정 ===
+setup_local_modules() {
+    log_info "로컬 빌드 모듈 경로 설정 중..."
+    
+    # GTK3 모듈 디렉터리 구조 (GTK_PATH용)
+    local gtk3_mod_dir="$SANDBOX_DIR/gtk-3.0/3.0.0/immodules"
+    mkdir -p "$gtk3_mod_dir"
+    if [ -f "$PROJECT_ROOT/unim-frontends/gtk3/build/libim-unim.so" ]; then
+        ln -sf "$PROJECT_ROOT/unim-frontends/gtk3/build/libim-unim.so" "$gtk3_mod_dir/libim-unim.so"
+        log_success "  GTK3 모듈 → 로컬 빌드 연결"
+    fi
+    
+    # GTK4 모듈 디렉터리 구조 (GTK_PATH용)
+    local gtk4_mod_dir="$SANDBOX_DIR/gtk-4.0/4.0.0/immodules"
+    mkdir -p "$gtk4_mod_dir"
+    if [ -f "$PROJECT_ROOT/unim-frontends/gtk4/build/libim-unim.so" ]; then
+        ln -sf "$PROJECT_ROOT/unim-frontends/gtk4/build/libim-unim.so" "$gtk4_mod_dir/libim-unim.so"
+        log_success "  GTK4 모듈 → 로컬 빌드 연결"
+    fi
+    
+    # Qt5 플러그인 디렉터리 구조 (QT_PLUGIN_PATH용)
+    local qt5_dir="$SANDBOX_DIR/qt5/plugins/platforminputcontexts"
+    mkdir -p "$qt5_dir"
+    if [ -f "$PROJECT_ROOT/unim-frontends/qt5/build/libunim.so" ]; then
+        ln -sf "$PROJECT_ROOT/unim-frontends/qt5/build/libunim.so" "$qt5_dir/libunim.so"
+        log_success "  Qt5 플러그인 → 로컬 빌드 연결"
+    fi
+    
+    # Qt6 플러그인 디렉터리 구조 (QT_PLUGIN_PATH용)
+    local qt6_dir="$SANDBOX_DIR/qt6/plugins/platforminputcontexts"
+    mkdir -p "$qt6_dir"
+    if [ -f "$PROJECT_ROOT/unim-frontends/qt6/build/libunim.so" ]; then
+        ln -sf "$PROJECT_ROOT/unim-frontends/qt6/build/libunim.so" "$qt6_dir/libunim.so"
+        log_success "  Qt6 플러그인 → 로컬 빌드 연결"
+    fi
+    
+    log_success "로컬 모듈 경로 설정 완료."
 }
 
 # === Xephyr 시작 ===
@@ -240,6 +282,9 @@ main() {
     local start_tray="$([[ "$no_tray" == "false" ]] && echo "true" || echo "false")"
     local start_indicator="$([[ "$with_indicator" == "true" ]] && echo "true" || echo "false")"
     
+    # 로컬 모듈 경로 설정
+    setup_local_modules
+    
     # dbus-run-session 내에서 UNIM 실행
     dbus-run-session -- /bin/bash -c "
         export PATH='/usr/local/bin:/usr/bin:/bin:$RUST_BIN'
@@ -250,6 +295,8 @@ main() {
         export CLUTTER_IM_MODULE=xim
         export UNIM_DEVELOP=1
         export LD_LIBRARY_PATH='$RUST_BIN:\${LD_LIBRARY_PATH:-}'
+        export GTK_PATH='$SANDBOX_DIR:\${GTK_PATH:-}'
+        export QT_PLUGIN_PATH='$SANDBOX_DIR/qt5/plugins:$SANDBOX_DIR/qt6/plugins:\${QT_PLUGIN_PATH:-}'
         
         echo ''
         echo '=== UNIM 샌드박스 활성화됨 ==='

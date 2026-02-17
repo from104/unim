@@ -51,6 +51,15 @@ trait InputContext {
     /// 컨텍스트 파괴
     fn destroy(&self) -> Result<()>;
 
+    /// 한자 후보 목록 조회 - 반환: (target, Vec<(hanja, meaning)>)
+    fn get_hanja_candidates(&self) -> Result<(String, Vec<(String, String)>)>;
+
+    /// 한자 선택 - 반환: 선택된 한자 문자열
+    fn select_hanja(&self, index: u32) -> Result<String>;
+
+    /// 한자 모드 취소
+    fn cancel_hanja(&self) -> Result<()>;
+
     /// Preedit 텍스트 업데이트 시그널
     #[zbus(signal)]
     fn update_preedit_text(&self, text: String, cursor_pos: u32, visible: bool) -> Result<()>;

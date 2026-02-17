@@ -243,3 +243,101 @@ bool UnimDbusClient::isComposing() const
 {
     return m_isComposing;
 }
+
+bool UnimDbusClient::getHanjaCandidates(QString &target, QList<UnimHanjaCandidate> &candidates)
+{
+    if (!isValid()) return false;
+    
+    UNIM_DBUS_DEBUG("GetHanjaCandidates 호출");
+    
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("GetHanjaCandidates")
+    );
+    
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("GetHanjaCandidates 실패: %s", qPrintable(reply.errorMessage())));
+        return false;
+    }
+    
+    QList<QVariant> args = reply.arguments();
+    if (args.size() >= 2) {
+        target = args.at(0).toString();
+        
+        // a(ss) 형태의 배열 파싱 — const ref로 접근하여 write 모드 전환 방지
+        const QDBusArgument &dbusArg = args.at(1).value<QDBusArgument>();
+        candidates.clear();
+        
+        dbusArg.beginArray();
+        while (!dbusArg.atEnd()) {
+            QString hanja, meaning;
+            dbusArg.beginStructure();
+            dbusArg >> hanja >> meaning;
+            dbusArg.endStructure();
+            UnimHanjaCandidate cand;
+            cand.hanja = hanja;
+            cand.meaning = meaning;
+            candidates.append(cand);
+        }
+        dbusArg.endArray();
+        
+        UNIM_DBUS_DEBUG(QString::asprintf("GetHanjaCandidates 결과: target=%s, count=%d",
+                        qPrintable(target), candidates.size()));
+    }
+    
+    return true;
+}
+
+bool UnimDbusClient::selectHanja(quint32 index, QString &selectedHanja)
+{
+    if (!isValid()) return false;
+    
+    UNIM_DBUS_DEBUG(QString::asprintf("SelectHanja 호출: index=%u", index));
+    
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("SelectHanja")
+    );
+    msg << index;
+    
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("SelectHanja 실패: %s", qPrintable(reply.errorMessage())));
+        return false;
+    }
+    
+    QList<QVariant> args = reply.arguments();
+    if (args.size() >= 1) {
+        selectedHanja = args.at(0).toString();
+        UNIM_DBUS_DEBUG(QString::asprintf("SelectHanja 결과: '%s'", qPrintable(selectedHanja)));
+    }
+    
+    return true;
+}
+
+void UnimDbusClient::cancelHanja()
+{
+    if (!isValid()) return;
+    
+    UNIM_DBUS_DEBUG("CancelHanja 호출");
+    
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("CancelHanja")
+    );
+    
+    m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    
+    // 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화
+    m_preeditCache.clear();
+    m_isComposing = false;
+}

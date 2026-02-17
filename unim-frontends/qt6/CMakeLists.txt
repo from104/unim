@@ -5,8 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-# Qt6 찾기 (Core, Gui, DBus)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui DBus)
+# Qt6 찾기 (Core, Gui, DBus, Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui DBus Widgets)
 
 # 공통 DBus 클라이언트 경로
 set(QT_COMMON_DIR "${CMAKE_SOURCE_DIR}/../qt-common")
@@ -24,6 +24,8 @@ target_sources(unim PRIVATE
     src/plugin.cpp
     src/input_context.cpp
     ${QT_COMMON_DIR}/src/unim_dbus_client.cpp
+    ${QT_COMMON_DIR}/src/unim_hanja_popup.cpp
+    ${QT_COMMON_DIR}/include/unim_hanja_popup.hpp
 )
 
 target_include_directories(unim PRIVATE
@@ -36,6 +38,7 @@ target_link_libraries(unim PRIVATE
     Qt6::Gui
     Qt6::GuiPrivate
     Qt6::DBus
+    Qt6::Widgets
 )
 
 # 설치 경로

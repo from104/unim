@@ -64,7 +64,8 @@ CARGO := cargo
         uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart \
         pack install-gnome-extension uninstall-gnome-extension enable disable log test test-dbus test-xim \
         deb clean-deb clean-all help sandbox \
-        test-gtk3 test-gtk4
+        test-gtk3 test-gtk4 \
+        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-restart
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Help
@@ -119,6 +120,17 @@ help:
 	@echo "  sandbox-gtk4     - Launch sandbox with GTK4 test app"
 	@echo "  sandbox-xim      - Launch sandbox with XIM test app"
 	@echo "  build-tests      - Build all test applications"
+	@echo ""
+	@echo "Quick Development (no deb needed, 최초 1회 install 필요):"
+	@echo "  dev-gtk4         - GTK4 IM 모듈 증분 빌드 + 시스템 배포"
+	@echo "  dev-gtk3         - GTK3 IM 모듈 증분 빌드 + 시스템 배포"
+	@echo "  dev-qt5          - Qt5 플러그인 증분 빌드 + 시스템 배포"
+	@echo "  dev-qt6          - Qt6 플러그인 증분 빌드 + 시스템 배포"
+	@echo "  dev-core         - libunim_capi.so 빌드 + 배포"
+	@echo "  dev-daemon       - unim-daemon 빌드 + 배포 + 재시작"
+	@echo "  dev-xim          - unim-xim 빌드 + 배포 + 재시작"
+	@echo "  dev-wayland      - unim-wayland 빌드 + 배포 + 재시작"
+	@echo "  dev-restart      - 데몬 및 프론트엔드 재시작"
 	@echo ""
 	@echo "Variables:"
 	@echo "  PREFIX           - Installation prefix (default: /usr/local)"
@@ -506,6 +518,83 @@ clean-all: clean clean-deb
 	@echo "Cleaning Rust target directory..."
 	@$(CARGO) clean
 	@echo "All build artifacts cleaned."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Quick Development (incremental build + deploy, no deb needed)
+# 사용 전 최초 1회: make build && sudo make install PREFIX=/usr
+# ─────────────────────────────────────────────────────────────────────────────
+
+dev-gtk4:
+	@echo "🔧 [dev] GTK4 IM 모듈 증분 빌드 + 배포..."
+	@cd unim-frontends/gtk4/build && make
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp unim-frontends/gtk4/build/libim-unim.so $(GTK4_IMMODULE_DIR)/
+	@echo "✅ GTK4 모듈 배포 완료! GTK4 앱을 재시작하세요."
+
+dev-gtk3:
+	@echo "🔧 [dev] GTK3 IM 모듈 증분 빌드 + 배포..."
+	@cd unim-frontends/gtk3/build && make
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp unim-frontends/gtk3/build/libim-unim.so $(GTK3_IMMODULE_DIR)/
+	@echo "✅ GTK3 모듈 배포 완료! GTK3 앱을 재시작하세요."
+
+dev-qt5:
+	@echo "🔧 [dev] Qt5 플러그인 증분 빌드 + 배포..."
+	@cd unim-frontends/qt5/build && make
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp unim-frontends/qt5/build/libunim.so $(QT5_PLUGIN_DIR)/
+	@echo "✅ Qt5 플러그인 배포 완료! Qt5 앱을 재시작하세요."
+
+dev-qt6:
+	@echo "🔧 [dev] Qt6 플러그인 증분 빌드 + 배포..."
+	@cd unim-frontends/qt6/build && make
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp unim-frontends/qt6/build/libunim.so $(QT6_PLUGIN_DIR)/
+	@echo "✅ Qt6 플러그인 배포 완료! Qt6 앱을 재시작하세요."
+
+dev-core:
+	@echo "🔧 [dev] libunim_capi.so 빌드 + 배포..."
+	@$(CARGO) build --release -p unim-capi
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp target/release/libunim_capi.so $(REAL_LIBDIR)/
+	@echo "✅ 코어 라이브러리 배포 완료! 프론트엔드 모듈을 다시 빌드하세요."
+
+dev-daemon:
+	@echo "🔧 [dev] unim-daemon 빌드 + 배포 + 재시작..."
+	@$(CARGO) build --release -p unim-daemon
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp target/release/unim-daemon $(LIBEXECDIR)/
+	@echo "  → 데몬 재시작..."
+	@pkill -f unim-daemon 2>/dev/null || true
+	@sleep 1
+	@echo "✅ 데몬 배포 완료! (DBus 자동활성화로 다음 요청 시 재시작됩니다)"
+
+dev-xim:
+	@echo "🔧 [dev] unim-xim 빌드 + 배포 + 재시작..."
+	@$(CARGO) build --release -p unim-xim
+	@echo "  → XIM 서버 종료..."
+	@pkill -x unim-xim 2>/dev/null || true
+	@sleep 0.5
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp target/release/unim-xim $(LIBEXECDIR)/
+	@echo "✅ XIM 서버 배포 완료!"
+
+dev-wayland:
+	@echo "🔧 [dev] unim-wayland 빌드 + 배포 + 재시작..."
+	@$(CARGO) build --release -p unim-wayland
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp target/release/unim-wayland $(LIBEXECDIR)/
+	@echo "  → Wayland IM 재시작..."
+	@pkill -f unim-wayland 2>/dev/null || true
+	@echo "✅ Wayland IM 배포 완료!"
+
+dev-restart:
+	@echo "🔧 [dev] UNIM 데몬 및 프론트엔드 재시작..."
+	@pkill -f unim-daemon 2>/dev/null || true
+	@pkill -f unim-xim 2>/dev/null || true
+	@pkill -f unim-wayland 2>/dev/null || true
+	@sleep 1
+	@echo "✅ 모든 UNIM 프로세스가 종료되었습니다. (DBus 자동활성화로 다음 요청 시 재시작)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test Applications

@@ -9,6 +9,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 pkg_check_modules(GIO REQUIRED gio-2.0)
 
+# X11 지원 (선택적 - 한자 팝업 위치 계산용)
+pkg_check_modules(X11 x11)
+pkg_check_modules(GTK3_X11 gtk+-3.0)
+
 # 공통 DBus 클라이언트 경로
 set(GTK_COMMON_DIR "${CMAKE_SOURCE_DIR}/../gtk-common")
 
@@ -16,17 +20,20 @@ set(GTK_COMMON_DIR "${CMAKE_SOURCE_DIR}/../gtk-common")
 add_library(im-unim MODULE
     src/immodule.c
     ${GTK_COMMON_DIR}/src/unim_dbus_client.c
+    ${GTK_COMMON_DIR}/src/unim_hanja_popup.c
 )
 
 target_include_directories(im-unim PRIVATE
     ${GTK3_INCLUDE_DIRS}
     ${GIO_INCLUDE_DIRS}
     ${GTK_COMMON_DIR}/include
+    ${X11_INCLUDE_DIRS}
 )
 
 target_link_libraries(im-unim
     ${GTK3_LIBRARIES}
     ${GIO_LIBRARIES}
+    ${X11_LIBRARIES}
 )
 
 target_compile_options(im-unim PRIVATE 
@@ -50,3 +57,4 @@ add_custom_target(install-local
 
 message(STATUS "GTK3 IM Module: Using DBus client")
 message(STATUS "GTK Common Dir: ${GTK_COMMON_DIR}")
+

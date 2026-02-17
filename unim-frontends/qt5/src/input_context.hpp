@@ -11,9 +11,11 @@
 #include <qpa/qplatforminputcontext.h>
 #include <QObject>
 #include <QString>
+#include <QRect>
 
 /* 전방 선언 */
 class UnimDbusClient;
+class UnimHanjaPopup;
 
 class UnimInputContext : public QPlatformInputContext
 {
@@ -45,9 +47,11 @@ private:
     void commitString(const QString &str);
 
     UnimDbusClient *m_dbus;
+    UnimHanjaPopup *m_hanjaPopup;
     QObject *m_focusObject;
     QString m_windowId;
     bool m_composing;
+    QRect m_cursorRect;
 };
 
 #endif // UNIM_INPUT_CONTEXT_HPP

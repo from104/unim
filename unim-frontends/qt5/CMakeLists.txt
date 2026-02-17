@@ -7,8 +7,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-# Qt5 찾기 (Core, Gui, DBus)
-find_package(Qt5 REQUIRED COMPONENTS Core Gui DBus)
+# Qt5 찾기 (Core, Gui, DBus, Widgets)
+find_package(Qt5 REQUIRED COMPONENTS Core Gui DBus Widgets)
 find_package(Qt5Gui ${Qt5_VERSION} CONFIG REQUIRED Private)
 
 # Qt5 Private 헤더 경로 명시적으로 가져오기
@@ -25,6 +25,8 @@ add_library(unim MODULE
     src/plugin.cpp
     src/input_context.cpp
     ${QT_COMMON_DIR}/src/unim_dbus_client.cpp
+    ${QT_COMMON_DIR}/src/unim_hanja_popup.cpp
+    ${QT_COMMON_DIR}/include/unim_hanja_popup.hpp
 )
 
 target_include_directories(unim PRIVATE
@@ -38,6 +40,7 @@ target_link_libraries(unim
     Qt5::Gui
     Qt5::GuiPrivate
     Qt5::DBus
+    Qt5::Widgets
 )
 
 # 설치 경로

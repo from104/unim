@@ -59,6 +59,9 @@ enum KeyboardMode {
     /// 세벌식 391 자판
     #[value(name = "391")]
     ThreeBul391,
+    /// 세벌식 순아래 자판
+    #[value(name = "noshift")]
+    ThreeBulNoShift,
 }
 
 /// 영어 자판 모드
@@ -70,6 +73,15 @@ enum EnglishKeyboardMode {
     /// Dvorak 자판
     #[value(name = "dvorak")]
     Dvorak,
+    /// Colemak 자판
+    #[value(name = "colemak")]
+    Colemak,
+    /// Colemak-DH 자판
+    #[value(name = "colemak_dh")]
+    ColemakDh,
+    /// Workman 자판
+    #[value(name = "workman")]
+    Workman,
 }
 
 /// 변환 모드
@@ -152,12 +164,16 @@ fn run_convert(config: ConvertConfig) -> io::Result<()> {
     let en_keymap_name = match config.english_keyboard_mode {
         EnglishKeyboardMode::Qwerty => "en_qwerty",
         EnglishKeyboardMode::Dvorak => "en_dvorak",
+        EnglishKeyboardMode::Colemak => "en_colemak",
+        EnglishKeyboardMode::ColemakDh => "en_colemak_dh",
+        EnglishKeyboardMode::Workman => "en_workman",
     };
 
     let korean_keymap_name = match config.keyboard_mode {
         KeyboardMode::TwoBulStd => "ko_2bulstd",
         KeyboardMode::ThreeBul390 => "ko_3bul390",
         KeyboardMode::ThreeBul391 => "ko_3bul391",
+        KeyboardMode::ThreeBulNoShift => "ko_3bul_noshift",
     };
 
     unim_log!(
@@ -172,7 +188,7 @@ fn run_convert(config: ConvertConfig) -> io::Result<()> {
 
     let is_three_bul = matches!(
         config.keyboard_mode,
-        KeyboardMode::ThreeBul390 | KeyboardMode::ThreeBul391
+        KeyboardMode::ThreeBul390 | KeyboardMode::ThreeBul391 | KeyboardMode::ThreeBulNoShift
     );
 
     match config.conversion_mode {

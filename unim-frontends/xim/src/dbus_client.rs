@@ -41,6 +41,19 @@ pub enum DbusRequest {
     },
     /// 리셋
     Reset { context_path: String },
+    /// 한자 후보 조회
+    GetHanjaCandidates {
+        context_path: String,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
+    /// 한자 선택
+    SelectHanja {
+        context_path: String,
+        index: u32,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
+    /// 한자 취소
+    CancelHanja { context_path: String },
 }
 
 /// DBus 응답 타입
@@ -58,6 +71,13 @@ pub enum DbusResponse {
     },
     /// 커밋 텍스트 (focus_out 등에서)
     CommitText { text: String },
+    /// 한자 후보 목록
+    HanjaCandidates {
+        target: String,
+        candidates: Vec<(String, String)>,
+    },
+    /// 한자 선택 결과
+    HanjaSelected { commit: String },
 }
 
 /// DBus 클라이언트
@@ -221,6 +241,95 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                     {
                         let _ = proxy.reset().await;
                         unim_log!("XIM_DBUS", "[XIM-DBus] Reset: {}", context_path);
+                    }
+                }
+            }
+
+            DbusRequest::GetHanjaCandidates {
+                context_path,
+                response,
+            } => {
+                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
+                    if let Ok(proxy) = InputContextProxy::builder(&connection)
+                        .path(obj_path)
+                        .expect("path error")
+                        .build()
+                        .await
+                    {
+                        match proxy.get_hanja_candidates().await {
+                            Ok((target, candidates)) => {
+                                unim_log!(
+                                    "XIM_DBUS",
+                                    "[XIM-DBus] 한자 후보: target='{}', count={}",
+                                    target,
+                                    candidates.len()
+                                );
+                                if let Some(tx) = response {
+                                    let _ = tx
+                                        .send(DbusResponse::HanjaCandidates { target, candidates });
+                                }
+                            }
+                            Err(e) => {
+                                unim_log!("XIM_DBUS", "[XIM-DBus] 한자 후보 조회 실패: {}", e);
+                                if let Some(tx) = response {
+                                    let _ = tx.send(DbusResponse::HanjaCandidates {
+                                        target: String::new(),
+                                        candidates: Vec::new(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            DbusRequest::SelectHanja {
+                context_path,
+                index,
+                response,
+            } => {
+                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
+                    if let Ok(proxy) = InputContextProxy::builder(&connection)
+                        .path(obj_path)
+                        .expect("path error")
+                        .build()
+                        .await
+                    {
+                        match proxy.select_hanja(index).await {
+                            Ok(commit) => {
+                                unim_log!(
+                                    "XIM_DBUS",
+                                    "[XIM-DBus] 한자 선택: index={}, commit='{}'",
+                                    index,
+                                    commit
+                                );
+                                if let Some(tx) = response {
+                                    let _ = tx.send(DbusResponse::HanjaSelected { commit });
+                                }
+                            }
+                            Err(e) => {
+                                unim_log!("XIM_DBUS", "[XIM-DBus] 한자 선택 실패: {}", e);
+                                if let Some(tx) = response {
+                                    let _ = tx.send(DbusResponse::HanjaSelected {
+                                        commit: String::new(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            DbusRequest::CancelHanja { context_path } => {
+                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
+                    if let Ok(proxy) = InputContextProxy::builder(&connection)
+                        .path(obj_path)
+                        .expect("path error")
+                        .build()
+                        .await
+                    {
+                        let _ = proxy.cancel_hanja().await;
+                        unim_log!("XIM_DBUS", "[XIM-DBus] 한자 취소: {}", context_path);
                     }
                 }
             }

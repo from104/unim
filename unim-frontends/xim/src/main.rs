@@ -5,6 +5,7 @@
 
 mod dbus_client;
 mod handler;
+mod hanja_window;
 mod pe_window;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -126,6 +127,19 @@ fn main() {
                     }
                     Event::ConfigureNotify(e) => {
                         unim_handler.configure_notify(&e);
+                        server.conn().flush().ok();
+                    }
+                    Event::ButtonPress(e) => {
+                        // grab_pointer에 의한 마우스 클릭 감지 (한자 팝업 외부 클릭)
+                        if unim_handler.has_hanja_popup() {
+                            if let Err(err) = unim_handler.handle_button_press(
+                                e.event_x,
+                                e.event_y,
+                                server.conn(),
+                            ) {
+                                unim_log!("XIM", "ButtonPress 처리 오류: {:?}", err);
+                            }
+                        }
                         server.conn().flush().ok();
                     }
                     Event::DestroyNotify(_) | Event::UnmapNotify(_) | Event::MappingNotify(_) => {
