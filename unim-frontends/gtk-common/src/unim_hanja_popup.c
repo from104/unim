@@ -444,37 +444,44 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
     gtk_widget_set_visible(popup->window, TRUE);
 
 #else
-    /* GTK3: 먼저 크기 측정 */
+    /* GTK3: 초기 위치 설정 후 show_all (realize를 위해) */
+    gtk_window_move(GTK_WINDOW(popup->window), final_x, final_y);
+    gtk_widget_show_all(popup->window);
+
+    /* show_all 후 정확한 크기 측정 가능 */
     GtkRequisition req;
     gtk_widget_get_preferred_size(popup->window, NULL, &req);
     popup_w = req.width;
     popup_h = req.height;
 
-    /* GTK3: GdkScreen으로 화면 크기 가져오기 */
+    /* 커서가 위치한 모니터 기준으로 화면 경계 보정 */
     {
         GdkScreen *screen = gtk_window_get_screen(GTK_WINDOW(popup->window));
         if (screen) {
-            gint screen_w = gdk_screen_get_width(screen);
-            gint screen_h = gdk_screen_get_height(screen);
+            GdkDisplay *display = gdk_screen_get_display(screen);
+            GdkMonitor *monitor = gdk_display_get_monitor_at_point(display, x, y);
+            if (monitor) {
+                GdkRectangle mon_geom;
+                gdk_monitor_get_geometry(monitor, &mon_geom);
 
-            /* 오른쪽 넘침 보정 */
-            if (final_x + popup_w > screen_w) {
-                final_x = screen_w - popup_w;
-                if (final_x < 0) final_x = 0;
-            }
-            /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 */
-            if (final_y + popup_h > screen_h) {
-                final_y = y - cursor_height - popup_h;
-                if (final_y < 0) final_y = 0;
+                /* 오른쪽 넘침 보정 */
+                if (final_x + popup_w > mon_geom.x + mon_geom.width) {
+                    final_x = mon_geom.x + mon_geom.width - popup_w;
+                    if (final_x < mon_geom.x) final_x = mon_geom.x;
+                }
+                /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 */
+                if (final_y + popup_h > mon_geom.y + mon_geom.height) {
+                    final_y = y - cursor_height - popup_h;
+                    if (final_y < mon_geom.y) final_y = mon_geom.y;
+                }
             }
 
-            POPUP_DEBUG("화면 경계 보정: screen=(%d,%d), popup=(%d,%d), req=(%d,%d) -> final=(%d,%d)",
-                         screen_w, screen_h, x, y, popup_w, popup_h, final_x, final_y);
+            POPUP_DEBUG("화면 경계 보정: popup=(%d,%d), req=(%d,%d) -> final=(%d,%d)",
+                         x, y, popup_w, popup_h, final_x, final_y);
         }
     }
 
     gtk_window_move(GTK_WINDOW(popup->window), final_x, final_y);
-    gtk_widget_show_all(popup->window);
 #endif
 
     POPUP_DEBUG("한자 팝업 표시: target='%s', count=%zu, pos=(%d,%d)", 

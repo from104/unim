@@ -168,8 +168,10 @@ unim_special_popup_new(void)
     gtk_box_append(GTK_BOX(vbox), popup->grid);
 #else
     gtk_widget_set_events(popup->grid, gtk_widget_get_events(popup->grid) | GDK_BUTTON_PRESS_MASK);
-    g_signal_connect(popup->grid, "button-press-event", G_CALLBACK(on_grid_button_press), popup);
     gtk_box_pack_start(GTK_BOX(vbox), popup->grid, TRUE, TRUE, 0);
+    /* GTK3: 윈도우 레벨에서 클릭 이벤트 수신 (Label이 이벤트를 가로채지 않으므로 grid 시그널이 도달하지 않는 문제 우회) */
+    gtk_widget_add_events(popup->window, GDK_BUTTON_PRESS_MASK);
+    g_signal_connect(popup->window, "button-press-event", G_CALLBACK(on_grid_button_press), popup);
 #endif
 
     /* 페이지 표시 (하단) */
@@ -615,36 +617,41 @@ unim_special_popup_show(UnimSpecialPopup *popup,
     gtk_widget_set_visible(popup->window, TRUE);
 
 #else
-    /* GTK3: 윈도우 크기 리셋 (이전 show의 크기 캐시를 해제하여 동적 리사이즈 가능) */
+    /* GTK3: 초기 위치 설정 후 show_all (realize를 위해) */
     gtk_window_resize(GTK_WINDOW(popup->window), 1, 1);
+    gtk_window_move(GTK_WINDOW(popup->window), final_x, final_y);
+    gtk_widget_show_all(popup->window);
 
-    /* 크기 측정 */
+    /* show_all 후 정확한 크기 측정 가능 */
     GtkRequisition req;
     gtk_widget_get_preferred_size(popup->window, NULL, &req);
     gint width = req.width;
     gint height = req.height;
 
-    /* GTK3: GdkScreen으로 화면 크기 가져오기 */
+    /* 커서가 위치한 모니터 기준으로 화면 경계 보정 */
     {
         GdkScreen *screen = gtk_window_get_screen(GTK_WINDOW(popup->window));
         if (screen) {
-            gint screen_w = gdk_screen_get_width(screen);
-            gint screen_h = gdk_screen_get_height(screen);
+            GdkDisplay *display = gdk_screen_get_display(screen);
+            GdkMonitor *monitor = gdk_display_get_monitor_at_point(display, x, y);
+            if (monitor) {
+                GdkRectangle mon_geom;
+                gdk_monitor_get_geometry(monitor, &mon_geom);
 
-            if (final_x + width > screen_w) {
-                final_x = screen_w - width;
-                if (final_x < 0) final_x = 0;
-            }
-            if (final_y + height > screen_h) {
-                final_y = y - cursor_height - height;
-                if (final_y < 0) final_y = 0;
+                if (final_x + width > mon_geom.x + mon_geom.width) {
+                    final_x = mon_geom.x + mon_geom.width - width;
+                    if (final_x < mon_geom.x) final_x = mon_geom.x;
+                }
+                if (final_y + height > mon_geom.y + mon_geom.height) {
+                    final_y = y - cursor_height - height;
+                    if (final_y < mon_geom.y) final_y = mon_geom.y;
+                }
             }
         }
     }
 
     gtk_window_resize(GTK_WINDOW(popup->window), width, height);
     gtk_window_move(GTK_WINDOW(popup->window), final_x, final_y);
-    gtk_widget_show_all(popup->window);
 #endif
 
     SPECIAL_DEBUG("팝업 위치: (%d, %d), 크기: %dx%d", final_x, final_y, width, height);
