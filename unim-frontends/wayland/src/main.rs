@@ -1,48 +1,25 @@
 //! UNIM Wayland 입력 방식 프론트엔드
 //!
 //! Wayland 환경에서 한국어 입력을 제공합니다.
-//! input-method-v2 프로토콜을 사용합니다.
+//! input-method-unstable-v2 프로토콜을 사용합니다.
 //! DBus를 통해 unim-daemon과 통신합니다.
+//!
+//! 지원 컴포지터: KDE(KWin), Sway, Weston, Hyprland 등
+//! (zwp_input_method_manager_v2 지원 필요)
 
 mod dbus_client;
-mod im_handler;
+mod keymap;
+mod state;
 
 use unim::unim_log;
-use wayland_client::{
-    globals::{registry_queue_init, GlobalListContents},
-    protocol::wl_seat::WlSeat,
-    Connection, Dispatch, QueueHandle,
-};
-use wayland_protocols_misc::zwp_input_method_v2::client::{
-    zwp_input_method_manager_v2::ZwpInputMethodManagerV2, zwp_input_method_v2::ZwpInputMethodV2,
-};
+use wayland_client::{globals::registry_queue_init, Connection};
+use wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2;
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
 
 use dbus_client::DbusClient;
-use im_handler::InputMethodHandler;
-
-/// Wayland 애플리케이션 상태
-struct AppData {
-    seat: Option<WlSeat>,
-    im_manager: Option<ZwpInputMethodManagerV2>,
-    input_method: Option<ZwpInputMethodV2>,
-    handler: Option<InputMethodHandler>,
-}
-
-impl AppData {
-    fn new() -> Self {
-        Self {
-            seat: None,
-            im_manager: None,
-            input_method: None,
-            handler: None,
-        }
-    }
-}
+use state::AppState;
 
 fn main() {
-    // 로거 초기화
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
     unim_log!("WAYLAND", "UNIM Wayland 입력 방식 시작...");
 
     // DBus 클라이언트 시작
@@ -57,11 +34,10 @@ fn main() {
             std::process::exit(1);
         }
     };
-
     unim_log!("WAYLAND", "Wayland 연결 성공");
 
     // 이벤트 큐 및 레지스트리 초기화
-    let (globals, mut event_queue) = match registry_queue_init::<AppData>(&conn) {
+    let (globals, mut event_queue) = match registry_queue_init::<AppState>(&conn) {
         Ok(result) => result,
         Err(err) => {
             unim_log!("WAYLAND", "레지스트리 초기화 실패: {}", err);
@@ -70,22 +46,27 @@ fn main() {
     };
 
     let qh = event_queue.handle();
-    let mut app_data = AppData::new();
+    let mut app = AppState::new(dbus_tx);
 
-    // wl_seat 바인딩
-    let seat: WlSeat = match globals.bind(&qh, 1..=9, ()) {
-        Ok(seat) => seat,
+    // 글로벌 바인딩
+    // wl_seat
+    match globals.bind::<wayland_client::protocol::wl_seat::WlSeat, _, _>(&qh, 1..=9, ()) {
+        Ok(seat) => {
+            unim_log!("WAYLAND", "wl_seat 바인딩 성공");
+            app.seat = Some(seat);
+        }
         Err(err) => {
             unim_log!("WAYLAND", "wl_seat 바인딩 실패: {}", err);
             std::process::exit(1);
         }
-    };
-    app_data.seat = Some(seat.clone());
-    unim_log!("WAYLAND", "wl_seat 바인딩 성공");
+    }
 
-    // input_method_manager_v2 바인딩
-    let im_manager: ZwpInputMethodManagerV2 = match globals.bind(&qh, 1..=1, ()) {
-        Ok(manager) => manager,
+    // zwp_input_method_manager_v2
+    match globals.bind::<ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ()) {
+        Ok(mgr) => {
+            unim_log!("WAYLAND", "zwp_input_method_manager_v2 바인딩 성공");
+            app.im_manager = Some(mgr);
+        }
         Err(err) => {
             unim_log!(
                 "WAYLAND",
@@ -94,133 +75,50 @@ fn main() {
             );
             unim_log!(
                 "WAYLAND",
-                "컴포지터가 input-method-v2 프로토콜을 지원하지 않습니다."
+                "컴포지터가 input-method-v2 프로토콜을 지원하지 않습니다"
             );
             std::process::exit(1);
         }
-    };
-    app_data.im_manager = Some(im_manager.clone());
-    unim_log!("WAYLAND", "zwp_input_method_manager_v2 바인딩 성공");
+    }
 
-    // input_method 생성
-    let input_method = im_manager.get_input_method(&seat, &qh, ());
-    app_data.input_method = Some(input_method);
-    unim_log!("WAYLAND", "zwp_input_method_v2 생성 완료");
+    // zwp_virtual_keyboard_manager_v1 (옵션 - 없어도 동작은 함)
+    match globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ()) {
+        Ok(mgr) => {
+            unim_log!("WAYLAND", "zwp_virtual_keyboard_manager_v1 바인딩 성공");
+            app.vk_manager = Some(mgr);
+        }
+        Err(err) => {
+            unim_log!(
+                "WAYLAND",
+                "zwp_virtual_keyboard_manager_v1 바인딩 실패: {} (키 바이패스 불가)",
+                err
+            );
+        }
+    }
 
-    // 핸들러 초기화 (DBus 채널 전달)
-    app_data.handler = Some(InputMethodHandler::new(dbus_tx));
+    // 프로토콜 오브젝트 셋업 (input_method + grab + virtual_keyboard)
+    if !app.setup(&qh) {
+        unim_log!("WAYLAND", "입력 방식 셋업 실패");
+        std::process::exit(1);
+    }
 
     unim_log!("WAYLAND", "이벤트 루프 시작...");
 
     // 이벤트 루프
     loop {
-        match event_queue.blocking_dispatch(&mut app_data) {
+        match event_queue.blocking_dispatch(&mut app) {
             Ok(_) => {}
             Err(err) => {
                 unim_log!("WAYLAND", "이벤트 디스패치 오류: {}", err);
                 break;
             }
         }
+
+        if app.should_exit {
+            unim_log!("WAYLAND", "종료 플래그 감지");
+            break;
+        }
     }
 
     unim_log!("WAYLAND", "UNIM Wayland 입력 방식 종료");
-}
-
-// Dispatch implementations
-
-impl Dispatch<wayland_client::protocol::wl_registry::WlRegistry, GlobalListContents> for AppData {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wayland_client::protocol::wl_registry::WlRegistry,
-        _event: wayland_client::protocol::wl_registry::Event,
-        _data: &GlobalListContents,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // 레지스트리 이벤트 처리 (registry_queue_init이 처리함)
-    }
-}
-
-impl Dispatch<WlSeat, ()> for AppData {
-    fn event(
-        _state: &mut Self,
-        _proxy: &WlSeat,
-        _event: wayland_client::protocol::wl_seat::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // Seat 이벤트 처리 (필요시 확장)
-    }
-}
-
-impl Dispatch<ZwpInputMethodManagerV2, ()> for AppData {
-    fn event(
-        _state: &mut Self,
-        _proxy: &ZwpInputMethodManagerV2,
-        _event: wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // Manager는 이벤트 없음
-    }
-}
-
-impl Dispatch<ZwpInputMethodV2, ()> for AppData {
-    fn event(
-        state: &mut Self,
-        proxy: &ZwpInputMethodV2,
-        event: wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_v2::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        use wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_v2::Event;
-
-        if let Some(handler) = state.handler.as_mut() {
-            match event {
-                Event::Activate => {
-                    unim_log!("WAYLAND", "입력 방식 활성화");
-                    handler.activate();
-                }
-                Event::Deactivate => {
-                    unim_log!("WAYLAND", "입력 방식 비활성화");
-                    handler.deactivate(proxy);
-                }
-                Event::SurroundingText {
-                    text,
-                    cursor,
-                    anchor,
-                } => {
-                    unim_log!(
-                        "WAYLAND",
-                        "주변 텍스트: cursor={}, anchor={}",
-                        cursor,
-                        anchor
-                    );
-                    handler.set_surrounding_text(&text, cursor, anchor);
-                }
-                Event::TextChangeCause { cause } => {
-                    unim_log!("WAYLAND", "텍스트 변경 원인: {:?}", cause);
-                }
-                Event::ContentType { hint, purpose } => {
-                    unim_log!(
-                        "WAYLAND",
-                        "컨텐츠 타입: hint={:?}, purpose={:?}",
-                        hint,
-                        purpose
-                    );
-                }
-                Event::Done => {
-                    unim_log!("WAYLAND", "Done 이벤트");
-                    handler.done(proxy);
-                }
-                Event::Unavailable => {
-                    unim_log!("WAYLAND", "입력 방식 사용 불가");
-                }
-                _ => {}
-            }
-        }
-    }
 }

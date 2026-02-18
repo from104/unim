@@ -107,6 +107,7 @@ pub struct InputEngine {
     english_keymap: EnglishKeymap,          // 영어 레이아웃 키맵
     english_layout: EnglishLayout,          // 영어 레이아웃 설정
     korean_layout: KoreanLayout,            // 한국어 레이아웃 설정
+    toggle_keys: Vec<KeyCode>,             // 한/영 전환키 (설정 기반)
     hanja_dict: Arc<HanjaDictionary>,       // 한자 사전 (공유)
     hanja_candidates: Vec<HanjaEntry>,      // 현재 한자 후보
     hanja_mode: bool,                       // 한자 선택 모드
@@ -138,7 +139,7 @@ flowchart TD
     MOD{"수정자 키만?<br/>(Shift/Ctrl/Alt 등)"}
     CTRL{"Ctrl/Alt/Super<br/>눌림?"}
     COMPOSE_CHECK{"조합 중?"}
-    TOGGLE{"한/영 키?<br/>(Korean/RightAlt)"}
+    TOGGLE{"한/영 키?\n(설정: toggle_keys)"}
     CATEGORY{"input_category?"}
     KOREAN["process_korean_key()"]
     ENGLISH["process_english_key()"]
@@ -161,7 +162,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     K["process_korean_key(keycode, modifier)"]
-    HANJA{"Hanja 키?<br/>(F9/한자)"}
+    HANJA{"Hanja 키?\n(설정: hanja_keys)"}
     BS{"Backspace?"}
     ENTER{"Enter/Tab/<br/>Escape?"}
     SPACE{"Space?"}
@@ -240,6 +241,12 @@ engine:
     layout: Dubeolsik               # KoreanLayout
   english:
     layout: Qwerty                  # EnglishLayout
+  toggle_keys:                      # Vec<String>
+    - Korean
+    - RightAlt
+  hanja_keys:                       # Vec<String>
+    - Hanja
+    - F9
   auto_switch:
     enabled: false                  # bool
     threshold: 0.5                  # f64
@@ -255,6 +262,8 @@ pub struct EngineConfig {
     pub mode_sharing: ModeSharingMode,
     pub korean: KoreanConfig,       // { layout: KoreanLayout }
     pub english: EnglishConfig,     // { layout: EnglishLayout }
+    pub toggle_keys: Vec<String>,   // 한/영 전환키 목록 (기본: ["Korean", "RightAlt"])
+    pub hanja_keys: Vec<String>,    // 한자/특수문자키 목록 (기본: ["Hanja", "F9"])
     pub auto_switch: AutoSwitchConfig,
 }
 ```
@@ -617,6 +626,8 @@ pub enum KeyCode {
 |--------|------|------|
 | `from_evdev_keycode(code)` | evdev keycode | Wayland/XIM 프론트엔드용 |
 | `from_x11_keycode(code)` | X11 keycode (evdev+8) | GTK/Qt 프론트엔드용 |
+| `name()` | — | KeyCode → 문자열 이름 (예: `"Korean"`, `"F9"`) |
+| `from_name(name)` | 문자열 | 이름 → KeyCode (설정 파싱용) |
 | `to_char()` | — | 일반 문자 (Shift 없음) |
 | `to_shifted_char()` | — | Shift 포함 문자 |
 | `is_character_key()` | — | 문자 입력 키 여부 |
@@ -681,7 +692,7 @@ pub struct HanjaEntry {
 ### 7.3 엔진 레벨 한자 흐름
 
 ```
-1. F9/한자 키 → start_hanja_conversion()
+1. 한자 키 (설정: hanja_keys) → start_hanja_conversion()
 2. preedit의 마지막 음절 추출
 3. hanja_dict.search(음절) → 후보 리스트
 4. hanja_mode = true, hanja_candidates 저장

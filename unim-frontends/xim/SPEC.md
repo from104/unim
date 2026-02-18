@@ -187,23 +187,44 @@ Left/Right 화살표, Space, BackSpace:
 `NextPage`, `PrevPage`, `Consumed`, `None` 액션 후 `hw.redraw(display)` 호출.
 `Select`, `Cancel`은 팝업을 닫으므로 redraw 불필요.
 
-### 4.3 한자 키 처리 (`F9` / `Hangul_Hanja`)
+### 4.3 한자 키 처리 (설정 기반: `hanja_keys`)
 
-한자 팝업이 **닫혀있을 때** F9 키 입력 시:
+한자 팝업이 **닫혀있을 때** 설정된 한자 키 입력 시:
+
+> [!NOTE]
+> 한자 키는 `hanja_keys` 설정에 의해 결정됩니다 (기본: `Hanja`, `F9`).
+> `UnimHandler` 초기화 시 설정에서 `hanja_keys`를 읽어 X11 keysym 배열(`hanja_keysyms`)로 변환하여 캐시합니다.
 
 ```
-F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
-  → DBus GetHanjaCandidates(context_path)
-  → 후보가 있으면:
-    1. app_win 절대 좌표 계산 (XTranslateCoordinates)
-    2. preedit spot 기반 팝업 위치 결정 (커서 아래 +20px)
-    3. HanjaWindow::new() → 팝업 생성
-    4. set_candidates() → 후보 표시
-    5. grab_pointer(popup_wid, BUTTON_PRESS) → 외부 클릭 감지 활성화
-    6. hanja_client_window 저장 (합성 Escape 전송용)
-  → 후보가 없으면:
-    로그 출력, 아무 동작 없음
+설정된 한자 키 입력 (예: F9 또는 Hangul_Hanja)
+  → hanja_keysyms 배열과 현재 keysym 비교
+  → 1. DBus GetHanjaCandidates(context_path)
+       (엔진의 start_hanja_conversion() 트리거)
+  → 한자 후보가 있으면:
+     1. app_win 절대 좌표 계산 (XTranslateCoordinates)
+     2. preedit spot 기반 팝업 위치 결정 (커서 아래 +20px)
+     3. HanjaWindow::new() → 팝업 생성
+     4. set_candidates() → 후보 표시
+     5. grab_pointer(popup_wid, BUTTON_PRESS) → 외부 클릭 감지 활성화
+     6. hanja_client_window 저장 (합성 Escape 전송용)
+  → 한자 후보가 없으면:
+     → 2. DBus GetSpecialCharCandidates(context_path)
+          (엔진이 이미 special_char_mode를 설정한 상태)
+     → 특수문자 후보가 있으면:
+        1. app_win 절대 좌표 계산 (XTranslateCoordinates)
+        2. preedit spot 기반 팝업 위치 결정 (커서 아래 +20px)
+        3. SpecialWindow::new() → 팝업 생성
+        4. set_characters() → 후보 표시
+        5. grab_pointer(popup_wid, BUTTON_PRESS) → 외부 클릭 감지 활성화
+     → 특수문자 후보도 없으면:
+        로그 출력, 아무 동작 없음
 ```
+
+> [!IMPORTANT]
+> **호출 순서가 중요합니다.** `GetHanjaCandidates`를 반드시 먼저 호출해야 합니다.
+> 이 호출이 엔진의 `start_hanja_conversion()`을 트리거하여 한자/특수문자 모드를 설정합니다.
+> `GetSpecialCharCandidates`는 이미 설정된 모드 상태만 읽으므로, 순서가 바뀌면 첫 번째 키 입력에서 후보가 표시되지 않습니다.
+> 이 순서는 GTK3/4 구현과 동일합니다.
 
 ### 4.4 일반 키 처리 (ProcessKey)
 
@@ -424,3 +445,49 @@ make dev-xim PREFIX=/usr
 [2026/02/17 14:00:00] - [XIM_HANDLER] - 한자 팝업 외부 클릭 감지 -> 합성 Escape 전송
 [2026/02/17 14:00:00] - [XIM_HANDLER] - 합성 Escape 전송 완료: client_win=0x1400001
 ```
+
+---
+
+## 12. 프로토콜 적합성 검증
+
+> [XIM 프로토콜 사양](https://www.x.org/releases/X11R7.6/doc/libX11/specs/XIM/xim.html)과의 적합성을 3회 교차 검증한 결과입니다.
+
+### 12.1 적합 항목
+
+| # | 프로토콜 항목 | 구현 위치 | 비고 |
+|---|-------------|----------|------|
+| 1 | **Input Method Styles** | `input_styles()` | on-the-spot, off-the-spot, over-the-spot 3종 |
+| 2 | **BackEnd Event Handling Model** | `xim` crate ServerHandler | 기본 BackEnd 모델 사용 |
+| 3 | **Static Event Flow Control** | `filter_events()=1` | trigger key 미등록 (Static 방식) |
+| 4 | **XIM_CREATE_IC** | `new_ic_data()` + `handle_create_ic()` | DBus 컨텍스트 생성, event mask 설정 |
+| 5 | **XIM_DESTROY_IC** | `handle_destroy_ic()` | 컨텍스트 파괴, 팝업 정리, preedit 정리 |
+| 6 | **XIM_RESET_IC** | `handle_reset_ic()` | preedit string 반환 (사양 준수) |
+| 7 | **XIM_SET_IC_FOCUS / UNSET_IC_FOCUS** | `handle_set_focus()`, `handle_unset_focus()` | DBus FocusIn/FocusOut 연동 |
+| 8 | **XIM_SET_IC_VALUES** | `handle_set_ic_values()` | spot location 변경 시 PeWindow 갱신 |
+| 9 | **XIM_FORWARD_EVENT** | `handle_forward_event()` | KeyPress → ProcessKey → commit/preedit/forward |
+| 10 | **XIM_COMMIT** | `server.commit()` | committed string 전송 |
+| 11 | **Preedit Callbacks** | `server.preedit_draw()` + PeWindow | XIM_PREEDIT_DRAW, dual-path (callback + OTS) |
+
+### 12.2 참고 사항
+
+| # | 항목 | 설명 |
+|---|------|------|
+| 1 | **KeyRelease 소비** | WezTerm(xcb-imdkit) 호환을 위해 `Ok(true)` 반환. `filter_events()=1`(KeyPress 전용)이므로 KeyRelease 수신은 비표준 클라이언트에 한정. 프로토콜 위반 아님 |
+| 2 | **root-window 스타일 미지원** | 4가지 스타일 중 1가지 미지원. 현대 IME에서 거의 사용되지 않아 실무 영향 없음 |
+| 3 | **XIM_GET_IC_VALUES 미구현** | `xim` crate 내부에서 기본 처리. 커스텀 IC 속성이 없으므로 문제 없음 |
+
+---
+
+## 13. 참조
+
+### 13.1 프로토콜 사양
+
+- [The Input Method Protocol (X.Org)](https://www.x.org/releases/X11R7.6/doc/libX11/specs/XIM/xim.html) — XIM 프로토콜 공식 사양
+- [Xlib - C Language X Interface: Input Methods](https://www.x.org/releases/current/doc/libX11/libX11/libX11.html#Input_Methods) — Xlib XIM API 레퍼런스
+- [X Input Method (Wikipedia)](https://en.wikipedia.org/wiki/X_Input_Method) — XIM 개요 및 역사
+
+### 13.2 참조 구현 및 라이브러리
+
+- [xim-rs (xim crate)](https://github.com/pum-purum-pum-pum/xim-rs) — Rust XIM 프로토콜 구현 (서버/클라이언트)
+- [x11rb](https://github.com/psychon/x11rb) — Rust X11 프로토콜 바인딩 (xcb 기반)
+- [kime XIM 프론트엔드](https://github.com/Riey/kime/tree/develop/src/frontends/x11) — Rust 한국어 IME의 XIM 구현 참조

@@ -1,6 +1,7 @@
 //! DBus 클라이언트 모듈
 //!
-//! XIM 프론트엔드에서 unim-daemon과 통신하기 위한 비동기 DBus 클라이언트입니다.
+//! unim-daemon과 비동기 통신을 위한 DBus 클라이언트입니다.
+//! tokio 백그라운드 스레드에서 실행됩니다.
 
 use std::sync::mpsc as std_mpsc;
 use tokio::sync::mpsc;
@@ -22,7 +23,6 @@ pub enum DbusRequest {
     /// 컨텍스트 파괴
     DestroyContext { context_path: String },
     /// 키 이벤트 처리
-    #[allow(dead_code)]
     ProcessKey {
         context_path: String,
         keyval: u32,
@@ -41,7 +41,6 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 리셋
-    #[allow(dead_code)]
     Reset { context_path: String },
 }
 
@@ -51,11 +50,10 @@ pub enum DbusResponse {
     /// 컨텍스트 생성 성공
     ContextCreated { path: String },
     /// 키 처리 결과
-    #[allow(dead_code)]
     KeyProcessed {
         consumed: bool,
-        preedit: Option<String>,
-        commit: Option<String>,
+        preedit: String,
+        commit: String,
     },
     /// 커밋 텍스트 (focus_out 등에서)
     CommitText { text: String },
@@ -71,7 +69,6 @@ impl DbusClient {
     pub fn new() -> (Self, mpsc::Sender<DbusRequest>) {
         let (tx, rx) = mpsc::channel::<DbusRequest>(256);
 
-        // 백그라운드 스레드에서 tokio 런타임 실행
         let tx_clone = tx.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -95,49 +92,41 @@ impl DbusClient {
     }
 }
 
-/// DBus 클라이언트 실행 (비동기)
+/// DBus 클라이언트 비동기 실행
 async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()> {
-    // DBus 세션 버스에 연결
     let connection = Connection::session().await?;
-    unim_log!("WAYLAND_DBUS", "[XIM-DBus] 세션 버스 연결 성공");
+    unim_log!("WAYLAND_DBUS", "세션 버스 연결 성공");
 
-    // InputMethod 프록시 생성
     let im_proxy = InputMethodProxy::new(&connection).await?;
-    unim_log!("WAYLAND_DBUS", "[XIM-DBus] InputMethod 프록시 생성 완료");
+    unim_log!("WAYLAND_DBUS", "InputMethod 프록시 생성 완료");
 
-    // 요청 처리 루프
     while let Some(request) = rx.recv().await {
         match request {
             DbusRequest::CreateContext {
                 client_name,
                 window_id,
                 response,
-            } => match im_proxy
-                .create_input_context(&client_name, &window_id)
-                .await
-            {
-                Ok(path) => {
-                    unim_log!("WAYLAND_DBUS", "[XIM-DBus] 컨텍스트 생성: {}", path);
-                    if let Some(tx) = response {
-                        let _ = tx.send(DbusResponse::ContextCreated { path });
+            } => {
+                match im_proxy
+                    .create_input_context(&client_name, &window_id)
+                    .await
+                {
+                    Ok(path) => {
+                        unim_log!("WAYLAND_DBUS", "컨텍스트 생성: {}", path);
+                        if let Some(tx) = response {
+                            let _ = tx.send(DbusResponse::ContextCreated { path });
+                        }
+                    }
+                    Err(e) => {
+                        unim_log!("WAYLAND_DBUS", "컨텍스트 생성 실패: {}", e);
                     }
                 }
-                Err(e) => {
-                    unim_log!("WAYLAND_DBUS", "[XIM-DBus] 컨텍스트 생성 실패: {}", e);
-                }
-            },
+            }
 
             DbusRequest::DestroyContext { context_path } => {
-                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
-                    if let Ok(proxy) = InputContextProxy::builder(&connection)
-                        .path(obj_path)
-                        .expect("path error")
-                        .build()
-                        .await
-                    {
-                        let _ = proxy.destroy().await;
-                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] 컨텍스트 파괴: {}", context_path);
-                    }
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    let _ = proxy.destroy().await;
+                    unim_log!("WAYLAND_DBUS", "컨텍스트 파괴: {}", context_path);
                 }
             }
 
@@ -148,8 +137,29 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 state,
                 response,
             } => {
-                let result =
-                    process_key_event(&connection, &context_path, keyval, keycode, state).await;
+                let result = if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    match proxy.process_key_event(keyval, keycode, state).await {
+                        Ok((consumed, preedit, commit)) => DbusResponse::KeyProcessed {
+                            consumed,
+                            preedit,
+                            commit,
+                        },
+                        Err(e) => {
+                            unim_log!("WAYLAND_DBUS", "키 처리 실패: {}", e);
+                            DbusResponse::KeyProcessed {
+                                consumed: false,
+                                preedit: String::new(),
+                                commit: String::new(),
+                            }
+                        }
+                    }
+                } else {
+                    DbusResponse::KeyProcessed {
+                        consumed: false,
+                        preedit: String::new(),
+                        commit: String::new(),
+                    }
+                };
 
                 if let Some(tx) = response {
                     let _ = tx.send(result);
@@ -160,16 +170,9 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 context_path,
                 window_id,
             } => {
-                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
-                    if let Ok(proxy) = InputContextProxy::builder(&connection)
-                        .path(obj_path)
-                        .expect("path error")
-                        .build()
-                        .await
-                    {
-                        let _ = proxy.focus_in(&window_id).await;
-                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] FocusIn: {}", context_path);
-                    }
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    let _ = proxy.focus_in(&window_id).await;
+                    unim_log!("WAYLAND_DBUS", "FocusIn: {}", context_path);
                 }
             }
 
@@ -177,36 +180,29 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 context_path,
                 response,
             } => {
-                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
-                    if let Ok(proxy) = InputContextProxy::builder(&connection)
-                        .path(obj_path)
-                        .expect("path error")
-                        .build()
-                        .await
-                    {
-                        let _ = proxy.focus_out().await;
-                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] FocusOut: {}", context_path);
-
-                        if let Some(tx) = response {
-                            let _ = tx.send(DbusResponse::CommitText {
-                                text: String::new(),
-                            });
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    match proxy.focus_out().await {
+                        Ok(commit_text) => {
+                            unim_log!("WAYLAND_DBUS", "FocusOut: {}", context_path);
+                            if let Some(tx) = response {
+                                let _ = tx.send(DbusResponse::CommitText { text: commit_text });
+                            }
+                        }
+                        Err(_) => {
+                            if let Some(tx) = response {
+                                let _ = tx.send(DbusResponse::CommitText {
+                                    text: String::new(),
+                                });
+                            }
                         }
                     }
                 }
             }
 
             DbusRequest::Reset { context_path } => {
-                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
-                    if let Ok(proxy) = InputContextProxy::builder(&connection)
-                        .path(obj_path)
-                        .expect("path error")
-                        .build()
-                        .await
-                    {
-                        let _ = proxy.reset().await;
-                        unim_log!("WAYLAND_DBUS", "[XIM-DBus] Reset: {}", context_path);
-                    }
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    let _ = proxy.reset().await;
+                    unim_log!("WAYLAND_DBUS", "Reset: {}", context_path);
                 }
             }
         }
@@ -215,68 +211,14 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
     Ok(())
 }
 
-/// 키 이벤트 처리 (별도 함수로 분리)
-async fn process_key_event(
-    connection: &Connection,
-    context_path: &str,
-    keyval: u32,
-    keycode: u32,
-    state: u32,
-) -> DbusResponse {
-    let obj_path = match ObjectPath::try_from(context_path) {
-        Ok(p) => p,
-        Err(_) => {
-            return DbusResponse::KeyProcessed {
-                consumed: false,
-                preedit: None,
-                commit: None,
-            };
-        }
-    };
-
-    let ctx_proxy = match InputContextProxy::builder(connection)
-        .path(obj_path)
-        .expect("path error")
+/// InputContext 프록시 빌드 헬퍼
+async fn build_ctx_proxy<'a>(
+    connection: &'a Connection,
+    context_path: &'a str,
+) -> zbus::Result<InputContextProxy<'a>> {
+    let obj_path = ObjectPath::try_from(context_path)?;
+    InputContextProxy::builder(connection)
+        .path(obj_path)?
         .build()
         .await
-    {
-        Ok(proxy) => proxy,
-        Err(e) => {
-            unim_log!("WAYLAND_DBUS", "[XIM-DBus] 프록시 생성 실패: {}", e);
-            return DbusResponse::KeyProcessed {
-                consumed: false,
-                preedit: None,
-                commit: None,
-            };
-        }
-    };
-
-    // 키 이벤트 처리 - 반환값: (consumed, preedit, commit)
-    let (consumed, preedit, commit) =
-        match ctx_proxy.process_key_event(keyval, keycode, state).await {
-            Ok(result) => result,
-            Err(e) => {
-                unim_log!("WAYLAND_DBUS", "[XIM-DBus] 키 처리 실패: {}", e);
-                return DbusResponse::KeyProcessed {
-                    consumed: false,
-                    preedit: None,
-                    commit: None,
-                };
-            }
-        };
-
-    // TODO: preedit/commit 시그널 수신 구현
-    DbusResponse::KeyProcessed {
-        consumed,
-        preedit: if preedit.is_empty() {
-            None
-        } else {
-            Some(preedit)
-        },
-        commit: if commit.is_empty() {
-            None
-        } else {
-            Some(commit)
-        },
-    }
 }

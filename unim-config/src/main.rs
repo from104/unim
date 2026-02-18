@@ -57,6 +57,12 @@ enum ConfigKey {
     /// 자동 전환 임계값 (0.0 ~ 1.0)
     #[value(name = "auto-switch-threshold")]
     AutoSwitchThreshold,
+    /// 한/영 전환 키 (예: Korean,RightAlt)
+    #[value(name = "toggle-keys")]
+    ToggleKeys,
+    /// 한자/특수문자 키 (예: Hanja,F9)
+    #[value(name = "hanja-keys")]
+    HanjaKeys,
 }
 
 fn config_show() {
@@ -103,6 +109,16 @@ fn config_show() {
         "{}: {:.2}",
         t!("auto_switch_threshold_label"),
         config.engine.auto_switch.threshold
+    );
+    println!(
+        "{}: {}",
+        t!("toggle_keys_label"),
+        config.engine.toggle_keys.join(", ")
+    );
+    println!(
+        "{}: {}",
+        t!("hanja_keys_label"),
+        config.engine.hanja_keys.join(", ")
     );
     println!();
     if let Some(path) = UnimConfig::default_config_path() {
@@ -230,6 +246,38 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("threshold_changed", value = format!("{:.2}", threshold))
             );
         }
+        ConfigKey::ToggleKeys => {
+            let keys: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if keys.is_empty() {
+                return Err("At least one key required".to_string());
+            }
+            config.engine.toggle_keys = keys;
+            println!(
+                "{}: {}",
+                t!("toggle_keys_label"),
+                config.engine.toggle_keys.join(", ")
+            );
+        }
+        ConfigKey::HanjaKeys => {
+            let keys: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if keys.is_empty() {
+                return Err("At least one key required".to_string());
+            }
+            config.engine.hanja_keys = keys;
+            println!(
+                "{}: {}",
+                t!("hanja_keys_label"),
+                config.engine.hanja_keys.join(", ")
+            );
+        }
     }
 
     config
@@ -272,6 +320,8 @@ fn config_interactive() {
             t!("mode_sharing_label").to_string(),
             t!("auto_switch_label").to_string(),
             t!("auto_switch_threshold_label").to_string(),
+            t!("toggle_keys_label").to_string(),
+            t!("hanja_keys_label").to_string(),
             t!("config_reset_desc").to_string(),
             t!("save_and_exit").to_string(),
             t!("exit_without_save").to_string(),
@@ -378,6 +428,38 @@ fn config_interactive() {
                 config.engine.auto_switch.threshold = threshold;
             }
             6 => {
+                let current = config.engine.toggle_keys.join(",");
+                let input: String = Input::with_theme(&theme)
+                    .with_prompt(t!("toggle_keys_label").to_string())
+                    .default(current)
+                    .interact_text()
+                    .unwrap();
+                let keys: Vec<String> = input
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !keys.is_empty() {
+                    config.engine.toggle_keys = keys;
+                }
+            }
+            7 => {
+                let current = config.engine.hanja_keys.join(",");
+                let input: String = Input::with_theme(&theme)
+                    .with_prompt(t!("hanja_keys_label").to_string())
+                    .default(current)
+                    .interact_text()
+                    .unwrap();
+                let keys: Vec<String> = input
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !keys.is_empty() {
+                    config.engine.hanja_keys = keys;
+                }
+            }
+            8 => {
                 if Confirm::with_theme(&theme)
                     .with_prompt(t!("confirm_reset").to_string())
                     .default(false)
@@ -388,7 +470,7 @@ fn config_interactive() {
                     println!("{}", t!("config_reset_done"));
                 }
             }
-            7 => {
+            9 => {
                 if let Err(e) = config.save_to_default_path() {
                     eprintln!("{}: {}", t!("error_label"), e);
                 } else {
@@ -396,7 +478,7 @@ fn config_interactive() {
                 }
                 break;
             }
-            8 => {
+            10 => {
                 println!("{}", t!("exit_canceled"));
                 break;
             }

@@ -255,6 +255,10 @@ pub struct EngineConfig {
     pub english: EnglishConfig,
     /// 자동 전환 설정
     pub auto_switch: AutoSwitchConfig,
+    /// 한/영 전환 키 목록 (KeyCode 이름)
+    pub toggle_keys: Vec<String>,
+    /// 한자/특수문자 키 목록 (KeyCode 이름)
+    pub hanja_keys: Vec<String>,
 }
 
 impl Default for EngineConfig {
@@ -265,6 +269,8 @@ impl Default for EngineConfig {
             korean: KoreanConfig::default(),
             english: EnglishConfig::default(),
             auto_switch: AutoSwitchConfig::default(),
+            toggle_keys: vec!["Korean".to_string(), "RightAlt".to_string()],
+            hanja_keys: vec!["Hanja".to_string(), "F9".to_string()],
         }
     }
 }

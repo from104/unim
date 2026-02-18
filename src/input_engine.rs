@@ -143,6 +143,8 @@ pub struct InputEngine {
     special_char_candidates: Vec<char>,
     /// 특수문자 변환 대상 초성
     special_char_target: String,
+    /// 한/영 전환 키 목록 (설정 기반)
+    toggle_keys: Vec<KeyCode>,
 }
 
 impl InputEngine {
@@ -182,6 +184,13 @@ impl InputEngine {
             special_char_mode: false,
             special_char_candidates: Vec::new(),
             special_char_target: String::new(),
+            toggle_keys: config
+                .engine
+                .toggle_keys
+                .iter()
+                .map(|name| KeyCode::from_name(name))
+                .filter(|k| *k != KeyCode::Unknown)
+                .collect(),
         }
     }
 
@@ -269,8 +278,8 @@ impl InputEngine {
             return InputResult::not_consumed();
         }
 
-        // 한/영 전환 처리
-        if keycode == KeyCode::Korean || keycode == KeyCode::RightAlt {
+        // 한/영 전환 처리 (설정 기반)
+        if self.toggle_keys.contains(&keycode) {
             // 조합 중이면 먼저 커밋
             let was_composing = self.korean_context.is_composing();
             self.toggle_input_category();

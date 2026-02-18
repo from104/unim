@@ -13,6 +13,7 @@
 #include <QStandardPaths>
 #include <QFile>
 #include <QTextStream>
+#include <QMouseEvent>
 #include <cstdlib>
 #include <cstring>
 
@@ -273,8 +274,12 @@ void UnimHanjaPopup::selectCandidate(int index)
 void UnimHanjaPopup::nextPage()
 {
     int totalPages = (m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES;
-    if (m_currentPage < totalPages - 1) {
-        m_currentPage++;
+    if (totalPages > 1) {
+        if (m_currentPage < totalPages - 1) {
+            m_currentPage++;
+        } else {
+            m_currentPage = 0;
+        }
         m_selectedIndex = 0;
         updateList();
     }
@@ -282,8 +287,13 @@ void UnimHanjaPopup::nextPage()
 
 void UnimHanjaPopup::prevPage()
 {
-    if (m_currentPage > 0) {
-        m_currentPage--;
+    int totalPages = (m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES;
+    if (totalPages > 1) {
+        if (m_currentPage > 0) {
+            m_currentPage--;
+        } else {
+            m_currentPage = totalPages - 1;
+        }
         m_selectedIndex = 0;
         updateList();
     }
@@ -321,4 +331,43 @@ void UnimHanjaPopup::adjustPosition(int x, int y, int cursorHeight)
     }
 
     move(finalX, finalY);
+}
+
+void UnimHanjaPopup::mousePressEvent(QMouseEvent *event)
+{
+    if (!isVisible() || m_candidates.isEmpty()) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+
+    if (event->button() == Qt::RightButton) {
+        /* 우클릭 → 다음 페이지 (순환) */
+        nextPage();
+        POPUP_DEBUG(QString::asprintf("우클릭 → 다음 페이지: %d/%d",
+                    m_currentPage + 1,
+                    (m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES));
+        event->accept();
+        return;
+    }
+
+    if (event->button() == Qt::LeftButton) {
+        /* 좌클릭 → 클릭 위치의 행을 찾아 선택 */
+        int clickY = event->pos().y();
+        for (int i = 0; i < MAX_VISIBLE_CANDIDATES; i++) {
+            if (m_labels[i]->isVisible()) {
+                QRect labelRect = m_labels[i]->geometry();
+                if (labelRect.contains(event->pos().x(), clickY)) {
+                    int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
+                    int actualIndex = pageStart + i;
+                    if (actualIndex < m_candidates.size()) {
+                        selectCandidate(actualIndex);
+                    }
+                    event->accept();
+                    return;
+                }
+            }
+        }
+    }
+
+    QWidget::mousePressEvent(event);
 }

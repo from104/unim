@@ -717,3 +717,74 @@ unim_special_chars_free(gchar **characters, gsize count)
     }
     g_free(characters);
 }
+
+/* =========================================
+ * 설정 조회 관련 함수 구현
+ * ========================================= */
+
+gchar*
+unim_dbus_get_config(UnimDbusContext *ctx, const gchar *key)
+{
+    if (!ctx || !ctx->connection || !key) return NULL;
+
+    GError *error = NULL;
+    GVariant *result = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_PATH,
+        UNIM_DBUS_INTERFACE,
+        "GetConfig",
+        g_variant_new("(s)", key),
+        G_VARIANT_TYPE("(s)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("GetConfig(%s) 실패: %s", key, error->message);
+        g_error_free(error);
+        return NULL;
+    }
+
+    gchar *value = NULL;
+    g_variant_get(result, "(s)", &value);
+    g_variant_unref(result);
+
+    UNIM_DBUS_DEBUG("GetConfig(%s) = %s", key, value);
+    return value;
+}
+
+guint
+unim_keycode_name_to_gdk_keyval(const gchar *name)
+{
+    if (!name) return 0;
+
+    /* GDK keyval 매핑 테이블 */
+    static const struct { const char *name; guint keyval; } map[] = {
+        { "Hanja",        0xff34 },   /* GDK_KEY_Hangul_Hanja */
+        { "Korean",       0xff31 },   /* GDK_KEY_Hangul */
+        { "F1",           0xffbe },   { "F2",  0xffbf },  { "F3",  0xffc0 },
+        { "F4",           0xffc1 },   { "F5",  0xffc2 },  { "F6",  0xffc3 },
+        { "F7",           0xffc4 },   { "F8",  0xffc5 },  { "F9",  0xffc6 },
+        { "F10",          0xffc7 },   { "F11", 0xffc8 },  { "F12", 0xffc9 },
+        { "RightAlt",     0xffea },   /* GDK_KEY_Alt_R */
+        { "LeftAlt",      0xffe9 },   /* GDK_KEY_Alt_L */
+        { "RightControl", 0xffe4 },   /* GDK_KEY_Control_R */
+        { "LeftControl",  0xffe3 },   /* GDK_KEY_Control_L */
+        { "RightShift",   0xffe2 },   /* GDK_KEY_Shift_R */
+        { "LeftShift",    0xffe1 },   /* GDK_KEY_Shift_L */
+        { "Space",        0x0020 },
+        { "Escape",       0xff1b },
+        { "CapsLock",     0xffe5 },
+        { NULL, 0 }
+    };
+
+    for (int i = 0; map[i].name != NULL; i++) {
+        if (g_strcmp0(name, map[i].name) == 0) {
+            return map[i].keyval;
+        }
+    }
+    return 0;
+}

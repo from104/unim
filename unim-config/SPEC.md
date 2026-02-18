@@ -121,6 +121,26 @@ unim-config set auto-switch-threshold 0.7
 
 - 범위: `0.0` ~ `1.0` (범위 외 값은 에러)
 
+### 3.7 `toggle-keys`
+
+```bash
+unim-config set toggle-keys "Korean,RightAlt"
+```
+
+- 쉼표 구분된 `KeyCode` 이름 목록
+- 허용 값: `Korean`, `RightAlt`, `Hangul`, `F10` 등 (`KeyCode::from_name()` 참조)
+- 기본값: `Korean,RightAlt`
+
+### 3.8 `hanja-keys`
+
+```bash
+unim-config set hanja-keys "Hanja,F9"
+```
+
+- 쉼표 구분된 `KeyCode` 이름 목록
+- 허용 값: `Hanja`, `F9` 등 (`KeyCode::from_name()` 참조)
+- 기본값: `Hanja,F9`
+
 ---
 
 ## 4. 서브커맨드 상세

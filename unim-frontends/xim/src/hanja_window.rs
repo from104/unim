@@ -24,7 +24,7 @@ pub enum HanjaAction {
 }
 
 /// 페이지당 표시할 후보 수
-const PAGE_SIZE: usize = 9;
+pub const PAGE_SIZE: usize = 9;
 
 /// 한자 후보 팝업 윈도우
 pub struct HanjaWindow {
@@ -32,8 +32,10 @@ pub struct HanjaWindow {
     window: c_ulong,
     /// XftDraw 컨텍스트
     xft_draw: *mut x11::xft::XftDraw,
-    /// XftFont
+    /// XftFont (메인: D2Coding 등 코딩 폰트)
     xft_font: *mut x11::xft::XftFont,
+    /// XftFont (fallback: CJK 한자 포함 폰트)
+    xft_font_fallback: *mut x11::xft::XftFont,
     /// 텍스트 색상
     text_color: x11::xft::XftColor,
     /// 선택 배경 색상
@@ -96,7 +98,8 @@ impl HanjaWindow {
         swa.background_pixel = white_pixel;
         swa.border_pixel = black_pixel;
         swa.override_redirect = x11::xlib::True;
-        swa.event_mask = x11::xlib::ExposureMask | x11::xlib::StructureNotifyMask;
+        swa.event_mask =
+            x11::xlib::ExposureMask | x11::xlib::StructureNotifyMask | x11::xlib::ButtonPressMask;
 
         let window = unsafe {
             x11::xlib::XCreateWindow(
@@ -159,7 +162,7 @@ impl HanjaWindow {
             return Err("XftDrawCreate failed".to_string());
         }
 
-        // XftFont 로드
+        // XftFont 로드 (메인 폰트)
         let xft_font = unsafe {
             let font_pattern = b"D2Coding:size=13\0";
             x11::xft::XftFontOpenName(display, screen, font_pattern.as_ptr() as *const i8)
@@ -178,6 +181,36 @@ impl HanjaWindow {
                 x11::xlib::XDestroyWindow(display, window);
             }
             return Err("XftFontOpenName failed".to_string());
+        }
+
+        // CJK fallback 폰트 로드 (한자 글리프 포함)
+        let xft_font_fallback = unsafe {
+            // Noto Sans CJK KR → 일반 sans (fontconfig이 CJK 폰트를 선택)
+            let cjk_fonts: &[&[u8]] = &[
+                b"Noto Sans CJK KR:size=13\0",
+                b"Noto Serif CJK KR:size=13\0",
+                b"UnBatang:size=13\0",
+                b"sans:size=13\0",
+            ];
+            let mut font: *mut x11::xft::XftFont = std::ptr::null_mut();
+            for pattern in cjk_fonts {
+                font = x11::xft::XftFontOpenName(display, screen, pattern.as_ptr() as *const i8);
+                if !font.is_null() {
+                    // 한자 '漢' (U+6F22) 글리프가 있는지 확인
+                    if x11::xft::XftCharExists(display, font, 0x6F22) != 0 {
+                        break;
+                    }
+                    // 글리프 없으면 이 폰트 해제하고 다음 시도
+                    x11::xft::XftFontClose(display, font);
+                    font = std::ptr::null_mut();
+                }
+            }
+            font
+        };
+        if !xft_font_fallback.is_null() {
+            unim_log!("XIM_HANJA", "CJK fallback 폰트 로드 성공");
+        } else {
+            unim_log!("XIM_HANJA", "CJK fallback 폰트 로드 실패 — 한자 표시 불가");
         }
 
         // 색상 할당
@@ -223,6 +256,7 @@ impl HanjaWindow {
             window,
             xft_draw,
             xft_font,
+            xft_font_fallback,
             text_color,
             sel_bg_color,
             sel_text_color,
@@ -317,6 +351,11 @@ impl HanjaWindow {
         }
     }
 
+    /// 전체 인덱스로 한자 문자열 가져오기 (handler에서 직접 커밋용)
+    pub fn get_candidate(&self, index: usize) -> Option<&str> {
+        self.candidates.get(index).map(|(hanja, _)| hanja.as_str())
+    }
+
     /// 행 높이 계산
     fn line_height(&self, display: *mut x11::xlib::Display) -> c_int {
         let test = "漢가";
@@ -353,16 +392,24 @@ impl HanjaWindow {
             0xff1b => HanjaAction::Cancel,
             // Right arrow / space
             0xff53 | 0x20 => {
-                if self.current_page + 1 < self.total_pages() {
-                    self.current_page += 1;
+                if self.total_pages() > 1 {
+                    if self.current_page + 1 < self.total_pages() {
+                        self.current_page += 1;
+                    } else {
+                        self.current_page = 0;
+                    }
                     self.selected_index = 0;
                 }
                 HanjaAction::NextPage
             }
             // Left arrow / BackSpace
             0xff51 | 0xff08 => {
-                if self.current_page > 0 {
-                    self.current_page -= 1;
+                if self.total_pages() > 1 {
+                    if self.current_page > 0 {
+                        self.current_page -= 1;
+                    } else {
+                        self.current_page = self.total_pages() - 1;
+                    }
                     self.selected_index = 0;
                 }
                 HanjaAction::PrevPage
@@ -403,6 +450,154 @@ impl HanjaWindow {
         }
     }
 
+    /// 마우스 버튼 클릭 처리
+    /// button: X11 Button (1=좌클릭, 3=우클릭)
+    /// y: 클릭한 Y 좌표
+    pub fn handle_button_press(
+        &mut self,
+        button: u32,
+        y: c_int,
+        display: *mut x11::xlib::Display,
+    ) -> HanjaAction {
+        match button {
+            1 => {
+                // 좌클릭 → 클릭한 행의 후보 선택
+                let line_h = self.line_height(display);
+                let items_count = self.page_items().len();
+                if items_count == 0 || line_h == 0 {
+                    return HanjaAction::Consumed;
+                }
+                // 행 인덱스 계산 (첫 행 y 시작 = line_h - line_h + 4 = 4)
+                let idx = ((y - 4) / line_h) as usize;
+                if idx < items_count {
+                    let global_idx = self.current_page * PAGE_SIZE + idx;
+                    unim_log!(
+                        "XIM_HANJA",
+                        "좌클릭 선택: row={}, global={}",
+                        idx,
+                        global_idx
+                    );
+                    HanjaAction::Select(global_idx as u32)
+                } else {
+                    HanjaAction::Consumed
+                }
+            }
+            3 => {
+                // 우클릭 → 다음 페이지 (순환)
+                if self.total_pages() > 1 {
+                    if self.current_page + 1 < self.total_pages() {
+                        self.current_page += 1;
+                    } else {
+                        self.current_page = 0;
+                    }
+                    self.selected_index = 0;
+                    unim_log!(
+                        "XIM_HANJA",
+                        "우클릭 → 다음 페이지: {}/{}",
+                        self.current_page + 1,
+                        self.total_pages()
+                    );
+                }
+                HanjaAction::NextPage
+            }
+            _ => HanjaAction::Consumed,
+        }
+    }
+
+    /// UTF-8 문자열을 font fallback 적용하여 렌더링
+    ///
+    /// 메인 폰트(D2Coding)에 글리프가 없는 문자는 fallback 폰트(Noto Sans CJK KR 등)로 렌더링.
+    /// 연속된 같은 폰트 문자들을 배치로 묶어서 XftDrawStringUtf8 호출 (성능 최적화).
+    fn draw_string_with_fallback(
+        &self,
+        display: *mut x11::xlib::Display,
+        color: &x11::xft::XftColor,
+        x: c_int,
+        y: c_int,
+        text: &str,
+    ) {
+        // fallback 폰트가 없으면 메인 폰트로만 렌더링
+        if self.xft_font_fallback.is_null() {
+            let bytes = text.as_bytes();
+            unsafe {
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw,
+                    color,
+                    self.xft_font,
+                    x,
+                    y,
+                    bytes.as_ptr(),
+                    bytes.len() as c_int,
+                );
+            }
+            return;
+        }
+
+        // 문자별로 폰트를 결정하고, 같은 폰트의 연속 문자를 배치로 묶어 렌더링
+        let mut cursor_x = x;
+        let mut batch_start: usize = 0;
+        let mut batch_use_fallback = false;
+        let chars: Vec<(usize, char)> = text.char_indices().collect();
+
+        for i in 0..=chars.len() {
+            // 현재 문자에 대해 fallback 필요 여부 결정
+            let use_fallback = if i < chars.len() {
+                let ch = chars[i].1;
+                let code = ch as u32;
+                unsafe {
+                    x11::xft::XftCharExists(display, self.xft_font, code as std::os::raw::c_uint)
+                        == 0
+                }
+            } else {
+                !batch_use_fallback // 마지막: 강제 flush
+            };
+
+            // 폰트 전환 감지 또는 문자열 끝 → 배치 flush
+            if i > batch_start && (use_fallback != batch_use_fallback || i == chars.len()) {
+                let batch_end = if i < chars.len() {
+                    chars[i].0
+                } else {
+                    text.len()
+                };
+                let batch_bytes = &text.as_bytes()[chars[batch_start].0..batch_end];
+                let font = if batch_use_fallback {
+                    self.xft_font_fallback
+                } else {
+                    self.xft_font
+                };
+
+                unsafe {
+                    x11::xft::XftDrawStringUtf8(
+                        self.xft_draw,
+                        color,
+                        font,
+                        cursor_x,
+                        y,
+                        batch_bytes.as_ptr(),
+                        batch_bytes.len() as c_int,
+                    );
+
+                    // 배치 너비 측정하여 커서 이동
+                    let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
+                    x11::xft::XftTextExtentsUtf8(
+                        display,
+                        font,
+                        batch_bytes.as_ptr(),
+                        batch_bytes.len() as c_int,
+                        &mut extents,
+                    );
+                    cursor_x += extents.xOff as c_int;
+                }
+
+                batch_start = i;
+            }
+
+            if i < chars.len() && i == batch_start {
+                batch_use_fallback = use_fallback;
+            }
+        }
+    }
+
     /// 다시 그리기
     pub fn redraw(&mut self, display: *mut x11::xlib::Display) {
         if display.is_null() {
@@ -439,26 +634,15 @@ impl HanjaWindow {
                 }
             }
 
-            // 텍스트: "N. 漢 뜻"
+            // 텍스트: "N. 漢 뜻" — font fallback 적용
             let text = format!("{}. {} {}", i + 1, hanja, meaning);
-            let text_bytes = text.as_bytes();
             let color = if i == self.selected_index {
                 &self.sel_text_color
             } else {
                 &self.text_color
             };
 
-            unsafe {
-                x11::xft::XftDrawStringUtf8(
-                    self.xft_draw,
-                    color,
-                    self.xft_font,
-                    padding_x,
-                    y_pos,
-                    text_bytes.as_ptr(),
-                    text_bytes.len() as c_int,
-                );
-            }
+            self.draw_string_with_fallback(display, color, padding_x, y_pos, &text);
         }
 
         // 페이지 정보
@@ -523,6 +707,9 @@ impl HanjaWindow {
             );
 
             x11::xft::XftFontClose(display, self.xft_font);
+            if !self.xft_font_fallback.is_null() {
+                x11::xft::XftFontClose(display, self.xft_font_fallback);
+            }
             x11::xft::XftDrawDestroy(self.xft_draw);
             x11::xlib::XDestroyWindow(display, self.window);
             x11::xlib::XFlush(display);

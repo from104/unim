@@ -189,14 +189,27 @@ Escape 키 입력
 
 ```
 F9 또는 Hangul_Hanja 입력
-  → DBus getHanjaCandidates(target, candidates)
-  → 후보가 있으면:
-    1. 커서 위치 계산 (m_cursorRect 사용, 이미 글로벌 좌표)
-    2. showPopup(target, candidates, x, y, height, 선택 콜백)
-  → 후보가 없으면:
-    로그 출력, 아무 동작 없음
+  → 1. DBus getHanjaCandidates(target, candidates)
+       (엔진의 start_hanja_conversion() 트리거)
+  → 한자 후보가 있으면:
+     1. 커서 위치 계산 (m_cursorRect 사용, 이미 글로벌 좌표)
+     2. showPopup(target, candidates, x, y, height, 선택 콜백)
+  → 한자 후보가 없으면:
+     → 2. DBus getSpecialCharCandidates(target, chars, topRow)
+          (엔진이 이미 special_char_mode를 설정한 상태)
+     → 특수문자 후보가 있으면:
+        1. 커서 위치 계산
+        2. showPopup(target, chars, topRow, x, y, height, 선택 콜백)
+     → 특수문자 후보도 없으면:
+        로그 출력, 아무 동작 없음
   → return true (키 소비)
 ```
+
+> [!IMPORTANT]
+> **호출 순서가 중요합니다.** `getHanjaCandidates()`를 반드시 먼저 호출해야 합니다.
+> 이 호출이 엔진의 `start_hanja_conversion()`을 트리거하여 한자/특수문자 모드를 설정합니다.
+> `getSpecialCharCandidates()`는 이미 설정된 모드 상태만 읽으므로, 순서가 바뀌면 첫 번째 키 입력에서 후보가 표시되지 않습니다.
+> 이 순서는 GTK3/4 구현과 동일합니다.
 
 ### 4.4 일반 키 처리 (processKey)
 

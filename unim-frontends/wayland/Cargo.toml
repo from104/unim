@@ -14,7 +14,6 @@ unim-dbus = { path = "../../unim-dbus" }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["staging", "unstable", "client"] }
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
-log = "0.4"
-env_logger = "0.11"
+xkbcommon = { version = "0.8", features = ["wayland"] }
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }

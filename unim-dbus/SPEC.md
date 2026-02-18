@@ -177,6 +177,8 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
 | `english_layout` | enum | `Qwerty`, `Dvorak`, `Colemak`, `ColemakDh`, `Workman` |
 | `default_category` | enum | `Korean`, `English` |
 | `mode_sharing` | enum | `Global`, `PerApp`, `PerWindow` |
+| `toggle_keys` | string list | 쉼표 구분 KeyCode 이름 (예: `Korean,RightAlt`) |
+| `hanja_keys` | string list | 쉼표 구분 KeyCode 이름 (예: `Hanja,F9`) |
 | `auto_switch_enabled` | bool | `true`, `false` |
 | `auto_switch_threshold` | float | 숫자 문자열 |
 

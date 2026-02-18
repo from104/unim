@@ -291,6 +291,8 @@ impl InputMethodService {
             },
             "auto_switch_enabled" => config.engine.auto_switch.enabled.to_string(),
             "auto_switch_threshold" => config.engine.auto_switch.threshold.to_string(),
+            "toggle_keys" => config.engine.toggle_keys.join(","),
+            "hanja_keys" => config.engine.hanja_keys.join(","),
             _ => {
                 return Err(zbus::fdo::Error::InvalidArgs(format!(
                     "Unknown key: {}",
@@ -374,6 +376,32 @@ impl InputMethodService {
                     config.engine.auto_switch.threshold = value
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid float".to_string()))?;
+                }
+                "toggle_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if keys.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one key required".to_string(),
+                        ));
+                    }
+                    config.engine.toggle_keys = keys;
+                }
+                "hanja_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if keys.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one key required".to_string(),
+                        ));
+                    }
+                    config.engine.hanja_keys = keys;
                 }
                 _ => {
                     return Err(zbus::fdo::Error::InvalidArgs(format!(

@@ -209,6 +209,27 @@ void unim_dbus_cancel_special_char(UnimDbusContext *ctx);
  */
 void unim_special_chars_free(gchar **characters, gsize count);
 
+/* =========================================
+ * 설정 조회 관련 함수
+ * ========================================= */
+
+/**
+ * 설정 값 조회
+ *
+ * @param ctx 컨텍스트
+ * @param key 설정 키 (예: "toggle_keys", "hanja_keys")
+ * @return 설정 값 문자열 (호출자가 g_free해야 함), 실패 시 NULL
+ */
+gchar* unim_dbus_get_config(UnimDbusContext *ctx, const gchar *key);
+
+/**
+ * KeyCode 이름에서 GDK keyval로 변환
+ *
+ * @param name KeyCode 이름 (예: "Hanja", "F9")
+ * @return GDK keyval, 알 수 없으면 0
+ */
+guint unim_keycode_name_to_gdk_keyval(const gchar *name);
+
 G_END_DECLS
 
 #endif /* UNIM_DBUS_CLIENT_H */

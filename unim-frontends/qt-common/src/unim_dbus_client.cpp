@@ -341,3 +341,87 @@ void UnimDbusClient::cancelHanja()
     m_preeditCache.clear();
     m_isComposing = false;
 }
+
+bool UnimDbusClient::getSpecialCharCandidates(QString &target, QStringList &characters, QString &topRow)
+{
+    if (!isValid()) return false;
+    
+    UNIM_DBUS_DEBUG("GetSpecialCharCandidates 호출");
+    
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("GetSpecialCharCandidates")
+    );
+    
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("GetSpecialCharCandidates 실패: %s", qPrintable(reply.errorMessage())));
+        return false;
+    }
+    
+    // 반환 형식: (sass) → target, characters[], top_row
+    QList<QVariant> args = reply.arguments();
+    if (args.size() >= 3) {
+        target = args.at(0).toString();
+        characters = args.at(1).toStringList();
+        topRow = args.at(2).toString();
+        
+        UNIM_DBUS_DEBUG(QString::asprintf("GetSpecialCharCandidates 결과: target='%s', count=%d, topRow='%s'",
+                        qPrintable(target), characters.size(), qPrintable(topRow)));
+    }
+    
+    return true;
+}
+
+bool UnimDbusClient::selectSpecialChar(quint32 index, QString &selectedChar)
+{
+    if (!isValid()) return false;
+    
+    UNIM_DBUS_DEBUG(QString::asprintf("SelectSpecialChar 호출: index=%u", index));
+    
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("SelectSpecialChar")
+    );
+    msg << index;
+    
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("SelectSpecialChar 실패: %s", qPrintable(reply.errorMessage())));
+        return false;
+    }
+    
+    QList<QVariant> args = reply.arguments();
+    if (args.size() >= 1) {
+        selectedChar = args.at(0).toString();
+        UNIM_DBUS_DEBUG(QString::asprintf("SelectSpecialChar 결과: '%s'", qPrintable(selectedChar)));
+    }
+    
+    return true;
+}
+
+void UnimDbusClient::cancelSpecialChar()
+{
+    if (!isValid()) return;
+    
+    UNIM_DBUS_DEBUG("CancelSpecialChar 호출");
+    
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("CancelSpecialChar")
+    );
+    
+    m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    
+    // 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화
+    m_preeditCache.clear();
+    m_isComposing = false;
+}

@@ -192,6 +192,57 @@ on_row_activated(GtkListBox *listbox, GtkListBoxRow *row, gpointer user_data)
     }
 }
 
+/* 우클릭 → 다음 페이지 전환 */
+#if GTK_CHECK_VERSION(4, 0, 0)
+static void
+on_listbox_right_click(GtkGestureClick *gesture, gint n_press,
+                       gdouble x, gdouble y, gpointer user_data)
+{
+    (void)n_press; (void)x; (void)y;
+    UnimHanjaPopup *popup = (UnimHanjaPopup *)user_data;
+    if (!popup) return;
+
+    guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+    if (button == 3) { /* 우클릭 */
+        gsize total = get_total_pages(popup);
+        if (total > 1) {
+            if (popup->current_page < total - 1) {
+                popup->current_page++;
+            } else {
+                popup->current_page = 0;
+            }
+            popup->selected_index = 0;
+            update_listbox(popup);
+        }
+        POPUP_DEBUG("우클릭 → 다음 페이지: %zu/%zu", popup->current_page + 1, total);
+    }
+}
+#else
+static gboolean
+on_listbox_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
+{
+    (void)widget;
+    UnimHanjaPopup *popup = (UnimHanjaPopup *)user_data;
+    if (!popup) return FALSE;
+
+    if (event->button == 3) { /* 우클릭 */
+        gsize total = get_total_pages(popup);
+        if (total > 1) {
+            if (popup->current_page < total - 1) {
+                popup->current_page++;
+            } else {
+                popup->current_page = 0;
+            }
+            popup->selected_index = 0;
+            update_listbox(popup);
+        }
+        POPUP_DEBUG("우클릭 → 다음 페이지: %zu/%zu", popup->current_page + 1, total);
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
+
 /* X11에서 override_redirect 설정 (포커스 방지) */
 #ifdef GDK_WINDOWING_X11
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -260,8 +311,21 @@ unim_hanja_popup_new(void)
     /* 리스트박스 */
     popup->listbox = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(popup->listbox), GTK_SELECTION_SINGLE);
+    gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(popup->listbox), TRUE);
     g_signal_connect(popup->listbox, "row-activated", G_CALLBACK(on_row_activated), popup);
     
+    /* 우클릭 핸들러 */
+#if GTK_CHECK_VERSION(4, 0, 0)
+    {
+        GtkGesture *right_click = gtk_gesture_click_new();
+        gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(right_click), 0); /* 모든 버튼 */
+        g_signal_connect(right_click, "pressed", G_CALLBACK(on_listbox_right_click), popup);
+        gtk_widget_add_controller(popup->listbox, GTK_EVENT_CONTROLLER(right_click));
+    }
+#else
+    g_signal_connect(popup->listbox, "button-press-event", G_CALLBACK(on_listbox_button_press), popup);
+#endif
+
     /* 리스트박스도 포커스 불가 */
 #if GTK_CHECK_VERSION(4, 0, 0)
     gtk_widget_set_focusable(popup->listbox, FALSE);
@@ -482,8 +546,12 @@ unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval)
     /* 좌/우 화살표, BackSpace 페이지 전환 (이전) */
     if (keyval == GDK_KEY_Left || keyval == GDK_KEY_Page_Up ||
         keyval == GDK_KEY_BackSpace) {
-        if (popup->current_page > 0) {
-            popup->current_page--;
+        if (get_total_pages(popup) > 1) {
+            if (popup->current_page > 0) {
+                popup->current_page--;
+            } else {
+                popup->current_page = get_total_pages(popup) - 1;
+            }
             popup->selected_index = 0;
             update_listbox(popup);
         }
@@ -493,8 +561,12 @@ unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval)
     /* 우 화살표, Space 페이지 전환 (다음) */
     if (keyval == GDK_KEY_Right || keyval == GDK_KEY_Page_Down ||
         keyval == GDK_KEY_space) {
-        if (popup->current_page < get_total_pages(popup) - 1) {
-            popup->current_page++;
+        if (get_total_pages(popup) > 1) {
+            if (popup->current_page < get_total_pages(popup) - 1) {
+                popup->current_page++;
+            } else {
+                popup->current_page = 0;
+            }
             popup->selected_index = 0;
             update_listbox(popup);
         }

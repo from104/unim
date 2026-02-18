@@ -60,6 +60,15 @@ trait InputContext {
     /// 한자 모드 취소
     fn cancel_hanja(&self) -> Result<()>;
 
+    /// 특수문자 후보 조회 - 반환: (target, characters, top_row)
+    fn get_special_char_candidates(&self) -> Result<(String, Vec<String>, String)>;
+
+    /// 특수문자 선택 - 반환: 선택된 문자열
+    fn select_special_char(&self, index: u32) -> Result<String>;
+
+    /// 특수문자 모드 취소
+    fn cancel_special_char(&self) -> Result<()>;
+
     /// Preedit 텍스트 업데이트 시그널
     #[zbus(signal)]
     fn update_preedit_text(&self, text: String, cursor_pos: u32, visible: bool) -> Result<()>;

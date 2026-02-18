@@ -62,6 +62,10 @@ struct _UnimIMContext {
     UnimSpecialPopup *special_popup;   /* 특수문자 후보 팝업 */
     gchar **special_characters;        /* 현재 특수문자 목록 */
     gsize special_count;               /* 특수문자 개수 */
+    
+    /* 한자/특수문자 키 설정 캐시 */
+    guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
+    gsize n_hanja_keysyms;             /* 배열 크기 */
 };
 
 struct _UnimIMContextClass {
@@ -205,6 +209,36 @@ unim_im_context_init(UnimIMContext *context)
     context->special_characters = NULL;
     context->special_count = 0;
     
+    /* 한자키 설정 로드 */
+    context->hanja_keysyms = NULL;
+    context->n_hanja_keysyms = 0;
+    if (context->dbus_ctx) {
+        gchar *hanja_keys_str = unim_dbus_get_config(context->dbus_ctx, "hanja_keys");
+        if (hanja_keys_str && hanja_keys_str[0]) {
+            gchar **keys = g_strsplit(hanja_keys_str, ",", -1);
+            gsize n = g_strv_length(keys);
+            context->hanja_keysyms = g_new0(guint, n);
+            gsize count = 0;
+            for (gsize i = 0; i < n; i++) {
+                g_strstrip(keys[i]);
+                guint kv = unim_keycode_name_to_gdk_keyval(keys[i]);
+                if (kv != 0) {
+                    context->hanja_keysyms[count++] = kv;
+                }
+            }
+            context->n_hanja_keysyms = count;
+            g_strfreev(keys);
+        }
+        g_free(hanja_keys_str);
+    }
+    /* 설정 로드 실패 시 기본값 사용 */
+    if (context->n_hanja_keysyms == 0) {
+        context->hanja_keysyms = g_new(guint, 2);
+        context->hanja_keysyms[0] = GDK_KEY_Hangul_Hanja;
+        context->hanja_keysyms[1] = GDK_KEY_F9;
+        context->n_hanja_keysyms = 2;
+    }
+    
     if (context->dbus_ctx) {
         UNIM_DEBUG("IMContext 초기화 완료 (window_id: %s)", context->window_id);
     } else {
@@ -303,6 +337,10 @@ unim_im_context_finalize(GObject *obj)
     g_free(context->window_id);
     context->window_id = NULL;
     
+    g_free(context->hanja_keysyms);
+    context->hanja_keysyms = NULL;
+    context->n_hanja_keysyms = 0;
+
     g_free(context->surrounding_text);
     context->surrounding_text = NULL;
 
@@ -428,8 +466,15 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         /* fall-through → 아래 ProcessKey 경로에서 엔진이 새 키 처리 */
     }
 
-    /* 한자 키 처리 (Hangul_Hanja 또는 F9) */
-    if (event->keyval == GDK_KEY_Hangul_Hanja || event->keyval == GDK_KEY_F9) {
+    /* 한자 키 처리 (설정 기반) */
+    gboolean is_hanja = FALSE;
+    for (gsize i = 0; i < unim->n_hanja_keysyms; i++) {
+        if (event->keyval == unim->hanja_keysyms[i]) {
+            is_hanja = TRUE;
+            break;
+        }
+    }
+    if (is_hanja) {
         gchar *target = NULL;
         UnimHanjaCandidate *candidates = NULL;
         gsize count = 0;

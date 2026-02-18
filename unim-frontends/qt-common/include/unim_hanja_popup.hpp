@@ -55,6 +55,9 @@ public:
      */
     bool handleKey(int key);
 
+protected:
+    void mousePressEvent(QMouseEvent *event) override;
+
 private:
     void updateList();
     void selectCandidate(int index);

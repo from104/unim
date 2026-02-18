@@ -9,6 +9,7 @@
 #define UNIM_DBUS_CLIENT_HPP
 
 #include <QString>
+#include <QStringList>
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusReply>
@@ -119,6 +120,28 @@ public:
      * 한자 모드 취소
      */
     void cancelHanja();
+    
+    /**
+     * 특수문자 후보 목록 조회
+     * @param target 변환 대상 초성 (출력)
+     * @param characters 특수문자 배열 (출력)
+     * @param topRow 영문 키맵 상단 행 레이블 (출력, 예: "QWERTYUIO")
+     * @return 성공 시 true
+     */
+    bool getSpecialCharCandidates(QString &target, QStringList &characters, QString &topRow);
+    
+    /**
+     * 특수문자 선택
+     * @param index 선택할 인덱스 (0부터)
+     * @param selectedChar 선택된 특수문자 (출력)
+     * @return 성공 시 true
+     */
+    bool selectSpecialChar(quint32 index, QString &selectedChar);
+    
+    /**
+     * 특수문자 모드 취소
+     */
+    void cancelSpecialChar();
     
 private:
     QDBusConnection m_bus;

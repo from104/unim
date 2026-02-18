@@ -119,8 +119,17 @@ struct _UnimIMContext {
 
     /* 특수문자 입력 */
     UnimSpecialPopup *special_popup;
+
+    /* 한자/특수문자 키 설정 캐시 */
+    guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
+    gsize n_hanja_keysyms;             /* 배열 크기 */
 };
 ```
+
+> [!NOTE]
+> `hanja_keysyms`는 초기화 시 DBus `GetConfig("hanja_keys")` 호출로 설정을 로드하고,
+> `unim_keycode_name_to_gdk_keyval()` 함수로 GDK keyval 배열로 변환하여 캐시합니다.
+> 설정 로드 실패 시 기본값(`Hangul_Hanja`, `F9`)이 사용됩니다.
 
 > [!NOTE]
 > GTK3에서는 `GdkWindow *client_window`를 사용하지만,
@@ -158,8 +167,9 @@ GdkEventType event_type = gdk_event_get_event_type(event);
   → 1. DBus 컨텍스트 확인 (없으면 return FALSE)
   → 2. 이벤트 타입 확인 (KEY_PRESS/KEY_RELEASE만 처리)
   → 3. KeyRelease 무시
-  → 4. 키 정보 추출 (GDK 4.4+ 접근자)
-  → 5. 수정자 키 바이패스 → return FALSE (앱에 전달)
+  → 4. 한자 키 확인 (설정 기반: hanja_keysyms 배열 비교)
+  → 5. 키 정보 추출 (GDK 4.4+ 접근자)
+  → 6. 수정자 키 바이패스 → return FALSE (앱에 전달)
 ```
 
 **바이패스 대상 수정자 키:**

@@ -7,6 +7,7 @@
 #include "input_context.hpp"
 #include "unim_dbus_client.hpp"
 #include "unim_hanja_popup.hpp"
+#include "unim_special_popup.hpp"
 
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -85,10 +86,13 @@ UnimInputContext::UnimInputContext()
     }
     
     m_hanjaPopup = new UnimHanjaPopup();
+    m_specialPopup = new UnimSpecialPopup();
 }
 
 UnimInputContext::~UnimInputContext()
 {
+    delete m_specialPopup;
+    m_specialPopup = nullptr;
     delete m_hanjaPopup;
     m_hanjaPopup = nullptr;
     delete m_dbus;
@@ -119,6 +123,14 @@ void UnimInputContext::reset()
             m_dbus->cancelHanja();
         }
     }
+
+    /* 특수문자 팝업이 표시 중이면 닫기 */
+    if (m_specialPopup && m_specialPopup->isVisible()) {
+        m_specialPopup->hidePopup();
+        if (m_dbus) {
+            m_dbus->cancelSpecialChar();
+        }
+    }
 }
 
 void UnimInputContext::commit()
@@ -138,6 +150,14 @@ void UnimInputContext::commit()
         m_hanjaPopup->hidePopup();
         if (m_dbus) {
             m_dbus->cancelHanja();
+        }
+    }
+
+    /* 특수문자 팝업이 표시 중이면 닫기 */
+    if (m_specialPopup && m_specialPopup->isVisible()) {
+        m_specialPopup->hidePopup();
+        if (m_dbus) {
+            m_dbus->cancelSpecialChar();
         }
     }
 }
@@ -256,18 +276,70 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         /* fall-through → 아래 processKey 경로에서 엔진이 새 키 처리 */
     }
 
+    /* 특수문자 팝업이 표시 중이면 먼저 팝업에서 키 처리 */
+    if (m_specialPopup && m_specialPopup->isVisible()) {
+        /* Escape → 팝업 닫기 + 조합 복원 */
+        if (key == Qt::Key_Escape) {
+            UNIM_DEBUG("특수문자 팝업 Escape -> 조합 복원 + 팝업 닫기");
+
+            if (m_dbus) {
+                UnimDbusKeyResult resetResult = m_dbus->processKey(0, 0, 0);
+                if (!resetResult.commit.isEmpty()) {
+                    commitString(resetResult.commit);
+                }
+            }
+
+            if (m_dbus) {
+                m_dbus->cancelSpecialChar();
+            }
+
+            m_composing = m_dbus && m_dbus->isComposing();
+            updatePreedit();
+            m_specialPopup->hidePopup();
+            return true;
+        }
+
+        /* 팝업 내부 처리 */
+        if (m_specialPopup->handleKey(key)) {
+            return true;
+        }
+
+        /* 미지원 키 → 조합 커밋 + 팝업 닫기 + fall-through */
+        UNIM_DEBUG("특수문자 팝업 미지원 키 -> 조합 커밋 + 팝업 닫고 엔진에 키 전달");
+
+        if (m_dbus) {
+            QString commitText = m_dbus->focusOut();
+            if (!commitText.isEmpty()) {
+                commitString(commitText);
+            }
+        }
+
+        m_composing = false;
+        updatePreedit();
+
+        if (m_dbus) {
+            m_dbus->cancelSpecialChar();
+        }
+        m_specialPopup->hidePopup();
+
+        if (m_dbus) {
+            m_dbus->focusIn(m_windowId);
+        }
+    }
+
     /* 한자 키 처리 (F9 또는 Hangul_Hanja) */
     if (key == Qt::Key_F9 || key == Qt::Key_Hangul_Hanja) {
-        if (m_dbus && m_hanjaPopup) {
+        if (m_dbus) {
+            /* 먼저 한자 후보 조회 (start_hanja_conversion 트리거) */
             QString target;
             QList<UnimHanjaCandidate> candidates;
-            if (m_dbus->getHanjaCandidates(target, candidates) && !candidates.isEmpty()) {
+            if (m_hanjaPopup && m_dbus->getHanjaCandidates(target, candidates) && !candidates.isEmpty()) {
                 int popupX = m_cursorRect.x();
                 int popupY = m_cursorRect.y() + m_cursorRect.height();
-                
+
                 UNIM_DEBUG(QString::asprintf("한자 후보 표시: target='%s', count=%d, pos=(%d,%d)",
                            qPrintable(target), candidates.size(), popupX, popupY));
-                
+
                 m_hanjaPopup->showPopup(target, candidates, popupX, popupY, m_cursorRect.height(),
                     [this](const QString &hanja) {
                         UNIM_DEBUG(QString::asprintf("한자 선택: '%s'", qPrintable(hanja)));
@@ -279,7 +351,30 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                         commitString(hanja);
                     });
             } else {
-                UNIM_DEBUG("한자 후보 없음");
+                /* 한자 후보 없음 → 특수문자 후보 확인 */
+                QString spTarget;
+                QStringList spChars;
+                QString spTopRow;
+                if (m_specialPopup && m_dbus->getSpecialCharCandidates(spTarget, spChars, spTopRow) && !spChars.isEmpty()) {
+                    int popupX = m_cursorRect.x();
+                    int popupY = m_cursorRect.y() + m_cursorRect.height();
+
+                    UNIM_DEBUG(QString::asprintf("특수문자 후보 표시: target='%s', count=%d",
+                               qPrintable(spTarget), spChars.size()));
+
+                    m_specialPopup->showPopup(spTarget, spChars, spTopRow, popupX, popupY, m_cursorRect.height(),
+                        [this](const QString &character) {
+                            UNIM_DEBUG(QString::asprintf("특수문자 선택: '%s'", qPrintable(character)));
+                            if (m_dbus) {
+                                m_dbus->cancelSpecialChar();
+                            }
+                            m_composing = false;
+                            updatePreedit();
+                            commitString(character);
+                        });
+                } else {
+                    UNIM_DEBUG("한자/특수문자 후보 없음");
+                }
             }
         }
         return true;
@@ -393,6 +488,15 @@ void UnimInputContext::setFocusObject(QObject *object)
         m_hanjaPopup->hidePopup();
         if (m_dbus) {
             m_dbus->cancelHanja();
+        }
+    }
+
+    /* 특수문자 팝업이 표시 중이면 닫기 */
+    if (m_specialPopup && m_specialPopup->isVisible()) {
+        UNIM_DEBUG("setFocusObject: 특수문자 팝업 닫기");
+        m_specialPopup->hidePopup();
+        if (m_dbus) {
+            m_dbus->cancelSpecialChar();
         }
     }
 

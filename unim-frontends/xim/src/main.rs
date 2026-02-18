@@ -7,6 +7,7 @@ mod dbus_client;
 mod handler;
 mod hanja_window;
 mod pe_window;
+mod special_window;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -130,9 +131,10 @@ fn main() {
                         server.conn().flush().ok();
                     }
                     Event::ButtonPress(e) => {
-                        // grab_pointer에 의한 마우스 클릭 감지 (한자 팝업 외부 클릭)
+                        // 마우스 클릭 감지 (한자 팝업 내부/외부)
                         if unim_handler.has_hanja_popup() {
                             if let Err(err) = unim_handler.handle_button_press(
+                                e.detail,
                                 e.event_x,
                                 e.event_y,
                                 server.conn(),
