@@ -12,10 +12,13 @@
 | 파일 | 줄 수 | 역할 |
 |------|-------|------|
 | `main.rs` | ~195 | Wayland 연결, 글로벌 바인딩, mio::Poll 기반 이벤트 루프 |
-| `state.rs` | ~530 | AppState 구조체, Dispatch 구현 7종, 키 이벤트 처리, 키 반복 |
+| `state.rs` | ~530 | AppState 구조체, Dispatch 구현 7종, 키 이벤트 처리, 팝업 상태 관리 |
 | `keymap.rs` | ~121 | xkbcommon 키맵 핸들러, evdev keycode → keysym 변환 |
 | `dbus_client.rs` | ~370 | unim-daemon과의 비동기 DBus 통신 (한자/특수문자 포함) |
 | `repeat.rs` | ~120 | 키 반복 타이머 (RepeatInfo, PressState, RepeatTimer) |
+| `popup.rs` | ~390 | `zwp_input_popup_surface_v2` 기반 팝업 렌더링 (tiny-skia) |
+| `hanja_popup.rs` | ~250 | 한자 후보 목록 관리 및 페이지 네비게이션 로직 |
+| `special_popup.rs` | ~280 | 특수문자 그리드 관리 및 키 처리 로직 |
 
 ### 1.2 통신 구조
 
@@ -37,7 +40,10 @@
 | `tokio` | 1 | DBus 비동기 런타임 |
 | `zbus` | 4 | DBus 통신 |
 | `mio` | 1 | epoll 기반 이벤트 루프 (키 반복 타이머 통합) |
-| `nix` | 0.29 | timerfd 시스템 호출 (키 반복) |
+| `nix` | 0.29 | timerfd 시스템 호출, memfd 생성 |
+| `tiny-skia` | 0.11 | 팝업 UI 2D 렌더링 (CPU 기반) |
+| `cosmic-text` | 0.12 | 팝업 텍스트 레이아웃 및 폰트 렌더링 |
+| `memmap2` | 0.9 | `wl_shm` 버퍼용 메모리 매핑 |
 
 ### 1.4 지원 컴포지터
 
@@ -56,11 +62,12 @@
 
 ## 2. Wayland 프로토콜 인터페이스
 
-### 2.1 사용 프로토콜 3종
+### 2.1 사용 프로토콜 4종
 
 | 인터페이스 | 역할 | 필수 |
 |------------|------|------|
 | `zwp_input_method_v2` | 입력 방식 상태 관리, 텍스트 커밋/preedit | ✅ |
+| `zwp_input_popup_surface_v2` | 한자/특수문자 후보 팝업 서피스 | ✅ |
 | `zwp_input_method_keyboard_grab_v2` | 하드웨어 키보드 이벤트 수신 | ✅ |
 | `zwp_virtual_keyboard_v1` | 미소비 키를 컴포지터에 재전달 | 옵션 |
 
@@ -323,6 +330,17 @@ pub struct AppState {
     // 키 처리
     keymap_handler: KeymapHandler,
     last_preedit: String,
+    
+    // 키 반복
+    repeat_timer: RepeatTimer,
+    repeat_info: Option<RepeatInfo>,
+    press_state: PressState,
+    
+    // 팝업
+    popup_surface: Option<PopupSurface>,
+    popup_state: PopupState,
+    hanja_popup: HanjaPopup,
+    special_popup: SpecialPopup,
 
     // DBus
     dbus_tx: mpsc::Sender<DbusRequest>,
@@ -330,10 +348,13 @@ pub struct AppState {
 
     // 제어
     should_exit: bool,
+    
+    // 이벤트 큐 (팝업 렌더링용)
+    qh: Option<QueueHandle<Self>>,
 }
 ```
 
-### 7.2 Dispatch 구현 7종
+### 7.2 Dispatch 구현 8종
 
 | Dispatch 대상 | 구현 내용 |
 |---------------|-----------|
@@ -344,6 +365,7 @@ pub struct AppState {
 | `ZwpVirtualKeyboardV1` | no-op (이벤트 없음) |
 | `ZwpInputMethodV2` | **핵심**: Activate/Deactivate/Done/Unavailable |
 | `ZwpInputMethodKeyboardGrabV2` | **핵심**: Keymap/Key/Modifiers/RepeatInfo |
+| `ZwpInputPopupSurfaceV2` | **팝업**: TextInputRectangle (커서 위치 수신) |
 
 ---
 
@@ -396,23 +418,21 @@ make dev-wayland PREFIX=/usr
 | 항목 | 상태 | 설명 |
 |------|------|------|
 | 키 반복 (Key Repeat) | ✅ 구현 | `mio::Poll` + `nix::sys::timerfd` 기반 (PressState 상태 머신) |
-| 한자/특수문자 DBus | ✅ 통합 | DBus 요청/응답 타입 추가 (팝업 UI는 미구현) |
+| 한자/특수문자 DBus | ✅ 통합 | DBus 요청/응답 타입 추가 |
+| 한자/특수문자 팝업 | ✅ 구현 | `zwp_input_popup_surface_v2` + `tiny-skia` + `cosmic-text` 기반 렌더링 |
 
 ### 10.2 현재 제한사항
 
 | 항목 | 상태 | 설명 |
 |------|------|------|
-| 한자 팝업 | ❌ 미구현 | `zwp_input_popup_surface_v2` 연동 필요 |
-| 특수문자 팝업 | ❌ 미구현 | 한자 팝업과 동일 |
 | Surrounding Text | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 |
 | Content Type | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 |
-| GNOME 지원 | ❌ 불가 | Mutter가 프로토콜 미지원 |
+| GNOME 지원 | ❌ 불가 | Mutter가 프로토콜 미지원 (전용 확장 프로그램 사용) |
 
 ### 10.3 향후 계획
 
 | 단계 | 내용 |
 |------|------|
-| Phase 3 | 한자/특수문자 팝업 (`zwp_input_popup_surface_v2` 기반) |
 | Phase 4 | Surrounding Text / Content Type 활용 |
 
 ---

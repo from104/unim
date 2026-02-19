@@ -62,10 +62,10 @@ CARGO := cargo
         install install-core install-frontends install-settings install-icons install-autostart \
         install-systemd uninstall-systemd enable-systemd disable-systemd status-systemd \
         uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart \
-        pack install-gnome-extension uninstall-gnome-extension enable disable log test test-dbus test-xim \
+        pack install-gnome-extension uninstall-gnome-extension install-extension uninstall-extension enable disable log test test-dbus test-xim test-wayland \
         deb clean-deb clean-all help sandbox \
         test-gtk3 test-gtk4 test-gnome \
-        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-restart
+        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-indicator dev-extension dev-restart
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Help
@@ -93,9 +93,11 @@ help:
 	@echo "Uninstall targets:"
 	@echo "  uninstall        - Remove all installed components"
 	@echo ""
-	@echo "GNOME Extension:"
+	@echo "GNOME Extension:
 	@echo "  install-gnome-extension   - Install to user's GNOME Shell"
 	@echo "  uninstall-gnome-extension - Remove from user's GNOME Shell"
+	@echo "  install-extension         - Alias for install-gnome-extension"
+	@echo "  uninstall-extension       - Alias for uninstall-gnome-extension"
 	@echo "  pack             - Create distributable .zip file"
 	@echo ""
 	@echo "Systemd User Service:"
@@ -111,9 +113,10 @@ help:
 	@echo "  clean            - Remove build artifacts"
 	@echo "  clean-all        - Remove all artifacts including Cargo target"
 	@echo ""
-	@echo "DBus / XIM Testing:"
+	@echo "DBus / XIM / Wayland Testing:"
 	@echo "  test-dbus        - Verify DBus service registration"
 	@echo "  test-xim         - Build and run XIM test application"
+	@echo "  test-wayland     - Build and run Wayland test application"
 	@echo ""
 	@echo "Sandbox (isolated testing):"
 	@echo "  sandbox          - Launch Xephyr sandbox with default terminal"
@@ -130,6 +133,8 @@ help:
 	@echo "  dev-daemon       - unim-daemon 빌드 + 배포 + 재시작"
 	@echo "  dev-xim          - unim-xim 빌드 + 배포 + 재시작"
 	@echo "  dev-wayland      - unim-wayland 빌드 + 배포 + 재시작"
+	@echo "  dev-indicator    - unim-indicator 빌드 + 배포 + 재시작"
+	@echo "  dev-extension    - GNOME Extension 증분 빌드 + 로컬(User) 배포"
 	@echo "  dev-restart      - 데몬 및 프론트엔드 재시작"
 	@echo ""
 	@echo "Variables:"
@@ -395,6 +400,9 @@ install-gnome-extension: gnome-extension
 	@glib-compile-schemas "$(DESTDIR)$(GNOME_EXTENSION_DIR)/schemas" || (echo "Error: Failed to compile schemas"; exit 1)
 	@echo "✅ GNOME Extension 설치 완료!"
 
+install-extension: install-gnome-extension
+uninstall-extension: uninstall-gnome-extension
+
 uninstall-gnome-extension:
 	@echo "Uninstalling GNOME extension from $(DESTDIR)$(GNOME_EXTENSION_DIR)..."
 	@rm -rf "$(DESTDIR)$(GNOME_EXTENSION_DIR)"
@@ -589,13 +597,30 @@ dev-wayland:
 	@pkill -f unim-wayland 2>/dev/null || true
 	@echo "✅ Wayland IM 배포 완료!"
 
+dev-indicator:
+	@echo "🔧 [dev] unim-indicator 빌드 + 배포 + 재시작..."
+	@$(CARGO) build --release -p unim-indicator
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp target/release/unim-indicator $(BINDIR)/
+	@echo "  → 인디케이터 재시작..."
+	@pkill -f unim-indicator 2>/dev/null || true
+	@echo "✅ 인디케이터 배포 완료!"
+
+dev-extension: gnome-extension
+	@echo "🔧 [dev] GNOME Extension 로컬 배포 (User)..."
+	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)
+	@cp -rf unim-gnome-extension/* ~/.local/share/gnome-shell/extensions/$(UUID)/
+	@glib-compile-schemas ~/.local/share/gnome-shell/extensions/$(UUID)/schemas 2>/dev/null || true
+	@echo "✅ Extension 배포 완료! GNOME Shell을 재시작해 주세요 (X11: Alt+F2, r / Wayland: 로그아웃 후 재로그인)."
+
 dev-restart:
 	@echo "🔧 [dev] UNIM 데몬 및 프론트엔드 재시작..."
 	@pkill -f unim-daemon 2>/dev/null || true
 	@pkill -f unim-xim 2>/dev/null || true
 	@pkill -f unim-wayland 2>/dev/null || true
+	@pkill -f unim-indicator 2>/dev/null || true
 	@sleep 1
-	@echo "✅ 모든 UNIM 프로세스가 종료되었습니다. (DBus 자동활성화로 다음 요청 시 재시작)"
+	@echo "✅ 모든 UNIM 프로세스가 종료되었습니다. (DBus 자동활성화로 다음 요청 시 재시작됩니다)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test Applications
@@ -669,6 +694,16 @@ test-xim:
 	@echo "   또는: XMODIFIERS=@im=unim ./unim-test-xim/build/unim-test-xim"
 	@echo "════════════════════════════════════════════════════════════"
 
+test-wayland: build-rust
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🔨 Building Wayland Test Application (Rust)..."
+	@echo "════════════════════════════════════════════════════════════"
+	@$(CARGO) build --release -p unim-test-wayland
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "✅ 빌드 완료! 실행: ./target/release/unim-test-wayland"
+	@echo "   (Wayland 세션에서 실행하세요)"
+	@echo "════════════════════════════════════════════════════════════"
+
 test-gnome:
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "🔨 Building GNOME IME Test Application..."
@@ -702,6 +737,9 @@ build-tests: build-frontends
 	@# XIM Test
 	@echo "  → Building XIM Test App..."
 	@mkdir -p unim-test-xim/build && cd unim-test-xim/build && cmake .. && make
+	@# Wayland Test
+	@echo "  → Building Wayland Test App (Rust)..."
+	@$(CARGO) build --release -p unim-test-wayland
 	@# GNOME Test
 	@echo "  → Building GNOME IME Test App..."
 	@mkdir -p unim-test-gnome/build && cd unim-test-gnome/build && cmake .. && make
