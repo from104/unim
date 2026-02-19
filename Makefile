@@ -64,7 +64,7 @@ CARGO := cargo
         uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart \
         pack install-gnome-extension uninstall-gnome-extension enable disable log test test-dbus test-xim \
         deb clean-deb clean-all help sandbox \
-        test-gtk3 test-gtk4 \
+        test-gtk3 test-gtk4 test-gnome \
         dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-restart
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -512,6 +512,7 @@ clean:
 	@rm -rf unim-test-gtk4/build
 	@rm -rf unim-test-qt5/build
 	@rm -rf unim-test-qt6/build
+	@rm -rf unim-test-gnome/build
 	@echo "Done."
 
 clean-all: clean clean-deb
@@ -668,6 +669,16 @@ test-xim:
 	@echo "   또는: XMODIFIERS=@im=unim ./unim-test-xim/build/unim-test-xim"
 	@echo "════════════════════════════════════════════════════════════"
 
+test-gnome:
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "🔨 Building GNOME IME Test Application..."
+	@echo "════════════════════════════════════════════════════════════"
+	@mkdir -p unim-test-gnome/build && cd unim-test-gnome/build && cmake .. && make
+	@echo "════════════════════════════════════════════════════════════"
+	@echo "✅ 빌드 완료! 실행: ./unim-test-gnome/build/unim-test-gnome"
+	@echo "   (GTK_IM_MODULE이 자동 해제되어 GNOME Shell IME 경로를 테스트합니다)"
+	@echo "════════════════════════════════════════════════════════════"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Build All Test Applications
 # ─────────────────────────────────────────────────────────────────────────────
@@ -691,6 +702,9 @@ build-tests: build-frontends
 	@# XIM Test
 	@echo "  → Building XIM Test App..."
 	@mkdir -p unim-test-xim/build && cd unim-test-xim/build && cmake .. && make
+	@# GNOME Test
+	@echo "  → Building GNOME IME Test App..."
+	@mkdir -p unim-test-gnome/build && cd unim-test-gnome/build && cmake .. && make
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ 모든 테스트 앱 빌드 완료!"
 	@echo "════════════════════════════════════════════════════════════"

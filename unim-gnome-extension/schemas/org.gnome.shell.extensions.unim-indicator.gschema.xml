@@ -24,6 +24,12 @@
       <description>Whether to show the Korean/English status indicator in the panel</description>
     </key>
 
+    <key type="b" name="enable-ime">
+      <default>false</default>
+      <summary>Enable IME Mode</summary>
+      <description>Enable real-time Korean input method (replaces IBus). When enabled, the extension intercepts key events and provides native Korean input via Clutter.InputMethod.</description>
+    </key>
+
     <!-- ============================================ -->
     <!-- Input Method Settings (synced to config.yaml) -->
     <!-- ============================================ -->

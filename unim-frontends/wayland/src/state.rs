@@ -8,6 +8,7 @@
 //!   2. keyboard_grab → key: 키 이벤트 수신 → DBus로 처리
 //!   3. 소비된 키: im.commit_string/set_preedit_string + im.commit(serial)
 //!   4. 미소비 키: virtual_keyboard.key()로 포워딩
+//!   5. 키 반복: timerfd 기반 delay → interval 타이머로 재처리
 
 use std::os::fd::AsFd;
 use std::sync::mpsc as std_mpsc;
@@ -15,7 +16,10 @@ use tokio::sync::mpsc;
 use unim::unim_log;
 use wayland_client::{
     globals::GlobalListContents,
-    protocol::{wl_keyboard::KeyState, wl_registry::WlRegistry, wl_seat::WlSeat},
+    protocol::{
+        wl_compositor::WlCompositor, wl_keyboard::KeyState, wl_registry::WlRegistry,
+        wl_seat::WlSeat, wl_shm::WlShm,
+    },
     Connection, Dispatch, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_input_method_v2::client::{
@@ -29,7 +33,21 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 };
 
 use crate::dbus_client::{DbusRequest, DbusResponse};
+use crate::hanja_popup::{HanjaAction, HanjaPopup};
 use crate::keymap::KeymapHandler;
+use crate::popup::PopupSurface;
+use crate::repeat::{PressState, RepeatInfo, RepeatTimer};
+use crate::special_popup::{SpecialAction, SpecialPopup};
+
+/// 팝업 상태
+pub enum PopupState {
+    /// 팝업 없음
+    None,
+    /// 한자 후보 팝업 활성
+    Hanja,
+    /// 특수문자 팝업 활성
+    Special,
+}
 
 /// Wayland 애플리케이션 전체 상태
 pub struct AppState {
@@ -37,6 +55,8 @@ pub struct AppState {
     pub seat: Option<WlSeat>,
     pub im_manager: Option<ZwpInputMethodManagerV2>,
     pub vk_manager: Option<ZwpVirtualKeyboardManagerV1>,
+    pub compositor: Option<WlCompositor>,
+    pub shm: Option<WlShm>,
 
     // 프로토콜 오브젝트
     pub input_method: Option<ZwpInputMethodV2>,
@@ -55,12 +75,26 @@ pub struct AppState {
     keymap_handler: KeymapHandler,
     last_preedit: String,
 
+    // 키 반복
+    pub repeat_timer: RepeatTimer,
+    repeat_info: Option<RepeatInfo>,
+    press_state: PressState,
+
+    // 팝업
+    pub popup_surface: Option<PopupSurface>,
+    popup_state: PopupState,
+    hanja_popup: HanjaPopup,
+    special_popup: SpecialPopup,
+
     // DBus 통신
     dbus_tx: mpsc::Sender<DbusRequest>,
     context_path: String,
 
     // 종료 플래그
     pub should_exit: bool,
+
+    // 이벤트 큐 핸들 (팝업 렌더링용)
+    pub qh: Option<QueueHandle<Self>>,
 }
 
 impl AppState {
@@ -72,6 +106,8 @@ impl AppState {
             seat: None,
             im_manager: None,
             vk_manager: None,
+            compositor: None,
+            shm: None,
             input_method: None,
             keyboard_grab: None,
             virtual_keyboard: None,
@@ -83,9 +119,17 @@ impl AppState {
             keymap_init: false,
             keymap_handler: KeymapHandler::new(),
             last_preedit: String::new(),
+            repeat_timer: RepeatTimer::new(),
+            repeat_info: None,
+            press_state: PressState::NotPressing,
+            popup_surface: None,
+            popup_state: PopupState::None,
+            hanja_popup: HanjaPopup::new(),
+            special_popup: SpecialPopup::new(),
             dbus_tx,
             context_path,
             should_exit: false,
+            qh: None,
         }
     }
 
@@ -130,6 +174,16 @@ impl AppState {
         let mod_state = self.keymap_handler.mod_state;
         // evdev keycode → hardware code (XKB 호환: +8)
         let keycode = evdev_keycode + 8;
+
+        // 팝업 활성 시 → 팝업으로 키 라우팅
+        if !matches!(self.popup_state, PopupState::None) {
+            return self.handle_popup_key(keysym, time, evdev_keycode, key_state_raw);
+        }
+
+        // 한자 키 감지 (Hangul_Hanja = 0xff34)
+        if keysym == 0xff34 {
+            return self.request_hanja_candidates();
+        }
 
         // DBus 동기 호출
         let (response_tx, response_rx) = std_mpsc::channel();
@@ -227,6 +281,274 @@ impl AppState {
                 self.last_preedit.clear();
             }
             im.commit(self.serial);
+        }
+
+        // 키 반복 취소
+        self.repeat_timer.cancel();
+        self.press_state = PressState::NotPressing;
+
+        // 팝업 닫기
+        self.close_popup();
+    }
+
+    // ===========================================================
+    // 팝업 관련
+    // ===========================================================
+
+    /// 한자 후보 요청
+    fn request_hanja_candidates(&mut self) -> bool {
+        let (response_tx, response_rx) = std_mpsc::channel();
+        if self
+            .dbus_tx
+            .blocking_send(DbusRequest::GetHanjaCandidates {
+                context_path: self.context_path.clone(),
+                response: Some(response_tx),
+            })
+            .is_err()
+        {
+            return false;
+        }
+
+        match response_rx.recv_timeout(std::time::Duration::from_millis(1000)) {
+            Ok(DbusResponse::HanjaCandidates { target, candidates }) => {
+                if candidates.is_empty() {
+                    unim_log!("WAYLAND", "한자 후보 없음 → 특수문자 시도");
+                    return self.request_special_candidates();
+                }
+                unim_log!(
+                    "WAYLAND",
+                    "한자 후보 {}개 수신 (target={})",
+                    candidates.len(),
+                    target
+                );
+                self.hanja_popup.set_candidates(&target, candidates);
+                self.popup_state = PopupState::Hanja;
+                self.render_popup();
+                true
+            }
+            _ => {
+                unim_log!("WAYLAND", "한자 후보 조회 타임아웃");
+                false
+            }
+        }
+    }
+
+    /// 특수문자 후보 요청
+    fn request_special_candidates(&mut self) -> bool {
+        let (response_tx, response_rx) = std_mpsc::channel();
+        if self
+            .dbus_tx
+            .blocking_send(DbusRequest::GetSpecialCharCandidates {
+                context_path: self.context_path.clone(),
+                response: Some(response_tx),
+            })
+            .is_err()
+        {
+            return false;
+        }
+
+        match response_rx.recv_timeout(std::time::Duration::from_millis(1000)) {
+            Ok(DbusResponse::SpecialCharCandidates {
+                target,
+                characters,
+                top_row,
+            }) => {
+                if characters.is_empty() {
+                    unim_log!("WAYLAND", "특수문자 후보 없음");
+                    return false;
+                }
+                unim_log!(
+                    "WAYLAND",
+                    "특수문자 {}개 수신 (target={})",
+                    characters.len(),
+                    target
+                );
+                self.special_popup
+                    .set_characters(&target, characters, &top_row);
+                self.popup_state = PopupState::Special;
+                self.render_popup();
+                true
+            }
+            _ => {
+                unim_log!("WAYLAND", "특수문자 후보 조회 타임아웃");
+                false
+            }
+        }
+    }
+
+    /// 팝업 키 처리
+    fn handle_popup_key(
+        &mut self,
+        keysym: u32,
+        time: u32,
+        evdev_keycode: u32,
+        key_state_raw: u32,
+    ) -> bool {
+        match self.popup_state {
+            PopupState::Hanja => {
+                let action = self.hanja_popup.handle_key(keysym);
+                match action {
+                    HanjaAction::Select(idx) => {
+                        // DBus로 한자 선택 전달
+                        let (response_tx, response_rx) = std_mpsc::channel();
+                        let _ = self.dbus_tx.blocking_send(DbusRequest::SelectHanja {
+                            context_path: self.context_path.clone(),
+                            index: idx,
+                            response: Some(response_tx),
+                        });
+                        if let Ok(DbusResponse::CommitText { text }) =
+                            response_rx.recv_timeout(std::time::Duration::from_millis(500))
+                        {
+                            if !text.is_empty() {
+                                self.apply_input_result(&text, "");
+                            }
+                        }
+                        self.close_popup();
+                        true
+                    }
+                    HanjaAction::Cancel => {
+                        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelHanja {
+                            context_path: self.context_path.clone(),
+                        });
+                        self.close_popup();
+                        true
+                    }
+                    HanjaAction::NextPage | HanjaAction::PrevPage | HanjaAction::Consumed => {
+                        self.render_popup();
+                        true
+                    }
+                    HanjaAction::None => {
+                        // 팝업이 처리하지 않는 키 → 팝업 닫고 키 포워딩
+                        self.close_popup();
+                        self.forward_key(time, evdev_keycode, key_state_raw);
+                        false
+                    }
+                }
+            }
+            PopupState::Special => {
+                let action = self.special_popup.handle_key(keysym);
+                match action {
+                    SpecialAction::Select(idx) => {
+                        let (response_tx, response_rx) = std_mpsc::channel();
+                        let _ = self.dbus_tx.blocking_send(DbusRequest::SelectSpecialChar {
+                            context_path: self.context_path.clone(),
+                            index: idx as u32,
+                            response: Some(response_tx),
+                        });
+                        if let Ok(DbusResponse::CommitText { text }) =
+                            response_rx.recv_timeout(std::time::Duration::from_millis(500))
+                        {
+                            if !text.is_empty() {
+                                self.apply_input_result(&text, "");
+                            }
+                        }
+                        self.close_popup();
+                        true
+                    }
+                    SpecialAction::Cancel => {
+                        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelSpecialChar {
+                            context_path: self.context_path.clone(),
+                        });
+                        self.close_popup();
+                        true
+                    }
+                    SpecialAction::NextPage | SpecialAction::PrevPage | SpecialAction::Consumed => {
+                        self.render_popup();
+                        true
+                    }
+                    SpecialAction::None => {
+                        self.close_popup();
+                        self.forward_key(time, evdev_keycode, key_state_raw);
+                        false
+                    }
+                }
+            }
+            PopupState::None => false,
+        }
+    }
+
+    /// 팝업 렌더링
+    fn render_popup(&mut self) {
+        let shm = match &self.shm {
+            Some(s) => s.clone(),
+            None => return,
+        };
+        let qh = match &self.qh {
+            Some(q) => q.clone(),
+            None => return,
+        };
+
+        // 팝업 서피스 ensure
+        if self.popup_surface.is_none() {
+            if let (Some(ref compositor), Some(ref im)) = (&self.compositor, &self.input_method) {
+                self.popup_surface = Some(PopupSurface::create(compositor, im, &qh));
+            }
+        }
+
+        let popup = match &mut self.popup_surface {
+            Some(p) => p,
+            None => {
+                unim_log!("WAYLAND", "팝업 서피스 없음 — 렌더링 불가");
+                return;
+            }
+        };
+
+        match self.popup_state {
+            PopupState::Hanja => {
+                let (w, h) = self.hanja_popup.popup_size();
+                let hanja = &self.hanja_popup;
+                popup.render(&shm, &qh, w, h, |pixmap, fs, sc| {
+                    hanja.render(pixmap, fs, sc);
+                });
+            }
+            PopupState::Special => {
+                let (w, h) = self.special_popup.popup_size();
+                let special = &self.special_popup;
+                popup.render(&shm, &qh, w, h, |pixmap, fs, sc| {
+                    special.render(pixmap, fs, sc);
+                });
+            }
+            PopupState::None => {}
+        }
+    }
+
+    /// 팝업 닫기
+    fn close_popup(&mut self) {
+        self.popup_state = PopupState::None;
+        if let Some(ref popup) = self.popup_surface {
+            popup.hide();
+        }
+    }
+
+    /// 키 반복 타이머 만료 처리
+    pub fn handle_repeat_timer(&mut self) {
+        let count = self.repeat_timer.read().unwrap_or(0);
+        if count == 0 {
+            return;
+        }
+
+        if let PressState::Pressing {
+            key,
+            is_repeating,
+            wayland_time,
+        } = &mut self.press_state
+        {
+            if !*is_repeating {
+                // delay → interval 전환
+                if let Some(ref info) = self.repeat_info {
+                    unim_log!("WAYLAND", "키 반복 시작: key={}, rate={}", key, info.rate);
+                    self.repeat_timer.set_interval(info.rate);
+                }
+                *is_repeating = true;
+            }
+
+            let key = *key;
+            let _time = *wayland_time;
+
+            // 활성 상태에서만 키 반복 처리
+            if self.grab_active {
+                self.process_key_via_dbus(key, 0, KeyState::Pressed as u32);
+            }
         }
     }
 }
@@ -464,9 +786,31 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for AppState {
 
                 if is_pressed && state.grab_active {
                     // 활성 상태에서 키 눌림 → DBus 엔진에 전달
-                    state.process_key_via_dbus(key, time, KeyState::Pressed as u32);
+                    let consumed = state.process_key_via_dbus(key, time, KeyState::Pressed as u32);
+
+                    if consumed {
+                        // 소비된 키 → 키 반복 시작
+                        if let Some(ref info) = state.repeat_info {
+                            if !state.press_state.is_pressing(key) {
+                                state.repeat_timer.set_delay(info.delay);
+                                state.press_state = PressState::Pressing {
+                                    key,
+                                    wayland_time: time,
+                                    is_repeating: false,
+                                };
+                            }
+                        }
+                    } else {
+                        // 미소비 키 → 반복 취소 (포워딩은 process_key_via_dbus에서 처리)
+                        state.repeat_timer.cancel();
+                        state.press_state = PressState::NotPressing;
+                    }
                 } else if matches!(key_state, WEnum::Value(KeyState::Released)) {
-                    // 키 릴리스 → 항상 포워딩
+                    // 키 릴리스 → 반복 취소 + 포워딩
+                    if state.press_state.is_pressing(key) {
+                        state.repeat_timer.cancel();
+                        state.press_state = PressState::NotPressing;
+                    }
                     state.forward_key(time, key, KeyState::Released as u32);
                 } else {
                     // grab_active=false (비활성): 키 바이패스
@@ -499,7 +843,11 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for AppState {
 
             zwp_input_method_keyboard_grab_v2::Event::RepeatInfo { rate, delay } => {
                 unim_log!("WAYLAND", "RepeatInfo: rate={}, delay={}", rate, delay);
-                // Phase 2: 키 반복 구현 예정
+                if rate > 0 {
+                    state.repeat_info = Some(RepeatInfo { rate, delay });
+                } else {
+                    state.repeat_info = None;
+                }
             }
 
             _ => {}

@@ -405,15 +405,76 @@ if xev.response_type == KEY_RELEASE {
 
 ---
 
-## 10. 빌드 및 배포
+## 10. 특수문자 팝업 윈도우 (`special_window.rs`)
 
-### 10.1 빌드
+### 10.1 개요
+
+한자 후보가 없을 때, 조합 중인 자모에 매핑된 특수문자를 **9×9 그리드 팝업**으로 표시합니다.
+한자 키(F9/Hangul_Hanja)로 트리거되며, 한자 후보가 없으면 자동으로 특수문자 모드로 전환됩니다.
+
+> [!NOTE]
+> Xlib 기반 오버레이 윈도우이며, 렌더링에 `tiny-skia` + `cosmic-text`를 사용합니다.
+> 한자 윈도우(`hanja_window.rs`)와 동일한 렌더링 패턴을 따릅니다.
+
+### 10.2 윈도우 속성
+
+- Xlib `XCreateSimpleWindow` + `override_redirect = True`
+- 부모 앱 포커스 유지 (WM이 무시하는 오버레이)
+- `tiny-skia` 기반 소프트웨어 렌더링 → `XPutImage`로 화면 출력
+- 다크 테마 색상 스킴 (배경 `#2d2d2d`)
+
+### 10.3 레이아웃
+
+```text
+┌──────────────────────────────────────┐
+│      Q    W    E    R    T    ...    │  ← top_row 열 헤더
+│ 1    $    %    ₩    °F   ‰    ...    │  ← 행 1
+│ 2    ...                             │  ← 행 2
+│ ...                                  │
+│ 9    ...                             │  ← 행 9
+│               ← 1/3 →               │  ← 페이지 라벨 (2페이지 이상 시만 표시)
+└──────────────────────────────────────┘
+```
+
+### 10.4 키 처리
+
+`handler.rs`에서 팝업이 보이는 동안 모든 키를 먼저 팝업에게 전달합니다.
+
+| 동작 | 트리거 키 | 결과 |
+|------|-----------|------|
+| 열 점프 | `Q`~`O` (물리 키) | 해당 열로 이동 |
+| 숫자 선택 (행) | `1`-`9` | 선택된 열의 해당 행 문자 커밋 |
+| 방향키 이동 | `↑`/`↓`/`←`/`→` | 셀 선택 이동 (경계에서 순환) |
+| Enter 확정 | `Return`/`KP_Enter` | 현재 선택 셀의 문자 커밋 |
+| 다음 페이지 | `Page_Down`/`Space` | 다음 페이지 |
+| 이전 페이지 | `Page_Up` | 이전 페이지 |
+| Escape | `Escape` | 조합 중 자모 커밋 + 특수문자 모드 취소 + 팝업 닫기 |
+
+> [!IMPORTANT]
+> **열 점프는 물리 키 위치(QWERTY) 기준**으로 매칭합니다.
+> `top_row` 문자열은 **표시 전용**이고, 키 매칭은 항상 `"qwertyuio"` 물리 키로 수행합니다.
+
+### 10.5 시각적 피드백
+
+| 스타일 | 용도 |
+|---|---|
+| 선택 셀 배경 (`#4a90d9`) | 현재 선택된 셀 하이라이트 |
+| 열 하이라이트 | 선택된 열의 모든 셀 배경 |
+| 행 하이라이트 | 선택된 행의 모든 셀 배경 |
+| 헤더 강조 | 선택된 열/행의 헤더 |
+| 플래시 효과 | 문자 선택 시 120ms 깜빡임 |
+
+---
+
+## 11. 빌드 및 배포
+
+### 11.1 빌드
 
 ```bash
 cargo build --release -p unim-xim
 ```
 
-### 10.2 개발 배포 (`make dev-xim`)
+### 11.2 개발 배포 (`make dev-xim`)
 
 ```bash
 make dev-xim PREFIX=/usr
@@ -431,7 +492,7 @@ make dev-xim PREFIX=/usr
 
 ---
 
-## 11. 로깅
+## 12. 로깅
 
 `UNIM_DEVELOP=1` 환경변수 설정 시 활성화.
 
@@ -448,11 +509,11 @@ make dev-xim PREFIX=/usr
 
 ---
 
-## 12. 프로토콜 적합성 검증
+## 13. 프로토콜 적합성 검증
 
 > [XIM 프로토콜 사양](https://www.x.org/releases/X11R7.6/doc/libX11/specs/XIM/xim.html)과의 적합성을 3회 교차 검증한 결과입니다.
 
-### 12.1 적합 항목
+### 13.1 적합 항목
 
 | # | 프로토콜 항목 | 구현 위치 | 비고 |
 |---|-------------|----------|------|
@@ -468,7 +529,7 @@ make dev-xim PREFIX=/usr
 | 10 | **XIM_COMMIT** | `server.commit()` | committed string 전송 |
 | 11 | **Preedit Callbacks** | `server.preedit_draw()` + PeWindow | XIM_PREEDIT_DRAW, dual-path (callback + OTS) |
 
-### 12.2 참고 사항
+### 13.2 참고 사항
 
 | # | 항목 | 설명 |
 |---|------|------|
@@ -478,15 +539,15 @@ make dev-xim PREFIX=/usr
 
 ---
 
-## 13. 참조
+## 14. 참조
 
-### 13.1 프로토콜 사양
+### 14.1 프로토콜 사양
 
 - [The Input Method Protocol (X.Org)](https://www.x.org/releases/X11R7.6/doc/libX11/specs/XIM/xim.html) — XIM 프로토콜 공식 사양
 - [Xlib - C Language X Interface: Input Methods](https://www.x.org/releases/current/doc/libX11/libX11/libX11.html#Input_Methods) — Xlib XIM API 레퍼런스
 - [X Input Method (Wikipedia)](https://en.wikipedia.org/wiki/X_Input_Method) — XIM 개요 및 역사
 
-### 13.2 참조 구현 및 라이브러리
+### 14.2 참조 구현 및 라이브러리
 
 - [xim-rs (xim crate)](https://github.com/pum-purum-pum-pum/xim-rs) — Rust XIM 프로토콜 구현 (서버/클라이언트)
 - [x11rb](https://github.com/psychon/x11rb) — Rust X11 프로토콜 바인딩 (xcb 기반)

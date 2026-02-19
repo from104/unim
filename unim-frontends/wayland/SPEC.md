@@ -11,10 +11,11 @@
 
 | 파일 | 줄 수 | 역할 |
 |------|-------|------|
-| `main.rs` | ~125 | Wayland 연결, 글로벌 바인딩, 프로토콜 셋업, 이벤트 루프 |
-| `state.rs` | ~509 | AppState 구조체, Dispatch 구현 7종, 키 이벤트 처리 |
+| `main.rs` | ~195 | Wayland 연결, 글로벌 바인딩, mio::Poll 기반 이벤트 루프 |
+| `state.rs` | ~530 | AppState 구조체, Dispatch 구현 7종, 키 이벤트 처리, 키 반복 |
 | `keymap.rs` | ~121 | xkbcommon 키맵 핸들러, evdev keycode → keysym 변환 |
-| `dbus_client.rs` | ~225 | unim-daemon과의 비동기 DBus 통신 |
+| `dbus_client.rs` | ~370 | unim-daemon과의 비동기 DBus 통신 (한자/특수문자 포함) |
+| `repeat.rs` | ~120 | 키 반복 타이머 (RepeatInfo, PressState, RepeatTimer) |
 
 ### 1.2 통신 구조
 
@@ -35,6 +36,8 @@
 | `xkbcommon` | 0.8 | 키맵 파싱, keycode→keysym 변환 |
 | `tokio` | 1 | DBus 비동기 런타임 |
 | `zbus` | 4 | DBus 통신 |
+| `mio` | 1 | epoll 기반 이벤트 루프 (키 반복 타이머 통합) |
+| `nix` | 0.29 | timerfd 시스템 호출 (키 반복) |
 
 ### 1.4 지원 컴포지터
 
@@ -111,19 +114,26 @@ vk_manager.create_virtual_keyboard(seat) → ZwpVirtualKeyboardV1  (옵션)
 
 ### 3.3 이벤트 루프
 
+`mio::Poll` 기반 비동기 이벤트 루프로 Wayland fd와 timerfd를 동시 모니터링합니다.
+
 ```
-blocking_dispatch() → Wayland 이벤트 대기 및 Dispatch 호출
-    ├── ZwpInputMethodV2 이벤트
-    │   ├── Activate → pending_activate = true
-    │   ├── Deactivate → pending_deactivate = true
-    │   ├── Done → 상태 전환 (활성화/비활성화 적용)
-    │   └── Unavailable → should_exit = true
-    ├── ZwpInputMethodKeyboardGrabV2 이벤트
-    │   ├── Keymap → xkbcommon 키맵 생성 + vk 포워딩
-    │   ├── Key → 키 처리 (아래 §4 참조)
-    │   ├── Modifiers → 수정자 상태 업데이트 + vk 포워딩
-    │   └── RepeatInfo → (Phase 2 예정)
-    └── should_exit 확인 → 루프 탈출
+mio::Poll (epoll)
+  ├── TOKEN_WAYLAND (Wayland fd)
+  │   ├── conn.prepare_read() + guard.read()
+  │   └── event_queue.dispatch_pending()
+  │       ├── ZwpInputMethodV2 이벤트
+  │       │   ├── Activate → pending_activate = true
+  │       │   ├── Deactivate → pending_deactivate = true
+  │       │   ├── Done → 상태 전환 (활성화/비활성화 적용)
+  │       │   └── Unavailable → should_exit = true
+  │       └── ZwpInputMethodKeyboardGrabV2 이벤트
+  │           ├── Keymap → xkbcommon 키맵 생성 + vk 포워딩
+  │           ├── Key → 키 처리 (아래 §4 참조) + 반복 타이머 설정
+  │           ├── Modifiers → 수정자 상태 업데이트 + vk 포워딩
+  │           └── RepeatInfo → repeat_info 저장
+  ├── TOKEN_TIMER (timerfd)
+  │   └── handle_repeat_timer() → 키 반복 재처리
+  └── should_exit 확인 → 루프 탈출
 ```
 
 ### 3.4 종료
@@ -381,23 +391,28 @@ make dev-wayland PREFIX=/usr
 
 ## 10. 제한사항 및 향후 계획
 
-### 10.1 현재 제한사항
+### 10.1 구현 완료 기능
 
 | 항목 | 상태 | 설명 |
 |------|------|------|
-| 키 반복 (Key Repeat) | ❌ 미구현 | `RepeatInfo` 수신만 하고 처리하지 않음 |
-| 한자 팝업 | ❌ 미구현 | XIM과 달리 Wayland에서는 별도 팝업 전략 필요 |
+| 키 반복 (Key Repeat) | ✅ 구현 | `mio::Poll` + `nix::sys::timerfd` 기반 (PressState 상태 머신) |
+| 한자/특수문자 DBus | ✅ 통합 | DBus 요청/응답 타입 추가 (팝업 UI는 미구현) |
+
+### 10.2 현재 제한사항
+
+| 항목 | 상태 | 설명 |
+|------|------|------|
+| 한자 팝업 | ❌ 미구현 | `zwp_input_popup_surface_v2` 연동 필요 |
 | 특수문자 팝업 | ❌ 미구현 | 한자 팝업과 동일 |
 | Surrounding Text | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 |
 | Content Type | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 |
 | GNOME 지원 | ❌ 불가 | Mutter가 프로토콜 미지원 |
 
-### 10.2 향후 계획
+### 10.3 향후 계획
 
 | 단계 | 내용 |
 |------|------|
-| Phase 2 | 키 반복 구현 (`mio` + `timerfd` 기반 타이머) |
-| Phase 3 | 한자/특수문자 팝업 (Wayland layer-shell 또는 popup surface) |
+| Phase 3 | 한자/특수문자 팝업 (`zwp_input_popup_surface_v2` 기반) |
 | Phase 4 | Surrounding Text / Content Type 활용 |
 
 ---

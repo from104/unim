@@ -20,3 +20,123 @@
 .unim-indicator-icon.disconnected-mode {
     color: #f66151;
 }
+
+/* ============================================ */
+/* IME: Preedit 오버레이 (조합 중 텍스트) */
+/* ============================================ */
+
+.unim-preedit-overlay {
+    background-color: rgba(30, 30, 46, 0.95);
+    color: #cdd6f4;
+    border: 1px solid #89b4fa;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* ============================================ */
+/* IME: 한자 팝업 */
+/* ============================================ */
+
+.unim-hanja-popup {
+    background-color: rgba(30, 30, 46, 0.95);
+    border: 1px solid #89b4fa;
+    border-radius: 8px;
+    padding: 8px;
+    min-width: 200px;
+}
+
+.unim-hanja-popup .popup-header {
+    color: #89b4fa;
+    font-size: 12px;
+    font-weight: bold;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(137, 180, 250, 0.3);
+    margin-bottom: 4px;
+}
+
+.unim-hanja-popup .popup-item {
+    color: #cdd6f4;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.unim-hanja-popup .popup-item:hover,
+.unim-hanja-popup .popup-item.selected {
+    background-color: rgba(137, 180, 250, 0.2);
+}
+
+.unim-hanja-popup .popup-item .item-number {
+    color: #f9e2af;
+    font-weight: bold;
+    margin-right: 4px;
+}
+
+.unim-hanja-popup .popup-item .item-meaning {
+    color: #a6adc8;
+    font-size: 11px;
+}
+
+.unim-hanja-popup .popup-footer {
+    color: #6c7086;
+    font-size: 10px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(137, 180, 250, 0.3);
+    margin-top: 4px;
+}
+
+/* ============================================ */
+/* IME: 특수문자 팝업 */
+/* ============================================ */
+
+.unim-special-popup {
+    background-color: rgba(30, 30, 46, 0.95);
+    border: 1px solid #a6e3a1;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.unim-special-popup .popup-header {
+    color: #a6e3a1;
+    font-size: 12px;
+    font-weight: bold;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(166, 227, 161, 0.3);
+    margin-bottom: 4px;
+}
+
+.unim-special-popup .grid-cell {
+    color: #cdd6f4;
+    font-size: 14px;
+    min-width: 28px;
+    min-height: 28px;
+    text-align: center;
+    border-radius: 4px;
+}
+
+.unim-special-popup .grid-cell:hover,
+.unim-special-popup .grid-cell.selected {
+    background-color: rgba(166, 227, 161, 0.2);
+}
+
+.unim-special-popup .grid-header {
+    color: #f9e2af;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+.unim-special-popup .grid-row-number {
+    color: #f9e2af;
+    font-weight: bold;
+    font-size: 12px;
+    min-width: 20px;
+}
+
+.unim-special-popup .popup-footer {
+    color: #6c7086;
+    font-size: 10px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(166, 227, 161, 0.3);
+    margin-top: 4px;
+}

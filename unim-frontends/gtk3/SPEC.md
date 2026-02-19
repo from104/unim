@@ -453,7 +453,104 @@ X11 환경:
 
 ---
 
-## 10. GTK3 vs XIM 비교
+## 10. 특수문자 팝업 윈도우 (`unim_special_popup`)
+
+### 10.1 개요
+
+한자 후보가 없을 때, 조합 중인 자모에 매핑된 특수문자를 **9×9 그리드 팝업**으로 표시합니다.
+한자 키(F9)로 트리거되며, 한자 후보가 없으면 자동으로 특수문자 모드로 전환됩니다.
+
+> [!NOTE]
+> 구현은 `gtk-common/src/unim_special_popup.c`에 위치하며, GTK3/GTK4 공통 코드입니다.
+> `#if GTK_CHECK_VERSION(4, 0, 0)` 전처리기로 GTK 버전별 차이를 처리합니다.
+
+### 10.2 윈도우 속성
+
+- GTK Window (`GTK_WINDOW_POPUP` 타입)
+- `override_redirect = True` (X11에서 WM 데코레이션 제거)
+- `can_focus = FALSE` (부모 앱의 포커스 유지)
+- GtkGrid 기반 문자 배치 (최대 9열 × 9행)
+- CSS 커스텀 스타일링 (`unim-special-popup` 클래스)
+
+### 10.3 레이아웃
+
+```text
+┌──────────────────────────────────────┐
+│      Q    W    E    R    T    ...    │  ← top_row 열 헤더
+│ 1    $    %    ₩    °F   ‰    ...    │  ← 행 1
+│ 2    ...                             │  ← 행 2
+│ ...                                  │
+│ 9    ...                             │  ← 행 9
+│               ← 1/3 →               │  ← 페이지 라벨 (2페이지 이상 시만 표시)
+└──────────────────────────────────────┘
+```
+
+### 10.4 키 처리
+
+immodule.c에서 팝업이 보이는 동안 모든 키를 먼저 팝업에게 전달합니다.
+
+| 동작 | 트리거 키 | 결과 |
+|------|-----------|------|
+| 열 점프 | `Q`~`O` (물리 키) | 해당 열로 이동 |
+| 숫자 선택 (행) | `1`-`9` | 선택된 열의 해당 행 문자 커밋 |
+| 방향키 이동 | `↑`/`↓`/`←`/`→` | 셀 선택 이동 (경계에서 순환) |
+| Enter 확정 | `Return`/`KP_Enter` | 현재 선택 셀의 문자 커밋 |
+| 다음 페이지 | `Page_Down`/`Space` | 다음 페이지 |
+| 이전 페이지 | `Page_Up` | 이전 페이지 |
+| Escape | `Escape` | 조합 중 자모 커밋 + 특수문자 모드 취소 + 팝업 닫기 |
+| 마우스 클릭 | 좌클릭 | 클릭한 셀의 문자 커밋 |
+
+> [!IMPORTANT]
+> **열 점프는 물리 키 위치(QWERTY) 기준으로 매칭합니다.**
+> OS keyval은 항상 QWERTY 기반이고, UNIM 영문 키맵 변환은 엔진 내부에서 일어납니다.
+> `top_row` 문자열은 **표시 전용** (드보락: `',.PYFGCR`, 콜맥: `QWFPGJLUY`)이고,
+> 키 매칭은 항상 `"qwertyuio"` 물리 키로 수행합니다.
+
+### 10.5 팝업 위치 계산 (모니터별 경계 보정)
+
+```text
+1. 기본 위치: popup_x = cursor_area.x, popup_y = cursor_area.y + cursor_area.height
+2. X11: gdk_window_get_origin(client_window) → 절대 좌표 변환
+3. show_all → 정확한 크기 측정 (GTK3에서는 show_all 후에만 크기 정확)
+4. 커서가 위치한 모니터 기준 경계 보정:
+   - gdk_display_get_monitor_at_point(display, x, y)
+   - gdk_monitor_get_geometry(monitor, &mon_geom)
+   - 오른쪽 넘침: popup_x = mon_geom.x + mon_geom.width - width
+   - 아래쪽 넘침: popup_y = y - cursor_height - height (커서 위로)
+```
+
+> [!IMPORTANT]
+> `gdk_screen_width()` / `gdk_screen_height()` 대신 **모니터별 geometry**를 사용합니다.
+> 다중 모니터 환경에서 전체 가상 화면이 아닌 실제 모니터 영역 기준으로 보정합니다.
+
+### 10.6 포커스 보존 패턴
+
+X11에서 팝업이 부모 앱의 포커스를 빼앗지 않도록 하는 핵심 순서:
+
+```text
+1. gtk_window_new(GTK_WINDOW_POPUP) — 포커스 불가 윈도우
+2. gtk_widget_set_can_focus(window, FALSE)
+3. show_all 후 위치 재조정 (경계 보정)
+```
+
+> [!IMPORTANT]
+> GTK3에서는 `GTK_WINDOW_POPUP` 타입이 자동으로 `override_redirect`를 설정하므로,
+> GTK4처럼 별도의 X11 `XChangeWindowAttributes` 호출이 불필요합니다.
+
+### 10.7 시각적 피드백
+
+| CSS 클래스 | 용도 |
+|---|---|
+| `cell-selected` | 현재 선택된 셀 하이라이트 |
+| `cell-col-highlight` | 선택된 열의 모든 셀 배경 |
+| `cell-row-highlight` | 선택된 행의 모든 셀 배경 |
+| `header-active` | 선택된 열/행의 헤더 강조 |
+| `row-header` | 행 번호 헤더 (1-9) |
+| `cell-flash` | 문자 선택 시 120ms 플래시 효과 |
+
+---
+
+## 11. GTK3 vs XIM 비교
 
 | 관점 | GTK3 | XIM |
 |------|------|-----|
@@ -467,9 +564,9 @@ X11 환경:
 
 ---
 
-## 11. 빌드 및 배포
+## 12. 빌드 및 배포
 
-### 11.1 빌드
+### 12.1 빌드
 
 ```bash
 mkdir -p unim-frontends/gtk3/build
@@ -484,7 +581,7 @@ make
 make build-frontends
 ```
 
-### 11.2 개발 배포 (`make dev-gtk3`)
+### 12.2 개발 배포 (`make dev-gtk3`)
 
 ```bash
 make dev-gtk3 PREFIX=/usr
@@ -495,7 +592,7 @@ make dev-gtk3 PREFIX=/usr
 1. `cmake` + `make` (gtk3/build)
 2. `sudo cp libim-unim.so $(GTK3_IM_MODULEDIR)/`
 
-### 11.3 설치 경로
+### 12.3 설치 경로
 
 ```
 $(GTK3_LIBDIR)/gtk-3.0/3.0.0/immodules/libim-unim.so
@@ -505,7 +602,7 @@ $(GTK3_LIBDIR)/gtk-3.0/3.0.0/immodules/libim-unim.so
 
 ---
 
-## 12. 로깅
+## 13. 로깅
 
 `UNIM_DEVELOP=1` 환경변수 설정 시 활성화.
 

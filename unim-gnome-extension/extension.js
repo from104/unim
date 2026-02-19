@@ -1,10 +1,13 @@
 /**
- * UNIM Indicator GNOME Shell Extension
- * Hybrid Version: unim-cli + Native Shell APIs
+ * UNIM GNOME Shell Extension
+ *
+ * TypeFIX(오타 보정) + 실시간 IME(한글 입력기) 통합 확장
+ * IBus를 대체하여 Clutter.InputMethod 기반 네이티브 입력을 제공합니다.
  */
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
+import Clutter from 'gi://Clutter';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
@@ -13,16 +16,22 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 
 import { VirtualKeyboard } from './vkbd.js';
 import { UnimIndicator } from './indicator.js';
+import { UnimDbusIME } from './dbus_ime.js';
+import { UnimInputMethod } from './unim_input_method.js';
+import { KeyHandler } from './key_handler.js';
+import { PreeditOverlay } from './preedit_overlay.js';
+import { HanjaPopup } from './hanja_popup.js';
+import { SpecialPopup } from './special_popup.js';
 import { unimLog, unimError } from './logging.js';
 
-// Paste mode
+// TypeFIX paste modes
 const PasteMode = {
-    NORMAL: 'normal',       // Just paste
-    TERMINAL: 'terminal',   // Backspace then paste
-    COPY_ONLY: 'copy_only', // No paste, copy to clipboard only
+    NORMAL: 'normal',
+    TERMINAL: 'terminal',
+    COPY_ONLY: 'copy_only',
 };
 
-export default class UnimTypefixExtension extends Extension {
+export default class UnimExtension extends Extension {
     constructor(metadata) {
         super(metadata);
         this._settings = null;
@@ -30,47 +39,440 @@ export default class UnimTypefixExtension extends Extension {
         this._vkbd = null;
         this._clipboard = null;
         this._indicator = null;
+
+        // IME 모듈
+        this._dbusIME = null;
+        this._inputMethod = null;
+        this._keyHandler = null;
+        this._preeditOverlay = null;
+        this._hanjaPopup = null;
+        this._specialPopup = null;
+        this._focusWindowId = 0;
+        this._savedInputMethod = null;
+
+        // 설정 리스너
+        this._settingsChangedIds = [];
     }
 
     enable() {
-        unimLog('EXTENSION', ' Enabling hybrid extension...');
+        unimLog('EXTENSION', 'Extension 활성화 시작...');
         try {
             this._settings = this.getSettings();
             this._clipboard = St.Clipboard.get_default();
             this._vkbd = new VirtualKeyboard();
-            
-            // 패널 인디케이터 추가
+
+            // 패널 인디케이터
             if (this._settings.get_boolean('show-panel-indicator')) {
                 this._addIndicator();
             }
-            
-            // 설정 변경 리스너 (즉시 반영)
-            this._settingsChangedId = this._settings.connect('changed::show-panel-indicator', () => {
-                const showIndicator = this._settings.get_boolean('show-panel-indicator');
-                if (showIndicator && !this._indicator) {
-                    this._addIndicator();
-                    unimLog('EXTENSION', ' Panel indicator added');
-                } else if (!showIndicator && this._indicator) {
-                    this._removeIndicator();
-                    unimLog('EXTENSION', ' Panel indicator removed');
-                }
+
+            // 설정 변경 리스너
+            this._connectSettingChanged('show-panel-indicator', () => {
+                const show = this._settings.get_boolean('show-panel-indicator');
+                if (show && !this._indicator) this._addIndicator();
+                else if (!show && this._indicator) this._removeIndicator();
             });
-            
+
+            // TypeFIX 단축키
             this._bindAllShortcuts();
-            
-            unimLog('EXTENSION', ' Hybrid extension enabled');
+
+            // IME 활성화
+            if (this._settings.get_boolean('enable-ime')) {
+                this._enableIME();
+            }
+
+            this._connectSettingChanged('enable-ime', () => {
+                const enabled = this._settings.get_boolean('enable-ime');
+                if (enabled) this._enableIME();
+                else this._disableIME();
+            });
+
+            unimLog('EXTENSION', 'Extension 활성화 완료');
         } catch (e) {
-            unimError('EXTENSION', `Enable failed: ${e.message}`);
+            unimError('EXTENSION', `Enable 실패: ${e.message}`);
         }
     }
-    
+
+    disable() {
+        // IME 비활성화
+        this._disableIME();
+
+        // TypeFIX 단축키 해제
+        this._unbindAllShortcuts();
+
+        // 설정 리스너 정리
+        for (const id of this._settingsChangedIds) {
+            this._settings.disconnect(id);
+        }
+        this._settingsChangedIds = [];
+
+        // 인디케이터 정리
+        this._removeIndicator();
+
+        this._settings = null;
+        this._vkbd = null;
+        this._clipboard = null;
+        unimLog('EXTENSION', 'Extension 비활성화 완료');
+    }
+
+    // ===========================================
+    // IME 관리
+    // ===========================================
+
+    /**
+     * IME 활성화
+     *
+     * 1. UnimInputMethod 생성 및 Mutter에 등록
+     * 2. DBus InputContext 생성
+     * 3. KeyHandler 시작
+     * 4. 포커스 감시 시작
+     */
+    _enableIME() {
+        if (this._keyHandler) return; // 이미 활성화됨
+
+        try {
+            // 1. Clutter.InputMethod 서브클래스 생성 및 등록
+            this._inputMethod = new UnimInputMethod();
+            const seat = Clutter.get_default_backend().get_default_seat();
+
+            // 기존 InputMethod 저장 (disable 시 복원용)
+            // Note: Mutter API에 따라 get_input_method()가 없을 수 있음
+            try {
+                this._savedInputMethod = seat.get_input_method?.() || null;
+            } catch (e) {
+                this._savedInputMethod = null;
+            }
+
+            // UNIM InputMethod 등록
+            // Note: Mutter 내부 API - GNOME 버전에 따라 다를 수 있음
+            try {
+                seat.set_input_method?.(this._inputMethod);
+                unimLog('EXTENSION', 'UnimInputMethod 등록 완료 (seat.set_input_method)');
+            } catch (e) {
+                unimLog('EXTENSION', `set_input_method 미지원: ${e.message} — 대안 시도`);
+                // 대안: Clutter.InputMethod는 vfunc_filter_key_event를 통해
+                // KeyHandler에서 직접 commit/preedit을 호출하므로 등록 실패해도 동작 가능
+            }
+
+            // 2. DBus 연결
+            this._dbusIME = new UnimDbusIME();
+            const windowId = this._getActiveWindowId();
+            const connected = this._dbusIME.connect(windowId, (isKorean) => {
+                // GlobalModeChanged → 인디케이터 업데이트
+                if (this._indicator) {
+                    this._indicator._onModeChanged(isKorean);
+                }
+            });
+
+            if (!connected) {
+                unimError('EXTENSION', 'unim-daemon DBus 연결 실패 — IME 비활성');
+                this._cleanupIME();
+                return;
+            }
+
+            // 3. 한자키 설정 읽기
+            const hanjaKeysyms = this._loadHanjaKeysyms();
+
+            // 4. KeyHandler 시작
+            this._keyHandler = new KeyHandler(this._dbusIME, this._inputMethod, {
+                hanjaKeysyms,
+                onHanjaRequest: () => this._onHanjaRequest(),
+            });
+            this._keyHandler.enable();
+
+            // 5. Preedit 오버레이 초기화
+            this._preeditOverlay = new PreeditOverlay();
+            this._preeditOverlay.enable();
+
+            // 6. 한자/특수문자 팝업 초기화
+            this._hanjaPopup = new HanjaPopup();
+            this._hanjaPopup.enable();
+            this._specialPopup = new SpecialPopup();
+            this._specialPopup.enable();
+
+            // 7. 포커스 감시 시작
+            this._focusWindowId = global.display.connect(
+                'notify::focus-window',
+                this._onFocusWindowChanged.bind(this)
+            );
+
+            this._inputMethod.setActive(true);
+            unimLog('EXTENSION', 'IME 활성화 완료');
+        } catch (e) {
+            unimError('EXTENSION', `IME 활성화 실패: ${e.message}`);
+            this._cleanupIME();
+        }
+    }
+
+    /**
+     * IME 비활성화
+     */
+    _disableIME() {
+        this._cleanupIME();
+        unimLog('EXTENSION', 'IME 비활성화');
+    }
+
+    /**
+     * IME 자원 정리
+     * @private
+     */
+    _cleanupIME() {
+        // 포커스 감시 해제
+        if (this._focusWindowId > 0) {
+            global.display.disconnect(this._focusWindowId);
+            this._focusWindowId = 0;
+        }
+
+        // KeyHandler 정리
+        if (this._keyHandler) {
+            this._keyHandler.destroy();
+            this._keyHandler = null;
+        }
+
+        // Preedit 오버레이 정리
+        if (this._preeditOverlay) {
+            this._preeditOverlay.disable();
+            this._preeditOverlay = null;
+        }
+
+        // 팝업 정리
+        if (this._hanjaPopup) {
+            this._hanjaPopup.disable();
+            this._hanjaPopup = null;
+        }
+        if (this._specialPopup) {
+            this._specialPopup.disable();
+            this._specialPopup = null;
+        }
+
+        // DBus 정리
+        if (this._dbusIME) {
+            this._dbusIME.destroy();
+            this._dbusIME = null;
+        }
+
+        // InputMethod 복원
+        if (this._inputMethod) {
+            this._inputMethod.setActive(false);
+            try {
+                const seat = Clutter.get_default_backend().get_default_seat();
+                if (this._savedInputMethod) {
+                    seat.set_input_method?.(this._savedInputMethod);
+                    unimLog('EXTENSION', '기존 InputMethod 복원');
+                }
+            } catch (e) {
+                // 복원 실패 무시
+            }
+            this._inputMethod = null;
+            this._savedInputMethod = null;
+        }
+    }
+
+    // ===========================================
+    // 포커스 관리
+    // ===========================================
+
+    /**
+     * 창 포커스 변경 시 호출
+     * @private
+     */
+    _onFocusWindowChanged() {
+        const focusWindow = global.display.focus_window;
+
+        if (!focusWindow) {
+            // 포커스 없음 (바탕화면 등)
+            if (this._dbusIME?.isConnected) {
+                const commit = this._dbusIME.focusOut();
+                if (commit && this._inputMethod) {
+                    this._inputMethod.commitText(commit);
+                }
+            }
+            this._preeditOverlay?.hide();
+            return;
+        }
+
+        const windowId = this._getWindowId(focusWindow);
+
+        // 포커스 전환: focusOut → focusIn
+        if (this._dbusIME?.isConnected) {
+            const commit = this._dbusIME.focusOut();
+            if (commit && this._inputMethod) {
+                this._inputMethod.commitText(commit);
+            }
+            this._dbusIME.focusIn(windowId);
+        }
+
+        this._preeditOverlay?.hide();
+    }
+
+    /**
+     * 현재 활성 창의 ID 생성
+     * @returns {string}
+     * @private
+     */
+    _getActiveWindowId() {
+        const focusWindow = global.display.focus_window;
+        return focusWindow ? this._getWindowId(focusWindow) : '';
+    }
+
+    /**
+     * Meta.Window에서 고유 ID 생성
+     * @param {Meta.Window} metaWindow
+     * @returns {string}
+     * @private
+     */
+    _getWindowId(metaWindow) {
+        try {
+            const wmClass = metaWindow.get_wm_class() || '';
+            const stableSeq = metaWindow.get_stable_sequence?.() || 0;
+            return `${wmClass}:${stableSeq}`;
+        } catch (e) {
+            return `unknown:${Date.now()}`;
+        }
+    }
+
+    // ===========================================
+    // 한자/특수문자 처리
+    // ===========================================
+
+    /**
+     * 한자키 요청 처리
+     *
+     * GTK3 immodule.c의 한자키 플로우를 따름:
+     * 1. GetHanjaCandidates 시도
+     * 2. 후보 없으면 GetSpecialCharCandidates 폴백
+     * @private
+     */
+    _onHanjaRequest() {
+        if (!this._dbusIME?.isConnected) return;
+
+        // 팝업이 이미 열려있으면 닫기
+        if (this._hanjaPopup?.isVisible) {
+            this._hanjaPopup.hide();
+            this._dbusIME.cancelHanja();
+            this._keyHandler.setPopupKeyHandler(null);
+            return;
+        }
+        if (this._specialPopup?.isVisible) {
+            this._specialPopup.hide();
+            this._dbusIME.cancelSpecialChar();
+            this._keyHandler.setPopupKeyHandler(null);
+            return;
+        }
+
+        // 한자 후보 조회
+        const hanjaResult = this._dbusIME.getHanjaCandidates();
+
+        if (hanjaResult && hanjaResult.candidates.length > 0) {
+            this._hanjaPopup.show(
+                hanjaResult.target,
+                hanjaResult.candidates,
+                (globalIndex) => {
+                    // 선택 콜백
+                    const selected = this._dbusIME.selectHanja(globalIndex);
+                    if (selected && this._inputMethod) {
+                        this._inputMethod.commitText(selected);
+                    }
+                    this._keyHandler.setPopupKeyHandler(null);
+                },
+                () => {
+                    // 취소 콜백
+                    this._dbusIME.cancelHanja();
+                    this._keyHandler.setPopupKeyHandler(null);
+                }
+            );
+
+            // KeyHandler에 팝업 키 핸들러 등록
+            this._keyHandler.setPopupKeyHandler(
+                (keyval) => this._hanjaPopup.handleKey(keyval)
+            );
+            return;
+        }
+
+        // 특수문자 후보 폴백
+        const specialResult = this._dbusIME.getSpecialCharCandidates();
+
+        if (specialResult && specialResult.characters.length > 0) {
+            this._specialPopup.show(
+                specialResult.target,
+                specialResult.characters,
+                specialResult.topRow,
+                (globalIndex) => {
+                    // 선택 콜백
+                    const selected = this._dbusIME.selectSpecialChar(globalIndex);
+                    if (selected && this._inputMethod) {
+                        this._inputMethod.commitText(selected);
+                    }
+                    this._keyHandler.setPopupKeyHandler(null);
+                },
+                () => {
+                    // 취소 콜백
+                    this._dbusIME.cancelSpecialChar();
+                    this._keyHandler.setPopupKeyHandler(null);
+                }
+            );
+
+            this._keyHandler.setPopupKeyHandler(
+                (keyval) => this._specialPopup.handleKey(keyval)
+            );
+        }
+    }
+
+    // ===========================================
+    // 유틸리티
+    // ===========================================
+
+    /**
+     * 한자키 keysym 목록을 설정에서 로드
+     * @returns {number[]}
+     * @private
+     */
+    _loadHanjaKeysyms() {
+        // 기본값: Hangul_Hanja + F9
+        const defaults = [Clutter.KEY_Hangul_Hanja, Clutter.KEY_F9];
+
+        try {
+            // daemon에서 설정 읽기
+            if (this._dbusIME?.isConnected) {
+                const hanjaKeysStr = this._dbusIME.getConfig('hanja_keys');
+                if (hanjaKeysStr) {
+                    // "Hanja,F9" 형태의 문자열 → keysym 배열로 변환
+                    const keyNames = hanjaKeysStr.split(',').map(s => s.trim());
+                    const keysyms = keyNames.map(name => {
+                        const sym = Clutter[`KEY_${name}`] || Clutter[`KEY_Hangul_${name}`];
+                        return sym;
+                    }).filter(s => s !== undefined);
+
+                    if (keysyms.length > 0) return keysyms;
+                }
+            }
+        } catch (e) {
+            unimLog('EXTENSION', `한자키 설정 로드 실패, 기본값 사용: ${e.message}`);
+        }
+
+        return defaults;
+    }
+
+    /**
+     * 설정 변경 리스너 등록 (정리 자동화)
+     * @private
+     */
+    _connectSettingChanged(key, callback) {
+        const id = this._settings.connect(`changed::${key}`, callback);
+        this._settingsChangedIds.push(id);
+    }
+
+    // ===========================================
+    // 패널 인디케이터
+    // ===========================================
+
     _addIndicator() {
         if (!this._indicator) {
             this._indicator = new UnimIndicator(this);
             Main.panel.addToStatusArea('unim-indicator', this._indicator);
         }
     }
-    
+
     _removeIndicator() {
         if (this._indicator) {
             this._indicator.destroy();
@@ -78,28 +480,12 @@ export default class UnimTypefixExtension extends Extension {
         }
     }
 
-    disable() {
-        this._unbindAllShortcuts();
-        
-        // 설정 변경 리스너 정리
-        if (this._settings && this._settingsChangedId) {
-            this._settings.disconnect(this._settingsChangedId);
-            this._settingsChangedId = 0;
-        }
-        
-        this._removeIndicator();
-        
-        this._settings = null;
-        this._vkbd = null;
-        this._clipboard = null;
-        unimLog('EXTENSION', ' Hybrid extension disabled');
-    }
+    // ===========================================
+    // TypeFIX 기능 (기존 유지)
+    // ===========================================
 
     _bindAllShortcuts() {
         this._unbindAllShortcuts();
-
-        // 6 shortcut combinations:
-        // isReverse: true = Korean to English (decompose), false = English to Korean (compose)
         this._bindShortcut('shortcut-normal', PasteMode.NORMAL, false);
         this._bindShortcut('shortcut-normal-reverse', PasteMode.NORMAL, true);
         this._bindShortcut('shortcut-terminal', PasteMode.TERMINAL, false);
@@ -119,9 +505,8 @@ export default class UnimTypefixExtension extends Extension {
             Shell.ActionMode.ALL,
             () => this._onShortcutTriggered(pasteMode, isReverse)
         );
-        
+
         this._shortcutIds.push(settingKey);
-        unimLog('EXTENSION', `Shortcut bound: ${settingKey} -> ${shortcut[0]} (paste: ${pasteMode}, reverse: ${isReverse})`);
     }
 
     _unbindAllShortcuts() {
@@ -134,20 +519,15 @@ export default class UnimTypefixExtension extends Extension {
     _onShortcutTriggered(pasteMode, isReverse) {
         if (!this._settings.get_boolean('enable-extension')) return;
 
-        unimLog('EXTENSION', `Shortcut triggered: paste=${pasteMode}, reverse=${isReverse}`);
-
         const koreanLayout = this._settings.get_string('korean-layout');
         const englishLayout = this._settings.get_string('english-layout');
-        
         this._doConversion(koreanLayout, englishLayout, pasteMode, isReverse);
     }
 
     async _doConversion(koreanLayout, englishLayout, pasteMode, isReverse) {
         try {
-            // Primary Selection (Highlight)
             this._clipboard.get_text(St.ClipboardType.PRIMARY, (clipboard, text) => {
                 if (!text || text.trim() === '') {
-                    // Regular Clipboard fallback
                     this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (cb, cbText) => {
                         if (cbText) this._processConvertedText(cbText, koreanLayout, englishLayout, pasteMode, isReverse);
                     });
@@ -161,36 +541,25 @@ export default class UnimTypefixExtension extends Extension {
     }
 
     async _processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse) {
-        unimLog('EXTENSION', `Transforming: "${text}" (paste: ${pasteMode}, reverse: ${isReverse})`);
         try {
             const converted = await this._convertText(text, koreanLayout, englishLayout, isReverse);
             if (!converted) return;
-            
-            unimLog('EXTENSION', `Result: "${converted}"`);
-            
-            // Set both selections for maximum compatibility
+
             this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
             this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
-            unimLog('EXTENSION', ' Clipboard updated');
-            
-            // Handle paste mode
+
             if (pasteMode === PasteMode.COPY_ONLY) {
-                unimLog('EXTENSION', ' Copy-only mode: skipping paste');
+                unimLog('EXTENSION', 'Copy-only mode: 붙여넣기 생략');
             } else {
                 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
-                    unimLog('EXTENSION', ' Triggering paste action...');
-                    
                     if (pasteMode === PasteMode.TERMINAL) {
-                        const deleteCount = text.length;
-                        unimLog('EXTENSION', `Terminal mode: deleting ${deleteCount} chars before paste`);
-                        this._vkbd.backspaceMultiple(deleteCount);
+                        this._vkbd.backspaceMultiple(text.length);
                     }
-                    
                     this._vkbd.paste();
                     return GLib.SOURCE_REMOVE;
                 });
             }
-            
+
             if (this._settings.get_boolean('show-notification')) {
                 Main.notify(_('UNIM TypeFIX'), _('Conversion complete: %s').format(converted));
             }
@@ -201,64 +570,39 @@ export default class UnimTypefixExtension extends Extension {
 
     _convertText(text, koreanLayout, englishLayout, isReverse) {
         return new Promise((resolve, reject) => {
-            const extensionPath = this.path;
             const binPath = '/usr/bin/unim-cli';
-            
-            // GSettings에서 레이아웃 읽기
             const kLayout = koreanLayout || this._settings.get_string('korean-layout') || '2bul';
             const eLayout = englishLayout || this._settings.get_string('english-layout') || 'qwerty';
 
-            // 레이아웃 값을 unim-cli 옵션으로 매핑
             const koreanLayoutMap = {
-                '2bul': '2bul',
-                '3bul390': '390',
-                '3bul391': '391',
-                '3bul_noshift': 'noshift',
-                // 호환성: 기존 값도 지원
-                '390': '390',
-                '391': '391'
+                '2bul': '2bul', '3bul390': '390', '3bul391': '391',
+                '3bul_noshift': 'noshift', '390': '390', '391': '391',
             };
-            
             const englishLayoutMap = {
-                'qwerty': 'qwerty',
-                'dvorak': 'dvorak',
-                'colemak': 'colemak',
-                'colemak_dh': 'colemak-dh',
-                'workman': 'workman'
+                'qwerty': 'qwerty', 'dvorak': 'dvorak', 'colemak': 'colemak',
+                'colemak_dh': 'colemak-dh', 'workman': 'workman',
             };
 
             const argv = [
                 binPath,
                 isReverse ? '--decompose' : '--compose',
                 '--korean-keyboard', koreanLayoutMap[kLayout] || '2bul',
-                '--english-keyboard', englishLayoutMap[eLayout] || 'qwerty'
+                '--english-keyboard', englishLayoutMap[eLayout] || 'qwerty',
             ];
-
-            unimLog('EXTENSION', `Executing: ${argv.join(' ')} with input: "${text}"`);
 
             try {
                 const proc = new Gio.Subprocess({
-                    argv: argv,
-                    flags: Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                    argv,
+                    flags: Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
                 });
                 proc.init(null);
                 proc.communicate_utf8_async(text, null, (proc, res) => {
                     try {
                         const [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
-                        if (stderr) unimError('EXTENSION', `CLI Stderr: ${stderr}`);
-                        
-                        const result = stdout ? stdout.trim() : '';
-                        unimLog('EXTENSION', `CLI Stdout: "${result}"`);
-                        resolve(result);
-                    } catch (e) { 
-                        unimError('EXTENSION', `communicate_utf8_finish error: ${e.message}`);
-                        reject(e); 
-                    }
+                        resolve(stdout ? stdout.trim() : '');
+                    } catch (e) { reject(e); }
                 });
-            } catch (e) { 
-                unimError('EXTENSION', `Subprocess spawn error: ${e.message}`);
-                reject(e); 
-            }
+            } catch (e) { reject(e); }
         });
     }
 }

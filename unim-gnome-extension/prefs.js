@@ -33,6 +33,21 @@ export default class UnimPreferences extends ExtensionPreferences {
             _('상단 패널에 한/영 상태 아이콘 표시')
         );
 
+        // IME Mode Settings
+        const imeGroup = new Adw.PreferencesGroup({
+            title: _('실시간 입력기 (IME)'),
+            description: _('실시간 한글 입력기 활성화 (IBus 대체)')
+        });
+        inputPage.add(imeGroup);
+
+        this._addToggle(
+            imeGroup,
+            settings,
+            'enable-ime',
+            _('IME 모드 활성화'),
+            _('Clutter.InputMethod 기반 실시간 한글 입력 — 활성화 시 IBus를 대체합니다')
+        );
+
         // Keyboard Layout Settings
         const layoutGroup = new Adw.PreferencesGroup({
             title: _('키보드 레이아웃'),

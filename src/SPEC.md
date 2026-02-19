@@ -115,7 +115,7 @@ pub struct InputEngine {
 }
 ```
 
-### 2.2 InputResult — 6가지 결과 패턴
+### 2.2 InputResult — 7가지 결과 패턴
 
 | 팩토리 메서드 | consumed | preedit_changed | commit_changed | 사용 시점 |
 |--------------|----------|-----------------|----------------|-----------|
@@ -125,6 +125,7 @@ pub struct InputEngine {
 | `committed()` | ✓ | ✓ | ✓ | 문자 확정 (음절 완성, Space 등) |
 | `committed_passthrough()` | ✗ | ✓ | ✓ | 조합 커밋 + 키 통과 (Enter, Tab, Escape) |
 | `hanja_candidates()` | ✓ | ✗ | ✗ | 한자 후보 준비됨 |
+| `special_char_candidates()` | ✓ | ✗ | ✗ | 특수문자 후보 준비됨 (한자 없을 때) |
 
 > [!IMPORTANT]
 > `committed_passthrough()`는 UNIM의 핵심 설계 중 하나입니다.

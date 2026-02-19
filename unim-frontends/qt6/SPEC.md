@@ -383,7 +383,68 @@ update(Qt::ImCursorRectangle) 호출
 
 ---
 
-## 10. Qt6 vs Qt5 차이점 요약
+## 10. 특수문자 팝업 윈도우 (`UnimSpecialPopup`)
+
+### 10.1 개요
+
+한자 후보가 없을 때, 조합 중인 자모에 매핑된 특수문자를 **9×9 그리드 팝업**으로 표시합니다.
+한자 키(F9)로 트리거되며, 한자 후보가 없으면 자동으로 특수문자 모드로 전환됩니다.
+
+> [!NOTE]
+> 구현은 `qt-common/src/unim_special_popup.cpp`에 위치하며, Qt5/Qt6 공통 코드입니다.
+
+### 10.2 윈도우 속성
+
+- `Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::WindowDoesNotAcceptFocus`
+- 다크 테마 스타일시트 (배경 `#2d2d2d`)
+- QGridLayout 기반 문자 배치 (최대 9열 × 9행)
+- 선택/하이라이트 색상 Qt 네이티브 팔레트 사용
+
+### 10.3 레이아웃
+
+```text
+┌──────────────────────────────────────┐
+│      Q    W    E    R    T    ...    │  ← top_row 열 헤더
+│ 1    $    %    ₩    °F   ‰    ...    │  ← 행 1
+│ 2    ...                             │  ← 행 2
+│ ...                                  │
+│ 9    ...                             │  ← 행 9
+│               ← 1/3 →               │  ← 페이지 라벨 (2페이지 이상 시만 표시)
+└──────────────────────────────────────┘
+```
+
+### 10.4 키 처리
+
+`input_context.cpp`에서 팝업이 보이는 동안 모든 키를 먼저 팝업에게 전달합니다.
+
+| 동작 | 트리거 키 | 결과 |
+|------|-----------|------|
+| 열 점프 | `Q`~`O` (물리 키) | 해당 열로 이동 |
+| 숫자 선택 (행) | `1`-`9` | 선택된 열의 해당 행 문자 커밋 |
+| 방향키 이동 | `↑`/`↓`/`←`/`→` | 셀 선택 이동 (경계에서 순환) |
+| Enter 확정 | `Return`/`KP_Enter` | 현재 선택 셀의 문자 커밋 |
+| 다음 페이지 | `Page_Down`/`Space` | 다음 페이지 |
+| 이전 페이지 | `Page_Up` | 이전 페이지 |
+| Escape | `Escape` | 조합 중 자모 커밋 + 특수문자 모드 취소 + 팝업 닫기 |
+| 마우스 클릭 | 좌클릭 | 클릭한 셀의 문자 커밋 |
+
+> [!IMPORTANT]
+> **열 점프는 물리 키 위치(QWERTY) 기준**으로 매칭합니다.
+> `top_row` 문자열은 **표시 전용**이고, 키 매칭은 항상 `"qwertyuio"` 물리 키로 수행합니다.
+
+### 10.5 시각적 피드백
+
+| 스타일 | 용도 |
+|---|---|
+| 선택 셀 배경 (`#4a90d9`) | 현재 선택된 셀 하이라이트 |
+| 열 하이라이트 | 선택된 열의 모든 셀 배경 |
+| 행 하이라이트 | 선택된 행의 모든 셀 배경 |
+| 헤더 강조 | 선택된 열/행의 헤더 |
+| 플래시 효과 | 문자 선택 시 120ms 깜빡임 |
+
+---
+
+## 11. Qt6 vs Qt5 차이점 요약
 
 | 관점 | Qt5 | Qt6 |
 |------|-----|-----|
@@ -400,7 +461,7 @@ update(Qt::ImCursorRectangle) 호출
 
 ---
 
-## 11. QPlatformInputContext 인터페이스
+## 12. QPlatformInputContext 인터페이스
 
 | 메서드 | 구현 |
 |--------|------|
@@ -421,9 +482,9 @@ update(Qt::ImCursorRectangle) 호출
 
 ---
 
-## 12. 빌드 및 배포
+## 13. 빌드 및 배포
 
-### 12.1 빌드
+### 13.1 빌드
 
 ```bash
 mkdir -p unim-frontends/qt6/build
@@ -438,13 +499,13 @@ make
 make build-frontends
 ```
 
-### 12.2 개발 배포 (`make dev-qt6`)
+### 13.2 개발 배포 (`make dev-qt6`)
 
 ```bash
 make dev-qt6 PREFIX=/usr
 ```
 
-### 12.3 설치 경로
+### 13.3 설치 경로
 
 ```
 $(QT6_PLUGINS_DIR)/platforminputcontexts/libunim.so
@@ -452,7 +513,7 @@ $(QT6_PLUGINS_DIR)/platforminputcontexts/libunim.so
 
 일반적으로: `/usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/libunim.so`
 
-### 12.4 로컬 테스트
+### 13.4 로컬 테스트
 
 빌드 후 자동으로 `build/platforminputcontexts/libunim.so`에 복사됩니다:
 
@@ -462,7 +523,7 @@ QT_PLUGIN_PATH=$PWD/build QT_IM_MODULE=unim your-qt6-app
 
 ---
 
-## 13. 로깅
+## 14. 로깅
 
 `UNIM_DEVELOP=1` 환경변수 설정 시 활성화.
 

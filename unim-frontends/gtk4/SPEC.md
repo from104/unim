@@ -493,13 +493,18 @@ set_surrounding_with_selection(text, len, cursor_index, selection_index)
 한자 후보가 없을 때, 조합 중인 자모에 매핑된 특수문자를 **9×9 그리드 팝업**으로 표시합니다.
 한자 키(F9)로 트리거되며, 한자 후보가 없으면 자동으로 특수문자 모드로 전환됩니다.
 
+> [!NOTE]
+> 구현은 `gtk-common/src/unim_special_popup.c`에 위치하며, GTK3/GTK4 공통 코드입니다.
+> `#if GTK_CHECK_VERSION(4, 0, 0)` 전처리기로 GTK 버전별 차이를 처리합니다.
+
 ### 10.2 윈도우 속성
 
-- GTK Window (`GTK_WINDOW_POPUP` 타입)
-- `override_redirect = True` (X11에서 WM 데코레이션 제거)
+- GTK4에서는 `gtk_window_new()` + `gtk_window_set_decorated(FALSE)` 사용 (GTK3의 `GTK_WINDOW_POPUP`과 달리)
+- X11: `gtk_widget_realize()` 후 `XChangeWindowAttributes(override_redirect=True)` 수동 설정
 - `can_focus = FALSE` (부모 앱의 포커스 유지)
 - GtkGrid 기반 문자 배치 (최대 9열 × 9행)
 - CSS 커스텀 스타일링 (`unim-special-popup` 클래스)
+- 마우스 클릭: `GtkGestureClick` 사용 (GTK3의 `button-press-event` 대신)
 
 ### 10.3 레이아웃
 
@@ -520,13 +525,14 @@ immodule.c에서 팝업이 보이는 동안 모든 키를 먼저 팝업에게 �
 
 | 동작 | 트리거 키 | 결과 |
 |------|-----------|------|
+| 열 점프 | `Q`~`O` (물리 키) | 해당 열로 이동 |
 | 숫자 선택 (행) | `1`-`9` | 선택된 열의 해당 행 문자 커밋 |
 | 방향키 이동 | `↑`/`↓`/`←`/`→` | 셀 선택 이동 (경계에서 순환) |
 | Enter 확정 | `Return`/`KP_Enter` | 현재 선택 셀의 문자 커밋 |
-| 다음 페이지 | `Tab` | 다음 페이지 (순환) |
-| 이전 페이지 | `Shift+Tab` | 이전 페이지 (순환) |
+| 다음 페이지 | `Page_Down`/`Space` | 다음 페이지 |
+| 이전 페이지 | `Page_Up` | 이전 페이지 |
 | Escape | `Escape` | 조합 중 자모 커밋 + 특수문자 모드 취소 + 팝업 닫기 |
-| 마우스 클릭 | 좌클릭 | 클릭한 셀의 문자 커밋 |
+| 마우스 클릭 | 좌클릭 (`GtkGestureClick`) | 클릭한 셀의 문자 커밋 |
 
 > [!IMPORTANT]
 > **열 점프는 물리 키 위치(QWERTY) 기준으로 매칭합니다.**
@@ -552,11 +558,13 @@ X11에서 팝업이 부모 앱의 포커스를 빼앗지 않도록 하는 핵심
 ### 10.6 시각적 피드백
 
 | CSS 클래스 | 용도 |
-|-----------|------|
+|---|---|
 | `cell-selected` | 현재 선택된 셀 하이라이트 |
 | `cell-col-highlight` | 선택된 열의 모든 셀 배경 |
-| `header-active` | 선택된 열의 헤더 강조 |
-| `cell-flash` | 문자 선택 시 200ms 플래시 효과 |
+| `cell-row-highlight` | 선택된 행의 모든 셀 배경 |
+| `header-active` | 선택된 열/행의 헤더 강조 |
+| `row-header` | 행 번호 헤더 (1-9) |
+| `cell-flash` | 문자 선택 시 120ms 플래시 효과 |
 
 ---
 
@@ -579,7 +587,7 @@ X11에서 팝업이 부모 앱의 포커스를 빼앗지 않도록 하는 핵심
 
 ## 12. 빌드 및 배포
 
-### 11.1 빌드
+### 12.1 빌드
 
 ```bash
 mkdir -p unim-frontends/gtk4/build
@@ -594,7 +602,7 @@ make
 make build-frontends
 ```
 
-### 11.2 개발 배포 (`make dev-gtk4`)
+### 12.2 개발 배포 (`make dev-gtk4`)
 
 ```bash
 make dev-gtk4 PREFIX=/usr
@@ -610,7 +618,7 @@ make dev-gtk4 PREFIX=/usr
 > GTK4에서는 모듈 설치 후 반드시 `gio-querymodules`를 실행해야 합니다.
 > GTK3의 `gtk-query-immodules-3.0`과 유사하지만 GIO 기반입니다.
 
-### 11.3 설치 경로
+### 12.3 설치 경로
 
 ```
 $(GTK4_LIBDIR)/gtk-4.0/4.0.0/immodules/libim-unim.so
