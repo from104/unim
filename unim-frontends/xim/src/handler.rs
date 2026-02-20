@@ -1382,23 +1382,14 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         }
 
         // Preedit 처리
-        if let Some(preedit_text) = preedit {
-            if preedit_text.is_empty() {
-                self.clear_preedit(server, user_ic)?;
-            } else {
-                unim_log!("XIM_HANDLER", "Preedit: \"{}\"", preedit_text);
-                self.preedit(server, user_ic, &preedit_text)?;
-            }
-            server.conn().flush().ok();
+        let preedit_text = preedit.unwrap_or_default();
+        if preedit_text.is_empty() {
+            self.clear_preedit(server, user_ic)?;
         } else {
-            // preedit이 None이지만 캐시에 preedit이 남아있으면 정리
-            // (백스페이스로 마지막 글자를 지운 경우 등)
-            if !user_ic.user_data.preedit_cache.is_empty() {
-                unim_log!("XIM_HANDLER", "Preedit 캐시 정리 (preedit=None)");
-                self.clear_preedit(server, user_ic)?;
-                server.conn().flush().ok();
-            }
+            unim_log!("XIM_HANDLER 222222222222222222222222222", "Preedit: \"{}\"", preedit_text);
+            self.preedit(server, user_ic, &preedit_text)?;
         }
+        server.conn().flush().ok();
 
         Ok(consumed)
     }

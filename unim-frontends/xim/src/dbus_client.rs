@@ -506,11 +506,7 @@ async fn process_key_event(
 
     DbusResponse::KeyProcessed {
         consumed,
-        preedit: if preedit.is_empty() {
-            None
-        } else {
-            Some(preedit)
-        },
+        preedit: Some(preedit),
         commit: if commit.is_empty() {
             None
         } else {

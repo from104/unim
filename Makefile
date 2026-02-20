@@ -58,13 +58,14 @@ DEB_DIR := $(CURDIR)/debs
 
 CARGO := cargo
 
-.PHONY: all clean build build-rust build-frontends build-settings build-tests \
-        install install-core install-frontends install-settings install-icons install-autostart \
+.PHONY: all clean clean-all build build-rust build-frontends build-settings build-tests \
+        install install-core install-frontends install-settings install-icons install-autostart install-gnome-extension install-extension \
         install-systemd uninstall-systemd enable-systemd disable-systemd status-systemd \
-        uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart \
-        pack install-gnome-extension uninstall-gnome-extension install-extension uninstall-extension enable disable log test test-dbus test-xim test-wayland \
-        deb clean-deb clean-all help sandbox \
-        test-gtk3 test-gtk4 test-gnome \
+        uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart uninstall-gnome-extension uninstall-extension \
+        gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
+        deb clean-deb help \
+        test test-gtk3 test-gtk4 test-qt5 test-qt6 test-gnome test-xim test-wayland test-dbus \
+        sandbox sandbox-gtk3 sandbox-gtk4 sandbox-qt5 sandbox-qt6 sandbox-xim sandbox-indicator \
         dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-indicator dev-extension dev-restart
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -93,12 +94,12 @@ help:
 	@echo "Uninstall targets:"
 	@echo "  uninstall        - Remove all installed components"
 	@echo ""
-	@echo "GNOME Extension:
+	@echo "GNOME Extension:"
 	@echo "  install-gnome-extension   - Install to user's GNOME Shell"
 	@echo "  uninstall-gnome-extension - Remove from user's GNOME Shell"
 	@echo "  install-extension         - Alias for install-gnome-extension"
 	@echo "  uninstall-extension       - Alias for uninstall-gnome-extension"
-	@echo "  pack             - Create distributable .zip file"
+	@echo "  pack                      - Create distributable .zip file"
 	@echo ""
 	@echo "Systemd User Service:"
 	@echo "  install-systemd  - Install systemd user service file"
@@ -113,15 +114,25 @@ help:
 	@echo "  clean            - Remove build artifacts"
 	@echo "  clean-all        - Remove all artifacts including Cargo target"
 	@echo ""
-	@echo "DBus / XIM / Wayland Testing:"
-	@echo "  test-dbus        - Verify DBus service registration"
+	@echo "Testing:"
+	@echo "  test-gtk3        - Build and run GTK3 test application"
+	@echo "  test-gtk4        - Build and run GTK4 test application"
+	@echo "  test-qt5         - Build and run Qt5 test application"
+	@echo "  test-qt6         - Build and run Qt6 test application"
+	@echo "  test-gnome       - Build and run GNOME IME test application"
 	@echo "  test-xim         - Build and run XIM test application"
 	@echo "  test-wayland     - Build and run Wayland test application"
+	@echo "  test-dbus        - Verify DBus service registration"
+	@echo "  test             - Check installed UNIM components"
 	@echo ""
 	@echo "Sandbox (isolated testing):"
 	@echo "  sandbox          - Launch Xephyr sandbox with default terminal"
+	@echo "  sandbox-gtk3     - Launch sandbox with GTK3 test app"
 	@echo "  sandbox-gtk4     - Launch sandbox with GTK4 test app"
+	@echo "  sandbox-qt5      - Launch sandbox with Qt5 test app"
+	@echo "  sandbox-qt6      - Launch sandbox with Qt6 test app"
 	@echo "  sandbox-xim      - Launch sandbox with XIM test app"
+	@echo "  sandbox-indicator- Launch sandbox with indicator test"
 	@echo "  build-tests      - Build all test applications"
 	@echo ""
 	@echo "Quick Development (no deb needed, 최초 1회 install 필요):"
@@ -429,12 +440,12 @@ deb: build gnome-extension
 	@echo "📦 Building Debian packages..."
 	@echo "════════════════════════════════════════════════════════════"
 	@mkdir -p $(DEB_DIR)
-	@dpkg-buildpackage -us -uc -b
+	@dpkg-buildpackage -us -uc -b -jauto
 	@echo "  → Moving .deb files to $(DEB_DIR)..."
-	@mv -f ../*.deb $(DEB_DIR)/ 2>/dev/null || true
-	@mv -f ../*.ddeb $(DEB_DIR)/ 2>/dev/null || true
-	@mv -f ../*.changes $(DEB_DIR)/ 2>/dev/null || true
-	@mv -f ../*.buildinfo $(DEB_DIR)/ 2>/dev/null || true
+	@mv -f ../unim*.deb $(DEB_DIR)/ 2>/dev/null || true
+	@mv -f ../unim*.ddeb $(DEB_DIR)/ 2>/dev/null || true
+	@mv -f ../unim*.changes $(DEB_DIR)/ 2>/dev/null || true
+	@mv -f ../unim*.buildinfo $(DEB_DIR)/ 2>/dev/null || true
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ Debian packages saved to $(DEB_DIR)/"
 	@echo "════════════════════════════════════════════════════════════"
@@ -443,7 +454,7 @@ deb: build gnome-extension
 clean-deb:
 	@echo "Cleaning Debian build artifacts..."
 	@rm -rf $(DEB_DIR)
-	@rm -f ../*.deb ../*.ddeb ../*.changes ../*.buildinfo ../*.tar.gz ../*.dsc
+	@rm -f ../unim*.deb ../unim*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test & Verification
@@ -487,6 +498,22 @@ test:
 	@echo ""
 	@echo "✅ 4. CLI 및 데몬"
 	@for cmd in unim-cli unim-config unim-indicator; do \
+		if [ -f $(DESTDIR)$(BINDIR)/$$cmd ]; then \
+			echo "   ✓ $$cmd 설치됨"; \
+		else \
+			echo "   ✗ $$cmd 미설치"; \
+		fi; \
+	done
+	@for libcmd in unim-daemon unim-xim unim-wayland; do \
+		if [ -f $(DESTDIR)$(LIBEXECDIR)/$$libcmd ]; then \
+			echo "   ✓ $$libcmd 설치됨"; \
+		else \
+			echo "   ✗ $$libcmd 미설치"; \
+		fi; \
+	done
+	@echo ""
+	@echo "✅ 5. 설정 도구"
+	@for cmd in unim-gtk-settings unim-qt-settings; do \
 		if [ -f $(DESTDIR)$(BINDIR)/$$cmd ]; then \
 			echo "   ✓ $$cmd 설치됨"; \
 		else \
