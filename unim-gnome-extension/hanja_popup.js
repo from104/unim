@@ -81,8 +81,9 @@ export class HanjaPopup {
      * @param {Array<{hanja: string, meaning: string}>} candidates - 후보 목록
      * @param {Function} onSelect - 선택 콜백 (globalIndex: number)
      * @param {Function} onCancel - 취소 콜백
+     * @param {{x: number, y: number, width: number, height: number}} [cursorRect] - 커서 위치
      */
-    show(target, candidates, onSelect, onCancel) {
+    show(target, candidates, onSelect, onCancel, cursorRect) {
         if (!this._container || candidates.length === 0) return;
 
         this._target = target;
@@ -95,11 +96,35 @@ export class HanjaPopup {
         this._header.set_text(`한자: ${target}`);
         this._updateList();
 
-        // 화면 중앙 상단에 배치
+        // 커서 아래에 배치 + 화면 경계 조정
         const monitor = Main.layoutManager.primaryMonitor;
         if (monitor) {
-            const x = Math.floor(monitor.x + (monitor.width - 250) / 2);
-            const y = Math.floor(monitor.y + 100);
+            const popupWidth = 250;
+            const popupHeight = 300;
+            let x, y;
+
+            if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
+                // 커서 아래에 배치
+                x = cursorRect.x;
+                y = cursorRect.y + cursorRect.height + 4;
+            } else {
+                // 폴백: 화면 중앙 상단
+                x = Math.floor(monitor.x + (monitor.width - popupWidth) / 2);
+                y = Math.floor(monitor.y + 100);
+            }
+
+            // 오른쪽 경계
+            if (x + popupWidth > monitor.x + monitor.width) {
+                x = monitor.x + monitor.width - popupWidth;
+            }
+            // 아래 경계 → 커서 위로
+            if (y + popupHeight > monitor.y + monitor.height) {
+                y = (cursorRect?.y ?? y) - popupHeight - 4;
+            }
+            // 왼쪽/위쪽 최소
+            x = Math.max(monitor.x, x);
+            y = Math.max(monitor.y, y);
+
             this._container.set_position(x, y);
         }
 

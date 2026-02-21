@@ -1,9 +1,10 @@
 use calloop::EventLoop;
+use calloop_wayland_source::WaylandSource;
 use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_keyboard, delegate_output, delegate_registry, delegate_seat,
-    delegate_shm,
+    delegate_shm, delegate_xdg_shell, delegate_xdg_window,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -11,12 +12,19 @@ use smithay_client_toolkit::{
         keyboard::{KeyEvent, KeyboardHandler, Modifiers},
         Capability, SeatHandler, SeatState,
     },
+    shell::{
+        xdg::{
+            window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
+            XdgShell,
+        },
+        WaylandSurface,
+    },
     shm::{slot::SlotPool, Shm, ShmHandler},
 };
-use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Rect, Transform};
+use tiny_skia::{FillRule, Paint, PathBuilder, PixmapMut, Rect, Transform};
 use unim::unim_log;
 use wayland_client::{
-    globals::GlobalList,
+    globals::{registry_queue_init, GlobalList},
     protocol::{wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface},
     Connection, Dispatch, Proxy, QueueHandle,
 };
@@ -30,6 +38,7 @@ struct AppData {
     seat_state: SeatState,
     output_state: OutputState,
     compositor_state: CompositorState,
+    xdg_shell: XdgShell,
     shm: Shm,
 
     text_input_manager: Option<ZwpTextInputManagerV3>,
@@ -40,12 +49,12 @@ struct AppData {
 
     width: u32,
     height: u32,
-    surface: wl_surface::WlSurface,
+    window: Window,
 
     pool: SlotPool,
     font_system: FontSystem,
     swash_cache: SwashCache,
-    buffer: Buffer,
+    text_buffer: Buffer,
 
     text: String,
     preedit: String,
@@ -54,22 +63,29 @@ struct AppData {
     #[allow(dead_code)]
     cursor_end: i32,
 
+    first_configure: bool,
     should_quit: bool,
 }
 
 impl AppData {
-    fn new(conn: &Connection, qh: &QueueHandle<Self>) -> Self {
-        let registry_state = RegistryState::new(&conn.globals());
-        let seat_state = SeatState::new(&conn.globals(), qh);
-        let output_state = OutputState::new(&conn.globals(), qh);
-        let compositor_state = CompositorState::new(&conn.globals(), qh);
-        let shm = Shm::bind(&conn.globals(), qh).expect("shm not available");
+    fn new(globals: &GlobalList, qh: &QueueHandle<Self>, shm: Shm) -> Self {
+        let registry_state = RegistryState::new(globals);
+        let seat_state = SeatState::new(globals, qh);
+        let output_state = OutputState::new(globals, qh);
+        let compositor_state =
+            CompositorState::bind(globals, qh).expect("compositor not available");
+        let xdg_shell = XdgShell::bind(globals, qh).expect("xdg_shell not available");
 
         let surface = compositor_state.create_surface(qh);
+        let window = xdg_shell.create_window(surface, WindowDecorations::ServerDefault, qh);
+        window.set_title("UNIM Wayland Test");
+        window.set_app_id("unim-test-wayland");
+        window.set_min_size(Some((400, 300)));
+        window.commit();
 
         let mut font_system = FontSystem::new();
         let metrics = Metrics::new(24.0, 30.0);
-        let buffer = Buffer::new(&mut font_system, metrics);
+        let text_buffer = Buffer::new(&mut font_system, metrics);
         let swash_cache = SwashCache::new();
 
         let pool = SlotPool::new(1024 * 1024, &shm).expect("Failed to create pool");
@@ -79,6 +95,7 @@ impl AppData {
             seat_state,
             output_state,
             compositor_state,
+            xdg_shell,
             shm,
             text_input_manager: None,
             text_input: None,
@@ -86,15 +103,16 @@ impl AppData {
             keyboard: None,
             width: 800,
             height: 600,
-            surface,
+            window,
             pool,
             font_system,
             swash_cache,
-            buffer,
+            text_buffer,
             text: String::new(),
             preedit: String::new(),
             cursor_begin: 0,
             cursor_end: 0,
+            first_configure: true,
             should_quit: false,
         }
     }
@@ -120,7 +138,7 @@ impl AppData {
         let height = self.height;
         let stride = width * 4;
 
-        let (buffer, canvas) = self
+        let (wl_buffer, canvas) = self
             .pool
             .create_buffer(
                 width as i32,
@@ -130,15 +148,15 @@ impl AppData {
             )
             .expect("create buffer");
 
-        let mut pixmap = Pixmap::new_mut(canvas, width, height).unwrap();
+        let mut pixmap = PixmapMut::from_bytes(canvas, width, height).unwrap();
         pixmap.fill(tiny_skia::Color::from_rgba8(30, 30, 46, 255));
 
         let mut display_text = self.text.clone();
-        let preedit_start_idx = display_text.len(); // UTF-8 바이트 인덱스는 복잡할 수 있음, 여기서는 단순 문자 단위
+        let _preedit_start_idx = display_text.len();
         display_text.push_str(&self.preedit);
 
         // 텍스트 레이아웃 설정
-        self.buffer.set_text(
+        self.text_buffer.set_text(
             &mut self.font_system,
             &display_text,
             Attrs::new()
@@ -146,10 +164,11 @@ impl AppData {
                 .color(Color::rgb(205, 214, 244)),
             Shaping::Advanced,
         );
-        self.buffer.shape_until_scroll(&mut self.font_system, false);
+        self.text_buffer
+            .shape_until_scroll(&mut self.font_system, false);
 
         // 텍스트 그리기
-        self.buffer.draw(
+        self.text_buffer.draw(
             &mut self.font_system,
             &mut self.swash_cache,
             Color::rgb(205, 214, 244),
@@ -188,8 +207,6 @@ impl AppData {
 
         // Preedit 밑줄 (간이 구현)
         if !self.preedit.is_empty() {
-            // 실제 구현 시에는 LayoutRun을 순회하며 정확한 좌표를 얻어야 함
-            // 여기서는 테스트 목적으로 단순하게 그림
             let paint = Paint {
                 shader: tiny_skia::Shader::SolidColor(tiny_skia::Color::from_rgba8(
                     243, 139, 168, 255,
@@ -197,11 +214,9 @@ impl AppData {
                 ..Default::default()
             };
 
-            // 임시 좌표: 텍스트 길이 비례
             let text_width_approx = (self.text.len() * 10) as f32;
             let preedit_width_approx = (self.preedit.len() * 15) as f32;
 
-            // 실제로는 layout run을 통해 좌표를 얻어야 함
             let rect = Rect::from_xywh(
                 20.0 + text_width_approx,
                 50.0,
@@ -223,9 +238,10 @@ impl AppData {
             }
         }
 
-        self.surface.attach(Some(&buffer), 0, 0);
-        self.surface.damage(0, 0, width as i32, height as i32);
-        self.surface.commit();
+        let surface = self.window.wl_surface();
+        surface.attach(Some(wl_buffer.wl_buffer()), 0, 0);
+        surface.damage(0, 0, width as i32, height as i32);
+        surface.commit();
     }
 }
 
@@ -237,6 +253,15 @@ delegate_shm!(AppData);
 delegate_seat!(AppData);
 delegate_keyboard!(AppData);
 delegate_registry!(AppData);
+delegate_xdg_shell!(AppData);
+delegate_xdg_window!(AppData);
+
+impl ProvidesRegistryState for AppData {
+    fn registry(&mut self) -> &mut RegistryState {
+        &mut self.registry_state
+    }
+    registry_handlers![OutputState, SeatState,];
+}
 
 impl CompositorHandler for AppData {
     fn scale_factor_changed(
@@ -377,7 +402,7 @@ impl KeyboardHandler for AppData {
         _raw: &[u32],
         _keysyms: &[xkbcommon::xkb::Keysym],
     ) {
-        if surface == &self.surface {
+        if surface == self.window.wl_surface() {
             unim_log!("TEST_WAYLAND", "Keyboard Enter: IME 활성화");
             if let Some(ti) = &self.text_input {
                 ti.enable();
@@ -396,7 +421,7 @@ impl KeyboardHandler for AppData {
         surface: &wl_surface::WlSurface,
         _serial: u32,
     ) {
-        if surface == &self.surface {
+        if surface == self.window.wl_surface() {
             unim_log!("TEST_WAYLAND", "Keyboard Leave: IME 비활성화");
             if let Some(ti) = &self.text_input {
                 ti.disable();
@@ -413,7 +438,7 @@ impl KeyboardHandler for AppData {
         _serial: u32,
         event: KeyEvent,
     ) {
-        if event.keysym == xkbcommon::xkb::keysyms::KEY_Escape {
+        if event.keysym == xkbcommon::xkb::Keysym::from(xkbcommon::xkb::keysyms::KEY_Escape) {
             self.should_quit = true;
         }
     }
@@ -437,6 +462,38 @@ impl KeyboardHandler for AppData {
         _modifiers: Modifiers,
         _layout: u32,
     ) {
+    }
+}
+
+impl WindowHandler for AppData {
+    fn request_close(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _window: &Window) {
+        unim_log!("TEST_WAYLAND", "Window close requested");
+        self.should_quit = true;
+    }
+
+    fn configure(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _window: &Window,
+        configure: WindowConfigure,
+        _serial: u32,
+    ) {
+        if let (Some(w), Some(h)) = configure.new_size {
+            self.width = w.get();
+            self.height = h.get();
+        }
+        unim_log!(
+            "TEST_WAYLAND",
+            "Window configure: {}x{}",
+            self.width,
+            self.height
+        );
+
+        if self.first_configure {
+            self.first_configure = false;
+            self.draw();
+        }
     }
 }
 
@@ -525,17 +582,19 @@ impl Dispatch<wayland_client::protocol::wl_registry::WlRegistry, GlobalList> for
         _proxy: &wayland_client::protocol::wl_registry::WlRegistry,
         event: wayland_client::protocol::wl_registry::Event,
         data: &GlobalList,
-        conn: &Connection,
+        _conn: &Connection,
         qh: &QueueHandle<Self>,
     ) {
         match event {
             wayland_client::protocol::wl_registry::Event::Global {
-                name,
+                name: _,
                 interface,
                 version,
             } => {
                 if interface == "zwp_text_input_manager_v3" {
-                    let manager = data.bind::<ZwpTextInputManagerV3, _, _>(name, version, qh, ());
+                    let manager = data
+                        .bind::<ZwpTextInputManagerV3, _, _>(&qh, version..=version, ())
+                        .expect("Failed to bind text input manager");
                     state.text_input_manager = Some(manager);
                     unim_log!("TEST_WAYLAND", "zwp_text_input_manager_v3 바인딩됨");
 
@@ -552,20 +611,21 @@ impl Dispatch<wayland_client::protocol::wl_registry::WlRegistry, GlobalList> for
 fn main() {
     unim_log!("TEST_WAYLAND", "Starting unim-test-wayland...");
 
-    let event_loop = EventLoop::try_new().unwrap();
+    let mut event_loop: EventLoop<AppData> = EventLoop::try_new().unwrap();
     let loop_handle = event_loop.handle();
 
     let conn = Connection::connect_to_env().expect("Failed to connect to Wayland");
-    let (globals, event_queue) = registry_handlers::registry_queue_init(&conn).unwrap();
+    let (globals, event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
 
-    let mut app_data = AppData::new(&conn, &qh);
+    let shm = Shm::bind(&globals, &qh).expect("shm not available");
+    let mut app_data = AppData::new(&globals, &qh, shm);
 
-    loop_handle
-        .insert_source(event_queue, |_, &mut (), state: &mut AppData| {
-            let _ = state;
-        })
+    WaylandSource::new(conn, event_queue)
+        .insert(loop_handle)
         .unwrap();
+
+    unim_log!("TEST_WAYLAND", "Event loop starting...");
 
     loop {
         event_loop.dispatch(None, &mut app_data).unwrap();
@@ -573,4 +633,6 @@ fn main() {
             break;
         }
     }
+
+    unim_log!("TEST_WAYLAND", "Exiting.");
 }

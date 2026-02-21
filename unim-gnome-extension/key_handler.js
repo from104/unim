@@ -1,15 +1,16 @@
 /**
  * UNIM 전역 키 이벤트 핸들러
  *
- * global.display의 key-press-event를 가로채어
- * DBus → UnimInputMethod으로 라우팅합니다.
+ * Clutter Backend에 커스텀 InputMethod를 등록하여
+ * Wayland 텍스트 입력 키를 가로채고,
+ * DBus를 통해 UNIM 엔진으로 라우팅합니다.
  *
  * @module key_handler
  */
 
 import Clutter from 'gi://Clutter';
 import { unimLog, unimError } from './logging.js';
-
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 /** 바이패스할 수정자 키들 */
 const MODIFIER_KEYSYMS = new Set([
     Clutter.KEY_Shift_L, Clutter.KEY_Shift_R,
@@ -27,6 +28,18 @@ const BYPASS_MODIFIER_MASK =
     Clutter.ModifierType.CONTROL_MASK |
     Clutter.ModifierType.MOD1_MASK |  // Alt
     Clutter.ModifierType.SUPER_MASK;
+
+/** 네비게이션 키 (조합 중이면 커밋 후 바이패스) */
+const NAVIGATION_KEYSYMS = new Set([
+    Clutter.KEY_Up, Clutter.KEY_Down,
+    Clutter.KEY_Left, Clutter.KEY_Right,
+    Clutter.KEY_Home, Clutter.KEY_End,
+    Clutter.KEY_Page_Up, Clutter.KEY_Page_Down,
+    Clutter.KEY_Insert, Clutter.KEY_Delete,
+    Clutter.KEY_Tab, Clutter.KEY_ISO_Left_Tab,
+    Clutter.KEY_Return, Clutter.KEY_KP_Enter,
+    Clutter.KEY_Escape,
+]);
 
 /**
  * KeyHandler
@@ -56,41 +69,203 @@ export class KeyHandler {
             Clutter.KEY_F9,            // F9 (기본)
         ]);
 
-        /** @type {number} key-press-event 시그널 ID */
+        /** @type {number} captured-event 시그널 ID */
         this._keyPressId = 0;
-        /** @type {number} key-release-event 시그널 ID */
-        this._keyReleaseId = 0;
-        /** @type {boolean} 팝업 활성 상태 (한자/특수문자 팝업이 키를 소비할 때) */
+        /** @type {boolean} 팝업 활성 상태 */
         this._popupActive = false;
-        /** @type {Function|null} 팝업 키 핸들러 (팝업에서 설정) */
+        /** @type {Function|null} 팝업 키 핸들러 */
         this._popupKeyHandler = null;
         /** @type {boolean} IME 활성 상태 */
         this._enabled = false;
+
+        /** @type {Clutter.InputMethod|null} 원래 IM (복원용) */
+        this._savedInputMethod = null;
+        /** @type {boolean} Backend 등록 여부 */
+        this._backendRegistered = false;
     }
 
     /**
      * 전역 키 인터셉션 시작
+     *
+     * 전략:
+     * A) UnimInputMethod (Clutter.InputMethod 서브클래스)를 Backend에 등록
+     *    → vfunc_filter_key_event가 C vtable에 올바르게 바인딩됨
+     *    → Mutter가 모든 Wayland 텍스트 입력 키를 우리 vfunc으로 전달
+     * B) global.stage captured-event (폴백: 셸 UI 등)
      */
     enable() {
-        if (this._keyPressId > 0) return;
+        if (this._enabled) return;
 
-        this._keyPressId = global.display.connect(
-            'key-press-event',
-            this._onKeyPress.bind(this)
+        // 1. Backend에 커스텀 IM 등록 (Wayland 텍스트 입력 가로채기)
+        this._registerWithBackend();
+
+        // 2. 폴백 (Backend 미등록 시 또는 Shell UI용)
+        this._keyPressId = global.stage.connect(
+            'captured-event',
+            (actor, event) => {
+                if (event.type() !== Clutter.EventType.KEY_PRESS) {
+                    return Clutter.EVENT_PROPAGATE;
+                }
+                // Backend 등록 완료 시 vfunc이 이미 처리하므로 스킵
+                // (이중 입력 방지)
+                if (this._backendRegistered) {
+                    return Clutter.EVENT_PROPAGATE;
+                }
+                return this._onKeyPress(actor, event);
+            }
         );
 
         this._enabled = true;
-        unimLog('KEY', '전역 키 인터셉션 시작');
+        unimLog('KEY', `전역 키 인터셉션 시작 완료 (backend-im=${this._backendRegistered ? '등록됨' : '미등록'}, captured-event=활성)`);
+    }
+
+    /**
+     * 커스텀 UnimInputMethod를 Clutter Backend에 등록
+     * API: clutter_backend_set_input_method(backend, method)
+     *
+     * GObject.registerClass()로 등록된 서브클래스의 vfunc은
+     * C vtable에 올바르게 등록되어, Mutter C 코드에서 호출됩니다.
+     * @private
+     */
+    _registerWithBackend() {
+        try {
+            const backend = Clutter.get_default_backend();
+
+            if (typeof backend.set_input_method !== 'function') {
+                unimLog('KEY', '⚠️ backend.set_input_method가 함수가 아닙니다.');
+                return;
+            }
+
+            // 키 핸들러 콜백 등록 (vfunc_filter_key_event에서 호출됨)
+            this._inputMethod.setKeyHandler((keyval, keycode, state) => {
+                return this._handleVfuncKey(keyval, keycode, state);
+            });
+
+            // 현재 IM 저장 (disable 시 복원용)
+            this._savedInputMethod = Main.inputMethod;
+
+            // Backend에 우리 IM 등록
+            backend.set_input_method(this._inputMethod);
+            this._backendRegistered = true;
+
+            unimLog('KEY', 'UnimInputMethod를 Clutter Backend에 등록 완료');
+        } catch (e) {
+            unimError('KEY', `Backend 등록 실패: ${e.message}`);
+        }
+    }
+
+    /**
+     * vfunc_filter_key_event에서 호출되는 키 처리 콜백
+     *
+     * @param {number} keyval - X11 keysym
+     * @param {number} keycode - evdev keycode
+     * @param {number} state - modifier state
+     * @returns {boolean} true면 키 소비
+     * @private
+     */
+    _handleVfuncKey(keyval, keycode, state) {
+        // 1. 수정자 키 단독 → 미소비
+        if (MODIFIER_KEYSYMS.has(keyval)) {
+            return false;
+        }
+
+        // 2. 팝업 활성 → 팝업에 위임
+        if (this._popupActive && this._popupKeyHandler) {
+            return this._popupKeyHandler(keyval, state);
+        }
+
+        // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
+        if (state & BYPASS_MODIFIER_MASK) {
+            this._flushCompose();
+            return false;
+        }
+
+        // 4. 네비게이션 키 → 조합 중이면 커밋 후 바이패스
+        if (NAVIGATION_KEYSYMS.has(keyval)) {
+            this._flushCompose();
+            return false;
+        }
+
+        // 4. 한자키 감지
+        if (this._hanjaKeysyms.has(keyval)) {
+            if (this._onHanjaRequest) {
+                this._onHanjaRequest();
+            }
+            return true;
+        }
+
+        // 5. DBus 연결 확인
+        if (!this._dbusIME.isConnected) {
+            return false;
+        }
+
+        // 6. ProcessKeyEvent 호출
+        const result = this._dbusIME.processKey(keyval, keycode, state);
+
+        if (!result) {
+            return false;
+        }
+
+        // 7. 결과 처리
+        const { consumed, preedit, commit } = result;
+
+        if (commit && commit.length > 0) {
+            this._inputMethod.commitText(commit);
+        }
+
+        this._inputMethod.updatePreedit(preedit || '');
+
+        return consumed;
+    }
+
+    /**
+     * 조합 중인 텍스트 flush (포커스아웃/네비게이션 시)
+     * @private
+     */
+    _flushCompose() {
+        if (!this._dbusIME?.isConnected) return;
+        const commit = this._dbusIME.focusOut();
+        if (commit && commit.length > 0) {
+            this._inputMethod.commitText(commit);
+        }
+        this._inputMethod.updatePreedit('');
+    }
+
+    /**
+     * Backend에서 원래 IM 복원
+     * @private
+     */
+    _unregisterFromBackend() {
+        if (this._backendRegistered) {
+            try {
+                const backend = Clutter.get_default_backend();
+                if (this._savedInputMethod) {
+                    backend.set_input_method(this._savedInputMethod);
+                    unimLog('KEY', '원본 InputMethod 복원 완료');
+                } else {
+                    backend.set_input_method(null);
+                }
+                this._inputMethod.setKeyHandler(null);
+            } catch (e) {
+                unimError('KEY', `Backend 해제 중 오류: ${e.message}`);
+            }
+        }
+        this._savedInputMethod = null;
+        this._backendRegistered = false;
     }
 
     /**
      * 전역 키 인터셉션 중지
      */
     disable() {
+        // captured-event 해제
         if (this._keyPressId > 0) {
-            global.display.disconnect(this._keyPressId);
+            global.stage.disconnect(this._keyPressId);
             this._keyPressId = 0;
         }
+
+        // Backend에서 원래 IM 복원
+        this._unregisterFromBackend();
 
         this._enabled = false;
         this._popupActive = false;
@@ -125,12 +300,12 @@ export class KeyHandler {
     /**
      * key-press-event 핸들러
      *
-     * @param {Meta.Display} display
+     * @param {Clutter.Actor} actor
      * @param {Clutter.Event} event
      * @returns {number} Clutter.EVENT_STOP 또는 Clutter.EVENT_PROPAGATE
      * @private
      */
-    _onKeyPress(display, event) {
+    _onKeyPress(actor, event) {
         try {
             return this._handleKeyPress(event);
         } catch (e) {
@@ -152,6 +327,8 @@ export class KeyHandler {
         const keycode = event.get_key_code();
         const state = event.get_state();
 
+        const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
+
         // 1. 수정자 키 단독 입력 → 바이패스
         if (MODIFIER_KEYSYMS.has(keyval)) {
             return Clutter.EVENT_PROPAGATE;
@@ -163,8 +340,9 @@ export class KeyHandler {
             return consumed ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;
         }
 
-        // 3. Ctrl/Alt/Super 조합 → 바이패스 (단축키 등)
+        // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
         if (state & BYPASS_MODIFIER_MASK) {
+            this._flushCompose();
             return Clutter.EVENT_PROPAGATE;
         }
 
@@ -181,8 +359,8 @@ export class KeyHandler {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        // 6. ProcessKeyEvent 호출
-        const result = this._dbusIME.processKey(keyval, keycode, state);
+        // 6. ProcessKeyEvent 호출 (evdev 키코드 사용)
+        const result = this._dbusIME.processKey(keyval, evdevKeycode, state);
 
         if (!result) {
             return Clutter.EVENT_PROPAGATE;

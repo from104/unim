@@ -1386,7 +1386,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         if preedit_text.is_empty() {
             self.clear_preedit(server, user_ic)?;
         } else {
-            unim_log!("XIM_HANDLER 222222222222222222222222222", "Preedit: \"{}\"", preedit_text);
+            unim_log!("XIM_HANDLER", "Preedit: \"{}\"", preedit_text);
             self.preedit(server, user_ic, &preedit_text)?;
         }
         server.conn().flush().ok();

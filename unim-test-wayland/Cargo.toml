@@ -21,3 +21,4 @@ cosmic-text = { version = "0.12", default-features = false, features = ["std", "
 
 # Logging
 unim = { path = ".." }
+calloop-wayland-source = "0.3.0"

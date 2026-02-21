@@ -124,6 +124,9 @@
     color: #f9e2af;
     font-weight: bold;
     font-size: 12px;
+    min-width: 28px;
+    min-height: 28px;
+    text-align: center;
 }
 
 .unim-special-popup .grid-row-number {

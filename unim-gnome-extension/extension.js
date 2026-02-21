@@ -48,7 +48,7 @@ export default class UnimExtension extends Extension {
         this._hanjaPopup = null;
         this._specialPopup = null;
         this._focusWindowId = 0;
-        this._savedInputMethod = null;
+
 
         // 설정 리스너
         this._settingsChangedIds = [];
@@ -131,28 +131,8 @@ export default class UnimExtension extends Extension {
         if (this._keyHandler) return; // 이미 활성화됨
 
         try {
-            // 1. Clutter.InputMethod 서브클래스 생성 및 등록
+            // 1. UnimInputMethod 생성 (Clutter.InputMethod 서브클래스, seat 등록은 KeyHandler가 담당)
             this._inputMethod = new UnimInputMethod();
-            const seat = Clutter.get_default_backend().get_default_seat();
-
-            // 기존 InputMethod 저장 (disable 시 복원용)
-            // Note: Mutter API에 따라 get_input_method()가 없을 수 있음
-            try {
-                this._savedInputMethod = seat.get_input_method?.() || null;
-            } catch (e) {
-                this._savedInputMethod = null;
-            }
-
-            // UNIM InputMethod 등록
-            // Note: Mutter 내부 API - GNOME 버전에 따라 다를 수 있음
-            try {
-                seat.set_input_method?.(this._inputMethod);
-                unimLog('EXTENSION', 'UnimInputMethod 등록 완료 (seat.set_input_method)');
-            } catch (e) {
-                unimLog('EXTENSION', `set_input_method 미지원: ${e.message} — 대안 시도`);
-                // 대안: Clutter.InputMethod는 vfunc_filter_key_event를 통해
-                // KeyHandler에서 직접 commit/preedit을 호출하므로 등록 실패해도 동작 가능
-            }
 
             // 2. DBus 연결
             this._dbusIME = new UnimDbusIME();
@@ -195,6 +175,26 @@ export default class UnimExtension extends Extension {
                 'notify::focus-window',
                 this._onFocusWindowChanged.bind(this)
             );
+            // 8. 포커스 상실 핸들러 (조합 중 텍스트 커밋 + 팝업 닫기)
+            this._inputMethod.setFocusOutHandler(() => {
+                // 팝업이 열려있으면 닫기
+                if (this._hanjaPopup?.isVisible) {
+                    this._dbusIME.cancelHanja();
+                    this._hanjaPopup.hide();
+                    this._keyHandler?.setPopupKeyHandler(null);
+                }
+                if (this._specialPopup?.isVisible) {
+                    this._dbusIME.cancelSpecialChar();
+                    this._specialPopup.hide();
+                    this._keyHandler?.setPopupKeyHandler(null);
+                }
+
+                // DBus FocusOut → 조합 중 텍스트 커밋
+                const commit = this._dbusIME.focusOut();
+                if (commit && commit.length > 0) {
+                    this._inputMethod.commitText(commit);
+                }
+            });
 
             this._inputMethod.setActive(true);
             unimLog('EXTENSION', 'IME 활성화 완료');
@@ -251,20 +251,10 @@ export default class UnimExtension extends Extension {
             this._dbusIME = null;
         }
 
-        // InputMethod 복원
+        // InputMethod Wrapper 정리
         if (this._inputMethod) {
             this._inputMethod.setActive(false);
-            try {
-                const seat = Clutter.get_default_backend().get_default_seat();
-                if (this._savedInputMethod) {
-                    seat.set_input_method?.(this._savedInputMethod);
-                    unimLog('EXTENSION', '기존 InputMethod 복원');
-                }
-            } catch (e) {
-                // 복원 실패 무시
-            }
             this._inputMethod = null;
-            this._savedInputMethod = null;
         }
     }
 
@@ -379,7 +369,8 @@ export default class UnimExtension extends Extension {
                     // 취소 콜백
                     this._dbusIME.cancelHanja();
                     this._keyHandler.setPopupKeyHandler(null);
-                }
+                },
+                this._inputMethod?.cursorRect
             );
 
             // KeyHandler에 팝업 키 핸들러 등록
@@ -409,7 +400,8 @@ export default class UnimExtension extends Extension {
                     // 취소 콜백
                     this._dbusIME.cancelSpecialChar();
                     this._keyHandler.setPopupKeyHandler(null);
-                }
+                },
+                this._inputMethod?.cursorRect
             );
 
             this._keyHandler.setPopupKeyHandler(

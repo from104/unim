@@ -368,6 +368,9 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         event->keyval == GDK_KEY_Alt_L || event->keyval == GDK_KEY_Alt_R ||
         event->keyval == GDK_KEY_Super_L || event->keyval == GDK_KEY_Super_R ||
         event->keyval == GDK_KEY_Meta_L || event->keyval == GDK_KEY_Meta_R ||
+        event->keyval == GDK_KEY_Hyper_L || event->keyval == GDK_KEY_Hyper_R ||
+        event->keyval == GDK_KEY_Caps_Lock || event->keyval == GDK_KEY_Num_Lock ||
+        event->keyval == GDK_KEY_Scroll_Lock ||
         event->keyval == GDK_KEY_ISO_Level3_Shift) {
         return FALSE;
     }

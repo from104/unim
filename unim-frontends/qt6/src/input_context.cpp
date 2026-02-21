@@ -209,6 +209,9 @@ bool UnimInputContext::filterEvent(const QEvent *event)
     if (key == Qt::Key_Shift || key == Qt::Key_Control ||
         key == Qt::Key_Alt || key == Qt::Key_Meta ||
         key == Qt::Key_Super_L || key == Qt::Key_Super_R ||
+        key == Qt::Key_Hyper_L || key == Qt::Key_Hyper_R ||
+        key == Qt::Key_CapsLock || key == Qt::Key_NumLock ||
+        key == Qt::Key_ScrollLock ||
         key == Qt::Key_AltGr) {
         return false;
     }

@@ -106,8 +106,9 @@ export class SpecialPopup {
      * @param {string} topRow - top_row 키 문자열 (표시용)
      * @param {Function} onSelect - 선택 콜백 (globalIndex)
      * @param {Function} onCancel - 취소 콜백
+     * @param {{x: number, y: number, width: number, height: number}} [cursorRect] - 커서 위치
      */
-    show(target, characters, topRow, onSelect, onCancel) {
+    show(target, characters, topRow, onSelect, onCancel, cursorRect) {
         if (!this._container || characters.length === 0) return;
 
         this._target = target;
@@ -125,11 +126,32 @@ export class SpecialPopup {
 
         this._updateGrid();
 
-        // 화면 중앙 상단에 배치
+        // 커서 아래에 배치 + 화면 경계 조정
         const monitor = Main.layoutManager.primaryMonitor;
         if (monitor) {
-            const x = Math.floor(monitor.x + (monitor.width - 320) / 2);
-            const y = Math.floor(monitor.y + 100);
+            const popupWidth = 340;
+            const popupHeight = 360;
+            let x, y;
+
+            if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
+                x = cursorRect.x;
+                y = cursorRect.y + cursorRect.height + 4;
+            } else {
+                x = Math.floor(monitor.x + (monitor.width - popupWidth) / 2);
+                y = Math.floor(monitor.y + 100);
+            }
+
+            // 오른쪽 경계
+            if (x + popupWidth > monitor.x + monitor.width) {
+                x = monitor.x + monitor.width - popupWidth;
+            }
+            // 아래 경계 → 커서 위로
+            if (y + popupHeight > monitor.y + monitor.height) {
+                y = (cursorRect?.y ?? y) - popupHeight - 4;
+            }
+            x = Math.max(monitor.x, x);
+            y = Math.max(monitor.y, y);
+
             this._container.set_position(x, y);
         }
 

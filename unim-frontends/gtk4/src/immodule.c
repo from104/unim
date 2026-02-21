@@ -426,6 +426,9 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         keyval == GDK_KEY_Alt_L || keyval == GDK_KEY_Alt_R ||
         keyval == GDK_KEY_Super_L || keyval == GDK_KEY_Super_R ||
         keyval == GDK_KEY_Meta_L || keyval == GDK_KEY_Meta_R ||
+        keyval == GDK_KEY_Hyper_L || keyval == GDK_KEY_Hyper_R ||
+        keyval == GDK_KEY_Caps_Lock || keyval == GDK_KEY_Num_Lock ||
+        keyval == GDK_KEY_Scroll_Lock ||
         keyval == GDK_KEY_ISO_Level3_Shift) {
         return FALSE;
     }

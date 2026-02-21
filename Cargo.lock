@@ -2778,6 +2778,7 @@ name = "unim-test-wayland"
 version = "0.1.0"
 dependencies = [
  "calloop",
+ "calloop-wayland-source",
  "cosmic-text",
  "smithay-client-toolkit",
  "tiny-skia",
