@@ -65,7 +65,7 @@ libinput → Mutter
 |---------|------|
 | 문자 키 | DBus `processKey` → commit/preedit 처리 |
 | 수정자 키 (Shift, Ctrl 등) | 무시 (바이패스) |
-| Ctrl/Alt/Super 조합 | 바이패스 (시스템 단축키) |
+| Ctrl/Alt/Super 조합 | 조합 flush → 바이패스 (시스템 단축키) |
 | 네비게이션 (←→↑↓, Home, End, PgUp/Dn) | 조합 flush → 바이패스 |
 | Enter / KP_Enter | 조합 flush → 바이패스 (이중 커밋 방지) |
 | Escape | 조합 flush → 바이패스 |

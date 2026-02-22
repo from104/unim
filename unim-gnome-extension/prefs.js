@@ -34,19 +34,34 @@ export default class UnimPreferences extends ExtensionPreferences {
         );
 
         // IME Mode Settings
+        const isWayland = GLib.getenv('XDG_SESSION_TYPE') === 'wayland';
+
         const imeGroup = new Adw.PreferencesGroup({
             title: _('실시간 입력기 (IME)'),
-            description: _('실시간 한글 입력기 활성화 (IBus 대체)')
+            description: isWayland
+                ? _('실시간 한글 입력기 활성화 (IBus 대체)')
+                : _('⚠️ Wayland 세션 전용 기능입니다. X11에서는 GTK/Qt IM 모듈을 사용하세요.')
         });
         inputPage.add(imeGroup);
 
-        this._addToggle(
-            imeGroup,
-            settings,
-            'enable-ime',
-            _('IME 모드 활성화'),
-            _('Clutter.InputMethod 기반 실시간 한글 입력 — 활성화 시 IBus를 대체합니다')
-        );
+        const imeRow = new Adw.ActionRow({
+            title: _('IME 모드 활성화'),
+            subtitle: _('Clutter.InputMethod 기반 실시간 한글 입력 — 활성화 시 IBus를 대체합니다'),
+            sensitive: isWayland
+        });
+        imeGroup.add(imeRow);
+
+        const imeToggle = new Gtk.Switch({
+            active: settings.get_boolean('enable-ime'),
+            valign: Gtk.Align.CENTER,
+            sensitive: isWayland
+        });
+
+        if (isWayland) {
+            settings.bind('enable-ime', imeToggle, 'active', Gio.SettingsBindFlags.DEFAULT);
+        }
+        imeRow.add_suffix(imeToggle);
+        imeRow.activatable_widget = isWayland ? imeToggle : null;
 
         // Keyboard Layout Settings
         const layoutGroup = new Adw.PreferencesGroup({

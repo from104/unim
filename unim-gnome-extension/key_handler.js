@@ -29,17 +29,8 @@ const BYPASS_MODIFIER_MASK =
     Clutter.ModifierType.MOD1_MASK |  // Alt
     Clutter.ModifierType.SUPER_MASK;
 
-/** 네비게이션 키 (조합 중이면 커밋 후 바이패스) */
-const NAVIGATION_KEYSYMS = new Set([
-    Clutter.KEY_Up, Clutter.KEY_Down,
-    Clutter.KEY_Left, Clutter.KEY_Right,
-    Clutter.KEY_Home, Clutter.KEY_End,
-    Clutter.KEY_Page_Up, Clutter.KEY_Page_Down,
-    Clutter.KEY_Insert, Clutter.KEY_Delete,
-    Clutter.KEY_Tab, Clutter.KEY_ISO_Left_Tab,
-    Clutter.KEY_Return, Clutter.KEY_KP_Enter,
-    Clutter.KEY_Escape,
-]);
+
+
 
 /**
  * KeyHandler
@@ -171,19 +162,16 @@ export class KeyHandler {
 
         // 2. 팝업 활성 → 팝업에 위임
         if (this._popupActive && this._popupKeyHandler) {
-            return this._popupKeyHandler(keyval, state);
+            if (this._popupKeyHandler(keyval, state)) return true;
+            // 팝업이 미처리 키로 닫힘 (onCancel 콜백에서 cancelHanja 호출됨)
+            // → GTK3 fall-through 패턴: 나머지 키 처리 로직으로 계속 진행
         }
 
-        // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
+        // 3. Ctrl/Alt/Super 조합 → 조합 중이면 flush 후 바이패스
+        //    (시스템 단축키이므로 processKey에 보내지 않음)
         if (state & BYPASS_MODIFIER_MASK) {
             this._flushCompose();
-            return false;
-        }
-
-        // 4. 네비게이션 키 → 조합 중이면 커밋 후 바이패스
-        if (NAVIGATION_KEYSYMS.has(keyval)) {
-            this._flushCompose();
-            return false;
+            return false;  // notify_key_event(event, false) → Mutter가 키를 앱에 전달
         }
 
         // 4. 한자키 감지
@@ -215,20 +203,31 @@ export class KeyHandler {
 
         this._inputMethod.updatePreedit(preedit || '');
 
+        // consumed 값 그대로 반환
+        // consumed=false이면 notify_key_event(event, false) → Mutter가 키를 앱에 전달
+        // (Enter, Tab, Home 등 네비게이션 키는 엔진이 consumed=false 반환)
         return consumed;
     }
 
     /**
-     * 조합 중인 텍스트 flush (포커스아웃/네비게이션 시)
+     * 조합 중인 텍스트 flush (Ctrl/Alt 조합 시)
+     *
+     * 로컬 preedit을 커밋하고 엔진 상태를 초기화합니다.
+     * notify_key_event 패턴에서는 키 전달을 Mutter가 처리하므로
+     * forward_key 호출이 불필요합니다.
      * @private
      */
     _flushCompose() {
-        if (!this._dbusIME?.isConnected) return;
-        const commit = this._dbusIME.focusOut();
-        if (commit && commit.length > 0) {
-            this._inputMethod.commitText(commit);
+        // 로컬 preedit에서 커밋 텍스트 획득
+        const preedit = this._inputMethod._preeditText || '';
+        if (preedit.length > 0) {
+            this._inputMethod.clearPreedit();
+            this._inputMethod.commitText(preedit);
         }
-        this._inputMethod.updatePreedit('');
+        // 엔진 상태 초기화 (포커스 변경 없이)
+        if (this._dbusIME?.isConnected) {
+            this._dbusIME.reset();
+        }
     }
 
     /**
@@ -336,13 +335,19 @@ export class KeyHandler {
 
         // 2. 팝업 활성 → 팝업에 위임
         if (this._popupActive && this._popupKeyHandler) {
-            const consumed = this._popupKeyHandler(keyval, state);
-            return consumed ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;
+            if (this._popupKeyHandler(keyval, state)) return Clutter.EVENT_STOP;
+            // 팝업이 미처리 키로 닫힘 → 나머지 키 처리 로직으로 fall-through
         }
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
         if (state & BYPASS_MODIFIER_MASK) {
-            this._flushCompose();
+            // captured-event 폴백이므로 forward_key 불필요, PROPAGATE로 키 전달
+            const preedit = this._inputMethod._preeditText || '';
+            if (preedit.length > 0) {
+                this._inputMethod.clearPreedit();
+                this._inputMethod.commitText(preedit);
+                if (this._dbusIME?.isConnected) this._dbusIME.reset();
+            }
             return Clutter.EVENT_PROPAGATE;
         }
 

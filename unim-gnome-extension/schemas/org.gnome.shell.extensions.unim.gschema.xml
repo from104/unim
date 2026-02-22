@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.unim-indicator" path="/org/gnome/shell/extensions/unim-indicator/" gettext-domain="gnome-shell-extensions">
+  <schema id="org.gnome.shell.extensions.unim" path="/org/gnome/shell/extensions/unim/" gettext-domain="gnome-shell-extensions">
     
     <!-- ============================================ -->
     <!-- Extension Settings -->
@@ -9,7 +9,7 @@
     <key type="b" name="enable-extension">
       <default>true</default>
       <summary>Enable Extension</summary>
-      <description>Whether to enable the entire UNIM indicator extension</description>
+      <description>Whether to enable the entire UNIM extension</description>
     </key>
 
     <key type="b" name="show-notification">

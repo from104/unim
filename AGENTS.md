@@ -78,8 +78,17 @@
 | `add-setting` | 새 설정 항목 추가 시 모든 컴포넌트 연동 가이드 |
 | `git-sync` | 변경 사항 분석 및 영문 커밋 메시지 생성 스킬 |
 
+## 디버깅
+
+**버그 분석 시 `~/.unim-errors.log`를 반드시 먼저 확인하세요.**
+
+- `UNIM_DEVELOP=1` 환경변수 설정 시 모든 컴포넌트(Engine, DBus, Frontend, Extension)가 이 파일에 로그를 기록합니다.
+- 로그에는 타임스탬프, 모듈명, 상세 메시지가 포함되어 키 이벤트 흐름, DBus 통신, 조합 상태 변화를 추적할 수 있습니다.
+- 재현 전 로그 파일을 비우고(`> ~/.unim-errors.log`), 재현 후 분석하면 효율적입니다.
+
 ## 참조 문서
 
 - [GEMINI.md](GEMINI.md) - 개발 컨벤션, 설정 연동 가이드, 로깅 시스템
+- [IME_BEHAVIOR.md](IME_BEHAVIOR.md) - 한글 입력기 동작 명세 (모든 프론트엔드 공통)
 - [ROADMAP.md](ROADMAP.md) - 장기 개발 로드맵
 - [README.md](README.md) - 프로젝트 소개 및 아키텍처 상세

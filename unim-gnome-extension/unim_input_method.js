@@ -61,28 +61,40 @@ class UnimInputMethod extends Clutter.InputMethod {
     /**
      * Mutter가 텍스트 입력 키를 전달할 때 호출 (C vtable 경유)
      *
+     * IBus와 동일한 패턴: 항상 true를 반환하여 키를 소비하고,
+     * 처리 후 notify_key_event(event, consumed)로 키 전달 여부를 사후 통보.
+     *
      * @param {Clutter.Event} event
-     * @returns {boolean} true면 키 소비
+     * @returns {boolean} 항상 true (IBus 패턴)
      */
     vfunc_filter_key_event(event) {
         if (!event) return false;
         if (!this._active) return false;
 
+        // KEY_RELEASE는 무시
+        if (event.type() !== Clutter.EventType.KEY_PRESS) {
+            return false;
+        }
+
+        let consumed = false;
+
         try {
-            if (event.type() === Clutter.EventType.KEY_PRESS && this._keyHandler) {
+            if (this._keyHandler) {
                 const keyval = event.get_key_symbol();
                 const keycode = event.get_key_code();
                 const state = event.get_state();
                 const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
 
-                const consumed = this._keyHandler(keyval, evdevKeycode, state);
-                if (consumed) return true;
+                consumed = this._keyHandler(keyval, evdevKeycode, state);
             }
         } catch (e) {
             unimError('IME', `vfunc_filter_key_event 오류: ${e.message}`);
         }
 
-        return false;
+        // IBus 패턴: notify_key_event로 키 전달 여부를 Mutter에 사후 통보
+        // consumed=false이면 Mutter가 키를 앱에 전달
+        this.notify_key_event(event, consumed);
+        return true;
     }
 
     vfunc_focus_in(_focus) {
@@ -190,6 +202,7 @@ class UnimInputMethod extends Clutter.InputMethod {
             unimError('IME', `preedit 초기화 실패: ${e.message}`);
         }
     }
+
 
     /**
      * IME 활성/비활성 토글

@@ -301,7 +301,7 @@ check_extension_status(void)
 
     GVariant *result = g_dbus_proxy_call_sync(
         ext_proxy, "GetExtensionInfo",
-        g_variant_new("(s)", "unim-indicator@from104.github.io"),
+        g_variant_new("(s)", "unim-gnome@from104.github.io"),
         G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
 
     if (result) {

@@ -84,13 +84,8 @@ class UnimIndicator extends PanelMenu.Button {
         
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         
-        // === 설정 메뉴 ===
-        const settingsItem = new PopupMenu.PopupMenuItem('설정 (Settings)...');
-        settingsItem.connect('activate', () => this._openSettings());
-        this.menu.addMenuItem(settingsItem);
-        
         // === Extension 설정 ===
-        const extSettingsItem = new PopupMenu.PopupMenuItem('Extension 설정...');
+        const extSettingsItem = new PopupMenu.PopupMenuItem('설정 (Settings)...');
         extSettingsItem.connect('activate', () => this._openExtensionSettings());
         this.menu.addMenuItem(extSettingsItem);
         
@@ -307,26 +302,7 @@ class UnimIndicator extends PanelMenu.Button {
         }
     }
     
-    _openSettings() {
-        // unim-gtk-settings 또는 unim-qt-settings 실행
-        const settingsApps = [
-            'unim-gtk-settings',
-            'unim-qt-settings',
-            '/usr/bin/unim-gtk-settings',
-            '/usr/local/bin/unim-gtk-settings'
-        ];
-        
-        for (const app of settingsApps) {
-            try {
-                GLib.spawn_command_line_async(app);
-                return;
-            } catch (e) {
-                // 다음 시도
-            }
-        }
-        
-        Main.notify('UNIM', '설정 도구를 찾을 수 없습니다.');
-    }
+
     
     _openExtensionSettings() {
         try {

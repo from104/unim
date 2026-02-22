@@ -931,12 +931,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                         context_path: ctx_path,
                     });
                     if !commit.is_empty() {
-                        self.clear_preedit(server, user_ic)?;
-                        server.conn().flush().ok();
                         unim_log!("XIM_HANDLER", "한자 커밋: \"{}\"", commit);
                         server.commit(&user_ic.ic, &commit)?;
                         server.conn().flush().ok();
-                        server.preedit_draw(&mut user_ic.ic, "")?;
+                        self.clear_preedit(server, user_ic)?;
                         server.conn().flush().ok();
                     }
                     // 팝업 닫기
@@ -972,7 +970,6 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     {
                         if let Some(ct) = commit {
                             if !ct.is_empty() {
-                                self.clear_preedit(server, user_ic)?;
                                 server.commit(&user_ic.ic, &ct)?;
                                 server.conn().flush().ok();
                             }
@@ -1085,12 +1082,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                         context_path: ctx_path,
                     });
                     if !commit.is_empty() {
-                        self.clear_preedit(server, user_ic)?;
-                        server.conn().flush().ok();
                         unim_log!("XIM_HANDLER", "특수문자 커밋: \"{}\"", commit);
                         server.commit(&user_ic.ic, &commit)?;
                         server.conn().flush().ok();
-                        server.preedit_draw(&mut user_ic.ic, "")?;
+                        self.clear_preedit(server, user_ic)?;
                         server.conn().flush().ok();
                     }
                     // 팝업 닫기
@@ -1122,7 +1117,6 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     {
                         if let Some(ct) = commit {
                             if !ct.is_empty() {
-                                self.clear_preedit(server, user_ic)?;
                                 server.commit(&user_ic.ic, &ct)?;
                                 server.conn().flush().ok();
                             }
@@ -1370,11 +1364,13 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         };
 
         // Commit 처리
+        // 중요: commit 전에 clear_preedit()을 호출하지 않음.
+        // clear_preedit()은 XIM PreeditDone을 전송하여 preedit 세션을 종료하는데,
+        // 이후 새 preedit 설정 시 PreeditStart→PreeditDraw 시퀀스가 발생하며
+        // 일부 XIM 클라이언트(GTK 등)가 이 빠른 전환을 올바르게 처리하지 못함.
+        // commit 후 preedit을 in-place로 업데이트하면 PreeditDraw만으로 교체됨.
         if let Some(commit_text) = commit {
             if !commit_text.is_empty() {
-                self.clear_preedit(server, user_ic)?;
-                server.conn().flush().ok();
-
                 unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
                 server.commit(&user_ic.ic, &commit_text)?;
                 server.conn().flush().ok();

@@ -358,10 +358,18 @@ export default class UnimExtension extends Extension {
                 hanjaResult.target,
                 hanjaResult.candidates,
                 (globalIndex) => {
-                    // 선택 콜백
+                    // 선택 콜백 — GTK3 on_hanja_selected 패턴:
+                    // 1. selectHanja → 한자 문자 획득
+                    // 2. cancelHanja → 엔진 preedit 상태 리셋
+                    // 3. clearPreedit → 로컬 preedit 클리어
+                    // 4. commitText → 한자 커밋
                     const selected = this._dbusIME.selectHanja(globalIndex);
-                    if (selected && this._inputMethod) {
-                        this._inputMethod.commitText(selected);
+                    this._dbusIME.cancelHanja();
+                    if (this._inputMethod) {
+                        this._inputMethod.clearPreedit();
+                        if (selected) {
+                            this._inputMethod.commitText(selected);
+                        }
                     }
                     this._keyHandler.setPopupKeyHandler(null);
                 },
@@ -389,10 +397,14 @@ export default class UnimExtension extends Extension {
                 specialResult.characters,
                 specialResult.topRow,
                 (globalIndex) => {
-                    // 선택 콜백
+                    // 선택 콜백 — GTK3 on_special_char_selected 패턴
                     const selected = this._dbusIME.selectSpecialChar(globalIndex);
-                    if (selected && this._inputMethod) {
-                        this._inputMethod.commitText(selected);
+                    this._dbusIME.cancelSpecialChar();
+                    if (this._inputMethod) {
+                        this._inputMethod.clearPreedit();
+                        if (selected) {
+                            this._inputMethod.commitText(selected);
+                        }
                     }
                     this._keyHandler.setPopupKeyHandler(null);
                 },
@@ -461,7 +473,7 @@ export default class UnimExtension extends Extension {
     _addIndicator() {
         if (!this._indicator) {
             this._indicator = new UnimIndicator(this);
-            Main.panel.addToStatusArea('unim-indicator', this._indicator);
+            Main.panel.addToStatusArea('unim', this._indicator);
         }
     }
 

@@ -1,10 +1,10 @@
 {
-    "uuid": "unim-indicator@from104.github.io",
-    "name": "UNIM Indicator",
-    "description": "Korean/English input status indicator for UNIM input method. Shows current mode in the panel and provides TypeFix hotkeys for text conversion.",
+    "uuid": "unim-gnome@from104.github.io",
+    "name": "UNIM",
+    "description": "Korean Input Method Extension for GNOME Shell. Provides native Hangul input via Clutter.InputMethod, TypeFix text conversion hotkeys, and input mode indicator.",
     "url": "https://github.com/from104/unim",
     "version": "0.2.0",
     "shell-version": ["45", "46", "47"],
-    "settings-schema": "org.gnome.shell.extensions.unim-indicator",
-    "gettext-domain": "unim-indicator@from104.github.io"
+    "settings-schema": "org.gnome.shell.extensions.unim",
+    "gettext-domain": "unim-gnome@from104.github.io"
 }

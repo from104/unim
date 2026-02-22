@@ -92,6 +92,7 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 - **화면 경계 처리**: 오른쪽/아래 넘침 시 왼쪽/위로 조정
 - **선택**: 숫자 1-9 직접 선택, ↑↓ 네비게이션, Enter 확정
 - **페이지**: ← → PgUp PgDn Space로 이동
+- **선택 시 커밋 플로우**: SelectHanja → CancelHanja(엔진 preedit 리셋) → clearPreedit → commit
 - **취소**: Escape 또는 미등록 키 입력 시 닫기 + 원래 문자 유지
 - **포커스 이동 시 자동 닫기**
 
@@ -101,7 +102,14 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 - **레이아웃**: 9×9 그리드, 열 우선 채움
 - **선택**: top_row 키(q~o)로 열 점프, 숫자 1-9로 행 선택
 - **페이지**: Tab/Shift+Tab, PgUp/PgDn으로 이동
+- **선택 시 커밋 플로우**: SelectSpecialChar → CancelSpecialChar → clearPreedit → commit
 - **취소/자동 닫기**: 한자 팝업과 동일
+
+### 4.3 팝업에서 미처리 키 동작
+- 팝업이 처리하지 않는 키(일반 문자, 등록 안 된 키)가 입력되면:
+  1. 팝업 닫기 + 해당 모드 취소 (CancelHanja / CancelSpecialChar)
+  2. **나머지 IME 키 처리 로직으로 fall-through** (네비게이션 키 → commit+바이패스, 문자 키 → ProcessKey)
+  3. 즉시 return하지 않음 — GTK3 immodule.c의 "미지원 키 → 닫기 → fall-through" 패턴을 따름
 
 ---
 

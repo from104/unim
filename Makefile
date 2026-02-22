@@ -46,7 +46,7 @@ DBUS_SERVICES_DIR ?= $(DATADIR)/dbus-1/services
 SYSTEMD_USER_DIR ?= $(REAL_LIBDIR)/systemd/user
 
 # GNOME Extension settings
-UUID := unim-indicator@from104.github.io
+UUID := unim-gnome@from104.github.io
 VERSION := $(shell sed -n 's/.*"version": "\([^"]*\)".*/\1/p' unim-gnome-extension/metadata.json)
 ZIP_FILE := $(UUID)-$(VERSION).zip
 GNOME_EXTENSION_DIR := $(DATADIR)/gnome-shell/extensions/$(UUID)
