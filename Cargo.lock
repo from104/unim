@@ -2759,7 +2759,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "unim-indicator"
+name = "unim-gui"
 version = "0.0.1"
 dependencies = [
  "dirs",

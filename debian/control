@@ -16,12 +16,12 @@ Description: Korean Input Method Engine
  This package contains the core daemon, C-API library, CLI tools,
  and XIM/Wayland protocol support.
 
-Package: unim-indicator
+Package: unim-gui
 Architecture: amd64
 Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
-Description: UNIM Status Indicator (non-GNOME)
- System tray status indicator for UNIM in non-GNOME desktop environments.
- Uses StatusNotifierItem (SNI) protocol for tray integration.
+Description: UNIM GUI (tray, popups, settings)
+ UNIM GUI process providing system tray indicator, Hanja/special character
+ popups, and settings dialog. GTK4/libadwaita based.
  Not needed if using GNOME Shell Extension.
 
 Package: unim-gtk

@@ -172,7 +172,7 @@ UNIM 샌드박스 환경 스크립트
   -s, --size WxH      화면 크기 (기본값: 1280x720)
   --no-build          빌드 확인 건너뛰기
   --no-tray           stalonetray 시작 안함
-  --indicator         unim-indicator도 시작
+  --indicator         unim-gui도 시작
 
 테스트앱:
   gtk3                GTK3 테스트 앱 (unim-test-gtk3)
@@ -339,14 +339,14 @@ main() {
         
         # 인디케이터 시작 (옵션)
         if [[ '$start_indicator' == 'true' ]]; then
-            if [ -x '$RUST_BIN/unim-indicator' ]; then
-                echo '[UNIM-SANDBOX] unim-indicator 시작'
-                '$RUST_BIN/unim-indicator' &
+            if [ -x '$RUST_BIN/unim-gui' ]; then
+                echo '[UNIM-SANDBOX] unim-gui 시작'
+                '$RUST_BIN/unim-gui' &
                 INDICATOR_PID=\$!
                 /bin/sleep 0.5
-                echo '[UNIM-SANDBOX] 인디케이터 시작됨 (PID: '\$INDICATOR_PID')'
+                echo '[UNIM-SANDBOX] unim-gui 시작됨 (PID: '\$INDICATOR_PID')'
             else
-                echo '[UNIM-SANDBOX] 경고: unim-indicator를 찾을 수 없습니다'
+                echo '[UNIM-SANDBOX] 경고: unim-gui를 찾을 수 없습니다'
             fi
         fi
         

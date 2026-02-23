@@ -9,7 +9,7 @@ use std::thread;
 
 use tokio::sync::mpsc;
 
-use crate::service::{EngineRequest, EngineResponse};
+use crate::service::{EngineRequest, EngineResponse, PopupAction};
 use unim::config::Config;
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
@@ -145,11 +145,35 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         None
                     };
 
+                    // 팝업 동작 감지
+                    let popup_action = if engine.is_hanja_mode() {
+                        // 한자 모드 진입
+                        Some(PopupAction::ShowHanja {
+                            target: engine.get_hanja_target().to_string(),
+                            candidates: engine.get_hanja_candidates(),
+                        })
+                    } else if engine.is_special_char_mode() {
+                        // 특수문자 모드 진입
+                        let top_row = config.engine.english.layout.top_row_labels().to_string();
+                        Some(PopupAction::ShowSpecial {
+                            target: engine.get_special_char_target().to_string(),
+                            characters: engine
+                                .get_special_char_candidates()
+                                .iter()
+                                .map(|c| c.to_string())
+                                .collect(),
+                            top_row,
+                        })
+                    } else {
+                        None
+                    };
+
                     EngineResponse {
                         consumed: result.consumed,
                         preedit,
                         commit,
                         mode_changed,
+                        popup_action,
                     }
                 } else {
                     EngineResponse {
@@ -157,6 +181,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         preedit: None,
                         commit: None,
                         mode_changed: None,
+                        popup_action: None,
                     }
                 };
 
@@ -356,6 +381,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 if let Some(engine) = contexts.get_mut(&context_id) {
                     engine.cancel_special_char();
                 }
+            }
+
+            EngineRequest::ReportCursorRect { .. } => {
+                // 커서 위치는 service.rs의 InputContextHandler에서 직접 처리
+                // 엔진 워커는 무시
             }
         }
     }

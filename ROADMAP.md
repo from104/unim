@@ -24,7 +24,7 @@
 - [x] **Wayland 프론트엔드**: `input-method-v2` + `virtual-keyboard-v1` 프로토콜 기반 구현 (KDE Plasma 지원).
 - [x] **한자/특수문자 입력**: X11 Xft 팝업 (XIM), GTK/Qt 팝업 (IM 모듈) 기반 한자 및 특수문자 후보 선택.
 - [x] **설정 도구**: GTK/Qt GUI 설정 도구 (`unim-gtk-settings`, `unim-qt-settings`) + CLI (`unim-config`).
-- [x] **시스템 트레이**: `unim-indicator` 시스템 트레이 아이콘.
+- [x] **시스템 트레이**: `unim-gui` 트레이 아이콘 및 팝업 통합.
 
 ### 3단계: 문서화 및 안정화 (진행 중)
 

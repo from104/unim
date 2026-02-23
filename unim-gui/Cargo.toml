@@ -1,11 +1,11 @@
 [package]
-name = "unim-indicator"
+name = "unim-gui"
 version = "0.0.1"
 edition = "2021"
-description = "UNIM Input Method Status Indicator"
+description = "UNIM GUI - Integrated tray, popups, and settings"
 
 [[bin]]
-name = "unim-indicator"
+name = "unim-gui"
 path = "src/main.rs"
 
 [dependencies]

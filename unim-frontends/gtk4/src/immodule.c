@@ -852,6 +852,17 @@ unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
     
     if (area) {
         unim->cursor_area = *area;
+
+        /* 커서 위치를 데몬에 보고 (팝업 포지셔닝용) */
+        if (unim->dbus_ctx) {
+            gint abs_x, abs_y;
+            calculate_popup_position(unim, &abs_x, &abs_y);
+            /* abs_y는 cursor_area.y + height로 계산되므로, 원래 y를 복원 */
+            abs_y -= area->height;
+            unim_dbus_report_cursor_rect(unim->dbus_ctx,
+                                          abs_x, abs_y,
+                                          area->width, area->height);
+        }
     }
 }
 

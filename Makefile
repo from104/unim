@@ -58,15 +58,15 @@ DEB_DIR := $(CURDIR)/debs
 
 CARGO := cargo
 
-.PHONY: all clean clean-all build build-rust build-frontends build-settings build-tests \
-        install install-core install-frontends install-settings install-icons install-autostart install-gnome-extension install-extension \
+.PHONY: all clean clean-all build build-rust build-frontends build-tests \
+        install install-core install-frontends install-icons install-autostart install-gnome-extension install-extension \
         install-systemd uninstall-systemd enable-systemd disable-systemd status-systemd \
-        uninstall uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart uninstall-gnome-extension uninstall-extension \
+        uninstall uninstall-core uninstall-frontends uninstall-icons uninstall-autostart uninstall-gnome-extension uninstall-extension \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
         deb clean-deb help \
         test test-gtk3 test-gtk4 test-qt5 test-qt6 test-gnome test-xim test-wayland test-dbus \
-        sandbox sandbox-gtk3 sandbox-gtk4 sandbox-qt5 sandbox-qt6 sandbox-xim sandbox-indicator \
-        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-indicator dev-extension dev-restart
+        sandbox sandbox-gtk3 sandbox-gtk4 sandbox-qt5 sandbox-qt6 sandbox-xim sandbox-gui \
+        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-gui dev-extension dev-restart
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Help
@@ -80,16 +80,14 @@ help:
 	@echo "Usage: make [target] [PREFIX=/usr/local]"
 	@echo ""
 	@echo "Build targets:"
-	@echo "  build            - Full build (Rust + frontends + settings)"
+	@echo "  build            - Full build (Rust + frontends)"
 	@echo "  build-rust       - Build Rust workspace only"
 	@echo "  build-frontends  - Build GTK3/GTK4/Qt5/Qt6 IM modules"
-	@echo "  build-settings   - Build GTK/Qt settings tools"
 	@echo ""
 	@echo "Install targets (requires sudo for system paths):"
 	@echo "  install          - Install all components"
 	@echo "  install-core     - Install core library, daemon, and CLI tools"
 	@echo "  install-frontends - Install GTK/Qt IM modules"
-	@echo "  install-settings - Install settings tools"
 	@echo ""
 	@echo "Uninstall targets:"
 	@echo "  uninstall        - Remove all installed components"
@@ -132,7 +130,7 @@ help:
 	@echo "  sandbox-qt5      - Launch sandbox with Qt5 test app"
 	@echo "  sandbox-qt6      - Launch sandbox with Qt6 test app"
 	@echo "  sandbox-xim      - Launch sandbox with XIM test app"
-	@echo "  sandbox-indicator- Launch sandbox with indicator test"
+	@echo "  sandbox-gui      - Launch sandbox with GUI test"
 	@echo "  build-tests      - Build all test applications"
 	@echo ""
 	@echo "Quick Development (no deb needed, 최초 1회 install 필요):"
@@ -144,7 +142,7 @@ help:
 	@echo "  dev-daemon       - unim-daemon 빌드 + 배포 + 재시작"
 	@echo "  dev-xim          - unim-xim 빌드 + 배포 + 재시작"
 	@echo "  dev-wayland      - unim-wayland 빌드 + 배포 + 재시작"
-	@echo "  dev-indicator    - unim-indicator 빌드 + 배포 + 재시작"
+	@echo "  dev-gui          - unim-gui 빌드 + 배포 + 재시작"
 	@echo "  dev-extension    - GNOME Extension 증분 빌드 + 로컬(User) 배포"
 	@echo "  dev-restart      - 데몬 및 프론트엔드 재시작"
 	@echo ""
@@ -165,8 +163,8 @@ help:
 
 all: build
 
-# Full build: Rust workspace + all frontends + settings tools
-build: build-rust build-frontends build-settings
+# Full build: Rust workspace + all frontends (settings built into unim-gui)
+build: build-rust build-frontends
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 전체 빌드 완료!"
 	@echo "════════════════════════════════════════════════════════════"
@@ -200,23 +198,12 @@ build-frontends: build-rust
 	@mkdir -p unim-frontends/qt6/build && cd unim-frontends/qt6/build && \
 		cmake .. && make
 
-# Build GTK/Qt settings tools
-build-settings: build-rust
-	@echo "════════════════════════════════════════════════════════════"
-	@echo "🔨 Building Settings Tools (GTK, Qt)..."
-	@echo "════════════════════════════════════════════════════════════"
-	@# GTK Settings
-	@echo "  → Building GTK Settings..."
-	@mkdir -p unim-gtk-settings/build && cd unim-gtk-settings/build && cmake .. && make
-	@# Qt Settings
-	@echo "  → Building Qt Settings..."
-	@mkdir -p unim-qt-settings/build && cd unim-qt-settings/build && cmake .. && make
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Install Targets
 # ─────────────────────────────────────────────────────────────────────────────
 
-install: install-core install-frontends install-settings install-icons install-autostart install-gnome-extension
+install: install-core install-frontends install-icons install-autostart install-gnome-extension
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 	@echo ""
@@ -243,7 +230,7 @@ install-core:
 	@# Executables
 	install -m 755 target/release/unim-cli $(DESTDIR)$(BINDIR)/
 	install -m 755 target/release/unim-config $(DESTDIR)$(BINDIR)/
-	install -m 755 target/release/unim-indicator $(DESTDIR)$(BINDIR)/
+	install -m 755 target/release/unim-gui $(DESTDIR)$(BINDIR)/
 	@# Daemons / servers
 	install -m 755 target/release/unim-daemon $(DESTDIR)$(LIBEXECDIR)/
 	install -m 755 target/release/unim-xim $(DESTDIR)$(LIBEXECDIR)/
@@ -272,11 +259,6 @@ install-frontends:
 	install -d $(DESTDIR)$(QT6_PLUGIN_DIR)
 	install -m 755 unim-frontends/qt6/build/libunim.so $(DESTDIR)$(QT6_PLUGIN_DIR)/
 
-install-settings:
-	@echo "Installing settings tools..."
-	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 unim-gtk-settings/build/unim-gtk-settings $(DESTDIR)$(BINDIR)/
-	install -m 755 unim-qt-settings/build/unim-qt-settings $(DESTDIR)$(BINDIR)/
 
 install-icons:
 	@echo "Installing icons..."
@@ -287,13 +269,13 @@ install-icons:
 install-autostart:
 	@echo "Installing autostart entry..."
 	install -d $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
-	install -m 644 unim-indicator/data/unim-indicator.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	install -m 644 unim-gui/data/unim-gui.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Uninstall Targets
 # ─────────────────────────────────────────────────────────────────────────────
 
-uninstall: uninstall-core uninstall-frontends uninstall-settings uninstall-icons uninstall-autostart uninstall-gnome-extension
+uninstall: uninstall-core uninstall-frontends uninstall-icons uninstall-autostart uninstall-gnome-extension
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 제거 완료!"
 	@echo "════════════════════════════════════════════════════════════"
@@ -304,7 +286,7 @@ uninstall-core:
 	rm -f $(DESTDIR)$(INCLUDEDIR)/unim.h
 	rm -f $(DESTDIR)$(BINDIR)/unim-cli
 	rm -f $(DESTDIR)$(BINDIR)/unim-config
-	rm -f $(DESTDIR)$(BINDIR)/unim-indicator
+	rm -f $(DESTDIR)$(BINDIR)/unim-gui
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-daemon
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-xim
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-wayland
@@ -319,10 +301,6 @@ uninstall-frontends:
 	rm -f $(DESTDIR)$(QT5_PLUGIN_DIR)/libunim.so
 	rm -f $(DESTDIR)$(QT6_PLUGIN_DIR)/libunim.so
 
-uninstall-settings:
-	@echo "Removing settings tools..."
-	rm -f $(DESTDIR)$(BINDIR)/unim-gtk-settings
-	rm -f $(DESTDIR)$(BINDIR)/unim-qt-settings
 
 uninstall-icons:
 	@echo "Removing icons..."
@@ -331,7 +309,7 @@ uninstall-icons:
 
 uninstall-autostart:
 	@echo "Removing autostart entry..."
-	rm -f $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-indicator.desktop
+	rm -f $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui.desktop
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Systemd User Service
@@ -497,7 +475,7 @@ test:
 	fi
 	@echo ""
 	@echo "✅ 4. CLI 및 데몬"
-	@for cmd in unim-cli unim-config unim-indicator; do \
+	@for cmd in unim-cli unim-config unim-gui; do \
 		if [ -f $(DESTDIR)$(BINDIR)/$$cmd ]; then \
 			echo "   ✓ $$cmd 설치됨"; \
 		else \
@@ -509,15 +487,6 @@ test:
 			echo "   ✓ $$libcmd 설치됨"; \
 		else \
 			echo "   ✗ $$libcmd 미설치"; \
-		fi; \
-	done
-	@echo ""
-	@echo "✅ 5. 설정 도구"
-	@for cmd in unim-gtk-settings unim-qt-settings; do \
-		if [ -f $(DESTDIR)$(BINDIR)/$$cmd ]; then \
-			echo "   ✓ $$cmd 설치됨"; \
-		else \
-			echo "   ✗ $$cmd 미설치"; \
 		fi; \
 	done
 	@echo ""
@@ -539,9 +508,7 @@ clean:
 	@rm -rf unim-frontends/gtk4/build
 	@rm -rf unim-frontends/qt5/build
 	@rm -rf unim-frontends/qt6/build
-	@# Settings build directories
-	@rm -rf unim-gtk-settings/build
-	@rm -rf unim-qt-settings/build
+
 	@# Test apps
 	@rm -rf unim-test-gtk3/build
 	@rm -rf unim-test-gtk4/build
@@ -624,14 +591,14 @@ dev-wayland:
 	@pkill -f unim-wayland 2>/dev/null || true
 	@echo "✅ Wayland IM 배포 완료!"
 
-dev-indicator:
-	@echo "🔧 [dev] unim-indicator 빌드 + 배포 + 재시작..."
-	@$(CARGO) build --release -p unim-indicator
+dev-gui:
+	@echo "🔧 [dev] unim-gui 빌드 + 배포 + 재시작..."
+	@$(CARGO) build --release -p unim-gui
 	@echo "  → 시스템에 복사 (sudo 필요)..."
-	@sudo cp target/release/unim-indicator $(BINDIR)/
-	@echo "  → 인디케이터 재시작..."
-	@pkill -f unim-indicator 2>/dev/null || true
-	@echo "✅ 인디케이터 배포 완료!"
+	@sudo cp target/release/unim-gui $(BINDIR)/
+	@echo "  → unim-gui 재시작..."
+	@pkill -f unim-gui 2>/dev/null || true
+	@echo "✅ unim-gui 배포 완료!"
 
 dev-extension: gnome-extension
 	@echo "🔧 [dev] GNOME Extension 로컬 배포 (User)..."
@@ -645,7 +612,7 @@ dev-restart:
 	@pkill -f unim-daemon 2>/dev/null || true
 	@pkill -f unim-xim 2>/dev/null || true
 	@pkill -f unim-wayland 2>/dev/null || true
-	@pkill -f unim-indicator 2>/dev/null || true
+	@pkill -f unim-gui 2>/dev/null || true
 	@sleep 1
 	@echo "✅ 모든 UNIM 프로세스가 종료되었습니다. (DBus 자동활성화로 다음 요청 시 재시작됩니다)"
 

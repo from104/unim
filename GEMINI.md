@@ -36,8 +36,7 @@ UNIM의 설정 항목(`src/config.rs`)이 변경될 때는 **모든 관련 컴�
 | **설정 코어** | `src/config.rs` | 설정 구조체 및 직렬화 정의 (Source of Truth) |
 | **unim-config (CLI)** | `unim-config/src/main.rs` | CLI 설정 관리 도구 |
 | **unim-dbus** | `unim-dbus/src/service.rs` | `get_config`/`set_config` DBus 메서드 |
-| **GTK 설정 도구** | `unim-gtk-settings/src/settings_dialog.c` | GTK 기반 GUI 설정 |
-| **Qt 설정 도구** | `unim-qt-settings/src/SettingsDialog.cpp` | Qt 기반 GUI 설정 |
+| **unim-gui 설정** | `unim-gui/src/settings_dialog.rs` | 내장 GUI 설정 다이얼로그 |
 | **GNOME Extension 설정** | `unim-gnome-extension/prefs.js` | GNOME Extension Preferences |
 | **C-API** | `unim-capi/src/lib.rs` | FFI 바인딩 (필요 시) |
 
@@ -47,11 +46,10 @@ UNIM의 설정 항목(`src/config.rs`)이 변경될 때는 **모든 관련 컴�
 2. [ ] `unim-config/src/main.rs` - `ConfigKey` enum 및 관련 함수 업데이트
 3. [ ] `unim-config/locales/*.yml` - 번역 문자열 추가
 4. [ ] `unim-dbus/src/service.rs` - `get_config`/`set_config` 매칭 업데이트
-5. [ ] `unim-gtk-settings` - UI 위젯 및 DBus 연동 추가
-6. [ ] `unim-qt-settings` - UI 위젯 및 DBus 연동 추가
-7. [ ] `unim-gnome-extension/prefs.js` - GSettings 스키마 및 UI 추가
-8. [ ] `unim-gnome-extension/*.gschema.xml` - GSchema 정의 업데이트
-9. [ ] `unim-capi/src/lib.rs` - FFI 함수 추가 (필요 시)
+5. [ ] `unim-gui/src/settings_dialog.rs` - UI 위젯 및 설정 연동 추가
+6. [ ] `unim-gnome-extension/prefs.js` - GSettings 스키마 및 UI 추가
+7. [ ] `unim-gnome-extension/*.gschema.xml` - GSchema 정의 업데이트
+8. [ ] `unim-capi/src/lib.rs` - FFI 함수 추가 (필요 시)
 
 ## 예시: `mode_sharing` 설정 추가 시
 
@@ -59,8 +57,7 @@ UNIM의 설정 항목(`src/config.rs`)이 변경될 때는 **모든 관련 컴�
 src/config.rs           → ModeSharingMode enum 정의
 unim-config/main.rs     → ConfigKey::ModeSharing 추가
 unim-dbus/service.rs    → get_config("mode_sharing"), set_config("mode_sharing", ...) 처리
-unim-gtk-settings       → ComboBox 추가, DBus 연동
-unim-qt-settings        → QComboBox 추가, DBus 연동
+unim-gui/settings_dialog.rs → ComboRow 추가
 prefs.js + gschema.xml  → 'mode-sharing' 키 추가
 ```
 
@@ -101,7 +98,7 @@ unim_log!("DAEMON", "연결 수: {}", count);
 | `XIM` | `unim-frontends/xim` |
 | `WAYLAND` | `unim-frontends/wayland` |
 | `CLI` | `unim-cli` |
-| `INDICATOR` | `unim-indicator` |
+| `INDICATOR` | `unim-gui` |
 
 ### C (GTK)
 

@@ -1,8 +1,11 @@
-//! UNIM 상태 표시 인디케이터
+//! UNIM GUI 통합 프로세스
 //!
-//! 시스템 트레이에 입력 모드를 표시하고,
-//! DBus 시그널을 구독하여 아이콘을 업데이트합니다.
-//! 현대적인 GTK4/libadwaita 기반 팝업 윈도우를 제공합니다.
+//! 시스템 트레이 아이콘, 한자/특수문자 팝업, 설정 다이얼로그를 통합 제공합니다.
+//! GTK4/libadwaita 기반이며, DBus 시그널을 구독하여 상태를 실시간 반영합니다.
+
+mod hanja_popup;
+mod settings_dialog;
+mod special_popup;
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
@@ -38,23 +41,46 @@ impl Default for IndicatorState {
     }
 }
 
-/// 팝업 액션
+/// 팝업 액션 (트레이/DBus → GTK 이벤트 루프)
 #[derive(Debug, Clone)]
-enum PopupAction {
-    Show,
+enum GuiAction {
+    ShowModePopup,
     UpdateCategory(InputCategory),
+    /// 한자 팝업 표시
+    ShowHanjaPopup {
+        target: String,
+        candidates: Vec<(String, String)>,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    },
+    /// 특수문자 팝업 표시
+    ShowSpecialPopup {
+        target: String,
+        characters: Vec<String>,
+        top_row: String,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    },
+    /// 팝업 숨김
+    HidePopup,
+    /// 설정 다이얼로그 열기
+    OpenSettings,
 }
 
 /// ksni 트레이 구현
 #[derive(Debug)]
 struct UnimTray {
     state: Arc<RwLock<IndicatorState>>,
-    popup_tx: Sender<PopupAction>,
+    popup_tx: Sender<GuiAction>,
 }
 
 impl ksni::Tray for UnimTray {
     fn id(&self) -> String {
-        "unim-indicator".into()
+        "unim-gui".into()
     }
 
     fn icon_theme_path(&self) -> String {
@@ -105,7 +131,7 @@ impl ksni::Tray for UnimTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.popup_tx.send(PopupAction::Show);
+        let _ = self.popup_tx.send(GuiAction::ShowModePopup);
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -128,7 +154,7 @@ impl ksni::Tray for UnimTray {
                             s.category = InputCategory::Korean;
                             let _ = this
                                 .popup_tx
-                                .send(PopupAction::UpdateCategory(InputCategory::Korean));
+                                .send(GuiAction::UpdateCategory(InputCategory::Korean));
                             unim_log!("INDICATOR", "한국어 모드로 전환");
                         }
                     }),
@@ -154,7 +180,7 @@ impl ksni::Tray for UnimTray {
                             s.category = InputCategory::English;
                             let _ = this
                                 .popup_tx
-                                .send(PopupAction::UpdateCategory(InputCategory::English));
+                                .send(GuiAction::UpdateCategory(InputCategory::English));
                             unim_log!("INDICATOR", "영어 모드로 전환");
                         }
                     }),
@@ -191,14 +217,26 @@ impl ksni::Tray for UnimTray {
 // ============================================================================
 
 fn main() {
-    unim_log!("INDICATOR", "UNIM 인디케이터 시작...");
+    unim_log!("INDICATOR", "UNIM GUI 시작...");
+
+    // --settings 인자 확인: 설정 다이얼로그만 표시
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--settings") {
+        run_settings_only();
+        return;
+    }
 
     // 상태 초기화
     let state = Arc::new(RwLock::new(IndicatorState::default()));
 
     // 채널들
-    let (popup_tx, popup_rx) = mpsc::channel::<PopupAction>();
+    let (popup_tx, popup_rx) = mpsc::channel::<GuiAction>();
     let popup_rx = Arc::new(Mutex::new(popup_rx));
+
+    // 트레이 메뉴 "설정" 에서 open_settings() 호출 시 GTK 이벤트 루프로 전달
+    if let Ok(mut tx) = SETTINGS_TX.lock() {
+        *tx = Some(popup_tx.clone());
+    }
 
     // DBus 시그널 감시 스레드 (ksni와 완전 분리)
     let dbus_state = state.clone();
@@ -274,7 +312,7 @@ const UNIM_BUS_NAME: &str = "org.atit.unim.InputMethod";
 async fn watch_dbus_signals(
     state: Arc<RwLock<IndicatorState>>,
     tray_update_tx: std::sync::mpsc::Sender<()>,
-    popup_tx: Sender<PopupAction>,
+    popup_tx: Sender<GuiAction>,
 ) {
     use futures_util::StreamExt;
 
@@ -421,7 +459,7 @@ async fn watch_mode_signals(
     connection: &zbus::Connection,
     state: Arc<RwLock<IndicatorState>>,
     tray_update_tx: std::sync::mpsc::Sender<()>,
-    popup_tx: Sender<PopupAction>,
+    popup_tx: Sender<GuiAction>,
 ) {
     use futures_util::StreamExt;
 
@@ -446,7 +484,7 @@ async fn watch_mode_signals(
                 s.category = category;
             }
             let _ = tray_update_tx.send(());
-            let _ = popup_tx.send(PopupAction::UpdateCategory(category));
+            let _ = popup_tx.send(GuiAction::UpdateCategory(category));
             unim_log!("INDICATOR", "[DBus] 초기 모드 조회: {:?}", category);
         }
         Err(e) => {
@@ -489,7 +527,7 @@ async fn watch_mode_signals(
                     }
                     unim_log!("INDICATOR", "[DBus] 모드 변경 감지: {:?}", category);
                     let _ = tray_update_tx.send(());
-                    let _ = popup_tx.send(PopupAction::UpdateCategory(category));
+                    let _ = popup_tx.send(GuiAction::UpdateCategory(category));
                 }
             }
             Err(e) => {
@@ -509,28 +547,97 @@ async fn watch_mode_signals(
 // ============================================================================
 
 /// GTK4/libadwaita 앱 실행
-fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Receiver<PopupAction>>>) {
+fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Receiver<GuiAction>>>) {
     let app = adw::Application::builder()
-        .application_id("io.github.from104.unim.indicator")
+        .application_id("io.github.from104.unim.gui")
         .build();
 
     app.connect_activate(move |app| {
-        // 시스템 팔레트와 무관하게 다크 모드 강제 적용
+        // 다크 모드 강제
         adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
 
         load_css();
         let window = build_popup_window(app, state.clone());
+
+        // 한자/특수문자 팝업 생성
+        let hanja_popup = hanja_popup::HanjaPopup::new();
+        let special_popup = special_popup::SpecialPopup::new();
+
+        // 팝업 콜백 설정 (TODO: DBus SelectHanja/SelectSpecialChar 호출 연동)
+        hanja_popup.connect_select(|idx| {
+            unim_log!("INDICATOR", "한자 선택: index={}", idx);
+            // TODO: DBus SelectHanja(idx) + 팝업 숨김
+        });
+        hanja_popup.connect_cancel(|| {
+            unim_log!("INDICATOR", "한자 취소");
+            // TODO: DBus CancelHanja()
+        });
+        special_popup.connect_select(|idx| {
+            unim_log!("INDICATOR", "특수문자 선택: index={}", idx);
+            // TODO: DBus SelectSpecialChar(idx) + 팝업 숨김
+        });
+        special_popup.connect_cancel(|| {
+            unim_log!("INDICATOR", "특수문자 취소");
+            // TODO: DBus CancelSpecialChar()
+        });
+
         let window_clone = window.clone();
         let popup_rx_clone = popup_rx.clone();
-        glib::timeout_add_local(Duration::from_millis(100), move || {
+        let app_clone = app.clone();
+        glib::timeout_add_local(Duration::from_millis(50), move || {
             if let Ok(rx) = popup_rx_clone.lock() {
                 while let Ok(action) = rx.try_recv() {
                     match action {
-                        PopupAction::Show => {
+                        GuiAction::ShowModePopup => {
                             window_clone.present();
                         }
-                        PopupAction::UpdateCategory(_category) => {
-                            // UI 업데이트는 창이 표시될 때 자동으로 처리됨
+                        GuiAction::UpdateCategory(_category) => {
+                            // UI 업데이트는 창이 표시될 때 자동 처리
+                        }
+                        GuiAction::ShowHanjaPopup {
+                            target,
+                            candidates,
+                            cursor_x,
+                            cursor_y,
+                            cursor_width,
+                            cursor_height,
+                        } => {
+                            special_popup.hide();
+                            hanja_popup.show(
+                                &target,
+                                candidates,
+                                cursor_x,
+                                cursor_y,
+                                cursor_width,
+                                cursor_height,
+                            );
+                        }
+                        GuiAction::ShowSpecialPopup {
+                            target,
+                            characters,
+                            top_row,
+                            cursor_x,
+                            cursor_y,
+                            cursor_width,
+                            cursor_height,
+                        } => {
+                            hanja_popup.hide();
+                            special_popup.show(
+                                &target,
+                                characters,
+                                &top_row,
+                                cursor_x,
+                                cursor_y,
+                                cursor_width,
+                                cursor_height,
+                            );
+                        }
+                        GuiAction::HidePopup => {
+                            hanja_popup.hide();
+                            special_popup.hide();
+                        }
+                        GuiAction::OpenSettings => {
+                            settings_dialog::show_settings_dialog(&app_clone);
                         }
                     }
                 }
@@ -629,6 +736,118 @@ fn load_css() {
         .settings-button:hover {
             background: rgba(255, 255, 255, 0.05);
             color: white;
+        }
+
+        /* === 한자 팝업 스타일 === */
+        .hanja-popup {
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+        }
+        .hanja-container {
+            padding: 12px;
+            min-width: 280px;
+        }
+        .hanja-target {
+            font-size: 13px;
+            font-weight: 600;
+            color: #89b4fa;
+            margin-bottom: 8px;
+            padding: 4px 8px;
+        }
+        .hanja-row {
+            padding: 6px 8px;
+            border-radius: 6px;
+            transition: background 150ms ease;
+        }
+        .hanja-row:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .hanja-selected {
+            background: rgba(137, 180, 250, 0.2);
+        }
+        .hanja-num {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.4);
+            min-width: 20px;
+        }
+        .hanja-char {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+            min-width: 28px;
+        }
+        .hanja-meaning {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .hanja-page {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.4);
+            padding: 6px;
+        }
+
+        /* === 특수문자 팝업 스타일 === */
+        .special-popup {
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+        }
+        .special-container {
+            padding: 12px;
+        }
+        .special-target {
+            font-size: 13px;
+            font-weight: 600;
+            color: #a6e3a1;
+            margin-bottom: 6px;
+            padding: 4px 8px;
+        }
+        .special-header {
+            margin-bottom: 2px;
+        }
+        .special-header-spacer {
+            min-width: 28px;
+        }
+        .special-header-key {
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.4);
+            min-width: 28px;
+            min-height: 20px;
+        }
+        .special-header-active {
+            color: #a6e3a1;
+        }
+        .special-grid {
+            /* grid uses row/col spacing */
+        }
+        .special-row-num {
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.4);
+            min-width: 20px;
+        }
+        .special-cell {
+            font-size: 16px;
+            min-width: 28px;
+            min-height: 28px;
+            border-radius: 4px;
+            transition: background 100ms ease;
+        }
+        .special-cell:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .special-cell-selected {
+            background: rgba(166, 227, 161, 0.25);
+            font-weight: 700;
+        }
+        .special-page {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.4);
+            padding: 4px;
         }
         "#,
     );
@@ -782,68 +1001,28 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
 // 설정 도구
 // ============================================================================
 
+/// `unim-gui --settings` 모드: 설정 다이얼로그만 표시하고 종료
+fn run_settings_only() {
+    let app = adw::Application::builder()
+        .application_id("io.github.from104.unim.settings")
+        .build();
+
+    app.connect_activate(|app| {
+        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+        settings_dialog::show_settings_dialog(app);
+    });
+
+    app.run_with_args::<String>(&[]);
+}
+
+/// 내장 설정 다이얼로그를 GTK 이벤트 루프에 GuiAction으로 요청
 fn open_settings() {
-    let settings_cmd = detect_settings_command();
-    unim_log!("INDICATOR", "설정 도구 실행: {}", settings_cmd);
-
-    let success = std::process::Command::new(&settings_cmd).spawn().is_ok();
-
-    if !success {
-        unim_log!(
-            "INDICATOR",
-            "설정 실행 실패 ({}). fallback 시도...",
-            settings_cmd
-        );
-        let fallback = if settings_cmd == "unim-gtk-settings" {
-            "unim-qt-settings"
-        } else {
-            "unim-gtk-settings"
-        };
-
-        if std::process::Command::new(fallback).spawn().is_err() {
-            unim_log!(
-                "INDICATOR",
-                "대체 설정 도구도 실패 ({}). 터미널 모드 시도...",
-                fallback
-            );
-            run_interactive_config_in_terminal();
+    if let Ok(tx) = SETTINGS_TX.lock() {
+        if let Some(tx) = tx.as_ref() {
+            let _ = tx.send(GuiAction::OpenSettings);
         }
     }
 }
 
-fn detect_settings_command() -> &'static str {
-    if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
-        let desktop_lower = desktop.to_lowercase();
-        if desktop_lower.contains("kde")
-            || desktop_lower.contains("plasma")
-            || desktop_lower.contains("lxqt")
-        {
-            return "unim-qt-settings";
-        }
-    }
-    "unim-gtk-settings"
-}
-
-fn run_interactive_config_in_terminal() {
-    let cmd = "unim-config interactive";
-
-    let terminals = vec![
-        ("gnome-terminal", vec!["--", "sh", "-c", cmd]),
-        ("konsole", vec!["-e", "sh", "-c", cmd]),
-        ("xfce4-terminal", vec!["-e", cmd]),
-        ("mate-terminal", vec!["-e", cmd]),
-        ("lxterminal", vec!["-e", cmd]),
-        ("alacritty", vec!["-e", "sh", "-c", cmd]),
-        ("kitty", vec!["sh", "-c", cmd]),
-        ("xterm", vec!["-e", "sh", "-c", cmd]),
-    ];
-
-    for (bin, args) in terminals {
-        if std::process::Command::new(bin).args(&args).spawn().is_ok() {
-            unim_log!("INDICATOR", "터미널 실행 성공: {}", bin);
-            return;
-        }
-    }
-
-    unim_log!("INDICATOR", "적절한 터미널 에뮬레이터를 찾을 수 없습니다.");
-}
+/// 설정 오픈 요청용 전역 Sender
+static SETTINGS_TX: std::sync::Mutex<Option<Sender<GuiAction>>> = std::sync::Mutex::new(None);

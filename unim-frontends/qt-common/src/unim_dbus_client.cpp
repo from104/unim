@@ -244,6 +244,22 @@ bool UnimDbusClient::isComposing() const
     return m_isComposing;
 }
 
+void UnimDbusClient::reportCursorRect(int x, int y, int width, int height)
+{
+    if (!isValid()) return;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("ReportCursorRect")
+    );
+    msg << x << y << width << height;
+
+    // fire-and-forget (비동기)
+    m_bus.call(msg, QDBus::NoBlock);
+}
+
 bool UnimDbusClient::getHanjaCandidates(QString &target, QList<UnimHanjaCandidate> &candidates)
 {
     if (!isValid()) return false;

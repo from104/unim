@@ -110,6 +110,19 @@ gchar* unim_dbus_get_preedit(UnimDbusContext *ctx);
  */
 gboolean unim_dbus_is_composing(UnimDbusContext *ctx);
 
+/**
+ * 커서 위치 보고 (팝업 포지셔닝용)
+ * 
+ * @param ctx 컨텍스트
+ * @param x 커서 X 좌표
+ * @param y 커서 Y 좌표
+ * @param width 커서 너비
+ * @param height 커서 높이
+ */
+void unim_dbus_report_cursor_rect(UnimDbusContext *ctx,
+                                   gint x, gint y,
+                                   gint width, gint height);
+
 /* =========================================
  * 한자 변환 관련 함수
  * ========================================= */

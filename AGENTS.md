@@ -18,7 +18,7 @@
 | **DBus Library** | `unim-dbus/` | Rust | DBus 서비스/클라이언트 구현 |
 | **CLI** | `unim-cli/` | Rust | 명령줄 인터페이스 |
 | **Config CLI** | `unim-config/` | Rust | 설정 관리 CLI 도구 |
-| **Indicator** | `unim-indicator/` | Rust | 시스템 트레이 아이콘 |
+| **GUI** | `unim-gui/` | Rust | 시스템 트레이, 한자/특수문자 팝업, 설정 |
 | **GTK3 IM Module** | `unim-frontends/gtk3/` | C | GTK3 입력 모듈 |
 | **GTK4 IM Module** | `unim-frontends/gtk4/` | C | GTK4 입력 모듈 |
 | **GTK Common** | `unim-frontends/gtk-common/` | C | GTK3/4 공통 코드 (한자 팝업 등) |
@@ -28,8 +28,6 @@
 | **XIM Frontend** | `unim-frontends/xim/` | Rust | X11 XIM 프로토콜 프론트엔드 |
 | **Wayland Frontend** | `unim-frontends/wayland/` | Rust | Wayland 프론트엔드 |
 | **GNOME Extension** | `unim-gnome-extension/` | JavaScript | GNOME Shell 확장 (인디케이터, 설정) |
-| **GTK Settings** | `unim-gtk-settings/` | C | GTK 기반 GUI 설정 도구 |
-| **Qt Settings** | `unim-qt-settings/` | C++ | Qt 기반 GUI 설정 도구 |
 
 ## 아키텍처 흐름
 
@@ -51,7 +49,7 @@
 
 | 명령 | 설명 |
 | ---- | ---- |
-| `make build` | 전체 빌드 (Rust + 프론트엔드 + 설정도구) |
+| `make build` | 전체 빌드 (Rust + 프론트엔드) |
 | `make build-rust` | Rust workspace만 빌드 |
 | `make build-frontends` | GTK3/4/Qt5/6 IM 모듈 빌드 |
 | `sudo make install PREFIX=/usr` | 시스템 설치 |
@@ -71,7 +69,7 @@
 
 | 명령어/스킬 | 역할 |
 | ----------- | ---- |
-| `/build` | UNIM 전체 빌드 (Rust + 프론트엔드 + 설정도구) |
+| `/build` | UNIM 전체 빌드 (Rust + 프론트엔드) |
 | `/install` | UNIM 시스템 설치 및 제거 |
 | `/test` | UNIM 테스트 실행 (Rust 유닛 테스트 + 설치 상태 확인) |
 | `/sync` | **영문 요약 기반 Git 커밋 및 GitHub 동기화** (`git-sync` 스킬 사용) |

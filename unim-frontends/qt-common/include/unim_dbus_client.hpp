@@ -99,6 +99,15 @@ public:
      * 조합 중인지 확인
      */
     bool isComposing() const;
+
+    /**
+     * 커서 위치 보고 (팝업 포지셔닝용)
+     * @param x 커서 X 좌표
+     * @param y 커서 Y 좌표
+     * @param width 커서 너비
+     * @param height 커서 높이
+     */
+    void reportCursorRect(int x, int y, int width, int height);
     
     /**
      * 한자 후보 목록 조회

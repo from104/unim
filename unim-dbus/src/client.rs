@@ -69,6 +69,9 @@ trait InputContext {
     /// 특수문자 모드 취소
     fn cancel_special_char(&self) -> Result<()>;
 
+    /// 커서 위치 보고 (팝업 포지셔닝용)
+    fn report_cursor_rect(&self, x: i32, y: i32, width: i32, height: i32) -> Result<()>;
+
     /// Preedit 텍스트 업데이트 시그널
     #[zbus(signal)]
     fn update_preedit_text(&self, text: String, cursor_pos: u32, visible: bool) -> Result<()>;
@@ -76,6 +79,35 @@ trait InputContext {
     /// 텍스트 커밋 시그널
     #[zbus(signal)]
     fn commit_text(&self, text: String) -> Result<()>;
+
+    /// 한자 팝업 표시 시그널
+    #[zbus(signal)]
+    fn show_hanja_popup(
+        &self,
+        target: String,
+        candidates: Vec<(String, String)>,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    ) -> Result<()>;
+
+    /// 특수문자 팝업 표시 시그널
+    #[zbus(signal)]
+    fn show_special_popup(
+        &self,
+        target: String,
+        characters: Vec<String>,
+        top_row: String,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    ) -> Result<()>;
+
+    /// 팝업 숨김 시그널
+    #[zbus(signal)]
+    fn hide_popup(&self) -> Result<()>;
 }
 
 /// DBus 클라이언트 연결 관리자

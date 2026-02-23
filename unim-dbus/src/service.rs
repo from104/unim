@@ -17,6 +17,24 @@ use crate::interfaces::InputMode;
 use unim::config::{Config, InputCategory};
 use unim::unim_log;
 
+/// 팝업 동작 (ProcessKeyEvent 후 발생)
+#[derive(Debug, Clone)]
+pub enum PopupAction {
+    /// 한자 팝업 표시
+    ShowHanja {
+        target: String,
+        candidates: Vec<(String, String)>,
+    },
+    /// 특수문자 팝업 표시
+    ShowSpecial {
+        target: String,
+        characters: Vec<String>,
+        top_row: String,
+    },
+    /// 팝업 숨김
+    HidePopup,
+}
+
 /// 엔진에 보내는 요청
 #[derive(Debug)]
 pub enum EngineRequest {
@@ -77,6 +95,14 @@ pub enum EngineRequest {
     },
     /// 특수문자 모드 취소
     CancelSpecialChar { context_id: u32 },
+    /// 커서 위치 보고 (프런트엔드 → 데몬)
+    ReportCursorRect {
+        context_id: u32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
 }
 
 /// 한자 후보 응답
@@ -110,6 +136,8 @@ pub struct EngineResponse {
     pub commit: Option<String>,
     /// 모드 변경됨 (Some(true) = 한국어, Some(false) = 영어, None = 변경 없음)
     pub mode_changed: Option<bool>,
+    /// 팝업 동작 (한자/특수문자 팝업 제어)
+    pub popup_action: Option<PopupAction>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -433,6 +461,8 @@ pub struct InputContextHandler {
     engine_tx: mpsc::Sender<EngineRequest>,
     /// DBus 연결 (시그널 발송용)
     connection: Connection,
+    /// 캐싱된 커서 위치 (x, y, width, height)
+    cursor_rect: std::sync::Mutex<(i32, i32, i32, i32)>,
 }
 
 impl InputContextHandler {
@@ -442,6 +472,7 @@ impl InputContextHandler {
             id,
             engine_tx,
             connection,
+            cursor_rect: std::sync::Mutex::new((0, 0, 0, 0)),
         }
     }
 }
@@ -452,6 +483,7 @@ impl InputContextHandler {
     /// 반환값: (consumed, preedit, commit)
     async fn process_key_event(
         &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
         keyval: u32,
         keycode: u32,
         state: u32,
@@ -479,14 +511,60 @@ impl InputContextHandler {
         // 모드 변경 시그널 발송
         if let Some(is_korean) = response.mode_changed {
             unim_log!("DBUS", "[DBus] 모드 변경 감지: is_korean={}", is_korean);
-            // InputMethod 경로에서 GlobalModeChanged 시그널 발송
-            let signal_ctx = zbus::SignalContext::new(&self.connection, crate::INPUT_METHOD_PATH)
-                .map_err(|e| {
-                zbus::fdo::Error::Failed(format!("Signal context error: {}", e))
-            })?;
-            InputMethodService::global_mode_changed(&signal_ctx, is_korean)
+            let im_signal_ctx =
+                zbus::SignalContext::new(&self.connection, crate::INPUT_METHOD_PATH).map_err(
+                    |e| zbus::fdo::Error::Failed(format!("Signal context error: {}", e)),
+                )?;
+            InputMethodService::global_mode_changed(&im_signal_ctx, is_korean)
                 .await
                 .ok();
+        }
+
+        // 팝업 시그널 자동 발행
+        if let Some(popup) = &response.popup_action {
+            match popup {
+                PopupAction::ShowHanja { target, candidates } => {
+                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
+                    Self::show_hanja_popup(&signal_ctx, target, candidates.clone(), x, y, w, h)
+                        .await
+                        .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowHanjaPopup 시그널 발행: target='{}', count={}",
+                        target,
+                        candidates.len()
+                    );
+                }
+                PopupAction::ShowSpecial {
+                    target,
+                    characters,
+                    top_row,
+                } => {
+                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
+                    Self::show_special_popup(
+                        &signal_ctx,
+                        target,
+                        characters.clone(),
+                        top_row,
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowSpecialPopup 시그널 발행: target='{}', count={}",
+                        target,
+                        characters.len()
+                    );
+                }
+                PopupAction::HidePopup => {
+                    Self::hide_popup(&signal_ctx).await.ok();
+                    unim_log!("DBUS", "[DBus] HidePopup 시그널 발행");
+                }
+            }
         }
 
         unim_log!(
@@ -610,6 +688,64 @@ impl InputContextHandler {
     /// 텍스트 커밋 시그널
     #[zbus(signal)]
     async fn commit_text(signal_ctx: &SignalContext<'_>, text: &str) -> zbus::Result<()>;
+
+    // =========================================
+    // 팝업 관련 시그널 (unim-gui가 구독)
+    // =========================================
+
+    /// 한자 팝업 표시 시그널
+    #[zbus(signal)]
+    async fn show_hanja_popup(
+        signal_ctx: &SignalContext<'_>,
+        target: &str,
+        candidates: Vec<(String, String)>,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    ) -> zbus::Result<()>;
+
+    /// 특수문자 팝업 표시 시그널
+    #[zbus(signal)]
+    async fn show_special_popup(
+        signal_ctx: &SignalContext<'_>,
+        target: &str,
+        characters: Vec<String>,
+        top_row: &str,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    ) -> zbus::Result<()>;
+
+    /// 팝업 숨김 시그널
+    #[zbus(signal)]
+    async fn hide_popup(signal_ctx: &SignalContext<'_>) -> zbus::Result<()>;
+
+    // =========================================
+    // 커서 위치 보고
+    // =========================================
+
+    /// 프런트엔드가 커서 위치를 보고 (팝업 포지셔닝용)
+    async fn report_cursor_rect(
+        &self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> zbus::fdo::Result<()> {
+        *self.cursor_rect.lock().unwrap() = (x, y, width, height);
+        unim_log!(
+            "DBUS",
+            "[DBus] CursorRect: context_id={}, x={}, y={}, w={}, h={}",
+            self.id,
+            x,
+            y,
+            width,
+            height
+        );
+        Ok(())
+    }
 
     // =========================================
     // 한자 변환 관련 메서드

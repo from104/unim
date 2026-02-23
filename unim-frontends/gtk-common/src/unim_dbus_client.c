@@ -375,6 +375,34 @@ unim_dbus_is_composing(UnimDbusContext *ctx)
 }
 
 /* =========================================
+ * 커서 위치 보고
+ * ========================================= */
+
+void
+unim_dbus_report_cursor_rect(UnimDbusContext *ctx,
+                              gint x, gint y,
+                              gint width, gint height)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    /* fire-and-forget (비동기, 응답 불필요) */
+    g_dbus_connection_call(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "ReportCursorRect",
+        g_variant_new("(iiii)", x, y, width, height),
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        NULL,
+        NULL
+    );
+}
+
+/* =========================================
  * 한자 변환 관련 함수 구현
  * ========================================= */
 
