@@ -112,9 +112,4 @@ impl KeymapHandler {
             self.mod_state |= GDK_SUPER_MASK;
         }
     }
-
-    /// 현재 키맵이 초기화되었는지 확인
-    pub fn has_keymap(&self) -> bool {
-        self.state.is_some()
-    }
 }

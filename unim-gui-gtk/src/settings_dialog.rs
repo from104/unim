@@ -250,6 +250,71 @@ pub fn show_settings_dialog(app: &adw::Application) {
     switch_group.add(&threshold_row);
     content.append(&switch_group);
 
+    // ===== Key Bindings Section =====
+    let key_group = adw::PreferencesGroup::builder().title("키 설정").build();
+
+    // Toggle keys (한/영 전환)
+    let toggle_row = adw::ActionRow::builder().title("한/영 전환 키").build();
+    let toggle_entry = gtk4::Entry::new();
+    toggle_entry.set_valign(gtk4::Align::Center);
+    toggle_entry.set_width_chars(20);
+    {
+        let s = state.borrow();
+        toggle_entry.set_text(&s.config.engine.toggle_keys.join(", "));
+    }
+    toggle_row.add_suffix(&toggle_entry);
+    let state_clone = state.clone();
+    toggle_entry.connect_changed(move |entry| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating {
+            return;
+        }
+        let text = entry.text().to_string();
+        let keys: Vec<String> = text
+            .split(',')
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .collect();
+        if !keys.is_empty() {
+            let keys_str = keys.join(",");
+            s.config.engine.toggle_keys = keys;
+            save_and_notify(&s.config, "toggle_keys", &keys_str);
+        }
+    });
+    key_group.add(&toggle_row);
+
+    // Hanja keys (한자/특수문자)
+    let hanja_row = adw::ActionRow::builder().title("한자 키").build();
+    let hanja_entry = gtk4::Entry::new();
+    hanja_entry.set_valign(gtk4::Align::Center);
+    hanja_entry.set_width_chars(20);
+    {
+        let s = state.borrow();
+        hanja_entry.set_text(&s.config.engine.hanja_keys.join(", "));
+    }
+    hanja_row.add_suffix(&hanja_entry);
+    let state_clone = state.clone();
+    hanja_entry.connect_changed(move |entry| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating {
+            return;
+        }
+        let text = entry.text().to_string();
+        let keys: Vec<String> = text
+            .split(',')
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .collect();
+        if !keys.is_empty() {
+            let keys_str = keys.join(",");
+            s.config.engine.hanja_keys = keys;
+            save_and_notify(&s.config, "hanja_keys", &keys_str);
+        }
+    });
+    key_group.add(&hanja_row);
+
+    content.append(&key_group);
+
     // Clamp for nice libadwaita look
     let clamp = adw::Clamp::builder()
         .maximum_size(600)

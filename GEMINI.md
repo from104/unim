@@ -19,6 +19,12 @@
 * The `Makefile` is the source of truth for the standard build and installation process.
 * **Debian Versioning**: The package version (e.g., `0.0.1`) follows the version in the `src/` crate. If only packaging files (`debian/*`) change, increment the revision only (e.g., `0.0.1-1` → `0.0.1-2`).
 * **문서 작성 언어**: Walkthrough, 계획(Implementation Plan), 작업 목록(Task) 등 문서는 **한글로 작성**합니다.
+* **⚠️ Zero Tolerance (경고·테스트 실패 절대 불허)**:
+  - `cargo build --workspace`에서 **경고(warning) 0개**를 유지해야 합니다. 단 1개의 경고도 허용하지 않습니다.
+  - `cargo test --workspace`에서 **모든 테스트가 통과**해야 합니다. 실패하는 테스트를 남겨두지 않습니다.
+  - `make build`(C/C++ 프런트엔드 포함 전체 빌드)도 경고 없이 완료되어야 합니다.
+  - 코드 변경 후 반드시 빌드와 테스트를 실행하여 경고·실패가 없는지 확인합니다.
+  - 새로운 경고나 테스트 실패가 발견되면 즉시 수정합니다. "기존 이슈"라는 이유로 방치하지 않습니다.
 
 ---
 

@@ -15,25 +15,10 @@ use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
 use unim::config::{Config, InputCategory};
+use unim::input_engine::PopupAction;
 use unim::unim_log;
 
-/// 팝업 동작 (ProcessKeyEvent 후 발생)
-#[derive(Debug, Clone)]
-pub enum PopupAction {
-    /// 한자 팝업 표시
-    ShowHanja {
-        target: String,
-        candidates: Vec<(String, String)>,
-    },
-    /// 특수문자 팝업 표시
-    ShowSpecial {
-        target: String,
-        characters: Vec<String>,
-        top_row: String,
-    },
-    /// 팝업 숨김
-    HidePopup,
-}
+// PopupAction은 unim::input_engine에서 정의됨 (re-export)
 
 /// 엔진에 보내는 요청
 #[derive(Debug)]
@@ -564,6 +549,20 @@ impl InputContextHandler {
                     Self::hide_popup(&signal_ctx).await.ok();
                     unim_log!("DBUS", "[DBus] HidePopup 시그널 발행");
                 }
+                PopupAction::PopupNavigate {
+                    page,
+                    total_pages,
+                    selected,
+                } => {
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] PopupNavigate: page={}/{}, selected={}",
+                        page,
+                        total_pages,
+                        selected
+                    );
+                    // 팝업 내부 탐색은 시그널 발행 없이 프론트엔드/GUI가 자체 처리
+                }
             }
         }
 
@@ -690,7 +689,7 @@ impl InputContextHandler {
     async fn commit_text(signal_ctx: &SignalContext<'_>, text: &str) -> zbus::Result<()>;
 
     // =========================================
-    // 팝업 관련 시그널 (unim-gui가 구독)
+    // 팝업 관련 시그널 (unim-gui-gtk/unim-gui-qt가 구독)
     // =========================================
 
     /// 한자 팝업 표시 시그널

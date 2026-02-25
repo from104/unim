@@ -1,17 +1,17 @@
 [package]
-name = "unim-gui"
+name = "unim-gui-gtk"
 version = "0.0.1"
 edition = "2021"
 description = "UNIM GUI - Integrated tray, popups, and settings"
 
 [[bin]]
-name = "unim-gui"
+name = "unim-gui-gtk"
 path = "src/main.rs"
 
 [dependencies]
 # Core
 unim = { path = ".." }
-unim-dbus = { path = "../unim-dbus" }
+unim-gui-common = { path = "../unim-gui-common" }
 dirs = "5.0"
 
 # System tray (StatusNotifierItem)
@@ -24,4 +24,3 @@ libadwaita = "0.7"
 # Async runtime for DBus
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
-futures-util = "0.3"

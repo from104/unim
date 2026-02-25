@@ -70,7 +70,7 @@ pub trait Jamo: std::fmt::Debug + Clone + Copy + PartialEq + Eq + std::hash::Has
 /// # 예시
 ///
 /// ```
-/// use unim::korean::jamo::{Cho, Jamo};
+/// use unim::hangul::jamo::{Cho, Jamo};
 ///
 /// let giyeok = Cho::G;
 /// assert_eq!(giyeok.get_sequence(), 0);
@@ -230,7 +230,7 @@ impl Cho {
     /// # 예시
     ///
     /// ```
-    /// use unim::korean::jamo::Cho;
+    /// use unim::hangul::jamo::Cho;
     ///
     /// assert_eq!(Cho::from_sequence(0), Some(Cho::G));
     /// assert_eq!(Cho::from_sequence(11), Some(Cho::E));
@@ -281,7 +281,7 @@ impl Cho {
     /// # 예시
     ///
     /// ```
-    /// use unim::korean::jamo::{Cho, Jong};
+    /// use unim::hangul::jamo::{Cho, Jong};
     ///
     /// assert_eq!(Cho::G.to_jong(), Ok(Jong::G)); // ㄱ -> ㄱ
     /// assert_eq!(Cho::E.to_jong(), Ok(Jong::NG)); // ㅇ -> ㅇ (종성)
@@ -331,7 +331,7 @@ impl Cho {
 /// # 예시
 ///
 /// ```
-/// use unim::korean::jamo::{Jung, Jamo};
+/// use unim::hangul::jamo::{Jung, Jamo};
 ///
 /// let a = Jung::A;
 /// assert_eq!(a.get_sequence(), 0);
@@ -478,7 +478,7 @@ impl Jung {
     /// # 예시
     ///
     /// ```
-    /// use unim::korean::jamo::Jung;
+    /// use unim::hangul::jamo::Jung;
     ///
     /// assert_eq!(Jung::from_sequence(0), Some(Jung::A));
     /// assert_eq!(Jung::from_sequence(20), Some(Jung::I));
@@ -523,7 +523,7 @@ impl Jung {
 /// # 예시
 ///
 /// ```
-/// use unim::korean::jamo::{Jong, Jamo};
+/// use unim::hangul::jamo::{Jong, Jamo};
 ///
 /// let giyeok_batchim = Jong::G;
 /// assert_eq!(giyeok_batchim.get_sequence(), 1);
@@ -645,7 +645,7 @@ impl Jamo for Jong {
     /// # 예시
     ///
     /// ```
-    /// use unim::korean::jamo::{Jong, Jamo};
+    /// use unim::hangul::jamo::{Jong, Jamo};
     /// assert_eq!(Jong::G.get_unicode(), 'ᆨ'); // U+11A8
     /// assert_eq!(Jong::LG.get_unicode(), 'ᆰ'); // U+11B0
     /// assert_eq!(Jong::E.get_unicode(), '\u{0000}'); // Null
@@ -727,7 +727,7 @@ impl Jong {
     /// # 예시
     ///
     /// ```
-    /// use unim::korean::jamo::Jong;
+    /// use unim::hangul::jamo::Jong;
     ///
     /// assert_eq!(Jong::from_sequence(1), Some(Jong::G)); // ㄱ 받침
     /// assert_eq!(Jong::from_sequence(21), Some(Jong::NG)); // ㅇ 받침
@@ -782,7 +782,7 @@ impl Jong {
     /// # 예시
     ///
     /// ```
-    /// use unim::korean::jamo::{Cho, Jong};
+    /// use unim::hangul::jamo::{Cho, Jong};
     ///
     /// assert_eq!(Jong::G.to_cho(), Ok(Cho::G)); // ㄱ 받침 -> ㄱ 초성
     /// assert_eq!(Jong::NG.to_cho(), Ok(Cho::E)); // ㅇ 받침 -> ㅇ 초성
@@ -791,13 +791,13 @@ impl Jong {
     /// ```
     ///
     /// ```
-    /// use unim::korean::jamo::Jong;
+    /// use unim::hangul::jamo::Jong;
     /// // 겹받침 변환 시도 (Err 반환)
     /// assert!(Jong::LG.to_cho().is_err());
     /// ```
     ///
     /// ```
-    /// use unim::korean::jamo::Jong;
+    /// use unim::hangul::jamo::Jong;
     /// // 종성 비움 변환 시도 (Err 반환)
     /// assert!(Jong::E.to_cho().is_err());
     /// ```
@@ -874,7 +874,7 @@ impl Jong {
 /// # 예시
 ///
 /// ```
-/// use unim::korean::jamo::{is_cho, Cho, Jung, Jong};
+/// use unim::hangul::jamo::{is_cho, Cho, Jung, Jong};
 ///
 /// assert!(is_cho(&Cho::G));
 /// assert!(is_cho(&Cho::F));
@@ -898,7 +898,7 @@ pub fn is_cho<T: Jamo>(o: &T) -> bool {
 /// # 예시
 ///
 /// ```
-/// use unim::korean::jamo::{is_jung, Cho, Jung, Jong};
+/// use unim::hangul::jamo::{is_jung, Cho, Jung, Jong};
 ///
 /// assert!(is_jung(&Jung::A));
 /// assert!(is_jung(&Jung::F));
@@ -922,7 +922,7 @@ pub fn is_jung<T: Jamo>(o: &T) -> bool {
 /// # 예시
 ///
 /// ```
-/// use unim::korean::jamo::{is_jong, Cho, Jung, Jong};
+/// use unim::hangul::jamo::{is_jong, Cho, Jung, Jong};
 ///
 /// assert!(is_jong(&Jong::G));
 /// assert!(is_jong(&Jong::E)); // 종성 없음도 종성 범위에 포함
@@ -953,7 +953,7 @@ pub fn is_jong<T: Jamo>(o: &T) -> bool {
 /// # 예시
 ///
 /// ```
-/// use unim::korean::jamo::{is_jamo, Cho, Jung, Jong, JamoEnum};
+/// use unim::hangul::jamo::{is_jamo, Cho, Jung, Jong, JamoEnum};
 ///
 /// assert!(is_jamo(&Cho::G));
 /// assert!(is_jamo(&Jung::A));

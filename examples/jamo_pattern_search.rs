@@ -4,7 +4,7 @@
 //! target text into its component Jamo and matching against a Jamo pattern.
 //! This is useful for features like Jamo-based autocompletion or filtering.
 
-use unim::korean::{char::HangulChar, jamo::*};
+use unim::hangul::{char::HangulChar, jamo::*};
 
 /// Helper to extract raw char from JamoEnum
 fn jamo_enum_to_raw(jamo: &JamoEnum) -> char {

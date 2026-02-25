@@ -1,6 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# UNIM GTK Package (GTK3/GTK4 IM Modules)
+# UNIM GUI GTK Package (GUI + GTK3/GTK4 IM Modules)
 # ─────────────────────────────────────────────────────────────────────────────
+
+# GUI executable
+debian/tmp/usr/bin/unim-gui-gtk
+
+# Autostart entry
+debian/tmp/etc/xdg/autostart/unim-gui-gtk.desktop
 
 # GTK3 IM Module (multiarch)
 debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-3.0/3.0.0/immodules/libim-unim.so

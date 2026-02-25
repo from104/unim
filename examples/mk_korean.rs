@@ -3,8 +3,8 @@
 //! This example demonstrates how to generate Korean syllables programmatically
 //! by iterating through all possible Initial (Cho), Middle (Jung), and Final (Jong) sequences.
 
-use unim::korean::char::{CHOSEONG_NUMBER, JONGSEONG_NUMBER, JUNGSEONG_NUMBER};
-use unim::korean::HangulChar;
+use unim::hangul::char::{CHOSEONG_NUMBER, JONGSEONG_NUMBER, JUNGSEONG_NUMBER};
+use unim::hangul::HangulChar;
 
 fn main() {
     println!("--- Korean Syllable Matrix Generation ---");

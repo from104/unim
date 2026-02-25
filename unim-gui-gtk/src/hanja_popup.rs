@@ -179,11 +179,6 @@ impl HanjaPopup {
         self.window.set_visible(false);
     }
 
-    /// 팝업이 표시 중인지
-    pub fn is_visible(&self) -> bool {
-        self.window.is_visible()
-    }
-
     /// 리스트 새로고침
     fn refresh_list(&self) {
         // 기존 자식 제거

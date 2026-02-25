@@ -16,10 +16,7 @@ use tokio::sync::mpsc;
 use unim::unim_log;
 use wayland_client::{
     globals::GlobalListContents,
-    protocol::{
-        wl_compositor::WlCompositor, wl_keyboard::KeyState, wl_registry::WlRegistry,
-        wl_seat::WlSeat, wl_shm::WlShm,
-    },
+    protocol::{wl_keyboard::KeyState, wl_registry::WlRegistry, wl_seat::WlSeat},
     Connection, Dispatch, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_input_method_v2::client::{
@@ -33,21 +30,8 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 };
 
 use crate::dbus_client::{DbusRequest, DbusResponse};
-use crate::hanja_popup::{HanjaAction, HanjaPopup};
 use crate::keymap::KeymapHandler;
-use crate::popup::PopupSurface;
 use crate::repeat::{PressState, RepeatInfo, RepeatTimer};
-use crate::special_popup::{SpecialAction, SpecialPopup};
-
-/// 팝업 상태
-pub enum PopupState {
-    /// 팝업 없음
-    None,
-    /// 한자 후보 팝업 활성
-    Hanja,
-    /// 특수문자 팝업 활성
-    Special,
-}
 
 /// Wayland 애플리케이션 전체 상태
 pub struct AppState {
@@ -55,8 +39,6 @@ pub struct AppState {
     pub seat: Option<WlSeat>,
     pub im_manager: Option<ZwpInputMethodManagerV2>,
     pub vk_manager: Option<ZwpVirtualKeyboardManagerV1>,
-    pub compositor: Option<WlCompositor>,
-    pub shm: Option<WlShm>,
 
     // 프로토콜 오브젝트
     pub input_method: Option<ZwpInputMethodV2>,
@@ -80,12 +62,6 @@ pub struct AppState {
     repeat_info: Option<RepeatInfo>,
     press_state: PressState,
 
-    // 팝업
-    pub popup_surface: Option<PopupSurface>,
-    popup_state: PopupState,
-    hanja_popup: HanjaPopup,
-    special_popup: SpecialPopup,
-
     // DBus 통신
     dbus_tx: mpsc::Sender<DbusRequest>,
     context_path: String,
@@ -106,8 +82,6 @@ impl AppState {
             seat: None,
             im_manager: None,
             vk_manager: None,
-            compositor: None,
-            shm: None,
             input_method: None,
             keyboard_grab: None,
             virtual_keyboard: None,
@@ -122,10 +96,7 @@ impl AppState {
             repeat_timer: RepeatTimer::new(),
             repeat_info: None,
             press_state: PressState::NotPressing,
-            popup_surface: None,
-            popup_state: PopupState::None,
-            hanja_popup: HanjaPopup::new(),
-            special_popup: SpecialPopup::new(),
+
             dbus_tx,
             context_path,
             should_exit: false,
@@ -175,15 +146,9 @@ impl AppState {
         // evdev keycode → hardware code (XKB 호환: +8)
         let keycode = evdev_keycode + 8;
 
-        // 팝업 활성 시 → 팝업으로 키 라우팅
-        if !matches!(self.popup_state, PopupState::None) {
-            return self.handle_popup_key(keysym, time, evdev_keycode, key_state_raw);
-        }
+        /* 팝업 키 처리는 엔진이 담당 (process_popup_key) */
 
-        // 한자 키 감지 (Hangul_Hanja = 0xff34)
-        if keysym == 0xff34 {
-            return self.request_hanja_candidates();
-        }
+        /* 한자 키도 엔진이 ProcessKey로 처리 */
 
         // DBus 동기 호출
         let (response_tx, response_rx) = std_mpsc::channel();
@@ -286,238 +251,6 @@ impl AppState {
         // 키 반복 취소
         self.repeat_timer.cancel();
         self.press_state = PressState::NotPressing;
-
-        // 팝업 닫기
-        self.close_popup();
-    }
-
-    // ===========================================================
-    // 팝업 관련
-    // ===========================================================
-
-    /// 한자 후보 요청
-    fn request_hanja_candidates(&mut self) -> bool {
-        let (response_tx, response_rx) = std_mpsc::channel();
-        if self
-            .dbus_tx
-            .blocking_send(DbusRequest::GetHanjaCandidates {
-                context_path: self.context_path.clone(),
-                response: Some(response_tx),
-            })
-            .is_err()
-        {
-            return false;
-        }
-
-        match response_rx.recv_timeout(std::time::Duration::from_millis(1000)) {
-            Ok(DbusResponse::HanjaCandidates { target, candidates }) => {
-                if candidates.is_empty() {
-                    unim_log!("WAYLAND", "한자 후보 없음 → 특수문자 시도");
-                    return self.request_special_candidates();
-                }
-                unim_log!(
-                    "WAYLAND",
-                    "한자 후보 {}개 수신 (target={})",
-                    candidates.len(),
-                    target
-                );
-                self.hanja_popup.set_candidates(&target, candidates);
-                self.popup_state = PopupState::Hanja;
-                self.render_popup();
-                true
-            }
-            _ => {
-                unim_log!("WAYLAND", "한자 후보 조회 타임아웃");
-                false
-            }
-        }
-    }
-
-    /// 특수문자 후보 요청
-    fn request_special_candidates(&mut self) -> bool {
-        let (response_tx, response_rx) = std_mpsc::channel();
-        if self
-            .dbus_tx
-            .blocking_send(DbusRequest::GetSpecialCharCandidates {
-                context_path: self.context_path.clone(),
-                response: Some(response_tx),
-            })
-            .is_err()
-        {
-            return false;
-        }
-
-        match response_rx.recv_timeout(std::time::Duration::from_millis(1000)) {
-            Ok(DbusResponse::SpecialCharCandidates {
-                target,
-                characters,
-                top_row,
-            }) => {
-                if characters.is_empty() {
-                    unim_log!("WAYLAND", "특수문자 후보 없음");
-                    return false;
-                }
-                unim_log!(
-                    "WAYLAND",
-                    "특수문자 {}개 수신 (target={})",
-                    characters.len(),
-                    target
-                );
-                self.special_popup
-                    .set_characters(&target, characters, &top_row);
-                self.popup_state = PopupState::Special;
-                self.render_popup();
-                true
-            }
-            _ => {
-                unim_log!("WAYLAND", "특수문자 후보 조회 타임아웃");
-                false
-            }
-        }
-    }
-
-    /// 팝업 키 처리
-    fn handle_popup_key(
-        &mut self,
-        keysym: u32,
-        time: u32,
-        evdev_keycode: u32,
-        key_state_raw: u32,
-    ) -> bool {
-        match self.popup_state {
-            PopupState::Hanja => {
-                let action = self.hanja_popup.handle_key(keysym);
-                match action {
-                    HanjaAction::Select(idx) => {
-                        // DBus로 한자 선택 전달
-                        let (response_tx, response_rx) = std_mpsc::channel();
-                        let _ = self.dbus_tx.blocking_send(DbusRequest::SelectHanja {
-                            context_path: self.context_path.clone(),
-                            index: idx,
-                            response: Some(response_tx),
-                        });
-                        if let Ok(DbusResponse::CommitText { text }) =
-                            response_rx.recv_timeout(std::time::Duration::from_millis(500))
-                        {
-                            if !text.is_empty() {
-                                self.apply_input_result(&text, "");
-                            }
-                        }
-                        self.close_popup();
-                        true
-                    }
-                    HanjaAction::Cancel => {
-                        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelHanja {
-                            context_path: self.context_path.clone(),
-                        });
-                        self.close_popup();
-                        true
-                    }
-                    HanjaAction::NextPage | HanjaAction::PrevPage | HanjaAction::Consumed => {
-                        self.render_popup();
-                        true
-                    }
-                    HanjaAction::None => {
-                        // 팝업이 처리하지 않는 키 → 팝업 닫고 키 포워딩
-                        self.close_popup();
-                        self.forward_key(time, evdev_keycode, key_state_raw);
-                        false
-                    }
-                }
-            }
-            PopupState::Special => {
-                let action = self.special_popup.handle_key(keysym);
-                match action {
-                    SpecialAction::Select(idx) => {
-                        let (response_tx, response_rx) = std_mpsc::channel();
-                        let _ = self.dbus_tx.blocking_send(DbusRequest::SelectSpecialChar {
-                            context_path: self.context_path.clone(),
-                            index: idx as u32,
-                            response: Some(response_tx),
-                        });
-                        if let Ok(DbusResponse::CommitText { text }) =
-                            response_rx.recv_timeout(std::time::Duration::from_millis(500))
-                        {
-                            if !text.is_empty() {
-                                self.apply_input_result(&text, "");
-                            }
-                        }
-                        self.close_popup();
-                        true
-                    }
-                    SpecialAction::Cancel => {
-                        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelSpecialChar {
-                            context_path: self.context_path.clone(),
-                        });
-                        self.close_popup();
-                        true
-                    }
-                    SpecialAction::NextPage | SpecialAction::PrevPage | SpecialAction::Consumed => {
-                        self.render_popup();
-                        true
-                    }
-                    SpecialAction::None => {
-                        self.close_popup();
-                        self.forward_key(time, evdev_keycode, key_state_raw);
-                        false
-                    }
-                }
-            }
-            PopupState::None => false,
-        }
-    }
-
-    /// 팝업 렌더링
-    fn render_popup(&mut self) {
-        let shm = match &self.shm {
-            Some(s) => s.clone(),
-            None => return,
-        };
-        let qh = match &self.qh {
-            Some(q) => q.clone(),
-            None => return,
-        };
-
-        // 팝업 서피스 ensure
-        if self.popup_surface.is_none() {
-            if let (Some(ref compositor), Some(ref im)) = (&self.compositor, &self.input_method) {
-                self.popup_surface = Some(PopupSurface::create(compositor, im, &qh));
-            }
-        }
-
-        let popup = match &mut self.popup_surface {
-            Some(p) => p,
-            None => {
-                unim_log!("WAYLAND", "팝업 서피스 없음 — 렌더링 불가");
-                return;
-            }
-        };
-
-        match self.popup_state {
-            PopupState::Hanja => {
-                let (w, h) = self.hanja_popup.popup_size();
-                let hanja = &self.hanja_popup;
-                popup.render(&shm, &qh, w, h, |pixmap, fs, sc| {
-                    hanja.render(pixmap, fs, sc);
-                });
-            }
-            PopupState::Special => {
-                let (w, h) = self.special_popup.popup_size();
-                let special = &self.special_popup;
-                popup.render(&shm, &qh, w, h, |pixmap, fs, sc| {
-                    special.render(pixmap, fs, sc);
-                });
-            }
-            PopupState::None => {}
-        }
-    }
-
-    /// 팝업 닫기
-    fn close_popup(&mut self) {
-        self.popup_state = PopupState::None;
-        if let Some(ref popup) = self.popup_surface {
-            popup.hide();
-        }
     }
 
     /// 키 반복 타이머 만료 처리

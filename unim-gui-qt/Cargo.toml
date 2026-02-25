@@ -1,0 +1,30 @@
+[package]
+name = "unim-gui-qt"
+version = "0.0.1"
+edition = "2021"
+description = "UNIM Qt6 GUI - Popups, tray, and settings (cxx-qt)"
+
+[[bin]]
+name = "unim-gui-qt"
+path = "src/main.rs"
+
+[dependencies]
+cxx = "1"
+cxx-qt = "0.8"
+cxx-qt-lib = { version = "0.8", features = ["full"] }
+
+# Core (shared with GTK version)
+unim = { path = ".." }
+unim-gui-common = { path = "../unim-gui-common" }
+
+# Async runtime for DBus
+tokio = { version = "1", features = ["rt", "sync"] }
+
+# JSON 직렬화 (후보 데이터 → QML)
+serde_json = "1"
+
+# 시스템 트레이
+ksni = "0.3"
+
+[build-dependencies]
+cxx-qt-build = { version = "0.8", features = ["link_qt_object_files"] }

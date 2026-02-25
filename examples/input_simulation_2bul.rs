@@ -4,7 +4,7 @@
 //! It simulates consecutive key presses and shows the state of composition including
 //! "Dokkaebibul" (shifting a consonant to the next syllable's initial position).
 
-use unim::korean::{composer::HangulComposer, composer_with_2bul::HangulComposer2Bul, jamo::*};
+use unim::hangul::{composer::HangulComposer, composer_with_2bul::HangulComposer2Bul, jamo::*};
 
 fn main() {
     let mut composer = HangulComposer2Bul::new();

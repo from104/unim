@@ -2,7 +2,7 @@ Source: unim
 Section: utils
 Priority: optional
 Maintainer: from104 <from104@github.com>
-Build-Depends: debhelper-compat (= 13), cmake, pkg-config, libgtk-3-dev, libgtk-4-dev, qtbase5-dev, qtbase5-private-dev, qt6-base-dev, qt6-base-private-dev, libqt6dbus6, libglib2.0-dev
+Build-Depends: debhelper-compat (= 13), cmake, pkg-config, libgtk-3-dev, libgtk-4-dev, qtbase5-dev, qtbase5-private-dev, qt6-base-dev, qt6-base-private-dev, qt6-declarative-dev, libqt6dbus6, libglib2.0-dev
 Standards-Version: 4.6.0
 Homepage: https://github.com/from104/unim
 Rules-Requires-Root: no
@@ -16,27 +16,23 @@ Description: Korean Input Method Engine
  This package contains the core daemon, C-API library, CLI tools,
  and XIM/Wayland protocol support.
 
-Package: unim-gui
+Package: unim-gui-gtk
 Architecture: amd64
 Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
-Description: UNIM GUI (tray, popups, settings)
+Conflicts: unim-gui-qt
+Description: UNIM GUI and GTK IM Modules
  UNIM GUI process providing system tray indicator, Hanja/special character
  popups, and settings dialog. GTK4/libadwaita based.
- Not needed if using GNOME Shell Extension.
+ Also includes GTK3 and GTK4 input method modules.
 
-Package: unim-gtk
+Package: unim-gui-qt
 Architecture: amd64
 Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Description: Korean Input Method Engine (GTK modules)
- GTK3 and GTK4 input method modules for UNIM.
- Includes GTK settings tool.
-
-Package: unim-qt
-Architecture: amd64
-Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Description: Korean Input Method Engine (Qt plugins)
- Qt5 and Qt6 platform input context plugins for UNIM.
- Includes Qt settings tool.
+Conflicts: unim-gui-gtk
+Description: UNIM GUI and Qt IM Plugins
+ UNIM GUI process providing Hanja/special character popups.
+ Qt6/QML based alternative to the GTK4 GUI.
+ Also includes Qt5 and Qt6 platform input context plugins.
 
 Package: gnome-shell-extension-unim
 Architecture: all

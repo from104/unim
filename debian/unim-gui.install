@@ -1,9 +1,0 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# UNIM GUI Package (tray, popups, settings)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# GUI executable
-debian/tmp/usr/bin/unim-gui
-
-# Autostart entry
-debian/tmp/etc/xdg/autostart/unim-gui.desktop

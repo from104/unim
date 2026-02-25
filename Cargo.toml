@@ -25,7 +25,9 @@ members = [
     "unim-frontends/xim",
     "unim-frontends/wayland",
     "unim-daemon",
-    "unim-gui",
+    "unim-gui-common",
+    "unim-gui-gtk",
+    "unim-gui-qt",
     "unim-dbus",
     "unim-test-wayland",
 ]

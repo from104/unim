@@ -839,6 +839,39 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             user_ic.ic.preedit_spot()
         );
 
+        // spot_location 변경 시 커서 위치를 데몬에 보고
+        let spot = user_ic.ic.preedit_spot();
+        let app_win = user_ic.ic.app_win();
+        let (abs_x, abs_y) = if let Some(win) = app_win {
+            unsafe {
+                let mut child_return: x11::xlib::Window = 0;
+                let mut rx = 0i32;
+                let mut ry = 0i32;
+                x11::xlib::XTranslateCoordinates(
+                    self.display,
+                    win.get() as x11::xlib::Window,
+                    x11::xlib::XRootWindow(self.display, self.screen),
+                    0,
+                    0,
+                    &mut rx,
+                    &mut ry,
+                    &mut child_return,
+                );
+                (rx, ry)
+            }
+        } else {
+            (0, 0)
+        };
+        let cursor_x = abs_x + spot.x as i32;
+        let cursor_y = abs_y + spot.y as i32;
+        let _ = self.dbus_tx.blocking_send(DbusRequest::ReportCursorRect {
+            context_path: user_ic.user_data.context_path.clone(),
+            x: cursor_x,
+            y: cursor_y,
+            width: 0,
+            height: 20,
+        });
+
         // spot_location 변경 시 preedit 윈도우 재생성
         // 단, preedit이 활성 상태일 때만 (preedit_cache가 비어있지 않을 때)
         // 포커스 해제 후에는 preedit 작업을 하지 않음

@@ -25,10 +25,6 @@ add_library(unim MODULE
     src/plugin.cpp
     src/input_context.cpp
     ${QT_COMMON_DIR}/src/unim_dbus_client.cpp
-    ${QT_COMMON_DIR}/src/unim_hanja_popup.cpp
-    ${QT_COMMON_DIR}/src/unim_special_popup.cpp
-    ${QT_COMMON_DIR}/include/unim_hanja_popup.hpp
-    ${QT_COMMON_DIR}/include/unim_special_popup.hpp
 )
 
 target_include_directories(unim PRIVATE

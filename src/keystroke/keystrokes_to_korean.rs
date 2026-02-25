@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn test_process_keystrokes_basic() {
         let mut context = HangulInputContext::new(ComposerType::TwoBul);
-        let keyboard_map = create_test_map();
+        let _keyboard_map = create_test_map();
 
         // process_keystrokes_with_context를 사용하여 preedit 상태 확인
         // (process_keystrokes는 내부에서 commit을 호출하므로 preedit 확인 불가)
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn test_process_keystrokes_non_korean() {
         let mut context = HangulInputContext::new(ComposerType::TwoBul);
-        let keyboard_map = create_test_map();
+        let _keyboard_map = create_test_map();
 
         // 직접 자모 입력으로 테스트
         context.process_jamo(JamoEnum::Cho(Cho::G));

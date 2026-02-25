@@ -8,18 +8,13 @@
 //! (zwp_input_method_manager_v2 지원 필요)
 
 mod dbus_client;
-mod hanja_popup;
 mod keymap;
-mod popup;
 mod repeat;
-mod special_popup;
 mod state;
 
 use std::os::fd::{AsFd, AsRawFd};
 
 use unim::unim_log;
-use wayland_client::protocol::wl_compositor::WlCompositor;
-use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::{globals::registry_queue_init, Connection};
 use wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2;
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
@@ -105,28 +100,6 @@ fn main() {
                 "zwp_virtual_keyboard_manager_v1 바인딩 실패: {} (키 바이패스 불가)",
                 err
             );
-        }
-    }
-
-    // wl_compositor (팝업 서피스용)
-    match globals.bind::<WlCompositor, _, _>(&qh, 1..=6, ()) {
-        Ok(compositor) => {
-            unim_log!("WAYLAND", "wl_compositor 바인딩 성공");
-            app.compositor = Some(compositor);
-        }
-        Err(err) => {
-            unim_log!("WAYLAND", "wl_compositor 바인딩 실패: {} (팝업 불가)", err);
-        }
-    }
-
-    // wl_shm (팝업 버퍼용)
-    match globals.bind::<WlShm, _, _>(&qh, 1..=1, ()) {
-        Ok(shm) => {
-            unim_log!("WAYLAND", "wl_shm 바인딩 성공");
-            app.shm = Some(shm);
-        }
-        Err(err) => {
-            unim_log!("WAYLAND", "wl_shm 바인딩 실패: {} (팝업 불가)", err);
         }
     }
 

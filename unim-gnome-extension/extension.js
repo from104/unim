@@ -584,7 +584,7 @@ export default class UnimExtension extends Extension {
             };
             const englishLayoutMap = {
                 'qwerty': 'qwerty', 'dvorak': 'dvorak', 'colemak': 'colemak',
-                'colemak_dh': 'colemak-dh', 'workman': 'workman',
+                'colemak_dh': 'colemak_dh', 'workman': 'workman',
             };
 
             const argv = [

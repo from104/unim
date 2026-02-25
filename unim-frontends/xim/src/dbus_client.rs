@@ -47,6 +47,7 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 한자 선택
+    #[allow(dead_code)]
     SelectHanja {
         context_path: String,
         index: u32,
@@ -60,6 +61,7 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 특수문자 선택
+    #[allow(dead_code)]
     SelectSpecialChar {
         context_path: String,
         index: u32,
@@ -67,6 +69,14 @@ pub enum DbusRequest {
     },
     /// 특수문자 취소
     CancelSpecialChar { context_path: String },
+    /// 커서 위치 보고 (팝업 포지셔닝용)
+    ReportCursorRect {
+        context_path: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
 }
 
 /// DBus 응답 타입
@@ -90,7 +100,10 @@ pub enum DbusResponse {
         candidates: Vec<(String, String)>,
     },
     /// 한자 선택 결과
-    HanjaSelected { commit: String },
+    HanjaSelected {
+        #[allow(dead_code)]
+        commit: String,
+    },
     /// 특수문자 후보 목록
     SpecialCharCandidates {
         target: String,
@@ -98,7 +111,10 @@ pub enum DbusResponse {
         top_row: String,
     },
     /// 특수문자 선택 결과
-    SpecialCharSelected { commit: String },
+    SpecialCharSelected {
+        #[allow(dead_code)]
+        commit: String,
+    },
 }
 
 /// DBus 클라이언트
@@ -445,6 +461,25 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                     {
                         let _ = proxy.cancel_special_char().await;
                         unim_log!("XIM_DBUS", "[XIM-DBus] 특수문자 취소: {}", context_path);
+                    }
+                }
+            }
+
+            DbusRequest::ReportCursorRect {
+                context_path,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
+                    if let Ok(proxy) = InputContextProxy::builder(&connection)
+                        .path(obj_path)
+                        .expect("path error")
+                        .build()
+                        .await
+                    {
+                        let _ = proxy.report_cursor_rect(x, y, width, height).await;
                     }
                 }
             }

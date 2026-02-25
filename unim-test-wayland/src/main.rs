@@ -37,7 +37,9 @@ struct AppData {
     registry_state: RegistryState,
     seat_state: SeatState,
     output_state: OutputState,
+    #[allow(dead_code)]
     compositor_state: CompositorState,
+    #[allow(dead_code)]
     xdg_shell: XdgShell,
     shm: Shm,
 

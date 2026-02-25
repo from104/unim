@@ -58,13 +58,6 @@ impl SpecialState {
         col * GRID_ROWS + row
     }
 
-    /// flat index → (row, col)
-    fn flat_to_grid(&self, flat: usize) -> (usize, usize) {
-        let col = flat / GRID_ROWS;
-        let row = flat % GRID_ROWS;
-        (row, col)
-    }
-
     /// 현재 선택의 글로벌 인덱스
     fn selected_global_index(&self) -> usize {
         self.page * PAGE_SIZE + self.grid_to_flat(self.sel_row, self.sel_col)
@@ -219,11 +212,6 @@ impl SpecialPopup {
     /// 팝업 숨김
     pub fn hide(&self) {
         self.window.set_visible(false);
-    }
-
-    /// 팝업이 표시 중인지
-    pub fn is_visible(&self) -> bool {
-        self.window.is_visible()
     }
 
     /// 그리드 새로고침

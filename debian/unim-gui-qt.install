@@ -1,6 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# UNIM Qt Package (Qt5/Qt6 IM Plugins)
+# UNIM GUI Qt Package (GUI + Qt5/Qt6 IM Plugins)
 # ─────────────────────────────────────────────────────────────────────────────
+
+# GUI executable
+debian/tmp/usr/bin/unim-gui-qt
 
 # Qt5 Platform Input Context Plugin (multiarch)
 debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt5/plugins/platforminputcontexts/libunim.so

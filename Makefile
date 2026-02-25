@@ -59,14 +59,14 @@ DEB_DIR := $(CURDIR)/debs
 CARGO := cargo
 
 .PHONY: all clean clean-all build build-rust build-frontends build-tests \
-        install install-core install-frontends install-icons install-autostart install-gnome-extension install-extension \
+        install install-core install-gui-gtk install-gui-qt install-frontends install-icons install-autostart install-gnome-extension install-extension \
         install-systemd uninstall-systemd enable-systemd disable-systemd status-systemd \
-        uninstall uninstall-core uninstall-frontends uninstall-icons uninstall-autostart uninstall-gnome-extension uninstall-extension \
+        uninstall uninstall-core uninstall-gui-gtk uninstall-gui-qt uninstall-frontends uninstall-icons uninstall-autostart uninstall-gnome-extension uninstall-extension \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
         deb clean-deb help \
         test test-gtk3 test-gtk4 test-qt5 test-qt6 test-gnome test-xim test-wayland test-dbus \
-        sandbox sandbox-gtk3 sandbox-gtk4 sandbox-qt5 sandbox-qt6 sandbox-xim sandbox-gui \
-        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-gui dev-extension dev-restart
+        sandbox sandbox-gtk3 sandbox-gtk4 sandbox-qt5 sandbox-qt6 sandbox-xim sandbox-indicator \
+        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-daemon dev-core dev-xim dev-wayland dev-gui-gtk dev-gui-qt dev-extension dev-restart
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Help
@@ -142,7 +142,8 @@ help:
 	@echo "  dev-daemon       - unim-daemon 빌드 + 배포 + 재시작"
 	@echo "  dev-xim          - unim-xim 빌드 + 배포 + 재시작"
 	@echo "  dev-wayland      - unim-wayland 빌드 + 배포 + 재시작"
-	@echo "  dev-gui          - unim-gui 빌드 + 배포 + 재시작"
+	@echo "  dev-gui-gtk      - unim-gui-gtk 빌드 + 배포 + 재시작"
+	@echo "  dev-gui-qt       - unim-gui-qt 빌드 + 배포 + 재시작"
 	@echo "  dev-extension    - GNOME Extension 증분 빌드 + 로컬(User) 배포"
 	@echo "  dev-restart      - 데몬 및 프론트엔드 재시작"
 	@echo ""
@@ -163,7 +164,7 @@ help:
 
 all: build
 
-# Full build: Rust workspace + all frontends (settings built into unim-gui)
+# Full build: Rust workspace + all frontends (settings built into unim-gui-gtk)
 build: build-rust build-frontends
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 전체 빌드 완료!"
@@ -203,7 +204,7 @@ build-frontends: build-rust
 # Install Targets
 # ─────────────────────────────────────────────────────────────────────────────
 
-install: install-core install-frontends install-icons install-autostart install-gnome-extension
+install: install-core install-gui-gtk install-gui-qt install-frontends install-icons install-gnome-extension
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 	@echo ""
@@ -230,7 +231,7 @@ install-core:
 	@# Executables
 	install -m 755 target/release/unim-cli $(DESTDIR)$(BINDIR)/
 	install -m 755 target/release/unim-config $(DESTDIR)$(BINDIR)/
-	install -m 755 target/release/unim-gui $(DESTDIR)$(BINDIR)/
+	@# NOTE: unim-gui-gtk/qt installed by separate install-gui-* targets
 	@# Daemons / servers
 	install -m 755 target/release/unim-daemon $(DESTDIR)$(LIBEXECDIR)/
 	install -m 755 target/release/unim-xim $(DESTDIR)$(LIBEXECDIR)/
@@ -266,16 +267,27 @@ install-icons:
 	install -m 644 data/icons/unim-korean.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 	install -m 644 data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
-install-autostart:
-	@echo "Installing autostart entry..."
+install-gui-gtk:
+	@echo "Installing unim-gui-gtk..."
+	install -d $(DESTDIR)$(BINDIR)
+	-install -m 755 target/release/unim-gui-gtk $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
 	install -d $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
-	install -m 644 unim-gui/data/unim-gui.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	-install -m 644 unim-gui-gtk/data/unim-gui-gtk.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/ 2>/dev/null || true
+
+install-gui-qt:
+	@echo "Installing unim-gui-qt..."
+	install -d $(DESTDIR)$(BINDIR)
+	-install -m 755 target/release/unim-gui-qt $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
+
+# install-autostart: now handled by install-gui-gtk (kept for backward compat)
+install-autostart:
+	@# autostart is handled by install-gui-gtk
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Uninstall Targets
 # ─────────────────────────────────────────────────────────────────────────────
 
-uninstall: uninstall-core uninstall-frontends uninstall-icons uninstall-autostart uninstall-gnome-extension
+uninstall: uninstall-core uninstall-gui-gtk uninstall-gui-qt uninstall-frontends uninstall-icons uninstall-gnome-extension
 	@echo "════════════════════════════════════════════════════════════"
 	@echo "✅ UNIM 제거 완료!"
 	@echo "════════════════════════════════════════════════════════════"
@@ -286,7 +298,7 @@ uninstall-core:
 	rm -f $(DESTDIR)$(INCLUDEDIR)/unim.h
 	rm -f $(DESTDIR)$(BINDIR)/unim-cli
 	rm -f $(DESTDIR)$(BINDIR)/unim-config
-	rm -f $(DESTDIR)$(BINDIR)/unim-gui
+	@# NOTE: unim-gui-gtk/qt removed by separate uninstall-gui-* targets
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-daemon
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-xim
 	rm -f $(DESTDIR)$(LIBEXECDIR)/unim-wayland
@@ -307,9 +319,18 @@ uninstall-icons:
 	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-korean.svg
 	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg
 
+uninstall-gui-gtk:
+	@echo "Removing unim-gui-gtk..."
+	rm -f $(DESTDIR)$(BINDIR)/unim-gui-gtk
+	rm -f $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-gtk.desktop
+
+uninstall-gui-qt:
+	@echo "Removing unim-gui-qt..."
+	rm -f $(DESTDIR)$(BINDIR)/unim-gui-qt
+
+# uninstall-autostart: now handled by uninstall-gui-gtk (kept for backward compat)
 uninstall-autostart:
-	@echo "Removing autostart entry..."
-	rm -f $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui.desktop
+	@# autostart is handled by uninstall-gui-gtk
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Systemd User Service
@@ -420,8 +441,8 @@ deb: build gnome-extension
 	@mkdir -p $(DEB_DIR)
 	@dpkg-buildpackage -us -uc -b -jauto
 	@echo "  → Moving .deb files to $(DEB_DIR)..."
-	@mv -f ../unim*.deb $(DEB_DIR)/ 2>/dev/null || true
-	@mv -f ../unim*.ddeb $(DEB_DIR)/ 2>/dev/null || true
+	@mv -f ../*.deb $(DEB_DIR)/ 2>/dev/null || true
+	@mv -f ../*.ddeb $(DEB_DIR)/ 2>/dev/null || true
 	@mv -f ../unim*.changes $(DEB_DIR)/ 2>/dev/null || true
 	@mv -f ../unim*.buildinfo $(DEB_DIR)/ 2>/dev/null || true
 	@echo "════════════════════════════════════════════════════════════"
@@ -432,7 +453,7 @@ deb: build gnome-extension
 clean-deb:
 	@echo "Cleaning Debian build artifacts..."
 	@rm -rf $(DEB_DIR)
-	@rm -f ../unim*.deb ../unim*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
+	@rm -f ../*.deb ../*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test & Verification
@@ -475,7 +496,7 @@ test:
 	fi
 	@echo ""
 	@echo "✅ 4. CLI 및 데몬"
-	@for cmd in unim-cli unim-config unim-gui; do \
+	@for cmd in unim-cli unim-config unim-gui-gtk; do \
 		if [ -f $(DESTDIR)$(BINDIR)/$$cmd ]; then \
 			echo "   ✓ $$cmd 설치됨"; \
 		else \
@@ -591,14 +612,23 @@ dev-wayland:
 	@pkill -f unim-wayland 2>/dev/null || true
 	@echo "✅ Wayland IM 배포 완료!"
 
-dev-gui:
-	@echo "🔧 [dev] unim-gui 빌드 + 배포 + 재시작..."
-	@$(CARGO) build --release -p unim-gui
+dev-gui-gtk:
+	@echo "🔧 [dev] unim-gui-gtk 빌드 + 배포 + 재시작..."
+	@$(CARGO) build --release -p unim-gui-gtk
 	@echo "  → 시스템에 복사 (sudo 필요)..."
-	@sudo cp target/release/unim-gui $(BINDIR)/
-	@echo "  → unim-gui 재시작..."
-	@pkill -f unim-gui 2>/dev/null || true
-	@echo "✅ unim-gui 배포 완료!"
+	@sudo cp target/release/unim-gui-gtk $(BINDIR)/
+	@echo "  → unim-gui-gtk 재시작..."
+	@pkill -f unim-gui-gtk 2>/dev/null || true
+	@echo "✅ unim-gui-gtk 배포 완료!"
+
+dev-gui-qt:
+	@echo "🔧 [dev] unim-gui-qt 빌드 + 배포 + 재시작..."
+	@$(CARGO) build --release -p unim-gui-qt
+	@echo "  → 시스템에 복사 (sudo 필요)..."
+	@sudo cp target/release/unim-gui-qt $(BINDIR)/
+	@echo "  → unim-gui-qt 재시작..."
+	@pkill -f unim-gui-qt 2>/dev/null || true
+	@echo "✅ unim-gui-qt 배포 완료!"
 
 dev-extension: gnome-extension
 	@echo "🔧 [dev] GNOME Extension 로컬 배포 (User)..."
@@ -612,7 +642,8 @@ dev-restart:
 	@pkill -f unim-daemon 2>/dev/null || true
 	@pkill -f unim-xim 2>/dev/null || true
 	@pkill -f unim-wayland 2>/dev/null || true
-	@pkill -f unim-gui 2>/dev/null || true
+	@pkill -f unim-gui-gtk 2>/dev/null || true
+	@pkill -f unim-gui-qt 2>/dev/null || true
 	@sleep 1
 	@echo "✅ 모든 UNIM 프로세스가 종료되었습니다. (DBus 자동활성화로 다음 요청 시 재시작됩니다)"
 

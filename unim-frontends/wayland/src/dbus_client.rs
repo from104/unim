@@ -41,33 +41,49 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 리셋
+    #[allow(dead_code)]
     Reset { context_path: String },
     /// 한자 후보 조회
+    #[allow(dead_code)]
     GetHanjaCandidates {
         context_path: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 한자 선택
+    #[allow(dead_code)]
     SelectHanja {
         context_path: String,
         index: u32,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 한자 취소
+    #[allow(dead_code)]
     CancelHanja { context_path: String },
     /// 특수문자 후보 조회
+    #[allow(dead_code)]
     GetSpecialCharCandidates {
         context_path: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 특수문자 선택
+    #[allow(dead_code)]
     SelectSpecialChar {
         context_path: String,
         index: u32,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 특수문자 취소
+    #[allow(dead_code)]
     CancelSpecialChar { context_path: String },
+    /// 커서 위치 보고 (팝업 포지셔닝용)
+    #[allow(dead_code)]
+    ReportCursorRect {
+        context_path: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
 }
 
 /// DBus 응답 타입
@@ -85,19 +101,30 @@ pub enum DbusResponse {
     CommitText { text: String },
     /// 한자 후보 목록
     HanjaCandidates {
+        #[allow(dead_code)]
         target: String,
+        #[allow(dead_code)]
         candidates: Vec<(String, String)>,
     },
     /// 한자 선택 결과
-    HanjaSelected { commit: String },
+    HanjaSelected {
+        #[allow(dead_code)]
+        commit: String,
+    },
     /// 특수문자 후보 목록
     SpecialCharCandidates {
+        #[allow(dead_code)]
         target: String,
+        #[allow(dead_code)]
         characters: Vec<String>,
+        #[allow(dead_code)]
         top_row: String,
     },
     /// 특수문자 선택 결과
-    SpecialCharSelected { commit: String },
+    SpecialCharSelected {
+        #[allow(dead_code)]
+        commit: String,
+    },
 }
 
 /// DBus 클라이언트
@@ -385,6 +412,18 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     let _ = proxy.cancel_special_char().await;
                     unim_log!("WAYLAND_DBUS", "특수문자 취소: {}", context_path);
+                }
+            }
+
+            DbusRequest::ReportCursorRect {
+                context_path,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    let _ = proxy.report_cursor_rect(x, y, width, height).await;
                 }
             }
         }

@@ -14,10 +14,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* DBus 클라이언트 및 팝업 헤더 */
+/* DBus 클라이언트 헤더 */
 #include "unim_dbus_client.h"
-#include "unim_hanja_popup.h"
-#include "unim_special_popup.h"
 
 /* X11 위치 계산을 위한 헤더 */
 #ifdef GDK_WINDOWING_X11
@@ -49,16 +47,8 @@ struct _UnimIMContext {
     gint cursor_index;    /* 바이트 오프셋 */
     gint selection_index; /* 바이트 오프셋 */
     
-    /* 한자 변환 관련 */
-    UnimHanjaPopup *hanja_popup;       /* 한자 후보 팝업 */
-    UnimHanjaCandidate *hanja_candidates; /* 현재 후보 목록 */
-    gsize hanja_count;                  /* 후보 개수 */
+    /* 커서 위치 */
     GdkRectangle cursor_area;           /* 커서 위치 (위젯 로컬 좌표) */
-    
-    /* 특수문자 변환 관련 */
-    UnimSpecialPopup *special_popup;   /* 특수문자 후보 팝업 */
-    gchar **special_characters;        /* 현재 특수문자 목록 */
-    gsize special_count;               /* 특수문자 개수 */
     
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
@@ -188,16 +178,7 @@ unim_im_context_init(UnimIMContext *context)
     context->cursor_index = 0;
     context->selection_index = 0;
     
-    /* 한자 팝업 초기화 */
-    context->hanja_popup = unim_hanja_popup_new();
-    context->hanja_candidates = NULL;
-    context->hanja_count = 0;
     memset(&context->cursor_area, 0, sizeof(GdkRectangle));
-    
-    /* 특수문자 팝업 초기화 */
-    context->special_popup = unim_special_popup_new();
-    context->special_characters = NULL;
-    context->special_count = 0;
     
     /* 한자키 설정 로드 */
     context->hanja_keysyms = NULL;
@@ -241,29 +222,7 @@ unim_im_context_dispose(GObject *obj)
 {
     UnimIMContext *context = UNIM_IM_CONTEXT(obj);
 
-    /* 한자 팝업 해제 */
-    if (context->hanja_popup) {
-        unim_hanja_popup_free(context->hanja_popup);
-        context->hanja_popup = NULL;
-    }
-    
-    if (context->hanja_candidates) {
-        unim_hanja_candidates_free(context->hanja_candidates, context->hanja_count);
-        context->hanja_candidates = NULL;
-        context->hanja_count = 0;
-    }
 
-    /* 특수문자 팝업 해제 */
-    if (context->special_popup) {
-        unim_special_popup_free(context->special_popup);
-        context->special_popup = NULL;
-    }
-    
-    if (context->special_characters) {
-        unim_special_chars_free(context->special_characters, context->special_count);
-        context->special_characters = NULL;
-        context->special_count = 0;
-    }
 
     if (context->dbus_ctx) {
         unim_dbus_context_free(context->dbus_ctx);
@@ -281,110 +240,6 @@ unim_im_context_dispose(GObject *obj)
     context->surrounding_text = NULL;
 
     G_OBJECT_CLASS(unim_im_context_parent_class)->dispose(obj);
-}
-
-/* 한자 선택 콜백 - 팝업에서 한자 선택 시 호출됨 */
-static void
-on_hanja_selected(const gchar *hanja, gpointer user_data)
-{
-    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
-    
-    if (!unim || !hanja || !unim->dbus_ctx) {
-        return;
-    }
-    
-    UNIM_DEBUG("한자 선택 콜백: hanja='%s'", hanja);
-    
-    /* 팝업 숨기기 (먼저) */
-    if (unim->hanja_popup) {
-        unim_hanja_popup_hide(unim->hanja_popup);
-    }
-    
-    /* preedit 클리어 먼저 (엔진에서 preedit 제거) */
-    unim_dbus_cancel_hanja(unim->dbus_ctx);
-    
-    /* preedit-changed 시그널 (빈 preedit) */
-    g_signal_emit_by_name(unim, "preedit-changed");
-    
-    /* 한자만 커밋 */
-    g_signal_emit_by_name(unim, "commit", hanja);
-}
-
-/* 특수문자 선택 콜백 - 팝업에서 특수문자 선택 시 호출됨 */
-static void
-on_special_char_selected(const gchar *character, gpointer user_data)
-{
-    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
-    
-    if (!unim || !character || !unim->dbus_ctx) {
-        return;
-    }
-    
-    UNIM_DEBUG("특수문자 선택 콜백: char='%s'", character);
-    
-    /* 팝업 숨기기 (먼저) */
-    if (unim->special_popup) {
-        unim_special_popup_hide(unim->special_popup);
-    }
-    
-    /* 엔진 특수문자 모드 취소 (preedit 클리어) */
-    unim_dbus_cancel_special_char(unim->dbus_ctx);
-    
-    /* preedit-changed 시그널 (빈 preedit) */
-    g_signal_emit_by_name(unim, "preedit-changed");
-    
-    /* 특수문자 커밋 */
-    g_signal_emit_by_name(unim, "commit", character);
-}
-
-/* 커서 위치로부터 화면 절대 좌표 계산 */
-static void
-calculate_popup_position(UnimIMContext *unim, gint *out_x, gint *out_y)
-{
-    gint popup_x = unim->cursor_area.x;
-    gint popup_y = unim->cursor_area.y + unim->cursor_area.height;
-    
-    /* 위젯→루트 좌표 변환 (GTK4) */
-    if (unim->client_widget) {
-        GtkWidget *root = GTK_WIDGET(gtk_widget_get_root(unim->client_widget));
-        if (root) {
-            graphene_point_t p_in = GRAPHENE_POINT_INIT(
-                (float)unim->cursor_area.x,
-                (float)(unim->cursor_area.y + unim->cursor_area.height));
-            graphene_point_t p_out;
-            if (gtk_widget_compute_point(unim->client_widget, root, &p_in, &p_out)) {
-                popup_x = (gint)p_out.x;
-                popup_y = (gint)p_out.y;
-            }
-        }
-    }
-
-#ifdef GDK_WINDOWING_X11
-    /* X11: surface 절대 위치 보정 */
-    if (unim->client_widget) {
-        GtkNative *native = gtk_widget_get_native(unim->client_widget);
-        if (native) {
-            GdkSurface *surface = gtk_native_get_surface(native);
-            if (surface && GDK_IS_X11_SURFACE(surface)) {
-                Display *xdisplay = gdk_x11_display_get_xdisplay(
-                    gdk_surface_get_display(surface));
-                Window xwindow = gdk_x11_surface_get_xid(surface);
-                gint abs_x = 0, abs_y = 0;
-                Window child_return;
-                
-                XTranslateCoordinates(xdisplay, xwindow,
-                    DefaultRootWindow(xdisplay),
-                    0, 0, &abs_x, &abs_y, &child_return);
-                
-                popup_x += abs_x;
-                popup_y += abs_y;
-            }
-        }
-    }
-#endif
-
-    *out_x = popup_x;
-    *out_y = popup_y;
 }
 
 static gboolean
@@ -433,198 +288,9 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         return FALSE;
     }
 
-    /* 한자 팝업이 표시 중이면 먼저 팝업에서 키 처리 */
-    if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
-        /* Escape → 조합 복원 + 팝업 닫기 */
-        if (keyval == GDK_KEY_Escape) {
-            UNIM_DEBUG("한자 팝업 Escape -> 조합 복원 + 팝업 닫기");
+    /* 팝업 키 처리는 엔진이 담당 (process_popup_key) */
 
-            /* ProcessKey(0,0,0)로 엔진 리셋 → preedit/commit 응답 받기 */
-            UnimDbusKeyResult reset_result;
-            if (unim_dbus_process_key(unim->dbus_ctx, 0, 0, 0, &reset_result)) {
-                /* 커밋 텍스트가 있으면 커밋 */
-                if (reset_result.commit && strlen(reset_result.commit) > 0) {
-                    g_signal_emit_by_name(context, "commit", reset_result.commit);
-                }
-                g_free(reset_result.preedit);
-                g_free(reset_result.commit);
-            }
-
-            /* CancelHanja → 한자 모드 해제 */
-            unim_dbus_cancel_hanja(unim->dbus_ctx);
-
-            /* preedit-changed 시그널 (preedit 복원) */
-            g_signal_emit_by_name(context, "preedit-changed");
-
-            /* 팝업 닫기 */
-            unim_hanja_popup_hide(unim->hanja_popup);
-            return TRUE;
-        }
-
-        /* 팝업 내부 처리 (숫자 선택, 네비게이션, 모디파이어 등) */
-        if (unim_hanja_popup_handle_key(unim->hanja_popup, keyval)) {
-            return TRUE;
-        }
-
-        /* 미지원 키 → 조합 커밋 + 팝업 닫기 + fall-through (엔진에 키 전달) */
-        UNIM_DEBUG("한자 팝업 미지원 키 -> 조합 커밋 + 팝업 닫고 엔진에 키 전달");
-
-        /* 1. FocusOut으로 조합 중 한글 커밋 */
-        gchar *commit_text = NULL;
-        unim_dbus_focus_out(unim->dbus_ctx, &commit_text);
-        if (commit_text && strlen(commit_text) > 0) {
-            UNIM_DEBUG("조합 커밋: \"%s\"", commit_text);
-            g_signal_emit_by_name(context, "commit", commit_text);
-        }
-        g_free(commit_text);
-
-        /* preedit 클리어 */
-        g_signal_emit_by_name(context, "preedit-changed");
-
-        /* 2. CancelHanja + 팝업 닫기 */
-        unim_dbus_cancel_hanja(unim->dbus_ctx);
-        unim_hanja_popup_hide(unim->hanja_popup);
-
-        /* 3. FocusIn으로 컨텍스트 복원 (FocusOut 후 필요) */
-        unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
-
-        /* fall-through → 아래 ProcessKey 경로에서 엔진이 새 키 처리 */
-    }
-
-    /* 특수문자 팝업이 표시 중이면 먼저 팝업에서 키 처리 */
-    if (unim->special_popup && unim_special_popup_is_visible(unim->special_popup)) {
-        /* Escape → 기존 자모 커밋 + 특수문자 모드 취소 + 팝업 닫기 */
-        if (keyval == GDK_KEY_Escape) {
-            UNIM_DEBUG("특수문자 팝업 Escape -> 자모 커밋 + 모드 취소 + 팝업 닫기");
-
-            /* ProcessKey(0,0,0)으로 엔진 리셋 → 조합 중 자모 커밋 */
-            UnimDbusKeyResult reset_result;
-            if (unim_dbus_process_key(unim->dbus_ctx, 0, 0, 0, &reset_result)) {
-                if (reset_result.commit && strlen(reset_result.commit) > 0) {
-                    g_signal_emit_by_name(context, "commit", reset_result.commit);
-                }
-                g_free(reset_result.preedit);
-                g_free(reset_result.commit);
-            }
-
-            unim_dbus_cancel_special_char(unim->dbus_ctx);
-            g_signal_emit_by_name(context, "preedit-changed");
-            unim_special_popup_hide(unim->special_popup);
-            return TRUE;
-        }
-
-        /* 팝업 내부 처리 */
-        if (unim_special_popup_handle_key(unim->special_popup, keyval)) {
-            return TRUE;
-        }
-
-        /* 미지원 키 → 특수문자 취소 + fall-through */
-        UNIM_DEBUG("특수문자 팝업 미지원 키 -> 모드 취소 + 엔진에 키 전달");
-        unim_dbus_cancel_special_char(unim->dbus_ctx);
-        unim_special_popup_hide(unim->special_popup);
-        g_signal_emit_by_name(context, "preedit-changed");
-
-        /* fall-through → 아래 ProcessKey 경로에서 엔진이 새 키 처리 */
-    }
-
-    /* 한자 키 처리 (설정 기반) */
-    gboolean is_hanja = FALSE;
-    for (gsize i = 0; i < unim->n_hanja_keysyms; i++) {
-        if (keyval == unim->hanja_keysyms[i]) {
-            is_hanja = TRUE;
-            break;
-        }
-    }
-    if (is_hanja) {
-        gchar *target = NULL;
-        UnimHanjaCandidate *candidates = NULL;
-        gsize count = 0;
-        
-        if (unim_dbus_get_hanja_candidates(unim->dbus_ctx, &target, &candidates, &count)) {
-            if (count > 0 && unim->hanja_popup) {
-                /* 이전 후보 정리 */
-                if (unim->hanja_candidates) {
-                    unim_hanja_candidates_free(unim->hanja_candidates, unim->hanja_count);
-                }
-                unim->hanja_candidates = candidates;
-                unim->hanja_count = count;
-                
-                /* 화면 좌표 계산 */
-                gint popup_x, popup_y;
-                calculate_popup_position(unim, &popup_x, &popup_y);
-                
-                /* 팝업 표시 (화면 절대 좌표) */
-                unim_hanja_popup_show(
-                    unim->hanja_popup,
-                    target,
-                    candidates,
-                    count,
-                    popup_x,
-                    popup_y,
-                    unim->cursor_area.height,
-                    on_hanja_selected,
-                    unim
-                );
-                
-                UNIM_DEBUG("한자 후보 표시: target='%s', count=%zu", target, count);
-            } else {
-                /* 한자 후보 없음 → 특수문자 후보 확인 */
-                UNIM_DEBUG("한자 후보 없음, 특수문자 확인...");
-                if (candidates) {
-                    unim_hanja_candidates_free(candidates, count);
-                }
-                g_free(target);
-                target = NULL;
-                
-                /* 특수문자 후보 조회 */
-                gchar *sp_target = NULL;
-                gchar **sp_chars = NULL;
-                gsize sp_count = 0;
-                gchar *sp_top_row = NULL;
-                
-                if (unim_dbus_get_special_char_candidates(unim->dbus_ctx,
-                        &sp_target, &sp_chars, &sp_count, &sp_top_row) && sp_count > 0) {
-                    /* 이전 특수문자 정리 */
-                    if (unim->special_characters) {
-                        unim_special_chars_free(unim->special_characters, unim->special_count);
-                    }
-                    unim->special_characters = sp_chars;
-                    unim->special_count = sp_count;
-                    
-                    /* 화면 좌표 계산 */
-                    gint popup_x, popup_y;
-                    calculate_popup_position(unim, &popup_x, &popup_y);
-                    
-                    /* 특수문자 팝업 표시 */
-                    unim_special_popup_show(
-                        unim->special_popup,
-                        sp_target,
-                        sp_chars,
-                        sp_count,
-                        sp_top_row,
-                        popup_x,
-                        popup_y,
-                        unim->cursor_area.height,
-                        on_special_char_selected,
-                        unim
-                    );
-                    
-                    UNIM_DEBUG("특수문자 후보 표시: target='%s', count=%zu, top_row='%s'",
-                               sp_target, sp_count, sp_top_row ? sp_top_row : "N/A");
-                } else {
-                    UNIM_DEBUG("특수문자 후보도 없음");
-                    if (sp_chars) {
-                        unim_special_chars_free(sp_chars, sp_count);
-                    }
-                }
-                g_free(sp_target);
-                g_free(sp_top_row);
-                return TRUE;
-            }
-        }
-        g_free(target);
-        return TRUE;
-    }
+    /* 한자 키는 엔진이 ProcessKey로 처리 (start_hanja_conversion) */
 
     /* GDK keycode = X11 keycode = evdev + 8 */
     guint evdev_code = (keycode > 8) ? (keycode - 8) : 0;
@@ -757,23 +423,7 @@ unim_im_context_focus_out(GtkIMContext *context)
         g_signal_emit_by_name(context, "preedit-changed");
     }
 
-    /* 2. 한자 팝업이 표시 중이면 닫기 */
-    if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
-        UNIM_DEBUG("focus_out: 한자 팝업 닫기");
-        unim_hanja_popup_hide(unim->hanja_popup);
-        if (unim->dbus_ctx) {
-            unim_dbus_cancel_hanja(unim->dbus_ctx);
-        }
-    }
-
-    /* 3. 특수문자 팝업이 표시 중이면 닫기 */
-    if (unim->special_popup && unim_special_popup_is_visible(unim->special_popup)) {
-        UNIM_DEBUG("focus_out: 특수문자 팝업 닫기");
-        unim_special_popup_hide(unim->special_popup);
-        if (unim->dbus_ctx) {
-            unim_dbus_cancel_special_char(unim->dbus_ctx);
-        }
-    }
+    /* 팝업은 unim-gui가 관리 */
 
     unim->is_focused = FALSE;
 }
@@ -799,23 +449,7 @@ unim_im_context_reset(GtkIMContext *context)
         g_signal_emit_by_name(context, "preedit-changed");
     }
 
-    /* 2. 한자 팝업이 표시 중이면 닫기 */
-    if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
-        UNIM_DEBUG("reset: 한자 팝업 닫기");
-        unim_hanja_popup_hide(unim->hanja_popup);
-        if (unim->dbus_ctx) {
-            unim_dbus_cancel_hanja(unim->dbus_ctx);
-        }
-    }
-
-    /* 3. 특수문자 팝업이 표시 중이면 닫기 */
-    if (unim->special_popup && unim_special_popup_is_visible(unim->special_popup)) {
-        UNIM_DEBUG("reset: 특수문자 팝업 닫기");
-        unim_special_popup_hide(unim->special_popup);
-        if (unim->dbus_ctx) {
-            unim_dbus_cancel_special_char(unim->dbus_ctx);
-        }
-    }
+    /* 팝업은 unim-gui가 관리 */
 }
 
 static void

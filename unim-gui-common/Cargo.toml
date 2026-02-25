@@ -1,0 +1,18 @@
+[package]
+name = "unim-gui-common"
+version = "0.0.1"
+edition = "2021"
+description = "Common GUI logic for UNIM (DBus, Tray, Types)"
+
+[dependencies]
+# Core
+unim = { path = ".." }
+unim-dbus = { path = "../unim-dbus" }
+
+# System tray (StatusNotifierItem)
+ksni = { version = "0.3", features = ["blocking"] }
+
+# Async runtime for DBus
+tokio = { version = "1", features = ["rt", "sync"] }
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+futures-util = "0.3"

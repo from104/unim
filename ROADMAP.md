@@ -22,7 +22,7 @@
 - [x] **Qt5/Qt6 플러그인**: C++ 기반 QPlatformInputContext 플러그인 구현 (공통 코드 `qt-common` 분리).
 - [x] **XIM 프론트엔드**: Rust `xim` crate 기반 X11 XIM 서버 구현 (Over-The-Spot Preedit, 프로토콜 적합성 검증 완료).
 - [x] **Wayland 프론트엔드**: `input-method-v2` + `virtual-keyboard-v1` 프로토콜 기반 구현 (KDE Plasma 지원).
-- [x] **한자/특수문자 입력**: X11 Xft 팝업 (XIM), GTK/Qt 팝업 (IM 모듈) 기반 한자 및 특수문자 후보 선택.
+- [x] **한자/특수문자 입력**: XIM 자체 Xft 팝업 + GNOME Extension 자체 팝업 + GTK/Qt/Wayland는 `unim-gui` 중앙 팝업으로 통합.
 - [x] **설정 도구**: GTK/Qt GUI 설정 도구 (`unim-gtk-settings`, `unim-qt-settings`) + CLI (`unim-config`).
 - [x] **시스템 트레이**: `unim-gui` 트레이 아이콘 및 팝업 통합.
 
@@ -37,6 +37,16 @@
 - [ ] **Wayland 한자/특수문자 팝업**: Layer-Shell 또는 팝업 서피스 기반 (Phase 3).
 - [ ] **Surrounding Text / Content Type**: Wayland 프로토콜 이벤트 활용 (Phase 4).
 - [ ] **Debian 패키지 안정화**: 패키지 빌드/설치 프로세스 검증 및 개선.
+
+### 3.5단계: UI 프런트엔드 분리 (Fcitx5 스타일)
+
+엔진(daemon)과 UI(팝업/인디케이터/설정)를 DBus 시그널 기반으로 완전 분리, 툴킷별 네이티브 GUI 지원.
+
+- [ ] **unim-gui 모듈 분리**: 1246줄 단일 파일 → DBus, 트레이, UI 모듈 분리.
+- [ ] **unim-gui-common 크레이트**: DBus 통신 + 트레이 등 공통 로직 추출 (툴킷 무관).
+- [ ] **unim-gui-gtk 전환**: 기존 `unim-gui`를 `unim-gui-common` 의존으로 전환.
+- [ ] **unim-gui-qt 신규 구현**: cxx-qt 기반 Qt6 네이티브 GUI (팝업 + 인디케이터 + 설정).
+- [ ] **Debian 패키지 재구성**: `unim-gtk`(IM+GUI), `unim-qt`(IM+GUI), `unim-xim`, `unim-wayland` 분리 + Conflicts 방식 충돌 방지.
 
 ### 4단계: 자동 상태 전환 (지능화)
 

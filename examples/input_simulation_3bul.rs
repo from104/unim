@@ -4,7 +4,7 @@
 //! 3-set layouts distinguish between initial, middle, and final characters
 //! at the hardware/layout level.
 
-use unim::korean::{composer::HangulComposer, composer_with_3bul::HangulComposer3Bul, jamo::*};
+use unim::hangul::{composer::HangulComposer, composer_with_3bul::HangulComposer3Bul, jamo::*};
 
 fn main() {
     let mut composer = HangulComposer3Bul::new();

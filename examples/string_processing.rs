@@ -3,7 +3,7 @@
 //! Demonstrates how to iterate through a string and deconstruct each Korean 
 //! syllable into its individual Jamo components (Initial, Middle, Final).
 
-use unim::korean::{char::HangulChar, jamo::*};
+use unim::hangul::{char::HangulChar, jamo::*};
 
 fn deconstruct_string(input: &str) {
     println!("Processing: \"{}\"", input);
