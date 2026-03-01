@@ -479,6 +479,35 @@ unim_im_context_get_preedit_string(GtkIMContext *context, char **str,
     }
 }
 
+/* 커서의 위젯 로컬 좌표를 절대 화면 좌표로 변환 */
+static void
+calculate_popup_position(UnimIMContext *unim, gint *abs_x, gint *abs_y)
+{
+    *abs_x = unim->cursor_area.x;
+    *abs_y = unim->cursor_area.y + unim->cursor_area.height;
+
+    if (unim->client_widget) {
+        GtkNative *native = gtk_widget_get_native(unim->client_widget);
+        if (!native) return;
+
+        /* 위젯 로컬 좌표를 native widget 기준으로 변환 */
+        graphene_point_t widget_point = GRAPHENE_POINT_INIT(
+            (float)unim->cursor_area.x, (float)unim->cursor_area.y);
+        graphene_point_t native_point;
+
+        if (gtk_widget_compute_point(unim->client_widget,
+                                      GTK_WIDGET(native),
+                                      &widget_point, &native_point)) {
+            /* GtkNative의 surface offset (CSD 타이틀바 등) 추가 */
+            double native_x = 0, native_y = 0;
+            gtk_native_get_surface_transform(native, &native_x, &native_y);
+
+            *abs_x = (gint)(native_point.x + native_x);
+            *abs_y = (gint)(native_point.y + native_y + unim->cursor_area.height);
+        }
+    }
+}
+
 static void
 unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
 {

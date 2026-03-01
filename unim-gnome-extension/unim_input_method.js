@@ -34,8 +34,18 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._focusOutHandler = null;
         /** @type {{x: number, y: number, width: number, height: number}} 커서 위치 */
         this._cursorRect = { x: 0, y: 0, width: 0, height: 0 };
+        /** @type {Object|null} DBus IME 클라이언트 연동 */
+        this._dbusIME = null;
 
         unimLog('IME', 'UnimInputMethod 인스턴스 생성');
+    }
+
+    /**
+     * DBus IME 클라이언트 주입
+     * @param {Object} dbusIME
+     */
+    setDbusIME(dbusIME) {
+        this._dbusIME = dbusIME;
     }
 
     /**
@@ -130,6 +140,15 @@ class UnimInputMethod extends Clutter.InputMethod {
                 width: rect.get_width(),
                 height: rect.get_height(),
             };
+            
+            if (this._dbusIME) {
+                this._dbusIME.reportCursorRect(
+                    Math.round(this._cursorRect.x),
+                    Math.round(this._cursorRect.y),
+                    Math.round(this._cursorRect.width),
+                    Math.round(this._cursorRect.height)
+                );
+            }
         }
     }
 

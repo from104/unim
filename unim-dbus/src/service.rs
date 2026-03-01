@@ -65,8 +65,11 @@ pub enum EngineRequest {
         index: usize,
         response: oneshot::Sender<Option<String>>,
     },
-    /// 한자 모드 취소
-    CancelHanja { context_id: u32 },
+    /// 한자 모드 취소 (남은 preedit을 반환)
+    CancelHanja {
+        context_id: u32,
+        response: oneshot::Sender<Option<String>>,
+    },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
         context_id: u32,
@@ -78,8 +81,11 @@ pub enum EngineRequest {
         index: usize,
         response: oneshot::Sender<Option<String>>,
     },
-    /// 특수문자 모드 취소
-    CancelSpecialChar { context_id: u32 },
+    /// 특수문자 모드 취소 (남은 preedit을 반환)
+    CancelSpecialChar {
+        context_id: u32,
+        response: oneshot::Sender<Option<String>>,
+    },
     /// 커서 위치 보고 (프런트엔드 → 데몬)
     ReportCursorRect {
         context_id: u32,
@@ -209,7 +215,12 @@ impl InputMethodService {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
         // InputContext 핸들러를 DBus에 등록
-        let handler = InputContextHandler::new(id, self.engine_tx.clone(), self.connection.clone());
+        let handler = InputContextHandler::new(
+            id,
+            client_name.to_string(),
+            self.engine_tx.clone(),
+            self.connection.clone(),
+        );
         let obj_path = zbus::zvariant::ObjectPath::try_from(path.as_str())
             .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
         self.connection
@@ -442,6 +453,8 @@ impl InputMethodService {
 pub struct InputContextHandler {
     /// 컨텍스트 ID
     id: u32,
+    /// 프론트엔드 클라이언트 이름 (프론트엔드 종류 식별용)
+    client_name: String,
     /// 엔진 스레드로 요청을 보내는 채널
     engine_tx: mpsc::Sender<EngineRequest>,
     /// DBus 연결 (시그널 발송용)
@@ -450,11 +463,31 @@ pub struct InputContextHandler {
     cursor_rect: std::sync::Mutex<(i32, i32, i32, i32)>,
 }
 
+/// client_name으로부터 프론트엔드 종류를 식별
+fn detect_frontend_type(client_name: &str) -> &'static str {
+    match client_name {
+        "gtk3-unim" => "GTK3",
+        "gtk4-unim" => "GTK4",
+        "qt5-unim" => "Qt5",
+        "qt6-unim" => "Qt6",
+        "unim-xim" => "XIM",
+        "unim-wayland" => "Wayland",
+        "gnome-extension" => "GNOME",
+        _ => "Unknown",
+    }
+}
+
 impl InputContextHandler {
     /// 새 핸들러 생성
-    pub fn new(id: u32, engine_tx: mpsc::Sender<EngineRequest>, connection: Connection) -> Self {
+    pub fn new(
+        id: u32,
+        client_name: String,
+        engine_tx: mpsc::Sender<EngineRequest>,
+        connection: Connection,
+    ) -> Self {
         Self {
             id,
+            client_name,
             engine_tx,
             connection,
             cursor_rect: std::sync::Mutex::new((0, 0, 0, 0)),
@@ -505,7 +538,7 @@ impl InputContextHandler {
                 .ok();
         }
 
-        // 팝업 시그널 자동 발행
+        // 팝업 시그널 자동 발행 (Push 방식: 인디케이터가 팝업 표시)
         if let Some(popup) = &response.popup_action {
             match popup {
                 PopupAction::ShowHanja { target, candidates } => {
@@ -561,7 +594,6 @@ impl InputContextHandler {
                         total_pages,
                         selected
                     );
-                    // 팝업 내부 탐색은 시그널 발행 없이 프론트엔드/GUI가 자체 처리
                 }
             }
         }
@@ -592,12 +624,15 @@ impl InputContextHandler {
             .await
             .ok();
 
+        let frontend = detect_frontend_type(&self.client_name);
+
         if let Ok(is_korean) = response_rx.await {
             // InputMethod 경로에서 GlobalModeChanged 시그널 발송 (UI 동기화)
             unim_log!(
                 "DBUS",
-                "[DBus] FocusIn: context_id={}, window_id={}, mode={}",
+                "[DBus] FocusIn: context_id={}, frontend={}, window_id={}, mode={}",
                 self.id,
+                frontend,
                 window_id,
                 if is_korean { "Korean" } else { "English" }
             );
@@ -609,7 +644,12 @@ impl InputContextHandler {
                 .await
                 .ok();
         } else {
-            unim_log!("DBUS", "[DBus] FocusIn: context_id={}", self.id);
+            unim_log!(
+                "DBUS",
+                "[DBus] FocusIn: context_id={}, frontend={}",
+                self.id,
+                frontend
+            );
         }
 
         Ok(())
@@ -779,7 +819,11 @@ impl InputContextHandler {
 
     /// 한자 선택
     /// 반환값: 선택된 한자 (실패 시 빈 문자열)
-    async fn select_hanja(&self, index: u32) -> zbus::fdo::Result<String> {
+    async fn select_hanja(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        index: u32,
+    ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -796,6 +840,11 @@ impl InputContextHandler {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
             .unwrap_or_default();
 
+        // 선택된 한자를 CommitText 시그널로 프론트엔드에 전달
+        if !hanja.is_empty() {
+            Self::commit_text(&signal_ctx, &hanja).await.ok();
+        }
+
         unim_log!(
             "DBUS",
             "[DBus] SelectHanja: index={}, result='{}'",
@@ -806,14 +855,27 @@ impl InputContextHandler {
         Ok(hanja)
     }
 
-    /// 한자 모드 취소
-    async fn cancel_hanja(&self) -> zbus::fdo::Result<()> {
+    /// 한자 모드 취소 (남은 preedit을 커밋)
+    async fn cancel_hanja(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
         self.engine_tx
             .send(EngineRequest::CancelHanja {
                 context_id: self.id,
+                response: response_tx,
             })
             .await
             .ok();
+
+        // 취소 시 남은 preedit을 커밋 (FocusOut에서 건너뛴 preedit 복구)
+        if let Ok(Some(preedit)) = response_rx.await {
+            if !preedit.is_empty() {
+                Self::commit_text(&signal_ctx, &preedit).await.ok();
+            }
+        }
 
         unim_log!("DBUS", "[DBus] CancelHanja: context_id={}", self.id);
         Ok(())
@@ -855,7 +917,11 @@ impl InputContextHandler {
 
     /// 특수문자 선택
     /// 반환값: 선택된 특수문자 (실패 시 빈 문자열)
-    async fn select_special_char(&self, index: u32) -> zbus::fdo::Result<String> {
+    async fn select_special_char(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        index: u32,
+    ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -872,6 +938,11 @@ impl InputContextHandler {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
             .unwrap_or_default();
 
+        // 선택된 특수문자를 CommitText 시그널로 프론트엔드에 전달
+        if !ch.is_empty() {
+            Self::commit_text(&signal_ctx, &ch).await.ok();
+        }
+
         unim_log!(
             "DBUS",
             "[DBus] SelectSpecialChar: index={}, result='{}'",
@@ -882,14 +953,27 @@ impl InputContextHandler {
         Ok(ch)
     }
 
-    /// 특수문자 모드 취소
-    async fn cancel_special_char(&self) -> zbus::fdo::Result<()> {
+    /// 특수문자 모드 취소 (남은 preedit을 커밋)
+    async fn cancel_special_char(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
         self.engine_tx
             .send(EngineRequest::CancelSpecialChar {
                 context_id: self.id,
+                response: response_tx,
             })
             .await
             .ok();
+
+        // 취소 시 남은 preedit을 커밋 (FocusOut에서 건너뛴 preedit 복구)
+        if let Ok(Some(preedit)) = response_rx.await {
+            if !preedit.is_empty() {
+                Self::commit_text(&signal_ctx, &preedit).await.ok();
+            }
+        }
 
         unim_log!("DBUS", "[DBus] CancelSpecialChar: context_id={}", self.id);
         Ok(())

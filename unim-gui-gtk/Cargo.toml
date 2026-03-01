@@ -19,6 +19,7 @@ ksni = { version = "0.3", features = ["blocking"] }
 
 # Modern GTK4 UI (popup window)
 gtk4 = "0.9"
+gdk4-x11 = { version = "0.9", optional = true }
 libadwaita = "0.7"
 
 # Async runtime for DBus

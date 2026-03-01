@@ -302,7 +302,7 @@ bool UnimDbusClient::getHanjaCandidates(QString &target, QList<UnimHanjaCandidat
         dbusArg.endArray();
         
         UNIM_DBUS_DEBUG(QString::asprintf("GetHanjaCandidates 결과: target=%s, count=%d",
-                        qPrintable(target), candidates.size()));
+                        qPrintable(target), static_cast<int>(candidates.size())));
     }
     
     return true;
@@ -386,7 +386,7 @@ bool UnimDbusClient::getSpecialCharCandidates(QString &target, QStringList &char
         topRow = args.at(2).toString();
         
         UNIM_DBUS_DEBUG(QString::asprintf("GetSpecialCharCandidates 결과: target='%s', count=%d, topRow='%s'",
-                        qPrintable(target), characters.size(), qPrintable(topRow)));
+                        qPrintable(target), static_cast<int>(characters.size()), qPrintable(topRow)));
     }
     
     return true;

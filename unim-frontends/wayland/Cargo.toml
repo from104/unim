@@ -18,7 +18,8 @@ xkbcommon = { version = "0.8", features = ["wayland"] }
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 mio = { version = "1", features = ["os-poll"] }
-nix = { version = "0.29", features = ["time", "fs"] }
+nix = { version = "0.29", features = ["time", "fs", "mman"] }
 tiny-skia = "0.11"
 cosmic-text = { version = "0.12", default-features = false, features = ["std", "swash"] }
 memmap2 = "0.9"
+futures-util = "0.3"

@@ -94,6 +94,32 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 state,
                 response,
             } => {
+                // 팝업 바이패스: 다른 context에 한자/특수문자 팝업이 활성이고
+                // 현재 context의 윈도우가 unim-gui (인디케이터)이면 키를 소비하지 않음
+                // → GNOME extension이 consumed=false를 받아 키를 GTK 팝업 윈도우로 전달
+                let popup_bypass = contexts.iter().any(|(&id, engine)| {
+                    id != context_id && (engine.is_hanja_mode() || engine.is_special_char_mode())
+                }) && context_windows
+                    .get(&context_id)
+                    .map(|wid| wid.starts_with("unim-gui-"))
+                    .unwrap_or(false);
+
+                if popup_bypass {
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] ProcessKey 바이패스 (팝업 활성, unim-gui 윈도우): context_id={}",
+                        context_id
+                    );
+                    let _ = response.send(EngineResponse {
+                        consumed: false,
+                        preedit: None,
+                        commit: None,
+                        mode_changed: None,
+                        popup_action: None,
+                    });
+                    continue;
+                }
+
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // keycode를 KeyCode로 변환
                     let key = KeyCode::from_evdev_keycode(keycode as u16);
@@ -173,6 +199,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 window_id,
                 response,
             } => {
+                // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 필요)
+                context_windows.insert(context_id, window_id.clone());
+
                 // PerWindow 모드에서는 창별 모드를 적용
                 if config.engine.mode_sharing == unim::config::ModeSharingMode::PerWindow {
                     if let Some(engine) = contexts.get_mut(&context_id) {
@@ -180,8 +209,6 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             engine.set_input_category(saved_mode);
                         }
                     }
-                    // 컨텍스트-창 매핑 업데이트
-                    context_windows.insert(context_id, window_id.clone());
                 }
 
                 // 현재 컨텍스트의 입력 모드 반환 (UI 동기화용)
@@ -204,21 +231,32 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 response,
             } => {
                 let commit = if let Some(engine) = contexts.get_mut(&context_id) {
-                    let preedit = engine.preedit_str();
-                    if !preedit.is_empty() {
-                        // 현재 모드 저장 (Global 모드가 아닌 경우)
-                        let current_mode = engine.input_category();
-                        // 조합 중인 텍스트를 커밋으로 변환하기 위해 엔진 리셋
-                        // (flush_preedit이 private이므로 대안)
-                        let commit_text = preedit.to_string();
-                        *engine = InputEngine::new(&config);
-                        // Global 모드가 아닌 경우 저장된 모드 복원 (PerApp, PerWindow)
-                        if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
-                            engine.set_input_category(current_mode);
-                        }
-                        Some(commit_text)
-                    } else {
+                    // 한자/특수문자 팝업이 활성 상태이면 preedit을 커밋하지 않음
+                    // (팝업 윈도우가 포커스를 가져가면서 발생하는 FocusOut 무시)
+                    if engine.is_hanja_mode() || engine.is_special_char_mode() {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] FocusOut 무시 (팝업 활성): context_id={}",
+                            context_id
+                        );
                         None
+                    } else {
+                        let preedit = engine.preedit_str();
+                        if !preedit.is_empty() {
+                            // 현재 모드 저장 (Global 모드가 아닌 경우)
+                            let current_mode = engine.input_category();
+                            // 조합 중인 텍스트를 커밋으로 변환하기 위해 엔진 리셋
+                            // (flush_preedit이 private이므로 대안)
+                            let commit_text = preedit.to_string();
+                            *engine = InputEngine::new(&config);
+                            // Global 모드가 아닌 경우 저장된 모드 복원 (PerApp, PerWindow)
+                            if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
+                                engine.set_input_category(current_mode);
+                            }
+                            Some(commit_text)
+                        } else {
+                            None
+                        }
                     }
                 } else {
                     None
@@ -273,6 +311,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // 먼저 한자 변환을 시작하여 후보를 생성
                     engine.start_hanja_conversion();
+                    // Pull 방식 요청이므로 Push용 popup_pending_action 소비하여 제거
+                    // (이후 ProcessKeyEvent에서 stale 시그널이 발행되지 않도록)
+                    engine.take_popup_action();
 
                     crate::service::HanjaCandidateResponse {
                         target: engine.get_hanja_target().to_string(),
@@ -300,10 +341,23 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(result);
             }
 
-            EngineRequest::CancelHanja { context_id } => {
-                if let Some(engine) = contexts.get_mut(&context_id) {
+            EngineRequest::CancelHanja {
+                context_id,
+                response,
+            } => {
+                let preedit = if let Some(engine) = contexts.get_mut(&context_id) {
+                    // cancel 전에 남은 preedit을 저장 (FocusOut에서 건너뛴 commit 복구용)
+                    let remaining = if !engine.preedit_str().is_empty() {
+                        Some(engine.preedit_str().to_string())
+                    } else {
+                        None
+                    };
                     engine.cancel_hanja();
-                }
+                    remaining
+                } else {
+                    None
+                };
+                let _ = response.send(preedit);
             }
 
             // =========================================
@@ -357,10 +411,22 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(result);
             }
 
-            EngineRequest::CancelSpecialChar { context_id } => {
-                if let Some(engine) = contexts.get_mut(&context_id) {
+            EngineRequest::CancelSpecialChar {
+                context_id,
+                response,
+            } => {
+                let preedit = if let Some(engine) = contexts.get_mut(&context_id) {
+                    let remaining = if !engine.preedit_str().is_empty() {
+                        Some(engine.preedit_str().to_string())
+                    } else {
+                        None
+                    };
                     engine.cancel_special_char();
-                }
+                    remaining
+                } else {
+                    None
+                };
+                let _ = response.send(preedit);
             }
 
             EngineRequest::ReportCursorRect { .. } => {

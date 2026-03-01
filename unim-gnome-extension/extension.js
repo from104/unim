@@ -47,11 +47,15 @@ export default class UnimExtension extends Extension {
         this._preeditOverlay = null;
         this._hanjaPopup = null;
         this._specialPopup = null;
+
         this._focusWindowId = 0;
 
 
         // 설정 리스너
         this._settingsChangedIds = [];
+
+        // TypeFIX 상태
+        this._conversionInProgress = false;
     }
 
     enable() {
@@ -136,6 +140,8 @@ export default class UnimExtension extends Extension {
 
             // 2. DBus 연결
             this._dbusIME = new UnimDbusIME();
+            this._inputMethod.setDbusIME(this._dbusIME);
+            
             const windowId = this._getActiveWindowId();
             const connected = this._dbusIME.connect(windowId, (isKorean) => {
                 // GlobalModeChanged → 인디케이터 업데이트
@@ -153,10 +159,9 @@ export default class UnimExtension extends Extension {
             // 3. 한자키 설정 읽기
             const hanjaKeysyms = this._loadHanjaKeysyms();
 
-            // 4. KeyHandler 시작
+            // 4. KeyHandler 시작 (한자키는 엔진에 위임, 팝업은 인디케이터가 표시)
             this._keyHandler = new KeyHandler(this._dbusIME, this._inputMethod, {
                 hanjaKeysyms,
-                onHanjaRequest: () => this._onHanjaRequest(),
             });
             this._keyHandler.enable();
 
@@ -170,25 +175,59 @@ export default class UnimExtension extends Extension {
             this._specialPopup = new SpecialPopup();
             this._specialPopup.enable();
 
+            // DBus 팝업 시그널 콜백 등록
+            this._dbusIME.setPopupCallbacks({
+                onShowHanja: (target, candidates, cursorRect) => {
+                    this._hanjaPopup.show(
+                        target, candidates,
+                        (globalIdx) => {
+                            // 선택 콜백
+                            this._dbusIME.selectHanja(globalIdx);
+                            this._keyHandler.setPopupKeyHandler(null);
+                        },
+                        () => {
+                            // 취소 콜백
+                            this._dbusIME.cancelHanja();
+                            this._keyHandler.setPopupKeyHandler(null);
+                        },
+                        cursorRect
+                    );
+                    // 키 이벤트를 팝업으로 위임
+                    this._keyHandler.setPopupKeyHandler((keyval) => {
+                        return this._hanjaPopup.handleKey(keyval);
+                    });
+                },
+                onShowSpecial: (target, characters, topRow, cursorRect) => {
+                    this._specialPopup.show(
+                        target, characters, topRow,
+                        (globalIdx) => {
+                            this._dbusIME.selectSpecialChar(globalIdx);
+                            this._keyHandler.setPopupKeyHandler(null);
+                        },
+                        () => {
+                            this._dbusIME.cancelSpecialChar();
+                            this._keyHandler.setPopupKeyHandler(null);
+                        },
+                        cursorRect
+                    );
+                    this._keyHandler.setPopupKeyHandler((keyval) => {
+                        return this._specialPopup.handleKey(keyval);
+                    });
+                },
+                onHidePopup: () => {
+                    this._hanjaPopup.hide();
+                    this._specialPopup.hide();
+                    this._keyHandler.setPopupKeyHandler(null);
+                },
+            });
+
             // 7. 포커스 감시 시작
             this._focusWindowId = global.display.connect(
                 'notify::focus-window',
                 this._onFocusWindowChanged.bind(this)
             );
-            // 8. 포커스 상실 핸들러 (조합 중 텍스트 커밋 + 팝업 닫기)
+            // 7. 포커스 상실 핸들러 (조합 중 텍스트 커밋)
             this._inputMethod.setFocusOutHandler(() => {
-                // 팝업이 열려있으면 닫기
-                if (this._hanjaPopup?.isVisible) {
-                    this._dbusIME.cancelHanja();
-                    this._hanjaPopup.hide();
-                    this._keyHandler?.setPopupKeyHandler(null);
-                }
-                if (this._specialPopup?.isVisible) {
-                    this._dbusIME.cancelSpecialChar();
-                    this._specialPopup.hide();
-                    this._keyHandler?.setPopupKeyHandler(null);
-                }
-
                 // DBus FocusOut → 조합 중 텍스트 커밋
                 const commit = this._dbusIME.focusOut();
                 if (commit && commit.length > 0) {
@@ -321,106 +360,6 @@ export default class UnimExtension extends Extension {
         }
     }
 
-    // ===========================================
-    // 한자/특수문자 처리
-    // ===========================================
-
-    /**
-     * 한자키 요청 처리
-     *
-     * GTK3 immodule.c의 한자키 플로우를 따름:
-     * 1. GetHanjaCandidates 시도
-     * 2. 후보 없으면 GetSpecialCharCandidates 폴백
-     * @private
-     */
-    _onHanjaRequest() {
-        if (!this._dbusIME?.isConnected) return;
-
-        // 팝업이 이미 열려있으면 닫기
-        if (this._hanjaPopup?.isVisible) {
-            this._hanjaPopup.hide();
-            this._dbusIME.cancelHanja();
-            this._keyHandler.setPopupKeyHandler(null);
-            return;
-        }
-        if (this._specialPopup?.isVisible) {
-            this._specialPopup.hide();
-            this._dbusIME.cancelSpecialChar();
-            this._keyHandler.setPopupKeyHandler(null);
-            return;
-        }
-
-        // 한자 후보 조회
-        const hanjaResult = this._dbusIME.getHanjaCandidates();
-
-        if (hanjaResult && hanjaResult.candidates.length > 0) {
-            this._hanjaPopup.show(
-                hanjaResult.target,
-                hanjaResult.candidates,
-                (globalIndex) => {
-                    // 선택 콜백 — GTK3 on_hanja_selected 패턴:
-                    // 1. selectHanja → 한자 문자 획득
-                    // 2. cancelHanja → 엔진 preedit 상태 리셋
-                    // 3. clearPreedit → 로컬 preedit 클리어
-                    // 4. commitText → 한자 커밋
-                    const selected = this._dbusIME.selectHanja(globalIndex);
-                    this._dbusIME.cancelHanja();
-                    if (this._inputMethod) {
-                        this._inputMethod.clearPreedit();
-                        if (selected) {
-                            this._inputMethod.commitText(selected);
-                        }
-                    }
-                    this._keyHandler.setPopupKeyHandler(null);
-                },
-                () => {
-                    // 취소 콜백
-                    this._dbusIME.cancelHanja();
-                    this._keyHandler.setPopupKeyHandler(null);
-                },
-                this._inputMethod?.cursorRect
-            );
-
-            // KeyHandler에 팝업 키 핸들러 등록
-            this._keyHandler.setPopupKeyHandler(
-                (keyval) => this._hanjaPopup.handleKey(keyval)
-            );
-            return;
-        }
-
-        // 특수문자 후보 폴백
-        const specialResult = this._dbusIME.getSpecialCharCandidates();
-
-        if (specialResult && specialResult.characters.length > 0) {
-            this._specialPopup.show(
-                specialResult.target,
-                specialResult.characters,
-                specialResult.topRow,
-                (globalIndex) => {
-                    // 선택 콜백 — GTK3 on_special_char_selected 패턴
-                    const selected = this._dbusIME.selectSpecialChar(globalIndex);
-                    this._dbusIME.cancelSpecialChar();
-                    if (this._inputMethod) {
-                        this._inputMethod.clearPreedit();
-                        if (selected) {
-                            this._inputMethod.commitText(selected);
-                        }
-                    }
-                    this._keyHandler.setPopupKeyHandler(null);
-                },
-                () => {
-                    // 취소 콜백
-                    this._dbusIME.cancelSpecialChar();
-                    this._keyHandler.setPopupKeyHandler(null);
-                },
-                this._inputMethod?.cursorRect
-            );
-
-            this._keyHandler.setPopupKeyHandler(
-                (keyval) => this._specialPopup.handleKey(keyval)
-            );
-        }
-    }
 
     // ===========================================
     // 유틸리티
@@ -522,6 +461,10 @@ export default class UnimExtension extends Extension {
 
     _onShortcutTriggered(pasteMode, isReverse) {
         if (!this._settings.get_boolean('enable-extension')) return;
+        if (this._conversionInProgress) {
+            unimLog('EXTENSION', 'TypeFIX: 이미 변환이 진행 중입니다. 무시합니다.');
+            return;
+        }
 
         const koreanLayout = this._settings.get_string('korean-layout');
         const englishLayout = this._settings.get_string('english-layout');
@@ -529,11 +472,17 @@ export default class UnimExtension extends Extension {
     }
 
     async _doConversion(koreanLayout, englishLayout, pasteMode, isReverse) {
+        this._conversionInProgress = true;
         try {
+            // PRIMARY (Selection) 우선 시도, 없으면 CLIPBOARD 시도
             this._clipboard.get_text(St.ClipboardType.PRIMARY, (clipboard, text) => {
                 if (!text || text.trim() === '') {
                     this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (cb, cbText) => {
-                        if (cbText) this._processConvertedText(cbText, koreanLayout, englishLayout, pasteMode, isReverse);
+                        if (cbText && cbText.trim() !== '') {
+                            this._processConvertedText(cbText, koreanLayout, englishLayout, pasteMode, isReverse);
+                        } else {
+                            this._conversionInProgress = false;
+                        }
                     });
                 } else {
                     this._processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse);
@@ -541,25 +490,38 @@ export default class UnimExtension extends Extension {
             });
         } catch (e) {
             unimError('EXTENSION', `Conversion trigger error: ${e.message}`);
+            this._conversionInProgress = false;
         }
     }
 
     async _processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse) {
         try {
             const converted = await this._convertText(text, koreanLayout, englishLayout, isReverse);
-            if (!converted) return;
+            if (!converted || converted === text) {
+                unimLog('EXTENSION', 'TypeFIX: 변환 결과가 없거나 원본과 동일함');
+                this._conversionInProgress = false;
+                return;
+            }
 
             this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
             this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
 
             if (pasteMode === PasteMode.COPY_ONLY) {
                 unimLog('EXTENSION', 'Copy-only mode: 붙여넣기 생략');
+                this._conversionInProgress = false;
             } else {
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                // 붙여넣기 전에 약간의 지연 (클립보드 동기화 대기)
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
                     if (pasteMode === PasteMode.TERMINAL) {
                         this._vkbd.backspaceMultiple(text.length);
                     }
                     this._vkbd.paste();
+                    
+                    // 붙여넣기 완료 후 플래그 해제 (약간의 여유를 둠)
+                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                        this._conversionInProgress = false;
+                        return GLib.SOURCE_REMOVE;
+                    });
                     return GLib.SOURCE_REMOVE;
                 });
             }
@@ -569,30 +531,46 @@ export default class UnimExtension extends Extension {
             }
         } catch (e) {
             unimError('EXTENSION', `Transform error: ${e.message}`);
+            this._conversionInProgress = false;
         }
     }
 
     _convertText(text, koreanLayout, englishLayout, isReverse) {
         return new Promise((resolve, reject) => {
             const binPath = '/usr/bin/unim-cli';
+            
+            // 레이아웃 결정: 우선순위 1.인자, 2.설정, 3.기본값
             const kLayout = koreanLayout || this._settings.get_string('korean-layout') || '2bul';
             const eLayout = englishLayout || this._settings.get_string('english-layout') || 'qwerty';
 
             const koreanLayoutMap = {
-                '2bul': '2bul', '3bul390': '390', '3bul391': '391',
-                '3bul_noshift': 'noshift', '390': '390', '391': '391',
+                '2bul': '2bul', 
+                '3bul390': '390', 
+                '3bul391': '391',
+                '3bul_noshift': 'noshift', 
+                '390': '390', 
+                '391': '391',
+                'noshift': 'noshift',
             };
             const englishLayoutMap = {
-                'qwerty': 'qwerty', 'dvorak': 'dvorak', 'colemak': 'colemak',
-                'colemak_dh': 'colemak_dh', 'workman': 'workman',
+                'qwerty': 'qwerty', 
+                'dvorak': 'dvorak', 
+                'colemak': 'colemak',
+                'colemak_dh': 'colemak_dh', 
+                'workman': 'workman',
             };
+
+            const koKey = koreanLayoutMap[kLayout] || '2bul';
+            const enKey = englishLayoutMap[eLayout] || 'qwerty';
 
             const argv = [
                 binPath,
                 isReverse ? '--decompose' : '--compose',
-                '--korean-keyboard', koreanLayoutMap[kLayout] || '2bul',
-                '--english-keyboard', englishLayoutMap[eLayout] || 'qwerty',
+                '--korean-keyboard', koKey,
+                '--english-keyboard', enKey,
             ];
+
+            unimLog('EXTENSION', `TypeFIX 실행: ${argv.join(' ')} (input: ${text.substring(0, 10)}${text.length > 10 ? '...' : ''})`);
 
             try {
                 const proc = new Gio.Subprocess({
@@ -600,13 +578,24 @@ export default class UnimExtension extends Extension {
                     flags: Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
                 });
                 proc.init(null);
-                proc.communicate_utf8_async(text, null, (proc, res) => {
+                proc.communicate_utf8_async(text, null, (p, res) => {
                     try {
-                        const [ok, stdout, stderr] = proc.communicate_utf8_finish(res);
+                        const [ok, stdout, stderr] = p.communicate_utf8_finish(res);
+                        if (!ok) {
+                            unimError('EXTENSION', `unim-cli 실패: ${stderr}`);
+                            resolve('');
+                            return;
+                        }
                         resolve(stdout ? stdout.trim() : '');
-                    } catch (e) { reject(e); }
+                    } catch (e) { 
+                        unimError('EXTENSION', `unim-cli 결과 처리 오류: ${e.message}`);
+                        reject(e); 
+                    }
                 });
-            } catch (e) { reject(e); }
+            } catch (e) { 
+                unimError('EXTENSION', `unim-cli 프로세스 시작 실패: ${e.message}`);
+                reject(e); 
+            }
         });
     }
 }

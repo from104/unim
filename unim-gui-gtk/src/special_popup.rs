@@ -159,6 +159,21 @@ impl SpecialPopup {
         };
 
         popup.setup_key_handler();
+
+        // 포커스 잃으면 자동 취소 (Alt+Tab 등으로 다른 앱 전환 시)
+        {
+            let on_cancel = popup.on_cancel.clone();
+            let window = popup.window.clone();
+            popup.window.connect_is_active_notify(move |w| {
+                if !w.is_active() && w.is_visible() {
+                    if let Some(ref cb) = *on_cancel.borrow() {
+                        cb();
+                    }
+                    window.set_visible(false);
+                }
+            });
+        }
+
         popup
     }
 
@@ -197,9 +212,13 @@ impl SpecialPopup {
             .set_text(&format!("「{}」 → 특수문자", target));
         self.refresh_grid();
 
-        let _ = (cursor_x, cursor_y, cursor_height); // TODO: 포지셔닝
-
-        self.window.present();
+        // 팝업 위치 설정 (X11: XMoveWindow, Wayland: no-op)
+        crate::popup_position::position_popup_window(
+            &self.window,
+            cursor_x,
+            cursor_y,
+            cursor_height,
+        );
         unim_log!(
             "INDICATOR",
             "특수문자 팝업 표시: target='{}', cursor=({},{})",

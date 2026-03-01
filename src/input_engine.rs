@@ -777,12 +777,12 @@ impl InputEngine {
 
         unim_log!("ENGINE", "한자 선택: [{}] '{}'", index, hanja);
 
-        // preedit에서 마지막 음절을 제거하고 한자로 교체
+        // preedit에서 마지막 음절을 제거
         if !self.preedit_cache.is_empty() {
-            // 현재 조합을 한자로 교체
             self.korean_context.clear();
             self.preedit_cache.clear();
-            self.commit_buffer.push_str(&hanja);
+            // DBus 응답으로 한자를 반환하므로 commit_buffer에 추가하지 않음
+            // (추가 시 다음 키 입력에 묻어나와 이중 커밋 발생)
         }
 
         self.cancel_hanja();
@@ -838,10 +838,11 @@ impl InputEngine {
         let selected = self.special_char_candidates[index];
         unim_log!("ENGINE", "특수문자 선택: [{}] '{}'", index, selected);
 
-        // preedit(초성)을 제거하고 특수문자를 commit
+        // preedit(초성)을 제거
         self.korean_context.clear();
         self.preedit_cache.clear();
-        self.commit_buffer.push(selected);
+        // DBus 응답으로 특수문자를 반환하므로 commit_buffer에 추가하지 않음
+        // (추가 시 다음 키 입력에 묻어나와 이중 커밋 발생)
 
         self.cancel_special_char();
         Some(selected)

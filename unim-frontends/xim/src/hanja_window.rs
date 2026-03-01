@@ -36,13 +36,24 @@ pub struct HanjaWindow {
     xft_font: *mut x11::xft::XftFont,
     /// XftFont (fallback: CJK 한자 포함 폰트)
     xft_font_fallback: *mut x11::xft::XftFont,
-    /// 텍스트 색상
+    // --- 색상 (Catppuccin Mocha) ---
+    /// 배경 색상 (#1e1e2e)
+    bg_color: x11::xft::XftColor,
+    /// 테두리 색상 (#454768)
+    border_color: x11::xft::XftColor,
+    /// 헤더 배경 색상 (#313244)
+    header_bg_color: x11::xft::XftColor,
+    /// 헤더 텍스트 색상 (#89b4fa)
+    header_color: x11::xft::XftColor,
+    /// 본문 텍스트 색상 (#cdd6f4)
     text_color: x11::xft::XftColor,
-    /// 선택 배경 색상
+    /// 번호 색상 (#7f849c)
+    number_color: x11::xft::XftColor,
+    /// 뜻풀이 색상 (#a6adc8)
+    meaning_color: x11::xft::XftColor,
+    /// 선택 배경 색상 (#313654)
     sel_bg_color: x11::xft::XftColor,
-    /// 선택 텍스트 색상
-    sel_text_color: x11::xft::XftColor,
-    /// 페이지 정보 색상
+    /// 페이지 정보 색상 (#6c7086)
     page_color: x11::xft::XftColor,
     /// 후보 목록 (한자, 뜻)
     candidates: Vec<(String, String)>,
@@ -67,8 +78,6 @@ impl HanjaWindow {
         y: c_int,
     ) -> Result<Self, String> {
         let root = unsafe { x11::xlib::XRootWindow(display, screen) };
-        let white_pixel = unsafe { x11::xlib::XWhitePixel(display, screen) };
-        let black_pixel = unsafe { x11::xlib::XBlackPixel(display, screen) };
 
         // 초기 크기 (후보 설정 시 조정)
         let size: (u16, u16) = (300, 200);
@@ -95,8 +104,30 @@ impl HanjaWindow {
         }
 
         let mut swa: x11::xlib::XSetWindowAttributes = unsafe { std::mem::zeroed() };
-        swa.background_pixel = white_pixel;
-        swa.border_pixel = black_pixel;
+        // Catppuccin Mocha Base: #1e1e2e → RGB(30,30,46)
+        // X11에서는 XAllocColor로 할당해야 진짜 색상을 얻음
+        let bg_pixel = unsafe {
+            let colormap = x11::xlib::XDefaultColormap(display, screen);
+            let mut xcolor: x11::xlib::XColor = std::mem::zeroed();
+            xcolor.red = 30 * 257; // 0x1E1E
+            xcolor.green = 30 * 257; // 0x1E1E
+            xcolor.blue = 46 * 257; // 0x2E2E
+            xcolor.flags = 7; // DoRed | DoGreen | DoBlue
+            x11::xlib::XAllocColor(display, colormap, &mut xcolor);
+            xcolor.pixel
+        };
+        let border_pixel = unsafe {
+            let colormap = x11::xlib::XDefaultColormap(display, screen);
+            let mut xcolor: x11::xlib::XColor = std::mem::zeroed();
+            xcolor.red = 69 * 257;
+            xcolor.green = 71 * 257;
+            xcolor.blue = 104 * 257;
+            xcolor.flags = 7;
+            x11::xlib::XAllocColor(display, colormap, &mut xcolor);
+            xcolor.pixel
+        };
+        swa.background_pixel = bg_pixel;
+        swa.border_pixel = border_pixel;
         swa.override_redirect = x11::xlib::True;
         swa.event_mask =
             x11::xlib::ExposureMask | x11::xlib::StructureNotifyMask | x11::xlib::ButtonPressMask;
@@ -213,41 +244,36 @@ impl HanjaWindow {
             unim_log!("XIM_HANJA", "CJK fallback 폰트 로드 실패 — 한자 표시 불가");
         }
 
-        // 색상 할당
+        // 색상 할당 — Catppuccin Mocha 팔레트
+        let mut bg_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut border_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut header_bg_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut header_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut text_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut number_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut meaning_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut sel_bg_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
-        let mut sel_text_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut page_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
 
         unsafe {
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#1e1e2e\0".as_ptr() as *const i8,
-                &mut text_color,
-            );
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#89b4fa\0".as_ptr() as *const i8,
-                &mut sel_bg_color,
-            );
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#1e1e2e\0".as_ptr() as *const i8,
-                &mut sel_text_color,
-            );
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#6c7086\0".as_ptr() as *const i8,
-                &mut page_color,
-            );
+            let alloc = |name: &[u8], color: &mut x11::xft::XftColor| {
+                x11::xft::XftColorAllocName(
+                    display,
+                    visual,
+                    colormap,
+                    name.as_ptr() as *const i8,
+                    color,
+                );
+            };
+            alloc(b"#1e1e2e\0", &mut bg_color);
+            alloc(b"#454768\0", &mut border_color);
+            alloc(b"#313244\0", &mut header_bg_color);
+            alloc(b"#89b4fa\0", &mut header_color);
+            alloc(b"#cdd6f4\0", &mut text_color);
+            alloc(b"#7f849c\0", &mut number_color);
+            alloc(b"#a6adc8\0", &mut meaning_color);
+            alloc(b"#313654\0", &mut sel_bg_color);
+            alloc(b"#6c7086\0", &mut page_color);
         }
 
         unim_log!("XIM_HANJA", "한자 팝업 생성: pos=({},{})", final_x, final_y);
@@ -257,9 +283,14 @@ impl HanjaWindow {
             xft_draw,
             xft_font,
             xft_font_fallback,
+            bg_color,
+            border_color,
+            header_bg_color,
+            header_color,
             text_color,
+            number_color,
+            meaning_color,
             sel_bg_color,
-            sel_text_color,
             page_color,
             candidates: Vec::new(),
             target: String::new(),
@@ -292,12 +323,15 @@ impl HanjaWindow {
         self.current_page = 0;
         self.selected_index = 0;
 
-        // 윈도우 크기 계산
+        // 윈도우 크기 계산: 헤더 + 후보 행 + 안내 행 + 패딩
         let line_h = self.line_height(display);
         let page_count = self.page_items().len();
-        // 후보 행 + 페이지 정보 행 + 여백
-        let height = (page_count as u16 + 1) * (line_h as u16) + 8;
-        let width: u16 = 300;
+        let padding_y = 8;
+        let header_h = line_h + 4;
+        let items_h = (page_count as c_int) * line_h;
+        let footer_h = line_h + 4;
+        let height = (padding_y + header_h + 4 + items_h + footer_h + padding_y) as u16;
+        let width: u16 = 340;
 
         self.size = (width, height);
         unsafe {
@@ -598,7 +632,7 @@ impl HanjaWindow {
         }
     }
 
-    /// 다시 그리기
+    /// 다시 그리기 — 설계서 기반 Catppuccin Mocha 렌더링
     pub fn redraw(&mut self, display: *mut x11::xlib::Display) {
         if display.is_null() {
             return;
@@ -609,56 +643,152 @@ impl HanjaWindow {
         }
 
         let line_h = self.line_height(display);
-        let padding_x = 6;
+        let padding_x: c_int = 12;
+        let padding_y: c_int = 8;
         let items = self.page_items().to_vec();
 
-        for (i, (hanja, meaning)) in items.iter().enumerate() {
-            let y_pos = (i as c_int + 1) * line_h;
+        // 헤더 배경 (#313244)
+        let header_h = line_h + 4;
+        unsafe {
+            let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
+            x11::xlib::XSetForeground(display, gc, self.header_bg_color.pixel);
+            x11::xlib::XFillRectangle(
+                display,
+                self.window,
+                gc,
+                4,
+                4,
+                (self.size.0 - 8) as u32,
+                header_h as u32,
+            );
+            x11::xlib::XFreeGC(display, gc);
+        }
 
-            // 선택된 항목 배경
+        // 헤더 텍스트: 「한」 → 한자  1/3
+        let header_text = format!("「{}」 → 한자", self.target);
+        self.draw_string_with_fallback(
+            display,
+            &self.header_color,
+            padding_x,
+            padding_y + line_h - 2,
+            &header_text,
+        );
+        // 페이지 번호 (헤더 오른쪽)
+        let page_str = format!("{}/{}", self.current_page + 1, self.total_pages());
+        let page_bytes = page_str.as_bytes();
+        unsafe {
+            let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display,
+                self.xft_font,
+                page_bytes.as_ptr(),
+                page_bytes.len() as c_int,
+                &mut extents,
+            );
+            let page_x = (self.size.0 as c_int) - padding_x - extents.xOff as c_int;
+            x11::xft::XftDrawStringUtf8(
+                self.xft_draw,
+                &self.page_color,
+                self.xft_font,
+                page_x,
+                padding_y + line_h - 2,
+                page_bytes.as_ptr(),
+                page_bytes.len() as c_int,
+            );
+        }
+
+        // 후보 행
+        let items_start_y = padding_y + header_h + 4;
+        for (i, (hanja, meaning)) in items.iter().enumerate() {
+            let y_pos = items_start_y + (i as c_int) * line_h + line_h - 2;
+            let row_top = items_start_y + (i as c_int) * line_h;
+
+            // 선택된 항목 배경 (#313654)
             if i == self.selected_index {
                 unsafe {
-                    // XftColor에서 pixel 추출하여 GC로 사각형 채우기
                     let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
                     x11::xlib::XSetForeground(display, gc, self.sel_bg_color.pixel);
                     x11::xlib::XFillRectangle(
                         display,
                         self.window,
                         gc,
-                        0,
-                        y_pos - line_h + 4,
-                        self.size.0 as u32,
+                        4,
+                        row_top,
+                        (self.size.0 - 8) as u32,
                         line_h as u32,
                     );
                     x11::xlib::XFreeGC(display, gc);
                 }
             }
 
-            // 텍스트: "N. 漢 뜻" — font fallback 적용
-            let text = format!("{}. {} {}", i + 1, hanja, meaning);
-            let color = if i == self.selected_index {
-                &self.sel_text_color
-            } else {
-                &self.text_color
+            // 번호 "N." (#7f849c)
+            let num_text = format!("{}.", i + 1);
+            let num_bytes = num_text.as_bytes();
+            unsafe {
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw,
+                    &self.number_color,
+                    self.xft_font,
+                    padding_x,
+                    y_pos,
+                    num_bytes.as_ptr(),
+                    num_bytes.len() as c_int,
+                );
+            }
+
+            // 한자 문자 (#cdd6f4, fallback font)
+            let hanja_x = padding_x + 28;
+            self.draw_string_with_fallback(display, &self.text_color, hanja_x, y_pos, hanja);
+
+            // 한자 글자 너비 측정
+            let hanja_width = unsafe {
+                let mut ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+                let font = if !self.xft_font_fallback.is_null() {
+                    self.xft_font_fallback
+                } else {
+                    self.xft_font
+                };
+                x11::xft::XftTextExtentsUtf8(
+                    display,
+                    font,
+                    hanja.as_bytes().as_ptr(),
+                    hanja.as_bytes().len() as c_int,
+                    &mut ext,
+                );
+                ext.xOff as c_int
             };
 
-            self.draw_string_with_fallback(display, color, padding_x, y_pos, &text);
+            // 뜻풀이 (#a6adc8)
+            if !meaning.is_empty() {
+                let meaning_x = hanja_x + hanja_width + 8;
+                let meaning_bytes = meaning.as_bytes();
+                unsafe {
+                    x11::xft::XftDrawStringUtf8(
+                        self.xft_draw,
+                        &self.meaning_color,
+                        self.xft_font,
+                        meaning_x,
+                        y_pos,
+                        meaning_bytes.as_ptr(),
+                        meaning_bytes.len() as c_int,
+                    );
+                }
+            }
         }
 
-        // 페이지 정보
-        let page_text = format!("{} / {}", self.current_page + 1, self.total_pages());
-        let page_bytes = page_text.as_bytes();
-        let page_y = (items.len() as c_int + 1) * line_h;
-
+        // 하단 안내
+        let footer_y = items_start_y + (items.len() as c_int) * line_h + line_h;
+        let footer = "← → 페이지 | 1~9 선택 | ESC 취소";
+        let footer_bytes = footer.as_bytes();
         unsafe {
             x11::xft::XftDrawStringUtf8(
                 self.xft_draw,
                 &self.page_color,
                 self.xft_font,
                 padding_x,
-                page_y,
-                page_bytes.as_ptr(),
-                page_bytes.len() as c_int,
+                footer_y,
+                footer_bytes.as_ptr(),
+                footer_bytes.len() as c_int,
             );
             x11::xlib::XFlush(display);
         }
@@ -680,31 +810,21 @@ impl HanjaWindow {
             let visual = x11::xlib::XDefaultVisual(display, screen);
             let colormap = x11::xlib::XDefaultColormap(display, screen);
 
-            // 색상 해제
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.text_color as *const _ as *mut _,
-            );
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.sel_bg_color as *const _ as *mut _,
-            );
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.sel_text_color as *const _ as *mut _,
-            );
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.page_color as *const _ as *mut _,
-            );
+            // 색상 해제 — Catppuccin Mocha 전체
+            let colors: &[&x11::xft::XftColor] = &[
+                &self.bg_color,
+                &self.border_color,
+                &self.header_bg_color,
+                &self.header_color,
+                &self.text_color,
+                &self.number_color,
+                &self.meaning_color,
+                &self.sel_bg_color,
+                &self.page_color,
+            ];
+            for color in colors {
+                x11::xft::XftColorFree(display, visual, colormap, *color as *const _ as *mut _);
+            }
 
             x11::xft::XftFontClose(display, self.xft_font);
             if !self.xft_font_fallback.is_null() {

@@ -41,49 +41,61 @@
 
 .unim-hanja-popup {
     background-color: rgba(30, 30, 46, 0.95);
-    border: 1px solid #89b4fa;
-    border-radius: 8px;
-    padding: 8px;
-    min-width: 200px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 280px;
+    max-width: 420px;
 }
 
 .unim-hanja-popup .popup-header {
+    background-color: #313244;
     color: #89b4fa;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: bold;
-    padding-bottom: 4px;
-    border-bottom: 1px solid rgba(137, 180, 250, 0.3);
-    margin-bottom: 4px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
 }
 
 .unim-hanja-popup .popup-item {
     color: #cdd6f4;
-    padding: 2px 4px;
-    border-radius: 4px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    height: 28px;
 }
 
-.unim-hanja-popup .popup-item:hover,
+.unim-hanja-popup .popup-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
 .unim-hanja-popup .popup-item.selected {
     background-color: rgba(137, 180, 250, 0.2);
 }
 
 .unim-hanja-popup .popup-item .item-number {
-    color: #f9e2af;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 12px;
+    margin-right: 6px;
+}
+
+.unim-hanja-popup .popup-item .item-hanja {
+    font-size: 18px;
     font-weight: bold;
-    margin-right: 4px;
+    margin-right: 8px;
 }
 
 .unim-hanja-popup .popup-item .item-meaning {
-    color: #a6adc8;
-    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
 }
 
 .unim-hanja-popup .popup-footer {
     color: #6c7086;
-    font-size: 10px;
-    padding-top: 4px;
-    border-top: 1px solid rgba(137, 180, 250, 0.3);
+    font-size: 12px;
+    padding-top: 6px;
     margin-top: 4px;
+    text-align: center;
 }
 
 /* ============================================ */

@@ -2,6 +2,7 @@
 //!
 //! unim-daemon과 비동기 통신을 위한 DBus 클라이언트입니다.
 //! tokio 백그라운드 스레드에서 실행됩니다.
+//! 팝업 DBus 시그널도 구독하여 메인 루프로 전달합니다.
 
 use std::sync::mpsc as std_mpsc;
 use tokio::sync::mpsc;
@@ -86,6 +87,24 @@ pub enum DbusRequest {
     },
 }
 
+/// 팝업 이벤트 (시그널 기반)
+#[derive(Debug)]
+pub enum PopupEvent {
+    /// 한자 팝업 표시
+    ShowHanja {
+        target: String,
+        candidates: Vec<(String, String)>,
+    },
+    /// 특수문자 팝업 표시
+    ShowSpecial {
+        target: String,
+        characters: Vec<String>,
+        top_row: String,
+    },
+    /// 팝업 숨김
+    Hide,
+}
+
 /// DBus 응답 타입
 #[derive(Debug)]
 pub enum DbusResponse {
@@ -134,7 +153,7 @@ pub struct DbusClient {
 
 impl DbusClient {
     /// 새 DBus 클라이언트 생성 및 백그라운드 태스크 시작
-    pub fn new() -> (Self, mpsc::Sender<DbusRequest>) {
+    pub fn new(popup_tx: std_mpsc::Sender<PopupEvent>) -> (Self, mpsc::Sender<DbusRequest>) {
         let (tx, rx) = mpsc::channel::<DbusRequest>(256);
 
         let tx_clone = tx.clone();
@@ -145,7 +164,7 @@ impl DbusClient {
                 .expect("tokio 런타임 생성 실패");
 
             rt.block_on(async {
-                if let Err(e) = run_dbus_client(rx).await {
+                if let Err(e) = run_dbus_client(rx, popup_tx).await {
                     unim_log!("WAYLAND_DBUS", "DBus 클라이언트 오류: {}", e);
                 }
             });
@@ -161,7 +180,10 @@ impl DbusClient {
 }
 
 /// DBus 클라이언트 비동기 실행
-async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()> {
+async fn run_dbus_client(
+    mut rx: mpsc::Receiver<DbusRequest>,
+    popup_tx: std_mpsc::Sender<PopupEvent>,
+) -> zbus::Result<()> {
     let connection = Connection::session().await?;
     unim_log!("WAYLAND_DBUS", "세션 버스 연결 성공");
 
@@ -181,6 +203,15 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 {
                     Ok(path) => {
                         unim_log!("WAYLAND_DBUS", "컨텍스트 생성: {}", path);
+
+                        // 팝업 시그널 구독 시작
+                        let popup_tx_clone = popup_tx.clone();
+                        let conn_clone = connection.clone();
+                        let path_clone = path.clone();
+                        tokio::spawn(async move {
+                            subscribe_popup_signals(&conn_clone, &path_clone, popup_tx_clone).await;
+                        });
+
                         if let Some(tx) = response {
                             let _ = tx.send(DbusResponse::ContextCreated { path });
                         }
@@ -442,4 +473,74 @@ async fn build_ctx_proxy<'a>(
         .path(obj_path)?
         .build()
         .await
+}
+
+/// InputContext 팝업 시그널 구독
+async fn subscribe_popup_signals(
+    connection: &Connection,
+    context_path: &str,
+    popup_tx: std_mpsc::Sender<PopupEvent>,
+) {
+    use futures_util::StreamExt;
+
+    let proxy = match build_ctx_proxy(connection, context_path).await {
+        Ok(p) => p,
+        Err(e) => {
+            unim_log!("WAYLAND_DBUS", "팝업 시그널 구독 실패: {}", e);
+            return;
+        }
+    };
+
+    // 3개 시그널 스트림 동시 구독
+    let mut hanja_stream = match proxy.receive_show_hanja_popup().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("WAYLAND_DBUS", "ShowHanjaPopup 시그널 구독 실패: {}", e);
+            return;
+        }
+    };
+    let mut special_stream = match proxy.receive_show_special_popup().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("WAYLAND_DBUS", "ShowSpecialPopup 시그널 구독 실패: {}", e);
+            return;
+        }
+    };
+    let mut hide_stream = match proxy.receive_hide_popup().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("WAYLAND_DBUS", "HidePopup 시그널 구독 실패: {}", e);
+            return;
+        }
+    };
+
+    unim_log!("WAYLAND_DBUS", "팝업 시그널 구독 시작: {}", context_path);
+
+    loop {
+        tokio::select! {
+            Some(signal) = hanja_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::ShowHanja {
+                        target: args.target,
+                        candidates: args.candidates,
+                    });
+                }
+            }
+            Some(signal) = special_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::ShowSpecial {
+                        target: args.target,
+                        characters: args.characters,
+                        top_row: args.top_row,
+                    });
+                }
+            }
+            Some(_signal) = hide_stream.next() => {
+                let _ = popup_tx.send(PopupEvent::Hide);
+            }
+            else => break,
+        }
+    }
+
+    unim_log!("WAYLAND_DBUS", "팝업 시그널 구독 종료: {}", context_path);
 }

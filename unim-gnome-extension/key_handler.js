@@ -174,13 +174,8 @@ export class KeyHandler {
             return false;  // notify_key_event(event, false) → Mutter가 키를 앱에 전달
         }
 
-        // 4. 한자키 감지
-        if (this._hanjaKeysyms.has(keyval)) {
-            if (this._onHanjaRequest) {
-                this._onHanjaRequest();
-            }
-            return true;
-        }
+        // 4. 한자키는 엔진에 위임 (ProcessKeyEvent를 통해 처리)
+        //    엔진이 ShowHanjaPopup 시그널을 발행하면 인디케이터가 팝업 표시
 
         // 5. DBus 연결 확인
         if (!this._dbusIME.isConnected) {
@@ -351,13 +346,8 @@ export class KeyHandler {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        // 4. 한자키 감지
-        if (this._hanjaKeysyms.has(keyval)) {
-            if (this._onHanjaRequest) {
-                this._onHanjaRequest();
-            }
-            return Clutter.EVENT_STOP;
-        }
+        // 4. 한자키는 엔진에 위임 (ProcessKeyEvent를 통해 처리)
+        //    엔진이 ShowHanjaPopup 시그널을 발행하면 인디케이터가 팝업 표시
 
         // 5. DBus 연결 확인
         if (!this._dbusIME.isConnected) {

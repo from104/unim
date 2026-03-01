@@ -88,5 +88,6 @@
 
 - [GEMINI.md](GEMINI.md) - 개발 컨벤션, 설정 연동 가이드, 로깅 시스템
 - [IME_BEHAVIOR.md](IME_BEHAVIOR.md) - 한글 입력기 동작 명세 (모든 프론트엔드 공통)
+- [docs/POPUP_SPEC.md](docs/POPUP_SPEC.md) - 한자/특수문자 팝업 통합 설계서 (색상, 폰트, 키 바인딩, 프런트엔드별 전략)
 - [ROADMAP.md](ROADMAP.md) - 장기 개발 로드맵
 - [README.md](README.md) - 프로젝트 소개 및 아키텍처 상세

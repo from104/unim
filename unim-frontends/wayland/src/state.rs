@@ -16,7 +16,10 @@ use tokio::sync::mpsc;
 use unim::unim_log;
 use wayland_client::{
     globals::GlobalListContents,
-    protocol::{wl_keyboard::KeyState, wl_registry::WlRegistry, wl_seat::WlSeat},
+    protocol::{
+        wl_compositor::WlCompositor, wl_keyboard::KeyState, wl_registry::WlRegistry,
+        wl_seat::WlSeat, wl_shm::WlShm,
+    },
     Connection, Dispatch, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_input_method_v2::client::{
@@ -31,6 +34,7 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 
 use crate::dbus_client::{DbusRequest, DbusResponse};
 use crate::keymap::KeymapHandler;
+use crate::popup_surface::PopupSurface;
 use crate::repeat::{PressState, RepeatInfo, RepeatTimer};
 
 /// Wayland 애플리케이션 전체 상태
@@ -39,6 +43,8 @@ pub struct AppState {
     pub seat: Option<WlSeat>,
     pub im_manager: Option<ZwpInputMethodManagerV2>,
     pub vk_manager: Option<ZwpVirtualKeyboardManagerV1>,
+    pub compositor: Option<WlCompositor>,
+    pub shm: Option<WlShm>,
 
     // 프로토콜 오브젝트
     pub input_method: Option<ZwpInputMethodV2>,
@@ -71,6 +77,9 @@ pub struct AppState {
 
     // 이벤트 큐 핸들 (팝업 렌더링용)
     pub qh: Option<QueueHandle<Self>>,
+
+    // 팝업 서피스
+    pub popup_surface: PopupSurface,
 }
 
 impl AppState {
@@ -82,6 +91,8 @@ impl AppState {
             seat: None,
             im_manager: None,
             vk_manager: None,
+            compositor: None,
+            shm: None,
             input_method: None,
             keyboard_grab: None,
             virtual_keyboard: None,
@@ -101,6 +112,7 @@ impl AppState {
             context_path,
             should_exit: false,
             qh: None,
+            popup_surface: PopupSurface::new(),
         }
     }
 
@@ -136,6 +148,12 @@ impl AppState {
 
         self.input_method = Some(im);
         self.keyboard_grab = Some(grab);
+
+        // 팝업 서피스 초기화
+        if let (Some(ref compositor), Some(ref im_ref)) = (&self.compositor, &self.input_method) {
+            self.popup_surface.init(compositor, im_ref, qh);
+        }
+
         true
     }
 
@@ -251,6 +269,9 @@ impl AppState {
         // 키 반복 취소
         self.repeat_timer.cancel();
         self.press_state = PressState::NotPressing;
+
+        // 팝업 숨기기
+        self.popup_surface.hide();
     }
 
     /// 키 반복 타이머 만료 처리

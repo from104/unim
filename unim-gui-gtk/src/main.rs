@@ -5,6 +5,7 @@
 
 mod gtk_ui;
 mod hanja_popup;
+mod popup_position;
 mod settings_dialog;
 mod special_popup;
 

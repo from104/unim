@@ -56,9 +56,11 @@ pub fn log_message(module: &str, message: &str) {
 ///
 /// # Examples
 ///
-/// ```
+/// ```no_run
 /// use unim::unim_log;
 ///
+/// let keycode = 42u16;
+/// let new_mode = "Korean";
 /// unim_log!("ENGINE", "키 입력 처리: keycode={:?}", keycode);
 /// unim_log!("DBUS", "모드 변경: {:?}", new_mode);
 /// ```

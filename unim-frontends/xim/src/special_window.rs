@@ -40,9 +40,7 @@ pub struct SpecialWindow {
     text_color: x11::xft::XftColor,
     /// 선택 배경 색상
     sel_bg_color: x11::xft::XftColor,
-    /// 선택 텍스트 색상
-    sel_text_color: x11::xft::XftColor,
-    /// 헤더 텍스트 색상
+    /// 헤더 텍스트 색상 (#a6e3a1 Green)
     header_color: x11::xft::XftColor,
     /// 페이지 정보 색상
     page_color: x11::xft::XftColor,
@@ -81,8 +79,6 @@ impl SpecialWindow {
         y: c_int,
     ) -> Result<Self, String> {
         let root = unsafe { x11::xlib::XRootWindow(display, screen) };
-        let white_pixel = unsafe { x11::xlib::XWhitePixel(display, screen) };
-        let black_pixel = unsafe { x11::xlib::XBlackPixel(display, screen) };
 
         let size: (u16, u16) = (400, 350);
 
@@ -105,8 +101,29 @@ impl SpecialWindow {
         }
 
         let mut swa: x11::xlib::XSetWindowAttributes = unsafe { std::mem::zeroed() };
-        swa.background_pixel = white_pixel;
-        swa.border_pixel = black_pixel;
+        // Catppuccin Mocha Base: #1e1e2e
+        let bg_pixel = unsafe {
+            let colormap = x11::xlib::XDefaultColormap(display, screen);
+            let mut xcolor: x11::xlib::XColor = std::mem::zeroed();
+            xcolor.red = 30 * 257;
+            xcolor.green = 30 * 257;
+            xcolor.blue = 46 * 257;
+            xcolor.flags = 7;
+            x11::xlib::XAllocColor(display, colormap, &mut xcolor);
+            xcolor.pixel
+        };
+        let border_pixel = unsafe {
+            let colormap = x11::xlib::XDefaultColormap(display, screen);
+            let mut xcolor: x11::xlib::XColor = std::mem::zeroed();
+            xcolor.red = 69 * 257;
+            xcolor.green = 71 * 257;
+            xcolor.blue = 104 * 257;
+            xcolor.flags = 7;
+            x11::xlib::XAllocColor(display, colormap, &mut xcolor);
+            xcolor.pixel
+        };
+        swa.background_pixel = bg_pixel;
+        swa.border_pixel = border_pixel;
         swa.override_redirect = x11::xlib::True;
         swa.event_mask =
             x11::xlib::ExposureMask | x11::xlib::StructureNotifyMask | x11::xlib::ButtonPressMask;
@@ -195,49 +212,26 @@ impl SpecialWindow {
             return Err("XftFontOpenName failed".to_string());
         }
 
-        // 색상 할당
+        // 색상 할당 — Catppuccin Mocha + Green 강조
         let mut text_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut sel_bg_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
-        let mut sel_text_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut header_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut page_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
 
         unsafe {
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#cdd6f4\0".as_ptr() as *const i8,
-                &mut text_color,
-            );
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#89b4fa\0".as_ptr() as *const i8,
-                &mut sel_bg_color,
-            );
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#1e1e2e\0".as_ptr() as *const i8,
-                &mut sel_text_color,
-            );
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#f38ba8\0".as_ptr() as *const i8,
-                &mut header_color,
-            );
-            x11::xft::XftColorAllocName(
-                display,
-                visual,
-                colormap,
-                b"#6c7086\0".as_ptr() as *const i8,
-                &mut page_color,
-            );
+            let alloc = |name: &[u8], color: &mut x11::xft::XftColor| {
+                x11::xft::XftColorAllocName(
+                    display,
+                    visual,
+                    colormap,
+                    name.as_ptr() as *const i8,
+                    color,
+                );
+            };
+            alloc(b"#cdd6f4\0", &mut text_color); // Text
+            alloc(b"#2d4035\0", &mut sel_bg_color); // Green-tinted selection bg
+            alloc(b"#a6e3a1\0", &mut header_color); // Green (특수문자 강조)
+            alloc(b"#6c7086\0", &mut page_color); // Overlay0
         }
 
         unim_log!(
@@ -253,7 +247,6 @@ impl SpecialWindow {
             xft_font,
             text_color,
             sel_bg_color,
-            sel_text_color,
             header_color,
             page_color,
             characters: Vec::new(),
@@ -696,11 +689,7 @@ impl SpecialWindow {
                         }
                     }
 
-                    let color = if is_selected {
-                        &self.sel_text_color
-                    } else {
-                        &self.text_color
-                    };
+                    let color = &self.text_color;
                     let bytes = ch.as_bytes();
                     // 셀 내 텍스트 가운데 정렬
                     let tx = cell_x + self.cell_w / 2 - 6;
@@ -758,36 +747,15 @@ impl SpecialWindow {
             let visual = x11::xlib::XDefaultVisual(display, screen);
             let colormap = x11::xlib::XDefaultColormap(display, screen);
 
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.text_color as *const _ as *mut _,
-            );
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.sel_bg_color as *const _ as *mut _,
-            );
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.sel_text_color as *const _ as *mut _,
-            );
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.header_color as *const _ as *mut _,
-            );
-            x11::xft::XftColorFree(
-                display,
-                visual,
-                colormap,
-                &self.page_color as *const _ as *mut _,
-            );
+            let colors: &[&x11::xft::XftColor] = &[
+                &self.text_color,
+                &self.sel_bg_color,
+                &self.header_color,
+                &self.page_color,
+            ];
+            for color in colors {
+                x11::xft::XftColorFree(display, visual, colormap, *color as *const _ as *mut _);
+            }
             x11::xft::XftFontClose(display, self.xft_font);
             x11::xft::XftDrawDestroy(self.xft_draw);
             x11::xlib::XDestroyWindow(display, self.window);

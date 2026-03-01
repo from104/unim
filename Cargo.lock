@@ -1281,6 +1281,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "gdk4-x11"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c3e7380a9a206b170e1b52b5f25581406db816c68f4e7140dbef89a9e5b52ac"
+dependencies = [
+ "gdk4",
+ "gdk4-x11-sys",
+ "gio",
+ "glib",
+ "libc",
+]
+
+[[package]]
+name = "gdk4-x11-sys"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "070bd50a053f90d7fdf6be1d75672ea0f97c0e5da3a10dc6d02e5defcb0db32f"
+dependencies = [
+ "gdk4-sys",
+ "glib-sys",
+ "libc",
+ "system-deps",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3329,6 +3354,7 @@ name = "unim-gui-gtk"
 version = "0.0.1"
 dependencies = [
  "dirs",
+ "gdk4-x11",
  "gtk4",
  "ksni",
  "libadwaita",
@@ -3373,6 +3399,7 @@ name = "unim-wayland"
 version = "0.0.1"
 dependencies = [
  "cosmic-text",
+ "futures-util",
  "memmap2 0.9.10",
  "mio",
  "nix 0.29.0",

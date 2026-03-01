@@ -308,7 +308,10 @@ export class HanjaPopup {
                 style_class: 'item-number',
                 text: `${i + 1}.`,
             });
-            const hanja = new St.Label({ text: ` ${candidate.hanja}` });
+            const hanja = new St.Label({
+                style_class: 'item-hanja',
+                text: ` ${candidate.hanja}`,
+            });
             const meaning = new St.Label({
                 style_class: 'item-meaning',
                 text: candidate.meaning ? `  ${candidate.meaning}` : '',

@@ -36,10 +36,18 @@ export class UnimDbusIME {
         this._contextPath = null;
         /** @type {number} g-signal 핸들러 ID (GlobalModeChanged) */
         this._imSignalId = 0;
+        /** @type {number} g-signal 핸들러 ID (InputContext 시그널) */
+        this._icSignalId = 0;
         /** @type {boolean} 데몬 연결 상태 */
         this._connected = false;
         /** @type {Function|null} 모드 변경 콜백 */
         this._onModeChanged = null;
+        /** @type {Function|null} 한자 팝업 표시 콜백 */
+        this._onShowHanja = null;
+        /** @type {Function|null} 특수문자 팝업 표시 콜백 */
+        this._onShowSpecial = null;
+        /** @type {Function|null} 팝업 숨김 콜백 */
+        this._onHidePopup = null;
     }
 
     /**
@@ -95,6 +103,19 @@ export class UnimDbusIME {
     }
 
     /**
+     * 팝업 콜백 등록
+     * @param {object} callbacks
+     * @param {Function} [callbacks.onShowHanja] - (target, candidates, cursorRect)
+     * @param {Function} [callbacks.onShowSpecial] - (target, characters, topRow, cursorRect)
+     * @param {Function} [callbacks.onHidePopup] - ()
+     */
+    setPopupCallbacks(callbacks) {
+        this._onShowHanja = callbacks.onShowHanja || null;
+        this._onShowSpecial = callbacks.onShowSpecial || null;
+        this._onHidePopup = callbacks.onHidePopup || null;
+    }
+
+    /**
      * InputContext 생성
      * @param {string} windowId - 창 식별자
      * @private
@@ -128,6 +149,38 @@ export class UnimDbusIME {
 
         if (!this._icProxy) {
             throw new Error(`InputContext 프록시 생성 실패: ${this._contextPath}`);
+        }
+
+        // InputContext 시그널 구독 (ShowHanjaPopup, ShowSpecialPopup, HidePopup)
+        this._icSignalId = this._icProxy.connect('g-signal',
+            (proxy, senderName, signalName, parameters) => {
+                this._handleContextSignal(signalName, parameters);
+            }
+        );
+    }
+
+    /**
+     * InputContext 시그널 처리
+     * @param {string} signalName
+     * @param {GLib.Variant} parameters
+     * @private
+     */
+    _handleContextSignal(signalName, parameters) {
+        try {
+            if (signalName === 'ShowHanjaPopup' && this._onShowHanja) {
+                const [target, candidatesRaw, cx, cy, cw, ch] = parameters.deep_unpack();
+                const candidates = candidatesRaw.map(([hanja, meaning]) => ({
+                    hanja, meaning,
+                }));
+                this._onShowHanja(target, candidates, { x: cx, y: cy, width: cw, height: ch });
+            } else if (signalName === 'ShowSpecialPopup' && this._onShowSpecial) {
+                const [target, characters, topRow, cx, cy, cw, ch] = parameters.deep_unpack();
+                this._onShowSpecial(target, characters, topRow, { x: cx, y: cy, width: cw, height: ch });
+            } else if (signalName === 'HidePopup' && this._onHidePopup) {
+                this._onHidePopup();
+            }
+        } catch (e) {
+            unimError('DBUS_IME', `시그널 처리 오류 (${signalName}): ${e.message}`);
         }
     }
 
@@ -240,6 +293,30 @@ export class UnimDbusIME {
             unimError('DBUS_IME', `Reset 실패: ${e.message}`);
         }
     }
+
+    /**
+     * 커서 위치 보고
+     * @param {number} x
+     * @param {number} y
+     * @param {number} width
+     * @param {number} height
+     */
+    reportCursorRect(x, y, width, height) {
+        if (!this._icProxy) return;
+
+        try {
+            this._icProxy.call_sync(
+                'ReportCursorRect',
+                new GLib.Variant('(iiii)', [x, y, width, height]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+        } catch (e) {
+            unimError('DBUS_IME', `ReportCursorRect 실패: ${e.message}`);
+        }
+    }
+
 
     // ===========================================
     // 한자 변환
@@ -465,6 +542,9 @@ export class UnimDbusIME {
 
         this._connected = false;
         this._onModeChanged = null;
+        this._onShowHanja = null;
+        this._onShowSpecial = null;
+        this._onHidePopup = null;
 
         unimLog('DBUS_IME', '자원 정리 완료');
     }

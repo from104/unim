@@ -1,0 +1,385 @@
+//! Wayland 팝업 서피스 관리
+//!
+//! wl_compositor surface + zwp_input_popup_surface_v2 + wl_shm 버퍼를 관리합니다.
+//! 컴포지터가 팝업 위치를 자동 결정합니다.
+
+use std::os::fd::AsFd;
+
+use unim::unim_log;
+use wayland_client::{
+    protocol::{
+        wl_buffer::WlBuffer,
+        wl_compositor::WlCompositor,
+        wl_shm::{self, WlShm},
+        wl_shm_pool::WlShmPool,
+        wl_surface::WlSurface,
+    },
+    Connection, Dispatch, QueueHandle,
+};
+use wayland_protocols_misc::zwp_input_method_v2::client::{
+    zwp_input_method_v2::ZwpInputMethodV2,
+    zwp_input_popup_surface_v2::{self, ZwpInputPopupSurfaceV2},
+};
+
+use crate::popup_renderer::{self, RenderedPopup};
+use crate::state::AppState;
+
+/// 팝업 종류
+#[derive(Clone, Debug)]
+pub enum PopupKind {
+    Hanja {
+        target: String,
+        candidates: Vec<(String, String)>,
+        page: usize,
+        selected: usize,
+    },
+    Special {
+        target: String,
+        characters: Vec<String>,
+        top_row: String,
+        page: usize,
+        sel_row: usize,
+        sel_col: usize,
+    },
+}
+
+/// Wayland 팝업 서피스
+pub struct PopupSurface {
+    surface: Option<WlSurface>,
+    popup: Option<ZwpInputPopupSurfaceV2>,
+    pool: Option<WlShmPool>,
+    buffer: Option<WlBuffer>,
+    /// 현재 SHM fd (memmap2)
+    shm_file: Option<std::fs::File>,
+    /// 현재 팝업 종류
+    pub kind: Option<PopupKind>,
+    /// 현재 크기
+    cur_width: u32,
+    cur_height: u32,
+}
+
+#[allow(dead_code)]
+impl PopupSurface {
+    pub fn new() -> Self {
+        Self {
+            surface: None,
+            popup: None,
+            pool: None,
+            buffer: None,
+            shm_file: None,
+            kind: None,
+            cur_width: 0,
+            cur_height: 0,
+        }
+    }
+
+    /// 팝업 서피스 초기화 (setup 시 호출)
+    pub fn init(
+        &mut self,
+        compositor: &WlCompositor,
+        input_method: &ZwpInputMethodV2,
+        qh: &QueueHandle<AppState>,
+    ) {
+        let surface = compositor.create_surface(qh, ());
+        let popup = input_method.get_input_popup_surface(&surface, qh, ());
+        unim_log!("WAYLAND", "팝업 서피스 생성 완료");
+        self.surface = Some(surface);
+        self.popup = Some(popup);
+    }
+
+    /// 팝업 표시 여부
+    pub fn is_visible(&self) -> bool {
+        self.kind.is_some()
+    }
+
+    /// 한자 팝업 표시
+    pub fn show_hanja(
+        &mut self,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+        target: &str,
+        candidates: Vec<(String, String)>,
+    ) {
+        self.kind = Some(PopupKind::Hanja {
+            target: target.to_string(),
+            candidates,
+            page: 0,
+            selected: 0,
+        });
+        self.render_and_commit(shm, qh);
+    }
+
+    /// 특수문자 팝업 표시
+    pub fn show_special(
+        &mut self,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+        target: &str,
+        characters: Vec<String>,
+        top_row: &str,
+    ) {
+        self.kind = Some(PopupKind::Special {
+            target: target.to_string(),
+            characters,
+            top_row: top_row.to_string(),
+            page: 0,
+            sel_row: 0,
+            sel_col: 0,
+        });
+        self.render_and_commit(shm, qh);
+    }
+
+    /// 팝업 숨기기
+    pub fn hide(&mut self) {
+        if let Some(ref surface) = self.surface {
+            // 빈 커밋으로 숨김
+            surface.attach(None, 0, 0);
+            surface.commit();
+        }
+        self.kind = None;
+        // 이전 버퍼 정리
+        if let Some(buf) = self.buffer.take() {
+            buf.destroy();
+        }
+        unim_log!("WAYLAND", "팝업 숨김");
+    }
+
+    /// 팝업 재렌더링 (선택 변경 등)
+    pub fn redraw(&mut self, shm: &WlShm, qh: &QueueHandle<AppState>) {
+        if self.kind.is_some() {
+            self.render_and_commit(shm, qh);
+        }
+    }
+
+    /// 렌더링 + SHM 버퍼 커밋
+    fn render_and_commit(&mut self, shm: &WlShm, qh: &QueueHandle<AppState>) {
+        let surface = match self.surface {
+            Some(ref s) => s.clone(),
+            None => {
+                unim_log!("WAYLAND", "팝업 서피스 미초기화");
+                return;
+            }
+        };
+
+        let rendered = match &self.kind {
+            Some(PopupKind::Hanja {
+                target,
+                candidates,
+                page,
+                selected,
+            }) => popup_renderer::render_hanja(target, candidates, *page, *selected),
+            Some(PopupKind::Special {
+                target,
+                characters,
+                top_row,
+                page,
+                sel_row,
+                sel_col,
+            }) => popup_renderer::render_special(
+                target, characters, top_row, *page, *sel_row, *sel_col,
+            ),
+            None => return,
+        };
+
+        self.attach_buffer(&surface, shm, qh, &rendered);
+    }
+
+    /// SHM 버퍼 생성 및 attach
+    fn attach_buffer(
+        &mut self,
+        surface: &WlSurface,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+        rendered: &RenderedPopup,
+    ) {
+        let stride = rendered.width * 4;
+        let size = (stride * rendered.height) as usize;
+
+        // 이전 버퍼/풀 정리
+        if let Some(buf) = self.buffer.take() {
+            buf.destroy();
+        }
+        if let Some(pool) = self.pool.take() {
+            pool.destroy();
+        }
+
+        // tmpfile 기반 SHM 풀 생성
+        let file = match create_shm_file(size) {
+            Ok(f) => f,
+            Err(e) => {
+                unim_log!("WAYLAND", "SHM 파일 생성 실패: {}", e);
+                return;
+            }
+        };
+
+        // 픽셀 데이터 쓰기
+        {
+            use std::io::Write;
+            let mut writer = std::io::BufWriter::new(&file);
+            if writer.write_all(&rendered.pixels).is_err() {
+                unim_log!("WAYLAND", "SHM 쓰기 실패");
+                return;
+            }
+        }
+
+        let pool = shm.create_pool(file.as_fd(), size as i32, qh, ());
+        let buffer = pool.create_buffer(
+            0,
+            rendered.width as i32,
+            rendered.height as i32,
+            stride as i32,
+            wl_shm::Format::Argb8888,
+            qh,
+            (),
+        );
+
+        surface.attach(Some(&buffer), 0, 0);
+        surface.damage_buffer(0, 0, rendered.width as i32, rendered.height as i32);
+        surface.commit();
+
+        self.pool = Some(pool);
+        self.buffer = Some(buffer);
+        self.shm_file = Some(file);
+        self.cur_width = rendered.width;
+        self.cur_height = rendered.height;
+    }
+
+    /// 정리
+    pub fn destroy(&mut self) {
+        if let Some(buf) = self.buffer.take() {
+            buf.destroy();
+        }
+        if let Some(pool) = self.pool.take() {
+            pool.destroy();
+        }
+        if let Some(popup) = self.popup.take() {
+            popup.destroy();
+        }
+        if let Some(surface) = self.surface.take() {
+            surface.destroy();
+        }
+        self.kind = None;
+    }
+}
+
+/// tmpfile 기반 SHM 파일 생성
+fn create_shm_file(size: usize) -> Result<std::fs::File, String> {
+    use nix::sys::memfd;
+    use std::os::fd::FromRawFd;
+
+    // memfd_create 사용 (Linux 3.17+)
+    let name = std::ffi::CString::new("unim-popup").map_err(|e| e.to_string())?;
+    let fd = memfd::memfd_create(&name, memfd::MemFdCreateFlag::MFD_CLOEXEC)
+        .map_err(|e| format!("memfd_create: {}", e))?;
+
+    // 파일 크기 설정
+    nix::unistd::ftruncate(&fd, size as nix::libc::off_t)
+        .map_err(|e| format!("ftruncate: {}", e))?;
+
+    let file = unsafe { std::fs::File::from_raw_fd(std::os::fd::IntoRawFd::into_raw_fd(fd)) };
+    Ok(file)
+}
+
+// ─── Dispatch 구현 ───
+
+impl Dispatch<ZwpInputPopupSurfaceV2, ()> for AppState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &ZwpInputPopupSurfaceV2,
+        event: zwp_input_popup_surface_v2::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        match event {
+            zwp_input_popup_surface_v2::Event::TextInputRectangle {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                unim_log!(
+                    "WAYLAND",
+                    "팝업 text_input_rectangle: ({}, {}, {}, {})",
+                    x,
+                    y,
+                    width,
+                    height
+                );
+                // 컴포지터가 보내는 위치 힌트 — 현재는 로그만
+            }
+            _ => {}
+        }
+    }
+}
+
+// wl_surface Dispatch
+impl Dispatch<WlSurface, ()> for AppState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlSurface,
+        _event: wayland_client::protocol::wl_surface::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+// wl_compositor Dispatch
+impl Dispatch<WlCompositor, ()> for AppState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlCompositor,
+        _event: wayland_client::protocol::wl_compositor::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+// wl_shm Dispatch
+impl Dispatch<WlShm, ()> for AppState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlShm,
+        _event: wl_shm::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+// wl_shm_pool Dispatch
+impl Dispatch<WlShmPool, ()> for AppState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlShmPool,
+        _event: wayland_client::protocol::wl_shm_pool::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+// wl_buffer Dispatch
+impl Dispatch<WlBuffer, ()> for AppState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlBuffer,
+        event: wayland_client::protocol::wl_buffer::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        match event {
+            wayland_client::protocol::wl_buffer::Event::Release => {
+                // 버퍼 릴리스 — 현재는 무시 (다음 렌더링에서 새 버퍼 생성)
+            }
+            _ => {}
+        }
+    }
+}

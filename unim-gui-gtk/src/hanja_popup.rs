@@ -120,6 +120,21 @@ impl HanjaPopup {
         };
 
         popup.setup_key_handler();
+
+        // 포커스 잃으면 자동 취소 (Alt+Tab 등으로 다른 앱 전환 시)
+        {
+            let on_cancel = popup.on_cancel.clone();
+            let window = popup.window.clone();
+            popup.window.connect_is_active_notify(move |w| {
+                if !w.is_active() && w.is_visible() {
+                    if let Some(ref cb) = *on_cancel.borrow() {
+                        cb();
+                    }
+                    window.set_visible(false);
+                }
+            });
+        }
+
         popup
     }
 
@@ -159,12 +174,8 @@ impl HanjaPopup {
         // 화면 경계 체크는 present() 후에 수행
         let x = cursor_x.max(0);
         let y = (cursor_y + cursor_height).max(0);
-        // GTK4에서는 Window 위치를 직접 설정하기 어려움
-        // X11에서는 surface를 통해, Wayland에서는 제약이 있음
-        // 기본적으로는 표시만 처리
-        let _ = (x, y); // TODO: 팝업 포지셔닝 (Phase 3 후반)
-
-        self.window.present();
+        // 팝업 위치 설정 (X11: XMoveWindow, Wayland: no-op)
+        crate::popup_position::position_popup_window(&self.window, x, y, 0);
         unim_log!(
             "INDICATOR",
             "한자 팝업 표시: target='{}', cursor=({},{})",
