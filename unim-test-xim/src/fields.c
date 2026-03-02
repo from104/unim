@@ -64,21 +64,16 @@ void fields_update_spot(void) {
 void fields_switch(int direction) {
     InputField *cur = &app.fields[app.active_field];
 
-    /* preedit 커밋 */
-    if (cur->preedit[0] != '\0') {
-        strcat(cur->text, cur->preedit);
-        cur->preedit[0] = '\0';
-        log_add("필드 전환 시 preedit 커밋");
-    }
-
-    /* XIC 리셋 */
+    /* XIC 리셋 → 서버가 조합 중이던 텍스트를 반환 */
     if (app.xic) {
         char *committed = XmbResetIC(app.xic);
         if (committed && *committed) {
             strcat(cur->text, committed);
+            log_add("필드 전환 시 preedit 커밋: \"%s\"", committed);
             XFree(committed);
         }
     }
+    cur->preedit[0] = '\0';
 
     app.active_field = (app.active_field + direction + NUM_FIELDS) % NUM_FIELDS;
     log_add("필드 전환: %s", app.fields[app.active_field].label);
@@ -161,12 +156,8 @@ void fields_handle_click(XButtonEvent *event) {
             event->y >= f->y && event->y <= f->y + f->height) {
 
             if (i != app.active_field) {
-                /* 현재 필드 preedit 커밋 */
+                /* XIC 리셋 → 서버가 조합 중이던 텍스트를 반환 */
                 InputField *cur = &app.fields[app.active_field];
-                if (cur->preedit[0] != '\0') {
-                    strcat(cur->text, cur->preedit);
-                    cur->preedit[0] = '\0';
-                }
                 if (app.xic) {
                     char *committed = XmbResetIC(app.xic);
                     if (committed && *committed) {
@@ -174,6 +165,7 @@ void fields_handle_click(XButtonEvent *event) {
                         XFree(committed);
                     }
                 }
+                cur->preedit[0] = '\0';
 
                 app.active_field = i;
                 log_add("마우스 클릭 → %s", f->label);

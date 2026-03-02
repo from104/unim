@@ -1,6 +1,6 @@
 //! GTK4/libadwaita UI
 //!
-//! 모드 팝업 윈도우, CSS 스타일, 한자/특수문자 팝업 연동.
+//! 모드 팝업 윈도우, CSS 스타일, 설정 다이얼로그.
 //! 이 모듈은 GTK4에 의존하므로 `unim-gui-common`에는 포함되지 않습니다.
 
 use std::sync::mpsc::Receiver;
@@ -14,12 +14,9 @@ use libadwaita::prelude::*;
 use unim::status::InputCategory;
 use unim::unim_log;
 
-use unim_gui_common::dbus_client;
 use unim_gui_common::types::{GuiAction, IndicatorState};
 
-use crate::hanja_popup;
 use crate::settings_dialog;
-use crate::special_popup;
 
 /// GTK4/libadwaita 앱 실행
 pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Receiver<GuiAction>>>) {
@@ -34,28 +31,6 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
         load_css();
         let window = build_popup_window(app, state.clone());
 
-        // 한자/특수문자 팝업 생성
-        let hanja_popup = hanja_popup::HanjaPopup::new();
-        let special_popup = special_popup::SpecialPopup::new();
-
-        // 팝업 콜백 설정 (DBus SelectHanja/CancelHanja 등 호출)
-        hanja_popup.connect_select(|idx| {
-            unim_log!("INDICATOR", "한자 선택: index={}", idx);
-            dbus_client::call_context_method("select_hanja", Some(idx as u32));
-        });
-        hanja_popup.connect_cancel(|| {
-            unim_log!("INDICATOR", "한자 취소");
-            dbus_client::call_context_method("cancel_hanja", None);
-        });
-        special_popup.connect_select(|idx| {
-            unim_log!("INDICATOR", "특수문자 선택: index={}", idx);
-            dbus_client::call_context_method("select_special_char", Some(idx as u32));
-        });
-        special_popup.connect_cancel(|| {
-            unim_log!("INDICATOR", "특수문자 취소");
-            dbus_client::call_context_method("cancel_special_char", None);
-        });
-
         let window_clone = window.clone();
         let popup_rx_clone = popup_rx.clone();
         let app_clone = app.clone();
@@ -68,48 +43,6 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                         }
                         GuiAction::UpdateCategory(_category) => {
                             // UI 업데이트는 창이 표시될 때 자동 처리
-                        }
-                        GuiAction::ShowHanjaPopup {
-                            target,
-                            candidates,
-                            cursor_x,
-                            cursor_y,
-                            cursor_width,
-                            cursor_height,
-                        } => {
-                            special_popup.hide();
-                            hanja_popup.show(
-                                &target,
-                                candidates,
-                                cursor_x,
-                                cursor_y,
-                                cursor_width,
-                                cursor_height,
-                            );
-                        }
-                        GuiAction::ShowSpecialPopup {
-                            target,
-                            characters,
-                            top_row,
-                            cursor_x,
-                            cursor_y,
-                            cursor_width,
-                            cursor_height,
-                        } => {
-                            hanja_popup.hide();
-                            special_popup.show(
-                                &target,
-                                characters,
-                                &top_row,
-                                cursor_x,
-                                cursor_y,
-                                cursor_width,
-                                cursor_height,
-                            );
-                        }
-                        GuiAction::HidePopup => {
-                            hanja_popup.hide();
-                            special_popup.hide();
                         }
                         GuiAction::OpenSettings => {
                             settings_dialog::show_settings_dialog(&app_clone);
@@ -227,117 +160,6 @@ fn load_css() {
             color: white;
         }
 
-        /* === 한자 팝업 스타일 === */
-        .hanja-popup {
-            background-color: #1e1e2e;
-            color: #cdd6f4;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 12px;
-        }
-        .hanja-container {
-            padding: 12px;
-            min-width: 280px;
-        }
-        .hanja-target {
-            font-size: 13px;
-            font-weight: 600;
-            color: #89b4fa;
-            margin-bottom: 8px;
-            padding: 4px 8px;
-        }
-        .hanja-row {
-            padding: 6px 8px;
-            border-radius: 6px;
-            transition: background 150ms ease;
-        }
-        .hanja-row:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-        .hanja-selected {
-            background: rgba(137, 180, 250, 0.2);
-        }
-        .hanja-num {
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.4);
-            min-width: 20px;
-        }
-        .hanja-char {
-            font-size: 18px;
-            font-weight: 700;
-            color: white;
-            min-width: 28px;
-        }
-        .hanja-meaning {
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.6);
-        }
-        .hanja-page {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.4);
-            padding: 6px;
-        }
-
-        /* === 특수문자 팝업 스타일 === */
-        .special-popup {
-            background-color: #1e1e2e;
-            color: #cdd6f4;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 12px;
-        }
-        .special-container {
-            padding: 12px;
-        }
-        .special-target {
-            font-size: 13px;
-            font-weight: 600;
-            color: #a6e3a1;
-            margin-bottom: 6px;
-            padding: 4px 8px;
-        }
-        .special-header {
-            margin-bottom: 2px;
-        }
-        .special-header-spacer {
-            min-width: 28px;
-        }
-        .special-header-key {
-            font-size: 11px;
-            font-weight: 700;
-            color: rgba(255, 255, 255, 0.4);
-            min-width: 28px;
-            min-height: 20px;
-        }
-        .special-header-active {
-            color: #a6e3a1;
-        }
-        .special-grid {
-            /* grid uses row/col spacing */
-        }
-        .special-row-num {
-            font-size: 11px;
-            font-weight: 600;
-            color: rgba(255, 255, 255, 0.4);
-            min-width: 20px;
-        }
-        .special-cell {
-            font-size: 16px;
-            min-width: 28px;
-            min-height: 28px;
-            border-radius: 4px;
-            transition: background 100ms ease;
-        }
-        .special-cell:hover {
-            background: rgba(255, 255, 255, 0.08);
-        }
-        .special-cell-selected {
-            background: rgba(166, 227, 161, 0.25);
-            font-weight: 700;
-        }
-        .special-page {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.4);
-            padding: 4px;
-        }
         "#,
     );
 

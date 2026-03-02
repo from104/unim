@@ -1,26 +1,114 @@
 # UNIM 한자/특수문자 팝업 통합 설계서
 
-## 1. 프런트엔드별 팝업 렌더링 전략
-
-| 프런트엔드 | 렌더링 방식 | 포지셔닝 | 좌표 소스 |
-|-----------|-----------|---------|----------|
-| **GNOME Shell 확장** | `St.BoxLayout` + `Clutter.Actor` (Shell 내장) | `actor.set_position(x, y)` | `vfunc_set_cursor_location` |
-| **GTK3/GTK4 immodule** | `unim-gui-gtk` (독립 프로세스) | X11: `XMoveWindow` / Wayland: 불가 → GNOME 위임 | `set_cursor_location` → DBus `ReportCursorRect` |
-| **Qt5/Qt6 immodule** | `unim-gui-qt` (독립 프로세스) | X11: `QWindow::setPosition` / Wayland: 불가 → GNOME 위임 | `cursorRectangle` → DBus `ReportCursorRect` |
-| **XIM** | `unim-gui-gtk` (독립 프로세스) | X11: `XMoveWindow` | XIC spot location → DBus |
-| **Wayland zwp** | GNOME Shell이 처리 | GNOME 확장이 담당 | text-input-v3 cursor rect |
-
-> **GNOME Wayland 환경(주 타깃)에서는 GNOME Shell 확장이 팝업을 직접 렌더링합니다.**
-> GTK/Qt GUI 프로세스의 팝업은 X11 환경이나 비-GNOME 데스크탑에서만 사용됩니다.
+> 이 문서는 모든 프론트엔드(GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell)에서
+> 한자 및 특수문자 팝업이 따라야 할 **공통 규격**을 정의합니다.
+> 각 프론트엔드는 자체 렌더링 방식으로 이 규격을 구현합니다.
 
 ---
 
-## 2. 한자 팝업
+## 1. 아키텍처 개요
 
-### 2.1 레이아웃
+### 1.1 핵심 원칙: 모듈별 개별 팝업
+
+각 프론트엔드가 **자체 in-process 팝업**을 렌더링합니다.
+팝업 표시/선택 판단은 엔진 코어에서
+(`InputResult.hanja_candidates_available` / `special_char_candidates_available`),
+실제 UI는 프론트엔드가 담당합니다.
 
 ```
-┌──────────────────────────────────┐
+┌─────────────────┐      DBus      ┌────────────────┐
+│  프론트엔드      │ ◄──────────────► │  unim-daemon    │
+│  (GTK4 immodule) │  ProcessKey    │  (InputEngine)  │
+│   ┌─────────┐   │  GetHanjaCand  │                 │
+│   │ 팝업 UI │   │  SelectHanja   │  한자 사전      │
+│   └─────────┘   │  CancelHanja   │  특수문자 테이블│
+└─────────────────┘                └────────────────┘
+```
+
+### 1.2 프론트엔드별 렌더링 방식
+
+| 프론트엔드 | 렌더링 방식 | 팝업 위치 | 비고 |
+|-----------|-----------|----------|------|
+| **GTK3/GTK4** | GtkWindow (override-redirect) | `set_cursor_location` 절대좌표 | C 코드, gtk-common 공유 |
+| **Qt5/Qt6** | QWidget (frameless, popup) | `cursorRectangle` 절대좌표 | C++ 코드, qt-common 공유 |
+| **XIM** | Xlib Window (override-redirect) | XIC spot location | Rust, Xft 렌더링 |
+| **Wayland** | wl_subsurface + tiny-skia | 팝업 서피스 위치 | Rust, 소프트웨어 렌더링 |
+| **GNOME Shell** | St.BoxLayout + Clutter.Actor | `set_position(x, y)` | JavaScript |
+
+### 1.3 데이터 소스 (코어 공유)
+
+- **한자 데이터**: `src/hangul/hanja.rs` — `include_str!("../data/hanja.txt")` 빌드 시 임베드
+- **특수문자 데이터**: `src/hangul/special_chars.rs` — 초성(ㄱ~ㅎ) → 특수문자 정적 매핑
+
+---
+
+## 2. DBus 프로토콜 (프론트엔드 ↔ 엔진)
+
+### 2.1 한자 변환 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant FE as 프론트엔드
+    participant EN as 엔진(DBus)
+
+    FE->>EN: ProcessKeyEvent(keycode, modifier)
+    EN-->>FE: result {hanja_candidates_available: true}
+    FE->>EN: GetHanjaCandidates()
+    EN-->>FE: (target, [(hanja, meaning), ...])
+    Note over FE: 팝업 표시
+    FE->>EN: SelectHanja(globalIndex)
+    EN-->>FE: selected_hanja
+    Note over FE: 커밋 + 팝업 닫기
+```
+
+### 2.2 특수문자 변환 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant FE as 프론트엔드
+    participant EN as 엔진(DBus)
+
+    FE->>EN: ProcessKeyEvent(keycode, modifier)
+    EN-->>FE: result {special_char_candidates_available: true}
+    FE->>EN: GetSpecialCharCandidates()
+    EN-->>FE: (target, [char, ...], top_row)
+    Note over FE: 그리드 팝업 표시
+    FE->>EN: SelectSpecialChar(globalIndex)
+    EN-->>FE: selected_char
+    Note over FE: 커밋 + 팝업 닫기
+```
+
+### 2.3 취소 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant FE as 프론트엔드
+    participant EN as 엔진(DBus)
+
+    Note over FE: ESC or 포커스 상실
+    FE->>EN: CancelHanja() / CancelSpecialChar()
+    Note over FE: 팝업 닫기 + preedit 복원
+```
+
+### 2.4 DBus 메서드 정리
+
+| 인터페이스 | 메서드 | 인자 | 반환 | 용도 |
+|-----------|--------|------|------|------|
+| `InputContext` | `GetHanjaCandidates` | — | `(s target, a(ss) candidates)` | 한자 후보 목록 |
+| `InputContext` | `SelectHanja` | `(u index)` | `(s hanja)` | 한자 선택 → 커밋 |
+| `InputContext` | `CancelHanja` | — | — | 한자 모드 취소 |
+| `InputContext` | `GetSpecialCharCandidates` | — | `(s target, as chars, s top_row)` | 특수문자 후보 |
+| `InputContext` | `SelectSpecialChar` | `(u index)` | `(s char)` | 특수문자 선택 |
+| `InputContext` | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
+
+---
+
+## 3. 한자 팝업
+
+### 3.1 레이아웃
+
+```
+╭──────────────────────────────────╮
 │ 「한」 → 한자            1/3    │  ← 헤더 (target + 페이지)
 ├──────────────────────────────────┤
 │ 1. 韓  한나라 한                │  ← 후보 행 (번호. 한자  뜻풀이)
@@ -28,122 +116,382 @@
 │ 3. 恨  한할 한                  │
 │ ...                              │
 │ 9. 罕  드물 한                  │
-└──────────────────────────────────┘
+╰──────────────────────────────────╯
 ```
 
-### 2.2 색상 (Catppuccin Mocha)
+**구성 요소:**
+- **헤더**: `「{target}」 → 한자` (좌), 페이지 번호 `{page}/{total}` (우)
+- **후보 행**: 번호(1~9), 한자 문자, 뜻풀이(meaning)
+- **선택 하이라이트**: 현재 선택된 행에 배경색 적용
 
-| 요소 | HEX |
-|------|-----|
-| 배경 | `#1e1e2e` (95% opacity) |
-| 테두리 | `rgba(255,255,255,0.15)` |
-| 헤더 배경 | `#313244` |
-| 헤더 텍스트 | `#89b4fa` (Blue) |
-| 페이지 번호 | `#6c7086` |
-| 행 번호 | `rgba(255,255,255,0.4)` |
-| 한자 문자 | `#cdd6f4` |
-| 뜻풀이 | `rgba(255,255,255,0.6)` |
-| 선택 행 배경 | `rgba(137,180,250,0.2)` |
-| 호버 행 배경 | `rgba(255,255,255,0.05)` |
+### 3.2 상수
 
-### 2.3 폰트
+| 항목 | 값 | 설명 |
+|------|-----|------|
+| 페이지 크기 | **9** | 한 페이지에 표시할 후보 수 (숫자키 1~9 대응) |
+| 초기 선택 | **0** | 팝업 표시 시 첫 번째 후보 선택 |
+| 최소 너비 | 280px | |
+| 최대 너비 | 420px | |
+| 패딩 | 12px | |
+| 행 높이 | 28px | |
+| 외곽 border-radius | 12px | |
+| 행 border-radius | 6px | |
 
-| 요소 | 크기 |
-|------|------|
-| 헤더 | 13px bold |
-| 행 번호 | 12px |
-| 한자 문자 | 18px bold |
-| 뜻풀이 | 12px |
-| 페이지 번호 | 12px |
+### 3.3 상태 머신
 
-### 2.4 치수
+```
+[대기] ──(한자키)──→ [검색] ──(후보 있음)──→ [팝업 표시]
+                       │                        │
+                       │(후보 없음)              ├──(숫자/Enter)──→ [선택] → [커밋] → [대기]
+                       │                        ├──(↑/↓)─────────→ [이동]
+                       │                        ├──(←/→/PgUp/PgDn)→ [페이지 전환]
+                       ▼                        ├──(ESC)──────────→ [취소] → [대기]
+                 [특수문자 검색]                 └──(기타키)────────→ [취소] → 키 재처리
+```
 
-| 항목 | 값 |
-|------|-----|
-| 최소/최대 너비 | 280/420px |
-| 패딩 | 12px |
-| 행 높이 | 28px |
-| border-radius (외곽) | 12px |
-| border-radius (행) | 6px |
+### 3.4 키 바인딩
 
-### 2.5 키 바인딩
+| 키 | 동작 | 상세 |
+|----|------|------|
+| `1`~`9` | 즉시 선택+커밋 | `globalIndex = page * 9 + (num - 1)` |
+| `Enter` / `Space` | 현재 선택 확정 | 하이라이트된 항목 커밋 |
+| `↑` | 이전 항목 | wrap-around (0 → 마지막) |
+| `↓` | 다음 항목 | wrap-around (마지막 → 0) |
+| `←` / `Page Up` | 이전 페이지 | 첫 페이지에서는 무효 |
+| `→` / `Page Down` | 다음 페이지 | 마지막 페이지에서는 무효 |
+| `Escape` | 취소 | preedit 복원, 팝업 닫기 |
+| **기타 키** | 팝업 닫고 키 재처리 | 팝업 취소 후 해당 키를 엔진에 다시 전달 |
 
-| 키 | 동작 |
-|----|------|
-| `1`~`9` | 즉시 선택+커밋 |
-| `Enter` / `Space` | 현재 선택 확정 |
-| `↑` / `↓` | 선택 이동 |
-| `←` / `Page Up` | 이전 페이지 |
-| `→` / `Page Down` | 다음 페이지 |
-| `Escape` | 취소 (preedit 복원) |
+### 3.5 동작 규칙
 
-### 2.6 동작 규칙
-
-- 페이지 크기: 9개
-- 초기 선택: index 0
-- 선택 시: DBus `SelectHanja(globalIndex)` → 커밋 → 닫힘
-- 취소 시: DBus `CancelHanja` → preedit 복원 → 닫힘
-- 포커스 상실: 자동 취소
-- 위치: `(cursor_x, cursor_y + cursor_height + 4px)`
+1. **트리거**: 한국어 모드에서 한자키(F9/Hanja) 입력 시
+2. **대상**: preedit의 마지막 음절 (예: "대한민국" → "국")
+3. **후보 순서**: 사전 저장 순서 (빈도순)
+4. **선택 시**: `SelectHanja(globalIndex)` → 엔진이 한자 문자열 반환 → 프론트엔드가 커밋
+5. **취소 시**: `CancelHanja()` → preedit(원래 한글) 유지 → 팝업 닫기
+6. **포커스 상실**: 자동 취소 (CancelHanja 호출)
+7. **한자 후보 없음 + 초성**: 자동으로 특수문자 검색으로 전환
 
 ---
 
-## 3. 특수문자 팝업
+## 4. 특수문자 팝업
 
-### 3.1 레이아웃
+### 4.1 레이아웃
 
 ```
-┌─────────────────────────────────────────┐
-│ 「ㅁ」 → 특수문자                       │
+╭─────────────────────────────────────────╮
+│ 「ㅁ」 → 특수문자 (단위기호)           │  ← 헤더
 ├──┬──┬──┬──┬──┬──┬──┬──┬──┬──┤
-│   │ Q │ W │ E │ R │ T │ Y │ U │ I │ O │  ← 열 헤더
+│   │ Q │ W │ E │ R │ T │ Y │ U │ I │ O │  ← 열 헤더 (top_row)
 ├──┼──┼──┼──┼──┼──┼──┼──┼──┼──┤
-│ 1│ ♠ │ ♣ │ ♥ │ ...                     │  ← 9×9 그리드 (열 우선)
+│ 1│ ＄│ ％│ ￦│ Ｆ │ ′ │ ″ │ ℃│ Å │ ￠│  ← 9×9 그리드
+│ 2│ ￡│ ￥│ ¤ │ ℉ │ ‰ │ ㎕│ ㎖│ ㎗│ ℓ │
 │ ...                                     │
 │ 9│ ...                                  │
 ├─────────────────────────────────────────┤
-│                1/3                       │
-└─────────────────────────────────────────┘
+│ [ㅁ]               1/2                 │  ← 푸터
+╰─────────────────────────────────────────╯
 ```
 
-### 3.2 색상 (한자와 동일 기반, 강조색=Green)
+**구성 요소:**
+- **헤더**: `「{target}」 → 특수문자 ({category})` (좌)
+- **열 헤더**: 영어 레이아웃의 top_row (QWERTY: `QWERTYUIO`, Colemak: `QWFPGJLUY`)
+- **행 번호**: 1~9 (좌측)
+- **그리드**: 최대 9행×9열 = 81문자/페이지
+- **푸터**: `[{target}]` + 페이지 번호
 
-| 요소 | HEX |
-|------|-----|
-| 헤더 텍스트 | `#a6e3a1` (Green) |
-| 활성 열 헤더 | `#a6e3a1` |
-| 선택 셀 배경 | `rgba(166,227,161,0.25)` |
-| 그 외 | 한자와 동일 |
+### 4.2 열 우선 채움 (Column-Major Fill)
 
-### 3.3 폰트
+그리드는 **열 우선**으로 채웁니다:
 
-| 요소 | 크기 |
-|------|------|
-| 헤더 | 13px bold |
-| 열 헤더 / 행 번호 | 11px bold |
-| 셀 문자 | 16px (선택 시 bold) |
+```
+col 0: index 0~8   (행 1~9)
+col 1: index 9~17  (행 1~9)
+col 2: index 18~26 (행 1~9)
+...
+col 8: index 72~80 (행 1~9)
+```
 
-### 3.4 치수
+코드 매핑: `flat_index = col * MAX_ROWS + row`
 
-| 항목 | 값 |
-|------|-----|
-| 셀 크기 | 28×28px |
-| 행 번호 너비 | 20px |
-| 그리드 간격 | 1px |
+### 4.3 상수
 
-### 3.5 키 바인딩
+| 항목 | 값 | 설명 |
+|------|-----|------|
+| 그리드 최대 행수 | **9** | |
+| 그리드 최대 열수 | **9** | |
+| 페이지 크기 | **81** (9×9) | |
+| 셀 크기 | 28×28px | |
+| 행 번호 너비 | 20px | |
+| 그리드 간격 | 1px | |
+| 플래시 시간 | 120ms | 선택 시 시각적 피드백 |
 
-| 키 | 동작 |
-|----|------|
-| `1`~`9` | 현재 열의 행 선택+커밋 |
-| `Q`~`O` | 열 점프 |
-| `↑` / `↓` / `←` / `→` | 네비게이션 |
-| `Enter` | 현재 선택 확정 |
-| `Escape` / `BackSpace` | 취소 |
-| `Page Up/Down` / `Tab` | 페이지 이동 |
+### 4.4 열 수 계산
 
-### 3.6 동작 규칙
+실제 문자 수에 따라 열 수를 동적 조정:
 
-- 그리드: 9행×9열, 열 우선 채움 (col 0→row 0~8, col 1→row 9~17, ...)
-- 선택 시: 플래시(120ms) → DBus `SelectSpecialChar(globalIndex)` → 커밋 → 닫힘
-- 그 외: 한자와 동일
+```
+cols = ceil(page_chars / MAX_ROWS)  // 최소 1, 최대 9
+```
+
+마지막 열의 행 수:
+
+```
+rows_in_last_col = page_chars - (cols - 1) * MAX_ROWS
+```
+
+### 4.5 키 바인딩
+
+| 키 | 동작 | 상세 |
+|----|------|------|
+| `1`~`9` | 현재 열의 행 선택+커밋 | `globalIndex = page_start + col * 9 + (num - 1)` |
+| `Q`~`O` (top_row) | 열 점프 | `col = key의 top_row 내 인덱스`, 행 유지 |
+| `↑` / `↓` | 행 이동 | 현재 열 내에서 이동, 열 경계에서 인접 열로 이동 |
+| `←` / `→` | 열 이동 | wrap 없음, 경계에서 정지 |
+| `Enter` | 현재 선택 확정 | 플래시(120ms) → 커밋 |
+| `Escape` / `BackSpace` | 취소 | preedit 복원 |
+| `Page Down` / `Tab` | 다음 페이지 | |
+| `Page Up` / `Shift+Tab` | 이전 페이지 | |
+| **기타 키** | 팝업 닫고 키 재처리 | |
+
+### 4.6 동작 규칙
+
+1. **트리거**: 한국어 모드에서 초성(ㄱ~ㅎ) + 한자키 입력 시
+2. **전환 조건**: 한자 후보 없는 초성이면 자동으로 특수문자 검색
+3. **카테고리**: 초성별 고정 매핑 (ㄱ=특수기호, ㄴ=괄호류, ㄷ=수학기호, ...)
+4. **선택 시**: 플래시 효과(120ms) → `SelectSpecialChar(globalIndex)` → 커밋
+5. **취소 시**: `CancelSpecialChar()` → preedit 복원 → 닫기
+6. **불완전 열**: 유효하지 않은 셀은 빈칸으로 표시, 네비게이션 시 건너뜀
+
+---
+
+## 5. 공통 디자인 시스템 (Catppuccin Mocha)
+
+### 5.1 색상표
+
+| 요소 | 이름 | HEX | 용도 |
+|------|------|-----|------|
+| **배경** | Base | `#1e1e2e` | 팝업 전체 배경 (opacity 95%) |
+| **테두리** | — | `rgba(255,255,255,0.15)` | 외곽선 |
+| **헤더 배경** | Surface0 | `#313244` | 헤더 영역 배경 |
+| **한자 헤더** | Blue | `#89b4fa` | 한자 팝업 헤더 텍스트 |
+| **특수문자 헤더** | Green | `#a6e3a1` | 특수문자 팝업 헤더/열 헤더 |
+| **본문** | Text | `#cdd6f4` | 한자 문자, 셀 문자 |
+| **보조 텍스트** | Subtext0 | `#a6adc8` | 뜻풀이 |
+| **행/열 번호** | Overlay1 | `#7f849c` | 비활성 번호 |
+| **페이지 번호** | Overlay0 | `#6c7086` | 하단 페이지 정보 |
+| **한자 선택 배경** | — | `rgba(137,180,250,0.2)` | 한자 선택 행 |
+| **특수문자 선택 배경** | — | `rgba(166,227,161,0.25)` | 특수문자 선택 셀 |
+| **호버 배경** | — | `rgba(255,255,255,0.05)` | 마우스 호버 (해당 시) |
+| **활성 열 헤더** | Green | `#a6e3a1` | 선택된 열의 헤더 문자 |
+| **비활성 열 헤더** | Yellow | `#f9e2af` | 미선택 열 헤더 문자 |
+
+### 5.2 폰트
+
+| 요소 | 크기 | 스타일 |
+|------|------|--------|
+| 헤더 텍스트 | 13px | bold |
+| 행 번호 | 12px | normal |
+| 한자 문자 | 18px | bold |
+| 뜻풀이 | 12px | normal |
+| 페이지 번호 | 12px | normal |
+| 열 헤더 / 행 번호 (특수문자) | 11px | bold |
+| 셀 문자 (특수문자) | 16px | normal (선택 시 bold) |
+
+### 5.3 CSS 변수 (GTK/GNOME 용)
+
+```css
+:root {
+  --popup-bg:         #1e1e2e;
+  --popup-border:     rgba(255, 255, 255, 0.15);
+  --popup-header-bg:  #313244;
+  --popup-text:       #cdd6f4;
+  --popup-subtext:    #a6adc8;
+  --popup-overlay0:   #6c7086;
+  --popup-overlay1:   #7f849c;
+  --popup-blue:       #89b4fa;
+  --popup-green:      #a6e3a1;
+  --popup-yellow:     #f9e2af;
+  --popup-sel-hanja:  rgba(137, 180, 250, 0.2);
+  --popup-sel-special: rgba(166, 227, 161, 0.25);
+  --popup-hover:      rgba(255, 255, 255, 0.05);
+  --popup-radius:     12px;
+  --popup-row-radius: 6px;
+}
+```
+
+---
+
+## 6. 팝업 포지셔닝
+
+### 6.1 기본 규칙
+
+```
+popup_x = cursor_x
+popup_y = cursor_y + cursor_height + 4px
+```
+
+### 6.2 화면 경계 보정
+
+```
+if (popup_y + popup_height > screen_height):
+    popup_y = cursor_y - popup_height - 4px   // 커서 위로
+
+if (popup_x + popup_width > screen_width):
+    popup_x = screen_width - popup_width - 4px  // 좌측으로 밀기
+```
+
+### 6.3 프론트엔드별 좌표 소스
+
+| 프론트엔드 | 절대좌표 획득 방법 |
+|-----------|-------------------|
+| GTK3 | `gdk_window_get_root_coords()` → cursor_rect |
+| GTK4 | `gtk_widget_translate_coordinates()` → Wayland에서는 불가 |
+| Qt5/6 | `QGuiApplication::inputMethod()->cursorRectangle()` |
+| XIM | XIC spot location (이미 절대좌표) |
+| Wayland | text-input-v3 cursor rectangle |
+| GNOME | `vfunc_set_cursor_location` → actor position |
+
+> **Wayland 위치 제한**: Wayland에서 클라이언트는 절대 화면 좌표를 알 수 없습니다.
+> GTK4/Qt6 팝업은 X11에서만 동작하며, Wayland에서는 GNOME Shell 확장이 처리합니다.
+
+---
+
+## 7. 초성 ↔ 특수문자 카테고리 매핑
+
+| 초성 | 카테고리 | 설명 |
+|------|---------|------|
+| ㄱ | 특수기호 | !, @, #, ÷, ≠, ∞ ... |
+| ㄴ | 괄호류 | 「」, 『』, ≪≫ ... |
+| ㄷ | 수학기호 | ∂, ∇, ≡, √, ∫ ... |
+| ㄹ | 단위기호 | ＄, ％, ℃, Å ... |
+| ㅁ | 도형기호 | ■, □, ●, ○, ◇ ... |
+| ㅂ | 선문자 | ─, │, ┌, ┐, ═ ... |
+| ㅅ | 한글 문자 | ㄱ, ㄴ, ㄷ, ㅏ, ㅑ ... |
+| ㅇ | 원문자 | ⓐ, ⓑ, ①, ② ... |
+| ㅈ | 괄호한글 | ㈀, ㈁, ㈂ ... |
+| ㅊ | 괄호숫자 | ⑴, ⑵, ⑶ ... |
+| ㅋ | 괄호숫자2 | 추가 괄호숫자 |
+| ㅌ | 괄호영문 | ⒜, ⒝, ⒞ ... |
+| ㅍ | 그리스문자 | Α, Β, Γ, α, β ... |
+| ㅎ | 기타기호 | ●, ◎, ♨, ☏ ... |
+
+---
+
+## 8. 프론트엔드 통합 가이드
+
+### 8.1 GTK (C, gtk-common 공유)
+
+**파일 구조:**
+```
+unim-frontends/gtk-common/
+├── include/
+│   ├── unim_dbus_client.h       (DBus API)
+│   ├── unim_hanja_popup.h       (한자 팝업)
+│   └── unim_special_popup.h     (특수문자 팝업)
+└── src/
+    ├── unim_dbus_client.c       (DBus API 구현)
+    ├── unim_hanja_popup.c       (한자 팝업 구현)
+    └── unim_special_popup.c     (특수문자 팝업 구현)
+```
+
+**immodule 통합 패턴:**
+```c
+// 1. 구조체에 팝업 멤버 추가
+struct _UnimIMContext {
+    // ...
+    UnimHanjaPopup *hanja_popup;
+    UnimSpecialPopup *special_popup;
+};
+
+// 2. filter_keypress에서 팝업 우선 처리
+if (unim_hanja_popup_is_visible(ctx->hanja_popup)) {
+    return unim_hanja_popup_handle_key(ctx->hanja_popup, keyval);
+}
+
+// 3. ProcessKey 결과 확인 후 팝업 표시
+if (result.hanja_candidates_available) {
+    // GetHanjaCandidates → popup_show
+}
+
+// 4. 선택 콜백에서 커밋
+static void on_hanja_select(const gchar *hanja, gpointer data) {
+    // SelectHanja → commit → emit "commit" signal
+}
+```
+
+### 8.2 Qt (C++, qt-common 공유)
+
+**통합 패턴:**
+```cpp
+// 1. InputContext 멤버
+UnimHanjaPopup *m_hanjaPopup;
+UnimSpecialPopup *m_specialPopup;
+
+// 2. filterEvent에서 팝업 우선
+if (m_hanjaPopup->isVisible()) {
+    return m_hanjaPopup->handleKey(keyval);
+}
+
+// 3. 선택 시그널 연결
+connect(m_hanjaPopup, &UnimHanjaPopup::selected,
+        this, &InputContext::onHanjaSelected);
+```
+
+### 8.3 XIM (Rust, 자체 X11 렌더링)
+
+- `hanja_window.rs` / `special_window.rs`
+- Xlib override-redirect 윈도우 + Xft 텍스트 렌더링
+- 이벤트 루프에서 팝업 X 이벤트 직접 처리
+
+### 8.4 Wayland (Rust, 소프트웨어 렌더링)
+
+- `popup_renderer.rs` + `popup_surface.rs`
+- tiny-skia + cosmic-text로 RGBA 버퍼 렌더링
+- wl_subsurface로 팝업 표시
+
+### 8.5 GNOME Shell (JavaScript, St 위젯)
+
+- `hanja_popup.js` / `special_popup.js`
+- St.BoxLayout + St.Label 위젯 기반
+- KeyHandler에서 팝업 키 이벤트 가로채기
+
+---
+
+## 9. 엔진 코어 팝업 키 핸들링
+
+엔진 내부(`InputEngine.process_popup_key`)에서 팝업 활성 상태의 키를 처리합니다.
+
+### 9.1 PopupAction enum
+
+```rust
+pub enum PopupAction {
+    ShowHanja { target, candidates },
+    ShowSpecial { target, characters, top_row },
+    HidePopup,
+    PopupNavigate { page, total_pages, selected },
+}
+```
+
+프론트엔드는 `ProcessKeyEvent` 응답 후 `take_popup_action()`으로
+엔진에서 대기 중인 팝업 액션을 꺼내 UI를 업데이트합니다.
+
+### 9.2 엔진 키 처리 흐름
+
+1. `press_key` → 한자/특수문자 모드 활성 확인
+2. 모드 활성이면 `process_popup_key`에 위임
+3. 숫자키 → `popup_select(abs_index)` → 선택/커밋
+4. 화살표 → 선택 이동 → `PopupNavigate` 액션 발행
+5. ESC → `popup_cancel()` → `HidePopup` 액션 발행
+6. 기타 → 팝업 취소 후 키 재처리
+
+---
+
+## 10. 변경 이력
+
+| 날짜 | 버전 | 변경 내용 |
+|------|------|----------|
+| 2026-02-17 | v1 | 초기 한자 팝업 C 구현 (GTK) |
+| 2026-02-18 | v1.1 | 특수문자 팝업 추가 |
+| 2026-02-26 | v2 | 중앙집중 GUI 방식으로 전환 |
+| 2026-03-02 | **v3** | **모듈별 개별 팝업으로 복귀, 문서 전면 개편** |

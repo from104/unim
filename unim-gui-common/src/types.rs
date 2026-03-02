@@ -37,27 +37,6 @@ impl Default for IndicatorState {
 pub enum GuiAction {
     ShowModePopup,
     UpdateCategory(InputCategory),
-    /// 한자 팝업 표시
-    ShowHanjaPopup {
-        target: String,
-        candidates: Vec<(String, String)>,
-        cursor_x: i32,
-        cursor_y: i32,
-        cursor_width: i32,
-        cursor_height: i32,
-    },
-    /// 특수문자 팝업 표시
-    ShowSpecialPopup {
-        target: String,
-        characters: Vec<String>,
-        top_row: String,
-        cursor_x: i32,
-        cursor_y: i32,
-        cursor_width: i32,
-        cursor_height: i32,
-    },
-    /// 팝업 숨김
-    HidePopup,
     /// 설정 다이얼로그 열기
     OpenSettings,
 }

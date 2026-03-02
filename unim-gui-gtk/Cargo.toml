@@ -25,3 +25,6 @@ libadwaita = "0.7"
 # Async runtime for DBus
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
+
+[features]
+default = ["gdk4-x11"]

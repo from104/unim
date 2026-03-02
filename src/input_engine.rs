@@ -1011,12 +1011,16 @@ impl InputEngine {
         if self.hanja_mode {
             if let Some(hanja) = self.select_hanja(abs_index) {
                 unim_log!("ENGINE", "팝업 한자 선택: [{}] '{}'", abs_index, hanja);
+                // ProcessKeyEvent 응답으로 커밋하기 위해 commit_buffer에 추가
+                self.commit_buffer.push_str(&hanja);
                 self.popup_pending_action = Some(PopupAction::HidePopup);
                 return InputResult::committed();
             }
         } else if self.special_char_mode {
             if let Some(ch) = self.select_special_char(abs_index) {
                 unim_log!("ENGINE", "팝업 특수문자 선택: [{}] '{}'", abs_index, ch);
+                // ProcessKeyEvent 응답으로 커밋하기 위해 commit_buffer에 추가
+                self.commit_buffer.push(ch);
                 self.popup_pending_action = Some(PopupAction::HidePopup);
                 return InputResult::committed();
             }
@@ -1024,11 +1028,19 @@ impl InputEngine {
         InputResult::consumed()
     }
 
-    /// 팝업 취소 처리
+    /// 팝업 취소 처리 — 원래 한글/초성을 그대로 커밋
     fn popup_cancel(&mut self) {
         if self.hanja_mode {
+            // 한자 대상 한글(예: '한')을 커밋
+            if !self.hanja_target.is_empty() {
+                self.commit_buffer.push_str(&self.hanja_target);
+            }
             self.cancel_hanja();
         } else if self.special_char_mode {
+            // 특수문자 대상 초성(예: 'ㅁ')을 커밋
+            if !self.special_char_target.is_empty() {
+                self.commit_buffer.push_str(&self.special_char_target);
+            }
             self.cancel_special_char();
         }
         self.popup_pending_action = Some(PopupAction::HidePopup);

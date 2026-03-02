@@ -1,0 +1,140 @@
+[2026/03/02 17:20:34] - [INDICATOR] - UNIM GUI 시작...
+[2026/03/02 17:20:34] - [INDICATOR] - [DBus] 세션 버스 연결됨, 서비스 감시 시작...
+[2026/03/02 17:20:34] - [INDICATOR] - [DBus] org.atit.unim.InputMethod 서비스 발견, 연결 시도...
+[2026/03/02 17:20:34] - [INDICATOR] - [DBus] 초기 모드 조회: English
+[2026/03/02 17:20:34] - [INDICATOR] - [DBus] GlobalModeChanged 시그널 구독 시작...
+[2026/03/02 17:20:34] - [INDICATOR] - [DBus] 팝업 시그널 구독 시작...
+[2026/03/02 17:20:34] - [INDICATOR] - 시스템 트레이 시작됨
+[2026/03/02 17:20:44] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 17:22:18] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 17:22:21] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 17:22:23] - [INDICATOR] - [DBus] ShowSpecialPopup 수신: target='ㄱ', count=36
+[2026/03/02 17:22:23] - [INDICATOR] - gdk4-x11 미포함 — 팝업 포지셔닝 생략 (Wayland에서는 GNOME 확장이 담당)
+[2026/03/02 17:22:23] - [INDICATOR] - 특수문자 팝업 표시: target='ㄱ', cursor=(15,0)
+[2026/03/02 17:22:34] - [INDICATOR] - 특수문자 선택: index=27
+[2026/03/02 17:22:34] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:22:41] - [INDICATOR] - 특수문자 선택: index=27
+[2026/03/02 17:22:41] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:22:50] - [INDICATOR] - 특수문자 취소
+[2026/03/02 17:22:50] - [INDICATOR] - [DBus] cancel_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:22:57] - [INDICATOR] - [DBus] ShowHanjaPopup 수신: target='각', count=70, pos=(15,0,0,32)
+[2026/03/02 17:22:57] - [INDICATOR] - gdk4-x11 미포함 — 팝업 포지셔닝 생략 (Wayland에서는 GNOME 확장이 담당)
+[2026/03/02 17:22:57] - [INDICATOR] - 한자 팝업 표시: target='각', cursor=(15,0)
+[2026/03/02 17:23:12] - [INDICATOR] - 한자 선택: index=1
+[2026/03/02 17:23:12] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:13] - [INDICATOR] - 한자 선택: index=1
+[2026/03/02 17:23:13] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:15] - [INDICATOR] - 한자 선택: index=4
+[2026/03/02 17:23:15] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:16] - [INDICATOR] - 한자 선택: index=4
+[2026/03/02 17:23:16] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:17] - [INDICATOR] - 한자 선택: index=2
+[2026/03/02 17:23:17] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:17] - [INDICATOR] - 한자 선택: index=2
+[2026/03/02 17:23:17] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:18] - [INDICATOR] - 한자 선택: index=2
+[2026/03/02 17:23:18] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:32] - [INDICATOR] - 한자 선택: index=4
+[2026/03/02 17:23:32] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:33] - [INDICATOR] - 한자 선택: index=4
+[2026/03/02 17:23:33] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:34] - [INDICATOR] - 한자 선택: index=4
+[2026/03/02 17:23:34] - [INDICATOR] - [DBus] select_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:36] - [INDICATOR] - 한자 취소
+[2026/03/02 17:23:36] - [INDICATOR] - [DBus] cancel_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:43] - [INDICATOR] - [DBus] ShowSpecialPopup 수신: target='ㄹ', count=93
+[2026/03/02 17:23:43] - [INDICATOR] - gdk4-x11 미포함 — 팝업 포지셔닝 생략 (Wayland에서는 GNOME 확장이 담당)
+[2026/03/02 17:23:43] - [INDICATOR] - 특수문자 팝업 표시: target='ㄹ', cursor=(15,0)
+[2026/03/02 17:23:46] - [INDICATOR] - 특수문자 선택: index=63
+[2026/03/02 17:23:46] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:47] - [INDICATOR] - 특수문자 선택: index=63
+[2026/03/02 17:23:47] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:49] - [INDICATOR] - 특수문자 선택: index=0
+[2026/03/02 17:23:49] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:49] - [INDICATOR] - 특수문자 선택: index=0
+[2026/03/02 17:23:49] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:23:51] - [INDICATOR] - 특수문자 취소
+[2026/03/02 17:23:51] - [INDICATOR] - [DBus] cancel_special_char 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:25:19] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 17:25:24] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 17:27:19] - [INDICATOR] - [DBus] ShowHanjaPopup 수신: target='일', count=35, pos=(15,0,0,32)
+[2026/03/02 17:27:19] - [INDICATOR] - gdk4-x11 미포함 — 팝업 포지셔닝 생략 (Wayland에서는 GNOME 확장이 담당)
+[2026/03/02 17:27:19] - [INDICATOR] - 한자 팝업 표시: target='일', cursor=(15,0)
+[2026/03/02 17:27:31] - [INDICATOR] - 한자 취소
+[2026/03/02 17:27:31] - [INDICATOR] - [DBus] cancel_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:27:56] - [INDICATOR] - [DBus] ShowHanjaPopup 수신: target='일', count=35, pos=(15,0,0,32)
+[2026/03/02 17:27:56] - [INDICATOR] - gdk4-x11 미포함 — 팝업 포지셔닝 생략 (Wayland에서는 GNOME 확장이 담당)
+[2026/03/02 17:27:56] - [INDICATOR] - 한자 팝업 표시: target='일', cursor=(15,0)
+[2026/03/02 17:28:05] - [INDICATOR] - 한자 취소
+[2026/03/02 17:28:05] - [INDICATOR] - [DBus] cancel_hanja 호출 성공 (path=/org/atit/unim/InputContext_112)
+[2026/03/02 17:29:27] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 17:29:59] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 17:31:21] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 17:31:28] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:02:42] - [INDICATOR] - UNIM GUI 시작...
+[2026/03/02 18:02:42] - [INDICATOR] - [DBus] 세션 버스 연결됨, 서비스 감시 시작...
+[2026/03/02 18:02:42] - [INDICATOR] - [DBus] org.atit.unim.InputMethod 서비스 발견, 연결 시도...
+[2026/03/02 18:02:42] - [INDICATOR] - [DBus] 초기 모드 조회: English
+[2026/03/02 18:02:42] - [INDICATOR] - [DBus] GlobalModeChanged 시그널 구독 시작...
+[2026/03/02 18:02:42] - [INDICATOR] - [DBus] 팝업 시그널 구독 시작...
+[2026/03/02 18:02:42] - [INDICATOR] - 시스템 트레이 시작됨
+[2026/03/02 18:02:53] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:02:56] - [INDICATOR] - [DBus] ShowSpecialPopup 수신: target='ㅎ', count=38
+[2026/03/02 18:02:56] - [INDICATOR] - gdk4-x11 미포함 — 팝업 포지셔닝 생략 (Wayland에서는 GNOME 확장이 담당)
+[2026/03/02 18:02:56] - [INDICATOR] - 특수문자 팝업 표시: target='ㅎ', cursor=(29,0)
+[2026/03/02 18:02:56] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:03:00] - [INDICATOR] - 특수문자 선택: index=0
+[2026/03/02 18:03:00] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:16] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:16] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:17] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:17] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:18] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:18] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:18] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:18] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:19] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:19] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:19] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:19] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:21] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:21] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:22] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:22] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:23] - [INDICATOR] - 특수문자 선택: index=18
+[2026/03/02 18:03:23] - [INDICATOR] - [DBus] select_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:29] - [INDICATOR] - 특수문자 취소
+[2026/03/02 18:03:29] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:03:29] - [INDICATOR] - [DBus] cancel_special_char 호출 성공 (path=/org/atit/unim/InputContext_128)
+[2026/03/02 18:03:57] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:04:21] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:04:35] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:04:44] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:19:42] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:19:54] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:20:05] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:21:39] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:22:49] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:42:27] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:44:42] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:47:22] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 18:49:25] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 18:49:30] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:08:23] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:08:27] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:12:11] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:13:40] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:14:45] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:20:51] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:21:44] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:21:56] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:24:34] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:25:08] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:25:38] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:25:45] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:28:45] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:33:14] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:34:22] - [INDICATOR] - [DBus] 모드 변경 감지: English
+[2026/03/02 21:34:26] - [INDICATOR] - [DBus] 모드 변경 감지: Korean
+[2026/03/02 21:54:23] - [INDICATOR] - [DBus] 모드 변경 감지: English
+Gdk-Message: 21:55:01.847: Error reading events from display: 파이프가 깨어짐

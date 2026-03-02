@@ -112,23 +112,49 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_focus_out() {
+        // 1. 커밋 최우선: 로컬 preedit 백업
+        const localPreedit = this._preeditText;
+
         this._hasFocus = false;
-        // 포커스 상실 콜백 호출 (조합 중 텍스트 커밋 + 팝업 닫기)
+
+        // 2. 포커스 상실 콜백 호출 (DBus FocusOut → 커밋 텍스트 수신)
+        let committed = false;
         if (this._focusOutHandler) {
             try {
-                this._focusOutHandler();
+                committed = this._focusOutHandler();
             } catch (e) {
                 unimError('IME', `focusOut 핸들러 오류: ${e.message}`);
             }
         }
-        if (this._preeditText.length > 0) {
+
+        // 3. DBus 커밋 실패 시 로컬 preedit 폴백
+        if (!committed && localPreedit && localPreedit.length > 0) {
+            this._preeditText = '';
+            try {
+                this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
+                this.commit(localPreedit);
+            } catch (e) {
+                unimError('IME', `focusOut 로컬 커밋 실패: ${e.message}`);
+            }
+        } else if (this._preeditText.length > 0) {
             this.clearPreedit();
         }
     }
 
     vfunc_reset() {
-        if (this._preeditText.length > 0) {
-            this.clearPreedit();
+        const preedit = this._preeditText;
+        if (preedit && preedit.length > 0) {
+            this._preeditText = '';
+            try {
+                this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
+                this.commit(preedit);
+            } catch (e) {
+                unimError('IME', `vfunc_reset 커밋 실패: ${e.message}`);
+            }
+            // 엔진 상태 초기화
+            if (this._dbusIME) {
+                this._dbusIME.reset();
+            }
         }
     }
 

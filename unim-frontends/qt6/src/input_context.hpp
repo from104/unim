@@ -15,6 +15,8 @@
 
 /* 전방 선언 */
 class UnimDbusClient;
+class UnimHanjaPopup;
+class UnimSpecialPopup;
 
 class UnimInputContext : public QPlatformInputContext
 {
@@ -44,6 +46,8 @@ private:
     void commitString(const QString &str);
 
     UnimDbusClient *m_dbus;
+    UnimHanjaPopup *m_hanjaPopup;
+    UnimSpecialPopup *m_specialPopup;
     QObject *m_focusObject;
     QString m_windowId;
     bool m_composing;

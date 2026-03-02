@@ -181,13 +181,29 @@ export default class UnimExtension extends Extension {
                     this._hanjaPopup.show(
                         target, candidates,
                         (globalIdx) => {
-                            // 선택 콜백
-                            this._dbusIME.selectHanja(globalIdx);
+                            // 선택 콜백: SelectHanja → 한자 반환 → 커밋
+                            const hanja = this._dbusIME.selectHanja(globalIdx);
+                            if (hanja && this._inputMethod) {
+                                // preedit 클리어 후 한자 커밋
+                                this._inputMethod.updatePreedit('');
+                                this._inputMethod.commitText(hanja);
+                            }
                             this._keyHandler.setPopupKeyHandler(null);
                         },
                         () => {
-                            // 취소 콜백
+                            // 취소 콜백 (ESC/미지원키): 원본 한글 커밋 → cancel
+                            // GTK3/4/Qt5/6와 동일 패턴: focusOut → 원본 커밋 → cancelHanja
+                            const commit = this._dbusIME.focusOut();
+                            if (commit && this._inputMethod) {
+                                this._inputMethod.commitText(commit);
+                            }
                             this._dbusIME.cancelHanja();
+                            if (this._inputMethod) {
+                                this._inputMethod.updatePreedit('');
+                            }
+                            // FocusIn 복원 (FocusOut 후 필요)
+                            const windowId = this._getActiveWindowId();
+                            this._dbusIME.focusIn(windowId);
                             this._keyHandler.setPopupKeyHandler(null);
                         },
                         cursorRect
@@ -201,11 +217,26 @@ export default class UnimExtension extends Extension {
                     this._specialPopup.show(
                         target, characters, topRow,
                         (globalIdx) => {
-                            this._dbusIME.selectSpecialChar(globalIdx);
+                            // 선택 콜백: SelectSpecialChar → 특수문자 반환 → 커밋
+                            const ch = this._dbusIME.selectSpecialChar(globalIdx);
+                            if (ch && this._inputMethod) {
+                                this._inputMethod.updatePreedit('');
+                                this._inputMethod.commitText(ch);
+                            }
                             this._keyHandler.setPopupKeyHandler(null);
                         },
                         () => {
+                            // 취소 콜백: 원본 초성 커밋 → cancel
+                            const commit = this._dbusIME.focusOut();
+                            if (commit && this._inputMethod) {
+                                this._inputMethod.commitText(commit);
+                            }
                             this._dbusIME.cancelSpecialChar();
+                            if (this._inputMethod) {
+                                this._inputMethod.updatePreedit('');
+                            }
+                            const windowId = this._getActiveWindowId();
+                            this._dbusIME.focusIn(windowId);
                             this._keyHandler.setPopupKeyHandler(null);
                         },
                         cursorRect
@@ -232,7 +263,9 @@ export default class UnimExtension extends Extension {
                 const commit = this._dbusIME.focusOut();
                 if (commit && commit.length > 0) {
                     this._inputMethod.commitText(commit);
+                    return true;
                 }
+                return false;
             });
 
             this._inputMethod.setActive(true);
