@@ -1,6 +1,6 @@
 [package]
 name = "unim-gui-common"
-version = "0.0.1"
+version.workspace = true
 edition = "2021"
 description = "Common GUI logic for UNIM (DBus, Tray, Types)"
 

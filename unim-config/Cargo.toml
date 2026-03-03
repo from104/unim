@@ -1,6 +1,6 @@
 [package]
 name = "unim-config"
-version = "0.0.1"
+version.workspace = true
 edition = "2021"
 description = "UNIM 입력기 설정 관리 도구"
 authors = ["from104"]
