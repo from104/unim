@@ -341,7 +341,7 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                 int popupY = m_cursorRect.y() + m_cursorRect.height();
 
                 UNIM_DEBUG(QString::asprintf("한자 후보 표시: target='%s', count=%d, pos=(%d,%d)",
-                           qPrintable(target), candidates.size(), popupX, popupY));
+                           qPrintable(target), static_cast<int>(candidates.size()), popupX, popupY));
 
                 m_hanjaPopup->showPopup(target, candidates, popupX, popupY, m_cursorRect.height(),
                     [this](const QString &hanja) {
@@ -363,7 +363,7 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                     int popupY = m_cursorRect.y() + m_cursorRect.height();
 
                     UNIM_DEBUG(QString::asprintf("특수문자 후보 표시: target='%s', count=%d",
-                               qPrintable(spTarget), spChars.size()));
+                               qPrintable(spTarget), static_cast<int>(spChars.size())));
 
                     m_specialPopup->showPopup(spTarget, spChars, spTopRow, popupX, popupY, m_cursorRect.height(),
                         [this](const QString &character) {

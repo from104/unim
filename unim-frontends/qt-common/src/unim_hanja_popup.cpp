@@ -133,7 +133,7 @@ void UnimHanjaPopup::showPopup(const QString &target,
     show();
 
     POPUP_DEBUG(QString::asprintf("한자 팝업 표시: target='%s', count=%d",
-                qPrintable(target), candidates.size()));
+                qPrintable(target), static_cast<int>(candidates.size())));
 }
 
 void UnimHanjaPopup::hidePopup()
@@ -345,7 +345,7 @@ void UnimHanjaPopup::mousePressEvent(QMouseEvent *event)
         nextPage();
         POPUP_DEBUG(QString::asprintf("우클릭 → 다음 페이지: %d/%d",
                     m_currentPage + 1,
-                    (m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES));
+                    static_cast<int>((m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES)));
         event->accept();
         return;
     }
