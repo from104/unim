@@ -16,9 +16,8 @@
 | `keymap.rs` | ~121 | xkbcommon 키맵 핸들러, evdev keycode → keysym 변환 |
 | `dbus_client.rs` | ~370 | unim-daemon과의 비동기 DBus 통신 (한자/특수문자 포함) |
 | `repeat.rs` | ~120 | 키 반복 타이머 (RepeatInfo, PressState, RepeatTimer) |
-| `popup.rs` | ~390 | `zwp_input_popup_surface_v2` 기반 팝업 렌더링 (tiny-skia) |
-| `hanja_popup.rs` | ~250 | 한자 후보 목록 관리 및 페이지 네비게이션 로직 |
-| `special_popup.rs` | ~280 | 특수문자 그리드 관리 및 키 처리 로직 |
+| `popup_renderer.rs` | ~390 | 팝업 렌더링 (tiny-skia + cosmic-text), 한자/특수문자 후보 표시 |
+| `popup_surface.rs` | ~280 | `zwp_input_popup_surface_v2` 기반 팝업 서피스 관리 |
 
 ### 1.2 통신 구조
 

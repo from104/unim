@@ -905,7 +905,7 @@ impl InputEngine {
                     KeyCode::Num7 => 6,
                     KeyCode::Num8 => 7,
                     KeyCode::Num9 => 8,
-                    _ => unreachable!(),
+                    _ => 0,
                 };
                 let abs_index = self.popup_page * self.popup_page_size + num;
                 if abs_index < total_items {

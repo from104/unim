@@ -111,7 +111,11 @@ pub struct UnimHandler {
 }
 
 impl UnimHandler {
-    pub fn new(screen_num: usize, config: Config, dbus_tx: mpsc::Sender<DbusRequest>) -> Self {
+    pub fn new(
+        screen_num: usize,
+        config: Config,
+        dbus_tx: mpsc::Sender<DbusRequest>,
+    ) -> Result<Self, String> {
         // 단일 Xlib Display 연결 열기
         let display = unsafe {
             let display_name = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
@@ -120,7 +124,7 @@ impl UnimHandler {
         };
 
         if display.is_null() {
-            panic!("XOpenDisplay failed");
+            return Err("XOpenDisplay failed: X11 서버에 연결할 수 없습니다".to_string());
         }
 
         let hanja_keysyms = config
@@ -130,7 +134,7 @@ impl UnimHandler {
             .filter_map(|name| keycode_name_to_keysym(name))
             .collect();
 
-        Self {
+        Ok(Self {
             config,
             preedit_windows: AHashMap::new(),
             display,
@@ -142,7 +146,7 @@ impl UnimHandler {
             special_window: None,
             special_context_path: None,
             hanja_keysyms,
-        }
+        })
     }
 
     /// DBus 요청 전송 (동기적 - 블로킹)

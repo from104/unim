@@ -11,19 +11,43 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 
 ## 🛠️ 현재 상태
 
-현재 프로젝트는 다음과 같이 구성되어 있습니다.
+현재 프로젝트는 **3계층 아키텍처(Core → DBus → Frontend)** 기반으로 다음 컴포넌트가 구현 완료되었습니다.
 
-### 1. [UNIM Core](src/): UNIM의 심장
+### 핵심 엔진
 
-순수 **Rust**로 작성된 핵심 라이브러리인 코어는 모든 한국어 조합 및 분해 로직(2벌식, 3벌식 390, 391 표준)을 처리합니다. 현재 의존성이 없고 자산이 내장된 구조로 설계되었습니다.
+| 컴포넌트 | 경로 | 설명 |
+|----------|------|------|
+| **Core Engine** | `src/` | Rust 한글 조합/분해 로직 (2벌식, 3벌식 390/391/순아래) |
+| **C-API** | `unim-capi/` | Core를 C/C++에서 사용하기 위한 FFI 래퍼 |
+| **CLI** | `unim-cli/` | 독립형 명령줄 인터페이스 |
+| **Config CLI** | `unim-config/` | 설정 관리 CLI 도구 |
 
-### 2. [unim-cli](unim-cli/): 독립형 엔진
+### 3계층 서비스
 
-코어 로직에 대한 이식 가능한 명령줄 인터페이스(CLI)입니다. 독립형 변환기로 사용하거나 다른 통합을 위한 백엔드로 사용할 수 있습니다.
+| 컴포넌트 | 경로 | 설명 |
+|----------|------|------|
+| **DBus Daemon** | `unim-daemon/` | 중앙 엔진 서버 (세션 버스 서비스) |
+| **DBus Library** | `unim-dbus/` | DBus 서비스/클라이언트 구현 |
 
-### 3. [GNOME Shell 확장](unim-gnome-extension/): 리눅스 네이티브 통합
+### 입력 프론트엔드 (IM 모듈)
 
-단축키를 사용하여 잘못된 키보드 레이아웃으로 입력된 텍스트(예: 'gksrmf' ↔ '한국어')를 수정하는 GNOME용 확장 기능입니다. 터미널 인식 붙여넣기 및 복사 전용 모드를 지원합니다.
+| 컴포넌트 | 경로 | 설명 |
+|----------|------|------|
+| **GTK3 IM Module** | `unim-frontends/gtk3/` | C 기반 GTK3 입력 모듈 |
+| **GTK4 IM Module** | `unim-frontends/gtk4/` | C 기반 GTK4 입력 모듈 |
+| **Qt5 Plugin** | `unim-frontends/qt5/` | C++ 기반 Qt5 입력 플러그인 |
+| **Qt6 Plugin** | `unim-frontends/qt6/` | C++ 기반 Qt6 입력 플러그인 |
+| **XIM Frontend** | `unim-frontends/xim/` | Rust `xim` crate 기반 X11 XIM 서버 |
+| **Wayland Frontend** | `unim-frontends/wayland/` | `input-method-v2` 프로토콜 기반 (KDE/Sway) |
+
+### UI 및 GNOME 확장
+
+| 컴포넌트 | 경로 | 설명 |
+|----------|------|------|
+| **GUI Common** | `unim-gui-common/` | DBus 통신, 트레이 공통 로직 |
+| **GUI GTK** | `unim-gui-gtk/` | GTK 기반 시스템 트레이 및 설정 UI |
+| **GUI Qt** | `unim-gui-qt/` | Qt6 기반 시스템 트레이 및 설정 UI |
+| **GNOME Extension** | `unim-gnome-extension/` | GNOME Shell 확장 (인디케이터, 오타 변환, 설정) |
 
 ## 🏗️ 시스템 아키텍처 및 동작 원리
 
@@ -85,11 +109,42 @@ systemctl --user status unim-daemon
 ```
 
 ---
+### 5. 환경 변수 설정 (범용 데스크톱 환경)
+
+GNOME 확장을 사용하지 않는 일반적인 데스크톱 환경(KDE Plasma, XFCE, Sway 등)이나 개별 윈도우 매니저(WM)를 사용하는 경우, 시스템의 기본 입력기를 UNIM으로 설정하기 위해 다음 환경 변수를 추가해야 합니다.
+
+가장 권장되는 방법은 `im-config` 도구를 사용하는 것입니다. (Debian/Ubuntu 계열 기준)
+
+```bash
+im-config -n unim
+```
+
+또는 `~/.xprofile`, `~/.bash_profile`, `~/.pam_environment` 또는 `/etc/environment` 파일에 직접 다음 내용을 추가하고 세션을 다시 시작하세요.
+
+```bash
+export GTK_IM_MODULE=unim
+export QT_IM_MODULE=unim
+export XMODIFIERS="@im=unim"
+```
+
+Wayland 네이티브 환경(예: Sway, Hyprland)의 경우, 환경에 맞는 방식으로 위 변수들을 세션 시작 시 내보내도록 설정하세요.
+
+### 6. GNOME 환경 사용 주의사항
+
+GNOME 환경에서 UNIM 확장을 사용할 때는 **기존 IBus 입력기를 시스템에서 완전히 비활성화하거나 삭제**해야 합니다. GNOME은 기본적으로 IBus와 강력하게 결합되어 있어, 두 입력기가 충돌할 경우 키 이벤트가 유실되거나 정상적으로 동작하지 않을 수 있습니다.
+
+```bash
+# Debian/Ubuntu 기반 시스템의 경우
+sudo apt remove ibus
+```
+
+---
 
 ## 🗺️ 장기 로드맵
 
-1. **1단계 (현재)**: Rust 코어 안정화 및 GNOME Shell 확장 기능 구현.
-2. **2단계 (지능화)**: 문맥 인식 기반의 **자동 한/영 전환 알고리즘** 구현.
+1. **1~2단계 (완료)**: Rust 코어 안정화, GNOME Shell 확장, 3계층 아키텍처 + 전체 프론트엔드 (GTK3/4, Qt5/6, XIM, Wayland).
+2. **3단계 (진행 중)**: 문서화 및 안정화, Debian 패키지 개선.
+3. **4단계 (예정)**: 문맥 인식 기반의 **자동 한/영 전환 알고리즘** 구현.
 
 ## 📚 예제
 

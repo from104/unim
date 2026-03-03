@@ -838,14 +838,6 @@ impl HanjaWindow {
         }
         unim_log!("XIM_HANJA", "한자 팝업 정리됨");
     }
-
-    // 숨기기 (윈도우 언맵)
-    // pub fn hide(&self, display: *mut x11::xlib::Display) {
-    //     unsafe {
-    //         x11::xlib::XUnmapWindow(display, self.window);
-    //         x11::xlib::XFlush(display);
-    //     }
-    // }
 }
 
 /// X11 에러 무시용 더미 핸들러

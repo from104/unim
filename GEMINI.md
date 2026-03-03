@@ -42,7 +42,7 @@ UNIM의 설정 항목(`src/config.rs`)이 변경될 때는 **모든 관련 컴�
 | **설정 코어** | `src/config.rs` | 설정 구조체 및 직렬화 정의 (Source of Truth) |
 | **unim-config (CLI)** | `unim-config/src/main.rs` | CLI 설정 관리 도구 |
 | **unim-dbus** | `unim-dbus/src/service.rs` | `get_config`/`set_config` DBus 메서드 |
-| **unim-gui 설정** | `unim-gui/src/settings_dialog.rs` | 내장 GUI 설정 다이얼로그 |
+| **unim-gui 설정** | `unim-gui-gtk/src/gtk_ui.rs` | GTK GUI 설정 및 트레이 |
 | **GNOME Extension 설정** | `unim-gnome-extension/prefs.js` | GNOME Extension Preferences |
 | **C-API** | `unim-capi/src/lib.rs` | FFI 바인딩 (필요 시) |
 
@@ -52,7 +52,7 @@ UNIM의 설정 항목(`src/config.rs`)이 변경될 때는 **모든 관련 컴�
 2. [ ] `unim-config/src/main.rs` - `ConfigKey` enum 및 관련 함수 업데이트
 3. [ ] `unim-config/locales/*.yml` - 번역 문자열 추가
 4. [ ] `unim-dbus/src/service.rs` - `get_config`/`set_config` 매칭 업데이트
-5. [ ] `unim-gui/src/settings_dialog.rs` - UI 위젯 및 설정 연동 추가
+5. [ ] `unim-gui-gtk/src/gtk_ui.rs` - UI 위젯 및 설정 연동 추가
 6. [ ] `unim-gnome-extension/prefs.js` - GSettings 스키마 및 UI 추가
 7. [ ] `unim-gnome-extension/*.gschema.xml` - GSchema 정의 업데이트
 8. [ ] `unim-capi/src/lib.rs` - FFI 함수 추가 (필요 시)

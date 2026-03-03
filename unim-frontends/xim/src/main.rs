@@ -69,7 +69,13 @@ fn main() {
     unim_log!("XIM", "X11 연결 성공 (screen: {})", screen_num);
 
     // 핸들러 생성 (DBus 채널 전달)
-    let mut unim_handler = handler::UnimHandler::new(screen_num, config, dbus_tx);
+    let mut unim_handler = match handler::UnimHandler::new(screen_num, config, dbus_tx) {
+        Ok(handler) => handler,
+        Err(err) => {
+            unim_log!("XIM", "XIM 핸들러 생성 실패: {}", err);
+            std::process::exit(1);
+        }
+    };
 
     // XIM 서버 초기화
     let mut server = match X11rbServer::init(conn, screen_num, "unim", xim::ALL_LOCALES) {

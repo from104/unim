@@ -18,7 +18,9 @@
 | **DBus Library** | `unim-dbus/` | Rust | DBus 서비스/클라이언트 구현 |
 | **CLI** | `unim-cli/` | Rust | 명령줄 인터페이스 |
 | **Config CLI** | `unim-config/` | Rust | 설정 관리 CLI 도구 |
-| **GUI** | `unim-gui/` | Rust | 시스템 트레이, 한자/특수문자 팝업, 설정 |
+| **GUI Common** | `unim-gui-common/` | Rust | DBus 통신, 트레이 공통 로직 |
+| **GUI GTK** | `unim-gui-gtk/` | Rust | GTK 기반 시스템 트레이, 설정 UI |
+| **GUI Qt** | `unim-gui-qt/` | Rust (cxx-qt) | Qt6 기반 시스템 트레이, 설정 UI |
 | **GTK3 IM Module** | `unim-frontends/gtk3/` | C | GTK3 입력 모듈 |
 | **GTK4 IM Module** | `unim-frontends/gtk4/` | C | GTK4 입력 모듈 |
 | **GTK Common** | `unim-frontends/gtk-common/` | C | GTK3/4 공통 코드 (한자 팝업 등) |
@@ -40,7 +42,7 @@
 ```
 
 - **DBus 서비스명**: `org.atit.unim.InputMethod`
-- **설정 파일**: `~/.config/unim/config.json`
+- **설정 파일**: `~/.config/unim/config.yaml`
 - **로그 파일**: `~/.unim-errors.log` (`UNIM_DEVELOP=1` 시 활성화)
 
 ## 빌드 시스템

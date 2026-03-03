@@ -33,8 +33,8 @@
   - `unim-frontends/gtk3/`, `gtk4/`, `qt5/`, `qt6/`, `xim/`, `wayland/`
 - [x] **XIM 프로토콜 적합성 검증**: [XIM 사양](https://www.x.org/releases/X11R7.6/doc/libX11/specs/XIM/xim.html) 대비 3회 교차 검증 (11개 항목 적합).
 - [x] **Wayland 프로토콜 참조 문서화**: `input-method-v2`, `virtual-keyboard-v1` 프로토콜 사양 참조 및 아키텍처 문서화.
-- [ ] **Wayland 키 반복(Key Repeat)**: `mio` + `timerfd` 기반 구현 (Phase 2).
-- [ ] **Wayland 한자/특수문자 팝업**: Layer-Shell 또는 팝업 서피스 기반 (Phase 3).
+- [x] **Wayland 키 반복(Key Repeat)**: `mio` + `timerfd` 기반 구현 완료 (`repeat.rs`).
+- [x] **Wayland 한자/특수문자 팝업**: `zwp_input_popup_surface_v2` 기반 구현 완료 (`popup_surface.rs`, `popup_renderer.rs`).
 - [ ] **Surrounding Text / Content Type**: Wayland 프로토콜 이벤트 활용 (Phase 4).
 - [ ] **Debian 패키지 안정화**: 패키지 빌드/설치 프로세스 검증 및 개선.
 
@@ -42,10 +42,10 @@
 
 엔진(daemon)과 UI(팝업/인디케이터/설정)를 DBus 시그널 기반으로 완전 분리, 툴킷별 네이티브 GUI 지원.
 
-- [ ] **unim-gui 모듈 분리**: 1246줄 단일 파일 → DBus, 트레이, UI 모듈 분리.
-- [ ] **unim-gui-common 크레이트**: DBus 통신 + 트레이 등 공통 로직 추출 (툴킷 무관).
-- [ ] **unim-gui-gtk 전환**: 기존 `unim-gui`를 `unim-gui-common` 의존으로 전환.
-- [ ] **unim-gui-qt 신규 구현**: cxx-qt 기반 Qt6 네이티브 GUI (팝업 + 인디케이터 + 설정).
+- [x] **unim-gui 모듈 분리**: DBus, 트레이, UI 모듈 분리 완료.
+- [x] **unim-gui-common 크레이트**: DBus 통신 + 트레이 등 공통 로직 추출 완료.
+- [x] **unim-gui-gtk 전환**: `unim-gui-common` 의존으로 전환 완료.
+- [x] **unim-gui-qt 신규 구현**: cxx-qt 기반 Qt6 네이티브 GUI 구현 완료.
 - [ ] **Debian 패키지 재구성**: `unim-gtk`(IM+GUI), `unim-qt`(IM+GUI), `unim-xim`, `unim-wayland` 분리 + Conflicts 방식 충돌 방지.
 
 ### 4단계: 자동 상태 전환 (지능화)

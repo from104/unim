@@ -200,6 +200,7 @@ export default class UnimPreferences extends ExtensionPreferences {
     }
 
     // Sync layout settings to ~/.config/unim/config.yaml
+    // Reads existing config first, updates only changed fields (preserves toggle_keys, hanja_keys, etc.)
     _syncToConfigFile(settings) {
         try {
             const configDir = GLib.build_filenamev([GLib.get_home_dir(), '.config', 'unim']);
@@ -233,25 +234,48 @@ export default class UnimPreferences extends ExtensionPreferences {
             };
             const modeSharing = modeSharingMap[settings.get_string('mode-sharing')] || 'Global';
             
-            const yamlContent = `# UNIM Configuration (synced from GNOME Extension)
+            // Read existing config to preserve fields not managed by GNOME Extension
+            let existingContent = '';
+            try {
+                const [ok, contents] = GLib.file_get_contents(configPath);
+                if (ok) {
+                    existingContent = new TextDecoder().decode(contents);
+                }
+            } catch (_) {
+                // File doesn't exist yet — will create from template
+            }
+            
+            let yamlContent;
+            if (existingContent.length > 0) {
+                // Update only the fields we manage, preserving everything else
+                const replacements = [
+                    [/^(\s*default_category:\s*).*$/m, `$1${initialMode}`],
+                    [/^(\s*mode_sharing:\s*).*$/m, `$1${modeSharing}`],
+                    [/^(\s*layout:\s*)(?:Dubeolsik|Sebeolsik390|Sebeolsik391|SebeolsikNoShift)\s*$/m,
+                        `$1${koreanLayout}`],
+                    [/^(\s*layout:\s*)(?:Qwerty|Dvorak|Colemak|ColemakDh|Workman)\s*$/m,
+                        `$1${englishLayout}`],
+                ];
+                
+                yamlContent = existingContent;
+                for (const [pattern, replacement] of replacements) {
+                    yamlContent = yamlContent.replace(pattern, replacement);
+                }
+            } else {
+                // No existing config — create default template
+                yamlContent = `# UNIM Configuration
 engine:
   default_category: ${initialMode}
   mode_sharing: ${modeSharing}
   korean:
     layout: ${koreanLayout}
-    preedit_johab: false
-    word_commit: false
   english:
     layout: ${englishLayout}
-    preferred_direct: true
-  auto_switch:
-    enabled: false
-    threshold: 0.8
-    show_notification: true
 `;
+            }
             
             GLib.file_set_contents(configPath, yamlContent);
-            unimLog('PREFS', 'Config synced: ' + configPath);
+            unimLog('PREFS', 'Config synced (merge): ' + configPath);
             return true;
         } catch (e) {
             unimError('PREFS', 'Sync failed: ' + e.message);
