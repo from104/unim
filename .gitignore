@@ -83,3 +83,4 @@ debs/
 
 
 .gemini/
+.claude/settings.local.json
