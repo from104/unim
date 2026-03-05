@@ -17,8 +17,8 @@ const TEXT: Color = Color::rgb(0xcd, 0xd6, 0xf4);
 const BLUE: Color = Color::rgb(0x89, 0xb4, 0xfa);
 const GREEN: Color = Color::rgb(0xa6, 0xe3, 0xa1);
 const YELLOW: Color = Color::rgb(0xf9, 0xe2, 0xaf);
-const SEL_HANJA_BG: Color = Color::rgb(0x31, 0x36, 0x54);
-const SEL_SPECIAL_BG: Color = Color::rgb(0x2d, 0x40, 0x35);
+const SEL_HANJA_BG: Color = Color::rgb(0x33, 0x3c, 0x57); // rgba(137,180,250,0.2) on #1e1e2e
+const SEL_SPECIAL_BG: Color = Color::rgb(0x40, 0x4f, 0x4b); // rgba(166,227,161,0.25) on #1e1e2e
 
 // ─── 크기 상수 ───
 const FONT_SIZE: f32 = 14.0;

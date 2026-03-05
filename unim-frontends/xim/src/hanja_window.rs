@@ -272,7 +272,7 @@ impl HanjaWindow {
             alloc(b"#cdd6f4\0", &mut text_color);
             alloc(b"#7f849c\0", &mut number_color);
             alloc(b"#a6adc8\0", &mut meaning_color);
-            alloc(b"#313654\0", &mut sel_bg_color);
+            alloc(b"#333c57\0", &mut sel_bg_color); // rgba(137,180,250,0.2) on #1e1e2e
             alloc(b"#6c7086\0", &mut page_color);
         }
 

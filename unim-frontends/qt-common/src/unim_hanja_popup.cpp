@@ -61,28 +61,31 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
 {
     popup_check_debug();
 
-    /* 기본 스타일 설정 */
+    /* Catppuccin Mocha 스타일 */
     setStyleSheet(
         "UnimHanjaPopup {"
-        "  background-color: #2d2d2d;"
-        "  border: 1px solid #555;"
-        "  border-radius: 4px;"
-        "  padding: 4px;"
+        "  background-color: rgba(30, 30, 46, 242);"
+        "  border: 1px solid rgba(255, 255, 255, 38);"
+        "  border-radius: 12px;"
+        "  padding: 12px;"
         "}"
         "QLabel {"
-        "  color: #e0e0e0;"
+        "  color: #cdd6f4;"
         "  padding: 2px 8px;"
         "  font-size: 14px;"
+        "  min-height: 28px;"
+        "  border-radius: 6px;"
         "}"
         "QLabel[selected=\"true\"] {"
-        "  background-color: #4a90d9;"
-        "  color: white;"
-        "  border-radius: 2px;"
+        "  background-color: rgba(137, 180, 250, 51);"
+        "  color: #cdd6f4;"
+        "  border-radius: 6px;"
         "}"
         "QLabel#pageLabel {"
-        "  color: #888;"
-        "  font-size: 11px;"
+        "  color: #6c7086;"
+        "  font-size: 12px;"
         "  padding: 2px 4px;"
+        "  min-height: 0px;"
         "}"
     );
 

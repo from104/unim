@@ -229,7 +229,7 @@ impl SpecialWindow {
                 );
             };
             alloc(b"#cdd6f4\0", &mut text_color); // Text
-            alloc(b"#2d4035\0", &mut sel_bg_color); // Green-tinted selection bg
+            alloc(b"#404f4b\0", &mut sel_bg_color); // rgba(166,227,161,0.25) on #1e1e2e
             alloc(b"#a6e3a1\0", &mut header_color); // Green (특수문자 강조)
             alloc(b"#6c7086\0", &mut page_color); // Overlay0
         }
@@ -259,7 +259,7 @@ impl SpecialWindow {
             sel_row: 0,
             sel_col: 0,
             size,
-            cell_w: 36,
+            cell_w: 28,
             cell_h: 28,
         })
     }
@@ -298,7 +298,7 @@ impl SpecialWindow {
         self.update_page_layout();
 
         // 셀 크기 계산
-        self.cell_w = 36;
+        self.cell_w = 28;
         self.cell_h = 28;
 
         // 윈도우 크기 계산: 행 헤더(1열) + 데이터 열 + 여백, 열 헤더(1행) + 데이터 행 + 푸터

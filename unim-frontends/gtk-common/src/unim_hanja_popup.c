@@ -67,6 +67,19 @@ unim_popup_check_debug_env(void)
     }
 }
 
+/* GTK3/4 호환 CSS class 관리 매크로 */
+#if GTK_CHECK_VERSION(4, 0, 0)
+#define WIDGET_ADD_CSS_CLASS(w, cls)    gtk_widget_add_css_class(w, cls)
+#define WIDGET_REMOVE_CSS_CLASS(w, cls) gtk_widget_remove_css_class(w, cls)
+#else
+static void
+hanja_widget_add_css_class(GtkWidget *w, const char *cls) {
+    GtkStyleContext *ctx = gtk_widget_get_style_context(w);
+    gtk_style_context_add_class(ctx, cls);
+}
+#define WIDGET_ADD_CSS_CLASS(w, cls)    hanja_widget_add_css_class(w, cls)
+#endif
+
 /* 내부 구조체 */
 struct _UnimHanjaPopup {
     GtkWidget *window;           /* 팝업 윈도우 */
@@ -298,6 +311,65 @@ unim_hanja_popup_new(void)
     gtk_widget_set_can_focus(popup->window, FALSE);
 #endif
 
+    /* Catppuccin Mocha 스타일 */
+    {
+        GtkCssProvider *css = gtk_css_provider_new();
+        const gchar *css_text =
+            "window.unim-hanja-popup {"
+            "  background-color: rgba(30, 30, 46, 0.95);"
+            "  border: 1px solid rgba(255, 255, 255, 0.15);"
+            "  border-radius: 12px;"
+            "  padding: 12px;"
+            "}"
+            ".unim-hanja-vbox {"
+            "  padding: 0; margin: 0;"
+            "}"
+            ".unim-hanja-vbox list {"
+            "  background: transparent;"
+            "  border-radius: 6px;"
+            "}"
+            ".unim-hanja-vbox list row {"
+            "  background: transparent;"
+            "  border-radius: 6px;"
+            "  min-height: 28px;"
+            "  padding: 0 8px;"
+            "}"
+            ".unim-hanja-vbox list row:selected {"
+            "  background-color: rgba(137, 180, 250, 0.2);"
+            "}"
+            ".unim-hanja-vbox list row label {"
+            "  color: #cdd6f4;"
+            "  font-size: 14px;"
+            "}"
+            ".unim-hanja-vbox list row:selected label {"
+            "  color: #cdd6f4;"
+            "}"
+            ".unim-hanja-vbox label.page-label {"
+            "  color: #6c7086;"
+            "  font-size: 12px;"
+            "  padding: 2px 0;"
+            "}";
+#if GTK_CHECK_VERSION(4, 0, 0)
+        gtk_css_provider_load_from_string(css, css_text);
+        gtk_style_context_add_provider_for_display(
+            gdk_display_get_default(),
+            GTK_STYLE_PROVIDER(css),
+            GTK_STYLE_PROVIDER_PRIORITY_USER
+        );
+#else
+        gtk_css_provider_load_from_data(css, css_text, -1, NULL);
+        gtk_style_context_add_provider_for_screen(
+            gdk_screen_get_default(),
+            GTK_STYLE_PROVIDER(css),
+            GTK_STYLE_PROVIDER_PRIORITY_USER
+        );
+#endif
+        g_object_unref(css);
+    }
+
+    /* CSS 클래스 적용 */
+    WIDGET_ADD_CSS_CLASS(popup->window, "unim-hanja-popup");
+
     /* 메인 박스 */
     GtkWidget *vbox;
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -307,6 +379,7 @@ unim_hanja_popup_new(void)
     vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_container_add(GTK_CONTAINER(popup->window), vbox);
 #endif
+    WIDGET_ADD_CSS_CLASS(vbox, "unim-hanja-vbox");
 
     /* 리스트박스 */
     popup->listbox = gtk_list_box_new();
@@ -341,6 +414,7 @@ unim_hanja_popup_new(void)
     /* 페이지 라벨 */
     popup->page_label = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(popup->page_label), 0.5);
+    WIDGET_ADD_CSS_CLASS(popup->page_label, "page-label");
 
 #if GTK_CHECK_VERSION(4, 0, 0)
     gtk_box_append(GTK_BOX(vbox), popup->page_label);
