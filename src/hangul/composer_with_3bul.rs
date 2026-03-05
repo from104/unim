@@ -152,7 +152,6 @@ impl HangulComposer3Bul {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hangul::jamo::*;
 
     // === 쌍초성 조합 테스트 (3벌식 전용) ===
 

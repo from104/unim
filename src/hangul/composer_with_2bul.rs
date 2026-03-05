@@ -176,7 +176,6 @@ impl HangulComposer2Bul {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hangul::jamo::*;
 
     // === 복모음 조합 테스트 ===
 

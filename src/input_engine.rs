@@ -1137,12 +1137,18 @@ mod tests {
         engine.press_key(KeyCode::R, modifier, &config);
         engine.press_key(KeyCode::K, modifier, &config);
 
-        // 나 시작 (ㄴ) → '가' 커밋
+        // ㄴ 입력 → 2벌식: 종성으로 추가되어 '간'
         let result = engine.press_key(KeyCode::S, modifier, &config);
+        assert!(result.consumed);
+        assert!(!result.commit_changed);
+        assert_eq!(engine.preedit_str(), "간");
+
+        // ㅏ 입력 → 도깨비불: '가' 커밋 + '나' preedit
+        let result = engine.press_key(KeyCode::K, modifier, &config);
         assert!(result.consumed);
         assert!(result.commit_changed);
         assert_eq!(engine.commit_str(), "가");
-        assert_eq!(engine.preedit_str(), "ㄴ");
+        assert_eq!(engine.preedit_str(), "나");
     }
 
     // === Modifier 키 테스트 ===
