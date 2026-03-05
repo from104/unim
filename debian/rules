@@ -10,14 +10,16 @@ export LC_ALL = C.UTF-8
 # Multi-arch support
 export DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
 
-# Rust toolchain
-export RUSTUP_TOOLCHAIN = stable
-export HOME = /home/from104
+# Rust toolchain — prefer rustup if available, fall back to system cargo
+REAL_HOME := $(shell getent passwd $$(id -u) | cut -d: -f6)
+CARGO_BIN := $(REAL_HOME)/.cargo/bin
+ifneq ($(wildcard $(CARGO_BIN)/cargo),)
+    export RUSTUP_TOOLCHAIN = stable
+endif
 
 # Clean PATH: Remove Anaconda/Conda to ensure system Qt is used
-# This prevents linking against Anaconda's Qt libraries
 CLEAN_PATH := $(shell echo "$$PATH" | tr ':' '\n' | grep -v -E '(anaconda|conda|miniconda)' | tr '\n' ':' | sed 's/:$$//')
-export PATH := $(HOME)/.cargo/bin:$(CLEAN_PATH)
+export PATH := $(CARGO_BIN):$(CLEAN_PATH)
 
 # Ensure system libraries are used (not Anaconda)
 unexport LD_LIBRARY_PATH
@@ -38,34 +40,30 @@ DESTDIR ?= $(CURDIR)/debian/tmp
 	dh $@
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Build: Use Makefile's build targets
+# Build
 # ─────────────────────────────────────────────────────────────────────────────
 
 override_dh_auto_build:
-	# Full build using Makefile
 	$(MAKE) build
-	# Build GNOME extension assets
 	$(MAKE) gnome-extension
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install: Use Makefile's install targets with DESTDIR
+# Install
 # ─────────────────────────────────────────────────────────────────────────────
 
 override_dh_auto_install:
-	# Install to staging directory using Makefile
-	# REAL_LIBDIR and MULTIARCH will be automatically detected by Makefile
 	$(MAKE) install DESTDIR=$(DESTDIR) PREFIX=$(PREFIX)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Skip default test (speed up packaging)
+# Skip tests (speed up packaging)
 # ─────────────────────────────────────────────────────────────────────────────
 
 override_dh_auto_test:
 	:
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Clean: Use Makefile's clean target
+# Clean
 # ─────────────────────────────────────────────────────────────────────────────
 
 override_dh_auto_clean:
-	$(MAKE) clean || true
+	$(MAKE) clean-all || true

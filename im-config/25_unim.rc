@@ -6,9 +6,11 @@
 # No explicit daemon startup is needed here.
 
 if [ "$IM_CONFIG_PHASE" = 1 ]; then
-    # set variables for UNIM
-    XMODIFIERS=@im=unim
     GTK_IM_MODULE=unim
     QT_IM_MODULE=unim
-    CLUTTER_IM_MODULE=xim
+
+    if [ "$XDG_SESSION_TYPE" = "x11" ] || [ -n "$DISPLAY" ]; then
+        XMODIFIERS=@im=unim
+        CLUTTER_IM_MODULE=xim
+    fi
 fi

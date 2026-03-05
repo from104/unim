@@ -43,13 +43,20 @@ target_link_libraries(unim PRIVATE
     Qt6::Widgets
 )
 
-# 설치 경로
+# 설치 경로 — qmake 감지 후 폴백
 get_target_property(QT6_QMAKE_EXECUTABLE Qt6::qmake LOCATION)
-execute_process(
-    COMMAND ${QT6_QMAKE_EXECUTABLE} -query QT_INSTALL_PLUGINS
-    OUTPUT_VARIABLE QT6_PLUGINS_DIR
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+if(QT6_QMAKE_EXECUTABLE)
+    execute_process(
+        COMMAND ${QT6_QMAKE_EXECUTABLE} -query QT_INSTALL_PLUGINS
+        OUTPUT_VARIABLE QT6_PLUGINS_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE QT6_QMAKE_RESULT
+    )
+endif()
+if(NOT QT6_PLUGINS_DIR OR NOT QT6_QMAKE_RESULT EQUAL 0)
+    set(QT6_PLUGINS_DIR "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/qt6/plugins")
+    message(STATUS "Qt6 qmake unavailable, using fallback: ${QT6_PLUGINS_DIR}")
+endif()
 set(QT6_IM_PLUGINS_DIR "${QT6_PLUGINS_DIR}/platforminputcontexts")
 
 install(TARGETS unim

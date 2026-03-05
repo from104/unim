@@ -8,7 +8,7 @@ Homepage: https://github.com/from104/unim
 Rules-Requires-Root: no
 
 Package: unim
-Architecture: amd64
+Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: im-config
 Description: Korean Input Method Engine
@@ -17,8 +17,8 @@ Description: Korean Input Method Engine
  and XIM/Wayland protocol support.
 
 Package: unim-gui-gtk
-Architecture: amd64
-Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, libappindicator3-1
+Architecture: any
+Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
 Conflicts: unim-gui-qt
 Description: UNIM GUI and GTK IM Modules
  UNIM GUI process providing system tray indicator, Hanja/special character
@@ -26,7 +26,7 @@ Description: UNIM GUI and GTK IM Modules
  Also includes GTK3 and GTK4 input method modules.
 
 Package: unim-gui-qt
-Architecture: amd64
+Architecture: any
 Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
 Conflicts: unim-gui-gtk
 Description: UNIM GUI and Qt IM Plugins
@@ -36,6 +36,6 @@ Description: UNIM GUI and Qt IM Plugins
 
 Package: gnome-shell-extension-unim
 Architecture: all
-Depends: unim (= ${binary:Version}), ${misc:Depends}, gnome-shell
+Depends: unim (>= ${source:Version}), ${misc:Depends}, gnome-shell
 Description: UNIM GNOME Shell Extension
  GNOME Shell extension for UNIM, providing native integration and hotkeys.

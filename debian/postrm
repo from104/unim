@@ -2,18 +2,7 @@
 set -e
 
 case "$1" in
-    remove)
-        # Update GTK3 IM modules cache
-        if command -v gtk-query-immodules-3.0 >/dev/null 2>&1; then
-            gtk-query-immodules-3.0 --update-cache || true
-        fi
-        
-        # Update GTK4 IM modules cache
-        if command -v gtk4-query-immodules >/dev/null 2>&1; then
-            gtk4-query-immodules --update-cache || true
-        fi
-        
-        # Update library cache
+    remove|purge)
         ldconfig || true
         ;;
 esac

@@ -45,13 +45,20 @@ target_link_libraries(unim
     Qt5::Widgets
 )
 
-# 설치 경로
+# 설치 경로 — qmake 감지 후 폴백
 get_target_property(QT5_QMAKE_EXECUTABLE Qt5::qmake LOCATION)
-execute_process(
-    COMMAND ${QT5_QMAKE_EXECUTABLE} -query QT_INSTALL_PLUGINS
-    OUTPUT_VARIABLE QT5_PLUGINS_DIR
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+if(QT5_QMAKE_EXECUTABLE)
+    execute_process(
+        COMMAND ${QT5_QMAKE_EXECUTABLE} -query QT_INSTALL_PLUGINS
+        OUTPUT_VARIABLE QT5_PLUGINS_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE QT5_QMAKE_RESULT
+    )
+endif()
+if(NOT QT5_PLUGINS_DIR OR NOT QT5_QMAKE_RESULT EQUAL 0)
+    set(QT5_PLUGINS_DIR "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/qt5/plugins")
+    message(STATUS "Qt5 qmake unavailable, using fallback: ${QT5_PLUGINS_DIR}")
+endif()
 set(QT5_IM_PLUGINS_DIR "${QT5_PLUGINS_DIR}/platforminputcontexts")
 
 install(TARGETS unim

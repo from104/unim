@@ -3,7 +3,7 @@ set -e
 
 case "$1" in
     remove|upgrade|deconfigure)
-        pkill -x unim-daemon 2>/dev/null || true
+        pkill -x unim-gui-gtk 2>/dev/null || true
         ;;
 esac
 

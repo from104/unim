@@ -43,9 +43,10 @@ CARGO := cargo
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 # Build a CMake project: $(call cmake_build,dir_path,label)
+NPROC := $(shell nproc 2>/dev/null || echo 4)
 define cmake_build
 	@echo "  → Building $(2)..."
-	@mkdir -p $(1)/build && cd $(1)/build && cmake .. && $(MAKE) --no-print-directory
+	@mkdir -p $(1)/build && cd $(1)/build && cmake .. && $(MAKE) -j$(NPROC) --no-print-directory
 endef
 
 # ─── Phony ───────────────────────────────────────────────────────────────────
@@ -261,7 +262,7 @@ test-wayland: build-rust
 	@echo "✅ Run: ./target/release/unim-test-wayland"
 
 test-dbus: build-rust
-	@./target/debug/unim-daemon -n &
+	@./target/release/unim-daemon -n &
 	@sleep 2
 	@busctl --user list 2>/dev/null | grep -i unim || echo "⚠️  unim 서비스 없음"
 	@busctl --user introspect org.atit.unim.InputMethod /org/atit/unim/InputMethod 2>/dev/null | head -15 || true
@@ -279,13 +280,13 @@ build-tests: build-frontends
 
 # ─── Sandbox (Xephyr) ────────────────────────────────────────────────────────
 
-sandbox: build build-tests
+sandbox: build-tests
 	@./scripts/sandbox.sh $(SANDBOX_APP)
 
-sandbox-gtk3 sandbox-gtk4 sandbox-qt5 sandbox-qt6 sandbox-xim: sandbox-%: build build-tests
+sandbox-gtk3 sandbox-gtk4 sandbox-qt5 sandbox-qt6 sandbox-xim: sandbox-%: build-tests
 	@./scripts/sandbox.sh $*
 
-sandbox-indicator: build build-tests
+sandbox-indicator: build-tests
 	@./scripts/sandbox.sh --indicator
 
 # ─── Clean ───────────────────────────────────────────────────────────────────
