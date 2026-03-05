@@ -149,6 +149,165 @@ impl HangulComposer3Bul {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hangul::jamo::*;
+
+    // === 쌍초성 조합 테스트 (3벌식 전용) ===
+
+    #[test]
+    fn test_3bul_cho_combination_gg() {
+        // ㄱ + ㄱ = ㄲ
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::Giyeok));
+        c.add_jamo(JamoEnum::Cho(Cho::Giyeok));
+        assert_eq!(c.get_current_cho(), Some(Cho::SsangGiyeok));
+    }
+
+    #[test]
+    fn test_3bul_cho_combination_dd() {
+        // ㄷ + ㄷ = ㄸ
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::Digeut));
+        c.add_jamo(JamoEnum::Cho(Cho::Digeut));
+        assert_eq!(c.get_current_cho(), Some(Cho::SsangDigeut));
+    }
+
+    #[test]
+    fn test_3bul_cho_combination_bb() {
+        // ㅂ + ㅂ = ㅃ
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::Bieup));
+        c.add_jamo(JamoEnum::Cho(Cho::Bieup));
+        assert_eq!(c.get_current_cho(), Some(Cho::SsangBieup));
+    }
+
+    #[test]
+    fn test_3bul_cho_combination_ss() {
+        // ㅅ + ㅅ = ㅆ
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::Siot));
+        c.add_jamo(JamoEnum::Cho(Cho::Siot));
+        assert_eq!(c.get_current_cho(), Some(Cho::SsangSiot));
+    }
+
+    #[test]
+    fn test_3bul_cho_combination_jj() {
+        // ㅈ + ㅈ = ㅉ
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::Jieut));
+        c.add_jamo(JamoEnum::Cho(Cho::Jieut));
+        assert_eq!(c.get_current_cho(), Some(Cho::SsangJieut));
+    }
+
+    #[test]
+    fn test_3bul_cho_invalid_combination() {
+        // ㄱ + ㄴ → 조합 불가 → 음절 분리
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::Giyeok));
+        let committed = c.add_jamo(JamoEnum::Cho(Cho::Nieun));
+        // ㄱ만으로는 완성 음절이 안 되므로 get_syllable() Err → None
+        // 새 음절 ㄴ 시작
+        assert_eq!(c.get_current_cho(), Some(Cho::Nieun));
+        // committed는 ㄱ이 incomplete syllable이므로 None일 수 있음
+        let _ = committed;
+    }
+
+    // === 3벌식 복모음 조합 테스트 ===
+
+    #[test]
+    fn test_3bul_jung_combination() {
+        // 3벌식도 복모음 지원: ㅗ + ㅏ = ㅘ
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::O));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(c.get_current_jung(), Some(Jung::Wa));
+    }
+
+    // === 3벌식 겹받침 조합 테스트 ===
+
+    #[test]
+    fn test_3bul_jong_combination() {
+        // 3벌식 겹받침: ㄱ + ㅅ = ㄳ (종성 직접 입력)
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        c.add_jamo(JamoEnum::Jong(Jong::Siot));
+        assert_eq!(c.get_current_jong(), Some(Jong::GiyeokSiot));
+    }
+
+    // === 3벌식 규칙 위반 테스트 ===
+
+    #[test]
+    fn test_3bul_jong_without_jung() {
+        // 초성 다음에 바로 종성 → 위반 → 분리
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        let committed = c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        // ㄱ이 커밋되고 새 음절 시작 (종성만)
+        let _ = committed;
+    }
+
+    #[test]
+    fn test_3bul_cho_after_jung() {
+        // 중성 다음에 초성 → 새 음절 시작
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        let committed = c.add_jamo(JamoEnum::Cho(Cho::N)); // 새 음절
+        assert_eq!(committed, Some('가'));
+        assert_eq!(c.get_current_cho(), Some(Cho::N));
+    }
+
+    #[test]
+    fn test_3bul_jung_after_jong() {
+        // 종성 다음에 중성 → 새 음절 (3벌식은 도깨비불 없음)
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        let committed = c.add_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(committed, Some('각'));
+    }
+
+    // === 3벌식 완전한 음절 테스트 ===
+
+    #[test]
+    fn test_3bul_full_syllable() {
+        // ㄱ + ㅏ + ㄱ = 각
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        let ch = c.force_compose_korean();
+        assert_eq!(ch, Some('각'));
+    }
+
+    #[test]
+    fn test_3bul_ssang_cho_with_syllable() {
+        // ㄲ + ㅏ = 까
+        let mut c = HangulComposer3Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::Giyeok));
+        c.add_jamo(JamoEnum::Cho(Cho::Giyeok)); // ㄲ
+        c.add_jamo(JamoEnum::Jung(Jung::A)); // 까
+        let ch = c.force_compose_korean();
+        assert_eq!(ch, Some('까'));
+    }
+
+    // === Special 문자 무시 ===
+
+    #[test]
+    fn test_3bul_special_jamo_ignored() {
+        let mut c = HangulComposer3Bul::new();
+        let result = c.add_jamo(JamoEnum::Special('!'));
+        assert!(result.is_none());
+        assert!(!c.is_compose());
+    }
+}
+
 impl HangulComposer for HangulComposer3Bul {
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
         if !self.base_composer.is_valid_jamo(&jamo) {

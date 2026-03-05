@@ -337,51 +337,54 @@ on_special_char_selected(const gchar *character, gpointer user_data)
     g_signal_emit_by_name(unim, "commit", character);
 }
 
-/* 커서 위치로부터 화면 절대 좌표 계산 */
+/* 커서 위치로부터 화면 절대 좌표 계산 (GTK3의 gdk_window_get_origin 방식과 동일) */
 static void
 calculate_popup_position(UnimIMContext *unim, gint *out_x, gint *out_y)
 {
     gint popup_x = unim->cursor_area.x;
     gint popup_y = unim->cursor_area.y + unim->cursor_area.height;
-    
-    /* 위젯→루트 좌표 변환 (GTK4) */
+
     if (unim->client_widget) {
-        GtkWidget *root = GTK_WIDGET(gtk_widget_get_root(unim->client_widget));
-        if (root) {
+        GtkNative *native = gtk_widget_get_native(unim->client_widget);
+        if (native) {
+            /* 위젯→native 위젯 좌표 변환 */
             graphene_point_t p_in = GRAPHENE_POINT_INIT(
                 (float)unim->cursor_area.x,
                 (float)(unim->cursor_area.y + unim->cursor_area.height));
             graphene_point_t p_out;
-            if (gtk_widget_compute_point(unim->client_widget, root, &p_in, &p_out)) {
-                popup_x = (gint)p_out.x;
-                popup_y = (gint)p_out.y;
+            if (gtk_widget_compute_point(unim->client_widget,
+                                          GTK_WIDGET(native),
+                                          &p_in, &p_out)) {
+                /* native 위젯→surface 좌표 변환 (CSD 장식/그림자 보정) */
+                double surface_tx, surface_ty;
+                gtk_native_get_surface_transform(native, &surface_tx, &surface_ty);
+                /* surface_transform은 surface→widget 변환이므로 역변환 적용 */
+                popup_x = (gint)(p_out.x - surface_tx);
+                popup_y = (gint)(p_out.y - surface_ty);
             }
-        }
-    }
 
 #ifdef GDK_WINDOWING_X11
-    /* X11: surface 절대 위치 보정 */
-    if (unim->client_widget) {
-        GtkNative *native = gtk_widget_get_native(unim->client_widget);
-        if (native) {
-            GdkSurface *surface = gtk_native_get_surface(native);
-            if (surface && GDK_IS_X11_SURFACE(surface)) {
-                Display *xdisplay = gdk_x11_display_get_xdisplay(
-                    gdk_surface_get_display(surface));
-                Window xwindow = gdk_x11_surface_get_xid(surface);
-                gint abs_x = 0, abs_y = 0;
-                Window child_return;
-                
-                XTranslateCoordinates(xdisplay, xwindow,
-                    DefaultRootWindow(xdisplay),
-                    0, 0, &abs_x, &abs_y, &child_return);
-                
-                popup_x += abs_x;
-                popup_y += abs_y;
+            /* X11: surface 절대 위치 보정 */
+            {
+                GdkSurface *surface = gtk_native_get_surface(native);
+                if (surface && GDK_IS_X11_SURFACE(surface)) {
+                    Display *xdisplay = gdk_x11_display_get_xdisplay(
+                        gdk_surface_get_display(surface));
+                    Window xwindow = gdk_x11_surface_get_xid(surface);
+                    gint abs_x = 0, abs_y = 0;
+                    Window child_return;
+
+                    XTranslateCoordinates(xdisplay, xwindow,
+                        DefaultRootWindow(xdisplay),
+                        0, 0, &abs_x, &abs_y, &child_return);
+
+                    popup_x += abs_x;
+                    popup_y += abs_y;
+                }
             }
+#endif
         }
     }
-#endif
 
     *out_x = popup_x;
     *out_y = popup_y;

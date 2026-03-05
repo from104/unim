@@ -173,6 +173,273 @@ impl HangulComposer2Bul {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hangul::jamo::*;
+
+    // === 복모음 조합 테스트 ===
+
+    #[test]
+    fn test_2bul_jung_combination_wa() {
+        // ㅗ + ㅏ = ㅘ → 과
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::O));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(c.get_current_jung(), Some(Jung::Wa));
+    }
+
+    #[test]
+    fn test_2bul_jung_combination_wae() {
+        // ㅗ + ㅐ = ㅙ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::O));
+        c.add_jamo(JamoEnum::Jung(Jung::Ae));
+        assert_eq!(c.get_current_jung(), Some(Jung::Wae));
+    }
+
+    #[test]
+    fn test_2bul_jung_combination_oe() {
+        // ㅗ + ㅣ = ㅚ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::O));
+        c.add_jamo(JamoEnum::Jung(Jung::I));
+        assert_eq!(c.get_current_jung(), Some(Jung::Oe));
+    }
+
+    #[test]
+    fn test_2bul_jung_combination_weo() {
+        // ㅜ + ㅓ = ㅝ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::U));
+        c.add_jamo(JamoEnum::Jung(Jung::Eo));
+        assert_eq!(c.get_current_jung(), Some(Jung::Weo));
+    }
+
+    #[test]
+    fn test_2bul_jung_combination_we() {
+        // ㅜ + ㅔ = ㅞ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::U));
+        c.add_jamo(JamoEnum::Jung(Jung::E));
+        assert_eq!(c.get_current_jung(), Some(Jung::We));
+    }
+
+    #[test]
+    fn test_2bul_jung_combination_wi() {
+        // ㅜ + ㅣ = ㅟ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::U));
+        c.add_jamo(JamoEnum::Jung(Jung::I));
+        assert_eq!(c.get_current_jung(), Some(Jung::Wi));
+    }
+
+    #[test]
+    fn test_2bul_jung_combination_yi() {
+        // ㅡ + ㅣ = ㅢ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::Eu));
+        c.add_jamo(JamoEnum::Jung(Jung::I));
+        assert_eq!(c.get_current_jung(), Some(Jung::Yi));
+    }
+
+    #[test]
+    fn test_2bul_jung_invalid_combination() {
+        // ㅏ + ㅓ → 조합 불가 → 음절 분리
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        let committed = c.add_jamo(JamoEnum::Jung(Jung::Eo));
+        // 가 커밋 후 새 음절 시작
+        assert!(committed.is_some());
+        assert_eq!(committed.unwrap(), '가');
+    }
+
+    // === 겹받침 조합 테스트 ===
+
+    #[test]
+    fn test_2bul_jong_combination_gs() {
+        // ㄱ + ㅅ = ㄳ (종성)
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::G));  // → 종성 ㄱ
+        c.add_jamo(JamoEnum::Cho(Cho::S));  // → 겹받침 ㄳ
+        assert_eq!(c.get_current_jong(), Some(Jong::GiyeokSiot));
+    }
+
+    #[test]
+    fn test_2bul_jong_combination_nj() {
+        // ㄴ + ㅈ = ㄵ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::N));
+        c.add_jamo(JamoEnum::Cho(Cho::J));
+        assert_eq!(c.get_current_jong(), Some(Jong::NieunJieut));
+    }
+
+    #[test]
+    fn test_2bul_jong_combination_rieul_variants() {
+        // ㄹ + ㄱ = ㄺ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::R));
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        assert_eq!(c.get_current_jong(), Some(Jong::RieulGiyeok));
+
+        // ㄹ + ㅂ = ㄼ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::R));
+        c.add_jamo(JamoEnum::Cho(Cho::B));
+        assert_eq!(c.get_current_jong(), Some(Jong::RieulBieup));
+
+        // ㄹ + ㅎ = ㅀ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::R));
+        c.add_jamo(JamoEnum::Cho(Cho::H));
+        assert_eq!(c.get_current_jong(), Some(Jong::RieulHieuh));
+    }
+
+    #[test]
+    fn test_2bul_jong_combination_bs() {
+        // ㅂ + ㅅ = ㅄ
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::B));
+        c.add_jamo(JamoEnum::Cho(Cho::S));
+        assert_eq!(c.get_current_jong(), Some(Jong::BieupSiot));
+    }
+
+    #[test]
+    fn test_2bul_jong_invalid_combination() {
+        // ㄱ + ㄴ → 겹받침 불가 → 새 음절
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::G));  // 종성 ㄱ
+        let committed = c.add_jamo(JamoEnum::Cho(Cho::N));  // 조합 불가
+        assert!(committed.is_some());
+        assert_eq!(committed.unwrap(), '각');
+    }
+
+    // === 도깨비불 현상 테스트 ===
+
+    #[test]
+    fn test_2bul_dokkaebi_basic() {
+        // 각 + ㅏ → 가 + 가
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::G));  // 각
+        let committed = c.add_jamo(JamoEnum::Jung(Jung::A));  // 도깨비불
+        assert_eq!(committed, Some('가'));
+        assert_eq!(c.get_current_cho(), Some(Cho::G));
+        assert_eq!(c.get_current_jung(), Some(Jung::A));
+    }
+
+    #[test]
+    fn test_2bul_dokkaebi_with_double_jong() {
+        // 갈 + ㄱ = 갈ㄱ(ㄺ), 갈ㄱ + ㅏ → 갈 + 가
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::R));   // 갈
+        c.add_jamo(JamoEnum::Cho(Cho::G));   // 갈ㄱ(ㄺ)
+        assert_eq!(c.get_current_jong(), Some(Jong::RieulGiyeok));
+        let committed = c.add_jamo(JamoEnum::Jung(Jung::A));  // 도깨비불
+        assert_eq!(committed, Some('갈'));
+        assert_eq!(c.get_current_cho(), Some(Cho::G));
+        assert_eq!(c.get_current_jung(), Some(Jung::A));
+    }
+
+    // === 초성→종성 자동 변환 테스트 ===
+
+    #[test]
+    fn test_2bul_cho_to_jong_conversion() {
+        // 가 + ㄱ(초성) → 각(종성으로 변환)
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::G));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        let committed = c.add_jamo(JamoEnum::Cho(Cho::G));
+        assert!(committed.is_none()); // 커밋 없이 종성으로 들어감
+        assert_eq!(c.get_current_jong(), Some(Jong::Giyeok));
+    }
+
+    // === 중성만 입력 (초성 없이) ===
+
+    #[test]
+    fn test_2bul_jung_only() {
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(c.get_current_jung(), Some(Jung::A));
+        assert_eq!(c.get_current_cho(), None);
+    }
+
+    #[test]
+    fn test_2bul_jung_then_cho_without_cho() {
+        // ㅏ + ㄱ → 'ㅏ' 분리 후 새 음절 'ㄱ'
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        let committed = c.add_jamo(JamoEnum::Cho(Cho::G));
+        assert!(committed.is_some()); // ㅏ 커밋
+        assert_eq!(c.get_current_cho(), Some(Cho::G));
+    }
+
+    // === Special 문자 입력 무시 ===
+
+    #[test]
+    fn test_2bul_special_jamo_ignored() {
+        let mut c = HangulComposer2Bul::new();
+        let result = c.add_jamo(JamoEnum::Special('!'));
+        assert!(result.is_none());
+        assert!(!c.is_compose());
+    }
+
+    // === Force compose 테스트 ===
+
+    #[test]
+    fn test_2bul_force_compose() {
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::H));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::N));  // 한
+        let ch = c.force_compose_korean();
+        assert_eq!(ch, Some('한'));
+        assert!(!c.is_compose());
+    }
+
+    // === 연속 음절 테스트 ===
+
+    #[test]
+    fn test_2bul_continuous_syllables() {
+        // 한글 입력: ㅎㅏㄴㄱㅡㄹ → 한글
+        let mut c = HangulComposer2Bul::new();
+        c.add_jamo(JamoEnum::Cho(Cho::H));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Cho(Cho::N)); // 한
+        let committed1 = c.add_jamo(JamoEnum::Cho(Cho::G)); // 한 + ㄱ → 새 음절
+        assert_eq!(committed1, Some('한'));
+        c.add_jamo(JamoEnum::Jung(Jung::Eu)); // 그
+        c.add_jamo(JamoEnum::Cho(Cho::R)); // 글
+        let ch = c.force_compose_korean();
+        assert_eq!(ch, Some('글'));
+    }
+}
+
 impl HangulComposer for HangulComposer2Bul {
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
         if !self.base_composer.is_valid_jamo(&jamo) {

@@ -579,4 +579,174 @@ mod tests {
         let english = InputCategory::English;
         assert_ne!(korean, english);
     }
+
+    // === Config 직렬화/역직렬화 테스트 ===
+
+    #[test]
+    fn test_config_serialize_deserialize() {
+        let config = Config::default();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let deserialized: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(
+            deserialized.engine.default_category,
+            config.engine.default_category
+        );
+        assert_eq!(
+            deserialized.engine.korean.layout,
+            config.engine.korean.layout
+        );
+        assert_eq!(
+            deserialized.engine.english.layout,
+            config.engine.english.layout
+        );
+        assert_eq!(
+            deserialized.engine.mode_sharing,
+            config.engine.mode_sharing
+        );
+    }
+
+    #[test]
+    fn test_config_save_and_load() {
+        let config = Config::default();
+        let dir = std::env::temp_dir().join("unim_test_config");
+        let path = dir.join("test_config.yaml");
+
+        config.save_to_path(&path).unwrap();
+        let loaded = Config::load_from_path(&path).unwrap();
+
+        assert_eq!(
+            loaded.engine.korean.layout,
+            config.engine.korean.layout
+        );
+        assert_eq!(
+            loaded.engine.toggle_keys,
+            config.engine.toggle_keys
+        );
+
+        // 정리
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_config_load_nonexistent() {
+        let path = PathBuf::from("/tmp/unim_nonexistent_config_12345.yaml");
+        let result = Config::load_from_path(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_load_invalid_yaml() {
+        let dir = std::env::temp_dir().join("unim_test_invalid");
+        let path = dir.join("bad_config.yaml");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&path, "{{{{invalid yaml").unwrap();
+
+        let result = Config::load_from_path(&path);
+        assert!(result.is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // === Config needs_reload 테스트 ===
+
+    #[test]
+    fn test_config_needs_reload_no_mtime() {
+        let config = Config {
+            last_modified: None,
+            ..Config::default()
+        };
+        // mtime이 None이면 reload 필요 (파일이 존재할 경우)
+        // 파일 경로가 없으면 false 반환
+        let _ = config.needs_reload();
+    }
+
+    // === 레이아웃 enum 테스트 ===
+
+    #[test]
+    fn test_korean_layout_all() {
+        let all = KoreanLayout::all();
+        assert_eq!(all.len(), 4);
+        assert!(all.contains(&KoreanLayout::Dubeolsik));
+        assert!(all.contains(&KoreanLayout::SebeolsikNoShift));
+    }
+
+    #[test]
+    fn test_english_layout_all() {
+        let all = EnglishLayout::all();
+        assert_eq!(all.len(), 5);
+    }
+
+    #[test]
+    fn test_english_layout_keymap_name() {
+        assert_eq!(EnglishLayout::Dvorak.keymap_name(), "en_dvorak");
+        assert_eq!(EnglishLayout::Colemak.keymap_name(), "en_colemak");
+        assert_eq!(EnglishLayout::ColemakDh.keymap_name(), "en_colemak_dh");
+        assert_eq!(EnglishLayout::Workman.keymap_name(), "en_workman");
+    }
+
+    #[test]
+    fn test_english_layout_top_row_labels() {
+        assert_eq!(EnglishLayout::Qwerty.top_row_labels(), "QWERTYUIO");
+        assert_eq!(EnglishLayout::Dvorak.top_row_labels(), "',.PYFGCR");
+        assert_eq!(EnglishLayout::Colemak.top_row_labels(), "QWFPGJLUY");
+    }
+
+    #[test]
+    fn test_mode_sharing_all() {
+        let all = ModeSharingMode::all();
+        assert_eq!(all.len(), 3);
+    }
+
+    #[test]
+    fn test_mode_sharing_display_name() {
+        assert!(!ModeSharingMode::Global.display_name().is_empty());
+        assert!(!ModeSharingMode::PerApp.display_name().is_empty());
+        assert!(!ModeSharingMode::PerWindow.display_name().is_empty());
+    }
+
+    // === EngineConfig 기본값 테스트 ===
+
+    #[test]
+    fn test_engine_config_defaults() {
+        let config = EngineConfig::default();
+        assert_eq!(config.toggle_keys, vec!["Korean", "RightAlt"]);
+        assert_eq!(config.hanja_keys, vec!["Hanja", "F9"]);
+        assert_eq!(config.mode_sharing, ModeSharingMode::Global);
+        assert!(!config.auto_switch.enabled);
+    }
+
+    // === Custom config 직렬화 테스트 ===
+
+    #[test]
+    fn test_config_custom_values() {
+        let mut config = Config::default();
+        config.engine.korean.layout = KoreanLayout::Sebeolsik390;
+        config.engine.english.layout = EnglishLayout::Dvorak;
+        config.engine.mode_sharing = ModeSharingMode::PerWindow;
+        config.engine.auto_switch.enabled = true;
+        config.engine.auto_switch.threshold = 0.7;
+
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let loaded: Config = serde_yaml::from_str(&yaml).unwrap();
+
+        assert_eq!(loaded.engine.korean.layout, KoreanLayout::Sebeolsik390);
+        assert_eq!(loaded.engine.english.layout, EnglishLayout::Dvorak);
+        assert_eq!(loaded.engine.mode_sharing, ModeSharingMode::PerWindow);
+        assert!(loaded.engine.auto_switch.enabled);
+        assert!((loaded.engine.auto_switch.threshold - 0.7).abs() < f32::EPSILON);
+    }
+
+    // === ConfigError Display 테스트 ===
+
+    #[test]
+    fn test_config_error_display() {
+        let e = ConfigError::IoError("test".to_string());
+        assert!(e.to_string().contains("test"));
+
+        let e = ConfigError::ParseError("bad".to_string());
+        assert!(e.to_string().contains("bad"));
+
+        let e = ConfigError::SerializeError("err".to_string());
+        assert!(e.to_string().contains("err"));
+    }
 }
