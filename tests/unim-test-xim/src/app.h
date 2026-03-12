@@ -66,6 +66,7 @@ typedef struct {
     char text[TEXT_BUFFER_SIZE];
     char preedit[TEXT_BUFFER_SIZE];
     int  focused;
+    int  cursor_pos;  /* byte offset in text (insertion point) */
 } InputField;
 
 /* ─── Global Application State ────────────────────────────────────────── */

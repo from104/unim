@@ -220,17 +220,20 @@ static void draw_field(InputField *field, int is_active) {
     /* Text content */
     int text_x = field->x + FIELD_PADDING;
     int text_y = field->y + FIELD_HEIGHT - 10;
+    int cur_pos = field->cursor_pos;
 
-    /* committed text */
-    if (field->text[0]) {
+    /* 커서 앞 텍스트 */
+    if (cur_pos > 0) {
         XftDrawStringUtf8(app.xft_draw, &app.c_text, app.font,
                           text_x, text_y,
-                          (const FcChar8 *)field->text,
-                          (int)strlen(field->text));
-        text_x += tw(app.font, field->text);
+                          (const FcChar8 *)field->text, cur_pos);
+        XGlyphInfo ext;
+        XftTextExtentsUtf8(app.display, app.font,
+                           (const FcChar8 *)field->text, cur_pos, &ext);
+        text_x += ext.xOff;
     }
 
-    /* preedit (with underline highlight) */
+    /* preedit (커서 위치에 표시) */
     if (field->preedit[0]) {
         int pe_w = tw(app.font, field->preedit);
 
@@ -247,11 +250,19 @@ static void draw_field(InputField *field, int is_active) {
         text_x += pe_w;
     }
 
-    /* Cursor */
-    if (is_active) {
+    /* 커서 (preedit 없을 때) */
+    if (is_active && !field->preedit[0]) {
         XSetForeground(app.display, app.gc, COL_BLUE);
         XFillRectangle(app.display, app.window, app.gc,
                        text_x + 1, field->y + 6, 2, FIELD_HEIGHT - 12);
+    }
+
+    /* 커서 뒤 텍스트 */
+    if (field->text[cur_pos]) {
+        XftDrawStringUtf8(app.xft_draw, &app.c_text, app.font,
+                          text_x, text_y,
+                          (const FcChar8 *)&field->text[cur_pos],
+                          (int)strlen(&field->text[cur_pos]));
     }
 }
 

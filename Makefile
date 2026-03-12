@@ -254,8 +254,8 @@ test:
 
 # CMake-based test apps (static pattern rule)
 test-gtk3 test-gtk4 test-qt5 test-qt6 test-xim test-gnome: test-%:
-	$(call cmake_build,unim-test-$*,$* test app)
-	@echo "✅ Run: ./unim-test-$*/build/unim-test-$*"
+	$(call cmake_build,tests/unim-test-$*,$* test app)
+	@echo "✅ Run: ./tests/unim-test-$*/build/unim-test-$*"
 
 test-wayland: build-rust
 	@$(CARGO) build --release -p unim-test-wayland
@@ -269,12 +269,12 @@ test-dbus: build-rust
 	@pkill -f "unim-daemon" 2>/dev/null || true
 
 build-tests: build-frontends
-	$(call cmake_build,unim-test-gtk3,GTK3 Test App)
-	$(call cmake_build,unim-test-gtk4,GTK4 Test App)
-	$(call cmake_build,unim-test-qt5,Qt5 Test App)
-	$(call cmake_build,unim-test-qt6,Qt6 Test App)
-	$(call cmake_build,unim-test-xim,XIM Test App)
-	$(call cmake_build,unim-test-gnome,GNOME Test App)
+	$(call cmake_build,tests/unim-test-gtk3,GTK3 Test App)
+	$(call cmake_build,tests/unim-test-gtk4,GTK4 Test App)
+	$(call cmake_build,tests/unim-test-qt5,Qt5 Test App)
+	$(call cmake_build,tests/unim-test-qt6,Qt6 Test App)
+	$(call cmake_build,tests/unim-test-xim,XIM Test App)
+	$(call cmake_build,tests/unim-test-gnome,GNOME Test App)
 	@$(CARGO) build --release -p unim-test-wayland
 	@echo "✅ 모든 테스트 앱 빌드 완료!"
 
@@ -297,8 +297,8 @@ clean:
 	@rm -f unim-gnome-extension/schemas/gschemas.compiled
 	@rm -rf unim-frontends/gtk3/build unim-frontends/gtk4/build \
 	        unim-frontends/qt5/build unim-frontends/qt6/build
-	@rm -rf unim-test-gtk3/build unim-test-gtk4/build \
-	        unim-test-qt5/build unim-test-qt6/build unim-test-gnome/build
+	@rm -rf tests/unim-test-gtk3/build tests/unim-test-gtk4/build \
+	        tests/unim-test-qt5/build tests/unim-test-qt6/build tests/unim-test-gnome/build
 
 clean-all: clean clean-deb
 	@$(CARGO) clean
