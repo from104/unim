@@ -182,7 +182,9 @@ export default class UnimExtension extends Extension {
                         target, candidates,
                         (globalIdx) => {
                             // 선택 콜백: SelectHanja → 한자 반환 → 커밋
+                            unimLog('HANJA', `선택 콜백: globalIdx=${globalIdx}, _hasFocus=${this._inputMethod?._hasFocus}`);
                             const hanja = this._dbusIME.selectHanja(globalIdx);
+                            unimLog('HANJA', `selectHanja 반환: '${hanja}', _hasFocus=${this._inputMethod?._hasFocus}`);
                             if (hanja && this._inputMethod) {
                                 // preedit 클리어 후 한자 커밋
                                 this._inputMethod.updatePreedit('');
@@ -218,7 +220,9 @@ export default class UnimExtension extends Extension {
                         target, characters, topRow,
                         (globalIdx) => {
                             // 선택 콜백: SelectSpecialChar → 특수문자 반환 → 커밋
+                            unimLog('SPECIAL', `선택 콜백: globalIdx=${globalIdx}, _hasFocus=${this._inputMethod?._hasFocus}`);
                             const ch = this._dbusIME.selectSpecialChar(globalIdx);
+                            unimLog('SPECIAL', `selectSpecialChar 반환: '${ch}', _hasFocus=${this._inputMethod?._hasFocus}`);
                             if (ch && this._inputMethod) {
                                 this._inputMethod.updatePreedit('');
                                 this._inputMethod.commitText(ch);
@@ -536,26 +540,35 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
-            this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
-
             if (pasteMode === PasteMode.COPY_ONLY) {
+                this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
+                this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
                 unimLog('EXTENSION', 'Copy-only mode: 붙여넣기 생략');
                 this._conversionInProgress = false;
             } else {
-                // 붙여넣기 전에 약간의 지연 (클립보드 동기화 대기)
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
-                    if (pasteMode === PasteMode.TERMINAL) {
-                        this._vkbd.backspaceMultiple(text.length);
-                    }
-                    this._vkbd.paste();
-                    
-                    // 붙여넣기 완료 후 플래그 해제 (약간의 여유를 둠)
-                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                        this._conversionInProgress = false;
+                // 클립보드 백업 후 변환 텍스트 설정 → 붙여넣기 → 복원
+                this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (_cb, savedClipboard) => {
+                    this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
+                    this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
+
+                    // 붙여넣기 전에 약간의 지연 (클립보드 동기화 대기)
+                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+                        if (pasteMode === PasteMode.TERMINAL) {
+                            this._vkbd.backspaceMultiple(text.length);
+                        }
+                        this._vkbd.paste();
+
+                        // 붙여넣기 완료 후 클립보드 복원
+                        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                            if (savedClipboard && savedClipboard.trim() !== '') {
+                                this._clipboard.set_text(St.ClipboardType.CLIPBOARD, savedClipboard);
+                                unimLog('EXTENSION', 'TypeFIX: 클립보드 복원 완료');
+                            }
+                            this._conversionInProgress = false;
+                            return GLib.SOURCE_REMOVE;
+                        });
                         return GLib.SOURCE_REMOVE;
                     });
-                    return GLib.SOURCE_REMOVE;
                 });
             }
 

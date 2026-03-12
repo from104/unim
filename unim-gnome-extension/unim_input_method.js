@@ -109,9 +109,11 @@ class UnimInputMethod extends Clutter.InputMethod {
 
     vfunc_focus_in(_focus) {
         this._hasFocus = true;
+        unimLog('IME', `vfunc_focus_in: _hasFocus=true`);
     }
 
     vfunc_focus_out() {
+        unimLog('IME', `vfunc_focus_out 호출됨 (stack: popup commit 디버깅)`);
         // 1. 커밋 최우선: 로컬 preedit 백업
         const localPreedit = this._preeditText;
 
@@ -201,6 +203,8 @@ class UnimInputMethod extends Clutter.InputMethod {
     commitText(text) {
         if (!text || text.length === 0) return;
 
+        unimLog('IME', `commitText: text='${text}', _hasFocus=${this._hasFocus}, _preeditText='${this._preeditText}'`);
+
         // preedit이 남아있으면 먼저 클리어
         if (this._preeditText.length > 0) {
             this.clearPreedit();
@@ -208,6 +212,7 @@ class UnimInputMethod extends Clutter.InputMethod {
 
         try {
             this.commit(text);
+            unimLog('IME', `commitText: commit() 호출 완료 (에러 없음)`);
         } catch (e) {
             unimError('IME', `텍스트 커밋 실패: ${e.message}`);
         }
