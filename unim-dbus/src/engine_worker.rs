@@ -345,19 +345,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                let preedit = if let Some(engine) = contexts.get_mut(&context_id) {
-                    // cancel 전에 남은 preedit을 저장 (FocusOut에서 건너뛴 commit 복구용)
-                    let remaining = if !engine.preedit_str().is_empty() {
-                        Some(engine.preedit_str().to_string())
-                    } else {
-                        None
-                    };
+                let target = if let Some(engine) = contexts.get_mut(&context_id) {
+                    // cancel 전에 hanja_target(원래 한글)을 저장하여 즉시 커밋할 수 있도록 반환
+                    let t = engine.get_hanja_target().to_string();
+                    let result = if !t.is_empty() { Some(t) } else { None };
                     engine.cancel_hanja();
-                    remaining
+                    result
                 } else {
                     None
                 };
-                let _ = response.send(preedit);
+                let _ = response.send(target);
             }
 
             // =========================================
@@ -415,18 +412,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                let preedit = if let Some(engine) = contexts.get_mut(&context_id) {
-                    let remaining = if !engine.preedit_str().is_empty() {
-                        Some(engine.preedit_str().to_string())
-                    } else {
-                        None
-                    };
+                let target = if let Some(engine) = contexts.get_mut(&context_id) {
+                    // cancel 전에 special_char_target(원래 초성)을 저장하여 즉시 커밋할 수 있도록 반환
+                    let t = engine.get_special_char_target().to_string();
+                    let result = if !t.is_empty() { Some(t) } else { None };
                     engine.cancel_special_char();
-                    remaining
+                    result
                 } else {
                     None
                 };
-                let _ = response.send(preedit);
+                let _ = response.send(target);
             }
 
             EngineRequest::ReportCursorRect { .. } => {

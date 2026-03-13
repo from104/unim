@@ -1,11 +1,14 @@
 //! 특수문자 팝업 윈도우 모듈
 //!
 //! X11 Xlib/Xft를 사용하여 특수문자 후보 목록을 9x9 그리드로 표시하는 팝업 윈도우입니다.
-//! HanjaWindow와 동일한 패턴으로 override_redirect 윈도우를 사용합니다.
+//! 키 처리 및 상태 관리는 `unim::popup::PopupState`에 위임하고, 이 모듈은 렌더링만 담당합니다.
 
 use std::os::raw::{c_int, c_ulong};
 
+use unim::popup::{PopupKey, PopupKeyResult, PopupState};
 use unim::unim_log;
+
+use crate::dpi;
 
 /// 특수문자 팝업에서 키 처리 결과
 pub enum SpecialAction {
@@ -22,11 +25,6 @@ pub enum SpecialAction {
     /// 처리하지 않음 → 팝업 닫고 키 바이패스
     None,
 }
-
-/// 그리드 상수 (GTK 특수문자 팝업과 동일)
-const MAX_ROWS: usize = 9;
-const MAX_COLS: usize = 9;
-const PAGE_SIZE: usize = MAX_ROWS * MAX_COLS; // 81
 
 /// 특수문자 팝업 윈도우
 pub struct SpecialWindow {
@@ -45,29 +43,45 @@ pub struct SpecialWindow {
     /// 페이지 정보 색상
     page_color: x11::xft::XftColor,
 
-    /// 전체 특수문자 배열
-    characters: Vec<String>,
-    /// 변환 대상 초성
-    target: String,
-    /// 상단 행 레이블 (예: "QWERTYUIO")
-    top_row: String,
-    /// 현재 페이지 (0-based)
-    current_page: usize,
-    /// 전체 페이지 수
-    total_pages: usize,
-    /// 현재 페이지 행 수
-    rows: usize,
-    /// 현재 페이지 열 수
-    cols: usize,
-    /// 선택 커서 (행)
-    sel_row: usize,
-    /// 선택 커서 (열)
-    sel_col: usize,
+    /// 통합 팝업 상태
+    popup_state: Option<PopupState>,
     /// 윈도우 크기
     size: (u16, u16),
     /// 셀 크기
     cell_w: c_int,
     cell_h: c_int,
+    /// DPI 스케일 팩터
+    scale_factor: f64,
+}
+
+/// X11 keysym → PopupKey 변환
+fn keysym_to_popup_key(keysym: u32) -> PopupKey {
+    match keysym {
+        0xff1b => PopupKey::Escape,
+        0x71 => PopupKey::Letter(0), // q
+        0x77 => PopupKey::Letter(1), // w
+        0x65 => PopupKey::Letter(2), // e
+        0x72 => PopupKey::Letter(3), // r
+        0x74 => PopupKey::Letter(4), // t
+        0x79 => PopupKey::Letter(5), // y
+        0x75 => PopupKey::Letter(6), // u
+        0x69 => PopupKey::Letter(7), // i
+        0x6f => PopupKey::Letter(8), // o
+        0x31..=0x39 => PopupKey::Number((keysym - 0x30) as u8),
+        0xff0d => PopupKey::Enter,
+        0xff52 => PopupKey::Up,
+        0xff54 => PopupKey::Down,
+        0xff51 => PopupKey::Left,
+        0xff53 => PopupKey::Right,
+        0xff09 => PopupKey::Tab,
+        0xfe20 => PopupKey::ShiftTab,
+        0x20 => PopupKey::Space,
+        0xff55 => PopupKey::PageUp,
+        0xff56 => PopupKey::PageDown,
+        0xff08 => PopupKey::Backspace,
+        0xffe1..=0xffee | 0xff7f | 0xff14 => PopupKey::Modifier,
+        _ => PopupKey::Other,
+    }
 }
 
 impl SpecialWindow {
@@ -79,8 +93,9 @@ impl SpecialWindow {
         y: c_int,
     ) -> Result<Self, String> {
         let root = unsafe { x11::xlib::XRootWindow(display, screen) };
+        let scale_factor = dpi::get_scale_factor(display, screen);
 
-        let size: (u16, u16) = (400, 350);
+        let size: (u16, u16) = (dpi::scale_u16(400, scale_factor), dpi::scale_u16(350, scale_factor));
 
         // 화면 경계 보정
         let screen_w = unsafe { x11::xlib::XDisplayWidth(display, screen) };
@@ -236,9 +251,10 @@ impl SpecialWindow {
 
         unim_log!(
             "XIM_SPECIAL",
-            "특수문자 팝업 생성: pos=({},{})",
+            "특수문자 팝업 생성: pos=({},{}), scale={:.2}",
             final_x,
-            final_y
+            final_y,
+            scale_factor
         );
 
         Ok(Self {
@@ -249,18 +265,11 @@ impl SpecialWindow {
             sel_bg_color,
             header_color,
             page_color,
-            characters: Vec::new(),
-            target: String::new(),
-            top_row: String::new(),
-            current_page: 0,
-            total_pages: 1,
-            rows: 0,
-            cols: 0,
-            sel_row: 0,
-            sel_col: 0,
+            popup_state: None,
             size,
-            cell_w: 28,
-            cell_h: 28,
+            cell_w: dpi::scale(30, scale_factor),
+            cell_h: dpi::scale(30, scale_factor),
+            scale_factor,
         })
     }
 
@@ -283,30 +292,21 @@ impl SpecialWindow {
         characters: Vec<String>,
         top_row: &str,
     ) {
-        self.target = target.to_string();
-        self.characters = characters;
-        self.top_row = top_row.to_string();
-        self.current_page = 0;
-        self.sel_row = 0;
-        self.sel_col = 0;
-        self.total_pages = if self.characters.is_empty() {
-            1
-        } else {
-            (self.characters.len() + PAGE_SIZE - 1) / PAGE_SIZE
-        };
-
-        self.update_page_layout();
+        self.popup_state = Some(PopupState::new_special(target, characters, top_row));
 
         // 셀 크기 계산
-        self.cell_w = 28;
-        self.cell_h = 28;
+        let sf = self.scale_factor;
+        self.cell_w = dpi::scale(30, sf);
+        self.cell_h = dpi::scale(30, sf);
 
+        let ps = self.popup_state.as_ref().unwrap();
         // 윈도우 크기 계산: 행 헤더(1열) + 데이터 열 + 여백, 열 헤더(1행) + 데이터 행 + 푸터
-        let header_col_w = 30; // 행 번호 열 폭
-        let header_row_h = self.cell_h; // 열 헤더 행 높이
-        let footer_h = 24; // 페이지 정보 행 높이
-        let width = header_col_w + (self.cols as c_int) * self.cell_w + 10;
-        let height = header_row_h + (self.rows as c_int) * self.cell_h + footer_h + 10;
+        let header_col_w = dpi::scale(30, sf);
+        let header_row_h = self.cell_h;
+        let footer_h = dpi::scale(24, sf);
+        let margin = dpi::scale(10, sf);
+        let width = header_col_w + (ps.cols() as c_int) * self.cell_w + margin;
+        let height = header_row_h + (ps.rows() as c_int) * self.cell_h + footer_h + margin;
 
         self.size = (width as u16, height as u16);
         unsafe {
@@ -359,195 +359,34 @@ impl SpecialWindow {
         self.redraw(display);
     }
 
-    /// 현재 페이지 레이아웃 재계산
-    fn update_page_layout(&mut self) {
-        let page_start = self.current_page * PAGE_SIZE;
-        let page_chars = if page_start >= self.characters.len() {
-            0
-        } else {
-            (self.characters.len() - page_start).min(PAGE_SIZE)
-        };
-
-        // 열 수: ceil(page_chars / MAX_ROWS)
-        self.cols = if page_chars == 0 {
-            1
-        } else {
-            ((page_chars + MAX_ROWS - 1) / MAX_ROWS)
-                .min(MAX_COLS)
-                .max(1)
-        };
-        // 행 수: ceil(page_chars / cols)
-        self.rows = if page_chars == 0 {
-            1
-        } else {
-            ((page_chars + self.cols - 1) / self.cols)
-                .min(MAX_ROWS)
-                .max(1)
-        };
-    }
-
-    /// 현재 선택된 문자의 전체 인덱스
-    fn selected_global_index(&self) -> Option<usize> {
-        let page_start = self.current_page * PAGE_SIZE;
-        // 열 우선 채움: index = col * rows + row
-        let idx = self.sel_col * self.rows + self.sel_row;
-        let page_chars = if page_start >= self.characters.len() {
-            0
-        } else {
-            (self.characters.len() - page_start).min(PAGE_SIZE)
-        };
-        if idx < page_chars {
-            Some(page_start + idx)
-        } else {
-            None
-        }
-    }
-
-    /// 특정 그리드 위치에 해당하는 문자 가져오기
-    fn char_at(&self, row: usize, col: usize) -> Option<&str> {
-        let page_start = self.current_page * PAGE_SIZE;
-        let idx = col * self.rows + row; // 열 우선 채움
-        let global_idx = page_start + idx;
-        if global_idx < self.characters.len() {
-            Some(&self.characters[global_idx])
-        } else {
-            None
-        }
-    }
-
     /// 전체 인덱스로 문자 가져오기 (handler에서 직접 커밋용)
     pub fn get_character(&self, index: usize) -> Option<&str> {
-        self.characters.get(index).map(|s| s.as_str())
+        self.popup_state.as_ref()?.get_item(index)
     }
 
-    /// 키 처리
+    /// 키 처리 — PopupState에 위임
     pub fn handle_key(&mut self, keysym: u32) -> SpecialAction {
-        match keysym {
-            // Escape
-            0xff1b => SpecialAction::Cancel,
+        let popup_key = keysym_to_popup_key(keysym);
+        let ps = match self.popup_state.as_mut() {
+            Some(ps) => ps,
+            None => return SpecialAction::None,
+        };
 
-            // 열 점프 (물리 키: qwertyuio)
-            0x71 | 0x77 | 0x65 | 0x72 | 0x74 | 0x79 | 0x75 | 0x69 | 0x6f => {
-                let physical_keys: &[u32] = &[0x71, 0x77, 0x65, 0x72, 0x74, 0x79, 0x75, 0x69, 0x6f];
-                if let Some(col_idx) = physical_keys.iter().position(|&k| k == keysym) {
-                    if col_idx < self.cols {
-                        self.sel_col = col_idx;
-                        if self.char_at(self.sel_row, self.sel_col).is_none() {
-                            // 해당 열의 마지막 유효한 행으로 이동
-                            for r in (0..self.rows).rev() {
-                                if self.char_at(r, self.sel_col).is_some() {
-                                    self.sel_row = r;
-                                    break;
-                                }
-                            }
-                        }
+        match ps.handle_key(popup_key) {
+            PopupKeyResult::Select(idx) => SpecialAction::Select(idx),
+            PopupKeyResult::Cancel => SpecialAction::Cancel,
+            PopupKeyResult::Updated => {
+                // Tab/ShiftTab/PageDown/PageUp/Space → 페이지 변경
+                match popup_key {
+                    PopupKey::Tab | PopupKey::PageDown | PopupKey::Space => {
+                        SpecialAction::NextPage
                     }
-                }
-                SpecialAction::Consumed
-            }
-
-            // 숫자 1-9 → 행 선택
-            0x31..=0x39 => {
-                let row_idx = (keysym - 0x31) as usize;
-                if row_idx < self.rows && self.char_at(row_idx, self.sel_col).is_some() {
-                    self.sel_row = row_idx;
-                    // 즉시 선택
-                    if let Some(idx) = self.selected_global_index() {
-                        return SpecialAction::Select(idx);
-                    }
-                }
-                SpecialAction::Consumed
-            }
-
-            // Enter/Return → 현재 선택 확정
-            0xff0d => {
-                if let Some(idx) = self.selected_global_index() {
-                    SpecialAction::Select(idx)
-                } else {
-                    SpecialAction::Consumed
+                    PopupKey::ShiftTab | PopupKey::PageUp => SpecialAction::PrevPage,
+                    _ => SpecialAction::Consumed,
                 }
             }
-
-            // 방향키
-            0xff52 => {
-                // Up
-                if self.sel_row > 0 {
-                    self.sel_row -= 1;
-                } else {
-                    self.sel_row = self.rows - 1;
-                }
-                // 유효한 셀인지 검증
-                while self.sel_row > 0 && self.char_at(self.sel_row, self.sel_col).is_none() {
-                    self.sel_row -= 1;
-                }
-                SpecialAction::Consumed
-            }
-            0xff54 => {
-                // Down
-                if self.sel_row + 1 < self.rows {
-                    self.sel_row += 1;
-                } else {
-                    self.sel_row = 0;
-                }
-                if self.char_at(self.sel_row, self.sel_col).is_none() {
-                    self.sel_row = 0;
-                }
-                SpecialAction::Consumed
-            }
-            0xff51 => {
-                // Left
-                if self.sel_col > 0 {
-                    self.sel_col -= 1;
-                } else {
-                    self.sel_col = self.cols - 1;
-                }
-                if self.char_at(self.sel_row, self.sel_col).is_none() {
-                    self.sel_row = 0;
-                }
-                SpecialAction::Consumed
-            }
-            0xff53 => {
-                // Right
-                if self.sel_col + 1 < self.cols {
-                    self.sel_col += 1;
-                } else {
-                    self.sel_col = 0;
-                }
-                if self.char_at(self.sel_row, self.sel_col).is_none() {
-                    self.sel_row = 0;
-                }
-                SpecialAction::Consumed
-            }
-
-            // Tab → 다음 페이지
-            0xff09 => {
-                if self.total_pages > 1 {
-                    self.current_page = (self.current_page + 1) % self.total_pages;
-                    self.update_page_layout();
-                    self.sel_row = 0;
-                    self.sel_col = 0;
-                }
-                SpecialAction::NextPage
-            }
-            // Shift+Tab (ISO_Left_Tab / BackTab)
-            0xfe20 => {
-                if self.total_pages > 1 {
-                    self.current_page = if self.current_page > 0 {
-                        self.current_page - 1
-                    } else {
-                        self.total_pages - 1
-                    };
-                    self.update_page_layout();
-                    self.sel_row = 0;
-                    self.sel_col = 0;
-                }
-                SpecialAction::PrevPage
-            }
-
-            // 모디파이어 키 무시
-            0xffe1..=0xffee | 0xff7f | 0xff14 => SpecialAction::Consumed,
-
-            _ => SpecialAction::None,
+            PopupKeyResult::Consumed => SpecialAction::Consumed,
+            PopupKeyResult::NotHandled => SpecialAction::None,
         }
     }
 
@@ -559,70 +398,77 @@ impl SpecialWindow {
         click_y: c_int,
         _display: *mut x11::xlib::Display,
     ) -> SpecialAction {
-        let header_col_w = 30;
+        let header_col_w = dpi::scale(30, self.scale_factor);
         let header_row_h = self.cell_h;
+
+        let ps = match self.popup_state.as_mut() {
+            Some(ps) => ps,
+            None => return SpecialAction::Consumed,
+        };
 
         match button {
             1 => {
                 // 좌클릭 → 행/열 계산
                 let col = (click_x - header_col_w) / self.cell_w;
                 let row = (click_y - header_row_h) / self.cell_h;
-                if col >= 0 && (col as usize) < self.cols && row >= 0 && (row as usize) < self.rows
-                {
-                    let r = row as usize;
-                    let c = col as usize;
-                    if self.char_at(r, c).is_some() {
-                        self.sel_row = r;
-                        self.sel_col = c;
-                        if let Some(idx) = self.selected_global_index() {
-                            return SpecialAction::Select(idx);
-                        }
+                if col >= 0 && row >= 0 {
+                    match ps.handle_click(row as usize, col as usize) {
+                        PopupKeyResult::Select(idx) => SpecialAction::Select(idx),
+                        _ => SpecialAction::Consumed,
                     }
+                } else {
+                    SpecialAction::Consumed
                 }
-                SpecialAction::Consumed
             }
             3 => {
                 // 우클릭 → 다음 페이지
-                if self.total_pages > 1 {
-                    self.current_page = (self.current_page + 1) % self.total_pages;
-                    self.update_page_layout();
-                    self.sel_row = 0;
-                    self.sel_col = 0;
-                }
+                ps.handle_key(PopupKey::Tab);
                 SpecialAction::NextPage
             }
             _ => SpecialAction::Consumed,
         }
     }
 
-    /// 다시 그리기
+    /// 다시 그리기 — PopupState에서 데이터를 읽어 렌더링
     pub fn redraw(&mut self, display: *mut x11::xlib::Display) {
         if display.is_null() {
             return;
         }
 
+        let ps = match self.popup_state.as_ref() {
+            Some(ps) => ps,
+            None => return,
+        };
+
         unsafe {
             x11::xlib::XClearWindow(display, self.window);
         }
 
-        let header_col_w: c_int = 30;
+        let sf = self.scale_factor;
+        let header_col_w: c_int = dpi::scale(30, sf);
         let header_row_h = self.cell_h;
-        let top_row_chars: Vec<char> = self.top_row.chars().collect();
+        let top_row_chars: Vec<char> = ps.top_row().chars().collect();
+        let rows = ps.rows();
+        let cols = ps.cols();
+        let sel_row = ps.sel_row();
+        let sel_col = ps.sel_col();
+        let text_nudge = dpi::scale(4, sf);
+        let text_margin = dpi::scale(6, sf);
 
         // 1. 열 헤더 (top_row 레이블)
-        for c in 0..self.cols {
+        for c in 0..cols {
             let label = if c < top_row_chars.len() {
                 top_row_chars[c].to_string()
             } else {
                 format!("{}", c + 1)
             };
-            let color = if c == self.sel_col {
+            let color = if c == sel_col {
                 &self.sel_bg_color
             } else {
                 &self.header_color
             };
-            let x = header_col_w + (c as c_int) * self.cell_w + self.cell_w / 2 - 4;
-            let y = header_row_h - 6;
+            let x = header_col_w + (c as c_int) * self.cell_w + self.cell_w / 2 - text_nudge;
+            let y = header_row_h - text_margin;
             let bytes = label.as_bytes();
             unsafe {
                 x11::xft::XftDrawStringUtf8(
@@ -638,15 +484,15 @@ impl SpecialWindow {
         }
 
         // 2. 행 헤더 (숫자 1-9)
-        for r in 0..self.rows {
+        for r in 0..rows {
             let label = format!("{}", r + 1);
-            let color = if r == self.sel_row {
+            let color = if r == sel_row {
                 &self.sel_bg_color
             } else {
                 &self.header_color
             };
-            let x = 6;
-            let y = header_row_h + (r as c_int) * self.cell_h + self.cell_h - 6;
+            let x = text_margin;
+            let y = header_row_h + (r as c_int) * self.cell_h + self.cell_h - text_margin;
             let bytes = label.as_bytes();
             unsafe {
                 x11::xft::XftDrawStringUtf8(
@@ -662,14 +508,14 @@ impl SpecialWindow {
         }
 
         // 3. 그리드 셀
-        for c in 0..self.cols {
-            for r in 0..self.rows {
+        for c in 0..cols {
+            for r in 0..rows {
                 let cell_x = header_col_w + (c as c_int) * self.cell_w;
                 let cell_y = header_row_h + (r as c_int) * self.cell_h;
 
-                let is_selected = r == self.sel_row && c == self.sel_col;
+                let is_selected = r == sel_row && c == sel_col;
 
-                if let Some(ch) = self.char_at(r, c) {
+                if let Some(ch) = ps.cell_text(r, c) {
                     // 선택 셀 배경
                     if is_selected {
                         unsafe {
@@ -692,8 +538,8 @@ impl SpecialWindow {
                     let color = &self.text_color;
                     let bytes = ch.as_bytes();
                     // 셀 내 텍스트 가운데 정렬
-                    let tx = cell_x + self.cell_w / 2 - 6;
-                    let ty = cell_y + self.cell_h - 6;
+                    let tx = cell_x + self.cell_w / 2 - text_margin;
+                    let ty = cell_y + self.cell_h - text_margin;
                     unsafe {
                         x11::xft::XftDrawStringUtf8(
                             self.xft_draw,
@@ -710,12 +556,12 @@ impl SpecialWindow {
         }
 
         // 4. 푸터 (대상 + 페이지 정보)
-        let footer_y = header_row_h + (self.rows as c_int) * self.cell_h + 18;
+        let footer_y = header_row_h + (rows as c_int) * self.cell_h + dpi::scale(18, sf);
         let footer_text = format!(
             "[{}]  {} / {}",
-            self.target,
-            self.current_page + 1,
-            self.total_pages
+            ps.target(),
+            ps.current_page() + 1,
+            ps.total_pages()
         );
         let fb = footer_text.as_bytes();
         unsafe {
@@ -723,7 +569,7 @@ impl SpecialWindow {
                 self.xft_draw,
                 &self.page_color,
                 self.xft_font,
-                6,
+                text_margin,
                 footer_y,
                 fb.as_ptr(),
                 fb.len() as c_int,

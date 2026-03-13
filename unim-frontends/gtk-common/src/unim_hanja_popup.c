@@ -5,6 +5,7 @@
  */
 
 #include "unim_hanja_popup.h"
+#include "unim.h"
 #include <string.h>
 
 /* X11 override_redirect 설정을 위한 헤더 */
@@ -91,6 +92,8 @@ struct _UnimHanjaPopup {
     gsize current_page;              /* 현재 페이지 (0부터 시작) */
     gint selected_index;             /* 현재 선택 인덱스 (페이지 내) */
     
+    UnimPopupState *popup_state;     /* C-API popup state */
+
     UnimHanjaSelectCallback callback;
     gpointer user_data;
 };
@@ -434,6 +437,11 @@ unim_hanja_popup_free(UnimHanjaPopup *popup)
 {
     if (!popup) return;
 
+    if (popup->popup_state) {
+        unim_popup_free(popup->popup_state);
+        popup->popup_state = NULL;
+    }
+
     if (popup->window) {
 #if GTK_CHECK_VERSION(4, 0, 0)
         gtk_window_destroy(GTK_WINDOW(popup->window));
@@ -465,6 +473,26 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
     popup->selected_index = 0;
     popup->callback = callback;
     popup->user_data = user_data;
+
+    /* Build arrays for C-API PopupState */
+    {
+        const uint8_t **hanja_ptrs = g_malloc(sizeof(uint8_t*) * count);
+        size_t *hanja_lens = g_malloc(sizeof(size_t) * count);
+        const uint8_t **meaning_ptrs = g_malloc(sizeof(uint8_t*) * count);
+        size_t *meaning_lens = g_malloc(sizeof(size_t) * count);
+        for (gsize i = 0; i < count; i++) {
+            hanja_ptrs[i] = (const uint8_t *)candidates[i].hanja;
+            hanja_lens[i] = strlen(candidates[i].hanja);
+            meaning_ptrs[i] = (const uint8_t *)candidates[i].meaning;
+            meaning_lens[i] = candidates[i].meaning ? strlen(candidates[i].meaning) : 0;
+        }
+        if (popup->popup_state) unim_popup_free(popup->popup_state);
+        popup->popup_state = unim_popup_new_hanja(
+            (const uint8_t *)target, strlen(target),
+            hanja_ptrs, hanja_lens, meaning_ptrs, meaning_lens, count
+        );
+        g_free(hanja_ptrs); g_free(hanja_lens); g_free(meaning_ptrs); g_free(meaning_lens);
+    }
 
     update_listbox(popup);
 
@@ -589,91 +617,35 @@ unim_hanja_popup_is_visible(UnimHanjaPopup *popup)
 gboolean
 unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval)
 {
-    if (!popup || !unim_hanja_popup_is_visible(popup)) return FALSE;
+    if (!popup || !popup->popup_state || !unim_hanja_popup_is_visible(popup)) return FALSE;
 
-    gsize page_count = get_page_candidate_count(popup);
+    uint32_t popup_key = unim_popup_key_from_gdk(keyval);
+    UnimPopupKeyResult result = unim_popup_handle_key(popup->popup_state, popup_key);
 
-    /* 숫자키 1-9 선택 */
-    if (keyval >= GDK_KEY_1 && keyval <= GDK_KEY_9) {
-        gsize idx = keyval - GDK_KEY_1;
-        if (idx < page_count) {
-            gsize actual_index = popup->current_page * MAX_VISIBLE_CANDIDATES + idx;
-            if (actual_index < popup->count && popup->callback) {
-                const gchar *hanja = popup->candidates[actual_index].hanja;
-                POPUP_DEBUG("한자 선택 (숫자): index=%zu, hanja='%s'", actual_index, hanja);
-                popup->callback(hanja, popup->user_data);
-                return TRUE;
-            }
+    switch (result.kind) {
+    case UNIM_POPUP_RESULT_SELECT:
+        if (result.selected_index >= 0 && (gsize)result.selected_index < popup->count && popup->callback) {
+            const gchar *hanja = popup->candidates[result.selected_index].hanja;
+            POPUP_DEBUG("한자 선택 (C-API): index=%d, hanja='%s'", result.selected_index, hanja);
+            popup->callback(hanja, popup->user_data);
+            return TRUE;
         }
-    }
+        return FALSE;
 
-    /* 위/아래 화살표 네비게이션 */
-    if (keyval == GDK_KEY_Up) {
-        if (popup->selected_index > 0) {
-            popup->selected_index--;
-            update_listbox(popup);
-        }
+    case UNIM_POPUP_RESULT_CANCEL:
+        return FALSE;
+
+    case UNIM_POPUP_RESULT_UPDATED:
+        popup->current_page = unim_popup_get_current_page(popup->popup_state);
+        popup->selected_index = unim_popup_get_sel_row(popup->popup_state);
+        update_listbox(popup);
         return TRUE;
-    }
 
-    if (keyval == GDK_KEY_Down) {
-        if (popup->selected_index < (gint)page_count - 1) {
-            popup->selected_index++;
-            update_listbox(popup);
-        }
+    case UNIM_POPUP_RESULT_CONSUMED:
         return TRUE;
-    }
 
-    /* 좌/우 화살표, BackSpace 페이지 전환 (이전) */
-    if (keyval == GDK_KEY_Left || keyval == GDK_KEY_Page_Up ||
-        keyval == GDK_KEY_BackSpace) {
-        if (get_total_pages(popup) > 1) {
-            if (popup->current_page > 0) {
-                popup->current_page--;
-            } else {
-                popup->current_page = get_total_pages(popup) - 1;
-            }
-            popup->selected_index = 0;
-            update_listbox(popup);
-        }
-        return TRUE;
+    case UNIM_POPUP_RESULT_NOT_HANDLED:
+    default:
+        return FALSE;
     }
-
-    /* 우 화살표, Space 페이지 전환 (다음) */
-    if (keyval == GDK_KEY_Right || keyval == GDK_KEY_Page_Down ||
-        keyval == GDK_KEY_space) {
-        if (get_total_pages(popup) > 1) {
-            if (popup->current_page < get_total_pages(popup) - 1) {
-                popup->current_page++;
-            } else {
-                popup->current_page = 0;
-            }
-            popup->selected_index = 0;
-            update_listbox(popup);
-        }
-        return TRUE;
-    }
-
-    /* Enter로 현재 선택 확정 */
-    if (keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) {
-        if (popup->selected_index >= 0 && popup->selected_index < (gint)page_count) {
-            gsize actual_index = popup->current_page * MAX_VISIBLE_CANDIDATES + popup->selected_index;
-            if (actual_index < popup->count && popup->callback) {
-                const gchar *hanja = popup->candidates[actual_index].hanja;
-                POPUP_DEBUG("한자 선택 (Enter): index=%zu, hanja='%s'", actual_index, hanja);
-                popup->callback(hanja, popup->user_data);
-                return TRUE;
-            }
-        }
-    }
-
-    /* 모디파이어 키 → 소비 (팝업 유지, 앱에 전달하지 않음) */
-    if ((keyval >= GDK_KEY_Shift_L && keyval <= GDK_KEY_Hyper_R) ||
-        keyval == GDK_KEY_Num_Lock || keyval == GDK_KEY_Scroll_Lock ||
-        keyval == GDK_KEY_Caps_Lock || keyval == GDK_KEY_ISO_Level3_Shift) {
-        return TRUE;
-    }
-
-    /* Escape, 기타 미지원 키 → FALSE (immodule에서 처리) */
-    return FALSE;
 }

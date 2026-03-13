@@ -5,6 +5,7 @@
 
 use std::os::fd::AsFd;
 
+use unim::popup::PopupState;
 use unim::unim_log;
 use wayland_client::{
     protocol::{
@@ -24,25 +25,6 @@ use wayland_protocols_misc::zwp_input_method_v2::client::{
 use crate::popup_renderer::{self, RenderedPopup};
 use crate::state::AppState;
 
-/// 팝업 종류
-#[derive(Clone, Debug)]
-pub enum PopupKind {
-    Hanja {
-        target: String,
-        candidates: Vec<(String, String)>,
-        page: usize,
-        selected: usize,
-    },
-    Special {
-        target: String,
-        characters: Vec<String>,
-        top_row: String,
-        page: usize,
-        sel_row: usize,
-        sel_col: usize,
-    },
-}
-
 /// Wayland 팝업 서피스
 pub struct PopupSurface {
     surface: Option<WlSurface>,
@@ -51,8 +33,8 @@ pub struct PopupSurface {
     buffer: Option<WlBuffer>,
     /// 현재 SHM fd (memmap2)
     shm_file: Option<std::fs::File>,
-    /// 현재 팝업 종류
-    pub kind: Option<PopupKind>,
+    /// 통합 팝업 상태
+    pub popup_state: Option<PopupState>,
     /// 현재 크기
     cur_width: u32,
     cur_height: u32,
@@ -67,7 +49,7 @@ impl PopupSurface {
             pool: None,
             buffer: None,
             shm_file: None,
-            kind: None,
+            popup_state: None,
             cur_width: 0,
             cur_height: 0,
         }
@@ -89,7 +71,7 @@ impl PopupSurface {
 
     /// 팝업 표시 여부
     pub fn is_visible(&self) -> bool {
-        self.kind.is_some()
+        self.popup_state.is_some()
     }
 
     /// 한자 팝업 표시
@@ -100,12 +82,7 @@ impl PopupSurface {
         target: &str,
         candidates: Vec<(String, String)>,
     ) {
-        self.kind = Some(PopupKind::Hanja {
-            target: target.to_string(),
-            candidates,
-            page: 0,
-            selected: 0,
-        });
+        self.popup_state = Some(PopupState::new_hanja(target, candidates));
         self.render_and_commit(shm, qh);
     }
 
@@ -118,14 +95,7 @@ impl PopupSurface {
         characters: Vec<String>,
         top_row: &str,
     ) {
-        self.kind = Some(PopupKind::Special {
-            target: target.to_string(),
-            characters,
-            top_row: top_row.to_string(),
-            page: 0,
-            sel_row: 0,
-            sel_col: 0,
-        });
+        self.popup_state = Some(PopupState::new_special(target, characters, top_row));
         self.render_and_commit(shm, qh);
     }
 
@@ -136,7 +106,7 @@ impl PopupSurface {
             surface.attach(None, 0, 0);
             surface.commit();
         }
-        self.kind = None;
+        self.popup_state = None;
         // 이전 버퍼 정리
         if let Some(buf) = self.buffer.take() {
             buf.destroy();
@@ -146,7 +116,7 @@ impl PopupSurface {
 
     /// 팝업 재렌더링 (선택 변경 등)
     pub fn redraw(&mut self, shm: &WlShm, qh: &QueueHandle<AppState>) {
-        if self.kind.is_some() {
+        if self.popup_state.is_some() {
             self.render_and_commit(shm, qh);
         }
     }
@@ -161,23 +131,8 @@ impl PopupSurface {
             }
         };
 
-        let rendered = match &self.kind {
-            Some(PopupKind::Hanja {
-                target,
-                candidates,
-                page,
-                selected,
-            }) => popup_renderer::render_hanja(target, candidates, *page, *selected),
-            Some(PopupKind::Special {
-                target,
-                characters,
-                top_row,
-                page,
-                sel_row,
-                sel_col,
-            }) => popup_renderer::render_special(
-                target, characters, top_row, *page, *sel_row, *sel_col,
-            ),
+        let rendered = match &self.popup_state {
+            Some(ps) => popup_renderer::render_popup(ps),
             None => return,
         };
 
@@ -258,7 +213,7 @@ impl PopupSurface {
         if let Some(surface) = self.surface.take() {
             surface.destroy();
         }
-        self.kind = None;
+        self.popup_state = None;
     }
 }
 

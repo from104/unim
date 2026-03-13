@@ -586,13 +586,33 @@ impl InputContextHandler {
                     page,
                     total_pages,
                     selected,
+                    rows,
+                    cols,
+                    sel_row,
+                    sel_col,
                 } => {
+                    Self::popup_navigate(
+                        &signal_ctx,
+                        *page as i32,
+                        *total_pages as i32,
+                        *selected as i32,
+                        *rows as i32,
+                        *cols as i32,
+                        *sel_row as i32,
+                        *sel_col as i32,
+                    )
+                    .await
+                    .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] PopupNavigate: page={}/{}, selected={}",
+                        "[DBus] PopupNavigate: page={}/{}, selected={}, rows={}, cols={}, sel=({},{})",
                         page,
                         total_pages,
-                        selected
+                        selected,
+                        rows,
+                        cols,
+                        sel_row,
+                        sel_col
                     );
                 }
             }
@@ -760,6 +780,19 @@ impl InputContextHandler {
     /// 팝업 숨김 시그널
     #[zbus(signal)]
     async fn hide_popup(signal_ctx: &SignalContext<'_>) -> zbus::Result<()>;
+
+    /// 팝업 네비게이션 시그널 (페이지/선택 변경)
+    #[zbus(signal)]
+    async fn popup_navigate(
+        signal_ctx: &SignalContext<'_>,
+        page: i32,
+        total_pages: i32,
+        selected: i32,
+        rows: i32,
+        cols: i32,
+        sel_row: i32,
+        sel_col: i32,
+    ) -> zbus::Result<()>;
 
     // =========================================
     // 커서 위치 보고

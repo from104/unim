@@ -16,6 +16,7 @@
 #include <QMouseEvent>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 /* 디버그 로깅 */
 static bool popup_debug_enabled = false;
@@ -61,19 +62,34 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
 {
     popup_check_debug();
 
-    /* Catppuccin Mocha 스타일 */
-    setStyleSheet(
+    /* DPI 스케일 팩터 계산 (96 DPI 기준) */
+    qreal scaleFactor = 1.0;
+    QScreen *screen = QGuiApplication::primaryScreen();
+    if (screen) {
+        scaleFactor = screen->logicalDotsPerInch() / 96.0;
+        if (scaleFactor < 1.0) scaleFactor = 1.0;
+    }
+    int fontSize = qRound(14 * scaleFactor);
+    int pageFontSize = qRound(12 * scaleFactor);
+    int minHeight = qRound(28 * scaleFactor);
+    int padding = qRound(12 * scaleFactor);
+    int labelPadV = qRound(2 * scaleFactor);
+    int labelPadH = qRound(8 * scaleFactor);
+    int pagePadH = qRound(4 * scaleFactor);
+
+    /* Catppuccin Mocha 스타일 (DPI 스케일 적용) */
+    setStyleSheet(QString(
         "UnimHanjaPopup {"
         "  background-color: rgba(30, 30, 46, 242);"
         "  border: 1px solid rgba(255, 255, 255, 38);"
         "  border-radius: 12px;"
-        "  padding: 12px;"
+        "  padding: %1px;"
         "}"
         "QLabel {"
         "  color: #cdd6f4;"
-        "  padding: 2px 8px;"
-        "  font-size: 14px;"
-        "  min-height: 28px;"
+        "  padding: %2px %3px;"
+        "  font-size: %4px;"
+        "  min-height: %5px;"
         "  border-radius: 6px;"
         "}"
         "QLabel[selected=\"true\"] {"
@@ -83,11 +99,12 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
         "}"
         "QLabel#pageLabel {"
         "  color: #6c7086;"
-        "  font-size: 12px;"
-        "  padding: 2px 4px;"
+        "  font-size: %6px;"
+        "  padding: %2px %7px;"
         "  min-height: 0px;"
         "}"
-    );
+    ).arg(padding).arg(labelPadV).arg(labelPadH).arg(fontSize)
+     .arg(minHeight).arg(pageFontSize).arg(pagePadH));
 
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(4, 4, 4, 4);
@@ -116,6 +133,10 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
 
 UnimHanjaPopup::~UnimHanjaPopup()
 {
+    if (m_popupState) {
+        unim_popup_free(m_popupState);
+        m_popupState = nullptr;
+    }
     POPUP_DEBUG("한자 팝업 소멸");
 }
 
@@ -131,6 +152,27 @@ void UnimHanjaPopup::showPopup(const QString &target,
     m_currentPage = 0;
     m_selectedIndex = 0;
 
+    /* PopupState 생성 */
+    int count = m_candidates.size();
+    std::vector<QByteArray> hanjaBytes(count), meaningBytes(count);
+    std::vector<const uint8_t*> hanjaPtrs(count), meaningPtrs(count);
+    std::vector<size_t> hanjaLens(count), meaningLens(count);
+    for (int i = 0; i < count; i++) {
+        hanjaBytes[i] = m_candidates[i].hanja.toUtf8();
+        meaningBytes[i] = m_candidates[i].meaning.toUtf8();
+        hanjaPtrs[i] = (const uint8_t*)hanjaBytes[i].constData();
+        hanjaLens[i] = hanjaBytes[i].size();
+        meaningPtrs[i] = (const uint8_t*)meaningBytes[i].constData();
+        meaningLens[i] = meaningBytes[i].size();
+    }
+    QByteArray targetBytes = target.toUtf8();
+    if (m_popupState) unim_popup_free(m_popupState);
+    m_popupState = unim_popup_new_hanja(
+        (const uint8_t*)targetBytes.constData(), targetBytes.size(),
+        hanjaPtrs.data(), hanjaLens.data(),
+        meaningPtrs.data(), meaningLens.data(), count
+    );
+
     updateList();
     adjustPosition(x, y, cursorHeight);
     show();
@@ -144,84 +186,39 @@ void UnimHanjaPopup::hidePopup()
     hide();
     m_candidates.clear();
     m_callback = nullptr;
+    if (m_popupState) {
+        unim_popup_free(m_popupState);
+        m_popupState = nullptr;
+    }
     POPUP_DEBUG("한자 팝업 숨김");
 }
 
 bool UnimHanjaPopup::handleKey(int key)
 {
-    if (!isVisible()) return false;
+    if (!isVisible() || !m_popupState) return false;
 
-    switch (key) {
-    case Qt::Key_1: case Qt::Key_2: case Qt::Key_3:
-    case Qt::Key_4: case Qt::Key_5: case Qt::Key_6:
-    case Qt::Key_7: case Qt::Key_8: case Qt::Key_9:
-    {
-        int idx = key - Qt::Key_1;
-        int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
-        int pageCount = qMin(static_cast<int>(MAX_VISIBLE_CANDIDATES),
-                             m_candidates.size() - pageStart);
-        if (idx < pageCount) {
-            selectCandidate(pageStart + idx);
-        }
+    uint32_t popupKey = unim_popup_key_from_qt(key);
+    UnimPopupKeyResult result = unim_popup_handle_key(m_popupState, popupKey);
+
+    switch (result.kind) {
+    case UNIM_POPUP_RESULT_SELECT:
+        selectCandidate(result.selected_index);
         return true;
-    }
 
-    case Qt::Key_Down:
-    {
-        int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
-        int pageCount = qMin(static_cast<int>(MAX_VISIBLE_CANDIDATES),
-                             m_candidates.size() - pageStart);
-        m_selectedIndex = (m_selectedIndex + 1) % pageCount;
+    case UNIM_POPUP_RESULT_CANCEL:
+        hidePopup();
+        return false;
+
+    case UNIM_POPUP_RESULT_UPDATED:
+        m_currentPage = unim_popup_get_current_page(m_popupState);
+        m_selectedIndex = unim_popup_get_sel_row(m_popupState);
         updateList();
         return true;
-    }
 
-    case Qt::Key_Up:
-    {
-        int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
-        int pageCount = qMin(static_cast<int>(MAX_VISIBLE_CANDIDATES),
-                             m_candidates.size() - pageStart);
-        m_selectedIndex = (m_selectedIndex - 1 + pageCount) % pageCount;
-        updateList();
-        return true;
-    }
-
-    case Qt::Key_Return:
-    case Qt::Key_Enter:
-    {
-        int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
-        selectCandidate(pageStart + m_selectedIndex);
-        return true;
-    }
-
-    /* 이전 페이지 */
-    case Qt::Key_Left:
-    case Qt::Key_PageUp:
-    case Qt::Key_Backspace:
-        prevPage();
+    case UNIM_POPUP_RESULT_CONSUMED:
         return true;
 
-    /* 다음 페이지 */
-    case Qt::Key_Right:
-    case Qt::Key_PageDown:
-    case Qt::Key_Space:
-        nextPage();
-        return true;
-
-    /* 모디파이어 키 → 소비 (팝업 유지, 앱에 전달하지 않음) */
-    case Qt::Key_Shift:
-    case Qt::Key_Control:
-    case Qt::Key_Alt:
-    case Qt::Key_Meta:
-    case Qt::Key_Super_L:
-    case Qt::Key_Super_R:
-    case Qt::Key_AltGr:
-    case Qt::Key_CapsLock:
-    case Qt::Key_NumLock:
-    case Qt::Key_ScrollLock:
-        return true;
-
-    /* Escape, 기타 미지원 키 → false (input_context에서 처리) */
+    case UNIM_POPUP_RESULT_NOT_HANDLED:
     default:
         return false;
     }

@@ -73,6 +73,8 @@ export class KeyHandler {
         this._savedInputMethod = null;
         /** @type {boolean} Backend 등록 여부 */
         this._backendRegistered = false;
+        /** @type {boolean} 키 처리 중 재진입 방지 플래그 */
+        this._processingKey = false;
     }
 
     /**
@@ -155,16 +157,22 @@ export class KeyHandler {
      * @private
      */
     _handleVfuncKey(keyval, keycode, state) {
+        // 0. 재진입 방지: call_sync() 중 GLib 메인 루프가 이벤트를 처리하여
+        //    동일 키가 재진입될 수 있음 (이중 입력 버그의 근본 원인)
+        if (this._processingKey) {
+            return true;  // 재진입 키는 소비하여 무시
+        }
+
         // 1. 수정자 키 단독 → 미소비
         if (MODIFIER_KEYSYMS.has(keyval)) {
             return false;
         }
 
-        // 2. 팝업 활성 → 팝업에 위임
-        if (this._popupActive && this._popupKeyHandler) {
-            if (this._popupKeyHandler(keyval, state)) return true;
-            // 팝업이 미처리 키로 닫힘 (onCancel 콜백에서 cancelHanja 호출됨)
-            // → GTK3 fall-through 패턴: 나머지 키 처리 로직으로 계속 진행
+        // 2. 팝업 활성 → 데몬(PopupState)에 위임
+        //    키를 ProcessKeyEvent로 전달하여 데몬이 PopupState로 처리
+        //    데몬은 PopupNavigate/HidePopup 시그널로 결과를 알림
+        if (this._popupActive) {
+            // 모든 키를 데몬으로 전달 (아래 ProcessKeyEvent 호출로 fall-through)
         }
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 flush 후 바이패스
@@ -182,8 +190,14 @@ export class KeyHandler {
             return false;
         }
 
-        // 6. ProcessKeyEvent 호출
-        const result = this._dbusIME.processKey(keyval, keycode, state);
+        // 6. ProcessKeyEvent 호출 (재진입 가드)
+        this._processingKey = true;
+        let result;
+        try {
+            result = this._dbusIME.processKey(keyval, keycode, state);
+        } finally {
+            this._processingKey = false;
+        }
 
         if (!result) {
             return false;
@@ -317,6 +331,11 @@ export class KeyHandler {
      * @private
      */
     _handleKeyPress(event) {
+        // 0. 재진입 방지 (call_sync 중 GLib 메인 루프 재진입 차단)
+        if (this._processingKey) {
+            return Clutter.EVENT_STOP;
+        }
+
         const keyval = event.get_key_symbol();
         const keycode = event.get_key_code();
         const state = event.get_state();
@@ -328,10 +347,9 @@ export class KeyHandler {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        // 2. 팝업 활성 → 팝업에 위임
-        if (this._popupActive && this._popupKeyHandler) {
-            if (this._popupKeyHandler(keyval, state)) return Clutter.EVENT_STOP;
-            // 팝업이 미처리 키로 닫힘 → 나머지 키 처리 로직으로 fall-through
+        // 2. 팝업 활성 → 데몬(PopupState)에 위임
+        if (this._popupActive) {
+            // 모든 키를 데몬으로 전달 (아래 ProcessKeyEvent 호출로 fall-through)
         }
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
@@ -354,8 +372,14 @@ export class KeyHandler {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        // 6. ProcessKeyEvent 호출 (evdev 키코드 사용)
-        const result = this._dbusIME.processKey(keyval, evdevKeycode, state);
+        // 6. ProcessKeyEvent 호출 (재진입 가드)
+        this._processingKey = true;
+        let result;
+        try {
+            result = this._dbusIME.processKey(keyval, evdevKeycode, state);
+        } finally {
+            this._processingKey = false;
+        }
 
         if (!result) {
             return Clutter.EVENT_PROPAGATE;

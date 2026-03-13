@@ -440,6 +440,132 @@ int32_t unim_status_get(void);
  */
 bool unim_status_set(int32_t category);
 
+/* ============================================
+ * Popup State Management
+ * ============================================ */
+
+/* Opaque popup state type */
+typedef struct PopupState UnimPopupState;
+
+/* PopupKey constants */
+#define UNIM_POPUP_KEY_NUMBER_1   1
+#define UNIM_POPUP_KEY_NUMBER_9   9
+#define UNIM_POPUP_KEY_LETTER_0  10  /* Q */
+#define UNIM_POPUP_KEY_LETTER_8  18  /* O */
+#define UNIM_POPUP_KEY_UP        20
+#define UNIM_POPUP_KEY_DOWN      21
+#define UNIM_POPUP_KEY_LEFT      22
+#define UNIM_POPUP_KEY_RIGHT     23
+#define UNIM_POPUP_KEY_ENTER     24
+#define UNIM_POPUP_KEY_ESCAPE    25
+#define UNIM_POPUP_KEY_TAB       26
+#define UNIM_POPUP_KEY_SHIFT_TAB 27
+#define UNIM_POPUP_KEY_PAGE_UP   28
+#define UNIM_POPUP_KEY_PAGE_DOWN 29
+#define UNIM_POPUP_KEY_SPACE     30
+#define UNIM_POPUP_KEY_BACKSPACE 31
+#define UNIM_POPUP_KEY_MODIFIER  32
+#define UNIM_POPUP_KEY_OTHER     33
+
+/* PopupKeyResult kind constants */
+#define UNIM_POPUP_RESULT_SELECT      0
+#define UNIM_POPUP_RESULT_CANCEL      1
+#define UNIM_POPUP_RESULT_UPDATED     2
+#define UNIM_POPUP_RESULT_CONSUMED    3
+#define UNIM_POPUP_RESULT_NOT_HANDLED 4
+
+/**
+ * Popup key result returned by unim_popup_handle_key().
+ */
+typedef struct {
+    int32_t kind;           /**< Result kind (UNIM_POPUP_RESULT_*) */
+    int32_t selected_index; /**< Selected index for SELECT, -1 otherwise */
+} UnimPopupKeyResult;
+
+/**
+ * Converts GDK keyval to PopupKey constant.
+ */
+uint32_t unim_popup_key_from_gdk(uint32_t gdk_keyval);
+
+/**
+ * Converts Qt key to PopupKey constant.
+ */
+uint32_t unim_popup_key_from_qt(int32_t qt_key);
+
+/**
+ * Creates a new hanja popup state.
+ *
+ * @param target_ptr Target string pointer (UTF-8)
+ * @param target_len Target string length
+ * @param hanja_ptrs Array of hanja string pointers
+ * @param hanja_lens Array of hanja string lengths
+ * @param meaning_ptrs Array of meaning string pointers
+ * @param meaning_lens Array of meaning string lengths
+ * @param count Number of candidates
+ * @return PopupState pointer. Must be freed with unim_popup_free().
+ */
+UnimPopupState *unim_popup_new_hanja(
+    const uint8_t *target_ptr, size_t target_len,
+    const uint8_t **hanja_ptrs, const size_t *hanja_lens,
+    const uint8_t **meaning_ptrs, const size_t *meaning_lens,
+    size_t count
+);
+
+/**
+ * Creates a new special character popup state.
+ *
+ * @param target_ptr Target string pointer (UTF-8)
+ * @param target_len Target string length
+ * @param char_ptrs Array of character string pointers
+ * @param char_lens Array of character string lengths
+ * @param count Number of characters
+ * @param top_row_ptr Top row label string pointer (UTF-8)
+ * @param top_row_len Top row label string length
+ * @return PopupState pointer. Must be freed with unim_popup_free().
+ */
+UnimPopupState *unim_popup_new_special(
+    const uint8_t *target_ptr, size_t target_len,
+    const uint8_t **char_ptrs, const size_t *char_lens,
+    size_t count,
+    const uint8_t *top_row_ptr, size_t top_row_len
+);
+
+/**
+ * Frees a PopupState.
+ */
+void unim_popup_free(UnimPopupState *state);
+
+/**
+ * Processes a key event in the popup.
+ *
+ * @param state PopupState pointer
+ * @param popup_key PopupKey constant (UNIM_POPUP_KEY_*)
+ * @return Key result with kind and optional selected_index
+ */
+UnimPopupKeyResult unim_popup_handle_key(UnimPopupState *state, uint32_t popup_key);
+
+/**
+ * Processes a mouse click in the popup.
+ */
+UnimPopupKeyResult unim_popup_handle_click(UnimPopupState *state, int32_t row, int32_t col);
+
+/* Popup state queries */
+int32_t unim_popup_get_kind(const UnimPopupState *state);          /**< 0=Hanja, 1=Special */
+int32_t unim_popup_get_rows(const UnimPopupState *state);
+int32_t unim_popup_get_cols(const UnimPopupState *state);
+int32_t unim_popup_get_sel_row(const UnimPopupState *state);
+int32_t unim_popup_get_sel_col(const UnimPopupState *state);
+int32_t unim_popup_get_current_page(const UnimPopupState *state);
+int32_t unim_popup_get_total_pages(const UnimPopupState *state);
+int32_t unim_popup_get_total_items(const UnimPopupState *state);
+bool    unim_popup_cell_exists(const UnimPopupState *state, int32_t row, int32_t col);
+UnimStr unim_popup_get_cell_text(const UnimPopupState *state, int32_t row, int32_t col);
+UnimStr unim_popup_get_item(const UnimPopupState *state, int32_t index);
+UnimStr unim_popup_get_meaning(const UnimPopupState *state, int32_t index);
+int32_t unim_popup_selected_index(const UnimPopupState *state);
+UnimStr unim_popup_get_target(const UnimPopupState *state);
+UnimStr unim_popup_get_top_row(const UnimPopupState *state);
+
 #ifdef __cplusplus
 }
 #endif

@@ -7,6 +7,7 @@
 use unim::config::{Config, InputCategory};
 use unim::input_engine::{InputEngine, InputResult};
 use unim::keycode::ModifierState;
+use unim::popup::{PopupKey, PopupKeyResult, PopupKind, PopupState};
 
 /// API 버전
 pub const UNIM_API_VERSION: usize = 1;
@@ -533,6 +534,392 @@ pub extern "C" fn unim_status_set(category: i32) -> bool {
         _ => return false,
     };
     unim::status::set_status(cat).is_ok()
+}
+
+// ============================================
+// 팝업 상태 관리 (C-API)
+// ============================================
+
+/// PopupKey C 표현 상수
+pub mod popup_key_constants {
+    pub const POPUP_KEY_NUMBER_1: u32 = 1;
+    pub const POPUP_KEY_NUMBER_9: u32 = 9;
+    pub const POPUP_KEY_LETTER_0: u32 = 10; // Q
+    pub const POPUP_KEY_LETTER_8: u32 = 18; // O
+    pub const POPUP_KEY_UP: u32 = 20;
+    pub const POPUP_KEY_DOWN: u32 = 21;
+    pub const POPUP_KEY_LEFT: u32 = 22;
+    pub const POPUP_KEY_RIGHT: u32 = 23;
+    pub const POPUP_KEY_ENTER: u32 = 24;
+    pub const POPUP_KEY_ESCAPE: u32 = 25;
+    pub const POPUP_KEY_TAB: u32 = 26;
+    pub const POPUP_KEY_SHIFT_TAB: u32 = 27;
+    pub const POPUP_KEY_PAGE_UP: u32 = 28;
+    pub const POPUP_KEY_PAGE_DOWN: u32 = 29;
+    pub const POPUP_KEY_SPACE: u32 = 30;
+    pub const POPUP_KEY_BACKSPACE: u32 = 31;
+    pub const POPUP_KEY_MODIFIER: u32 = 32;
+    pub const POPUP_KEY_OTHER: u32 = 33;
+}
+
+/// PopupKeyResult C 표현 상수
+pub mod popup_result_constants {
+    pub const POPUP_RESULT_SELECT: i32 = 0;
+    pub const POPUP_RESULT_CANCEL: i32 = 1;
+    pub const POPUP_RESULT_UPDATED: i32 = 2;
+    pub const POPUP_RESULT_CONSUMED: i32 = 3;
+    pub const POPUP_RESULT_NOT_HANDLED: i32 = 4;
+}
+
+/// C용 PopupKeyResult 구조체
+#[repr(C)]
+pub struct CPopupKeyResult {
+    /// 결과 종류 (popup_result_constants 참조)
+    pub kind: i32,
+    /// Select인 경우 선택된 전체 인덱스, 그 외 -1
+    pub selected_index: i32,
+}
+
+/// u32 → PopupKey 변환
+fn u32_to_popup_key(key: u32) -> PopupKey {
+    use popup_key_constants::*;
+    match key {
+        POPUP_KEY_NUMBER_1..=POPUP_KEY_NUMBER_9 => PopupKey::Number(key as u8),
+        POPUP_KEY_LETTER_0..=POPUP_KEY_LETTER_8 => PopupKey::Letter((key - POPUP_KEY_LETTER_0) as u8),
+        POPUP_KEY_UP => PopupKey::Up,
+        POPUP_KEY_DOWN => PopupKey::Down,
+        POPUP_KEY_LEFT => PopupKey::Left,
+        POPUP_KEY_RIGHT => PopupKey::Right,
+        POPUP_KEY_ENTER => PopupKey::Enter,
+        POPUP_KEY_ESCAPE => PopupKey::Escape,
+        POPUP_KEY_TAB => PopupKey::Tab,
+        POPUP_KEY_SHIFT_TAB => PopupKey::ShiftTab,
+        POPUP_KEY_PAGE_UP => PopupKey::PageUp,
+        POPUP_KEY_PAGE_DOWN => PopupKey::PageDown,
+        POPUP_KEY_SPACE => PopupKey::Space,
+        POPUP_KEY_BACKSPACE => PopupKey::Backspace,
+        POPUP_KEY_MODIFIER => PopupKey::Modifier,
+        _ => PopupKey::Other,
+    }
+}
+
+/// GDK keyval → PopupKey u32 변환
+#[no_mangle]
+pub extern "C" fn unim_popup_key_from_gdk(gdk_keyval: u32) -> u32 {
+    use popup_key_constants::*;
+    match gdk_keyval {
+        0x31..=0x39 => POPUP_KEY_NUMBER_1 + (gdk_keyval - 0x31), // '1'-'9'
+        0x71 => POPUP_KEY_LETTER_0,     // q
+        0x77 => POPUP_KEY_LETTER_0 + 1, // w
+        0x65 => POPUP_KEY_LETTER_0 + 2, // e
+        0x72 => POPUP_KEY_LETTER_0 + 3, // r
+        0x74 => POPUP_KEY_LETTER_0 + 4, // t
+        0x79 => POPUP_KEY_LETTER_0 + 5, // y
+        0x75 => POPUP_KEY_LETTER_0 + 6, // u
+        0x69 => POPUP_KEY_LETTER_0 + 7, // i
+        0x6f => POPUP_KEY_LETTER_0 + 8, // o
+        0xff52 => POPUP_KEY_UP,
+        0xff54 => POPUP_KEY_DOWN,
+        0xff51 => POPUP_KEY_LEFT,
+        0xff53 => POPUP_KEY_RIGHT,
+        0xff0d => POPUP_KEY_ENTER,
+        0xff1b => POPUP_KEY_ESCAPE,
+        0xff09 => POPUP_KEY_TAB,
+        0xfe20 => POPUP_KEY_SHIFT_TAB,
+        0xff55 => POPUP_KEY_PAGE_UP,
+        0xff56 => POPUP_KEY_PAGE_DOWN,
+        0x20 => POPUP_KEY_SPACE,
+        0xff08 => POPUP_KEY_BACKSPACE,
+        0xffe1..=0xffee | 0xff7f | 0xff14 => POPUP_KEY_MODIFIER,
+        _ => POPUP_KEY_OTHER,
+    }
+}
+
+/// Qt key → PopupKey u32 변환
+#[no_mangle]
+pub extern "C" fn unim_popup_key_from_qt(qt_key: i32) -> u32 {
+    use popup_key_constants::*;
+    match qt_key {
+        0x31..=0x39 => POPUP_KEY_NUMBER_1 + (qt_key as u32 - 0x31),
+        0x51 => POPUP_KEY_LETTER_0,     // Qt::Key_Q
+        0x57 => POPUP_KEY_LETTER_0 + 1, // Qt::Key_W
+        0x45 => POPUP_KEY_LETTER_0 + 2, // Qt::Key_E
+        0x52 => POPUP_KEY_LETTER_0 + 3, // Qt::Key_R
+        0x54 => POPUP_KEY_LETTER_0 + 4, // Qt::Key_T
+        0x59 => POPUP_KEY_LETTER_0 + 5, // Qt::Key_Y
+        0x55 => POPUP_KEY_LETTER_0 + 6, // Qt::Key_U
+        0x49 => POPUP_KEY_LETTER_0 + 7, // Qt::Key_I
+        0x4f => POPUP_KEY_LETTER_0 + 8, // Qt::Key_O
+        0x01000013 => POPUP_KEY_UP,
+        0x01000015 => POPUP_KEY_DOWN,
+        0x01000012 => POPUP_KEY_LEFT,
+        0x01000014 => POPUP_KEY_RIGHT,
+        0x01000004 | 0x01000005 => POPUP_KEY_ENTER,
+        0x01000000 => POPUP_KEY_ESCAPE,
+        0x01000001 => POPUP_KEY_TAB,
+        0x01000002 => POPUP_KEY_SHIFT_TAB, // Qt::Key_Backtab
+        0x01000016 => POPUP_KEY_PAGE_UP,
+        0x01000017 => POPUP_KEY_PAGE_DOWN,
+        0x20 => POPUP_KEY_SPACE,
+        0x01000003 => POPUP_KEY_BACKSPACE,
+        0x01000020..=0x01000023 | 0x01001103 => POPUP_KEY_MODIFIER,
+        _ => POPUP_KEY_OTHER,
+    }
+}
+
+/// 한자 팝업 상태 생성
+///
+/// # Safety
+///
+/// `target`은 유효한 UTF-8 문자열 포인터, `candidates`는 (한자, 뜻) 쌍의 배열이어야 합니다.
+#[no_mangle]
+pub unsafe extern "C" fn unim_popup_new_hanja(
+    target_ptr: *const u8,
+    target_len: usize,
+    hanja_ptrs: *const *const u8,
+    hanja_lens: *const usize,
+    meaning_ptrs: *const *const u8,
+    meaning_lens: *const usize,
+    count: usize,
+) -> *mut PopupState {
+    let target = std::str::from_utf8_unchecked(std::slice::from_raw_parts(target_ptr, target_len));
+    let mut candidates = Vec::with_capacity(count);
+    for i in 0..count {
+        let h = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            *hanja_ptrs.add(i),
+            *hanja_lens.add(i),
+        ))
+        .to_string();
+        let m = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            *meaning_ptrs.add(i),
+            *meaning_lens.add(i),
+        ))
+        .to_string();
+        candidates.push((h, m));
+    }
+    Box::into_raw(Box::new(PopupState::new_hanja(target, candidates)))
+}
+
+/// 특수문자 팝업 상태 생성
+///
+/// # Safety
+///
+/// 모든 포인터는 유효한 UTF-8 문자열이어야 합니다.
+#[no_mangle]
+pub unsafe extern "C" fn unim_popup_new_special(
+    target_ptr: *const u8,
+    target_len: usize,
+    char_ptrs: *const *const u8,
+    char_lens: *const usize,
+    count: usize,
+    top_row_ptr: *const u8,
+    top_row_len: usize,
+) -> *mut PopupState {
+    let target = std::str::from_utf8_unchecked(std::slice::from_raw_parts(target_ptr, target_len));
+    let top_row =
+        std::str::from_utf8_unchecked(std::slice::from_raw_parts(top_row_ptr, top_row_len));
+    let mut characters = Vec::with_capacity(count);
+    for i in 0..count {
+        let ch = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            *char_ptrs.add(i),
+            *char_lens.add(i),
+        ))
+        .to_string();
+        characters.push(ch);
+    }
+    Box::into_raw(Box::new(PopupState::new_special(
+        target, characters, top_row,
+    )))
+}
+
+/// 팝업 상태 해제
+///
+/// # Safety
+///
+/// `state`는 `unim_popup_new_*`로 생성된 유효한 포인터여야 합니다.
+#[no_mangle]
+pub unsafe extern "C" fn unim_popup_free(state: *mut PopupState) {
+    if !state.is_null() {
+        drop(Box::from_raw(state));
+    }
+}
+
+/// 팝업 키 처리
+#[no_mangle]
+pub extern "C" fn unim_popup_handle_key(state: &mut PopupState, popup_key: u32) -> CPopupKeyResult {
+    let key = u32_to_popup_key(popup_key);
+    match state.handle_key(key) {
+        PopupKeyResult::Select(idx) => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_SELECT,
+            selected_index: idx as i32,
+        },
+        PopupKeyResult::Cancel => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_CANCEL,
+            selected_index: -1,
+        },
+        PopupKeyResult::Updated => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_UPDATED,
+            selected_index: -1,
+        },
+        PopupKeyResult::Consumed => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_CONSUMED,
+            selected_index: -1,
+        },
+        PopupKeyResult::NotHandled => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_NOT_HANDLED,
+            selected_index: -1,
+        },
+    }
+}
+
+/// 마우스 클릭 처리
+#[no_mangle]
+pub extern "C" fn unim_popup_handle_click(
+    state: &mut PopupState,
+    row: i32,
+    col: i32,
+) -> CPopupKeyResult {
+    if row < 0 || col < 0 {
+        return CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_CONSUMED,
+            selected_index: -1,
+        };
+    }
+    match state.handle_click(row as usize, col as usize) {
+        PopupKeyResult::Select(idx) => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_SELECT,
+            selected_index: idx as i32,
+        },
+        other => CPopupKeyResult {
+            kind: match other {
+                PopupKeyResult::Cancel => popup_result_constants::POPUP_RESULT_CANCEL,
+                PopupKeyResult::Updated => popup_result_constants::POPUP_RESULT_UPDATED,
+                PopupKeyResult::Consumed => popup_result_constants::POPUP_RESULT_CONSUMED,
+                PopupKeyResult::NotHandled => popup_result_constants::POPUP_RESULT_NOT_HANDLED,
+                PopupKeyResult::Select(_) => unreachable!(),
+            },
+            selected_index: -1,
+        },
+    }
+}
+
+// --- 팝업 ViewModel 쿼리 ---
+
+/// 팝업 종류 반환 (0=Hanja, 1=SpecialChar)
+#[no_mangle]
+pub extern "C" fn unim_popup_get_kind(state: &PopupState) -> i32 {
+    match state.kind() {
+        PopupKind::Hanja => 0,
+        PopupKind::SpecialChar => 1,
+    }
+}
+
+/// 현재 행 수
+#[no_mangle]
+pub extern "C" fn unim_popup_get_rows(state: &PopupState) -> i32 {
+    state.rows() as i32
+}
+
+/// 현재 열 수
+#[no_mangle]
+pub extern "C" fn unim_popup_get_cols(state: &PopupState) -> i32 {
+    state.cols() as i32
+}
+
+/// 선택 행
+#[no_mangle]
+pub extern "C" fn unim_popup_get_sel_row(state: &PopupState) -> i32 {
+    state.sel_row() as i32
+}
+
+/// 선택 열
+#[no_mangle]
+pub extern "C" fn unim_popup_get_sel_col(state: &PopupState) -> i32 {
+    state.sel_col() as i32
+}
+
+/// 현재 페이지 (0-based)
+#[no_mangle]
+pub extern "C" fn unim_popup_get_current_page(state: &PopupState) -> i32 {
+    state.current_page() as i32
+}
+
+/// 전체 페이지 수
+#[no_mangle]
+pub extern "C" fn unim_popup_get_total_pages(state: &PopupState) -> i32 {
+    state.total_pages() as i32
+}
+
+/// 전체 항목 수
+#[no_mangle]
+pub extern "C" fn unim_popup_get_total_items(state: &PopupState) -> i32 {
+    state.total_items() as i32
+}
+
+/// 셀에 문자가 있는지 확인
+#[no_mangle]
+pub extern "C" fn unim_popup_cell_exists(state: &PopupState, row: i32, col: i32) -> bool {
+    if row < 0 || col < 0 {
+        return false;
+    }
+    state.cell_text(row as usize, col as usize).is_some()
+}
+
+/// 셀 텍스트 반환 (UnimStr — state가 살아있는 동안 유효)
+#[no_mangle]
+pub extern "C" fn unim_popup_get_cell_text(state: &PopupState, row: i32, col: i32) -> UnimStr {
+    if row < 0 || col < 0 {
+        return UnimStr::empty();
+    }
+    match state.cell_text(row as usize, col as usize) {
+        Some(text) => UnimStr::new(text),
+        None => UnimStr::empty(),
+    }
+}
+
+/// 전체 인덱스로 항목 텍스트 반환
+#[no_mangle]
+pub extern "C" fn unim_popup_get_item(state: &PopupState, index: i32) -> UnimStr {
+    if index < 0 {
+        return UnimStr::empty();
+    }
+    match state.get_item(index as usize) {
+        Some(text) => UnimStr::new(text),
+        None => UnimStr::empty(),
+    }
+}
+
+/// 전체 인덱스로 뜻 반환 (한자 전용)
+#[no_mangle]
+pub extern "C" fn unim_popup_get_meaning(state: &PopupState, index: i32) -> UnimStr {
+    if index < 0 {
+        return UnimStr::empty();
+    }
+    match state.get_meaning(index as usize) {
+        Some(text) => UnimStr::new(text),
+        None => UnimStr::empty(),
+    }
+}
+
+/// 현재 선택된 항목의 전체 인덱스 (-1이면 선택 없음)
+#[no_mangle]
+pub extern "C" fn unim_popup_selected_index(state: &PopupState) -> i32 {
+    match state.selected_global_index() {
+        Some(idx) => idx as i32,
+        None => -1,
+    }
+}
+
+/// 대상 문자열 반환
+#[no_mangle]
+pub extern "C" fn unim_popup_get_target(state: &PopupState) -> UnimStr {
+    UnimStr::new(state.target())
+}
+
+/// top_row 레이블 반환
+#[no_mangle]
+pub extern "C" fn unim_popup_get_top_row(state: &PopupState) -> UnimStr {
+    UnimStr::new(state.top_row())
 }
 
 #[cfg(test)]

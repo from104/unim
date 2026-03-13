@@ -358,9 +358,9 @@ calculate_popup_position(UnimIMContext *unim, gint *out_x, gint *out_y)
                 /* native 위젯→surface 좌표 변환 (CSD 장식/그림자 보정) */
                 double surface_tx, surface_ty;
                 gtk_native_get_surface_transform(native, &surface_tx, &surface_ty);
-                /* surface_transform은 surface→widget 변환이므로 역변환 적용 */
-                popup_x = (gint)(p_out.x - surface_tx);
-                popup_y = (gint)(p_out.y - surface_ty);
+                /* surface_transform: widget→surface 변환 (GTK4 실제 동작) */
+                popup_x = (gint)(p_out.x + surface_tx);
+                popup_y = (gint)(p_out.y + surface_ty);
             }
 
 #ifdef GDK_WINDOWING_X11

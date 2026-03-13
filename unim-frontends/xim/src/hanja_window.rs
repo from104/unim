@@ -1,11 +1,14 @@
 //! 한자 후보 팝업 윈도우 모듈
 //!
 //! X11 Xlib/Xft를 사용하여 한자 후보 목록을 표시하는 팝업 윈도우입니다.
-//! PeWindow와 동일한 패턴으로 override_redirect 윈도우를 사용합니다.
+//! 키 처리 및 상태 관리는 `unim::popup::PopupState`에 위임하고, 이 모듈은 렌더링만 담당합니다.
 
 use std::os::raw::c_int;
 
+use unim::popup::{PopupKey, PopupKeyResult, PopupState};
 use unim::unim_log;
+
+use crate::dpi;
 
 /// 한자 팝업에서 키 처리 결과
 pub enum HanjaAction {
@@ -25,6 +28,27 @@ pub enum HanjaAction {
 
 /// 페이지당 표시할 후보 수
 pub const PAGE_SIZE: usize = 9;
+
+/// X11 keysym → PopupKey 변환
+fn keysym_to_popup_key(keysym: u32) -> PopupKey {
+    match keysym {
+        0x31..=0x39 => PopupKey::Number((keysym - 0x30) as u8),
+        0xff1b => PopupKey::Escape,
+        0xff53 => PopupKey::Right,
+        0x20 => PopupKey::Space,
+        0xff51 => PopupKey::Left,
+        0xff08 => PopupKey::Backspace,
+        0xff54 => PopupKey::Down,
+        0xff52 => PopupKey::Up,
+        0xff0d => PopupKey::Enter,
+        0xff09 => PopupKey::Tab,
+        0xfe20 => PopupKey::ShiftTab,
+        0xff55 => PopupKey::PageUp,
+        0xff56 => PopupKey::PageDown,
+        0xffe1..=0xffee | 0xff7f | 0xff14 => PopupKey::Modifier,
+        _ => PopupKey::Other,
+    }
+}
 
 /// 한자 후보 팝업 윈도우
 pub struct HanjaWindow {
@@ -55,16 +79,12 @@ pub struct HanjaWindow {
     sel_bg_color: x11::xft::XftColor,
     /// 페이지 정보 색상 (#6c7086)
     page_color: x11::xft::XftColor,
-    /// 후보 목록 (한자, 뜻)
-    candidates: Vec<(String, String)>,
-    /// 대상 문자열
-    target: String,
-    /// 현재 페이지 (0-based)
-    current_page: usize,
-    /// 선택된 인덱스 (페이지 내, 0-based)
-    selected_index: usize,
+    /// 통합 팝업 상태
+    popup_state: Option<PopupState>,
     /// 윈도우 크기
     size: (u16, u16),
+    /// DPI 스케일 팩터
+    scale_factor: f64,
 }
 
 use std::os::raw::c_ulong;
@@ -78,9 +98,10 @@ impl HanjaWindow {
         y: c_int,
     ) -> Result<Self, String> {
         let root = unsafe { x11::xlib::XRootWindow(display, screen) };
+        let scale_factor = dpi::get_scale_factor(display, screen);
 
         // 초기 크기 (후보 설정 시 조정)
-        let size: (u16, u16) = (300, 200);
+        let size: (u16, u16) = (dpi::scale_u16(300, scale_factor), dpi::scale_u16(200, scale_factor));
 
         // 화면 크기 가져오기
         let screen_w = unsafe { x11::xlib::XDisplayWidth(display, screen) };
@@ -104,15 +125,13 @@ impl HanjaWindow {
         }
 
         let mut swa: x11::xlib::XSetWindowAttributes = unsafe { std::mem::zeroed() };
-        // Catppuccin Mocha Base: #1e1e2e → RGB(30,30,46)
-        // X11에서는 XAllocColor로 할당해야 진짜 색상을 얻음
         let bg_pixel = unsafe {
             let colormap = x11::xlib::XDefaultColormap(display, screen);
             let mut xcolor: x11::xlib::XColor = std::mem::zeroed();
-            xcolor.red = 30 * 257; // 0x1E1E
-            xcolor.green = 30 * 257; // 0x1E1E
-            xcolor.blue = 46 * 257; // 0x2E2E
-            xcolor.flags = 7; // DoRed | DoGreen | DoBlue
+            xcolor.red = 30 * 257;
+            xcolor.green = 30 * 257;
+            xcolor.blue = 46 * 257;
+            xcolor.flags = 7;
             x11::xlib::XAllocColor(display, colormap, &mut xcolor);
             xcolor.pixel
         };
@@ -140,7 +159,7 @@ impl HanjaWindow {
                 final_y,
                 size.0 as u32,
                 size.1 as u32,
-                1, // border width
+                1,
                 x11::xlib::CopyFromParent,
                 x11::xlib::InputOutput as u32,
                 std::ptr::null_mut(),
@@ -216,7 +235,6 @@ impl HanjaWindow {
 
         // CJK fallback 폰트 로드 (한자 글리프 포함)
         let xft_font_fallback = unsafe {
-            // Noto Sans CJK KR → 일반 sans (fontconfig이 CJK 폰트를 선택)
             let cjk_fonts: &[&[u8]] = &[
                 b"Noto Sans CJK KR:size=13\0",
                 b"Noto Serif CJK KR:size=13\0",
@@ -227,11 +245,9 @@ impl HanjaWindow {
             for pattern in cjk_fonts {
                 font = x11::xft::XftFontOpenName(display, screen, pattern.as_ptr() as *const i8);
                 if !font.is_null() {
-                    // 한자 '漢' (U+6F22) 글리프가 있는지 확인
                     if x11::xft::XftCharExists(display, font, 0x6F22) != 0 {
                         break;
                     }
-                    // 글리프 없으면 이 폰트 해제하고 다음 시도
                     x11::xft::XftFontClose(display, font);
                     font = std::ptr::null_mut();
                 }
@@ -272,11 +288,11 @@ impl HanjaWindow {
             alloc(b"#cdd6f4\0", &mut text_color);
             alloc(b"#7f849c\0", &mut number_color);
             alloc(b"#a6adc8\0", &mut meaning_color);
-            alloc(b"#333c57\0", &mut sel_bg_color); // rgba(137,180,250,0.2) on #1e1e2e
+            alloc(b"#333c57\0", &mut sel_bg_color);
             alloc(b"#6c7086\0", &mut page_color);
         }
 
-        unim_log!("XIM_HANJA", "한자 팝업 생성: pos=({},{})", final_x, final_y);
+        unim_log!("XIM_HANJA", "한자 팝업 생성: pos=({},{}), scale={:.2}", final_x, final_y, scale_factor);
 
         Ok(Self {
             window,
@@ -292,11 +308,9 @@ impl HanjaWindow {
             meaning_color,
             sel_bg_color,
             page_color,
-            candidates: Vec::new(),
-            target: String::new(),
-            current_page: 0,
-            selected_index: 0,
+            popup_state: None,
             size,
+            scale_factor,
         })
     }
 
@@ -318,20 +332,21 @@ impl HanjaWindow {
         target: &str,
         candidates: Vec<(String, String)>,
     ) {
-        self.target = target.to_string();
-        self.candidates = candidates;
-        self.current_page = 0;
-        self.selected_index = 0;
+        self.popup_state = Some(PopupState::new_hanja(target, candidates));
+
+        let ps = self.popup_state.as_ref().unwrap();
 
         // 윈도우 크기 계산: 헤더 + 후보 행 + 안내 행 + 패딩
+        let sf = self.scale_factor;
         let line_h = self.line_height(display);
-        let page_count = self.page_items().len();
-        let padding_y = 8;
-        let header_h = line_h + 4;
+        let page_count = ps.rows();
+        let padding_y = dpi::scale(8, sf);
+        let header_h = line_h + dpi::scale(4, sf);
         let items_h = (page_count as c_int) * line_h;
-        let footer_h = line_h + 4;
-        let height = (padding_y + header_h + 4 + items_h + footer_h + padding_y) as u16;
-        let width: u16 = 340;
+        let footer_h = line_h + dpi::scale(4, sf);
+        let gap = dpi::scale(4, sf);
+        let height = (padding_y + header_h + gap + items_h + footer_h + padding_y) as u16;
+        let width: u16 = dpi::scale_u16(340, sf);
 
         self.size = (width, height);
         unsafe {
@@ -365,29 +380,9 @@ impl HanjaWindow {
         self.redraw(display);
     }
 
-    /// 현재 페이지의 후보 항목
-    fn page_items(&self) -> &[(String, String)] {
-        let start = self.current_page * PAGE_SIZE;
-        let end = (start + PAGE_SIZE).min(self.candidates.len());
-        if start >= self.candidates.len() {
-            &[]
-        } else {
-            &self.candidates[start..end]
-        }
-    }
-
-    /// 총 페이지 수
-    fn total_pages(&self) -> usize {
-        if self.candidates.is_empty() {
-            1
-        } else {
-            (self.candidates.len() + PAGE_SIZE - 1) / PAGE_SIZE
-        }
-    }
-
     /// 전체 인덱스로 한자 문자열 가져오기 (handler에서 직접 커밋용)
     pub fn get_candidate(&self, index: usize) -> Option<&str> {
-        self.candidates.get(index).map(|(hanja, _)| hanja.as_str())
+        self.popup_state.as_ref()?.get_item(index)
     }
 
     /// 행 높이 계산
@@ -403,135 +398,79 @@ impl HanjaWindow {
                 test_bytes.len() as c_int,
                 &mut extents,
             );
-            (extents.height as c_int).max(18) + 4
+            (extents.height as c_int).max(dpi::scale(18, self.scale_factor)) + dpi::scale(4, self.scale_factor)
         }
     }
 
-    /// 키 처리
+    /// 키 처리 — PopupState에 위임
     pub fn handle_key(&mut self, keyval: u32) -> HanjaAction {
-        // xim crate에서는 keyval 대신 X keycode를 사용하므로
-        // 여기서는 일반적인 X11 keysym 값을 사용
-        match keyval {
-            // 숫자 1-9
-            0x31..=0x39 => {
-                let idx = (keyval - 0x31) as usize;
-                if idx < self.page_items().len() {
-                    let global_idx = self.current_page * PAGE_SIZE + idx;
-                    HanjaAction::Select(global_idx as u32)
-                } else {
-                    HanjaAction::None
-                }
-            }
-            // Escape
-            0xff1b => HanjaAction::Cancel,
-            // Right arrow / space
-            0xff53 | 0x20 => {
-                if self.total_pages() > 1 {
-                    if self.current_page + 1 < self.total_pages() {
-                        self.current_page += 1;
-                    } else {
-                        self.current_page = 0;
+        let popup_key = keysym_to_popup_key(keyval);
+        let ps = match self.popup_state.as_mut() {
+            Some(ps) => ps,
+            None => return HanjaAction::None,
+        };
+
+        match ps.handle_key(popup_key) {
+            PopupKeyResult::Select(idx) => HanjaAction::Select(idx as u32),
+            PopupKeyResult::Cancel => HanjaAction::Cancel,
+            PopupKeyResult::Updated => {
+                match popup_key {
+                    PopupKey::Right | PopupKey::Space | PopupKey::Tab | PopupKey::PageDown => {
+                        HanjaAction::NextPage
                     }
-                    self.selected_index = 0;
-                }
-                HanjaAction::NextPage
-            }
-            // Left arrow / BackSpace
-            0xff51 | 0xff08 => {
-                if self.total_pages() > 1 {
-                    if self.current_page > 0 {
-                        self.current_page -= 1;
-                    } else {
-                        self.current_page = self.total_pages() - 1;
-                    }
-                    self.selected_index = 0;
-                }
-                HanjaAction::PrevPage
-            }
-            // Down arrow
-            0xff54 => {
-                let count = self.page_items().len();
-                if count > 0 {
-                    self.selected_index = (self.selected_index + 1) % count;
-                }
-                HanjaAction::Consumed
-            }
-            // Up arrow
-            0xff52 => {
-                let count = self.page_items().len();
-                if count > 0 {
-                    if self.selected_index == 0 {
-                        self.selected_index = count - 1;
-                    } else {
-                        self.selected_index -= 1;
-                    }
-                }
-                HanjaAction::Consumed
-            }
-            // Enter/Return
-            0xff0d => {
-                let count = self.page_items().len();
-                if count > 0 && self.selected_index < count {
-                    let global_idx = self.current_page * PAGE_SIZE + self.selected_index;
-                    HanjaAction::Select(global_idx as u32)
-                } else {
-                    HanjaAction::Consumed
+                    PopupKey::Left | PopupKey::Backspace | PopupKey::ShiftTab
+                    | PopupKey::PageUp => HanjaAction::PrevPage,
+                    _ => HanjaAction::Consumed,
                 }
             }
-            // 모디파이어 키 (Shift, Ctrl, Alt, CapsLock, Super, Num_Lock, Scroll_Lock 등) → 무시
-            0xffe1..=0xffee | 0xff7f | 0xff14 => HanjaAction::Consumed,
-            _ => HanjaAction::None,
+            PopupKeyResult::Consumed => HanjaAction::Consumed,
+            PopupKeyResult::NotHandled => HanjaAction::None,
         }
     }
 
     /// 마우스 버튼 클릭 처리
-    /// button: X11 Button (1=좌클릭, 3=우클릭)
-    /// y: 클릭한 Y 좌표
     pub fn handle_button_press(
         &mut self,
         button: u32,
         y: c_int,
         display: *mut x11::xlib::Display,
     ) -> HanjaAction {
+        if self.popup_state.is_none() {
+            return HanjaAction::Consumed;
+        }
+
+        let line_h = self.line_height(display);
+        let ps = self.popup_state.as_mut().unwrap();
+
         match button {
             1 => {
                 // 좌클릭 → 클릭한 행의 후보 선택
-                let line_h = self.line_height(display);
-                let items_count = self.page_items().len();
-                if items_count == 0 || line_h == 0 {
+                if line_h == 0 {
                     return HanjaAction::Consumed;
                 }
-                // 행 인덱스 계산 (첫 행 y 시작 = line_h - line_h + 4 = 4)
-                let idx = ((y - 4) / line_h) as usize;
-                if idx < items_count {
-                    let global_idx = self.current_page * PAGE_SIZE + idx;
-                    unim_log!(
-                        "XIM_HANJA",
-                        "좌클릭 선택: row={}, global={}",
-                        idx,
-                        global_idx
-                    );
-                    HanjaAction::Select(global_idx as u32)
-                } else {
-                    HanjaAction::Consumed
+                let idx = ((y - dpi::scale(4, self.scale_factor)) / line_h) as usize;
+                match ps.handle_click(idx, 0) {
+                    PopupKeyResult::Select(global_idx) => {
+                        unim_log!(
+                            "XIM_HANJA",
+                            "좌클릭 선택: row={}, global={}",
+                            idx,
+                            global_idx
+                        );
+                        HanjaAction::Select(global_idx as u32)
+                    }
+                    _ => HanjaAction::Consumed,
                 }
             }
             3 => {
                 // 우클릭 → 다음 페이지 (순환)
-                if self.total_pages() > 1 {
-                    if self.current_page + 1 < self.total_pages() {
-                        self.current_page += 1;
-                    } else {
-                        self.current_page = 0;
-                    }
-                    self.selected_index = 0;
-                    unim_log!(
-                        "XIM_HANJA",
-                        "우클릭 → 다음 페이지: {}/{}",
-                        self.current_page + 1,
-                        self.total_pages()
-                    );
-                }
+                ps.handle_key(PopupKey::Right);
+                unim_log!(
+                    "XIM_HANJA",
+                    "우클릭 → 다음 페이지: {}/{}",
+                    ps.current_page() + 1,
+                    ps.total_pages()
+                );
                 HanjaAction::NextPage
             }
             _ => HanjaAction::Consumed,
@@ -539,9 +478,6 @@ impl HanjaWindow {
     }
 
     /// UTF-8 문자열을 font fallback 적용하여 렌더링
-    ///
-    /// 메인 폰트(D2Coding)에 글리프가 없는 문자는 fallback 폰트(Noto Sans CJK KR 등)로 렌더링.
-    /// 연속된 같은 폰트 문자들을 배치로 묶어서 XftDrawStringUtf8 호출 (성능 최적화).
     fn draw_string_with_fallback(
         &self,
         display: *mut x11::xlib::Display,
@@ -550,7 +486,6 @@ impl HanjaWindow {
         y: c_int,
         text: &str,
     ) {
-        // fallback 폰트가 없으면 메인 폰트로만 렌더링
         if self.xft_font_fallback.is_null() {
             let bytes = text.as_bytes();
             unsafe {
@@ -567,14 +502,12 @@ impl HanjaWindow {
             return;
         }
 
-        // 문자별로 폰트를 결정하고, 같은 폰트의 연속 문자를 배치로 묶어 렌더링
         let mut cursor_x = x;
         let mut batch_start: usize = 0;
         let mut batch_use_fallback = false;
         let chars: Vec<(usize, char)> = text.char_indices().collect();
 
         for i in 0..=chars.len() {
-            // 현재 문자에 대해 fallback 필요 여부 결정
             let use_fallback = if i < chars.len() {
                 let ch = chars[i].1;
                 let code = ch as u32;
@@ -583,10 +516,9 @@ impl HanjaWindow {
                         == 0
                 }
             } else {
-                !batch_use_fallback // 마지막: 강제 flush
+                !batch_use_fallback
             };
 
-            // 폰트 전환 감지 또는 문자열 끝 → 배치 flush
             if i > batch_start && (use_fallback != batch_use_fallback || i == chars.len()) {
                 let batch_end = if i < chars.len() {
                     chars[i].0
@@ -611,7 +543,6 @@ impl HanjaWindow {
                         batch_bytes.len() as c_int,
                     );
 
-                    // 배치 너비 측정하여 커서 이동
                     let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
                     x11::xft::XftTextExtentsUtf8(
                         display,
@@ -632,23 +563,31 @@ impl HanjaWindow {
         }
     }
 
-    /// 다시 그리기 — 설계서 기반 Catppuccin Mocha 렌더링
+    /// 다시 그리기 — PopupState에서 데이터를 읽어 Catppuccin Mocha 렌더링
     pub fn redraw(&mut self, display: *mut x11::xlib::Display) {
         if display.is_null() {
             return;
         }
 
+        let ps = match self.popup_state.as_ref() {
+            Some(ps) => ps,
+            None => return,
+        };
+
         unsafe {
             x11::xlib::XClearWindow(display, self.window);
         }
 
+        let sf = self.scale_factor;
         let line_h = self.line_height(display);
-        let padding_x: c_int = 12;
-        let padding_y: c_int = 8;
-        let items = self.page_items().to_vec();
+        let padding_x: c_int = dpi::scale(12, sf);
+        let padding_y: c_int = dpi::scale(8, sf);
+        let items = ps.hanja_page_items();
+        let selected_index = ps.sel_row();
 
         // 헤더 배경 (#313244)
-        let header_h = line_h + 4;
+        let header_h = line_h + dpi::scale(4, sf);
+        let inset = dpi::scale(4, sf);
         unsafe {
             let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
             x11::xlib::XSetForeground(display, gc, self.header_bg_color.pixel);
@@ -656,25 +595,26 @@ impl HanjaWindow {
                 display,
                 self.window,
                 gc,
-                4,
-                4,
-                (self.size.0 - 8) as u32,
+                inset,
+                inset,
+                (self.size.0 as c_int - inset * 2) as u32,
                 header_h as u32,
             );
             x11::xlib::XFreeGC(display, gc);
         }
 
         // 헤더 텍스트: 「한」 → 한자  1/3
-        let header_text = format!("「{}」 → 한자", self.target);
+        let text_offset = dpi::scale(2, sf);
+        let header_text = format!("「{}」 → 한자", ps.target());
         self.draw_string_with_fallback(
             display,
             &self.header_color,
             padding_x,
-            padding_y + line_h - 2,
+            padding_y + line_h - text_offset,
             &header_text,
         );
         // 페이지 번호 (헤더 오른쪽)
-        let page_str = format!("{}/{}", self.current_page + 1, self.total_pages());
+        let page_str = format!("{}/{}", ps.current_page() + 1, ps.total_pages());
         let page_bytes = page_str.as_bytes();
         unsafe {
             let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
@@ -691,20 +631,20 @@ impl HanjaWindow {
                 &self.page_color,
                 self.xft_font,
                 page_x,
-                padding_y + line_h - 2,
+                padding_y + line_h - text_offset,
                 page_bytes.as_ptr(),
                 page_bytes.len() as c_int,
             );
         }
 
         // 후보 행
-        let items_start_y = padding_y + header_h + 4;
+        let items_start_y = padding_y + header_h + dpi::scale(4, sf);
         for (i, (hanja, meaning)) in items.iter().enumerate() {
-            let y_pos = items_start_y + (i as c_int) * line_h + line_h - 2;
+            let y_pos = items_start_y + (i as c_int) * line_h + line_h - text_offset;
             let row_top = items_start_y + (i as c_int) * line_h;
 
             // 선택된 항목 배경 (#313654)
-            if i == self.selected_index {
+            if i == selected_index {
                 unsafe {
                     let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
                     x11::xlib::XSetForeground(display, gc, self.sel_bg_color.pixel);
@@ -712,9 +652,9 @@ impl HanjaWindow {
                         display,
                         self.window,
                         gc,
-                        4,
+                        inset,
                         row_top,
-                        (self.size.0 - 8) as u32,
+                        (self.size.0 as c_int - inset * 2) as u32,
                         line_h as u32,
                     );
                     x11::xlib::XFreeGC(display, gc);
@@ -737,7 +677,7 @@ impl HanjaWindow {
             }
 
             // 한자 문자 (#cdd6f4, fallback font)
-            let hanja_x = padding_x + 28;
+            let hanja_x = padding_x + dpi::scale(28, sf);
             self.draw_string_with_fallback(display, &self.text_color, hanja_x, y_pos, hanja);
 
             // 한자 글자 너비 측정
@@ -760,7 +700,7 @@ impl HanjaWindow {
 
             // 뜻풀이 (#a6adc8)
             if !meaning.is_empty() {
-                let meaning_x = hanja_x + hanja_width + 8;
+                let meaning_x = hanja_x + hanja_width + dpi::scale(8, sf);
                 let meaning_bytes = meaning.as_bytes();
                 unsafe {
                     x11::xft::XftDrawStringUtf8(
@@ -810,7 +750,6 @@ impl HanjaWindow {
             let visual = x11::xlib::XDefaultVisual(display, screen);
             let colormap = x11::xlib::XDefaultColormap(display, screen);
 
-            // 색상 해제 — Catppuccin Mocha 전체
             let colors: &[&x11::xft::XftColor] = &[
                 &self.bg_color,
                 &self.border_color,

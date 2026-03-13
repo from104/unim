@@ -17,6 +17,8 @@
 #include <QTimer>
 #include <functional>
 
+#include "unim.h"
+
 /* 그리드 상수 */
 #define SPECIAL_MAX_ROWS  9   /* 최대 행 수 (숫자 1-9) */
 #define SPECIAL_MAX_COLS  9   /* 최대 열 수 (QWERTYUIO) */
@@ -99,6 +101,9 @@ private:
     /* 플래시 타이머 */
     QTimer *m_flashTimer;
     bool m_pendingHide;
+
+    /* C-API popup state */
+    UnimPopupState *m_popupState = nullptr;
 };
 
 #endif // UNIM_SPECIAL_POPUP_HPP

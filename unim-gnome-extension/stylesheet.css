@@ -80,7 +80,7 @@
 }
 
 .unim-hanja-popup .popup-item .item-hanja {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: bold;
     margin-right: 8px;
 }
@@ -104,9 +104,9 @@
 
 .unim-special-popup {
     background-color: rgba(30, 30, 46, 0.95);
-    border: 1px solid #a6e3a1;
-    border-radius: 8px;
-    padding: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 12px;
 }
 
 .unim-special-popup .popup-header {
@@ -121,8 +121,8 @@
 .unim-special-popup .grid-cell {
     color: #cdd6f4;
     font-size: 14px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 30px;
+    min-height: 30px;
     text-align: center;
     border-radius: 4px;
 }
@@ -136,8 +136,8 @@
     color: #f9e2af;
     font-weight: bold;
     font-size: 12px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 30px;
+    min-height: 30px;
     text-align: center;
 }
 

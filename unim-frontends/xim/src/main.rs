@@ -4,6 +4,7 @@
 //! DBus를 통해 unim-daemon과 통신합니다.
 
 mod dbus_client;
+mod dpi;
 mod handler;
 mod hanja_window;
 mod pe_window;

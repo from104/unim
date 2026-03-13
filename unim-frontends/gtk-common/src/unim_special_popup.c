@@ -6,6 +6,7 @@
  */
 
 #include "unim_special_popup.h"
+#include "unim.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -22,7 +23,7 @@
 /* 상수 */
 #define MAX_ROWS 9
 #define MAX_COLS 9
-#define CELL_SIZE 32
+#define CELL_SIZE 30
 #define HEADER_SIZE 20
 #define FOOTER_HEIGHT 20
 #define PAGE_SIZE (MAX_ROWS * MAX_COLS)  /* 81 */
@@ -84,6 +85,9 @@ struct _UnimSpecialPopup {
 
     /* 플래시 후 숨김 대기 중 플래그 */
     gboolean pending_hide;
+
+    /* C-API popup state */
+    UnimPopupState *popup_state;
 };
 
 /* 전방 선언 */
@@ -217,7 +221,7 @@ unim_special_popup_new(void)
         "  color: #a6e3a1; font-size: 11px; font-weight: bold; min-height: 20px;"
         "}"
         ".unim-special-vbox label.cell {"
-        "  padding: 2px 4px; min-width: 28px; min-height: 28px;"
+        "  padding: 2px 4px; min-width: 30px; min-height: 30px;"
         "}"
         ".unim-special-vbox label.cell-col-highlight {"
         "  background-color: rgba(166, 227, 161, 0.08); border-radius: 4px;"
@@ -268,6 +272,11 @@ unim_special_popup_free(UnimSpecialPopup *popup)
 {
     if (!popup) return;
 
+    if (popup->popup_state) {
+        unim_popup_free(popup->popup_state);
+        popup->popup_state = NULL;
+    }
+
     if (popup->window) {
 #if GTK_CHECK_VERSION(4, 0, 0)
         gtk_window_destroy(GTK_WINDOW(popup->window));
@@ -288,15 +297,18 @@ on_cell_clicked(GtkGestureClick *gesture, gint n_press, gdouble x, gdouble y, gp
     UnimSpecialPopup *popup = (UnimSpecialPopup *)user_data;
 
     GtkWidget *picked = gtk_widget_pick(popup->grid, x, y, GTK_PICK_DEFAULT);
-    if (!picked) return;
+    if (!picked || !popup->popup_state) return;
 
     for (gint r = 0; r < MAX_ROWS; r++) {
         for (gint c = 0; c < MAX_COLS; c++) {
             if (popup->cells[r][c] == picked) {
-                popup->sel_row = r;
-                popup->sel_col = c;
-                update_selection(popup);
-                select_current(popup);
+                UnimPopupKeyResult result = unim_popup_handle_click(popup->popup_state, r, c);
+                if (result.kind == UNIM_POPUP_RESULT_SELECT) {
+                    popup->sel_row = unim_popup_get_sel_row(popup->popup_state);
+                    popup->sel_col = unim_popup_get_sel_col(popup->popup_state);
+                    update_selection(popup);
+                    select_current(popup);
+                }
                 return;
             }
         }
@@ -308,7 +320,7 @@ on_grid_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_dat
 {
     (void)widget;
     UnimSpecialPopup *popup = (UnimSpecialPopup *)user_data;
-    if (event->button != 1) return FALSE;
+    if (event->button != 1 || !popup->popup_state) return FALSE;
 
     /* 클릭된 셀 찾기: 각 셀의 allocation 확인 */
     for (gint r = 0; r < MAX_ROWS; r++) {
@@ -318,10 +330,13 @@ on_grid_button_press(GtkWidget *widget, GdkEventButton *event, gpointer user_dat
                 gtk_widget_get_allocation(popup->cells[r][c], &alloc);
                 if (event->x >= alloc.x && event->x < alloc.x + alloc.width &&
                     event->y >= alloc.y && event->y < alloc.y + alloc.height) {
-                    popup->sel_row = r;
-                    popup->sel_col = c;
-                    update_selection(popup);
-                    select_current(popup);
+                    UnimPopupKeyResult result = unim_popup_handle_click(popup->popup_state, r, c);
+                    if (result.kind == UNIM_POPUP_RESULT_SELECT) {
+                        popup->sel_row = unim_popup_get_sel_row(popup->popup_state);
+                        popup->sel_col = unim_popup_get_sel_col(popup->popup_state);
+                        update_selection(popup);
+                        select_current(popup);
+                    }
                     return TRUE;
                 }
             }
@@ -594,6 +609,24 @@ unim_special_popup_show(UnimSpecialPopup *popup,
         strncpy(popup->top_row, "QWERTYUIO", 10);
     }
 
+    /* Build arrays for C-API */
+    {
+        const uint8_t **char_ptrs = g_malloc(sizeof(uint8_t*) * count);
+        size_t *char_lens = g_malloc(sizeof(size_t) * count);
+        for (gsize i = 0; i < count; i++) {
+            char_ptrs[i] = (const uint8_t *)popup->characters[i];
+            char_lens[i] = strlen(popup->characters[i]);
+        }
+        if (popup->popup_state) unim_popup_free(popup->popup_state);
+        popup->popup_state = unim_popup_new_special(
+            (const uint8_t *)target, strlen(target),
+            char_ptrs, char_lens, count,
+            (const uint8_t *)popup->top_row, strlen(popup->top_row)
+        );
+        g_free(char_ptrs);
+        g_free(char_lens);
+    }
+
     SPECIAL_DEBUG("특수문자 팝업 표시: target='%s', count=%zu, pages=%d",
                   target, count, popup->total_pages);
 
@@ -712,154 +745,35 @@ unim_special_popup_is_visible(UnimSpecialPopup *popup)
 gboolean
 unim_special_popup_handle_key(UnimSpecialPopup *popup, guint keyval)
 {
-    if (!popup || !popup->characters || popup->pending_hide) return FALSE;
+    if (!popup || !popup->popup_state || popup->pending_hide) return FALSE;
 
-    /* top_row 키: 열 점프 (물리 키 위치 기준)
-     * OS keyval은 QWERTY 기반이므로, 물리 키 위치 "qwertyuio"로 매칭.
-     * top_row는 표시 전용 (드보락: ',.PYFGCR 등). */
-    {
-        static const char physical_keys[] = "qwertyuio";
-        guint lower = gdk_keyval_to_lower(keyval);
-        for (gint i = 0; i < 9; i++) {
-            if (i >= popup->cols) break;
-            guint expected = gdk_unicode_to_keyval((gunichar)physical_keys[i]);
-            if (lower == expected) {
-                if (cell_has_char(popup, 0, i)) {
-                    popup->sel_col = i;
-                    if (!cell_has_char(popup, popup->sel_row, popup->sel_col)) {
-                        popup->sel_row = 0;
-                    }
-                    update_selection(popup);
-                    SPECIAL_DEBUG("열 점프: %c → 열 %d", (char)popup->top_row[i], i);
-                }
-                return TRUE;
-            }
-        }
-    }
+    uint32_t popup_key = unim_popup_key_from_gdk((uint32_t)keyval);
+    UnimPopupKeyResult result = unim_popup_handle_key(popup->popup_state, popup_key);
 
-    switch (keyval) {    /* 숫자 1-9: 현재 열의 N번째 행 선택 */
-    case GDK_KEY_1: case GDK_KEY_2: case GDK_KEY_3:
-    case GDK_KEY_4: case GDK_KEY_5: case GDK_KEY_6:
-    case GDK_KEY_7: case GDK_KEY_8: case GDK_KEY_9:
-    {
-        gint row = keyval - GDK_KEY_1;
-        if (cell_has_char(popup, row, popup->sel_col)) {
-            popup->sel_row = row;
-            update_selection(popup);
-            select_current(popup);
-        }
-        return TRUE;
-    }
-
-    /* 화살표 키: 네비게이션 (열 내 무한 루프) */
-    case GDK_KEY_Up:
-        if (popup->sel_row > 0) {
-            popup->sel_row--;
-        } else {
-            /* 위 가장자리 → 같은 열 마지막 행 (무한 루프) */
-            gint last_row = MAX_ROWS - 1;
-            while (last_row > 0 && !cell_has_char(popup, last_row, popup->sel_col)) {
-                last_row--;
-            }
-            popup->sel_row = last_row;
-        }
+    switch (result.kind) {
+    case UNIM_POPUP_RESULT_SELECT:
+        popup->sel_row = unim_popup_get_sel_row(popup->popup_state);
+        popup->sel_col = unim_popup_get_sel_col(popup->popup_state);
         update_selection(popup);
-        return TRUE;
-
-    case GDK_KEY_Down:
-        if (popup->sel_row < MAX_ROWS - 1 &&
-            cell_has_char(popup, popup->sel_row + 1, popup->sel_col)) {
-            popup->sel_row++;
-        } else {
-            /* 아래 가장자리 → 같은 열 첫 행 (무한 루프) */
-            popup->sel_row = 0;
-        }
-        update_selection(popup);
-        return TRUE;
-
-    case GDK_KEY_Left:
-        if (popup->sel_col > 0) {
-            popup->sel_col--;
-        } else {
-            /* 왼쪽 가장자리 → 마지막 열 (무한 루프) */
-            popup->sel_col = popup->cols - 1;
-        }
-        if (!cell_has_char(popup, popup->sel_row, popup->sel_col)) {
-            popup->sel_row = 0;
-        }
-        update_selection(popup);
-        return TRUE;
-
-    case GDK_KEY_Right:
-        if (popup->sel_col < popup->cols - 1) {
-            popup->sel_col++;
-        } else {
-            /* 오른쪽 가장자리 → 첫 열 (무한 루프) */
-            popup->sel_col = 0;
-        }
-        if (!cell_has_char(popup, popup->sel_row, popup->sel_col)) {
-            popup->sel_row = 0;
-        }
-        update_selection(popup);
-        return TRUE;
-
-    /* 페이지 이동 */
-    case GDK_KEY_Page_Up:
-        if (popup->current_page > 0) {
-            popup->current_page--;
-            popup->sel_row = 0;
-            popup->sel_col = 0;
-            update_grid(popup);
-        }
-        return TRUE;
-
-    case GDK_KEY_Page_Down:
-    case GDK_KEY_space:
-        if (popup->current_page < popup->total_pages - 1) {
-            popup->current_page++;
-            popup->sel_row = 0;
-            popup->sel_col = 0;
-            update_grid(popup);
-        }
-        return TRUE;
-
-    /* Enter: 선택 확정 */
-    case GDK_KEY_Return:
-    case GDK_KEY_KP_Enter:
         select_current(popup);
         return TRUE;
-
-    /* Tab: 다음 페이지 (무한 루프), Shift+Tab: 이전 페이지 (무한 루프) */
-    case GDK_KEY_Tab:
-    case GDK_KEY_ISO_Left_Tab:  /* Shift+Tab */
-        if (keyval == GDK_KEY_ISO_Left_Tab) {
-            if (popup->current_page > 0) {
-                popup->current_page--;
-            } else {
-                popup->current_page = popup->total_pages - 1;
-            }
-        } else {
-            if (popup->current_page < popup->total_pages - 1) {
-                popup->current_page++;
-            } else {
-                popup->current_page = 0;
-            }
-        }
-        popup->sel_col = 0;
-        popup->sel_row = 0;
+    case UNIM_POPUP_RESULT_CANCEL:
+        return FALSE;  /* Let caller handle cancel */
+    case UNIM_POPUP_RESULT_UPDATED:
+        /* Sync state from PopupState */
+        popup->current_page = unim_popup_get_current_page(popup->popup_state);
+        popup->total_pages = unim_popup_get_total_pages(popup->popup_state);
+        popup->rows = unim_popup_get_rows(popup->popup_state);
+        popup->cols = unim_popup_get_cols(popup->popup_state);
+        popup->sel_row = unim_popup_get_sel_row(popup->popup_state);
+        popup->sel_col = unim_popup_get_sel_col(popup->popup_state);
         update_grid(popup);
         update_selection(popup);
         return TRUE;
-
-    /* 수정자 키 무시 (소비) */
-    case GDK_KEY_Shift_L: case GDK_KEY_Shift_R:
-    case GDK_KEY_Control_L: case GDK_KEY_Control_R:
-    case GDK_KEY_Alt_L: case GDK_KEY_Alt_R:
-    case GDK_KEY_Super_L: case GDK_KEY_Super_R:
+    case UNIM_POPUP_RESULT_CONSUMED:
         return TRUE;
-
+    case UNIM_POPUP_RESULT_NOT_HANDLED:
     default:
-        /* 미처리 키 → 팝업 밖으로 전달 */
         return FALSE;
     }
 }

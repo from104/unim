@@ -16,6 +16,7 @@
 #include <QGuiApplication>
 #include <functional>
 #include "unim_dbus_client.hpp"
+#include "unim.h"
 
 /* 한 페이지에 표시할 최대 후보 수 */
 #define MAX_VISIBLE_CANDIDATES 9
@@ -74,6 +75,8 @@ private:
 
     int m_currentPage;
     int m_selectedIndex;
+
+    UnimPopupState *m_popupState = nullptr;
 };
 
 #endif // UNIM_HANJA_POPUP_HPP

@@ -153,6 +153,22 @@ export class HanjaPopup {
     }
 
     /**
+     * 데몬 PopupNavigate 시그널로 상태 업데이트
+     *
+     * @param {number} page - 현재 페이지 (0-based)
+     * @param {number} totalPages - 전체 페이지 수
+     * @param {number} selected - 선택된 인덱스 (페이지 내)
+     */
+    updateFromNavigate(page, totalPages, selected) {
+        if (!this.isVisible) return;
+        this._currentPage = page;
+        this._totalPages = totalPages;
+        this._selectedIndex = selected;
+        this._updateList();
+        this._updateSelection();
+    }
+
+    /**
      * 키 이벤트 처리
      *
      * GTK3 unim_hanja_popup_handle_key 로직 이식.

@@ -7,6 +7,7 @@ use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::keystroke::EnglishKeymap;
+use crate::popup::{PopupKey, PopupKeyResult, PopupState};
 use crate::unim_log;
 use std::collections::HashMap;
 
@@ -31,6 +32,10 @@ pub enum PopupAction {
         page: usize,
         total_pages: usize,
         selected: usize,
+        rows: usize,
+        cols: usize,
+        sel_row: usize,
+        sel_col: usize,
     },
 }
 
@@ -169,12 +174,8 @@ pub struct InputEngine {
     special_char_target: String,
     /// 한/영 전환 키 목록 (설정 기반)
     toggle_keys: Vec<KeyCode>,
-    /// 팝업 현재 페이지 (0-based)
-    popup_page: usize,
-    /// 팝업 페이지당 항목 수
-    popup_page_size: usize,
-    /// 팝업 페이지 내 선택 인덱스
-    popup_selected: usize,
+    /// 통합 팝업 상태 (한자/특수문자 공용)
+    popup_state: Option<PopupState>,
     /// 처리 대기 팝업 액션
     popup_pending_action: Option<PopupAction>,
     /// 영어 레이아웃 top_row_labels 캐시 (특수문자 팝업용)
@@ -225,9 +226,7 @@ impl InputEngine {
                 .map(|name| KeyCode::from_name(name))
                 .filter(|k| *k != KeyCode::Unknown)
                 .collect(),
-            popup_page: 0,
-            popup_page_size: 9,
-            popup_selected: 0,
+            popup_state: None,
             popup_pending_action: None,
             top_row_labels: config.engine.english.layout.top_row_labels().to_string(),
         }
@@ -693,14 +692,18 @@ impl InputEngine {
                     candidates.len()
                 );
                 self.hanja_target = target_syllable.clone();
+                let hanja_pairs = candidates
+                    .iter()
+                    .map(|e| (e.hanja.clone(), e.meaning.clone()))
+                    .collect::<Vec<_>>();
                 self.hanja_candidates = candidates;
                 self.hanja_mode = true;
-                self.popup_page = 0;
-                self.popup_selected = 0;
+                self.popup_state =
+                    Some(PopupState::new_hanja(&target_syllable, hanja_pairs.clone()));
                 // 팝업 액션 설정
                 self.popup_pending_action = Some(PopupAction::ShowHanja {
                     target: target_syllable,
-                    candidates: self.get_hanja_candidates(),
+                    candidates: hanja_pairs,
                 });
                 return InputResult::hanja_candidates();
             }
@@ -718,16 +721,20 @@ impl InputEngine {
                 self.special_char_target = target_syllable;
                 self.special_char_candidates = entry.characters.to_vec();
                 self.special_char_mode = true;
-                self.popup_page = 0;
-                self.popup_selected = 0;
+                let chars: Vec<String> = self
+                    .special_char_candidates
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect();
+                self.popup_state = Some(PopupState::new_special(
+                    &self.special_char_target,
+                    chars.clone(),
+                    &self.top_row_labels,
+                ));
                 // 팝업 액션 설정
                 self.popup_pending_action = Some(PopupAction::ShowSpecial {
                     target: self.special_char_target.clone(),
-                    characters: self
-                        .special_char_candidates
-                        .iter()
-                        .map(|c| c.to_string())
-                        .collect(),
+                    characters: chars,
                     top_row: self.top_row_labels.clone(),
                 });
                 return InputResult::special_char_candidates();
@@ -794,8 +801,7 @@ impl InputEngine {
         self.hanja_mode = false;
         self.hanja_candidates.clear();
         self.hanja_target.clear();
-        self.popup_page = 0;
-        self.popup_selected = 0;
+        self.popup_state = None;
 
         // preedit도 클리어 (한자 선택 후 원래 한글이 남지 않도록)
         self.korean_context.clear();
@@ -853,8 +859,7 @@ impl InputEngine {
         self.special_char_mode = false;
         self.special_char_candidates.clear();
         self.special_char_target.clear();
-        self.popup_page = 0;
-        self.popup_selected = 0;
+        self.popup_state = None;
 
         // preedit도 클리어
         self.korean_context.clear();
@@ -870,6 +875,33 @@ impl InputEngine {
         self.popup_pending_action.take()
     }
 
+    /// KeyCode를 PopupKey로 변환합니다.
+    fn keycode_to_popup_key(keycode: KeyCode) -> PopupKey {
+        match keycode {
+            KeyCode::Num1 => PopupKey::Number(1),
+            KeyCode::Num2 => PopupKey::Number(2),
+            KeyCode::Num3 => PopupKey::Number(3),
+            KeyCode::Num4 => PopupKey::Number(4),
+            KeyCode::Num5 => PopupKey::Number(5),
+            KeyCode::Num6 => PopupKey::Number(6),
+            KeyCode::Num7 => PopupKey::Number(7),
+            KeyCode::Num8 => PopupKey::Number(8),
+            KeyCode::Num9 => PopupKey::Number(9),
+            KeyCode::Enter => PopupKey::Enter,
+            KeyCode::Escape => PopupKey::Escape,
+            KeyCode::Up => PopupKey::Up,
+            KeyCode::Down => PopupKey::Down,
+            KeyCode::Left => PopupKey::Left,
+            KeyCode::Right => PopupKey::Right,
+            KeyCode::PageUp => PopupKey::PageUp,
+            KeyCode::PageDown => PopupKey::PageDown,
+            KeyCode::Tab => PopupKey::Tab,
+            KeyCode::Space => PopupKey::Space,
+            KeyCode::Backspace => PopupKey::Backspace,
+            _ => PopupKey::Other,
+        }
+    }
+
     /// 팝업(한자/특수문자) 활성 상태에서 키를 처리합니다.
     fn process_popup_key(
         &mut self,
@@ -877,127 +909,41 @@ impl InputEngine {
         _modifier: ModifierState,
         config: &Config,
     ) -> InputResult {
-        let total_items = if self.hanja_mode {
-            self.hanja_candidates.len()
+        let popup_key = Self::keycode_to_popup_key(keycode);
+
+        let result = if let Some(ref mut state) = self.popup_state {
+            state.handle_key(popup_key)
         } else {
-            self.special_char_candidates.len()
+            PopupKeyResult::NotHandled
         };
-        let total_pages = (total_items + self.popup_page_size - 1) / self.popup_page_size;
 
-        match keycode {
-            // 번호키 1-9: 해당 항목 선택
-            KeyCode::Num1
-            | KeyCode::Num2
-            | KeyCode::Num3
-            | KeyCode::Num4
-            | KeyCode::Num5
-            | KeyCode::Num6
-            | KeyCode::Num7
-            | KeyCode::Num8
-            | KeyCode::Num9 => {
-                let num = match keycode {
-                    KeyCode::Num1 => 0,
-                    KeyCode::Num2 => 1,
-                    KeyCode::Num3 => 2,
-                    KeyCode::Num4 => 3,
-                    KeyCode::Num5 => 4,
-                    KeyCode::Num6 => 5,
-                    KeyCode::Num7 => 6,
-                    KeyCode::Num8 => 7,
-                    KeyCode::Num9 => 8,
-                    _ => 0,
-                };
-                let abs_index = self.popup_page * self.popup_page_size + num;
-                if abs_index < total_items {
-                    return self.popup_select(abs_index);
-                }
-                // 범위 밖이면 소비만
-                InputResult::consumed()
-            }
+        match result {
+            PopupKeyResult::Select(abs_index) => self.popup_select(abs_index),
 
-            // Enter: 현재 선택 항목 확정
-            KeyCode::Enter => {
-                let abs_index = self.popup_page * self.popup_page_size + self.popup_selected;
-                if abs_index < total_items {
-                    return self.popup_select(abs_index);
-                }
-                InputResult::consumed()
-            }
-
-            // Escape: 취소
-            KeyCode::Escape => {
+            PopupKeyResult::Cancel => {
                 self.popup_cancel();
                 InputResult::consumed()
             }
 
-            // ↓: 다음 항목
-            KeyCode::Down => {
-                let page_items = std::cmp::min(
-                    self.popup_page_size,
-                    total_items.saturating_sub(self.popup_page * self.popup_page_size),
-                );
-                if page_items > 0 {
-                    self.popup_selected = (self.popup_selected + 1) % page_items;
+            PopupKeyResult::Updated => {
+                // PopupState 내부 상태가 변경됨 → PopupNavigate 액션 발행
+                if let Some(ref state) = self.popup_state {
                     self.popup_pending_action = Some(PopupAction::PopupNavigate {
-                        page: self.popup_page,
-                        total_pages,
-                        selected: self.popup_selected,
+                        page: state.current_page(),
+                        total_pages: state.total_pages(),
+                        selected: state.sel_row(),
+                        rows: state.rows(),
+                        cols: state.cols(),
+                        sel_row: state.sel_row(),
+                        sel_col: state.sel_col(),
                     });
                 }
                 InputResult::consumed()
             }
 
-            // ↑: 이전 항목
-            KeyCode::Up => {
-                let page_items = std::cmp::min(
-                    self.popup_page_size,
-                    total_items.saturating_sub(self.popup_page * self.popup_page_size),
-                );
-                if page_items > 0 {
-                    self.popup_selected = if self.popup_selected == 0 {
-                        page_items - 1
-                    } else {
-                        self.popup_selected - 1
-                    };
-                    self.popup_pending_action = Some(PopupAction::PopupNavigate {
-                        page: self.popup_page,
-                        total_pages,
-                        selected: self.popup_selected,
-                    });
-                }
-                InputResult::consumed()
-            }
+            PopupKeyResult::Consumed => InputResult::consumed(),
 
-            // PgDn / →: 다음 페이지
-            KeyCode::PageDown | KeyCode::Right => {
-                if self.popup_page + 1 < total_pages {
-                    self.popup_page += 1;
-                    self.popup_selected = 0;
-                    self.popup_pending_action = Some(PopupAction::PopupNavigate {
-                        page: self.popup_page,
-                        total_pages,
-                        selected: self.popup_selected,
-                    });
-                }
-                InputResult::consumed()
-            }
-
-            // PgUp / ←: 이전 페이지
-            KeyCode::PageUp | KeyCode::Left => {
-                if self.popup_page > 0 {
-                    self.popup_page -= 1;
-                    self.popup_selected = 0;
-                    self.popup_pending_action = Some(PopupAction::PopupNavigate {
-                        page: self.popup_page,
-                        total_pages,
-                        selected: self.popup_selected,
-                    });
-                }
-                InputResult::consumed()
-            }
-
-            // 기타 키: 팝업 닫고 키 재처리
-            _ => {
+            PopupKeyResult::NotHandled => {
                 unim_log!("ENGINE", "팝업 미지원 키 {:?} → 팝업 닫고 재처리", keycode);
                 self.popup_cancel();
                 // 키를 다시 처리 (재귀 방지: popup 모드가 이미 해제됨)
@@ -1011,7 +957,6 @@ impl InputEngine {
         if self.hanja_mode {
             if let Some(hanja) = self.select_hanja(abs_index) {
                 unim_log!("ENGINE", "팝업 한자 선택: [{}] '{}'", abs_index, hanja);
-                // ProcessKeyEvent 응답으로 커밋하기 위해 commit_buffer에 추가
                 self.commit_buffer.push_str(&hanja);
                 self.popup_pending_action = Some(PopupAction::HidePopup);
                 return InputResult::committed();
@@ -1019,7 +964,6 @@ impl InputEngine {
         } else if self.special_char_mode {
             if let Some(ch) = self.select_special_char(abs_index) {
                 unim_log!("ENGINE", "팝업 특수문자 선택: [{}] '{}'", abs_index, ch);
-                // ProcessKeyEvent 응답으로 커밋하기 위해 commit_buffer에 추가
                 self.commit_buffer.push(ch);
                 self.popup_pending_action = Some(PopupAction::HidePopup);
                 return InputResult::committed();
@@ -1031,19 +975,27 @@ impl InputEngine {
     /// 팝업 취소 처리 — 원래 한글/초성을 그대로 커밋
     fn popup_cancel(&mut self) {
         if self.hanja_mode {
-            // 한자 대상 한글(예: '한')을 커밋
             if !self.hanja_target.is_empty() {
                 self.commit_buffer.push_str(&self.hanja_target);
             }
             self.cancel_hanja();
         } else if self.special_char_mode {
-            // 특수문자 대상 초성(예: 'ㅁ')을 커밋
             if !self.special_char_target.is_empty() {
                 self.commit_buffer.push_str(&self.special_char_target);
             }
             self.cancel_special_char();
         }
         self.popup_pending_action = Some(PopupAction::HidePopup);
+    }
+
+    /// 현재 팝업 상태에 대한 참조를 반환합니다.
+    pub fn popup_state(&self) -> Option<&PopupState> {
+        self.popup_state.as_ref()
+    }
+
+    /// 현재 팝업 상태에 대한 가변 참조를 반환합니다.
+    pub fn popup_state_mut(&mut self) -> Option<&mut PopupState> {
+        self.popup_state.as_mut()
     }
 }
 

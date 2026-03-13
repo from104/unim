@@ -24,19 +24,28 @@ add_library(im-unim MODULE
     ${GTK_COMMON_DIR}/src/unim_special_popup.c
 )
 
+# UNIM C-API (PopupState)
+set(UNIM_ROOT "${CMAKE_SOURCE_DIR}/../..")
+set(UNIM_CAPI_INCLUDE "${UNIM_ROOT}/unim-capi/include")
+set(UNIM_CAPI_LIB_DIR "${UNIM_ROOT}/target/release")
+
 target_include_directories(im-unim PRIVATE
     ${GTK4_INCLUDE_DIRS}
     ${GIO_INCLUDE_DIRS}
     ${GTK_COMMON_DIR}/include
     ${X11_INCLUDE_DIRS}
     ${GTK4_X11_INCLUDE_DIRS}
+    ${UNIM_CAPI_INCLUDE}
 )
+
+target_link_directories(im-unim PRIVATE ${UNIM_CAPI_LIB_DIR})
 
 target_link_libraries(im-unim
     ${GTK4_LIBRARIES}
     ${GIO_LIBRARIES}
     ${X11_LIBRARIES}
     ${GTK4_X11_LIBRARIES}
+    unim_capi
 )
 
 target_compile_options(im-unim PRIVATE 

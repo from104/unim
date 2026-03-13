@@ -254,6 +254,14 @@ export default class UnimExtension extends Extension {
                     this._specialPopup.hide();
                     this._keyHandler.setPopupKeyHandler(null);
                 },
+                onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
+                    if (this._hanjaPopup.isVisible()) {
+                        this._hanjaPopup.updateFromNavigate(page, totalPages, selected);
+                    }
+                    if (this._specialPopup.isVisible()) {
+                        this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
+                    }
+                },
             });
 
             // 7. 포커스 감시 시작

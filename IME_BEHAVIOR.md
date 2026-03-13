@@ -169,3 +169,143 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 - [ ] 팝업 커서 위치 배치 + 경계 조정
 - [ ] 포커스 이동 시 팝업 자동 닫기
 - [ ] BackSpace 자모 삭제
+- [ ] 팝업 키 처리: PopupState 위임 (C-API 또는 직접 사용)
+- [ ] PopupNavigate 시그널 수신 → 팝업 UI 업데이트
+
+---
+
+## 8. 프런트엔드 공통 입력 처리 패턴
+
+모든 프런트엔드는 언어/프레임워크가 다르지만 동일한 입력 처리 시퀀스를 따라야 한다.
+아래 패턴은 프런트엔드 간 동작 일관성의 기준이며, 새 프런트엔드 추가 시 반드시 이 순서를 구현해야 한다.
+
+### 8.1 ProcessKeyEvent 결과 처리
+
+```
+1. DBus 호출: ProcessKeyEvent(keyval, keycode, state) → (consumed, preedit, commit)
+2. commit 처리 (먼저):
+   - commit이 비어있지 않으면 → 앱에 commit 전달
+   - 방법: GTK commit_string / Qt commitString / XIM server.commit / Wayland virtual_keyboard / GNOME commitText
+3. preedit 처리 (commit 후):
+   - preedit이 비어있으면 → preedit 클리어 (빈 문자열로 설정)
+   - preedit이 있으면 → preedit 표시 업데이트
+   - 방법: GTK set_preedit_string / Qt setPreeditString / XIM PreeditDraw / Wayland set_preedit / GNOME setPreeditText
+4. consumed 반환:
+   - true → 키 소비 (앱에 전달하지 않음)
+   - false → 키 통과 (앱에 전달)
+```
+
+**주의 (XIM)**: commit 전에 `clear_preedit()`를 호출하면 안 됨. PreeditDone이 먼저 전송되어 일부 클라이언트에서 세션이 닫힘.
+
+**순서가 중요한 이유**: commit → preedit 순서를 지키지 않으면 조합 중 문자가 이중 커밋되거나 누락됨.
+
+### 8.2 포커스 획득 (Focus In) 시퀀스
+
+```
+1. 윈도우 ID 생성 (플랫폼별):
+   - GTK: "gtk3-win-0x{hwnd}" / "gtk4-win-0x{hwnd}"
+   - Qt:  "qt5-win-0x{hwnd}" / "qt6-win-0x{hwnd}"
+   - XIM: "xim-win-0x{hwnd}"
+   - Wayland: "wayland-{app_id}"
+   - GNOME: "gnome-extension"
+2. DBus FocusIn(windowId) 호출
+3. 내부 상태 초기화:
+   - preedit_cache = ""
+   - is_composing = false
+4. 이전 컨텍스트의 팝업이 남아있으면 닫기
+5. 이전 preedit 복원 금지 — 매 포커스마다 새 컨텍스트
+```
+
+### 8.3 포커스 상실 (Focus Out) 시퀀스
+
+```
+1. 조합 중 확인: preedit_cache가 비어있지 않으면
+   → 현재 preedit을 앱에 commit
+2. 열린 팝업 닫기:
+   → 팝업 윈도우 hide/destroy
+   → DBus CancelHanja 또는 CancelSpecialChar 호출 (팝업 컨텍스트가 있는 경우)
+3. DBus FocusOut() 호출
+   → 반환된 commit 텍스트가 있으면 앱에 전달
+4. preedit 표시 클리어
+5. 내부 상태 리셋:
+   - preedit_cache = ""
+   - is_composing = false
+```
+
+**순서가 중요**: commit → 팝업 닫기 → DBus 호출 → 표시 클리어 → 상태 리셋
+
+### 8.4 수정자 키 필터링
+
+```
+■ 단독 수정자 키 (즉시 바이패스, ProcessKeyEvent에 보내지 않음):
+  Shift_L/R, Control_L/R, Alt_L/R, Super_L/R,
+  Meta_L/R, Hyper_L/R, Caps_Lock, Num_Lock, Scroll_Lock
+
+■ Ctrl/Alt/Super 조합 (시스템 단축키):
+  1. 조합 중이면 → preedit commit (flush)
+  2. consumed=false 반환 → 앱/시스템에 키 전달
+  3. ProcessKeyEvent에 보내지 않음 (시스템 단축키이므로)
+
+■ Shift 조합 (문자 키):
+  → 일반 키와 동일하게 ProcessKeyEvent에 전달 (대문자/특수문자 입력)
+```
+
+### 8.5 consumed=false 키 전달 방식
+
+| 프런트엔드 | 방식 |
+|-----------|------|
+| GTK3/4 | `filter_keypress()` 에서 `FALSE` 반환 → GTK가 앱에 전달 |
+| Qt5/6 | `filterEvent()` 에서 `false` 반환 → Qt가 앱에 전달 |
+| XIM | `server.forward_key()` 호출 → XIM 프로토콜로 클라이언트에 KeyPress 합성 |
+| Wayland | `virtual_keyboard.key()` 호출 → compositor가 앱에 전달 |
+| GNOME | `EVENT_PROPAGATE` 반환 → Clutter/Mutter가 앱에 전달 |
+
+### 8.6 팝업 키 처리 위임 (PopupState 통합)
+
+팝업이 활성화된 상태에서의 키 처리는 `PopupState`(Rust `src/popup/`)에 위임:
+
+```
+■ Rust 프런트엔드 (XIM, Wayland):
+  → PopupState를 직접 사용
+  → keysym → PopupKey 변환 → PopupState::handle_key() → PopupKeyResult
+
+■ C/C++ 프런트엔드 (GTK, Qt):
+  → unim-capi FFI 경유
+  → unim_popup_key_from_gdk/qt(keyval) → unim_popup_handle_key() → CPopupKeyResult
+
+■ GNOME Shell Extension:
+  → 팝업 활성 시 키를 데몬 ProcessKeyEvent로 전달
+  → 데몬이 PopupState로 처리 후 DBus 시그널로 결과 통지:
+    - PopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol) → UI 업데이트
+    - HidePopup → 팝업 닫기
+    - commit 텍스트 → 선택된 문자 커밋
+
+■ PopupKeyResult 처리 (공통):
+  - Select(index) → 해당 문자 commit + 팝업 닫기
+  - Cancel → 원래 문자 유지 + 팝업 닫기
+  - Updated → 상태(page/sel_row/sel_col 등) 동기화 + UI 재렌더링
+  - Consumed → 키 소비, 변경 없음
+  - NotHandled → 팝업 닫기 + 키를 일반 입력으로 fall-through
+```
+
+### 8.7 DBus 인터페이스 요약
+
+프런트엔드 → 데몬:
+
+| 메서드 | 파라미터 | 반환 | 용도 |
+|-------|---------|------|------|
+| `CreateInputContext` | (client_name, window_id) | object_path | 컨텍스트 생성 |
+| `ProcessKeyEvent` | (keyval, keycode, state) | (consumed, preedit, commit) | 키 처리 |
+| `FocusIn` | (window_id) | - | 포커스 획득 |
+| `FocusOut` | - | commit_text | 포커스 상실 |
+| `Reset` | - | - | 상태 리셋 |
+
+데몬 → 프런트엔드 (시그널):
+
+| 시그널 | 파라미터 | 용도 |
+|-------|---------|------|
+| `ShowHanjaPopup` | (target, candidates, cursor_rect) | 한자 팝업 표시 |
+| `ShowSpecialPopup` | (target, characters, top_row, cursor_rect) | 특수문자 팝업 표시 |
+| `HidePopup` | - | 팝업 닫기 |
+| `PopupNavigate` | (page, totalPages, selected, rows, cols, selRow, selCol) | 팝업 상태 업데이트 |
+| `GlobalModeChanged` | (is_korean) | 한/영 모드 변경 알림 |

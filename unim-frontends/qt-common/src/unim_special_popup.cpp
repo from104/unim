@@ -17,6 +17,7 @@
 #include <QTextStream>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 /* 디버그 로깅 */
 static bool sp_debug_enabled = false;
@@ -70,29 +71,44 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
 {
     sp_check_debug();
 
-    /* Catppuccin Mocha 스타일 */
-    setStyleSheet(
+    /* DPI 스케일 팩터 계산 (96 DPI 기준) */
+    qreal scaleFactor = 1.0;
+    QScreen *screen = QGuiApplication::primaryScreen();
+    if (screen) {
+        scaleFactor = screen->logicalDotsPerInch() / 96.0;
+        if (scaleFactor < 1.0) scaleFactor = 1.0;
+    }
+    int cellSize = qRound(30 * scaleFactor);
+    int fontSize = qRound(16 * scaleFactor);
+    int headerFontSize = qRound(11 * scaleFactor);
+    int footerFontSize = qRound(12 * scaleFactor);
+    int widgetPad = qRound(4 * scaleFactor);
+    int cellPadV = qRound(2 * scaleFactor);
+    int cellPadH = qRound(4 * scaleFactor);
+
+    /* Catppuccin Mocha 스타일 (DPI 스케일 적용) */
+    setStyleSheet(QString(
         "UnimSpecialPopup {"
         "  background-color: rgba(30, 30, 46, 242);"
         "  border: 1px solid rgba(255, 255, 255, 38);"
         "  border-radius: 12px;"
-        "  padding: 4px;"
+        "  padding: %1px;"
         "}"
         "QLabel {"
         "  color: #cdd6f4;"
-        "  padding: 2px 4px;"
-        "  font-size: 16px;"
-        "  min-width: 28px;"
-        "  min-height: 28px;"
+        "  padding: %2px %3px;"
+        "  font-size: %4px;"
+        "  min-width: %5px;"
+        "  min-height: %5px;"
         "}"
         "QLabel[cellType=\"header\"] {"
         "  color: #f9e2af;"
-        "  font-size: 11px;"
+        "  font-size: %6px;"
         "  font-weight: bold;"
         "}"
         "QLabel[cellType=\"cell\"] {"
         "  color: #cdd6f4;"
-        "  font-size: 16px;"
+        "  font-size: %4px;"
         "}"
         "QLabel[selected=\"true\"] {"
         "  background-color: rgba(166, 227, 161, 64);"
@@ -111,10 +127,11 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
         "}"
         "QLabel#footerLabel {"
         "  color: #6c7086;"
-        "  font-size: 12px;"
-        "  padding: 2px 4px;"
+        "  font-size: %7px;"
+        "  padding: %2px %3px;"
         "}"
-    );
+    ).arg(widgetPad).arg(cellPadV).arg(cellPadH).arg(fontSize)
+     .arg(cellSize).arg(headerFontSize).arg(footerFontSize));
 
     m_mainLayout = new QVBoxLayout(this);
     m_mainLayout->setContentsMargins(4, 4, 4, 4);
@@ -150,6 +167,10 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
 
 UnimSpecialPopup::~UnimSpecialPopup()
 {
+    if (m_popupState) {
+        unim_popup_free(m_popupState);
+        m_popupState = nullptr;
+    }
     /* Qt가 자식 위젯을 자동 해제 */
 }
 
@@ -179,6 +200,27 @@ void UnimSpecialPopup::showPopup(const QString &target,
         std::strncpy(m_topRow, "QWERTYUIO", 10);
     }
 
+    /* Build arrays for C-API PopupState */
+    {
+        int count = m_totalCount;
+        std::vector<QByteArray> charBytes(count);
+        std::vector<const uint8_t*> charPtrs(count);
+        std::vector<size_t> charLens(count);
+        for (int i = 0; i < count; i++) {
+            charBytes[i] = m_characters[i].toUtf8();
+            charPtrs[i] = (const uint8_t*)charBytes[i].constData();
+            charLens[i] = charBytes[i].size();
+        }
+        QByteArray targetBytes = target.toUtf8();
+        QByteArray topRowBytes = QString(topRow).toUtf8();
+        if (m_popupState) unim_popup_free(m_popupState);
+        m_popupState = unim_popup_new_special(
+            (const uint8_t*)targetBytes.constData(), targetBytes.size(),
+            charPtrs.data(), charLens.data(), count,
+            (const uint8_t*)topRowBytes.constData(), topRowBytes.size()
+        );
+    }
+
     SP_DEBUG(QString::asprintf("특수문자 팝업 표시: target='%s', count=%d, pages=%d",
              qPrintable(target), m_totalCount, m_totalPages));
 
@@ -205,7 +247,7 @@ void UnimSpecialPopup::adjustPosition(int x, int y, int cursorHeight)
     /* 화면 밖으로 나가지 않도록 조정 */
     QScreen *screen = QGuiApplication::primaryScreen();
     if (screen) {
-        QRect screenRect = screen->geometry();
+        QRect screenRect = screen->availableGeometry();
         QSize popupSize = sizeHint();
 
         if (finalX + popupSize.width() > screenRect.right()) {
@@ -410,160 +452,52 @@ void UnimSpecialPopup::mousePressEvent(QMouseEvent *event)
 bool UnimSpecialPopup::handleKey(int key)
 {
     if (m_pendingHide) return false;
+    if (!m_popupState) return false;
 
-    /* top_row 키: 열 점프 (물리 키 위치 기준 — QWERTY "qwertyuio") */
+    /* Convert Qt key to C-API PopupKey */
+    uint32_t popupKey = unim_popup_key_from_qt(key);
+
+    /* Delegate to C-API */
+    UnimPopupKeyResult result = unim_popup_handle_key(m_popupState, popupKey);
+
+    switch (result.kind) {
+    case UNIM_POPUP_RESULT_SELECT:
     {
-        static const char physicalKeys[] = "qwertyuio";
-        int qtKey = key;
-        /* Qt::Key_Q ~ Qt::Key_O 매칭 */
-        for (int i = 0; i < 9; i++) {
-            if (i >= m_cols) break;
-            int expectedKey = Qt::Key_Q + (physicalKeys[i] - 'q');
-            /* Qt 키 코드는 대문자 기반 */
-            if (physicalKeys[i] == 'q') expectedKey = Qt::Key_Q;
-            else if (physicalKeys[i] == 'w') expectedKey = Qt::Key_W;
-            else if (physicalKeys[i] == 'e') expectedKey = Qt::Key_E;
-            else if (physicalKeys[i] == 'r') expectedKey = Qt::Key_R;
-            else if (physicalKeys[i] == 't') expectedKey = Qt::Key_T;
-            else if (physicalKeys[i] == 'y') expectedKey = Qt::Key_Y;
-            else if (physicalKeys[i] == 'u') expectedKey = Qt::Key_U;
-            else if (physicalKeys[i] == 'i') expectedKey = Qt::Key_I;
-            else if (physicalKeys[i] == 'o') expectedKey = Qt::Key_O;
-
-            if (qtKey == expectedKey) {
-                if (cellHasChar(0, i)) {
-                    m_selCol = i;
-                    if (!cellHasChar(m_selRow, m_selCol)) {
-                        m_selRow = 0;
-                    }
-                    updateSelection();
-                    SP_DEBUG(QString::asprintf("열 점프: %c → 열 %d", m_topRow[i], i));
-                }
-                return true;
-            }
-        }
-    }
-
-    switch (key) {
-    /* 숫자 1-9: 현재 열의 N번째 행 선택 */
-    case Qt::Key_1: case Qt::Key_2: case Qt::Key_3:
-    case Qt::Key_4: case Qt::Key_5: case Qt::Key_6:
-    case Qt::Key_7: case Qt::Key_8: case Qt::Key_9:
-    {
-        int row = key - Qt::Key_1;
-        if (cellHasChar(row, m_selCol)) {
-            m_selRow = row;
-            updateSelection();
-            selectCurrent();
-        }
-        return true;
-    }
-
-    /* 화살표: 네비게이션 */
-    case Qt::Key_Up:
-        if (m_selRow > 0) {
-            m_selRow--;
-        } else {
-            int lastRow = SPECIAL_MAX_ROWS - 1;
-            while (lastRow > 0 && !cellHasChar(lastRow, m_selCol)) {
-                lastRow--;
-            }
-            m_selRow = lastRow;
-        }
+        /* Sync state from C-API before selecting */
+        m_selRow = unim_popup_get_sel_row(m_popupState);
+        m_selCol = unim_popup_get_sel_col(m_popupState);
+        m_currentPage = unim_popup_get_current_page(m_popupState);
         updateSelection();
-        return true;
-
-    case Qt::Key_Down:
-        if (m_selRow < SPECIAL_MAX_ROWS - 1 && cellHasChar(m_selRow + 1, m_selCol)) {
-            m_selRow++;
-        } else {
-            m_selRow = 0;
-        }
-        updateSelection();
-        return true;
-
-    case Qt::Key_Left:
-        if (m_selCol > 0) {
-            m_selCol--;
-        } else {
-            m_selCol = m_cols - 1;
-        }
-        if (!cellHasChar(m_selRow, m_selCol)) {
-            m_selRow = 0;
-        }
-        updateSelection();
-        return true;
-
-    case Qt::Key_Right:
-        if (m_selCol < m_cols - 1) {
-            m_selCol++;
-        } else {
-            m_selCol = 0;
-        }
-        if (!cellHasChar(m_selRow, m_selCol)) {
-            m_selRow = 0;
-        }
-        updateSelection();
-        return true;
-
-    /* 페이지 이동 */
-    case Qt::Key_PageUp:
-        if (m_currentPage > 0) {
-            m_currentPage--;
-            m_selRow = 0;
-            m_selCol = 0;
-            updateGrid();
-        }
-        return true;
-
-    case Qt::Key_PageDown:
-    case Qt::Key_Space:
-        if (m_currentPage < m_totalPages - 1) {
-            m_currentPage++;
-            m_selRow = 0;
-            m_selCol = 0;
-            updateGrid();
-        }
-        return true;
-
-    /* Enter: 선택 확정 */
-    case Qt::Key_Return:
-    case Qt::Key_Enter:
         selectCurrent();
         return true;
+    }
 
-    /* Tab / Shift+Tab: 페이지 순환 */
-    case Qt::Key_Tab:
-        if (m_currentPage < m_totalPages - 1) {
-            m_currentPage++;
+    case UNIM_POPUP_RESULT_CANCEL:
+        hidePopup();
+        return false;
+
+    case UNIM_POPUP_RESULT_UPDATED:
+    {
+        /* Sync all state from C-API */
+        int oldPage = m_currentPage;
+        m_selRow = unim_popup_get_sel_row(m_popupState);
+        m_selCol = unim_popup_get_sel_col(m_popupState);
+        m_currentPage = unim_popup_get_current_page(m_popupState);
+        m_rows = unim_popup_get_rows(m_popupState);
+        m_cols = unim_popup_get_cols(m_popupState);
+
+        if (m_currentPage != oldPage) {
+            updateGrid();
         } else {
-            m_currentPage = 0;
+            updateSelection();
         }
-        m_selCol = 0;
-        m_selRow = 0;
-        updateGrid();
+        return true;
+    }
+
+    case UNIM_POPUP_RESULT_CONSUMED:
         return true;
 
-    case Qt::Key_Backtab:  /* Shift+Tab */
-        if (m_currentPage > 0) {
-            m_currentPage--;
-        } else {
-            m_currentPage = m_totalPages - 1;
-        }
-        m_selCol = 0;
-        m_selRow = 0;
-        updateGrid();
-        return true;
-
-    /* 수정자 키 무시 */
-    case Qt::Key_Shift:
-    case Qt::Key_Control:
-    case Qt::Key_Alt:
-    case Qt::Key_Meta:
-    case Qt::Key_Super_L:
-    case Qt::Key_Super_R:
-        return true;
-
+    case UNIM_POPUP_RESULT_NOT_HANDLED:
     default:
         return false;
     }

@@ -181,6 +181,28 @@ export class SpecialPopup {
     }
 
     /**
+     * 데몬 PopupNavigate 시그널로 상태 업데이트
+     *
+     * @param {number} page - 현재 페이지 (0-based)
+     * @param {number} totalPages - 전체 페이지 수
+     * @param {number} rows - 현재 페이지 행 수
+     * @param {number} cols - 현재 페이지 열 수
+     * @param {number} selRow - 선택 행
+     * @param {number} selCol - 선택 열
+     */
+    updateFromNavigate(page, totalPages, rows, cols, selRow, selCol) {
+        if (!this.isVisible) return;
+        this._currentPage = page;
+        this._totalPages = totalPages;
+        this._rows = rows;
+        this._cols = cols;
+        this._selRow = selRow;
+        this._selCol = selCol;
+        this._updateGrid();
+        this._updateSelection();
+    }
+
+    /**
      * 키 이벤트 처리
      *
      * GTK3 unim_special_popup_handle_key 로직 이식.

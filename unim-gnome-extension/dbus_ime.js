@@ -48,6 +48,8 @@ export class UnimDbusIME {
         this._onShowSpecial = null;
         /** @type {Function|null} 팝업 숨김 콜백 */
         this._onHidePopup = null;
+        /** @type {Function|null} 팝업 네비게이션 콜백 */
+        this._onPopupNavigate = null;
     }
 
     /**
@@ -108,11 +110,13 @@ export class UnimDbusIME {
      * @param {Function} [callbacks.onShowHanja] - (target, candidates, cursorRect)
      * @param {Function} [callbacks.onShowSpecial] - (target, characters, topRow, cursorRect)
      * @param {Function} [callbacks.onHidePopup] - ()
+     * @param {Function} [callbacks.onPopupNavigate] - (page, totalPages, selected, rows, cols, selRow, selCol)
      */
     setPopupCallbacks(callbacks) {
         this._onShowHanja = callbacks.onShowHanja || null;
         this._onShowSpecial = callbacks.onShowSpecial || null;
         this._onHidePopup = callbacks.onHidePopup || null;
+        this._onPopupNavigate = callbacks.onPopupNavigate || null;
     }
 
     /**
@@ -178,6 +182,9 @@ export class UnimDbusIME {
                 this._onShowSpecial(target, characters, topRow, { x: cx, y: cy, width: cw, height: ch });
             } else if (signalName === 'HidePopup' && this._onHidePopup) {
                 this._onHidePopup();
+            } else if (signalName === 'PopupNavigate' && this._onPopupNavigate) {
+                const [page, totalPages, selected, rows, cols, selRow, selCol] = parameters.deep_unpack();
+                this._onPopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol);
             }
         } catch (e) {
             unimError('DBUS_IME', `시그널 처리 오류 (${signalName}): ${e.message}`);
