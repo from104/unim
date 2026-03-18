@@ -152,7 +152,7 @@ uninstall-core:
 	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
 
 uninstall-frontends:
-	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/libim-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so \
+	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/im-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so \
 	      $(DESTDIR)$(QT5_PLUGIN_DIR)/libunim.so $(DESTDIR)$(QT6_PLUGIN_DIR)/libunim.so
 
 uninstall-icons:
@@ -245,7 +245,7 @@ clean-deb:
 test:
 	@echo "UNIM 설치 상태 확인"
 	@for f in $(REAL_LIBDIR)/libunim_capi.so \
-	          $(GTK3_IMMODULE_DIR)/libim-unim.so $(GTK4_IMMODULE_DIR)/libim-unim.so \
+	          $(GTK3_IMMODULE_DIR)/im-unim.so $(GTK4_IMMODULE_DIR)/libim-unim.so \
 	          $(QT5_PLUGIN_DIR)/libunim.so $(QT6_PLUGIN_DIR)/libunim.so; do \
 		printf "  %-55s %s\n" "$$f" "$$([ -f $(DESTDIR)$$f ] && echo '✓' || echo '✗')"; \
 	done
@@ -311,7 +311,7 @@ clean-all: clean clean-deb
 
 dev-gtk3:
 	@cd unim-frontends/gtk3/build && $(MAKE) --no-print-directory
-	@sudo cp unim-frontends/gtk3/build/libim-unim.so $(GTK3_IMMODULE_DIR)/
+	@sudo cp unim-frontends/gtk3/build/im-unim.so $(GTK3_IMMODULE_DIR)/
 	@echo "✅ GTK3 모듈 배포 완료!"
 
 dev-gtk4:
