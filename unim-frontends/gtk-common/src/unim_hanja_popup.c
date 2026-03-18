@@ -297,21 +297,35 @@ unim_hanja_popup_new(void)
     gtk_window_set_decorated(GTK_WINDOW(popup->window), FALSE);
     gtk_window_set_resizable(GTK_WINDOW(popup->window), FALSE);
     gtk_window_set_default_size(GTK_WINDOW(popup->window), 300, -1);
-    
+
     /* GTK4 수준 포커스 비활성화 */
     gtk_widget_set_focusable(popup->window, FALSE);
     gtk_widget_set_can_focus(popup->window, FALSE);
-    
+
     /* X11에서 override_redirect 설정 (realize 후) */
 #ifdef GDK_WINDOWING_X11
     g_signal_connect(popup->window, "realize", G_CALLBACK(on_popup_realize_x11), NULL);
 #endif
+
+    /* 접근성: GTK4 accessible role */
+    gtk_accessible_update_property(GTK_ACCESSIBLE(popup->window),
+        GTK_ACCESSIBLE_PROPERTY_LABEL, "UNIM 한자 후보 목록",
+        -1);
 
 #else
     /* GTK3: 팝업 윈도우 (포커스 불가) */
     popup->window = gtk_window_new(GTK_WINDOW_POPUP);
     gtk_window_set_type_hint(GTK_WINDOW(popup->window), GDK_WINDOW_TYPE_HINT_POPUP_MENU);
     gtk_widget_set_can_focus(popup->window, FALSE);
+
+    /* 접근성: ATK 역할 설정 */
+    {
+        AtkObject *atk_obj = gtk_widget_get_accessible(popup->window);
+        if (atk_obj) {
+            atk_object_set_role(atk_obj, ATK_ROLE_POPUP_MENU);
+            atk_object_set_name(atk_obj, "UNIM 한자 후보 목록");
+        }
+    }
 #endif
 
     /* Catppuccin Mocha 스타일 */
