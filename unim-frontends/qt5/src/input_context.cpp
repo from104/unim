@@ -84,8 +84,16 @@ UnimInputContext::UnimInputContext()
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }
     
-    m_hanjaPopup = new UnimHanjaPopup();
-    m_specialPopup = new UnimSpecialPopup();
+    /* 팝업은 lazy 초기화 — QApplication 초기화 전에 QWidget 생성 불가 */
+    m_specialPopup = nullptr;
+}
+
+void UnimInputContext::ensurePopups()
+{
+    if (!m_hanjaPopup)
+        m_hanjaPopup = new UnimHanjaPopup();
+    if (!m_specialPopup)
+        m_specialPopup = new UnimSpecialPopup();
 }
 
 UnimInputContext::~UnimInputContext()
@@ -196,6 +204,9 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         UNIM_DEBUG("filterEvent: DBus/포커스 없음, 키 무시");
         return false;
     }
+
+    /* 팝업 lazy 초기화 (QApplication 초기화 완료 후) */
+    ensurePopups();
 
     if (event->type() != QEvent::KeyPress) {
         return false;
@@ -512,9 +523,40 @@ void UnimInputContext::setFocusObject(QObject *object)
         updatePreedit();
     }
     m_focusObject = object;
-    
+
     if (m_dbus && object) {
         m_dbus->focusIn(m_windowId);
+
+        /* 입력 필드 목적 감지: Qt::ImhHiddenText → Password */
+        QInputMethodQueryEvent query(Qt::ImHints);
+        QCoreApplication::sendEvent(object, &query);
+        Qt::InputMethodHints hints = static_cast<Qt::InputMethodHints>(
+            query.value(Qt::ImHints).toInt());
+        quint32 purpose = 0; /* Normal */
+        if (hints & Qt::ImhHiddenText) {
+            purpose = 1; /* Password */
+        } else if (hints & Qt::ImhDigitsOnly) {
+            purpose = 4; /* Number */
+        } else if (hints & Qt::ImhUrlCharactersOnly) {
+            purpose = 5; /* Url */
+        } else if (hints & Qt::ImhEmailCharactersOnly) {
+            purpose = 3; /* Email */
+        }
+        m_dbus->setContentType(purpose);
+        UNIM_DEBUG(QString::asprintf("content_type 전달: hints=0x%x, purpose=%u",
+                   static_cast<int>(hints), purpose));
+
+        /* Surrounding text 전달 */
+        QInputMethodQueryEvent stQuery(Qt::ImSurroundingText | Qt::ImCursorPosition | Qt::ImAnchorPosition);
+        QCoreApplication::sendEvent(object, &stQuery);
+        QString surroundingText = stQuery.value(Qt::ImSurroundingText).toString();
+        int cursorPos = stQuery.value(Qt::ImCursorPosition).toInt();
+        int anchorPos = stQuery.value(Qt::ImAnchorPosition).toInt();
+        if (!surroundingText.isEmpty()) {
+            m_dbus->setSurroundingText(surroundingText,
+                                        static_cast<quint32>(cursorPos),
+                                        static_cast<quint32>(anchorPos));
+        }
     }
 }
 

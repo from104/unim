@@ -723,17 +723,52 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     return result.consumed;
 }
 
+/* GtkInputPurpose → UNIM ContentPurpose 변환 */
+static guint
+gtk_input_purpose_to_unim(GtkInputPurpose purpose)
+{
+    switch (purpose) {
+        case GTK_INPUT_PURPOSE_PASSWORD: return 1; /* Password */
+        case GTK_INPUT_PURPOSE_PIN:      return 2; /* Pin */
+        case GTK_INPUT_PURPOSE_EMAIL:    return 3; /* Email */
+        case GTK_INPUT_PURPOSE_NUMBER:   return 4; /* Number */
+        case GTK_INPUT_PURPOSE_URL:      return 5; /* Url */
+        case GTK_INPUT_PURPOSE_TERMINAL: return 6; /* Terminal */
+        default:                         return 0; /* Normal */
+    }
+}
+
 static void
 unim_im_context_focus_in(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
-    
+
     UNIM_DEBUG("focus_in 호출 (window_id: %s)", unim->window_id);
-    
+
     if (unim->dbus_ctx) {
         unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
+
+        /* 입력 필드 목적 감지 및 전달 */
+        if (unim->client_widget) {
+            GtkInputPurpose purpose = GTK_INPUT_PURPOSE_FREE_FORM;
+            if (GTK_IS_TEXT(unim->client_widget)) {
+                g_object_get(unim->client_widget, "input-purpose", &purpose, NULL);
+            } else if (GTK_IS_EDITABLE(unim->client_widget)) {
+                GtkWidget *delegate = unim->client_widget;
+                /* GtkEditable에서 input-purpose 속성 확인 */
+                GParamSpec *pspec = g_object_class_find_property(
+                    G_OBJECT_GET_CLASS(delegate), "input-purpose");
+                if (pspec) {
+                    g_object_get(delegate, "input-purpose", &purpose, NULL);
+                }
+            }
+            guint unim_purpose = gtk_input_purpose_to_unim(purpose);
+            unim_dbus_set_content_type(unim->dbus_ctx, unim_purpose);
+            UNIM_DEBUG("content_type 전달: gtk_purpose=%d, unim_purpose=%u",
+                       (int)purpose, unim_purpose);
+        }
     }
-    
+
     unim->is_focused = TRUE;
 }
 
@@ -901,6 +936,18 @@ unim_im_context_set_surrounding_with_selection(GtkIMContext *context, const char
 
     UNIM_DEBUG("surrounding 업데이트: cursor=%d, selection=%d, text=\"%s\"",
                cursor_index, selection_index, unim->surrounding_text);
+
+    /* Surrounding text를 DBus로 전달 */
+    if (unim->dbus_ctx && unim->surrounding_text) {
+        /* 바이트 오프셋 → 문자 오프셋 변환 */
+        guint cursor_char = (guint)g_utf8_pointer_to_offset(
+            unim->surrounding_text, unim->surrounding_text + cursor_index);
+        guint anchor_char = (guint)g_utf8_pointer_to_offset(
+            unim->surrounding_text, unim->surrounding_text + selection_index);
+        unim_dbus_set_surrounding_text(unim->dbus_ctx,
+                                        unim->surrounding_text,
+                                        cursor_char, anchor_char);
+    }
 }
 
 /* GTK4 IM 모듈 엔트리 포인트 (GIO 모듈로 등록) */

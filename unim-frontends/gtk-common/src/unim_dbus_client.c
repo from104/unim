@@ -402,6 +402,53 @@ unim_dbus_report_cursor_rect(UnimDbusContext *ctx,
     );
 }
 
+void
+unim_dbus_set_content_type(UnimDbusContext *ctx, guint purpose)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    /* fire-and-forget */
+    g_dbus_connection_call(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "SetContentType",
+        g_variant_new("(u)", purpose),
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        NULL,
+        NULL
+    );
+}
+
+void
+unim_dbus_set_surrounding_text(UnimDbusContext *ctx,
+                                const gchar *text,
+                                guint cursor_pos,
+                                guint anchor_pos)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path || !text) return;
+
+    /* fire-and-forget */
+    g_dbus_connection_call(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "SetSurroundingText",
+        g_variant_new("(suu)", text, cursor_pos, anchor_pos),
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        NULL,
+        NULL
+    );
+}
+
 /* =========================================
  * 한자 변환 관련 함수 구현
  * ========================================= */

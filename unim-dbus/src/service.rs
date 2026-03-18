@@ -94,6 +94,34 @@ pub enum EngineRequest {
         width: i32,
         height: i32,
     },
+    /// 입력 필드 목적 설정 (비밀번호/PIN 등)
+    SetContentType {
+        context_id: u32,
+        purpose: u32,
+    },
+    /// Surrounding text 설정
+    SetSurroundingText {
+        context_id: u32,
+        text: String,
+        cursor_pos: u32,
+        anchor_pos: u32,
+    },
+    /// TypeFix 변환 요청
+    TypeFix {
+        context_id: u32,
+        direction: u32,
+        response: oneshot::Sender<Option<(u32, String)>>,
+    },
+    /// Smart Backspace 요청
+    SmartBackspace {
+        context_id: u32,
+        response: oneshot::Sender<Option<(u32, String)>>,
+    },
+    /// 이모지 검색
+    SearchEmoji {
+        keyword: String,
+        response: oneshot::Sender<Vec<String>>,
+    },
 }
 
 /// 한자 후보 응답
@@ -129,6 +157,8 @@ pub struct EngineResponse {
     pub mode_changed: Option<bool>,
     /// 팝업 동작 (한자/특수문자 팝업 제어)
     pub popup_action: Option<PopupAction>,
+    /// TypeFix 더블탭 결과 (Some((삭제 문자 수, 대체 텍스트)))
+    pub typefix_result: Option<(u32, String)>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -298,6 +328,20 @@ impl InputMethodService {
         value: &str,
     ) -> zbus::Result<()>;
 
+    /// 이모지 검색
+    /// keyword가 빈 문자열이면 인기 이모지를 반환합니다.
+    async fn search_emoji(&self, keyword: &str) -> zbus::fdo::Result<Vec<String>> {
+        let results = unim::hangul::emoji::search_emoji(keyword);
+        let emoji_strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
+        unim_log!(
+            "DBUS",
+            "[DBus] SearchEmoji: keyword='{}', count={}",
+            keyword,
+            emoji_strings.len()
+        );
+        Ok(emoji_strings)
+    }
+
     /// 설정값 조회
     async fn get_config(&self, key: &str) -> zbus::fdo::Result<String> {
         let config = self.config.read().await;
@@ -317,6 +361,8 @@ impl InputMethodService {
             "auto_switch_threshold" => config.engine.auto_switch.threshold.to_string(),
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
+            "app_rules" => serde_json::to_string(&config.engine.app_rules)
+                .unwrap_or_default(),
             _ => {
                 return Err(zbus::fdo::Error::InvalidArgs(format!(
                     "Unknown key: {}",
@@ -426,6 +472,13 @@ impl InputMethodService {
                         ));
                     }
                     config.engine.hanja_keys = keys;
+                }
+                "app_rules" => {
+                    let rules: Vec<unim::config::AppRule> =
+                        serde_json::from_str(value).map_err(|e| {
+                            zbus::fdo::Error::InvalidArgs(format!("Invalid JSON: {}", e))
+                        })?;
+                    config.engine.app_rules = rules;
                 }
                 _ => {
                     return Err(zbus::fdo::Error::InvalidArgs(format!(
@@ -615,6 +668,26 @@ impl InputContextHandler {
                         sel_col
                     );
                 }
+            }
+        }
+
+        // TypeFix 더블탭 결과 처리 (delete_surrounding + commit)
+        if let Some((delete_count, replacement)) = &response.typefix_result {
+            unim_log!(
+                "DBUS",
+                "[DBus] TypeFix 더블탭 시그널: delete={}, replacement='{}'",
+                delete_count,
+                replacement
+            );
+            Self::delete_surrounding_text(
+                &signal_ctx,
+                -(*delete_count as i32),
+                *delete_count,
+            )
+            .await
+            .ok();
+            if !replacement.is_empty() {
+                Self::commit_text(&signal_ctx, replacement).await.ok();
             }
         }
 
@@ -818,6 +891,142 @@ impl InputContextHandler {
         );
         Ok(())
     }
+
+    /// 입력 필드 목적 설정 (비밀번호/PIN 필드 감지용)
+    async fn set_content_type(&self, purpose: u32) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::SetContentType {
+                context_id: self.id,
+                purpose,
+            })
+            .await
+            .ok();
+        unim_log!(
+            "DBUS",
+            "[DBus] SetContentType: context_id={}, purpose={}",
+            self.id,
+            purpose
+        );
+        Ok(())
+    }
+
+    /// Surrounding text 설정 (커서 주변 텍스트 전달)
+    async fn set_surrounding_text(
+        &self,
+        text: &str,
+        cursor_pos: u32,
+        anchor_pos: u32,
+    ) -> zbus::fdo::Result<()> {
+        self.engine_tx
+            .send(EngineRequest::SetSurroundingText {
+                context_id: self.id,
+                text: text.to_string(),
+                cursor_pos,
+                anchor_pos,
+            })
+            .await
+            .ok();
+        unim_log!(
+            "DBUS",
+            "[DBus] SetSurroundingText: context_id={}, cursor={}, anchor={}, len={}",
+            self.id,
+            cursor_pos,
+            anchor_pos,
+            text.len()
+        );
+        Ok(())
+    }
+
+    /// Smart Backspace (자모 단위 삭제)
+    /// 반환값: (삭제할 문자 수, 대체 텍스트) 또는 (0, "")
+    async fn smart_backspace(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+    ) -> zbus::fdo::Result<(u32, String)> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::SmartBackspace {
+                context_id: self.id,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let result = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        if let Some((delete_chars, replacement)) = result {
+            unim_log!(
+                "DBUS",
+                "[DBus] SmartBackspace: delete={}, replacement='{}'",
+                delete_chars,
+                replacement
+            );
+            // 기존 글자 삭제
+            Self::delete_surrounding_text(&signal_ctx, -(delete_chars as i32), delete_chars)
+                .await
+                .ok();
+            // 대체 텍스트 커밋 (있는 경우)
+            if !replacement.is_empty() {
+                Self::commit_text(&signal_ctx, &replacement).await.ok();
+            }
+            Ok((delete_chars, replacement))
+        } else {
+            Ok((0, String::new()))
+        }
+    }
+
+    /// TypeFix 변환 (한/영 오타 변환)
+    /// direction: 0=자동, 1=영→한, 2=한→영
+    /// 반환값: (삭제할 문자 수, 대체 텍스트) 또는 빈 문자열
+    async fn type_fix(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        direction: u32,
+    ) -> zbus::fdo::Result<(u32, String)> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::TypeFix {
+                context_id: self.id,
+                direction,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let result = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        if let Some((delete_chars, replacement)) = result {
+            unim_log!(
+                "DBUS",
+                "[DBus] TypeFix: delete={}, replacement='{}'",
+                delete_chars,
+                replacement
+            );
+            // delete_surrounding_text 시그널 발송하여 프론트엔드가 기존 텍스트를 삭제
+            Self::delete_surrounding_text(&signal_ctx, -(delete_chars as i32), delete_chars)
+                .await
+                .ok();
+            // 변환된 텍스트를 커밋
+            Self::commit_text(&signal_ctx, &replacement).await.ok();
+            Ok((delete_chars, replacement))
+        } else {
+            Ok((0, String::new()))
+        }
+    }
+
+    /// delete_surrounding_text 시그널 (엔진 → 프론트엔드)
+    #[zbus(signal)]
+    async fn delete_surrounding_text(
+        signal_ctx: &SignalContext<'_>,
+        offset: i32,
+        n_chars: u32,
+    ) -> zbus::Result<()>;
 
     // =========================================
     // 한자 변환 관련 메서드

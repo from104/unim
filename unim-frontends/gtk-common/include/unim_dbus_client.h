@@ -123,6 +123,27 @@ void unim_dbus_report_cursor_rect(UnimDbusContext *ctx,
                                    gint x, gint y,
                                    gint width, gint height);
 
+/**
+ * 입력 필드 목적 설정 (비밀번호/PIN 감지용)
+ *
+ * @param ctx 컨텍스트
+ * @param purpose 목적 (0=Normal, 1=Password, 2=Pin, 3=Email, 4=Number, 5=Url, 6=Terminal)
+ */
+void unim_dbus_set_content_type(UnimDbusContext *ctx, guint purpose);
+
+/**
+ * Surrounding text 설정 (커서 주변 텍스트 전달)
+ *
+ * @param ctx 컨텍스트
+ * @param text 텍스트
+ * @param cursor_pos 커서 위치 (문자 단위)
+ * @param anchor_pos 앵커 위치 (문자 단위)
+ */
+void unim_dbus_set_surrounding_text(UnimDbusContext *ctx,
+                                     const gchar *text,
+                                     guint cursor_pos,
+                                     guint anchor_pos);
+
 /* =========================================
  * 한자 변환 관련 함수
  * ========================================= */

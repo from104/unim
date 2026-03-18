@@ -511,145 +511,46 @@ export default class UnimExtension extends Extension {
             return;
         }
 
-        const koreanLayout = this._settings.get_string('korean-layout');
-        const englishLayout = this._settings.get_string('english-layout');
-        this._doConversion(koreanLayout, englishLayout, pasteMode, isReverse);
+        // DBus TypeFix API 사용 (클립보드 미사용)
+        // direction: 0=자동, 1=영→한, 2=한→영
+        const direction = isReverse ? 2 : 0;
+        this._doTypeFix(direction, pasteMode);
     }
 
-    async _doConversion(koreanLayout, englishLayout, pasteMode, isReverse) {
+    async _doTypeFix(direction, pasteMode) {
         this._conversionInProgress = true;
         try {
-            // PRIMARY (Selection) 우선 시도, 없으면 CLIPBOARD 시도
-            this._clipboard.get_text(St.ClipboardType.PRIMARY, (clipboard, text) => {
-                if (!text || text.trim() === '') {
-                    this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (cb, cbText) => {
-                        if (cbText && cbText.trim() !== '') {
-                            this._processConvertedText(cbText, koreanLayout, englishLayout, pasteMode, isReverse);
-                        } else {
-                            this._conversionInProgress = false;
-                        }
-                    });
-                } else {
-                    this._processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse);
-                }
-            });
-        } catch (e) {
-            unimError('EXTENSION', `Conversion trigger error: ${e.message}`);
-            this._conversionInProgress = false;
-        }
-    }
-
-    async _processConvertedText(text, koreanLayout, englishLayout, pasteMode, isReverse) {
-        try {
-            const converted = await this._convertText(text, koreanLayout, englishLayout, isReverse);
-            if (!converted || converted === text) {
-                unimLog('EXTENSION', 'TypeFIX: 변환 결과가 없거나 원본과 동일함');
+            if (!this._contextProxy) {
+                unimLog('EXTENSION', 'TypeFIX: DBus 컨텍스트 없음');
                 this._conversionInProgress = false;
                 return;
             }
 
-            if (pasteMode === PasteMode.COPY_ONLY) {
-                this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
-                this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
-                unimLog('EXTENSION', 'Copy-only mode: 붙여넣기 생략');
+            // DBus TypeFix 호출 — 엔진이 surrounding text에서 단어를 찾아 변환하고
+            // delete_surrounding_text + commit_text 시그널을 발행함
+            const [deleteCount, replacement] = await this._contextProxy.TypeFixAsync(direction);
+
+            if (deleteCount === 0 || !replacement) {
+                unimLog('EXTENSION', 'TypeFIX: 변환할 텍스트 없음');
                 this._conversionInProgress = false;
-            } else {
-                // 클립보드 백업 후 변환 텍스트 설정 → 붙여넣기 → 복원
-                this._clipboard.get_text(St.ClipboardType.CLIPBOARD, (_cb, savedClipboard) => {
-                    this._clipboard.set_text(St.ClipboardType.CLIPBOARD, converted);
-                    this._clipboard.set_text(St.ClipboardType.PRIMARY, converted);
+                return;
+            }
 
-                    // 붙여넣기 전에 약간의 지연 (클립보드 동기화 대기)
-                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
-                        if (pasteMode === PasteMode.TERMINAL) {
-                            this._vkbd.backspaceMultiple(text.length);
-                        }
-                        this._vkbd.paste();
+            unimLog('EXTENSION', `TypeFIX 완료: delete=${deleteCount}, replacement='${replacement}'`);
 
-                        // 붙여넣기 완료 후 클립보드 복원
-                        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                            if (savedClipboard && savedClipboard.trim() !== '') {
-                                this._clipboard.set_text(St.ClipboardType.CLIPBOARD, savedClipboard);
-                                unimLog('EXTENSION', 'TypeFIX: 클립보드 복원 완료');
-                            }
-                            this._conversionInProgress = false;
-                            return GLib.SOURCE_REMOVE;
-                        });
-                        return GLib.SOURCE_REMOVE;
-                    });
-                });
+            if (pasteMode === PasteMode.COPY_ONLY) {
+                // Copy-only: 변환 결과를 클립보드에만 저장 (DBus 시그널은 이미 발행됨)
+                this._clipboard.set_text(St.ClipboardType.CLIPBOARD, replacement);
+                unimLog('EXTENSION', 'Copy-only mode: 클립보드에 저장');
             }
 
             if (this._settings.get_boolean('show-notification')) {
-                Main.notify(_('UNIM TypeFIX'), _('Conversion complete: %s').format(converted));
+                Main.notify(_('UNIM TypeFIX'), _('Conversion complete: %s').format(replacement));
             }
         } catch (e) {
-            unimError('EXTENSION', `Transform error: ${e.message}`);
+            unimError('EXTENSION', `TypeFIX DBus 오류: ${e.message}`);
+        } finally {
             this._conversionInProgress = false;
         }
-    }
-
-    _convertText(text, koreanLayout, englishLayout, isReverse) {
-        return new Promise((resolve, reject) => {
-            const binPath = '/usr/bin/unim-cli';
-            
-            // 레이아웃 결정: 우선순위 1.인자, 2.설정, 3.기본값
-            const kLayout = koreanLayout || this._settings.get_string('korean-layout') || '2bul';
-            const eLayout = englishLayout || this._settings.get_string('english-layout') || 'qwerty';
-
-            const koreanLayoutMap = {
-                '2bul': '2bul', 
-                '3bul390': '390', 
-                '3bul391': '391',
-                '3bul_noshift': 'noshift', 
-                '390': '390', 
-                '391': '391',
-                'noshift': 'noshift',
-            };
-            const englishLayoutMap = {
-                'qwerty': 'qwerty', 
-                'dvorak': 'dvorak', 
-                'colemak': 'colemak',
-                'colemak_dh': 'colemak_dh', 
-                'workman': 'workman',
-            };
-
-            const koKey = koreanLayoutMap[kLayout] || '2bul';
-            const enKey = englishLayoutMap[eLayout] || 'qwerty';
-
-            const argv = [
-                binPath,
-                isReverse ? '--decompose' : '--compose',
-                '--korean-keyboard', koKey,
-                '--english-keyboard', enKey,
-            ];
-
-            unimLog('EXTENSION', `TypeFIX 실행: ${argv.join(' ')} (input: ${text.substring(0, 10)}${text.length > 10 ? '...' : ''})`);
-
-            try {
-                const proc = new Gio.Subprocess({
-                    argv,
-                    flags: Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
-                });
-                proc.init(null);
-                proc.communicate_utf8_async(text, null, (p, res) => {
-                    try {
-                        const [ok, stdout, stderr] = p.communicate_utf8_finish(res);
-                        if (!ok) {
-                            unimError('EXTENSION', `unim-cli 실패: ${stderr}`);
-                            resolve('');
-                            return;
-                        }
-                        resolve(stdout ? stdout.trim() : '');
-                    } catch (e) { 
-                        unimError('EXTENSION', `unim-cli 결과 처리 오류: ${e.message}`);
-                        reject(e); 
-                    }
-                });
-            } catch (e) { 
-                unimError('EXTENSION', `unim-cli 프로세스 시작 실패: ${e.message}`);
-                reject(e); 
-            }
-        });
     }
 }

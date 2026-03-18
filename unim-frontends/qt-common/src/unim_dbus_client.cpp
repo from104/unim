@@ -425,19 +425,47 @@ bool UnimDbusClient::selectSpecialChar(quint32 index, QString &selectedChar)
 void UnimDbusClient::cancelSpecialChar()
 {
     if (!isValid()) return;
-    
+
     UNIM_DBUS_DEBUG("CancelSpecialChar 호출");
-    
+
     QDBusMessage msg = QDBusMessage::createMethodCall(
         UNIM_DBUS_SERVICE,
         m_contextPath,
         UNIM_DBUS_IC_INTERFACE,
         QStringLiteral("CancelSpecialChar")
     );
-    
+
     m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
-    
+
     // 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화
     m_preeditCache.clear();
     m_isComposing = false;
+}
+
+void UnimDbusClient::setContentType(quint32 purpose)
+{
+    if (!isValid()) return;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("SetContentType")
+    );
+    msg << purpose;
+    m_bus.call(msg, QDBus::NoBlock);
+}
+
+void UnimDbusClient::setSurroundingText(const QString &text, quint32 cursorPos, quint32 anchorPos)
+{
+    if (!isValid()) return;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("SetSurroundingText")
+    );
+    msg << text << cursorPos << anchorPos;
+    m_bus.call(msg, QDBus::NoBlock);
 }

@@ -188,6 +188,51 @@ impl EnglishLayout {
     }
 }
 
+/// 입력 필드의 목적 (Content Type Hint)
+///
+/// 프론트엔드가 감지한 입력 필드의 용도를 나타냅니다.
+/// Password/Pin 필드에서는 한글 모드를 자동으로 차단합니다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(u32)]
+pub enum ContentPurpose {
+    /// 일반 텍스트 입력
+    #[default]
+    Normal = 0,
+    /// 비밀번호 입력 (한글 차단)
+    Password = 1,
+    /// PIN 입력 (한글 차단)
+    Pin = 2,
+    /// 이메일 주소 입력
+    Email = 3,
+    /// 숫자 입력
+    Number = 4,
+    /// URL 입력
+    Url = 5,
+    /// 터미널 입력
+    Terminal = 6,
+}
+
+impl ContentPurpose {
+    /// u32 값에서 변환합니다.
+    pub fn from_u32(value: u32) -> Self {
+        match value {
+            0 => ContentPurpose::Normal,
+            1 => ContentPurpose::Password,
+            2 => ContentPurpose::Pin,
+            3 => ContentPurpose::Email,
+            4 => ContentPurpose::Number,
+            5 => ContentPurpose::Url,
+            6 => ContentPurpose::Terminal,
+            _ => ContentPurpose::Normal,
+        }
+    }
+
+    /// 한글 입력을 차단해야 하는 목적인지 확인합니다.
+    pub fn should_block_hangul(&self) -> bool {
+        matches!(self, ContentPurpose::Password | ContentPurpose::Pin)
+    }
+}
+
 /// 자동 전환 설정
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -201,7 +246,7 @@ pub struct AutoSwitchConfig {
 }
 
 /// 한국어 엔진 설정
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KoreanConfig {
     /// 한국어 키보드 레이아웃
@@ -210,16 +255,6 @@ pub struct KoreanConfig {
     pub preedit_johab: bool,
     /// 단어 단위 커밋
     pub word_commit: bool,
-}
-
-impl Default for KoreanConfig {
-    fn default() -> Self {
-        Self {
-            layout: KoreanLayout::default(),
-            preedit_johab: false,
-            word_commit: false,
-        }
-    }
 }
 
 /// 영어 엔진 설정
@@ -241,6 +276,18 @@ impl Default for EnglishConfig {
     }
 }
 
+/// 앱별 기본 모드 규칙
+///
+/// 특정 앱이 포커스를 받을 때 자동으로 설정할 입력 모드입니다.
+/// 예: 터미널은 항상 영문, 한글 에디터는 항상 한글
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AppRule {
+    /// 앱 패턴 (window_id 또는 client_name에 대한 부분 문자열 매칭)
+    pub app_pattern: String,
+    /// 해당 앱의 기본 입력 카테고리
+    pub default_category: InputCategory,
+}
+
 /// 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -259,6 +306,10 @@ pub struct EngineConfig {
     pub toggle_keys: Vec<String>,
     /// 한자/특수문자 키 목록 (KeyCode 이름)
     pub hanja_keys: Vec<String>,
+    /// 앱별 기본 모드 규칙
+    pub app_rules: Vec<AppRule>,
+    /// 사용자 사전 경로 (None이면 기본 경로 사용)
+    pub user_dictionary_path: Option<std::path::PathBuf>,
 }
 
 impl Default for EngineConfig {
@@ -271,6 +322,8 @@ impl Default for EngineConfig {
             auto_switch: AutoSwitchConfig::default(),
             toggle_keys: vec!["Korean".to_string(), "RightAlt".to_string()],
             hanja_keys: vec!["Hanja".to_string(), "F9".to_string()],
+            app_rules: Vec::new(),
+            user_dictionary_path: None,
         }
     }
 }

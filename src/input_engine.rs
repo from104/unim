@@ -2,7 +2,7 @@
 //!
 //! 실시간 키 입력을 처리하고 한국어 조합을 관리하는 핵심 엔진입니다.
 
-use crate::config::{Config, EnglishLayout, InputCategory, KoreanLayout};
+use crate::config::{Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
@@ -180,6 +180,26 @@ pub struct InputEngine {
     popup_pending_action: Option<PopupAction>,
     /// 영어 레이아웃 top_row_labels 캐시 (특수문자 팝업용)
     top_row_labels: String,
+    /// 현재 입력 필드의 목적 (비밀번호 등)
+    content_purpose: ContentPurpose,
+    /// Surrounding text (커서 주변 텍스트)
+    surrounding_text: String,
+    /// Surrounding text 커서 위치 (문자 단위)
+    surrounding_cursor: u32,
+    /// Surrounding text 앵커 위치 (문자 단위)
+    surrounding_anchor: u32,
+    /// 한/영 키 더블탭 감지: 마지막 토글 키 누른 시각 (밀리초 단위 타임스탬프)
+    last_toggle_time_ms: u64,
+    /// 더블탭 판정 시간 (밀리초)
+    double_tap_threshold_ms: u64,
+    /// TypeFix 트리거 대기 중 (한/영 키 더블탭 감지됨)
+    typefix_pending: bool,
+}
+
+impl Default for InputEngine {
+    fn default() -> Self {
+        Self::new(&Config::default())
+    }
 }
 
 impl InputEngine {
@@ -229,13 +249,16 @@ impl InputEngine {
             popup_state: None,
             popup_pending_action: None,
             top_row_labels: config.engine.english.layout.top_row_labels().to_string(),
+            content_purpose: ContentPurpose::Normal,
+            surrounding_text: String::new(),
+            surrounding_cursor: 0,
+            surrounding_anchor: 0,
+            last_toggle_time_ms: 0,
+            double_tap_threshold_ms: 300,
+            typefix_pending: false,
         }
     }
 
-    /// 기본 설정으로 새로운 InputEngine을 생성합니다.
-    pub fn default() -> Self {
-        Self::new(&Config::default())
-    }
 
     /// 키보드 맵을 생성합니다.
     ///
@@ -323,6 +346,38 @@ impl InputEngine {
 
         // 한/영 전환 처리 (설정 기반)
         if self.toggle_keys.contains(&keycode) {
+            // 비밀번호 필드에서는 한/영 전환 차단
+            if self.content_purpose.should_block_hangul()
+                && self.input_category == InputCategory::English
+            {
+                unim_log!(
+                    "ENGINE",
+                    "한/영 전환 차단: content_purpose={:?}",
+                    self.content_purpose
+                );
+                return InputResult::consumed();
+            }
+
+            // 더블탭 감지: 300ms 이내 두 번 누르면 TypeFix 트리거
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+
+            if now_ms > 0
+                && self.last_toggle_time_ms > 0
+                && (now_ms - self.last_toggle_time_ms) < self.double_tap_threshold_ms
+            {
+                // 더블탭 감지! — 첫 번째 토글을 되돌리고 TypeFix 트리거
+                unim_log!("ENGINE", "한/영 키 더블탭 감지 → TypeFix 트리거");
+                self.toggle_input_category(); // 첫 번째 토글 되돌리기
+                self.last_toggle_time_ms = 0;
+                self.typefix_pending = true;
+                return InputResult::consumed();
+            }
+
+            self.last_toggle_time_ms = now_ms;
+
             // 조합 중이면 먼저 커밋
             let was_composing = self.korean_context.is_composing();
             self.toggle_input_category();
@@ -332,6 +387,17 @@ impl InputEngine {
                 return InputResult::committed();
             }
             return InputResult::consumed();
+        }
+
+        // 비밀번호/PIN 필드에서는 한글 모드를 영어로 강제 전환
+        if self.content_purpose.should_block_hangul()
+            && self.input_category == InputCategory::Korean
+        {
+            unim_log!(
+                "ENGINE",
+                "비밀번호 필드 감지: 영문 모드로 강제 전환"
+            );
+            self.set_input_category(InputCategory::English);
         }
 
         // 입력 카테고리에 따른 처리
@@ -431,7 +497,7 @@ impl InputEngine {
                     }
 
                     // 일반 자모 입력
-                    self.korean_context.process_jamo(jamo.clone());
+                    self.korean_context.process_jamo(*jamo);
 
                     // committed 문자가 있으면 commit_buffer에 추가
                     let committed = self.korean_context.get_committed();
@@ -997,6 +1063,246 @@ impl InputEngine {
     pub fn popup_state_mut(&mut self) -> Option<&mut PopupState> {
         self.popup_state.as_mut()
     }
+
+    // =========================================
+    // Content Type / Surrounding Text
+    // =========================================
+
+    /// 입력 필드의 목적을 설정합니다.
+    ///
+    /// 비밀번호/PIN 필드에서는 한글 모드가 자동으로 차단됩니다.
+    pub fn set_content_purpose(&mut self, purpose: ContentPurpose) {
+        if self.content_purpose != purpose {
+            unim_log!(
+                "ENGINE",
+                "content_purpose 변경: {:?} -> {:?}",
+                self.content_purpose,
+                purpose
+            );
+            self.content_purpose = purpose;
+
+            // 비밀번호 필드로 전환 시 한글 모드면 즉시 영문 전환
+            if purpose.should_block_hangul() && self.input_category == InputCategory::Korean {
+                self.flush_preedit();
+                self.input_category = InputCategory::English;
+                self.update_status_file();
+            }
+        }
+    }
+
+    /// 현재 content purpose를 반환합니다.
+    pub fn content_purpose(&self) -> ContentPurpose {
+        self.content_purpose
+    }
+
+    /// Surrounding text를 설정합니다.
+    pub fn set_surrounding_text(&mut self, text: String, cursor_pos: u32, anchor_pos: u32) {
+        self.surrounding_text = text;
+        self.surrounding_cursor = cursor_pos;
+        self.surrounding_anchor = anchor_pos;
+    }
+
+    /// Surrounding text를 반환합니다.
+    pub fn surrounding_text(&self) -> (&str, u32, u32) {
+        (&self.surrounding_text, self.surrounding_cursor, self.surrounding_anchor)
+    }
+
+    // =========================================
+    // Smart Backspace (자모 단위 삭제)
+    // =========================================
+
+    /// Smart Backspace: 커밋된 한글 글자를 자모 단위로 삭제합니다.
+    ///
+    /// 조합 중이 아닌 상태에서 백스페이스를 누르면, surrounding text의 커서 앞
+    /// 한글 글자를 분해하여 마지막 자모를 제거하고 재조합합니다.
+    ///
+    /// # Returns
+    /// * `Some((1, replacement))` - 1글자 삭제 후 대체 텍스트
+    /// * `None` - surrounding text가 없거나 한글이 아님
+    pub fn smart_backspace(&self) -> Option<(u32, String)> {
+        if self.surrounding_text.is_empty() || self.surrounding_cursor == 0 {
+            return None;
+        }
+
+        // 커서 앞의 마지막 문자를 가져옴
+        let text_before: String = self
+            .surrounding_text
+            .chars()
+            .take(self.surrounding_cursor as usize)
+            .collect();
+
+        let last_char = text_before.chars().last()?;
+
+        // 한글 음절인지 확인 (U+AC00 ~ U+D7A3)
+        if !('\u{AC00}'..='\u{D7A3}').contains(&last_char) {
+            return None;
+        }
+
+        // 음절을 분해
+        use crate::hangul::char::HangulChar;
+        let hchar = HangulChar::from_syllable(last_char).ok()?;
+
+        let cho = hchar.get_cho();
+        let jung = hchar.get_jung();
+        let jong = hchar.get_jong();
+
+        use crate::hangul::jamo::Jong;
+
+        // 종성이 있으면 종성을 제거
+        if let Some(j) = jong {
+            if j != Jong::E {
+                // 종성을 제거하고 초+중으로 재조합
+                let new_char = HangulChar::from_jamo_sequences(
+                    cho.unwrap() as i32,
+                    jung.unwrap() as i32,
+                    Jong::E as i32,
+                );
+                return Some((1, new_char.to_string()));
+            }
+        }
+
+        // 중성이 있으면 중성을 제거 → 초성만 남음
+        if jung.is_some() {
+            if let Some(c) = cho {
+                // 초성만으로 HangulChar 생성
+                let result = HangulChar::from_jamo_sequences(
+                    c as i32,
+                    -1, // 중성 없음
+                    -1, // 종성 없음
+                );
+                return Some((1, result.to_string()));
+            }
+        }
+
+        // 초성만 있으면 글자 전체 삭제 (빈 문자열 반환)
+        Some((1, String::new()))
+    }
+
+    // =========================================
+    // TypeFix (한/영 오타 변환)
+    // =========================================
+
+    /// TypeFix 대기 상태를 꺼냅니다 (더블탭 감지 후 engine_worker가 호출).
+    pub fn take_typefix_pending(&mut self) -> bool {
+        let pending = self.typefix_pending;
+        self.typefix_pending = false;
+        pending
+    }
+
+    /// TypeFix 변환을 수행합니다.
+    ///
+    /// surrounding text에서 대상 텍스트를 추출하여 한↔영 변환합니다.
+    /// - 선택 영역이 있으면 (cursor != anchor) 선택된 텍스트를 변환
+    /// - 없으면 커서 앞의 단어를 자동 추출
+    ///
+    /// 변환 후 결과 언어에 맞게 입력 모드를 자동 전환합니다.
+    ///
+    /// # Arguments
+    /// * `direction` - 0: 자동 감지, 1: 영→한, 2: 한→영
+    ///
+    /// # Returns
+    /// * `Some((delete_chars, replacement))` - 변환 성공
+    /// * `None` - 변환할 텍스트가 없거나 surrounding text가 없음
+    pub fn typefix_convert(&mut self, direction: u32) -> Option<(u32, String)> {
+        if self.surrounding_text.is_empty() {
+            return None;
+        }
+
+        let chars: Vec<char> = self.surrounding_text.chars().collect();
+        let cursor = self.surrounding_cursor as usize;
+        let anchor = self.surrounding_anchor as usize;
+
+        // 대상 텍스트 추출
+        let (word, delete_chars) = if cursor != anchor {
+            // 선택 영역이 있으면 선택된 텍스트 사용
+            let start = cursor.min(anchor);
+            let end = cursor.max(anchor);
+            let selected: String = chars[start..end.min(chars.len())].iter().collect();
+            let len = selected.chars().count() as u32;
+            (selected, len)
+        } else {
+            // 커서 앞에서 공백이 아닌 연속 문자(단어) 추출
+            let before: Vec<char> = chars[..cursor.min(chars.len())].to_vec();
+            let word: String = before
+                .iter()
+                .rev()
+                .take_while(|c| !c.is_whitespace())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            let len = word.chars().count() as u32;
+            (word, len)
+        };
+
+        if word.is_empty() {
+            return None;
+        }
+
+        let korean_layout = self.korean_layout;
+        let english_layout = self.english_layout;
+
+        // 자동 감지 + 변환
+        let (replacement, target_mode) = match direction {
+            1 => {
+                // 영→한 강제
+                let converted = crate::typefix::eng_to_kor(&word, korean_layout, english_layout);
+                if converted != word {
+                    (Some(converted), Some(InputCategory::Korean))
+                } else {
+                    (None, None)
+                }
+            }
+            2 => {
+                // 한→영 강제
+                let converted = crate::typefix::kor_to_eng(&word, korean_layout, english_layout);
+                if converted != word {
+                    (Some(converted), Some(InputCategory::English))
+                } else {
+                    (None, None)
+                }
+            }
+            _ => {
+                // 자동 감지: 한글이면 한→영, 영문이면 영→한
+                if crate::typefix::is_korean_text(&word) {
+                    let converted =
+                        crate::typefix::kor_to_eng(&word, korean_layout, english_layout);
+                    if converted != word {
+                        (Some(converted), Some(InputCategory::English))
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    let converted =
+                        crate::typefix::eng_to_kor(&word, korean_layout, english_layout);
+                    if converted != word {
+                        (Some(converted), Some(InputCategory::Korean))
+                    } else {
+                        (None, None)
+                    }
+                }
+            }
+        };
+
+        if let Some(ref repl) = replacement {
+            // 변환 결과 언어로 입력 모드 자동 전환
+            if let Some(mode) = target_mode {
+                if self.input_category != mode {
+                    unim_log!(
+                        "ENGINE",
+                        "TypeFix 모드 전환: {:?} → {:?}",
+                        self.input_category,
+                        mode
+                    );
+                    self.input_category = mode;
+                    self.update_status_file();
+                }
+            }
+            Some((delete_chars, repl.clone()))
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1289,5 +1595,405 @@ mod tests {
         assert!(result.commit_changed);
         assert_eq!(engine.commit_str(), "가");
         assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    // =========================================
+    // 통합 테스트 시나리오
+    // =========================================
+
+    /// 헬퍼: 키 시퀀스를 입력하고 최종 결과를 수집
+    fn type_keys(engine: &mut InputEngine, keys: &[KeyCode], config: &Config) -> (String, String) {
+        let modifier = ModifierState::default();
+        let mut total_commit = String::new();
+        for &key in keys {
+            let result = engine.press_key(key, modifier, config);
+            if result.commit_changed {
+                total_commit.push_str(engine.commit_str());
+                engine.clear_commit();
+            }
+        }
+        (total_commit, engine.preedit_str().to_string())
+    }
+
+    #[test]
+    fn test_scenario_hangul_sentence() {
+        // "안녕하세요" 입력 시나리오
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        engine.set_input_category(InputCategory::Korean);
+
+        let keys = [
+            KeyCode::D, KeyCode::K,   // 아 → ㅏ
+            KeyCode::S, KeyCode::S,   // 안 → ㄴ+ㄴ (도깨비불)
+            KeyCode::U, KeyCode::D,   // 녕
+            KeyCode::G, KeyCode::K,   // 하
+            KeyCode::T, KeyCode::P,   // 세
+            KeyCode::D, KeyCode::Y,   // 요
+        ];
+
+        let (commit, preedit) = type_keys(&mut engine, &keys, &config);
+        // 최종: 커밋된 텍스트 + 남은 preedit
+        let full = format!("{}{}", commit, preedit);
+        assert!(full.contains("안녕"), "Expected '안녕' in '{}'", full);
+    }
+
+    #[test]
+    fn test_scenario_mixed_korean_english() {
+        // 한글 입력 → 한/영 전환 → 영문 입력 → 한/영 전환 → 한글 입력
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        // 1. 한글 모드: "가" 입력
+        engine.set_input_category(InputCategory::Korean);
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+        assert_eq!(engine.preedit_str(), "가");
+
+        // 2. 한/영 전환
+        let result = engine.press_key(KeyCode::Korean, modifier, &config);
+        assert!(result.commit_changed);
+        let commit1 = engine.commit_str().to_string();
+        engine.clear_commit();
+        assert_eq!(commit1, "가");
+        assert_eq!(engine.input_category(), InputCategory::English);
+
+        // 3. 영문 입력 "ab"
+        engine.press_key(KeyCode::A, modifier, &config);
+        let a = engine.commit_str().to_string();
+        engine.clear_commit();
+        assert_eq!(a, "a");
+
+        engine.press_key(KeyCode::B, modifier, &config);
+        let b = engine.commit_str().to_string();
+        engine.clear_commit();
+        assert_eq!(b, "b");
+
+        // 4. 한/영 전환 → 한글
+        engine.press_key(KeyCode::Korean, modifier, &config);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+
+        // 5. 한글 "나"
+        engine.press_key(KeyCode::S, modifier, &config); // ㄴ
+        engine.press_key(KeyCode::K, modifier, &config); // 나
+        assert_eq!(engine.preedit_str(), "나");
+    }
+
+    #[test]
+    fn test_scenario_backspace_during_composition() {
+        // 조합 중 백스페이스: "각" → Backspace → "가" → Backspace → "ㄱ" → Backspace → 빈칸
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+
+        // ㄱ+ㅏ+ㄱ = 각
+        engine.press_key(KeyCode::R, modifier, &config);
+        engine.press_key(KeyCode::K, modifier, &config);
+        engine.press_key(KeyCode::R, modifier, &config);
+        assert_eq!(engine.preedit_str(), "각");
+
+        // Backspace → 가
+        engine.press_key(KeyCode::Backspace, modifier, &config);
+        assert_eq!(engine.preedit_str(), "가");
+
+        // Backspace → ㄱ
+        engine.press_key(KeyCode::Backspace, modifier, &config);
+        assert_eq!(engine.preedit_str(), "ㄱ");
+
+        // Backspace → 빈칸
+        engine.press_key(KeyCode::Backspace, modifier, &config);
+        assert_eq!(engine.preedit_str(), "");
+        assert!(!engine.is_composing());
+    }
+
+    #[test]
+    fn test_scenario_content_purpose_password() {
+        // 비밀번호 필드에서 한글 차단
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        // 한글 모드로 전환
+        engine.set_input_category(InputCategory::Korean);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+
+        // 비밀번호 목적 설정 → 자동 영문 전환
+        engine.set_content_purpose(ContentPurpose::Password);
+        assert_eq!(engine.input_category(), InputCategory::English);
+
+        // 한/영 전환 시도 → 차단
+        let result = engine.press_key(KeyCode::Korean, modifier, &config);
+        assert!(result.consumed);
+        assert_eq!(engine.input_category(), InputCategory::English);
+
+        // 영문 입력은 정상 동작
+        engine.press_key(KeyCode::A, modifier, &config);
+        assert_eq!(engine.commit_str(), "a");
+    }
+
+    #[test]
+    fn test_scenario_content_purpose_normal_after_password() {
+        // 비밀번호 → Normal 전환 시 한글 모드 복구 가능
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+        engine.set_content_purpose(ContentPurpose::Password);
+        assert_eq!(engine.input_category(), InputCategory::English);
+
+        // Normal로 복원
+        engine.set_content_purpose(ContentPurpose::Normal);
+
+        // 이제 한/영 전환 가능
+        engine.press_key(KeyCode::Korean, modifier, &config);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+    }
+
+    #[test]
+    fn test_scenario_typefix_with_surrounding() {
+        // TypeFix: surrounding text에서 영→한 변환 + 모드 자동 전환
+        let mut engine = create_test_engine();
+        engine.set_input_category(InputCategory::English);
+
+        // Surrounding text 설정: "gksrmf" (한글로 치면 "한글")
+        engine.set_surrounding_text("gksrmf".to_string(), 6, 6);
+
+        // TypeFix 자동 감지 (영문 → 한글)
+        let result = engine.typefix_convert(0);
+        assert!(result.is_some());
+        let (delete_count, replacement) = result.unwrap();
+        assert_eq!(delete_count, 6);
+        assert_eq!(replacement, "한글");
+        // 변환 후 한글 모드로 자동 전환
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+    }
+
+    #[test]
+    fn test_scenario_typefix_kor_to_eng() {
+        // TypeFix: 한글 → 영문 변환 + 모드 자동 전환
+        let mut engine = create_test_engine();
+        engine.set_input_category(InputCategory::Korean);
+
+        engine.set_surrounding_text("한글".to_string(), 2, 2);
+
+        // 방향 2: 한→영 강제
+        let result = engine.typefix_convert(2);
+        assert!(result.is_some());
+        let (delete_count, replacement) = result.unwrap();
+        assert_eq!(delete_count, 2);
+        assert_eq!(replacement, "gksrmf");
+        // 변환 후 영문 모드로 자동 전환
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    #[test]
+    fn test_scenario_typefix_selection() {
+        // 선택 영역 TypeFix: cursor != anchor일 때 선택 영역 변환
+        let mut engine = create_test_engine();
+        engine.set_input_category(InputCategory::English);
+
+        // "hello gksrmf world" 에서 "gksrmf"가 선택됨 (cursor=12, anchor=6)
+        engine.set_surrounding_text("hello gksrmf world".to_string(), 12, 6);
+
+        let result = engine.typefix_convert(0);
+        assert!(result.is_some());
+        let (delete_count, replacement) = result.unwrap();
+        assert_eq!(delete_count, 6); // "gksrmf" 6글자 삭제
+        assert_eq!(replacement, "한글");
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+    }
+
+    #[test]
+    fn test_scenario_typefix_auto_detect() {
+        // 자동 감지: 한글 자모 입력 → 영문으로 변환
+        let mut engine = create_test_engine();
+        engine.set_input_category(InputCategory::Korean);
+
+        // 한글 모드에서 영문을 치려했지만 한글 자모가 나온 경우
+        engine.set_surrounding_text("ㅗ디ㅣㅐ".to_string(), 4, 4);
+
+        let result = engine.typefix_convert(0);
+        assert!(result.is_some());
+        let (_delete_count, replacement) = result.unwrap();
+        // 한글 자모 → 영문 변환
+        assert!(!replacement.is_empty());
+        // 영문 모드로 전환됨
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    #[test]
+    fn test_scenario_smart_backspace() {
+        // Smart Backspace: 커밋된 "한" → "하" → "ㅎ" → 삭제
+        let mut engine = create_test_engine();
+
+        // "한" 글자 뒤에 커서
+        engine.set_surrounding_text("한".to_string(), 1, 1);
+        let result = engine.smart_backspace();
+        assert!(result.is_some());
+        let (del, repl) = result.unwrap();
+        assert_eq!(del, 1);
+        assert_eq!(repl, "하"); // 종성 ㄴ 제거 → 하
+
+        // "하" 글자 뒤에 커서
+        engine.set_surrounding_text("하".to_string(), 1, 1);
+        let result = engine.smart_backspace();
+        assert!(result.is_some());
+        let (del, repl) = result.unwrap();
+        assert_eq!(del, 1);
+        assert_eq!(repl, "ㅎ"); // 중성 ㅏ 제거 → ㅎ
+
+        // "ㅎ" 글자 → 한글 음절이 아니므로 None
+        engine.set_surrounding_text("ㅎ".to_string(), 1, 1);
+        let result = engine.smart_backspace();
+        assert!(result.is_none()); // 자모는 음절이 아님
+    }
+
+    #[test]
+    fn test_scenario_hanja_conversion() {
+        // 한자 변환 시나리오: "가" → 한자 후보 표시 → 선택
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+
+        // "가" 입력
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+        assert_eq!(engine.preedit_str(), "가");
+
+        // 한자 변환 시작
+        let result = engine.start_hanja_conversion();
+        assert!(result.hanja_candidates_available);
+        assert!(engine.is_hanja_mode());
+
+        // 후보 목록 확인
+        let candidates = engine.get_hanja_candidates();
+        assert!(!candidates.is_empty());
+
+        // 첫 번째 한자 선택
+        let selected = engine.select_hanja(0);
+        assert!(selected.is_some());
+        assert!(!engine.is_hanja_mode()); // 모드 해제
+    }
+
+    #[test]
+    fn test_scenario_special_char_fallback() {
+        // 특수문자 fallback: 초성 "ㄱ" → 한자 후보 없음 → 특수문자 후보
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+
+        // "ㄱ" 입력 (초성만)
+        engine.press_key(KeyCode::R, modifier, &config);
+        assert_eq!(engine.preedit_str(), "ㄱ");
+
+        // 한자 변환 시작 → 한자 없음 → 특수문자 fallback
+        let result = engine.start_hanja_conversion();
+        // ㄱ에 대한 한자가 없으면 특수문자 모드로 전환
+        if result.special_char_candidates_available {
+            assert!(engine.is_special_char_mode());
+            let candidates = engine.get_special_char_candidates();
+            assert!(!candidates.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_scenario_double_consonant() {
+        // 쌍자음 입력: ㄲ (Shift+ㄱ)
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let shift = ModifierState {
+            shift: true,
+            ..Default::default()
+        };
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+
+        // Shift+R = ㄲ
+        engine.press_key(KeyCode::R, shift, &config);
+        assert_eq!(engine.preedit_str(), "ㄲ");
+
+        // ㅏ → 까
+        engine.press_key(KeyCode::K, modifier, &config);
+        assert_eq!(engine.preedit_str(), "까");
+    }
+
+    #[test]
+    fn test_scenario_space_after_composition() {
+        // 조합 후 스페이스: "가" + Space → "가 " 커밋
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+
+        engine.press_key(KeyCode::R, modifier, &config);
+        engine.press_key(KeyCode::K, modifier, &config);
+        assert_eq!(engine.preedit_str(), "가");
+
+        let result = engine.press_key(KeyCode::Space, modifier, &config);
+        assert!(result.consumed);
+        assert!(result.commit_changed);
+        assert_eq!(engine.commit_str(), "가 ");
+        assert_eq!(engine.preedit_str(), "");
+    }
+
+    #[test]
+    fn test_scenario_number_in_korean_mode() {
+        // 한글 모드에서 숫자: 조합 커밋 후 숫자 커밋
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+
+        // 숫자 1 → 조합 "가" 커밋 + "1" 커밋
+        let result = engine.press_key(KeyCode::Num1, modifier, &config);
+        assert!(result.commit_changed);
+        let committed = engine.commit_str().to_string();
+        assert!(committed.contains("가"), "committed: '{}'", committed);
+    }
+
+    #[test]
+    fn test_scenario_caps_lock_korean() {
+        // 한글 모드에서 CapsLock → 영향 없음 (쌍자음은 Shift로만)
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let caps = ModifierState {
+            caps_lock: true,
+            ..Default::default()
+        };
+
+        engine.set_input_category(InputCategory::Korean);
+
+        // CapsLock 상태에서 R → ㄱ (CapsLock 무시)
+        engine.press_key(KeyCode::R, caps, &config);
+        assert_eq!(engine.preedit_str(), "ㄱ");
+    }
+
+    #[test]
+    fn test_scenario_caps_lock_english() {
+        // 영어 모드에서 CapsLock → 대문자
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let caps = ModifierState {
+            caps_lock: true,
+            ..Default::default()
+        };
+
+        engine.set_input_category(InputCategory::English);
+
+        engine.press_key(KeyCode::A, caps, &config);
+        assert_eq!(engine.commit_str(), "A");
     }
 }

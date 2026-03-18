@@ -2,6 +2,7 @@ pub mod char;
 pub mod composer;
 pub mod composer_with_2bul;
 pub mod composer_with_3bul;
+pub mod emoji;
 pub mod hanja;
 pub mod input_context;
 pub mod jamo;

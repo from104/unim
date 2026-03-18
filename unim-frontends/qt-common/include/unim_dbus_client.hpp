@@ -151,7 +151,21 @@ public:
      * 특수문자 모드 취소
      */
     void cancelSpecialChar();
-    
+
+    /**
+     * 입력 필드 목적 설정 (비밀번호/PIN 감지용)
+     * @param purpose 목적 (0=Normal, 1=Password, 2=Pin, ...)
+     */
+    void setContentType(quint32 purpose);
+
+    /**
+     * Surrounding text 설정
+     * @param text 텍스트
+     * @param cursorPos 커서 위치 (문자 단위)
+     * @param anchorPos 앵커 위치 (문자 단위)
+     */
+    void setSurroundingText(const QString &text, quint32 cursorPos, quint32 anchorPos);
+
 private:
     QDBusConnection m_bus;
     QString m_contextPath;

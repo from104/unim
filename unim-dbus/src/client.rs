@@ -20,6 +20,15 @@ trait InputMethod {
     /// 전역 입력 모드 조회
     fn get_global_mode(&self) -> Result<bool>;
 
+    /// 이모지 검색
+    fn search_emoji(&self, keyword: &str) -> Result<Vec<String>>;
+
+    /// 설정값 조회
+    fn get_config(&self, key: &str) -> Result<String>;
+
+    /// 설정값 변경
+    fn set_config(&self, key: &str, value: &str) -> Result<()>;
+
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
     fn global_mode_changed(&self, is_korean: bool) -> Result<()>;
@@ -71,6 +80,24 @@ trait InputContext {
 
     /// 커서 위치 보고 (팝업 포지셔닝용)
     fn report_cursor_rect(&self, x: i32, y: i32, width: i32, height: i32) -> Result<()>;
+
+    /// 입력 필드 목적 설정 (비밀번호/PIN 감지)
+    fn set_content_type(&self, purpose: u32) -> Result<()>;
+
+    /// Surrounding text 설정
+    fn set_surrounding_text(&self, text: &str, cursor_pos: u32, anchor_pos: u32) -> Result<()>;
+
+    /// Smart Backspace (자모 단위 삭제)
+    /// 반환: (삭제 문자 수, 대체 텍스트)
+    fn smart_backspace(&self) -> Result<(u32, String)>;
+
+    /// TypeFix 변환 (한/영 오타 변환)
+    /// 반환: (삭제 문자 수, 대체 텍스트)
+    fn type_fix(&self, direction: u32) -> Result<(u32, String)>;
+
+    /// delete_surrounding_text 시그널
+    #[zbus(signal)]
+    fn delete_surrounding_text(&self, offset: i32, n_chars: u32) -> Result<()>;
 
     /// Preedit 텍스트 업데이트 시그널
     #[zbus(signal)]

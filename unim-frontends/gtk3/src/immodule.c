@@ -24,6 +24,11 @@
 #include <X11/Xlib.h>
 #endif
 
+/* Wayland 감지를 위한 헤더 */
+#ifdef GDK_WINDOWING_WAYLAND
+#include <gdk/gdkwayland.h>
+#endif
+
 /* 모듈 정보 */
 #define UNIM_IM_CONTEXT_ID "unim"
 #define UNIM_IM_CONTEXT_NAME "UNIM 한글 입력기"
@@ -481,11 +486,38 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         gchar *target = NULL;
         UnimHanjaCandidate *candidates = NULL;
         gsize count = 0;
-        
+
+        /* Wayland: Hanja 키를 ProcessKeyEvent로 보내서 Push 시그널 발행
+         * → GNOME extension이 팝업 처리 */
+        gboolean is_wayland = FALSE;
+#ifdef GDK_WINDOWING_WAYLAND
+        GdkDisplay *display = gdk_display_get_default();
+        if (GDK_IS_WAYLAND_DISPLAY(display)) {
+            is_wayland = TRUE;
+        }
+#endif
+        if (is_wayland) {
+            UNIM_DEBUG("Wayland: Hanja 키 → ProcessKeyEvent (GNOME ext 팝업 위임)");
+            UnimDbusKeyResult hanja_result;
+            guint evdev = event->hardware_keycode - 8;
+            if (unim_dbus_process_key(unim->dbus_ctx, event->keyval, evdev, event->state, &hanja_result)) {
+                if (hanja_result.preedit) {
+                    g_signal_emit_by_name(context, "preedit-changed");
+                }
+                if (hanja_result.commit && strlen(hanja_result.commit) > 0) {
+                    g_signal_emit_by_name(context, "commit", hanja_result.commit);
+                }
+                g_free(hanja_result.preedit);
+                g_free(hanja_result.commit);
+            }
+            return TRUE;
+        }
+
+        /* X11: 로컬 팝업 표시 (Pull 방식) */
         /* 화면 좌표 계산 (한자/특수문자 공용) */
         gint popup_x = unim->cursor_area.x;
         gint popup_y = unim->cursor_area.y + unim->cursor_area.height;
-        
+
 #ifdef GDK_WINDOWING_X11
         if (unim->client_window && GDK_IS_X11_WINDOW(unim->client_window)) {
             gint abs_x = 0, abs_y = 0;
@@ -533,8 +565,11 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
                 gsize sp_count = 0;
                 gchar *sp_top_row = NULL;
                 
-                if (unim_dbus_get_special_char_candidates(unim->dbus_ctx,
-                        &sp_target, &sp_chars, &sp_count, &sp_top_row) && sp_count > 0) {
+                gboolean sp_ok = unim_dbus_get_special_char_candidates(unim->dbus_ctx,
+                        &sp_target, &sp_chars, &sp_count, &sp_top_row);
+                UNIM_DEBUG("특수문자 조회 결과: ok=%d, target='%s', count=%zu",
+                           sp_ok, sp_target ? sp_target : "(null)", sp_count);
+                if (sp_ok && sp_count > 0) {
                     /* 이전 특수문자 정리 */
                     if (unim->special_characters) {
                         unim_special_chars_free(unim->special_characters, unim->special_count);
@@ -665,17 +700,50 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     return result.consumed;
 }
 
+/* GtkInputPurpose → UNIM ContentPurpose 변환 */
+static guint
+gtk3_input_purpose_to_unim(GtkInputPurpose purpose)
+{
+    switch (purpose) {
+        case GTK_INPUT_PURPOSE_PASSWORD: return 1; /* Password */
+        case GTK_INPUT_PURPOSE_PIN:      return 2; /* Pin */
+        case GTK_INPUT_PURPOSE_EMAIL:    return 3; /* Email */
+        case GTK_INPUT_PURPOSE_NUMBER:   return 4; /* Number */
+        case GTK_INPUT_PURPOSE_URL:      return 5; /* Url */
+        case GTK_INPUT_PURPOSE_TERMINAL: return 6; /* Terminal */
+        default:                         return 0; /* Normal */
+    }
+}
+
 static void
 unim_im_context_focus_in(GtkIMContext *context)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(context);
-    
+
     UNIM_DEBUG("focus_in 호출 (window_id: %s)", unim->window_id);
-    
+
     if (unim->dbus_ctx) {
         unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
+
+        /* GTK3: GtkEntry에서 input-purpose 속성 감지 */
+        if (unim->client_window) {
+            GtkWidget *widget = NULL;
+            gdk_window_get_user_data(unim->client_window, (gpointer*)&widget);
+            if (widget && GTK_IS_WIDGET(widget)) {
+                GtkInputPurpose purpose = GTK_INPUT_PURPOSE_FREE_FORM;
+                GParamSpec *pspec = g_object_class_find_property(
+                    G_OBJECT_GET_CLASS(widget), "input-purpose");
+                if (pspec) {
+                    g_object_get(widget, "input-purpose", &purpose, NULL);
+                }
+                guint unim_purpose = gtk3_input_purpose_to_unim(purpose);
+                unim_dbus_set_content_type(unim->dbus_ctx, unim_purpose);
+                UNIM_DEBUG("content_type 전달: gtk_purpose=%d, unim_purpose=%u",
+                           (int)purpose, unim_purpose);
+            }
+        }
     }
-    
+
     unim->is_focused = TRUE;
 }
 
@@ -686,6 +754,13 @@ unim_im_context_focus_out(GtkIMContext *context)
     gchar *commit = NULL;
 
     UNIM_DEBUG("focus_out 호출");
+
+    /* 팝업이 표시 중이면 focus_out 무시 (팝업 윈도우가 포커스를 가져갈 수 있음) */
+    if ((unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) ||
+        (unim->special_popup && unim_special_popup_is_visible(unim->special_popup))) {
+        UNIM_DEBUG("focus_out 무시 (팝업 활성)");
+        return;
+    }
 
     /* 1. 조합 중인 글자를 먼저 커밋 */
     if (unim->dbus_ctx) {
@@ -845,6 +920,16 @@ unim_im_context_set_surrounding(GtkIMContext *context, const gchar *text,
 
     UNIM_DEBUG("surrounding 업데이트: cursor=%d, text=\"%s\"",
                cursor_index, unim->surrounding_text);
+
+    /* Surrounding text를 DBus로 전달 */
+    if (unim->dbus_ctx && unim->surrounding_text) {
+        /* 바이트 오프셋 → 문자 오프셋 변환 */
+        guint cursor_char = (guint)g_utf8_pointer_to_offset(
+            unim->surrounding_text, unim->surrounding_text + cursor_index);
+        unim_dbus_set_surrounding_text(unim->dbus_ctx,
+                                        unim->surrounding_text,
+                                        cursor_char, cursor_char);
+    }
 }
 
 /* 모듈 정보 */

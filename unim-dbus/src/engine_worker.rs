@@ -116,6 +116,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         commit: None,
                         mode_changed: None,
                         popup_action: None,
+                        typefix_result: None,
                     });
                     continue;
                 }
@@ -174,12 +175,39 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 팝업 동작 감지 (take_popup_action으로 통합)
                     let popup_action = engine.take_popup_action();
 
+                    // TypeFix 더블탭 감지: typefix_pending이면 즉시 변환 수행
+                    let (typefix_commit, typefix_mode_changed) =
+                        if engine.take_typefix_pending() {
+                            if let Some((delete_count, replacement)) =
+                                engine.typefix_convert(0)
+                            {
+                                unim_log!(
+                                    "ENGINE_WORKER",
+                                    "[Engine Worker] TypeFix 더블탭: delete={}, repl='{}', mode={:?}",
+                                    delete_count,
+                                    replacement,
+                                    engine.input_category()
+                                );
+                                let is_korean = engine.input_category()
+                                    == unim::config::InputCategory::Korean;
+                                (Some((delete_count, replacement)), Some(is_korean))
+                            } else {
+                                (None, None)
+                            }
+                        } else {
+                            (None, None)
+                        };
+
+                    // TypeFix 결과가 있으면 mode_changed를 덮어씀
+                    let final_mode_changed = typefix_mode_changed.or(mode_changed);
+
                     EngineResponse {
                         consumed: result.consumed,
                         preedit,
                         commit,
-                        mode_changed,
+                        mode_changed: final_mode_changed,
                         popup_action,
+                        typefix_result: typefix_commit,
                     }
                 } else {
                     EngineResponse {
@@ -188,6 +216,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         commit: None,
                         mode_changed: None,
                         popup_action: None,
+                        typefix_result: None,
                     }
                 };
 
@@ -207,6 +236,30 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     if let Some(engine) = contexts.get_mut(&context_id) {
                         if let Some(&saved_mode) = window_modes.get(&window_id) {
                             engine.set_input_category(saved_mode);
+                        }
+                    }
+                }
+
+                // 앱별 기본 모드 규칙 적용 (최초 포커스 시)
+                if !config.engine.app_rules.is_empty() {
+                    if let Some(engine) = contexts.get_mut(&context_id) {
+                        // 아직 window_modes에 저장된 적 없으면 (최초 방문) 규칙 적용
+                        if !window_modes.contains_key(&window_id) {
+                            for rule in &config.engine.app_rules {
+                                if window_id.contains(&rule.app_pattern) {
+                                    engine.set_input_category(rule.default_category);
+                                    window_modes
+                                        .insert(window_id.clone(), rule.default_category);
+                                    unim_log!(
+                                        "ENGINE_WORKER",
+                                        "[Engine Worker] 앱 규칙 적용: pattern='{}', window_id={}, mode={:?}",
+                                        rule.app_pattern,
+                                        window_id,
+                                        rule.default_category
+                                    );
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -376,20 +429,20 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 .iter()
                                 .map(|c| c.to_string())
                                 .collect(),
-                            top_row: top_row,
+                            top_row,
                         }
                     } else {
                         crate::service::SpecialCharResponse {
                             target: String::new(),
                             characters: Vec::new(),
-                            top_row: top_row,
+                            top_row,
                         }
                     }
                 } else {
                     crate::service::SpecialCharResponse {
                         target: String::new(),
                         characters: Vec::new(),
-                        top_row: top_row,
+                        top_row,
                     }
                 };
                 let _ = response.send(resp);
@@ -427,6 +480,64 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             EngineRequest::ReportCursorRect { .. } => {
                 // 커서 위치는 service.rs의 InputContextHandler에서 직접 처리
                 // 엔진 워커는 무시
+            }
+
+            EngineRequest::SetContentType {
+                context_id,
+                purpose,
+            } => {
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    let content_purpose = unim::config::ContentPurpose::from_u32(purpose);
+                    engine.set_content_purpose(content_purpose);
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] SetContentType: context_id={}, purpose={:?}",
+                        context_id,
+                        content_purpose
+                    );
+                }
+            }
+
+            EngineRequest::SetSurroundingText {
+                context_id,
+                text,
+                cursor_pos,
+                anchor_pos,
+            } => {
+                if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.set_surrounding_text(text, cursor_pos, anchor_pos);
+                }
+            }
+
+            EngineRequest::TypeFix {
+                context_id,
+                direction,
+                response,
+            } => {
+                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.typefix_convert(direction)
+                } else {
+                    None
+                };
+                let _ = response.send(result);
+            }
+
+            EngineRequest::SmartBackspace {
+                context_id,
+                response,
+            } => {
+                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.smart_backspace()
+                } else {
+                    None
+                };
+                let _ = response.send(result);
+            }
+
+            EngineRequest::SearchEmoji { keyword, response } => {
+                let results = unim::hangul::emoji::search_emoji(&keyword);
+                let emoji_strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
+                let _ = response.send(emoji_strings);
             }
         }
     }
