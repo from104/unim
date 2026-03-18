@@ -17,9 +17,25 @@
 #include "ui.h"
 #include "xim.h"
 #include "dbus.h"
+#include "unim_test.h"
 #include "fields.h"
 
 #include <sys/select.h>
+
+/* ─── 자동 테스트 (--auto) ──────────────────────────────────────── */
+
+static int
+run_auto_test(gboolean verbose)
+{
+    long log_mark = unim_test_log_mark();
+    UnimTestRunner *runner = unim_test_runner_new(verbose);
+    if (!runner) return 1;
+    unim_test_run_suite(runner, UNIM_TEST_SUITE_AUTO);
+    unim_test_log_check(runner, log_mark);
+    int ret = runner->failed > 0 ? 1 : 0;
+    unim_test_runner_free(runner);
+    return ret;
+}
 
 /* ─── Global App Instance ─────────────────────────────────────────────── */
 
@@ -28,7 +44,15 @@ App app;
 /* ─── Main ────────────────────────────────────────────────────────────── */
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    /* --auto 모드 */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--auto") == 0) {
+            gboolean verbose = FALSE;
+            for (int j = 1; j < argc; j++)
+                if (strcmp(argv[j], "-v") == 0 || strcmp(argv[j], "--verbose") == 0) verbose = TRUE;
+            return run_auto_test(verbose);
+        }
+    }
 
     /* Zero-init */
     memset(&app, 0, sizeof(App));

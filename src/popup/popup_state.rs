@@ -103,7 +103,7 @@ impl PopupState {
         let total_pages = if total == 0 {
             1
         } else {
-            (total + HANJA_PAGE_SIZE - 1) / HANJA_PAGE_SIZE
+            total.div_ceil(HANJA_PAGE_SIZE)
         };
         let page_items = total.min(HANJA_PAGE_SIZE);
 
@@ -134,7 +134,7 @@ impl PopupState {
         let total_pages = if total == 0 {
             1
         } else {
-            (total + SPECIAL_PAGE_SIZE - 1) / SPECIAL_PAGE_SIZE
+            total.div_ceil(SPECIAL_PAGE_SIZE)
         };
 
         let mut state = Self {
@@ -163,9 +163,7 @@ impl PopupState {
                 self.cols = if page_chars == 0 {
                     1
                 } else {
-                    ((page_chars + MAX_ROWS - 1) / MAX_ROWS)
-                        .min(MAX_COLS)
-                        .max(1)
+                    ((page_chars + MAX_ROWS - 1) / MAX_ROWS).clamp(1, MAX_COLS)
                 };
                 self.rows = if page_chars == 0 {
                     1

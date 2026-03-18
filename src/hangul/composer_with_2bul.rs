@@ -83,7 +83,7 @@ enum Compose2BulViolation {
 /// - `None`: 규칙 위반 없음, 조합 계속 가능
 fn check_2bul_violation(base: &mut BaseHangulComposer) -> Option<Compose2BulViolation> {
     let queue = base.jamo_queue();
-    if queue.len() < 1 {
+    if queue.is_empty() {
         return None;
     }
 

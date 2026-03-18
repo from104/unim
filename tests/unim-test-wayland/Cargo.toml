@@ -21,4 +21,8 @@ cosmic-text = { version = "0.12", default-features = false, features = ["std", "
 
 # Logging
 unim = { path = "../.." }
+
+# Auto test
+unim-dbus = { path = "../../unim-dbus" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 calloop-wayland-source = "0.3.0"

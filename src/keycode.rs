@@ -8,7 +8,7 @@ use std::fmt;
 /// 키보드 키코드 열거형
 ///
 /// 물리적 키보드 키를 추상화하여 다양한 프론트엔드에서 통일된 방식으로 사용할 수 있도록 합니다.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u16)]
 pub enum KeyCode {
     // 알파벳 키 (A-Z)
@@ -115,6 +115,7 @@ pub enum KeyCode {
     RightSuper = 0xE7,
 
     // 알 수 없는 키
+    #[default]
     Unknown = 0xFFFF,
 }
 
@@ -610,11 +611,6 @@ impl KeyCode {
     }
 }
 
-impl Default for KeyCode {
-    fn default() -> Self {
-        KeyCode::Unknown
-    }
-}
 
 impl fmt::Display for KeyCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

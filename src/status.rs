@@ -22,13 +22,16 @@ impl InputCategory {
             InputCategory::English => "english",
         }
     }
+}
 
-    /// 문자열에서 파싱
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for InputCategory {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim() {
-            "korean" => Some(InputCategory::Korean),
-            "english" => Some(InputCategory::English),
-            _ => None,
+            "korean" => Ok(InputCategory::Korean),
+            "english" => Ok(InputCategory::English),
+            _ => Err(()),
         }
     }
 }
@@ -48,8 +51,9 @@ pub fn get_status() -> io::Result<InputCategory> {
     let mut content = String::new();
     file.read_to_string(&mut content)?;
 
-    InputCategory::from_str(&content)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid status value"))
+    content
+        .parse::<InputCategory>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid status value"))
 }
 
 /// 상태 설정 (파일에 쓰기)
@@ -78,17 +82,17 @@ mod tests {
         assert_eq!(InputCategory::English.as_str(), "english");
 
         assert_eq!(
-            InputCategory::from_str("korean"),
-            Some(InputCategory::Korean)
+            "korean".parse::<InputCategory>(),
+            Ok(InputCategory::Korean)
         );
         assert_eq!(
-            InputCategory::from_str("english"),
-            Some(InputCategory::English)
+            "english".parse::<InputCategory>(),
+            Ok(InputCategory::English)
         );
-        assert_eq!(InputCategory::from_str("invalid"), None);
+        assert!("invalid".parse::<InputCategory>().is_err());
         assert_eq!(
-            InputCategory::from_str("  korean  "),
-            Some(InputCategory::Korean)
+            "  korean  ".parse::<InputCategory>(),
+            Ok(InputCategory::Korean)
         );
     }
 

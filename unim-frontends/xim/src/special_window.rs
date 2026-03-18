@@ -85,6 +85,30 @@ fn keysym_to_popup_key(keysym: u32) -> PopupKey {
 }
 
 impl SpecialWindow {
+    /// 폰트 메트릭 기반 셀 크기 계산
+    fn compute_cell_size(
+        display: *mut x11::xlib::Display,
+        xft_font: *mut x11::xft::XftFont,
+        scale_factor: f64,
+    ) -> (c_int, c_int) {
+        let test = "가";
+        let test_bytes = test.as_bytes();
+        unsafe {
+            let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display,
+                xft_font,
+                test_bytes.as_ptr(),
+                test_bytes.len() as c_int,
+                &mut extents,
+            );
+            let padding = dpi::scale(6, scale_factor);
+            let w = (extents.xOff as c_int).max(dpi::scale(16, scale_factor)) + padding;
+            let h = (extents.height as c_int).max(dpi::scale(14, scale_factor)) + padding;
+            (w, h)
+        }
+    }
+
     /// 특수문자 팝업 생성
     pub fn new(
         display: *mut x11::xlib::Display,
@@ -95,7 +119,10 @@ impl SpecialWindow {
         let root = unsafe { x11::xlib::XRootWindow(display, screen) };
         let scale_factor = dpi::get_scale_factor(display, screen);
 
-        let size: (u16, u16) = (dpi::scale_u16(400, scale_factor), dpi::scale_u16(350, scale_factor));
+        let size: (u16, u16) = (
+            dpi::scale_u16(400, scale_factor),
+            dpi::scale_u16(350, scale_factor),
+        );
 
         // 화면 경계 보정
         let screen_w = unsafe { x11::xlib::XDisplayWidth(display, screen) };
@@ -267,8 +294,8 @@ impl SpecialWindow {
             page_color,
             popup_state: None,
             size,
-            cell_w: dpi::scale(30, scale_factor),
-            cell_h: dpi::scale(30, scale_factor),
+            cell_w: 0,
+            cell_h: 0,
             scale_factor,
         })
     }
@@ -294,14 +321,15 @@ impl SpecialWindow {
     ) {
         self.popup_state = Some(PopupState::new_special(target, characters, top_row));
 
-        // 셀 크기 계산
+        // 셀 크기 계산 (폰트 메트릭 기반)
         let sf = self.scale_factor;
-        self.cell_w = dpi::scale(30, sf);
-        self.cell_h = dpi::scale(30, sf);
+        let (cell_w, cell_h) = Self::compute_cell_size(display, self.xft_font, sf);
+        self.cell_w = cell_w;
+        self.cell_h = cell_h;
 
         let ps = self.popup_state.as_ref().unwrap();
         // 윈도우 크기 계산: 행 헤더(1열) + 데이터 열 + 여백, 열 헤더(1행) + 데이터 행 + 푸터
-        let header_col_w = dpi::scale(30, sf);
+        let header_col_w = self.cell_w;
         let header_row_h = self.cell_h;
         let footer_h = dpi::scale(24, sf);
         let margin = dpi::scale(10, sf);
@@ -398,7 +426,7 @@ impl SpecialWindow {
         click_y: c_int,
         _display: *mut x11::xlib::Display,
     ) -> SpecialAction {
-        let header_col_w = dpi::scale(30, self.scale_factor);
+        let header_col_w = self.cell_w;
         let header_row_h = self.cell_h;
 
         let ps = match self.popup_state.as_mut() {
@@ -445,7 +473,7 @@ impl SpecialWindow {
         }
 
         let sf = self.scale_factor;
-        let header_col_w: c_int = dpi::scale(30, sf);
+        let header_col_w: c_int = self.cell_w;
         let header_row_h = self.cell_h;
         let top_row_chars: Vec<char> = ps.top_row().chars().collect();
         let rows = ps.rows();

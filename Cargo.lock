@@ -3332,6 +3332,7 @@ version = "0.0.1"
 dependencies = [
  "log",
  "serde",
+ "serde_json",
  "tokio",
  "unim",
  "zbus 4.4.0",
@@ -3380,6 +3381,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "unim-test-dbus"
+version = "0.0.1"
+dependencies = [
+ "tokio",
+ "unim-dbus",
+]
+
+[[package]]
 name = "unim-test-wayland"
 version = "0.0.1"
 dependencies = [
@@ -3388,7 +3397,9 @@ dependencies = [
  "cosmic-text",
  "smithay-client-toolkit",
  "tiny-skia",
+ "tokio",
  "unim",
+ "unim-dbus",
  "wayland-client",
  "wayland-protocols",
  "xkbcommon 0.7.0",

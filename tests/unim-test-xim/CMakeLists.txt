@@ -12,6 +12,9 @@ pkg_check_modules(XFT REQUIRED xft)
 pkg_check_modules(FONTCONFIG REQUIRED fontconfig)
 pkg_check_modules(GIO REQUIRED gio-2.0)
 
+# ─── 공통 테스트 라이브러리 ───────────────────────────────────────────────
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/common)
+
 # ─── Sources ─────────────────────────────────────────────────────────────
 set(SOURCES
     src/main.c
@@ -27,6 +30,7 @@ add_executable(unim-test-xim ${SOURCES})
 
 target_include_directories(unim-test-xim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
     ${X11_INCLUDE_DIR}
     ${XFT_INCLUDE_DIRS}
     ${FONTCONFIG_INCLUDE_DIRS}
@@ -38,6 +42,7 @@ target_link_libraries(unim-test-xim
     ${XFT_LIBRARIES}
     ${FONTCONFIG_LIBRARIES}
     ${GIO_LIBRARIES}
+    unim-test-common
 )
 
 # ─── Install ─────────────────────────────────────────────────────────────

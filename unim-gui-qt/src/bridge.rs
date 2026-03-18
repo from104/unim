@@ -45,6 +45,7 @@ pub struct UnimBridgeRust {
     connected: bool,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for UnimBridgeRust {
     fn default() -> Self {
         Self {
@@ -98,24 +99,21 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
 
         // GuiAction 수신 → Qt 시그널 발행
         let qt_thread = self.qt_thread();
-        std::thread::spawn(move || loop {
-            match popup_rx.recv() {
-                Ok(action) => {
-                    let qt = qt_thread.clone();
-                    match action {
-                        GuiAction::UpdateCategory(category) => {
-                            let is_korean = category == unim::status::InputCategory::Korean;
-                            qt.queue(move |mut bridge| {
-                                bridge.as_mut().set_is_korean(is_korean);
-                                bridge.as_mut().set_connected(true);
-                                bridge.as_mut().mode_changed(is_korean);
-                            })
-                            .ok();
-                        }
-                        GuiAction::ShowModePopup | GuiAction::OpenSettings => {}
+        std::thread::spawn(move || {
+            while let Ok(action) = popup_rx.recv() {
+                let qt = qt_thread.clone();
+                match action {
+                    GuiAction::UpdateCategory(category) => {
+                        let is_korean = category == unim::status::InputCategory::Korean;
+                        qt.queue(move |mut bridge| {
+                            bridge.as_mut().set_is_korean(is_korean);
+                            bridge.as_mut().set_connected(true);
+                            bridge.as_mut().mode_changed(is_korean);
+                        })
+                        .ok();
                     }
+                    GuiAction::ShowModePopup | GuiAction::OpenSettings => {}
                 }
-                Err(_) => break,
             }
         });
     }

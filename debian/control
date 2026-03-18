@@ -10,7 +10,7 @@ Rules-Requires-Root: no
 Package: unim
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Recommends: im-config
+Recommends: im-config, dbus
 Description: Korean Input Method Engine
  UNIM is a modular Korean Input Method Engine.
  This package contains the core daemon, C-API library, CLI tools,
@@ -19,7 +19,8 @@ Description: Korean Input Method Engine
 Package: unim-gui-gtk
 Architecture: any
 Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Conflicts: unim-gui-qt
+Conflicts: unim-gtk
+Replaces: unim-gtk
 Description: UNIM GUI and GTK IM Modules
  UNIM GUI process providing system tray indicator, Hanja/special character
  popups, and settings dialog. GTK4/libadwaita based.
@@ -28,7 +29,8 @@ Description: UNIM GUI and GTK IM Modules
 Package: unim-gui-qt
 Architecture: any
 Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Conflicts: unim-gui-gtk
+Conflicts: unim-qt
+Replaces: unim-qt
 Description: UNIM GUI and Qt IM Plugins
  UNIM GUI process providing Hanja/special character popups.
  Qt6/QML based alternative to the GTK4 GUI.

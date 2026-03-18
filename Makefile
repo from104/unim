@@ -121,7 +121,7 @@ install-frontends:
 	@echo "Installing IM modules..."
 	install -d $(DESTDIR)$(GTK3_IMMODULE_DIR) $(DESTDIR)$(GTK4_IMMODULE_DIR) \
 	           $(DESTDIR)$(QT5_PLUGIN_DIR) $(DESTDIR)$(QT6_PLUGIN_DIR)
-	install -m 755 unim-frontends/gtk3/build/libim-unim.so $(DESTDIR)$(GTK3_IMMODULE_DIR)/
+	install -m 755 unim-frontends/gtk3/build/im-unim.so $(DESTDIR)$(GTK3_IMMODULE_DIR)/
 	install -m 755 unim-frontends/gtk4/build/libim-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/
 	install -m 755 unim-frontends/qt5/build/libunim.so $(DESTDIR)$(QT5_PLUGIN_DIR)/
 	install -m 755 unim-frontends/qt6/build/libunim.so $(DESTDIR)$(QT6_PLUGIN_DIR)/
@@ -207,6 +207,9 @@ pack: gnome-extension
 install-gnome-extension: gnome-extension
 	@install -d "$(DESTDIR)$(GNOME_EXTENSION_DIR)"
 	@cp -rf unim-gnome-extension/* "$(DESTDIR)$(GNOME_EXTENSION_DIR)/"
+	@rm -rf "$(DESTDIR)$(GNOME_EXTENSION_DIR)/bin" \
+		"$(DESTDIR)$(GNOME_EXTENSION_DIR)/po" \
+		"$(DESTDIR)$(GNOME_EXTENSION_DIR)/SPEC.md"
 	@glib-compile-schemas "$(DESTDIR)$(GNOME_EXTENSION_DIR)/schemas"
 	@echo "✅ GNOME Extension 설치 완료!"
 
@@ -227,8 +230,9 @@ log-gnome-extension:
 
 # ─── Debian ──────────────────────────────────────────────────────────────────
 
-deb: build gnome-extension
-	@mkdir -p $(DEB_DIR) && dpkg-buildpackage -us -uc -b -jauto
+deb:
+	@dpkg-buildpackage -us -uc -b -jauto
+	@mkdir -p $(DEB_DIR)
 	@mv -f ../*.deb ../*.ddeb ../unim*.changes ../unim*.buildinfo $(DEB_DIR)/ 2>/dev/null || true
 	@echo "✅ Debian packages: $(DEB_DIR)/" && ls -la $(DEB_DIR)/
 
@@ -372,3 +376,49 @@ dev-restart:
 	 pkill -f unim-wayland 2>/dev/null; pkill -f unim-gui-gtk 2>/dev/null; \
 	 pkill -f unim-gui-qt 2>/dev/null; sleep 1
 	@echo "✅ 모든 UNIM 프로세스 종료 (DBus 자동활성화)"
+
+# ─── Test Automation ─────────────────────────────────────────────────────────
+
+log-check:
+	@./scripts/unim-log-check.sh
+
+log-watch:
+	@./scripts/unim-log-check.sh --watch
+
+log-clear:
+	@./scripts/unim-log-check.sh --clear
+
+smoke-test:
+	@./scripts/dbus-smoke-test.sh
+
+test-dbus-auto: build-rust
+	@$(CARGO) build --release -p unim-test-dbus
+	@./target/release/unim-test-dbus
+
+dev-test: build-rust
+	@echo ""
+	@echo "═══ UNIM Dev Test ═══"
+	@echo ""
+	@echo "── 1. 로그 초기화 ──"
+	@> ~/.unim-errors.log
+	@echo "✅ 로그 클리어"
+	@echo ""
+	@echo "── 2. 데몬 재시작 ──"
+	@pkill -f unim-daemon 2>/dev/null || true
+	@sleep 1
+	@echo "✅ 데몬 종료 (DBus 자동활성화)"
+	@echo ""
+	@echo "── 3. 유닛 테스트 ──"
+	@$(CARGO) test --workspace --quiet
+	@echo ""
+	@echo "── 4. DBus 스모크 테스트 ──"
+	@./scripts/dbus-smoke-test.sh
+	@echo ""
+	@echo "── 5. DBus 자동 테스트 ──"
+	@$(CARGO) build --release -p unim-test-dbus --quiet
+	@./target/release/unim-test-dbus
+	@echo ""
+	@echo "── 6. 로그 체크 ──"
+	@./scripts/unim-log-check.sh
+	@echo ""
+	@echo "═══ Dev Test 완료 ═══"

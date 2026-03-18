@@ -65,6 +65,8 @@ add_custom_target(install-local
     DEPENDS im-unim
 )
 
+set_target_properties(im-unim PROPERTIES PREFIX "")
+
 message(STATUS "GTK3 IM Module: Using DBus client")
 message(STATUS "GTK Common Dir: ${GTK_COMMON_DIR}")
 

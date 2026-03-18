@@ -113,12 +113,9 @@ fn build_reverse_jamo_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<Jam
 fn build_reverse_char_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<char, char> {
     let mut reverse_map = HashMap::<char, char>::new();
     for (&key, &jamo) in keyboard_map {
-        match jamo {
-            JamoEnum::Special(c) => {
-                // TODO: 소문자 우선 로직 필요시 추가
-                reverse_map.insert(c, key);
-            }
-            _ => {}
+        if let JamoEnum::Special(c) = jamo {
+            // TODO: 소문자 우선 로직 필요시 추가
+            reverse_map.insert(c, key);
         }
     }
     reverse_map

@@ -47,13 +47,10 @@ pub async fn watch_dbus_signals(
         };
 
         // 현재 서비스 소유자 확인
-        let has_owner = match dbus_proxy
+        let has_owner = dbus_proxy
             .name_has_owner(UNIM_BUS_NAME.try_into().unwrap())
             .await
-        {
-            Ok(has) => has,
-            Err(_) => false,
-        };
+            .unwrap_or_default();
 
         if has_owner {
             unim_log!(

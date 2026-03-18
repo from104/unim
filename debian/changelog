@@ -1,7 +1,18 @@
+unim (0.0.1-3) unstable; urgency=medium
+
+  * Remove mutual Conflicts between unim-gui-gtk and unim-gui-qt.
+    Both packages can now be co-installed for full GTK+Qt IM coverage.
+  * Add dbus to Recommends for unim core package.
+  * Fix desktop file icon name (unim-hangul -> unim-korean).
+  * Remove unnecessary gtk4-query-immodules calls from maintainer scripts.
+  * Exclude bundled unim-cli copy from GNOME extension package.
+  * Eliminate redundant double-build in make deb target.
+
+ -- from104 <from104@github.com>  Sat, 14 Mar 2026 12:00:00 +0900
+
 unim (0.0.1-2) unstable; urgency=medium
 
-  * Split unim-indicator into separate package.
-  * unim-indicator now recommended for non-GNOME desktops only.
+  * Split GUI into unim-gui-gtk and unim-gui-qt packages.
 
  -- from104 <from104@github.com>  Sat, 01 Feb 2026 14:47:00 +0900
 

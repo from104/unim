@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use zbus::zvariant::Type;
 
 /// Preedit(조합 중) 텍스트 정보
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 pub struct PreeditText {
     /// 조합 중인 문자열
     pub text: String,
@@ -15,16 +15,6 @@ pub struct PreeditText {
     pub cursor_pos: u32,
     /// 화면 표시 여부
     pub visible: bool,
-}
-
-impl Default for PreeditText {
-    fn default() -> Self {
-        Self {
-            text: String::new(),
-            cursor_pos: 0,
-            visible: false,
-        }
-    }
 }
 
 /// 입력 모드

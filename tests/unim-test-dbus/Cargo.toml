@@ -1,0 +1,13 @@
+[package]
+name = "unim-test-dbus"
+version.workspace = true
+edition = "2021"
+description = "UNIM DBus automated regression test"
+
+[[bin]]
+name = "unim-test-dbus"
+path = "src/main.rs"
+
+[dependencies]
+unim-dbus = { path = "../../unim-dbus" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

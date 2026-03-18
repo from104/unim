@@ -12,6 +12,7 @@
 
 #include <gtk/gtk.h>
 #include <gio/gio.h>
+#include "unim_test.h"
 
 
 
@@ -474,9 +475,38 @@ cleanup(void)
     }
 }
 
+/* ─── 자동 테스트 ─────────────────────────────────────────────── */
+
+static int
+run_auto_test(gboolean verbose)
+{
+    long log_mark = unim_test_log_mark();
+
+    UnimTestRunner *runner = unim_test_runner_new(verbose);
+    if (!runner) return 1;
+
+    unim_test_run_suite(runner, UNIM_TEST_SUITE_AUTO);
+    unim_test_log_check(runner, log_mark);
+
+    int ret = runner->failed > 0 ? 1 : 0;
+    unim_test_runner_free(runner);
+    return ret;
+}
+
 int
 main(int argc, char *argv[])
 {
+    /* --auto 모드: GUI 없이 자동 테스트 */
+    gboolean auto_mode = FALSE, verbose = FALSE;
+    for (int i = 1; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--auto") == 0) auto_mode = TRUE;
+        if (g_strcmp0(argv[i], "--verbose") == 0 || g_strcmp0(argv[i], "-v") == 0) verbose = TRUE;
+    }
+
+    if (auto_mode)
+        return run_auto_test(verbose);
+
+    /* GUI 모드 */
     GtkApplication *app = gtk_application_new(
         "io.github.from104.unim.test.gtk4",
         G_APPLICATION_DEFAULT_FLAGS);

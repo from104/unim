@@ -33,5 +33,6 @@ members = [
     "unim-gui-qt",
     "unim-dbus",
     "tests/unim-test-wayland",
+    "tests/unim-test-dbus",
 ]
 resolver = "2"

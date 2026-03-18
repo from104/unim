@@ -44,6 +44,7 @@ public:
     void setFocusObject(QObject *object) override;
 
 private:
+    void ensurePopups();
     void updatePreedit();
     void commitString(const QString &str);
 

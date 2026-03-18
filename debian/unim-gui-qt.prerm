@@ -3,7 +3,7 @@ set -e
 
 case "$1" in
     remove|upgrade|deconfigure)
-        pkill -x unim-gui-qt 2>/dev/null || true
+        pkill -u "$(logname 2>/dev/null || echo root)" -x unim-gui-qt 2>/dev/null || true
         ;;
 esac
 

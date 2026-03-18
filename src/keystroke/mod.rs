@@ -67,7 +67,7 @@ pub fn keystrokes_to_string(keystrokes: &[Keystroke], layout: &str) -> String {
         match ks.key {
             Key::Raw(c) | Key::Char(c) => {
                 if let Some(jamo) = keyboard_map.get(&c) {
-                    context.process_jamo(jamo.clone());
+                    context.process_jamo(*jamo);
                 } else {
                     context.append_to_committed(c);
                 }

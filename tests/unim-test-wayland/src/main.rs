@@ -610,7 +610,133 @@ impl Dispatch<wayland_client::protocol::wl_registry::WlRegistry, GlobalList> for
     }
 }
 
+// ─── 자동 테스트 (--auto) ────────────────────────────────────────
+
+fn run_auto_test(verbose: bool) -> i32 {
+    // unim-test-dbus와 동일한 패턴
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        use unim_dbus::client::UnimClient;
+
+        const GREEN: &str = "\x1b[0;32m";
+        const RED: &str = "\x1b[0;31m";
+        const BOLD: &str = "\x1b[1m";
+        const DIM: &str = "\x1b[2m";
+        const RESET: &str = "\x1b[0m";
+
+        println!("{BOLD}═══ UNIM Wayland 자동 테스트 ═══{RESET}");
+
+        let client = match UnimClient::connect().await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{RED}❌ 데몬 연결 실패: {e}{RESET}");
+                return 1;
+            }
+        };
+
+        let layout = match client.input_method().await {
+            Ok(im) => im.get_config("korean_layout").await.unwrap_or_default(),
+            Err(_) => String::new(),
+        };
+        println!("레이아웃: {}", if layout.is_empty() { "기본값" } else { &layout });
+
+        let ctx_path = match client.create_context("wayland-test", "").await {
+            Ok(p) => p,
+            Err(e) => { eprintln!("{RED}❌ 컨텍스트 실패: {e}{RESET}"); return 1; }
+        };
+
+        let im = client.input_method().await.unwrap();
+        let ic = client.input_context(&ctx_path).await.unwrap();
+
+        let is_3bul = layout.contains("3bul");
+
+        // 테스트 케이스: (name, keys[(keycode, state)], expected_preedit, expected_commit, korean)
+        let cases: Vec<(&str, Vec<(u32, u32)>, &str, &str, bool)> = if is_3bul {
+            vec![
+                ("초성: ㅎ", vec![(50, 0)], "ㅎ", "", true),
+                ("초성+중성: 하", vec![(50, 0), (33, 0)], "하", "", true),
+                ("완성형: 한", vec![(50, 0), (33, 0), (31, 0)], "한", "", true),
+                ("두 글자: 한글", vec![(50,0),(33,0),(31,0),(37,0),(34,0),(17,0)], "글", "한", true),
+                ("Backspace", vec![(50, 0), (33, 0), (14, 0)], "ㅎ", "", true),
+                ("스페이스 확정", vec![(50, 0), (33, 0), (57, 0)], "", "하 ", true),
+                ("영문 패스스루", vec![(34, 0)], "", "", false),
+            ]
+        } else {
+            vec![
+                ("초성: ㅎ", vec![(34, 0)], "ㅎ", "", true),
+                ("초성+중성: 하", vec![(34, 0), (37, 0)], "하", "", true),
+                ("완성형: 한", vec![(34, 0), (37, 0), (31, 0)], "한", "", true),
+                ("두 글자: 한글", vec![(34,0),(37,0),(31,0),(19,0),(50,0),(33,0)], "글", "한", true),
+                ("영문 패스스루", vec![(34, 0)], "", "", false),
+            ]
+        };
+
+        let mut passed = 0;
+        let mut failed = 0;
+
+        println!("\n{BOLD}── 조합 테스트 ──{RESET}");
+        for (name, keys, exp_pre, exp_com, korean) in &cases {
+            let _ = im.set_global_mode(*korean).await;
+            let _ = ic.focus_in("").await;
+
+            let mut last_preedit = String::new();
+            let mut total_commit = String::new();
+            let mut ok = true;
+
+            for (kc, st) in keys {
+                match ic.process_key_event(0, *kc, *st).await {
+                    Ok((_consumed, pre, com)) => {
+                        if verbose {
+                            eprintln!("    {DIM}key={kc} → pre=\"{pre}\" com=\"{com}\"{RESET}");
+                        }
+                        last_preedit = pre;
+                        total_commit.push_str(&com);
+                    }
+                    Err(e) => { eprintln!("    {RED}ProcessKey 실패: {e}{RESET}"); ok = false; break; }
+                }
+            }
+
+            if ok && !exp_pre.is_empty() && last_preedit != *exp_pre { ok = false; }
+            if ok && !exp_com.is_empty() && total_commit != *exp_com { ok = false; }
+
+            let _ = ic.reset().await;
+
+            if ok {
+                passed += 1;
+                println!("  {GREEN}PASS{RESET} {name}");
+            } else {
+                failed += 1;
+                println!("  {RED}FAIL{RESET} {name}");
+                if !exp_pre.is_empty() && last_preedit != *exp_pre {
+                    println!("       {DIM}preedit: 기대=\"{exp_pre}\" 실제=\"{last_preedit}\"{RESET}");
+                }
+                if !exp_com.is_empty() && total_commit != *exp_com {
+                    println!("       {DIM}commit: 기대=\"{exp_com}\" 실제=\"{total_commit}\"{RESET}");
+                }
+            }
+        }
+
+        let _ = ic.destroy().await;
+
+        let total = passed + failed;
+        println!();
+        if failed == 0 {
+            println!("{GREEN}{BOLD}✅ ALL PASS{RESET} ({passed}/{total})");
+        } else {
+            println!("{RED}{BOLD}❌ {failed} FAILED{RESET} / {passed} passed / {total} total");
+        }
+        if failed > 0 { 1 } else { 0 }
+    })
+}
+
 fn main() {
+    // --auto 모드: DBus 자동 테스트
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--auto") {
+        let verbose = args.iter().any(|a| a == "-v" || a == "--verbose");
+        std::process::exit(run_auto_test(verbose));
+    }
+
     unim_log!("TEST_WAYLAND", "Starting unim-test-wayland...");
 
     let mut event_loop: EventLoop<AppData> = EventLoop::try_new().unwrap();
