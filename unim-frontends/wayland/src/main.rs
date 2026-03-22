@@ -16,6 +16,7 @@ mod state;
 
 use std::os::fd::{AsFd, AsRawFd};
 
+use unim::config::{Config as UnimConfig, PopupMode};
 use unim::unim_log;
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_shm::WlShm;
@@ -229,8 +230,10 @@ fn main() {
         while let Ok(popup_event) = popup_rx.try_recv() {
             match popup_event {
                 dbus_client::PopupEvent::ShowHanja { target, candidates } => {
-                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                        app.popup_surface.show_hanja(shm, qh, &target, candidates);
+                    if UnimConfig::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
+                        if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
+                            app.popup_surface.show_hanja(shm, qh, &target, candidates);
+                        }
                     }
                 }
                 dbus_client::PopupEvent::ShowSpecial {
@@ -238,9 +241,11 @@ fn main() {
                     characters,
                     top_row,
                 } => {
-                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                        app.popup_surface
-                            .show_special(shm, qh, &target, characters, &top_row);
+                    if UnimConfig::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
+                        if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
+                            app.popup_surface
+                                .show_special(shm, qh, &target, characters, &top_row);
+                        }
                     }
                 }
                 dbus_client::PopupEvent::Hide => {

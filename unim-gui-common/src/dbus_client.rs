@@ -1,7 +1,7 @@
 //! DBus 통신 클라이언트
 //!
 //! 엔진 데몬과의 DBus 시그널 구독 및 메서드 호출.
-//! 툴킷에 무관한 코드로, 향후 `unim-gui-common`으로 추출될 대상입니다.
+//! GlobalModeChanged + InputContext 팝업 시그널을 모두 구독합니다.
 
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
@@ -11,7 +11,7 @@ use unim::status::InputCategory;
 use unim::unim_log;
 use unim_dbus::client::InputMethodProxy;
 
-use crate::types::{GuiAction, IndicatorState, UNIM_BUS_NAME};
+use crate::types::{GuiAction, IndicatorState, ACTIVE_CONTEXT_PATH, UNIM_BUS_NAME};
 
 /// DBus GlobalModeChanged 시그널 구독하여 트레이 업데이트 (비동기)
 /// NameOwnerChanged 시그널을 감시하여 데몬 시작/종료 시 자동 재연결
@@ -20,7 +20,6 @@ pub async fn watch_dbus_signals(
     tray_update_tx: std::sync::mpsc::Sender<()>,
     popup_tx: Sender<GuiAction>,
 ) {
-    let _ = &popup_tx; // popup_tx는 UpdateCategory 전달용으로 유지
     use futures_util::StreamExt;
 
     loop {
@@ -207,43 +206,173 @@ async fn watch_mode_signals(
         }
     };
 
-    // 팝업 시그널은 각 프론트엔드가 직접 처리 (unim-gui는 더 이상 팝업을 표시하지 않음)
+    // InputContext 팝업 시그널 구독 (path_namespace로 모든 컨텍스트 시그널 수신)
+    let popup_rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.atit.unim.InputContext")
+        .unwrap()
+        .path_namespace("/org/atit/unim/InputContext")
+        .unwrap()
+        .build();
 
-    while let Some(signal) = mode_stream.next().await {
-        match signal.args() {
-            Ok(args) => {
-                let is_korean = args.is_korean;
-                let category = if is_korean {
-                    InputCategory::Korean
-                } else {
-                    InputCategory::English
-                };
-
-                let should_update = {
-                    if let Ok(s) = state.read() {
-                        s.category != category
-                    } else {
-                        true
-                    }
-                };
-
-                if should_update {
-                    if let Ok(mut s) = state.write() {
-                        s.category = category;
-                    }
-                    unim_log!("INDICATOR", "[DBus] 모드 변경 감지: {:?}", category);
-                    let _ = tray_update_tx.send(());
-                    let _ = popup_tx.send(GuiAction::UpdateCategory(category));
-                }
-            }
+    let mut popup_stream =
+        match zbus::MessageStream::for_match_rule(popup_rule, connection, Some(64)).await {
+            Ok(s) => s,
             Err(e) => {
-                unim_log!("INDICATOR", "시그널 인자 파싱 오류: {}", e);
+                unim_log!("INDICATOR", "팝업 시그널 구독 실패: {}", e);
+                return;
             }
+        };
+
+    unim_log!(
+        "INDICATOR",
+        "[DBus] InputContext 팝업 시그널 구독 시작 (path_namespace)"
+    );
+
+    // 두 스트림을 동시에 감시
+    loop {
+        tokio::select! {
+            Some(signal) = mode_stream.next() => {
+                handle_mode_signal(signal, &state, &tray_update_tx, &popup_tx);
+            }
+            Some(Ok(msg)) = popup_stream.next() => {
+                handle_popup_signal(&msg, &popup_tx);
+            }
+            else => break,
         }
     }
 
     unim_log!(
         "INDICATOR",
-        "[DBus] GlobalModeChanged 스트림 종료 (서비스 종료?)"
+        "[DBus] 시그널 스트림 종료 (서비스 종료?)"
     );
+}
+
+/// GlobalModeChanged 시그널 처리
+fn handle_mode_signal(
+    signal: unim_dbus::client::GlobalModeChanged,
+    state: &Arc<RwLock<IndicatorState>>,
+    tray_update_tx: &std::sync::mpsc::Sender<()>,
+    popup_tx: &Sender<GuiAction>,
+) {
+    match signal.args() {
+        Ok(args) => {
+            let is_korean = args.is_korean;
+            let category = if is_korean {
+                InputCategory::Korean
+            } else {
+                InputCategory::English
+            };
+
+            let should_update = {
+                if let Ok(s) = state.read() {
+                    s.category != category
+                } else {
+                    true
+                }
+            };
+
+            if should_update {
+                if let Ok(mut s) = state.write() {
+                    s.category = category;
+                }
+                unim_log!("INDICATOR", "[DBus] 모드 변경 감지: {:?}", category);
+                let _ = tray_update_tx.send(());
+                let _ = popup_tx.send(GuiAction::UpdateCategory(category));
+            }
+        }
+        Err(e) => {
+            unim_log!("INDICATOR", "시그널 인자 파싱 오류: {}", e);
+        }
+    }
+}
+
+/// InputContext 팝업 시그널 처리
+fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
+    let header = msg.header();
+    let member = match header.member() {
+        Some(m) => m.to_string(),
+        None => return,
+    };
+    let context_path = header
+        .path()
+        .map(|p| p.to_string())
+        .unwrap_or_default();
+
+    match member.as_str() {
+        "ShowHanjaPopup" => {
+            if let Ok((target, candidates, x, y, w, h)) =
+                msg.body().deserialize::<(String, Vec<(String, String)>, i32, i32, i32, i32)>()
+            {
+                // 활성 컨텍스트 경로 저장
+                if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
+                    *path = Some(context_path.clone());
+                }
+                unim_log!(
+                    "INDICATOR",
+                    "[Popup] ShowHanjaPopup 수신: target='{}', count={}, pos=({},{})",
+                    target,
+                    candidates.len(),
+                    x,
+                    y
+                );
+                let _ = popup_tx.send(GuiAction::ShowHanjaPopup {
+                    context_path,
+                    target,
+                    candidates,
+                    x,
+                    y,
+                    w,
+                    h,
+                });
+            }
+        }
+        "ShowSpecialPopup" => {
+            if let Ok((target, characters, top_row, x, y, w, h)) =
+                msg.body().deserialize::<(String, Vec<String>, String, i32, i32, i32, i32)>()
+            {
+                if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
+                    *path = Some(context_path.clone());
+                }
+                unim_log!(
+                    "INDICATOR",
+                    "[Popup] ShowSpecialPopup 수신: target='{}', count={}, pos=({},{})",
+                    target,
+                    characters.len(),
+                    x,
+                    y
+                );
+                let _ = popup_tx.send(GuiAction::ShowSpecialPopup {
+                    context_path,
+                    target,
+                    characters,
+                    top_row,
+                    x,
+                    y,
+                    w,
+                    h,
+                });
+            }
+        }
+        "HidePopup" => {
+            unim_log!("INDICATOR", "[Popup] HidePopup 수신");
+            let _ = popup_tx.send(GuiAction::HidePopup);
+        }
+        "PopupNavigate" => {
+            if let Ok((page, total_pages, selected, rows, cols, sel_row, sel_col)) =
+                msg.body().deserialize::<(i32, i32, i32, i32, i32, i32, i32)>()
+            {
+                let _ = popup_tx.send(GuiAction::PopupNavigate {
+                    page,
+                    total_pages,
+                    selected,
+                    rows,
+                    cols,
+                    sel_row,
+                    sel_col,
+                });
+            }
+        }
+        _ => {}
+    }
 }

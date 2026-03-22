@@ -78,6 +78,16 @@ struct _UnimIMContextClass {
 };
 
 /* 함수 선언 */
+/* Standalone 모드 확인: 로컬 팝업 표시 건너뜀 */
+static gboolean
+is_standalone_popup(UnimDbusContext *ctx)
+{
+    gchar *mode = unim_dbus_get_config(ctx, "popup_mode");
+    gboolean standalone = (mode && g_strcmp0(mode, "Standalone") == 0);
+    g_free(mode);
+    return standalone;
+}
+
 static void unim_im_context_class_init(UnimIMContextClass *klass);
 static void unim_im_context_init(UnimIMContext *context);
 static void unim_im_context_finalize(GObject *obj);
@@ -536,18 +546,20 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
                 unim->hanja_candidates = candidates;
                 unim->hanja_count = count;
                 
-                /* 팝업 표시 */
-                unim_hanja_popup_show(
-                    unim->hanja_popup,
-                    target,
-                    candidates,
-                    count,
-                    popup_x,
-                    popup_y,
-                    unim->cursor_area.height,
-                    on_hanja_selected,
-                    unim
-                );
+                /* 팝업 표시 (Standalone 모드면 건너뜀) */
+                if (!is_standalone_popup(unim->dbus_ctx)) {
+                    unim_hanja_popup_show(
+                        unim->hanja_popup,
+                        target,
+                        candidates,
+                        count,
+                        popup_x,
+                        popup_y,
+                        unim->cursor_area.height,
+                        on_hanja_selected,
+                        unim
+                    );
+                }
                 
                 UNIM_DEBUG("한자 후보 표시: target='%s', count=%zu", target, count);
             } else {
@@ -577,19 +589,21 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
                     unim->special_characters = sp_chars;
                     unim->special_count = sp_count;
                     
-                    /* 특수문자 팝업 표시 */
-                    unim_special_popup_show(
-                        unim->special_popup,
-                        sp_target,
-                        sp_chars,
-                        sp_count,
-                        sp_top_row,
-                        popup_x,
-                        popup_y,
-                        unim->cursor_area.height,
-                        on_special_char_selected,
-                        unim
-                    );
+                    /* 특수문자 팝업 표시 (Standalone 모드면 건너뜀) */
+                    if (!is_standalone_popup(unim->dbus_ctx)) {
+                        unim_special_popup_show(
+                            unim->special_popup,
+                            sp_target,
+                            sp_chars,
+                            sp_count,
+                            sp_top_row,
+                            popup_x,
+                            popup_y,
+                            unim->cursor_area.height,
+                            on_special_char_selected,
+                            unim
+                        );
+                    }
                     
                     UNIM_DEBUG("특수문자 후보 표시: target='%s', count=%zu, top_row='%s'",
                                sp_target, sp_count, sp_top_row ? sp_top_row : "N/A");

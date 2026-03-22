@@ -4,7 +4,10 @@
 //! GTK4/libadwaita 기반이며, DBus 시그널을 구독하여 상태를 실시간 반영합니다.
 
 mod gtk_ui;
+mod hanja_popup;
+mod popup_positioning;
 mod settings_dialog;
+mod special_popup;
 
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};

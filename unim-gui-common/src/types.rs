@@ -1,7 +1,6 @@
 //! 공통 타입 정의
 //!
 //! 툴킷에 무관한 타입들: 상태, 액션, 상수 등.
-//! 향후 `unim-gui-common` 크레이트로 추출될 대상입니다.
 
 use std::sync::mpsc::Sender;
 use std::sync::Mutex;
@@ -39,4 +38,37 @@ pub enum GuiAction {
     UpdateCategory(InputCategory),
     /// 설정 다이얼로그 열기
     OpenSettings,
+    /// 한자 팝업 표시
+    ShowHanjaPopup {
+        context_path: String,
+        target: String,
+        candidates: Vec<(String, String)>,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    },
+    /// 특수문자 팝업 표시
+    ShowSpecialPopup {
+        context_path: String,
+        target: String,
+        characters: Vec<String>,
+        top_row: String,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    },
+    /// 팝업 숨김
+    HidePopup,
+    /// 팝업 네비게이션 (페이지/선택 변경)
+    PopupNavigate {
+        page: i32,
+        total_pages: i32,
+        selected: i32,
+        rows: i32,
+        cols: i32,
+        sel_row: i32,
+        sel_col: i32,
+    },
 }

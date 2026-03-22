@@ -361,6 +361,7 @@ impl InputMethodService {
             "auto_switch_threshold" => config.engine.auto_switch.threshold.to_string(),
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
+            "popup_mode" => config.engine.popup_mode.name().to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
                 .unwrap_or_default(),
             _ => {
@@ -472,6 +473,18 @@ impl InputMethodService {
                         ));
                     }
                     config.engine.hanja_keys = keys;
+                }
+                "popup_mode" => {
+                    config.engine.popup_mode = match value {
+                        "Standalone" => unim::config::PopupMode::Standalone,
+                        "Embedded" => unim::config::PopupMode::Embedded,
+                        _ => {
+                            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                                "Invalid value: {}",
+                                value
+                            )))
+                        }
+                    };
                 }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =

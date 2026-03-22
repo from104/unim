@@ -45,6 +45,7 @@ public:
 
 private:
     void ensurePopups();
+    bool isStandalonePopup() const;
     void updatePreedit();
     void commitString(const QString &str);
 

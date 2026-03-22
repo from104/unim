@@ -113,6 +113,11 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                         .ok();
                     }
                     GuiAction::ShowModePopup | GuiAction::OpenSettings => {}
+                    // 팝업 액션은 unim-gui-gtk에서만 처리 (Qt GUI에서는 무시)
+                    GuiAction::ShowHanjaPopup { .. }
+                    | GuiAction::ShowSpecialPopup { .. }
+                    | GuiAction::HidePopup
+                    | GuiAction::PopupNavigate { .. } => {}
                 }
             }
         });

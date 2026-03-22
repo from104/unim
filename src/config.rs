@@ -288,6 +288,25 @@ pub struct AppRule {
     pub default_category: InputCategory,
 }
 
+/// 팝업 표시 방식
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum PopupMode {
+    /// 독립 프로세스 팝업 (unim-gui-gtk에서 표시)
+    #[default]
+    Standalone,
+    /// 프론트엔드 내장 팝업 (기존 방식)
+    Embedded,
+}
+
+impl PopupMode {
+    pub fn name(&self) -> &str {
+        match self {
+            PopupMode::Standalone => "Standalone",
+            PopupMode::Embedded => "Embedded",
+        }
+    }
+}
+
 /// 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -310,6 +329,8 @@ pub struct EngineConfig {
     pub app_rules: Vec<AppRule>,
     /// 사용자 사전 경로 (None이면 기본 경로 사용)
     pub user_dictionary_path: Option<std::path::PathBuf>,
+    /// 팝업 표시 방식 (Standalone: GUI 통합, Embedded: 프론트엔드 내장)
+    pub popup_mode: PopupMode,
 }
 
 impl Default for EngineConfig {
@@ -324,6 +345,7 @@ impl Default for EngineConfig {
             hanja_keys: vec!["Hanja".to_string(), "F9".to_string()],
             app_rules: Vec::new(),
             user_dictionary_path: None,
+            popup_mode: PopupMode::default(),
         }
     }
 }

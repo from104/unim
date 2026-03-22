@@ -12,7 +12,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::ConnectionExt as XprotoConnectionExt;
 use x11rb::protocol::xproto::{ConfigureNotifyEvent, EventMask, GrabMode, KeyPressEvent};
 
-use unim::config::Config;
+use unim::config::{Config, PopupMode};
 use unim::unim_log;
 
 use xim::{
@@ -1265,27 +1265,30 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     let popup_x = abs_x + spot.x as c_int;
                     let popup_y = abs_y + spot.y as c_int + 20;
 
-                    match HanjaWindow::new(self.display, self.screen, popup_x, popup_y) {
-                        Ok(mut hw) => {
-                            hw.set_candidates(self.display, self.screen, &target, candidates);
-                            let popup_wid = hw.window_id();
-                            self.hanja_window = Some(hw);
-                            self.hanja_context_path = Some(ctx_path);
-                            self.hanja_client_window = app_win.map(|w| w.get() as u64);
-                            let _ = server.conn().grab_pointer(
-                                false,
-                                popup_wid,
-                                EventMask::BUTTON_PRESS,
-                                GrabMode::ASYNC,
-                                GrabMode::ASYNC,
-                                x11rb::NONE,
-                                x11rb::NONE,
-                                x11rb::CURRENT_TIME,
-                            );
-                            server.conn().flush().ok();
-                        }
-                        Err(e) => {
-                            unim_log!("XIM_HANDLER", "한자 팝업 생성 실패: {}", e);
+                    // Standalone 모드에서는 프론트엔드 팝업을 표시하지 않음
+                    if Config::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
+                        match HanjaWindow::new(self.display, self.screen, popup_x, popup_y) {
+                            Ok(mut hw) => {
+                                hw.set_candidates(self.display, self.screen, &target, candidates);
+                                let popup_wid = hw.window_id();
+                                self.hanja_window = Some(hw);
+                                self.hanja_context_path = Some(ctx_path);
+                                self.hanja_client_window = app_win.map(|w| w.get() as u64);
+                                let _ = server.conn().grab_pointer(
+                                    false,
+                                    popup_wid,
+                                    EventMask::BUTTON_PRESS,
+                                    GrabMode::ASYNC,
+                                    GrabMode::ASYNC,
+                                    x11rb::NONE,
+                                    x11rb::NONE,
+                                    x11rb::CURRENT_TIME,
+                                );
+                                server.conn().flush().ok();
+                            }
+                            Err(e) => {
+                                unim_log!("XIM_HANDLER", "한자 팝업 생성 실패: {}", e);
+                            }
                         }
                     }
                     return Ok(true);
@@ -1339,33 +1342,36 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     let popup_x = abs_x + spot.x as c_int;
                     let popup_y = abs_y + spot.y as c_int + 20;
 
-                    match SpecialWindow::new(self.display, self.screen, popup_x, popup_y) {
-                        Ok(mut sw) => {
-                            sw.set_characters(
-                                self.display,
-                                self.screen,
-                                &target,
-                                characters,
-                                &top_row,
-                            );
-                            let popup_wid = sw.window_id();
-                            self.special_window = Some(sw);
-                            self.special_context_path = Some(ctx_path);
-                            self.hanja_client_window = app_win.map(|w| w.get() as u64);
-                            let _ = server.conn().grab_pointer(
-                                false,
-                                popup_wid,
-                                EventMask::BUTTON_PRESS,
-                                GrabMode::ASYNC,
-                                GrabMode::ASYNC,
-                                x11rb::NONE,
-                                x11rb::NONE,
-                                x11rb::CURRENT_TIME,
-                            );
-                            server.conn().flush().ok();
-                        }
-                        Err(e) => {
-                            unim_log!("XIM_HANDLER", "특수문자 팝업 생성 실패: {}", e);
+                    // Standalone 모드에서는 프론트엔드 팝업을 표시하지 않음
+                    if Config::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
+                        match SpecialWindow::new(self.display, self.screen, popup_x, popup_y) {
+                            Ok(mut sw) => {
+                                sw.set_characters(
+                                    self.display,
+                                    self.screen,
+                                    &target,
+                                    characters,
+                                    &top_row,
+                                );
+                                let popup_wid = sw.window_id();
+                                self.special_window = Some(sw);
+                                self.special_context_path = Some(ctx_path);
+                                self.hanja_client_window = app_win.map(|w| w.get() as u64);
+                                let _ = server.conn().grab_pointer(
+                                    false,
+                                    popup_wid,
+                                    EventMask::BUTTON_PRESS,
+                                    GrabMode::ASYNC,
+                                    GrabMode::ASYNC,
+                                    x11rb::NONE,
+                                    x11rb::NONE,
+                                    x11rb::CURRENT_TIME,
+                                );
+                                server.conn().flush().ok();
+                            }
+                            Err(e) => {
+                                unim_log!("XIM_HANDLER", "특수문자 팝업 생성 실패: {}", e);
+                            }
                         }
                     }
                     return Ok(true);

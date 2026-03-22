@@ -1,8 +1,9 @@
 //! GTK4/libadwaita UI
 //!
-//! 모드 팝업 윈도우, CSS 스타일, 설정 다이얼로그.
-//! 이 모듈은 GTK4에 의존하므로 `unim-gui-common`에는 포함되지 않습니다.
+//! 모드 팝업 윈도우, 한자/특수문자 팝업, CSS 스타일, 설정 다이얼로그.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -16,7 +17,9 @@ use unim::unim_log;
 
 use unim_gui_common::types::{GuiAction, IndicatorState};
 
+use crate::hanja_popup::HanjaPopup;
 use crate::settings_dialog;
+use crate::special_popup::SpecialPopup;
 
 /// GTK4/libadwaita 앱 실행
 pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Receiver<GuiAction>>>) {
@@ -29,23 +32,110 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
         adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
 
         load_css();
-        let window = build_popup_window(app, state.clone());
+        let mode_window = build_popup_window(app, state.clone());
 
-        let window_clone = window.clone();
+        // 한자/특수문자 팝업 생성
+        let hanja_popup = Rc::new(RefCell::new(HanjaPopup::new(app)));
+        let special_popup = Rc::new(RefCell::new(SpecialPopup::new(app)));
+
+        let mode_window_clone = mode_window.clone();
         let popup_rx_clone = popup_rx.clone();
         let app_clone = app.clone();
+        let hanja_clone = hanja_popup.clone();
+        let special_clone = special_popup.clone();
+
         glib::timeout_add_local(Duration::from_millis(50), move || {
             if let Ok(rx) = popup_rx_clone.lock() {
                 while let Ok(action) = rx.try_recv() {
                     match action {
                         GuiAction::ShowModePopup => {
-                            window_clone.present();
+                            mode_window_clone.present();
                         }
                         GuiAction::UpdateCategory(_category) => {
                             // UI 업데이트는 창이 표시될 때 자동 처리
                         }
                         GuiAction::OpenSettings => {
                             settings_dialog::show_settings_dialog(&app_clone);
+                        }
+                        GuiAction::ShowHanjaPopup {
+                            context_path,
+                            target,
+                            candidates,
+                            x,
+                            y,
+                            w,
+                            h,
+                        } => {
+                            // 특수문자 팝업이 열려있으면 닫기
+                            special_clone.borrow().hide();
+                            hanja_clone.borrow_mut().show(
+                                context_path,
+                                &target,
+                                candidates,
+                                x,
+                                y,
+                                w,
+                                h,
+                            );
+                        }
+                        GuiAction::ShowSpecialPopup {
+                            context_path,
+                            target,
+                            characters,
+                            top_row,
+                            x,
+                            y,
+                            w,
+                            h,
+                        } => {
+                            // 한자 팝업이 열려있으면 닫기
+                            hanja_clone.borrow().hide();
+                            special_clone.borrow_mut().show(
+                                context_path,
+                                &target,
+                                characters,
+                                top_row,
+                                x,
+                                y,
+                                w,
+                                h,
+                            );
+                        }
+                        GuiAction::HidePopup => {
+                            hanja_clone.borrow().hide();
+                            special_clone.borrow().hide();
+                        }
+                        GuiAction::PopupNavigate {
+                            page,
+                            total_pages,
+                            selected,
+                            rows,
+                            cols,
+                            sel_row,
+                            sel_col,
+                        } => {
+                            if hanja_clone.borrow().is_visible() {
+                                hanja_clone.borrow_mut().navigate(
+                                    page,
+                                    total_pages,
+                                    selected,
+                                    rows,
+                                    cols,
+                                    sel_row,
+                                    sel_col,
+                                );
+                            }
+                            if special_clone.borrow().is_visible() {
+                                special_clone.borrow_mut().navigate(
+                                    page,
+                                    total_pages,
+                                    selected,
+                                    rows,
+                                    cols,
+                                    sel_row,
+                                    sel_col,
+                                );
+                            }
                         }
                     }
                 }
@@ -74,94 +164,15 @@ pub fn run_settings_only() {
 /// CSS 스타일 로드
 fn load_css() {
     let provider = gtk4::CssProvider::new();
-    provider.load_from_data(
-        r#"
-        /* 프리미엄 다크 테마 디자인 */
-        window.popup-window {
-            background-color: #1e1e2e;
-            color: #cdd6f4;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        }
 
-        .main-container {
-            padding: 24px;
-        }
-        
-        .mode-tile-container {
-            margin-bottom: 20px;
-        }
-
-        .mode-button {
-            min-width: 100px;
-            min-height: 100px;
-            font-size: 38px;
-            font-weight: 800;
-            border-radius: 16px;
-            background: rgba(255, 255, 255, 0.05);
-            color: rgba(255, 255, 255, 0.6);
-            border: 2px solid transparent;
-            transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        
-        .mode-button:hover {
-            background: rgba(255, 255, 255, 0.1);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
-        }
-        
-        .korean-btn.mode-active {
-            background: linear-gradient(135deg, #3584e4 0%, #1c71d8 100%);
-            color: white;
-            border-color: rgba(255, 255, 255, 0.3);
-            box-shadow: 0 8px 20px rgba(53, 132, 228, 0.4);
-        }
-
-        .english-btn.mode-active {
-            background: linear-gradient(135deg, #5e5c64 0%, #3d3d3d 100%);
-            color: white;
-            border-color: rgba(255, 255, 255, 0.3);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-        }
-        
-        .title-section {
-            margin-bottom: 16px;
-        }
-
-        .title-label {
-            font-size: 20px;
-            font-weight: 800;
-            color: white;
-            letter-spacing: -0.5px;
-        }
-        
-        .status-badge {
-            font-size: 13px;
-            font-weight: 500;
-            padding: 4px 12px;
-            border-radius: 20px;
-            background: rgba(255, 255, 255, 0.08);
-            color: rgba(255, 255, 255, 0.7);
-        }
-
-        .settings-button {
-            background: transparent;
-            color: rgba(255, 255, 255, 0.5);
-            font-weight: 600;
-            border-radius: 12px;
-            padding: 8px 0;
-            transition: all 200ms ease;
-        }
-
-        .settings-button:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: white;
-        }
-
-        "#,
+    // 기존 모드 팝업 CSS + 한자/특수문자 팝업 CSS
+    let css = format!(
+        "{}\n{}\n{}",
+        MODE_POPUP_CSS,
+        crate::hanja_popup::popup_css(),
+        crate::special_popup::popup_css()
     );
+    provider.load_from_data(&css);
 
     gtk4::style_context_add_provider_for_display(
         &gtk4::gdk::Display::default().expect("Could not connect to a display."),
@@ -169,6 +180,93 @@ fn load_css() {
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
 }
+
+/// 모드 팝업 CSS (기존)
+const MODE_POPUP_CSS: &str = r#"
+    /* 프리미엄 다크 테마 디자인 */
+    window.popup-window {
+        background-color: #1e1e2e;
+        color: #cdd6f4;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .main-container {
+        padding: 24px;
+    }
+
+    .mode-tile-container {
+        margin-bottom: 20px;
+    }
+
+    .mode-button {
+        min-width: 100px;
+        min-height: 100px;
+        font-size: 38px;
+        font-weight: 800;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.6);
+        border: 2px solid transparent;
+        transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .mode-button:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .korean-btn.mode-active {
+        background: linear-gradient(135deg, #3584e4 0%, #1c71d8 100%);
+        color: white;
+        border-color: rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 20px rgba(53, 132, 228, 0.4);
+    }
+
+    .english-btn.mode-active {
+        background: linear-gradient(135deg, #5e5c64 0%, #3d3d3d 100%);
+        color: white;
+        border-color: rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .title-section {
+        margin-bottom: 16px;
+    }
+
+    .title-label {
+        font-size: 20px;
+        font-weight: 800;
+        color: white;
+        letter-spacing: -0.5px;
+    }
+
+    .status-badge {
+        font-size: 13px;
+        font-weight: 500;
+        padding: 4px 12px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.7);
+    }
+
+    .settings-button {
+        background: transparent;
+        color: rgba(255, 255, 255, 0.5);
+        font-weight: 600;
+        border-radius: 12px;
+        padding: 8px 0;
+        transition: all 200ms ease;
+    }
+
+    .settings-button:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: white;
+    }
+"#;
 
 /// 팝업 윈도우 생성
 fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>) -> adw::Window {

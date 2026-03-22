@@ -14,6 +14,8 @@
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QTextCharFormat>
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QDebug>
 #include <QStandardPaths>
 #include <QDateTime>
@@ -95,6 +97,23 @@ void UnimInputContext::ensurePopups()
         m_hanjaPopup = new UnimHanjaPopup();
     if (!m_specialPopup)
         m_specialPopup = new UnimSpecialPopup();
+}
+
+bool UnimInputContext::isStandalonePopup() const
+{
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        QStringLiteral("org.atit.unim.InputMethod"),
+        QStringLiteral("/org/atit/unim/InputMethod"),
+        QStringLiteral("org.atit.unim.InputMethod"),
+        QStringLiteral("GetConfig")
+    );
+    msg << QStringLiteral("popup_mode");
+    QDBusMessage reply = QDBusConnection::sessionBus().call(msg, QDBus::Block, 100);
+    if (reply.type() == QDBusMessage::ReplyMessage &&
+        reply.arguments().value(0).toString() == QStringLiteral("Standalone")) {
+        return true;
+    }
+    return false;
 }
 
 UnimInputContext::~UnimInputContext()
@@ -354,16 +373,20 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                 UNIM_DEBUG(QString::asprintf("한자 후보 표시: target='%s', count=%d, pos=(%d,%d)",
                            qPrintable(target), static_cast<int>(candidates.size()), popupX, popupY));
 
-                m_hanjaPopup->showPopup(target, candidates, popupX, popupY, m_cursorRect.height(),
-                    [this](const QString &hanja) {
-                        UNIM_DEBUG(QString::asprintf("한자 선택: '%s'", qPrintable(hanja)));
-                        if (m_dbus) {
-                            m_dbus->cancelHanja();
-                        }
-                        m_composing = false;
-                        updatePreedit();
-                        commitString(hanja);
-                    });
+                if (!isStandalonePopup()) {
+                    m_hanjaPopup->showPopup(target, candidates, popupX, popupY, m_cursorRect.height(),
+                        [this](const QString &hanja) {
+                            UNIM_DEBUG(QString::asprintf("한자 선택: '%s'", qPrintable(hanja)));
+                            if (m_dbus) {
+                                m_dbus->cancelHanja();
+                            }
+                            m_composing = false;
+                            updatePreedit();
+                            commitString(hanja);
+                        });
+                } else {
+                    UNIM_DEBUG("popup_mode=Standalone, 한자 팝업 표시 생략");
+                }
             } else {
                 /* 한자 후보 없음 → 특수문자 후보 확인 */
                 QString spTarget;
@@ -376,16 +399,20 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                     UNIM_DEBUG(QString::asprintf("특수문자 후보 표시: target='%s', count=%d",
                                qPrintable(spTarget), static_cast<int>(spChars.size())));
 
-                    m_specialPopup->showPopup(spTarget, spChars, spTopRow, popupX, popupY, m_cursorRect.height(),
-                        [this](const QString &character) {
-                            UNIM_DEBUG(QString::asprintf("특수문자 선택: '%s'", qPrintable(character)));
-                            if (m_dbus) {
-                                m_dbus->cancelSpecialChar();
-                            }
-                            m_composing = false;
-                            updatePreedit();
-                            commitString(character);
-                        });
+                    if (!isStandalonePopup()) {
+                        m_specialPopup->showPopup(spTarget, spChars, spTopRow, popupX, popupY, m_cursorRect.height(),
+                            [this](const QString &character) {
+                                UNIM_DEBUG(QString::asprintf("특수문자 선택: '%s'", qPrintable(character)));
+                                if (m_dbus) {
+                                    m_dbus->cancelSpecialChar();
+                                }
+                                m_composing = false;
+                                updatePreedit();
+                                commitString(character);
+                            });
+                    } else {
+                        UNIM_DEBUG("popup_mode=Standalone, 특수문자 팝업 표시 생략");
+                    }
                 } else {
                     UNIM_DEBUG("한자/특수문자 후보 없음");
                 }

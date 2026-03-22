@@ -135,6 +135,19 @@ trait InputContext {
     /// 팝업 숨김 시그널
     #[zbus(signal)]
     fn hide_popup(&self) -> Result<()>;
+
+    /// 팝업 네비게이션 시그널 (페이지/선택 변경)
+    #[zbus(signal)]
+    fn popup_navigate(
+        &self,
+        page: i32,
+        total_pages: i32,
+        selected: i32,
+        rows: i32,
+        cols: i32,
+        sel_row: i32,
+        sel_col: i32,
+    ) -> Result<()>;
 }
 
 /// DBus 클라이언트 연결 관리자
