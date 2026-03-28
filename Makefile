@@ -38,7 +38,11 @@ ZIP_FILE := $(UUID)-$(VERSION).zip
 GNOME_EXTENSION_DIR := $(DATADIR)/gnome-shell/extensions/$(UUID)
 
 DEB_DIR := $(CURDIR)/debs
-CARGO := cargo
+# Cargo: sudo 실행 시에도 원래 유저의 rustup cargo를 사용
+_REAL_HOME := $(or $(shell [ -n "$$SUDO_USER" ] && eval echo ~$$SUDO_USER),$(HOME))
+CARGO ?= $(or $(shell which cargo 2>/dev/null),$(wildcard $(_REAL_HOME)/.cargo/bin/cargo),cargo)
+export RUSTUP_HOME ?= $(_REAL_HOME)/.rustup
+export CARGO_HOME ?= $(_REAL_HOME)/.cargo
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
