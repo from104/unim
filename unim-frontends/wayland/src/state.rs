@@ -240,6 +240,14 @@ impl AppState {
 
     /// 포커스 아웃 시 조합 중인 텍스트 커밋
     fn handle_deactivate(&mut self) {
+        // 한자/특수문자 팝업 모드 취소 (활성 아니면 no-op)
+        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelHanja {
+            context_path: self.context_path.clone(),
+        });
+        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelSpecialChar {
+            context_path: self.context_path.clone(),
+        });
+
         // DBus FocusOut으로 조합 중 텍스트 가져오기
         let (response_tx, response_rx) = std_mpsc::channel();
         let _ = self.dbus_tx.blocking_send(DbusRequest::FocusOut {

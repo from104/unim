@@ -794,22 +794,7 @@ unim_im_context_focus_out(GtkIMContext *context)
 
     UNIM_DEBUG("focus_out 호출");
 
-    /* 1. 조합 중인 글자를 먼저 커밋 */
-    if (unim->dbus_ctx) {
-        unim_dbus_focus_out(unim->dbus_ctx, &commit);
-        
-        /* 조합 중이던 문자 커밋 */
-        if (commit && strlen(commit) > 0) {
-            UNIM_DEBUG("focus_out 커밋: \"%s\"", commit);
-            g_signal_emit_by_name(context, "commit", commit);
-        }
-        g_free(commit);
-        
-        /* preedit 업데이트 */
-        g_signal_emit_by_name(context, "preedit-changed");
-    }
-
-    /* 2. 한자 팝업이 표시 중이면 닫기 */
+    /* 1. 한자/특수문자 팝업이 표시 중이면 먼저 닫기 + 엔진 모드 취소 */
     if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
         UNIM_DEBUG("focus_out: 한자 팝업 닫기");
         unim_hanja_popup_hide(unim->hanja_popup);
@@ -817,14 +802,27 @@ unim_im_context_focus_out(GtkIMContext *context)
             unim_dbus_cancel_hanja(unim->dbus_ctx);
         }
     }
-
-    /* 3. 특수문자 팝업이 표시 중이면 닫기 */
     if (unim->special_popup && unim_special_popup_is_visible(unim->special_popup)) {
         UNIM_DEBUG("focus_out: 특수문자 팝업 닫기");
         unim_special_popup_hide(unim->special_popup);
         if (unim->dbus_ctx) {
             unim_dbus_cancel_special_char(unim->dbus_ctx);
         }
+    }
+
+    /* 2. 조합 중인 글자를 커밋 */
+    if (unim->dbus_ctx) {
+        unim_dbus_focus_out(unim->dbus_ctx, &commit);
+
+        /* 조합 중이던 문자 커밋 */
+        if (commit && strlen(commit) > 0) {
+            UNIM_DEBUG("focus_out 커밋: \"%s\"", commit);
+            g_signal_emit_by_name(context, "commit", commit);
+        }
+        g_free(commit);
+
+        /* preedit 업데이트 */
+        g_signal_emit_by_name(context, "preedit-changed");
     }
 
     unim->is_focused = FALSE;

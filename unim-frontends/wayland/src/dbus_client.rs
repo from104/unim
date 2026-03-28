@@ -58,7 +58,6 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 한자 취소
-    #[allow(dead_code)]
     CancelHanja { context_path: String },
     /// 특수문자 후보 조회
     #[allow(dead_code)]
@@ -74,7 +73,6 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 특수문자 취소
-    #[allow(dead_code)]
     CancelSpecialChar { context_path: String },
     /// 커서 위치 보고 (팝업 포지셔닝용)
     #[allow(dead_code)]
