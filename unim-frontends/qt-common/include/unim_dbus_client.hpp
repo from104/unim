@@ -128,7 +128,7 @@ public:
     /**
      * 한자 모드 취소
      */
-    void cancelHanja();
+    QString cancelHanja();
     
     /**
      * 특수문자 후보 목록 조회
@@ -150,7 +150,7 @@ public:
     /**
      * 특수문자 모드 취소
      */
-    void cancelSpecialChar();
+    QString cancelSpecialChar();
 
     /**
      * 입력 필드 목적 설정 (비밀번호/PIN 감지용)

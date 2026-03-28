@@ -573,23 +573,25 @@ unim_dbus_select_hanja(UnimDbusContext *ctx,
     return TRUE;
 }
 
-void
+gchar *
 unim_dbus_cancel_hanja(UnimDbusContext *ctx)
 {
     GError *error = NULL;
+    GVariant *ret;
+    gchar *commit = NULL;
 
-    if (!ctx || !ctx->connection || !ctx->context_path) return;
+    if (!ctx || !ctx->connection || !ctx->context_path) return NULL;
 
     UNIM_DBUS_DEBUG("CancelHanja 호출");
 
-    g_dbus_connection_call_sync(
+    ret = g_dbus_connection_call_sync(
         ctx->connection,
         UNIM_DBUS_SERVICE,
         ctx->context_path,
         UNIM_DBUS_IC_INTERFACE,
         "CancelHanja",
         NULL,
-        NULL,
+        G_VARIANT_TYPE("(s)"),
         G_DBUS_CALL_FLAGS_NONE,
         UNIM_DBUS_TIMEOUT_MS,
         NULL,
@@ -599,12 +601,22 @@ unim_dbus_cancel_hanja(UnimDbusContext *ctx)
     if (error) {
         UNIM_DBUS_DEBUG("CancelHanja 실패: %s", error->message);
         g_error_free(error);
+    } else if (ret) {
+        const gchar *text = NULL;
+        g_variant_get(ret, "(&s)", &text);
+        if (text && strlen(text) > 0) {
+            commit = g_strdup(text);
+            UNIM_DBUS_DEBUG("CancelHanja 커밋: '%s'", commit);
+        }
+        g_variant_unref(ret);
     }
-    
+
     /* 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화 */
     g_free(ctx->preedit_cache);
     ctx->preedit_cache = g_strdup("");
     ctx->is_composing = FALSE;
+
+    return commit;
 }
 
 void
@@ -748,23 +760,25 @@ unim_dbus_select_special_char(UnimDbusContext *ctx,
     return TRUE;
 }
 
-void
+gchar *
 unim_dbus_cancel_special_char(UnimDbusContext *ctx)
 {
     GError *error = NULL;
+    GVariant *ret;
+    gchar *commit = NULL;
 
-    if (!ctx || !ctx->connection || !ctx->context_path) return;
+    if (!ctx || !ctx->connection || !ctx->context_path) return NULL;
 
     UNIM_DBUS_DEBUG("CancelSpecialChar 호출");
 
-    g_dbus_connection_call_sync(
+    ret = g_dbus_connection_call_sync(
         ctx->connection,
         UNIM_DBUS_SERVICE,
         ctx->context_path,
         UNIM_DBUS_IC_INTERFACE,
         "CancelSpecialChar",
         NULL,
-        NULL,
+        G_VARIANT_TYPE("(s)"),
         G_DBUS_CALL_FLAGS_NONE,
         UNIM_DBUS_TIMEOUT_MS,
         NULL,
@@ -774,12 +788,22 @@ unim_dbus_cancel_special_char(UnimDbusContext *ctx)
     if (error) {
         UNIM_DBUS_DEBUG("CancelSpecialChar 실패: %s", error->message);
         g_error_free(error);
+    } else if (ret) {
+        const gchar *text = NULL;
+        g_variant_get(ret, "(&s)", &text);
+        if (text && strlen(text) > 0) {
+            commit = g_strdup(text);
+            UNIM_DBUS_DEBUG("CancelSpecialChar 커밋: '%s'", commit);
+        }
+        g_variant_unref(ret);
     }
 
     /* 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화 */
     g_free(ctx->preedit_cache);
     ctx->preedit_cache = g_strdup("");
     ctx->is_composing = FALSE;
+
+    return commit;
 }
 
 void

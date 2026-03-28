@@ -240,13 +240,39 @@ impl AppState {
 
     /// 포커스 아웃 시 조합 중인 텍스트 커밋
     fn handle_deactivate(&mut self) {
-        // 한자/특수문자 팝업 모드 취소 (활성 아니면 no-op)
-        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelHanja {
-            context_path: self.context_path.clone(),
-        });
-        let _ = self.dbus_tx.blocking_send(DbusRequest::CancelSpecialChar {
-            context_path: self.context_path.clone(),
-        });
+        // 한자/특수문자 팝업 모드 취소 + 트리거 문자 커밋
+        {
+            let (tx, rx) = std_mpsc::channel();
+            let _ = self.dbus_tx.blocking_send(DbusRequest::CancelHanja {
+                context_path: self.context_path.clone(),
+                response: Some(tx),
+            });
+            if let Ok(DbusResponse::CommitText { text }) =
+                rx.recv_timeout(std::time::Duration::from_millis(500))
+            {
+                if !text.is_empty() {
+                    if let Some(ref im) = self.input_method {
+                        im.commit_string(text);
+                    }
+                }
+            }
+        }
+        {
+            let (tx, rx) = std_mpsc::channel();
+            let _ = self.dbus_tx.blocking_send(DbusRequest::CancelSpecialChar {
+                context_path: self.context_path.clone(),
+                response: Some(tx),
+            });
+            if let Ok(DbusResponse::CommitText { text }) =
+                rx.recv_timeout(std::time::Duration::from_millis(500))
+            {
+                if !text.is_empty() {
+                    if let Some(ref im) = self.input_method {
+                        im.commit_string(text);
+                    }
+                }
+            }
+        }
 
         // DBus FocusOut으로 조합 중 텍스트 가져오기
         let (response_tx, response_rx) = std_mpsc::channel();

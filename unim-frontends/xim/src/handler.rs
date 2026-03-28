@@ -739,16 +739,24 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
 
         let preedit = user_ic.user_data.preedit_cache.clone();
 
-        // 한자 팝업이 열려있으면 닫기
+        // 한자 팝업이 열려있으면 닫기 + 트리거 커밋
         if self.hanja_window.is_some() {
             unim_log!("XIM_HANDLER", "reset: 한자 팝업 닫기");
             if let Some(hw) = self.hanja_window.take() {
                 hw.clean(self.display, self.screen);
             }
             if let Some(ctx) = self.hanja_context_path.take() {
-                let _ = self
-                    .dbus_tx
-                    .blocking_send(DbusRequest::CancelHanja { context_path: ctx, response: None });
+                if let Some(DbusResponse::CommitText { text }) =
+                    self.send_dbus_request(DbusRequest::CancelHanja {
+                        context_path: ctx,
+                        response: None,
+                    })
+                {
+                    if !text.is_empty() {
+                        unim_log!("XIM_HANDLER", "reset: 한자 트리거 커밋 '{}'", text);
+                        let _ = server.commit(&user_ic.ic, &text);
+                    }
+                }
             }
             let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
             server.conn().flush().ok();
@@ -794,31 +802,47 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     ) -> Result<(), ServerError> {
         unim_log!("XIM_HANDLER", "focus_out 호출");
 
-        // 한자 팝업이 열려있으면 닫기
+        // 한자 팝업이 열려있으면 닫기 + 트리거 커밋
         if self.hanja_window.is_some() {
             unim_log!("XIM_HANDLER", "focus_out: 한자 팝업 닫기");
             if let Some(hw) = self.hanja_window.take() {
                 hw.clean(self.display, self.screen);
             }
             if let Some(ctx) = self.hanja_context_path.take() {
-                let _ = self
-                    .dbus_tx
-                    .blocking_send(DbusRequest::CancelHanja { context_path: ctx, response: None });
+                if let Some(DbusResponse::CommitText { text }) =
+                    self.send_dbus_request(DbusRequest::CancelHanja {
+                        context_path: ctx,
+                        response: None,
+                    })
+                {
+                    if !text.is_empty() {
+                        unim_log!("XIM_HANDLER", "focus_out: 한자 트리거 커밋 '{}'", text);
+                        let _ = server.commit(&user_ic.ic, &text);
+                    }
+                }
             }
             let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
             server.conn().flush().ok();
         }
 
-        // 특수문자 팝업이 열려있으면 닫기
+        // 특수문자 팝업이 열려있으면 닫기 + 트리거 커밋
         if self.special_window.is_some() {
             unim_log!("XIM_HANDLER", "focus_out: 특수문자 팝업 닫기");
             if let Some(sw) = self.special_window.take() {
                 sw.clean(self.display, self.screen);
             }
             if let Some(ctx) = self.special_context_path.take() {
-                let _ = self
-                    .dbus_tx
-                    .blocking_send(DbusRequest::CancelSpecialChar { context_path: ctx, response: None });
+                if let Some(DbusResponse::CommitText { text }) =
+                    self.send_dbus_request(DbusRequest::CancelSpecialChar {
+                        context_path: ctx,
+                        response: None,
+                    })
+                {
+                    if !text.is_empty() {
+                        unim_log!("XIM_HANDLER", "focus_out: 특수문자 트리거 커밋 '{}'", text);
+                        let _ = server.commit(&user_ic.ic, &text);
+                    }
+                }
             }
             let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
             server.conn().flush().ok();

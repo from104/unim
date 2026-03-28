@@ -184,10 +184,11 @@ gboolean unim_dbus_select_hanja(UnimDbusContext *ctx,
 
 /**
  * 한자 모드 취소
- * 
+ *
  * @param ctx 컨텍스트
+ * @return 커밋할 트리거 문자 (호출자가 g_free해야 함, 없으면 NULL)
  */
-void unim_dbus_cancel_hanja(UnimDbusContext *ctx);
+gchar *unim_dbus_cancel_hanja(UnimDbusContext *ctx);
 
 /**
  * 한자 후보 배열 해제
@@ -230,10 +231,11 @@ gboolean unim_dbus_select_special_char(UnimDbusContext *ctx,
 
 /**
  * 특수문자 모드 취소
- * 
+ *
  * @param ctx 컨텍스트
+ * @return 커밋할 트리거 문자 (호출자가 g_free해야 함, 없으면 NULL)
  */
-void unim_dbus_cancel_special_char(UnimDbusContext *ctx);
+gchar *unim_dbus_cancel_special_char(UnimDbusContext *ctx);
 
 /**
  * 특수문자 배열 해제

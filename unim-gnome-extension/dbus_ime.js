@@ -488,19 +488,25 @@ export class UnimDbusIME {
      * 한자 모드 취소
      */
     cancelHanja() {
-        if (!this._icProxy) return;
+        if (!this._icProxy) return '';
 
         try {
-            this._icProxy.call_sync(
+            const result = this._icProxy.call_sync(
                 'CancelHanja',
                 null,
+                new GLib.VariantType('(s)'),
                 Gio.DBusCallFlags.NONE,
                 DBUS_TIMEOUT_MS,
                 null
             );
+            if (result) {
+                const [text] = result.deep_unpack();
+                return text || '';
+            }
         } catch (e) {
             unimError('DBUS_IME', `CancelHanja 실패: ${e.message}`);
         }
+        return '';
     }
 
     // ===========================================
@@ -564,19 +570,25 @@ export class UnimDbusIME {
      * 특수문자 모드 취소
      */
     cancelSpecialChar() {
-        if (!this._icProxy) return;
+        if (!this._icProxy) return '';
 
         try {
-            this._icProxy.call_sync(
+            const result = this._icProxy.call_sync(
                 'CancelSpecialChar',
                 null,
+                new GLib.VariantType('(s)'),
                 Gio.DBusCallFlags.NONE,
                 DBUS_TIMEOUT_MS,
                 null
             );
+            if (result) {
+                const [text] = result.deep_unpack();
+                return text || '';
+            }
         } catch (e) {
             unimError('DBUS_IME', `CancelSpecialChar 실패: ${e.message}`);
         }
+        return '';
     }
 
     // ===========================================

@@ -57,8 +57,11 @@ pub enum DbusRequest {
         index: u32,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
-    /// 한자 취소
-    CancelHanja { context_path: String },
+    /// 한자 취소 (트리거 문자 반환)
+    CancelHanja {
+        context_path: String,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
     /// 특수문자 후보 조회
     #[allow(dead_code)]
     GetSpecialCharCandidates {
@@ -72,8 +75,11 @@ pub enum DbusRequest {
         index: u32,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
-    /// 특수문자 취소
-    CancelSpecialChar { context_path: String },
+    /// 특수문자 취소 (트리거 문자 반환)
+    CancelSpecialChar {
+        context_path: String,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
     /// 커서 위치 보고 (팝업 포지셔닝용)
     #[allow(dead_code)]
     ReportCursorRect {
@@ -364,10 +370,22 @@ async fn run_dbus_client(
                 }
             }
 
-            DbusRequest::CancelHanja { context_path } => {
+            DbusRequest::CancelHanja { context_path, response } => {
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
-                    let _ = proxy.cancel_hanja().await.ok();
-                    unim_log!("WAYLAND_DBUS", "한자 취소: {}", context_path);
+                    match proxy.cancel_hanja().await {
+                        Ok(text) => {
+                            unim_log!("WAYLAND_DBUS", "한자 취소: commit='{}'", text);
+                            if let Some(tx) = response {
+                                let _ = tx.send(DbusResponse::CommitText { text });
+                            }
+                        }
+                        Err(e) => {
+                            unim_log!("WAYLAND_DBUS", "한자 취소 실패: {}", e);
+                            if let Some(tx) = response {
+                                let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                            }
+                        }
+                    }
                 }
             }
 
@@ -437,10 +455,22 @@ async fn run_dbus_client(
                 }
             }
 
-            DbusRequest::CancelSpecialChar { context_path } => {
+            DbusRequest::CancelSpecialChar { context_path, response } => {
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
-                    let _ = proxy.cancel_special_char().await.ok();
-                    unim_log!("WAYLAND_DBUS", "특수문자 취소: {}", context_path);
+                    match proxy.cancel_special_char().await {
+                        Ok(text) => {
+                            unim_log!("WAYLAND_DBUS", "특수문자 취소: commit='{}'", text);
+                            if let Some(tx) = response {
+                                let _ = tx.send(DbusResponse::CommitText { text });
+                            }
+                        }
+                        Err(e) => {
+                            unim_log!("WAYLAND_DBUS", "특수문자 취소 실패: {}", e);
+                            if let Some(tx) = response {
+                                let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                            }
+                        }
+                    }
                 }
             }
 

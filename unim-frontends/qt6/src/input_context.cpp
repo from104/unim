@@ -147,7 +147,8 @@ void UnimInputContext::reset()
     if (m_hanjaPopup && m_hanjaPopup->isVisible()) {
         m_hanjaPopup->hidePopup();
         if (m_dbus) {
-            m_dbus->cancelHanja();
+            QString trigger = m_dbus->cancelHanja();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
     }
 
@@ -155,7 +156,8 @@ void UnimInputContext::reset()
     if (m_specialPopup && m_specialPopup->isVisible()) {
         m_specialPopup->hidePopup();
         if (m_dbus) {
-            m_dbus->cancelSpecialChar();
+            QString trigger = m_dbus->cancelSpecialChar();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
     }
 }
@@ -176,7 +178,8 @@ void UnimInputContext::commit()
     if (m_hanjaPopup && m_hanjaPopup->isVisible()) {
         m_hanjaPopup->hidePopup();
         if (m_dbus) {
-            m_dbus->cancelHanja();
+            QString trigger = m_dbus->cancelHanja();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
     }
 
@@ -184,7 +187,8 @@ void UnimInputContext::commit()
     if (m_specialPopup && m_specialPopup->isVisible()) {
         m_specialPopup->hidePopup();
         if (m_dbus) {
-            m_dbus->cancelSpecialChar();
+            QString trigger = m_dbus->cancelSpecialChar();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
     }
 }
@@ -302,9 +306,10 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         m_composing = false;
         updatePreedit();
 
-        /* 2. CancelHanja + 팝업 닫기 */
+        /* 2. CancelHanja + 트리거 커밋 + 팝업 닫기 */
         if (m_dbus) {
-            m_dbus->cancelHanja();
+            QString trigger = m_dbus->cancelHanja();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
         m_hanjaPopup->hidePopup();
 
@@ -358,7 +363,8 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         updatePreedit();
 
         if (m_dbus) {
-            m_dbus->cancelSpecialChar();
+            QString trigger = m_dbus->cancelSpecialChar();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
         m_specialPopup->hidePopup();
 
@@ -535,7 +541,8 @@ void UnimInputContext::setFocusObject(QObject *object)
         UNIM_DEBUG("setFocusObject: 한자 팝업 닫기");
         m_hanjaPopup->hidePopup();
         if (m_dbus) {
-            m_dbus->cancelHanja();
+            QString trigger = m_dbus->cancelHanja();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
     }
 
@@ -544,7 +551,8 @@ void UnimInputContext::setFocusObject(QObject *object)
         UNIM_DEBUG("setFocusObject: 특수문자 팝업 닫기");
         m_specialPopup->hidePopup();
         if (m_dbus) {
-            m_dbus->cancelSpecialChar();
+            QString trigger = m_dbus->cancelSpecialChar();
+            if (!trigger.isEmpty()) commitString(trigger);
         }
     }
 

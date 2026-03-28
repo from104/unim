@@ -494,8 +494,14 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         /* preedit 클리어 */
         g_signal_emit_by_name(context, "preedit-changed");
 
-        /* 2. CancelHanja + 팝업 닫기 */
-        unim_dbus_cancel_hanja(unim->dbus_ctx);
+        /* 2. CancelHanja + 트리거 커밋 + 팝업 닫기 */
+        {
+            gchar *trigger = unim_dbus_cancel_hanja(unim->dbus_ctx);
+            if (trigger) {
+                g_signal_emit_by_name(context, "commit", trigger);
+                g_free(trigger);
+            }
+        }
         unim_hanja_popup_hide(unim->hanja_popup);
 
         /* 3. FocusIn으로 컨텍스트 복원 (FocusOut 후 필요) */
@@ -531,9 +537,15 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
             return TRUE;
         }
 
-        /* 미지원 키 → 특수문자 취소 + fall-through */
+        /* 미지원 키 → 특수문자 취소 + 트리거 커밋 + fall-through */
         UNIM_DEBUG("특수문자 팝업 미지원 키 -> 모드 취소 + 엔진에 키 전달");
-        unim_dbus_cancel_special_char(unim->dbus_ctx);
+        {
+            gchar *trigger = unim_dbus_cancel_special_char(unim->dbus_ctx);
+            if (trigger) {
+                g_signal_emit_by_name(context, "commit", trigger);
+                g_free(trigger);
+            }
+        }
         unim_special_popup_hide(unim->special_popup);
         g_signal_emit_by_name(context, "preedit-changed");
 
@@ -794,19 +806,29 @@ unim_im_context_focus_out(GtkIMContext *context)
 
     UNIM_DEBUG("focus_out 호출");
 
-    /* 1. 한자/특수문자 팝업이 표시 중이면 먼저 닫기 + 엔진 모드 취소 */
+    /* 1. 한자/특수문자 팝업이 표시 중이면 먼저 닫기 + 트리거 문자 커밋 */
     if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
         UNIM_DEBUG("focus_out: 한자 팝업 닫기");
         unim_hanja_popup_hide(unim->hanja_popup);
         if (unim->dbus_ctx) {
-            unim_dbus_cancel_hanja(unim->dbus_ctx);
+            gchar *trigger = unim_dbus_cancel_hanja(unim->dbus_ctx);
+            if (trigger) {
+                UNIM_DEBUG("focus_out: 한자 트리거 커밋 '%s'", trigger);
+                g_signal_emit_by_name(context, "commit", trigger);
+                g_free(trigger);
+            }
         }
     }
     if (unim->special_popup && unim_special_popup_is_visible(unim->special_popup)) {
         UNIM_DEBUG("focus_out: 특수문자 팝업 닫기");
         unim_special_popup_hide(unim->special_popup);
         if (unim->dbus_ctx) {
-            unim_dbus_cancel_special_char(unim->dbus_ctx);
+            gchar *trigger = unim_dbus_cancel_special_char(unim->dbus_ctx);
+            if (trigger) {
+                UNIM_DEBUG("focus_out: 특수문자 트리거 커밋 '%s'", trigger);
+                g_signal_emit_by_name(context, "commit", trigger);
+                g_free(trigger);
+            }
         }
     }
 
@@ -849,21 +871,29 @@ unim_im_context_reset(GtkIMContext *context)
         g_signal_emit_by_name(context, "preedit-changed");
     }
 
-    /* 2. 한자 팝업이 표시 중이면 닫기 */
+    /* 2. 한자 팝업이 표시 중이면 닫기 + 트리거 커밋 */
     if (unim->hanja_popup && unim_hanja_popup_is_visible(unim->hanja_popup)) {
         UNIM_DEBUG("reset: 한자 팝업 닫기");
         unim_hanja_popup_hide(unim->hanja_popup);
         if (unim->dbus_ctx) {
-            unim_dbus_cancel_hanja(unim->dbus_ctx);
+            gchar *trigger = unim_dbus_cancel_hanja(unim->dbus_ctx);
+            if (trigger) {
+                g_signal_emit_by_name(context, "commit", trigger);
+                g_free(trigger);
+            }
         }
     }
 
-    /* 3. 특수문자 팝업이 표시 중이면 닫기 */
+    /* 3. 특수문자 팝업이 표시 중이면 닫기 + 트리거 커밋 */
     if (unim->special_popup && unim_special_popup_is_visible(unim->special_popup)) {
         UNIM_DEBUG("reset: 특수문자 팝업 닫기");
         unim_special_popup_hide(unim->special_popup);
         if (unim->dbus_ctx) {
-            unim_dbus_cancel_special_char(unim->dbus_ctx);
+            gchar *trigger = unim_dbus_cancel_special_char(unim->dbus_ctx);
+            if (trigger) {
+                g_signal_emit_by_name(context, "commit", trigger);
+                g_free(trigger);
+            }
         }
     }
 }

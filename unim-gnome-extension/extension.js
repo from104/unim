@@ -391,11 +391,17 @@ export default class UnimExtension extends Extension {
     _cleanupPopups() {
         if (this._hanjaPopup?.isVisible) {
             this._hanjaPopup.hide();
-            this._dbusIME?.cancelHanja();
+            const trigger = this._dbusIME?.cancelHanja();
+            if (trigger && this._inputMethod) {
+                this._inputMethod.commitText(trigger);
+            }
         }
         if (this._specialPopup?.isVisible) {
             this._specialPopup.hide();
-            this._dbusIME?.cancelSpecialChar();
+            const trigger = this._dbusIME?.cancelSpecialChar();
+            if (trigger && this._inputMethod) {
+                this._inputMethod.commitText(trigger);
+            }
         }
         this._keyHandler?.setPopupKeyHandler(null);
     }

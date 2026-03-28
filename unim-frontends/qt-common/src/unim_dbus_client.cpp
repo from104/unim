@@ -338,24 +338,34 @@ bool UnimDbusClient::selectHanja(quint32 index, QString &selectedHanja)
     return true;
 }
 
-void UnimDbusClient::cancelHanja()
+QString UnimDbusClient::cancelHanja()
 {
-    if (!isValid()) return;
-    
+    if (!isValid()) return QString();
+
     UNIM_DBUS_DEBUG("CancelHanja 호출");
-    
+
     QDBusMessage msg = QDBusMessage::createMethodCall(
         UNIM_DBUS_SERVICE,
         m_contextPath,
         UNIM_DBUS_IC_INTERFACE,
         QStringLiteral("CancelHanja")
     );
-    
-    m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
-    
+
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+
+    QString commit;
+    if (reply.type() == QDBusMessage::ReplyMessage && reply.arguments().size() >= 1) {
+        commit = reply.arguments().at(0).toString();
+        if (!commit.isEmpty()) {
+            UNIM_DBUS_DEBUG(QString::asprintf("CancelHanja 커밋: '%s'", qPrintable(commit)));
+        }
+    }
+
     // 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화
     m_preeditCache.clear();
     m_isComposing = false;
+
+    return commit;
 }
 
 bool UnimDbusClient::getSpecialCharCandidates(QString &target, QStringList &characters, QString &topRow)
@@ -422,9 +432,9 @@ bool UnimDbusClient::selectSpecialChar(quint32 index, QString &selectedChar)
     return true;
 }
 
-void UnimDbusClient::cancelSpecialChar()
+QString UnimDbusClient::cancelSpecialChar()
 {
-    if (!isValid()) return;
+    if (!isValid()) return QString();
 
     UNIM_DBUS_DEBUG("CancelSpecialChar 호출");
 
@@ -435,11 +445,21 @@ void UnimDbusClient::cancelSpecialChar()
         QStringLiteral("CancelSpecialChar")
     );
 
-    m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+
+    QString commit;
+    if (reply.type() == QDBusMessage::ReplyMessage && reply.arguments().size() >= 1) {
+        commit = reply.arguments().at(0).toString();
+        if (!commit.isEmpty()) {
+            UNIM_DBUS_DEBUG(QString::asprintf("CancelSpecialChar 커밋: '%s'", qPrintable(commit)));
+        }
+    }
 
     // 엔진의 preedit이 클리어되었으므로 로컬 캐시도 동기화
     m_preeditCache.clear();
     m_isComposing = false;
+
+    return commit;
 }
 
 void UnimDbusClient::setContentType(quint32 purpose)
