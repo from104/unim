@@ -220,12 +220,26 @@ async fn start_dbus_service(
     }
 
     // 서비스 객체 등록
-    let service = InputMethodService::new(config, engine_tx, connection.clone());
+    let service = InputMethodService::new(config, engine_tx.clone(), connection.clone());
     connection
         .object_server()
         .at(INPUT_METHOD_PATH, service)
         .await?;
     unim_log!("DAEMON", "[DBus] 서비스 등록: {}", INPUT_METHOD_PATH);
+
+    // IBus 호환 레이어 시작 (Flatpak/Snap 앱 지원)
+    match unim_dbus::ibus_compat::start_ibus_compat(engine_tx, &connection).await {
+        Ok(()) => {
+            unim_log!("DAEMON", "[IBus Compat] IBus 호환 레이어 활성화됨");
+        }
+        Err(e) => {
+            unim_log!(
+                "DAEMON",
+                "[IBus Compat] 시작 실패 (비치명적, 네이티브 모듈은 정상 동작): {}",
+                e
+            );
+        }
+    }
 
     Ok(connection)
 }
@@ -474,6 +488,9 @@ async fn main() {
             unim_log!("DAEMON", "{} 종료 실패: {}", name, err);
         }
     }
+
+    // IBus 호환 레이어 정리 (주소 파일 삭제)
+    unim_dbus::ibus_compat::stop_ibus_compat();
 
     // PID 파일 정리
     remove_pid_file(&pid_file_cleanup);

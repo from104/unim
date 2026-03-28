@@ -12,6 +12,7 @@ pub mod interfaces;
 pub mod service;
 pub mod client;
 pub mod engine_worker;
+pub mod ibus_compat;
 
 /// DBus 버스 이름
 pub const BUS_NAME: &str = "org.atit.unim.InputMethod";
