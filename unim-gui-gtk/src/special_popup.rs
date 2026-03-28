@@ -49,6 +49,7 @@ impl SpecialPopup {
             .decorated(false)
             .resizable(false)
             .build();
+        window.set_focusable(false);
         window.add_css_class("unim-special-popup");
 
         let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
@@ -70,7 +71,16 @@ impl SpecialPopup {
         grid.set_row_homogeneous(true);
         grid.set_column_homogeneous(true);
 
-        // 9x9 셀 미리 생성
+        // 행 번호 레이블 (1-9) — grid column 0
+        for row in 0..MAX_ROWS {
+            let num_label = gtk4::Label::new(Some(&format!("{}", row + 1)));
+            num_label.add_css_class("special-row-num");
+            num_label.set_width_chars(1);
+            num_label.set_halign(gtk4::Align::Center);
+            grid.attach(&num_label, 0, row as i32, 1, 1);
+        }
+
+        // 9x9 데이터 셀 — grid column 1+
         let mut cells = Vec::with_capacity(MAX_COLS);
         for col in 0..MAX_COLS {
             let mut col_cells = Vec::with_capacity(MAX_ROWS);
@@ -89,7 +99,7 @@ impl SpecialPopup {
                 });
                 label.add_controller(gesture);
 
-                grid.attach(&label, col as i32, row as i32, 1, 1);
+                grid.attach(&label, (col + 1) as i32, row as i32, 1, 1);
                 col_cells.push(label);
             }
             cells.push(col_cells);
@@ -138,6 +148,7 @@ impl SpecialPopup {
         _w: i32,
         h: i32,
     ) {
+        // GNOME Wayland에서는 extension이 팝업 전담
         if self.display_server == DisplayServer::GnomeWayland {
             return;
         }
@@ -178,6 +189,11 @@ impl SpecialPopup {
         while let Some(child) = self.top_row_box.first_child() {
             self.top_row_box.remove(&child);
         }
+
+        // 행 번호 열과 정렬을 위한 빈 공간
+        let spacer = gtk4::Label::new(None);
+        spacer.set_width_chars(1);
+        self.top_row_box.append(&spacer);
 
         for ch in self.top_row.chars() {
             let label = gtk4::Label::new(Some(&ch.to_string()));

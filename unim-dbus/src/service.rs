@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
-use unim::config::{Config, InputCategory};
+use unim::config::{Config, InputCategory, PopupMode};
 use unim::input_engine::PopupAction;
 use unim::unim_log;
 
@@ -1047,7 +1047,10 @@ impl InputContextHandler {
 
     /// 한자 후보 목록 조회
     /// 반환값: (변환 대상, [(한자, 뜻풀이), ...])
-    async fn get_hanja_candidates(&self) -> zbus::fdo::Result<(String, Vec<(String, String)>)> {
+    async fn get_hanja_candidates(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+    ) -> zbus::fdo::Result<(String, Vec<(String, String)>)> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -1068,6 +1071,28 @@ impl InputContextHandler {
             response.target,
             response.candidates.len()
         );
+
+        // Standalone 모드: unim-gui-gtk가 팝업을 표시하도록 시그널 발행
+        if !response.candidates.is_empty()
+            && Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone
+        {
+            let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
+            Self::show_hanja_popup(
+                &signal_ctx,
+                &response.target,
+                response.candidates.clone(),
+                x,
+                y,
+                w,
+                h,
+            )
+            .await
+            .ok();
+            unim_log!(
+                "DBUS",
+                "[DBus] GetHanjaCandidates -> ShowHanjaPopup 시그널 발행 (Standalone)"
+            );
+        }
 
         Ok((response.target, response.candidates))
     }
@@ -1144,6 +1169,7 @@ impl InputContextHandler {
     /// 반환값: (변환 대상 초성, [특수문자, ...], 상단 행 레이블)
     async fn get_special_char_candidates(
         &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<(String, Vec<String>, String)> {
         let (response_tx, response_rx) = oneshot::channel();
 
@@ -1166,6 +1192,29 @@ impl InputContextHandler {
             response.characters.len(),
             response.top_row
         );
+
+        // Standalone 모드: unim-gui-gtk가 팝업을 표시하도록 시그널 발행
+        if !response.characters.is_empty()
+            && Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone
+        {
+            let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
+            Self::show_special_popup(
+                &signal_ctx,
+                &response.target,
+                response.characters.clone(),
+                &response.top_row,
+                x,
+                y,
+                w,
+                h,
+            )
+            .await
+            .ok();
+            unim_log!(
+                "DBUS",
+                "[DBus] GetSpecialCharCandidates -> ShowSpecialPopup 시그널 발행 (Standalone)"
+            );
+        }
 
         Ok((response.target, response.characters, response.top_row))
     }

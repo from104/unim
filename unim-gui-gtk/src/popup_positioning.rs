@@ -77,17 +77,34 @@ pub fn position_popup(
     }
 }
 
-/// X11: GDK X11 surface를 통한 override-redirect + 절대좌표 배치
+/// X11: 팝업 타입 설정 + 절대좌표 배치
 fn position_popup_x11(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, cursor_h: i32) {
-    let popup_x = cursor_x;
-    let popup_y = cursor_y + cursor_h + 4;
+    let raw_x = cursor_x;
+    let raw_y = cursor_y + cursor_h + 4;
+
+    // HiDPI 스케일 보정: daemon이 보내는 좌표는 물리 픽셀, GTK4/X11은 논리 좌표
+    let scale = x11_get_scale_factor();
+    let popup_x = raw_x / scale;
+    let popup_y = raw_y / scale;
+
+    // 화면 경계 보정
+    let (popup_x, popup_y) = clamp_to_screen(popup_x, popup_y, 350, 350, cursor_y / scale);
 
     #[cfg(feature = "gdk4-x11")]
     {
+        // 이미 realize된 경우: 직접 이동
+        if window.is_realized() {
+            if let Some(surface) = window.surface() {
+                if let Some(x11_surface) = surface.downcast_ref::<gdk4_x11::X11Surface>() {
+                    x11_move_window(&surface.display(), x11_surface, popup_x, popup_y);
+                }
+            }
+            return;
+        }
+
+        // 최초 realize 시: 팝업 타입 설정 + 위치 지정
         let cx = popup_x;
         let cy = popup_y;
-
-        // realize 후 X11 surface에 접근하여 override-redirect 설정
         window.connect_realize(move |win| {
             let surface = match win.surface() {
                 Some(s) => s,
@@ -95,39 +112,9 @@ fn position_popup_x11(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, curso
             };
 
             if let Some(x11_surface) = surface.downcast_ref::<gdk4_x11::X11Surface>() {
-                unsafe {
-                    let x11_display = surface
-                        .display()
-                        .downcast::<gdk4_x11::X11Display>()
-                        .unwrap();
-                    let xdisplay = gdk4_x11::ffi::gdk_x11_display_get_xdisplay(
-                        gtk4::glib::translate::ToGlibPtr::to_glib_none(&x11_display).0,
-                    );
-                    let xid = gdk4_x11::ffi::gdk_x11_surface_get_xid(
-                        gtk4::glib::translate::ToGlibPtr::to_glib_none(x11_surface).0,
-                    );
-
-                    extern "C" {
-                        fn XMoveWindow(
-                            display: *mut std::ffi::c_void,
-                            w: std::ffi::c_ulong,
-                            x: std::ffi::c_int,
-                            y: std::ffi::c_int,
-                        ) -> std::ffi::c_int;
-                        fn XFlush(display: *mut std::ffi::c_void) -> std::ffi::c_int;
-                    }
-
-                    XMoveWindow(xdisplay as *mut _, xid as _, cx, cy);
-                    XFlush(xdisplay as *mut _);
-
-                    unim_log!(
-                        "INDICATOR",
-                        "[Popup] X11 윈도우 배치: pos=({},{}), xid={}",
-                        cx,
-                        cy,
-                        xid
-                    );
-                }
+                let display = surface.display();
+                x11_set_popup_type(&display, x11_surface);
+                x11_move_window(&display, x11_surface, cx, cy);
             }
         });
     }
@@ -138,6 +125,148 @@ fn position_popup_x11(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, curso
         unim_log!(
             "INDICATOR",
             "[Popup] gdk4-x11 feature 미활성, X11 팝업 위치 설정 불가"
+        );
+    }
+}
+
+/// X11 모니터 스케일 팩터 조회 (HiDPI 보정용)
+fn x11_get_scale_factor() -> i32 {
+    let display = gtk4::gdk::Display::default().expect("No display");
+    let monitors = display.monitors();
+    if monitors.n_items() > 0 {
+        monitors
+            .item(0)
+            .and_downcast::<gtk4::gdk::Monitor>()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1)
+    } else {
+        1
+    }
+}
+
+/// X11 윈도우 이동
+#[cfg(feature = "gdk4-x11")]
+fn x11_move_window(
+    display: &gtk4::gdk::Display,
+    x11_surface: &gdk4_x11::X11Surface,
+    x: i32,
+    y: i32,
+) {
+    unsafe {
+        let x11_display = display.downcast_ref::<gdk4_x11::X11Display>().unwrap();
+        let xdisplay = gdk4_x11::ffi::gdk_x11_display_get_xdisplay(
+            gtk4::glib::translate::ToGlibPtr::to_glib_none(x11_display).0,
+        );
+        let xid = gdk4_x11::ffi::gdk_x11_surface_get_xid(
+            gtk4::glib::translate::ToGlibPtr::to_glib_none(x11_surface).0,
+        );
+
+        extern "C" {
+            fn XMoveWindow(
+                display: *mut std::ffi::c_void,
+                w: std::ffi::c_ulong,
+                x: std::ffi::c_int,
+                y: std::ffi::c_int,
+            ) -> std::ffi::c_int;
+            fn XFlush(display: *mut std::ffi::c_void) -> std::ffi::c_int;
+        }
+
+        XMoveWindow(xdisplay as *mut _, xid as _, x, y);
+        XFlush(xdisplay as *mut _);
+
+        unim_log!(
+            "INDICATOR",
+            "[Popup] X11 윈도우 배치: pos=({},{}), xid={}",
+            x,
+            y,
+            xid
+        );
+    }
+}
+
+/// X11 윈도우 타입을 POPUP_MENU로 설정 (WM 포커스 방지)
+#[cfg(feature = "gdk4-x11")]
+fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11Surface) {
+    unsafe {
+        let x11_display = display.downcast_ref::<gdk4_x11::X11Display>().unwrap();
+        let xdisplay = gdk4_x11::ffi::gdk_x11_display_get_xdisplay(
+            gtk4::glib::translate::ToGlibPtr::to_glib_none(x11_display).0,
+        );
+        let xid = gdk4_x11::ffi::gdk_x11_surface_get_xid(
+            gtk4::glib::translate::ToGlibPtr::to_glib_none(x11_surface).0,
+        );
+
+        extern "C" {
+            fn XInternAtom(
+                display: *mut std::ffi::c_void,
+                atom_name: *const std::ffi::c_char,
+                only_if_exists: std::ffi::c_int,
+            ) -> std::ffi::c_ulong;
+            fn XChangeProperty(
+                display: *mut std::ffi::c_void,
+                w: std::ffi::c_ulong,
+                property: std::ffi::c_ulong,
+                type_: std::ffi::c_ulong,
+                format: std::ffi::c_int,
+                mode: std::ffi::c_int,
+                data: *const u8,
+                nelements: std::ffi::c_int,
+            ) -> std::ffi::c_int;
+            fn XFlush(display: *mut std::ffi::c_void) -> std::ffi::c_int;
+        }
+
+        let wm_type = XInternAtom(
+            xdisplay as *mut _,
+            b"_NET_WM_WINDOW_TYPE\0".as_ptr() as *const _,
+            0,
+        );
+        let popup_type = XInternAtom(
+            xdisplay as *mut _,
+            b"_NET_WM_WINDOW_TYPE_POPUP_MENU\0".as_ptr() as *const _,
+            0,
+        );
+        const XA_ATOM: std::ffi::c_ulong = 4;
+        const PROP_MODE_REPLACE: std::ffi::c_int = 0;
+
+        XChangeProperty(
+            xdisplay as *mut _,
+            xid as _,
+            wm_type,
+            XA_ATOM,
+            32,
+            PROP_MODE_REPLACE,
+            &popup_type as *const std::ffi::c_ulong as *const u8,
+            1,
+        );
+
+        // _NET_WM_STATE_ABOVE: 항상 최상위 + 포커스 방지 강화
+        let wm_state = XInternAtom(
+            xdisplay as *mut _,
+            b"_NET_WM_STATE\0".as_ptr() as *const _,
+            0,
+        );
+        let state_above = XInternAtom(
+            xdisplay as *mut _,
+            b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const _,
+            0,
+        );
+        XChangeProperty(
+            xdisplay as *mut _,
+            xid as _,
+            wm_state,
+            XA_ATOM,
+            32,
+            PROP_MODE_REPLACE,
+            &state_above as *const std::ffi::c_ulong as *const u8,
+            1,
+        );
+
+        XFlush(xdisplay as *mut _);
+
+        unim_log!(
+            "INDICATOR",
+            "[Popup] X11 팝업 타입 설정: POPUP_MENU + ABOVE, xid={}",
+            xid
         );
     }
 }
@@ -184,7 +313,6 @@ fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, c
 }
 
 /// 팝업 위치를 화면 경계 내로 보정
-#[allow(dead_code)]
 pub fn clamp_to_screen(
     popup_x: i32,
     popup_y: i32,

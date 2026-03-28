@@ -168,11 +168,13 @@ export class KeyHandler {
             return false;
         }
 
-        // 2. 팝업 활성 → 데몬(PopupState)에 위임
-        //    키를 ProcessKeyEvent로 전달하여 데몬이 PopupState로 처리
-        //    데몬은 PopupNavigate/HidePopup 시그널로 결과를 알림
-        if (this._popupActive) {
-            // 모든 키를 데몬으로 전달 (아래 ProcessKeyEvent 호출로 fall-through)
+        // 2. 팝업 활성 → 팝업 키 핸들러에 위임
+        if (this._popupKeyHandler) {
+            const handled = this._popupKeyHandler(keyval);
+            if (handled) {
+                return true;  // 팝업이 키 소비
+            }
+            // 팝업이 처리하지 않은 키는 아래 ProcessKeyEvent로 fall-through
         }
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 flush 후 바이패스
@@ -347,9 +349,13 @@ export class KeyHandler {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        // 2. 팝업 활성 → 데몬(PopupState)에 위임
-        if (this._popupActive) {
-            // 모든 키를 데몬으로 전달 (아래 ProcessKeyEvent 호출로 fall-through)
+        // 2. 팝업 활성 → 팝업 키 핸들러에 위임
+        if (this._popupKeyHandler) {
+            const handled = this._popupKeyHandler(keyval);
+            if (handled) {
+                return Clutter.EVENT_STOP;
+            }
+            // 팝업이 처리하지 않은 키는 아래 ProcessKeyEvent로 fall-through
         }
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스

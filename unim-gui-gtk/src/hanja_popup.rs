@@ -38,6 +38,7 @@ impl HanjaPopup {
             .resizable(false)
             .default_width(280)
             .build();
+        window.set_focusable(false);
         window.add_css_class("unim-hanja-popup");
 
         // 메인 컨테이너
@@ -104,6 +105,7 @@ impl HanjaPopup {
         _w: i32,
         h: i32,
     ) {
+        // GNOME Wayland에서는 extension이 팝업 전담
         if self.display_server == DisplayServer::GnomeWayland {
             return;
         }

@@ -207,6 +207,13 @@ void UnimInputContext::update(Qt::InputMethodQueries queries)
                     }
                     window = window->parent();
                 }
+
+                /* 커서 위치를 데몬에 보고 (팝업 포지셔닝용) */
+                if (m_dbus && m_cursorRect.isValid()) {
+                    m_dbus->reportCursorRect(
+                        m_cursorRect.x(), m_cursorRect.y(),
+                        m_cursorRect.width(), m_cursorRect.height());
+                }
             }
         }
     }

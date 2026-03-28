@@ -211,7 +211,7 @@ async fn watch_mode_signals(
         .msg_type(zbus::message::Type::Signal)
         .interface("org.atit.unim.InputContext")
         .unwrap()
-        .path_namespace("/org/atit/unim/InputContext")
+        .path_namespace("/org/atit/unim")
         .unwrap()
         .build();
 

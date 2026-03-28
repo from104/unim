@@ -159,10 +159,9 @@ export class HanjaPopup {
      * @param {number} totalPages - 전체 페이지 수
      * @param {number} selected - 선택된 인덱스 (페이지 내)
      */
-    updateFromNavigate(page, totalPages, selected) {
+    updateFromNavigate(page, _totalPages, selected) {
         if (!this.isVisible) return;
         this._currentPage = page;
-        this._totalPages = totalPages;
         this._selectedIndex = selected;
         this._updateList();
         this._updateSelection();

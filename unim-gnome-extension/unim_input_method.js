@@ -181,7 +181,9 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_set_surrounding(text, cursor, anchor) {
-        // 주변 텍스트 정보
+        if (this._dbusIME?.isConnected) {
+            this._dbusIME.setSurroundingText(text || '', cursor || 0, anchor || 0);
+        }
     }
 
     vfunc_update_content_hints(hints) {

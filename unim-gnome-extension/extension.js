@@ -250,15 +250,15 @@ export default class UnimExtension extends Extension {
                     });
                 },
                 onHidePopup: () => {
-                    this._hanjaPopup.hide();
-                    this._specialPopup.hide();
-                    this._keyHandler.setPopupKeyHandler(null);
+                    this._hanjaPopup?.hide();
+                    this._specialPopup?.hide();
+                    this._keyHandler?.setPopupKeyHandler(null);
                 },
                 onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
-                    if (this._hanjaPopup.isVisible()) {
+                    if (this._hanjaPopup?.isVisible) {
                         this._hanjaPopup.updateFromNavigate(page, totalPages, selected);
                     }
-                    if (this._specialPopup.isVisible()) {
+                    if (this._specialPopup?.isVisible) {
                         this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
                     }
                 },
@@ -321,10 +321,12 @@ export default class UnimExtension extends Extension {
 
         // 팝업 정리
         if (this._hanjaPopup) {
+            this._hanjaPopup.hide();
             this._hanjaPopup.disable();
             this._hanjaPopup = null;
         }
         if (this._specialPopup) {
+            this._specialPopup.hide();
             this._specialPopup.disable();
             this._specialPopup = null;
         }
@@ -353,6 +355,9 @@ export default class UnimExtension extends Extension {
     _onFocusWindowChanged() {
         const focusWindow = global.display.focus_window;
 
+        // 팝업이 열려있으면 먼저 닫기 + 엔진 모드 취소
+        this._cleanupPopups();
+
         if (!focusWindow) {
             // 포커스 없음 (바탕화면 등)
             if (this._dbusIME?.isConnected) {
@@ -377,6 +382,22 @@ export default class UnimExtension extends Extension {
         }
 
         this._preeditOverlay?.hide();
+    }
+
+    /**
+     * 열려있는 한자/특수문자 팝업 정리
+     * @private
+     */
+    _cleanupPopups() {
+        if (this._hanjaPopup?.isVisible) {
+            this._hanjaPopup.hide();
+            this._dbusIME?.cancelHanja();
+        }
+        if (this._specialPopup?.isVisible) {
+            this._specialPopup.hide();
+            this._dbusIME?.cancelSpecialChar();
+        }
+        this._keyHandler?.setPopupKeyHandler(null);
     }
 
     /**
@@ -520,7 +541,8 @@ export default class UnimExtension extends Extension {
     async _doTypeFix(direction, pasteMode) {
         this._conversionInProgress = true;
         try {
-            if (!this._contextProxy) {
+            const proxy = this._dbusIME?.getContextProxy();
+            if (!proxy) {
                 unimLog('EXTENSION', 'TypeFIX: DBus 컨텍스트 없음');
                 this._conversionInProgress = false;
                 return;
@@ -528,7 +550,7 @@ export default class UnimExtension extends Extension {
 
             // DBus TypeFix 호출 — 엔진이 surrounding text에서 단어를 찾아 변환하고
             // delete_surrounding_text + commit_text 시그널을 발행함
-            const [deleteCount, replacement] = await this._contextProxy.TypeFixAsync(direction);
+            const [deleteCount, replacement] = await proxy.TypeFixAsync(direction);
 
             if (deleteCount === 0 || !replacement) {
                 unimLog('EXTENSION', 'TypeFIX: 변환할 텍스트 없음');
