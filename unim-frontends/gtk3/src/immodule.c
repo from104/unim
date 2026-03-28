@@ -887,17 +887,12 @@ unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
         unim->cursor_area = *area;
 
         /* 커서 위치를 데몬에 보고 (팝업 포지셔닝용) */
-        if (unim->dbus_ctx) {
-            gint abs_x = area->x;
-            gint abs_y = area->y;
-#ifdef GDK_WINDOWING_X11
-            if (unim->client_window && GDK_IS_X11_WINDOW(unim->client_window)) {
-                gint win_x = 0, win_y = 0;
-                gdk_window_get_origin(unim->client_window, &win_x, &win_y);
-                abs_x += win_x;
-                abs_y += win_y;
-            }
-#endif
+        if (unim->dbus_ctx && unim->client_window) {
+            gint abs_x = 0, abs_y = 0;
+            /* 위젯 로컬 좌표 → 화면 절대 좌표 (X11/Wayland 공용) */
+            gdk_window_get_root_coords(unim->client_window,
+                                        area->x, area->y,
+                                        &abs_x, &abs_y);
             unim_dbus_report_cursor_rect(unim->dbus_ctx,
                                           abs_x, abs_y,
                                           area->width, area->height);
