@@ -62,10 +62,6 @@ export class KeyHandler {
 
         /** @type {number} captured-event 시그널 ID */
         this._keyPressId = 0;
-        /** @type {boolean} 팝업 활성 상태 */
-        this._popupActive = false;
-        /** @type {Function|null} 팝업 키 핸들러 */
-        this._popupKeyHandler = null;
         /** @type {boolean} IME 활성 상태 */
         this._enabled = false;
 
@@ -273,21 +269,7 @@ export class KeyHandler {
         this._unregisterFromBackend();
 
         this._enabled = false;
-        this._popupActive = false;
-        this._popupKeyHandler = null;
         unimLog('KEY', '전역 키 인터셉션 중지');
-    }
-
-    /**
-     * 팝업 키 핸들러 설정
-     *
-     * 팝업(한자/특수문자)이 활성화되면 모든 키가 팝업으로 전달됩니다.
-     *
-     * @param {Function|null} handler - 키 핸들러 (keyval) => boolean
-     */
-    setPopupKeyHandler(handler) {
-        this._popupActive = handler !== null;
-        this._popupKeyHandler = handler;
     }
 
     /**

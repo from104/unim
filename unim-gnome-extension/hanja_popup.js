@@ -1,9 +1,13 @@
 /**
  * UNIM 한자 후보 팝업
  *
- * 한자 변환 시 후보 목록을 세로 리스트로 표시합니다.
- * GTK3 unim_hanja_popup.c의 키 처리 로직을 St 위젯으로 이식.
+ * 엔진 위임 모드 전용 순수 UI 컴포넌트.
+ * 모든 키 처리는 엔진(ProcessKeyEvent)이 담당하고,
+ * 팝업은 렌더링과 마우스 이벤트 콜백만 담당한다.
  *
+ * 상태 업데이트는 updateFromNavigate() 시그널이 유일한 경로.
+ *
+ * @see POPUP_SPEC.md
  * @module hanja_popup
  */
 
@@ -18,8 +22,8 @@ const PAGE_SIZE = 9;
 /**
  * HanjaPopup
  *
- * 한자 후보 리스트를 플로팅 패널로 표시합니다.
- * 숫자(1-9) 직접 선택, 화살표 네비게이션, 페이지 전환을 지원합니다.
+ * 한자 후보 리스트를 플로팅 패널로 표시한다.
+ * 키 처리 로직 없음 — 엔진 시그널로만 상태 갱신.
  */
 export class HanjaPopup {
     constructor() {
@@ -31,19 +35,24 @@ export class HanjaPopup {
         this._list = null;
         /** @type {St.Label} 페이지 표시 라벨 */
         this._footer = null;
-        /** @type {St.Label[]} 후보 행 라벨들 */
+        /** @type {St.Label[]} 후보 행 위젯들 */
         this._rows = [];
 
         /** @type {Array<{hanja: string, meaning: string}>} 전체 후보 */
         this._candidates = [];
         /** @type {string} 대상 문자 */
         this._target = '';
-        /** @type {number} 현재 페이지 (0부터) */
-        this._currentPage = 0;
-        /** @type {number} 선택 인덱스 (페이지 내, 0부터) */
-        this._selectedIndex = 0;
 
-        /** @type {Function|null} 선택 콜백 (index: number) => void */
+        /** @type {number} 현재 페이지 (엔진이 관리, updateFromNavigate로 수신) */
+        this._currentPage = 0;
+        /** @type {number} 전체 페이지 수 (엔진이 관리) */
+        this._totalPages = 1;
+        /** @type {number} 엔진이 관리하는 선택 인덱스 (페이지 내) */
+        this._engineSelectedIndex = 0;
+        /** @type {number} 마우스 호버 인덱스 (-1이면 비활성) */
+        this._mouseHoverIndex = -1;
+
+        /** @type {Function|null} 선택 콜백 (globalIndex: number) => void */
         this._onSelect = null;
         /** @type {Function|null} 취소 콜백 () => void */
         this._onCancel = null;
@@ -60,64 +69,14 @@ export class HanjaPopup {
             reactive: true,
         });
 
-        // 마우스 스크롤로 항목/페이지 이동
-        this._container.connect('scroll-event', (_actor, event) => {
-            const dir = event.get_scroll_direction();
-            if (dir === Clutter.ScrollDirection.UP) {
-                if (this._selectedIndex > 0) {
-                    this._selectedIndex--;
-                    this._updateSelection();
-                } else {
-                    this._prevPage();
-                    this._selectedIndex = this._pageItemCount() - 1;
-                    this._updateSelection();
-                }
-            } else if (dir === Clutter.ScrollDirection.DOWN) {
-                if (this._selectedIndex < this._pageItemCount() - 1) {
-                    this._selectedIndex++;
-                    this._updateSelection();
-                } else {
-                    this._nextPage();
-                }
-            }
-            return Clutter.EVENT_STOP;
-        });
-
         this._header = new St.Label({ style_class: 'popup-header' });
         this._container.add_child(this._header);
 
         this._list = new St.BoxLayout({ vertical: true });
         this._container.add_child(this._list);
 
-        // 페이지 네비게이션 (◀ 이전 / 다음 ▶)
-        const footerBox = new St.BoxLayout({ style_class: 'popup-footer-box' });
-
-        this._prevBtn = new St.Label({
-            style_class: 'popup-nav-btn',
-            text: '◀',
-            reactive: true,
-        });
-        this._prevBtn.connect('button-press-event', () => {
-            this._prevPage();
-            return Clutter.EVENT_STOP;
-        });
-
         this._footer = new St.Label({ style_class: 'popup-footer' });
-
-        this._nextBtn = new St.Label({
-            style_class: 'popup-nav-btn',
-            text: '▶',
-            reactive: true,
-        });
-        this._nextBtn.connect('button-press-event', () => {
-            this._nextPage();
-            return Clutter.EVENT_STOP;
-        });
-
-        footerBox.add_child(this._prevBtn);
-        footerBox.add_child(this._footer);
-        footerBox.add_child(this._nextBtn);
-        this._container.add_child(footerBox);
+        this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
             affectsStruts: false,
@@ -139,48 +98,22 @@ export class HanjaPopup {
 
         this._target = target;
         this._candidates = candidates;
-        this._currentPage = 0;
-        this._selectedIndex = 0;
         this._onSelect = onSelect;
         this._onCancel = onCancel;
+
+        // 초기 상태 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
+        this._currentPage = 0;
+        this._totalPages = Math.ceil(candidates.length / PAGE_SIZE);
+        this._engineSelectedIndex = 0;
+        this._mouseHoverIndex = -1;
 
         this._header.set_text(`한자: ${target}`);
         this._updateList();
 
         // 먼저 표시하여 실제 크기 측정 가능하게 함
         this._container.show();
+        this._positionPopup(cursorRect);
 
-        // 동적 크기 측정 + 화면 경계 보정
-        const monitor = Main.layoutManager.primaryMonitor;
-        if (monitor) {
-            const [, natW] = this._container.get_preferred_width(-1);
-            const [, natH] = this._container.get_preferred_height(-1);
-            const popupWidth = natW > 0 ? natW : 280;
-            const popupHeight = natH > 0 ? natH : 300;
-            let x, y;
-
-            if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
-                x = cursorRect.x;
-                y = cursorRect.y + cursorRect.height + 4;
-            } else {
-                x = Math.floor(monitor.x + (monitor.width - popupWidth) / 2);
-                y = Math.floor(monitor.y + 100);
-            }
-
-            // 오른쪽 경계
-            if (x + popupWidth > monitor.x + monitor.width) {
-                x = monitor.x + monitor.width - popupWidth;
-            }
-            // 아래 경계 → 커서 위로
-            if (y + popupHeight > monitor.y + monitor.height) {
-                y = (cursorRect?.y ?? y) - popupHeight - 4;
-            }
-            // 왼쪽/위쪽 최소
-            x = Math.max(monitor.x, x);
-            y = Math.max(monitor.y, y);
-
-            this._container.set_position(x, y);
-        }
         unimLog('HANJA', `팝업 표시: target="${target}", ${candidates.length}개 후보`);
     }
 
@@ -192,6 +125,7 @@ export class HanjaPopup {
             this._container.hide();
         }
         this._candidates = [];
+        this._mouseHoverIndex = -1;
         this._onSelect = null;
         this._onCancel = null;
     }
@@ -207,100 +141,24 @@ export class HanjaPopup {
     /**
      * 데몬 PopupNavigate 시그널로 상태 업데이트
      *
+     * 이것이 팝업 상태를 갱신하는 유일한 경로.
+     *
      * @param {number} page - 현재 페이지 (0-based)
      * @param {number} totalPages - 전체 페이지 수
      * @param {number} selected - 선택된 인덱스 (페이지 내)
      */
-    updateFromNavigate(page, _totalPages, selected) {
+    updateFromNavigate(page, totalPages, selected) {
         if (!this.isVisible) return;
+
+        const pageChanged = this._currentPage !== page;
         this._currentPage = page;
-        this._selectedIndex = selected;
-        this._updateList();
+        this._totalPages = totalPages;
+        this._engineSelectedIndex = selected;
+
+        if (pageChanged) {
+            this._updateList();
+        }
         this._updateSelection();
-    }
-
-    /**
-     * 키 이벤트 처리
-     *
-     * GTK3 unim_hanja_popup_handle_key 로직 이식.
-     *
-     * @param {number} keyval - Clutter keyval
-     * @returns {boolean} true면 키 소비
-     */
-    handleKey(keyval) {
-        if (!this.isVisible) return false;
-
-        const pageCount = this._pageItemCount();
-
-        // 숫자키 1-9: 직접 선택
-        if (keyval >= Clutter.KEY_1 && keyval <= Clutter.KEY_9) {
-            const idx = keyval - Clutter.KEY_1;
-            if (idx < pageCount) {
-                const globalIdx = this._currentPage * PAGE_SIZE + idx;
-                this._selectCandidate(globalIdx);
-            }
-            return true;
-        }
-
-        // 위 화살표 (wrap-around)
-        if (keyval === Clutter.KEY_Up) {
-            if (this._selectedIndex > 0) {
-                this._selectedIndex--;
-            } else {
-                this._selectedIndex = pageCount - 1;
-            }
-            this._updateSelection();
-            return true;
-        }
-
-        // 아래 화살표 (wrap-around)
-        if (keyval === Clutter.KEY_Down) {
-            if (this._selectedIndex < pageCount - 1) {
-                this._selectedIndex++;
-            } else {
-                this._selectedIndex = 0;
-            }
-            this._updateSelection();
-            return true;
-        }
-
-        // 이전 페이지: Left, PgUp, Backspace
-        if (keyval === Clutter.KEY_Left || keyval === Clutter.KEY_Page_Up ||
-            keyval === Clutter.KEY_BackSpace) {
-            return this._prevPage();
-        }
-
-        // 다음 페이지: Right, PgDn, Space
-        if (keyval === Clutter.KEY_Right || keyval === Clutter.KEY_Page_Down ||
-            keyval === Clutter.KEY_space) {
-            return this._nextPage();
-        }
-
-        // Enter: 현재 선택 확정
-        if (keyval === Clutter.KEY_Return || keyval === Clutter.KEY_KP_Enter) {
-            if (this._selectedIndex >= 0 && this._selectedIndex < pageCount) {
-                const globalIdx = this._currentPage * PAGE_SIZE + this._selectedIndex;
-                this._selectCandidate(globalIdx);
-            }
-            return true;
-        }
-
-        // Escape: 취소
-        if (keyval === Clutter.KEY_Escape) {
-            if (this._onCancel) this._onCancel();
-            this.hide();
-            return true;
-        }
-
-        // 수정자 키: 소비 (팝업 유지)
-        if (this._isModifierKey(keyval)) {
-            return true;
-        }
-
-        // 미처리 키 → 팝업 닫고 바이패스
-        if (this._onCancel) this._onCancel();
-        this.hide();
-        return false;
     }
 
     /**
@@ -319,49 +177,65 @@ export class HanjaPopup {
     // 내부 메서드
     // ===========================================
 
-    /** @private */
+    /**
+     * 커서 위치 기반 팝업 포지셔닝
+     *
+     * 글자를 가리지 않도록 커서 위에 표시.
+     * 공간이 부족하면 아래로.
+     *
+     * @param {{x: number, y: number, width: number, height: number}} [cursorRect]
+     * @private
+     */
+    _positionPopup(cursorRect) {
+        const monitor = Main.layoutManager.primaryMonitor;
+        if (!monitor) return;
+
+        const [, natW] = this._container.get_preferred_width(-1);
+        const [, natH] = this._container.get_preferred_height(-1);
+        const popupWidth = natW > 0 ? natW : 280;
+        const popupHeight = natH > 0 ? natH : 300;
+        let x, y;
+
+        if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
+            x = cursorRect.x;
+            // 기본: 커서 아래에 표시
+            y = cursorRect.y + cursorRect.height + 4;
+
+            // 아래 공간 부족 시 커서 위로
+            if (y + popupHeight > monitor.y + monitor.height) {
+                y = cursorRect.y - popupHeight - 4;
+            }
+        } else {
+            x = Math.floor(monitor.x + (monitor.width - popupWidth) / 2);
+            y = Math.floor(monitor.y + 100);
+        }
+
+        // 오른쪽 경계
+        if (x + popupWidth > monitor.x + monitor.width) {
+            x = monitor.x + monitor.width - popupWidth;
+        }
+        // 왼쪽/위쪽 최소
+        x = Math.max(monitor.x, x);
+        y = Math.max(monitor.y, y);
+
+        this._container.set_position(x, y);
+    }
+
+    /**
+     * 현재 페이지의 후보 수
+     * @returns {number}
+     * @private
+     */
     _pageItemCount() {
         const start = this._currentPage * PAGE_SIZE;
         return Math.min(PAGE_SIZE, this._candidates.length - start);
     }
 
-    /** @private */
-    _totalPages() {
-        return Math.ceil(this._candidates.length / PAGE_SIZE);
-    }
-
-    /** @private */
-    _prevPage() {
-        if (this._totalPages() <= 1) return true;
-        this._currentPage = this._currentPage > 0
-            ? this._currentPage - 1
-            : this._totalPages() - 1;
-        this._selectedIndex = 0;
-        this._updateList();
-        return true;
-    }
-
-    /** @private */
-    _nextPage() {
-        if (this._totalPages() <= 1) return true;
-        this._currentPage = this._currentPage < this._totalPages() - 1
-            ? this._currentPage + 1 : 0;
-        this._selectedIndex = 0;
-        this._updateList();
-        return true;
-    }
-
-    /** @private */
-    _selectCandidate(globalIndex) {
-        if (globalIndex < this._candidates.length && this._onSelect) {
-            this._onSelect(globalIndex);
-        }
-        this.hide();
-    }
-
-    /** @private */
+    /**
+     * 후보 리스트 렌더링
+     * @private
+     */
     _updateList() {
-        // 기존 행 제거
         this._list.destroy_all_children();
         this._rows = [];
 
@@ -392,15 +266,20 @@ export class HanjaPopup {
             row.add_child(hanja);
             row.add_child(meaning);
 
-            // 마우스 호버 효과
+            // 마우스 호버: 로컬 시각 효과만 (엔진 상태 변경 없음)
             const rowIndex = i;
             row.connect('enter-event', () => {
-                this._selectedIndex = rowIndex;
+                this._mouseHoverIndex = rowIndex;
+                this._updateSelection();
+                return Clutter.EVENT_STOP;
+            });
+            row.connect('leave-event', () => {
+                this._mouseHoverIndex = -1;
                 this._updateSelection();
                 return Clutter.EVENT_STOP;
             });
 
-            // 마우스 클릭으로 후보 선택
+            // 마우스 클릭: 선택 콜백
             const globalIdx = start + i;
             row.connect('button-press-event', () => {
                 this._selectCandidate(globalIdx);
@@ -412,15 +291,29 @@ export class HanjaPopup {
         }
 
         // 페이지 표시
-        this._footer.set_text(`${this._currentPage + 1} / ${this._totalPages()}`);
+        if (this._totalPages > 1) {
+            this._footer.set_text(`${this._currentPage + 1} / ${this._totalPages}`);
+            this._footer.show();
+        } else {
+            this._footer.hide();
+        }
 
         this._updateSelection();
     }
 
-    /** @private */
+    /**
+     * 선택 하이라이트 갱신
+     *
+     * 마우스 호버 중이면 호버 인덱스를, 아니면 엔진 선택 인덱스를 하이라이트.
+     * @private
+     */
     _updateSelection() {
+        const activeIndex = this._mouseHoverIndex >= 0
+            ? this._mouseHoverIndex
+            : this._engineSelectedIndex;
+
         for (let i = 0; i < this._rows.length; i++) {
-            if (i === this._selectedIndex) {
+            if (i === activeIndex) {
                 this._rows[i].add_style_class_name('selected');
             } else {
                 this._rows[i].remove_style_class_name('selected');
@@ -428,11 +321,16 @@ export class HanjaPopup {
         }
     }
 
-    /** @private */
-    _isModifierKey(keyval) {
-        return (keyval >= Clutter.KEY_Shift_L && keyval <= Clutter.KEY_Hyper_R) ||
-            keyval === Clutter.KEY_Num_Lock ||
-            keyval === Clutter.KEY_Scroll_Lock ||
-            keyval === Clutter.KEY_Caps_Lock;
+    /**
+     * 후보 선택 → 콜백 호출
+     * @param {number} globalIndex
+     * @private
+     */
+    _selectCandidate(globalIndex) {
+        if (globalIndex < this._candidates.length && this._onSelect) {
+            this._onSelect(globalIndex);
+        }
+        // hide()는 HidePopup 시그널로 처리되지만, 즉시 반응을 위해 여기서도 호출
+        this.hide();
     }
 }
