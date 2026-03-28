@@ -988,7 +988,7 @@ impl InputEngine {
 
             PopupKeyResult::Cancel => {
                 self.popup_cancel();
-                InputResult::consumed()
+                InputResult::committed()
             }
 
             PopupKeyResult::Updated => {
