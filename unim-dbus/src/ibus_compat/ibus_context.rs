@@ -175,14 +175,29 @@ impl IBusInputContextHandler {
         Ok(())
     }
 
-    /// 리셋
+    /// 리셋 (팝업 취소 + 조합 커밋)
     #[zbus(name = "Reset")]
-    async fn reset(&self) -> zbus::fdo::Result<()> {
+    async fn reset(
+        &self,
+        #[zbus(signal_context)] signal_ctx: zbus::SignalContext<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         let _ = self.engine_tx
             .send(EngineRequest::Reset {
                 context_id: self.context_id,
+                response: response_tx,
             })
             .await;
+
+        if let Ok(Some(commit)) = response_rx.await {
+            if !commit.is_empty() {
+                let text = ibus_types::serialize_ibus_text(&commit);
+                let _ = Self::commit_text(&signal_ctx, text).await;
+                let empty = ibus_types::serialize_ibus_text("");
+                let _ = Self::update_preedit_text(&signal_ctx, empty, 0, false).await;
+                let _ = Self::hide_preedit_text(&signal_ctx).await;
+            }
+        }
         Ok(())
     }
 

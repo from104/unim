@@ -1004,10 +1004,12 @@ impl InputEngine {
                         sel_col: state.sel_col(),
                     });
                 }
-                InputResult::consumed()
+                // preedit_updated: 트리거 문자를 preedit으로 유지
+                InputResult::preedit_updated()
             }
 
-            PopupKeyResult::Consumed => InputResult::consumed(),
+            // preedit_updated: 트리거 문자를 preedit으로 유지
+            PopupKeyResult::Consumed => InputResult::preedit_updated(),
 
             PopupKeyResult::NotHandled => {
                 unim_log!("ENGINE", "팝업 미지원 키 {:?} → 팝업 닫고 재처리", keycode);

@@ -198,7 +198,9 @@ status-systemd:
 
 gnome-extension:
 	@mkdir -p unim-gnome-extension/icons
-	@cp data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/
+	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/ 2>/dev/null \
+		|| (sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/icons/ && \
+		    cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/)
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || true
 	@if command -v msgfmt >/dev/null 2>&1; then \
 		for po in unim-gnome-extension/po/*.po; do \
@@ -344,48 +346,68 @@ dev-core:
 	@sudo cp target/release/libunim_capi.so $(REAL_LIBDIR)/
 	@echo "✅ 코어 라이브러리 배포 완료!"
 
+# dev-* 타겟은 실제 설치된 경로를 자동 감지하여 배포
+# (make install PREFIX=/usr 로 설치했으면 /usr/libexec, 아니면 /usr/local/libexec)
+DEV_DAEMON_PATH := $(shell command -v unim-daemon 2>/dev/null || find /usr/libexec /usr/local/libexec -name unim-daemon -print -quit 2>/dev/null)
+DEV_LIBEXECDIR  := $(if $(DEV_DAEMON_PATH),$(dir $(DEV_DAEMON_PATH)),$(LIBEXECDIR)/)
+DEV_BINDIR      := $(shell dirname $$(command -v unim-cli 2>/dev/null || echo $(BINDIR)/unim-cli))
+
 dev-daemon:
 	@$(CARGO) build --release -p unim-daemon
-	@sudo cp target/release/unim-daemon $(LIBEXECDIR)/
-	@pkill -f unim-daemon 2>/dev/null || true
-	@echo "✅ 데몬 배포 완료! (DBus 자동활성화)"
+	@pkill -9 -f unim-daemon 2>/dev/null || true
+	@sleep 0.5
+	@sudo cp target/release/unim-daemon $(DEV_LIBEXECDIR)
+	@UNIM_DEVELOP=1 $(DEV_LIBEXECDIR)unim-daemon -n --replace &
+	@sleep 1
+	@echo "✅ 데몬 빌드→중지→설치($(DEV_LIBEXECDIR))→재시작 완료!"
 
 dev-xim:
 	@$(CARGO) build --release -p unim-xim
-	@pkill -x unim-xim 2>/dev/null || true
+	@pkill -9 -x unim-xim 2>/dev/null || true
 	@sleep 0.5
-	@sudo cp target/release/unim-xim $(LIBEXECDIR)/
+	@sudo cp target/release/unim-xim $(DEV_LIBEXECDIR)
 	@echo "✅ XIM 서버 배포 완료!"
 
 dev-wayland:
 	@$(CARGO) build --release -p unim-wayland
-	@sudo cp target/release/unim-wayland $(LIBEXECDIR)/
-	@pkill -f unim-wayland 2>/dev/null || true
+	@pkill -9 -f unim-wayland 2>/dev/null || true
+	@sleep 0.5
+	@sudo cp target/release/unim-wayland $(DEV_LIBEXECDIR)
 	@echo "✅ Wayland IM 배포 완료!"
 
 dev-gui-gtk:
 	@$(CARGO) build --release -p unim-gui-gtk
-	@sudo cp target/release/unim-gui-gtk $(BINDIR)/
-	@pkill -f unim-gui-gtk 2>/dev/null || true
+	@pkill -9 -f unim-gui-gtk 2>/dev/null || true
+	@sleep 0.5
+	@sudo cp target/release/unim-gui-gtk $(DEV_BINDIR)/
 	@echo "✅ unim-gui-gtk 배포 완료!"
 
 dev-gui-qt:
 	@$(CARGO) build --release -p unim-gui-qt
-	@sudo cp target/release/unim-gui-qt $(BINDIR)/
-	@pkill -f unim-gui-qt 2>/dev/null || true
+	@pkill -9 -f unim-gui-qt 2>/dev/null || true
+	@sleep 0.5
+	@sudo cp target/release/unim-gui-qt $(DEV_BINDIR)/
 	@echo "✅ unim-gui-qt 배포 완료!"
 
-dev-extension: gnome-extension
+dev-extension:
 	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)
-	@cp -rf unim-gnome-extension/* ~/.local/share/gnome-shell/extensions/$(UUID)/
+	@cp -f unim-gnome-extension/*.js unim-gnome-extension/*.css \
+		unim-gnome-extension/metadata.json \
+		~/.local/share/gnome-shell/extensions/$(UUID)/
+	@cp -f unim-gnome-extension/schemas/*.xml \
+		~/.local/share/gnome-shell/extensions/$(UUID)/schemas/ 2>/dev/null || true
+	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg \
+		~/.local/share/gnome-shell/extensions/$(UUID)/icons/ 2>/dev/null || true
 	@glib-compile-schemas ~/.local/share/gnome-shell/extensions/$(UUID)/schemas 2>/dev/null || true
-	@echo "✅ Extension 배포 완료! GNOME Shell 재시작 필요."
+	@echo "✅ Extension 배포 완료! GNOME Shell 재시작 필요 (로그아웃→로그인)."
 
 dev-restart:
-	@pkill -f unim-daemon 2>/dev/null; pkill -f unim-xim 2>/dev/null; \
-	 pkill -f unim-wayland 2>/dev/null; pkill -f unim-gui-gtk 2>/dev/null; \
-	 pkill -f unim-gui-qt 2>/dev/null; sleep 1
-	@echo "✅ 모든 UNIM 프로세스 종료 (DBus 자동활성화)"
+	@pkill -9 -f unim-daemon 2>/dev/null; pkill -9 -f unim-xim 2>/dev/null; \
+	 pkill -9 -f unim-wayland 2>/dev/null; pkill -9 -f unim-gui-gtk 2>/dev/null; \
+	 pkill -9 -f unim-gui-qt 2>/dev/null; sleep 1
+	@UNIM_DEVELOP=1 $(DEV_LIBEXECDIR)unim-daemon -n --replace &
+	@sleep 1
+	@echo "✅ 모든 UNIM 프로세스 재시작 완료!"
 
 # ─── Test Automation ─────────────────────────────────────────────────────────
 

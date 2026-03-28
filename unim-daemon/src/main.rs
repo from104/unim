@@ -137,6 +137,75 @@ fn detect_required_modules() -> Vec<Module> {
     modules
 }
 
+/// GNOME+Wayland 환경에서 Flatpak 앱의 IM 환경변수를 설정합니다.
+///
+/// Flatpak 샌드박스 안에는 UNIM IM 모듈이 없으므로,
+/// QT_IM_MODULE/GTK_IM_MODULE을 비워서 Wayland text-input-v3
+/// 기본 경로(GNOME extension)를 사용하도록 합니다.
+fn configure_flatpak_im_env() {
+    // GNOME+Wayland 조건 확인
+    let is_wayland = std::env::var("WAYLAND_DISPLAY").is_ok();
+    let is_gnome = std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|d| d.contains("GNOME"))
+        .unwrap_or(false);
+
+    if !is_wayland || !is_gnome {
+        return;
+    }
+
+    // flatpak 명령어 존재 확인
+    let flatpak_exists = Command::new("which")
+        .arg("flatpak")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !flatpak_exists {
+        return;
+    }
+
+    unim_log!(
+        "DAEMON",
+        "[Flatpak] GNOME+Wayland 감지 — Flatpak IM 환경변수 설정 시작"
+    );
+
+    // flatpak override --user --env=QT_IM_MODULE= --env=GTK_IM_MODULE=
+    match Command::new("flatpak")
+        .args([
+            "override", "--user",
+            "--env=QT_IM_MODULE=",
+            "--env=GTK_IM_MODULE=",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            unim_log!(
+                "DAEMON",
+                "[Flatpak] IM 환경변수 override 완료 (QT_IM_MODULE=, GTK_IM_MODULE= → text-input-v3 경로 사용)"
+            );
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            unim_log!(
+                "DAEMON",
+                "[Flatpak] override 실패 (비치명적): {}",
+                stderr.trim()
+            );
+        }
+        Err(e) => {
+            unim_log!(
+                "DAEMON",
+                "[Flatpak] override 실행 오류 (비치명적): {}",
+                e
+            );
+        }
+    }
+}
+
 /// 모듈 프로세스를 시작합니다.
 fn start_module(module: &Module) -> Option<(String, Child)> {
     let path = module.resolve_path();
@@ -422,6 +491,9 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // Flatpak 앱 IM 환경변수 설정 (GNOME+Wayland 전용)
+    configure_flatpak_im_env();
 
     // 필요한 모듈 감지 및 시작
     let modules = detect_required_modules();

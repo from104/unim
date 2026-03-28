@@ -138,6 +138,55 @@ GNOME 환경에서 UNIM 확장을 사용할 때는 **기존 IBus 입력기를 �
 sudo apt remove ibus
 ```
 
+### 7. Flatpak/Snap 앱 한글 입력 (GNOME+Wayland)
+
+GNOME+Wayland 환경에서 Flatpak/Snap 앱(예: Telegram, VS Code 등)은 **샌드박스 내부에 UNIM IM 모듈이 없으므로** 호스트의 `QT_IM_MODULE=unim`/`GTK_IM_MODULE=unim` 설정이 오히려 입력을 방해합니다.
+
+**자동 처리**: `unim-daemon`이 GNOME+Wayland 환경을 감지하면, 시작 시 자동으로 Flatpak 전역 override를 설정하여 IM 환경변수를 비웁니다. 이를 통해 Flatpak 앱들이 Wayland text-input-v3 → GNOME extension 경로로 정상 동작합니다.
+
+로그에서 다음 메시지를 확인할 수 있습니다:
+```
+[Flatpak] GNOME+Wayland 감지 — Flatpak IM 환경변수 설정 시작
+[Flatpak] IM 환경변수 override 완료 (QT_IM_MODULE=, GTK_IM_MODULE= → text-input-v3 경로 사용)
+```
+
+**수동 설정** (자동 설정이 동작하지 않는 경우):
+```bash
+# Flatpak 전역 override
+flatpak override --user --env=QT_IM_MODULE= --env=GTK_IM_MODULE=
+
+# 특정 앱만 override
+flatpak override --user --env=QT_IM_MODULE= org.telegram.desktop
+```
+
+**Snap 앱**: Snap은 호스트 환경변수를 직접 상속하며 Flatpak과 같은 전역 override 메커니즘이 없습니다. Snap 앱에서 한글 입력이 안 되는 경우, 호스트 환경변수를 조건부로 설정하세요:
+```bash
+# ~/.profile 또는 /etc/profile.d/unim.sh
+if [ "$XDG_SESSION_TYPE" = "wayland" ] && echo "$XDG_CURRENT_DESKTOP" | grep -q "GNOME"; then
+    export GTK_IM_MODULE=       # 비움 → text-input-v3 기본 경로
+    export QT_IM_MODULE=        # 비움 → text-input-v3 기본 경로
+else
+    export GTK_IM_MODULE=unim
+    export QT_IM_MODULE=unim
+fi
+export XMODIFIERS="@im=unim"
+```
+
+**im-config와의 충돌 주의**: `im-config -n unim`으로 입력기를 설정한 경우, im-config가 세션 시작 시 `GTK_IM_MODULE=unim`, `QT_IM_MODULE=unim`을 자동 설정합니다. 이 값은 Snap 앱에도 그대로 전파되어 위와 같은 문제를 일으킬 수 있습니다. GNOME+Wayland 환경에서는 다음 중 하나를 선택하세요:
+
+1. **im-config 비활성화 + 수동 환경변수 설정** (권장):
+   ```bash
+   im-config -n none                    # im-config 비활성화
+   # 위의 조건부 스크립트를 ~/.profile에 추가
+   ```
+
+2. **im-config 유지 + Snap 개별 대응**:
+   ```bash
+   # Snap 앱은 호스트 환경변수를 상속하므로,
+   # 개별 snap 앱 실행 시 환경변수를 비워서 실행
+   QT_IM_MODULE= GTK_IM_MODULE= snap run telegram-desktop
+   ```
+
 ---
 
 ## 🗺️ 장기 로드맵

@@ -57,6 +57,30 @@ export class HanjaPopup {
             style_class: 'unim-hanja-popup',
             vertical: true,
             visible: false,
+            reactive: true,
+        });
+
+        // 마우스 스크롤로 항목/페이지 이동
+        this._container.connect('scroll-event', (_actor, event) => {
+            const dir = event.get_scroll_direction();
+            if (dir === Clutter.ScrollDirection.UP) {
+                if (this._selectedIndex > 0) {
+                    this._selectedIndex--;
+                    this._updateSelection();
+                } else {
+                    this._prevPage();
+                    this._selectedIndex = this._pageItemCount() - 1;
+                    this._updateSelection();
+                }
+            } else if (dir === Clutter.ScrollDirection.DOWN) {
+                if (this._selectedIndex < this._pageItemCount() - 1) {
+                    this._selectedIndex++;
+                    this._updateSelection();
+                } else {
+                    this._nextPage();
+                }
+            }
+            return Clutter.EVENT_STOP;
         });
 
         this._header = new St.Label({ style_class: 'popup-header' });
@@ -65,8 +89,35 @@ export class HanjaPopup {
         this._list = new St.BoxLayout({ vertical: true });
         this._container.add_child(this._list);
 
+        // 페이지 네비게이션 (◀ 이전 / 다음 ▶)
+        const footerBox = new St.BoxLayout({ style_class: 'popup-footer-box' });
+
+        this._prevBtn = new St.Label({
+            style_class: 'popup-nav-btn',
+            text: '◀',
+            reactive: true,
+        });
+        this._prevBtn.connect('button-press-event', () => {
+            this._prevPage();
+            return Clutter.EVENT_STOP;
+        });
+
         this._footer = new St.Label({ style_class: 'popup-footer' });
-        this._container.add_child(this._footer);
+
+        this._nextBtn = new St.Label({
+            style_class: 'popup-nav-btn',
+            text: '▶',
+            reactive: true,
+        });
+        this._nextBtn.connect('button-press-event', () => {
+            this._nextPage();
+            return Clutter.EVENT_STOP;
+        });
+
+        footerBox.add_child(this._prevBtn);
+        footerBox.add_child(this._footer);
+        footerBox.add_child(this._nextBtn);
+        this._container.add_child(footerBox);
 
         Main.layoutManager.addChrome(this._container, {
             affectsStruts: false,
@@ -96,19 +147,22 @@ export class HanjaPopup {
         this._header.set_text(`한자: ${target}`);
         this._updateList();
 
-        // 커서 아래에 배치 + 화면 경계 조정
+        // 먼저 표시하여 실제 크기 측정 가능하게 함
+        this._container.show();
+
+        // 동적 크기 측정 + 화면 경계 보정
         const monitor = Main.layoutManager.primaryMonitor;
         if (monitor) {
-            const popupWidth = 250;
-            const popupHeight = 300;
+            const [, natW] = this._container.get_preferred_width(-1);
+            const [, natH] = this._container.get_preferred_height(-1);
+            const popupWidth = natW > 0 ? natW : 280;
+            const popupHeight = natH > 0 ? natH : 300;
             let x, y;
 
             if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
-                // 커서 아래에 배치
                 x = cursorRect.x;
                 y = cursorRect.y + cursorRect.height + 4;
             } else {
-                // 폴백: 화면 중앙 상단
                 x = Math.floor(monitor.x + (monitor.width - popupWidth) / 2);
                 y = Math.floor(monitor.y + 100);
             }
@@ -127,8 +181,6 @@ export class HanjaPopup {
 
             this._container.set_position(x, y);
         }
-
-        this._container.show();
         unimLog('HANJA', `팝업 표시: target="${target}", ${candidates.length}개 후보`);
     }
 
@@ -190,21 +242,25 @@ export class HanjaPopup {
             return true;
         }
 
-        // 위 화살표
+        // 위 화살표 (wrap-around)
         if (keyval === Clutter.KEY_Up) {
             if (this._selectedIndex > 0) {
                 this._selectedIndex--;
-                this._updateSelection();
+            } else {
+                this._selectedIndex = pageCount - 1;
             }
+            this._updateSelection();
             return true;
         }
 
-        // 아래 화살표
+        // 아래 화살표 (wrap-around)
         if (keyval === Clutter.KEY_Down) {
             if (this._selectedIndex < pageCount - 1) {
                 this._selectedIndex++;
-                this._updateSelection();
+            } else {
+                this._selectedIndex = 0;
             }
+            this._updateSelection();
             return true;
         }
 
@@ -335,6 +391,21 @@ export class HanjaPopup {
             row.add_child(num);
             row.add_child(hanja);
             row.add_child(meaning);
+
+            // 마우스 호버 효과
+            const rowIndex = i;
+            row.connect('enter-event', () => {
+                this._selectedIndex = rowIndex;
+                this._updateSelection();
+                return Clutter.EVENT_STOP;
+            });
+
+            // 마우스 클릭으로 후보 선택
+            const globalIdx = start + i;
+            row.connect('button-press-event', () => {
+                this._selectCandidate(globalIdx);
+                return Clutter.EVENT_STOP;
+            });
 
             this._list.add_child(row);
             this._rows.push(row);

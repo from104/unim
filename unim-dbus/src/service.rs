@@ -50,8 +50,11 @@ pub enum EngineRequest {
         context_id: u32,
         response: oneshot::Sender<Option<String>>,
     },
-    /// 리셋
-    Reset { context_id: u32 },
+    /// 리셋 (팝업 취소 + 조합 커밋)
+    Reset {
+        context_id: u32,
+        response: oneshot::Sender<Option<String>>,
+    },
     /// 전역 모드 설정 (모든 컨텍스트에 적용)
     SetGlobalMode { is_korean: bool },
     /// 한자 후보 조회
@@ -793,21 +796,31 @@ impl InputContextHandler {
         Ok(commit)
     }
 
-    /// 입력 상태 초기화
+    /// 입력 상태 초기화 (팝업 취소 + 조합 커밋)
     async fn reset(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
         self.engine_tx
             .send(EngineRequest::Reset {
                 context_id: self.id,
+                response: response_tx,
             })
             .await
             .ok();
+
+        let commit = response_rx.await.ok().flatten().unwrap_or_default();
+
+        if !commit.is_empty() {
+            Self::commit_text(&signal_ctx, &commit).await.ok();
+        }
         Self::update_preedit_text(&signal_ctx, "", 0, false)
             .await
             .ok();
-        unim_log!("DBUS", "[DBus] Reset: context_id={}", self.id);
+
+        unim_log!("DBUS", "[DBus] Reset: context_id={}, commit='{}'", self.id, commit);
         Ok(())
     }
 

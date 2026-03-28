@@ -317,13 +317,47 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(commit);
             }
 
-            EngineRequest::Reset { context_id } => {
-                if let Some(engine) = contexts.get_mut(&context_id) {
-                    // Reset은 조합 상태만 초기화 - 입력 모드(한/영)는 항상 유지
+            EngineRequest::Reset {
+                context_id,
+                response,
+            } => {
+                let commit = if let Some(engine) = contexts.get_mut(&context_id) {
+                    // 팝업 활성 상태이면 취소하고 트리거 문자 반환
+                    let mut commit_text = String::new();
+                    if engine.is_hanja_mode() {
+                        let t = engine.get_hanja_target().to_string();
+                        engine.cancel_hanja();
+                        if !t.is_empty() {
+                            commit_text = t;
+                        }
+                    } else if engine.is_special_char_mode() {
+                        let t = engine.get_special_char_target().to_string();
+                        engine.cancel_special_char();
+                        if !t.is_empty() {
+                            commit_text = t;
+                        }
+                    } else {
+                        // 팝업 없으면 조합 중 preedit 커밋
+                        let preedit = engine.preedit_str();
+                        if !preedit.is_empty() {
+                            commit_text = preedit.to_string();
+                        }
+                    }
+
+                    // 엔진 초기화 (입력 모드 유지)
                     let current_mode = engine.input_category();
                     *engine = InputEngine::new(&config);
                     engine.set_input_category(current_mode);
-                }
+
+                    if commit_text.is_empty() {
+                        None
+                    } else {
+                        Some(commit_text)
+                    }
+                } else {
+                    None
+                };
+                let _ = response.send(commit);
             }
 
             EngineRequest::SetGlobalMode { is_korean } => {

@@ -80,6 +80,29 @@ export class SpecialPopup {
             style_class: 'unim-special-popup',
             vertical: true,
             visible: false,
+            reactive: true,
+        });
+
+        // 마우스 스크롤로 행 이동
+        this._container.connect('scroll-event', (_actor, event) => {
+            const dir = event.get_scroll_direction();
+            if (dir === Clutter.ScrollDirection.UP) {
+                if (this._selRow > 0) {
+                    this._selRow--;
+                } else if (this._totalPages > 1) {
+                    // 첫 행에서 위로 → 이전 페이지 마지막 행 (키보드 이벤트를 에뮬레이트할 수 없으므로 현재 페이지 유지)
+                    this._selRow = this._rows - 1;
+                }
+                this._updateSelection();
+            } else if (dir === Clutter.ScrollDirection.DOWN) {
+                if (this._selRow < this._rows - 1) {
+                    this._selRow++;
+                } else {
+                    this._selRow = 0;
+                }
+                this._updateSelection();
+            }
+            return Clutter.EVENT_STOP;
         });
 
         this._header = new St.Label({ style_class: 'popup-header' });
@@ -89,8 +112,44 @@ export class SpecialPopup {
         this._grid = new St.BoxLayout({ vertical: true });
         this._container.add_child(this._grid);
 
+        // 페이지 네비게이션 (◀ 이전 / 다음 ▶)
+        const footerBox = new St.BoxLayout({ style_class: 'popup-footer-box' });
+
+        this._prevBtn = new St.Label({
+            style_class: 'popup-nav-btn',
+            text: '◀',
+            reactive: true,
+        });
+        this._prevBtn.connect('button-press-event', () => {
+            // 페이지 이동은 데몬의 PopupState가 관리하므로 직접 변경 불가
+            // → 키보드 PgUp과 동일 효과를 내기 위해 onCancel 후 재호출은 너무 복잡
+            // 간단하게: 현재 페이지 정보만으로 이전 페이지 표시
+            if (this._currentPage > 0) {
+                this._currentPage--;
+                this._updateGrid();
+            }
+            return Clutter.EVENT_STOP;
+        });
+
         this._footer = new St.Label({ style_class: 'popup-footer' });
-        this._container.add_child(this._footer);
+
+        this._nextBtn = new St.Label({
+            style_class: 'popup-nav-btn',
+            text: '▶',
+            reactive: true,
+        });
+        this._nextBtn.connect('button-press-event', () => {
+            if (this._currentPage < this._totalPages - 1) {
+                this._currentPage++;
+                this._updateGrid();
+            }
+            return Clutter.EVENT_STOP;
+        });
+
+        footerBox.add_child(this._prevBtn);
+        footerBox.add_child(this._footer);
+        footerBox.add_child(this._nextBtn);
+        this._container.add_child(footerBox);
 
         Main.layoutManager.addChrome(this._container, {
             affectsStruts: false,
@@ -126,11 +185,16 @@ export class SpecialPopup {
 
         this._updateGrid();
 
-        // 커서 아래에 배치 + 화면 경계 조정
+        // 먼저 표시하여 실제 크기 측정 가능하게 함
+        this._container.show();
+
+        // 동적 크기 측정 + 화면 경계 보정
         const monitor = Main.layoutManager.primaryMonitor;
         if (monitor) {
-            const popupWidth = 340;
-            const popupHeight = 360;
+            const [, natW] = this._container.get_preferred_width(-1);
+            const [, natH] = this._container.get_preferred_height(-1);
+            const popupWidth = natW > 0 ? natW : 340;
+            const popupHeight = natH > 0 ? natH : 360;
             let x, y;
 
             if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
@@ -154,8 +218,6 @@ export class SpecialPopup {
 
             this._container.set_position(x, y);
         }
-
-        this._container.show();
         unimLog('SPECIAL', `팝업 표시: target="${target}", ${characters.length}개 문자`);
     }
 
@@ -491,6 +553,28 @@ export class SpecialPopup {
                     x_align: Clutter.ActorAlign.CENTER,
                     reactive: true,
                 });
+
+                if (idx >= 0) {
+                    const r = row;
+                    const c = col;
+
+                    // 마우스 호버 효과
+                    cell.connect('enter-event', () => {
+                        this._selRow = r;
+                        this._selCol = c;
+                        this._updateSelection();
+                        return Clutter.EVENT_STOP;
+                    });
+
+                    // 마우스 클릭으로 문자 선택
+                    cell.connect('button-press-event', () => {
+                        this._selRow = r;
+                        this._selCol = c;
+                        this._selectCurrent();
+                        return Clutter.EVENT_STOP;
+                    });
+                }
+
                 rowWidget.add_child(cell);
                 rowCells.push(cell);
             }
@@ -499,12 +583,16 @@ export class SpecialPopup {
             this._cells.push(rowCells);
         }
 
-        // 풋터
+        // 풋터 (페이지 버튼 포함)
         if (this._totalPages > 1) {
             this._footer.set_text(`${this._currentPage + 1} / ${this._totalPages}`);
             this._footer.show();
+            if (this._prevBtn) this._prevBtn.show();
+            if (this._nextBtn) this._nextBtn.show();
         } else {
             this._footer.hide();
+            if (this._prevBtn) this._prevBtn.hide();
+            if (this._nextBtn) this._nextBtn.hide();
         }
 
         this._updateSelection();
@@ -515,6 +603,7 @@ export class SpecialPopup {
      * @private
      */
     _updateSelection() {
+        // 셀 하이라이트
         for (let row = 0; row < this._cells.length; row++) {
             for (let col = 0; col < this._cells[row].length; col++) {
                 if (row === this._selRow && col === this._selCol) {
@@ -522,6 +611,14 @@ export class SpecialPopup {
                 } else {
                     this._cells[row][col].remove_style_class_name('selected');
                 }
+            }
+        }
+        // 활성 열 헤더 하이라이트
+        for (let col = 0; col < this._colHeaders.length; col++) {
+            if (col === this._selCol) {
+                this._colHeaders[col].add_style_class_name('active');
+            } else {
+                this._colHeaders[col].remove_style_class_name('active');
             }
         }
     }

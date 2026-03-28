@@ -190,30 +190,17 @@ export default class UnimExtension extends Extension {
                                 this._inputMethod.updatePreedit('');
                                 this._inputMethod.commitText(hanja);
                             }
-                            this._keyHandler.setPopupKeyHandler(null);
                         },
                         () => {
-                            // 취소 콜백 (ESC/미지원키): 원본 한글 커밋 → cancel
-                            // GTK3/4/Qt5/6와 동일 패턴: focusOut → 원본 커밋 → cancelHanja
-                            const commit = this._dbusIME.focusOut();
+                            // 취소 콜백 (마우스 클릭 취소용)
+                            const commit = this._dbusIME.cancelHanja();
                             if (commit && this._inputMethod) {
                                 this._inputMethod.commitText(commit);
-                            }
-                            this._dbusIME.cancelHanja();
-                            if (this._inputMethod) {
                                 this._inputMethod.updatePreedit('');
                             }
-                            // FocusIn 복원 (FocusOut 후 필요)
-                            const windowId = this._getActiveWindowId();
-                            this._dbusIME.focusIn(windowId);
-                            this._keyHandler.setPopupKeyHandler(null);
                         },
                         cursorRect
                     );
-                    // 키 이벤트를 팝업으로 위임
-                    this._keyHandler.setPopupKeyHandler((keyval) => {
-                        return this._hanjaPopup.handleKey(keyval);
-                    });
                 },
                 onShowSpecial: (target, characters, topRow, cursorRect) => {
                     this._specialPopup.show(
@@ -227,32 +214,21 @@ export default class UnimExtension extends Extension {
                                 this._inputMethod.updatePreedit('');
                                 this._inputMethod.commitText(ch);
                             }
-                            this._keyHandler.setPopupKeyHandler(null);
                         },
                         () => {
-                            // 취소 콜백: 원본 초성 커밋 → cancel
-                            const commit = this._dbusIME.focusOut();
+                            // 취소 콜백 (마우스 클릭 취소용)
+                            const commit = this._dbusIME.cancelSpecialChar();
                             if (commit && this._inputMethod) {
                                 this._inputMethod.commitText(commit);
-                            }
-                            this._dbusIME.cancelSpecialChar();
-                            if (this._inputMethod) {
                                 this._inputMethod.updatePreedit('');
                             }
-                            const windowId = this._getActiveWindowId();
-                            this._dbusIME.focusIn(windowId);
-                            this._keyHandler.setPopupKeyHandler(null);
                         },
                         cursorRect
                     );
-                    this._keyHandler.setPopupKeyHandler((keyval) => {
-                        return this._specialPopup.handleKey(keyval);
-                    });
                 },
                 onHidePopup: () => {
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
-                    this._keyHandler?.setPopupKeyHandler(null);
                 },
                 onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
                     if (this._hanjaPopup?.isVisible) {
@@ -403,7 +379,7 @@ export default class UnimExtension extends Extension {
                 this._inputMethod.commitText(trigger);
             }
         }
-        this._keyHandler?.setPopupKeyHandler(null);
+        // 팝업 키 핸들러는 더 이상 사용하지 않음 (ProcessKeyEvent 경로로 통일)
     }
 
     /**

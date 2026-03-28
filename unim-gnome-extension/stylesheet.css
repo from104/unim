@@ -93,9 +93,27 @@
 .unim-hanja-popup .popup-footer {
     color: #6c7086;
     font-size: 12px;
+    text-align: center;
+}
+
+.unim-hanja-popup .popup-footer-box,
+.unim-special-popup .popup-footer-box {
     padding-top: 6px;
     margin-top: 4px;
-    text-align: center;
+}
+
+.unim-hanja-popup .popup-nav-btn,
+.unim-special-popup .popup-nav-btn {
+    color: #6c7086;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.unim-hanja-popup .popup-nav-btn:hover,
+.unim-special-popup .popup-nav-btn:hover {
+    color: #cdd6f4;
+    background-color: rgba(255, 255, 255, 0.1);
 }
 
 /* ============================================ */
@@ -141,6 +159,10 @@
     text-align: center;
 }
 
+.unim-special-popup .grid-header.active {
+    color: #a6e3a1;
+}
+
 .unim-special-popup .grid-row-number {
     color: #f9e2af;
     font-weight: bold;
@@ -151,7 +173,5 @@
 .unim-special-popup .popup-footer {
     color: #6c7086;
     font-size: 10px;
-    padding-top: 4px;
-    border-top: 1px solid rgba(166, 227, 161, 0.3);
-    margin-top: 4px;
+    text-align: center;
 }

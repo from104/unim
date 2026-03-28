@@ -168,14 +168,9 @@ export class KeyHandler {
             return false;
         }
 
-        // 2. 팝업 활성 → 팝업 키 핸들러에 위임
-        if (this._popupKeyHandler) {
-            const handled = this._popupKeyHandler(keyval);
-            if (handled) {
-                return true;  // 팝업이 키 소비
-            }
-            // 팝업이 처리하지 않은 키는 아래 ProcessKeyEvent로 fall-through
-        }
+        // 2. 팝업 활성 시에도 ProcessKeyEvent로 fall-through
+        //    engine이 팝업 키를 처리하고 시그널(PopupNavigate, HidePopup)로 UI 갱신
+        //    popupKeyHandler는 사용하지 않음 (이중 처리 방지)
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 flush 후 바이패스
         //    (시스템 단축키이므로 processKey에 보내지 않음)
@@ -349,14 +344,7 @@ export class KeyHandler {
             return Clutter.EVENT_PROPAGATE;
         }
 
-        // 2. 팝업 활성 → 팝업 키 핸들러에 위임
-        if (this._popupKeyHandler) {
-            const handled = this._popupKeyHandler(keyval);
-            if (handled) {
-                return Clutter.EVENT_STOP;
-            }
-            // 팝업이 처리하지 않은 키는 아래 ProcessKeyEvent로 fall-through
-        }
+        // 2. 팝업 활성 시에도 ProcessKeyEvent로 fall-through (이중 처리 방지)
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
         if (state & BYPASS_MODIFIER_MASK) {
