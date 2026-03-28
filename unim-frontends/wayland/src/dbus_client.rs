@@ -366,7 +366,7 @@ async fn run_dbus_client(
 
             DbusRequest::CancelHanja { context_path } => {
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
-                    let _ = proxy.cancel_hanja().await;
+                    let _ = proxy.cancel_hanja().await.ok();
                     unim_log!("WAYLAND_DBUS", "한자 취소: {}", context_path);
                 }
             }
@@ -439,7 +439,7 @@ async fn run_dbus_client(
 
             DbusRequest::CancelSpecialChar { context_path } => {
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
-                    let _ = proxy.cancel_special_char().await;
+                    let _ = proxy.cancel_special_char().await.ok();
                     unim_log!("WAYLAND_DBUS", "특수문자 취소: {}", context_path);
                 }
             }

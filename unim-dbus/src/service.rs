@@ -1135,11 +1135,11 @@ impl InputContextHandler {
         Ok(hanja)
     }
 
-    /// 한자 모드 취소 (남은 preedit을 커밋)
+    /// 한자 모드 취소 (남은 preedit을 커밋하고 반환)
     async fn cancel_hanja(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
-    ) -> zbus::fdo::Result<()> {
+    ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -1150,15 +1150,17 @@ impl InputContextHandler {
             .await
             .ok();
 
-        // 취소 시 남은 preedit을 커밋 (FocusOut에서 건너뛴 preedit 복구)
-        if let Ok(Some(preedit)) = response_rx.await {
+        let commit_text = if let Ok(Some(preedit)) = response_rx.await {
             if !preedit.is_empty() {
                 Self::commit_text(&signal_ctx, &preedit).await.ok();
             }
-        }
+            preedit
+        } else {
+            String::new()
+        };
 
-        unim_log!("DBUS", "[DBus] CancelHanja: context_id={}", self.id);
-        Ok(())
+        unim_log!("DBUS", "[DBus] CancelHanja: context_id={}, commit='{}'", self.id, commit_text);
+        Ok(commit_text)
     }
 
     // =========================================
@@ -1257,11 +1259,11 @@ impl InputContextHandler {
         Ok(ch)
     }
 
-    /// 특수문자 모드 취소 (남은 preedit을 커밋)
+    /// 특수문자 모드 취소 (남은 preedit을 커밋하고 반환)
     async fn cancel_special_char(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
-    ) -> zbus::fdo::Result<()> {
+    ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -1272,14 +1274,16 @@ impl InputContextHandler {
             .await
             .ok();
 
-        // 취소 시 남은 preedit을 커밋 (FocusOut에서 건너뛴 preedit 복구)
-        if let Ok(Some(preedit)) = response_rx.await {
+        let commit_text = if let Ok(Some(preedit)) = response_rx.await {
             if !preedit.is_empty() {
                 Self::commit_text(&signal_ctx, &preedit).await.ok();
             }
-        }
+            preedit
+        } else {
+            String::new()
+        };
 
-        unim_log!("DBUS", "[DBus] CancelSpecialChar: context_id={}", self.id);
-        Ok(())
+        unim_log!("DBUS", "[DBus] CancelSpecialChar: context_id={}, commit='{}'", self.id, commit_text);
+        Ok(commit_text)
     }
 }

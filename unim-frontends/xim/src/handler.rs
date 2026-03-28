@@ -211,6 +211,16 @@ impl UnimHandler {
                 index,
                 response: Some(response_tx),
             },
+            DbusRequest::CancelHanja { context_path, .. } => DbusRequest::CancelHanja {
+                context_path,
+                response: Some(response_tx),
+            },
+            DbusRequest::CancelSpecialChar { context_path, .. } => {
+                DbusRequest::CancelSpecialChar {
+                    context_path,
+                    response: Some(response_tx),
+                }
+            }
             other => other,
         };
 
@@ -738,7 +748,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             if let Some(ctx) = self.hanja_context_path.take() {
                 let _ = self
                     .dbus_tx
-                    .blocking_send(DbusRequest::CancelHanja { context_path: ctx });
+                    .blocking_send(DbusRequest::CancelHanja { context_path: ctx, response: None });
             }
             let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
             server.conn().flush().ok();
@@ -793,7 +803,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             if let Some(ctx) = self.hanja_context_path.take() {
                 let _ = self
                     .dbus_tx
-                    .blocking_send(DbusRequest::CancelHanja { context_path: ctx });
+                    .blocking_send(DbusRequest::CancelHanja { context_path: ctx, response: None });
             }
             let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
             server.conn().flush().ok();
@@ -808,7 +818,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             if let Some(ctx) = self.special_context_path.take() {
                 let _ = self
                     .dbus_tx
-                    .blocking_send(DbusRequest::CancelSpecialChar { context_path: ctx });
+                    .blocking_send(DbusRequest::CancelSpecialChar { context_path: ctx, response: None });
             }
             let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
             server.conn().flush().ok();
@@ -966,6 +976,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     // 엔진 상태 정리 (commit_buffer 오염 없이)
                     self.send_dbus_request(DbusRequest::CancelHanja {
                         context_path: ctx_path,
+                        response: None,
                     });
                     if !commit.is_empty() {
                         unim_log!("XIM_HANDLER", "한자 커밋: \"{}\"", commit);
@@ -986,40 +997,25 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     return Ok(true);
                 }
                 HanjaAction::Cancel => {
-                    // 한자 취소 → DBus CancelHanja
+                    // 한자 취소 → CancelHanja로 트리거 문자 커밋
                     let ctx_path = self.hanja_context_path.clone().unwrap_or_default();
-                    // 조합 중 preedit 커밋 후 닫기
-                    let response = self.send_dbus_request(DbusRequest::ProcessKey {
-                        context_path: ctx_path.clone(),
-                        keyval: 0, // reset용 더미
-                        keycode: 0,
-                        state: 0,
-                        response: None,
-                    });
-                    // reset을 보냄
-                    self.send_dbus_request(DbusRequest::CancelHanja {
-                        context_path: ctx_path,
-                    });
-                    // preedit 복원
-                    if let Some(DbusResponse::KeyProcessed {
-                        preedit, commit, ..
-                    }) = response
+                    if let Some(DbusResponse::CommitText { text }) =
+                        self.send_dbus_request(DbusRequest::CancelHanja {
+                            context_path: ctx_path,
+                            response: None,
+                        })
                     {
-                        if let Some(ct) = commit {
-                            if !ct.is_empty() {
-                                server.commit(&user_ic.ic, &ct)?;
-                                server.conn().flush().ok();
-                            }
-                        }
-                        if let Some(pt) = preedit {
-                            if !pt.is_empty() {
-                                self.preedit(server, user_ic, &pt)?;
-                            } else {
-                                self.clear_preedit(server, user_ic)?;
-                            }
-                            server.conn().flush().ok();
+                        if !text.is_empty() {
+                            unim_log!(
+                                "XIM_HANDLER",
+                                "한자 취소 커밋: \"{}\"",
+                                text
+                            );
+                            server.commit(&user_ic.ic, &text)?;
                         }
                     }
+                    self.clear_preedit(server, user_ic)?;
+                    server.conn().flush().ok();
                     // 팝업 닫기
                     if let Some(hw) = self.hanja_window.take() {
                         hw.clean(self.display, self.screen);
@@ -1074,7 +1070,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     if let Some(ctx) = self.hanja_context_path.take() {
                         let _ = self
                             .dbus_tx
-                            .blocking_send(DbusRequest::CancelHanja { context_path: ctx });
+                            .blocking_send(DbusRequest::CancelHanja { context_path: ctx, response: None });
                     }
                     self.hanja_client_window = None;
 
@@ -1117,6 +1113,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     // 엔진 상태 정리 (commit_buffer 오염 없이)
                     self.send_dbus_request(DbusRequest::CancelSpecialChar {
                         context_path: ctx_path,
+                        response: None,
                     });
                     if !commit.is_empty() {
                         unim_log!("XIM_HANDLER", "특수문자 커밋: \"{}\"", commit);
@@ -1147,6 +1144,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     });
                     self.send_dbus_request(DbusRequest::CancelSpecialChar {
                         context_path: ctx_path,
+                        response: None,
                     });
                     if let Some(DbusResponse::KeyProcessed {
                         preedit, commit, ..
@@ -1208,7 +1206,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     if let Some(ctx) = self.special_context_path.take() {
                         let _ = self
                             .dbus_tx
-                            .blocking_send(DbusRequest::CancelSpecialChar { context_path: ctx });
+                            .blocking_send(DbusRequest::CancelSpecialChar { context_path: ctx, response: None });
                     }
                     self.hanja_client_window = None;
                     let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);

@@ -66,8 +66,8 @@ trait InputContext {
     /// 한자 선택 - 반환: 선택된 한자 문자열
     fn select_hanja(&self, index: u32) -> Result<String>;
 
-    /// 한자 모드 취소
-    fn cancel_hanja(&self) -> Result<()>;
+    /// 한자 모드 취소 - 반환: 커밋된 트리거 문자
+    fn cancel_hanja(&self) -> Result<String>;
 
     /// 특수문자 후보 조회 - 반환: (target, characters, top_row)
     fn get_special_char_candidates(&self) -> Result<(String, Vec<String>, String)>;
@@ -75,8 +75,8 @@ trait InputContext {
     /// 특수문자 선택 - 반환: 선택된 문자열
     fn select_special_char(&self, index: u32) -> Result<String>;
 
-    /// 특수문자 모드 취소
-    fn cancel_special_char(&self) -> Result<()>;
+    /// 특수문자 모드 취소 - 반환: 커밋된 트리거 문자
+    fn cancel_special_char(&self) -> Result<String>;
 
     /// 커서 위치 보고 (팝업 포지셔닝용)
     fn report_cursor_rect(&self, x: i32, y: i32, width: i32, height: i32) -> Result<()>;

@@ -53,8 +53,11 @@ pub enum DbusRequest {
         index: u32,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
-    /// 한자 취소
-    CancelHanja { context_path: String },
+    /// 한자 취소 (트리거 문자 반환)
+    CancelHanja {
+        context_path: String,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
         context_path: String,
@@ -67,8 +70,11 @@ pub enum DbusRequest {
         index: u32,
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
-    /// 특수문자 취소
-    CancelSpecialChar { context_path: String },
+    /// 특수문자 취소 (트리거 문자 반환)
+    CancelSpecialChar {
+        context_path: String,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
     /// 커서 위치 보고 (팝업 포지셔닝용)
     ReportCursorRect {
         context_path: String,
@@ -357,7 +363,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 }
             }
 
-            DbusRequest::CancelHanja { context_path } => {
+            DbusRequest::CancelHanja { context_path, response } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
                         .path(obj_path)
@@ -365,8 +371,20 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                         .build()
                         .await
                     {
-                        let _ = proxy.cancel_hanja().await;
-                        unim_log!("XIM_DBUS", "[XIM-DBus] 한자 취소: {}", context_path);
+                        match proxy.cancel_hanja().await {
+                            Ok(text) => {
+                                unim_log!("XIM_DBUS", "[XIM-DBus] 한자 취소: commit='{}'", text);
+                                if let Some(tx) = response {
+                                    let _ = tx.send(DbusResponse::CommitText { text });
+                                }
+                            }
+                            Err(e) => {
+                                unim_log!("XIM_DBUS", "[XIM-DBus] 한자 취소 실패: {}", e);
+                                if let Some(tx) = response {
+                                    let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -451,7 +469,7 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                 }
             }
 
-            DbusRequest::CancelSpecialChar { context_path } => {
+            DbusRequest::CancelSpecialChar { context_path, response } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
                         .path(obj_path)
@@ -459,8 +477,20 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
                         .build()
                         .await
                     {
-                        let _ = proxy.cancel_special_char().await;
-                        unim_log!("XIM_DBUS", "[XIM-DBus] 특수문자 취소: {}", context_path);
+                        match proxy.cancel_special_char().await {
+                            Ok(text) => {
+                                unim_log!("XIM_DBUS", "[XIM-DBus] 특수문자 취소: commit='{}'", text);
+                                if let Some(tx) = response {
+                                    let _ = tx.send(DbusResponse::CommitText { text });
+                                }
+                            }
+                            Err(e) => {
+                                unim_log!("XIM_DBUS", "[XIM-DBus] 특수문자 취소 실패: {}", e);
+                                if let Some(tx) = response {
+                                    let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                                }
+                            }
+                        }
                     }
                 }
             }

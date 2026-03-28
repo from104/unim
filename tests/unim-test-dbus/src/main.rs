@@ -276,7 +276,7 @@ async fn test_hanja_popup(
 
     // 취소
     match ic.cancel_hanja().await {
-        Ok(()) => {
+        Ok(_commit) => {
             results.push(TestResult {
                 name: "한자 취소".to_string(),
                 passed: true,
@@ -401,7 +401,7 @@ async fn test_special_char_popup(
     let _ = ic.process_key_event(0, 123, 0).await;
 
     match ic.cancel_special_char().await {
-        Ok(()) => {
+        Ok(_commit) => {
             results.push(TestResult {
                 name: "특수문자 취소".to_string(),
                 passed: true,
