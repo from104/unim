@@ -98,21 +98,25 @@ fn read_machine_id() -> io::Result<String> {
     Ok(content.trim().to_string())
 }
 
-/// 호스트명 가져오기
+/// 호스트명 가져오기 (ibus-daemon 호환: "unix" 고정)
+///
+/// ibus-daemon은 실제 호스트명 대신 "unix"을 사용한다.
+/// `/usr/libexec/ibus-daemon` 소스 참조: `ibus_get_local_machine_id()`
 fn get_hostname() -> String {
-    hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "localhost".to_string())
+    "unix".to_string()
 }
 
-/// DISPLAY 환경변수에서 디스플레이 ID 추출
+/// 디스플레이 ID 추출 (ibus-daemon 호환)
 ///
-/// `:0` → `0`, `:1.0` → `1`, `wayland-0` → `0`
+/// ibus-daemon은 다음 순서로 디스플레이를 결정한다:
+/// 1. `WAYLAND_DISPLAY` → 그대로 사용 (예: "wayland-0")
+/// 2. `DISPLAY` → `:0.0` → `0` (screen 번호 제거)
+/// 3. 폴백: "0"
 fn get_display_id() -> String {
-    // Wayland: WAYLAND_DISPLAY=wayland-0 → "0"
+    // Wayland: WAYLAND_DISPLAY=wayland-0 → "wayland-0" (전체 사용)
     if let Ok(wayland) = std::env::var("WAYLAND_DISPLAY") {
-        if let Some(num) = wayland.strip_prefix("wayland-") {
-            return num.to_string();
+        if !wayland.is_empty() {
+            return wayland;
         }
     }
     // X11: DISPLAY=:0 or :0.0 → "0"

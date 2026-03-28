@@ -25,5 +25,3 @@ serde_json = "1.0"
 # Logging
 log = "0.4"
 
-# IBus compat: hostname detection
-hostname = "0.4"

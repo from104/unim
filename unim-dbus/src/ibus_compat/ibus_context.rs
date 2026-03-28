@@ -109,12 +109,15 @@ impl IBusInputContextHandler {
             return Ok(false);
         }
 
+        // IBus keycode = X11 keycode = evdev + 8 → evdev로 변환
+        let evdev_keycode = if keycode > 8 { keycode - 8 } else { 0 };
+
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.engine_tx
             .send(EngineRequest::ProcessKey {
                 context_id: self.context_id,
                 keyval,
-                keycode,
+                keycode: evdev_keycode,
                 state,
                 response: response_tx,
             })
