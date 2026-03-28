@@ -27,3 +27,6 @@ debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-english.svg
 
 # DBus services (session bus auto-activation)
 debian/tmp/usr/share/dbus-1/services/org.atit.unim.InputMethod.service
+
+# Man page
+debian/tmp/usr/share/man/man1/unim.1

@@ -105,7 +105,7 @@ build-frontends: build-rust
 install: install-core install-gui-gtk install-gui-qt install-frontends install-icons install-gnome-extension
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 
-install-core:
+install-core: build-rust
 	@echo "Installing core components..."
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(REAL_LIBDIR) $(DESTDIR)$(LIBEXECDIR) \
 	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
@@ -119,7 +119,7 @@ install-core:
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
 	install -m 644 docs/unim.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
-install-frontends:
+install-frontends: build-frontends
 	@echo "Installing IM modules..."
 	install -d $(DESTDIR)$(GTK3_IMMODULE_DIR) $(DESTDIR)$(GTK4_IMMODULE_DIR) \
 	           $(DESTDIR)$(QT5_PLUGIN_DIR) $(DESTDIR)$(QT6_PLUGIN_DIR)
@@ -132,12 +132,12 @@ install-icons:
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -m 644 data/icons/unim-korean.svg data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
-install-gui-gtk:
+install-gui-gtk: build-rust
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	-install -m 755 target/release/unim-gui-gtk $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
 	-install -m 644 unim-gui-gtk/data/unim-gui-gtk.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/ 2>/dev/null || true
 
-install-gui-qt:
+install-gui-qt: build-rust
 	install -d $(DESTDIR)$(BINDIR)
 	-install -m 755 target/release/unim-gui-qt $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
 
@@ -151,7 +151,8 @@ uninstall-core:
 	      $(DESTDIR)$(BINDIR)/unim-cli $(DESTDIR)$(BINDIR)/unim-config \
 	      $(DESTDIR)$(LIBEXECDIR)/unim-daemon $(DESTDIR)$(LIBEXECDIR)/unim-xim $(DESTDIR)$(LIBEXECDIR)/unim-wayland \
 	      $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc \
-	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
+	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1
 
 uninstall-frontends:
 	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/im-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so \
@@ -258,14 +259,16 @@ test:
 		printf "  %-55s %s\n" "$(LIBEXECDIR)/$$cmd" "$$([ -f $(DESTDIR)$(LIBEXECDIR)/$$cmd ] && echo '✓' || echo '✗')"; \
 	done
 
-# CMake-based test apps (static pattern rule)
+# CMake-based test apps (static pattern rule) — 빌드 후 바로 실행
 test-gtk3 test-gtk4 test-qt5 test-qt6 test-xim test-gnome: test-%:
 	$(call cmake_build,tests/unim-test-$*,$* test app)
-	@echo "✅ Run: ./tests/unim-test-$*/build/unim-test-$*"
+	@echo "🚀 Launching unim-test-$* ..."
+	@./tests/unim-test-$*/build/unim-test-$* &
 
 test-wayland: build-rust
 	@$(CARGO) build --release -p unim-test-wayland
-	@echo "✅ Run: ./target/release/unim-test-wayland"
+	@echo "🚀 Launching unim-test-wayland ..."
+	@./target/release/unim-test-wayland &
 
 test-dbus: build-rust
 	@./target/release/unim-daemon -n &
@@ -304,7 +307,8 @@ clean:
 	@rm -rf unim-frontends/gtk3/build unim-frontends/gtk4/build \
 	        unim-frontends/qt5/build unim-frontends/qt6/build
 	@rm -rf tests/unim-test-gtk3/build tests/unim-test-gtk4/build \
-	        tests/unim-test-qt5/build tests/unim-test-qt6/build tests/unim-test-gnome/build
+	        tests/unim-test-qt5/build tests/unim-test-qt6/build \
+	        tests/unim-test-xim/build tests/unim-test-gnome/build
 
 clean-all: clean clean-deb
 	@$(CARGO) clean

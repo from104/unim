@@ -9,7 +9,7 @@ debian/tmp/usr/bin/unim-gui-gtk
 debian/tmp/etc/xdg/autostart/unim-gui-gtk.desktop
 
 # GTK3 IM Module (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-3.0/3.0.0/immodules/libim-unim.so
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-3.0/3.0.0/immodules/im-unim.so
 
 # GTK4 IM Module (multiarch)
 debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-4.0/4.0.0/immodules/libim-unim.so
