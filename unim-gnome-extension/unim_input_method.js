@@ -104,27 +104,24 @@ class UnimInputMethod extends Clutter.InputMethod {
         // KEY_RELEASE: 처리하지 않지만 notify_key_event는 반드시 호출
         // (Mutter의 키 상태 추적 유지 — 누락 시 키 반복이 멈추지 않음)
         if (eventType !== Clutter.EventType.KEY_PRESS) {
-            unimLog('IME', `  -> RELEASE: notify_key_event(false)`);
             this.notify_key_event(event, false);
             return true;
         }
 
-        let consumed = false;
-
-        try {
-            if (this._keyHandler) {
-                const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
-                consumed = this._keyHandler(keyval, evdevKeycode, state);
+        // 키 핸들러가 직접 notify_key_event를 호출
+        // (키 큐 패턴: call_sync 중 재진입 키를 큐에 저장 후 순차 처리)
+        if (this._keyHandler) {
+            const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
+            try {
+                this._keyHandler(keyval, evdevKeycode, state, event);
+            } catch (e) {
+                unimError('IME', `vfunc_filter_key_event 오류: ${e.message}`);
+                this.notify_key_event(event, false);
             }
-        } catch (e) {
-            unimError('IME', `vfunc_filter_key_event 오류: ${e.message}`);
+        } else {
+            this.notify_key_event(event, false);
         }
 
-        unimLog('IME', `  -> PRESS: consumed=${consumed}, notify_key_event(${consumed})`);
-
-        // IBus 패턴: notify_key_event로 키 전달 여부를 Mutter에 사후 통보
-        // consumed=false이면 Mutter가 키를 앱에 전달
-        this.notify_key_event(event, consumed);
         return true;
     }
 

@@ -184,7 +184,7 @@ impl AppState {
             return false;
         }
 
-        match response_rx.recv_timeout(std::time::Duration::from_millis(500)) {
+        match response_rx.recv_timeout(std::time::Duration::from_millis(50)) {
             Ok(DbusResponse::KeyProcessed {
                 consumed,
                 preedit,

@@ -71,6 +71,8 @@ export class KeyHandler {
         this._backendRegistered = false;
         /** @type {boolean} 키 처리 중 재진입 방지 플래그 */
         this._processingKey = false;
+        /** @type {Array<{keyval: number, keycode: number, state: number, event: Clutter.Event}>} 재진입 키 큐 */
+        this._keyQueue = [];
     }
 
     /**
@@ -126,8 +128,9 @@ export class KeyHandler {
             }
 
             // 키 핸들러 콜백 등록 (vfunc_filter_key_event에서 호출됨)
-            this._inputMethod.setKeyHandler((keyval, keycode, state) => {
-                return this._handleVfuncKey(keyval, keycode, state);
+            // event를 전달받아 직접 notify_key_event를 호출 (비동기 키 큐 지원)
+            this._inputMethod.setKeyHandler((keyval, keycode, state, event) => {
+                this._handleVfuncKey(keyval, keycode, state, event);
             });
 
             // 현재 IM 저장 (disable 시 복원용)
@@ -146,41 +149,51 @@ export class KeyHandler {
     /**
      * vfunc_filter_key_event에서 호출되는 키 처리 콜백
      *
+     * 키 핸들러가 직접 notify_key_event를 호출합니다.
+     * call_sync() 중 GLib 재진입으로 도착한 키는 큐에 저장 후 순차 처리합니다.
+     *
      * @param {number} keyval - X11 keysym
      * @param {number} keycode - evdev keycode
      * @param {number} state - modifier state
-     * @returns {boolean} true면 키 소비
+     * @param {Clutter.Event} event - 원본 키 이벤트 (notify_key_event용)
      * @private
      */
-    _handleVfuncKey(keyval, keycode, state) {
+    _handleVfuncKey(keyval, keycode, state, event) {
         // 0. 재진입 방지: call_sync() 중 GLib 메인 루프가 이벤트를 처리하여
-        //    동일 키가 재진입될 수 있음 (이중 입력 버그의 근본 원인)
+        //    동일 키가 재진입될 수 있음 → 큐에 저장하여 순차 처리 (키 누락 방지)
         if (this._processingKey) {
-            return true;  // 재진입 키는 소비하여 무시
+            try {
+                this._keyQueue.push({keyval, keycode, state, event: event.copy()});
+            } catch (e) {
+                // event.copy() 실패 시 기존 동작 유지 (키 소비)
+                unimError('KEY', `이벤트 복사 실패, 키 소비: ${e.message}`);
+                this._inputMethod.notify_key_event(event, true);
+            }
+            return;
         }
 
         // 1. 수정자 키 단독 → 미소비
         if (MODIFIER_KEYSYMS.has(keyval)) {
-            return false;
+            this._inputMethod.notify_key_event(event, false);
+            return;
         }
 
         // 2. 팝업 활성 시에도 ProcessKeyEvent로 fall-through
         //    engine이 팝업 키를 처리하고 시그널(PopupNavigate, HidePopup)로 UI 갱신
-        //    popupKeyHandler는 사용하지 않음 (이중 처리 방지)
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 flush 후 바이패스
-        //    (시스템 단축키이므로 processKey에 보내지 않음)
         if (state & BYPASS_MODIFIER_MASK) {
             this._flushCompose();
-            return false;  // notify_key_event(event, false) → Mutter가 키를 앱에 전달
+            this._inputMethod.notify_key_event(event, false);
+            return;
         }
 
         // 4. 한자키는 엔진에 위임 (ProcessKeyEvent를 통해 처리)
-        //    엔진이 ShowHanjaPopup 시그널을 발행하면 인디케이터가 팝업 표시
 
         // 5. DBus 연결 확인
         if (!this._dbusIME.isConnected) {
-            return false;
+            this._inputMethod.notify_key_event(event, false);
+            return;
         }
 
         // 6. ProcessKeyEvent 호출 (재진입 가드)
@@ -193,7 +206,9 @@ export class KeyHandler {
         }
 
         if (!result) {
-            return false;
+            this._inputMethod.notify_key_event(event, false);
+            this._drainKeyQueue();
+            return;
         }
 
         // 7. 결과 처리
@@ -204,11 +219,59 @@ export class KeyHandler {
         }
 
         this._inputMethod.updatePreedit(preedit || '');
+        this._inputMethod.notify_key_event(event, consumed);
 
-        // consumed 값 그대로 반환
-        // consumed=false이면 notify_key_event(event, false) → Mutter가 키를 앱에 전달
-        // (Enter, Tab, Home 등 네비게이션 키는 엔진이 consumed=false 반환)
-        return consumed;
+        // 8. 재진입으로 큐에 쌓인 키 순차 처리
+        this._drainKeyQueue();
+    }
+
+    /**
+     * 재진입으로 큐에 쌓인 키를 순차 처리
+     *
+     * call_sync() 중 GLib 메인 루프 재진입으로 도착한 키를
+     * FIFO 순서로 처리하여 키 누락을 방지합니다.
+     * @private
+     */
+    _drainKeyQueue() {
+        while (this._keyQueue.length > 0) {
+            const entry = this._keyQueue.shift();
+
+            if (MODIFIER_KEYSYMS.has(entry.keyval)) {
+                this._inputMethod.notify_key_event(entry.event, false);
+                continue;
+            }
+
+            if (entry.state & BYPASS_MODIFIER_MASK) {
+                this._flushCompose();
+                this._inputMethod.notify_key_event(entry.event, false);
+                continue;
+            }
+
+            if (!this._dbusIME.isConnected) {
+                this._inputMethod.notify_key_event(entry.event, false);
+                continue;
+            }
+
+            this._processingKey = true;
+            let result;
+            try {
+                result = this._dbusIME.processKey(entry.keyval, entry.keycode, entry.state);
+            } finally {
+                this._processingKey = false;
+            }
+
+            if (!result) {
+                this._inputMethod.notify_key_event(entry.event, false);
+                continue;
+            }
+
+            const { consumed, preedit, commit } = result;
+            if (commit && commit.length > 0) {
+                this._inputMethod.commitText(commit);
+            }
+            this._inputMethod.updatePreedit(preedit || '');
+            this._inputMethod.notify_key_event(entry.event, consumed);
+        }
     }
 
     /**
@@ -381,6 +444,7 @@ export class KeyHandler {
      */
     destroy() {
         this.disable();
+        this._keyQueue = [];
         this._dbusIME = null;
         this._inputMethod = null;
         this._onHanjaRequest = null;
