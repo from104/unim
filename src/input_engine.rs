@@ -964,6 +964,16 @@ impl InputEngine {
             KeyCode::Tab => PopupKey::Tab,
             KeyCode::Space => PopupKey::Space,
             KeyCode::Backspace => PopupKey::Backspace,
+            // 특수문자 팝업 열 점프: 물리 키 위치 기준 (레이아웃 무관)
+            KeyCode::Q => PopupKey::Letter(0),
+            KeyCode::W => PopupKey::Letter(1),
+            KeyCode::E => PopupKey::Letter(2),
+            KeyCode::R => PopupKey::Letter(3),
+            KeyCode::T => PopupKey::Letter(4),
+            KeyCode::Y => PopupKey::Letter(5),
+            KeyCode::U => PopupKey::Letter(6),
+            KeyCode::I => PopupKey::Letter(7),
+            KeyCode::O => PopupKey::Letter(8),
             _ => PopupKey::Other,
         }
     }
