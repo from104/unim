@@ -354,7 +354,7 @@ DEV_BINDIR      := $(shell dirname $$(command -v unim-cli 2>/dev/null || echo $(
 
 dev-daemon:
 	@$(CARGO) build --release -p unim-daemon
-	@pkill -9 -f unim-daemon 2>/dev/null || true
+	@pkill -9 -x unim-daemon 2>/dev/null || true
 	@sleep 0.5
 	@sudo cp target/release/unim-daemon $(DEV_LIBEXECDIR)
 	@UNIM_DEVELOP=1 $(DEV_LIBEXECDIR)unim-daemon -n --replace &
