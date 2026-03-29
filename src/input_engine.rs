@@ -115,22 +115,22 @@ impl InputResult {
         }
     }
 
-    /// 한자 후보 사용 가능
+    /// 한자 후보 사용 가능 (preedit 유지 — 팝업 중 조합 문자 표시)
     pub fn hanja_candidates() -> Self {
         Self {
             consumed: true,
-            preedit_changed: false,
+            preedit_changed: true,
             commit_changed: false,
             hanja_candidates_available: true,
             special_char_candidates_available: false,
         }
     }
 
-    /// 특수문자 후보 사용 가능
+    /// 특수문자 후보 사용 가능 (preedit 유지 — 팝업 중 조합 문자 표시)
     pub fn special_char_candidates() -> Self {
         Self {
             consumed: true,
-            preedit_changed: false,
+            preedit_changed: true,
             commit_changed: false,
             hanja_candidates_available: false,
             special_char_candidates_available: true,
