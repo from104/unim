@@ -32,6 +32,8 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._keyHandler = null;
         /** @type {Function|null} 포커스 상실 콜백 */
         this._focusOutHandler = null;
+        /** @type {Function|null} 리셋 콜백 (팝업 정리 등) */
+        this._resetHandler = null;
         /** @type {{x: number, y: number, width: number, height: number}} 커서 위치 */
         this._cursorRect = { x: 0, y: 0, width: 0, height: 0 };
         /** @type {Object|null} DBus IME 클라이언트 연동 */
@@ -62,6 +64,14 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     setFocusOutHandler(handler) {
         this._focusOutHandler = handler;
+    }
+
+    /**
+     * 리셋 콜백 등록 (팝업 정리 등)
+     * @param {Function|null} handler - () => void
+     */
+    setResetHandler(handler) {
+        this._resetHandler = handler;
     }
 
     // ===========================================
@@ -155,6 +165,16 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_reset() {
+        // 1. 리셋 핸들러 호출 (팝업 열려있으면 커밋+닫기)
+        if (this._resetHandler) {
+            try {
+                this._resetHandler();
+            } catch (e) {
+                unimError('IME', `reset 핸들러 오류: ${e.message}`);
+            }
+        }
+
+        // 2. preedit 커밋
         const preedit = this._preeditText;
         if (preedit && preedit.length > 0) {
             this._preeditText = '';

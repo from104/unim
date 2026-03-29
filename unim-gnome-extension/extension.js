@@ -247,6 +247,8 @@ export default class UnimExtension extends Extension {
             );
             // 7. 포커스 상실 핸들러 (조합 중 텍스트 커밋)
             this._inputMethod.setFocusOutHandler(() => {
+                // 팝업 열려있으면 먼저 취소 (trigger text 커밋 + 팝업 닫기)
+                this._cleanupPopups();
                 // DBus FocusOut → 조합 중 텍스트 커밋
                 const commit = this._dbusIME.focusOut();
                 if (commit && commit.length > 0) {
@@ -254,6 +256,11 @@ export default class UnimExtension extends Extension {
                     return true;
                 }
                 return false;
+            });
+
+            // 8. 리셋 핸들러 (입력 필드 내 리셋 시 팝업 정리)
+            this._inputMethod.setResetHandler(() => {
+                this._cleanupPopups();
             });
 
             this._inputMethod.setActive(true);
