@@ -10,6 +10,39 @@ use unim_dbus::client::{InputContextProxy, InputMethodProxy};
 use zbus::zvariant::ObjectPath;
 use zbus::Connection;
 
+/// 팝업 이벤트 (DBus 시그널 기반)
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum PopupEvent {
+    /// 한자 팝업 표시
+    ShowHanja {
+        target: String,
+        candidates: Vec<(String, String)>,
+        cursor_x: i32,
+        cursor_y: i32,
+    },
+    /// 특수문자 팝업 표시
+    ShowSpecial {
+        target: String,
+        characters: Vec<String>,
+        top_row: String,
+        cursor_x: i32,
+        cursor_y: i32,
+    },
+    /// 팝업 숨김
+    Hide,
+    /// 팝업 네비게이션 (페이지/선택 변경)
+    Navigate {
+        page: i32,
+        total_pages: i32,
+        selected: i32,
+        rows: i32,
+        cols: i32,
+        sel_row: i32,
+        sel_col: i32,
+    },
+}
+
 /// DBus 요청 타입
 #[derive(Debug)]
 pub enum DbusRequest {
@@ -130,7 +163,7 @@ pub struct DbusClient {
 
 impl DbusClient {
     /// 새 DBus 클라이언트 생성 및 백그라운드 태스크 시작
-    pub fn new() -> (Self, mpsc::Sender<DbusRequest>) {
+    pub fn new(popup_tx: std_mpsc::Sender<PopupEvent>) -> (Self, mpsc::Sender<DbusRequest>) {
         let (tx, rx) = mpsc::channel::<DbusRequest>(256);
 
         // 백그라운드 스레드에서 tokio 런타임 실행
@@ -142,7 +175,7 @@ impl DbusClient {
                 .expect("tokio 런타임 생성 실패");
 
             rt.block_on(async {
-                if let Err(e) = run_dbus_client(rx).await {
+                if let Err(e) = run_dbus_client(rx, popup_tx).await {
                     unim_log!("XIM_DBUS", "DBus 클라이언트 오류: {}", e);
                 }
             });
@@ -158,7 +191,10 @@ impl DbusClient {
 }
 
 /// DBus 클라이언트 실행 (비동기)
-async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()> {
+async fn run_dbus_client(
+    mut rx: mpsc::Receiver<DbusRequest>,
+    popup_tx: std_mpsc::Sender<PopupEvent>,
+) -> zbus::Result<()> {
     // DBus 세션 버스에 연결
     let connection = Connection::session().await?;
     unim_log!("XIM_DBUS", "[XIM-DBus] 세션 버스 연결 성공");
@@ -180,6 +216,15 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
             {
                 Ok(path) => {
                     unim_log!("XIM_DBUS", "[XIM-DBus] 컨텍스트 생성: {}", path);
+
+                    // 팝업 시그널 구독 시작
+                    let popup_tx_clone = popup_tx.clone();
+                    let conn_clone = connection.clone();
+                    let path_clone = path.clone();
+                    tokio::spawn(async move {
+                        subscribe_popup_signals(&conn_clone, &path_clone, popup_tx_clone).await;
+                    });
+
                     if let Some(tx) = response {
                         let _ = tx.send(DbusResponse::ContextCreated { path });
                     }
@@ -517,6 +562,121 @@ async fn run_dbus_client(mut rx: mpsc::Receiver<DbusRequest>) -> zbus::Result<()
     }
 
     Ok(())
+}
+
+/// InputContext 팝업 시그널 구독 (ShowHanjaPopup, ShowSpecialPopup, HidePopup, PopupNavigate)
+async fn subscribe_popup_signals(
+    connection: &Connection,
+    context_path: &str,
+    popup_tx: std_mpsc::Sender<PopupEvent>,
+) {
+    use zbus::export::futures_util::StreamExt;
+
+    let obj_path = match ObjectPath::try_from(context_path) {
+        Ok(p) => p,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] 팝업 시그널 경로 변환 실패: {}", e);
+            return;
+        }
+    };
+
+    let proxy = match InputContextProxy::builder(connection)
+        .path(obj_path)
+        .expect("path error")
+        .build()
+        .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] 팝업 시그널 구독 실패: {}", e);
+            return;
+        }
+    };
+
+    // 4개 시그널 스트림 동시 구독
+    let mut hanja_stream = match proxy.receive_show_hanja_popup().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] ShowHanjaPopup 구독 실패: {}", e);
+            return;
+        }
+    };
+    let mut special_stream = match proxy.receive_show_special_popup().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] ShowSpecialPopup 구독 실패: {}", e);
+            return;
+        }
+    };
+    let mut hide_stream = match proxy.receive_hide_popup().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] HidePopup 구독 실패: {}", e);
+            return;
+        }
+    };
+    let mut navigate_stream = match proxy.receive_popup_navigate().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] PopupNavigate 구독 실패: {}", e);
+            return;
+        }
+    };
+
+    unim_log!(
+        "XIM_DBUS",
+        "[XIM-DBus] 팝업 시그널 구독 시작: {}",
+        context_path
+    );
+
+    loop {
+        tokio::select! {
+            Some(signal) = hanja_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::ShowHanja {
+                        target: args.target,
+                        candidates: args.candidates,
+                        cursor_x: args.cursor_x,
+                        cursor_y: args.cursor_y,
+                    });
+                }
+            }
+            Some(signal) = special_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::ShowSpecial {
+                        target: args.target,
+                        characters: args.characters,
+                        top_row: args.top_row,
+                        cursor_x: args.cursor_x,
+                        cursor_y: args.cursor_y,
+                    });
+                }
+            }
+            Some(_signal) = hide_stream.next() => {
+                let _ = popup_tx.send(PopupEvent::Hide);
+            }
+            Some(signal) = navigate_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::Navigate {
+                        page: args.page,
+                        total_pages: args.total_pages,
+                        selected: args.selected,
+                        rows: args.rows,
+                        cols: args.cols,
+                        sel_row: args.sel_row,
+                        sel_col: args.sel_col,
+                    });
+                }
+            }
+            else => break,
+        }
+    }
+
+    unim_log!(
+        "XIM_DBUS",
+        "[XIM-DBus] 팝업 시그널 구독 종료: {}",
+        context_path
+    );
 }
 
 /// 키 이벤트 처리 (별도 함수로 분리)

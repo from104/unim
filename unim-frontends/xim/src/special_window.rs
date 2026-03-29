@@ -5,25 +5,19 @@
 
 use std::os::raw::{c_int, c_ulong};
 
-use unim::popup::{PopupKey, PopupKeyResult, PopupState};
+use unim::popup::PopupState;
 use unim::unim_log;
 
 use crate::dpi;
 
-/// 특수문자 팝업에서 키 처리 결과
-pub enum SpecialAction {
-    /// 인덱스로 문자 선택 (전체 인덱스, 0-based)
-    Select(usize),
-    /// 취소 (Esc)
-    Cancel,
+/// 특수문자 팝업 마우스 클릭 결과
+pub enum SpecialClickResult {
+    /// 셀 선택 (행, 열)
+    Select(usize, usize),
     /// 다음 페이지
     NextPage,
-    /// 이전 페이지
-    PrevPage,
-    /// 팝업이 내부적으로 처리한 키
+    /// 이벤트 소비됨
     Consumed,
-    /// 처리하지 않음 → 팝업 닫고 키 바이패스
-    None,
 }
 
 /// 특수문자 팝업 윈도우
@@ -52,36 +46,6 @@ pub struct SpecialWindow {
     cell_h: c_int,
     /// DPI 스케일 팩터
     scale_factor: f64,
-}
-
-/// X11 keysym → PopupKey 변환
-fn keysym_to_popup_key(keysym: u32) -> PopupKey {
-    match keysym {
-        0xff1b => PopupKey::Escape,
-        0x71 => PopupKey::Letter(0), // q
-        0x77 => PopupKey::Letter(1), // w
-        0x65 => PopupKey::Letter(2), // e
-        0x72 => PopupKey::Letter(3), // r
-        0x74 => PopupKey::Letter(4), // t
-        0x79 => PopupKey::Letter(5), // y
-        0x75 => PopupKey::Letter(6), // u
-        0x69 => PopupKey::Letter(7), // i
-        0x6f => PopupKey::Letter(8), // o
-        0x31..=0x39 => PopupKey::Number((keysym - 0x30) as u8),
-        0xff0d => PopupKey::Enter,
-        0xff52 => PopupKey::Up,
-        0xff54 => PopupKey::Down,
-        0xff51 => PopupKey::Left,
-        0xff53 => PopupKey::Right,
-        0xff09 => PopupKey::Tab,
-        0xfe20 => PopupKey::ShiftTab,
-        0x20 => PopupKey::Space,
-        0xff55 => PopupKey::PageUp,
-        0xff56 => PopupKey::PageDown,
-        0xff08 => PopupKey::Backspace,
-        0xffe1..=0xffee | 0xff7f | 0xff14 => PopupKey::Modifier,
-        _ => PopupKey::Other,
-    }
 }
 
 impl SpecialWindow {
@@ -387,73 +351,67 @@ impl SpecialWindow {
         self.redraw(display);
     }
 
-    /// 전체 인덱스로 문자 가져오기 (handler에서 직접 커밋용)
+    /// 전체 인덱스로 문자 가져오기
+    #[allow(dead_code)]
     pub fn get_character(&self, index: usize) -> Option<&str> {
         self.popup_state.as_ref()?.get_item(index)
     }
 
-    /// 키 처리 — PopupState에 위임
-    pub fn handle_key(&mut self, keysym: u32) -> SpecialAction {
-        let popup_key = keysym_to_popup_key(keysym);
-        let ps = match self.popup_state.as_mut() {
-            Some(ps) => ps,
-            None => return SpecialAction::None,
-        };
-
-        match ps.handle_key(popup_key) {
-            PopupKeyResult::Select(idx) => SpecialAction::Select(idx),
-            PopupKeyResult::Cancel => SpecialAction::Cancel,
-            PopupKeyResult::Updated => {
-                // Tab/ShiftTab/PageDown/PageUp/Space → 페이지 변경
-                match popup_key {
-                    PopupKey::Tab | PopupKey::PageDown | PopupKey::Space => {
-                        SpecialAction::NextPage
-                    }
-                    PopupKey::ShiftTab | PopupKey::PageUp => SpecialAction::PrevPage,
-                    _ => SpecialAction::Consumed,
-                }
-            }
-            PopupKeyResult::Consumed => SpecialAction::Consumed,
-            PopupKeyResult::NotHandled => SpecialAction::None,
+    /// 엔진의 PopupNavigate 시그널로 상태 갱신 + 다시 그리기
+    pub fn update_from_navigate(
+        &mut self,
+        page: usize,
+        sel_row: usize,
+        sel_col: usize,
+        display: *mut x11::xlib::Display,
+    ) {
+        if let Some(ps) = self.popup_state.as_mut() {
+            ps.set_navigate_state(page, sel_row, sel_col);
         }
+        self.redraw(display);
     }
 
-    /// 마우스 클릭 처리
+    /// 마우스 클릭 처리 — 셀 좌표 계산만 수행 (키 처리는 엔진에 위임)
     pub fn handle_button_press(
-        &mut self,
+        &self,
         button: u32,
         click_x: c_int,
         click_y: c_int,
-        _display: *mut x11::xlib::Display,
-    ) -> SpecialAction {
+    ) -> SpecialClickResult {
         let header_col_w = self.cell_w;
         let header_row_h = self.cell_h;
 
-        let ps = match self.popup_state.as_mut() {
-            Some(ps) => ps,
-            None => return SpecialAction::Consumed,
-        };
+        if self.popup_state.is_none() {
+            return SpecialClickResult::Consumed;
+        }
 
         match button {
             1 => {
                 // 좌클릭 → 행/열 계산
                 let col = (click_x - header_col_w) / self.cell_w;
                 let row = (click_y - header_row_h) / self.cell_h;
-                if col >= 0 && row >= 0 {
-                    match ps.handle_click(row as usize, col as usize) {
-                        PopupKeyResult::Select(idx) => SpecialAction::Select(idx),
-                        _ => SpecialAction::Consumed,
-                    }
+                let ps = self.popup_state.as_ref().unwrap();
+                if col >= 0 && row >= 0
+                    && (row as usize) < ps.rows()
+                    && (col as usize) < ps.cols()
+                {
+                    unim_log!(
+                        "XIM_SPECIAL",
+                        "좌클릭 선택: row={}, col={}",
+                        row,
+                        col
+                    );
+                    SpecialClickResult::Select(row as usize, col as usize)
                 } else {
-                    SpecialAction::Consumed
+                    SpecialClickResult::Consumed
                 }
             }
             3 => {
-                // 우클릭 → 다음 페이지
-                ps.handle_key(PopupKey::Tab);
-                SpecialAction::NextPage
+                // 우클릭 → 다음 페이지 요청
+                unim_log!("XIM_SPECIAL", "우클릭 → 다음 페이지 요청");
+                SpecialClickResult::NextPage
             }
-            _ => SpecialAction::Consumed,
+            _ => SpecialClickResult::Consumed,
         }
     }
 

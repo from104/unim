@@ -5,49 +5,23 @@
 
 use std::os::raw::c_int;
 
-use unim::popup::{PopupKey, PopupKeyResult, PopupState};
+use unim::popup::PopupState;
 use unim::unim_log;
 
 use crate::dpi;
 
-/// 한자 팝업에서 키 처리 결과
-pub enum HanjaAction {
-    /// 후보 선택 (0-based 인덱스)
-    Select(u32),
-    /// 취소 (Esc)
-    Cancel,
-    /// 다음 페이지 (→)
-    NextPage,
-    /// 이전 페이지 (←)
-    PrevPage,
-    /// 팝업이 내부적으로 처리한 키 (↑↓ 등)
-    Consumed,
-    /// 처리하지 않음 → 팝업 닫고 키 바이패스
-    None,
-}
-
 /// 페이지당 표시할 후보 수
+#[allow(dead_code)]
 pub const PAGE_SIZE: usize = 9;
 
-/// X11 keysym → PopupKey 변환
-fn keysym_to_popup_key(keysym: u32) -> PopupKey {
-    match keysym {
-        0x31..=0x39 => PopupKey::Number((keysym - 0x30) as u8),
-        0xff1b => PopupKey::Escape,
-        0xff53 => PopupKey::Right,
-        0x20 => PopupKey::Space,
-        0xff51 => PopupKey::Left,
-        0xff08 => PopupKey::Backspace,
-        0xff54 => PopupKey::Down,
-        0xff52 => PopupKey::Up,
-        0xff0d => PopupKey::Enter,
-        0xff09 => PopupKey::Tab,
-        0xfe20 => PopupKey::ShiftTab,
-        0xff55 => PopupKey::PageUp,
-        0xff56 => PopupKey::PageDown,
-        0xffe1..=0xffee | 0xff7f | 0xff14 => PopupKey::Modifier,
-        _ => PopupKey::Other,
-    }
+/// 한자 팝업 마우스 클릭 결과
+pub enum HanjaClickResult {
+    /// 후보 선택 (페이지 내 0-based 인덱스)
+    Select(u32),
+    /// 다음 페이지
+    NextPage,
+    /// 이벤트 소비됨
+    Consumed,
 }
 
 /// 한자 후보 팝업 윈도우
@@ -380,7 +354,8 @@ impl HanjaWindow {
         self.redraw(display);
     }
 
-    /// 전체 인덱스로 한자 문자열 가져오기 (handler에서 직접 커밋용)
+    /// 전체 인덱스로 한자 문자열 가져오기
+    #[allow(dead_code)]
     pub fn get_candidate(&self, index: usize) -> Option<&str> {
         self.popup_state.as_ref()?.get_item(index)
     }
@@ -402,78 +377,54 @@ impl HanjaWindow {
         }
     }
 
-    /// 키 처리 — PopupState에 위임
-    pub fn handle_key(&mut self, keyval: u32) -> HanjaAction {
-        let popup_key = keysym_to_popup_key(keyval);
-        let ps = match self.popup_state.as_mut() {
-            Some(ps) => ps,
-            None => return HanjaAction::None,
-        };
-
-        match ps.handle_key(popup_key) {
-            PopupKeyResult::Select(idx) => HanjaAction::Select(idx as u32),
-            PopupKeyResult::Cancel => HanjaAction::Cancel,
-            PopupKeyResult::Updated => {
-                match popup_key {
-                    PopupKey::Right | PopupKey::Space | PopupKey::Tab | PopupKey::PageDown => {
-                        HanjaAction::NextPage
-                    }
-                    PopupKey::Left | PopupKey::Backspace | PopupKey::ShiftTab
-                    | PopupKey::PageUp => HanjaAction::PrevPage,
-                    _ => HanjaAction::Consumed,
-                }
-            }
-            PopupKeyResult::Consumed => HanjaAction::Consumed,
-            PopupKeyResult::NotHandled => HanjaAction::None,
+    /// 엔진의 PopupNavigate 시그널로 상태 갱신 + 다시 그리기
+    pub fn update_from_navigate(
+        &mut self,
+        page: usize,
+        sel_row: usize,
+        sel_col: usize,
+        display: *mut x11::xlib::Display,
+    ) {
+        if let Some(ps) = self.popup_state.as_mut() {
+            ps.set_navigate_state(page, sel_row, sel_col);
         }
+        self.redraw(display);
     }
 
-    /// 마우스 버튼 클릭 처리
+    /// 마우스 버튼 클릭 처리 — 행 인덱스 계산만 수행 (키 처리는 엔진에 위임)
     pub fn handle_button_press(
-        &mut self,
+        &self,
         button: u32,
         y: c_int,
         display: *mut x11::xlib::Display,
-    ) -> HanjaAction {
+    ) -> HanjaClickResult {
         if self.popup_state.is_none() {
-            return HanjaAction::Consumed;
+            return HanjaClickResult::Consumed;
         }
 
         let line_h = self.line_height(display);
-        let ps = self.popup_state.as_mut().unwrap();
 
         match button {
             1 => {
-                // 좌클릭 → 클릭한 행의 후보 선택
+                // 좌클릭 → 클릭한 행 계산
                 if line_h == 0 {
-                    return HanjaAction::Consumed;
+                    return HanjaClickResult::Consumed;
                 }
                 let idx = ((y - dpi::scale(4, self.scale_factor)) / line_h) as usize;
-                match ps.handle_click(idx, 0) {
-                    PopupKeyResult::Select(global_idx) => {
-                        unim_log!(
-                            "XIM_HANJA",
-                            "좌클릭 선택: row={}, global={}",
-                            idx,
-                            global_idx
-                        );
-                        HanjaAction::Select(global_idx as u32)
-                    }
-                    _ => HanjaAction::Consumed,
+                let ps = self.popup_state.as_ref().unwrap();
+                if idx < ps.rows() {
+                    unim_log!("XIM_HANJA", "좌클릭 선택: row={}", idx);
+                    HanjaClickResult::Select(idx as u32)
+                } else {
+                    HanjaClickResult::Consumed
                 }
             }
             3 => {
-                // 우클릭 → 다음 페이지 (순환)
-                ps.handle_key(PopupKey::Right);
-                unim_log!(
-                    "XIM_HANJA",
-                    "우클릭 → 다음 페이지: {}/{}",
-                    ps.current_page() + 1,
-                    ps.total_pages()
-                );
-                HanjaAction::NextPage
+                // 우클릭 → 다음 페이지
+                unim_log!("XIM_HANJA", "우클릭 → 다음 페이지 요청");
+                HanjaClickResult::NextPage
             }
-            _ => HanjaAction::Consumed,
+            _ => HanjaClickResult::Consumed,
         }
     }
 

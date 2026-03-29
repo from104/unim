@@ -547,6 +547,24 @@ impl PopupState {
         }
     }
 
+    /// 엔진의 PopupNavigate 시그널에서 받은 상태로 갱신
+    ///
+    /// 엔진 위임 모델에서 팝업 UI가 엔진의 상태를 반영할 때 사용.
+    /// page/sel_row/sel_col만 설정하고 레이아웃을 재계산한다.
+    pub fn set_navigate_state(
+        &mut self,
+        page: usize,
+        sel_row: usize,
+        sel_col: usize,
+    ) {
+        if page < self.total_pages {
+            self.current_page = page;
+        }
+        self.update_page_layout();
+        self.sel_row = sel_row.min(self.rows.saturating_sub(1));
+        self.sel_col = sel_col.min(self.cols.saturating_sub(1));
+    }
+
     /// 한자 페이지 항목 (한자, 뜻) 슬라이스
     pub fn hanja_page_items(&self) -> Vec<(&str, &str)> {
         let start = self.current_page * self.page_size;

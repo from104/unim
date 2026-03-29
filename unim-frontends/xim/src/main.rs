@@ -54,8 +54,11 @@ fn main() {
     let config = unim::config::Config::load_from_default_path();
     unim_log!("XIM", "설정 로드 완료");
 
+    // 팝업 시그널 수신 채널
+    let (popup_tx, popup_rx) = std::sync::mpsc::channel::<dbus_client::PopupEvent>();
+
     // DBus 클라이언트 시작
-    let (_dbus_client, dbus_tx) = DbusClient::new();
+    let (_dbus_client, dbus_tx) = DbusClient::new(popup_tx);
     unim_log!("XIM", "DBus 클라이언트 시작됨");
 
     // X11 연결
@@ -107,6 +110,16 @@ fn main() {
         // x11rb의 wait_for_event는 블로킹이므로,
         // 실제로는 신호가 와도 다음 이벤트까지 대기할 수 있음.
         // 하지만 종료 시퀀스를 타는 것이 중요.
+        // DBus 팝업 시그널 처리 (논블로킹)
+        while let Ok(popup_event) = popup_rx.try_recv() {
+            if let Err(err) =
+                unim_handler.handle_popup_event(popup_event, &mut server)
+            {
+                unim_log!("XIM", "팝업 이벤트 처리 오류: {:?}", err);
+            }
+            server.conn().flush().ok();
+        }
+
         let event = match server.conn().poll_for_event() {
             Ok(Some(event)) => event,
             Ok(None) => {

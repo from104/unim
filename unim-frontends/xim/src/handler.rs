@@ -20,10 +20,10 @@ use xim::{
     InputStyle, Server, ServerError, ServerHandler, UserInputContext,
 };
 
-use crate::dbus_client::{DbusRequest, DbusResponse};
-use crate::hanja_window::{HanjaAction, HanjaWindow, PAGE_SIZE};
+use crate::dbus_client::{DbusRequest, DbusResponse, PopupEvent};
+use crate::hanja_window::{HanjaClickResult, HanjaWindow};
 use crate::pe_window::PeWindow;
-use crate::special_window::{SpecialAction, SpecialWindow};
+use crate::special_window::{SpecialClickResult, SpecialWindow};
 
 /// KeyCode 이름에서 X11 keysym으로 변환
 fn keycode_name_to_keysym(name: &str) -> Option<u32> {
@@ -266,214 +266,95 @@ impl UnimHandler {
         Ok(())
     }
 
-    /// 한자 팝업 마우스 클릭 처리
-    /// button: X11 button (1=좌클릭, 3=우클릭)
+    /// 합성 키 전송 (마우스 클릭 → 키 이벤트 변환용)
+    fn send_synthetic_key(&self, keysym: u64) {
+        if let Some(client_win) = self.hanja_client_window {
+            unsafe {
+                let root = x11::xlib::XRootWindow(self.display, self.screen);
+                let keycode = x11::xlib::XKeysymToKeycode(self.display, keysym);
+                let mut event: x11::xlib::XKeyEvent = std::mem::zeroed();
+                event.type_ = x11::xlib::KeyPress;
+                event.display = self.display;
+                event.window = client_win;
+                event.root = root;
+                event.keycode = keycode as u32;
+                event.state = 0;
+                event.time = x11::xlib::CurrentTime as u64;
+                event.send_event = x11::xlib::True;
+                event.same_screen = x11::xlib::True;
+                x11::xlib::XSendEvent(
+                    self.display,
+                    client_win,
+                    x11::xlib::False,
+                    x11::xlib::KeyPressMask,
+                    &mut event as *mut _ as *mut x11::xlib::XEvent,
+                );
+                x11::xlib::XFlush(self.display);
+            }
+        }
+    }
+
+    /// 한자/특수문자 팝업 마우스 클릭 처리
+    /// 클릭을 합성 키로 변환하여 엔진에 위임
     pub fn handle_button_press<C: Connection + xim::x11rb::HasConnection>(
-        &mut self,
+        &self,
         button: u8,
         event_x: i16,
         event_y: i16,
         conn: &C,
     ) -> Result<bool, x11rb::errors::ConnectionError> {
+        // 한자 팝업
         if let Some(ref hw) = self.hanja_window {
             let (w, h) = (hw.size().0 as i16, hw.size().1 as i16);
-            // 클릭이 팝업 내부인지 확인
             if event_x >= 0 && event_y >= 0 && event_x < w && event_y < h {
-                // 팝업 내부 클릭 → hanja_window에 위임
-                let action = {
-                    let hw = self.hanja_window.as_mut().unwrap();
-                    let action =
-                        hw.handle_button_press(button as u32, event_y as c_int, self.display);
-                    match &action {
-                        HanjaAction::NextPage | HanjaAction::PrevPage | HanjaAction::Consumed => {
-                            hw.redraw(self.display);
-                        }
-                        _ => {}
+                let result = hw.handle_button_press(button as u32, event_y as c_int, self.display);
+                match result {
+                    HanjaClickResult::Select(page_idx) => {
+                        let keysym = 0x31 + page_idx as u64; // '1'~'9'
+                        self.send_synthetic_key(keysym);
+                        unim_log!("XIM_HANDLER", "좌클릭 → 합성 숫자키 '{}' 전송", page_idx + 1);
                     }
-                    action
-                };
-
-                match action {
-                    HanjaAction::Select(index) => {
-                        // 좌클릭 선택 → 합성 숫자키(1~9)를 클라이언트 윈도우에 전송
-                        // 기존 키보드 선택 로직(handle_forward_event)이 처리함
-                        let page_index = index as usize % PAGE_SIZE;
-                        let keysym = 0x31 + page_index as u64; // '1'=0x31 ~ '9'=0x39
-                        if let Some(client_win) = self.hanja_client_window {
-                            unsafe {
-                                let root = x11::xlib::XRootWindow(self.display, self.screen);
-                                let keycode = x11::xlib::XKeysymToKeycode(self.display, keysym);
-                                let mut event: x11::xlib::XKeyEvent = std::mem::zeroed();
-                                event.type_ = x11::xlib::KeyPress;
-                                event.display = self.display;
-                                event.window = client_win;
-                                event.root = root;
-                                event.keycode = keycode as u32;
-                                event.state = 0;
-                                event.time = x11::xlib::CurrentTime as u64;
-                                event.send_event = x11::xlib::True;
-                                event.same_screen = x11::xlib::True;
-
-                                x11::xlib::XSendEvent(
-                                    self.display,
-                                    client_win,
-                                    x11::xlib::False,
-                                    x11::xlib::KeyPressMask,
-                                    &mut event as *mut _ as *mut x11::xlib::XEvent,
-                                );
-                                x11::xlib::XFlush(self.display);
-                            }
-                            unim_log!(
-                                "XIM_HANDLER",
-                                "좌클릭 → 합성 숫자키 '{}' 전송",
-                                page_index + 1
-                            );
-                        }
-                        return Ok(true);
+                    HanjaClickResult::NextPage => {
+                        self.send_synthetic_key(0xff53); // Right
                     }
-                    HanjaAction::NextPage | HanjaAction::PrevPage | HanjaAction::Consumed => {
-                        return Ok(true);
-                    }
-                    _ => return Ok(false),
+                    HanjaClickResult::Consumed => {}
                 }
+                return Ok(true);
             }
-            // 팝업 외부 클릭 → ungrab + 합성 Escape 전송
-            unim_log!(
-                "XIM_HANDLER",
-                "한자 팝업 외부 클릭 감지 -> 합성 Escape 전송"
-            );
-
-            // 1. ungrab pointer
+            // 외부 클릭 → Escape
+            unim_log!("XIM_HANDLER", "한자 팝업 외부 클릭 → 합성 Escape 전송");
             conn.ungrab_pointer(x11rb::CURRENT_TIME)?;
             conn.flush()?;
-
-            // 2. 클라이언트 윈도우에 합성 Escape KeyPress 전송
-            if let Some(client_win) = self.hanja_client_window {
-                unsafe {
-                    let root = x11::xlib::XRootWindow(self.display, self.screen);
-                    let keycode = x11::xlib::XKeysymToKeycode(
-                        self.display,
-                        0xff1b, // XK_Escape
-                    );
-                    let mut event: x11::xlib::XKeyEvent = std::mem::zeroed();
-                    event.type_ = x11::xlib::KeyPress;
-                    event.display = self.display;
-                    event.window = client_win;
-                    event.root = root;
-                    event.keycode = keycode as u32;
-                    event.state = 0;
-                    event.time = x11::xlib::CurrentTime as u64;
-                    event.send_event = x11::xlib::True;
-                    event.same_screen = x11::xlib::True;
-
-                    x11::xlib::XSendEvent(
-                        self.display,
-                        client_win,
-                        x11::xlib::False,
-                        x11::xlib::KeyPressMask,
-                        &mut event as *mut _ as *mut x11::xlib::XEvent,
-                    );
-                    x11::xlib::XFlush(self.display);
-                }
-                unim_log!(
-                    "XIM_HANDLER",
-                    "합성 Escape 전송 완료: client_win=0x{:x}",
-                    client_win
-                );
-            }
+            self.send_synthetic_key(0xff1b); // Escape
             return Ok(true);
         }
-        // 특수문자 팝업이 표시 중일 때 버튼 처리
+
+        // 특수문자 팝업
         if let Some(ref sw) = self.special_window {
             let (w, h) = sw.size();
             if event_x >= 0 && event_y >= 0 && event_x < w as i16 && event_y < h as i16 {
-                // 팝업 내부 클릭
-                let action = {
-                    let sw = self.special_window.as_mut().unwrap();
-                    let action = sw.handle_button_press(
-                        button as u32,
-                        event_x as c_int,
-                        event_y as c_int,
-                        self.display,
-                    );
-                    match &action {
-                        SpecialAction::NextPage
-                        | SpecialAction::PrevPage
-                        | SpecialAction::Consumed => {
-                            sw.redraw(self.display);
-                        }
-                        _ => {}
+                let result = sw.handle_button_press(button as u32, event_x as c_int, event_y as c_int);
+                match result {
+                    SpecialClickResult::Select(_row, _col) => {
+                        // Enter 키로 현재 선택 확정 (엔진이 선택 처리)
+                        self.send_synthetic_key(0xff0d); // Enter
+                        unim_log!("XIM_HANDLER", "특수문자 좌클릭 → 합성 Enter 전송");
                     }
-                    action
-                };
-                match action {
-                    SpecialAction::Select(_index) => {
-                        // 마우스 클릭 → 합성 Enter 키를 클라이언트 윈도우에 전송
-                        // 키보드 핸들러(handle_forward_event)의 GTK4 패턴이 처리함
-                        if let Some(client_win) = self.hanja_client_window {
-                            unsafe {
-                                let root = x11::xlib::XRootWindow(self.display, self.screen);
-                                let keycode = x11::xlib::XKeysymToKeycode(self.display, 0xff0d); // Enter
-                                let mut event: x11::xlib::XKeyEvent = std::mem::zeroed();
-                                event.type_ = x11::xlib::KeyPress;
-                                event.display = self.display;
-                                event.window = client_win;
-                                event.root = root;
-                                event.keycode = keycode as u32;
-                                event.state = 0;
-                                event.time = x11::xlib::CurrentTime as u64;
-                                event.send_event = x11::xlib::True;
-                                event.same_screen = x11::xlib::True;
-
-                                x11::xlib::XSendEvent(
-                                    self.display,
-                                    client_win,
-                                    x11::xlib::False,
-                                    x11::xlib::KeyPressMask,
-                                    &mut event as *mut _ as *mut x11::xlib::XEvent,
-                                );
-                                x11::xlib::XFlush(self.display);
-                            }
-                            unim_log!("XIM_HANDLER", "특수문자 좌클릭 → 합성 Enter 전송");
-                        }
-                        return Ok(true);
+                    SpecialClickResult::NextPage => {
+                        self.send_synthetic_key(0xff09); // Tab
                     }
-                    SpecialAction::NextPage | SpecialAction::PrevPage | SpecialAction::Consumed => {
-                        return Ok(true);
-                    }
-                    _ => return Ok(false),
+                    SpecialClickResult::Consumed => {}
                 }
+                return Ok(true);
             }
-            // 외부 클릭 → Escape 전송
+            // 외부 클릭 → Escape
             unim_log!("XIM_HANDLER", "특수문자 팝업 외부 클릭 → 합성 Escape 전송");
             conn.ungrab_pointer(x11rb::CURRENT_TIME)?;
             conn.flush()?;
-            if let Some(client_win) = self.hanja_client_window {
-                unsafe {
-                    let root = x11::xlib::XRootWindow(self.display, self.screen);
-                    let keycode = x11::xlib::XKeysymToKeycode(self.display, 0xff1b);
-                    let mut event: x11::xlib::XKeyEvent = std::mem::zeroed();
-                    event.type_ = x11::xlib::KeyPress;
-                    event.display = self.display;
-                    event.window = client_win;
-                    event.root = root;
-                    event.keycode = keycode as u32;
-                    event.state = 0;
-                    event.time = x11::xlib::CurrentTime as u64;
-                    event.send_event = x11::xlib::True;
-                    event.same_screen = x11::xlib::True;
-                    x11::xlib::XSendEvent(
-                        self.display,
-                        client_win,
-                        x11::xlib::False,
-                        x11::xlib::KeyPressMask,
-                        &mut event as *mut _ as *mut x11::xlib::XEvent,
-                    );
-                    x11::xlib::XFlush(self.display);
-                }
-            }
+            self.send_synthetic_key(0xff1b); // Escape
             return Ok(true);
         }
+
         Ok(false)
     }
 
@@ -579,6 +460,62 @@ impl UnimHandler {
             }
         }
 
+        Ok(())
+    }
+
+    /// DBus 팝업 시그널 처리 (main.rs 이벤트 루프에서 호출)
+    pub fn handle_popup_event<C: Connection + xim::x11rb::HasConnection>(
+        &mut self,
+        event: PopupEvent,
+        server: &mut X11rbServer<C>,
+    ) -> Result<(), ServerError> {
+        match event {
+            PopupEvent::Navigate {
+                page,
+                sel_row,
+                sel_col,
+                ..
+            } => {
+                // Embedded 모드: 팝업 UI 갱신
+                if let Some(ref mut hw) = self.hanja_window {
+                    hw.update_from_navigate(
+                        page as usize,
+                        sel_row as usize,
+                        sel_col as usize,
+                        self.display,
+                    );
+                }
+                if let Some(ref mut sw) = self.special_window {
+                    sw.update_from_navigate(
+                        page as usize,
+                        sel_row as usize,
+                        sel_col as usize,
+                        self.display,
+                    );
+                }
+            }
+            PopupEvent::Hide => {
+                // 팝업 닫기 (엔진이 결정)
+                if let Some(hw) = self.hanja_window.take() {
+                    hw.clean(self.display, self.screen);
+                    unim_log!("XIM_HANDLER", "HidePopup 시그널: 한자 팝업 닫기");
+                }
+                self.hanja_context_path = None;
+                if let Some(sw) = self.special_window.take() {
+                    sw.clean(self.display, self.screen);
+                    unim_log!("XIM_HANDLER", "HidePopup 시그널: 특수문자 팝업 닫기");
+                }
+                self.special_context_path = None;
+                self.hanja_client_window = None;
+                let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
+                server.conn().flush().ok();
+            }
+            PopupEvent::ShowHanja { .. } | PopupEvent::ShowSpecial { .. } => {
+                // Embedded 모드: GetHanjaCandidates에서 직접 처리
+                // Standalone 모드: GNOME extension이 처리
+                // → 여기서는 무시
+            }
+        }
         Ok(())
     }
 }
@@ -964,281 +901,12 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         );
 
         // ======================================================================
-        // 한자 팝업이 활성 상태일 때: 키를 팝업에 전달
+        // 팝업 활성 상태: 모든 키를 엔진(ProcessKeyEvent)에 위임
         // ======================================================================
-        // keysym을 x11rb의 keycode로부터 변환
+        // GNOME extension 기준 모델: 팝업은 순수 UI, 키 처리는 엔진이 전담.
+        // 엔진이 PopupNavigate/HidePopup 시그널로 팝업 상태를 갱신한다.
+        // keysym은 한자키 체크에도 사용
         let keysym = unsafe { x11::xlib::XKeycodeToKeysym(self.display, xev.detail, 0) as u32 };
-
-        if self.hanja_window.is_some() {
-            let action = {
-                let hw = self.hanja_window.as_mut().unwrap();
-                let action = hw.handle_key(keysym);
-                // 페이지 변경/선택 이동 시 즉시 다시 그리기
-                match &action {
-                    HanjaAction::NextPage
-                    | HanjaAction::PrevPage
-                    | HanjaAction::Consumed
-                    | HanjaAction::None => {
-                        hw.redraw(self.display);
-                    }
-                    _ => {}
-                }
-                action
-            };
-
-            match action {
-                HanjaAction::Select(index) => {
-                    // GTK4 패턴: 팝업에서 직접 문자 가져와 Cancel + 직접 커밋
-                    // (SelectHanja DBus를 쓰면 commit_buffer 오염 → 이중 커밋)
-                    let commit = self
-                        .hanja_window
-                        .as_ref()
-                        .and_then(|hw| hw.get_candidate(index as usize))
-                        .unwrap_or_default()
-                        .to_string();
-                    let ctx_path = self.hanja_context_path.clone().unwrap_or_default();
-                    // 엔진 상태 정리 (commit_buffer 오염 없이)
-                    self.send_dbus_request(DbusRequest::CancelHanja {
-                        context_path: ctx_path,
-                        response: None,
-                    });
-                    if !commit.is_empty() {
-                        unim_log!("XIM_HANDLER", "한자 커밋: \"{}\"", commit);
-                        server.commit(&user_ic.ic, &commit)?;
-                        server.conn().flush().ok();
-                        self.clear_preedit(server, user_ic)?;
-                        server.conn().flush().ok();
-                    }
-                    // 팝업 닫기
-                    if let Some(hw) = self.hanja_window.take() {
-                        hw.clean(self.display, self.screen);
-                    }
-                    self.hanja_context_path = None;
-                    self.hanja_client_window = None;
-                    // ungrab pointer
-                    let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
-                    server.conn().flush().ok();
-                    return Ok(true);
-                }
-                HanjaAction::Cancel => {
-                    // 한자 취소 → CancelHanja로 트리거 문자 커밋
-                    let ctx_path = self.hanja_context_path.clone().unwrap_or_default();
-                    if let Some(DbusResponse::CommitText { text }) =
-                        self.send_dbus_request(DbusRequest::CancelHanja {
-                            context_path: ctx_path,
-                            response: None,
-                        })
-                    {
-                        if !text.is_empty() {
-                            unim_log!(
-                                "XIM_HANDLER",
-                                "한자 취소 커밋: \"{}\"",
-                                text
-                            );
-                            server.commit(&user_ic.ic, &text)?;
-                        }
-                    }
-                    self.clear_preedit(server, user_ic)?;
-                    server.conn().flush().ok();
-                    // 팝업 닫기
-                    if let Some(hw) = self.hanja_window.take() {
-                        hw.clean(self.display, self.screen);
-                    }
-                    self.hanja_context_path = None;
-                    self.hanja_client_window = None;
-                    // ungrab pointer
-                    let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
-                    server.conn().flush().ok();
-                    return Ok(true);
-                }
-                HanjaAction::NextPage | HanjaAction::PrevPage => {
-                    return Ok(true); // 이미 redraw 완료
-                }
-                HanjaAction::Consumed => {
-                    // 팝업이 내부 처리한 키 (↑↓ 등) → redraw 후 소비
-                    return Ok(true);
-                }
-                HanjaAction::None => {
-                    // 팝업이 처리하지 않은 키 → 조합 커밋 + 팝업 닫고 엔진에 키 전달
-                    unim_log!(
-                        "XIM_HANDLER",
-                        "한자 팝업 미지원 키 -> 조합 커밋 + 팝업 닫고 엔진에 키 전달"
-                    );
-
-                    // 1. 조합 중인 한글 커밋 (FocusOut → commit)
-                    let ctx_path = self
-                        .hanja_context_path
-                        .clone()
-                        .unwrap_or_else(|| user_ic.user_data.context_path.clone());
-                    if let Some(DbusResponse::CommitText { text }) =
-                        self.send_dbus_request(DbusRequest::FocusOut {
-                            context_path: ctx_path.clone(),
-                            response: None,
-                        })
-                    {
-                        if !text.is_empty() {
-                            unim_log!("XIM_HANDLER", "조합 커밋: \"{}\"", text);
-                            self.clear_preedit(server, user_ic)?;
-                            server.commit(&user_ic.ic, &text)?;
-                            server.conn().flush().ok();
-                        }
-                    }
-                    self.clear_preedit(server, user_ic)?;
-
-                    // 2. 한자 팝업 닫기
-                    if let Some(hw) = self.hanja_window.take() {
-                        hw.clean(self.display, self.screen);
-                    }
-
-                    // 3. CancelHanja
-                    if let Some(ctx) = self.hanja_context_path.take() {
-                        let _ = self
-                            .dbus_tx
-                            .blocking_send(DbusRequest::CancelHanja { context_path: ctx, response: None });
-                    }
-                    self.hanja_client_window = None;
-
-                    // 4. ungrab pointer
-                    let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
-                    server.conn().flush().ok();
-
-                    // fall-through: 아래 ProcessKey 경로에서 엔진이 새 키를 처리
-                }
-            }
-        }
-
-        // ======================================================================
-        // 특수문자 팝업이 활성 상태일 때: 키를 팝업에 전달
-        // ======================================================================
-        if self.special_window.is_some() {
-            let action = {
-                let sw = self.special_window.as_mut().unwrap();
-                let action = sw.handle_key(keysym);
-                match &action {
-                    SpecialAction::NextPage | SpecialAction::PrevPage | SpecialAction::Consumed => {
-                        sw.redraw(self.display);
-                    }
-                    _ => {}
-                }
-                action
-            };
-
-            match action {
-                SpecialAction::Select(index) => {
-                    // GTK4 패턴: 팝업에서 직접 문자 가져와 Cancel + 직접 커밋
-                    // (SelectSpecialChar DBus를 쓰면 commit_buffer 오염 → 이중 커밋)
-                    let commit = self
-                        .special_window
-                        .as_ref()
-                        .and_then(|sw| sw.get_character(index))
-                        .unwrap_or_default()
-                        .to_string();
-                    let ctx_path = self.special_context_path.clone().unwrap_or_default();
-                    // 엔진 상태 정리 (commit_buffer 오염 없이)
-                    self.send_dbus_request(DbusRequest::CancelSpecialChar {
-                        context_path: ctx_path,
-                        response: None,
-                    });
-                    if !commit.is_empty() {
-                        unim_log!("XIM_HANDLER", "특수문자 커밋: \"{}\"", commit);
-                        server.commit(&user_ic.ic, &commit)?;
-                        server.conn().flush().ok();
-                        self.clear_preedit(server, user_ic)?;
-                        server.conn().flush().ok();
-                    }
-                    // 팝업 닫기
-                    if let Some(sw) = self.special_window.take() {
-                        sw.clean(self.display, self.screen);
-                    }
-                    self.special_context_path = None;
-                    self.hanja_client_window = None;
-                    let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
-                    server.conn().flush().ok();
-                    return Ok(true);
-                }
-                SpecialAction::Cancel => {
-                    let ctx_path = self.special_context_path.clone().unwrap_or_default();
-                    // preedit 복원
-                    let response = self.send_dbus_request(DbusRequest::ProcessKey {
-                        context_path: ctx_path.clone(),
-                        keyval: 0,
-                        keycode: 0,
-                        state: 0,
-                        response: None,
-                    });
-                    self.send_dbus_request(DbusRequest::CancelSpecialChar {
-                        context_path: ctx_path,
-                        response: None,
-                    });
-                    if let Some(DbusResponse::KeyProcessed {
-                        preedit, commit, ..
-                    }) = response
-                    {
-                        if let Some(ct) = commit {
-                            if !ct.is_empty() {
-                                server.commit(&user_ic.ic, &ct)?;
-                                server.conn().flush().ok();
-                            }
-                        }
-                        if let Some(pt) = preedit {
-                            if !pt.is_empty() {
-                                self.preedit(server, user_ic, &pt)?;
-                            } else {
-                                self.clear_preedit(server, user_ic)?;
-                            }
-                            server.conn().flush().ok();
-                        }
-                    }
-                    if let Some(sw) = self.special_window.take() {
-                        sw.clean(self.display, self.screen);
-                    }
-                    self.special_context_path = None;
-                    self.hanja_client_window = None;
-                    let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
-                    server.conn().flush().ok();
-                    return Ok(true);
-                }
-                SpecialAction::NextPage | SpecialAction::PrevPage => {
-                    return Ok(true);
-                }
-                SpecialAction::Consumed => {
-                    return Ok(true);
-                }
-                SpecialAction::None => {
-                    // 팝업이 처리하지 않은 키 → 조합 커밋 + 팝업 닫고 엔진에 키 전달
-                    unim_log!("XIM_HANDLER", "특수문자 팝업 미지원 키 -> 조합 커밋 + 닫기");
-                    let ctx_path = self
-                        .special_context_path
-                        .clone()
-                        .unwrap_or_else(|| user_ic.user_data.context_path.clone());
-                    if let Some(DbusResponse::CommitText { text }) =
-                        self.send_dbus_request(DbusRequest::FocusOut {
-                            context_path: ctx_path.clone(),
-                            response: None,
-                        })
-                    {
-                        if !text.is_empty() {
-                            self.clear_preedit(server, user_ic)?;
-                            server.commit(&user_ic.ic, &text)?;
-                            server.conn().flush().ok();
-                        }
-                    }
-                    self.clear_preedit(server, user_ic)?;
-                    if let Some(sw) = self.special_window.take() {
-                        sw.clean(self.display, self.screen);
-                    }
-                    if let Some(ctx) = self.special_context_path.take() {
-                        let _ = self
-                            .dbus_tx
-                            .blocking_send(DbusRequest::CancelSpecialChar { context_path: ctx, response: None });
-                    }
-                    self.hanja_client_window = None;
-                    let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
-                    server.conn().flush().ok();
-                    // fall-through
-                }
-            }
-        }
 
         // ======================================================================
         // 한자/특수문자 키 처리 (설정 기반)
