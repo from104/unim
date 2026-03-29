@@ -331,7 +331,14 @@ export default class UnimExtension extends Extension {
     _onFocusWindowChanged() {
         const focusWindow = global.display.focus_window;
 
-        // 팝업이 열려있으면 먼저 닫기 + 엔진 모드 취소
+        // 팝업이 열려있고 포커스가 null(Chrome 위젯 클릭 등)이면
+        // 마우스 클릭 이벤트가 먼저 처리되도록 지연
+        const popupVisible = this._hanjaPopup?.isVisible || this._specialPopup?.isVisible;
+        if (popupVisible && !focusWindow) {
+            return; // Chrome 위젯 클릭 — 팝업 유지, 클릭 핸들러에 맡김
+        }
+
+        // 실제 창 전환 시 팝업 닫기 + 엔진 모드 취소
         this._cleanupPopups();
 
         if (!focusWindow) {

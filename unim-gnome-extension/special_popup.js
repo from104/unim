@@ -1,9 +1,14 @@
 /**
  * UNIM 특수문자 후보 팝업
  *
- * 초성 기반 특수문자를 9×9 그리드로 표시합니다.
- * 열 우선 채움 레이아웃 사용. GTK3 unim_special_popup.c 로직 이식.
+ * 엔진 위임 모드 전용 순수 UI 컴포넌트.
+ * 초성 기반 특수문자를 9x9 그리드(열 우선 채움)로 표시한다.
+ * 모든 키 처리는 엔진(ProcessKeyEvent)이 담당하고,
+ * 팝업은 렌더링과 마우스 이벤트 콜백만 담당한다.
  *
+ * 상태 업데이트는 updateFromNavigate() 시그널이 유일한 경로.
+ *
+ * @see POPUP_SPEC.md
  * @module special_popup
  */
 
@@ -18,17 +23,14 @@ const MAX_ROWS = 9;
 const MAX_COLS = 9;
 const PAGE_SIZE = MAX_ROWS * MAX_COLS; // 81
 
-/** top_row 물리 키 위치 (QWERTY 기준) */
-const PHYSICAL_KEYS = 'qwertyuio';
-
 /** 선택 플래시 지속 시간 (ms) */
 const FLASH_DURATION_MS = 120;
 
 /**
  * SpecialPopup
  *
- * 특수문자 후보를 9×9 그리드로 표시하는 팝업.
- * top_row 키로 열 점프, 숫자로 행 선택, 화살표로 네비게이션.
+ * 특수문자 후보를 9x9 그리드로 표시하는 팝업.
+ * 키 처리 로직 없음 — 엔진 시그널로만 상태 갱신.
  */
 export class SpecialPopup {
     constructor() {
@@ -53,16 +55,25 @@ export class SpecialPopup {
         this._target = '';
         /** @type {string} top_row 키 (표시용) */
         this._topRow = '';
+
+        /** @type {number} 현재 페이지 (엔진이 관리) */
+        this._currentPage = 0;
+        /** @type {number} 전체 페이지 수 (엔진이 관리) */
+        this._totalPages = 0;
         /** @type {number} 현재 페이지의 열 수 */
         this._cols = 0;
-        /** @type {number} 현재 페이지 */
-        this._currentPage = 0;
-        /** @type {number} 전체 페이지 수 */
-        this._totalPages = 0;
-        /** @type {number} 선택 행 */
-        this._selRow = 0;
-        /** @type {number} 선택 열 */
-        this._selCol = 0;
+        /** @type {number} 현재 페이지의 행 수 */
+        this._rows = 0;
+
+        /** @type {number} 엔진이 관리하는 선택 행 */
+        this._engineSelRow = 0;
+        /** @type {number} 엔진이 관리하는 선택 열 */
+        this._engineSelCol = 0;
+        /** @type {number} 마우스 호버 행 (-1이면 비활성) */
+        this._mouseHoverRow = -1;
+        /** @type {number} 마우스 호버 열 (-1이면 비활성) */
+        this._mouseHoverCol = -1;
+
         /** @type {boolean} 플래시 후 숨김 대기 중 */
         this._pendingHide = false;
 
@@ -83,73 +94,14 @@ export class SpecialPopup {
             reactive: true,
         });
 
-        // 마우스 스크롤로 행 이동
-        this._container.connect('scroll-event', (_actor, event) => {
-            const dir = event.get_scroll_direction();
-            if (dir === Clutter.ScrollDirection.UP) {
-                if (this._selRow > 0) {
-                    this._selRow--;
-                } else if (this._totalPages > 1) {
-                    // 첫 행에서 위로 → 이전 페이지 마지막 행 (키보드 이벤트를 에뮬레이트할 수 없으므로 현재 페이지 유지)
-                    this._selRow = this._rows - 1;
-                }
-                this._updateSelection();
-            } else if (dir === Clutter.ScrollDirection.DOWN) {
-                if (this._selRow < this._rows - 1) {
-                    this._selRow++;
-                } else {
-                    this._selRow = 0;
-                }
-                this._updateSelection();
-            }
-            return Clutter.EVENT_STOP;
-        });
-
         this._header = new St.Label({ style_class: 'popup-header' });
         this._container.add_child(this._header);
 
-        // 그리드 영역
         this._grid = new St.BoxLayout({ vertical: true });
         this._container.add_child(this._grid);
 
-        // 페이지 네비게이션 (◀ 이전 / 다음 ▶)
-        const footerBox = new St.BoxLayout({ style_class: 'popup-footer-box' });
-
-        this._prevBtn = new St.Label({
-            style_class: 'popup-nav-btn',
-            text: '◀',
-            reactive: true,
-        });
-        this._prevBtn.connect('button-press-event', () => {
-            // 페이지 이동은 데몬의 PopupState가 관리하므로 직접 변경 불가
-            // → 키보드 PgUp과 동일 효과를 내기 위해 onCancel 후 재호출은 너무 복잡
-            // 간단하게: 현재 페이지 정보만으로 이전 페이지 표시
-            if (this._currentPage > 0) {
-                this._currentPage--;
-                this._updateGrid();
-            }
-            return Clutter.EVENT_STOP;
-        });
-
         this._footer = new St.Label({ style_class: 'popup-footer' });
-
-        this._nextBtn = new St.Label({
-            style_class: 'popup-nav-btn',
-            text: '▶',
-            reactive: true,
-        });
-        this._nextBtn.connect('button-press-event', () => {
-            if (this._currentPage < this._totalPages - 1) {
-                this._currentPage++;
-                this._updateGrid();
-            }
-            return Clutter.EVENT_STOP;
-        });
-
-        footerBox.add_child(this._prevBtn);
-        footerBox.add_child(this._footer);
-        footerBox.add_child(this._nextBtn);
-        this._container.add_child(footerBox);
+        this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
             affectsStruts: false,
@@ -173,51 +125,24 @@ export class SpecialPopup {
         this._target = target;
         this._characters = characters;
         this._topRow = topRow || '';
-        this._currentPage = 0;
-        this._selRow = 0;
-        this._selCol = 0;
-        this._pendingHide = false;
         this._onSelect = onSelect;
         this._onCancel = onCancel;
+        this._pendingHide = false;
 
+        // 초기 상태 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
+        this._currentPage = 0;
         this._totalPages = Math.ceil(characters.length / PAGE_SIZE);
-        this._header.set_text(`특수문자: ${target}`);
+        this._engineSelRow = 0;
+        this._engineSelCol = 0;
+        this._mouseHoverRow = -1;
+        this._mouseHoverCol = -1;
 
+        this._header.set_text(`특수문자: ${target}`);
         this._updateGrid();
 
-        // 먼저 표시하여 실제 크기 측정 가능하게 함
         this._container.show();
+        this._positionPopup(cursorRect);
 
-        // 동적 크기 측정 + 화면 경계 보정
-        const monitor = Main.layoutManager.primaryMonitor;
-        if (monitor) {
-            const [, natW] = this._container.get_preferred_width(-1);
-            const [, natH] = this._container.get_preferred_height(-1);
-            const popupWidth = natW > 0 ? natW : 340;
-            const popupHeight = natH > 0 ? natH : 360;
-            let x, y;
-
-            if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
-                x = cursorRect.x;
-                y = cursorRect.y + cursorRect.height + 4;
-            } else {
-                x = Math.floor(monitor.x + (monitor.width - popupWidth) / 2);
-                y = Math.floor(monitor.y + 100);
-            }
-
-            // 오른쪽 경계
-            if (x + popupWidth > monitor.x + monitor.width) {
-                x = monitor.x + monitor.width - popupWidth;
-            }
-            // 아래 경계 → 커서 위로
-            if (y + popupHeight > monitor.y + monitor.height) {
-                y = (cursorRect?.y ?? y) - popupHeight - 4;
-            }
-            x = Math.max(monitor.x, x);
-            y = Math.max(monitor.y, y);
-
-            this._container.set_position(x, y);
-        }
         unimLog('SPECIAL', `팝업 표시: target="${target}", ${characters.length}개 문자`);
     }
 
@@ -230,6 +155,8 @@ export class SpecialPopup {
         }
         this._characters = [];
         this._pendingHide = false;
+        this._mouseHoverRow = -1;
+        this._mouseHoverCol = -1;
         this._onSelect = null;
         this._onCancel = null;
     }
@@ -245,6 +172,8 @@ export class SpecialPopup {
     /**
      * 데몬 PopupNavigate 시그널로 상태 업데이트
      *
+     * 이것이 팝업 상태를 갱신하는 유일한 경로.
+     *
      * @param {number} page - 현재 페이지 (0-based)
      * @param {number} totalPages - 전체 페이지 수
      * @param {number} rows - 현재 페이지 행 수
@@ -254,174 +183,19 @@ export class SpecialPopup {
      */
     updateFromNavigate(page, totalPages, rows, cols, selRow, selCol) {
         if (!this.isVisible) return;
+
+        const pageChanged = this._currentPage !== page;
         this._currentPage = page;
         this._totalPages = totalPages;
         this._rows = rows;
         this._cols = cols;
-        this._selRow = selRow;
-        this._selCol = selCol;
-        this._updateGrid();
+        this._engineSelRow = selRow;
+        this._engineSelCol = selCol;
+
+        if (pageChanged) {
+            this._updateGrid();
+        }
         this._updateSelection();
-    }
-
-    /**
-     * 키 이벤트 처리
-     *
-     * GTK3 unim_special_popup_handle_key 로직 이식.
-     *
-     * @param {number} keyval - Clutter keyval
-     * @returns {boolean} true면 키 소비
-     */
-    handleKey(keyval) {
-        if (!this.isVisible || this._pendingHide) return false;
-
-        // top_row 키: 열 점프 (물리 키 위치 기준)
-        const lower = keyval >= Clutter.KEY_A && keyval <= Clutter.KEY_Z
-            ? keyval + 32 : keyval; // 대문자 → 소문자
-
-        for (let i = 0; i < Math.min(9, this._cols); i++) {
-            const expected = PHYSICAL_KEYS.charCodeAt(i);
-            if (lower === expected) {
-                if (this._cellHasChar(0, i)) {
-                    this._selCol = i;
-                    if (!this._cellHasChar(this._selRow, this._selCol)) {
-                        this._selRow = 0;
-                    }
-                    this._updateSelection();
-                }
-                return true;
-            }
-        }
-
-        // 숫자 1-9: 현재 열의 N번째 행 선택
-        if (keyval >= Clutter.KEY_1 && keyval <= Clutter.KEY_9) {
-            const row = keyval - Clutter.KEY_1;
-            if (this._cellHasChar(row, this._selCol)) {
-                this._selRow = row;
-                this._updateSelection();
-                this._selectCurrent();
-            }
-            return true;
-        }
-
-        switch (keyval) {
-        // 화살표: 네비게이션 (무한 루프)
-        case Clutter.KEY_Up:
-            if (this._selRow > 0) {
-                this._selRow--;
-            } else {
-                // 위 가장자리 → 같은 열 마지막 행
-                let lastRow = MAX_ROWS - 1;
-                while (lastRow > 0 && !this._cellHasChar(lastRow, this._selCol)) {
-                    lastRow--;
-                }
-                this._selRow = lastRow;
-            }
-            this._updateSelection();
-            return true;
-
-        case Clutter.KEY_Down:
-            if (this._selRow < MAX_ROWS - 1 &&
-                this._cellHasChar(this._selRow + 1, this._selCol)) {
-                this._selRow++;
-            } else {
-                this._selRow = 0;
-            }
-            this._updateSelection();
-            return true;
-
-        case Clutter.KEY_Left:
-            if (this._selCol > 0) {
-                this._selCol--;
-            } else {
-                this._selCol = this._cols - 1;
-            }
-            if (!this._cellHasChar(this._selRow, this._selCol)) {
-                this._selRow = 0;
-            }
-            this._updateSelection();
-            return true;
-
-        case Clutter.KEY_Right:
-            if (this._selCol < this._cols - 1) {
-                this._selCol++;
-            } else {
-                this._selCol = 0;
-            }
-            if (!this._cellHasChar(this._selRow, this._selCol)) {
-                this._selRow = 0;
-            }
-            this._updateSelection();
-            return true;
-
-        // 페이지 이동
-        case Clutter.KEY_Page_Up:
-            if (this._currentPage > 0) {
-                this._currentPage--;
-                this._selRow = 0;
-                this._selCol = 0;
-                this._updateGrid();
-            }
-            return true;
-
-        case Clutter.KEY_Page_Down:
-        case Clutter.KEY_space:
-            if (this._currentPage < this._totalPages - 1) {
-                this._currentPage++;
-                this._selRow = 0;
-                this._selCol = 0;
-                this._updateGrid();
-            }
-            return true;
-
-        // Tab / Shift+Tab: 페이지 (무한 루프)
-        case Clutter.KEY_Tab:
-            if (this._currentPage < this._totalPages - 1) {
-                this._currentPage++;
-            } else {
-                this._currentPage = 0;
-            }
-            this._selRow = 0;
-            this._selCol = 0;
-            this._updateGrid();
-            return true;
-
-        case Clutter.KEY_ISO_Left_Tab: // Shift+Tab
-            if (this._currentPage > 0) {
-                this._currentPage--;
-            } else {
-                this._currentPage = this._totalPages - 1;
-            }
-            this._selRow = 0;
-            this._selCol = 0;
-            this._updateGrid();
-            return true;
-
-        // Enter: 현재 선택 확정
-        case Clutter.KEY_Return:
-        case Clutter.KEY_KP_Enter:
-            this._selectCurrent();
-            return true;
-
-        // Escape: 취소
-        case Clutter.KEY_Escape:
-            if (this._onCancel) this._onCancel();
-            this.hide();
-            return true;
-
-        // 수정자 키: 소비
-        case Clutter.KEY_Shift_L: case Clutter.KEY_Shift_R:
-        case Clutter.KEY_Control_L: case Clutter.KEY_Control_R:
-        case Clutter.KEY_Alt_L: case Clutter.KEY_Alt_R:
-        case Clutter.KEY_Super_L: case Clutter.KEY_Super_R:
-            return true;
-
-        default:
-            // 미처리 키 → 팝업 닫고 바이패스
-            if (this._onCancel) this._onCancel();
-            this.hide();
-            return false;
-        }
     }
 
     /**
@@ -441,6 +215,42 @@ export class SpecialPopup {
     // ===========================================
 
     /**
+     * 커서 위치 기반 팝업 포지셔닝
+     * @param {{x: number, y: number, width: number, height: number}} [cursorRect]
+     * @private
+     */
+    _positionPopup(cursorRect) {
+        const monitor = Main.layoutManager.primaryMonitor;
+        if (!monitor) return;
+
+        const [, natW] = this._container.get_preferred_width(-1);
+        const [, natH] = this._container.get_preferred_height(-1);
+        const popupWidth = natW > 0 ? natW : 340;
+        const popupHeight = natH > 0 ? natH : 360;
+        let x, y;
+
+        if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
+            x = cursorRect.x;
+            y = cursorRect.y + cursorRect.height + 4;
+
+            if (y + popupHeight > monitor.y + monitor.height) {
+                y = cursorRect.y - popupHeight - 4;
+            }
+        } else {
+            x = Math.floor(monitor.x + (monitor.width - popupWidth) / 2);
+            y = Math.floor(monitor.y + 100);
+        }
+
+        if (x + popupWidth > monitor.x + monitor.width) {
+            x = monitor.x + monitor.width - popupWidth;
+        }
+        x = Math.max(monitor.x, x);
+        y = Math.max(monitor.y, y);
+
+        this._container.set_position(x, y);
+    }
+
+    /**
      * 열 우선 채움 레이아웃으로 그리드 인덱스 계산
      * @param {number} row
      * @param {number} col
@@ -449,7 +259,6 @@ export class SpecialPopup {
      */
     _getCharIndex(row, col) {
         const pageStart = this._currentPage * PAGE_SIZE;
-        // 열 우선: col * MAX_ROWS + row
         const pageOffset = col * MAX_ROWS + row;
         const globalIdx = pageStart + pageOffset;
         return globalIdx < this._characters.length ? globalIdx : -1;
@@ -465,23 +274,26 @@ export class SpecialPopup {
 
     /**
      * 현재 선택 확정 (플래시 효과 포함)
+     *
+     * hide()는 여기서 호출하지 않음.
+     * 엔진이 SelectSpecialChar 처리 후 HidePopup 시그널을 보내면 그때 닫힘.
+     *
+     * @param {number} row
+     * @param {number} col
      * @private
      */
-    _selectCurrent() {
-        const globalIdx = this._getCharIndex(this._selRow, this._selCol);
+    _selectAt(row, col) {
+        const globalIdx = this._getCharIndex(row, col);
         if (globalIdx < 0) return;
 
         this._pendingHide = true;
-
-        // 선택 플래시 표시
         this._updateSelection();
 
-        // 플래시 후 콜백 호출 + 숨김
+        // 플래시 후 콜백 호출
         GLib.timeout_add(GLib.PRIORITY_DEFAULT, FLASH_DURATION_MS, () => {
             if (this._onSelect) {
                 this._onSelect(globalIdx);
             }
-            this.hide();
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -503,7 +315,6 @@ export class SpecialPopup {
 
         // 열 헤더 행
         const headerRow = new St.BoxLayout({ style_class: 'grid-row' });
-        // 빈 모서리 셀
         headerRow.add_child(new St.Label({
             style_class: 'grid-row-number',
             text: '',
@@ -522,8 +333,8 @@ export class SpecialPopup {
         this._grid.add_child(headerRow);
 
         // 데이터 행
+        this._rows = 0;
         for (let row = 0; row < MAX_ROWS; row++) {
-            // 이 행에 문자가 하나라도 있는지 확인
             let hasAny = false;
             for (let col = 0; col < this._cols; col++) {
                 if (this._cellHasChar(row, col)) {
@@ -533,9 +344,9 @@ export class SpecialPopup {
             }
             if (!hasAny) break;
 
+            this._rows++;
             const rowWidget = new St.BoxLayout({ style_class: 'grid-row' });
 
-            // 행 번호
             const rowNum = new St.Label({
                 style_class: 'grid-row-number',
                 text: `${row + 1}`,
@@ -558,19 +369,23 @@ export class SpecialPopup {
                     const r = row;
                     const c = col;
 
-                    // 마우스 호버 효과
+                    // 마우스 호버: 표시만 (선택과 독립)
                     cell.connect('enter-event', () => {
-                        this._selRow = r;
-                        this._selCol = c;
+                        this._mouseHoverRow = r;
+                        this._mouseHoverCol = c;
+                        this._updateSelection();
+                        return Clutter.EVENT_STOP;
+                    });
+                    cell.connect('leave-event', () => {
+                        this._mouseHoverRow = -1;
+                        this._mouseHoverCol = -1;
                         this._updateSelection();
                         return Clutter.EVENT_STOP;
                     });
 
-                    // 마우스 클릭으로 문자 선택
+                    // 마우스 클릭: 선택 콜백
                     cell.connect('button-press-event', () => {
-                        this._selRow = r;
-                        this._selCol = c;
-                        this._selectCurrent();
+                        this._selectAt(r, c);
                         return Clutter.EVENT_STOP;
                     });
                 }
@@ -583,42 +398,57 @@ export class SpecialPopup {
             this._cells.push(rowCells);
         }
 
-        // 풋터 (페이지 버튼 포함)
+        // 풋터
         if (this._totalPages > 1) {
             this._footer.set_text(`${this._currentPage + 1} / ${this._totalPages}`);
             this._footer.show();
-            if (this._prevBtn) this._prevBtn.show();
-            if (this._nextBtn) this._nextBtn.show();
         } else {
             this._footer.hide();
-            if (this._prevBtn) this._prevBtn.hide();
-            if (this._nextBtn) this._nextBtn.hide();
         }
 
         this._updateSelection();
     }
 
     /**
-     * 선택 하이라이트 갱신
+     * 선택/호버 하이라이트 갱신
+     *
+     * .selected = 엔진이 관리하는 선택 위치 (항상 표시)
+     * .hovered  = 마우스 커서가 가리키는 위치 (표시만, 선택과 무관)
      * @private
      */
     _updateSelection() {
         // 셀 하이라이트
         for (let row = 0; row < this._cells.length; row++) {
             for (let col = 0; col < this._cells[row].length; col++) {
-                if (row === this._selRow && col === this._selCol) {
-                    this._cells[row][col].add_style_class_name('selected');
+                const cell = this._cells[row][col];
+                // 엔진 선택
+                if (row === this._engineSelRow && col === this._engineSelCol) {
+                    cell.add_style_class_name('selected');
                 } else {
-                    this._cells[row][col].remove_style_class_name('selected');
+                    cell.remove_style_class_name('selected');
+                }
+                // 마우스 호버 (선택과 독립)
+                if (row === this._mouseHoverRow && col === this._mouseHoverCol) {
+                    cell.add_style_class_name('hovered');
+                } else {
+                    cell.remove_style_class_name('hovered');
                 }
             }
         }
-        // 활성 열 헤더 하이라이트
+        // 활성 열 헤더 하이라이트 (엔진 선택 기준)
         for (let col = 0; col < this._colHeaders.length; col++) {
-            if (col === this._selCol) {
+            if (col === this._engineSelCol) {
                 this._colHeaders[col].add_style_class_name('active');
             } else {
                 this._colHeaders[col].remove_style_class_name('active');
+            }
+        }
+        // 활성 행 번호 하이라이트 (엔진 선택 기준)
+        for (let row = 0; row < this._rowNumbers.length; row++) {
+            if (row === this._engineSelRow) {
+                this._rowNumbers[row].add_style_class_name('active');
+            } else {
+                this._rowNumbers[row].remove_style_class_name('active');
             }
         }
     }

@@ -65,12 +65,16 @@
     height: 28px;
 }
 
-.unim-hanja-popup .popup-item:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-}
-
 .unim-hanja-popup .popup-item.selected {
     background-color: rgba(137, 180, 250, 0.2);
+}
+
+.unim-hanja-popup .popup-item.hovered {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.unim-hanja-popup .popup-item.selected.hovered {
+    background-color: rgba(137, 180, 250, 0.35);
 }
 
 .unim-hanja-popup .popup-item .item-number {
@@ -145,9 +149,16 @@
     border-radius: 4px;
 }
 
-.unim-special-popup .grid-cell:hover,
 .unim-special-popup .grid-cell.selected {
     background-color: rgba(166, 227, 161, 0.2);
+}
+
+.unim-special-popup .grid-cell.hovered {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.unim-special-popup .grid-cell.selected.hovered {
+    background-color: rgba(166, 227, 161, 0.35);
 }
 
 .unim-special-popup .grid-header {
@@ -168,6 +179,10 @@
     font-weight: bold;
     font-size: 12px;
     min-width: 20px;
+}
+
+.unim-special-popup .grid-row-number.active {
+    color: #a6e3a1;
 }
 
 .unim-special-popup .popup-footer {

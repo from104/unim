@@ -1138,6 +1138,10 @@ impl InputContextHandler {
             Self::commit_text(&signal_ctx, &hanja).await.ok();
         }
 
+        // 마우스 클릭 선택은 ProcessKeyEvent를 거치지 않으므로
+        // HidePopup 시그널을 여기서 명시적으로 발행해야 함
+        Self::hide_popup(&signal_ctx).await.ok();
+
         unim_log!(
             "DBUS",
             "[DBus] SelectHanja: index={}, result='{}'",
@@ -1261,6 +1265,10 @@ impl InputContextHandler {
         if !ch.is_empty() {
             Self::commit_text(&signal_ctx, &ch).await.ok();
         }
+
+        // 마우스 클릭 선택은 ProcessKeyEvent를 거치지 않으므로
+        // HidePopup 시그널을 여기서 명시적으로 발행해야 함
+        Self::hide_popup(&signal_ctx).await.ok();
 
         unim_log!(
             "DBUS",

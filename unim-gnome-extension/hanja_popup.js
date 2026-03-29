@@ -302,27 +302,36 @@ export class HanjaPopup {
     }
 
     /**
-     * 선택 하이라이트 갱신
+     * 선택/호버 하이라이트 갱신
      *
-     * 마우스 호버 중이면 호버 인덱스를, 아니면 엔진 선택 인덱스를 하이라이트.
+     * .selected = 엔진이 관리하는 선택 위치 (항상 표시)
+     * .hovered  = 마우스 커서가 가리키는 위치 (표시만, 선택과 무관)
      * @private
      */
     _updateSelection() {
-        const activeIndex = this._mouseHoverIndex >= 0
-            ? this._mouseHoverIndex
-            : this._engineSelectedIndex;
-
         for (let i = 0; i < this._rows.length; i++) {
-            if (i === activeIndex) {
+            // 엔진 선택 하이라이트
+            if (i === this._engineSelectedIndex) {
                 this._rows[i].add_style_class_name('selected');
             } else {
                 this._rows[i].remove_style_class_name('selected');
+            }
+            // 마우스 호버 표시 (선택과 독립)
+            if (i === this._mouseHoverIndex) {
+                this._rows[i].add_style_class_name('hovered');
+            } else {
+                this._rows[i].remove_style_class_name('hovered');
             }
         }
     }
 
     /**
      * 후보 선택 → 콜백 호출
+     *
+     * hide()는 여기서 호출하지 않음.
+     * 엔진이 SelectHanja 처리 후 HidePopup 시그널을 보내면 그때 닫힘.
+     * 여기서 hide()를 호출하면 콜백 내 DBus 호출과 경쟁 조건이 발생할 수 있음.
+     *
      * @param {number} globalIndex
      * @private
      */
@@ -330,7 +339,5 @@ export class HanjaPopup {
         if (globalIndex < this._candidates.length && this._onSelect) {
             this._onSelect(globalIndex);
         }
-        // hide()는 HidePopup 시그널로 처리되지만, 즉시 반응을 위해 여기서도 호출
-        this.hide();
     }
 }

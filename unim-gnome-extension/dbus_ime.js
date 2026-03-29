@@ -494,7 +494,6 @@ export class UnimDbusIME {
             const result = this._icProxy.call_sync(
                 'CancelHanja',
                 null,
-                new GLib.VariantType('(s)'),
                 Gio.DBusCallFlags.NONE,
                 DBUS_TIMEOUT_MS,
                 null
@@ -576,7 +575,6 @@ export class UnimDbusIME {
             const result = this._icProxy.call_sync(
                 'CancelSpecialChar',
                 null,
-                new GLib.VariantType('(s)'),
                 Gio.DBusCallFlags.NONE,
                 DBUS_TIMEOUT_MS,
                 null
