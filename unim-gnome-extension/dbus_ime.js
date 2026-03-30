@@ -166,7 +166,8 @@ export class UnimDbusIME {
         );
 
         // 모든 InputContext의 팝업 시그널을 글로벌 구독
-        // (XIM/GTK/Qt 등 다른 프론트엔드의 팝업도 GNOME extension이 처리)
+        // Wayland에서만 활성: 다른 프론트엔드(XIM/GTK/Qt)의 팝업을 GNOME extension이 표시
+        // X11에서는 gui-gtk가 팝업을 처리하므로 글로벌 구독 불필요 (중복 팝업 방지)
         const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
         this._popupSignalId = bus.signal_subscribe(
             UNIM_BUS_NAME,
@@ -178,6 +179,8 @@ export class UnimDbusIME {
             (_conn, _sender, path, _iface, signalName, parameters) => {
                 // 자기 context 시그널은 _icProxy g-signal에서 이미 처리
                 if (path === this._contextPath) return;
+                // X11에서는 gui-gtk가 팝업을 담당하므로 스킵 (중복 팝업 방지)
+                if (!Meta.is_wayland_compositor()) return;
                 this._handleContextSignal(signalName, parameters, false);
             }
         );
