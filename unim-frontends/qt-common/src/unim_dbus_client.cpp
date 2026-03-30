@@ -182,20 +182,26 @@ QString UnimDbusClient::focusOut()
     
     UNIM_DBUS_DEBUG("FocusOut");
     
-    // 조합 중인 문자가 있으면 반환
-    if (m_isComposing && !m_preeditCache.isEmpty()) {
-        commitStr = m_preeditCache;
-        UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋: %s", qPrintable(commitStr)));
-    }
-    
+    // DBus FocusOut 호출 — 서버 반환값을 우선 사용
     QDBusMessage msg = QDBusMessage::createMethodCall(
         UNIM_DBUS_SERVICE,
         m_contextPath,
         UNIM_DBUS_IC_INTERFACE,
         QStringLiteral("FocusOut")
     );
-    
-    m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    if (reply.type() == QDBusMessage::ReplyMessage && !reply.arguments().isEmpty()) {
+        QString serverCommit = reply.arguments().first().toString();
+        if (!serverCommit.isEmpty()) {
+            commitStr = serverCommit;
+            UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋 (서버): %s", qPrintable(commitStr)));
+        }
+    } else if (m_isComposing && !m_preeditCache.isEmpty()) {
+        // DBus 실패 시 로컬 캐시 폴백
+        commitStr = m_preeditCache;
+        UNIM_DBUS_DEBUG(QString::asprintf("FocusOut 커밋 (로컬 폴백): %s", qPrintable(commitStr)));
+    }
     
     // 상태 초기화
     m_preeditCache.clear();

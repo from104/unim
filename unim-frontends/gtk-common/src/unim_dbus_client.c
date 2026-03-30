@@ -281,31 +281,39 @@ unim_dbus_focus_out(UnimDbusContext *ctx, gchar **commit)
 
     UNIM_DBUS_DEBUG("FocusOut 호출");
 
-    /* 조합 중인 문자가 있으면 커밋 */
-    if (ctx->is_composing && ctx->preedit_cache && strlen(ctx->preedit_cache) > 0) {
-        if (commit) {
-            *commit = g_strdup(ctx->preedit_cache);
-            UNIM_DBUS_DEBUG("FocusOut 커밋: \"%s\"", *commit);
-        }
-    }
-
-    g_dbus_connection_call_sync(
+    /* DBus FocusOut 호출 — 서버가 반환하는 커밋 텍스트를 우선 사용 */
+    GVariant *result = g_dbus_connection_call_sync(
         ctx->connection,
         UNIM_DBUS_SERVICE,
         ctx->context_path,
         UNIM_DBUS_IC_INTERFACE,
         "FocusOut",
         NULL,
-        NULL,
+        G_VARIANT_TYPE("(s)"),
         G_DBUS_CALL_FLAGS_NONE,
         UNIM_DBUS_TIMEOUT_MS,
         NULL,
         &error
     );
 
-    if (error) {
+    if (result) {
+        const gchar *server_commit = NULL;
+        g_variant_get(result, "(&s)", &server_commit);
+        if (commit && server_commit && strlen(server_commit) > 0) {
+            *commit = g_strdup(server_commit);
+            UNIM_DBUS_DEBUG("FocusOut 커밋 (서버): \"%s\"", *commit);
+        }
+        g_variant_unref(result);
+    } else {
         UNIM_DBUS_DEBUG("FocusOut 실패: %s", error->message);
         g_error_free(error);
+        /* DBus 실패 시 로컬 캐시 폴백 */
+        if (ctx->is_composing && ctx->preedit_cache && strlen(ctx->preedit_cache) > 0) {
+            if (commit && !*commit) {
+                *commit = g_strdup(ctx->preedit_cache);
+                UNIM_DBUS_DEBUG("FocusOut 커밋 (로컬 폴백): \"%s\"", *commit);
+            }
+        }
     }
 
     /* 상태 초기화 */

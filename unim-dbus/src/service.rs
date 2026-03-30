@@ -786,14 +786,13 @@ impl InputContextHandler {
 
         let commit = response_rx.await.ok().flatten().unwrap_or_default();
 
-        // 팝업이 열려있었을 수 있으므로 HidePopup 시그널 발행
-        // (gui-gtk 등 Standalone 팝업이 닫히도록)
-        Self::hide_popup(&signal_ctx).await.ok();
-
-        // 시그널도 발송 (호환성 유지)
+        // 커밋 시그널을 먼저 발행한 후 HidePopup 발행
+        // (HidePopup이 먼저 오면 Standalone 팝업이 포커스를 이동시켜
+        //  CommitText가 엉뚱한 위치에 도착할 수 있음)
         if !commit.is_empty() {
             Self::commit_text(&signal_ctx, &commit).await.ok();
         }
+        Self::hide_popup(&signal_ctx).await.ok();
 
         unim_log!(
             "DBUS",
