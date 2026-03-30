@@ -608,9 +608,11 @@ impl InputContextHandler {
         }
 
         // 팝업 시그널 자동 발행 (Push 방식: 인디케이터가 팝업 표시)
+        // Standalone 모드일 때만 Show 시그널 발행 (Embedded 모드에서는 IM 모듈이 자체 처리)
+        let is_standalone = Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone;
         if let Some(popup) = &response.popup_action {
             match popup {
-                PopupAction::ShowHanja { target, candidates } => {
+                PopupAction::ShowHanja { target, candidates } if is_standalone => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
                     Self::show_hanja_popup(&signal_ctx, target, candidates.clone(), x, y, w, h)
                         .await
@@ -626,7 +628,7 @@ impl InputContextHandler {
                     target,
                     characters,
                     top_row,
-                } => {
+                } if is_standalone => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
                     Self::show_special_popup(
                         &signal_ctx,
@@ -684,6 +686,8 @@ impl InputContextHandler {
                         sel_col
                     );
                 }
+                // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
+                _ => {}
             }
         }
 
@@ -782,6 +786,10 @@ impl InputContextHandler {
 
         let commit = response_rx.await.ok().flatten().unwrap_or_default();
 
+        // 팝업이 열려있었을 수 있으므로 HidePopup 시그널 발행
+        // (gui-gtk 등 Standalone 팝업이 닫히도록)
+        Self::hide_popup(&signal_ctx).await.ok();
+
         // 시그널도 발송 (호환성 유지)
         if !commit.is_empty() {
             Self::commit_text(&signal_ctx, &commit).await.ok();
@@ -812,6 +820,9 @@ impl InputContextHandler {
             .ok();
 
         let commit = response_rx.await.ok().flatten().unwrap_or_default();
+
+        // 팝업이 열려있었을 수 있으므로 HidePopup 시그널 발행
+        Self::hide_popup(&signal_ctx).await.ok();
 
         if !commit.is_empty() {
             Self::commit_text(&signal_ctx, &commit).await.ok();

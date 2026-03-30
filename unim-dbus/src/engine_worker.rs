@@ -284,32 +284,48 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 response,
             } => {
                 let commit = if let Some(engine) = contexts.get_mut(&context_id) {
-                    // 한자/특수문자 팝업이 활성 상태이면 preedit을 커밋하지 않음
-                    // (팝업 윈도우가 포커스를 가져가면서 발생하는 FocusOut 무시)
-                    if engine.is_hanja_mode() || engine.is_special_char_mode() {
+                    // 팝업 활성 상태이면 취소하고 트리거 문자를 커밋 텍스트에 포함
+                    let mut commit_text = String::new();
+                    if engine.is_hanja_mode() {
+                        let t = engine.get_hanja_target().to_string();
+                        engine.cancel_hanja();
+                        if !t.is_empty() {
+                            commit_text = t;
+                        }
                         unim_log!(
                             "ENGINE_WORKER",
-                            "[Engine Worker] FocusOut 무시 (팝업 활성): context_id={}",
+                            "[Engine Worker] FocusOut: 한자 팝업 취소, context_id={}",
                             context_id
                         );
-                        None
+                    } else if engine.is_special_char_mode() {
+                        let t = engine.get_special_char_target().to_string();
+                        engine.cancel_special_char();
+                        if !t.is_empty() {
+                            commit_text = t;
+                        }
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] FocusOut: 특수문자 팝업 취소, context_id={}",
+                            context_id
+                        );
                     } else {
                         let preedit = engine.preedit_str();
                         if !preedit.is_empty() {
-                            // 현재 모드 저장 (Global 모드가 아닌 경우)
-                            let current_mode = engine.input_category();
-                            // 조합 중인 텍스트를 커밋으로 변환하기 위해 엔진 리셋
-                            // (flush_preedit이 private이므로 대안)
-                            let commit_text = preedit.to_string();
-                            *engine = InputEngine::new(&config);
-                            // Global 모드가 아닌 경우 저장된 모드 복원 (PerApp, PerWindow)
-                            if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
-                                engine.set_input_category(current_mode);
-                            }
-                            Some(commit_text)
-                        } else {
-                            None
+                            commit_text = preedit.to_string();
                         }
+                    }
+
+                    // 엔진 초기화 (입력 모드 유지)
+                    let current_mode = engine.input_category();
+                    *engine = InputEngine::new(&config);
+                    if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
+                        engine.set_input_category(current_mode);
+                    }
+
+                    if commit_text.is_empty() {
+                        None
+                    } else {
+                        Some(commit_text)
                     }
                 } else {
                     None

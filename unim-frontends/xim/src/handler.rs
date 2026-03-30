@@ -658,6 +658,16 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             server.conn().flush().ok();
         }
 
+        // 특수문자 팝업이 열려있으면 닫기
+        if self.special_window.is_some() {
+            if let Some(sw) = self.special_window.take() {
+                sw.clean(self.display, self.screen);
+            }
+            self.special_context_path = None;
+            let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
+            server.conn().flush().ok();
+        }
+
         if let Some(pe_id) = user_ic.user_data.pe_window {
             if let Some(pe) = self.preedit_windows.remove(&pe_id) {
                 pe.clean(self.display, self.screen);
