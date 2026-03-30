@@ -11,6 +11,18 @@ import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import { unimLog, unimError } from './logging.js';
 
+/** 수정자 키 — IM이 가로채지 않고 Mutter에 직접 전달 (고정키 등 접근성 호환) */
+const MODIFIER_KEYSYMS = new Set([
+    Clutter.KEY_Shift_L, Clutter.KEY_Shift_R,
+    Clutter.KEY_Control_L, Clutter.KEY_Control_R,
+    Clutter.KEY_Alt_L, Clutter.KEY_Alt_R,
+    Clutter.KEY_Super_L, Clutter.KEY_Super_R,
+    Clutter.KEY_Meta_L, Clutter.KEY_Meta_R,
+    Clutter.KEY_Hyper_L, Clutter.KEY_Hyper_R,
+    Clutter.KEY_Caps_Lock, Clutter.KEY_Num_Lock,
+    Clutter.KEY_Scroll_Lock,
+]);
+
 /**
  * UnimInputMethod
  *
@@ -100,6 +112,14 @@ class UnimInputMethod extends Clutter.InputMethod {
                          eventType === Clutter.EventType.KEY_RELEASE ? 'RELEASE' : `OTHER(${eventType})`;
 
         unimLog('IME', `vfunc_filter: type=${typeName}, keyval=${keyval}, keycode=${keycode}, state=0x${state.toString(16)}, flags=0x${flags.toString(16)}`);
+
+        // 수정자 키 단독 입력은 IM이 가로채지 않음 (return false)
+        // → Mutter가 직접 처리하여 고정키(Sticky Keys) 등 접근성 기능 정상 작동
+        // (return true + notify_key_event(false) 패턴은 FLAG_INPUT_METHOD 플래그를
+        //  부착하여 고정키 핸들러가 이벤트를 무시하는 원인이 됨)
+        if (MODIFIER_KEYSYMS.has(keyval)) {
+            return false;
+        }
 
         // KEY_RELEASE: 처리하지 않지만 notify_key_event는 반드시 호출
         // (Mutter의 키 상태 추적 유지 — 누락 시 키 반복이 멈추지 않음)

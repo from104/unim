@@ -181,10 +181,11 @@ export class KeyHandler {
         // 2. 팝업 활성 시에도 ProcessKeyEvent로 fall-through
         //    engine이 팝업 키를 처리하고 시그널(PopupNavigate, HidePopup)로 UI 갱신
 
-        // 3. Ctrl/Alt/Super 조합 → 조합 중이면 flush 후 바이패스
+        // 3. Ctrl/Alt/Super 조합 → 키를 먼저 전달한 후 조합 flush
+        //    (고정키 사용 시 _flushCompose의 call_sync 중 modifier가 해제되는 것을 방지)
         if (state & BYPASS_MODIFIER_MASK) {
-            this._flushCompose();
             this._inputMethod.notify_key_event(event, false);
+            this._flushCompose();
             return;
         }
 
