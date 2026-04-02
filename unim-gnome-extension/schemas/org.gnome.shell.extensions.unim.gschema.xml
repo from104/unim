@@ -55,7 +55,25 @@
     <key type="s" name="mode-sharing">
       <default>'global'</default>
       <summary>Mode Sharing Mode</summary>
-      <description>How input mode is shared across apps: 'global' (all apps share), 'per_app' (each app independent), 'per_window' (each window independent)</description>
+      <description>How input mode is shared across apps: 'global' (all apps share), 'per_app' (each app independent)</description>
+    </key>
+
+    <key type="as" name="toggle-keys">
+      <default>['Korean','RightAlt']</default>
+      <summary>Toggle Keys</summary>
+      <description>Keys for Korean/English mode toggle</description>
+    </key>
+
+    <key type="as" name="hanja-keys">
+      <default>['Hanja','F9']</default>
+      <summary>Hanja/Special Character Keys</summary>
+      <description>Keys for Hanja/special character conversion</description>
+    </key>
+
+    <key type="s" name="popup-mode">
+      <default>'Standalone'</default>
+      <summary>Popup Mode</summary>
+      <description>Popup display mode: 'Standalone' (GUI integrated) or 'Embedded' (frontend embedded)</description>
     </key>
 
     <!-- ============================================ -->

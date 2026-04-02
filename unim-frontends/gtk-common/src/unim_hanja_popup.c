@@ -84,9 +84,10 @@ hanja_widget_add_css_class(GtkWidget *w, const char *cls) {
 /* 내부 구조체 */
 struct _UnimHanjaPopup {
     GtkWidget *window;           /* 팝업 윈도우 */
+    GtkWidget *header_label;     /* 헤더 (「X」 → 한자) */
     GtkWidget *listbox;          /* 후보 리스트 */
     GtkWidget *page_label;       /* 페이지 표시 */
-    
+
     UnimHanjaCandidate *candidates;  /* 후보 배열 */
     gsize count;                     /* 전체 후보 개수 */
     gsize current_page;              /* 현재 페이지 (0부터 시작) */
@@ -141,29 +142,44 @@ update_listbox(UnimHanjaPopup *popup)
     for (gsize i = 0; i < page_count; i++) {
         gsize idx = start + i;
         UnimHanjaCandidate *cand = &popup->candidates[idx];
-        
-        /* 라벨 생성: "1. 漢 한자" */
-        gchar *label_text = g_strdup_printf("%zu. %s  %s", 
-                                             i + 1, 
-                                             cand->hanja, 
-                                             cand->meaning ? cand->meaning : "");
-        
-        GtkWidget *label = gtk_label_new(label_text);
-        gtk_label_set_xalign(GTK_LABEL(label), 0.0);
-        g_free(label_text);
+
+        /* 행 박스: 번호 + 한자 + 뜻 */
+        GtkWidget *row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+
+        gchar *num_text = g_strdup_printf("%zu.", i + 1);
+        GtkWidget *num_label = gtk_label_new(num_text);
+        g_free(num_text);
+        gtk_label_set_xalign(GTK_LABEL(num_label), 0.0);
+        gtk_widget_set_margin_end(num_label, 6);
+        WIDGET_ADD_CSS_CLASS(num_label, "item-number");
+
+        GtkWidget *hanja_label = gtk_label_new(cand->hanja);
+        gtk_label_set_xalign(GTK_LABEL(hanja_label), 0.0);
+        gtk_widget_set_margin_end(hanja_label, 8);
+        WIDGET_ADD_CSS_CLASS(hanja_label, "item-hanja");
+
+        GtkWidget *meaning_label = gtk_label_new(cand->meaning ? cand->meaning : "");
+        gtk_label_set_xalign(GTK_LABEL(meaning_label), 0.0);
+        WIDGET_ADD_CSS_CLASS(meaning_label, "item-meaning");
 
 #if GTK_CHECK_VERSION(4, 0, 0)
-        gtk_list_box_append(GTK_LIST_BOX(popup->listbox), label);
+        gtk_box_append(GTK_BOX(row_box), num_label);
+        gtk_box_append(GTK_BOX(row_box), hanja_label);
+        gtk_box_append(GTK_BOX(row_box), meaning_label);
+        gtk_list_box_append(GTK_LIST_BOX(popup->listbox), row_box);
 #else
-        gtk_container_add(GTK_CONTAINER(popup->listbox), label);
-        gtk_widget_show(label);
+        gtk_box_pack_start(GTK_BOX(row_box), num_label, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(row_box), hanja_label, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(row_box), meaning_label, FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(popup->listbox), row_box);
+        gtk_widget_show_all(row_box);
 #endif
     }
 
     /* 페이지 라벨 업데이트 */
     if (popup->page_label && get_total_pages(popup) > 1) {
-        gchar *page_text = g_strdup_printf("%zu / %zu", 
-                                            popup->current_page + 1, 
+        gchar *page_text = g_strdup_printf("%zu/%zu",
+                                            popup->current_page + 1,
                                             get_total_pages(popup));
         gtk_label_set_text(GTK_LABEL(popup->page_label), page_text);
         g_free(page_text);
@@ -341,6 +357,15 @@ unim_hanja_popup_new(void)
             ".unim-hanja-vbox {"
             "  padding: 0; margin: 0;"
             "}"
+            ".unim-hanja-vbox label.popup-header {"
+            "  background-color: #313244;"
+            "  color: #89b4fa;"
+            "  font-size: 13px;"
+            "  font-weight: bold;"
+            "  padding: 6px 8px;"
+            "  border-radius: 4px;"
+            "  margin-bottom: 6px;"
+            "}"
             ".unim-hanja-vbox list {"
             "  background: transparent;"
             "  border-radius: 6px;"
@@ -354,9 +379,24 @@ unim_hanja_popup_new(void)
             ".unim-hanja-vbox list row:selected {"
             "  background-color: rgba(137, 180, 250, 0.2);"
             "}"
-            ".unim-hanja-vbox list row label {"
+            ".unim-hanja-vbox list row:hover {"
+            "  background-color: rgba(255, 255, 255, 0.05);"
+            "}"
+            ".unim-hanja-vbox list row:selected:hover {"
+            "  background-color: rgba(137, 180, 250, 0.35);"
+            "}"
+            ".unim-hanja-vbox list row label.item-number {"
+            "  color: #7f849c;"
+            "  font-size: 12px;"
+            "}"
+            ".unim-hanja-vbox list row label.item-hanja {"
             "  color: #cdd6f4;"
-            "  font-size: 14px;"
+            "  font-size: 18px;"
+            "  font-weight: bold;"
+            "}"
+            ".unim-hanja-vbox list row label.item-meaning {"
+            "  color: #a6adc8;"
+            "  font-size: 12px;"
             "}"
             ".unim-hanja-vbox list row:selected label {"
             "  color: #cdd6f4;"
@@ -397,6 +437,16 @@ unim_hanja_popup_new(void)
     gtk_container_add(GTK_CONTAINER(popup->window), vbox);
 #endif
     WIDGET_ADD_CSS_CLASS(vbox, "unim-hanja-vbox");
+
+    /* 헤더 라벨 */
+    popup->header_label = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(popup->header_label), 0.0);
+    WIDGET_ADD_CSS_CLASS(popup->header_label, "popup-header");
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_box_append(GTK_BOX(vbox), popup->header_label);
+#else
+    gtk_box_pack_start(GTK_BOX(vbox), popup->header_label, FALSE, FALSE, 0);
+#endif
 
     /* 리스트박스 */
     popup->listbox = gtk_list_box_new();
@@ -487,6 +537,13 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
     popup->selected_index = 0;
     popup->callback = callback;
     popup->user_data = user_data;
+
+    /* 헤더 텍스트 설정 */
+    {
+        gchar *header_text = g_strdup_printf("「%s」 → 한자", target);
+        gtk_label_set_text(GTK_LABEL(popup->header_label), header_text);
+        g_free(header_text);
+    }
 
     /* Build arrays for C-API PopupState */
     {

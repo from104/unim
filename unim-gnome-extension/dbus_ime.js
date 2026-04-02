@@ -262,8 +262,8 @@ export class UnimDbusIME {
 
             if (!result) return null;
 
-            const [consumed, preedit, commit] = result.deep_unpack();
-            return { consumed, preedit, commit };
+            const [consumed, preedit, commit, typefixDelete, typefixReplacement] = result.deep_unpack();
+            return { consumed, preedit, commit, typefixDelete, typefixReplacement };
         } catch (e) {
             unimError('DBUS_IME', `ProcessKey 실패: ${e.message}`);
             return null;

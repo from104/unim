@@ -48,7 +48,7 @@ enum ConfigKey {
     /// 초기 입력 모드 (korean, english)
     #[value(name = "default-category")]
     DefaultCategory,
-    /// 모드 공유 방식 (global, per-app, per-window)
+    /// 모드 공유 방식 (global, per-app)
     #[value(name = "mode-sharing")]
     ModeSharing,
     /// 자동 전환 활성화 (true, false)
@@ -66,6 +66,9 @@ enum ConfigKey {
     /// 팝업 표시 방식 (standalone, embedded)
     #[value(name = "popup-mode")]
     PopupMode,
+    /// 앱별 모드 규칙 (JSON 형식)
+    #[value(name = "app-rules")]
+    AppRules,
 }
 
 fn config_show() {
@@ -127,6 +130,15 @@ fn config_show() {
         "{}: {}",
         t!("popup_mode_label"),
         config.engine.popup_mode.name()
+    );
+    println!(
+        "{}: {}",
+        t!("app_rules_label"),
+        if config.engine.app_rules.is_empty() {
+            t!("not_set").to_string()
+        } else {
+            format!("{} rules", config.engine.app_rules.len())
+        }
     );
     println!();
     if let Some(path) = UnimConfig::default_config_path() {
@@ -214,12 +226,11 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             let mode = match value.to_lowercase().as_str() {
                 "global" | "전역" => ModeSharingMode::Global,
                 "per-app" | "perapp" | "앱별" => ModeSharingMode::PerApp,
-                "per-window" | "perwindow" | "창별" => ModeSharingMode::PerWindow,
                 _ => {
                     return Err(t!(
                         "error_invalid_mode_sharing",
                         value = value,
-                        allowed = "global, per-app, per-window"
+                        allowed = "global, per-app"
                     )
                     .to_string());
                 }
@@ -303,6 +314,12 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("popup_mode_label"),
                 config.engine.popup_mode.name()
             );
+        }
+        ConfigKey::AppRules => {
+            let rules: Vec<unim::config::AppRule> =
+                serde_json::from_str(value).map_err(|e| format!("Invalid JSON: {}", e))?;
+            config.engine.app_rules = rules;
+            println!("{}: {} rules", t!("app_rules_label"), config.engine.app_rules.len());
         }
     }
 

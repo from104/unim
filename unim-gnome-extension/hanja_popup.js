@@ -107,7 +107,7 @@ export class HanjaPopup {
         this._engineSelectedIndex = 0;
         this._mouseHoverIndex = -1;
 
-        this._header.set_text(`한자: ${target}`);
+        this._header.set_text(`「${target}」 → 한자`);
         this._updateList();
 
         // 먼저 표시하여 실제 크기 측정 가능하게 함
@@ -292,7 +292,7 @@ export class HanjaPopup {
 
         // 페이지 표시
         if (this._totalPages > 1) {
-            this._footer.set_text(`${this._currentPage + 1} / ${this._totalPages}`);
+            this._footer.set_text(`${this._currentPage + 1}/${this._totalPages}`);
             this._footer.show();
         } else {
             this._footer.hide();

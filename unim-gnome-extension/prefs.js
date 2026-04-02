@@ -122,8 +122,27 @@ export default class UnimPreferences extends ExtensionPreferences {
             _('앱 간 한/영 상태 공유 방식'),
             [
                 ['global', _('전역 공유')],
-                ['per_app', _('앱별 독립')],
-                ['per_window', _('창별 독립')]
+                ['per_app', _('앱별 독립')]
+            ],
+            true
+        );
+
+        // Popup Mode
+        const popupGroup = new Adw.PreferencesGroup({
+            title: _('팝업 설정'),
+            description: _('한자/특수문자 팝업 표시 방식')
+        });
+        inputPage.add(popupGroup);
+
+        this._addCombo(
+            popupGroup,
+            settings,
+            'popup-mode',
+            _('팝업 표시 방식'),
+            _('한자/특수문자 팝업 렌더링 방식'),
+            [
+                ['Standalone', _('독립형 (GUI)')],
+                ['Embedded', _('내장형 (프론트엔드)')]
             ],
             true
         );
@@ -131,10 +150,10 @@ export default class UnimPreferences extends ExtensionPreferences {
         // Note about config sync
         const noteGroup = new Adw.PreferencesGroup();
         inputPage.add(noteGroup);
-        
+
         const noteRow = new Adw.ActionRow({
             title: _('ℹ️ 설정 동기화'),
-            subtitle: _('레이아웃 변경 시 ~/.config/unim/config.yaml에 자동 저장됩니다.')
+            subtitle: _('설정 변경 시 ~/.config/unim/config.yaml에 자동 저장됩니다.')
         });
         noteGroup.add(noteRow);
 
@@ -226,11 +245,11 @@ export default class UnimPreferences extends ExtensionPreferences {
             const koreanLayout = koreanLayoutMap[settings.get_string('korean-layout')] || 'Dubeolsik';
             const englishLayout = englishLayoutMap[settings.get_string('english-layout')] || 'Qwerty';
             const initialMode = settings.get_string('initial-mode') || 'English';
-            
+            const popupMode = settings.get_string('popup-mode') || 'Standalone';
+
             const modeSharingMap = {
                 'global': 'Global',
-                'per_app': 'PerApp',
-                'per_window': 'PerWindow'
+                'per_app': 'PerApp'
             };
             const modeSharing = modeSharingMap[settings.get_string('mode-sharing')] || 'Global';
             
@@ -255,11 +274,19 @@ export default class UnimPreferences extends ExtensionPreferences {
                         `$1${koreanLayout}`],
                     [/^(\s*layout:\s*)(?:Qwerty|Dvorak|Colemak|ColemakDh|Workman)\s*$/m,
                         `$1${englishLayout}`],
+                    [/^(\s*popup_mode:\s*).*$/m, `$1${popupMode}`],
                 ];
                 
                 yamlContent = existingContent;
                 for (const [pattern, replacement] of replacements) {
                     yamlContent = yamlContent.replace(pattern, replacement);
+                }
+                // popup_mode 행이 없으면 engine: 블록 끝에 추가
+                if (!/^\s*popup_mode:/m.test(yamlContent)) {
+                    yamlContent = yamlContent.replace(
+                        /^(engine:.*$)/m,
+                        `$1\n  popup_mode: ${popupMode}`
+                    );
                 }
             } else {
                 // No existing config — create default template

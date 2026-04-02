@@ -15,6 +15,13 @@ use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
 use unim::unim_log;
 
+/// window_id에서 앱 식별자를 추출합니다.
+/// 형식: "app_name:window_specific_id" → "app_name"
+/// ':' 가 없으면 window_id 전체를 app_id로 사용합니다.
+fn extract_app_id(window_id: &str) -> &str {
+    window_id.split(':').next().unwrap_or(window_id)
+}
+
 /// 엔진 워커를 시작하고 요청 수신 채널을 반환합니다.
 ///
 /// # Returns
@@ -33,8 +40,8 @@ pub fn spawn_engine_worker(config: Config) -> mpsc::Sender<EngineRequest> {
 /// 엔진 워커 메인 루프 (블로킹)
 fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) {
     let mut contexts: HashMap<u32, InputEngine> = HashMap::new();
-    // 창별 모드 저장: window_id -> InputCategory
-    let mut window_modes: HashMap<String, unim::config::InputCategory> = HashMap::new();
+    // 앱별 모드 저장: app_id -> InputCategory (PerApp 모드용)
+    let mut app_modes: HashMap<String, unim::config::InputCategory> = HashMap::new();
     // 컨텍스트 -> 창 ID 매핑
     let mut context_windows: HashMap<u32, String> = HashMap::new();
 
@@ -63,14 +70,15 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             } => {
                 let mut engine = InputEngine::new(&config);
 
-                // PerWindow 모드에서는 창별 저장된 모드 적용
-                if config.engine.mode_sharing == unim::config::ModeSharingMode::PerWindow {
-                    if let Some(&saved_mode) = window_modes.get(&window_id) {
+                // PerApp 모드에서는 앱별 저장된 모드 적용
+                if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
+                    let app_id = extract_app_id(&window_id);
+                    if let Some(&saved_mode) = app_modes.get(app_id) {
                         engine.set_input_category(saved_mode);
                         unim_log!(
                             "ENGINE_WORKER",
-                            "[Engine Worker] 창별 모드 복원: window_id={}, mode={:?}",
-                            window_id,
+                            "[Engine Worker] 앱별 모드 복원: app_id={}, mode={:?}",
+                            app_id,
                             saved_mode
                         );
                     }
@@ -135,14 +143,15 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
                     let mode_changed = if prev_mode != current_mode {
-                        // PerWindow 모드에서는 창별 모드 저장
-                        if config.engine.mode_sharing == unim::config::ModeSharingMode::PerWindow {
+                        // PerApp 모드에서는 앱별 모드 저장
+                        if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
                             if let Some(window_id) = context_windows.get(&context_id) {
-                                window_modes.insert(window_id.clone(), current_mode);
+                                let app_id = extract_app_id(window_id);
+                                app_modes.insert(app_id.to_string(), current_mode);
                                 unim_log!(
                                     "ENGINE_WORKER",
-                                    "[Engine Worker] 창별 모드 저장: window_id={}, mode={:?}",
-                                    window_id,
+                                    "[Engine Worker] 앱별 모드 저장: app_id={}, mode={:?}",
+                                    app_id,
                                     current_mode
                                 );
                             }
@@ -231,10 +240,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 필요)
                 context_windows.insert(context_id, window_id.clone());
 
-                // PerWindow 모드에서는 창별 모드를 적용
-                if config.engine.mode_sharing == unim::config::ModeSharingMode::PerWindow {
+                // PerApp 모드에서는 앱별 저장된 모드를 적용
+                let app_id = extract_app_id(&window_id);
+                if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
                     if let Some(engine) = contexts.get_mut(&context_id) {
-                        if let Some(&saved_mode) = window_modes.get(&window_id) {
+                        if let Some(&saved_mode) = app_modes.get(app_id) {
                             engine.set_input_category(saved_mode);
                         }
                     }
@@ -243,13 +253,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 앱별 기본 모드 규칙 적용 (최초 포커스 시)
                 if !config.engine.app_rules.is_empty() {
                     if let Some(engine) = contexts.get_mut(&context_id) {
-                        // 아직 window_modes에 저장된 적 없으면 (최초 방문) 규칙 적용
-                        if !window_modes.contains_key(&window_id) {
+                        // 아직 app_modes에 저장된 적 없으면 (최초 방문) 규칙 적용
+                        if !app_modes.contains_key(app_id) {
                             for rule in &config.engine.app_rules {
                                 if window_id.contains(&rule.app_pattern) {
                                     engine.set_input_category(rule.default_category);
-                                    window_modes
-                                        .insert(window_id.clone(), rule.default_category);
+                                    app_modes
+                                        .insert(app_id.to_string(), rule.default_category);
                                     unim_log!(
                                         "ENGINE_WORKER",
                                         "[Engine Worker] 앱 규칙 적용: pattern='{}', window_id={}, mode={:?}",

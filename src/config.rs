@@ -25,10 +25,8 @@ pub enum ModeSharingMode {
     /// 모든 앱/창이 동일한 한/영 상태를 공유 (기본)
     #[default]
     Global,
-    /// 각 앱(InputContext)이 독립적인 한/영 상태를 유지
+    /// 각 앱이 독립적인 한/영 상태를 유지 (window_id의 ':' 앞부분으로 앱 식별)
     PerApp,
-    /// 각 창이 독립적인 한/영 상태를 유지
-    PerWindow,
 }
 
 impl ModeSharingMode {
@@ -37,7 +35,6 @@ impl ModeSharingMode {
         match self {
             ModeSharingMode::Global => "전역 공유",
             ModeSharingMode::PerApp => "앱별 독립",
-            ModeSharingMode::PerWindow => "창별 독립",
         }
     }
 
@@ -46,7 +43,6 @@ impl ModeSharingMode {
         &[
             ModeSharingMode::Global,
             ModeSharingMode::PerApp,
-            ModeSharingMode::PerWindow,
         ]
     }
 }
@@ -769,14 +765,13 @@ mod tests {
     #[test]
     fn test_mode_sharing_all() {
         let all = ModeSharingMode::all();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 2);
     }
 
     #[test]
     fn test_mode_sharing_display_name() {
         assert!(!ModeSharingMode::Global.display_name().is_empty());
         assert!(!ModeSharingMode::PerApp.display_name().is_empty());
-        assert!(!ModeSharingMode::PerWindow.display_name().is_empty());
     }
 
     // === EngineConfig 기본값 테스트 ===
@@ -797,7 +792,7 @@ mod tests {
         let mut config = Config::default();
         config.engine.korean.layout = KoreanLayout::Sebeolsik390;
         config.engine.english.layout = EnglishLayout::Dvorak;
-        config.engine.mode_sharing = ModeSharingMode::PerWindow;
+        config.engine.mode_sharing = ModeSharingMode::PerApp;
         config.engine.auto_switch.enabled = true;
         config.engine.auto_switch.threshold = 0.7;
 
@@ -806,7 +801,7 @@ mod tests {
 
         assert_eq!(loaded.engine.korean.layout, KoreanLayout::Sebeolsik390);
         assert_eq!(loaded.engine.english.layout, EnglishLayout::Dvorak);
-        assert_eq!(loaded.engine.mode_sharing, ModeSharingMode::PerWindow);
+        assert_eq!(loaded.engine.mode_sharing, ModeSharingMode::PerApp);
         assert!(loaded.engine.auto_switch.enabled);
         assert!((loaded.engine.auto_switch.threshold - 0.7).abs() < f32::EPSILON);
     }

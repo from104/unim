@@ -137,7 +137,7 @@ export class SpecialPopup {
         this._mouseHoverRow = -1;
         this._mouseHoverCol = -1;
 
-        this._header.set_text(`특수문자: ${target}`);
+        this._header.set_text(`「${target}」 → 특수문자`);
         this._updateGrid();
 
         this._container.show();
@@ -400,7 +400,7 @@ export class SpecialPopup {
 
         // 풋터
         if (this._totalPages > 1) {
-            this._footer.set_text(`${this._currentPage + 1} / ${this._totalPages}`);
+            this._footer.set_text(`[${this._target}]  ${this._currentPage + 1}/${this._totalPages}`);
             this._footer.show();
         } else {
             this._footer.hide();

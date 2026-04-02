@@ -196,6 +196,8 @@ unim_dbus_process_key(UnimDbusContext *ctx,
     result->consumed = FALSE;
     result->preedit = NULL;
     result->commit = NULL;
+    result->typefix_delete = 0;
+    result->typefix_replacement = NULL;
 
     UNIM_DBUS_DEBUG("ProcessKeyEvent 호출: keyval=%u, keycode=%u, state=%u",
                      keyval, keycode, state);
@@ -207,7 +209,7 @@ unim_dbus_process_key(UnimDbusContext *ctx,
         UNIM_DBUS_IC_INTERFACE,
         "ProcessKeyEvent",
         g_variant_new("(uuu)", keyval, keycode, state),
-        G_VARIANT_TYPE("(bss)"),
+        G_VARIANT_TYPE("(bssis)"),
         G_DBUS_CALL_FLAGS_NONE,
         UNIM_DBUS_TIMEOUT_MS,
         NULL,
@@ -220,19 +222,26 @@ unim_dbus_process_key(UnimDbusContext *ctx,
         return FALSE;
     }
 
-    g_variant_get(ret, "(b&s&s)", &consumed, &preedit_str, &commit_str);
+    gint32 typefix_del = 0;
+    const gchar *typefix_repl = NULL;
+    g_variant_get(ret, "(b&s&si&s)", &consumed, &preedit_str, &commit_str,
+                  &typefix_del, &typefix_repl);
 
     result->consumed = consumed;
     result->preedit = g_strdup(preedit_str);
     result->commit = g_strdup(commit_str);
+    result->typefix_delete = typefix_del;
+    result->typefix_replacement = (typefix_repl && strlen(typefix_repl) > 0)
+                                  ? g_strdup(typefix_repl) : NULL;
 
     /* 캐시 업데이트 */
     g_free(ctx->preedit_cache);
     ctx->preedit_cache = g_strdup(preedit_str);
     ctx->is_composing = (preedit_str && strlen(preedit_str) > 0);
 
-    UNIM_DBUS_DEBUG("ProcessKeyEvent 결과: consumed=%d, preedit=\"%s\", commit=\"%s\"",
-                     consumed, preedit_str, commit_str);
+    UNIM_DBUS_DEBUG("ProcessKeyEvent 결과: consumed=%d, preedit=\"%s\", commit=\"%s\", typefix=(%d,'%s')",
+                     consumed, preedit_str, commit_str, typefix_del,
+                     typefix_repl ? typefix_repl : "");
 
     g_variant_unref(ret);
     return TRUE;

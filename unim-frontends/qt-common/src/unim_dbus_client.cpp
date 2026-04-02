@@ -140,17 +140,26 @@ UnimDbusKeyResult UnimDbusClient::processKey(quint32 keyval, quint32 keycode, qu
     }
     
     QList<QVariant> args = reply.arguments();
-    if (args.size() >= 3) {
+    if (args.size() >= 5) {
         result.consumed = args.at(0).toBool();
         result.preedit = args.at(1).toString();
         result.commit = args.at(2).toString();
-        
+        result.typefixDelete = args.at(3).toInt();
+        result.typefixReplacement = args.at(4).toString();
+
         // 캐시 업데이트
         m_preeditCache = result.preedit;
         m_isComposing = !result.preedit.isEmpty();
-        
-        UNIM_DBUS_DEBUG(QString::asprintf("ProcessKeyEvent 결과: consumed=%d, preedit=%s, commit=%s",
-                        result.consumed, qPrintable(result.preedit), qPrintable(result.commit)));
+
+        UNIM_DBUS_DEBUG(QString::asprintf("ProcessKeyEvent 결과: consumed=%d, preedit=%s, commit=%s, typefix=(%d,'%s')",
+                        result.consumed, qPrintable(result.preedit), qPrintable(result.commit),
+                        result.typefixDelete, qPrintable(result.typefixReplacement)));
+    } else if (args.size() >= 3) {
+        result.consumed = args.at(0).toBool();
+        result.preedit = args.at(1).toString();
+        result.commit = args.at(2).toString();
+        m_preeditCache = result.preedit;
+        m_isComposing = !result.preedit.isEmpty();
     }
     
     return result;

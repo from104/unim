@@ -29,7 +29,7 @@
 | **Qt Common** | `unim-frontends/qt-common/` | C++ | Qt5/6 공통 코드 |
 | **XIM Frontend** | `unim-frontends/xim/` | Rust | X11 XIM 프로토콜 프론트엔드 |
 | **Wayland Frontend** | `unim-frontends/wayland/` | Rust | Wayland 프론트엔드 |
-| **GNOME Extension** | `unim-gnome-extension/` | JavaScript | GNOME Shell 확장 (인디케이터, 설정) |
+| **GNOME Extension** | `unim-gnome-extension/` | JavaScript | GNOME Shell IM (키 가로채기, 팝업, 인디케이터) |
 
 ## 아키텍처 흐름
 
@@ -45,6 +45,33 @@
 - **설정 파일**: `~/.config/unim/config.yaml`
 - **로그 파일**: `~/.unim-errors.log` (`UNIM_DEVELOP=1` 시 활성화)
 
+### 팝업 아키텍처
+
+한자/특수문자 팝업은 두 가지 모드로 동작합니다 (`popup_mode` 설정):
+
+| 모드 | 팝업 주체 | 시그널 발행 | 환경 |
+| ---- | --------- | ---------- | ---- |
+| **Standalone** (기본) | unim-gui-gtk 또는 GNOME Extension | ShowHanja/ShowSpecial DBus 시그널 | 모든 환경 |
+| **Embedded** | IM 모듈 자체 (GTK/Qt/XIM/Wayland) | 시그널 미발행 | X11 전용 |
+
+- 엔진이 `PopupAction`으로 팝업 상태를 중앙 관리 (키 네비게이션, 선택, 취소)
+- FocusOut/Reset 시 엔진이 팝업을 취소하고 `HidePopup` 시그널 발행
+- GNOME+Wayland: GNOME Extension이 모든 프론트엔드의 팝업을 Push 방식으로 표시
+
+### GNOME Extension 키 처리
+
+GNOME Extension은 Clutter Backend에 커스텀 `InputMethod`를 등록하여 Wayland 텍스트 입력을 직접 가로챕니다:
+
+```text
+Wayland 키 이벤트 → vfunc_filter_key_event → KeyHandler → DBus ProcessKey
+                                                  ↓
+                                        키 큐 패턴 (call_sync 재진입 방지)
+                                                  ↓
+                                    notify_key_event(event, consumed)
+```
+
+- `call_sync()` 중 GLib 메인 루프 재진입으로 도착한 키를 `event.copy()`로 큐에 저장, FIFO 순차 처리
+
 ## 빌드 시스템
 
 `Makefile`이 소스 오브 트루스입니다.
@@ -57,26 +84,54 @@
 | `sudo make install PREFIX=/usr` | 시스템 설치 |
 | `make deb` | 데비안 패키지 빌드 |
 | `make sandbox-gtk4` | Xephyr 샌드박스에서 GTK4 테스트 |
-| `cargo test` | Rust 유닛 테스트 |
+| `cargo test --workspace` | Rust 유닛 테스트 (전체) |
+| `make dev-gtk4` | GTK4 모듈 빌드 + 배포 |
+| `make dev-daemon` | 데몬 빌드 + 배포 |
+| `make dev-extension` | GNOME Extension 배포 (~/.local/share/) |
 
 ## 핵심 파일
 
-- **엔진 로직**: `src/input_engine.rs` - 한글/영어 키 처리, 모드 전환
+- **엔진 로직**: `src/input_engine.rs` - 한글/영어 키 처리, 모드 전환, 팝업 키 네비게이션
 - **한글 조합**: `src/hangul/` - 2벌식/3벌식 조합 로직
 - **키맵**: `src/keystroke/` - 키보드 레이아웃 매핑
 - **설정**: `src/config.rs` - 설정 구조체 (Source of Truth)
 - **로깅**: `src/logging.rs` - 통합 로깅 매크로
+- **엔진 워커**: `unim-dbus/src/engine_worker.rs` - FocusIn/Out, Reset, ProcessKey 요청 처리
+- **DBus 서비스**: `unim-dbus/src/service.rs` - DBus 메서드/시그널, 팝업 시그널 발행
+- **GNOME 키 핸들러**: `unim-gnome-extension/key_handler.js` - 키 큐 패턴, 재진입 방지
+- **GNOME IM**: `unim-gnome-extension/unim_input_method.js` - Clutter InputMethod 서브클래스
 
-## 워크플로우 및 스킬 (.agent/)
+## 에이전트 및 스킬 (.claude/)
 
-| 명령어/스킬 | 역할 |
-| ----------- | ---- |
-| `/build` | UNIM 전체 빌드 (Rust + 프론트엔드) |
-| `/install` | UNIM 시스템 설치 및 제거 |
-| `/test` | UNIM 테스트 실행 (Rust 유닛 테스트 + 설치 상태 확인) |
-| `/sync` | **영문 요약 기반 Git 커밋 및 GitHub 동기화** (`git-sync` 스킬 사용) |
-| `add-setting` | 새 설정 항목 추가 시 모든 컴포넌트 연동 가이드 |
-| `git-sync` | 변경 사항 분석 및 영문 커밋 메시지 생성 스킬 |
+### 에이전트 정의 (`.claude/agents/`)
+
+| 에이전트 | 타입 | 역할 |
+| -------- | ---- | ---- |
+| `planner` | Plan (opus) | 코드 탐색 + CLAUDE.md 규칙 기반 구현 계획 수립 |
+| `reviewer` | general-purpose (opus) | 빌드(zero-warning) + 테스트(all-pass) + 규칙 준수 검증 |
+
+### 스킬 (`.claude/skills/`)
+
+| 스킬 | 트리거 | 역할 |
+| ---- | ------ | ---- |
+| `/harness` | 코드 변경 작업 | **기획→구현→평가 루프** 오케스트레이터 (서브 에이전트 모드) |
+| `/plan` | 분석/기획 요청 | 독립 기획 (planner 에이전트 단독 실행) |
+| `/review` | 검증/리뷰 요청 | 독립 평가 (reviewer 에이전트 단독 실행) |
+| `/unim-log` | 로그 분석 | `~/.unim-errors.log` 분석 및 진단 |
+
+### 하네스 워크플로우
+
+```text
+/harness <작업 설명>
+    ↓
+Phase 1: planner 에이전트 → 구현 계획 → 사용자 승인
+    ↓
+Phase 2: 메인 에이전트 → 직접 코드 수정
+    ↓
+Phase 3: reviewer 에이전트 → PASS/FAIL 판정
+    ↓
+FAIL → Phase 2 재실행 (최대 3회) / PASS → 커밋
+```
 
 ## 디버깅
 

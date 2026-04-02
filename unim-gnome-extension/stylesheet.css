@@ -70,7 +70,7 @@
 }
 
 .unim-hanja-popup .popup-item.hovered {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 .unim-hanja-popup .popup-item.selected.hovered {
@@ -78,19 +78,19 @@
 }
 
 .unim-hanja-popup .popup-item .item-number {
-    color: rgba(255, 255, 255, 0.4);
+    color: #7f849c;
     font-size: 12px;
     margin-right: 6px;
 }
 
 .unim-hanja-popup .popup-item .item-hanja {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: bold;
     margin-right: 8px;
 }
 
 .unim-hanja-popup .popup-item .item-meaning {
-    color: rgba(255, 255, 255, 0.6);
+    color: #a6adc8;
     font-size: 12px;
 }
 
@@ -132,29 +132,30 @@
 }
 
 .unim-special-popup .popup-header {
+    background-color: #313244;
     color: #a6e3a1;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: bold;
-    padding-bottom: 4px;
-    border-bottom: 1px solid rgba(166, 227, 161, 0.3);
-    margin-bottom: 4px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
 }
 
 .unim-special-popup .grid-cell {
     color: #cdd6f4;
-    font-size: 14px;
-    min-width: 30px;
-    min-height: 30px;
+    font-size: 16px;
+    min-width: 28px;
+    min-height: 28px;
     text-align: center;
     border-radius: 4px;
 }
 
 .unim-special-popup .grid-cell.selected {
-    background-color: rgba(166, 227, 161, 0.2);
+    background-color: rgba(166, 227, 161, 0.25);
 }
 
 .unim-special-popup .grid-cell.hovered {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 .unim-special-popup .grid-cell.selected.hovered {
@@ -164,9 +165,9 @@
 .unim-special-popup .grid-header {
     color: #f9e2af;
     font-weight: bold;
-    font-size: 12px;
-    min-width: 30px;
-    min-height: 30px;
+    font-size: 11px;
+    min-width: 28px;
+    min-height: 28px;
     text-align: center;
 }
 
@@ -175,7 +176,7 @@
 }
 
 .unim-special-popup .grid-row-number {
-    color: #f9e2af;
+    color: #7f849c;
     font-weight: bold;
     font-size: 12px;
     min-width: 20px;
@@ -187,6 +188,6 @@
 
 .unim-special-popup .popup-footer {
     color: #6c7086;
-    font-size: 10px;
+    font-size: 12px;
     text-align: center;
 }

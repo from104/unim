@@ -358,7 +358,6 @@ impl InputMethodService {
             "mode_sharing" => match config.engine.mode_sharing {
                 unim::config::ModeSharingMode::Global => "Global".to_string(),
                 unim::config::ModeSharingMode::PerApp => "PerApp".to_string(),
-                unim::config::ModeSharingMode::PerWindow => "PerWindow".to_string(),
             },
             "auto_switch_enabled" => config.engine.auto_switch.enabled.to_string(),
             "auto_switch_threshold" => config.engine.auto_switch.threshold.to_string(),
@@ -432,7 +431,6 @@ impl InputMethodService {
                     config.engine.mode_sharing = match value {
                         "Global" => unim::config::ModeSharingMode::Global,
                         "PerApp" => unim::config::ModeSharingMode::PerApp,
-                        "PerWindow" => unim::config::ModeSharingMode::PerWindow,
                         _ => {
                             return Err(zbus::fdo::Error::InvalidArgs(format!(
                                 "Invalid value: {}",
@@ -567,14 +565,14 @@ impl InputContextHandler {
 #[interface(name = "org.atit.unim.InputContext")]
 impl InputContextHandler {
     /// 키 이벤트 처리
-    /// 반환값: (consumed, preedit, commit)
+    /// 반환값: (consumed, preedit, commit, typefix_delete, typefix_replacement)
     async fn process_key_event(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
         keyval: u32,
         keycode: u32,
         state: u32,
-    ) -> zbus::fdo::Result<(bool, String, String)> {
+    ) -> zbus::fdo::Result<(bool, String, String, i32, String)> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -691,36 +689,43 @@ impl InputContextHandler {
             }
         }
 
-        // TypeFix 더블탭 결과 처리 (delete_surrounding + commit)
-        if let Some((delete_count, replacement)) = &response.typefix_result {
-            unim_log!(
-                "DBUS",
-                "[DBus] TypeFix 더블탭 시그널: delete={}, replacement='{}'",
-                delete_count,
-                replacement
-            );
-            Self::delete_surrounding_text(
-                &signal_ctx,
-                -(*delete_count as i32),
-                *delete_count,
-            )
-            .await
-            .ok();
-            if !replacement.is_empty() {
-                Self::commit_text(&signal_ctx, replacement).await.ok();
-            }
-        }
+        // TypeFix 더블탭 결과 처리
+        let (typefix_delete, typefix_replacement) =
+            if let Some((delete_count, replacement)) = &response.typefix_result {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] TypeFix 더블탭: delete={}, replacement='{}'",
+                    delete_count,
+                    replacement
+                );
+                // Push 모드(GNOME Shell)용 시그널도 발행
+                Self::delete_surrounding_text(
+                    &signal_ctx,
+                    -(*delete_count as i32),
+                    *delete_count,
+                )
+                .await
+                .ok();
+                if !replacement.is_empty() {
+                    Self::commit_text(&signal_ctx, replacement).await.ok();
+                }
+                (-(*delete_count as i32), replacement.clone())
+            } else {
+                (0i32, String::new())
+            };
 
         unim_log!(
             "DBUS",
-            "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit='{}', commit='{}'",
+            "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit='{}', commit='{}', typefix=({},'{}')",
             keyval,
             response.consumed,
             preedit,
-            commit
+            commit,
+            typefix_delete,
+            typefix_replacement
         );
 
-        Ok((response.consumed, preedit, commit))
+        Ok((response.consumed, preedit, commit, typefix_delete, typefix_replacement))
     }
 
     /// 포커스 획득 - 현재 컨텍스트의 모드를 시그널로 발송 (window_id: 창 식별자)

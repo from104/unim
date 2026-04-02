@@ -685,7 +685,7 @@ fn run_auto_test(verbose: bool) -> i32 {
 
             for (kc, st) in keys {
                 match ic.process_key_event(0, *kc, *st).await {
-                    Ok((_consumed, pre, com)) => {
+                    Ok((_consumed, pre, com, _tf_del, _tf_repl)) => {
                         if verbose {
                             eprintln!("    {DIM}key={kc} → pre=\"{pre}\" com=\"{com}\"{RESET}");
                         }

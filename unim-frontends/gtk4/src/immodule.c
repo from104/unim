@@ -189,7 +189,9 @@ unim_im_context_init(UnimIMContext *context)
     unim_check_debug_env();
     
     /* 창 식별자 생성 (컨텍스트 포인터 기반) */
-    context->window_id = g_strdup_printf("gtk4-ctx-%p", (void*)context);
+    const gchar *prgname = g_get_prgname();
+    context->window_id = g_strdup_printf("%s:gtk4-ctx-%p",
+        prgname ? prgname : "unknown", (void*)context);
     
     /* DBus 클라이언트 생성 (window_id 포함) */
     context->dbus_ctx = unim_dbus_context_new("gtk4-unim", context->window_id);
@@ -419,6 +421,12 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     /* Release 이벤트는 일단 무시 */
     if (event_type == GDK_KEY_RELEASE) {
         return FALSE;
+    }
+
+    /* 매 키 입력 전 surrounding text 갱신 (TypeFIX 등에 필요) */
+    {
+        gboolean handled = FALSE;
+        g_signal_emit_by_name(context, "retrieve-surrounding", &handled);
     }
 
     /* 키 정보 추출 (GDK 4.4+ 접근자) */
@@ -733,6 +741,15 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         }
     }
 
+    /* TypeFIX 더블탭 결과 처리 (delete-surrounding + commit) */
+    if (result.typefix_delete != 0 && result.typefix_replacement) {
+        UNIM_DEBUG("TypeFIX: delete=%d, replacement=\"%s\"",
+                   result.typefix_delete, result.typefix_replacement);
+        g_signal_emit_by_name(context, "delete-surrounding",
+                              result.typefix_delete, (guint)(-result.typefix_delete));
+        g_signal_emit_by_name(context, "commit", result.typefix_replacement);
+    }
+
     /* 커밋 처리 */
     if (result.commit && strlen(result.commit) > 0) {
         UNIM_DEBUG("커밋: \"%s\"", result.commit);
@@ -745,6 +762,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     /* 메모리 해제 */
     g_free(result.preedit);
     g_free(result.commit);
+    g_free(result.typefix_replacement);
 
     return result.consumed;
 }

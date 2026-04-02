@@ -3361,6 +3361,7 @@ dependencies = [
  "clap",
  "dialoguer",
  "rust-i18n",
+ "serde_json",
  "unim",
 ]
 

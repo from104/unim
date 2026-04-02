@@ -715,8 +715,8 @@ async fn process_key_event(
         }
     };
 
-    // 키 이벤트 처리 - 반환값: (consumed, preedit, commit)
-    let (consumed, preedit, commit) =
+    // 키 이벤트 처리 - 반환값: (consumed, preedit, commit, typefix_delete, typefix_replacement)
+    let (consumed, preedit, commit, _typefix_delete, _typefix_repl) =
         match ctx_proxy.process_key_event(keyval, keycode, state).await {
             Ok(result) => result,
             Err(e) => {

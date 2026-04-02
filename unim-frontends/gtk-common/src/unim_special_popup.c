@@ -23,7 +23,7 @@
 /* 상수 */
 #define MAX_ROWS 9
 #define MAX_COLS 9
-#define CELL_SIZE 30
+#define CELL_SIZE 28
 #define HEADER_SIZE 20
 #define FOOTER_HEIGHT 20
 #define PAGE_SIZE (MAX_ROWS * MAX_COLS)  /* 81 */
@@ -52,10 +52,12 @@ special_popup_check_debug(void)
 
 struct _UnimSpecialPopup {
     GtkWidget *window;
+    GtkWidget *header_label;  /* 헤더 (「X」 → 특수문자) */
     GtkWidget *grid;
     GtkWidget *footer_label;
 
     /* 데이터 */
+    gchar *target;            /* 대상 문자 (푸터 표시용) */
     gchar **characters;       /* 전체 문자 배열 */
     gsize total_count;        /* 전체 문자 수 */
     gint current_page;        /* 현재 페이지 (0부터) */
@@ -168,6 +170,16 @@ unim_special_popup_new(void)
     gtk_container_add(GTK_CONTAINER(popup->window), vbox);
 #endif
 
+    /* 헤더 라벨 */
+    popup->header_label = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(popup->header_label), 0.0);
+    WIDGET_ADD_CSS_CLASS(popup->header_label, "popup-header");
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_box_append(GTK_BOX(vbox), popup->header_label);
+#else
+    gtk_box_pack_start(GTK_BOX(vbox), popup->header_label, FALSE, FALSE, 0);
+#endif
+
     /* 그리드 영역 */
     popup->grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(popup->grid), 1);
@@ -219,6 +231,15 @@ unim_special_popup_new(void)
         ".unim-special-vbox {"
         "  padding: 4px; margin: 0;"
         "}"
+        ".unim-special-vbox label.popup-header {"
+        "  background-color: #313244;"
+        "  color: #a6e3a1;"
+        "  font-size: 13px;"
+        "  font-weight: bold;"
+        "  padding: 6px 8px;"
+        "  border-radius: 4px;"
+        "  margin-bottom: 6px;"
+        "}"
         ".unim-special-vbox grid {"
         "  padding: 0;"
         "}"
@@ -229,13 +250,16 @@ unim_special_popup_new(void)
         "  color: #f9e2af; font-size: 11px; font-weight: bold; min-height: 20px;"
         "}"
         ".unim-special-vbox label.header.row-header {"
-        "  min-width: 20px;"
+        "  color: #7f849c; min-width: 20px;"
         "}"
         ".unim-special-vbox label.header-active {"
         "  color: #a6e3a1; font-size: 11px; font-weight: bold; min-height: 20px;"
         "}"
         ".unim-special-vbox label.cell {"
-        "  padding: 2px 4px; min-width: 30px; min-height: 30px;"
+        "  padding: 2px 4px; min-width: 28px; min-height: 28px;"
+        "}"
+        ".unim-special-vbox label.cell:hover {"
+        "  background-color: rgba(255, 255, 255, 0.05); border-radius: 4px;"
         "}"
         ".unim-special-vbox label.cell-col-highlight {"
         "  background-color: rgba(166, 227, 161, 0.08); border-radius: 4px;"
@@ -290,6 +314,9 @@ unim_special_popup_free(UnimSpecialPopup *popup)
         unim_popup_free(popup->popup_state);
         popup->popup_state = NULL;
     }
+
+    g_free(popup->target);
+    popup->target = NULL;
 
     if (popup->window) {
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -444,8 +471,9 @@ update_grid(UnimSpecialPopup *popup)
 
     /* 페이지 표시 (2페이지 이상일 때만) */
     if (popup->footer_label && popup->total_pages > 1) {
-        gchar page_text[32];
-        g_snprintf(page_text, sizeof(page_text), "%d / %d",
+        gchar page_text[64];
+        g_snprintf(page_text, sizeof(page_text), "[%s]  %d/%d",
+                   popup->target ? popup->target : "",
                    popup->current_page + 1, popup->total_pages);
         gtk_label_set_text(GTK_LABEL(popup->footer_label), page_text);
         WIDGET_ADD_CSS_CLASS(popup->footer_label, "footer");
@@ -614,6 +642,17 @@ unim_special_popup_show(UnimSpecialPopup *popup,
     popup->sel_row = 0;
     popup->sel_col = 0;
     popup->pending_hide = FALSE;  /* 이전 세션의 플래시 상태 초기화 */
+
+    /* target 저장 (푸터 표시용) */
+    g_free(popup->target);
+    popup->target = g_strdup(target);
+
+    /* 헤더 텍스트 설정 */
+    {
+        gchar *header_text = g_strdup_printf("「%s」 → 특수문자", target);
+        gtk_label_set_text(GTK_LABEL(popup->header_label), header_text);
+        g_free(header_text);
+    }
 
     /* top_row 저장 (기본값: QWERTYUIO) */
     if (top_row && strlen(top_row) >= 9) {
