@@ -795,18 +795,23 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             server.conn().flush().ok();
         }
 
-        // DBus FocusOut 호출 - 커밋 텍스트 반환
-        if let Some(DbusResponse::CommitText { text }) =
-            self.send_dbus_request(DbusRequest::FocusOut {
-                context_path: user_ic.user_data.context_path.clone(),
-                response: None,
-            })
-        {
-            if !text.is_empty() {
-                unim_log!("XIM_HANDLER", "commit_and_clear: \"{}\"", text);
-                server.commit(&user_ic.ic, &text)?;
-            }
+        // 로컬 preedit_cache로 즉시 커밋 (DBus 라운드트립 없이)
+        let cached_preedit = user_ic.user_data.preedit_cache.clone();
+        if !cached_preedit.is_empty() {
+            unim_log!(
+                "XIM_HANDLER",
+                "focus_out: 로컬 캐시 커밋 \"{}\"",
+                cached_preedit
+            );
+            server.commit(&user_ic.ic, &cached_preedit)?;
         }
+
+        // 데몬에 FocusOut 전송 (응답 대기 없이 fire-and-forget)
+        // 데몬은 엔진 상태를 리셋하고 입력 모드를 유지함
+        let _ = self.dbus_tx.blocking_send(DbusRequest::FocusOut {
+            context_path: user_ic.user_data.context_path.clone(),
+            response: None,
+        });
 
         self.clear_preedit(server, user_ic)?;
 
@@ -1116,7 +1121,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             if !commit_text.is_empty() {
                 unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
                 server.commit(&user_ic.ic, &commit_text)?;
-                server.conn().flush().ok();
+                // flush를 여기서 하지 않음 — commit과 preedit을 atomic batch로 전송하여
+                // 일부 XIM 클라이언트가 commit 처리 후 preedit을 놓치는 문제 방지
             }
         }
 
@@ -1128,6 +1134,8 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             unim_log!("XIM_HANDLER", "Preedit: \"{}\"", preedit_text);
             self.preedit(server, user_ic, &preedit_text)?;
         }
+
+        // commit + preedit을 하나의 flush로 atomic 전송
         server.conn().flush().ok();
 
         Ok(consumed)
