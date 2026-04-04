@@ -188,12 +188,6 @@ pub struct InputEngine {
     surrounding_cursor: u32,
     /// Surrounding text 앵커 위치 (문자 단위)
     surrounding_anchor: u32,
-    /// 한/영 키 더블탭 감지: 마지막 토글 키 누른 시각 (밀리초 단위 타임스탬프)
-    last_toggle_time_ms: u64,
-    /// 더블탭 판정 시간 (밀리초)
-    double_tap_threshold_ms: u64,
-    /// TypeFix 트리거 대기 중 (한/영 키 더블탭 감지됨)
-    typefix_pending: bool,
 }
 
 impl Default for InputEngine {
@@ -253,9 +247,6 @@ impl InputEngine {
             surrounding_text: String::new(),
             surrounding_cursor: 0,
             surrounding_anchor: 0,
-            last_toggle_time_ms: 0,
-            double_tap_threshold_ms: 300,
-            typefix_pending: false,
         }
     }
 
@@ -357,26 +348,6 @@ impl InputEngine {
                 );
                 return InputResult::consumed();
             }
-
-            // 더블탭 감지: 300ms 이내 두 번 누르면 TypeFix 트리거
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-
-            if now_ms > 0
-                && self.last_toggle_time_ms > 0
-                && (now_ms - self.last_toggle_time_ms) < self.double_tap_threshold_ms
-            {
-                // 더블탭 감지! — 첫 번째 토글을 되돌리고 TypeFix 트리거
-                unim_log!("ENGINE", "한/영 키 더블탭 감지 → TypeFix 트리거");
-                self.toggle_input_category(); // 첫 번째 토글 되돌리기
-                self.last_toggle_time_ms = 0;
-                self.typefix_pending = true;
-                return InputResult::consumed();
-            }
-
-            self.last_toggle_time_ms = now_ms;
 
             // 조합 중이면 먼저 커밋
             let was_composing = self.korean_context.is_composing();
@@ -1193,13 +1164,6 @@ impl InputEngine {
     // =========================================
     // TypeFix (한/영 오타 변환)
     // =========================================
-
-    /// TypeFix 대기 상태를 꺼냅니다 (더블탭 감지 후 engine_worker가 호출).
-    pub fn take_typefix_pending(&mut self) -> bool {
-        let pending = self.typefix_pending;
-        self.typefix_pending = false;
-        pending
-    }
 
     /// TypeFix 변환을 수행합니다.
     ///

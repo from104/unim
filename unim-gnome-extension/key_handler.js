@@ -213,17 +213,7 @@ export class KeyHandler {
         }
 
         // 7. 결과 처리
-        const { consumed, preedit, commit, typefixDelete, typefixReplacement } = result;
-
-        // TypeFIX 결과가 있으면 surrounding text 삭제 후 대체 텍스트 커밋
-        if (typefixDelete > 0 && typefixReplacement) {
-            this._inputMethod.updatePreedit('');
-            this._inputMethod.deleteSurrounding(typefixDelete);
-            this._inputMethod.commitText(typefixReplacement);
-            this._inputMethod.notify_key_event(event, true);
-            this._drainKeyQueue();
-            return;
-        }
+        const { consumed, preedit, commit } = result;
 
         if (commit && commit.length > 0) {
             this._inputMethod.commitText(commit);
@@ -436,15 +426,7 @@ export class KeyHandler {
         }
 
         // 7. 결과 처리
-        const { consumed, preedit, commit, typefixDelete, typefixReplacement } = result;
-
-        // TypeFIX 결과가 있으면 surrounding text 삭제 후 대체 텍스트 커밋
-        if (typefixDelete > 0 && typefixReplacement) {
-            this._inputMethod.updatePreedit('');
-            this._inputMethod.deleteSurrounding(typefixDelete);
-            this._inputMethod.commitText(typefixReplacement);
-            return Clutter.EVENT_STOP;
-        }
+        const { consumed, preedit, commit } = result;
 
         // commit 텍스트가 있으면 앱에 커밋
         if (commit && commit.length > 0) {

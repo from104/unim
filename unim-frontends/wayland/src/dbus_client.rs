@@ -242,7 +242,7 @@ async fn run_dbus_client(
             } => {
                 let result = if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     match proxy.process_key_event(keyval, keycode, state).await {
-                        Ok((consumed, preedit, commit, _typefix_del, _typefix_repl)) => DbusResponse::KeyProcessed {
+                        Ok((consumed, preedit, commit)) => DbusResponse::KeyProcessed {
                             consumed,
                             preedit,
                             commit,

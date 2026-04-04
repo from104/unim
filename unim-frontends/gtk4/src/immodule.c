@@ -741,15 +741,6 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         }
     }
 
-    /* TypeFIX 더블탭 결과 처리 (delete-surrounding + commit) */
-    if (result.typefix_delete != 0 && result.typefix_replacement) {
-        UNIM_DEBUG("TypeFIX: delete=%d, replacement=\"%s\"",
-                   result.typefix_delete, result.typefix_replacement);
-        g_signal_emit_by_name(context, "delete-surrounding",
-                              result.typefix_delete, (guint)(-result.typefix_delete));
-        g_signal_emit_by_name(context, "commit", result.typefix_replacement);
-    }
-
     /* 커밋 처리 */
     if (result.commit && strlen(result.commit) > 0) {
         UNIM_DEBUG("커밋: \"%s\"", result.commit);
@@ -762,7 +753,6 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     /* 메모리 해제 */
     g_free(result.preedit);
     g_free(result.commit);
-    g_free(result.typefix_replacement);
 
     return result.consumed;
 }

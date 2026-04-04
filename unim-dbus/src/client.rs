@@ -40,13 +40,13 @@ trait InputMethod {
     default_service = "org.atit.unim.InputMethod"
 )]
 trait InputContext {
-    /// 키 이벤트 처리 - 반환: (consumed, preedit, commit, typefix_delete, typefix_replacement)
+    /// 키 이벤트 처리 - 반환: (consumed, preedit, commit)
     fn process_key_event(
         &self,
         keyval: u32,
         keycode: u32,
         state: u32,
-    ) -> Result<(bool, String, String, i32, String)>;
+    ) -> Result<(bool, String, String)>;
 
     /// 포커스 획득 (window_id: 창 식별자)
     fn focus_in(&self, window_id: &str) -> Result<()>;

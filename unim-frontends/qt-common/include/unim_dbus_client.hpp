@@ -31,8 +31,6 @@ struct UnimDbusKeyResult {
     bool consumed;              /* 키가 소비되었는지 */
     QString preedit;            /* preedit 문자열 */
     QString commit;             /* commit 문자열 */
-    int typefixDelete;          /* TypeFIX 삭제할 문자 수 (0이면 없음) */
-    QString typefixReplacement; /* TypeFIX 대체 텍스트 */
 };
 
 /**

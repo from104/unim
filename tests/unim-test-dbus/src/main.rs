@@ -80,7 +80,7 @@ async fn run_scenario(
 
     for (i, key) in scenario.keys.iter().enumerate() {
         match ic.process_key_event(0, key.keycode, key.state).await {
-            Ok((consumed, preedit, commit, _tf_del, _tf_repl)) => {
+            Ok((consumed, preedit, commit)) => {
                 if verbose {
                     eprintln!(
                         "  {}step {}: keycode={}, state={} → consumed={}, preedit=\"{}\", commit=\"{}\"{}",

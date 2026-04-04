@@ -34,8 +34,6 @@ typedef struct {
     gboolean consumed;            /* 키가 소비되었는지 */
     gchar *preedit;               /* preedit 문자열 (NULL 또는 빈 문자열이면 없음) */
     gchar *commit;                /* commit 문자열 (NULL 또는 빈 문자열이면 없음) */
-    gint typefix_delete;          /* TypeFIX 삭제할 문자 수 (0이면 없음) */
-    gchar *typefix_replacement;   /* TypeFIX 대체 텍스트 (NULL이면 없음) */
 } UnimDbusKeyResult;
 
 /**

@@ -126,7 +126,6 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         commit: None,
                         mode_changed: None,
                         popup_action: None,
-                        typefix_result: None,
                     });
                     continue;
                 }
@@ -186,39 +185,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 팝업 동작 감지 (take_popup_action으로 통합)
                     let popup_action = engine.take_popup_action();
 
-                    // TypeFix 더블탭 감지: typefix_pending이면 즉시 변환 수행
-                    let (typefix_commit, typefix_mode_changed) =
-                        if engine.take_typefix_pending() {
-                            if let Some((delete_count, replacement)) =
-                                engine.typefix_convert(0)
-                            {
-                                unim_log!(
-                                    "ENGINE_WORKER",
-                                    "[Engine Worker] TypeFix 더블탭: delete={}, repl='{}', mode={:?}",
-                                    delete_count,
-                                    replacement,
-                                    engine.input_category()
-                                );
-                                let is_korean = engine.input_category()
-                                    == unim::config::InputCategory::Korean;
-                                (Some((delete_count, replacement)), Some(is_korean))
-                            } else {
-                                (None, None)
-                            }
-                        } else {
-                            (None, None)
-                        };
-
-                    // TypeFix 결과가 있으면 mode_changed를 덮어씀
-                    let final_mode_changed = typefix_mode_changed.or(mode_changed);
-
                     EngineResponse {
                         consumed: result.consumed,
                         preedit,
                         commit,
-                        mode_changed: final_mode_changed,
+                        mode_changed,
                         popup_action,
-                        typefix_result: typefix_commit,
                     }
                 } else {
                     EngineResponse {
@@ -227,7 +199,6 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         commit: None,
                         mode_changed: None,
                         popup_action: None,
-                        typefix_result: None,
                     }
                 };
 
