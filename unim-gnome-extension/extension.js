@@ -10,7 +10,6 @@ import Gio from 'gi://Gio';
 import Clutter from 'gi://Clutter';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
-import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
@@ -24,20 +23,12 @@ import { HanjaPopup } from './hanja_popup.js';
 import { SpecialPopup } from './special_popup.js';
 import { unimLog, unimError } from './logging.js';
 
-// TypeFIX paste modes
-const PasteMode = {
-    NORMAL: 'normal',
-    TERMINAL: 'terminal',
-    COPY_ONLY: 'copy_only',
-};
-
 export default class UnimExtension extends Extension {
     constructor(metadata) {
         super(metadata);
         this._settings = null;
         this._shortcutIds = [];
         this._vkbd = null;
-        this._clipboard = null;
         this._indicator = null;
 
         // IME 모듈
@@ -62,7 +53,6 @@ export default class UnimExtension extends Extension {
         unimLog('EXTENSION', 'Extension 활성화 시작...');
         try {
             this._settings = this.getSettings();
-            this._clipboard = St.Clipboard.get_default();
             this._vkbd = new VirtualKeyboard();
 
             // 패널 인디케이터
@@ -115,7 +105,6 @@ export default class UnimExtension extends Extension {
 
         this._settings = null;
         this._vkbd = null;
-        this._clipboard = null;
         unimLog('EXTENSION', 'Extension 비활성화 완료');
     }
 
@@ -501,15 +490,11 @@ export default class UnimExtension extends Extension {
 
     _bindAllShortcuts() {
         this._unbindAllShortcuts();
-        this._bindShortcut('shortcut-normal', PasteMode.NORMAL, false);
-        this._bindShortcut('shortcut-normal-reverse', PasteMode.NORMAL, true);
-        this._bindShortcut('shortcut-terminal', PasteMode.TERMINAL, false);
-        this._bindShortcut('shortcut-terminal-reverse', PasteMode.TERMINAL, true);
-        this._bindShortcut('shortcut-copy-only', PasteMode.COPY_ONLY, false);
-        this._bindShortcut('shortcut-copy-only-reverse', PasteMode.COPY_ONLY, true);
+        this._bindShortcut('shortcut-normal', false);
+        this._bindShortcut('shortcut-normal-reverse', true);
     }
 
-    _bindShortcut(settingKey, pasteMode, isReverse) {
+    _bindShortcut(settingKey, isReverse) {
         const shortcut = this._settings.get_strv(settingKey);
         if (!shortcut || shortcut.length === 0) return;
 
@@ -518,7 +503,7 @@ export default class UnimExtension extends Extension {
             this._settings,
             Meta.KeyBindingFlags.NONE,
             Shell.ActionMode.ALL,
-            () => this._onShortcutTriggered(pasteMode, isReverse)
+            () => this._onShortcutTriggered(isReverse)
         );
 
         this._shortcutIds.push(settingKey);
@@ -531,7 +516,7 @@ export default class UnimExtension extends Extension {
         this._shortcutIds = [];
     }
 
-    _onShortcutTriggered(pasteMode, isReverse) {
+    _onShortcutTriggered(isReverse) {
         if (!this._settings.get_boolean('enable-extension')) return;
         if (this._conversionInProgress) {
             unimLog('EXTENSION', 'TypeFIX: 이미 변환이 진행 중입니다. 무시합니다.');
@@ -541,10 +526,10 @@ export default class UnimExtension extends Extension {
         // DBus TypeFix API 사용 (클립보드 미사용)
         // direction: 0=자동, 1=영→한, 2=한→영
         const direction = isReverse ? 2 : 0;
-        this._doTypeFix(direction, pasteMode);
+        this._doTypeFix(direction);
     }
 
-    _doTypeFix(direction, pasteMode) {
+    _doTypeFix(direction) {
         this._conversionInProgress = true;
         try {
             const proxy = this._dbusIME?.getImProxy();
@@ -577,14 +562,9 @@ export default class UnimExtension extends Extension {
             unimLog('EXTENSION', `TypeFIX 완료: delete=${deleteCount}, replacement='${replacement}'`);
 
             // 텍스트 치환: surrounding text 삭제 후 대체 텍스트 커밋
-            if (this._inputMethod && pasteMode !== PasteMode.COPY_ONLY) {
+            if (this._inputMethod) {
                 this._inputMethod.deleteSurrounding(deleteCount);
                 this._inputMethod.commitText(replacement);
-            }
-
-            if (pasteMode === PasteMode.COPY_ONLY) {
-                this._clipboard.set_text(St.ClipboardType.CLIPBOARD, replacement);
-                unimLog('EXTENSION', 'Copy-only mode: 클립보드에 저장');
             }
 
             if (this._settings.get_boolean('show-notification')) {

@@ -91,29 +91,5 @@
       <summary>Reverse Conversion</summary>
       <description>Convert Korean to English and paste</description>
     </key>
-
-    <key type="as" name="shortcut-terminal">
-      <default>['&lt;Ctrl&gt;&lt;Super&gt;k']</default>
-      <summary>Terminal Conversion</summary>
-      <description>Convert English to Korean with backspace before paste (terminal friendly)</description>
-    </key>
-
-    <key type="as" name="shortcut-terminal-reverse">
-      <default>['&lt;Shift&gt;&lt;Ctrl&gt;&lt;Super&gt;k']</default>
-      <summary>Terminal Reverse Conversion</summary>
-      <description>Convert Korean to English with backspace before paste (terminal friendly)</description>
-    </key>
-
-    <key type="as" name="shortcut-copy-only">
-      <default>['&lt;Alt&gt;&lt;Super&gt;k']</default>
-      <summary>Copy Only</summary>
-      <description>Convert English to Korean and copy to clipboard only (no paste)</description>
-    </key>
-
-    <key type="as" name="shortcut-copy-only-reverse">
-      <default>['&lt;Shift&gt;&lt;Alt&gt;&lt;Super&gt;k']</default>
-      <summary>Copy Only Reverse</summary>
-      <description>Convert Korean to English and copy to clipboard only (no paste)</description>
-    </key>
   </schema>
 </schemalist>

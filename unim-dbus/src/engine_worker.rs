@@ -545,19 +545,6 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 }
             }
 
-            EngineRequest::TypeFix {
-                context_id,
-                direction,
-                response,
-            } => {
-                let result = if let Some(engine) = contexts.get_mut(&context_id) {
-                    engine.typefix_convert(direction)
-                } else {
-                    None
-                };
-                let _ = response.send(result);
-            }
-
             EngineRequest::GlobalTypeFix {
                 direction,
                 response,

@@ -91,10 +91,6 @@ trait InputContext {
     /// 반환: (삭제 문자 수, 대체 텍스트)
     fn smart_backspace(&self) -> Result<(u32, String)>;
 
-    /// TypeFix 변환 (한/영 오타 변환)
-    /// 반환: (삭제 문자 수, 대체 텍스트)
-    fn type_fix(&self, direction: u32) -> Result<(u32, String)>;
-
     /// delete_surrounding_text 시그널
     #[zbus(signal)]
     fn delete_surrounding_text(&self, offset: i32, n_chars: u32) -> Result<()>;

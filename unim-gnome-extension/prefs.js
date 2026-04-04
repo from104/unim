@@ -181,41 +181,17 @@ export default class UnimPreferences extends ExtensionPreferences {
             _('텍스트 변환 시 알림 표시')
         );
 
-        // Normal Mode Shortcuts
-        const normalGroup = new Adw.PreferencesGroup({
-            title: _('일반 변환'),
-            description: _('선택한 텍스트를 변환 후 붙여넣기')
+        // Shortcut Settings
+        const shortcutGroup = new Adw.PreferencesGroup({
+            title: _('변환 단축키'),
+            description: _('선택한 텍스트를 변환 후 자동 교체')
         });
-        typefixPage.add(normalGroup);
+        typefixPage.add(shortcutGroup);
 
-        this._addShortcutRow(normalGroup, settings, 'shortcut-normal',
+        this._addShortcutRow(shortcutGroup, settings, 'shortcut-normal',
             _('영어 → 한글'), _('gksrmf → 한글'));
-        this._addShortcutRow(normalGroup, settings, 'shortcut-normal-reverse',
+        this._addShortcutRow(shortcutGroup, settings, 'shortcut-normal-reverse',
             _('한글 → 영어'), _('ㅗ디ㅣㅐ → hello'));
-
-        // Terminal Mode Shortcuts
-        const terminalGroup = new Adw.PreferencesGroup({
-            title: _('터미널 변환'),
-            description: _('Backspace 처리 후 붙여넣기 (터미널 호환)')
-        });
-        typefixPage.add(terminalGroup);
-
-        this._addShortcutRow(terminalGroup, settings, 'shortcut-terminal',
-            _('터미널 (E → K)'), null);
-        this._addShortcutRow(terminalGroup, settings, 'shortcut-terminal-reverse',
-            _('터미널 (K → E)'), null);
-
-        // Copy Only Shortcuts
-        const copyGroup = new Adw.PreferencesGroup({
-            title: _('복사만'),
-            description: _('변환 후 클립보드에 복사 (붙여넣기 안함)')
-        });
-        typefixPage.add(copyGroup);
-
-        this._addShortcutRow(copyGroup, settings, 'shortcut-copy-only',
-            _('복사 (E → K)'), null);
-        this._addShortcutRow(copyGroup, settings, 'shortcut-copy-only-reverse',
-            _('복사 (K → E)'), null);
     }
 
     // Sync layout settings to ~/.config/unim/config.yaml

@@ -1167,9 +1167,8 @@ impl InputEngine {
 
     /// TypeFix 변환을 수행합니다.
     ///
-    /// surrounding text에서 대상 텍스트를 추출하여 한↔영 변환합니다.
-    /// - 선택 영역이 있으면 (cursor != anchor) 선택된 텍스트를 변환
-    /// - 없으면 커서 앞의 단어를 자동 추출
+    /// 선택된 텍스트(cursor != anchor)만 변환합니다.
+    /// 선택 영역이 없으면 변환하지 않습니다.
     ///
     /// 변환 후 결과 언어에 맞게 입력 모드를 자동 전환합니다.
     ///
@@ -1178,7 +1177,7 @@ impl InputEngine {
     ///
     /// # Returns
     /// * `Some((delete_chars, replacement))` - 변환 성공
-    /// * `None` - 변환할 텍스트가 없거나 surrounding text가 없음
+    /// * `None` - 선택 영역이 없거나 surrounding text가 없음
     pub fn typefix_convert(&mut self, direction: u32) -> Option<(u32, String)> {
         if self.surrounding_text.is_empty() {
             return None;
@@ -1188,28 +1187,15 @@ impl InputEngine {
         let cursor = self.surrounding_cursor as usize;
         let anchor = self.surrounding_anchor as usize;
 
-        // 대상 텍스트 추출
-        let (word, delete_chars) = if cursor != anchor {
-            // 선택 영역이 있으면 선택된 텍스트 사용
-            let start = cursor.min(anchor);
-            let end = cursor.max(anchor);
-            let selected: String = chars[start..end.min(chars.len())].iter().collect();
-            let len = selected.chars().count() as u32;
-            (selected, len)
-        } else {
-            // 커서 앞에서 공백이 아닌 연속 문자(단어) 추출
-            let before: Vec<char> = chars[..cursor.min(chars.len())].to_vec();
-            let word: String = before
-                .iter()
-                .rev()
-                .take_while(|c| !c.is_whitespace())
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            let len = word.chars().count() as u32;
-            (word, len)
-        };
+        // 선택 영역이 없으면 변환하지 않음
+        if cursor == anchor {
+            return None;
+        }
+
+        let start = cursor.min(anchor);
+        let end = cursor.max(anchor);
+        let word: String = chars[start..end.min(chars.len())].iter().collect();
+        let delete_chars = word.chars().count() as u32;
 
         if word.is_empty() {
             return None;
@@ -1729,13 +1715,13 @@ mod tests {
     }
 
     #[test]
-    fn test_scenario_typefix_with_surrounding() {
-        // TypeFix: surrounding text에서 영→한 변환 + 모드 자동 전환
+    fn test_scenario_typefix_with_selection() {
+        // TypeFix: 선택된 텍스트 영→한 변환 + 모드 자동 전환
         let mut engine = create_test_engine();
         engine.set_input_category(InputCategory::English);
 
-        // Surrounding text 설정: "gksrmf" (한글로 치면 "한글")
-        engine.set_surrounding_text("gksrmf".to_string(), 6, 6);
+        // "gksrmf" 전체 선택 (cursor=6, anchor=0)
+        engine.set_surrounding_text("gksrmf".to_string(), 6, 0);
 
         // TypeFix 자동 감지 (영문 → 한글)
         let result = engine.typefix_convert(0);
@@ -1743,25 +1729,31 @@ mod tests {
         let (delete_count, replacement) = result.unwrap();
         assert_eq!(delete_count, 6);
         assert_eq!(replacement, "한글");
-        // 변환 후 한글 모드로 자동 전환
         assert_eq!(engine.input_category(), InputCategory::Korean);
     }
 
     #[test]
+    fn test_scenario_typefix_no_selection_returns_none() {
+        // TypeFix: 선택 없으면 None 반환
+        let mut engine = create_test_engine();
+        engine.set_surrounding_text("gksrmf".to_string(), 6, 6);
+        assert!(engine.typefix_convert(0).is_none());
+    }
+
+    #[test]
     fn test_scenario_typefix_kor_to_eng() {
-        // TypeFix: 한글 → 영문 변환 + 모드 자동 전환
+        // TypeFix: 한글 → 영문 강제 변환 (선택 필수)
         let mut engine = create_test_engine();
         engine.set_input_category(InputCategory::Korean);
 
-        engine.set_surrounding_text("한글".to_string(), 2, 2);
+        // "한글" 전체 선택 (cursor=2, anchor=0)
+        engine.set_surrounding_text("한글".to_string(), 2, 0);
 
-        // 방향 2: 한→영 강제
         let result = engine.typefix_convert(2);
         assert!(result.is_some());
         let (delete_count, replacement) = result.unwrap();
         assert_eq!(delete_count, 2);
         assert_eq!(replacement, "gksrmf");
-        // 변환 후 영문 모드로 자동 전환
         assert_eq!(engine.input_category(), InputCategory::English);
     }
 
@@ -1784,19 +1776,17 @@ mod tests {
 
     #[test]
     fn test_scenario_typefix_auto_detect() {
-        // 자동 감지: 한글 자모 입력 → 영문으로 변환
+        // 자동 감지: 한글 자모 선택 → 영문으로 변환
         let mut engine = create_test_engine();
         engine.set_input_category(InputCategory::Korean);
 
-        // 한글 모드에서 영문을 치려했지만 한글 자모가 나온 경우
-        engine.set_surrounding_text("ㅗ디ㅣㅐ".to_string(), 4, 4);
+        // "ㅗ디ㅣㅐ" 전체 선택 (cursor=4, anchor=0)
+        engine.set_surrounding_text("ㅗ디ㅣㅐ".to_string(), 4, 0);
 
         let result = engine.typefix_convert(0);
         assert!(result.is_some());
         let (_delete_count, replacement) = result.unwrap();
-        // 한글 자모 → 영문 변환
         assert!(!replacement.is_empty());
-        // 영문 모드로 전환됨
         assert_eq!(engine.input_category(), InputCategory::English);
     }
 

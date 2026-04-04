@@ -109,12 +109,6 @@ pub enum EngineRequest {
         cursor_pos: u32,
         anchor_pos: u32,
     },
-    /// TypeFix 변환 요청
-    TypeFix {
-        context_id: u32,
-        direction: u32,
-        response: oneshot::Sender<Option<(u32, String)>>,
-    },
     /// 글로벌 TypeFix 변환 요청 (마지막 포커스된 컨텍스트 대상)
     GlobalTypeFix {
         direction: u32,
@@ -1020,48 +1014,6 @@ impl InputContextHandler {
             if !replacement.is_empty() {
                 Self::commit_text(&signal_ctx, &replacement).await.ok();
             }
-            Ok((delete_chars, replacement))
-        } else {
-            Ok((0, String::new()))
-        }
-    }
-
-    /// TypeFix 변환 (한/영 오타 변환)
-    /// direction: 0=자동, 1=영→한, 2=한→영
-    /// 반환값: (삭제할 문자 수, 대체 텍스트) 또는 빈 문자열
-    async fn type_fix(
-        &self,
-        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
-        direction: u32,
-    ) -> zbus::fdo::Result<(u32, String)> {
-        let (response_tx, response_rx) = oneshot::channel();
-
-        self.engine_tx
-            .send(EngineRequest::TypeFix {
-                context_id: self.id,
-                direction,
-                response: response_tx,
-            })
-            .await
-            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
-
-        let result = response_rx
-            .await
-            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
-
-        if let Some((delete_chars, replacement)) = result {
-            unim_log!(
-                "DBUS",
-                "[DBus] TypeFix: delete={}, replacement='{}'",
-                delete_chars,
-                replacement
-            );
-            // delete_surrounding_text 시그널 발송하여 프론트엔드가 기존 텍스트를 삭제
-            Self::delete_surrounding_text(&signal_ctx, -(delete_chars as i32), delete_chars)
-                .await
-                .ok();
-            // 변환된 텍스트를 커밋
-            Self::commit_text(&signal_ctx, &replacement).await.ok();
             Ok((delete_chars, replacement))
         } else {
             Ok((0, String::new()))
