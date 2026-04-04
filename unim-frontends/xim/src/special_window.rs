@@ -28,14 +28,22 @@ pub struct SpecialWindow {
     xft_draw: *mut x11::xft::XftDraw,
     /// XftFont (메인 폰트)
     xft_font: *mut x11::xft::XftFont,
-    /// 텍스트 색상 (기본)
+    /// 텍스트 색상 (#cdd6f4)
     text_color: x11::xft::XftColor,
-    /// 선택 배경 색상
+    /// 선택 배경 색상 (#404f4b — rgba(166,227,161,0.25) on #1e1e2e)
     sel_bg_color: x11::xft::XftColor,
-    /// 헤더 텍스트 색상 (#a6e3a1 Green)
+    /// 헤더/활성 열 헤더 색상 (#a6e3a1 Green)
     header_color: x11::xft::XftColor,
-    /// 페이지 정보 색상
+    /// 페이지 정보 색상 (#6c7086)
     page_color: x11::xft::XftColor,
+    /// 행 번호 색상 (#7f849c Overlay1)
+    number_color: x11::xft::XftColor,
+    /// 비활성 열 헤더 색상 (#f9e2af Yellow)
+    yellow_color: x11::xft::XftColor,
+    /// 헤더 배경 색상 (#313244 Surface0)
+    header_bg_color: x11::xft::XftColor,
+    /// Flash 효과 색상 (#526354 — 선택+밝기 부스트)
+    flash_color: x11::xft::XftColor,
 
     /// 통합 팝업 상태
     popup_state: Option<PopupState>,
@@ -100,7 +108,7 @@ impl SpecialWindow {
             }
         }
         if final_y + (size.1 as c_int) > screen_h {
-            final_y = y - (size.1 as c_int) - 20;
+            final_y = y - (size.1 as c_int) - 4; // POPUP_SPEC 6.2: 4px gap
             if final_y < 0 {
                 final_y = 0;
             }
@@ -218,11 +226,15 @@ impl SpecialWindow {
             return Err("XftFontOpenName failed".to_string());
         }
 
-        // 색상 할당 — Catppuccin Mocha + Green 강조
+        // 색상 할당 — Catppuccin Mocha 풀 팔레트
         let mut text_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut sel_bg_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut header_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         let mut page_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut number_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut yellow_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut header_bg_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        let mut flash_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
 
         unsafe {
             let alloc = |name: &[u8], color: &mut x11::xft::XftColor| {
@@ -236,8 +248,12 @@ impl SpecialWindow {
             };
             alloc(b"#cdd6f4\0", &mut text_color); // Text
             alloc(b"#404f4b\0", &mut sel_bg_color); // rgba(166,227,161,0.25) on #1e1e2e
-            alloc(b"#a6e3a1\0", &mut header_color); // Green (특수문자 강조)
+            alloc(b"#a6e3a1\0", &mut header_color); // Green (활성 열 헤더)
             alloc(b"#6c7086\0", &mut page_color); // Overlay0
+            alloc(b"#7f849c\0", &mut number_color); // Overlay1 (행 번호)
+            alloc(b"#f9e2af\0", &mut yellow_color); // Yellow (비활성 열 헤더)
+            alloc(b"#313244\0", &mut header_bg_color); // Surface0 (헤더 배경)
+            alloc(b"#526354\0", &mut flash_color); // Flash (선택 피드백)
         }
 
         unim_log!(
@@ -256,6 +272,10 @@ impl SpecialWindow {
             sel_bg_color,
             header_color,
             page_color,
+            number_color,
+            yellow_color,
+            header_bg_color,
+            flash_color,
             popup_state: None,
             size,
             cell_w: 0,
@@ -318,7 +338,7 @@ impl SpecialWindow {
             wx = screen_w - width;
         }
         if wy + height > screen_h {
-            wy -= height + 20;
+            wy -= height + 4;
             if wy < 0 {
                 wy = 0;
             }
@@ -441,7 +461,23 @@ impl SpecialWindow {
         let text_nudge = dpi::scale(4, sf);
         let text_margin = dpi::scale(6, sf);
 
-        // 1. 열 헤더 (top_row 레이블)
+        // 0. 헤더 배경 (Surface0 #313244) — 열 헤더 행 전체
+        unsafe {
+            let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
+            x11::xlib::XSetForeground(display, gc, self.header_bg_color.pixel);
+            x11::xlib::XFillRectangle(
+                display,
+                self.window,
+                gc,
+                0,
+                0,
+                self.size.0 as u32,
+                header_row_h as u32,
+            );
+            x11::xlib::XFreeGC(display, gc);
+        }
+
+        // 1. 열 헤더 (top_row 레이블) — 활성=Green, 비활성=Yellow
         for c in 0..cols {
             let label = if c < top_row_chars.len() {
                 top_row_chars[c].to_string()
@@ -449,9 +485,9 @@ impl SpecialWindow {
                 format!("{}", c + 1)
             };
             let color = if c == sel_col {
-                &self.sel_bg_color
+                &self.header_color // 활성: Green #a6e3a1
             } else {
-                &self.header_color
+                &self.yellow_color // 비활성: Yellow #f9e2af
             };
             let x = header_col_w + (c as c_int) * self.cell_w + self.cell_w / 2 - text_nudge;
             let y = header_row_h - text_margin;
@@ -469,13 +505,13 @@ impl SpecialWindow {
             }
         }
 
-        // 2. 행 헤더 (숫자 1-9)
+        // 2. 행 헤더 (숫자 1-9) — 활성=Green, 비활성=Overlay1
         for r in 0..rows {
             let label = format!("{}", r + 1);
             let color = if r == sel_row {
-                &self.sel_bg_color
+                &self.header_color // 활성: Green #a6e3a1
             } else {
-                &self.header_color
+                &self.number_color // 비활성: Overlay1 #7f849c
             };
             let x = text_margin;
             let y = header_row_h + (r as c_int) * self.cell_h + self.cell_h - text_margin;
@@ -564,6 +600,64 @@ impl SpecialWindow {
         }
     }
 
+    /// Flash 효과: 선택 셀을 밝은 색으로 120ms 표시 후 반환
+    pub fn flash_selection(&mut self, display: *mut x11::xlib::Display) {
+        let ps = match self.popup_state.as_ref() {
+            Some(ps) => ps,
+            None => return,
+        };
+
+        let sel_row = ps.sel_row();
+        let sel_col = ps.sel_col();
+        let header_col_w = self.cell_w;
+        let header_row_h = self.cell_h;
+        let cell_x = header_col_w + (sel_col as c_int) * self.cell_w;
+        let cell_y = header_row_h + (sel_row as c_int) * self.cell_h;
+
+        // Flash 색상으로 셀 배경 렌더링
+        unsafe {
+            let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
+            x11::xlib::XSetForeground(display, gc, self.flash_color.pixel);
+            x11::xlib::XFillRectangle(
+                display,
+                self.window,
+                gc,
+                cell_x,
+                cell_y,
+                self.cell_w as u32,
+                self.cell_h as u32,
+            );
+            x11::xlib::XFreeGC(display, gc);
+        }
+
+        // 셀 텍스트 재렌더링 (flash 배경 위에)
+        if let Some(ch) = ps.cell_text(sel_row, sel_col) {
+            let sf = self.scale_factor;
+            let text_margin = dpi::scale(6, sf);
+            let tx = cell_x + self.cell_w / 2 - dpi::scale(4, sf);
+            let ty = cell_y + self.cell_h - text_margin;
+            let bytes = ch.as_bytes();
+            unsafe {
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw,
+                    &self.text_color,
+                    self.xft_font,
+                    tx,
+                    ty,
+                    bytes.as_ptr(),
+                    bytes.len() as c_int,
+                );
+            }
+        }
+
+        unsafe {
+            x11::xlib::XFlush(display);
+        }
+
+        // 120ms 대기 (POPUP_SPEC flash duration)
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+
     /// Expose 이벤트 처리
     pub fn expose(&mut self, display: *mut x11::xlib::Display) {
         self.redraw(display);
@@ -584,6 +678,10 @@ impl SpecialWindow {
                 &self.sel_bg_color,
                 &self.header_color,
                 &self.page_color,
+                &self.number_color,
+                &self.yellow_color,
+                &self.header_bg_color,
+                &self.flash_color,
             ];
             for color in colors {
                 x11::xft::XftColorFree(display, visual, colormap, *color as *const _ as *mut _);

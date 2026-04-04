@@ -110,8 +110,18 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
         "  color: #cdd6f4;"
         "  font-size: %4px;"
         "}"
+        "QLabel[cellType=\"cell\"]:hover {"
+        "  background-color: rgba(255, 255, 255, 13);"
+        "  border-radius: 6px;"
+        "}"
         "QLabel[selected=\"true\"] {"
         "  background-color: rgba(166, 227, 161, 64);"
+        "  color: #cdd6f4;"
+        "  font-weight: bold;"
+        "  border-radius: 6px;"
+        "}"
+        "QLabel[selected=\"true\"]:hover {"
+        "  background-color: rgba(166, 227, 161, 77);"
         "  color: #cdd6f4;"
         "  font-weight: bold;"
         "  border-radius: 6px;"
@@ -251,11 +261,11 @@ void UnimSpecialPopup::adjustPosition(int x, int y, int cursorHeight)
         QSize popupSize = sizeHint();
 
         if (finalX + popupSize.width() > screenRect.right()) {
-            finalX = screenRect.right() - popupSize.width();
+            finalX = screenRect.right() - popupSize.width() - 4;
             if (finalX < 0) finalX = 0;
         }
         if (finalY + popupSize.height() > screenRect.bottom()) {
-            finalY = y - cursorHeight - popupSize.height();
+            finalY = y - cursorHeight - popupSize.height() - 4;
             if (finalY < 0) finalY = 0;
         }
     }

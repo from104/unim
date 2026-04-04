@@ -569,7 +569,7 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
 
     /* 팝업 크기 측정 및 화면 경계 보정 */
     gint popup_w = 0, popup_h = 0;
-    gint final_x = x, final_y = y;
+    gint final_x = x, final_y = y + 4;  /* 4px gap below cursor */
 
 #if GTK_CHECK_VERSION(4, 0, 0)
     /* GTK4: realize하여 X11 윈도우를 생성하되 아직 표시하지 않음 */
@@ -592,15 +592,15 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
             gint screen_w = DisplayWidth(xdisplay, screen_num);
             gint screen_h = DisplayHeight(xdisplay, screen_num);
 
-            /* 오른쪽 넘침 보정 */
+            /* 오른쪽 넘침 보정 (4px 여백) */
             if (final_x + popup_w > screen_w) {
-                final_x = screen_w - popup_w;
+                final_x = screen_w - popup_w - 4;
                 if (final_x < 0) final_x = 0;
             }
-            /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 */
+            /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 (4px 여백) */
             if (final_y + popup_h > screen_h) {
-                /* y는 커서 아래쪽이므로, 커서 위로: y - cursor_height - popup_h */
-                final_y = y - cursor_height - popup_h;
+                /* y는 커서 아래쪽이므로, 커서 위로: y - cursor_height - popup_h - 4 */
+                final_y = y - cursor_height - popup_h - 4;
                 if (final_y < 0) final_y = 0;
             }
 
@@ -637,14 +637,14 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
                 GdkRectangle mon_geom;
                 gdk_monitor_get_geometry(monitor, &mon_geom);
 
-                /* 오른쪽 넘침 보정 */
+                /* 오른쪽 넘침 보정 (4px 여백) */
                 if (final_x + popup_w > mon_geom.x + mon_geom.width) {
-                    final_x = mon_geom.x + mon_geom.width - popup_w;
+                    final_x = mon_geom.x + mon_geom.width - popup_w - 4;
                     if (final_x < mon_geom.x) final_x = mon_geom.x;
                 }
-                /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 */
+                /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 (4px 여백) */
                 if (final_y + popup_h > mon_geom.y + mon_geom.height) {
-                    final_y = y - cursor_height - popup_h;
+                    final_y = y - cursor_height - popup_h - 4;
                     if (final_y < mon_geom.y) final_y = mon_geom.y;
                 }
             }

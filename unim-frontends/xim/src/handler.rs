@@ -108,6 +108,8 @@ pub struct UnimHandler {
     special_context_path: Option<String>,
     /// 한자/특수문자 키 keysym 목록 (설정 기반)
     hanja_keysyms: Vec<u32>,
+    /// 특수문자 선택 시 flash 효과 대기 플래그
+    special_flash_pending: bool,
 }
 
 impl UnimHandler {
@@ -146,6 +148,7 @@ impl UnimHandler {
             special_window: None,
             special_context_path: None,
             hanja_keysyms,
+            special_flash_pending: false,
         })
     }
 
@@ -501,7 +504,12 @@ impl UnimHandler {
                     unim_log!("XIM_HANDLER", "HidePopup 시그널: 한자 팝업 닫기");
                 }
                 self.hanja_context_path = None;
-                if let Some(sw) = self.special_window.take() {
+                if let Some(mut sw) = self.special_window.take() {
+                    // 선택에 의한 닫기면 flash 효과 (120ms)
+                    if self.special_flash_pending {
+                        sw.flash_selection(self.display);
+                        self.special_flash_pending = false;
+                    }
                     sw.clean(self.display, self.screen);
                     unim_log!("XIM_HANDLER", "HidePopup 시그널: 특수문자 팝업 닫기");
                 }
@@ -968,7 +976,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                         (0, 0)
                     };
                     let popup_x = abs_x + spot.x as c_int;
-                    let popup_y = abs_y + spot.y as c_int + 20;
+                    let popup_y = abs_y + spot.y as c_int + 4;
 
                     // Standalone 모드에서는 프론트엔드 팝업을 표시하지 않음
                     if Config::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
@@ -1045,7 +1053,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                         (0, 0)
                     };
                     let popup_x = abs_x + spot.x as c_int;
-                    let popup_y = abs_y + spot.y as c_int + 20;
+                    let popup_y = abs_y + spot.y as c_int + 4;
 
                     // Standalone 모드에서는 프론트엔드 팝업을 표시하지 않음
                     if Config::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
@@ -1120,6 +1128,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         if let Some(commit_text) = commit {
             if !commit_text.is_empty() {
                 unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
+                // 특수문자 팝업이 열려있을 때 커밋 = 선택 완료 → flash 예약
+                if self.special_window.is_some() {
+                    self.special_flash_pending = true;
+                }
                 server.commit(&user_ic.ic, &commit_text)?;
                 // flush를 여기서 하지 않음 — commit과 preedit을 atomic batch로 전송하여
                 // 일부 XIM 클라이언트가 commit 처리 후 preedit을 놓치는 문제 방지

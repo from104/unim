@@ -688,7 +688,7 @@ unim_special_popup_show(UnimSpecialPopup *popup,
 
     /* 크기 측정 및 위치 설정 */
     gint final_x = x;
-    gint final_y = y;
+    gint final_y = y + 4;  /* 4px gap below cursor */
 
 #if GTK_CHECK_VERSION(4, 0, 0)
     /* GTK4: realize하여 X11 윈도우를 생성하되 아직 표시하지 않음 */
@@ -711,11 +711,11 @@ unim_special_popup_show(UnimSpecialPopup *popup,
             gint screen_h = DisplayHeight(xdisplay, screen_num);
 
             if (final_x + width > screen_w) {
-                final_x = screen_w - width;
+                final_x = screen_w - width - 4;
                 if (final_x < 0) final_x = 0;
             }
             if (final_y + height > screen_h) {
-                final_y = y - cursor_height - height;
+                final_y = y - cursor_height - height - 4;
                 if (final_y < 0) final_y = 0;
             }
 
@@ -752,11 +752,11 @@ unim_special_popup_show(UnimSpecialPopup *popup,
                 gdk_monitor_get_geometry(monitor, &mon_geom);
 
                 if (final_x + width > mon_geom.x + mon_geom.width) {
-                    final_x = mon_geom.x + mon_geom.width - width;
+                    final_x = mon_geom.x + mon_geom.width - width - 4;
                     if (final_x < mon_geom.x) final_x = mon_geom.x;
                 }
                 if (final_y + height > mon_geom.y + mon_geom.height) {
-                    final_y = y - cursor_height - height;
+                    final_y = y - cursor_height - height - 4;
                     if (final_y < mon_geom.y) final_y = mon_geom.y;
                 }
             }

@@ -53,6 +53,8 @@ pub struct HanjaWindow {
     sel_bg_color: x11::xft::XftColor,
     /// 페이지 정보 색상 (#6c7086)
     page_color: x11::xft::XftColor,
+    /// Flash 효과 색상 (#3d4a6b — 선택+밝기 부스트)
+    flash_color: x11::xft::XftColor,
     /// 통합 팝업 상태
     popup_state: Option<PopupState>,
     /// 윈도우 크기
@@ -92,7 +94,7 @@ impl HanjaWindow {
             }
         }
         if final_y + (size.1 as c_int) > screen_h {
-            final_y = y - (size.1 as c_int) - 20; // 커서 위로
+            final_y = y - (size.1 as c_int) - 4; // 커서 위로 (POPUP_SPEC 6.2: 4px gap)
             if final_y < 0 {
                 final_y = 0;
             }
@@ -265,6 +267,16 @@ impl HanjaWindow {
             alloc(b"#333c57\0", &mut sel_bg_color);
             alloc(b"#6c7086\0", &mut page_color);
         }
+        let mut flash_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        unsafe {
+            x11::xft::XftColorAllocName(
+                display,
+                visual,
+                colormap,
+                b"#3d4a6b\0".as_ptr() as *const i8,
+                &mut flash_color,
+            );
+        }
 
         unim_log!("XIM_HANJA", "한자 팝업 생성: pos=({},{}), scale={:.2}", final_x, final_y, scale_factor);
 
@@ -282,6 +294,7 @@ impl HanjaWindow {
             meaning_color,
             sel_bg_color,
             page_color,
+            flash_color,
             popup_state: None,
             size,
             scale_factor,
@@ -340,7 +353,7 @@ impl HanjaWindow {
             wx = screen_w - (width as c_int);
         }
         if wy + (height as c_int) > screen_h {
-            wy = wy - (height as c_int) - 20;
+            wy = wy - (height as c_int) - 4;
             if wy < 0 {
                 wy = 0;
             }
@@ -685,6 +698,45 @@ impl HanjaWindow {
         }
     }
 
+    /// Flash 효과: 선택 행을 밝은 색으로 120ms 표시 후 반환
+    /// 현재는 미사용 (POPUP_SPEC: flash는 특수문자 전용), 향후 활용 가능
+    #[allow(dead_code)]
+    pub fn flash_selection(&mut self, display: *mut x11::xlib::Display) {
+        let ps = match self.popup_state.as_ref() {
+            Some(ps) => ps,
+            None => return,
+        };
+
+        let sf = self.scale_factor;
+        let line_h = self.line_height(display);
+        let padding_y: c_int = dpi::scale(8, sf);
+        let header_h = line_h + dpi::scale(4, sf);
+        let items_start_y = padding_y + header_h + dpi::scale(4, sf);
+        let inset = dpi::scale(4, sf);
+        let selected = ps.sel_row();
+        let row_top = items_start_y + (selected as c_int) * line_h;
+
+        // Flash 색상으로 선택 행 배경 렌더링
+        unsafe {
+            let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
+            x11::xlib::XSetForeground(display, gc, self.flash_color.pixel);
+            x11::xlib::XFillRectangle(
+                display,
+                self.window,
+                gc,
+                inset,
+                row_top,
+                (self.size.0 as c_int - inset * 2) as u32,
+                line_h as u32,
+            );
+            x11::xlib::XFreeGC(display, gc);
+            x11::xlib::XFlush(display);
+        }
+
+        // 120ms 대기 (POPUP_SPEC flash duration)
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+
     /// Expose 이벤트 처리
     pub fn expose(&mut self, display: *mut x11::xlib::Display) {
         self.redraw(display);
@@ -711,6 +763,7 @@ impl HanjaWindow {
                 &self.meaning_color,
                 &self.sel_bg_color,
                 &self.page_color,
+                &self.flash_color,
             ];
             for color in colors {
                 x11::xft::XftColorFree(display, visual, colormap, *color as *const _ as *mut _);

@@ -92,8 +92,17 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
         "  min-height: %5px;"
         "  border-radius: 6px;"
         "}"
+        "QLabel:hover {"
+        "  background-color: rgba(255, 255, 255, 13);"
+        "  border-radius: 6px;"
+        "}"
         "QLabel[selected=\"true\"] {"
         "  background-color: rgba(137, 180, 250, 51);"
+        "  color: #cdd6f4;"
+        "  border-radius: 6px;"
+        "}"
+        "QLabel[selected=\"true\"]:hover {"
+        "  background-color: rgba(137, 180, 250, 64);"
         "  color: #cdd6f4;"
         "  border-radius: 6px;"
         "}"
@@ -315,13 +324,13 @@ void UnimHanjaPopup::adjustPosition(int x, int y, int cursorHeight)
 
         /* 오른쪽 넘침 보정 */
         if (finalX + popupSize.width() > screenRect.right()) {
-            finalX = screenRect.right() - popupSize.width();
+            finalX = screenRect.right() - popupSize.width() - 4;
             if (finalX < screenRect.left()) finalX = screenRect.left();
         }
 
         /* 아래쪽 넘침 보정: 커서(preedit) 위로 올림 */
         if (finalY + popupSize.height() > screenRect.bottom()) {
-            finalY = y - cursorHeight - popupSize.height();
+            finalY = y - cursorHeight - popupSize.height() - 4;
             if (finalY < screenRect.top()) finalY = screenRect.top();
         }
 

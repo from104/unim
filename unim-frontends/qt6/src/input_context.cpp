@@ -381,7 +381,7 @@ bool UnimInputContext::filterEvent(const QEvent *event)
             QList<UnimHanjaCandidate> candidates;
             if (m_hanjaPopup && m_dbus->getHanjaCandidates(target, candidates) && !candidates.isEmpty()) {
                 int popupX = m_cursorRect.x();
-                int popupY = m_cursorRect.y() + m_cursorRect.height();
+                int popupY = m_cursorRect.y() + m_cursorRect.height() + 4;
 
                 UNIM_DEBUG(QString::asprintf("한자 후보 표시: target='%s', count=%d, pos=(%d,%d)",
                            qPrintable(target), static_cast<int>(candidates.size()), popupX, popupY));
@@ -407,7 +407,7 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                 QString spTopRow;
                 if (m_specialPopup && m_dbus->getSpecialCharCandidates(spTarget, spChars, spTopRow) && !spChars.isEmpty()) {
                     int popupX = m_cursorRect.x();
-                    int popupY = m_cursorRect.y() + m_cursorRect.height();
+                    int popupY = m_cursorRect.y() + m_cursorRect.height() + 4;
 
                     UNIM_DEBUG(QString::asprintf("특수문자 후보 표시: target='%s', count=%d",
                                qPrintable(spTarget), static_cast<int>(spChars.size())));
