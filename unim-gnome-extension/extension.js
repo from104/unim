@@ -156,6 +156,11 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
+            // DBus 연결 성공 시 포커스가 있으면 인디케이터 활성화
+            if (this._indicator && global.display.focus_window) {
+                this._indicator.setInputActive(true);
+            }
+
             // 3. 한자키 설정 읽기
             const hanjaKeysyms = this._loadHanjaKeysyms();
 
@@ -284,6 +289,9 @@ export default class UnimExtension extends Extension {
      * @private
      */
     _cleanupIME() {
+        // 인디케이터 비활성
+        if (this._indicator) this._indicator.setInputActive(false);
+
         // 포커스 감시 해제
         if (this._focusWindowId > 0) {
             global.display.disconnect(this._focusWindowId);
@@ -349,7 +357,8 @@ export default class UnimExtension extends Extension {
         this._cleanupPopups();
 
         if (!focusWindow) {
-            // 포커스 없음 (바탕화면 등)
+            // 포커스 없음 (바탕화면 등) → 인디케이터 비활성
+            if (this._indicator) this._indicator.setInputActive(false);
             if (this._dbusIME?.isConnected) {
                 const commit = this._dbusIME.focusOut();
                 if (commit && this._inputMethod) {
@@ -362,13 +371,14 @@ export default class UnimExtension extends Extension {
 
         const windowId = this._getWindowId(focusWindow);
 
-        // 포커스 전환: focusOut → focusIn
+        // 포커스 전환: focusOut → focusIn → 인디케이터 활성
         if (this._dbusIME?.isConnected) {
             const commit = this._dbusIME.focusOut();
             if (commit && this._inputMethod) {
                 this._inputMethod.commitText(commit);
             }
             this._dbusIME.focusIn(windowId);
+            if (this._indicator) this._indicator.setInputActive(true);
         }
 
         this._preeditOverlay?.hide();
@@ -534,30 +544,45 @@ export default class UnimExtension extends Extension {
         this._doTypeFix(direction, pasteMode);
     }
 
-    async _doTypeFix(direction, pasteMode) {
+    _doTypeFix(direction, pasteMode) {
         this._conversionInProgress = true;
         try {
-            const proxy = this._dbusIME?.getContextProxy();
+            const proxy = this._dbusIME?.getImProxy();
             if (!proxy) {
-                unimLog('EXTENSION', 'TypeFIX: DBus 컨텍스트 없음');
-                this._conversionInProgress = false;
+                unimLog('EXTENSION', 'TypeFIX: DBus 연결 없음');
                 return;
             }
 
-            // DBus TypeFix 호출 — 엔진이 surrounding text에서 단어를 찾아 변환하고
-            // delete_surrounding_text + commit_text 시그널을 발행함
-            const [deleteCount, replacement] = await proxy.TypeFixAsync(direction);
+            // 글로벌 TypeFix 호출 — 마지막 포커스된 컨텍스트의 surrounding text로 변환
+            const result = proxy.call_sync(
+                'TypeFix',
+                new GLib.Variant('(u)', [direction]),
+                Gio.DBusCallFlags.NONE,
+                500,
+                null
+            );
+
+            if (!result) {
+                unimLog('EXTENSION', 'TypeFIX: 변환할 텍스트 없음');
+                return;
+            }
+
+            const [deleteCount, replacement] = result.deep_unpack();
 
             if (deleteCount === 0 || !replacement) {
                 unimLog('EXTENSION', 'TypeFIX: 변환할 텍스트 없음');
-                this._conversionInProgress = false;
                 return;
             }
 
             unimLog('EXTENSION', `TypeFIX 완료: delete=${deleteCount}, replacement='${replacement}'`);
 
+            // 텍스트 치환: surrounding text 삭제 후 대체 텍스트 커밋
+            if (this._inputMethod && pasteMode !== PasteMode.COPY_ONLY) {
+                this._inputMethod.deleteSurrounding(deleteCount);
+                this._inputMethod.commitText(replacement);
+            }
+
             if (pasteMode === PasteMode.COPY_ONLY) {
-                // Copy-only: 변환 결과를 클립보드에만 저장 (DBus 시그널은 이미 발행됨)
                 this._clipboard.set_text(St.ClipboardType.CLIPBOARD, replacement);
                 unimLog('EXTENSION', 'Copy-only mode: 클립보드에 저장');
             }

@@ -229,11 +229,19 @@ export class UnimDbusIME {
     }
 
     /**
-     * InputContext 프록시 반환 (TypeFIX 등 직접 DBus 호출용)
+     * InputContext 프록시 반환 (직접 DBus 호출용)
      * @returns {Gio.DBusProxy|null}
      */
     getContextProxy() {
         return this._icProxy;
+    }
+
+    /**
+     * InputMethod(글로벌) 프록시 반환 (글로벌 TypeFix 등)
+     * @returns {Gio.DBusProxy|null}
+     */
+    getImProxy() {
+        return this._imProxy;
     }
 
     // ===========================================

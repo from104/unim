@@ -44,6 +44,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     let mut app_modes: HashMap<String, unim::config::InputCategory> = HashMap::new();
     // 컨텍스트 -> 창 ID 매핑
     let mut context_windows: HashMap<u32, String> = HashMap::new();
+    // 마지막 포커스된 컨텍스트 ID (글로벌 TypeFix용)
+    let mut last_focused_context_id: Option<u32> = None;
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
@@ -237,6 +239,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 window_id,
                 response,
             } => {
+                // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
+                last_focused_context_id = Some(context_id);
+
                 // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 필요)
                 context_windows.insert(context_id, window_id.clone());
 
@@ -577,6 +582,32 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let result = if let Some(engine) = contexts.get_mut(&context_id) {
                     engine.typefix_convert(direction)
                 } else {
+                    None
+                };
+                let _ = response.send(result);
+            }
+
+            EngineRequest::GlobalTypeFix {
+                direction,
+                response,
+            } => {
+                let result = if let Some(ctx_id) = last_focused_context_id {
+                    if let Some(engine) = contexts.get_mut(&ctx_id) {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] GlobalTypeFix: context_id={}, direction={}",
+                            ctx_id,
+                            direction
+                        );
+                        engine.typefix_convert(direction)
+                    } else {
+                        None
+                    }
+                } else {
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] GlobalTypeFix: 포커스된 컨텍스트 없음"
+                    );
                     None
                 };
                 let _ = response.send(result);

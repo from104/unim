@@ -292,6 +292,20 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     /**
+     * 커서 앞의 텍스트를 삭제 (TypeFIX용)
+     * @param {number} charCount - 삭제할 글자 수
+     */
+    deleteSurrounding(charCount) {
+        if (charCount <= 0) return;
+        try {
+            this.delete_surrounding(-(charCount), charCount);
+            unimLog('IME', `deleteSurrounding: ${charCount}자 삭제`);
+        } catch (e) {
+            unimError('IME', `deleteSurrounding 실패: ${e.message}`);
+        }
+    }
+
+    /**
      * Preedit 상태 초기화
      */
     clearPreedit() {

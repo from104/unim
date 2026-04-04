@@ -37,7 +37,8 @@ class UnimIndicator extends PanelMenu.Button {
         this._nameWatcherId = 0;
         this._isKorean = true;
         this._connected = false;
-        
+        this._inputActive = false;
+
         // 확장 디렉토리 경로 (아이콘 로드용)
         this._extensionPath = extension.path;
         
@@ -95,10 +96,12 @@ class UnimIndicator extends PanelMenu.Button {
     
     _updateMenuItems() {
         // 헤더 업데이트
-        if (this._connected) {
-            this._headerItem.label.set_text(this._isKorean ? '🇰🇷 한국어 입력 중' : '🔤 영어 입력 중');
-        } else {
+        if (!this._connected) {
             this._headerItem.label.set_text('⚠️ UNIM 데몬 연결 안됨');
+        } else if (!this._inputActive) {
+            this._headerItem.label.set_text('💤 입력 대기 중');
+        } else {
+            this._headerItem.label.set_text(this._isKorean ? '🇰🇷 한국어 입력 중' : '🔤 영어 입력 중');
         }
         
         // 체크마크 표시
@@ -106,16 +109,27 @@ class UnimIndicator extends PanelMenu.Button {
         this._englishItem.setOrnament(!this._isKorean ? PopupMenu.Ornament.CHECK : PopupMenu.Ornament.NONE);
     }
     
+    /**
+     * 입력 활성 상태 설정 (포커스 있는 입력 필드가 있을 때)
+     * @param {boolean} active
+     */
+    setInputActive(active) {
+        if (this._inputActive === active) return;
+        this._inputActive = active;
+        this._updateIcon();
+        this._updateMenuItems();
+    }
+
     _updateIcon() {
         let iconName;
         let styleClass = 'unim-indicator-icon system-status-icon';
-        
-        if (this._connected) {
-            // 확장 디렉토리의 아이콘 파일 사용
+
+        if (this._connected && this._inputActive) {
+            // 연결됨 + 입력 포커스 있음 → 한/영 상태 표시
             iconName = this._isKorean ? 'unim-korean' : 'unim-english';
             styleClass += this._isKorean ? ' hangul-mode' : ' english-mode';
         } else {
-            // 연결 안됨 상태에서는 시스템 아이콘 사용
+            // 연결 안됨 또는 입력 포커스 없음 → 비활성 상태
             iconName = 'dialog-question-symbolic';
             styleClass += ' disconnected-mode';
         }
