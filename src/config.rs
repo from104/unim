@@ -241,6 +241,37 @@ pub struct AutoSwitchConfig {
     pub show_notification: bool,
 }
 
+/// 자동 오타 교정 (AutoTypeFix) 설정
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoTypeFixConfig {
+    /// 활성화 여부
+    pub enabled: bool,
+    /// 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사
+    pub time_window_ms: u32,
+    /// 방향 A (영→한) 트리거: 한글 완성 음절 수 (2~5)
+    pub kor_syllable_threshold: u8,
+    /// 방향 B (한→영) 트리거: 영문 단어 최소 길이 (5~10)
+    pub eng_word_min_length: u8,
+    /// 방향 A (영→한 교정) 활성화
+    pub direction_a: bool,
+    /// 방향 B (한→영 교정) 활성화
+    pub direction_b: bool,
+}
+
+impl Default for AutoTypeFixConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            time_window_ms: 2000,
+            kor_syllable_threshold: 2,
+            eng_word_min_length: 5,
+            direction_a: true,
+            direction_b: true,
+        }
+    }
+}
+
 /// 한국어 엔진 설정
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -327,6 +358,8 @@ pub struct EngineConfig {
     pub user_dictionary_path: Option<std::path::PathBuf>,
     /// 팝업 표시 방식 (Standalone: GUI 통합, Embedded: 프론트엔드 내장)
     pub popup_mode: PopupMode,
+    /// 자동 오타 교정 (AutoTypeFix) 설정
+    pub auto_typefix: AutoTypeFixConfig,
 }
 
 impl Default for EngineConfig {
@@ -342,6 +375,7 @@ impl Default for EngineConfig {
             app_rules: Vec::new(),
             user_dictionary_path: None,
             popup_mode: PopupMode::default(),
+            auto_typefix: AutoTypeFixConfig::default(),
         }
     }
 }

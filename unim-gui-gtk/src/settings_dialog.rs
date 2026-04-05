@@ -315,6 +315,149 @@ pub fn show_settings_dialog(app: &adw::Application) {
 
     content.append(&key_group);
 
+    // ===== AutoTypeFix Section =====
+    let atf_group = adw::PreferencesGroup::builder()
+        .title("자동 오타 교정 (AutoTypeFix)")
+        .description("입력 중 한/영 오타를 실시간으로 감지하여 자동 교정")
+        .build();
+
+    // Enabled toggle
+    let atf_enabled_row = adw::ActionRow::builder()
+        .title("자동 오타 교정 사용")
+        .build();
+    let atf_enabled_sw = gtk4::Switch::new();
+    atf_enabled_sw.set_valign(gtk4::Align::Center);
+    {
+        let s = state.borrow();
+        atf_enabled_sw.set_active(s.config.engine.auto_typefix.enabled);
+    }
+    atf_enabled_row.add_suffix(&atf_enabled_sw);
+    atf_enabled_row.set_activatable_widget(Some(&atf_enabled_sw));
+    atf_group.add(&atf_enabled_row);
+
+    // Direction A toggle
+    let dir_a_row = adw::ActionRow::builder()
+        .title("영→한 교정")
+        .subtitle("영어 모드에서 한글을 치려고 한 경우")
+        .build();
+    let dir_a_sw = gtk4::Switch::new();
+    dir_a_sw.set_valign(gtk4::Align::Center);
+    {
+        let s = state.borrow();
+        dir_a_sw.set_active(s.config.engine.auto_typefix.direction_a);
+    }
+    dir_a_row.add_suffix(&dir_a_sw);
+    dir_a_row.set_activatable_widget(Some(&dir_a_sw));
+    atf_group.add(&dir_a_row);
+
+    // Direction B toggle
+    let dir_b_row = adw::ActionRow::builder()
+        .title("한→영 교정")
+        .subtitle("한글 모드에서 영어를 치려고 �� 경우")
+        .build();
+    let dir_b_sw = gtk4::Switch::new();
+    dir_b_sw.set_valign(gtk4::Align::Center);
+    {
+        let s = state.borrow();
+        dir_b_sw.set_active(s.config.engine.auto_typefix.direction_b);
+    }
+    dir_b_row.add_suffix(&dir_b_sw);
+    dir_b_row.set_activatable_widget(Some(&dir_b_sw));
+    atf_group.add(&dir_b_row);
+
+    // Korean syllable threshold
+    let kor_thresh_row = adw::ActionRow::builder()
+        .title("한글 음절 임계값")
+        .subtitle("영→한 교정에 필요한 완성 음절 수 (2~5)")
+        .build();
+    let kor_thresh_spin = gtk4::SpinButton::with_range(2.0, 5.0, 1.0);
+    kor_thresh_spin.set_valign(gtk4::Align::Center);
+    {
+        let s = state.borrow();
+        kor_thresh_spin.set_value(s.config.engine.auto_typefix.kor_syllable_threshold as f64);
+    }
+    kor_thresh_row.add_suffix(&kor_thresh_spin);
+    atf_group.add(&kor_thresh_row);
+
+    // English word min length
+    let eng_len_row = adw::ActionRow::builder()
+        .title("영문 단어 최소 길이")
+        .subtitle("한→영 교정에 필요한 영문 단어 길이 (5~10)")
+        .build();
+    let eng_len_spin = gtk4::SpinButton::with_range(5.0, 10.0, 1.0);
+    eng_len_spin.set_valign(gtk4::Align::Center);
+    {
+        let s = state.borrow();
+        eng_len_spin.set_value(s.config.engine.auto_typefix.eng_word_min_length as f64);
+    }
+    eng_len_row.add_suffix(&eng_len_spin);
+    atf_group.add(&eng_len_row);
+
+    // Time window
+    let time_row = adw::ActionRow::builder()
+        .title("시간 윈도우 (ms)")
+        .subtitle("이 시간 내의 연속 키스트로크만 검사 (500~5000)")
+        .build();
+    let time_spin = gtk4::SpinButton::with_range(500.0, 5000.0, 100.0);
+    time_spin.set_valign(gtk4::Align::Center);
+    {
+        let s = state.borrow();
+        time_spin.set_value(s.config.engine.auto_typefix.time_window_ms as f64);
+    }
+    time_row.add_suffix(&time_spin);
+    atf_group.add(&time_row);
+
+    // AutoTypeFix callbacks
+    let state_clone = state.clone();
+    atf_enabled_sw.connect_active_notify(move |sw| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating { return; }
+        s.config.engine.auto_typefix.enabled = sw.is_active();
+        save_and_notify(&s.config, "auto_typefix", if sw.is_active() { "true" } else { "false" });
+    });
+
+    let state_clone = state.clone();
+    dir_a_sw.connect_active_notify(move |sw| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating { return; }
+        s.config.engine.auto_typefix.direction_a = sw.is_active();
+        let _ = s.config.save_to_default_path();
+    });
+
+    let state_clone = state.clone();
+    dir_b_sw.connect_active_notify(move |sw| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating { return; }
+        s.config.engine.auto_typefix.direction_b = sw.is_active();
+        let _ = s.config.save_to_default_path();
+    });
+
+    let state_clone = state.clone();
+    kor_thresh_spin.connect_value_changed(move |spin| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating { return; }
+        s.config.engine.auto_typefix.kor_syllable_threshold = spin.value() as u8;
+        let _ = s.config.save_to_default_path();
+    });
+
+    let state_clone = state.clone();
+    eng_len_spin.connect_value_changed(move |spin| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating { return; }
+        s.config.engine.auto_typefix.eng_word_min_length = spin.value() as u8;
+        let _ = s.config.save_to_default_path();
+    });
+
+    let state_clone = state.clone();
+    time_spin.connect_value_changed(move |spin| {
+        let mut s = state_clone.borrow_mut();
+        if s.updating { return; }
+        s.config.engine.auto_typefix.time_window_ms = spin.value() as u32;
+        let _ = s.config.save_to_default_path();
+    });
+
+    content.append(&atf_group);
+
     // Clamp for nice libadwaita look
     let clamp = adw::Clamp::builder()
         .maximum_size(600)

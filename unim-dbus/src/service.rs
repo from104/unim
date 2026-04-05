@@ -159,6 +159,8 @@ pub struct EngineResponse {
     pub mode_changed: Option<bool>,
     /// 팝업 동작 (한자/특수문자 팝업 제어)
     pub popup_action: Option<PopupAction>,
+    /// AutoTypeFix 교정 결과 (삭제할 문자 수, 교정된 텍스트)
+    pub auto_typefix: Option<(u32, String)>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -392,6 +394,7 @@ impl InputMethodService {
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
+            "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
                 .unwrap_or_default(),
             _ => {
@@ -514,6 +517,11 @@ impl InputMethodService {
                             )))
                         }
                     };
+                }
+                "auto_typefix" => {
+                    config.engine.auto_typefix.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
                 }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =
@@ -715,6 +723,24 @@ impl InputContextHandler {
                 // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
                 _ => {}
             }
+        }
+
+        // AutoTypeFix 교정 결과 처리
+        if let Some((delete_chars, replacement)) = &response.auto_typefix {
+            unim_log!(
+                "DBUS",
+                "[DBus] AutoTypeFix: delete={}, replacement='{}'",
+                delete_chars,
+                replacement
+            );
+            Self::delete_surrounding_text(
+                &signal_ctx,
+                -(*delete_chars as i32),
+                *delete_chars,
+            )
+            .await
+            .ok();
+            Self::commit_text(&signal_ctx, replacement).await.ok();
         }
 
         unim_log!(

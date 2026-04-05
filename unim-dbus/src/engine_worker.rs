@@ -10,6 +10,7 @@ use std::thread;
 use tokio::sync::mpsc;
 
 use crate::service::{EngineRequest, EngineResponse};
+use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::Config;
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
@@ -46,6 +47,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     let mut context_windows: HashMap<u32, String> = HashMap::new();
     // 마지막 포커스된 컨텍스트 ID (글로벌 TypeFix용)
     let mut last_focused_context_id: Option<u32> = None;
+    // AutoTypeFix: 컨텍스트별 키스트로크 버퍼
+    let mut keystroke_buffers: HashMap<u32, KeystrokeBuffer> = HashMap::new();
+    // AutoTypeFix: 마지막 교정 결과 (Ctrl+Z 되돌리기용)
+    // (delete_chars, corrected_text, original_text)
+    let mut last_autofix: HashMap<u32, (u32, String, String)> = HashMap::new();
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
@@ -126,6 +132,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         commit: None,
                         mode_changed: None,
                         popup_action: None,
+                        auto_typefix: None,
                     });
                     continue;
                 }
@@ -134,6 +141,38 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // keycode를 KeyCode로 변환
                     let key = KeyCode::from_evdev_keycode(keycode as u16);
                     let modifier = ModifierState::from_x11_mask(state);
+                    let atf_config = &config.engine.auto_typefix;
+
+                    // Ctrl+Z: AutoTypeFix 되돌리기
+                    if key == KeyCode::Z
+                        && modifier.control
+                        && !modifier.shift
+                        && !modifier.alt
+                    {
+                        if let Some((_del, corrected, original)) =
+                            last_autofix.remove(&context_id)
+                        {
+                            let delete_chars = corrected.chars().count() as u32;
+                            keystroke_buffers.remove(&context_id);
+
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}'",
+                                corrected,
+                                original
+                            );
+
+                            let _ = response.send(EngineResponse {
+                                consumed: true,
+                                preedit: None,
+                                commit: None,
+                                mode_changed: None,
+                                popup_action: None,
+                                auto_typefix: Some((delete_chars, original)),
+                            });
+                            continue;
+                        }
+                    }
 
                     // 처리 전 상태 저장
                     let prev_mode = engine.input_category();
@@ -144,6 +183,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
                     let mode_changed = if prev_mode != current_mode {
+                        // 모드 변경 시 버퍼 초기화
+                        keystroke_buffers.remove(&context_id);
+                        last_autofix.remove(&context_id);
+
                         // PerApp 모드에서는 앱별 모드 저장
                         if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
                             if let Some(window_id) = context_windows.get(&context_id) {
@@ -171,7 +214,6 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     let commit = if result.commit_changed {
                         let s = engine.commit_str().to_string();
-                        // 커밋 버퍼를 읽은 후 반드시 비워야 함 (누적 방지)
                         engine.clear_commit();
                         if !s.is_empty() {
                             Some(s)
@@ -182,8 +224,87 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         None
                     };
 
-                    // 팝업 동작 감지 (take_popup_action으로 통합)
+                    // 팝업 동작 감지
                     let popup_action = engine.take_popup_action();
+
+                    // === AutoTypeFix: 키스트로크 버퍼 기반 감지 ===
+                    let auto_typefix_result = if atf_config.enabled
+                        && mode_changed.is_none()
+                        && popup_action.is_none()
+                    {
+                        let buf = keystroke_buffers
+                            .entry(context_id)
+                            .or_insert_with(KeystrokeBuffer::new);
+
+                        // 알파벳 키면 버퍼에 추가
+                        if buf.push(key, modifier) {
+                            // 시간 윈도우 밖 엔트리 제거
+                            buf.expire(atf_config.time_window_ms);
+
+                            // commit/preedit 추적 (방향 B용)
+                            if let Some(ref c) = commit {
+                                buf.update_on_commit(c);
+                            }
+                            if let Some(ref p) = preedit {
+                                buf.update_on_preedit(p);
+                            } else if commit.is_some() {
+                                // commit은 있지만 preedit 변경 없음
+                                // (preedit이 이전 값 유지 — 변경 없으므로 건드리지 않음)
+                            }
+
+                            // 방향에 따라 감지
+                            let fix = match current_mode {
+                                unim::config::InputCategory::English => {
+                                    auto_typefix::check_direction_a(
+                                        buf,
+                                        atf_config,
+                                        config.engine.korean.layout,
+                                        config.engine.english.layout,
+                                    )
+                                }
+                                unim::config::InputCategory::Korean => {
+                                    auto_typefix::check_direction_b(buf, atf_config)
+                                }
+                            };
+
+                            if let Some(ref fix) = fix {
+                                // 되돌리기용 저장
+                                last_autofix.insert(
+                                    context_id,
+                                    (fix.delete_chars, fix.corrected.clone(), fix.original.clone()),
+                                );
+
+                                unim_log!(
+                                    "ENGINE_WORKER",
+                                    "[Engine Worker] AutoTypeFix: delete={}, corrected='{}', clear_preedit={}",
+                                    fix.delete_chars,
+                                    fix.corrected,
+                                    fix.clear_preedit
+                                );
+
+                                // 교정 후 버퍼 초기화
+                                buf.clear();
+
+                                Some((fix.delete_chars, fix.corrected.clone()))
+                            } else {
+                                // 교정 안 됨 → 되돌리기 기록 삭제
+                                last_autofix.remove(&context_id);
+                                None
+                            }
+                        } else {
+                            // 비알파벳 키 → 버퍼 초기화
+                            buf.clear();
+                            last_autofix.remove(&context_id);
+                            None
+                        }
+                    } else {
+                        // 모드 변경 또는 팝업 활성 → 버퍼 초기화
+                        if mode_changed.is_some() || popup_action.is_some() {
+                            keystroke_buffers.remove(&context_id);
+                            last_autofix.remove(&context_id);
+                        }
+                        None
+                    };
 
                     EngineResponse {
                         consumed: result.consumed,
@@ -191,6 +312,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         commit,
                         mode_changed,
                         popup_action,
+                        auto_typefix: auto_typefix_result,
                     }
                 } else {
                     EngineResponse {
@@ -199,6 +321,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         commit: None,
                         mode_changed: None,
                         popup_action: None,
+                        auto_typefix: None,
                     }
                 };
 
@@ -212,6 +335,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             } => {
                 // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
                 last_focused_context_id = Some(context_id);
+
+                // AutoTypeFix: 포커스 변경 시 word_buffer 초기화
+                keystroke_buffers.remove(&context_id);
+                last_autofix.remove(&context_id);
 
                 // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 필요)
                 context_windows.insert(context_id, window_id.clone());
@@ -269,6 +396,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
+                // AutoTypeFix: 포커스 아웃 시 word_buffer 초기화
+                keystroke_buffers.remove(&context_id);
+                last_autofix.remove(&context_id);
+
                 let commit = if let Some(engine) = contexts.get_mut(&context_id) {
                     // 팝업 활성 상태이면 취소하고 트리거 문자를 커밋 텍스트에 포함
                     let mut commit_text = String::new();

@@ -166,6 +166,32 @@ export default class UnimPreferences extends ExtensionPreferences {
         });
         window.add(typefixPage);
 
+        // ===== AutoTypeFix Section =====
+        const autoGroup = new Adw.PreferencesGroup({
+            title: _('자동 오타 교정 (AutoTypeFix)'),
+            description: _('입력 중 한/영 오타를 실시간으로 감지하여 자동 교정합니다')
+        });
+        typefixPage.add(autoGroup);
+
+        this._addToggle(autoGroup, settings, 'auto-typefix-enabled',
+            _('자동 오타 교정 사용'), _('키스트로크 기반 실시간 한영 오타 감지 및 교정'));
+
+        this._addToggle(autoGroup, settings, 'auto-typefix-direction-a',
+            _('영→한 교정'), _('영어 모드에서 한글을 치려고 한 경우 자동 교정'));
+
+        this._addToggle(autoGroup, settings, 'auto-typefix-direction-b',
+            _('한→영 교정'), _('한글 모드에서 영어를 치려고 한 경우 자동 교정'));
+
+        this._addSpinRow(autoGroup, settings, 'auto-typefix-kor-threshold',
+            _('한글 음절 임계값'), _('영→한 교정 트리거에 필요한 완성 음절 수'), 2, 5, 1);
+
+        this._addSpinRow(autoGroup, settings, 'auto-typefix-eng-min-length',
+            _('영문 단어 최소 길이'), _('한→영 교정 트리거에 필요한 영문 단어 길이'), 5, 10, 1);
+
+        this._addSpinRow(autoGroup, settings, 'auto-typefix-time-window',
+            _('시간 윈도우 (ms)'), _('이 시간 내의 연속 키스트로크만 검사'), 500, 5000, 100);
+
+        // ===== Manual TypeFix Section =====
         // Usage Guide
         const guideGroup = new Adw.PreferencesGroup({
             title: _('수동 한영 오타 변환'),
@@ -330,8 +356,78 @@ engine:
         });
 
         settings.bind(key, toggle, 'active', Gio.SettingsBindFlags.DEFAULT);
+
+        // auto-typefix 관련 키는 config.yaml에도 동기화
+        if (key.startsWith('auto-typefix-')) {
+            toggle.connect('notify::active', () => {
+                this._syncAutoTypeFixToConfig(settings);
+            });
+        }
+
         row.add_suffix(toggle);
         row.activatable_widget = toggle;
+    }
+
+    // Helper: Spin row (integer setting)
+    _addSpinRow(group, settings, key, title, subtitle, min, max, step) {
+        const row = new Adw.ActionRow({ title, subtitle });
+        group.add(row);
+
+        const adj = new Gtk.Adjustment({ lower: min, upper: max, step_increment: step, value: settings.get_uint(key) });
+        const spin = new Gtk.SpinButton({ adjustment: adj, valign: Gtk.Align.CENTER, width_chars: 6 });
+
+        settings.bind(key, spin, 'value', Gio.SettingsBindFlags.DEFAULT);
+
+        // config.yaml 동기화
+        spin.connect('value-changed', () => {
+            this._syncAutoTypeFixToConfig(settings);
+        });
+
+        row.add_suffix(spin);
+    }
+
+    // AutoTypeFix 설정을 config.yaml에 동기화
+    _syncAutoTypeFixToConfig(settings) {
+        try {
+            const configDir = GLib.build_filenamev([GLib.get_home_dir(), '.config', 'unim']);
+            const configPath = GLib.build_filenamev([configDir, 'config.yaml']);
+
+            GLib.mkdir_with_parents(configDir, 0o755);
+
+            let content = '';
+            try {
+                const [ok, c] = GLib.file_get_contents(configPath);
+                if (ok) content = new TextDecoder().decode(c);
+            } catch (_) {}
+
+            const atf = {
+                enabled: settings.get_boolean('auto-typefix-enabled'),
+                time_window_ms: settings.get_uint('auto-typefix-time-window'),
+                kor_syllable_threshold: settings.get_uint('auto-typefix-kor-threshold'),
+                eng_word_min_length: settings.get_uint('auto-typefix-eng-min-length'),
+                direction_a: settings.get_boolean('auto-typefix-direction-a'),
+                direction_b: settings.get_boolean('auto-typefix-direction-b'),
+            };
+
+            // auto_typefix 블록이 있으면 교체, 없으면 추가
+            const atfYaml = `  auto_typefix:\n    enabled: ${atf.enabled}\n    time_window_ms: ${atf.time_window_ms}\n    kor_syllable_threshold: ${atf.kor_syllable_threshold}\n    eng_word_min_length: ${atf.eng_word_min_length}\n    direction_a: ${atf.direction_a}\n    direction_b: ${atf.direction_b}`;
+
+            if (/^\s*auto_typefix:/m.test(content)) {
+                // 기존 블록 교체 (auto_typefix: 부터 다음 비-들여쓰기 행까지)
+                content = content.replace(
+                    /^(\s*auto_typefix:)\n(?:\s{4,}\S.*\n)*/m,
+                    atfYaml + '\n'
+                );
+            } else if (/^engine:/m.test(content)) {
+                // engine: 블록 끝에 추가
+                content = content.replace(/^(engine:.*$)/m, `$1\n${atfYaml}`);
+            }
+
+            GLib.file_set_contents(configPath, content);
+            unimLog('PREFS', 'AutoTypeFix config synced');
+        } catch (e) {
+            unimError('PREFS', 'AutoTypeFix sync failed: ' + e.message);
+        }
     }
 
     // Helper: Combo dropdown with optional config sync

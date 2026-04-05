@@ -77,6 +77,46 @@
     </key>
 
     <!-- ============================================ -->
+    <!-- AutoTypeFix Settings (synced to config.yaml) -->
+    <!-- ============================================ -->
+
+    <key type="b" name="auto-typefix-enabled">
+      <default>true</default>
+      <summary>Auto TypeFix Enabled</summary>
+      <description>자동 한/영 오타 교정 활성화</description>
+    </key>
+
+    <key type="u" name="auto-typefix-time-window">
+      <default>2000</default>
+      <summary>Auto TypeFix Time Window (ms)</summary>
+      <description>키스트로크 검사 시간 윈도우 (밀리초)</description>
+    </key>
+
+    <key type="u" name="auto-typefix-kor-threshold">
+      <default>2</default>
+      <summary>Korean Syllable Threshold</summary>
+      <description>영→한 교정 트리거: 한글 완성 음절 수 (2~5)</description>
+    </key>
+
+    <key type="u" name="auto-typefix-eng-min-length">
+      <default>5</default>
+      <summary>English Word Min Length</summary>
+      <description>한→영 교정 트리거: 영문 단어 최소 길이 (5~10)</description>
+    </key>
+
+    <key type="b" name="auto-typefix-direction-a">
+      <default>true</default>
+      <summary>Direction A (Eng→Kor)</summary>
+      <description>영→한 자동 교정 활성화</description>
+    </key>
+
+    <key type="b" name="auto-typefix-direction-b">
+      <default>true</default>
+      <summary>Direction B (Kor→Eng)</summary>
+      <description>한→영 자동 교정 활성화</description>
+    </key>
+
+    <!-- ============================================ -->
     <!-- TypeFix Shortcut Settings -->
     <!-- ============================================ -->
 

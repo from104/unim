@@ -66,6 +66,24 @@ enum ConfigKey {
     /// 팝업 표시 방식 (standalone, embedded)
     #[value(name = "popup-mode")]
     PopupMode,
+    /// 자동 오타 교정 활성화 (true, false)
+    #[value(name = "auto-typefix")]
+    AutoTypeFix,
+    /// 자동 오타 교정: 한글 음절 임계값 (2~5)
+    #[value(name = "auto-typefix-kor-threshold")]
+    AutoTypeFixKorThreshold,
+    /// 자동 오타 교정: 영문 단어 최소 길이 (5~10)
+    #[value(name = "auto-typefix-eng-min-length")]
+    AutoTypeFixEngMinLength,
+    /// 자동 오타 교정: 시간 윈도우 (500~5000 ms)
+    #[value(name = "auto-typefix-time-window")]
+    AutoTypeFixTimeWindow,
+    /// 자동 오타 교정: 영→한 교정 (true, false)
+    #[value(name = "auto-typefix-direction-a")]
+    AutoTypeFixDirectionA,
+    /// 자동 오타 교정: 한→영 교정 (true, false)
+    #[value(name = "auto-typefix-direction-b")]
+    AutoTypeFixDirectionB,
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
@@ -131,6 +149,21 @@ fn config_show() {
         t!("popup_mode_label"),
         config.engine.popup_mode.name()
     );
+    let auto_typefix_status = if config.engine.auto_typefix.enabled {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+    println!("{}: {}", t!("auto_typefix_label"), auto_typefix_status);
+    if config.engine.auto_typefix.enabled {
+        let atf = &config.engine.auto_typefix;
+        println!("  - 영→한: {}, 한→영: {}",
+            if atf.direction_a { "ON" } else { "OFF" },
+            if atf.direction_b { "ON" } else { "OFF" });
+        println!("  - 한글 음절 임계값: {}, 영문 최소 길이: {}",
+            atf.kor_syllable_threshold, atf.eng_word_min_length);
+        println!("  - 시간 윈도우: {}ms", atf.time_window_ms);
+    }
     println!(
         "{}: {}",
         t!("app_rules_label"),
@@ -314,6 +347,56 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("popup_mode_label"),
                 config.engine.popup_mode.name()
             );
+        }
+        ConfigKey::AutoTypeFix => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid value for auto-typefix: {}", value)),
+            };
+            config.engine.auto_typefix.enabled = enabled;
+            let status = if enabled {
+                t!("enabled")
+            } else {
+                t!("disabled")
+            };
+            println!("{}", t!("auto_typefix_changed", status = status));
+        }
+        ConfigKey::AutoTypeFixKorThreshold => {
+            let v: u8 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
+            if !(2..=5).contains(&v) { return Err(format!("Range 2~5, got {}", v)); }
+            config.engine.auto_typefix.kor_syllable_threshold = v;
+            println!("한글 음절 임계값: {}", v);
+        }
+        ConfigKey::AutoTypeFixEngMinLength => {
+            let v: u8 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
+            if !(5..=10).contains(&v) { return Err(format!("Range 5~10, got {}", v)); }
+            config.engine.auto_typefix.eng_word_min_length = v;
+            println!("영문 단어 최소 길이: {}", v);
+        }
+        ConfigKey::AutoTypeFixTimeWindow => {
+            let v: u32 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
+            if !(500..=5000).contains(&v) { return Err(format!("Range 500~5000, got {}", v)); }
+            config.engine.auto_typefix.time_window_ms = v;
+            println!("시간 윈도우: {}ms", v);
+        }
+        ConfigKey::AutoTypeFixDirectionA => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.auto_typefix.direction_a = enabled;
+            println!("영→한 교정: {}", if enabled { "ON" } else { "OFF" });
+        }
+        ConfigKey::AutoTypeFixDirectionB => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.auto_typefix.direction_b = enabled;
+            println!("한→영 교정: {}", if enabled { "ON" } else { "OFF" });
         }
         ConfigKey::AppRules => {
             let rules: Vec<unim::config::AppRule> =
