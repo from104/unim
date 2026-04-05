@@ -85,6 +85,11 @@ impl KeystrokeBuffer {
         self.entries.len()
     }
 
+    /// 엔트리를 Vec으로 복사해서 반환
+    pub fn entries_vec(&self) -> Vec<KeystrokeEntry> {
+        self.entries.iter().cloned().collect()
+    }
+
     /// 시간 윈도우 밖의 오래된 엔트리 제거
     pub fn expire(&mut self, time_window_ms: u32) {
         let now = Instant::now();
@@ -130,12 +135,16 @@ impl KeystrokeBuffer {
 pub struct AutoTypeFixResult {
     /// 삭제할 화면 글자 수
     pub delete_chars: u32,
-    /// 교정된 텍스트 (commit할 내용)
+    /// 시그널로 commit할 텍스트 (마지막 음절 제외)
+    pub commit_text: String,
+    /// 전체 교정 텍스트 (되돌리기용)
     pub corrected: String,
     /// 원래 텍스트 (되돌리기용)
     pub original: String,
     /// preedit을 비워야 하는지
     pub clear_preedit: bool,
+    /// 마지막 음절을 replay할 키스트로크 (방향 A: 엔진에 다시 입력하여 preedit 생성)
+    pub replay_keys: Vec<(KeyCode, ModifierState)>,
 }
 
 /// 방향 A: 영어모드에서 한글 오타 감지
@@ -176,12 +185,68 @@ pub fn check_direction_a(
         return None;
     }
 
-    // 화면에는 영문 N글자가 있으므로 N글자 삭제
+    // 마지막 음절 분리: commit할 부분 + preedit으로 replay할 부분
+    let entries = buffer.entries_vec();
+    let total_keys = entries.len();
+    let mut last_syllable_start = total_keys;
+
+    // 뒤에서부터 키를 하나씩 빼면서 완성 음절 수가 줄어드는 지점을 찾음
+    for i in (1..total_keys).rev() {
+        let partial_ascii: String = entries[..i]
+            .iter()
+            .filter_map(|e| {
+                if e.modifier.shift {
+                    e.keycode.to_shifted_char()
+                } else {
+                    e.keycode.to_char()
+                }
+            })
+            .collect();
+        if partial_ascii.is_empty() {
+            continue;
+        }
+        let partial_kor = typefix::eng_to_kor(&partial_ascii, korean_layout, english_layout);
+        let partial_syllables = count_korean_syllables(&partial_kor);
+        if partial_syllables < syllable_count {
+            last_syllable_start = i;
+            break;
+        }
+    }
+
+    // commit 부분: 마지막 음절 시작 전까지의 한글
+    let commit_text = if last_syllable_start > 0 && last_syllable_start < total_keys {
+        let commit_ascii: String = entries[..last_syllable_start]
+            .iter()
+            .filter_map(|e| {
+                if e.modifier.shift {
+                    e.keycode.to_shifted_char()
+                } else {
+                    e.keycode.to_char()
+                }
+            })
+            .collect();
+        typefix::eng_to_kor(&commit_ascii, korean_layout, english_layout)
+    } else {
+        converted.clone()
+    };
+
+    // replay할 키: 마지막 음절에 해당하는 키스트로크
+    let replay_keys: Vec<(KeyCode, ModifierState)> = if last_syllable_start < total_keys {
+        entries[last_syllable_start..]
+            .iter()
+            .map(|e| (e.keycode, e.modifier))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     Some(AutoTypeFixResult {
         delete_chars: ascii.chars().count() as u32,
-        corrected: converted.clone(),
+        commit_text,
+        corrected: converted,
         original: ascii,
         clear_preedit: false,
+        replay_keys,
     })
 }
 
@@ -227,9 +292,11 @@ pub fn check_direction_b(
     // engine reset 후 keystroke replay가 필요
     Some(AutoTypeFixResult {
         delete_chars: screen_chars,
+        commit_text: eng.clone(),
         corrected: eng,
-        original: String::new(), // 방향 B 되돌리기는 별도 처리
+        original: String::new(),
         clear_preedit: buffer.has_preedit,
+        replay_keys: Vec::new(), // 방향 B는 영어로 교정 → preedit 불필요
     })
 }
 

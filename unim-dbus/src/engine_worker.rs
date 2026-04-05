@@ -206,7 +206,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     };
 
                     // 응답 생성
-                    let preedit = if result.preedit_changed {
+                    let mut preedit = if result.preedit_changed {
                         Some(engine.preedit_str().to_string())
                     } else {
                         None
@@ -289,14 +289,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 };
                                 engine.set_input_category(new_mode);
                                 config.engine.default_category = new_mode;
-                                // Global 모드면 모든 컨텍스트 동기화
-                                if config.engine.mode_sharing == unim::config::ModeSharingMode::Global {
-                                    for (&cid, eng) in contexts.iter_mut() {
-                                        if cid != context_id {
-                                            eng.set_input_category(new_mode);
-                                        }
-                                    }
-                                }
+                                // Global 동기화는 contexts borrow 해제 후 별도 처리
                                 mode_changed = Some(new_mode == unim::config::InputCategory::Korean);
 
                                 unim_log!(
@@ -308,7 +301,35 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // 교정 후 버퍼 초기화
                                 buf.clear();
 
-                                Some((fix.delete_chars, fix.corrected.clone()))
+                                // 방향 A: 마지막 음절을 엔진에 replay하여 preedit 상태 생성
+                                if !fix.replay_keys.is_empty() {
+                                    // 엔진 리셋 (조합 상태 초기화)
+                                    let current_category = engine.input_category();
+                                    *engine = InputEngine::new(&config);
+                                    engine.set_input_category(current_category);
+
+                                    // replay 키를 엔진에 밀어넣기
+                                    for (key, modifier) in &fix.replay_keys {
+                                        engine.press_key(*key, *modifier, &config);
+                                    }
+
+                                    // replay 결과: preedit이 마지막 음절
+                                    let replay_preedit = engine.preedit_str().to_string();
+                                    // replay에서 발생한 commit은 무시 (시그널의 commit_text에 이미 포함)
+                                    engine.clear_commit();
+
+                                    unim_log!(
+                                        "ENGINE_WORKER",
+                                        "[Engine Worker] AutoTypeFix replay: preedit='{}', commit_text='{}'",
+                                        replay_preedit,
+                                        fix.commit_text
+                                    );
+
+                                    // preedit을 replay 결과로 오버라이드
+                                    preedit = Some(replay_preedit);
+                                }
+
+                                Some((fix.delete_chars, fix.commit_text.clone()))
                             } else {
                                 // 교정 안 됨 → 되돌리기 기록 삭제
                                 last_autofix.remove(&context_id);
@@ -347,6 +368,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         auto_typefix: None,
                     }
                 };
+
+                // AutoTypeFix 모드 전환 시 Global 동기화 (contexts borrow 해제 후)
+                if resp.auto_typefix.is_some()
+                    && config.engine.mode_sharing == unim::config::ModeSharingMode::Global
+                {
+                    let new_mode = config.engine.default_category;
+                    for (&cid, eng) in contexts.iter_mut() {
+                        if cid != context_id {
+                            eng.set_input_category(new_mode);
+                        }
+                    }
+                }
 
                 let _ = response.send(resp);
             }
