@@ -168,7 +168,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 commit: None,
                                 mode_changed: None,
                                 popup_action: None,
-                                auto_typefix: Some((delete_chars, original)),
+                                auto_typefix: Some((delete_chars, original, String::new())),
                             });
                             continue;
                         }
@@ -325,11 +325,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                         fix.commit_text
                                     );
 
-                                    // preedit을 replay 결과로 오버라이드
-                                    preedit = Some(replay_preedit);
-                                }
+                                    // preedit은 시그널 경유로 프론트엔드가 처리
+                                    // EngineResponse.preedit은 비워둠 (타이밍 문제 방지)
+                                    preedit = Some(String::new());
 
-                                Some((fix.delete_chars, fix.commit_text.clone()))
+                                    Some((fix.delete_chars, fix.commit_text.clone(), replay_preedit))
+                                } else {
+                                    Some((fix.delete_chars, fix.commit_text.clone(), String::new()))
+                                }
                             } else {
                                 // 교정 안 됨 → 되돌리기 기록 삭제
                                 last_autofix.remove(&context_id);

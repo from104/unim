@@ -159,8 +159,8 @@ pub struct EngineResponse {
     pub mode_changed: Option<bool>,
     /// 팝업 동작 (한자/특수문자 팝업 제어)
     pub popup_action: Option<PopupAction>,
-    /// AutoTypeFix 교정 결과 (삭제할 문자 수, 교정된 텍스트)
-    pub auto_typefix: Option<(u32, String)>,
+    /// AutoTypeFix 교정 결과 (삭제할 문자 수, commit 텍스트, preedit 텍스트)
+    pub auto_typefix: Option<(u32, String, String)>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -726,16 +726,15 @@ impl InputContextHandler {
         }
 
         // AutoTypeFix: 교정 결과가 있으면 비동기 시그널로 발행
-        if let Some((delete_chars, replacement)) = &response.auto_typefix {
+        if let Some((delete_chars, commit_text, preedit_text)) = &response.auto_typefix {
             unim_log!(
                 "DBUS",
-                "[DBus] AutoTypeFix 시그널: delete={}, text='{}'",
+                "[DBus] AutoTypeFix 시그널: delete={}, commit='{}', preedit='{}'",
                 delete_chars,
-                replacement
+                commit_text,
+                preedit_text
             );
-            // 모든 프론트엔드: 백스페이스 에뮬레이션으로 처리
-            // (delete_surrounding_text는 터미널/GNOME Shell에서 불안정)
-            Self::auto_typefix_apply(&signal_ctx, *delete_chars, replacement)
+            Self::auto_typefix_apply(&signal_ctx, *delete_chars, commit_text, preedit_text)
                 .await
                 .ok();
         }
@@ -1052,12 +1051,13 @@ impl InputContextHandler {
     ) -> zbus::Result<()>;
 
     /// AutoTypeFix 교정 시그널 (엔진 → 프론트엔드)
-    /// delete_chars 글자를 삭제하고 replacement를 커밋
+    /// delete_chars 글자를 삭제 → commit_text 커밋 → preedit_text를 preedit으로 설정
     #[zbus(signal)]
     async fn auto_typefix_apply(
         signal_ctx: &SignalContext<'_>,
         delete_chars: u32,
-        replacement: &str,
+        commit_text: &str,
+        preedit_text: &str,
     ) -> zbus::Result<()>;
 
     // =========================================

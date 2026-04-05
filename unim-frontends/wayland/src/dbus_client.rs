@@ -108,9 +108,11 @@ pub enum PopupEvent {
     /// 팝업 숨김
     Hide,
     /// AutoTypeFix 교정 (백스페이스 N회 + 교정 텍스트 커밋)
+    #[allow(dead_code)]
     AutoTypeFix {
         delete_chars: u32,
-        replacement: String,
+        commit_text: String,
+        preedit_text: String,
     },
 }
 
@@ -582,7 +584,8 @@ async fn subscribe_popup_signals(
                 if let Ok(args) = signal.args() {
                     let _ = popup_tx.send(PopupEvent::AutoTypeFix {
                         delete_chars: args.delete_chars,
-                        replacement: args.replacement.to_string(),
+                        commit_text: args.commit_text.to_string(),
+                        preedit_text: args.preedit_text.to_string(),
                     });
                 }
             }

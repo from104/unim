@@ -232,13 +232,23 @@ export default class UnimExtension extends Extension {
                         this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
                     }
                 },
-                onAutoTypeFix: (deleteChars, replacement) => {
+                onAutoTypeFix: (deleteChars, commitText, preeditText) => {
                     if (this._vkbd && this._inputMethod) {
-                        unimLog('EXT', `AutoTypeFix 적용: backspace=${deleteChars}, text='${replacement}'`);
+                        unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
+                        // 1) 백스페이스로 기존 텍스트 삭제
                         this._vkbd.backspaceMultiple(deleteChars);
-                        // 백스페이스 처리 후 교정 텍스트 커밋 (약간의 딜레이 필요)
+                        // 2) 딜레이 후 commit + preedit 설정
                         GLib.timeout_add(GLib.PRIORITY_HIGH, 50, () => {
-                            this._inputMethod.commitText(replacement);
+                            if (commitText && commitText.length > 0) {
+                                this._inputMethod.commitText(commitText);
+                            }
+                            // 3) preedit 설정 (마지막 음절을 조합 상태로)
+                            if (preeditText && preeditText.length > 0) {
+                                GLib.timeout_add(GLib.PRIORITY_HIGH, 10, () => {
+                                    this._inputMethod.updatePreedit(preeditText);
+                                    return GLib.SOURCE_REMOVE;
+                                });
+                            }
                             return GLib.SOURCE_REMOVE;
                         });
                     }

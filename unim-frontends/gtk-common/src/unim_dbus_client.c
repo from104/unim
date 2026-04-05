@@ -922,13 +922,16 @@ on_auto_typefix_signal(GDBusConnection *connection G_GNUC_UNUSED,
     if (!ctx || !ctx->auto_typefix_callback) return;
 
     guint delete_chars = 0;
-    const gchar *replacement = NULL;
+    const gchar *commit_text = NULL;
+    const gchar *preedit_text = NULL;
 
-    g_variant_get(parameters, "(u&s)", &delete_chars, &replacement);
+    g_variant_get(parameters, "(u&s&s)", &delete_chars, &commit_text, &preedit_text);
 
-    if (delete_chars > 0 && replacement && replacement[0] != '\0') {
-        UNIM_DBUS_DEBUG("AutoTypeFix 시그널 수신: delete=%u, text='%s'", delete_chars, replacement);
-        ctx->auto_typefix_callback(delete_chars, replacement, ctx->auto_typefix_user_data);
+    if (delete_chars > 0 && commit_text) {
+        UNIM_DBUS_DEBUG("AutoTypeFix 시그널 수신: delete=%u, commit='%s', preedit='%s'",
+                         delete_chars, commit_text, preedit_text ? preedit_text : "");
+        ctx->auto_typefix_callback(delete_chars, commit_text, ctx->auto_typefix_user_data);
+        /* preedit은 GTK IM context에서 별도 처리 필요 — 현재는 commit만 */
     }
 }
 

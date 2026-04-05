@@ -532,7 +532,8 @@ impl UnimHandler {
             }
             PopupEvent::AutoTypeFix {
                 delete_chars,
-                replacement,
+                commit_text,
+                preedit_text: _,
             } => {
                 // XIM: 백스페이스 N회 전송 후 교정 텍스트 커밋
                 if let (Some(app_win), Some((client_win, im_id, ic_id))) =
@@ -542,7 +543,7 @@ impl UnimHandler {
                         "XIM_HANDLER",
                         "AutoTypeFix: delete={}, text='{}'",
                         delete_chars,
-                        replacement
+                        commit_text
                     );
 
                     // BackSpace 키 이벤트를 XSendEvent로 전송
@@ -579,7 +580,7 @@ impl UnimHandler {
                         ic_id,
                         String::new(),
                     );
-                    server.commit(&temp_ic, &replacement).ok();
+                    server.commit(&temp_ic, &commit_text).ok();
                 } else {
                     unim_log!(
                         "XIM_HANDLER",

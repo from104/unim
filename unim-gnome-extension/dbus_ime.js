@@ -227,9 +227,9 @@ export class UnimDbusIME {
                 const [page, totalPages, selected, rows, cols, selRow, selCol] = parameters.deep_unpack();
                 this._onPopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol);
             } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
-                const [deleteChars, replacement] = parameters.deep_unpack();
-                unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, text='${replacement}'`);
-                this._onAutoTypeFix(deleteChars, replacement);
+                const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
+                unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
+                this._onAutoTypeFix(deleteChars, commitText, preeditText);
             }
         } catch (e) {
             unimError('DBUS_IME', `시그널 처리 오류 (${signalName}): ${e.message}`);

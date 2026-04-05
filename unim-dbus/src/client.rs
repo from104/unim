@@ -129,9 +129,9 @@ trait InputContext {
     ) -> Result<()>;
 
     /// AutoTypeFix 교정 시그널 (엔진 → 프론트엔드)
-    /// delete_chars 글자를 삭제하고 replacement를 커밋
+    /// delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로
     #[zbus(signal)]
-    fn auto_typefix_apply(&self, delete_chars: u32, replacement: String) -> Result<()>;
+    fn auto_typefix_apply(&self, delete_chars: u32, commit_text: String, preedit_text: String) -> Result<()>;
 
     /// 팝업 숨김 시그널
     #[zbus(signal)]
