@@ -219,6 +219,7 @@ export class KeyHandler {
             this._inputMethod.commitText(commit);
         }
 
+
         this._inputMethod.updatePreedit(preedit || '');
         this._inputMethod.notify_key_event(event, consumed);
 
@@ -269,6 +270,10 @@ export class KeyHandler {
             const { consumed, preedit, commit } = result;
             if (commit && commit.length > 0) {
                 this._inputMethod.commitText(commit);
+            }
+            if (atfDelete > 0 && atfText && atfText.length > 0) {
+                this._inputMethod.deleteSurroundingText(-atfDelete, atfDelete);
+                this._inputMethod.commitText(atfText);
             }
             this._inputMethod.updatePreedit(preedit || '');
             this._inputMethod.notify_key_event(entry.event, consumed);
@@ -432,6 +437,7 @@ export class KeyHandler {
         if (commit && commit.length > 0) {
             this._inputMethod.commitText(commit);
         }
+
 
         // preedit 업데이트
         this._inputMethod.updatePreedit(preedit || '');

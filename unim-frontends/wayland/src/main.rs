@@ -251,6 +251,19 @@ fn main() {
                 dbus_client::PopupEvent::Hide => {
                     app.popup_surface.hide();
                 }
+                dbus_client::PopupEvent::AutoTypeFix {
+                    delete_chars,
+                    replacement,
+                } => {
+                    // Wayland: zwp_input_method_v2 미지원 환경에서는 no-op
+                    // TODO: delete_surrounding_text + commit_string 구현 시 활성화
+                    unim_log!(
+                        "WAYLAND",
+                        "AutoTypeFix 수신 (미구현): delete={}, text='{}'",
+                        delete_chars,
+                        replacement
+                    );
+                }
             }
         }
 

@@ -390,7 +390,8 @@ dev-gui-qt:
 	@echo "✅ unim-gui-qt 배포 완료!"
 
 dev-extension:
-	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)
+	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)/schemas
+	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)/icons
 	@cp -f unim-gnome-extension/*.js unim-gnome-extension/*.css \
 		unim-gnome-extension/metadata.json \
 		~/.local/share/gnome-shell/extensions/$(UUID)/

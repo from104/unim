@@ -80,9 +80,19 @@ UnimInputContext::UnimInputContext()
     m_windowId = QString::asprintf("qt6-ctx-%p", static_cast<void*>(this));
     
     m_dbus = new UnimDbusClient(QStringLiteral("qt6-unim"), m_windowId);
-    
+
     if (m_dbus && m_dbus->isValid()) {
         UNIM_DEBUG(QString::asprintf("UnimInputContext 생성 완료 (window_id: %s)", qPrintable(m_windowId)));
+        // AutoTypeFix 시그널 콜백 등록
+        m_dbus->setAutoTypeFixCallback([this](quint32 deleteChars, const QString &replacement) {
+            UNIM_DEBUG(QString::asprintf("AutoTypeFix: delete=%u, text='%s'", deleteChars, qPrintable(replacement)));
+            QObject *focusObj = QGuiApplication::focusObject();
+            if (!focusObj) return;
+            // QInputMethodEvent로 교체: replacementStart=-N, replacementLength=N, commitString=replacement
+            QInputMethodEvent event;
+            event.setCommitString(replacement, -(int)deleteChars, (int)deleteChars);
+            QCoreApplication::sendEvent(focusObj, &event);
+        });
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }

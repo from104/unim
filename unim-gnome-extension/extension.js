@@ -232,6 +232,17 @@ export default class UnimExtension extends Extension {
                         this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
                     }
                 },
+                onAutoTypeFix: (deleteChars, replacement) => {
+                    if (this._vkbd && this._inputMethod) {
+                        unimLog('EXT', `AutoTypeFix 적용: backspace=${deleteChars}, text='${replacement}'`);
+                        this._vkbd.backspaceMultiple(deleteChars);
+                        // 백스페이스 처리 후 교정 텍스트 커밋 (약간의 딜레이 필요)
+                        GLib.timeout_add(GLib.PRIORITY_HIGH, 50, () => {
+                            this._inputMethod.commitText(replacement);
+                            return GLib.SOURCE_REMOVE;
+                        });
+                    }
+                },
             });
 
             // 7. 포커스 감시 시작

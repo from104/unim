@@ -263,7 +263,7 @@ impl Default for AutoTypeFixConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            time_window_ms: 2000,
+            time_window_ms: 5000,
             kor_syllable_threshold: 2,
             eng_word_min_length: 5,
             direction_a: true,

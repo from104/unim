@@ -13,7 +13,9 @@
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusReply>
+#include <QObject>
 #include <memory>
+#include <functional>
 
 /* DBus 서비스 정보 */
 #define UNIM_DBUS_SERVICE       "org.atit.unim.InputMethod"
@@ -166,12 +168,36 @@ public:
      */
     void setSurroundingText(const QString &text, quint32 cursorPos, quint32 anchorPos);
 
+    /**
+     * AutoTypeFix 콜백 설정
+     * @param callback (delete_chars, replacement)를 받는 콜백
+     */
+    using AutoTypeFixCallback = std::function<void(quint32 deleteChars, const QString &replacement)>;
+    void setAutoTypeFixCallback(AutoTypeFixCallback callback);
+
 private:
     QDBusConnection m_bus;
     QString m_contextPath;
     QString m_preeditCache;
     bool m_isComposing;
     bool m_connected;
+    AutoTypeFixCallback m_autoTypeFixCallback;
+
+    friend class UnimAutoTypeFixReceiver;
+};
+
+/**
+ * AutoTypeFix DBus 시그널 수신 헬퍼 (QObject 필요)
+ */
+class UnimAutoTypeFixReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimAutoTypeFixReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onAutoTypefixApply(quint32 deleteChars, const QString &replacement);
+private:
+    UnimDbusClient *m_client;
 };
 
 #endif /* UNIM_DBUS_CLIENT_HPP */

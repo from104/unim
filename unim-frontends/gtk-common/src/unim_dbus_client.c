@@ -78,6 +78,10 @@ struct _UnimDbusContext {
     gchar *context_path;
     gchar *preedit_cache;      /* 현재 preedit 캐시 */
     gboolean is_composing;     /* 조합 중인지 */
+    /* AutoTypeFix 콜백 */
+    UnimAutoTypeFixCallback auto_typefix_callback;
+    gpointer auto_typefix_user_data;
+    guint auto_typefix_signal_id;
 };
 
 UnimDbusContext*
@@ -165,6 +169,11 @@ unim_dbus_context_free(UnimDbusContext *ctx)
             UNIM_DBUS_DEBUG("Destroy 실패: %s", error->message);
             g_error_free(error);
         }
+    }
+
+    /* AutoTypeFix 시그널 구독 해제 */
+    if (ctx->auto_typefix_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->auto_typefix_signal_id);
     }
 
     if (ctx->connection) {
@@ -894,4 +903,59 @@ unim_keycode_name_to_gdk_keyval(const gchar *name)
         }
     }
     return 0;
+}
+
+/* =========================================
+ * AutoTypeFix 시그널 구독
+ * ========================================= */
+
+static void
+on_auto_typefix_signal(GDBusConnection *connection G_GNUC_UNUSED,
+                        const gchar *sender_name G_GNUC_UNUSED,
+                        const gchar *object_path G_GNUC_UNUSED,
+                        const gchar *interface_name G_GNUC_UNUSED,
+                        const gchar *signal_name G_GNUC_UNUSED,
+                        GVariant *parameters,
+                        gpointer user_data)
+{
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->auto_typefix_callback) return;
+
+    guint delete_chars = 0;
+    const gchar *replacement = NULL;
+
+    g_variant_get(parameters, "(u&s)", &delete_chars, &replacement);
+
+    if (delete_chars > 0 && replacement && replacement[0] != '\0') {
+        UNIM_DBUS_DEBUG("AutoTypeFix 시그널 수신: delete=%u, text='%s'", delete_chars, replacement);
+        ctx->auto_typefix_callback(delete_chars, replacement, ctx->auto_typefix_user_data);
+    }
+}
+
+void
+unim_dbus_set_auto_typefix_callback(UnimDbusContext *ctx,
+                                     UnimAutoTypeFixCallback callback,
+                                     gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->auto_typefix_callback = callback;
+    ctx->auto_typefix_user_data = user_data;
+
+    /* 자기 context의 AutoTypefixApply 시그널 구독 */
+    ctx->auto_typefix_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "AutoTypefixApply",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_auto_typefix_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("AutoTypeFix 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->auto_typefix_signal_id);
 }

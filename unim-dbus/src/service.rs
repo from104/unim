@@ -725,22 +725,19 @@ impl InputContextHandler {
             }
         }
 
-        // AutoTypeFix 교정 결과 처리
+        // AutoTypeFix: 교정 결과가 있으면 비동기 시그널로 발행
         if let Some((delete_chars, replacement)) = &response.auto_typefix {
             unim_log!(
                 "DBUS",
-                "[DBus] AutoTypeFix: delete={}, replacement='{}'",
+                "[DBus] AutoTypeFix 시그널: delete={}, text='{}'",
                 delete_chars,
                 replacement
             );
-            Self::delete_surrounding_text(
-                &signal_ctx,
-                -(*delete_chars as i32),
-                *delete_chars,
-            )
-            .await
-            .ok();
-            Self::commit_text(&signal_ctx, replacement).await.ok();
+            // 모든 프론트엔드: 백스페이스 에뮬레이션으로 처리
+            // (delete_surrounding_text는 터미널/GNOME Shell에서 불안정)
+            Self::auto_typefix_apply(&signal_ctx, *delete_chars, replacement)
+                .await
+                .ok();
         }
 
         unim_log!(
@@ -1052,6 +1049,15 @@ impl InputContextHandler {
         signal_ctx: &SignalContext<'_>,
         offset: i32,
         n_chars: u32,
+    ) -> zbus::Result<()>;
+
+    /// AutoTypeFix 교정 시그널 (엔진 → 프론트엔드)
+    /// delete_chars 글자를 삭제하고 replacement를 커밋
+    #[zbus(signal)]
+    async fn auto_typefix_apply(
+        signal_ctx: &SignalContext<'_>,
+        delete_chars: u32,
+        replacement: &str,
     ) -> zbus::Result<()>;
 
     // =========================================

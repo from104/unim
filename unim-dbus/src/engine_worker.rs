@@ -182,7 +182,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
-                    let mode_changed = if prev_mode != current_mode {
+                    let mut mode_changed = if prev_mode != current_mode {
                         // 모드 변경 시 버퍼 초기화
                         keystroke_buffers.remove(&context_id);
                         last_autofix.remove(&context_id);
@@ -280,6 +280,29 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     fix.delete_chars,
                                     fix.corrected,
                                     fix.clear_preedit
+                                );
+
+                                // 교정 후 모드 전환: 영→한이면 한글로, 한→영이면 영어로
+                                let new_mode = match current_mode {
+                                    unim::config::InputCategory::English => unim::config::InputCategory::Korean,
+                                    unim::config::InputCategory::Korean => unim::config::InputCategory::English,
+                                };
+                                engine.set_input_category(new_mode);
+                                config.engine.default_category = new_mode;
+                                // Global 모드면 모든 컨텍스트 동기화
+                                if config.engine.mode_sharing == unim::config::ModeSharingMode::Global {
+                                    for (&cid, eng) in contexts.iter_mut() {
+                                        if cid != context_id {
+                                            eng.set_input_category(new_mode);
+                                        }
+                                    }
+                                }
+                                mode_changed = Some(new_mode == unim::config::InputCategory::Korean);
+
+                                unim_log!(
+                                    "ENGINE_WORKER",
+                                    "[Engine Worker] AutoTypeFix 모드 전환: {:?}",
+                                    new_mode
                                 );
 
                                 // 교정 후 버퍼 초기화

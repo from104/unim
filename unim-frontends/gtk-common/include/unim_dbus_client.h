@@ -246,6 +246,31 @@ gchar *unim_dbus_cancel_special_char(UnimDbusContext *ctx);
 void unim_special_chars_free(gchar **characters, gsize count);
 
 /* =========================================
+ * AutoTypeFix 콜백
+ * ========================================= */
+
+/**
+ * AutoTypeFix 콜백 타입
+ * @param delete_chars 삭제할 글자 수
+ * @param replacement 교정 텍스트
+ * @param user_data 사용자 데이터
+ */
+typedef void (*UnimAutoTypeFixCallback)(guint delete_chars,
+                                         const gchar *replacement,
+                                         gpointer user_data);
+
+/**
+ * AutoTypeFix 시그널 구독 및 콜백 설정
+ *
+ * @param ctx 컨텍스트
+ * @param callback AutoTypeFix 콜백 함수
+ * @param user_data 콜백에 전달할 사용자 데이터
+ */
+void unim_dbus_set_auto_typefix_callback(UnimDbusContext *ctx,
+                                          UnimAutoTypeFixCallback callback,
+                                          gpointer user_data);
+
+/* =========================================
  * 설정 조회 관련 함수
  * ========================================= */
 

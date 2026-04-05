@@ -53,19 +53,15 @@ impl KeystrokeBuffer {
         }
     }
 
-    /// 문자 키 추가. 비문자 키면 false 반환.
+    /// 문자 키 추가. 비문자 키(Enter, Backspace 등)면 false 반환.
+    /// 세벌식에서는 숫자/특수문자 키에도 자모가 할당되므로
+    /// `is_character_key()` (알파벳+숫자+기호) 전체를 허용.
     pub fn push(&mut self, keycode: KeyCode, modifier: ModifierState) -> bool {
-        // 알파벳 키만 버퍼에 추가 (숫자, 특수문자 제외)
-        let is_alpha = matches!(
-            keycode,
-            KeyCode::A | KeyCode::B | KeyCode::C | KeyCode::D | KeyCode::E |
-            KeyCode::F | KeyCode::G | KeyCode::H | KeyCode::I | KeyCode::J |
-            KeyCode::K | KeyCode::L | KeyCode::M | KeyCode::N | KeyCode::O |
-            KeyCode::P | KeyCode::Q | KeyCode::R | KeyCode::S | KeyCode::T |
-            KeyCode::U | KeyCode::V | KeyCode::W | KeyCode::X | KeyCode::Y |
-            KeyCode::Z
-        );
-        if !is_alpha {
+        if !keycode.is_character_key() {
+            return false;
+        }
+        // Space는 단어 구분자이므로 버퍼에 넣지 않음
+        if keycode == KeyCode::Space {
             return false;
         }
 
@@ -158,14 +154,16 @@ pub fn check_direction_a(
 
     // keycode → ASCII 문자열 (영어 키 기준)
     let ascii = buffer.to_ascii_string();
-    if ascii.is_empty() || !ascii.chars().all(|c| c.is_ascii_alphabetic()) {
+    if ascii.is_empty() {
         return None;
     }
 
-    // 영어 사전에 있으면 진짜 영어 → 스킵
-    let lower = ascii.to_lowercase();
-    if DICTIONARY.contains(lower.as_str()) {
-        return None;
+    // 영어 사전에 있으면 진짜 영어 → 스킵 (알파벳으로만 된 경우만 체크)
+    if ascii.chars().all(|c| c.is_ascii_alphabetic()) {
+        let lower = ascii.to_lowercase();
+        if DICTIONARY.contains(lower.as_str()) {
+            return None;
+        }
     }
 
     // 한글 조합 시뮬레이션

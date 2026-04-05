@@ -128,6 +128,11 @@ trait InputContext {
         cursor_height: i32,
     ) -> Result<()>;
 
+    /// AutoTypeFix 교정 시그널 (엔진 → 프론트엔드)
+    /// delete_chars 글자를 삭제하고 replacement를 커밋
+    #[zbus(signal)]
+    fn auto_typefix_apply(&self, delete_chars: u32, replacement: String) -> Result<()>;
+
     /// 팝업 숨김 시그널
     #[zbus(signal)]
     fn hide_popup(&self) -> Result<()>;

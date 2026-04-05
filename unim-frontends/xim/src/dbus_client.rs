@@ -41,6 +41,11 @@ pub enum PopupEvent {
         sel_row: i32,
         sel_col: i32,
     },
+    /// AutoTypeFix 교정 (백스페이스 N회 + 교정 텍스트 커밋)
+    AutoTypeFix {
+        delete_chars: u32,
+        replacement: String,
+    },
 }
 
 /// DBus 요청 타입
@@ -593,7 +598,7 @@ async fn subscribe_popup_signals(
         }
     };
 
-    // 4개 시그널 스트림 동시 구독
+    // 5개 시그널 스트림 동시 구독
     let mut hanja_stream = match proxy.receive_show_hanja_popup().await {
         Ok(s) => s,
         Err(e) => {
@@ -619,6 +624,13 @@ async fn subscribe_popup_signals(
         Ok(s) => s,
         Err(e) => {
             unim_log!("XIM_DBUS", "[XIM-DBus] PopupNavigate 구독 실패: {}", e);
+            return;
+        }
+    };
+    let mut autofix_stream = match proxy.receive_auto_typefix_apply().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] AutoTypefixApply 구독 실패: {}", e);
             return;
         }
     };
@@ -665,6 +677,14 @@ async fn subscribe_popup_signals(
                         cols: args.cols,
                         sel_row: args.sel_row,
                         sel_col: args.sel_col,
+                    });
+                }
+            }
+            Some(signal) = autofix_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::AutoTypeFix {
+                        delete_chars: args.delete_chars,
+                        replacement: args.replacement.to_string(),
                     });
                 }
             }

@@ -495,3 +495,28 @@ void UnimDbusClient::setSurroundingText(const QString &text, quint32 cursorPos, 
     msg << text << cursorPos << anchorPos;
     m_bus.call(msg, QDBus::NoBlock);
 }
+
+void UnimDbusClient::setAutoTypeFixCallback(AutoTypeFixCallback callback) {
+    m_autoTypeFixCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimAutoTypeFixReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("AutoTypefixApply"),
+        receiver,
+        SLOT(onAutoTypefixApply(quint32,QString))
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("AutoTypeFix signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimAutoTypeFixReceiver::onAutoTypefixApply(quint32 deleteChars, const QString &replacement) {
+    if (m_client && m_client->m_autoTypeFixCallback) {
+        UNIM_DBUS_DEBUG(QString::asprintf("AutoTypeFix received: delete=%u, text=%s",
+                         deleteChars, qPrintable(replacement)));
+        m_client->m_autoTypeFixCallback(deleteChars, replacement);
+    }
+}

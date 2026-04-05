@@ -53,6 +53,8 @@ export class UnimDbusIME {
         this._onHidePopup = null;
         /** @type {Function|null} 팝업 네비게이션 콜백 */
         this._onPopupNavigate = null;
+        /** @type {Function|null} AutoTypeFix 교정 콜백 */
+        this._onAutoTypeFix = null;
     }
 
     /**
@@ -120,6 +122,7 @@ export class UnimDbusIME {
         this._onShowSpecial = callbacks.onShowSpecial || null;
         this._onHidePopup = callbacks.onHidePopup || null;
         this._onPopupNavigate = callbacks.onPopupNavigate || null;
+        this._onAutoTypeFix = callbacks.onAutoTypeFix || null;
     }
 
     /**
@@ -158,9 +161,11 @@ export class UnimDbusIME {
             throw new Error(`InputContext 프록시 생성 실패: ${this._contextPath}`);
         }
 
-        // InputContext 시그널 구독 (자기 context: 모드 변경 등)
+        // InputContext 시그널 구독 (자기 context: 팝업 등)
+        // AutoTypefixApply는 글로벌 구독에서만 처리 (중복 방지)
         this._icSignalId = this._icProxy.connect('g-signal',
             (proxy, senderName, signalName, parameters) => {
+                if (signalName === 'AutoTypefixApply') return;
                 this._handleContextSignal(signalName, parameters, true);
             }
         );
@@ -177,8 +182,15 @@ export class UnimDbusIME {
             null,
             Gio.DBusSignalFlags.NONE,
             (_conn, _sender, path, _iface, signalName, parameters) => {
-                // 자기 context 시그널은 _icProxy g-signal에서 이미 처리
-                if (path === this._contextPath) return;
+                const isOwn = (path === this._contextPath);
+                // AutoTypefixApply는 자기 context도 글로벌 구독에서 처리
+                // (g-signal proxy가 introspection 미등록 시그널을 전달하지 않을 수 있음)
+                if (signalName === 'AutoTypefixApply' && isOwn) {
+                    this._handleContextSignal(signalName, parameters, true);
+                    return;
+                }
+                // 자기 context의 다른 시그널은 _icProxy g-signal에서 이미 처리
+                if (isOwn) return;
                 // X11에서는 gui-gtk가 팝업을 담당하므로 스킵 (중복 팝업 방지)
                 if (!Meta.is_wayland_compositor()) return;
                 this._handleContextSignal(signalName, parameters, false);
@@ -214,6 +226,10 @@ export class UnimDbusIME {
             } else if (signalName === 'PopupNavigate' && this._onPopupNavigate) {
                 const [page, totalPages, selected, rows, cols, selRow, selCol] = parameters.deep_unpack();
                 this._onPopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol);
+            } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
+                const [deleteChars, replacement] = parameters.deep_unpack();
+                unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, text='${replacement}'`);
+                this._onAutoTypeFix(deleteChars, replacement);
             }
         } catch (e) {
             unimError('DBUS_IME', `시그널 처리 오류 (${signalName}): ${e.message}`);

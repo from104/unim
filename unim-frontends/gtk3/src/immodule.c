@@ -197,18 +197,36 @@ unim_im_context_class_finalize(UnimIMContextClass *klass)
     /* 정리 작업 */
 }
 
+/* AutoTypeFix 콜백: delete_surrounding + commit */
+static void
+on_auto_typefix(guint delete_chars, const gchar *replacement, gpointer user_data)
+{
+    UnimIMContext *unim = (UnimIMContext *)user_data;
+    GtkIMContext *context = GTK_IM_CONTEXT(unim);
+
+    UNIM_DEBUG("AutoTypeFix 적용: delete=%u, text='%s'", delete_chars, replacement);
+
+    gtk_im_context_delete_surrounding(context, -(gint)delete_chars, (gint)delete_chars);
+    g_signal_emit_by_name(context, "commit", replacement);
+}
+
 static void
 unim_im_context_init(UnimIMContext *context)
 {
     unim_check_debug_env();
-    
+
     /* 창 식별자 생성 (컨텍스트 포인터 기반) */
     const gchar *prgname = g_get_prgname();
     context->window_id = g_strdup_printf("%s:gtk3-ctx-%p",
         prgname ? prgname : "unknown", (void*)context);
-    
+
     /* DBus 클라이언트 생성 (window_id 포함) */
     context->dbus_ctx = unim_dbus_context_new("gtk3-unim", context->window_id);
+
+    /* AutoTypeFix 시그널 콜백 등록 */
+    if (context->dbus_ctx) {
+        unim_dbus_set_auto_typefix_callback(context->dbus_ctx, on_auto_typefix, context);
+    }
     context->is_focused = FALSE;
     context->client_window = NULL;
     context->surrounding_text = NULL;

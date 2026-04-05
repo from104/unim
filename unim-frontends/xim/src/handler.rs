@@ -17,7 +17,7 @@ use unim::unim_log;
 
 use xim::{
     x11rb::{HasConnection, X11rbServer},
-    InputStyle, Server, ServerError, ServerHandler, UserInputContext,
+    InputContext, InputStyle, Server, ServerError, ServerHandler, UserInputContext,
 };
 
 use crate::dbus_client::{DbusRequest, DbusResponse, PopupEvent};
@@ -110,6 +110,11 @@ pub struct UnimHandler {
     hanja_keysyms: Vec<u32>,
     /// 특수문자 선택 시 flash 효과 대기 플래그
     special_flash_pending: bool,
+    /// 마지막 포커스된 IC 정보 (AutoTypeFix commit용)
+    /// (client_win, input_method_id, input_context_id)
+    last_focused_ic_info: Option<(u32, std::num::NonZeroU16, std::num::NonZeroU16)>,
+    /// 마지막 포커스된 앱 윈도우 (AutoTypeFix BackSpace 전송용)
+    last_focused_app_window: Option<u64>,
 }
 
 impl UnimHandler {
@@ -149,6 +154,8 @@ impl UnimHandler {
             special_context_path: None,
             hanja_keysyms,
             special_flash_pending: false,
+            last_focused_ic_info: None,
+            last_focused_app_window: None,
         })
     }
 
@@ -523,6 +530,63 @@ impl UnimHandler {
                 // Standalone 모드: GNOME extension이 처리
                 // → 여기서는 무시
             }
+            PopupEvent::AutoTypeFix {
+                delete_chars,
+                replacement,
+            } => {
+                // XIM: 백스페이스 N회 전송 후 교정 텍스트 커밋
+                if let (Some(app_win), Some((client_win, im_id, ic_id))) =
+                    (self.last_focused_app_window, self.last_focused_ic_info)
+                {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "AutoTypeFix: delete={}, text='{}'",
+                        delete_chars,
+                        replacement
+                    );
+
+                    // BackSpace 키 이벤트를 XSendEvent로 전송
+                    unsafe {
+                        let root = x11::xlib::XRootWindow(self.display, self.screen);
+                        let backspace_keycode =
+                            x11::xlib::XKeysymToKeycode(self.display, 0xff08); // XK_BackSpace
+                        for _ in 0..delete_chars {
+                            let mut event: x11::xlib::XKeyEvent = std::mem::zeroed();
+                            event.type_ = x11::xlib::KeyPress;
+                            event.display = self.display;
+                            event.window = app_win;
+                            event.root = root;
+                            event.keycode = backspace_keycode as u32;
+                            event.state = 0;
+                            event.time = x11::xlib::CurrentTime as u64;
+                            event.send_event = x11::xlib::True;
+                            event.same_screen = x11::xlib::True;
+                            x11::xlib::XSendEvent(
+                                self.display,
+                                app_win,
+                                x11::xlib::False,
+                                x11::xlib::KeyPressMask,
+                                &mut event as *mut _ as *mut x11::xlib::XEvent,
+                            );
+                        }
+                        x11::xlib::XFlush(self.display);
+                    }
+
+                    // 교정 텍스트를 XIM commit 프로토콜로 전송
+                    let temp_ic = InputContext::new(
+                        client_win,
+                        im_id,
+                        ic_id,
+                        String::new(),
+                    );
+                    server.commit(&temp_ic, &replacement).ok();
+                } else {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "AutoTypeFix: 활성 IC 없음, 무시"
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -737,6 +801,14 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             "포커스 인: id={:?}",
             user_ic.ic.input_context_id()
         );
+
+        // AutoTypeFix: 포커스된 IC 정보 저장
+        self.last_focused_ic_info = Some((
+            user_ic.ic.client_win(),
+            user_ic.ic.input_method_id(),
+            user_ic.ic.input_context_id(),
+        ));
+        self.last_focused_app_window = user_ic.ic.app_win().map(|w| w.get() as u64);
 
         let window_id = format!(
             "xim-win-0x{:x}",
