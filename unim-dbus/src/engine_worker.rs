@@ -367,8 +367,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     //   한글 조합은 이미 화면에 있고, 시그널이 교체 처리
                     let (final_preedit, final_commit) = if let Some(ref mut atf) = auto_typefix_result {
                         if !fix_has_replay {
-                            // 방향 B: commit/preedit 유지, delete_chars 그대로
-                            (preedit, commit)
+                            // 방향 B: preedit 비움 (한글 조합 잔여물 제거), commit 유지
+                            (Some(String::new()), commit)
                         } else {
                             // 방향 A: commit 억제, delete_chars 1 감소
                             if atf.0 > 0 {
