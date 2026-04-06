@@ -228,7 +228,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     let popup_action = engine.take_popup_action();
 
                     // === AutoTypeFix: 키스트로크 버퍼 기반 감지 ===
-                    let auto_typefix_result = if atf_config.enabled
+                    let mut auto_typefix_result = if atf_config.enabled
                         && mode_changed.is_none()
                         && popup_action.is_none()
                     {
@@ -353,10 +353,23 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         None
                     };
 
+                    // AutoTypeFix 트리거 시 원래 commit/preedit 억제
+                    // (시그널이 백스페이스+commit+preedit 전부 처리)
+                    // 현재 키의 commit이 억제되므로 delete_chars도 1 감소
+                    // (화면에는 이전 N-1글자만 있음)
+                    let (final_preedit, final_commit) = if let Some(ref mut atf) = auto_typefix_result {
+                        if atf.0 > 0 {
+                            atf.0 -= 1; // 현재 키 commit 억제분
+                        }
+                        (Some(String::new()), None)
+                    } else {
+                        (preedit, commit)
+                    };
+
                     EngineResponse {
                         consumed: result.consumed,
-                        preedit,
-                        commit,
+                        preedit: final_preedit,
+                        commit: final_commit,
                         mode_changed,
                         popup_action,
                         auto_typefix: auto_typefix_result,

@@ -213,31 +213,56 @@ pub fn check_direction_a(
         }
     }
 
-    // commit 부분: 마지막 음절 시작 전까지의 한글
-    let commit_text = if last_syllable_start > 0 && last_syllable_start < total_keys {
-        let commit_ascii: String = entries[..last_syllable_start]
+    // commit 부분과 replay 키 결정
+    // eng_to_kor(prefix) 결과에서 완성 음절만 commit, 나머지(독립 자모)가 시작되는 키부터 replay
+    let (commit_text, replay_keys) = if last_syllable_start < total_keys {
+        // last_syllable_start 시점의 한글에서 완성 음절만 추출
+        let prefix_ascii: String = entries[..last_syllable_start]
             .iter()
             .filter_map(|e| {
-                if e.modifier.shift {
-                    e.keycode.to_shifted_char()
-                } else {
-                    e.keycode.to_char()
-                }
+                if e.modifier.shift { e.keycode.to_shifted_char() } else { e.keycode.to_char() }
             })
             .collect();
-        typefix::eng_to_kor(&commit_ascii, korean_layout, english_layout)
-    } else {
-        converted.clone()
-    };
+        let prefix_kor = typefix::eng_to_kor(&prefix_ascii, korean_layout, english_layout);
 
-    // replay할 키: 마지막 음절에 해당하는 키스트로크
-    let replay_keys: Vec<(KeyCode, ModifierState)> = if last_syllable_start < total_keys {
-        entries[last_syllable_start..]
+        // 완성 음절만 commit (독립 자모 제거)
+        let commit_only: String = prefix_kor.chars()
+            .take_while(|c| ('\u{AC00}'..='\u{D7A3}').contains(c))
+            .collect();
+
+        // 독립 자모가 있으면, 해당 자모의 키도 replay에 포함해야 함
+        // → commit에 사용된 키 수를 찾음: 완성 음절만으로 구성되는 최대 prefix 길이
+        let commit_chars = commit_only.chars().count();
+        let mut commit_key_count = 0;
+        if commit_chars > 0 {
+            // 키를 하나씩 늘려가며 완성 음절 수가 commit_chars에 도달하는 지점을 찾음
+            for i in 1..=last_syllable_start {
+                let sub: String = entries[..i]
+                    .iter()
+                    .filter_map(|e| {
+                        if e.modifier.shift { e.keycode.to_shifted_char() } else { e.keycode.to_char() }
+                    })
+                    .collect();
+                let sub_kor = typefix::eng_to_kor(&sub, korean_layout, english_layout);
+                let sub_complete: usize = sub_kor.chars()
+                    .filter(|c| ('\u{AC00}'..='\u{D7A3}').contains(c))
+                    .count();
+                if sub_complete >= commit_chars {
+                    commit_key_count = i;
+                    break;
+                }
+            }
+        }
+
+        // replay: commit_key_count 이후의 모든 키
+        let replay: Vec<(KeyCode, ModifierState)> = entries[commit_key_count..]
             .iter()
             .map(|e| (e.keycode, e.modifier))
-            .collect()
+            .collect();
+
+        (commit_only, replay)
     } else {
-        Vec::new()
+        (converted.clone(), Vec::new())
     };
 
     Some(AutoTypeFixResult {

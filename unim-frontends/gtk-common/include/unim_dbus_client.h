@@ -252,11 +252,13 @@ void unim_special_chars_free(gchar **characters, gsize count);
 /**
  * AutoTypeFix 콜백 타입
  * @param delete_chars 삭제할 글자 수
- * @param replacement 교정 텍스트
+ * @param commit_text commit할 텍스트
+ * @param preedit_text preedit으로 설정할 텍스트 (빈 문자열이면 없음)
  * @param user_data 사용자 데이터
  */
 typedef void (*UnimAutoTypeFixCallback)(guint delete_chars,
-                                         const gchar *replacement,
+                                         const gchar *commit_text,
+                                         const gchar *preedit_text,
                                          gpointer user_data);
 
 /**
@@ -269,6 +271,13 @@ typedef void (*UnimAutoTypeFixCallback)(guint delete_chars,
 void unim_dbus_set_auto_typefix_callback(UnimDbusContext *ctx,
                                           UnimAutoTypeFixCallback callback,
                                           gpointer user_data);
+
+/**
+ * preedit 캐시를 외부에서 설정 (AutoTypeFix용)
+ * @param ctx 컨텍스트
+ * @param preedit 새 preedit 텍스트
+ */
+void unim_dbus_set_preedit_cache(UnimDbusContext *ctx, const gchar *preedit);
 
 /* =========================================
  * 설정 조회 관련 함수

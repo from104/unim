@@ -197,17 +197,27 @@ unim_im_context_class_finalize(UnimIMContextClass *klass)
     /* 정리 작업 */
 }
 
-/* AutoTypeFix 콜백: delete_surrounding + commit */
+/* AutoTypeFix 콜백: delete_surrounding + commit + preedit */
 static void
-on_auto_typefix(guint delete_chars, const gchar *replacement, gpointer user_data)
+on_auto_typefix(guint delete_chars, const gchar *commit_text,
+                const gchar *preedit_text, gpointer user_data)
 {
     UnimIMContext *unim = (UnimIMContext *)user_data;
     GtkIMContext *context = GTK_IM_CONTEXT(unim);
 
-    UNIM_DEBUG("AutoTypeFix 적용: delete=%u, text='%s'", delete_chars, replacement);
+    UNIM_DEBUG("AutoTypeFix 적용: delete=%u, commit='%s', preedit='%s'",
+               delete_chars, commit_text, preedit_text);
 
     gtk_im_context_delete_surrounding(context, -(gint)delete_chars, (gint)delete_chars);
-    g_signal_emit_by_name(context, "commit", replacement);
+
+    if (commit_text && commit_text[0] != '\0') {
+        g_signal_emit_by_name(context, "commit", commit_text);
+    }
+
+    if (preedit_text && preedit_text[0] != '\0') {
+        unim_dbus_set_preedit_cache(unim->dbus_ctx, preedit_text);
+        g_signal_emit_by_name(context, "preedit-changed");
+    }
 }
 
 static void
