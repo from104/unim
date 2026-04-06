@@ -367,11 +367,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     //   한글 조합은 이미 화면에 있고, 시그널이 교체 처리
                     let (final_preedit, final_commit) = if let Some(ref mut atf) = auto_typefix_result {
                         if !fix_has_replay {
-                            // 방향 B: commit/preedit 모두 억제 + delete_chars 1 감소
-                            // 현재 키의 한글 commit이 화면에 나가면 시그널 삭제와 이중 계산됨
-                            if atf.0 > 0 {
-                                atf.0 -= 1;
-                            }
+                            // 방향 B: commit/preedit 억제, delete_chars 유지
+                            // 한글은 키:글자 비율이 1:1이 아니므로
+                            // committed_chars + has_preedit이 정확한 화면 글자 수
                             (Some(String::new()), None)
                         } else {
                             // 방향 A: commit 억제, delete_chars 1 감소
