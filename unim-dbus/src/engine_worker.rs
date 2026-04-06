@@ -228,6 +228,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     let popup_action = engine.take_popup_action();
 
                     // === AutoTypeFix: 키스트로크 버퍼 기반 감지 ===
+                    let mut fix_has_replay = false;
                     let mut auto_typefix_result = if atf_config.enabled
                         && mode_changed.is_none()
                         && popup_action.is_none()
@@ -268,6 +269,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             };
 
                             if let Some(ref fix) = fix {
+                                fix_has_replay = !fix.replay_keys.is_empty();
                                 // 되돌리기용 저장
                                 last_autofix.insert(
                                     context_id,
@@ -353,15 +355,22 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         None
                     };
 
-                    // AutoTypeFix 트리거 시 원래 commit/preedit 억제
-                    // (시그널이 백스페이스+commit+preedit 전부 처리)
-                    // 현재 키의 commit이 억제되므로 delete_chars도 1 감소
-                    // (화면에는 이전 N-1글자만 있음)
+                    // AutoTypeFix 트리거 시:
+                    // 방향 A (영→한, replay_keys 있음): commit 억제 + delete_chars-1
+                    //   영어 모드에서 현재 키 commit을 막아야 시그널이 깔끔하게 교체
+                    // 방향 B (한→영, replay_keys 없음): commit/preedit 그대로 유지
+                    //   한글 조합은 이미 화면에 있고, 시그널이 교체 처리
                     let (final_preedit, final_commit) = if let Some(ref mut atf) = auto_typefix_result {
-                        if atf.0 > 0 {
-                            atf.0 -= 1; // 현재 키 commit 억제분
+                        if !fix_has_replay {
+                            // 방향 B: commit/preedit 유지, delete_chars 그대로
+                            (preedit, commit)
+                        } else {
+                            // 방향 A: commit 억제, delete_chars 1 감소
+                            if atf.0 > 0 {
+                                atf.0 -= 1;
+                            }
+                            (Some(String::new()), None)
                         }
-                        (Some(String::new()), None)
                     } else {
                         (preedit, commit)
                     };
