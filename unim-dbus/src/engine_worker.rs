@@ -338,7 +338,17 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     *engine = InputEngine::new(&config);
                                     engine.set_input_category(current_category);
 
-                                    Some((fix.delete_chars, fix.commit_text.clone(), String::new()))
+                                    // delete_chars = eng_to_kor 시뮬 결과의 글자 수
+                                    // (committed_chars 추적은 부정확 — 실제 화면 글자 수와 다름)
+                                    let ascii = buf.to_ascii_string();
+                                    let kor_sim = unim::typefix::eng_to_kor(
+                                        &ascii,
+                                        config.engine.korean.layout,
+                                        config.engine.english.layout,
+                                    );
+                                    let real_delete = kor_sim.chars().count() as u32;
+
+                                    Some((real_delete, fix.commit_text.clone(), String::new()))
                                 }
                             } else {
                                 // 교정 안 됨 → 되돌리기 기록 삭제
