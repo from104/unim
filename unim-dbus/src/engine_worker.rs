@@ -333,6 +333,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                     Some((fix.delete_chars, fix.commit_text.clone(), replay_preedit))
                                 } else {
+                                    // 방향 B: 엔진 리셋 (한글 조합 상태 제거)
+                                    let current_category = engine.input_category();
+                                    *engine = InputEngine::new(&config);
+                                    engine.set_input_category(current_category);
+
                                     Some((fix.delete_chars, fix.commit_text.clone(), String::new()))
                                 }
                             } else {
