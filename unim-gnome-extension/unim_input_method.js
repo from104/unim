@@ -50,6 +50,13 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._cursorRect = { x: 0, y: 0, width: 0, height: 0 };
         /** @type {Object|null} DBus IME 클라이언트 연동 */
         this._dbusIME = null;
+        /**
+         * AutoTypeFix가 vkbd로 보낸 BackSpace의 self-feedback 방지 카운터.
+         * vkbd 이벤트가 mutter→IM filter로 재진입할 때, 한글 엔진이 새 preedit을
+         * 깎아먹지 않도록 IM 처리를 우회시킨다. PRESS+RELEASE 한 쌍이 1개의 backspace.
+         * @type {number}
+         */
+        this._selfBackspaceCount = 0;
 
         unimLog('IME', 'UnimInputMethod 인스턴스 생성');
     }
@@ -112,6 +119,15 @@ class UnimInputMethod extends Clutter.InputMethod {
                          eventType === Clutter.EventType.KEY_RELEASE ? 'RELEASE' : `OTHER(${eventType})`;
 
         unimLog('IME', `vfunc_filter: type=${typeName}, keyval=${keyval}, keycode=${keycode}, state=0x${state.toString(16)}, flags=0x${flags.toString(16)}`);
+
+        // AutoTypeFix가 vkbd로 보낸 BackSpace는 IM 처리 없이 mutter에 직접 통과
+        // (vkbd → mutter → IM filter 재진입 시 한글 엔진이 새 preedit을 깎는 self-feedback 차단)
+        // PRESS와 RELEASE를 각각 1씩 차감 (한 backspace = 2 이벤트)
+        if (keyval === Clutter.KEY_BackSpace && this._selfBackspaceCount > 0) {
+            this._selfBackspaceCount--;
+            unimLog('IME', `self-sent BackSpace 우회 (${typeName}, 남은=${this._selfBackspaceCount})`);
+            return false;
+        }
 
         // 수정자 키 단독 입력은 IM이 가로채지 않음 (return false)
         // → Mutter가 직접 처리하여 고정키(Sticky Keys) 등 접근성 기능 정상 작동
@@ -289,6 +305,19 @@ class UnimInputMethod extends Clutter.InputMethod {
         } catch (e) {
             unimError('IME', `preedit 업데이트 실패: ${e.message}`);
         }
+    }
+
+    /**
+     * AutoTypeFix가 vkbd로 BackSpace를 N번 보내기 직전에 호출.
+     * 그 키 이벤트들이 mutter→IM filter로 재진입할 때 unim 엔진이 처리하지 않고
+     * 그대로 포커스된 앱으로 통과시키도록 카운터를 설정한다.
+     * @param {number} count - 보낼 backspace 개수
+     */
+    expectSelfBackspaces(count) {
+        if (count <= 0) return;
+        // 한 backspace = PRESS + RELEASE 두 이벤트
+        this._selfBackspaceCount += count * 2;
+        unimLog('IME', `expectSelfBackspaces: +${count} (대기 이벤트=${this._selfBackspaceCount})`);
     }
 
     /**
