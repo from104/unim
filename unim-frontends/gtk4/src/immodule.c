@@ -63,6 +63,10 @@ struct _UnimIMContext {
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
     gsize n_hanja_keysyms;             /* 배열 크기 */
+
+    /* 마지막으로 emit한 preedit (ghostty 등 IM-state 잠금 방지용).
+     * 실제로 변경됐을 때만 preedit-changed 시그널 emit */
+    gchar *last_preedit;
 };
 
 G_DEFINE_DYNAMIC_TYPE(UnimIMContext, unim_im_context, GTK_TYPE_IM_CONTEXT)
@@ -183,6 +187,40 @@ unim_im_context_class_finalize(UnimIMContextClass *klass)
 {
 }
 
+/* preedit 전이를 GTK4 IM 프로토콜에 맞춰 안전하게 emit.
+ *   "" → "" : 시그널 없음
+ *   "" → "X": preedit-start + preedit-changed
+ *   "X" → "Y": preedit-changed
+ *   "X" → "" : preedit-changed + preedit-end
+ * preedit-end를 빠뜨리면 ghostty 등 일부 GTK4 앱이 IM 활성 상태로 잠겨
+ * 이후 non-text 키 전파를 차단함. 모든 preedit 변경은 이 함수로 통일. */
+static void
+unim_emit_preedit(UnimIMContext *unim, const gchar *new_preedit)
+{
+    GtkIMContext *context = GTK_IM_CONTEXT(unim);
+    if (new_preedit == NULL) new_preedit = "";
+
+    if (g_strcmp0(unim->last_preedit, new_preedit) == 0) {
+        return;
+    }
+
+    const gboolean was_empty = (unim->last_preedit == NULL || unim->last_preedit[0] == '\0');
+    const gboolean now_empty = (new_preedit[0] == '\0');
+
+    g_free(unim->last_preedit);
+    unim->last_preedit = g_strdup(new_preedit);
+
+    if (was_empty && !now_empty) {
+        g_signal_emit_by_name(context, "preedit-start");
+        g_signal_emit_by_name(context, "preedit-changed");
+    } else if (!was_empty && now_empty) {
+        g_signal_emit_by_name(context, "preedit-changed");
+        g_signal_emit_by_name(context, "preedit-end");
+    } else {
+        g_signal_emit_by_name(context, "preedit-changed");
+    }
+}
+
 /* AutoTypeFix 콜백: delete_surrounding + commit + preedit */
 static void
 on_auto_typefix(guint delete_chars, const gchar *commit_text,
@@ -195,7 +233,22 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
                delete_chars, commit_text, preedit_text);
 
     /* 커서 앞의 글자를 삭제 */
-    gtk_im_context_delete_surrounding(context, -(gint)delete_chars, (gint)delete_chars);
+    gboolean deleted = FALSE;
+    if (delete_chars > 0) {
+        deleted = gtk_im_context_delete_surrounding(context,
+                                                    -(gint)delete_chars,
+                                                    (gint)delete_chars);
+    }
+
+    /* vte(GNOME Terminal 등) fallback: delete-surrounding 미지원 시 \b 문자로 BackSpace 효과 */
+    if (!deleted && delete_chars > 0) {
+        gchar *bs = g_malloc(delete_chars + 1);
+        memset(bs, '\b', delete_chars);
+        bs[delete_chars] = '\0';
+        g_signal_emit_by_name(context, "commit", bs);
+        g_free(bs);
+        UNIM_DEBUG("AutoTypeFix delete_surrounding 실패 → \\b x%u 폴백", delete_chars);
+    }
 
     /* 교정 텍스트 커밋 */
     if (commit_text && commit_text[0] != '\0') {
@@ -205,7 +258,9 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
     /* preedit 설정 (마지막 음절을 조합 상태로) */
     if (preedit_text && preedit_text[0] != '\0') {
         unim_dbus_set_preedit_cache(unim->dbus_ctx, preedit_text);
-        g_signal_emit_by_name(context, "preedit-changed");
+        unim_emit_preedit(unim, preedit_text);
+    } else {
+        unim_emit_preedit(unim, "");
     }
 }
 
@@ -230,6 +285,7 @@ unim_im_context_init(UnimIMContext *context)
     context->surrounding_text = NULL;
     context->cursor_index = 0;
     context->selection_index = 0;
+    context->last_preedit = g_strdup("");
     
     /* 한자 팝업 초기화 */
     context->hanja_popup = unim_hanja_popup_new();
@@ -323,6 +379,9 @@ unim_im_context_dispose(GObject *obj)
     g_free(context->surrounding_text);
     context->surrounding_text = NULL;
 
+    g_free(context->last_preedit);
+    context->last_preedit = NULL;
+
     G_OBJECT_CLASS(unim_im_context_parent_class)->dispose(obj);
 }
 
@@ -345,9 +404,9 @@ on_hanja_selected(const gchar *hanja, gpointer user_data)
     
     /* preedit 클리어 먼저 (엔진에서 preedit 제거) */
     unim_dbus_cancel_hanja(unim->dbus_ctx);
-    
-    /* preedit-changed 시그널 (빈 preedit) */
-    g_signal_emit_by_name(unim, "preedit-changed");
+
+    /* preedit 클리어 (preedit-end까지 발사) */
+    unim_emit_preedit(unim, "");
     
     /* 한자만 커밋 */
     g_signal_emit_by_name(unim, "commit", hanja);
@@ -372,9 +431,9 @@ on_special_char_selected(const gchar *character, gpointer user_data)
     
     /* 엔진 특수문자 모드 취소 (preedit 클리어) */
     unim_dbus_cancel_special_char(unim->dbus_ctx);
-    
-    /* preedit-changed 시그널 (빈 preedit) */
-    g_signal_emit_by_name(unim, "preedit-changed");
+
+    /* preedit 클리어 (preedit-end까지 발사) */
+    unim_emit_preedit(unim, "");
     
     /* 특수문자 커밋 */
     g_signal_emit_by_name(unim, "commit", character);
@@ -505,8 +564,12 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
             /* CancelHanja → 한자 모드 해제 */
             unim_dbus_cancel_hanja(unim->dbus_ctx);
 
-            /* preedit-changed 시그널 (preedit 복원) */
-            g_signal_emit_by_name(context, "preedit-changed");
+            /* preedit 복원 — 엔진 캐시에서 현재 preedit 가져와 동기화 */
+            {
+                gchar *cur = unim_dbus_get_preedit(unim->dbus_ctx);
+                unim_emit_preedit(unim, cur ? cur : "");
+                g_free(cur);
+            }
 
             /* 팝업 닫기 */
             unim_hanja_popup_hide(unim->hanja_popup);
@@ -530,8 +593,8 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         }
         g_free(commit_text);
 
-        /* preedit 클리어 */
-        g_signal_emit_by_name(context, "preedit-changed");
+        /* preedit 클리어 (preedit-end까지 발사) */
+        unim_emit_preedit(unim, "");
 
         /* 2. CancelHanja + 트리거 커밋 + 팝업 닫기 */
         {
@@ -566,7 +629,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
             }
 
             unim_dbus_cancel_special_char(unim->dbus_ctx);
-            g_signal_emit_by_name(context, "preedit-changed");
+            unim_emit_preedit(unim, "");
             unim_special_popup_hide(unim->special_popup);
             return TRUE;
         }
@@ -586,7 +649,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
             }
         }
         unim_special_popup_hide(unim->special_popup);
-        g_signal_emit_by_name(context, "preedit-changed");
+        unim_emit_preedit(unim, "");
 
         /* fall-through → 아래 ProcessKey 경로에서 엔진이 새 키 처리 */
     }
@@ -722,6 +785,18 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         if (keyval == GDK_KEY_Escape) {
             return FALSE;
         }
+        /* 편집/제어 키: 조합 중이 아니면 IM 우회
+         * (ghostty 등 일부 GTK4 앱은 filter_keypress가 FALSE라도
+         *  DBus 라운드트립 후 전파가 끊김. Escape와 동일 패턴으로 조기 바이패스) */
+        if (keyval == GDK_KEY_BackSpace ||
+            keyval == GDK_KEY_Return ||
+            keyval == GDK_KEY_KP_Enter ||
+            keyval == GDK_KEY_ISO_Enter ||
+            keyval == GDK_KEY_Tab ||
+            keyval == GDK_KEY_ISO_Left_Tab ||
+            keyval == GDK_KEY_KP_Tab) {
+            return FALSE;
+        }
     }
 
     /* 수정자 상태 변환 - DBus 호출용 비트필드 */
@@ -778,8 +853,8 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         g_signal_emit_by_name(context, "commit", result.commit);
     }
 
-    /* preedit 변경 처리 */
-    g_signal_emit_by_name(context, "preedit-changed");
+    /* preedit 전이는 헬퍼로 통일 (preedit-start/changed/end 자동 발사) */
+    unim_emit_preedit(unim, result.preedit);
 
     /* 메모리 해제 */
     g_free(result.preedit);
@@ -882,8 +957,8 @@ unim_im_context_focus_out(GtkIMContext *context)
         }
         g_free(commit);
 
-        /* preedit 업데이트 */
-        g_signal_emit_by_name(context, "preedit-changed");
+        /* preedit 클리어 (focus_out 후 엔진 캐시 비움 → empty 전이) */
+        unim_emit_preedit(unim, "");
     }
 
     unim->is_focused = FALSE;
@@ -907,7 +982,8 @@ unim_im_context_reset(GtkIMContext *context)
         }
         g_free(commit);
 
-        g_signal_emit_by_name(context, "preedit-changed");
+        /* preedit 클리어 (reset 후 엔진 비움 → empty 전이) */
+        unim_emit_preedit(unim, "");
     }
 
     /* 2. 한자 팝업이 표시 중이면 닫기 + 트리거 커밋 */
