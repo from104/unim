@@ -536,7 +536,7 @@ impl UnimHandler {
                 preedit_text: _,
             } => {
                 // XIM: 백스페이스 N회 전송 후 교정 텍스트 커밋
-                if let (Some(app_win), Some((client_win, im_id, ic_id))) =
+                if let (Some(_app_win), Some((client_win, im_id, ic_id))) =
                     (self.last_focused_app_window, self.last_focused_ic_info)
                 {
                     unim_log!(
@@ -546,31 +546,30 @@ impl UnimHandler {
                         commit_text
                     );
 
-                    // BackSpace 키 이벤트를 XSendEvent로 전송
+                    // BackSpace 키를 XTEST 확장으로 전송 (실제 하드웨어 이벤트처럼 주입)
+                    // XSendEvent는 send_event=True 플래그 때문에 modern app에서 무시됨
+                    // XTestFakeKeyEvent는 현재 포커스 창에 진짜 키처럼 전달됨
                     unsafe {
-                        let root = x11::xlib::XRootWindow(self.display, self.screen);
                         let backspace_keycode =
                             x11::xlib::XKeysymToKeycode(self.display, 0xff08); // XK_BackSpace
                         for _ in 0..delete_chars {
-                            let mut event: x11::xlib::XKeyEvent = std::mem::zeroed();
-                            event.type_ = x11::xlib::KeyPress;
-                            event.display = self.display;
-                            event.window = app_win;
-                            event.root = root;
-                            event.keycode = backspace_keycode as u32;
-                            event.state = 0;
-                            event.time = x11::xlib::CurrentTime as u64;
-                            event.send_event = x11::xlib::True;
-                            event.same_screen = x11::xlib::True;
-                            x11::xlib::XSendEvent(
+                            // KeyPress
+                            x11::xtest::XTestFakeKeyEvent(
                                 self.display,
-                                app_win,
-                                x11::xlib::False,
-                                x11::xlib::KeyPressMask,
-                                &mut event as *mut _ as *mut x11::xlib::XEvent,
+                                backspace_keycode as u32,
+                                1, // is_press = true
+                                0, // delay
                             );
+                            // KeyRelease
+                            x11::xtest::XTestFakeKeyEvent(
+                                self.display,
+                                backspace_keycode as u32,
+                                0, // is_press = false
+                                0,
+                            );
+                            x11::xlib::XFlush(self.display);
+                            std::thread::sleep(std::time::Duration::from_millis(5));
                         }
-                        x11::xlib::XFlush(self.display);
                     }
 
                     // 교정 텍스트를 XIM commit 프로토콜로 전송
