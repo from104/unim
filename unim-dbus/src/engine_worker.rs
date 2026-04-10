@@ -348,6 +348,15 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     );
                                     let real_delete = kor_sim.chars().count() as u32;
 
+                                    unim_log!(
+                                        "ENGINE_WORKER",
+                                        "[Engine Worker] 방향 B real_delete: ascii='{}', kor_sim='{}', real_delete={}, layout={:?}",
+                                        ascii,
+                                        kor_sim,
+                                        real_delete,
+                                        config.engine.korean.layout
+                                    );
+
                                     Some((real_delete, fix.commit_text.clone(), String::new()))
                                 }
                             } else {

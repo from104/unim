@@ -17,7 +17,7 @@ use unim::unim_log;
 
 use xim::{
     x11rb::{HasConnection, X11rbServer},
-    InputContext, InputStyle, Server, ServerError, ServerHandler, UserInputContext,
+    InputStyle, Server, ServerError, ServerHandler, UserInputContext,
 };
 
 use crate::dbus_client::{DbusRequest, DbusResponse, PopupEvent};
@@ -115,6 +115,23 @@ pub struct UnimHandler {
     last_focused_ic_info: Option<(u32, std::num::NonZeroU16, std::num::NonZeroU16)>,
     /// 마지막 포커스된 앱 윈도우 (AutoTypeFix BackSpace 전송용)
     last_focused_app_window: Option<u64>,
+    /// 마지막 포커스된 IC의 DBus 컨텍스트 경로 (AutoTypeFix Reset용)
+    last_focused_context_path: Option<String>,
+    /// AutoTypeFix 자가 주입 BackSpace 카운터
+    /// XTestFakeKeyEvent로 주입한 BackSpace가 XIM 서버로 재진입할 때
+    /// 엔진 처리 없이 그대로 앱에 통과시키기 위한 카운터.
+    /// 주입 직전에 delete_chars 만큼 증가, handle_forward_event에서 BackSpace
+    /// 감지 시 감소시키고 Ok(false)로 반환하여 클라이언트에 전달.
+    self_backspace_pending: u32,
+    /// AutoTypeFix 지연 교정 (commit_text, preedit_text)
+    /// BackSpace가 앱에서 모두 처리된 후에 commit해야 순서가 맞으므로,
+    /// 마지막 BackSpace 패스스루(pending==0) 시점에 commit + preedit 처리.
+    /// preedit이 있으면(방향 A) 엔진 replay 상태 유지, 없으면(방향 B) Reset.
+    deferred_autofix: Option<(String, String)>,
+    /// AutoTypeFix commit/preedit 처리 중 재진입 방지 플래그.
+    /// XIM crate가 server.commit()/preedit_draw() 시 keycode=0 가상 이벤트를
+    /// handle_forward_event로 재진입시키므로, 이를 무시하기 위한 가드.
+    autofix_commit_guard: bool,
 }
 
 impl UnimHandler {
@@ -156,6 +173,10 @@ impl UnimHandler {
             special_flash_pending: false,
             last_focused_ic_info: None,
             last_focused_app_window: None,
+            last_focused_context_path: None,
+            self_backspace_pending: 0,
+            deferred_autofix: None,
+            autofix_commit_guard: false,
         })
     }
 
@@ -533,18 +554,35 @@ impl UnimHandler {
             PopupEvent::AutoTypeFix {
                 delete_chars,
                 commit_text,
-                preedit_text: _,
+                preedit_text,
             } => {
                 // XIM: 백스페이스 N회 전송 후 교정 텍스트 커밋
-                if let (Some(_app_win), Some((client_win, im_id, ic_id))) =
+                // preedit_text는 XIM 환경 제약상 commit에 합쳐 한 번에 보내고,
+                // 엔진 조합 상태는 Reset으로 정리한다.
+                // (다른 프론트엔드처럼 마지막 음절을 preedit으로 유지하려면
+                //  preedit callback 세션이 필요한데, handle_popup_event는 UserInputContext를
+                //  가지지 않아 temp IC로는 preedit state 관리가 불안정함)
+                let full_commit = if preedit_text.is_empty() {
+                    commit_text.clone()
+                } else {
+                    format!("{}{}", commit_text, preedit_text)
+                };
+                if let (Some(_app_win), Some(_)) =
                     (self.last_focused_app_window, self.last_focused_ic_info)
                 {
                     unim_log!(
                         "XIM_HANDLER",
-                        "AutoTypeFix: delete={}, text='{}'",
+                        "AutoTypeFix: delete={}, commit='{}', preedit='{}', full='{}'",
                         delete_chars,
-                        commit_text
+                        commit_text,
+                        preedit_text,
+                        full_commit
                     );
+
+                    // 자가 주입 BackSpace를 handle_forward_event에서 인식하도록 카운터 증가
+                    // (엔진 우회 + 앱 통과)
+                    self.self_backspace_pending =
+                        self.self_backspace_pending.saturating_add(delete_chars);
 
                     // BackSpace 키를 XTEST 확장으로 전송 (실제 하드웨어 이벤트처럼 주입)
                     // XSendEvent는 send_event=True 플래그 때문에 modern app에서 무시됨
@@ -572,14 +610,16 @@ impl UnimHandler {
                         }
                     }
 
-                    // 교정 텍스트를 XIM commit 프로토콜로 전송
-                    let temp_ic = InputContext::new(
-                        client_win,
-                        im_id,
-                        ic_id,
-                        String::new(),
-                    );
-                    server.commit(&temp_ic, &commit_text).ok();
+                        // XIM 환경에서는 preedit 분리 불가 — handle_forward_event 안에서
+                    // server.commit()이 ForwardEvent 응답(BS forward)보다 먼저 전송되어
+                    // 앱이 BS로 commit된 텍스트를 지움. 따라서 commit+preedit을 합쳐
+                    // 한 번에 commit하고, 엔진은 Reset으로 정리.
+                    let full = if preedit_text.is_empty() {
+                        commit_text.clone()
+                    } else {
+                        format!("{}{}", commit_text, preedit_text)
+                    };
+                    self.deferred_autofix = Some((full, String::new()));
                 } else {
                     unim_log!(
                         "XIM_HANDLER",
@@ -809,6 +849,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             user_ic.ic.input_context_id(),
         ));
         self.last_focused_app_window = user_ic.ic.app_win().map(|w| w.get() as u64);
+        self.last_focused_context_path = Some(user_ic.user_data.context_path.clone());
 
         let window_id = format!(
             "xim-win-0x{:x}",
@@ -974,6 +1015,78 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         // response_type: 2=KeyPress, 3=KeyRelease
         // ======================================================================
         const KEY_RELEASE: u8 = 3;
+
+        // ======================================================================
+        // AutoTypeFix commit/preedit 재진입 가드
+        // ======================================================================
+        // XIM crate는 server.commit()/preedit_draw() 호출 시 내부적으로
+        // keycode=0 가상 KeyPress 이벤트를 handle_forward_event로 재진입시킨다.
+        // 이를 그대로 엔진에 넘기면 조합 상태가 오염되므로 소비 처리.
+        if self.autofix_commit_guard {
+            return Ok(true);
+        }
+
+        // ======================================================================
+        // AutoTypeFix 자가 주입 BackSpace 패스스루
+        // ======================================================================
+        // XTestFakeKeyEvent로 쏜 BackSpace는 X 서버가 진짜 키로 간주해 XIM 서버에
+        // 재진입한다. 이를 엔진에 넘기면 한글 조합 상태가 오염되므로 여기서
+        // 가로채 Ok(false)로 반환하여 클라이언트(앱)가 직접 처리하도록 한다.
+        // KeyPress/KeyRelease 쌍 모두 통과시키되, 카운터는 KeyPress에서만 감소.
+        let bs_keysym =
+            unsafe { x11::xlib::XKeycodeToKeysym(self.display, xev.detail, 0) as u32 };
+        if bs_keysym == 0xff08 && self.self_backspace_pending > 0 {
+            if xev.response_type != KEY_RELEASE {
+                // KeyPress: 카운터 감소, 앱에 통과
+                self.self_backspace_pending -= 1;
+                unim_log!(
+                    "XIM_HANDLER",
+                    "AutoTypeFix self-BackSpace 패스스루 (남은={})",
+                    self.self_backspace_pending
+                );
+
+                // 마지막 BackSpace KeyPress — 앱에 통과(Ok(false)) 후
+                // XIM 응답이 먼저 전송되고 commit 패킷이 뒤따르므로
+                // 앱이 BS 처리 → commit 수신 순서가 보장됨.
+                // (XIM 클라이언트는 KeyRelease를 forward하지 않아
+                //  KeyRelease 대기 방식은 동작하지 않음)
+                if self.self_backspace_pending == 0 {
+                    if let Some((commit_text, preedit_text)) =
+                        self.deferred_autofix.take()
+                    {
+                        unim_log!(
+                            "XIM_HANDLER",
+                            "AutoTypeFix 지연 교정: commit='{}', preedit='{}'",
+                            commit_text,
+                            preedit_text
+                        );
+                        // 가드 ON: commit 중 XIM crate가 keycode=0
+                        // 가상 이벤트로 재진입하는 것을 방지
+                        self.autofix_commit_guard = true;
+                        if !commit_text.is_empty() {
+                            server.commit(&user_ic.ic, &commit_text).ok();
+                        }
+                        self.autofix_commit_guard = false;
+
+                        // 엔진 리셋 (replay 잔여 조합 상태 제거)
+                        if let Some(path) =
+                            self.last_focused_context_path.clone()
+                        {
+                            let _ =
+                                self.dbus_tx.blocking_send(
+                                    DbusRequest::Reset {
+                                        context_path: path,
+                                    },
+                                );
+                        }
+                        server.conn().flush().ok();
+                    }
+                }
+            }
+            // 앱이 실제로 글자를 지우도록 XIM이 소비하지 않음
+            return Ok(false);
+        }
+
         if xev.response_type == KEY_RELEASE {
             unim_log!(
                 "XIM_HANDLER",
