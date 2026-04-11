@@ -227,48 +227,15 @@ pub fn check_direction_a(
     }
 
     // commit 부분과 replay 키 결정
-    // eng_to_kor(prefix) 결과에서 완성 음절만 commit, 나머지(독립 자모)가 시작되는 키부터 replay
+    // converted(전체 eng_to_kor 결과)에서 마지막 글자를 제외하면 받침 분리가 자연스럽게 반영됨.
+    // 예: "tjrl" → converted="서기" → commit="서", replay로 "기" 재생성
+    // prefix를 재계산하면 eng_to_kor("tjr")="석"이 되어 받침이 남는 문제 발생.
     let (commit_text, replay_keys) = if last_syllable_start < total_keys {
-        // last_syllable_start 시점의 한글에서 완성 음절만 추출
-        let prefix_ascii: String = entries[..last_syllable_start]
-            .iter()
-            .filter_map(|e| {
-                if e.modifier.shift { e.keycode.to_shifted_char() } else { e.keycode.to_char() }
-            })
-            .collect();
-        let prefix_kor = typefix::eng_to_kor(&prefix_ascii, korean_layout, english_layout);
+        let conv_chars: Vec<char> = converted.chars().collect();
+        let commit_only: String = conv_chars[..conv_chars.len() - 1].iter().collect();
 
-        // 완성 음절만 commit (독립 자모 제거)
-        let commit_only: String = prefix_kor.chars()
-            .take_while(|c| ('\u{AC00}'..='\u{D7A3}').contains(c))
-            .collect();
-
-        // 독립 자모가 있으면, 해당 자모의 키도 replay에 포함해야 함
-        // → commit에 사용된 키 수를 찾음: 완성 음절만으로 구성되는 최대 prefix 길이
-        let commit_chars = commit_only.chars().count();
-        let mut commit_key_count = 0;
-        if commit_chars > 0 {
-            // 키를 하나씩 늘려가며 완성 음절 수가 commit_chars에 도달하는 지점을 찾음
-            for i in 1..=last_syllable_start {
-                let sub: String = entries[..i]
-                    .iter()
-                    .filter_map(|e| {
-                        if e.modifier.shift { e.keycode.to_shifted_char() } else { e.keycode.to_char() }
-                    })
-                    .collect();
-                let sub_kor = typefix::eng_to_kor(&sub, korean_layout, english_layout);
-                let sub_complete: usize = sub_kor.chars()
-                    .filter(|c| ('\u{AC00}'..='\u{D7A3}').contains(c))
-                    .count();
-                if sub_complete >= commit_chars {
-                    commit_key_count = i;
-                    break;
-                }
-            }
-        }
-
-        // replay: commit_key_count 이후의 모든 키
-        let replay: Vec<(KeyCode, ModifierState)> = entries[commit_key_count..]
+        // replay: last_syllable_start 이후의 모든 키
+        let replay: Vec<(KeyCode, ModifierState)> = entries[last_syllable_start..]
             .iter()
             .map(|e| (e.keycode, e.modifier))
             .collect();
@@ -538,6 +505,29 @@ mod tests {
         let config = AutoTypeFixConfig::default();
         let result = check_direction_b(&buf, &config);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_direction_a_batchim_split_dubeolsik() {
+        // 두벌식 "tjrl" → "서기" (2음절)
+        // commit은 "서"여야 함 (받침 ㄱ이 다음 음절 초성으로 분리)
+        // eng_to_kor("tjr") = "석"이 아닌, converted 전체 "서기"에서 마지막 제외 = "서"
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::T, KeyCode::J, KeyCode::R, KeyCode::L] {
+            buf.push(key, ModifierState::default());
+        }
+
+        let config = AutoTypeFixConfig {
+            kor_syllable_threshold: 2,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let result = check_direction_a(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert_eq!(r.corrected, "서기");
+        assert_eq!(r.commit_text, "서", "받침 분리: commit은 '서'여야 함 ('석' 아님)");
+        assert!(!r.replay_keys.is_empty());
     }
 
     #[test]
