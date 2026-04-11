@@ -199,11 +199,21 @@ pub fn check_direction_a(
     }
 
     // 마지막 음절 분리: commit할 부분 + preedit으로 replay할 부분
+    // converted의 앞 (n-1)글자를 target_prefix로 두고,
+    // partial eng_to_kor가 정확히 target_prefix와 일치하는 가장 큰 i를 찾는다.
+    // 예: "tjrl" → converted="서기" → target="서"
+    //   i=3: "tjr"→"석" ≠ "서"
+    //   i=2: "tj"→"서" == "서" → last_syllable_start=2 → replay=[R,L] → 기
     let entries = buffer.entries_vec();
     let total_keys = entries.len();
+    let conv_chars: Vec<char> = converted.chars().collect();
+    let target_prefix: String = if conv_chars.len() > 1 {
+        conv_chars[..conv_chars.len() - 1].iter().collect()
+    } else {
+        String::new()
+    };
     let mut last_syllable_start = total_keys;
 
-    // 뒤에서부터 키를 하나씩 빼면서 완성 음절 수가 줄어드는 지점을 찾음
     for i in (1..total_keys).rev() {
         let partial_ascii: String = entries[..i]
             .iter()
@@ -219,8 +229,7 @@ pub fn check_direction_a(
             continue;
         }
         let partial_kor = typefix::eng_to_kor(&partial_ascii, korean_layout, english_layout);
-        let partial_syllables = count_korean_syllables(&partial_kor);
-        if partial_syllables < syllable_count {
+        if partial_kor == target_prefix {
             last_syllable_start = i;
             break;
         }
@@ -527,7 +536,10 @@ mod tests {
         let r = result.unwrap();
         assert_eq!(r.corrected, "서기");
         assert_eq!(r.commit_text, "서", "받침 분리: commit은 '서'여야 함 ('석' 아님)");
-        assert!(!r.replay_keys.is_empty());
+        // replay는 [R, L] — ㄱ+ㅣ=기 재생성 가능해야 함 ([L]만이면 ㅣ만 나옴)
+        assert_eq!(r.replay_keys.len(), 2, "replay는 [R, L] 2개여야 함");
+        assert_eq!(r.replay_keys[0].0, KeyCode::R);
+        assert_eq!(r.replay_keys[1].0, KeyCode::L);
     }
 
     #[test]
