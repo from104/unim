@@ -300,6 +300,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     new_mode
                                 );
 
+                                // 버퍼 초기화 전에 ascii 미리 캡처
+                                // (역방향의 delete_chars 계산에 사용)
+                                let buf_ascii = buf.to_ascii_string();
+
                                 // 교정 후 버퍼 초기화
                                 buf.clear();
 
@@ -338,11 +342,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     *engine = InputEngine::new(&config);
                                     engine.set_input_category(current_category);
 
-                                    // delete_chars = eng_to_kor 시뮬 결과의 글자 수
-                                    // (committed_chars 추적은 부정확 — 실제 화면 글자 수와 다름)
-                                    let ascii = buf.to_ascii_string();
+                                    // delete_chars = 영문 키스트로크를 한글 자판으로 시뮬한
+                                    // 결과의 글자 수 (화면에 실제로 찍힌 한글 글자 수와 동일)
                                     let kor_sim = unim::typefix::eng_to_kor(
-                                        &ascii,
+                                        &buf_ascii,
                                         config.engine.korean.layout,
                                         config.engine.english.layout,
                                     );
@@ -351,7 +354,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     unim_log!(
                                         "ENGINE_WORKER",
                                         "[Engine Worker] 역방향 real_delete: ascii='{}', kor_sim='{}', real_delete={}, layout={:?}",
-                                        ascii,
+                                        buf_ascii,
                                         kor_sim,
                                         real_delete,
                                         config.engine.korean.layout
