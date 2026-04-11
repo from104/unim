@@ -176,17 +176,17 @@ export default class UnimPreferences extends ExtensionPreferences {
         this._addToggle(autoGroup, settings, 'auto-typefix-enabled',
             _('자동 오타 교정 사용'), _('키스트로크 기반 실시간 한영 오타 감지 및 교정'));
 
-        this._addToggle(autoGroup, settings, 'auto-typefix-direction-a',
-            _('영→한 교정'), _('영어 모드에서 한글을 치려고 한 경우 자동 교정'));
+        this._addToggle(autoGroup, settings, 'auto-typefix-forward',
+            _('순방향 (영→한) 교정'), _('영어 모드에서 한글을 치려고 한 경우 자동 교정'));
 
-        this._addToggle(autoGroup, settings, 'auto-typefix-direction-b',
-            _('한→영 교정'), _('한글 모드에서 영어를 치려고 한 경우 자동 교정'));
+        this._addToggle(autoGroup, settings, 'auto-typefix-reverse',
+            _('역방향 (한→영) 교정'), _('한글 모드에서 영어를 치려고 한 경우 자동 교정'));
 
         this._addSpinRow(autoGroup, settings, 'auto-typefix-kor-threshold',
-            _('한글 음절 임계값'), _('영→한 교정 트리거에 필요한 완성 음절 수'), 2, 5, 1);
+            _('한글 음절 임계값'), _('순방향 (영→한) 교정 트리거에 필요한 완성 음절 수'), 2, 5, 1);
 
         this._addSpinRow(autoGroup, settings, 'auto-typefix-eng-min-length',
-            _('영문 단어 최소 길이'), _('한→영 교정 트리거에 필요한 영문 단어 길이'), 5, 10, 1);
+            _('영문 단어 최소 길이'), _('역방향 (한→영) 교정 트리거에 필요한 영문 단어 길이'), 5, 10, 1);
 
         this._addSpinRow(autoGroup, settings, 'auto-typefix-time-window',
             _('시간 윈도우 (ms)'), _('이 시간 내의 연속 키스트로크만 검사'), 500, 5000, 100);
@@ -405,12 +405,12 @@ engine:
                 time_window_ms: settings.get_uint('auto-typefix-time-window'),
                 kor_syllable_threshold: settings.get_uint('auto-typefix-kor-threshold'),
                 eng_word_min_length: settings.get_uint('auto-typefix-eng-min-length'),
-                direction_a: settings.get_boolean('auto-typefix-direction-a'),
-                direction_b: settings.get_boolean('auto-typefix-direction-b'),
+                forward: settings.get_boolean('auto-typefix-forward'),
+                reverse: settings.get_boolean('auto-typefix-reverse'),
             };
 
             // auto_typefix 블록이 있으면 교체, 없으면 추가
-            const atfYaml = `  auto_typefix:\n    enabled: ${atf.enabled}\n    time_window_ms: ${atf.time_window_ms}\n    kor_syllable_threshold: ${atf.kor_syllable_threshold}\n    eng_word_min_length: ${atf.eng_word_min_length}\n    direction_a: ${atf.direction_a}\n    direction_b: ${atf.direction_b}`;
+            const atfYaml = `  auto_typefix:\n    enabled: ${atf.enabled}\n    time_window_ms: ${atf.time_window_ms}\n    kor_syllable_threshold: ${atf.kor_syllable_threshold}\n    eng_word_min_length: ${atf.eng_word_min_length}\n    forward: ${atf.forward}\n    reverse: ${atf.reverse}`;
 
             if (/^\s*auto_typefix:/m.test(content)) {
                 // 기존 블록 교체 (auto_typefix: 부터 다음 비-들여쓰기 행까지)

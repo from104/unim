@@ -104,16 +104,16 @@
       <description>한→영 교정 트리거: 영문 단어 최소 길이 (5~10)</description>
     </key>
 
-    <key type="b" name="auto-typefix-direction-a">
+    <key type="b" name="auto-typefix-forward">
       <default>true</default>
-      <summary>Direction A (Eng→Kor)</summary>
-      <description>영→한 자동 교정 활성화</description>
+      <summary>Forward (Eng→Kor)</summary>
+      <description>순방향 (영→한) 자동 교정 활성화</description>
     </key>
 
-    <key type="b" name="auto-typefix-direction-b">
+    <key type="b" name="auto-typefix-reverse">
       <default>true</default>
-      <summary>Direction B (Kor→Eng)</summary>
-      <description>한→영 자동 교정 활성화</description>
+      <summary>Reverse (Kor→Eng)</summary>
+      <description>역방향 (한→영) 자동 교정 활성화</description>
     </key>
 
     <!-- ============================================ -->

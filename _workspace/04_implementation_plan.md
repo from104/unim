@@ -36,8 +36,8 @@ src/auto_typefix.rs
 │   └── fn new() -> Self  // ENGLISH_WORDS 파싱
 ├── AutoTypeFixResult { original: String, corrected: String, delete_chars: u32 }
 ├── fn detect_and_correct(word, input_category, korean_layout, english_layout) -> Option<AutoTypeFixResult>
-│   ├── 방향 A (영어모드): is_english_keystrokes() → eng_to_kor() → 한글이면 교정
-│   └── 방향 B (한글모드): is_korean_text() → kor_to_eng() → 사전 매칭이면 교정
+│   ├── 순방향 (영어모드): is_english_keystrokes() → eng_to_kor() → 한글이면 교정
+│   └── 역방향 (한글모드): is_korean_text() → kor_to_eng() → 사전 매칭이면 교정
 └── tests
 ```
 
@@ -52,13 +52,13 @@ pub fn detect_and_correct(
 ) -> Option<AutoTypeFixResult>
 ```
 
-- **방향 A** (현재 영어모드, 입력이 한글 자모 패턴):
+- **순방향** (현재 영어모드, 입력이 한글 자모 패턴):
   - `typefix::is_english_keystrokes(word, &keyboard_map)` 로 한글 자모 매핑 확인
   - `typefix::eng_to_kor(word, korean_layout, english_layout)` 로 변환
   - 변환 결과가 한글 텍스트이면 교정 결과 반환
   - **사전 불필요** — 영어 자판 위치가 한글 자모에 매핑되면 충분
 
-- **방향 B** (현재 한글모드, 입력이 한글):
+- **역방향** (현재 한글모드, 입력이 한글):
   - `typefix::is_korean_text(word)` 로 한글 확인
   - `typefix::kor_to_eng(word, korean_layout, english_layout)` 로 영문 변환
   - `EnglishDictionary::contains(영문)` 로 사전 매칭
@@ -357,9 +357,9 @@ ProcessKey에서 Ctrl+Z 감지 시:
 
 3. **surrounding_text 타이밍**: 프론트엔드마다 SetSurroundingText 호출 시점이 다를 수 있음. word_buffer 방식으로 이 문제를 우회.
 
-4. **false positive**: 방향 A(영어→한글)에서 "dks" 같은 짧은 입력이 "안"으로 교정될 수 있음. **최소 길이 제한** (3자 이상) 필요.
+4. **false positive**: 순방향(영어→한글)에서 "dks" 같은 짧은 입력이 "안"으로 교정될 수 있음. **최소 길이 제한** (3자 이상) 필요.
 
-5. **방향 B false positive**: 한글 단어가 우연히 영어 단어 키스트로크와 일치할 수 있음. 짧은 영단어(2~3자)는 사전에서 제외하거나 빈도 기반 필터링 필요.
+5. **역방향 false positive**: 한글 단어가 우연히 영어 단어 키스트로크와 일치할 수 있음. 짧은 영단어(2~3자)는 사전에서 제외하거나 빈도 기반 필터링 필요.
 
 6. **Ctrl+Z 충돌**: 앱 자체의 Undo와 충돌 가능. AutoTypeFix의 Ctrl+Z는 교정 직후(다음 키 입력 전)에만 유효하게 제한.
 
@@ -373,11 +373,11 @@ ProcessKey에서 Ctrl+Z 감지 시:
 
 **MVP (Phase 3a)**:
 - Step 1 + Step 2 + Step 3 (config만) + Step 4-B (word_buffer)
-- 방향 A만 먼저 (영어모드→한글, 사전 불필요)
+- 순방향만 먼저 (영어모드→한글, 사전 불필요)
 - Ctrl+Z 미구현
 
 **Full (Phase 3b)**:
 - Step 5 (DBus 시그널)
-- 방향 B (한글모드→영문, 사전 필요)
+- 역방향 (한글모드→영문, 사전 필요)
 - Step 6 (Ctrl+Z 되돌리기)
 - Step 3 나머지 (GUI/GNOME 설정)

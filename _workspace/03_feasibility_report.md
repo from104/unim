@@ -18,8 +18,8 @@
 
 ### 2. auto_typefix 모듈 (`src/auto_typefix.rs`)
 - `auto_detect_and_correct()` — 양방향 자동 감지+교정
-- 방향 A: 영어모드에서 한글 자모 패턴 → eng_to_kor() (사전 불필요)
-- 방향 B: 한글모드에서 영문 → kor_to_eng() → 영어 사전 매칭
+- 순방향: 영어모드에서 한글 자모 패턴 → eng_to_kor() (사전 불필요)
+- 역방향: 한글모드에서 영문 → kor_to_eng() → 영어 사전 매칭
 
 ### 3. engine_worker 후처리
 - Space/구두점 커밋 후 auto_detect_and_correct() 호출

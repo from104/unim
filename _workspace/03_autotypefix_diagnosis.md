@@ -81,14 +81,14 @@ engine_worker.rs line 243-317의 로직:
 
 **Space의 경우**: "가 " -> word_buffer = "가 " -> 마지막 문자 ' '이 경계 -> word_part = "가" -> detect_and_correct("가", Korean, ...) 호출. 그러나 1글자이므로 `word.chars().count() < 2` 체크에서 **None 반환**.
 
-이것은 **한글은 1음절이 의미있는 단어일 수 있음에도** 2자 미만은 무시하는 로직 문제다. 다만 방향 B (한글->영어)에서 1자 한글이 영어 사전에 매칭될 확률은 거의 없으므로 실질적 영향은 낮다.
+이것은 **한글은 1음절이 의미있는 단어일 수 있음에도** 2자 미만은 무시하는 로직 문제다. 다만 역방향 (한글->영어)에서 1자 한글이 영어 사전에 매칭될 확률은 거의 없으므로 실질적 영향은 낮다.
 
 **Enter의 경우**: 조합문자만 커밋되고 '\n'이 없으므로 단어 경계를 감지할 수 없다. word_buffer에 축적만 되고 교정 트리거가 발생하지 않는다.
 
 ### 영어 모드에서의 흐름
 영어 모드에서는 `preferred_direct: true` 설정이므로 대부분의 키가 **consumed=false로 통과**된다. 즉 `commit_str`이 비어 있고, word_buffer에 아무것도 축적되지 않는다.
 
-이것이 **방향 A (영어모드에서 한글 오타)가 절대로 작동할 수 없는 이유**다. 영어 모드에서 `preferred_direct: true`이면 키가 엔진을 거치지 않고 직접 앱으로 전달되므로 commit이 발생하지 않는다.
+이것이 **순방향 (영어모드에서 한글 오타)가 절대로 작동할 수 없는 이유**다. 영어 모드에서 `preferred_direct: true`이면 키가 엔진을 거치지 않고 직접 앱으로 전달되므로 commit이 발생하지 않는다.
 
 ---
 
@@ -119,7 +119,7 @@ auto_typefix::detect_and_correct(
 |------|------|--------|-------------|
 | 1 | 빌드/설치 안 됨 | 치명적 | 낮음 (make build && sudo make install) |
 | 2 | GNOME ext가 DeleteSurroundingText/CommitText 시그널 미처리 | 치명적 | 중간 (dbus_ime.js 수정) |
-| 3 | 영어 모드 preferred_direct=true로 commit 미발생 | 치명적 (방향 A 불가) | 높음 (아키텍처 재설계) |
+| 3 | 영어 모드 preferred_direct=true로 commit 미발생 | 치명적 (순방향 불가) | 높음 (아키텍처 재설계) |
 | 4 | Enter 키가 경계 문자를 커밋하지 않음 | 중간 | 낮음 |
 | 5 | 시그널 vs 반환값 이중 커밋 문제 | 중간 | 중간 (반환값에 포함 vs 시그널 선택) |
 

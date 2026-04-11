@@ -335,35 +335,35 @@ pub fn show_settings_dialog(app: &adw::Application) {
     atf_enabled_row.set_activatable_widget(Some(&atf_enabled_sw));
     atf_group.add(&atf_enabled_row);
 
-    // Direction A toggle
-    let dir_a_row = adw::ActionRow::builder()
-        .title("영→한 교정")
+    // 순방향 (영→한) toggle
+    let fwd_row = adw::ActionRow::builder()
+        .title("순방향 (영→한) 교정")
         .subtitle("영어 모드에서 한글을 치려고 한 경우")
         .build();
-    let dir_a_sw = gtk4::Switch::new();
-    dir_a_sw.set_valign(gtk4::Align::Center);
+    let fwd_sw = gtk4::Switch::new();
+    fwd_sw.set_valign(gtk4::Align::Center);
     {
         let s = state.borrow();
-        dir_a_sw.set_active(s.config.engine.auto_typefix.direction_a);
+        fwd_sw.set_active(s.config.engine.auto_typefix.forward);
     }
-    dir_a_row.add_suffix(&dir_a_sw);
-    dir_a_row.set_activatable_widget(Some(&dir_a_sw));
-    atf_group.add(&dir_a_row);
+    fwd_row.add_suffix(&fwd_sw);
+    fwd_row.set_activatable_widget(Some(&fwd_sw));
+    atf_group.add(&fwd_row);
 
-    // Direction B toggle
-    let dir_b_row = adw::ActionRow::builder()
-        .title("한→영 교정")
-        .subtitle("한글 모드에서 영어를 치려고 �� 경우")
+    // 역방향 (한→영) toggle
+    let rev_row = adw::ActionRow::builder()
+        .title("역방향 (한→영) 교정")
+        .subtitle("한글 모드에서 영어를 치려고 한 경우")
         .build();
-    let dir_b_sw = gtk4::Switch::new();
-    dir_b_sw.set_valign(gtk4::Align::Center);
+    let rev_sw = gtk4::Switch::new();
+    rev_sw.set_valign(gtk4::Align::Center);
     {
         let s = state.borrow();
-        dir_b_sw.set_active(s.config.engine.auto_typefix.direction_b);
+        rev_sw.set_active(s.config.engine.auto_typefix.reverse);
     }
-    dir_b_row.add_suffix(&dir_b_sw);
-    dir_b_row.set_activatable_widget(Some(&dir_b_sw));
-    atf_group.add(&dir_b_row);
+    rev_row.add_suffix(&rev_sw);
+    rev_row.set_activatable_widget(Some(&rev_sw));
+    atf_group.add(&rev_row);
 
     // Korean syllable threshold
     let kor_thresh_row = adw::ActionRow::builder()
@@ -417,18 +417,18 @@ pub fn show_settings_dialog(app: &adw::Application) {
     });
 
     let state_clone = state.clone();
-    dir_a_sw.connect_active_notify(move |sw| {
+    fwd_sw.connect_active_notify(move |sw| {
         let mut s = state_clone.borrow_mut();
         if s.updating { return; }
-        s.config.engine.auto_typefix.direction_a = sw.is_active();
+        s.config.engine.auto_typefix.forward = sw.is_active();
         let _ = s.config.save_to_default_path();
     });
 
     let state_clone = state.clone();
-    dir_b_sw.connect_active_notify(move |sw| {
+    rev_sw.connect_active_notify(move |sw| {
         let mut s = state_clone.borrow_mut();
         if s.updating { return; }
-        s.config.engine.auto_typefix.direction_b = sw.is_active();
+        s.config.engine.auto_typefix.reverse = sw.is_active();
         let _ = s.config.save_to_default_path();
     });
 

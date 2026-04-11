@@ -242,7 +242,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             // 시간 윈도우 밖 엔트리 제거
                             buf.expire(atf_config.time_window_ms);
 
-                            // commit/preedit 추적 (방향 B용)
+                            // commit/preedit 추적 (역방향용)
                             if let Some(ref c) = commit {
                                 buf.update_on_commit(c);
                             }
@@ -256,7 +256,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             // 방향에 따라 감지
                             let fix = match current_mode {
                                 unim::config::InputCategory::English => {
-                                    auto_typefix::check_direction_a(
+                                    auto_typefix::check_forward(
                                         buf,
                                         atf_config,
                                         config.engine.korean.layout,
@@ -264,7 +264,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     )
                                 }
                                 unim::config::InputCategory::Korean => {
-                                    auto_typefix::check_direction_b(buf, atf_config)
+                                    auto_typefix::check_reverse(buf, atf_config)
                                 }
                             };
 
@@ -303,7 +303,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // 교정 후 버퍼 초기화
                                 buf.clear();
 
-                                // 방향 A: 마지막 음절을 엔진에 replay하여 preedit 상태 생성
+                                // 순방향: 마지막 음절을 엔진에 replay하여 preedit 상태 생성
                                 if !fix.replay_keys.is_empty() {
                                     // 엔진 리셋 (조합 상태 초기화)
                                     let current_category = engine.input_category();
@@ -333,7 +333,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                     Some((fix.delete_chars, fix.commit_text.clone(), replay_preedit))
                                 } else {
-                                    // 방향 B: 엔진 리셋 (한글 조합 상태 제거)
+                                    // 역방향: 엔진 리셋 (한글 조합 상태 제거)
                                     let current_category = engine.input_category();
                                     *engine = InputEngine::new(&config);
                                     engine.set_input_category(current_category);
@@ -350,7 +350,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] 방향 B real_delete: ascii='{}', kor_sim='{}', real_delete={}, layout={:?}",
+                                        "[Engine Worker] 역방향 real_delete: ascii='{}', kor_sim='{}', real_delete={}, layout={:?}",
                                         ascii,
                                         kor_sim,
                                         real_delete,
@@ -380,18 +380,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     };
 
                     // AutoTypeFix 트리거 시:
-                    // 방향 A (영→한, replay_keys 있음): commit 억제 + delete_chars-1
+                    // 순방향 (영→한, replay_keys 있음): commit 억제 + delete_chars-1
                     //   영어 모드에서 현재 키 commit을 막아야 시그널이 깔끔하게 교체
-                    // 방향 B (한→영, replay_keys 없음): commit/preedit 그대로 유지
+                    // 역방향 (한→영, replay_keys 없음): commit/preedit 그대로 유지
                     //   한글 조합은 이미 화면에 있고, 시그널이 교체 처리
                     let (final_preedit, final_commit) = if let Some(ref mut atf) = auto_typefix_result {
                         if !fix_has_replay {
-                            // 방향 B: commit/preedit 억제, delete_chars 유지
+                            // 역방향: commit/preedit 억제, delete_chars 유지
                             // 한글은 키:글자 비율이 1:1이 아니므로
                             // committed_chars + has_preedit이 정확한 화면 글자 수
                             (Some(String::new()), None)
                         } else {
-                            // 방향 A: commit 억제, delete_chars 1 감소
+                            // 순방향: commit 억제, delete_chars 1 감소
                             if atf.0 > 0 {
                                 atf.0 -= 1;
                             }

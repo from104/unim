@@ -96,7 +96,7 @@ struct KeystrokeBuffer {
 
 ## 3. 감지 로직 분석
 
-### 3.1 방향 A (영어 모드에서 한글 오타)
+### 3.1 순방향 (영어 모드에서 한글 오타)
 
 트리거: 버퍼에 N개(min_keystrokes 이상) 문자 키가 쌓이고, 시간 윈도우 내에 있을 때.
 
@@ -114,7 +114,7 @@ struct KeystrokeBuffer {
 - 또는: 버퍼가 가득 찼을 때(max_keystrokes)만 검사. 하지만 이러면 5글자 한글 단어를 10글자 버퍼에서 놓칠 수 있음.
 - **권장**: 매 키마다 검사하되, min_keystrokes 이상일 때만. 가장 긴 매칭을 우선.
 
-### 3.2 방향 B (한글 모드에서 영어 오타)
+### 3.2 역방향 (한글 모드에서 영어 오타)
 
 한글 모드에서는 commit이 음절 단위로 발생하고 preedit이 존재한다.
 
@@ -129,7 +129,7 @@ struct KeystrokeBuffer {
 
 ### 3.3 감지 신뢰도 고려
 
-| 시나리오 | 방향 A | 방향 B |
+| 시나리오 | 순방향 | 역방향 |
 |----------|--------|--------|
 | "gksrmf" (한글) → 영어 사전 미포함 + 자모 매핑 O | 교정 O | N/A |
 | "hello" (영어) → 영어 사전 포함 | 교정 X (정상) | N/A |
@@ -186,8 +186,8 @@ ProcessKeyEvent 반환: (consumed, preedit, commit, auto_typefix_delete, auto_ty
 
 ### 4.2 삭제할 문자 수 계산
 
-- **방향 A** (영어→한글): N개 영문 키스트로크 → N개 ASCII 문자가 화면에 있음 → delete N개 → 한글 결과 commit
-- **방향 B** (한글→영어): N개 키스트로크 → 한글 음절 M개가 화면에 있음 (M <= N) → delete M개 → 영문 결과 commit. **여기서 M을 정확히 계산해야 한다.** 이미 commit된 음절 수는 engine_worker의 commit 기록에서 추적 가능.
+- **순방향** (영어→한글): N개 영문 키스트로크 → N개 ASCII 문자가 화면에 있음 → delete N개 → 한글 결과 commit
+- **역방향** (한글→영어): N개 키스트로크 → 한글 음절 M개가 화면에 있음 (M <= N) → delete M개 → 영문 결과 commit. **여기서 M을 정확히 계산해야 한다.** 이미 commit된 음절 수는 engine_worker의 commit 기록에서 추적 가능.
 
 ### 4.3 preedit(조합 중) 처리
 
@@ -222,8 +222,8 @@ auto_typefix:
   min_keystrokes: 4     # 최소 키스트로크 수 (3은 false positive 위험)
   max_keystrokes: 10    # 최대 키스트로크 수
   time_window_ms: 2000  # 시간 윈도우 (ms)
-  direction_a: true     # 영→한 교정
-  direction_b: true     # 한→영 교정
+  forward: true     # 영→한 교정
+  reverse: true     # 한→영 교정
 ```
 
 ### 구현 위치
@@ -238,8 +238,8 @@ pub struct AutoTypeFixConfig {
     pub min_keystrokes: u8,
     pub max_keystrokes: u8,
     pub time_window_ms: u32,
-    pub direction_a: bool,  // 영→한
-    pub direction_b: bool,  // 한→영
+    pub forward: bool,  // 영→한
+    pub reverse: bool,  // 한→영
 }
 ```
 
@@ -251,20 +251,20 @@ pub struct AutoTypeFixConfig {
 
 ### 7.1 False Positive (가장 큰 리스크)
 
-**방향 A**: "gksrmf" 같은 명백한 케이스는 문제없지만, "fn", "src", "cfg" 같은 짧은 프로그래밍 약어가 한글 자모에 매핑되면서 영어 사전에 없으면 오교정된다.
+**순방향**: "gksrmf" 같은 명백한 케이스는 문제없지만, "fn", "src", "cfg" 같은 짧은 프로그래밍 약어가 한글 자모에 매핑되면서 영어 사전에 없으면 오교정된다.
 
 - 완화: min_keystrokes를 4 이상으로. 2~3자는 검사하지 않음.
 - 완화: 프로그래밍 약어 화이트리스트 (선택적).
 
-**방향 B**: 한글 음절이 우연히 영어 사전 단어에 매핑되는 경우. 예: "디" → "ek" (사전에 없음, 안전). "나" → "sk" (사전에 없음, 안전). 대부분 안전하지만 긴 단어에서 우연 매칭 가능성 존재.
+**역방향**: 한글 음절이 우연히 영어 사전 단어에 매핑되는 경우. 예: "디" → "ek" (사전에 없음, 안전). "나" → "sk" (사전에 없음, 안전). 대부분 안전하지만 긴 단어에서 우연 매칭 가능성 존재.
 
 - 완화: 짧은 단어(4자 미만) 사전 매칭 제외.
 
 ### 7.2 깜빡임 (원문 표시 → 삭제 → 교정문 표시)
 
 **방법 3(commit 대체) 사용 시**:
-- 방향 A: 이전 N-1개 영문자는 이미 화면에 있고, N번째 키 처리 시 삭제+교정 발생. **N-1개 문자가 잠깐 보인 후 교정됨** → 약간의 깜빡임 불가피.
-- 방향 B: 한글 음절이 잠깐 보인 후 영문으로 교체됨 → 깜빡임.
+- 순방향: 이전 N-1개 영문자는 이미 화면에 있고, N번째 키 처리 시 삭제+교정 발생. **N-1개 문자가 잠깐 보인 후 교정됨** → 약간의 깜빡임 불가피.
+- 역방향: 한글 음절이 잠깐 보인 후 영문으로 교체됨 → 깜빡임.
 
 이는 모든 자동 교정 시스템의 본질적 한계. macOS/iOS의 자동 교정도 동일한 패턴.
 
@@ -308,7 +308,7 @@ pub struct AutoTypeFixConfig {
 3. 비문자 키/모드 전환/포커스 변경 시 버퍼 초기화
 4. 로그 출력으로 버퍼 동작 확인
 
-### Phase 2: 방향 A 감지 (영어→한글, 가장 쉬움)
+### Phase 2: 순방향 감지 (영어→한글, 가장 쉬움)
 
 1. 버퍼 N개 이상 + 시간 윈도우 내 → ASCII 문자 복원
 2. `is_english_keystrokes()` + 사전 비포함 확인 (기존 로직 재활용)
@@ -320,7 +320,7 @@ pub struct AutoTypeFixConfig {
 1. `ProcessKeyEvent` 반환값 확장 또는 DeleteSurroundingText/CommitText 시그널 핸들러 추가
 2. 교정 동작 처리 (delete + commit)
 
-### Phase 4: 방향 B 감지 (한글→영어, preedit 처리 필요)
+### Phase 4: 역방향 감지 (한글→영어, preedit 처리 필요)
 
 1. 버퍼 keycode → 영문 문자 복원
 2. 사전 매칭

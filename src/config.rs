@@ -249,14 +249,14 @@ pub struct AutoTypeFixConfig {
     pub enabled: bool,
     /// 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사
     pub time_window_ms: u32,
-    /// 방향 A (영→한) 트리거: 한글 완성 음절 수 (2~5)
+    /// 순방향 (영→한) 트리거: 한글 완성 음절 수 (2~5)
     pub kor_syllable_threshold: u8,
-    /// 방향 B (한→영) 트리거: 영문 단어 최소 길이 (5~10)
+    /// 역방향 (한→영) 트리거: 영문 단어 최소 길이 (5~10)
     pub eng_word_min_length: u8,
-    /// 방향 A (영→한 교정) 활성화
-    pub direction_a: bool,
-    /// 방향 B (한→영 교정) 활성화
-    pub direction_b: bool,
+    /// 순방향 (영→한 교정) 활성화
+    pub forward: bool,
+    /// 역방향 (한→영 교정) 활성화
+    pub reverse: bool,
 }
 
 impl Default for AutoTypeFixConfig {
@@ -266,8 +266,8 @@ impl Default for AutoTypeFixConfig {
             time_window_ms: 5000,
             kor_syllable_threshold: 2,
             eng_word_min_length: 5,
-            direction_a: true,
-            direction_b: true,
+            forward: true,
+            reverse: true,
         }
     }
 }

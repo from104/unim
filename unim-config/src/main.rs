@@ -78,12 +78,12 @@ enum ConfigKey {
     /// 자동 오타 교정: 시간 윈도우 (500~5000 ms)
     #[value(name = "auto-typefix-time-window")]
     AutoTypeFixTimeWindow,
-    /// 자동 오타 교정: 영→한 교정 (true, false)
-    #[value(name = "auto-typefix-direction-a")]
-    AutoTypeFixDirectionA,
-    /// 자동 오타 교정: 한→영 교정 (true, false)
-    #[value(name = "auto-typefix-direction-b")]
-    AutoTypeFixDirectionB,
+    /// 자동 오타 교정: 순방향 (영→한) 교정 (true, false)
+    #[value(name = "auto-typefix-forward")]
+    AutoTypeFixForward,
+    /// 자동 오타 교정: 역방향 (한→영) 교정 (true, false)
+    #[value(name = "auto-typefix-reverse")]
+    AutoTypeFixReverse,
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
@@ -157,9 +157,9 @@ fn config_show() {
     println!("{}: {}", t!("auto_typefix_label"), auto_typefix_status);
     if config.engine.auto_typefix.enabled {
         let atf = &config.engine.auto_typefix;
-        println!("  - 영→한: {}, 한→영: {}",
-            if atf.direction_a { "ON" } else { "OFF" },
-            if atf.direction_b { "ON" } else { "OFF" });
+        println!("  - 순방향(영→한): {}, 역방향(한→영): {}",
+            if atf.forward { "ON" } else { "OFF" },
+            if atf.reverse { "ON" } else { "OFF" });
         println!("  - 한글 음절 임계값: {}, 영문 최소 길이: {}",
             atf.kor_syllable_threshold, atf.eng_word_min_length);
         println!("  - 시간 윈도우: {}ms", atf.time_window_ms);
@@ -380,23 +380,23 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             config.engine.auto_typefix.time_window_ms = v;
             println!("시간 윈도우: {}ms", v);
         }
-        ConfigKey::AutoTypeFixDirectionA => {
+        ConfigKey::AutoTypeFixForward => {
             let enabled = match value.to_lowercase().as_str() {
                 "true" | "on" | "1" | "yes" => true,
                 "false" | "off" | "0" | "no" => false,
                 _ => return Err(format!("Invalid bool: {}", value)),
             };
-            config.engine.auto_typefix.direction_a = enabled;
-            println!("영→한 교정: {}", if enabled { "ON" } else { "OFF" });
+            config.engine.auto_typefix.forward = enabled;
+            println!("순방향(영→한) 교정: {}", if enabled { "ON" } else { "OFF" });
         }
-        ConfigKey::AutoTypeFixDirectionB => {
+        ConfigKey::AutoTypeFixReverse => {
             let enabled = match value.to_lowercase().as_str() {
                 "true" | "on" | "1" | "yes" => true,
                 "false" | "off" | "0" | "no" => false,
                 _ => return Err(format!("Invalid bool: {}", value)),
             };
-            config.engine.auto_typefix.direction_b = enabled;
-            println!("한→영 교정: {}", if enabled { "ON" } else { "OFF" });
+            config.engine.auto_typefix.reverse = enabled;
+            println!("역방향(한→영) 교정: {}", if enabled { "ON" } else { "OFF" });
         }
         ConfigKey::AppRules => {
             let rules: Vec<unim::config::AppRule> =

@@ -126,7 +126,7 @@ pub struct UnimHandler {
     /// AutoTypeFix 지연 교정 (commit_text, preedit_text)
     /// BackSpace가 앱에서 모두 처리된 후에 commit해야 순서가 맞으므로,
     /// 마지막 BackSpace 패스스루(pending==0) 시점에 commit + preedit 처리.
-    /// preedit이 있으면(방향 A) 엔진 replay 상태 유지, 없으면(방향 B) Reset.
+    /// preedit이 있으면(순방향) 엔진 replay 상태 유지, 없으면(역방향) Reset.
     deferred_autofix: Option<(String, String)>,
     /// AutoTypeFix commit/preedit 처리 중 재진입 방지 플래그.
     /// XIM crate가 server.commit()/preedit_draw() 시 keycode=0 가상 이벤트를

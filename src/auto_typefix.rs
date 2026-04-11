@@ -2,8 +2,8 @@
 //!
 //! 키스트로크 버퍼 기반 실시간 한영 오타 자동 교정.
 //!
-//! - 방향 A (영어모드→한글): keycode → 한글 조합 시뮬 → 완성 음절 수 기준 트리거
-//! - 방향 B (한글모드→영문): keycode → 영문 복원 → 사전 매칭 + 길이 기준 트리거
+//! - 순방향 (영어모드→한글): keycode → 한글 조합 시뮬 → 완성 음절 수 기준 트리거
+//! - 역방향 (한글모드→영문): keycode → 영문 복원 → 사전 매칭 + 길이 기준 트리거
 //!
 //! 트리거 시: 화면의 기존 문자를 삭제하고 교정 결과를 commit.
 
@@ -38,9 +38,9 @@ pub struct KeystrokeEntry {
 #[derive(Debug)]
 pub struct KeystrokeBuffer {
     entries: VecDeque<KeystrokeEntry>,
-    /// 방향 B: 이미 commit된 한글 글자 수 (preedit 제외)
+    /// 역방향: 이미 commit된 한글 글자 수 (preedit 제외)
     pub committed_chars: usize,
-    /// 방향 B: 현재 preedit이 있는지
+    /// 역방향: 현재 preedit이 있는지
     pub has_preedit: bool,
 }
 
@@ -143,21 +143,21 @@ pub struct AutoTypeFixResult {
     pub original: String,
     /// preedit을 비워야 하는지
     pub clear_preedit: bool,
-    /// 마지막 음절을 replay할 키스트로크 (방향 A: 엔진에 다시 입력하여 preedit 생성)
+    /// 마지막 음절을 replay할 키스트로크 (순방향: 엔진에 다시 입력하여 preedit 생성)
     pub replay_keys: Vec<(KeyCode, ModifierState)>,
 }
 
-/// 방향 A: 영어모드에서 한글 오타 감지
+/// 순방향: 영어모드에서 한글 오타 감지
 ///
 /// keycode 버퍼 → 한글 조합 시뮬레이션 → 완성 음절 수가 임계값 이상이면 트리거.
 /// 초성+중성 이상이면 1음절로 카운트.
-pub fn check_direction_a(
+pub fn check_forward(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
     korean_layout: KoreanLayout,
     english_layout: EnglishLayout,
 ) -> Option<AutoTypeFixResult> {
-    if !config.direction_a || buffer.len() < 2 {
+    if !config.forward || buffer.len() < 2 {
         return None;
     }
 
@@ -264,15 +264,15 @@ pub fn check_direction_a(
     })
 }
 
-/// 방향 B: 한글모드에서 영문 오타 감지
+/// 역방향: 한글모드에서 영문 오타 감지
 ///
 /// keycode 버퍼 → 영문 복원 → 사전 매칭 + 길이 기준 트리거.
 /// 삭제할 글자 수 = committed_chars + (preedit이면 1)
-pub fn check_direction_b(
+pub fn check_reverse(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
 ) -> Option<AutoTypeFixResult> {
-    if !config.direction_b || buffer.len() < 2 {
+    if !config.reverse || buffer.len() < 2 {
         return None;
     }
 
@@ -310,7 +310,7 @@ pub fn check_direction_b(
         corrected: eng,
         original: String::new(),
         clear_preedit: buffer.has_preedit,
-        replay_keys: Vec::new(), // 방향 B는 영어로 교정 → preedit 불필요
+        replay_keys: Vec::new(), // 역방향는 영어로 교정 → preedit 불필요
     })
 }
 
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn test_direction_a_gksrmf() {
+    fn test_forward_gksrmf() {
         // "gksrmf" → "한글" (2음절)
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
@@ -395,11 +395,11 @@ mod tests {
             kor_syllable_threshold: 2,
             eng_word_min_length: 5,
             time_window_ms: 2000,
-            direction_a: true,
-            direction_b: true,
+            forward: true,
+            reverse: true,
         };
 
-        let result = check_direction_a(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "한글");
@@ -407,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn test_direction_a_4keys_2syllables() {
+    fn test_forward_4keys_2syllables() {
         // "gksk" → "하나" (2음절, 4키)
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::K] {
@@ -419,11 +419,11 @@ mod tests {
             kor_syllable_threshold: 2,
             eng_word_min_length: 5,
             time_window_ms: 2000,
-            direction_a: true,
-            direction_b: true,
+            forward: true,
+            reverse: true,
         };
 
-        let result = check_direction_a(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "하나");
@@ -431,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn test_direction_a_skip_real_english() {
+    fn test_forward_skip_real_english() {
         // "hello" 는 사전에 있으므로 스킵
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
@@ -439,12 +439,12 @@ mod tests {
         }
 
         let config = AutoTypeFixConfig::default();
-        let result = check_direction_a(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_direction_a_threshold_not_met() {
+    fn test_forward_threshold_not_met() {
         // "gk" → "하" (1음절, 임계값 2 미달)
         let mut buf = KeystrokeBuffer::new();
         buf.push(KeyCode::G, ModifierState::default());
@@ -455,12 +455,12 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_direction_a(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_direction_b_hello() {
+    fn test_reverse_hello() {
         // 한글모드에서 "hello" 타이핑 — keycode에서 직접 영문 복원
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
@@ -475,7 +475,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_direction_b(&buf, &config);
+        let result = check_reverse(&buf, &config);
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn test_direction_b_short_word_skip() {
+    fn test_reverse_short_word_skip() {
         // "the" (3자) — eng_word_min_length=5 미달
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::T, KeyCode::H, KeyCode::E] {
@@ -498,12 +498,12 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_direction_b(&buf, &config);
+        let result = check_reverse(&buf, &config);
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_direction_b_not_in_dictionary() {
+    fn test_reverse_not_in_dictionary() {
         // "gksrmf" — 사전에 없음
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
@@ -512,12 +512,12 @@ mod tests {
         buf.committed_chars = 2;
 
         let config = AutoTypeFixConfig::default();
-        let result = check_direction_b(&buf, &config);
+        let result = check_reverse(&buf, &config);
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_direction_a_batchim_split_dubeolsik() {
+    fn test_forward_batchim_split_dubeolsik() {
         // 두벌식 "tjrl" → "서기" (2음절)
         // commit은 "서"여야 함 (받침 ㄱ이 다음 음절 초성으로 분리)
         // eng_to_kor("tjr") = "석"이 아닌, converted 전체 "서기"에서 마지막 제외 = "서"
@@ -531,7 +531,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_direction_a(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "서기");
@@ -543,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn test_direction_a_incomplete_syllable_skip_3set() {
+    fn test_forward_incomplete_syllable_skip_3set() {
         // "preedit" 세벌식 → 중간에 독립 자모가 끼어 트리거 안 됨
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::P, KeyCode::R, KeyCode::E, KeyCode::E, KeyCode::D, KeyCode::I, KeyCode::T] {
@@ -555,12 +555,12 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_direction_a(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty);
+        let result = check_forward(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty);
         assert!(result.is_none(), "세벌식: 중간에 독립 자모가 있으면 트리거하면 안 됨");
     }
 
     #[test]
-    fn test_direction_a_incomplete_syllable_skip_2set() {
+    fn test_forward_incomplete_syllable_skip_2set() {
         // "preedit" 두벌식 → 중간에 독립 자모가 끼면 트리거 안 됨
         let mut buf = KeystrokeBuffer::new();
         for key in [KeyCode::P, KeyCode::R, KeyCode::E, KeyCode::E, KeyCode::D, KeyCode::I, KeyCode::T] {
@@ -572,7 +572,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_direction_a(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
         // 두벌식에서도 완성 음절만으로 구성되지 않으면 스킵
         let ascii = "preedit";
         let converted = crate::typefix::eng_to_kor(ascii, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
