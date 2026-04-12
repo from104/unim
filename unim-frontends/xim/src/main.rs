@@ -136,6 +136,9 @@ fn main() {
             Ok(true) => {
                 // 이벤트가 필터링됨 (XIM에서 처리)
                 server.conn().flush().ok();
+                // AutoTypeFix: BS ForwardEvent 전송 후 교정 텍스트 커밋
+                // (GTK3 g_idle_add 패턴 — 현재 이벤트 처리 완료 후 commit)
+                unim_handler.process_deferred_autofix(&mut server);
             }
             Ok(false) => {
                 // XIM에서 처리하지 않은 이벤트

@@ -266,6 +266,12 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
     UNIM_DEBUG("AutoTypeFix 적용: delete=%u, commit='%s', preedit='%s'",
                delete_chars, commit_text, preedit_text);
 
+    /* 포커스가 없으면 무시 (다른 프론트엔드가 처리 중) */
+    if (!unim->is_focused) {
+        UNIM_DEBUG("AutoTypeFix 무시: 포커스 없음");
+        return;
+    }
+
     /* 커서 앞의 글자를 삭제 */
     gboolean deleted = FALSE;
     if (delete_chars > 0) {
