@@ -342,19 +342,27 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     *engine = InputEngine::new(&config);
                                     engine.set_input_category(current_category);
 
-                                    // delete_chars = 영문 키스트로크를 한글 자판으로 시뮬한
-                                    // 결과의 글자 수 (화면에 실제로 찍힌 한글 글자 수와 동일)
+                                    // delete_chars = trigger 키 제외한 키스트로크의 eng_to_kor 글자 수.
+                                    // trigger 키의 commit은 억제(final_commit=None)되고
+                                    // preedit은 cleared(final_preedit=Some(""))되므로,
+                                    // trigger 키가 만든 글자는 화면에 없다.
+                                    // 따라서 trigger 전까지의 키스트로크만 시뮬하여 글자 수 산출.
+                                    let ascii_before_trigger = &buf_ascii[..buf_ascii.len().saturating_sub(1)];
                                     let kor_sim = unim::typefix::eng_to_kor(
-                                        &buf_ascii,
+                                        ascii_before_trigger,
                                         config.engine.korean.layout,
                                         config.engine.english.layout,
                                     );
-                                    let real_delete = kor_sim.chars().count() as u32;
+                                    // trigger 키 제외 시뮬 결과에서 마지막 글자는 preedit(조합 중).
+                                    // trigger 키의 ProcessKeyEvent 응답이 preedit을 clear하므로
+                                    // 그 글자는 화면에서 사라짐 → 추가로 1개 차감.
+                                    let real_delete = kor_sim.chars().count().saturating_sub(1) as u32;
 
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] 역방향 real_delete: ascii='{}', kor_sim='{}', real_delete={}, layout={:?}",
+                                        "[Engine Worker] 역방향 real_delete: ascii='{}', trigger='{}', kor_sim='{}', real_delete={}, layout={:?}",
                                         buf_ascii,
+                                        buf_ascii.chars().last().unwrap_or(' '),
                                         kor_sim,
                                         real_delete,
                                         config.engine.korean.layout
