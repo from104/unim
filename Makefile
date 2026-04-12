@@ -56,6 +56,7 @@ endef
 # ─── Phony ───────────────────────────────────────────────────────────────────
 
 .PHONY: all help build build-rust build-frontends build-tests clean clean-all \
+        _check-build \
         install install-core install-frontends install-icons install-gui-gtk install-gui-qt \
         install-gnome-extension install-extension install-systemd \
         uninstall uninstall-core uninstall-frontends uninstall-icons uninstall-gui-gtk uninstall-gui-qt \
@@ -106,10 +107,17 @@ build-frontends: build-rust
 
 # ─── Install ─────────────────────────────────────────────────────────────────
 
-install: install-core install-gui-gtk install-gui-qt install-frontends install-icons install-gnome-extension
+install: _check-build install-core install-gui-gtk install-gui-qt install-frontends install-icons install-gnome-extension
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 
-install-core: build-rust
+# 빌드 산출물 존재 여부 확인 (sudo make install 시 빌드를 root로 실행하는 것을 방지)
+_check-build:
+	@if [ ! -f target/release/unim-daemon ]; then \
+		echo "❌ 빌드 산출물이 없습니다. 먼저 make build 를 실행하세요."; \
+		exit 1; \
+	fi
+
+install-core:
 	@echo "Installing core components..."
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(REAL_LIBDIR) $(DESTDIR)$(LIBEXECDIR) \
 	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
@@ -123,7 +131,7 @@ install-core: build-rust
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
 	install -m 644 docs/unim.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
-install-frontends: build-frontends
+install-frontends:
 	@echo "Installing IM modules..."
 	install -d $(DESTDIR)$(GTK3_IMMODULE_DIR) $(DESTDIR)$(GTK4_IMMODULE_DIR) \
 	           $(DESTDIR)$(QT5_PLUGIN_DIR) $(DESTDIR)$(QT6_PLUGIN_DIR)
@@ -136,12 +144,12 @@ install-icons:
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -m 644 data/icons/unim-korean.svg data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
-install-gui-gtk: build-rust
+install-gui-gtk:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	-install -m 755 target/release/unim-gui-gtk $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
 	-install -m 644 unim-gui-gtk/data/unim-gui-gtk.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/ 2>/dev/null || true
 
-install-gui-qt: build-rust
+install-gui-qt:
 	install -d $(DESTDIR)$(BINDIR)
 	-install -m 755 target/release/unim-gui-qt $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
 
