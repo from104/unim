@@ -254,14 +254,16 @@ fn main() {
                 dbus_client::PopupEvent::AutoTypeFix {
                     delete_chars,
                     commit_text,
-                    preedit_text: _,
+                    preedit_text,
                 } => {
                     unim_log!(
                         "WAYLAND",
-                        "AutoTypeFix 수신 (미구현): delete={}, text='{}'",
+                        "AutoTypeFix 적용: delete={}, commit='{}', preedit='{}'",
                         delete_chars,
-                        commit_text
+                        commit_text,
+                        preedit_text
                     );
+                    app.apply_auto_typefix(delete_chars, &commit_text, &preedit_text);
                 }
             }
         }

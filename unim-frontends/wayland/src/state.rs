@@ -231,6 +231,57 @@ impl AppState {
         }
     }
 
+    /// AutoTypeFix 교정 적용 (delete_surrounding_text + commit + preedit)
+    pub fn apply_auto_typefix(&mut self, delete_chars: u32, commit_text: &str, preedit_text: &str) {
+        if let Some(ref im) = self.input_method {
+            if delete_chars > 0 {
+                // 삭제할 텍스트의 바이트 수 계산
+                // 순방향(영→한): commit이 한글 → 삭제 대상은 ASCII (1 byte/char)
+                // 역방향(한→영): commit이 ASCII → 삭제 대상은 한글 (3 bytes/char)
+                let is_forward = commit_text
+                    .chars()
+                    .next()
+                    .map(|c| {
+                        ('\u{AC00}'..='\u{D7A3}').contains(&c)
+                            || ('\u{3131}'..='\u{318E}').contains(&c)
+                    })
+                    .unwrap_or(false);
+
+                let before_bytes = if is_forward {
+                    delete_chars // ASCII: 1 byte per char
+                } else {
+                    delete_chars * 3 // 한글: 3 bytes per char (UTF-8)
+                };
+
+                unim_log!(
+                    "WAYLAND",
+                    "AutoTypeFix delete_surrounding_text: chars={}, bytes={}, forward={}",
+                    delete_chars,
+                    before_bytes,
+                    is_forward
+                );
+
+                im.delete_surrounding_text(before_bytes, 0);
+            }
+
+            if !commit_text.is_empty() {
+                im.commit_string(commit_text.to_string());
+            }
+
+            // preedit 업데이트
+            if !preedit_text.is_empty() {
+                let len = preedit_text.len() as i32;
+                im.set_preedit_string(preedit_text.to_string(), 0, len);
+                self.last_preedit = preedit_text.to_string();
+            } else if !self.last_preedit.is_empty() {
+                im.set_preedit_string(String::new(), 0, 0);
+                self.last_preedit.clear();
+            }
+
+            im.commit(self.serial);
+        }
+    }
+
     /// 미소비 키를 virtual keyboard로 포워딩
     fn forward_key(&self, time: u32, key: u32, state: u32) {
         if let Some(ref vk) = self.virtual_keyboard {

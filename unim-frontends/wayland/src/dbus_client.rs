@@ -107,8 +107,7 @@ pub enum PopupEvent {
     },
     /// 팝업 숨김
     Hide,
-    /// AutoTypeFix 교정 (백스페이스 N회 + 교정 텍스트 커밋)
-    #[allow(dead_code)]
+    /// AutoTypeFix 교정 (delete_surrounding_text + 교정 텍스트 커밋)
     AutoTypeFix {
         delete_chars: u32,
         commit_text: String,
