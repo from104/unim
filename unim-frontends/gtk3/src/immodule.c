@@ -22,6 +22,7 @@
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
+#include <X11/extensions/XTest.h>
 #endif
 
 /* Wayland 감지를 위한 헤더 */
@@ -75,6 +76,11 @@ struct _UnimIMContext {
     /* 마지막으로 emit한 preedit (preedit-start/end 자동 발사용).
      * GTK4와 동일 패턴 — preedit-end 누락 시 ghostty 등에서 키 잠금 발생 */
     gchar *last_preedit;
+
+    /* AutoTypeFix XTest 폴백용 (delete_surrounding 미지원 앱 — Electron 등) */
+    guint autofix_bs_pending;        /* 자가 주입 BackSpace 잔여 수 */
+    gchar *autofix_commit_text;      /* 지연 commit 텍스트 */
+    gchar *autofix_preedit_text;     /* 지연 preedit 텍스트 */
 };
 
 struct _UnimIMContextClass {
@@ -235,6 +241,34 @@ unim_emit_preedit(UnimIMContext *unim, const gchar *new_preedit)
     }
 }
 
+/* AutoTypeFix 지연 commit 콜백 (XTest BackSpace 처리 완료 후 실행) */
+static gboolean
+autofix_deferred_commit_cb(gpointer user_data)
+{
+    UnimIMContext *unim = (UnimIMContext *)user_data;
+    GtkIMContext *context = GTK_IM_CONTEXT(unim);
+
+    UNIM_DEBUG("AutoTypeFix 지연 commit: '%s', preedit='%s'",
+               unim->autofix_commit_text ? unim->autofix_commit_text : "",
+               unim->autofix_preedit_text ? unim->autofix_preedit_text : "");
+
+    if (unim->autofix_commit_text && unim->autofix_commit_text[0] != '\0') {
+        g_signal_emit_by_name(context, "commit", unim->autofix_commit_text);
+    }
+
+    if (unim->autofix_preedit_text && unim->autofix_preedit_text[0] != '\0') {
+        unim_dbus_set_preedit_cache(unim->dbus_ctx, unim->autofix_preedit_text);
+        unim_emit_preedit(unim, unim->autofix_preedit_text);
+    } else {
+        unim_emit_preedit(unim, "");
+    }
+
+    g_clear_pointer(&unim->autofix_commit_text, g_free);
+    g_clear_pointer(&unim->autofix_preedit_text, g_free);
+
+    return G_SOURCE_REMOVE;
+}
+
 /* AutoTypeFix 콜백: delete_surrounding + commit + preedit */
 static void
 on_auto_typefix(guint delete_chars, const gchar *commit_text,
@@ -253,8 +287,32 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
                                                     (gint)delete_chars);
     }
 
-    /* vte(GNOME Terminal 등) fallback: delete-surrounding 미지원 시 \b 문자로 BackSpace 효과 */
+    /* delete_surrounding 미지원 앱 (Electron 등) → XTest BackSpace 주입 */
     if (!deleted && delete_chars > 0) {
+#ifdef GDK_WINDOWING_X11
+        if (GDK_IS_X11_DISPLAY(gdk_display_get_default())) {
+            Display *xdisplay = gdk_x11_display_get_xdisplay(gdk_display_get_default());
+            KeyCode bs_keycode = XKeysymToKeycode(xdisplay, GDK_KEY_BackSpace);
+
+            /* 지연 commit 데이터 저장 */
+            unim->autofix_bs_pending = delete_chars;
+            g_free(unim->autofix_commit_text);
+            unim->autofix_commit_text = g_strdup(commit_text);
+            g_free(unim->autofix_preedit_text);
+            unim->autofix_preedit_text = g_strdup(preedit_text);
+
+            /* XTest로 BackSpace 주입 */
+            for (guint i = 0; i < delete_chars; i++) {
+                XTestFakeKeyEvent(xdisplay, bs_keycode, True, 0);
+                XTestFakeKeyEvent(xdisplay, bs_keycode, False, 0);
+            }
+            XFlush(xdisplay);
+
+            UNIM_DEBUG("AutoTypeFix XTest BackSpace x%u 주입", delete_chars);
+            return; /* commit/preedit은 filter_keypress에서 지연 처리 */
+        }
+#endif
+        /* Non-X11 fallback: \b */
         gchar *bs = g_malloc(delete_chars + 1);
         memset(bs, '\b', delete_chars);
         bs[delete_chars] = '\0';
@@ -448,6 +506,11 @@ unim_im_context_finalize(GObject *obj)
     g_free(context->last_preedit);
     context->last_preedit = NULL;
 
+    g_free(context->autofix_commit_text);
+    context->autofix_commit_text = NULL;
+    g_free(context->autofix_preedit_text);
+    context->autofix_preedit_text = NULL;
+
     G_OBJECT_CLASS(unim_im_context_parent_class)->finalize(obj);
 }
 
@@ -464,6 +527,18 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     /* 키 릴리스는 무시 */
     if (event->type != GDK_KEY_PRESS) {
         return FALSE;
+    }
+
+    /* AutoTypeFix 자가 주입 BackSpace 패스스루 */
+    if (event->keyval == GDK_KEY_BackSpace && unim->autofix_bs_pending > 0) {
+        unim->autofix_bs_pending--;
+        UNIM_DEBUG("AutoTypeFix self-BackSpace 패스스루 (남은=%u)",
+                   unim->autofix_bs_pending);
+        if (unim->autofix_bs_pending == 0) {
+            /* 마지막 BackSpace → idle에서 지연 commit */
+            g_idle_add(autofix_deferred_commit_cb, unim);
+        }
+        return FALSE; /* 앱이 BackSpace 처리 */
     }
 
     /* 매 키 입력 전 surrounding text 갱신 (TypeFIX 등에 필요) */

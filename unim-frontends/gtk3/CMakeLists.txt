@@ -9,8 +9,9 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 pkg_check_modules(GIO REQUIRED gio-2.0)
 
-# X11 지원 (선택적 - 한자 팝업 위치 계산용)
+# X11 지원 (선택적 - 한자 팝업 위치 계산용 + AutoTypeFix XTest 폴백)
 pkg_check_modules(X11 x11)
+pkg_check_modules(XTST xtst)
 pkg_check_modules(GTK3_X11 gtk+-3.0)
 
 # 공통 DBus 클라이언트 경로
@@ -34,6 +35,7 @@ target_include_directories(im-unim PRIVATE
     ${GIO_INCLUDE_DIRS}
     ${GTK_COMMON_DIR}/include
     ${X11_INCLUDE_DIRS}
+    ${XTST_INCLUDE_DIRS}
     ${UNIM_CAPI_INCLUDE}
 )
 
@@ -43,6 +45,7 @@ target_link_libraries(im-unim
     ${GTK3_LIBRARIES}
     ${GIO_LIBRARIES}
     ${X11_LIBRARIES}
+    ${XTST_LIBRARIES}
     unim_capi
 )
 
