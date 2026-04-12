@@ -83,13 +83,32 @@ UnimInputContext::UnimInputContext()
     if (m_dbus && m_dbus->isValid()) {
         UNIM_DEBUG(QString::asprintf("UnimInputContext 생성 완료 (window_id: %s)", qPrintable(m_windowId)));
         // AutoTypeFix 시그널 콜백 등록
-        m_dbus->setAutoTypeFixCallback([this](quint32 deleteChars, const QString &replacement) {
-            UNIM_DEBUG(QString::asprintf("AutoTypeFix: delete=%u, text='%s'", deleteChars, qPrintable(replacement)));
+        m_dbus->setAutoTypeFixCallback([this](quint32 deleteChars, const QString &commitText, const QString &preeditText) {
+            UNIM_DEBUG(QString::asprintf("AutoTypeFix: delete=%u, commit='%s', preedit='%s'",
+                       deleteChars, qPrintable(commitText), qPrintable(preeditText)));
             QObject *focusObj = QGuiApplication::focusObject();
             if (!focusObj) return;
-            QInputMethodEvent event;
-            event.setCommitString(replacement, -(int)deleteChars, (int)deleteChars);
-            QCoreApplication::sendEvent(focusObj, &event);
+
+            // 1. 기존 텍스트 삭제 + commit 텍스트 적용
+            {
+                QInputMethodEvent ev;
+                ev.setCommitString(commitText, -(int)deleteChars, (int)deleteChars);
+                QCoreApplication::sendEvent(focusObj, &ev);
+            }
+
+            // 2. preedit 설정 (순방향: 마지막 음절을 조합 상태로)
+            if (!preeditText.isEmpty()) {
+                QList<QInputMethodEvent::Attribute> attrs;
+                QTextCharFormat fmt;
+                fmt.setUnderlineStyle(QTextCharFormat::SingleUnderline);
+                attrs << QInputMethodEvent::Attribute(
+                    QInputMethodEvent::TextFormat, 0, preeditText.length(), fmt);
+                QInputMethodEvent ev(preeditText, attrs);
+                QCoreApplication::sendEvent(focusObj, &ev);
+                m_composing = true;
+            } else {
+                m_composing = false;
+            }
         });
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");

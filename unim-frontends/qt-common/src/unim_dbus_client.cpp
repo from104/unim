@@ -507,16 +507,16 @@ void UnimDbusClient::setAutoTypeFixCallback(AutoTypeFixCallback callback) {
         QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
         QStringLiteral("AutoTypefixApply"),
         receiver,
-        SLOT(onAutoTypefixApply(quint32,QString))
+        SLOT(onAutoTypefixApply(quint32,QString,QString))
     );
     UNIM_DBUS_DEBUG(QString::asprintf("AutoTypeFix signal subscribed: path=%s",
                      qPrintable(m_contextPath)));
 }
 
-void UnimAutoTypeFixReceiver::onAutoTypefixApply(quint32 deleteChars, const QString &replacement) {
+void UnimAutoTypeFixReceiver::onAutoTypefixApply(quint32 deleteChars, const QString &commitText, const QString &preeditText) {
     if (m_client && m_client->m_autoTypeFixCallback) {
-        UNIM_DBUS_DEBUG(QString::asprintf("AutoTypeFix received: delete=%u, text=%s",
-                         deleteChars, qPrintable(replacement)));
-        m_client->m_autoTypeFixCallback(deleteChars, replacement);
+        UNIM_DBUS_DEBUG(QString::asprintf("AutoTypeFix received: delete=%u, commit='%s', preedit='%s'",
+                         deleteChars, qPrintable(commitText), qPrintable(preeditText)));
+        m_client->m_autoTypeFixCallback(deleteChars, commitText, preeditText);
     }
 }
