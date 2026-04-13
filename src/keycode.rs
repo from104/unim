@@ -3,9 +3,12 @@
 //! 물리적 키보드 키코드와 수정자 키 상태를 정의합니다.
 //! X11 및 Wayland 키코드와의 변환을 지원합니다.
 
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::LazyLock;
 
 use crate::config::EnglishLayout;
+use crate::keystroke::get_keymap_json;
 
 /// 키보드 키코드 열거형
 ///
@@ -446,14 +449,9 @@ impl KeyCode {
         }
 
         let (row, col) = self.physical_position()?;
-        let table: &LayoutTable = match layout {
-            EnglishLayout::Dvorak => &DVORAK_TABLE,
-            EnglishLayout::Colemak => &COLEMAK_TABLE,
-            EnglishLayout::ColemakDh => &COLEMAK_DH_TABLE,
-            EnglishLayout::Workman => &WORKMAN_TABLE,
-            EnglishLayout::Qwerty => unreachable!(),
-        };
-        let row_data = table[row];
+        let tables = &*LAYOUT_TABLES;
+        let rows = tables.get(&layout)?;
+        let row_data = &rows[row];
         if col >= row_data.len() {
             return None;
         }
@@ -775,39 +773,49 @@ impl ModifierState {
     }
 }
 
-/// 레이아웃별 물리키→문자 매핑 테이블.
-/// 각 행은 (lower, upper) char 쌍의 배열.
-/// 행 순서: 0=숫자행(14키), 1=상단알파벳(12키), 2=홈행(11키), 3=하단알파벳(10키)
-type LayoutRow = &'static [(char, char)];
-type LayoutTable = [LayoutRow; 4];
+/// JSON 키맵의 행 이름 (1st, 2nd, 3nd, 4th)
+const ROW_NAMES: [&str; 4] = ["1st", "2nd", "3nd", "4th"];
 
-const DVORAK_TABLE: LayoutTable = [
-    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('[','{'),(']','}'),('\\','|')],
-    &[('\'','"'),(',','<'),('.','>'),('p','P'),('y','Y'),('f','F'),('g','G'),('c','C'),('r','R'),('l','L'),('/','?'),('=','+')],
-    &[('a','A'),('o','O'),('e','E'),('u','U'),('i','I'),('d','D'),('h','H'),('t','T'),('n','N'),('s','S'),('-','_')],
-    &[(';',':'),('q','Q'),('j','J'),('k','K'),('x','X'),('b','B'),('m','M'),('w','W'),('v','V'),('z','Z')],
-];
-
-const COLEMAK_TABLE: LayoutTable = [
-    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('-','_'),('=','+'),('\\','|')],
-    &[('q','Q'),('w','W'),('f','F'),('p','P'),('g','G'),('j','J'),('l','L'),('u','U'),('y','Y'),(';',':'),('[','{'),(']','}')],
-    &[('a','A'),('r','R'),('s','S'),('t','T'),('d','D'),('h','H'),('n','N'),('e','E'),('i','I'),('o','O'),('\'','"')],
-    &[('z','Z'),('x','X'),('c','C'),('v','V'),('b','B'),('k','K'),('m','M'),(',','<'),('.','>'),('/','?')],
-];
-
-const COLEMAK_DH_TABLE: LayoutTable = [
-    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('-','_'),('=','+'),('\\','|')],
-    &[('q','Q'),('w','W'),('f','F'),('p','P'),('b','B'),('j','J'),('l','L'),('u','U'),('y','Y'),(';',':'),('[','{'),( ']','}')],
-    &[('a','A'),('r','R'),('s','S'),('t','T'),('g','G'),('m','M'),('n','N'),('e','E'),('i','I'),('o','O'),('\'','"')],
-    &[('z','Z'),('x','X'),('c','C'),('d','D'),('v','V'),('k','K'),('h','H'),(',','<'),('.','>'),('/','?')],
-];
-
-const WORKMAN_TABLE: LayoutTable = [
-    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('-','_'),('=','+'),('\\','|')],
-    &[('q','Q'),('d','D'),('r','R'),('w','W'),('b','B'),('j','J'),('f','F'),('u','U'),('p','P'),(';',':'),('[','{'),( ']','}')],
-    &[('a','A'),('s','S'),('h','H'),('t','T'),('g','G'),('y','Y'),('n','N'),('e','E'),('o','O'),('i','I'),('\'','"')],
-    &[('z','Z'),('x','X'),('m','M'),('c','C'),('v','V'),('k','K'),('l','L'),(',','<'),('.','>'),('/','?')],
-];
+/// 레이아웃별 물리키→문자 매핑 테이블 (JSON 키맵에서 동적 생성).
+/// key: (EnglishLayout, row, col) → value: (lower_char, upper_char)
+static LAYOUT_TABLES: LazyLock<HashMap<EnglishLayout, Vec<Vec<(char, char)>>>> =
+    LazyLock::new(|| {
+        let layouts = [
+            EnglishLayout::Dvorak,
+            EnglishLayout::Colemak,
+            EnglishLayout::ColemakDh,
+            EnglishLayout::Workman,
+        ];
+        let mut tables = HashMap::new();
+        for layout in layouts {
+            let json_str = get_keymap_json(layout.keymap_name());
+            let json: serde_json::Value = serde_json::from_str(json_str)
+                .unwrap_or_else(|e| panic!("Failed to parse {} keymap: {}", layout.keymap_name(), e));
+            let lower = &json["layout"]["lower"];
+            let upper = &json["layout"]["upper"];
+            let mut rows = Vec::with_capacity(4);
+            for row_name in &ROW_NAMES {
+                let lower_row = lower[row_name]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("Missing lower.{} in {}", row_name, layout.keymap_name()));
+                let upper_row = upper[row_name]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("Missing upper.{} in {}", row_name, layout.keymap_name()));
+                let pairs: Vec<(char, char)> = lower_row
+                    .iter()
+                    .zip(upper_row.iter())
+                    .map(|(l, u)| {
+                        let lc = l.as_str().unwrap().chars().next().unwrap();
+                        let uc = u.as_str().unwrap().chars().next().unwrap();
+                        (lc, uc)
+                    })
+                    .collect();
+                rows.push(pairs);
+            }
+            tables.insert(layout, rows);
+        }
+        tables
+    });
 
 #[cfg(test)]
 mod tests {

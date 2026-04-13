@@ -105,7 +105,7 @@ impl KoreanLayout {
 }
 
 /// 영어 키보드 레이아웃
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[repr(u32)]
 pub enum EnglishLayout {
     /// QWERTY
