@@ -103,16 +103,11 @@ impl KeystrokeBuffer {
         }
     }
 
-    /// 버퍼의 keycode들을 ASCII 문자열로 변환 (QWERTY 기준)
-    pub fn to_ascii_string(&self) -> String {
+    /// 버퍼의 keycode들을 지정된 영문 레이아웃 기준 ASCII 문자열로 변환
+    pub fn to_ascii_string(&self, english_layout: EnglishLayout) -> String {
         let mut s = String::with_capacity(self.entries.len());
         for entry in &self.entries {
-            let c = if entry.modifier.shift {
-                entry.keycode.to_shifted_char()
-            } else {
-                entry.keycode.to_char()
-            };
-            if let Some(c) = c {
+            if let Some(c) = entry.keycode.to_char_for_layout(english_layout, entry.modifier.shift) {
                 s.push(c);
             }
         }
@@ -161,8 +156,8 @@ pub fn check_forward(
         return None;
     }
 
-    // keycode → ASCII 문자열 (영어 키 기준)
-    let ascii = buffer.to_ascii_string();
+    // keycode → ASCII 문자열 (지정된 영문 레이아웃 기준)
+    let ascii = buffer.to_ascii_string(english_layout);
     if ascii.is_empty() {
         return None;
     }
@@ -218,11 +213,7 @@ pub fn check_forward(
         let partial_ascii: String = entries[..i]
             .iter()
             .filter_map(|e| {
-                if e.modifier.shift {
-                    e.keycode.to_shifted_char()
-                } else {
-                    e.keycode.to_char()
-                }
+                e.keycode.to_char_for_layout(english_layout, e.modifier.shift)
             })
             .collect();
         if partial_ascii.is_empty() {
@@ -271,13 +262,14 @@ pub fn check_forward(
 pub fn check_reverse(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
+    english_layout: EnglishLayout,
 ) -> Option<AutoTypeFixResult> {
     if !config.reverse || buffer.len() < 2 {
         return None;
     }
 
-    // keycode → 영문 문자열 (물리 키에서 직접 복원)
-    let eng = buffer.to_ascii_string();
+    // keycode → 영문 문자열 (지정된 영문 레이아웃 기준으로 복원)
+    let eng = buffer.to_ascii_string(english_layout);
     if eng.is_empty() || !eng.chars().all(|c| c.is_ascii_alphabetic()) {
         return None;
     }
@@ -367,7 +359,7 @@ mod tests {
         assert!(buf.push(KeyCode::G, ModifierState::default()));
         assert!(buf.push(KeyCode::K, ModifierState::default()));
         assert_eq!(buf.len(), 2);
-        assert_eq!(buf.to_ascii_string(), "gk");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "gk");
 
         // 비알파벳 키는 추가 안 됨
         assert!(!buf.push(KeyCode::Space, ModifierState::default()));
@@ -379,7 +371,7 @@ mod tests {
         let mut buf = KeystrokeBuffer::new();
         let shifted = ModifierState { shift: true, ..Default::default() };
         buf.push(KeyCode::A, shifted);
-        assert_eq!(buf.to_ascii_string(), "A");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "A");
     }
 
     #[test]
@@ -475,7 +467,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config);
+        let result = check_reverse(&buf, &config, EnglishLayout::Qwerty);
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -498,7 +490,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config);
+        let result = check_reverse(&buf, &config, EnglishLayout::Qwerty);
         assert!(result.is_none());
     }
 
@@ -512,7 +504,7 @@ mod tests {
         buf.committed_chars = 2;
 
         let config = AutoTypeFixConfig::default();
-        let result = check_reverse(&buf, &config);
+        let result = check_reverse(&buf, &config, EnglishLayout::Qwerty);
         assert!(result.is_none());
     }
 
@@ -585,5 +577,196 @@ mod tests {
         } else {
             assert!(result.is_none(), "두벌식: 중간에 독립 자모가 있으면 트리거하면 안 됨");
         }
+    }
+
+    // ── 다중 영문 키맵 테스트 ──
+
+    #[test]
+    fn test_to_ascii_string_dvorak() {
+        // 물리키 [S, D, F] → Qwerty "sdf", Dvorak "oeu"
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::S, KeyCode::D, KeyCode::F] {
+            buf.push(key, ModifierState::default());
+        }
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "sdf");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Dvorak), "oeu");
+    }
+
+    #[test]
+    fn test_to_ascii_string_colemak() {
+        // 물리키 [E, R, T] → Qwerty "ert", Colemak "fpg"
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::E, KeyCode::R, KeyCode::T] {
+            buf.push(key, ModifierState::default());
+        }
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "ert");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Colemak), "fpg");
+    }
+
+    #[test]
+    fn test_to_ascii_string_workman() {
+        // 물리키 [W, E, R] → Qwerty "wer", Workman "drw"
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::W, KeyCode::E, KeyCode::R] {
+            buf.push(key, ModifierState::default());
+        }
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "wer");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Workman), "drw");
+    }
+
+    #[test]
+    fn test_to_ascii_string_shift_mixed() {
+        // Shift+S → Qwerty "S", Dvorak "O"
+        let mut buf = KeystrokeBuffer::new();
+        let shifted = ModifierState { shift: true, ..Default::default() };
+        buf.push(KeyCode::S, shifted);
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "S");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Dvorak), "O");
+    }
+
+    #[test]
+    fn test_forward_dvorak() {
+        // 순방향은 물리키 기반이므로 같은 물리키 시퀀스는 레이아웃 무관하게
+        // 동일한 한글을 생성한다 (eng_to_kor가 레이아웃 보정).
+        // 물리키 [G, K, S, R, M, F] → Qwerty "gksrmf" → "한글"
+        // 같은 물리키 → Dvorak "itopmf" → eng_to_kor(Dvorak) → "한글"
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+            buf.push(key, ModifierState::default());
+        }
+
+        let config = AutoTypeFixConfig {
+            enabled: true,
+            kor_syllable_threshold: 2,
+            eng_word_min_length: 5,
+            time_window_ms: 2000,
+            forward: true,
+            reverse: true,
+        };
+
+        // Qwerty: "gksrmf" → "한글"
+        let result_qwerty = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        assert!(result_qwerty.is_some());
+        assert_eq!(result_qwerty.unwrap().corrected, "한글");
+
+        // Dvorak: 같은 물리키 → 같은 한글 결과 (순방향은 물리키 기반)
+        let result_dvorak = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak);
+        assert!(result_dvorak.is_some());
+        assert_eq!(result_dvorak.unwrap().corrected, "한글");
+
+        // 핵심: to_ascii_string은 레이아웃에 따라 다른 문자열을 생성하지만
+        // eng_to_kor가 보정하여 최종 한글 결과는 동일
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "gksrmf");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Dvorak), "itopmu");
+    }
+
+    #[test]
+    fn test_reverse_dvorak_hello() {
+        // Dvorak 사용자가 한글모드에서 "hello" 의도
+        // Dvorak에서 "hello": h=물리J, e=물리D, l=물리P, l=물리P, o=물리S
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::J, KeyCode::D, KeyCode::P, KeyCode::P, KeyCode::S] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 3;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let result = check_reverse(&buf, &config, EnglishLayout::Dvorak);
+        assert!(result.is_some(), "Dvorak reverse should find 'hello'");
+        let r = result.unwrap();
+        assert_eq!(r.corrected, "hello");
+        assert_eq!(r.delete_chars, 4); // 3 committed + 1 preedit
+        assert!(r.clear_preedit);
+    }
+
+    #[test]
+    fn test_reverse_colemak_hello() {
+        // Colemak에서 "hello": h=물리H, e=물리K, l=물리U, l=물리U, o=물리Semicolon
+        // Semicolon은 is_character_key()=true이므로 push 가능
+        // Colemak에서 Semicolon(2,9) → 'o'
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::H, KeyCode::K, KeyCode::U, KeyCode::U, KeyCode::Semicolon] {
+            buf.push(key, ModifierState::default());
+        }
+        assert_eq!(buf.len(), 5, "Semicolon should be accepted by push");
+        assert_eq!(buf.to_ascii_string(EnglishLayout::Colemak), "hello");
+        buf.committed_chars = 3;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let result = check_reverse(&buf, &config, EnglishLayout::Colemak);
+        assert!(result.is_some(), "Colemak reverse should find 'hello'");
+        let r = result.unwrap();
+        assert_eq!(r.corrected, "hello");
+        assert_eq!(r.delete_chars, 4); // 3 committed + 1 preedit
+        assert!(r.clear_preedit);
+    }
+
+    #[test]
+    fn test_reverse_asymmetry_qwerty_vs_dvorak() {
+        // 같은 물리키 시퀀스가 Qwerty와 Dvorak에서 다른 결과
+        // 물리키 [H, E, L, L, O] → Qwerty "hello", Dvorak "dents" 아님
+        // Dvorak: H(2,5)='d', E(1,2)='.', L(2,8)='n', L(2,8)='n', O(1,8)='r'
+        // → "d.nnr" — 사전에 없음
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 3;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            ..AutoTypeFixConfig::default()
+        };
+
+        // Qwerty: "hello" → 사전에 있음
+        let result_qwerty = check_reverse(&buf, &config, EnglishLayout::Qwerty);
+        assert!(result_qwerty.is_some());
+        assert_eq!(result_qwerty.unwrap().corrected, "hello");
+
+        // Dvorak: 같은 물리키지만 다른 문자열 → 사전에 없을 가능성 높음
+        let result_dvorak = check_reverse(&buf, &config, EnglishLayout::Dvorak);
+        // E(1,2) in Dvorak = '.' → not alpha, push may fail
+        // 실제로는 buf는 이미 만들어졌으므로, to_ascii_string 결과가 다름
+        if let Some(r) = result_dvorak {
+            assert_ne!(r.corrected, "hello", "같은 물리키가 Dvorak에서는 다른 단어여야 함");
+        }
+        // result_dvorak이 None이면 — 비알파벳 문자 포함으로 사전 매칭 실패 → 정상
+    }
+
+    #[test]
+    fn test_reverse_workman_world() {
+        // Workman에서 "world": w=물리R, o=물리O→'p'... 아니, 매핑 확인
+        // Workman: w=물리R(1,3), o=물리I(1,7)→'u'... 다시 확인
+        // Workman row1: q,d,r,w,b,j,f,u,p,;,[,]
+        // w는 col3 → 물리 R. o는 row2 col8 → 물리 L(2,8)?
+        // Workman row2: a,s,h,t,g,y,n,e,o,i,' → o는 col8 → 물리 L
+        // r는 row1 col2 → 물리 E. l은 row3 col6 → 물리 M. d는 row1 col1 → 물리 W.
+        // "world" = w(물리R), o(물리L), r(물리E), l(물리M), d(물리W)
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::R, KeyCode::L, KeyCode::E, KeyCode::M, KeyCode::W] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 3;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let result = check_reverse(&buf, &config, EnglishLayout::Workman);
+        assert!(result.is_some(), "Workman reverse should find 'world'");
+        assert_eq!(result.unwrap().corrected, "world");
     }
 }

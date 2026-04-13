@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use crate::config::EnglishLayout;
+
 /// 키보드 키코드 열거형
 ///
 /// 물리적 키보드 키를 추상화하여 다양한 프론트엔드에서 통일된 방식으로 사용할 수 있도록 합니다.
@@ -373,6 +375,92 @@ impl KeyCode {
         }
     }
 
+    /// 물리키를 (행, 열) 인덱스로 변환. 레이아웃 테이블 lookup용.
+    fn physical_position(&self) -> Option<(usize, usize)> {
+        match self {
+            // Row 0: 숫자행 (14키)
+            KeyCode::Backquote => Some((0, 0)),
+            KeyCode::Num1 => Some((0, 1)),
+            KeyCode::Num2 => Some((0, 2)),
+            KeyCode::Num3 => Some((0, 3)),
+            KeyCode::Num4 => Some((0, 4)),
+            KeyCode::Num5 => Some((0, 5)),
+            KeyCode::Num6 => Some((0, 6)),
+            KeyCode::Num7 => Some((0, 7)),
+            KeyCode::Num8 => Some((0, 8)),
+            KeyCode::Num9 => Some((0, 9)),
+            KeyCode::Num0 => Some((0, 10)),
+            KeyCode::Minus => Some((0, 11)),
+            KeyCode::Equal => Some((0, 12)),
+            KeyCode::Backslash => Some((0, 13)),
+            // Row 1: 상단 알파벳 (12키)
+            KeyCode::Q => Some((1, 0)),
+            KeyCode::W => Some((1, 1)),
+            KeyCode::E => Some((1, 2)),
+            KeyCode::R => Some((1, 3)),
+            KeyCode::T => Some((1, 4)),
+            KeyCode::Y => Some((1, 5)),
+            KeyCode::U => Some((1, 6)),
+            KeyCode::I => Some((1, 7)),
+            KeyCode::O => Some((1, 8)),
+            KeyCode::P => Some((1, 9)),
+            KeyCode::BracketLeft => Some((1, 10)),
+            KeyCode::BracketRight => Some((1, 11)),
+            // Row 2: 홈행 (11키)
+            KeyCode::A => Some((2, 0)),
+            KeyCode::S => Some((2, 1)),
+            KeyCode::D => Some((2, 2)),
+            KeyCode::F => Some((2, 3)),
+            KeyCode::G => Some((2, 4)),
+            KeyCode::H => Some((2, 5)),
+            KeyCode::J => Some((2, 6)),
+            KeyCode::K => Some((2, 7)),
+            KeyCode::L => Some((2, 8)),
+            KeyCode::Semicolon => Some((2, 9)),
+            KeyCode::Quote => Some((2, 10)),
+            // Row 3: 하단 알파벳 (10키)
+            KeyCode::Z => Some((3, 0)),
+            KeyCode::X => Some((3, 1)),
+            KeyCode::C => Some((3, 2)),
+            KeyCode::V => Some((3, 3)),
+            KeyCode::B => Some((3, 4)),
+            KeyCode::N => Some((3, 5)),
+            KeyCode::M => Some((3, 6)),
+            KeyCode::Comma => Some((3, 7)),
+            KeyCode::Period => Some((3, 8)),
+            KeyCode::Slash => Some((3, 9)),
+            _ => None,
+        }
+    }
+
+    /// 지정된 영문 레이아웃에서 이 물리키가 생성하는 문자를 반환한다.
+    ///
+    /// Qwerty인 경우 기존 to_char()/to_shifted_char()를 직접 호출하여 성능 영향 제로.
+    pub fn to_char_for_layout(&self, layout: EnglishLayout, shifted: bool) -> Option<char> {
+        if layout == EnglishLayout::Qwerty {
+            return if shifted { self.to_shifted_char() } else { self.to_char() };
+        }
+
+        if *self == KeyCode::Space {
+            return Some(' ');
+        }
+
+        let (row, col) = self.physical_position()?;
+        let table: &LayoutTable = match layout {
+            EnglishLayout::Dvorak => &DVORAK_TABLE,
+            EnglishLayout::Colemak => &COLEMAK_TABLE,
+            EnglishLayout::ColemakDh => &COLEMAK_DH_TABLE,
+            EnglishLayout::Workman => &WORKMAN_TABLE,
+            EnglishLayout::Qwerty => unreachable!(),
+        };
+        let row_data = table[row];
+        if col >= row_data.len() {
+            return None;
+        }
+        let (lower, upper) = row_data[col];
+        Some(if shifted { upper } else { lower })
+    }
+
     /// 해당 KeyCode가 문자 입력 키인지 확인합니다.
     pub fn is_character_key(&self) -> bool {
         self.to_char().is_some()
@@ -687,6 +775,40 @@ impl ModifierState {
     }
 }
 
+/// 레이아웃별 물리키→문자 매핑 테이블.
+/// 각 행은 (lower, upper) char 쌍의 배열.
+/// 행 순서: 0=숫자행(14키), 1=상단알파벳(12키), 2=홈행(11키), 3=하단알파벳(10키)
+type LayoutRow = &'static [(char, char)];
+type LayoutTable = [LayoutRow; 4];
+
+const DVORAK_TABLE: LayoutTable = [
+    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('[','{'),(']','}'),('\\','|')],
+    &[('\'','"'),(',','<'),('.','>'),('p','P'),('y','Y'),('f','F'),('g','G'),('c','C'),('r','R'),('l','L'),('/','?'),('=','+')],
+    &[('a','A'),('o','O'),('e','E'),('u','U'),('i','I'),('d','D'),('h','H'),('t','T'),('n','N'),('s','S'),('-','_')],
+    &[(';',':'),('q','Q'),('j','J'),('k','K'),('x','X'),('b','B'),('m','M'),('w','W'),('v','V'),('z','Z')],
+];
+
+const COLEMAK_TABLE: LayoutTable = [
+    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('-','_'),('=','+'),('\\','|')],
+    &[('q','Q'),('w','W'),('f','F'),('p','P'),('g','G'),('j','J'),('l','L'),('u','U'),('y','Y'),(';',':'),('[','{'),(']','}')],
+    &[('a','A'),('r','R'),('s','S'),('t','T'),('d','D'),('h','H'),('n','N'),('e','E'),('i','I'),('o','O'),('\'','"')],
+    &[('z','Z'),('x','X'),('c','C'),('v','V'),('b','B'),('k','K'),('m','M'),(',','<'),('.','>'),('/','?')],
+];
+
+const COLEMAK_DH_TABLE: LayoutTable = [
+    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('-','_'),('=','+'),('\\','|')],
+    &[('q','Q'),('w','W'),('f','F'),('p','P'),('b','B'),('j','J'),('l','L'),('u','U'),('y','Y'),(';',':'),('[','{'),( ']','}')],
+    &[('a','A'),('r','R'),('s','S'),('t','T'),('g','G'),('m','M'),('n','N'),('e','E'),('i','I'),('o','O'),('\'','"')],
+    &[('z','Z'),('x','X'),('c','C'),('d','D'),('v','V'),('k','K'),('h','H'),(',','<'),('.','>'),('/','?')],
+];
+
+const WORKMAN_TABLE: LayoutTable = [
+    &[('`','~'),('1','!'),('2','@'),('3','#'),('4','$'),('5','%'),('6','^'),('7','&'),('8','*'),('9','('),('0',')'),('-','_'),('=','+'),('\\','|')],
+    &[('q','Q'),('d','D'),('r','R'),('w','W'),('b','B'),('j','J'),('f','F'),('u','U'),('p','P'),(';',':'),('[','{'),( ']','}')],
+    &[('a','A'),('s','S'),('h','H'),('t','T'),('g','G'),('y','Y'),('n','N'),('e','E'),('o','O'),('i','I'),('\'','"')],
+    &[('z','Z'),('x','X'),('m','M'),('c','C'),('v','V'),('k','K'),('l','L'),(',','<'),('.','>'),('/','?')],
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -741,5 +863,258 @@ mod tests {
         assert!(KeyCode::RightAlt.is_modifier());
         assert!(!KeyCode::A.is_modifier());
         assert!(!KeyCode::Space.is_modifier());
+    }
+
+    // ── to_char_for_layout 테스트 ──
+
+    #[test]
+    fn test_to_char_for_layout_qwerty_consistency() {
+        use crate::config::EnglishLayout;
+        // Qwerty 레이아웃: to_char_for_layout == to_char / to_shifted_char
+        let alpha_keys = [
+            KeyCode::A, KeyCode::B, KeyCode::C, KeyCode::D, KeyCode::E,
+            KeyCode::F, KeyCode::G, KeyCode::H, KeyCode::I, KeyCode::J,
+            KeyCode::K, KeyCode::L, KeyCode::M, KeyCode::N, KeyCode::O,
+            KeyCode::P, KeyCode::Q, KeyCode::R, KeyCode::S, KeyCode::T,
+            KeyCode::U, KeyCode::V, KeyCode::W, KeyCode::X, KeyCode::Y, KeyCode::Z,
+        ];
+        for key in alpha_keys {
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Qwerty, false),
+                key.to_char(),
+                "Qwerty lower mismatch for {:?}", key
+            );
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Qwerty, true),
+                key.to_shifted_char(),
+                "Qwerty upper mismatch for {:?}", key
+            );
+        }
+
+        // 숫자키
+        let num_keys = [
+            KeyCode::Num1, KeyCode::Num2, KeyCode::Num3, KeyCode::Num4, KeyCode::Num5,
+            KeyCode::Num6, KeyCode::Num7, KeyCode::Num8, KeyCode::Num9, KeyCode::Num0,
+        ];
+        for key in num_keys {
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Qwerty, false),
+                key.to_char(),
+                "Qwerty num lower mismatch for {:?}", key
+            );
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Qwerty, true),
+                key.to_shifted_char(),
+                "Qwerty num upper mismatch for {:?}", key
+            );
+        }
+
+        // 특수키
+        let special_keys = [
+            KeyCode::Minus, KeyCode::Equal, KeyCode::BracketLeft, KeyCode::BracketRight,
+            KeyCode::Backslash, KeyCode::Semicolon, KeyCode::Quote, KeyCode::Backquote,
+            KeyCode::Comma, KeyCode::Period, KeyCode::Slash,
+        ];
+        for key in special_keys {
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Qwerty, false),
+                key.to_char(),
+                "Qwerty special lower mismatch for {:?}", key
+            );
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Qwerty, true),
+                key.to_shifted_char(),
+                "Qwerty special upper mismatch for {:?}", key
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_char_for_layout_dvorak_alphabet() {
+        use crate::config::EnglishLayout;
+        let cases: &[(KeyCode, char, char)] = &[
+            (KeyCode::S, 'o', 'O'),
+            (KeyCode::D, 'e', 'E'),
+            (KeyCode::F, 'u', 'U'),
+            (KeyCode::G, 'i', 'I'),
+            (KeyCode::H, 'd', 'D'),
+            (KeyCode::J, 'h', 'H'),
+            (KeyCode::K, 't', 'T'),
+            (KeyCode::L, 'n', 'N'),
+            (KeyCode::Q, '\'', '"'),
+            (KeyCode::W, ',', '<'),
+            (KeyCode::E, '.', '>'),
+            (KeyCode::R, 'p', 'P'),
+        ];
+        for &(key, lower, upper) in cases {
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Dvorak, false),
+                Some(lower),
+                "Dvorak lower mismatch for {:?}", key
+            );
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Dvorak, true),
+                Some(upper),
+                "Dvorak upper mismatch for {:?}", key
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_char_for_layout_colemak_alphabet() {
+        use crate::config::EnglishLayout;
+        let cases: &[(KeyCode, char, char)] = &[
+            (KeyCode::E, 'f', 'F'),
+            (KeyCode::R, 'p', 'P'),
+            (KeyCode::T, 'g', 'G'),
+            (KeyCode::S, 'r', 'R'),
+            (KeyCode::D, 's', 'S'),
+            (KeyCode::F, 't', 'T'),
+            (KeyCode::K, 'e', 'E'),
+            (KeyCode::J, 'n', 'N'),
+            (KeyCode::Y, 'j', 'J'),
+            (KeyCode::Semicolon, 'o', 'O'),
+            (KeyCode::P, ';', ':'),
+        ];
+        for &(key, lower, upper) in cases {
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Colemak, false),
+                Some(lower),
+                "Colemak lower mismatch for {:?}", key
+            );
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Colemak, true),
+                Some(upper),
+                "Colemak upper mismatch for {:?}", key
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_char_for_layout_colemak_dh_differences() {
+        use crate::config::EnglishLayout;
+        // ColemakDh vs Colemak 차이점
+        // T(1,4): Colemak='g', ColemakDh='b'
+        assert_eq!(KeyCode::T.to_char_for_layout(EnglishLayout::Colemak, false), Some('g'));
+        assert_eq!(KeyCode::T.to_char_for_layout(EnglishLayout::ColemakDh, false), Some('b'));
+
+        // G(2,4): Colemak='d', ColemakDh='g'
+        assert_eq!(KeyCode::G.to_char_for_layout(EnglishLayout::Colemak, false), Some('d'));
+        assert_eq!(KeyCode::G.to_char_for_layout(EnglishLayout::ColemakDh, false), Some('g'));
+
+        // B(3,4): Colemak='b', ColemakDh='v'
+        assert_eq!(KeyCode::B.to_char_for_layout(EnglishLayout::Colemak, false), Some('b'));
+        assert_eq!(KeyCode::B.to_char_for_layout(EnglishLayout::ColemakDh, false), Some('v'));
+
+        // V(3,3): Colemak='v', ColemakDh='d'
+        assert_eq!(KeyCode::V.to_char_for_layout(EnglishLayout::Colemak, false), Some('v'));
+        assert_eq!(KeyCode::V.to_char_for_layout(EnglishLayout::ColemakDh, false), Some('d'));
+
+        // H(2,5): Colemak='h', ColemakDh='m'
+        assert_eq!(KeyCode::H.to_char_for_layout(EnglishLayout::Colemak, false), Some('h'));
+        assert_eq!(KeyCode::H.to_char_for_layout(EnglishLayout::ColemakDh, false), Some('m'));
+
+        // M(3,6): Colemak='m', ColemakDh='h'
+        assert_eq!(KeyCode::M.to_char_for_layout(EnglishLayout::Colemak, false), Some('m'));
+        assert_eq!(KeyCode::M.to_char_for_layout(EnglishLayout::ColemakDh, false), Some('h'));
+    }
+
+    #[test]
+    fn test_to_char_for_layout_workman_alphabet() {
+        use crate::config::EnglishLayout;
+        let cases: &[(KeyCode, char, char)] = &[
+            (KeyCode::W, 'd', 'D'),
+            (KeyCode::E, 'r', 'R'),
+            (KeyCode::R, 'w', 'W'),
+            (KeyCode::D, 'h', 'H'),
+            (KeyCode::F, 't', 'T'),
+            (KeyCode::Y, 'j', 'J'),
+            (KeyCode::U, 'f', 'F'),
+            (KeyCode::I, 'u', 'U'),
+            (KeyCode::O, 'p', 'P'),
+            (KeyCode::H, 'y', 'Y'),
+        ];
+        for &(key, lower, upper) in cases {
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Workman, false),
+                Some(lower),
+                "Workman lower mismatch for {:?}", key
+            );
+            assert_eq!(
+                key.to_char_for_layout(EnglishLayout::Workman, true),
+                Some(upper),
+                "Workman upper mismatch for {:?}", key
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_char_for_layout_dvorak_special_keys() {
+        use crate::config::EnglishLayout;
+        // Dvorak 특수키 매핑
+        assert_eq!(KeyCode::Minus.to_char_for_layout(EnglishLayout::Dvorak, false), Some('['));
+        assert_eq!(KeyCode::Equal.to_char_for_layout(EnglishLayout::Dvorak, false), Some(']'));
+        assert_eq!(KeyCode::BracketLeft.to_char_for_layout(EnglishLayout::Dvorak, false), Some('/'));
+        assert_eq!(KeyCode::BracketRight.to_char_for_layout(EnglishLayout::Dvorak, false), Some('='));
+        assert_eq!(KeyCode::Semicolon.to_char_for_layout(EnglishLayout::Dvorak, false), Some('s'));
+        assert_eq!(KeyCode::Quote.to_char_for_layout(EnglishLayout::Dvorak, false), Some('-'));
+        assert_eq!(KeyCode::Slash.to_char_for_layout(EnglishLayout::Dvorak, false), Some('z'));
+    }
+
+    #[test]
+    fn test_to_char_for_layout_dvorak_shift_special_keys() {
+        use crate::config::EnglishLayout;
+        assert_eq!(KeyCode::Minus.to_char_for_layout(EnglishLayout::Dvorak, true), Some('{'));
+        assert_eq!(KeyCode::Equal.to_char_for_layout(EnglishLayout::Dvorak, true), Some('}'));
+        assert_eq!(KeyCode::BracketLeft.to_char_for_layout(EnglishLayout::Dvorak, true), Some('?'));
+        assert_eq!(KeyCode::BracketRight.to_char_for_layout(EnglishLayout::Dvorak, true), Some('+'));
+        assert_eq!(KeyCode::Semicolon.to_char_for_layout(EnglishLayout::Dvorak, true), Some('S'));
+        assert_eq!(KeyCode::Quote.to_char_for_layout(EnglishLayout::Dvorak, true), Some('_'));
+        assert_eq!(KeyCode::Slash.to_char_for_layout(EnglishLayout::Dvorak, true), Some('Z'));
+    }
+
+    #[test]
+    fn test_to_char_for_layout_space_all_layouts() {
+        use crate::config::EnglishLayout;
+        for layout in [
+            EnglishLayout::Qwerty,
+            EnglishLayout::Dvorak,
+            EnglishLayout::Colemak,
+            EnglishLayout::ColemakDh,
+            EnglishLayout::Workman,
+        ] {
+            assert_eq!(
+                KeyCode::Space.to_char_for_layout(layout, false),
+                Some(' '),
+                "Space should be ' ' for {:?}", layout
+            );
+            assert_eq!(
+                KeyCode::Space.to_char_for_layout(layout, true),
+                Some(' '),
+                "Shift+Space should be ' ' for {:?}", layout
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_char_for_layout_shift_uppercase() {
+        use crate::config::EnglishLayout;
+        // 각 레이아웃에서 Shift+알파벳이 대문자 반환
+        let layouts = [
+            (EnglishLayout::Dvorak, KeyCode::S, 'O'),     // S→o, Shift→O
+            (EnglishLayout::Colemak, KeyCode::F, 'T'),    // F→t, Shift→T
+            (EnglishLayout::ColemakDh, KeyCode::T, 'B'),  // T→b, Shift→B
+            (EnglishLayout::Workman, KeyCode::W, 'D'),    // W→d, Shift→D
+            (EnglishLayout::Dvorak, KeyCode::J, 'H'),     // J→h, Shift→H
+            (EnglishLayout::Colemak, KeyCode::K, 'E'),    // K→e, Shift→E
+            (EnglishLayout::Workman, KeyCode::D, 'H'),    // D→h, Shift→H
+        ];
+        for (layout, key, expected_upper) in layouts {
+            assert_eq!(
+                key.to_char_for_layout(layout, true),
+                Some(expected_upper),
+                "Shift mismatch for {:?} on {:?}", key, layout
+            );
+        }
     }
 }

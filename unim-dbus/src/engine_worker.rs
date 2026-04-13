@@ -264,7 +264,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     )
                                 }
                                 unim::config::InputCategory::Korean => {
-                                    auto_typefix::check_reverse(buf, atf_config)
+                                    auto_typefix::check_reverse(buf, atf_config, config.engine.english.layout)
                                 }
                             };
 
@@ -302,7 +302,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                 // 버퍼 초기화 전에 ascii 미리 캡처
                                 // (역방향의 delete_chars 계산에 사용)
-                                let buf_ascii = buf.to_ascii_string();
+                                let buf_ascii = buf.to_ascii_string(config.engine.english.layout);
 
                                 // 교정 후 버퍼 초기화
                                 buf.clear();
