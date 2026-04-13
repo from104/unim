@@ -65,9 +65,6 @@ int main(int argc, char *argv[]) {
 
     setlocale(LC_ALL, "");
 
-    /* Log init */
-    log_init();
-
     /* X11 Display */
     app.display = XOpenDisplay(NULL);
     if (!app.display) {
@@ -76,13 +73,25 @@ int main(int argc, char *argv[]) {
     }
     app.screen = DefaultScreen(app.display);
 
-    log_add("UNIM XIM Test 시작");
+    /* HiDPI 스케일 팩터 감지: Xft.dpi / 96 (GNOME X11에서 scale=2이면 dpi=192) */
+    {
+        char *dpi_str = XGetDefault(app.display, "Xft", "dpi");
+        int dpi = dpi_str ? atoi(dpi_str) : 96;
+        app.scale = (dpi > 120) ? dpi / 96 : 1;
+        if (app.scale < 1) app.scale = 1;
+    }
+
+    app.win_width  = S(WINDOW_WIDTH);
+    app.win_height = S(WINDOW_HEIGHT);
+
+    log_init();
+    log_add("UNIM XIM Test 시작 (scale=%d)", app.scale);
     log_add("DISPLAY=%s", getenv("DISPLAY") ? getenv("DISPLAY") : "(unset)");
 
     /* Window */
     app.window = XCreateSimpleWindow(
         app.display, RootWindow(app.display, app.screen),
-        100, 100, WINDOW_WIDTH, WINDOW_HEIGHT,
+        100, 100, app.win_width, app.win_height,
         0, BlackPixel(app.display, app.screen),
         0x1e1e2e  /* COL_BASE */
     );
@@ -93,8 +102,8 @@ int main(int argc, char *argv[]) {
     XSizeHints *hints = XAllocSizeHints();
     if (hints) {
         hints->flags = PMinSize;
-        hints->min_width  = 500;
-        hints->min_height = 400;
+        hints->min_width  = S(500);
+        hints->min_height = S(400);
         XSetWMNormalHints(app.display, app.window, hints);
         XFree(hints);
     }

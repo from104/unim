@@ -105,6 +105,11 @@ impl HanjaPopup {
         _w: i32,
         h: i32,
     ) {
+        // GNOME Wayland: extension이 팝업 전담 (GTK 윈도우가 포커스를 뺏어 FocusOut 유발)
+        if self.display_server == DisplayServer::GnomeWayland {
+            return;
+        }
+
         unim_log!(
             "INDICATOR",
             "[Popup] 한자 show() 진입: display_server={:?}, cursor=({},{},{})",

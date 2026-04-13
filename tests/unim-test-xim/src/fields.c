@@ -23,15 +23,15 @@ static int text_width(const char *text) {
 /* ─── Public API ──────────────────────────────────────────────────────── */
 
 void fields_init(void) {
-    int label_col_w = 110;
-    int field_w = WINDOW_WIDTH - 2 * MARGIN - label_col_w;
-    int y_start = 130;
+    int label_col_w = S(110);
+    int field_w = app.win_width - 2 * S(MARGIN) - label_col_w;
+    int y_start = S(130);
 
     for (int i = 0; i < NUM_FIELDS; i++) {
-        app.fields[i].x          = MARGIN + label_col_w;
-        app.fields[i].y          = y_start + i * (FIELD_HEIGHT + 16);
+        app.fields[i].x          = S(MARGIN) + label_col_w;
+        app.fields[i].y          = y_start + i * (S(FIELD_HEIGHT) + S(16));
         app.fields[i].width      = field_w;
-        app.fields[i].height     = FIELD_HEIGHT;
+        app.fields[i].height     = S(FIELD_HEIGHT);
         app.fields[i].text[0]    = '\0';
         app.fields[i].preedit[0] = '\0';
         app.fields[i].focused    = (i == 0) ? 1 : 0;

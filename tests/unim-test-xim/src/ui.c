@@ -105,12 +105,12 @@ static void draw_rounded_border(unsigned long color,
 static void draw_badge(int x, int y, const char *text,
                        unsigned long bg, XftColor *fg)
 {
-    int pad = 8;
+    int pad = S(8);
     int w = tw(app.font_small, text) + pad * 2;
-    int h = 22;
-    fill_rounded_rect(bg, x, y, w, h, 4);
+    int h = S(22);
+    fill_rounded_rect(bg, x, y, w, h, S(4));
     XftDrawStringUtf8(app.xft_draw, fg, app.font_small,
-                      x + pad, y + 16,
+                      x + pad, y + S(16),
                       (const FcChar8 *)text, (int)strlen(text));
 }
 
@@ -120,48 +120,48 @@ static void draw_header(void) {
     /* Dark header strip */
     XSetForeground(app.display, app.gc, COL_MANTLE);
     XFillRectangle(app.display, app.window, app.gc,
-                   0, 0, app.win_width, 56);
+                   0, 0, app.win_width, S(56));
 
     /* Title */
     const char *title = "UNIM XIM Test";
     XftDrawStringUtf8(app.xft_draw, &app.c_text, app.font_bold,
-                      MARGIN, 36,
+                      S(MARGIN), S(36),
                       (const FcChar8 *)title, (int)strlen(title));
 
     /* Mode badge (right side) */
-    int badge_x = app.win_width - MARGIN - 90;
+    int badge_x = app.win_width - S(MARGIN) - S(90);
     if (app.is_korean_mode) {
-        draw_badge(badge_x, 17, "한국어", COL_BLUE, &app.c_mantle);
+        draw_badge(badge_x, S(17), "한국어", COL_BLUE, &app.c_mantle);
     } else {
-        draw_badge(badge_x, 17, "English", COL_SURFACE2, &app.c_text);
+        draw_badge(badge_x, S(17), "English", COL_SURFACE2, &app.c_text);
     }
 }
 
 /* ─── Draw: status bar ───────────────────────────────────────────────── */
 
 static void draw_status_bar(void) {
-    int y = 64;
+    int y = S(64);
 
     /* XIM status */
     XftDrawStringUtf8(app.xft_draw, &app.c_overlay0, app.font_small,
-                      MARGIN, y + 14,
+                      S(MARGIN), y + S(14),
                       (const FcChar8 *)"XIM:", 4);
 
     XftColor *xim_color = app.xim ? &app.c_green : &app.c_red;
     XftDrawStringUtf8(app.xft_draw, xim_color, app.font_small,
-                      MARGIN + 40, y + 14,
+                      S(MARGIN) + S(40), y + S(14),
                       (const FcChar8 *)app.im_status,
                       (int)strlen(app.im_status));
 
     /* DBus status */
-    int dbus_x = MARGIN + 170;
+    int dbus_x = S(MARGIN) + S(170);
     XftDrawStringUtf8(app.xft_draw, &app.c_overlay0, app.font_small,
-                      dbus_x, y + 14,
+                      dbus_x, y + S(14),
                       (const FcChar8 *)"DBus:", 5);
 
     XftColor *dbus_color = app.dbus_connected ? &app.c_green : &app.c_red;
     XftDrawStringUtf8(app.xft_draw, dbus_color, app.font_small,
-                      dbus_x + 46, y + 14,
+                      dbus_x + S(46), y + S(14),
                       (const FcChar8 *)app.dbus_status,
                       (int)strlen(app.dbus_status));
 
@@ -169,31 +169,31 @@ static void draw_status_bar(void) {
     const char *hint = "Tab: 이동  |  F9: 한/영  |  Enter: 다음";
     int hint_w = tw(app.font_small, hint);
     XftDrawStringUtf8(app.xft_draw, &app.c_overlay0, app.font_small,
-                      app.win_width - MARGIN - hint_w, y + 14,
+                      app.win_width - S(MARGIN) - hint_w, y + S(14),
                       (const FcChar8 *)hint, (int)strlen(hint));
 
     /* Divider */
-    y += 24;
+    y += S(24);
     XSetForeground(app.display, app.gc, COL_SURFACE0);
     XDrawLine(app.display, app.window, app.gc,
-              MARGIN, y, app.win_width - MARGIN, y);
+              S(MARGIN), y, app.win_width - S(MARGIN), y);
 }
 
 /* ─── Draw: section title ────────────────────────────────────────────── */
 
 static int draw_section_title(int y, const char *title) {
     XftDrawStringUtf8(app.xft_draw, &app.c_blue, app.font_small,
-                      MARGIN, y + 14,
+                      S(MARGIN), y + S(14),
                       (const FcChar8 *)title, (int)strlen(title));
 
     /* Decorative line after the text */
     int title_w = tw(app.font_small, title);
     XSetForeground(app.display, app.gc, COL_SURFACE0);
     XDrawLine(app.display, app.window, app.gc,
-              MARGIN + title_w + 10, y + 9,
-              app.win_width - MARGIN, y + 9);
+              S(MARGIN) + title_w + S(10), y + S(9),
+              app.win_width - S(MARGIN), y + S(9));
 
-    return y + 24;
+    return y + S(24);
 }
 
 /* ─── Draw: single field ─────────────────────────────────────────────── */
@@ -201,25 +201,25 @@ static int draw_section_title(int y, const char *title) {
 static void draw_field(InputField *field, int is_active) {
     /* Label */
     XftDrawStringUtf8(app.xft_draw, &app.c_subtext1, app.font,
-                      MARGIN, field->y + FIELD_HEIGHT - 10,
+                      S(MARGIN), field->y + field->height - S(10),
                       (const FcChar8 *)field->label,
                       (int)strlen(field->label));
 
     /* Field background */
     unsigned long bg = is_active ? COL_SURFACE1 : COL_SURFACE0;
     fill_rounded_rect(bg, field->x, field->y,
-                      field->width, field->height, FIELD_RADIUS);
+                      field->width, field->height, S(FIELD_RADIUS));
 
     /* Border */
     if (is_active) {
         draw_rounded_border(COL_BLUE,
                             field->x, field->y,
-                            field->width, field->height, FIELD_RADIUS);
+                            field->width, field->height, S(FIELD_RADIUS));
     }
 
     /* Text content */
-    int text_x = field->x + FIELD_PADDING;
-    int text_y = field->y + FIELD_HEIGHT - 10;
+    int text_x = field->x + S(FIELD_PADDING);
+    int text_y = field->y + field->height - S(10);
     int cur_pos = field->cursor_pos;
 
     /* 커서 앞 텍스트 */
@@ -240,7 +240,7 @@ static void draw_field(InputField *field, int is_active) {
         /* Preedit background stripe */
         XSetForeground(app.display, app.gc, COL_LAVENDER & 0xFFFFFF);
         XFillRectangle(app.display, app.window, app.gc,
-                       text_x - 1, text_y - 16, pe_w + 2, 20);
+                       text_x - 1, text_y - S(16), pe_w + 2, S(20));
 
         /* Preedit text (dark on lavender) */
         XftDrawStringUtf8(app.xft_draw, &app.c_mantle, app.font,
@@ -254,7 +254,7 @@ static void draw_field(InputField *field, int is_active) {
     if (is_active && !field->preedit[0]) {
         XSetForeground(app.display, app.gc, COL_BLUE);
         XFillRectangle(app.display, app.window, app.gc,
-                       text_x + 1, field->y + 6, 2, FIELD_HEIGHT - 12);
+                       text_x + 1, field->y + S(6), S(2), field->height - S(12));
     }
 
     /* 커서 뒤 텍스트 */
@@ -275,7 +275,7 @@ static int draw_fields_section(int y) {
         draw_field(&app.fields[i], i == app.active_field);
     }
 
-    return app.fields[NUM_FIELDS - 1].y + FIELD_HEIGHT + SECTION_GAP;
+    return app.fields[NUM_FIELDS - 1].y + S(FIELD_HEIGHT) + S(SECTION_GAP);
 }
 
 /* ─── Draw: log section ──────────────────────────────────────────────── */
@@ -284,14 +284,14 @@ static void draw_log_section(int y) {
     y = draw_section_title(y, "이벤트 로그");
     y += 4;
 
-    int line_h = 18;
-    int max_visible = (app.win_height - y - MARGIN) / line_h;
+    int line_h = S(18);
+    int max_visible = (app.win_height - y - S(MARGIN)) / line_h;
     if (max_visible < 1) max_visible = 1;
 
     int start = app.log_count > max_visible
                     ? app.log_count - max_visible : 0;
 
-    for (int i = start; i < app.log_count && y < app.win_height - MARGIN; i++) {
+    for (int i = start; i < app.log_count && y < app.win_height - S(MARGIN); i++) {
         /* Split timestamp from message for color coding */
         const char *line = app.log_buffer[i];
         const char *close_bracket = strchr(line, ']');
@@ -301,7 +301,7 @@ static void draw_log_section(int y) {
 
             /* Timestamp in dim color */
             XftDrawStringUtf8(app.xft_draw, &app.c_overlay0, app.font_small,
-                              MARGIN + 8, y,
+                              S(MARGIN) + S(8), y,
                               (const FcChar8 *)line, ts_len);
 
             /* Message in brighter color */
@@ -310,14 +310,14 @@ static void draw_log_section(int y) {
             int ts_w = tw(app.font_small, app.log_buffer[i]);
             /* Use the full-width approach: timestamp then message */
             XftDrawStringUtf8(app.xft_draw, &app.c_subtext0, app.font_small,
-                              MARGIN + 8 + tw(app.font_small, line) -
+                              S(MARGIN) + S(8) + tw(app.font_small, line) -
                               tw(app.font_small, msg),
                               y,
                               (const FcChar8 *)msg, (int)strlen(msg));
             (void)ts_w;
         } else {
             XftDrawStringUtf8(app.xft_draw, &app.c_subtext0, app.font_small,
-                              MARGIN + 8, y,
+                              S(MARGIN) + S(8), y,
                               (const FcChar8 *)line, (int)strlen(line));
         }
 
@@ -385,7 +385,7 @@ void ui_redraw(void) {
     draw_header();
     draw_status_bar();
 
-    int y = 100;
+    int y = S(100);
     y = draw_fields_section(y);
     draw_log_section(y);
 

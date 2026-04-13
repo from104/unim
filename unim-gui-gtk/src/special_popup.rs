@@ -171,6 +171,11 @@ impl SpecialPopup {
         _w: i32,
         h: i32,
     ) {
+        // GNOME Wayland: extension이 팝업 전담 (GTK 윈도우가 포커스를 뺏어 FocusOut 유발)
+        if self.display_server == DisplayServer::GnomeWayland {
+            return;
+        }
+
         // 활성 컨텍스트 경로 저장
         {
             use unim_gui_common::types::ACTIVE_CONTEXT_PATH;

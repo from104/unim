@@ -127,7 +127,13 @@ typedef struct {
     /* Window dimensions (for resize) */
     int win_width;
     int win_height;
+
+    /* HiDPI scale factor (1 = normal, 2 = HiDPI) */
+    int scale;
 } App;
+
+/* ─── Scale helper: multiply by HiDPI scale factor ───────────────────── */
+#define S(x) ((x) * app.scale)
 
 /* ─── Global app instance ─────────────────────────────────────────────── */
 extern App app;
