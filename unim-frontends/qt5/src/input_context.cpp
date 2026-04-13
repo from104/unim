@@ -110,10 +110,19 @@ UnimInputContext::UnimInputContext()
                 m_composing = false;
             }
         });
+        // CommitText 시그널 콜백 등록 (Standalone 팝업 마우스 클릭 커밋)
+        m_dbus->setCommitTextCallback([this](const QString &text) {
+            UNIM_DEBUG(QString::asprintf("CommitText: '%s'", qPrintable(text)));
+            QObject *focusObj = QGuiApplication::focusObject();
+            if (!focusObj) return;
+            QInputMethodEvent ev;
+            ev.setCommitString(text);
+            QCoreApplication::sendEvent(focusObj, &ev);
+        });
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }
-    
+
     /* 팝업은 lazy 초기화 — QApplication 초기화 전에 QWidget 생성 불가 */
     m_specialPopup = nullptr;
 }

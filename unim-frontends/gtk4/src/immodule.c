@@ -255,6 +255,17 @@ autofix_deferred_commit_cb(gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+/* CommitText 콜백: Standalone 팝업 마우스 클릭 시 커밋 */
+static void
+on_commit_text(const gchar *text, gpointer user_data)
+{
+    GtkIMContext *context = GTK_IM_CONTEXT(user_data);
+    if (text && text[0] != '\0') {
+        UNIM_DEBUG("CommitText 시그널 수신: '%s'", text);
+        g_signal_emit_by_name(context, "commit", text);
+    }
+}
+
 /* AutoTypeFix 콜백: delete_surrounding + commit + preedit */
 static void
 on_auto_typefix(guint delete_chars, const gchar *commit_text,
@@ -344,6 +355,7 @@ unim_im_context_init(UnimIMContext *context)
     /* AutoTypeFix 시그널 콜백 등록 */
     if (context->dbus_ctx) {
         unim_dbus_set_auto_typefix_callback(context->dbus_ctx, on_auto_typefix, context);
+        unim_dbus_set_commit_text_callback(context->dbus_ctx, on_commit_text, context);
     }
     context->is_focused = FALSE;
     context->surrounding_text = NULL;

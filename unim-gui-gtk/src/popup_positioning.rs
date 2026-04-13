@@ -79,16 +79,12 @@ pub fn position_popup(
 
 /// X11: 팝업 타입 설정 + 절대좌표 배치
 fn position_popup_x11(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, cursor_h: i32) {
-    let raw_x = cursor_x;
-    let raw_y = cursor_y + cursor_h + 4;
+    // daemon이 보내는 좌표는 X11 물리 픽셀 — XMoveWindow도 물리 픽셀이므로 스케일 보정 불필요
+    let popup_x = cursor_x;
+    let popup_y = cursor_y + cursor_h + 4;
 
-    // HiDPI 스케일 보정: daemon이 보내는 좌표는 물리 픽셀, GTK4/X11은 논리 좌표
-    let scale = x11_get_scale_factor();
-    let popup_x = raw_x / scale;
-    let popup_y = raw_y / scale;
-
-    // 화면 경계 보정
-    let (popup_x, popup_y) = clamp_to_screen(popup_x, popup_y, 350, 350, cursor_y / scale);
+    // 화면 경계 보정 (X11 물리 좌표 기준)
+    let (popup_x, popup_y) = clamp_to_screen_x11(popup_x, popup_y, 350, 350, cursor_y);
 
     #[cfg(feature = "gdk4-x11")]
     {
@@ -126,21 +122,6 @@ fn position_popup_x11(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, curso
             "INDICATOR",
             "[Popup] gdk4-x11 feature 미활성, X11 팝업 위치 설정 불가"
         );
-    }
-}
-
-/// X11 모니터 스케일 팩터 조회 (HiDPI 보정용)
-fn x11_get_scale_factor() -> i32 {
-    let display = gtk4::gdk::Display::default().expect("No display");
-    let monitors = display.monitors();
-    if monitors.n_items() > 0 {
-        monitors
-            .item(0)
-            .and_downcast::<gtk4::gdk::Monitor>()
-            .map(|m| m.scale_factor())
-            .unwrap_or(1)
-    } else {
-        1
     }
 }
 
@@ -184,7 +165,30 @@ fn x11_move_window(
     }
 }
 
-/// X11 윈도우 타입을 POPUP_MENU로 설정 (WM 포커스 방지)
+/// Xlib XSetWindowAttributes (override_redirect 설정용)
+#[repr(C)]
+struct XSetWindowAttributes {
+    background_pixmap: u64,
+    background_pixel: u64,
+    border_pixmap: u64,
+    border_pixel: u64,
+    bit_gravity: i32,
+    win_gravity: i32,
+    backing_store: i32,
+    _pad1: i32,
+    backing_planes: u64,
+    backing_pixel: u64,
+    save_under: i32,
+    _pad2: i32,
+    event_mask: i64,
+    do_not_propagate_mask: i64,
+    override_redirect: i32,
+    _pad3: i32,
+    colormap: u64,
+    cursor: u64,
+}
+
+/// X11 윈도우를 override-redirect 팝업으로 설정 (WM 우회 + 포커스 방지)
 #[cfg(feature = "gdk4-x11")]
 fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11Surface) {
     unsafe {
@@ -212,9 +216,27 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
                 data: *const u8,
                 nelements: std::ffi::c_int,
             ) -> std::ffi::c_int;
+            fn XChangeWindowAttributes(
+                display: *mut std::ffi::c_void,
+                w: std::ffi::c_ulong,
+                valuemask: std::ffi::c_ulong,
+                attributes: *mut XSetWindowAttributes,
+            ) -> std::ffi::c_int;
             fn XFlush(display: *mut std::ffi::c_void) -> std::ffi::c_int;
         }
 
+        // override_redirect: WM을 우회하여 직접 위치 제어
+        const CW_OVERRIDE_REDIRECT: std::ffi::c_ulong = 1 << 9;
+        let mut attrs: XSetWindowAttributes = std::mem::zeroed();
+        attrs.override_redirect = 1; // True
+        XChangeWindowAttributes(
+            xdisplay as *mut _,
+            xid as _,
+            CW_OVERRIDE_REDIRECT,
+            &mut attrs,
+        );
+
+        // _NET_WM_WINDOW_TYPE_POPUP_MENU
         let wm_type = XInternAtom(
             xdisplay as *mut _,
             b"_NET_WM_WINDOW_TYPE\0".as_ptr() as *const _,
@@ -239,7 +261,7 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
             1,
         );
 
-        // _NET_WM_STATE_ABOVE: 항상 최상위 + 포커스 방지 강화
+        // _NET_WM_STATE_ABOVE: 항상 최상위
         let wm_state = XInternAtom(
             xdisplay as *mut _,
             b"_NET_WM_STATE\0".as_ptr() as *const _,
@@ -265,7 +287,7 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
 
         unim_log!(
             "INDICATOR",
-            "[Popup] X11 팝업 타입 설정: POPUP_MENU + ABOVE, xid={}",
+            "[Popup] X11 팝업 타입 설정: override_redirect + POPUP_MENU + ABOVE, xid={}",
             xid
         );
     }
@@ -313,6 +335,48 @@ fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, c
 }
 
 /// 팝업 위치를 화면 경계 내로 보정
+/// X11 물리 좌표 기준 화면 경계 보정
+fn clamp_to_screen_x11(
+    popup_x: i32,
+    popup_y: i32,
+    popup_w: i32,
+    popup_h: i32,
+    cursor_y: i32,
+) -> (i32, i32) {
+    // GDK monitor geometry는 논리 좌표 → scale을 곱해서 물리 좌표로 변환
+    let display = gtk4::gdk::Display::default().expect("No display");
+    let monitors = display.monitors();
+
+    let (screen_w, screen_h) = if monitors.n_items() > 0 {
+        let monitor = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>().unwrap();
+        let geo = monitor.geometry();
+        let scale = monitor.scale_factor();
+        (geo.width() * scale, geo.height() * scale)
+    } else {
+        (1920, 1080)
+    };
+
+    let mut x = popup_x;
+    let mut y = popup_y;
+
+    if x + popup_w > screen_w {
+        x = screen_w - popup_w - 4;
+    }
+    if y + popup_h > screen_h {
+        y = cursor_y - popup_h - 4;
+    }
+    if x < 0 {
+        x = 4;
+    }
+    if y < 0 {
+        y = 4;
+    }
+
+    (x, y)
+}
+
+/// Wayland 논리 좌표 기준 화면 경계 보정
+#[allow(dead_code)]
 pub fn clamp_to_screen(
     popup_x: i32,
     popup_y: i32,

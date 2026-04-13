@@ -621,6 +621,16 @@ impl UnimHandler {
                     );
                 }
             }
+            PopupEvent::CommitText { text } => {
+                // Standalone 팝업 마우스 클릭 시 커밋
+                // XIM은 server.commit()에 IC 참조가 필요하므로 직접 커밋 불가.
+                // Embedded 모드에서는 자체 팝업이 직접 처리함.
+                unim_log!(
+                    "XIM_HANDLER",
+                    "CommitText 시그널 수신 (Standalone): '{}' — XIM은 키보드 선택 사용 권장",
+                    text
+                );
+            }
         }
         Ok(())
     }

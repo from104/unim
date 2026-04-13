@@ -273,6 +273,27 @@ void unim_dbus_set_auto_typefix_callback(UnimDbusContext *ctx,
                                           gpointer user_data);
 
 /**
+ * CommitText 시그널 콜백 타입
+ * Standalone 팝업에서 마우스 클릭으로 한자/특수문자 선택 시 호출됨
+ *
+ * @param text 커밋할 텍스트
+ * @param user_data 사용자 데이터
+ */
+typedef void (*UnimCommitTextCallback)(const gchar *text,
+                                       gpointer user_data);
+
+/**
+ * CommitText 시그널 구독 및 콜백 설정
+ *
+ * @param ctx 컨텍스트
+ * @param callback CommitText 콜백 함수
+ * @param user_data 콜백에 전달할 사용자 데이터
+ */
+void unim_dbus_set_commit_text_callback(UnimDbusContext *ctx,
+                                         UnimCommitTextCallback callback,
+                                         gpointer user_data);
+
+/**
  * preedit 캐시를 외부에서 설정 (AutoTypeFix용)
  * @param ctx 컨텍스트
  * @param preedit 새 preedit 텍스트

@@ -3,6 +3,7 @@
 //! DBus ShowSpecialPopup 시그널을 받아 특수문자 그리드를 표시합니다.
 //! POPUP_SPEC.md Section 4 규격을 준수합니다.
 //! 9x9 그리드, 열 우선(column-major) 채움 레이아웃.
+//! GNOME extension과 동일한 디자인/레이아웃.
 
 use gtk4::prelude::*;
 use unim::unim_log;
@@ -18,11 +19,13 @@ pub struct SpecialPopup {
     pub window: gtk4::Window,
     #[allow(dead_code)]
     grid: gtk4::Grid,
-    top_row_box: gtk4::Box,
+    header_label: gtk4::Label,
     footer_label: gtk4::Label,
     display_server: DisplayServer,
     /// 전체 문자 목록
     characters: Vec<String>,
+    /// 대상 문자
+    target: String,
     /// 상단 행 문자열
     top_row: String,
     /// 현재 페이지 (0-based)
@@ -32,6 +35,10 @@ pub struct SpecialPopup {
     /// 현재 선택 (col, row)
     sel_col: usize,
     sel_row: usize,
+    /// 열 헤더 라벨 (col_headers[col])
+    col_headers: Vec<gtk4::Label>,
+    /// 행 번호 라벨 (row_numbers[row])
+    row_numbers: Vec<gtk4::Label>,
     /// 그리드 셀 라벨들 (column-major: cells[col][row])
     cells: Vec<Vec<gtk4::Label>>,
     /// 현재 페이지의 행/열 수
@@ -52,42 +59,55 @@ impl SpecialPopup {
         window.set_focusable(false);
         window.add_css_class("unim-special-popup");
 
-        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-        vbox.set_margin_start(8);
-        vbox.set_margin_end(8);
-        vbox.set_margin_top(8);
-        vbox.set_margin_bottom(8);
+        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
-        // 상단 행 (초성 표시)
-        let top_row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
-        top_row_box.add_css_class("special-top-row");
-        vbox.append(&top_row_box);
+        // 헤더 라벨 (「X」 → 특수문자)
+        let header_label = gtk4::Label::new(None);
+        header_label.add_css_class("popup-header");
+        header_label.set_halign(gtk4::Align::Fill);
+        header_label.set_xalign(0.0);
+        vbox.append(&header_label);
 
-        // 그리드
+        // 그리드 (열 헤더 + 행 번호 + 데이터 셀 통합)
         let grid = gtk4::Grid::new();
         grid.add_css_class("special-grid");
         grid.set_row_spacing(1);
         grid.set_column_spacing(1);
-        grid.set_row_homogeneous(true);
-        grid.set_column_homogeneous(true);
+        grid.set_margin_top(4);
+        grid.set_margin_bottom(2);
 
-        // 행 번호 레이블 (1-9) — grid column 0
-        for row in 0..MAX_ROWS {
-            let num_label = gtk4::Label::new(Some(&format!("{}", row + 1)));
-            num_label.add_css_class("special-row-num");
-            num_label.set_width_chars(1);
-            num_label.set_halign(gtk4::Align::Center);
-            grid.attach(&num_label, 0, row as i32, 1, 1);
+        // (0, 0): 코너 빈 셀
+        let corner = gtk4::Label::new(None);
+        corner.add_css_class("grid-row-number");
+        grid.attach(&corner, 0, 0, 1, 1);
+
+        // 열 헤더 (grid row 0, columns 1-9)
+        let mut col_headers = Vec::with_capacity(MAX_COLS);
+        for col in 0..MAX_COLS {
+            let label = gtk4::Label::new(None);
+            label.add_css_class("grid-header");
+            label.set_halign(gtk4::Align::Center);
+            grid.attach(&label, (col + 1) as i32, 0, 1, 1);
+            col_headers.push(label);
         }
 
-        // 9x9 데이터 셀 — grid column 1+
+        // 행 번호 (grid column 0, rows 1-9)
+        let mut row_numbers = Vec::with_capacity(MAX_ROWS);
+        for row in 0..MAX_ROWS {
+            let num_label = gtk4::Label::new(Some(&format!("{}", row + 1)));
+            num_label.add_css_class("grid-row-number");
+            num_label.set_halign(gtk4::Align::Center);
+            grid.attach(&num_label, 0, (row + 1) as i32, 1, 1);
+            row_numbers.push(num_label);
+        }
+
+        // 9x9 데이터 셀 (grid columns 1-9, rows 1-9)
         let mut cells = Vec::with_capacity(MAX_COLS);
         for col in 0..MAX_COLS {
             let mut col_cells = Vec::with_capacity(MAX_ROWS);
             for row in 0..MAX_ROWS {
                 let label = gtk4::Label::new(None);
-                label.add_css_class("special-cell");
-                label.set_width_chars(2);
+                label.add_css_class("grid-cell");
                 label.set_halign(gtk4::Align::Center);
 
                 // 클릭 이벤트
@@ -99,7 +119,7 @@ impl SpecialPopup {
                 });
                 label.add_controller(gesture);
 
-                grid.attach(&label, (col + 1) as i32, row as i32, 1, 1);
+                grid.attach(&label, (col + 1) as i32, (row + 1) as i32, 1, 1);
                 col_cells.push(label);
             }
             cells.push(col_cells);
@@ -109,8 +129,8 @@ impl SpecialPopup {
 
         // 페이지 라벨
         let footer_label = gtk4::Label::new(None);
-        footer_label.add_css_class("special-footer");
-        footer_label.set_halign(gtk4::Align::End);
+        footer_label.add_css_class("popup-footer");
+        footer_label.set_halign(gtk4::Align::Center);
         vbox.append(&footer_label);
 
         window.set_child(Some(&vbox));
@@ -121,15 +141,18 @@ impl SpecialPopup {
         Self {
             window,
             grid,
-            top_row_box,
+            header_label,
             footer_label,
             display_server,
             characters: Vec::new(),
+            target: String::new(),
             top_row: String::new(),
             current_page: 0,
             total_pages: 0,
             sel_col: 0,
             sel_row: 0,
+            col_headers,
+            row_numbers,
             cells,
             active_rows: 0,
             active_cols: 0,
@@ -148,13 +171,6 @@ impl SpecialPopup {
         _w: i32,
         h: i32,
     ) {
-        // GNOME Wayland에서는 extension이 팝업 전담
-        if self.display_server == DisplayServer::GnomeWayland {
-            return;
-        }
-
-        let _ = target;
-
         // 활성 컨텍스트 경로 저장
         {
             use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
@@ -163,6 +179,7 @@ impl SpecialPopup {
             }
         }
 
+        self.target = target.to_string();
         self.characters = characters;
         self.top_row = top_row;
         self.total_pages = (self.characters.len() + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -170,36 +187,40 @@ impl SpecialPopup {
         self.sel_col = 0;
         self.sel_row = 0;
 
-        self.update_top_row();
+        unim_log!(
+            "INDICATOR",
+            "[Popup] 특수문자 show() 진입: display_server={:?}, cursor=({},{},{})",
+            self.display_server, x, y, h
+        );
+
+        // 헤더 텍스트
+        self.header_label
+            .set_text(&format!("「{}」 → 특수문자", self.target));
+
         self.update_grid();
 
         popup_positioning::position_popup(&self.window, x, y, h, self.display_server);
         self.window.set_visible(true);
         unim_log!(
             "INDICATOR",
-            "[Popup] 특수문자 팝업 표시: count={}, pages={}",
+            "[Popup] 특수문자 팝업 표시 완료: count={}, pages={}, realized={}",
             self.characters.len(),
-            self.total_pages
+            self.total_pages,
+            self.window.is_realized()
         );
     }
 
-    /// 상단 행 업데이트
-    fn update_top_row(&self) {
-        // 기존 자식 제거
-        while let Some(child) = self.top_row_box.first_child() {
-            self.top_row_box.remove(&child);
-        }
-
-        // 행 번호 열과 정렬을 위한 빈 공간
-        let spacer = gtk4::Label::new(None);
-        spacer.set_width_chars(1);
-        self.top_row_box.append(&spacer);
-
-        for ch in self.top_row.chars() {
-            let label = gtk4::Label::new(Some(&ch.to_string()));
-            label.add_css_class("special-top-cell");
-            label.set_width_chars(2);
-            self.top_row_box.append(&label);
+    /// 열 헤더 업데이트
+    fn update_col_headers(&self) {
+        let chars: Vec<char> = self.top_row.chars().collect();
+        for (i, header) in self.col_headers.iter().enumerate() {
+            if i < chars.len() && i < self.active_cols {
+                header.set_text(&chars[i].to_string());
+                header.set_visible(true);
+            } else {
+                header.set_text("");
+                header.set_visible(false);
+            }
         }
     }
 
@@ -220,6 +241,14 @@ impl SpecialPopup {
             page_count.min(MAX_ROWS)
         };
 
+        // 열 헤더 업데이트
+        self.update_col_headers();
+
+        // 행 번호 가시성 업데이트
+        for (row, num_label) in self.row_numbers.iter().enumerate() {
+            num_label.set_visible(row < self.active_rows);
+        }
+
         // 열 우선(column-major) 채움
         for col in 0..MAX_COLS {
             for row in 0..MAX_ROWS {
@@ -230,43 +259,65 @@ impl SpecialPopup {
                     let char_idx = start + idx;
                     label.set_text(&self.characters[char_idx]);
                     label.set_visible(true);
-                    label.remove_css_class("special-cell-selected");
-                } else if col < self.active_cols {
+                    label.remove_css_class("selected");
+                } else if col < self.active_cols && row < self.active_rows {
                     label.set_text("");
                     label.set_visible(true);
-                    label.remove_css_class("special-cell-selected");
+                    label.remove_css_class("selected");
                 } else {
                     label.set_visible(false);
-                    label.remove_css_class("special-cell-selected");
+                    label.remove_css_class("selected");
                 }
             }
         }
 
         // 페이지 표시
         if self.total_pages > 1 {
-            self.footer_label
-                .set_text(&format!("{}/{}", self.current_page + 1, self.total_pages));
+            self.footer_label.set_text(&format!(
+                "[{}]  {}/{}",
+                self.target,
+                self.current_page + 1,
+                self.total_pages
+            ));
             self.footer_label.set_visible(true);
         } else {
             self.footer_label.set_visible(false);
         }
 
-        // 초기 선택 하이라이트
+        // 선택 하이라이트
         self.update_selection();
     }
 
-    /// 선택 하이라이트 업데이트
+    /// 선택 하이라이트 업데이트 (GNOME extension과 동일 방식)
     fn update_selection(&self) {
         // 모든 셀에서 선택 제거
         for col_cells in &self.cells {
             for cell in col_cells {
-                cell.remove_css_class("special-cell-selected");
+                cell.remove_css_class("selected");
             }
         }
 
         // 현재 선택 셀 하이라이트
         if self.sel_col < MAX_COLS && self.sel_row < MAX_ROWS {
-            self.cells[self.sel_col][self.sel_row].add_css_class("special-cell-selected");
+            self.cells[self.sel_col][self.sel_row].add_css_class("selected");
+        }
+
+        // 활성 열 헤더 하이라이트
+        for (col, header) in self.col_headers.iter().enumerate() {
+            if col == self.sel_col {
+                header.add_css_class("active");
+            } else {
+                header.remove_css_class("active");
+            }
+        }
+
+        // 활성 행 번호 하이라이트
+        for (row, num) in self.row_numbers.iter().enumerate() {
+            if row == self.sel_row {
+                num.add_css_class("active");
+            } else {
+                num.remove_css_class("active");
+            }
         }
     }
 
@@ -353,54 +404,73 @@ fn select_special_via_dbus(col: usize, row: usize) {
     }
 }
 
-/// 특수문자 팝업용 CSS
+/// 특수문자 팝업용 CSS (GNOME extension stylesheet.css와 동일 디자인)
 pub fn popup_css() -> &'static str {
     r#"
     .unim-special-popup {
         background-color: rgba(30, 30, 46, 0.95);
         border: 1px solid rgba(255, 255, 255, 0.15);
         border-radius: 12px;
+        padding: 12px;
     }
 
-    .special-top-row {
-        margin-bottom: 4px;
-    }
-
-    .special-top-cell {
-        color: #89b4fa;
+    .unim-special-popup .popup-header {
+        background-color: #313244;
+        color: #a6e3a1;
         font-size: 13px;
-        font-weight: 600;
-        min-width: 30px;
-        min-height: 20px;
+        font-weight: bold;
+        padding: 6px 8px;
+        border-radius: 4px;
+        margin-bottom: 6px;
     }
 
-    .special-grid {
+    .unim-special-popup .special-grid {
         background: transparent;
     }
 
-    .special-cell {
+    .unim-special-popup .grid-cell {
         color: #cdd6f4;
-        font-size: 14px;
-        min-width: 30px;
-        min-height: 30px;
+        font-size: 16px;
+        min-width: 28px;
+        min-height: 28px;
         border-radius: 4px;
-        padding: 2px;
     }
 
-    .special-cell:hover {
-        background-color: rgba(137, 180, 250, 0.15);
+    .unim-special-popup .grid-cell:hover {
+        background-color: rgba(255, 255, 255, 0.05);
     }
 
-    .special-cell-selected {
-        background-color: rgba(137, 180, 250, 0.3);
-        color: white;
-        font-weight: 700;
+    .unim-special-popup .grid-cell.selected {
+        background-color: rgba(166, 227, 161, 0.25);
+        font-weight: bold;
     }
 
-    .special-footer {
-        color: #6c7086;
+    .unim-special-popup .grid-header {
+        color: #f9e2af;
+        font-weight: bold;
         font-size: 11px;
-        padding: 2px 4px 0 0;
+        min-width: 28px;
+        min-height: 28px;
+    }
+
+    .unim-special-popup .grid-header.active {
+        color: #a6e3a1;
+    }
+
+    .unim-special-popup .grid-row-number {
+        color: #7f849c;
+        font-weight: bold;
+        font-size: 12px;
+        min-width: 20px;
+    }
+
+    .unim-special-popup .grid-row-number.active {
+        color: #a6e3a1;
+    }
+
+    .unim-special-popup .popup-footer {
+        color: #6c7086;
+        font-size: 12px;
     }
     "#
 }

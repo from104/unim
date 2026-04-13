@@ -105,22 +105,29 @@ impl HanjaPopup {
         _w: i32,
         h: i32,
     ) {
-        // GNOME Wayland에서는 extension이 팝업 전담
-        if self.display_server == DisplayServer::GnomeWayland {
-            return;
-        }
+        unim_log!(
+            "INDICATOR",
+            "[Popup] 한자 show() 진입: display_server={:?}, cursor=({},{},{})",
+            self.display_server, x, y, h
+        );
 
         self.context_path = context_path;
         self.candidates = candidates;
         self.current_page = 0;
         self.selected = 0;
 
-        self.target_label.set_text(&format!("'{}'의 한자", target));
+        self.target_label
+            .set_text(&format!("「{}」 → 한자", target));
         self.update_page();
 
         popup_positioning::position_popup(&self.window, x, y, h, self.display_server);
         self.window.set_visible(true);
-        unim_log!("INDICATOR", "[Popup] 한자 팝업 표시: target='{}'", target);
+        unim_log!(
+            "INDICATOR",
+            "[Popup] 한자 팝업 표시 완료: target='{}', realized={}",
+            target,
+            self.window.is_realized()
+        );
     }
 
     /// 현재 페이지의 후보 목록 업데이트
@@ -247,7 +254,7 @@ fn select_hanja_via_dbus(page_local_index: u32) {
     }
 }
 
-/// 한자 팝업용 CSS
+/// 한자 팝업용 CSS (GNOME extension stylesheet.css와 동일 디자인)
 pub fn popup_css() -> &'static str {
     r#"
     .unim-hanja-popup {
@@ -255,6 +262,8 @@ pub fn popup_css() -> &'static str {
         border: 1px solid rgba(255, 255, 255, 0.15);
         border-radius: 12px;
         padding: 12px;
+        min-width: 280px;
+        max-width: 420px;
     }
 
     .unim-hanja-vbox {
@@ -263,11 +272,13 @@ pub fn popup_css() -> &'static str {
     }
 
     .hanja-target {
+        background-color: #313244;
         color: #89b4fa;
         font-size: 13px;
-        font-weight: 600;
+        font-weight: bold;
+        padding: 6px 8px;
+        border-radius: 4px;
         margin-bottom: 6px;
-        padding: 0 8px;
     }
 
     .unim-hanja-popup .hanja-list {
@@ -279,7 +290,7 @@ pub fn popup_css() -> &'static str {
         background: transparent;
         border-radius: 6px;
         min-height: 28px;
-        padding: 0 8px;
+        padding: 4px 8px;
     }
 
     .unim-hanja-popup .hanja-list row:selected {
@@ -287,20 +298,20 @@ pub fn popup_css() -> &'static str {
     }
 
     .hanja-num {
-        color: #6c7086;
-        font-size: 13px;
+        color: #7f849c;
+        font-size: 12px;
         min-width: 20px;
     }
 
     .hanja-char {
         color: #cdd6f4;
-        font-size: 16px;
-        font-weight: 700;
+        font-size: 18px;
+        font-weight: bold;
     }
 
     .hanja-meaning {
         color: #a6adc8;
-        font-size: 13px;
+        font-size: 12px;
     }
 
     .unim-hanja-popup .hanja-list row:selected .hanja-char,

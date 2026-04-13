@@ -175,6 +175,13 @@ public:
     using AutoTypeFixCallback = std::function<void(quint32 deleteChars, const QString &commitText, const QString &preeditText)>;
     void setAutoTypeFixCallback(AutoTypeFixCallback callback);
 
+    /**
+     * CommitText 콜백 설정 (Standalone 팝업 마우스 클릭 커밋용)
+     * @param callback 커밋할 텍스트를 받는 콜백
+     */
+    using CommitTextCallback = std::function<void(const QString &text)>;
+    void setCommitTextCallback(CommitTextCallback callback);
+
 private:
     QDBusConnection m_bus;
     QString m_contextPath;
@@ -182,8 +189,10 @@ private:
     bool m_isComposing;
     bool m_connected;
     AutoTypeFixCallback m_autoTypeFixCallback;
+    CommitTextCallback m_commitTextCallback;
 
     friend class UnimAutoTypeFixReceiver;
+    friend class UnimCommitTextReceiver;
 };
 
 /**
@@ -196,6 +205,20 @@ public:
         : QObject(parent), m_client(client) {}
 public slots:
     void onAutoTypefixApply(quint32 deleteChars, const QString &commitText, const QString &preeditText);
+private:
+    UnimDbusClient *m_client;
+};
+
+/**
+ * CommitText DBus 시그널 수신 헬퍼 (QObject 필요)
+ */
+class UnimCommitTextReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimCommitTextReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onCommitText(const QString &text);
 private:
     UnimDbusClient *m_client;
 };

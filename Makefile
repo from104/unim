@@ -378,21 +378,21 @@ dev-xim:
 
 dev-wayland:
 	@$(CARGO) build --release -p unim-wayland
-	@pkill -9 -f unim-wayland 2>/dev/null || true
+	@pkill -9 -x unim-wayland 2>/dev/null || true
 	@sleep 0.5
 	@sudo cp target/release/unim-wayland $(DEV_LIBEXECDIR)
 	@echo "✅ Wayland IM 배포 완료!"
 
 dev-gui-gtk:
 	@$(CARGO) build --release -p unim-gui-gtk
-	@pkill -9 -f unim-gui-gtk 2>/dev/null || true
+	@pkill -9 -x unim-gui-gtk 2>/dev/null || true
 	@sleep 0.5
 	@sudo cp target/release/unim-gui-gtk $(DEV_BINDIR)/
 	@echo "✅ unim-gui-gtk 배포 완료!"
 
 dev-gui-qt:
 	@$(CARGO) build --release -p unim-gui-qt
-	@pkill -9 -f unim-gui-qt 2>/dev/null || true
+	@pkill -9 -x unim-gui-qt 2>/dev/null || true
 	@sleep 0.5
 	@sudo cp target/release/unim-gui-qt $(DEV_BINDIR)/
 	@echo "✅ unim-gui-qt 배포 완료!"
@@ -411,9 +411,9 @@ dev-extension:
 	@echo "✅ Extension 배포 완료! GNOME Shell 재시작 필요 (로그아웃→로그인)."
 
 dev-restart:
-	@pkill -9 -f unim-daemon 2>/dev/null; pkill -9 -f unim-xim 2>/dev/null; \
-	 pkill -9 -f unim-wayland 2>/dev/null; pkill -9 -f unim-gui-gtk 2>/dev/null; \
-	 pkill -9 -f unim-gui-qt 2>/dev/null; sleep 1
+	@pkill -9 -x unim-daemon 2>/dev/null; pkill -9 -x unim-xim 2>/dev/null; \
+	 pkill -9 -x unim-wayland 2>/dev/null; pkill -9 -x unim-gui-gtk 2>/dev/null; \
+	 pkill -9 -x unim-gui-qt 2>/dev/null; sleep 1
 	@UNIM_DEVELOP=1 $(DEV_LIBEXECDIR)unim-daemon -n --replace &
 	@sleep 1
 	@echo "✅ 모든 UNIM 프로세스 재시작 완료!"

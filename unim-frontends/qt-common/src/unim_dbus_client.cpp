@@ -520,3 +520,27 @@ void UnimAutoTypeFixReceiver::onAutoTypefixApply(quint32 deleteChars, const QStr
         m_client->m_autoTypeFixCallback(deleteChars, commitText, preeditText);
     }
 }
+
+void UnimDbusClient::setCommitTextCallback(CommitTextCallback callback) {
+    m_commitTextCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimCommitTextReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("CommitText"),
+        receiver,
+        SLOT(onCommitText(QString))
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("CommitText signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimCommitTextReceiver::onCommitText(const QString &text) {
+    if (m_client && m_client->m_commitTextCallback && !text.isEmpty()) {
+        UNIM_DBUS_DEBUG(QString::asprintf("CommitText received: '%s'", qPrintable(text)));
+        m_client->m_commitTextCallback(text);
+    }
+}

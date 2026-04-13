@@ -82,6 +82,10 @@ struct _UnimDbusContext {
     UnimAutoTypeFixCallback auto_typefix_callback;
     gpointer auto_typefix_user_data;
     guint auto_typefix_signal_id;
+    /* CommitText 콜백 (Standalone 팝업 마우스 클릭 커밋용) */
+    UnimCommitTextCallback commit_text_callback;
+    gpointer commit_text_user_data;
+    guint commit_text_signal_id;
 };
 
 UnimDbusContext*
@@ -174,6 +178,10 @@ unim_dbus_context_free(UnimDbusContext *ctx)
     /* AutoTypeFix 시그널 구독 해제 */
     if (ctx->auto_typefix_signal_id > 0 && ctx->connection) {
         g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->auto_typefix_signal_id);
+    }
+    /* CommitText 시그널 구독 해제 */
+    if (ctx->commit_text_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->commit_text_signal_id);
     }
 
     if (ctx->connection) {
@@ -971,4 +979,57 @@ unim_dbus_set_auto_typefix_callback(UnimDbusContext *ctx,
 
     UNIM_DBUS_DEBUG("AutoTypeFix 시그널 구독: path=%s, id=%u",
                      ctx->context_path, ctx->auto_typefix_signal_id);
+}
+
+/* CommitText 시그널 핸들러 (Standalone 팝업 마우스 클릭 커밋) */
+static void
+on_commit_text_signal(GDBusConnection *connection,
+                      const gchar *sender_name,
+                      const gchar *object_path,
+                      const gchar *interface_name,
+                      const gchar *signal_name,
+                      GVariant *parameters,
+                      gpointer user_data)
+{
+    (void)connection; (void)sender_name; (void)object_path;
+    (void)interface_name; (void)signal_name;
+
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->commit_text_callback) return;
+
+    const gchar *text = NULL;
+    g_variant_get(parameters, "(&s)", &text);
+
+    if (text && text[0] != '\0') {
+        UNIM_DBUS_DEBUG("CommitText 시그널 수신: text='%s'", text);
+        ctx->commit_text_callback(text, ctx->commit_text_user_data);
+    }
+}
+
+void
+unim_dbus_set_commit_text_callback(UnimDbusContext *ctx,
+                                    UnimCommitTextCallback callback,
+                                    gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->commit_text_callback = callback;
+    ctx->commit_text_user_data = user_data;
+
+    /* 자기 context의 CommitText 시그널 구독 */
+    ctx->commit_text_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "CommitText",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_commit_text_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("CommitText 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->commit_text_signal_id);
 }

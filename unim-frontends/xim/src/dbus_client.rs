@@ -47,6 +47,8 @@ pub enum PopupEvent {
         commit_text: String,
         preedit_text: String,
     },
+    /// Standalone 팝업 마우스 클릭 시 커밋 텍스트
+    CommitText { text: String },
 }
 
 /// DBus 요청 타입
@@ -635,6 +637,13 @@ async fn subscribe_popup_signals(
             return;
         }
     };
+    let mut commit_stream = match proxy.receive_commit_text().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] CommitText 구독 실패: {}", e);
+            return;
+        }
+    };
 
     unim_log!(
         "XIM_DBUS",
@@ -688,6 +697,14 @@ async fn subscribe_popup_signals(
                         commit_text: args.commit_text.to_string(),
                         preedit_text: args.preedit_text.to_string(),
                     });
+                }
+            }
+            Some(signal) = commit_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let text = args.text.to_string();
+                    if !text.is_empty() {
+                        let _ = popup_tx.send(PopupEvent::CommitText { text });
+                    }
                 }
             }
             else => break,
