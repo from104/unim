@@ -229,16 +229,37 @@ impl ContentPurpose {
     }
 }
 
-/// 자동 전환 설정
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AutoSwitchConfig {
-    /// 자동 전환 활성화 여부
-    pub enabled: bool,
-    /// 감지 임계값 (0.0 ~ 1.0)
-    pub threshold: f32,
-    /// 전환 시 알림 표시 여부
-    pub show_notification: bool,
+/// AutoTypeFix 값 범위 상수
+pub const AUTO_TYPEFIX_KOR_THRESHOLD_MIN: u8 = 2;
+pub const AUTO_TYPEFIX_KOR_THRESHOLD_MAX: u8 = 6;
+pub const AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN: u8 = 3;
+pub const AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX: u8 = 8;
+pub const AUTO_TYPEFIX_TIME_WINDOW_MIN: u32 = 500;
+pub const AUTO_TYPEFIX_TIME_WINDOW_MAX: u32 = 5000;
+
+fn default_auto_typefix_enabled() -> bool {
+    true
+}
+fn default_auto_typefix_time_window_ms() -> u32 {
+    5000
+}
+fn default_auto_typefix_kor_syllable_threshold() -> u8 {
+    2
+}
+fn default_auto_typefix_eng_word_min_length() -> u8 {
+    5
+}
+fn default_auto_typefix_forward() -> bool {
+    true
+}
+fn default_auto_typefix_reverse() -> bool {
+    true
+}
+fn default_auto_typefix_skip_on_english_word() -> bool {
+    true
+}
+fn default_auto_typefix_skip_on_complete_syllable() -> bool {
+    true
 }
 
 /// 자동 오타 교정 (AutoTypeFix) 설정
@@ -246,29 +267,62 @@ pub struct AutoSwitchConfig {
 #[serde(default)]
 pub struct AutoTypeFixConfig {
     /// 활성화 여부
+    #[serde(default = "default_auto_typefix_enabled")]
     pub enabled: bool,
-    /// 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사
+    /// 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사 (500~5000)
+    #[serde(default = "default_auto_typefix_time_window_ms")]
     pub time_window_ms: u32,
-    /// 순방향 (영→한) 트리거: 한글 완성 음절 수 (2~5)
+    /// 순방향 (영→한) 트리거: 한글 완성 음절 수 (2~6)
+    #[serde(default = "default_auto_typefix_kor_syllable_threshold")]
     pub kor_syllable_threshold: u8,
-    /// 역방향 (한→영) 트리거: 영문 단어 최소 길이 (5~10)
+    /// 역방향 (한→영) 트리거: 영문 단어 최소 길이 (3~8)
+    #[serde(default = "default_auto_typefix_eng_word_min_length")]
     pub eng_word_min_length: u8,
     /// 순방향 (영→한 교정) 활성화
+    #[serde(default = "default_auto_typefix_forward")]
     pub forward: bool,
     /// 역방향 (한→영 교정) 활성화
+    #[serde(default = "default_auto_typefix_reverse")]
     pub reverse: bool,
+    /// 순방향 트리거 시 영단어 매칭(사전 hit)이면 억제 (기본 true, 기존 동작 유지)
+    #[serde(default = "default_auto_typefix_skip_on_english_word")]
+    pub skip_on_english_word: bool,
+    /// 역방향 트리거 시 버퍼의 한글이 모두 완성 음절이면 억제 (기본 true, 기존 동작 유지)
+    #[serde(default = "default_auto_typefix_skip_on_complete_syllable")]
+    pub skip_on_complete_syllable: bool,
 }
 
 impl Default for AutoTypeFixConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            time_window_ms: 5000,
-            kor_syllable_threshold: 2,
-            eng_word_min_length: 5,
-            forward: true,
-            reverse: true,
+            enabled: default_auto_typefix_enabled(),
+            time_window_ms: default_auto_typefix_time_window_ms(),
+            kor_syllable_threshold: default_auto_typefix_kor_syllable_threshold(),
+            eng_word_min_length: default_auto_typefix_eng_word_min_length(),
+            forward: default_auto_typefix_forward(),
+            reverse: default_auto_typefix_reverse(),
+            skip_on_english_word: default_auto_typefix_skip_on_english_word(),
+            skip_on_complete_syllable: default_auto_typefix_skip_on_complete_syllable(),
         }
+    }
+}
+
+impl AutoTypeFixConfig {
+    /// 값 범위를 허용 범위로 강제 보정합니다.
+    ///
+    /// CLI/GUI 양쪽에서 중복 범위 검증을 피하기 위해 config 레벨에서 한 번에 clamp.
+    pub fn clamp_ranges(&mut self) {
+        self.kor_syllable_threshold = self.kor_syllable_threshold.clamp(
+            AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
+            AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
+        );
+        self.eng_word_min_length = self.eng_word_min_length.clamp(
+            AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
+            AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
+        );
+        self.time_window_ms = self
+            .time_window_ms
+            .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
     }
 }
 
@@ -346,8 +400,6 @@ pub struct EngineConfig {
     pub korean: KoreanConfig,
     /// 영어 설정
     pub english: EnglishConfig,
-    /// 자동 전환 설정
-    pub auto_switch: AutoSwitchConfig,
     /// 한/영 전환 키 목록 (KeyCode 이름)
     pub toggle_keys: Vec<String>,
     /// 한자/특수문자 키 목록 (KeyCode 이름)
@@ -369,7 +421,6 @@ impl Default for EngineConfig {
             mode_sharing: ModeSharingMode::default(),
             korean: KoreanConfig::default(),
             english: EnglishConfig::default(),
-            auto_switch: AutoSwitchConfig::default(),
             toggle_keys: vec!["Korean".to_string(), "RightAlt".to_string()],
             hanja_keys: vec!["Hanja".to_string(), "F9".to_string()],
             app_rules: Vec::new(),
@@ -816,7 +867,6 @@ mod tests {
         assert_eq!(config.toggle_keys, vec!["Korean", "RightAlt"]);
         assert_eq!(config.hanja_keys, vec!["Hanja", "F9"]);
         assert_eq!(config.mode_sharing, ModeSharingMode::Global);
-        assert!(!config.auto_switch.enabled);
     }
 
     // === Custom config 직렬화 테스트 ===
@@ -827,8 +877,6 @@ mod tests {
         config.engine.korean.layout = KoreanLayout::Sebeolsik390;
         config.engine.english.layout = EnglishLayout::Dvorak;
         config.engine.mode_sharing = ModeSharingMode::PerApp;
-        config.engine.auto_switch.enabled = true;
-        config.engine.auto_switch.threshold = 0.7;
 
         let yaml = serde_yaml::to_string(&config).unwrap();
         let loaded: Config = serde_yaml::from_str(&yaml).unwrap();
@@ -836,8 +884,83 @@ mod tests {
         assert_eq!(loaded.engine.korean.layout, KoreanLayout::Sebeolsik390);
         assert_eq!(loaded.engine.english.layout, EnglishLayout::Dvorak);
         assert_eq!(loaded.engine.mode_sharing, ModeSharingMode::PerApp);
-        assert!(loaded.engine.auto_switch.enabled);
-        assert!((loaded.engine.auto_switch.threshold - 0.7).abs() < f32::EPSILON);
+    }
+
+    // === AutoTypeFix 기본값/범위 테스트 ===
+
+    #[test]
+    fn test_auto_typefix_defaults() {
+        let c = AutoTypeFixConfig::default();
+        assert!(c.enabled);
+        assert_eq!(c.time_window_ms, 5000);
+        assert_eq!(c.kor_syllable_threshold, 2);
+        assert_eq!(c.eng_word_min_length, 5);
+        assert!(c.forward);
+        assert!(c.reverse);
+        assert!(c.skip_on_english_word);
+        assert!(c.skip_on_complete_syllable);
+    }
+
+    #[test]
+    fn test_auto_typefix_clamp() {
+        let mut c = AutoTypeFixConfig {
+            kor_syllable_threshold: 10,
+            eng_word_min_length: 1,
+            time_window_ms: 100,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.kor_syllable_threshold, AUTO_TYPEFIX_KOR_THRESHOLD_MAX);
+        assert_eq!(c.eng_word_min_length, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN);
+        assert_eq!(c.time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MIN);
+
+        let mut c2 = AutoTypeFixConfig {
+            kor_syllable_threshold: 0,
+            eng_word_min_length: 99,
+            time_window_ms: 99999,
+            ..Default::default()
+        };
+        c2.clamp_ranges();
+        assert_eq!(c2.kor_syllable_threshold, AUTO_TYPEFIX_KOR_THRESHOLD_MIN);
+        assert_eq!(c2.eng_word_min_length, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX);
+        assert_eq!(c2.time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+    }
+
+    /// 구(旧) config.yaml (신규 필드 없음) 파싱 역호환성 검증.
+    #[test]
+    fn test_legacy_yaml_backcompat_autotypefix() {
+        let legacy = r#"
+engine:
+  auto_typefix:
+    enabled: true
+    time_window_ms: 3000
+    kor_syllable_threshold: 2
+    eng_word_min_length: 5
+    forward: true
+    reverse: true
+"#;
+        let cfg: Config = serde_yaml::from_str(legacy).expect("legacy yaml must parse");
+        // 누락 필드는 serde default로 채워져야 함.
+        assert!(cfg.engine.auto_typefix.skip_on_english_word);
+        assert!(cfg.engine.auto_typefix.skip_on_complete_syllable);
+        assert_eq!(cfg.engine.auto_typefix.time_window_ms, 3000);
+    }
+
+    #[test]
+    fn test_empty_yaml_full_defaults() {
+        // 완전히 빈 YAML에서도 모든 기본값이 채워져야 함.
+        let cfg: Config = serde_yaml::from_str("{}").unwrap();
+        assert!(cfg.engine.auto_typefix.skip_on_english_word);
+        assert!(cfg.engine.auto_typefix.skip_on_complete_syllable);
+    }
+
+    /// 제거된 필드(auto_switch, manual_shortcuts)가 포함된 구 yaml도
+    /// 파싱 실패 없이 무시되어야 한다 (serde_yaml 기본 동작: unknown field ignore).
+    #[test]
+    fn test_legacy_yaml_removed_fields_ignored() {
+        let yaml = "engine:\n  auto_switch:\n    enabled: true\n    threshold: 0.7\n  manual_shortcuts:\n    forward: ['<Super>k']\n    reverse: ['<Shift><Super>k']\n";
+        let _: crate::config::Config =
+            serde_yaml::from_str(yaml).expect("legacy yaml must still parse");
     }
 
     // === ConfigError Display 테스트 ===

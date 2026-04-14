@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="org.gnome.shell.extensions.unim" path="/org/gnome/shell/extensions/unim/" gettext-domain="gnome-shell-extensions">
-    
+
     <!-- ============================================ -->
-    <!-- Extension Settings -->
+    <!-- GNOME Shell-dependent Settings (5 keys)      -->
+    <!--                                              -->
+    <!-- 이 스키마는 GNOME Shell API에 직접 의존하는    -->
+    <!-- 항목만 유지합니다. 자판·입력 모드·오타 교정    -->
+    <!-- 등 일반 설정은 config.yaml(SSoT)에서 관리하고 -->
+    <!-- DBus GetConfigJson / ConfigChangedJson 으로   -->
+    <!-- 갱신합니다.                                   -->
     <!-- ============================================ -->
-    
+
     <key type="b" name="enable-extension">
       <default>true</default>
       <summary>Enable Extension</summary>
@@ -15,109 +21,33 @@
     <key type="b" name="show-notification">
       <default>true</default>
       <summary>Show Notification</summary>
-      <description>Whether to show a notification when text is converted</description>
+      <description>Whether to show a notification when text is converted (Main.notify)</description>
     </key>
 
     <key type="b" name="show-panel-indicator">
       <default>true</default>
       <summary>Show Panel Indicator</summary>
-      <description>Whether to show the Korean/English status indicator in the panel</description>
+      <description>Whether to show the Korean/English status indicator in the panel (Panel.statusArea)</description>
+    </key>
+
+    <key type="s" name="panel-click-action">
+      <default>'toggle-mode'</default>
+      <choices>
+        <choice value='toggle-mode'/>
+        <choice value='menu'/>
+      </choices>
+      <summary>Panel Indicator Left-click Action</summary>
+      <description>'toggle-mode': Left-click toggles Korean/English, right-click opens menu. 'menu': Both buttons open menu (GNOME default).</description>
     </key>
 
     <key type="b" name="enable-ime">
       <default>false</default>
       <summary>Enable IME Mode</summary>
-      <description>Enable real-time Korean input method (replaces IBus). When enabled, the extension intercepts key events and provides native Korean input via Clutter.InputMethod.</description>
+      <description>Enable real-time Korean input method (Clutter.InputMethod, Wayland only)</description>
     </key>
 
     <!-- ============================================ -->
-    <!-- Input Method Settings (synced to config.yaml) -->
-    <!-- ============================================ -->
-    
-    <key type="s" name="korean-layout">
-      <default>'2bul'</default>
-      <summary>Korean Keyboard Layout</summary>
-      <description>The Korean keyboard layout: '2bul' (Dubeolsik), '3bul390' (Sebeolsik 390), '3bul391' (Sebeolsik Final), '3bul_noshift' (Sebeolsik No-Shift)</description>
-    </key>
-
-    <key type="s" name="english-layout">
-      <default>'qwerty'</default>
-      <summary>English Keyboard Layout</summary>
-      <description>The English keyboard layout: 'qwerty', 'dvorak', 'colemak', 'colemak_dh', 'workman'</description>
-    </key>
-
-    <key type="s" name="initial-mode">
-      <default>'English'</default>
-      <summary>Initial Input Mode</summary>
-      <description>The initial input mode when the session starts: 'Korean' or 'English'</description>
-    </key>
-
-    <key type="s" name="mode-sharing">
-      <default>'global'</default>
-      <summary>Mode Sharing Mode</summary>
-      <description>How input mode is shared across apps: 'global' (all apps share), 'per_app' (each app independent)</description>
-    </key>
-
-    <key type="as" name="toggle-keys">
-      <default>['Korean','RightAlt']</default>
-      <summary>Toggle Keys</summary>
-      <description>Keys for Korean/English mode toggle</description>
-    </key>
-
-    <key type="as" name="hanja-keys">
-      <default>['Hanja','F9']</default>
-      <summary>Hanja/Special Character Keys</summary>
-      <description>Keys for Hanja/special character conversion</description>
-    </key>
-
-    <key type="s" name="popup-mode">
-      <default>'Standalone'</default>
-      <summary>Popup Mode</summary>
-      <description>Popup display mode: 'Standalone' (GUI integrated) or 'Embedded' (frontend embedded)</description>
-    </key>
-
-    <!-- ============================================ -->
-    <!-- AutoTypeFix Settings (synced to config.yaml) -->
-    <!-- ============================================ -->
-
-    <key type="b" name="auto-typefix-enabled">
-      <default>true</default>
-      <summary>Auto TypeFix Enabled</summary>
-      <description>자동 한/영 오타 교정 활성화</description>
-    </key>
-
-    <key type="u" name="auto-typefix-time-window">
-      <default>2000</default>
-      <summary>Auto TypeFix Time Window (ms)</summary>
-      <description>키스트로크 검사 시간 윈도우 (밀리초)</description>
-    </key>
-
-    <key type="u" name="auto-typefix-kor-threshold">
-      <default>2</default>
-      <summary>Korean Syllable Threshold</summary>
-      <description>영→한 교정 트리거: 한글 완성 음절 수 (2~5)</description>
-    </key>
-
-    <key type="u" name="auto-typefix-eng-min-length">
-      <default>5</default>
-      <summary>English Word Min Length</summary>
-      <description>한→영 교정 트리거: 영문 단어 최소 길이 (5~10)</description>
-    </key>
-
-    <key type="b" name="auto-typefix-forward">
-      <default>true</default>
-      <summary>Forward (Eng→Kor)</summary>
-      <description>순방향 (영→한) 자동 교정 활성화</description>
-    </key>
-
-    <key type="b" name="auto-typefix-reverse">
-      <default>true</default>
-      <summary>Reverse (Kor→Eng)</summary>
-      <description>역방향 (한→영) 자동 교정 활성화</description>
-    </key>
-
-    <!-- ============================================ -->
-    <!-- TypeFix Shortcut Settings -->
+    <!-- TypeFix Shortcut Settings (Main.wm.addKeybinding) -->
     <!-- ============================================ -->
 
     <key type="as" name="shortcut-normal">

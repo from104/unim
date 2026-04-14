@@ -1,4 +1,3 @@
-pub mod auto_switch;
 pub mod auto_typefix;
 pub mod config;
 pub mod hangul;

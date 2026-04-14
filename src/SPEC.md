@@ -248,9 +248,6 @@ engine:
   hanja_keys:                       # Vec<String>
     - Hanja
     - F9
-  auto_switch:
-    enabled: false                  # bool
-    threshold: 0.5                  # f64
 ```
 
 ```rust
@@ -265,7 +262,6 @@ pub struct EngineConfig {
     pub english: EnglishConfig,     // { layout: EnglishLayout }
     pub toggle_keys: Vec<String>,   // 한/영 전환키 목록 (기본: ["Korean", "RightAlt"])
     pub hanja_keys: Vec<String>,    // 한자/특수문자키 목록 (기본: ["Hanja", "F9"])
-    pub auto_switch: AutoSwitchConfig,
 }
 ```
 

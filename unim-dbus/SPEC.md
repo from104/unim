@@ -147,15 +147,19 @@ pub struct EngineResponse {
 | `CreateInputContext` | `client_name: s, window_id: s` | `s` (경로) | 입력 컨텍스트 생성 + DBus 등록 |
 | `SetGlobalMode` | `is_korean: b` | — | 전역 입력 모드 변경 |
 | `GetGlobalMode` | — | `b` | 현재 전역 모드 조회 |
-| `GetConfig` | `key: s` | `s` | 설정값 조회 |
-| `SetConfig` | `key: s, value: s` | — | 설정값 변경 + 파일 저장 + 시그널 |
+| `GetConfig` | `key: s` | `s` | (legacy) 키 단위 설정 조회 — 프론트엔드 호환용 |
+| `SetConfig` | `key: s, value: s` | — | (legacy) 키 단위 설정 변경 + 저장 + 시그널 |
+| `GetConfigYaml` | — | `s` | 전체 Config를 YAML 문자열로 반환 (파일 포맷과 동일) |
+| `GetConfigJson` | — | `s` | 전체 Config를 JSON 문자열로 반환 (JS 친화) |
+| `SetConfigYaml` | `yaml: s` | — | YAML 파싱 → `clamp_ranges()` → 저장 → `ConfigChangedJson` 방출 |
 
 ### 5.2 시그널
 
 | 시그널 | 파라미터 | 발생 조건 |
 |--------|----------|-----------|
 | `GlobalModeChanged` | `is_korean: b` | 모드 변경, FocusIn, ProcessKey 모드 변경 |
-| `ConfigChanged` | `key: s, value: s` | SetConfig 호출 시 |
+| `ConfigChanged` | `key: s, value: s` | (legacy) SetConfig 호출 시 |
+| `ConfigChangedJson` | `json: s` | SetConfigYaml 호출 시 전체 Config JSON payload |
 
 ### 5.3 CreateInputContext 상세
 
@@ -179,8 +183,6 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
 | `mode_sharing` | enum | `Global`, `PerApp`, `PerWindow` |
 | `toggle_keys` | string list | 쉼표 구분 KeyCode 이름 (예: `Korean,RightAlt`) |
 | `hanja_keys` | string list | 쉼표 구분 KeyCode 이름 (예: `Hanja,F9`) |
-| `auto_switch_enabled` | bool | `true`, `false` |
-| `auto_switch_threshold` | float | 숫자 문자열 |
 
 ---
 

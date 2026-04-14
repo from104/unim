@@ -309,40 +309,6 @@ void unim_config_set_default_category(UnimConfig *config, UnimInputCategory cate
 bool unim_config_save(const UnimConfig *config);
 
 /* ============================================
- * Auto Switch Configuration
- * ============================================ */
-
-/**
- * Gets the auto switch enabled state.
- */
-bool unim_config_get_auto_switch_enabled(const UnimConfig *config);
-
-/**
- * Sets the auto switch enabled state.
- */
-void unim_config_set_auto_switch_enabled(UnimConfig *config, bool enabled);
-
-/**
- * Gets the auto switch threshold (0.0 to 1.0).
- */
-float unim_config_get_auto_switch_threshold(const UnimConfig *config);
-
-/**
- * Sets the auto switch threshold (0.0 to 1.0).
- */
-void unim_config_set_auto_switch_threshold(UnimConfig *config, float threshold);
-
-/**
- * Gets the auto switch notification enabled state.
- */
-bool unim_config_get_auto_switch_notification(const UnimConfig *config);
-
-/**
- * Sets the auto switch notification enabled state.
- */
-void unim_config_set_auto_switch_notification(UnimConfig *config, bool show);
-
-/* ============================================
  * Mode Sharing Configuration
  * ============================================ */
 

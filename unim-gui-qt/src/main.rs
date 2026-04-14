@@ -25,11 +25,30 @@ fn main() {
     // 상태 초기화
     let state = Arc::new(RwLock::new(IndicatorState::default()));
 
-    // 설정 요청 채널 (트레이 메뉴 "설정" → 이벤트 루프)
-    let (settings_tx, _settings_rx) = std::sync::mpsc::channel::<GuiAction>();
+    // 설정 요청 채널 (트레이 메뉴 "설정" → unim-gui-gtk --settings 서브프로세스로 리다이렉트)
+    // Qt GUI는 독자 설정 UI를 유지하지 않고 GTK 설정 앱을 기동한다.
+    let (settings_tx, settings_rx) = std::sync::mpsc::channel::<GuiAction>();
     if let Ok(mut tx) = SETTINGS_TX.lock() {
         *tx = Some(settings_tx);
     }
+
+    thread::spawn(move || {
+        while let Ok(action) = settings_rx.recv() {
+            if matches!(action, GuiAction::OpenSettings) {
+                match std::process::Command::new("unim-gui-gtk")
+                    .arg("--settings")
+                    .spawn()
+                {
+                    Ok(_child) => {
+                        unim_log!("INDICATOR", "unim-gui-gtk --settings 기동");
+                    }
+                    Err(e) => {
+                        unim_log!("INDICATOR", "unim-gui-gtk 실행 실패: {}", e);
+                    }
+                }
+            }
+        }
+    });
 
     // ksni 트레이 시작 (별도 스레드)
     let tray_state = state.clone();

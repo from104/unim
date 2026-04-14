@@ -1,497 +1,802 @@
-//! UNIM 설정 다이얼로그
+//! UNIM 설정 다이얼로그 (Phase F — 전면 재설계)
 //!
-//! Rust/GTK4/libadwaita 기반 설정 UI.
-//! `unim::config::Config`를 직접 사용하여 설정을 읽고 저장합니다.
+//! libadwaita 0.7 기반, Adw.PreferencesWindow + PreferencesPage/Group/Row로 구성.
+//! 3페이지: 일반 / 오타 교정 / GNOME Shell (GNOME 세션에서만).
+//! 시스템 테마 자동 추종 (ColorScheme::Default), 최소주의.
+//! 변경 시: 파일 저장(`Config::save_to_default_path`) + DBus `SetConfigYaml`
+//! fire-and-forget 호출 + `Adw.Toast` 피드백.
 
+use gtk4::gio;
 use gtk4::glib;
 use gtk4::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use unim::config::{Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode};
+
+use unim::config::{
+    Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode, PopupMode,
+    AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
+    AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
+    AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
+};
 use unim::unim_log;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// 설정 다이얼로그 상태
+// ─────────────────────────────────────────────────────────────
+// 공용 상수
+// ─────────────────────────────────────────────────────────────
+
+const GSCHEMA_ID: &str = "org.gnome.shell.extensions.unim";
+const TOAST_TIMEOUT_SECS: u32 = 2;
+const WINDOW_MIN_WIDTH: i32 = 520;
+const WINDOW_MIN_HEIGHT: i32 = 640;
+
+// ─────────────────────────────────────────────────────────────
+// 상태
+// ─────────────────────────────────────────────────────────────
+
+/// 다이얼로그 수명 동안 유지되는 뮤터블 상태.
+///
+/// `updating` 플래그는 초기값을 위젯에 주입할 때 콜백이 재발사되는
+/// 것을 막는다. 모든 `connect_*_notify` 콜백은 반드시 이 플래그를
+/// 먼저 확인해야 한다.
 struct SettingsState {
     config: Config,
     updating: bool,
 }
 
-/// 설정 다이얼로그를 생성하고 표시합니다.
-pub fn show_settings_dialog(app: &adw::Application) {
-    let window = adw::Window::builder()
-        .application(app)
-        .title("UNIM 설정")
-        .default_width(480)
-        .default_height(-1)
-        .resizable(false)
-        .modal(true)
-        .build();
+type State = Rc<RefCell<SettingsState>>;
 
-    // 설정 로드
+// ─────────────────────────────────────────────────────────────
+// 진입점
+// ─────────────────────────────────────────────────────────────
+
+/// 설정 다이얼로그를 생성하고 표시한다.
+///
+/// 공용 시그니처(`app: &adw::Application`)는 유지 — `gtk_ui.rs`/`main.rs` 호출부 변경 없음.
+pub fn show_settings_dialog(app: &adw::Application) {
+    // 시스템 테마 자동 추종 — 다이얼로그 단위에만 영향
+    adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
+
     let config = Config::load_from_default_path();
-    let state = Rc::new(RefCell::new(SettingsState {
+    let state: State = Rc::new(RefCell::new(SettingsState {
         config,
-        updating: false,
+        updating: true, // 초기 바인딩 동안은 콜백 억제
     }));
 
-    // 메인 컨테이너
-    let outer_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    let header_bar = adw::HeaderBar::new();
-    outer_box.append(&header_bar);
+    let window = adw::PreferencesWindow::builder()
+        .application(app)
+        .title("UNIM 설정")
+        .default_width(WINDOW_MIN_WIDTH)
+        .default_height(WINDOW_MIN_HEIGHT)
+        .search_enabled(false)
+        .build();
 
-    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    content.set_margin_start(24);
-    content.set_margin_end(24);
-    content.set_margin_top(8);
-    content.set_margin_bottom(24);
+    // ── Page 1: 일반 ──────────────────────────────────────────
+    let page_general = adw::PreferencesPage::builder()
+        .title("일반")
+        .icon_name("preferences-system-symbolic")
+        .build();
+    page_general.add(&build_keymap_group(&state));
+    page_general.add(&build_input_mode_group(&state));
+    window.add(&page_general);
 
-    // ===== Keyboard Layout Section =====
-    let layout_group = adw::PreferencesGroup::builder().title("자판 배열").build();
+    // ── Page 2: 오타 교정 ─────────────────────────────────────
+    let page_typefix = adw::PreferencesPage::builder()
+        .title("오타 교정")
+        .icon_name("edit-find-replace-symbolic")
+        .build();
 
-    // Korean Layout
-    let korean_row = adw::ComboRow::builder().title("한국어 자판").build();
-    let korean_items: Vec<&str> = KoreanLayout::all()
+    // forward/reverse 트리거 윈도우 SpinRow는 동일한 `time_window_ms`를 공유한다.
+    // 양방향 sync를 위해 Rc<RefCell<...>>로 핸들 공유.
+    let time_sync: Rc<RefCell<(Option<adw::SpinRow>, Option<adw::SpinRow>)>> =
+        Rc::new(RefCell::new((None, None)));
+
+    let forward_group = build_forward_group(&state, &time_sync);
+    let reverse_group = build_reverse_group(&state, &time_sync);
+    let master_group = build_master_group(&state);
+
+    page_typefix.add(&forward_group);
+    page_typefix.add(&reverse_group);
+    page_typefix.add(&master_group);
+    window.add(&page_typefix);
+
+    // ── Page 3: GNOME Shell (GNOME 세션 전용) ────────────────
+    if is_gnome_session() {
+        if let Some(page_gnome) = build_gnome_page(&window) {
+            window.add(&page_gnome);
+        }
+    }
+
+    // 전역 토스트 싱크 등록 — save_and_notify에서 사용
+    attach_toast_sink(&window);
+
+    // 초기 바인딩 완료 — 이제 콜백이 실제 저장/DBus 호출을 수행
+    state.borrow_mut().updating = false;
+
+    unim_log!("INDICATOR", "[Settings] PreferencesWindow presented");
+    window.present();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Toast / Save 공용
+// ─────────────────────────────────────────────────────────────
+
+thread_local! {
+    /// 현재 활성 다이얼로그 창 — toast 표시용
+    static ACTIVE_WINDOW: RefCell<Option<adw::PreferencesWindow>> = const { RefCell::new(None) };
+}
+
+fn attach_toast_sink(window: &adw::PreferencesWindow) {
+    ACTIVE_WINDOW.with(|w| {
+        *w.borrow_mut() = Some(window.clone());
+    });
+    window.connect_close_request(move |_| {
+        ACTIVE_WINDOW.with(|w| {
+            *w.borrow_mut() = None;
+        });
+        glib::Propagation::Proceed
+    });
+}
+
+/// 저장 + DBus 전파 + 토스트 알림.
+///
+/// - 파일: `Config::save_to_default_path()`
+/// - DBus: `SetConfigYaml` (fire-and-forget, 실패해도 UI는 막히지 않음)
+/// - 토스트: "저장됨 ✓" (2초 자동 소멸)
+fn save_and_notify(config: &Config, label: &str) {
+    // 1. 파일 저장
+    if let Err(e) = config.save_to_default_path() {
+        unim_log!(
+            "INDICATOR",
+            "[Settings] config 저장 실패 ({}): {}",
+            label,
+            e
+        );
+        show_toast(&format!("저장 실패: {}", e));
+        return;
+    }
+
+    // 2. DBus 전파 (fire-and-forget)
+    match serde_yaml::to_string(config) {
+        Ok(yaml) => spawn_set_config_yaml(yaml, label.to_string()),
+        Err(e) => unim_log!("INDICATOR", "[Settings] YAML 직렬화 실패: {}", e),
+    }
+
+    // 3. 토스트
+    show_toast("저장됨 ✓");
+}
+
+fn show_toast(text: &str) {
+    ACTIVE_WINDOW.with(|w| {
+        if let Some(window) = w.borrow().as_ref() {
+            let toast = adw::Toast::builder()
+                .title(text)
+                .timeout(TOAST_TIMEOUT_SECS)
+                .build();
+            window.add_toast(toast);
+        }
+    });
+}
+
+/// DBus SetConfigYaml fire-and-forget.
+///
+/// 새로운 tokio current-thread 런타임을 임시로 생성하여 호출.
+/// 메인 GTK 스레드를 차단하지 않기 위해 별도 OS 스레드에 위임.
+fn spawn_set_config_yaml(yaml: String, label: String) {
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                unim_log!("INDICATOR", "[Settings] tokio 런타임 생성 실패: {}", e);
+                return;
+            }
+        };
+        rt.block_on(async move {
+            match send_set_config_yaml(&yaml).await {
+                Ok(()) => unim_log!(
+                    "INDICATOR",
+                    "[Settings] DBus SetConfigYaml 성공 ({})",
+                    label
+                ),
+                Err(e) => unim_log!(
+                    "INDICATOR",
+                    "[Settings] DBus SetConfigYaml 실패 ({}): {}",
+                    label,
+                    e
+                ),
+            }
+        });
+    });
+}
+
+async fn send_set_config_yaml(yaml: &str) -> zbus::Result<()> {
+    use unim_dbus::client::InputMethodProxy;
+    let conn = zbus::Connection::session().await?;
+    let proxy = InputMethodProxy::new(&conn).await?;
+    proxy.set_config_yaml(yaml).await
+}
+
+// ─────────────────────────────────────────────────────────────
+// Page 1: 일반
+// ─────────────────────────────────────────────────────────────
+
+fn build_keymap_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title("자판 및 키맵").build();
+
+    // 한국어 자판
+    let kor_row = adw::ComboRow::builder().title("한국어 자판").build();
+    let kor_items: Vec<&str> = KoreanLayout::all()
         .iter()
         .map(|l| l.display_name())
         .collect();
-    let korean_list = gtk4::StringList::new(&korean_items);
-    korean_row.set_model(Some(&korean_list));
+    let kor_list = gtk4::StringList::new(&kor_items);
+    kor_row.set_model(Some(&kor_list));
     {
         let s = state.borrow();
-        let idx = KoreanLayout::all()
+        if let Some(idx) = KoreanLayout::all()
             .iter()
             .position(|l| *l == s.config.engine.korean.layout)
-            .unwrap_or(0);
-        korean_row.set_selected(idx as u32);
+        {
+            kor_row.set_selected(idx as u32);
+        }
     }
-    let state_clone = state.clone();
-    korean_row.connect_selected_notify(move |row| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let idx = row.selected() as usize;
-        if let Some(layout) = KoreanLayout::all().get(idx) {
-            s.config.engine.korean.layout = *layout;
-            save_and_notify(&s.config, "korean_layout", &format!("{:?}", layout));
-        }
-    });
-    layout_group.add(&korean_row);
+    {
+        let state_c = state.clone();
+        kor_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            if let Some(layout) = KoreanLayout::all().get(row.selected() as usize) {
+                s.config.engine.korean.layout = *layout;
+                save_and_notify(&s.config, "korean_layout");
+            }
+        });
+    }
+    group.add(&kor_row);
 
-    // English Layout
-    let english_row = adw::ComboRow::builder().title("영어 자판").build();
-    let english_items: Vec<&str> = EnglishLayout::all()
+    // 영어 자판
+    let eng_row = adw::ComboRow::builder().title("영어 자판").build();
+    let eng_items: Vec<&str> = EnglishLayout::all()
         .iter()
         .map(|l| l.display_name())
         .collect();
-    let english_list = gtk4::StringList::new(&english_items);
-    english_row.set_model(Some(&english_list));
+    let eng_list = gtk4::StringList::new(&eng_items);
+    eng_row.set_model(Some(&eng_list));
     {
         let s = state.borrow();
-        let idx = EnglishLayout::all()
+        if let Some(idx) = EnglishLayout::all()
             .iter()
             .position(|l| *l == s.config.engine.english.layout)
-            .unwrap_or(0);
-        english_row.set_selected(idx as u32);
+        {
+            eng_row.set_selected(idx as u32);
+        }
     }
-    let state_clone = state.clone();
-    english_row.connect_selected_notify(move |row| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let idx = row.selected() as usize;
-        if let Some(layout) = EnglishLayout::all().get(idx) {
-            s.config.engine.english.layout = *layout;
-            save_and_notify(&s.config, "english_layout", &format!("{:?}", layout));
-        }
-    });
-    layout_group.add(&english_row);
+    {
+        let state_c = state.clone();
+        eng_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            if let Some(layout) = EnglishLayout::all().get(row.selected() as usize) {
+                s.config.engine.english.layout = *layout;
+                save_and_notify(&s.config, "english_layout");
+            }
+        });
+    }
+    group.add(&eng_row);
 
-    // Initial Mode
-    let initial_mode_row = adw::ComboRow::builder().title("초기 입력 모드").build();
-    let mode_items = gtk4::StringList::new(&["한국어", "영어"]);
-    initial_mode_row.set_model(Some(&mode_items));
+    // 한/영 전환 키
+    group.add(&build_string_list_row(
+        state,
+        "한/영 전환 키",
+        Some("쉼표로 구분 (예: Korean, RightAlt)"),
+        |cfg| cfg.engine.toggle_keys.join(", "),
+        |cfg, v| cfg.engine.toggle_keys = v,
+        "toggle_keys",
+    ));
+
+    // 한자 키
+    group.add(&build_string_list_row(
+        state,
+        "한자 키",
+        Some("쉼표로 구분 (예: Hanja, F9)"),
+        |cfg| cfg.engine.hanja_keys.join(", "),
+        |cfg, v| cfg.engine.hanja_keys = v,
+        "hanja_keys",
+    ));
+
+    group
+}
+
+fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title("입력 모드").build();
+
+    // 초기 입력 모드
+    let init_row = adw::ComboRow::builder().title("초기 입력 모드").build();
+    let init_list = gtk4::StringList::new(&["영문", "한글"]);
+    init_row.set_model(Some(&init_list));
     {
         let s = state.borrow();
-        let idx = match s.config.engine.default_category {
-            InputCategory::Korean => 0,
-            InputCategory::English => 1,
-        };
-        initial_mode_row.set_selected(idx);
+        init_row.set_selected(match s.config.engine.default_category {
+            InputCategory::English => 0,
+            InputCategory::Korean => 1,
+        });
     }
-    let state_clone = state.clone();
-    initial_mode_row.connect_selected_notify(move |row| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let cat = if row.selected() == 0 {
-            InputCategory::Korean
-        } else {
-            InputCategory::English
-        };
-        s.config.engine.default_category = cat;
-        save_and_notify(&s.config, "default_category", &format!("{:?}", cat));
-    });
-    layout_group.add(&initial_mode_row);
+    {
+        let state_c = state.clone();
+        init_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.default_category = if row.selected() == 1 {
+                InputCategory::Korean
+            } else {
+                InputCategory::English
+            };
+            save_and_notify(&s.config, "default_category");
+        });
+    }
+    group.add(&init_row);
 
-    // Mode Sharing
-    let mode_sharing_row = adw::ComboRow::builder().title("모드 공유").build();
-    let sharing_items: Vec<&str> = ModeSharingMode::all()
-        .iter()
-        .map(|m| m.display_name())
-        .collect();
-    let sharing_list = gtk4::StringList::new(&sharing_items);
-    mode_sharing_row.set_model(Some(&sharing_list));
+    // 모드 공유 방식
+    let share_row = adw::ComboRow::builder().title("모드 공유 방식").build();
+    let share_list = gtk4::StringList::new(&["전역 (Global)", "앱별 (PerApp)"]);
+    share_row.set_model(Some(&share_list));
     {
         let s = state.borrow();
-        let idx = ModeSharingMode::all()
-            .iter()
-            .position(|m| *m == s.config.engine.mode_sharing)
-            .unwrap_or(0);
-        mode_sharing_row.set_selected(idx as u32);
+        share_row.set_selected(match s.config.engine.mode_sharing {
+            ModeSharingMode::Global => 0,
+            ModeSharingMode::PerApp => 1,
+        });
     }
-    let state_clone = state.clone();
-    mode_sharing_row.connect_selected_notify(move |row| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let idx = row.selected() as usize;
-        if let Some(mode) = ModeSharingMode::all().get(idx) {
-            s.config.engine.mode_sharing = *mode;
-            save_and_notify(&s.config, "mode_sharing", &format!("{:?}", mode));
-        }
-    });
-    layout_group.add(&mode_sharing_row);
+    {
+        let state_c = state.clone();
+        share_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.mode_sharing = if row.selected() == 1 {
+                ModeSharingMode::PerApp
+            } else {
+                ModeSharingMode::Global
+            };
+            save_and_notify(&s.config, "mode_sharing");
+        });
+    }
+    group.add(&share_row);
 
-    content.append(&layout_group);
-
-    // ===== Auto Switch Section =====
-    let switch_group = adw::PreferencesGroup::builder().title("자동 전환").build();
-
-    let auto_switch_row = adw::ActionRow::builder().title("자동 전환 사용").build();
-    let auto_switch_widget = gtk4::Switch::new();
-    auto_switch_widget.set_valign(gtk4::Align::Center);
+    // 팝업 모드
+    let popup_row = adw::ComboRow::builder().title("팝업 모드").build();
+    let popup_list = gtk4::StringList::new(&["독립 (Standalone)", "내장 (Embedded)"]);
+    popup_row.set_model(Some(&popup_list));
     {
         let s = state.borrow();
-        auto_switch_widget.set_active(s.config.engine.auto_switch.enabled);
+        popup_row.set_selected(match s.config.engine.popup_mode {
+            PopupMode::Standalone => 0,
+            PopupMode::Embedded => 1,
+        });
     }
-    auto_switch_row.add_suffix(&auto_switch_widget);
-    auto_switch_row.set_activatable_widget(Some(&auto_switch_widget));
-
-    // Threshold row
-    let threshold_row = adw::ActionRow::builder().title("감지 임계값").build();
-    let threshold_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    threshold_box.set_valign(gtk4::Align::Center);
-
-    let threshold_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 1.0, 0.05);
-    threshold_scale.set_draw_value(false);
-    threshold_scale.set_size_request(140, -1);
     {
-        let s = state.borrow();
-        threshold_scale.set_value(s.config.engine.auto_switch.threshold as f64);
-        threshold_scale.set_sensitive(s.config.engine.auto_switch.enabled);
+        let state_c = state.clone();
+        popup_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.popup_mode = if row.selected() == 1 {
+                PopupMode::Embedded
+            } else {
+                PopupMode::Standalone
+            };
+            save_and_notify(&s.config, "popup_mode");
+        });
     }
+    group.add(&popup_row);
 
-    let threshold_label = gtk4::Label::new(None);
-    {
-        let s = state.borrow();
-        threshold_label.set_text(&format!(
-            "{:.0}%",
-            s.config.engine.auto_switch.threshold * 100.0
-        ));
-        threshold_label.set_sensitive(s.config.engine.auto_switch.enabled);
-    }
+    group
+}
 
-    threshold_box.append(&threshold_scale);
-    threshold_box.append(&threshold_label);
-    threshold_row.add_suffix(&threshold_box);
+// ─────────────────────────────────────────────────────────────
+// Page 2: 오타 교정
+// ─────────────────────────────────────────────────────────────
 
-    // Auto switch toggle callback
-    let state_clone = state.clone();
-    let scale_ref = threshold_scale.clone();
-    let label_ref = threshold_label.clone();
-    auto_switch_widget.connect_active_notify(move |sw| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let enabled = sw.is_active();
-        s.config.engine.auto_switch.enabled = enabled;
-        scale_ref.set_sensitive(enabled);
-        label_ref.set_sensitive(enabled);
-        save_and_notify(
-            &s.config,
-            "auto_switch_enabled",
-            if enabled { "true" } else { "false" },
-        );
-    });
+type TimeSyncSlot = Rc<RefCell<(Option<adw::SpinRow>, Option<adw::SpinRow>)>>;
 
-    // Threshold value callback
-    let state_clone = state.clone();
-    let label_ref2 = threshold_label.clone();
-    threshold_scale.connect_value_changed(move |scale| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let val = scale.value() as f32;
-        s.config.engine.auto_switch.threshold = val;
-        label_ref2.set_text(&format!("{:.0}%", val * 100.0));
-        save_and_notify(&s.config, "auto_switch_threshold", &format!("{}", val));
-    });
-
-    switch_group.add(&auto_switch_row);
-    switch_group.add(&threshold_row);
-    content.append(&switch_group);
-
-    // ===== Key Bindings Section =====
-    let key_group = adw::PreferencesGroup::builder().title("키 설정").build();
-
-    // Toggle keys (한/영 전환)
-    let toggle_row = adw::ActionRow::builder().title("한/영 전환 키").build();
-    let toggle_entry = gtk4::Entry::new();
-    toggle_entry.set_valign(gtk4::Align::Center);
-    toggle_entry.set_width_chars(20);
-    {
-        let s = state.borrow();
-        toggle_entry.set_text(&s.config.engine.toggle_keys.join(", "));
-    }
-    toggle_row.add_suffix(&toggle_entry);
-    let state_clone = state.clone();
-    toggle_entry.connect_changed(move |entry| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let text = entry.text().to_string();
-        let keys: Vec<String> = text
-            .split(',')
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty())
-            .collect();
-        if !keys.is_empty() {
-            let keys_str = keys.join(",");
-            s.config.engine.toggle_keys = keys;
-            save_and_notify(&s.config, "toggle_keys", &keys_str);
-        }
-    });
-    key_group.add(&toggle_row);
-
-    // Hanja keys (한자/특수문자)
-    let hanja_row = adw::ActionRow::builder().title("한자 키").build();
-    let hanja_entry = gtk4::Entry::new();
-    hanja_entry.set_valign(gtk4::Align::Center);
-    hanja_entry.set_width_chars(20);
-    {
-        let s = state.borrow();
-        hanja_entry.set_text(&s.config.engine.hanja_keys.join(", "));
-    }
-    hanja_row.add_suffix(&hanja_entry);
-    let state_clone = state.clone();
-    hanja_entry.connect_changed(move |entry| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let text = entry.text().to_string();
-        let keys: Vec<String> = text
-            .split(',')
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty())
-            .collect();
-        if !keys.is_empty() {
-            let keys_str = keys.join(",");
-            s.config.engine.hanja_keys = keys;
-            save_and_notify(&s.config, "hanja_keys", &keys_str);
-        }
-    });
-    key_group.add(&hanja_row);
-
-    content.append(&key_group);
-
-    // ===== AutoTypeFix Section =====
-    let atf_group = adw::PreferencesGroup::builder()
-        .title("자동 오타 교정 (AutoTypeFix)")
-        .description("입력 중 한/영 오타를 실시간으로 감지하여 자동 교정")
+fn build_forward_group(state: &State, time_sync: &TimeSyncSlot) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title("자동 순방향 교정 (영→한)")
         .build();
 
-    // Enabled toggle
-    let atf_enabled_row = adw::ActionRow::builder()
-        .title("자동 오타 교정 사용")
-        .build();
-    let atf_enabled_sw = gtk4::Switch::new();
-    atf_enabled_sw.set_valign(gtk4::Align::Center);
-    {
-        let s = state.borrow();
-        atf_enabled_sw.set_active(s.config.engine.auto_typefix.enabled);
-    }
-    atf_enabled_row.add_suffix(&atf_enabled_sw);
-    atf_enabled_row.set_activatable_widget(Some(&atf_enabled_sw));
-    atf_group.add(&atf_enabled_row);
-
-    // 순방향 (영→한) toggle
-    let fwd_row = adw::ActionRow::builder()
-        .title("순방향 (영→한) 교정")
-        .subtitle("영어 모드에서 한글을 치려고 한 경우")
-        .build();
-    let fwd_sw = gtk4::Switch::new();
-    fwd_sw.set_valign(gtk4::Align::Center);
+    // 사용 (forward)
+    let fwd_sw = adw::SwitchRow::builder().title("사용").build();
     {
         let s = state.borrow();
         fwd_sw.set_active(s.config.engine.auto_typefix.forward);
     }
-    fwd_row.add_suffix(&fwd_sw);
-    fwd_row.set_activatable_widget(Some(&fwd_sw));
-    atf_group.add(&fwd_row);
+    {
+        let state_c = state.clone();
+        fwd_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.forward = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_forward");
+        });
+    }
+    group.add(&fwd_sw);
 
-    // 역방향 (한→영) toggle
-    let rev_row = adw::ActionRow::builder()
-        .title("역방향 (한→영) 교정")
-        .subtitle("한글 모드에서 영어를 치려고 한 경우")
+    // 임계 음절 수
+    let kor_adj = gtk4::Adjustment::new(
+        2.0,
+        AUTO_TYPEFIX_KOR_THRESHOLD_MIN as f64,
+        AUTO_TYPEFIX_KOR_THRESHOLD_MAX as f64,
+        1.0,
+        1.0,
+        0.0,
+    );
+    let kor_row = adw::SpinRow::builder()
+        .title("임계 음절 수")
+        .subtitle("이 개수 이상의 완성 한글이 감지되면 교정 검사")
+        .adjustment(&kor_adj)
+        .digits(0)
         .build();
-    let rev_sw = gtk4::Switch::new();
-    rev_sw.set_valign(gtk4::Align::Center);
+    {
+        let s = state.borrow();
+        kor_adj.set_value(s.config.engine.auto_typefix.kor_syllable_threshold as f64);
+    }
+    {
+        let state_c = state.clone();
+        kor_row.connect_value_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.kor_syllable_threshold = row.value() as u8;
+            save_and_notify(&s.config, "auto_typefix_kor_syllable_threshold");
+        });
+    }
+    group.add(&kor_row);
+
+    // 트리거 윈도우 (초) — forward/reverse가 time_window_ms 공유
+    let fwd_time_row = build_time_window_row(state, time_sync, true);
+    group.add(&fwd_time_row);
+
+    // 영단어 매칭 시 억제
+    let skip_eng_sw = adw::SwitchRow::builder()
+        .title("영단어 매칭 시 억제")
+        .subtitle("사전에 일치하는 영단어이면 교정하지 않음")
+        .build();
+    {
+        let s = state.borrow();
+        skip_eng_sw.set_active(s.config.engine.auto_typefix.skip_on_english_word);
+    }
+    {
+        let state_c = state.clone();
+        skip_eng_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.skip_on_english_word = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_skip_on_english_word");
+        });
+    }
+    group.add(&skip_eng_sw);
+
+    // time_sync 슬롯에 forward 등록
+    time_sync.borrow_mut().0 = Some(fwd_time_row);
+
+    group
+}
+
+fn build_reverse_group(state: &State, time_sync: &TimeSyncSlot) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title("자동 역방향 교정 (한→영)")
+        .build();
+
+    // 사용 (reverse)
+    let rev_sw = adw::SwitchRow::builder().title("사용").build();
     {
         let s = state.borrow();
         rev_sw.set_active(s.config.engine.auto_typefix.reverse);
     }
-    rev_row.add_suffix(&rev_sw);
-    rev_row.set_activatable_widget(Some(&rev_sw));
-    atf_group.add(&rev_row);
+    {
+        let state_c = state.clone();
+        rev_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.reverse = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_reverse");
+        });
+    }
+    group.add(&rev_sw);
 
-    // Korean syllable threshold
-    let kor_thresh_row = adw::ActionRow::builder()
-        .title("한글 음절 임계값")
-        .subtitle("영→한 교정에 필요한 완성 음절 수 (2~5)")
+    // 임계 글자 수
+    let eng_adj = gtk4::Adjustment::new(
+        5.0,
+        AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN as f64,
+        AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX as f64,
+        1.0,
+        1.0,
+        0.0,
+    );
+    let eng_row = adw::SpinRow::builder()
+        .title("임계 글자 수")
+        .subtitle("이 개수 이상의 한글이 감지되면 교정 검사")
+        .adjustment(&eng_adj)
+        .digits(0)
         .build();
-    let kor_thresh_spin = gtk4::SpinButton::with_range(2.0, 5.0, 1.0);
-    kor_thresh_spin.set_valign(gtk4::Align::Center);
     {
         let s = state.borrow();
-        kor_thresh_spin.set_value(s.config.engine.auto_typefix.kor_syllable_threshold as f64);
+        eng_adj.set_value(s.config.engine.auto_typefix.eng_word_min_length as f64);
     }
-    kor_thresh_row.add_suffix(&kor_thresh_spin);
-    atf_group.add(&kor_thresh_row);
+    {
+        let state_c = state.clone();
+        eng_row.connect_value_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.eng_word_min_length = row.value() as u8;
+            save_and_notify(&s.config, "auto_typefix_eng_word_min_length");
+        });
+    }
+    group.add(&eng_row);
 
-    // English word min length
-    let eng_len_row = adw::ActionRow::builder()
-        .title("영문 단어 최소 길이")
-        .subtitle("한→영 교정에 필요한 영문 단어 길이 (5~10)")
+    // 트리거 윈도우 (초) — forward와 값 공유
+    let rev_time_row = build_time_window_row(state, time_sync, false);
+    group.add(&rev_time_row);
+
+    // 온전한 음절 매칭 시 억제
+    let skip_syl_sw = adw::SwitchRow::builder()
+        .title("온전한 음절 매칭 시 억제")
+        .subtitle("버퍼의 한글이 모두 완성 음절이면 교정하지 않음")
         .build();
-    let eng_len_spin = gtk4::SpinButton::with_range(5.0, 10.0, 1.0);
-    eng_len_spin.set_valign(gtk4::Align::Center);
     {
         let s = state.borrow();
-        eng_len_spin.set_value(s.config.engine.auto_typefix.eng_word_min_length as f64);
+        skip_syl_sw.set_active(s.config.engine.auto_typefix.skip_on_complete_syllable);
     }
-    eng_len_row.add_suffix(&eng_len_spin);
-    atf_group.add(&eng_len_row);
-
-    // Time window
-    let time_row = adw::ActionRow::builder()
-        .title("시간 윈도우 (ms)")
-        .subtitle("이 시간 내의 연속 키스트로크만 검사 (500~5000)")
-        .build();
-    let time_spin = gtk4::SpinButton::with_range(500.0, 5000.0, 100.0);
-    time_spin.set_valign(gtk4::Align::Center);
     {
-        let s = state.borrow();
-        time_spin.set_value(s.config.engine.auto_typefix.time_window_ms as f64);
+        let state_c = state.clone();
+        skip_syl_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.skip_on_complete_syllable = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_skip_on_complete_syllable");
+        });
     }
-    time_row.add_suffix(&time_spin);
-    atf_group.add(&time_row);
+    group.add(&skip_syl_sw);
 
-    // AutoTypeFix callbacks
-    let state_clone = state.clone();
-    atf_enabled_sw.connect_active_notify(move |sw| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating { return; }
-        s.config.engine.auto_typefix.enabled = sw.is_active();
-        save_and_notify(&s.config, "auto_typefix", if sw.is_active() { "true" } else { "false" });
-    });
+    // time_sync 슬롯에 reverse 등록
+    time_sync.borrow_mut().1 = Some(rev_time_row);
 
-    let state_clone = state.clone();
-    fwd_sw.connect_active_notify(move |sw| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating { return; }
-        s.config.engine.auto_typefix.forward = sw.is_active();
-        let _ = s.config.save_to_default_path();
-    });
-
-    let state_clone = state.clone();
-    rev_sw.connect_active_notify(move |sw| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating { return; }
-        s.config.engine.auto_typefix.reverse = sw.is_active();
-        let _ = s.config.save_to_default_path();
-    });
-
-    let state_clone = state.clone();
-    kor_thresh_spin.connect_value_changed(move |spin| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating { return; }
-        s.config.engine.auto_typefix.kor_syllable_threshold = spin.value() as u8;
-        let _ = s.config.save_to_default_path();
-    });
-
-    let state_clone = state.clone();
-    eng_len_spin.connect_value_changed(move |spin| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating { return; }
-        s.config.engine.auto_typefix.eng_word_min_length = spin.value() as u8;
-        let _ = s.config.save_to_default_path();
-    });
-
-    let state_clone = state.clone();
-    time_spin.connect_value_changed(move |spin| {
-        let mut s = state_clone.borrow_mut();
-        if s.updating { return; }
-        s.config.engine.auto_typefix.time_window_ms = spin.value() as u32;
-        let _ = s.config.save_to_default_path();
-    });
-
-    content.append(&atf_group);
-
-    // Clamp for nice libadwaita look
-    let clamp = adw::Clamp::builder()
-        .maximum_size(600)
-        .child(&content)
-        .build();
-
-    outer_box.append(&clamp);
-    window.set_content(Some(&outer_box));
-    window.present();
-
-    unim_log!("INDICATOR", "설정 다이얼로그 표시");
+    group
 }
 
-/// 설정을 저장하고 DBus를 통해 데몬에 변경을 알립니다.
-fn save_and_notify(config: &Config, key: &str, value: &str) {
-    // 파일 저장
-    if let Err(e) = config.save_to_default_path() {
-        unim_log!("INDICATOR", "설정 저장 실패: {}", e);
+fn build_master_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title("전체 기능")
+        .description("순방향·역방향을 일괄 활성화/비활성화하는 마스터 스위치")
+        .build();
+
+    let master = adw::SwitchRow::builder()
+        .title("자동 오타 교정 사용")
+        .build();
+    {
+        let s = state.borrow();
+        master.set_active(s.config.engine.auto_typefix.enabled);
+    }
+    {
+        let state_c = state.clone();
+        master.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.enabled = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_enabled");
+        });
+    }
+    group.add(&master);
+    group
+}
+
+/// 트리거 윈도우(초) SpinRow 생성.
+///
+/// - UI: 0.5 ~ 5.0초, step 0.5, digits=1
+/// - 저장: `f64 초 × 1000 → u32 ms`
+/// - forward/reverse 두 SpinRow가 동일한 `time_window_ms`를 공유하므로
+///   변경 시 다른 쪽 SpinRow도 `set_value`로 sync (updating 플래그로 재진입 방지).
+fn build_time_window_row(
+    state: &State,
+    time_sync: &TimeSyncSlot,
+    is_forward: bool,
+) -> adw::SpinRow {
+    let min_s = AUTO_TYPEFIX_TIME_WINDOW_MIN as f64 / 1000.0;
+    let max_s = AUTO_TYPEFIX_TIME_WINDOW_MAX as f64 / 1000.0;
+    let adj = gtk4::Adjustment::new(max_s, min_s, max_s, 0.5, 0.5, 0.0);
+    let row = adw::SpinRow::builder()
+        .title("트리거 윈도우 (초)")
+        .subtitle("최근 입력을 유효한 것으로 간주할 시간")
+        .adjustment(&adj)
+        .digits(1)
+        .build();
+
+    {
+        let s = state.borrow();
+        adj.set_value(ms_to_seconds(s.config.engine.auto_typefix.time_window_ms));
     }
 
-    // DBus 알림 (fire-and-forget)
-    let key = key.to_string();
-    let value = value.to_string();
-    glib::spawn_future_local(async move {
-        if let Ok(conn) = zbus::Connection::session().await {
-            let _ = conn
-                .call_method(
-                    Some("org.atit.unim.InputMethod"),
-                    "/org/atit/unim/InputMethod",
-                    Some("org.atit.unim.InputMethod"),
-                    "SetConfig",
-                    &(&key, &value),
-                )
-                .await;
+    let time_sync_c = time_sync.clone();
+    let state_c = state.clone();
+    row.connect_value_notify(move |row| {
+        let mut s = state_c.borrow_mut();
+        if s.updating {
+            return;
         }
+        let ms = seconds_to_ms(row.value());
+        s.config.engine.auto_typefix.time_window_ms = ms;
+
+        // 반대쪽 SpinRow sync
+        let slot = time_sync_c.borrow();
+        let other = if is_forward { slot.1.clone() } else { slot.0.clone() };
+        drop(slot);
+        if let Some(other) = other {
+            let new_val = ms_to_seconds(ms);
+            if (other.value() - new_val).abs() > f64::EPSILON {
+                s.updating = true;
+                other.set_value(new_val);
+                s.updating = false;
+            }
+        }
+
+        save_and_notify(&s.config, "auto_typefix_time_window_ms");
     });
+
+    row
+}
+
+fn ms_to_seconds(ms: u32) -> f64 {
+    ms as f64 / 1000.0
+}
+
+fn seconds_to_ms(secs: f64) -> u32 {
+    (secs * 1000.0).round() as u32
+}
+
+// ─────────────────────────────────────────────────────────────
+// Page 3: GNOME Shell
+// ─────────────────────────────────────────────────────────────
+
+fn is_gnome_session() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|s| s.to_uppercase().contains("GNOME"))
+        .unwrap_or(false)
+}
+
+fn is_wayland_session() -> bool {
+    std::env::var("XDG_SESSION_TYPE")
+        .map(|s| s.to_lowercase() == "wayland")
+        .unwrap_or(false)
+}
+
+fn build_gnome_page(_window: &adw::PreferencesWindow) -> Option<adw::PreferencesPage> {
+    // GSettings 스키마가 설치되어 있지 않으면 페이지를 생략
+    let source = gio::SettingsSchemaSource::default()?;
+    let _schema = source.lookup(GSCHEMA_ID, true)?;
+    let gsettings = gio::Settings::new(GSCHEMA_ID);
+
+    let page = adw::PreferencesPage::builder()
+        .title("GNOME Shell")
+        .icon_name("preferences-desktop-symbolic")
+        .build();
+
+    // 표시
+    let disp = adw::PreferencesGroup::builder().title("표시").build();
+
+    let panel_row = adw::SwitchRow::builder().title("상단 패널 인디케이터").build();
+    panel_row.set_active(gsettings.boolean("show-panel-indicator"));
+    {
+        let gs = gsettings.clone();
+        panel_row.connect_active_notify(move |sw| {
+            let _ = gs.set_boolean("show-panel-indicator", sw.is_active());
+            show_toast("저장됨 ✓");
+        });
+    }
+    disp.add(&panel_row);
+
+    let notif_row = adw::SwitchRow::builder().title("변환 알림 표시").build();
+    notif_row.set_active(gsettings.boolean("show-notification"));
+    {
+        let gs = gsettings.clone();
+        notif_row.connect_active_notify(move |sw| {
+            let _ = gs.set_boolean("show-notification", sw.is_active());
+            show_toast("저장됨 ✓");
+        });
+    }
+    disp.add(&notif_row);
+
+    page.add(&disp);
+
+    // 실시간 입력기
+    let ime = adw::PreferencesGroup::builder()
+        .title("실시간 입력기")
+        .description("Wayland 세션에서만 활성화됩니다")
+        .build();
+
+    let ime_row = adw::SwitchRow::builder().title("IME 모드 활성화").build();
+    ime_row.set_active(gsettings.boolean("enable-ime"));
+    ime_row.set_sensitive(is_wayland_session());
+    {
+        let gs = gsettings.clone();
+        ime_row.connect_active_notify(move |sw| {
+            let _ = gs.set_boolean("enable-ime", sw.is_active());
+            show_toast("저장됨 ✓");
+        });
+    }
+    ime.add(&ime_row);
+
+    page.add(&ime);
+
+    Some(page)
+}
+
+// ─────────────────────────────────────────────────────────────
+// 공용 헬퍼: 쉼표 구분 문자열 리스트 EntryRow
+// ─────────────────────────────────────────────────────────────
+
+fn build_string_list_row<G, S>(
+    state: &State,
+    title: &str,
+    subtitle: Option<&str>,
+    get: G,
+    set: S,
+    label: &'static str,
+) -> adw::EntryRow
+where
+    G: Fn(&Config) -> String + 'static,
+    S: Fn(&mut Config, Vec<String>) + 'static,
+{
+    let row = adw::EntryRow::builder().title(title).build();
+    // EntryRow는 subtitle을 직접 지원하지 않으므로 tooltip으로 대체
+    if let Some(sub) = subtitle {
+        row.set_tooltip_text(Some(sub));
+    }
+
+    {
+        let s = state.borrow();
+        row.set_text(&get(&s.config));
+    }
+
+    let state_c = state.clone();
+    row.connect_changed(move |r| {
+        let mut s = state_c.borrow_mut();
+        if s.updating {
+            return;
+        }
+        let text = r.text().to_string();
+        let keys: Vec<String> = text
+            .split(',')
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .collect();
+        set(&mut s.config, keys);
+        save_and_notify(&s.config, label);
+    });
+
+    row
 }

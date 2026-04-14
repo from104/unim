@@ -65,7 +65,26 @@ class UnimIndicator extends PanelMenu.Button {
         
         unimLog('INDICATOR', ' Panel indicator initialized');
     }
-    
+
+    /**
+     * 패널 아이콘 클릭 처리.
+     * panel-click-action = 'toggle-mode' 이면 왼쪽 클릭으로 한/영 전환,
+     * 오른쪽 클릭은 기본 동작(메뉴 표시)을 유지한다.
+     * 'menu' 설정이면 GNOME 기본 동작(왼쪽 클릭도 메뉴).
+     */
+    vfunc_event(event) {
+        if (event.type() === Clutter.EventType.BUTTON_PRESS) {
+            const action = this._settings.get_string('panel-click-action');
+            if (action === 'toggle-mode' && event.get_button() === Clutter.BUTTON_PRIMARY) {
+                if (this._connected) {
+                    this._setMode(!this._isKorean);
+                }
+                return Clutter.EVENT_STOP;
+            }
+        }
+        return super.vfunc_event(event);
+    }
+
     _buildMenu() {
         // === 상태 표시 헤더 ===
         this._headerItem = new PopupMenu.PopupMenuItem('', { reactive: false });
@@ -85,8 +104,13 @@ class UnimIndicator extends PanelMenu.Button {
         
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         
-        // === Extension 설정 ===
-        const extSettingsItem = new PopupMenu.PopupMenuItem('설정 (Settings)...');
+        // === UNIM 설정 앱 (unim-gui-gtk --settings) ===
+        const unimSettingsItem = new PopupMenu.PopupMenuItem('UNIM 설정 (Settings)...');
+        unimSettingsItem.connect('activate', () => this._openUnimSettings());
+        this.menu.addMenuItem(unimSettingsItem);
+
+        // === GNOME 확장 설정 ===
+        const extSettingsItem = new PopupMenu.PopupMenuItem('GNOME 확장 설정 (Extension)...');
         extSettingsItem.connect('activate', () => this._openExtensionSettings());
         this.menu.addMenuItem(extSettingsItem);
         
@@ -324,6 +348,24 @@ class UnimIndicator extends PanelMenu.Button {
             GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
         } catch (e) {
             unimError('INDICATOR', ` Failed to open extension settings: ${e.message}`);
+        }
+    }
+
+    /**
+     * UNIM 메인 설정 앱(unim-gui-gtk --settings) 실행.
+     * GNOME 확장 설정창과는 별도로, config.yaml을 편집하는 단일 창구.
+     */
+    _openUnimSettings() {
+        try {
+            GLib.spawn_async(
+                null,
+                ['unim-gui-gtk', '--settings'],
+                null,
+                GLib.SpawnFlags.SEARCH_PATH,
+                null
+            );
+        } catch (e) {
+            unimError('INDICATOR', ` Failed to launch unim-gui-gtk: ${e.message}`);
         }
     }
     

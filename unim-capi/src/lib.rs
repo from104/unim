@@ -353,42 +353,6 @@ pub extern "C" fn unim_config_set_default_category(config: &mut Config, category
     config.engine.default_category = category;
 }
 
-/// 자동 전환 활성화 여부를 반환합니다.
-#[no_mangle]
-pub extern "C" fn unim_config_get_auto_switch_enabled(config: &Config) -> bool {
-    config.engine.auto_switch.enabled
-}
-
-/// 자동 전환 활성화 여부를 설정합니다.
-#[no_mangle]
-pub extern "C" fn unim_config_set_auto_switch_enabled(config: &mut Config, enabled: bool) {
-    config.engine.auto_switch.enabled = enabled;
-}
-
-/// 자동 전환 임계값을 반환합니다.
-#[no_mangle]
-pub extern "C" fn unim_config_get_auto_switch_threshold(config: &Config) -> f32 {
-    config.engine.auto_switch.threshold
-}
-
-/// 자동 전환 임계값을 설정합니다.
-#[no_mangle]
-pub extern "C" fn unim_config_set_auto_switch_threshold(config: &mut Config, threshold: f32) {
-    config.engine.auto_switch.threshold = threshold.clamp(0.0, 1.0);
-}
-
-/// 자동 전환 알림 표시 여부를 반환합니다.
-#[no_mangle]
-pub extern "C" fn unim_config_get_auto_switch_notification(config: &Config) -> bool {
-    config.engine.auto_switch.show_notification
-}
-
-/// 자동 전환 알림 표시 여부를 설정합니다.
-#[no_mangle]
-pub extern "C" fn unim_config_set_auto_switch_notification(config: &mut Config, show: bool) {
-    config.engine.auto_switch.show_notification = show;
-}
-
 /// 입력 모드 공유 방식을 반환합니다.
 ///
 /// # 반환값

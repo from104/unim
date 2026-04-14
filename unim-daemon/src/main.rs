@@ -19,6 +19,8 @@ use unim_dbus::engine_worker::spawn_engine_worker;
 use unim_dbus::service::InputMethodService;
 use unim_dbus::{BUS_NAME, INPUT_METHOD_PATH};
 
+mod migration;
+
 /// UNIM 입력기 데몬
 #[derive(Parser, Debug)]
 #[command(name = "unim-daemon", version, about = "UNIM 입력기 데몬")]
@@ -443,6 +445,11 @@ async fn main() {
             std::process::exit(1);
         }
     }
+
+    // GSettings → config.yaml 1회성 마이그레이션 (v2)
+    // 가드 파일(.migrated-v2) 기반으로 첫 기동 시에만 동작.
+    // DBus/엔진 초기화 전에 실행해 이관된 값이 엔진에 바로 반영되도록 한다.
+    migration::migrate_v2();
 
     // 설정 로드
     let config = unim::config::Config::load_from_default_path();

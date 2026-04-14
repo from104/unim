@@ -4,6 +4,9 @@ use rust_i18n::t;
 use std::process;
 use unim::config::{
     Config as UnimConfig, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode,
+    AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
+    AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
+    AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
 
 // i18n 초기화
@@ -51,12 +54,6 @@ enum ConfigKey {
     /// 모드 공유 방식 (global, per-app)
     #[value(name = "mode-sharing")]
     ModeSharing,
-    /// 자동 전환 활성화 (true, false)
-    #[value(name = "auto-switch")]
-    AutoSwitch,
-    /// 자동 전환 임계값 (0.0 ~ 1.0)
-    #[value(name = "auto-switch-threshold")]
-    AutoSwitchThreshold,
     /// 한/영 전환 키 (예: Korean,RightAlt)
     #[value(name = "toggle-keys")]
     ToggleKeys,
@@ -69,10 +66,10 @@ enum ConfigKey {
     /// 자동 오타 교정 활성화 (true, false)
     #[value(name = "auto-typefix")]
     AutoTypeFix,
-    /// 자동 오타 교정: 한글 음절 임계값 (2~5)
+    /// 자동 오타 교정: 한글 음절 임계값 (2~6)
     #[value(name = "auto-typefix-kor-threshold")]
     AutoTypeFixKorThreshold,
-    /// 자동 오타 교정: 영문 단어 최소 길이 (5~10)
+    /// 자동 오타 교정: 영문 단어 최소 길이 (3~8)
     #[value(name = "auto-typefix-eng-min-length")]
     AutoTypeFixEngMinLength,
     /// 자동 오타 교정: 시간 윈도우 (500~5000 ms)
@@ -84,6 +81,12 @@ enum ConfigKey {
     /// 자동 오타 교정: 역방향 (한→영) 교정 (true, false)
     #[value(name = "auto-typefix-reverse")]
     AutoTypeFixReverse,
+    /// 자동 오타 교정: 영단어 매칭 시 억제 (true, false)
+    #[value(name = "auto-typefix-skip-english-word")]
+    AutoTypeFixSkipEnglishWord,
+    /// 자동 오타 교정: 온전한 음절 매칭 시 억제 (true, false)
+    #[value(name = "auto-typefix-skip-complete-syllable")]
+    AutoTypeFixSkipCompleteSyllable,
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
@@ -101,12 +104,6 @@ fn config_show() {
     };
 
     let mode_sharing_name = config.engine.mode_sharing.display_name();
-
-    let auto_switch_status = if config.engine.auto_switch.enabled {
-        t!("enabled")
-    } else {
-        t!("disabled")
-    };
 
     println!("{}", t!("settings_title"));
     println!("================");
@@ -128,12 +125,6 @@ fn config_show() {
         default_category_name
     );
     println!("{}: {}", t!("mode_sharing_label"), mode_sharing_name);
-    println!("{}: {}", t!("auto_switch_label"), auto_switch_status);
-    println!(
-        "{}: {:.2}",
-        t!("auto_switch_threshold_label"),
-        config.engine.auto_switch.threshold
-    );
     println!(
         "{}: {}",
         t!("toggle_keys_label"),
@@ -271,33 +262,6 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             config.engine.mode_sharing = mode;
             println!("{}", t!("mode_sharing_changed", mode = mode.display_name()));
         }
-        ConfigKey::AutoSwitch => {
-            let enabled = match value.to_lowercase().as_str() {
-                "true" | "on" | "1" | "yes" => true,
-                "false" | "off" | "0" | "no" => false,
-                _ => return Err(format!("Invalid value for auto-switch: {}", value)),
-            };
-            config.engine.auto_switch.enabled = enabled;
-            let status = if enabled {
-                t!("enabled")
-            } else {
-                t!("disabled")
-            };
-            println!("{}", t!("auto_switch_changed", status = status));
-        }
-        ConfigKey::AutoSwitchThreshold => {
-            let threshold: f32 = value
-                .parse()
-                .map_err(|_| t!("error_invalid_threshold", value = value).to_string())?;
-            if !(0.0..=1.0).contains(&threshold) {
-                return Err(t!("error_invalid_threshold", value = value).to_string());
-            }
-            config.engine.auto_switch.threshold = threshold;
-            println!(
-                "{}",
-                t!("threshold_changed", value = format!("{:.2}", threshold))
-            );
-        }
         ConfigKey::ToggleKeys => {
             let keys: Vec<String> = value
                 .split(',')
@@ -364,19 +328,34 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
         }
         ConfigKey::AutoTypeFixKorThreshold => {
             let v: u8 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
-            if !(2..=5).contains(&v) { return Err(format!("Range 2~5, got {}", v)); }
+            if !(AUTO_TYPEFIX_KOR_THRESHOLD_MIN..=AUTO_TYPEFIX_KOR_THRESHOLD_MAX).contains(&v) {
+                return Err(format!(
+                    "Range {}~{}, got {}",
+                    AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX, v
+                ));
+            }
             config.engine.auto_typefix.kor_syllable_threshold = v;
             println!("한글 음절 임계값: {}", v);
         }
         ConfigKey::AutoTypeFixEngMinLength => {
             let v: u8 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
-            if !(5..=10).contains(&v) { return Err(format!("Range 5~10, got {}", v)); }
+            if !(AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN..=AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX).contains(&v) {
+                return Err(format!(
+                    "Range {}~{}, got {}",
+                    AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, v
+                ));
+            }
             config.engine.auto_typefix.eng_word_min_length = v;
             println!("영문 단어 최소 길이: {}", v);
         }
         ConfigKey::AutoTypeFixTimeWindow => {
             let v: u32 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
-            if !(500..=5000).contains(&v) { return Err(format!("Range 500~5000, got {}", v)); }
+            if !(AUTO_TYPEFIX_TIME_WINDOW_MIN..=AUTO_TYPEFIX_TIME_WINDOW_MAX).contains(&v) {
+                return Err(format!(
+                    "Range {}~{}, got {}",
+                    AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX, v
+                ));
+            }
             config.engine.auto_typefix.time_window_ms = v;
             println!("시간 윈도우: {}ms", v);
         }
@@ -398,6 +377,32 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             config.engine.auto_typefix.reverse = enabled;
             println!("역방향(한→영) 교정: {}", if enabled { "ON" } else { "OFF" });
         }
+        ConfigKey::AutoTypeFixSkipEnglishWord => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.auto_typefix.skip_on_english_word = enabled;
+            println!(
+                "{}: {}",
+                t!("auto_typefix_skip_english_word_label"),
+                if enabled { "ON" } else { "OFF" }
+            );
+        }
+        ConfigKey::AutoTypeFixSkipCompleteSyllable => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.auto_typefix.skip_on_complete_syllable = enabled;
+            println!(
+                "{}: {}",
+                t!("auto_typefix_skip_complete_syllable_label"),
+                if enabled { "ON" } else { "OFF" }
+            );
+        }
         ConfigKey::AppRules => {
             let rules: Vec<unim::config::AppRule> =
                 serde_json::from_str(value).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -405,6 +410,9 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             println!("{}: {} rules", t!("app_rules_label"), config.engine.app_rules.len());
         }
     }
+
+    // 방어: AutoTypeFix 범위 클램프 (명시적 범위 체크 통과 후에도 SSoT 보강)
+    config.engine.auto_typefix.clamp_ranges();
 
     config
         .save_to_default_path()
@@ -444,8 +452,6 @@ fn config_interactive() {
             t!("english_layout_label").to_string(),
             t!("default_category_label").to_string(),
             t!("mode_sharing_label").to_string(),
-            t!("auto_switch_label").to_string(),
-            t!("auto_switch_threshold_label").to_string(),
             t!("toggle_keys_label").to_string(),
             t!("hanja_keys_label").to_string(),
             t!("config_reset_desc").to_string(),
@@ -532,28 +538,6 @@ fn config_interactive() {
                 config.engine.mode_sharing = modes[s];
             }
             4 => {
-                config.engine.auto_switch.enabled = Confirm::with_theme(&theme)
-                    .with_prompt(t!("enable_auto_switch").to_string())
-                    .default(config.engine.auto_switch.enabled)
-                    .interact()
-                    .unwrap();
-            }
-            5 => {
-                let threshold: f32 = Input::with_theme(&theme)
-                    .with_prompt(t!("enter_threshold").to_string())
-                    .default(config.engine.auto_switch.threshold)
-                    .validate_with(|input: &f32| {
-                        if (0.0..=1.0).contains(input) {
-                            Ok(())
-                        } else {
-                            Err(t!("error_invalid_threshold", value = input).to_string())
-                        }
-                    })
-                    .interact_text()
-                    .unwrap();
-                config.engine.auto_switch.threshold = threshold;
-            }
-            6 => {
                 let current = config.engine.toggle_keys.join(",");
                 let input: String = Input::with_theme(&theme)
                     .with_prompt(t!("toggle_keys_label").to_string())
@@ -569,7 +553,7 @@ fn config_interactive() {
                     config.engine.toggle_keys = keys;
                 }
             }
-            7 => {
+            5 => {
                 let current = config.engine.hanja_keys.join(",");
                 let input: String = Input::with_theme(&theme)
                     .with_prompt(t!("hanja_keys_label").to_string())
@@ -585,7 +569,7 @@ fn config_interactive() {
                     config.engine.hanja_keys = keys;
                 }
             }
-            8 => {
+            6 => {
                 if Confirm::with_theme(&theme)
                     .with_prompt(t!("confirm_reset").to_string())
                     .default(false)
@@ -596,7 +580,7 @@ fn config_interactive() {
                     println!("{}", t!("config_reset_done"));
                 }
             }
-            9 => {
+            7 => {
                 if let Err(e) = config.save_to_default_path() {
                     eprintln!("{}: {}", t!("error_label"), e);
                 } else {
@@ -604,7 +588,7 @@ fn config_interactive() {
                 }
                 break;
             }
-            10 => {
+            8 => {
                 println!("{}", t!("exit_canceled"));
                 break;
             }

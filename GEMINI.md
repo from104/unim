@@ -33,38 +33,56 @@
 ## 개요
 
 UNIM의 설정 항목(`src/config.rs`)이 변경될 때는 **모든 관련 컴포넌트에 동일한 설정이 반영**되어야 합니다.
-설정 변경 시 반드시 아래 체크리스트를 확인하세요.
+Phase 1~7 설정 개편(2026-04) 이후 일반 설정은 `~/.config/unim/config.yaml` 단일 소스이며,
+GSettings(gschema)는 **GNOME Shell 의존 키만** 남겨졌습니다(18→6키). 일반 사용자 설정은 GTK GUI
+(`unim-gui-gtk --settings`)가 유일한 창구이고, Qt 트레이·GNOME Extension `prefs.js`는 이 GUI로 리다이렉트합니다.
 
-## 연동 대상 컴포넌트
+## 연동 대상 컴포넌트 (일반 설정 — 5지점)
 
 | 컴포넌트 | 파일 위치 | 역할 |
 | -------- | --------- | ---- |
 | **설정 코어** | `src/config.rs` | 설정 구조체 및 직렬화 정의 (Source of Truth) |
-| **unim-config (CLI)** | `unim-config/src/main.rs` | CLI 설정 관리 도구 |
-| **unim-dbus** | `unim-dbus/src/service.rs` | `get_config`/`set_config` DBus 메서드 |
-| **unim-gui 설정** | `unim-gui-gtk/src/gtk_ui.rs` | GTK GUI 설정 및 트레이 |
-| **GNOME Extension 설정** | `unim-gnome-extension/prefs.js` | GNOME Extension Preferences |
-| **C-API** | `unim-capi/src/lib.rs` | FFI 바인딩 (필요 시) |
+| **unim-config (CLI)** | `unim-config/src/main.rs` | CLI `ConfigKey` enum + setter dispatch |
+| **로케일** | `unim-config/locales/*.yml` | CLI 라벨/에러 메시지 (ko, en) |
+| **unim-dbus** | `unim-dbus/src/service.rs` | key-기반 레거시 `get_config`/`set_config` 디스패치. YAML/JSON 엔드포인트는 serde로 전체 구조체를 자동 처리하므로 신규 필드는 자동 반영됨 |
+| **unim-gui 설정** | `unim-gui-gtk/src/gtk_ui.rs` | GTK GUI 위젯 바인딩 (유일한 GUI 창구) |
+
+GNOME Shell 의존 키(예: indicator 토글 등)만 `unim-gnome-extension/prefs.js` +
+`*.gschema.xml`도 함께 업데이트합니다. 그 외 일반 설정은 gschema에 추가하지 마세요.
 
 ## 설정 항목 추가/변경 시 체크리스트
 
-1. [ ] `src/config.rs` - 설정 구조체에 새 필드 추가
-2. [ ] `unim-config/src/main.rs` - `ConfigKey` enum 및 관련 함수 업데이트
-3. [ ] `unim-config/locales/*.yml` - 번역 문자열 추가
-4. [ ] `unim-dbus/src/service.rs` - `get_config`/`set_config` 매칭 업데이트
-5. [ ] `unim-gui-gtk/src/gtk_ui.rs` - UI 위젯 및 설정 연동 추가
-6. [ ] `unim-gnome-extension/prefs.js` - GSettings 스키마 및 UI 추가
-7. [ ] `unim-gnome-extension/*.gschema.xml` - GSchema 정의 업데이트
-8. [ ] `unim-capi/src/lib.rs` - FFI 함수 추가 (필요 시)
+1. [ ] `src/config.rs` — 설정 구조체에 새 필드 추가 (+ `clamp_ranges()` 방어 시 범위 확인)
+2. [ ] `unim-config/src/main.rs` — `ConfigKey` enum 및 관련 함수 업데이트
+3. [ ] `unim-config/locales/{ko,en}.yml` — 번역 문자열 추가
+4. [ ] `unim-dbus/src/service.rs` — 레거시 key 디스패치가 필요한 경우 매칭 업데이트 (YAML/JSON은 자동)
+5. [ ] `unim-gui-gtk/src/gtk_ui.rs` — GTK GUI 위젯 및 바인딩 추가
+6. [ ] (GNOME Shell 전용 키일 때만) `unim-gnome-extension/prefs.js` + `*.gschema.xml`
+
+## DBus API (Phase 2)
+
+| API | 시그니처 | 용도 |
+| --- | -------- | ---- |
+| `GetConfigYaml()` | → `s` | 전체 Config를 YAML로 반환 (파일 포맷과 동일) |
+| `GetConfigJson()` | → `s` | 전체 Config를 JSON으로 반환 (JS 친화) |
+| `SetConfigYaml(yaml)` | `s` → | YAML 파싱 → clamp → 저장 → `ConfigChangedJson` 방출 |
+| `ConfigChangedJson` signal | `s` | 변경 후 전체 Config JSON payload |
+| `GetConfig`/`SetConfig`/`ConfigChanged` (legacy) | key/value | gtk3/4, qt5/6, gnome-ext, tests 호환용으로 **병존 유지** |
+
+## 마이그레이션 (Phase 6)
+
+`unim-daemon` 기동 시 1회성 루틴(`unim-daemon/src/migration.rs`)이 legacy GSettings
+값을 `config.yaml`로 이관합니다. 가드 파일 `~/.config/unim/.migrated-v2`가 존재하거나
+`dconf` 미설치 환경이면 스킵됩니다. 이관 성공 후에만 가드를 touch하여 재실행을 방지합니다.
 
 ## 예시: `mode_sharing` 설정 추가 시
 
 ```text
-src/config.rs           → ModeSharingMode enum 정의
-unim-config/main.rs     → ConfigKey::ModeSharing 추가
-unim-dbus/service.rs    → get_config("mode_sharing"), set_config("mode_sharing", ...) 처리
-unim-gui/settings_dialog.rs → ComboRow 추가
-prefs.js + gschema.xml  → 'mode-sharing' 키 추가
+src/config.rs               → ModeSharingMode enum 정의
+unim-config/main.rs         → ConfigKey::ModeSharing 추가
+unim-config/locales/*.yml   → 라벨/에러 번역
+unim-dbus/service.rs        → get_config("mode_sharing"), set_config(...) 처리 (레거시만)
+unim-gui-gtk/gtk_ui.rs      → ComboRow 추가
 ```
 
 ---

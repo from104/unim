@@ -29,9 +29,26 @@ trait InputMethod {
     /// 설정값 변경
     fn set_config(&self, key: &str, value: &str) -> Result<()>;
 
+    /// 전체 설정을 YAML 문자열로 조회
+    fn get_config_yaml(&self) -> Result<String>;
+
+    /// 전체 설정을 JSON 문자열로 조회 (ConfigChangedJson signal과 동일 직렬화)
+    fn get_config_json(&self) -> Result<String>;
+
+    /// 전체 설정을 YAML 문자열로 수신하여 저장·반영·브로드캐스트
+    fn set_config_yaml(&self, yaml: &str) -> Result<()>;
+
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
     fn global_mode_changed(&self, is_korean: bool) -> Result<()>;
+
+    /// 레거시 단일 키 설정 변경 시그널
+    #[zbus(signal)]
+    fn config_changed(&self, key: String, value: String) -> Result<()>;
+
+    /// 전체 Config JSON payload 설정 변경 시그널
+    #[zbus(signal)]
+    fn config_changed_json(&self, json: String) -> Result<()>;
 }
 
 /// InputContext 프록시 생성을 위한 trait

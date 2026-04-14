@@ -154,7 +154,8 @@ pub fn run_settings_only() {
         .build();
 
     app.connect_activate(|app| {
-        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+        // 설정 다이얼로그는 시스템 테마를 따른다 (다른 창의 ForceDark와 독립)
+        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
         settings_dialog::show_settings_dialog(app);
     });
 

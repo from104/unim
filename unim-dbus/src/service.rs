@@ -322,12 +322,22 @@ impl InputMethodService {
         is_korean: bool,
     ) -> zbus::Result<()>;
 
-    /// 설정 변경 시그널
+    /// 설정 변경 시그널 (레거시 단일 키)
     #[zbus(signal)]
     async fn config_changed(
         signal_ctx: &SignalContext<'_>,
         key: &str,
         value: &str,
+    ) -> zbus::Result<()>;
+
+    /// 설정 전체 변경 시그널 (YAML 통짜 수신 → JSON 브로드캐스트)
+    ///
+    /// payload는 전체 Config의 JSON 직렬화. GNOME extension / GTK GUI /
+    /// Qt GUI 등 모든 클라이언트가 이 한 번의 시그널로 전 설정을 갱신한다.
+    #[zbus(signal)]
+    async fn config_changed_json(
+        signal_ctx: &SignalContext<'_>,
+        json: &str,
     ) -> zbus::Result<()>;
 
     /// 글로벌 TypeFix 변환 (마지막 포커스된 컨텍스트 대상)
@@ -389,8 +399,6 @@ impl InputMethodService {
                 unim::config::ModeSharingMode::Global => "Global".to_string(),
                 unim::config::ModeSharingMode::PerApp => "PerApp".to_string(),
             },
-            "auto_switch_enabled" => config.engine.auto_switch.enabled.to_string(),
-            "auto_switch_threshold" => config.engine.auto_switch.threshold.to_string(),
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
@@ -470,16 +478,6 @@ impl InputMethodService {
                         }
                     };
                 }
-                "auto_switch_enabled" => {
-                    config.engine.auto_switch.enabled = value
-                        .parse()
-                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
-                }
-                "auto_switch_threshold" => {
-                    config.engine.auto_switch.threshold = value
-                        .parse()
-                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid float".to_string()))?;
-                }
                 "toggle_keys" => {
                     let keys: Vec<String> = value
                         .split(',')
@@ -546,6 +544,82 @@ impl InputMethodService {
         // 시그널 브로드캐스트
         Self::config_changed(&signal_ctx, key, value).await?;
         unim_log!("DBUS", "[DBus] Config changed: {} = {}", key, value);
+        Ok(())
+    }
+
+    /// 전체 설정을 YAML 문자열로 조회 (`~/.config/unim/config.yaml`와 동일 포맷)
+    ///
+    /// 클라이언트가 단일 메서드 호출로 전체 설정을 읽을 수 있다.
+    async fn get_config_yaml(&self) -> zbus::fdo::Result<String> {
+        let config = self.config.read().await;
+        let yaml = serde_yaml::to_string(&*config).map_err(|e| {
+            zbus::fdo::Error::Failed(format!("Config YAML 직렬화 실패: {}", e))
+        })?;
+        Ok(yaml)
+    }
+
+    /// 전체 설정을 JSON 문자열로 조회
+    ///
+    /// `ConfigChangedJson` signal payload와 동일한 직렬화. GNOME extension 등
+    /// JS 클라이언트가 YAML 파서 없이 시작 시점의 전체 Config를 읽기 위한 메서드.
+    async fn get_config_json(&self) -> zbus::fdo::Result<String> {
+        let config = self.config.read().await;
+        let json = serde_json::to_string(&*config).map_err(|e| {
+            zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e))
+        })?;
+        Ok(json)
+    }
+
+    /// 전체 설정을 YAML 문자열로 수신하여 저장·반영·브로드캐스트
+    ///
+    /// 동작 순서:
+    /// 1. YAML 파싱 — 실패 시 `InvalidArgs`
+    /// 2. `AutoTypeFixConfig::clamp_ranges()` 방어 호출
+    /// 3. `save_to_default_path()` — 실패 시 `Failed`
+    /// 4. 공유 Config(Arc<RwLock>) 갱신 (lock 범위 최소화)
+    /// 5. lock 해제 후 `ConfigChangedJson` signal 방출 (payload = JSON)
+    async fn set_config_yaml(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        yaml: String,
+    ) -> zbus::fdo::Result<()> {
+        // 1. 파싱
+        let mut new_config: Config = serde_yaml::from_str(&yaml).map_err(|e| {
+            zbus::fdo::Error::InvalidArgs(format!("YAML 파싱 실패: {}", e))
+        })?;
+
+        // 2. 범위 방어
+        new_config.engine.auto_typefix.clamp_ranges();
+
+        // 3. 파일 저장
+        if let Err(e) = new_config.save_to_default_path() {
+            unim_log!("DBUS", "[DBus] SetConfigYaml save 실패: {}", e);
+            return Err(zbus::fdo::Error::Failed(format!(
+                "Config 파일 저장 실패: {}",
+                e
+            )));
+        }
+
+        // 4. 공유 Config 갱신 — lock 스코프 최소화
+        let json = {
+            let mut cfg = self.config.write().await;
+            *cfg = new_config;
+            // JSON 직렬화도 lock 안에서 (Config 복제 비용 회피)
+            serde_json::to_string(&*cfg).map_err(|e| {
+                zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e))
+            })?
+        };
+        // lock drop 완료
+
+        // 5. signal 방출 — payload는 JSON (GNOME extension JS 호환성)
+        Self::config_changed_json(&signal_ctx, &json).await?;
+
+        unim_log!(
+            "DBUS",
+            "[DBus] SetConfigYaml: {} bytes, ConfigChangedJson emitted ({} bytes)",
+            yaml.len(),
+            json.len()
+        );
         Ok(())
     }
 }

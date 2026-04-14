@@ -85,13 +85,23 @@ Module names: `ENGINE`, `HANGUL`, `DAEMON`, `DBUS`, `XIM`, `WAYLAND`, `CLI`, `IN
 
 ## Settings Synchronization
 
-When adding/changing settings in `src/config.rs`, all these must be updated in sync:
+Post Phase 1~7 overhaul (2026-04): general settings live solely in `~/.config/unim/config.yaml`.
+GSettings is now reserved for **GNOME Shell-only keys** (indicator/extension runtime), not user-facing options.
+
+When adding/changing general settings in `src/config.rs`, update these **5 points** in sync:
 1. `src/config.rs` — struct field (source of truth)
-2. `unim-config/src/main.rs` — CLI ConfigKey enum
-3. `unim-config/locales/*.yml` — translations
-4. `unim-dbus/src/service.rs` — get_config/set_config methods
-5. `unim-gui-gtk/src/gtk_ui.rs` — GTK UI widgets
-6. `unim-gnome-extension/prefs.js` + `*.gschema.xml` — GNOME prefs
+2. `unim-config/src/main.rs` — CLI `ConfigKey` enum + setter dispatch
+3. `unim-config/locales/*.yml` — translation strings
+4. `unim-dbus/src/service.rs` — `get_config`/`set_config` key dispatch (YAML/JSON endpoints handle the whole struct automatically via serde)
+5. `unim-gui-gtk/src/gtk_ui.rs` — GTK widget binding (single GUI entry point; Qt tray redirects via `unim-gui-gtk --settings`)
+
+GNOME Shell extension (`unim-gnome-extension/prefs.js` + `*.gschema.xml`) only needs updates for
+shell-specific keys; `prefs.js` otherwise redirects to the GTK GUI. Config migration from the
+legacy GSettings tree runs once via `unim-daemon/src/migration.rs` guarded by `~/.config/unim/.migrated-v2`.
+
+DBus interface (see `unim-dbus/SPEC.md`): modern `GetConfigYaml`/`SetConfigYaml`/`GetConfigJson`
++ `ConfigChangedJson` signal coexist with legacy `GetConfig`/`SetConfig`/`ConfigChanged` (still
+used by gtk3/4, qt5/6, gnome extension, tests; retained indefinitely for compatibility).
 
 ## Debugging
 

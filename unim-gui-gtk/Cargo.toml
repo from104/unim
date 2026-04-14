@@ -21,7 +21,7 @@ ksni = { version = "0.3", features = ["blocking"] }
 gtk4 = "0.9"
 gdk4-x11 = { version = "0.9", optional = true }
 gtk4-layer-shell = { version = "0.4", optional = true }
-libadwaita = "0.7"
+libadwaita = { version = "0.7", features = ["v1_4"] }
 
 # X11 direct access (override-redirect)
 x11 = { version = "2.21", features = ["xlib"], optional = true }
@@ -29,6 +29,12 @@ x11 = { version = "2.21", features = ["xlib"], optional = true }
 # Async runtime for DBus
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
+
+# Config serialization (for DBus set_config_yaml client call)
+serde_yaml = "0.9"
+
+# unim-dbus proxy (client)
+unim-dbus = { path = "../unim-dbus" }
 
 [features]
 default = ["gdk4-x11", "x11"]
