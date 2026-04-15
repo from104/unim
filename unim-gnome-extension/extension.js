@@ -562,7 +562,7 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            // 글로벌 TypeFix 호출 — 마지막 포커스된 컨텍스트의 surrounding text로 변환
+            // 글로벌 TypeFix 호출 — 선택된 텍스트만 변환
             const result = proxy.call_sync(
                 'TypeFix',
                 new GLib.Variant('(u)', [direction]),
@@ -576,18 +576,18 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            const [deleteCount, replacement] = result.deep_unpack();
+            const [deleteOffset, deleteCount, replacement] = result.deep_unpack();
 
             if (deleteCount === 0 || !replacement) {
                 unimLog('EXTENSION', 'TypeFIX: 변환할 텍스트 없음');
                 return;
             }
 
-            unimLog('EXTENSION', `TypeFIX 완료: delete=${deleteCount}, replacement='${replacement}'`);
+            unimLog('EXTENSION', `TypeFIX 완료: offset=${deleteOffset}, delete=${deleteCount}, replacement='${replacement}'`);
 
-            // 텍스트 치환: surrounding text 삭제 후 대체 텍스트 커밋
+            // 텍스트 치환: 정확한 위치에서 선택 텍스트 삭제 후 대체 텍스트 커밋
             if (this._inputMethod) {
-                this._inputMethod.deleteSurrounding(deleteCount);
+                this._inputMethod.delete_surrounding(deleteOffset, deleteCount);
                 this._inputMethod.commitText(replacement);
             }
 

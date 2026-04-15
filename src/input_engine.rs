@@ -1176,9 +1176,12 @@ impl InputEngine {
     /// * `direction` - 0: 자동 감지, 1: 영→한, 2: 한→영
     ///
     /// # Returns
-    /// * `Some((delete_chars, replacement))` - 변환 성공
+    /// * `Some((offset_from_cursor, delete_chars, replacement))` - 변환 성공
+    ///   - `offset_from_cursor`: 커서로부터의 오프셋 (음수=앞, 0=현재/뒤)
+    ///   - `delete_chars`: 삭제할 문자 수
+    ///   - `replacement`: 대체 텍스트
     /// * `None` - 선택 영역이 없거나 surrounding text가 없음
-    pub fn typefix_convert(&mut self, direction: u32) -> Option<(u32, String)> {
+    pub fn typefix_convert(&mut self, direction: u32) -> Option<(i32, u32, String)> {
         if self.surrounding_text.is_empty() {
             return None;
         }
@@ -1196,6 +1199,9 @@ impl InputEngine {
         let end = cursor.max(anchor);
         let word: String = chars[start..end.min(chars.len())].iter().collect();
         let delete_chars = word.chars().count() as u32;
+
+        // 커서로부터의 오프셋 계산: 음수=커서 앞, 0=커서 뒤
+        let offset_from_cursor = (start as i32) - (cursor as i32);
 
         if word.is_empty() {
             return None;
@@ -1260,7 +1266,7 @@ impl InputEngine {
                     self.update_status_file();
                 }
             }
-            Some((delete_chars, repl.clone()))
+            Some((offset_from_cursor, delete_chars, repl.clone()))
         } else {
             None
         }
@@ -1726,7 +1732,8 @@ mod tests {
         // TypeFix 자동 감지 (영문 → 한글)
         let result = engine.typefix_convert(0);
         assert!(result.is_some());
-        let (delete_count, replacement) = result.unwrap();
+        let (offset, delete_count, replacement) = result.unwrap();
+        assert_eq!(offset, -6); // cursor=6, start=0 → offset = 0 - 6 = -6
         assert_eq!(delete_count, 6);
         assert_eq!(replacement, "한글");
         assert_eq!(engine.input_category(), InputCategory::Korean);
@@ -1751,7 +1758,8 @@ mod tests {
 
         let result = engine.typefix_convert(2);
         assert!(result.is_some());
-        let (delete_count, replacement) = result.unwrap();
+        let (offset, delete_count, replacement) = result.unwrap();
+        assert_eq!(offset, -2); // cursor=2, start=0 → offset = 0 - 2 = -2
         assert_eq!(delete_count, 2);
         assert_eq!(replacement, "gksrmf");
         assert_eq!(engine.input_category(), InputCategory::English);
@@ -1768,7 +1776,8 @@ mod tests {
 
         let result = engine.typefix_convert(0);
         assert!(result.is_some());
-        let (delete_count, replacement) = result.unwrap();
+        let (offset, delete_count, replacement) = result.unwrap();
+        assert_eq!(offset, -6); // cursor=12, start=6 → offset = 6 - 12 = -6
         assert_eq!(delete_count, 6); // "gksrmf" 6글자 삭제
         assert_eq!(replacement, "한글");
         assert_eq!(engine.input_category(), InputCategory::Korean);
@@ -1785,7 +1794,7 @@ mod tests {
 
         let result = engine.typefix_convert(0);
         assert!(result.is_some());
-        let (_delete_count, replacement) = result.unwrap();
+        let (_offset, _delete_count, replacement) = result.unwrap();
         assert!(!replacement.is_empty());
         assert_eq!(engine.input_category(), InputCategory::English);
     }

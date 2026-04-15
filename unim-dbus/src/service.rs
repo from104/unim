@@ -112,7 +112,7 @@ pub enum EngineRequest {
     /// 글로벌 TypeFix 변환 요청 (마지막 포커스된 컨텍스트 대상)
     GlobalTypeFix {
         direction: u32,
-        response: oneshot::Sender<Option<(u32, String)>>,
+        response: oneshot::Sender<Option<(i32, u32, String)>>,
     },
     /// Smart Backspace 요청
     SmartBackspace {
@@ -342,8 +342,9 @@ impl InputMethodService {
 
     /// 글로벌 TypeFix 변환 (마지막 포커스된 컨텍스트 대상)
     /// direction: 0=자동, 1=영→한, 2=한→영
-    /// 반환값: (삭제할 문자 수, 대체 텍스트) 또는 (0, "")
-    async fn type_fix(&self, direction: u32) -> zbus::fdo::Result<(u32, String)> {
+    /// 반환값: (커서로부터의 오프셋, 삭제할 문자 수, 대체 텍스트) 또는 (0, 0, "")
+    /// - offset_from_cursor: 음수=커서 앞, 0=현재/뒤에서 삭제 시작
+    async fn type_fix(&self, direction: u32) -> zbus::fdo::Result<(i32, u32, String)> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -358,16 +359,17 @@ impl InputMethodService {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
-        if let Some((delete_chars, replacement)) = result {
+        if let Some((offset_from_cursor, delete_chars, replacement)) = result {
             unim_log!(
                 "DBUS",
-                "[DBus] GlobalTypeFix: delete={}, replacement='{}'",
+                "[DBus] GlobalTypeFix: offset={}, delete={}, replacement='{}'",
+                offset_from_cursor,
                 delete_chars,
                 replacement
             );
-            Ok((delete_chars, replacement))
+            Ok((offset_from_cursor, delete_chars, replacement))
         } else {
-            Ok((0, String::new()))
+            Ok((0_i32, 0_u32, String::new()))
         }
     }
 
