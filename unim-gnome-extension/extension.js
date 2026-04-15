@@ -550,7 +550,19 @@ export default class UnimExtension extends Extension {
         // DBus TypeFix API 사용 (클립보드 미사용)
         // direction: 0=자동, 1=영→한, 2=한→영
         const direction = isReverse ? 2 : 0;
-        this._doTypeFix(direction);
+
+        // gedit/gnome-text-editor 호환: request_surrounding() 먼저 호출
+        // 앱이 현재 선택 정보를 포함한 latest surrounding text를 보낼 때까지 대기
+        if (this._inputMethod) {
+            this._inputMethod.request_surrounding();
+            // 앱 응답 대기 후 TypeFix 수행 (vfunc_set_surrounding 응답 시간)
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+                this._doTypeFix(direction);
+                return GLib.SOURCE_REMOVE;
+            });
+        } else {
+            this._doTypeFix(direction);
+        }
     }
 
     _doTypeFix(direction) {
