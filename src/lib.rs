@@ -8,3 +8,4 @@ pub mod logging;
 pub mod popup;
 pub mod status;
 pub mod typefix;
+pub mod typefix_blacklist;

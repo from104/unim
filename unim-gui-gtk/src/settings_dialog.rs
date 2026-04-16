@@ -16,8 +16,10 @@ use unim::config::{
     Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode, PopupMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
+    AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
+use unim::typefix_blacklist::{Blacklist, Direction, EntryStatus};
 use unim::unim_log;
 
 use std::cell::RefCell;
@@ -102,7 +104,11 @@ pub fn show_settings_dialog(app: &adw::Application) {
     page_typefix.add(&master_group);
     window.add(&page_typefix);
 
-    // ── Page 3: GNOME Shell (GNOME 세션 전용) ────────────────
+    // ── Page 3: 억제 단어 ─────────────────────────────────────
+    let page_blacklist = build_blacklist_page();
+    window.add(&page_blacklist);
+
+    // ── Page 4: GNOME Shell (GNOME 세션 전용) ────────────────
     if is_gnome_session() {
         if let Some(page_gnome) = build_gnome_page(&window) {
             window.add(&page_gnome);
@@ -612,6 +618,61 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&master);
+
+    // 자연 롤백 자동 감지 (백스페이스 + 모드 전환)
+    let rollback_sw = adw::SwitchRow::builder()
+        .title("자연 롤백 자동 감지")
+        .subtitle("교정 결과를 지우고 모드 전환하면 임시 억제 단어로 기록")
+        .build();
+    {
+        let s = state.borrow();
+        rollback_sw.set_active(s.config.engine.auto_typefix.rollback_detection);
+    }
+    {
+        let state_c = state.clone();
+        rollback_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.rollback_detection = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_rollback_detection");
+        });
+    }
+    group.add(&rollback_sw);
+
+    // 임시 억제 만료 (일)
+    let exp_adj = gtk4::Adjustment::new(
+        7.0,
+        AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN as f64,
+        AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX as f64,
+        1.0,
+        1.0,
+        0.0,
+    );
+    let exp_row = adw::SpinRow::builder()
+        .title("임시 억제 만료 (일)")
+        .subtitle("이 기간 내 수동 확정하지 않으면 비활성화")
+        .adjustment(&exp_adj)
+        .digits(0)
+        .build();
+    {
+        let s = state.borrow();
+        exp_adj.set_value(s.config.engine.auto_typefix.tentative_expiry_days as f64);
+    }
+    {
+        let state_c = state.clone();
+        exp_row.connect_value_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.tentative_expiry_days = row.value() as u16;
+            save_and_notify(&s.config, "auto_typefix_tentative_expiry_days");
+        });
+    }
+    group.add(&exp_row);
+
     group
 }
 
@@ -799,4 +860,261 @@ where
     });
 
     row
+}
+
+// ─────────────────────────────────────────────────────────────
+// Page 3: 억제 단어 관리 (학습형 Blacklist)
+// ─────────────────────────────────────────────────────────────
+
+/// 3개 PreferencesGroup의 핸들 + 각 그룹에 추가된 Row들 추적용 Vec.
+///
+/// Adw.PreferencesGroup에는 "자식 전부 제거" API가 없으므로, 추가한 Row들을
+/// 우리가 직접 추적해서 재구성 시 명시적으로 `remove()`로 떼어낸다.
+struct BlacklistPageRefs {
+    tentative_group: adw::PreferencesGroup,
+    confirmed_group: adw::PreferencesGroup,
+    inactive_group: adw::PreferencesGroup,
+    tentative_rows: RefCell<Vec<gtk4::Widget>>,
+    confirmed_rows: RefCell<Vec<gtk4::Widget>>,
+    inactive_rows: RefCell<Vec<gtk4::Widget>>,
+}
+
+/// 억제 단어 페이지 생성.
+///
+/// 파일(`~/.config/unim/typefix-blacklist.yaml`)을 직접 R/W하고, daemon은 mtime
+/// 감지로 자동 reload한다 (별도 DBus 라운드트립 없음).
+///
+/// 3개 섹션:
+/// - 승인 대기(Tentative): 자동 감지된 의심 단어. [확정]/[비활성화]/[삭제]
+/// - 확정(Confirmed): 영구 억제. [비활성화]/[삭제]
+/// - 비활성(Inactive): 만료/수동 비활성. [재활성화]/[삭제]
+fn build_blacklist_page() -> adw::PreferencesPage {
+    let page = adw::PreferencesPage::builder()
+        .title("억제 단어")
+        .icon_name("edit-clear-all-symbolic")
+        .build();
+
+    let tentative_group = adw::PreferencesGroup::builder().title("승인 대기").build();
+    let confirmed_group = adw::PreferencesGroup::builder().title("확정").build();
+    let inactive_group = adw::PreferencesGroup::builder().title("비활성").build();
+    page.add(&tentative_group);
+    page.add(&confirmed_group);
+    page.add(&inactive_group);
+
+    let refs = Rc::new(BlacklistPageRefs {
+        tentative_group,
+        confirmed_group,
+        inactive_group,
+        tentative_rows: RefCell::new(Vec::new()),
+        confirmed_rows: RefCell::new(Vec::new()),
+        inactive_rows: RefCell::new(Vec::new()),
+    });
+
+    refill_blacklist_groups(&refs);
+    page
+}
+
+/// 3개 그룹의 모든 row를 제거한 뒤 현재 파일 상태로 다시 채운다.
+fn refill_blacklist_groups(refs: &Rc<BlacklistPageRefs>) {
+    // 기존 row 모두 제거 — 추적해 둔 Vec를 명시적으로 순회.
+    for row in refs.tentative_rows.borrow().iter() {
+        refs.tentative_group.remove(row);
+    }
+    for row in refs.confirmed_rows.borrow().iter() {
+        refs.confirmed_group.remove(row);
+    }
+    for row in refs.inactive_rows.borrow().iter() {
+        refs.inactive_group.remove(row);
+    }
+    refs.tentative_rows.borrow_mut().clear();
+    refs.confirmed_rows.borrow_mut().clear();
+    refs.inactive_rows.borrow_mut().clear();
+
+    let bl = Blacklist::load_from_default_path();
+
+    let (mut t_count, mut c_count, mut i_count) = (0usize, 0usize, 0usize);
+    for (idx, entry) in bl.entries.iter().enumerate() {
+        match entry.status {
+            EntryStatus::Tentative => {
+                let row = build_blacklist_row(entry, idx, refs, BlacklistRowKind::Tentative);
+                refs.tentative_group.add(&row);
+                refs.tentative_rows.borrow_mut().push(row.upcast());
+                t_count += 1;
+            }
+            EntryStatus::Confirmed => {
+                let row = build_blacklist_row(entry, idx, refs, BlacklistRowKind::Confirmed);
+                refs.confirmed_group.add(&row);
+                refs.confirmed_rows.borrow_mut().push(row.upcast());
+                c_count += 1;
+            }
+            EntryStatus::Inactive => {
+                let row = build_blacklist_row(entry, idx, refs, BlacklistRowKind::Inactive);
+                refs.inactive_group.add(&row);
+                refs.inactive_rows.borrow_mut().push(row.upcast());
+                i_count += 1;
+            }
+        }
+    }
+
+    // 비어 있는 섹션엔 placeholder row 하나 추가.
+    if t_count == 0 {
+        let row = empty_placeholder_row("기록 없음");
+        refs.tentative_group.add(&row);
+        refs.tentative_rows.borrow_mut().push(row.upcast());
+    }
+    if c_count == 0 {
+        let row = empty_placeholder_row("기록 없음");
+        refs.confirmed_group.add(&row);
+        refs.confirmed_rows.borrow_mut().push(row.upcast());
+    }
+    if i_count == 0 {
+        let row = empty_placeholder_row("기록 없음");
+        refs.inactive_group.add(&row);
+        refs.inactive_rows.borrow_mut().push(row.upcast());
+    }
+
+    refs.tentative_group.set_description(Some(&format!(
+        "자연 롤백으로 자동 감지된 의심 단어 — 확정하면 영구 억제 ({}개)",
+        t_count
+    )));
+    refs.confirmed_group
+        .set_description(Some(&format!("영구 억제 대상 ({}개)", c_count)));
+    refs.inactive_group
+        .set_description(Some(&format!("만료되어 억제 효과 없음 ({}개)", i_count)));
+}
+
+fn empty_placeholder_row(text: &str) -> adw::ActionRow {
+    adw::ActionRow::builder().title(text).sensitive(false).build()
+}
+
+#[derive(Clone, Copy)]
+enum BlacklistRowKind {
+    Tentative,
+    Confirmed,
+    Inactive,
+}
+
+fn build_blacklist_row(
+    entry: &unim::typefix_blacklist::BlacklistEntry,
+    idx: usize,
+    refs: &Rc<BlacklistPageRefs>,
+    kind: BlacklistRowKind,
+) -> adw::ActionRow {
+    let subtitle = format!(
+        "{} · 한글:{} · 영문:{} · 히트:{}",
+        direction_label(entry.direction),
+        entry.korean_layout.display_name(),
+        entry.english_layout.display_name(),
+        entry.hit_count,
+    );
+
+    let row = adw::ActionRow::builder()
+        .title(&entry.ascii)
+        .subtitle(&subtitle)
+        .build();
+
+    match kind {
+        BlacklistRowKind::Tentative => {
+            row.add_suffix(&make_action_button(
+                "emblem-ok-symbolic",
+                "확정",
+                idx,
+                refs,
+                |bl, i| bl.promote_to_confirmed(i),
+            ));
+            row.add_suffix(&make_action_button(
+                "window-close-symbolic",
+                "비활성화",
+                idx,
+                refs,
+                |bl, i| bl.deactivate(i),
+            ));
+            row.add_suffix(&make_action_button(
+                "user-trash-symbolic",
+                "삭제",
+                idx,
+                refs,
+                |bl, i| bl.remove(i),
+            ));
+        }
+        BlacklistRowKind::Confirmed => {
+            row.add_suffix(&make_action_button(
+                "window-close-symbolic",
+                "비활성화",
+                idx,
+                refs,
+                |bl, i| bl.deactivate(i),
+            ));
+            row.add_suffix(&make_action_button(
+                "user-trash-symbolic",
+                "삭제",
+                idx,
+                refs,
+                |bl, i| bl.remove(i),
+            ));
+        }
+        BlacklistRowKind::Inactive => {
+            row.add_suffix(&make_action_button(
+                "emblem-ok-symbolic",
+                "재활성화(확정)",
+                idx,
+                refs,
+                |bl, i| bl.reactivate_as_confirmed(i),
+            ));
+            row.add_suffix(&make_action_button(
+                "user-trash-symbolic",
+                "삭제",
+                idx,
+                refs,
+                |bl, i| bl.remove(i),
+            ));
+        }
+    }
+
+    row
+}
+
+fn direction_label(dir: Direction) -> &'static str {
+    match dir {
+        Direction::Forward => "순방향(영→한)",
+        Direction::Reverse => "역방향(한→영)",
+    }
+}
+
+/// 버튼 하나를 만들어 `action`을 실행하고 페이지를 rebuild한다.
+///
+/// action은 `(&mut Blacklist, idx)`를 받아 상태 변경. 실행 후 파일 저장 + UI 새로고침.
+fn make_action_button<F>(
+    icon_name: &str,
+    tooltip: &str,
+    idx: usize,
+    refs: &Rc<BlacklistPageRefs>,
+    action: F,
+) -> gtk4::Button
+where
+    F: Fn(&mut Blacklist, usize) + 'static,
+{
+    let btn = gtk4::Button::builder()
+        .icon_name(icon_name)
+        .tooltip_text(tooltip)
+        .valign(gtk4::Align::Center)
+        .css_classes(vec!["flat"])
+        .build();
+
+    let refs_c = refs.clone();
+    btn.connect_clicked(move |_| {
+        let mut bl = Blacklist::load_from_default_path();
+        action(&mut bl, idx);
+        match bl.save_to_default_path() {
+            Ok(_) => {
+                show_toast("저장됨 ✓");
+                refill_blacklist_groups(&refs_c);
+            }
+            Err(e) => {
+                unim_log!("INDICATOR", "[Settings] blacklist 저장 실패: {}", e);
+                show_toast(&format!("저장 실패: {}", e));
+            }
+        }
+    });
+    btn
 }

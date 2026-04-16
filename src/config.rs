@@ -236,6 +236,8 @@ pub const AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN: u8 = 3;
 pub const AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX: u8 = 8;
 pub const AUTO_TYPEFIX_TIME_WINDOW_MIN: u32 = 500;
 pub const AUTO_TYPEFIX_TIME_WINDOW_MAX: u32 = 5000;
+pub const AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN: u16 = 1;
+pub const AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX: u16 = 90;
 
 fn default_auto_typefix_enabled() -> bool {
     true
@@ -260,6 +262,12 @@ fn default_auto_typefix_skip_on_english_word() -> bool {
 }
 fn default_auto_typefix_skip_on_complete_syllable() -> bool {
     true
+}
+fn default_auto_typefix_rollback_detection() -> bool {
+    true
+}
+fn default_auto_typefix_tentative_expiry_days() -> u16 {
+    7
 }
 
 /// 자동 오타 교정 (AutoTypeFix) 설정
@@ -290,6 +298,12 @@ pub struct AutoTypeFixConfig {
     /// 역방향 트리거 시 버퍼의 한글이 모두 완성 음절이면 억제 (기본 true, 기존 동작 유지)
     #[serde(default = "default_auto_typefix_skip_on_complete_syllable")]
     pub skip_on_complete_syllable: bool,
+    /// 자연 롤백(백스페이스 + 모드 전환) 감지로 임시 억제 단어 자동 기록 (기본 true)
+    #[serde(default = "default_auto_typefix_rollback_detection")]
+    pub rollback_detection: bool,
+    /// 임시 억제 단어 만료 기간 (일) — 이 기간 내 수동 확정 안 되면 inactive로 전환 (1~90, 기본 7)
+    #[serde(default = "default_auto_typefix_tentative_expiry_days")]
+    pub tentative_expiry_days: u16,
 }
 
 impl Default for AutoTypeFixConfig {
@@ -303,6 +317,8 @@ impl Default for AutoTypeFixConfig {
             reverse: default_auto_typefix_reverse(),
             skip_on_english_word: default_auto_typefix_skip_on_english_word(),
             skip_on_complete_syllable: default_auto_typefix_skip_on_complete_syllable(),
+            rollback_detection: default_auto_typefix_rollback_detection(),
+            tentative_expiry_days: default_auto_typefix_tentative_expiry_days(),
         }
     }
 }
@@ -323,6 +339,10 @@ impl AutoTypeFixConfig {
         self.time_window_ms = self
             .time_window_ms
             .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+        self.tentative_expiry_days = self.tentative_expiry_days.clamp(
+            AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
+            AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
+        );
     }
 }
 
@@ -899,6 +919,25 @@ mod tests {
         assert!(c.reverse);
         assert!(c.skip_on_english_word);
         assert!(c.skip_on_complete_syllable);
+        assert!(c.rollback_detection);
+        assert_eq!(c.tentative_expiry_days, 7);
+    }
+
+    #[test]
+    fn test_auto_typefix_clamp_expiry() {
+        let mut c = AutoTypeFixConfig {
+            tentative_expiry_days: 500,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.tentative_expiry_days, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX);
+
+        let mut c = AutoTypeFixConfig {
+            tentative_expiry_days: 0,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.tentative_expiry_days, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN);
     }
 
     #[test]

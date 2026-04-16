@@ -6,15 +6,53 @@
 
 use std::collections::HashMap;
 use std::thread;
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 
 use crate::service::{EngineRequest, EngineResponse};
 use unim::auto_typefix::{self, KeystrokeBuffer};
-use unim::config::Config;
+use unim::config::{Config, EnglishLayout, KoreanLayout};
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
+use unim::typefix_blacklist::{Blacklist, Direction};
 use unim::unim_log;
+
+/// 사용자의 자연스러운 롤백(백스페이스 + 모드 전환)을 포착하기 위한 옵저버 상태.
+///
+/// AutoTypeFix 트리거 직후 생성되며, 사용자가 corrected 글자 수만큼 Backspace를
+/// 누르고(backspace_complete=true) 이어서 모드 전환 키를 누르면 blacklist에
+/// 임시 억제 단어(tentative)로 등록된다.
+///
+/// 옵저버는 다음 중 하나의 이벤트로 소멸된다:
+/// - 목표 달성(backspace_complete && 모드 전환) → blacklist 등록 후 제거
+/// - Ctrl+Z → 기존 되돌리기 경로에서 제거
+/// - 문자 키 입력(롤백 아님) → 제거
+/// - 포커스 변경 / 10초 타임아웃 → 제거
+struct RollbackObserver {
+    ascii: String,
+    direction: Direction,
+    korean_layout: KoreanLayout,
+    english_layout: EnglishLayout,
+
+    /// 기존 Ctrl+Z 되돌리기용 (corrected는 복원 시 삭제할 글자 수 산출에도 사용)
+    corrected: String,
+    original: String,
+
+    /// corrected.chars().count() — 이 수만큼 Backspace가 들어와야 완료
+    corrected_len: u32,
+    backspace_count: u32,
+    backspace_complete: bool,
+
+    /// 관찰 시작 시각 (10초 타임아웃용)
+    observed_at: Instant,
+}
+
+impl RollbackObserver {
+    fn is_expired(&self) -> bool {
+        self.observed_at.elapsed().as_secs() > 10
+    }
+}
 
 /// window_id에서 앱 식별자를 추출합니다.
 /// 형식: "app_name:window_specific_id" → "app_name"
@@ -49,9 +87,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     let mut last_focused_context_id: Option<u32> = None;
     // AutoTypeFix: 컨텍스트별 키스트로크 버퍼
     let mut keystroke_buffers: HashMap<u32, KeystrokeBuffer> = HashMap::new();
-    // AutoTypeFix: 마지막 교정 결과 (Ctrl+Z 되돌리기용)
-    // (delete_chars, corrected_text, original_text)
-    let mut last_autofix: HashMap<u32, (u32, String, String)> = HashMap::new();
+    // AutoTypeFix: 자연 롤백 옵저버 (Ctrl+Z 되돌리기 + 자동 Blacklist 등록용)
+    let mut rollback_observers: HashMap<u32, RollbackObserver> = HashMap::new();
+    // AutoTypeFix: 학습형 억제 단어 목록 (파일 기반, mtime 감지 reload)
+    let mut blacklist = Blacklist::load_from_default_path();
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
@@ -69,6 +108,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 engine.set_english_layout(config.engine.english.layout);
             }
         }
+
+        // 학습형 억제 단어 목록: GUI가 파일을 직접 수정할 수 있으므로
+        // 매 요청마다 mtime 기반 reload(2초 throttling) + 만료 tentative 전환.
+        if blacklist.reload_if_changed() {
+            unim_log!(
+                "ENGINE_WORKER",
+                "[Engine Worker] typefix-blacklist 파일 변경 감지 - 리로드 완료"
+            );
+        }
+        blacklist.expire_tentatives(config.engine.auto_typefix.tentative_expiry_days);
 
         match request {
             EngineRequest::CreateContext {
@@ -143,23 +192,28 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     let modifier = ModifierState::from_x11_mask(state);
                     let atf_config = &config.engine.auto_typefix;
 
+                    // 만료된 옵저버 정리 (10초 타임아웃)
+                    if let Some(obs) = rollback_observers.get(&context_id) {
+                        if obs.is_expired() {
+                            rollback_observers.remove(&context_id);
+                        }
+                    }
+
                     // Ctrl+Z: AutoTypeFix 되돌리기
                     if key == KeyCode::Z
                         && modifier.control
                         && !modifier.shift
                         && !modifier.alt
                     {
-                        if let Some((_del, corrected, original)) =
-                            last_autofix.remove(&context_id)
-                        {
-                            let delete_chars = corrected.chars().count() as u32;
+                        if let Some(obs) = rollback_observers.remove(&context_id) {
+                            let delete_chars = obs.corrected.chars().count() as u32;
                             keystroke_buffers.remove(&context_id);
 
                             unim_log!(
                                 "ENGINE_WORKER",
                                 "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}'",
-                                corrected,
-                                original
+                                obs.corrected,
+                                obs.original
                             );
 
                             let _ = response.send(EngineResponse {
@@ -168,10 +222,22 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 commit: None,
                                 mode_changed: None,
                                 popup_action: None,
-                                auto_typefix: Some((delete_chars, original, String::new())),
+                                auto_typefix: Some((delete_chars, obs.original, String::new())),
                             });
                             continue;
                         }
+                    }
+
+                    // Backspace: 옵저버가 활성 상태면 카운트 증가 (롤백 감지용).
+                    // 엔진에는 그대로 전달 — 실제 삭제는 프론트엔드 surrounding text가 처리.
+                    if key == KeyCode::Backspace {
+                        if let Some(obs) = rollback_observers.get_mut(&context_id) {
+                            obs.backspace_count += 1;
+                            if obs.backspace_count >= obs.corrected_len {
+                                obs.backspace_complete = true;
+                            }
+                        }
+                        // 옵저버는 유지 (모드 전환까지 대기) — 아래 키 처리 계속
                     }
 
                     // 처리 전 상태 저장
@@ -183,9 +249,34 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
                     let mut mode_changed = if prev_mode != current_mode {
+                        // 자연 롤백 패턴 감지: 모드 전환 + 이미 corrected 전부 삭제됨
+                        // → blacklist에 임시 억제 단어(tentative)로 자동 등록.
+                        if let Some(obs) = rollback_observers.remove(&context_id) {
+                            if obs.backspace_complete && atf_config.rollback_detection {
+                                blacklist.add_or_hit_tentative(
+                                    &obs.ascii,
+                                    obs.direction,
+                                    obs.korean_layout,
+                                    obs.english_layout,
+                                );
+                                match blacklist.save_to_default_path() {
+                                    Ok(_) => unim_log!(
+                                        "ENGINE_WORKER",
+                                        "[Engine Worker] 자연 롤백 감지 → blacklist tentative 추가: '{}' ({:?})",
+                                        obs.ascii,
+                                        obs.direction
+                                    ),
+                                    Err(e) => unim_log!(
+                                        "ENGINE_WORKER",
+                                        "[Engine Worker] blacklist 저장 실패: {}",
+                                        e
+                                    ),
+                                }
+                            }
+                        }
+
                         // 모드 변경 시 버퍼 초기화
                         keystroke_buffers.remove(&context_id);
-                        last_autofix.remove(&context_id);
 
                         // PerApp 모드에서는 앱별 모드 저장
                         if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
@@ -253,27 +344,48 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // (preedit이 이전 값 유지 — 변경 없으므로 건드리지 않음)
                             }
 
-                            // 방향에 따라 감지
-                            let fix = match current_mode {
-                                unim::config::InputCategory::English => {
+                            // 방향에 따라 감지 (blacklist 억제 게이트 포함)
+                            let (fix, direction) = match current_mode {
+                                unim::config::InputCategory::English => (
                                     auto_typefix::check_forward(
                                         buf,
                                         atf_config,
                                         config.engine.korean.layout,
                                         config.engine.english.layout,
-                                    )
-                                }
-                                unim::config::InputCategory::Korean => {
-                                    auto_typefix::check_reverse(buf, atf_config, config.engine.english.layout)
-                                }
+                                        &blacklist,
+                                    ),
+                                    Direction::Forward,
+                                ),
+                                unim::config::InputCategory::Korean => (
+                                    auto_typefix::check_reverse(
+                                        buf,
+                                        atf_config,
+                                        config.engine.korean.layout,
+                                        config.engine.english.layout,
+                                        &blacklist,
+                                    ),
+                                    Direction::Reverse,
+                                ),
                             };
 
                             if let Some(ref fix) = fix {
                                 fix_has_replay = !fix.replay_keys.is_empty();
-                                // 되돌리기용 저장
-                                last_autofix.insert(
+                                // 자연 롤백 옵저버 + Ctrl+Z 되돌리기용 통합 저장
+                                let corrected_len = fix.corrected.chars().count() as u32;
+                                rollback_observers.insert(
                                     context_id,
-                                    (fix.delete_chars, fix.corrected.clone(), fix.original.clone()),
+                                    RollbackObserver {
+                                        ascii: fix.original.clone(),
+                                        direction,
+                                        korean_layout: config.engine.korean.layout,
+                                        english_layout: config.engine.english.layout,
+                                        corrected: fix.corrected.clone(),
+                                        original: fix.original.clone(),
+                                        corrected_len,
+                                        backspace_count: 0,
+                                        backspace_complete: false,
+                                        observed_at: Instant::now(),
+                                    },
                                 );
 
                                 unim_log!(
@@ -371,21 +483,26 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     Some((real_delete, fix.commit_text.clone(), String::new()))
                                 }
                             } else {
-                                // 교정 안 됨 → 되돌리기 기록 삭제
-                                last_autofix.remove(&context_id);
+                                // 교정 안 됨 → 사용자가 다른 알파벳 키를 입력했다는 뜻.
+                                // 이전 옵저버는 롤백이 아니므로 폐기.
+                                rollback_observers.remove(&context_id);
                                 None
                             }
                         } else {
-                            // 비알파벳 키 → 버퍼 초기화
+                            // 비알파벳 키 → 버퍼 초기화.
+                            // Backspace는 롤백 카운트에 이미 반영됐으므로 옵저버 유지,
+                            // 그 외(Enter/Space/Tab 등)는 "롤백 아님"으로 간주하여 폐기.
                             buf.clear();
-                            last_autofix.remove(&context_id);
+                            if key != KeyCode::Backspace {
+                                rollback_observers.remove(&context_id);
+                            }
                             None
                         }
                     } else {
-                        // 모드 변경 또는 팝업 활성 → 버퍼 초기화
+                        // 모드 변경 또는 팝업 활성 → 버퍼 초기화.
+                        // 모드 변경 옵저버 처리는 이미 mode_changed 감지 블록에서 완료됨.
                         if mode_changed.is_some() || popup_action.is_some() {
                             keystroke_buffers.remove(&context_id);
-                            last_autofix.remove(&context_id);
                         }
                         None
                     };
@@ -454,9 +571,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
                 last_focused_context_id = Some(context_id);
 
-                // AutoTypeFix: 포커스 변경 시 word_buffer 초기화
+                // AutoTypeFix: 포커스 변경 시 word_buffer 및 롤백 옵저버 초기화
                 keystroke_buffers.remove(&context_id);
-                last_autofix.remove(&context_id);
+                rollback_observers.remove(&context_id);
 
                 // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 필요)
                 context_windows.insert(context_id, window_id.clone());
@@ -514,9 +631,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                // AutoTypeFix: 포커스 아웃 시 word_buffer 초기화
+                // AutoTypeFix: 포커스 아웃 시 word_buffer 및 롤백 옵저버 초기화
                 keystroke_buffers.remove(&context_id);
-                last_autofix.remove(&context_id);
+                rollback_observers.remove(&context_id);
 
                 let commit = if let Some(engine) = contexts.get_mut(&context_id) {
                     // 팝업 활성 상태이면 취소하고 트리거 문자를 커밋 텍스트에 포함
