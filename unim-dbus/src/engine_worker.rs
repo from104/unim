@@ -6,21 +6,256 @@
 
 use std::collections::HashMap;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
 use crate::service::{EngineRequest, EngineResponse};
 use unim::auto_typefix::{self, KeystrokeBuffer};
-use unim::config::Config;
+use unim::config::{Config, EnglishLayout, KoreanLayout};
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
+use unim::typefix_blacklist::{Blacklist, Direction};
 use unim::unim_log;
+
+/// Ctrl+Z 되돌리기 전용 상태. AutoTypeFix 트리거 직후 생성되며,
+/// 다음 이벤트 중 하나로 소멸된다:
+/// - Ctrl+Z → 되돌리기 수행 후 제거
+/// - 10초 타임아웃 / 포커스 변경 → 제거
+struct UndoState {
+    corrected: String,
+    original: String,
+    observed_at: Instant,
+}
+
+impl UndoState {
+    fn is_expired(&self) -> bool {
+        self.observed_at.elapsed().as_secs() > 10
+    }
+}
+
+/// 최근 AutoTypeFix 교정 기록. 관찰 창 내에서 사용자가
+/// **BS(preedit 삭제 포함) AND 모드 전환**을 모두 수행하면
+/// 오탐으로 간주해 blacklist에 tentative로 등록한다.
+///
+/// 두 이벤트의 순서는 무관(BS→전환, 전환→BS, BS→전환→BS 모두 허용).
+/// 각각 단독으로는 정당한 편집/전환일 수 있으므로 AND 게이트로 구분한다.
+struct RecentCorrection {
+    ascii: String,
+    direction: Direction,
+    korean_layout: KoreanLayout,
+    english_layout: EnglishLayout,
+    corrected_at: Instant,
+    erasure_observed: bool,
+    mode_switch_observed: bool,
+}
 
 /// window_id에서 앱 식별자를 추출합니다.
 /// 형식: "app_name:window_specific_id" → "app_name"
 /// ':' 가 없으면 window_id 전체를 app_id로 사용합니다.
 fn extract_app_id(window_id: &str) -> &str {
     window_id.split(':').next().unwrap_or(window_id)
+}
+
+/// Ctrl+Z AutoTypeFix 되돌리기 시도.
+/// 해당 컨텍스트에 활성 UndoState가 있고 키가 Ctrl+Z이면 되돌리기 응답을 반환한다.
+/// 그렇지 않으면 None (일반 키 처리 계속).
+fn try_autotypefix_undo(
+    undo_states: &mut HashMap<u32, UndoState>,
+    keystroke_buffers: &mut HashMap<u32, KeystrokeBuffer>,
+    context_id: u32,
+    key: KeyCode,
+    modifier: ModifierState,
+) -> Option<EngineResponse> {
+    if !(key == KeyCode::Z && modifier.control && !modifier.shift && !modifier.alt) {
+        return None;
+    }
+    let obs = undo_states.remove(&context_id)?;
+    let delete_chars = obs.corrected.chars().count() as u32;
+    keystroke_buffers.remove(&context_id);
+    unim_log!(
+        "ENGINE_WORKER",
+        "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}'",
+        obs.corrected,
+        obs.original
+    );
+    Some(EngineResponse {
+        consumed: true,
+        preedit: None,
+        commit: None,
+        mode_changed: None,
+        popup_action: None,
+        auto_typefix: Some((delete_chars, obs.original, String::new())),
+    })
+}
+
+/// FocusIn 처리: AutoTypeFix 상태 초기화 + window_id 매핑 + PerApp/app_rules 기반 모드 적용.
+/// 반환값: 해당 컨텍스트의 현재 입력 모드가 한국어인지 여부(UI 동기화용).
+#[allow(clippy::too_many_arguments)]
+fn handle_focus_in(
+    contexts: &mut HashMap<u32, InputEngine>,
+    app_modes: &mut HashMap<String, unim::config::InputCategory>,
+    context_windows: &mut HashMap<u32, String>,
+    keystroke_buffers: &mut HashMap<u32, KeystrokeBuffer>,
+    undo_states: &mut HashMap<u32, UndoState>,
+    recent_corrections: &mut HashMap<u32, Vec<RecentCorrection>>,
+    config: &Config,
+    context_id: u32,
+    window_id: &str,
+) -> bool {
+    // AutoTypeFix 상태 초기화 — 다른 창으로 포커스가 이동했으므로 버퍼 보존 의미 없음.
+    keystroke_buffers.remove(&context_id);
+    undo_states.remove(&context_id);
+    recent_corrections.remove(&context_id);
+
+    // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 사용)
+    context_windows.insert(context_id, window_id.to_string());
+
+    let app_id = extract_app_id(window_id);
+
+    // PerApp 모드: 앱별 저장된 입력 카테고리 복원
+    if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
+        if let Some(engine) = contexts.get_mut(&context_id) {
+            if let Some(&saved_mode) = app_modes.get(app_id) {
+                engine.set_input_category(saved_mode);
+            }
+        }
+    }
+
+    // 앱별 기본 모드 규칙 적용 (해당 앱을 처음 본 경우에만)
+    if !config.engine.app_rules.is_empty() {
+        if let Some(engine) = contexts.get_mut(&context_id) {
+            if !app_modes.contains_key(app_id) {
+                for rule in &config.engine.app_rules {
+                    if window_id.contains(&rule.app_pattern) {
+                        engine.set_input_category(rule.default_category);
+                        app_modes.insert(app_id.to_string(), rule.default_category);
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] 앱 규칙 적용: pattern='{}', window_id={}, mode={:?}",
+                            rule.app_pattern,
+                            window_id,
+                            rule.default_category
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    contexts
+        .get(&context_id)
+        .map(|e| e.input_category() == unim::config::InputCategory::Korean)
+        .unwrap_or(false)
+}
+
+/// 포커스 아웃 / Reset 공통 처리: 팝업을 커밋 텍스트로 변환하고 엔진을 초기화한다.
+///
+/// `preserve_mode=true` (FocusOut / Reset의 PerApp·Context-local 모드 유지) 시
+/// 초기화 후에도 이전 입력 카테고리를 복원한다.
+/// 반환값: 커밋할 텍스트(preedit/팝업 타겟) 또는 None.
+fn reset_engine_and_capture_commit(
+    engine: &mut InputEngine,
+    config: &Config,
+    preserve_mode: bool,
+) -> Option<String> {
+    let mut commit_text = String::new();
+    if engine.is_hanja_mode() {
+        let t = engine.get_hanja_target().to_string();
+        engine.cancel_hanja();
+        if !t.is_empty() {
+            commit_text = t;
+        }
+    } else if engine.is_special_char_mode() {
+        let t = engine.get_special_char_target().to_string();
+        engine.cancel_special_char();
+        if !t.is_empty() {
+            commit_text = t;
+        }
+    } else {
+        let preedit = engine.preedit_str();
+        if !preedit.is_empty() {
+            commit_text = preedit.to_string();
+        }
+    }
+
+    let current_mode = engine.input_category();
+    *engine = InputEngine::new(config);
+    if preserve_mode {
+        engine.set_input_category(current_mode);
+    }
+
+    if commit_text.is_empty() {
+        None
+    } else {
+        Some(commit_text)
+    }
+}
+
+/// 방향별 rollback 관찰 게이트.
+///
+/// 롤백이 "관찰 완료"로 간주되기 위한 조건. 실제 blacklist 등록은 이 함수 결과만으로
+/// 일어나지 않고, 동일 ASCII의 AutoTypeFix **재트리거** 시점에 일어난다 ([`is_retrigger`]).
+///
+/// - **Forward**: BS **AND** 모드 전환을 모두 관찰.
+///   (순방향은 replay_keys로 preedit이 살아있어 BS가 IM → engine까지 forward됨.)
+/// - **Reverse**: BS **OR** 모드 전환 중 하나만 관찰되어도 충분.
+///   역방향은 `clear_preedit=true` 이후 GTK/Qt IM module이 BS를 consume하지 않아
+///   engine_worker까지 도달하지 않는 구조적 제약이 있으므로, 관찰창 내의 수동
+///   모드 전환만으로도 롤백 시도로 간주한다.
+fn rollback_threshold_met(r: &RecentCorrection) -> bool {
+    match r.direction {
+        Direction::Forward => r.erasure_observed && r.mode_switch_observed,
+        Direction::Reverse => r.erasure_observed || r.mode_switch_observed,
+    }
+}
+
+/// 현재 시도가 "재트리거" 인지 판정하며, 매칭 항목의 레이아웃을 반환한다.
+///
+/// 관찰창 내 RecentCorrection 중 **동일 ASCII + 동일 방향**으로
+/// [`rollback_threshold_met`] 이 `true` 인 항목이 있으면 `Some((kl, el))`.
+/// 반환된 레이아웃은 사용자가 실제로 타이핑한 당시의 레이아웃이며, blacklist
+/// 등록에 그대로 사용된다.
+///
+/// 재트리거 판정이 나면 2차 AutoTypeFix를 억제(None)하고 해당 ASCII를
+/// blacklist tentative로 등록한다 — 즉 "롤백 관찰 + 같은 단어 재입력"만이
+/// 등록 조건. 롤백 관찰 자체는 플래그로만 남아 있어, 재입력이 없으면
+/// observation_timeout 이후 자연 만료되어 오탐이 남지 않는다.
+fn find_retrigger_layouts(
+    recent: &[RecentCorrection],
+    ascii: &str,
+    direction: Direction,
+) -> Option<(
+    unim::config::KoreanLayout,
+    unim::config::EnglishLayout,
+)> {
+    recent
+        .iter()
+        .find(|r| r.direction == direction && r.ascii == ascii && rollback_threshold_met(r))
+        .map(|r| (r.korean_layout, r.english_layout))
+}
+
+/// BS / 모드 전환 관찰을 RecentCorrection 플래그에 반영한다. 순서 무관.
+///
+/// 등록은 여기서 하지 않는다 — `find_retrigger_layouts` 기반 재트리거 감지 시점까지 연기된다.
+fn observe_rollback_event(
+    recent_corrections: &mut HashMap<u32, Vec<RecentCorrection>>,
+    context_id: u32,
+    erasure: bool,
+    switch: bool,
+) {
+    let Some(list) = recent_corrections.get_mut(&context_id) else {
+        return;
+    };
+    for r in list.iter_mut() {
+        if erasure {
+            r.erasure_observed = true;
+        }
+        if switch {
+            r.mode_switch_observed = true;
+        }
+    }
 }
 
 /// 엔진 워커를 시작하고 요청 수신 채널을 반환합니다.
@@ -49,9 +284,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     let mut last_focused_context_id: Option<u32> = None;
     // AutoTypeFix: 컨텍스트별 키스트로크 버퍼
     let mut keystroke_buffers: HashMap<u32, KeystrokeBuffer> = HashMap::new();
-    // AutoTypeFix: 마지막 교정 결과 (Ctrl+Z 되돌리기용)
-    // (delete_chars, corrected_text, original_text)
-    let mut last_autofix: HashMap<u32, (u32, String, String)> = HashMap::new();
+    // AutoTypeFix: Ctrl+Z 되돌리기 전용 상태
+    let mut undo_states: HashMap<u32, UndoState> = HashMap::new();
+    // AutoTypeFix: 재트리거 감지용 최근 교정 기록 (컨텍스트별)
+    let mut recent_corrections: HashMap<u32, Vec<RecentCorrection>> = HashMap::new();
+    // AutoTypeFix: 학습형 억제 단어 목록 (파일 기반, mtime 감지 reload)
+    let mut blacklist = Blacklist::load_from_default_path();
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
@@ -69,6 +307,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 engine.set_english_layout(config.engine.english.layout);
             }
         }
+
+        // 학습형 억제 단어 목록: GUI가 파일을 직접 수정할 수 있으므로
+        // 매 요청마다 mtime 기반 reload(2초 throttling) + 만료 tentative 전환.
+        if blacklist.reload_if_changed() {
+            unim_log!(
+                "ENGINE_WORKER",
+                "[Engine Worker] typefix-blacklist 파일 변경 감지 - 리로드 완료"
+            );
+        }
+        blacklist.expire_tentatives(config.engine.auto_typefix.tentative_expiry_hours);
 
         match request {
             EngineRequest::CreateContext {
@@ -143,35 +391,39 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     let modifier = ModifierState::from_x11_mask(state);
                     let atf_config = &config.engine.auto_typefix;
 
-                    // Ctrl+Z: AutoTypeFix 되돌리기
-                    if key == KeyCode::Z
-                        && modifier.control
-                        && !modifier.shift
-                        && !modifier.alt
-                    {
-                        if let Some((_del, corrected, original)) =
-                            last_autofix.remove(&context_id)
-                        {
-                            let delete_chars = corrected.chars().count() as u32;
-                            keystroke_buffers.remove(&context_id);
-
-                            unim_log!(
-                                "ENGINE_WORKER",
-                                "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}'",
-                                corrected,
-                                original
-                            );
-
-                            let _ = response.send(EngineResponse {
-                                consumed: true,
-                                preedit: None,
-                                commit: None,
-                                mode_changed: None,
-                                popup_action: None,
-                                auto_typefix: Some((delete_chars, original, String::new())),
-                            });
-                            continue;
+                    // 만료된 undo 상태 정리 (10초 타임아웃)
+                    if let Some(obs) = undo_states.get(&context_id) {
+                        if obs.is_expired() {
+                            undo_states.remove(&context_id);
                         }
+                    }
+
+                    // 만료된 recent_corrections 정리 (관찰 창)
+                    let observation_window =
+                        Duration::from_secs(atf_config.observation_timeout_secs as u64);
+                    if let Some(list) = recent_corrections.get_mut(&context_id) {
+                        list.retain(|r| r.corrected_at.elapsed() <= observation_window);
+                        if list.is_empty() {
+                            recent_corrections.remove(&context_id);
+                        }
+                    }
+
+                    // Backspace: 지우는 행위 감지 (preedit BS도 키 레벨에서는 동일).
+                    // 여기선 플래그만 세팅. 실제 blacklist 등록은 동일 ASCII 재트리거 시.
+                    if key == KeyCode::Backspace && atf_config.rollback_detection {
+                        observe_rollback_event(&mut recent_corrections, context_id, true, false);
+                    }
+
+                    // Ctrl+Z: AutoTypeFix 되돌리기 (헬퍼에 위임)
+                    if let Some(undo_resp) = try_autotypefix_undo(
+                        &mut undo_states,
+                        &mut keystroke_buffers,
+                        context_id,
+                        key,
+                        modifier,
+                    ) {
+                        let _ = response.send(undo_resp);
+                        continue;
                     }
 
                     // 처리 전 상태 저장
@@ -183,9 +435,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
                     let mut mode_changed = if prev_mode != current_mode {
-                        // 모드 변경 시 버퍼 초기화
+                        // 모드 전환 관찰 → 플래그만 세팅. 실제 blacklist 등록은 동일 ASCII
+                        // 재트리거 시점(AutoTypeFix 결과 발생 직전)에서 수행.
+                        // AutoTypeFix에 의한 자동 전환(아래 블록)은 별도 경로이므로 기록하지 않는다.
+                        if atf_config.rollback_detection {
+                            observe_rollback_event(&mut recent_corrections, context_id, false, true);
+                        }
+                        // 모드 변경 시 키스트로크 버퍼 초기화
                         keystroke_buffers.remove(&context_id);
-                        last_autofix.remove(&context_id);
 
                         // PerApp 모드에서는 앱별 모드 저장
                         if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
@@ -253,28 +510,115 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // (preedit이 이전 값 유지 — 변경 없으므로 건드리지 않음)
                             }
 
-                            // 방향에 따라 감지
-                            let fix = match current_mode {
-                                unim::config::InputCategory::English => {
+                            // 방향에 따라 감지 (blacklist 억제 게이트 포함)
+                            let (fix, direction) = match current_mode {
+                                unim::config::InputCategory::English => (
                                     auto_typefix::check_forward(
                                         buf,
                                         atf_config,
                                         config.engine.korean.layout,
                                         config.engine.english.layout,
-                                    )
+                                        &blacklist,
+                                    ),
+                                    Direction::Forward,
+                                ),
+                                unim::config::InputCategory::Korean => (
+                                    auto_typefix::check_reverse(
+                                        buf,
+                                        atf_config,
+                                        config.engine.korean.layout,
+                                        config.engine.english.layout,
+                                        &blacklist,
+                                    ),
+                                    Direction::Reverse,
+                                ),
+                            };
+
+                            // 재트리거 감지: 관찰창 내에서 동일 ASCII의 AutoTypeFix가
+                            // 이미 rollback 관찰(BS/모드전환) 된 적 있으면, 이번 트리거를
+                            // 억제하고 blacklist에 tentative로 등록한다.
+                            let fix = if let Some(fix) = fix {
+                                let key = match direction {
+                                    Direction::Forward => fix.original.clone(),
+                                    Direction::Reverse => fix.corrected.clone(),
+                                };
+                                // 매칭되는 RecentCorrection 항목의 레이아웃을 캡처
+                                // (등록 시 사용 — 사용자가 실제로 타이핑한 당시 레이아웃을 반영).
+                                let retrigger_layouts = if atf_config.rollback_detection {
+                                    recent_corrections
+                                        .get(&context_id)
+                                        .and_then(|list| find_retrigger_layouts(list, &key, direction))
+                                } else {
+                                    None
+                                };
+                                if let Some((kl, el)) = retrigger_layouts {
+                                    blacklist.add_or_hit_tentative(&key, direction, kl, el);
+                                    if let Err(e) = blacklist.save_to_default_path() {
+                                        unim_log!(
+                                            "ENGINE_WORKER",
+                                            "[Engine Worker] blacklist 저장 실패: {}",
+                                            e
+                                        );
+                                    }
+                                    if let Some(list) = recent_corrections.get_mut(&context_id) {
+                                        list.retain(|r| {
+                                            !(r.direction == direction
+                                                && r.ascii == key
+                                                && rollback_threshold_met(r))
+                                        });
+                                        if list.is_empty() {
+                                            recent_corrections.remove(&context_id);
+                                        }
+                                    }
+                                    unim_log!(
+                                        "ENGINE_WORKER",
+                                        "[Engine Worker] 재트리거 감지({:?}) → 억제 + blacklist tentative 추가: '{}'",
+                                        direction,
+                                        key
+                                    );
+                                    // 버퍼는 초기화하여 같은 키스트로크가 또 감지되지 않도록 한다.
+                                    buf.clear();
+                                    None
+                                } else {
+                                    Some(fix)
                                 }
-                                unim::config::InputCategory::Korean => {
-                                    auto_typefix::check_reverse(buf, atf_config, config.engine.english.layout)
-                                }
+                            } else {
+                                None
                             };
 
                             if let Some(ref fix) = fix {
                                 fix_has_replay = !fix.replay_keys.is_empty();
-                                // 되돌리기용 저장
-                                last_autofix.insert(
+                                // Ctrl+Z 되돌리기용 상태 저장
+                                undo_states.insert(
                                     context_id,
-                                    (fix.delete_chars, fix.corrected.clone(), fix.original.clone()),
+                                    UndoState {
+                                        corrected: fix.corrected.clone(),
+                                        original: fix.original.clone(),
+                                        observed_at: Instant::now(),
+                                    },
                                 );
+                                // 재트리거 감지용 최근 교정 기록.
+                                // blacklist 매칭 키는 `check_forward` / `check_reverse`가
+                                // `is_suppressed(&ascii, ...)`에 넘기는 `buffer.to_ascii_string()`과
+                                // 일치해야 한다. 순방향은 `fix.original`이 그 ASCII지만,
+                                // 역방향은 `original`이 Ctrl+Z undo 용도로 비어 있으므로
+                                // `corrected`(eng)을 사용한다.
+                                let suppression_key = match direction {
+                                    Direction::Forward => fix.original.clone(),
+                                    Direction::Reverse => fix.corrected.clone(),
+                                };
+                                recent_corrections
+                                    .entry(context_id)
+                                    .or_default()
+                                    .push(RecentCorrection {
+                                        ascii: suppression_key,
+                                        direction,
+                                        korean_layout: config.engine.korean.layout,
+                                        english_layout: config.engine.english.layout,
+                                        corrected_at: Instant::now(),
+                                        erasure_observed: false,
+                                        mode_switch_observed: false,
+                                    });
 
                                 unim_log!(
                                     "ENGINE_WORKER",
@@ -371,21 +715,26 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     Some((real_delete, fix.commit_text.clone(), String::new()))
                                 }
                             } else {
-                                // 교정 안 됨 → 되돌리기 기록 삭제
-                                last_autofix.remove(&context_id);
+                                // 교정 안 됨 → 사용자가 다른 알파벳 키를 계속 입력한 상황.
+                                // 직전 교정에 대한 Ctrl+Z 되돌리기 여지는 사라졌으므로 undo 상태 폐기.
+                                undo_states.remove(&context_id);
                                 None
                             }
                         } else {
-                            // 비알파벳 키 → 버퍼 초기화
+                            // 비알파벳 키 → 버퍼 초기화.
+                            // Backspace는 undo 상태를 남겨두고(추가 삭제 중일 수 있음),
+                            // 그 외(Enter/Space/Tab 등)는 "되돌리기 맥락 종료"로 간주하여 폐기.
                             buf.clear();
-                            last_autofix.remove(&context_id);
+                            if key != KeyCode::Backspace {
+                                undo_states.remove(&context_id);
+                            }
                             None
                         }
                     } else {
-                        // 모드 변경 또는 팝업 활성 → 버퍼 초기화
+                        // 모드 변경 또는 팝업 활성 → 버퍼 초기화.
+                        // 모드 변경 옵저버 처리는 이미 mode_changed 감지 블록에서 완료됨.
                         if mode_changed.is_some() || popup_action.is_some() {
                             keystroke_buffers.remove(&context_id);
-                            last_autofix.remove(&context_id);
                         }
                         None
                     };
@@ -454,52 +803,17 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // 마지막 포커스된 컨텍스트 추적 (글로벌 TypeFix용)
                 last_focused_context_id = Some(context_id);
 
-                // AutoTypeFix: 포커스 변경 시 word_buffer 초기화
-                keystroke_buffers.remove(&context_id);
-                last_autofix.remove(&context_id);
-
-                // 컨텍스트-창 매핑은 항상 업데이트 (팝업 바이패스 등에서 필요)
-                context_windows.insert(context_id, window_id.clone());
-
-                // PerApp 모드에서는 앱별 저장된 모드를 적용
-                let app_id = extract_app_id(&window_id);
-                if config.engine.mode_sharing == unim::config::ModeSharingMode::PerApp {
-                    if let Some(engine) = contexts.get_mut(&context_id) {
-                        if let Some(&saved_mode) = app_modes.get(app_id) {
-                            engine.set_input_category(saved_mode);
-                        }
-                    }
-                }
-
-                // 앱별 기본 모드 규칙 적용 (최초 포커스 시)
-                if !config.engine.app_rules.is_empty() {
-                    if let Some(engine) = contexts.get_mut(&context_id) {
-                        // 아직 app_modes에 저장된 적 없으면 (최초 방문) 규칙 적용
-                        if !app_modes.contains_key(app_id) {
-                            for rule in &config.engine.app_rules {
-                                if window_id.contains(&rule.app_pattern) {
-                                    engine.set_input_category(rule.default_category);
-                                    app_modes
-                                        .insert(app_id.to_string(), rule.default_category);
-                                    unim_log!(
-                                        "ENGINE_WORKER",
-                                        "[Engine Worker] 앱 규칙 적용: pattern='{}', window_id={}, mode={:?}",
-                                        rule.app_pattern,
-                                        window_id,
-                                        rule.default_category
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 현재 컨텍스트의 입력 모드 반환 (UI 동기화용)
-                let is_korean = contexts
-                    .get(&context_id)
-                    .map(|e| e.input_category() == unim::config::InputCategory::Korean)
-                    .unwrap_or(false);
+                let is_korean = handle_focus_in(
+                    &mut contexts,
+                    &mut app_modes,
+                    &mut context_windows,
+                    &mut keystroke_buffers,
+                    &mut undo_states,
+                    &mut recent_corrections,
+                    &config,
+                    context_id,
+                    &window_id,
+                );
                 unim_log!(
                     "ENGINE_WORKER",
                     "[Engine Worker] FocusIn: context_id={}, window_id={}, is_korean={}",
@@ -514,57 +828,24 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                // AutoTypeFix: 포커스 아웃 시 word_buffer 초기화
+                // AutoTypeFix: 포커스 아웃 시 word_buffer, undo 상태, 재트리거 기록 초기화
                 keystroke_buffers.remove(&context_id);
-                last_autofix.remove(&context_id);
+                undo_states.remove(&context_id);
+                recent_corrections.remove(&context_id);
 
-                let commit = if let Some(engine) = contexts.get_mut(&context_id) {
-                    // 팝업 활성 상태이면 취소하고 트리거 문자를 커밋 텍스트에 포함
-                    let mut commit_text = String::new();
-                    if engine.is_hanja_mode() {
-                        let t = engine.get_hanja_target().to_string();
-                        engine.cancel_hanja();
-                        if !t.is_empty() {
-                            commit_text = t;
-                        }
-                        unim_log!(
-                            "ENGINE_WORKER",
-                            "[Engine Worker] FocusOut: 한자 팝업 취소, context_id={}",
-                            context_id
-                        );
-                    } else if engine.is_special_char_mode() {
-                        let t = engine.get_special_char_target().to_string();
-                        engine.cancel_special_char();
-                        if !t.is_empty() {
-                            commit_text = t;
-                        }
-                        unim_log!(
-                            "ENGINE_WORKER",
-                            "[Engine Worker] FocusOut: 특수문자 팝업 취소, context_id={}",
-                            context_id
-                        );
-                    } else {
-                        let preedit = engine.preedit_str();
-                        if !preedit.is_empty() {
-                            commit_text = preedit.to_string();
-                        }
-                    }
-
-                    // 엔진 초기화 (입력 모드 유지)
-                    let current_mode = engine.input_category();
-                    *engine = InputEngine::new(&config);
-                    if config.engine.mode_sharing != unim::config::ModeSharingMode::Global {
-                        engine.set_input_category(current_mode);
-                    }
-
-                    if commit_text.is_empty() {
-                        None
-                    } else {
-                        Some(commit_text)
-                    }
-                } else {
-                    None
-                };
+                // PerApp / Context-local 모드이면 엔진 초기화 후에도 이전 모드를 유지.
+                // Global 모드에서는 전역 default_category가 다시 적용되도록 preserve=false.
+                let preserve_mode =
+                    config.engine.mode_sharing != unim::config::ModeSharingMode::Global;
+                let commit = contexts
+                    .get_mut(&context_id)
+                    .and_then(|engine| reset_engine_and_capture_commit(engine, &config, preserve_mode));
+                unim_log!(
+                    "ENGINE_WORKER",
+                    "[Engine Worker] FocusOut: context_id={}, commit={:?}",
+                    context_id,
+                    commit
+                );
                 let _ = response.send(commit);
             }
 
@@ -572,42 +853,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                let commit = if let Some(engine) = contexts.get_mut(&context_id) {
-                    // 팝업 활성 상태이면 취소하고 트리거 문자 반환
-                    let mut commit_text = String::new();
-                    if engine.is_hanja_mode() {
-                        let t = engine.get_hanja_target().to_string();
-                        engine.cancel_hanja();
-                        if !t.is_empty() {
-                            commit_text = t;
-                        }
-                    } else if engine.is_special_char_mode() {
-                        let t = engine.get_special_char_target().to_string();
-                        engine.cancel_special_char();
-                        if !t.is_empty() {
-                            commit_text = t;
-                        }
-                    } else {
-                        // 팝업 없으면 조합 중 preedit 커밋
-                        let preedit = engine.preedit_str();
-                        if !preedit.is_empty() {
-                            commit_text = preedit.to_string();
-                        }
-                    }
-
-                    // 엔진 초기화 (입력 모드 유지)
-                    let current_mode = engine.input_category();
-                    *engine = InputEngine::new(&config);
-                    engine.set_input_category(current_mode);
-
-                    if commit_text.is_empty() {
-                        None
-                    } else {
-                        Some(commit_text)
-                    }
-                } else {
-                    None
-                };
+                // Reset은 사용자가 명시적으로 요청한 리셋 — 현재 입력 모드는 항상 유지.
+                let commit = contexts
+                    .get_mut(&context_id)
+                    .and_then(|engine| reset_engine_and_capture_commit(engine, &config, true));
                 let _ = response.send(commit);
             }
 
@@ -841,4 +1090,95 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     }
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 종료됨");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use unim::config::{EnglishLayout, KoreanLayout};
+
+    fn mk_rc(direction: Direction, erasure: bool, switch: bool) -> RecentCorrection {
+        RecentCorrection {
+            ascii: "speed".to_string(),
+            direction,
+            korean_layout: KoreanLayout::Sebeolsik390,
+            english_layout: EnglishLayout::Qwerty,
+            corrected_at: Instant::now(),
+            erasure_observed: erasure,
+            mode_switch_observed: switch,
+        }
+    }
+
+    #[test]
+    fn forward_requires_both_flags() {
+        assert!(!rollback_threshold_met(&mk_rc(Direction::Forward, false, false)));
+        assert!(!rollback_threshold_met(&mk_rc(Direction::Forward, true, false)));
+        assert!(!rollback_threshold_met(&mk_rc(Direction::Forward, false, true)));
+        assert!(rollback_threshold_met(&mk_rc(Direction::Forward, true, true)));
+    }
+
+    #[test]
+    fn reverse_allows_either_flag() {
+        assert!(!rollback_threshold_met(&mk_rc(Direction::Reverse, false, false)));
+        // BS는 역방향에서 실제로는 도달하지 못하지만, 논리적으로는 OR의 한 쪽을 구성.
+        assert!(rollback_threshold_met(&mk_rc(Direction::Reverse, true, false)));
+        // 핵심 케이스: 관찰창 내의 수동 모드 전환만으로도 역방향은 관찰 완료.
+        assert!(rollback_threshold_met(&mk_rc(Direction::Reverse, false, true)));
+        assert!(rollback_threshold_met(&mk_rc(Direction::Reverse, true, true)));
+    }
+
+    #[test]
+    fn find_retrigger_layouts_requires_threshold_met() {
+        // 플래그 없으면 매칭 안 됨
+        let list = vec![mk_rc(Direction::Reverse, false, false)];
+        assert_eq!(find_retrigger_layouts(&list, "speed", Direction::Reverse), None);
+
+        // 역방향: switch만 세팅되어도 매칭 → 레이아웃 반환
+        let list = vec![mk_rc(Direction::Reverse, false, true)];
+        assert_eq!(
+            find_retrigger_layouts(&list, "speed", Direction::Reverse),
+            Some((KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty))
+        );
+
+        // 순방향: switch만 세팅 → AND 미달 → 매칭 안 됨
+        let list = vec![mk_rc(Direction::Forward, false, true)];
+        assert_eq!(find_retrigger_layouts(&list, "speed", Direction::Forward), None);
+
+        // 순방향: BS + switch 모두 → 매칭
+        let list = vec![mk_rc(Direction::Forward, true, true)];
+        assert!(find_retrigger_layouts(&list, "speed", Direction::Forward).is_some());
+    }
+
+    #[test]
+    fn find_retrigger_layouts_direction_and_ascii_specific() {
+        // 역방향 "speed" 엔트리, 역방향 "other"로 질의 → 매칭 안 됨
+        let list = vec![mk_rc(Direction::Reverse, false, true)]; // ascii="speed"
+        assert_eq!(find_retrigger_layouts(&list, "other", Direction::Reverse), None);
+        // 같은 ASCII지만 방향이 다르면 매칭 안 됨
+        assert_eq!(find_retrigger_layouts(&list, "speed", Direction::Forward), None);
+    }
+
+    #[test]
+    fn observe_rollback_event_sets_flags_only() {
+        // 회귀 테스트: observation은 플래그만 세팅, blacklist에는 영향 없음.
+        let mut recent: HashMap<u32, Vec<RecentCorrection>> = HashMap::new();
+        recent.insert(9, vec![mk_rc(Direction::Reverse, false, false)]);
+
+        observe_rollback_event(&mut recent, 9, false, true);
+        let list = recent.get(&9).unwrap();
+        assert_eq!(list.len(), 1, "관찰은 엔트리를 제거하지 않는다");
+        assert!(!list[0].erasure_observed);
+        assert!(list[0].mode_switch_observed);
+
+        observe_rollback_event(&mut recent, 9, true, false);
+        let list = recent.get(&9).unwrap();
+        assert!(list[0].erasure_observed);
+        assert!(list[0].mode_switch_observed);
+    }
+
+    // 주의: 재트리거 등록 경로의 end-to-end 테스트는 작성하지 않는다.
+    // 성공 시 `Blacklist::save_to_default_path()`가 실제 사용자
+    // `~/.config/unim/typefix-blacklist.yaml`을 덮어써 기존 엔트리를 파괴하기 때문이다.
+    // 로직은 `rollback_threshold_met` + `find_retrigger_layouts` + `observe_rollback_event`의
+    // 순수 함수 검증으로 충분히 커버된다.
 }

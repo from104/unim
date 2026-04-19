@@ -6,6 +6,8 @@ use unim::config::{
     Config as UnimConfig, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
+    AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
+    AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
 
@@ -87,6 +89,18 @@ enum ConfigKey {
     /// 자동 오타 교정: 온전한 음절 매칭 시 억제 (true, false)
     #[value(name = "auto-typefix-skip-complete-syllable")]
     AutoTypeFixSkipCompleteSyllable,
+    /// 자동 오타 교정: 접두사 충돌 시 보류 (true, false)
+    #[value(name = "auto-typefix-skip-on-prefix-collision")]
+    AutoTypeFixSkipOnPrefixCollision,
+    /// 자동 오타 교정: 재트리거 기반 학습형 억제 (true, false)
+    #[value(name = "auto-typefix-rollback-detection")]
+    AutoTypeFixRollbackDetection,
+    /// 자동 오타 교정: 임시 억제 단어 만료 기간 (1~12 시간)
+    #[value(name = "auto-typefix-tentative-expiry-hours")]
+    AutoTypeFixTentativeExpiryHours,
+    /// 자동 오타 교정: 재트리거 관찰 창 (5~15 초)
+    #[value(name = "auto-typefix-observation-timeout-secs")]
+    AutoTypeFixObservationTimeoutSecs,
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
@@ -154,6 +168,10 @@ fn config_show() {
         println!("  - 한글 음절 임계값: {}, 영문 최소 길이: {}",
             atf.kor_syllable_threshold, atf.eng_word_min_length);
         println!("  - 시간 윈도우: {}ms", atf.time_window_ms);
+        println!("  - 재트리거 감지: {} / 관찰 창: {}초 / 임시 억제 만료: {}시간",
+            if atf.rollback_detection { "ON" } else { "OFF" },
+            atf.observation_timeout_secs,
+            atf.tentative_expiry_hours);
     }
     println!(
         "{}: {}",
@@ -401,6 +419,70 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 "{}: {}",
                 t!("auto_typefix_skip_complete_syllable_label"),
                 if enabled { "ON" } else { "OFF" }
+            );
+        }
+        ConfigKey::AutoTypeFixSkipOnPrefixCollision => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.auto_typefix.skip_on_prefix_collision = enabled;
+            println!(
+                "{}: {}",
+                t!("auto_typefix_skip_prefix_collision_label"),
+                if enabled { "ON" } else { "OFF" }
+            );
+        }
+        ConfigKey::AutoTypeFixRollbackDetection => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.auto_typefix.rollback_detection = enabled;
+            println!(
+                "{}: {}",
+                t!("auto_typefix_rollback_detection_label"),
+                if enabled { "ON" } else { "OFF" }
+            );
+        }
+        ConfigKey::AutoTypeFixTentativeExpiryHours => {
+            let hours: u16 = value
+                .parse()
+                .map_err(|_| format!("Invalid number: {}", value))?;
+            if !(AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN..=AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX)
+                .contains(&hours)
+            {
+                return Err(format!(
+                    "Value must be between {} and {}",
+                    AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX
+                ));
+            }
+            config.engine.auto_typefix.tentative_expiry_hours = hours;
+            println!("{}: {} {}",
+                t!("auto_typefix_tentative_expiry_hours_label"),
+                hours,
+                t!("unit_hours")
+            );
+        }
+        ConfigKey::AutoTypeFixObservationTimeoutSecs => {
+            let secs: u8 = value
+                .parse()
+                .map_err(|_| format!("Invalid number: {}", value))?;
+            if !(AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN..=AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX)
+                .contains(&secs)
+            {
+                return Err(format!(
+                    "Value must be between {} and {}",
+                    AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX
+                ));
+            }
+            config.engine.auto_typefix.observation_timeout_secs = secs;
+            println!("{}: {} {}",
+                t!("auto_typefix_observation_timeout_secs_label"),
+                secs,
+                t!("unit_secs")
             );
         }
         ConfigKey::AppRules => {

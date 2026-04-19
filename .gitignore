@@ -84,3 +84,6 @@ debs/
 
 .gemini/
 .claude/settings.local.json
+
+graphify-out/
+.graphifyignore
