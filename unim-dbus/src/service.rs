@@ -888,12 +888,11 @@ impl InputContextHandler {
 
         let commit = response_rx.await.ok().flatten().unwrap_or_default();
 
-        // 커밋 시그널을 먼저 발행한 후 HidePopup 발행
-        // (HidePopup이 먼저 오면 Standalone 팝업이 포커스를 이동시켜
-        //  CommitText가 엉뚱한 위치에 도착할 수 있음)
-        if !commit.is_empty() {
-            Self::commit_text(&signal_ctx, &commit).await.ok();
-        }
+        // 커밋 텍스트는 RPC 반환값으로만 전달한다.
+        // 과거 레거시 경로에서 CommitText 시그널도 함께 발행했으나, IM 모듈이
+        // 시그널과 RPC 반환값을 모두 처리하여 이중 커밋(예: "늘" 두 번)이 발생.
+        // 포커스 아웃 커밋은 해당 컨텍스트에만 전달해야 하므로 브로드캐스트 시그널이
+        // 의미상으로도 부적절하다.
         Self::hide_popup(&signal_ctx).await.ok();
 
         unim_log!(

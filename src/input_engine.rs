@@ -524,6 +524,19 @@ impl InputEngine {
 
     /// 영어 키 입력을 처리합니다.
     fn process_english_key(&mut self, keycode: KeyCode, modifier: ModifierState) -> InputResult {
+        // Space는 영문 키맵에 매핑돼 있지 않으므로 여기서 먼저 커밋한다.
+        // 한국어 모드는 process_korean_key에서 동일하게 처리한다.
+        //
+        // 이전에는 Space를 not_consumed로 반환했는데, 영문 알파벳은 consumed=true/
+        // commit='x' 경로를 타고 Space만 consumed=false가 돼서 GTK IM 모듈의 상태
+        // 전환이 꼬여 gedit 등에서 공백이 간헐적으로 drop되는 회귀가 있었다.
+        // GNOME 경로는 이미 Korean 모드에서 Space를 commit=' '로 받고 있었으므로,
+        // 영문 모드에서도 같은 전략으로 통일한다.
+        if keycode == KeyCode::Space {
+            self.commit_buffer.push(' ');
+            return InputResult::committed();
+        }
+
         // JSON 키맵 기반으로 레이아웃에 따른 문자 변환
         // CapsLock은 알파벳 문자에만 적용 (숫자/기호는 Shift만)
 
