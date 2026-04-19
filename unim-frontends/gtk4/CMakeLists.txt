@@ -56,6 +56,13 @@ target_compile_options(im-unim PRIVATE
     ${GIO_CFLAGS_OTHER}
 )
 
+set_target_properties(im-unim PROPERTIES
+    INSTALL_RPATH ""
+    INSTALL_RPATH_USE_LINK_PATH OFF
+    BUILD_WITH_INSTALL_RPATH ON
+    SKIP_BUILD_RPATH ON
+)
+
 # 설치 경로 설정
 pkg_get_variable(GTK4_LIBDIR gtk4 libdir)
 set(GTK4_IM_MODULEDIR "${GTK4_LIBDIR}/gtk-4.0/4.0.0/immodules")

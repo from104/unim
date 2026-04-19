@@ -121,7 +121,9 @@ install-core:
 	@echo "Installing core components..."
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(REAL_LIBDIR) $(DESTDIR)$(LIBEXECDIR) \
 	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
-	install -m 755 target/release/libunim_capi.so $(DESTDIR)$(REAL_LIBDIR)/
+	install -m 755 target/release/libunim_capi.so $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0.1.0
+	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0
+	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so
 	install -m 644 unim-capi/include/unim.h $(DESTDIR)$(INCLUDEDIR)/
 	install -m 755 target/release/unim-cli target/release/unim-config $(DESTDIR)$(BINDIR)/
 	install -m 755 target/release/unim-daemon target/release/unim-xim target/release/unim-wayland $(DESTDIR)$(LIBEXECDIR)/
@@ -129,7 +131,7 @@ install-core:
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" im-config/25_unim.rc > $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc && chmod 644 $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" scripts/org.atit.unim.InputMethod.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
-	install -m 644 docs/man/unim.1 $(DESTDIR)$(PREFIX)/share/man/man1/
+	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 docs/man/unim-config.1 docs/man/unim-gui-gtk.1 docs/man/unim-gui-qt.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
 install-frontends:
 	@echo "Installing IM modules..."

@@ -3322,7 +3322,7 @@ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "unim"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -3336,7 +3336,7 @@ dependencies = [
 
 [[package]]
 name = "unim-capi"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cbindgen",
  "unim",
@@ -3344,7 +3344,7 @@ dependencies = [
 
 [[package]]
 name = "unim-cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "io-lifetimes",
@@ -3356,7 +3356,7 @@ dependencies = [
 
 [[package]]
 name = "unim-config"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "dialoguer",
@@ -3367,7 +3367,7 @@ dependencies = [
 
 [[package]]
 name = "unim-daemon"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
@@ -3384,7 +3384,7 @@ dependencies = [
 
 [[package]]
 name = "unim-dbus"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "log",
  "serde",
@@ -3397,7 +3397,7 @@ dependencies = [
 
 [[package]]
 name = "unim-gui-common"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "futures-util",
  "ksni",
@@ -3409,7 +3409,7 @@ dependencies = [
 
 [[package]]
 name = "unim-gui-gtk"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "dirs",
  "gdk4-x11",
@@ -3428,7 +3428,7 @@ dependencies = [
 
 [[package]]
 name = "unim-gui-qt"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cxx",
  "cxx-qt",
@@ -3443,7 +3443,7 @@ dependencies = [
 
 [[package]]
 name = "unim-test-dbus"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "tokio",
  "unim-dbus",
@@ -3451,7 +3451,7 @@ dependencies = [
 
 [[package]]
 name = "unim-test-wayland"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "calloop",
  "calloop-wayland-source",
@@ -3468,7 +3468,7 @@ dependencies = [
 
 [[package]]
 name = "unim-wayland"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cosmic-text",
  "futures-util",
@@ -3488,7 +3488,7 @@ dependencies = [
 
 [[package]]
 name = "unim-xim"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ahash",
  "ctrlc",

@@ -1,0 +1,71 @@
+.TH UNIM-CLI 1 "April 2026" "UNIM 0.1.0" "User Commands"
+.SH NAME
+unim\-cli \- Korean/English keyboard stream converter
+.SH SYNOPSIS
+.B unim\-cli
+.RI [ OPTIONS ]
+.RI [ FILE ...]
+.SH DESCRIPTION
+.B unim\-cli
+is an offline batch utility that converts between English keyboard
+character streams and composed Hangul. It is independent of the running
+.B unim\-daemon
+\(em it processes its input as a pure layout transformation.
+.PP
+With no input file, it reads from standard input. With one or more
+.I FILE
+arguments, files are processed in order and concatenated to standard
+output (or the file given via
+.BR \-o ).
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-compose
+Compose an English keyboard stream into Hangul (default mode).
+.TP
+.BR \-d ", " \-\-decompose
+Decompose Hangul into the equivalent English keyboard stream.
+.TP
+.BR \-o ", " "\-\-output \fIFILE\fR"
+Write output to
+.IR FILE
+instead of standard output.
+.TP
+.BR \-k ", " "\-\-korean\-keyboard \fILAYOUT\fR"
+Korean keyboard layout. One of
+.BR 2bul ", " 390 ", " 391 ", " noshift "."
+Default:
+.BR 2bul "."
+.TP
+.BR \-e ", " "\-\-english\-keyboard \fILAYOUT\fR"
+English keyboard layout. One of
+.BR qwerty ", " dvorak ", " colemak ", " colemak_dh ", " workman "."
+Default:
+.BR qwerty "."
+.TP
+.BR \-h ", " \-\-help
+Print help and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.SH EXAMPLES
+.PP
+Convert a stream of QWERTY keystrokes to Hangul:
+.PP
+.RS
+.nf
+echo "dkssudgktpdy" | unim\-cli \-c
+.fi
+.RE
+.PP
+Decompose a Hangul file into Dvorak keystrokes:
+.PP
+.RS
+.nf
+unim\-cli \-d \-e dvorak input.txt \-o keystrokes.txt
+.fi
+.RE
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-config (1)
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>

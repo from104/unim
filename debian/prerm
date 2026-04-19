@@ -3,8 +3,13 @@ set -e
 
 case "$1" in
     remove|upgrade|deconfigure)
-        # Stop all user instances of unim-daemon
-        pkill -u "$(logname 2>/dev/null || echo root)" -x unim-daemon 2>/dev/null || true
+        # Stop running user instances of UNIM components
+        _user="$(logname 2>/dev/null || echo root)"
+        pkill -u "$_user" -x unim-gui-gtk 2>/dev/null || true
+        pkill -u "$_user" -x unim-gui-qt 2>/dev/null || true
+        pkill -u "$_user" -x unim-daemon 2>/dev/null || true
+        pkill -u "$_user" -x unim-xim 2>/dev/null || true
+        pkill -u "$_user" -x unim-wayland 2>/dev/null || true
         ;;
 esac
 

@@ -1,0 +1,5 @@
+# gnome-shell-extension-unim — lintian overrides (justified)
+
+# initial-upload-closes-no-bugs:
+# Genuine first upload, no Debian BTS bug to close.
+gnome-shell-extension-unim: initial-upload-closes-no-bugs *

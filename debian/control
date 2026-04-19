@@ -1,43 +1,56 @@
 Source: unim
 Section: utils
 Priority: optional
-Maintainer: from104 <from104@github.com>
-Build-Depends: debhelper-compat (= 13), cmake, pkg-config, libgtk-3-dev, libgtk-4-dev, qtbase5-dev, qtbase5-private-dev, qt6-base-dev, qt6-base-private-dev, qt6-declarative-dev, libqt6dbus6, libglib2.0-dev
-Standards-Version: 4.6.0
+Maintainer: from104 <from104@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               pkg-config,
+               cargo,
+               rustc,
+               chrpath,
+               libgtk-3-dev,
+               libgtk-4-dev,
+               libadwaita-1-dev,
+               qtbase5-dev,
+               qtbase5-private-dev,
+               qt6-base-dev,
+               qt6-base-private-dev,
+               qt6-declarative-dev,
+               libqt6dbus6,
+               libglib2.0-dev,
+               libdbus-1-dev
+Standards-Version: 4.7.0
 Homepage: https://github.com/from104/unim
+Vcs-Git: https://github.com/from104/unim.git
+Vcs-Browser: https://github.com/from104/unim
+Bugs: https://github.com/from104/unim/issues
 Rules-Requires-Root: no
 
 Package: unim
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: im-config, dbus
+Suggests: gnome-shell-extension-unim
 Description: Korean Input Method Engine
- UNIM is a modular Korean Input Method Engine.
- This package contains the core daemon, C-API library, CLI tools,
- and XIM/Wayland protocol support.
-
-Package: unim-gui-gtk
-Architecture: any
-Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Conflicts: unim-gtk
-Replaces: unim-gtk
-Description: UNIM GUI and GTK IM Modules
- UNIM GUI process providing system tray indicator, Hanja/special character
- popups, and settings dialog. GTK4/libadwaita based.
- Also includes GTK3 and GTK4 input method modules.
-
-Package: unim-gui-qt
-Architecture: any
-Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Conflicts: unim-qt
-Replaces: unim-qt
-Description: UNIM GUI and Qt IM Plugins
- UNIM GUI process providing Hanja/special character popups.
- Qt6/QML based alternative to the GTK4 GUI.
- Also includes Qt5 and Qt6 platform input context plugins.
+ UNIM is a modular Korean Input Method Engine with 2-bul and 3-bul layout
+ support, featuring automatic Korean/English typo correction.
+ .
+ This package provides the complete UNIM stack:
+  * Core daemon (unim-daemon) with D-Bus session activation
+  * XIM and Wayland protocol servers
+  * C-API library (libunim_capi) and CLI tools
+  * GTK3 and GTK4 input method modules
+  * Qt5 and Qt6 platform input context plugins
+  * GTK4/libadwaita settings GUI (unim-gui-gtk)
+  * Qt6/QML alternative GUI (unim-gui-qt)
+  * im-config integration
 
 Package: gnome-shell-extension-unim
 Architecture: all
-Depends: unim (>= ${source:Version}), ${misc:Depends}, gnome-shell
-Description: UNIM GNOME Shell Extension
- GNOME Shell extension for UNIM, providing native integration and hotkeys.
+Depends: unim (>= ${source:Version}),
+         ${misc:Depends},
+         gnome-shell
+Description: GNOME Shell extension for UNIM
+ GNOME Shell extension providing native indicator integration, hotkey
+ management, and per-application input method state for the UNIM Korean
+ Input Method Engine.
