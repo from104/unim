@@ -50,6 +50,11 @@ GSettings(gschema)는 **GNOME Shell 의존 키만** 남겨졌습니다(18→6키
 GNOME Shell 의존 키(예: indicator 토글 등)만 `unim-gnome-extension/prefs.js` +
 `*.gschema.xml`도 함께 업데이트합니다. 그 외 일반 설정은 gschema에 추가하지 마세요.
 
+> **사용자 데이터 파일은 5지점 동기 대상이 아닙니다.**
+> AutoTypeFix 억제 사전 `~/.config/unim/typefix-blacklist.yaml`은 설정이 아닌
+> 사용자 데이터이며 `src/typefix_blacklist.rs`가 관리합니다. 데몬이 mtime
+> 감시로 자동 리로드하므로 5지점 체크리스트에 포함되지 않습니다.
+
 ## 설정 항목 추가/변경 시 체크리스트
 
 1. [ ] `src/config.rs` — 설정 구조체에 새 필드 추가 (+ `clamp_ranges()` 방어 시 범위 확인)
@@ -58,6 +63,7 @@ GNOME Shell 의존 키(예: indicator 토글 등)만 `unim-gnome-extension/prefs
 4. [ ] `unim-dbus/src/service.rs` — 레거시 key 디스패치가 필요한 경우 매칭 업데이트 (YAML/JSON은 자동)
 5. [ ] `unim-gui-gtk/src/gtk_ui.rs` — GTK GUI 위젯 및 바인딩 추가
 6. [ ] (GNOME Shell 전용 키일 때만) `unim-gnome-extension/prefs.js` + `*.gschema.xml`
+7. [ ] (AutoTypeFix 관련 설정일 때) Blacklist 파일 핫리로드 로직이 새 설정과 독립적으로 동작하는지 확인
 
 ## DBus API (Phase 2)
 

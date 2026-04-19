@@ -78,11 +78,15 @@ GTK3의 수동 `G_TYPE_CHECK_INSTANCE_CAST` 매크로 대신 자동 생성됩니
 ### 2.3 컨텍스트 초기화 (`unim_im_context_init`)
 
 1. `UNIM_DEVELOP=1` 여부 확인 → 디버그 모드 설정
-2. `window_id` 생성: `"gtk4-ctx-0x..."` (컨텍스트 포인터 기반)
+2. `window_id` 생성: `"{prgname}:gtk4-ctx-0x..."` (실행 파일명 + 컨텍스트 포인터 기반)
 3. `unim_dbus_context_new("gtk4-unim", window_id)` → DBus 클라이언트 생성
-4. `unim_hanja_popup_new()` → 한자 팝업 인스턴스 생성
-5. `unim_special_popup_new()` → 특수문자 팝업 인스턴스 생성
-6. 상태 필드 초기화 (focused, surrounding_text, cursor_area 등)
+4. `unim_dbus_set_auto_typefix_callback()` → `AutoTypefixApply` 시그널 구독
+5. `unim_dbus_set_commit_text_callback()` → `CommitText` 시그널 구독 (Standalone 팝업 클릭 커밋용)
+6. `unim_hanja_popup_new()` → 한자 팝업 인스턴스 생성
+7. `unim_special_popup_new()` → 특수문자 팝업 인스턴스 생성
+8. `last_preedit = ""` 초기화 (preedit 전이 추적용)
+9. 한자키 설정 로드 (`GetConfig("hanja_keys")` → `hanja_keysyms` 배열)
+10. 상태 필드 초기화 (focused, surrounding_text, cursor_area, autofix_* 등)
 
 ### 2.4 컨텍스트 소멸 (`unim_im_context_dispose`)
 
@@ -90,9 +94,12 @@ GTK4는 `finalize` 대신 **`dispose`** 를 사용합니다 (부모 클래스 �
 
 1. 한자 팝업 해제 (`unim_hanja_popup_free`)
 2. 한자 후보 배열 해제 (`unim_hanja_candidates_free`)
-3. DBus 클라이언트 해제 (`unim_dbus_context_free`)
-4. `window_id`, `surrounding_text` 메모리 해제
-5. 부모 클래스 `dispose` 호출
+3. 특수문자 팝업 해제 (`unim_special_popup_free`)
+4. 특수문자 후보 배열 해제 (`unim_special_chars_free`)
+5. DBus 클라이언트 해제 (`unim_dbus_context_free`)
+6. `window_id`, `surrounding_text`, `hanja_keysyms` 해제
+7. `last_preedit`, `autofix_commit_text`, `autofix_preedit_text` 해제
+8. 부모 클래스 `dispose` 호출
 
 ---
 
@@ -119,12 +126,28 @@ struct _UnimIMContext {
 
     /* 특수문자 입력 */
     UnimSpecialPopup *special_popup;
+    gchar **special_characters;        /* 현재 특수문자 목록 */
+    gsize special_count;               /* 특수문자 개수 */
 
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
     gsize n_hanja_keysyms;             /* 배열 크기 */
+
+    /* preedit 전이 추적 (preedit-start/end 자동 발사용) */
+    gchar *last_preedit;               /* 마지막으로 emit한 preedit */
+
+    /* AutoTypeFix XTest 폴백용 (delete_surrounding 미지원 앱 대응) */
+    guint  autofix_bs_pending;         /* 자가 주입 BackSpace 잔여 수 */
+    gchar *autofix_commit_text;        /* 지연 commit 텍스트 */
+    gchar *autofix_preedit_text;       /* 지연 preedit 텍스트 */
 };
 ```
+
+> [!IMPORTANT]
+> `last_preedit`는 `unim_emit_preedit()` 헬퍼가 preedit 전이를 판정하여
+> `preedit-start` / `preedit-changed` / `preedit-end` 시그널을 올바르게 발사하기 위한 캐시다.
+> `preedit-end` 누락 시 ghostty 등 일부 GTK4 앱이 IM 활성 상태로 잠겨 non-text 키 전파가 차단되므로,
+> 모든 preedit 변경은 반드시 이 헬퍼를 경유해야 한다.
 
 > [!NOTE]
 > `hanja_keysyms`는 초기화 시 DBus `GetConfig("hanja_keys")` 호출로 설정을 로드하고,

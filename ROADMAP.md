@@ -51,8 +51,9 @@
 ### 4단계: 자동 상태 전환 (지능화)
 
 - [ ] **문맥 감지**: 현재 입력 필드 상태나 언어 문맥을 감지하는 방법 연구.
-- [ ] **자동 교정 엔진**: 실시간 "오타" 감지 구현 (예: `gksrmf` 입력 시 타이핑 중에 자동으로 `한글`로 변환).
-- [ ] **사용자 학습**: 사용자별 타이핑 패턴을 학습하는 선택적 로컬 사전 기능.
+- [x] **자동 교정 엔진 (AutoTypeFix)**: 실시간 오타 감지 구현. forward(영→한: `gksrmf` → `한글`), reverse(한→영: `ㅈㅐㅍㅁ` → `wave`) 양방향 지원. XIM·GTK3/4·Qt5/6·Wayland·GNOME Shell 전 프론트엔드 통합. Prefix-avoidance로 `wood`/`woody` 같은 확장 가능 단어 대기. (`src/auto_typefix.rs`)
+- [x] **사용자 학습 — 억제 사전(Blacklist)**: 롤백 관측(BS + 모드 전환) + 재시도 시점 자동 등록 방식으로 "원치 않는 교정" 단어를 Tentative로 학습. GUI에서 Confirm 시 Confirmed, 시간 만료 시 Inactive. `~/.config/unim/typefix-blacklist.yaml`에 저장, 데몬 mtime 핫리로드. (`src/typefix_blacklist.rs`)
+- [ ] **사용자 학습 — 양성 사전**: 사용자별 타이핑 패턴 기반의 *긍정적* 로컬 사전(오타 교정 promotion)은 미구현. 현재 Blacklist는 교정 제외만 담당.
 
 ### 5단계: 크로스 플랫폼 확장
 

@@ -27,7 +27,10 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 - **조합 중이면 즉시 commit** (조합 중이던 글자를 확정)
 - preedit 클리어
 - **팝업(한자/특수문자)이 열려있으면 닫기** + 해당 모드 취소
-- DBus `FocusOut()` 호출 → 반환된 commit 텍스트를 앱에 전달
+- DBus `FocusOut()` 호출 → **반환된 commit 텍스트만** 앱에 전달
+  - 데몬은 `CommitText` 시그널을 **별도로 발송하지 않는다** —
+    시그널은 context-scoped가 아니어서 다른 InputContext에서
+    이중 커밋이 발생한다 (gedit의 "늘늘" 재현). (552b5bd)
 
 ### 2.3 클릭으로 커서 이동
 - 같은 텍스트 필드 내에서 다른 위치를 클릭하면 포커스 이동과 동일하게 처리
@@ -40,6 +43,10 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 ### 3.1 문자 키 (한글/영문)
 - 한글 모드: 한글 조합 로직에 따라 preedit 업데이트 또는 commit
 - 영문 모드: 그대로 앱에 전달 (바이패스)
+- **Space 키 특례(영문 모드)**: 한국어 모드와 동일하게 `committed()` 경로로
+  처리한다 (`consumed=true`, `commit=" "`). `not_consumed`를 반환해선 안 된다.
+  이전에는 영문 Space가 `not_consumed`를 돌려주어 GTK IM 모듈이 간헐적으로
+  공백을 떨어뜨렸다 (gedit 재현). (552b5bd)
 
 ### 3.2 수정자 키 (Modifier)
 - `Shift`, `Ctrl`, `Alt`, `Super`, `Meta`, `Hyper`, `CapsLock`, `NumLock`, `ScrollLock`
@@ -82,6 +89,10 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 ### 3.10 BackSpace
 - 조합 중이면 조합 문자의 마지막 자모 삭제
 - 조합 중이 아니면 앱에 전달 (일반 백스페이스)
+- **AutoTypeFix 역방향(reverse) 교정 직후의 BS**: reverse 교정은
+  `clear_preedit=true`로 처리되어 후속 사용자 BS가 IM 모듈 단에서 소화되고
+  `engine_worker`에는 전달되지 않는다. 따라서 Blacklist 롤백 관측은
+  reverse 쪽에서만 **BS-OR-모드전환** 게이트를 사용한다. (§9.2 참조)
 
 ---
 
@@ -309,3 +320,62 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 | `HidePopup` | - | 팝업 닫기 |
 | `PopupNavigate` | (page, totalPages, selected, rows, cols, selRow, selCol) | 팝업 상태 업데이트 |
 | `GlobalModeChanged` | (is_korean) | 한/영 모드 변경 알림 |
+
+---
+
+## 9. AutoTypeFix 억제 사전 (Blacklist) — IME 레벨 관측 동작
+
+자동 오타 교정을 특정 ASCII 입력에만 적용하지 않게 하는 사용자 사전.
+데이터 구조/파일 스키마/상태 머신의 **원본 기술**은
+[`src/SPEC.md §8A`](src/SPEC.md#8a-autotypefix-억제-사전-blacklist)에 있다.
+본 절은 IME(프론트엔드+데몬) 관점에서 관측자가 어떤 키를 언제 기록하는지만 정의한다.
+
+### 9.1 롤백 관측 — Pending Flag
+
+BS와 모드 전환은 **즉시 Blacklist에 쓰지 않는다.** 대신 직전 교정
+(`RecentCorrection`)에 `pending=true`를 붙인다:
+
+| 관측 이벤트 | 기록 위치 | 비고 |
+|------------|---------|------|
+| `BackSpace` × `corrected_len` | `RecentCorrection.bs_seen` | 교정 결과를 정확히 되돌린 BS 수 |
+| 모드 전환 (한↔영) | `RecentCorrection.mode_switched` | 방향과 무관 |
+| `observation_timeout_secs` 경과 | pending 해제 | 기본 10초 |
+
+### 9.2 등록 트리거 — "재시도(retrigger)"
+
+Pending 상태에서 **같은 ASCII가 두 번째로 AutoTypeFix를 트리거하는 순간**
+Blacklist에 Tentative로 추가되며 **그 재시도도 함께 억제**된다.
+등록이 롤백 시점이 아니라 재시도 시점에 일어나므로 모드 오전환 같은
+고립된 이벤트로는 등록되지 않는다.
+
+| 방향 | 게이트 | 이유 |
+|------|-------|------|
+| forward | **BS AND 모드 전환** | 사용자가 결과를 지우고 영어 모드로 돌아갔다는 양쪽 증거 필요 |
+| reverse | **BS OR 모드 전환** | reverse는 `clear_preedit=true`로 후속 BS가 engine_worker에 도달하지 않아 AND가 구조적 불가. 모드 전환 단독으로 충분 |
+
+방향별 저장 키:
+- forward: `RecentCorrection.ascii = fix.original` (ASCII 원문)
+- reverse: `RecentCorrection.ascii = fix.corrected` (영단어)
+
+초기 구현은 reverse에서 `fix.original`을 저장하여 빈 문자열로 등록되는
+버그가 있었다. aeab5f5에서 수정.
+
+### 9.3 Prefix-Avoidance (reverse 전용)
+
+`check_reverse` 진입 시, **현재 ASCII가 사전에 등재되어 있으면서 동시에
+사전상의 더 긴 단어의 strict prefix**인 경우 발화를 유보한다.
+
+| 예 | 사전 상황 | 동작 |
+|----|---------|------|
+| `wood` | `wood`, `woody`, `woodpecker` 모두 등재 | 발화 유보 (사용자가 'y'를 칠 수 있음) |
+| `word` | `word`만 등재, 더 긴 확장 없음 | 즉시 발화 |
+
+- 설정: `auto_typefix.skip_on_prefix_collision` (기본 true)
+- Blacklist와 **독립** — prefix 유보 상태의 ASCII도 Blacklist에 있으면 별도로 억제된다
+
+### 9.4 설정 원본 참조
+
+- 파일 스키마·상태 머신: `src/SPEC.md §8A`
+- 설정 필드 범위: `src/SPEC.md §3.1.1 AutoTypeFixConfig`
+- CLI 설정 키: `unim-config/SPEC.md §3`
+- DBus 설정 키 매핑: `unim-dbus/SPEC.md §5.4`

@@ -11,10 +11,12 @@
 | 파일 | 역할 |
 |------|------|
 | `main.rs` | XIM 서버 초기화, x11rb 이벤트 루프, 종료 처리 |
-| `handler.rs` | XIM 프로토콜 이벤트 처리, DBus 연동, 한자 팝업 관리 |
+| `handler.rs` | XIM 프로토콜 이벤트 처리, DBus 연동, 한자/특수문자 팝업 관리, AutoTypeFix |
 | `hanja_window.rs` | X11 Xlib/Xft 기반 한자 후보 팝업 윈도우 |
+| `special_window.rs` | X11 Xlib + tiny-skia 기반 특수문자(9×9) 팝업 윈도우 |
 | `pe_window.rs` | Preedit(조합 중 텍스트) 표시 윈도우 |
-| `dbus_client.rs` | unim-daemon과의 비동기 DBus 통신 |
+| `dbus_client.rs` | unim-daemon과의 비동기 DBus 통신 (PopupEvent 시그널 포함) |
+| `dpi.rs` | Xft.dpi 기반 HiDPI 스케일 팩터 계산 유틸리티 |
 
 ### 1.2 통신 구조
 
@@ -93,7 +95,7 @@ poll_for_event() → 10ms sleep (None) 또는 이벤트 처리:
 | 이벤트 | 동작 |
 |--------|------|
 | `handle_set_focus` | DBus `FocusIn` → 데몬에 포커스 알림 |
-| `handle_unset_focus` | DBus `FocusOut` → 조합 중 텍스트 커밋 후 preedit 정리 |
+| `handle_unset_focus` | DBus `FocusOut` → **RPC 반환값**(`CommitText`)으로만 조합 커밋 후 preedit 정리. 데몬은 `CommitText` DBus 시그널을 더 이상 발송하지 않으므로(552b5bd, 중복 커밋 방지) 단일 채널로 처리 |
 
 ---
 
@@ -226,7 +228,53 @@ Left/Right 화살표, Space, BackSpace:
 > `GetSpecialCharCandidates`는 이미 설정된 모드 상태만 읽으므로, 순서가 바뀌면 첫 번째 키 입력에서 후보가 표시되지 않습니다.
 > 이 순서는 GTK3/4 구현과 동일합니다.
 
-### 4.4 일반 키 처리 (ProcessKey)
+### 4.4 AutoTypeFix (자동 한영 오타 교정)
+
+데몬이 오타를 감지하면 `PopupEvent::AutoTypeFix { delete_chars, commit_text, preedit_text }`
+DBus 시그널을 방출합니다. XIM은 이를 받아 **N+1 BackSpace** 패턴으로 처리합니다(db1a6af, 1bcc678, 6a7e88c).
+
+#### 4.4.1 흐름
+
+```
+AutoTypeFix 시그널 수신 (delete=N, commit=C, preedit=P)
+  → self_backspace_pending = N + 1   (N개는 소비, 마지막 1개는 트리거)
+  → deferred_autofix = Some((C, P))
+  → XTestFakeKeyEvent로 BackSpace KeyPress/KeyRelease N+1회 주입
+     (실제 하드웨어 이벤트로 인식되어 앱이 N글자 삭제)
+  → 주입된 BackSpace가 XIM 서버로 재진입 (self-feedback)
+     ├── pending > 0 인 BS: 카운터 감소 후 Ok(false) → 앱에 통과 (엔진 우회)
+     └── pending == 0 인 마지막 1회: deferred_autofix 소비
+         → user_ic.ic에 commit(C) + preedit_draw(P)
+         → Ok(true)로 소비
+```
+
+#### 4.4.2 Self-feedback 방지 (1bcc678)
+
+- `self_backspace_pending` 카운터가 `handle_forward_event` 재진입 시 BackSpace를 식별.
+- `autofix_commit_guard` 플래그: `server.commit()`/`preedit_draw()` 호출이 xim crate 내부에서
+  keycode=0 가상 이벤트로 `handle_forward_event`를 재진입시키는 문제를 차단.
+- 이전 교정이 미완료 상태(`pending_bs != 0`)에서 새 시그널이 오면 이전 것을 폐기하고 초기화.
+
+#### 4.4.3 Deferred commit + preedit 경유 (db1a6af)
+
+최종 BackSpace가 앱에 도달해 삭제가 끝난 시점에 commit/preedit을 발행해야
+타이밍이 맞습니다. 따라서 시그널 수신 시 즉시 commit 하지 않고 `deferred_autofix`에 보관,
+N+1번째 BS 통과 시점에 실행합니다. preedit 문자열(`P`)이 동봉되므로 교정 후에도
+조합 상태가 유지됩니다.
+
+#### 4.4.4 관련 필드 (`UnimHandler`)
+
+| 필드 | 용도 |
+|------|------|
+| `last_focused_ic_info` | 마지막 포커스 IC (client_win, im_id, ic_id) — 교정 commit 대상 식별 |
+| `last_focused_app_window` | XTestFakeKeyEvent 대상이 아닌 참조용 |
+| `last_focused_context_path` | AutoTypeFix Reset용 DBus 컨텍스트 경로 |
+| `self_backspace_pending` | 남은 자가 주입 BS 개수 (N+1부터 감소) |
+| `deferred_autofix` | `(commit_text, preedit_text)` 교정 페이로드 |
+| `autofix_context_path` | 시그널 수신 시점의 컨텍스트 경로 |
+| `autofix_commit_guard` | commit/preedit_draw 재진입 차단 플래그 |
+
+### 4.5 일반 키 처리 (ProcessKey)
 
 한자 팝업이 닫혀있고 한자 키가 아닌 경우:
 
@@ -353,7 +401,26 @@ UnimHandler ← std::sync::mpsc::channel ← DbusClient
 | `ResetContext` | `CommitText { text }` | IC 리셋 → 조합 텍스트 커밋 |
 | `GetHanjaCandidates` | `HanjaCandidates { target, candidates }` | 한자 후보 조회 |
 | `SelectHanja` | `HanjaSelected { committed }` | 한자 후보 선택 |
-| `CancelHanja` | — | 한자 모드 취소 |
+| `CancelHanja` | `CommitText { text }` | 한자 모드 취소 (트리거 커밋 반환) |
+| `GetSpecialCharCandidates` | `SpecialCharCandidates { ... }` | 특수문자 후보 조회 |
+| `SelectSpecialChar` / `CancelSpecialChar` | `CommitText { text }` | 특수문자 선택/취소 |
+
+### 7.3 데몬 → XIM 브로드캐스트 시그널 (`PopupEvent`)
+
+| 시그널 | 페이로드 | 용도 |
+|--------|----------|------|
+| `PopupEvent::AutoTypeFix` | `delete_chars, commit_text, preedit_text` | 자동 한영 오타 교정 트리거 (§4.4 참고) |
+| `PopupEvent::CommitText` | `text` | Standalone 모드 팝업의 커밋 전달 — **XIM은 키보드 선택만 사용**하므로 참고만 기록 |
+
+> [!NOTE]
+> 552b5bd 이후 `FocusOut` 응답은 DBus `CommitText` 시그널 없이 RPC 반환값으로만 전달됩니다.
+> 시그널이 broadcast되면 다른 IM 모듈이 중복 커밋을 발생시키기 때문입니다.
+
+### 7.4 Space 키 처리 (영문 모드)
+
+552b5bd 반영: 영문 모드에서 Space는 다른 영문 알파벳과 동일하게 `ProcessKey`가
+`result=true, commit=" "`를 반환합니다. 따라서 XIM은 특별 분기 없이 §4.5의
+일반 `commit` 경로로 공백을 커밋합니다(gedit 등의 간헐적 공백 드롭 버그 수정).
 
 ---
 

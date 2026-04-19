@@ -141,6 +141,47 @@ unim-config set hanja-keys "Hanja,F9"
 - 허용 값: `Hanja`, `F9` 등 (`KeyCode::from_name()` 참조)
 - 기본값: `Hanja,F9`
 
+### 3.9 AutoTypeFix 관련 키
+
+자동 오타 교정 서브 구조(`engine.auto_typefix.*`)를 제어한다.
+전체 필드 정의는 [`src/SPEC.md §3.1.1 AutoTypeFixConfig`](../src/SPEC.md#311-autotypefixconfig) 참조.
+
+| CLI 키 | 타입 | 기본값 | 범위 | 대상 필드 |
+|-------|------|-------|------|----------|
+| `auto-typefix-enabled` | bool | true | — | `enabled` |
+| `auto-typefix-time-window-ms` | u32 | 2000 | 500..=5000 | `time_window_ms` |
+| `auto-typefix-kor-syllable-threshold` | u8 | 3 | 2..=6 | `kor_syllable_threshold` |
+| `auto-typefix-eng-word-min-length` | u8 | 4 | 3..=8 | `eng_word_min_length` |
+| `auto-typefix-forward` | bool | true | — | `forward` |
+| `auto-typefix-reverse` | bool | true | — | `reverse` |
+| `auto-typefix-skip-on-english-word` | bool | true | — | `skip_on_english_word` |
+| `auto-typefix-skip-on-complete-syllable` | bool | true | — | `skip_on_complete_syllable` |
+| `auto-typefix-skip-on-prefix-collision` | bool | true | — | `skip_on_prefix_collision` (aeab5f5 신규) |
+| `auto-typefix-rollback-detection` | bool | true | — | `rollback_detection` (4315dce 신규) |
+| `auto-typefix-tentative-expiry-hours` | u16 | 1 | 1..=12 | `tentative_expiry_hours` (4315dce 신규, aeab5f5에서 `days`→`hours` 개명·축소) |
+| `auto-typefix-observation-timeout-secs` | u8 | 10 | 5..=15 | `observation_timeout_secs` (aeab5f5 신규) |
+
+#### 예시
+
+```bash
+# 억제 사전 자동 학습 비활성화
+unim-config set auto-typefix-rollback-detection false
+
+# reverse prefix-avoidance 해제 (기존 사전 단어 플로우 복원)
+unim-config set auto-typefix-skip-on-prefix-collision false
+
+# Tentative 엔트리 보존 기간을 최대(12시간)로
+unim-config set auto-typefix-tentative-expiry-hours 12
+
+# 롤백 관측 pending flag 유지 시간 단축
+unim-config set auto-typefix-observation-timeout-secs 5
+```
+
+> [!NOTE]
+> `~/.config/unim/typefix-blacklist.yaml` 자체는 본 CLI의 관리 대상이
+> 아니다(사용자 데이터). 억제어 목록 편집은 GTK 설정창의 "억제 단어"
+> 페이지 또는 YAML 직접 편집을 이용한다. 데몬이 mtime 변화로 자동 리로드한다.
+
 ---
 
 ## 4. 서브커맨드 상세

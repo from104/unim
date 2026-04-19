@@ -43,6 +43,7 @@
 
 - **DBus 서비스명**: `org.atit.unim.InputMethod`
 - **설정 파일**: `~/.config/unim/config.yaml`
+- **AutoTypeFix 억제 사전** (사용자 데이터): `~/.config/unim/typefix-blacklist.yaml` — 데몬이 mtime 감시로 자동 리로드
 - **로그 파일**: `~/.unim-errors.log` (`UNIM_DEVELOP=1` 시 활성화)
 
 ### 팝업 아키텍처
@@ -89,12 +90,33 @@ Wayland 키 이벤트 → vfunc_filter_key_event → KeyHandler → DBus Process
 | `make dev-daemon` | 데몬 빌드 + 배포 |
 | `make dev-extension` | GNOME Extension 배포 (~/.local/share/) |
 
+## 품질 규칙 (Zero Tolerance)
+
+머지 기준은 다음 세 가지가 모두 충족될 때:
+
+- `cargo build --workspace`는 **경고 0개**로 완료되어야 한다
+- `cargo test --workspace`는 **모든 테스트 통과**해야 한다
+- `make build` (C/C++ 프론트엔드 포함)도 경고 없이 완료되어야 한다
+- 코드 변경 후 항상 빌드+테스트를 실행하고, 신규 경고는 즉시 제거한다
+
+## 개발 규약
+
+- **`Makefile`**이 빌드/설치 프로세스의 소스 오브 트루스다
+- Core 로직은 `src/`에 **엄격히 격리** — UI·플랫폼 의존성 금지
+- 프론트엔드는 DBus(`unim-daemon` 경유)로만 엔진과 통신. 직접 메모리 공유 금지
+- C/C++에서 Core 접근은 반드시 `unim-capi/` FFI 레이어 경유
+- **문서·기획·walkthrough는 한국어**, **Git commit 메시지는 영어** (예: `feat: Add Wayland popup support`)
+- 로깅은 `unim_log!` (Rust) / `unim_log_message()` (C/C++) / `unimLog()`·`unimError()` (JS) 사용. `println!`, `log::*`, `console.log` 금지. 자세한 규칙·포맷은 [GEMINI.md](GEMINI.md) 참조
+- 설정 변경 시 **5지점 동기화** 규칙 준수 — [GEMINI.md의 Settings Synchronization](GEMINI.md) 참조
+
 ## 핵심 파일
 
 - **엔진 로직**: `src/input_engine.rs` - 한글/영어 키 처리, 모드 전환, 팝업 키 네비게이션
 - **한글 조합**: `src/hangul/` - 2벌식/3벌식 조합 로직
 - **키맵**: `src/keystroke/` - 키보드 레이아웃 매핑
 - **설정**: `src/config.rs` - 설정 구조체 (Source of Truth)
+- **자동 오타 교정**: `src/auto_typefix.rs` - forward/reverse 교정기, prefix-avoidance
+- **AutoTypeFix 억제 사전**: `src/typefix_blacklist.rs` - Tentative/Confirmed/Inactive 3상태 블랙리스트, 재시도 기반 자동 학습, mtime 핫리로드
 - **로깅**: `src/logging.rs` - 통합 로깅 매크로
 - **엔진 워커**: `unim-dbus/src/engine_worker.rs` - FocusIn/Out, Reset, ProcessKey 요청 처리
 - **DBus 서비스**: `unim-dbus/src/service.rs` - DBus 메서드/시그널, 팝업 시그널 발행
@@ -145,6 +167,6 @@ FAIL → Phase 2 재실행 (최대 3회) / PASS → 커밋
 
 - [GEMINI.md](GEMINI.md) - 개발 컨벤션, 설정 연동 가이드, 로깅 시스템
 - [IME_BEHAVIOR.md](IME_BEHAVIOR.md) - 한글 입력기 동작 명세 (모든 프론트엔드 공통)
-- [docs/POPUP_SPEC.md](docs/POPUP_SPEC.md) - 한자/특수문자 팝업 통합 설계서 (색상, 폰트, 키 바인딩, 프런트엔드별 전략)
+- [docs/specs/POPUP_SPEC.md](docs/specs/POPUP_SPEC.md) - 한자/특수문자 팝업 통합 설계서 (색상, 폰트, 키 바인딩, 프런트엔드별 전략) — 단일 원본
 - [ROADMAP.md](ROADMAP.md) - 장기 개발 로드맵
 - [README.md](README.md) - 프로젝트 소개 및 아키텍처 상세

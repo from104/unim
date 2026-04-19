@@ -175,7 +175,11 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
 
 ### 5.4 설정 키 매핑
 
-| 키 | 타입 | 유효값 |
+legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON 엔드포인트
+(`GetConfigYaml` / `SetConfigYaml` / `GetConfigJson`)는 serde로 전체
+`Config` 구조체를 자동 처리하므로 **신규 필드 추가 시 여기 5.4 표만 갱신**하면 된다.
+
+| 키 | 타입 | 유효값 / 구조체 경로 |
 |----|------|--------|
 | `korean_layout` | enum | `Dubeolsik`, `Sebeolsik390`, `Sebeolsik391`, `SebeolsikNoShift` |
 | `english_layout` | enum | `Qwerty`, `Dvorak`, `Colemak`, `ColemakDh`, `Workman` |
@@ -183,6 +187,18 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
 | `mode_sharing` | enum | `Global`, `PerApp`, `PerWindow` |
 | `toggle_keys` | string list | 쉼표 구분 KeyCode 이름 (예: `Korean,RightAlt`) |
 | `hanja_keys` | string list | 쉼표 구분 KeyCode 이름 (예: `Hanja,F9`) |
+| `auto-typefix-enabled` | bool | `engine.auto_typefix.enabled` |
+| `auto-typefix-time-window-ms` | u32 | `engine.auto_typefix.time_window_ms` (500..=5000) |
+| `auto-typefix-kor-syllable-threshold` | u8 | `engine.auto_typefix.kor_syllable_threshold` (2..=6) |
+| `auto-typefix-eng-word-min-length` | u8 | `engine.auto_typefix.eng_word_min_length` (3..=8) |
+| `auto-typefix-forward` | bool | `engine.auto_typefix.forward` |
+| `auto-typefix-reverse` | bool | `engine.auto_typefix.reverse` |
+| `auto-typefix-skip-on-english-word` | bool | `engine.auto_typefix.skip_on_english_word` |
+| `auto-typefix-skip-on-complete-syllable` | bool | `engine.auto_typefix.skip_on_complete_syllable` |
+| `auto-typefix-skip-on-prefix-collision` | bool | `engine.auto_typefix.skip_on_prefix_collision` (aeab5f5) |
+| `auto-typefix-rollback-detection` | bool | `engine.auto_typefix.rollback_detection` (4315dce) |
+| `auto-typefix-tentative-expiry-hours` | u16 | `engine.auto_typefix.tentative_expiry_hours` (1..=12) |
+| `auto-typefix-observation-timeout-secs` | u8 | `engine.auto_typefix.observation_timeout_secs` (5..=15) |
 
 ---
 
@@ -211,7 +227,7 @@ CreateInputContext("qt5-unim", "qt5-ctx-0x...")
 | 시그널 | 파라미터 | 용도 |
 |--------|----------|------|
 | `UpdatePreeditText` | `text: s, cursor_pos: u, visible: b` | Preedit 변경 알림 (XIM/Wayland) |
-| `CommitText` | `text: s` | 텍스트 커밋 알림 (FocusOut 시 호환용) |
+| `CommitText` | `text: s` | 외부(인디케이터 등)로의 커밋 브로드캐스트. **FocusOut 경로에서는 발송하지 않음** — §6.5 참조 (552b5bd) |
 
 ### 6.3 ProcessKeyEvent 상세
 
@@ -250,8 +266,10 @@ FocusOut()
        조합 중이면 preedit → commit 변환
        엔진 리셋 (InputEngine::new)
        비-Global 모드에서는 입력 모드 복원
-  → 3. commit이 있으면 CommitText 시그널도 발송 (호환성)
-  → 4. 커밋 텍스트 반환
+  → 3. 커밋 텍스트를 RPC 반환값으로만 돌려준다.
+       (CommitText 시그널은 context-scoped가 아니어서
+        다른 InputContext로 누설되면 이중 커밋이 발생한다 — 552b5bd.
+        FocusOut 경로는 반환값 한 채널만 사용한다.)
 ```
 
 ---
@@ -294,6 +312,11 @@ let mut context_windows: HashMap<u32, String> = HashMap::new();
   → 변경 감지 시:
     → 모든 엔진의 korean/english 레이아웃 업데이트
 ```
+
+추가로 데몬은 `~/.config/unim/typefix-blacklist.yaml`의 mtime도 함께 감시하여
+변경 시 in-memory 억제 사전을 자동 리로드한다. GUI에서의 Confirm/Deactivate/
+Remove/Reactivate 뿐 아니라 외부 편집기로 YAML을 직접 수정해도 즉시 반영된다.
+(4315dce. 자세한 스키마는 `src/SPEC.md §8A`.)
 
 ### 7.4 모드 공유 전략
 
@@ -433,10 +456,7 @@ sequenceDiagram
     FE->>SVC: FocusOut()
     SVC->>EW: FocusOut { context_id }
     EW-->>SVC: commit_text
-    alt commit 있음
-        SVC-->>FE: CommitText 시그널
-    end
-    SVC-->>FE: commit_text 반환
+    SVC-->>FE: commit_text 반환 (RPC 반환값 단일 채널 — 552b5bd)
 ```
 
 ---

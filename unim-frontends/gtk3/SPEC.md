@@ -15,6 +15,8 @@
 | `unim_dbus_client.h` | `gtk-common/include/` | DBus 클라이언트 API 헤더 |
 | `unim_hanja_popup.c` | `gtk-common/src/` | GTK 기반 한자 후보 팝업 윈도우 (GTK3/4 공용) |
 | `unim_hanja_popup.h` | `gtk-common/include/` | 한자 팝업 API 헤더 |
+| `unim_special_popup.c` | `gtk-common/src/` | GTK 기반 특수문자 그리드 팝업 윈도우 (GTK3/4 공용) |
+| `unim_special_popup.h` | `gtk-common/include/` | 특수문자 팝업 API 헤더 |
 
 ### 1.2 통신 구조
 
@@ -59,21 +61,26 @@ default_locales = "ko:*"
 ### 2.2 컨텍스트 초기화 (`unim_im_context_init`)
 
 1. `UNIM_DEVELOP=1` 여부 확인 → 디버그 모드 설정
-2. `window_id` 생성: `"gtk3-ctx-0x..."` (컨텍스트 포인터 기반)
+2. `window_id` 생성: `"{prgname}:gtk3-ctx-0x..."` (실행 파일명 + 컨텍스트 포인터 기반)
 3. `unim_dbus_context_new("gtk3-unim", window_id)` → DBus 클라이언트 생성
-4. `unim_hanja_popup_new()` → 한자 팝업 인스턴스 생성
-5. `unim_special_popup_new()` → 특수문자 팝업 인스턴스 생성
-6. 상태 필드 초기화 (focused, surrounding_text, cursor_area 등)
+4. `unim_dbus_set_auto_typefix_callback()` → `AutoTypefixApply` 시그널 구독
+5. `unim_dbus_set_commit_text_callback()` → `CommitText` 시그널 구독 (Standalone 팝업 클릭 커밋용)
+6. `unim_hanja_popup_new()` → 한자 팝업 인스턴스 생성
+7. `unim_special_popup_new()` → 특수문자 팝업 인스턴스 생성
+8. `last_preedit = ""` 초기화 (preedit 전이 추적용)
+9. 한자키 설정 로드 (`GetConfig("hanja_keys")` → `hanja_keysyms` 배열)
+10. 상태 필드 초기화 (focused, surrounding_text, cursor_area, autofix_* 등)
 
 ### 2.3 컨텍스트 소멸 (`unim_im_context_finalize`)
 
-1. 특수문자 팝업 해제 (`unim_special_popup_free`)
-2. 특수문자 후보 배열 해제 (`unim_special_chars_free`)
-3. 한자 팝업 해제 (`unim_hanja_popup_free`)
-4. 한자 후보 배열 해제 (`unim_hanja_candidates_free`)
+1. 한자 팝업 해제 (`unim_hanja_popup_free`)
+2. 한자 후보 배열 해제 (`unim_hanja_candidates_free`)
+3. 특수문자 팝업 해제 (`unim_special_popup_free`)
+4. 특수문자 후보 배열 해제 (`unim_special_chars_free`)
 5. DBus 클라이언트 해제 (`unim_dbus_context_free`)
-6. `window_id`, `surrounding_text` 메모리 해제
-7. 부모 클래스 `finalize` 호출
+6. `window_id`, `surrounding_text`, `hanja_keysyms` 해제
+7. `last_preedit`, `autofix_commit_text`, `autofix_preedit_text` 해제
+8. 부모 클래스 `finalize` 호출
 
 ---
 
@@ -106,8 +113,22 @@ struct _UnimIMContext {
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
     gsize n_hanja_keysyms;             /* 배열 크기 */
+
+    /* preedit 전이 추적 (preedit-start/end 자동 발사용) */
+    gchar *last_preedit;               /* 마지막으로 emit한 preedit */
+
+    /* AutoTypeFix XTest 폴백용 (delete_surrounding 미지원 앱 대응) */
+    guint  autofix_bs_pending;         /* 자가 주입 BackSpace 잔여 수 */
+    gchar *autofix_commit_text;        /* 지연 commit 텍스트 */
+    gchar *autofix_preedit_text;       /* 지연 preedit 텍스트 */
 };
 ```
+
+> [!IMPORTANT]
+> `last_preedit`는 `unim_emit_preedit()` 헬퍼가 preedit 전이를 판정하여
+> `preedit-start` / `preedit-changed` / `preedit-end` 시그널을 올바르게 발사하기 위한 캐시다.
+> `preedit-end` 누락 시 ghostty 등 일부 앱이 IM 활성 상태로 잠겨 non-text 키 전파가 차단되므로,
+> 모든 preedit 변경은 반드시 이 헬퍼를 경유해야 한다.
 
 > [!NOTE]
 > `hanja_keysyms`는 초기화 시 DBus `GetConfig("hanja_keys")` 호출로 설정을 로드하고,
@@ -261,7 +282,7 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
 > 조합 **중**일 때는 이 키들도 엔진(`ProcessKey`)으로 전달됩니다.
 > 예: 조합 중 방향키 → 엔진이 조합 확정 후 키 바이패스.
 
-### 4.5 일반 키 처리 (ProcessKey)
+### 4.7 일반 키 처리 (ProcessKey)
 
 ```
 키 입력 → 수정자 상태 변환 (GDK → 비트필드)
@@ -270,7 +291,7 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
        → 응답: UnimDbusKeyResult { consumed, preedit, commit }
 ```
 
-#### 4.5.1 수정자 상태 비트필드 변환
+#### 4.7.1 수정자 상태 비트필드 변환
 
 | GDK 마스크 | 비트 | 의미 |
 |-----------|------|------|
@@ -280,20 +301,26 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
 | `GDK_MOD1_MASK` | bit 3 | Alt |
 | `GDK_SUPER_MASK` | bit 26 | Super |
 
-#### 4.5.2 결과 처리
+#### 4.7.2 결과 처리
 
 ```
 result.consumed == TRUE:
   → 1. 선택 영역 삭제 (retrieve-surrounding → delete-surrounding)
-  → 2. commit 텍스트 커밋  (commit 시그널)
-  → 3. preedit-changed 시그널
+  → 2. commit 텍스트 커밋 (commit 시그널)
+  → 3. preedit 전이는 `unim_emit_preedit()` 헬퍼로 emit
+       (preedit-start / preedit-changed / preedit-end 자동 판정)
   → return TRUE
 
 result.consumed == FALSE:
   → return FALSE (앱에 키 바이패스)
 ```
 
-### 4.6 선택 영역 자동 삭제
+> [!NOTE]
+> Space 키 영문 모드에서도 엔진이 `consumed=TRUE, commit=" "`로 응답하므로
+> 위 경로를 그대로 따른다. `not_consumed`로 바이패스하면 조합 중 영문 전환 시
+> Space가 FocusOut 커밋과 중복될 수 있어 금지됨 (552b5bd 참조).
+
+### 4.8 선택 영역 자동 삭제
 
 키가 엔진에 의해 소비된 경우, 선택 영역이 있으면 자동 삭제:
 
@@ -321,13 +348,18 @@ GTK focus_in 호출
 
 ```
 GTK focus_out 호출
-  → 1. DBus FocusOut → 조합 중 텍스트 커밋
+  → 1. 한자 팝업 열려있으면 닫기 + CancelHanja (트리거 문자 있으면 커밋)
+  → 2. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar (트리거 문자 있으면 커밋)
+  → 3. DBus FocusOut → 조합 중 텍스트 커밋 (RPC 반환값 사용)
        → commit 시그널 (커밋할 텍스트가 있으면)
-       → preedit-changed 시그널
-  → 2. 한자 팝업 열려있으면 닫기 + CancelHanja
-  → 3. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar
+       → unim_emit_preedit(unim, "") — preedit-end까지 발사
   → is_focused = FALSE
 ```
+
+> [!IMPORTANT]
+> 엔진의 `CommitText` 시그널은 Standalone 팝업 마우스 클릭 경로 전용이며,
+> FocusOut 커밋은 **RPC 반환값만** 사용한다 (IME_BEHAVIOR.md §2.2, 552b5bd).
+> 데몬이 FocusOut에서 CommitText 시그널을 추가로 발송하지 않으므로 이중 커밋은 발생하지 않는다.
 
 ### 5.3 리셋 (`reset`)
 
@@ -335,9 +367,9 @@ GTK focus_out 호출
 GTK reset 호출
   → 1. DBus ResetContext → 조합 중 텍스트 커밋
        → commit 시그널 (커밋할 텍스트가 있으면)
-       → preedit-changed 시그널
-  → 2. 한자 팝업 열려있으면 닫기 + CancelHanja
-  → 3. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar
+       → unim_emit_preedit(unim, "") — preedit-end까지 발사
+  → 2. 한자 팝업 열려있으면 닫기 + CancelHanja (트리거 문자 있으면 커밋)
+  → 3. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar (트리거 문자 있으면 커밋)
 ```
 
 ---
@@ -408,7 +440,27 @@ GTK set_surrounding(text, len, cursor_index) 호출
 | `unim_dbus_is_composing` | (캐시 조회) | `bool` | 조합 중 여부 |
 | `unim_dbus_get_hanja_candidates` | `GetHanjaCandidates` | `{target, candidates[], count}` | 한자 후보 조회 |
 | `unim_dbus_select_hanja` | `SelectHanja` | `selected_hanja` | 한자 후보 선택 |
-| `unim_dbus_cancel_hanja` | `CancelHanja` | — | 한자 모드 취소 |
+| `unim_dbus_cancel_hanja` | `CancelHanja` | `commit_trigger` | 한자 모드 취소 (트리거 문자 반환) |
+| `unim_dbus_get_special_char_candidates` | `GetSpecialCharCandidates` | `{target, chars[], count, top_row}` | 특수문자 후보 조회 |
+| `unim_dbus_select_special_char` | `SelectSpecialChar` | `selected_char` | 특수문자 선택 |
+| `unim_dbus_cancel_special_char` | `CancelSpecialChar` | `commit_trigger` | 특수문자 모드 취소 |
+| `unim_dbus_set_surrounding_text` | `SetSurroundingText` | — | 주변 텍스트 전달 |
+| `unim_dbus_set_content_type` | `SetContentType` | — | 입력 필드 목적 전달 (Password/Email 등) |
+| `unim_dbus_report_cursor_rect` | `ReportCursorRect` | — | 커서 위치 보고 (fire-and-forget) |
+| `unim_dbus_get_config` | `GetConfig` | `value` | 설정 값 조회 (legacy 키 단위) |
+
+### 8.3 구독 시그널
+
+| 시그널 | 인터페이스 | 핸들러 | 용도 |
+|--------|-----------|--------|------|
+| `AutoTypefixApply` | `org.atit.unim.InputContext` | `on_auto_typefix_signal` | 자동 한영 교정 적용 — `{delete_chars, commit_text, preedit_text}` |
+| `CommitText` | `org.atit.unim.InputContext` | `on_commit_text_signal` | Standalone 팝업 마우스 클릭 커밋 |
+
+> [!NOTE]
+> GTK3/4 IM 모듈은 **legacy `GetConfig`만** 사용한다 (`hanja_keys` 로드용).
+> 전체 설정 YAML/JSON 엔드포인트(`GetConfigYaml`/`SetConfigYaml`/`GetConfigJson`
+> + `ConfigChangedJson` 시그널)는 GUI(`unim-gui-gtk`, `unim-gui-qt`)와
+> `unim-config` CLI가 사용한다 (unim-dbus/SPEC.md §5.1, §5.2 참고).
 
 ---
 
@@ -550,7 +602,40 @@ X11에서 팝업이 부모 앱의 포커스를 빼앗지 않도록 하는 핵심
 
 ---
 
-## 11. GTK3 vs XIM 비교
+## 11. AutoTypeFix 통합
+
+엔진이 한영 오타(예: `dkssud` → `안녕`)를 감지하면 `AutoTypefixApply` 시그널을
+해당 컨텍스트 경로로 발송한다. IM 모듈은 이를 구독해 기존 타이핑을 교정 문자열로 치환한다.
+
+### 11.1 시그널 페이로드
+
+```
+AutoTypefixApply(delete_chars: u, commit_text: s, preedit_text: s)
+```
+
+### 11.2 교정 흐름 (`on_auto_typefix`)
+
+```
+1. delete_chars 만큼 GtkIMContext delete_surrounding 시도
+2. 성공 → commit_text 커밋 → preedit_text를 unim_emit_preedit으로 설정
+3. 실패 (Electron 등 delete_surrounding 미지원):
+   X11이면 → XTest로 BackSpace 키 N번 합성 주입
+     + filter_keypress에서 자가 주입 BackSpace를 패스스루 카운트 다운
+     + 마지막 BackSpace 소비 후 g_idle_add로 지연 commit/preedit 적용
+   X11 아니면 → commit에 "\b" × N 폴백 후 정상 commit/preedit
+```
+
+### 11.3 자가 주입 BackSpace 패스스루
+
+- `autofix_bs_pending`가 0보다 크면 `filter_keypress`는 BackSpace를
+  `return FALSE`로 앱에 전달하고 카운터만 감소시킨다.
+- 카운터가 0이 되는 시점에 `autofix_deferred_commit_cb`를 idle로 예약해
+  실제 `commit` + `unim_emit_preedit`을 처리한다.
+- 이 패턴은 Chrome/Electron 앱에서도 순방향/역방향 AutoTypeFix가 동작하게 한다.
+
+---
+
+## 12. GTK3 vs XIM 비교
 
 | 관점 | GTK3 | XIM |
 |------|------|-----|
@@ -564,9 +649,9 @@ X11에서 팝업이 부모 앱의 포커스를 빼앗지 않도록 하는 핵심
 
 ---
 
-## 12. 빌드 및 배포
+## 13. 빌드 및 배포
 
-### 12.1 빌드
+### 13.1 빌드
 
 ```bash
 mkdir -p unim-frontends/gtk3/build
@@ -581,7 +666,7 @@ make
 make build-frontends
 ```
 
-### 12.2 개발 배포 (`make dev-gtk3`)
+### 13.2 개발 배포 (`make dev-gtk3`)
 
 ```bash
 make dev-gtk3 PREFIX=/usr
@@ -592,7 +677,7 @@ make dev-gtk3 PREFIX=/usr
 1. `cmake` + `make` (gtk3/build)
 2. `sudo cp libim-unim.so $(GTK3_IM_MODULEDIR)/`
 
-### 12.3 설치 경로
+### 13.3 설치 경로
 
 ```
 $(GTK3_LIBDIR)/gtk-3.0/3.0.0/immodules/libim-unim.so
@@ -602,14 +687,14 @@ $(GTK3_LIBDIR)/gtk-3.0/3.0.0/immodules/libim-unim.so
 
 ---
 
-## 13. 로깅
+## 14. 로깅
 
 `UNIM_DEVELOP=1` 환경변수 설정 시 활성화.
 
 | 모듈명 | 컴포넌트 |
 |--------|---------|
 | `GTK3_IM` | `immodule.c` (키 처리, 포커스, preedit) |
-| `GTK3_DBUS` | `unim_dbus_client.c` (DBus 통신) |
+| `GTK_DBUS` | `unim_dbus_client.c` (DBus 통신, GTK3/4 공용) |
 | `HANJA_POPUP` | `unim_hanja_popup.c` (한자 팝업) |
 | `SPECIAL_POPUP` | `unim_special_popup.c` (특수문자 팝업) |
 
