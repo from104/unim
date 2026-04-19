@@ -237,7 +237,9 @@ pub const AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX: u8 = 8;
 pub const AUTO_TYPEFIX_TIME_WINDOW_MIN: u32 = 500;
 pub const AUTO_TYPEFIX_TIME_WINDOW_MAX: u32 = 5000;
 pub const AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN: u16 = 1;
-pub const AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX: u16 = 90;
+pub const AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX: u16 = 12;
+pub const AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN: u8 = 5;
+pub const AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX: u8 = 15;
 
 fn default_auto_typefix_enabled() -> bool {
     true
@@ -263,11 +265,17 @@ fn default_auto_typefix_skip_on_english_word() -> bool {
 fn default_auto_typefix_skip_on_complete_syllable() -> bool {
     true
 }
+fn default_auto_typefix_skip_on_prefix_collision() -> bool {
+    true
+}
 fn default_auto_typefix_rollback_detection() -> bool {
     true
 }
-fn default_auto_typefix_tentative_expiry_days() -> u16 {
-    7
+fn default_auto_typefix_tentative_expiry_hours() -> u16 {
+    4
+}
+fn default_auto_typefix_observation_timeout_secs() -> u8 {
+    10
 }
 
 /// 자동 오타 교정 (AutoTypeFix) 설정
@@ -298,12 +306,21 @@ pub struct AutoTypeFixConfig {
     /// 역방향 트리거 시 버퍼의 한글이 모두 완성 음절이면 억제 (기본 true, 기존 동작 유지)
     #[serde(default = "default_auto_typefix_skip_on_complete_syllable")]
     pub skip_on_complete_syllable: bool,
-    /// 자연 롤백(백스페이스 + 모드 전환) 감지로 임시 억제 단어 자동 기록 (기본 true)
+    /// 역방향 트리거 시 현재 ASCII가 더 긴 사전 단어의 접두사이면 억제 (기본 true).
+    /// 예: "wood" 는 사전에 있지만 "woody"/"woods" 도 있어 긴 단어 타이핑 중일 가능성이
+    /// 있으므로 한 글자 더 기다린다. 비활성화하면 최초 사전 hit에서 즉시 발화.
+    #[serde(default = "default_auto_typefix_skip_on_prefix_collision")]
+    pub skip_on_prefix_collision: bool,
+    /// 재트리거 기반 학습형 억제. 동일 입력이 관찰 창 내에 재차 트리거되면
+    /// 오탐 후보로 간주해 해당 순간에도 교정을 억제하고 blacklist에 기록한다. (기본 true)
     #[serde(default = "default_auto_typefix_rollback_detection")]
     pub rollback_detection: bool,
-    /// 임시 억제 단어 만료 기간 (일) — 이 기간 내 수동 확정 안 되면 inactive로 전환 (1~90, 기본 7)
-    #[serde(default = "default_auto_typefix_tentative_expiry_days")]
-    pub tentative_expiry_days: u16,
+    /// 임시 억제 단어 만료 기간 (시간) — 이 기간 내 수동 확정 안 되면 inactive로 전환 (1~12, 기본 4)
+    #[serde(default = "default_auto_typefix_tentative_expiry_hours")]
+    pub tentative_expiry_hours: u16,
+    /// 재트리거 관찰 창 (초) — 첫 교정 후 이 시간 내에 동일 입력이 재트리거되면 오탐으로 판정 (5~15, 기본 10)
+    #[serde(default = "default_auto_typefix_observation_timeout_secs")]
+    pub observation_timeout_secs: u8,
 }
 
 impl Default for AutoTypeFixConfig {
@@ -317,8 +334,10 @@ impl Default for AutoTypeFixConfig {
             reverse: default_auto_typefix_reverse(),
             skip_on_english_word: default_auto_typefix_skip_on_english_word(),
             skip_on_complete_syllable: default_auto_typefix_skip_on_complete_syllable(),
+            skip_on_prefix_collision: default_auto_typefix_skip_on_prefix_collision(),
             rollback_detection: default_auto_typefix_rollback_detection(),
-            tentative_expiry_days: default_auto_typefix_tentative_expiry_days(),
+            tentative_expiry_hours: default_auto_typefix_tentative_expiry_hours(),
+            observation_timeout_secs: default_auto_typefix_observation_timeout_secs(),
         }
     }
 }
@@ -339,9 +358,13 @@ impl AutoTypeFixConfig {
         self.time_window_ms = self
             .time_window_ms
             .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
-        self.tentative_expiry_days = self.tentative_expiry_days.clamp(
+        self.tentative_expiry_hours = self.tentative_expiry_hours.clamp(
             AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
             AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
+        );
+        self.observation_timeout_secs = self.observation_timeout_secs.clamp(
+            AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
+            AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
         );
     }
 }
@@ -920,24 +943,39 @@ mod tests {
         assert!(c.skip_on_english_word);
         assert!(c.skip_on_complete_syllable);
         assert!(c.rollback_detection);
-        assert_eq!(c.tentative_expiry_days, 7);
+        assert_eq!(c.tentative_expiry_hours, 4);
+        assert_eq!(c.observation_timeout_secs, 10);
     }
 
     #[test]
     fn test_auto_typefix_clamp_expiry() {
         let mut c = AutoTypeFixConfig {
-            tentative_expiry_days: 500,
+            tentative_expiry_hours: 500,
             ..Default::default()
         };
         c.clamp_ranges();
-        assert_eq!(c.tentative_expiry_days, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX);
+        assert_eq!(c.tentative_expiry_hours, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX);
 
         let mut c = AutoTypeFixConfig {
-            tentative_expiry_days: 0,
+            tentative_expiry_hours: 0,
             ..Default::default()
         };
         c.clamp_ranges();
-        assert_eq!(c.tentative_expiry_days, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN);
+        assert_eq!(c.tentative_expiry_hours, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN);
+
+        let mut c = AutoTypeFixConfig {
+            observation_timeout_secs: 99,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.observation_timeout_secs, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX);
+
+        let mut c = AutoTypeFixConfig {
+            observation_timeout_secs: 0,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.observation_timeout_secs, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN);
     }
 
     #[test]

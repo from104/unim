@@ -16,6 +16,7 @@ use unim::config::{
     Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode, PopupMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
+    AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
@@ -99,12 +100,13 @@ pub fn show_settings_dialog(app: &adw::Application) {
     let reverse_group = build_reverse_group(&state, &time_sync);
     let master_group = build_master_group(&state);
 
+    // master_group(활성화 + 재트리거 감지/관찰 창/만료)은 공통 설정이므로 최상단에 배치
+    page_typefix.add(&master_group);
     page_typefix.add(&forward_group);
     page_typefix.add(&reverse_group);
-    page_typefix.add(&master_group);
     window.add(&page_typefix);
 
-    // ── Page 3: 억제 단어 ─────────────────────────────────────
+    // ── Page 3: 교정 억제 단어 ────────────────────────────────
     let page_blacklist = build_blacklist_page();
     window.add(&page_blacklist);
 
@@ -587,6 +589,28 @@ fn build_reverse_group(state: &State, time_sync: &TimeSyncSlot) -> adw::Preferen
     }
     group.add(&skip_syl_sw);
 
+    // 접두사 충돌 시 보류
+    let skip_prefix_sw = adw::SwitchRow::builder()
+        .title("접두사 충돌 시 보류")
+        .subtitle("사전의 긴 단어에 포함된 접두사이면 한 글자 더 기다림 (예: 'wood' → 'woody' 대기)")
+        .build();
+    {
+        let s = state.borrow();
+        skip_prefix_sw.set_active(s.config.engine.auto_typefix.skip_on_prefix_collision);
+    }
+    {
+        let state_c = state.clone();
+        skip_prefix_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.skip_on_prefix_collision = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_skip_on_prefix_collision");
+        });
+    }
+    group.add(&skip_prefix_sw);
+
     // time_sync 슬롯에 reverse 등록
     time_sync.borrow_mut().1 = Some(rev_time_row);
 
@@ -619,10 +643,10 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     }
     group.add(&master);
 
-    // 자연 롤백 자동 감지 (백스페이스 + 모드 전환)
+    // 재트리거 자동 감지
     let rollback_sw = adw::SwitchRow::builder()
-        .title("자연 롤백 자동 감지")
-        .subtitle("교정 결과를 지우고 모드 전환하면 임시 억제 단어로 기록")
+        .title("재트리거 자동 감지")
+        .subtitle("같은 입력이 관찰 창 내에 다시 교정되면 오탐 후보로 기록하고 억제")
         .build();
     {
         let s = state.borrow();
@@ -641,9 +665,41 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     }
     group.add(&rollback_sw);
 
-    // 임시 억제 만료 (일)
+    // 관찰 창 (초)
+    let obs_adj = gtk4::Adjustment::new(
+        10.0,
+        AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN as f64,
+        AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX as f64,
+        1.0,
+        1.0,
+        0.0,
+    );
+    let obs_row = adw::SpinRow::builder()
+        .title("관찰 창 (초)")
+        .subtitle("첫 교정 후 이 시간 내 동일 입력이 재트리거되면 오탐으로 판정")
+        .adjustment(&obs_adj)
+        .digits(0)
+        .build();
+    {
+        let s = state.borrow();
+        obs_adj.set_value(s.config.engine.auto_typefix.observation_timeout_secs as f64);
+    }
+    {
+        let state_c = state.clone();
+        obs_row.connect_value_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.observation_timeout_secs = row.value() as u8;
+            save_and_notify(&s.config, "auto_typefix_observation_timeout_secs");
+        });
+    }
+    group.add(&obs_row);
+
+    // 임시 억제 만료 (시간)
     let exp_adj = gtk4::Adjustment::new(
-        7.0,
+        4.0,
         AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN as f64,
         AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX as f64,
         1.0,
@@ -651,14 +707,14 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
         0.0,
     );
     let exp_row = adw::SpinRow::builder()
-        .title("임시 억제 만료 (일)")
+        .title("임시 억제 만료 (시간)")
         .subtitle("이 기간 내 수동 확정하지 않으면 비활성화")
         .adjustment(&exp_adj)
         .digits(0)
         .build();
     {
         let s = state.borrow();
-        exp_adj.set_value(s.config.engine.auto_typefix.tentative_expiry_days as f64);
+        exp_adj.set_value(s.config.engine.auto_typefix.tentative_expiry_hours as f64);
     }
     {
         let state_c = state.clone();
@@ -667,8 +723,8 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
             if s.updating {
                 return;
             }
-            s.config.engine.auto_typefix.tentative_expiry_days = row.value() as u16;
-            save_and_notify(&s.config, "auto_typefix_tentative_expiry_days");
+            s.config.engine.auto_typefix.tentative_expiry_hours = row.value() as u16;
+            save_and_notify(&s.config, "auto_typefix_tentative_expiry_hours");
         });
     }
     group.add(&exp_row);
@@ -863,7 +919,7 @@ where
 }
 
 // ─────────────────────────────────────────────────────────────
-// Page 3: 억제 단어 관리 (학습형 Blacklist)
+// Page 3: 교정 억제 단어 관리 (학습형 Blacklist)
 // ─────────────────────────────────────────────────────────────
 
 /// 3개 PreferencesGroup의 핸들 + 각 그룹에 추가된 Row들 추적용 Vec.
@@ -877,9 +933,10 @@ struct BlacklistPageRefs {
     tentative_rows: RefCell<Vec<gtk4::Widget>>,
     confirmed_rows: RefCell<Vec<gtk4::Widget>>,
     inactive_rows: RefCell<Vec<gtk4::Widget>>,
+    last_mtime: RefCell<Option<std::time::SystemTime>>,
 }
 
-/// 억제 단어 페이지 생성.
+/// 교정 억제 단어 페이지 생성.
 ///
 /// 파일(`~/.config/unim/typefix-blacklist.yaml`)을 직접 R/W하고, daemon은 mtime
 /// 감지로 자동 reload한다 (별도 DBus 라운드트립 없음).
@@ -888,9 +945,12 @@ struct BlacklistPageRefs {
 /// - 승인 대기(Tentative): 자동 감지된 의심 단어. [확정]/[비활성화]/[삭제]
 /// - 확정(Confirmed): 영구 억제. [비활성화]/[삭제]
 /// - 비활성(Inactive): 만료/수동 비활성. [재활성화]/[삭제]
+///
+/// daemon이 파일을 갱신(BS+모드전환 감지 등)하는 경우를 위해, 2초 주기로 mtime을
+/// 폴링하여 변경 시 UI를 실시간으로 다시 채운다.
 fn build_blacklist_page() -> adw::PreferencesPage {
     let page = adw::PreferencesPage::builder()
-        .title("억제 단어")
+        .title("교정 억제 단어")
         .icon_name("edit-clear-all-symbolic")
         .build();
 
@@ -908,10 +968,46 @@ fn build_blacklist_page() -> adw::PreferencesPage {
         tentative_rows: RefCell::new(Vec::new()),
         confirmed_rows: RefCell::new(Vec::new()),
         inactive_rows: RefCell::new(Vec::new()),
+        last_mtime: RefCell::new(None),
     });
 
     refill_blacklist_groups(&refs);
+
+    // daemon이 파일을 갱신하는 경우를 실시간으로 반영하기 위한 2초 주기 mtime 폴링.
+    // 페이지/창 수명이 끝나면 Rc가 drop되어 자동으로 타이머도 제거되도록 Weak 보유.
+    let weak = Rc::downgrade(&refs);
+    glib::timeout_add_seconds_local(2, move || match weak.upgrade() {
+        Some(refs) => {
+            if blacklist_file_changed(&refs) {
+                refill_blacklist_groups(&refs);
+            }
+            glib::ControlFlow::Continue
+        }
+        None => glib::ControlFlow::Break,
+    });
+
     page
+}
+
+/// 파일 mtime 변경 여부를 확인하고, 변경됐으면 `last_mtime`을 갱신한다.
+fn blacklist_file_changed(refs: &Rc<BlacklistPageRefs>) -> bool {
+    let Some(path) = Blacklist::default_path() else {
+        return false;
+    };
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return false;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return false;
+    };
+    let mut last = refs.last_mtime.borrow_mut();
+    match *last {
+        Some(prev) if prev == mtime => false,
+        _ => {
+            *last = Some(mtime);
+            true
+        }
+    }
 }
 
 /// 3개 그룹의 모든 row를 제거한 뒤 현재 파일 상태로 다시 채운다.
@@ -974,7 +1070,7 @@ fn refill_blacklist_groups(refs: &Rc<BlacklistPageRefs>) {
     }
 
     refs.tentative_group.set_description(Some(&format!(
-        "자연 롤백으로 자동 감지된 의심 단어 — 확정하면 영구 억제 ({}개)",
+        "BS + 모드 전환으로 자동 감지된 의심 단어 — 확정하면 영구 억제 ({}개)",
         t_count
     )));
     refs.confirmed_group
@@ -1000,8 +1096,27 @@ fn build_blacklist_row(
     refs: &Rc<BlacklistPageRefs>,
     kind: BlacklistRowKind,
 ) -> adw::ActionRow {
+    // ASCII → 한글 변환 (사용자가 그 레이아웃으로 타이핑했을 때 화면에 보였을 형태).
+    // 역방향: ASCII가 영단어(예: "wood") → eng_to_kor 하면 사용자가 Korean 모드에서 본
+    //         자모 조합(예: "ㅊㅊ"/세벌식390)이 나온다.
+    // 순방향: ASCII가 영어 타이핑(예: "gksrmf") → eng_to_kor 하면 의도한 한글(예: "한글").
+    let hangul_form = unim::typefix::eng_to_kor(
+        &entry.ascii,
+        entry.korean_layout,
+        entry.english_layout,
+    );
+
+    // 방향별 주/부 표시 규칙:
+    // - 역방향(한→영): 주 = 한글(사용자가 친 실제 모습), 부 = 영어(저장된 ASCII)
+    // - 순방향(영→한): 주 = 영어(사용자가 친 ASCII), 부 = 한글(교정 결과)
+    let (title_text, counterpart) = match entry.direction {
+        unim::typefix_blacklist::Direction::Reverse => (hangul_form.clone(), entry.ascii.clone()),
+        unim::typefix_blacklist::Direction::Forward => (entry.ascii.clone(), hangul_form.clone()),
+    };
+
     let subtitle = format!(
-        "{} · 한글:{} · 영문:{} · 히트:{}",
+        "{} · {} · 한글:{} · 영문:{} · 히트:{}",
+        counterpart,
         direction_label(entry.direction),
         entry.korean_layout.display_name(),
         entry.english_layout.display_name(),
@@ -1009,7 +1124,7 @@ fn build_blacklist_row(
     );
 
     let row = adw::ActionRow::builder()
-        .title(&entry.ascii)
+        .title(&title_text)
         .subtitle(&subtitle)
         .build();
 

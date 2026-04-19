@@ -5,7 +5,7 @@
 //! 임시 억제 단어로 `~/.config/unim/typefix-blacklist.yaml`에 기록한다.
 //!
 //! 엔트리 상태:
-//! - `Tentative`: 자동 감지된 의심 단어. 억제 효과 있음. 기본 7일 내 수동 확정 안 되면 Inactive로 전환.
+//! - `Tentative`: 자동 감지된 의심 단어. 억제 효과 있음. 기본 4시간 내 수동 확정 안 되면 Inactive로 전환.
 //! - `Confirmed`: GUI에서 사용자가 확정. 영구 억제.
 //! - `Inactive`: 만료됨. 기록은 유지되나 억제 효과 없음.
 //!
@@ -27,6 +27,58 @@ pub enum Direction {
     Forward,
     /// 한글 모드 → 영어 교정
     Reverse,
+}
+
+/// AutoTypeFix 감지 경로에서 blacklist와 소통하기 위한 추상 게이트.
+///
+/// `auto_typefix.rs`의 `check_forward` / `check_reverse`는 이 trait를 통해서만
+/// blacklist를 조회한다. 구현체는 [`Blacklist`]를 비롯해 테스트용 모의 객체
+/// (예: `Blacklist::default()`) 무엇이든 가능하다.
+///
+/// 이 추상은 두 가지 목적을 만족한다:
+/// 1. `auto_typefix.rs → typefix_blacklist.rs` 의존성을 **명시적인 trait import**로
+///    승격하여 정적 분석 도구가 관계를 추적할 수 있게 한다.
+/// 2. 감지 경로의 테스트에서 blacklist를 쉽게 스텁(stub)할 수 있게 한다.
+pub trait BlacklistGate {
+    /// 주어진 (ascii, direction, layouts) 조합이 **활성 억제 대상**인지 여부.
+    fn is_suppressed(
+        &self,
+        ascii: &str,
+        direction: Direction,
+        korean_layout: KoreanLayout,
+        english_layout: EnglishLayout,
+    ) -> bool;
+
+    /// 임시(tentative) 엔트리를 등록하거나 기존 엔트리의 hit을 누적한다.
+    fn add_or_hit_tentative(
+        &mut self,
+        ascii: &str,
+        direction: Direction,
+        korean_layout: KoreanLayout,
+        english_layout: EnglishLayout,
+    );
+}
+
+impl BlacklistGate for Blacklist {
+    fn is_suppressed(
+        &self,
+        ascii: &str,
+        direction: Direction,
+        korean_layout: KoreanLayout,
+        english_layout: EnglishLayout,
+    ) -> bool {
+        Blacklist::is_suppressed(self, ascii, direction, korean_layout, english_layout)
+    }
+
+    fn add_or_hit_tentative(
+        &mut self,
+        ascii: &str,
+        direction: Direction,
+        korean_layout: KoreanLayout,
+        english_layout: EnglishLayout,
+    ) {
+        Blacklist::add_or_hit_tentative(self, ascii, direction, korean_layout, english_layout)
+    }
 }
 
 /// 엔트리 상태.
@@ -263,8 +315,8 @@ impl Blacklist {
 
     /// 만료 기간이 지난 Tentative 엔트리를 Inactive로 전환.
     /// Confirmed는 건드리지 않는다.
-    pub fn expire_tentatives(&mut self, expiry_days: u16) {
-        let expiry_secs = (expiry_days as u64) * 24 * 60 * 60;
+    pub fn expire_tentatives(&mut self, expiry_hours: u16) {
+        let expiry_secs = (expiry_hours as u64) * 60 * 60;
         let now = now_unix();
         for e in self.entries.iter_mut() {
             if e.status == EntryStatus::Tentative && now.saturating_sub(e.observed_at) > expiry_secs
@@ -377,16 +429,16 @@ mod tests {
     #[test]
     fn expire_tentatives_transitions_only_old() {
         let now = now_unix();
-        let day_secs = 24 * 60 * 60u64;
+        let hour_secs = 60 * 60u64;
         let mut bl = Blacklist::default();
-        // 10일 전 tentative → 만료 대상
-        bl.entries.push(sample_entry("old", EntryStatus::Tentative, now.saturating_sub(10 * day_secs)));
-        // 3일 전 tentative → 유지
-        bl.entries.push(sample_entry("fresh", EntryStatus::Tentative, now.saturating_sub(3 * day_secs)));
+        // 10시간 전 tentative → 만료 대상 (4시간 임계)
+        bl.entries.push(sample_entry("old", EntryStatus::Tentative, now.saturating_sub(10 * hour_secs)));
+        // 2시간 전 tentative → 유지
+        bl.entries.push(sample_entry("fresh", EntryStatus::Tentative, now.saturating_sub(2 * hour_secs)));
         // 오래된 confirmed → 유지
-        bl.entries.push(sample_entry("confirmed", EntryStatus::Confirmed, now.saturating_sub(10 * day_secs)));
+        bl.entries.push(sample_entry("confirmed", EntryStatus::Confirmed, now.saturating_sub(10 * hour_secs)));
 
-        bl.expire_tentatives(7);
+        bl.expire_tentatives(4);
 
         assert_eq!(bl.entries[0].status, EntryStatus::Inactive);
         assert_eq!(bl.entries[1].status, EntryStatus::Tentative);

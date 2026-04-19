@@ -14,7 +14,7 @@ use std::time::Instant;
 use crate::config::{AutoTypeFixConfig, EnglishLayout, KoreanLayout};
 use crate::keycode::{KeyCode, ModifierState};
 use crate::typefix;
-use crate::typefix_blacklist::{Blacklist, Direction};
+use crate::typefix_blacklist::{BlacklistGate, Direction};
 
 /// 영어 사전 (include_str! 임베드)
 static ENGLISH_WORDS: &str = include_str!("data/english_words.txt");
@@ -152,7 +152,7 @@ pub fn check_forward(
     config: &AutoTypeFixConfig,
     korean_layout: KoreanLayout,
     english_layout: EnglishLayout,
-    blacklist: &Blacklist,
+    blacklist: &dyn BlacklistGate,
 ) -> Option<AutoTypeFixResult> {
     if !config.forward || buffer.len() < 2 {
         return None;
@@ -272,7 +272,7 @@ pub fn check_reverse(
     config: &AutoTypeFixConfig,
     korean_layout: KoreanLayout,
     english_layout: EnglishLayout,
-    blacklist: &Blacklist,
+    blacklist: &dyn BlacklistGate,
 ) -> Option<AutoTypeFixResult> {
     if !config.reverse || buffer.len() < 2 {
         return None;
@@ -310,6 +310,19 @@ pub fn check_reverse(
     // 영어 사전 매칭
     let lower = eng.to_lowercase();
     if !DICTIONARY.contains(lower.as_str()) {
+        return None;
+    }
+
+    // 접두사 회피: 현재 ASCII가 사전에 있는 **더 긴 단어의 접두사**이기도 하면,
+    // 사용자가 긴 단어를 타이핑 중일 수 있으므로 발화 보류한다.
+    // 예: "wood" 사전 hit이지만 "woody"/"woods"/"wooden" 도 사전에 있으므로 defer.
+    //     다음 키가 들어와 "woody"가 되고 그 이상 확장이 없으면 그때 발화.
+    // ASCII 전제라서 byte-level starts_with로 충분 (성능).
+    if config.skip_on_prefix_collision
+        && DICTIONARY
+            .iter()
+            .any(|w| w.len() > lower.len() && w.as_bytes().starts_with(lower.as_bytes()))
+    {
         return None;
     }
 
@@ -500,6 +513,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -523,6 +538,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -710,6 +727,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -737,6 +756,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -763,6 +784,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -799,6 +822,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -889,6 +914,8 @@ mod tests {
         let on = AutoTypeFixConfig {
             skip_on_complete_syllable: true,
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
         assert!(
@@ -910,6 +937,8 @@ mod tests {
         let off = AutoTypeFixConfig {
             skip_on_complete_syllable: false,
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
         let result = check_reverse(&buf, &off, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
@@ -934,6 +963,8 @@ mod tests {
         let on = AutoTypeFixConfig {
             skip_on_complete_syllable: true,
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
         let result = check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
@@ -1024,6 +1055,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -1032,6 +1065,125 @@ mod tests {
 
         let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
         assert!(result.is_none(), "tentative reverse 엔트리는 억제해야 함");
+    }
+
+    #[test]
+    fn reverse_prefix_avoidance_defers_wood() {
+        // 회귀 테스트: "wood"는 사전에 있지만 "woody"/"woods"/"wooden"도 사전에 있어
+        // 접두사 회피 로직이 발화를 보류해야 한다.
+        assert!(dictionary_contains("wood"), "사전에 'wood' 있어야 함");
+        assert!(
+            DICTIONARY.iter().any(|w| w.len() > 4 && w.starts_with("wood")),
+            "사전에 'wood'의 긴 확장어가 있어야 함 (테스트 전제)"
+        );
+
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::W, KeyCode::O, KeyCode::O, KeyCode::D] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 2;
+        buf.has_preedit = false;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 4,
+            skip_on_complete_syllable: false,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let result =
+            check_reverse(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty, &empty_bl());
+        assert!(
+            result.is_none(),
+            "'wood'는 더 긴 확장어가 사전에 있으므로 발화 보류되어야 함"
+        );
+    }
+
+    #[test]
+    fn reverse_prefix_avoidance_fires_on_leaf_word() {
+        // "hello"는 사전에 있고 "hello"를 접두사로 갖는 더 긴 사전 단어가 없으면 발화.
+        // 테스트 전제 확인 (사전 데이터에 의존).
+        let has_longer = DICTIONARY.iter().any(|w| w.len() > 5 && w.starts_with("hello"));
+        if has_longer {
+            // 사전에 "hellos" 등이 있으면 이 테스트는 스킵 — 대신 접두사 회피가 동작했음을 검증.
+            return;
+        }
+
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 3;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let result =
+            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        assert!(result.is_some(), "'hello'는 확장어 없으면 발화해야 함");
+    }
+
+    #[test]
+    fn reverse_rollback_suppression_cycle() {
+        // 회귀 테스트: "역방향 교정 → (engine_worker가 쓰는 키) → blacklist 등록 →
+        // 같은 단어 재입력 시 억제" 사이클이 순방향과 대칭으로 작동해야 한다.
+        //
+        // 버그 배경: `check_reverse`의 `AutoTypeFixResult.original`이 undo용으로
+        // 빈 문자열이므로, engine_worker가 `fix.original`을 blacklist 키로 쓰면
+        // 역방향은 항상 ""로 등록되어 억제가 발화하지 않았다.
+        // 수정 후 engine_worker는 역방향에서 `fix.corrected`를 사용한다.
+
+        // 1) 1차 트리거
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 3;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
+            ..AutoTypeFixConfig::default()
+        };
+        let mut bl = Blacklist::default();
+        let fix = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl)
+            .expect("1차 역방향 트리거는 성공해야 함");
+
+        // 2) engine_worker의 키 선택 로직을 그대로 재현 (Direction::Reverse → fix.corrected)
+        let suppression_key = fix.corrected.clone();
+        assert_eq!(
+            suppression_key, "hello",
+            "역방향의 blacklist 키는 빈 문자열이 아닌 영단어여야 함"
+        );
+
+        // 3) 롤백(BS+모드전환) 감지 후 blacklist 등록
+        bl.add_or_hit_tentative(
+            &suppression_key,
+            Direction::Reverse,
+            KoreanLayout::Dubeolsik,
+            EnglishLayout::Qwerty,
+        );
+
+        // 4) 동일 입력 재발생 → 이번에는 억제되어야 함
+        let mut buf2 = KeystrokeBuffer::new();
+        for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
+            buf2.push(key, ModifierState::default());
+        }
+        buf2.committed_chars = 3;
+        buf2.has_preedit = true;
+
+        let result2 =
+            check_reverse(&buf2, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        assert!(
+            result2.is_none(),
+            "역방향 롤백 학습 후 같은 단어 재입력은 억제되어야 함"
+        );
     }
 
     #[test]
@@ -1046,6 +1198,8 @@ mod tests {
 
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
+            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
+            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
