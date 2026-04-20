@@ -78,6 +78,39 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
             *self.thread_mgr_sink_cookie.lock().unwrap() = Some(cookie);
         }
 
+        // PreservedKey 등록 (한/영 전환, 한자)
+        unsafe {
+            let keystroke_mgr: ITfKeystrokeMgr = thread_mgr.cast()?;
+            // Hangul key
+            let hangul_key = TF_PRESERVEDKEY {
+                uVKey: 0x15, // VK_HANGUL
+                uModifiers: 0,
+            };
+            let desc_hangul: Vec<u16> = "Toggle Korean/English"
+                .encode_utf16()
+                .collect();
+            let _ = keystroke_mgr.PreserveKey(
+                tid,
+                &crate::globals::UNIM_CLSID,
+                &hangul_key,
+                &desc_hangul,
+            );
+            // Hanja key
+            let hanja_key = TF_PRESERVEDKEY {
+                uVKey: 0x19, // VK_HANJA
+                uModifiers: 0,
+            };
+            let desc_hanja: Vec<u16> = "Hanja conversion"
+                .encode_utf16()
+                .collect();
+            let _ = keystroke_mgr.PreserveKey(
+                tid,
+                &crate::globals::UNIM_CLSID,
+                &hanja_key,
+                &desc_hanja,
+            );
+        }
+
         crate::dll_add_ref();
         Ok(())
     }
@@ -148,9 +181,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
         let tid = self.client_id();
+        let comp_sink: ITfCompositionSink = unsafe { self.cast()? };
 
         let eaten = key_handler::handle_key_down(
-            &mut engine, &config, &mut comp_mgr, context, tid, wparam,
+            &mut engine, &config, &mut comp_mgr, context, tid, wparam, &comp_sink,
         );
         Ok(BOOL::from(eaten))
     }

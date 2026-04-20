@@ -96,6 +96,7 @@ pub fn handle_key_down(
     context: &ITfContext,
     tid: u32,
     wparam: WPARAM,
+    comp_sink: &ITfCompositionSink,
 ) -> bool {
     let vk = wparam.0 as u16;
     let keycode = KeyCode::from_win32_vk(vk);
@@ -133,7 +134,7 @@ pub fn handle_key_down(
         } else if comp_mgr.is_active() {
             comp_mgr.update_composition(context, tid, &preedit);
         } else {
-            comp_mgr.start_composition(context, tid, &preedit);
+            comp_mgr.start_composition(context, tid, &preedit, comp_sink);
         }
     }
 
