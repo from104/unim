@@ -125,13 +125,13 @@ install-core:
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so
 	install -m 644 unim-capi/include/unim.h $(DESTDIR)$(INCLUDEDIR)/
-	install -m 755 target/release/unim-cli target/release/unim-config $(DESTDIR)$(BINDIR)/
+	install -m 755 target/release/unim-cli $(DESTDIR)$(BINDIR)/
 	install -m 755 target/release/unim-daemon target/release/unim-xim target/release/unim-wayland $(DESTDIR)$(LIBEXECDIR)/
 	install -m 644 im-config/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" im-config/25_unim.rc > $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc && chmod 644 $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" scripts/org.atit.unim.InputMethod.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
-	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 docs/man/unim-config.1 docs/man/unim-gui-gtk.1 docs/man/unim-gui-qt.1 $(DESTDIR)$(PREFIX)/share/man/man1/
+	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 docs/man/unim-gui-gtk.1 docs/man/unim-gui-qt.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
 install-frontends:
 	@echo "Installing IM modules..."
@@ -162,7 +162,7 @@ uninstall: uninstall-core uninstall-gui-gtk uninstall-gui-qt uninstall-frontends
 
 uninstall-core:
 	rm -f $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so $(DESTDIR)$(INCLUDEDIR)/unim.h \
-	      $(DESTDIR)$(BINDIR)/unim-cli $(DESTDIR)$(BINDIR)/unim-config \
+	      $(DESTDIR)$(BINDIR)/unim-cli \
 	      $(DESTDIR)$(LIBEXECDIR)/unim-daemon $(DESTDIR)$(LIBEXECDIR)/unim-xim $(DESTDIR)$(LIBEXECDIR)/unim-wayland \
 	      $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc \
 	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service \
@@ -268,7 +268,7 @@ test:
 	          $(QT5_PLUGIN_DIR)/libunim.so $(QT6_PLUGIN_DIR)/libunim.so; do \
 		printf "  %-55s %s\n" "$$f" "$$([ -f $(DESTDIR)$$f ] && echo '✓' || echo '✗')"; \
 	done
-	@for cmd in unim-cli unim-config unim-gui-gtk; do \
+	@for cmd in unim-cli unim-gui-gtk; do \
 		printf "  %-55s %s\n" "$(BINDIR)/$$cmd" "$$([ -f $(DESTDIR)$(BINDIR)/$$cmd ] && echo '✓' || echo '✗')"; \
 	done
 	@for cmd in unim-daemon unim-xim unim-wayland; do \

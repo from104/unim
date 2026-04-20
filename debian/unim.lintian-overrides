@@ -15,7 +15,7 @@
 # Rust crates are not unbundled by Debian policy. Disabling these overrides
 # would require either dropping YAML support outright or vendoring a C
 # libyaml shim, neither of which is acceptable.
-unim: embedded-library libyaml [usr/bin/unim-config]
+unim: embedded-library libyaml [usr/bin/unim-cli]
 unim: embedded-library libyaml [usr/bin/unim-gui-gtk]
 unim: embedded-library libyaml [usr/lib/*/libunim_capi.so.*]
 unim: embedded-library libyaml [usr/libexec/unim-daemon]

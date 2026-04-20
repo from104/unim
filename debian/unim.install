@@ -12,7 +12,6 @@ debian/tmp/usr/include/unim.h
 
 # CLI tools
 debian/tmp/usr/bin/unim-cli
-debian/tmp/usr/bin/unim-config
 
 # Daemons and protocol servers
 debian/tmp/usr/libexec/unim-daemon
@@ -52,6 +51,5 @@ debian/tmp/usr/share/dbus-1/services/org.atit.unim.InputMethod.service
 # Manual pages
 debian/tmp/usr/share/man/man1/unim.1
 debian/tmp/usr/share/man/man1/unim-cli.1
-debian/tmp/usr/share/man/man1/unim-config.1
 debian/tmp/usr/share/man/man1/unim-gui-gtk.1
 debian/tmp/usr/share/man/man1/unim-gui-qt.1

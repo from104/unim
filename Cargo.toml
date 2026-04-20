@@ -24,7 +24,6 @@ version = "0.1.0"
 members = [
     "unim-cli",
     "unim-capi",
-    "unim-config",
     "unim-frontends/xim",
     "unim-frontends/wayland",
     "unim-daemon",
