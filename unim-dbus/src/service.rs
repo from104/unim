@@ -943,6 +943,19 @@ impl InputContextHandler {
             .send(EngineRequest::DestroyContext { id: self.id })
             .await
             .ok();
+
+        // object_server에서 이 핸들러 자신도 제거 — Destroy 호출 후에도 핸들러가
+        // 남아있으면 zbus 내부 라우팅 테이블·시그널 구독 상태가 context_id마다 누적돼
+        // 장시간 실행 시 RSS가 꾸준히 증가한다. 경로는 create_input_context와 동일 포맷.
+        let path_str = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, self.id);
+        if let Ok(path) = zbus::zvariant::ObjectPath::try_from(path_str.as_str()) {
+            let _ = self
+                .connection
+                .object_server()
+                .remove::<InputContextHandler, _>(path)
+                .await;
+        }
+
         unim_log!("DBUS", "[DBus] Context 파괴: id={}", self.id);
         Ok(())
     }

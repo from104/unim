@@ -347,7 +347,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             }
 
             EngineRequest::DestroyContext { id } => {
+                // 컨텍스트 ID에 묶인 모든 per-context 상태를 함께 정리한다.
+                // (이관 누락 시 context_id가 단조 증가하는 IBus Portal 경로에서 HashMap이 무제한 누적됨)
                 contexts.remove(&id);
+                context_windows.remove(&id);
+                keystroke_buffers.remove(&id);
+                undo_states.remove(&id);
+                recent_corrections.remove(&id);
+                if last_focused_context_id == Some(id) {
+                    last_focused_context_id = None;
+                }
                 unim_log!("ENGINE_WORKER", "[Engine Worker] 컨텍스트 파괴: id={}", id);
             }
 

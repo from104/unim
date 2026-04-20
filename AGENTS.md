@@ -99,6 +99,51 @@ Wayland 키 이벤트 → vfunc_filter_key_event → KeyHandler → DBus Process
 - `make build` (C/C++ 프론트엔드 포함)도 경고 없이 완료되어야 한다
 - 코드 변경 후 항상 빌드+테스트를 실행하고, 신규 경고는 즉시 제거한다
 
+## 메모리 관리 규칙 (Zero Tolerance)
+
+`unim-daemon`은 세션이 끝날 때까지 계속 실행되는 장수(long-lived) 프로세스다.
+과거 RSS가 2GB까지 부푼 사건(glibc ptmalloc arena 폭발 + context 맵 누수) 이후
+아래 항목은 **회귀 금지**다. Rust의 ownership이 `free()`를 호출해도 할당자가 OS에
+메모리를 반환하지 않으면 RSS는 내려가지 않는다는 점을 항상 염두에 둘 것.
+
+### 할당자
+
+- [unim-daemon/src/main.rs](unim-daemon/src/main.rs) 의 `#[global_allocator] tikv_jemallocator::Jemalloc` 지정은 **제거·교체 금지**
+- [scripts/unim-daemon.service](scripts/unim-daemon.service) 의 `Environment=MALLOC_ARENA_MAX=2` 도 유지 (C 라이브러리 경로 이중 차단)
+- `main()` 안의 60초 주기 `libc::malloc_trim(0)` 태스크 유지
+
+### per-context HashMap 수명
+
+`engine_worker.rs`의 `DestroyContext` 핸들러는 context_id에 묶인 **모든** 맵을 함께 정리해야 한다. 한 개라도 빠뜨리면 IBus Portal 경로(context_id가 단조 증가)에서 무제한 누적된다. 현재 대상:
+
+- `contexts`, `context_windows`, `keystroke_buffers`, `undo_states`, `recent_corrections`
+- `last_focused_context_id == Some(id)` 이면 `None`으로 리셋
+
+새로운 per-context 상태를 추가하면 **반드시** 이 핸들러에도 `remove(&id)` 라인을 추가한다. CI·리뷰에서 체크포인트로 간주.
+
+### zbus `object_server` 수명
+
+`connection.object_server().at(path, handler).await` 로 등록한 모든 핸들러는 대응하는 `remove::<T, _>(path).await` 경로가 존재해야 한다. 현재 대상:
+
+- [unim-dbus/src/service.rs](unim-dbus/src/service.rs) `InputContextHandler::destroy`
+- [unim-dbus/src/ibus_compat/ibus_context.rs](unim-dbus/src/ibus_compat/ibus_context.rs) `IBusInputContextHandler::destroy`
+
+핸들러가 남으면 zbus 내부 라우팅 테이블이 세션 수명 동안 계속 커진다.
+
+### 진단 명령 (의심 시)
+
+```bash
+# RSS / Thread / anonymous mmap
+grep -E 'VmRSS|VmData|Threads' /proc/$(pidof unim-daemon)/status
+cat /proc/$(pidof unim-daemon)/smaps_rollup | grep -E 'Rss|Anonymous'
+# 64MB 이상 익명 arena 개수 (정상은 0~2개, 10개 이상이면 할당자 회귀 의심)
+python3 -c "import re; c=0
+for L in open(f'/proc/{__import__(\"os\").popen(\"pidof unim-daemon\").read().strip()}/maps'):
+    m=re.match(r'([0-9a-f]+)-([0-9a-f]+)\s+rw',L)
+    if m and (int(m.group(2),16)-int(m.group(1),16))>=64*1024*1024: c+=1
+print(f'big_anon_arenas={c}')"
+```
+
 ## 개발 규약
 
 - **`Makefile`**이 빌드/설치 프로세스의 소스 오브 트루스다
