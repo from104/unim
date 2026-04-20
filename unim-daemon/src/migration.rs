@@ -307,12 +307,16 @@ pub fn apply_migration(
     // auto-typefix-time-window (u32). 주의: 구 gschema default=2000이지만
     // config.rs default=5000. 사용자가 설정하지 않아도 dconf에 2000이 남아있을 수 있음.
     // 이 경우 2000을 "사용자 값"으로 보고 이관해야 과거 동작이 유지된다.
-    if atf.time_window_ms == atf_def.time_window_ms {
+    // 구 gschema는 단일 키. forward/reverse 두 신 필드 모두 기본값일 때만 주입.
+    if atf.forward_time_window_ms == atf_def.forward_time_window_ms
+        && atf.reverse_time_window_ms == atf_def.reverse_time_window_ms
+    {
         if let Some(v) = reader
             .read("auto-typefix-time-window")
             .and_then(|r| parse_uint(&r))
         {
-            atf.time_window_ms = v;
+            atf.forward_time_window_ms = v;
+            atf.reverse_time_window_ms = v;
             applied += 1;
         }
     }
@@ -522,7 +526,8 @@ mod tests {
         assert!(!config.engine.auto_typefix.enabled);
         assert!(!config.engine.auto_typefix.forward);
         assert!(!config.engine.auto_typefix.reverse);
-        assert_eq!(config.engine.auto_typefix.time_window_ms, 3000);
+        assert_eq!(config.engine.auto_typefix.forward_time_window_ms, 3000);
+        assert_eq!(config.engine.auto_typefix.reverse_time_window_ms, 3000);
         assert_eq!(config.engine.auto_typefix.kor_syllable_threshold, 4);
         assert_eq!(config.engine.auto_typefix.eng_word_min_length, 6);
     }
@@ -532,7 +537,8 @@ mod tests {
         // config.yaml에 이미 사용자 값이 있다 (기본값과 다름)
         let mut config = Config::default();
         config.engine.korean.layout = KoreanLayout::Sebeolsik391;
-        config.engine.auto_typefix.time_window_ms = 4500;
+        config.engine.auto_typefix.forward_time_window_ms = 4500;
+        config.engine.auto_typefix.reverse_time_window_ms = 4500;
 
         let default_config = Config::default();
         let reader = MockReader::new(&[
@@ -550,7 +556,11 @@ mod tests {
             "사용자 값 보존"
         );
         assert_eq!(
-            config.engine.auto_typefix.time_window_ms, 4500,
+            config.engine.auto_typefix.forward_time_window_ms, 4500,
+            "사용자 값 보존"
+        );
+        assert_eq!(
+            config.engine.auto_typefix.reverse_time_window_ms, 4500,
             "사용자 값 보존"
         );
         assert_eq!(config.engine.english.layout, EnglishLayout::Colemak);

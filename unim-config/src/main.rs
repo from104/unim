@@ -74,9 +74,12 @@ enum ConfigKey {
     /// 자동 오타 교정: 영문 단어 최소 길이 (3~8)
     #[value(name = "auto-typefix-eng-min-length")]
     AutoTypeFixEngMinLength,
-    /// 자동 오타 교정: 시간 윈도우 (500~5000 ms)
-    #[value(name = "auto-typefix-time-window")]
-    AutoTypeFixTimeWindow,
+    /// 자동 오타 교정: 순방향 시간 윈도우 (500~5000 ms)
+    #[value(name = "auto-typefix-forward-time-window-ms")]
+    AutoTypeFixForwardTimeWindow,
+    /// 자동 오타 교정: 역방향 시간 윈도우 (500~5000 ms)
+    #[value(name = "auto-typefix-reverse-time-window-ms")]
+    AutoTypeFixReverseTimeWindow,
     /// 자동 오타 교정: 순방향 (영→한) 교정 (true, false)
     #[value(name = "auto-typefix-forward")]
     AutoTypeFixForward,
@@ -167,7 +170,10 @@ fn config_show() {
             if atf.reverse { "ON" } else { "OFF" });
         println!("  - 한글 음절 임계값: {}, 영문 최소 길이: {}",
             atf.kor_syllable_threshold, atf.eng_word_min_length);
-        println!("  - 시간 윈도우: {}ms", atf.time_window_ms);
+        println!(
+            "  - 시간 윈도우: 순방향 {}ms / 역방향 {}ms",
+            atf.forward_time_window_ms, atf.reverse_time_window_ms
+        );
         println!("  - 재트리거 감지: {} / 관찰 창: {}초 / 임시 억제 만료: {}시간",
             if atf.rollback_detection { "ON" } else { "OFF" },
             atf.observation_timeout_secs,
@@ -366,7 +372,7 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             config.engine.auto_typefix.eng_word_min_length = v;
             println!("영문 단어 최소 길이: {}", v);
         }
-        ConfigKey::AutoTypeFixTimeWindow => {
+        ConfigKey::AutoTypeFixForwardTimeWindow => {
             let v: u32 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
             if !(AUTO_TYPEFIX_TIME_WINDOW_MIN..=AUTO_TYPEFIX_TIME_WINDOW_MAX).contains(&v) {
                 return Err(format!(
@@ -374,8 +380,19 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                     AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX, v
                 ));
             }
-            config.engine.auto_typefix.time_window_ms = v;
-            println!("시간 윈도우: {}ms", v);
+            config.engine.auto_typefix.forward_time_window_ms = v;
+            println!("순방향 시간 윈도우: {}ms", v);
+        }
+        ConfigKey::AutoTypeFixReverseTimeWindow => {
+            let v: u32 = value.parse().map_err(|_| format!("Invalid number: {}", value))?;
+            if !(AUTO_TYPEFIX_TIME_WINDOW_MIN..=AUTO_TYPEFIX_TIME_WINDOW_MAX).contains(&v) {
+                return Err(format!(
+                    "Range {}~{}, got {}",
+                    AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX, v
+                ));
+            }
+            config.engine.auto_typefix.reverse_time_window_ms = v;
+            println!("역방향 시간 윈도우: {}ms", v);
         }
         ConfigKey::AutoTypeFixForward => {
             let enabled = match value.to_lowercase().as_str() {

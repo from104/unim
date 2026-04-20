@@ -433,7 +433,8 @@ mod tests {
             enabled: true,
             kor_syllable_threshold: 2,
             eng_word_min_length: 5,
-            time_window_ms: 2000,
+            forward_time_window_ms: 2000,
+            reverse_time_window_ms: 2000,
             forward: true,
             reverse: true,
             ..AutoTypeFixConfig::default()
@@ -458,7 +459,8 @@ mod tests {
             enabled: true,
             kor_syllable_threshold: 2,
             eng_word_min_length: 5,
-            time_window_ms: 2000,
+            forward_time_window_ms: 2000,
+            reverse_time_window_ms: 2000,
             forward: true,
             reverse: true,
             ..AutoTypeFixConfig::default()
@@ -692,7 +694,8 @@ mod tests {
             enabled: true,
             kor_syllable_threshold: 2,
             eng_word_min_length: 5,
-            time_window_ms: 2000,
+            forward_time_window_ms: 2000,
+            reverse_time_window_ms: 2000,
             forward: true,
             reverse: true,
             ..AutoTypeFixConfig::default()

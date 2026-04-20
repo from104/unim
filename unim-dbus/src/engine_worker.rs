@@ -505,8 +505,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                         // 알파벳 키면 버퍼에 추가
                         if buf.push(key, modifier) {
-                            // 시간 윈도우 밖 엔트리 제거
-                            buf.expire(atf_config.time_window_ms);
+                            // 시간 윈도우 밖 엔트리 제거 (방향별 독립 윈도우)
+                            let window_ms = match current_mode {
+                                unim::config::InputCategory::English => {
+                                    atf_config.forward_time_window_ms
+                                }
+                                unim::config::InputCategory::Korean => {
+                                    atf_config.reverse_time_window_ms
+                                }
+                            };
+                            buf.expire(window_ms);
 
                             // commit/preedit 추적 (역방향용)
                             if let Some(ref c) = commit {

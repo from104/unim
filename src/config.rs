@@ -247,6 +247,12 @@ fn default_auto_typefix_enabled() -> bool {
 fn default_auto_typefix_time_window_ms() -> u32 {
     5000
 }
+fn default_auto_typefix_forward_time_window_ms() -> u32 {
+    default_auto_typefix_time_window_ms()
+}
+fn default_auto_typefix_reverse_time_window_ms() -> u32 {
+    default_auto_typefix_time_window_ms()
+}
 fn default_auto_typefix_kor_syllable_threshold() -> u8 {
     2
 }
@@ -285,9 +291,17 @@ pub struct AutoTypeFixConfig {
     /// 활성화 여부
     #[serde(default = "default_auto_typefix_enabled")]
     pub enabled: bool,
-    /// 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사 (500~5000)
-    #[serde(default = "default_auto_typefix_time_window_ms")]
-    pub time_window_ms: u32,
+    /// 순방향 (영→한) 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사 (500~5000)
+    #[serde(default = "default_auto_typefix_forward_time_window_ms")]
+    pub forward_time_window_ms: u32,
+    /// 역방향 (한→영) 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사 (500~5000)
+    #[serde(default = "default_auto_typefix_reverse_time_window_ms")]
+    pub reverse_time_window_ms: u32,
+    /// [DEPRECATED] 구(舊) 통합 시간 윈도우. 후처리 단계에서 forward/reverse 두 필드에
+    /// 주입되고 제거된다. 직렬화에서는 `skip_serializing_if`로 숨겨 신규 config 파일에는
+    /// 남지 않는다. 역호환 용도로만 유지.
+    #[serde(default, skip_serializing)]
+    pub time_window_ms: Option<u32>,
     /// 순방향 (영→한) 트리거: 한글 완성 음절 수 (2~6)
     #[serde(default = "default_auto_typefix_kor_syllable_threshold")]
     pub kor_syllable_threshold: u8,
@@ -327,7 +341,9 @@ impl Default for AutoTypeFixConfig {
     fn default() -> Self {
         Self {
             enabled: default_auto_typefix_enabled(),
-            time_window_ms: default_auto_typefix_time_window_ms(),
+            forward_time_window_ms: default_auto_typefix_forward_time_window_ms(),
+            reverse_time_window_ms: default_auto_typefix_reverse_time_window_ms(),
+            time_window_ms: None,
             kor_syllable_threshold: default_auto_typefix_kor_syllable_threshold(),
             eng_word_min_length: default_auto_typefix_eng_word_min_length(),
             forward: default_auto_typefix_forward(),
@@ -355,8 +371,23 @@ impl AutoTypeFixConfig {
             AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
             AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
         );
-        self.time_window_ms = self
-            .time_window_ms
+        // 구(舊) 통합 필드가 남아있다면 신규 두 필드 중 기본값인 쪽에 주입.
+        // (역호환: 구 yaml은 forward/reverse를 직접 쓰지 않았으므로 둘 다 기본값이다.)
+        if let Some(legacy) = self.time_window_ms.take() {
+            let fwd_default = default_auto_typefix_forward_time_window_ms();
+            let rev_default = default_auto_typefix_reverse_time_window_ms();
+            if self.forward_time_window_ms == fwd_default {
+                self.forward_time_window_ms = legacy;
+            }
+            if self.reverse_time_window_ms == rev_default {
+                self.reverse_time_window_ms = legacy;
+            }
+        }
+        self.forward_time_window_ms = self
+            .forward_time_window_ms
+            .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+        self.reverse_time_window_ms = self
+            .reverse_time_window_ms
             .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
         self.tentative_expiry_hours = self.tentative_expiry_hours.clamp(
             AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
@@ -591,7 +622,7 @@ impl Config {
         }
         eprintln!("[UNIM]   touch {:?} && chmod 644 {:?}", path, path);
         eprintln!("[UNIM] 또는 관리자 권한으로 설정 도구를 실행하세요:");
-        eprintln!("[UNIM]   unim-config");
+        eprintln!("[UNIM]   unim-cli config");
     }
 
     /// 지정된 경로에서 설정을 로드합니다.
@@ -610,6 +641,8 @@ impl Config {
         let content = fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
         let mut config: Self =
             serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        // 구(舊) time_window_ms 필드 역호환: forward/reverse에 주입 + 범위 clamp.
+        config.engine.auto_typefix.clamp_ranges();
         config.last_modified = mtime;
         config.last_checked = Some(SystemTime::now());
         Ok(config)
@@ -935,7 +968,8 @@ mod tests {
     fn test_auto_typefix_defaults() {
         let c = AutoTypeFixConfig::default();
         assert!(c.enabled);
-        assert_eq!(c.time_window_ms, 5000);
+        assert_eq!(c.forward_time_window_ms, 5000);
+        assert_eq!(c.reverse_time_window_ms, 5000);
         assert_eq!(c.kor_syllable_threshold, 2);
         assert_eq!(c.eng_word_min_length, 5);
         assert!(c.forward);
@@ -983,24 +1017,28 @@ mod tests {
         let mut c = AutoTypeFixConfig {
             kor_syllable_threshold: 10,
             eng_word_min_length: 1,
-            time_window_ms: 100,
+            forward_time_window_ms: 100,
+            reverse_time_window_ms: 100,
             ..Default::default()
         };
         c.clamp_ranges();
         assert_eq!(c.kor_syllable_threshold, AUTO_TYPEFIX_KOR_THRESHOLD_MAX);
         assert_eq!(c.eng_word_min_length, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN);
-        assert_eq!(c.time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MIN);
+        assert_eq!(c.forward_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MIN);
+        assert_eq!(c.reverse_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MIN);
 
         let mut c2 = AutoTypeFixConfig {
             kor_syllable_threshold: 0,
             eng_word_min_length: 99,
-            time_window_ms: 99999,
+            forward_time_window_ms: 99999,
+            reverse_time_window_ms: 99999,
             ..Default::default()
         };
         c2.clamp_ranges();
         assert_eq!(c2.kor_syllable_threshold, AUTO_TYPEFIX_KOR_THRESHOLD_MIN);
         assert_eq!(c2.eng_word_min_length, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX);
-        assert_eq!(c2.time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+        assert_eq!(c2.forward_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+        assert_eq!(c2.reverse_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MAX);
     }
 
     /// 구(旧) config.yaml (신규 필드 없음) 파싱 역호환성 검증.
@@ -1016,11 +1054,47 @@ engine:
     forward: true
     reverse: true
 "#;
-        let cfg: Config = serde_yaml::from_str(legacy).expect("legacy yaml must parse");
+        let mut cfg: Config = serde_yaml::from_str(legacy).expect("legacy yaml must parse");
+        // 구 필드가 forward/reverse 두 신 필드로 주입되도록 clamp_ranges 호출.
+        cfg.engine.auto_typefix.clamp_ranges();
         // 누락 필드는 serde default로 채워져야 함.
         assert!(cfg.engine.auto_typefix.skip_on_english_word);
         assert!(cfg.engine.auto_typefix.skip_on_complete_syllable);
-        assert_eq!(cfg.engine.auto_typefix.time_window_ms, 3000);
+        // 구 time_window_ms 값이 forward/reverse 양쪽에 주입되어야 함.
+        assert_eq!(cfg.engine.auto_typefix.forward_time_window_ms, 3000);
+        assert_eq!(cfg.engine.auto_typefix.reverse_time_window_ms, 3000);
+        assert!(cfg.engine.auto_typefix.time_window_ms.is_none());
+    }
+
+    /// 새 필드(forward/reverse)만 있는 yaml 파싱.
+    #[test]
+    fn test_new_yaml_separate_time_windows() {
+        let yaml = r#"
+engine:
+  auto_typefix:
+    forward_time_window_ms: 2500
+    reverse_time_window_ms: 4000
+"#;
+        let mut cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        cfg.engine.auto_typefix.clamp_ranges();
+        assert_eq!(cfg.engine.auto_typefix.forward_time_window_ms, 2500);
+        assert_eq!(cfg.engine.auto_typefix.reverse_time_window_ms, 4000);
+    }
+
+    /// 구 time_window_ms + 신 forward_time_window_ms 혼재 시 신 필드 우선.
+    #[test]
+    fn test_mixed_yaml_new_field_wins() {
+        let yaml = r#"
+engine:
+  auto_typefix:
+    time_window_ms: 1500
+    forward_time_window_ms: 3500
+"#;
+        let mut cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        cfg.engine.auto_typefix.clamp_ranges();
+        assert_eq!(cfg.engine.auto_typefix.forward_time_window_ms, 3500);
+        // reverse는 신 필드 미지정 → 기본값이었으므로 legacy 값(1500) 주입.
+        assert_eq!(cfg.engine.auto_typefix.reverse_time_window_ms, 1500);
     }
 
     #[test]

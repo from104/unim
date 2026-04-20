@@ -91,13 +91,8 @@ pub fn show_settings_dialog(app: &adw::Application) {
         .icon_name("edit-find-replace-symbolic")
         .build();
 
-    // forward/reverse 트리거 윈도우 SpinRow는 동일한 `time_window_ms`를 공유한다.
-    // 양방향 sync를 위해 Rc<RefCell<...>>로 핸들 공유.
-    let time_sync: Rc<RefCell<(Option<adw::SpinRow>, Option<adw::SpinRow>)>> =
-        Rc::new(RefCell::new((None, None)));
-
-    let forward_group = build_forward_group(&state, &time_sync);
-    let reverse_group = build_reverse_group(&state, &time_sync);
+    let forward_group = build_forward_group(&state);
+    let reverse_group = build_reverse_group(&state);
     let master_group = build_master_group(&state);
 
     // master_group(활성화 + 재트리거 감지/관찰 창/만료)은 공통 설정이므로 최상단에 배치
@@ -414,12 +409,133 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Page 2: 오타 교정
+// Page 2: 오타 교정 (Scale/슬라이더 기반)
 // ─────────────────────────────────────────────────────────────
 
-type TimeSyncSlot = Rc<RefCell<(Option<adw::SpinRow>, Option<adw::SpinRow>)>>;
+/// 정수 슬라이더 Row. `AdwActionRow` + suffix `gtk::Scale`.
+///
+/// - 현재 값은 핸들 위에 표시(`draw_value=true`)
+/// - 최솟값/최댓값 위치에 tick 마크 + 라벨
+/// - step=1, 정수만 허용
+fn build_int_scale_row(
+    state: &State,
+    title: &str,
+    subtitle: &str,
+    min: i32,
+    max: i32,
+    init: i32,
+    label: &'static str,
+    set: impl Fn(&mut Config, i32) + 'static,
+) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .build();
 
-fn build_forward_group(state: &State, time_sync: &TimeSyncSlot) -> adw::PreferencesGroup {
+    let adj = gtk4::Adjustment::new(init as f64, min as f64, max as f64, 1.0, 1.0, 0.0);
+    let scale = gtk4::Scale::new(gtk4::Orientation::Horizontal, Some(&adj));
+    scale.set_width_request(154);
+    scale.set_hexpand(false);
+    scale.set_valign(gtk4::Align::Center);
+    scale.set_draw_value(true);
+    scale.set_value_pos(gtk4::PositionType::Top);
+    scale.set_digits(0);
+    scale.set_round_digits(0);
+    scale.add_mark(
+        min as f64,
+        gtk4::PositionType::Bottom,
+        Some(&min.to_string()),
+    );
+    scale.add_mark(
+        max as f64,
+        gtk4::PositionType::Bottom,
+        Some(&max.to_string()),
+    );
+
+    let state_c = state.clone();
+    scale.connect_value_changed(move |s| {
+        let mut st = state_c.borrow_mut();
+        if st.updating {
+            return;
+        }
+        let v = s.value().round() as i32;
+        set(&mut st.config, v);
+        save_and_notify(&st.config, label);
+    });
+
+    row.add_suffix(&scale);
+    row
+}
+
+/// 초 단위 슬라이더 Row (내부 저장은 u32 ms).
+///
+/// - 범위는 `AUTO_TYPEFIX_TIME_WINDOW_MIN/MAX`(ms)를 초로 환산
+/// - step=0.5초, digits=1
+fn build_time_window_row(
+    state: &State,
+    title: &str,
+    subtitle: &str,
+    get_ms: impl Fn(&Config) -> u32 + 'static,
+    set_ms: impl Fn(&mut Config, u32) + 'static,
+    label: &'static str,
+) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .build();
+
+    let min_s = AUTO_TYPEFIX_TIME_WINDOW_MIN as f64 / 1000.0;
+    let max_s = AUTO_TYPEFIX_TIME_WINDOW_MAX as f64 / 1000.0;
+    let init_s = {
+        let s = state.borrow();
+        ms_to_seconds(get_ms(&s.config))
+    };
+
+    let adj = gtk4::Adjustment::new(init_s, min_s, max_s, 0.5, 0.5, 0.0);
+    let scale = gtk4::Scale::new(gtk4::Orientation::Horizontal, Some(&adj));
+    scale.set_width_request(154);
+    scale.set_hexpand(false);
+    scale.set_valign(gtk4::Align::Center);
+    scale.set_draw_value(true);
+    scale.set_value_pos(gtk4::PositionType::Top);
+    scale.set_digits(1);
+    scale.set_round_digits(1);
+    scale.add_mark(
+        min_s,
+        gtk4::PositionType::Bottom,
+        Some(&format!("{:.1}", min_s)),
+    );
+    scale.add_mark(
+        max_s,
+        gtk4::PositionType::Bottom,
+        Some(&format!("{:.1}", max_s)),
+    );
+
+    // 드래그 중에도 0.5 단위로 스냅
+    scale.connect_change_value(|s, _scroll, val| {
+        let snapped = (val * 2.0).round() / 2.0;
+        s.set_value(snapped);
+        gtk4::glib::Propagation::Stop
+    });
+
+    let state_c = state.clone();
+    scale.connect_value_changed(move |s| {
+        let mut st = state_c.borrow_mut();
+        if st.updating {
+            return;
+        }
+        // step에 스냅
+        let snapped = (s.value() * 2.0).round() / 2.0;
+        let ms = seconds_to_ms(snapped);
+        set_ms(&mut st.config, ms);
+        save_and_notify(&st.config, label);
+    });
+
+    row.add_suffix(&scale);
+    row
+}
+
+fn build_forward_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title("자동 순방향 교정 (영→한)")
         .build();
@@ -444,39 +560,28 @@ fn build_forward_group(state: &State, time_sync: &TimeSyncSlot) -> adw::Preferen
     group.add(&fwd_sw);
 
     // 임계 음절 수
-    let kor_adj = gtk4::Adjustment::new(
-        2.0,
-        AUTO_TYPEFIX_KOR_THRESHOLD_MIN as f64,
-        AUTO_TYPEFIX_KOR_THRESHOLD_MAX as f64,
-        1.0,
-        1.0,
-        0.0,
+    let init_kor = state.borrow().config.engine.auto_typefix.kor_syllable_threshold as i32;
+    let kor_row = build_int_scale_row(
+        state,
+        "임계 음절 수",
+        "이 개수 이상의 완성 한글이 감지되면 교정 검사",
+        AUTO_TYPEFIX_KOR_THRESHOLD_MIN as i32,
+        AUTO_TYPEFIX_KOR_THRESHOLD_MAX as i32,
+        init_kor,
+        "auto_typefix_kor_syllable_threshold",
+        |cfg, v| cfg.engine.auto_typefix.kor_syllable_threshold = v as u8,
     );
-    let kor_row = adw::SpinRow::builder()
-        .title("임계 음절 수")
-        .subtitle("이 개수 이상의 완성 한글이 감지되면 교정 검사")
-        .adjustment(&kor_adj)
-        .digits(0)
-        .build();
-    {
-        let s = state.borrow();
-        kor_adj.set_value(s.config.engine.auto_typefix.kor_syllable_threshold as f64);
-    }
-    {
-        let state_c = state.clone();
-        kor_row.connect_value_notify(move |row| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
-                return;
-            }
-            s.config.engine.auto_typefix.kor_syllable_threshold = row.value() as u8;
-            save_and_notify(&s.config, "auto_typefix_kor_syllable_threshold");
-        });
-    }
     group.add(&kor_row);
 
-    // 트리거 윈도우 (초) — forward/reverse가 time_window_ms 공유
-    let fwd_time_row = build_time_window_row(state, time_sync, true);
+    // 트리거 윈도우 (초) — 순방향 전용
+    let fwd_time_row = build_time_window_row(
+        state,
+        "트리거 윈도우 (초)",
+        "순방향 교정이 유효로 간주하는 최근 입력 시간",
+        |cfg| cfg.engine.auto_typefix.forward_time_window_ms,
+        |cfg, ms| cfg.engine.auto_typefix.forward_time_window_ms = ms,
+        "auto_typefix_forward_time_window_ms",
+    );
     group.add(&fwd_time_row);
 
     // 영단어 매칭 시 억제
@@ -501,13 +606,10 @@ fn build_forward_group(state: &State, time_sync: &TimeSyncSlot) -> adw::Preferen
     }
     group.add(&skip_eng_sw);
 
-    // time_sync 슬롯에 forward 등록
-    time_sync.borrow_mut().0 = Some(fwd_time_row);
-
     group
 }
 
-fn build_reverse_group(state: &State, time_sync: &TimeSyncSlot) -> adw::PreferencesGroup {
+fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title("자동 역방향 교정 (한→영)")
         .build();
@@ -532,39 +634,28 @@ fn build_reverse_group(state: &State, time_sync: &TimeSyncSlot) -> adw::Preferen
     group.add(&rev_sw);
 
     // 임계 글자 수
-    let eng_adj = gtk4::Adjustment::new(
-        5.0,
-        AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN as f64,
-        AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX as f64,
-        1.0,
-        1.0,
-        0.0,
+    let init_eng = state.borrow().config.engine.auto_typefix.eng_word_min_length as i32;
+    let eng_row = build_int_scale_row(
+        state,
+        "임계 글자 수",
+        "이 개수 이상의 한글이 감지되면 교정 검사",
+        AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN as i32,
+        AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX as i32,
+        init_eng,
+        "auto_typefix_eng_word_min_length",
+        |cfg, v| cfg.engine.auto_typefix.eng_word_min_length = v as u8,
     );
-    let eng_row = adw::SpinRow::builder()
-        .title("임계 글자 수")
-        .subtitle("이 개수 이상의 한글이 감지되면 교정 검사")
-        .adjustment(&eng_adj)
-        .digits(0)
-        .build();
-    {
-        let s = state.borrow();
-        eng_adj.set_value(s.config.engine.auto_typefix.eng_word_min_length as f64);
-    }
-    {
-        let state_c = state.clone();
-        eng_row.connect_value_notify(move |row| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
-                return;
-            }
-            s.config.engine.auto_typefix.eng_word_min_length = row.value() as u8;
-            save_and_notify(&s.config, "auto_typefix_eng_word_min_length");
-        });
-    }
     group.add(&eng_row);
 
-    // 트리거 윈도우 (초) — forward와 값 공유
-    let rev_time_row = build_time_window_row(state, time_sync, false);
+    // 트리거 윈도우 (초) — 역방향 전용
+    let rev_time_row = build_time_window_row(
+        state,
+        "트리거 윈도우 (초)",
+        "역방향 교정이 유효로 간주하는 최근 입력 시간",
+        |cfg| cfg.engine.auto_typefix.reverse_time_window_ms,
+        |cfg, ms| cfg.engine.auto_typefix.reverse_time_window_ms = ms,
+        "auto_typefix_reverse_time_window_ms",
+    );
     group.add(&rev_time_row);
 
     // 온전한 음절 매칭 시 억제
@@ -610,9 +701,6 @@ fn build_reverse_group(state: &State, time_sync: &TimeSyncSlot) -> adw::Preferen
         });
     }
     group.add(&skip_prefix_sw);
-
-    // time_sync 슬롯에 reverse 등록
-    time_sync.borrow_mut().1 = Some(rev_time_row);
 
     group
 }
@@ -666,125 +754,34 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     group.add(&rollback_sw);
 
     // 관찰 창 (초)
-    let obs_adj = gtk4::Adjustment::new(
-        10.0,
-        AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN as f64,
-        AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX as f64,
-        1.0,
-        1.0,
-        0.0,
+    let init_obs = state.borrow().config.engine.auto_typefix.observation_timeout_secs as i32;
+    let obs_row = build_int_scale_row(
+        state,
+        "관찰 창 (초)",
+        "첫 교정 후 이 시간 내 동일 입력이 재트리거되면 오탐으로 판정",
+        AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN as i32,
+        AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX as i32,
+        init_obs,
+        "auto_typefix_observation_timeout_secs",
+        |cfg, v| cfg.engine.auto_typefix.observation_timeout_secs = v as u8,
     );
-    let obs_row = adw::SpinRow::builder()
-        .title("관찰 창 (초)")
-        .subtitle("첫 교정 후 이 시간 내 동일 입력이 재트리거되면 오탐으로 판정")
-        .adjustment(&obs_adj)
-        .digits(0)
-        .build();
-    {
-        let s = state.borrow();
-        obs_adj.set_value(s.config.engine.auto_typefix.observation_timeout_secs as f64);
-    }
-    {
-        let state_c = state.clone();
-        obs_row.connect_value_notify(move |row| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
-                return;
-            }
-            s.config.engine.auto_typefix.observation_timeout_secs = row.value() as u8;
-            save_and_notify(&s.config, "auto_typefix_observation_timeout_secs");
-        });
-    }
     group.add(&obs_row);
 
     // 임시 억제 만료 (시간)
-    let exp_adj = gtk4::Adjustment::new(
-        4.0,
-        AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN as f64,
-        AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX as f64,
-        1.0,
-        1.0,
-        0.0,
+    let init_exp = state.borrow().config.engine.auto_typefix.tentative_expiry_hours as i32;
+    let exp_row = build_int_scale_row(
+        state,
+        "임시 억제 만료 (시간)",
+        "이 기간 내 수동 확정하지 않으면 비활성화",
+        AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN as i32,
+        AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX as i32,
+        init_exp,
+        "auto_typefix_tentative_expiry_hours",
+        |cfg, v| cfg.engine.auto_typefix.tentative_expiry_hours = v as u16,
     );
-    let exp_row = adw::SpinRow::builder()
-        .title("임시 억제 만료 (시간)")
-        .subtitle("이 기간 내 수동 확정하지 않으면 비활성화")
-        .adjustment(&exp_adj)
-        .digits(0)
-        .build();
-    {
-        let s = state.borrow();
-        exp_adj.set_value(s.config.engine.auto_typefix.tentative_expiry_hours as f64);
-    }
-    {
-        let state_c = state.clone();
-        exp_row.connect_value_notify(move |row| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
-                return;
-            }
-            s.config.engine.auto_typefix.tentative_expiry_hours = row.value() as u16;
-            save_and_notify(&s.config, "auto_typefix_tentative_expiry_hours");
-        });
-    }
     group.add(&exp_row);
 
     group
-}
-
-/// 트리거 윈도우(초) SpinRow 생성.
-///
-/// - UI: 0.5 ~ 5.0초, step 0.5, digits=1
-/// - 저장: `f64 초 × 1000 → u32 ms`
-/// - forward/reverse 두 SpinRow가 동일한 `time_window_ms`를 공유하므로
-///   변경 시 다른 쪽 SpinRow도 `set_value`로 sync (updating 플래그로 재진입 방지).
-fn build_time_window_row(
-    state: &State,
-    time_sync: &TimeSyncSlot,
-    is_forward: bool,
-) -> adw::SpinRow {
-    let min_s = AUTO_TYPEFIX_TIME_WINDOW_MIN as f64 / 1000.0;
-    let max_s = AUTO_TYPEFIX_TIME_WINDOW_MAX as f64 / 1000.0;
-    let adj = gtk4::Adjustment::new(max_s, min_s, max_s, 0.5, 0.5, 0.0);
-    let row = adw::SpinRow::builder()
-        .title("트리거 윈도우 (초)")
-        .subtitle("최근 입력을 유효한 것으로 간주할 시간")
-        .adjustment(&adj)
-        .digits(1)
-        .build();
-
-    {
-        let s = state.borrow();
-        adj.set_value(ms_to_seconds(s.config.engine.auto_typefix.time_window_ms));
-    }
-
-    let time_sync_c = time_sync.clone();
-    let state_c = state.clone();
-    row.connect_value_notify(move |row| {
-        let mut s = state_c.borrow_mut();
-        if s.updating {
-            return;
-        }
-        let ms = seconds_to_ms(row.value());
-        s.config.engine.auto_typefix.time_window_ms = ms;
-
-        // 반대쪽 SpinRow sync
-        let slot = time_sync_c.borrow();
-        let other = if is_forward { slot.1.clone() } else { slot.0.clone() };
-        drop(slot);
-        if let Some(other) = other {
-            let new_val = ms_to_seconds(ms);
-            if (other.value() - new_val).abs() > f64::EPSILON {
-                s.updating = true;
-                other.set_value(new_val);
-                s.updating = false;
-            }
-        }
-
-        save_and_notify(&s.config, "auto_typefix_time_window_ms");
-    });
-
-    row
 }
 
 fn ms_to_seconds(ms: u32) -> f64 {
