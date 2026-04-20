@@ -533,6 +533,7 @@ pub mod popup_result_constants {
     pub const POPUP_RESULT_UPDATED: i32 = 2;
     pub const POPUP_RESULT_CONSUMED: i32 = 3;
     pub const POPUP_RESULT_NOT_HANDLED: i32 = 4;
+    pub const POPUP_RESULT_TOGGLE_BOOKMARK: i32 = 5;
 }
 
 /// C용 PopupKeyResult 구조체
@@ -717,6 +718,10 @@ pub extern "C" fn unim_popup_handle_key(state: &mut PopupState, popup_key: u32) 
             kind: popup_result_constants::POPUP_RESULT_SELECT,
             selected_index: idx as i32,
         },
+        PopupKeyResult::ToggleBookmark(idx) => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_TOGGLE_BOOKMARK,
+            selected_index: idx as i32,
+        },
         PopupKeyResult::Cancel => CPopupKeyResult {
             kind: popup_result_constants::POPUP_RESULT_CANCEL,
             selected_index: -1,
@@ -760,6 +765,9 @@ pub extern "C" fn unim_popup_handle_click(
                 PopupKeyResult::Updated => popup_result_constants::POPUP_RESULT_UPDATED,
                 PopupKeyResult::Consumed => popup_result_constants::POPUP_RESULT_CONSUMED,
                 PopupKeyResult::NotHandled => popup_result_constants::POPUP_RESULT_NOT_HANDLED,
+                PopupKeyResult::ToggleBookmark(_) => {
+                    popup_result_constants::POPUP_RESULT_TOGGLE_BOOKMARK
+                }
                 PopupKeyResult::Select(_) => unreachable!(),
             },
             selected_index: -1,

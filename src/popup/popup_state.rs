@@ -44,6 +44,8 @@ pub enum PopupKey {
 pub enum PopupKeyResult {
     /// 선택 확정 (전체 인덱스, 0-based)
     Select(usize),
+    /// 즐겨찾기 토글 요청 (전체 인덱스, 한자 팝업 전용)
+    ToggleBookmark(usize),
     /// 취소 (Escape)
     Cancel,
     /// 상태 변경됨 → 재렌더링 필요
@@ -70,6 +72,8 @@ pub struct PopupState {
     items: Vec<String>,
     /// 한자 뜻 (한자 팝업에서만 사용, 특수문자는 빈 벡터)
     meanings: Vec<String>,
+    /// 즐겨찾기 플래그 (한자 팝업 전용, items와 동일 길이)
+    bookmarks: Vec<bool>,
     /// 대상 글자 (초성 또는 한글)
     target: String,
     /// 상단 행 레이블 (특수문자: "QWERTYUIO" 등)
@@ -107,10 +111,12 @@ impl PopupState {
         };
         let page_items = total.min(HANJA_PAGE_SIZE);
 
+        let bookmarks = vec![false; total];
         Self {
             kind: PopupKind::Hanja,
             items,
             meanings,
+            bookmarks,
             target: target.to_string(),
             top_row: String::new(),
             current_page: 0,
@@ -141,6 +147,7 @@ impl PopupState {
             kind: PopupKind::SpecialChar,
             items: characters,
             meanings: Vec::new(),
+            bookmarks: Vec::new(),
             target: target.to_string(),
             top_row: top_row.to_string(),
             current_page: 0,
@@ -437,7 +444,18 @@ impl PopupState {
                 PopupKeyResult::Updated
             }
 
-            PopupKey::Right | PopupKey::Space | PopupKey::Tab | PopupKey::PageDown => {
+            PopupKey::Space => {
+                // 한자 팝업에서 Space = 현재 선택 항목의 즐겨찾기 토글
+                let page_items = self.page_item_count();
+                if page_items > 0 && self.sel_row < page_items {
+                    if let Some(global) = self.hanja_global_index(self.sel_row) {
+                        return PopupKeyResult::ToggleBookmark(global);
+                    }
+                }
+                PopupKeyResult::Consumed
+            }
+
+            PopupKey::Right | PopupKey::Tab | PopupKey::PageDown => {
                 if self.total_pages > 1 {
                     if self.current_page + 1 < self.total_pages {
                         self.current_page += 1;
@@ -523,6 +541,32 @@ impl PopupState {
     /// 전체 인덱스로 항목 텍스트 가져오기
     pub fn get_item(&self, index: usize) -> Option<&str> {
         self.items.get(index).map(|s| s.as_str())
+    }
+
+    /// 전체 인덱스로 즐겨찾기 상태 조회 (한자 전용; 특수문자는 항상 false).
+    pub fn is_bookmarked(&self, index: usize) -> bool {
+        self.bookmarks.get(index).copied().unwrap_or(false)
+    }
+
+    /// 한자 팝업의 즐겨찾기 플래그를 items 순서대로 설정합니다.
+    ///
+    /// 길이가 맞지 않으면 items 길이에 맞춰 잘라내거나 false로 채웁니다.
+    pub fn set_bookmark_flags(&mut self, flags: Vec<bool>) {
+        if self.kind != PopupKind::Hanja {
+            return;
+        }
+        self.bookmarks = flags;
+        self.bookmarks.resize(self.items.len(), false);
+    }
+
+    /// 특정 인덱스의 즐겨찾기 플래그를 설정합니다 (한자 전용).
+    pub fn set_bookmark(&mut self, index: usize, bookmarked: bool) {
+        if self.kind != PopupKind::Hanja {
+            return;
+        }
+        if let Some(slot) = self.bookmarks.get_mut(index) {
+            *slot = bookmarked;
+        }
     }
 
     /// 전체 인덱스로 뜻 가져오기 (한자 전용)
@@ -899,10 +943,41 @@ mod tests {
     }
 
     #[test]
-    fn hanja_space_next_page() {
+    fn hanja_space_toggles_bookmark() {
         let mut state = make_hanja(20);
-        state.handle_key(PopupKey::Space);
+        // 첫 번째 후보가 선택된 상태
+        let result = state.handle_key(PopupKey::Space);
+        assert_eq!(result, PopupKeyResult::ToggleBookmark(0));
+        // Space 자체는 페이지를 바꾸지 않는다
+        assert_eq!(state.current_page, 0);
+    }
+
+    #[test]
+    fn hanja_tab_next_page() {
+        let mut state = make_hanja(20);
+        state.handle_key(PopupKey::Tab);
         assert_eq!(state.current_page, 1);
+    }
+
+    #[test]
+    fn hanja_bookmark_flag_accessors() {
+        let mut state = make_hanja(5);
+        assert!(!state.is_bookmarked(0));
+        state.set_bookmark(0, true);
+        assert!(state.is_bookmarked(0));
+        state.set_bookmark_flags(vec![false, true, false, true, false]);
+        assert!(!state.is_bookmarked(0));
+        assert!(state.is_bookmarked(1));
+        assert!(state.is_bookmarked(3));
+    }
+
+    #[test]
+    fn hanja_space_second_page_toggles_correct_global_index() {
+        let mut state = make_hanja(20);
+        state.handle_key(PopupKey::Right); // page 1
+        let result = state.handle_key(PopupKey::Space);
+        // page 1 * 9 + sel_row 0 = 9
+        assert_eq!(result, PopupKeyResult::ToggleBookmark(9));
     }
 
     #[test]

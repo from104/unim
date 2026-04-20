@@ -94,6 +94,17 @@
     font-size: 12px;
 }
 
+.unim-hanja-popup .popup-item .item-bookmark {
+    color: #6c7086;
+    font-size: 14px;
+    margin-left: auto;
+    padding-left: 8px;
+}
+
+.unim-hanja-popup .popup-item .item-bookmark.bookmarked {
+    color: #f9e2af;
+}
+
 .unim-hanja-popup .popup-footer {
     color: #6c7086;
     font-size: 12px;

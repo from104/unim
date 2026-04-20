@@ -53,6 +53,8 @@ export class UnimDbusIME {
         this._onHidePopup = null;
         /** @type {Function|null} 팝업 네비게이션 콜백 */
         this._onPopupNavigate = null;
+        /** @type {Function|null} 한자 즐겨찾기 변경 콜백 */
+        this._onHanjaBookmarkChanged = null;
         /** @type {Function|null} AutoTypeFix 교정 콜백 */
         this._onAutoTypeFix = null;
         /** @type {Function|null} Config 갱신 콜백 (parsed JSON object) */
@@ -163,6 +165,7 @@ export class UnimDbusIME {
         this._onHidePopup = callbacks.onHidePopup || null;
         this._onPopupNavigate = callbacks.onPopupNavigate || null;
         this._onAutoTypeFix = callbacks.onAutoTypeFix || null;
+        this._onHanjaBookmarkChanged = callbacks.onHanjaBookmarkChanged || null;
     }
 
     /**
@@ -297,6 +300,9 @@ export class UnimDbusIME {
             } else if (signalName === 'PopupNavigate' && this._onPopupNavigate) {
                 const [page, totalPages, selected, rows, cols, selRow, selCol] = parameters.deep_unpack();
                 this._onPopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol);
+            } else if (signalName === 'HanjaBookmarkChanged' && this._onHanjaBookmarkChanged) {
+                const [index, bookmarked] = parameters.deep_unpack();
+                this._onHanjaBookmarkChanged(index, bookmarked);
             } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
@@ -583,6 +589,57 @@ export class UnimDbusIME {
     }
 
     /**
+     * 현재 한자 후보들의 즐겨찾기 상태 조회
+     *
+     * @returns {boolean[]} candidates와 동일한 순서의 즐겨찾기 플래그 (실패 시 빈 배열)
+     */
+    getHanjaBookmarkStates() {
+        if (!this._icProxy) return [];
+
+        try {
+            const result = this._icProxy.call_sync(
+                'GetHanjaBookmarkStates',
+                null,
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            if (!result) return [];
+            const [flags] = result.deep_unpack();
+            return Array.isArray(flags) ? flags : [];
+        } catch (e) {
+            unimError('DBUS_IME', `GetHanjaBookmarkStates 실패: ${e.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * 한자 즐겨찾기 토글
+     *
+     * @param {number} index - 후보 인덱스
+     * @returns {{index: number, bookmarked: boolean}|null}
+     */
+    toggleHanjaBookmark(index) {
+        if (!this._icProxy) return null;
+
+        try {
+            const result = this._icProxy.call_sync(
+                'ToggleHanjaBookmark',
+                new GLib.Variant('(u)', [index]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            if (!result) return null;
+            const [idx, bookmarked] = result.deep_unpack();
+            return { index: idx, bookmarked };
+        } catch (e) {
+            unimError('DBUS_IME', `ToggleHanjaBookmark 실패: ${e.message}`);
+            return null;
+        }
+    }
+
+    /**
      * 한자 모드 취소
      */
     cancelHanja() {
@@ -774,6 +831,7 @@ export class UnimDbusIME {
         this._onShowSpecial = null;
         this._onHidePopup = null;
         this._onPopupNavigate = null;
+        this._onHanjaBookmarkChanged = null;
 
         unimLog('DBUS_IME', '자원 정리 완료');
     }

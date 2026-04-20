@@ -40,6 +40,8 @@ export class HanjaPopup {
 
         /** @type {Array<{hanja: string, meaning: string}>} 전체 후보 */
         this._candidates = [];
+        /** @type {boolean[]} 후보별 즐겨찾기 상태 (candidates와 동일 순서) */
+        this._bookmarks = [];
         /** @type {string} 대상 문자 */
         this._target = '';
 
@@ -92,12 +94,19 @@ export class HanjaPopup {
      * @param {Function} onSelect - 선택 콜백 (globalIndex: number)
      * @param {Function} onCancel - 취소 콜백
      * @param {{x: number, y: number, width: number, height: number}} [cursorRect] - 커서 위치
+     * @param {boolean[]} [bookmarks] - 후보별 즐겨찾기 플래그 (candidates와 동일 순서)
      */
-    show(target, candidates, onSelect, onCancel, cursorRect) {
+    show(target, candidates, onSelect, onCancel, cursorRect, bookmarks) {
         if (!this._container || candidates.length === 0) return;
 
         this._target = target;
         this._candidates = candidates;
+        this._bookmarks = Array.isArray(bookmarks)
+            ? bookmarks.slice(0, candidates.length)
+            : [];
+        while (this._bookmarks.length < candidates.length) {
+            this._bookmarks.push(false);
+        }
         this._onSelect = onSelect;
         this._onCancel = onCancel;
 
@@ -125,9 +134,39 @@ export class HanjaPopup {
             this._container.hide();
         }
         this._candidates = [];
+        this._bookmarks = [];
         this._mouseHoverIndex = -1;
         this._onSelect = null;
         this._onCancel = null;
+    }
+
+    /**
+     * 특정 후보의 즐겨찾기 상태를 갱신합니다.
+     *
+     * 엔진이 Space 키로 토글한 결과를 HanjaBookmarkChanged 시그널로 받을 때 호출.
+     *
+     * @param {number} globalIndex - 전체 후보 인덱스 (0-based)
+     * @param {boolean} bookmarked - 새 즐겨찾기 상태
+     */
+    setBookmark(globalIndex, bookmarked) {
+        if (globalIndex < 0 || globalIndex >= this._candidates.length) return;
+        this._bookmarks[globalIndex] = !!bookmarked;
+
+        // 현재 페이지에 해당 항목이 보이고 있으면 즉시 별표 갱신
+        const start = this._currentPage * PAGE_SIZE;
+        const localIdx = globalIndex - start;
+        if (localIdx >= 0 && localIdx < this._rows.length) {
+            const row = this._rows[localIdx];
+            const star = row?._bookmarkStar;
+            if (star) {
+                star.set_text(bookmarked ? '★' : '☆');
+                if (bookmarked) {
+                    star.add_style_class_name('bookmarked');
+                } else {
+                    star.remove_style_class_name('bookmarked');
+                }
+            }
+        }
     }
 
     /**
@@ -243,7 +282,8 @@ export class HanjaPopup {
         const count = this._pageItemCount();
 
         for (let i = 0; i < count; i++) {
-            const candidate = this._candidates[start + i];
+            const globalIdx = start + i;
+            const candidate = this._candidates[globalIdx];
             const row = new St.BoxLayout({
                 style_class: 'popup-item',
                 reactive: true,
@@ -261,10 +301,19 @@ export class HanjaPopup {
                 style_class: 'item-meaning',
                 text: candidate.meaning ? `  ${candidate.meaning}` : '',
             });
+            const isBookmarked = !!this._bookmarks[globalIdx];
+            const star = new St.Label({
+                style_class: isBookmarked
+                    ? 'item-bookmark bookmarked'
+                    : 'item-bookmark',
+                text: isBookmarked ? '★' : '☆',
+            });
+            row._bookmarkStar = star;
 
             row.add_child(num);
             row.add_child(hanja);
             row.add_child(meaning);
+            row.add_child(star);
 
             // 마우스 호버: 로컬 시각 효과만 (엔진 상태 변경 없음)
             const rowIndex = i;
@@ -280,7 +329,6 @@ export class HanjaPopup {
             });
 
             // 마우스 클릭: 선택 콜백
-            const globalIdx = start + i;
             row.connect('button-press-event', () => {
                 this._selectCandidate(globalIdx);
                 return Clutter.EVENT_STOP;

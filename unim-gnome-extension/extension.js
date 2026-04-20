@@ -172,6 +172,8 @@ export default class UnimExtension extends Extension {
             // DBus 팝업 시그널 콜백 등록
             this._dbusIME.setPopupCallbacks({
                 onShowHanja: (target, candidates, cursorRect) => {
+                    // 팝업 표시 전에 즐겨찾기 상태 조회 (엔진이 candidates와 동일 순서로 반환)
+                    const bookmarks = this._dbusIME.getHanjaBookmarkStates();
                     this._hanjaPopup.show(
                         target, candidates,
                         (globalIdx) => {
@@ -193,7 +195,8 @@ export default class UnimExtension extends Extension {
                                 this._inputMethod.updatePreedit('');
                             }
                         },
-                        cursorRect
+                        cursorRect,
+                        bookmarks
                     );
                 },
                 onShowSpecial: (target, characters, topRow, cursorRect) => {
@@ -230,6 +233,11 @@ export default class UnimExtension extends Extension {
                     }
                     if (this._specialPopup?.isVisible) {
                         this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
+                    }
+                },
+                onHanjaBookmarkChanged: (index, bookmarked) => {
+                    if (this._hanjaPopup?.isVisible) {
+                        this._hanjaPopup.setBookmark(index, bookmarked);
                     }
                 },
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
