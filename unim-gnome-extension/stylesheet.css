@@ -191,3 +191,95 @@
     font-size: 12px;
     text-align: center;
 }
+
+/* ============================================ */
+/* IME: 이모지 팝업 (Super+. 트리거) */
+/* ============================================ */
+
+.unim-emoji-popup {
+    background-color: rgba(30, 30, 46, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 10px;
+    min-width: 380px;
+    spacing: 6px;
+}
+
+.unim-emoji-popup .emoji-search {
+    background-color: #313244;
+    color: #cdd6f4;
+    border-radius: 8px;
+    padding: 4px 8px;
+    caret-color: #a6e3a1;
+    margin-bottom: 4px;
+}
+
+.unim-emoji-popup .emoji-search StLabel.hint {
+    color: #6c7086;
+}
+
+.unim-emoji-popup .emoji-tabs {
+    spacing: 2px;
+    padding: 2px 0;
+    margin-bottom: 4px;
+}
+
+.unim-emoji-popup .emoji-tab {
+    background-color: transparent;
+    color: #cdd6f4;
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: none;
+}
+
+.unim-emoji-popup .emoji-tab:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.unim-emoji-popup .emoji-tab.active {
+    background-color: rgba(166, 227, 161, 0.25);
+    color: #a6e3a1;
+    font-weight: bold;
+}
+
+.unim-emoji-popup .emoji-grid {
+    spacing: 2px;
+}
+
+.unim-emoji-popup .emoji-row {
+    spacing: 2px;
+}
+
+.unim-emoji-popup .emoji-cell {
+    background-color: transparent;
+    color: #cdd6f4;
+    font-size: 20px;
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: 6px;
+    padding: 2px;
+    text-align: center;
+}
+
+.unim-emoji-popup .emoji-cell:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.unim-emoji-popup .emoji-cell.selected {
+    background-color: rgba(166, 227, 161, 0.25);
+    color: #a6e3a1;
+}
+
+.unim-emoji-popup .emoji-empty {
+    color: #6c7086;
+    font-style: italic;
+    padding: 12px;
+}
+
+.unim-emoji-popup .popup-footer {
+    color: #6c7086;
+    font-size: 11px;
+    text-align: center;
+    padding-top: 4px;
+}

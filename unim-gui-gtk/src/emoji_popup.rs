@@ -242,7 +242,8 @@ impl EmojiPopup {
     /// 이모지 팝업 표시
     pub fn show(&mut self, context_path: String, x: i32, y: i32, _w: i32, h: i32) {
         if self.display_server == DisplayServer::GnomeWayland {
-            // 추후 GNOME extension 지원 시 제거. 현재는 기본 GTK 기반 입력 환경에서만 동작.
+            // GNOME Wayland: extension의 EmojiPopup이 팝업 전담
+            // (GTK 윈도우가 포커스를 뺏어 FocusOut 유발하므로 전면 스킵)
             return;
         }
 

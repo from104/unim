@@ -387,6 +387,32 @@ impl InputMethodService {
         Ok(emoji_strings)
     }
 
+    /// 이모지 카테고리 목록 조회
+    ///
+    /// 각 항목은 (카테고리 이름, 이모지 목록) 쌍. GUI가 탭을 구성할 때 사용합니다.
+    async fn list_emoji_categories(&self) -> zbus::fdo::Result<Vec<(String, Vec<String>)>> {
+        let mut list: Vec<(String, Vec<String>)> = Vec::new();
+        list.push((
+            "즐겨찾기".to_string(),
+            unim::hangul::emoji::popular_emojis()
+                .iter()
+                .map(|c| c.to_string())
+                .collect(),
+        ));
+        for entry in unim::hangul::emoji::categories() {
+            list.push((
+                entry.keyword.to_string(),
+                entry.emojis.iter().map(|c| c.to_string()).collect(),
+            ));
+        }
+        Ok(list)
+    }
+
+    /// 이모지 즐겨찾기(MRU) 조회
+    async fn get_emoji_favorites(&self) -> zbus::fdo::Result<Vec<String>> {
+        Ok(unim::hangul::emoji::load_favorites())
+    }
+
     /// 설정값 조회
     async fn get_config(&self, key: &str) -> zbus::fdo::Result<String> {
         let config = self.config.read().await;
