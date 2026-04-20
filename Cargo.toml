@@ -35,6 +35,7 @@ members = [
     "unim-gui-qt",
     "unim-dbus",
     "unim-windows",
+    "unim-tsf",
     "tests/unim-test-wayland",
     "tests/unim-test-dbus",
 ]

@@ -5559,6 +5559,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "unim-tsf"
+version = "0.0.1"
+dependencies = [
+ "unim",
+ "windows",
+ "windows-core 0.58.0",
+]
+
+[[package]]
 name = "unim-wayland"
 version = "0.0.1"
 dependencies = [
