@@ -25,6 +25,10 @@ pub enum PopupAction {
         characters: Vec<String>,
         top_row: String,
     },
+    /// 이모지 팝업 표시 (Super+. 단축키)
+    ///
+    /// 엔진은 트리거만 담당하고, GUI가 카테고리/검색/즐겨찾기 상태를 자체 관리합니다.
+    ShowEmoji,
     /// 팝업 숨김
     HidePopup,
     /// 페이지/선택 변경 (UI 업데이트용)
@@ -174,6 +178,10 @@ pub struct InputEngine {
     special_char_target: String,
     /// 한/영 전환 키 목록 (설정 기반)
     toggle_keys: Vec<KeyCode>,
+    /// 이모지 팝업 트리거 (modifier, keycode) 쌍 목록
+    emoji_triggers: Vec<(ModifierState, KeyCode)>,
+    /// 이모지 팝업 기능 활성 여부
+    emoji_popup_enabled: bool,
     /// 통합 팝업 상태 (한자/특수문자 공용)
     popup_state: Option<PopupState>,
     /// 처리 대기 팝업 액션
@@ -240,6 +248,14 @@ impl InputEngine {
                 .map(|name| KeyCode::from_name(name))
                 .filter(|k| *k != KeyCode::Unknown)
                 .collect(),
+            emoji_triggers: config
+                .engine
+                .emoji_popup
+                .trigger_keys
+                .iter()
+                .filter_map(|s| Self::parse_emoji_trigger(s))
+                .collect(),
+            emoji_popup_enabled: config.engine.emoji_popup.enabled,
             popup_state: None,
             popup_pending_action: None,
             top_row_labels: config.engine.english.layout.top_row_labels().to_string(),
@@ -250,6 +266,47 @@ impl InputEngine {
         }
     }
 
+
+    /// 이모지 트리거 문자열을 파싱합니다.
+    ///
+    /// 형식: "Super+Period", "Control+Shift+E" 처럼 `+`로 구분된 토큰.
+    /// 각 토큰은 modifier 이름(Super/Control/Alt/Shift) 또는 KeyCode 이름.
+    /// 유효하지 않거나 KeyCode가 없는 경우 None을 반환합니다.
+    fn parse_emoji_trigger(spec: &str) -> Option<(ModifierState, KeyCode)> {
+        let mut modifier = ModifierState::new();
+        let mut keycode: Option<KeyCode> = None;
+        for token in spec.split('+') {
+            match token.trim() {
+                "" => continue,
+                "Super" | "Meta" | "Win" => modifier.super_key = true,
+                "Control" | "Ctrl" => modifier.control = true,
+                "Alt" => modifier.alt = true,
+                "Shift" => modifier.shift = true,
+                other => {
+                    let kc = KeyCode::from_name(other);
+                    if kc == KeyCode::Unknown {
+                        return None;
+                    }
+                    keycode = Some(kc);
+                }
+            }
+        }
+        keycode.map(|k| (modifier, k))
+    }
+
+    /// 현재 키 입력이 이모지 팝업 트리거와 일치하는지 확인합니다.
+    fn matches_emoji_trigger(&self, keycode: KeyCode, modifier: ModifierState) -> bool {
+        if !self.emoji_popup_enabled || self.emoji_triggers.is_empty() {
+            return false;
+        }
+        self.emoji_triggers.iter().any(|(m, k)| {
+            *k == keycode
+                && m.shift == modifier.shift
+                && m.control == modifier.control
+                && m.alt == modifier.alt
+                && m.super_key == modifier.super_key
+        })
+    }
 
     /// 키보드 맵을 생성합니다.
     ///
@@ -323,6 +380,21 @@ impl InputEngine {
         // 한자/특수문자 팝업 활성 상태에서 키 인터셉트
         if self.hanja_mode || self.special_char_mode {
             return self.process_popup_key(keycode, modifier, _config);
+        }
+
+        // 이모지 팝업 트리거 (Super+. 등) — 단축키 early return 이전에 체크
+        if self.matches_emoji_trigger(keycode, modifier) {
+            unim_log!("ENGINE", "이모지 팝업 트리거 감지: {:?}", keycode);
+            // 조합 중이면 먼저 커밋
+            let was_composing = self.korean_context.is_composing();
+            if was_composing {
+                self.flush_preedit();
+            }
+            self.popup_pending_action = Some(PopupAction::ShowEmoji);
+            if was_composing {
+                return InputResult::committed();
+            }
+            return InputResult::consumed();
         }
 
         // Control/Alt가 눌린 경우 (단축키) 무시
@@ -1983,5 +2055,133 @@ mod tests {
 
         engine.press_key(KeyCode::A, caps, &config);
         assert_eq!(engine.commit_str(), "A");
+    }
+
+    // === 이모지 팝업 트리거 테스트 ===
+
+    #[test]
+    fn test_emoji_trigger_parse_super_period() {
+        let parsed = InputEngine::parse_emoji_trigger("Super+Period");
+        assert!(parsed.is_some());
+        let (modifier, keycode) = parsed.unwrap();
+        assert!(modifier.super_key);
+        assert!(!modifier.control);
+        assert!(!modifier.alt);
+        assert!(!modifier.shift);
+        assert_eq!(keycode, KeyCode::Period);
+    }
+
+    #[test]
+    fn test_emoji_trigger_parse_aliases() {
+        assert!(InputEngine::parse_emoji_trigger("Meta+Period").unwrap().0.super_key);
+        assert!(InputEngine::parse_emoji_trigger("Win+Period").unwrap().0.super_key);
+        assert!(InputEngine::parse_emoji_trigger("Ctrl+Semicolon").unwrap().0.control);
+    }
+
+    #[test]
+    fn test_emoji_trigger_parse_multi_modifier() {
+        let parsed = InputEngine::parse_emoji_trigger("Control+Shift+E");
+        assert!(parsed.is_some());
+        let (modifier, keycode) = parsed.unwrap();
+        assert!(modifier.control);
+        assert!(modifier.shift);
+        assert_eq!(keycode, KeyCode::E);
+    }
+
+    #[test]
+    fn test_emoji_trigger_parse_invalid() {
+        assert!(InputEngine::parse_emoji_trigger("Super+Bogus").is_none());
+        assert!(InputEngine::parse_emoji_trigger("Super").is_none());
+        assert!(InputEngine::parse_emoji_trigger("").is_none());
+    }
+
+    #[test]
+    fn test_emoji_trigger_fires_popup_action() {
+        let engine = create_test_engine();
+        assert!(engine.emoji_popup_enabled);
+        assert!(!engine.emoji_triggers.is_empty());
+
+        let mut engine = engine;
+        let config = Config::default();
+        let modifier = ModifierState {
+            super_key: true,
+            ..Default::default()
+        };
+        let result = engine.press_key(KeyCode::Period, modifier, &config);
+        assert!(result.consumed);
+        let action = engine.take_popup_action();
+        assert!(matches!(action, Some(PopupAction::ShowEmoji)));
+    }
+
+    #[test]
+    fn test_emoji_trigger_only_super_period_matches() {
+        let mut engine = create_test_engine();
+        let config = Config::default();
+
+        // Period 단독은 트리거 아님
+        engine.press_key(KeyCode::Period, ModifierState::default(), &config);
+        assert!(engine.take_popup_action().is_none());
+
+        // Control+Period 도 아님 (설정된 트리거가 Super+Period 뿐)
+        let ctrl = ModifierState { control: true, ..Default::default() };
+        engine.press_key(KeyCode::Period, ctrl, &config);
+        assert!(engine.take_popup_action().is_none());
+
+        // Super+Comma 도 아님
+        let sup = ModifierState { super_key: true, ..Default::default() };
+        engine.press_key(KeyCode::Comma, sup, &config);
+        assert!(engine.take_popup_action().is_none());
+    }
+
+    #[test]
+    fn test_emoji_trigger_disabled_when_config_off() {
+        let mut config = Config::default();
+        config.engine.emoji_popup.enabled = false;
+        let mut engine = InputEngine::new(&config);
+
+        let modifier = ModifierState { super_key: true, ..Default::default() };
+        let result = engine.press_key(KeyCode::Period, modifier, &config);
+        assert!(engine.take_popup_action().is_none());
+        // 비활성화 시에는 기존 단축키 경로로 흘러가 소비되지 않음
+        assert!(!result.consumed);
+    }
+
+    #[test]
+    fn test_emoji_trigger_flushes_composing() {
+        let mut engine = create_test_engine();
+        engine.set_input_category(InputCategory::Korean);
+        let config = Config::default();
+
+        // ㄱ 조합 시작
+        engine.press_key(KeyCode::R, ModifierState::default(), &config);
+        assert!(engine.korean_context.is_composing());
+
+        // Super+. 누르면 조합이 커밋되고 이모지 팝업 액션이 큐잉됨
+        let sup = ModifierState { super_key: true, ..Default::default() };
+        let result = engine.press_key(KeyCode::Period, sup, &config);
+        assert!(result.consumed);
+        assert!(result.commit_changed);
+        assert!(matches!(engine.take_popup_action(), Some(PopupAction::ShowEmoji)));
+    }
+
+    #[test]
+    fn test_emoji_custom_trigger_from_config() {
+        let mut config = Config::default();
+        config.engine.emoji_popup.trigger_keys = vec!["Control+Shift+E".to_string()];
+        let mut engine = InputEngine::new(&config);
+
+        // 기본 Super+Period는 이제 트리거 아님
+        let sup = ModifierState { super_key: true, ..Default::default() };
+        engine.press_key(KeyCode::Period, sup, &config);
+        assert!(engine.take_popup_action().is_none());
+
+        // Control+Shift+E가 트리거
+        let ctrl_shift = ModifierState {
+            control: true,
+            shift: true,
+            ..Default::default()
+        };
+        engine.press_key(KeyCode::E, ctrl_shift, &config);
+        assert!(matches!(engine.take_popup_action(), Some(PopupAction::ShowEmoji)));
     }
 }

@@ -59,6 +59,14 @@ pub enum GuiAction {
         w: i32,
         h: i32,
     },
+    /// 이모지 팝업 표시 (Super+. 트리거)
+    ShowEmojiPopup {
+        context_path: String,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    },
     /// 팝업 숨김
     HidePopup,
     /// 팝업 네비게이션 (페이지/선택 변경)

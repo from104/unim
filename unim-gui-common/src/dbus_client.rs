@@ -354,6 +354,28 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 });
             }
         }
+        "ShowEmojiPopup" => {
+            if let Ok((x, y, w, h)) = msg.body().deserialize::<(i32, i32, i32, i32)>() {
+                if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
+                    *path = Some(context_path.clone());
+                }
+                unim_log!(
+                    "INDICATOR",
+                    "[Popup] ShowEmojiPopup 수신: pos=({},{},{},{})",
+                    x,
+                    y,
+                    w,
+                    h
+                );
+                let _ = popup_tx.send(GuiAction::ShowEmojiPopup {
+                    context_path,
+                    x,
+                    y,
+                    w,
+                    h,
+                });
+            }
+        }
         "HidePopup" => {
             unim_log!("INDICATOR", "[Popup] HidePopup 수신");
             let _ = popup_tx.send(GuiAction::HidePopup);
