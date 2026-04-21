@@ -680,28 +680,6 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
     }
     group.add(&skip_syl_sw);
 
-    // 접두사 충돌 시 보류
-    let skip_prefix_sw = adw::SwitchRow::builder()
-        .title("접두사 충돌 시 보류")
-        .subtitle("사전의 긴 단어에 포함된 접두사이면 한 글자 더 기다림 (예: 'wood' → 'woody' 대기)")
-        .build();
-    {
-        let s = state.borrow();
-        skip_prefix_sw.set_active(s.config.engine.auto_typefix.skip_on_prefix_collision);
-    }
-    {
-        let state_c = state.clone();
-        skip_prefix_sw.connect_active_notify(move |sw| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
-                return;
-            }
-            s.config.engine.auto_typefix.skip_on_prefix_collision = sw.is_active();
-            save_and_notify(&s.config, "auto_typefix_skip_on_prefix_collision");
-        });
-    }
-    group.add(&skip_prefix_sw);
-
     group
 }
 

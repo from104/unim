@@ -195,7 +195,6 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `auto-typefix-reverse` | bool | `engine.auto_typefix.reverse` |
 | `auto-typefix-skip-on-english-word` | bool | `engine.auto_typefix.skip_on_english_word` |
 | `auto-typefix-skip-on-complete-syllable` | bool | `engine.auto_typefix.skip_on_complete_syllable` |
-| `auto-typefix-skip-on-prefix-collision` | bool | `engine.auto_typefix.skip_on_prefix_collision` (aeab5f5) |
 | `auto-typefix-rollback-detection` | bool | `engine.auto_typefix.rollback_detection` (4315dce) |
 | `auto-typefix-tentative-expiry-hours` | u16 | `engine.auto_typefix.tentative_expiry_hours` (1..=12) |
 | `auto-typefix-observation-timeout-secs` | u8 | `engine.auto_typefix.observation_timeout_secs` (5..=15) |

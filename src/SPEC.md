@@ -257,7 +257,6 @@ engine:
     reverse: true                   # 한→영 오타 교정 (한글 preedit 중 영단어 감지)
     skip_on_english_word: true      # 사전에 있는 영단어면 교정 보류
     skip_on_complete_syllable: true # 이미 완성된 한글 음절이면 forward 차단
-    skip_on_prefix_collision: true  # (aeab5f5) reverse에서 현재 ASCII가 더 긴 사전 단어의 prefix면 발화 유보
     rollback_detection: true        # (4315dce) 롤백 관측 기반 Blacklist 자동 등록
     tentative_expiry_hours: 1       # (4315dce, aeab5f5) Tentative 엔트리 Inactive 전환까지의 시간
     observation_timeout_secs: 10    # (aeab5f5) 롤백 관측 pending flag 유지 시간(초)
@@ -295,13 +294,12 @@ pub struct EngineConfig {
 | `reverse` | bool | true | — | 한→영 교정 활성 (한글 모드 preedit이 사전상 영단어일 때) |
 | `skip_on_english_word` | bool | true | — | forward에서 한글 변환 결과를 영어 사전에 질의해 매치되면 보류 |
 | `skip_on_complete_syllable` | bool | true | — | forward에서 이미 완성된 한글 음절이 있으면 트리거 차단 |
-| `skip_on_prefix_collision` | bool | true | — | **(aeab5f5)** reverse에서 현재 ASCII가 더 긴 사전 단어의 strict prefix면 발화 유보 |
 | `rollback_detection` | bool | true | — | **(4315dce)** 롤백 관측 기반 Blacklist 자동 등록 활성 |
 | `tentative_expiry_hours` | u16 | 1 | 1..=12 | **(4315dce, aeab5f5)** Tentative 엔트리의 Inactive 자동 전환 시간. 초기 구현에서 `tentative_expiry_days`(1..=90)였으나 aeab5f5에서 `hours`/1..=12로 개명·축소. 레코드는 보존, 억제 효과만 해제 |
 | `observation_timeout_secs` | u8 | 10 | 5..=15 | **(aeab5f5)** 롤백 관측 pending flag 유지 시간(초). BS/모드 전환 관찰이 이 시간 내에 재시도로 이어져야 Tentative 등록 |
 
 > [!NOTE]
-> `forward`/`reverse` 방향 판정과 prefix-avoidance 의미 체계의 IME 관측 관점은
+> `forward`/`reverse` 방향 판정의 IME 관측 관점은
 > [`IME_BEHAVIOR.md §9`](../IME_BEHAVIOR.md#9-autotypefix-억제-사전-blacklist--ime-레벨-관측-동작)을 참조한다.
 
 ### 3.2 열거형 정의
@@ -811,7 +809,7 @@ struct SpecialCharCategory {
 | 사용자 파일 | `~/.config/unim/typefix-blacklist.yaml` |
 | 구현 모듈 | `src/typefix_blacklist.rs` |
 | 핵심 타입 | `TypefixBlacklist`, `BlacklistEntry`, `EntryState` |
-| 설정 원본 | [`AutoTypeFixConfig` §3.1.1](#311-autotypefixconfig) (`rollback_detection`, `tentative_expiry_hours`, `observation_timeout_secs`, `skip_on_prefix_collision`) |
+| 설정 원본 | [`AutoTypeFixConfig` §3.1.1](#311-autotypefixconfig) (`rollback_detection`, `tentative_expiry_hours`, `observation_timeout_secs`) |
 | 등록 관측 절차 | [`IME_BEHAVIOR.md §9`](../IME_BEHAVIOR.md#9-autotypefix-억제-사전-blacklist--ime-레벨-관측-동작) |
 
 ### 8A.2 엔트리 상태 (3상태 머신)
@@ -860,8 +858,6 @@ struct SpecialCharCategory {
 - forward: ASCII 키로 `is_suppressed(ascii)` 질의
 - reverse: 영단어(eng_to_kor 이전의 `corrected`)로 질의
 - `Confirmed` / `Tentative` 매치 시 즉시 억제 (교정 미발화)
-- Prefix-avoidance는 Blacklist와 **독립** — 사전 prefix 충돌은
-  `skip_on_prefix_collision`만 관장한다
 
 ### 8A.5 핫리로드
 

@@ -360,22 +360,9 @@ Blacklist에 Tentative로 추가되며 **그 재시도도 함께 억제**된다.
 초기 구현은 reverse에서 `fix.original`을 저장하여 빈 문자열로 등록되는
 버그가 있었다. aeab5f5에서 수정.
 
-### 9.3 Prefix-Avoidance (reverse 전용)
-
-`check_reverse` 진입 시, **현재 ASCII가 사전에 등재되어 있으면서 동시에
-사전상의 더 긴 단어의 strict prefix**인 경우 발화를 유보한다.
-
-| 예 | 사전 상황 | 동작 |
-|----|---------|------|
-| `wood` | `wood`, `woody`, `woodpecker` 모두 등재 | 발화 유보 (사용자가 'y'를 칠 수 있음) |
-| `word` | `word`만 등재, 더 긴 확장 없음 | 즉시 발화 |
-
-- 설정: `auto_typefix.skip_on_prefix_collision` (기본 true)
-- Blacklist와 **독립** — prefix 유보 상태의 ASCII도 Blacklist에 있으면 별도로 억제된다
-
-### 9.4 설정 원본 참조
+### 9.3 설정 원본 참조
 
 - 파일 스키마·상태 머신: `src/SPEC.md §8A`
 - 설정 필드 범위: `src/SPEC.md §3.1.1 AutoTypeFixConfig`
-- CLI 설정 키: `unim-config/SPEC.md §3`
+- CLI 설정 키: `unim-cli/SPEC.md §2.3` (`unim-cli config` 서브커맨드)
 - DBus 설정 키 매핑: `unim-dbus/SPEC.md §5.4`

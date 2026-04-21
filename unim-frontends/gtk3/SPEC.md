@@ -460,7 +460,7 @@ GTK set_surrounding(text, len, cursor_index) 호출
 > GTK3/4 IM 모듈은 **legacy `GetConfig`만** 사용한다 (`hanja_keys` 로드용).
 > 전체 설정 YAML/JSON 엔드포인트(`GetConfigYaml`/`SetConfigYaml`/`GetConfigJson`
 > + `ConfigChangedJson` 시그널)는 GUI(`unim-gui-gtk`, `unim-gui-qt`)와
-> `unim-config` CLI가 사용한다 (unim-dbus/SPEC.md §5.1, §5.2 참고).
+> `unim-cli config` 서브커맨드가 사용한다 (unim-dbus/SPEC.md §5.1, §5.2 참고).
 
 ---
 

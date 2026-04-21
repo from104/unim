@@ -1,6 +1,6 @@
 ---
 name: settings-sync-check
-description: UNIM Config 구조체에 필드를 추가·변경하거나 설정 키를 삭제할 때마다 반드시 사용할 것. 6개 동기화 지점(src/config.rs / unim-config CLI / locales / unim-dbus / GTK UI / GNOME gschema)의 누락을 원천 차단한다. "설정 추가", "config.rs 수정", "설정 필드", "ConfigKey", "gschema", "AutoTypeFix 항목" 같은 맥락에서 반드시 트리거.
+description: UNIM Config 구조체에 필드를 추가·변경하거나 설정 키를 삭제할 때마다 반드시 사용할 것. 6개 동기화 지점(src/config.rs / unim-cli config 서브커맨드 / locales / unim-dbus / GTK UI / GNOME gschema)의 누락을 원천 차단한다. "설정 추가", "config.rs 수정", "설정 필드", "ConfigKey", "gschema", "AutoTypeFix 항목" 같은 맥락에서 반드시 트리거.
 ---
 
 # Settings Sync Check — UNIM 설정 6지점 체크리스트
@@ -17,17 +17,17 @@ UNIM에서 설정 한 개 추가가 실제로는 6곳 편집이다. 한 군데�
 - 범위가 있다면 `Default` 구현 값과 별도로 clamp/검증 함수 제공 권장
 - 필드 삭제 시: `#[serde(default)]` 덕분에 구 config.yaml은 계속 읽힘. 삭제 후 `cargo check` 필수
 
-### 2. `unim-config/src/main.rs` — CLI ConfigKey enum
+### 2. `unim-cli/src/main.rs` — CLI ConfigKey enum
 
 - `ConfigKey` enum에 `#[value(name = "kebab-case-name")]` 추가
 - `get_value()` / `set_value()` 매치 암 확장
 - 범위 검증: `set_value`에서 clamp 또는 에러
 
-### 3. `unim-config/locales/*.yml` — 번역
+### 3. `unim-cli/locales/*.yml` — 번역
 
 - `ko.yml`, `en.yml` (및 다른 존재하는 로캘 전부) 키 추가
 - 키 이름은 ConfigKey 이름과 일치시키는 것이 관례
-- `grep -r "기존 키" unim-config/locales/` 로 패턴 확인 후 같은 계층에 삽입
+- `grep -r "기존 키" unim-cli/locales/` 로 패턴 확인 후 같은 계층에 삽입
 
 ### 4. `unim-dbus/src/service.rs` — DBus 메서드
 

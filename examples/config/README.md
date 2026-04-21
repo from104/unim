@@ -20,15 +20,15 @@ cp examples/config/example.yaml ~/.config/unim/config.yaml
 
 ## CLI로 안전하게 편집
 
-YAML을 직접 편집하지 않고 `unim-config`로 변경하면 범위 검증이 자동으로 적용됩니다:
+YAML을 직접 편집하지 않고 `unim-cli config`로 변경하면 범위 검증이 자동으로 적용됩니다:
 
 ```bash
-unim-config set korean-layout 3bul390
-unim-config set auto-typefix-tentative-expiry-hours 6
-unim-config show
+unim-cli config set korean-layout 3bul390
+unim-cli config set auto-typefix-tentative-expiry-hours 6
+unim-cli config show
 ```
 
-전체 CLI 키 목록은 [`../../unim-config/SPEC.md`](../../unim-config/SPEC.md) 참조.
+전체 CLI 키 목록은 [`../../unim-cli/SPEC.md`](../../unim-cli/SPEC.md) 참조.
 
 ## 관련 문서
 

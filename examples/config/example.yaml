@@ -55,10 +55,6 @@ engine:
     # forward에서 이미 완성된 한글 음절이 있으면 트리거 차단
     skip_on_complete_syllable: true
 
-    # reverse에서 현재 ASCII가 더 긴 사전 단어의 strict prefix면 발화 유보
-    # 예: "wood" 입력 시 "woody"/"woodpecker" 대기
-    skip_on_prefix_collision: true
-
     # 롤백 관측 기반 Blacklist 자동 등록 활성
     # (BS로 결과 삭제 + 모드 전환 관찰 + 재시도 → Tentative 등록)
     rollback_detection: true

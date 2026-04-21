@@ -23,13 +23,13 @@
 - [x] **XIM 프론트엔드**: Rust `xim` crate 기반 X11 XIM 서버 구현 (Over-The-Spot Preedit, 프로토콜 적합성 검증 완료).
 - [x] **Wayland 프론트엔드**: `input-method-v2` + `virtual-keyboard-v1` 프로토콜 기반 구현 (KDE Plasma 지원).
 - [x] **한자/특수문자 입력**: XIM 자체 Xft 팝업 + GNOME Extension 자체 팝업 + GTK/Qt/Wayland는 `unim-gui` 중앙 팝업으로 통합.
-- [x] **설정 도구**: GTK/Qt GUI 설정 도구 (`unim-gtk-settings`, `unim-qt-settings`) + CLI (`unim-config`).
+- [x] **설정 도구**: GTK/Qt GUI 설정 도구 (`unim-gtk-settings`, `unim-qt-settings`) + CLI (`unim-cli config`).
 - [x] **시스템 트레이**: `unim-gui` 트레이 아이콘 및 팝업 통합.
 
 ### 3단계: 문서화 및 안정화 (진행 중)
 
 - [x] **컴포넌트별 SPEC.md 작성**: 12개 컴포넌트 기능 명세 문서화.
-  - `src/`, `unim-capi/`, `unim-cli/`, `unim-config/`, `unim-daemon/`, `unim-dbus/`
+  - `src/`, `unim-capi/`, `unim-cli/`, `unim-daemon/`, `unim-dbus/`
   - `unim-frontends/gtk3/`, `gtk4/`, `qt5/`, `qt6/`, `xim/`, `wayland/`
 - [x] **XIM 프로토콜 적합성 검증**: [XIM 사양](https://www.x.org/releases/X11R7.6/doc/libX11/specs/XIM/xim.html) 대비 3회 교차 검증 (11개 항목 적합).
 - [x] **Wayland 프로토콜 참조 문서화**: `input-method-v2`, `virtual-keyboard-v1` 프로토콜 사양 참조 및 아키텍처 문서화.
@@ -46,7 +46,7 @@
 - [x] **unim-gui-common 크레이트**: DBus 통신 + 트레이 등 공통 로직 추출 완료.
 - [x] **unim-gui-gtk 전환**: `unim-gui-common` 의존으로 전환 완료.
 - [x] **unim-gui-qt 신규 구현**: cxx-qt 기반 Qt6 네이티브 GUI 구현 완료.
-- [ ] **Debian 패키지 재구성**: `unim-gtk`(IM+GUI), `unim-qt`(IM+GUI), `unim-xim`, `unim-wayland` 분리 + Conflicts 방식 충돌 방지.
+- [x] **Debian 패키지 재구성**: 9개 바이너리 패키지로 분할 (`unim-common` / `unim-im-gtk` / `unim-im-qt` / `unim-xim` / `unim-wayland` / `unim-gui-gtk` / `unim-gui-qt` / `unim-gnome` / `unim` 메타). GUI 두 개 공존 허용(Conflicts 불필요), `unim-gnome`은 `unim-gui-gtk`를 Depends로 강제. `apt install unim` 한 줄로 full stack 설치.
 
 ### 4단계: 자동 상태 전환 (지능화)
 

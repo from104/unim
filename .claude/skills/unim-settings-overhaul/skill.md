@@ -80,12 +80,12 @@ Agent(
 
 **Qt 리다이렉트**: `unim-gui-qt/src/...`에서 설정 진입점이 `std::process::Command::new("unim-gui-gtk").arg("--settings").spawn()` 호출하도록 변경.
 
-**CLI**: `unim-config/src/main.rs`의 `ConfigKey` enum에 신규 키 3개 추가:
+**CLI**: `unim-cli/src/main.rs`의 `ConfigKey` enum (`config` 서브커맨드)에 신규 키 3개 추가:
 - `auto-typefix-skip-english-word`
 - `auto-typefix-skip-complete-syllable`
 - `manual-shortcut-forward`, `manual-shortcut-reverse`
 
-**번역**: `unim-config/locales/*.yml` 모두 갱신.
+**번역**: `unim-cli/locales/*.yml` 모두 갱신.
 
 ### Phase 6 — 마이그레이션 루틴
 

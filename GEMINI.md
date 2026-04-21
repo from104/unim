@@ -42,8 +42,8 @@ GSettings(gschema)는 **GNOME Shell 의존 키만** 남겨졌습니다(18→6키
 | 컴포넌트 | 파일 위치 | 역할 |
 | -------- | --------- | ---- |
 | **설정 코어** | `src/config.rs` | 설정 구조체 및 직렬화 정의 (Source of Truth) |
-| **unim-config (CLI)** | `unim-config/src/main.rs` | CLI `ConfigKey` enum + setter dispatch |
-| **로케일** | `unim-config/locales/*.yml` | CLI 라벨/에러 메시지 (ko, en) |
+| **unim-cli (CLI)** | `unim-cli/src/main.rs` (`config` 서브커맨드) | CLI `ConfigKey` enum + setter dispatch |
+| **로케일** | `unim-cli/locales/*.yml` | CLI 라벨/에러 메시지 (ko, en) |
 | **unim-dbus** | `unim-dbus/src/service.rs` | key-기반 레거시 `get_config`/`set_config` 디스패치. YAML/JSON 엔드포인트는 serde로 전체 구조체를 자동 처리하므로 신규 필드는 자동 반영됨 |
 | **unim-gui 설정** | `unim-gui-gtk/src/gtk_ui.rs` | GTK GUI 위젯 바인딩 (유일한 GUI 창구) |
 
@@ -58,8 +58,8 @@ GNOME Shell 의존 키(예: indicator 토글 등)만 `unim-gnome-extension/prefs
 ## 설정 항목 추가/변경 시 체크리스트
 
 1. [ ] `src/config.rs` — 설정 구조체에 새 필드 추가 (+ `clamp_ranges()` 방어 시 범위 확인)
-2. [ ] `unim-config/src/main.rs` — `ConfigKey` enum 및 관련 함수 업데이트
-3. [ ] `unim-config/locales/{ko,en}.yml` — 번역 문자열 추가
+2. [ ] `unim-cli/src/main.rs` — `ConfigKey` enum 및 관련 `config_set` 매치 암 업데이트 (`config` 서브커맨드)
+3. [ ] `unim-cli/locales/{ko,en}.yml` — 번역 문자열 추가
 4. [ ] `unim-dbus/src/service.rs` — 레거시 key 디스패치가 필요한 경우 매칭 업데이트 (YAML/JSON은 자동)
 5. [ ] `unim-gui-gtk/src/gtk_ui.rs` — GTK GUI 위젯 및 바인딩 추가
 6. [ ] (GNOME Shell 전용 키일 때만) `unim-gnome-extension/prefs.js` + `*.gschema.xml`
@@ -85,8 +85,8 @@ GNOME Shell 의존 키(예: indicator 토글 등)만 `unim-gnome-extension/prefs
 
 ```text
 src/config.rs               → ModeSharingMode enum 정의
-unim-config/main.rs         → ConfigKey::ModeSharing 추가
-unim-config/locales/*.yml   → 라벨/에러 번역
+unim-cli/src/main.rs        → ConfigKey::ModeSharing 추가 (config 서브커맨드)
+unim-cli/locales/*.yml      → 라벨/에러 번역
 unim-dbus/service.rs        → get_config("mode_sharing"), set_config(...) 처리 (레거시만)
 unim-gui-gtk/gtk_ui.rs      → ComboRow 추가
 ```

@@ -313,19 +313,6 @@ pub fn check_reverse(
         return None;
     }
 
-    // 접두사 회피: 현재 ASCII가 사전에 있는 **더 긴 단어의 접두사**이기도 하면,
-    // 사용자가 긴 단어를 타이핑 중일 수 있으므로 발화 보류한다.
-    // 예: "wood" 사전 hit이지만 "woody"/"woods"/"wooden" 도 사전에 있으므로 defer.
-    //     다음 키가 들어와 "woody"가 되고 그 이상 확장이 없으면 그때 발화.
-    // ASCII 전제라서 byte-level starts_with로 충분 (성능).
-    if config.skip_on_prefix_collision
-        && DICTIONARY
-            .iter()
-            .any(|w| w.len() > lower.len() && w.as_bytes().starts_with(lower.as_bytes()))
-    {
-        return None;
-    }
-
     // 화면에 있는 글자 수 = committed 한글 음절 + preedit(있으면 1)
     let screen_chars = buffer.committed_chars as u32
         + if buffer.has_preedit { 1 } else { 0 };
@@ -516,7 +503,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -541,7 +527,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -731,7 +716,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -760,7 +744,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -788,7 +771,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -826,7 +808,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -918,7 +899,6 @@ mod tests {
             skip_on_complete_syllable: true,
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
         assert!(
@@ -941,7 +921,6 @@ mod tests {
             skip_on_complete_syllable: false,
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
         let result = check_reverse(&buf, &off, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
@@ -967,7 +946,6 @@ mod tests {
             skip_on_complete_syllable: true,
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
         let result = check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
@@ -1059,7 +1037,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 
@@ -1068,66 +1045,6 @@ mod tests {
 
         let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
         assert!(result.is_none(), "tentative reverse 엔트리는 억제해야 함");
-    }
-
-    #[test]
-    fn reverse_prefix_avoidance_defers_wood() {
-        // 회귀 테스트: "wood"는 사전에 있지만 "woody"/"woods"/"wooden"도 사전에 있어
-        // 접두사 회피 로직이 발화를 보류해야 한다.
-        assert!(dictionary_contains("wood"), "사전에 'wood' 있어야 함");
-        assert!(
-            DICTIONARY.iter().any(|w| w.len() > 4 && w.starts_with("wood")),
-            "사전에 'wood'의 긴 확장어가 있어야 함 (테스트 전제)"
-        );
-
-        let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::W, KeyCode::O, KeyCode::O, KeyCode::D] {
-            buf.push(key, ModifierState::default());
-        }
-        buf.committed_chars = 2;
-        buf.has_preedit = false;
-
-        let config = AutoTypeFixConfig {
-            eng_word_min_length: 4,
-            skip_on_complete_syllable: false,
-            ..AutoTypeFixConfig::default()
-        };
-
-        let result =
-            check_reverse(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty, &empty_bl());
-        assert!(
-            result.is_none(),
-            "'wood'는 더 긴 확장어가 사전에 있으므로 발화 보류되어야 함"
-        );
-    }
-
-    #[test]
-    fn reverse_prefix_avoidance_fires_on_leaf_word() {
-        // "hello"는 사전에 있고 "hello"를 접두사로 갖는 더 긴 사전 단어가 없으면 발화.
-        // 테스트 전제 확인 (사전 데이터에 의존).
-        let has_longer = DICTIONARY.iter().any(|w| w.len() > 5 && w.starts_with("hello"));
-        if has_longer {
-            // 사전에 "hellos" 등이 있으면 이 테스트는 스킵 — 대신 접두사 회피가 동작했음을 검증.
-            return;
-        }
-
-        let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
-            buf.push(key, ModifierState::default());
-        }
-        buf.committed_chars = 3;
-        buf.has_preedit = true;
-
-        let config = AutoTypeFixConfig {
-            eng_word_min_length: 5,
-            // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
-            ..AutoTypeFixConfig::default()
-        };
-
-        let result =
-            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
-        assert!(result.is_some(), "'hello'는 확장어 없으면 발화해야 함");
     }
 
     #[test]
@@ -1151,7 +1068,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
         let mut bl = Blacklist::default();
@@ -1202,7 +1118,6 @@ mod tests {
         let config = AutoTypeFixConfig {
             eng_word_min_length: 5,
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
-            skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
 

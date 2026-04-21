@@ -271,9 +271,6 @@ fn default_auto_typefix_skip_on_english_word() -> bool {
 fn default_auto_typefix_skip_on_complete_syllable() -> bool {
     true
 }
-fn default_auto_typefix_skip_on_prefix_collision() -> bool {
-    true
-}
 fn default_auto_typefix_rollback_detection() -> bool {
     true
 }
@@ -320,11 +317,6 @@ pub struct AutoTypeFixConfig {
     /// 역방향 트리거 시 버퍼의 한글이 모두 완성 음절이면 억제 (기본 true, 기존 동작 유지)
     #[serde(default = "default_auto_typefix_skip_on_complete_syllable")]
     pub skip_on_complete_syllable: bool,
-    /// 역방향 트리거 시 현재 ASCII가 더 긴 사전 단어의 접두사이면 억제 (기본 true).
-    /// 예: "wood" 는 사전에 있지만 "woody"/"woods" 도 있어 긴 단어 타이핑 중일 가능성이
-    /// 있으므로 한 글자 더 기다린다. 비활성화하면 최초 사전 hit에서 즉시 발화.
-    #[serde(default = "default_auto_typefix_skip_on_prefix_collision")]
-    pub skip_on_prefix_collision: bool,
     /// 재트리거 기반 학습형 억제. 동일 입력이 관찰 창 내에 재차 트리거되면
     /// 오탐 후보로 간주해 해당 순간에도 교정을 억제하고 blacklist에 기록한다. (기본 true)
     #[serde(default = "default_auto_typefix_rollback_detection")]
@@ -350,7 +342,6 @@ impl Default for AutoTypeFixConfig {
             reverse: default_auto_typefix_reverse(),
             skip_on_english_word: default_auto_typefix_skip_on_english_word(),
             skip_on_complete_syllable: default_auto_typefix_skip_on_complete_syllable(),
-            skip_on_prefix_collision: default_auto_typefix_skip_on_prefix_collision(),
             rollback_detection: default_auto_typefix_rollback_detection(),
             tentative_expiry_hours: default_auto_typefix_tentative_expiry_hours(),
             observation_timeout_secs: default_auto_typefix_observation_timeout_secs(),
@@ -406,29 +397,14 @@ impl AutoTypeFixConfig {
 pub struct KoreanConfig {
     /// 한국어 키보드 레이아웃
     pub layout: KoreanLayout,
-    /// 조합 중 문자 표시 (Johab 형식)
-    pub preedit_johab: bool,
-    /// 단어 단위 커밋
-    pub word_commit: bool,
 }
 
 /// 영어 엔진 설정
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EnglishConfig {
     /// 영어 키보드 레이아웃
     pub layout: EnglishLayout,
-    /// 다이렉트 입력 선호
-    pub preferred_direct: bool,
-}
-
-impl Default for EnglishConfig {
-    fn default() -> Self {
-        Self {
-            layout: EnglishLayout::default(),
-            preferred_direct: true,
-        }
-    }
 }
 
 /// 앱별 기본 모드 규칙
@@ -480,8 +456,6 @@ pub struct EngineConfig {
     pub hanja_keys: Vec<String>,
     /// 앱별 기본 모드 규칙
     pub app_rules: Vec<AppRule>,
-    /// 사용자 사전 경로 (None이면 기본 경로 사용)
-    pub user_dictionary_path: Option<std::path::PathBuf>,
     /// 팝업 표시 방식 (Standalone: GUI 통합, Embedded: 프론트엔드 내장)
     pub popup_mode: PopupMode,
     /// 자동 오타 교정 (AutoTypeFix) 설정
@@ -498,7 +472,6 @@ impl Default for EngineConfig {
             toggle_keys: vec!["Korean".to_string(), "RightAlt".to_string()],
             hanja_keys: vec!["Hanja".to_string(), "F9".to_string()],
             app_rules: Vec::new(),
-            user_dictionary_path: None,
             popup_mode: PopupMode::default(),
             auto_typefix: AutoTypeFixConfig::default(),
         }

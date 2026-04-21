@@ -16,8 +16,7 @@
 | **C-API** | `unim-capi/` | Rust (FFI) | Core를 C/C++에서 사용하기 위한 래퍼 |
 | **DBus Daemon** | `unim-daemon/` | Rust | 중앙 엔진 서버 (unim-daemon) |
 | **DBus Library** | `unim-dbus/` | Rust | DBus 서비스/클라이언트 구현 |
-| **CLI** | `unim-cli/` | Rust | 명령줄 인터페이스 |
-| **Config CLI** | `unim-config/` | Rust | 설정 관리 CLI 도구 |
+| **CLI** | `unim-cli/` | Rust | 한↔영 변환 + `config` 서브커맨드 통합 명령줄 도구 |
 | **GUI Common** | `unim-gui-common/` | Rust | DBus 통신, 트레이 공통 로직 |
 | **GUI GTK** | `unim-gui-gtk/` | Rust | GTK 기반 시스템 트레이, 설정 UI |
 | **GUI Qt** | `unim-gui-qt/` | Rust (cxx-qt) | Qt6 기반 시스템 트레이, 설정 UI |

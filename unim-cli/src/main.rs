@@ -182,9 +182,6 @@ enum ConfigKey {
     /// 자동 오타 교정: 온전한 음절 매칭 시 억제 (true, false)
     #[value(name = "auto-typefix-skip-complete-syllable")]
     AutoTypeFixSkipCompleteSyllable,
-    /// 자동 오타 교정: 접두사 충돌 시 보류 (true, false)
-    #[value(name = "auto-typefix-skip-on-prefix-collision")]
-    AutoTypeFixSkipOnPrefixCollision,
     /// 자동 오타 교정: 재트리거 기반 학습형 억제 (true, false)
     #[value(name = "auto-typefix-rollback-detection")]
     AutoTypeFixRollbackDetection,
@@ -741,19 +738,6 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             println!(
                 "{}: {}",
                 t!("auto_typefix_skip_complete_syllable_label"),
-                if enabled { "ON" } else { "OFF" }
-            );
-        }
-        ConfigKey::AutoTypeFixSkipOnPrefixCollision => {
-            let enabled = match value.to_lowercase().as_str() {
-                "true" | "on" | "1" | "yes" => true,
-                "false" | "off" | "0" | "no" => false,
-                _ => return Err(format!("Invalid bool: {}", value)),
-            };
-            config.engine.auto_typefix.skip_on_prefix_collision = enabled;
-            println!(
-                "{}: {}",
-                t!("auto_typefix_skip_prefix_collision_label"),
                 if enabled { "ON" } else { "OFF" }
             );
         }

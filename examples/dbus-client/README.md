@@ -39,7 +39,7 @@ busctl --user call org.atit.unim.InputMethod \
 ## 참조
 
 - DBus 인터페이스 전체 명세: [`../../unim-dbus/SPEC.md`](../../unim-dbus/SPEC.md)
-- 설정 키 목록: [`../../unim-config/SPEC.md`](../../unim-config/SPEC.md)
+- 설정 키 목록: [`../../unim-cli/SPEC.md`](../../unim-cli/SPEC.md) (`unim-cli config` 서브커맨드)
 - 데몬 구조: [`../../unim-daemon/SPEC.md`](../../unim-daemon/SPEC.md)
 
 ## 기여

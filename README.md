@@ -21,8 +21,7 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | **AutoTypeFix** | `src/auto_typefix.rs` | 한↔영 자동 오타 교정 (forward/reverse, prefix-avoidance) |
 | **억제 사전** | `src/typefix_blacklist.rs` | 롤백·재시도 관측으로 오타 교정 제외 단어 자동 학습 (`~/.config/unim/typefix-blacklist.yaml`). GTK 설정창의 "억제 단어" 페이지에서 Tentative/Confirmed/Inactive 관리 |
 | **C-API** | `unim-capi/` | Core를 C/C++에서 사용하기 위한 FFI 래퍼 |
-| **CLI** | `unim-cli/` | 독립형 명령줄 인터페이스 |
-| **Config CLI** | `unim-config/` | 설정 관리 CLI 도구 |
+| **CLI** | `unim-cli/` | 한↔영 변환 + `config` 서브커맨드로 설정 관리까지 통합한 독립형 명령줄 도구 |
 
 ### 3계층 서비스
 
@@ -59,8 +58,7 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 |------|---------|------|
 | Core | Rust 엔진 | [`src/SPEC.md`](src/SPEC.md) |
 | Core | C-API FFI | [`unim-capi/SPEC.md`](unim-capi/SPEC.md) |
-| Core | CLI 변환기 | [`unim-cli/SPEC.md`](unim-cli/SPEC.md) |
-| Core | 설정 CLI | [`unim-config/SPEC.md`](unim-config/SPEC.md) |
+| Core | CLI 변환기 + 설정 관리 | [`unim-cli/SPEC.md`](unim-cli/SPEC.md) |
 | DBus | 데몬 | [`unim-daemon/SPEC.md`](unim-daemon/SPEC.md) |
 | DBus | IPC 라이브러리 | [`unim-dbus/SPEC.md`](unim-dbus/SPEC.md) |
 | Frontend | GTK3 IM | [`unim-frontends/gtk3/SPEC.md`](unim-frontends/gtk3/SPEC.md) |
@@ -109,7 +107,7 @@ DBus는 UNIM 시스템의 **중추신경계** 역할을 하며 다음과 같이 
 ### 3. C-API 및 라이브러리 연동
 
 - **`unim-capi`**: Rust 코어를 C 언어에서 사용할 수 있도록 래핑한 계층입니다.
-- 설정 도구(`unim-config`)나 일부 성능이 중요한 툴킷 모듈은 DBus 대신 이 C-API를 통해 엔진 데이터에 직접 접근하거나 설정을 관리합니다.
+- 설정 도구(`unim-cli config`)나 일부 성능이 중요한 툴킷 모듈은 DBus 대신 이 C-API를 통해 엔진 데이터에 직접 접근하거나 설정을 관리합니다.
 
 ### 4. 데몬 관리 및 Systemd 통합
 

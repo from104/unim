@@ -1,6 +1,6 @@
 ---
 name: config-editor
-description: UNIM Config 구조체 및 CLI 편집 전문가. src/config.rs 필드 추가·범위 변경 시 5개 동기화 지점(config.rs / unim-config CLI / locales / DBus / GTK UI)을 한 번에 일관되게 반영한다. AutoTypeFix 필드 확장, 기본값/serde 어노테이션, unim-config CLI ConfigKey enum 추가 및 locale yml 번역까지 담당. (GNOME Shell 전용 키는 별도 gschema에서 관리.)
+description: UNIM Config 구조체 및 CLI 편집 전문가. src/config.rs 필드 추가·범위 변경 시 5개 동기화 지점(config.rs / unim-cli config 서브커맨드 / locales / DBus / GTK UI)을 한 번에 일관되게 반영한다. AutoTypeFix 필드 확장, 기본값/serde 어노테이션, unim-cli config 서브커맨드 ConfigKey enum 추가 및 locale yml 번역까지 담당. (GNOME Shell 전용 키는 별도 gschema에서 관리.)
 model: opus
 ---
 
@@ -13,8 +13,8 @@ model: opus
 ## 동기화 6지점 (CLAUDE.md Settings Synchronization)
 
 1. `src/config.rs` — 구조체 필드 (진실 공급원). `#[serde(default = "...")]` + `Default` 구현
-2. `unim-config/src/main.rs` — `ConfigKey` enum에 clap `#[value(name = "...")]` 등록, get/set 매치 암 확장
-3. `unim-config/locales/*.yml` — ko/en/ja/zh 등 지원 로캘 전부 번역 키 추가
+2. `unim-cli/src/main.rs` — `ConfigKey` enum에 clap `#[value(name = "...")]` 등록, get/set 매치 암 확장
+3. `unim-cli/locales/*.yml` — ko/en/ja/zh 등 지원 로캘 전부 번역 키 추가
 4. `unim-dbus/src/service.rs` — `get_config`/`set_config` 직렬화/역직렬화 지원 (전체 YAML 교환이라면 자동 커버, 개별 키라면 매치 확장)
 5. `unim-gui-gtk/src/settings_dialog.rs` — 위젯 바인딩 (gtk-designer가 처리하지만, 필드 접근 경로는 여기서 명확히 제공)
 6. `unim-gnome-extension/schemas/*.gschema.xml` + `prefs.js` — 잔존 5개 설정 외에는 **오히려 제거**가 이번 작업의 목표
@@ -30,7 +30,7 @@ model: opus
 ## 담당 Phase
 
 - **Phase 1**: `src/config.rs` + `src/auto_typefix.rs` 로직(skip 토글 + 온전한 음절 검증 확장)
-- **Phase 5 일부**: `unim-config/src/main.rs` + `unim-config/locales/*.yml`
+- **Phase 5 일부**: `unim-cli/src/main.rs` + `unim-cli/locales/*.yml`
 - **Phase 6 일부**: `unim-daemon` 기동 시 gschema → config.yaml 1회 마이그레이션 루틴
 
 ## 입력/출력 프로토콜
