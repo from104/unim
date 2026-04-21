@@ -105,6 +105,83 @@
     color: #f9e2af;
 }
 
+/* Compact 리스트: 즐겨찾기 행 강조 */
+.unim-hanja-popup .popup-item.bookmarked {
+    background-color: rgba(249, 226, 175, 0.08);
+}
+
+.unim-hanja-popup .popup-item.bookmarked.selected {
+    background-color: rgba(249, 226, 175, 0.2);
+}
+
+/* 확장 모드 그리드 */
+.unim-hanja-popup .grid-row {
+    padding: 0;
+}
+
+.unim-hanja-popup .grid-row-number {
+    color: #7f849c;
+    font-weight: bold;
+    font-size: 12px;
+    min-width: 20px;
+}
+
+.unim-hanja-popup .grid-cell {
+    color: #cdd6f4;
+    font-size: 16px;
+    font-weight: bold;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 2px 4px;
+    text-align: center;
+    border-radius: 4px;
+}
+
+.unim-hanja-popup .grid-cell.selected {
+    background-color: rgba(137, 180, 250, 0.25);
+}
+
+.unim-hanja-popup .grid-cell.hovered {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.unim-hanja-popup .grid-cell.selected.hovered {
+    background-color: rgba(137, 180, 250, 0.4);
+}
+
+.unim-hanja-popup .grid-cell.bookmarked {
+    color: #f9e2af;
+    background-color: rgba(249, 226, 175, 0.12);
+}
+
+.unim-hanja-popup .grid-cell.bookmarked.selected {
+    background-color: rgba(249, 226, 175, 0.28);
+}
+
+/* 확장 모드 뜻풀이 스트립 */
+.unim-hanja-popup .popup-meaning-strip {
+    color: #a6adc8;
+    font-size: 12px;
+    padding: 4px 8px;
+    margin-top: 4px;
+    background-color: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    min-height: 18px;
+}
+
+/* 확장 토글 아이콘 */
+.unim-hanja-popup .popup-expand-icon {
+    color: #89b4fa;
+    font-size: 14px;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.unim-hanja-popup .popup-expand-icon:hover {
+    color: #cdd6f4;
+    background-color: rgba(137, 180, 250, 0.2);
+}
+
 .unim-hanja-popup .popup-footer {
     color: #6c7086;
     font-size: 12px;

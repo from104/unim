@@ -196,7 +196,16 @@ export default class UnimExtension extends Extension {
                             }
                         },
                         cursorRect,
-                        bookmarks
+                        bookmarks,
+                        (globalIdx) => {
+                            // 우클릭: 즐겨찾기 토글
+                            this._dbusIME.toggleHanjaBookmark(globalIdx);
+                        },
+                        () => {
+                            // 확장 아이콘 클릭: Period 키를 엔진에 전달해 토글
+                            // GDK keyval 0x2e ('.'), evdev keycode 52
+                            this._dbusIME.processKey(0x2e, 52, 0);
+                        }
                     );
                 },
                 onShowSpecial: (target, characters, topRow, cursorRect) => {

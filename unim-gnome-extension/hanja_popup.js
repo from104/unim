@@ -2,6 +2,9 @@
  * UNIM 한자 후보 팝업
  *
  * 엔진 위임 모드 전용 순수 UI 컴포넌트.
+ * Compact 모드(1×9 리스트)와 확장 모드(최대 9×9 그리드)를 모두 지원하며,
+ * 엔진이 `cols`/`rows` 값을 통해 모드를 전달한다.
+ *
  * 모든 키 처리는 엔진(ProcessKeyEvent)이 담당하고,
  * 팝업은 렌더링과 마우스 이벤트 콜백만 담당한다.
  *
@@ -16,13 +19,20 @@ import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { unimLog } from './logging.js';
 
-/** 페이지당 최대 후보 수 */
-const PAGE_SIZE = 9;
+/** 그리드 상수 (확장 모드) */
+const MAX_ROWS = 9;
+const MAX_COLS = 9;
+const EXPANDED_PAGE_SIZE = MAX_ROWS * MAX_COLS; // 81
+const COMPACT_PAGE_SIZE = 9;
+
+/** 확장 아이콘 텍스트 (⊞ expand / ⊟ compact) */
+const ICON_EXPAND = '⊞';
+const ICON_COMPACT = '⊟';
 
 /**
  * HanjaPopup
  *
- * 한자 후보 리스트를 플로팅 패널로 표시한다.
+ * 한자 후보를 compact 리스트 또는 확장 그리드로 표시.
  * 키 처리 로직 없음 — 엔진 시그널로만 상태 갱신.
  */
 export class HanjaPopup {
@@ -31,33 +41,52 @@ export class HanjaPopup {
         this._container = null;
         /** @type {St.Label} 헤더 (대상 문자 표시) */
         this._header = null;
-        /** @type {St.BoxLayout} 후보 리스트 컨테이너 */
-        this._list = null;
-        /** @type {St.Label} 페이지 표시 라벨 */
+        /** @type {St.BoxLayout} 후보 리스트/그리드 컨테이너 */
+        this._body = null;
+        /** @type {St.Label} 뜻풀이 표시 라벨 (확장 모드 전용 툴팁) */
+        this._meaningStrip = null;
+        /** @type {St.BoxLayout} 풋터 컨테이너 (확장 아이콘 + 페이지) */
         this._footer = null;
-        /** @type {St.Label[]} 후보 행 위젯들 */
-        this._rows = [];
+        /** @type {St.Label} 확장/축소 토글 아이콘 */
+        this._expandIcon = null;
+        /** @type {St.Label} 페이지 표시 라벨 */
+        this._pageLabel = null;
+
+        /** @type {object[]} 렌더된 행/셀 위젯들 (compact: rows, expanded: cells) */
+        this._widgets = [];
 
         /** @type {Array<{hanja: string, meaning: string}>} 전체 후보 */
         this._candidates = [];
-        /** @type {boolean[]} 후보별 즐겨찾기 상태 (candidates와 동일 순서) */
+        /** @type {boolean[]} 후보별 즐겨찾기 상태 */
         this._bookmarks = [];
         /** @type {string} 대상 문자 */
         this._target = '';
 
-        /** @type {number} 현재 페이지 (엔진이 관리, updateFromNavigate로 수신) */
+        /** @type {number} 현재 페이지 (엔진이 관리) */
         this._currentPage = 0;
-        /** @type {number} 전체 페이지 수 (엔진이 관리) */
+        /** @type {number} 전체 페이지 수 */
         this._totalPages = 1;
-        /** @type {number} 엔진이 관리하는 선택 인덱스 (페이지 내) */
-        this._engineSelectedIndex = 0;
-        /** @type {number} 마우스 호버 인덱스 (-1이면 비활성) */
-        this._mouseHoverIndex = -1;
+        /** @type {number} 페이지 행 수 (엔진 PopupNavigate 전달) */
+        this._rows = COMPACT_PAGE_SIZE;
+        /** @type {number} 페이지 열 수 (1=compact, >1=expanded) */
+        this._cols = 1;
+        /** @type {number} 엔진 선택 행 */
+        this._selRow = 0;
+        /** @type {number} 엔진 선택 열 (compact에서는 항상 0) */
+        this._selCol = 0;
+        /** @type {number} 마우스 호버 행 (-1=비활성) */
+        this._mouseHoverRow = -1;
+        /** @type {number} 마우스 호버 열 (-1=비활성) */
+        this._mouseHoverCol = -1;
 
-        /** @type {Function|null} 선택 콜백 (globalIndex: number) => void */
+        /** @type {Function|null} 선택 콜백 (globalIndex) */
         this._onSelect = null;
-        /** @type {Function|null} 취소 콜백 () => void */
+        /** @type {Function|null} 취소 콜백 */
         this._onCancel = null;
+        /** @type {Function|null} 즐겨찾기 토글 콜백 (globalIndex) — 우클릭용 */
+        this._onToggleBookmark = null;
+        /** @type {Function|null} 확장/축소 토글 콜백 — 확장 아이콘 클릭용 */
+        this._onToggleExpand = null;
     }
 
     /**
@@ -74,10 +103,41 @@ export class HanjaPopup {
         this._header = new St.Label({ style_class: 'popup-header' });
         this._container.add_child(this._header);
 
-        this._list = new St.BoxLayout({ vertical: true });
-        this._container.add_child(this._list);
+        this._body = new St.BoxLayout({ vertical: true });
+        this._container.add_child(this._body);
 
-        this._footer = new St.Label({ style_class: 'popup-footer' });
+        // 확장 모드에서 hover 중인 셀의 뜻풀이를 표시하는 스트립
+        this._meaningStrip = new St.Label({
+            style_class: 'popup-meaning-strip',
+            text: '',
+            visible: false,
+        });
+        this._container.add_child(this._meaningStrip);
+
+        // 풋터: [⊞] ←→ [page/total]
+        this._footer = new St.BoxLayout({
+            style_class: 'popup-footer-box',
+            vertical: false,
+        });
+        this._expandIcon = new St.Label({
+            style_class: 'popup-expand-icon',
+            text: ICON_EXPAND,
+            reactive: true,
+            track_hover: true,
+        });
+        this._expandIcon.connect('button-press-event', () => {
+            if (this._onToggleExpand) {
+                this._onToggleExpand();
+            }
+            return Clutter.EVENT_STOP;
+        });
+        this._pageLabel = new St.Label({
+            style_class: 'popup-footer',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.END,
+        });
+        this._footer.add_child(this._expandIcon);
+        this._footer.add_child(this._pageLabel);
         this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
@@ -91,12 +151,15 @@ export class HanjaPopup {
      *
      * @param {string} target - 변환 대상 문자
      * @param {Array<{hanja: string, meaning: string}>} candidates - 후보 목록
-     * @param {Function} onSelect - 선택 콜백 (globalIndex: number)
+     * @param {Function} onSelect - 선택 콜백 (globalIndex)
      * @param {Function} onCancel - 취소 콜백
-     * @param {{x: number, y: number, width: number, height: number}} [cursorRect] - 커서 위치
-     * @param {boolean[]} [bookmarks] - 후보별 즐겨찾기 플래그 (candidates와 동일 순서)
+     * @param {{x: number, y: number, width: number, height: number}} [cursorRect]
+     * @param {boolean[]} [bookmarks] - 후보별 즐겨찾기 플래그
+     * @param {Function} [onToggleBookmark] - 우클릭 시 호출 (globalIndex)
+     * @param {Function} [onToggleExpand] - 확장 아이콘 클릭 시 호출
      */
-    show(target, candidates, onSelect, onCancel, cursorRect, bookmarks) {
+    show(target, candidates, onSelect, onCancel, cursorRect, bookmarks,
+         onToggleBookmark, onToggleExpand) {
         if (!this._container || candidates.length === 0) return;
 
         this._target = target;
@@ -109,17 +172,22 @@ export class HanjaPopup {
         }
         this._onSelect = onSelect;
         this._onCancel = onCancel;
+        this._onToggleBookmark = onToggleBookmark || null;
+        this._onToggleExpand = onToggleExpand || null;
 
-        // 초기 상태 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
+        // 초기 상태 (엔진의 첫 PopupNavigate가 즉시 덮어씀)
         this._currentPage = 0;
-        this._totalPages = Math.ceil(candidates.length / PAGE_SIZE);
-        this._engineSelectedIndex = 0;
-        this._mouseHoverIndex = -1;
+        this._totalPages = Math.ceil(candidates.length / COMPACT_PAGE_SIZE);
+        this._rows = Math.min(COMPACT_PAGE_SIZE, candidates.length);
+        this._cols = 1;
+        this._selRow = 0;
+        this._selCol = 0;
+        this._mouseHoverRow = -1;
+        this._mouseHoverCol = -1;
 
         this._header.set_text(`「${target}」 → 한자`);
-        this._updateList();
+        this._renderBody();
 
-        // 먼저 표시하여 실제 크기 측정 가능하게 함
         this._container.show();
         this._positionPopup(cursorRect);
 
@@ -133,40 +201,31 @@ export class HanjaPopup {
         if (this._container) {
             this._container.hide();
         }
+        if (this._meaningStrip) {
+            this._meaningStrip.hide();
+        }
         this._candidates = [];
         this._bookmarks = [];
-        this._mouseHoverIndex = -1;
+        this._mouseHoverRow = -1;
+        this._mouseHoverCol = -1;
         this._onSelect = null;
         this._onCancel = null;
+        this._onToggleBookmark = null;
+        this._onToggleExpand = null;
     }
 
     /**
      * 특정 후보의 즐겨찾기 상태를 갱신합니다.
      *
-     * 엔진이 Space 키로 토글한 결과를 HanjaBookmarkChanged 시그널로 받을 때 호출.
+     * 엔진의 HanjaBookmarkChanged 시그널로 호출됨.
      *
      * @param {number} globalIndex - 전체 후보 인덱스 (0-based)
-     * @param {boolean} bookmarked - 새 즐겨찾기 상태
+     * @param {boolean} bookmarked - 새 상태
      */
     setBookmark(globalIndex, bookmarked) {
         if (globalIndex < 0 || globalIndex >= this._candidates.length) return;
         this._bookmarks[globalIndex] = !!bookmarked;
-
-        // 현재 페이지에 해당 항목이 보이고 있으면 즉시 별표 갱신
-        const start = this._currentPage * PAGE_SIZE;
-        const localIdx = globalIndex - start;
-        if (localIdx >= 0 && localIdx < this._rows.length) {
-            const row = this._rows[localIdx];
-            const star = row?._bookmarkStar;
-            if (star) {
-                star.set_text(bookmarked ? '★' : '☆');
-                if (bookmarked) {
-                    star.add_style_class_name('bookmarked');
-                } else {
-                    star.remove_style_class_name('bookmarked');
-                }
-            }
-        }
+        this._refreshBookmarkAt(globalIndex);
     }
 
     /**
@@ -178,24 +237,33 @@ export class HanjaPopup {
     }
 
     /**
-     * 데몬 PopupNavigate 시그널로 상태 업데이트
+     * 엔진 PopupNavigate 시그널로 상태 업데이트
      *
-     * 이것이 팝업 상태를 갱신하는 유일한 경로.
-     *
-     * @param {number} page - 현재 페이지 (0-based)
-     * @param {number} totalPages - 전체 페이지 수
-     * @param {number} selected - 선택된 인덱스 (페이지 내)
+     * @param {number} page
+     * @param {number} totalPages
+     * @param {number} _selected - 하위 호환용 (sel_row와 동일)
+     * @param {number} rows
+     * @param {number} cols
+     * @param {number} selRow
+     * @param {number} selCol
      */
-    updateFromNavigate(page, totalPages, selected) {
+    updateFromNavigate(page, totalPages, _selected, rows, cols, selRow, selCol) {
         if (!this.isVisible) return;
 
-        const pageChanged = this._currentPage !== page;
+        const layoutChanged =
+            this._currentPage !== page ||
+            this._cols !== cols ||
+            this._rows !== rows;
+
         this._currentPage = page;
         this._totalPages = totalPages;
-        this._engineSelectedIndex = selected;
+        this._rows = rows > 0 ? rows : 1;
+        this._cols = cols > 0 ? cols : 1;
+        this._selRow = selRow;
+        this._selCol = selCol;
 
-        if (pageChanged) {
-            this._updateList();
+        if (layoutChanged) {
+            this._renderBody();
         }
         this._updateSelection();
     }
@@ -218,11 +286,6 @@ export class HanjaPopup {
 
     /**
      * 커서 위치 기반 팝업 포지셔닝
-     *
-     * 글자를 가리지 않도록 커서 위에 표시.
-     * 공간이 부족하면 아래로.
-     *
-     * @param {{x: number, y: number, width: number, height: number}} [cursorRect]
      * @private
      */
     _positionPopup(cursorRect) {
@@ -237,10 +300,8 @@ export class HanjaPopup {
 
         if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
             x = cursorRect.x;
-            // 기본: 커서 아래에 표시
             y = cursorRect.y + cursorRect.height + 4;
 
-            // 아래 공간 부족 시 커서 위로
             if (y + popupHeight > monitor.y + monitor.height) {
                 y = cursorRect.y - popupHeight - 4;
             }
@@ -249,11 +310,9 @@ export class HanjaPopup {
             y = Math.floor(monitor.y + 100);
         }
 
-        // 오른쪽 경계
         if (x + popupWidth > monitor.x + monitor.width) {
             x = monitor.x + monitor.width - popupWidth;
         }
-        // 왼쪽/위쪽 최소
         x = Math.max(monitor.x, x);
         y = Math.max(monitor.y, y);
 
@@ -261,25 +320,63 @@ export class HanjaPopup {
     }
 
     /**
-     * 현재 페이지의 후보 수
-     * @returns {number}
+     * 현재 페이지의 페이지 크기 (compact=9, expanded=81)
      * @private
      */
-    _pageItemCount() {
-        const start = this._currentPage * PAGE_SIZE;
-        return Math.min(PAGE_SIZE, this._candidates.length - start);
+    _pageSize() {
+        return this._cols > 1 ? EXPANDED_PAGE_SIZE : COMPACT_PAGE_SIZE;
     }
 
     /**
-     * 후보 리스트 렌더링
+     * (row, col) → 전체 인덱스
      * @private
      */
-    _updateList() {
-        this._list.destroy_all_children();
-        this._rows = [];
+    _globalIndex(row, col) {
+        const pageStart = this._currentPage * this._pageSize();
+        const pageOffset = this._cols > 1 ? col * this._rows + row : row;
+        const g = pageStart + pageOffset;
+        return g < this._candidates.length ? g : -1;
+    }
 
-        const start = this._currentPage * PAGE_SIZE;
-        const count = this._pageItemCount();
+    /**
+     * 본문(리스트 or 그리드) 재렌더
+     * @private
+     */
+    _renderBody() {
+        this._body.destroy_all_children();
+        this._widgets = [];
+
+        if (this._cols > 1) {
+            this._renderGrid();
+        } else {
+            this._renderList();
+        }
+
+        // 확장 아이콘 상태
+        this._expandIcon.set_text(this._cols > 1 ? ICON_COMPACT : ICON_EXPAND);
+
+        // compact 모드로 전환되면 뜻풀이 스트립 숨김
+        if (this._cols <= 1 && this._meaningStrip) {
+            this._meaningStrip.hide();
+        }
+
+        // 페이지 표시
+        if (this._totalPages > 1) {
+            this._pageLabel.set_text(`${this._currentPage + 1}/${this._totalPages}`);
+        } else {
+            this._pageLabel.set_text('');
+        }
+
+        this._updateSelection();
+    }
+
+    /**
+     * Compact 리스트 렌더 (1 × rows)
+     * @private
+     */
+    _renderList() {
+        const start = this._currentPage * COMPACT_PAGE_SIZE;
+        const count = Math.min(this._rows, this._candidates.length - start);
 
         for (let i = 0; i < count; i++) {
             const globalIdx = start + i;
@@ -287,6 +384,7 @@ export class HanjaPopup {
             const row = new St.BoxLayout({
                 style_class: 'popup-item',
                 reactive: true,
+                track_hover: true,
             });
 
             const num = new St.Label({
@@ -308,84 +406,224 @@ export class HanjaPopup {
                     : 'item-bookmark',
                 text: isBookmarked ? '★' : '☆',
             });
-            row._bookmarkStar = star;
 
             row.add_child(num);
             row.add_child(hanja);
             row.add_child(meaning);
             row.add_child(star);
 
-            // 마우스 호버: 로컬 시각 효과만 (엔진 상태 변경 없음)
-            const rowIndex = i;
+            const r = i;
             row.connect('enter-event', () => {
-                this._mouseHoverIndex = rowIndex;
+                this._mouseHoverRow = r;
+                this._mouseHoverCol = 0;
                 this._updateSelection();
                 return Clutter.EVENT_STOP;
             });
             row.connect('leave-event', () => {
-                this._mouseHoverIndex = -1;
+                this._mouseHoverRow = -1;
+                this._mouseHoverCol = -1;
                 this._updateSelection();
                 return Clutter.EVENT_STOP;
             });
-
-            // 마우스 클릭: 선택 콜백
-            row.connect('button-press-event', () => {
-                this._selectCandidate(globalIdx);
+            row.connect('button-press-event', (_, event) => {
+                const button = event.get_button();
+                if (button === Clutter.BUTTON_SECONDARY) {
+                    this._toggleBookmarkAt(globalIdx);
+                } else {
+                    this._selectCandidate(globalIdx);
+                }
                 return Clutter.EVENT_STOP;
             });
 
-            this._list.add_child(row);
-            this._rows.push(row);
+            this._body.add_child(row);
+            this._widgets.push({ row, star, globalIdx, r: i, c: 0 });
         }
 
-        // 페이지 표시
-        if (this._totalPages > 1) {
-            this._footer.set_text(`${this._currentPage + 1}/${this._totalPages}`);
-            this._footer.show();
-        } else {
-            this._footer.hide();
+        // 즐겨찾기 반영 (compact는 row 자체에 bookmarked 클래스도 부여 → 액센트 배경)
+        this._refreshAllBookmarks();
+    }
+
+    /**
+     * 확장 그리드 렌더 (rows × cols, 열 우선 인덱싱)
+     * @private
+     */
+    _renderGrid() {
+        for (let row = 0; row < this._rows; row++) {
+            const rowWidget = new St.BoxLayout({ style_class: 'grid-row' });
+            const rowNumber = new St.Label({
+                style_class: 'grid-row-number',
+                text: `${row + 1}`,
+            });
+            rowWidget.add_child(rowNumber);
+
+            for (let col = 0; col < this._cols; col++) {
+                const idx = this._globalIndex(row, col);
+                const candidate = idx >= 0 ? this._candidates[idx] : null;
+                const cell = new St.Label({
+                    style_class: 'grid-cell',
+                    text: candidate ? candidate.hanja : '',
+                    x_align: Clutter.ActorAlign.CENTER,
+                    reactive: candidate !== null,
+                    track_hover: candidate !== null,
+                });
+
+                if (candidate) {
+                    const r = row;
+                    const c = col;
+                    const globalIdx = idx;
+
+                    cell.connect('enter-event', () => {
+                        this._mouseHoverRow = r;
+                        this._mouseHoverCol = c;
+                        this._updateSelection();
+                        this._showMeaningFor(globalIdx);
+                        return Clutter.EVENT_STOP;
+                    });
+                    cell.connect('leave-event', () => {
+                        this._mouseHoverRow = -1;
+                        this._mouseHoverCol = -1;
+                        this._updateSelection();
+                        this._showMeaningFor(-1);
+                        return Clutter.EVENT_STOP;
+                    });
+                    cell.connect('button-press-event', (_, event) => {
+                        const button = event.get_button();
+                        if (button === Clutter.BUTTON_SECONDARY) {
+                            this._toggleBookmarkAt(globalIdx);
+                        } else {
+                            this._selectCandidate(globalIdx);
+                        }
+                        return Clutter.EVENT_STOP;
+                    });
+
+                    this._widgets.push({ row: rowWidget, cell, globalIdx, r, c });
+                }
+
+                rowWidget.add_child(cell);
+            }
+
+            this._body.add_child(rowWidget);
         }
 
-        this._updateSelection();
+        this._refreshAllBookmarks();
     }
 
     /**
      * 선택/호버 하이라이트 갱신
-     *
-     * .selected = 엔진이 관리하는 선택 위치 (항상 표시)
-     * .hovered  = 마우스 커서가 가리키는 위치 (표시만, 선택과 무관)
      * @private
      */
     _updateSelection() {
-        for (let i = 0; i < this._rows.length; i++) {
-            // 엔진 선택 하이라이트
-            if (i === this._engineSelectedIndex) {
-                this._rows[i].add_style_class_name('selected');
+        let selectedGlobal = -1;
+        for (const w of this._widgets) {
+            const target = w.cell || w.row;
+            if (!target) continue;
+            if (w.r === this._selRow && w.c === this._selCol) {
+                target.add_style_class_name('selected');
+                selectedGlobal = w.globalIdx;
             } else {
-                this._rows[i].remove_style_class_name('selected');
+                target.remove_style_class_name('selected');
             }
-            // 마우스 호버 표시 (선택과 독립)
-            if (i === this._mouseHoverIndex) {
-                this._rows[i].add_style_class_name('hovered');
+            if (w.r === this._mouseHoverRow && w.c === this._mouseHoverCol) {
+                target.add_style_class_name('hovered');
             } else {
-                this._rows[i].remove_style_class_name('hovered');
+                target.remove_style_class_name('hovered');
+            }
+        }
+        // 확장 모드: 마우스 호버가 없으면 엔진 선택 항목의 뜻풀이를 표시
+        if (this._cols > 1 && this._mouseHoverRow < 0) {
+            this._showMeaningFor(selectedGlobal);
+        }
+    }
+
+    /**
+     * 주어진 전체 인덱스의 뜻풀이를 스트립에 표시.
+     * index < 0 또는 meaning이 없으면 스트립 숨김.
+     * compact 모드에서는 항상 숨긴다 (뜻풀이가 행에 인라인 표시됨).
+     * @private
+     */
+    _showMeaningFor(globalIndex) {
+        if (!this._meaningStrip) return;
+        if (this._cols <= 1) {
+            this._meaningStrip.hide();
+            return;
+        }
+        const candidate = globalIndex >= 0 ? this._candidates[globalIndex] : null;
+        if (candidate && candidate.meaning) {
+            this._meaningStrip.set_text(`${candidate.hanja}  ${candidate.meaning}`);
+            this._meaningStrip.show();
+        } else {
+            this._meaningStrip.set_text('');
+            this._meaningStrip.hide();
+        }
+    }
+
+    /**
+     * 전체 즐겨찾기 표시 갱신
+     * @private
+     */
+    _refreshAllBookmarks() {
+        for (const w of this._widgets) {
+            this._applyBookmarkStyle(w, !!this._bookmarks[w.globalIdx]);
+        }
+    }
+
+    /**
+     * 특정 전체 인덱스의 즐겨찾기 표시 갱신
+     * @param {number} globalIndex
+     * @private
+     */
+    _refreshBookmarkAt(globalIndex) {
+        for (const w of this._widgets) {
+            if (w.globalIdx === globalIndex) {
+                this._applyBookmarkStyle(w, !!this._bookmarks[globalIndex]);
+                break;
+            }
+        }
+    }
+
+    /**
+     * 한 위젯에 즐겨찾기 스타일 적용
+     * @private
+     */
+    _applyBookmarkStyle(w, bookmarked) {
+        // compact: row에 bookmarked 클래스 + 별 아이콘
+        if (w.star) {
+            w.star.set_text(bookmarked ? '★' : '☆');
+            if (bookmarked) {
+                w.star.add_style_class_name('bookmarked');
+                w.row.add_style_class_name('bookmarked');
+            } else {
+                w.star.remove_style_class_name('bookmarked');
+                w.row.remove_style_class_name('bookmarked');
+            }
+        }
+        // expanded: 셀에 bookmarked 클래스만 (강조색 배경)
+        if (w.cell) {
+            if (bookmarked) {
+                w.cell.add_style_class_name('bookmarked');
+            } else {
+                w.cell.remove_style_class_name('bookmarked');
             }
         }
     }
 
     /**
      * 후보 선택 → 콜백 호출
-     *
-     * hide()는 여기서 호출하지 않음.
-     * 엔진이 SelectHanja 처리 후 HidePopup 시그널을 보내면 그때 닫힘.
-     * 여기서 hide()를 호출하면 콜백 내 DBus 호출과 경쟁 조건이 발생할 수 있음.
-     *
-     * @param {number} globalIndex
      * @private
      */
     _selectCandidate(globalIndex) {
         if (globalIndex < this._candidates.length && this._onSelect) {
             this._onSelect(globalIndex);
+        }
+    }
+
+    /**
+     * 즐겨찾기 토글 콜백 호출 (우클릭)
+     * @private
+     */
+    _toggleBookmarkAt(globalIndex) {
+        if (globalIndex < this._candidates.length && this._onToggleBookmark) {
+            this._onToggleBookmark(globalIndex);
         }
     }
 }
