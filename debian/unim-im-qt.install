@@ -1,5 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# UNIM GNOME Shell Extension
+# unim-im-qt — Qt5 + Qt6 platform input context plugins
 # ─────────────────────────────────────────────────────────────────────────────
 
-debian/tmp/usr/share/gnome-shell/extensions/unim-gnome@from104.github.io   usr/share/gnome-shell/extensions/
+# Qt5 platform input context plugin (multiarch)
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt5/plugins/platforminputcontexts/libunim.so
+
+# Qt6 platform input context plugin (multiarch)
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt6/plugins/platforminputcontexts/libunim.so

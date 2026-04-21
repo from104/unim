@@ -1,0 +1,5 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# unim-gnome — GNOME Shell extension
+# ─────────────────────────────────────────────────────────────────────────────
+
+debian/tmp/usr/share/gnome-shell/extensions/unim-gnome@from104.github.io   usr/share/gnome-shell/extensions/

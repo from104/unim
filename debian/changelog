@@ -3,18 +3,27 @@ unim (0.1.0-1) unstable; urgency=medium
   * Initial release.
   * Modular Korean Input Method Engine written in Rust:
     - Core daemon (unim-daemon) with D-Bus session activation.
-    - XIM and Wayland protocol servers.
-    - C-API library (libunim_capi) and unified CLI tool (unim-cli, with a
-      `config` subcommand for settings management).
+    - XIM and Wayland protocol servers (Wayland with
+      zwp_input_popup_surface_v2 hanja/special-character popup).
+    - C-API library (libunim_capi) and unified CLI tool (unim-cli,
+      with a `config` subcommand for settings management).
     - GTK3 and GTK4 input method modules.
     - Qt5 and Qt6 platform input context plugins.
     - GTK4/libadwaita settings GUI (unim-gui-gtk).
-    - Qt6/QML alternative GUI (unim-gui-qt).
+    - Qt6/cxx-qt alternative GUI (unim-gui-qt).
     - im-config integration.
   * Supports 2-bul and 3-bul Hangul layouts, automatic Korean/English
     typo correction (TypeFix), Hanja conversion, special-character /
     emoji search and per-application input mode rules.
-  * Two binary packages: unim (full stack, Architecture: any) and
-    gnome-shell-extension-unim (Architecture: all, GNOME Shell only).
+  * Nine binary packages let users pick the pieces they need:
+    - unim-common  : core engine, daemon, CLI, shared library
+    - unim-im-gtk  : GTK3 + GTK4 IM modules
+    - unim-im-qt   : Qt5 + Qt6 platform input context plugins
+    - unim-xim     : X11 XIM protocol frontend
+    - unim-wayland : Wayland input-method frontend
+    - unim-gui-gtk : GTK4/libadwaita settings GUI + tray
+    - unim-gui-qt  : Qt6/cxx-qt settings GUI + tray (alternative)
+    - unim-gnome   : GNOME Shell extension
+    - unim         : meta-package pulling in everything
 
- -- from104 <from104@gmail.com>  Mon, 20 Apr 2026 00:00:00 +0900
+ -- from104 <from104@gmail.com>  Tue, 21 Apr 2026 00:00:00 +0900

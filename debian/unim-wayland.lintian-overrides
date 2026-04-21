@@ -1,0 +1,6 @@
+# unim-wayland — lintian overrides (justified)
+
+# embedded-library libyaml: see unim-common.lintian-overrides for rationale.
+unim-wayland: embedded-library libyaml [usr/libexec/unim-wayland]
+
+unim-wayland: initial-upload-closes-no-bugs *

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Debian packaging — split into 9 binary packages** (`debian/control`): `unim-common` (core + daemon + CLI + libunim_capi), `unim-im-gtk` (GTK3/4 IM modules), `unim-im-qt` (Qt5/6 plugins), `unim-xim`, `unim-wayland`, `unim-gui-gtk`, `unim-gui-qt`, `unim-gnome` (Shell extension, depends on `unim-gui-gtk`), and the `unim` meta-package pulling in the full stack. Power users pick only what they need; `apt install unim` still gives everyone the previous one-shot install experience. Frontends coexist — `unim-gui-gtk` and `unim-gui-qt` do not conflict.
 - **UI Frontend Separation Preparation (Phase 3.5 Planning)**: Initiated plans to decouple the engine (daemon) and UI (popup/indicator/settings) based on DBus signals, enabling toolkit-specific native GUI support.
 - **XIM and Wayland Protocol Reference Documentation**: Added comprehensive documentation referencing `input-method-v2` and `virtual-keyboard-v1` protocol specifications and architectural details.
 - **Wayland Frontend Specifics**: Implemented foundational support for KDE Plasma environments utilizing the Wayland protocol.

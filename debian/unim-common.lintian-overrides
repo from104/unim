@@ -1,0 +1,32 @@
+# unim-common — lintian overrides (justified)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# embedded-library libyaml
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIM is a Rust workspace. YAML deserialisation is provided by the crate
+# `unsafe-libyaml` (transitively via `serde_yaml`), a pure-Rust rewrite of
+# the libyaml C library — its symbols match the upstream C API closely
+# enough for lintian's heuristic to flag every Rust binary that embeds it.
+# There is no system libyaml.so dependency: nothing is dynamically linked,
+# and Rust crates are not unbundled by Debian policy.
+unim-common: embedded-library libyaml [usr/bin/unim-cli]
+unim-common: embedded-library libyaml [usr/libexec/unim-daemon]
+unim-common: embedded-library libyaml [usr/lib/*/libunim_capi.so.*]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# package-name-doesnt-match-sonames libunim-capi0
+# link-to-shared-library-in-wrong-package
+# ─────────────────────────────────────────────────────────────────────────────
+# libunim_capi is an internal stable C-API consumed only by the GTK/Qt IM
+# modules shipped in the same source package; there are no external
+# reverse-dependencies and no planned -dev split. The unversioned `.so`
+# link is kept so locally built helpers and gtk-common test apps can
+# resolve the library by its base name without an ldconfig regeneration
+# step.
+unim-common: package-name-doesnt-match-sonames libunim-capi0
+unim-common: link-to-shared-library-in-wrong-package usr/lib/*/libunim_capi.so.0.1.0 [usr/lib/*/libunim_capi.so]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# initial-upload-closes-no-bugs
+# ─────────────────────────────────────────────────────────────────────────────
+unim-common: initial-upload-closes-no-bugs *

@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# UNIM (single binary package — core + GTK + Qt + GUIs)
+# unim-common — core engine, daemon, CLI, shared library
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Core C-API library (multiarch) — versioned + SONAME + dev symlink
@@ -10,32 +10,14 @@ debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/libunim_capi.so.0.1.0
 # Header file
 debian/tmp/usr/include/unim.h
 
-# CLI tools
+# CLI tool
 debian/tmp/usr/bin/unim-cli
 
-# Daemons and protocol servers
+# Core daemon
 debian/tmp/usr/libexec/unim-daemon
-debian/tmp/usr/libexec/unim-xim
-debian/tmp/usr/libexec/unim-wayland
 
-# GTK GUI (settings dialog + indicator)
-debian/tmp/usr/bin/unim-gui-gtk
-debian/tmp/etc/xdg/autostart/unim-gui-gtk.desktop
-
-# Qt GUI (alternative)
-debian/tmp/usr/bin/unim-gui-qt
-
-# GTK3 IM module (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-3.0/3.0.0/immodules/im-unim.so
-
-# GTK4 IM module (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-4.0/4.0.0/immodules/libim-unim.so
-
-# Qt5 platform input context plugin (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt5/plugins/platforminputcontexts/libunim.so
-
-# Qt6 platform input context plugin (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt6/plugins/platforminputcontexts/libunim.so
+# DBus session-bus auto-activation service
+debian/tmp/usr/share/dbus-1/services/org.atit.unim.InputMethod.service
 
 # im-config integration
 debian/tmp/usr/share/im-config/data/25_unim.conf
@@ -45,11 +27,6 @@ debian/tmp/usr/share/im-config/data/25_unim.rc
 debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-korean.svg
 debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-english.svg
 
-# DBus session-bus auto-activation service
-debian/tmp/usr/share/dbus-1/services/org.atit.unim.InputMethod.service
-
 # Manual pages
 debian/tmp/usr/share/man/man1/unim.1
 debian/tmp/usr/share/man/man1/unim-cli.1
-debian/tmp/usr/share/man/man1/unim-gui-gtk.1
-debian/tmp/usr/share/man/man1/unim-gui-qt.1

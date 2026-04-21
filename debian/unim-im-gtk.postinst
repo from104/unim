@@ -2,9 +2,8 @@
 set -e
 
 case "$1" in
-    remove|purge)
-        # ldconfig is invoked via debian/unim.triggers (activate-noawait ldconfig)
-        # Refresh GTK3 IM modules cache after removal
+    configure)
+        # Refresh GTK3 IM modules cache (GTK4 scans directory at runtime)
         if command -v gtk-query-immodules-3.0 >/dev/null 2>&1; then
             gtk-query-immodules-3.0 --update-cache || true
         fi
