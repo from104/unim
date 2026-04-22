@@ -516,6 +516,7 @@ export default class UnimExtension extends Extension {
         this._unbindAllShortcuts();
         this._bindShortcut('shortcut-normal', false);
         this._bindShortcut('shortcut-normal-reverse', true);
+        this._bindRegisterUserDictShortcut();
     }
 
     _bindShortcut(settingKey, isReverse) {
@@ -528,6 +529,22 @@ export default class UnimExtension extends Extension {
             Meta.KeyBindingFlags.NONE,
             Shell.ActionMode.ALL,
             () => this._onShortcutTriggered(isReverse)
+        );
+
+        this._shortcutIds.push(settingKey);
+    }
+
+    _bindRegisterUserDictShortcut() {
+        const settingKey = 'shortcut-register-userdict';
+        const shortcut = this._settings.get_strv(settingKey);
+        if (!shortcut || shortcut.length === 0) return;
+
+        Main.wm.addKeybinding(
+            settingKey,
+            this._settings,
+            Meta.KeyBindingFlags.NONE,
+            Shell.ActionMode.ALL,
+            () => this._onRegisterUserDictTriggered()
         );
 
         this._shortcutIds.push(settingKey);
@@ -610,6 +627,72 @@ export default class UnimExtension extends Extension {
             unimError('EXTENSION', `TypeFIX DBus 오류: ${e.message}`);
         } finally {
             this._conversionInProgress = false;
+        }
+    }
+
+    // ===========================================
+    // 사용자 사전 등록 단축키 (역방향 AutoTypeFix whitelist)
+    // ===========================================
+
+    _onRegisterUserDictTriggered() {
+        if (!this._settings.get_boolean('enable-extension')) return;
+
+        // TypeFix와 동일 패턴: request_surrounding() → 50ms 대기 → DBus 호출.
+        if (this._inputMethod) {
+            this._inputMethod.request_surrounding();
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+                this._doRegisterUserDict();
+                return GLib.SOURCE_REMOVE;
+            });
+        } else {
+            this._doRegisterUserDict();
+        }
+    }
+
+    _doRegisterUserDict() {
+        try {
+            const proxy = this._dbusIME?.getImProxy();
+            if (!proxy) {
+                unimLog('EXTENSION', 'UserDict: DBus 연결 없음');
+                return;
+            }
+
+            // 마지막 포커스 컨텍스트의 선택 영역을 daemon에서 읽어 등록
+            const result = proxy.call_sync(
+                'RegisterUserDictFromSelection',
+                null,
+                Gio.DBusCallFlags.NONE,
+                500,
+                null
+            );
+
+            if (!result) {
+                unimLog('EXTENSION', 'UserDict: 등록 실패(응답 없음)');
+                return;
+            }
+
+            const [word] = result.deep_unpack();
+
+            if (!word) {
+                if (this._settings.get_boolean('show-notification')) {
+                    Main.notify(
+                        _('UNIM Dictionary'),
+                        _('Selection is empty, invalid, or already registered.')
+                    );
+                }
+                return;
+            }
+
+            unimLog('EXTENSION', `UserDict 등록: '${word}'`);
+
+            if (this._settings.get_boolean('show-notification')) {
+                Main.notify(
+                    _('UNIM Dictionary'),
+                    _("Registered '%s' to the reverse user dictionary.").format(word)
+                );
+            }
+        } catch (e) {
+            unimError('EXTENSION', `UserDict DBus 오류: ${e.message}`);
         }
     }
 }

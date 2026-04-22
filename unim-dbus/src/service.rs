@@ -124,6 +124,35 @@ pub enum EngineRequest {
         keyword: String,
         response: oneshot::Sender<Vec<String>>,
     },
+    /// 역방향 사용자 사전: 단어 추가
+    UserDictAdd {
+        word: String,
+        note: String,
+        response: oneshot::Sender<bool>,
+    },
+    /// 역방향 사용자 사전: 단어 제거 (대소문자 무시)
+    UserDictRemove {
+        word: String,
+        response: oneshot::Sender<bool>,
+    },
+    /// 역방향 사용자 사전: 전체 목록 조회
+    UserDictList {
+        response: oneshot::Sender<Vec<(String, String, u64)>>,
+    },
+    /// 역방향 사용자 사전: 인덱스 위치 엔트리 갱신
+    UserDictUpdate {
+        index: u32,
+        word: String,
+        note: String,
+        response: oneshot::Sender<bool>,
+    },
+    /// 단축키 진입점: 마지막 포커스 컨텍스트의 선택 영역을 읽어 사용자 사전에 등록.
+    /// 선택 텍스트가 한글이면 `kor_to_eng`로 영문 변환 후 등록,
+    /// 이미 알파벳이면 그대로 등록.
+    /// 반환값: 실제 등록된 영문 단어 (빈 문자열이면 실패/선택 없음).
+    RegisterUserDictFromSelection {
+        response: oneshot::Sender<String>,
+    },
 }
 
 /// 한자 후보 응답
@@ -371,6 +400,114 @@ impl InputMethodService {
         } else {
             Ok((0_i32, 0_u32, String::new()))
         }
+    }
+
+    /// 역방향 사용자 사전: 단어 추가
+    /// word는 영문 알파벳만 허용. note는 설명(빈 문자열이면 미부여).
+    /// 성공 시 true, 중복/빈값/비영문이면 false.
+    async fn add_reverse_user_dict_word(
+        &self,
+        word: &str,
+        note: &str,
+    ) -> zbus::fdo::Result<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictAdd {
+                word: word.to_string(),
+                note: note.to_string(),
+                response: tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let ok = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        unim_log!(
+            "DBUS",
+            "[DBus] AddReverseUserDictWord: word='{}', ok={}",
+            word,
+            ok
+        );
+        Ok(ok)
+    }
+
+    /// 역방향 사용자 사전: 단어 제거 (대소문자 무시). 성공 시 true.
+    async fn remove_reverse_user_dict_word(&self, word: &str) -> zbus::fdo::Result<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictRemove {
+                word: word.to_string(),
+                response: tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let ok = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        unim_log!(
+            "DBUS",
+            "[DBus] RemoveReverseUserDictWord: word='{}', ok={}",
+            word,
+            ok
+        );
+        Ok(ok)
+    }
+
+    /// 역방향 사용자 사전: 전체 목록 조회 (word, note, added_at).
+    async fn list_reverse_user_dict_words(
+        &self,
+    ) -> zbus::fdo::Result<Vec<(String, String, u64)>> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictList { response: tx })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let list = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        Ok(list)
+    }
+
+    /// 역방향 사용자 사전: idx 위치 엔트리를 새 word/note로 갱신.
+    async fn update_reverse_user_dict_word(
+        &self,
+        index: u32,
+        word: &str,
+        note: &str,
+    ) -> zbus::fdo::Result<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictUpdate {
+                index,
+                word: word.to_string(),
+                note: note.to_string(),
+                response: tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let ok = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        Ok(ok)
+    }
+
+    /// 단축키 진입점: 마지막 포커스 컨텍스트의 선택 영역을 읽어 사용자 사전에 등록.
+    /// 반환값: 등록된 영문 단어 (선택 없음/이미 등록됨/비유효면 빈 문자열).
+    async fn register_user_dict_from_selection(&self) -> zbus::fdo::Result<String> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::RegisterUserDictFromSelection { response: tx })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let word = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        unim_log!(
+            "DBUS",
+            "[DBus] RegisterUserDictFromSelection: word='{}'",
+            word
+        );
+        Ok(word)
     }
 
     /// 이모지 검색

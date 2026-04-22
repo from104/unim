@@ -61,5 +61,11 @@
       <summary>Reverse Conversion</summary>
       <description>Convert Korean to English and paste</description>
     </key>
+
+    <key type="as" name="shortcut-register-userdict">
+      <default>['&lt;Super&gt;e']</default>
+      <summary>Register Selection to Reverse User Dictionary</summary>
+      <description>Read the selected text (Korean or English) and register the corresponding English word to the reverse AutoTypeFix user dictionary.</description>
+    </key>
   </schema>
 </schemalist>

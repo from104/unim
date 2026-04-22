@@ -15,6 +15,7 @@ use crate::config::{AutoTypeFixConfig, EnglishLayout, KoreanLayout};
 use crate::keycode::{KeyCode, ModifierState};
 use crate::typefix;
 use crate::typefix_blacklist::{BlacklistGate, Direction};
+use crate::typefix_userdict::UserDictGate;
 
 /// 영어 사전 (include_str! 임베드)
 static ENGLISH_WORDS: &str = include_str!("data/english_words.txt");
@@ -267,12 +268,17 @@ pub fn check_forward(
 ///
 /// keycode 버퍼 → 영문 복원 → 사전 매칭 + 길이 기준 트리거.
 /// 삭제할 글자 수 = committed_chars + (preedit이면 1)
+///
+/// `user_dict`에 등록된 단어는 내장 영어 사전(`DICTIONARY`) 조회와
+/// `eng_word_min_length`, `skip_on_prefix_collision` 검사를 모두 우회한다.
+/// CLI 명령어(`git`, `ls`, `rustc` 등) 같은 짧고 특수한 단어를 위한 사용자 whitelist.
 pub fn check_reverse(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
     korean_layout: KoreanLayout,
     english_layout: EnglishLayout,
     blacklist: &dyn BlacklistGate,
+    user_dict: &dyn UserDictGate,
 ) -> Option<AutoTypeFixResult> {
     if !config.reverse || buffer.len() < 2 {
         return None;
@@ -289,9 +295,15 @@ pub fn check_reverse(
         return None;
     }
 
-    // 길이 기준 체크
-    if eng.len() < config.eng_word_min_length as usize {
-        return None;
+    let lower = eng.to_lowercase();
+    // 사용자 사전에 있는 단어는 내장 사전 · 길이 · 접두사 검사를 모두 우회.
+    let in_user_dict = config.user_dict_enabled && user_dict.contains_reverse(&lower);
+
+    if !in_user_dict {
+        // 길이 기준 체크
+        if eng.len() < config.eng_word_min_length as usize {
+            return None;
+        }
     }
 
     // 온전한 음절 검증: 버퍼의 한글이 모두 완성 음절(U+AC00~U+D7A3)로 구성된 경우
@@ -300,6 +312,9 @@ pub fn check_reverse(
     // commit된 글자는 음절 단위로 commit되므로 이미 완성 음절이다.
     // preedit이 남아있으면 조합 중인 자모가 있다는 뜻이므로 "모두 완성 음절"이 아니다.
     // 따라서 has_preedit == false 이면 버퍼 전체가 완성 음절 상태다.
+    //
+    // 사용자 사전 단어도 이 검사는 유지한다: 완전히 자연스러운 한글 문장을
+    // 타이핑 중일 때 의도치 않게 교정되는 것을 막기 위함.
     if config.skip_on_complete_syllable
         && !buffer.has_preedit
         && buffer.committed_chars > 0
@@ -307,23 +322,26 @@ pub fn check_reverse(
         return None;
     }
 
-    // 영어 사전 매칭
-    let lower = eng.to_lowercase();
-    if !DICTIONARY.contains(lower.as_str()) {
-        return None;
-    }
+    if !in_user_dict {
+        // 영어 사전 매칭
+        if !DICTIONARY.contains(lower.as_str()) {
+            return None;
+        }
 
-    // 접두사 회피: 현재 ASCII가 사전에 있는 **더 긴 단어의 접두사**이기도 하면,
-    // 사용자가 긴 단어를 타이핑 중일 수 있으므로 발화 보류한다.
-    // 예: "wood" 사전 hit이지만 "woody"/"woods"/"wooden" 도 사전에 있으므로 defer.
-    //     다음 키가 들어와 "woody"가 되고 그 이상 확장이 없으면 그때 발화.
-    // ASCII 전제라서 byte-level starts_with로 충분 (성능).
-    if config.skip_on_prefix_collision
-        && DICTIONARY
-            .iter()
-            .any(|w| w.len() > lower.len() && w.as_bytes().starts_with(lower.as_bytes()))
-    {
-        return None;
+        // 접두사 회피: 현재 ASCII가 사전에 있는 **더 긴 단어의 접두사**이기도 하면,
+        // 사용자가 긴 단어를 타이핑 중일 수 있으므로 발화 보류한다.
+        // 예: "wood" 사전 hit이지만 "woody"/"woods"/"wooden" 도 사전에 있으므로 defer.
+        //     다음 키가 들어와 "woody"가 되고 그 이상 확장이 없으면 그때 발화.
+        // ASCII 전제라서 byte-level starts_with로 충분 (성능).
+        //
+        // 사용자 사전 단어는 사용자가 명시적으로 whitelist한 것이므로 즉시 발화.
+        if config.skip_on_prefix_collision
+            && DICTIONARY
+                .iter()
+                .any(|w| w.len() > lower.len() && w.as_bytes().starts_with(lower.as_bytes()))
+        {
+            return None;
+        }
     }
 
     // 화면에 있는 글자 수 = committed 한글 음절 + preedit(있으면 1)
@@ -376,10 +394,16 @@ pub fn dictionary_contains(word: &str) -> bool {
 mod tests {
     use super::*;
     use crate::typefix_blacklist::{Blacklist, EntryStatus};
+    use crate::typefix_userdict::{EmptyUserDict, UserDictionary};
 
     /// 테스트용: blacklist는 기본(빈) 상태. 기존 동작과 동일하게 검사.
     fn empty_bl() -> Blacklist {
         Blacklist::default()
+    }
+
+    /// 테스트용 빈 사용자 사전. 역방향 호출부에 일관적으로 넘긴다.
+    fn empty_ud() -> EmptyUserDict {
+        EmptyUserDict
     }
 
     #[test]
@@ -518,7 +542,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -543,7 +567,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(result.is_none());
     }
 
@@ -557,7 +581,7 @@ mod tests {
         buf.committed_chars = 2;
 
         let config = AutoTypeFixConfig::default();
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(result.is_none());
     }
 
@@ -732,7 +756,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &empty_bl());
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &empty_bl(), &empty_ud());
         assert!(result.is_some(), "Dvorak reverse should find 'hello'");
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -761,7 +785,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Colemak, &empty_bl());
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Colemak, &empty_bl(), &empty_ud());
         assert!(result.is_some(), "Colemak reverse should find 'hello'");
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -790,12 +814,12 @@ mod tests {
         };
 
         // Qwerty: "hello" → 사전에 있음
-        let result_qwerty = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result_qwerty = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(result_qwerty.is_some());
         assert_eq!(result_qwerty.unwrap().corrected, "hello");
 
         // Dvorak: 같은 물리키지만 다른 문자열 → 사전에 없을 가능성 높음
-        let result_dvorak = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &empty_bl());
+        let result_dvorak = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &empty_bl(), &empty_ud());
         // E(1,2) in Dvorak = '.' → not alpha, push may fail
         // 실제로는 buf는 이미 만들어졌으므로, to_ascii_string 결과가 다름
         if let Some(r) = result_dvorak {
@@ -827,7 +851,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Workman, &empty_bl());
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Workman, &empty_bl(), &empty_ud());
         assert!(result.is_some(), "Workman reverse should find 'world'");
         assert_eq!(result.unwrap().corrected, "world");
     }
@@ -919,7 +943,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
         assert!(
-            check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl()).is_none(),
+            check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud()).is_none(),
             "모두 완성 음절(preedit 없음)이면 ON에서 억제되어야 함"
         );
     }
@@ -941,7 +965,7 @@ mod tests {
             skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
-        let result = check_reverse(&buf, &off, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &off, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(
             result.is_some(),
             "skip_on_complete_syllable=false 이면 완성 음절이어도 트리거되어야 함"
@@ -967,7 +991,7 @@ mod tests {
             skip_on_prefix_collision: false,
             ..AutoTypeFixConfig::default()
         };
-        let result = check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(
             result.is_some(),
             "preedit이 있으면 complete-syllable skip 토글이 ON이어도 억제되지 않아야 함"
@@ -1063,7 +1087,7 @@ mod tests {
         let mut bl = Blacklist::default();
         bl.add_or_hit_tentative("hello", Direction::Reverse, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl, &empty_ud());
         assert!(result.is_none(), "tentative reverse 엔트리는 억제해야 함");
     }
 
@@ -1091,7 +1115,7 @@ mod tests {
         };
 
         let result =
-            check_reverse(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty, &empty_bl());
+            check_reverse(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(
             result.is_none(),
             "'wood'는 더 긴 확장어가 사전에 있으므로 발화 보류되어야 함"
@@ -1123,7 +1147,7 @@ mod tests {
         };
 
         let result =
-            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud());
         assert!(result.is_some(), "'hello'는 확장어 없으면 발화해야 함");
     }
 
@@ -1152,7 +1176,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
         let mut bl = Blacklist::default();
-        let fix = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl)
+        let fix = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl, &empty_ud())
             .expect("1차 역방향 트리거는 성공해야 함");
 
         // 2) engine_worker의 키 선택 로직을 그대로 재현 (Direction::Reverse → fix.corrected)
@@ -1179,7 +1203,7 @@ mod tests {
         buf2.has_preedit = true;
 
         let result2 =
-            check_reverse(&buf2, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+            check_reverse(&buf2, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl, &empty_ud());
         assert!(
             result2.is_none(),
             "역방향 롤백 학습 후 같은 단어 재입력은 억제되어야 함"
@@ -1207,7 +1231,172 @@ mod tests {
         // Forward로 등록 — Reverse 검사와 방향 불일치
         bl.add_or_hit_tentative("hello", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl, &empty_ud());
         assert!(result.is_some(), "방향 불일치면 억제 안 됨");
+    }
+
+    // === Phase 3: 역방향 사용자 사전 (UserDictionary) 통합 ===
+
+    #[test]
+    fn reverse_user_dict_fires_for_short_word() {
+        // "git" (3자) — eng_word_min_length=5 미달. user dict 등록 시 우회하여 발화.
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::G, KeyCode::I, KeyCode::T] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 1;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            skip_on_prefix_collision: false,
+            ..AutoTypeFixConfig::default()
+        };
+
+        assert!(
+            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud()).is_none(),
+            "user dict 미등록 시 길이 미달이면 억제"
+        );
+
+        let mut ud = UserDictionary::default();
+        ud.add("git", None);
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &ud);
+        assert!(result.is_some(), "user dict 등록 시 길이 미달이어도 발화");
+        assert_eq!(result.unwrap().corrected, "git");
+    }
+
+    #[test]
+    fn reverse_user_dict_fires_for_non_dictionary_word() {
+        // "rustc" — 내장 사전에 없는 CLI 명령어. user dict 등록 시 발화.
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::R, KeyCode::U, KeyCode::S, KeyCode::T, KeyCode::C] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 2;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            skip_on_prefix_collision: false,
+            skip_on_complete_syllable: false,
+            ..AutoTypeFixConfig::default()
+        };
+
+        assert!(!dictionary_contains("rustc"), "전제: 내장 사전에 'rustc' 없음");
+        assert!(
+            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &empty_ud()).is_none()
+        );
+
+        let mut ud = UserDictionary::default();
+        ud.add("rustc", None);
+        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &ud);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().corrected, "rustc");
+    }
+
+    #[test]
+    fn reverse_user_dict_disabled_by_config() {
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::G, KeyCode::I, KeyCode::T] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 1;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            user_dict_enabled: false,
+            skip_on_prefix_collision: false,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let mut ud = UserDictionary::default();
+        ud.add("git", None);
+        assert!(
+            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &ud).is_none(),
+            "user_dict_enabled=false 이면 user dict 무시"
+        );
+    }
+
+    #[test]
+    fn reverse_user_dict_respects_blacklist() {
+        // blacklist 억제가 user dict 우회보다 우선.
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::G, KeyCode::I, KeyCode::T] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 1;
+        buf.has_preedit = true;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            skip_on_prefix_collision: false,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let mut ud = UserDictionary::default();
+        ud.add("git", None);
+
+        let mut bl = Blacklist::default();
+        bl.add_or_hit_tentative("git", Direction::Reverse, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+
+        assert!(
+            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl, &ud).is_none(),
+            "blacklist가 user dict보다 우선"
+        );
+    }
+
+    #[test]
+    fn reverse_user_dict_bypasses_prefix_collision() {
+        // "wood" 는 prefix collision이 있지만 user dict에 명시되면 즉시 발화.
+        assert!(dictionary_contains("wood"));
+
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::W, KeyCode::O, KeyCode::O, KeyCode::D] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 2;
+        buf.has_preedit = false;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 4,
+            skip_on_complete_syllable: false,
+            skip_on_prefix_collision: true,
+            ..AutoTypeFixConfig::default()
+        };
+
+        assert!(
+            check_reverse(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty, &empty_bl(), &empty_ud()).is_none()
+        );
+
+        let mut ud = UserDictionary::default();
+        ud.add("wood", None);
+        let result = check_reverse(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty, &empty_bl(), &ud);
+        assert!(result.is_some(), "user dict 등록 단어는 prefix collision 우회");
+    }
+
+    #[test]
+    fn reverse_user_dict_still_respects_complete_syllable_skip() {
+        // skip_on_complete_syllable=true + preedit 없음 → user dict여도 억제.
+        let mut buf = KeystrokeBuffer::new();
+        for key in [KeyCode::G, KeyCode::I, KeyCode::T] {
+            buf.push(key, ModifierState::default());
+        }
+        buf.committed_chars = 2;
+        buf.has_preedit = false;
+
+        let config = AutoTypeFixConfig {
+            eng_word_min_length: 5,
+            skip_on_complete_syllable: true,
+            skip_on_prefix_collision: false,
+            ..AutoTypeFixConfig::default()
+        };
+
+        let mut ud = UserDictionary::default();
+        ud.add("git", None);
+        assert!(
+            check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl(), &ud).is_none(),
+            "user dict도 skip_on_complete_syllable 검사 통과해야 함"
+        );
     }
 }

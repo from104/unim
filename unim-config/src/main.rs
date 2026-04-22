@@ -10,6 +10,7 @@ use unim::config::{
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
+use unim::typefix_userdict::UserDictionary;
 
 // i18n 초기화
 rust_i18n::i18n!("locales");
@@ -40,6 +41,33 @@ enum Commands {
     Reset,
     /// 인터렉티브 설정 모드 시작
     Interactive,
+    /// 역방향 사용자 사전 관리 (한→영 교정 whitelist)
+    #[command(subcommand)]
+    UserDict(UserDictCommand),
+}
+
+/// 역방향 사용자 사전 (AutoTypeFix reverse 전용 whitelist) 관리 서브커맨드.
+#[derive(Subcommand, Debug)]
+enum UserDictCommand {
+    /// 등록된 단어 목록 출력
+    List,
+    /// 단어 추가 (영문 알파벳만 허용)
+    Add {
+        /// 등록할 단어 (예: git)
+        word: String,
+        /// 설명/메모 (선택)
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// 단어 제거 (대소문자 무시)
+    Remove {
+        /// 제거할 단어
+        word: String,
+    },
+    /// 사전 전체 삭제 (confirm 필요)
+    Clear,
+    /// 사전 파일 경로 표시
+    Path,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -101,6 +129,9 @@ enum ConfigKey {
     /// 자동 오타 교정: 재트리거 관찰 창 (5~15 초)
     #[value(name = "auto-typefix-observation-timeout-secs")]
     AutoTypeFixObservationTimeoutSecs,
+    /// 자동 오타 교정: 역방향 사용자 사전 활성화 (true, false)
+    #[value(name = "auto-typefix-user-dict")]
+    AutoTypeFixUserDictEnabled,
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
@@ -172,6 +203,12 @@ fn config_show() {
             if atf.rollback_detection { "ON" } else { "OFF" },
             atf.observation_timeout_secs,
             atf.tentative_expiry_hours);
+        let ud = UserDictionary::load_from_default_path();
+        println!(
+            "  - 역방향 사용자 사전: {} ({}개 등록)",
+            if atf.user_dict_enabled { "ON" } else { "OFF" },
+            ud.len()
+        );
     }
     println!(
         "{}: {}",
@@ -485,6 +522,19 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("unit_secs")
             );
         }
+        ConfigKey::AutoTypeFixUserDictEnabled => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.auto_typefix.user_dict_enabled = enabled;
+            println!(
+                "{}: {}",
+                t!("auto_typefix_user_dict_enabled_label"),
+                if enabled { "ON" } else { "OFF" }
+            );
+        }
         ConfigKey::AppRules => {
             let rules: Vec<unim::config::AppRule> =
                 serde_json::from_str(value).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -505,6 +555,92 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
 
 fn config_path() {
     if let Some(path) = UnimConfig::default_config_path() {
+        println!("{}", path.display());
+    } else {
+        eprintln!("{}", t!("error_path_not_found"));
+    }
+}
+
+fn user_dict_list() {
+    let ud = UserDictionary::load_from_default_path();
+    if ud.is_empty() {
+        println!("{}", t!("user_dict_empty"));
+        if let Some(path) = UserDictionary::default_path() {
+            println!("({}: {})", t!("user_dict_path_label"), path.display());
+        }
+        return;
+    }
+    println!("{} ({}):", t!("user_dict_list_title"), ud.len());
+    println!("{}", "-".repeat(60));
+    for (i, e) in ud.reverse_words.iter().enumerate() {
+        let note = e.note.as_deref().unwrap_or("");
+        if note.is_empty() {
+            println!("  {:>3}. {}", i + 1, e.word);
+        } else {
+            println!("  {:>3}. {:<16}  — {}", i + 1, e.word, note);
+        }
+    }
+}
+
+fn user_dict_add(word: &str, note: Option<String>) -> Result<(), String> {
+    let mut ud = UserDictionary::load_from_default_path();
+    if !ud.add(word, note) {
+        return Err(t!(
+            "user_dict_add_failed",
+            word = word.to_string()
+        )
+        .to_string());
+    }
+    ud.save_to_default_path()
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    println!("{}", t!("user_dict_added", word = word.to_string()));
+    Ok(())
+}
+
+fn user_dict_remove(word: &str) -> Result<(), String> {
+    let mut ud = UserDictionary::load_from_default_path();
+    if !ud.remove_by_word(word) {
+        return Err(t!(
+            "user_dict_not_found",
+            word = word.to_string()
+        )
+        .to_string());
+    }
+    ud.save_to_default_path()
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    println!("{}", t!("user_dict_removed", word = word.to_string()));
+    Ok(())
+}
+
+fn user_dict_clear() -> Result<(), String> {
+    let mut ud = UserDictionary::load_from_default_path();
+    if ud.is_empty() {
+        println!("{}", t!("user_dict_empty"));
+        return Ok(());
+    }
+    let count = ud.len();
+    let theme = ColorfulTheme::default();
+    let ok = Confirm::with_theme(&theme)
+        .with_prompt(
+            t!("user_dict_clear_confirm", count = count.to_string())
+                .to_string(),
+        )
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if !ok {
+        println!("{}", t!("exit_canceled"));
+        return Ok(());
+    }
+    ud.clear();
+    ud.save_to_default_path()
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    println!("{}", t!("user_dict_cleared", count = count.to_string()));
+    Ok(())
+}
+
+fn user_dict_path() {
+    if let Some(path) = UserDictionary::default_path() {
         println!("{}", path.display());
     } else {
         eprintln!("{}", t!("error_path_not_found"));
@@ -706,6 +842,28 @@ fn main() {
             }
         }
         Some(Commands::Interactive) => config_interactive(),
+        Some(Commands::UserDict(sub)) => match sub {
+            UserDictCommand::List => user_dict_list(),
+            UserDictCommand::Add { word, note } => {
+                if let Err(e) = user_dict_add(&word, note) {
+                    eprintln!("{}: {}", t!("error_label"), e);
+                    process::exit(1);
+                }
+            }
+            UserDictCommand::Remove { word } => {
+                if let Err(e) = user_dict_remove(&word) {
+                    eprintln!("{}: {}", t!("error_label"), e);
+                    process::exit(1);
+                }
+            }
+            UserDictCommand::Clear => {
+                if let Err(e) = user_dict_clear() {
+                    eprintln!("{}: {}", t!("error_label"), e);
+                    process::exit(1);
+                }
+            }
+            UserDictCommand::Path => user_dict_path(),
+        },
         None => {
             config_show();
             println!("\n{}", t!("help_hint"));

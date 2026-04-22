@@ -277,6 +277,9 @@ fn default_auto_typefix_tentative_expiry_hours() -> u16 {
 fn default_auto_typefix_observation_timeout_secs() -> u8 {
     10
 }
+fn default_auto_typefix_user_dict_enabled() -> bool {
+    true
+}
 
 /// 자동 오타 교정 (AutoTypeFix) 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -321,6 +324,10 @@ pub struct AutoTypeFixConfig {
     /// 재트리거 관찰 창 (초) — 첫 교정 후 이 시간 내에 동일 입력이 재트리거되면 오탐으로 판정 (5~15, 기본 10)
     #[serde(default = "default_auto_typefix_observation_timeout_secs")]
     pub observation_timeout_secs: u8,
+    /// 역방향 사용자 사전(`~/.config/unim/typefix-userdict.yaml`) 사용 여부.
+    /// 활성 시 사전 등록 단어는 `eng_word_min_length` 및 내장 영어 사전 검사를 우회하여 즉시 교정.
+    #[serde(default = "default_auto_typefix_user_dict_enabled")]
+    pub user_dict_enabled: bool,
 }
 
 impl Default for AutoTypeFixConfig {
@@ -338,6 +345,7 @@ impl Default for AutoTypeFixConfig {
             rollback_detection: default_auto_typefix_rollback_detection(),
             tentative_expiry_hours: default_auto_typefix_tentative_expiry_hours(),
             observation_timeout_secs: default_auto_typefix_observation_timeout_secs(),
+            user_dict_enabled: default_auto_typefix_user_dict_enabled(),
         }
     }
 }
