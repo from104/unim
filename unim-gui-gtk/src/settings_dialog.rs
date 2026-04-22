@@ -83,6 +83,7 @@ pub fn show_settings_dialog(app: &adw::Application) {
         .build();
     page_general.add(&build_keymap_group(&state));
     page_general.add(&build_input_mode_group(&state));
+    page_general.add(&build_auto_english_group(&state));
     window.add(&page_general);
 
     // ── Page 2: 오타 교정 ─────────────────────────────────────
@@ -409,6 +410,47 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&popup_row);
+
+    group
+}
+
+fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title("자동 영문 전환")
+        .description(
+            "지정된 키(기본: Escape, Slash, ShiftSemicolon)를 한글 모드에서 입력하면 \
+             조합을 커밋하고 영문 모드로 전환합니다 (vi/CLI/스프레드시트 명령 호환).",
+        )
+        .build();
+
+    // 활성화 스위치
+    let sw = adw::SwitchRow::builder().title("자동 영문 전환 사용").build();
+    {
+        let s = state.borrow();
+        sw.set_active(s.config.engine.auto_english.enabled);
+    }
+    {
+        let state_c = state.clone();
+        sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_english.enabled = sw.is_active();
+            save_and_notify(&s.config, "auto_english_enabled");
+        });
+    }
+    group.add(&sw);
+
+    // 트리거 키 목록 (쉼표 구분)
+    group.add(&build_string_list_row(
+        state,
+        "트리거 키",
+        Some("쉼표로 구분. Shift 조합은 ShiftSemicolon 형식 (예: Escape, Slash, ShiftSemicolon)"),
+        |cfg| cfg.engine.auto_english.trigger_keys.join(", "),
+        |cfg, v| cfg.engine.auto_english.trigger_keys = v,
+        "auto_english_keys",
+    ));
 
     group
 }

@@ -369,6 +369,47 @@ impl AutoTypeFixConfig {
     }
 }
 
+fn default_auto_english_enabled() -> bool {
+    false
+}
+fn default_auto_english_trigger_keys() -> Vec<String> {
+    vec![
+        "Escape".to_string(),
+        "Slash".to_string(),
+        "ShiftSemicolon".to_string(),
+    ]
+}
+
+/// 자동 영문 모드 전환 설정
+///
+/// 특정 키(기본: Escape, Slash, Shift+Semicolon)를 한글 모드에서 입력하면
+/// 조합을 커밋하고 영문 모드로 영구 전환한다. vi/vim 명령 모드 진입,
+/// CLI 도구의 `/` prefix, 스프레드시트의 `:` 명령 등을 편리하게 만든다.
+///
+/// 트리거 키 이름 규약:
+/// - 일반 KeyCode 이름 그대로: `"Escape"`, `"Slash"`, `"Semicolon"`
+/// - Shift 조합은 `"Shift"` 접두사로: `"ShiftSemicolon"` = `:`, `"ShiftSlash"` = `?`
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoEnglishConfig {
+    /// 활성화 여부 (기본 false, opt-in)
+    #[serde(default = "default_auto_english_enabled")]
+    pub enabled: bool,
+    /// 자동 영문 전환을 유발하는 키 이름 목록.
+    /// `KeyCode::from_name()` 호환 이름 또는 `"Shift<KeyName>"` 가상 이름.
+    #[serde(default = "default_auto_english_trigger_keys")]
+    pub trigger_keys: Vec<String>,
+}
+
+impl Default for AutoEnglishConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_auto_english_enabled(),
+            trigger_keys: default_auto_english_trigger_keys(),
+        }
+    }
+}
+
 /// 한국어 엔진 설정
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -455,6 +496,8 @@ pub struct EngineConfig {
     pub popup_mode: PopupMode,
     /// 자동 오타 교정 (AutoTypeFix) 설정
     pub auto_typefix: AutoTypeFixConfig,
+    /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
+    pub auto_english: AutoEnglishConfig,
 }
 
 impl Default for EngineConfig {
@@ -470,6 +513,7 @@ impl Default for EngineConfig {
             user_dictionary_path: None,
             popup_mode: PopupMode::default(),
             auto_typefix: AutoTypeFixConfig::default(),
+            auto_english: AutoEnglishConfig::default(),
         }
     }
 }
@@ -1038,6 +1082,50 @@ engine:
         let yaml = "engine:\n  auto_switch:\n    enabled: true\n    threshold: 0.7\n  manual_shortcuts:\n    forward: ['<Super>k']\n    reverse: ['<Shift><Super>k']\n";
         let _: crate::config::Config =
             serde_yaml::from_str(yaml).expect("legacy yaml must still parse");
+    }
+
+    // === AutoEnglish 설정 테스트 ===
+
+    #[test]
+    fn test_auto_english_defaults() {
+        let c = AutoEnglishConfig::default();
+        assert!(!c.enabled, "기본은 비활성 (opt-in)");
+        assert_eq!(
+            c.trigger_keys,
+            vec!["Escape", "Slash", "ShiftSemicolon"],
+            "기본 트리거 키는 ESC / '/' / ':'"
+        );
+    }
+
+    #[test]
+    fn test_auto_english_serde_roundtrip() {
+        let mut cfg = Config::default();
+        cfg.engine.auto_english.enabled = true;
+        cfg.engine.auto_english.trigger_keys = vec!["Escape".into(), "Period".into()];
+
+        let yaml = serde_yaml::to_string(&cfg).unwrap();
+        let loaded: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(loaded.engine.auto_english.enabled);
+        assert_eq!(
+            loaded.engine.auto_english.trigger_keys,
+            vec!["Escape", "Period"]
+        );
+    }
+
+    /// 구 YAML에 `auto_english` 섹션이 없어도 기본값으로 채워져야 한다.
+    #[test]
+    fn test_auto_english_serde_backcompat() {
+        let legacy = r#"
+engine:
+  auto_typefix:
+    enabled: true
+"#;
+        let cfg: Config = serde_yaml::from_str(legacy).expect("legacy yaml must parse");
+        assert!(!cfg.engine.auto_english.enabled);
+        assert_eq!(
+            cfg.engine.auto_english.trigger_keys,
+            vec!["Escape", "Slash", "ShiftSemicolon"]
+        );
     }
 
     // === ConfigError Display 테스트 ===

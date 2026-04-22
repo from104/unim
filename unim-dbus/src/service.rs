@@ -405,6 +405,8 @@ impl InputMethodService {
             "hanja_keys" => config.engine.hanja_keys.join(","),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
+            "auto_english" => config.engine.auto_english.enabled.to_string(),
+            "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
                 .unwrap_or_default(),
             _ => {
@@ -522,6 +524,24 @@ impl InputMethodService {
                     config.engine.auto_typefix.enabled = value
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_english" => {
+                    config.engine.auto_english.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_english_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if keys.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one key required".to_string(),
+                        ));
+                    }
+                    config.engine.auto_english.trigger_keys = keys;
                 }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =

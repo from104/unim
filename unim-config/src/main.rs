@@ -101,6 +101,12 @@ enum ConfigKey {
     /// 자동 오타 교정: 재트리거 관찰 창 (5~15 초)
     #[value(name = "auto-typefix-observation-timeout-secs")]
     AutoTypeFixObservationTimeoutSecs,
+    /// 자동 영문 모드 전환 활성화 (true, false)
+    #[value(name = "auto-english")]
+    AutoEnglish,
+    /// 자동 영문 전환 트리거 키 (예: Escape,Slash,ShiftSemicolon)
+    #[value(name = "auto-english-keys")]
+    AutoEnglishKeys,
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
@@ -172,6 +178,19 @@ fn config_show() {
             if atf.rollback_detection { "ON" } else { "OFF" },
             atf.observation_timeout_secs,
             atf.tentative_expiry_hours);
+    }
+    let auto_english_status = if config.engine.auto_english.enabled {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+    println!("{}: {}", t!("auto_english_label"), auto_english_status);
+    if config.engine.auto_english.enabled {
+        println!(
+            "  - {}: {}",
+            t!("auto_english_keys_label"),
+            config.engine.auto_english.trigger_keys.join(", ")
+        );
     }
     println!(
         "{}: {}",
@@ -483,6 +502,36 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("auto_typefix_observation_timeout_secs_label"),
                 secs,
                 t!("unit_secs")
+            );
+        }
+        ConfigKey::AutoEnglish => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid value for auto-english: {}", value)),
+            };
+            config.engine.auto_english.enabled = enabled;
+            let status = if enabled {
+                t!("enabled")
+            } else {
+                t!("disabled")
+            };
+            println!("{}", t!("auto_english_changed", status = status));
+        }
+        ConfigKey::AutoEnglishKeys => {
+            let keys: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if keys.is_empty() {
+                return Err("At least one key required".to_string());
+            }
+            config.engine.auto_english.trigger_keys = keys;
+            println!(
+                "{}: {}",
+                t!("auto_english_keys_label"),
+                config.engine.auto_english.trigger_keys.join(", ")
             );
         }
         ConfigKey::AppRules => {

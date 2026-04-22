@@ -174,6 +174,14 @@ pub struct InputEngine {
     special_char_target: String,
     /// 한/영 전환 키 목록 (설정 기반)
     toggle_keys: Vec<KeyCode>,
+    /// 자동 영문 전환 활성화 여부 (설정 캐시)
+    auto_english_enabled: bool,
+    /// 자동 영문 전환 트리거 (파싱된 `(KeyCode, Shift 조건)` 캐시)
+    ///
+    /// - `(code, None)`: shift 무관 매칭 (Escape 등 제어 키)
+    /// - `(code, Some(true))`: shift 필수 (문자 키의 shift 문자. 예: `ShiftSemicolon` → `:`)
+    /// - `(code, Some(false))`: shift 없어야 함 (기본 문자 키. 예: `Slash` → `/`)
+    auto_english_triggers: Vec<(KeyCode, Option<bool>)>,
     /// 통합 팝업 상태 (한자/특수문자 공용)
     popup_state: Option<PopupState>,
     /// 처리 대기 팝업 액션
@@ -239,6 +247,14 @@ impl InputEngine {
                 .iter()
                 .map(|name| KeyCode::from_name(name))
                 .filter(|k| *k != KeyCode::Unknown)
+                .collect(),
+            auto_english_enabled: config.engine.auto_english.enabled,
+            auto_english_triggers: config
+                .engine
+                .auto_english
+                .trigger_keys
+                .iter()
+                .filter_map(|n| Self::parse_trigger_key(n))
                 .collect(),
             popup_state: None,
             popup_pending_action: None,
@@ -391,6 +407,45 @@ impl InputEngine {
         // Hanja 키 처리 - 한자 변환 모드 시작
         if keycode == KeyCode::Hanja {
             return self.start_hanja_conversion();
+        }
+
+        // 자동 영문 전환 (opt-in): 지정 트리거 키 입력 시 조합 커밋 + 영문 모드로 영구 전환.
+        // 제어 키(Escape/Tab/Enter 등)는 passthrough, 문자 키(`/`/`:` 등)는 해당 문자 commit.
+        if self.is_auto_english_trigger(keycode, modifier) {
+            let was_composing = self.korean_context.is_composing();
+            if was_composing {
+                self.flush_preedit();
+            }
+            self.set_input_category(InputCategory::English);
+
+            let produced = if modifier.shift {
+                keycode.to_shifted_char()
+            } else {
+                keycode.to_char()
+            };
+
+            if let Some(c) = produced {
+                self.commit_buffer.push(c);
+                unim_log!(
+                    "ENGINE",
+                    "auto-english: '{:?}' -> 영문 전환 + commit '{}'",
+                    keycode,
+                    c
+                );
+                return InputResult::committed();
+            }
+
+            unim_log!(
+                "ENGINE",
+                "auto-english: '{:?}' -> 영문 전환 + passthrough (composing={})",
+                keycode,
+                was_composing
+            );
+            return if was_composing {
+                InputResult::committed_passthrough()
+            } else {
+                InputResult::not_consumed()
+            };
         }
 
         // Backspace 처리
@@ -560,6 +615,109 @@ impl InputEngine {
         }
 
         InputResult::not_consumed()
+    }
+
+    /// Config 의 자동 영문 전환 트리거 이름을 `(KeyCode, shift 조건)`으로 파싱합니다.
+    ///
+    /// `"Shift"` 접두사가 있으면 Shift 필수로 해석합니다.
+    /// 문자 키(기호·숫자)는 접두사가 없으면 Shift 없을 때만 매칭되도록 제한하고,
+    /// 제어 키(Escape/Tab/Enter/F*/Arrows 등)는 Shift 무관으로 매칭합니다.
+    ///
+    /// # Returns
+    ///
+    /// - `Some((code, None))`: Shift 무관
+    /// - `Some((code, Some(true)))`: Shift 필수
+    /// - `Some((code, Some(false)))`: Shift 없을 때만
+    /// - `None`: 알 수 없는 이름
+    fn parse_trigger_key(name: &str) -> Option<(KeyCode, Option<bool>)> {
+        if let Some(stripped) = name.strip_prefix("Shift") {
+            let code = KeyCode::from_name(stripped);
+            if code == KeyCode::Unknown {
+                return None;
+            }
+            return Some((code, Some(true)));
+        }
+
+        let code = KeyCode::from_name(name);
+        if code == KeyCode::Unknown {
+            return None;
+        }
+
+        // 문자 키(기호·숫자)는 Shift 없을 때만 매칭 (shift 조합은 `"Shift<Name>"` 로 지정).
+        // 그 외 제어 키(Escape/Tab/Enter/F*/Arrows 등)는 Shift 무관.
+        let shift_sensitive = matches!(
+            code,
+            KeyCode::A
+                | KeyCode::B
+                | KeyCode::C
+                | KeyCode::D
+                | KeyCode::E
+                | KeyCode::F
+                | KeyCode::G
+                | KeyCode::H
+                | KeyCode::I
+                | KeyCode::J
+                | KeyCode::K
+                | KeyCode::L
+                | KeyCode::M
+                | KeyCode::N
+                | KeyCode::O
+                | KeyCode::P
+                | KeyCode::Q
+                | KeyCode::R
+                | KeyCode::S
+                | KeyCode::T
+                | KeyCode::U
+                | KeyCode::V
+                | KeyCode::W
+                | KeyCode::X
+                | KeyCode::Y
+                | KeyCode::Z
+                | KeyCode::Num0
+                | KeyCode::Num1
+                | KeyCode::Num2
+                | KeyCode::Num3
+                | KeyCode::Num4
+                | KeyCode::Num5
+                | KeyCode::Num6
+                | KeyCode::Num7
+                | KeyCode::Num8
+                | KeyCode::Num9
+                | KeyCode::Minus
+                | KeyCode::Equal
+                | KeyCode::BracketLeft
+                | KeyCode::BracketRight
+                | KeyCode::Backslash
+                | KeyCode::Semicolon
+                | KeyCode::Quote
+                | KeyCode::Backquote
+                | KeyCode::Comma
+                | KeyCode::Period
+                | KeyCode::Slash
+                | KeyCode::Space
+        );
+
+        Some((code, if shift_sensitive { Some(false) } else { None }))
+    }
+
+    /// 이 키 입력이 자동 영문 전환 트리거에 해당하는지 판정합니다.
+    ///
+    /// 활성화되어 있고, 현재 한글 모드이며, `(keycode, shift)` 조합이
+    /// 사전 파싱된 트리거 목록 중 하나와 일치할 때만 `true`.
+    fn is_auto_english_trigger(&self, keycode: KeyCode, modifier: ModifierState) -> bool {
+        if !self.auto_english_enabled {
+            return false;
+        }
+        if self.input_category != InputCategory::Korean {
+            return false;
+        }
+        self.auto_english_triggers.iter().any(|(code, shift_req)| {
+            *code == keycode
+                && match shift_req {
+                    None => true,
+                    Some(required) => *required == modifier.shift,
+                }
+        })
     }
 
     /// preedit 캐시를 업데이트합니다.
@@ -1983,5 +2141,199 @@ mod tests {
 
         engine.press_key(KeyCode::A, caps, &config);
         assert_eq!(engine.commit_str(), "A");
+    }
+
+    // === 자동 영문 전환 (auto-english) 테스트 ===
+
+    fn make_engine_with_auto_english(trigger_keys: Vec<&str>) -> (InputEngine, Config) {
+        let mut config = Config::default();
+        config.engine.auto_english.enabled = true;
+        config.engine.auto_english.trigger_keys =
+            trigger_keys.into_iter().map(|s| s.to_string()).collect();
+        let engine = InputEngine::new(&config);
+        (engine, config)
+    }
+
+    /// 기본값(비활성)에서는 Escape가 기존 §3.6 동작만 수행한다.
+    #[test]
+    fn test_auto_english_disabled_preserves_escape_passthrough() {
+        let mut engine = create_test_engine();
+        let config = Config::default();
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+
+        let result = engine.press_key(KeyCode::Escape, modifier, &config);
+        assert!(result.commit_changed, "조합은 커밋되어야 함");
+        assert!(!result.consumed, "ESC 자체는 passthrough");
+        assert_eq!(engine.commit_str(), "가");
+        // auto_english 비활성이므로 모드는 한글 유지
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+    }
+
+    /// 조합 중 Escape → 커밋 + 영문 전환 + passthrough
+    #[test]
+    fn test_auto_english_escape_switches_to_english() {
+        let (mut engine, config) = make_engine_with_auto_english(vec!["Escape"]);
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+
+        let result = engine.press_key(KeyCode::Escape, modifier, &config);
+        assert!(result.commit_changed, "조합이 커밋되어야 함");
+        assert!(!result.consumed, "ESC 키는 앱에 passthrough (vi 호환)");
+        assert_eq!(engine.commit_str(), "가");
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    /// 조합 중 '/' → 커밋 + 영문 전환 + '/' commit
+    #[test]
+    fn test_auto_english_slash_commits_slash() {
+        let (mut engine, config) = make_engine_with_auto_english(vec!["Slash"]);
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+
+        let result = engine.press_key(KeyCode::Slash, modifier, &config);
+        assert!(result.consumed, "'/'는 IME가 소비하여 commit");
+        assert!(result.commit_changed);
+        assert_eq!(engine.commit_str(), "가/");
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    /// Shift+Semicolon → ':' commit + 영문 전환
+    #[test]
+    fn test_auto_english_shift_semicolon_commits_colon() {
+        let (mut engine, config) = make_engine_with_auto_english(vec!["ShiftSemicolon"]);
+        let modifier = ModifierState {
+            shift: true,
+            ..Default::default()
+        };
+
+        engine.set_input_category(InputCategory::Korean);
+        let no_shift = ModifierState::default();
+        engine.press_key(KeyCode::R, no_shift, &config); // ㄱ
+        engine.press_key(KeyCode::K, no_shift, &config); // 가
+
+        let result = engine.press_key(KeyCode::Semicolon, modifier, &config);
+        assert!(result.consumed);
+        assert!(result.commit_changed);
+        assert_eq!(engine.commit_str(), "가:");
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    /// 영문 모드에서는 자동 영문 트리거가 no-op. 기존 동작만 적용된다.
+    #[test]
+    fn test_auto_english_noop_in_english_mode() {
+        let (mut engine, config) =
+            make_engine_with_auto_english(vec!["Escape", "Slash", "ShiftSemicolon"]);
+        let modifier = ModifierState::default();
+
+        // 기본은 영문 모드
+        assert_eq!(engine.input_category(), InputCategory::English);
+
+        // ESC: 영문 모드의 process_english_key에서는 문자가 없어 not_consumed
+        let result = engine.press_key(KeyCode::Escape, modifier, &config);
+        assert!(!result.consumed);
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    /// 커스텀 트리거 키: "Period"만 설정하면 '.'만 영문 전환을 트리거한다.
+    #[test]
+    fn test_auto_english_custom_keys() {
+        let (mut engine, config) = make_engine_with_auto_english(vec!["Period"]);
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+
+        // ESC는 트리거가 아니므로 기존 §3.6 동작 + 모드 유지
+        let result = engine.press_key(KeyCode::Escape, modifier, &config);
+        assert!(result.commit_changed);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+
+        // '.'는 트리거 → 영문 전환
+        engine.set_input_category(InputCategory::Korean);
+        engine.clear_commit();
+        engine.press_key(KeyCode::R, modifier, &config);
+        engine.press_key(KeyCode::K, modifier, &config);
+        let result = engine.press_key(KeyCode::Period, modifier, &config);
+        assert!(result.consumed);
+        assert!(result.commit_changed);
+        let committed = engine.commit_str();
+        assert!(committed.ends_with('.'), "committed='{}'", committed);
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    /// `"Slash"`만 지정하면 Shift+Slash('?')는 트리거가 아니다.
+    #[test]
+    fn test_auto_english_shift_slash_does_not_trigger() {
+        let (mut engine, config) = make_engine_with_auto_english(vec!["Slash"]);
+        let shift = ModifierState {
+            shift: true,
+            ..Default::default()
+        };
+
+        engine.set_input_category(InputCategory::Korean);
+
+        // Shift+Slash = '?' → 트리거가 아니므로 한글 모드 유지
+        let _ = engine.press_key(KeyCode::Slash, shift, &config);
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+    }
+
+    /// 비밀번호 필드는 이미 영문 강제 전환이므로 자동 영문 전환 훅이 도달해도 영향 없음.
+    #[test]
+    fn test_auto_english_password_field_unchanged() {
+        let (mut engine, config) = make_engine_with_auto_english(vec!["Escape"]);
+        let modifier = ModifierState::default();
+
+        engine.set_input_category(InputCategory::Korean);
+        engine.set_content_purpose(ContentPurpose::Password);
+
+        // 비밀번호 필드에서 한글 키 입력 → press_key 상단 가드가 영문으로 전환
+        engine.press_key(KeyCode::A, modifier, &config);
+        assert_eq!(engine.input_category(), InputCategory::English);
+    }
+
+    /// parse_trigger_key 단위 검증
+    #[test]
+    fn test_parse_trigger_key_variants() {
+        // 제어 키: shift 무관
+        assert_eq!(
+            InputEngine::parse_trigger_key("Escape"),
+            Some((KeyCode::Escape, None))
+        );
+        assert_eq!(
+            InputEngine::parse_trigger_key("Tab"),
+            Some((KeyCode::Tab, None))
+        );
+        // 문자 키: shift 없어야 함
+        assert_eq!(
+            InputEngine::parse_trigger_key("Slash"),
+            Some((KeyCode::Slash, Some(false)))
+        );
+        assert_eq!(
+            InputEngine::parse_trigger_key("Semicolon"),
+            Some((KeyCode::Semicolon, Some(false)))
+        );
+        // Shift 조합: shift 필수
+        assert_eq!(
+            InputEngine::parse_trigger_key("ShiftSemicolon"),
+            Some((KeyCode::Semicolon, Some(true)))
+        );
+        assert_eq!(
+            InputEngine::parse_trigger_key("ShiftSlash"),
+            Some((KeyCode::Slash, Some(true)))
+        );
+        // 알 수 없는 이름
+        assert_eq!(InputEngine::parse_trigger_key("Nonsense"), None);
+        assert_eq!(InputEngine::parse_trigger_key("ShiftNonsense"), None);
     }
 }
