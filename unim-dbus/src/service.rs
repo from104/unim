@@ -404,6 +404,12 @@ impl InputMethodService {
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
             "korean_active_rule_sets" => config.engine.korean.active_rule_sets.join(","),
+            "korean_custom_layout" => config
+                .engine
+                .korean
+                .custom_layout
+                .clone()
+                .unwrap_or_default(),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
@@ -515,6 +521,15 @@ impl InputMethodService {
                         .filter(|s| !s.is_empty())
                         .collect();
                     config.engine.korean.active_rule_sets = names;
+                }
+                "korean_custom_layout" => {
+                    // 빈 문자열 = None (내장 enum 경로로 복귀).
+                    let trimmed = value.trim();
+                    config.engine.korean.custom_layout = if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    };
                 }
                 "popup_mode" => {
                     config.engine.popup_mode = match value {

@@ -402,6 +402,29 @@ pub struct KoreanConfig {
     /// - 빈 목록 = 프로필 기본값 사용(각 `rule_sets.<name>.active` 그대로).
     /// - 비어 있지 않으면 이 이름들만 활성, 나머지는 강제 off.
     pub active_rule_sets: Vec<String>,
+    /// 사용자 지정 자판 프로필 이름(`~/.config/unim/layouts/<name>.json` 또는 내장 9종).
+    ///
+    /// `Some(_)`이면 `layout` enum 경로 대신 이 이름으로 레지스트리에서 프로필을 로드한다.
+    /// `None`이면 `layout.name()`이 반환하는 내장 별칭을 사용해 기존 경로와 동일 동작.
+    ///
+    /// 스펙: `docs/plans/LAYOUT_PROFILE_V1_IMPL.md` §7.1 — "korean_custom_layout
+    /// 미설정 시 영향 zero".
+    pub custom_layout: Option<String>,
+}
+
+impl KoreanConfig {
+    /// 실제 로드할 프로필 이름을 결정한다.
+    ///
+    /// - `custom_layout`이 `Some(name)`이고 `name`이 비어 있지 않으면 그 값을 사용.
+    /// - 그 외(None 또는 빈 문자열)는 `layout.name()` — 기존 enum 경로.
+    ///
+    /// 반환값은 `ProfileRegistry::find_raw()`에 그대로 넘길 수 있는 네임스페이스 키.
+    pub fn effective_layout_name(&self) -> String {
+        match self.custom_layout.as_deref() {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => self.layout.name().to_string(),
+        }
+    }
 }
 
 /// 영어 엔진 설정
@@ -781,6 +804,57 @@ mod tests {
         assert_eq!(KoreanLayout::Dubeolsik.name(), "2bul");
         assert!(!KoreanLayout::Dubeolsik.is_sebeolsik());
         assert!(KoreanLayout::Sebeolsik390.is_sebeolsik());
+    }
+
+    #[test]
+    fn effective_layout_name_defaults_to_enum_alias() {
+        let kc = KoreanConfig::default();
+        assert_eq!(kc.effective_layout_name(), "2bul");
+    }
+
+    #[test]
+    fn effective_layout_name_prefers_custom_when_set() {
+        let mut kc = KoreanConfig::default();
+        kc.custom_layout = Some("ko_3bul_qwerty".to_string());
+        assert_eq!(kc.effective_layout_name(), "ko_3bul_qwerty");
+    }
+
+    #[test]
+    fn effective_layout_name_empty_custom_falls_back() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = KoreanLayout::Sebeolsik390;
+        kc.custom_layout = Some(String::new());
+        assert_eq!(
+            kc.effective_layout_name(),
+            "3bul390",
+            "빈 문자열은 미설정으로 취급"
+        );
+    }
+
+    #[test]
+    fn korean_config_serde_roundtrips_custom_layout_and_rule_sets() {
+        let mut kc = KoreanConfig::default();
+        kc.custom_layout = Some("my_layout".to_string());
+        kc.active_rule_sets = vec!["set_a".to_string(), "set_b".to_string()];
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.custom_layout.as_deref(), Some("my_layout"));
+        assert_eq!(back.active_rule_sets, vec!["set_a", "set_b"]);
+    }
+
+    #[test]
+    fn korean_config_backward_compat_without_new_fields() {
+        // 기존 YAML (custom_layout / active_rule_sets 없음) 도 로드 가능.
+        let yaml = r#"
+layout: Dubeolsik
+preedit_johab: false
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.layout, KoreanLayout::Dubeolsik);
+        assert!(kc.custom_layout.is_none());
+        assert!(kc.active_rule_sets.is_empty());
+        assert_eq!(kc.effective_layout_name(), "2bul");
     }
 
     #[test]
