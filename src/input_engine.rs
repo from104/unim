@@ -219,7 +219,7 @@ impl InputEngine {
 
         Self {
             input_category: config.engine.default_category,
-            korean_context: HangulInputContext::new(composer_type),
+            korean_context: build_korean_context(config, composer_type),
             commit_buffer: String::new(),
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
@@ -1282,6 +1282,55 @@ impl InputEngine {
             Some((offset_from_cursor, delete_chars, repl.clone()))
         } else {
             None
+        }
+    }
+}
+
+/// Config로부터 `HangulInputContext`를 구성.
+///
+/// 우선 `ProfileRegistry`로 `effective_layout_name()`에 해당하는 프로필을 찾고
+/// inherits 해석 + `active_rule_sets` override를 적용해 `new_with_profile` 경로로
+/// 생성. 어떤 단계라도 실패하면 enum 기반 legacy 경로로 안전 폴백한다.
+///
+/// 폴백이 발생하면 stderr에 원인을 기록하되, 엔진 시작은 계속한다.
+fn build_korean_context(config: &Config, fallback_type: ComposerType) -> HangulInputContext {
+    use crate::keystroke::profile::{resolve_inherits, ProfileRegistry};
+
+    let name = config.engine.korean.effective_layout_name();
+    let registry = ProfileRegistry::new();
+
+    let Some(raw) = registry.find_raw(&name) else {
+        eprintln!(
+            "[UNIM] 프로필 '{}'을(를) 찾지 못함 → enum 경로로 폴백",
+            name
+        );
+        return HangulInputContext::new(fallback_type);
+    };
+
+    let mut resolved = match resolve_inherits(&raw, &registry) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "[UNIM] 프로필 '{}' inherits 해석 실패: {e} → enum 경로로 폴백",
+                name
+            );
+            return HangulInputContext::new(fallback_type);
+        }
+    };
+
+    // Config의 active_rule_sets가 비어 있지 않으면 프로필 값을 override (§3.1).
+    if !config.engine.korean.active_rule_sets.is_empty() {
+        resolved.active_rule_sets = Some(config.engine.korean.active_rule_sets.clone());
+    }
+
+    match HangulInputContext::new_with_profile(&resolved) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            eprintln!(
+                "[UNIM] 프로필 '{}' 빌드 실패: {e:?} → enum 경로로 폴백",
+                name
+            );
+            HangulInputContext::new(fallback_type)
         }
     }
 }
