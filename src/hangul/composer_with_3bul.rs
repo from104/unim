@@ -70,8 +70,11 @@ fn build_jamo_map() -> CombinedJamoMap {
     map
 }
 
-/// 3벌식 자모 조합 테이블 (프로그램 시작 시 한 번만 초기화)
-static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(build_jamo_map);
+/// 3벌식 자모 조합 테이블 (프로그램 시작 시 한 번만 초기화).
+///
+/// `pub(crate)` 공개 — `keystroke::profile::builder`의 v0 fallback 경로에서
+/// 이 값을 `CombinedJamoMap`의 기본값으로 클론한다.
+pub(crate) static COMBINED_JAMO_3BUL: Lazy<CombinedJamoMap> = Lazy::new(build_jamo_map);
 
 // ============================================================================
 // 3벌식 조합 규칙 검사 헬퍼
@@ -146,6 +149,22 @@ impl HangulComposer3Bul {
         };
         *composer.base_composer.combined_jamo() = COMBINED_JAMO_3BUL.clone();
         composer
+    }
+
+    /// `LayoutProfile`에서 추출한 조합 규칙을 주입해 생성.
+    ///
+    /// - v0 프로필(`combinations=None`): 기본 테이블(COMBINED_JAMO_3BUL)을 그대로 사용해
+    ///   `new()`와 동일 결과.
+    /// - v1 프로필: 프로필의 `combinations` + 활성 `rule_sets`가 반영된 맵.
+    pub fn new_with_profile(
+        profile: &crate::keystroke::profile::LayoutProfile,
+    ) -> Result<Self, crate::keystroke::profile::BuildError> {
+        let map = crate::keystroke::profile::build_combined_jamo_map(profile)?;
+        let mut composer = HangulComposer3Bul {
+            base_composer: BaseHangulComposer::new(),
+        };
+        *composer.base_composer.combined_jamo() = map;
+        Ok(composer)
     }
 }
 
