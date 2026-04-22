@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "language": "korean",
+  "name": "3bul391",
+  "type": "3bul",
+  "metadata": {
+    "display_name": "세벌식 최종 (391)",
+    "author": "공병우 (1991)",
+    "description": "세벌식 최종안. 390 대비 받침·기호 배치를 확장해 옛한글·부호 입력까지 1벌로 수용.",
+    "version": "1.0",
+    "tags": ["korean", "3bul", "final"]
+  },
+  "layout": {
+    "upper": {
+      "1st": ["※", "ᆩ", "ᆰ", "ᆽ", "ᆱ", "ᆶ", "=", "“", "”", "'", "~", ";", "<", "\\"],
+      "2nd": ["ᇁ", "ᇀ", "ᆬ", "ᆶ", "ᆳ", "5", "6", "7", "8", "9", "%", "/"],
+      "3nd": ["ᆮ", "ᆭ", "ᆲ", "ᆵ", "ㅒ", "0", "1", "2", "3", "4", "·"],
+      "4th": ["ᆾ", "ᆹ", "ᆿ", "ᆪ", "?", "-", "\"", ",", ".", "!"]
+    },
+    "lower": {
+      "1st": ["*", "ᇂ", "ᆻ", "ᆸ", "ㅛ", "ㅠ", "ㅑ", "ㅖ", "ㅢ", "ㅜ", "ㅋ", ")", ">", ":"],
+      "2nd": ["ᆺ", "ᆯ", "ㅕ", "ㅐ", "ㅓ", "ㄹ", "ㄷ", "ㅁ", "ㅊ", "ㅍ", "(", "<"],
+      "3nd": ["ᆼ", "ᆫ", "ㅣ", "ㅏ", "ㅡ", "ㄴ", "ㅇ", "ㄱ", "ㅈ", "ㅂ", "ㅌ"],
+      "4th": ["ᆷ", "ᆨ", "ㅔ", "ㅗ", "ㅜ", "ㅅ", "ㅎ", ",", ".", "ㅗ"]
+    }
+  },
+  "combinations": {
+    "cho": [
+      { "first": "ㄱ", "second": "ㄱ", "result": "ㄲ" },
+      { "first": "ㄷ", "second": "ㄷ", "result": "ㄸ" },
+      { "first": "ㅂ", "second": "ㅂ", "result": "ㅃ" },
+      { "first": "ㅅ", "second": "ㅅ", "result": "ㅆ" },
+      { "first": "ㅈ", "second": "ㅈ", "result": "ㅉ" }
+    ],
+    "jung": [
+      { "first": "ㅗ", "second": "ㅏ", "result": "ㅘ" },
+      { "first": "ㅗ", "second": "ㅐ", "result": "ㅙ" },
+      { "first": "ㅗ", "second": "ㅣ", "result": "ㅚ" },
+      { "first": "ㅜ", "second": "ㅓ", "result": "ㅝ" },
+      { "first": "ㅜ", "second": "ㅔ", "result": "ㅞ" },
+      { "first": "ㅜ", "second": "ㅣ", "result": "ㅟ" },
+      { "first": "ㅡ", "second": "ㅣ", "result": "ㅢ" }
+    ],
+    "jong": [
+      { "first": "ᆨ", "second": "ᆨ", "result": "ᆩ" },
+      { "first": "ᆨ", "second": "ᆺ", "result": "ᆪ" },
+      { "first": "ᆫ", "second": "ᆽ", "result": "ᆬ" },
+      { "first": "ᆫ", "second": "ᇂ", "result": "ᆭ" },
+      { "first": "ᆯ", "second": "ᆨ", "result": "ᆰ" },
+      { "first": "ᆯ", "second": "ᆷ", "result": "ᆱ" },
+      { "first": "ᆯ", "second": "ᆸ", "result": "ᆲ" },
+      { "first": "ᆯ", "second": "ᆺ", "result": "ᆳ" },
+      { "first": "ᆯ", "second": "ᇀ", "result": "ᆴ" },
+      { "first": "ᆯ", "second": "ᇁ", "result": "ᆵ" },
+      { "first": "ᆯ", "second": "ᇂ", "result": "ᆶ" },
+      { "first": "ᆸ", "second": "ᆺ", "result": "ᆹ" },
+      { "first": "ᆺ", "second": "ᆺ", "result": "ᆻ" }
+    ]
+  }
+}
