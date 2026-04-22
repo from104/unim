@@ -403,6 +403,7 @@ impl InputMethodService {
             },
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
+            "korean_active_rule_sets" => config.engine.korean.active_rule_sets.join(","),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
@@ -505,6 +506,15 @@ impl InputMethodService {
                         ));
                     }
                     config.engine.hanja_keys = keys;
+                }
+                "korean_active_rule_sets" => {
+                    // 빈 문자열 허용 → 빈 Vec = 프로필 기본값 사용 (§3.1).
+                    let names: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    config.engine.korean.active_rule_sets = names;
                 }
                 "popup_mode" => {
                     config.engine.popup_mode = match value {

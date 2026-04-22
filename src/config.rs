@@ -397,6 +397,11 @@ impl AutoTypeFixConfig {
 pub struct KoreanConfig {
     /// 한국어 키보드 레이아웃
     pub layout: KoreanLayout,
+    /// 활성 규칙 세트 이름 목록 (자판 프로필 v1 — `docs/plans/LAYOUT_PROFILE_V1.md` §3.5).
+    ///
+    /// - 빈 목록 = 프로필 기본값 사용(각 `rule_sets.<name>.active` 그대로).
+    /// - 비어 있지 않으면 이 이름들만 활성, 나머지는 강제 off.
+    pub active_rule_sets: Vec<String>,
 }
 
 /// 영어 엔진 설정
