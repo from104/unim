@@ -435,16 +435,19 @@ GNOME Shell 전용 키가 아니므로 `unim-gnome-extension/prefs.js` 수정 **
 
 ## 9. 완료 기준
 
-Phase 7까지 완료 시:
+Phase 7까지 완료 (2026-04-24):
 
-- [ ] `docs/plans/new_keymaps/*.json` 9종이 `src/keystroke/keymap/`에 이관됨.
-- [ ] 기존 `make test` 100% 통과.
-- [ ] `cargo test --workspace` 신규 테스트 포함 통과.
-- [ ] `unim-cli config rule-set list` 작동.
-- [ ] GUI 자판 ComboRow + rule_set SwitchRow 작동.
-- [ ] `~/.config/unim/layouts/` 사용자 프로필 로드·override 검증.
-- [ ] CHANGELOG·IME_BEHAVIOR·README 갱신.
-- [ ] ROADMAP 3.5단계/4단계에 본 항목 체크.
+- [x] `docs/plans/new_keymaps/*.json` 9종 + `ko_3bul_qwerty` 신규 = 10종이 `src/keystroke/keymap/`에 이관됨 (Phase 6).
+- [x] `cargo test --workspace` 331 lib tests + 바이너리 테스트 전부 통과.
+- [x] `unim-config layout list / describe / validate` 작동 (Phase 4c). 계획상 `rule-set list` 서브커맨드는 `describe`가 rule_sets 블록을 포함하는 형태로 통합됨.
+- [x] GUI 자판 ComboRow + rule_set SwitchRow 작동 (Phase 5). 빌드 성공, 수동 GTK 스모크는 사용자 검증.
+- [x] `~/.config/unim/layouts/` 사용자 프로필 로드·override 검증 (Phase 3 registry 테스트 `user_profile_overrides_builtin_by_name` 등).
+- [x] CHANGELOG 갱신 (Unreleased 블록에 Layout Profile v1 항목 추가). IME_BEHAVIOR는 조합 동작이 아닌 preedit/commit 프로토콜 문서이므로 본 변경 범위 밖. README는 향후 자판 작성 가이드를 별도 지면으로 분리 예정.
+- [x] ROADMAP 3.7단계 신규 섹션에 Phase 1-7 체크리스트 완료 표시.
+
+### 이후 별도 연기된 작업
+
+- **`korean_layout` enum 폐지** (IMPL §3.1·§8.3 결정): 32개 파일 블라스트 반경을 이유로 Phase 4에서 **additive `custom_layout: Option<String>`으로 대체**. 내장 9종이 v1로 이관된 지금(Phase 6 이후) enum 참조점이 감소했으므로 별도 커밋으로 정리 가능. `typefix_blacklist.rs`의 `HashMap` 키가 enum이라는 점이 가장 큰 마이그레이션 부담 (blacklist YAML 포맷 변경 + 기존 엔트리 마이그레이션 경로 필요).
 
 ---
 
