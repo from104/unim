@@ -1,8 +1,11 @@
-//! 내장 자판 프로필 9종 — v0 JSON을 `include_str!`로 컴파일 시 임베드.
+//! 내장 자판 프로필 10종 — v1 자기 완결 JSON을 `include_str!`로 컴파일 시 임베드.
 //!
-//! Phase 6에서 `docs/plans/new_keymaps/*.json` 드래프트가 이 위치로 이관되어
-//! v1 자기 완결 프로필로 대체된다. 그 시점까지는 기존 v0 포맷 그대로 로드되며,
-//! `LayoutProfile::from_raw`의 v0 자동 승격 경로를 거친다.
+//! Phase 6 이관 완료(2026-04-23): `docs/plans/new_keymaps/*.json` 드래프트가
+//! `src/keystroke/keymap/`로 옮겨지고 schema_version=1 자기 완결 포맷으로 대체됨.
+//! 기존 v0 fallback 경로(`build_combined_jamo_map`의 `None` 분기)는 사용자가
+//! 직접 작성한 자체 v0 JSON을 위해서만 남는다.
+//!
+//! 추가 내장: `ko_3bul_qwerty` (쿼티형 세벌식 초안, 10번째).
 
 /// 영어 QWERTY.
 pub const EN_QWERTY: &str = include_str!("../keymap/en_qwerty.json");
@@ -22,9 +25,11 @@ pub const KO_3BUL390: &str = include_str!("../keymap/ko_3bul390.json");
 pub const KO_3BUL391: &str = include_str!("../keymap/ko_3bul391.json");
 /// 한국어 세벌식 순아래(noshift).
 pub const KO_3BUL_NOSHIFT: &str = include_str!("../keymap/ko_3bul_noshift.json");
+/// 한국어 쿼티형 세벌식 (Phase 6 신규 내장).
+pub const KO_3BUL_QWERTY: &str = include_str!("../keymap/ko_3bul_qwerty.json");
 
 /// 내장 프로필 정식 이름 목록 (로더 조회·CLI `layout list`용).
-pub const BUILTIN_NAMES: [&str; 9] = [
+pub const BUILTIN_NAMES: [&str; 10] = [
     "en_qwerty",
     "en_dvorak",
     "en_colemak",
@@ -34,6 +39,7 @@ pub const BUILTIN_NAMES: [&str; 9] = [
     "ko_3bul390",
     "ko_3bul391",
     "ko_3bul_noshift",
+    "ko_3bul_qwerty",
 ];
 
 /// `name` 또는 `src/keystroke/mod.rs:17-30`의 별칭(`2bul`/`390`/`3bul391` 등)으로
@@ -50,6 +56,7 @@ pub fn get_builtin_json(name: &str) -> Option<&'static str> {
         "ko_3bul390" | "3bul390" | "390" => Some(KO_3BUL390),
         "ko_3bul391" | "3bul391" | "391" => Some(KO_3BUL391),
         "ko_3bul_noshift" | "3bul_noshift" | "noshift" => Some(KO_3BUL_NOSHIFT),
+        "ko_3bul_qwerty" | "3bul_qwerty" => Some(KO_3BUL_QWERTY),
         _ => None,
     }
 }
@@ -73,6 +80,10 @@ mod tests {
         assert_eq!(get_builtin_json("2bul"), get_builtin_json("ko_2bulstd"));
         assert_eq!(get_builtin_json("390"), get_builtin_json("ko_3bul390"));
         assert_eq!(get_builtin_json("noshift"), get_builtin_json("ko_3bul_noshift"));
+        assert_eq!(
+            get_builtin_json("3bul_qwerty"),
+            get_builtin_json("ko_3bul_qwerty")
+        );
     }
 
     #[test]

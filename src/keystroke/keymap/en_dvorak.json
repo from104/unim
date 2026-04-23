@@ -1,18 +1,27 @@
 {
-  "language":"english",
-  "name":"dvorak",
-  "type":"dvorak",
-  "layout":{
-    "upper":{
-      "1st": ["~","!","@","#","$","%","^","&","*","(",")","{","}","|"],  
-      "2nd": ["\"","<",">","P","Y","F","G","C","R","L","?","+"],
-      "3nd": ["A","O","E","U","I","D","H","T","N","S","_"],
-      "4th": [":","Q","J","K","X","B","M","W","V","Z"]
+  "schema_version": 1,
+  "language": "english",
+  "name": "dvorak",
+  "type": "dvorak",
+  "metadata": {
+    "display_name": "Dvorak",
+    "author": "August Dvorak · William Dealey (1936)",
+    "description": "Dvorak Simplified Keyboard — vowels on the home row, most common consonants on the right.",
+    "version": "1.0",
+    "tags": ["english", "alt"]
+  },
+  "layout": {
+    "upper": {
+      "1st": ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "{", "}", "|"],
+      "2nd": ["\"", "<", ">", "P", "Y", "F", "G", "C", "R", "L", "?", "+"],
+      "3nd": ["A", "O", "E", "U", "I", "D", "H", "T", "N", "S", "_"],
+      "4th": [":", "Q", "J", "K", "X", "B", "M", "W", "V", "Z"]
     },
-    "lower":{
-      "1st": ["`","1","2","3","4","5","6","7","8","9","0","[","]","\\"],
-      "2nd": ["'",",",".","p","y","f","g","c","r","l","/","="],
-      "3nd": ["a","o","e","u","i","d","h","t","n","s","-"],
-      "4th": [";","q","j","k","x","b","m","w","v","z"]
+    "lower": {
+      "1st": ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "[", "]", "\\"],
+      "2nd": ["'", ",", ".", "p", "y", "f", "g", "c", "r", "l", "/", "="],
+      "3nd": ["a", "o", "e", "u", "i", "d", "h", "t", "n", "s", "-"],
+      "4th": [";", "q", "j", "k", "x", "b", "m", "w", "v", "z"]
     }
-  }}
+  }
+}

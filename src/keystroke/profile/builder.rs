@@ -339,23 +339,25 @@ mod tests {
     use crate::keystroke::profile::loader::load_builtin_profile;
 
     #[test]
-    fn v0_builtin_2bul_matches_static() {
+    fn builtin_2bul_matches_static() {
+        // Phase 6: v1 JSON combinations 경로로도 Rust 정적 테이블과 동일 결과.
         let profile = load_builtin_profile("ko_2bulstd").unwrap();
         let map = build_combined_jamo_map(&profile).unwrap();
         assert_eq!(
             map, *COMBINED_JAMO_2BUL,
-            "v0 2bul fallback은 기존 정적 테이블과 완전 일치해야 함"
+            "ko_2bulstd v1 JSON은 기존 정적 테이블과 완전 일치해야 함"
         );
     }
 
     #[test]
-    fn v0_builtin_3bul_matches_static() {
+    fn builtin_3bul_matches_static() {
+        // ko_3bul_qwerty는 고유 조합이라 제외 (쿼티형 세벌식은 base와 다름).
         for name in &["ko_3bul390", "ko_3bul391", "ko_3bul_noshift"] {
             let profile = load_builtin_profile(name).unwrap();
             let map = build_combined_jamo_map(&profile).unwrap();
             assert_eq!(
                 map, *COMBINED_JAMO_3BUL,
-                "{name}: v0 3bul fallback은 기존 정적 테이블과 일치해야 함"
+                "{name}: v1 3bul JSON은 기존 정적 테이블과 일치해야 함"
             );
         }
     }

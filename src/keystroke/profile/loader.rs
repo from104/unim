@@ -65,23 +65,29 @@ mod tests {
     use crate::keystroke::profile::builtin::BUILTIN_NAMES;
 
     #[test]
-    fn loads_all_builtin_profiles_as_v0() {
+    fn loads_all_builtin_profiles_as_v1() {
+        // Phase 6 이관 후: 모든 내장 프로필은 v1 포맷 (영문 계열은 combinations 없음).
         for name in BUILTIN_NAMES {
             let profile = load_builtin_profile(name)
                 .unwrap_or_else(|e| panic!("failed to load builtin {name}: {e}"));
             assert_eq!(
-                profile.schema_version, 0,
-                "{name}: 현 내장 9종은 모두 v0 포맷 — Phase 6에서 v1으로 이관 예정"
+                profile.schema_version, 1,
+                "{name}: Phase 6 이관 후 모든 내장은 v1 포맷"
             );
-            assert!(
-                profile.combinations.is_none(),
-                "{name}: v0 프로필은 combinations=None(Rust const fallback 경로)"
-            );
-            assert!(
-                profile.rule_sets.is_empty(),
-                "{name}: v0 프로필은 rule_sets 없음"
-            );
-            assert_eq!(profile.name.is_empty(), false, "{name}: name 필드 있어야 함");
+            assert!(!profile.name.is_empty(), "{name}: name 필드 있어야 함");
+
+            // 한국어 내장은 자기 완결 combinations 필수. 영문 계열은 jamo 조합 없음.
+            if profile.language == "korean" {
+                assert!(
+                    profile.combinations.is_some(),
+                    "{name}: 한국어 내장은 combinations 필요"
+                );
+            } else {
+                assert!(
+                    profile.combinations.is_none(),
+                    "{name}: 영문 내장은 combinations 없음"
+                );
+            }
         }
     }
 
