@@ -384,11 +384,11 @@ fn parse_korean_layout(raw: &str) -> Option<KoreanLayout> {
 
 fn parse_english_layout(raw: &str) -> Option<EnglishLayout> {
     match strip_quotes(raw) {
-        "qwerty" => Some(EnglishLayout::Qwerty),
-        "dvorak" => Some(EnglishLayout::Dvorak),
-        "colemak" => Some(EnglishLayout::Colemak),
-        "colemak_dh" => Some(EnglishLayout::ColemakDh),
-        "workman" => Some(EnglishLayout::Workman),
+        "qwerty" => Some("qwerty".to_string()),
+        "dvorak" => Some("dvorak".to_string()),
+        "colemak" => Some("colemak".to_string()),
+        "colemak_dh" => Some("colemak_dh".to_string()),
+        "workman" => Some("workman".to_string()),
         _ => None,
     }
 }
@@ -475,7 +475,7 @@ mod tests {
             parse_korean_layout("'3bul390'"),
             Some("ko_3bul390".to_string())
         );
-        assert_eq!(parse_english_layout("'dvorak'"), Some(EnglishLayout::Dvorak));
+        assert_eq!(parse_english_layout("'dvorak'"), Some("dvorak".to_string()));
         assert_eq!(
             parse_input_category("'Korean'"),
             Some(InputCategory::Korean)
@@ -517,7 +517,7 @@ mod tests {
         assert_eq!(applied, 13);
 
         assert_eq!(config.engine.korean.layout, "ko_3bul390");
-        assert_eq!(config.engine.english.layout, EnglishLayout::Dvorak);
+        assert_eq!(config.engine.english.layout, "dvorak");
         assert_eq!(config.engine.default_category, InputCategory::Korean);
         assert_eq!(config.engine.mode_sharing, ModeSharingMode::PerApp);
         assert_eq!(config.engine.popup_mode, PopupMode::Embedded);
@@ -563,7 +563,7 @@ mod tests {
             config.engine.auto_typefix.reverse_time_window_ms, 4500,
             "사용자 값 보존"
         );
-        assert_eq!(config.engine.english.layout, EnglishLayout::Colemak);
+        assert_eq!(config.engine.english.layout, "colemak");
     }
 
     #[test]
@@ -591,7 +591,7 @@ mod tests {
         let applied = apply_migration(&mut config, &default_config, &reader);
         assert_eq!(applied, 1);
         assert_eq!(config.engine.korean.layout, default_config.engine.korean.layout);
-        assert_eq!(config.engine.english.layout, EnglishLayout::Workman);
+        assert_eq!(config.engine.english.layout, "workman");
     }
 
     #[test]

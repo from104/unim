@@ -37,15 +37,12 @@ typedef enum {
  */
 
 /**
- * English keyboard layout
+ * Note (Phase 9): UnimEnglishLayout enum was removed. English layout is now a
+ * profile-name string (e.g., "qwerty", "dvorak", "colemak", "colemak_dh",
+ * "workman"). Legacy enum names ("Qwerty" etc.) are auto-promoted.
+ *
+ * Setters/getters now take/return C strings.
  */
-typedef enum {
-    UNIM_ENGLISH_LAYOUT_QWERTY = 0,
-    UNIM_ENGLISH_LAYOUT_DVORAK = 1,
-    UNIM_ENGLISH_LAYOUT_COLEMAK = 2,
-    UNIM_ENGLISH_LAYOUT_COLEMAK_DH = 3,
-    UNIM_ENGLISH_LAYOUT_WORKMAN = 4,
-} UnimEnglishLayout;
 
 /**
  * Mode sharing mode (Global/PerApp)
@@ -158,9 +155,13 @@ bool unim_config_reload(UnimConfig *config);
 bool unim_config_set_korean_layout(UnimConfig *config, const char *layout);
 
 /**
- * Sets the English layout in the configuration.
+ * Sets the English layout profile name in the configuration.
+ *
+ * @param layout Null-terminated UTF-8 profile name (e.g., "qwerty"). Legacy
+ *               enum names ("Qwerty") are auto-promoted.
+ * @return true on success; false on NULL/invalid UTF-8/empty input.
  */
-void unim_config_set_english_layout(UnimConfig *config, UnimEnglishLayout layout);
+bool unim_config_set_english_layout(UnimConfig *config, const char *layout);
 
 /* ============================================
  * Engine Lifecycle
@@ -242,9 +243,12 @@ UnimInputCategory unim_engine_get_input_category(const UnimEngine *engine);
 bool unim_engine_set_korean_layout(UnimEngine *engine, const char *layout);
 
 /**
- * Set the English layout of the engine immediately.
+ * Set the English layout profile of the engine immediately.
+ *
+ * @param layout Null-terminated UTF-8 profile name. See `unim_config_set_english_layout`.
+ * @return true on success; false on NULL/invalid/empty input.
  */
-void unim_engine_set_english_layout(UnimEngine *engine, UnimEnglishLayout layout);
+bool unim_engine_set_english_layout(UnimEngine *engine, const char *layout);
 
 /**
  * Resets the engine state.
@@ -290,9 +294,11 @@ UnimInputResult unim_engine_end_ready(UnimEngine *engine);
 UnimStr unim_config_get_korean_layout(const UnimConfig *config);
 
 /**
- * Gets the current English layout from configuration.
+ * Gets the current English layout profile name from configuration.
+ *
+ * Returned UnimStr references a Rust-owned String; copy the content if you need to keep it.
  */
-UnimEnglishLayout unim_config_get_english_layout(const UnimConfig *config);
+UnimStr unim_config_get_english_layout(const UnimConfig *config);
 
 /**
  * Gets the default (initial) input category.
@@ -376,14 +382,16 @@ UnimStr unim_korean_layout_display_name(size_t index);
 size_t unim_english_layout_count(void);
 
 /**
- * Returns the internal name of an English layout.
+ * Returns the canonical profile name of a built-in English layout by index.
+ * Out-of-range index returns an empty UnimStr.
  */
-UnimStr unim_english_layout_name(UnimEnglishLayout layout);
+UnimStr unim_english_layout_name(size_t index);
 
 /**
- * Returns the display name of an English layout (for UI).
+ * Returns the display name of a built-in English layout by index (for UI).
+ * Returns an empty UnimStr for out-of-range or non-built-in profiles.
  */
-UnimStr unim_english_layout_display_name(UnimEnglishLayout layout);
+UnimStr unim_english_layout_display_name(size_t index);
 
 /**
  * Legacy alias — identical to unim_korean_layout_name(index).
@@ -394,11 +402,12 @@ UnimStr unim_english_layout_display_name(UnimEnglishLayout layout);
 UnimStr unim_korean_layout_at(size_t index);
 
 /**
- * Returns the English layout at the specified index.
+ * Legacy alias — identical to unim_english_layout_name(index).
+ * Kept for ABI continuity after the Phase 9 enum removal.
  * @param index Index (0 to unim_english_layout_count()-1)
- * @return English layout enum value
+ * @return Canonical profile name as UnimStr (empty if out of range)
  */
-UnimEnglishLayout unim_english_layout_at(size_t index);
+UnimStr unim_english_layout_at(size_t index);
 
 /* ============================================
  * Status File Management

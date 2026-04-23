@@ -392,7 +392,7 @@ impl InputMethodService {
         let config = self.config.read().await;
         let value = match key {
             "korean_layout" => config.engine.korean.layout.clone(),
-            "english_layout" => config.engine.english.layout.name().to_string(),
+            "english_layout" => config.engine.english.layout.clone(),
             "default_category" => match config.engine.default_category {
                 InputCategory::Korean => "Korean".to_string(),
                 InputCategory::English => "English".to_string(),
@@ -444,19 +444,16 @@ impl InputMethodService {
                         unim::config::normalize_korean_layout_name(trimmed);
                 }
                 "english_layout" => {
-                    config.engine.english.layout = match value {
-                        "Qwerty" => unim::config::EnglishLayout::Qwerty,
-                        "Dvorak" => unim::config::EnglishLayout::Dvorak,
-                        "Colemak" => unim::config::EnglishLayout::Colemak,
-                        "ColemakDh" => unim::config::EnglishLayout::ColemakDh,
-                        "Workman" => unim::config::EnglishLayout::Workman,
-                        _ => {
-                            return Err(zbus::fdo::Error::InvalidArgs(format!(
-                                "Invalid value: {}",
-                                value
-                            )))
-                        }
-                    };
+                    // Phase 9: 프로필 이름 문자열 직접 수용. 레거시 enum 이름·소문자 별칭
+                    // 모두 normalize_english_layout_name이 정식 이름으로 승격.
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "english_layout cannot be empty".to_string(),
+                        ));
+                    }
+                    config.engine.english.layout =
+                        unim::config::normalize_english_layout_name(trimmed);
                 }
                 "default_category" => {
                     config.engine.default_category = match value {

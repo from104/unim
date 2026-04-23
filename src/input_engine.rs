@@ -225,7 +225,7 @@ impl InputEngine {
             keyboard_map: Some(keyboard_map),
             english_keymap,
             korean_layout: config.engine.korean.layout.clone(),
-            english_layout: config.engine.english.layout,
+            english_layout: config.engine.english.layout.clone(),
             hanja_dict,
             hanja_candidates: Vec::new(),
             hanja_mode: false,
@@ -242,7 +242,10 @@ impl InputEngine {
                 .collect(),
             popup_state: None,
             popup_pending_action: None,
-            top_row_labels: config.engine.english.layout.top_row_labels().to_string(),
+            top_row_labels: crate::config::english_layout_top_row_labels(
+                &config.engine.english.layout,
+            )
+            .to_string(),
             content_purpose: ContentPurpose::Normal,
             surrounding_text: String::new(),
             surrounding_cursor: 0,
@@ -261,7 +264,8 @@ impl InputEngine {
         korean_layout: &KoreanLayout,
         english_layout: &EnglishLayout,
     ) -> HashMap<char, JamoEnum> {
-        let en_json = crate::keystroke::get_keymap_json(english_layout.keymap_name());
+        let en_keymap = crate::config::english_layout_keymap_name(english_layout);
+        let en_json = crate::keystroke::get_keymap_json(&en_keymap);
         let ko_json = crate::keystroke::get_keymap_json(korean_layout);
         let is_three_bul = crate::config::is_sebeolsik_layout(korean_layout);
         crate::keystroke::KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul)
@@ -271,9 +275,10 @@ impl InputEngine {
     ///
     /// # Arguments
     ///
-    /// * `layout` - 영어 키보드 레이아웃
+    /// * `layout` - 영어 키보드 레이아웃 프로필 이름
     fn create_english_keymap(layout: &EnglishLayout) -> EnglishKeymap {
-        let json = crate::keystroke::get_keymap_json(layout.keymap_name());
+        let keymap_file = crate::config::english_layout_keymap_name(layout);
+        let json = crate::keystroke::get_keymap_json(&keymap_file);
         EnglishKeymap::from_json(json)
     }
 
@@ -700,13 +705,13 @@ impl InputEngine {
     pub fn set_english_layout(&mut self, layout: EnglishLayout) {
         if self.english_layout != layout {
             self.flush_preedit();
-            self.english_layout = layout;
 
             // 한국어 키보드 맵 재생성 (영어 레이아웃과 연동)
             self.keyboard_map = Some(Self::create_keyboard_map(&self.korean_layout, &layout));
 
             // 영어 키맵 재생성
             self.english_keymap = Self::create_english_keymap(&layout);
+            self.english_layout = layout;
         }
     }
 
@@ -1221,7 +1226,7 @@ impl InputEngine {
         }
 
         let korean_layout = self.korean_layout.as_str();
-        let english_layout = self.english_layout;
+        let english_layout = self.english_layout.as_str();
 
         // 자동 감지 + 변환
         let (replacement, target_mode) = match direction {
@@ -1601,10 +1606,10 @@ mod tests {
     #[test]
     fn test_set_english_layout_dvorak() {
         let mut config = Config::default();
-        config.engine.english.layout = EnglishLayout::Dvorak;
+        config.engine.english.layout = "dvorak".to_string();
 
         let engine = InputEngine::new(&config);
-        assert_eq!(engine.english_layout, EnglishLayout::Dvorak);
+        assert_eq!(engine.english_layout, "dvorak");
     }
 
     // === 한/영 전환 중 조합 커밋 테스트 ===

@@ -13,7 +13,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 
 use unim::config::{
-    Config, EnglishLayout, InputCategory, ModeSharingMode, PopupMode,
+    Config, InputCategory, ModeSharingMode, PopupMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -429,17 +429,18 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     }
     group.add(&kor_row);
 
-    // 영어 자판
+    // 영어 자판 — Phase 9에서 enum 폐지 후 내장 5종 + 사용자 프로필 가능 (현재는 내장만 표시).
     let eng_row = adw::ComboRow::builder().title("영어 자판").build();
-    let eng_items: Vec<&str> = EnglishLayout::all()
+    let eng_builtins: Vec<&str> = unim::config::ENGLISH_LAYOUT_BUILTINS.to_vec();
+    let eng_items: Vec<&str> = eng_builtins
         .iter()
-        .map(|l| l.display_name())
+        .map(|l| unim::config::english_layout_display_name(l))
         .collect();
     let eng_list = gtk4::StringList::new(&eng_items);
     eng_row.set_model(Some(&eng_list));
     {
         let s = state.borrow();
-        if let Some(idx) = EnglishLayout::all()
+        if let Some(idx) = eng_builtins
             .iter()
             .position(|l| *l == s.config.engine.english.layout)
         {
@@ -448,13 +449,14 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     }
     {
         let state_c = state.clone();
+        let builtins = eng_builtins.clone();
         eng_row.connect_selected_notify(move |row| {
             let mut s = state_c.borrow_mut();
             if s.updating {
                 return;
             }
-            if let Some(layout) = EnglishLayout::all().get(row.selected() as usize) {
-                s.config.engine.english.layout = *layout;
+            if let Some(layout) = builtins.get(row.selected() as usize) {
+                s.config.engine.english.layout = (*layout).to_string();
                 save_and_notify(&s.config, "english_layout");
             }
         });
@@ -1244,7 +1246,7 @@ fn build_blacklist_row(
     let hangul_form = unim::typefix::eng_to_kor(
         &entry.ascii,
         &entry.korean_layout,
-        entry.english_layout,
+        &entry.english_layout,
     );
 
     // 방향별 주/부 표시 규칙:
@@ -1260,7 +1262,7 @@ fn build_blacklist_row(
         counterpart,
         direction_label(entry.direction),
         unim::config::korean_layout_display_name(&entry.korean_layout),
-        entry.english_layout.display_name(),
+        unim::config::english_layout_display_name(&entry.english_layout),
         entry.hit_count,
     );
 
