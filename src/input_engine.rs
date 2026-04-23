@@ -203,7 +203,7 @@ impl InputEngine {
     ///
     /// * `config` - 엔진 설정
     pub fn new(config: &Config) -> Self {
-        let composer_type = if config.engine.korean.layout.is_sebeolsik() {
+        let composer_type = if crate::config::is_sebeolsik_layout(&config.engine.korean.layout) {
             ComposerType::ThreeBul
         } else {
             ComposerType::TwoBul
@@ -224,7 +224,7 @@ impl InputEngine {
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
             english_keymap,
-            korean_layout: config.engine.korean.layout,
+            korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout,
             hanja_dict,
             hanja_candidates: Vec::new(),
@@ -262,8 +262,8 @@ impl InputEngine {
         english_layout: &EnglishLayout,
     ) -> HashMap<char, JamoEnum> {
         let en_json = crate::keystroke::get_keymap_json(english_layout.keymap_name());
-        let ko_json = crate::keystroke::get_keymap_json(korean_layout.name());
-        let is_three_bul = korean_layout.is_sebeolsik();
+        let ko_json = crate::keystroke::get_keymap_json(korean_layout);
+        let is_three_bul = crate::config::is_sebeolsik_layout(korean_layout);
         crate::keystroke::KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul)
     }
 
@@ -679,18 +679,18 @@ impl InputEngine {
     pub fn set_korean_layout(&mut self, layout: KoreanLayout) {
         if self.korean_layout != layout {
             self.flush_preedit();
-            self.korean_layout = layout;
 
             // 키보드 맵 업데이트
             self.keyboard_map = Some(Self::create_keyboard_map(&layout, &self.english_layout));
 
             // 컨텍스트 업데이트
-            let composer_type = if layout.is_sebeolsik() {
+            let composer_type = if crate::config::is_sebeolsik_layout(&layout) {
                 ComposerType::ThreeBul
             } else {
                 ComposerType::TwoBul
             };
             self.korean_context = HangulInputContext::new(composer_type);
+            self.korean_layout = layout;
         }
     }
 
@@ -1220,7 +1220,7 @@ impl InputEngine {
             return None;
         }
 
-        let korean_layout = self.korean_layout;
+        let korean_layout = self.korean_layout.as_str();
         let english_layout = self.english_layout;
 
         // 자동 감지 + 변환
@@ -1592,10 +1592,10 @@ mod tests {
     #[test]
     fn test_set_korean_layout() {
         let mut config = Config::default();
-        config.engine.korean.layout = KoreanLayout::Sebeolsik390;
+        config.engine.korean.layout = "ko_3bul390".to_string();
 
         let engine = InputEngine::new(&config);
-        assert_eq!(engine.korean_layout, KoreanLayout::Sebeolsik390);
+        assert_eq!(engine.korean_layout, "ko_3bul390");
     }
 
     #[test]

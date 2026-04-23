@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`KoreanLayout` enum removed (Phase 8)**: The Korean layout field is now a plain profile-name string (`KoreanLayout` is a public `String` type alias). `korean.layout` can hold any built-in (`ko_2bulstd`, `ko_3bul390`, `ko_3bul391`, `ko_3bul_noshift`, `ko_3bul_qwerty`) or a user profile name. Legacy `custom_layout: Option<String>` field is gone — merged into `layout`. Backward compat:
+  - Existing `~/.config/unim/config.yaml` with `layout: Dubeolsik` (or `Sebeolsik390` / `2bul` / `390` etc.) is auto-normalized on load via a serde `from` compat layer that also absorbs the Phase 4b `custom_layout` override.
+  - `~/.config/unim/typefix-blacklist.yaml` entries with `korean_layout: Dubeolsik` are similarly promoted via `deserialize_with`.
+  - DBus key `korean_custom_layout` still works; it now sets `korean.layout` directly (empty value resets to `ko_2bulstd`).
+  - C API (`unim-capi`): `unim_config_set_korean_layout` and `unim_engine_set_korean_layout` now take `const char *layout`; `unim_config_get_korean_layout` returns `UnimStr`; `unim_korean_layout_{name,display_name,at}` take a `size_t` index and enumerate all five built-ins (including the new `ko_3bul_qwerty`).
+  - GUI ComboRow already used profile names since Phase 5 so user-visible behavior is unchanged.
+
 ### Added
 - **Debian packaging — split into 9 binary packages** (`debian/control`): `unim-common` (core + daemon + CLI + libunim_capi), `unim-im-gtk` (GTK3/4 IM modules), `unim-im-qt` (Qt5/6 plugins), `unim-xim`, `unim-wayland`, `unim-gui-gtk`, `unim-gui-qt`, `unim-gnome` (Shell extension, depends on `unim-gui-gtk`), and the `unim` meta-package pulling in the full stack. Power users pick only what they need; `apt install unim` still gives everyone the previous one-shot install experience. Frontends coexist — `unim-gui-gtk` and `unim-gui-qt` do not conflict.
 - **Layout Profile v1 (spec + engine + config + CLI + GUI)**: Built-in keyboard layouts are now self-contained v1 JSON profiles (`src/keystroke/keymap/*.json`), replacing the hybrid Rust-const + partial JSON path. New capabilities:

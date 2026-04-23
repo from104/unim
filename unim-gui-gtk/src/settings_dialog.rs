@@ -13,7 +13,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 
 use unim::config::{
-    Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode, PopupMode,
+    Config, EnglishLayout, InputCategory, ModeSharingMode, PopupMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -254,28 +254,12 @@ fn collect_korean_profile_choices() -> Vec<(String, String)> {
 
 /// 선택된 프로필 이름을 Config에 반영한다.
 ///
-/// - 이름이 내장 4종 별칭(2bul/3bul390/3bul391/3bul_noshift) 중 하나면
-///   `korean.layout` enum을 업데이트하고 `custom_layout`은 비운다.
-/// - 아니면 `custom_layout = Some(name)`으로 저장 (enum은 유지, 영향 없음).
+/// Phase 8: `korean.layout`이 enum → String으로 통합되어 별칭 분기 불필요.
+/// 레거시 값은 `normalize_korean_layout_name`이 정식 이름으로 승격.
 ///
 /// 새 프로필에 정의되지 않은 `active_rule_sets` 이름은 silently drop (§3.5).
 fn apply_korean_profile_choice(config: &mut Config, name: &str, new_profile: &LayoutProfile) {
-    let enum_match = match name {
-        "ko_2bulstd" => Some(KoreanLayout::Dubeolsik),
-        "ko_3bul390" => Some(KoreanLayout::Sebeolsik390),
-        "ko_3bul391" => Some(KoreanLayout::Sebeolsik391),
-        "ko_3bul_noshift" => Some(KoreanLayout::SebeolsikNoShift),
-        _ => None,
-    };
-    match enum_match {
-        Some(layout) => {
-            config.engine.korean.layout = layout;
-            config.engine.korean.custom_layout = None;
-        }
-        None => {
-            config.engine.korean.custom_layout = Some(name.to_string());
-        }
-    }
+    config.engine.korean.layout = unim::config::normalize_korean_layout_name(name);
     // 새 프로필에 없는 rule_set 이름 드롭.
     config
         .engine
@@ -1259,7 +1243,7 @@ fn build_blacklist_row(
     // 순방향: ASCII가 영어 타이핑(예: "gksrmf") → eng_to_kor 하면 의도한 한글(예: "한글").
     let hangul_form = unim::typefix::eng_to_kor(
         &entry.ascii,
-        entry.korean_layout,
+        &entry.korean_layout,
         entry.english_layout,
     );
 
@@ -1275,7 +1259,7 @@ fn build_blacklist_row(
         "{} · {} · 한글:{} · 영문:{} · 히트:{}",
         counterpart,
         direction_label(entry.direction),
-        entry.korean_layout.display_name(),
+        unim::config::korean_layout_display_name(&entry.korean_layout),
         entry.english_layout.display_name(),
         entry.hit_count,
     );
