@@ -3,7 +3,7 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use rust_i18n::t;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use unim::config::{
     english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
@@ -20,6 +20,9 @@ use unim::hangul::composer_with_3bul::HangulComposer3Bul;
 use unim::keystroke::keyboard_map::KeyboardMap;
 use unim::keystroke::keystrokes_to_korean::keystrokes_to_korean;
 use unim::keystroke::korean_to_keystrokes::korean_to_keystrokes;
+use unim::keystroke::profile::{
+    build_combined_jamo_map, parse_profile_str, resolve_inherits, ProfileRegistry,
+};
 use unim::unim_log;
 
 rust_i18n::i18n!("locales");
@@ -88,6 +91,29 @@ enum ConfigCommands {
     Reset,
     /// 인터렉티브 설정 모드 시작
     Interactive,
+    /// 자판 프로필 조회·검증 (Layout Profile v1)
+    Layout {
+        #[command(subcommand)]
+        action: LayoutAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum LayoutAction {
+    /// 내장 + 사용자 디렉토리의 프로필 이름 목록 표시
+    List,
+    /// 특정 프로필의 metadata·조합 규칙·rule_set 개요 표시
+    Describe {
+        /// 프로필 이름 (내장 별칭 또는 사용자 프로필 name)
+        name: String,
+    },
+    /// 프로필 파일 스키마·자모 해석·rule_set 일관성 검사
+    ///
+    /// exit code: 0=통과, 1=경고만, 2=오류
+    Validate {
+        /// 검사할 JSON 파일 경로
+        file: PathBuf,
+    },
 }
 
 /// 한국어 자판 모드 (변환용)
@@ -142,6 +168,9 @@ enum ConfigKey {
     /// 영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)
     #[value(name = "english-layout")]
     EnglishLayout,
+    /// 한국어 자판 활성 규칙 세트 (쉼표 구분, 빈 문자열 = 프로필 기본값 사용)
+    #[value(name = "korean-active-rule-sets")]
+    KoreanActiveRuleSets,
     /// 초기 입력 모드 (korean, english)
     #[value(name = "default-category")]
     DefaultCategory,
@@ -415,6 +444,15 @@ fn config_show() {
         korean_name,
         config.engine.korean.layout
     );
+    {
+        let arr = &config.engine.korean.active_rule_sets;
+        let display = if arr.is_empty() {
+            t!("profile_default").to_string()
+        } else {
+            arr.join(", ")
+        };
+        println!("{}: {}", t!("korean_active_rule_sets_label"), display);
+    }
     println!(
         "{}: {} ({})",
         t!("english_layout_label"),
@@ -526,6 +564,21 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("layout_changed", kind = kind, layout = normalized.as_str())
             );
             config.engine.english.layout = normalized;
+        }
+        ConfigKey::KoreanActiveRuleSets => {
+            // 빈 문자열 허용 → 빈 Vec = 프로필 기본값 사용 (§3.1).
+            let names: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let display = if names.is_empty() {
+                t!("profile_default").to_string()
+            } else {
+                names.join(", ")
+            };
+            config.engine.korean.active_rule_sets = names;
+            println!("{}: {}", t!("korean_active_rule_sets_label"), display);
         }
         ConfigKey::DefaultCategory => {
             let category = match value.to_lowercase().as_str() {
@@ -1001,10 +1054,262 @@ fn handle_config(command: Option<ConfigCommands>) {
             }
         }
         Some(ConfigCommands::Interactive) => config_interactive(),
+        Some(ConfigCommands::Layout { action }) => match action {
+            LayoutAction::List => layout_list(),
+            LayoutAction::Describe { name } => layout_describe(&name),
+            LayoutAction::Validate { file } => {
+                let code = layout_validate(&file);
+                process::exit(code);
+            }
+        },
         None => {
             config_show();
             println!("\n{}", t!("help_hint"));
         }
+    }
+}
+
+// ============================================================================
+// Layout 서브커맨드 (자판 프로필 관리)
+// ============================================================================
+
+fn layout_list() {
+    let reg = ProfileRegistry::new();
+    let names = reg.list_names();
+
+    println!("{}", t!("layout_list_title"));
+    if let Some(dir) = reg.user_dir() {
+        println!("  {}: {}", t!("layout_user_dir_label"), dir.display());
+    }
+    println!();
+
+    let locale = rust_i18n::locale().to_string();
+    for name in &names {
+        let source_label = if reg.is_user_override(name) {
+            t!("layout_source_user")
+        } else {
+            t!("layout_source_builtin")
+        };
+        let display = reg
+            .find_raw(name)
+            .map(|p| {
+                let dn = p
+                    .metadata
+                    .display_name
+                    .as_ref()
+                    .map(|d| d.resolve(&locale).to_string())
+                    .unwrap_or_else(|| name.clone());
+                format!("{dn} [{}]", p.layout_type)
+            })
+            .unwrap_or_else(|| name.clone());
+
+        println!("  [{}] {:<20} {}", source_label, name, display);
+    }
+    println!();
+    println!("{}: {}", t!("layout_total_label"), names.len());
+}
+
+fn layout_describe(name: &str) {
+    let reg = ProfileRegistry::new();
+    let raw = match reg.find_raw(name) {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "{}: {}",
+                t!("error_label"),
+                t!("layout_not_found", name = name)
+            );
+            process::exit(1);
+        }
+    };
+
+    let profile = match resolve_inherits(&raw, &reg) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "{}: {}",
+                t!("error_label"),
+                t!("layout_resolve_failed", err = e.to_string())
+            );
+            process::exit(2);
+        }
+    };
+
+    println!("{}: {}", t!("layout_name_label"), profile.name);
+    println!("{}: v{}", t!("layout_schema_label"), profile.schema_version);
+    println!("{}: {}", t!("layout_type_label"), profile.layout_type);
+    println!("{}: {}", t!("layout_language_label"), profile.language);
+
+    let locale = rust_i18n::locale().to_string();
+    if let Some(dn) = profile.metadata.display_name.as_ref() {
+        println!(
+            "{}: {}",
+            t!("layout_display_name_label"),
+            dn.resolve(&locale)
+        );
+    }
+    if let Some(author) = profile.metadata.author.as_deref() {
+        println!("{}: {}", t!("layout_author_label"), author);
+    }
+    if let Some(ver) = profile.metadata.version.as_deref() {
+        println!("{}: {}", t!("layout_version_label"), ver);
+    }
+    if let Some(license) = profile.metadata.license.as_deref() {
+        println!("{}: {}", t!("layout_license_label"), license);
+    }
+    if let Some(desc) = profile.metadata.description.as_ref() {
+        println!(
+            "{}: {}",
+            t!("layout_description_label"),
+            desc.resolve(&locale)
+        );
+    }
+    if !profile.metadata.tags.is_empty() {
+        println!(
+            "{}: {}",
+            t!("layout_tags_label"),
+            profile.metadata.tags.join(", ")
+        );
+    }
+
+    println!();
+    if let Some(combos) = profile.combinations.as_ref() {
+        println!(
+            "{}: cho {}, jung {}, jong {}",
+            t!("layout_combinations_label"),
+            combos.cho.len(),
+            combos.jung.len(),
+            combos.jong.len()
+        );
+    } else {
+        println!(
+            "{}: {}",
+            t!("layout_combinations_label"),
+            t!("layout_combinations_fallback")
+        );
+    }
+
+    if profile.rule_sets.is_empty() {
+        println!("{}: {}", t!("layout_rule_sets_label"), t!("not_set"));
+    } else {
+        println!("{}:", t!("layout_rule_sets_label"));
+        for (set_name, rs) in &profile.rule_sets {
+            let active_mark = if rs.active { "✓" } else { "·" };
+            let desc = rs
+                .description
+                .as_ref()
+                .map(|d| format!(" — {}", d.resolve(&locale)))
+                .unwrap_or_default();
+            println!(
+                "  {} {} ({} combinations){}",
+                active_mark,
+                set_name,
+                rs.combinations.len(),
+                desc
+            );
+        }
+    }
+
+    if let Some(active) = profile.active_rule_sets.as_ref() {
+        println!("{}: {}", t!("layout_active_sets_label"), active.join(", "));
+    }
+}
+
+/// Validate result code: 0=ok, 1=warnings only, 2=errors.
+fn layout_validate(file: &std::path::Path) -> i32 {
+    let content = match std::fs::read_to_string(file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "{}: {}",
+                t!("error_label"),
+                t!(
+                    "layout_validate_read_err",
+                    file = file.display().to_string(),
+                    err = e.to_string()
+                )
+            );
+            return 2;
+        }
+    };
+
+    let profile = match parse_profile_str(&content) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "{}: {}",
+                t!("error_label"),
+                t!("layout_validate_parse_err", err = e.to_string())
+            );
+            return 2;
+        }
+    };
+
+    let mut errors: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    let resolved = if profile.inherits.is_some() {
+        let reg = ProfileRegistry::new();
+        match resolve_inherits(&profile, &reg) {
+            Ok(p) => p,
+            Err(e) => {
+                warnings.push(format!("inherits 해석 경고: {e}"));
+                profile.clone()
+            }
+        }
+    } else {
+        profile.clone()
+    };
+
+    if let Err(e) = build_combined_jamo_map(&resolved) {
+        errors.push(format!("combinations 구축 실패: {e:?}"));
+    }
+
+    if let Some(active) = resolved.active_rule_sets.as_ref() {
+        for name in active {
+            if !resolved.rule_sets.contains_key(name) {
+                warnings.push(format!(
+                    "active_rule_sets에 정의되지 않은 이름: '{name}'"
+                ));
+            }
+        }
+    }
+
+    println!("{}: {}", t!("layout_validate_file_label"), file.display());
+    println!(
+        "{}: {} (v{})",
+        t!("layout_name_label"),
+        resolved.name,
+        resolved.schema_version
+    );
+
+    if errors.is_empty() && warnings.is_empty() {
+        println!("{}", t!("layout_validate_ok"));
+        return 0;
+    }
+
+    for w in &warnings {
+        println!("  {} {}", t!("layout_validate_warn_prefix"), w);
+    }
+    for e in &errors {
+        eprintln!("  {} {}", t!("layout_validate_err_prefix"), e);
+    }
+
+    if !errors.is_empty() {
+        eprintln!(
+            "{} ({} errors, {} warnings)",
+            t!("layout_validate_failed"),
+            errors.len(),
+            warnings.len()
+        );
+        2
+    } else {
+        println!(
+            "{} ({} warnings)",
+            t!("layout_validate_warnings_only"),
+            warnings.len()
+        );
+        1
     }
 }
 
