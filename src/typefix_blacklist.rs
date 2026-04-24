@@ -17,7 +17,27 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::config::{EnglishLayout, KoreanLayout};
+use crate::config::{
+    normalize_english_layout_name, normalize_korean_layout_name, EnglishLayout, KoreanLayout,
+};
+
+/// 레거시 enum 변종(`Dubeolsik` 등)·별칭(`2bul` 등)을 정식 이름으로 승격해 저장한다.
+fn deserialize_korean_layout<'de, D>(deserializer: D) -> Result<KoreanLayout, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Ok(normalize_korean_layout_name(&s))
+}
+
+/// 레거시 enum 변종(`Qwerty` 등)을 소문자 내장 이름으로 승격해 저장한다.
+fn deserialize_english_layout<'de, D>(deserializer: D) -> Result<EnglishLayout, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Ok(normalize_english_layout_name(&s))
+}
 
 /// 교정 방향.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,8 +65,8 @@ pub trait BlacklistGate {
         &self,
         ascii: &str,
         direction: Direction,
-        korean_layout: KoreanLayout,
-        english_layout: EnglishLayout,
+        korean_layout: &str,
+        english_layout: &str,
     ) -> bool;
 
     /// 임시(tentative) 엔트리를 등록하거나 기존 엔트리의 hit을 누적한다.
@@ -54,8 +74,8 @@ pub trait BlacklistGate {
         &mut self,
         ascii: &str,
         direction: Direction,
-        korean_layout: KoreanLayout,
-        english_layout: EnglishLayout,
+        korean_layout: &str,
+        english_layout: &str,
     );
 }
 
@@ -64,8 +84,8 @@ impl BlacklistGate for Blacklist {
         &self,
         ascii: &str,
         direction: Direction,
-        korean_layout: KoreanLayout,
-        english_layout: EnglishLayout,
+        korean_layout: &str,
+        english_layout: &str,
     ) -> bool {
         Blacklist::is_suppressed(self, ascii, direction, korean_layout, english_layout)
     }
@@ -74,8 +94,8 @@ impl BlacklistGate for Blacklist {
         &mut self,
         ascii: &str,
         direction: Direction,
-        korean_layout: KoreanLayout,
-        english_layout: EnglishLayout,
+        korean_layout: &str,
+        english_layout: &str,
     ) {
         Blacklist::add_or_hit_tentative(self, ascii, direction, korean_layout, english_layout)
     }
@@ -104,7 +124,11 @@ impl EntryStatus {
 pub struct BlacklistEntry {
     pub ascii: String,
     pub direction: Direction,
+    /// 자판 프로필 이름. 역직렬화 시 레거시 enum 이름·별칭을 정식 이름으로 정규화.
+    #[serde(deserialize_with = "deserialize_korean_layout")]
     pub korean_layout: KoreanLayout,
+    /// 영문 자판 프로필 이름. 역직렬화 시 레거시 enum 이름을 소문자로 승격.
+    #[serde(deserialize_with = "deserialize_english_layout")]
     pub english_layout: EnglishLayout,
     pub status: EntryStatus,
     /// 최초 관찰 시각 (Unix seconds)
@@ -253,8 +277,8 @@ impl Blacklist {
         &self,
         ascii: &str,
         direction: Direction,
-        kl: KoreanLayout,
-        el: EnglishLayout,
+        kl: &str,
+        el: &str,
     ) -> bool {
         self.entries.iter().any(|e| {
             e.status.is_active()
@@ -269,8 +293,8 @@ impl Blacklist {
         &self,
         ascii: &str,
         direction: Direction,
-        kl: KoreanLayout,
-        el: EnglishLayout,
+        kl: &str,
+        el: &str,
     ) -> Option<usize> {
         self.entries.iter().position(|e| {
             e.direction == direction
@@ -286,8 +310,8 @@ impl Blacklist {
         &mut self,
         ascii: &str,
         direction: Direction,
-        kl: KoreanLayout,
-        el: EnglishLayout,
+        kl: &str,
+        el: &str,
     ) {
         let now = now_unix();
         match self.find_idx(ascii, direction, kl, el) {
@@ -303,8 +327,8 @@ impl Blacklist {
             None => self.entries.push(BlacklistEntry {
                 ascii: ascii.to_string(),
                 direction,
-                korean_layout: kl,
-                english_layout: el,
+                korean_layout: kl.to_string(),
+                english_layout: el.to_string(),
                 status: EntryStatus::Tentative,
                 observed_at: now,
                 last_seen_at: now,
@@ -375,8 +399,8 @@ mod tests {
         BlacklistEntry {
             ascii: ascii.to_string(),
             direction: Direction::Forward,
-            korean_layout: KoreanLayout::Dubeolsik,
-            english_layout: EnglishLayout::Qwerty,
+            korean_layout: "ko_2bulstd".to_string(),
+            english_layout: "qwerty".to_string(),
             status,
             observed_at,
             last_seen_at: observed_at,
@@ -391,29 +415,29 @@ mod tests {
         bl.entries.push(sample_entry("world", EntryStatus::Confirmed, 0));
         bl.entries.push(sample_entry("inactive", EntryStatus::Inactive, 0));
 
-        assert!(bl.is_suppressed("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty));
-        assert!(bl.is_suppressed("world", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty));
-        assert!(!bl.is_suppressed("inactive", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty));
+        assert!(bl.is_suppressed("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty"));
+        assert!(bl.is_suppressed("world", Direction::Forward, "ko_2bulstd", "qwerty"));
+        assert!(!bl.is_suppressed("inactive", Direction::Forward, "ko_2bulstd", "qwerty"));
         // 다른 방향/레이아웃은 매칭 안 됨
-        assert!(!bl.is_suppressed("gksrmf", Direction::Reverse, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty));
-        assert!(!bl.is_suppressed("gksrmf", Direction::Forward, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty));
-        assert!(!bl.is_suppressed("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak));
+        assert!(!bl.is_suppressed("gksrmf", Direction::Reverse, "ko_2bulstd", "qwerty"));
+        assert!(!bl.is_suppressed("gksrmf", Direction::Forward, "ko_3bul390", "qwerty"));
+        assert!(!bl.is_suppressed("gksrmf", Direction::Forward, "ko_2bulstd", "dvorak"));
     }
 
     #[test]
     fn add_or_hit_tentative_creates_and_hits() {
         let mut bl = Blacklist::default();
-        bl.add_or_hit_tentative("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
         assert_eq!(bl.entries.len(), 1);
         assert_eq!(bl.entries[0].hit_count, 1);
         assert_eq!(bl.entries[0].status, EntryStatus::Tentative);
 
-        bl.add_or_hit_tentative("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
         assert_eq!(bl.entries.len(), 1, "중복 생성 금지");
         assert_eq!(bl.entries[0].hit_count, 2);
 
         // 다른 방향은 별도 엔트리
-        bl.add_or_hit_tentative("gksrmf", Direction::Reverse, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Reverse, "ko_2bulstd", "qwerty");
         assert_eq!(bl.entries.len(), 2);
     }
 
@@ -421,7 +445,7 @@ mod tests {
     fn add_or_hit_revives_inactive() {
         let mut bl = Blacklist::default();
         bl.entries.push(sample_entry("gksrmf", EntryStatus::Inactive, 0));
-        bl.add_or_hit_tentative("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
         assert_eq!(bl.entries.len(), 1);
         assert_eq!(bl.entries[0].status, EntryStatus::Tentative);
     }

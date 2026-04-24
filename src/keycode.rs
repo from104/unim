@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::LazyLock;
 
-use crate::config::EnglishLayout;
 use crate::keystroke::get_keymap_json;
 
 /// 키보드 키코드 열거형
@@ -439,8 +438,9 @@ impl KeyCode {
     /// 지정된 영문 레이아웃에서 이 물리키가 생성하는 문자를 반환한다.
     ///
     /// Qwerty인 경우 기존 to_char()/to_shifted_char()를 직접 호출하여 성능 영향 제로.
-    pub fn to_char_for_layout(&self, layout: EnglishLayout, shifted: bool) -> Option<char> {
-        if layout == EnglishLayout::Qwerty {
+    pub fn to_char_for_layout(&self, layout: &str, shifted: bool) -> Option<char> {
+        let normalized = crate::config::normalize_english_layout_name(layout);
+        if normalized == crate::config::ENGLISH_LAYOUT_QWERTY {
             return if shifted { self.to_shifted_char() } else { self.to_char() };
         }
 
@@ -450,7 +450,7 @@ impl KeyCode {
 
         let (row, col) = self.physical_position()?;
         let tables = &*LAYOUT_TABLES;
-        let rows = tables.get(&layout)?;
+        let rows = tables.get(normalized.as_str())?;
         let row_data = &rows[row];
         if col >= row_data.len() {
             return None;
@@ -777,30 +777,32 @@ impl ModifierState {
 const ROW_NAMES: [&str; 4] = ["1st", "2nd", "3nd", "4th"];
 
 /// 레이아웃별 물리키→문자 매핑 테이블 (JSON 키맵에서 동적 생성).
-/// key: (EnglishLayout, row, col) → value: (lower_char, upper_char)
-static LAYOUT_TABLES: LazyLock<HashMap<EnglishLayout, Vec<Vec<(char, char)>>>> =
+/// key: 영어 프로필 이름 (e.g. "dvorak") → value: rows[row_index][col_index] = (lower, upper)
+static LAYOUT_TABLES: LazyLock<HashMap<String, Vec<Vec<(char, char)>>>> =
     LazyLock::new(|| {
-        let layouts = [
-            EnglishLayout::Dvorak,
-            EnglishLayout::Colemak,
-            EnglishLayout::ColemakDh,
-            EnglishLayout::Workman,
+        // Phase 9: QWERTY 는 to_char/to_shifted_char 빠른 경로로 처리되므로 테이블 불필요.
+        let layouts: &[&str] = &[
+            crate::config::ENGLISH_LAYOUT_DVORAK,
+            crate::config::ENGLISH_LAYOUT_COLEMAK,
+            crate::config::ENGLISH_LAYOUT_COLEMAK_DH,
+            crate::config::ENGLISH_LAYOUT_WORKMAN,
         ];
-        let mut tables = HashMap::new();
+        let mut tables: HashMap<String, Vec<Vec<(char, char)>>> = HashMap::new();
         for layout in layouts {
-            let json_str = get_keymap_json(layout.keymap_name());
+            let keymap_file = crate::config::english_layout_keymap_name(layout);
+            let json_str = get_keymap_json(&keymap_file);
             let json: serde_json::Value = serde_json::from_str(json_str)
-                .unwrap_or_else(|e| panic!("Failed to parse {} keymap: {}", layout.keymap_name(), e));
+                .unwrap_or_else(|e| panic!("Failed to parse {keymap_file} keymap: {e}"));
             let lower = &json["layout"]["lower"];
             let upper = &json["layout"]["upper"];
             let mut rows = Vec::with_capacity(4);
             for row_name in &ROW_NAMES {
-                let lower_row = lower[row_name]
-                    .as_array()
-                    .unwrap_or_else(|| panic!("Missing lower.{} in {}", row_name, layout.keymap_name()));
-                let upper_row = upper[row_name]
-                    .as_array()
-                    .unwrap_or_else(|| panic!("Missing upper.{} in {}", row_name, layout.keymap_name()));
+                let lower_row = lower[row_name].as_array().unwrap_or_else(|| {
+                    panic!("Missing lower.{row_name} in {keymap_file}")
+                });
+                let upper_row = upper[row_name].as_array().unwrap_or_else(|| {
+                    panic!("Missing upper.{row_name} in {keymap_file}")
+                });
                 let pairs: Vec<(char, char)> = lower_row
                     .iter()
                     .zip(upper_row.iter())
@@ -812,7 +814,7 @@ static LAYOUT_TABLES: LazyLock<HashMap<EnglishLayout, Vec<Vec<(char, char)>>>> =
                     .collect();
                 rows.push(pairs);
             }
-            tables.insert(layout, rows);
+            tables.insert((*layout).to_string(), rows);
         }
         tables
     });
@@ -877,7 +879,6 @@ mod tests {
 
     #[test]
     fn test_to_char_for_layout_qwerty_consistency() {
-        use crate::config::EnglishLayout;
         // Qwerty: to_char_for_layout == to_char / to_shifted_char (모든 문자키)
         let all_char_keys = [
             KeyCode::A, KeyCode::B, KeyCode::C, KeyCode::D, KeyCode::E,
@@ -893,12 +894,12 @@ mod tests {
         ];
         for key in all_char_keys {
             assert_eq!(
-                key.to_char_for_layout(EnglishLayout::Qwerty, false),
+                key.to_char_for_layout("qwerty", false),
                 key.to_char(),
                 "Qwerty lower mismatch for {:?}", key
             );
             assert_eq!(
-                key.to_char_for_layout(EnglishLayout::Qwerty, true),
+                key.to_char_for_layout("qwerty", true),
                 key.to_shifted_char(),
                 "Qwerty upper mismatch for {:?}", key
             );
@@ -909,7 +910,6 @@ mod tests {
     /// 모든 비-QWERTY 레이아웃의 모든 물리키를 JSON 원본과 교차 검증한다.
     #[test]
     fn test_to_char_for_layout_all_non_qwerty_vs_json() {
-        use crate::config::EnglishLayout;
         use crate::keystroke::get_keymap_json;
 
         // 물리키 행별 배열 (QWERTY 물리 위치 순서)
@@ -930,14 +930,15 @@ mod tests {
         let row_names = ["1st", "2nd", "3nd", "4th"];
 
         let layouts = [
-            EnglishLayout::Dvorak,
-            EnglishLayout::Colemak,
-            EnglishLayout::ColemakDh,
-            EnglishLayout::Workman,
+            "dvorak",
+            "colemak",
+            "colemak_dh",
+            "workman",
         ];
 
         for layout in layouts {
-            let json_str = get_keymap_json(layout.keymap_name());
+            let keymap_file = crate::config::english_layout_keymap_name(layout);
+            let json_str = get_keymap_json(&keymap_file);
             let json: serde_json::Value = serde_json::from_str(json_str).unwrap();
             let lower_layout = &json["layout"]["lower"];
             let upper_layout = &json["layout"]["upper"];
@@ -970,12 +971,11 @@ mod tests {
 
     #[test]
     fn test_to_char_for_layout_space_all_layouts() {
-        use crate::config::EnglishLayout;
-        for layout in EnglishLayout::all() {
+        for layout in crate::config::ENGLISH_LAYOUT_BUILTINS {
             assert_eq!(
-                KeyCode::Space.to_char_for_layout(*layout, false),
+                KeyCode::Space.to_char_for_layout(layout, false),
                 Some(' '),
-                "Space should be ' ' for {:?}", layout
+                "Space should be ' ' for {layout}"
             );
         }
     }

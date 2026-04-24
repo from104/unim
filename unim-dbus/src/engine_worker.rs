@@ -233,7 +233,7 @@ fn find_retrigger_layouts(
     recent
         .iter()
         .find(|r| r.direction == direction && r.ascii == ascii && rollback_threshold_met(r))
-        .map(|r| (r.korean_layout, r.english_layout))
+        .map(|r| (r.korean_layout.clone(), r.english_layout.clone()))
 }
 
 /// BS / 모드 전환 관찰을 RecentCorrection 플래그에 반영한다. 순서 무관.
@@ -303,8 +303,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             );
             // 기존 엔진들의 레이아웃도 업데이트
             for engine in contexts.values_mut() {
-                engine.set_korean_layout(config.engine.korean.layout);
-                engine.set_english_layout(config.engine.english.layout);
+                engine.set_korean_layout(config.engine.korean.layout.clone());
+                engine.set_english_layout(config.engine.english.layout.clone());
             }
         }
 
@@ -533,8 +533,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     auto_typefix::check_forward(
                                         buf,
                                         atf_config,
-                                        config.engine.korean.layout,
-                                        config.engine.english.layout,
+                                        &config.engine.korean.layout,
+                                        &config.engine.english.layout,
                                         &blacklist,
                                     ),
                                     Direction::Forward,
@@ -543,8 +543,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     auto_typefix::check_reverse(
                                         buf,
                                         atf_config,
-                                        config.engine.korean.layout,
-                                        config.engine.english.layout,
+                                        &config.engine.korean.layout,
+                                        &config.engine.english.layout,
                                         &blacklist,
                                     ),
                                     Direction::Reverse,
@@ -569,7 +569,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     None
                                 };
                                 if let Some((kl, el)) = retrigger_layouts {
-                                    blacklist.add_or_hit_tentative(&key, direction, kl, el);
+                                    blacklist.add_or_hit_tentative(&key, direction, &kl, &el);
                                     if let Err(e) = blacklist.save_to_default_path() {
                                         unim_log!(
                                             "ENGINE_WORKER",
@@ -630,8 +630,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     .push(RecentCorrection {
                                         ascii: suppression_key,
                                         direction,
-                                        korean_layout: config.engine.korean.layout,
-                                        english_layout: config.engine.english.layout,
+                                        korean_layout: config.engine.korean.layout.clone(),
+                                        english_layout: config.engine.english.layout.clone(),
                                         corrected_at: Instant::now(),
                                         erasure_observed: false,
                                         mode_switch_observed: false,
@@ -663,7 +663,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                 // 버퍼 초기화 전에 ascii 미리 캡처
                                 // (역방향의 delete_chars 계산에 사용)
-                                let buf_ascii = buf.to_ascii_string(config.engine.english.layout);
+                                let buf_ascii = buf.to_ascii_string(&config.engine.english.layout);
 
                                 // 교정 후 버퍼 초기화
                                 buf.clear();
@@ -711,8 +711,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     let ascii_before_trigger = &buf_ascii[..buf_ascii.len().saturating_sub(1)];
                                     let kor_sim = unim::typefix::eng_to_kor(
                                         ascii_before_trigger,
-                                        config.engine.korean.layout,
-                                        config.engine.english.layout,
+                                        &config.engine.korean.layout,
+                                        &config.engine.english.layout,
                                     );
                                     // trigger 키 제외 시뮬 결과에서 마지막 글자는 preedit(조합 중).
                                     // trigger 키의 ProcessKeyEvent 응답이 preedit을 clear하므로
@@ -968,7 +968,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                let top_row = config.engine.english.layout.top_row_labels().to_string();
+                let top_row = unim::config::english_layout_top_row_labels(
+                    &config.engine.english.layout,
+                )
+                .to_string();
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // start_hanja_conversion이 이미 특수문자 fallback을 처리하므로
                     // 엔진의 특수문자 모드 상태를 확인
@@ -1112,14 +1115,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unim::config::{EnglishLayout, KoreanLayout};
 
     fn mk_rc(direction: Direction, erasure: bool, switch: bool) -> RecentCorrection {
         RecentCorrection {
             ascii: "speed".to_string(),
             direction,
-            korean_layout: KoreanLayout::Sebeolsik390,
-            english_layout: EnglishLayout::Qwerty,
+            korean_layout: "ko_3bul390".to_string(),
+            english_layout: "qwerty".to_string(),
             corrected_at: Instant::now(),
             erasure_observed: erasure,
             mode_switch_observed: switch,
@@ -1154,7 +1156,7 @@ mod tests {
         let list = vec![mk_rc(Direction::Reverse, false, true)];
         assert_eq!(
             find_retrigger_layouts(&list, "speed", Direction::Reverse),
-            Some((KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty))
+            Some(("ko_3bul390".to_string(), "qwerty".to_string()))
         );
 
         // 순방향: switch만 세팅 → AND 미달 → 매칭 안 됨

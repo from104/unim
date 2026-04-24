@@ -47,140 +47,148 @@ impl ModeSharingMode {
     }
 }
 
-/// 한국어 키보드 레이아웃
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[repr(u32)]
-pub enum KoreanLayout {
-    /// 두벌식 표준
-    #[default]
-    Dubeolsik = 0,
-    /// 세벌식 390
-    Sebeolsik390 = 1,
-    /// 세벌식 최종
-    Sebeolsik391 = 2,
-    /// 세벌식 순아래 (No-Shift)
-    SebeolsikNoShift = 3,
-}
+/// 한국어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
+///
+/// 레거시 시절 enum(`Dubeolsik` / `Sebeolsik390` / ...)이었던 필드를 Phase 8에서
+/// 문자열로 통합. 내장 4종은 `ko_2bulstd`·`ko_3bul390`·`ko_3bul391`·`ko_3bul_noshift`,
+/// 10번째 내장은 `ko_3bul_qwerty`, 사용자 정의는 `~/.config/unim/layouts/<name>.json`
+/// 파일의 `name` 필드.
+///
+/// YAML 역직렬화 시 `KoreanLayoutCompat`을 거쳐 레거시 enum 값(`Dubeolsik` 등)과
+/// 별칭(`2bul` 등)을 모두 수용한다.
+pub type KoreanLayout = String;
 
-impl KoreanLayout {
-    /// 레이아웃 이름을 반환합니다.
-    pub fn name(&self) -> &'static str {
-        match self {
-            KoreanLayout::Dubeolsik => "2bul",
-            KoreanLayout::Sebeolsik390 => "3bul390",
-            KoreanLayout::Sebeolsik391 => "3bul391",
-            KoreanLayout::SebeolsikNoShift => "3bul_noshift",
+/// 내장 한국어 자판의 정식 이름(레지스트리 키).
+pub const KOREAN_LAYOUT_DUBEOLSIK: &str = "ko_2bulstd";
+pub const KOREAN_LAYOUT_SEBEOLSIK_390: &str = "ko_3bul390";
+pub const KOREAN_LAYOUT_SEBEOLSIK_391: &str = "ko_3bul391";
+pub const KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT: &str = "ko_3bul_noshift";
+pub const KOREAN_LAYOUT_SEBEOLSIK_QWERTY: &str = "ko_3bul_qwerty";
+
+/// 내장 한국어 자판 5종(이관 시점 기준). 표시용·CLI 나열 등에 사용.
+pub const KOREAN_LAYOUT_BUILTINS: &[&str] = &[
+    KOREAN_LAYOUT_DUBEOLSIK,
+    KOREAN_LAYOUT_SEBEOLSIK_390,
+    KOREAN_LAYOUT_SEBEOLSIK_391,
+    KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
+    KOREAN_LAYOUT_SEBEOLSIK_QWERTY,
+];
+
+/// 레거시 enum 이름·별칭을 내장 정식 이름으로 승격한다.
+///
+/// 예: `"Dubeolsik"`·`"2bul"`·`"2bulstd"` → `"ko_2bulstd"`. 이미 정식 이름이거나
+/// 매칭 대상이 없으면 입력을 그대로 반환(사용자 프로필 이름 허용).
+pub fn normalize_korean_layout_name(raw: &str) -> String {
+    match raw {
+        "Dubeolsik" | "2bul" | "2bulstd" => KOREAN_LAYOUT_DUBEOLSIK.to_string(),
+        "Sebeolsik390" | "390" | "3bul390" => KOREAN_LAYOUT_SEBEOLSIK_390.to_string(),
+        "Sebeolsik391" | "391" | "3bul391" => KOREAN_LAYOUT_SEBEOLSIK_391.to_string(),
+        "SebeolsikNoShift" | "noshift" | "3bul_noshift" => {
+            KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT.to_string()
         }
-    }
-
-    /// 세벌식 레이아웃인지 확인합니다.
-    pub fn is_sebeolsik(&self) -> bool {
-        matches!(
-            self,
-            KoreanLayout::Sebeolsik390
-                | KoreanLayout::Sebeolsik391
-                | KoreanLayout::SebeolsikNoShift
-        )
-    }
-
-    /// 표시용 레이블을 반환합니다.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            KoreanLayout::Dubeolsik => "두벌식 표준",
-            KoreanLayout::Sebeolsik390 => "세벌식 390",
-            KoreanLayout::Sebeolsik391 => "세벌식 최종",
-            KoreanLayout::SebeolsikNoShift => "세벌식 순아래",
-        }
-    }
-
-    /// 사용 가능한 모든 레이아웃을 반환합니다.
-    pub fn all() -> &'static [KoreanLayout] {
-        &[
-            KoreanLayout::Dubeolsik,
-            KoreanLayout::Sebeolsik390,
-            KoreanLayout::Sebeolsik391,
-            KoreanLayout::SebeolsikNoShift,
-        ]
+        "3bul_qwerty" => KOREAN_LAYOUT_SEBEOLSIK_QWERTY.to_string(),
+        other => other.to_string(),
     }
 }
 
-/// 영어 키보드 레이아웃
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[repr(u32)]
-pub enum EnglishLayout {
-    /// QWERTY
-    #[default]
-    Qwerty = 0,
-    /// Dvorak
-    Dvorak = 1,
-    /// Colemak
-    Colemak = 2,
-    /// Colemak-DH (Colemak의 인체공학적 개선 버전)
-    ColemakDh = 3,
-    /// Workman
-    Workman = 4,
+/// 세벌식 계열 자판인지 판정. `ko_3bul*` 또는 `3bul*` 접두 또는 명시 리스트 매칭.
+pub fn is_sebeolsik_layout(name: &str) -> bool {
+    matches!(
+        name,
+        "Sebeolsik390" | "Sebeolsik391" | "SebeolsikNoShift" | "390" | "391" | "noshift"
+    ) || name.starts_with("ko_3bul")
+        || name.starts_with("3bul")
 }
 
-impl EnglishLayout {
-    /// 레이아웃 이름을 반환합니다.
-    pub fn name(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "qwerty",
-            EnglishLayout::Dvorak => "dvorak",
-            EnglishLayout::Colemak => "colemak",
-            EnglishLayout::ColemakDh => "colemak_dh",
-            EnglishLayout::Workman => "workman",
-        }
+/// 내장 자판의 한국어 표시 레이블.
+///
+/// 반환값이 `""`이면 "내장이 아님"(= 사용자 프로필). GUI는 프로필 metadata의
+/// `display_name`을 resolve 해야 한다.
+pub fn korean_layout_display_name(name: &str) -> &'static str {
+    match normalize_korean_layout_name(name).as_str() {
+        KOREAN_LAYOUT_DUBEOLSIK => "두벌식 표준",
+        KOREAN_LAYOUT_SEBEOLSIK_390 => "세벌식 390",
+        KOREAN_LAYOUT_SEBEOLSIK_391 => "세벌식 최종",
+        KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT => "세벌식 순아래",
+        KOREAN_LAYOUT_SEBEOLSIK_QWERTY => "쿼티형 세벌식",
+        _ => "",
     }
+}
 
-    /// Keymap JSON 파일명을 반환합니다.
-    ///
-    /// # Returns
-    ///
-    /// 해당 레이아웃의 keymap JSON 파일 식별자 (예: "en_qwerty", "en_dvorak")
-    pub fn keymap_name(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "en_qwerty",
-            EnglishLayout::Dvorak => "en_dvorak",
-            EnglishLayout::Colemak => "en_colemak",
-            EnglishLayout::ColemakDh => "en_colemak_dh",
-            EnglishLayout::Workman => "en_workman",
-        }
+/// 영어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
+///
+/// 레거시 시절 enum(`Qwerty` / `Dvorak` / ...)이었던 필드를 Phase 9에서
+/// 문자열로 통합. 내장 5종은 `qwerty`·`dvorak`·`colemak`·`colemak_dh`·`workman`.
+///
+/// YAML 역직렬화 시 `EnglishConfigCompat`을 거쳐 레거시 enum 값(`Qwerty` 등)을
+/// 소문자 내장 이름으로 승격한다. 타입 호환을 위해 String 별칭으로 노출.
+pub type EnglishLayout = String;
+
+/// 내장 영어 자판의 정식 이름.
+pub const ENGLISH_LAYOUT_QWERTY: &str = "qwerty";
+pub const ENGLISH_LAYOUT_DVORAK: &str = "dvorak";
+pub const ENGLISH_LAYOUT_COLEMAK: &str = "colemak";
+pub const ENGLISH_LAYOUT_COLEMAK_DH: &str = "colemak_dh";
+pub const ENGLISH_LAYOUT_WORKMAN: &str = "workman";
+
+/// 내장 영어 자판 5종.
+pub const ENGLISH_LAYOUT_BUILTINS: &[&str] = &[
+    ENGLISH_LAYOUT_QWERTY,
+    ENGLISH_LAYOUT_DVORAK,
+    ENGLISH_LAYOUT_COLEMAK,
+    ENGLISH_LAYOUT_COLEMAK_DH,
+    ENGLISH_LAYOUT_WORKMAN,
+];
+
+/// 레거시 enum 이름을 소문자 내장 이름으로 승격한다. 알 수 없는 값은 pass-through.
+pub fn normalize_english_layout_name(raw: &str) -> String {
+    match raw {
+        "Qwerty" => ENGLISH_LAYOUT_QWERTY.to_string(),
+        "Dvorak" => ENGLISH_LAYOUT_DVORAK.to_string(),
+        "Colemak" => ENGLISH_LAYOUT_COLEMAK.to_string(),
+        "ColemakDh" | "colemak-dh" => ENGLISH_LAYOUT_COLEMAK_DH.to_string(),
+        "Workman" => ENGLISH_LAYOUT_WORKMAN.to_string(),
+        other => other.to_string(),
     }
+}
 
-    /// 표시용 레이블을 반환합니다.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "QWERTY",
-            EnglishLayout::Dvorak => "Dvorak",
-            EnglishLayout::Colemak => "Colemak",
-            EnglishLayout::ColemakDh => "Colemak-DH",
-            EnglishLayout::Workman => "Workman",
-        }
+/// 내장 영어 자판의 keymap JSON 파일명. 내장이 아니면 입력을 그대로 반환
+/// (사용자 프로필 이름이 곧 파일명 stem인 경우를 위해).
+pub fn english_layout_keymap_name(name: &str) -> String {
+    let normalized = normalize_english_layout_name(name);
+    match normalized.as_str() {
+        ENGLISH_LAYOUT_QWERTY => "en_qwerty".to_string(),
+        ENGLISH_LAYOUT_DVORAK => "en_dvorak".to_string(),
+        ENGLISH_LAYOUT_COLEMAK => "en_colemak".to_string(),
+        ENGLISH_LAYOUT_COLEMAK_DH => "en_colemak_dh".to_string(),
+        ENGLISH_LAYOUT_WORKMAN => "en_workman".to_string(),
+        _ => normalized,
     }
+}
 
-    /// 사용 가능한 모든 레이아웃을 반환합니다.
-    pub fn all() -> &'static [EnglishLayout] {
-        &[
-            EnglishLayout::Qwerty,
-            EnglishLayout::Dvorak,
-            EnglishLayout::Colemak,
-            EnglishLayout::ColemakDh,
-            EnglishLayout::Workman,
-        ]
+/// 내장 영어 자판의 표시 레이블. 사용자 프로필이면 빈 문자열 — GUI는
+/// 프로필 metadata의 display_name을 resolve 해야 한다.
+pub fn english_layout_display_name(name: &str) -> &'static str {
+    match normalize_english_layout_name(name).as_str() {
+        ENGLISH_LAYOUT_QWERTY => "QWERTY",
+        ENGLISH_LAYOUT_DVORAK => "Dvorak",
+        ENGLISH_LAYOUT_COLEMAK => "Colemak",
+        ENGLISH_LAYOUT_COLEMAK_DH => "Colemak-DH",
+        ENGLISH_LAYOUT_WORKMAN => "Workman",
+        _ => "",
     }
+}
 
-    /// 상단 행(2nd row)의 앞 9개 키 레이블을 반환합니다.
-    ///
-    /// 특수문자 팝업의 열 헤더 및 키 매핑에 사용됩니다.
-    pub fn top_row_labels(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "QWERTYUIO",
-            EnglishLayout::Dvorak => "',.PYFGCR", // 드보락 상단 행 앞 9개 (논리 문자 기준)
-            EnglishLayout::Colemak => "QWFPGJLUY",
-            EnglishLayout::ColemakDh => "QWFPBJLUY",
-            EnglishLayout::Workman => "QDRWBJFUP",
-        }
+/// 내장 영어 자판의 상단 행(2nd row) 앞 9개 키 레이블 — 특수문자 팝업 헤더용.
+/// 내장이 아니면 빈 문자열.
+pub fn english_layout_top_row_labels(name: &str) -> &'static str {
+    match normalize_english_layout_name(name).as_str() {
+        ENGLISH_LAYOUT_QWERTY => "QWERTYUIO",
+        ENGLISH_LAYOUT_DVORAK => "',.PYFGCR",
+        ENGLISH_LAYOUT_COLEMAK => "QWFPGJLUY",
+        ENGLISH_LAYOUT_COLEMAK_DH => "QWFPBJLUY",
+        ENGLISH_LAYOUT_WORKMAN => "QDRWBJFUP",
+        _ => "",
     }
 }
 
@@ -392,19 +400,131 @@ impl AutoTypeFixConfig {
 }
 
 /// 한국어 엔진 설정
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
+///
+/// Phase 8에서 `layout` 필드가 enum에서 문자열로 통합됨. 이전의 `custom_layout`
+/// 우회 필드는 제거되었고, 레거시 YAML(`layout: Dubeolsik` / `custom_layout: X`)은
+/// `Deserialize` 구현에서 자동 흡수된다.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default, from = "KoreanConfigCompat")]
 pub struct KoreanConfig {
-    /// 한국어 키보드 레이아웃
+    /// 한국어 자판 프로필 이름(레지스트리 키). 기본값 `ko_2bulstd`.
     pub layout: KoreanLayout,
+    /// 활성 규칙 세트 이름 목록 (자판 프로필 v1 — `docs/plans/LAYOUT_PROFILE_V1.md` §3.5).
+    ///
+    /// - 빈 목록 = 프로필 기본값 사용(각 `rule_sets.<name>.active` 그대로).
+    /// - 비어 있지 않으면 이 이름들만 활성, 나머지는 강제 off.
+    pub active_rule_sets: Vec<String>,
+}
+
+impl Default for KoreanConfig {
+    fn default() -> Self {
+        Self {
+            layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
+            active_rule_sets: Vec::new(),
+        }
+    }
+}
+
+impl KoreanConfig {
+    /// 실제 로드할 프로필 이름을 반환. 단순히 `layout`의 clone이며 정식 이름으로
+    /// 정규화(`normalize_korean_layout_name`)를 거친다. 레지스트리의 별칭 처리도
+    /// 있어 두 단계 모두 안전하다.
+    pub fn effective_layout_name(&self) -> String {
+        normalize_korean_layout_name(&self.layout)
+    }
+}
+
+/// 역직렬화 호환 레이어.
+///
+/// 아래 3가지 형태를 모두 `KoreanConfig`로 승격한다:
+/// - 현재 포맷 (`layout: "ko_2bulstd"`, `active_rule_sets: [...]`)
+/// - 레거시 Phase 4b (`layout: "Dubeolsik"`, `custom_layout: "X"`)
+/// - 레거시 Phase 4a (`layout: "Dubeolsik"`)
+/// - 레거시 pre-Phase 4 (`layout: Dubeolsik` as bare YAML — serde yaml도 String으로 읽음)
+#[derive(Deserialize)]
+#[serde(default)]
+struct KoreanConfigCompat {
+    layout: String,
+    preedit_johab: bool,
+    word_commit: bool,
+    #[serde(default)]
+    active_rule_sets: Vec<String>,
+    /// 레거시 override 필드 — Some이면 `layout`을 덮어씀. 본 통합 이후 제거됨.
+    #[serde(default)]
+    custom_layout: Option<String>,
+}
+
+impl Default for KoreanConfigCompat {
+    fn default() -> Self {
+        Self {
+            layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
+            preedit_johab: false,
+            word_commit: false,
+            active_rule_sets: Vec::new(),
+            custom_layout: None,
+        }
+    }
+}
+
+impl From<KoreanConfigCompat> for KoreanConfig {
+    fn from(c: KoreanConfigCompat) -> Self {
+        let layout = match c.custom_layout {
+            Some(ref s) if !s.is_empty() => s.clone(),
+            _ => c.layout,
+        };
+        Self {
+            layout: normalize_korean_layout_name(&layout),
+            active_rule_sets: c.active_rule_sets,
+        }
+    }
 }
 
 /// 영어 엔진 설정
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
+///
+/// Phase 9에서 `layout` 필드가 enum → String. 레거시 YAML(`layout: Qwerty`)은
+/// `EnglishConfigCompat`을 거쳐 자동 정규화.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default, from = "EnglishConfigCompat")]
 pub struct EnglishConfig {
-    /// 영어 키보드 레이아웃
+    /// 영어 키보드 레이아웃 프로필 이름(레지스트리 키). 기본값 `qwerty`.
     pub layout: EnglishLayout,
+    /// 다이렉트 입력 선호
+    pub preferred_direct: bool,
+}
+
+impl Default for EnglishConfig {
+    fn default() -> Self {
+        Self {
+            layout: ENGLISH_LAYOUT_QWERTY.to_string(),
+            preferred_direct: true,
+        }
+    }
+}
+
+/// 역직렬화 호환 레이어 — 레거시 enum 이름(`Qwerty` 등)을 소문자 내장 이름으로 승격.
+#[derive(Deserialize)]
+#[serde(default)]
+struct EnglishConfigCompat {
+    layout: String,
+    preferred_direct: bool,
+}
+
+impl Default for EnglishConfigCompat {
+    fn default() -> Self {
+        Self {
+            layout: ENGLISH_LAYOUT_QWERTY.to_string(),
+            preferred_direct: true,
+        }
+    }
+}
+
+impl From<EnglishConfigCompat> for EnglishConfig {
+    fn from(c: EnglishConfigCompat) -> Self {
+        Self {
+            layout: normalize_english_layout_name(&c.layout),
+            preferred_direct: c.preferred_direct,
+        }
+    }
 }
 
 /// 앱별 기본 모드 규칙
@@ -767,15 +887,93 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.engine.default_category, InputCategory::English);
-        assert_eq!(config.engine.korean.layout, KoreanLayout::Dubeolsik);
-        assert_eq!(config.engine.english.layout, EnglishLayout::Qwerty);
+        assert_eq!(config.engine.korean.layout, KOREAN_LAYOUT_DUBEOLSIK);
+        assert_eq!(config.engine.english.layout, "qwerty");
     }
 
     #[test]
-    fn test_korean_layout() {
-        assert_eq!(KoreanLayout::Dubeolsik.name(), "2bul");
-        assert!(!KoreanLayout::Dubeolsik.is_sebeolsik());
-        assert!(KoreanLayout::Sebeolsik390.is_sebeolsik());
+    fn normalize_korean_layout_name_handles_legacy_and_aliases() {
+        // 레거시 enum 이름
+        assert_eq!(normalize_korean_layout_name("Dubeolsik"), "ko_2bulstd");
+        assert_eq!(normalize_korean_layout_name("Sebeolsik390"), "ko_3bul390");
+        // 축약 별칭
+        assert_eq!(normalize_korean_layout_name("2bul"), "ko_2bulstd");
+        assert_eq!(normalize_korean_layout_name("390"), "ko_3bul390");
+        // 이미 정식 이름
+        assert_eq!(normalize_korean_layout_name("ko_3bul_qwerty"), "ko_3bul_qwerty");
+        // 사용자 프로필은 pass-through
+        assert_eq!(normalize_korean_layout_name("my_custom"), "my_custom");
+    }
+
+    #[test]
+    fn is_sebeolsik_layout_classifies_correctly() {
+        assert!(!is_sebeolsik_layout("ko_2bulstd"));
+        assert!(!is_sebeolsik_layout("Dubeolsik"));
+        assert!(is_sebeolsik_layout("ko_3bul390"));
+        assert!(is_sebeolsik_layout("Sebeolsik391"));
+        assert!(is_sebeolsik_layout("3bul_noshift"));
+        assert!(is_sebeolsik_layout("ko_3bul_qwerty"));
+    }
+
+    #[test]
+    fn effective_layout_name_defaults_to_builtin() {
+        let kc = KoreanConfig::default();
+        assert_eq!(kc.effective_layout_name(), "ko_2bulstd");
+    }
+
+    #[test]
+    fn effective_layout_name_normalizes_legacy_value() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "Dubeolsik".to_string();
+        assert_eq!(kc.effective_layout_name(), "ko_2bulstd");
+    }
+
+    #[test]
+    fn effective_layout_name_accepts_user_profile() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "my_custom_layout".to_string();
+        assert_eq!(kc.effective_layout_name(), "my_custom_layout");
+    }
+
+    #[test]
+    fn korean_config_serde_roundtrips_rule_sets() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_3bul_qwerty".to_string();
+        kc.active_rule_sets = vec!["set_a".to_string(), "set_b".to_string()];
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.layout, "ko_3bul_qwerty");
+        assert_eq!(back.active_rule_sets, vec!["set_a", "set_b"]);
+    }
+
+    #[test]
+    fn korean_config_legacy_yaml_enum_variant_normalized() {
+        // Phase 4 이전 포맷 (`layout: Dubeolsik`)도 로드 가능 — 자동 정식 이름 승격.
+        let yaml = r#"
+layout: Dubeolsik
+preedit_johab: false
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.layout, "ko_2bulstd");
+        assert!(kc.active_rule_sets.is_empty());
+        assert_eq!(kc.effective_layout_name(), "ko_2bulstd");
+    }
+
+    #[test]
+    fn korean_config_legacy_custom_layout_overrides_layout() {
+        // Phase 4b 포맷 (`layout: Dubeolsik, custom_layout: "my_x"`) 흡수.
+        let yaml = r#"
+layout: Dubeolsik
+custom_layout: my_custom
+preedit_johab: false
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.layout, "my_custom",
+            "custom_layout이 Some이면 layout을 덮어씀"
+        );
     }
 
     #[test]
@@ -868,32 +1066,65 @@ mod tests {
     // === 레이아웃 enum 테스트 ===
 
     #[test]
-    fn test_korean_layout_all() {
-        let all = KoreanLayout::all();
-        assert_eq!(all.len(), 4);
-        assert!(all.contains(&KoreanLayout::Dubeolsik));
-        assert!(all.contains(&KoreanLayout::SebeolsikNoShift));
+    fn test_korean_layout_builtins() {
+        let all = KOREAN_LAYOUT_BUILTINS;
+        assert_eq!(all.len(), 5);
+        assert!(all.contains(&"ko_2bulstd"));
+        assert!(all.contains(&"ko_3bul_noshift"));
+        assert!(all.contains(&"ko_3bul_qwerty"));
     }
 
     #[test]
-    fn test_english_layout_all() {
-        let all = EnglishLayout::all();
+    fn test_english_layout_builtins() {
+        let all = ENGLISH_LAYOUT_BUILTINS;
         assert_eq!(all.len(), 5);
+        assert!(all.contains(&"qwerty"));
+        assert!(all.contains(&"colemak_dh"));
     }
 
     #[test]
     fn test_english_layout_keymap_name() {
-        assert_eq!(EnglishLayout::Dvorak.keymap_name(), "en_dvorak");
-        assert_eq!(EnglishLayout::Colemak.keymap_name(), "en_colemak");
-        assert_eq!(EnglishLayout::ColemakDh.keymap_name(), "en_colemak_dh");
-        assert_eq!(EnglishLayout::Workman.keymap_name(), "en_workman");
+        assert_eq!(english_layout_keymap_name("dvorak"), "en_dvorak");
+        assert_eq!(english_layout_keymap_name("colemak"), "en_colemak");
+        assert_eq!(english_layout_keymap_name("colemak_dh"), "en_colemak_dh");
+        assert_eq!(english_layout_keymap_name("workman"), "en_workman");
+        // 레거시 enum 이름 → 소문자 승격
+        assert_eq!(english_layout_keymap_name("Dvorak"), "en_dvorak");
     }
 
     #[test]
     fn test_english_layout_top_row_labels() {
-        assert_eq!(EnglishLayout::Qwerty.top_row_labels(), "QWERTYUIO");
-        assert_eq!(EnglishLayout::Dvorak.top_row_labels(), "',.PYFGCR");
-        assert_eq!(EnglishLayout::Colemak.top_row_labels(), "QWFPGJLUY");
+        assert_eq!(english_layout_top_row_labels("qwerty"), "QWERTYUIO");
+        assert_eq!(english_layout_top_row_labels("dvorak"), "',.PYFGCR");
+        assert_eq!(english_layout_top_row_labels("colemak"), "QWFPGJLUY");
+    }
+
+    #[test]
+    fn normalize_english_layout_name_handles_legacy() {
+        assert_eq!(normalize_english_layout_name("Qwerty"), "qwerty");
+        assert_eq!(normalize_english_layout_name("ColemakDh"), "colemak_dh");
+        assert_eq!(normalize_english_layout_name("colemak-dh"), "colemak_dh");
+        assert_eq!(normalize_english_layout_name("workman"), "workman");
+        // 사용자 프로필 pass-through
+        assert_eq!(normalize_english_layout_name("my_dvorak"), "my_dvorak");
+    }
+
+    #[test]
+    fn english_config_legacy_yaml_enum_variant_normalized() {
+        // 레거시 `layout: Qwerty` 포맷 로드 → 정식 소문자 이름으로 승격.
+        let yaml = r#"
+layout: Qwerty
+preferred_direct: true
+"#;
+        let ec: EnglishConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(ec.layout, "qwerty");
+
+        let yaml2 = r#"
+layout: ColemakDh
+preferred_direct: false
+"#;
+        let ec2: EnglishConfig = serde_yaml::from_str(yaml2).unwrap();
+        assert_eq!(ec2.layout, "colemak_dh");
     }
 
     #[test]
@@ -923,15 +1154,15 @@ mod tests {
     #[test]
     fn test_config_custom_values() {
         let mut config = Config::default();
-        config.engine.korean.layout = KoreanLayout::Sebeolsik390;
-        config.engine.english.layout = EnglishLayout::Dvorak;
+        config.engine.korean.layout = "ko_3bul390".to_string();
+        config.engine.english.layout = "dvorak".to_string();
         config.engine.mode_sharing = ModeSharingMode::PerApp;
 
         let yaml = serde_yaml::to_string(&config).unwrap();
         let loaded: Config = serde_yaml::from_str(&yaml).unwrap();
 
-        assert_eq!(loaded.engine.korean.layout, KoreanLayout::Sebeolsik390);
-        assert_eq!(loaded.engine.english.layout, EnglishLayout::Dvorak);
+        assert_eq!(loaded.engine.korean.layout, "ko_3bul390");
+        assert_eq!(loaded.engine.english.layout, "dvorak");
         assert_eq!(loaded.engine.mode_sharing, ModeSharingMode::PerApp);
     }
 

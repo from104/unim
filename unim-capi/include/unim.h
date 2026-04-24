@@ -25,26 +25,24 @@ typedef enum {
     UNIM_INPUT_CATEGORY_ENGLISH = 1,
 } UnimInputCategory;
 
-/**
- * Korean keyboard layout
+/*
+ * Note (Phase 8): UnimKoreanLayout enum was removed. Korean layout is now a
+ * profile-name string (e.g., "ko_2bulstd", "ko_3bul390", "ko_3bul_qwerty") that
+ * can match either a built-in profile or a user profile under
+ * `~/.config/unim/layouts/<name>.json`. Legacy enum names ("Dubeolsik" etc.)
+ * and short aliases ("2bul", "390") are auto-promoted to the canonical name.
+ *
+ * The corresponding setter/getter functions now take/return C strings; see
+ * `unim_config_set_korean_layout` / `unim_config_get_korean_layout` below.
  */
-typedef enum {
-    UNIM_KOREAN_LAYOUT_DUBEOLSIK = 0,
-    UNIM_KOREAN_LAYOUT_SEBEOLSIK_390 = 1,
-    UNIM_KOREAN_LAYOUT_SEBEOLSIK_391 = 2,
-    UNIM_KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT = 3,
-} UnimKoreanLayout;
 
 /**
- * English keyboard layout
+ * Note (Phase 9): UnimEnglishLayout enum was removed. English layout is now a
+ * profile-name string (e.g., "qwerty", "dvorak", "colemak", "colemak_dh",
+ * "workman"). Legacy enum names ("Qwerty" etc.) are auto-promoted.
+ *
+ * Setters/getters now take/return C strings.
  */
-typedef enum {
-    UNIM_ENGLISH_LAYOUT_QWERTY = 0,
-    UNIM_ENGLISH_LAYOUT_DVORAK = 1,
-    UNIM_ENGLISH_LAYOUT_COLEMAK = 2,
-    UNIM_ENGLISH_LAYOUT_COLEMAK_DH = 3,
-    UNIM_ENGLISH_LAYOUT_WORKMAN = 4,
-} UnimEnglishLayout;
 
 /**
  * Mode sharing mode (Global/PerApp)
@@ -148,14 +146,22 @@ bool unim_config_needs_reload(const UnimConfig *config);
 bool unim_config_reload(UnimConfig *config);
 
 /**
- * Sets the Korean layout in the configuration.
+ * Sets the Korean layout profile name in the configuration.
+ *
+ * @param layout Null-terminated UTF-8 profile name (e.g., "ko_2bulstd" or a user profile).
+ *               Legacy enum names and short aliases are auto-normalized.
+ * @return true on success; false if layout is NULL, invalid UTF-8, or empty.
  */
-void unim_config_set_korean_layout(UnimConfig *config, UnimKoreanLayout layout);
+bool unim_config_set_korean_layout(UnimConfig *config, const char *layout);
 
 /**
- * Sets the English layout in the configuration.
+ * Sets the English layout profile name in the configuration.
+ *
+ * @param layout Null-terminated UTF-8 profile name (e.g., "qwerty"). Legacy
+ *               enum names ("Qwerty") are auto-promoted.
+ * @return true on success; false on NULL/invalid UTF-8/empty input.
  */
-void unim_config_set_english_layout(UnimConfig *config, UnimEnglishLayout layout);
+bool unim_config_set_english_layout(UnimConfig *config, const char *layout);
 
 /* ============================================
  * Engine Lifecycle
@@ -229,14 +235,20 @@ void unim_engine_set_input_category(UnimEngine *engine, UnimInputCategory catego
 UnimInputCategory unim_engine_get_input_category(const UnimEngine *engine);
 
 /**
- * Set the Korean layout of the engine immediately.
+ * Set the Korean layout profile of the engine immediately.
+ *
+ * @param layout Null-terminated UTF-8 profile name. See `unim_config_set_korean_layout`.
+ * @return true on success; false on NULL/invalid/empty input.
  */
-void unim_engine_set_korean_layout(UnimEngine *engine, UnimKoreanLayout layout);
+bool unim_engine_set_korean_layout(UnimEngine *engine, const char *layout);
 
 /**
- * Set the English layout of the engine immediately.
+ * Set the English layout profile of the engine immediately.
+ *
+ * @param layout Null-terminated UTF-8 profile name. See `unim_config_set_english_layout`.
+ * @return true on success; false on NULL/invalid/empty input.
  */
-void unim_engine_set_english_layout(UnimEngine *engine, UnimEnglishLayout layout);
+bool unim_engine_set_english_layout(UnimEngine *engine, const char *layout);
 
 /**
  * Resets the engine state.
@@ -275,14 +287,18 @@ UnimInputResult unim_engine_end_ready(UnimEngine *engine);
  * ============================================ */
 
 /**
- * Gets the current Korean layout from configuration.
+ * Gets the current Korean layout profile name from configuration.
+ *
+ * Returned UnimStr references a Rust-owned String; copy the content if you need to keep it.
  */
-UnimKoreanLayout unim_config_get_korean_layout(const UnimConfig *config);
+UnimStr unim_config_get_korean_layout(const UnimConfig *config);
 
 /**
- * Gets the current English layout from configuration.
+ * Gets the current English layout profile name from configuration.
+ *
+ * Returned UnimStr references a Rust-owned String; copy the content if you need to keep it.
  */
-UnimEnglishLayout unim_config_get_english_layout(const UnimConfig *config);
+UnimStr unim_config_get_english_layout(const UnimConfig *config);
 
 /**
  * Gets the default (initial) input category.
@@ -349,14 +365,16 @@ UnimModeSharingMode unim_mode_sharing_at(size_t index);
 size_t unim_korean_layout_count(void);
 
 /**
- * Returns the internal name of a Korean layout.
+ * Returns the canonical profile name of a built-in Korean layout by index.
+ * Out-of-range index returns an empty UnimStr.
  */
-UnimStr unim_korean_layout_name(UnimKoreanLayout layout);
+UnimStr unim_korean_layout_name(size_t index);
 
 /**
- * Returns the display name of a Korean layout (for UI).
+ * Returns the display name of a built-in Korean layout by index (for UI).
+ * Returns an empty UnimStr for out-of-range or non-built-in profiles.
  */
-UnimStr unim_korean_layout_display_name(UnimKoreanLayout layout);
+UnimStr unim_korean_layout_display_name(size_t index);
 
 /**
  * Returns the number of supported English layouts.
@@ -364,28 +382,32 @@ UnimStr unim_korean_layout_display_name(UnimKoreanLayout layout);
 size_t unim_english_layout_count(void);
 
 /**
- * Returns the internal name of an English layout.
+ * Returns the canonical profile name of a built-in English layout by index.
+ * Out-of-range index returns an empty UnimStr.
  */
-UnimStr unim_english_layout_name(UnimEnglishLayout layout);
+UnimStr unim_english_layout_name(size_t index);
 
 /**
- * Returns the display name of an English layout (for UI).
+ * Returns the display name of a built-in English layout by index (for UI).
+ * Returns an empty UnimStr for out-of-range or non-built-in profiles.
  */
-UnimStr unim_english_layout_display_name(UnimEnglishLayout layout);
+UnimStr unim_english_layout_display_name(size_t index);
 
 /**
- * Returns the Korean layout at the specified index.
+ * Legacy alias — identical to unim_korean_layout_name(index).
+ * Kept for ABI continuity after the Phase 8 enum removal.
  * @param index Index (0 to unim_korean_layout_count()-1)
- * @return Korean layout enum value
+ * @return Canonical profile name as UnimStr (empty if out of range)
  */
-UnimKoreanLayout unim_korean_layout_at(size_t index);
+UnimStr unim_korean_layout_at(size_t index);
 
 /**
- * Returns the English layout at the specified index.
+ * Legacy alias — identical to unim_english_layout_name(index).
+ * Kept for ABI continuity after the Phase 9 enum removal.
  * @param index Index (0 to unim_english_layout_count()-1)
- * @return English layout enum value
+ * @return Canonical profile name as UnimStr (empty if out of range)
  */
-UnimEnglishLayout unim_english_layout_at(size_t index);
+UnimStr unim_english_layout_at(size_t index);
 
 /* ============================================
  * Status File Management

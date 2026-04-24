@@ -391,8 +391,8 @@ impl InputMethodService {
     async fn get_config(&self, key: &str) -> zbus::fdo::Result<String> {
         let config = self.config.read().await;
         let value = match key {
-            "korean_layout" => config.engine.korean.layout.name().to_string(),
-            "english_layout" => config.engine.english.layout.name().to_string(),
+            "korean_layout" => config.engine.korean.layout.clone(),
+            "english_layout" => config.engine.english.layout.clone(),
             "default_category" => match config.engine.default_category {
                 InputCategory::Korean => "Korean".to_string(),
                 InputCategory::English => "English".to_string(),
@@ -403,6 +403,10 @@ impl InputMethodService {
             },
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
+            "korean_active_rule_sets" => config.engine.korean.active_rule_sets.join(","),
+            // Phase 8: korean_custom_layout 필드 폐지. korean_layout이 이제 프로필 이름
+            // 문자열을 직접 담는다. 호환성 — 구 클라이언트가 이 키로 조회 시 동일값 반환.
+            "korean_custom_layout" => config.engine.korean.layout.clone(),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
@@ -428,33 +432,28 @@ impl InputMethodService {
             let mut config = self.config.write().await;
             match key {
                 "korean_layout" => {
-                    config.engine.korean.layout = match value {
-                        "Dubeolsik" => unim::config::KoreanLayout::Dubeolsik,
-                        "Sebeolsik390" => unim::config::KoreanLayout::Sebeolsik390,
-                        "Sebeolsik391" => unim::config::KoreanLayout::Sebeolsik391,
-                        "SebeolsikNoShift" => unim::config::KoreanLayout::SebeolsikNoShift,
-                        _ => {
-                            return Err(zbus::fdo::Error::InvalidArgs(format!(
-                                "Invalid value: {}",
-                                value
-                            )))
-                        }
-                    };
+                    // Phase 8: 프로필 이름 문자열을 직접 수용. 레거시 enum 이름·별칭은
+                    // normalize_korean_layout_name()이 정식 이름으로 승격.
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "korean_layout cannot be empty".to_string(),
+                        ));
+                    }
+                    config.engine.korean.layout =
+                        unim::config::normalize_korean_layout_name(trimmed);
                 }
                 "english_layout" => {
-                    config.engine.english.layout = match value {
-                        "Qwerty" => unim::config::EnglishLayout::Qwerty,
-                        "Dvorak" => unim::config::EnglishLayout::Dvorak,
-                        "Colemak" => unim::config::EnglishLayout::Colemak,
-                        "ColemakDh" => unim::config::EnglishLayout::ColemakDh,
-                        "Workman" => unim::config::EnglishLayout::Workman,
-                        _ => {
-                            return Err(zbus::fdo::Error::InvalidArgs(format!(
-                                "Invalid value: {}",
-                                value
-                            )))
-                        }
-                    };
+                    // Phase 9: 프로필 이름 문자열 직접 수용. 레거시 enum 이름·소문자 별칭
+                    // 모두 normalize_english_layout_name이 정식 이름으로 승격.
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "english_layout cannot be empty".to_string(),
+                        ));
+                    }
+                    config.engine.english.layout =
+                        unim::config::normalize_english_layout_name(trimmed);
                 }
                 "default_category" => {
                     config.engine.default_category = match value {
@@ -505,6 +504,26 @@ impl InputMethodService {
                         ));
                     }
                     config.engine.hanja_keys = keys;
+                }
+                "korean_active_rule_sets" => {
+                    // 빈 문자열 허용 → 빈 Vec = 프로필 기본값 사용 (§3.1).
+                    let names: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    config.engine.korean.active_rule_sets = names;
+                }
+                "korean_custom_layout" => {
+                    // Phase 8 호환: custom_layout 필드는 폐지되고 korean_layout이 문자열
+                    // 이므로 이 키도 korean_layout을 직접 업데이트한다. 빈 문자열은
+                    // 기본(ko_2bulstd)으로 복귀.
+                    let trimmed = value.trim();
+                    config.engine.korean.layout = if trimmed.is_empty() {
+                        unim::config::KOREAN_LAYOUT_DUBEOLSIK.to_string()
+                    } else {
+                        unim::config::normalize_korean_layout_name(trimmed)
+                    };
                 }
                 "popup_mode" => {
                     config.engine.popup_mode = match value {

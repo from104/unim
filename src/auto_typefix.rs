@@ -11,7 +11,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use crate::config::{AutoTypeFixConfig, EnglishLayout, KoreanLayout};
+use crate::config::AutoTypeFixConfig;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::typefix;
 use crate::typefix_blacklist::{BlacklistGate, Direction};
@@ -105,7 +105,7 @@ impl KeystrokeBuffer {
     }
 
     /// 버퍼의 keycode들을 지정된 영문 레이아웃 기준 ASCII 문자열로 변환
-    pub fn to_ascii_string(&self, english_layout: EnglishLayout) -> String {
+    pub fn to_ascii_string(&self, english_layout: &str) -> String {
         let mut s = String::with_capacity(self.entries.len());
         for entry in &self.entries {
             if let Some(c) = entry.keycode.to_char_for_layout(english_layout, entry.modifier.shift) {
@@ -150,8 +150,8 @@ pub struct AutoTypeFixResult {
 pub fn check_forward(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
-    korean_layout: KoreanLayout,
-    english_layout: EnglishLayout,
+    korean_layout: &str,
+    english_layout: &str,
     blacklist: &dyn BlacklistGate,
 ) -> Option<AutoTypeFixResult> {
     if !config.forward || buffer.len() < 2 {
@@ -270,8 +270,8 @@ pub fn check_forward(
 pub fn check_reverse(
     buffer: &KeystrokeBuffer,
     config: &AutoTypeFixConfig,
-    korean_layout: KoreanLayout,
-    english_layout: EnglishLayout,
+    korean_layout: &str,
+    english_layout: &str,
     blacklist: &dyn BlacklistGate,
 ) -> Option<AutoTypeFixResult> {
     if !config.reverse || buffer.len() < 2 {
@@ -393,7 +393,7 @@ mod tests {
         assert!(buf.push(KeyCode::G, ModifierState::default()));
         assert!(buf.push(KeyCode::K, ModifierState::default()));
         assert_eq!(buf.len(), 2);
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "gk");
+        assert_eq!(buf.to_ascii_string("qwerty"), "gk");
 
         // 비알파벳 키는 추가 안 됨
         assert!(!buf.push(KeyCode::Space, ModifierState::default()));
@@ -405,7 +405,7 @@ mod tests {
         let mut buf = KeystrokeBuffer::new();
         let shifted = ModifierState { shift: true, ..Default::default() };
         buf.push(KeyCode::A, shifted);
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "A");
+        assert_eq!(buf.to_ascii_string("qwerty"), "A");
     }
 
     #[test]
@@ -427,7 +427,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "한글");
@@ -453,7 +453,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "하나");
@@ -469,7 +469,7 @@ mod tests {
         }
 
         let config = AutoTypeFixConfig::default();
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_none());
     }
 
@@ -485,7 +485,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_none());
     }
 
@@ -506,7 +506,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -530,7 +530,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_none());
     }
 
@@ -544,7 +544,7 @@ mod tests {
         buf.committed_chars = 2;
 
         let config = AutoTypeFixConfig::default();
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_none());
     }
 
@@ -563,7 +563,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "서기");
@@ -587,7 +587,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_forward(&buf, &config, KoreanLayout::Sebeolsik390, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &config, "ko_3bul390", "qwerty", &empty_bl());
         assert!(result.is_none(), "세벌식: 중간에 독립 자모가 있으면 트리거하면 안 됨");
     }
 
@@ -604,10 +604,10 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         // 두벌식에서도 완성 음절만으로 구성되지 않으면 스킵
         let ascii = "preedit";
-        let converted = crate::typefix::eng_to_kor(ascii, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let converted = crate::typefix::eng_to_kor(ascii, "ko_2bulstd", "qwerty");
         let chars: Vec<char> = converted.chars().collect();
         let all_complete = chars.len() <= 1
             || chars[..chars.len() - 1].iter().all(|c| ('\u{AC00}'..='\u{D7A3}').contains(c));
@@ -628,8 +628,8 @@ mod tests {
         for key in [KeyCode::S, KeyCode::D, KeyCode::F] {
             buf.push(key, ModifierState::default());
         }
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "sdf");
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Dvorak), "oeu");
+        assert_eq!(buf.to_ascii_string("qwerty"), "sdf");
+        assert_eq!(buf.to_ascii_string("dvorak"), "oeu");
     }
 
     #[test]
@@ -639,8 +639,8 @@ mod tests {
         for key in [KeyCode::E, KeyCode::R, KeyCode::T] {
             buf.push(key, ModifierState::default());
         }
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "ert");
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Colemak), "fpg");
+        assert_eq!(buf.to_ascii_string("qwerty"), "ert");
+        assert_eq!(buf.to_ascii_string("colemak"), "fpg");
     }
 
     #[test]
@@ -650,8 +650,8 @@ mod tests {
         for key in [KeyCode::W, KeyCode::E, KeyCode::R] {
             buf.push(key, ModifierState::default());
         }
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "wer");
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Workman), "drw");
+        assert_eq!(buf.to_ascii_string("qwerty"), "wer");
+        assert_eq!(buf.to_ascii_string("workman"), "drw");
     }
 
     #[test]
@@ -660,8 +660,8 @@ mod tests {
         let mut buf = KeystrokeBuffer::new();
         let shifted = ModifierState { shift: true, ..Default::default() };
         buf.push(KeyCode::S, shifted);
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "S");
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Dvorak), "O");
+        assert_eq!(buf.to_ascii_string("qwerty"), "S");
+        assert_eq!(buf.to_ascii_string("dvorak"), "O");
     }
 
     #[test]
@@ -687,19 +687,19 @@ mod tests {
         };
 
         // Qwerty: "gksrmf" → "한글"
-        let result_qwerty = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result_qwerty = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result_qwerty.is_some());
         assert_eq!(result_qwerty.unwrap().corrected, "한글");
 
         // Dvorak: 같은 물리키 → 같은 한글 결과 (순방향은 물리키 기반)
-        let result_dvorak = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &empty_bl());
+        let result_dvorak = check_forward(&buf, &config, "ko_2bulstd", "dvorak", &empty_bl());
         assert!(result_dvorak.is_some());
         assert_eq!(result_dvorak.unwrap().corrected, "한글");
 
         // 핵심: to_ascii_string은 레이아웃에 따라 다른 문자열을 생성하지만
         // eng_to_kor가 보정하여 최종 한글 결과는 동일
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Qwerty), "gksrmf");
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Dvorak), "itopmu");
+        assert_eq!(buf.to_ascii_string("qwerty"), "gksrmf");
+        assert_eq!(buf.to_ascii_string("dvorak"), "itopmu");
     }
 
     #[test]
@@ -719,7 +719,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &empty_bl());
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "dvorak", &empty_bl());
         assert!(result.is_some(), "Dvorak reverse should find 'hello'");
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -737,7 +737,7 @@ mod tests {
             buf.push(key, ModifierState::default());
         }
         assert_eq!(buf.len(), 5, "Semicolon should be accepted by push");
-        assert_eq!(buf.to_ascii_string(EnglishLayout::Colemak), "hello");
+        assert_eq!(buf.to_ascii_string("colemak"), "hello");
         buf.committed_chars = 3;
         buf.has_preedit = true;
 
@@ -747,7 +747,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Colemak, &empty_bl());
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "colemak", &empty_bl());
         assert!(result.is_some(), "Colemak reverse should find 'hello'");
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -775,12 +775,12 @@ mod tests {
         };
 
         // Qwerty: "hello" → 사전에 있음
-        let result_qwerty = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result_qwerty = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(result_qwerty.is_some());
         assert_eq!(result_qwerty.unwrap().corrected, "hello");
 
         // Dvorak: 같은 물리키지만 다른 문자열 → 사전에 없을 가능성 높음
-        let result_dvorak = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &empty_bl());
+        let result_dvorak = check_reverse(&buf, &config, "ko_2bulstd", "dvorak", &empty_bl());
         // E(1,2) in Dvorak = '.' → not alpha, push may fail
         // 실제로는 buf는 이미 만들어졌으므로, to_ascii_string 결과가 다름
         if let Some(r) = result_dvorak {
@@ -811,7 +811,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Workman, &empty_bl());
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "workman", &empty_bl());
         assert!(result.is_some(), "Workman reverse should find 'world'");
         assert_eq!(result.unwrap().corrected, "world");
     }
@@ -833,7 +833,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
         assert!(
-            check_forward(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl()).is_none(),
+            check_forward(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl()).is_none(),
             "skip_on_english_word=true 이면 사전 단어는 억제되어야 함"
         );
 
@@ -842,9 +842,9 @@ mod tests {
             skip_on_english_word: false,
             ..AutoTypeFixConfig::default()
         };
-        let converted = typefix::eng_to_kor("hello", KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let converted = typefix::eng_to_kor("hello", "ko_2bulstd", "qwerty");
         let sylls = count_korean_syllables(&converted);
-        let result = check_forward(&buf, &off, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_forward(&buf, &off, "ko_2bulstd", "qwerty", &empty_bl());
         if sylls >= off.kor_syllable_threshold as usize {
             // 임계값 만족 시 — OFF이면 트리거되어야 한다.
             // 단, 마지막 글자 제외 "온전한 한글" 검증 때문에 None이 될 수도 있음.
@@ -881,7 +881,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
         assert!(
-            check_forward(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl()).is_none()
+            check_forward(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl()).is_none()
         );
     }
 
@@ -902,7 +902,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
         assert!(
-            check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl()).is_none(),
+            check_reverse(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl()).is_none(),
             "모두 완성 음절(preedit 없음)이면 ON에서 억제되어야 함"
         );
     }
@@ -923,7 +923,7 @@ mod tests {
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
             ..AutoTypeFixConfig::default()
         };
-        let result = check_reverse(&buf, &off, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &off, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(
             result.is_some(),
             "skip_on_complete_syllable=false 이면 완성 음절이어도 트리거되어야 함"
@@ -948,7 +948,7 @@ mod tests {
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
             ..AutoTypeFixConfig::default()
         };
-        let result = check_reverse(&buf, &on, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &empty_bl());
+        let result = check_reverse(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl());
         assert!(
             result.is_some(),
             "preedit이 있으면 complete-syllable skip 토글이 ON이어도 억제되지 않아야 함"
@@ -967,9 +967,9 @@ mod tests {
         let config = AutoTypeFixConfig::default();
 
         let mut bl = Blacklist::default();
-        bl.add_or_hit_tentative("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &bl);
         assert!(result.is_none(), "tentative blacklist 엔트리는 forward를 억제해야 함");
     }
 
@@ -982,10 +982,10 @@ mod tests {
         let config = AutoTypeFixConfig::default();
 
         let mut bl = Blacklist::default();
-        bl.add_or_hit_tentative("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
         bl.promote_to_confirmed(0);
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &bl);
         assert!(result.is_none(), "confirmed blacklist 엔트리는 forward를 억제해야 함");
     }
 
@@ -999,11 +999,11 @@ mod tests {
         let config = AutoTypeFixConfig::default();
 
         let mut bl = Blacklist::default();
-        bl.add_or_hit_tentative("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
         bl.deactivate(0);
         assert_eq!(bl.entries[0].status, EntryStatus::Inactive);
 
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &bl);
         assert!(result.is_some(), "inactive 엔트리는 억제 효과가 없어야 함");
     }
 
@@ -1018,10 +1018,10 @@ mod tests {
 
         let mut bl = Blacklist::default();
         // Qwerty 기준 "gksrmf" 등록
-        bl.add_or_hit_tentative("gksrmf", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
 
         // Dvorak로 같은 물리키 시퀀스 → to_ascii_string 결과가 다름 → 매칭 실패 → 억제되지 않음
-        let result = check_forward(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Dvorak, &bl);
+        let result = check_forward(&buf, &config, "ko_2bulstd", "dvorak", &bl);
         assert!(result.is_some(), "레이아웃 불일치면 blacklist 억제 안 됨");
     }
 
@@ -1041,9 +1041,9 @@ mod tests {
         };
 
         let mut bl = Blacklist::default();
-        bl.add_or_hit_tentative("hello", Direction::Reverse, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("hello", Direction::Reverse, "ko_2bulstd", "qwerty");
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &bl);
         assert!(result.is_none(), "tentative reverse 엔트리는 억제해야 함");
     }
 
@@ -1071,7 +1071,7 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
         let mut bl = Blacklist::default();
-        let fix = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl)
+        let fix = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &bl)
             .expect("1차 역방향 트리거는 성공해야 함");
 
         // 2) engine_worker의 키 선택 로직을 그대로 재현 (Direction::Reverse → fix.corrected)
@@ -1085,8 +1085,8 @@ mod tests {
         bl.add_or_hit_tentative(
             &suppression_key,
             Direction::Reverse,
-            KoreanLayout::Dubeolsik,
-            EnglishLayout::Qwerty,
+            "ko_2bulstd",
+            "qwerty",
         );
 
         // 4) 동일 입력 재발생 → 이번에는 억제되어야 함
@@ -1098,7 +1098,7 @@ mod tests {
         buf2.has_preedit = true;
 
         let result2 =
-            check_reverse(&buf2, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+            check_reverse(&buf2, &config, "ko_2bulstd", "qwerty", &bl);
         assert!(
             result2.is_none(),
             "역방향 롤백 학습 후 같은 단어 재입력은 억제되어야 함"
@@ -1123,9 +1123,9 @@ mod tests {
 
         let mut bl = Blacklist::default();
         // Forward로 등록 — Reverse 검사와 방향 불일치
-        bl.add_or_hit_tentative("hello", Direction::Forward, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        bl.add_or_hit_tentative("hello", Direction::Forward, "ko_2bulstd", "qwerty");
 
-        let result = check_reverse(&buf, &config, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty, &bl);
+        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &bl);
         assert!(result.is_some(), "방향 불일치면 억제 안 됨");
     }
 }

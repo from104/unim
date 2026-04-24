@@ -374,21 +374,21 @@ fn parse_uint(raw: &str) -> Option<u32> {
 
 fn parse_korean_layout(raw: &str) -> Option<KoreanLayout> {
     match strip_quotes(raw) {
-        "2bul" => Some(KoreanLayout::Dubeolsik),
-        "3bul390" => Some(KoreanLayout::Sebeolsik390),
-        "3bul391" => Some(KoreanLayout::Sebeolsik391),
-        "3bul_noshift" => Some(KoreanLayout::SebeolsikNoShift),
+        "2bul" => Some("ko_2bulstd".to_string()),
+        "3bul390" => Some("ko_3bul390".to_string()),
+        "3bul391" => Some("ko_3bul391".to_string()),
+        "3bul_noshift" => Some("ko_3bul_noshift".to_string()),
         _ => None,
     }
 }
 
 fn parse_english_layout(raw: &str) -> Option<EnglishLayout> {
     match strip_quotes(raw) {
-        "qwerty" => Some(EnglishLayout::Qwerty),
-        "dvorak" => Some(EnglishLayout::Dvorak),
-        "colemak" => Some(EnglishLayout::Colemak),
-        "colemak_dh" => Some(EnglishLayout::ColemakDh),
-        "workman" => Some(EnglishLayout::Workman),
+        "qwerty" => Some("qwerty".to_string()),
+        "dvorak" => Some("dvorak".to_string()),
+        "colemak" => Some("colemak".to_string()),
+        "colemak_dh" => Some("colemak_dh".to_string()),
+        "workman" => Some("workman".to_string()),
         _ => None,
     }
 }
@@ -473,9 +473,9 @@ mod tests {
 
         assert_eq!(
             parse_korean_layout("'3bul390'"),
-            Some(KoreanLayout::Sebeolsik390)
+            Some("ko_3bul390".to_string())
         );
-        assert_eq!(parse_english_layout("'dvorak'"), Some(EnglishLayout::Dvorak));
+        assert_eq!(parse_english_layout("'dvorak'"), Some("dvorak".to_string()));
         assert_eq!(
             parse_input_category("'Korean'"),
             Some(InputCategory::Korean)
@@ -516,8 +516,8 @@ mod tests {
         let applied = apply_migration(&mut config, &default_config, &reader);
         assert_eq!(applied, 13);
 
-        assert_eq!(config.engine.korean.layout, KoreanLayout::Sebeolsik390);
-        assert_eq!(config.engine.english.layout, EnglishLayout::Dvorak);
+        assert_eq!(config.engine.korean.layout, "ko_3bul390");
+        assert_eq!(config.engine.english.layout, "dvorak");
         assert_eq!(config.engine.default_category, InputCategory::Korean);
         assert_eq!(config.engine.mode_sharing, ModeSharingMode::PerApp);
         assert_eq!(config.engine.popup_mode, PopupMode::Embedded);
@@ -536,7 +536,7 @@ mod tests {
     fn test_user_modified_config_is_preserved() {
         // config.yaml에 이미 사용자 값이 있다 (기본값과 다름)
         let mut config = Config::default();
-        config.engine.korean.layout = KoreanLayout::Sebeolsik391;
+        config.engine.korean.layout = "ko_3bul391".to_string();
         config.engine.auto_typefix.forward_time_window_ms = 4500;
         config.engine.auto_typefix.reverse_time_window_ms = 4500;
 
@@ -552,7 +552,7 @@ mod tests {
 
         assert_eq!(
             config.engine.korean.layout,
-            KoreanLayout::Sebeolsik391,
+            "ko_3bul391",
             "사용자 값 보존"
         );
         assert_eq!(
@@ -563,7 +563,7 @@ mod tests {
             config.engine.auto_typefix.reverse_time_window_ms, 4500,
             "사용자 값 보존"
         );
-        assert_eq!(config.engine.english.layout, EnglishLayout::Colemak);
+        assert_eq!(config.engine.english.layout, "colemak");
     }
 
     #[test]
@@ -591,7 +591,7 @@ mod tests {
         let applied = apply_migration(&mut config, &default_config, &reader);
         assert_eq!(applied, 1);
         assert_eq!(config.engine.korean.layout, default_config.engine.korean.layout);
-        assert_eq!(config.engine.english.layout, EnglishLayout::Workman);
+        assert_eq!(config.engine.english.layout, "workman");
     }
 
     #[test]

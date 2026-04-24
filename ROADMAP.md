@@ -48,6 +48,18 @@
 - [x] **unim-gui-qt 신규 구현**: cxx-qt 기반 Qt6 네이티브 GUI 구현 완료.
 - [x] **Debian 패키지 재구성**: 9개 바이너리 패키지로 분할 (`unim-common` / `unim-im-gtk` / `unim-im-qt` / `unim-xim` / `unim-wayland` / `unim-gui-gtk` / `unim-gui-qt` / `unim-gnome` / `unim` 메타). GUI 두 개 공존 허용(Conflicts 불필요), `unim-gnome`은 `unim-gui-gtk`를 Depends로 강제. `apt install unim` 한 줄로 full stack 설치.
 
+### 3.7단계: 자판 프로필 v1 (완료)
+
+자판 정의를 하드코딩 Rust const에서 **자기 완결 v1 JSON**으로 이관. 사용자 자판(`~/.config/unim/layouts/*.json`) + 상속(`inherits`) + 선택형 규칙 세트(rule_sets) 지원. Phase 6단계 엔진 재설계(v2)의 데이터 기반을 마련.
+
+- [x] **v1 스키마 정의** (`docs/plans/LAYOUT_PROFILE_V1.md`): schema_version, metadata(다국어), inherits, combinations(자기 완결), rule_sets, active_rule_sets. v0 하위 호환 자동 승격.
+- [x] **Phase 1·2 — 로더·빌더·Composer 통합**: `src/keystroke/profile/` 하위에 schema/loader/builder/localized 신설. `HangulComposer{2,3}Bul::new_with_profile` + v0→v1 동일 결과 regression.
+- [x] **Phase 3 — 레지스트리·상속·핫리로드**: `ProfileRegistry`(내장 + `~/.config/unim/layouts` 통합 네임스페이스, 사용자 우선), `inherit::resolve`(재귀 해석 + 순환 탐지 + layer-merge), 디렉토리 mtime 기반 자동 재스캔.
+- [x] **Phase 4 — Config·CLI·DBus·엔진 연결**: `korean.custom_layout`(`Option<String>`)·`korean.active_rule_sets`(`Vec<String>`) 필드 5-point 싱크. `unim-config layout list/describe/validate` 서브커맨드. `InputEngine::new`가 ProfileRegistry를 거쳐 효과적 프로필을 로드, 실패 시 enum 경로 폴백.
+- [x] **Phase 5 — GTK GUI**: settings_dialog의 한국어 자판 ComboRow가 모든 한국어 프로필(내장 + 사용자) 표시. 선택 시 규칙 세트 SwitchRow가 동적 재구성.
+- [x] **Phase 6 — 내장 10종 v1 이관**: `docs/plans/new_keymaps/*.json` 9종 + 신규 `ko_3bul_qwerty` 1종을 `src/keystroke/keymap/`로 이관. 기존 Rust const와 동일 `CombinedJamoMap` 산출 (behavior-preserving, regression test로 고정).
+- [x] **Phase 7 — 문서·마이그레이션 공지**: 본 섹션 + CHANGELOG Added 블록 + README 간단 안내.
+
 ### 4단계: 자동 상태 전환 (지능화)
 
 - [ ] **문맥 감지**: 현재 입력 필드 상태나 언어 문맥을 감지하는 방법 연구.
@@ -59,3 +71,16 @@
 
 - [ ] **입력 컨텍스트 통합**: 단순 "변환 도구"에서 완전한 입력기(IME) 서비스로 진화 (리눅스용 `ibus`, `fcitx5` 연동).
 - [ ] **크로스 플랫폼 지원**: Windows(TSF) 및 macOS용 네이티브 백그라운드 서비스 및 연동 방안 조사.
+
+### 6단계: 엔진 재설계 (고급 한글 입력 기법 지원)
+
+현재 UNIM의 한글 엔진은 **정적 키맵 + 하드코딩 오토마타** 구조라 아래 기능들을 표현할 수 없다. 날개셋 한글 입력기 조사(`docs/research/NALGAESET_KEYBOARD_FORMAT.md`)와 순아래받침 규칙 조사(`docs/research/순아래받침_규칙.md`)에서 드러난 공통 결론: **낱자에 "어디서 왔는지" 정보가 붙어야 하고, 키 해석이 컴포저 상태에 접근할 수 있어야 한다**. 이 두 전제를 도입하는 엔진 리팩터가 아래 모든 항목의 선행 조건이다.
+
+- [ ] **낱자 provenance 태깅**: `Jamo` 표현을 `(kind, source_key)` 튜플로 확장해 같은 ㅗ/ㅜ라도 어느 키에서 왔는지 구별. 세벌식 390의 `9`-ㅜ, `/`-ㅗ 이중모음 전용 역할, 복벌식 자동 판정의 근거가 되는 날개셋문자 64-bit 토큰 개념(연구 문서 §4.1)에 대응.
+- [ ] **문맥 의존 키 해석 (글쇠 수식 최소 집합)**: 키→자모 매핑이 컴포저 상태(`has_cho`/`has_jung`/`has_jong`/`syllable_empty`)를 조회할 수 있도록 predicate 엔진 도입. 두벌식 `/`, 세벌식 390 `/` 같은 적응형 글쇠(연구 문서 §4.2) 지원. 날개셋의 Turing-complete 수식 전면 이식은 별도.
+- [ ] **자판 프로필 v2**: v1(`docs/plans/LAYOUT_PROFILE_V1.md`)에서 유보한 provenance + predicate 필드를 스키마에 추가. 세벌식 390 원본 규약을 있는 그대로 재현.
+- [ ] **모아치기 (stroke replay)**: 낱자 입력 순서가 바뀌어도 재배열해 한 음절로 조합. 안마태 자판 등 순서 자유 자판 지원.
+- [ ] **복벌식**: 어절 첫 타자의 손 위치(좌/우)로 두벌식·세벌식 자동 전환(연구 문서 §5.2). 어절 단위 버퍼 + 첫 낱자 provenance가 전제.
+- [ ] **옛한글**: U+1100 확장 블록 낱자, 방점, 합용병서 지원. Jamo enum 확장 + 고급 문자 생성기.
+- [ ] **초·종성 공유 결합 규칙 (shared combination)**: 날개셋 §5.1의 "종성이 초성 결합 규칙을 중첩 적용" 동작을 엔진 레벨에서 직접 표현. v1의 `share_cho_jong` 플래그는 복제 수준에 그침.
+- [ ] **날개셋 `.ist` 수입기** (별도 바이너리 `unim-import-nalgaeset`): XML로 내보낸 `.ist`만 읽어 UNIM v2 프로필로 변환. 바이너리 `.ist`는 비지원(연구 문서 §7).

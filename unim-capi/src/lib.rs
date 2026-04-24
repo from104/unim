@@ -224,39 +224,86 @@ pub extern "C" fn unim_engine_set_input_category(
 }
 
 /// 한국어 레이아웃을 설정합니다.
+///
+/// Phase 8: `KoreanLayout` enum이 프로필 이름 문자열로 통합됨. `layout`에
+/// C 문자열로 프로필 이름(`"ko_2bulstd"` / `"ko_3bul390"` / ... 또는 사용자
+/// 프로필 이름)을 전달. 레거시 값(`"Dubeolsik"` 등)도 자동 승격.
+///
+/// # 반환값
+/// 성공 시 `true`, NULL·UTF-8 오류·빈 문자열이면 `false` (변경 없음).
 #[no_mangle]
-pub extern "C" fn unim_config_set_korean_layout(
+pub unsafe extern "C" fn unim_config_set_korean_layout(
     config: &mut Config,
-    layout: unim::config::KoreanLayout,
-) {
-    config.engine.korean.layout = layout;
+    layout: *const std::os::raw::c_char,
+) -> bool {
+    if layout.is_null() {
+        return false;
+    }
+    let s = match std::ffi::CStr::from_ptr(layout).to_str() {
+        Ok(s) if !s.trim().is_empty() => s.trim(),
+        _ => return false,
+    };
+    config.engine.korean.layout = unim::config::normalize_korean_layout_name(s);
+    true
 }
 
 /// 영어 레이아웃을 설정합니다.
+///
+/// Phase 9: EnglishLayout enum이 프로필 이름 문자열로 통합됨. `layout`에
+/// C 문자열로 프로필 이름(`"qwerty"` 등)을 전달. 레거시 값(`"Qwerty"` 등)도 자동 승격.
 #[no_mangle]
-pub extern "C" fn unim_config_set_english_layout(
+pub unsafe extern "C" fn unim_config_set_english_layout(
     config: &mut Config,
-    layout: unim::config::EnglishLayout,
-) {
-    config.engine.english.layout = layout;
+    layout: *const std::os::raw::c_char,
+) -> bool {
+    if layout.is_null() {
+        return false;
+    }
+    let s = match std::ffi::CStr::from_ptr(layout).to_str() {
+        Ok(s) if !s.trim().is_empty() => s.trim(),
+        _ => return false,
+    };
+    config.engine.english.layout = unim::config::normalize_english_layout_name(s);
+    true
 }
 
 /// 엔진의 한국어 레이아웃을 즉시 변경합니다.
+///
+/// Phase 8: `layout`는 C 문자열(프로필 이름). 레거시 값도 자동 승격.
+///
+/// # 반환값
+/// 성공 시 `true`, NULL·UTF-8 오류·빈 문자열이면 `false`.
 #[no_mangle]
-pub extern "C" fn unim_engine_set_korean_layout(
+pub unsafe extern "C" fn unim_engine_set_korean_layout(
     engine: &mut InputEngine,
-    layout: unim::config::KoreanLayout,
-) {
-    engine.set_korean_layout(layout);
+    layout: *const std::os::raw::c_char,
+) -> bool {
+    if layout.is_null() {
+        return false;
+    }
+    let s = match std::ffi::CStr::from_ptr(layout).to_str() {
+        Ok(s) if !s.trim().is_empty() => s.trim(),
+        _ => return false,
+    };
+    engine.set_korean_layout(unim::config::normalize_korean_layout_name(s));
+    true
 }
 
 /// 엔진의 영어 레이아웃을 즉시 변경합니다.
 #[no_mangle]
-pub extern "C" fn unim_engine_set_english_layout(
+pub unsafe extern "C" fn unim_engine_set_english_layout(
     engine: &mut InputEngine,
-    layout: unim::config::EnglishLayout,
-) {
-    engine.set_english_layout(layout);
+    layout: *const std::os::raw::c_char,
+) -> bool {
+    if layout.is_null() {
+        return false;
+    }
+    let s = match std::ffi::CStr::from_ptr(layout).to_str() {
+        Ok(s) if !s.trim().is_empty() => s.trim(),
+        _ => return false,
+    };
+    engine.set_english_layout(unim::config::normalize_english_layout_name(s));
+    true
 }
 
 /// 현재 입력 카테고리를 반환합니다.
@@ -321,16 +368,16 @@ pub extern "C" fn unim_config_save(config: &Config) -> bool {
     config.save_to_default_path().is_ok()
 }
 
-/// 현재 한국어 레이아웃을 반환합니다.
+/// 현재 한국어 레이아웃 프로필 이름을 반환합니다 (UnimStr, caller가 소유권 이전).
 #[no_mangle]
-pub extern "C" fn unim_config_get_korean_layout(config: &Config) -> unim::config::KoreanLayout {
-    config.engine.korean.layout
+pub extern "C" fn unim_config_get_korean_layout(config: &Config) -> UnimStr {
+    UnimStr::new(config.engine.korean.layout.as_str())
 }
 
 /// 현재 영어 레이아웃을 반환합니다.
 #[no_mangle]
-pub extern "C" fn unim_config_get_english_layout(config: &Config) -> unim::config::EnglishLayout {
-    config.engine.english.layout
+pub extern "C" fn unim_config_get_english_layout(config: &Config) -> UnimStr {
+    UnimStr::new(config.engine.english.layout.as_str())
 }
 
 /// 기본(초기) 입력 카테고리를 반환합니다.
@@ -401,30 +448,34 @@ pub extern "C" fn unim_mode_sharing_at(index: usize) -> unim::config::ModeSharin
 // 레이아웃 열거형 헬퍼 (UI 표시용)
 // ============================================
 
-/// 지원하는 한국어 레이아웃 개수를 반환합니다.
+/// 내장 한국어 자판의 개수를 반환합니다.
+///
+/// Phase 8 이관 시점: 5종 (ko_2bulstd, ko_3bul390, ko_3bul391, ko_3bul_noshift,
+/// ko_3bul_qwerty). 사용자 정의 프로필은 `~/.config/unim/layouts/` 스캔 경로를
+/// 사용하므로 여기서 세지 않는다.
 #[no_mangle]
 pub extern "C" fn unim_korean_layout_count() -> usize {
-    4 // Dubeolsik, Sebeolsik390, Sebeolsik391, SebeolsikNoShift
+    unim::config::KOREAN_LAYOUT_BUILTINS.len()
 }
 
-/// 한국어 레이아웃 이름을 반환합니다.
-///
-/// # Arguments
-///
-/// * `layout` - 레이아웃 열거형 값
-///
-/// # 반환값
-///
-/// 레이아웃 이름 문자열 (lifetime: static)
+/// 인덱스로 내장 한국어 자판의 정식 이름을 반환합니다. 범위 밖이면 빈 문자열.
 #[no_mangle]
-pub extern "C" fn unim_korean_layout_name(layout: unim::config::KoreanLayout) -> UnimStr {
-    UnimStr::new(layout.name())
+pub extern "C" fn unim_korean_layout_name(index: usize) -> UnimStr {
+    let name = unim::config::KOREAN_LAYOUT_BUILTINS
+        .get(index)
+        .copied()
+        .unwrap_or("");
+    UnimStr::new(name)
 }
 
-/// 한국어 레이아웃 표시 이름을 반환합니다 (UI용).
+/// 인덱스로 내장 한국어 자판의 표시 이름을 반환합니다 (UI용).
 #[no_mangle]
-pub extern "C" fn unim_korean_layout_display_name(layout: unim::config::KoreanLayout) -> UnimStr {
-    UnimStr::new(layout.display_name())
+pub extern "C" fn unim_korean_layout_display_name(index: usize) -> UnimStr {
+    let name = unim::config::KOREAN_LAYOUT_BUILTINS
+        .get(index)
+        .copied()
+        .unwrap_or("");
+    UnimStr::new(unim::config::korean_layout_display_name(name))
 }
 
 /// 지원하는 영어 레이아웃 개수를 반환합니다.
@@ -435,32 +486,34 @@ pub extern "C" fn unim_english_layout_count() -> usize {
 
 /// 영어 레이아웃 이름을 반환합니다.
 #[no_mangle]
-pub extern "C" fn unim_english_layout_name(layout: unim::config::EnglishLayout) -> UnimStr {
-    UnimStr::new(layout.name())
+pub extern "C" fn unim_english_layout_name(index: usize) -> UnimStr {
+    let name = unim::config::ENGLISH_LAYOUT_BUILTINS
+        .get(index)
+        .copied()
+        .unwrap_or("");
+    UnimStr::new(name)
 }
 
 /// 영어 레이아웃 표시 이름을 반환합니다 (UI용).
 #[no_mangle]
-pub extern "C" fn unim_english_layout_display_name(layout: unim::config::EnglishLayout) -> UnimStr {
-    UnimStr::new(layout.display_name())
-}
-
-/// 인덱스로 한국어 레이아웃을 가져옵니다.
-#[no_mangle]
-pub extern "C" fn unim_korean_layout_at(index: usize) -> unim::config::KoreanLayout {
-    unim::config::KoreanLayout::all()
+pub extern "C" fn unim_english_layout_display_name(index: usize) -> UnimStr {
+    let name = unim::config::ENGLISH_LAYOUT_BUILTINS
         .get(index)
         .copied()
-        .unwrap_or(unim::config::KoreanLayout::Dubeolsik)
+        .unwrap_or("");
+    UnimStr::new(unim::config::english_layout_display_name(name))
 }
 
-/// 인덱스로 영어 레이아웃을 가져옵니다.
+/// 인덱스로 내장 한국어 자판의 정식 프로필 이름을 반환합니다 (String alias).
 #[no_mangle]
-pub extern "C" fn unim_english_layout_at(index: usize) -> unim::config::EnglishLayout {
-    unim::config::EnglishLayout::all()
-        .get(index)
-        .copied()
-        .unwrap_or(unim::config::EnglishLayout::Qwerty)
+pub extern "C" fn unim_korean_layout_at(index: usize) -> UnimStr {
+    unim_korean_layout_name(index)
+}
+
+/// 인덱스로 내장 영어 자판의 정식 프로필 이름을 반환합니다 (레거시 alias).
+#[no_mangle]
+pub extern "C" fn unim_english_layout_at(index: usize) -> UnimStr {
+    unim_english_layout_name(index)
 }
 
 // ============================================

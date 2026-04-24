@@ -13,13 +13,14 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 
 use unim::config::{
-    Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode, PopupMode,
+    Config, InputCategory, ModeSharingMode, PopupMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
+use unim::keystroke::profile::{resolve_inherits, LayoutProfile, ProfileRegistry};
 use unim::typefix_blacklist::{Blacklist, Direction, EntryStatus};
 use unim::unim_log;
 
@@ -81,7 +82,9 @@ pub fn show_settings_dialog(app: &adw::Application) {
         .title("일반")
         .icon_name("preferences-system-symbolic")
         .build();
-    page_general.add(&build_keymap_group(&state));
+    let rule_sets_handle = build_rule_sets_group();
+    page_general.add(&build_keymap_group(&state, &rule_sets_handle));
+    page_general.add(&rule_sets_handle.group);
     page_general.add(&build_input_mode_group(&state));
     window.add(&page_general);
 
@@ -228,52 +231,216 @@ async fn send_set_config_yaml(yaml: &str) -> zbus::Result<()> {
 // Page 1: 일반
 // ─────────────────────────────────────────────────────────────
 
-fn build_keymap_group(state: &State) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title("자판 및 키맵").build();
-
-    // 한국어 자판
-    let kor_row = adw::ComboRow::builder().title("한국어 자판").build();
-    let kor_items: Vec<&str> = KoreanLayout::all()
-        .iter()
-        .map(|l| l.display_name())
-        .collect();
-    let kor_list = gtk4::StringList::new(&kor_items);
-    kor_row.set_model(Some(&kor_list));
-    {
-        let s = state.borrow();
-        if let Some(idx) = KoreanLayout::all()
-            .iter()
-            .position(|l| *l == s.config.engine.korean.layout)
-        {
-            kor_row.set_selected(idx as u32);
+/// 한국어 프로필 선택지 — (name, display_string).
+fn collect_korean_profile_choices() -> Vec<(String, String)> {
+    let reg = ProfileRegistry::new();
+    let mut out: Vec<(String, String)> = Vec::new();
+    for name in reg.list_names() {
+        if let Some(p) = reg.find_raw(&name) {
+            if p.language != "korean" {
+                continue;
+            }
+            let disp = p
+                .metadata
+                .display_name
+                .as_ref()
+                .map(|d| d.resolve("ko").to_string())
+                .unwrap_or_else(|| name.clone());
+            out.push((name, disp));
         }
     }
+    out
+}
+
+/// 선택된 프로필 이름을 Config에 반영한다.
+///
+/// Phase 8: `korean.layout`이 enum → String으로 통합되어 별칭 분기 불필요.
+/// 레거시 값은 `normalize_korean_layout_name`이 정식 이름으로 승격.
+///
+/// 새 프로필에 정의되지 않은 `active_rule_sets` 이름은 silently drop (§3.5).
+fn apply_korean_profile_choice(config: &mut Config, name: &str, new_profile: &LayoutProfile) {
+    config.engine.korean.layout = unim::config::normalize_korean_layout_name(name);
+    // 새 프로필에 없는 rule_set 이름 드롭.
+    config
+        .engine
+        .korean
+        .active_rule_sets
+        .retain(|n| new_profile.rule_sets.contains_key(n));
+}
+
+/// 레지스트리에서 프로필을 찾아 inherits까지 해석한다. 실패 시 `None`.
+fn load_and_resolve(name: &str) -> Option<LayoutProfile> {
+    let reg = ProfileRegistry::new();
+    let raw = reg.find_raw(name)?;
+    resolve_inherits(&raw, &reg).ok()
+}
+
+/// 동적 규칙 세트 그룹 핸들 — 자판 변경 시 SwitchRow 재구성.
+#[derive(Clone)]
+struct RuleSetsHandle {
+    group: adw::PreferencesGroup,
+    rows: Rc<RefCell<Vec<adw::SwitchRow>>>,
+}
+
+impl RuleSetsHandle {
+    fn refresh(&self, profile: &LayoutProfile, state: &State) {
+        // 기존 행 제거.
+        for row in self.rows.borrow().iter() {
+            self.group.remove(row);
+        }
+        self.rows.borrow_mut().clear();
+
+        let config_active = state.borrow().config.engine.korean.active_rule_sets.clone();
+        // 프로필이 선언한 active_rule_sets (있으면 그 집합이 기본 활성).
+        let profile_default: Option<&Vec<String>> = profile.active_rule_sets.as_ref();
+
+        if profile.rule_sets.is_empty() {
+            self.group.set_description(Some("이 자판은 옵션 규칙이 없습니다."));
+        } else {
+            self.group.set_description(Some("선택된 자판의 옵션 규칙"));
+        }
+
+        for (set_name, rs) in &profile.rule_sets {
+            let title = rs
+                .description
+                .as_ref()
+                .map(|d| d.resolve("ko").to_string())
+                .unwrap_or_else(|| set_name.clone());
+            let row = adw::SwitchRow::builder()
+                .title(set_name)
+                .subtitle(&title)
+                .build();
+
+            // active 계산: config override 비어 있지 않으면 config 값, 아니면
+            // 프로필의 active_rule_sets 또는 rule_set.active.
+            let is_active = if !config_active.is_empty() {
+                config_active.contains(set_name)
+            } else if let Some(list) = profile_default {
+                list.contains(set_name)
+            } else {
+                rs.active
+            };
+            row.set_active(is_active);
+
+            let state_c = state.clone();
+            let name_c = set_name.clone();
+            row.connect_active_notify(move |r| {
+                let mut s = state_c.borrow_mut();
+                if s.updating {
+                    return;
+                }
+                let on = r.is_active();
+                let list = &mut s.config.engine.korean.active_rule_sets;
+                if on {
+                    if !list.contains(&name_c) {
+                        list.push(name_c.clone());
+                    }
+                } else {
+                    list.retain(|x| x != &name_c);
+                }
+                save_and_notify(&s.config, "korean_active_rule_sets");
+            });
+
+            self.group.add(&row);
+            self.rows.borrow_mut().push(row);
+        }
+    }
+}
+
+fn build_rule_sets_group() -> RuleSetsHandle {
+    let group = adw::PreferencesGroup::builder()
+        .title("규칙 세트")
+        .description("자판 프로필 로드 후 표시")
+        .build();
+    RuleSetsHandle {
+        group,
+        rows: Rc::new(RefCell::new(Vec::new())),
+    }
+}
+
+fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title("자판 및 키맵").build();
+
+    // 한국어 자판 — 내장 + 사용자 프로필 통합
+    let kor_row = adw::ComboRow::builder()
+        .title("한국어 자판")
+        .subtitle("내장 + ~/.config/unim/layouts/*.json")
+        .build();
+    let choices = collect_korean_profile_choices();
+    let display_items: Vec<&str> = choices.iter().map(|(_, d)| d.as_str()).collect();
+    let kor_list = gtk4::StringList::new(&display_items);
+    kor_row.set_model(Some(&kor_list));
+
+    // 현재 선택 위치 결정 — effective_layout_name() 기반
+    let current_name = state.borrow().config.engine.korean.effective_layout_name();
+    let current_idx = choices
+        .iter()
+        .position(|(n, _)| *n == current_name)
+        .or_else(|| {
+            // 별칭 검색: "2bul" → "ko_2bulstd" 등
+            choices.iter().position(|(n, _)| {
+                matches!(
+                    (current_name.as_str(), n.as_str()),
+                    ("2bul" | "2bulstd", "ko_2bulstd")
+                        | ("3bul390" | "390", "ko_3bul390")
+                        | ("3bul391" | "391", "ko_3bul391")
+                        | ("3bul_noshift" | "noshift", "ko_3bul_noshift")
+                        | ("3bul_qwerty", "ko_3bul_qwerty")
+                )
+            })
+        })
+        .unwrap_or(0);
+    kor_row.set_selected(current_idx as u32);
+
+    // 초기 rule_sets 채우기
+    if let Some((init_name, _)) = choices.get(current_idx) {
+        if let Some(profile) = load_and_resolve(init_name) {
+            rule_sets.refresh(&profile, state);
+        }
+    }
+
+    // 선택 변경 콜백
     {
         let state_c = state.clone();
+        let rule_sets_c = rule_sets.clone();
+        let choices_c = choices.clone();
         kor_row.connect_selected_notify(move |row| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
+            let idx = row.selected() as usize;
+            let Some((name, _)) = choices_c.get(idx) else {
                 return;
-            }
-            if let Some(layout) = KoreanLayout::all().get(row.selected() as usize) {
-                s.config.engine.korean.layout = *layout;
+            };
+            let Some(profile) = load_and_resolve(name) else {
+                unim_log!("INDICATOR", "[Settings] 프로필 로드 실패: {name}");
+                return;
+            };
+            {
+                let mut s = state_c.borrow_mut();
+                if s.updating {
+                    return;
+                }
+                apply_korean_profile_choice(&mut s.config, name, &profile);
                 save_and_notify(&s.config, "korean_layout");
             }
+            // rule_sets 그룹 재구성 — updating 플래그 내부 flip으로 콜백 폭주 방지
+            state_c.borrow_mut().updating = true;
+            rule_sets_c.refresh(&profile, &state_c);
+            state_c.borrow_mut().updating = false;
         });
     }
     group.add(&kor_row);
 
-    // 영어 자판
+    // 영어 자판 — Phase 9에서 enum 폐지 후 내장 5종 + 사용자 프로필 가능 (현재는 내장만 표시).
     let eng_row = adw::ComboRow::builder().title("영어 자판").build();
-    let eng_items: Vec<&str> = EnglishLayout::all()
+    let eng_builtins: Vec<&str> = unim::config::ENGLISH_LAYOUT_BUILTINS.to_vec();
+    let eng_items: Vec<&str> = eng_builtins
         .iter()
-        .map(|l| l.display_name())
+        .map(|l| unim::config::english_layout_display_name(l))
         .collect();
     let eng_list = gtk4::StringList::new(&eng_items);
     eng_row.set_model(Some(&eng_list));
     {
         let s = state.borrow();
-        if let Some(idx) = EnglishLayout::all()
+        if let Some(idx) = eng_builtins
             .iter()
             .position(|l| *l == s.config.engine.english.layout)
         {
@@ -282,13 +449,14 @@ fn build_keymap_group(state: &State) -> adw::PreferencesGroup {
     }
     {
         let state_c = state.clone();
+        let builtins = eng_builtins.clone();
         eng_row.connect_selected_notify(move |row| {
             let mut s = state_c.borrow_mut();
             if s.updating {
                 return;
             }
-            if let Some(layout) = EnglishLayout::all().get(row.selected() as usize) {
-                s.config.engine.english.layout = *layout;
+            if let Some(layout) = builtins.get(row.selected() as usize) {
+                s.config.engine.english.layout = (*layout).to_string();
                 save_and_notify(&s.config, "english_layout");
             }
         });
@@ -1077,8 +1245,8 @@ fn build_blacklist_row(
     // 순방향: ASCII가 영어 타이핑(예: "gksrmf") → eng_to_kor 하면 의도한 한글(예: "한글").
     let hangul_form = unim::typefix::eng_to_kor(
         &entry.ascii,
-        entry.korean_layout,
-        entry.english_layout,
+        &entry.korean_layout,
+        &entry.english_layout,
     );
 
     // 방향별 주/부 표시 규칙:
@@ -1093,8 +1261,8 @@ fn build_blacklist_row(
         "{} · {} · 한글:{} · 영문:{} · 히트:{}",
         counterpart,
         direction_label(entry.direction),
-        entry.korean_layout.display_name(),
-        entry.english_layout.display_name(),
+        unim::config::korean_layout_display_name(&entry.korean_layout),
+        unim::config::english_layout_display_name(&entry.english_layout),
         entry.hit_count,
     );
 

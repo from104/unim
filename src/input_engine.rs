@@ -203,7 +203,7 @@ impl InputEngine {
     ///
     /// * `config` - 엔진 설정
     pub fn new(config: &Config) -> Self {
-        let composer_type = if config.engine.korean.layout.is_sebeolsik() {
+        let composer_type = if crate::config::is_sebeolsik_layout(&config.engine.korean.layout) {
             ComposerType::ThreeBul
         } else {
             ComposerType::TwoBul
@@ -219,13 +219,13 @@ impl InputEngine {
 
         Self {
             input_category: config.engine.default_category,
-            korean_context: HangulInputContext::new(composer_type),
+            korean_context: build_korean_context(config, composer_type),
             commit_buffer: String::new(),
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
             english_keymap,
-            korean_layout: config.engine.korean.layout,
-            english_layout: config.engine.english.layout,
+            korean_layout: config.engine.korean.layout.clone(),
+            english_layout: config.engine.english.layout.clone(),
             hanja_dict,
             hanja_candidates: Vec::new(),
             hanja_mode: false,
@@ -242,7 +242,10 @@ impl InputEngine {
                 .collect(),
             popup_state: None,
             popup_pending_action: None,
-            top_row_labels: config.engine.english.layout.top_row_labels().to_string(),
+            top_row_labels: crate::config::english_layout_top_row_labels(
+                &config.engine.english.layout,
+            )
+            .to_string(),
             content_purpose: ContentPurpose::Normal,
             surrounding_text: String::new(),
             surrounding_cursor: 0,
@@ -261,9 +264,10 @@ impl InputEngine {
         korean_layout: &KoreanLayout,
         english_layout: &EnglishLayout,
     ) -> HashMap<char, JamoEnum> {
-        let en_json = crate::keystroke::get_keymap_json(english_layout.keymap_name());
-        let ko_json = crate::keystroke::get_keymap_json(korean_layout.name());
-        let is_three_bul = korean_layout.is_sebeolsik();
+        let en_keymap = crate::config::english_layout_keymap_name(english_layout);
+        let en_json = crate::keystroke::get_keymap_json(&en_keymap);
+        let ko_json = crate::keystroke::get_keymap_json(korean_layout);
+        let is_three_bul = crate::config::is_sebeolsik_layout(korean_layout);
         crate::keystroke::KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul)
     }
 
@@ -271,9 +275,10 @@ impl InputEngine {
     ///
     /// # Arguments
     ///
-    /// * `layout` - 영어 키보드 레이아웃
+    /// * `layout` - 영어 키보드 레이아웃 프로필 이름
     fn create_english_keymap(layout: &EnglishLayout) -> EnglishKeymap {
-        let json = crate::keystroke::get_keymap_json(layout.keymap_name());
+        let keymap_file = crate::config::english_layout_keymap_name(layout);
+        let json = crate::keystroke::get_keymap_json(&keymap_file);
         EnglishKeymap::from_json(json)
     }
 
@@ -679,18 +684,18 @@ impl InputEngine {
     pub fn set_korean_layout(&mut self, layout: KoreanLayout) {
         if self.korean_layout != layout {
             self.flush_preedit();
-            self.korean_layout = layout;
 
             // 키보드 맵 업데이트
             self.keyboard_map = Some(Self::create_keyboard_map(&layout, &self.english_layout));
 
             // 컨텍스트 업데이트
-            let composer_type = if layout.is_sebeolsik() {
+            let composer_type = if crate::config::is_sebeolsik_layout(&layout) {
                 ComposerType::ThreeBul
             } else {
                 ComposerType::TwoBul
             };
             self.korean_context = HangulInputContext::new(composer_type);
+            self.korean_layout = layout;
         }
     }
 
@@ -700,13 +705,13 @@ impl InputEngine {
     pub fn set_english_layout(&mut self, layout: EnglishLayout) {
         if self.english_layout != layout {
             self.flush_preedit();
-            self.english_layout = layout;
 
             // 한국어 키보드 맵 재생성 (영어 레이아웃과 연동)
             self.keyboard_map = Some(Self::create_keyboard_map(&self.korean_layout, &layout));
 
             // 영어 키맵 재생성
             self.english_keymap = Self::create_english_keymap(&layout);
+            self.english_layout = layout;
         }
     }
 
@@ -1220,8 +1225,8 @@ impl InputEngine {
             return None;
         }
 
-        let korean_layout = self.korean_layout;
-        let english_layout = self.english_layout;
+        let korean_layout = self.korean_layout.as_str();
+        let english_layout = self.english_layout.as_str();
 
         // 자동 감지 + 변환
         let (replacement, target_mode) = match direction {
@@ -1282,6 +1287,55 @@ impl InputEngine {
             Some((offset_from_cursor, delete_chars, repl.clone()))
         } else {
             None
+        }
+    }
+}
+
+/// Config로부터 `HangulInputContext`를 구성.
+///
+/// 우선 `ProfileRegistry`로 `effective_layout_name()`에 해당하는 프로필을 찾고
+/// inherits 해석 + `active_rule_sets` override를 적용해 `new_with_profile` 경로로
+/// 생성. 어떤 단계라도 실패하면 enum 기반 legacy 경로로 안전 폴백한다.
+///
+/// 폴백이 발생하면 stderr에 원인을 기록하되, 엔진 시작은 계속한다.
+fn build_korean_context(config: &Config, fallback_type: ComposerType) -> HangulInputContext {
+    use crate::keystroke::profile::{resolve_inherits, ProfileRegistry};
+
+    let name = config.engine.korean.effective_layout_name();
+    let registry = ProfileRegistry::new();
+
+    let Some(raw) = registry.find_raw(&name) else {
+        eprintln!(
+            "[UNIM] 프로필 '{}'을(를) 찾지 못함 → enum 경로로 폴백",
+            name
+        );
+        return HangulInputContext::new(fallback_type);
+    };
+
+    let mut resolved = match resolve_inherits(&raw, &registry) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "[UNIM] 프로필 '{}' inherits 해석 실패: {e} → enum 경로로 폴백",
+                name
+            );
+            return HangulInputContext::new(fallback_type);
+        }
+    };
+
+    // Config의 active_rule_sets가 비어 있지 않으면 프로필 값을 override (§3.1).
+    if !config.engine.korean.active_rule_sets.is_empty() {
+        resolved.active_rule_sets = Some(config.engine.korean.active_rule_sets.clone());
+    }
+
+    match HangulInputContext::new_with_profile(&resolved) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            eprintln!(
+                "[UNIM] 프로필 '{}' 빌드 실패: {e:?} → enum 경로로 폴백",
+                name
+            );
+            HangulInputContext::new(fallback_type)
         }
     }
 }
@@ -1543,19 +1597,19 @@ mod tests {
     #[test]
     fn test_set_korean_layout() {
         let mut config = Config::default();
-        config.engine.korean.layout = KoreanLayout::Sebeolsik390;
+        config.engine.korean.layout = "ko_3bul390".to_string();
 
         let engine = InputEngine::new(&config);
-        assert_eq!(engine.korean_layout, KoreanLayout::Sebeolsik390);
+        assert_eq!(engine.korean_layout, "ko_3bul390");
     }
 
     #[test]
     fn test_set_english_layout_dvorak() {
         let mut config = Config::default();
-        config.engine.english.layout = EnglishLayout::Dvorak;
+        config.engine.english.layout = "dvorak".to_string();
 
         let engine = InputEngine::new(&config);
-        assert_eq!(engine.english_layout, EnglishLayout::Dvorak);
+        assert_eq!(engine.english_layout, "dvorak");
     }
 
     // === 한/영 전환 중 조합 커밋 테스트 ===

@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "language": "korean",
+  "name": "3bul_qwerty",
+  "type": "3bul",
+  "metadata": {
+    "display_name": "쿼티형 세벌식",
+    "description": "세벌식 기반 · Shift 배제 · 알파벳 26자리 포화 배치 · 초·중·종성 3단 조합 규칙 · 모아치기 친화. 숫자열·기호열 완전 QWERTY 호환. 경음화는 연타(ㄱ+ㄱ→ㄲ)와 ㅇ 복사(ㄱ+ㅇ→ㄲ) 두 경로 병존. 종성 영역은 키가 초성이 될 수 없어 순서 자유 모아치기 친화. 설계 문서: docs/research/쿼티형 세벌식 초안.md",
+    "version": "0.1",
+    "tags": ["korean", "3bul", "qwerty-compat", "noshift", "accessibility", "moachigi-friendly"]
+  },
+  "layout": {
+    "upper": {
+      "1st": ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|"],
+      "2nd": ["ᆶ", "ᆹ", "ᆳ", "ᆲ", "ㅕ", "ᆪ", "ㄸ", "※", "ㅉ", "ㅃ", "{", "}"],
+      "3nd": ["ᆵ", "ᆭ", "ᆭ", "ㅑ", "ㅐ", "ㅔ", "“", "”", "ㄲ", ":", "\""],
+      "4th": ["ᆱ", "ᆰ", "ᆴ", "ㅛ", "ㅠ", "ㅆ", "", "<", ">", "?"]
+    },
+    "lower": {
+      "1st": ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "\\"],
+      "2nd": ["ᇂ", "ᆯ", "ᆺ", "ᆸ", "ㅓ", "ㄹ", "ㄷ", "ㅁ", "ㅈ", "ㅂ", "[", "]"],
+      "3nd": ["ᆼ", "ᆫ", "ᆽ", "ㅏ", "ㅡ", "ㅣ", "ㄴ", "ㅇ", "ㄱ", ";", "'"],
+      "4th": ["ᆷ", "ᆨ", "ᆮ", "ㅗ", "ㅜ", "ㅅ", "ㅎ", ",", ".", "/"]
+    }
+  },
+  "combinations": {
+    "cho": [
+      { "first": "ㄱ", "second": "ㄱ", "result": "ㄲ" },
+      { "first": "ㄷ", "second": "ㄷ", "result": "ㄸ" },
+      { "first": "ㅂ", "second": "ㅂ", "result": "ㅃ" },
+      { "first": "ㅅ", "second": "ㅅ", "result": "ㅆ" },
+      { "first": "ㅈ", "second": "ㅈ", "result": "ㅉ" },
+      { "first": "ㄱ", "second": "ㅎ", "result": "ㅋ" },
+      { "first": "ㄷ", "second": "ㅎ", "result": "ㅌ" },
+      { "first": "ㅂ", "second": "ㅎ", "result": "ㅍ" },
+      { "first": "ㅈ", "second": "ㅎ", "result": "ㅊ" },
+      { "first": "ㄱ", "second": "ㅇ", "result": "ㄲ" },
+      { "first": "ㄷ", "second": "ㅇ", "result": "ㄸ" },
+      { "first": "ㅂ", "second": "ㅇ", "result": "ㅃ" },
+      { "first": "ㅅ", "second": "ㅇ", "result": "ㅆ" },
+      { "first": "ㅈ", "second": "ㅇ", "result": "ㅉ" }
+    ],
+    "jung": [
+      { "first": "ㅏ", "second": "ㅡ", "result": "ㅑ" },
+      { "first": "ㅓ", "second": "ㅡ", "result": "ㅕ" },
+      { "first": "ㅗ", "second": "ㅡ", "result": "ㅛ" },
+      { "first": "ㅜ", "second": "ㅡ", "result": "ㅠ" },
+      { "first": "ㅏ", "second": "ㅣ", "result": "ㅐ" },
+      { "first": "ㅓ", "second": "ㅣ", "result": "ㅔ" },
+      { "first": "ㅗ", "second": "ㅣ", "result": "ㅚ" },
+      { "first": "ㅜ", "second": "ㅣ", "result": "ㅟ" },
+      { "first": "ㅡ", "second": "ㅣ", "result": "ㅢ" },
+      { "first": "ㅗ", "second": "ㅏ", "result": "ㅘ" },
+      { "first": "ㅜ", "second": "ㅓ", "result": "ㅝ" },
+      { "first": "ㅑ", "second": "ㅣ", "result": "ㅒ" },
+      { "first": "ㅕ", "second": "ㅣ", "result": "ㅖ" },
+      { "first": "ㅘ", "second": "ㅣ", "result": "ㅙ" },
+      { "first": "ㅝ", "second": "ㅣ", "result": "ㅞ" }
+    ],
+    "jong": [
+      { "first": "ᆨ", "second": "ᆺ", "result": "ᆪ" },
+      { "first": "ᆫ", "second": "ᆽ", "result": "ᆬ" },
+      { "first": "ᆫ", "second": "ᇂ", "result": "ᆭ" },
+      { "first": "ᆯ", "second": "ᆨ", "result": "ᆰ" },
+      { "first": "ᆯ", "second": "ᆷ", "result": "ᆱ" },
+      { "first": "ᆯ", "second": "ᆸ", "result": "ᆲ" },
+      { "first": "ᆯ", "second": "ᆺ", "result": "ᆳ" },
+      { "first": "ᆯ", "second": "ᇂ", "result": "ᆶ" },
+      { "first": "ᆸ", "second": "ᆺ", "result": "ᆹ" },
+      { "first": "ᆨ", "second": "ᆨ", "result": "ᆩ" },
+      { "first": "ᆺ", "second": "ᆺ", "result": "ᆻ" },
+      { "first": "ᆨ", "second": "ᆼ", "result": "ᆩ" },
+      { "first": "ᆺ", "second": "ᆼ", "result": "ᆻ" },
+      { "first": "ᆨ", "second": "ᇂ", "result": "ᆿ" },
+      { "first": "ᆮ", "second": "ᇂ", "result": "ᇀ" },
+      { "first": "ᆸ", "second": "ᇂ", "result": "ᇁ" },
+      { "first": "ᆽ", "second": "ᇂ", "result": "ᆾ" },
+      { "first": "ᆶ", "second": "ᆮ", "result": "ᆴ" },
+      { "first": "ᆶ", "second": "ᆸ", "result": "ᆵ" }
+    ]
+  }
+}
