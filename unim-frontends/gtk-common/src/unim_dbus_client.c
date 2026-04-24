@@ -86,6 +86,10 @@ struct _UnimDbusContext {
     UnimCommitTextCallback commit_text_callback;
     gpointer commit_text_user_data;
     guint commit_text_signal_id;
+    /* HanjaBookmarkChanged 콜백 */
+    UnimHanjaBookmarkChangedCallback hanja_bookmark_callback;
+    gpointer hanja_bookmark_user_data;
+    guint hanja_bookmark_signal_id;
 };
 
 UnimDbusContext*
@@ -182,6 +186,10 @@ unim_dbus_context_free(UnimDbusContext *ctx)
     /* CommitText 시그널 구독 해제 */
     if (ctx->commit_text_signal_id > 0 && ctx->connection) {
         g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->commit_text_signal_id);
+    }
+    /* HanjaBookmarkChanged 시그널 구독 해제 */
+    if (ctx->hanja_bookmark_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->hanja_bookmark_signal_id);
     }
 
     if (ctx->connection) {
@@ -1032,4 +1040,140 @@ unim_dbus_set_commit_text_callback(UnimDbusContext *ctx,
 
     UNIM_DBUS_DEBUG("CommitText 시그널 구독: path=%s, id=%u",
                      ctx->context_path, ctx->commit_text_signal_id);
+}
+
+/* =========================================
+ * HanjaBookmark 관련 함수
+ * ========================================= */
+
+gboolean
+unim_dbus_get_hanja_bookmark_states(UnimDbusContext *ctx,
+                                     gboolean **states,
+                                     gsize *count)
+{
+    GError *error = NULL;
+    GVariant *ret;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return FALSE;
+    if (!states || !count) return FALSE;
+
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "GetHanjaBookmarkStates",
+        NULL,
+        G_VARIANT_TYPE("(ab)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("GetHanjaBookmarkStates 실패: %s", error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    GVariant *arr = NULL;
+    g_variant_get(ret, "(@ab)", &arr);
+
+    gsize n = g_variant_n_children(arr);
+    gboolean *out = g_new0(gboolean, n > 0 ? n : 1);
+    for (gsize i = 0; i < n; i++) {
+        gboolean b = FALSE;
+        g_variant_get_child(arr, i, "b", &b);
+        out[i] = b;
+    }
+
+    g_variant_unref(arr);
+    g_variant_unref(ret);
+
+    *states = out;
+    *count = n;
+    return TRUE;
+}
+
+gboolean
+unim_dbus_toggle_hanja_bookmark(UnimDbusContext *ctx, guint index)
+{
+    GError *error = NULL;
+    GVariant *ret;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return FALSE;
+
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "ToggleHanjaBookmark",
+        g_variant_new("(u)", index),
+        G_VARIANT_TYPE("(ub)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("ToggleHanjaBookmark 실패 index=%u: %s", index, error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    g_variant_unref(ret);
+    return TRUE;
+}
+
+/* HanjaBookmarkChanged 시그널 핸들러 */
+static void
+on_hanja_bookmark_changed_signal(GDBusConnection *connection G_GNUC_UNUSED,
+                                  const gchar *sender_name G_GNUC_UNUSED,
+                                  const gchar *object_path G_GNUC_UNUSED,
+                                  const gchar *interface_name G_GNUC_UNUSED,
+                                  const gchar *signal_name G_GNUC_UNUSED,
+                                  GVariant *parameters,
+                                  gpointer user_data)
+{
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->hanja_bookmark_callback) return;
+
+    guint index = 0;
+    gboolean bookmarked = FALSE;
+    g_variant_get(parameters, "(ub)", &index, &bookmarked);
+
+    UNIM_DBUS_DEBUG("HanjaBookmarkChanged 시그널 수신: index=%u, bookmarked=%d",
+                     index, bookmarked);
+    ctx->hanja_bookmark_callback(index, bookmarked, ctx->hanja_bookmark_user_data);
+}
+
+void
+unim_dbus_set_hanja_bookmark_callback(UnimDbusContext *ctx,
+                                       UnimHanjaBookmarkChangedCallback callback,
+                                       gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->hanja_bookmark_callback = callback;
+    ctx->hanja_bookmark_user_data = user_data;
+
+    /* 자기 context의 HanjaBookmarkChanged 시그널 구독 */
+    ctx->hanja_bookmark_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "HanjaBookmarkChanged",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_hanja_bookmark_changed_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("HanjaBookmarkChanged 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->hanja_bookmark_signal_id);
 }
