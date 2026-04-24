@@ -71,6 +71,9 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
 ### 3.6 Escape
 - **조합 중이면 commit 후 바이패스**
 - 팝업이 열려있으면 팝업 닫기 + 모드 취소
+- **`auto_english.enabled=true` 이고 `Escape`가 trigger_keys에 포함되면**:
+  조합 커밋 → **영문 모드로 영구 전환** → ESC 키 앱에 passthrough (vi 호환).
+  한영키로 수동 전환 전까지 영문 유지. (§3.11 참조)
 
 ### 3.7 Tab / Shift+Tab
 - **조합 중이면 commit 후 바이패스**
@@ -93,6 +96,33 @@ UNIM의 모든 프론트엔드(GTK3, GTK4, Qt5, Qt6, XIM, Wayland, GNOME Extensi
   `clear_preedit=true`로 처리되어 후속 사용자 BS가 IM 모듈 단에서 소화되고
   `engine_worker`에는 전달되지 않는다. 따라서 Blacklist 롤백 관측은
   reverse 쪽에서만 **BS-OR-모드전환** 게이트를 사용한다. (§9.2 참조)
+
+### 3.11 자동 영문 모드 전환 (Auto-English-Mode)
+
+vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
+한글 모드에서도 자연스럽게 사용하기 위한 **opt-in** 기능. 기본 비활성.
+
+- **설정**: `engine.auto_english.{enabled, trigger_keys}` (기본 비활성).
+- **기본 trigger_keys**: `Escape`, `Slash`.
+  - 필요 시 사용자가 `"ShiftSemicolon"`(`:`), `"ShiftSlash"`(`?`) 같은
+    Shift 조합 가상 이름을 추가하여 자신만의 트리거를 확장할 수 있다
+    (`"Shift<KeyName>"` 규약). 기본값에서 `:`가 제외된 것은 한글 문장의
+    구두점과 충돌하기 쉽기 때문.
+- **한글 모드 + 트리거 키 입력 시 동작**:
+  1. 조합 중이면 preedit commit (§1.2 동일).
+  2. 카테고리를 **영문으로 영구 전환** (사용자가 한/영 전환 키로 수동 전환 전까지 유지).
+  3. 트리거 키가 문자를 생성하면(`/` 등) → commit buffer에 문자 push + `committed()`.
+  4. 트리거 키가 제어 키면(`Escape`, `Tab`, `Enter`) → `committed_passthrough()`.
+- **영문 모드에서는 no-op**: 기존 §3.5–§3.7 동작만 수행하고 전환 로직은 실행되지 않는다.
+- **상호작용**:
+  - **팝업 활성 상태**에서는 팝업 키 처리가 우선 (§4.1–§4.2). auto_english 훅은
+    `process_korean_key` 내부에 있으므로 팝업 키를 훔치지 않는다.
+  - **비밀번호 필드**(`content_purpose`)는 이미 영문 강제 전환되어 훅이 영향 없음.
+  - **한/영 전환 키(`toggle_keys`)**가 `trigger_keys`와 겹치면 `press_key` 상단의
+    toggle 분기가 먼저 매칭되어 toggle 동작이 우선한다.
+  - **AutoTypeFix**: 트리거 키는 비알파벳이라 `RecentCorrection` 키 버퍼와 독립.
+    자동 전환으로 발생한 모드 변경은 `engine_worker`가 `is_mode_switch=true`로 관측하므로
+    pending Blacklist 엔트리가 있으면 §9.2의 규칙대로 관측된다. 실무상 영향은 미미.
 
 ---
 

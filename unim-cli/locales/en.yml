@@ -135,3 +135,8 @@ user_dict_cleared: "Dictionary cleared (%{count} entries deleted)."
 user_dict_not_found: "'%{word}' is not in the dictionary."
 user_dict_add_failed: "Failed to add '%{word}': only English letters are allowed and duplicates are rejected."
 user_dict_clear_confirm: "Delete all %{count} dictionary entries?"
+
+# Auto English mode (PR #5)
+auto_english_label: "Auto English Mode"
+auto_english_keys_label: "Auto English trigger keys"
+auto_english_changed: "%{status} auto English mode."

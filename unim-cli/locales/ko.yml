@@ -136,3 +136,8 @@ user_dict_cleared: "사전을 비웠습니다. (%{count}개 삭제)"
 user_dict_not_found: "'%{word}'은(는) 사전에 없습니다."
 user_dict_add_failed: "'%{word}' 추가 실패: 영문 알파벳만 허용되며 중복은 등록되지 않습니다."
 user_dict_clear_confirm: "사전 %{count}개 항목을 모두 삭제하시겠습니까?"
+
+# 자동 영문 모드 전환 (PR #5)
+auto_english_label: "자동 영문 전환"
+auto_english_keys_label: "자동 영문 전환 트리거 키"
+auto_english_changed: "자동 영문 전환을 %{status}했습니다."
