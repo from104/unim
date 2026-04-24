@@ -4,7 +4,6 @@
 //! - `eng_to_kor`: 영문 타이핑을 한글로 변환 ("gksrmf" → "한글")
 //! - `kor_to_eng`: 한글을 영문 키스트로크로 변환 ("한글" → "gksrmf")
 
-use crate::config::{EnglishLayout, KoreanLayout};
 use crate::hangul::jamo::JamoEnum;
 use crate::keystroke::korean_to_keystrokes::korean_to_keystrokes;
 use crate::keystroke::{KeyboardMap, get_keymap_json};

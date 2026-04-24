@@ -11,7 +11,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use crate::config::{AutoTypeFixConfig, EnglishLayout, KoreanLayout};
+use crate::config::AutoTypeFixConfig;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::typefix;
 use crate::typefix_blacklist::{BlacklistGate, Direction};

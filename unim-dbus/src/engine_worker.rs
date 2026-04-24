@@ -1115,7 +1115,6 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unim::config::{EnglishLayout, KoreanLayout};
 
     fn mk_rc(direction: Direction, erasure: bool, switch: bool) -> RecentCorrection {
         RecentCorrection {

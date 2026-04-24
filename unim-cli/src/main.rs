@@ -6,7 +6,9 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process;
 use unim::config::{
-    Config as UnimConfig, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode,
+    english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
+    normalize_korean_layout_name, Config as UnimConfig, InputCategory, ModeSharingMode,
+    ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -395,8 +397,8 @@ fn process_korean_to_english(
 fn config_show() {
     let config = UnimConfig::load_from_default_path();
 
-    let korean_name = config.engine.korean.layout.display_name();
-    let english_name = config.engine.english.layout.display_name();
+    let korean_name = korean_layout_display_name(&config.engine.korean.layout);
+    let english_name = english_layout_display_name(&config.engine.english.layout);
 
     let default_category_name = match config.engine.default_category {
         InputCategory::Korean => t!("korean_mode"),
@@ -411,13 +413,13 @@ fn config_show() {
         "{}: {} ({})",
         t!("korean_layout_label"),
         korean_name,
-        config.engine.korean.layout.name()
+        config.engine.korean.layout
     );
     println!(
         "{}: {} ({})",
         t!("english_layout_label"),
         english_name,
-        config.engine.english.layout.name()
+        config.engine.english.layout
     );
     println!(
         "{}: {}",
@@ -488,53 +490,42 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
 
     match key {
         ConfigKey::KoreanLayout => {
-            let layout = match value {
-                "2bul" | "dubeolsik" => KoreanLayout::Dubeolsik,
-                "3bul390" | "390" => KoreanLayout::Sebeolsik390,
-                "3bul391" | "391" => KoreanLayout::Sebeolsik391,
-                "3bul_noshift" | "noshift" => KoreanLayout::SebeolsikNoShift,
-                _ => {
-                    let kind = t!("korean_layout_label").to_string();
-                    return Err(t!(
-                        "error_invalid_layout",
-                        kind = kind,
-                        value = value,
-                        allowed = "2bul, 3bul390, 3bul391, 3bul_noshift"
-                    )
-                    .to_string());
-                }
-            };
-            config.engine.korean.layout = layout;
+            let normalized = normalize_korean_layout_name(value);
+            if !KOREAN_LAYOUT_BUILTINS.contains(&normalized.as_str()) {
+                let kind = t!("korean_layout_label").to_string();
+                return Err(t!(
+                    "error_invalid_layout",
+                    kind = kind,
+                    value = value,
+                    allowed = KOREAN_LAYOUT_BUILTINS.join(", ")
+                )
+                .to_string());
+            }
             let kind = t!("korean_layout_label").to_string();
             println!(
                 "{}",
-                t!("layout_changed", kind = kind, layout = layout.name())
+                t!("layout_changed", kind = kind, layout = normalized.as_str())
             );
+            config.engine.korean.layout = normalized;
         }
         ConfigKey::EnglishLayout => {
-            let layout = match value {
-                "qwerty" => EnglishLayout::Qwerty,
-                "dvorak" => EnglishLayout::Dvorak,
-                "colemak" => EnglishLayout::Colemak,
-                "colemak_dh" | "colemak-dh" => EnglishLayout::ColemakDh,
-                "workman" => EnglishLayout::Workman,
-                _ => {
-                    let kind = t!("english_layout_label").to_string();
-                    return Err(t!(
-                        "error_invalid_layout",
-                        kind = kind,
-                        value = value,
-                        allowed = "qwerty, dvorak, colemak, colemak_dh, workman"
-                    )
-                    .to_string());
-                }
-            };
-            config.engine.english.layout = layout;
+            let normalized = normalize_english_layout_name(value);
+            if !ENGLISH_LAYOUT_BUILTINS.contains(&normalized.as_str()) {
+                let kind = t!("english_layout_label").to_string();
+                return Err(t!(
+                    "error_invalid_layout",
+                    kind = kind,
+                    value = value,
+                    allowed = ENGLISH_LAYOUT_BUILTINS.join(", ")
+                )
+                .to_string());
+            }
             let kind = t!("english_layout_label").to_string();
             println!(
                 "{}",
-                t!("layout_changed", kind = kind, layout = layout.name())
+                t!("layout_changed", kind = kind, layout = normalized.as_str())
             );
+            config.engine.english.layout = normalized;
         }
         ConfigKey::DefaultCategory => {
             let category = match value.to_lowercase().as_str() {
@@ -862,11 +853,12 @@ fn config_interactive() {
 
         match selection {
             0 => {
-                let layouts = KoreanLayout::all();
-                let layout_names: Vec<&str> = layouts.iter().map(|l| l.display_name()).collect();
+                let layouts = KOREAN_LAYOUT_BUILTINS;
+                let layout_names: Vec<&str> =
+                    layouts.iter().map(|n| korean_layout_display_name(n)).collect();
                 let current_idx = layouts
                     .iter()
-                    .position(|l| *l == config.engine.korean.layout)
+                    .position(|n| *n == config.engine.korean.layout.as_str())
                     .unwrap_or(0);
                 let s = Select::with_theme(&theme)
                     .with_prompt(t!("select_korean_layout").to_string())
@@ -875,14 +867,15 @@ fn config_interactive() {
                     .interact()
                     .unwrap();
 
-                config.engine.korean.layout = layouts[s];
+                config.engine.korean.layout = layouts[s].to_string();
             }
             1 => {
-                let layouts = EnglishLayout::all();
-                let layout_names: Vec<&str> = layouts.iter().map(|l| l.display_name()).collect();
+                let layouts = ENGLISH_LAYOUT_BUILTINS;
+                let layout_names: Vec<&str> =
+                    layouts.iter().map(|n| english_layout_display_name(n)).collect();
                 let current_idx = layouts
                     .iter()
-                    .position(|l| *l == config.engine.english.layout)
+                    .position(|n| *n == config.engine.english.layout.as_str())
                     .unwrap_or(0);
                 let s = Select::with_theme(&theme)
                     .with_prompt(t!("select_english_layout").to_string())
@@ -891,7 +884,7 @@ fn config_interactive() {
                     .interact()
                     .unwrap();
 
-                config.engine.english.layout = layouts[s];
+                config.engine.english.layout = layouts[s].to_string();
             }
             2 => {
                 let categories = [InputCategory::Korean, InputCategory::English];

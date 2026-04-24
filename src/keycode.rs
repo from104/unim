@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::LazyLock;
 
-use crate::config::EnglishLayout;
 use crate::keystroke::get_keymap_json;
 
 /// 키보드 키코드 열거형
@@ -880,7 +879,6 @@ mod tests {
 
     #[test]
     fn test_to_char_for_layout_qwerty_consistency() {
-        use crate::config::EnglishLayout;
         // Qwerty: to_char_for_layout == to_char / to_shifted_char (모든 문자키)
         let all_char_keys = [
             KeyCode::A, KeyCode::B, KeyCode::C, KeyCode::D, KeyCode::E,
@@ -912,7 +910,6 @@ mod tests {
     /// 모든 비-QWERTY 레이아웃의 모든 물리키를 JSON 원본과 교차 검증한다.
     #[test]
     fn test_to_char_for_layout_all_non_qwerty_vs_json() {
-        use crate::config::EnglishLayout;
         use crate::keystroke::get_keymap_json;
 
         // 물리키 행별 배열 (QWERTY 물리 위치 순서)
