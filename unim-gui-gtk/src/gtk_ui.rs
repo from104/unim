@@ -105,6 +105,13 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                             hanja_clone.borrow().hide();
                             special_clone.borrow().hide();
                         }
+                        GuiAction::HanjaBookmarkChanged { index, bookmarked } => {
+                            if hanja_clone.borrow().is_visible() {
+                                hanja_clone
+                                    .borrow_mut()
+                                    .set_bookmark(index, bookmarked);
+                            }
+                        }
                         GuiAction::PopupNavigate {
                             page,
                             total_pages,
