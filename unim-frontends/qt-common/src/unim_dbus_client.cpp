@@ -544,3 +544,95 @@ void UnimCommitTextReceiver::onCommitText(const QString &text) {
         m_client->m_commitTextCallback(text);
     }
 }
+
+/* =========================================
+ * HanjaBookmark 관련 구현
+ * ========================================= */
+
+bool UnimDbusClient::getHanjaBookmarkStates(QList<bool> &states)
+{
+    if (!isValid()) return false;
+    states.clear();
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("GetHanjaBookmarkStates")
+    );
+
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("GetHanjaBookmarkStates 실패: %s",
+                         qPrintable(reply.errorMessage())));
+        return false;
+    }
+
+    const QList<QVariant> args = reply.arguments();
+    if (args.isEmpty()) return false;
+
+    // zbus 'ab' → QDBusArgument or QVariantList
+    const QVariant &v = args.at(0);
+    if (v.canConvert<QDBusArgument>()) {
+        const QDBusArgument arg = v.value<QDBusArgument>();
+        arg.beginArray();
+        while (!arg.atEnd()) {
+            bool b = false;
+            arg >> b;
+            states.append(b);
+        }
+        arg.endArray();
+    } else {
+        const QVariantList list = v.toList();
+        for (const QVariant &e : list) {
+            states.append(e.toBool());
+        }
+    }
+    return true;
+}
+
+bool UnimDbusClient::toggleHanjaBookmark(quint32 index)
+{
+    if (!isValid()) return false;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("ToggleHanjaBookmark")
+    );
+    msg << index;
+
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("ToggleHanjaBookmark 실패 index=%u: %s",
+                         index, qPrintable(reply.errorMessage())));
+        return false;
+    }
+    return true;
+}
+
+void UnimDbusClient::setHanjaBookmarkChangedCallback(HanjaBookmarkChangedCallback callback) {
+    m_hanjaBookmarkCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimHanjaBookmarkReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("HanjaBookmarkChanged"),
+        receiver,
+        SLOT(onHanjaBookmarkChanged(quint32,bool))
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("HanjaBookmarkChanged signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimHanjaBookmarkReceiver::onHanjaBookmarkChanged(quint32 index, bool bookmarked) {
+    if (m_client && m_client->m_hanjaBookmarkCallback) {
+        UNIM_DBUS_DEBUG(QString::asprintf("HanjaBookmarkChanged received: index=%u, bookmarked=%d",
+                         index, int(bookmarked)));
+        m_client->m_hanjaBookmarkCallback(index, bookmarked);
+    }
+}

@@ -120,6 +120,12 @@ UnimInputContext::UnimInputContext()
             ev.setCommitString(text);
             QCoreApplication::sendEvent(focusObj, &ev);
         });
+        // HanjaBookmarkChanged 시그널 → 팝업 별 갱신
+        m_dbus->setHanjaBookmarkChangedCallback([this](quint32 index, bool bookmarked) {
+            if (m_hanjaPopup) {
+                m_hanjaPopup->setBookmark(index, bookmarked);
+            }
+        });
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }
@@ -130,8 +136,15 @@ UnimInputContext::UnimInputContext()
 
 void UnimInputContext::ensurePopups()
 {
-    if (!m_hanjaPopup)
+    if (!m_hanjaPopup) {
         m_hanjaPopup = new UnimHanjaPopup();
+        // Space 토글 → DBus 호출 (엔진이 persist + signal 발행)
+        m_hanjaPopup->setToggleBookmarkCallback([this](quint32 globalIndex) {
+            if (m_dbus) {
+                m_dbus->toggleHanjaBookmark(globalIndex);
+            }
+        });
+    }
     if (!m_specialPopup)
         m_specialPopup = new UnimSpecialPopup();
 }
@@ -434,6 +447,12 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                             updatePreedit();
                             commitString(hanja);
                         });
+
+                    // 초기 즐겨찾기 상태 fetch
+                    QList<bool> states;
+                    if (m_dbus->getHanjaBookmarkStates(states)) {
+                        m_hanjaPopup->setBookmarkStates(states);
+                    }
                 } else {
                     UNIM_DEBUG("popup_mode=Standalone, 한자 팝업 표시 생략");
                 }
