@@ -631,6 +631,11 @@ impl UnimHandler {
                     text
                 );
             }
+            PopupEvent::HanjaBookmarkChanged { index, bookmarked } => {
+                if let Some(ref mut hw) = self.hanja_window {
+                    hw.set_bookmark(index as usize, bookmarked, self.display);
+                }
+            }
         }
         Ok(())
     }
@@ -1233,6 +1238,18 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                         match HanjaWindow::new(self.display, self.screen, popup_x, popup_y) {
                             Ok(mut hw) => {
                                 hw.set_candidates(self.display, self.screen, &target, candidates);
+                                // 초기 즐겨찾기 상태 fetch (GNOME extension.js:176 패턴)
+                                let bookmark_resp = self.send_dbus_request(
+                                    DbusRequest::GetHanjaBookmarkStates {
+                                        context_path: ctx_path.clone(),
+                                        response: None,
+                                    },
+                                );
+                                if let Some(DbusResponse::HanjaBookmarkStates { states }) =
+                                    bookmark_resp
+                                {
+                                    hw.set_bookmark_flags(states, self.display);
+                                }
                                 let popup_wid = hw.window_id();
                                 self.hanja_window = Some(hw);
                                 self.hanja_context_path = Some(ctx_path);

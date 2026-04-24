@@ -49,6 +49,8 @@ pub enum PopupEvent {
     },
     /// Standalone 팝업 마우스 클릭 시 커밋 텍스트
     CommitText { text: String },
+    /// 한자 즐겨찾기 변경 (엔진 → 프런트엔드)
+    HanjaBookmarkChanged { index: u32, bookmarked: bool },
 }
 
 /// DBus 요청 타입
@@ -124,6 +126,21 @@ pub enum DbusRequest {
         width: i32,
         height: i32,
     },
+    /// 한자 즐겨찾기 상태 조회 (Vec<bool> 응답)
+    GetHanjaBookmarkStates {
+        context_path: String,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
+    /// 한자 즐겨찾기 토글 (엔진이 persist + HanjaBookmarkChanged 시그널 발행)
+    ///
+    /// XIM은 popup 키를 로컬에서 처리하지 않고 모든 키를 엔진으로 보내므로,
+    /// 엔진이 Space를 직접 ToggleBookmark로 변환한다. 이 variant는 향후 마우스
+    /// 기반 토글(우클릭 등) 대비용으로 남겨둔다.
+    #[allow(dead_code)]
+    ToggleHanjaBookmark {
+        context_path: String,
+        index: u32,
+    },
 }
 
 /// DBus 응답 타입
@@ -161,6 +178,10 @@ pub enum DbusResponse {
     SpecialCharSelected {
         #[allow(dead_code)]
         commit: String,
+    },
+    /// 한자 즐겨찾기 상태 조회 결과
+    HanjaBookmarkStates {
+        states: Vec<bool>,
     },
 }
 
@@ -566,6 +587,53 @@ async fn run_dbus_client(
                     }
                 }
             }
+
+            DbusRequest::GetHanjaBookmarkStates {
+                context_path,
+                response,
+            } => {
+                let mut states: Vec<bool> = Vec::new();
+                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
+                    if let Ok(proxy) = InputContextProxy::builder(&connection)
+                        .path(obj_path)
+                        .expect("path error")
+                        .build()
+                        .await
+                    {
+                        match proxy.get_hanja_bookmark_states().await {
+                            Ok(s) => states = s,
+                            Err(e) => {
+                                unim_log!(
+                                    "XIM_DBUS",
+                                    "[XIM-DBus] GetHanjaBookmarkStates 실패: {}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+                if let Some(tx) = response {
+                    let _ = tx.send(DbusResponse::HanjaBookmarkStates { states });
+                }
+            }
+
+            DbusRequest::ToggleHanjaBookmark {
+                context_path,
+                index,
+            } => {
+                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
+                    if let Ok(proxy) = InputContextProxy::builder(&connection)
+                        .path(obj_path)
+                        .expect("path error")
+                        .build()
+                        .await
+                    {
+                        // 엔진이 persist + HanjaBookmarkChanged 시그널 발행.
+                        // 반환값은 사용하지 않는다 (시그널로 UI 갱신).
+                        let _ = proxy.toggle_hanja_bookmark(index).await;
+                    }
+                }
+            }
         }
     }
 
@@ -644,6 +712,13 @@ async fn subscribe_popup_signals(
             return;
         }
     };
+    let mut bookmark_stream = match proxy.receive_hanja_bookmark_changed().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] HanjaBookmarkChanged 구독 실패: {}", e);
+            return;
+        }
+    };
 
     unim_log!(
         "XIM_DBUS",
@@ -705,6 +780,14 @@ async fn subscribe_popup_signals(
                     if !text.is_empty() {
                         let _ = popup_tx.send(PopupEvent::CommitText { text });
                     }
+                }
+            }
+            Some(signal) = bookmark_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::HanjaBookmarkChanged {
+                        index: args.index,
+                        bookmarked: args.bookmarked,
+                    });
                 }
             }
             else => break,
