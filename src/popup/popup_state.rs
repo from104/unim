@@ -33,6 +33,8 @@ pub enum PopupKey {
     PageDown,
     Space,
     Backspace,
+    /// '.' (Period) — 한자 팝업 확장/축소 토글
+    Period,
     /// 모디파이어 키 (Shift, Ctrl, Alt 등) — 무시
     Modifier,
     /// 알 수 없는 키 — 팝업 닫고 통과
@@ -44,6 +46,8 @@ pub enum PopupKey {
 pub enum PopupKeyResult {
     /// 선택 확정 (전체 인덱스, 0-based)
     Select(usize),
+    /// 즐겨찾기 토글 요청 (전체 인덱스, 한자 팝업 전용)
+    ToggleBookmark(usize),
     /// 취소 (Escape)
     Cancel,
     /// 상태 변경됨 → 재렌더링 필요
@@ -70,6 +74,8 @@ pub struct PopupState {
     items: Vec<String>,
     /// 한자 뜻 (한자 팝업에서만 사용, 특수문자는 빈 벡터)
     meanings: Vec<String>,
+    /// 즐겨찾기 플래그 (한자 팝업 전용, items와 동일 길이)
+    bookmarks: Vec<bool>,
     /// 대상 글자 (초성 또는 한글)
     target: String,
     /// 상단 행 레이블 (특수문자: "QWERTYUIO" 등)
@@ -88,6 +94,8 @@ pub struct PopupState {
     cols: usize,
     /// 페이지당 최대 항목 수
     page_size: usize,
+    /// 한자 팝업 확장 모드 여부 (true면 9×9 그리드, false면 1×9 리스트)
+    hanja_expanded: bool,
 }
 
 impl PopupState {
@@ -107,10 +115,12 @@ impl PopupState {
         };
         let page_items = total.min(HANJA_PAGE_SIZE);
 
+        let bookmarks = vec![false; total];
         Self {
             kind: PopupKind::Hanja,
             items,
             meanings,
+            bookmarks,
             target: target.to_string(),
             top_row: String::new(),
             current_page: 0,
@@ -120,6 +130,7 @@ impl PopupState {
             rows: page_items,
             cols: 1,
             page_size: HANJA_PAGE_SIZE,
+            hanja_expanded: false,
         }
     }
 
@@ -141,6 +152,7 @@ impl PopupState {
             kind: PopupKind::SpecialChar,
             items: characters,
             meanings: Vec::new(),
+            bookmarks: Vec::new(),
             target: target.to_string(),
             top_row: top_row.to_string(),
             current_page: 0,
@@ -150,12 +162,13 @@ impl PopupState {
             rows: 0,
             cols: 0,
             page_size: SPECIAL_PAGE_SIZE,
+            hanja_expanded: false,
         };
         state.update_page_layout();
         state
     }
 
-    /// 현재 페이지 레이아웃 재계산 (특수문자 전용)
+    /// 현재 페이지 레이아웃 재계산
     fn update_page_layout(&mut self) {
         match self.kind {
             PopupKind::SpecialChar => {
@@ -174,11 +187,55 @@ impl PopupState {
                 };
             }
             PopupKind::Hanja => {
-                let page_items = self.page_item_count();
-                self.rows = page_items;
-                self.cols = 1;
+                if self.hanja_expanded {
+                    let page_chars = self.page_item_count();
+                    self.cols = if page_chars == 0 {
+                        1
+                    } else {
+                        ((page_chars + MAX_ROWS - 1) / MAX_ROWS).clamp(1, MAX_COLS)
+                    };
+                    self.rows = if page_chars == 0 {
+                        1
+                    } else {
+                        ((page_chars + self.cols - 1) / self.cols)
+                            .min(MAX_ROWS)
+                            .max(1)
+                    };
+                } else {
+                    let page_items = self.page_item_count();
+                    self.rows = page_items;
+                    self.cols = 1;
+                }
             }
         }
+    }
+
+    /// 한자 팝업 확장 모드 토글 (current_page/선택 초기화).
+    pub fn toggle_hanja_expanded(&mut self) {
+        if self.kind != PopupKind::Hanja {
+            return;
+        }
+        self.hanja_expanded = !self.hanja_expanded;
+        self.page_size = if self.hanja_expanded {
+            SPECIAL_PAGE_SIZE
+        } else {
+            HANJA_PAGE_SIZE
+        };
+        let total = self.items.len();
+        self.total_pages = if total == 0 {
+            1
+        } else {
+            total.div_ceil(self.page_size)
+        };
+        self.current_page = 0;
+        self.sel_row = 0;
+        self.sel_col = 0;
+        self.update_page_layout();
+    }
+
+    /// 한자 팝업 확장 모드 여부.
+    pub fn is_hanja_expanded(&self) -> bool {
+        self.hanja_expanded
     }
 
     /// 현재 페이지의 항목 수
@@ -203,7 +260,7 @@ impl PopupState {
         }
     }
 
-    /// 한자 목록에서 페이지 내 인덱스 → 전체 인덱스
+    /// 한자 목록에서 페이지 내 인덱스 → 전체 인덱스 (compact 모드 전용)
     fn hanja_global_index(&self, page_index: usize) -> Option<usize> {
         let global = self.current_page * self.page_size + page_index;
         if global < self.items.len() {
@@ -211,6 +268,27 @@ impl PopupState {
         } else {
             None
         }
+    }
+
+    /// 한자 그리드 (row, col) → 전체 인덱스. compact 모드에서는 col을 무시한다.
+    fn hanja_global_index_rc(&self, row: usize, col: usize) -> Option<usize> {
+        let page_start = self.current_page * self.page_size;
+        let page_offset = if self.hanja_expanded {
+            col * self.rows + row
+        } else {
+            row
+        };
+        let global = page_start + page_offset;
+        if global < self.items.len() {
+            Some(global)
+        } else {
+            None
+        }
+    }
+
+    /// 한자 그리드에서 해당 셀에 항목이 있는지 확인
+    fn hanja_cell_exists(&self, row: usize, col: usize) -> bool {
+        self.hanja_global_index_rc(row, col).is_some()
     }
 
     /// 특수문자 그리드에서 해당 셀에 문자가 있는지 확인
@@ -222,7 +300,7 @@ impl PopupState {
     pub fn selected_global_index(&self) -> Option<usize> {
         match self.kind {
             PopupKind::SpecialChar => self.special_global_index(self.sel_row, self.sel_col),
-            PopupKind::Hanja => self.hanja_global_index(self.sel_row),
+            PopupKind::Hanja => self.hanja_global_index_rc(self.sel_row, self.sel_col),
         }
     }
 
@@ -255,9 +333,9 @@ impl PopupState {
                 }
             }
             PopupKind::Hanja => {
-                let page_items = self.page_item_count();
-                if row < page_items {
+                if row < self.rows && col < self.cols && self.hanja_cell_exists(row, col) {
                     self.sel_row = row;
+                    self.sel_col = col;
                     if let Some(idx) = self.selected_global_index() {
                         PopupKeyResult::Select(idx)
                     } else {
@@ -385,6 +463,7 @@ impl PopupState {
                 PopupKeyResult::Updated
             }
 
+            PopupKey::Period => PopupKeyResult::Consumed,
             PopupKey::Modifier => PopupKeyResult::Consumed,
             PopupKey::Other | PopupKey::Backspace => PopupKeyResult::NotHandled,
         }
@@ -396,49 +475,86 @@ impl PopupState {
         match key {
             PopupKey::Escape => PopupKeyResult::Cancel,
 
-            PopupKey::Number(n) => {
-                let idx = (n - 1) as usize;
-                let page_items = self.page_item_count();
-                if idx < page_items {
-                    if let Some(global) = self.hanja_global_index(idx) {
-                        return PopupKeyResult::Select(global);
-                    }
+            PopupKey::Period => {
+                self.toggle_hanja_expanded();
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Enter => {
+                if let Some(global) = self.selected_global_index() {
+                    return PopupKeyResult::Select(global);
                 }
                 PopupKeyResult::Consumed
             }
 
-            PopupKey::Enter => {
-                let page_items = self.page_item_count();
-                if page_items > 0 && self.sel_row < page_items {
-                    if let Some(global) = self.hanja_global_index(self.sel_row) {
-                        return PopupKeyResult::Select(global);
+            PopupKey::Space => {
+                // 현재 선택 항목의 즐겨찾기 토글 (compact / expanded 공통)
+                if let Some(global) = self.selected_global_index() {
+                    return PopupKeyResult::ToggleBookmark(global);
+                }
+                PopupKeyResult::Consumed
+            }
+
+            PopupKey::Number(n) => {
+                let row_idx = (n - 1) as usize;
+                if self.hanja_expanded {
+                    if row_idx < self.rows && self.hanja_cell_exists(row_idx, self.sel_col) {
+                        self.sel_row = row_idx;
+                        if let Some(global) = self.selected_global_index() {
+                            return PopupKeyResult::Select(global);
+                        }
                     }
+                } else if let Some(global) = self.hanja_global_index(row_idx) {
+                    return PopupKeyResult::Select(global);
                 }
                 PopupKeyResult::Consumed
             }
 
             PopupKey::Down => {
-                let count = self.page_item_count();
+                let count = if self.hanja_expanded {
+                    self.rows
+                } else {
+                    self.page_item_count()
+                };
                 if count > 0 {
                     self.sel_row = (self.sel_row + 1) % count;
+                    if self.hanja_expanded && !self.hanja_cell_exists(self.sel_row, self.sel_col) {
+                        self.sel_row = 0;
+                    }
                 }
                 PopupKeyResult::Updated
             }
 
             PopupKey::Up => {
-                let count = self.page_item_count();
+                let count = if self.hanja_expanded {
+                    self.rows
+                } else {
+                    self.page_item_count()
+                };
                 if count > 0 {
                     if self.sel_row == 0 {
                         self.sel_row = count - 1;
                     } else {
                         self.sel_row -= 1;
                     }
+                    if self.hanja_expanded {
+                        while self.sel_row > 0 && !self.hanja_cell_exists(self.sel_row, self.sel_col) {
+                            self.sel_row -= 1;
+                        }
+                    }
                 }
                 PopupKeyResult::Updated
             }
 
-            PopupKey::Right | PopupKey::Space | PopupKey::Tab | PopupKey::PageDown => {
-                if self.total_pages > 1 {
+            PopupKey::Right => {
+                if self.hanja_expanded {
+                    if self.cols > 0 {
+                        self.sel_col = (self.sel_col + 1) % self.cols;
+                        if !self.hanja_cell_exists(self.sel_row, self.sel_col) {
+                            self.sel_row = 0;
+                        }
+                    }
+                } else if self.total_pages > 1 {
                     if self.current_page + 1 < self.total_pages {
                         self.current_page += 1;
                     } else {
@@ -450,7 +566,45 @@ impl PopupState {
                 PopupKeyResult::Updated
             }
 
-            PopupKey::Left | PopupKey::Backspace | PopupKey::ShiftTab | PopupKey::PageUp => {
+            PopupKey::Left => {
+                if self.hanja_expanded {
+                    if self.cols > 0 {
+                        self.sel_col = if self.sel_col == 0 {
+                            self.cols - 1
+                        } else {
+                            self.sel_col - 1
+                        };
+                        if !self.hanja_cell_exists(self.sel_row, self.sel_col) {
+                            self.sel_row = 0;
+                        }
+                    }
+                } else if self.total_pages > 1 {
+                    if self.current_page > 0 {
+                        self.current_page -= 1;
+                    } else {
+                        self.current_page = self.total_pages - 1;
+                    }
+                    self.update_page_layout();
+                    self.sel_row = 0;
+                }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Tab | PopupKey::PageDown => {
+                if self.total_pages > 1 {
+                    if self.current_page + 1 < self.total_pages {
+                        self.current_page += 1;
+                    } else {
+                        self.current_page = 0;
+                    }
+                    self.update_page_layout();
+                    self.sel_row = 0;
+                    self.sel_col = 0;
+                }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Backspace | PopupKey::ShiftTab | PopupKey::PageUp => {
                 if self.total_pages > 1 {
                     if self.current_page > 0 {
                         self.current_page -= 1;
@@ -459,6 +613,7 @@ impl PopupState {
                     }
                     self.update_page_layout();
                     self.sel_row = 0;
+                    self.sel_col = 0;
                 }
                 PopupKeyResult::Updated
             }
@@ -525,6 +680,32 @@ impl PopupState {
         self.items.get(index).map(|s| s.as_str())
     }
 
+    /// 전체 인덱스로 즐겨찾기 상태 조회 (한자 전용; 특수문자는 항상 false).
+    pub fn is_bookmarked(&self, index: usize) -> bool {
+        self.bookmarks.get(index).copied().unwrap_or(false)
+    }
+
+    /// 한자 팝업의 즐겨찾기 플래그를 items 순서대로 설정합니다.
+    ///
+    /// 길이가 맞지 않으면 items 길이에 맞춰 잘라내거나 false로 채웁니다.
+    pub fn set_bookmark_flags(&mut self, flags: Vec<bool>) {
+        if self.kind != PopupKind::Hanja {
+            return;
+        }
+        self.bookmarks = flags;
+        self.bookmarks.resize(self.items.len(), false);
+    }
+
+    /// 특정 인덱스의 즐겨찾기 플래그를 설정합니다 (한자 전용).
+    pub fn set_bookmark(&mut self, index: usize, bookmarked: bool) {
+        if self.kind != PopupKind::Hanja {
+            return;
+        }
+        if let Some(slot) = self.bookmarks.get_mut(index) {
+            *slot = bookmarked;
+        }
+    }
+
     /// 전체 인덱스로 뜻 가져오기 (한자 전용)
     pub fn get_meaning(&self, index: usize) -> Option<&str> {
         self.meanings.get(index).map(|s| s.as_str())
@@ -538,10 +719,7 @@ impl PopupState {
                 self.items.get(global).map(|s| s.as_str())
             }
             PopupKind::Hanja => {
-                if col != 0 {
-                    return None;
-                }
-                let global = self.hanja_global_index(row)?;
+                let global = self.hanja_global_index_rc(row, col)?;
                 self.items.get(global).map(|s| s.as_str())
             }
         }
@@ -899,10 +1077,126 @@ mod tests {
     }
 
     #[test]
-    fn hanja_space_next_page() {
+    fn hanja_space_toggles_bookmark() {
         let mut state = make_hanja(20);
-        state.handle_key(PopupKey::Space);
+        // 첫 번째 후보가 선택된 상태
+        let result = state.handle_key(PopupKey::Space);
+        assert_eq!(result, PopupKeyResult::ToggleBookmark(0));
+        // Space 자체는 페이지를 바꾸지 않는다
+        assert_eq!(state.current_page, 0);
+    }
+
+    #[test]
+    fn hanja_tab_next_page() {
+        let mut state = make_hanja(20);
+        state.handle_key(PopupKey::Tab);
         assert_eq!(state.current_page, 1);
+    }
+
+    #[test]
+    fn hanja_bookmark_flag_accessors() {
+        let mut state = make_hanja(5);
+        assert!(!state.is_bookmarked(0));
+        state.set_bookmark(0, true);
+        assert!(state.is_bookmarked(0));
+        state.set_bookmark_flags(vec![false, true, false, true, false]);
+        assert!(!state.is_bookmarked(0));
+        assert!(state.is_bookmarked(1));
+        assert!(state.is_bookmarked(3));
+    }
+
+    #[test]
+    fn hanja_space_second_page_toggles_correct_global_index() {
+        let mut state = make_hanja(20);
+        state.handle_key(PopupKey::Right); // page 1
+        let result = state.handle_key(PopupKey::Space);
+        // page 1 * 9 + sel_row 0 = 9
+        assert_eq!(result, PopupKeyResult::ToggleBookmark(9));
+    }
+
+    #[test]
+    fn hanja_period_toggles_expanded_mode() {
+        let mut state = make_hanja(100);
+        assert!(!state.is_hanja_expanded());
+        // compact: 9 per page → 12 pages
+        assert_eq!(state.total_pages, 12);
+        state.handle_key(PopupKey::Period);
+        assert!(state.is_hanja_expanded());
+        // expanded: 81 per page → 2 pages
+        assert_eq!(state.total_pages, 2);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 0);
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn hanja_expanded_layout_full_page() {
+        let mut state = make_hanja(81);
+        state.handle_key(PopupKey::Period);
+        assert_eq!(state.rows, 9);
+        assert_eq!(state.cols, 9);
+    }
+
+    #[test]
+    fn hanja_expanded_arrow_right_wraps_column() {
+        let mut state = make_hanja(81);
+        state.handle_key(PopupKey::Period);
+        state.handle_key(PopupKey::Right);
+        assert_eq!(state.sel_col, 1);
+        // 오른쪽 끝에서 wrap
+        for _ in 0..8 {
+            state.handle_key(PopupKey::Right);
+        }
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn hanja_expanded_number_selects_in_column() {
+        let mut state = make_hanja(81);
+        state.handle_key(PopupKey::Period);
+        state.handle_key(PopupKey::Right);
+        state.handle_key(PopupKey::Right);
+        // col=2, Number 3 → row=2 → global = 2*9+2 = 20
+        let result = state.handle_key(PopupKey::Number(3));
+        assert_eq!(result, PopupKeyResult::Select(20));
+    }
+
+    #[test]
+    fn hanja_expanded_space_toggles_selected_bookmark() {
+        let mut state = make_hanja(81);
+        state.handle_key(PopupKey::Period);
+        // 기본 (0,0) → global 0
+        let result = state.handle_key(PopupKey::Space);
+        assert_eq!(result, PopupKeyResult::ToggleBookmark(0));
+    }
+
+    #[test]
+    fn hanja_expanded_tab_advances_page() {
+        let mut state = make_hanja(100);
+        state.handle_key(PopupKey::Period);
+        assert_eq!(state.current_page, 0);
+        state.handle_key(PopupKey::Tab);
+        assert_eq!(state.current_page, 1);
+    }
+
+    #[test]
+    fn hanja_period_twice_returns_to_compact() {
+        let mut state = make_hanja(50);
+        state.handle_key(PopupKey::Period);
+        assert!(state.is_hanja_expanded());
+        state.handle_key(PopupKey::Period);
+        assert!(!state.is_hanja_expanded());
+        assert_eq!(state.cols, 1);
+        assert_eq!(state.page_size, 9);
+    }
+
+    #[test]
+    fn hanja_expanded_click_selects() {
+        let mut state = make_hanja(81);
+        state.handle_key(PopupKey::Period);
+        let result = state.handle_click(2, 3);
+        // col-first: 3*9 + 2 = 29
+        assert_eq!(result, PopupKeyResult::Select(29));
     }
 
     #[test]

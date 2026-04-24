@@ -973,6 +973,30 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(target);
             }
 
+            EngineRequest::GetHanjaBookmarkStates {
+                context_id,
+                response,
+            } => {
+                let states = contexts
+                    .get(&context_id)
+                    .map(|engine| engine.hanja_bookmark_states())
+                    .unwrap_or_default();
+                let _ = response.send(states);
+            }
+
+            EngineRequest::ToggleHanjaBookmark {
+                context_id,
+                index,
+                response,
+            } => {
+                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                    engine.toggle_hanja_bookmark(index)
+                } else {
+                    None
+                };
+                let _ = response.send(result);
+            }
+
             // =========================================
             // 특수문자 변환 요청 처리
             // =========================================

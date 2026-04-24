@@ -73,6 +73,17 @@ pub enum EngineRequest {
         context_id: u32,
         response: oneshot::Sender<Option<String>>,
     },
+    /// 한자 즐겨찾기 상태 조회 (현재 후보 목록에 대응)
+    GetHanjaBookmarkStates {
+        context_id: u32,
+        response: oneshot::Sender<Vec<bool>>,
+    },
+    /// 한자 즐겨찾기 토글
+    ToggleHanjaBookmark {
+        context_id: u32,
+        index: usize,
+        response: oneshot::Sender<Option<(usize, bool)>>,
+    },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
         context_id: u32,
@@ -972,6 +983,21 @@ impl InputContextHandler {
                         sel_col
                     );
                 }
+                PopupAction::HanjaBookmarkChanged { index, bookmarked } => {
+                    Self::hanja_bookmark_changed(
+                        &signal_ctx,
+                        *index as u32,
+                        *bookmarked,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] HanjaBookmarkChanged: index={}, bookmarked={}",
+                        index,
+                        bookmarked
+                    );
+                }
                 // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
                 _ => {}
             }
@@ -1193,6 +1219,14 @@ impl InputContextHandler {
         cols: i32,
         sel_row: i32,
         sel_col: i32,
+    ) -> zbus::Result<()>;
+
+    /// 한자 즐겨찾기 상태 변경 시그널 (Space 토글 등으로 상태가 바뀐 경우)
+    #[zbus(signal)]
+    async fn hanja_bookmark_changed(
+        signal_ctx: &SignalContext<'_>,
+        index: u32,
+        bookmarked: bool,
     ) -> zbus::Result<()>;
 
     // =========================================
@@ -1420,6 +1454,72 @@ impl InputContextHandler {
         );
 
         Ok(hanja)
+    }
+
+    /// 현재 한자 후보 목록의 즐겨찾기 상태 조회
+    ///
+    /// 반환값은 `GetHanjaCandidates` 응답의 `candidates` 와 동일한 순서이며
+    /// 각 후보의 즐겨찾기 여부(true=등록됨)를 나타낸다.
+    async fn get_hanja_bookmark_states(&self) -> zbus::fdo::Result<Vec<bool>> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::GetHanjaBookmarkStates {
+                context_id: self.id,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let states = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        unim_log!(
+            "DBUS",
+            "[DBus] GetHanjaBookmarkStates: count={}",
+            states.len()
+        );
+        Ok(states)
+    }
+
+    /// 한자 후보 즐겨찾기 토글
+    ///
+    /// 반환값: `(index, bookmarked)` — 토글 후의 상태. 한자 모드가 아니거나
+    /// 인덱스가 범위를 벗어나면 실패(Error).
+    async fn toggle_hanja_bookmark(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        index: u32,
+    ) -> zbus::fdo::Result<(u32, bool)> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::ToggleHanjaBookmark {
+                context_id: self.id,
+                index: index as usize,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let (idx, bookmarked) = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
+            .ok_or_else(|| zbus::fdo::Error::Failed("한자 모드 아님 또는 범위 밖".to_string()))?;
+
+        // UI 갱신을 위해 시그널도 발행 (엔진 내부 토글과 동일 경로)
+        Self::hanja_bookmark_changed(&signal_ctx, idx as u32, bookmarked)
+            .await
+            .ok();
+
+        unim_log!(
+            "DBUS",
+            "[DBus] ToggleHanjaBookmark: index={}, bookmarked={}",
+            idx,
+            bookmarked
+        );
+        Ok((idx as u32, bookmarked))
     }
 
     /// 한자 모드 취소 (남은 preedit을 커밋하고 반환)

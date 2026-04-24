@@ -575,6 +575,7 @@ pub mod popup_key_constants {
     pub const POPUP_KEY_PAGE_DOWN: u32 = 29;
     pub const POPUP_KEY_SPACE: u32 = 30;
     pub const POPUP_KEY_BACKSPACE: u32 = 31;
+    pub const POPUP_KEY_PERIOD: u32 = 34;
     pub const POPUP_KEY_MODIFIER: u32 = 32;
     pub const POPUP_KEY_OTHER: u32 = 33;
 }
@@ -586,6 +587,7 @@ pub mod popup_result_constants {
     pub const POPUP_RESULT_UPDATED: i32 = 2;
     pub const POPUP_RESULT_CONSUMED: i32 = 3;
     pub const POPUP_RESULT_NOT_HANDLED: i32 = 4;
+    pub const POPUP_RESULT_TOGGLE_BOOKMARK: i32 = 5;
 }
 
 /// C용 PopupKeyResult 구조체
@@ -615,6 +617,7 @@ fn u32_to_popup_key(key: u32) -> PopupKey {
         POPUP_KEY_PAGE_DOWN => PopupKey::PageDown,
         POPUP_KEY_SPACE => PopupKey::Space,
         POPUP_KEY_BACKSPACE => PopupKey::Backspace,
+        POPUP_KEY_PERIOD => PopupKey::Period,
         POPUP_KEY_MODIFIER => PopupKey::Modifier,
         _ => PopupKey::Other,
     }
@@ -647,6 +650,7 @@ pub extern "C" fn unim_popup_key_from_gdk(gdk_keyval: u32) -> u32 {
         0xff56 => POPUP_KEY_PAGE_DOWN,
         0x20 => POPUP_KEY_SPACE,
         0xff08 => POPUP_KEY_BACKSPACE,
+        0x2e => POPUP_KEY_PERIOD,
         0xffe1..=0xffee | 0xff7f | 0xff14 => POPUP_KEY_MODIFIER,
         _ => POPUP_KEY_OTHER,
     }
@@ -679,6 +683,7 @@ pub extern "C" fn unim_popup_key_from_qt(qt_key: i32) -> u32 {
         0x01000017 => POPUP_KEY_PAGE_DOWN,
         0x20 => POPUP_KEY_SPACE,
         0x01000003 => POPUP_KEY_BACKSPACE,
+        0x2e => POPUP_KEY_PERIOD,
         0x01000020..=0x01000023 | 0x01001103 => POPUP_KEY_MODIFIER,
         _ => POPUP_KEY_OTHER,
     }
@@ -770,6 +775,10 @@ pub extern "C" fn unim_popup_handle_key(state: &mut PopupState, popup_key: u32) 
             kind: popup_result_constants::POPUP_RESULT_SELECT,
             selected_index: idx as i32,
         },
+        PopupKeyResult::ToggleBookmark(idx) => CPopupKeyResult {
+            kind: popup_result_constants::POPUP_RESULT_TOGGLE_BOOKMARK,
+            selected_index: idx as i32,
+        },
         PopupKeyResult::Cancel => CPopupKeyResult {
             kind: popup_result_constants::POPUP_RESULT_CANCEL,
             selected_index: -1,
@@ -813,6 +822,9 @@ pub extern "C" fn unim_popup_handle_click(
                 PopupKeyResult::Updated => popup_result_constants::POPUP_RESULT_UPDATED,
                 PopupKeyResult::Consumed => popup_result_constants::POPUP_RESULT_CONSUMED,
                 PopupKeyResult::NotHandled => popup_result_constants::POPUP_RESULT_NOT_HANDLED,
+                PopupKeyResult::ToggleBookmark(_) => {
+                    popup_result_constants::POPUP_RESULT_TOGGLE_BOOKMARK
+                }
                 PopupKeyResult::Select(_) => unreachable!(),
             },
             selected_index: -1,

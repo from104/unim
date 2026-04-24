@@ -37,6 +37,13 @@ pub enum PopupAction {
         sel_row: usize,
         sel_col: usize,
     },
+    /// 한자 즐겨찾기 상태 변경 (UI 갱신용)
+    HanjaBookmarkChanged {
+        /// 전체 후보 인덱스 (0-based)
+        index: usize,
+        /// 새 즐겨찾기 상태 (true=등록됨)
+        bookmarked: bool,
+    },
 }
 
 /// 입력 처리 결과
@@ -160,6 +167,8 @@ pub struct InputEngine {
     korean_layout: KoreanLayout,
     /// 한자 사전 (Arc로 래핑하여 공유)
     hanja_dict: std::sync::Arc<crate::hangul::HanjaDictionary>,
+    /// 한자 즐겨찾기 저장소 (영구 저장)
+    hanja_bookmarks: crate::hangul::HanjaBookmarkStore,
     /// 현재 한자 후보 목록
     hanja_candidates: Vec<crate::hangul::HanjaEntry>,
     /// 한자 선택 모드 활성화 여부
@@ -235,6 +244,7 @@ impl InputEngine {
             korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout.clone(),
             hanja_dict,
+            hanja_bookmarks: crate::hangul::HanjaBookmarkStore::load_default(),
             hanja_candidates: Vec::new(),
             hanja_mode: false,
             hanja_target: String::new(),
@@ -896,8 +906,11 @@ impl InputEngine {
         };
 
         if let Some(target_syllable) = target {
-            let candidates = self.hanja_dict.search(&target_syllable);
+            let mut candidates = self.hanja_dict.search(&target_syllable);
             if !candidates.is_empty() {
+                // 즐겨찾기 항목을 상단으로 정렬 (원본 상대 순서는 유지 — stable sort)
+                let bookmarks = &self.hanja_bookmarks;
+                candidates.sort_by_key(|e| !bookmarks.is_bookmarked(&target_syllable, &e.hanja));
                 unim_log!(
                     "ENGINE",
                     "한자 후보 발견: '{}' -> {} 개",
@@ -909,10 +922,16 @@ impl InputEngine {
                     .iter()
                     .map(|e| (e.hanja.clone(), e.meaning.clone()))
                     .collect::<Vec<_>>();
+                let bookmark_flags: Vec<bool> = candidates
+                    .iter()
+                    .map(|e| self.hanja_bookmarks.is_bookmarked(&target_syllable, &e.hanja))
+                    .collect();
                 self.hanja_candidates = candidates;
                 self.hanja_mode = true;
-                self.popup_state =
-                    Some(PopupState::new_hanja(&target_syllable, hanja_pairs.clone()));
+                let mut popup_state =
+                    PopupState::new_hanja(&target_syllable, hanja_pairs.clone());
+                popup_state.set_bookmark_flags(bookmark_flags);
+                self.popup_state = Some(popup_state);
                 // 팝업 액션 설정
                 self.popup_pending_action = Some(PopupAction::ShowHanja {
                     target: target_syllable,
@@ -1007,6 +1026,41 @@ impl InputEngine {
 
         self.cancel_hanja();
         Some(hanja)
+    }
+
+    /// 현재 한자 후보 목록의 즐겨찾기 상태를 반환합니다.
+    ///
+    /// 반환된 `Vec<bool>`은 `get_hanja_candidates()`와 동일한 순서로
+    /// 각 후보의 즐겨찾기 여부를 나타냅니다.
+    pub fn hanja_bookmark_states(&self) -> Vec<bool> {
+        self.hanja_candidates
+            .iter()
+            .map(|e| self.hanja_bookmarks.is_bookmarked(&self.hanja_target, &e.hanja))
+            .collect()
+    }
+
+    /// 주어진 후보 인덱스의 즐겨찾기 상태를 토글합니다.
+    ///
+    /// 한자 모드가 아니거나 인덱스가 범위를 벗어나면 None을 반환합니다.
+    /// 성공 시 (index, 새 상태)를 반환합니다.
+    pub fn toggle_hanja_bookmark(&mut self, index: usize) -> Option<(usize, bool)> {
+        if !self.hanja_mode || index >= self.hanja_candidates.len() {
+            return None;
+        }
+        let hanja = self.hanja_candidates[index].hanja.clone();
+        let new_state = self.hanja_bookmarks.toggle(&self.hanja_target, &hanja);
+        if let Some(state) = self.popup_state.as_mut() {
+            state.set_bookmark(index, new_state);
+        }
+        unim_log!(
+            "ENGINE",
+            "한자 즐겨찾기 토글: target='{}', [{}] '{}' -> {}",
+            self.hanja_target,
+            index,
+            hanja,
+            new_state
+        );
+        Some((index, new_state))
     }
 
     /// 한자 모드를 취소합니다.
@@ -1111,6 +1165,7 @@ impl InputEngine {
             KeyCode::Tab => PopupKey::Tab,
             KeyCode::Space => PopupKey::Space,
             KeyCode::Backspace => PopupKey::Backspace,
+            KeyCode::Period => PopupKey::Period,
             // 특수문자 팝업 열 점프: 물리 키 위치 기준 (레이아웃 무관)
             KeyCode::Q => PopupKey::Letter(0),
             KeyCode::W => PopupKey::Letter(1),
@@ -1142,6 +1197,17 @@ impl InputEngine {
 
         match result {
             PopupKeyResult::Select(abs_index) => self.popup_select(abs_index),
+
+            PopupKeyResult::ToggleBookmark(abs_index) => {
+                if let Some((idx, bookmarked)) = self.toggle_hanja_bookmark(abs_index) {
+                    self.popup_pending_action = Some(PopupAction::HanjaBookmarkChanged {
+                        index: idx,
+                        bookmarked,
+                    });
+                }
+                // 트리거 문자를 preedit으로 유지
+                InputResult::preedit_updated()
+            }
 
             PopupKeyResult::Cancel => {
                 self.popup_cancel();
