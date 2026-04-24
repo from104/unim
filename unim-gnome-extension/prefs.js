@@ -128,6 +128,18 @@ export default class UnimPreferences extends ExtensionPreferences {
             _('영어 → 한글'), _('gksrmf → 한글'));
         this._addShortcutRow(shortcutGroup, settings, 'shortcut-normal-reverse',
             _('한글 → 영어'), _('ㅗ디ㅣㅐ → hello'));
+
+        // ============================================
+        // 사용자 사전 등록 단축키
+        // ============================================
+        const userDictGroup = new Adw.PreferencesGroup({
+            title: _('사용자 사전 등록'),
+            description: _('선택한 한글을 영문으로 변환해 역방향 교정 사용자 사전에 추가합니다.')
+        });
+        page.add(userDictGroup);
+
+        this._addShortcutRow(userDictGroup, settings, 'shortcut-register-userdict',
+            _('선택 영역 등록'), _('ㅎㅑㅅ → git (CLI 명령어 등)'));
     }
 
     // --------------------------------------------

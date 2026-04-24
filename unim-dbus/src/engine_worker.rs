@@ -16,6 +16,7 @@ use unim::config::{Config, EnglishLayout, KoreanLayout};
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
 use unim::typefix_blacklist::{Blacklist, Direction};
+use unim::typefix_userdict::UserDictionary;
 use unim::unim_log;
 
 /// Ctrl+Z 되돌리기 전용 상태. AutoTypeFix 트리거 직후 생성되며,
@@ -290,6 +291,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     let mut recent_corrections: HashMap<u32, Vec<RecentCorrection>> = HashMap::new();
     // AutoTypeFix: 학습형 억제 단어 목록 (파일 기반, mtime 감지 reload)
     let mut blacklist = Blacklist::load_from_default_path();
+    // AutoTypeFix: 역방향 사용자 사전 (파일 기반, mtime 감지 reload)
+    let mut user_dict = UserDictionary::load_from_default_path();
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
@@ -317,6 +320,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             );
         }
         blacklist.expire_tentatives(config.engine.auto_typefix.tentative_expiry_hours);
+
+        // 역방향 사용자 사전: CLI/GUI가 파일 수정 시 반영.
+        if user_dict.reload_if_changed() {
+            unim_log!(
+                "ENGINE_WORKER",
+                "[Engine Worker] typefix-userdict 파일 변경 감지 - 리로드 완료"
+            );
+        }
 
         match request {
             EngineRequest::CreateContext {
@@ -546,6 +557,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                         &config.engine.korean.layout,
                                         &config.engine.english.layout,
                                         &blacklist,
+                                        &user_dict,
                                     ),
                                     Direction::Reverse,
                                 ),
@@ -1105,6 +1117,168 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let results = unim::hangul::emoji::search_emoji(&keyword);
                 let emoji_strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
                 let _ = response.send(emoji_strings);
+            }
+
+            EngineRequest::UserDictAdd {
+                word,
+                note,
+                response,
+            } => {
+                let note_opt = if note.trim().is_empty() { None } else { Some(note) };
+                let ok = user_dict.add(&word, note_opt);
+                if ok {
+                    if let Err(e) = user_dict.save_to_default_path() {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] user-dict 저장 실패: {}",
+                            e
+                        );
+                    } else {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] user-dict 추가: '{}' (총 {}개)",
+                            word,
+                            user_dict.len()
+                        );
+                    }
+                }
+                let _ = response.send(ok);
+            }
+
+            EngineRequest::UserDictRemove { word, response } => {
+                let ok = user_dict.remove_by_word(&word);
+                if ok {
+                    if let Err(e) = user_dict.save_to_default_path() {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] user-dict 저장 실패: {}",
+                            e
+                        );
+                    } else {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] user-dict 제거: '{}' (총 {}개)",
+                            word,
+                            user_dict.len()
+                        );
+                    }
+                }
+                let _ = response.send(ok);
+            }
+
+            EngineRequest::UserDictList { response } => {
+                let list: Vec<(String, String, u64)> = user_dict
+                    .reverse_words
+                    .iter()
+                    .map(|e| {
+                        (
+                            e.word.clone(),
+                            e.note.clone().unwrap_or_default(),
+                            e.added_at,
+                        )
+                    })
+                    .collect();
+                let _ = response.send(list);
+            }
+
+            EngineRequest::UserDictUpdate {
+                index,
+                word,
+                note,
+                response,
+            } => {
+                let note_opt = if note.trim().is_empty() { None } else { Some(note) };
+                let ok = user_dict.update_at(index as usize, &word, note_opt);
+                if ok {
+                    if let Err(e) = user_dict.save_to_default_path() {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] user-dict 저장 실패: {}",
+                            e
+                        );
+                    }
+                }
+                let _ = response.send(ok);
+            }
+
+            EngineRequest::RegisterUserDictFromSelection { response } => {
+                // 마지막 포커스된 컨텍스트의 surrounding text에서 선택 영역을 추출하여
+                // 사용자 사전에 등록한다. TypeFix와 동일한 패턴.
+                let word = if let Some(ctx_id) = last_focused_context_id {
+                    if let Some(engine) = contexts.get(&ctx_id) {
+                        let (text, cursor, anchor) = engine.surrounding_text();
+                        let (text_owned, cursor, anchor) =
+                            (text.to_string(), cursor as usize, anchor as usize);
+                        if !text_owned.is_empty() && cursor != anchor {
+                            let chars: Vec<char> = text_owned.chars().collect();
+                            let start = cursor.min(anchor);
+                            let end = cursor.max(anchor).min(chars.len());
+                            let selection: String = chars[start..end].iter().collect();
+                            // 한글이면 영문으로 변환, 이미 알파벳이면 그대로
+                            let candidate = if selection
+                                .chars()
+                                .all(|c| c.is_ascii_alphabetic())
+                            {
+                                selection.clone()
+                            } else {
+                                unim::typefix::kor_to_eng(
+                                    &selection,
+                                    &config.engine.korean.layout,
+                                    &config.engine.english.layout,
+                                )
+                            };
+                            // 최종 영문 알파벳만인지 확인
+                            let trimmed = candidate.trim();
+                            if !trimmed.is_empty()
+                                && trimmed.chars().all(|c| c.is_ascii_alphabetic())
+                            {
+                                if user_dict.add(trimmed, None) {
+                                    if let Err(e) = user_dict.save_to_default_path() {
+                                        unim_log!(
+                                            "ENGINE_WORKER",
+                                            "[Engine Worker] user-dict 저장 실패: {}",
+                                            e
+                                        );
+                                        String::new()
+                                    } else {
+                                        unim_log!(
+                                            "ENGINE_WORKER",
+                                            "[Engine Worker] user-dict 단축키 등록: '{}' (원본: '{}')",
+                                            trimmed,
+                                            selection
+                                        );
+                                        trimmed.to_string()
+                                    }
+                                } else {
+                                    unim_log!(
+                                        "ENGINE_WORKER",
+                                        "[Engine Worker] user-dict 단축키 등록 실패(중복/비유효): '{}'",
+                                        trimmed
+                                    );
+                                    String::new()
+                                }
+                            } else {
+                                unim_log!(
+                                    "ENGINE_WORKER",
+                                    "[Engine Worker] user-dict 단축키: 변환 결과 비유효 '{}'",
+                                    candidate
+                                );
+                                String::new()
+                            }
+                        } else {
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] user-dict 단축키: 선택 영역 없음"
+                            );
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+                let _ = response.send(word);
             }
         }
     }

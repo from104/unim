@@ -22,6 +22,7 @@ use unim::config::{
 };
 use unim::keystroke::profile::{resolve_inherits, LayoutProfile, ProfileRegistry};
 use unim::typefix_blacklist::{Blacklist, Direction, EntryStatus};
+use unim::typefix_userdict::UserDictionary;
 use unim::unim_log;
 
 use std::cell::RefCell;
@@ -108,7 +109,11 @@ pub fn show_settings_dialog(app: &adw::Application) {
     let page_blacklist = build_blacklist_page();
     window.add(&page_blacklist);
 
-    // ── Page 4: GNOME Shell (GNOME 세션 전용) ────────────────
+    // ── Page 4: 사용자 사전 (역방향 whitelist) ───────────────
+    let page_userdict = build_userdict_page(&window);
+    window.add(&page_userdict);
+
+    // ── Page 5: GNOME Shell (GNOME 세션 전용) ────────────────
     if is_gnome_session() {
         if let Some(page_gnome) = build_gnome_page(&window) {
             window.add(&page_gnome);
@@ -848,6 +853,28 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
     }
     group.add(&skip_syl_sw);
 
+    // 사용자 사전 활성화 (PR #6)
+    let user_dict_sw = adw::SwitchRow::builder()
+        .title("사용자 사전 사용")
+        .subtitle("등록된 CLI 명령 등은 길이·사전 검사를 우회하여 즉시 교정 — '사용자 사전' 페이지에서 관리")
+        .build();
+    {
+        let s = state.borrow();
+        user_dict_sw.set_active(s.config.engine.auto_typefix.user_dict_enabled);
+    }
+    {
+        let state_c = state.clone();
+        user_dict_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.auto_typefix.user_dict_enabled = sw.is_active();
+            save_and_notify(&s.config, "auto_typefix_user_dict_enabled");
+        });
+    }
+    group.add(&user_dict_sw);
+
     group
 }
 
@@ -1375,4 +1402,271 @@ where
         }
     });
     btn
+}
+
+// ─────────────────────────────────────────────────────────────
+// 사용자 사전 페이지 (역방향 AutoTypeFix whitelist)
+// ─────────────────────────────────────────────────────────────
+
+struct UserDictPageRefs {
+    group: adw::PreferencesGroup,
+    rows: RefCell<Vec<gtk4::Widget>>,
+    last_mtime: RefCell<Option<std::time::SystemTime>>,
+    window: adw::PreferencesWindow,
+}
+
+/// 사용자 사전 페이지 생성.
+///
+/// 파일(`~/.config/unim/typefix-userdict.yaml`)을 직접 R/W하고, daemon은 mtime
+/// 감지로 자동 reload한다 (blacklist와 동일 패턴).
+fn build_userdict_page(window: &adw::PreferencesWindow) -> adw::PreferencesPage {
+    let page = adw::PreferencesPage::builder()
+        .title("사용자 사전")
+        .icon_name("accessories-dictionary-symbolic")
+        .build();
+
+    let group = adw::PreferencesGroup::builder()
+        .title("역방향 사용자 사전")
+        .description(
+            "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. \
+             CLI 명령어(예: git, ls, kubectl)나 짧은 고유명사를 등록하세요.",
+        )
+        .build();
+
+    // 상단 "추가" 버튼 (헤더 suffix)
+    let add_btn = gtk4::Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text("단어 추가")
+        .valign(gtk4::Align::Center)
+        .css_classes(vec!["flat"])
+        .build();
+    group.set_header_suffix(Some(&add_btn));
+    page.add(&group);
+
+    let refs = Rc::new(UserDictPageRefs {
+        group,
+        rows: RefCell::new(Vec::new()),
+        last_mtime: RefCell::new(None),
+        window: window.clone(),
+    });
+
+    // 클릭 → 추가 다이얼로그
+    {
+        let refs_c = refs.clone();
+        add_btn.connect_clicked(move |_| {
+            show_userdict_edit_dialog(&refs_c, None);
+        });
+    }
+
+    refill_userdict_group(&refs);
+
+    // mtime 폴링으로 외부 변경 반영 (CLI/단축키)
+    let weak = Rc::downgrade(&refs);
+    glib::timeout_add_seconds_local(2, move || match weak.upgrade() {
+        Some(refs) => {
+            if userdict_file_changed(&refs) {
+                refill_userdict_group(&refs);
+            }
+            glib::ControlFlow::Continue
+        }
+        None => glib::ControlFlow::Break,
+    });
+
+    page
+}
+
+fn userdict_file_changed(refs: &Rc<UserDictPageRefs>) -> bool {
+    let Some(path) = UserDictionary::default_path() else {
+        return false;
+    };
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return false;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return false;
+    };
+    let mut last = refs.last_mtime.borrow_mut();
+    match *last {
+        Some(prev) if prev == mtime => false,
+        _ => {
+            *last = Some(mtime);
+            true
+        }
+    }
+}
+
+fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
+    for row in refs.rows.borrow().iter() {
+        refs.group.remove(row);
+    }
+    refs.rows.borrow_mut().clear();
+
+    let ud = UserDictionary::load_from_default_path();
+    if ud.is_empty() {
+        let row = adw::ActionRow::builder()
+            .title("등록된 단어 없음")
+            .subtitle("우측 상단 + 버튼으로 단어를 추가하거나, Super+E로 선택한 한글을 등록할 수 있습니다.")
+            .sensitive(false)
+            .build();
+        refs.group.add(&row);
+        refs.rows.borrow_mut().push(row.upcast());
+    } else {
+        for (idx, entry) in ud.reverse_words.iter().enumerate() {
+            let subtitle = entry.note.clone().unwrap_or_default();
+            let row = adw::ActionRow::builder()
+                .title(&entry.word)
+                .subtitle(&subtitle)
+                .build();
+
+            // 편집 버튼
+            let edit_btn = gtk4::Button::builder()
+                .icon_name("document-edit-symbolic")
+                .tooltip_text("편집")
+                .valign(gtk4::Align::Center)
+                .css_classes(vec!["flat"])
+                .build();
+            {
+                let refs_c = refs.clone();
+                edit_btn.connect_clicked(move |_| {
+                    show_userdict_edit_dialog(&refs_c, Some(idx));
+                });
+            }
+            row.add_suffix(&edit_btn);
+
+            // 삭제 버튼
+            let del_btn = gtk4::Button::builder()
+                .icon_name("user-trash-symbolic")
+                .tooltip_text("삭제")
+                .valign(gtk4::Align::Center)
+                .css_classes(vec!["flat"])
+                .build();
+            {
+                let refs_c = refs.clone();
+                del_btn.connect_clicked(move |_| {
+                    let mut ud = UserDictionary::load_from_default_path();
+                    if ud.remove_at(idx) {
+                        match ud.save_to_default_path() {
+                            Ok(_) => {
+                                show_toast("삭제됨 ✓");
+                                refill_userdict_group(&refs_c);
+                            }
+                            Err(e) => {
+                                unim_log!("INDICATOR", "[Settings] userdict 저장 실패: {}", e);
+                                show_toast(&format!("저장 실패: {}", e));
+                            }
+                        }
+                    }
+                });
+            }
+            row.add_suffix(&del_btn);
+
+            refs.group.add(&row);
+            refs.rows.borrow_mut().push(row.upcast());
+        }
+    }
+
+    let count = ud.len();
+    refs.group.set_description(Some(&format!(
+        "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. \
+         CLI 명령어나 짧은 고유명사를 등록하세요. ({}개 등록)",
+        count
+    )));
+}
+
+/// 추가/편집 다이얼로그. `edit_idx=None`이면 신규 추가.
+fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize>) {
+    let is_edit = edit_idx.is_some();
+    let dialog = adw::Window::builder()
+        .transient_for(&refs.window)
+        .modal(true)
+        .title(if is_edit { "단어 편집" } else { "단어 추가" })
+        .default_width(420)
+        .default_height(280)
+        .build();
+
+    let toolbar = adw::ToolbarView::new();
+    let header = adw::HeaderBar::builder().build();
+    toolbar.add_top_bar(&header);
+
+    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+    content.set_margin_top(18);
+    content.set_margin_bottom(18);
+    content.set_margin_start(18);
+    content.set_margin_end(18);
+
+    let group = adw::PreferencesGroup::new();
+    let word_row = adw::EntryRow::builder().title("단어 (영문 알파벳만)").build();
+    let note_row = adw::EntryRow::builder().title("설명 (선택)").build();
+
+    // 기존 엔트리 로드
+    if let Some(idx) = edit_idx {
+        let ud = UserDictionary::load_from_default_path();
+        if let Some(e) = ud.reverse_words.get(idx) {
+            word_row.set_text(&e.word);
+            if let Some(n) = &e.note {
+                note_row.set_text(n);
+            }
+        }
+    }
+
+    group.add(&word_row);
+    group.add(&note_row);
+    content.append(&group);
+
+    let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_box.set_halign(gtk4::Align::End);
+    let cancel_btn = gtk4::Button::with_label("취소");
+    let save_btn = gtk4::Button::with_label(if is_edit { "저장" } else { "추가" });
+    save_btn.add_css_class("suggested-action");
+    btn_box.append(&cancel_btn);
+    btn_box.append(&save_btn);
+    content.append(&btn_box);
+
+    toolbar.set_content(Some(&content));
+    dialog.set_content(Some(&toolbar));
+
+    {
+        let dialog_c = dialog.clone();
+        cancel_btn.connect_clicked(move |_| dialog_c.close());
+    }
+
+    {
+        let refs_c = refs.clone();
+        let dialog_c = dialog.clone();
+        let word_row_c = word_row.clone();
+        let note_row_c = note_row.clone();
+        save_btn.connect_clicked(move |_| {
+            let word = word_row_c.text().to_string();
+            let note_raw = note_row_c.text().to_string();
+            let note = if note_raw.trim().is_empty() {
+                None
+            } else {
+                Some(note_raw)
+            };
+
+            let mut ud = UserDictionary::load_from_default_path();
+            let ok = match edit_idx {
+                Some(idx) => ud.update_at(idx, &word, note),
+                None => ud.add(&word, note),
+            };
+
+            if !ok {
+                show_toast("실패: 영문 알파벳만 허용되며 중복은 등록되지 않습니다.");
+                return;
+            }
+            match ud.save_to_default_path() {
+                Ok(_) => {
+                    show_toast(if is_edit { "저장됨 ✓" } else { "추가됨 ✓" });
+                    refill_userdict_group(&refs_c);
+                    dialog_c.close();
+                }
+                Err(e) => {
+                    unim_log!("INDICATOR", "[Settings] userdict 저장 실패: {}", e);
+                    show_toast(&format!("저장 실패: {}", e));
+                }
+            }
+        });
+    }
+
+    dialog.present();
 }

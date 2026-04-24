@@ -9,3 +9,4 @@ pub mod popup;
 pub mod status;
 pub mod typefix;
 pub mod typefix_blacklist;
+pub mod typefix_userdict;
