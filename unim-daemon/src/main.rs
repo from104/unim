@@ -2,6 +2,12 @@
 //!
 //! DBus 기반 입력 서비스를 제공하고 프론트엔드 모듈들을 관리합니다.
 
+// jemalloc: glibc ptmalloc의 멀티 스레드 arena 증식(64MB 단위 mmap 누적)을 회피해
+// 장시간 실행 시 RSS가 수 GB까지 치솟는 문제를 방지. Linux/glibc 타겟에서만 활성화.
+#[cfg(all(target_os = "linux", not(target_env = "musl")))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use clap::Parser;
 use std::fs;
 use std::io::{Read, Write};
@@ -18,6 +24,8 @@ use zbus::Connection;
 use unim_dbus::engine_worker::spawn_engine_worker;
 use unim_dbus::service::InputMethodService;
 use unim_dbus::{BUS_NAME, INPUT_METHOD_PATH};
+
+mod migration;
 
 /// UNIM 입력기 데몬
 #[derive(Parser, Debug)]
@@ -444,6 +452,11 @@ async fn main() {
         }
     }
 
+    // GSettings → config.yaml 1회성 마이그레이션 (v2)
+    // 가드 파일(.migrated-v2) 기반으로 첫 기동 시에만 동작.
+    // DBus/엔진 초기화 전에 실행해 이관된 값이 엔진에 바로 반영되도록 한다.
+    migration::migrate_v2();
+
     // 설정 로드
     let config = unim::config::Config::load_from_default_path();
     unim_log!("DAEMON", "설정 로드 완료");
@@ -491,6 +504,23 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // 메모리 회수 주기 태스크: C 라이브러리(zbus 등) glibc malloc 영역의 여유 청크를
+    // OS에 반환한다. jemalloc은 background thread로 자체 회수하므로 여기서는 glibc
+    // 영역만 담당. 60초 간격은 장시간 실행 데몬에 충분히 자주다.
+    tokio::spawn(async {
+        let mut ticker = tokio::time::interval(Duration::from_secs(60));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        ticker.tick().await; // 첫 tick 즉시 반환 소비
+        loop {
+            ticker.tick().await;
+            #[cfg(all(target_os = "linux", not(target_env = "musl")))]
+            // malloc_trim은 glibc 전용 — 다른 libc는 no-op 심볼이 없을 수 있으니 cfg로 제한.
+            unsafe {
+                libc::malloc_trim(0);
+            }
+        }
+    });
 
     // Flatpak 앱 IM 환경변수 설정 (GNOME+Wayland 전용)
     configure_flatpak_im_env();

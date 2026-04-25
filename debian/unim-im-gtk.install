@@ -1,0 +1,9 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# unim-im-gtk — GTK3 + GTK4 input method modules
+# ─────────────────────────────────────────────────────────────────────────────
+
+# GTK3 IM module (multiarch)
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-3.0/3.0.0/immodules/im-unim.so
+
+# GTK4 IM module (multiarch)
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/gtk-4.0/4.0.0/immodules/libim-unim.so

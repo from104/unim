@@ -172,6 +172,8 @@ export default class UnimExtension extends Extension {
             // DBus 팝업 시그널 콜백 등록
             this._dbusIME.setPopupCallbacks({
                 onShowHanja: (target, candidates, cursorRect) => {
+                    // 팝업 표시 전에 즐겨찾기 상태 조회 (엔진이 candidates와 동일 순서로 반환)
+                    const bookmarks = this._dbusIME.getHanjaBookmarkStates();
                     this._hanjaPopup.show(
                         target, candidates,
                         (globalIdx) => {
@@ -193,7 +195,17 @@ export default class UnimExtension extends Extension {
                                 this._inputMethod.updatePreedit('');
                             }
                         },
-                        cursorRect
+                        cursorRect,
+                        bookmarks,
+                        (globalIdx) => {
+                            // 우클릭: 즐겨찾기 토글
+                            this._dbusIME.toggleHanjaBookmark(globalIdx);
+                        },
+                        () => {
+                            // 확장 아이콘 클릭: Period 키를 엔진에 전달해 토글
+                            // GDK keyval 0x2e ('.'), evdev keycode 52
+                            this._dbusIME.processKey(0x2e, 52, 0);
+                        }
                     );
                 },
                 onShowSpecial: (target, characters, topRow, cursorRect) => {
@@ -230,6 +242,11 @@ export default class UnimExtension extends Extension {
                     }
                     if (this._specialPopup?.isVisible) {
                         this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
+                    }
+                },
+                onHanjaBookmarkChanged: (index, bookmarked) => {
+                    if (this._hanjaPopup?.isVisible) {
+                        this._hanjaPopup.setBookmark(index, bookmarked);
                     }
                 },
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
@@ -516,6 +533,7 @@ export default class UnimExtension extends Extension {
         this._unbindAllShortcuts();
         this._bindShortcut('shortcut-normal', false);
         this._bindShortcut('shortcut-normal-reverse', true);
+        this._bindRegisterUserDictShortcut();
     }
 
     _bindShortcut(settingKey, isReverse) {
@@ -528,6 +546,22 @@ export default class UnimExtension extends Extension {
             Meta.KeyBindingFlags.NONE,
             Shell.ActionMode.ALL,
             () => this._onShortcutTriggered(isReverse)
+        );
+
+        this._shortcutIds.push(settingKey);
+    }
+
+    _bindRegisterUserDictShortcut() {
+        const settingKey = 'shortcut-register-userdict';
+        const shortcut = this._settings.get_strv(settingKey);
+        if (!shortcut || shortcut.length === 0) return;
+
+        Main.wm.addKeybinding(
+            settingKey,
+            this._settings,
+            Meta.KeyBindingFlags.NONE,
+            Shell.ActionMode.ALL,
+            () => this._onRegisterUserDictTriggered()
         );
 
         this._shortcutIds.push(settingKey);
@@ -550,7 +584,19 @@ export default class UnimExtension extends Extension {
         // DBus TypeFix API 사용 (클립보드 미사용)
         // direction: 0=자동, 1=영→한, 2=한→영
         const direction = isReverse ? 2 : 0;
-        this._doTypeFix(direction);
+
+        // gedit/gnome-text-editor 호환: request_surrounding() 먼저 호출
+        // 앱이 현재 선택 정보를 포함한 latest surrounding text를 보낼 때까지 대기
+        if (this._inputMethod) {
+            this._inputMethod.request_surrounding();
+            // 앱 응답 대기 후 TypeFix 수행 (vfunc_set_surrounding 응답 시간)
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+                this._doTypeFix(direction);
+                return GLib.SOURCE_REMOVE;
+            });
+        } else {
+            this._doTypeFix(direction);
+        }
     }
 
     _doTypeFix(direction) {
@@ -562,7 +608,7 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            // 글로벌 TypeFix 호출 — 마지막 포커스된 컨텍스트의 surrounding text로 변환
+            // 글로벌 TypeFix 호출 — 선택된 텍스트만 변환
             const result = proxy.call_sync(
                 'TypeFix',
                 new GLib.Variant('(u)', [direction]),
@@ -576,18 +622,18 @@ export default class UnimExtension extends Extension {
                 return;
             }
 
-            const [deleteCount, replacement] = result.deep_unpack();
+            const [deleteOffset, deleteCount, replacement] = result.deep_unpack();
 
             if (deleteCount === 0 || !replacement) {
                 unimLog('EXTENSION', 'TypeFIX: 변환할 텍스트 없음');
                 return;
             }
 
-            unimLog('EXTENSION', `TypeFIX 완료: delete=${deleteCount}, replacement='${replacement}'`);
+            unimLog('EXTENSION', `TypeFIX 완료: offset=${deleteOffset}, delete=${deleteCount}, replacement='${replacement}'`);
 
-            // 텍스트 치환: surrounding text 삭제 후 대체 텍스트 커밋
+            // 텍스트 치환: 정확한 위치에서 선택 텍스트 삭제 후 대체 텍스트 커밋
             if (this._inputMethod) {
-                this._inputMethod.deleteSurrounding(deleteCount);
+                this._inputMethod.delete_surrounding(deleteOffset, deleteCount);
                 this._inputMethod.commitText(replacement);
             }
 
@@ -598,6 +644,72 @@ export default class UnimExtension extends Extension {
             unimError('EXTENSION', `TypeFIX DBus 오류: ${e.message}`);
         } finally {
             this._conversionInProgress = false;
+        }
+    }
+
+    // ===========================================
+    // 사용자 사전 등록 단축키 (역방향 AutoTypeFix whitelist)
+    // ===========================================
+
+    _onRegisterUserDictTriggered() {
+        if (!this._settings.get_boolean('enable-extension')) return;
+
+        // TypeFix와 동일 패턴: request_surrounding() → 50ms 대기 → DBus 호출.
+        if (this._inputMethod) {
+            this._inputMethod.request_surrounding();
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+                this._doRegisterUserDict();
+                return GLib.SOURCE_REMOVE;
+            });
+        } else {
+            this._doRegisterUserDict();
+        }
+    }
+
+    _doRegisterUserDict() {
+        try {
+            const proxy = this._dbusIME?.getImProxy();
+            if (!proxy) {
+                unimLog('EXTENSION', 'UserDict: DBus 연결 없음');
+                return;
+            }
+
+            // 마지막 포커스 컨텍스트의 선택 영역을 daemon에서 읽어 등록
+            const result = proxy.call_sync(
+                'RegisterUserDictFromSelection',
+                null,
+                Gio.DBusCallFlags.NONE,
+                500,
+                null
+            );
+
+            if (!result) {
+                unimLog('EXTENSION', 'UserDict: 등록 실패(응답 없음)');
+                return;
+            }
+
+            const [word] = result.deep_unpack();
+
+            if (!word) {
+                if (this._settings.get_boolean('show-notification')) {
+                    Main.notify(
+                        _('UNIM Dictionary'),
+                        _('Selection is empty, invalid, or already registered.')
+                    );
+                }
+                return;
+            }
+
+            unimLog('EXTENSION', `UserDict 등록: '${word}'`);
+
+            if (this._settings.get_boolean('show-notification')) {
+                Main.notify(
+                    _('UNIM Dictionary'),
+                    _("Registered '%s' to the reverse user dictionary.").format(word)
+                );
+            }
+        } catch (e) {
+            unimError('EXTENSION', `UserDict DBus 오류: ${e.message}`);
         }
     }
 }

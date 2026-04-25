@@ -1,12 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# UNIM GUI Qt Package (GUI + Qt5/Qt6 IM Plugins)
+# unim-gui-qt — Qt6/QML settings GUI + tray indicator
 # ─────────────────────────────────────────────────────────────────────────────
 
-# GUI executable
 debian/tmp/usr/bin/unim-gui-qt
-
-# Qt5 Platform Input Context Plugin (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt5/plugins/platforminputcontexts/libunim.so
-
-# Qt6 Platform Input Context Plugin (multiarch)
-debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt6/plugins/platforminputcontexts/libunim.so
+debian/tmp/usr/share/man/man1/unim-gui-qt.1

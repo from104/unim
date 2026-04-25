@@ -68,7 +68,13 @@ add_custom_target(install-local
     DEPENDS im-unim
 )
 
-set_target_properties(im-unim PROPERTIES PREFIX "")
+set_target_properties(im-unim PROPERTIES
+    PREFIX ""
+    INSTALL_RPATH ""
+    INSTALL_RPATH_USE_LINK_PATH OFF
+    BUILD_WITH_INSTALL_RPATH ON
+    SKIP_BUILD_RPATH ON
+)
 
 message(STATUS "GTK3 IM Module: Using DBus client")
 message(STATUS "GTK Common Dir: ${GTK_COMMON_DIR}")

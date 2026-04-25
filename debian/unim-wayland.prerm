@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        _user="$(logname 2>/dev/null || echo root)"
+        pkill -u "$_user" -x unim-wayland 2>/dev/null || true
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

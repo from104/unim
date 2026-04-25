@@ -1,4 +1,3 @@
-pub mod auto_switch;
 pub mod auto_typefix;
 pub mod config;
 pub mod hangul;
@@ -9,3 +8,5 @@ pub mod logging;
 pub mod popup;
 pub mod status;
 pub mod typefix;
+pub mod typefix_blacklist;
+pub mod typefix_userdict;

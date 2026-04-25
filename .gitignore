@@ -52,6 +52,8 @@ Thumbs.db
 # Test artifacts
 *.test
 *.profdata
+tests/capi_test
+tests/capi_test.dSYM/
 
 # Debian packaging
 debian/.debhelper/
@@ -84,3 +86,6 @@ debs/
 
 .gemini/
 .claude/settings.local.json
+
+graphify-out/
+.graphifyignore

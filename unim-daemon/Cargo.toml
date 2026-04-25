@@ -17,6 +17,10 @@ daemonize = "0.5"
 ctrlc = "3.4"
 dirs = "5.0"
 which = "6.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 clap = { version = "4.4", features = ["derive"] }
+libc = "0.2"
+
+[target.'cfg(all(target_os = "linux", not(target_env = "musl")))'.dependencies]
+tikv-jemallocator = "0.6"

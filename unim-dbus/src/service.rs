@@ -73,6 +73,17 @@ pub enum EngineRequest {
         context_id: u32,
         response: oneshot::Sender<Option<String>>,
     },
+    /// 한자 즐겨찾기 상태 조회 (현재 후보 목록에 대응)
+    GetHanjaBookmarkStates {
+        context_id: u32,
+        response: oneshot::Sender<Vec<bool>>,
+    },
+    /// 한자 즐겨찾기 토글
+    ToggleHanjaBookmark {
+        context_id: u32,
+        index: usize,
+        response: oneshot::Sender<Option<(usize, bool)>>,
+    },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
         context_id: u32,
@@ -112,7 +123,7 @@ pub enum EngineRequest {
     /// 글로벌 TypeFix 변환 요청 (마지막 포커스된 컨텍스트 대상)
     GlobalTypeFix {
         direction: u32,
-        response: oneshot::Sender<Option<(u32, String)>>,
+        response: oneshot::Sender<Option<(i32, u32, String)>>,
     },
     /// Smart Backspace 요청
     SmartBackspace {
@@ -123,6 +134,35 @@ pub enum EngineRequest {
     SearchEmoji {
         keyword: String,
         response: oneshot::Sender<Vec<String>>,
+    },
+    /// 역방향 사용자 사전: 단어 추가
+    UserDictAdd {
+        word: String,
+        note: String,
+        response: oneshot::Sender<bool>,
+    },
+    /// 역방향 사용자 사전: 단어 제거 (대소문자 무시)
+    UserDictRemove {
+        word: String,
+        response: oneshot::Sender<bool>,
+    },
+    /// 역방향 사용자 사전: 전체 목록 조회
+    UserDictList {
+        response: oneshot::Sender<Vec<(String, String, u64)>>,
+    },
+    /// 역방향 사용자 사전: 인덱스 위치 엔트리 갱신
+    UserDictUpdate {
+        index: u32,
+        word: String,
+        note: String,
+        response: oneshot::Sender<bool>,
+    },
+    /// 단축키 진입점: 마지막 포커스 컨텍스트의 선택 영역을 읽어 사용자 사전에 등록.
+    /// 선택 텍스트가 한글이면 `kor_to_eng`로 영문 변환 후 등록,
+    /// 이미 알파벳이면 그대로 등록.
+    /// 반환값: 실제 등록된 영문 단어 (빈 문자열이면 실패/선택 없음).
+    RegisterUserDictFromSelection {
+        response: oneshot::Sender<String>,
     },
 }
 
@@ -322,7 +362,7 @@ impl InputMethodService {
         is_korean: bool,
     ) -> zbus::Result<()>;
 
-    /// 설정 변경 시그널
+    /// 설정 변경 시그널 (레거시 단일 키)
     #[zbus(signal)]
     async fn config_changed(
         signal_ctx: &SignalContext<'_>,
@@ -330,10 +370,21 @@ impl InputMethodService {
         value: &str,
     ) -> zbus::Result<()>;
 
+    /// 설정 전체 변경 시그널 (YAML 통짜 수신 → JSON 브로드캐스트)
+    ///
+    /// payload는 전체 Config의 JSON 직렬화. GNOME extension / GTK GUI /
+    /// Qt GUI 등 모든 클라이언트가 이 한 번의 시그널로 전 설정을 갱신한다.
+    #[zbus(signal)]
+    async fn config_changed_json(
+        signal_ctx: &SignalContext<'_>,
+        json: &str,
+    ) -> zbus::Result<()>;
+
     /// 글로벌 TypeFix 변환 (마지막 포커스된 컨텍스트 대상)
     /// direction: 0=자동, 1=영→한, 2=한→영
-    /// 반환값: (삭제할 문자 수, 대체 텍스트) 또는 (0, "")
-    async fn type_fix(&self, direction: u32) -> zbus::fdo::Result<(u32, String)> {
+    /// 반환값: (커서로부터의 오프셋, 삭제할 문자 수, 대체 텍스트) 또는 (0, 0, "")
+    /// - offset_from_cursor: 음수=커서 앞, 0=현재/뒤에서 삭제 시작
+    async fn type_fix(&self, direction: u32) -> zbus::fdo::Result<(i32, u32, String)> {
         let (response_tx, response_rx) = oneshot::channel();
 
         self.engine_tx
@@ -348,17 +399,126 @@ impl InputMethodService {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
-        if let Some((delete_chars, replacement)) = result {
+        if let Some((offset_from_cursor, delete_chars, replacement)) = result {
             unim_log!(
                 "DBUS",
-                "[DBus] GlobalTypeFix: delete={}, replacement='{}'",
+                "[DBus] GlobalTypeFix: offset={}, delete={}, replacement='{}'",
+                offset_from_cursor,
                 delete_chars,
                 replacement
             );
-            Ok((delete_chars, replacement))
+            Ok((offset_from_cursor, delete_chars, replacement))
         } else {
-            Ok((0, String::new()))
+            Ok((0_i32, 0_u32, String::new()))
         }
+    }
+
+    /// 역방향 사용자 사전: 단어 추가
+    /// word는 영문 알파벳만 허용. note는 설명(빈 문자열이면 미부여).
+    /// 성공 시 true, 중복/빈값/비영문이면 false.
+    async fn add_reverse_user_dict_word(
+        &self,
+        word: &str,
+        note: &str,
+    ) -> zbus::fdo::Result<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictAdd {
+                word: word.to_string(),
+                note: note.to_string(),
+                response: tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let ok = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        unim_log!(
+            "DBUS",
+            "[DBus] AddReverseUserDictWord: word='{}', ok={}",
+            word,
+            ok
+        );
+        Ok(ok)
+    }
+
+    /// 역방향 사용자 사전: 단어 제거 (대소문자 무시). 성공 시 true.
+    async fn remove_reverse_user_dict_word(&self, word: &str) -> zbus::fdo::Result<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictRemove {
+                word: word.to_string(),
+                response: tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let ok = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        unim_log!(
+            "DBUS",
+            "[DBus] RemoveReverseUserDictWord: word='{}', ok={}",
+            word,
+            ok
+        );
+        Ok(ok)
+    }
+
+    /// 역방향 사용자 사전: 전체 목록 조회 (word, note, added_at).
+    async fn list_reverse_user_dict_words(
+        &self,
+    ) -> zbus::fdo::Result<Vec<(String, String, u64)>> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictList { response: tx })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let list = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        Ok(list)
+    }
+
+    /// 역방향 사용자 사전: idx 위치 엔트리를 새 word/note로 갱신.
+    async fn update_reverse_user_dict_word(
+        &self,
+        index: u32,
+        word: &str,
+        note: &str,
+    ) -> zbus::fdo::Result<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::UserDictUpdate {
+                index,
+                word: word.to_string(),
+                note: note.to_string(),
+                response: tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let ok = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        Ok(ok)
+    }
+
+    /// 단축키 진입점: 마지막 포커스 컨텍스트의 선택 영역을 읽어 사용자 사전에 등록.
+    /// 반환값: 등록된 영문 단어 (선택 없음/이미 등록됨/비유효면 빈 문자열).
+    async fn register_user_dict_from_selection(&self) -> zbus::fdo::Result<String> {
+        let (tx, rx) = oneshot::channel();
+        self.engine_tx
+            .send(EngineRequest::RegisterUserDictFromSelection { response: tx })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+        let word = rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+        unim_log!(
+            "DBUS",
+            "[DBus] RegisterUserDictFromSelection: word='{}'",
+            word
+        );
+        Ok(word)
     }
 
     /// 이모지 검색
@@ -379,8 +539,8 @@ impl InputMethodService {
     async fn get_config(&self, key: &str) -> zbus::fdo::Result<String> {
         let config = self.config.read().await;
         let value = match key {
-            "korean_layout" => config.engine.korean.layout.name().to_string(),
-            "english_layout" => config.engine.english.layout.name().to_string(),
+            "korean_layout" => config.engine.korean.layout.clone(),
+            "english_layout" => config.engine.english.layout.clone(),
             "default_category" => match config.engine.default_category {
                 InputCategory::Korean => "Korean".to_string(),
                 InputCategory::English => "English".to_string(),
@@ -389,12 +549,16 @@ impl InputMethodService {
                 unim::config::ModeSharingMode::Global => "Global".to_string(),
                 unim::config::ModeSharingMode::PerApp => "PerApp".to_string(),
             },
-            "auto_switch_enabled" => config.engine.auto_switch.enabled.to_string(),
-            "auto_switch_threshold" => config.engine.auto_switch.threshold.to_string(),
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
+            "korean_active_rule_sets" => config.engine.korean.active_rule_sets.join(","),
+            // Phase 8: korean_custom_layout 필드 폐지. korean_layout이 이제 프로필 이름
+            // 문자열을 직접 담는다. 호환성 — 구 클라이언트가 이 키로 조회 시 동일값 반환.
+            "korean_custom_layout" => config.engine.korean.layout.clone(),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
+            "auto_english" => config.engine.auto_english.enabled.to_string(),
+            "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
                 .unwrap_or_default(),
             _ => {
@@ -418,33 +582,28 @@ impl InputMethodService {
             let mut config = self.config.write().await;
             match key {
                 "korean_layout" => {
-                    config.engine.korean.layout = match value {
-                        "Dubeolsik" => unim::config::KoreanLayout::Dubeolsik,
-                        "Sebeolsik390" => unim::config::KoreanLayout::Sebeolsik390,
-                        "Sebeolsik391" => unim::config::KoreanLayout::Sebeolsik391,
-                        "SebeolsikNoShift" => unim::config::KoreanLayout::SebeolsikNoShift,
-                        _ => {
-                            return Err(zbus::fdo::Error::InvalidArgs(format!(
-                                "Invalid value: {}",
-                                value
-                            )))
-                        }
-                    };
+                    // Phase 8: 프로필 이름 문자열을 직접 수용. 레거시 enum 이름·별칭은
+                    // normalize_korean_layout_name()이 정식 이름으로 승격.
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "korean_layout cannot be empty".to_string(),
+                        ));
+                    }
+                    config.engine.korean.layout =
+                        unim::config::normalize_korean_layout_name(trimmed);
                 }
                 "english_layout" => {
-                    config.engine.english.layout = match value {
-                        "Qwerty" => unim::config::EnglishLayout::Qwerty,
-                        "Dvorak" => unim::config::EnglishLayout::Dvorak,
-                        "Colemak" => unim::config::EnglishLayout::Colemak,
-                        "ColemakDh" => unim::config::EnglishLayout::ColemakDh,
-                        "Workman" => unim::config::EnglishLayout::Workman,
-                        _ => {
-                            return Err(zbus::fdo::Error::InvalidArgs(format!(
-                                "Invalid value: {}",
-                                value
-                            )))
-                        }
-                    };
+                    // Phase 9: 프로필 이름 문자열 직접 수용. 레거시 enum 이름·소문자 별칭
+                    // 모두 normalize_english_layout_name이 정식 이름으로 승격.
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "english_layout cannot be empty".to_string(),
+                        ));
+                    }
+                    config.engine.english.layout =
+                        unim::config::normalize_english_layout_name(trimmed);
                 }
                 "default_category" => {
                     config.engine.default_category = match value {
@@ -469,16 +628,6 @@ impl InputMethodService {
                             )))
                         }
                     };
-                }
-                "auto_switch_enabled" => {
-                    config.engine.auto_switch.enabled = value
-                        .parse()
-                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
-                }
-                "auto_switch_threshold" => {
-                    config.engine.auto_switch.threshold = value
-                        .parse()
-                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid float".to_string()))?;
                 }
                 "toggle_keys" => {
                     let keys: Vec<String> = value
@@ -506,6 +655,26 @@ impl InputMethodService {
                     }
                     config.engine.hanja_keys = keys;
                 }
+                "korean_active_rule_sets" => {
+                    // 빈 문자열 허용 → 빈 Vec = 프로필 기본값 사용 (§3.1).
+                    let names: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    config.engine.korean.active_rule_sets = names;
+                }
+                "korean_custom_layout" => {
+                    // Phase 8 호환: custom_layout 필드는 폐지되고 korean_layout이 문자열
+                    // 이므로 이 키도 korean_layout을 직접 업데이트한다. 빈 문자열은
+                    // 기본(ko_2bulstd)으로 복귀.
+                    let trimmed = value.trim();
+                    config.engine.korean.layout = if trimmed.is_empty() {
+                        unim::config::KOREAN_LAYOUT_DUBEOLSIK.to_string()
+                    } else {
+                        unim::config::normalize_korean_layout_name(trimmed)
+                    };
+                }
                 "popup_mode" => {
                     config.engine.popup_mode = match value {
                         "Standalone" => unim::config::PopupMode::Standalone,
@@ -522,6 +691,24 @@ impl InputMethodService {
                     config.engine.auto_typefix.enabled = value
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_english" => {
+                    config.engine.auto_english.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_english_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if keys.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one key required".to_string(),
+                        ));
+                    }
+                    config.engine.auto_english.trigger_keys = keys;
                 }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =
@@ -546,6 +733,82 @@ impl InputMethodService {
         // 시그널 브로드캐스트
         Self::config_changed(&signal_ctx, key, value).await?;
         unim_log!("DBUS", "[DBus] Config changed: {} = {}", key, value);
+        Ok(())
+    }
+
+    /// 전체 설정을 YAML 문자열로 조회 (`~/.config/unim/config.yaml`와 동일 포맷)
+    ///
+    /// 클라이언트가 단일 메서드 호출로 전체 설정을 읽을 수 있다.
+    async fn get_config_yaml(&self) -> zbus::fdo::Result<String> {
+        let config = self.config.read().await;
+        let yaml = serde_yaml::to_string(&*config).map_err(|e| {
+            zbus::fdo::Error::Failed(format!("Config YAML 직렬화 실패: {}", e))
+        })?;
+        Ok(yaml)
+    }
+
+    /// 전체 설정을 JSON 문자열로 조회
+    ///
+    /// `ConfigChangedJson` signal payload와 동일한 직렬화. GNOME extension 등
+    /// JS 클라이언트가 YAML 파서 없이 시작 시점의 전체 Config를 읽기 위한 메서드.
+    async fn get_config_json(&self) -> zbus::fdo::Result<String> {
+        let config = self.config.read().await;
+        let json = serde_json::to_string(&*config).map_err(|e| {
+            zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e))
+        })?;
+        Ok(json)
+    }
+
+    /// 전체 설정을 YAML 문자열로 수신하여 저장·반영·브로드캐스트
+    ///
+    /// 동작 순서:
+    /// 1. YAML 파싱 — 실패 시 `InvalidArgs`
+    /// 2. `AutoTypeFixConfig::clamp_ranges()` 방어 호출
+    /// 3. `save_to_default_path()` — 실패 시 `Failed`
+    /// 4. 공유 Config(Arc<RwLock>) 갱신 (lock 범위 최소화)
+    /// 5. lock 해제 후 `ConfigChangedJson` signal 방출 (payload = JSON)
+    async fn set_config_yaml(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        yaml: String,
+    ) -> zbus::fdo::Result<()> {
+        // 1. 파싱
+        let mut new_config: Config = serde_yaml::from_str(&yaml).map_err(|e| {
+            zbus::fdo::Error::InvalidArgs(format!("YAML 파싱 실패: {}", e))
+        })?;
+
+        // 2. 범위 방어
+        new_config.engine.auto_typefix.clamp_ranges();
+
+        // 3. 파일 저장
+        if let Err(e) = new_config.save_to_default_path() {
+            unim_log!("DBUS", "[DBus] SetConfigYaml save 실패: {}", e);
+            return Err(zbus::fdo::Error::Failed(format!(
+                "Config 파일 저장 실패: {}",
+                e
+            )));
+        }
+
+        // 4. 공유 Config 갱신 — lock 스코프 최소화
+        let json = {
+            let mut cfg = self.config.write().await;
+            *cfg = new_config;
+            // JSON 직렬화도 lock 안에서 (Config 복제 비용 회피)
+            serde_json::to_string(&*cfg).map_err(|e| {
+                zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e))
+            })?
+        };
+        // lock drop 완료
+
+        // 5. signal 방출 — payload는 JSON (GNOME extension JS 호환성)
+        Self::config_changed_json(&signal_ctx, &json).await?;
+
+        unim_log!(
+            "DBUS",
+            "[DBus] SetConfigYaml: {} bytes, ConfigChangedJson emitted ({} bytes)",
+            yaml.len(),
+            json.len()
+        );
         Ok(())
     }
 }
@@ -720,6 +983,21 @@ impl InputContextHandler {
                         sel_col
                     );
                 }
+                PopupAction::HanjaBookmarkChanged { index, bookmarked } => {
+                    Self::hanja_bookmark_changed(
+                        &signal_ctx,
+                        *index as u32,
+                        *bookmarked,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] HanjaBookmarkChanged: index={}, bookmarked={}",
+                        index,
+                        bookmarked
+                    );
+                }
                 // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
                 _ => {}
             }
@@ -814,12 +1092,11 @@ impl InputContextHandler {
 
         let commit = response_rx.await.ok().flatten().unwrap_or_default();
 
-        // 커밋 시그널을 먼저 발행한 후 HidePopup 발행
-        // (HidePopup이 먼저 오면 Standalone 팝업이 포커스를 이동시켜
-        //  CommitText가 엉뚱한 위치에 도착할 수 있음)
-        if !commit.is_empty() {
-            Self::commit_text(&signal_ctx, &commit).await.ok();
-        }
+        // 커밋 텍스트는 RPC 반환값으로만 전달한다.
+        // 과거 레거시 경로에서 CommitText 시그널도 함께 발행했으나, IM 모듈이
+        // 시그널과 RPC 반환값을 모두 처리하여 이중 커밋(예: "늘" 두 번)이 발생.
+        // 포커스 아웃 커밋은 해당 컨텍스트에만 전달해야 하므로 브로드캐스트 시그널이
+        // 의미상으로도 부적절하다.
         Self::hide_popup(&signal_ctx).await.ok();
 
         unim_log!(
@@ -868,6 +1145,19 @@ impl InputContextHandler {
             .send(EngineRequest::DestroyContext { id: self.id })
             .await
             .ok();
+
+        // object_server에서 이 핸들러 자신도 제거 — Destroy 호출 후에도 핸들러가
+        // 남아있으면 zbus 내부 라우팅 테이블·시그널 구독 상태가 context_id마다 누적돼
+        // 장시간 실행 시 RSS가 꾸준히 증가한다. 경로는 create_input_context와 동일 포맷.
+        let path_str = format!("{}{}", crate::INPUT_CONTEXT_PATH_PREFIX, self.id);
+        if let Ok(path) = zbus::zvariant::ObjectPath::try_from(path_str.as_str()) {
+            let _ = self
+                .connection
+                .object_server()
+                .remove::<InputContextHandler, _>(path)
+                .await;
+        }
+
         unim_log!("DBUS", "[DBus] Context 파괴: id={}", self.id);
         Ok(())
     }
@@ -929,6 +1219,14 @@ impl InputContextHandler {
         cols: i32,
         sel_row: i32,
         sel_col: i32,
+    ) -> zbus::Result<()>;
+
+    /// 한자 즐겨찾기 상태 변경 시그널 (Space 토글 등으로 상태가 바뀐 경우)
+    #[zbus(signal)]
+    async fn hanja_bookmark_changed(
+        signal_ctx: &SignalContext<'_>,
+        index: u32,
+        bookmarked: bool,
     ) -> zbus::Result<()>;
 
     // =========================================
@@ -1156,6 +1454,72 @@ impl InputContextHandler {
         );
 
         Ok(hanja)
+    }
+
+    /// 현재 한자 후보 목록의 즐겨찾기 상태 조회
+    ///
+    /// 반환값은 `GetHanjaCandidates` 응답의 `candidates` 와 동일한 순서이며
+    /// 각 후보의 즐겨찾기 여부(true=등록됨)를 나타낸다.
+    async fn get_hanja_bookmark_states(&self) -> zbus::fdo::Result<Vec<bool>> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::GetHanjaBookmarkStates {
+                context_id: self.id,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let states = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        unim_log!(
+            "DBUS",
+            "[DBus] GetHanjaBookmarkStates: count={}",
+            states.len()
+        );
+        Ok(states)
+    }
+
+    /// 한자 후보 즐겨찾기 토글
+    ///
+    /// 반환값: `(index, bookmarked)` — 토글 후의 상태. 한자 모드가 아니거나
+    /// 인덱스가 범위를 벗어나면 실패(Error).
+    async fn toggle_hanja_bookmark(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        index: u32,
+    ) -> zbus::fdo::Result<(u32, bool)> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::ToggleHanjaBookmark {
+                context_id: self.id,
+                index: index as usize,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let (idx, bookmarked) = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
+            .ok_or_else(|| zbus::fdo::Error::Failed("한자 모드 아님 또는 범위 밖".to_string()))?;
+
+        // UI 갱신을 위해 시그널도 발행 (엔진 내부 토글과 동일 경로)
+        Self::hanja_bookmark_changed(&signal_ctx, idx as u32, bookmarked)
+            .await
+            .ok();
+
+        unim_log!(
+            "DBUS",
+            "[DBus] ToggleHanjaBookmark: index={}, bookmarked={}",
+            idx,
+            bookmarked
+        );
+        Ok((idx as u32, bookmarked))
     }
 
     /// 한자 모드 취소 (남은 preedit을 커밋하고 반환)

@@ -29,9 +29,26 @@ trait InputMethod {
     /// 설정값 변경
     fn set_config(&self, key: &str, value: &str) -> Result<()>;
 
+    /// 전체 설정을 YAML 문자열로 조회
+    fn get_config_yaml(&self) -> Result<String>;
+
+    /// 전체 설정을 JSON 문자열로 조회 (ConfigChangedJson signal과 동일 직렬화)
+    fn get_config_json(&self) -> Result<String>;
+
+    /// 전체 설정을 YAML 문자열로 수신하여 저장·반영·브로드캐스트
+    fn set_config_yaml(&self, yaml: &str) -> Result<()>;
+
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
     fn global_mode_changed(&self, is_korean: bool) -> Result<()>;
+
+    /// 레거시 단일 키 설정 변경 시그널
+    #[zbus(signal)]
+    fn config_changed(&self, key: String, value: String) -> Result<()>;
+
+    /// 전체 Config JSON payload 설정 변경 시그널
+    #[zbus(signal)]
+    fn config_changed_json(&self, json: String) -> Result<()>;
 }
 
 /// InputContext 프록시 생성을 위한 trait
@@ -65,6 +82,12 @@ trait InputContext {
 
     /// 한자 선택 - 반환: 선택된 한자 문자열
     fn select_hanja(&self, index: u32) -> Result<String>;
+
+    /// 현재 한자 후보 목록의 즐겨찾기 상태 조회 (GetHanjaCandidates 순서와 동일)
+    fn get_hanja_bookmark_states(&self) -> Result<Vec<bool>>;
+
+    /// 한자 후보 즐겨찾기 토글 - 반환: (index, bookmarked)
+    fn toggle_hanja_bookmark(&self, index: u32) -> Result<(u32, bool)>;
 
     /// 한자 모드 취소 - 반환: 커밋된 트리거 문자
     fn cancel_hanja(&self) -> Result<String>;
@@ -136,6 +159,10 @@ trait InputContext {
     /// 팝업 숨김 시그널
     #[zbus(signal)]
     fn hide_popup(&self) -> Result<()>;
+
+    /// 한자 즐겨찾기 변경 시그널 (엔진 → 프론트엔드)
+    #[zbus(signal)]
+    fn hanja_bookmark_changed(&self, index: u32, bookmarked: bool) -> Result<()>;
 
     /// 팝업 네비게이션 시그널 (페이지/선택 변경)
     #[zbus(signal)]

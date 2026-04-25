@@ -2,11 +2,16 @@
 name = "unim-cli"
 version.workspace = true
 edition = "2021"
+description = "UNIM Korean/English keyboard converter and settings manager"
+authors = ["from104"]
+
+[[bin]]
+name = "unim-cli"
+path = "src/main.rs"
 
 [dependencies]
 unim = { path = ".." }
 clap = { version = "4.5.1", features = ["derive"] }
 rust-i18n = "3"
+dialoguer = "0.11"
 serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-io-lifetimes = "1.0.11" # For some IO operations if needed

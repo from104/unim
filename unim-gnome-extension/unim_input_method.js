@@ -57,6 +57,13 @@ class UnimInputMethod extends Clutter.InputMethod {
          * @type {number}
          */
         this._selfBackspaceCount = 0;
+        /**
+         * 마지막으로 받은 surrounding text와 cursor/anchor.
+         * gedit/gnome-text-editor처럼 선택 정보를 보내지 않는 앱에서도
+         * TypeFix를 동작하게 하려면, request_surrounding() 호출 시 최신 값을 캐시해야 함.
+         * @type {{text: string, cursor: number, anchor: number}}
+         */
+        this._lastSurrounding = { text: '', cursor: 0, anchor: 0 };
 
         unimLog('IME', 'UnimInputMethod 인스턴스 생성');
     }
@@ -245,9 +252,20 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_set_surrounding(text, cursor, anchor) {
+        // 최신 surrounding text + cursor/anchor를 캐시 (gedit/gnome-text-editor 호환)
+        this._lastSurrounding = { text: text || '', cursor: cursor || 0, anchor: anchor || 0 };
         if (this._dbusIME?.isConnected) {
             this._dbusIME.setSurroundingText(text || '', cursor || 0, anchor || 0);
         }
+    }
+
+    /**
+     * 마지막으로 받은 surrounding text + cursor/anchor 반환
+     * TypeFix가 request_surrounding() 응답 후 호출
+     * @returns {{text: string, cursor: number, anchor: number}}
+     */
+    getLastSurrounding() {
+        return this._lastSurrounding;
     }
 
     vfunc_update_content_hints(hints) {

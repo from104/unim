@@ -1,0 +1,81 @@
+.TH UNIM 1 "April 2026" "UNIM 0.1.0" "User Commands"
+.SH NAME
+unim \- Universal Next-generation Input Method for Korean
+.SH DESCRIPTION
+UNIM is a Korean Input Method Engine (IME) written in Rust with a 3-layer
+architecture: Core Engine \(-> DBus Daemon \(-> Frontend IM Modules.
+.PP
+It supports GTK3/4, Qt5/6, XIM, Wayland, and GNOME Shell, providing
+hangul composition, hanja conversion, special character input, TypeFix
+(typo correction), smart backspace, and emoji search.
+.SH COMPONENTS
+.TP
+.B unim-daemon
+The DBus daemon that runs the input engine. Communicates with frontends
+via \fBorg.atit.unim.InputMethod\fR on the session bus.
+.TP
+.B unim-cli
+Unified command-line tool for text conversion (eng\(<->kor) and settings
+management (via the \fBconfig\fR subcommand).
+.TP
+.B unim-gui-gtk
+System tray indicator and settings dialog (GTK4).
+.SH CONFIGURATION
+Settings are stored in \fB~/.config/unim/config.yaml\fR.
+.PP
+Key settings:
+.TP
+.B engine.default_category
+Default input mode: Korean or English (default: English)
+.TP
+.B engine.mode_sharing
+Mode sharing: Global or PerApp (default: Global)
+.TP
+.B engine.korean.layout
+Korean layout: Dubeolsik, Sebeolsik390, Sebeolsik391, SebeolsikNoShift
+.TP
+.B engine.english.layout
+English layout: Qwerty, Dvorak, Colemak, ColemakDh, Workman
+.TP
+.B engine.toggle_keys
+Han/Eng toggle keys (default: Korean, RightAlt)
+.TP
+.B engine.hanja_keys
+Hanja/special char keys (default: Hanja, F9)
+.TP
+.B engine.app_rules
+Per-app default mode rules (JSON array of {app_pattern, default_category})
+.SH FEATURES
+.TP
+.B TypeFix
+Auto-detect and convert mistyped text between Korean and English.
+Triggered by double-tap of the toggle key (inline) or Super+K (selection).
+Converted text's language mode is automatically applied.
+.TP
+.B Smart Backspace
+Decompose committed hangul syllables by jamo unit when backspacing.
+.TP
+.B Content Type Detection
+Automatically blocks hangul mode in password/PIN input fields.
+.TP
+.B Emoji Search
+Keyword-based emoji search via DBus SearchEmoji method.
+.SH FILES
+.TP
+.B ~/.config/unim/config.yaml
+User configuration file
+.TP
+.B ~/.local/share/unim/user_dict.json
+User dictionary (hanja frequency learning)
+.TP
+.B ~/.unim-errors.log
+Debug log (active when UNIM_DEVELOP=1)
+.SH ENVIRONMENT
+.TP
+.B UNIM_DEVELOP
+Set to "1" to enable debug logging across all components.
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>
+.SH SEE ALSO
+.BR ibus (1),
+.BR fcitx5 (1)

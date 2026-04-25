@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "language": "english",
+  "name": "colemak_dh",
+  "type": "colemak_dh",
+  "metadata": {
+    "display_name": "Colemak-DH",
+    "author": "Stevep99 (2020) · based on Shai Coleman's Colemak",
+    "description": "Colemak with D/H moved off the home row to reduce index-finger strain. Inherits Colemak and overrides only the affected rows.",
+    "version": "1.0",
+    "tags": ["english", "alt", "colemak-family"]
+  },
+  "inherits": "colemak",
+  "layout": {
+    "upper": {
+      "3nd": ["A", "R", "S", "T", "G", "M", "N", "E", "I", "O", "\""],
+      "4th": ["Z", "X", "C", "D", "V", "K", "H", "<", ">", "?"]
+    },
+    "lower": {
+      "3nd": ["a", "r", "s", "t", "g", "m", "n", "e", "i", "o", "'"],
+      "4th": ["z", "x", "c", "d", "v", "k", "h", ",", ".", "/"]
+    }
+  }
+}

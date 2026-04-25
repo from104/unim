@@ -1,0 +1,9 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# unim-im-qt — Qt5 + Qt6 platform input context plugins
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Qt5 platform input context plugin (multiarch)
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt5/plugins/platforminputcontexts/libunim.so
+
+# Qt6 platform input context plugin (multiarch)
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/qt6/plugins/platforminputcontexts/libunim.so

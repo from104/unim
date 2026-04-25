@@ -35,7 +35,7 @@ UNIM은 고성능과 확장을 위해 **3계층 구조**를 사용합니다. 코
 | 컴포넌트 | 파일 위치 | 동기화 사항 |
 | -------- | --------- | ----------- |
 | **설정 코어** | `src/config.rs` | 설정 구조체 추가 및 직렬화 정의 (Source of Truth) |
-| **CLI 설정 도구** | `unim-config/src/main.rs` | 명령줄 인자, 도움말 문자열 반영 |
+| **CLI 설정 도구** | `unim-cli/src/main.rs` (`config` 서브커맨드) | `ConfigKey` enum, setter dispatch, `locales/*.yml` 반영 |
 | **DBus 서비스** | `unim-dbus/src/service.rs` | `get_config`/`set_config` 등 메서드 업데이트 |
 | **GUI 설정 창** | `unim-gui/src/settings_dialog.rs` | UI 체크박스, 스피너 등 위젯 바인딩 |
 | **GNOME Extension** | `unim-gnome-extension/prefs.js` | GNOME 기본 Preferences 페이지에 반영 |

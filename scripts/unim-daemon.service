@@ -5,6 +5,10 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
+# glibc ptmalloc 멀티 arena 폭발(스레드당 64MB mmap 단위 누적) 방지:
+# jemalloc이 Rust 할당을 담당하고, 이 변수는 zbus/chrono 등 C 라이브러리 계열
+# glibc malloc 호출의 arena 상한을 정해 RSS 상승을 한번 더 차단한다.
+Environment=MALLOC_ARENA_MAX=2
 ExecStart=@LIBEXECDIR@/unim-daemon -n
 Restart=on-failure
 RestartSec=3

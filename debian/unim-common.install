@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# unim-common — core engine, daemon, CLI, shared library
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Core C-API library (multiarch) — versioned + SONAME + dev symlink
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/libunim_capi.so
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/libunim_capi.so.0
+debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}/libunim_capi.so.0.1.0
+
+# Header file
+debian/tmp/usr/include/unim.h
+
+# CLI tool
+debian/tmp/usr/bin/unim-cli
+
+# Core daemon
+debian/tmp/usr/libexec/unim-daemon
+
+# DBus session-bus auto-activation service
+debian/tmp/usr/share/dbus-1/services/org.atit.unim.InputMethod.service
+
+# im-config integration
+debian/tmp/usr/share/im-config/data/25_unim.conf
+debian/tmp/usr/share/im-config/data/25_unim.rc
+
+# Icons
+debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-korean.svg
+debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-english.svg
+
+# Manual pages
+debian/tmp/usr/share/man/man1/unim.1
+debian/tmp/usr/share/man/man1/unim-cli.1

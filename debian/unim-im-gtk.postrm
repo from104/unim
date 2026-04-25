@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|purge)
+        # Refresh GTK3 IM modules cache after removal
+        if command -v gtk-query-immodules-3.0 >/dev/null 2>&1; then
+            gtk-query-immodules-3.0 --update-cache || true
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

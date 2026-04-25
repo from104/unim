@@ -1,0 +1,38 @@
+.TH UNIM-GUI-QT 1 "April 2026" "UNIM 0.1.0" "User Commands"
+.SH NAME
+unim\-gui\-qt \- UNIM Hanja and special-character popups (Qt6/QML)
+.SH SYNOPSIS
+.B unim\-gui\-qt
+.SH DESCRIPTION
+.B unim\-gui\-qt
+is the Qt6/QML alternative GUI for the UNIM input method engine. It
+provides Hanja conversion and special-character / emoji search popups
+without the GTK4/libadwaita dependency, primarily for KDE Plasma and
+other Qt-centric desktops where pulling in libadwaita is undesirable.
+.PP
+Unlike
+.BR unim\-gui\-gtk (1)
+this front-end does not host a settings dialog; configuration must be
+performed via
+.BR unim\-config (1)
+or by launching
+.B unim\-gui\-gtk \-\-settings
+when GTK is available.
+.PP
+The program communicates with
+.B unim\-daemon
+over the
+.B org.atit.unim.InputMethod
+D-Bus session interface and is normally activated on demand by the
+daemon when a Hanja popup is requested.
+.SH FILES
+.TP
+.B ~/.config/unim/config.yaml
+Configuration file shared with
+.BR unim\-config (1).
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-config (1),
+.BR unim\-gui\-gtk (1)
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>

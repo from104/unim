@@ -1,43 +1,176 @@
 Source: unim
 Section: utils
 Priority: optional
-Maintainer: from104 <from104@github.com>
-Build-Depends: debhelper-compat (= 13), cmake, pkg-config, libgtk-3-dev, libgtk-4-dev, qtbase5-dev, qtbase5-private-dev, qt6-base-dev, qt6-base-private-dev, qt6-declarative-dev, libqt6dbus6, libglib2.0-dev
-Standards-Version: 4.6.0
+Maintainer: from104 <from104@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               pkg-config,
+               cargo,
+               rustc,
+               chrpath,
+               libgtk-3-dev,
+               libgtk-4-dev,
+               libadwaita-1-dev,
+               qtbase5-dev,
+               qtbase5-private-dev,
+               qt6-base-dev,
+               qt6-base-private-dev,
+               qt6-declarative-dev,
+               libqt6dbus6,
+               libglib2.0-dev,
+               libdbus-1-dev
+Standards-Version: 4.7.0
 Homepage: https://github.com/from104/unim
+Vcs-Git: https://github.com/from104/unim.git
+Vcs-Browser: https://github.com/from104/unim
+Bugs: https://github.com/from104/unim/issues
 Rules-Requires-Root: no
 
-Package: unim
+Package: unim-common
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Recommends: im-config, dbus
-Description: Korean Input Method Engine
- UNIM is a modular Korean Input Method Engine.
- This package contains the core daemon, C-API library, CLI tools,
- and XIM/Wayland protocol support.
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         dbus
+Recommends: im-config
+Description: UNIM Korean IME — core engine, daemon, CLI, shared library
+ UNIM is a modular Korean Input Method Engine written in Rust with
+ 2-bul and 3-bul Hangul layouts and automatic Korean/English typo
+ correction (TypeFix).
+ .
+ This package contains the pieces every UNIM install needs:
+  * libunim_capi shared library (stable internal C-API consumed by
+    GTK/Qt input method modules)
+  * unim-daemon — central engine, D-Bus session-activated
+  * unim-cli — unified command-line interface (incl. `config`
+    subcommand)
+  * D-Bus service file, icons, im-config integration, man pages
+ .
+ Install a frontend package (unim-xim, unim-wayland) and an IM module
+ package (unim-im-gtk, unim-im-qt) to actually type Korean in apps,
+ or install the `unim` meta-package for the full stack.
+
+Package: unim-im-gtk
+Architecture: any
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Recommends: unim-xim | unim-wayland
+Description: UNIM Korean IME — GTK3/GTK4 input method modules
+ GTK3 and GTK4 input method modules for the UNIM Korean Input Method
+ Engine. Enables Korean typing in every GTK-based application
+ (GNOME, Xfce, MATE, Cinnamon, GIMP, Inkscape, etc.).
+ .
+ The modules delegate all composition work to unim-daemon over D-Bus
+ and ship as standard GTK immodules discovered via the multiarch
+ immodules directory.
+
+Package: unim-im-qt
+Architecture: any
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Recommends: unim-xim | unim-wayland
+Description: UNIM Korean IME — Qt5/Qt6 platform input context plugins
+ Qt5 and Qt6 platform input context plugins for the UNIM Korean
+ Input Method Engine. Enables Korean typing in every Qt-based
+ application (KDE Plasma apps, Telegram Desktop, qBittorrent, Qt
+ Creator, many cross-platform editors).
+ .
+ The plugins delegate all composition work to unim-daemon over D-Bus
+ and ship under Qt's platforminputcontexts plugin directory.
+
+Package: unim-xim
+Architecture: any
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Description: UNIM Korean IME — XIM protocol frontend (X11)
+ X11 XIM protocol server for the UNIM Korean Input Method Engine.
+ Required in X11 sessions and for legacy applications that only
+ speak XIM (e.g. xterm, emacs -nw, many Java/AWT apps).
+ .
+ Install this package alongside the GTK/Qt IM module packages when
+ running an X11 session. On Wayland sessions, install unim-wayland
+ instead (both may coexist for XWayland fallback).
+
+Package: unim-wayland
+Architecture: any
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Description: UNIM Korean IME — Wayland input-method frontend
+ Wayland input-method-v2 + virtual-keyboard-v1 protocol server for
+ the UNIM Korean Input Method Engine, with hanja/special-character
+ popup via zwp_input_popup_surface_v2.
+ .
+ Required in pure Wayland sessions (KDE Plasma Wayland, Sway,
+ Hyprland, COSMIC, Labwc, Wayfire). GNOME Shell users should
+ additionally install unim-gnome for native indicator integration.
 
 Package: unim-gui-gtk
 Architecture: any
-Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Conflicts: unim-gtk
-Replaces: unim-gtk
-Description: UNIM GUI and GTK IM Modules
- UNIM GUI process providing system tray indicator, Hanja/special character
- popups, and settings dialog. GTK4/libadwaita based.
- Also includes GTK3 and GTK4 input method modules.
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Recommends: unim-im-gtk
+Description: UNIM Korean IME — GTK4/libadwaita settings GUI
+ Settings dialog and system-tray indicator for the UNIM Korean
+ Input Method Engine, built with GTK4 and libadwaita. Provides the
+ full configuration surface (hotkeys, layouts, TypeFix, blacklist,
+ popup behaviour, per-app rules).
+ .
+ Ships an XDG autostart entry so the tray indicator starts with
+ every desktop session. This is the default GUI on GNOME, Xfce,
+ MATE, Cinnamon and any GTK-centric desktop.
 
 Package: unim-gui-qt
 Architecture: any
-Depends: unim (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
-Conflicts: unim-qt
-Replaces: unim-qt
-Description: UNIM GUI and Qt IM Plugins
- UNIM GUI process providing Hanja/special character popups.
- Qt6/QML based alternative to the GTK4 GUI.
- Also includes Qt5 and Qt6 platform input context plugins.
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Recommends: unim-im-qt
+Description: UNIM Korean IME — Qt6/QML settings GUI (alternative)
+ Alternative settings dialog and system-tray indicator for the
+ UNIM Korean Input Method Engine, built with Qt6 and cxx-qt. Feature
+ parity with unim-gui-gtk, native look-and-feel on KDE Plasma.
+ .
+ Coexists with unim-gui-gtk — pick whichever fits the desktop. KDE
+ Plasma users who prefer native Qt styling should install this one.
 
-Package: gnome-shell-extension-unim
+Package: unim-gnome
 Architecture: all
-Depends: unim (>= ${source:Version}), ${misc:Depends}, gnome-shell
-Description: UNIM GNOME Shell Extension
- GNOME Shell extension for UNIM, providing native integration and hotkeys.
+Depends: unim-common (= ${source:Version}),
+         unim-gui-gtk (= ${source:Version}),
+         ${misc:Depends},
+         gnome-shell
+Description: UNIM Korean IME — GNOME Shell extension
+ Native GNOME Shell extension for the UNIM Korean Input Method
+ Engine. Adds a top-panel indicator, hotkey management, per-app
+ input-mode rules, and in-shell hanja / special-character popup
+ (Push model via D-Bus signal, avoids Wayland popup-surface
+ limitations on Mutter).
+ .
+ Requires GNOME Shell. Pulls in unim-gui-gtk automatically because
+ the extension exposes a "preferences" entry point that launches
+ the GTK settings dialog.
+
+Package: unim
+Architecture: all
+Depends: unim-common (= ${source:Version}),
+         unim-im-gtk (= ${source:Version}),
+         unim-im-qt (= ${source:Version}),
+         unim-xim (= ${source:Version}),
+         unim-wayland (= ${source:Version}),
+         unim-gui-gtk (= ${source:Version}),
+         unim-gui-qt (= ${source:Version}),
+         unim-gnome (= ${source:Version}),
+         ${misc:Depends}
+Description: Korean Input Method Engine — full stack (meta-package)
+ Meta-package that pulls in the complete UNIM Korean Input Method
+ Engine: core engine, every IM module, every protocol frontend,
+ both GUIs, and the GNOME Shell extension. Install this when you
+ want "UNIM, everything included" without picking individual
+ packages.
+ .
+ Power users who want a smaller footprint can install only the
+ pieces they need — see the individual package descriptions.

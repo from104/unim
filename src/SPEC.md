@@ -248,9 +248,18 @@ engine:
   hanja_keys:                       # Vec<String>
     - Hanja
     - F9
-  auto_switch:
-    enabled: false                  # bool
-    threshold: 0.5                  # f64
+  auto_typefix:                     # AutoTypeFixConfig
+    enabled: true
+    time_window_ms: 2000
+    kor_syllable_threshold: 3
+    eng_word_min_length: 4
+    forward: true                   # 영→한 오타 교정 (ASCII 흐름 중 한글 음절 감지)
+    reverse: true                   # 한→영 오타 교정 (한글 preedit 중 영단어 감지)
+    skip_on_english_word: true      # 사전에 있는 영단어면 교정 보류
+    skip_on_complete_syllable: true # 이미 완성된 한글 음절이면 forward 차단
+    rollback_detection: true        # (4315dce) 롤백 관측 기반 Blacklist 자동 등록
+    tentative_expiry_hours: 1       # (4315dce, aeab5f5) Tentative 엔트리 Inactive 전환까지의 시간
+    observation_timeout_secs: 10    # (aeab5f5) 롤백 관측 pending flag 유지 시간(초)
 ```
 
 ```rust
@@ -265,9 +274,33 @@ pub struct EngineConfig {
     pub english: EnglishConfig,     // { layout: EnglishLayout }
     pub toggle_keys: Vec<String>,   // 한/영 전환키 목록 (기본: ["Korean", "RightAlt"])
     pub hanja_keys: Vec<String>,    // 한자/특수문자키 목록 (기본: ["Hanja", "F9"])
-    pub auto_switch: AutoSwitchConfig,
+    pub auto_typefix: AutoTypeFixConfig,  // 자동 오타 교정 설정 (§3.1.1)
 }
 ```
+
+#### 3.1.1 `AutoTypeFixConfig`
+
+자동 오타 교정(AutoTypeFix) 서브 구조. 범위 상수는 `config.rs`의
+`AUTO_TYPEFIX_*_MIN/MAX`로 노출되며 `Config::clamp_ranges()`가
+로드/세트 시점에 강제한다.
+
+| 필드 | 타입 | 기본값 | 범위 | 역할 |
+|------|------|-------|------|------|
+| `enabled` | bool | true | — | 마스터 스위치 |
+| `time_window_ms` | u32 | 2000 | 500..=5000 | 키 입력 버퍼 유지 시간(ms) |
+| `kor_syllable_threshold` | u8 | 3 | 2..=6 | forward 트리거 최소 한글 음절 수 |
+| `eng_word_min_length` | u8 | 4 | 3..=8 | reverse 트리거 최소 영단어 길이 |
+| `forward` | bool | true | — | 영→한 교정 활성 (영어 모드인데 한글로 변환되는 ASCII 흐름 감지) |
+| `reverse` | bool | true | — | 한→영 교정 활성 (한글 모드 preedit이 사전상 영단어일 때) |
+| `skip_on_english_word` | bool | true | — | forward에서 한글 변환 결과를 영어 사전에 질의해 매치되면 보류 |
+| `skip_on_complete_syllable` | bool | true | — | forward에서 이미 완성된 한글 음절이 있으면 트리거 차단 |
+| `rollback_detection` | bool | true | — | **(4315dce)** 롤백 관측 기반 Blacklist 자동 등록 활성 |
+| `tentative_expiry_hours` | u16 | 1 | 1..=12 | **(4315dce, aeab5f5)** Tentative 엔트리의 Inactive 자동 전환 시간. 초기 구현에서 `tentative_expiry_days`(1..=90)였으나 aeab5f5에서 `hours`/1..=12로 개명·축소. 레코드는 보존, 억제 효과만 해제 |
+| `observation_timeout_secs` | u8 | 10 | 5..=15 | **(aeab5f5)** 롤백 관측 pending flag 유지 시간(초). BS/모드 전환 관찰이 이 시간 내에 재시도로 이어져야 Tentative 등록 |
+
+> [!NOTE]
+> `forward`/`reverse` 방향 판정의 IME 관측 관점은
+> [`IME_BEHAVIOR.md §9`](../IME_BEHAVIOR.md#9-autotypefix-억제-사전-blacklist--ime-레벨-관측-동작)을 참조한다.
 
 ### 3.2 열거형 정의
 
@@ -760,6 +793,87 @@ struct SpecialCharCategory {
 - **최대 9열 × 9행 = 81문자/페이지** (`PAGE_SIZE = 81`)
 - 81개 초과 시 **페이지 분할** (Tab/Shift+Tab으로 이동)
 - 배치 순서: **열 우선** (col 0의 row 0~8 → col 1의 row 0~8 → ...)
+
+---
+
+## 8A. AutoTypeFix 억제 사전 (Blacklist)
+
+자동 오타 교정이 **특정 ASCII 입력에 대해서만** 작동하지 않도록 사용자별
+억제 사전을 운영한다. 롤백 관측(재시도 순간 등록) 기반 자동 학습과 GUI 수동
+관리를 동시에 제공한다.
+
+### 8A.1 파일 및 구현
+
+| 항목 | 값 |
+|------|---|
+| 사용자 파일 | `~/.config/unim/typefix-blacklist.yaml` |
+| 구현 모듈 | `src/typefix_blacklist.rs` |
+| 핵심 타입 | `TypefixBlacklist`, `BlacklistEntry`, `EntryState` |
+| 설정 원본 | [`AutoTypeFixConfig` §3.1.1](#311-autotypefixconfig) (`rollback_detection`, `tentative_expiry_hours`, `observation_timeout_secs`) |
+| 등록 관측 절차 | [`IME_BEHAVIOR.md §9`](../IME_BEHAVIOR.md#9-autotypefix-억제-사전-blacklist--ime-레벨-관측-동작) |
+
+### 8A.2 엔트리 상태 (3상태 머신)
+
+```text
+        (retrigger 관측)              (GUI Confirm)
+  none ───────────────▶ Tentative ──────────────▶ Confirmed
+                           │  ▲                       │
+    (expiry_hours 경과)    │  │ (GUI Reactivate)      │ (GUI Deactivate)
+                           ▼  │                       ▼
+                        Inactive ◀─────────────────────
+                           ▲
+                           │ (GUI Remove는 레코드 자체 삭제)
+```
+
+| 상태 | 의미 | 억제 효과 |
+|------|------|---------|
+| `Tentative` | 롤백 관측 + 재시도로 자동 등록된 임시 엔트리 | 있음 |
+| `Confirmed` | 사용자가 GUI에서 Confirm 버튼으로 확정한 엔트리 | 있음 |
+| `Inactive` | 만료·수동 비활성화된 엔트리 (레코드 보존, 감사용) | 없음 |
+
+### 8A.3 등록 시점 — "재시도(retrigger)" 모델
+
+초기 구현(4315dce)은 롤백 시점 즉시 등록이었으나, aeab5f5에서
+**동일 ASCII의 두 번째 AutoTypeFix 트리거 시점**으로 변경되었다.
+이유: 롤백 단독은 모드 오전환 등 오탐 가능성이 있고, 재시도는 사용자 의도
+("또 교정당했다")의 강력한 증거다.
+
+1. 1차 교정 수행 (forward 또는 reverse) → `RecentCorrection` 기록
+   - forward: `ascii = fix.original` (ASCII 원문)
+   - reverse: `ascii = fix.corrected` (영단어)
+2. BS(`corrected_len`만큼) 또는 모드 전환 관찰 → `pending=true` 플래그
+   - forward 게이트: **BS AND 모드 전환**
+   - reverse 게이트: **BS OR 모드 전환** (reverse는 `clear_preedit=true`로
+     후속 BS가 engine_worker에 전달되지 않아 AND가 구조적 도달 불가)
+3. `observation_timeout_secs`(기본 10초) 내 동일 ASCII가 재차
+   AutoTypeFix 트리거 → Tentative 등록 + **해당 재시도 억제** (한 번에 종결)
+4. 사용자가 GUI에서 Confirm → Confirmed
+5. Tentative는 `tentative_expiry_hours`(기본 1시간) 경과 시 Inactive로 플립.
+   레코드는 보존되어 GUI에서 Reactivate 가능
+
+### 8A.4 조회 경로
+
+`check_forward` / `check_reverse` 진입부에서 Blacklist 조회:
+
+- forward: ASCII 키로 `is_suppressed(ascii)` 질의
+- reverse: 영단어(eng_to_kor 이전의 `corrected`)로 질의
+- `Confirmed` / `Tentative` 매치 시 즉시 억제 (교정 미발화)
+
+### 8A.5 핫리로드
+
+데몬은 `typefix-blacklist.yaml`의 mtime을 주기적으로 감시하여 변경 시
+in-memory 사본을 자동 리로드한다. 외부 편집·GUI 수정 모두 즉시 반영된다.
+
+### 8A.6 GUI 표시 규칙 (참고)
+
+GUI(`unim-gui-gtk`)의 "억제 단어" 페이지는 방향별로 행 라벨을 다르게 표시한다:
+
+| 방향 | 제목 | 부제 |
+|------|------|------|
+| forward | ASCII 원문 | 한글 변환 결과 |
+| reverse | 한글 자모 (사용자가 실제 본 것) | 커밋된 영단어 ASCII |
+
+자세한 GUI 동작은 `unim-gui-gtk/src/settings_dialog.rs` 참조.
 
 ---
 

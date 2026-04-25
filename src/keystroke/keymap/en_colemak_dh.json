@@ -1,15 +1,23 @@
 {
-  "language":"english",
-  "name":"colemak_dh",
-  "type":"colemak_dh",
-  "layout":{
-    "upper":{
-      "1st": ["~","!","@","#","$","%","^","&","*","(",")","_","+","|"],  
-      "2nd": ["Q","W","F","P","B","J","L","U","Y",":","{"," }"],
+  "schema_version": 1,
+  "language": "english",
+  "name": "colemak_dh",
+  "type": "colemak_dh",
+  "metadata": {
+    "display_name": "Colemak-DH",
+    "author": "Stevep99 (2020) · based on Shai Coleman's Colemak",
+    "description": "Colemak with D/H moved off the home row to reduce index-finger strain. Phase 6 내장 편의를 위해 자기 완결 포맷(inherits 미사용) 사용 — 사용자 프로필에서는 inherits로 다시 줄여 쓸 수 있음.",
+    "version": "1.0",
+    "tags": ["english", "alt", "colemak-family"]
+  },
+  "layout": {
+    "upper": {
+      "1st": ["~","!","@","#","$","%","^","&","*","(",")","_","+","|"],
+      "2nd": ["Q","W","F","P","B","J","L","U","Y",":","{","}"],
       "3nd": ["A","R","S","T","G","M","N","E","I","O","\""],
       "4th": ["Z","X","C","D","V","K","H","<",">","?"]
     },
-    "lower":{
+    "lower": {
       "1st": ["`","1","2","3","4","5","6","7","8","9","0","-","=","\\"],
       "2nd": ["q","w","f","p","b","j","l","u","y",";","[","]"],
       "3nd": ["a","r","s","t","g","m","n","e","i","o","'"],

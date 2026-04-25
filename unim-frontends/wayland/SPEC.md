@@ -1,7 +1,7 @@
 # UNIM Wayland 프론트엔드 세부 기능 명세
 
 > Wayland 환경에서 한국어 입력을 제공하는 입력 방식(Input Method) 클라이언트의 상세 동작을 정의합니다.
-> `input-method-unstable-v2` 프로토콜을 사용합니다.
+> `input-method-unstable-v2` (`zwp_input_method_v2`) + `virtual-keyboard-unstable-v1` (`zwp_virtual_keyboard_v1`) 프로토콜을 사용합니다.
 
 ---
 
@@ -9,15 +9,15 @@
 
 ### 1.1 컴포넌트 구성
 
-| 파일 | 줄 수 | 역할 |
-|------|-------|------|
-| `main.rs` | ~195 | Wayland 연결, 글로벌 바인딩, mio::Poll 기반 이벤트 루프 |
-| `state.rs` | ~530 | AppState 구조체, Dispatch 구현 7종, 키 이벤트 처리, 팝업 상태 관리 |
-| `keymap.rs` | ~121 | xkbcommon 키맵 핸들러, evdev keycode → keysym 변환 |
-| `dbus_client.rs` | ~370 | unim-daemon과의 비동기 DBus 통신 (한자/특수문자 포함) |
-| `repeat.rs` | ~120 | 키 반복 타이머 (RepeatInfo, PressState, RepeatTimer) |
-| `popup_renderer.rs` | ~390 | 팝업 렌더링 (tiny-skia + cosmic-text), 한자/특수문자 후보 표시 |
-| `popup_surface.rs` | ~280 | `zwp_input_popup_surface_v2` 기반 팝업 서피스 관리 |
+| 파일 | 역할 |
+|------|------|
+| `main.rs` | Wayland 연결, 글로벌 바인딩, mio::Poll 기반 이벤트 루프, `PopupEvent` 디스패치 |
+| `state.rs` | AppState 구조체, Dispatch 구현 8종, 키 이벤트 처리, 팝업 상태 관리, AutoTypeFix 적용 |
+| `keymap.rs` | xkbcommon 키맵 핸들러, evdev keycode → keysym 변환 |
+| `dbus_client.rs` | unim-daemon과의 비동기 DBus 통신 (한자/특수문자/AutoTypeFix 시그널 포함) |
+| `repeat.rs` | 키 반복 타이머 (RepeatInfo, PressState, RepeatTimer) |
+| `popup_renderer.rs` | 팝업 렌더링 (tiny-skia + cosmic-text), 한자/특수문자 후보 표시 |
+| `popup_surface.rs` | `zwp_input_popup_surface_v2` 기반 팝업 서피스 관리 |
 
 ### 1.2 통신 구조
 
@@ -46,16 +46,22 @@
 
 ### 1.4 지원 컴포지터
 
-| 컴포지터 | `input-method-v2` | `virtual-keyboard-v1` |
-|----------|--------------------|-----------------------|
-| KDE (KWin) | ✅ | ✅ |
-| Sway | ✅ | ✅ |
-| Weston | ✅ | ✅ |
-| Hyprland | ✅ | ✅ |
-| GNOME (Mutter) | ❌ | ❌ |
+| 컴포지터 | `input-method-v2` | `virtual-keyboard-v1` | 팝업 (`zwp_input_popup_surface_v2`) |
+|----------|--------------------|-----------------------|---------------------------------------|
+| KDE Plasma (KWin) | ✅ | ✅ | ✅ (KWin ≥ 5.27 기준) |
+| Sway | ✅ | ✅ | ✅ |
+| Weston | ✅ | ✅ | ✅ |
+| Hyprland | ✅ | ✅ | ⚠ 일부 버전 불안정 |
+| GNOME Shell (Mutter) | ❌ | ❌ | — (IM은 GNOME Extension 사용) |
 
 > [!NOTE]
-> GNOME은 `input-method-v2`를 지원하지 않으므로 별도의 GNOME Extension 기반 입력 방식을 사용합니다.
+> GNOME Shell/Mutter는 `input-method-v2`와 `virtual-keyboard-v1` 모두 미지원이므로 `unim-wayland`는 기동되지 않고,
+> GNOME 환경에서는 `unim-gnome-extension`이 대신 입력을 담당합니다. 따라서 `unim-wayland` 내부에서는
+> GNOME 환경 감지/분기 로직이 존재하지 않습니다 (Mutter 자체가 프로토콜을 노출하지 않아 진입점이 없음).
+>
+> Standalone 팝업(GTK 창)은 GNOME + Wayland 조합에서 포커스 스틸링 문제 때문에 GUI 쪽에서 `GnomeWayland` 가드를 적용하지만,
+> `unim-wayland`의 `zwp_input_popup_surface_v2` 기반 팝업은 입력 서피스에 앵커되므로 해당 이슈가 없습니다.
+> 다만 각 컴포지터별 팝업 위치 보정 차이(커서 사각형 적용 시점 등)는 잔존 이슈입니다.
 
 ---
 
@@ -244,18 +250,30 @@ if !preedit.is_empty() {
 im.commit(serial);
 ```
 
-### 5.2 비활성화 시 조합 커밋
+### 5.2 비활성화 시 조합 커밋 (Focus-out)
 
 ```
 Deactivate + Done
-  → DBus FocusOut → 응답: CommitText { text }
-  → im.commit_string(text)       (조합 중이던 텍스트)
+  → DBus FocusOut → RPC 응답: CommitText { text }
+  → im.commit_string(text)       (조합 중이던 텍스트, 비어 있지 않을 때만)
   → im.set_preedit_string("", 0, 0)  (preedit 클리어)
   → im.commit(serial)
   → grab_active = false
 ```
 
-### 5.3 키 바이패스
+> [!IMPORTANT]
+> Focus-out 커밋은 `FocusOut` **RPC 반환값(`CommitText`)만**을 사용합니다.
+> 엔진이 별도로 `CommitText` DBus **시그널**을 발송하지 않으므로(`552b5bd` 이후) 이중 커밋이 발생하지 않습니다.
+> 이 규칙은 모든 프론트엔드에 공통이며, Wayland에서도 시그널 브로드캐스트에 기댄 경로는 존재하지 않습니다.
+
+### 5.3 Space 키 (영문 모드)
+
+Wayland 프론트엔드는 Space를 특별 취급하지 않고 그대로 엔진(DBus `ProcessKey`)에 전달합니다.
+엔진이 영문 모드에서도 Space에 대해 `consumed=true, commit=" "`를 반환하도록 통일되었으므로
+(`fix(ime): commit space in English mode` / `552b5bd`), Wayland 경로에서는 자동으로
+`apply_input_result`를 통한 direct commit으로 수렴합니다. 별도 바이패스 경로가 필요하지 않습니다.
+
+### 5.4 키 바이패스
 
 엔진이 키를 소비하지 않거나 DBus 타임아웃 시:
 
@@ -266,6 +284,34 @@ virtual_keyboard.key(time, evdev_key, state)
 > [!WARNING]
 > `virtual_keyboard_manager`가 없으면 미소비 키를 포워딩할 수 없습니다.
 > 이 경우 영문 키, 화살표, 기능 키 등이 앱에 전달되지 않습니다.
+
+### 5.5 AutoTypeFix 적용
+
+한영 자동 오타 교정은 엔진이 `AutoTypefixApply` DBus 시그널(`delete_chars`, `commit_text`, `preedit_text`)을
+브로드캐스트하고, `dbus_client.rs`가 이를 수신해 `PopupEvent::AutoTypeFix`로 메인 루프에 전달합니다.
+메인 루프는 `AppState::apply_auto_typefix(delete_chars, commit_text, preedit_text)`를 호출합니다.
+
+```
+fn apply_auto_typefix:
+  1. is_forward = commit_text 의 첫 글자가 ASCII(영→한) 인지 한글(한→영) 인지 판정
+  2. before_bytes = is_forward ? delete_chars (ASCII 1B/char)
+                               : delete_chars * 3 (한글 UTF-8 3B/char)
+  3. im.delete_surrounding_text(before_bytes, 0)   ← 핵심: 프로토콜 단일 원자 삭제
+  4. im.commit_string(commit_text)
+  5. im.set_preedit_string(preedit_text, 0, len)   (비어 있으면 클리어)
+  6. im.commit(serial)
+```
+
+> [!IMPORTANT]
+> **self-feedback이 발생하지 않습니다.** XIM/GNOME Extension 계통은 `XTestFakeKeyEvent` 또는 Clutter
+> 가상 키보드로 BackSpace를 합성 주입하므로 주입한 BS가 IM으로 재진입하는 문제가 있고, 이를 막기 위해
+> `self_backspace_pending` 카운터 / `expectSelfBackspaces` API 같은 우회가 필요합니다
+> (참고: `af8b563 gnome-extension: bypass self-sent BackSpace from AutoTypeFix vkbd`).
+> 반면 `unim-wayland`는 `input-method-v2`의 `delete_surrounding_text`를 직접 사용하여 컴포지터 측에서
+> 원자적으로 주변 텍스트를 삭제하므로 BackSpace 키 주입 자체가 없고, 따라서 self-feedback 우회 로직도
+> 필요하지 않습니다. `virtual_keyboard.key()`는 오직 **미소비 키 바이패스**(§5.4)에만 사용됩니다.
+>
+> 방향 판정은 `commit_text` 첫 문자의 ASCII 여부로만 결정됩니다. 혼합 문자열은 현재 지원하지 않습니다.
 
 ---
 
@@ -284,16 +330,24 @@ AppState ← std::sync::mpsc::channel       ← DbusClient
 - `tokio::sync::mpsc` → 요청 전송 (blocking_send)
 - `std::sync::mpsc` → 응답 수신 (recv_timeout, 500ms)
 
-### 6.2 주요 DBus 메서드
+### 6.2 주요 DBus 메서드/시그널
 
-| 요청 | 응답 | 용도 |
+| 요청 (RPC) | 응답 | 용도 |
 |------|------|------|
 | `CreateContext` | `ContextCreated { path }` | 초기화 시 DBus 컨텍스트 등록 |
 | `DestroyContext` | — | 종료 시 (Drop) 컨텍스트 해제 |
 | `FocusIn` | — | Activate→Done 시 포커스 알림 |
-| `FocusOut` | `CommitText { text }` | Deactivate→Done 시 조합 텍스트 커밋 |
+| `FocusOut` | `CommitText { text }` | Deactivate→Done 시 조합 텍스트 커밋 (RPC 반환값 단일 경로) |
 | `ProcessKey` | `KeyProcessed { consumed, preedit, commit }` | 키 입력 처리 |
 | `Reset` | — | 상태 초기화 |
+
+| 시그널 (수신) | 페이로드 | 용도 |
+|------|------|------|
+| `ShowHanja` | `target, candidates` | 한자 후보 팝업 표시 |
+| `ShowSpecialChar` | `target, characters` | 특수문자 후보 팝업 표시 |
+| `HidePopup` | — | 팝업 닫기 |
+| `PopupNavigate` | `direction` | 팝업 내 이동 |
+| `AutoTypefixApply` | `delete_chars, commit_text, preedit_text` | AutoTypeFix 교정 적용 (§5.5) |
 
 ### 6.3 컨텍스트 관리
 
@@ -419,20 +473,34 @@ make dev-wayland PREFIX=/usr
 | 키 반복 (Key Repeat) | ✅ 구현 | `mio::Poll` + `nix::sys::timerfd` 기반 (PressState 상태 머신) |
 | 한자/특수문자 DBus | ✅ 통합 | DBus 요청/응답 타입 추가 |
 | 한자/특수문자 팝업 | ✅ 구현 | `zwp_input_popup_surface_v2` + `tiny-skia` + `cosmic-text` 기반 렌더링 |
+| AutoTypeFix | ✅ 구현 | `delete_surrounding_text` 기반 원자 교정 (self-feedback 없음, §5.5) |
+| Focus-out 이중 커밋 방지 | ✅ 해결 | `FocusOut` RPC 반환값만 사용 (`552b5bd`) |
+| Space 영문 모드 커밋 | ✅ 해결 | 엔진이 `consumed=true, commit=" "` 반환 (`552b5bd`) |
 
-### 10.2 현재 제한사항
+### 10.2 현재 제한사항 / 잔존 이슈
 
 | 항목 | 상태 | 설명 |
 |------|------|------|
-| Surrounding Text | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 |
+| Surrounding Text | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 (AutoTypeFix는 엔진이 결정한 `delete_chars`에 의존) |
 | Content Type | ❌ 미사용 | 프로토콜 이벤트 수신하나 무시 |
-| GNOME 지원 | ❌ 불가 | Mutter가 프로토콜 미지원 (전용 확장 프로그램 사용) |
+| GNOME 지원 | ❌ 불가 | Mutter가 프로토콜 미지원 → GNOME Extension 경로 사용 |
+| 순수 Wayland 팝업 (일부 컴포지터) | ⚠ 부분 | Hyprland 등 일부 버전에서 `zwp_input_popup_surface_v2` 동작이 불안정 |
+| 혼합 ASCII/한글 AutoTypeFix | ❌ 미지원 | `commit_text` 첫 글자로 바이트 계산 방식이 고정되어 있음 |
 
-### 10.3 향후 계획
+### 10.3 컴포지터별 주의사항
+
+- **KDE Plasma (KWin)**: `input-method-v2` + 팝업 서피스 모두 정상. 기준 구현.
+- **Sway**: 정상 동작. Standalone 팝업(GTK)은 포커스 스틸링 유발 가능 → 기본 팝업 모드 권장.
+- **Hyprland**: 프로토콜은 지원하나 버전에 따라 팝업 좌표 보정(`text_input_rectangle`) 타이밍 차이가 있음.
+- **Weston**: 레퍼런스 컴포지터. 프로토콜 스펙 검증용으로 사용 가능.
+- **GNOME Shell (Mutter)**: `unim-wayland`가 바인딩에 실패하므로 기동되지 않음. `unim-gnome-extension`으로 자동 분기.
+
+### 10.4 향후 계획
 
 | 단계 | 내용 |
 |------|------|
 | Phase 4 | Surrounding Text / Content Type 활용 |
+| — | 혼합 ASCII/한글 AutoTypeFix 바이트 계산 정교화 |
 
 ---
 

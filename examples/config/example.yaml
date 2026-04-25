@@ -1,0 +1,66 @@
+# UNIM 설정 템플릿 (주석 포함)
+#
+# 실제 위치: ~/.config/unim/config.yaml
+# 첫 실행 시 기본값이 자동 생성되며, 이 파일은 "어떤 필드가 있는지" 한눈에 보기 위한
+# 참고용 템플릿입니다. 각 항목의 범위·의미 원본은 `src/SPEC.md §3`을 참조하세요.
+# 범위를 벗어난 값은 Config::clamp_ranges()가 로드 시점에 자동 보정합니다.
+
+engine:
+  # 첫 포커스 시 입력 모드. Korean / English
+  default_category: Korean
+
+  # 입력 모드 공유 범위. Global(전역) / PerApp(앱별) / PerWindow(창별)
+  mode_sharing: Global
+
+  korean:
+    # 한국어 레이아웃: Dubeolsik / Sebeolsik390 / Sebeolsik391 / SebeolsikNoShift
+    layout: Dubeolsik
+
+  english:
+    # 영어 레이아웃: Qwerty / Dvorak / Colemak / ColemakDh / Workman
+    layout: Qwerty
+
+  # 한/영 전환키. KeyCode::from_name() 이 인식하는 이름들
+  toggle_keys:
+    - Korean
+    - RightAlt
+
+  # 한자/특수문자 후보 키
+  hanja_keys:
+    - Hanja
+    - F9
+
+  # 자동 오타 교정 (AutoTypeFix)
+  # 자세한 동작은 src/SPEC.md §3.1.1, IME_BEHAVIOR.md §9 참조
+  auto_typefix:
+    # 마스터 스위치
+    enabled: true
+
+    # 키 입력 버퍼 유지 시간(ms). 범위 500..=5000
+    time_window_ms: 2000
+
+    # forward(영→한) 트리거 최소 한글 음절 수. 범위 2..=6
+    kor_syllable_threshold: 3
+
+    # reverse(한→영) 트리거 최소 영단어 길이. 범위 3..=8
+    eng_word_min_length: 4
+
+    # 양방향 교정 on/off
+    forward: true
+    reverse: true
+
+    # forward에서 결과가 영어 사전에 있으면 보류
+    skip_on_english_word: true
+
+    # forward에서 이미 완성된 한글 음절이 있으면 트리거 차단
+    skip_on_complete_syllable: true
+
+    # 롤백 관측 기반 Blacklist 자동 등록 활성
+    # (BS로 결과 삭제 + 모드 전환 관찰 + 재시도 → Tentative 등록)
+    rollback_detection: true
+
+    # Tentative 엔트리가 Inactive로 자동 전환되기까지의 시간. 범위 1..=12 (시간)
+    tentative_expiry_hours: 1
+
+    # 롤백 관측 pending flag 유지 시간. 범위 5..=15 (초)
+    observation_timeout_secs: 10

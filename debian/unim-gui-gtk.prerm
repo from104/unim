@@ -3,7 +3,8 @@ set -e
 
 case "$1" in
     remove|upgrade|deconfigure)
-        pkill -u "$(logname 2>/dev/null || echo root)" -x unim-gui-gtk 2>/dev/null || true
+        _user="$(logname 2>/dev/null || echo root)"
+        pkill -u "$_user" -x unim-gui-gtk 2>/dev/null || true
         ;;
 esac
 

@@ -339,6 +339,24 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
     }
 }
 
+/* 한자 즐겨찾기 Space 토글 → DBus 호출 (엔진이 signal 발행) */
+static void
+on_hanja_toggle_bookmark(gsize global_index, gpointer user_data)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim || !unim->dbus_ctx) return;
+    unim_dbus_toggle_hanja_bookmark(unim->dbus_ctx, (guint)global_index);
+}
+
+/* 엔진 HanjaBookmarkChanged 시그널 → 팝업 별 갱신 */
+static void
+on_hanja_bookmark_changed(guint index, gboolean bookmarked, gpointer user_data)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim || !unim->hanja_popup) return;
+    unim_hanja_popup_set_bookmark(unim->hanja_popup, (gsize)index, bookmarked);
+}
+
 static void
 unim_im_context_init(UnimIMContext *context)
 {
@@ -356,6 +374,8 @@ unim_im_context_init(UnimIMContext *context)
     if (context->dbus_ctx) {
         unim_dbus_set_auto_typefix_callback(context->dbus_ctx, on_auto_typefix, context);
         unim_dbus_set_commit_text_callback(context->dbus_ctx, on_commit_text, context);
+        unim_dbus_set_hanja_bookmark_callback(
+            context->dbus_ctx, on_hanja_bookmark_changed, context);
     }
     context->is_focused = FALSE;
     context->surrounding_text = NULL;
@@ -365,6 +385,10 @@ unim_im_context_init(UnimIMContext *context)
     
     /* 한자 팝업 초기화 */
     context->hanja_popup = unim_hanja_popup_new();
+    if (context->hanja_popup) {
+        unim_hanja_popup_set_toggle_bookmark_callback(
+            context->hanja_popup, on_hanja_toggle_bookmark, context);
+    }
     context->hanja_candidates = NULL;
     context->hanja_count = 0;
     memset(&context->cursor_area, 0, sizeof(GdkRectangle));
@@ -471,7 +495,7 @@ static void
 on_hanja_selected(const gchar *hanja, gpointer user_data)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
-    
+
     if (!unim || !hanja || !unim->dbus_ctx) {
         return;
     }
@@ -789,6 +813,16 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
                         on_hanja_selected,
                         unim
                     );
+
+                    /* 초기 즐겨찾기 상태를 엔진에서 동기로 fetch (count ≤ 9 가 보통). */
+                    gboolean *states = NULL;
+                    gsize state_count = 0;
+                    if (unim_dbus_get_hanja_bookmark_states(
+                            unim->dbus_ctx, &states, &state_count)) {
+                        unim_hanja_popup_set_bookmark_states(
+                            unim->hanja_popup, states, state_count);
+                        g_free(states);
+                    }
                 }
                 
                 UNIM_DEBUG("한자 후보 표시: target='%s', count=%zu", target, count);

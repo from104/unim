@@ -182,6 +182,27 @@ public:
     using CommitTextCallback = std::function<void(const QString &text)>;
     void setCommitTextCallback(CommitTextCallback callback);
 
+    /**
+     * 현재 한자 후보 목록의 즐겨찾기 상태 조회
+     * @param states 상태 배열 (출력, candidates와 동일 순서)
+     * @return 성공 시 true
+     */
+    bool getHanjaBookmarkStates(QList<bool> &states);
+
+    /**
+     * 한자 후보 즐겨찾기 토글 (엔진이 persist + 시그널 발행)
+     * @param index 토글할 후보 인덱스
+     * @return 성공 시 true
+     */
+    bool toggleHanjaBookmark(quint32 index);
+
+    /**
+     * HanjaBookmarkChanged 콜백 설정
+     * @param callback (index, bookmarked)를 받는 콜백
+     */
+    using HanjaBookmarkChangedCallback = std::function<void(quint32 index, bool bookmarked)>;
+    void setHanjaBookmarkChangedCallback(HanjaBookmarkChangedCallback callback);
+
 private:
     QDBusConnection m_bus;
     QString m_contextPath;
@@ -190,9 +211,11 @@ private:
     bool m_connected;
     AutoTypeFixCallback m_autoTypeFixCallback;
     CommitTextCallback m_commitTextCallback;
+    HanjaBookmarkChangedCallback m_hanjaBookmarkCallback;
 
     friend class UnimAutoTypeFixReceiver;
     friend class UnimCommitTextReceiver;
+    friend class UnimHanjaBookmarkReceiver;
 };
 
 /**
@@ -219,6 +242,20 @@ public:
         : QObject(parent), m_client(client) {}
 public slots:
     void onCommitText(const QString &text);
+private:
+    UnimDbusClient *m_client;
+};
+
+/**
+ * HanjaBookmarkChanged DBus 시그널 수신 헬퍼 (QObject 필요)
+ */
+class UnimHanjaBookmarkReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimHanjaBookmarkReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onHanjaBookmarkChanged(quint32 index, bool bookmarked);
 private:
     UnimDbusClient *m_client;
 };

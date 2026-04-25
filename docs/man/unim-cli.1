@@ -1,0 +1,127 @@
+.TH UNIM-CLI 1 "April 2026" "UNIM 0.1.0" "User Commands"
+.SH NAME
+unim\-cli \- Korean/English keyboard converter and UNIM settings manager
+.SH SYNOPSIS
+.B unim\-cli
+.RI [ OPTIONS ]
+.RI [ FILE ...]
+.br
+.B unim\-cli config
+.RI [ SUBCOMMAND ]
+.RI [ ARGS ...]
+.SH DESCRIPTION
+.B unim\-cli
+is a unified command-line tool that offers two modes of operation:
+.IP \(bu 2
+\fBText conversion\fR (default, when no subcommand is supplied):
+an offline batch utility that converts between English keyboard
+character streams and composed Hangul. It is independent of the running
+.B unim\-daemon
+\(em it processes its input as a pure layout transformation.
+.IP \(bu 2
+\fBSettings management\fR (via the \fBconfig\fR subcommand): reads and
+writes the UNIM user configuration file
+.RB ( ~/.config/unim/config.yaml ),
+using the same configuration backend as the
+.B unim\-gui\-gtk
+settings dialog and the daemon itself. This is the recommended way to
+script configuration changes from shell environments. Changes take
+effect immediately for the running daemon via the
+.B ConfigChanged
+D-Bus signal; no restart is required.
+.PP
+With no input file in conversion mode, it reads from standard input. With
+one or more
+.I FILE
+arguments, files are processed in order and concatenated to standard
+output (or the file given via
+.BR \-o ).
+.SH CONVERSION OPTIONS
+.TP
+.BR \-c ", " \-\-compose
+Compose an English keyboard stream into Hangul (default mode).
+.TP
+.BR \-d ", " \-\-decompose
+Decompose Hangul into the equivalent English keyboard stream.
+.TP
+.BR \-o ", " "\-\-output \fIFILE\fR"
+Write output to
+.IR FILE
+instead of standard output.
+.TP
+.BR \-k ", " "\-\-korean\-keyboard \fILAYOUT\fR"
+Korean keyboard layout. One of
+.BR 2bul ", " 390 ", " 391 ", " noshift "."
+Default:
+.BR 2bul "."
+.TP
+.BR \-e ", " "\-\-english\-keyboard \fILAYOUT\fR"
+English keyboard layout. One of
+.BR qwerty ", " dvorak ", " colemak ", " colemak_dh ", " workman "."
+Default:
+.BR qwerty "."
+.TP
+.BR \-h ", " \-\-help
+Print help and exit.
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.SH CONFIG SUBCOMMANDS
+.TP
+.B config show
+Print the current configuration summary to standard output.
+.TP
+.BR "config set" " \fIKEY\fR \fIVALUE\fR"
+Set a single configuration key. Run
+.B unim\-cli config set \-\-help
+for the full list of supported keys (for example
+.BR korean\-layout ", " english\-layout ", " default\-category ", "
+.BR toggle\-keys ", " auto\-typefix ", "
+and the
+.B auto\-typefix\-*
+family).
+.TP
+.B config path
+Print the absolute path of the active configuration file.
+.TP
+.B config reset
+Reset the configuration file to default values.
+.TP
+.B config interactive
+Launch an interactive prompt-driven configuration session. Useful when a
+graphical settings dialog is not available.
+.SH EXAMPLES
+.PP
+Convert a stream of QWERTY keystrokes to Hangul:
+.PP
+.RS
+.nf
+echo "dkssudgktpdy" | unim\-cli \-c
+.fi
+.RE
+.PP
+Decompose a Hangul file into Dvorak keystrokes:
+.PP
+.RS
+.nf
+unim\-cli \-d \-e dvorak input.txt \-o keystrokes.txt
+.fi
+.RE
+.PP
+Show current settings and change the Korean layout:
+.PP
+.RS
+.nf
+unim\-cli config show
+unim\-cli config set korean\-layout 3bul390
+.fi
+.RE
+.SH FILES
+.TP
+.B ~/.config/unim/config.yaml
+The configuration file managed by the \fBconfig\fR subcommand.
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-gui\-gtk (1)
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>

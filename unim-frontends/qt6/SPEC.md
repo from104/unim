@@ -17,6 +17,10 @@
 | `unim_dbus_client.hpp` | `qt-common/include/` | DBus 클라이언트 API 헤더 |
 | `unim_hanja_popup.cpp` | `qt-common/src/` | Qt 기반 한자 후보 팝업 윈도우 (Qt5/6 공용) |
 | `unim_hanja_popup.hpp` | `qt-common/include/` | 한자 팝업 API 헤더 |
+| `unim_special_popup.cpp` | `qt-common/src/` | 특수문자 그리드 팝업 윈도우 (Qt5/6 공용) |
+| `unim_special_popup.hpp` | `qt-common/include/` | 특수문자 팝업 API 헤더 |
+
+> 팝업 UI/조작 명세는 [`docs/specs/POPUP_SPEC.md`](../../docs/specs/POPUP_SPEC.md) 참조 (GTK/Qt 공통 규격).
 
 ### 1.2 통신 구조
 
@@ -81,6 +85,10 @@ public:
 4. `UnimDbusClient("qt6-unim", m_windowId)` → DBus 클라이언트 생성
 5. `UnimHanjaPopup()` → 한자 팝업 인스턴스 생성
 6. 상태 필드 초기화 (focusObject, composing, cursorRect)
+7. `setAutoTypeFixCallback()` — `AutoTypefixApply` 시그널 구독.
+   람다에서 `ev.setCommitString(commitText, -deleteChars, deleteChars)`로 기존 텍스트 삭제 + 교정 텍스트 커밋,
+   이어서 `preeditText`가 있으면 `SingleUnderline` 속성의 `QInputMethodEvent`를 focusObject에 전달 (AutoTypeFix 순방향 재조합 표시)
+8. `setCommitTextCallback()` — `CommitText` 시그널 구독 (standalone 한자/특수문자 팝업의 마우스 클릭 커밋 수신용)
 
 > [!NOTE]
 > Qt5에서는 부모 생성자 호출을 생략하지만,
@@ -244,6 +252,10 @@ result.consumed == false:
   → return false (앱에 키 바이패스)
 ```
 
+> [!NOTE]
+> 영문 모드의 Space는 엔진이 직접 커밋 경로(`consumed=true`, `commit=" "`)로 처리합니다 (552b5bd).
+> 한글 모드 직접 커밋과 동일하게 Qt 플러그인은 `result.consumed == true` 분기의 `commitString(" ")`만 수행합니다.
+
 ### 4.5 선택 영역 자동 삭제
 
 키가 엔진에 의해 소비된 경우, 선택 영역이 있으면 자동 삭제:
@@ -342,7 +354,7 @@ update(Qt::ImCursorRectangle) 호출
 | `UnimDbusClient()` | `CreateContext` | `context_path` | 컨텍스트 등록 |
 | `~UnimDbusClient()` | `DestroyContext` | — | 컨텍스트 해제 |
 | `focusIn(windowId)` | `FocusIn` | — | 포커스 획득 알림 |
-| `focusOut()` | `FocusOut` | `QString` | 포커스 상실 → 조합 커밋 |
+| `focusOut()` | `FocusOut` | `QString` | 포커스 상실 → 조합 커밋 문자열을 **RPC 반환값으로** 수신 (단일 채널) |
 | `processKey(keyval, keycode, state)` | `ProcessKey` | `UnimDbusKeyResult` | 키 입력 처리 |
 | `reset()` | `ResetContext` | `QString` | 상태 초기화 → 조합 커밋 |
 | `getPreedit()` | (캐시 조회) | `QString` | 현재 preedit 문자열 |
@@ -350,6 +362,23 @@ update(Qt::ImCursorRectangle) 호출
 | `getHanjaCandidates(...)` | `GetHanjaCandidates` | `target, candidates[]` | 한자 후보 조회 |
 | `selectHanja(index, ...)` | `SelectHanja` | `selectedHanja` | 한자 후보 선택 |
 | `cancelHanja()` | `CancelHanja` | — | 한자 모드 취소 |
+| `getSpecialCharCandidates(...)` | `GetSpecialCharCandidates` | `target, chars[], topRow` | 특수문자 후보 조회 |
+| `selectSpecialChar(index, ...)` | `SelectSpecialChar` | `selectedChar` | 특수문자 후보 선택 |
+| `cancelSpecialChar()` | `CancelSpecialChar` | — | 특수문자 모드 취소 |
+| `reportCursorRect(x,y,w,h)` | `ReportCursorRect` | — | 커서 위치 보고 (Wayland 팝업 좌표용) |
+| `setContentType(purpose)` / `setSurroundingText(...)` | `SetContentType` / `SetSurroundingText` | — | 입력 힌트/주변 텍스트 전달 |
+
+### 8.3 구독 시그널
+
+| DBus 시그널 | 콜백 | 용도 |
+|-------------|------|------|
+| `AutoTypefixApply(u s s)` | `setAutoTypeFixCallback()` | `(deleteChars, commitText, preeditText)` — 한영 오타 자동 교정 적용 |
+| `CommitText(s)` | `setCommitTextCallback()` | standalone 한자/특수문자 팝업의 마우스 클릭 커밋 |
+
+> [!NOTE]
+> `FocusOut`은 (552b5bd 이후) `CommitText` 시그널을 동반하지 않고 **RPC 반환값만** 커밋 채널로 사용합니다.
+> 과거 시그널은 브로드캐스트라 컨텍스트 비한정이라 중복 커밋(예: `늘` 두 번)을 일으켰습니다.
+> Config 조회/변경은 `GetConfigYaml`/`SetConfigYaml`/`ConfigChangedJson` (modern) 및 legacy `GetConfig`/`SetConfig`/`ConfigChanged`가 병존합니다 — `unim-dbus/SPEC.md` 참조. Qt 플러그인은 설정 변경을 실시간 구독하지 않습니다 (재시작 또는 설정 GUI 경유).
 
 ---
 

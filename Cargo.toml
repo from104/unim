@@ -20,13 +20,12 @@ name = "unim"
 path = "src/lib.rs"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 
 [workspace]
 members = [
     "unim-cli",
     "unim-capi",
-    "unim-config",
     "unim-frontends/xim",
     "unim-frontends/wayland",
     "unim-daemon",

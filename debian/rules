@@ -53,6 +53,12 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	$(MAKE) install DESTDIR=$(DESTDIR) PREFIX=$(PREFIX)
+	# Strip residual RUNPATH entries from .so files (CMake INSTALL_RPATH "" should
+	# already handle this; chrpath -d acts as a defence in depth so the package
+	# stays lintian-clean even if upstream CMake macros re-introduce build-tree
+	# RPATH entries).
+	find $(DESTDIR) -type f -name '*.so' -exec chrpath -d {} + 2>/dev/null || true
+	find $(DESTDIR) -type f -name '*.so.*' -exec chrpath -d {} + 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Skip tests (speed up packaging)

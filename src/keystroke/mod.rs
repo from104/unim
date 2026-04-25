@@ -1,6 +1,7 @@
 pub mod keyboard_map;
 pub mod keystrokes_to_korean;
 pub mod korean_to_keystrokes;
+pub mod profile;
 
 pub use keyboard_map::{EnglishKeymap, Key, KeyboardMap, Keystroke};
 

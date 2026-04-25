@@ -157,6 +157,10 @@ void UnimHanjaPopup::showPopup(const QString &target,
     if (candidates.isEmpty()) return;
 
     m_candidates = candidates;
+    m_bookmarks = QList<bool>();
+    for (int i = 0; i < candidates.size(); i++) {
+        m_bookmarks.append(false);
+    }
     m_callback = std::move(callback);
     m_currentPage = 0;
     m_selectedIndex = 0;
@@ -227,9 +231,52 @@ bool UnimHanjaPopup::handleKey(int key)
     case UNIM_POPUP_RESULT_CONSUMED:
         return true;
 
+    case UNIM_POPUP_RESULT_TOGGLE_BOOKMARK:
+        if (result.selected_index >= 0 && m_toggleBookmarkCallback) {
+            m_toggleBookmarkCallback((quint32)result.selected_index);
+        }
+        return true;
+
     case UNIM_POPUP_RESULT_NOT_HANDLED:
     default:
         return false;
+    }
+}
+
+void UnimHanjaPopup::setToggleBookmarkCallback(ToggleBookmarkCallback callback)
+{
+    m_toggleBookmarkCallback = std::move(callback);
+}
+
+void UnimHanjaPopup::setBookmarkStates(const QList<bool> &states)
+{
+    m_bookmarks.clear();
+    int n = states.size() < m_candidates.size() ? states.size() : m_candidates.size();
+    for (int i = 0; i < n; i++) {
+        m_bookmarks.append(states.at(i));
+    }
+    while (m_bookmarks.size() < m_candidates.size()) {
+        m_bookmarks.append(false);
+    }
+    if (isVisible()) {
+        updateList();
+    }
+}
+
+void UnimHanjaPopup::setBookmark(quint32 globalIndex, bool bookmarked)
+{
+    int idx = (int)globalIndex;
+    if (idx < 0 || idx >= m_candidates.size()) return;
+    while (m_bookmarks.size() < m_candidates.size()) {
+        m_bookmarks.append(false);
+    }
+    m_bookmarks[idx] = bookmarked;
+
+    // 현재 페이지에 포함될 때만 재렌더
+    int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
+    int pageEnd = pageStart + MAX_VISIBLE_CANDIDATES;
+    if (idx >= pageStart && idx < pageEnd && isVisible()) {
+        updateList();
     }
 }
 
@@ -242,10 +289,19 @@ void UnimHanjaPopup::updateList()
 
     for (int i = 0; i < MAX_VISIBLE_CANDIDATES; i++) {
         if (i < pageCount) {
-            const UnimHanjaCandidate &cand = m_candidates.at(pageStart + i);
-            QString text = QString("%1. %2  %3").arg(i + 1).arg(cand.hanja, cand.meaning);
+            int globalIdx = pageStart + i;
+            const UnimHanjaCandidate &cand = m_candidates.at(globalIdx);
+            bool bookmarked = (globalIdx < m_bookmarks.size())
+                              ? m_bookmarks.at(globalIdx)
+                              : false;
+            // 별을 텍스트 suffix로 삽입 (고정 QLabel 슬롯만 있어 별도 위젯 대신 인라인)
+            QString star = bookmarked ? QStringLiteral("  ★") : QStringLiteral("  ☆");
+            QString text = QString("%1. %2  %3%4")
+                               .arg(i + 1)
+                               .arg(cand.hanja, cand.meaning, star);
             m_labels[i]->setText(text);
             m_labels[i]->setProperty("selected", i == m_selectedIndex);
+            m_labels[i]->setProperty("bookmarked", bookmarked);
             m_labels[i]->setVisible(true);
             /* 스타일 새로고침 */
             m_labels[i]->style()->unpolish(m_labels[i]);

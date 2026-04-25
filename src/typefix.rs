@@ -4,7 +4,6 @@
 //! - `eng_to_kor`: 영문 타이핑을 한글로 변환 ("gksrmf" → "한글")
 //! - `kor_to_eng`: 한글을 영문 키스트로크로 변환 ("한글" → "gksrmf")
 
-use crate::config::{EnglishLayout, KoreanLayout};
 use crate::hangul::jamo::JamoEnum;
 use crate::keystroke::korean_to_keystrokes::korean_to_keystrokes;
 use crate::keystroke::{KeyboardMap, get_keymap_json};
@@ -20,16 +19,17 @@ use std::collections::HashMap;
 /// * `text` - 영문 키스트로크 문자열
 /// * `korean_layout` - 한국어 키보드 레이아웃
 /// * `english_layout` - 영어 키보드 레이아웃
-pub fn eng_to_kor(text: &str, korean_layout: KoreanLayout, english_layout: EnglishLayout) -> String {
-    let is_three_bul = korean_layout.is_sebeolsik();
+pub fn eng_to_kor(text: &str, korean_layout: &str, english_layout: &str) -> String {
+    let is_three_bul = crate::config::is_sebeolsik_layout(korean_layout);
     let composer_type = if is_three_bul {
         ComposerType::ThreeBul
     } else {
         ComposerType::TwoBul
     };
 
-    let en_json = get_keymap_json(english_layout.keymap_name());
-    let ko_json = get_keymap_json(korean_layout.name());
+    let en_keymap = crate::config::english_layout_keymap_name(english_layout);
+    let en_json = get_keymap_json(&en_keymap);
+    let ko_json = get_keymap_json(korean_layout);
 
     let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul);
 
@@ -58,11 +58,12 @@ pub fn eng_to_kor(text: &str, korean_layout: KoreanLayout, english_layout: Engli
 /// * `text` - 한글 문자열
 /// * `korean_layout` - 한국어 키보드 레이아웃
 /// * `english_layout` - 영어 키보드 레이아웃
-pub fn kor_to_eng(text: &str, korean_layout: KoreanLayout, english_layout: EnglishLayout) -> String {
-    let is_three_bul = korean_layout.is_sebeolsik();
+pub fn kor_to_eng(text: &str, korean_layout: &str, english_layout: &str) -> String {
+    let is_three_bul = crate::config::is_sebeolsik_layout(korean_layout);
 
-    let en_json = get_keymap_json(english_layout.keymap_name());
-    let ko_json = get_keymap_json(korean_layout.name());
+    let en_keymap = crate::config::english_layout_keymap_name(english_layout);
+    let en_json = get_keymap_json(&en_keymap);
+    let ko_json = get_keymap_json(korean_layout);
 
     let keyboard_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul);
 
@@ -100,44 +101,44 @@ mod tests {
     #[test]
     fn test_eng_to_kor_basic() {
         // "gksrmf" → "한글" (두벌식 + QWERTY)
-        let result = eng_to_kor("gksrmf", KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = eng_to_kor("gksrmf", "ko_2bulstd", "qwerty");
         assert_eq!(result, "한글");
     }
 
     #[test]
     fn test_eng_to_kor_sentence() {
         // "dkssudgktpdy" → "안녕하세요" (두벌식 + QWERTY)
-        let result = eng_to_kor("dkssudgktpdy", KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = eng_to_kor("dkssudgktpdy", "ko_2bulstd", "qwerty");
         assert_eq!(result, "안녕하세요");
     }
 
     #[test]
     fn test_kor_to_eng_basic() {
         // "한글" → "gksrmf" (두벌식 + QWERTY)
-        let result = kor_to_eng("한글", KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = kor_to_eng("한글", "ko_2bulstd", "qwerty");
         assert_eq!(result, "gksrmf");
     }
 
     #[test]
     fn test_kor_to_eng_sentence() {
         // "안녕하세요" → "dkssudgktpdy" (두벌식 + QWERTY)
-        let result = kor_to_eng("안녕하세요", KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = kor_to_eng("안녕하세요", "ko_2bulstd", "qwerty");
         assert_eq!(result, "dkssudgktpdy");
     }
 
     #[test]
     fn test_roundtrip_eng_kor_eng() {
         let original = "gksrmf";
-        let korean = eng_to_kor(original, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
-        let back = kor_to_eng(&korean, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let korean = eng_to_kor(original, "ko_2bulstd", "qwerty");
+        let back = kor_to_eng(&korean, "ko_2bulstd", "qwerty");
         assert_eq!(back, original);
     }
 
     #[test]
     fn test_roundtrip_kor_eng_kor() {
         let original = "한글";
-        let english = kor_to_eng(original, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
-        let back = eng_to_kor(&english, KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let english = kor_to_eng(original, "ko_2bulstd", "qwerty");
+        let back = eng_to_kor(&english, "ko_2bulstd", "qwerty");
         assert_eq!(back, original);
     }
 
@@ -153,7 +154,7 @@ mod tests {
     #[test]
     fn test_eng_to_kor_mixed() {
         // 영문+숫자 혼합: 숫자는 그대로
-        let result = eng_to_kor("gksrmf123", KoreanLayout::Dubeolsik, EnglishLayout::Qwerty);
+        let result = eng_to_kor("gksrmf123", "ko_2bulstd", "qwerty");
         assert_eq!(result, "한글123");
     }
 }

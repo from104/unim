@@ -47,140 +47,148 @@ impl ModeSharingMode {
     }
 }
 
-/// 한국어 키보드 레이아웃
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[repr(u32)]
-pub enum KoreanLayout {
-    /// 두벌식 표준
-    #[default]
-    Dubeolsik = 0,
-    /// 세벌식 390
-    Sebeolsik390 = 1,
-    /// 세벌식 최종
-    Sebeolsik391 = 2,
-    /// 세벌식 순아래 (No-Shift)
-    SebeolsikNoShift = 3,
-}
+/// 한국어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
+///
+/// 레거시 시절 enum(`Dubeolsik` / `Sebeolsik390` / ...)이었던 필드를 Phase 8에서
+/// 문자열로 통합. 내장 4종은 `ko_2bulstd`·`ko_3bul390`·`ko_3bul391`·`ko_3bul_noshift`,
+/// 10번째 내장은 `ko_3bul_qwerty`, 사용자 정의는 `~/.config/unim/layouts/<name>.json`
+/// 파일의 `name` 필드.
+///
+/// YAML 역직렬화 시 `KoreanLayoutCompat`을 거쳐 레거시 enum 값(`Dubeolsik` 등)과
+/// 별칭(`2bul` 등)을 모두 수용한다.
+pub type KoreanLayout = String;
 
-impl KoreanLayout {
-    /// 레이아웃 이름을 반환합니다.
-    pub fn name(&self) -> &'static str {
-        match self {
-            KoreanLayout::Dubeolsik => "2bul",
-            KoreanLayout::Sebeolsik390 => "3bul390",
-            KoreanLayout::Sebeolsik391 => "3bul391",
-            KoreanLayout::SebeolsikNoShift => "3bul_noshift",
+/// 내장 한국어 자판의 정식 이름(레지스트리 키).
+pub const KOREAN_LAYOUT_DUBEOLSIK: &str = "ko_2bulstd";
+pub const KOREAN_LAYOUT_SEBEOLSIK_390: &str = "ko_3bul390";
+pub const KOREAN_LAYOUT_SEBEOLSIK_391: &str = "ko_3bul391";
+pub const KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT: &str = "ko_3bul_noshift";
+pub const KOREAN_LAYOUT_SEBEOLSIK_QWERTY: &str = "ko_3bul_qwerty";
+
+/// 내장 한국어 자판 5종(이관 시점 기준). 표시용·CLI 나열 등에 사용.
+pub const KOREAN_LAYOUT_BUILTINS: &[&str] = &[
+    KOREAN_LAYOUT_DUBEOLSIK,
+    KOREAN_LAYOUT_SEBEOLSIK_390,
+    KOREAN_LAYOUT_SEBEOLSIK_391,
+    KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
+    KOREAN_LAYOUT_SEBEOLSIK_QWERTY,
+];
+
+/// 레거시 enum 이름·별칭을 내장 정식 이름으로 승격한다.
+///
+/// 예: `"Dubeolsik"`·`"2bul"`·`"2bulstd"` → `"ko_2bulstd"`. 이미 정식 이름이거나
+/// 매칭 대상이 없으면 입력을 그대로 반환(사용자 프로필 이름 허용).
+pub fn normalize_korean_layout_name(raw: &str) -> String {
+    match raw {
+        "Dubeolsik" | "2bul" | "2bulstd" => KOREAN_LAYOUT_DUBEOLSIK.to_string(),
+        "Sebeolsik390" | "390" | "3bul390" => KOREAN_LAYOUT_SEBEOLSIK_390.to_string(),
+        "Sebeolsik391" | "391" | "3bul391" => KOREAN_LAYOUT_SEBEOLSIK_391.to_string(),
+        "SebeolsikNoShift" | "noshift" | "3bul_noshift" => {
+            KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT.to_string()
         }
-    }
-
-    /// 세벌식 레이아웃인지 확인합니다.
-    pub fn is_sebeolsik(&self) -> bool {
-        matches!(
-            self,
-            KoreanLayout::Sebeolsik390
-                | KoreanLayout::Sebeolsik391
-                | KoreanLayout::SebeolsikNoShift
-        )
-    }
-
-    /// 표시용 레이블을 반환합니다.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            KoreanLayout::Dubeolsik => "두벌식 표준",
-            KoreanLayout::Sebeolsik390 => "세벌식 390",
-            KoreanLayout::Sebeolsik391 => "세벌식 최종",
-            KoreanLayout::SebeolsikNoShift => "세벌식 순아래",
-        }
-    }
-
-    /// 사용 가능한 모든 레이아웃을 반환합니다.
-    pub fn all() -> &'static [KoreanLayout] {
-        &[
-            KoreanLayout::Dubeolsik,
-            KoreanLayout::Sebeolsik390,
-            KoreanLayout::Sebeolsik391,
-            KoreanLayout::SebeolsikNoShift,
-        ]
+        "3bul_qwerty" => KOREAN_LAYOUT_SEBEOLSIK_QWERTY.to_string(),
+        other => other.to_string(),
     }
 }
 
-/// 영어 키보드 레이아웃
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[repr(u32)]
-pub enum EnglishLayout {
-    /// QWERTY
-    #[default]
-    Qwerty = 0,
-    /// Dvorak
-    Dvorak = 1,
-    /// Colemak
-    Colemak = 2,
-    /// Colemak-DH (Colemak의 인체공학적 개선 버전)
-    ColemakDh = 3,
-    /// Workman
-    Workman = 4,
+/// 세벌식 계열 자판인지 판정. `ko_3bul*` 또는 `3bul*` 접두 또는 명시 리스트 매칭.
+pub fn is_sebeolsik_layout(name: &str) -> bool {
+    matches!(
+        name,
+        "Sebeolsik390" | "Sebeolsik391" | "SebeolsikNoShift" | "390" | "391" | "noshift"
+    ) || name.starts_with("ko_3bul")
+        || name.starts_with("3bul")
 }
 
-impl EnglishLayout {
-    /// 레이아웃 이름을 반환합니다.
-    pub fn name(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "qwerty",
-            EnglishLayout::Dvorak => "dvorak",
-            EnglishLayout::Colemak => "colemak",
-            EnglishLayout::ColemakDh => "colemak_dh",
-            EnglishLayout::Workman => "workman",
-        }
+/// 내장 자판의 한국어 표시 레이블.
+///
+/// 반환값이 `""`이면 "내장이 아님"(= 사용자 프로필). GUI는 프로필 metadata의
+/// `display_name`을 resolve 해야 한다.
+pub fn korean_layout_display_name(name: &str) -> &'static str {
+    match normalize_korean_layout_name(name).as_str() {
+        KOREAN_LAYOUT_DUBEOLSIK => "두벌식 표준",
+        KOREAN_LAYOUT_SEBEOLSIK_390 => "세벌식 390",
+        KOREAN_LAYOUT_SEBEOLSIK_391 => "세벌식 최종",
+        KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT => "세벌식 순아래",
+        KOREAN_LAYOUT_SEBEOLSIK_QWERTY => "쿼티형 세벌식",
+        _ => "",
     }
+}
 
-    /// Keymap JSON 파일명을 반환합니다.
-    ///
-    /// # Returns
-    ///
-    /// 해당 레이아웃의 keymap JSON 파일 식별자 (예: "en_qwerty", "en_dvorak")
-    pub fn keymap_name(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "en_qwerty",
-            EnglishLayout::Dvorak => "en_dvorak",
-            EnglishLayout::Colemak => "en_colemak",
-            EnglishLayout::ColemakDh => "en_colemak_dh",
-            EnglishLayout::Workman => "en_workman",
-        }
+/// 영어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
+///
+/// 레거시 시절 enum(`Qwerty` / `Dvorak` / ...)이었던 필드를 Phase 9에서
+/// 문자열로 통합. 내장 5종은 `qwerty`·`dvorak`·`colemak`·`colemak_dh`·`workman`.
+///
+/// YAML 역직렬화 시 `EnglishConfigCompat`을 거쳐 레거시 enum 값(`Qwerty` 등)을
+/// 소문자 내장 이름으로 승격한다. 타입 호환을 위해 String 별칭으로 노출.
+pub type EnglishLayout = String;
+
+/// 내장 영어 자판의 정식 이름.
+pub const ENGLISH_LAYOUT_QWERTY: &str = "qwerty";
+pub const ENGLISH_LAYOUT_DVORAK: &str = "dvorak";
+pub const ENGLISH_LAYOUT_COLEMAK: &str = "colemak";
+pub const ENGLISH_LAYOUT_COLEMAK_DH: &str = "colemak_dh";
+pub const ENGLISH_LAYOUT_WORKMAN: &str = "workman";
+
+/// 내장 영어 자판 5종.
+pub const ENGLISH_LAYOUT_BUILTINS: &[&str] = &[
+    ENGLISH_LAYOUT_QWERTY,
+    ENGLISH_LAYOUT_DVORAK,
+    ENGLISH_LAYOUT_COLEMAK,
+    ENGLISH_LAYOUT_COLEMAK_DH,
+    ENGLISH_LAYOUT_WORKMAN,
+];
+
+/// 레거시 enum 이름을 소문자 내장 이름으로 승격한다. 알 수 없는 값은 pass-through.
+pub fn normalize_english_layout_name(raw: &str) -> String {
+    match raw {
+        "Qwerty" => ENGLISH_LAYOUT_QWERTY.to_string(),
+        "Dvorak" => ENGLISH_LAYOUT_DVORAK.to_string(),
+        "Colemak" => ENGLISH_LAYOUT_COLEMAK.to_string(),
+        "ColemakDh" | "colemak-dh" => ENGLISH_LAYOUT_COLEMAK_DH.to_string(),
+        "Workman" => ENGLISH_LAYOUT_WORKMAN.to_string(),
+        other => other.to_string(),
     }
+}
 
-    /// 표시용 레이블을 반환합니다.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "QWERTY",
-            EnglishLayout::Dvorak => "Dvorak",
-            EnglishLayout::Colemak => "Colemak",
-            EnglishLayout::ColemakDh => "Colemak-DH",
-            EnglishLayout::Workman => "Workman",
-        }
+/// 내장 영어 자판의 keymap JSON 파일명. 내장이 아니면 입력을 그대로 반환
+/// (사용자 프로필 이름이 곧 파일명 stem인 경우를 위해).
+pub fn english_layout_keymap_name(name: &str) -> String {
+    let normalized = normalize_english_layout_name(name);
+    match normalized.as_str() {
+        ENGLISH_LAYOUT_QWERTY => "en_qwerty".to_string(),
+        ENGLISH_LAYOUT_DVORAK => "en_dvorak".to_string(),
+        ENGLISH_LAYOUT_COLEMAK => "en_colemak".to_string(),
+        ENGLISH_LAYOUT_COLEMAK_DH => "en_colemak_dh".to_string(),
+        ENGLISH_LAYOUT_WORKMAN => "en_workman".to_string(),
+        _ => normalized,
     }
+}
 
-    /// 사용 가능한 모든 레이아웃을 반환합니다.
-    pub fn all() -> &'static [EnglishLayout] {
-        &[
-            EnglishLayout::Qwerty,
-            EnglishLayout::Dvorak,
-            EnglishLayout::Colemak,
-            EnglishLayout::ColemakDh,
-            EnglishLayout::Workman,
-        ]
+/// 내장 영어 자판의 표시 레이블. 사용자 프로필이면 빈 문자열 — GUI는
+/// 프로필 metadata의 display_name을 resolve 해야 한다.
+pub fn english_layout_display_name(name: &str) -> &'static str {
+    match normalize_english_layout_name(name).as_str() {
+        ENGLISH_LAYOUT_QWERTY => "QWERTY",
+        ENGLISH_LAYOUT_DVORAK => "Dvorak",
+        ENGLISH_LAYOUT_COLEMAK => "Colemak",
+        ENGLISH_LAYOUT_COLEMAK_DH => "Colemak-DH",
+        ENGLISH_LAYOUT_WORKMAN => "Workman",
+        _ => "",
     }
+}
 
-    /// 상단 행(2nd row)의 앞 9개 키 레이블을 반환합니다.
-    ///
-    /// 특수문자 팝업의 열 헤더 및 키 매핑에 사용됩니다.
-    pub fn top_row_labels(&self) -> &'static str {
-        match self {
-            EnglishLayout::Qwerty => "QWERTYUIO",
-            EnglishLayout::Dvorak => "',.PYFGCR", // 드보락 상단 행 앞 9개 (논리 문자 기준)
-            EnglishLayout::Colemak => "QWFPGJLUY",
-            EnglishLayout::ColemakDh => "QWFPBJLUY",
-            EnglishLayout::Workman => "QDRWBJFUP",
-        }
+/// 내장 영어 자판의 상단 행(2nd row) 앞 9개 키 레이블 — 특수문자 팝업 헤더용.
+/// 내장이 아니면 빈 문자열.
+pub fn english_layout_top_row_labels(name: &str) -> &'static str {
+    match normalize_english_layout_name(name).as_str() {
+        ENGLISH_LAYOUT_QWERTY => "QWERTYUIO",
+        ENGLISH_LAYOUT_DVORAK => "',.PYFGCR",
+        ENGLISH_LAYOUT_COLEMAK => "QWFPGJLUY",
+        ENGLISH_LAYOUT_COLEMAK_DH => "QWFPBJLUY",
+        ENGLISH_LAYOUT_WORKMAN => "QDRWBJFUP",
+        _ => "",
     }
 }
 
@@ -229,16 +237,59 @@ impl ContentPurpose {
     }
 }
 
-/// 자동 전환 설정
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AutoSwitchConfig {
-    /// 자동 전환 활성화 여부
-    pub enabled: bool,
-    /// 감지 임계값 (0.0 ~ 1.0)
-    pub threshold: f32,
-    /// 전환 시 알림 표시 여부
-    pub show_notification: bool,
+/// AutoTypeFix 값 범위 상수
+pub const AUTO_TYPEFIX_KOR_THRESHOLD_MIN: u8 = 2;
+pub const AUTO_TYPEFIX_KOR_THRESHOLD_MAX: u8 = 6;
+pub const AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN: u8 = 3;
+pub const AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX: u8 = 8;
+pub const AUTO_TYPEFIX_TIME_WINDOW_MIN: u32 = 500;
+pub const AUTO_TYPEFIX_TIME_WINDOW_MAX: u32 = 5000;
+pub const AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN: u16 = 1;
+pub const AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX: u16 = 12;
+pub const AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN: u8 = 5;
+pub const AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX: u8 = 15;
+
+fn default_auto_typefix_enabled() -> bool {
+    true
+}
+fn default_auto_typefix_time_window_ms() -> u32 {
+    5000
+}
+fn default_auto_typefix_forward_time_window_ms() -> u32 {
+    default_auto_typefix_time_window_ms()
+}
+fn default_auto_typefix_reverse_time_window_ms() -> u32 {
+    default_auto_typefix_time_window_ms()
+}
+fn default_auto_typefix_kor_syllable_threshold() -> u8 {
+    2
+}
+fn default_auto_typefix_eng_word_min_length() -> u8 {
+    5
+}
+fn default_auto_typefix_forward() -> bool {
+    true
+}
+fn default_auto_typefix_reverse() -> bool {
+    true
+}
+fn default_auto_typefix_skip_on_english_word() -> bool {
+    true
+}
+fn default_auto_typefix_skip_on_complete_syllable() -> bool {
+    true
+}
+fn default_auto_typefix_rollback_detection() -> bool {
+    true
+}
+fn default_auto_typefix_tentative_expiry_hours() -> u16 {
+    4
+}
+fn default_auto_typefix_observation_timeout_secs() -> u8 {
+    10
+}
+fn default_auto_typefix_user_dict_enabled() -> bool {
+    true
 }
 
 /// 자동 오타 교정 (AutoTypeFix) 설정
@@ -246,49 +297,241 @@ pub struct AutoSwitchConfig {
 #[serde(default)]
 pub struct AutoTypeFixConfig {
     /// 활성화 여부
+    #[serde(default = "default_auto_typefix_enabled")]
     pub enabled: bool,
-    /// 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사
-    pub time_window_ms: u32,
-    /// 순방향 (영→한) 트리거: 한글 완성 음절 수 (2~5)
+    /// 순방향 (영→한) 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사 (500~5000)
+    #[serde(default = "default_auto_typefix_forward_time_window_ms")]
+    pub forward_time_window_ms: u32,
+    /// 역방향 (한→영) 시간 윈도우 (ms) — 이 시간 내의 키스트로크만 검사 (500~5000)
+    #[serde(default = "default_auto_typefix_reverse_time_window_ms")]
+    pub reverse_time_window_ms: u32,
+    /// [DEPRECATED] 구(舊) 통합 시간 윈도우. 후처리 단계에서 forward/reverse 두 필드에
+    /// 주입되고 제거된다. 직렬화에서는 `skip_serializing_if`로 숨겨 신규 config 파일에는
+    /// 남지 않는다. 역호환 용도로만 유지.
+    #[serde(default, skip_serializing)]
+    pub time_window_ms: Option<u32>,
+    /// 순방향 (영→한) 트리거: 한글 완성 음절 수 (2~6)
+    #[serde(default = "default_auto_typefix_kor_syllable_threshold")]
     pub kor_syllable_threshold: u8,
-    /// 역방향 (한→영) 트리거: 영문 단어 최소 길이 (5~10)
+    /// 역방향 (한→영) 트리거: 영문 단어 최소 길이 (3~8)
+    #[serde(default = "default_auto_typefix_eng_word_min_length")]
     pub eng_word_min_length: u8,
     /// 순방향 (영→한 교정) 활성화
+    #[serde(default = "default_auto_typefix_forward")]
     pub forward: bool,
     /// 역방향 (한→영 교정) 활성화
+    #[serde(default = "default_auto_typefix_reverse")]
     pub reverse: bool,
+    /// 순방향 트리거 시 영단어 매칭(사전 hit)이면 억제 (기본 true, 기존 동작 유지)
+    #[serde(default = "default_auto_typefix_skip_on_english_word")]
+    pub skip_on_english_word: bool,
+    /// 역방향 트리거 시 버퍼의 한글이 모두 완성 음절이면 억제 (기본 true, 기존 동작 유지)
+    #[serde(default = "default_auto_typefix_skip_on_complete_syllable")]
+    pub skip_on_complete_syllable: bool,
+    /// 재트리거 기반 학습형 억제. 동일 입력이 관찰 창 내에 재차 트리거되면
+    /// 오탐 후보로 간주해 해당 순간에도 교정을 억제하고 blacklist에 기록한다. (기본 true)
+    #[serde(default = "default_auto_typefix_rollback_detection")]
+    pub rollback_detection: bool,
+    /// 임시 억제 단어 만료 기간 (시간) — 이 기간 내 수동 확정 안 되면 inactive로 전환 (1~12, 기본 4)
+    #[serde(default = "default_auto_typefix_tentative_expiry_hours")]
+    pub tentative_expiry_hours: u16,
+    /// 재트리거 관찰 창 (초) — 첫 교정 후 이 시간 내에 동일 입력이 재트리거되면 오탐으로 판정 (5~15, 기본 10)
+    #[serde(default = "default_auto_typefix_observation_timeout_secs")]
+    pub observation_timeout_secs: u8,
+    /// 역방향 사용자 사전(`~/.config/unim/typefix-userdict.yaml`) 사용 여부.
+    /// 활성 시 사전 등록 단어는 `eng_word_min_length` 및 내장 영어 사전 검사를 우회하여 즉시 교정.
+    #[serde(default = "default_auto_typefix_user_dict_enabled")]
+    pub user_dict_enabled: bool,
 }
 
 impl Default for AutoTypeFixConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            time_window_ms: 5000,
-            kor_syllable_threshold: 2,
-            eng_word_min_length: 5,
-            forward: true,
-            reverse: true,
+            enabled: default_auto_typefix_enabled(),
+            forward_time_window_ms: default_auto_typefix_forward_time_window_ms(),
+            reverse_time_window_ms: default_auto_typefix_reverse_time_window_ms(),
+            time_window_ms: None,
+            kor_syllable_threshold: default_auto_typefix_kor_syllable_threshold(),
+            eng_word_min_length: default_auto_typefix_eng_word_min_length(),
+            forward: default_auto_typefix_forward(),
+            reverse: default_auto_typefix_reverse(),
+            skip_on_english_word: default_auto_typefix_skip_on_english_word(),
+            skip_on_complete_syllable: default_auto_typefix_skip_on_complete_syllable(),
+            rollback_detection: default_auto_typefix_rollback_detection(),
+            tentative_expiry_hours: default_auto_typefix_tentative_expiry_hours(),
+            observation_timeout_secs: default_auto_typefix_observation_timeout_secs(),
+            user_dict_enabled: default_auto_typefix_user_dict_enabled(),
+        }
+    }
+}
+
+impl AutoTypeFixConfig {
+    /// 값 범위를 허용 범위로 강제 보정합니다.
+    ///
+    /// CLI/GUI 양쪽에서 중복 범위 검증을 피하기 위해 config 레벨에서 한 번에 clamp.
+    pub fn clamp_ranges(&mut self) {
+        self.kor_syllable_threshold = self.kor_syllable_threshold.clamp(
+            AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
+            AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
+        );
+        self.eng_word_min_length = self.eng_word_min_length.clamp(
+            AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
+            AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
+        );
+        // 구(舊) 통합 필드가 남아있다면 신규 두 필드 중 기본값인 쪽에 주입.
+        // (역호환: 구 yaml은 forward/reverse를 직접 쓰지 않았으므로 둘 다 기본값이다.)
+        if let Some(legacy) = self.time_window_ms.take() {
+            let fwd_default = default_auto_typefix_forward_time_window_ms();
+            let rev_default = default_auto_typefix_reverse_time_window_ms();
+            if self.forward_time_window_ms == fwd_default {
+                self.forward_time_window_ms = legacy;
+            }
+            if self.reverse_time_window_ms == rev_default {
+                self.reverse_time_window_ms = legacy;
+            }
+        }
+        self.forward_time_window_ms = self
+            .forward_time_window_ms
+            .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+        self.reverse_time_window_ms = self
+            .reverse_time_window_ms
+            .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+        self.tentative_expiry_hours = self.tentative_expiry_hours.clamp(
+            AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
+            AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
+        );
+        self.observation_timeout_secs = self.observation_timeout_secs.clamp(
+            AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
+            AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
+        );
+    }
+}
+
+fn default_auto_english_enabled() -> bool {
+    false
+}
+fn default_auto_english_trigger_keys() -> Vec<String> {
+    vec!["Escape".to_string(), "Slash".to_string()]
+}
+
+/// 자동 영문 모드 전환 설정
+///
+/// 특정 키(기본: Escape, Slash)를 한글 모드에서 입력하면
+/// 조합을 커밋하고 영문 모드로 영구 전환한다. vi/vim 명령 모드 진입,
+/// CLI 도구의 `/` prefix 같은 워크플로우를 편리하게 만든다.
+///
+/// 트리거 키 이름 규약:
+/// - 일반 KeyCode 이름 그대로: `"Escape"`, `"Slash"`, `"Semicolon"`
+/// - Shift 조합은 `"Shift"` 접두사로: `"ShiftSemicolon"` = `:`, `"ShiftSlash"` = `?`
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoEnglishConfig {
+    /// 활성화 여부 (기본 false, opt-in)
+    #[serde(default = "default_auto_english_enabled")]
+    pub enabled: bool,
+    /// 자동 영문 전환을 유발하는 키 이름 목록.
+    /// `KeyCode::from_name()` 호환 이름 또는 `"Shift<KeyName>"` 가상 이름.
+    #[serde(default = "default_auto_english_trigger_keys")]
+    pub trigger_keys: Vec<String>,
+}
+
+impl Default for AutoEnglishConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_auto_english_enabled(),
+            trigger_keys: default_auto_english_trigger_keys(),
         }
     }
 }
 
 /// 한국어 엔진 설정
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
+///
+/// Phase 8에서 `layout` 필드가 enum에서 문자열로 통합됨. 이전의 `custom_layout`
+/// 우회 필드는 제거되었고, 레거시 YAML(`layout: Dubeolsik` / `custom_layout: X`)은
+/// `Deserialize` 구현에서 자동 흡수된다.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default, from = "KoreanConfigCompat")]
 pub struct KoreanConfig {
-    /// 한국어 키보드 레이아웃
+    /// 한국어 자판 프로필 이름(레지스트리 키). 기본값 `ko_2bulstd`.
     pub layout: KoreanLayout,
-    /// 조합 중 문자 표시 (Johab 형식)
-    pub preedit_johab: bool,
-    /// 단어 단위 커밋
-    pub word_commit: bool,
+    /// 활성 규칙 세트 이름 목록 (자판 프로필 v1 — `docs/plans/LAYOUT_PROFILE_V1.md` §3.5).
+    ///
+    /// - 빈 목록 = 프로필 기본값 사용(각 `rule_sets.<name>.active` 그대로).
+    /// - 비어 있지 않으면 이 이름들만 활성, 나머지는 강제 off.
+    pub active_rule_sets: Vec<String>,
+}
+
+impl Default for KoreanConfig {
+    fn default() -> Self {
+        Self {
+            layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
+            active_rule_sets: Vec::new(),
+        }
+    }
+}
+
+impl KoreanConfig {
+    /// 실제 로드할 프로필 이름을 반환. 단순히 `layout`의 clone이며 정식 이름으로
+    /// 정규화(`normalize_korean_layout_name`)를 거친다. 레지스트리의 별칭 처리도
+    /// 있어 두 단계 모두 안전하다.
+    pub fn effective_layout_name(&self) -> String {
+        normalize_korean_layout_name(&self.layout)
+    }
+}
+
+/// 역직렬화 호환 레이어.
+///
+/// 아래 3가지 형태를 모두 `KoreanConfig`로 승격한다:
+/// - 현재 포맷 (`layout: "ko_2bulstd"`, `active_rule_sets: [...]`)
+/// - 레거시 Phase 4b (`layout: "Dubeolsik"`, `custom_layout: "X"`)
+/// - 레거시 Phase 4a (`layout: "Dubeolsik"`)
+/// - 레거시 pre-Phase 4 (`layout: Dubeolsik` as bare YAML — serde yaml도 String으로 읽음)
+#[derive(Deserialize)]
+#[serde(default)]
+struct KoreanConfigCompat {
+    layout: String,
+    preedit_johab: bool,
+    word_commit: bool,
+    #[serde(default)]
+    active_rule_sets: Vec<String>,
+    /// 레거시 override 필드 — Some이면 `layout`을 덮어씀. 본 통합 이후 제거됨.
+    #[serde(default)]
+    custom_layout: Option<String>,
+}
+
+impl Default for KoreanConfigCompat {
+    fn default() -> Self {
+        Self {
+            layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
+            preedit_johab: false,
+            word_commit: false,
+            active_rule_sets: Vec::new(),
+            custom_layout: None,
+        }
+    }
+}
+
+impl From<KoreanConfigCompat> for KoreanConfig {
+    fn from(c: KoreanConfigCompat) -> Self {
+        let layout = match c.custom_layout {
+            Some(ref s) if !s.is_empty() => s.clone(),
+            _ => c.layout,
+        };
+        Self {
+            layout: normalize_korean_layout_name(&layout),
+            active_rule_sets: c.active_rule_sets,
+        }
+    }
 }
 
 /// 영어 엔진 설정
+///
+/// Phase 9에서 `layout` 필드가 enum → String. 레거시 YAML(`layout: Qwerty`)은
+/// `EnglishConfigCompat`을 거쳐 자동 정규화.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, from = "EnglishConfigCompat")]
 pub struct EnglishConfig {
-    /// 영어 키보드 레이아웃
+    /// 영어 키보드 레이아웃 프로필 이름(레지스트리 키). 기본값 `qwerty`.
     pub layout: EnglishLayout,
     /// 다이렉트 입력 선호
     pub preferred_direct: bool,
@@ -297,8 +540,34 @@ pub struct EnglishConfig {
 impl Default for EnglishConfig {
     fn default() -> Self {
         Self {
-            layout: EnglishLayout::default(),
+            layout: ENGLISH_LAYOUT_QWERTY.to_string(),
             preferred_direct: true,
+        }
+    }
+}
+
+/// 역직렬화 호환 레이어 — 레거시 enum 이름(`Qwerty` 등)을 소문자 내장 이름으로 승격.
+#[derive(Deserialize)]
+#[serde(default)]
+struct EnglishConfigCompat {
+    layout: String,
+    preferred_direct: bool,
+}
+
+impl Default for EnglishConfigCompat {
+    fn default() -> Self {
+        Self {
+            layout: ENGLISH_LAYOUT_QWERTY.to_string(),
+            preferred_direct: true,
+        }
+    }
+}
+
+impl From<EnglishConfigCompat> for EnglishConfig {
+    fn from(c: EnglishConfigCompat) -> Self {
+        Self {
+            layout: normalize_english_layout_name(&c.layout),
+            preferred_direct: c.preferred_direct,
         }
     }
 }
@@ -346,20 +615,18 @@ pub struct EngineConfig {
     pub korean: KoreanConfig,
     /// 영어 설정
     pub english: EnglishConfig,
-    /// 자동 전환 설정
-    pub auto_switch: AutoSwitchConfig,
     /// 한/영 전환 키 목록 (KeyCode 이름)
     pub toggle_keys: Vec<String>,
     /// 한자/특수문자 키 목록 (KeyCode 이름)
     pub hanja_keys: Vec<String>,
     /// 앱별 기본 모드 규칙
     pub app_rules: Vec<AppRule>,
-    /// 사용자 사전 경로 (None이면 기본 경로 사용)
-    pub user_dictionary_path: Option<std::path::PathBuf>,
     /// 팝업 표시 방식 (Standalone: GUI 통합, Embedded: 프론트엔드 내장)
     pub popup_mode: PopupMode,
     /// 자동 오타 교정 (AutoTypeFix) 설정
     pub auto_typefix: AutoTypeFixConfig,
+    /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
+    pub auto_english: AutoEnglishConfig,
 }
 
 impl Default for EngineConfig {
@@ -369,13 +636,12 @@ impl Default for EngineConfig {
             mode_sharing: ModeSharingMode::default(),
             korean: KoreanConfig::default(),
             english: EnglishConfig::default(),
-            auto_switch: AutoSwitchConfig::default(),
             toggle_keys: vec!["Korean".to_string(), "RightAlt".to_string()],
             hanja_keys: vec!["Hanja".to_string(), "F9".to_string()],
             app_rules: Vec::new(),
-            user_dictionary_path: None,
             popup_mode: PopupMode::default(),
             auto_typefix: AutoTypeFixConfig::default(),
+            auto_english: AutoEnglishConfig::default(),
         }
     }
 }
@@ -497,7 +763,7 @@ impl Config {
         }
         eprintln!("[UNIM]   touch {:?} && chmod 644 {:?}", path, path);
         eprintln!("[UNIM] 또는 관리자 권한으로 설정 도구를 실행하세요:");
-        eprintln!("[UNIM]   unim-config");
+        eprintln!("[UNIM]   unim-cli config");
     }
 
     /// 지정된 경로에서 설정을 로드합니다.
@@ -516,6 +782,8 @@ impl Config {
         let content = fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
         let mut config: Self =
             serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        // 구(舊) time_window_ms 필드 역호환: forward/reverse에 주입 + 범위 clamp.
+        config.engine.auto_typefix.clamp_ranges();
         config.last_modified = mtime;
         config.last_checked = Some(SystemTime::now());
         Ok(config)
@@ -667,15 +935,93 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.engine.default_category, InputCategory::English);
-        assert_eq!(config.engine.korean.layout, KoreanLayout::Dubeolsik);
-        assert_eq!(config.engine.english.layout, EnglishLayout::Qwerty);
+        assert_eq!(config.engine.korean.layout, KOREAN_LAYOUT_DUBEOLSIK);
+        assert_eq!(config.engine.english.layout, "qwerty");
     }
 
     #[test]
-    fn test_korean_layout() {
-        assert_eq!(KoreanLayout::Dubeolsik.name(), "2bul");
-        assert!(!KoreanLayout::Dubeolsik.is_sebeolsik());
-        assert!(KoreanLayout::Sebeolsik390.is_sebeolsik());
+    fn normalize_korean_layout_name_handles_legacy_and_aliases() {
+        // 레거시 enum 이름
+        assert_eq!(normalize_korean_layout_name("Dubeolsik"), "ko_2bulstd");
+        assert_eq!(normalize_korean_layout_name("Sebeolsik390"), "ko_3bul390");
+        // 축약 별칭
+        assert_eq!(normalize_korean_layout_name("2bul"), "ko_2bulstd");
+        assert_eq!(normalize_korean_layout_name("390"), "ko_3bul390");
+        // 이미 정식 이름
+        assert_eq!(normalize_korean_layout_name("ko_3bul_qwerty"), "ko_3bul_qwerty");
+        // 사용자 프로필은 pass-through
+        assert_eq!(normalize_korean_layout_name("my_custom"), "my_custom");
+    }
+
+    #[test]
+    fn is_sebeolsik_layout_classifies_correctly() {
+        assert!(!is_sebeolsik_layout("ko_2bulstd"));
+        assert!(!is_sebeolsik_layout("Dubeolsik"));
+        assert!(is_sebeolsik_layout("ko_3bul390"));
+        assert!(is_sebeolsik_layout("Sebeolsik391"));
+        assert!(is_sebeolsik_layout("3bul_noshift"));
+        assert!(is_sebeolsik_layout("ko_3bul_qwerty"));
+    }
+
+    #[test]
+    fn effective_layout_name_defaults_to_builtin() {
+        let kc = KoreanConfig::default();
+        assert_eq!(kc.effective_layout_name(), "ko_2bulstd");
+    }
+
+    #[test]
+    fn effective_layout_name_normalizes_legacy_value() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "Dubeolsik".to_string();
+        assert_eq!(kc.effective_layout_name(), "ko_2bulstd");
+    }
+
+    #[test]
+    fn effective_layout_name_accepts_user_profile() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "my_custom_layout".to_string();
+        assert_eq!(kc.effective_layout_name(), "my_custom_layout");
+    }
+
+    #[test]
+    fn korean_config_serde_roundtrips_rule_sets() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_3bul_qwerty".to_string();
+        kc.active_rule_sets = vec!["set_a".to_string(), "set_b".to_string()];
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.layout, "ko_3bul_qwerty");
+        assert_eq!(back.active_rule_sets, vec!["set_a", "set_b"]);
+    }
+
+    #[test]
+    fn korean_config_legacy_yaml_enum_variant_normalized() {
+        // Phase 4 이전 포맷 (`layout: Dubeolsik`)도 로드 가능 — 자동 정식 이름 승격.
+        let yaml = r#"
+layout: Dubeolsik
+preedit_johab: false
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.layout, "ko_2bulstd");
+        assert!(kc.active_rule_sets.is_empty());
+        assert_eq!(kc.effective_layout_name(), "ko_2bulstd");
+    }
+
+    #[test]
+    fn korean_config_legacy_custom_layout_overrides_layout() {
+        // Phase 4b 포맷 (`layout: Dubeolsik, custom_layout: "my_x"`) 흡수.
+        let yaml = r#"
+layout: Dubeolsik
+custom_layout: my_custom
+preedit_johab: false
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.layout, "my_custom",
+            "custom_layout이 Some이면 layout을 덮어씀"
+        );
     }
 
     #[test]
@@ -768,32 +1114,65 @@ mod tests {
     // === 레이아웃 enum 테스트 ===
 
     #[test]
-    fn test_korean_layout_all() {
-        let all = KoreanLayout::all();
-        assert_eq!(all.len(), 4);
-        assert!(all.contains(&KoreanLayout::Dubeolsik));
-        assert!(all.contains(&KoreanLayout::SebeolsikNoShift));
+    fn test_korean_layout_builtins() {
+        let all = KOREAN_LAYOUT_BUILTINS;
+        assert_eq!(all.len(), 5);
+        assert!(all.contains(&"ko_2bulstd"));
+        assert!(all.contains(&"ko_3bul_noshift"));
+        assert!(all.contains(&"ko_3bul_qwerty"));
     }
 
     #[test]
-    fn test_english_layout_all() {
-        let all = EnglishLayout::all();
+    fn test_english_layout_builtins() {
+        let all = ENGLISH_LAYOUT_BUILTINS;
         assert_eq!(all.len(), 5);
+        assert!(all.contains(&"qwerty"));
+        assert!(all.contains(&"colemak_dh"));
     }
 
     #[test]
     fn test_english_layout_keymap_name() {
-        assert_eq!(EnglishLayout::Dvorak.keymap_name(), "en_dvorak");
-        assert_eq!(EnglishLayout::Colemak.keymap_name(), "en_colemak");
-        assert_eq!(EnglishLayout::ColemakDh.keymap_name(), "en_colemak_dh");
-        assert_eq!(EnglishLayout::Workman.keymap_name(), "en_workman");
+        assert_eq!(english_layout_keymap_name("dvorak"), "en_dvorak");
+        assert_eq!(english_layout_keymap_name("colemak"), "en_colemak");
+        assert_eq!(english_layout_keymap_name("colemak_dh"), "en_colemak_dh");
+        assert_eq!(english_layout_keymap_name("workman"), "en_workman");
+        // 레거시 enum 이름 → 소문자 승격
+        assert_eq!(english_layout_keymap_name("Dvorak"), "en_dvorak");
     }
 
     #[test]
     fn test_english_layout_top_row_labels() {
-        assert_eq!(EnglishLayout::Qwerty.top_row_labels(), "QWERTYUIO");
-        assert_eq!(EnglishLayout::Dvorak.top_row_labels(), "',.PYFGCR");
-        assert_eq!(EnglishLayout::Colemak.top_row_labels(), "QWFPGJLUY");
+        assert_eq!(english_layout_top_row_labels("qwerty"), "QWERTYUIO");
+        assert_eq!(english_layout_top_row_labels("dvorak"), "',.PYFGCR");
+        assert_eq!(english_layout_top_row_labels("colemak"), "QWFPGJLUY");
+    }
+
+    #[test]
+    fn normalize_english_layout_name_handles_legacy() {
+        assert_eq!(normalize_english_layout_name("Qwerty"), "qwerty");
+        assert_eq!(normalize_english_layout_name("ColemakDh"), "colemak_dh");
+        assert_eq!(normalize_english_layout_name("colemak-dh"), "colemak_dh");
+        assert_eq!(normalize_english_layout_name("workman"), "workman");
+        // 사용자 프로필 pass-through
+        assert_eq!(normalize_english_layout_name("my_dvorak"), "my_dvorak");
+    }
+
+    #[test]
+    fn english_config_legacy_yaml_enum_variant_normalized() {
+        // 레거시 `layout: Qwerty` 포맷 로드 → 정식 소문자 이름으로 승격.
+        let yaml = r#"
+layout: Qwerty
+preferred_direct: true
+"#;
+        let ec: EnglishConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(ec.layout, "qwerty");
+
+        let yaml2 = r#"
+layout: ColemakDh
+preferred_direct: false
+"#;
+        let ec2: EnglishConfig = serde_yaml::from_str(yaml2).unwrap();
+        assert_eq!(ec2.layout, "colemak_dh");
     }
 
     #[test]
@@ -816,7 +1195,6 @@ mod tests {
         assert_eq!(config.toggle_keys, vec!["Korean", "RightAlt"]);
         assert_eq!(config.hanja_keys, vec!["Hanja", "F9"]);
         assert_eq!(config.mode_sharing, ModeSharingMode::Global);
-        assert!(!config.auto_switch.enabled);
     }
 
     // === Custom config 직렬화 테스트 ===
@@ -824,20 +1202,212 @@ mod tests {
     #[test]
     fn test_config_custom_values() {
         let mut config = Config::default();
-        config.engine.korean.layout = KoreanLayout::Sebeolsik390;
-        config.engine.english.layout = EnglishLayout::Dvorak;
+        config.engine.korean.layout = "ko_3bul390".to_string();
+        config.engine.english.layout = "dvorak".to_string();
         config.engine.mode_sharing = ModeSharingMode::PerApp;
-        config.engine.auto_switch.enabled = true;
-        config.engine.auto_switch.threshold = 0.7;
 
         let yaml = serde_yaml::to_string(&config).unwrap();
         let loaded: Config = serde_yaml::from_str(&yaml).unwrap();
 
-        assert_eq!(loaded.engine.korean.layout, KoreanLayout::Sebeolsik390);
-        assert_eq!(loaded.engine.english.layout, EnglishLayout::Dvorak);
+        assert_eq!(loaded.engine.korean.layout, "ko_3bul390");
+        assert_eq!(loaded.engine.english.layout, "dvorak");
         assert_eq!(loaded.engine.mode_sharing, ModeSharingMode::PerApp);
-        assert!(loaded.engine.auto_switch.enabled);
-        assert!((loaded.engine.auto_switch.threshold - 0.7).abs() < f32::EPSILON);
+    }
+
+    // === AutoTypeFix 기본값/범위 테스트 ===
+
+    #[test]
+    fn test_auto_typefix_defaults() {
+        let c = AutoTypeFixConfig::default();
+        assert!(c.enabled);
+        assert_eq!(c.forward_time_window_ms, 5000);
+        assert_eq!(c.reverse_time_window_ms, 5000);
+        assert_eq!(c.kor_syllable_threshold, 2);
+        assert_eq!(c.eng_word_min_length, 5);
+        assert!(c.forward);
+        assert!(c.reverse);
+        assert!(c.skip_on_english_word);
+        assert!(c.skip_on_complete_syllable);
+        assert!(c.rollback_detection);
+        assert_eq!(c.tentative_expiry_hours, 4);
+        assert_eq!(c.observation_timeout_secs, 10);
+    }
+
+    #[test]
+    fn test_auto_typefix_clamp_expiry() {
+        let mut c = AutoTypeFixConfig {
+            tentative_expiry_hours: 500,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.tentative_expiry_hours, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX);
+
+        let mut c = AutoTypeFixConfig {
+            tentative_expiry_hours: 0,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.tentative_expiry_hours, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN);
+
+        let mut c = AutoTypeFixConfig {
+            observation_timeout_secs: 99,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.observation_timeout_secs, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX);
+
+        let mut c = AutoTypeFixConfig {
+            observation_timeout_secs: 0,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.observation_timeout_secs, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN);
+    }
+
+    #[test]
+    fn test_auto_typefix_clamp() {
+        let mut c = AutoTypeFixConfig {
+            kor_syllable_threshold: 10,
+            eng_word_min_length: 1,
+            forward_time_window_ms: 100,
+            reverse_time_window_ms: 100,
+            ..Default::default()
+        };
+        c.clamp_ranges();
+        assert_eq!(c.kor_syllable_threshold, AUTO_TYPEFIX_KOR_THRESHOLD_MAX);
+        assert_eq!(c.eng_word_min_length, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN);
+        assert_eq!(c.forward_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MIN);
+        assert_eq!(c.reverse_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MIN);
+
+        let mut c2 = AutoTypeFixConfig {
+            kor_syllable_threshold: 0,
+            eng_word_min_length: 99,
+            forward_time_window_ms: 99999,
+            reverse_time_window_ms: 99999,
+            ..Default::default()
+        };
+        c2.clamp_ranges();
+        assert_eq!(c2.kor_syllable_threshold, AUTO_TYPEFIX_KOR_THRESHOLD_MIN);
+        assert_eq!(c2.eng_word_min_length, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX);
+        assert_eq!(c2.forward_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+        assert_eq!(c2.reverse_time_window_ms, AUTO_TYPEFIX_TIME_WINDOW_MAX);
+    }
+
+    /// 구(旧) config.yaml (신규 필드 없음) 파싱 역호환성 검증.
+    #[test]
+    fn test_legacy_yaml_backcompat_autotypefix() {
+        let legacy = r#"
+engine:
+  auto_typefix:
+    enabled: true
+    time_window_ms: 3000
+    kor_syllable_threshold: 2
+    eng_word_min_length: 5
+    forward: true
+    reverse: true
+"#;
+        let mut cfg: Config = serde_yaml::from_str(legacy).expect("legacy yaml must parse");
+        // 구 필드가 forward/reverse 두 신 필드로 주입되도록 clamp_ranges 호출.
+        cfg.engine.auto_typefix.clamp_ranges();
+        // 누락 필드는 serde default로 채워져야 함.
+        assert!(cfg.engine.auto_typefix.skip_on_english_word);
+        assert!(cfg.engine.auto_typefix.skip_on_complete_syllable);
+        // 구 time_window_ms 값이 forward/reverse 양쪽에 주입되어야 함.
+        assert_eq!(cfg.engine.auto_typefix.forward_time_window_ms, 3000);
+        assert_eq!(cfg.engine.auto_typefix.reverse_time_window_ms, 3000);
+        assert!(cfg.engine.auto_typefix.time_window_ms.is_none());
+    }
+
+    /// 새 필드(forward/reverse)만 있는 yaml 파싱.
+    #[test]
+    fn test_new_yaml_separate_time_windows() {
+        let yaml = r#"
+engine:
+  auto_typefix:
+    forward_time_window_ms: 2500
+    reverse_time_window_ms: 4000
+"#;
+        let mut cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        cfg.engine.auto_typefix.clamp_ranges();
+        assert_eq!(cfg.engine.auto_typefix.forward_time_window_ms, 2500);
+        assert_eq!(cfg.engine.auto_typefix.reverse_time_window_ms, 4000);
+    }
+
+    /// 구 time_window_ms + 신 forward_time_window_ms 혼재 시 신 필드 우선.
+    #[test]
+    fn test_mixed_yaml_new_field_wins() {
+        let yaml = r#"
+engine:
+  auto_typefix:
+    time_window_ms: 1500
+    forward_time_window_ms: 3500
+"#;
+        let mut cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        cfg.engine.auto_typefix.clamp_ranges();
+        assert_eq!(cfg.engine.auto_typefix.forward_time_window_ms, 3500);
+        // reverse는 신 필드 미지정 → 기본값이었으므로 legacy 값(1500) 주입.
+        assert_eq!(cfg.engine.auto_typefix.reverse_time_window_ms, 1500);
+    }
+
+    #[test]
+    fn test_empty_yaml_full_defaults() {
+        // 완전히 빈 YAML에서도 모든 기본값이 채워져야 함.
+        let cfg: Config = serde_yaml::from_str("{}").unwrap();
+        assert!(cfg.engine.auto_typefix.skip_on_english_word);
+        assert!(cfg.engine.auto_typefix.skip_on_complete_syllable);
+    }
+
+    /// 제거된 필드(auto_switch, manual_shortcuts)가 포함된 구 yaml도
+    /// 파싱 실패 없이 무시되어야 한다 (serde_yaml 기본 동작: unknown field ignore).
+    #[test]
+    fn test_legacy_yaml_removed_fields_ignored() {
+        let yaml = "engine:\n  auto_switch:\n    enabled: true\n    threshold: 0.7\n  manual_shortcuts:\n    forward: ['<Super>k']\n    reverse: ['<Shift><Super>k']\n";
+        let _: crate::config::Config =
+            serde_yaml::from_str(yaml).expect("legacy yaml must still parse");
+    }
+
+    // === AutoEnglish 설정 테스트 ===
+
+    #[test]
+    fn test_auto_english_defaults() {
+        let c = AutoEnglishConfig::default();
+        assert!(!c.enabled, "기본은 비활성 (opt-in)");
+        assert_eq!(
+            c.trigger_keys,
+            vec!["Escape", "Slash"],
+            "기본 트리거 키는 ESC / '/'"
+        );
+    }
+
+    #[test]
+    fn test_auto_english_serde_roundtrip() {
+        let mut cfg = Config::default();
+        cfg.engine.auto_english.enabled = true;
+        cfg.engine.auto_english.trigger_keys = vec!["Escape".into(), "Period".into()];
+
+        let yaml = serde_yaml::to_string(&cfg).unwrap();
+        let loaded: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(loaded.engine.auto_english.enabled);
+        assert_eq!(
+            loaded.engine.auto_english.trigger_keys,
+            vec!["Escape", "Period"]
+        );
+    }
+
+    /// 구 YAML에 `auto_english` 섹션이 없어도 기본값으로 채워져야 한다.
+    #[test]
+    fn test_auto_english_serde_backcompat() {
+        let legacy = r#"
+engine:
+  auto_typefix:
+    enabled: true
+"#;
+        let cfg: Config = serde_yaml::from_str(legacy).expect("legacy yaml must parse");
+        assert!(!cfg.engine.auto_english.enabled);
+        assert_eq!(
+            cfg.engine.auto_english.trigger_keys,
+            vec!["Escape", "Slash"]
+        );
     }
 
     // === ConfigError Display 테스트 ===

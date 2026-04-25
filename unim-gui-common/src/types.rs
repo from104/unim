@@ -61,6 +61,11 @@ pub enum GuiAction {
     },
     /// 팝업 숨김
     HidePopup,
+    /// 한자 즐겨찾기 상태 변경 (index, bookmarked)
+    HanjaBookmarkChanged {
+        index: u32,
+        bookmarked: bool,
+    },
     /// 팝업 네비게이션 (페이지/선택 변경)
     PopupNavigate {
         page: i32,

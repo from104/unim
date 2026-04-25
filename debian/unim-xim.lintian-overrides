@@ -1,0 +1,7 @@
+# unim-xim — lintian overrides (justified)
+
+# embedded-library libyaml: see unim-common.lintian-overrides for rationale
+# (pure-Rust `unsafe-libyaml` rewrite, no system libyaml.so dependency).
+unim-xim: embedded-library libyaml [usr/libexec/unim-xim]
+
+unim-xim: initial-upload-closes-no-bugs *

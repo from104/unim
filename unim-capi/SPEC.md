@@ -159,9 +159,6 @@ typedef struct {
 | `unim_config_get_english_layout` / `set` | `UnimEnglishLayout` | `engine.english.layout` |
 | `unim_config_get_default_category` / `set` | `UnimInputCategory` | `engine.default_category` |
 | `unim_config_get_mode_sharing` / `set` | `UnimModeSharingMode` | `engine.mode_sharing` |
-| `unim_config_get_auto_switch_enabled` / `set` | `bool` | `engine.auto_switch.enabled` |
-| `unim_config_get_auto_switch_threshold` / `set` | `float` | `engine.auto_switch.threshold` (0.0~1.0 클램핑) |
-| `unim_config_get_auto_switch_notification` / `set` | `bool` | `engine.auto_switch.show_notification` |
 
 ### 3.4 엔진 생명주기
 

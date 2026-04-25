@@ -60,6 +60,39 @@ impl HangulInputContext {
         }
     }
 
+    /// 자판 프로필(`LayoutProfile`)로부터 컨텍스트를 생성합니다.
+    ///
+    /// `profile.layout_type`(`"2bul"` / `"3bul"`)에 따라 해당 Composer를
+    /// `new_with_profile`로 만들고, combinations + 활성 rule_sets 병합을 적용합니다.
+    /// `layout_type`이 이 중 어느 것도 아니면 `TwoBul`로 안전 폴백(영문 계열).
+    ///
+    /// 스펙: `docs/plans/LAYOUT_PROFILE_V1.md` §5.2, IMPL §2.4.
+    pub fn new_with_profile(
+        profile: &crate::keystroke::profile::LayoutProfile,
+    ) -> Result<Self, crate::keystroke::profile::BuildError> {
+        match profile.layout_type.as_str() {
+            "3bul" => {
+                let composer = HangulComposer3Bul::new_with_profile(profile)?;
+                Ok(Self {
+                    composer: Box::new(composer),
+                    preedit: String::new(),
+                    committed: String::new(),
+                    composer_type: ComposerType::ThreeBul,
+                })
+            }
+            // "2bul" 또는 영문 계열(qwerty/dvorak/...): 한글 조합 경로는 2벌식 기반.
+            _ => {
+                let composer = HangulComposer2Bul::new_with_profile(profile)?;
+                Ok(Self {
+                    composer: Box::new(composer),
+                    preedit: String::new(),
+                    committed: String::new(),
+                    composer_type: ComposerType::TwoBul,
+                })
+            }
+        }
+    }
+
     /// 자모를 입력받아 처리합니다.
     ///
     /// # Returns
@@ -309,6 +342,39 @@ mod tests {
     #[test]
     fn test_default() {
         let ctx = HangulInputContext::default();
+        assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
+    }
+
+    #[test]
+    fn new_with_profile_2bul_from_builtin() {
+        let profile =
+            crate::keystroke::profile::load_builtin_profile("ko_2bulstd").unwrap();
+        let mut ctx = HangulInputContext::new_with_profile(&profile).unwrap();
+        assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
+        // 기본 조합 동작 확인: ㄱ + ㅏ + ㄱ = 각
+        ctx.process_jamo(JamoEnum::Cho(Cho::G));
+        ctx.process_jamo(JamoEnum::Jung(Jung::A));
+        ctx.process_jamo(JamoEnum::Cho(Cho::G));
+        assert_eq!(ctx.get_preedit(), "각");
+    }
+
+    #[test]
+    fn new_with_profile_3bul_from_builtin() {
+        let profile =
+            crate::keystroke::profile::load_builtin_profile("ko_3bul390").unwrap();
+        let mut ctx = HangulInputContext::new_with_profile(&profile).unwrap();
+        assert_eq!(ctx.get_composer_type(), ComposerType::ThreeBul);
+        ctx.process_jamo(JamoEnum::Cho(Cho::G));
+        ctx.process_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(ctx.get_preedit(), "가");
+    }
+
+    #[test]
+    fn new_with_profile_english_type_falls_back_to_2bul() {
+        // 영문 프로필(qwerty 등)도 한글 컨텍스트 생성 경로상 2벌식 composer로 폴백.
+        let profile =
+            crate::keystroke::profile::load_builtin_profile("en_qwerty").unwrap();
+        let ctx = HangulInputContext::new_with_profile(&profile).unwrap();
         assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
     }
 }

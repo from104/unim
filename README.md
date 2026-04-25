@@ -18,9 +18,10 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | 컴포넌트 | 경로 | 설명 |
 |----------|------|------|
 | **Core Engine** | `src/` | Rust 한글 조합/분해 로직 (2벌식, 3벌식 390/391/순아래) |
+| **AutoTypeFix** | `src/auto_typefix.rs` | 한↔영 자동 오타 교정 (forward/reverse, prefix-avoidance) |
+| **억제 사전** | `src/typefix_blacklist.rs` | 롤백·재시도 관측으로 오타 교정 제외 단어 자동 학습 (`~/.config/unim/typefix-blacklist.yaml`). GTK 설정창의 "억제 단어" 페이지에서 Tentative/Confirmed/Inactive 관리 |
 | **C-API** | `unim-capi/` | Core를 C/C++에서 사용하기 위한 FFI 래퍼 |
-| **CLI** | `unim-cli/` | 독립형 명령줄 인터페이스 |
-| **Config CLI** | `unim-config/` | 설정 관리 CLI 도구 |
+| **CLI** | `unim-cli/` | 한↔영 변환 + `config` 서브커맨드로 설정 관리까지 통합한 독립형 명령줄 도구 |
 
 ### 3계층 서비스
 
@@ -48,6 +49,33 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | **GUI GTK** | `unim-gui-gtk/` | GTK 기반 시스템 트레이 및 설정 UI |
 | **GUI Qt** | `unim-gui-qt/` | Qt6 기반 시스템 트레이 및 설정 UI |
 | **GNOME Extension** | `unim-gnome-extension/` | GNOME Shell 확장 (인디케이터, 오타 변환, 설정) |
+
+## 📖 컴포넌트별 명세(SPEC) 인덱스
+
+컴포넌트마다 세부 명세는 코드 옆 `SPEC.md`에 두었다. 아래가 전체 조감도:
+
+| 계층 | 컴포넌트 | 명세 |
+|------|---------|------|
+| Core | Rust 엔진 | [`src/SPEC.md`](src/SPEC.md) |
+| Core | C-API FFI | [`unim-capi/SPEC.md`](unim-capi/SPEC.md) |
+| Core | CLI 변환기 + 설정 관리 | [`unim-cli/SPEC.md`](unim-cli/SPEC.md) |
+| DBus | 데몬 | [`unim-daemon/SPEC.md`](unim-daemon/SPEC.md) |
+| DBus | IPC 라이브러리 | [`unim-dbus/SPEC.md`](unim-dbus/SPEC.md) |
+| Frontend | GTK3 IM | [`unim-frontends/gtk3/SPEC.md`](unim-frontends/gtk3/SPEC.md) |
+| Frontend | GTK4 IM | [`unim-frontends/gtk4/SPEC.md`](unim-frontends/gtk4/SPEC.md) |
+| Frontend | Qt5 IM | [`unim-frontends/qt5/SPEC.md`](unim-frontends/qt5/SPEC.md) |
+| Frontend | Qt6 IM | [`unim-frontends/qt6/SPEC.md`](unim-frontends/qt6/SPEC.md) |
+| Frontend | XIM | [`unim-frontends/xim/SPEC.md`](unim-frontends/xim/SPEC.md) |
+| Frontend | Wayland | [`unim-frontends/wayland/SPEC.md`](unim-frontends/wayland/SPEC.md) |
+| Frontend | GNOME Shell | [`unim-gnome-extension/SPEC.md`](unim-gnome-extension/SPEC.md) |
+| 공용 | 한자/특수문자 팝업 | [`docs/specs/POPUP_SPEC.md`](docs/specs/POPUP_SPEC.md) |
+| 공용 | IME 동작(프론트엔드 공통) | [`IME_BEHAVIOR.md`](IME_BEHAVIOR.md) |
+
+관련 리소스:
+- 개발 규약 / 로깅 / 설정 동기화: [`GEMINI.md`](GEMINI.md)
+- 에이전트·기여자 진입점: [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- 아키텍처 리서치 / 이력: [`docs/research/`](docs/research/), [`docs/history/`](docs/history/)
+- 실행 가능 예제: [`examples/README.md`](examples/README.md)
 
 ## 🏗️ 시스템 아키텍처 및 동작 원리
 
@@ -79,7 +107,7 @@ DBus는 UNIM 시스템의 **중추신경계** 역할을 하며 다음과 같이 
 ### 3. C-API 및 라이브러리 연동
 
 - **`unim-capi`**: Rust 코어를 C 언어에서 사용할 수 있도록 래핑한 계층입니다.
-- 설정 도구(`unim-config`)나 일부 성능이 중요한 툴킷 모듈은 DBus 대신 이 C-API를 통해 엔진 데이터에 직접 접근하거나 설정을 관리합니다.
+- 설정 도구(`unim-cli config`)나 일부 성능이 중요한 툴킷 모듈은 DBus 대신 이 C-API를 통해 엔진 데이터에 직접 접근하거나 설정을 관리합니다.
 
 ### 4. 데몬 관리 및 Systemd 통합
 
