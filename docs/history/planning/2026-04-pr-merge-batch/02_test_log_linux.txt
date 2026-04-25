@@ -1,0 +1,235 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling futures-util v0.3.31
+   Compiling concurrent-queue v2.5.0
+   Compiling libloading v0.8.9
+   Compiling tracing v0.1.44
+   Compiling futures-lite v2.6.1
+   Compiling zvariant v4.2.0
+   Compiling atomic-waker v1.1.2
+   Compiling async-task v4.7.1
+   Compiling unim v0.1.0 (/home/from104/work/unim)
+   Compiling scoped-tls v1.0.1
+   Compiling linux-raw-sys v0.4.15
+   Compiling quick-xml v0.30.0
+   Compiling dlib v0.5.3
+   Compiling event-listener v5.4.1
+   Compiling piper v0.2.4
+   Compiling wayland-sys v0.31.8
+   Compiling percent-encoding v2.3.2
+   Compiling ttf-parser v0.25.1
+   Compiling ahash v0.8.12
+   Compiling event-listener-strategy v0.5.4
+   Compiling wayland-backend v0.3.12
+   Compiling rustix v0.38.44
+   Compiling ab_glyph_rasterizer v0.1.10
+   Compiling async-broadcast v0.7.2
+   Compiling async-channel v2.5.0
+   Compiling async-lock v3.4.2
+   Compiling x11rb-protocol v0.13.2
+   Compiling scopeguard v1.2.0
+   Compiling accesskit v0.17.1
+   Compiling blocking v1.6.2
+   Compiling async-io v2.6.0
+   Compiling async-fs v2.2.0
+   Compiling async-executor v1.14.0
+   Compiling wayland-client v0.31.12
+   Compiling wayland-csd-frame v0.3.0
+   Compiling lock_api v0.4.14
+   Compiling x11-dl v2.21.0
+   Compiling parking_lot_core v0.9.12
+   Compiling foldhash v0.1.5
+   Compiling form_urlencoded v1.2.2
+   Compiling immutable-chunkmap v2.1.2
+   Compiling png v0.18.1
+   Compiling hashbrown v0.15.5
+   Compiling parking_lot v0.12.5
+   Compiling owned_ttf_parser v0.25.1
+   Compiling zbus_names v3.0.0
+   Compiling ab_glyph v0.2.32
+   Compiling wayland-protocols v0.32.10
+   Compiling futures-executor v0.3.31
+   Compiling zbus v4.4.0
+   Compiling zbus_xml v4.0.0
+   Compiling glib v0.20.12
+   Compiling wayland-cursor v0.31.12
+   Compiling emath v0.31.1
+   Compiling raw-window-handle v0.6.2
+   Compiling image v0.25.9
+   Compiling zbus-lockstep v0.4.4
+   Compiling calloop v0.13.0
+   Compiling ecolor v0.31.1
+   Compiling accesskit_consumer v0.26.0
+   Compiling url v2.5.8
+   Compiling zbus v5.13.2
+   Compiling zbus-lockstep-macros v0.4.4
+   Compiling calloop-wayland-source v0.3.0
+   Compiling calloop v0.14.4
+   Compiling xkbcommon-dl v0.4.2
+   Compiling thiserror-impl v2.0.18
+   Compiling profiling v1.0.17
+   Compiling epaint_default_fonts v0.31.1
+   Compiling smol_str v0.2.2
+   Compiling nohash-hasher v0.2.0
+   Compiling dpi v0.1.2
+   Compiling calloop-wayland-source v0.4.1
+   Compiling epaint v0.31.1
+   Compiling glutin_glx_sys v0.6.1
+   Compiling glutin_egl_sys v0.7.1
+   Compiling glutin v0.32.3
+   Compiling webbrowser v1.2.0
+   Compiling web-time v1.1.0
+   Compiling glow v0.16.0
+   Compiling tikv-jemalloc-sys v0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+   Compiling thiserror v2.0.18
+   Compiling unim-capi v0.1.0 (/home/from104/work/unim/unim-capi)
+   Compiling which v6.0.3
+   Compiling cxx-qt-lib v0.8.1
+   Compiling unim-gui-qt v0.1.0 (/home/from104/work/unim/unim-gui-qt)
+   Compiling egui v0.31.1
+   Compiling tikv-jemallocator v0.6.1
+   Compiling unim-cli v0.1.0 (/home/from104/work/unim/unim-cli)
+   Compiling wayland-protocols-wlr v0.3.10
+   Compiling smithay-client-toolkit v0.19.2
+   Compiling wayland-protocols-plasma v0.3.10
+   Compiling unim-dbus v0.1.0 (/home/from104/work/unim/unim-dbus)
+   Compiling atspi-common v0.6.0
+   Compiling gio v0.20.12
+   Compiling x11rb v0.13.2
+   Compiling sctk-adwaita v0.10.1
+   Compiling cairo-rs v0.20.12
+   Compiling wayland-protocols-misc v0.3.10
+   Compiling atspi-proxies v0.6.0
+   Compiling accesskit_atspi_common v0.10.1
+   Compiling winit v0.30.13
+   Compiling ksni v0.3.3
+   Compiling wayland-protocols-experimental v20250721.0.1
+   Compiling smithay-client-toolkit v0.20.0
+   Compiling graphene-rs v0.20.10
+   Compiling arboard v3.6.1
+   Compiling atspi-connection v0.6.0
+   Compiling atspi v0.22.0
+   Compiling accesskit_unix v0.13.1
+   Compiling smithay-clipboard v0.7.3
+   Compiling unim-gui-common v0.1.0 (/home/from104/work/unim/unim-gui-common)
+   Compiling egui_glow v0.31.1
+   Compiling glutin-winit v0.5.0
+   Compiling xim v0.5.0
+   Compiling unim-tsf v0.1.0 (/home/from104/work/unim/unim-tsf)
+   Compiling accesskit_winit v0.23.1
+   Compiling egui-winit v0.31.1
+   Compiling eframe v0.31.1
+   Compiling gdk-pixbuf v0.20.10
+   Compiling pango v0.20.12
+   Compiling unim-wayland v0.1.0 (/home/from104/work/unim/unim-frontends/wayland)
+   Compiling unim-xim v0.1.0 (/home/from104/work/unim/unim-frontends/xim)
+   Compiling unim-test-wayland v0.1.0 (/home/from104/work/unim/tests/unim-test-wayland)
+   Compiling unim-windows v0.1.0 (/home/from104/work/unim/unim-windows)
+   Compiling unim-test-dbus v0.1.0 (/home/from104/work/unim/tests/unim-test-dbus)
+error[E0308]: mismatched types
+   --> unim-windows/src/app.rs:177:25
+    |
+177 |             if let Some((_delete_count, replacement)) = self.engine.typefix_convert(0) {
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^    ------------------------------ this expression has type `Option<(i32, u32, String)>`
+    |                         |
+    |                         expected a tuple with 3 elements, found one with 2 elements
+    |
+    = note: expected tuple `(i32, u32, String)`
+               found tuple `(_, _)`
+
+error[E0599]: no associated item named `Dubeolsik` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:238:61
+    |
+238 |                         ("두벌식", unim::config::KoreanLayout::Dubeolsik),
+    |                                                                ^^^^^^^^^ associated item not found in `String`
+
+error[E0599]: no associated item named `Sebeolsik390` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:239:65
+    |
+239 |                         ("세벌식 390", unim::config::KoreanLayout::Sebeolsik390),
+    |                                                                    ^^^^^^^^^^^^ associated item not found in `String`
+
+error[E0599]: no associated item named `Sebeolsik391` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:240:65
+    |
+240 |                         ("세벌식 391", unim::config::KoreanLayout::Sebeolsik391),
+    |                                                                    ^^^^^^^^^^^^ associated item not found in `String`
+
+error[E0599]: no associated item named `SebeolsikNoShift` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:241:65
+    |
+241 |                         ("세벌식 순아래", unim::config::KoreanLayout::SebeolsikNoShift),
+    |                                                                       ^^^^^^^^^^^^^^^^ associated item not found in `String`
+
+error[E0599]: no associated item named `Qwerty` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:256:65
+    |
+256 |                         ("QWERTY", unim::config::EnglishLayout::Qwerty),
+    |                                                                 ^^^^^^ associated item not found in `String`
+
+error[E0599]: no associated item named `Dvorak` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:257:65
+    |
+257 |                         ("Dvorak", unim::config::EnglishLayout::Dvorak),
+    |                                                                 ^^^^^^ associated item not found in `String`
+
+error[E0599]: no associated item named `Colemak` found for struct `String` in the current scope
+    --> unim-windows/src/app.rs:258:66
+     |
+ 258 |                         ("Colemak", unim::config::EnglishLayout::Colemak),
+     |                                                                  ^^^^^^^ associated item not found in `String`
+     |
+help: there is a method `leak` with a similar name
+    --> /home/from104/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/string.rs:2205:5
+     |
+2205 |     pub fn leak<'a>(self) -> &'a mut str {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no associated item named `ColemakDh` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:259:69
+    |
+259 |                         ("Colemak-DH", unim::config::EnglishLayout::ColemakDh),
+    |                                                                     ^^^^^^^^^ associated item not found in `String`
+
+error[E0599]: no associated item named `Workman` found for struct `String` in the current scope
+   --> unim-windows/src/app.rs:260:66
+    |
+260 |                         ("Workman", unim::config::EnglishLayout::Workman),
+    |                                                                  ^^^^^^^ associated item not found in `String`
+
+error[E0308]: mismatched types
+   --> unim-windows/src/app.rs:313:25
+    |
+313 |             if let Some((_delete_count, replacement)) = self.engine.typefix_convert(direction) {
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^    -------------------------------------- this expression has type `Option<(i32, u32, String)>`
+    |                         |
+    |                         expected a tuple with 3 elements, found one with 2 elements
+    |
+    = note: expected tuple `(i32, u32, String)`
+               found tuple `(_, _)`
+
+   Compiling unim-daemon v0.1.0 (/home/from104/work/unim/unim-daemon)
+error[E0004]: non-exhaustive patterns: `PopupAction::HanjaBookmarkChanged { .. }` not covered
+  --> unim-windows/src/ui/popup.rs:37:15
+   |
+37 |         match action {
+   |               ^^^^^^ pattern `PopupAction::HanjaBookmarkChanged { .. }` not covered
+   |
+note: `PopupAction` defined here
+  --> src/input_engine.rs:16:1
+   |
+16 | pub enum PopupAction {
+   | ^^^^^^^^^^^^^^^^^^^^
+...
+41 |     HanjaBookmarkChanged {
+   |     -------------------- not covered
+   = note: the matched value is of type `PopupAction`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+   |
+74 ~             },
+75 +             PopupAction::HanjaBookmarkChanged { .. } => todo!()
+   |
+
+Some errors have detailed explanations: E0004, E0308, E0599.
+For more information about an error, try `rustc --explain E0004`.
+error: could not compile `unim-windows` (bin "unim-windows" test) due to 12 previous errors
+warning: build failed, waiting for other jobs to finish...
