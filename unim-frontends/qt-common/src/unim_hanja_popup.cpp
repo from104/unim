@@ -14,9 +14,16 @@
 #include <QFile>
 #include <QTextStream>
 #include <QMouseEvent>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+
+/* 모드 표시 아이콘 — GTK Standalone·GNOME extension과 동일 */
+#define ICON_EXPAND  "⊞"   /* ⊞ */
+#define ICON_COMPACT "⊟"   /* ⊟ */
 
 /* 디버그 로깅 */
 static bool popup_debug_enabled = false;
@@ -56,9 +63,14 @@ static void popup_check_debug()
 UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
     : QWidget(parent, Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint)
     , m_layout(nullptr)
+    , m_body(nullptr)
     , m_pageLabel(nullptr)
+    , m_expandIcon(nullptr)
     , m_currentPage(0)
     , m_selectedIndex(0)
+    , m_selRow(0)
+    , m_selCol(0)
+    , m_cols(1)
 {
     popup_check_debug();
 
@@ -112,6 +124,37 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
         "  padding: %2px %7px;"
         "  min-height: 0px;"
         "}"
+        "QLabel#expandIcon {"
+        "  color: #7f849c;"
+        "  font-size: %6px;"
+        "  padding: %2px %7px;"
+        "  min-height: 0px;"
+        "}"
+        /* expanded 9×9 grid 셀 — compact 라벨과 별도 룰로 적용 */
+        "QLabel[gridcell=\"true\"] {"
+        "  color: #cdd6f4;"
+        "  font-size: %4px;"
+        "  min-height: %5px;"
+        "  padding: 2px;"
+        "  border-radius: 4px;"
+        "  qproperty-alignment: AlignCenter;"
+        "}"
+        "QLabel[gridcell=\"true\"]:hover {"
+        "  background-color: rgba(137, 180, 250, 38);"
+        "}"
+        "QLabel[gridcell=\"true\"][selected=\"true\"] {"
+        "  background-color: rgba(137, 180, 250, 76);"
+        "}"
+        "QLabel[gridcell=\"true\"][bookmarked=\"true\"] {"
+        "  color: #f9e2af;"
+        "}"
+        "QLabel[gridheader=\"true\"] {"
+        "  color: #7f849c;"
+        "  font-size: %6px;"
+        "  padding: 0 2px;"
+        "  qproperty-alignment: AlignCenter;"
+        "  min-height: 0px;"
+        "}"
     ).arg(padding).arg(labelPadV).arg(labelPadH).arg(fontSize)
      .arg(minHeight).arg(pageFontSize).arg(pagePadH));
 
@@ -119,20 +162,30 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
     m_layout->setContentsMargins(4, 4, 4, 4);
     m_layout->setSpacing(1);
 
-    /* 후보 레이블 생성 */
-    for (int i = 0; i < MAX_VISIBLE_CANDIDATES; i++) {
-        m_labels[i] = new QLabel(this);
-        m_labels[i]->setVisible(false);
-        m_labels[i]->setCursor(Qt::PointingHandCursor);
-        m_layout->addWidget(m_labels[i]);
-    }
+    /* body 컨테이너 — compact는 QVBoxLayout, expanded는 QGridLayout을 가진다.
+     * 모드 전환 시 컨테이너 자체를 갈아끼운다 (자식 라벨도 함께 정리). */
+    m_body = new QWidget(this);
+    m_layout->addWidget(m_body);
 
-    /* 페이지 레이블 */
-    m_pageLabel = new QLabel(this);
+    /* 푸터: 페이지 라벨(좌) + 확장 아이콘(우) */
+    QWidget *footer = new QWidget(this);
+    QHBoxLayout *footerLayout = new QHBoxLayout(footer);
+    footerLayout->setContentsMargins(0, 0, 0, 0);
+    footerLayout->setSpacing(2);
+
+    m_pageLabel = new QLabel(footer);
     m_pageLabel->setObjectName("pageLabel");
-    m_pageLabel->setAlignment(Qt::AlignCenter);
+    m_pageLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_pageLabel->setVisible(false);
-    m_layout->addWidget(m_pageLabel);
+    footerLayout->addWidget(m_pageLabel, 1);
+
+    m_expandIcon = new QLabel(footer);
+    m_expandIcon->setObjectName("expandIcon");
+    m_expandIcon->setText(QString::fromUtf8(ICON_EXPAND));
+    m_expandIcon->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    footerLayout->addWidget(m_expandIcon, 0);
+
+    m_layout->addWidget(footer);
 
     setLayout(m_layout);
     hide();
@@ -164,6 +217,9 @@ void UnimHanjaPopup::showPopup(const QString &target,
     m_callback = std::move(callback);
     m_currentPage = 0;
     m_selectedIndex = 0;
+    m_selRow = 0;
+    m_selCol = 0;
+    m_cols = 1;
 
     /* PopupState 생성 */
     int count = m_candidates.size();
@@ -222,11 +278,18 @@ bool UnimHanjaPopup::handleKey(int key)
         hidePopup();
         return false;
 
-    case UNIM_POPUP_RESULT_UPDATED:
+    case UNIM_POPUP_RESULT_UPDATED: {
+        /* Period 키 토글로 cols가 1↔9 전환되면 compact↔expanded 위젯 트리도
+         * 함께 재구성된다 (updateList가 cols로 분기). */
+        int engineCols = unim_popup_get_cols(m_popupState);
+        m_cols = engineCols > 0 ? engineCols : 1;
         m_currentPage = unim_popup_get_current_page(m_popupState);
-        m_selectedIndex = unim_popup_get_sel_row(m_popupState);
+        m_selRow = unim_popup_get_sel_row(m_popupState);
+        m_selCol = unim_popup_get_sel_col(m_popupState);
+        m_selectedIndex = m_selRow;
         updateList();
         return true;
+    }
 
     case UNIM_POPUP_RESULT_CONSUMED:
         return true;
@@ -272,54 +335,139 @@ void UnimHanjaPopup::setBookmark(quint32 globalIndex, bool bookmarked)
     }
     m_bookmarks[idx] = bookmarked;
 
-    // 현재 페이지에 포함될 때만 재렌더
-    int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
-    int pageEnd = pageStart + MAX_VISIBLE_CANDIDATES;
+    // 현재 페이지에 포함될 때만 재렌더 (페이지 크기는 모드 의존)
+    int ps = pageSize();
+    int pageStart = m_currentPage * ps;
+    int pageEnd = pageStart + ps;
     if (idx >= pageStart && idx < pageEnd && isVisible()) {
         updateList();
     }
 }
 
+int UnimHanjaPopup::totalPages() const
+{
+    int ps = (m_cols > 1) ? EXPANDED_PAGE_SIZE : COMPACT_PAGE_SIZE;
+    if (m_candidates.isEmpty()) return 1;
+    return (m_candidates.size() + ps - 1) / ps;
+}
+
+/* body 자식 위젯 모두 정리 — 모드 전환 또는 재렌더 진입점에서 호출. */
+void UnimHanjaPopup::clearBodyLabels()
+{
+    if (!m_body) return;
+    QLayout *old = m_body->layout();
+    if (old) {
+        QLayoutItem *item;
+        while ((item = old->takeAt(0)) != nullptr) {
+            if (QWidget *w = item->widget()) {
+                w->setParent(nullptr);
+                w->deleteLater();
+            }
+            delete item;
+        }
+        delete old;
+    }
+    m_cells.clear();
+}
+
 void UnimHanjaPopup::updateList()
 {
-    int totalPages = (m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES;
-    int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
-    int pageCount = qMin(static_cast<int>(MAX_VISIBLE_CANDIDATES),
-                         m_candidates.size() - pageStart);
+    int ps = pageSize();
+    int pageStart = m_currentPage * ps;
+    int pageEnd = qMin(pageStart + ps, m_candidates.size());
 
-    for (int i = 0; i < MAX_VISIBLE_CANDIDATES; i++) {
-        if (i < pageCount) {
-            int globalIdx = pageStart + i;
-            const UnimHanjaCandidate &cand = m_candidates.at(globalIdx);
-            bool bookmarked = (globalIdx < m_bookmarks.size())
-                              ? m_bookmarks.at(globalIdx)
-                              : false;
-            // 별을 텍스트 suffix로 삽입 (고정 QLabel 슬롯만 있어 별도 위젯 대신 인라인)
-            QString star = bookmarked ? QStringLiteral("  ★") : QStringLiteral("  ☆");
-            QString text = QString("%1. %2  %3%4")
-                               .arg(i + 1)
-                               .arg(cand.hanja, cand.meaning, star);
-            m_labels[i]->setText(text);
-            m_labels[i]->setProperty("selected", i == m_selectedIndex);
-            m_labels[i]->setProperty("bookmarked", bookmarked);
-            m_labels[i]->setVisible(true);
-            /* 스타일 새로고침 */
-            m_labels[i]->style()->unpolish(m_labels[i]);
-            m_labels[i]->style()->polish(m_labels[i]);
-        } else {
-            m_labels[i]->setVisible(false);
-        }
+    clearBodyLabels();
+
+    if (m_cols > 1) {
+        renderExpandedGrid(pageStart, pageEnd);
+    } else {
+        renderCompactList(pageStart, pageEnd);
     }
 
-    /* 페이지 표시 */
-    if (totalPages > 1) {
-        m_pageLabel->setText(QString("%1/%2").arg(m_currentPage + 1).arg(totalPages));
+    /* 푸터 — 페이지 라벨 + 확장 아이콘 갱신 */
+    int total = totalPages();
+    if (total > 1) {
+        m_pageLabel->setText(QString("%1/%2").arg(m_currentPage + 1).arg(total));
         m_pageLabel->setVisible(true);
     } else {
+        m_pageLabel->setText(QString());
         m_pageLabel->setVisible(false);
+    }
+    if (m_expandIcon) {
+        /* QStringLiteral은 매크로이므로 ternary로 풀 수 없다 — QString::fromUtf8 사용. */
+        m_expandIcon->setText(QString::fromUtf8(m_cols > 1 ? ICON_COMPACT : ICON_EXPAND));
     }
 
     adjustSize();
+}
+
+/* compact 모드 — 1×9 QLabel 세로 나열, 각 라벨 클릭 시 selectCandidate 호출. */
+void UnimHanjaPopup::renderCompactList(int pageStart, int pageEnd)
+{
+    QVBoxLayout *vbox = new QVBoxLayout(m_body);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->setSpacing(1);
+
+    int n = pageEnd - pageStart;
+    for (int i = 0; i < n; i++) {
+        int globalIdx = pageStart + i;
+        const UnimHanjaCandidate &cand = m_candidates.at(globalIdx);
+        bool bookmarked = (globalIdx < m_bookmarks.size())
+                          ? m_bookmarks.at(globalIdx)
+                          : false;
+        QString star = bookmarked ? QStringLiteral("  ★") : QStringLiteral("  ☆");
+        QString text = QString("%1. %2  %3%4")
+                           .arg(i + 1)
+                           .arg(cand.hanja, cand.meaning, star);
+        QLabel *lbl = new QLabel(text, m_body);
+        lbl->setCursor(Qt::PointingHandCursor);
+        lbl->setProperty("selected", i == m_selectedIndex);
+        lbl->setProperty("bookmarked", bookmarked);
+        lbl->style()->unpolish(lbl);
+        lbl->style()->polish(lbl);
+        vbox->addWidget(lbl);
+        m_cells.push_back(lbl);
+    }
+}
+
+/* expanded 모드 — 9×9 QGridLayout. 헤더 행에 1-9, 그 아래 col 우선 인덱싱
+ * (idx = col*9 + row)으로 셀 배치. 기현 클릭은 셀의 unim-global-idx 프로퍼티로
+ * 식별한다. */
+void UnimHanjaPopup::renderExpandedGrid(int pageStart, int pageEnd)
+{
+    QGridLayout *grid = new QGridLayout(m_body);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(2);
+    grid->setVerticalSpacing(2);
+
+    for (int col = 0; col < EXPANDED_COLS; col++) {
+        QLabel *header = new QLabel(QString::number(col + 1), m_body);
+        header->setProperty("gridheader", true);
+        header->style()->unpolish(header);
+        header->style()->polish(header);
+        grid->addWidget(header, 0, col);
+
+        for (int row = 0; row < EXPANDED_ROWS; row++) {
+            int offset = col * EXPANDED_ROWS + row;
+            int global = pageStart + offset;
+            if (global >= pageEnd) continue;
+            const UnimHanjaCandidate &cand = m_candidates.at(global);
+            bool bookmarked = (global < m_bookmarks.size())
+                              ? m_bookmarks.at(global)
+                              : false;
+            QLabel *cell = new QLabel(cand.hanja, m_body);
+            cell->setCursor(Qt::PointingHandCursor);
+            cell->setProperty("gridcell", true);
+            cell->setProperty("selected", (col == m_selCol && row == m_selRow));
+            cell->setProperty("bookmarked", bookmarked);
+            cell->setProperty("unim-global-idx", global);
+            cell->setAlignment(Qt::AlignCenter);
+            cell->style()->unpolish(cell);
+            cell->style()->polish(cell);
+            grid->addWidget(cell, row + 1, col);
+            m_cells.push_back(cell);
+        }
+    }
 }
 
 void UnimHanjaPopup::selectCandidate(int index)
@@ -338,28 +486,32 @@ void UnimHanjaPopup::selectCandidate(int index)
 
 void UnimHanjaPopup::nextPage()
 {
-    int totalPages = (m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES;
-    if (totalPages > 1) {
-        if (m_currentPage < totalPages - 1) {
+    int total = totalPages();
+    if (total > 1) {
+        if (m_currentPage < total - 1) {
             m_currentPage++;
         } else {
             m_currentPage = 0;
         }
         m_selectedIndex = 0;
+        m_selRow = 0;
+        m_selCol = 0;
         updateList();
     }
 }
 
 void UnimHanjaPopup::prevPage()
 {
-    int totalPages = (m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES;
-    if (totalPages > 1) {
+    int total = totalPages();
+    if (total > 1) {
         if (m_currentPage > 0) {
             m_currentPage--;
         } else {
-            m_currentPage = totalPages - 1;
+            m_currentPage = total - 1;
         }
         m_selectedIndex = 0;
+        m_selRow = 0;
+        m_selCol = 0;
         updateList();
     }
 }
@@ -409,27 +561,33 @@ void UnimHanjaPopup::mousePressEvent(QMouseEvent *event)
         /* 우클릭 → 다음 페이지 (순환) */
         nextPage();
         POPUP_DEBUG(QString::asprintf("우클릭 → 다음 페이지: %d/%d",
-                    m_currentPage + 1,
-                    static_cast<int>((m_candidates.size() + MAX_VISIBLE_CANDIDATES - 1) / MAX_VISIBLE_CANDIDATES)));
+                    m_currentPage + 1, totalPages()));
         event->accept();
         return;
     }
 
     if (event->button() == Qt::LeftButton) {
-        /* 좌클릭 → 클릭 위치의 행을 찾아 선택 */
-        int clickY = event->pos().y();
-        for (int i = 0; i < MAX_VISIBLE_CANDIDATES; i++) {
-            if (m_labels[i]->isVisible()) {
-                QRect labelRect = m_labels[i]->geometry();
-                if (labelRect.contains(event->pos().x(), clickY)) {
-                    int pageStart = m_currentPage * MAX_VISIBLE_CANDIDATES;
-                    int actualIndex = pageStart + i;
-                    if (actualIndex < m_candidates.size()) {
-                        selectCandidate(actualIndex);
-                    }
-                    event->accept();
-                    return;
+        /* 좌클릭 → 동적 셀 풀(m_cells)에서 hit-test.
+         * 각 셀은 compact는 i번째(=row local), expanded는 unim-global-idx 프로퍼티에
+         * 글로벌 인덱스를 가지고 있어 페이지·모드와 무관하게 정확히 해석된다. */
+        QPoint bodyPos = m_body ? m_body->mapFrom(this, event->pos()) : event->pos();
+        for (size_t i = 0; i < m_cells.size(); i++) {
+            QLabel *cell = m_cells[i];
+            if (!cell || !cell->isVisible()) continue;
+            if (cell->geometry().contains(bodyPos)) {
+                QVariant gv = cell->property("unim-global-idx");
+                int actualIndex;
+                if (gv.isValid()) {
+                    actualIndex = gv.toInt();
+                } else {
+                    /* compact 모드: i가 곧 페이지 내 행. */
+                    actualIndex = m_currentPage * COMPACT_PAGE_SIZE + static_cast<int>(i);
                 }
+                if (actualIndex >= 0 && actualIndex < m_candidates.size()) {
+                    selectCandidate(actualIndex);
+                }
+                event->accept();
+                return;
             }
         }
     }

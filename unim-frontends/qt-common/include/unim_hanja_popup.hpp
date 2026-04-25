@@ -11,15 +11,21 @@
 #include <QWidget>
 #include <QLabel>
 #include <QVBoxLayout>
+#include <QGridLayout>
 #include <QKeyEvent>
 #include <QScreen>
 #include <QGuiApplication>
 #include <functional>
+#include <vector>
 #include "unim_dbus_client.hpp"
 #include "unim.h"
 
-/* 한 페이지에 표시할 최대 후보 수 */
+/* compact / expanded 모드 페이지 구성 (compact = 1×9, expanded = 9×9) */
 #define MAX_VISIBLE_CANDIDATES 9
+#define COMPACT_PAGE_SIZE      9
+#define EXPANDED_PAGE_SIZE     81
+#define EXPANDED_COLS          9
+#define EXPANDED_ROWS          9
 
 /**
  * 한자 선택 콜백 타입
@@ -77,6 +83,11 @@ protected:
 
 private:
     void updateList();
+    void renderCompactList(int pageStart, int pageEnd);
+    void renderExpandedGrid(int pageStart, int pageEnd);
+    void clearBodyLabels();
+    int pageSize() const { return (m_cols > 1) ? EXPANDED_PAGE_SIZE : COMPACT_PAGE_SIZE; }
+    int totalPages() const;
     void selectCandidate(int index);
     void nextPage();
     void prevPage();
@@ -87,12 +98,18 @@ private:
     UnimHanjaSelectCallback m_callback;
     ToggleBookmarkCallback m_toggleBookmarkCallback;
 
-    QVBoxLayout *m_layout;
-    QLabel *m_labels[MAX_VISIBLE_CANDIDATES];
+    QVBoxLayout *m_layout;        /* 최상위: body(QStackedLikeBox) + footer */
+    QWidget *m_body;              /* compact list 또는 expanded grid 컨테이너 */
     QLabel *m_pageLabel;
+    QLabel *m_expandIcon;         /* ⊞/⊟ 모드 표시 */
+    /* 동적 셀 풀 — render 단계에서 갈아끼운다 (max 81) */
+    std::vector<QLabel*> m_cells;
 
     int m_currentPage;
     int m_selectedIndex;
+    int m_selRow;
+    int m_selCol;
+    int m_cols;                   /* 1=compact, 9=expanded */
 
     UnimPopupState *m_popupState = nullptr;
 };

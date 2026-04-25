@@ -10,9 +10,16 @@ use unim::unim_log;
 
 use crate::dpi;
 
-/// 페이지당 표시할 후보 수
+/// compact 모드 페이지당 후보 수 (1×9)
 #[allow(dead_code)]
 pub const PAGE_SIZE: usize = 9;
+/// expanded 모드 페이지당 후보 수 (9×9)
+const EXPANDED_PAGE_SIZE: usize = 81;
+const EXPANDED_COLS: usize = 9;
+const EXPANDED_ROWS: usize = 9;
+/// 모드 표시 아이콘 (GTK Standalone·GNOME extension과 동일)
+const ICON_EXPAND: &str = "⊞";
+const ICON_COMPACT: &str = "⊟";
 
 /// 한자 팝업 마우스 클릭 결과
 pub enum HanjaClickResult {
@@ -324,16 +331,24 @@ impl HanjaWindow {
         let ps = self.popup_state.as_ref().unwrap();
 
         // 윈도우 크기 계산: 헤더 + 후보 행 + 안내 행 + 패딩
+        // expanded(9×9) 모드는 9행 + 헤더 1행 + 더 넓은 너비가 필요하므로 분기.
         let sf = self.scale_factor;
         let line_h = self.line_height(display);
-        let page_count = ps.rows();
         let padding_y = dpi::scale(8, sf);
         let header_h = line_h + dpi::scale(4, sf);
-        let items_h = (page_count as c_int) * line_h;
         let footer_h = line_h + dpi::scale(4, sf);
         let gap = dpi::scale(4, sf);
-        let height = (padding_y + header_h + gap + items_h + footer_h + padding_y) as u16;
-        let width: u16 = dpi::scale_u16(340, sf);
+        let (width, height) = if ps.is_hanja_expanded() {
+            // 9 cells × ~32px + col-header 행 = 9 + 1 = 10 rows
+            let grid_rows = (EXPANDED_ROWS + 1) as c_int;
+            let h = (padding_y + header_h + gap + grid_rows * line_h + footer_h + padding_y) as u16;
+            (dpi::scale_u16(420, sf), h)
+        } else {
+            let page_count = ps.rows();
+            let items_h = (page_count as c_int) * line_h;
+            let h = (padding_y + header_h + gap + items_h + footer_h + padding_y) as u16;
+            (dpi::scale_u16(340, sf), h)
+        };
 
         self.size = (width, height);
         unsafe {
@@ -415,7 +430,8 @@ impl HanjaWindow {
         }
     }
 
-    /// 엔진의 PopupNavigate 시그널로 상태 갱신 + 다시 그리기
+    /// 엔진의 PopupNavigate 시그널로 상태 갱신 + 다시 그리기.
+    /// cols 변화(1↔9)는 윈도우 크기 변경을 동반하므로 resize도 함께 적용한다.
     pub fn update_from_navigate(
         &mut self,
         page: usize,
@@ -423,33 +439,77 @@ impl HanjaWindow {
         sel_col: usize,
         display: *mut x11::xlib::Display,
     ) {
-        if let Some(ps) = self.popup_state.as_mut() {
+        let needs_resize = if let Some(ps) = self.popup_state.as_mut() {
+            let prev_expanded = ps.is_hanja_expanded();
             ps.set_navigate_state(page, sel_row, sel_col);
+            prev_expanded != ps.is_hanja_expanded()
+        } else {
+            false
+        };
+        if needs_resize {
+            self.resize_for_mode(display);
         }
         self.redraw(display);
     }
 
-    /// 마우스 버튼 클릭 처리 — 행 인덱스 계산만 수행 (키 처리는 엔진에 위임)
+    /// 현재 모드(compact/expanded)에 맞춰 윈도우 크기를 재계산해 적용.
+    /// Period 키로 토글된 직후 PopupNavigate가 새 cols로 들어올 때 호출된다.
+    fn resize_for_mode(&mut self, display: *mut x11::xlib::Display) {
+        let ps = match self.popup_state.as_ref() {
+            Some(ps) => ps,
+            None => return,
+        };
+        let sf = self.scale_factor;
+        let line_h = self.line_height(display);
+        let padding_y = dpi::scale(8, sf);
+        let header_h = line_h + dpi::scale(4, sf);
+        let footer_h = line_h + dpi::scale(4, sf);
+        let gap = dpi::scale(4, sf);
+        let (width, height) = if ps.is_hanja_expanded() {
+            let grid_rows = (EXPANDED_ROWS + 1) as c_int;
+            let h = (padding_y + header_h + gap + grid_rows * line_h + footer_h + padding_y) as u16;
+            (dpi::scale_u16(420, sf), h)
+        } else {
+            let page_count = ps.rows();
+            let items_h = (page_count as c_int) * line_h;
+            let h = (padding_y + header_h + gap + items_h + footer_h + padding_y) as u16;
+            (dpi::scale_u16(340, sf), h)
+        };
+        self.size = (width, height);
+        unsafe {
+            x11::xlib::XResizeWindow(display, self.window, width as u32, height as u32);
+            x11::xlib::XFlush(display);
+        }
+    }
+
+    /// 마우스 버튼 클릭 처리 — 행 인덱스 계산만 수행 (키 처리는 엔진에 위임).
+    /// expanded(9×9) 모드의 좌클릭은 col/row → 글로벌 인덱스 변환과 합성 키 시퀀스가
+    /// 비자명하므로 현재는 키보드 전용으로 한정한다 (Consumed 반환).
+    /// compact 모드 동작은 기존과 동일.
     pub fn handle_button_press(
         &self,
         button: u32,
         y: c_int,
         display: *mut x11::xlib::Display,
     ) -> HanjaClickResult {
-        if self.popup_state.is_none() {
-            return HanjaClickResult::Consumed;
-        }
+        let ps = match self.popup_state.as_ref() {
+            Some(ps) => ps,
+            None => return HanjaClickResult::Consumed,
+        };
 
         let line_h = self.line_height(display);
 
         match button {
             1 => {
-                // 좌클릭 → 클릭한 행 계산
                 if line_h == 0 {
                     return HanjaClickResult::Consumed;
                 }
+                if ps.is_hanja_expanded() {
+                    // 9×9 grid 클릭 → 키보드 전용으로 한정 (별도 합성 키 시퀀스 필요).
+                    unim_log!("XIM_HANJA", "expanded 모드 좌클릭은 무시 (keyboard-only)");
+                    return HanjaClickResult::Consumed;
+                }
                 let idx = ((y - dpi::scale(4, self.scale_factor)) / line_h) as usize;
-                let ps = self.popup_state.as_ref().unwrap();
                 if idx < ps.rows() {
                     unim_log!("XIM_HANJA", "좌클릭 선택: row={}", idx);
                     HanjaClickResult::Select(idx as u32)
@@ -552,12 +612,26 @@ impl HanjaWindow {
         }
     }
 
-    /// 다시 그리기 — PopupState에서 데이터를 읽어 Catppuccin Mocha 렌더링
+    /// 다시 그리기 — PopupState에서 데이터를 읽어 Catppuccin Mocha 렌더링.
+    /// is_hanja_expanded()로 compact(1×9) ↔ expanded(9×9) 분기.
     pub fn redraw(&mut self, display: *mut x11::xlib::Display) {
         if display.is_null() {
             return;
         }
 
+        let expanded = match self.popup_state.as_ref() {
+            Some(ps) => ps.is_hanja_expanded(),
+            None => return,
+        };
+        if expanded {
+            self.redraw_expanded(display);
+        } else {
+            self.redraw_compact(display);
+        }
+    }
+
+    /// compact 모드 (1×9 list) 렌더 — 기존 동작.
+    fn redraw_compact(&mut self, display: *mut x11::xlib::Display) {
         let ps = match self.popup_state.as_ref() {
             Some(ps) => ps,
             None => return,
@@ -729,9 +803,9 @@ impl HanjaWindow {
             self.draw_string_with_fallback(display, star_color, star_x, y_pos, star_text);
         }
 
-        // 하단 안내
+        // 하단 안내 + ⊞ 모드 토글 아이콘 (compact 상태)
         let footer_y = items_start_y + (items.len() as c_int) * line_h + line_h;
-        let footer = "← → 페이지 | 1~9 선택 | ESC 취소";
+        let footer = "← → 페이지 | 1~9 선택 | . 확장 | ESC 취소";
         let footer_bytes = footer.as_bytes();
         unsafe {
             x11::xft::XftDrawStringUtf8(
@@ -743,6 +817,157 @@ impl HanjaWindow {
                 footer_bytes.as_ptr(),
                 footer_bytes.len() as c_int,
             );
+        }
+        // ⊞ 아이콘 (compact 모드에서는 expand 표시)
+        let icon_x = (self.size.0 as c_int) - padding_x - dpi::scale(14, sf);
+        self.draw_string_with_fallback(display, &self.page_color, icon_x, footer_y, ICON_EXPAND);
+        unsafe {
+            x11::xlib::XFlush(display);
+        }
+    }
+
+    /// expanded 모드 (9×9 grid) 렌더 — col 우선 인덱싱(idx = col*9 + row).
+    /// 헤더 row(상단)에 1-9 col 번호, 셀에 한자 한 글자.
+    fn redraw_expanded(&mut self, display: *mut x11::xlib::Display) {
+        let ps = match self.popup_state.as_ref() {
+            Some(ps) => ps,
+            None => return,
+        };
+
+        unsafe {
+            x11::xlib::XClearWindow(display, self.window);
+        }
+
+        let sf = self.scale_factor;
+        let line_h = self.line_height(display);
+        let padding_x: c_int = dpi::scale(12, sf);
+        let padding_y: c_int = dpi::scale(8, sf);
+        let inset = dpi::scale(4, sf);
+        let header_h = line_h + dpi::scale(4, sf);
+        let text_offset = dpi::scale(2, sf);
+        let total_pages = ps.total_pages();
+        let current_page = ps.current_page();
+        let sel_row = ps.sel_row();
+        let sel_col = ps.sel_col();
+        let page_start = current_page * EXPANDED_PAGE_SIZE;
+
+        // 헤더 배경
+        unsafe {
+            let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
+            x11::xlib::XSetForeground(display, gc, self.header_bg_color.pixel);
+            x11::xlib::XFillRectangle(
+                display,
+                self.window,
+                gc,
+                inset,
+                inset,
+                (self.size.0 as c_int - inset * 2) as u32,
+                header_h as u32,
+            );
+            x11::xlib::XFreeGC(display, gc);
+        }
+        // 헤더 텍스트
+        let header_text = format!("「{}」 → 한자", ps.target());
+        self.draw_string_with_fallback(
+            display,
+            &self.header_color,
+            padding_x,
+            padding_y + line_h - text_offset,
+            &header_text,
+        );
+        // 페이지 번호
+        let page_str = format!("{}/{}", current_page + 1, total_pages);
+        let page_bytes = page_str.as_bytes();
+        unsafe {
+            let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display,
+                self.xft_font,
+                page_bytes.as_ptr(),
+                page_bytes.len() as c_int,
+                &mut extents,
+            );
+            let page_x = (self.size.0 as c_int) - padding_x - extents.xOff as c_int;
+            x11::xft::XftDrawStringUtf8(
+                self.xft_draw,
+                &self.page_color,
+                self.xft_font,
+                page_x,
+                padding_y + line_h - text_offset,
+                page_bytes.as_ptr(),
+                page_bytes.len() as c_int,
+            );
+        }
+
+        // 셀 너비 = (가용 폭) / 9
+        let avail_w = (self.size.0 as c_int) - 2 * padding_x;
+        let cell_w = avail_w / EXPANDED_COLS as c_int;
+        let grid_top = padding_y + header_h + dpi::scale(4, sf);
+
+        // 컬럼 헤더 (1~9)
+        for col in 0..EXPANDED_COLS {
+            let label = format!("{}", col + 1);
+            let cx = padding_x + (col as c_int) * cell_w + cell_w / 2 - dpi::scale(4, sf);
+            let cy = grid_top + line_h - text_offset;
+            self.draw_string_with_fallback(display, &self.number_color, cx, cy, &label);
+        }
+
+        // 셀 배치 — col 우선 인덱싱
+        let cells_top = grid_top + line_h;
+        for col in 0..EXPANDED_COLS {
+            for row in 0..EXPANDED_ROWS {
+                let offset = col * EXPANDED_ROWS + row;
+                let global = page_start + offset;
+                let hanja = match ps.get_item(global) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let cx = padding_x + (col as c_int) * cell_w;
+                let cy = cells_top + (row as c_int) * line_h;
+                // 선택 셀 배경
+                if col == sel_col && row == sel_row {
+                    unsafe {
+                        let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
+                        x11::xlib::XSetForeground(display, gc, self.sel_bg_color.pixel);
+                        x11::xlib::XFillRectangle(
+                            display,
+                            self.window,
+                            gc,
+                            cx,
+                            cy,
+                            cell_w as u32,
+                            line_h as u32,
+                        );
+                        x11::xlib::XFreeGC(display, gc);
+                    }
+                }
+                let bookmarked = ps.is_bookmarked(global);
+                let color = if bookmarked { &self.header_color } else { &self.text_color };
+                // 셀 가운데 근처에 한자 (cell_w 기반 대략적 정렬 — 정밀 측정은 비용 큼)
+                let text_x = cx + dpi::scale(4, sf);
+                let text_y = cy + line_h - text_offset;
+                self.draw_string_with_fallback(display, color, text_x, text_y, hanja);
+            }
+        }
+
+        // 푸터: 안내 + ⊟ 아이콘
+        let footer_y = cells_top + (EXPANDED_ROWS as c_int) * line_h + line_h;
+        let footer = "← → ↑ ↓ 이동 | 1~9 선택 | . 축소 | ESC 취소";
+        let footer_bytes = footer.as_bytes();
+        unsafe {
+            x11::xft::XftDrawStringUtf8(
+                self.xft_draw,
+                &self.page_color,
+                self.xft_font,
+                padding_x,
+                footer_y,
+                footer_bytes.as_ptr(),
+                footer_bytes.len() as c_int,
+            );
+        }
+        let icon_x = (self.size.0 as c_int) - padding_x - dpi::scale(14, sf);
+        self.draw_string_with_fallback(display, &self.page_color, icon_x, footer_y, ICON_COMPACT);
+        unsafe {
             x11::xlib::XFlush(display);
         }
     }
