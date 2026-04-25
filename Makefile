@@ -63,7 +63,8 @@ endef
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
-        deb clean-deb test test-dbus dev-restart
+        deb clean-deb test test-dbus dev-restart \
+        check-windows build-windows clean-windows
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ help:
 	@echo ""
 	@echo "  dev-{gtk3,gtk4,qt5,qt6,core,daemon,xim,wayland,gui-gtk,gui-qt,extension,restart}"
 	@echo ""
+	@echo "  check-windows / build-windows / clean-windows  (WIN_TARGET=...)"
 	@echo "  install-gnome-extension / uninstall-gnome-extension / pack"
 	@echo "  install-systemd / enable-systemd / disable-systemd / status-systemd"
 	@echo "  deb / clean / clean-all"
@@ -258,6 +260,63 @@ deb:
 clean-deb:
 	@rm -rf $(DEB_DIR)
 	@rm -f ../*.deb ../*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
+
+# ─── Windows (native / cross-compile) ────────────────────────────────────────
+# 호스트가 Windows면 네이티브 빌드, Linux/mac이면 cross-compile.
+# WIN_TARGET 을 명시하면 해당 트리플 사용. 미지정 시 rustup 설치된 windows
+# 트리플 중 첫 번째(알파벳순으로 gnu 우선)를 자동 선택.
+#
+# 사전 준비 (Linux cross-compile):
+#   rustup target add x86_64-pc-windows-gnu       # mingw (권장)
+#   sudo apt install mingw-w64                    # gnu 타겟용 linker
+#   # 또는
+#   rustup target add x86_64-pc-windows-msvc      # msvc (lld linker 필요)
+
+WIN_CRATES := -p unim -p unim-capi -p unim-windows -p unim-tsf
+
+ifeq ($(OS),Windows_NT)
+    WIN_NATIVE  := 1
+    WIN_TARGET  ?=
+else
+    WIN_NATIVE  :=
+    WIN_TARGET  ?= $(shell rustup target list --installed 2>/dev/null | \
+                          grep -E '^x86_64-pc-windows-(gnu|msvc)$$' | head -1)
+endif
+
+WIN_CARGO_FLAGS := $(if $(WIN_TARGET),--target $(WIN_TARGET))
+WIN_OUT_DIR     := target/$(if $(WIN_TARGET),$(WIN_TARGET)/,)release
+
+# 네이티브/크로스 환경 검증 (mingw 타겟이면 mingw-w64 toolchain 필수)
+define _check_windows_env
+	@if [ -z "$(WIN_NATIVE)" ] && [ -z "$(WIN_TARGET)" ]; then \
+		echo "❌ Windows target 미설치."; \
+		echo "   rustup target add x86_64-pc-windows-gnu   (권장: mingw)"; \
+		echo "   rustup target add x86_64-pc-windows-msvc  (대안: lld 필요)"; \
+		exit 1; \
+	fi
+	@if [ "$(WIN_TARGET)" = "x86_64-pc-windows-gnu" ] && \
+	    ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then \
+		echo "❌ mingw-w64 toolchain 누락. sudo apt install mingw-w64"; \
+		exit 1; \
+	fi
+endef
+
+check-windows:
+	@echo "🔍 Windows 컴파일 검증 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
+	$(_check_windows_env)
+	@$(CARGO) check $(WIN_CARGO_FLAGS) $(WIN_CRATES)
+	@echo "✅ Windows check 통과"
+
+build-windows:
+	@echo "🔨 Windows 빌드 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
+	$(_check_windows_env)
+	@$(CARGO) build --release $(WIN_CARGO_FLAGS) $(WIN_CRATES)
+	@echo "✅ Windows 빌드 완료: $(WIN_OUT_DIR)/"
+	@ls -1 $(WIN_OUT_DIR)/*.{exe,dll} 2>/dev/null | sed 's|^|   |' || true
+
+clean-windows:
+	@rm -rf target/x86_64-pc-windows-gnu target/x86_64-pc-windows-msvc
+	@echo "✅ Windows target 디렉토리 정리 완료"
 
 # ─── Test & Verification ─────────────────────────────────────────────────────
 
