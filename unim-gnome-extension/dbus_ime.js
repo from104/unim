@@ -49,6 +49,8 @@ export class UnimDbusIME {
         this._onShowHanja = null;
         /** @type {Function|null} 특수문자 팝업 표시 콜백 */
         this._onShowSpecial = null;
+        /** @type {Function|null} 이모지 팝업 표시 콜백 (Super+. 트리거) */
+        this._onShowEmoji = null;
         /** @type {Function|null} 팝업 숨김 콜백 */
         this._onHidePopup = null;
         /** @type {Function|null} 팝업 네비게이션 콜백 */
@@ -162,6 +164,7 @@ export class UnimDbusIME {
     setPopupCallbacks(callbacks) {
         this._onShowHanja = callbacks.onShowHanja || null;
         this._onShowSpecial = callbacks.onShowSpecial || null;
+        this._onShowEmoji = callbacks.onShowEmoji || null;
         this._onHidePopup = callbacks.onHidePopup || null;
         this._onPopupNavigate = callbacks.onPopupNavigate || null;
         this._onAutoTypeFix = callbacks.onAutoTypeFix || null;
@@ -295,6 +298,12 @@ export class UnimDbusIME {
                     ? { x: cx, y: cy, width: cw, height: ch }
                     : this._adjustCursorRect(cx, cy, cw, ch);
                 this._onShowSpecial(target, characters, topRow, cursorRect);
+            } else if (signalName === 'ShowEmojiPopup' && this._onShowEmoji) {
+                const [cx, cy, cw, ch] = parameters.deep_unpack();
+                const cursorRect = isOwnContext
+                    ? { x: cx, y: cy, width: cw, height: ch }
+                    : this._adjustCursorRect(cx, cy, cw, ch);
+                this._onShowEmoji(cursorRect);
             } else if (signalName === 'HidePopup' && this._onHidePopup) {
                 this._onHidePopup();
             } else if (signalName === 'PopupNavigate' && this._onPopupNavigate) {
@@ -720,6 +729,105 @@ export class UnimDbusIME {
         }
     }
 
+    // ===========================================
+    // 이모지 팝업 (Super+. 트리거)
+    // ===========================================
+
+    /**
+     * 이모지 카테고리 목록 조회 (정적 데이터)
+     *
+     * 첫 항목은 "즐겨찾기" 탭으로, 인기 이모지를 기본값으로 반환합니다.
+     * 실제 MRU 즐겨찾기는 별도로 `getEmojiFavorites()`로 조회하십시오.
+     *
+     * @returns {Array<{name: string, emojis: string[]}>}
+     */
+    listEmojiCategories() {
+        if (!this._imProxy) return [];
+        try {
+            const result = this._imProxy.call_sync(
+                'ListEmojiCategories',
+                null,
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            if (!result) return [];
+            const [raw] = result.deep_unpack();
+            return raw.map(([name, emojis]) => ({ name, emojis }));
+        } catch (e) {
+            unimError('DBUS_IME', `ListEmojiCategories 실패: ${e.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * 즐겨찾기(MRU) 이모지 조회
+     * @returns {string[]}
+     */
+    getEmojiFavorites() {
+        if (!this._imProxy) return [];
+        try {
+            const result = this._imProxy.call_sync(
+                'GetEmojiFavorites',
+                null,
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            if (!result) return [];
+            const [list] = result.deep_unpack();
+            return list;
+        } catch (e) {
+            unimError('DBUS_IME', `GetEmojiFavorites 실패: ${e.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * 키워드로 이모지 검색
+     * @param {string} keyword - 검색어
+     * @returns {string[]}
+     */
+    searchEmoji(keyword) {
+        if (!this._imProxy) return [];
+        try {
+            const result = this._imProxy.call_sync(
+                'SearchEmoji',
+                new GLib.Variant('(s)', [keyword || '']),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            if (!result) return [];
+            const [list] = result.deep_unpack();
+            return list;
+        } catch (e) {
+            unimError('DBUS_IME', `SearchEmoji 실패: ${e.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * 선택한 이모지를 현재 컨텍스트에 커밋.
+     * 서비스 측에서 즐겨찾기 MRU 갱신 + HidePopup 시그널도 자동 발행합니다.
+     *
+     * @param {string} emoji
+     */
+    commitEmoji(emoji) {
+        if (!this._icProxy || !emoji) return;
+        try {
+            this._icProxy.call_sync(
+                'CommitEmoji',
+                new GLib.Variant('(s)', [emoji]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+        } catch (e) {
+            unimError('DBUS_IME', `CommitEmoji 실패: ${e.message}`);
+        }
+    }
+
     /**
      * 특수문자 모드 취소
      */
@@ -829,6 +937,7 @@ export class UnimDbusIME {
         this._onModeChanged = null;
         this._onShowHanja = null;
         this._onShowSpecial = null;
+        this._onShowEmoji = null;
         this._onHidePopup = null;
         this._onPopupNavigate = null;
         this._onHanjaBookmarkChanged = null;

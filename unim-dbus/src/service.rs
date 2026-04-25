@@ -535,6 +535,32 @@ impl InputMethodService {
         Ok(emoji_strings)
     }
 
+    /// 이모지 카테고리 목록 조회
+    ///
+    /// 각 항목은 (카테고리 이름, 이모지 목록) 쌍. GUI가 탭을 구성할 때 사용합니다.
+    async fn list_emoji_categories(&self) -> zbus::fdo::Result<Vec<(String, Vec<String>)>> {
+        let mut list: Vec<(String, Vec<String>)> = Vec::new();
+        list.push((
+            "즐겨찾기".to_string(),
+            unim::hangul::emoji::popular_emojis()
+                .iter()
+                .map(|c| c.to_string())
+                .collect(),
+        ));
+        for entry in unim::hangul::emoji::categories() {
+            list.push((
+                entry.keyword.to_string(),
+                entry.emojis.iter().map(|c| c.to_string()).collect(),
+            ));
+        }
+        Ok(list)
+    }
+
+    /// 이모지 즐겨찾기(MRU) 조회
+    async fn get_emoji_favorites(&self) -> zbus::fdo::Result<Vec<String>> {
+        Ok(unim::hangul::emoji::load_favorites())
+    }
+
     /// 설정값 조회
     async fn get_config(&self, key: &str) -> zbus::fdo::Result<String> {
         let config = self.config.read().await;
@@ -559,6 +585,8 @@ impl InputMethodService {
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
             "auto_english" => config.engine.auto_english.enabled.to_string(),
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
+            "emoji_popup" => config.engine.emoji_popup.enabled.to_string(),
+            "emoji_popup_keys" => config.engine.emoji_popup.trigger_keys.join(","),
             "app_rules" => serde_json::to_string(&config.engine.app_rules)
                 .unwrap_or_default(),
             _ => {
@@ -709,6 +737,24 @@ impl InputMethodService {
                         ));
                     }
                     config.engine.auto_english.trigger_keys = keys;
+                }
+                "emoji_popup" => {
+                    config.engine.emoji_popup.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "emoji_popup_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if keys.is_empty() {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one trigger required".to_string(),
+                        ));
+                    }
+                    config.engine.emoji_popup.trigger_keys = keys;
                 }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =
@@ -944,6 +990,18 @@ impl InputContextHandler {
                         "[DBus] ShowSpecialPopup 시그널 발행: target='{}', count={}",
                         target,
                         characters.len()
+                    );
+                }
+                PopupAction::ShowEmoji if is_standalone => {
+                    let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
+                    Self::show_emoji_popup(&signal_ctx, x, y, w, h).await.ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowEmojiPopup 시그널 발행: pos=({},{},{},{})",
+                        x,
+                        y,
+                        w,
+                        h
                     );
                 }
                 PopupAction::HidePopup => {
@@ -1198,6 +1256,18 @@ impl InputContextHandler {
         target: &str,
         characters: Vec<String>,
         top_row: &str,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    ) -> zbus::Result<()>;
+
+    /// 이모지 팝업 표시 시그널 (Super+. 트리거)
+    ///
+    /// GUI가 카테고리 탭/검색/즐겨찾기를 자체 관리하므로 커서 위치만 전달합니다.
+    #[zbus(signal)]
+    async fn show_emoji_popup(
+        signal_ctx: &SignalContext<'_>,
         cursor_x: i32,
         cursor_y: i32,
         cursor_width: i32,
@@ -1676,5 +1746,27 @@ impl InputContextHandler {
 
         unim_log!("DBUS", "[DBus] CancelSpecialChar: context_id={}, commit='{}'", self.id, commit_text);
         Ok(commit_text)
+    }
+
+    /// 이모지 커밋 (GUI 팝업에서 선택한 이모지를 현재 컨텍스트로 커밋)
+    ///
+    /// `HidePopup` 시그널도 함께 발행하여 다른 구독자의 팝업 상태를 정리합니다.
+    async fn commit_emoji(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        emoji: &str,
+    ) -> zbus::fdo::Result<()> {
+        if !emoji.is_empty() {
+            Self::commit_text(&signal_ctx, emoji).await.ok();
+            unim::hangul::emoji::touch_favorite(emoji);
+        }
+        Self::hide_popup(&signal_ctx).await.ok();
+        unim_log!(
+            "DBUS",
+            "[DBus] CommitEmoji: context_id={}, emoji='{}'",
+            self.id,
+            emoji
+        );
+        Ok(())
     }
 }

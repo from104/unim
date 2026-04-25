@@ -264,6 +264,12 @@ enum ConfigKey {
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
+    /// 이모지 팝업 활성화 (true, false)
+    #[value(name = "emoji-popup")]
+    EmojiPopup,
+    /// 이모지 팝업 트리거 키 (예: Super+Period)
+    #[value(name = "emoji-popup-keys")]
+    EmojiPopupKeys,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -574,6 +580,17 @@ fn config_show() {
         } else {
             format!("{} rules", config.engine.app_rules.len())
         }
+    );
+    let emoji_status = if config.engine.emoji_popup.enabled {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+    println!("{}: {}", t!("emoji_popup_label"), emoji_status);
+    println!(
+        "{}: {}",
+        t!("emoji_popup_keys_label"),
+        config.engine.emoji_popup.trigger_keys.join(", ")
     );
     println!();
     if let Some(path) = UnimConfig::default_config_path() {
@@ -943,6 +960,29 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 "{}: {} rules",
                 t!("app_rules_label"),
                 config.engine.app_rules.len()
+            );
+        }
+        ConfigKey::EmojiPopup => {
+            let enabled: bool = value.parse()
+                .map_err(|_| "Invalid value, use true/false".to_string())?;
+            config.engine.emoji_popup.enabled = enabled;
+            let status = if enabled { t!("enabled") } else { t!("disabled") };
+            println!("{}: {}", t!("emoji_popup_label"), status);
+        }
+        ConfigKey::EmojiPopupKeys => {
+            let keys: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if keys.is_empty() {
+                return Err("At least one trigger required".to_string());
+            }
+            config.engine.emoji_popup.trigger_keys = keys;
+            println!(
+                "{}: {}",
+                t!("emoji_popup_keys_label"),
+                config.engine.emoji_popup.trigger_keys.join(", ")
             );
         }
     }
