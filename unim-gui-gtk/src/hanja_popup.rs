@@ -8,14 +8,22 @@ use unim::unim_log;
 
 use crate::popup_positioning::{self, DisplayServer};
 
-const PAGE_SIZE: usize = 9;
+const COMPACT_PAGE_SIZE: usize = 9;
+const EXPANDED_PAGE_SIZE: usize = 81;
+const EXPANDED_COLS: usize = 9;
+const EXPANDED_ROWS: usize = 9;
+const ICON_EXPAND: &str = "⊞";
+const ICON_COMPACT: &str = "⊟";
 
 /// 한자 팝업 상태
 pub struct HanjaPopup {
     pub window: gtk4::Window,
-    list_box: gtk4::ListBox,
+    /// 본문 컨테이너 — list_box 또는 grid를 자식으로 보유
+    body_container: gtk4::Box,
     page_label: gtk4::Label,
     target_label: gtk4::Label,
+    /// 확장/축소 토글 아이콘 라벨 (⊞/⊟)
+    expand_icon: gtk4::Label,
     display_server: DisplayServer,
     /// 전체 후보 목록
     candidates: Vec<(String, String)>,
@@ -23,8 +31,12 @@ pub struct HanjaPopup {
     bookmarks: Vec<bool>,
     /// 현재 페이지 (0-based)
     current_page: usize,
-    /// 현재 선택 인덱스 (페이지 내, 0-based)
-    selected: usize,
+    /// 현재 선택 행 (페이지 내, 0-based)
+    sel_row: usize,
+    /// 현재 선택 열 (compact=0 고정, expanded=0..EXPANDED_COLS-1)
+    sel_col: usize,
+    /// 엔진 측 cols (1=compact, >1=expanded). Period 키 토글은 엔진이 결정.
+    cols: usize,
     /// 저장된 context_path (DBus 콜백용)
     context_path: String,
 }
@@ -53,47 +65,59 @@ impl HanjaPopup {
         target_label.set_halign(gtk4::Align::Start);
         vbox.append(&target_label);
 
-        // 후보 리스트
-        let list_box = gtk4::ListBox::new();
-        list_box.add_css_class("hanja-list");
-        list_box.set_selection_mode(gtk4::SelectionMode::Single);
+        // 본문 컨테이너 — compact는 ListBox, expanded는 Grid를 동적으로 차일드로 둔다
+        let body_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        body_container.add_css_class("hanja-body");
+        vbox.append(&body_container);
 
-        let scroll = gtk4::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk4::PolicyType::Never)
-            .vscrollbar_policy(gtk4::PolicyType::Never)
-            .min_content_height(28 * PAGE_SIZE as i32)
-            .build();
-        scroll.set_child(Some(&list_box));
-        vbox.append(&scroll);
+        // 푸터: 페이지 라벨 + 확장 아이콘
+        let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        footer.add_css_class("popup-footer-box");
 
-        // 페이지 라벨
         let page_label = gtk4::Label::new(None);
         page_label.add_css_class("page-label");
-        page_label.set_halign(gtk4::Align::End);
-        vbox.append(&page_label);
+        page_label.set_halign(gtk4::Align::Start);
+        page_label.set_hexpand(true);
+        footer.append(&page_label);
+
+        // 확장/축소 아이콘 — 현재는 시각적 표시만 담당 (GNOME extension도 동일하게
+        // 클릭 콜백이 미배선). Period 키 입력으로 토글되며, navigate()가 cols 변화를
+        // 감지하여 아이콘 텍스트를 갱신한다.
+        let expand_icon = gtk4::Label::new(Some(ICON_EXPAND));
+        expand_icon.add_css_class("popup-expand-icon");
+        expand_icon.set_halign(gtk4::Align::End);
+        footer.append(&expand_icon);
+
+        vbox.append(&footer);
 
         window.set_child(Some(&vbox));
-
-        // 마우스 클릭으로 후보 선택
-        list_box.connect_row_activated(|_list_box, row| {
-            let index = row.index() as u32;
-            select_hanja_via_dbus(index);
-        });
 
         // AT-SPI 접근성
         window.update_property(&[gtk4::accessible::Property::Label("한자 후보")]);
 
         Self {
             window,
-            list_box,
+            body_container,
             page_label,
             target_label,
+            expand_icon,
             display_server,
             candidates: Vec::new(),
             bookmarks: Vec::new(),
             current_page: 0,
-            selected: 0,
+            sel_row: 0,
+            sel_col: 0,
+            cols: 1,
             context_path: String::new(),
+        }
+    }
+
+    /// 현재 페이지 사이즈 (compact=9, expanded=81)
+    fn page_size(&self) -> usize {
+        if self.cols > 1 {
+            EXPANDED_PAGE_SIZE
+        } else {
+            COMPACT_PAGE_SIZE
         }
     }
 
@@ -125,7 +149,9 @@ impl HanjaPopup {
         self.bookmarks = vec![false; candidates.len()];
         self.candidates = candidates;
         self.current_page = 0;
-        self.selected = 0;
+        self.sel_row = 0;
+        self.sel_col = 0;
+        self.cols = 1;
 
         self.target_label
             .set_text(&format!("「{}」 → 한자", target));
@@ -144,16 +170,48 @@ impl HanjaPopup {
         );
     }
 
-    /// 현재 페이지의 후보 목록 업데이트
+    /// 현재 페이지의 후보 목록 업데이트 (compact=ListBox 1×9, expanded=Grid 9×9)
     fn update_page(&self) {
-        // 기존 행 제거
-        while let Some(child) = self.list_box.first_child() {
-            self.list_box.remove(&child);
+        // 기존 차일드 모두 제거 (compact↔expanded 위젯 트리 재구성)
+        while let Some(child) = self.body_container.first_child() {
+            self.body_container.remove(&child);
         }
 
-        let total_pages = (self.candidates.len() + PAGE_SIZE - 1) / PAGE_SIZE;
-        let start = self.current_page * PAGE_SIZE;
-        let end = (start + PAGE_SIZE).min(self.candidates.len());
+        let page_size = self.page_size();
+        let total_pages = (self.candidates.len() + page_size - 1) / page_size.max(1);
+        let start = self.current_page * page_size;
+        let end = (start + page_size).min(self.candidates.len());
+
+        if self.cols > 1 {
+            self.render_grid(start, end);
+        } else {
+            self.render_list(start, end);
+        }
+
+        // 푸터 갱신
+        if total_pages > 1 {
+            self.page_label
+                .set_text(&format!("{}/{}", self.current_page + 1, total_pages));
+        } else {
+            self.page_label.set_text("");
+        }
+        self.expand_icon
+            .set_text(if self.cols > 1 { ICON_COMPACT } else { ICON_EXPAND });
+    }
+
+    /// compact 모드 렌더 (1×9 ListBox)
+    fn render_list(&self, start: usize, end: usize) {
+        let list_box = gtk4::ListBox::new();
+        list_box.add_css_class("hanja-list");
+        list_box.set_selection_mode(gtk4::SelectionMode::Single);
+
+        let scroll = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vscrollbar_policy(gtk4::PolicyType::Never)
+            .min_content_height(28 * COMPACT_PAGE_SIZE as i32)
+            .build();
+        scroll.set_child(Some(&list_box));
+        self.body_container.append(&scroll);
 
         for (i, (hanja, meaning)) in self.candidates[start..end].iter().enumerate() {
             let global_idx = start + i;
@@ -162,19 +220,16 @@ impl HanjaPopup {
             hbox.set_margin_start(8);
             hbox.set_margin_end(8);
 
-            // 번호 라벨
             let num_label = gtk4::Label::new(Some(&format!("{}.", i + 1)));
             num_label.add_css_class("hanja-num");
             num_label.set_width_chars(2);
             num_label.set_xalign(1.0);
             hbox.append(&num_label);
 
-            // 한자
             let hanja_label = gtk4::Label::new(Some(hanja));
             hanja_label.add_css_class("hanja-char");
             hbox.append(&hanja_label);
 
-            // 의미
             let meaning_label = gtk4::Label::new(Some(meaning));
             meaning_label.add_css_class("hanja-meaning");
             meaning_label.set_hexpand(true);
@@ -182,7 +237,6 @@ impl HanjaPopup {
             meaning_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
             hbox.append(&meaning_label);
 
-            // 별 라벨 (☆/★) — 즐겨찾기 상태 표시
             let bookmarked = self.bookmarks.get(global_idx).copied().unwrap_or(false);
             let star_label = gtk4::Label::new(Some(if bookmarked { "★" } else { "☆" }));
             star_label.add_css_class("hanja-bookmark");
@@ -193,35 +247,88 @@ impl HanjaPopup {
             hbox.append(&star_label);
 
             row.set_child(Some(&hbox));
-            self.list_box.append(&row);
+            list_box.append(&row);
         }
 
-        // 페이지 표시
-        if total_pages > 1 {
-            self.page_label
-                .set_text(&format!("{}/{}", self.current_page + 1, total_pages));
-            self.page_label.set_visible(true);
-        } else {
-            self.page_label.set_visible(false);
+        // compact: 클릭 → global 인덱스로 SelectHanja
+        let page_start = start;
+        list_box.connect_row_activated(move |_lb, row| {
+            let global = page_start + row.index() as usize;
+            select_hanja_via_dbus(global as u32);
+        });
+
+        // 현재 선택 행 표시
+        if let Some(row) = list_box.row_at_index(self.sel_row as i32) {
+            list_box.select_row(Some(&row));
+        }
+    }
+
+    /// expanded 모드 렌더 (9×9 Grid; col=0열은 1-9 번호, 셀은 한자 한 글자)
+    fn render_grid(&self, start: usize, end: usize) {
+        let grid = gtk4::Grid::new();
+        grid.add_css_class("hanja-grid");
+        grid.set_row_spacing(2);
+        grid.set_column_spacing(2);
+        self.body_container.append(&grid);
+
+        // GNOME extension JS와 동일하게 col 우선 인덱싱: idx = col * rows + row
+        for col in 0..EXPANDED_COLS {
+            // 열 번호 헤더 (1-9, expanded에서는 col=선택 열, Number(n)=row)
+            let header = gtk4::Label::new(Some(&format!("{}", col + 1)));
+            header.add_css_class("grid-row-number");
+            grid.attach(&header, col as i32, 0, 1, 1);
+
+            for row in 0..EXPANDED_ROWS {
+                let offset = col * EXPANDED_ROWS + row;
+                let global = start + offset;
+                if global >= end {
+                    continue;
+                }
+                let (hanja, _meaning) = &self.candidates[global];
+                let cell = gtk4::Button::new();
+                cell.add_css_class("grid-cell");
+                cell.set_label(hanja);
+                if global == start + self.sel_col * EXPANDED_ROWS + self.sel_row {
+                    cell.add_css_class("grid-cell-selected");
+                }
+                if self.bookmarks.get(global).copied().unwrap_or(false) {
+                    cell.add_css_class("bookmarked");
+                }
+                let global_for_click = global as u32;
+                cell.connect_clicked(move |_| {
+                    select_hanja_via_dbus(global_for_click);
+                });
+                grid.attach(&cell, col as i32, (row + 1) as i32, 1, 1);
+            }
         }
     }
 
     /// 네비게이션 업데이트 (PopupNavigate 시그널)
-    pub fn navigate(&mut self, page: i32, _total_pages: i32, selected: i32, _rows: i32, _cols: i32, _sel_row: i32, _sel_col: i32) {
+    /// rows/cols 변화로 compact↔expanded 자동 전환을 감지한다.
+    pub fn navigate(
+        &mut self,
+        page: i32,
+        _total_pages: i32,
+        _selected: i32,
+        _rows: i32,
+        cols: i32,
+        sel_row: i32,
+        sel_col: i32,
+    ) {
         let new_page = page.max(0) as usize;
-        let new_selected = selected.max(0) as usize;
+        let new_cols = cols.max(1) as usize;
+        let layout_changed = new_page != self.current_page || new_cols != self.cols;
 
-        if new_page != self.current_page {
-            self.current_page = new_page;
+        self.current_page = new_page;
+        self.cols = new_cols;
+        self.sel_row = sel_row.max(0) as usize;
+        self.sel_col = sel_col.max(0) as usize;
+
+        if layout_changed {
             self.update_page();
-        }
-
-        self.selected = new_selected;
-
-        // 페이지 내 선택 인덱스
-        let page_index = self.selected.saturating_sub(self.current_page * PAGE_SIZE);
-        if let Some(row) = self.list_box.row_at_index(page_index as i32) {
-            self.list_box.select_row(Some(&row));
+        } else {
+            // 동일 레이아웃에서 셀 selected만 재적용 — 단순화를 위해 통째 재렌더
+            self.update_page();
         }
     }
 
@@ -247,8 +354,9 @@ impl HanjaPopup {
         self.bookmarks[idx] = bookmarked;
         // 현재 페이지에 포함된 행만 실제 화면에 보이므로, 해당 인덱스가
         // 현재 페이지에 속하면 즉시 재렌더한다.
-        let start = self.current_page * PAGE_SIZE;
-        let end = (start + PAGE_SIZE).min(self.candidates.len());
+        let page_size = self.page_size();
+        let start = self.current_page * page_size;
+        let end = (start + page_size).min(self.candidates.len());
         if idx >= start && idx < end {
             self.update_page();
         }
@@ -436,6 +544,49 @@ pub fn popup_css() -> &'static str {
         color: #6c7086;
         font-size: 12px;
         padding: 4px 8px 2px 0;
+    }
+
+    .popup-footer-box {
+        margin-top: 4px;
+    }
+
+    .popup-expand-icon {
+        color: #7f849c;
+        font-size: 14px;
+        padding: 2px 6px;
+    }
+
+    .unim-hanja-popup .hanja-grid {
+        padding: 4px;
+    }
+
+    .unim-hanja-popup .grid-row-number {
+        color: #7f849c;
+        font-size: 11px;
+        min-width: 22px;
+        min-height: 22px;
+    }
+
+    .unim-hanja-popup .grid-cell {
+        background: transparent;
+        color: #cdd6f4;
+        font-size: 16px;
+        min-width: 28px;
+        min-height: 28px;
+        border-radius: 4px;
+        padding: 2px;
+    }
+
+    .unim-hanja-popup .grid-cell:hover {
+        background-color: rgba(137, 180, 250, 0.15);
+    }
+
+    .unim-hanja-popup .grid-cell-selected {
+        background-color: rgba(137, 180, 250, 0.3);
+    }
+
+    .unim-hanja-popup .grid-cell.bookmarked {
+        color: #f9e2af;
     }
     "#
 }
