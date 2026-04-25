@@ -89,3 +89,4 @@ debs/
 
 graphify-out/
 .graphifyignore
+.claude/worktrees/
