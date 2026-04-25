@@ -192,11 +192,50 @@ gchar *unim_dbus_cancel_hanja(UnimDbusContext *ctx);
 
 /**
  * 한자 후보 배열 해제
- * 
+ *
  * @param candidates 후보 배열
  * @param count 후보 개수
  */
 void unim_hanja_candidates_free(UnimHanjaCandidate *candidates, gsize count);
+
+/**
+ * 현재 한자 후보의 즐겨찾기 상태 조회
+ *
+ * @param ctx 컨텍스트
+ * @param states 상태 배열을 저장할 포인터 (호출자가 g_free해야 함)
+ * @param count 상태 배열 길이를 저장할 포인터
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_get_hanja_bookmark_states(UnimDbusContext *ctx,
+                                              gboolean **states,
+                                              gsize *count);
+
+/**
+ * 한자 즐겨찾기 토글 (엔진이 persist + 시그널 발행)
+ *
+ * @param ctx 컨텍스트
+ * @param index 토글할 후보 인덱스
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_toggle_hanja_bookmark(UnimDbusContext *ctx, guint index);
+
+/**
+ * HanjaBookmarkChanged 시그널 콜백 타입
+ *
+ * @param index 변경된 후보의 전체 인덱스
+ * @param bookmarked 토글 후 상태
+ * @param user_data 사용자 데이터
+ */
+typedef void (*UnimHanjaBookmarkChangedCallback)(guint index,
+                                                  gboolean bookmarked,
+                                                  gpointer user_data);
+
+/**
+ * HanjaBookmarkChanged 시그널 구독 및 콜백 설정
+ */
+void unim_dbus_set_hanja_bookmark_callback(UnimDbusContext *ctx,
+                                            UnimHanjaBookmarkChangedCallback callback,
+                                            gpointer user_data);
 
 /* =========================================
  * 특수문자 변환 관련 함수

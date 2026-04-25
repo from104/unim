@@ -90,13 +90,18 @@ struct _UnimHanjaPopup {
 
     UnimHanjaCandidate *candidates;  /* 후보 배열 */
     gsize count;                     /* 전체 후보 개수 */
+    gboolean *bookmarks;             /* 후보별 즐겨찾기 상태 (count 길이) */
     gsize current_page;              /* 현재 페이지 (0부터 시작) */
     gint selected_index;             /* 현재 선택 인덱스 (페이지 내) */
-    
+
     UnimPopupState *popup_state;     /* C-API popup state */
 
     UnimHanjaSelectCallback callback;
     gpointer user_data;
+
+    /* Space 토글 콜백 (프런트엔드 → DBus 호출) */
+    UnimHanjaToggleBookmarkCallback toggle_bookmark_callback;
+    gpointer toggle_bookmark_user_data;
 };
 
 /* 현재 페이지의 후보 개수 반환 */
@@ -162,15 +167,29 @@ update_listbox(UnimHanjaPopup *popup)
         gtk_label_set_xalign(GTK_LABEL(meaning_label), 0.0);
         WIDGET_ADD_CSS_CLASS(meaning_label, "item-meaning");
 
+        /* 별 라벨 (☆/★) — 즐겨찾기 표시 */
+        gboolean bookmarked = (popup->bookmarks && idx < popup->count)
+                               ? popup->bookmarks[idx]
+                               : FALSE;
+        GtkWidget *star_label = gtk_label_new(bookmarked ? "★" : "☆");
+        gtk_label_set_xalign(GTK_LABEL(star_label), 1.0);
+        gtk_widget_set_margin_start(star_label, 6);
+        WIDGET_ADD_CSS_CLASS(star_label, "item-bookmark");
+        if (bookmarked) {
+            WIDGET_ADD_CSS_CLASS(star_label, "bookmarked");
+        }
+
 #if GTK_CHECK_VERSION(4, 0, 0)
         gtk_box_append(GTK_BOX(row_box), num_label);
         gtk_box_append(GTK_BOX(row_box), hanja_label);
         gtk_box_append(GTK_BOX(row_box), meaning_label);
+        gtk_box_append(GTK_BOX(row_box), star_label);
         gtk_list_box_append(GTK_LIST_BOX(popup->listbox), row_box);
 #else
         gtk_box_pack_start(GTK_BOX(row_box), num_label, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(row_box), hanja_label, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(row_box), meaning_label, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(row_box), meaning_label, TRUE, TRUE, 0);
+        gtk_box_pack_end(GTK_BOX(row_box), star_label, FALSE, FALSE, 0);
         gtk_container_add(GTK_CONTAINER(popup->listbox), row_box);
         gtk_widget_show_all(row_box);
 #endif
@@ -398,6 +417,15 @@ unim_hanja_popup_new(void)
             "  color: #a6adc8;"
             "  font-size: 12px;"
             "}"
+            ".unim-hanja-vbox list row label.item-bookmark {"
+            "  color: #6c7086;"
+            "  font-size: 14px;"
+            "  margin-left: 8px;"
+            "  min-width: 16px;"
+            "}"
+            ".unim-hanja-vbox list row label.item-bookmark.bookmarked {"
+            "  color: #f9e2af;"
+            "}"
             ".unim-hanja-vbox list row:selected label {"
             "  color: #cdd6f4;"
             "}"
@@ -506,6 +534,9 @@ unim_hanja_popup_free(UnimHanjaPopup *popup)
         popup->popup_state = NULL;
     }
 
+    g_free(popup->bookmarks);
+    popup->bookmarks = NULL;
+
     if (popup->window) {
 #if GTK_CHECK_VERSION(4, 0, 0)
         gtk_window_destroy(GTK_WINDOW(popup->window));
@@ -535,6 +566,11 @@ unim_hanja_popup_show(UnimHanjaPopup *popup,
     popup->count = count;
     popup->current_page = 0;
     popup->selected_index = 0;
+
+    /* bookmarks 배열 재할당 (기본값 FALSE) — 프런트엔드가 곧이어
+     * unim_hanja_popup_set_bookmark_states()로 일괄 반영한다. */
+    g_free(popup->bookmarks);
+    popup->bookmarks = g_new0(gboolean, count);
     popup->callback = callback;
     popup->user_data = user_data;
 
@@ -715,8 +751,68 @@ unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval)
     case UNIM_POPUP_RESULT_CONSUMED:
         return TRUE;
 
+    case UNIM_POPUP_RESULT_TOGGLE_BOOKMARK:
+        /* 엔진은 토글을 이미 반영했다. 프런트엔드는 persist(DBus)만 수행하고,
+         * UI 반영은 HanjaBookmarkChanged 시그널을 통해 일원화된다. */
+        if (result.selected_index >= 0
+            && popup->toggle_bookmark_callback) {
+            popup->toggle_bookmark_callback((gsize)result.selected_index,
+                                             popup->toggle_bookmark_user_data);
+        }
+        return TRUE;
+
     case UNIM_POPUP_RESULT_NOT_HANDLED:
     default:
         return FALSE;
+    }
+}
+
+void
+unim_hanja_popup_set_toggle_bookmark_callback(UnimHanjaPopup *popup,
+                                               UnimHanjaToggleBookmarkCallback callback,
+                                               gpointer user_data)
+{
+    if (!popup) return;
+    popup->toggle_bookmark_callback = callback;
+    popup->toggle_bookmark_user_data = user_data;
+}
+
+void
+unim_hanja_popup_set_bookmark_states(UnimHanjaPopup *popup,
+                                      const gboolean *states,
+                                      gsize count)
+{
+    if (!popup) return;
+    g_free(popup->bookmarks);
+    popup->bookmarks = g_new0(gboolean, popup->count > 0 ? popup->count : 1);
+    gsize n = count < popup->count ? count : popup->count;
+    if (states) {
+        for (gsize i = 0; i < n; i++) {
+            popup->bookmarks[i] = states[i];
+        }
+    }
+    if (unim_hanja_popup_is_visible(popup)) {
+        update_listbox(popup);
+    }
+}
+
+void
+unim_hanja_popup_set_bookmark(UnimHanjaPopup *popup,
+                               gsize global_index,
+                               gboolean bookmarked)
+{
+    if (!popup) return;
+    if (global_index >= popup->count) return;
+    if (!popup->bookmarks) {
+        popup->bookmarks = g_new0(gboolean, popup->count);
+    }
+    popup->bookmarks[global_index] = bookmarked;
+
+    /* 현재 페이지에 포함된 인덱스일 때만 즉시 재렌더 */
+    gsize start = popup->current_page * MAX_VISIBLE_CANDIDATES;
+    gsize end = start + get_page_candidate_count(popup);
+    if (global_index >= start && global_index < end
+        && unim_hanja_popup_is_visible(popup)) {
+        update_listbox(popup);
     }
 }

@@ -87,6 +87,47 @@ gboolean unim_hanja_popup_is_visible(UnimHanjaPopup *popup);
  */
 gboolean unim_hanja_popup_handle_key(UnimHanjaPopup *popup, guint keyval);
 
+/**
+ * 한자 즐겨찾기 토글 콜백
+ *
+ * 팝업이 Space 키로 ToggleBookmark 결과를 받으면 호출된다.
+ * 프런트엔드는 보통 unim_dbus_toggle_hanja_bookmark()를 엮어둔다.
+ *
+ * @param global_index 토글할 후보의 전체 인덱스
+ * @param user_data 사용자 데이터
+ */
+typedef void (*UnimHanjaToggleBookmarkCallback)(gsize global_index,
+                                                 gpointer user_data);
+
+/**
+ * 즐겨찾기 토글 콜백 설정 (Space → 엔진 DBus 호출 연결용)
+ */
+void unim_hanja_popup_set_toggle_bookmark_callback(UnimHanjaPopup *popup,
+                                                    UnimHanjaToggleBookmarkCallback callback,
+                                                    gpointer user_data);
+
+/**
+ * 전체 즐겨찾기 상태를 일괄 반영 (초기 fetch 결과용)
+ *
+ * @param popup 팝업
+ * @param states 상태 배열 (candidates와 동일 길이여야 함)
+ * @param count 상태 배열 길이
+ */
+void unim_hanja_popup_set_bookmark_states(UnimHanjaPopup *popup,
+                                           const gboolean *states,
+                                           gsize count);
+
+/**
+ * 특정 후보의 즐겨찾기 상태 갱신 (HanjaBookmarkChanged 시그널에서 호출)
+ *
+ * @param popup 팝업
+ * @param global_index 전체 후보 인덱스
+ * @param bookmarked 새 상태
+ */
+void unim_hanja_popup_set_bookmark(UnimHanjaPopup *popup,
+                                    gsize global_index,
+                                    gboolean bookmarked);
+
 G_END_DECLS
 
 #endif /* UNIM_HANJA_POPUP_H */

@@ -358,6 +358,20 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             unim_log!("INDICATOR", "[Popup] HidePopup 수신");
             let _ = popup_tx.send(GuiAction::HidePopup);
         }
+        "HanjaBookmarkChanged" => {
+            if let Ok((index, bookmarked)) = msg.body().deserialize::<(u32, bool)>() {
+                unim_log!(
+                    "INDICATOR",
+                    "[Popup] HanjaBookmarkChanged 수신: index={}, bookmarked={}",
+                    index,
+                    bookmarked
+                );
+                let _ = popup_tx.send(GuiAction::HanjaBookmarkChanged {
+                    index,
+                    bookmarked,
+                });
+            }
+        }
         "PopupNavigate" => {
             if let Ok((page, total_pages, selected, rows, cols, sel_row, sel_col)) =
                 msg.body().deserialize::<(i32, i32, i32, i32, i32, i32, i32)>()

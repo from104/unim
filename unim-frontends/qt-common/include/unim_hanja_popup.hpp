@@ -56,6 +56,22 @@ public:
      */
     bool handleKey(int key);
 
+    /**
+     * 즐겨찾기 상태 일괄 반영 (초기 fetch 결과)
+     */
+    void setBookmarkStates(const QList<bool> &states);
+
+    /**
+     * 특정 후보의 즐겨찾기 상태 갱신 (HanjaBookmarkChanged 시그널)
+     */
+    void setBookmark(quint32 globalIndex, bool bookmarked);
+
+    /**
+     * Space 토글 콜백 (프런트엔드 → DBus 호출 연결용)
+     */
+    using ToggleBookmarkCallback = std::function<void(quint32 globalIndex)>;
+    void setToggleBookmarkCallback(ToggleBookmarkCallback callback);
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
 
@@ -67,7 +83,9 @@ private:
     void adjustPosition(int x, int y, int cursorHeight);
 
     QList<UnimHanjaCandidate> m_candidates;
+    QList<bool> m_bookmarks;
     UnimHanjaSelectCallback m_callback;
+    ToggleBookmarkCallback m_toggleBookmarkCallback;
 
     QVBoxLayout *m_layout;
     QLabel *m_labels[MAX_VISIBLE_CANDIDATES];

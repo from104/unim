@@ -83,6 +83,12 @@ trait InputContext {
     /// 한자 선택 - 반환: 선택된 한자 문자열
     fn select_hanja(&self, index: u32) -> Result<String>;
 
+    /// 현재 한자 후보 목록의 즐겨찾기 상태 조회 (GetHanjaCandidates 순서와 동일)
+    fn get_hanja_bookmark_states(&self) -> Result<Vec<bool>>;
+
+    /// 한자 후보 즐겨찾기 토글 - 반환: (index, bookmarked)
+    fn toggle_hanja_bookmark(&self, index: u32) -> Result<(u32, bool)>;
+
     /// 한자 모드 취소 - 반환: 커밋된 트리거 문자
     fn cancel_hanja(&self) -> Result<String>;
 
@@ -153,6 +159,10 @@ trait InputContext {
     /// 팝업 숨김 시그널
     #[zbus(signal)]
     fn hide_popup(&self) -> Result<()>;
+
+    /// 한자 즐겨찾기 변경 시그널 (엔진 → 프론트엔드)
+    #[zbus(signal)]
+    fn hanja_bookmark_changed(&self, index: u32, bookmarked: bool) -> Result<()>;
 
     /// 팝업 네비게이션 시그널 (페이지/선택 변경)
     #[zbus(signal)]

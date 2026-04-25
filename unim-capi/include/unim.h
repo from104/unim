@@ -456,11 +456,12 @@ typedef struct PopupState UnimPopupState;
 #define UNIM_POPUP_KEY_OTHER     33
 
 /* PopupKeyResult kind constants */
-#define UNIM_POPUP_RESULT_SELECT      0
-#define UNIM_POPUP_RESULT_CANCEL      1
-#define UNIM_POPUP_RESULT_UPDATED     2
-#define UNIM_POPUP_RESULT_CONSUMED    3
-#define UNIM_POPUP_RESULT_NOT_HANDLED 4
+#define UNIM_POPUP_RESULT_SELECT          0
+#define UNIM_POPUP_RESULT_CANCEL          1
+#define UNIM_POPUP_RESULT_UPDATED         2
+#define UNIM_POPUP_RESULT_CONSUMED        3
+#define UNIM_POPUP_RESULT_NOT_HANDLED     4
+#define UNIM_POPUP_RESULT_TOGGLE_BOOKMARK 5
 
 /**
  * Popup key result returned by unim_popup_handle_key().

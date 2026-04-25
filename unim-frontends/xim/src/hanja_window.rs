@@ -373,6 +373,31 @@ impl HanjaWindow {
         self.popup_state.as_ref()?.get_item(index)
     }
 
+    /// 특정 후보의 즐겨찾기 상태 갱신 (HanjaBookmarkChanged 시그널에서 호출)
+    pub fn set_bookmark(
+        &mut self,
+        index: usize,
+        bookmarked: bool,
+        display: *mut x11::xlib::Display,
+    ) {
+        if let Some(ps) = self.popup_state.as_mut() {
+            ps.set_bookmark(index, bookmarked);
+            self.redraw(display);
+        }
+    }
+
+    /// 전체 즐겨찾기 상태 일괄 반영 (초기 fetch 결과)
+    pub fn set_bookmark_flags(
+        &mut self,
+        flags: Vec<bool>,
+        display: *mut x11::xlib::Display,
+    ) {
+        if let Some(ps) = self.popup_state.as_mut() {
+            ps.set_bookmark_flags(flags);
+            self.redraw(display);
+        }
+    }
+
     /// 행 높이 계산
     fn line_height(&self, display: *mut x11::xlib::Display) -> c_int {
         let test = "漢가";
@@ -678,6 +703,30 @@ impl HanjaWindow {
                     );
                 }
             }
+
+            // 즐겨찾기 별 (☆/★) — 행 오른쪽 끝. Xft fallback 경로로 렌더 (CJK 폰트).
+            let global_idx = ps.current_page() * 9 + i;
+            let bookmarked = ps.is_bookmarked(global_idx);
+            let star_text = if bookmarked { "★" } else { "☆" };
+            let star_width = unsafe {
+                let mut ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+                let font = if !self.xft_font_fallback.is_null() {
+                    self.xft_font_fallback
+                } else {
+                    self.xft_font
+                };
+                x11::xft::XftTextExtentsUtf8(
+                    display,
+                    font,
+                    star_text.as_bytes().as_ptr(),
+                    star_text.as_bytes().len() as c_int,
+                    &mut ext,
+                );
+                ext.xOff as c_int
+            };
+            let star_x = (self.size.0 as c_int) - padding_x - star_width;
+            let star_color = if bookmarked { &self.text_color } else { &self.page_color };
+            self.draw_string_with_fallback(display, star_color, star_x, y_pos, star_text);
         }
 
         // 하단 안내

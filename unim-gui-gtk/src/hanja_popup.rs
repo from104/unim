@@ -19,6 +19,8 @@ pub struct HanjaPopup {
     display_server: DisplayServer,
     /// 전체 후보 목록
     candidates: Vec<(String, String)>,
+    /// 후보별 즐겨찾기 상태 (candidates와 동일 길이)
+    bookmarks: Vec<bool>,
     /// 현재 페이지 (0-based)
     current_page: usize,
     /// 현재 선택 인덱스 (페이지 내, 0-based)
@@ -88,6 +90,7 @@ impl HanjaPopup {
             target_label,
             display_server,
             candidates: Vec::new(),
+            bookmarks: Vec::new(),
             current_page: 0,
             selected: 0,
             context_path: String::new(),
@@ -117,6 +120,9 @@ impl HanjaPopup {
         );
 
         self.context_path = context_path;
+        // 초기 북마크 상태는 모두 false로 출발 — DBus fetch 결과가 돌아오면
+        // set_bookmark_states()로 일괄 갱신된다 (GNOME extension.js:176 패턴).
+        self.bookmarks = vec![false; candidates.len()];
         self.candidates = candidates;
         self.current_page = 0;
         self.selected = 0;
@@ -124,6 +130,9 @@ impl HanjaPopup {
         self.target_label
             .set_text(&format!("「{}」 → 한자", target));
         self.update_page();
+
+        // 엔진에서 현재 북마크 상태를 비동기로 가져와 렌더를 보정
+        fetch_bookmark_states_async(self.context_path.clone());
 
         popup_positioning::position_popup(&self.window, x, y, h, self.display_server);
         self.window.set_visible(true);
@@ -147,6 +156,7 @@ impl HanjaPopup {
         let end = (start + PAGE_SIZE).min(self.candidates.len());
 
         for (i, (hanja, meaning)) in self.candidates[start..end].iter().enumerate() {
+            let global_idx = start + i;
             let row = gtk4::ListBoxRow::new();
             let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
             hbox.set_margin_start(8);
@@ -171,6 +181,16 @@ impl HanjaPopup {
             meaning_label.set_halign(gtk4::Align::Start);
             meaning_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
             hbox.append(&meaning_label);
+
+            // 별 라벨 (☆/★) — 즐겨찾기 상태 표시
+            let bookmarked = self.bookmarks.get(global_idx).copied().unwrap_or(false);
+            let star_label = gtk4::Label::new(Some(if bookmarked { "★" } else { "☆" }));
+            star_label.add_css_class("hanja-bookmark");
+            if bookmarked {
+                star_label.add_css_class("bookmarked");
+                row.add_css_class("bookmarked");
+            }
+            hbox.append(&star_label);
 
             row.set_child(Some(&hbox));
             self.list_box.append(&row);
@@ -214,6 +234,78 @@ impl HanjaPopup {
     pub fn is_visible(&self) -> bool {
         self.window.is_visible()
     }
+
+    /// 특정 후보의 즐겨찾기 상태를 갱신 (HanjaBookmarkChanged 시그널에서 호출)
+    pub fn set_bookmark(&mut self, global_index: u32, bookmarked: bool) {
+        let idx = global_index as usize;
+        if idx >= self.candidates.len() {
+            return;
+        }
+        if self.bookmarks.len() < self.candidates.len() {
+            self.bookmarks.resize(self.candidates.len(), false);
+        }
+        self.bookmarks[idx] = bookmarked;
+        // 현재 페이지에 포함된 행만 실제 화면에 보이므로, 해당 인덱스가
+        // 현재 페이지에 속하면 즉시 재렌더한다.
+        let start = self.current_page * PAGE_SIZE;
+        let end = (start + PAGE_SIZE).min(self.candidates.len());
+        if idx >= start && idx < end {
+            self.update_page();
+        }
+    }
+
+}
+
+/// 엔진에서 현재 한자 후보의 북마크 상태를 비동기로 받아 GUI 이벤트 루프에
+/// `HanjaBookmarkChanged` 액션을 다량 발행하는 헬퍼.
+///
+/// 초기 별 상태를 표시하기 위해 사용된다 (GNOME extension.js:176 패턴).
+fn fetch_bookmark_states_async(context_path: String) {
+    use unim_gui_common::types::SETTINGS_TX;
+
+    let tx_opt = SETTINGS_TX.lock().ok().and_then(|g| g.clone());
+    let Some(tx) = tx_opt else { return };
+
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        rt.block_on(async move {
+            let conn = match zbus::Connection::session().await {
+                Ok(c) => c,
+                Err(_) => return,
+            };
+            let proxy = match zbus::Proxy::new(
+                &conn,
+                "org.atit.unim.InputMethod",
+                context_path.as_str(),
+                "org.atit.unim.InputContext",
+            )
+            .await
+            {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            let states: Result<Vec<bool>, _> =
+                proxy.call("GetHanjaBookmarkStates", &()).await;
+            if let Ok(states) = states {
+                // 초기 bulk 반영을 HanjaBookmarkChanged 이벤트로 풀어 보낸다.
+                // (GUI 측은 개별 토글과 동일 경로로 처리)
+                for (i, b) in states.into_iter().enumerate() {
+                    if b {
+                        let _ = tx.send(unim_gui_common::types::GuiAction::HanjaBookmarkChanged {
+                            index: i as u32,
+                            bookmarked: true,
+                        });
+                    }
+                }
+            }
+        });
+    });
 }
 
 /// DBus를 통해 한자 선택
@@ -317,6 +409,21 @@ pub fn popup_css() -> &'static str {
     .hanja-meaning {
         color: #a6adc8;
         font-size: 12px;
+    }
+
+    .hanja-bookmark {
+        color: #6c7086;
+        font-size: 14px;
+        margin-left: 8px;
+        min-width: 16px;
+    }
+
+    .hanja-bookmark.bookmarked {
+        color: #f9e2af;
+    }
+
+    .unim-hanja-popup .hanja-list row.bookmarked {
+        background-color: rgba(249, 226, 175, 0.08);
     }
 
     .unim-hanja-popup .hanja-list row:selected .hanja-char,
