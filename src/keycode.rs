@@ -459,6 +459,124 @@ impl KeyCode {
         Some(if shifted { upper } else { lower })
     }
 
+    /// Windows Win32 Virtual Key 코드에서 KeyCode로 변환합니다.
+    ///
+    /// # Arguments
+    ///
+    /// * `vk` - Win32 Virtual Key 코드 (VK_*)
+    ///
+    /// # Returns
+    ///
+    /// 변환된 `KeyCode`, 매핑되지 않은 경우 `KeyCode::Unknown`
+    pub fn from_win32_vk(vk: u16) -> Self {
+        match vk {
+            // 알파벳 (VK_A=0x41 ~ VK_Z=0x5A)
+            0x41 => KeyCode::A,
+            0x42 => KeyCode::B,
+            0x43 => KeyCode::C,
+            0x44 => KeyCode::D,
+            0x45 => KeyCode::E,
+            0x46 => KeyCode::F,
+            0x47 => KeyCode::G,
+            0x48 => KeyCode::H,
+            0x49 => KeyCode::I,
+            0x4A => KeyCode::J,
+            0x4B => KeyCode::K,
+            0x4C => KeyCode::L,
+            0x4D => KeyCode::M,
+            0x4E => KeyCode::N,
+            0x4F => KeyCode::O,
+            0x50 => KeyCode::P,
+            0x51 => KeyCode::Q,
+            0x52 => KeyCode::R,
+            0x53 => KeyCode::S,
+            0x54 => KeyCode::T,
+            0x55 => KeyCode::U,
+            0x56 => KeyCode::V,
+            0x57 => KeyCode::W,
+            0x58 => KeyCode::X,
+            0x59 => KeyCode::Y,
+            0x5A => KeyCode::Z,
+
+            // 숫자 (VK_0=0x30 ~ VK_9=0x39)
+            0x31 => KeyCode::Num1,
+            0x32 => KeyCode::Num2,
+            0x33 => KeyCode::Num3,
+            0x34 => KeyCode::Num4,
+            0x35 => KeyCode::Num5,
+            0x36 => KeyCode::Num6,
+            0x37 => KeyCode::Num7,
+            0x38 => KeyCode::Num8,
+            0x39 => KeyCode::Num9,
+            0x30 => KeyCode::Num0,
+
+            // 특수 키
+            0x0D => KeyCode::Enter,    // VK_RETURN
+            0x1B => KeyCode::Escape,   // VK_ESCAPE
+            0x08 => KeyCode::Backspace, // VK_BACK
+            0x09 => KeyCode::Tab,      // VK_TAB
+            0x20 => KeyCode::Space,    // VK_SPACE
+
+            // 기호 (OEM 키)
+            0xBD => KeyCode::Minus,        // VK_OEM_MINUS (- _)
+            0xBB => KeyCode::Equal,        // VK_OEM_PLUS (= +)
+            0xDB => KeyCode::BracketLeft,  // VK_OEM_4 ([ {)
+            0xDD => KeyCode::BracketRight, // VK_OEM_6 (] })
+            0xDC => KeyCode::Backslash,    // VK_OEM_5 (\ |)
+            0xBA => KeyCode::Semicolon,    // VK_OEM_1 (; :)
+            0xDE => KeyCode::Quote,        // VK_OEM_7 (' ")
+            0xC0 => KeyCode::Backquote,    // VK_OEM_3 (` ~)
+            0xBC => KeyCode::Comma,        // VK_OEM_COMMA (, <)
+            0xBE => KeyCode::Period,       // VK_OEM_PERIOD (. >)
+            0xBF => KeyCode::Slash,        // VK_OEM_2 (/ ?)
+
+            // 기능 키
+            0x14 => KeyCode::CapsLock, // VK_CAPITAL
+            0x70 => KeyCode::F1,       // VK_F1
+            0x71 => KeyCode::F2,
+            0x72 => KeyCode::F3,
+            0x73 => KeyCode::F4,
+            0x74 => KeyCode::F5,
+            0x75 => KeyCode::F6,
+            0x76 => KeyCode::F7,
+            0x77 => KeyCode::F8,
+            0x78 => KeyCode::F9,
+            0x79 => KeyCode::F10,
+            0x7A => KeyCode::F11,
+            0x7B => KeyCode::F12,      // VK_F12
+
+            // 편집 키
+            0x2D => KeyCode::Insert,   // VK_INSERT
+            0x24 => KeyCode::Home,     // VK_HOME
+            0x21 => KeyCode::PageUp,   // VK_PRIOR
+            0x2E => KeyCode::Delete,   // VK_DELETE
+            0x23 => KeyCode::End,      // VK_END
+            0x22 => KeyCode::PageDown, // VK_NEXT
+
+            // 화살표
+            0x27 => KeyCode::Right, // VK_RIGHT
+            0x25 => KeyCode::Left,  // VK_LEFT
+            0x28 => KeyCode::Down,  // VK_DOWN
+            0x26 => KeyCode::Up,    // VK_UP
+
+            // 한국어/한자
+            0x15 => KeyCode::Korean, // VK_HANGUL
+            0x19 => KeyCode::Hanja,  // VK_HANJA
+
+            // 수정자
+            0xA0 => KeyCode::LeftShift,    // VK_LSHIFT
+            0xA1 => KeyCode::RightShift,   // VK_RSHIFT
+            0xA2 => KeyCode::LeftControl,  // VK_LCONTROL
+            0xA3 => KeyCode::RightControl, // VK_RCONTROL
+            0xA4 => KeyCode::LeftAlt,      // VK_LMENU
+            0xA5 => KeyCode::RightAlt,     // VK_RMENU
+            0x5B => KeyCode::LeftSuper,    // VK_LWIN
+            0x5C => KeyCode::RightSuper,   // VK_RWIN
+
+            _ => KeyCode::Unknown,
+        }
+    }
+
     /// 해당 KeyCode가 문자 입력 키인지 확인합니다.
     pub fn is_character_key(&self) -> bool {
         self.to_char().is_some()
@@ -752,6 +870,23 @@ impl ModifierState {
         }
     }
 
+    /// Win32 수정자 비트마스크에서 ModifierState를 생성합니다.
+    ///
+    /// # Arguments
+    ///
+    /// * `modifiers` - 비트마스크: bit0=Shift, bit1=Control, bit2=Alt,
+    ///                 bit3=Super(Win), bit4=CapsLock, bit5=NumLock
+    pub fn from_win32_modifiers(modifiers: u32) -> Self {
+        Self {
+            shift: (modifiers & 0x01) != 0,
+            control: (modifiers & 0x02) != 0,
+            alt: (modifiers & 0x04) != 0,
+            super_key: (modifiers & 0x08) != 0,
+            caps_lock: (modifiers & 0x10) != 0,
+            num_lock: (modifiers & 0x20) != 0,
+        }
+    }
+
     /// 수정자가 하나도 눌리지 않은 상태인지 확인합니다.
     pub fn is_empty(&self) -> bool {
         !self.shift && !self.control && !self.alt && !self.super_key
@@ -865,6 +1000,108 @@ mod tests {
         assert!(from_x11.shift);
         assert!(from_x11.control);
         assert!(!from_x11.alt);
+    }
+
+    #[test]
+    fn test_keycode_from_win32_vk() {
+        // 알파벳
+        assert_eq!(KeyCode::from_win32_vk(0x41), KeyCode::A);
+        assert_eq!(KeyCode::from_win32_vk(0x5A), KeyCode::Z);
+        assert_eq!(KeyCode::from_win32_vk(0x48), KeyCode::H);
+
+        // 숫자
+        assert_eq!(KeyCode::from_win32_vk(0x30), KeyCode::Num0);
+        assert_eq!(KeyCode::from_win32_vk(0x31), KeyCode::Num1);
+        assert_eq!(KeyCode::from_win32_vk(0x39), KeyCode::Num9);
+
+        // 특수 키
+        assert_eq!(KeyCode::from_win32_vk(0x0D), KeyCode::Enter);
+        assert_eq!(KeyCode::from_win32_vk(0x1B), KeyCode::Escape);
+        assert_eq!(KeyCode::from_win32_vk(0x08), KeyCode::Backspace);
+        assert_eq!(KeyCode::from_win32_vk(0x09), KeyCode::Tab);
+        assert_eq!(KeyCode::from_win32_vk(0x20), KeyCode::Space);
+
+        // OEM 기호 키
+        assert_eq!(KeyCode::from_win32_vk(0xBD), KeyCode::Minus);
+        assert_eq!(KeyCode::from_win32_vk(0xBB), KeyCode::Equal);
+        assert_eq!(KeyCode::from_win32_vk(0xDB), KeyCode::BracketLeft);
+        assert_eq!(KeyCode::from_win32_vk(0xDD), KeyCode::BracketRight);
+        assert_eq!(KeyCode::from_win32_vk(0xDC), KeyCode::Backslash);
+        assert_eq!(KeyCode::from_win32_vk(0xBA), KeyCode::Semicolon);
+        assert_eq!(KeyCode::from_win32_vk(0xDE), KeyCode::Quote);
+        assert_eq!(KeyCode::from_win32_vk(0xC0), KeyCode::Backquote);
+        assert_eq!(KeyCode::from_win32_vk(0xBC), KeyCode::Comma);
+        assert_eq!(KeyCode::from_win32_vk(0xBE), KeyCode::Period);
+        assert_eq!(KeyCode::from_win32_vk(0xBF), KeyCode::Slash);
+
+        // 기능 키
+        assert_eq!(KeyCode::from_win32_vk(0x70), KeyCode::F1);
+        assert_eq!(KeyCode::from_win32_vk(0x7B), KeyCode::F12);
+        assert_eq!(KeyCode::from_win32_vk(0x14), KeyCode::CapsLock);
+
+        // 편집/화살표 키
+        assert_eq!(KeyCode::from_win32_vk(0x2D), KeyCode::Insert);
+        assert_eq!(KeyCode::from_win32_vk(0x2E), KeyCode::Delete);
+        assert_eq!(KeyCode::from_win32_vk(0x24), KeyCode::Home);
+        assert_eq!(KeyCode::from_win32_vk(0x23), KeyCode::End);
+        assert_eq!(KeyCode::from_win32_vk(0x27), KeyCode::Right);
+        assert_eq!(KeyCode::from_win32_vk(0x25), KeyCode::Left);
+        assert_eq!(KeyCode::from_win32_vk(0x26), KeyCode::Up);
+        assert_eq!(KeyCode::from_win32_vk(0x28), KeyCode::Down);
+
+        // 한국어/한자
+        assert_eq!(KeyCode::from_win32_vk(0x15), KeyCode::Korean);
+        assert_eq!(KeyCode::from_win32_vk(0x19), KeyCode::Hanja);
+
+        // 수정자
+        assert_eq!(KeyCode::from_win32_vk(0xA0), KeyCode::LeftShift);
+        assert_eq!(KeyCode::from_win32_vk(0xA1), KeyCode::RightShift);
+        assert_eq!(KeyCode::from_win32_vk(0xA2), KeyCode::LeftControl);
+        assert_eq!(KeyCode::from_win32_vk(0xA5), KeyCode::RightAlt);
+        assert_eq!(KeyCode::from_win32_vk(0x5B), KeyCode::LeftSuper);
+
+        // 알 수 없는 키
+        assert_eq!(KeyCode::from_win32_vk(0xFFFF), KeyCode::Unknown);
+    }
+
+    #[test]
+    fn test_modifier_from_win32() {
+        // 빈 상태
+        let empty = ModifierState::from_win32_modifiers(0);
+        assert!(empty.is_empty());
+        assert!(!empty.caps_lock);
+
+        // Shift만
+        let shift_only = ModifierState::from_win32_modifiers(0x01);
+        assert!(shift_only.shift);
+        assert!(!shift_only.control);
+        assert!(shift_only.is_shift_only());
+
+        // Shift + Control
+        let shift_ctrl = ModifierState::from_win32_modifiers(0x03);
+        assert!(shift_ctrl.shift);
+        assert!(shift_ctrl.control);
+        assert!(!shift_ctrl.alt);
+
+        // Alt만
+        let alt_only = ModifierState::from_win32_modifiers(0x04);
+        assert!(alt_only.alt);
+        assert!(alt_only.is_alt_only());
+
+        // CapsLock + NumLock
+        let locks = ModifierState::from_win32_modifiers(0x30);
+        assert!(locks.caps_lock);
+        assert!(locks.num_lock);
+        assert!(!locks.shift);
+
+        // 전체 비트
+        let all = ModifierState::from_win32_modifiers(0x3F);
+        assert!(all.shift);
+        assert!(all.control);
+        assert!(all.alt);
+        assert!(all.super_key);
+        assert!(all.caps_lock);
+        assert!(all.num_lock);
     }
 
     #[test]
