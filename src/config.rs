@@ -627,6 +627,29 @@ pub struct EngineConfig {
     pub auto_typefix: AutoTypeFixConfig,
     /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
     pub auto_english: AutoEnglishConfig,
+    /// 이모지 팝업 설정 (Super+. 단축키)
+    pub emoji_popup: EmojiPopupConfig,
+}
+
+/// 이모지 팝업 설정
+///
+/// Super+. 단축키로 이모지 팝업을 열고, 카테고리 탭/즐겨찾기/검색을 제공합니다.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EmojiPopupConfig {
+    /// 기능 활성화 여부
+    pub enabled: bool,
+    /// 팝업 트리거 키 (modifier+KeyCode 이름 조합, 예: "Super+Period")
+    pub trigger_keys: Vec<String>,
+}
+
+impl Default for EmojiPopupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            trigger_keys: vec!["Super+Period".to_string()],
+        }
+    }
 }
 
 impl Default for EngineConfig {
@@ -642,6 +665,7 @@ impl Default for EngineConfig {
             popup_mode: PopupMode::default(),
             auto_typefix: AutoTypeFixConfig::default(),
             auto_english: AutoEnglishConfig::default(),
+            emoji_popup: EmojiPopupConfig::default(),
         }
     }
 }

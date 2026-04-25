@@ -21,6 +21,7 @@ import { KeyHandler } from './key_handler.js';
 import { PreeditOverlay } from './preedit_overlay.js';
 import { HanjaPopup } from './hanja_popup.js';
 import { SpecialPopup } from './special_popup.js';
+import { EmojiPopup } from './emoji_popup.js';
 import { unimLog, unimError } from './logging.js';
 
 export default class UnimExtension extends Extension {
@@ -38,6 +39,7 @@ export default class UnimExtension extends Extension {
         this._preeditOverlay = null;
         this._hanjaPopup = null;
         this._specialPopup = null;
+        this._emojiPopup = null;
 
         this._focusWindowId = 0;
 
@@ -163,11 +165,13 @@ export default class UnimExtension extends Extension {
             this._preeditOverlay = new PreeditOverlay();
             this._preeditOverlay.enable();
 
-            // 6. 한자/특수문자 팝업 초기화
+            // 6. 한자/특수문자/이모지 팝업 초기화
             this._hanjaPopup = new HanjaPopup();
             this._hanjaPopup.enable();
             this._specialPopup = new SpecialPopup();
             this._specialPopup.enable();
+            this._emojiPopup = new EmojiPopup(this._dbusIME);
+            this._emojiPopup.enable();
 
             // DBus 팝업 시그널 콜백 등록
             this._dbusIME.setPopupCallbacks({
@@ -232,9 +236,16 @@ export default class UnimExtension extends Extension {
                         cursorRect
                     );
                 },
+                onShowEmoji: (cursorRect) => {
+                    // 다른 팝업 먼저 닫기
+                    this._hanjaPopup?.hide();
+                    this._specialPopup?.hide();
+                    this._emojiPopup?.show(cursorRect);
+                },
                 onHidePopup: () => {
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
+                    this._emojiPopup?.hide();
                 },
                 onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
                     if (this._hanjaPopup?.isVisible) {
@@ -351,6 +362,11 @@ export default class UnimExtension extends Extension {
             this._specialPopup.disable();
             this._specialPopup = null;
         }
+        if (this._emojiPopup) {
+            this._emojiPopup.hide();
+            this._emojiPopup.disable();
+            this._emojiPopup = null;
+        }
 
         // DBus 정리
         if (this._dbusIME) {
@@ -378,7 +394,9 @@ export default class UnimExtension extends Extension {
 
         // 팝업이 열려있고 포커스가 null(Chrome 위젯 클릭 등)이면
         // 마우스 클릭 이벤트가 먼저 처리되도록 지연
-        const popupVisible = this._hanjaPopup?.isVisible || this._specialPopup?.isVisible;
+        const popupVisible = this._hanjaPopup?.isVisible
+            || this._specialPopup?.isVisible
+            || this._emojiPopup?.isVisible;
         if (popupVisible && !focusWindow) {
             return; // Chrome 위젯 클릭 — 팝업 유지, 클릭 핸들러에 맡김
         }
@@ -432,6 +450,10 @@ export default class UnimExtension extends Extension {
             if (trigger && this._inputMethod) {
                 this._inputMethod.commitText(trigger);
             }
+        }
+        // 이모지 팝업은 엔진 상태가 없으므로 그냥 숨김만 수행
+        if (this._emojiPopup?.isVisible) {
+            this._emojiPopup.hide();
         }
         // 팝업 키 핸들러는 더 이상 사용하지 않음 (ProcessKeyEvent 경로로 통일)
     }

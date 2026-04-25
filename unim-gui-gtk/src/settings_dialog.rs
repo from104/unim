@@ -489,6 +489,38 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
         "hanja_keys",
     ));
 
+    // 이모지 팝업 enable/disable
+    let emoji_sw = adw::SwitchRow::builder()
+        .title("이모지 팝업")
+        .subtitle("Super+. 등 트리거 키로 이모지 팝업 표시")
+        .build();
+    {
+        let s = state.borrow();
+        emoji_sw.set_active(s.config.engine.emoji_popup.enabled);
+    }
+    {
+        let state_c = state.clone();
+        emoji_sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.emoji_popup.enabled = sw.is_active();
+            save_and_notify(&s.config, "emoji_popup");
+        });
+    }
+    group.add(&emoji_sw);
+
+    // 이모지 팝업 트리거 키
+    group.add(&build_string_list_row(
+        state,
+        "이모지 팝업 트리거 키",
+        Some("쉼표로 구분 (예: Super+Period, Control+Shift+E)"),
+        |cfg| cfg.engine.emoji_popup.trigger_keys.join(", "),
+        |cfg, v| cfg.engine.emoji_popup.trigger_keys = v,
+        "emoji_popup_keys",
+    ));
+
     group
 }
 

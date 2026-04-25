@@ -3,6 +3,7 @@
 //! 시스템 트레이 아이콘, 한자/특수문자 팝업, 설정 다이얼로그를 통합 제공합니다.
 //! GTK4/libadwaita 기반이며, DBus 시그널을 구독하여 상태를 실시간 반영합니다.
 
+mod emoji_popup;
 mod gtk_ui;
 mod hanja_popup;
 mod popup_positioning;

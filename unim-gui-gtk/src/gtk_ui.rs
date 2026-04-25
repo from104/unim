@@ -17,6 +17,7 @@ use unim::unim_log;
 
 use unim_gui_common::types::{GuiAction, IndicatorState};
 
+use crate::emoji_popup::EmojiPopup;
 use crate::hanja_popup::HanjaPopup;
 use crate::settings_dialog;
 use crate::special_popup::SpecialPopup;
@@ -34,15 +35,17 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
         load_css();
         let mode_window = build_popup_window(app, state.clone());
 
-        // 한자/특수문자 팝업 생성
+        // 한자/특수문자/이모지 팝업 생성
         let hanja_popup = Rc::new(RefCell::new(HanjaPopup::new(app)));
         let special_popup = Rc::new(RefCell::new(SpecialPopup::new(app)));
+        let emoji_popup = Rc::new(RefCell::new(EmojiPopup::new(app)));
 
         let mode_window_clone = mode_window.clone();
         let popup_rx_clone = popup_rx.clone();
         let app_clone = app.clone();
         let hanja_clone = hanja_popup.clone();
         let special_clone = special_popup.clone();
+        let emoji_clone = emoji_popup.clone();
 
         glib::timeout_add_local(Duration::from_millis(50), move || {
             if let Ok(rx) = popup_rx_clone.lock() {
@@ -90,6 +93,7 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                         } => {
                             // 한자 팝업이 열려있으면 닫기
                             hanja_clone.borrow().hide();
+                            emoji_clone.borrow().hide();
                             special_clone.borrow_mut().show(
                                 context_path,
                                 &target,
@@ -101,9 +105,21 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                                 h,
                             );
                         }
+                        GuiAction::ShowEmojiPopup {
+                            context_path,
+                            x,
+                            y,
+                            w,
+                            h,
+                        } => {
+                            hanja_clone.borrow().hide();
+                            special_clone.borrow().hide();
+                            emoji_clone.borrow_mut().show(context_path, x, y, w, h);
+                        }
                         GuiAction::HidePopup => {
                             hanja_clone.borrow().hide();
                             special_clone.borrow().hide();
+                            emoji_clone.borrow().hide();
                         }
                         GuiAction::HanjaBookmarkChanged { index, bookmarked } => {
                             if hanja_clone.borrow().is_visible() {
@@ -175,10 +191,11 @@ fn load_css() {
 
     // 기존 모드 팝업 CSS + 한자/특수문자 팝업 CSS
     let css = format!(
-        "{}\n{}\n{}",
+        "{}\n{}\n{}\n{}",
         MODE_POPUP_CSS,
         crate::hanja_popup::popup_css(),
-        crate::special_popup::popup_css()
+        crate::special_popup::popup_css(),
+        crate::emoji_popup::popup_css()
     );
     provider.load_from_data(&css);
 

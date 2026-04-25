@@ -74,6 +74,8 @@ impl PopupState {
             }
             // 한자 즐겨찾기 토글은 standalone egui UI에서 시각적 갱신 대상이 아님 — 무시
             PopupAction::HanjaBookmarkChanged { .. } => {}
+            // 이모지 팝업은 Windows standalone egui UI에서 미지원 — 무시
+            PopupAction::ShowEmoji => {}
         }
     }
 

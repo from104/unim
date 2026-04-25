@@ -116,6 +116,7 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                     // 팝업 액션은 unim-gui-gtk에서만 처리 (Qt GUI에서는 무시)
                     GuiAction::ShowHanjaPopup { .. }
                     | GuiAction::ShowSpecialPopup { .. }
+                    | GuiAction::ShowEmojiPopup { .. }
                     | GuiAction::HidePopup
                     | GuiAction::PopupNavigate { .. }
                     | GuiAction::HanjaBookmarkChanged { .. } => {}
