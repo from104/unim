@@ -72,6 +72,8 @@ impl PopupState {
                 self.rows = rows;
                 self.cols = cols;
             }
+            // 한자 즐겨찾기 토글은 standalone egui UI에서 시각적 갱신 대상이 아님 — 무시
+            PopupAction::HanjaBookmarkChanged { .. } => {}
         }
     }
 

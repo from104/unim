@@ -174,7 +174,9 @@ impl UnimApp {
                 .set_surrounding_text(text, cursor, anchor);
 
             // 자동 감지 방향으로 변환
-            if let Some((_delete_count, replacement)) = self.engine.typefix_convert(0) {
+            if let Some((_offset_from_cursor, _delete_count, replacement)) =
+                self.engine.typefix_convert(0)
+            {
                 self.text_area.replace_selection(&replacement);
             }
         }
@@ -235,10 +237,10 @@ impl eframe::App for UnimApp {
                 ui.menu_button("설정", |ui| {
                     ui.label("한국어 자판:");
                     let layouts = [
-                        ("두벌식", unim::config::KoreanLayout::Dubeolsik),
-                        ("세벌식 390", unim::config::KoreanLayout::Sebeolsik390),
-                        ("세벌식 391", unim::config::KoreanLayout::Sebeolsik391),
-                        ("세벌식 순아래", unim::config::KoreanLayout::SebeolsikNoShift),
+                        ("두벌식", unim::config::KOREAN_LAYOUT_DUBEOLSIK),
+                        ("세벌식 390", unim::config::KOREAN_LAYOUT_SEBEOLSIK_390),
+                        ("세벌식 391", unim::config::KOREAN_LAYOUT_SEBEOLSIK_391),
+                        ("세벌식 순아래", unim::config::KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT),
                     ];
                     for (name, layout) in layouts {
                         let selected = self.config.engine.korean.layout == layout;
@@ -246,23 +248,23 @@ impl eframe::App for UnimApp {
                             .selectable_label(selected, name)
                             .clicked()
                         {
-                            self.config.engine.korean.layout = layout;
+                            self.config.engine.korean.layout = layout.to_string();
                             self.engine = InputEngine::new(&self.config);
                         }
                     }
                     ui.separator();
                     ui.label("영문 자판:");
                     let eng_layouts = [
-                        ("QWERTY", unim::config::EnglishLayout::Qwerty),
-                        ("Dvorak", unim::config::EnglishLayout::Dvorak),
-                        ("Colemak", unim::config::EnglishLayout::Colemak),
-                        ("Colemak-DH", unim::config::EnglishLayout::ColemakDh),
-                        ("Workman", unim::config::EnglishLayout::Workman),
+                        ("QWERTY", unim::config::ENGLISH_LAYOUT_QWERTY),
+                        ("Dvorak", unim::config::ENGLISH_LAYOUT_DVORAK),
+                        ("Colemak", unim::config::ENGLISH_LAYOUT_COLEMAK),
+                        ("Colemak-DH", unim::config::ENGLISH_LAYOUT_COLEMAK_DH),
+                        ("Workman", unim::config::ENGLISH_LAYOUT_WORKMAN),
                     ];
                     for (name, layout) in eng_layouts {
                         let selected = self.config.engine.english.layout == layout;
                         if ui.selectable_label(selected, name).clicked() {
-                            self.config.engine.english.layout = layout;
+                            self.config.engine.english.layout = layout.to_string();
                             self.engine = InputEngine::new(&self.config);
                         }
                     }
@@ -310,7 +312,9 @@ impl UnimApp {
                 self.text_area.selection_start.unwrap_or(self.text_area.cursor_pos) as u32;
             self.engine.set_surrounding_text(text, cursor, anchor);
 
-            if let Some((_delete_count, replacement)) = self.engine.typefix_convert(direction) {
+            if let Some((_offset_from_cursor, _delete_count, replacement)) =
+                self.engine.typefix_convert(direction)
+            {
                 self.text_area.replace_selection(&replacement);
             }
         }
