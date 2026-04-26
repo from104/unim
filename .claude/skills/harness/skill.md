@@ -45,7 +45,7 @@ Agent(
 - 계획의 구현 순서를 따라 직접 코드를 수정한다
 - 계획에 없는 파일은 수정하지 않는다
 - 각 단계 완료 시 TaskUpdate로 진행 상황을 추적한다
-- CLAUDE.md 규칙 준수: `unim_log!` 매크로, Core 격리, DBus 통신 등
+- docs/dev/architecture/AGENTS.md 규칙 준수: `unim_log!` 매크로, Core 격리, DBus 통신 등
 
 ### Phase 3: 평가
 

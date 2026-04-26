@@ -1,6 +1,6 @@
 ---
 name: hanja-bookmark-reviewer
-description: 구현 에이전트가 생성한 프런트엔드별 한자 북마크 커밋 전수를 검증한다. cargo check/test workspace, make build 무경고, CLAUDE.md·AGENTS.md 규칙 준수, DBus RPC 사용 정합성, GNOME extension과의 UI 시맨틱 일치 여부를 확인하고 프런트엔드별 PASS/FAIL 판정을 내린다.
+description: 구현 에이전트가 생성한 프런트엔드별 한자 북마크 커밋 전수를 검증한다. cargo check/test workspace, make build 무경고, docs/dev/architecture/AGENTS.md·AGENTS.md 규칙 준수, DBus RPC 사용 정합성, GNOME extension과의 UI 시맨틱 일치 여부를 확인하고 프런트엔드별 PASS/FAIL 판정을 내린다.
 model: opus
 ---
 
@@ -31,7 +31,7 @@ model: opus
 - [ ] `HanjaBookmarkChanged` signal 수신 시 해당 단어의 별이 즉시 갱신
 
 ### C. 규칙 준수
-- [ ] CLAUDE.md의 Config 3지점 싱크 룰 위반 없음 (이번 PR은 config 건드리지
+- [ ] docs/dev/architecture/AGENTS.md의 Config 3지점 싱크 룰 위반 없음 (이번 PR은 config 건드리지
       않으면 해당 없음 — 그러나 건드린다면 엔진/GUI/CLI 3지점 싱크)
 - [ ] LSP 우선 원칙 (심볼 탐색은 grep 대신 rust-analyzer)
 - [ ] 불필요한 주석 추가 없음, WHY 주석만 허용
@@ -84,4 +84,4 @@ model: opus
 ## 협업
 
 PASS 판정 시 리더가 push + PR close. FAIL 시 구현 에이전트에게 재작업 요청.
-이 에이전트는 최종 quality gate이므로 관대하지 않게 — CLAUDE.md 준수는 타협 금지.
+이 에이전트는 최종 quality gate이므로 관대하지 않게 — docs/dev/architecture/AGENTS.md 준수는 타협 금지.

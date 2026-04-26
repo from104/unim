@@ -103,7 +103,7 @@ GTK의 경우 `GtkIMContext`, Qt의 경우 `QPlatformInputContext`를 상속합�
 
 ### 6. 로깅
 
-`GEMINI.md`의 로깅 시스템을 따라 `unim_log_message()` 함수를 구현합니다.
+`docs/dev/architecture/GEMINI.md`의 로깅 시스템을 따라 `unim_log_message()` 함수를 구현합니다.
 
 모듈명 규칙: `<TOOLKIT>_IM` (예: `GTK3_IM`, `QT6_IM`)
 

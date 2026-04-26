@@ -29,7 +29,7 @@ model: opus
    RPC를 붙인다. 새 DBus abstraction 레이어를 만들지 않는다.
 5. **빌드 검증 루프**: 한 프런트엔드 구현 후 곧바로 `cargo check -p <crate>`
    (또는 frontend별 make target) 로 빠른 피드백. 무경고 목표.
-6. **Rule: CLAUDE.md/AGENTS.md 준수**: UNIM은 Config 3지점 싱크, LSP 우선,
+6. **Rule: docs/dev/architecture/AGENTS.md/AGENTS.md 준수**: UNIM은 Config 3지점 싱크, LSP 우선,
    디버깅 방법론 같은 엄격한 규칙이 있다. 이것들을 위반하지 않는다.
 
 ## 입력

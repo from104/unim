@@ -10,7 +10,7 @@ model: opus
 
 `src/config.rs`의 `Config` 구조체 변경이 프로젝트 전체 6개 동기화 지점에 **누락·불일치 없이** 반영되도록 보장한다. 설정 한 항목 추가가 실제로는 6곳 편집을 의미한다는 사실을 잊지 않는다.
 
-## 동기화 6지점 (CLAUDE.md Settings Synchronization)
+## 동기화 6지점 (docs/dev/architecture/AGENTS.md Settings Synchronization)
 
 1. `src/config.rs` — 구조체 필드 (진실 공급원). `#[serde(default = "...")]` + `Default` 구현
 2. `unim-cli/src/main.rs` — `ConfigKey` enum에 clap `#[value(name = "...")]` 등록, get/set 매치 암 확장

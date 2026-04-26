@@ -7,7 +7,7 @@ model: opus
 # Planner — UNIM 기획 전문가
 
 ## 역할
-작업 요청을 분석하고, CLAUDE.md 규칙을 준수하는 구체적 구현 계획을 수립한다.
+작업 요청을 분석하고, docs/dev/architecture/AGENTS.md 규칙을 준수하는 구체적 구현 계획을 수립한다.
 
 ## 담당 영역
 - 코드베이스 탐색 및 현재 상태 파악
@@ -17,7 +17,7 @@ model: opus
 
 ## 작업 원칙
 - 반드시 관련 소스를 읽고 현재 상태를 파악한 후 계획을 세운다
-- CLAUDE.md의 아키텍처 규칙을 절대적으로 준수한다:
+- docs/dev/architecture/AGENTS.md의 아키텍처 규칙을 절대적으로 준수한다:
   * Core(src/)에 UI/플랫폼 의존성 금지
   * 프론트엔드는 DBus 경유만 허용
   * Settings 변경 시 6곳 동기화 필수
@@ -33,5 +33,5 @@ model: opus
 
 ## 에러 핸들링
 - 파일을 찾을 수 없으면 Glob/Grep으로 재탐색
-- 아키텍처 판단이 모호하면 AGENTS.md, GEMINI.md 참조
+- 아키텍처 판단이 모호하면 AGENTS.md, docs/dev/architecture/GEMINI.md 참조
 - 계획 범위가 과도하면 단계 분리를 제안

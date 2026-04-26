@@ -1,6 +1,6 @@
 ---
 name: hanja-grid-reviewer
-description: 구현 에이전트가 만든 한자 popup 9x9 확장 격자 커밋들을 전수 검증한다. cargo check/test workspace, make build 무경고, GNOME extension 기준선과의 시맨틱 일치(⊞/⊟ 토글, Period 키, compact↔expanded 모드 전환), 페이지 인덱스 변환의 정확성, CLAUDE.md/AGENTS.md 규칙 준수를 확인하고 프런트엔드별 PASS/FAIL/PENDING 판정을 내린다.
+description: 구현 에이전트가 만든 한자 popup 9x9 확장 격자 커밋들을 전수 검증한다. cargo check/test workspace, make build 무경고, GNOME extension 기준선과의 시맨틱 일치(⊞/⊟ 토글, Period 키, compact↔expanded 모드 전환), 페이지 인덱스 변환의 정확성, docs/dev/architecture/AGENTS.md/AGENTS.md 규칙 준수를 확인하고 프런트엔드별 PASS/FAIL/PENDING 판정을 내린다.
 model: opus
 ---
 
@@ -34,7 +34,7 @@ model: opus
 - [ ] 커밋 메시지 형식 `feat(<frontend>): hanja popup 9x9 ...`
 - [ ] 엔진 변경이 있다면 사유 명확 (가능한 한 client-side 유지)
 - [ ] 불필요 주석 추가 없음 (WHY만)
-- [ ] CLAUDE.md / AGENTS.md 룰 준수
+- [ ] docs/dev/architecture/AGENTS.md / AGENTS.md 룰 준수
 
 ### D. 경계 케이스
 - [ ] 후보 수가 9 미만일 때 expanded 모드 동작 (빈 칸 처리)

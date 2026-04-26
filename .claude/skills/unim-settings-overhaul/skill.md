@@ -107,7 +107,7 @@ Agent(
 - `cargo test --workspace` (L2)
 - `make build` zero-warning (L3)
 - 수동 end-to-end 7개 시나리오 (plan Verification 섹션)
-- 문서 갱신: 관련 SPEC.md, GEMINI.md의 Settings Guide
+- 문서 갱신: 관련 SPEC.md, docs/dev/architecture/GEMINI.md의 Settings Guide
 
 ## 각 Phase 승인 게이트
 
@@ -127,7 +127,7 @@ Agent(
 - 승인된 plan: `/home/from104/.claude/plans/golden-hatching-pnueli.md`
 - DBus 디버깅: `references/dbus-debug.md`
 - GTK UI QA: `references/gtk-visual-qa.md`
-- 프로젝트 규칙: `/home/from104/work/unim/CLAUDE.md`, `AGENTS.md`, `GEMINI.md`
+- 프로젝트 규칙: `/home/from104/work/unim/docs/dev/architecture/AGENTS.md`, `AGENTS.md`, `docs/dev/architecture/GEMINI.md`
 
 ## 테스트 시나리오
 

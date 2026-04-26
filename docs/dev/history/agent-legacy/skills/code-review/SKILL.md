@@ -11,7 +11,7 @@ UNIM 프로젝트의 코드 변경사항을 리뷰할 때 사용합니다.
 
 - [ ] `cargo test --workspace` 통과
 - [ ] 로깅: `unim_log!` / `unim_log_message()` / `unimLog()` 사용 (절대 `println!`, `console.log`, `log::*` 사용 금지)
-- [ ] 설정 변경 시: `GEMINI.md`의 설정 연동 체크리스트 확인
+- [ ] 설정 변경 시: `docs/dev/architecture/GEMINI.md`의 설정 연동 체크리스트 확인
 
 ## 언어별 컨벤션
 
@@ -49,7 +49,7 @@ UNIM 프로젝트의 코드 변경사항을 리뷰할 때 사용합니다.
 | 변경 파일 | 영향 범위 | 추가 확인 |
 | --------- | --------- | --------- |
 | `src/input_engine.rs` | 모든 프론트엔드 | 전체 테스트, 샌드박스 검증 |
-| `src/config.rs` | 모든 설정 도구, DBus | 설정 연동 체크리스트 (`GEMINI.md`) |
+| `src/config.rs` | 모든 설정 도구, DBus | 설정 연동 체크리스트 (`docs/dev/architecture/GEMINI.md`) |
 | `src/hangul/*.rs` | 한글 조합 전체 | 2벌식, 3벌식 모두 테스트 |
 | `unim-dbus/src/service.rs` | 모든 프론트엔드 | DBus 호환성, 시그널 확인 |
 | `unim-capi/src/lib.rs` | GTK/Qt 설정, GNOME 확장 | FFI 안전성 |

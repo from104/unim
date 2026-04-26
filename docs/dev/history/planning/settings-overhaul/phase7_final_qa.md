@@ -102,8 +102,8 @@ Phase 2 합의(신/구 병존)와 완전 일치. 사용자 수동 검증 항목(
 
 | 파일 | 변경 요약 |
 |------|-----------|
-| `CLAUDE.md` | "Settings Synchronization" 섹션 개편. 5지점 명시, gschema는 GNOME Shell 전용임을 명시. DBus 신규/레거시 API, 마이그레이션, GTK GUI 단일 창구 설명 추가 |
-| `GEMINI.md` | "설정 항목 연동 가이드라인" 섹션 전면 갱신. 5지점 표, DBus API 표(GetConfigYaml/GetConfigJson/SetConfigYaml/ConfigChangedJson), Phase 6 마이그레이션 루틴(.migrated-v2 가드) 설명 추가. 예시 섹션도 신규 5지점에 맞춰 업데이트 |
+| `docs/dev/architecture/AGENTS.md` | "Settings Synchronization" 섹션 개편. 5지점 명시, gschema는 GNOME Shell 전용임을 명시. DBus 신규/레거시 API, 마이그레이션, GTK GUI 단일 창구 설명 추가 |
+| `docs/dev/architecture/GEMINI.md` | "설정 항목 연동 가이드라인" 섹션 전면 갱신. 5지점 표, DBus API 표(GetConfigYaml/GetConfigJson/SetConfigYaml/ConfigChangedJson), Phase 6 마이그레이션 루틴(.migrated-v2 가드) 설명 추가. 예시 섹션도 신규 5지점에 맞춰 업데이트 |
 | `unim-dbus/SPEC.md` | §5.1 메서드 표에 `GetConfigYaml`/`GetConfigJson`/`SetConfigYaml` 추가, 레거시 메서드에 "(legacy)" 주석. §5.2 시그널 표에 `ConfigChangedJson` 추가 |
 
 **새 문서 생성 없음**(제약 준수). `AGENTS.md`는 config.yaml/config.rs 수준의 일반 언급만 있어 수정 불필요.
@@ -155,7 +155,7 @@ format. rust-i18n left the placeholder unrendered, leaking the literal
 unchanged.
 
 Also finalize Phase 7 of the settings overhaul:
-- CLAUDE.md / GEMINI.md: document the 5-point settings sync model,
+- docs/dev/architecture/AGENTS.md / docs/dev/architecture/GEMINI.md: document the 5-point settings sync model,
   config.yaml as single source, gschema reserved for GNOME-only keys.
 - unim-dbus/SPEC.md: add GetConfigYaml / GetConfigJson / SetConfigYaml
   methods and ConfigChangedJson signal.

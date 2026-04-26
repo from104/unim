@@ -5,7 +5,7 @@ description: UNIM 코드 변경 후 빌드·테스트 zero-warning/all-pass 검�
 
 # Build Verify — UNIM 빌드·테스트 반복 패턴
 
-CLAUDE.md의 "Strict Quality Rules"에 따라 **warning 0, 테스트 all-pass**가 머지 기준이다. 이 스킬은 각 Phase 완료 시 실행할 고정 검증 절차를 제공한다.
+docs/dev/architecture/AGENTS.md의 "Strict Quality Rules"에 따라 **warning 0, 테스트 all-pass**가 머지 기준이다. 이 스킬은 각 Phase 완료 시 실행할 고정 검증 절차를 제공한다.
 
 ## 검증 레벨
 

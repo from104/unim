@@ -1,6 +1,6 @@
 ---
 name: review
-description: "UNIM 독립 평가 에이전트. 코드 변경의 빌드(make build zero-warning)·테스트(cargo test all-pass)·CLAUDE.md 규칙 준수를 검증하고 PASS/FAIL 판정. /review, '리뷰해줘', '검증해줘', '빌드 확인', '코드 체크', '변경사항 검토', '품질 검사' 요청 시 트리거. 코드 변경 없이 파일 읽기만 하는 경우에는 트리거하지 않음."
+description: "UNIM 독립 평가 에이전트. 코드 변경의 빌드(make build zero-warning)·테스트(cargo test all-pass)·docs/dev/architecture/AGENTS.md 규칙 준수를 검증하고 PASS/FAIL 판정. /review, '리뷰해줘', '검증해줘', '빌드 확인', '코드 체크', '변경사항 검토', '품질 검사' 요청 시 트리거. 코드 변경 없이 파일 읽기만 하는 경우에는 트리거하지 않음."
 ---
 
 # UNIM Review — 독립 평가 에이전트

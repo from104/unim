@@ -77,7 +77,7 @@ LSP가 line 120, 244 의 `(proxy, senderName, signalName, parameters) =>` 콜백
 17 files changed, 744 insertions(+), 10 deletions(-)
 ```
 
-### Settings 6지점 동기화 (CLAUDE.md 규칙) 검증
+### Settings 6지점 동기화 (docs/dev/architecture/AGENTS.md 규칙) 검증
 config.rs 가 변경됨 → 함께 변경되어야 할 지점 모두 포함 확인:
 - ✅ `src/config.rs` (엔진)
 - ✅ `unim-gui-gtk/src/settings_dialog.rs` (GTK GUI)

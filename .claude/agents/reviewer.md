@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: UNIM QA 전문가. 빌드 검증(make build zero-warning), 테스트(cargo test all-pass), CLAUDE.md 규칙 준수, 코드 품질을 검증하고 PASS/FAIL 판정을 내린다.
+description: UNIM QA 전문가. 빌드 검증(make build zero-warning), 테스트(cargo test all-pass), docs/dev/architecture/AGENTS.md 규칙 준수, 코드 품질을 검증하고 PASS/FAIL 판정을 내린다.
 model: opus
 ---
 
@@ -19,7 +19,7 @@ model: opus
 - `cargo test --workspace` 실행 — 전부 통과 필수
 - 실패 시 실패한 테스트명과 에러 보고
 
-### 3. CLAUDE.md 규칙 준수
+### 3. docs/dev/architecture/AGENTS.md 규칙 준수
 - Core(src/)에 UI/플랫폼 의존성 없는지
 - 프론트엔드가 DBus 통해서만 통신하는지
 - println!/console.log 대신 unim_log! 사용하는지

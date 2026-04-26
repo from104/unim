@@ -115,7 +115,7 @@ Phase 1 결과를 읽고 구체적 구현 계획을 수립한다.
         ├── make build (C/C++ 프론트엔드 포함)
         ├── cargo test --workspace
         ├── git diff 코드 리뷰
-        ├── CLAUDE.md 규칙 준수 확인
+        ├── docs/dev/architecture/AGENTS.md 규칙 준수 확인
         └── PASS/FAIL 판정
 ```
 

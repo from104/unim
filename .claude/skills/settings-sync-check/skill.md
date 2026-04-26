@@ -5,7 +5,7 @@ description: UNIM Config 구조체에 필드를 추가·변경하거나 설정 �
 
 # Settings Sync Check — UNIM 설정 6지점 체크리스트
 
-UNIM에서 설정 한 개 추가가 실제로는 6곳 편집이다. 한 군데라도 빠지면 **CLI와 GUI가 불일치**, **GNOME에서 변경한 값이 엔진에 반영 안 됨** 같은 silent bug가 나온다. CLAUDE.md의 "Settings Synchronization" 섹션이 이 스킬의 원문이다.
+UNIM에서 설정 한 개 추가가 실제로는 6곳 편집이다. 한 군데라도 빠지면 **CLI와 GUI가 불일치**, **GNOME에서 변경한 값이 엔진에 반영 안 됨** 같은 silent bug가 나온다. docs/dev/architecture/AGENTS.md의 "Settings Synchronization" 섹션이 이 스킬의 원문이다.
 
 ## 체크리스트
 

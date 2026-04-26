@@ -34,4 +34,4 @@ unim-cli config show
 
 - 구조체·범위 원본: [`../../src/SPEC.md §3`](../../src/SPEC.md)
 - AutoTypeFix 동작: [`../../IME_BEHAVIOR.md §9`](../../IME_BEHAVIOR.md)
-- 설정 동기화(개발자용): [`../../GEMINI.md`](../../GEMINI.md)
+- 설정 동기화(개발자용): [`docs/dev/architecture/GEMINI.md`](../../docs/dev/architecture/GEMINI.md)

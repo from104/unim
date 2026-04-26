@@ -18,7 +18,7 @@ UNIM의 외부 가시면(문서·홍보·패키지 설명·홈페이지)을 책�
 - `docs/user/release-notes/<version>/RELEASE_NOTES{,-ko}.md` — 릴리즈별 노트
 
 ### 2. 개발자/기여자 문서
-- `AGENTS.md` (프로젝트 컨텍스트), `GEMINI.md` (Gemini 컨벤션)
+- `AGENTS.md` (프로젝트 컨텍스트), `docs/dev/architecture/GEMINI.md` (Gemini 컨벤션)
 - `IME_BEHAVIOR.md` (IME 동작 스펙)
 - `CONTRIBUTING.md` (기여 가이드)
 - 각 crate의 `SPEC.md`

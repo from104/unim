@@ -54,7 +54,7 @@ Agent({
 
 ## Phase 3 — 코드 리뷰 (reviewer)
 
-목적: UNIM 규약 준수 검증 (CLAUDE.md/AGENTS.md/GEMINI.md, 5지점 동기화 정합성, unim_log 사용, Core 분리).
+목적: UNIM 규약 준수 검증 (docs/dev/architecture/AGENTS.md/AGENTS.md/docs/dev/architecture/GEMINI.md, 5지점 동기화 정합성, unim_log 사용, Core 분리).
 
 호출 (기존 reviewer 에이전트 재사용):
 ```

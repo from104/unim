@@ -28,7 +28,7 @@ model: opus
 4. **엔진 변경 최소화**: 9x9 grid는 client-side feature. `PopupKeyResult`에
    새 variant 추가가 필요하면 별도 엔진 커밋으로 분리, 단일 PR이 너무 커지지 않도록 주의
 5. **빌드 루프**: 한 프런트엔드 후 `cargo check -p <crate>` 또는 cmake 즉시 검증
-6. **CLAUDE.md / AGENTS.md 규칙 준수**: 불필요한 주석 금지, WHY 주석만, LSP 우선
+6. **docs/dev/architecture/AGENTS.md / AGENTS.md 규칙 준수**: 불필요한 주석 금지, WHY 주석만, LSP 우선
 
 ## 입력
 

@@ -16,7 +16,7 @@ Scope: `docs/dev/plans/LAYOUT_PROFILE_V1.md`의 스키마와 `docs/references/ke
 | 현 v0 키맵 | `src/keystroke/keymap/*.json` |
 | 현 결합 규칙 | `src/hangul/composer_with_2bul.rs:19-44`, `composer_with_3bul.rs:19-53` |
 | 현 로더 | `src/keystroke/mod.rs:7-30` |
-| 설정 3지점 싱크 규약 | `GEMINI.md` (Settings Synchronization) |
+| 설정 3지점 싱크 규약 | `docs/dev/architecture/GEMINI.md` (Settings Synchronization) |
 | ROADMAP 6단계 | `ROADMAP.md` — 엔진 재설계 과제 (v1 비목표) |
 
 ---
@@ -336,7 +336,7 @@ for (name, rule_set) in profile.rule_sets {
 
 ## 4. Config 3지점 싱크 체크리스트
 
-`GEMINI.md` Settings Synchronization 원칙 준수 — 신규 필드 2개 각각 다음 5곳 동시 반영:
+`docs/dev/architecture/GEMINI.md` Settings Synchronization 원칙 준수 — 신규 필드 2개 각각 다음 5곳 동시 반영:
 
 | # | 파일 | `korean_layout` (String, enum 폐지) | `korean_active_rule_sets` |
 |---|---|---|---|
@@ -455,6 +455,6 @@ Phase 7까지 완료 (2026-04-24):
 
 - v1 스키마: `docs/dev/plans/LAYOUT_PROFILE_V1.md`
 - 드래프트 9종: `docs/references/keymaps/*.json`
-- Config 3지점 싱크: `GEMINI.md`, `CLAUDE.md` feedback memory
+- Config 3지점 싱크: `docs/dev/architecture/GEMINI.md`, `docs/dev/architecture/AGENTS.md` feedback memory
 - AutoTypeFix 설정 확장 선례: `src/typefix_blacklist.rs` + GUI 패턴
 - 엔진 재설계 v2 과제: `ROADMAP.md` 6단계 (본 기획 범위 밖)
