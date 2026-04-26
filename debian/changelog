@@ -1,3 +1,28 @@
+unim (0.2.0-1) unstable; urgency=medium
+
+  * Release 0.2.0.
+  * Layout Profile v1: built-in keyboard layouts now self-contained v1 JSON
+    profiles with user-profile hot reload, inherits chain, rule sets, and
+    GUI/CLI integration. New built-in `ko_3bul_qwerty` (10 built-ins total).
+  * `KoreanLayout`/`EnglishLayout` enums removed; layout fields now profile
+    name strings with backward-compat serde shims for existing config.yaml
+    and typefix-blacklist.yaml entries.
+  * AutoTypeFix rollback-learned blacklist suppression with Tentative /
+    Confirmed / Inactive states, mtime hot reload, and GUI "억제 단어"
+    management page (Confirm / Deactivate / Remove / Reactivate).
+  * AutoTypeFix reverse-direction gate relaxed to BS-OR-switch, suppression
+    key bug fixed, registration moved to retrigger moment.
+  * Hanja popup: 9x9 expanded grid mode with Period toggle (GTK Standalone
+    + GTK IM + Qt IM + XIM); hanja bookmark UI (Space toggle) across all
+    frontends with live HanjaBookmarkChanged signal.
+  * Emoji popup (Super+.) with category tabs, search, and MRU favorites
+    (GTK + GNOME extension).
+  * IME fixes: English-mode Space committed via direct-commit; FocusOut no
+    longer emits duplicate CommitText.
+  * `tentative_expiry_days` renamed to `tentative_expiry_hours` (1..=12).
+
+ -- Seo Kihyun <from104@gmail.com>  Sun, 26 Apr 2026 00:00:00 +0900
+
 unim (0.1.0-1) unstable; urgency=medium
 
   * Initial release.

@@ -5420,7 +5420,7 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
@@ -5434,7 +5434,7 @@ dependencies = [
 
 [[package]]
 name = "unim-capi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cbindgen",
  "unim",
@@ -5442,7 +5442,7 @@ dependencies = [
 
 [[package]]
 name = "unim-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "dialoguer",
@@ -5453,7 +5453,7 @@ dependencies = [
 
 [[package]]
 name = "unim-daemon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "ctrlc",
@@ -5472,7 +5472,7 @@ dependencies = [
 
 [[package]]
 name = "unim-dbus"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "log",
  "serde",
@@ -5485,7 +5485,7 @@ dependencies = [
 
 [[package]]
 name = "unim-gui-common"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "ksni",
@@ -5497,7 +5497,7 @@ dependencies = [
 
 [[package]]
 name = "unim-gui-gtk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs 5.0.1",
  "gdk4-x11",
@@ -5516,7 +5516,7 @@ dependencies = [
 
 [[package]]
 name = "unim-gui-qt"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cxx",
  "cxx-qt",
@@ -5531,7 +5531,7 @@ dependencies = [
 
 [[package]]
 name = "unim-test-dbus"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tokio",
  "unim-dbus",
@@ -5539,7 +5539,7 @@ dependencies = [
 
 [[package]]
 name = "unim-test-wayland"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "calloop 0.13.0",
  "calloop-wayland-source 0.3.0",
@@ -5556,7 +5556,7 @@ dependencies = [
 
 [[package]]
 name = "unim-tsf"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "unim",
  "windows",
@@ -5565,7 +5565,7 @@ dependencies = [
 
 [[package]]
 name = "unim-wayland"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cosmic-text",
  "futures-util",
@@ -5585,7 +5585,7 @@ dependencies = [
 
 [[package]]
 name = "unim-windows"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arboard",
  "eframe",
@@ -5597,7 +5597,7 @@ dependencies = [
 
 [[package]]
 name = "unim-xim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ahash",
  "ctrlc",
