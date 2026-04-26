@@ -1,0 +1,372 @@
+# UNIM 트러블슈팅 (한국어)
+
+> UNIM 0.2.0 — 증상 → 1차 진단 → 2차 명령 → 해결 순서로 정리.
+> "한 번도 한글이 안 나간다"부터 "특정 앱에서만 깨진다"까지 자주 마주치는 14개 증상을 다룬다.
+
+전체 진단의 출발점은 두 가지다. 하나는 **데몬이 살아 있는가**, 다른 하나는 **로그가 무엇이라고 말하는가**.
+
+```bash
+# (1) 데몬 살아있나?
+systemctl --user status unim-daemon
+# 또는 PID 확인
+unim-daemon --check && echo "RUNNING" || echo "STOPPED"
+
+# (2) 디버그 로그 켜고 재현
+UNIM_DEVELOP=1 systemctl --user restart unim-daemon
+> ~/.unim-errors.log    # 비우고
+# … 문제 재현 …
+tail -f ~/.unim-errors.log
+```
+
+> `UNIM_DEVELOP=1`은 Engine·DBus·Frontend·Extension 전 컴포넌트의 로그를 한 파일(`~/.unim-errors.log`)로 모은다. 일반 사용 시에는 OFF가 기본 — 로그 파일이 무한히 커지지 않게 하기 위함.
+
+---
+
+## 1. "한글이 아예 안 나옴" — 새로 설치한 직후
+
+### 1차 진단
+
+```bash
+echo $GTK_IM_MODULE      # unim 이어야 함
+echo $QT_IM_MODULE       # unim 이어야 함
+echo $XMODIFIERS         # @im=unim 이어야 함
+unim-daemon --check && echo OK || echo MISSING
+```
+
+### 원인별 처방
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| 환경변수 비어 있음 | im-config 설정 누락 | `im-config -n unim` 후 로그아웃/로그인 |
+| `unim-daemon --check` → MISSING | systemd unit 미등록 | `systemctl --user enable --now unim-daemon` |
+| 셸에는 보이는데 GUI 앱엔 적용 안 됨 | DM이 환경변수를 안 가져감 | `~/.xprofile` 또는 `/etc/environment`에 export |
+| GNOME+Wayland | 환경변수 경로가 막힘 | 대신 `gnome-extensions enable unim-gnome@from104.github.io` |
+
+---
+
+## 2. "GTK 앱(GNOME Text Editor 등)에서만 안 됨"
+
+### 진단
+
+```bash
+# IM 모듈이 설치돼 있나?
+ls /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-unim.so 2>/dev/null
+ls /usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules/libim-unim.so 2>/dev/null
+
+# 모듈 캐시 갱신 필요?
+sudo gtk-query-immodules-3.0 --update-cache
+sudo gtk-query-immodules-4.0 --update-cache
+```
+
+### 처방
+
+- 파일이 없으면 `unim-im-gtk` 패키지 재설치 또는 `sudo make install PREFIX=/usr` 재실행.
+- 파일은 있지만 작동 안 하면 캐시 갱신 후 GTK 앱 재시작.
+- GTK4 모듈 파일명이 `libim-unim.so`인지 반드시 확인 (GTK3는 `im-unim.so`, **접두 `lib` 유무가 다름**).
+
+> 디버깅 팁: `GTK_IM_MODULE_FILE=/usr/lib/.../immodules.cache GTK_IM_MODULE=unim gnome-text-editor` 식으로 직접 띄워 보면 모듈 로드 단계 에러가 stderr에 보인다.
+
+---
+
+## 3. "Qt 앱(Kate, Krita)에서만 안 됨"
+
+### 진단
+
+```bash
+ls /usr/lib/x86_64-linux-gnu/qt5/plugins/platforminputcontexts/libunimplatforminputcontextplugin.so
+ls /usr/lib/x86_64-linux-gnu/qt6/plugins/platforminputcontexts/libunimplatforminputcontextplugin.so
+QT_DEBUG_PLUGINS=1 kate 2>&1 | grep -i unim
+```
+
+### 처방
+
+- 플러그인 부재 → `unim-im-qt` 재설치.
+- `QT_DEBUG_PLUGINS=1` 출력에서 `Cannot load library` 등 메시지가 보이면 의존 라이브러리 누락 → `ldd <plugin>.so`로 확인.
+- KDE Plasma 6에서는 Qt6 경로가 우선이니 `QT_IM_MODULE=unim`만 잘 잡혀 있으면 된다.
+
+---
+
+## 4. "GNOME 확장이 메뉴에 안 보임"
+
+### 진단
+
+```bash
+gnome-extensions list | grep unim
+gnome-extensions info unim-gnome@from104.github.io
+journalctl --user -u gnome-shell -b | grep -i unim
+```
+
+### 처방
+
+- 디렉토리 확인: `~/.local/share/gnome-shell/extensions/unim-gnome@from104.github.io/` 존재해야 함.
+- 없으면 `make dev-extension`(소스 빌드) 또는 `unim-gnome` 패키지 설치.
+- 활성화: `gnome-extensions enable unim-gnome@from104.github.io` → Alt+F2 → `r` (X11) 또는 로그아웃/로그인 (Wayland).
+- GNOME Shell 버전 호환: `metadata.json`의 `shell-version` 배열에 현재 버전이 들어 있는지 확인.
+
+---
+
+## 5. "한자 팝업이 안 뜸"
+
+### 진단
+
+```bash
+# 현재 팝업 모드 확인
+unim-cli config get popup_mode
+
+# DBus 시그널이 발행되고 있나? (별도 터미널에서 monitor)
+busctl --user monitor org.atit.unim.InputMethod
+# 그 상태에서 한글 입력 + 한자 키 → ShowHanjaPopup 시그널이 보여야 함
+```
+
+### 처방
+
+| 환경 | 권장 popup_mode | 비고 |
+|------|----------------|------|
+| GNOME+Wayland | `Standalone` | 확장이 시그널 받아 그림 |
+| KDE+Wayland | `Standalone` | unim-gui-gtk가 그림 |
+| X11 (어떤 DE든) | `Embedded` 또는 `Standalone` | Embedded는 IM 모듈이 자체 렌더 |
+| 순수 Wayland (Sway 등) | `Standalone` | 미해결 영역 — [팝업 명세](../specs/POPUP_SPEC.md) §8.4 참고 |
+
+```bash
+unim-cli config set popup_mode Standalone
+systemctl --user restart unim-daemon
+```
+
+> **DBus가 죽었을 때**: `busctl --user list | grep atit` → 비어 있으면 데몬이 서비스 등록을 못 한 것. `journalctl --user -u unim-daemon -n 100` 로그 확인.
+
+---
+
+## 6. "특수문자 팝업이 안 뜸"
+
+원인 거의 동일 (한자 팝업과 같은 코드 경로).
+
+```bash
+# 한글 모드인지, 자음 1글자만 입력한 상태인지 확인
+unim-cli config get current_mode    # Korean 이어야 함
+```
+
+ㄱ~ㅎ 입력 후 한자 키. 한국어 자판이 두벌식이면 잘 동작, 세벌식이면 자음 입력 자체가 다를 수 있음.
+
+---
+
+## 7. "한자 팝업이 9칸까지만 보이고 81칸 토글이 안 됨"
+
+### 진단
+
+```bash
+# 마침표 키가 한자 팝업에 도달하는지 확인
+UNIM_DEVELOP=1 systemctl --user restart unim-daemon
+# 한자 팝업 띄우고 . 누른 후
+grep -i 'ToggleExpanded\|9x9\|expanded' ~/.unim-errors.log
+```
+
+### 처방
+
+- 0.1.x 시절에 빌드된 IM 모듈이 잔류해 있을 가능성 — `make build && sudo make install` 재실행.
+- 키보드 레이아웃에서 `.`이 다른 키로 매핑돼 있는지 확인.
+
+---
+
+## 8. "AutoTypeFix가 작동 안 함"
+
+### 진단
+
+```bash
+unim-cli config get auto_typefix.enabled              # true 인가
+unim-cli config get auto_typefix.forward.enabled      # 방향별
+unim-cli config get auto_typefix.reverse.enabled
+cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
+```
+
+### 처방
+
+- 마스터 토글 OFF → 설정 GUI에서 ON.
+- 특정 단어가 자꾸 억제 사전에 들어가면 GUI 「교정 억제 단어」 페이지 → 「비활성」 또는 「삭제」.
+- 단어 경계(스페이스/마침표)가 안 들어왔으면 prefix-avoidance 때문에 보류 중인 게 정상. 한 글자 더 친 뒤에 스페이스를 넣어 보면 즉시 교정됨.
+- 영문 모드에서 작동 안 함 → 「영문 모드 시 무시」가 ON이라 그렇다 (의도된 기본값).
+
+---
+
+## 9. "AutoTypeFix가 너무 자주 잘못 교정"
+
+### 처방
+
+| 케이스 | 해법 |
+|--------|-----|
+| 특정 단어 한 개만 문제 | BS + 한/영로 롤백 → 다음에 같은 단어 칠 때 자동으로 Tentative 등록됨 |
+| 자주 후회한다 | 설정 → 「오타 교정」 → 임시 만료 시간을 늘려 학습 기회 확보 |
+| 영문 모드에서도 reverse가 동작 | `auto_typefix.reverse.skip_incomplete_syllable` ON |
+| 직접 단어 추가 | `~/.config/unim/typefix-blacklist.yaml`을 텍스트 에디터로 편집 → 데몬이 mtime 자동 리로드 |
+
+---
+
+## 10. "설정이 저장 안 됨 / 변경이 안 먹힘"
+
+### 진단
+
+```bash
+ls -la ~/.config/unim/
+test -w ~/.config/unim/config.yaml && echo writable || echo BLOCKED
+unim-cli config list 2>&1 | head -5
+journalctl --user -u unim-daemon -n 50
+```
+
+### 처방
+
+- 권한 문제 → `chmod 644 ~/.config/unim/*.yaml`, `chmod 755 ~/.config/unim`.
+- `~/.config/unim`을 root가 만든 흔적이 있으면 `sudo chown -R $USER:$USER ~/.config/unim`.
+- GUI에서 변경했는데 데몬에 반영 안 됨 → 데몬 재시작: `systemctl --user restart unim-daemon`.
+
+---
+
+## 11. "키 입력 자체가 잠겼다 (ghostty/터미널)"
+
+증상: 한 키만 친 뒤 화면이 멈춘 듯 키가 안 먹힘.
+
+### 원인
+
+GTK3/4 IM의 `preedit-end` 시그널 누락으로 ghostty가 IM 잠금 상태에 빠짐(0.1.x 잔존 이슈, 0.2.0에서 `unim_emit_preedit` 헬퍼로 해결).
+
+### 처방
+
+```bash
+# 0.2.0 빌드인지 확인
+dpkg -l | grep unim       # 또는 unim-cli --version
+unim-cli --version        # 0.2.0 이상이면 해결됨
+```
+
+`0.1.x`이면 `make build && sudo make install` 후 IM 모듈 갱신.
+
+---
+
+## 12. "Flatpak 앱(Telegram, VS Code)에서 한글 안 됨"
+
+### 진단
+
+```bash
+flatpak list --columns=application,environment | grep -E 'GTK_IM|QT_IM'
+```
+
+### 처방
+
+GNOME+Wayland인 경우 호스트 환경변수가 Flatpak 샌드박스에 새어들면 입력이 막힌다. 자동 처리가 작동했으면 비어 있어야 한다.
+
+```bash
+# 자동 처리 확인 — daemon 시작 로그
+journalctl --user -u unim-daemon | grep -i flatpak
+# 다음 두 줄이 보이면 정상:
+#   [Flatpak] GNOME+Wayland 감지 — Flatpak IM 환경변수 설정 시작
+#   [Flatpak] IM 환경변수 override 완료
+
+# 수동 적용
+flatpak override --user --env=QT_IM_MODULE= --env=GTK_IM_MODULE=
+flatpak kill org.telegram.desktop
+```
+
+X11이거나 GNOME이 아닌 경우는 반대로 환경변수를 **유지**해야 한다 — 자동 처리는 GNOME+Wayland에서만 발동한다.
+
+---
+
+## 13. "Snap 앱에서 한글 안 됨"
+
+Snap은 호스트 환경변수를 그대로 상속하지만 전역 override 메커니즘이 없다.
+
+### 처방
+
+`~/.profile`에 조건부 export:
+
+```bash
+if [ "$XDG_SESSION_TYPE" = "wayland" ] && echo "$XDG_CURRENT_DESKTOP" | grep -q "GNOME"; then
+    export GTK_IM_MODULE=
+    export QT_IM_MODULE=
+else
+    export GTK_IM_MODULE=unim
+    export QT_IM_MODULE=unim
+fi
+export XMODIFIERS="@im=unim"
+```
+
+또는 한 번만 띄울 때:
+
+```bash
+QT_IM_MODULE= GTK_IM_MODULE= snap run telegram-desktop
+```
+
+---
+
+## 14. "데몬이 메모리 너무 많이 먹음 (RSS 500MB↑)"
+
+### 진단
+
+```bash
+grep -E 'VmRSS|VmData|Threads' /proc/$(pidof unim-daemon)/status
+cat /proc/$(pidof unim-daemon)/smaps_rollup | grep -E 'Rss|Anonymous'
+```
+
+### 처방
+
+UNIM 0.2.0은 `tikv_jemallocator` + `MALLOC_ARENA_MAX=2` + 60초 주기 `malloc_trim(0)`로 1MB 단위 안정 운영을 보장한다. 그럼에도 RSS가 500MB를 초과하면:
+
+```bash
+# 임시 회복
+systemctl --user restart unim-daemon
+
+# 진단 데이터 수집 (이슈 보고용)
+ps -o pid,rss,vsz,cmd $(pidof unim-daemon)
+journalctl --user -u unim-daemon -n 500 > unim-mem.log
+```
+
+[`AGENTS.md` §메모리 관리 규칙](../../AGENTS.md)이 회귀 금지 항목과 진단 명령을 모두 정리해 둔다. 이슈로 보고하면 도움이 된다.
+
+---
+
+## 빌드 실패
+
+### 일반 빌드 실패
+
+```bash
+make clean
+make build 2>&1 | tee /tmp/unim-build.log
+```
+
+| 에러 메시지 | 원인 | 처방 |
+|------|------|------|
+| `lock file version 4 requires '-Znext-lockfile-bump'` | cargo 1.75 등 구 버전 | `rustup update stable`로 cargo 1.95+ 사용 |
+| `gtk4/libadwaita not found` | 개발 헤더 누락 | `sudo apt install libgtk-4-dev libadwaita-1-dev` |
+| `Qt6Core not found` | Qt6 dev 누락 | `sudo apt install qt6-base-dev` |
+| `cxx-qt build error` | Qt 헤더 경로 어긋남 | `pkg-config --cflags Qt6Core` 확인 |
+| 경고 발생 | UNIM은 zero-warning 정책 | 경고 메시지 그대로 이슈로 보고 |
+
+> 빌드 명령은 `make build`가 정본. `cargo build --workspace`만으로는 C/C++ 프론트엔드가 빠진다.
+
+---
+
+## 진단 데이터 수집 (이슈 보고 시 필수)
+
+```bash
+{
+  echo "=== version ==="
+  unim-cli --version
+  echo "=== env ==="
+  echo "session=$XDG_SESSION_TYPE"
+  echo "desktop=$XDG_CURRENT_DESKTOP"
+  env | grep -E 'GTK_IM|QT_IM|XMOD' | sort
+  echo "=== daemon ==="
+  systemctl --user status unim-daemon --no-pager
+  echo "=== config ==="
+  unim-cli config list
+  echo "=== logs (last 200) ==="
+  tail -n 200 ~/.unim-errors.log 2>/dev/null
+} > unim-report.txt
+```
+
+이 `unim-report.txt`를 이슈에 첨부하면 진단이 빨라진다. 비밀번호·토큰이 로그에 들어갔을 가능성은 낮지만, 첨부 전에 한 번 훑어보길 권장.
+
+---
+
+## 더 읽을 거리
+
+- [FAQ](../faq/README-ko.md) — 다른 IME와의 차이, 동시 설치, 백업 복원
+- [사용자 매뉴얼](../user-guide/README-ko.md) — 설정 GUI 페이지별 상세
+- [`IME_BEHAVIOR.md`](../../IME_BEHAVIOR.md) — 동작 명세 (개발자용)
+- [`AGENTS.md`](../../AGENTS.md) — 아키텍처와 메모리 관리 규칙
