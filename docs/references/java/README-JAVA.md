@@ -1,6 +1,6 @@
-# Legacy Java Implementation (docs/java)
+# Legacy Java Implementation (docs/references/java)
 
-이 프로젝트의 한글 조합 로직 및 오토마타 설계는 `docs/java` 디렉토리에 포함된 Java 소스 코드를 기반으로 하고 있습니다.
+이 프로젝트의 한글 조합 로직 및 오토마타 설계는 `docs/references/java` 디렉토리에 포함된 Java 소스 코드를 기반으로 하고 있습니다.
 이 코드는 한글 입력기(IME)의 핵심 엔진을 구현하기 위한 설계 철학을 담고 있습니다.
 
 ## 주요 클래스 및 역할

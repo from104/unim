@@ -57,7 +57,7 @@
 - [x] **Phase 3 — 레지스트리·상속·핫리로드**: `ProfileRegistry`(내장 + `~/.config/unim/layouts` 통합 네임스페이스, 사용자 우선), `inherit::resolve`(재귀 해석 + 순환 탐지 + layer-merge), 디렉토리 mtime 기반 자동 재스캔.
 - [x] **Phase 4 — Config·CLI·DBus·엔진 연결**: `korean.custom_layout`(`Option<String>`)·`korean.active_rule_sets`(`Vec<String>`) 필드 5-point 싱크. `unim-config layout list/describe/validate` 서브커맨드. `InputEngine::new`가 ProfileRegistry를 거쳐 효과적 프로필을 로드, 실패 시 enum 경로 폴백.
 - [x] **Phase 5 — GTK GUI**: settings_dialog의 한국어 자판 ComboRow가 모든 한국어 프로필(내장 + 사용자) 표시. 선택 시 규칙 세트 SwitchRow가 동적 재구성.
-- [x] **Phase 6 — 내장 10종 v1 이관**: `docs/plans/new_keymaps/*.json` 9종 + 신규 `ko_3bul_qwerty` 1종을 `src/keystroke/keymap/`로 이관. 기존 Rust const와 동일 `CombinedJamoMap` 산출 (behavior-preserving, regression test로 고정).
+- [x] **Phase 6 — 내장 10종 v1 이관**: `docs/references/keymaps/*.json` 9종 + 신규 `ko_3bul_qwerty` 1종을 `src/keystroke/keymap/`로 이관. 기존 Rust const와 동일 `CombinedJamoMap` 산출 (behavior-preserving, regression test로 고정).
 - [x] **Phase 7 — 문서·마이그레이션 공지**: 본 섹션 + CHANGELOG Added 블록 + README 간단 안내.
 
 ### 4단계: 자동 상태 전환 (지능화)
@@ -74,7 +74,7 @@
 
 ### 6단계: 엔진 재설계 (고급 한글 입력 기법 지원)
 
-현재 UNIM의 한글 엔진은 **정적 키맵 + 하드코딩 오토마타** 구조라 아래 기능들을 표현할 수 없다. 날개셋 한글 입력기 조사(`docs/research/NALGAESET_KEYBOARD_FORMAT.md`)와 순아래받침 규칙 조사(`docs/research/순아래받침_규칙.md`)에서 드러난 공통 결론: **낱자에 "어디서 왔는지" 정보가 붙어야 하고, 키 해석이 컴포저 상태에 접근할 수 있어야 한다**. 이 두 전제를 도입하는 엔진 리팩터가 아래 모든 항목의 선행 조건이다.
+현재 UNIM의 한글 엔진은 **정적 키맵 + 하드코딩 오토마타** 구조라 아래 기능들을 표현할 수 없다. 날개셋 한글 입력기 조사(`docs/references/research/NALGAESET_KEYBOARD_FORMAT.md`)와 순아래받침 규칙 조사(`docs/references/research/순아래받침_규칙.md`)에서 드러난 공통 결론: **낱자에 "어디서 왔는지" 정보가 붙어야 하고, 키 해석이 컴포저 상태에 접근할 수 있어야 한다**. 이 두 전제를 도입하는 엔진 리팩터가 아래 모든 항목의 선행 조건이다.
 
 - [ ] **낱자 provenance 태깅**: `Jamo` 표현을 `(kind, source_key)` 튜플로 확장해 같은 ㅗ/ㅜ라도 어느 키에서 왔는지 구별. 세벌식 390의 `9`-ㅜ, `/`-ㅗ 이중모음 전용 역할, 복벌식 자동 판정의 근거가 되는 날개셋문자 64-bit 토큰 개념(연구 문서 §4.1)에 대응.
 - [ ] **문맥 의존 키 해석 (글쇠 수식 최소 집합)**: 키→자모 매핑이 컴포저 상태(`has_cho`/`has_jung`/`has_jong`/`syllable_empty`)를 조회할 수 있도록 predicate 엔진 도입. 두벌식 `/`, 세벌식 390 `/` 같은 적응형 글쇠(연구 문서 §4.2) 지원. 날개셋의 Turing-complete 수식 전면 이식은 별도.

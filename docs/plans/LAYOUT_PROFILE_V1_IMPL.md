@@ -3,7 +3,7 @@
 Date: 2026-04-23
 Status: **기획안 (Plan)** — 구현 착수 전 리뷰 대상.
 Owner: Core / Keystroke / Settings
-Scope: `docs/plans/LAYOUT_PROFILE_V1.md`의 스키마와 `docs/plans/new_keymaps/*.json` 드래프트를 실제로 UNIM 엔진에 통합하고, 자판별 `rule_sets` 토글을 CLI·GUI에서 제공하는 단계별 실행 계획.
+Scope: `docs/plans/LAYOUT_PROFILE_V1.md`의 스키마와 `docs/references/keymaps/*.json` 드래프트를 실제로 UNIM 엔진에 통합하고, 자판별 `rule_sets` 토글을 CLI·GUI에서 제공하는 단계별 실행 계획.
 
 ---
 
@@ -12,7 +12,7 @@ Scope: `docs/plans/LAYOUT_PROFILE_V1.md`의 스키마와 `docs/plans/new_keymaps
 | 항목 | 위치 |
 |---|---|
 | 스키마 명세 | `docs/plans/LAYOUT_PROFILE_V1.md` |
-| 키맵 드래프트 9종 | `docs/plans/new_keymaps/*.json` |
+| 키맵 드래프트 9종 | `docs/references/keymaps/*.json` |
 | 현 v0 키맵 | `src/keystroke/keymap/*.json` |
 | 현 결합 규칙 | `src/hangul/composer_with_2bul.rs:19-44`, `composer_with_3bul.rs:19-53` |
 | 현 로더 | `src/keystroke/mod.rs:7-30` |
@@ -159,7 +159,7 @@ impl HangulComposer2Bul {
 
 ### 2.5 내장 9종 이관
 
-Phase 6에서 `docs/plans/new_keymaps/*.json` 드래프트를 `src/keystroke/keymap/*.json`으로 **교체**. 그 전까지 공존:
+Phase 6에서 `docs/references/keymaps/*.json` 드래프트를 `src/keystroke/keymap/*.json`으로 **교체**. 그 전까지 공존:
 
 ```rust
 fn builtin_profile_json(name: &str) -> &'static str {
@@ -359,7 +359,7 @@ GNOME Shell 전용 키가 아니므로 `unim-gnome-extension/prefs.js` 수정 **
 | **3** | 사용자 디렉토리 스캔 + 핫리로드 | `~/.config/unim/layouts/*.json` 로드, `profile_watcher.rs` mtime 감시 | 사용자가 수동 배치·편집 시 자동 인식 |
 | **4** | Config 필드 + CLI + validate | `korean_layout`(String) + `korean_active_rule_sets` + `unim-cli config` + `unim-cli layout {list,describe,validate}` + `KoreanLayout` enum 폐지 마이그레이션 | CLI로 자판·rule_set 전환 + 프로필 검증 |
 | **5** | GUI | `settings_dialog.rs` Adw 그룹 + 동적 SwitchRow + locale 적용 | GUI 토글 가능 |
-| **6** | 내장 9종 v1 이관 (**Phase 5 직후 즉시**) | `docs/plans/new_keymaps/*.json` → `src/keystroke/keymap/*.json` 교체, metadata 공개 | 기본 동작 동일하나 내부 자기 완결 |
+| **6** | 내장 9종 v1 이관 (**Phase 5 직후 즉시**) | `docs/references/keymaps/*.json` → `src/keystroke/keymap/*.json` 교체, metadata 공개 | 기본 동작 동일하나 내부 자기 완결 |
 | **7** | 문서·마이그레이션 공지 | `CHANGELOG.md`, `IME_BEHAVIOR.md`, `README.md` 갱신, enum 폐지 공지 | 사용자 대상 공지 |
 
 각 phase는 독립 PR. Phase 1-3는 behavior-preserving (회귀 위험 최소), Phase 4-5가 사용자 대면 변화. **Phase 6은 Phase 5 직후 바로 진행** — 사용자 피드백 사이클 없이 즉시 이관해 Rust const와 v1 자기 완결 형태의 공존 기간을 최소화.
@@ -415,7 +415,7 @@ GNOME Shell 전용 키가 아니므로 `unim-gnome-extension/prefs.js` 수정 **
 
 ### 7.3 기여자 관점
 
-- 신규 자판 기여: `docs/plans/new_keymaps/*.json` 형식으로 PR, Phase 1 로더가 그대로 수용.
+- 신규 자판 기여: `docs/references/keymaps/*.json` 형식으로 PR, Phase 1 로더가 그대로 수용.
 - Rust 코드 수정 불필요 (자판 정체성이 프로필에 전부 있으므로).
 
 ---
@@ -437,7 +437,7 @@ GNOME Shell 전용 키가 아니므로 `unim-gnome-extension/prefs.js` 수정 **
 
 Phase 7까지 완료 (2026-04-24):
 
-- [x] `docs/plans/new_keymaps/*.json` 9종 + `ko_3bul_qwerty` 신규 = 10종이 `src/keystroke/keymap/`에 이관됨 (Phase 6).
+- [x] `docs/references/keymaps/*.json` 9종 + `ko_3bul_qwerty` 신규 = 10종이 `src/keystroke/keymap/`에 이관됨 (Phase 6).
 - [x] `cargo test --workspace` 331 lib tests + 바이너리 테스트 전부 통과.
 - [x] `unim-config layout list / describe / validate` 작동 (Phase 4c). 계획상 `rule-set list` 서브커맨드는 `describe`가 rule_sets 블록을 포함하는 형태로 통합됨.
 - [x] GUI 자판 ComboRow + rule_set SwitchRow 작동 (Phase 5). 빌드 성공, 수동 GTK 스모크는 사용자 검증.
@@ -454,7 +454,7 @@ Phase 7까지 완료 (2026-04-24):
 ## 10. 참고
 
 - v1 스키마: `docs/plans/LAYOUT_PROFILE_V1.md`
-- 드래프트 9종: `docs/plans/new_keymaps/*.json`
+- 드래프트 9종: `docs/references/keymaps/*.json`
 - Config 3지점 싱크: `GEMINI.md`, `CLAUDE.md` feedback memory
 - AutoTypeFix 설정 확장 선례: `src/typefix_blacklist.rs` + GUI 패턴
 - 엔진 재설계 v2 과제: `ROADMAP.md` 6단계 (본 기획 범위 밖)

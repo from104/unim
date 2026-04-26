@@ -5,7 +5,7 @@
   "type": "3bul",
   "metadata": {
     "display_name": "쿼티형 세벌식",
-    "description": "세벌식 기반 · Shift 배제 · 알파벳 26자리 포화 배치 · 초·중·종성 3단 조합 규칙 · 모아치기 친화. 숫자열·기호열 완전 QWERTY 호환. 경음화는 연타(ㄱ+ㄱ→ㄲ)와 ㅇ 복사(ㄱ+ㅇ→ㄲ) 두 경로 병존. 종성 영역은 키가 초성이 될 수 없어 순서 자유 모아치기 친화. 설계 문서: docs/research/쿼티형 세벌식 초안.md",
+    "description": "세벌식 기반 · Shift 배제 · 알파벳 26자리 포화 배치 · 초·중·종성 3단 조합 규칙 · 모아치기 친화. 숫자열·기호열 완전 QWERTY 호환. 경음화는 연타(ㄱ+ㄱ→ㄲ)와 ㅇ 복사(ㄱ+ㅇ→ㄲ) 두 경로 병존. 종성 영역은 키가 초성이 될 수 없어 순서 자유 모아치기 친화. 설계 문서: docs/references/research/쿼티형 세벌식 초안.md",
     "version": "0.1",
     "tags": ["korean", "3bul", "qwerty-compat", "noshift", "accessibility", "moachigi-friendly"]
   },

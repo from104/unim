@@ -60,7 +60,7 @@
   "rule_sets": {
     "sun_arae_batchim": {
       "active": false,
-      "description": "순아래받침 규칙 (docs/research/순아래받침_규칙.md). 기본 종성 8개(ㄱㄴㄹㅁㅂㅅㅇㅎ)만 사용하는 사용자용 변종 키맵과 짝으로 사용. 기본 390 layout에는 겹받침이 직접 배치되어 있으므로 active=false.",
+      "description": "순아래받침 규칙 (docs/references/research/순아래받침_규칙.md). 기본 종성 8개(ㄱㄴㄹㅁㅂㅅㅇㅎ)만 사용하는 사용자용 변종 키맵과 짝으로 사용. 기본 390 layout에는 겹받침이 직접 배치되어 있으므로 active=false.",
       "combinations": [
         { "first": "ᆫ", "second": "ᆫ", "result": "ᆮ" },
         { "first": "ᆫ", "second": "ᆺ", "result": "ᆽ" },

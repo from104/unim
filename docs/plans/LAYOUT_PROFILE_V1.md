@@ -20,7 +20,7 @@ Scope: 현재 `src/keystroke/keymap/*.json` 포맷을 v0로 간주하고, v1 스
 - 사용자 자판 공유 불가(재컴파일 필요).
 - 두벌식 변종(콜맥-한글 등 키 사상만 다른 경우)조차 소스를 건드려야 함.
 - 세벌식 옛날아래·신세벌식 2015 같이 **결합 규칙이 다른 자판**은 새 `ComposerType` 변형을 만들지 않는 한 표현 불가.
-- 날개셋의 초·종성 공유 규칙(`docs/research/NALGAESET_KEYBOARD_FORMAT.md` §5.1)을 이식하려 해도 Rust `const` 분리 구조 때문에 직접 매핑이 어렵다.
+- 날개셋의 초·종성 공유 규칙(`docs/references/research/NALGAESET_KEYBOARD_FORMAT.md` §5.1)을 이식하려 해도 Rust `const` 분리 구조 때문에 직접 매핑이 어렵다.
 
 v1 스키마는 위 세 가지를 해결하는 **데이터 주도 자판 프로필**을 도입하되, **오토마타 상태 머신은 건드리지 않는다**(날개셋 고급 입력 스키마 이식은 별도 로드맵으로 분리, 연구 문서 §7.3 비목표 참조).
 
@@ -107,7 +107,7 @@ v1 스키마는 위 세 가지를 해결하는 **데이터 주도 자판 프로�
   },
 
   // ── v1 신규: 이름 있는 규칙 세트 (optional, 각각 on/off 토글 가능) ──
-  // 대표 예: 순아래받침 (docs/research/순아래받침_규칙.md).
+  // 대표 예: 순아래받침 (docs/references/research/순아래받침_규칙.md).
   // 규칙 세트는 기본 combinations 위에 추가로 얹히며, active=false면 불러오지 않음.
   // 모든 엔트리는 (first, second, result) pair combination 하나로 통일.
   // "재해석"도 first가 이미 조합된 낱자(예: ᆶ)인 pair로 자연 표현된다.
@@ -187,7 +187,7 @@ v1로 판별된 파일은 v1 deserializer가 추가 필드를 처리한 뒤 내�
 
 ### 3.5 규칙 세트 (Rule Sets)
 
-`combinations`가 "기본 테이블"이라면, `rule_sets`는 **프로필 안에서 그룹 단위로 on/off 가능한 보조 규칙 묶음**이다. 대표 예가 순아래받침 규칙(`docs/research/순아래받침_규칙.md`)으로, 이를 규칙 세트 하나로 캡슐화하면 세벌식 390을 기반으로 "받침 영역만 Shift 없이" 쓰고 싶은 사용자가 한 플래그로 전체를 켜고 끌 수 있다.
+`combinations`가 "기본 테이블"이라면, `rule_sets`는 **프로필 안에서 그룹 단위로 on/off 가능한 보조 규칙 묶음**이다. 대표 예가 순아래받침 규칙(`docs/references/research/순아래받침_규칙.md`)으로, 이를 규칙 세트 하나로 캡슐화하면 세벌식 390을 기반으로 "받침 영역만 Shift 없이" 쓰고 싶은 사용자가 한 플래그로 전체를 켜고 끌 수 있다.
 
 #### 3.5.1 규칙 세트 정의
 
@@ -380,7 +380,7 @@ pub struct RuleSet {
   - 한국어 4종: 현재 Rust `JUNG_COMBINATIONS` / `JONG_COMBINATIONS` / `CHO_COMBINATIONS`에 있는 항목 중 해당 자판이 실제로 쓰는 것을 선별해 프로필 `combinations.jung/jong/cho`에 선언. (2벌식은 CHO 규칙 없음, 3벌식은 CHO 경음 5종 포함 등 자판별로 다름.)
   - 영어 5종: 결합 규칙 자체가 없으므로 `combinations`는 빈 객체 또는 생략. 메타데이터만 추가.
 - 완료 후: 내장 프로필은 전부 `combinations`를 명시한 자기 완결 상태. Rust const는 v0 호환과 테스트 픽스처 용도로만 남는다.
-- 드래프트 파일은 `docs/plans/new_keymaps/*.json`에 준비되어 있으며, 본 원칙(자기 완결성)에 맞춰 순차적으로 정비된다.
+- 드래프트 파일은 `docs/references/keymaps/*.json`에 준비되어 있으며, 본 원칙(자기 완결성)에 맞춰 순차적으로 정비된다.
 
 ### 8.2 사용자 디렉토리
 
@@ -433,7 +433,7 @@ v1이 커버하지 **않는** 것. 아래 항목들은 **엔진 재설계 과제
 
 ## 12. 참고
 
-- 연구 문서: `docs/research/NALGAESET_KEYBOARD_FORMAT.md`, `docs/research/순아래받침_규칙.md`
+- 연구 문서: `docs/references/research/NALGAESET_KEYBOARD_FORMAT.md`, `docs/references/research/순아래받침_규칙.md`
 - 현재 v0 포맷: `src/keystroke/keymap/*.json`
 - 결합 규칙 원본: `src/hangul/composer_with_2bul.rs:19-44`, `src/hangul/composer_with_3bul.rs:19-53`
 - 로더: `src/keystroke/mod.rs:7-30`
