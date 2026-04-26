@@ -22,7 +22,28 @@ use unim_gui_common::dbus_client;
 use unim_gui_common::tray::UnimTray;
 use unim_gui_common::types::{GuiAction, IndicatorState, SETTINGS_TX};
 
+// 설정 다이얼로그·팝업 등 GUI 전용 문자열에 대한 i18n.
+// `locales/{ko,en}.yml` 파일이 컴파일 시점에 임베드된다.
+rust_i18n::i18n!("locales", fallback = "en");
+
+/// LANG/LC_ALL 환경 변수 기반으로 ko/en을 결정한다 (대소문자 무시).
+fn detect_locale() -> &'static str {
+    let lang = std::env::var("LANG")
+        .or_else(|_| std::env::var("LC_ALL"))
+        .unwrap_or_default();
+    if lang.to_ascii_lowercase().starts_with("ko") {
+        "ko"
+    } else {
+        "en"
+    }
+}
+
 fn main() {
+    // gtk 크레이트와 common 크레이트는 서로 다른 i18n 인스턴스(static BACKEND)를
+    // 가지므로 양쪽 모두에 동일한 로케일을 설정해야 한다.
+    unim_gui_common::init_locale();
+    rust_i18n::set_locale(detect_locale());
+
     unim_log!("INDICATOR", "UNIM GUI 시작...");
 
     // --settings 인자 확인: 설정 다이얼로그만 표시

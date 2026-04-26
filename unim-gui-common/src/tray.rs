@@ -7,6 +7,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 
 use ksni::menu::*;
+use rust_i18n::t;
 use unim::status::InputCategory;
 use unim::unim_log;
 
@@ -47,8 +48,8 @@ impl ksni::Tray for UnimTray {
             .map(|s| s.category)
             .unwrap_or(InputCategory::English);
         match category {
-            InputCategory::Korean => "UNIM - 한국어".into(),
-            InputCategory::English => "UNIM - 영어".into(),
+            InputCategory::Korean => t!("tray_title_korean").into(),
+            InputCategory::English => t!("tray_title_english").into(),
         }
     }
 
@@ -60,12 +61,12 @@ impl ksni::Tray for UnimTray {
             .unwrap_or(InputCategory::English);
 
         let mode_desc = match category {
-            InputCategory::Korean => "한국어 모드",
-            InputCategory::English => "영어 모드",
+            InputCategory::Korean => t!("tray_tooltip_korean_mode"),
+            InputCategory::English => t!("tray_tooltip_english_mode"),
         };
 
         ksni::ToolTip {
-            title: "UNIM 입력기".into(),
+            title: t!("tray_tooltip_title").into(),
             description: mode_desc.into(),
             ..Default::default()
         }
@@ -83,13 +84,14 @@ impl ksni::Tray for UnimTray {
                     .read()
                     .map(|s| s.category)
                     .unwrap_or(InputCategory::English);
+                let label_body = t!("tray_menu_korean");
                 let korean_label = if current_category == InputCategory::Korean {
-                    "✓ 한국어 모드 (Korean)"
+                    format!("✓ {}", label_body)
                 } else {
-                    "   한국어 모드 (Korean)"
+                    format!("   {}", label_body)
                 };
                 StandardItem {
-                    label: korean_label.into(),
+                    label: korean_label,
                     activate: Box::new(|this: &mut Self| {
                         if let Ok(mut s) = this.state.write() {
                             s.category = InputCategory::Korean;
@@ -109,13 +111,14 @@ impl ksni::Tray for UnimTray {
                     .read()
                     .map(|s| s.category)
                     .unwrap_or(InputCategory::English);
+                let label_body = t!("tray_menu_english");
                 let english_label = if current_category == InputCategory::English {
-                    "✓ 영어 모드 (English)"
+                    format!("✓ {}", label_body)
                 } else {
-                    "   영어 모드 (English)"
+                    format!("   {}", label_body)
                 };
                 StandardItem {
-                    label: english_label.into(),
+                    label: english_label,
                     activate: Box::new(|this: &mut Self| {
                         if let Ok(mut s) = this.state.write() {
                             s.category = InputCategory::English;
@@ -131,7 +134,7 @@ impl ksni::Tray for UnimTray {
             .into(),
             ksni::MenuItem::Separator,
             StandardItem {
-                label: "설정 (Settings)...".into(),
+                label: t!("tray_menu_settings").into(),
                 activate: Box::new(|_: &mut Self| {
                     open_settings();
                 }),
@@ -140,7 +143,7 @@ impl ksni::Tray for UnimTray {
             .into(),
             ksni::MenuItem::Separator,
             StandardItem {
-                label: "종료 (Quit)".into(),
+                label: t!("tray_menu_quit").into(),
                 icon_name: "application-exit".into(),
                 activate: Box::new(|_: &mut Self| {
                     unim_log!("INDICATOR", "인디케이터 종료");

@@ -145,3 +145,107 @@ msgstr "Auto Paste"
 #: prefs.js:122
 msgid "Reset to default"
 msgstr "Reset to default"
+
+# === Phase 1 i18n: missing keys for prefs.js / extension.js ===
+msgid "IME 모드 활성화"
+msgstr "Enable IME Mode"
+
+msgid "Registered '%s' to the reverse user dictionary."
+msgstr "Registered '%s' to the reverse user dictionary."
+
+msgid "Selection is empty, invalid, or already registered."
+msgstr "Selection is empty, invalid, or already registered."
+
+msgid "UNIM"
+msgstr "UNIM"
+
+msgid "UNIM Dictionary"
+msgstr "UNIM Dictionary"
+
+msgid "UNIM 설정 앱 실행 실패. 터미널에서 `unim-gui-gtk --settings`를 직접 실행하세요."
+msgstr "Failed to launch UNIM Settings app. Run `unim-gui-gtk --settings` manually in a terminal."
+
+msgid "UNIM 설정 앱 열기"
+msgstr "Open UNIM Settings App"
+
+msgid "Wayland 세션 전용. Clutter.InputMethod로 IBus를 대체합니다."
+msgstr "Wayland session only. Replaces IBus with Clutter.InputMethod."
+
+msgid "Wayland 세션에서 한글 실시간 입력"
+msgstr "Realtime Korean input on Wayland sessions"
+
+msgid "Wayland 세션에서만 사용 가능합니다."
+msgstr "Available only on Wayland sessions."
+
+msgid "gksrmf → 한글"
+msgstr "gksrmf -> 한글"
+
+msgid "ㅎㅑㅅ → git (CLI 명령어 등)"
+msgstr "ㅎㅑㅅ -> git (CLI commands etc.)"
+
+msgid "ㅗ디ㅣㅐ → hello"
+msgstr "ㅗ디ㅣㅐ -> hello"
+
+msgid "기본값 복원"
+msgstr "Restore defaults"
+
+msgid "변환 단축키"
+msgstr "Conversion Shortcuts"
+
+msgid "변환 알림 표시"
+msgstr "Show Conversion Notification"
+
+msgid "사용자 사전 등록"
+msgstr "User Dictionary Registration"
+
+msgid "상단 패널 인디케이터"
+msgstr "Top Panel Indicator"
+
+msgid "선택 영역 등록"
+msgstr "Register Selection"
+
+msgid "선택한 한글을 영문으로 변환해 역방향 교정 사용자 사전에 추가합니다."
+msgstr "Convert selected Korean text to English and add to the reverse correction user dictionary."
+
+msgid "실시간 입력기"
+msgstr "Realtime IME"
+
+msgid "영어 → 한글"
+msgstr "English -> Korean"
+
+msgid "오른쪽 클릭은 항상 메뉴를 표시합니다."
+msgstr "Right click always shows the menu."
+
+msgid "오타 교정 시 알림 메시지 표시"
+msgstr "Show notification when typo is corrected"
+
+msgid "왼쪽 클릭 = 메뉴 (GNOME 기본)"
+msgstr "Left click = Menu (GNOME default)"
+
+msgid "왼쪽 클릭 = 한/영 전환"
+msgstr "Left click = Toggle Korean/English"
+
+msgid "일반 설정"
+msgstr "General Settings"
+
+msgid "자판, 모드, 단축키, 자동 교정 등 모든 일반 설정"
+msgstr "All general settings: layouts, modes, shortcuts, auto correction"
+
+msgid "자판·입력 모드·오타 교정 등 일반 설정은 UNIM 설정 앱(unim-gui-gtk --settings)에서 관리합니다."
+msgstr "Layouts, input mode, auto TypeFix and other general settings are managed in the UNIM Settings app (unim-gui-gtk --settings)."
+
+msgid "패널 클릭 동작"
+msgstr "Panel Click Behavior"
+
+msgid "포커스된 단어를 순/역방향으로 변환 후 교체"
+msgstr "Convert and replace the focused word forward/backward"
+
+msgid "표시"
+msgstr "Display"
+
+msgid "한/영 상태 아이콘을 GNOME 상단 패널에 표시"
+msgstr "Show Korean/English status icon in the GNOME top panel"
+
+msgid "한글 → 영어"
+msgstr "Korean -> English"
+

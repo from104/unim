@@ -1,0 +1,15 @@
+# UNIM GUI common locale (Korean)
+# 트레이 아이콘 및 공유 GUI 문자열
+
+# 트레이 아이콘
+tray_title_korean: "UNIM - 한국어"
+tray_title_english: "UNIM - 영어"
+tray_tooltip_title: "UNIM 입력기"
+tray_tooltip_korean_mode: "한국어 모드"
+tray_tooltip_english_mode: "영어 모드"
+
+# 트레이 메뉴 항목
+tray_menu_korean: "한국어 모드 (Korean)"
+tray_menu_english: "영어 모드 (English)"
+tray_menu_settings: "설정 (Settings)..."
+tray_menu_quit: "종료 (Quit)"

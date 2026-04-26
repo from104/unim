@@ -12,6 +12,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
+use rust_i18n::t;
 use unim::status::InputCategory;
 use unim::unim_log;
 
@@ -325,8 +326,8 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
 
     let status_badge = gtk4::Label::builder()
         .label(match current_category {
-            InputCategory::Korean => "한국어 입력 중",
-            InputCategory::English => "영어 입력 중",
+            InputCategory::Korean => t!("modepopup_status_korean"),
+            InputCategory::English => t!("modepopup_status_english"),
         })
         .halign(gtk4::Align::Start)
         .build();
@@ -340,16 +341,17 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
     button_box.add_css_class("mode-tile-container");
     button_box.set_halign(gtk4::Align::Center);
 
+    // "한"/"A"는 mnemonic이라 번역 대상 아님 (한국어 글자 자체가 시각 식별자).
     let korean_btn = gtk4::Button::builder()
         .label("한")
-        .tooltip_text("한국어 모드로 전환")
+        .tooltip_text(t!("modepopup_btn_korean_tooltip"))
         .build();
     korean_btn.add_css_class("mode-button");
     korean_btn.add_css_class("korean-btn");
 
     let english_btn = gtk4::Button::builder()
         .label("A")
-        .tooltip_text("영어 모드로 전환")
+        .tooltip_text(t!("modepopup_btn_english_tooltip"))
         .build();
     english_btn.add_css_class("mode-button");
     english_btn.add_css_class("english-btn");
@@ -364,7 +366,7 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
 
     // 설정 버튼
     let settings_btn = gtk4::Button::builder()
-        .label("설정 도구 열기")
+        .label(t!("modepopup_btn_open_settings"))
         .halign(gtk4::Align::Fill)
         .build();
     settings_btn.add_css_class("settings-button");
@@ -385,7 +387,7 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
             s.category = InputCategory::Korean;
             korean_btn_clone.add_css_class("mode-active");
             english_btn_clone.remove_css_class("mode-active");
-            status_badge_clone.set_text("한국어 입력 중");
+            status_badge_clone.set_text(&t!("modepopup_status_korean"));
             unim_log!("INDICATOR", "한국어 모드로 전환");
         }
     });
@@ -399,7 +401,7 @@ fn build_popup_window(app: &adw::Application, state: Arc<RwLock<IndicatorState>>
             s.category = InputCategory::English;
             english_btn_clone2.add_css_class("mode-active");
             korean_btn_clone2.remove_css_class("mode-active");
-            status_badge_clone2.set_text("영어 입력 중");
+            status_badge_clone2.set_text(&t!("modepopup_status_english"));
             unim_log!("INDICATOR", "영어 모드로 전환");
         }
     });

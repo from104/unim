@@ -145,3 +145,107 @@ msgstr "자동 붙여넣기"
 #: prefs.js:122
 msgid "Reset to default"
 msgstr "기본값으로 초기화"
+
+# === Phase 1 i18n: missing keys for prefs.js / extension.js ===
+msgid "IME 모드 활성화"
+msgstr "IME 모드 활성화"
+
+msgid "Registered '%s' to the reverse user dictionary."
+msgstr "Registered '%s' to the reverse user dictionary."
+
+msgid "Selection is empty, invalid, or already registered."
+msgstr "Selection is empty, invalid, or already registered."
+
+msgid "UNIM"
+msgstr "UNIM"
+
+msgid "UNIM Dictionary"
+msgstr "UNIM Dictionary"
+
+msgid "UNIM 설정 앱 실행 실패. 터미널에서 `unim-gui-gtk --settings`를 직접 실행하세요."
+msgstr "UNIM 설정 앱 실행 실패. 터미널에서 `unim-gui-gtk --settings`를 직접 실행하세요."
+
+msgid "UNIM 설정 앱 열기"
+msgstr "UNIM 설정 앱 열기"
+
+msgid "Wayland 세션 전용. Clutter.InputMethod로 IBus를 대체합니다."
+msgstr "Wayland 세션 전용. Clutter.InputMethod로 IBus를 대체합니다."
+
+msgid "Wayland 세션에서 한글 실시간 입력"
+msgstr "Wayland 세션에서 한글 실시간 입력"
+
+msgid "Wayland 세션에서만 사용 가능합니다."
+msgstr "Wayland 세션에서만 사용 가능합니다."
+
+msgid "gksrmf → 한글"
+msgstr "gksrmf → 한글"
+
+msgid "ㅎㅑㅅ → git (CLI 명령어 등)"
+msgstr "ㅎㅑㅅ → git (CLI 명령어 등)"
+
+msgid "ㅗ디ㅣㅐ → hello"
+msgstr "ㅗ디ㅣㅐ → hello"
+
+msgid "기본값 복원"
+msgstr "기본값 복원"
+
+msgid "변환 단축키"
+msgstr "변환 단축키"
+
+msgid "변환 알림 표시"
+msgstr "변환 알림 표시"
+
+msgid "사용자 사전 등록"
+msgstr "사용자 사전 등록"
+
+msgid "상단 패널 인디케이터"
+msgstr "상단 패널 인디케이터"
+
+msgid "선택 영역 등록"
+msgstr "선택 영역 등록"
+
+msgid "선택한 한글을 영문으로 변환해 역방향 교정 사용자 사전에 추가합니다."
+msgstr "선택한 한글을 영문으로 변환해 역방향 교정 사용자 사전에 추가합니다."
+
+msgid "실시간 입력기"
+msgstr "실시간 입력기"
+
+msgid "영어 → 한글"
+msgstr "영어 → 한글"
+
+msgid "오른쪽 클릭은 항상 메뉴를 표시합니다."
+msgstr "오른쪽 클릭은 항상 메뉴를 표시합니다."
+
+msgid "오타 교정 시 알림 메시지 표시"
+msgstr "오타 교정 시 알림 메시지 표시"
+
+msgid "왼쪽 클릭 = 메뉴 (GNOME 기본)"
+msgstr "왼쪽 클릭 = 메뉴 (GNOME 기본)"
+
+msgid "왼쪽 클릭 = 한/영 전환"
+msgstr "왼쪽 클릭 = 한/영 전환"
+
+msgid "일반 설정"
+msgstr "일반 설정"
+
+msgid "자판, 모드, 단축키, 자동 교정 등 모든 일반 설정"
+msgstr "자판, 모드, 단축키, 자동 교정 등 모든 일반 설정"
+
+msgid "자판·입력 모드·오타 교정 등 일반 설정은 UNIM 설정 앱(unim-gui-gtk --settings)에서 관리합니다."
+msgstr "자판·입력 모드·오타 교정 등 일반 설정은 UNIM 설정 앱(unim-gui-gtk --settings)에서 관리합니다."
+
+msgid "패널 클릭 동작"
+msgstr "패널 클릭 동작"
+
+msgid "포커스된 단어를 순/역방향으로 변환 후 교체"
+msgstr "포커스된 단어를 순/역방향으로 변환 후 교체"
+
+msgid "표시"
+msgstr "표시"
+
+msgid "한/영 상태 아이콘을 GNOME 상단 패널에 표시"
+msgstr "한/영 상태 아이콘을 GNOME 상단 패널에 표시"
+
+msgid "한글 → 영어"
+msgstr "한글 → 영어"
+

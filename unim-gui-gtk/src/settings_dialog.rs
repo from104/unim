@@ -11,6 +11,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
+use rust_i18n::t;
 
 use unim::config::{
     Config, InputCategory, ModeSharingMode, PopupMode,
@@ -72,7 +73,7 @@ pub fn show_settings_dialog(app: &adw::Application) {
 
     let window = adw::PreferencesWindow::builder()
         .application(app)
-        .title("UNIM 설정")
+        .title(t!("settings_window_title"))
         .default_width(WINDOW_MIN_WIDTH)
         .default_height(WINDOW_MIN_HEIGHT)
         .search_enabled(false)
@@ -80,7 +81,7 @@ pub fn show_settings_dialog(app: &adw::Application) {
 
     // ── Page 1: 일반 ──────────────────────────────────────────
     let page_general = adw::PreferencesPage::builder()
-        .title("일반")
+        .title(t!("page_general_title"))
         .icon_name("preferences-system-symbolic")
         .build();
     let rule_sets_handle = build_rule_sets_group();
@@ -92,7 +93,7 @@ pub fn show_settings_dialog(app: &adw::Application) {
 
     // ── Page 2: 오타 교정 ─────────────────────────────────────
     let page_typefix = adw::PreferencesPage::builder()
-        .title("오타 교정")
+        .title(t!("page_typefix_title"))
         .icon_name("edit-find-replace-symbolic")
         .build();
 
@@ -166,7 +167,7 @@ fn save_and_notify(config: &Config, label: &str) {
             label,
             e
         );
-        show_toast(&format!("저장 실패: {}", e));
+        show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
         return;
     }
 
@@ -177,7 +178,7 @@ fn save_and_notify(config: &Config, label: &str) {
     }
 
     // 3. 토스트
-    show_toast("저장됨 ✓");
+    show_toast(&t!("settings_toast_saved"));
 }
 
 fn show_toast(text: &str) {
@@ -301,9 +302,9 @@ impl RuleSetsHandle {
         let profile_default: Option<&Vec<String>> = profile.active_rule_sets.as_ref();
 
         if profile.rule_sets.is_empty() {
-            self.group.set_description(Some("이 자판은 옵션 규칙이 없습니다."));
+            self.group.set_description(Some(&t!("group_layout_options_empty")));
         } else {
-            self.group.set_description(Some("선택된 자판의 옵션 규칙"));
+            self.group.set_description(Some(&t!("group_layout_options_title")));
         }
 
         for (set_name, rs) in &profile.rule_sets {
@@ -316,6 +317,7 @@ impl RuleSetsHandle {
                 .title(set_name)
                 .subtitle(&title)
                 .build();
+            row.set_tooltip_text(Some(t!("row_rule_sets_label").as_ref()));
 
             // active 계산: config override 비어 있지 않으면 config 값, 아니면
             // 프로필의 active_rule_sets 또는 rule_set.active.
@@ -355,8 +357,8 @@ impl RuleSetsHandle {
 
 fn build_rule_sets_group() -> RuleSetsHandle {
     let group = adw::PreferencesGroup::builder()
-        .title("규칙 세트")
-        .description("자판 프로필 로드 후 표시")
+        .title(t!("row_rule_sets_label"))
+        .description(t!("row_layout_pending"))
         .build();
     RuleSetsHandle {
         group,
@@ -365,13 +367,14 @@ fn build_rule_sets_group() -> RuleSetsHandle {
 }
 
 fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title("자판 및 키맵").build();
+    let group = adw::PreferencesGroup::builder().title(t!("group_layouts_keymap")).build();
 
     // 한국어 자판 — 내장 + 사용자 프로필 통합
     let kor_row = adw::ComboRow::builder()
-        .title("한국어 자판")
-        .subtitle("내장 + ~/.config/unim/layouts/*.json")
+        .title(t!("row_korean_layout"))
+        .subtitle(t!("row_korean_layout_subtitle"))
         .build();
+    kor_row.set_tooltip_text(Some(t!("row_korean_layout_tooltip").as_ref()));
     let choices = collect_korean_profile_choices();
     let display_items: Vec<&str> = choices.iter().map(|(_, d)| d.as_str()).collect();
     let kor_list = gtk4::StringList::new(&display_items);
@@ -436,7 +439,11 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     group.add(&kor_row);
 
     // 영어 자판 — Phase 9에서 enum 폐지 후 내장 5종 + 사용자 프로필 가능 (현재는 내장만 표시).
-    let eng_row = adw::ComboRow::builder().title("영어 자판").build();
+    let eng_row = adw::ComboRow::builder()
+        .title(t!("row_english_layout"))
+        .subtitle(t!("row_english_layout_subtitle"))
+        .build();
+    eng_row.set_tooltip_text(Some(t!("row_english_layout_tooltip").as_ref()));
     let eng_builtins: Vec<&str> = unim::config::ENGLISH_LAYOUT_BUILTINS.to_vec();
     let eng_items: Vec<&str> = eng_builtins
         .iter()
@@ -472,8 +479,9 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     // 한/영 전환 키
     group.add(&build_string_list_row(
         state,
-        "한/영 전환 키",
-        Some("쉼표로 구분 (예: Korean, RightAlt)"),
+        &t!("row_toggle_keys"),
+        Some(t!("row_toggle_keys_subtitle").as_ref()),
+        Some(t!("row_toggle_keys_tooltip").as_ref()),
         |cfg| cfg.engine.toggle_keys.join(", "),
         |cfg, v| cfg.engine.toggle_keys = v,
         "toggle_keys",
@@ -482,8 +490,9 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     // 한자 키
     group.add(&build_string_list_row(
         state,
-        "한자 키",
-        Some("쉼표로 구분 (예: Hanja, F9)"),
+        &t!("row_hanja_keys"),
+        Some(t!("row_hanja_keys_subtitle").as_ref()),
+        Some(t!("row_hanja_keys_tooltip").as_ref()),
         |cfg| cfg.engine.hanja_keys.join(", "),
         |cfg, v| cfg.engine.hanja_keys = v,
         "hanja_keys",
@@ -491,9 +500,10 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
 
     // 이모지 팝업 enable/disable
     let emoji_sw = adw::SwitchRow::builder()
-        .title("이모지 팝업")
-        .subtitle("Super+. 등 트리거 키로 이모지 팝업 표시")
+        .title(t!("row_emoji_popup"))
+        .subtitle(t!("row_emoji_popup_subtitle"))
         .build();
+    emoji_sw.set_tooltip_text(Some(t!("row_emoji_popup_tooltip").as_ref()));
     {
         let s = state.borrow();
         emoji_sw.set_active(s.config.engine.emoji_popup.enabled);
@@ -514,8 +524,9 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     // 이모지 팝업 트리거 키
     group.add(&build_string_list_row(
         state,
-        "이모지 팝업 트리거 키",
-        Some("쉼표로 구분 (예: Super+Period, Control+Shift+E)"),
+        &t!("row_emoji_popup_keys"),
+        Some(t!("row_emoji_popup_keys_subtitle").as_ref()),
+        Some(t!("row_emoji_popup_keys_tooltip").as_ref()),
         |cfg| cfg.engine.emoji_popup.trigger_keys.join(", "),
         |cfg, v| cfg.engine.emoji_popup.trigger_keys = v,
         "emoji_popup_keys",
@@ -525,11 +536,15 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
 }
 
 fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title("입력 모드").build();
+    let group = adw::PreferencesGroup::builder().title(t!("group_input_mode")).build();
 
     // 초기 입력 모드
-    let init_row = adw::ComboRow::builder().title("초기 입력 모드").build();
-    let init_list = gtk4::StringList::new(&["영문", "한글"]);
+    let init_row = adw::ComboRow::builder()
+        .title(t!("row_initial_mode"))
+        .subtitle(t!("row_initial_mode_subtitle"))
+        .build();
+    init_row.set_tooltip_text(Some(t!("row_initial_mode_tooltip").as_ref()));
+    let init_list = gtk4::StringList::new(&[t!("mode_english").as_ref(), t!("mode_korean").as_ref()]);
     init_row.set_model(Some(&init_list));
     {
         let s = state.borrow();
@@ -556,8 +571,12 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
     group.add(&init_row);
 
     // 모드 공유 방식
-    let share_row = adw::ComboRow::builder().title("모드 공유 방식").build();
-    let share_list = gtk4::StringList::new(&["전역 (Global)", "앱별 (PerApp)"]);
+    let share_row = adw::ComboRow::builder()
+        .title(t!("row_mode_sharing"))
+        .subtitle(t!("row_mode_sharing_subtitle"))
+        .build();
+    share_row.set_tooltip_text(Some(t!("row_mode_sharing_tooltip").as_ref()));
+    let share_list = gtk4::StringList::new(&[t!("mode_share_global").as_ref(), t!("mode_share_perapp").as_ref()]);
     share_row.set_model(Some(&share_list));
     {
         let s = state.borrow();
@@ -584,8 +603,12 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
     group.add(&share_row);
 
     // 팝업 모드
-    let popup_row = adw::ComboRow::builder().title("팝업 모드").build();
-    let popup_list = gtk4::StringList::new(&["독립 (Standalone)", "내장 (Embedded)"]);
+    let popup_row = adw::ComboRow::builder()
+        .title(t!("row_popup_mode"))
+        .subtitle(t!("row_popup_mode_subtitle"))
+        .build();
+    popup_row.set_tooltip_text(Some(t!("row_popup_mode_tooltip").as_ref()));
+    let popup_list = gtk4::StringList::new(&[t!("popup_mode_standalone").as_ref(), t!("popup_mode_embedded").as_ref()]);
     popup_row.set_model(Some(&popup_list));
     {
         let s = state.borrow();
@@ -616,7 +639,7 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
 
 fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
-        .title("자동 영문 전환")
+        .title(t!("group_auto_english"))
         .description(
             "지정된 키(기본: Escape, Slash)를 한글 모드에서 입력하면 \
              조합을 커밋하고 영문 모드로 전환합니다 (vi/CLI 명령 호환).",
@@ -624,7 +647,11 @@ fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
         .build();
 
     // 활성화 스위치
-    let sw = adw::SwitchRow::builder().title("자동 영문 전환 사용").build();
+    let sw = adw::SwitchRow::builder()
+        .title(t!("row_auto_english_enable"))
+        .subtitle(t!("row_auto_english_enable_subtitle"))
+        .build();
+    sw.set_tooltip_text(Some(t!("row_auto_english_enable_tooltip").as_ref()));
     {
         let s = state.borrow();
         sw.set_active(s.config.engine.auto_english.enabled);
@@ -645,8 +672,9 @@ fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
     // 트리거 키 목록 (쉼표 구분)
     group.add(&build_string_list_row(
         state,
-        "트리거 키",
-        Some("쉼표로 구분. Shift 조합은 ShiftSemicolon 형식 (예: Escape, Slash, ShiftSlash)"),
+        &t!("row_auto_english_triggers"),
+        Some(t!("row_auto_english_triggers_subtitle").as_ref()),
+        Some(t!("row_auto_english_triggers_tooltip").as_ref()),
         |cfg| cfg.engine.auto_english.trigger_keys.join(", "),
         |cfg, v| cfg.engine.auto_english.trigger_keys = v,
         "auto_english_keys",
@@ -668,6 +696,7 @@ fn build_int_scale_row(
     state: &State,
     title: &str,
     subtitle: &str,
+    tooltip: &str,
     min: i32,
     max: i32,
     init: i32,
@@ -678,6 +707,7 @@ fn build_int_scale_row(
         .title(title)
         .subtitle(subtitle)
         .build();
+    row.set_tooltip_text(Some(tooltip));
 
     let adj = gtk4::Adjustment::new(init as f64, min as f64, max as f64, 1.0, 1.0, 0.0);
     let scale = gtk4::Scale::new(gtk4::Orientation::Horizontal, Some(&adj));
@@ -722,6 +752,7 @@ fn build_time_window_row(
     state: &State,
     title: &str,
     subtitle: &str,
+    tooltip: &str,
     get_ms: impl Fn(&Config) -> u32 + 'static,
     set_ms: impl Fn(&mut Config, u32) + 'static,
     label: &'static str,
@@ -730,6 +761,7 @@ fn build_time_window_row(
         .title(title)
         .subtitle(subtitle)
         .build();
+    row.set_tooltip_text(Some(tooltip));
 
     let min_s = AUTO_TYPEFIX_TIME_WINDOW_MIN as f64 / 1000.0;
     let max_s = AUTO_TYPEFIX_TIME_WINDOW_MAX as f64 / 1000.0;
@@ -784,11 +816,15 @@ fn build_time_window_row(
 
 fn build_forward_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
-        .title("자동 순방향 교정 (영→한)")
+        .title(t!("group_typefix_forward"))
         .build();
 
     // 사용 (forward)
-    let fwd_sw = adw::SwitchRow::builder().title("사용").build();
+    let fwd_sw = adw::SwitchRow::builder()
+        .title(t!("row_typefix_enable"))
+        .subtitle(t!("row_typefix_forward_enable_subtitle"))
+        .build();
+    fwd_sw.set_tooltip_text(Some(t!("row_typefix_forward_enable_tooltip").as_ref()));
     {
         let s = state.borrow();
         fwd_sw.set_active(s.config.engine.auto_typefix.forward);
@@ -810,8 +846,9 @@ fn build_forward_group(state: &State) -> adw::PreferencesGroup {
     let init_kor = state.borrow().config.engine.auto_typefix.kor_syllable_threshold as i32;
     let kor_row = build_int_scale_row(
         state,
-        "임계 음절 수",
-        "이 개수 이상의 완성 한글이 감지되면 교정 검사",
+        &t!("row_typefix_kor_threshold"),
+        &t!("row_typefix_kor_threshold_subtitle"),
+        &t!("row_typefix_kor_threshold_tooltip"),
         AUTO_TYPEFIX_KOR_THRESHOLD_MIN as i32,
         AUTO_TYPEFIX_KOR_THRESHOLD_MAX as i32,
         init_kor,
@@ -823,8 +860,9 @@ fn build_forward_group(state: &State) -> adw::PreferencesGroup {
     // 트리거 윈도우 (초) — 순방향 전용
     let fwd_time_row = build_time_window_row(
         state,
-        "트리거 윈도우 (초)",
-        "순방향 교정이 유효로 간주하는 최근 입력 시간",
+        &t!("row_typefix_forward_window"),
+        &t!("row_typefix_forward_window_subtitle"),
+        &t!("row_typefix_forward_window_tooltip"),
         |cfg| cfg.engine.auto_typefix.forward_time_window_ms,
         |cfg, ms| cfg.engine.auto_typefix.forward_time_window_ms = ms,
         "auto_typefix_forward_time_window_ms",
@@ -833,9 +871,10 @@ fn build_forward_group(state: &State) -> adw::PreferencesGroup {
 
     // 영단어 매칭 시 억제
     let skip_eng_sw = adw::SwitchRow::builder()
-        .title("영단어 매칭 시 억제")
-        .subtitle("사전에 일치하는 영단어이면 교정하지 않음")
+        .title(t!("row_typefix_skip_engword").as_ref())
+        .subtitle(t!("row_typefix_skip_engword_subtitle"))
         .build();
+    skip_eng_sw.set_tooltip_text(Some(t!("row_typefix_skip_engword_tooltip").as_ref()));
     {
         let s = state.borrow();
         skip_eng_sw.set_active(s.config.engine.auto_typefix.skip_on_english_word);
@@ -858,11 +897,15 @@ fn build_forward_group(state: &State) -> adw::PreferencesGroup {
 
 fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
-        .title("자동 역방향 교정 (한→영)")
+        .title(t!("group_typefix_reverse"))
         .build();
 
     // 사용 (reverse)
-    let rev_sw = adw::SwitchRow::builder().title("사용").build();
+    let rev_sw = adw::SwitchRow::builder()
+        .title(t!("row_typefix_enable"))
+        .subtitle(t!("row_typefix_reverse_enable_subtitle"))
+        .build();
+    rev_sw.set_tooltip_text(Some(t!("row_typefix_reverse_enable_tooltip").as_ref()));
     {
         let s = state.borrow();
         rev_sw.set_active(s.config.engine.auto_typefix.reverse);
@@ -884,8 +927,9 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
     let init_eng = state.borrow().config.engine.auto_typefix.eng_word_min_length as i32;
     let eng_row = build_int_scale_row(
         state,
-        "임계 글자 수",
-        "이 개수 이상의 한글이 감지되면 교정 검사",
+        &t!("row_typefix_eng_threshold"),
+        &t!("row_typefix_eng_threshold_subtitle"),
+        &t!("row_typefix_eng_threshold_tooltip"),
         AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN as i32,
         AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX as i32,
         init_eng,
@@ -897,8 +941,9 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
     // 트리거 윈도우 (초) — 역방향 전용
     let rev_time_row = build_time_window_row(
         state,
-        "트리거 윈도우 (초)",
-        "역방향 교정이 유효로 간주하는 최근 입력 시간",
+        &t!("row_typefix_forward_window"),
+        &t!("row_typefix_reverse_window_subtitle"),
+        &t!("row_typefix_reverse_window_tooltip"),
         |cfg| cfg.engine.auto_typefix.reverse_time_window_ms,
         |cfg, ms| cfg.engine.auto_typefix.reverse_time_window_ms = ms,
         "auto_typefix_reverse_time_window_ms",
@@ -907,9 +952,10 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
 
     // 온전한 음절 매칭 시 억제
     let skip_syl_sw = adw::SwitchRow::builder()
-        .title("온전한 음절 매칭 시 억제")
-        .subtitle("버퍼의 한글이 모두 완성 음절이면 교정하지 않음")
+        .title(t!("row_typefix_skip_complete"))
+        .subtitle(t!("row_typefix_skip_complete_subtitle"))
         .build();
+    skip_syl_sw.set_tooltip_text(Some(t!("row_typefix_skip_complete_tooltip").as_ref()));
     {
         let s = state.borrow();
         skip_syl_sw.set_active(s.config.engine.auto_typefix.skip_on_complete_syllable);
@@ -929,9 +975,10 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
 
     // 사용자 사전 활성화 (PR #6)
     let user_dict_sw = adw::SwitchRow::builder()
-        .title("사용자 사전 사용")
-        .subtitle("등록된 CLI 명령 등은 길이·사전 검사를 우회하여 즉시 교정 — '사용자 사전' 페이지에서 관리")
+        .title(t!("row_typefix_userdict"))
+        .subtitle(t!("row_typefix_userdict_subtitle"))
         .build();
+    user_dict_sw.set_tooltip_text(Some(t!("row_typefix_userdict_tooltip").as_ref()));
     {
         let s = state.borrow();
         user_dict_sw.set_active(s.config.engine.auto_typefix.user_dict_enabled);
@@ -954,13 +1001,15 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
 
 fn build_master_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
-        .title("전체 기능")
-        .description("순방향·역방향을 일괄 활성화/비활성화하는 마스터 스위치")
+        .title(t!("group_typefix_master"))
+        .description(t!("row_typefix_master_subtitle"))
         .build();
 
     let master = adw::SwitchRow::builder()
-        .title("자동 오타 교정 사용")
+        .title(t!("row_typefix_master"))
+        .subtitle(t!("row_typefix_master_row_subtitle"))
         .build();
+    master.set_tooltip_text(Some(t!("row_typefix_master_tooltip").as_ref()));
     {
         let s = state.borrow();
         master.set_active(s.config.engine.auto_typefix.enabled);
@@ -980,9 +1029,10 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
 
     // 재트리거 자동 감지
     let rollback_sw = adw::SwitchRow::builder()
-        .title("재트리거 자동 감지")
-        .subtitle("같은 입력이 관찰 창 내에 다시 교정되면 오탐 후보로 기록하고 억제")
+        .title(t!("group_typefix_retrigger"))
+        .subtitle(t!("row_typefix_retrigger_subtitle"))
         .build();
+    rollback_sw.set_tooltip_text(Some(t!("row_typefix_retrigger_tooltip").as_ref()));
     {
         let s = state.borrow();
         rollback_sw.set_active(s.config.engine.auto_typefix.rollback_detection);
@@ -1004,8 +1054,9 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     let init_obs = state.borrow().config.engine.auto_typefix.observation_timeout_secs as i32;
     let obs_row = build_int_scale_row(
         state,
-        "관찰 창 (초)",
-        "첫 교정 후 이 시간 내 동일 입력이 재트리거되면 오탐으로 판정",
+        &t!("row_typefix_observe_window"),
+        &t!("row_typefix_observe_window_subtitle"),
+        &t!("row_typefix_observe_window_tooltip"),
         AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN as i32,
         AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX as i32,
         init_obs,
@@ -1018,8 +1069,9 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     let init_exp = state.borrow().config.engine.auto_typefix.tentative_expiry_hours as i32;
     let exp_row = build_int_scale_row(
         state,
-        "임시 억제 만료 (시간)",
-        "이 기간 내 수동 확정하지 않으면 비활성화",
+        &t!("row_typefix_tentative_expiry"),
+        &t!("row_typefix_tentative_expiry_subtitle"),
+        &t!("row_typefix_tentative_expiry_tooltip"),
         AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN as i32,
         AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX as i32,
         init_exp,
@@ -1067,26 +1119,34 @@ fn build_gnome_page(_window: &adw::PreferencesWindow) -> Option<adw::Preferences
         .build();
 
     // 표시
-    let disp = adw::PreferencesGroup::builder().title("표시").build();
+    let disp = adw::PreferencesGroup::builder().title(t!("group_display")).build();
 
-    let panel_row = adw::SwitchRow::builder().title("상단 패널 인디케이터").build();
+    let panel_row = adw::SwitchRow::builder()
+        .title(t!("row_panel_indicator"))
+        .subtitle(t!("row_panel_indicator_subtitle"))
+        .build();
+    panel_row.set_tooltip_text(Some(t!("row_panel_indicator_tooltip").as_ref()));
     panel_row.set_active(gsettings.boolean("show-panel-indicator"));
     {
         let gs = gsettings.clone();
         panel_row.connect_active_notify(move |sw| {
             let _ = gs.set_boolean("show-panel-indicator", sw.is_active());
-            show_toast("저장됨 ✓");
+            show_toast(&t!("settings_toast_saved"));
         });
     }
     disp.add(&panel_row);
 
-    let notif_row = adw::SwitchRow::builder().title("변환 알림 표시").build();
+    let notif_row = adw::SwitchRow::builder()
+        .title(t!("row_show_notification"))
+        .subtitle(t!("row_show_notification_subtitle"))
+        .build();
+    notif_row.set_tooltip_text(Some(t!("row_show_notification_tooltip").as_ref()));
     notif_row.set_active(gsettings.boolean("show-notification"));
     {
         let gs = gsettings.clone();
         notif_row.connect_active_notify(move |sw| {
             let _ = gs.set_boolean("show-notification", sw.is_active());
-            show_toast("저장됨 ✓");
+            show_toast(&t!("settings_toast_saved"));
         });
     }
     disp.add(&notif_row);
@@ -1095,18 +1155,22 @@ fn build_gnome_page(_window: &adw::PreferencesWindow) -> Option<adw::Preferences
 
     // 실시간 입력기
     let ime = adw::PreferencesGroup::builder()
-        .title("실시간 입력기")
-        .description("Wayland 세션에서만 활성화됩니다")
+        .title(t!("group_ime"))
+        .description(t!("group_ime_subtitle"))
         .build();
 
-    let ime_row = adw::SwitchRow::builder().title("IME 모드 활성화").build();
+    let ime_row = adw::SwitchRow::builder()
+        .title(t!("row_ime_enable"))
+        .subtitle(t!("row_ime_enable_subtitle"))
+        .build();
+    ime_row.set_tooltip_text(Some(t!("row_ime_enable_tooltip").as_ref()));
     ime_row.set_active(gsettings.boolean("enable-ime"));
     ime_row.set_sensitive(is_wayland_session());
     {
         let gs = gsettings.clone();
         ime_row.connect_active_notify(move |sw| {
             let _ = gs.set_boolean("enable-ime", sw.is_active());
-            show_toast("저장됨 ✓");
+            show_toast(&t!("settings_toast_saved"));
         });
     }
     ime.add(&ime_row);
@@ -1124,6 +1188,7 @@ fn build_string_list_row<G, S>(
     state: &State,
     title: &str,
     subtitle: Option<&str>,
+    tooltip: Option<&str>,
     get: G,
     set: S,
     label: &'static str,
@@ -1133,9 +1198,10 @@ where
     S: Fn(&mut Config, Vec<String>) + 'static,
 {
     let row = adw::EntryRow::builder().title(title).build();
-    // EntryRow는 subtitle을 직접 지원하지 않으므로 tooltip으로 대체
-    if let Some(sub) = subtitle {
-        row.set_tooltip_text(Some(sub));
+    // EntryRow는 visible subtitle을 직접 지원하지 않으므로 tooltip으로 노출.
+    // tooltip이 명시적으로 주어지면 우선 사용하고, 그렇지 않으면 subtitle을 tooltip으로 폴백.
+    if let Some(tip) = tooltip.or(subtitle) {
+        row.set_tooltip_text(Some(tip));
     }
 
     {
@@ -1194,13 +1260,13 @@ struct BlacklistPageRefs {
 /// 폴링하여 변경 시 UI를 실시간으로 다시 채운다.
 fn build_blacklist_page() -> adw::PreferencesPage {
     let page = adw::PreferencesPage::builder()
-        .title("교정 억제 단어")
+        .title(t!("page_blacklist_title"))
         .icon_name("edit-clear-all-symbolic")
         .build();
 
-    let tentative_group = adw::PreferencesGroup::builder().title("승인 대기").build();
-    let confirmed_group = adw::PreferencesGroup::builder().title("확정").build();
-    let inactive_group = adw::PreferencesGroup::builder().title("비활성").build();
+    let tentative_group = adw::PreferencesGroup::builder().title(t!("blacklist_group_tentative")).build();
+    let confirmed_group = adw::PreferencesGroup::builder().title(t!("blacklist_group_confirmed")).build();
+    let inactive_group = adw::PreferencesGroup::builder().title(t!("blacklist_group_inactive")).build();
     page.add(&tentative_group);
     page.add(&confirmed_group);
     page.add(&inactive_group);
@@ -1298,29 +1364,26 @@ fn refill_blacklist_groups(refs: &Rc<BlacklistPageRefs>) {
 
     // 비어 있는 섹션엔 placeholder row 하나 추가.
     if t_count == 0 {
-        let row = empty_placeholder_row("기록 없음");
+        let row = empty_placeholder_row(&t!("blacklist_empty"));
         refs.tentative_group.add(&row);
         refs.tentative_rows.borrow_mut().push(row.upcast());
     }
     if c_count == 0 {
-        let row = empty_placeholder_row("기록 없음");
+        let row = empty_placeholder_row(&t!("blacklist_empty"));
         refs.confirmed_group.add(&row);
         refs.confirmed_rows.borrow_mut().push(row.upcast());
     }
     if i_count == 0 {
-        let row = empty_placeholder_row("기록 없음");
+        let row = empty_placeholder_row(&t!("blacklist_empty"));
         refs.inactive_group.add(&row);
         refs.inactive_rows.borrow_mut().push(row.upcast());
     }
 
-    refs.tentative_group.set_description(Some(&format!(
-        "BS + 모드 전환으로 자동 감지된 의심 단어 — 확정하면 영구 억제 ({}개)",
-        t_count
-    )));
+    refs.tentative_group.set_description(Some(t!("blacklist_tentative_desc", count = t_count.to_string()).as_ref()));
     refs.confirmed_group
-        .set_description(Some(&format!("영구 억제 대상 ({}개)", c_count)));
+        .set_description(Some(t!("blacklist_confirmed_desc", count = c_count.to_string()).as_ref()));
     refs.inactive_group
-        .set_description(Some(&format!("만료되어 억제 효과 없음 ({}개)", i_count)));
+        .set_description(Some(t!("blacklist_inactive_desc", count = i_count.to_string()).as_ref()));
 }
 
 fn empty_placeholder_row(text: &str) -> adw::ActionRow {
@@ -1358,14 +1421,15 @@ fn build_blacklist_row(
         unim::typefix_blacklist::Direction::Forward => (entry.ascii.clone(), hangul_form.clone()),
     };
 
-    let subtitle = format!(
-        "{} · {} · 한글:{} · 영문:{} · 히트:{}",
-        counterpart,
-        direction_label(entry.direction),
-        unim::config::korean_layout_display_name(&entry.korean_layout),
-        unim::config::english_layout_display_name(&entry.english_layout),
-        entry.hit_count,
-    );
+    let subtitle = t!(
+        "blacklist_row_summary",
+        kind = counterpart,
+        ts = direction_label(entry.direction),
+        ko = unim::config::korean_layout_display_name(&entry.korean_layout),
+        en = unim::config::english_layout_display_name(&entry.english_layout),
+        hits = entry.hit_count.to_string(),
+    )
+    .into_owned();
 
     let row = adw::ActionRow::builder()
         .title(&title_text)
@@ -1376,21 +1440,21 @@ fn build_blacklist_row(
         BlacklistRowKind::Tentative => {
             row.add_suffix(&make_action_button(
                 "emblem-ok-symbolic",
-                "확정",
+                &t!("blacklist_btn_confirm"),
                 idx,
                 refs,
                 |bl, i| bl.promote_to_confirmed(i),
             ));
             row.add_suffix(&make_action_button(
                 "window-close-symbolic",
-                "비활성화",
+                &t!("blacklist_btn_disable"),
                 idx,
                 refs,
                 |bl, i| bl.deactivate(i),
             ));
             row.add_suffix(&make_action_button(
                 "user-trash-symbolic",
-                "삭제",
+                &t!("blacklist_btn_delete"),
                 idx,
                 refs,
                 |bl, i| bl.remove(i),
@@ -1399,14 +1463,14 @@ fn build_blacklist_row(
         BlacklistRowKind::Confirmed => {
             row.add_suffix(&make_action_button(
                 "window-close-symbolic",
-                "비활성화",
+                &t!("blacklist_btn_disable"),
                 idx,
                 refs,
                 |bl, i| bl.deactivate(i),
             ));
             row.add_suffix(&make_action_button(
                 "user-trash-symbolic",
-                "삭제",
+                &t!("blacklist_btn_delete"),
                 idx,
                 refs,
                 |bl, i| bl.remove(i),
@@ -1415,14 +1479,14 @@ fn build_blacklist_row(
         BlacklistRowKind::Inactive => {
             row.add_suffix(&make_action_button(
                 "emblem-ok-symbolic",
-                "재활성화(확정)",
+                &t!("blacklist_btn_reactivate"),
                 idx,
                 refs,
                 |bl, i| bl.reactivate_as_confirmed(i),
             ));
             row.add_suffix(&make_action_button(
                 "user-trash-symbolic",
-                "삭제",
+                &t!("blacklist_btn_delete"),
                 idx,
                 refs,
                 |bl, i| bl.remove(i),
@@ -1433,10 +1497,10 @@ fn build_blacklist_row(
     row
 }
 
-fn direction_label(dir: Direction) -> &'static str {
+fn direction_label(dir: Direction) -> String {
     match dir {
-        Direction::Forward => "순방향(영→한)",
-        Direction::Reverse => "역방향(한→영)",
+        Direction::Forward => t!("blacklist_kind_forward").into_owned(),
+        Direction::Reverse => t!("blacklist_kind_reverse").into_owned(),
     }
 }
 
@@ -1466,12 +1530,12 @@ where
         action(&mut bl, idx);
         match bl.save_to_default_path() {
             Ok(_) => {
-                show_toast("저장됨 ✓");
+                show_toast(&t!("settings_toast_saved"));
                 refill_blacklist_groups(&refs_c);
             }
             Err(e) => {
                 unim_log!("INDICATOR", "[Settings] blacklist 저장 실패: {}", e);
-                show_toast(&format!("저장 실패: {}", e));
+                show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
             }
         }
     });
@@ -1495,22 +1559,19 @@ struct UserDictPageRefs {
 /// 감지로 자동 reload한다 (blacklist와 동일 패턴).
 fn build_userdict_page(window: &adw::PreferencesWindow) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::builder()
-        .title("사용자 사전")
+        .title(t!("page_userdict_title"))
         .icon_name("accessories-dictionary-symbolic")
         .build();
 
     let group = adw::PreferencesGroup::builder()
-        .title("역방향 사용자 사전")
-        .description(
-            "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. \
-             CLI 명령어(예: git, ls, kubectl)나 짧은 고유명사를 등록하세요.",
-        )
+        .title(t!("userdict_group_title"))
+        .description(t!("userdict_group_desc").as_ref())
         .build();
 
     // 상단 "추가" 버튼 (헤더 suffix)
     let add_btn = gtk4::Button::builder()
         .icon_name("list-add-symbolic")
-        .tooltip_text("단어 추가")
+        .tooltip_text(t!("userdict_btn_add_tooltip"))
         .valign(gtk4::Align::Center)
         .css_classes(vec!["flat"])
         .build();
@@ -1578,8 +1639,8 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
     let ud = UserDictionary::load_from_default_path();
     if ud.is_empty() {
         let row = adw::ActionRow::builder()
-            .title("등록된 단어 없음")
-            .subtitle("우측 상단 + 버튼으로 단어를 추가하거나, Super+E로 선택한 한글을 등록할 수 있습니다.")
+            .title(t!("userdict_empty"))
+            .subtitle(t!("userdict_empty_subtitle"))
             .sensitive(false)
             .build();
         refs.group.add(&row);
@@ -1595,7 +1656,7 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
             // 편집 버튼
             let edit_btn = gtk4::Button::builder()
                 .icon_name("document-edit-symbolic")
-                .tooltip_text("편집")
+                .tooltip_text(t!("userdict_btn_edit"))
                 .valign(gtk4::Align::Center)
                 .css_classes(vec!["flat"])
                 .build();
@@ -1610,7 +1671,7 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
             // 삭제 버튼
             let del_btn = gtk4::Button::builder()
                 .icon_name("user-trash-symbolic")
-                .tooltip_text("삭제")
+                .tooltip_text(t!("blacklist_btn_delete"))
                 .valign(gtk4::Align::Center)
                 .css_classes(vec!["flat"])
                 .build();
@@ -1621,12 +1682,12 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
                     if ud.remove_at(idx) {
                         match ud.save_to_default_path() {
                             Ok(_) => {
-                                show_toast("삭제됨 ✓");
+                                show_toast(&t!("settings_toast_deleted"));
                                 refill_userdict_group(&refs_c);
                             }
                             Err(e) => {
                                 unim_log!("INDICATOR", "[Settings] userdict 저장 실패: {}", e);
-                                show_toast(&format!("저장 실패: {}", e));
+                                show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
                             }
                         }
                     }
@@ -1653,7 +1714,10 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
     let dialog = adw::Window::builder()
         .transient_for(&refs.window)
         .modal(true)
-        .title(if is_edit { "단어 편집" } else { "단어 추가" })
+        .title({
+            let s = if is_edit { t!("userdict_dialog_edit_title") } else { t!("userdict_btn_add_tooltip") };
+            s.into_owned()
+        })
         .default_width(420)
         .default_height(280)
         .build();
@@ -1669,8 +1733,8 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
     content.set_margin_end(18);
 
     let group = adw::PreferencesGroup::new();
-    let word_row = adw::EntryRow::builder().title("단어 (영문 알파벳만)").build();
-    let note_row = adw::EntryRow::builder().title("설명 (선택)").build();
+    let word_row = adw::EntryRow::builder().title(t!("userdict_dialog_field_word")).build();
+    let note_row = adw::EntryRow::builder().title(t!("userdict_dialog_field_desc")).build();
 
     // 기존 엔트리 로드
     if let Some(idx) = edit_idx {
@@ -1689,8 +1753,9 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
 
     let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     btn_box.set_halign(gtk4::Align::End);
-    let cancel_btn = gtk4::Button::with_label("취소");
-    let save_btn = gtk4::Button::with_label(if is_edit { "저장" } else { "추가" });
+    let cancel_btn = gtk4::Button::with_label(&t!("common_cancel"));
+    let save_label = if is_edit { t!("common_save") } else { t!("common_add") };
+    let save_btn = gtk4::Button::with_label(save_label.as_ref());
     save_btn.add_css_class("suggested-action");
     btn_box.append(&cancel_btn);
     btn_box.append(&save_btn);
@@ -1725,18 +1790,19 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
             };
 
             if !ok {
-                show_toast("실패: 영문 알파벳만 허용되며 중복은 등록되지 않습니다.");
+                show_toast(&t!("userdict_add_failed"));
                 return;
             }
             match ud.save_to_default_path() {
                 Ok(_) => {
-                    show_toast(if is_edit { "저장됨 ✓" } else { "추가됨 ✓" });
+                    let toast_msg = if is_edit { t!("settings_toast_saved") } else { t!("settings_toast_added") };
+                    show_toast(toast_msg.as_ref());
                     refill_userdict_group(&refs_c);
                     dialog_c.close();
                 }
                 Err(e) => {
                     unim_log!("INDICATOR", "[Settings] userdict 저장 실패: {}", e);
-                    show_toast(&format!("저장 실패: {}", e));
+                    show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
                 }
             }
         });

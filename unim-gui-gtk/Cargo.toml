@@ -36,6 +36,9 @@ serde_yaml = "0.9"
 # unim-dbus proxy (client)
 unim-dbus = { path = "../unim-dbus" }
 
+# i18n (locales/{ko,en}.yml; LANG/LC_ALL 자동 감지)
+rust-i18n = "3"
+
 [features]
 default = ["gdk4-x11", "x11"]
 wayland = ["gtk4-layer-shell"]

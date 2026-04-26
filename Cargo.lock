@@ -5489,6 +5489,7 @@ version = "0.2.0"
 dependencies = [
  "futures-util",
  "ksni",
+ "rust-i18n",
  "tokio",
  "unim",
  "unim-dbus",
@@ -5505,6 +5506,7 @@ dependencies = [
  "gtk4-layer-shell",
  "ksni",
  "libadwaita",
+ "rust-i18n",
  "serde_yaml",
  "tokio",
  "unim",
@@ -5523,6 +5525,7 @@ dependencies = [
  "cxx-qt-build",
  "cxx-qt-lib",
  "ksni",
+ "rust-i18n",
  "serde_json",
  "tokio",
  "unim",

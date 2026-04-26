@@ -1,0 +1,15 @@
+# UNIM GUI common locale (English)
+# Tray icon and shared GUI strings
+
+# Tray icon
+tray_title_korean: "UNIM - Korean"
+tray_title_english: "UNIM - English"
+tray_tooltip_title: "UNIM Input Method"
+tray_tooltip_korean_mode: "Korean mode"
+tray_tooltip_english_mode: "English mode"
+
+# Tray menu items
+tray_menu_korean: "Korean (한국어)"
+tray_menu_english: "English (영어)"
+tray_menu_settings: "Settings..."
+tray_menu_quit: "Quit"

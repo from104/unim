@@ -534,29 +534,46 @@ fn config_show() {
     if config.engine.auto_typefix.enabled {
         let atf = &config.engine.auto_typefix;
         println!(
-            "  - 순방향(영→한): {}, 역방향(한→영): {}",
-            if atf.forward { "ON" } else { "OFF" },
-            if atf.reverse { "ON" } else { "OFF" }
+            "{}",
+            t!(
+                "config_atfix_status_line",
+                fwd = if atf.forward { "ON" } else { "OFF" },
+                rev = if atf.reverse { "ON" } else { "OFF" }
+            )
         );
         println!(
-            "  - 한글 음절 임계값: {}, 영문 최소 길이: {}",
-            atf.kor_syllable_threshold, atf.eng_word_min_length
+            "{}",
+            t!(
+                "config_atfix_threshold_line",
+                kor = atf.kor_syllable_threshold.to_string(),
+                eng = atf.eng_word_min_length.to_string()
+            )
         );
         println!(
-            "  - 시간 윈도우: 순방향 {}ms / 역방향 {}ms",
-            atf.forward_time_window_ms, atf.reverse_time_window_ms
+            "{}",
+            t!(
+                "config_atfix_window_line",
+                fwd_ms = atf.forward_time_window_ms.to_string(),
+                rev_ms = atf.reverse_time_window_ms.to_string()
+            )
         );
         println!(
-            "  - 재트리거 감지: {} / 관찰 창: {}초 / 임시 억제 만료: {}시간",
-            if atf.rollback_detection { "ON" } else { "OFF" },
-            atf.observation_timeout_secs,
-            atf.tentative_expiry_hours
+            "{}",
+            t!(
+                "config_atfix_retrigger_line",
+                rb = if atf.rollback_detection { "ON" } else { "OFF" },
+                obs = atf.observation_timeout_secs.to_string(),
+                exp = atf.tentative_expiry_hours.to_string()
+            )
         );
         let ud = UserDictionary::load_from_default_path();
         println!(
-            "  - 역방향 사용자 사전: {} ({}개 등록)",
-            if atf.user_dict_enabled { "ON" } else { "OFF" },
-            ud.len()
+            "{}",
+            t!(
+                "config_atfix_userdict_line",
+                state = if atf.user_dict_enabled { "ON" } else { "OFF" },
+                count = ud.len().to_string()
+            )
         );
     }
     let auto_english_status = if config.engine.auto_english.enabled {
@@ -818,8 +835,11 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             };
             config.engine.auto_typefix.forward = enabled;
             println!(
-                "순방향(영→한) 교정: {}",
-                if enabled { "ON" } else { "OFF" }
+                "{}",
+                t!(
+                    "typefix_forward_status",
+                    state = if enabled { "ON" } else { "OFF" }
+                )
             );
         }
         ConfigKey::AutoTypeFixReverse => {
@@ -830,8 +850,11 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             };
             config.engine.auto_typefix.reverse = enabled;
             println!(
-                "역방향(한→영) 교정: {}",
-                if enabled { "ON" } else { "OFF" }
+                "{}",
+                t!(
+                    "typefix_reverse_status",
+                    state = if enabled { "ON" } else { "OFF" }
+                )
             );
         }
         ConfigKey::AutoTypeFixSkipEnglishWord => {
@@ -1491,7 +1514,7 @@ fn layout_validate(file: &std::path::Path) -> i32 {
         match resolve_inherits(&profile, &reg) {
             Ok(p) => p,
             Err(e) => {
-                warnings.push(format!("inherits 해석 경고: {e}"));
+                warnings.push(t!("layout_validate_inherits_warn", err = e.to_string()).into_owned());
                 profile.clone()
             }
         }
@@ -1500,15 +1523,13 @@ fn layout_validate(file: &std::path::Path) -> i32 {
     };
 
     if let Err(e) = build_combined_jamo_map(&resolved) {
-        errors.push(format!("combinations 구축 실패: {e:?}"));
+        errors.push(t!("layout_validate_combinations_err", err = format!("{e:?}")).into_owned());
     }
 
     if let Some(active) = resolved.active_rule_sets.as_ref() {
         for name in active {
             if !resolved.rule_sets.contains_key(name) {
-                warnings.push(format!(
-                    "active_rule_sets에 정의되지 않은 이름: '{name}'"
-                ));
+                warnings.push(t!("layout_validate_unknown_set", name = name.to_string()).into_owned());
             }
         }
     }
