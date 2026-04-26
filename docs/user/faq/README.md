@@ -51,7 +51,7 @@ Stability tier as of UNIM 0.2.0:
 | Ubuntu 24.04 + GNOME(X11) | 🟢 A | Env vars + Standalone popup |
 | KDE Plasma 6 (Wayland) | 🟢 B+ | input-method-v2 works |
 | KDE Plasma 6 (X11) | 🟢 B+ | XIM/Qt IM both fine |
-| Sway (Wayland) | 🟡 B | Popup positioning slightly off — see [popup spec §8.4](../specs/POPUP_SPEC.md) |
+| Sway (Wayland) | 🟡 B | Popup positioning slightly off — see [popup spec §8.4](../../specs/POPUP_SPEC.md) |
 | Hyprland (Wayland) | 🟡 B | Same |
 | XFCE/MATE (X11) | 🟢 B+ | Traditional, solid |
 | Pure Wayland (compositor-dependent) | 🟡 B/C | Depends on the compositor's IM protocol support |
@@ -148,7 +148,7 @@ unim-cli config layout validate ~/.config/unim/layouts/my.json
 unim-cli config set korean.layout my
 ```
 
-Schema details: [`docs/plans/LAYOUT_PROFILE_V1.md`](../plans/LAYOUT_PROFILE_V1.md).
+Schema details: [`docs/plans/LAYOUT_PROFILE_V1.md`](../../plans/LAYOUT_PROFILE_V1.md).
 
 > Use `rule_sets` to bundle optional toggles with a layout. E.g. `ko_3bul390`'s `sun_arae_batchim`. The settings GUI dynamically renders a SwitchRow.
 
@@ -184,7 +184,7 @@ Mostly automatic. Two normalizations:
 
 C API: `UnimEnglishLayout` / `UnimKoreanLayout` enums removed → setters/getters now take/return C strings. Affects only C/C++ clients.
 
-Full migration: [release notes](../release/0.2.0/RELEASE_NOTES.md).
+Full migration: [release notes](../release-notes/0.2.0/RELEASE_NOTES.md).
 
 ---
 
@@ -210,9 +210,9 @@ The error `lock file version 4 requires '-Znext-lockfile-bump'` is always this i
 
 ## Q13. I'd like to contribute — where to start?
 
-1. [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — branch/PR workflow.
-2. [`AGENTS.md`](../../AGENTS.md) — architecture and component map.
-3. [`IME_BEHAVIOR.md`](../../IME_BEHAVIOR.md) — behavior spec.
+1. [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) — branch/PR workflow.
+2. [`AGENTS.md`](../../../AGENTS.md) — architecture and component map.
+3. [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md) — behavior spec.
 4. Per-crate `SPEC.md`.
 5. Verify: `make build` warning-free + `cargo test --workspace` all pass.
 6. Convention: commit messages in English, docs in Korean.
@@ -231,6 +231,6 @@ The error `lock file version 4 requires '-Znext-lockfile-bump'` is always this i
 
 - [User manual](../user-guide/README.md)
 - [Troubleshooting](../troubleshooting/README.md)
-- [Release notes 0.2.0](../release/0.2.0/RELEASE_NOTES.md)
-- [`IME_BEHAVIOR.md`](../../IME_BEHAVIOR.md)
-- [`POPUP_SPEC.md`](../specs/POPUP_SPEC.md)
+- [Release notes 0.2.0](../release-notes/0.2.0/RELEASE_NOTES.md)
+- [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md)
+- [`POPUP_SPEC.md`](../../specs/POPUP_SPEC.md)

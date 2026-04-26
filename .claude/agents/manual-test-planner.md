@@ -121,7 +121,7 @@ model: opus
 - 부족한 자동 커버리지 영역 (수동 보완 필요 표시)
 
 ### C. 트러블슈팅 매트릭스
-`docs/release/0.2.0/TROUBLESHOOTING.md` 초안:
+`docs/user/troubleshooting/README-ko.md` "## 0.2.0 릴리스 특이 진단" 섹션 (구 `docs/release/0.2.0/TROUBLESHOOTING.md` 초안에서 흡수됨):
 - 흔한 증상별 진단 명령 (`UNIM_DEVELOP=1 unim-daemon`, `journalctl --user -u unim`)
 - 환경별 알려진 이슈와 우회법
 

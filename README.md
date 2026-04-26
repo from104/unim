@@ -7,14 +7,14 @@
 
 **UNIM**은 Rust로 작성된 오픈 소스 한국어 입력기 엔진(IME)입니다. 모든 주요 플랫폼에서 한국어와 영어 사용자에게 원활하고 고성능이며 확장이 가능한 타이핑 경험을 제공하는 것을 목표로 합니다.
 
-> 📘 **사용자 문서 진입점**: 처음 쓰는 분이라면 [사용자 매뉴얼](docs/user-guide/README-ko.md)부터 보시기 바랍니다.
+> 📘 **사용자 문서 진입점**: 처음 쓰는 분이라면 [사용자 매뉴얼](docs/user/user-guide/README-ko.md)부터 보시기 바랍니다.
 >
-> - [사용자 매뉴얼 (한국어)](docs/user-guide/README-ko.md) · [User Manual (English)](docs/user-guide/README.md)
-> - [트러블슈팅 (한국어)](docs/troubleshooting/README-ko.md) · [Troubleshooting](docs/troubleshooting/README.md)
-> - [FAQ (한국어)](docs/faq/README-ko.md) · [FAQ (English)](docs/faq/README.md)
-> - [0.2.0 릴리즈 노트 (한국어)](docs/release/0.2.0/RELEASE_NOTES-ko.md) · [Release Notes (English)](docs/release/0.2.0/RELEASE_NOTES.md)
+> - [사용자 매뉴얼 (한국어)](docs/user/user-guide/README-ko.md) · [User Manual (English)](docs/user/user-guide/README.md)
+> - [트러블슈팅 (한국어)](docs/user/troubleshooting/README-ko.md) · [Troubleshooting](docs/user/troubleshooting/README.md)
+> - [FAQ (한국어)](docs/user/faq/README-ko.md) · [FAQ (English)](docs/user/faq/README.md)
+> - [0.2.0 릴리즈 노트 (한국어)](docs/user/release-notes/0.2.0/RELEASE_NOTES-ko.md) · [Release Notes (English)](docs/user/release-notes/0.2.0/RELEASE_NOTES.md)
 >
-> 🚀 **5분 빠른 시작**: 아래 [§5. 환경 변수 설정](#5-환경-변수-설정-범용-데스크톱-환경) 또는 [사용자 매뉴얼 §2](docs/user-guide/README-ko.md#2-빠른-시작-5분).
+> 🚀 **5분 빠른 시작**: 아래 [§5. 환경 변수 설정](#5-환경-변수-설정-범용-데스크톱-환경) 또는 [사용자 매뉴얼 §2](docs/user/user-guide/README-ko.md#2-빠른-시작-5분).
 
 ## 🚀 최종 비전
 

@@ -125,7 +125,7 @@ busctl --user monitor org.atit.unim.InputMethod
 | GNOME+Wayland | `Standalone` | 확장이 시그널 받아 그림 |
 | KDE+Wayland | `Standalone` | unim-gui-gtk가 그림 |
 | X11 (어떤 DE든) | `Embedded` 또는 `Standalone` | Embedded는 IM 모듈이 자체 렌더 |
-| 순수 Wayland (Sway 등) | `Standalone` | 미해결 영역 — [팝업 명세](../specs/POPUP_SPEC.md) §8.4 참고 |
+| 순수 Wayland (Sway 등) | `Standalone` | 미해결 영역 — [팝업 명세](../../specs/POPUP_SPEC.md) §8.4 참고 |
 
 ```bash
 unim-cli config set popup_mode Standalone
@@ -316,7 +316,7 @@ ps -o pid,rss,vsz,cmd $(pidof unim-daemon)
 journalctl --user -u unim-daemon -n 500 > unim-mem.log
 ```
 
-[`AGENTS.md` §메모리 관리 규칙](../../AGENTS.md)이 회귀 금지 항목과 진단 명령을 모두 정리해 둔다. 이슈로 보고하면 도움이 된다.
+[`AGENTS.md` §메모리 관리 규칙](../../../AGENTS.md)이 회귀 금지 항목과 진단 명령을 모두 정리해 둔다. 이슈로 보고하면 도움이 된다.
 
 ---
 
@@ -368,5 +368,66 @@ make build 2>&1 | tee /tmp/unim-build.log
 
 - [FAQ](../faq/README-ko.md) — 다른 IME와의 차이, 동시 설치, 백업 복원
 - [사용자 매뉴얼](../user-guide/README-ko.md) — 설정 GUI 페이지별 상세
-- [`IME_BEHAVIOR.md`](../../IME_BEHAVIOR.md) — 동작 명세 (개발자용)
-- [`AGENTS.md`](../../AGENTS.md) — 아키텍처와 메모리 관리 규칙
+- [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md) — 동작 명세 (개발자용)
+- [`AGENTS.md`](../../../AGENTS.md) — 아키텍처와 메모리 관리 규칙
+
+---
+
+## 0.2.0 릴리스 특이 진단
+
+> 0.2.0 릴리스 직전 manual-test-planner가 작성한 추가 진단 시나리오. 위 §1–§14와 중복되는 항목은 사용자 README가 우선이며, 아래는 보조 진단 도구·세부 회귀 케이스 위주로만 남긴다.
+
+### A. 진단 공통 도구 (보조)
+
+| 명령 | 용도 |
+|------|------|
+| `journalctl --user -u unim -b --no-pager` | 데몬 systemd 로그 (이번 부팅) |
+| `: > ~/.unim-errors.log; UNIM_DEVELOP=1 /usr/libexec/unim-daemon -n --replace &` | 로그 초기화 + 개발자 모드 재시작 |
+| `pgrep -a unim-` | 모든 unim-* 프로세스 목록 |
+| `busctl --user introspect org.atit.unim.InputMethod /org/atit/unim/InputMethod` | DBus API 노출 확인 |
+
+### B. 0.2.0에서 회귀 금지 케이스
+
+- **gedit 이중 commit (`늘늘`)**: focus-out 시 CommitText 시그널 broadcasting 회귀가 0.2.0에서 fix됨. 재현 시 `~/.unim-errors.log | grep -i 'commit_text\|focus_out'`.
+- **영문 모드 Space 누락 (gedit)**: 0.2.0에서 `consumed=true commit=" "` 경로로 수정. 회귀 시 `engine_worker.rs` Space 처리 분기 점검.
+- **AutoTypeFix 잔존 BS (XIM)**: 0.2.0 N+1 BS 모델로 수정됨. Chrome preedit edge case는 알려진 SKIP.
+- **`tentative_expiry_hours` 단위**: 0.2.0부터 days→hours로 변경 (1..=12). 기존 config는 자동 마이그레이션.
+
+### C. 데몬 다중 인스턴스
+
+- `pkill -9 -x unim-daemon; sleep 1; systemctl --user start unim`
+- DBus 자동 활성화 + 수동 실행이 겹치는 경우 발생. 수동 실행 시 `--replace` 플래그 사용.
+
+### D. 한자 popup 좌표
+
+- caret_rect 미수신: `cursor_y = 0` fallback. POPUP_SPEC §6.3 좌표 소스 확인.
+- 9칸 ↔ 81칸 토글 안 됨: Period(.) 키가 다른 곳에서 가로채짐. 키맵 확인.
+- 책갈피(★) 동기화: `HanjaBookmarkChanged` 시그널 미수신. `busctl --user monitor org.atit.unim.InputMethod`로 시그널 흐름 확인.
+
+### E. CLI 한국어 깨짐
+
+- locale 미설치: `sudo locale-gen ko_KR.UTF-8`
+- gettext mo: `ls /usr/share/locale/ko/LC_MESSAGES/unim*.mo`
+
+### F. `unim-cli config set` 후 GUI 미반영
+
+- 데몬이 mtime 핫리로드 못함 → `pkill -SIGHUP unim-daemon`
+- 5지점 sync 깨짐 가능성 → CLI/엔진/GUI/locale/dbus 5점 모두 갱신됐는지 점검.
+
+### G. 환경 매트릭스 (0.2.0 시점)
+
+| 환경 | 알려진 이슈 |
+|------|-------------|
+| Wayland + GNOME | 정상 (Push 모드) |
+| Wayland + KDE | 한자 popup 미표시 (Push 모드 미구현) |
+| X11 + GNOME | XIM 폴백 권장 |
+| X11 + KDE | 정상 |
+| 순수 Wayland (Weston/sway) | 한자 popup 미해결 SKIP |
+
+### H. 로그 분석 슬래시 명령
+
+```bash
+# Claude Code 사용 시
+/unim-log
+```
+→ `~/.unim-errors.log` 자동 분류·요약·진단.

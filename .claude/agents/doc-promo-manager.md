@@ -12,10 +12,10 @@ UNIM의 외부 가시면(문서·홍보·패키지 설명·홈페이지)을 책�
 ## 책임 영역
 
 ### 1. 사용자 문서
-- `docs/user-guide/{README,README-ko}.md` — 사용자 매뉴얼
-- `docs/troubleshooting/{README,README-ko}.md` — 증상별 진단·해결
-- `docs/faq/{README,README-ko}.md` — 자주 묻는 질문
-- `docs/release/<version>/RELEASE_NOTES{,-ko}.md` — 릴리즈별 노트
+- `docs/user/user-guide/{README,README-ko}.md` — 사용자 매뉴얼
+- `docs/user/troubleshooting/{README,README-ko}.md` — 증상별 진단·해결
+- `docs/user/faq/{README,README-ko}.md` — 자주 묻는 질문
+- `docs/user/release-notes/<version>/RELEASE_NOTES{,-ko}.md` — 릴리즈별 노트
 
 ### 2. 개발자/기여자 문서
 - `AGENTS.md` (프로젝트 컨텍스트), `GEMINI.md` (Gemini 컨벤션)

@@ -11,14 +11,14 @@ model: opus
 
 ## 입력
 - `_workspace/release/00_cleanup_report.md`
-- `docs/release/0.2.0/TEST_CHECKLIST.md` (manual-test-planner 산출물)
+- `docs/release/0.2.0/TEST_CHECKLIST.md` (manual-test-planner 산출물 — dev/release/로 향후 이전 예정)
 - `_workspace/release/02_i18n_report.md` (i18n-applier 키 명명 규칙)
 - 기존 `README.md`, `AGENTS.md`, `IME_BEHAVIOR.md`, `ROADMAP.md`, `CONTRIBUTING.md`
 
 ## 산출물 카탈로그
 
 ### 1. 사용자 매뉴얼 (신규)
-`docs/user-guide/README.md` (영문) + `docs/user-guide/README-ko.md` (한국어)
+`docs/user/user-guide/README.md` (영문) + `docs/user/user-guide/README-ko.md` (한국어)
 - 무엇이 UNIM인가 — 한 문장 요약 + 30초 설명
 - 빠른 시작: 5분 안에 한국어 입력 시작
 - 환경별 설치: Ubuntu/Arch/Debian/Fedora/Wayland/X11/GNOME/KDE
@@ -48,7 +48,7 @@ Qt 설정(`unim-gui-qt/qml/main.qml`): `ToolTip { text: qsTr(...) }` 첨부
 GNOME extension prefs.js: `Adw.ActionRow.subtitle` + tooltip
 
 ### 3. 트러블슈팅
-`docs/troubleshooting/README.md` + `README-ko.md`
+`docs/user/troubleshooting/README.md` + `README-ko.md`
 - 증상별 진단 트리:
   - "한글이 안 입력됨" → 환경 확인 → IM 모듈 등록 확인 → 재시작
   - "한자 popup이 안 뜸" → popup_mode 설정 → DBus 연결 확인
@@ -57,7 +57,7 @@ GNOME extension prefs.js: `Adw.ActionRow.subtitle` + tooltip
 - 각 증상에 진단 명령(`UNIM_DEVELOP=1`, `journalctl --user -u unim`, `busctl`) 동봉
 
 ### 4. FAQ
-`docs/faq/README.md` + `README-ko.md`
+`docs/user/faq/README.md` + `README-ko.md`
 - 다른 IME(ibus-hangul, fcitx-hangul, kime, nimf)와의 차이
 - 시스템 IME와 동시 설치 가능?
 - 어떤 환경에서 가장 안정적?
@@ -115,10 +115,10 @@ grep -n 'SwitchRow\|SpinRow\|ComboRow\|ActionRow\|EntryRow' \
 ## 출력
 
 ### A. 신규 문서
-- `docs/user-guide/{README.md, README-ko.md}`
-- `docs/troubleshooting/{README.md, README-ko.md}`
-- `docs/faq/{README.md, README-ko.md}`
-- `docs/release/0.2.0/RELEASE_NOTES.md` + `RELEASE_NOTES-ko.md`
+- `docs/user/user-guide/{README.md, README-ko.md}`
+- `docs/user/troubleshooting/{README.md, README-ko.md}`
+- `docs/user/faq/{README.md, README-ko.md}`
+- `docs/user/release-notes/0.2.0/{RELEASE_NOTES.md, RELEASE_NOTES-ko.md}`
 
 ### B. 코드 수정
 - `unim-gui-gtk/src/settings_dialog.rs` — 모든 위젯에 tooltip/subtitle 추가

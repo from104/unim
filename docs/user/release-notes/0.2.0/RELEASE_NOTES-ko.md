@@ -129,7 +129,7 @@ unim-cli config set korean.layout ko_3bul_qwerty
 
 | ID | 설명 | 영향 | 대안 |
 |----|------|-----|------|
-| KI-001 | 순수 Wayland(컴포지터: Sway/Hyprland)에서 팝업 좌표가 약간 어긋남 | UI 시각적 불일치 | 보고: [팝업 명세](../../specs/POPUP_SPEC.md) §8.4 |
+| KI-001 | 순수 Wayland(컴포지터: Sway/Hyprland)에서 팝업 좌표가 약간 어긋남 | UI 시각적 불일치 | 보고: [팝업 명세](../../../specs/POPUP_SPEC.md) §8.4 |
 | KI-002 | XIM Chrome에서 AutoTypeFix preedit이 일부 잔존 | 드물게 시각적 잔재 | Chrome 외 브라우저는 영향 없음 |
 | KI-003 | 일부 Snap 앱이 `~/.profile`의 조건부 환경변수를 무시 | Snap 앱 한글 입력 실패 | `QT_IM_MODULE= GTK_IM_MODULE= snap run <앱>` |
 
@@ -156,7 +156,7 @@ unim-cli config set korean.layout ko_3bul_qwerty
 
 ## 기여자 / 감사
 
-UNIM 프로젝트는 단일 메인테이너(서기현) 주도 + Claude Code 기반 자동화로 진행됐다. 0.2.0의 Phase 8/9 정리, AutoTypeFix 안정화, 자판 v1 이관에 사용된 하네스 구성은 [`AGENTS.md`](../../../AGENTS.md), [`.claude/agents/`](../../../.claude/agents/), [`.claude/skills/`](../../../.claude/skills/)에 기록.
+UNIM 프로젝트는 단일 메인테이너(서기현) 주도 + Claude Code 기반 자동화로 진행됐다. 0.2.0의 Phase 8/9 정리, AutoTypeFix 안정화, 자판 v1 이관에 사용된 하네스 구성은 [`AGENTS.md`](../../../../AGENTS.md), [`.claude/agents/`](../../../../.claude/agents/), [`.claude/skills/`](../../../../.claude/skills/)에 기록.
 
 ---
 
@@ -166,7 +166,7 @@ UNIM 프로젝트는 단일 메인테이너(서기현) 주도 + Claude Code 기�
 - 엔진 v2 재설계 (모아치기, 옛한글, 복벌식 — 로드맵 6단계).
 - macOS/Windows 어댑터 — 로드맵 5단계.
 
-상세 로드맵: [`ROADMAP.md`](../../../ROADMAP.md).
+상세 로드맵: [`ROADMAP.md`](../../../../ROADMAP.md).
 
 ---
 
@@ -175,4 +175,4 @@ UNIM 프로젝트는 단일 메인테이너(서기현) 주도 + Claude Code 기�
 - [사용자 매뉴얼](../../user-guide/README-ko.md)
 - [트러블슈팅](../../troubleshooting/README-ko.md)
 - [FAQ](../../faq/README-ko.md)
-- [`CHANGELOG-ko.md`](../../../CHANGELOG-ko.md) — 전체 변경 내역
+- [`CHANGELOG-ko.md`](../../../../CHANGELOG-ko.md) — 전체 변경 내역

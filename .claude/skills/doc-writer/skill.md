@@ -15,7 +15,7 @@ description: UNIM 사용자/엔드유저 문서 + GUI 라이브 도움말 작성
 ## 산출물 6종
 
 ### 1. 사용자 매뉴얼
-`docs/user-guide/{README.md, README-ko.md}`
+`docs/user/user-guide/{README.md, README-ko.md}`
 - 무엇/왜/누가
 - 5분 빠른 시작 (Ubuntu/Arch/Debian)
 - 환경별 설정 (X11/Wayland × GNOME/KDE/Sway)
@@ -36,7 +36,7 @@ row.set_tooltip_text(Some(&t!("settings_autotypefix_tooltip")));
 페이지·그룹에도 1-2줄 안내. Qt는 `ToolTip { text: qsTr(...) }`. GNOME prefs는 `Adw.ActionRow.subtitle`.
 
 ### 3. 트러블슈팅
-`docs/troubleshooting/{README.md, README-ko.md}`
+`docs/user/troubleshooting/{README.md, README-ko.md}`
 증상별 진단 트리:
 | 증상 | 1차 진단 | 2차 명령 |
 |------|---------|---------|
@@ -47,7 +47,7 @@ row.set_tooltip_text(Some(&t!("settings_autotypefix_tooltip")));
 | 키 잠김 | 로그 | `journalctl --user -u unim -f` |
 
 ### 4. FAQ
-`docs/faq/{README.md, README-ko.md}`
+`docs/user/faq/{README.md, README-ko.md}`
 - 다른 IME(ibus-hangul, fcitx, kime, nimf)와 차이
 - 동시 설치 가능?
 - 어떤 환경이 가장 안정?
@@ -56,7 +56,7 @@ row.set_tooltip_text(Some(&t!("settings_autotypefix_tooltip")));
 - 설정 백업/복원
 
 ### 5. 릴리즈 노트
-`docs/release/0.2.0/{RELEASE_NOTES.md, RELEASE_NOTES-ko.md}`
+`docs/user/release-notes/0.2.0/{RELEASE_NOTES.md, RELEASE_NOTES-ko.md}`
 - 사용자 가시 변경 highlight
 - Breaking changes (없으면 명시)
 - 마이그레이션 가이드

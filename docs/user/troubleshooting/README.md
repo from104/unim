@@ -122,7 +122,7 @@ busctl --user monitor org.atit.unim.InputMethod
 | GNOME+Wayland | `Standalone` | Extension paints |
 | KDE+Wayland | `Standalone` | unim-gui-gtk paints |
 | X11 (any DE) | `Embedded` or `Standalone` | Embedded means the IM module renders directly |
-| Pure Wayland (Sway, etc.) | `Standalone` | Open issue — see [popup spec §8.4](../specs/POPUP_SPEC.md) |
+| Pure Wayland (Sway, etc.) | `Standalone` | Open issue — see [popup spec §8.4](../../specs/POPUP_SPEC.md) |
 
 ```bash
 unim-cli config set popup_mode Standalone
@@ -309,7 +309,7 @@ ps -o pid,rss,vsz,cmd $(pidof unim-daemon)
 journalctl --user -u unim-daemon -n 500 > unim-mem.log
 ```
 
-[`AGENTS.md` §Memory rules](../../AGENTS.md) lists the regression-banned items and diagnostic commands.
+[`AGENTS.md` §Memory rules](../../../AGENTS.md) lists the regression-banned items and diagnostic commands.
 
 ---
 
@@ -359,5 +359,48 @@ Attach `unim-report.txt` to your issue. Skim it once first — passwords/tokens 
 
 - [FAQ](../faq/README.md) — comparison with other IMEs, coexistence, backup
 - [User manual](../user-guide/README.md) — settings GUI page-by-page
-- [`IME_BEHAVIOR.md`](../../IME_BEHAVIOR.md) — behavior spec (developer-oriented)
-- [`AGENTS.md`](../../AGENTS.md) — architecture and memory rules
+- [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md) — behavior spec (developer-oriented)
+- [`AGENTS.md`](../../../AGENTS.md) — architecture and memory rules
+
+---
+
+## 0.2.0 release-specific notes
+
+> Auxiliary diagnostics drafted by manual-test-planner just before the 0.2.0 release. The user-facing sections above (§1–§14) take precedence; this section keeps only supplementary diagnostic tools and regression-watch items.
+
+### A. Diagnostic helpers
+
+| Command | Purpose |
+| --- | --- |
+| `journalctl --user -u unim -b --no-pager` | Daemon systemd logs (this boot) |
+| `: > ~/.unim-errors.log; UNIM_DEVELOP=1 /usr/libexec/unim-daemon -n --replace &` | Reset log + restart in dev mode |
+| `pgrep -a unim-` | All unim-* processes |
+| `busctl --user introspect org.atit.unim.InputMethod /org/atit/unim/InputMethod` | DBus API surface |
+
+### B. 0.2.0 regression-watch cases
+
+- gedit double-commit (`늘늘`): focus-out CommitText broadcast — fixed in 0.2.0.
+- English-mode space drop (gedit): fixed via `consumed=true commit=" "` path.
+- AutoTypeFix residual BS (XIM): fixed via N+1 BS model. Chrome preedit edge case is a known SKIP.
+- `tentative_expiry_hours` unit changed days → hours (1..=12) since 0.2.0; existing config auto-migrates.
+
+### C. Multiple daemon instances
+
+- `pkill -9 -x unim-daemon; sleep 1; systemctl --user start unim`
+- Caused by DBus auto-activation overlapping with manual launch. When launching manually, use `--replace`.
+
+### D. Hanja popup coordinates
+
+- caret_rect missing → `cursor_y = 0` fallback (see POPUP_SPEC §6.3).
+- 9-cell ↔ 81-cell toggle blocked → period (`.`) key intercepted elsewhere; check keymap.
+- Bookmark (★) sync: `HanjaBookmarkChanged` signal not reaching listeners → `busctl --user monitor org.atit.unim.InputMethod`.
+
+### E. Environment matrix as of 0.2.0
+
+| Environment | Known issue |
+| --- | --- |
+| Wayland + GNOME | OK (Push mode) |
+| Wayland + KDE | Hanja popup not shown (Push mode not implemented) |
+| X11 + GNOME | XIM fallback recommended |
+| X11 + KDE | OK |
+| Pure Wayland (Weston/sway) | Hanja popup unresolved — SKIP |

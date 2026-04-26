@@ -116,7 +116,7 @@ On GNOME+Wayland, Flatpak/Snap apps (Telegram, VS Code) have no UNIM IM module i
 flatpak override --user --env=QT_IM_MODULE= --env=GTK_IM_MODULE=
 ```
 
-Snap has no global override mechanism. Add a conditional snippet to `~/.profile` that empties the IM vars on GNOME+Wayland — see [README §1.7](../../README.md).
+Snap has no global override mechanism. Add a conditional snippet to `~/.profile` that empties the IM vars on GNOME+Wayland — see [README §1.7](../../../README.md).
 
 ---
 
@@ -335,9 +335,9 @@ systemctl --user restart unim-daemon
 
 - Something off → [troubleshooting](../troubleshooting/README.md)
 - Compare with other IMEs / migration → [FAQ](../faq/README.md)
-- 0.2.0 changes / migration → [release notes](../release/0.2.0/RELEASE_NOTES.md)
-- Want to contribute → [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
-- Behavior spec → [`IME_BEHAVIOR.md`](../../IME_BEHAVIOR.md), [`POPUP_SPEC.md`](../specs/POPUP_SPEC.md)
+- 0.2.0 changes / migration → [release notes](../release-notes/0.2.0/RELEASE_NOTES.md)
+- Want to contribute → [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)
+- Behavior spec → [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md), [`POPUP_SPEC.md`](../../specs/POPUP_SPEC.md)
 
 ---
 

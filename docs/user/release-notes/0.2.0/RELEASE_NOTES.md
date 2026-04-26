@@ -126,7 +126,7 @@ Or in the GTK GUI → "General" → "Korean layout".
 
 | ID | Description | Impact | Workaround |
 |----|------|-----|------|
-| KI-001 | Pure Wayland (Sway/Hyprland) popup coordinates slightly off | Visual only | See [popup spec §8.4](../../specs/POPUP_SPEC.md) |
+| KI-001 | Pure Wayland (Sway/Hyprland) popup coordinates slightly off | Visual only | See [popup spec §8.4](../../../specs/POPUP_SPEC.md) |
 | KI-002 | XIM Chrome AutoTypeFix preedit residual | Rare visual artifact | Other browsers unaffected |
 | KI-003 | Some Snap apps ignore conditional `~/.profile` env vars | Snap Korean input fails | `QT_IM_MODULE= GTK_IM_MODULE= snap run <app>` |
 
@@ -153,7 +153,7 @@ Or in the GTK GUI → "General" → "Korean layout".
 
 ## Contributors / acknowledgements
 
-UNIM is led by a single maintainer (Seo Kihyun) with Claude Code-driven automation. The Phase 8/9 cleanup, AutoTypeFix stabilization, and v1 layout migration in 0.2.0 were executed via the harness configuration in [`AGENTS.md`](../../../AGENTS.md), [`.claude/agents/`](../../../.claude/agents/), and [`.claude/skills/`](../../../.claude/skills/).
+UNIM is led by a single maintainer (Seo Kihyun) with Claude Code-driven automation. The Phase 8/9 cleanup, AutoTypeFix stabilization, and v1 layout migration in 0.2.0 were executed via the harness configuration in [`AGENTS.md`](../../../../AGENTS.md), [`.claude/agents/`](../../../../.claude/agents/), and [`.claude/skills/`](../../../../.claude/skills/).
 
 ---
 
@@ -163,7 +163,7 @@ UNIM is led by a single maintainer (Seo Kihyun) with Claude Code-driven automati
 - Engine v2 redesign (stroke replay, Old Hangul, dual-set auto-detection) — roadmap stage 6.
 - macOS / Windows adapters — roadmap stage 5.
 
-Full roadmap: [`ROADMAP.md`](../../../ROADMAP.md).
+Full roadmap: [`ROADMAP.md`](../../../../ROADMAP.md).
 
 ---
 
@@ -172,4 +172,4 @@ Full roadmap: [`ROADMAP.md`](../../../ROADMAP.md).
 - [User manual](../../user-guide/README.md)
 - [Troubleshooting](../../troubleshooting/README.md)
 - [FAQ](../../faq/README.md)
-- [`CHANGELOG.md`](../../../CHANGELOG.md) — full changelog
+- [`CHANGELOG.md`](../../../../CHANGELOG.md) — full changelog

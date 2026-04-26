@@ -51,7 +51,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now unim-daemon.service
 ```
 
-소스 빌드는 `cargo` 1.95 이상, GTK4/libadwaita 헤더, Qt5/Qt6 개발 패키지가 필요하다. 패키지명은 배포판마다 다르니 빌드 실패 시 [`docs/troubleshooting/README-ko.md`](../troubleshooting/README-ko.md#빌드-실패) 참고.
+소스 빌드는 `cargo` 1.95 이상, GTK4/libadwaita 헤더, Qt5/Qt6 개발 패키지가 필요하다. 패키지명은 배포판마다 다르니 빌드 실패 시 [`docs/user/troubleshooting/README-ko.md`](../troubleshooting/README-ko.md#빌드-실패) 참고.
 
 ### 2.2 환경 변수 (GNOME 확장을 안 쓰는 모든 데스크톱)
 
@@ -116,7 +116,7 @@ GNOME+Wayland에서 Telegram, VS Code 같은 Flatpak/Snap 앱은 샌드박스 �
 flatpak override --user --env=QT_IM_MODULE= --env=GTK_IM_MODULE=
 ```
 
-Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건부로 환경변수를 비우는 스크립트를 추가한다 — [README §1.7](../../README.md) 참고.
+Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건부로 환경변수를 비우는 스크립트를 추가한다 — [README §1.7](../../../README.md) 참고.
 
 ---
 
@@ -352,9 +352,9 @@ systemctl --user restart unim-daemon
 
 - 동작이 이상하다 → [트러블슈팅](../troubleshooting/README-ko.md)
 - 다른 IME와 비교 / 안정성 / 마이그레이션 → [FAQ](../faq/README-ko.md)
-- 0.2.0의 변경 내역과 마이그레이션 → [릴리즈 노트](../release/0.2.0/RELEASE_NOTES-ko.md)
-- 기여하고 싶다 → [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
-- 핵심 동작 명세 → [`IME_BEHAVIOR.md`](../../IME_BEHAVIOR.md), [`docs/specs/POPUP_SPEC.md`](../specs/POPUP_SPEC.md)
+- 0.2.0의 변경 내역과 마이그레이션 → [릴리즈 노트](../release-notes/0.2.0/RELEASE_NOTES-ko.md)
+- 기여하고 싶다 → [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)
+- 핵심 동작 명세 → [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md), [`docs/specs/POPUP_SPEC.md`](../../specs/POPUP_SPEC.md)
 
 ---
 
