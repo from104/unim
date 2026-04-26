@@ -20,7 +20,7 @@ Scope: 현재 `src/keystroke/keymap/*.json` 포맷을 v0로 간주하고, v1 스
 - 사용자 자판 공유 불가(재컴파일 필요).
 - 두벌식 변종(콜맥-한글 등 키 사상만 다른 경우)조차 소스를 건드려야 함.
 - 세벌식 옛날아래·신세벌식 2015 같이 **결합 규칙이 다른 자판**은 새 `ComposerType` 변형을 만들지 않는 한 표현 불가.
-- 날개셋의 초·종성 공유 규칙(`docs/references/research/NALGAESET_KEYBOARD_FORMAT.md` §5.1)을 이식하려 해도 Rust `const` 분리 구조 때문에 직접 매핑이 어렵다.
+- 날개셋의 초·종성 공유 규칙(연구 문서 미작성 §5.1, 향후 추가 예정)을 이식하려 해도 Rust `const` 분리 구조 때문에 직접 매핑이 어렵다.
 
 v1 스키마는 위 세 가지를 해결하는 **데이터 주도 자판 프로필**을 도입하되, **오토마타 상태 머신은 건드리지 않는다**(날개셋 고급 입력 스키마 이식은 별도 로드맵으로 분리, 연구 문서 §7.3 비목표 참조).
 
@@ -433,7 +433,7 @@ v1이 커버하지 **않는** 것. 아래 항목들은 **엔진 재설계 과제
 
 ## 12. 참고
 
-- 연구 문서: `docs/references/research/NALGAESET_KEYBOARD_FORMAT.md`, `docs/references/research/순아래받침_규칙.md`
+- 연구 문서: NALGAESET_KEYBOARD_FORMAT (미작성, 향후 추가 예정), `docs/references/research/순아래받침_규칙.md`
 - 현재 v0 포맷: `src/keystroke/keymap/*.json`
 - 결합 규칙 원본: `src/hangul/composer_with_2bul.rs:19-44`, `src/hangul/composer_with_3bul.rs:19-53`
 - 로더: `src/keystroke/mod.rs:7-30`

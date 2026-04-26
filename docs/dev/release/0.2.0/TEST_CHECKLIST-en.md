@@ -4,7 +4,7 @@
 > Time estimates are conservative (a 3-minute task is listed as 5 min). All commands are copy-paste ready.
 >
 > Regression scenarios in §14 map 1:1 to the `[0.2.0] Fixed` entries.
-> Automation coverage: see [`TEST_AUTOMATION.md`](TEST_AUTOMATION.md). Troubleshooting: [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
+> Automation coverage: see [`TEST_AUTOMATION.md`](TEST_AUTOMATION.md). Troubleshooting: see [user troubleshooting guide](../../../user/troubleshooting/README.md) "0.2.0 release diagnostics" section.
 
 ---
 

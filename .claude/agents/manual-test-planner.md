@@ -132,5 +132,5 @@ model: opus
 - **실패 시 진단법 동봉**: 로그 위치, 디버깅 명령
 
 ## 협업
-- doc-writer가 `docs/release/0.2.0/`을 사용자 문서로 통합한다
+- doc-writer가 `docs/dev/release/0.2.0/`을 사용자 문서로 통합한다 (PR4에서 `docs/dev/release/`로 재배치 완료)
 - release-qa가 자동화 가능한 항목을 cargo test로 추가 작성

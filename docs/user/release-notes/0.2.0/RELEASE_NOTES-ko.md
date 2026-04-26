@@ -129,7 +129,7 @@ unim-cli config set korean.layout ko_3bul_qwerty
 
 | ID | 설명 | 영향 | 대안 |
 |----|------|-----|------|
-| KI-001 | 순수 Wayland(컴포지터: Sway/Hyprland)에서 팝업 좌표가 약간 어긋남 | UI 시각적 불일치 | 보고: [팝업 명세](../../../specs/POPUP_SPEC.md) §8.4 |
+| KI-001 | 순수 Wayland(컴포지터: Sway/Hyprland)에서 팝업 좌표가 약간 어긋남 | UI 시각적 불일치 | 보고: [팝업 명세](../../../dev/specs/POPUP_SPEC.md) §8.4 |
 | KI-002 | XIM Chrome에서 AutoTypeFix preedit이 일부 잔존 | 드물게 시각적 잔재 | Chrome 외 브라우저는 영향 없음 |
 | KI-003 | 일부 Snap 앱이 `~/.profile`의 조건부 환경변수를 무시 | Snap 앱 한글 입력 실패 | `QT_IM_MODULE= GTK_IM_MODULE= snap run <앱>` |
 

@@ -13,7 +13,7 @@ description: UNIM 0.2.0 릴리즈 직전 프로젝트 정리. 루트 잡파일·
 | 분류 | 처리 | 예시 |
 |------|------|------|
 | **DELETE** | 즉시 삭제 가능 | 0바이트 파일, *.tmp, *.bak, 명백한 stale 로그 |
-| **MOVE** | 적절한 위치로 이동 | legacy 문서 → `docs/history/`, plan 산출물 → `_workspace/archive/` |
+| **MOVE** | 적절한 위치로 이동 | legacy 문서 → `docs/dev/history/`, plan 산출물 → `_workspace/archive/` |
 | **GITIGNORE** | 추적에서 제외 | 사용자 로컬 캐시, 빌드 산출물 |
 | **KEEP** | 의도적 보존 | 의미 있는 빈 파일, 문서화된 placeholder |
 

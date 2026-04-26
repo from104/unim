@@ -4,7 +4,7 @@
 > 시간 표기는 보수적(평소 3분 작업 ≈ 5분 표기). 모든 명령은 그대로 복사·실행 가능한 형태이며, 실패 시 진단법을 동봉했다.
 >
 > **사전 작업**: 본 체크리스트의 회귀 시나리오는 `[0.2.0] Fixed` 항목과 1:1 대응한다.
-> 자동화 가능 영역은 [`TEST_AUTOMATION.md`](TEST_AUTOMATION.md), 트러블슈팅은 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 참조.
+> 자동화 가능 영역은 [`TEST_AUTOMATION.md`](TEST_AUTOMATION.md), 트러블슈팅은 [사용자 트러블슈팅 가이드](../../../user/troubleshooting/README-ko.md) "0.2.0 릴리스 특이 진단" 섹션 참조.
 
 ---
 

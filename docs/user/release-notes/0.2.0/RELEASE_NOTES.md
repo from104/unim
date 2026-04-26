@@ -126,7 +126,7 @@ Or in the GTK GUI → "General" → "Korean layout".
 
 | ID | Description | Impact | Workaround |
 |----|------|-----|------|
-| KI-001 | Pure Wayland (Sway/Hyprland) popup coordinates slightly off | Visual only | See [popup spec §8.4](../../../specs/POPUP_SPEC.md) |
+| KI-001 | Pure Wayland (Sway/Hyprland) popup coordinates slightly off | Visual only | See [popup spec §8.4](../../../dev/specs/POPUP_SPEC.md) |
 | KI-002 | XIM Chrome AutoTypeFix preedit residual | Rare visual artifact | Other browsers unaffected |
 | KI-003 | Some Snap apps ignore conditional `~/.profile` env vars | Snap Korean input fails | `QT_IM_MODULE= GTK_IM_MODULE= snap run <app>` |
 
