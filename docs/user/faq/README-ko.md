@@ -151,7 +151,7 @@ unim-cli config layout validate ~/.config/unim/layouts/my.json
 unim-cli config set korean.layout my
 ```
 
-스키마 상세는 [`docs/plans/LAYOUT_PROFILE_V1.md`](../../plans/LAYOUT_PROFILE_V1.md).
+스키마 상세는 [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](../../dev/plans/LAYOUT_PROFILE_V1.md).
 
 > rule_sets로 같은 자판에 옵션 토글을 붙일 수도 있다. 예: `ko_3bul390`의 `sun_arae_batchim`(순아래받침). 설정 GUI에서 SwitchRow가 동적으로 나타난다.
 

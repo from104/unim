@@ -55,9 +55,9 @@ description: UNIM 0.2.0 수동·자동 테스트 시나리오 설계. 13개 컴�
 | 환경 매트릭스 | 0% | 수동만 |
 
 ## 출력
-- `docs/release/0.2.0/TEST_CHECKLIST.md` — 사용자용 체크리스트 (한국어)
-- `docs/release/0.2.0/TEST_CHECKLIST-en.md` (영어 짝)
-- `docs/release/0.2.0/TEST_AUTOMATION.md` — 자동 커버리지 매핑
+- `docs/dev/release/0.2.0/TEST_CHECKLIST.md` — 사용자용 체크리스트 (한국어)
+- `docs/dev/release/0.2.0/TEST_CHECKLIST-en.md` (영어 짝)
+- `docs/dev/release/0.2.0/TEST_AUTOMATION.md` — 자동 커버리지 매핑
 - 트러블슈팅 초안: 사용자 README(`docs/user/troubleshooting/README{,-ko}.md`)의 "## 0.2.0 릴리스 특이 진단" 섹션에 흡수 (doc-writer가 확장)
 
 ## 작성 원칙

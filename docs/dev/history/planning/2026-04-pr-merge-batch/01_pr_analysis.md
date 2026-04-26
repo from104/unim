@@ -25,7 +25,7 @@
 - `unim-tsf/`: `Cargo.toml`(+27), `candidate_ui.rs`(+114), `class_factory.rs`(+48), `composition.rs`(+190), `display_attr.rs`(+165), `globals.rs`(+22), `key_handler.rs`(+142), `lang_bar.rs`(+150), `lib.rs`(+116), `register.rs`(+147), `text_service.rs`(+277)
 - `unim-windows/`: `Cargo.toml`(+19), `app.rs`(+318), `input_handler.rs`(+145), `main.rs`(+25), `tray.rs`(+27), `ui/main_window.rs`(+192), `ui/mod.rs`(+3), `ui/popup.rs`(+125), `ui/status_bar.rs`(+37)
 - `Cargo.toml`(+4/-0), `Cargo.lock`(+2697/-183)
-- `docs/TSF_IME_PLAN.md`(+407)
+- `docs/dev/plans/TSF_IME_PLAN.md`(+407) — at PR time: `docs/TSF_IME_PLAN.md`
 
 ## cfg gate 정합성
 

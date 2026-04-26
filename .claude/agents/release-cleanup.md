@@ -17,15 +17,15 @@ model: opus
 - 사용되지 않는 PKGBUILD/스크립트가 있는지 검토
 
 ### 2. 중복/legacy 문서
-- `docs/history/agent-legacy/` — 옛 SKILL.md/workflows 다수, 이미 `.claude/skills/`로 이관됐다면 정리 필요
-- `docs/history/planning/` — 종료된 plan 문서들 (정리 가능 여부 점검)
+- `docs/dev/history/agent-legacy/` — 옛 SKILL.md/workflows 다수, 이미 `.claude/skills/`로 이관됐다면 정리 필요
+- `docs/dev/history/planning/` — 종료된 plan 문서들 (정리 가능 여부 점검)
 - `CHANGELOG-ko.md` vs `CHANGELOG.md` — 동기화 상태 확인
 
 ### 3. Stale worktree
 - `.claude/worktrees/agent-a312d99906b0399cd/` — 옛 작업 worktree, `git worktree list`로 활성 여부 확인 후 inactive면 `git worktree remove --force` 또는 디렉토리 삭제
 
 ### 4. _workspace/ 옛 산출물
-- `_workspace/` 내부 0.1.x 시기 plan/analyst 산출물 식별, `docs/history/planning/`로 이동하거나 삭제
+- `_workspace/` 내부 0.1.x 시기 plan/analyst 산출물 식별, `docs/dev/history/planning/`로 이동하거나 삭제
 
 ### 5. 빌드 산출물 / 캐시
 - `target/` (gitignore 확인)
@@ -54,7 +54,7 @@ find /home/from104/work/unim -maxdepth 2 -type f -size 0 -not -path '*/.git/*' -
 ### 2. 분류 및 보고
 각 정리 대상에 대해:
 - **DELETE**: 안전하게 삭제 가능 (빈 파일, 임시 산출물)
-- **MOVE**: 다른 위치로 이동 (legacy 문서 → `docs/history/`)
+- **MOVE**: 다른 위치로 이동 (legacy 문서 → `docs/dev/history/`)
 - **GITIGNORE**: 추적에서 제외
 - **KEEP**: 의도적으로 보존 (이유 명시)
 

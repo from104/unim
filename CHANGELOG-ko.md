@@ -18,7 +18,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
   - **`unim-cli config layout` 서브커맨드**: `list` / `describe <name>` / `validate <file.json>` (종료 코드 0=통과, 1=경고, 2=오류).
   - **GUI — Adw.ComboRow + 동적 SwitchRow**: 설정 다이얼로그가 모든 한글 프로필(빌트인 10개 + 사용자)을 표시하고, 선택한 프로필의 룰셋을 즉시 토글 가능한 SwitchRow로 노출.
   - **빌트인 프로필 추가 — `ko_3bul_qwerty`** (쿼티형 세벌식): Shift 없는 26자리 알파벳 포화 레이아웃 (14 초성 / 15 중성 / 19 종성). 빌트인 9개 → 10개.
-  - 사양: [`docs/plans/LAYOUT_PROFILE_V1.md`](docs/plans/LAYOUT_PROFILE_V1.md).
+  - 사양: [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md).
 - **AutoTypeFix 롤백 학습 억제 사전**(`src/typefix_blacklist.rs`, `~/.config/unim/typefix-blacklist.yaml`): 마지막 교정 위에서 일어나는 자연스러운 롤백 패턴(백스페이스 + 입력 모드 전환)을 관찰. 동일 ASCII로 두 번째 AutoTypeFix 시도(retrigger)가 발생하면 한 번에 tentative 억제 항목 등록 + 해당 시도 억제. GUI "확정" 버튼으로 Tentative → Confirmed 수동 승격, `tentative_expiry_hours`(기본 1시간, 1..=12) 후 Inactive로 자동 만료. 데몬이 mtime 변경을 감지해 자동 리로드.
 - **AutoTypeFix 신규 설정 3종**: `auto_typefix.*` 하위에 `rollback_detection`(bool, 기본 true), `tentative_expiry_hours`(u16, 기본 1, 1..=12), `observation_timeout_secs`(u8, 기본 10, 5..=15). 3지점 동기화 적용.
 - **설정 GUI "억제 단어" 페이지**(`unim-gui-gtk`): 신규 `Adw.PreferencesPage`, 세 그룹(Tentative / Confirmed / Inactive) 구성, 각 행에 확정 / 비활성화 / 제거 / 재활성화 액션.

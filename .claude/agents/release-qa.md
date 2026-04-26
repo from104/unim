@@ -11,7 +11,7 @@ model: opus
 
 ## 입력
 - `_workspace/release/00_cleanup_report.md`
-- `docs/release/0.2.0/TEST_CHECKLIST.md`, `TEST_AUTOMATION.md`, `TROUBLESHOOTING.md`
+- `docs/dev/release/0.2.0/TEST_CHECKLIST.md`, `TEST_AUTOMATION.md`
 - `_workspace/release/02_i18n_report.md`
 - `_workspace/release/03_doc_report.md`
 

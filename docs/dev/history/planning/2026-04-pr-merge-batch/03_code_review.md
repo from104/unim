@@ -2,7 +2,7 @@
 
 - **대상 head**: `acd40f2` (claude/korean-input-windows-gui-y9ZVW)
 - **base**: develop (이미 PR 브랜치에 머지됨, d30d9d0)
-- **변경 범위**: 25 파일, +5635 / -183 (PR 메타) — `src/build.rs`, `src/keycode.rs`, `Cargo.toml`, `unim-tsf/*` (12 파일), `unim-windows/*` (8 파일), `docs/TSF_IME_PLAN.md`
+- **변경 범위**: 25 파일, +5635 / -183 (PR 메타) — `src/build.rs`, `src/keycode.rs`, `Cargo.toml`, `unim-tsf/*` (12 파일), `unim-windows/*` (8 파일), `docs/dev/plans/TSF_IME_PLAN.md` (당시 `docs/TSF_IME_PLAN.md`)
 - **acd40f2 어댑터 패치**: `Cargo.lock` + `unim-windows/src/app.rs` (+18/-12) + `unim-windows/src/ui/popup.rs` (+2/-0)
 
 ## 판정: PASS

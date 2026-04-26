@@ -52,7 +52,7 @@
 
 자판 정의를 하드코딩 Rust const에서 **자기 완결 v1 JSON**으로 이관. 사용자 자판(`~/.config/unim/layouts/*.json`) + 상속(`inherits`) + 선택형 규칙 세트(rule_sets) 지원. Phase 6단계 엔진 재설계(v2)의 데이터 기반을 마련.
 
-- [x] **v1 스키마 정의** (`docs/plans/LAYOUT_PROFILE_V1.md`): schema_version, metadata(다국어), inherits, combinations(자기 완결), rule_sets, active_rule_sets. v0 하위 호환 자동 승격.
+- [x] **v1 스키마 정의** (`docs/dev/plans/LAYOUT_PROFILE_V1.md`): schema_version, metadata(다국어), inherits, combinations(자기 완결), rule_sets, active_rule_sets. v0 하위 호환 자동 승격.
 - [x] **Phase 1·2 — 로더·빌더·Composer 통합**: `src/keystroke/profile/` 하위에 schema/loader/builder/localized 신설. `HangulComposer{2,3}Bul::new_with_profile` + v0→v1 동일 결과 regression.
 - [x] **Phase 3 — 레지스트리·상속·핫리로드**: `ProfileRegistry`(내장 + `~/.config/unim/layouts` 통합 네임스페이스, 사용자 우선), `inherit::resolve`(재귀 해석 + 순환 탐지 + layer-merge), 디렉토리 mtime 기반 자동 재스캔.
 - [x] **Phase 4 — Config·CLI·DBus·엔진 연결**: `korean.custom_layout`(`Option<String>`)·`korean.active_rule_sets`(`Vec<String>`) 필드 5-point 싱크. `unim-config layout list/describe/validate` 서브커맨드. `InputEngine::new`가 ProfileRegistry를 거쳐 효과적 프로필을 로드, 실패 시 enum 경로 폴백.
@@ -78,7 +78,7 @@
 
 - [ ] **낱자 provenance 태깅**: `Jamo` 표현을 `(kind, source_key)` 튜플로 확장해 같은 ㅗ/ㅜ라도 어느 키에서 왔는지 구별. 세벌식 390의 `9`-ㅜ, `/`-ㅗ 이중모음 전용 역할, 복벌식 자동 판정의 근거가 되는 날개셋문자 64-bit 토큰 개념(연구 문서 §4.1)에 대응.
 - [ ] **문맥 의존 키 해석 (글쇠 수식 최소 집합)**: 키→자모 매핑이 컴포저 상태(`has_cho`/`has_jung`/`has_jong`/`syllable_empty`)를 조회할 수 있도록 predicate 엔진 도입. 두벌식 `/`, 세벌식 390 `/` 같은 적응형 글쇠(연구 문서 §4.2) 지원. 날개셋의 Turing-complete 수식 전면 이식은 별도.
-- [ ] **자판 프로필 v2**: v1(`docs/plans/LAYOUT_PROFILE_V1.md`)에서 유보한 provenance + predicate 필드를 스키마에 추가. 세벌식 390 원본 규약을 있는 그대로 재현.
+- [ ] **자판 프로필 v2**: v1(`docs/dev/plans/LAYOUT_PROFILE_V1.md`)에서 유보한 provenance + predicate 필드를 스키마에 추가. 세벌식 390 원본 규약을 있는 그대로 재현.
 - [ ] **모아치기 (stroke replay)**: 낱자 입력 순서가 바뀌어도 재배열해 한 음절로 조합. 안마태 자판 등 순서 자유 자판 지원.
 - [ ] **복벌식**: 어절 첫 타자의 손 위치(좌/우)로 두벌식·세벌식 자동 전환(연구 문서 §5.2). 어절 단위 버퍼 + 첫 낱자 provenance가 전제.
 - [ ] **옛한글**: U+1100 확장 블록 낱자, 방점, 합용병서 지원. Jamo enum 확장 + 고급 문자 생성기.

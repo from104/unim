@@ -3,7 +3,7 @@
 Date: 2026-04-23
 Status: **기획안 (Plan)** — 구현 착수 전 리뷰 대상.
 Owner: Core / Keystroke / Settings
-Scope: `docs/plans/LAYOUT_PROFILE_V1.md`의 스키마와 `docs/references/keymaps/*.json` 드래프트를 실제로 UNIM 엔진에 통합하고, 자판별 `rule_sets` 토글을 CLI·GUI에서 제공하는 단계별 실행 계획.
+Scope: `docs/dev/plans/LAYOUT_PROFILE_V1.md`의 스키마와 `docs/references/keymaps/*.json` 드래프트를 실제로 UNIM 엔진에 통합하고, 자판별 `rule_sets` 토글을 CLI·GUI에서 제공하는 단계별 실행 계획.
 
 ---
 
@@ -11,7 +11,7 @@ Scope: `docs/plans/LAYOUT_PROFILE_V1.md`의 스키마와 `docs/references/keymap
 
 | 항목 | 위치 |
 |---|---|
-| 스키마 명세 | `docs/plans/LAYOUT_PROFILE_V1.md` |
+| 스키마 명세 | `docs/dev/plans/LAYOUT_PROFILE_V1.md` |
 | 키맵 드래프트 9종 | `docs/references/keymaps/*.json` |
 | 현 v0 키맵 | `src/keystroke/keymap/*.json` |
 | 현 결합 규칙 | `src/hangul/composer_with_2bul.rs:19-44`, `composer_with_3bul.rs:19-53` |
@@ -453,7 +453,7 @@ Phase 7까지 완료 (2026-04-24):
 
 ## 10. 참고
 
-- v1 스키마: `docs/plans/LAYOUT_PROFILE_V1.md`
+- v1 스키마: `docs/dev/plans/LAYOUT_PROFILE_V1.md`
 - 드래프트 9종: `docs/references/keymaps/*.json`
 - Config 3지점 싱크: `GEMINI.md`, `CLAUDE.md` feedback memory
 - AutoTypeFix 설정 확장 선례: `src/typefix_blacklist.rs` + GUI 패턴

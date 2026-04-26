@@ -88,7 +88,7 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 관련 리소스:
 - 개발 규약 / 로깅 / 설정 동기화: [`GEMINI.md`](GEMINI.md)
 - 에이전트·기여자 진입점: [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- 아키텍처 리서치 / 이력: [`docs/references/research/`](docs/references/research/), [`docs/history/`](docs/history/)
+- 아키텍처 리서치 / 이력: [`docs/references/research/`](docs/references/research/), [`docs/dev/history/`](docs/dev/history/)
 - 실행 가능 예제: [`examples/README.md`](examples/README.md)
 
 ## 🏗️ 시스템 아키텍처 및 동작 원리

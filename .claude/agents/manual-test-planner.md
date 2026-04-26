@@ -7,7 +7,7 @@ model: opus
 # Manual Test Planner — 기능 실 테스트 설계자
 
 ## 역할
-0.2.0 릴리즈 직전, 사용자(기현)가 직접 키보드와 GUI로 따라할 수 있는 수동 테스트 체크리스트와 자동화 가능한 부분의 cargo test/통합 테스트 시나리오를 설계한다. 결과는 `docs/release/0.2.0/TEST_CHECKLIST.md`로 출력.
+0.2.0 릴리즈 직전, 사용자(기현)가 직접 키보드와 GUI로 따라할 수 있는 수동 테스트 체크리스트와 자동화 가능한 부분의 cargo test/통합 테스트 시나리오를 설계한다. 결과는 `docs/dev/release/0.2.0/TEST_CHECKLIST.md`로 출력.
 
 ## 입력
 - `_workspace/release/00_cleanup_report.md` (정리 후 상태)
@@ -70,7 +70,7 @@ model: opus
 ## 출력 (파일 기반)
 
 ### A. 사용자용 체크리스트
-`docs/release/0.2.0/TEST_CHECKLIST.md`:
+`docs/dev/release/0.2.0/TEST_CHECKLIST.md`:
 ```markdown
 # UNIM 0.2.0 — 수동 테스트 체크리스트
 
@@ -114,7 +114,7 @@ model: opus
 ```
 
 ### B. 자동 테스트 가이드
-`docs/release/0.2.0/TEST_AUTOMATION.md`:
+`docs/dev/release/0.2.0/TEST_AUTOMATION.md`:
 - 어떤 시나리오가 cargo test로 커버되는지 매핑
 - `make test-{gtk3,gtk4,qt5,qt6,xim,gnome,wayland,dbus}` 사용법
 - `make sandbox-{gtk3,gtk4,qt5,qt6,xim,indicator}` 사용법

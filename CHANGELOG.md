@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
   - **`unim-cli config layout` subcommand**: `list` / `describe <name>` / `validate <file.json>` (exit codes 0=pass, 1=warnings, 2=errors).
   - **GUI — Adw.ComboRow + dynamic SwitchRows**: Settings dialog lists all Korean profiles (10 built-in + user) and shows the selected profile's rule sets as live toggleable SwitchRows.
   - **New built-in profile — `ko_3bul_qwerty`** (쿼티형 세벌식): Shift-free 26-seat alphabet saturation layout (14 초성 / 15 중성 / 19 종성). Built-in count 9 → 10.
-  - Spec: [`docs/plans/LAYOUT_PROFILE_V1.md`](docs/plans/LAYOUT_PROFILE_V1.md).
+  - Spec: [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md).
 - **AutoTypeFix rollback-learned blacklist suppression** (`src/typefix_blacklist.rs`, `~/.config/unim/typefix-blacklist.yaml`): Observes the rollback pattern (backspace + input-mode switch on top of the last correction). On a second AutoTypeFix attempt with the same ASCII (retrigger), registers a tentative suppression entry and suppresses that very attempt in one step. Manual GUI "Confirm" promotes Tentative → Confirmed; tentatives flip to Inactive after `tentative_expiry_hours` (default 1, range 1..=12). Daemon auto-reloads on mtime change.
 - **AutoTypeFix settings**: three new keys under `auto_typefix.*` — `rollback_detection` (bool, default true), `tentative_expiry_hours` (u16, default 1, range 1..=12), `observation_timeout_secs` (u8, default 10, range 5..=15). All three wired through the 3-point sync.
 - **Settings GUI "Suppression Words" page** (`unim-gui-gtk`): New `Adw.PreferencesPage` with three groups (Tentative / Confirmed / Inactive) and Confirm / Deactivate / Remove / Reactivate row actions.

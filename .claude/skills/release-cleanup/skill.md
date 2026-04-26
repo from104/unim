@@ -66,7 +66,7 @@ make build          # warning 0 유지
 - inactive면: `git worktree remove --force <path>` 또는 디렉토리 삭제
 - active면: 사용자 판단 요청 (KEEP)
 
-### docs/history/agent-legacy/
+### docs/dev/history/agent-legacy/
 - 내부 SKILL.md/workflows.md 다수
 - 각 파일이 현재 `.claude/skills/`로 이관됐는지 확인
 - 이관 완료 시 → 디렉토리 통째 삭제 가능 (단일 디렉토리이므로 OK)

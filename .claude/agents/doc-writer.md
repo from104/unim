@@ -11,7 +11,7 @@ model: opus
 
 ## 입력
 - `_workspace/release/00_cleanup_report.md`
-- `docs/release/0.2.0/TEST_CHECKLIST.md` (manual-test-planner 산출물 — dev/release/로 향후 이전 예정)
+- `docs/dev/release/0.2.0/TEST_CHECKLIST.md` (manual-test-planner 산출물)
 - `_workspace/release/02_i18n_report.md` (i18n-applier 키 명명 규칙)
 - 기존 `README.md`, `AGENTS.md`, `IME_BEHAVIOR.md`, `ROADMAP.md`, `CONTRIBUTING.md`
 
