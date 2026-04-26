@@ -62,7 +62,7 @@ Stability tier as of UNIM 0.2.0:
 
 ## Q4. How does AutoTypeFix actually work?
 
-Three stages.
+Two stages.
 
 ### Stage 1 — observation
 
@@ -74,10 +74,6 @@ At a word boundary (space, punctuation, Enter), if the *other* track has produce
 
 - forward: in English mode, Korean track formed letters → `gksrmf` → `한글`.
 - reverse: in Korean mode, English track formed a word → `ㅈㅐㅍㅁ` → `wave`.
-
-### Stage 3 — prefix-avoidance
-
-Just before commit, check whether more characters might still arrive. `wood` could become `woody`, so the correction is held until a word boundary actually arrives.
 
 ### Learning (suppression dictionary)
 

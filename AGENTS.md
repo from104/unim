@@ -159,7 +159,7 @@ print(f'big_anon_arenas={c}')"
 - **한글 조합**: `src/hangul/` - 2벌식/3벌식 조합 로직
 - **키맵**: `src/keystroke/` - 키보드 레이아웃 매핑
 - **설정**: `src/config.rs` - 설정 구조체 (Source of Truth)
-- **자동 오타 교정**: `src/auto_typefix.rs` - forward/reverse 교정기, prefix-avoidance
+- **자동 오타 교정**: `src/auto_typefix.rs` - forward/reverse 교정기
 - **AutoTypeFix 억제 사전**: `src/typefix_blacklist.rs` - Tentative/Confirmed/Inactive 3상태 블랙리스트, 재시도 기반 자동 학습, mtime 핫리로드
 - **로깅**: `src/logging.rs` - 통합 로깅 매크로
 - **엔진 워커**: `unim-dbus/src/engine_worker.rs` - FocusIn/Out, Reset, ProcessKey 요청 처리

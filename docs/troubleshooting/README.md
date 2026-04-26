@@ -177,7 +177,7 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50
 
 - Master toggle off → flip ON in the GUI.
 - Particular word always blacklisted → "Suppression Words" page, mark as Inactive or remove.
-- No word boundary yet → prefix-avoidance is holding the correction. Type one more char then space — corrects immediately.
+- No word boundary yet → the correction only fires after a space/punctuation. Type one more char then space — corrects immediately.
 - "Skip in English mode" is ON by intent (default).
 
 ---

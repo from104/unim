@@ -171,10 +171,6 @@ Auto-recovers text typed in the wrong mode. Two directions:
 - **Forward (English→Korean)**: you thought you were in Korean mode but were actually in English, so `gksrmf` came out — replaced with `한글` at word boundaries (space/punctuation).
 - **Reverse (Korean→English)**: opposite — `ㅈㅐㅍㅁ` becomes `wave`.
 
-#### prefix-avoidance (anti-misfire)
-
-If `wood` is typed, the engine waits in case `y` follows. Only after a space arrives is the correction confirmed. So someone typing `woody` will never see it incorrectly autocorrected to `wood`.
-
 #### Suppression dictionary (Blacklist) — user learning
 
 When a particular word keeps getting corrected against your wishes:

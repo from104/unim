@@ -32,7 +32,7 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | 컴포넌트 | 경로 | 설명 |
 |----------|------|------|
 | **Core Engine** | `src/` | Rust 한글 조합/분해 로직 (2벌식, 3벌식 390/391/순아래) |
-| **AutoTypeFix** | `src/auto_typefix.rs` | 한↔영 자동 오타 교정 (forward/reverse, prefix-avoidance) |
+| **AutoTypeFix** | `src/auto_typefix.rs` | 한↔영 자동 오타 교정 (forward/reverse) |
 | **억제 사전** | `src/typefix_blacklist.rs` | 롤백·재시도 관측으로 오타 교정 제외 단어 자동 학습 (`~/.config/unim/typefix-blacklist.yaml`). GTK 설정창의 "억제 단어" 페이지에서 Tentative/Confirmed/Inactive 관리 |
 | **C-API** | `unim-capi/` | Core를 C/C++에서 사용하기 위한 FFI 래퍼 |
 | **CLI** | `unim-cli/` | 한↔영 변환 + `config` 서브커맨드로 설정 관리까지 통합한 독립형 명령줄 도구 |
