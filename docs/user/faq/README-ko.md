@@ -51,7 +51,7 @@ UNIM 0.2.0 시점의 안정성 등급:
 | Ubuntu 24.04 + GNOME(X11) | 🟢 A | 환경변수 + Standalone 팝업 |
 | KDE Plasma 6 (Wayland) | 🟢 B+ | input-method-v2 잘 동작 |
 | KDE Plasma 6 (X11) | 🟢 B+ | XIM/Qt IM 둘 다 양호 |
-| Sway (Wayland) | 🟡 B | 팝업 위치 약간 미흡, [팝업 명세](../../specs/POPUP_SPEC.md) §8.4 참고 |
+| Sway (Wayland) | 🟡 B | 팝업 위치 약간 미흡, [팝업 명세](../../dev/specs/POPUP_SPEC.md) §8.4 참고 |
 | Hyprland (Wayland) | 🟡 B | 동상 |
 | XFCE/MATE (X11) | 🟢 B+ | 전통적 환경, 잘 동작 |
 | Wayland 단독(컴포지터별) | 🟡 B/C | 컴포지터의 IM 프로토콜 지원도에 의존 |
@@ -214,8 +214,8 @@ cargo --version              # 1.95.0 이상
 ## Q13. 기여하고 싶다 — 어디부터?
 
 1. [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) — 브랜치/PR 워크플로.
-2. [`AGENTS.md`](../../../AGENTS.md) — 아키텍처와 컴포넌트 맵.
-3. [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md) — 동작 명세.
+2. [`AGENTS.md`](../../dev/architecture/AGENTS.md) — 아키텍처와 컴포넌트 맵.
+3. [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md) — 동작 명세.
 4. 컴포넌트 별 `SPEC.md` (각 크레이트 안).
 5. 빌드 검증: `make build` 경고 0개 + `cargo test --workspace` 전체 통과.
 6. 커밋 메시지는 영어, 문서는 한국어 (프로젝트 컨벤션).
@@ -235,5 +235,5 @@ cargo --version              # 1.95.0 이상
 - [사용자 매뉴얼](../user-guide/README-ko.md)
 - [트러블슈팅](../troubleshooting/README-ko.md)
 - [릴리즈 노트 0.2.0](../release-notes/0.2.0/RELEASE_NOTES-ko.md)
-- [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md)
-- [`docs/specs/POPUP_SPEC.md`](../../specs/POPUP_SPEC.md)
+- [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)
+- [`docs/dev/specs/POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)

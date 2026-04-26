@@ -102,4 +102,4 @@ expanded 81 페이지). 이 기능은 **JS 단독 client-side feature** 라 엔�
 - 기준선: `unim-gnome-extension/hanja_popup.js` (9x9 grid JS 구현)
 - 이전 follow-up 산출물: `_workspace/01_analyst_hanja_bookmark_plan.md`
   (각 프런트엔드 후보 렌더 함수 위치가 이미 정리됨 — 재활용)
-- 팝업 명세: `docs/specs/POPUP_SPEC.md`
+- 팝업 명세: `docs/dev/specs/POPUP_SPEC.md`

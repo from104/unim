@@ -125,7 +125,7 @@ busctl --user monitor org.atit.unim.InputMethod
 | GNOME+Wayland | `Standalone` | 확장이 시그널 받아 그림 |
 | KDE+Wayland | `Standalone` | unim-gui-gtk가 그림 |
 | X11 (어떤 DE든) | `Embedded` 또는 `Standalone` | Embedded는 IM 모듈이 자체 렌더 |
-| 순수 Wayland (Sway 등) | `Standalone` | 미해결 영역 — [팝업 명세](../../specs/POPUP_SPEC.md) §8.4 참고 |
+| 순수 Wayland (Sway 등) | `Standalone` | 미해결 영역 — [팝업 명세](../../dev/specs/POPUP_SPEC.md) §8.4 참고 |
 
 ```bash
 unim-cli config set popup_mode Standalone
@@ -316,7 +316,7 @@ ps -o pid,rss,vsz,cmd $(pidof unim-daemon)
 journalctl --user -u unim-daemon -n 500 > unim-mem.log
 ```
 
-[`AGENTS.md` §메모리 관리 규칙](../../../AGENTS.md)이 회귀 금지 항목과 진단 명령을 모두 정리해 둔다. 이슈로 보고하면 도움이 된다.
+[`AGENTS.md` §메모리 관리 규칙](../../dev/architecture/AGENTS.md)이 회귀 금지 항목과 진단 명령을 모두 정리해 둔다. 이슈로 보고하면 도움이 된다.
 
 ---
 
@@ -368,8 +368,8 @@ make build 2>&1 | tee /tmp/unim-build.log
 
 - [FAQ](../faq/README-ko.md) — 다른 IME와의 차이, 동시 설치, 백업 복원
 - [사용자 매뉴얼](../user-guide/README-ko.md) — 설정 GUI 페이지별 상세
-- [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md) — 동작 명세 (개발자용)
-- [`AGENTS.md`](../../../AGENTS.md) — 아키텍처와 메모리 관리 규칙
+- [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md) — 동작 명세 (개발자용)
+- [`AGENTS.md`](../../dev/architecture/AGENTS.md) — 아키텍처와 메모리 관리 규칙
 
 ---
 

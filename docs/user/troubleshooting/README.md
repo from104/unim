@@ -122,7 +122,7 @@ busctl --user monitor org.atit.unim.InputMethod
 | GNOME+Wayland | `Standalone` | Extension paints |
 | KDE+Wayland | `Standalone` | unim-gui-gtk paints |
 | X11 (any DE) | `Embedded` or `Standalone` | Embedded means the IM module renders directly |
-| Pure Wayland (Sway, etc.) | `Standalone` | Open issue — see [popup spec §8.4](../../specs/POPUP_SPEC.md) |
+| Pure Wayland (Sway, etc.) | `Standalone` | Open issue — see [popup spec §8.4](../../dev/specs/POPUP_SPEC.md) |
 
 ```bash
 unim-cli config set popup_mode Standalone
@@ -309,7 +309,7 @@ ps -o pid,rss,vsz,cmd $(pidof unim-daemon)
 journalctl --user -u unim-daemon -n 500 > unim-mem.log
 ```
 
-[`AGENTS.md` §Memory rules](../../../AGENTS.md) lists the regression-banned items and diagnostic commands.
+[`AGENTS.md` §Memory rules](../../dev/architecture/AGENTS.md) lists the regression-banned items and diagnostic commands.
 
 ---
 
@@ -359,8 +359,8 @@ Attach `unim-report.txt` to your issue. Skim it once first — passwords/tokens 
 
 - [FAQ](../faq/README.md) — comparison with other IMEs, coexistence, backup
 - [User manual](../user-guide/README.md) — settings GUI page-by-page
-- [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md) — behavior spec (developer-oriented)
-- [`AGENTS.md`](../../../AGENTS.md) — architecture and memory rules
+- [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md) — behavior spec (developer-oriented)
+- [`AGENTS.md`](../../dev/architecture/AGENTS.md) — architecture and memory rules
 
 ---
 

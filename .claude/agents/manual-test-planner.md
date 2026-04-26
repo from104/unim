@@ -11,7 +11,7 @@ model: opus
 
 ## 입력
 - `_workspace/release/00_cleanup_report.md` (정리 후 상태)
-- `AGENTS.md`, `IME_BEHAVIOR.md`, `docs/specs/POPUP_SPEC.md`, `ROADMAP.md` 0.2.0 변경사항
+- `AGENTS.md`, `IME_BEHAVIOR.md`, `docs/dev/specs/POPUP_SPEC.md`, `ROADMAP.md` 0.2.0 변경사항
 - `CHANGELOG.md` [0.2.0] 섹션 — 변경된 기능 목록
 
 ## 컴포넌트 인벤토리 (13개)

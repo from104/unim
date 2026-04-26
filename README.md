@@ -82,12 +82,12 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | Frontend | XIM | [`unim-frontends/xim/SPEC.md`](unim-frontends/xim/SPEC.md) |
 | Frontend | Wayland | [`unim-frontends/wayland/SPEC.md`](unim-frontends/wayland/SPEC.md) |
 | Frontend | GNOME Shell | [`unim-gnome-extension/SPEC.md`](unim-gnome-extension/SPEC.md) |
-| 공용 | 한자/특수문자 팝업 | [`docs/specs/POPUP_SPEC.md`](docs/specs/POPUP_SPEC.md) |
-| 공용 | IME 동작(프론트엔드 공통) | [`IME_BEHAVIOR.md`](IME_BEHAVIOR.md) |
+| 공용 | 한자/특수문자 팝업 | [`docs/dev/specs/POPUP_SPEC.md`](docs/dev/specs/POPUP_SPEC.md) |
+| 공용 | IME 동작(프론트엔드 공통) | [`docs/dev/architecture/IME_BEHAVIOR.md`](docs/dev/architecture/IME_BEHAVIOR.md) |
 
 관련 리소스:
-- 개발 규약 / 로깅 / 설정 동기화: [`GEMINI.md`](GEMINI.md)
-- 에이전트·기여자 진입점: [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- 개발 규약 / 로깅 / 설정 동기화: [`docs/dev/architecture/GEMINI.md`](docs/dev/architecture/GEMINI.md)
+- 에이전트·기여자 진입점: [`AGENTS.md`](docs/dev/architecture/AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - 아키텍처 리서치 / 이력: [`docs/references/research/`](docs/references/research/), [`docs/dev/history/`](docs/dev/history/)
 - 실행 가능 예제: [`examples/README.md`](examples/README.md)
 

@@ -51,7 +51,7 @@ Stability tier as of UNIM 0.2.0:
 | Ubuntu 24.04 + GNOME(X11) | 🟢 A | Env vars + Standalone popup |
 | KDE Plasma 6 (Wayland) | 🟢 B+ | input-method-v2 works |
 | KDE Plasma 6 (X11) | 🟢 B+ | XIM/Qt IM both fine |
-| Sway (Wayland) | 🟡 B | Popup positioning slightly off — see [popup spec §8.4](../../specs/POPUP_SPEC.md) |
+| Sway (Wayland) | 🟡 B | Popup positioning slightly off — see [popup spec §8.4](../../dev/specs/POPUP_SPEC.md) |
 | Hyprland (Wayland) | 🟡 B | Same |
 | XFCE/MATE (X11) | 🟢 B+ | Traditional, solid |
 | Pure Wayland (compositor-dependent) | 🟡 B/C | Depends on the compositor's IM protocol support |
@@ -211,8 +211,8 @@ The error `lock file version 4 requires '-Znext-lockfile-bump'` is always this i
 ## Q13. I'd like to contribute — where to start?
 
 1. [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) — branch/PR workflow.
-2. [`AGENTS.md`](../../../AGENTS.md) — architecture and component map.
-3. [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md) — behavior spec.
+2. [`AGENTS.md`](../../dev/architecture/AGENTS.md) — architecture and component map.
+3. [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md) — behavior spec.
 4. Per-crate `SPEC.md`.
 5. Verify: `make build` warning-free + `cargo test --workspace` all pass.
 6. Convention: commit messages in English, docs in Korean.
@@ -232,5 +232,5 @@ The error `lock file version 4 requires '-Znext-lockfile-bump'` is always this i
 - [User manual](../user-guide/README.md)
 - [Troubleshooting](../troubleshooting/README.md)
 - [Release notes 0.2.0](../release-notes/0.2.0/RELEASE_NOTES.md)
-- [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md)
-- [`POPUP_SPEC.md`](../../specs/POPUP_SPEC.md)
+- [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)
+- [`POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)

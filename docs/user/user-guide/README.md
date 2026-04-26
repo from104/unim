@@ -337,7 +337,7 @@ systemctl --user restart unim-daemon
 - Compare with other IMEs / migration → [FAQ](../faq/README.md)
 - 0.2.0 changes / migration → [release notes](../release-notes/0.2.0/RELEASE_NOTES.md)
 - Want to contribute → [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)
-- Behavior spec → [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md), [`POPUP_SPEC.md`](../../specs/POPUP_SPEC.md)
+- Behavior spec → [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md), [`POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)
 
 ---
 

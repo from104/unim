@@ -140,5 +140,5 @@ _workspace/
 - PR #3 본체 구현: `unim-gnome-extension/hanja_popup.js`, `src/hangul/hanja_bookmark.rs`
 - DBus surface: `unim-dbus/src/service.rs` (`GetHanjaBookmarkStates`,
   `ToggleHanjaBookmark`, `HanjaBookmarkChanged`)
-- 팝업 명세: `docs/specs/POPUP_SPEC.md`
+- 팝업 명세: `docs/dev/specs/POPUP_SPEC.md`
 - 프런트엔드 목록: `unim-frontends/` (gtk3/gtk4/gtk-common/qt5/qt6/qt-common/xim/wayland)

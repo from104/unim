@@ -36,7 +36,7 @@ model: opus
 - 이모지 popup (검색 + grid)
 - preedit overlay (커서 위치 추종)
 
-명세는 `docs/specs/POPUP_SPEC.md` (변경은 엔진 매니저와 협업 + 사용자 승인 필요)
+명세는 `docs/dev/specs/POPUP_SPEC.md` (변경은 엔진 매니저와 협업 + 사용자 승인 필요)
 
 ### 4. CLI UX
 - `unim-cli --help` 출력 가독성

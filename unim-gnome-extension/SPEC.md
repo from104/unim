@@ -3,7 +3,7 @@
 > GNOME Shell 환경에서 "TypeFIX(오타 보정)" 기능과 "실시간 한글 입력(IME)" 기능을 동시에 제공하는 확장 프로그램입니다.
 > `IBus`를 거치지 않고 `Clutter.InputMethod` 서브클래스를 Clutter Backend에 직접 등록하여 네이티브 성능을 확보했습니다.
 
-> 팝업 UI(한자·특수문자)의 공통 명세는 [`../docs/specs/POPUP_SPEC.md`](../docs/specs/POPUP_SPEC.md)를 단일 원본으로 삼습니다.
+> 팝업 UI(한자·특수문자)의 공통 명세는 [`../docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md)를 단일 원본으로 삼습니다.
 > 본 문서는 GNOME Shell 고유 구현만을 다룹니다.
 
 ---
@@ -89,7 +89,7 @@ libinput → Mutter
 
 ### 2.4 한자/특수문자 팝업
 
-> UI/입력 규칙은 [`docs/specs/POPUP_SPEC.md`](../docs/specs/POPUP_SPEC.md) 단일 원본 참조.
+> UI/입력 규칙은 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) 단일 원본 참조.
 
 GNOME extension 고유 사항:
 - **표시 주체**: Wayland 세션일 때 extension이 **글로벌 signal 구독**으로 자기 context 외 프론트엔드(GTK3/4, Qt, XIM)의 팝업 시그널도 수신하여 표시 (Wayland 공통 팝업 서버 역할). X11에서는 `unim-gui-gtk`가 담당하므로 extension은 자기 context 시그널만 처리.

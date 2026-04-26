@@ -354,7 +354,7 @@ systemctl --user restart unim-daemon
 - 다른 IME와 비교 / 안정성 / 마이그레이션 → [FAQ](../faq/README-ko.md)
 - 0.2.0의 변경 내역과 마이그레이션 → [릴리즈 노트](../release-notes/0.2.0/RELEASE_NOTES-ko.md)
 - 기여하고 싶다 → [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)
-- 핵심 동작 명세 → [`IME_BEHAVIOR.md`](../../../IME_BEHAVIOR.md), [`docs/specs/POPUP_SPEC.md`](../../specs/POPUP_SPEC.md)
+- 핵심 동작 명세 → [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md), [`docs/dev/specs/POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)
 
 ---
 

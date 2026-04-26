@@ -20,7 +20,7 @@
 | `unim_special_popup.cpp` | `qt-common/src/` | 특수문자 그리드 팝업 윈도우 (Qt5/6 공용) |
 | `unim_special_popup.hpp` | `qt-common/include/` | 특수문자 팝업 API 헤더 |
 
-> 팝업 UI/조작 명세는 [`docs/specs/POPUP_SPEC.md`](../../docs/specs/POPUP_SPEC.md) 참조 (GTK/Qt 공통 규격).
+> 팝업 UI/조작 명세는 [`docs/dev/specs/POPUP_SPEC.md`](../../docs/dev/specs/POPUP_SPEC.md) 참조 (GTK/Qt 공통 규격).
 
 ### 1.2 통신 구조
 

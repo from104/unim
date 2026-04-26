@@ -41,8 +41,11 @@ package() {
     cd "$srcdir/$pkgname-$pkgver"
     make install DESTDIR="$pkgdir" PREFIX=/usr
 
-    # Man page
-    install -Dm644 docs/unim.1 "$pkgdir/usr/share/man/man1/unim.1"
+    # Man pages
+    install -Dm644 docs/man/unim.1 "$pkgdir/usr/share/man/man1/unim.1"
+    install -Dm644 docs/man/unim-cli.1 "$pkgdir/usr/share/man/man1/unim-cli.1"
+    install -Dm644 docs/man/unim-gui-gtk.1 "$pkgdir/usr/share/man/man1/unim-gui-gtk.1"
+    install -Dm644 docs/man/unim-gui-qt.1 "$pkgdir/usr/share/man/man1/unim-gui-qt.1"
 
     # License
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
