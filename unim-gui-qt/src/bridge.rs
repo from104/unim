@@ -5,6 +5,8 @@
 
 use core::pin::Pin;
 use cxx_qt::Threading;
+use cxx_qt_lib::QString;
+use rust_i18n::t;
 use std::sync::{Arc, RwLock};
 
 #[cxx_qt::bridge]
@@ -31,6 +33,16 @@ pub mod qobject {
         /// 입력 모드 변경
         #[qsignal]
         fn mode_changed(self: Pin<&mut Self>, is_korean: bool);
+
+        // ─── i18n 헬퍼 (QML에서 호출) ───
+
+        /// 모드 상태 라벨 (한국어 입력 중 / Typing English)
+        #[qinvokable]
+        fn mode_status_label(self: &UnimBridge, is_korean: bool) -> QString;
+
+        /// 앱 윈도우 타이틀
+        #[qinvokable]
+        fn window_title(self: &UnimBridge) -> QString;
     }
 
     impl cxx_qt::Initialize for UnimBridge {}
@@ -52,6 +64,23 @@ impl Default for UnimBridgeRust {
             is_korean: false,
             connected: false,
         }
+    }
+}
+
+impl qobject::UnimBridge {
+    /// 모드 상태 라벨 (한국어 입력 중 / Typing English)
+    pub fn mode_status_label(&self, is_korean: bool) -> QString {
+        let s = if is_korean {
+            t!("modepopup_status_korean")
+        } else {
+            t!("modepopup_status_english")
+        };
+        QString::from(&s.to_string())
+    }
+
+    /// 앱 윈도우 타이틀
+    pub fn window_title(&self) -> QString {
+        QString::from(&t!("qt_window_title").to_string())
     }
 }
 

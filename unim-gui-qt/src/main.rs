@@ -19,7 +19,23 @@ use unim::unim_log;
 use unim_gui_common::tray::UnimTray;
 use unim_gui_common::types::{GuiAction, IndicatorState, SETTINGS_TX};
 
+// rust-i18n 매크로 — locales 디렉토리의 ko.yml/en.yml 사용
+rust_i18n::i18n!("locales", fallback = "en");
+
+/// 시스템 LANG/LC_ALL 환경변수에서 로케일 결정
+fn init_locale() {
+    let lang = std::env::var("LC_ALL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("LC_MESSAGES").ok().filter(|s| !s.is_empty()))
+        .or_else(|| std::env::var("LANG").ok())
+        .unwrap_or_default();
+    let locale = if lang.starts_with("ko") { "ko" } else { "en" };
+    rust_i18n::set_locale(locale);
+}
+
 fn main() {
+    init_locale();
     unim_log!("INDICATOR", "UNIM Qt6 GUI 시작...");
 
     // 상태 초기화

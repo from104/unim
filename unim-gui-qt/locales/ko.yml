@@ -1,0 +1,26 @@
+# UNIM GUI Qt locale (Korean)
+# GTK GUI와 가능한 키 공유
+
+# Qt 전용 윈도우 타이틀
+qt_window_title: "UNIM"
+
+# 모드 팝업 (GTK 공유)
+modepopup_status_korean: "한국어 입력 중"
+modepopup_status_english: "영어 입력 중"
+modepopup_btn_korean_tooltip: "한국어 모드로 전환"
+modepopup_btn_english_tooltip: "영어 모드로 전환"
+modepopup_btn_open_settings: "설정 도구 열기"
+
+# 모드 (GTK 공유)
+mode_korean: "한글"
+mode_english: "영문"
+
+# 공통 (GTK 공유)
+common_ok: "확인"
+common_cancel: "취소"
+common_save: "저장"
+common_add: "추가"
+
+# Qt 전용 — 향후 알림용
+qt_tray_subprocess_started: "unim-gui-gtk --settings 기동"
+qt_tray_subprocess_failed: "unim-gui-gtk 실행 실패: %{err}"
