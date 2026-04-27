@@ -24,6 +24,59 @@ import { SpecialPopup } from './special_popup.js';
 import { EmojiPopup } from './emoji_popup.js';
 import { unimLog, unimError } from './logging.js';
 
+/**
+ * UNIM trigger 문자열 → GNOME accelerator 형식 변환
+ *
+ * 입력: `"Super+Period"`, `"Control+Shift+E"`, `"Meta+Period"` 등
+ * 출력: `"<Super>period"`, `"<Primary><Shift>e"`, `"<Super>period"`
+ *
+ * 변환 규칙:
+ *  - `+` 로 split, 토큰 trim
+ *  - modifier 매핑 (대소문자 무시):
+ *      Super/Meta/Win → `<Super>`
+ *      Control/Ctrl   → `<Primary>`
+ *      Alt            → `<Alt>`
+ *      Shift          → `<Shift>`
+ *  - 마지막 비-modifier 토큰은 lowercase로 (Period → period)
+ *  - 비-modifier 토큰이 정확히 1개여야 함
+ *  - 빈 문자열 / 알 수 없는 토큰 / 비-modifier 0개 또는 2개 이상 → null
+ *
+ * @param {string} trigger
+ * @returns {string|null}
+ */
+export function triggerToAccelerator(trigger) {
+    if (typeof trigger !== 'string') return null;
+    const parts = trigger.split('+').map(s => s.trim()).filter(s => s.length > 0);
+    if (parts.length === 0) return null;
+
+    const modMap = {
+        super: '<Super>',
+        meta: '<Super>',
+        win: '<Super>',
+        control: '<Primary>',
+        ctrl: '<Primary>',
+        alt: '<Alt>',
+        shift: '<Shift>',
+    };
+
+    const mods = [];
+    let key = null;
+
+    for (const tok of parts) {
+        const lower = tok.toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(modMap, lower)) {
+            mods.push(modMap[lower]);
+        } else {
+            // 비-modifier 토큰은 1개만 허용
+            if (key !== null) return null;
+            key = lower;
+        }
+    }
+
+    if (!key || key.length === 0) return null;
+    return mods.join('') + key;
+}
+
 export default class UnimExtension extends Extension {
     constructor(metadata) {
         super(metadata);
@@ -49,6 +102,12 @@ export default class UnimExtension extends Extension {
 
         // TypeFIX 상태
         this._conversionInProgress = false;
+
+        // 이모지 팝업 accelerator (compositor-only Wayland 우회)
+        /** @type {number[]} grab_accelerator로 받은 action_id 목록 */
+        this._emojiAcceleratorIds = [];
+        /** @type {number} display 'accelerator-activated' 시그널 핸들러 ID */
+        this._emojiAcceleratorSignalId = 0;
     }
 
     enable() {
@@ -286,7 +345,15 @@ export default class UnimExtension extends Extension {
                 },
             });
 
-            // 7. 포커스 감시 시작
+            // 7. 이모지 팝업 단축키 등록 (Wayland compositor 우회)
+            //    config.engine.emoji_popup 를 읽어 grab_accelerator로 전역 캡처
+            this._grabEmojiAccelerator();
+            //    Config 변경 시 재바인드 (trigger_keys / enabled 갱신)
+            this._dbusIME.setOnConfigChanged(() => {
+                this._rebindEmojiAccelerator();
+            });
+
+            // 8. 포커스 감시 시작
             this._focusWindowId = global.display.connect(
                 'notify::focus-window',
                 this._onFocusWindowChanged.bind(this)
@@ -332,6 +399,9 @@ export default class UnimExtension extends Extension {
     _cleanupIME() {
         // 인디케이터 비활성
         if (this._indicator) this._indicator.setInputActive(false);
+
+        // 이모지 팝업 accelerator 해제
+        this._ungrabEmojiAccelerator();
 
         // 포커스 감시 해제
         if (this._focusWindowId > 0) {
@@ -550,6 +620,112 @@ export default class UnimExtension extends Extension {
     // ===========================================
     // TypeFIX 기능 (기존 유지)
     // ===========================================
+
+    // ===========================================
+    // 이모지 팝업 단축키 (compositor-only Wayland 우회)
+    // ===========================================
+
+    /**
+     * 이모지 팝업 trigger를 `global.display.grab_accelerator`로 전역 캡처.
+     *
+     * GNOME Wayland에서 IM 모듈은 Super 조합 키를 받지 못한다(compositor가 가로챔).
+     * extension에서 직접 캡처해 데몬에 `TriggerAction("emoji_popup")`를 전달.
+     *
+     * Config(`engine.emoji_popup`):
+     *   - `enabled: bool` - false이면 등록 skip
+     *   - `trigger_keys: string[]` - 예: `["Super+Period"]`
+     *
+     * @private
+     */
+    _grabEmojiAccelerator() {
+        // 항상 깨끗한 상태에서 시작
+        this._ungrabEmojiAccelerator();
+
+        const cfg = this._dbusIME?.getCachedConfig();
+        const popup = cfg?.engine?.emoji_popup;
+        if (!popup) {
+            unimLog('EXTENSION', 'emoji_popup config 없음 — accelerator 등록 skip');
+            return;
+        }
+        if (popup.enabled === false) {
+            unimLog('EXTENSION', 'emoji_popup.enabled=false — accelerator 등록 skip');
+            return;
+        }
+        const triggers = Array.isArray(popup.trigger_keys) ? popup.trigger_keys : [];
+        if (triggers.length === 0) {
+            unimLog('EXTENSION', 'emoji_popup.trigger_keys 비어있음 — accelerator 등록 skip');
+            return;
+        }
+
+        for (const trigger of triggers) {
+            const accel = triggerToAccelerator(trigger);
+            if (!accel) {
+                unimError('EXTENSION', `이모지 단축키 변환 실패: '${trigger}' — skip`);
+                continue;
+            }
+
+            let actionId = 0;
+            try {
+                actionId = global.display.grab_accelerator(accel, Meta.KeyBindingFlags.NONE);
+            } catch (e) {
+                unimError('EXTENSION', `grab_accelerator(${accel}) 예외: ${e.message}`);
+                continue;
+            }
+
+            if (!actionId || actionId === 0) {
+                unimError('EXTENSION', `grab_accelerator(${accel}) 실패 (이미 점유?) — skip`);
+                continue;
+            }
+
+            this._emojiAcceleratorIds.push(actionId);
+            unimLog('EXTENSION', `이모지 단축키 등록: '${trigger}' → '${accel}' (id=${actionId})`);
+        }
+
+        // accelerator-activated 시그널은 한 번만 구독 (action_id 분기 처리)
+        if (this._emojiAcceleratorIds.length > 0 && this._emojiAcceleratorSignalId === 0) {
+            this._emojiAcceleratorSignalId = global.display.connect(
+                'accelerator-activated',
+                (_display, actionId, _deviceId, _timestamp) => {
+                    if (!this._emojiAcceleratorIds.includes(actionId)) return;
+                    unimLog('EXTENSION', `이모지 단축키 활성: id=${actionId} → TriggerAction(emoji_popup)`);
+                    this._dbusIME?.triggerAction('emoji_popup');
+                }
+            );
+        }
+    }
+
+    /**
+     * 등록된 이모지 accelerator를 모두 해제.
+     * @private
+     */
+    _ungrabEmojiAccelerator() {
+        if (this._emojiAcceleratorSignalId > 0) {
+            try {
+                global.display.disconnect(this._emojiAcceleratorSignalId);
+            } catch (_e) {
+                // disconnect 실패 무시
+            }
+            this._emojiAcceleratorSignalId = 0;
+        }
+
+        for (const id of this._emojiAcceleratorIds) {
+            try {
+                global.display.ungrab_accelerator(id);
+            } catch (e) {
+                unimError('EXTENSION', `ungrab_accelerator(${id}) 실패: ${e.message}`);
+            }
+        }
+        this._emojiAcceleratorIds = [];
+    }
+
+    /**
+     * Config 변경 시 이모지 accelerator 재바인드.
+     * @private
+     */
+    _rebindEmojiAccelerator() {
+        unimLog('EXTENSION', '이모지 accelerator 재바인드 (config 변경)');
+        this._grabEmojiAccelerator();
+    }
 
     _bindAllShortcuts() {
         this._unbindAllShortcuts();

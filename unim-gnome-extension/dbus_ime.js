@@ -856,6 +856,43 @@ export class UnimDbusIME {
     // 설정 조회
     // ===========================================
 
+    // ===========================================
+    // 글로벌 액션 트리거 (compositor-only 단축키 우회)
+    // ===========================================
+
+    /**
+     * 글로벌 액션 트리거 (TriggerAction RPC)
+     *
+     * GNOME Shell extension이 `global.display.grab_accelerator()`로
+     * 캡처한 단축키를 데몬에 전달하기 위한 비차단 best-effort 호출.
+     * 응답 reply type이 없는 RPC이므로 reply 파싱 생략, 성공/실패 무시.
+     *
+     * 사용 예: `triggerAction('emoji_popup')` →
+     * 데몬이 popup_mode/cursor_rect 게이트를 검사 후 ShowEmojiPopup signal 발행.
+     *
+     * @param {string} name - 액션 이름 (예: 'emoji_popup')
+     */
+    triggerAction(name) {
+        if (!this._imProxy) return;
+        if (typeof name !== 'string' || name.length === 0) {
+            unimError('DBUS_IME', 'triggerAction: name 비어있음');
+            return;
+        }
+
+        try {
+            this._imProxy.call_sync(
+                'TriggerAction',
+                new GLib.Variant('(s)', [name]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            unimLog('DBUS_IME', `TriggerAction(${name}) 호출 완료`);
+        } catch (e) {
+            unimError('DBUS_IME', `TriggerAction(${name}) 실패: ${e.message}`);
+        }
+    }
+
     /**
      * 설정 값 조회
      * @param {string} key - 설정 키
