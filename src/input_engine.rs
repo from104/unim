@@ -921,6 +921,12 @@ impl InputEngine {
     }
 
     /// 한국어 레이아웃을 설정합니다.
+    ///
+    /// `InputEngine::new`의 초기화 경로와 동일하게 v1 builder
+    /// (`build_korean_context`)를 거쳐 `HangulInputContext`를 만든다.
+    /// 단독 setter 경로에서는 `Config`를 받지 않으므로 `active_rule_sets`는
+    /// 빈 vec로 두어 프로필이 정의한 기본값을 사용한다. `active_rule_sets`까지
+    /// 함께 갱신하려면 `rebuild_korean_context(&Config)` 사용.
     pub fn set_korean_layout(&mut self, layout: KoreanLayout) {
         if self.korean_layout != layout {
             self.flush_preedit();
@@ -928,15 +934,47 @@ impl InputEngine {
             // 키보드 맵 업데이트
             self.keyboard_map = Some(Self::create_keyboard_map(&layout, &self.english_layout));
 
-            // 컨텍스트 업데이트
+            // 컨텍스트 업데이트 — v1 builder 경로로 통일
             let composer_type = if crate::config::is_sebeolsik_layout(&layout) {
                 ComposerType::ThreeBul
             } else {
                 ComposerType::TwoBul
             };
-            self.korean_context = HangulInputContext::new(composer_type);
+            let mut snapshot = Config::default();
+            snapshot.engine.korean.layout = layout.clone();
+            snapshot.engine.korean.active_rule_sets.clear();
+            self.korean_context = build_korean_context(&snapshot, composer_type);
             self.korean_layout = layout;
         }
+    }
+
+    /// Config 전체로부터 한국어 컨텍스트를 재구성합니다.
+    ///
+    /// `set_korean_layout`이 layout 변경만 처리하는 반면, 본 메서드는
+    /// `active_rule_sets`/`combinations` 등 v1 프로필 관련 필드 변경 시에도
+    /// `build_korean_context` 빌더로 컨텍스트를 다시 만들어 즉시 반영한다.
+    /// hot-reload 경로(`engine_worker`)에서 `reload_if_changed` 직후 호출.
+    ///
+    /// 다른 상태(`hanja_dict`/`hanja_bookmarks`/`input_category` 등)는 보존.
+    pub fn rebuild_korean_context(&mut self, config: &Config) {
+        self.flush_preedit();
+
+        let new_layout = config.engine.korean.layout.clone();
+        let composer_type = if crate::config::is_sebeolsik_layout(&new_layout) {
+            ComposerType::ThreeBul
+        } else {
+            ComposerType::TwoBul
+        };
+
+        // 키맵 갱신 (layout 동일이어도 영어 레이아웃과 짝이 맞도록 안전하게 재생성)
+        self.keyboard_map = Some(Self::create_keyboard_map(
+            &new_layout,
+            &self.english_layout,
+        ));
+
+        // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
+        self.korean_context = build_korean_context(config, composer_type);
+        self.korean_layout = new_layout;
     }
 
     /// 영어 레이아웃을 설정합니다.
@@ -2655,5 +2693,52 @@ mod tests {
         };
         engine.press_key(KeyCode::E, ctrl_shift, &config);
         assert!(matches!(engine.take_popup_action(), Some(PopupAction::ShowEmoji)));
+    }
+
+    // === v1 프로필/active_rule_sets hot-rebuild 회귀 방지 ===
+
+    /// T2-A: `set_korean_layout` 단독 호출이 v1 builder 경로(`build_korean_context`)를
+    /// 거쳐 컨텍스트를 새로 만든다. 이전에는 `HangulInputContext::new(composer_type)`로
+    /// v1 프로필을 우회했음. 본 테스트는 panic 없이 layout이 갱신됨을 보장.
+    #[test]
+    fn test_set_korean_layout_routes_through_v1_builder() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_2bulstd".to_string();
+        let mut engine = InputEngine::new(&config);
+        assert_eq!(engine.korean_layout, "ko_2bulstd");
+
+        engine.set_korean_layout("ko_3bul_qwerty".to_string());
+        assert_eq!(engine.korean_layout, "ko_3bul_qwerty");
+        // 컨텍스트가 ThreeBul composer로 재생성되어야 함
+        assert!(crate::config::is_sebeolsik_layout(&engine.korean_layout));
+    }
+
+    /// T2-A': `rebuild_korean_context`가 layout 동일 + active_rule_sets만 다른 경우에도
+    /// 컨텍스트를 다시 만든다. 이전에는 hot-reload가 layout-only 비교라 누락됐음.
+    #[test]
+    fn test_rebuild_korean_context_applies_active_rule_sets() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_3bul390".to_string();
+        let mut engine = InputEngine::new(&config);
+        assert_eq!(engine.korean_layout, "ko_3bul390");
+
+        // active_rule_sets만 변경 — layout은 동일
+        config.engine.korean.active_rule_sets = vec!["nonexistent_set".to_string()];
+        // panic 없이 통과해야 하며, rule_set이 없어도 폴백 경로로 컨텍스트가 살아 있어야 함
+        engine.rebuild_korean_context(&config);
+        assert_eq!(engine.korean_layout, "ko_3bul390");
+    }
+
+    /// T2-C: `rebuild_korean_context`가 layout 변경도 정상 처리한다.
+    #[test]
+    fn test_rebuild_korean_context_handles_layout_change() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_2bulstd".to_string();
+        let mut engine = InputEngine::new(&config);
+        assert_eq!(engine.korean_layout, "ko_2bulstd");
+
+        config.engine.korean.layout = "ko_3bul_qwerty".to_string();
+        engine.rebuild_korean_context(&config);
+        assert_eq!(engine.korean_layout, "ko_3bul_qwerty");
     }
 }
