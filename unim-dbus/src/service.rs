@@ -1279,6 +1279,14 @@ impl InputContextHandler {
     /// 이모지 팝업 표시 시그널 (Super+. 트리거)
     ///
     /// GUI가 카테고리 탭/검색/즐겨찾기를 자체 관리하므로 커서 위치만 전달합니다.
+    ///
+    /// GNOME Wayland 환경에서는 컴포지터가 Super 조합 키를 가로채 IM 모듈에 도달하지
+    /// 못하므로, GNOME extension이 `global.display.grab_accelerator()`로 단축키를
+    /// 직접 캡처해 [`InputContextHandler::trigger_action`]("emoji_popup")을 호출하고,
+    /// 본 시그널이 발행되어 인디케이터/팝업 GUI가 이모지 선택 창을 띄운다.
+    ///
+    /// X11 및 IM-only 환경에서는 엔진이 키 입력을 직접 받아 처리하므로
+    /// 본 RPC 경로는 사용되지 않는다.
     #[zbus(signal)]
     async fn show_emoji_popup(
         signal_ctx: &SignalContext<'_>,
@@ -1312,6 +1320,70 @@ impl InputContextHandler {
         index: u32,
         bookmarked: bool,
     ) -> zbus::Result<()>;
+
+    // =========================================
+    // 외부 트리거 액션 (단축키 우회)
+    // =========================================
+
+    /// 외부 컴포넌트(예: GNOME Wayland extension)가 단축키 우회를 위해 발행하는
+    /// 일반화된 액션 트리거.
+    ///
+    /// GNOME Wayland 컴포지터가 `Super+.` 같은 시스템 조합 키를 가로채 IM 모듈에
+    /// 키가 도달하지 못하는 환경을 위해, extension이 `grab_accelerator()`로 직접
+    /// 단축키를 캡처한 뒤 본 RPC를 호출해 데몬에 동작을 요청한다.
+    /// X11/XIM 등 IM 모듈이 키를 직접 수신하는 환경에서는 호출되지 않는다.
+    ///
+    /// 지원 액션:
+    /// - `"emoji_popup"`: 이모지 팝업 시그널 발행. Standalone 모드에서만 발행하며
+    ///   Embedded 모드에서는 IM 모듈이 자체 처리한다 (no-op).
+    ///
+    /// 알 수 없는 액션은 경고 로그만 남기고 `Ok(())` 반환 — 향후 액션 추가 시
+    /// 구버전 데몬과 신버전 extension의 호환성을 보장한다.
+    async fn trigger_action(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        action: &str,
+    ) -> zbus::fdo::Result<()> {
+        unim_log!(
+            "DBUS",
+            "[DBus] TriggerAction: context_id={}, action='{}'",
+            self.id,
+            action
+        );
+        match action {
+            "emoji_popup" => {
+                // Standalone 모드일 때만 시그널 발행 (Embedded는 IM 모듈이 자체 처리)
+                let is_standalone = Config::load_from_default_path().engine.popup_mode
+                    == PopupMode::Standalone;
+                if !is_standalone {
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] TriggerAction(emoji_popup) skipped: Embedded 모드"
+                    );
+                    return Ok(());
+                }
+                let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
+                Self::show_emoji_popup(&signal_ctx, x, y, w, h).await.ok();
+                unim_log!(
+                    "DBUS",
+                    "[DBus] ShowEmojiPopup 시그널 발행 (trigger_action): x={}, y={}, w={}, h={}",
+                    x,
+                    y,
+                    w,
+                    h
+                );
+            }
+            // 향후 확장 지점 (예: "hanja_popup", "special_popup")
+            other => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] TriggerAction: 알 수 없는 action='{}' — 무시 (호환성 유지)",
+                    other
+                );
+            }
+        }
+        Ok(())
+    }
 
     // =========================================
     // 커서 위치 보고

@@ -114,6 +114,13 @@ trait InputContext {
     /// 반환: (삭제 문자 수, 대체 텍스트)
     fn smart_backspace(&self) -> Result<(u32, String)>;
 
+    /// 외부 단축키 우회 트리거
+    ///
+    /// GNOME Wayland 등 컴포지터가 시스템 조합 키를 가로채는 환경에서, extension
+    /// 이 단축키를 직접 캡처해 데몬에 동작을 요청할 때 사용한다.
+    /// 지원 액션: `"emoji_popup"`. 알 수 없는 액션은 데몬이 무시한다.
+    fn trigger_action(&self, action: &str) -> Result<()>;
+
     /// delete_surrounding_text 시그널
     #[zbus(signal)]
     fn delete_surrounding_text(&self, offset: i32, n_chars: u32) -> Result<()>;
@@ -145,6 +152,19 @@ trait InputContext {
         target: String,
         characters: Vec<String>,
         top_row: String,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    ) -> Result<()>;
+
+    /// 이모지 팝업 표시 시그널 (단축키 우회 트리거)
+    ///
+    /// GNOME extension 등이 [`InputContextProxy::trigger_action`]("emoji_popup")
+    /// 호출 시 데몬이 발행한다. cursor 좌표는 가장 최근 보고된 위치.
+    #[zbus(signal)]
+    fn show_emoji_popup(
+        &self,
         cursor_x: i32,
         cursor_y: i32,
         cursor_width: i32,
