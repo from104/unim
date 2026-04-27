@@ -91,6 +91,7 @@ mode_sharing_changed: "모드 공유 방식을 '%{mode}'(으)로 변경했습니
 # 한국어 활성 규칙 세트 (Phase 4a)
 korean_active_rule_sets_label: "활성 규칙 세트"
 profile_default: "(프로필 기본값)"
+korean_active_rule_sets_all_off: "(모두 끔)"
 
 # 공통
 error_label: "오류"

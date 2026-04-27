@@ -925,7 +925,7 @@ impl InputEngine {
     /// `InputEngine::new`의 초기화 경로와 동일하게 v1 builder
     /// (`build_korean_context`)를 거쳐 `HangulInputContext`를 만든다.
     /// 단독 setter 경로에서는 `Config`를 받지 않으므로 `active_rule_sets`는
-    /// 빈 vec로 두어 프로필이 정의한 기본값을 사용한다. `active_rule_sets`까지
+    /// `None`으로 두어 프로필이 정의한 기본값을 사용한다. `active_rule_sets`까지
     /// 함께 갱신하려면 `rebuild_korean_context(&Config)` 사용.
     pub fn set_korean_layout(&mut self, layout: KoreanLayout) {
         if self.korean_layout != layout {
@@ -942,7 +942,7 @@ impl InputEngine {
             };
             let mut snapshot = Config::default();
             snapshot.engine.korean.layout = layout.clone();
-            snapshot.engine.korean.active_rule_sets.clear();
+            snapshot.engine.korean.active_rule_sets = None;
             self.korean_context = build_korean_context(&snapshot, composer_type);
             self.korean_layout = layout;
         }
@@ -1657,9 +1657,12 @@ fn build_korean_context(config: &Config, fallback_type: ComposerType) -> HangulI
         }
     };
 
-    // Config의 active_rule_sets가 비어 있지 않으면 프로필 값을 override (§3.1).
-    if !config.engine.korean.active_rule_sets.is_empty() {
-        resolved.active_rule_sets = Some(config.engine.korean.active_rule_sets.clone());
+    // Config의 active_rule_sets가 `Some(_)`이면 프로필 값을 override (§3.1).
+    // 의미 일치:
+    //   None         → 프로필 기본값(rule_sets.<name>.active 그대로) 사용
+    //   Some(list)   → 명시적 활성 목록 (빈 list 포함, 빈 list = 모두 OFF)
+    if let Some(list) = config.engine.korean.active_rule_sets.as_ref() {
+        resolved.active_rule_sets = Some(list.clone());
     }
 
     match HangulInputContext::new_with_profile(&resolved) {
@@ -2723,7 +2726,7 @@ mod tests {
         assert_eq!(engine.korean_layout, "ko_3bul390");
 
         // active_rule_sets만 변경 — layout은 동일
-        config.engine.korean.active_rule_sets = vec!["nonexistent_set".to_string()];
+        config.engine.korean.active_rule_sets = Some(vec!["nonexistent_set".to_string()]);
         // panic 없이 통과해야 하며, rule_set이 없어도 폴백 경로로 컨텍스트가 살아 있어야 함
         engine.rebuild_korean_context(&config);
         assert_eq!(engine.korean_layout, "ko_3bul390");
@@ -2740,5 +2743,26 @@ mod tests {
         config.engine.korean.layout = "ko_3bul_qwerty".to_string();
         engine.rebuild_korean_context(&config);
         assert_eq!(engine.korean_layout, "ko_3bul_qwerty");
+    }
+
+    /// builder의 3분기(None / Some(vec![]) / Some(vec![name])) 모두 panic 없이
+    /// 컨텍스트를 만들어야 한다. 의미는 builder 단위 테스트가 따로 검증하지만,
+    /// 본 테스트는 `build_korean_context` 호출 경로가 Option 타입을 그대로
+    /// 받아들이는 것을 보장한다.
+    #[test]
+    fn test_build_korean_context_accepts_three_active_rule_sets_variants() {
+        // None — 미설정, 프로필 기본값 사용
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_3bul390".to_string();
+        config.engine.korean.active_rule_sets = None;
+        let _ = InputEngine::new(&config);
+
+        // Some(vec![]) — 사용자가 모두 OFF
+        config.engine.korean.active_rule_sets = Some(Vec::new());
+        let _ = InputEngine::new(&config);
+
+        // Some(vec!["unknown"]) — 존재하지 않는 이름은 silently drop, 폴백 안전
+        config.engine.korean.active_rule_sets = Some(vec!["__nonexistent__".to_string()]);
+        let _ = InputEngine::new(&config);
     }
 }

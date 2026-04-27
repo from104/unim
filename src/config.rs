@@ -458,16 +458,23 @@ pub struct KoreanConfig {
     pub layout: KoreanLayout,
     /// 활성 규칙 세트 이름 목록 (자판 프로필 v1 — `docs/plans/LAYOUT_PROFILE_V1.md` §3.5).
     ///
-    /// - 빈 목록 = 프로필 기본값 사용(각 `rule_sets.<name>.active` 그대로).
-    /// - 비어 있지 않으면 이 이름들만 활성, 나머지는 강제 off.
-    pub active_rule_sets: Vec<String>,
+    /// engine 측 `LayoutProfile.active_rule_sets`(Option<Vec<String>>) 의미와 일치:
+    /// - `None` = 미설정. 프로필 기본값 사용(각 `rule_sets.<name>.active` 그대로).
+    /// - `Some(list)` = 명시적 활성 목록. 목록에 있는 이름만 active, 나머지 강제 off.
+    /// - `Some(vec![])` = 사용자가 모든 규칙 세트를 끔(All OFF). 프로필 기본값으로
+    ///   되돌리지 **않으며** 이 의도가 그대로 유지된다.
+    ///
+    /// `None`은 `serde(skip_serializing_if = "Option::is_none")`로 YAML에서 필드 자체가
+    /// 누락된다(기본 상태에서 config.yaml이 깔끔). `Some(vec![])`은 `[]`로 명시 저장.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_rule_sets: Option<Vec<String>>,
 }
 
 impl Default for KoreanConfig {
     fn default() -> Self {
         Self {
             layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
-            active_rule_sets: Vec::new(),
+            active_rule_sets: None,
         }
     }
 }
@@ -494,8 +501,10 @@ struct KoreanConfigCompat {
     layout: String,
     preedit_johab: bool,
     word_commit: bool,
+    /// `serde(default)` + `Option<Vec<String>>` — YAML에 키 자체가 없으면 `None`,
+    /// 있으면 `Some(...)` (빈 list `[]` 포함, 이는 "모두 OFF" 의도).
     #[serde(default)]
-    active_rule_sets: Vec<String>,
+    active_rule_sets: Option<Vec<String>>,
     /// 레거시 override 필드 — Some이면 `layout`을 덮어씀. 본 통합 이후 제거됨.
     #[serde(default)]
     custom_layout: Option<String>,
@@ -507,7 +516,7 @@ impl Default for KoreanConfigCompat {
             layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
             preedit_johab: false,
             word_commit: false,
-            active_rule_sets: Vec::new(),
+            active_rule_sets: None,
             custom_layout: None,
         }
     }
@@ -1013,11 +1022,69 @@ mod tests {
     fn korean_config_serde_roundtrips_rule_sets() {
         let mut kc = KoreanConfig::default();
         kc.layout = "ko_3bul_qwerty".to_string();
-        kc.active_rule_sets = vec!["set_a".to_string(), "set_b".to_string()];
+        kc.active_rule_sets = Some(vec!["set_a".to_string(), "set_b".to_string()]);
         let yaml = serde_yaml::to_string(&kc).unwrap();
         let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(back.layout, "ko_3bul_qwerty");
-        assert_eq!(back.active_rule_sets, vec!["set_a", "set_b"]);
+        assert_eq!(
+            back.active_rule_sets,
+            Some(vec!["set_a".to_string(), "set_b".to_string()])
+        );
+    }
+
+    /// `Some(vec![])` = "사용자가 모든 규칙 세트를 끔" 의도가 round-trip에서 보존되어야 한다.
+    /// (이전 Vec<String> 시절에는 빈 vec → 프로필 기본값 fallback이라 의도가 손실되던 버그.)
+    #[test]
+    fn korean_config_serde_roundtrips_explicit_all_off() {
+        let mut kc = KoreanConfig::default();
+        kc.active_rule_sets = Some(Vec::new());
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(
+            back.active_rule_sets,
+            Some(Vec::<String>::new()),
+            "Some(vec![])는 명시적 All OFF 의도, round-trip 보존 필수"
+        );
+    }
+
+    /// `None`은 직렬화 시 YAML 필드 자체가 누락된다(`skip_serializing_if`).
+    #[test]
+    fn korean_config_none_skips_field_in_yaml() {
+        let kc = KoreanConfig::default();
+        assert!(kc.active_rule_sets.is_none());
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        assert!(
+            !yaml.contains("active_rule_sets"),
+            "None일 때 active_rule_sets 키가 직렬화 결과에 없어야 함: {yaml}"
+        );
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.active_rule_sets, None);
+    }
+
+    /// 레거시 YAML(필드 부재) → `None` (프로필 기본값 사용).
+    #[test]
+    fn korean_config_legacy_missing_field_is_none() {
+        let yaml = r#"
+layout: ko_2bulstd
+preedit_johab: false
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.active_rule_sets, None);
+    }
+
+    /// 명시적 빈 list (`active_rule_sets: []`)는 `Some(vec![])`로 로드되어
+    /// "모두 OFF" 의도로 해석된다.
+    #[test]
+    fn korean_config_explicit_empty_list_is_some_empty() {
+        let yaml = r#"
+layout: ko_2bulstd
+preedit_johab: false
+word_commit: false
+active_rule_sets: []
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.active_rule_sets, Some(Vec::<String>::new()));
     }
 
     #[test]
@@ -1030,7 +1097,7 @@ word_commit: false
 "#;
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(kc.layout, "ko_2bulstd");
-        assert!(kc.active_rule_sets.is_empty());
+        assert_eq!(kc.active_rule_sets, None);
         assert_eq!(kc.effective_layout_name(), "ko_2bulstd");
     }
 

@@ -577,7 +577,13 @@ impl InputMethodService {
             },
             "toggle_keys" => config.engine.toggle_keys.join(","),
             "hanja_keys" => config.engine.hanja_keys.join(","),
-            "korean_active_rule_sets" => config.engine.korean.active_rule_sets.join(","),
+            "korean_active_rule_sets" => match &config.engine.korean.active_rule_sets {
+                // None → "default" sentinel (프로필 기본값 사용)
+                None => "default".to_string(),
+                // Some(vec![]) → "" (사용자 명시 All OFF)
+                // Some(list)   → "a,b,c"
+                Some(list) => list.join(","),
+            },
             // Phase 8: korean_custom_layout 필드 폐지. korean_layout이 이제 프로필 이름
             // 문자열을 직접 담는다. 호환성 — 구 클라이언트가 이 키로 조회 시 동일값 반환.
             "korean_custom_layout" => config.engine.korean.layout.clone(),
@@ -684,13 +690,21 @@ impl InputMethodService {
                     config.engine.hanja_keys = keys;
                 }
                 "korean_active_rule_sets" => {
-                    // 빈 문자열 허용 → 빈 Vec = 프로필 기본값 사용 (§3.1).
-                    let names: Vec<String> = value
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    config.engine.korean.active_rule_sets = names;
+                    // value 의미 (CLI ConfigKey::KoreanActiveRuleSets와 동치):
+                    //   "default" → None (프로필 기본값 사용)
+                    //   ""        → Some(vec![]) (사용자 명시 All OFF)
+                    //   "a,b,c"   → Some(vec!["a","b","c"])
+                    let trimmed = value.trim();
+                    if trimmed.eq_ignore_ascii_case("default") {
+                        config.engine.korean.active_rule_sets = None;
+                    } else {
+                        let names: Vec<String> = trimmed
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        config.engine.korean.active_rule_sets = Some(names);
+                    }
                 }
                 "korean_custom_layout" => {
                     // Phase 8 호환: custom_layout 필드는 폐지되고 korean_layout이 문자열

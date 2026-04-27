@@ -490,11 +490,13 @@ fn config_show() {
         config.engine.korean.layout
     );
     {
-        let arr = &config.engine.korean.active_rule_sets;
-        let display = if arr.is_empty() {
-            t!("profile_default").to_string()
-        } else {
-            arr.join(", ")
+        // None         → 프로필 기본값 사용
+        // Some(vec![]) → 사용자가 명시적으로 모두 OFF
+        // Some(list)   → 명시 활성 목록
+        let display = match &config.engine.korean.active_rule_sets {
+            None => t!("profile_default").to_string(),
+            Some(list) if list.is_empty() => t!("korean_active_rule_sets_all_off").to_string(),
+            Some(list) => list.join(", "),
         };
         println!("{}: {}", t!("korean_active_rule_sets_label"), display);
     }
@@ -658,18 +660,27 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             config.engine.english.layout = normalized;
         }
         ConfigKey::KoreanActiveRuleSets => {
-            // 빈 문자열 허용 → 빈 Vec = 프로필 기본값 사용 (§3.1).
-            let names: Vec<String> = value
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            let display = if names.is_empty() {
-                t!("profile_default").to_string()
+            // value 의미 (engine `LayoutProfile.active_rule_sets`와 동치):
+            //   "default" sentinel → None, 프로필 기본값 사용
+            //   "" (빈 문자열)      → Some(vec![]), 사용자 명시적 All OFF
+            //   "a,b,c"           → Some(vec!["a","b","c"]), 명시 활성 목록
+            let trimmed = value.trim();
+            let (new_value, display) = if trimmed.eq_ignore_ascii_case("default") {
+                (None, t!("profile_default").to_string())
             } else {
-                names.join(", ")
+                let names: Vec<String> = trimmed
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let disp = if names.is_empty() {
+                    t!("korean_active_rule_sets_all_off").to_string()
+                } else {
+                    names.join(", ")
+                };
+                (Some(names), disp)
             };
-            config.engine.korean.active_rule_sets = names;
+            config.engine.korean.active_rule_sets = new_value;
             println!("{}: {}", t!("korean_active_rule_sets_label"), display);
         }
         ConfigKey::DefaultCategory => {

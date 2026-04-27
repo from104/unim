@@ -267,12 +267,10 @@ fn collect_korean_profile_choices() -> Vec<(String, String)> {
 /// 새 프로필에 정의되지 않은 `active_rule_sets` 이름은 silently drop (§3.5).
 fn apply_korean_profile_choice(config: &mut Config, name: &str, new_profile: &LayoutProfile) {
     config.engine.korean.layout = unim::config::normalize_korean_layout_name(name);
-    // 새 프로필에 없는 rule_set 이름 드롭.
-    config
-        .engine
-        .korean
-        .active_rule_sets
-        .retain(|n| new_profile.rule_sets.contains_key(n));
+    // 새 프로필에 없는 rule_set 이름 드롭. None(미설정)은 그대로 둔다.
+    if let Some(list) = config.engine.korean.active_rule_sets.as_mut() {
+        list.retain(|n| new_profile.rule_sets.contains_key(n));
+    }
 }
 
 /// 레지스트리에서 프로필을 찾아 inherits까지 해석한다. 실패 시 `None`.
@@ -307,6 +305,25 @@ impl RuleSetsHandle {
             self.group.set_description(Some(&t!("group_layout_options_title")));
         }
 
+        // 현재 GUI에 표시 중인 활성 집합을 미리 계산 — 첫 토글 시
+        // `None → Some(vec)` 초기화의 시드로 쓴다. config가 None일 때 사용자가 한
+        // 개를 끄면 *현재 표시 상태*에서 그것만 빠지는 것이 자연스러운 의미이므로,
+        // profile_default 또는 rs.active로부터 도출한 활성 집합을 캡처한다.
+        // `Rc`로 감싸 모든 행 콜백이 값-복제 비용 없이 공유한다.
+        let initial_active_seed: Rc<Vec<String>> = {
+            let mut acc = Vec::new();
+            for (n, rs) in &profile.rule_sets {
+                let on = match profile_default {
+                    Some(list) => list.contains(n),
+                    None => rs.active,
+                };
+                if on {
+                    acc.push(n.clone());
+                }
+            }
+            Rc::new(acc)
+        };
+
         for (set_name, rs) in &profile.rule_sets {
             let title = rs
                 .description
@@ -319,26 +336,36 @@ impl RuleSetsHandle {
                 .build();
             row.set_tooltip_text(Some(t!("row_rule_sets_label").as_ref()));
 
-            // active 계산: config override 비어 있지 않으면 config 값, 아니면
-            // 프로필의 active_rule_sets 또는 rule_set.active.
-            let is_active = if !config_active.is_empty() {
-                config_active.contains(set_name)
-            } else if let Some(list) = profile_default {
-                list.contains(set_name)
-            } else {
-                rs.active
+            // active 계산:
+            //   Some(list) → 명시 override (빈 list면 모두 false)
+            //   None       → 프로필의 active_rule_sets 또는 rule_set.active
+            let is_active = match &config_active {
+                Some(list) => list.contains(set_name),
+                None => match profile_default {
+                    Some(list) => list.contains(set_name),
+                    None => rs.active,
+                },
             };
             row.set_active(is_active);
 
             let state_c = state.clone();
             let name_c = set_name.clone();
+            let seed = initial_active_seed.clone();
             row.connect_active_notify(move |r| {
                 let mut s = state_c.borrow_mut();
                 if s.updating {
                     return;
                 }
                 let on = r.is_active();
-                let list = &mut s.config.engine.korean.active_rule_sets;
+                // 첫 토글 시 None → Some(현재 표시 중 활성 집합)으로 "고정".
+                // 이후 사용자의 모든 토글이 명시 override로 저장되어, 모두 OFF
+                // 의도(`Some(vec![])`)도 손실 없이 보존된다.
+                let list = s
+                    .config
+                    .engine
+                    .korean
+                    .active_rule_sets
+                    .get_or_insert_with(|| (*seed).clone());
                 if on {
                     if !list.contains(&name_c) {
                         list.push(name_c.clone());

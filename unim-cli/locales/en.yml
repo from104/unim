@@ -90,6 +90,7 @@ mode_sharing_changed: "Changed mode sharing to '%{mode}'."
 # Korean active rule sets (Phase 4a)
 korean_active_rule_sets_label: "Active Rule Sets"
 profile_default: "(profile default)"
+korean_active_rule_sets_all_off: "(all off)"
 
 # Common
 error_label: "Error"
