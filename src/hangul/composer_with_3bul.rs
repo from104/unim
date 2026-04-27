@@ -45,12 +45,10 @@ fn check_3bul_violation(base: &mut BaseHangulComposer) -> Option<Compose3BulViol
     let is_filled_jung = base.current_korean().is_filled_jung();
 
     match (prev, last) {
-        // 규칙 1: 중성 없이 종성이 오는 경우
-        (_, l)
-            if l.is_jong()
-                && !is_filled_jung
-                && (prev.is_none() || prev.is_some_and(|p| p.is_cho())) =>
-        {
+        // 규칙 1: 초성 다음에 중성 없이 바로 종성이 오는 경우
+        // (큐에 단독 종성만 있는 경우는 새 음절의 종성을 단독 자음으로 표시하므로
+        //  위반이 아니다 — preedit에 종성 호환 자모가 즉시 표시되도록 함)
+        (Some(p), l) if l.is_jong() && !is_filled_jung && p.is_cho() => {
             Some(Compose3BulViolation::JongWithoutJung)
         }
         // 규칙 2: 중성이나 종성 다음에 초성이 오는 경우
@@ -207,6 +205,21 @@ mod tests {
         let committed = c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
         // ㄱ이 커밋되고 새 음절 시작 (종성만)
         let _ = committed;
+        // 새 음절의 jong이 정상적으로 설정되어 있어야 함 (preedit 표시용)
+        assert_eq!(c.get_current_jong(), Some(Jong::Giyeok));
+    }
+
+    #[test]
+    fn test_3bul_jong_first_input() {
+        // 처음부터 종성을 입력 → 단독 자음으로 새 음절 시작
+        // (preedit에 ㄱ이 표시되어야 하고, 강제 commit 시에도 ㄱ이 나와야 함)
+        let mut c = HangulComposer3Bul::new();
+        let committed = c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        assert_eq!(committed, None); // 이전 음절 없음
+        assert_eq!(c.get_current_jong(), Some(Jong::Giyeok));
+        // force compose 시 종성 호환 자모가 결과로 나와야 함
+        let ch = c.force_compose_korean();
+        assert_eq!(ch, Some('ㄱ'));
     }
 
     #[test]
