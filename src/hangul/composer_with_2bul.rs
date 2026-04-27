@@ -1,5 +1,10 @@
 // composer_with_2bul.rs
 //! 두벌식 한글 입력 방식의 조합 로직을 구현합니다.
+//!
+//! 0.2.0+: Rust const 자모 조합 테이블(JUNG_COMBINATIONS / JONG_COMBINATIONS)과
+//! Lazy static `COMBINED_JAMO_2BUL`을 모두 제거. `new()`는 내장 v1 프로필
+//! `ko_2bulstd`를 즉시 로드해 `new_with_profile`로 위임한다. 자모 조합 규칙의
+//! 단일 source of truth는 `src/keystroke/keymap/ko_2bulstd.json`.
 
 use crate::hangul::HangulChar;
 use crate::hangul::composer::BaseHangulComposer;
@@ -7,62 +12,7 @@ use crate::hangul::composer::CombinedJamoMap;
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::jamo::*;
 
-// Compatibility aliases for submodule access
-use once_cell::sync::Lazy;
-use std::collections::{HashMap, VecDeque};
-
-// ============================================================================
-// 자모 조합 규칙 정의 (배열 기반)
-// ============================================================================
-
-/// 중성 조합 규칙: (첫째 모음, 둘째 모음) => 결과 모음
-const JUNG_COMBINATIONS: &[(Jung, Jung, Jung)] = &[
-    (Jung::O, Jung::A, Jung::Wa),   // ㅗ + ㅏ = ㅘ
-    (Jung::O, Jung::Ae, Jung::Wae), // ㅗ + ㅐ = ㅙ
-    (Jung::O, Jung::I, Jung::Oe),   // ㅗ + ㅣ = ㅚ
-    (Jung::U, Jung::Eo, Jung::Weo), // ㅜ + ㅓ = ㅝ
-    (Jung::U, Jung::E, Jung::We),   // ㅜ + ㅔ = ㅞ
-    (Jung::U, Jung::I, Jung::Wi),   // ㅜ + ㅣ = ㅟ
-    (Jung::Eu, Jung::I, Jung::Yi),  // ㅡ + ㅣ = ㅢ
-];
-
-/// 종성 조합 규칙: (첫째 받침, 둘째 받침) => 결과 겹받침
-const JONG_COMBINATIONS: &[(Jong, Jong, Jong)] = &[
-    (Jong::Giyeok, Jong::Giyeok, Jong::SsangGiyeok), // ㄱ + ㄱ = ㄲ
-    (Jong::Giyeok, Jong::Siot, Jong::GiyeokSiot),    // ㄱ + ㅅ = ㄳ
-    (Jong::Nieun, Jong::Jieut, Jong::NieunJieut),    // ㄴ + ㅈ = ㄵ
-    (Jong::Nieun, Jong::Hieuh, Jong::NieunHieuh),    // ㄴ + ㅎ = ㄶ
-    (Jong::Rieul, Jong::Giyeok, Jong::RieulGiyeok),  // ㄹ + ㄱ = ㄺ
-    (Jong::Rieul, Jong::Mieum, Jong::RieulMieum),    // ㄹ + ㅁ = ㄻ
-    (Jong::Rieul, Jong::Bieup, Jong::RieulBieup),    // ㄹ + ㅂ = ㄼ
-    (Jong::Rieul, Jong::Siot, Jong::RieulSiot),      // ㄹ + ㅅ = ㄽ
-    (Jong::Rieul, Jong::Tieut, Jong::RieulTieut),    // ㄹ + ㅌ = ㄾ
-    (Jong::Rieul, Jong::Pieup, Jong::RieulPieup),    // ㄹ + ㅍ = ㄿ
-    (Jong::Rieul, Jong::Hieuh, Jong::RieulHieuh),    // ㄹ + ㅎ = ㅀ
-    (Jong::Bieup, Jong::Siot, Jong::BieupSiot),      // ㅂ + ㅅ = ㅄ
-    (Jong::Siot, Jong::Siot, Jong::SsangSiot),       // ㅅ + ㅅ = ㅆ
-];
-
-/// 배열 기반 조합 규칙으로 HashMap 빌드
-fn build_jamo_map() -> CombinedJamoMap {
-    let capacity = JUNG_COMBINATIONS.len() + JONG_COMBINATIONS.len();
-    let mut map = HashMap::with_capacity(capacity);
-
-    for &(a, b, c) in JUNG_COMBINATIONS {
-        map.insert((JamoEnum::Jung(a), JamoEnum::Jung(b)), JamoEnum::Jung(c));
-    }
-    for &(a, b, c) in JONG_COMBINATIONS {
-        map.insert((JamoEnum::Jong(a), JamoEnum::Jong(b)), JamoEnum::Jong(c));
-    }
-
-    map
-}
-
-/// 2벌식 자모 조합 테이블 (프로그램 시작 시 한 번만 초기화).
-///
-/// `pub(crate)` 공개 — `keystroke::profile::builder`의 v0 fallback 경로에서
-/// 이 값을 `CombinedJamoMap`의 기본값으로 클론한다.
-pub(crate) static COMBINED_JAMO_2BUL: Lazy<CombinedJamoMap> = Lazy::new(build_jamo_map);
+use std::collections::VecDeque;
 
 // ============================================================================
 // 2벌식 조합 규칙 검사 헬퍼
@@ -129,19 +79,21 @@ pub struct HangulComposer2Bul {
 
 impl HangulComposer2Bul {
     /// 새로운 `HangulComposer2Bul` 인스턴스를 생성합니다.
+    ///
+    /// 내장 v1 프로필 `ko_2bulstd`(자기 완결 JSON)를 로드해 `new_with_profile`에
+    /// 위임한다. JSON은 `src/keystroke/keymap/ko_2bulstd.json`이 단일 source of
+    /// truth이며, 빌드 시 `include_str!`로 임베드되므로 런타임 I/O 없음.
     pub fn new() -> Self {
-        let mut composer = HangulComposer2Bul {
-            base_composer: BaseHangulComposer::new(),
-        };
-        *composer.base_composer.combined_jamo() = COMBINED_JAMO_2BUL.clone();
-        composer
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_2bulstd")
+            .expect("builtin ko_2bulstd profile must always parse");
+        Self::new_with_profile(&profile)
+            .expect("builtin ko_2bulstd profile must always build a valid jamo map")
     }
 
     /// `LayoutProfile`에서 추출한 조합 규칙을 주입해 생성.
     ///
-    /// - v0 프로필(`combinations=None`): 기본 테이블(COMBINED_JAMO_2BUL)을 그대로 사용해
-    ///   `new()`와 동일 결과.
-    /// - v1 프로필: 프로필의 `combinations` + 활성 `rule_sets`가 반영된 맵.
+    /// 0.2.0+: 모든 입력 프로필은 v1. `combinations` + 활성 `rule_sets`가 반영된 맵을
+    /// 주입한다. 한국어 프로필은 `combinations` 필수, 영문/기타는 빈 맵으로 시작.
     pub fn new_with_profile(
         profile: &crate::keystroke::profile::LayoutProfile,
     ) -> Result<Self, crate::keystroke::profile::BuildError> {
