@@ -131,6 +131,23 @@ export default class UnimExtension extends Extension {
             // TypeFIX 단축키
             this._bindAllShortcuts();
 
+            // DBus 연결 (IME 모드 무관 — emoji 단축키 + 인디케이터 모드 동기화 공용)
+            // GNOME Wayland compositor가 Super 조합 키를 가로채므로
+            // grab_accelerator 우회는 enable-ime=false 환경(GTK4_IM_MODULE=unim 등
+            // 외부 IM 모듈 사용 시)에서도 작동해야 한다.
+            this._dbusIME = new UnimDbusIME();
+            const windowId = this._getActiveWindowId();
+            const connected = this._dbusIME.connect(windowId, (isKorean) => {
+                if (this._indicator) this._indicator._onModeChanged(isKorean);
+            });
+            if (connected) {
+                this._grabEmojiAccelerator();
+                this._dbusIME.setOnConfigChanged(() => this._rebindEmojiAccelerator());
+            } else {
+                unimError('EXTENSION', 'unim-daemon DBus 연결 실패 — emoji 단축키/모드 동기화 비활성');
+                this._dbusIME = null;
+            }
+
             // IME 활성화
             if (this._settings.get_boolean('enable-ime')) {
                 this._enableIME();
@@ -149,8 +166,17 @@ export default class UnimExtension extends Extension {
     }
 
     disable() {
+        // 이모지 단축키 해제 (DBus 끊기 전에)
+        this._ungrabEmojiAccelerator();
+
         // IME 비활성화
         this._disableIME();
+
+        // DBus 연결 종료 (enable() 본체에서 만든 instance — IME 모드 라이프사이클 외부)
+        if (this._dbusIME) {
+            this._dbusIME.destroy();
+            this._dbusIME = null;
+        }
 
         // TypeFIX 단축키 해제
         this._unbindAllShortcuts();
@@ -188,23 +214,13 @@ export default class UnimExtension extends Extension {
             // 1. UnimInputMethod 생성 (Clutter.InputMethod 서브클래스, seat 등록은 KeyHandler가 담당)
             this._inputMethod = new UnimInputMethod();
 
-            // 2. DBus 연결
-            this._dbusIME = new UnimDbusIME();
-            this._inputMethod.setDbusIME(this._dbusIME);
-            
-            const windowId = this._getActiveWindowId();
-            const connected = this._dbusIME.connect(windowId, (isKorean) => {
-                // GlobalModeChanged → 인디케이터 업데이트
-                if (this._indicator) {
-                    this._indicator._onModeChanged(isKorean);
-                }
-            });
-
-            if (!connected) {
-                unimError('EXTENSION', 'unim-daemon DBus 연결 실패 — IME 비활성');
+            // 2. DBus 연결 (enable() 본체에서 이미 생성된 instance 사용)
+            if (!this._dbusIME) {
+                unimError('EXTENSION', 'unim-daemon DBus 미연결 — IME 활성화 불가');
                 this._cleanupIME();
                 return;
             }
+            this._inputMethod.setDbusIME(this._dbusIME);
 
             // DBus 연결 성공 시 포커스가 있으면 인디케이터 활성화
             if (this._indicator && global.display.focus_window) {
@@ -345,13 +361,7 @@ export default class UnimExtension extends Extension {
                 },
             });
 
-            // 7. 이모지 팝업 단축키 등록 (Wayland compositor 우회)
-            //    config.engine.emoji_popup 를 읽어 grab_accelerator로 전역 캡처
-            this._grabEmojiAccelerator();
-            //    Config 변경 시 재바인드 (trigger_keys / enabled 갱신)
-            this._dbusIME.setOnConfigChanged(() => {
-                this._rebindEmojiAccelerator();
-            });
+            // 7. (이모지 단축키 등록은 enable() 본체에서 처리 — IME 모드 무관)
 
             // 8. 포커스 감시 시작
             this._focusWindowId = global.display.connect(
@@ -400,8 +410,7 @@ export default class UnimExtension extends Extension {
         // 인디케이터 비활성
         if (this._indicator) this._indicator.setInputActive(false);
 
-        // 이모지 팝업 accelerator 해제
-        this._ungrabEmojiAccelerator();
+        // (이모지 accelerator는 disable()이 정리 — IME 토글 시 유지)
 
         // 포커스 감시 해제
         if (this._focusWindowId > 0) {
@@ -438,11 +447,7 @@ export default class UnimExtension extends Extension {
             this._emojiPopup = null;
         }
 
-        // DBus 정리
-        if (this._dbusIME) {
-            this._dbusIME.destroy();
-            this._dbusIME = null;
-        }
+        // (DBus 연결 자체는 disable()이 정리 — IME 토글 시 유지하여 emoji 단축키 보존)
 
         // InputMethod Wrapper 정리
         if (this._inputMethod) {
