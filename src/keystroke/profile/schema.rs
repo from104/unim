@@ -1,13 +1,17 @@
-//! v0/v1 자판 프로필 JSON 스키마 — serde 역직렬화 타입.
+//! v1 자판 프로필 JSON 스키마 — serde 역직렬화 타입.
 //!
-//! 스펙: `docs/plans/LAYOUT_PROFILE_V1.md`
+//! 스펙: `docs/dev/plans/LAYOUT_PROFILE_V1.md`
 //!
 //! # 구조
-//! - `RawProfile` — JSON에서 직접 역직렬화되는 평면 구조. 모든 v1 필드가 optional.
-//! - `SchemaKind` — v0/v1 판별 결과.
-//! - `LayoutProfile` — 판별·정규화 후의 런타임 표현.
+//! - `RawProfile` — JSON에서 직접 역직렬화되는 평면 구조. v1 필드가 optional.
+//! - `LayoutProfile` — 정규화 후의 런타임 표현.
 //!
-//! combinations 해석·inherits 병합·자모 enum 변환은 **Phase 2 이후** builder에서 수행한다.
+//! 0.2.0부터 v0(legacy) 스키마는 더 이상 지원되지 않는다. 로더는 v1 마커
+//! (`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`,
+//! `active_rule_sets`) 중 하나라도 존재해야 v1으로 인식하고, 모두 없는 JSON은
+//! `LoadError::UnsupportedSchema`로 거부한다.
+//!
+//! combinations 해석·inherits 병합·자모 enum 변환은 builder에서 수행한다.
 //! 본 모듈은 순수 스키마(문자열 수준)만 다룬다.
 
 use serde::Deserialize;
@@ -21,19 +25,19 @@ use super::localized::LocalizedText;
 
 /// JSON 파일에서 바로 역직렬화되는 원시 구조체.
 ///
-/// v0와 v1의 모든 필드를 하나로 합쳐 두되, v1 전용 필드는 optional.
-/// 역직렬화 후 `SchemaKind::detect(&raw)`로 v0/v1 판별.
+/// 모든 v1 필드는 optional이지만, 로더(`parse_profile_str`)는 v1 마커 중
+/// 하나라도 존재해야 수용한다(v0 거부).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawProfile {
-    // ── v0/v1 공통 ─────────────────────────────────────
+    // ── 공통 필수 ──────────────────────────────────────
     pub language: String,
     pub name: String,
     #[serde(rename = "type")]
     pub r#type: String,
     pub layout: KeyLayout,
 
-    // ── v1 전용 (optional) ─────────────────────────────
+    // ── v1 필드 (optional, 단 하나 이상 존재해야 v1 인정) ──
     #[serde(default)]
     pub schema_version: Option<u8>,
     #[serde(default)]
@@ -160,32 +164,20 @@ pub struct RuleSet {
 }
 
 // ============================================================================
-// 판별
+// v0/v1 게이트
 // ============================================================================
 
-/// 프로필 JSON이 v0인지 v1인지.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SchemaKind {
-    /// v0 (기존 포맷). `combinations`·`rule_sets` 등 없음.
-    V0,
-    /// v1 (자기 완결 포맷 또는 v1 전용 필드 중 하나라도 존재).
-    V1,
-}
-
-impl SchemaKind {
-    /// `LAYOUT_PROFILE_V1.md` §3.4 판별 규칙.
-    pub fn detect(raw: &RawProfile) -> SchemaKind {
-        if raw.schema_version.is_some()
-            || raw.metadata.is_some()
-            || raw.inherits.is_some()
-            || raw.combinations.is_some()
-            || raw.rule_sets.is_some()
-            || raw.active_rule_sets.is_some()
-        {
-            SchemaKind::V1
-        } else {
-            SchemaKind::V0
-        }
+impl RawProfile {
+    /// v1 스키마로 받아들일지 판정. v1 전용 필드 중 하나라도 존재해야 한다.
+    ///
+    /// 모든 마커가 부재하면 0.1.x 시기의 v0 포맷이며, 0.2.0부터는 거부.
+    pub fn has_v1_markers(&self) -> bool {
+        self.schema_version.is_some()
+            || self.metadata.is_some()
+            || self.inherits.is_some()
+            || self.combinations.is_some()
+            || self.rule_sets.is_some()
+            || self.active_rule_sets.is_some()
     }
 }
 
@@ -193,13 +185,14 @@ impl SchemaKind {
 // 정규화된 런타임 표현
 // ============================================================================
 
-/// 판별·정규화 후의 런타임 프로필.
+/// 정규화된 런타임 프로필 (v1 only).
 ///
-/// Phase 1에서는 JSON 구조를 1:1로 매핑하기만 한다. combinations 해석,
-/// inherits 병합, active_rule_sets 적용은 Phase 2 이후.
+/// JSON 구조를 1:1로 매핑하되, `rule_sets`의 legacy `reinterpret`만
+/// `combinations`로 흡수한다. combinations 해석, inherits 병합,
+/// active_rule_sets 적용은 builder에서.
 #[derive(Debug, Clone)]
 pub struct LayoutProfile {
-    /// 0 (v0에서 자동 승격) 또는 1.
+    /// 항상 1 이상. 0.2.0부터 v0(=0)는 거부됨.
     pub schema_version: u8,
     pub language: String,
     pub name: String,
@@ -208,8 +201,9 @@ pub struct LayoutProfile {
     pub metadata: LayoutMetadata,
     pub inherits: Option<String>,
     pub layout: KeyLayout,
-    /// v0 프로필에서는 `None` — 기본 테이블(Rust const)을 런타임에서 상속.
-    /// v1 프로필에서는 `Some(_)`이며 파일에 명시된 값 그대로.
+    /// v1 프로필은 자기 완결 — 항상 명시되어야 하지만, 영문 계열처럼
+    /// 자모 조합이 의미 없는 경우 비어 있을 수 있다(빈 블록 또는 None).
+    /// 한글 계열은 builder가 None을 거부.
     pub combinations: Option<CombinationsBlock>,
     pub rule_sets: BTreeMap<String, RuleSet>,
     /// `None`이면 각 rule_set의 `active` 값을 그대로 사용.
@@ -218,14 +212,11 @@ pub struct LayoutProfile {
 }
 
 impl LayoutProfile {
-    /// `RawProfile`을 판별 + 정규화해 `LayoutProfile`로 변환.
+    /// `RawProfile`을 정규화해 `LayoutProfile`로 변환.
+    ///
+    /// 호출자(`parse_profile_str`)가 사전에 `has_v1_markers()`로 v0를 거부했음을 가정.
     pub fn from_raw(raw: RawProfile) -> Self {
-        let kind = SchemaKind::detect(&raw);
-
-        let schema_version = match kind {
-            SchemaKind::V0 => 0,
-            SchemaKind::V1 => raw.schema_version.unwrap_or(1),
-        };
+        let schema_version = raw.schema_version.unwrap_or(1);
 
         // rule_sets의 legacy `reinterpret` 필드를 combinations로 흡수.
         let rule_sets = raw
@@ -266,7 +257,9 @@ impl LayoutProfile {
 mod tests {
     use super::*;
 
-    fn v0_json() -> &'static str {
+    /// 0.1.x 시기의 v0 포맷 — v1 마커가 모두 부재한 JSON. 0.2.0에서는
+    /// `RawProfile::has_v1_markers()`가 false를 반환해 거부 대상이다.
+    fn v0_legacy_json() -> &'static str {
         // `#` 문자가 JSON 내부에 있으므로 `r##"..."##`로 2단 raw string 사용.
         r##"{
             "language": "korean",
@@ -322,19 +315,22 @@ mod tests {
     }
 
     #[test]
-    fn detects_v0_when_no_v1_fields() {
-        let raw: RawProfile = serde_json::from_str(v0_json()).unwrap();
-        assert_eq!(SchemaKind::detect(&raw), SchemaKind::V0);
+    fn legacy_v0_has_no_v1_markers() {
+        let raw: RawProfile = serde_json::from_str(v0_legacy_json()).unwrap();
+        assert!(
+            !raw.has_v1_markers(),
+            "legacy v0 JSON must have no v1 marker fields (loader rejects it)"
+        );
     }
 
     #[test]
-    fn detects_v1_from_schema_version() {
+    fn v1_with_schema_version_is_v1() {
         let raw: RawProfile = serde_json::from_str(v1_json()).unwrap();
-        assert_eq!(SchemaKind::detect(&raw), SchemaKind::V1);
+        assert!(raw.has_v1_markers());
     }
 
     #[test]
-    fn detects_v1_from_just_metadata() {
+    fn v1_from_just_metadata_is_v1() {
         let json = r#"{
             "language": "korean",
             "name": "x",
@@ -343,18 +339,7 @@ mod tests {
             "layout": {"upper":{},"lower":{}}
         }"#;
         let raw: RawProfile = serde_json::from_str(json).unwrap();
-        assert_eq!(SchemaKind::detect(&raw), SchemaKind::V1);
-    }
-
-    #[test]
-    fn v0_promoted_has_schema_zero_and_no_combinations() {
-        let raw: RawProfile = serde_json::from_str(v0_json()).unwrap();
-        let profile = LayoutProfile::from_raw(raw);
-        assert_eq!(profile.schema_version, 0);
-        assert!(profile.combinations.is_none());
-        assert!(profile.rule_sets.is_empty());
-        assert_eq!(profile.name, "2bulstd");
-        assert_eq!(profile.layout_type, "2bul");
+        assert!(raw.has_v1_markers());
     }
 
     #[test]

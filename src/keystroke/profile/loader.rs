@@ -1,10 +1,13 @@
 //! 프로필 로더 — JSON 문자열 또는 내장 이름에서 `LayoutProfile` 생성.
 //!
-//! # Phase 1 범위
-//! - `parse_profile_str(json)` — serde 역직렬화 + v0/v1 판별 + 정규화.
-//! - `load_builtin_profile(name)` — 내장 9종 조회 + 파싱.
+//! # 범위
+//! - `parse_profile_str(json)` — serde 역직렬화 + v1 마커 검증 + 정규화.
+//! - `load_builtin_profile(name)` — 내장 10종 조회 + 파싱.
 //!
-//! inherits 해석, 사용자 디렉토리 스캔, combinations 병합은 Phase 2/3에서 추가.
+//! 0.2.0부터 v0(legacy) 스키마는 거부된다. v1 마커
+//! (`schema_version`/`metadata`/`inherits`/`combinations`/`rule_sets`/`active_rule_sets`)
+//! 중 하나라도 존재해야 v1로 인정한다. 사용자가 작성한 v0 JSON은
+//! `LoadError::UnsupportedSchema`로 명확히 거부된다.
 
 use std::fmt;
 
@@ -18,6 +21,9 @@ pub enum LoadError {
     NotFound(String),
     /// JSON 파싱 실패. serde 오류 메시지 포함.
     Parse(serde_json::Error),
+    /// v0(0.1.x) 포맷 — v1 마커가 모두 부재. 0.2.0부터 거부.
+    /// `name` 필드는 사용자 가시성을 위해 raw JSON에서 추출.
+    UnsupportedSchema { profile_name: String },
 }
 
 impl fmt::Display for LoadError {
@@ -25,6 +31,10 @@ impl fmt::Display for LoadError {
         match self {
             LoadError::NotFound(name) => write!(f, "layout profile not found: {name}"),
             LoadError::Parse(e) => write!(f, "failed to parse layout profile JSON: {e}"),
+            LoadError::UnsupportedSchema { profile_name } => write!(
+                f,
+                "layout profile '{profile_name}' uses the legacy v0 schema, which is no longer supported in 0.2.0+. Convert to v1 schema (see docs/dev/plans/LAYOUT_PROFILE_V1.md)."
+            ),
         }
     }
 }
@@ -34,6 +44,7 @@ impl std::error::Error for LoadError {
         match self {
             LoadError::NotFound(_) => None,
             LoadError::Parse(e) => Some(e),
+            LoadError::UnsupportedSchema { .. } => None,
         }
     }
 }
@@ -46,13 +57,22 @@ impl From<serde_json::Error> for LoadError {
 
 /// JSON 문자열을 파싱해 `LayoutProfile`로 변환.
 ///
-/// v0/v1 판별과 v0 자동 승격은 `LayoutProfile::from_raw`가 처리.
+/// v1 마커가 하나도 없으면 `LoadError::UnsupportedSchema`로 거부한다 (v0 거부).
 pub fn parse_profile_str(json: &str) -> Result<LayoutProfile, LoadError> {
     let raw: RawProfile = serde_json::from_str(json)?;
+    if !raw.has_v1_markers() {
+        let profile_name = raw.name.clone();
+        // 콘솔 경고 — UNIM_DEVELOP=1 외에도 항상 stderr로 안내.
+        eprintln!(
+            "[unim] WARNING: layout profile '{profile_name}' uses the legacy v0 schema and will be rejected. \
+             Convert to v1 (see docs/dev/plans/LAYOUT_PROFILE_V1.md)."
+        );
+        return Err(LoadError::UnsupportedSchema { profile_name });
+    }
     Ok(LayoutProfile::from_raw(raw))
 }
 
-/// 내장 9종 중 하나를 로드. `name`은 정식 이름(`en_qwerty`) 또는 별칭(`qwerty`) 허용.
+/// 내장 10종 중 하나를 로드. `name`은 정식 이름(`en_qwerty`) 또는 별칭(`qwerty`) 허용.
 pub fn load_builtin_profile(name: &str) -> Result<LayoutProfile, LoadError> {
     let json = builtin::get_builtin_json(name)
         .ok_or_else(|| LoadError::NotFound(name.to_string()))?;
@@ -132,5 +152,27 @@ mod tests {
     fn malformed_json_is_parse_error() {
         let err = parse_profile_str("{ not valid json").unwrap_err();
         assert!(matches!(err, LoadError::Parse(_)));
+    }
+
+    /// 0.2.0 신규 — v0 포맷(=v1 마커 모두 부재) JSON은 명시적으로 거부된다.
+    #[test]
+    fn legacy_v0_json_is_rejected_as_unsupported_schema() {
+        // 모든 v1 마커가 부재한 0.1.x 시기 포맷.
+        let v0_json = r##"{
+            "language": "korean",
+            "name": "legacy_user_layout",
+            "type": "2bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            }
+        }"##;
+        let err = parse_profile_str(v0_json).unwrap_err();
+        match err {
+            LoadError::UnsupportedSchema { profile_name } => {
+                assert_eq!(profile_name, "legacy_user_layout");
+            }
+            other => panic!("expected UnsupportedSchema, got {other:?}"),
+        }
     }
 }

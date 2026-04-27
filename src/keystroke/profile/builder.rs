@@ -1,13 +1,14 @@
 //! `LayoutProfile` → `CombinedJamoMap` 빌더.
 //!
-//! # Phase 2 범위
+//! # 범위
 //! - `build_combined_jamo_map(profile)` — 기본 `combinations` + 활성 `rule_sets`를
 //!   병합해 최종 조합 테이블을 생성.
-//! - `combinations` 필드가 `None`인 v0 프로필은 `layout_type`에 따라 Rust const
-//!   (COMBINED_JAMO_2BUL / COMBINED_JAMO_3BUL)를 그대로 클론 — **behavior-preserving**.
+//! - `combinations`가 `None`이면 (영문 계열처럼) 빈 맵에서 시작.
+//!   0.2.0부터는 v0 fallback 경로(Rust const 테이블 클론)를 제거 — v0 프로필은
+//!   loader에서 거부된다.
 //! - rule_set 엔트리는 `first` 자모 코드포인트로 스코프(cho/jung/jong)를 자동 판별.
 //!
-//! # 비범위 (Phase 3+)
+//! # 비범위
 //! - `inherits` 체인 병합: 현재는 stub(`inherit::resolve`)이 거의 pass-through.
 //! - 사용자 디렉토리(`~/.config/unim/layouts`) 스캔.
 
@@ -17,8 +18,6 @@ use std::fmt;
 use once_cell::sync::Lazy;
 
 use crate::hangul::composer::CombinedJamoMap;
-use crate::hangul::composer_with_2bul::COMBINED_JAMO_2BUL;
-use crate::hangul::composer_with_3bul::COMBINED_JAMO_3BUL;
 use crate::hangul::jamo::{Cho, Jamo, JamoEnum, Jong, Jung};
 
 use super::schema::{CombinationsBlock, LayoutProfile, RawTriple, RuleSet};
@@ -238,13 +237,12 @@ pub fn resolve_active_rule_set_names(profile: &LayoutProfile) -> Vec<String> {
 ///
 /// 흐름:
 /// 1. 기본 조합 — `profile.combinations`가 `Some`이면 그 값에서 파싱.
-///    `None`이면 `profile.layout_type`에 따라 Rust const(COMBINED_JAMO_2BUL /
-///    COMBINED_JAMO_3BUL)를 클론(v0 호환 경로).
+///    `None`이면 빈 맵(영문 계열). 0.2.0부터 v0 fallback(Rust const 클론)은 제거됨.
 /// 2. 활성 rule_sets의 각 엔트리를 스코프 추론 후 map에 insert.
 ///    중복 키는 rule_set 쪽이 덮어쓴다(`LAYOUT_PROFILE_V1.md` §11).
 pub fn build_combined_jamo_map(profile: &LayoutProfile) -> Result<CombinedJamoMap, BuildError> {
     let mut map = match &profile.combinations {
-        None => fallback_for(&profile.layout_type),
+        None => CombinedJamoMap::new(),
         Some(block) => build_from_block(block)?,
     };
 
@@ -255,15 +253,6 @@ pub fn build_combined_jamo_map(profile: &LayoutProfile) -> Result<CombinedJamoMa
     }
 
     Ok(map)
-}
-
-fn fallback_for(layout_type: &str) -> CombinedJamoMap {
-    match layout_type {
-        "3bul" => COMBINED_JAMO_3BUL.clone(),
-        "2bul" => COMBINED_JAMO_2BUL.clone(),
-        // 영문 프로필(qwerty, dvorak 등)은 결합 규칙 없음.
-        _ => CombinedJamoMap::new(),
-    }
 }
 
 fn build_from_block(block: &CombinationsBlock) -> Result<CombinedJamoMap, BuildError> {
@@ -335,29 +324,89 @@ fn apply_rule_set(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hangul::composer::CombinedJamoMap;
     use crate::keystroke::profile::builtin::BUILTIN_NAMES;
     use crate::keystroke::profile::loader::load_builtin_profile;
 
+    /// 재사용용: 두벌식 표준 조합 규칙(중성 7개 + 종성 11개). 0.2.0부터 const 테이블이
+    /// 사라지므로 cross-check용 ground truth를 인라인으로 둔다.
+    fn expected_2bul_combinations() -> CombinedJamoMap {
+        use crate::hangul::jamo::{JamoEnum, Jong, Jung};
+        let mut m = HashMap::new();
+        // 중성 7
+        let jung = [
+            (Jung::O, Jung::A, Jung::Wa),
+            (Jung::O, Jung::Ae, Jung::Wae),
+            (Jung::O, Jung::I, Jung::Oe),
+            (Jung::U, Jung::Eo, Jung::Weo),
+            (Jung::U, Jung::E, Jung::We),
+            (Jung::U, Jung::I, Jung::Wi),
+            (Jung::Eu, Jung::I, Jung::Yi),
+        ];
+        for (a, b, c) in jung {
+            m.insert((JamoEnum::Jung(a), JamoEnum::Jung(b)), JamoEnum::Jung(c));
+        }
+        // 종성 11
+        let jong = [
+            (Jong::Giyeok, Jong::Giyeok, Jong::SsangGiyeok),
+            (Jong::Giyeok, Jong::Siot, Jong::GiyeokSiot),
+            (Jong::Nieun, Jong::Jieut, Jong::NieunJieut),
+            (Jong::Nieun, Jong::Hieuh, Jong::NieunHieuh),
+            (Jong::Rieul, Jong::Giyeok, Jong::RieulGiyeok),
+            (Jong::Rieul, Jong::Mieum, Jong::RieulMieum),
+            (Jong::Rieul, Jong::Bieup, Jong::RieulBieup),
+            (Jong::Rieul, Jong::Siot, Jong::RieulSiot),
+            (Jong::Rieul, Jong::Tieut, Jong::RieulTieut),
+            (Jong::Rieul, Jong::Pieup, Jong::RieulPieup),
+            (Jong::Rieul, Jong::Hieuh, Jong::RieulHieuh),
+            (Jong::Bieup, Jong::Siot, Jong::BieupSiot),
+            (Jong::Siot, Jong::Siot, Jong::SsangSiot),
+        ];
+        for (a, b, c) in jong {
+            m.insert((JamoEnum::Jong(a), JamoEnum::Jong(b)), JamoEnum::Jong(c));
+        }
+        m
+    }
+
+    /// 재사용용: 3벌식 base 조합 규칙(중성 7 + 종성 11 + 초성 5).
+    fn expected_3bul_base_combinations() -> CombinedJamoMap {
+        use crate::hangul::jamo::{Cho, JamoEnum};
+        let mut m = expected_2bul_combinations();
+        // 초성 5 (3벌식 전용)
+        let cho = [
+            (Cho::Giyeok, Cho::Giyeok, Cho::SsangGiyeok),
+            (Cho::Digeut, Cho::Digeut, Cho::SsangDigeut),
+            (Cho::Bieup, Cho::Bieup, Cho::SsangBieup),
+            (Cho::Siot, Cho::Siot, Cho::SsangSiot),
+            (Cho::Jieut, Cho::Jieut, Cho::SsangJieut),
+        ];
+        for (a, b, c) in cho {
+            m.insert((JamoEnum::Cho(a), JamoEnum::Cho(b)), JamoEnum::Cho(c));
+        }
+        m
+    }
+
     #[test]
-    fn builtin_2bul_matches_static() {
-        // Phase 6: v1 JSON combinations 경로로도 Rust 정적 테이블과 동일 결과.
+    fn builtin_2bul_matches_expected_table() {
+        // 0.2.0: const 테이블이 사라졌으므로 인라인 ground truth와 cross-check.
         let profile = load_builtin_profile("ko_2bulstd").unwrap();
         let map = build_combined_jamo_map(&profile).unwrap();
         assert_eq!(
-            map, *COMBINED_JAMO_2BUL,
-            "ko_2bulstd v1 JSON은 기존 정적 테이블과 완전 일치해야 함"
+            map, expected_2bul_combinations(),
+            "ko_2bulstd v1 JSON은 두벌식 기본 조합 규칙과 일치해야 함"
         );
     }
 
     #[test]
-    fn builtin_3bul_matches_static() {
+    fn builtin_3bul_matches_expected_table() {
         // ko_3bul_qwerty는 고유 조합이라 제외 (쿼티형 세벌식은 base와 다름).
+        let expected = expected_3bul_base_combinations();
         for name in &["ko_3bul390", "ko_3bul391", "ko_3bul_noshift"] {
             let profile = load_builtin_profile(name).unwrap();
             let map = build_combined_jamo_map(&profile).unwrap();
             assert_eq!(
-                map, *COMBINED_JAMO_3BUL,
-                "{name}: v1 3bul JSON은 기존 정적 테이블과 일치해야 함"
+                map, expected,
+                "{name}: v1 3bul JSON은 3벌식 기본 조합 규칙과 일치해야 함"
             );
         }
     }
@@ -560,7 +609,7 @@ mod tests {
     }
 
     #[test]
-    fn composer_new_with_profile_matches_default_new_for_v0() {
+    fn composer_new_with_profile_matches_default_new_for_builtin() {
         use crate::hangul::composer::HangulComposer;
         use crate::hangul::composer_with_2bul::HangulComposer2Bul;
         use crate::hangul::composer_with_3bul::HangulComposer3Bul;
@@ -572,7 +621,7 @@ mod tests {
         assert_eq!(
             c_profile.get_combined_jamo(),
             c_default.get_combined_jamo(),
-            "HangulComposer2Bul::new_with_profile(v0)은 new()와 동일한 combined_jamo"
+            "HangulComposer2Bul::new_with_profile(ko_2bulstd)는 new()와 동일한 combined_jamo"
         );
 
         // 3벌식
@@ -582,7 +631,7 @@ mod tests {
         assert_eq!(
             c_profile.get_combined_jamo(),
             c_default.get_combined_jamo(),
-            "HangulComposer3Bul::new_with_profile(v0)은 new()와 동일한 combined_jamo"
+            "HangulComposer3Bul::new_with_profile(ko_3bul390)는 new()와 동일한 combined_jamo"
         );
     }
 }
