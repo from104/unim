@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **Layout profile v0 schema is no longer supported.** v0 (legacy) JSON files
+  without any v1 marker (`schema_version`, `metadata`, `inherits`,
+  `combinations`, `rule_sets`, `active_rule_sets`) are now rejected by the
+  loader with `LoadError::UnsupportedSchema` and a console warning. Convert
+  user profiles in `~/.config/unim/layouts/*.json` to v1 by adding
+  `"schema_version": 1` and an explicit `combinations` block (see
+  [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md)).
+  Built-in profiles were already migrated to v1 in 0.2.0.
+
+### Removed
+
+- **Rust const jamo combination tables** (`JUNG_COMBINATIONS`,
+  `JONG_COMBINATIONS`, `CHO_COMBINATIONS`, `COMBINED_JAMO_2BUL`,
+  `COMBINED_JAMO_3BUL` Lazy statics) deleted from
+  `src/hangul/composer_with_2bul.rs` and `composer_with_3bul.rs`.
+  `HangulComposer{2,3}Bul::new()` now delegates to
+  `new_with_profile(load_builtin_profile("ko_2bulstd"|"ko_3bul390"))`. Single
+  source of truth for jamo combinations is the v1 builtin profile JSON.
+- **`SchemaKind` enum + `detect()`** removed from
+  `src/keystroke/profile/schema.rs`. `RawProfile::has_v1_markers()` replaces
+  the v0/v1 detection role. Builder's `fallback_for(layout_type)` v0
+  compatibility path also deleted.
+
+### Added
+
+- **BUILTIN_NAMES × 4-axis integrity test** (`src/keystroke/mod.rs`):
+  for each builtin, asserts (a) `get_keymap_json` does not fall back to
+  `KO_2BULSTD`, (b) `get_builtin_json` returns the v1 JSON, (c) it parses
+  with `schema_version == 1`, (d) Korean builtins have a non-empty
+  `combinations` block. Closes the previous English-side coverage gap that
+  could re-introduce silent fallback regressions like the early `en_workman`
+  miss.
+
 ## [0.2.0] 2026-04-26
 
 ### Added

@@ -13,8 +13,12 @@ engine:
   mode_sharing: Global
 
   korean:
-    # 한국어 레이아웃: Dubeolsik / Sebeolsik390 / Sebeolsik391 / SebeolsikNoShift
-    layout: Dubeolsik
+    # 한국어 레이아웃 — 내장 5종 정식 이름:
+    #   ko_2bulstd / ko_3bul390 / ko_3bul391 / ko_3bul_noshift / ko_3bul_qwerty
+    # 사용자 프로필은 ~/.config/unim/layouts/<name>.json 의 `name` 필드.
+    # 레거시 enum 값(Dubeolsik / Sebeolsik390 등)과 별칭(2bul / 390 등)도
+    # YAML 역직렬화 단계에서 정식 이름으로 자동 정규화된다.
+    layout: ko_2bulstd
 
   english:
     # 영어 레이아웃: Qwerty / Dvorak / Colemak / ColemakDh / Workman

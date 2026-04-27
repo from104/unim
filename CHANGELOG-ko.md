@@ -6,6 +6,38 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 ## [Unreleased]
 
+### 호환성 깨짐
+
+- **자판 프로필 v0 스키마 미지원 전환.** v1 마커
+  (`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`,
+  `active_rule_sets`) 중 하나도 없는 0.1.x 시기의 v0 JSON은 이제 로더가
+  `LoadError::UnsupportedSchema`로 거부하고 콘솔에 경고를 출력한다.
+  `~/.config/unim/layouts/*.json`의 사용자 v0 프로필은 `"schema_version": 1`을
+  추가하고 `combinations` 블록을 명시적으로 채워 v1으로 변환할 것
+  ([`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md)
+  §3 참고). 빌트인 프로필은 0.2.0 시점에 모두 v1로 이관 완료된 상태.
+
+### 제거됨
+
+- **Rust 상수 자모 조합 테이블** (`JUNG_COMBINATIONS`, `JONG_COMBINATIONS`,
+  `CHO_COMBINATIONS`, Lazy static `COMBINED_JAMO_2BUL`/`_3BUL`)을
+  `src/hangul/composer_with_{2,3}bul.rs`에서 삭제.
+  `HangulComposer{2,3}Bul::new()`는 이제
+  `new_with_profile(load_builtin_profile("ko_2bulstd"|"ko_3bul390"))`로 위임.
+  자모 조합 규칙의 단일 source of truth는 v1 빌트인 프로필 JSON.
+- **`SchemaKind` enum + `detect()`** 삭제
+  (`src/keystroke/profile/schema.rs`). v0/v1 판별 역할은
+  `RawProfile::has_v1_markers()`로 단순화. 빌더의
+  `fallback_for(layout_type)` v0 호환 경로도 함께 삭제.
+
+### 추가됨
+
+- **BUILTIN_NAMES × 4축 정합성 테스트** (`src/keystroke/mod.rs`):
+  10종 빌트인 전수에 대해 (a) `get_keymap_json`이 `KO_2BULSTD`로 fallback되지
+  않음, (b) `get_builtin_json`이 v1 JSON 반환, (c) `schema_version == 1`로
+  파싱, (d) 한국어 빌트인은 `combinations` 블록 보유를 단일 테스트가 검증.
+  영문 빌트인 미커버 갭(예: `en_workman`)으로 인한 무성의 fallback 회귀를 차단.
+
 ## [0.2.0] 2026-04-26
 
 ### 추가됨

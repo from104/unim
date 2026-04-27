@@ -1,9 +1,17 @@
 # UNIM 자판 프로필 v1 스키마 초안
 
-Date: 2026-04-21
-Status: **초안 (Draft)** — 구현 전 리뷰 대상.
+Date: 2026-04-21 (구현 완료) · 2026-04-27 (v0 미지원 전환)
+Status: **구현 완료**. 0.2.0+에서 v0 미지원.
 Owner: Core / Keystroke
-Scope: 현재 `src/keystroke/keymap/*.json` 포맷을 v0로 간주하고, v1 스키마를 정의한다. v0 파일은 **변경 없이 그대로 로드**돼야 한다.
+Scope: `src/keystroke/keymap/*.json` 포맷을 v1으로 통일한다.
+
+> **0.2.0+ Breaking change**: v0(legacy) layout profile 스키마는 더 이상 지원하지
+> 않는다. JSON에 v1 마커(`schema_version`, `metadata`, `inherits`, `combinations`,
+> `rule_sets`, `active_rule_sets`) 중 하나라도 있어야 v1로 인정된다. 모두 부재한
+> v0 JSON은 `LoadError::UnsupportedSchema`로 거부되고 콘솔에 경고가 출력된다.
+> 기존 v0 파일을 사용 중이라면 이 문서 §3을 참고해 `schema_version: 1`을 추가하고
+> `combinations` 블록을 명시적으로 채워라(자기 완결성). 내장 10종은 0.2.0 시점에
+> 모두 v1으로 이관 완료.
 
 ---
 

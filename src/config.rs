@@ -50,12 +50,14 @@ impl ModeSharingMode {
 /// 한국어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
 ///
 /// 레거시 시절 enum(`Dubeolsik` / `Sebeolsik390` / ...)이었던 필드를 Phase 8에서
-/// 문자열로 통합. 내장 4종은 `ko_2bulstd`·`ko_3bul390`·`ko_3bul391`·`ko_3bul_noshift`,
-/// 10번째 내장은 `ko_3bul_qwerty`, 사용자 정의는 `~/.config/unim/layouts/<name>.json`
-/// 파일의 `name` 필드.
+/// 문자열로 통합. 내장 5종은 `ko_2bulstd`·`ko_3bul390`·`ko_3bul391`·`ko_3bul_noshift`·
+/// `ko_3bul_qwerty`, 사용자 정의는 `~/.config/unim/layouts/<name>.json` 파일의
+/// `name` 필드.
 ///
-/// YAML 역직렬화 시 `KoreanLayoutCompat`을 거쳐 레거시 enum 값(`Dubeolsik` 등)과
-/// 별칭(`2bul` 등)을 모두 수용한다.
+/// YAML 역직렬화 시 `normalize_korean_layout_name`을 거쳐 레거시 enum 값
+/// (`Dubeolsik` 등)과 별칭(`2bul` 등)을 모두 수용한다. 이는 *config 값 정규화*이며,
+/// *프로필 JSON 스키마*와는 무관하다 (v0 layout profile JSON은 0.2.0+ 거부 — 별도
+/// `LoadError::UnsupportedSchema`).
 pub type KoreanLayout = String;
 
 /// 내장 한국어 자판의 정식 이름(레지스트리 키).
