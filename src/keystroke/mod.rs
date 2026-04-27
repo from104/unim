@@ -147,4 +147,71 @@ mod tests {
         assert_eq!(primary, alias);
         assert_ne!(primary, KO_2BULSTD, "ko_3bul_qwerty must not fall back to KO_2BULSTD");
     }
+
+    /// T1-D: 4축 정합성 — BUILTIN_NAMES 10종 전수에 대해
+    /// (a) `get_keymap_json(name) != KO_2BULSTD` (영문/한글 모두 fallback 미발생)
+    /// (b) `profile::get_builtin_json(name).is_some()`
+    /// (c) v1 프로필 JSON parse 가능 + `schema_version == 1`
+    /// (d) `combinations` 필드가 있는 경우 비어있지 않은 구조 (한글 빌트인 5종)
+    ///     영문 빌트인 5종은 `combinations` 없음을 허용.
+    ///
+    /// 한 종이라도 누락되면 즉시 회귀로 차단. 영문(en_workman 등) 미커버 갭을 막는다.
+    #[test]
+    fn builtin_names_full_4axis_integrity() {
+        use crate::keystroke::profile::builtin::get_builtin_json;
+        use crate::keystroke::profile::loader::parse_profile_str;
+
+        for name in BUILTIN_NAMES {
+            // (a) keymap fallback 차단 — KO_2BULSTD와 내용이 같으면 ko_2bulstd 본인뿐.
+            let keymap = get_keymap_json(name);
+            if name == "ko_2bulstd" {
+                assert_eq!(
+                    keymap, KO_2BULSTD,
+                    "ko_2bulstd must map to KO_2BULSTD content",
+                );
+            } else {
+                assert_ne!(
+                    keymap, KO_2BULSTD,
+                    "builtin '{name}' fell back to KO_2BULSTD via get_keymap_json",
+                );
+            }
+
+            // (b) profile builtin arm 존재
+            let profile_json = get_builtin_json(name)
+                .unwrap_or_else(|| panic!("builtin '{name}' missing get_builtin_json arm"));
+            assert!(!profile_json.is_empty(), "{name}: profile JSON must be non-empty");
+
+            // (c) v1 profile parse 가능 + schema_version == 1
+            let profile = parse_profile_str(profile_json)
+                .unwrap_or_else(|e| panic!("builtin '{name}' profile parse failed: {e}"));
+            assert_eq!(
+                profile.schema_version, 1,
+                "{name}: profile must declare schema_version == 1 (v0 schema is rejected)"
+            );
+
+            // (d) 한글 빌트인은 combinations 필드 보유, 영문은 없음 허용
+            if name.starts_with("ko_") {
+                assert!(
+                    profile.combinations.is_some(),
+                    "{name}: korean builtin must have non-empty combinations block"
+                );
+            }
+        }
+    }
+
+    /// T1-E: 영문 빌트인 5종 전수에 대해 `get_keymap_json`이 `KO_2BULSTD`로 fallback되지 않음.
+    /// `all_korean_builtins_avoid_2bulstd_fallback`의 영문 확장.
+    #[test]
+    fn all_english_builtins_avoid_2bulstd_fallback() {
+        for name in BUILTIN_NAMES {
+            if !name.starts_with("en_") {
+                continue;
+            }
+            let json = get_keymap_json(name);
+            assert_ne!(
+                json, KO_2BULSTD,
+                "english builtin '{name}' fell back to KO_2BULSTD",
+            );
+        }
+    }
 }
