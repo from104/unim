@@ -304,9 +304,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 "ENGINE_WORKER",
                 "[Engine Worker] 설정 파일 변경 감지 - 리로드 완료"
             );
-            // 기존 엔진들의 레이아웃도 업데이트
+            // 기존 엔진들의 레이아웃·v1 프로필을 갱신.
+            //
+            // `rebuild_korean_context`는 layout 동일·active_rule_sets만 변경된 경우에도
+            // v1 builder 경로로 한국어 컨텍스트를 다시 만든다. 이전 코드는
+            // `set_korean_layout`만 호출해 layout 동일이면 no-op이라 GUI/CLI에서
+            // active_rule_sets 토글이 즉시 반영되지 않는 회귀가 있었음.
             for engine in contexts.values_mut() {
-                engine.set_korean_layout(config.engine.korean.layout.clone());
+                engine.rebuild_korean_context(&config);
                 engine.set_english_layout(config.engine.english.layout.clone());
             }
         }
