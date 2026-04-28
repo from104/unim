@@ -368,6 +368,13 @@ export default class UnimExtension extends Extension {
             );
             // 7. 포커스 상실 핸들러 (조합 중 텍스트 커밋)
             this._inputMethod.setFocusOutHandler(() => {
+                // emoji popup은 자체 키보드 포커스(검색 entry)를 받기 때문에
+                // 입력창의 focus_out이 popup 표시 직후에 발생한다. 이때 데몬에
+                // FocusOut을 보내면 데몬이 HidePopup 시그널을 자동 발행해 popup이
+                // 즉시 닫힌다. popup이 보이는 동안에는 focus_out을 무시한다.
+                if (this._emojiPopup?.isVisible) {
+                    return false;
+                }
                 // 팝업 열려있으면 먼저 취소 (trigger text 커밋 + 팝업 닫기)
                 this._cleanupPopups();
                 // DBus FocusOut → 조합 중 텍스트 커밋
