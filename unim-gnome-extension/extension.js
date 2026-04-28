@@ -318,11 +318,18 @@ export default class UnimExtension extends Extension {
                 onHidePopup: () => {
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
-                    this._emojiPopup?.hide();
+                    // emoji popup은 시그널로 닫지 않는다.
+                    // 이유: GTK4_IM_MODULE=unim 환경에서 emoji popup이 키보드 포커스를
+                    // grab하면 사용자 앱(ghostty 등)의 InputContext가 focus_out을 발생시키고,
+                    // 데몬이 그 context에 HidePopup을 자동 broadcast해 popup이 즉시 닫힌다.
+                    // emoji popup은 자체 lifecycle(commit/ESC/외부 클릭)로 충분히 닫힌다.
                 },
                 onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
                     if (this._hanjaPopup?.isVisible) {
-                        this._hanjaPopup.updateFromNavigate(page, totalPages, selected);
+                        // 한자 팝업: 9x9 확장 모드를 위해 rows/cols/selRow/selCol을 모두 전달
+                        // (Period 키로 토글되는 expanded 그리드는 cols>1을 신호로 활성화됨)
+                        this._hanjaPopup.updateFromNavigate(
+                            page, totalPages, selected, rows, cols, selRow, selCol);
                     }
                     if (this._specialPopup?.isVisible) {
                         this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
