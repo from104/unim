@@ -38,6 +38,30 @@ trait InputMethod {
     /// 전체 설정을 YAML 문자열로 수신하여 저장·반영·브로드캐스트
     fn set_config_yaml(&self, yaml: &str) -> Result<()>;
 
+    /// 외부 단축키 우회 트리거 — InputContext 비보유 클라이언트(CLI, 외부 단축키 도구)용.
+    ///
+    /// `InputContextProxy::trigger_action`은 InputContext를 가진 클라이언트(GNOME extension)용,
+    /// 본 메서드는 어느 InputContext인지 알 수 없는 환경(KDE/Hyprland/Sway, AHK 등)에서
+    /// 동일한 동작을 가능하게 한다. cursor 좌표는 마지막으로 보고된 전역 캐시 사용.
+    /// 지원 액션: `"emoji_popup"`. 알 수 없는 액션은 데몬이 무시한다.
+    ///
+    /// 데몬은 본 호출에 대해 `org.atit.unim.InputContext` 인터페이스의
+    /// `ShowEmojiPopup` 시그널을 InputMethod path에서 발행한다 — 기존 GUI 구독
+    /// (`path_namespace=/org/atit/unim`, `interface=org.atit.unim.InputContext`)이
+    /// 그대로 수신한다. 별도의 InputMethod-level 시그널은 추가하지 않는다 (중복 방지).
+    fn trigger_action(&self, action: &str) -> Result<()>;
+
+    /// 글로벌 이모지 커밋 — InputContext 비보유 경로에서 마지막 활성 입력 컨텍스트로 redirect.
+    ///
+    /// GNOME extension처럼 자체 InputContext를 가진 클라이언트라도 GTK4_IM_MODULE=unim 환경에서는
+    /// extension의 컨텍스트로 commit하면 GTK4_IM 모듈을 우회하여 사용자 앱에 도달하지 못한다.
+    /// 본 메서드는 데몬이 캐시한 `last_active_input_context_path`(GTK3/4·Qt5/6·XIM·Wayland 중
+    /// 마지막 포커스된 컨텍스트)를 향해 `CommitText` + `HidePopup` 시그널을 발행하여
+    /// IM 모듈이 이를 받아 사용자 앱에 그대로 commit되게 한다. emoji MRU 즐겨찾기도 갱신.
+    ///
+    /// 캐시가 비어있으면 데몬이 경고 로그만 남기고 no-op (호환성 유지).
+    fn commit_emoji(&self, emoji: &str) -> Result<()>;
+
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
     fn global_mode_changed(&self, is_korean: bool) -> Result<()>;

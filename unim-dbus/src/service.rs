@@ -215,6 +215,24 @@ pub struct InputMethodService {
     engine_tx: mpsc::Sender<EngineRequest>,
     /// DBus Connection (동적 객체 등록용)
     connection: Connection,
+    /// 전역 캐시: 가장 최근 보고된 커서 위치 (x, y, width, height)
+    ///
+    /// `InputContextHandler::report_cursor_rect`가 호출될 때마다 컨텍스트별 캐시와
+    /// 함께 갱신된다. InputMethod-level `trigger_action`("emoji_popup") 처럼
+    /// 어느 컨텍스트인지 알 수 없는 외부 단축키 우회 호출에서 fallback 위치로 사용한다.
+    /// 한 번도 보고가 없으면 `(0, 0, 0, 0)` — GUI 측이 자체 fallback 위치를 결정.
+    last_cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
+    /// 전역 캐시: 마지막으로 포커스를 받은 **실제 입력 컨텍스트**의 DBus path.
+    ///
+    /// GNOME extension의 자체 InputContext(`client_name = "gnome-extension"`)는
+    /// 사용자 앱이 아닌 extension 자신의 컨텍스트이므로 본 캐시에서 **제외**된다.
+    /// GTK3/4·Qt5/6·XIM·Wayland 등 사용자 앱 측 컨텍스트만 후보가 된다.
+    ///
+    /// 글로벌 `TriggerAction("emoji_popup")` 및 `CommitEmoji` 호출 시 데몬은 이
+    /// path를 향해 시그널을 redirect한다. GTK4_IM 모듈이 캐시한 ACTIVE_CONTEXT_PATH와
+    /// 일치시켜, 단축키 캡처 주체(GNOME extension)와 입력 주체(GTK4_IM)가 분리된
+    /// 환경에서도 emoji가 사용자 앱에 정확히 들어가게 한다.
+    last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl InputMethodService {
@@ -234,7 +252,19 @@ impl InputMethodService {
             global_mode: Arc::new(RwLock::new(global_mode)),
             engine_tx,
             connection,
+            last_cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
+            last_active_input_context_path: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// 전역 cursor_rect 캐시 핸들 (InputContextHandler에 공유 주입)
+    pub fn last_cursor_rect(&self) -> Arc<std::sync::Mutex<(i32, i32, i32, i32)>> {
+        Arc::clone(&self.last_cursor_rect)
+    }
+
+    /// 전역 last_active_input_context_path 캐시 핸들
+    pub fn last_active_input_context_path(&self) -> Arc<std::sync::Mutex<Option<String>>> {
+        Arc::clone(&self.last_active_input_context_path)
     }
 
     /// 설정 참조 반환
@@ -290,8 +320,11 @@ impl InputMethodService {
         let handler = InputContextHandler::new(
             id,
             client_name.to_string(),
+            path.clone(),
             self.engine_tx.clone(),
             self.connection.clone(),
+            Arc::clone(&self.last_cursor_rect),
+            Arc::clone(&self.last_active_input_context_path),
         );
         let obj_path = zbus::zvariant::ObjectPath::try_from(path.as_str())
             .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
@@ -871,6 +904,183 @@ impl InputMethodService {
         );
         Ok(())
     }
+
+    // =========================================
+    // 외부 트리거 액션 — 글로벌(InputContext 비보유) 진입점
+    // =========================================
+
+    /// 외부 단축키 도구(KDE System Settings, Hyprland config, Sway, AHK 등)가 호출하는
+    /// **InputContext 비보유** 트리거. CLI wrapper(`unim-cli trigger <action>`)도 동일 경로 사용.
+    ///
+    /// `InputContextHandler::trigger_action`은 GNOME extension처럼 자체 InputContext를 가진
+    /// 클라이언트를 위한 것이고, 본 메서드는 **어느 컨텍스트인지 알 수 없는** 환경에서
+    /// 동일한 동작을 가능하게 한다. cursor 좌표는 마지막으로 보고된 전역 캐시 사용.
+    ///
+    /// 지원 액션:
+    /// - `"emoji_popup"`: Standalone 모드에서 `ShowEmojiPopup` 시그널 발행. Embedded 모드는 no-op.
+    ///
+    /// 알 수 없는 액션은 경고 로그만 남기고 `Ok(())` — 향후 액션 추가 시 호환성 보장.
+    ///
+    /// **시그널 발행 경로**: 기존 GUI 구독(`path_namespace=/org/atit/unim`,
+    /// `interface=org.atit.unim.InputContext`)을 그대로 활용하기 위해 `ShowEmojiPopup`을
+    /// `org.atit.unim.InputContext` 인터페이스로 InputMethod path에서 수동 발행한다.
+    /// (별도 InputMethod-level signal을 추가하면 zbus `#[proxy]` 매크로 충돌 발생.)
+    async fn trigger_action(&self, action: &str) -> zbus::fdo::Result<()> {
+        unim_log!("DBUS", "[DBus] TriggerAction(global): action='{}'", action);
+        match action {
+            "emoji_popup" => {
+                // Standalone 모드일 때만 시그널 발행 (Embedded는 IM 모듈이 자체 처리)
+                let is_standalone = {
+                    let cfg = self.config.read().await;
+                    cfg.engine.popup_mode == PopupMode::Standalone
+                };
+                if !is_standalone {
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] TriggerAction(global,emoji_popup) skipped: Embedded 모드"
+                    );
+                    return Ok(());
+                }
+                let (x, y, w, h) = *self.last_cursor_rect.lock().unwrap();
+                // 마지막 실제 입력 컨텍스트 path가 있으면 그 path에서 시그널 발행
+                // (없으면 InputMethod path fallback — 1번 작업의 기존 동작 유지)
+                let target_path_str = self
+                    .last_active_input_context_path
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .unwrap_or_else(|| crate::INPUT_METHOD_PATH.to_string());
+                let path = zbus::zvariant::ObjectPath::try_from(target_path_str.as_str())
+                    .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
+                let result = self
+                    .connection
+                    .emit_signal(
+                        None::<&str>,
+                        &path,
+                        "org.atit.unim.InputContext",
+                        "ShowEmojiPopup",
+                        &(x, y, w, h),
+                    )
+                    .await;
+                if let Err(e) = result {
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowEmojiPopup(global) 발행 실패: {}",
+                        e
+                    );
+                } else {
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ShowEmojiPopup(global) 시그널 발행: path={}, x={}, y={}, w={}, h={}",
+                        target_path_str,
+                        x,
+                        y,
+                        w,
+                        h
+                    );
+                }
+            }
+            other => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] TriggerAction(global): 알 수 없는 action='{}' — 무시 (호환성 유지)",
+                    other
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// 글로벌 이모지 커밋 — InputContext 비보유 클라이언트(GNOME extension의 emoji 팝업)용.
+    ///
+    /// GNOME extension은 자체 InputContext를 가지나, GTK4_IM_MODULE=unim 환경에서는
+    /// extension의 context로 commit하면 GTK4_IM 모듈을 우회하여 사용자 앱에 도달하지 못한다.
+    /// 본 메서드는 마지막으로 포커스를 받은 **실제 입력 컨텍스트 path**(`last_active_input_context_path`)로
+    /// `CommitText` / `HidePopup` 시그널을 redirect하여 GTK4_IM·Qt·XIM 모듈이 받아 사용자 앱에
+    /// 그대로 commit되게 한다. emoji MRU 즐겨찾기 갱신도 함께 수행.
+    ///
+    /// `last_active_input_context_path`가 비어있거나 path가 더이상 유효하지 않으면 경고 로그만
+    /// 남기고 `Ok(())` 반환 — 호환성을 위해 실패하지 않는다.
+    async fn commit_emoji(&self, emoji: &str) -> zbus::fdo::Result<()> {
+        // MRU 즐겨찾기는 emoji 비어있지 않을 때 갱신
+        if !emoji.is_empty() {
+            unim::hangul::emoji::touch_favorite(emoji);
+        }
+
+        let target_path_str = match self.last_active_input_context_path.lock().unwrap().clone() {
+            Some(p) => p,
+            None => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(global): last_active_input_context_path 없음 — skip"
+                );
+                return Ok(());
+            }
+        };
+
+        let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(global): 잘못된 path '{}': {} — skip",
+                    target_path_str,
+                    e
+                );
+                return Ok(());
+            }
+        };
+
+        // CommitText 발행 (emoji가 비어있지 않을 때만)
+        if !emoji.is_empty() {
+            let r = self
+                .connection
+                .emit_signal(
+                    None::<&str>,
+                    &path,
+                    "org.atit.unim.InputContext",
+                    "CommitText",
+                    &(emoji.to_string(),),
+                )
+                .await;
+            if let Err(e) = r {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(global) CommitText 발행 실패: {} (path={})",
+                    e,
+                    target_path_str
+                );
+            }
+        }
+
+        // HidePopup 발행 — InputContext 측 commit_emoji와 동일한 후처리
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "HidePopup",
+                &(),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] CommitEmoji(global) HidePopup 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
+        }
+
+        unim_log!(
+            "DBUS",
+            "[DBus] CommitEmoji(global): emoji='{}', path={}",
+            emoji,
+            target_path_str
+        );
+        Ok(())
+    }
 }
 
 /// InputContext 인터페이스 구현을 위한 핸들러
@@ -885,8 +1095,20 @@ pub struct InputContextHandler {
     engine_tx: mpsc::Sender<EngineRequest>,
     /// DBus 연결 (시그널 발송용)
     connection: Connection,
-    /// 캐싱된 커서 위치 (x, y, width, height)
+    /// 캐싱된 커서 위치 (x, y, width, height) — 본 컨텍스트 전용
     cursor_rect: std::sync::Mutex<(i32, i32, i32, i32)>,
+    /// 본 컨텍스트의 DBus 객체 path (예: `/org/atit/unim/InputContext_15`).
+    /// `focus_in`/`destroy` 시 글로벌 `last_active_input_context_path` 캐시를
+    /// 갱신/무효화할 때 사용한다.
+    path: String,
+    /// 전역 cursor_rect 캐시 (`InputMethodService::last_cursor_rect`와 동일 Arc).
+    /// `report_cursor_rect`가 호출되면 본 컨텍스트뿐 아니라 전역 캐시도 갱신해
+    /// InputMethod-level `trigger_action`이 fallback 좌표로 사용할 수 있게 한다.
+    last_cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
+    /// 전역 last_active_input_context_path 캐시 (`InputMethodService`와 동일 Arc).
+    /// `focus_in` 시 frontend가 GNOME(extension 자체 컨텍스트)이 아니면 본 path를 저장.
+    /// `destroy` 시 본 path가 캐시 값과 같으면 None으로 비워준다.
+    last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 /// client_name으로부터 프론트엔드 종류를 식별
@@ -905,11 +1127,19 @@ fn detect_frontend_type(client_name: &str) -> &'static str {
 
 impl InputContextHandler {
     /// 새 핸들러 생성
+    ///
+    /// `last_cursor_rect`는 `InputMethodService`의 전역 cursor 캐시 — 글로벌
+    /// `trigger_action`이 cursor 좌표 없이 호출될 때 사용한다.
+    /// `last_active_input_context_path`는 동일하게 글로벌 last-active path 캐시 —
+    /// 글로벌 `CommitEmoji`/`TriggerAction`이 시그널을 redirect할 때 사용한다.
     pub fn new(
         id: u32,
         client_name: String,
+        path: String,
         engine_tx: mpsc::Sender<EngineRequest>,
         connection: Connection,
+        last_cursor_rect: Arc<std::sync::Mutex<(i32, i32, i32, i32)>>,
+        last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
     ) -> Self {
         Self {
             id,
@@ -917,6 +1147,9 @@ impl InputContextHandler {
             engine_tx,
             connection,
             cursor_rect: std::sync::Mutex::new((0, 0, 0, 0)),
+            path,
+            last_cursor_rect,
+            last_active_input_context_path,
         }
     }
 }
@@ -1117,6 +1350,12 @@ impl InputContextHandler {
 
         let frontend = detect_frontend_type(&self.client_name);
 
+        // GNOME extension의 자체 InputContext는 사용자 앱 입력 대상이 아니므로
+        // last_active_input_context_path 후보에서 제외 — GTK4_IM 등 실제 프런트엔드만 등록.
+        if frontend != "GNOME" {
+            *self.last_active_input_context_path.lock().unwrap() = Some(self.path.clone());
+        }
+
         if let Ok(is_korean) = response_rx.await {
             // InputMethod 경로에서 GlobalModeChanged 시그널 발송 (UI 동기화)
             unim_log!(
@@ -1213,6 +1452,15 @@ impl InputContextHandler {
 
     /// 컨텍스트 파괴
     async fn destroy(&self) -> zbus::fdo::Result<()> {
+        // last_active 캐시가 본 컨텍스트를 가리키고 있다면 비워준다 — stale path
+        // 으로 글로벌 CommitEmoji/TriggerAction이 죽은 path에 시그널을 보내는 것 방지.
+        {
+            let mut last = self.last_active_input_context_path.lock().unwrap();
+            if last.as_deref() == Some(self.path.as_str()) {
+                *last = None;
+            }
+        }
+
         self.engine_tx
             .send(EngineRequest::DestroyContext { id: self.id })
             .await
@@ -1390,6 +1638,9 @@ impl InputContextHandler {
     // =========================================
 
     /// 프런트엔드가 커서 위치를 보고 (팝업 포지셔닝용)
+    ///
+    /// 컨텍스트 전용 캐시(`cursor_rect`)와 전역 캐시(`last_cursor_rect`)를 동시 갱신.
+    /// 전역 캐시는 InputMethod-level `trigger_action`이 fallback 좌표로 사용한다.
     async fn report_cursor_rect(
         &self,
         x: i32,
@@ -1398,6 +1649,7 @@ impl InputContextHandler {
         height: i32,
     ) -> zbus::fdo::Result<()> {
         *self.cursor_rect.lock().unwrap() = (x, y, width, height);
+        *self.last_cursor_rect.lock().unwrap() = (x, y, width, height);
         unim_log!(
             "DBUS",
             "[DBus] CursorRect: context_id={}, x={}, y={}, w={}, h={}",
