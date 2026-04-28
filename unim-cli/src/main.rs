@@ -28,37 +28,70 @@ use unim::unim_log;
 
 rust_i18n::i18n!("locales");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Help text helpers (i18n via rust-i18n)
+//
+// clap derive의 about/long_about/help/long_help 속성은 expr를 받으므로 함수
+// 호출로 런타임 i18n 키를 해석할 수 있다. main()에서 LANG/LC_ALL 기반 로케일을
+// `Cli::parse()` 보다 먼저 설정하므로, 여기서 호출되는 t!() 매크로는 사용자
+// 환경 언어로 해석된다.
+// ─────────────────────────────────────────────────────────────────────────────
+fn h(key: &str) -> String {
+    t!(key).to_string()
+}
+
 /// UNIM-cli: Korean/English keyboard converter + settings manager
 #[derive(Parser, Debug)]
 #[command(
     author,
     version,
-    about = "UNIM-cli - Korean/English Keyboard Converter & Settings Manager",
+    about = h("help_cli_about"),
+    long_about = h("help_cli_long_about"),
     args_conflicts_with_subcommands = true
 )]
 struct Cli {
-    /// Input files (uses standard input if not specified)
-    #[arg(name = "FILE")]
+    #[arg(
+        name = "FILE",
+        help = h("help_cli_files_short"),
+        long_help = h("help_cli_files_long"),
+    )]
     input_files: Vec<String>,
 
-    /// Output file (uses standard output if not specified)
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(
+        short, long, value_name = "FILE",
+        help = h("help_cli_output_short"),
+        long_help = h("help_cli_output_long"),
+    )]
     output: Option<String>,
 
-    /// Compose English keyboard stream into Korean (default mode)
-    #[arg(short, long, group = "conversion", default_value_t = true)]
+    #[arg(
+        short, long, group = "conversion", default_value_t = true,
+        help = h("help_cli_compose_short"),
+        long_help = h("help_cli_compose_long"),
+    )]
     compose: bool,
 
-    /// Decompose Korean into English keyboard stream
-    #[arg(short, long, group = "conversion")]
+    #[arg(
+        short, long, group = "conversion",
+        help = h("help_cli_decompose_short"),
+        long_help = h("help_cli_decompose_long"),
+    )]
     decompose: bool,
 
-    /// Korean keyboard layout (default: 2bul)
-    #[arg(short = 'k', long = "korean-keyboard", value_enum, default_value_t = KeyboardMode::TwoBulStd)]
+    #[arg(
+        short = 'k', long = "korean-keyboard", value_enum,
+        default_value_t = KeyboardMode::TwoBulStd,
+        help = h("help_cli_korean_keyboard_short"),
+        long_help = h("help_cli_korean_keyboard_long"),
+    )]
     korean_keyboard: KeyboardMode,
 
-    /// English keyboard layout (default: qwerty)
-    #[arg(short = 'e', long = "english-keyboard", value_enum, default_value_t = EnglishKeyboardMode::Qwerty)]
+    #[arg(
+        short = 'e', long = "english-keyboard", value_enum,
+        default_value_t = EnglishKeyboardMode::Qwerty,
+        help = h("help_cli_english_keyboard_short"),
+        long_help = h("help_cli_english_keyboard_long"),
+    )]
     english_keyboard: EnglishKeyboardMode,
 
     #[command(subcommand)]
@@ -67,46 +100,87 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// 설정 관리 (Manage settings)
+    /// Manage settings (placeholder; overridden by command attributes)
+    #[command(
+        about = h("help_cmd_config_about"),
+        long_about = h("help_cmd_config_long"),
+    )]
     Config {
         #[command(subcommand)]
         command: Option<ConfigCommands>,
     },
-    /// 데몬에 액션을 트리거 (단축키 도구용 universal entry point)
-    ///
-    /// GNOME extension이 없는 환경(KDE/Hyprland/Sway 등)에서 OS 단축키 도구가
-    /// `unim-cli trigger emoji_popup`을 호출해 이모지 팝업을 띄울 수 있다.
-    /// 데몬의 `org.atit.unim.InputMethod.TriggerAction` RPC를 호출.
+    /// Trigger an action on the daemon (placeholder; overridden)
+    #[command(
+        about = h("help_cmd_trigger_about"),
+        long_about = h("help_cmd_trigger_long"),
+    )]
     Trigger {
-        /// 트리거할 액션 이름 (예: emoji_popup)
+        #[arg(
+            help = h("help_arg_trigger_action_short"),
+            long_help = h("help_arg_trigger_action_long"),
+        )]
         action: String,
     },
 }
 
 #[derive(Subcommand, Debug)]
 enum ConfigCommands {
-    /// 현재 설정 표시
+    /// Show current settings (placeholder)
+    #[command(
+        about = h("help_cfg_show_about"),
+        long_about = h("help_cfg_show_long"),
+    )]
     Show,
-    /// 설정 값 변경
+    /// Set a config value (placeholder)
+    #[command(
+        about = h("help_cfg_set_about"),
+        long_about = h("help_cfg_set_long"),
+    )]
     Set {
-        /// 설정 항목 이름
-        #[arg(value_enum)]
+        #[arg(
+            value_enum,
+            help = h("help_cfg_set_key_short"),
+            long_help = h("help_cfg_set_key_long"),
+        )]
         key: ConfigKey,
-        /// 설정 값
+        #[arg(
+            help = h("help_cfg_set_value_short"),
+            long_help = h("help_cfg_set_value_long"),
+        )]
         value: String,
     },
-    /// 설정 파일 경로 표시
+    /// Show config file path (placeholder)
+    #[command(
+        about = h("help_cfg_path_about"),
+        long_about = h("help_cfg_path_long"),
+    )]
     Path,
-    /// 설정을 기본값으로 초기화
+    /// Reset settings to defaults (placeholder)
+    #[command(
+        about = h("help_cfg_reset_about"),
+        long_about = h("help_cfg_reset_long"),
+    )]
     Reset,
-    /// 인터렉티브 설정 모드 시작
+    /// Start interactive editor (placeholder)
+    #[command(
+        about = h("help_cfg_interactive_about"),
+        long_about = h("help_cfg_interactive_long"),
+    )]
     Interactive,
-    /// 자판 프로필 조회·검증 (Layout Profile v1)
+    /// Inspect/validate keyboard layout profiles (placeholder)
+    #[command(
+        about = h("help_cfg_layout_about"),
+        long_about = h("help_cfg_layout_long"),
+    )]
     Layout {
         #[command(subcommand)]
         action: LayoutAction,
     },
-    /// 역방향 사용자 사전 관리 (한→영 교정 whitelist)
+    /// Manage reverse user dictionary (placeholder)
+    #[command(
+        about = h("help_cfg_userdict_about"),
+        long_about = h("help_cfg_userdict_long"),
+    )]
     UserDict {
         #[command(subcommand)]
         action: UserDictCommand,
@@ -116,41 +190,86 @@ enum ConfigCommands {
 /// 역방향 사용자 사전 (AutoTypeFix reverse 전용 whitelist) 관리 서브커맨드.
 #[derive(Subcommand, Debug)]
 enum UserDictCommand {
-    /// 등록된 단어 목록 출력
+    /// List dictionary words (placeholder)
+    #[command(
+        about = h("help_ud_list_about"),
+        long_about = h("help_ud_list_long"),
+    )]
     List,
-    /// 단어 추가 (영문 알파벳만 허용)
+    /// Add a word (placeholder)
+    #[command(
+        about = h("help_ud_add_about"),
+        long_about = h("help_ud_add_long"),
+    )]
     Add {
-        /// 등록할 단어 (예: git)
+        #[arg(
+            help = h("help_ud_add_word_short"),
+            long_help = h("help_ud_add_word_long"),
+        )]
         word: String,
-        /// 설명/메모 (선택)
-        #[arg(long)]
+        #[arg(
+            long,
+            help = h("help_ud_add_note_short"),
+            long_help = h("help_ud_add_note_long"),
+        )]
         note: Option<String>,
     },
-    /// 단어 제거 (대소문자 무시)
+    /// Remove a word (placeholder)
+    #[command(
+        about = h("help_ud_remove_about"),
+        long_about = h("help_ud_remove_long"),
+    )]
     Remove {
-        /// 제거할 단어
+        #[arg(
+            help = h("help_ud_remove_word_short"),
+            long_help = h("help_ud_remove_word_long"),
+        )]
         word: String,
     },
-    /// 사전 전체 삭제 (confirm 필요)
+    /// Clear the dictionary (placeholder)
+    #[command(
+        about = h("help_ud_clear_about"),
+        long_about = h("help_ud_clear_long"),
+    )]
     Clear,
-    /// 사전 파일 경로 표시
+    /// Show dictionary file path (placeholder)
+    #[command(
+        about = h("help_ud_path_about"),
+        long_about = h("help_ud_path_long"),
+    )]
     Path,
 }
 
 #[derive(Subcommand, Debug)]
 enum LayoutAction {
-    /// 내장 + 사용자 디렉토리의 프로필 이름 목록 표시
+    /// List builtin and user profiles (placeholder)
+    #[command(
+        about = h("help_layout_list_about"),
+        long_about = h("help_layout_list_long"),
+    )]
     List,
-    /// 특정 프로필의 metadata·조합 규칙·rule_set 개요 표시
+    /// Describe a profile (placeholder)
+    #[command(
+        about = h("help_layout_describe_about"),
+        long_about = h("help_layout_describe_long"),
+    )]
     Describe {
-        /// 프로필 이름 (내장 별칭 또는 사용자 프로필 name)
+        #[arg(
+            help = h("help_layout_describe_name_short"),
+            long_help = h("help_layout_describe_name_long"),
+        )]
         name: String,
     },
-    /// 프로필 파일 스키마·자모 해석·rule_set 일관성 검사
-    ///
-    /// exit code: 0=통과, 1=경고만, 2=오류
+    /// Validate a profile file (placeholder)
+    #[command(
+        about = h("help_layout_validate_about"),
+        long_about = h("help_layout_validate_long"),
+    )]
     Validate {
-        /// 검사할 JSON 파일 경로
+        #[arg(
+            help = h("help_layout_validate_file_short"),
+            long_help = h("help_layout_validate_file_long"),
+        )]
         file: PathBuf,
     },
 }
@@ -170,6 +289,9 @@ enum KeyboardMode {
     /// 세벌식 순아래 자판
     #[value(name = "noshift")]
     ThreeBulNoShift,
+    /// 쿼티형 세벌식 자판
+    #[value(name = "3bul_qwerty")]
+    ThreeBulQwerty,
 }
 
 /// 영어 자판 모드 (변환용)
@@ -201,7 +323,7 @@ enum ConversionMode {
 
 #[derive(Clone, Debug, ValueEnum)]
 enum ConfigKey {
-    /// 한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift)
+    /// 한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)
     #[value(name = "korean-layout")]
     KoreanLayout,
     /// 영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)
@@ -368,6 +490,7 @@ fn run_convert(config: ConvertConfig) -> io::Result<()> {
         KeyboardMode::ThreeBul390 => "ko_3bul390",
         KeyboardMode::ThreeBul391 => "ko_3bul391",
         KeyboardMode::ThreeBulNoShift => "ko_3bul_noshift",
+        KeyboardMode::ThreeBulQwerty => "ko_3bul_qwerty",
     };
 
     unim_log!(
@@ -382,7 +505,10 @@ fn run_convert(config: ConvertConfig) -> io::Result<()> {
 
     let is_three_bul = matches!(
         config.keyboard_mode,
-        KeyboardMode::ThreeBul390 | KeyboardMode::ThreeBul391 | KeyboardMode::ThreeBulNoShift
+        KeyboardMode::ThreeBul390
+            | KeyboardMode::ThreeBul391
+            | KeyboardMode::ThreeBulNoShift
+            | KeyboardMode::ThreeBulQwerty
     );
 
     match config.conversion_mode {

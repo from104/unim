@@ -160,3 +160,109 @@ layout_validate_unknown_set: "Name not defined in active_rule_sets: '%{name}'"
 trigger_success: "Triggered '%{action}' action on the daemon."
 trigger_error_daemon_unreachable: "Cannot reach the daemon (org.atit.unim session bus): %{err}"
 trigger_error_action_failed: "Failed to trigger '%{action}': %{err}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Help text — clap derive about/long_about/help/long_help
+#
+# Key naming:
+#   help_cli_*       : Top-level unim-cli (conversion mode + global options)
+#   help_cmd_*       : First-level subcommands (config, trigger)
+#   help_cfg_*       : Children of config (show/set/path/reset/...)
+#   help_ud_*        : Children of config user-dict
+#   help_layout_*    : Children of config layout
+#   help_arg_*       : Argument/option help (paired short + long)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Top-level unim-cli ──────────────────────────────────────────────────────
+help_cli_about: "UNIM IME — Korean/English keyboard converter, settings manager, and shortcut relay"
+help_cli_long_about: "Command-line tool for UNIM (Universal Next-generation Input Method).\n\nWhat it does:\n  • Convert keyboard streams between Korean and English\n  • View and modify daemon settings (config subcommand)\n  • Relay actions from OS shortcut tools to the daemon (trigger subcommand)\n\nExamples:\n  unim-cli rkdskdgktpdy            # 'rkdskdgktpdy' -> '강나하세요' (compose)\n  unim-cli -d input.txt -o out.txt # decompose Korean to English keystrokes\n  unim-cli config show             # show current settings\n  unim-cli config set toggle-keys 'Korean,RightAlt'\n  unim-cli trigger emoji_popup     # show emoji popup (call from a hotkey tool)\n\nLocale is auto-detected from LANG / LC_ALL (ko, en supported).\nFor subcommand details: 'unim-cli help <SUBCOMMAND>' or '--help'."
+
+help_cli_files_short: "Input files (uses stdin if omitted; '-' means stdin)"
+help_cli_files_long: "Paths of files to convert. Multiple files are processed in order.\nIf omitted, or if a path is '-', input is read from standard input.\nIf '-' appears more than once, only the first occurrence is used and a warning is printed."
+
+help_cli_output_short: "Output file (uses stdout if omitted)"
+help_cli_output_long: "Path of the file to write conversion results to. Defaults to standard output.\nUse '-' to explicitly select stdout. Existing files are overwritten."
+
+help_cli_compose_short: "Compose English keystroke stream into Korean (default)"
+help_cli_compose_long: "Combine an English keyboard input stream into Korean syllables (default mode).\nExample: 'rkdskdgktpdy' -> '강나하세요'.\nMutually exclusive with --decompose."
+
+help_cli_decompose_short: "Decompose Korean text into an English keystroke stream"
+help_cli_decompose_long: "Decompose Korean text into the keystrokes that would produce it on the chosen layout.\nExample: '안녕' -> 'dkssud'.\nMutually exclusive with --compose."
+
+help_cli_korean_keyboard_short: "Korean keyboard layout (default: 2bul)"
+help_cli_korean_keyboard_long: "Korean keyboard variant used during conversion.\n  2bul        : Dubeolsik standard (default)\n  390         : Sebeolsik 390\n  391         : Sebeolsik 391\n  noshift     : Sebeolsik no-shift\n  3bul_qwerty : Qwerty Sebeolsik\n* Conversion-only — independent from the daemon's korean-layout config."
+
+help_cli_english_keyboard_short: "English keyboard layout (default: qwerty)"
+help_cli_english_keyboard_long: "English keyboard variant used during conversion.\n  qwerty     : QWERTY (default)\n  dvorak     : Dvorak\n  colemak    : Colemak\n  colemak_dh : Colemak-DH\n  workman    : Workman\n* Conversion-only — independent from the daemon's english-layout config."
+
+# ── First-level subcommands ─────────────────────────────────────────────────
+help_cmd_config_about: "View, modify, and reset daemon settings"
+help_cmd_config_long: "Manage the UNIM daemon's settings file (~/.config/unim/config.yaml).\n\nChild subcommands:\n  show         Print a human-readable summary of current settings\n  set          Change one setting and save\n  path         Print absolute path of the config file\n  reset        Reset settings to defaults\n  interactive  Start an interactive editor session\n  layout       Inspect/validate keyboard layout profiles (Layout Profile v1)\n  user-dict    Manage reverse user dictionary (KO->EN correction whitelist)\n\nFor details: 'unim-cli help config <SUB>'."
+
+help_cmd_trigger_about: "Trigger an action on the daemon (universal entry point for hotkey tools)"
+help_cmd_trigger_long: "Entry point for OS shortcut tools (KDE global shortcuts, Hyprland binds, Sway,\nxbindkeys, AutoHotkey, etc.). It calls the daemon's\norg.atit.unim.InputMethod.TriggerAction RPC, which dispatches the action to the\ncurrently active InputContext.\n\nSupported actions:\n  emoji_popup    Show the emoji popup at the cursor\n  (planned: hanja_popup, special_char_popup, ...)\n\nExample:\n  unim-cli trigger emoji_popup\n\nSee docs/user/keyboard-shortcuts.md for per-environment setup\n(KDE / Hyprland / Sway / X11 xbindkeys all covered)."
+
+help_arg_trigger_action_short: "Action identifier to trigger (e.g. emoji_popup)"
+help_arg_trigger_action_long: "Action identifier sent to the daemon.\nCurrently supported: emoji_popup\nFuture: hanja_popup, special_char_popup, etc.\nUnknown actions are rejected by the daemon and a non-zero exit code is returned."
+
+# ── config children ─────────────────────────────────────────────────────────
+help_cfg_show_about: "Show a summary of current settings"
+help_cfg_show_long: "Pretty-print the daemon's current settings: layouts, toggle/hanja keys,\nmode-sharing strategy, AutoTypeFix details, auto English mode, emoji popup,\nper-app rules, and config file path."
+
+help_cfg_set_about: "Change a single setting and save"
+help_cfg_set_long: "Sets the given key and writes the result to the config file.\nThe daemon watches the file and reloads automatically — no restart required.\n\nExamples:\n  unim-cli config set korean-layout 3bul390\n  unim-cli config set toggle-keys 'Korean,RightAlt'\n  unim-cli config set auto-typefix true\n  unim-cli config set auto-typefix-forward-time-window-ms 1500\n\nFor the full key list and value formats use\n'unim-cli help config set' or 'unim-cli config set --help'."
+help_cfg_set_key_short: "Setting key to change"
+help_cfg_set_key_long: "Setting key to change. Common keys:\n  korean-layout                    Korean layout (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)\n  english-layout                   English layout (qwerty, dvorak, colemak, colemak_dh, workman)\n  default-category                 Initial input mode (korean, english)\n  mode-sharing                     Mode sharing (global, per-app)\n  toggle-keys                      Korean/English toggle (comma-separated, e.g. Korean,RightAlt)\n  hanja-keys                       Hanja/special char keys (e.g. Hanja,F9)\n  popup-mode                       Popup display (standalone, embedded)\n  auto-typefix                     Auto typo correction (true/false)\n  auto-typefix-forward             Forward (EN->KO) enable (true/false)\n  auto-typefix-reverse             Reverse (KO->EN) enable (true/false)\n  auto-english                     Auto English mode (true/false)\n  auto-english-keys                Auto English trigger keys\n  emoji-popup                      Enable emoji popup (true/false)\n  emoji-popup-keys                 Emoji popup shortcut (e.g. Super+Period)\nFull list: 'unim-cli config set --help'."
+help_cfg_set_value_short: "New value for the key"
+help_cfg_set_value_long: "Format depends on the key:\n  • bool keys: true / false\n  • key lists: comma-separated (e.g. 'Korean,RightAlt')\n  • integers: number within the documented range (e.g. auto-typefix-kor-threshold is 2..6)\n  • enums: one of the allowed identifiers\nInvalid values are rejected with a list of allowed values."
+
+help_cfg_path_about: "Print the absolute path of the config file"
+help_cfg_path_long: "Prints one line containing the absolute path of the active config file.\nDefault: $XDG_CONFIG_HOME/unim/config.yaml (typically ~/.config/unim/config.yaml).\nUseful for scripts that edit the file directly."
+
+help_cfg_reset_about: "Reset settings to defaults (with confirmation)"
+help_cfg_reset_long: "Restores the config file to defaults after a confirmation prompt.\nAll saved toggle-keys, hanja-keys, AutoTypeFix tuning, per-app rules, etc. are\nlost. The user dictionary (user-dict) lives in a separate file and is unaffected."
+
+help_cfg_interactive_about: "Start an interactive editor session"
+help_cfg_interactive_long: "Edit settings via a terminal menu. Use arrow keys, enter, and text input to\npick layouts, keys, and toggle AutoTypeFix flags. Saving applies changes to\nthe daemon immediately."
+
+help_cfg_layout_about: "Inspect/validate keyboard layout profiles (Layout Profile v1)"
+help_cfg_layout_long: "Manage builtin and user-defined keyboard profiles\n(~/.config/unim/layouts/*.json).\n\nChild subcommands:\n  list             List builtin and user profile names\n  describe <name>  Show metadata, jamo mapping, and rule_set summary\n  validate <file>  Validate schema, jamo resolution, and rule_set consistency\n\nValidate exit codes:\n  0=ok / 1=warnings only / 2=errors"
+
+help_cfg_userdict_about: "Manage reverse user dictionary (KO->EN correction whitelist)"
+help_cfg_userdict_long: "Manage the whitelist for AutoTypeFix reverse (KO->EN) correction.\nApplies only when auto-typefix-user-dict is enabled.\n\nChild subcommands:\n  list             List registered words\n  add <word>       Add a word (English letters only; duplicates rejected)\n  remove <word>    Remove a word (case-insensitive)\n  clear            Delete all entries (confirmation required)\n  path             Print dictionary file path"
+
+# ── user-dict children ──────────────────────────────────────────────────────
+help_ud_list_about: "List dictionary words"
+help_ud_list_long: "Print every word stored in the reverse user dictionary, along with the\nnote (if any) that was attached when the word was added."
+
+help_ud_add_about: "Add a word (English letters only)"
+help_ud_add_long: "Add a word that should NOT be reverse-corrected (KO->EN).\n• Letters only (a-z, A-Z) — digits, symbols, spaces, and Hangul are rejected.\n• Stored case-insensitively.\n• Duplicates are rejected without modifying the count.\n\nExample:\n  unim-cli config user-dict add git --note 'command'"
+help_ud_add_word_short: "Word to add (e.g. git)"
+help_ud_add_word_long: "Word to register. Letters only; case-insensitive."
+help_ud_add_note_short: "Optional note attached to the word"
+help_ud_add_note_long: "Free-form note stored with the word and shown by 'list'.\nIf omitted, the note is empty."
+
+help_ud_remove_about: "Remove a word (case-insensitive)"
+help_ud_remove_long: "Remove a previously registered word. Matching is case-insensitive.\nIf the word is not present, an informational message is printed and a non-zero\nexit code is returned."
+help_ud_remove_word_short: "Word to remove"
+help_ud_remove_word_long: "Word to remove from the dictionary. Case-insensitive matching."
+
+help_ud_clear_about: "Delete all dictionary entries (with confirmation)"
+help_ud_clear_long: "Delete every entry in the dictionary. A confirmation prompt is shown first,\nand the number of deleted entries is reported afterwards. Cannot be undone."
+
+help_ud_path_about: "Print dictionary file path"
+help_ud_path_long: "Print the absolute path of the user dictionary file on a single line.\nDefault: $XDG_DATA_HOME/unim/typefix_userdict.json (typically ~/.local/share/unim/...)."
+
+# ── layout children ─────────────────────────────────────────────────────────
+help_layout_list_about: "List builtin and user profile names"
+help_layout_list_long: "List every profile name available — builtins plus those in\n~/.config/unim/layouts/. Names produced here are valid arguments for\ndescribe/validate."
+
+help_layout_describe_about: "Show profile metadata, jamo mapping, and rule_set summary"
+help_layout_describe_long: "Show metadata, jamo mapping, and a summary of combination rule_sets\nfor a given profile. Useful when authoring or reviewing a custom profile."
+help_layout_describe_name_short: "Profile name (builtin alias or user-defined 'name')"
+help_layout_describe_name_long: "Builtin alias (e.g. 2bul, 3bul390) or the 'name' field of a user profile JSON.\nUse 'unim-cli config layout list' to see available names."
+
+help_layout_validate_about: "Validate profile schema, jamo, and rule_sets"
+help_layout_validate_long: "Validate that a profile JSON file matches the schema, that all jamos resolve,\nand that active_rule_sets only refers to defined rule_sets.\n\nExit codes:\n  0  passed (no errors or warnings)\n  1  passed (warnings only)\n  2  errors — the daemon may fail to load this profile"
+help_layout_validate_file_short: "Path to the JSON file to validate"
+help_layout_validate_file_long: "Path to the profile JSON (relative or absolute).\nA missing file is treated as an error."

@@ -161,3 +161,109 @@ layout_validate_unknown_set: "active_rule_sets에 정의되지 않은 이름: '%
 trigger_success: "데몬에 '%{action}' 액션을 트리거했습니다."
 trigger_error_daemon_unreachable: "데몬에 연결할 수 없습니다 (org.atit.unim 세션 버스): %{err}"
 trigger_error_action_failed: "'%{action}' 트리거 실패: %{err}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Help text — clap derive about/long_about/help/long_help
+#
+# 키 명명 규칙:
+#   help_cli_*       : 최상위 unim-cli (변환 모드 + 공통 옵션)
+#   help_cmd_*       : 1차 서브커맨드 (config, trigger)
+#   help_cfg_*       : config 의 자식 서브커맨드 (show/set/path/reset/...)
+#   help_ud_*        : config user-dict 자식 서브커맨드
+#   help_layout_*    : config layout 자식 서브커맨드
+#   help_arg_*       : 인자/옵션 도움말 (about 키와 페어로 짧고 길게)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 최상위 unim-cli ──────────────────────────────────────────────────────────
+help_cli_about: "UNIM 입력기 — 한/영 자판 변환·설정 관리·외부 단축키 릴레이"
+help_cli_long_about: "UNIM (Universal Next-generation Input Method) 의 명령줄 도구입니다.\n\n주요 기능:\n  • 한/영 자판 스트림 변환 (영문 키입력 → 한글 / 한글 → 영문 키입력)\n  • 데몬 설정 조회·변경 (config 서브커맨드)\n  • OS 단축키 도구 → 데몬 액션 릴레이 (trigger 서브커맨드)\n\n예시:\n  unim-cli rkdskdgktpdy            # 'rkdskdgktpdy' → '강나하세요' 식으로 조합\n  unim-cli -d input.txt -o out.txt # 한글 → 영문자판 분해\n  unim-cli config show             # 현재 설정 요약 표시\n  unim-cli config set toggle-keys 'Korean,RightAlt'\n  unim-cli trigger emoji_popup     # 이모지 팝업 띄우기 (단축키 도구에서 호출)\n\n로케일은 LANG / LC_ALL 환경변수로 자동 결정 (ko, en 지원).\n자세한 서브커맨드 도움말은 'unim-cli help <SUBCOMMAND>' 또는 '--help' 사용."
+
+help_cli_files_short: "입력 파일 (생략 시 표준 입력 사용, '-' 는 stdin)"
+help_cli_files_long: "변환할 입력 파일 경로(들). 여러 개 지정 가능하며 순서대로 처리합니다.\n생략하거나 '-' 를 사용하면 표준 입력에서 읽습니다.\n'-' 가 두 번 이상 지정되면 첫 번째만 사용하고 경고를 출력합니다."
+
+help_cli_output_short: "출력 파일 (생략 시 표준 출력 사용)"
+help_cli_output_long: "변환 결과를 기록할 파일 경로. 생략하면 표준 출력으로 보냅니다.\n'-' 를 지정하면 명시적으로 표준 출력을 의미합니다.\n파일이 이미 존재하면 덮어씁니다."
+
+help_cli_compose_short: "영문 키스트림 → 한글로 조합 (기본 동작)"
+help_cli_compose_long: "영문 자판으로 입력된 키 스트림을 한글로 조합합니다 (기본값).\n예: 'rkdskdgktpdy' → '강나하세요'.\n--decompose 와 함께 쓸 수 없습니다."
+
+help_cli_decompose_short: "한글 → 영문 키스트림으로 분해"
+help_cli_decompose_long: "한글 텍스트를 입력 자판에서 눌렀을 키 스트림으로 분해합니다.\n예: '안녕' → 'dkssud'.\n--compose 와 함께 쓸 수 없습니다."
+
+help_cli_korean_keyboard_short: "한국어 자판 (기본 2bul)"
+help_cli_korean_keyboard_long: "변환에 사용할 한국어 자판 종류.\n  2bul        : 두벌식 표준 (기본)\n  390         : 세벌식 390\n  391         : 세벌식 391\n  noshift     : 세벌식 순아래\n  3bul_qwerty : 쿼티형 세벌식\n* 변환 모드 전용 — config 의 korean-layout 과는 별개입니다."
+
+help_cli_english_keyboard_short: "영어 자판 (기본 qwerty)"
+help_cli_english_keyboard_long: "변환에 사용할 영어 자판 종류.\n  qwerty     : QWERTY (기본)\n  dvorak     : Dvorak\n  colemak    : Colemak\n  colemak_dh : Colemak-DH\n  workman    : Workman\n* 변환 모드 전용 — config 의 english-layout 과는 별개입니다."
+
+# ── 1차 서브커맨드 ───────────────────────────────────────────────────────────
+help_cmd_config_about: "데몬 설정 조회·변경·초기화"
+help_cmd_config_long: "UNIM 데몬의 설정(~/.config/unim/config.yaml)을 다룹니다.\n\n자식 서브커맨드:\n  show         현재 설정 요약 출력\n  set          설정 항목 변경 후 저장\n  path         설정 파일 절대 경로 출력\n  reset        설정을 기본값으로 초기화\n  interactive  대화형 편집 세션\n  layout       자판 프로필 조회·검증 (Layout Profile v1)\n  user-dict    역방향 사용자 사전 관리 (한→영 교정 whitelist)\n\n자세히는 'unim-cli help config <SUB>' 사용."
+
+help_cmd_trigger_about: "데몬에 액션 트리거 (외부 단축키 도구용 universal entry point)"
+help_cmd_trigger_long: "OS 단축키 도구(KDE 글로벌 단축키, Hyprland binds, Sway, xbindkeys, AutoHotkey 등)에서\n호출하기 위한 진입점입니다. 데몬의 org.atit.unim.InputMethod.TriggerAction RPC를\n호출해 현재 활성 InputContext에 액션을 발사시킵니다.\n\n지원 액션:\n  emoji_popup    이모지 팝업 표시 (현재 커서 위치)\n  (향후 hanja_popup, special_char_popup 등 확장 예정)\n\n예시:\n  unim-cli trigger emoji_popup\n\n환경별 설정 예시는 docs/user/keyboard-shortcuts.md 참고\n(KDE/Hyprland/Sway/X11 xbindkeys 모두 정리되어 있음)."
+
+help_arg_trigger_action_short: "트리거할 액션 이름 (예: emoji_popup)"
+help_arg_trigger_action_long: "데몬에 전달할 액션 식별자.\n현재 지원: emoji_popup\n향후 hanja_popup, special_char_popup 등이 추가될 예정입니다.\n알 수 없는 액션을 보내면 데몬이 거부하고 비-0 종료 코드를 반환합니다."
+
+# ── config 자식 서브커맨드 ───────────────────────────────────────────────────
+help_cfg_show_about: "현재 설정 요약 표시"
+help_cfg_show_long: "데몬이 사용하는 현재 설정을 사람이 읽기 쉬운 형태로 출력합니다.\n레이아웃, 한/영 전환 키, 한자/특수문자 키, 모드 공유 방식, 자동 오타 교정 상세,\n자동 영문 모드 전환, 이모지 팝업, 앱별 모드 규칙, 설정 파일 경로 등을 포함합니다."
+
+help_cfg_set_about: "설정 항목 한 개 변경 후 저장"
+help_cfg_set_long: "지정한 키의 값을 즉시 변경하고 설정 파일에 저장합니다.\n데몬은 파일 변경을 감지해 자동으로 재로드합니다 (재시작 불필요).\n\n예시:\n  unim-cli config set korean-layout 3bul390\n  unim-cli config set toggle-keys 'Korean,RightAlt'\n  unim-cli config set auto-typefix true\n  unim-cli config set auto-typefix-forward-time-window-ms 1500\n\n사용 가능한 키 목록과 값 형식은 'unim-cli help config set' 또는\n'unim-cli config set --help' 로 확인하세요."
+help_cfg_set_key_short: "변경할 설정 항목 이름"
+help_cfg_set_key_long: "변경할 설정 항목 이름.\n주요 항목:\n  korean-layout                    한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)\n  english-layout                   영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)\n  default-category                 초기 입력 모드 (korean, english)\n  mode-sharing                     모드 공유 (global, per-app)\n  toggle-keys                      한/영 전환 키 (쉼표 구분, 예: Korean,RightAlt)\n  hanja-keys                       한자/특수문자 키 (예: Hanja,F9)\n  popup-mode                       팝업 표시 (standalone, embedded)\n  auto-typefix                     자동 오타 교정 (true/false)\n  auto-typefix-forward             순방향 (영→한) 활성화 (true/false)\n  auto-typefix-reverse             역방향 (한→영) 활성화 (true/false)\n  auto-english                     자동 영문 모드 전환 (true/false)\n  auto-english-keys                자동 영문 트리거 키\n  emoji-popup                      이모지 팝업 활성화 (true/false)\n  emoji-popup-keys                 이모지 팝업 단축키 (예: Super+Period)\n전체 목록은 'unim-cli config set --help' 로 확인하세요."
+help_cfg_set_value_short: "새 설정 값"
+help_cfg_set_value_long: "키에 따라 형식이 달라집니다.\n  • bool 항목: true / false\n  • 키 목록: 쉼표 구분 (예: 'Korean,RightAlt')\n  • 정수: 범위 안의 숫자 (예: auto-typefix-kor-threshold 는 2~6)\n  • 열거형: 허용된 식별자 중 하나\n잘못된 값은 거부되고 가능한 값 목록이 안내됩니다."
+
+help_cfg_path_about: "설정 파일 절대 경로 출력"
+help_cfg_path_long: "현재 사용 중인 설정 파일의 절대 경로를 표준 출력으로 한 줄 출력합니다.\n기본 경로: $XDG_CONFIG_HOME/unim/config.yaml (보통 ~/.config/unim/config.yaml).\n스크립트에서 직접 편집할 때 활용하세요."
+
+help_cfg_reset_about: "설정을 기본값으로 초기화 (확인 필요)"
+help_cfg_reset_long: "설정 파일을 기본값으로 되돌립니다. 실행 전 확인 프롬프트가 표시됩니다.\n저장된 toggle-keys, hanja-keys, 자동 오타 교정 설정, 앱별 모드 규칙 등이\n모두 초기화되므로 신중히 사용하세요. 사용자 사전(user-dict)은 별도 파일이라\n영향받지 않습니다."
+
+help_cfg_interactive_about: "대화형 설정 편집 세션 시작"
+help_cfg_interactive_long: "터미널에서 메뉴 기반으로 설정을 편집합니다.\n레이아웃 선택, 키 입력, 자동 오타 교정 토글 등을 화살표·엔터·문자 입력으로 다룰 수 있습니다.\n선택 후 저장하면 즉시 데몬에 반영됩니다."
+
+help_cfg_layout_about: "자판 프로필 조회·검증 (Layout Profile v1)"
+help_cfg_layout_long: "내장 자판 프로필과 사용자 정의 프로필(~/.config/unim/layouts/*.json)을 다룹니다.\n\n자식 서브커맨드:\n  list             내장 + 사용자 디렉토리의 프로필 이름 목록 표시\n  describe <name>  특정 프로필의 metadata·조합 규칙·rule_set 개요 표시\n  validate <file>  프로필 파일 스키마·자모 해석·rule_set 일관성 검사\n\nexit code:\n  validate 0=통과 / 1=경고만 / 2=오류"
+
+help_cfg_userdict_about: "역방향 사용자 사전 관리 (한→영 교정 whitelist)"
+help_cfg_userdict_long: "AutoTypeFix 역방향(한→영) 교정에서 '교정하지 말 것' whitelist를 관리합니다.\nauto-typefix-user-dict 가 활성일 때만 적용됩니다.\n\n자식 서브커맨드:\n  list             등록된 단어 목록 출력\n  add <word>       단어 추가 (영문 알파벳만, 중복은 거부)\n  remove <word>    단어 제거 (대소문자 무시)\n  clear            전체 삭제 (확인 필요)\n  path             사전 파일 경로 출력"
+
+# ── user-dict 자식 서브커맨드 ────────────────────────────────────────────────
+help_ud_list_about: "등록된 단어 목록 출력"
+help_ud_list_long: "역방향 사용자 사전에 등록된 모든 단어를 표시합니다.\n각 항목에는 단어와 등록 시 추가한 메모(있는 경우)가 함께 출력됩니다."
+
+help_ud_add_about: "사전에 단어 추가 (영문 알파벳만)"
+help_ud_add_long: "역방향(한→영) 교정에서 제외할 영단어를 추가합니다.\n• 알파벳(a–z, A–Z) 만 허용 — 숫자·기호·공백·한글은 거부됩니다.\n• 대소문자 구분 없이 저장됩니다.\n• 중복 등록은 거부되며, 추가된 단어 수만 늘어나지 않습니다.\n\n예시:\n  unim-cli config user-dict add git --note '명령어'"
+help_ud_add_word_short: "추가할 영단어 (예: git)"
+help_ud_add_word_long: "사전에 등록할 영단어. 알파벳만 허용되며 대소문자는 무시됩니다."
+help_ud_add_note_short: "단어에 붙일 메모 (선택)"
+help_ud_add_note_long: "단어와 함께 저장될 자유 형식 메모. 'list' 출력 시 함께 표시됩니다.\n생략하면 빈 메모로 등록됩니다."
+
+help_ud_remove_about: "사전에서 단어 제거 (대소문자 무시)"
+help_ud_remove_long: "이미 등록된 단어를 제거합니다. 대소문자는 구분하지 않습니다.\n사전에 없는 단어를 제거하려 하면 안내 메시지를 출력하고 비-0 종료 코드를 반환합니다."
+help_ud_remove_word_short: "제거할 단어"
+help_ud_remove_word_long: "사전에서 제거할 단어. 등록 시 대소문자와 다르게 입력해도 매칭됩니다."
+
+help_ud_clear_about: "사전 전체 삭제 (확인 필요)"
+help_ud_clear_long: "사전의 모든 항목을 삭제합니다. 실행 전 확인 프롬프트가 표시되며,\n삭제된 항목 개수가 출력됩니다. 되돌릴 수 없으니 신중히 사용하세요."
+
+help_ud_path_about: "사전 파일의 절대 경로 출력"
+help_ud_path_long: "사용자 사전 파일의 절대 경로를 한 줄 출력합니다.\n기본 경로: $XDG_DATA_HOME/unim/typefix_userdict.json (보통 ~/.local/share/unim/...)."
+
+# ── layout 자식 서브커맨드 ───────────────────────────────────────────────────
+help_layout_list_about: "내장 + 사용자 프로필 이름 목록 표시"
+help_layout_list_long: "내장 자판 프로필과 사용자 디렉토리(~/.config/unim/layouts/)에 있는 모든\n프로필 이름을 출력합니다. describe / validate 의 인자로 쓸 수 있는 식별자입니다."
+
+help_layout_describe_about: "프로필의 metadata·조합 규칙·rule_set 요약"
+help_layout_describe_long: "특정 자판 프로필의 metadata, 자모 매핑, 조합 규칙(rule_sets) 요약을 표시합니다.\n사용자 정의 프로필을 작성·검토할 때 유용합니다."
+help_layout_describe_name_short: "프로필 이름 (내장 별칭 또는 사용자 정의 name)"
+help_layout_describe_name_long: "내장 별칭(예: 2bul, 3bul390) 또는 사용자 프로필 JSON의 'name' 필드.\n'unim-cli config layout list' 로 사용 가능한 이름을 확인할 수 있습니다."
+
+help_layout_validate_about: "프로필 파일 스키마·자모·rule_set 검증"
+help_layout_validate_long: "프로필 JSON 파일이 스키마를 만족하는지, 자모 해석이 가능한지,\nactive_rule_sets 가 정의된 rule_set만 참조하는지 검사합니다.\n\nexit code:\n  0  통과 (오류·경고 없음)\n  1  통과 (경고만 있음)\n  2  오류 — 데몬에서 사용 시 실패할 수 있음"
+help_layout_validate_file_short: "검사할 JSON 파일 경로"
+help_layout_validate_file_long: "프로필 JSON 파일의 경로 (상대/절대 모두 가능).\n파일이 존재하지 않으면 오류로 처리됩니다."
