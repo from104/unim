@@ -808,15 +808,20 @@ export class UnimDbusIME {
     }
 
     /**
-     * 선택한 이모지를 현재 컨텍스트에 커밋.
-     * 서비스 측에서 즐겨찾기 MRU 갱신 + HidePopup 시그널도 자동 발행합니다.
+     * 선택한 이모지를 **마지막으로 포커스를 받은 실제 입력 컨텍스트**에 커밋.
+     *
+     * GTK4_IM_MODULE=unim 환경에서는 extension 자체의 `_icProxy`로 commit하면
+     * GTK4_IM 모듈을 우회해 사용자 앱에 도달하지 못한다. 따라서 InputMethod-level
+     * `CommitEmoji(s)` RPC(`_imProxy`)를 호출해, 데몬이 캐시한 last-active
+     * InputContext path로 `CommitText` + `HidePopup` 시그널을 redirect하게 한다.
+     * 즐겨찾기 MRU 갱신도 데몬 측에서 함께 수행.
      *
      * @param {string} emoji
      */
     commitEmoji(emoji) {
-        if (!this._icProxy || !emoji) return;
+        if (!this._imProxy || !emoji) return;
         try {
-            this._icProxy.call_sync(
+            this._imProxy.call_sync(
                 'CommitEmoji',
                 new GLib.Variant('(s)', [emoji]),
                 Gio.DBusCallFlags.NONE,
@@ -861,22 +866,26 @@ export class UnimDbusIME {
     // ===========================================
 
     /**
-     * 글로벌 액션 트리거 (TriggerAction RPC)
+     * 글로벌 액션 트리거 (InputMethod-level TriggerAction RPC)
      *
      * GNOME Shell extension이 `global.display.grab_accelerator()`로
      * 캡처한 단축키를 데몬에 전달하기 위한 비차단 best-effort 호출.
      * 응답 reply type이 없는 RPC이므로 reply 파싱 생략, 성공/실패 무시.
      *
+     * **`_imProxy`(InputMethod) 사용**: extension 자체의 `_icProxy`는 사용자 앱이
+     * 아닌 extension 자신의 컨텍스트라, GTK4_IM 모듈이 기다리는 InputContext path와
+     * 일치하지 않는다. InputMethod-level RPC는 데몬이 캐시한 last-active 실제 입력
+     * 컨텍스트 path로 `ShowEmojiPopup` 시그널을 redirect하므로 단축키 캡처 주체와
+     * 입력 주체가 분리된 환경(extension+GTK4_IM)에서도 정확한 컨텍스트로 popup이 발생한다.
+     *
      * 사용 예: `triggerAction('emoji_popup')` →
-     * 데몬이 popup_mode/cursor_rect 게이트를 검사 후 ShowEmojiPopup signal 발행.
+     * 데몬이 popup_mode/last-active path 게이트를 검사 후 ShowEmojiPopup signal 발행.
      *
      * @param {string} name - 액션 이름 (예: 'emoji_popup')
      */
     triggerAction(name) {
-        // trigger_action은 InputContextHandler에 정의되어 있어 _icProxy를 사용해야 한다
-        // (서비스 측이 self.cursor_rect를 읽기 위해 context-bound 방식 채택).
-        if (!this._icProxy) {
-            unimError('DBUS_IME', `triggerAction(${name}): InputContext 미연결 — skip`);
+        if (!this._imProxy) {
+            unimError('DBUS_IME', `triggerAction(${name}): InputMethod 미연결 — skip`);
             return;
         }
         if (typeof name !== 'string' || name.length === 0) {
@@ -885,7 +894,7 @@ export class UnimDbusIME {
         }
 
         try {
-            this._icProxy.call_sync(
+            this._imProxy.call_sync(
                 'TriggerAction',
                 new GLib.Variant('(s)', [name]),
                 Gio.DBusCallFlags.NONE,
