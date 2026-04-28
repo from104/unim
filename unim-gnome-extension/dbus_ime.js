@@ -873,14 +873,19 @@ export class UnimDbusIME {
      * @param {string} name - 액션 이름 (예: 'emoji_popup')
      */
     triggerAction(name) {
-        if (!this._imProxy) return;
+        // trigger_action은 InputContextHandler에 정의되어 있어 _icProxy를 사용해야 한다
+        // (서비스 측이 self.cursor_rect를 읽기 위해 context-bound 방식 채택).
+        if (!this._icProxy) {
+            unimError('DBUS_IME', `triggerAction(${name}): InputContext 미연결 — skip`);
+            return;
+        }
         if (typeof name !== 'string' || name.length === 0) {
             unimError('DBUS_IME', 'triggerAction: name 비어있음');
             return;
         }
 
         try {
-            this._imProxy.call_sync(
+            this._icProxy.call_sync(
                 'TriggerAction',
                 new GLib.Variant('(s)', [name]),
                 Gio.DBusCallFlags.NONE,
