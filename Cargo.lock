@@ -5448,7 +5448,10 @@ dependencies = [
  "dialoguer",
  "rust-i18n",
  "serde_json",
+ "tokio",
  "unim",
+ "unim-dbus",
+ "zbus 4.4.0",
 ]
 
 [[package]]

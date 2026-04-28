@@ -156,3 +156,8 @@ typefix_reverse_status: "역방향(한→영) 교정: %{state}"
 layout_validate_inherits_warn: "inherits 해석 경고: %{err}"
 layout_validate_combinations_err: "combinations 구축 실패: %{err}"
 layout_validate_unknown_set: "active_rule_sets에 정의되지 않은 이름: '%{name}'"
+
+# trigger 서브커맨드 — 외부 단축키 도구용 universal entry point
+trigger_success: "데몬에 '%{action}' 액션을 트리거했습니다."
+trigger_error_daemon_unreachable: "데몬에 연결할 수 없습니다 (org.atit.unim 세션 버스): %{err}"
+trigger_error_action_failed: "'%{action}' 트리거 실패: %{err}"

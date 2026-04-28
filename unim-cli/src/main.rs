@@ -72,6 +72,15 @@ enum Commands {
         #[command(subcommand)]
         command: Option<ConfigCommands>,
     },
+    /// 데몬에 액션을 트리거 (단축키 도구용 universal entry point)
+    ///
+    /// GNOME extension이 없는 환경(KDE/Hyprland/Sway 등)에서 OS 단축키 도구가
+    /// `unim-cli trigger emoji_popup`을 호출해 이모지 팝업을 띄울 수 있다.
+    /// 데몬의 `org.atit.unim.InputMethod.TriggerAction` RPC를 호출.
+    Trigger {
+        /// 트리거할 액션 이름 (예: emoji_popup)
+        action: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1583,6 +1592,30 @@ fn layout_validate(file: &std::path::Path) -> i32 {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Trigger path — universal entry point for OS shortcut tools (KDE, Hyprland, AHK ...)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 데몬의 `org.atit.unim.InputMethod.TriggerAction` RPC를 호출.
+///
+/// GNOME extension처럼 자체 InputContext를 가지는 클라이언트와 달리, CLI는
+/// 어느 InputContext인지 알 수 없으므로 InputMethod-level RPC를 사용한다.
+/// 데몬은 마지막으로 보고된 cursor 좌표로 `ShowEmojiPopup` 시그널을 발행한다.
+async fn run_trigger(action: &str) -> Result<(), String> {
+    let client = unim_dbus::client::UnimClient::connect()
+        .await
+        .map_err(|e| t!("trigger_error_daemon_unreachable", err = e.to_string()).to_string())?;
+    let im = client
+        .input_method()
+        .await
+        .map_err(|e| t!("trigger_error_daemon_unreachable", err = e.to_string()).to_string())?;
+    im.trigger_action(action)
+        .await
+        .map_err(|e| t!("trigger_error_action_failed", action = action, err = e.to_string()).to_string())?;
+    println!("{}", t!("trigger_success", action = action));
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
     let locale = std::env::var("LANG")
         .or_else(|_| std::env::var("LC_ALL"))
@@ -1596,6 +1629,18 @@ fn main() -> io::Result<()> {
     match cli.command {
         Some(Commands::Config { command }) => {
             handle_config(command);
+            Ok(())
+        }
+        Some(Commands::Trigger { action }) => {
+            // tokio 런타임은 trigger 호출 시에만 빌드 (변환·config 경로는 sync 유지)
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| io::Error::other(format!("tokio runtime build failed: {}", e)))?;
+            if let Err(e) = runtime.block_on(run_trigger(&action)) {
+                eprintln!("{}", t!("error_label", error = e));
+                process::exit(1);
+            }
             Ok(())
         }
         None => {

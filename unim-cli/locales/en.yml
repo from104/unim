@@ -155,3 +155,8 @@ typefix_reverse_status: "Reverse (KO->EN) correction: %{state}"
 layout_validate_inherits_warn: "inherits resolution warning: %{err}"
 layout_validate_combinations_err: "combinations build failed: %{err}"
 layout_validate_unknown_set: "Name not defined in active_rule_sets: '%{name}'"
+
+# trigger subcommand — universal entry point for OS shortcut tools
+trigger_success: "Triggered '%{action}' action on the daemon."
+trigger_error_daemon_unreachable: "Cannot reach the daemon (org.atit.unim session bus): %{err}"
+trigger_error_action_failed: "Failed to trigger '%{action}': %{err}"
