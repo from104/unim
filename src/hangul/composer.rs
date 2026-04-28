@@ -500,7 +500,11 @@ impl BaseHangulComposer {
             // 조합 실패 -> 이전 글자 완성 후 새 글자 시작
             self.jamo_queue.pop_back();
             compose_fn(self);
-            let complete_korean = self.current_korean_char.get_syllable();
+            let complete_korean = self
+                .current_korean_char
+                .get_syllable()
+                .ok()
+                .or_else(|| extract_incomplete_compat_char(&self.current_korean_char));
             unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
 
             // 큐 상태 백업 및 초기화
@@ -509,20 +513,41 @@ impl BaseHangulComposer {
             self.jamo_queue.clear();
             self.jamo_queue.push_back(jamo);
             self.clear();
-            
+
             // 새 음절 시작 시 compose_fn을 다시 호출하여 상태 업데이트
             compose_fn(self);
-            
+
             unim_log!(
                 "COMPOSER",
                 "  -> 새 current_korean: {:?}",
                 self.current_korean_char
             );
 
-            complete_korean.ok()
+            complete_korean
         }
     }
 
+}
+
+/// 음절이 완성되지 않은 `HangulChar`(예: 초성만, 중성만, 종성만 채워진 상태)에서
+/// 호환용 자모(compat jamo) 한 글자를 추출한다.
+///
+/// `add_jamo`/`add_jamo_with`의 분리 경로에서, 직전 음절이 완성 음절이 아닌
+/// 단일 자모만 채워진 경우에도 frontend가 commit 신호를 받을 수 있도록
+/// 호환자모로 흘려보낼 때 사용된다.
+///
+/// # 반환값
+/// * `Some(char)` - 호환자모 문자열이 정확히 한 글자(= cho 단독, jung 단독, jong 단독)일 때
+/// * `None` - 비어 있거나 두 글자 이상(예: cho+jung)일 때 (corner case 보존)
+fn extract_incomplete_compat_char(current: &HangulChar) -> Option<char> {
+    let s = current.to_compat_jamo_string();
+    let mut iter = s.chars();
+    let first = iter.next()?;
+    if iter.next().is_some() {
+        // 두 자모 이상은 분리 정책이 모호 → 기존 동작(None) 유지
+        return None;
+    }
+    Some(first)
 }
 
 impl HangulComposer for BaseHangulComposer {
@@ -546,7 +571,11 @@ impl HangulComposer for BaseHangulComposer {
         if !self.compose_korean() {
             self.jamo_queue.pop_back();
             self.compose_korean();
-            let complete_korean = self.current_korean_char.get_syllable();
+            let complete_korean = self
+                .current_korean_char
+                .get_syllable()
+                .ok()
+                .or_else(|| extract_incomplete_compat_char(&self.current_korean_char));
             unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
             self.last_jamo_queue.clear();
             self.last_jamo_queue.extend(&self.jamo_queue);
@@ -559,7 +588,7 @@ impl HangulComposer for BaseHangulComposer {
                 "  -> 새 current_korean: {:?}",
                 self.current_korean_char
             );
-            complete_korean.ok()
+            complete_korean
         } else {
             unim_log!(
                 "COMPOSER",

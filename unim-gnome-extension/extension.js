@@ -340,6 +340,15 @@ export default class UnimExtension extends Extension {
                         this._hanjaPopup.setBookmark(index, bookmarked);
                     }
                 },
+                onHanjaCandidatesReordered: (target, hanjas, meanings, bookmarks, _newCursor, page, selRow, selCol, _bookmarked) => {
+                    if (!this._hanjaPopup?.isVisible) return;
+                    const candidates = hanjas.map((h, i) => ({
+                        hanja: h,
+                        meaning: i < meanings.length ? meanings[i] : '',
+                    }));
+                    this._hanjaPopup.setCandidates(candidates, bookmarks, page, selRow, selCol);
+                    unimLog('HANJA', `재정렬 적용: target='${target}', count=${candidates.length}, page=${page}, sel=(${selRow},${selCol})`);
+                },
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
                     if (this._vkbd && this._inputMethod && this._inputMethod._hasFocus) {
                         unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);

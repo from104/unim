@@ -237,6 +237,36 @@ void unim_dbus_set_hanja_bookmark_callback(UnimDbusContext *ctx,
                                             UnimHanjaBookmarkChangedCallback callback,
                                             gpointer user_data);
 
+/**
+ * HanjaCandidatesReordered 시그널 콜백 타입.
+ *
+ * candidates_owned: 핸들러가 g_new0으로 새로 할당한 UnimHanjaCandidate 배열을
+ * 콜백에 인계한다. 콜백(보통 im 모듈)은 기존 candidates를
+ * unim_hanja_candidates_free()로 해제하고 새 포인터를 보관해야 한다.
+ */
+typedef void (*UnimHanjaCandidatesReorderedCallback)(
+    const gchar *target,
+    UnimHanjaCandidate *candidates_owned,
+    gsize count,
+    const gboolean *bookmarks,
+    gsize bookmarks_count,
+    guint new_cursor,
+    gint page,
+    gint sel_row,
+    gint sel_col,
+    gboolean bookmarked,
+    gpointer user_data
+);
+
+/**
+ * HanjaCandidatesReordered 시그널 구독 및 콜백 설정
+ */
+void unim_dbus_set_hanja_candidates_reordered_callback(
+    UnimDbusContext *ctx,
+    UnimHanjaCandidatesReorderedCallback callback,
+    gpointer user_data
+);
+
 /* =========================================
  * 특수문자 변환 관련 함수
  * ========================================= */

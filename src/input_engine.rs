@@ -48,6 +48,29 @@ pub enum PopupAction {
         /// 새 즐겨찾기 상태 (true=등록됨)
         bookmarked: bool,
     },
+    /// 한자 후보가 즐겨찾기 토글로 재정렬됨.
+    ///
+    /// frontend는 후보 리스트 + 즐겨찾기 플래그 + cursor 위치를 한 번에 교체해야 한다.
+    /// SelectHanja 인덱스 미스매치를 피하려면 frontend가 이 액션을 받기 전엔
+    /// 새 후보로 selection을 보내지 않아야 한다.
+    HanjaCandidatesReordered {
+        /// 변환 대상 음절 (그대로 유지)
+        target: String,
+        /// (한자, 뜻) 쌍 — 재정렬된 새 순서
+        candidates: Vec<(String, String)>,
+        /// candidates와 동일 순서의 즐겨찾기 플래그
+        bookmarks: Vec<bool>,
+        /// 토글된 한자의 새 전체 인덱스 (커서 점프 위치)
+        new_cursor: usize,
+        /// 새 페이지 (0-based)
+        page: usize,
+        /// 새 sel_row
+        sel_row: usize,
+        /// 새 sel_col
+        sel_col: usize,
+        /// 토글된 한자의 새 즐겨찾기 상태 (편의용)
+        bookmarked: bool,
+    },
 }
 
 /// 입력 처리 결과
@@ -1152,25 +1175,75 @@ impl InputEngine {
     /// 주어진 후보 인덱스의 즐겨찾기 상태를 토글합니다.
     ///
     /// 한자 모드가 아니거나 인덱스가 범위를 벗어나면 None을 반환합니다.
-    /// 성공 시 (index, 새 상태)를 반환합니다.
+    /// 성공 시 (new_index, 새 상태)를 반환합니다 — 토글 직후 즐겨찾기 우선
+    /// 정렬이 재적용되므로 토글된 한자의 인덱스가 바뀔 수 있다.
+    ///
+    /// 또한 [`PopupAction::HanjaCandidatesReordered`] 액션을 발행해 frontend가
+    /// 후보 리스트·즐겨찾기·커서 위치를 한 번에 교체하도록 한다.
     pub fn toggle_hanja_bookmark(&mut self, index: usize) -> Option<(usize, bool)> {
         if !self.hanja_mode || index >= self.hanja_candidates.len() {
             return None;
         }
         let hanja = self.hanja_candidates[index].hanja.clone();
         let new_state = self.hanja_bookmarks.toggle(&self.hanja_target, &hanja);
-        if let Some(state) = self.popup_state.as_mut() {
-            state.set_bookmark(index, new_state);
-        }
+
+        // (1) 후보 재정렬 (즐겨찾기 우선, stable sort)
+        let target = self.hanja_target.clone();
+        let bookmarks_ref = &self.hanja_bookmarks;
+        self.hanja_candidates
+            .sort_by_key(|e| !bookmarks_ref.is_bookmarked(&target, &e.hanja));
+
+        // (2) 토글된 한자의 새 위치 산출
+        let new_index = self
+            .hanja_candidates
+            .iter()
+            .position(|e| e.hanja == hanja)
+            .unwrap_or(index);
+
+        // (3) popup_state 일괄 갱신 — items/meanings/bookmarks/cursor
+        let new_pairs: Vec<(String, String)> = self
+            .hanja_candidates
+            .iter()
+            .map(|e| (e.hanja.clone(), e.meaning.clone()))
+            .collect();
+        let new_flags: Vec<bool> = self
+            .hanja_candidates
+            .iter()
+            .map(|e| self.hanja_bookmarks.is_bookmarked(&self.hanja_target, &e.hanja))
+            .collect();
+
+        let (page, sel_row, sel_col) = if let Some(state) = self.popup_state.as_mut() {
+            let items: Vec<String> = new_pairs.iter().map(|(h, _)| h.clone()).collect();
+            let meanings: Vec<String> = new_pairs.iter().map(|(_, m)| m.clone()).collect();
+            state.replace_hanja_items(items, meanings, new_flags.clone());
+            state.set_selected_global(new_index);
+            (state.current_page(), state.sel_row(), state.sel_col())
+        } else {
+            (0, 0, 0)
+        };
+
+        // (4) PopupAction emit — 후보 + 즐겨찾기 + 커서 한 트랜잭션
+        self.popup_pending_action = Some(PopupAction::HanjaCandidatesReordered {
+            target: self.hanja_target.clone(),
+            candidates: new_pairs,
+            bookmarks: new_flags,
+            new_cursor: new_index,
+            page,
+            sel_row,
+            sel_col,
+            bookmarked: new_state,
+        });
+
         unim_log!(
             "ENGINE",
-            "한자 즐겨찾기 토글: target='{}', [{}] '{}' -> {}",
+            "한자 즐겨찾기 토글+재정렬: target='{}', '{}' [{} -> {}] state={}",
             self.hanja_target,
-            index,
             hanja,
+            index,
+            new_index,
             new_state
         );
-        Some((index, new_state))
+        Some((new_index, new_state))
     }
 
     /// 한자 모드를 취소합니다.
@@ -1309,12 +1382,9 @@ impl InputEngine {
             PopupKeyResult::Select(abs_index) => self.popup_select(abs_index),
 
             PopupKeyResult::ToggleBookmark(abs_index) => {
-                if let Some((idx, bookmarked)) = self.toggle_hanja_bookmark(abs_index) {
-                    self.popup_pending_action = Some(PopupAction::HanjaBookmarkChanged {
-                        index: idx,
-                        bookmarked,
-                    });
-                }
+                // toggle_hanja_bookmark 내부가 재정렬 + cursor 보정 + PopupAction
+                // (HanjaCandidatesReordered) emit까지 처리한다.
+                let _ = self.toggle_hanja_bookmark(abs_index);
                 // 트리거 문자를 preedit으로 유지
                 InputResult::preedit_updated()
             }

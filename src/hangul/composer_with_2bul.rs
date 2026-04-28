@@ -392,6 +392,30 @@ mod tests {
         assert!(!c.is_compose());
     }
 
+    // === 같은 초성 반복 (조합 규칙 없는 쌍) ===
+
+    #[test]
+    fn test_2bul_cho_repeat_emits_compat() {
+        // 두벌식 ko_2bulstd는 cho combinations이 비어 있으므로 ㄱ+ㄱ는 분리 경로.
+        // incomplete syllable(cho 단독)도 호환자모 'ㄱ'로 commit 흘려보내야
+        // GTK/Qt frontend가 preedit dedup 없이 두 번째 'ㄱ'을 표시할 수 있다.
+        let mut c = HangulComposer2Bul::new();
+        let first = c.add_jamo(JamoEnum::Cho(Cho::G));
+        assert_eq!(first, None);
+        let second = c.add_jamo(JamoEnum::Cho(Cho::G));
+        assert_eq!(second, Some('ㄱ'));
+        assert_eq!(c.get_current_cho(), Some(Cho::G));
+    }
+
+    #[test]
+    fn test_2bul_cho_repeat_nieun() {
+        // ㄴ+ㄴ도 동일 — 두벌식에 cho 조합 규칙이 없다.
+        let mut c = HangulComposer2Bul::new();
+        assert_eq!(c.add_jamo(JamoEnum::Cho(Cho::N)), None);
+        assert_eq!(c.add_jamo(JamoEnum::Cho(Cho::N)), Some('ㄴ'));
+        assert_eq!(c.get_current_cho(), Some(Cho::N));
+    }
+
     // === 연속 음절 테스트 ===
 
     #[test]

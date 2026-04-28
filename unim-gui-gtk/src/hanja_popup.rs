@@ -271,11 +271,23 @@ impl HanjaPopup {
         grid.set_column_spacing(2);
         self.body_container.append(&grid);
 
+        // 가로 레이블 키 시퀀스(special과 동일). 엔진 SSOT는 PopupState.top_row()이지만
+        // frontend 코드 최소화를 위해 동일 상수를 직접 사용한다.
+        const TOP_ROW: &str = "QWERTYUIO";
+        let top_row_chars: Vec<char> = TOP_ROW.chars().collect();
+
         // GNOME extension JS와 동일하게 col 우선 인덱싱: idx = col * rows + row
         for col in 0..EXPANDED_COLS {
-            // 열 번호 헤더 (1-9, expanded에서는 col=선택 열, Number(n)=row)
-            let header = gtk4::Label::new(Some(&format!("{}", col + 1)));
-            header.add_css_class("grid-row-number");
+            // 가로 레이블 헤더 (Q/W/E/.../O — Letter 키 위치). sel_col이면 active CSS.
+            let header_text = top_row_chars
+                .get(col)
+                .map(|c| c.to_string())
+                .unwrap_or_default();
+            let header = gtk4::Label::new(Some(&header_text));
+            header.add_css_class("grid-header");
+            if col == self.sel_col {
+                header.add_css_class("active");
+            }
             grid.attach(&header, col as i32, 0, 1, 1);
 
             for row in 0..EXPANDED_ROWS {
@@ -362,6 +374,43 @@ impl HanjaPopup {
         }
     }
 
+    /// 즐겨찾기 플래그를 일괄 설정한다 (fetch 결과 적용용).
+    ///
+    /// 길이가 다르면 candidates 길이에 맞춰 자르거나 false로 채운다.
+    /// 호출 후 무조건 update_page()를 호출해 첫 렌더에서도 색이 적용되도록 한다.
+    pub fn set_bookmark_flags(&mut self, flags: Vec<bool>) {
+        let n = self.candidates.len();
+        let mut bookmarks = flags;
+        bookmarks.resize(n, false);
+        self.bookmarks = bookmarks;
+        if self.window.is_visible() {
+            self.update_page();
+        }
+    }
+
+    /// 한자 후보를 즐겨찾기 정렬 결과로 일괄 교체하고 커서 위치를 점프시킨다.
+    /// `HanjaCandidatesReordered` 시그널 처리용.
+    pub fn replace_candidates(
+        &mut self,
+        candidates: Vec<(String, String)>,
+        bookmarks: Vec<bool>,
+        page: i32,
+        sel_row: i32,
+        sel_col: i32,
+    ) {
+        let n = candidates.len();
+        self.candidates = candidates;
+        let mut bm = bookmarks;
+        bm.resize(n, false);
+        self.bookmarks = bm;
+        self.current_page = page.max(0) as usize;
+        self.sel_row = sel_row.max(0) as usize;
+        self.sel_col = sel_col.max(0) as usize;
+        if self.window.is_visible() {
+            self.update_page();
+        }
+    }
+
 }
 
 /// 엔진에서 현재 한자 후보의 북마크 상태를 비동기로 받아 GUI 이벤트 루프에
@@ -401,16 +450,12 @@ fn fetch_bookmark_states_async(context_path: String) {
             let states: Result<Vec<bool>, _> =
                 proxy.call("GetHanjaBookmarkStates", &()).await;
             if let Ok(states) = states {
-                // 초기 bulk 반영을 HanjaBookmarkChanged 이벤트로 풀어 보낸다.
-                // (GUI 측은 개별 토글과 동일 경로로 처리)
-                for (i, b) in states.into_iter().enumerate() {
-                    if b {
-                        let _ = tx.send(unim_gui_common::types::GuiAction::HanjaBookmarkChanged {
-                            index: i as u32,
-                            bookmarked: true,
-                        });
-                    }
-                }
+                // 첫 렌더 색상 누락 방지: 일괄 setter 1회로 set_bookmark_flags →
+                // update_page() 강제. (이전엔 true 인덱스만 개별 발행해 race로
+                // 첫 렌더에서 색이 누락되곤 했음)
+                let _ = tx.send(
+                    unim_gui_common::types::GuiAction::HanjaBookmarkStatesFetched { states },
+                );
             }
         });
     });

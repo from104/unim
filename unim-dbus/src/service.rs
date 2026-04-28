@@ -79,10 +79,13 @@ pub enum EngineRequest {
         response: oneshot::Sender<Vec<bool>>,
     },
     /// 한자 즐겨찾기 토글
+    ///
+    /// 응답: `(new_index, bookmarked, popup_action)`. popup_action은
+    /// 보통 `HanjaCandidatesReordered`이며 RPC 측에서 시그널로 발행한다.
     ToggleHanjaBookmark {
         context_id: u32,
         index: usize,
-        response: oneshot::Sender<Option<(usize, bool)>>,
+        response: oneshot::Sender<Option<(usize, bool, Option<PopupAction>)>>,
     },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
@@ -1303,6 +1306,47 @@ impl InputContextHandler {
                         bookmarked
                     );
                 }
+                PopupAction::HanjaCandidatesReordered {
+                    target,
+                    candidates,
+                    bookmarks,
+                    new_cursor,
+                    page,
+                    sel_row,
+                    sel_col,
+                    bookmarked,
+                } => {
+                    // 후보·즐겨찾기·커서를 한 시그널로 전달해 frontend가 일괄 갱신.
+                    let hanjas: Vec<String> =
+                        candidates.iter().map(|(h, _)| h.clone()).collect();
+                    let meanings: Vec<String> =
+                        candidates.iter().map(|(_, m)| m.clone()).collect();
+                    Self::hanja_candidates_reordered(
+                        &signal_ctx,
+                        target,
+                        hanjas,
+                        meanings,
+                        bookmarks.clone(),
+                        *new_cursor as u32,
+                        *page as i32,
+                        *sel_row as i32,
+                        *sel_col as i32,
+                        *bookmarked,
+                    )
+                    .await
+                    .ok();
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] HanjaCandidatesReordered: target='{}', count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={}",
+                        target,
+                        candidates.len(),
+                        new_cursor,
+                        page,
+                        sel_row,
+                        sel_col,
+                        bookmarked
+                    );
+                }
                 // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
                 _ => {}
             }
@@ -1566,6 +1610,25 @@ impl InputContextHandler {
     async fn hanja_bookmark_changed(
         signal_ctx: &SignalContext<'_>,
         index: u32,
+        bookmarked: bool,
+    ) -> zbus::Result<()>;
+
+    /// 한자 후보 재정렬 시그널 (즐겨찾기 토글 시 즐겨찾기 우선 정렬 후 발행).
+    ///
+    /// frontend는 candidates+meanings+bookmarks를 그대로 받아 후보 리스트를
+    /// 통째로 교체하고 (page, sel_row, sel_col)로 커서를 점프시킨다.
+    /// new_cursor는 토글된 한자의 새 전체 인덱스(편의용).
+    #[zbus(signal)]
+    async fn hanja_candidates_reordered(
+        signal_ctx: &SignalContext<'_>,
+        target: &str,
+        hanjas: Vec<String>,
+        meanings: Vec<String>,
+        bookmarks: Vec<bool>,
+        new_cursor: u32,
+        page: i32,
+        sel_row: i32,
+        sel_col: i32,
         bookmarked: bool,
     ) -> zbus::Result<()>;
 
@@ -1893,8 +1956,12 @@ impl InputContextHandler {
 
     /// 한자 후보 즐겨찾기 토글
     ///
-    /// 반환값: `(index, bookmarked)` — 토글 후의 상태. 한자 모드가 아니거나
-    /// 인덱스가 범위를 벗어나면 실패(Error).
+    /// 반환값: `(new_index, bookmarked)` — 토글 후 즐겨찾기 우선 정렬이
+    /// 자동 적용되므로 인덱스가 바뀔 수 있다. 한자 모드가 아니거나 인덱스가
+    /// 범위를 벗어나면 실패(Error).
+    ///
+    /// 토글 직후 후보 재정렬·커서 점프 정보를 담은
+    /// `HanjaCandidatesReordered` 시그널을 발행한다.
     async fn toggle_hanja_bookmark(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
@@ -1911,15 +1978,45 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
 
-        let (idx, bookmarked) = response_rx
+        let (idx, bookmarked, popup_action) = response_rx
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
             .ok_or_else(|| zbus::fdo::Error::Failed("한자 모드 아님 또는 범위 밖".to_string()))?;
 
-        // UI 갱신을 위해 시그널도 발행 (엔진 내부 토글과 동일 경로)
+        // 호환성을 위해 단일 인덱스 시그널도 함께 발행 (구버전 frontend용)
         Self::hanja_bookmark_changed(&signal_ctx, idx as u32, bookmarked)
             .await
             .ok();
+
+        // 정렬·커서 시그널 발행 — 신버전 frontend는 이걸 받아 일괄 갱신
+        if let Some(PopupAction::HanjaCandidatesReordered {
+            target,
+            candidates,
+            bookmarks,
+            new_cursor,
+            page,
+            sel_row,
+            sel_col,
+            bookmarked: bm,
+        }) = popup_action
+        {
+            let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
+            let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
+            Self::hanja_candidates_reordered(
+                &signal_ctx,
+                &target,
+                hanjas,
+                meanings,
+                bookmarks,
+                new_cursor as u32,
+                page as i32,
+                sel_row as i32,
+                sel_col as i32,
+                bm,
+            )
+            .await
+            .ok();
+        }
 
         unim_log!(
             "DBUS",

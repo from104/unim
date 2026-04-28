@@ -128,6 +128,23 @@ void unim_hanja_popup_set_bookmark(UnimHanjaPopup *popup,
                                     gsize global_index,
                                     gboolean bookmarked);
 
+/**
+ * 한자 후보를 즐겨찾기 정렬 결과로 일괄 교체하고 커서를 점프시킨다.
+ * (HanjaCandidatesReordered 시그널)
+ *
+ * candidates는 (hanja, meaning) 페어를 가리키는 UnimHanjaCandidate 배열.
+ * 호출자(im 모듈)는 이전 candidates 메모리를 해제할 책임이 있고, 본 함수는
+ * 내부적으로 새 candidates 포인터를 그대로 보관한다 (소유권 이관).
+ */
+void unim_hanja_popup_replace_candidates(UnimHanjaPopup *popup,
+                                          UnimHanjaCandidate *candidates,
+                                          gsize count,
+                                          const gboolean *bookmarks,
+                                          gsize bookmarks_count,
+                                          gint page,
+                                          gint sel_row,
+                                          gint sel_col);
+
 G_END_DECLS
 
 #endif /* UNIM_HANJA_POPUP_H */

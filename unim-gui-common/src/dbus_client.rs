@@ -408,6 +408,34 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 });
             }
         }
+        "HanjaCandidatesReordered" => {
+            if let Ok((target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, _bookmarked)) =
+                msg.body().deserialize::<(
+                    String, Vec<String>, Vec<String>, Vec<bool>, u32, i32, i32, i32, bool,
+                )>()
+            {
+                unim_log!(
+                    "INDICATOR",
+                    "[Popup] HanjaCandidatesReordered 수신: target='{}', count={}, new_cursor={}, page={}",
+                    target,
+                    hanjas.len(),
+                    new_cursor,
+                    page
+                );
+                let pairs: Vec<(String, String)> = hanjas
+                    .into_iter()
+                    .zip(meanings.into_iter().chain(std::iter::repeat(String::new())))
+                    .collect();
+                let _ = popup_tx.send(GuiAction::HanjaCandidatesReordered {
+                    candidates: pairs,
+                    bookmarks,
+                    new_cursor,
+                    page,
+                    sel_row,
+                    sel_col,
+                });
+            }
+        }
         "PopupNavigate" => {
             if let Ok((page, total_pages, selected, rows, cols, sel_row, sel_col)) =
                 msg.body().deserialize::<(i32, i32, i32, i32, i32, i32, i32)>()

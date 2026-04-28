@@ -73,6 +73,16 @@ public:
     void setBookmark(quint32 globalIndex, bool bookmarked);
 
     /**
+     * 한자 후보를 즐겨찾기 정렬 결과로 일괄 교체하고 커서를 점프시킨다.
+     * (HanjaCandidatesReordered 시그널)
+     */
+    void replaceCandidates(const QList<UnimHanjaCandidate> &candidates,
+                           const QList<bool> &bookmarks,
+                           int page,
+                           int selRow,
+                           int selCol);
+
+    /**
      * Space 토글 콜백 (프런트엔드 → DBus 호출 연결용)
      */
     using ToggleBookmarkCallback = std::function<void(quint32 globalIndex)>;

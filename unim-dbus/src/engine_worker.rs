@@ -995,7 +995,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 response,
             } => {
                 let result = if let Some(engine) = contexts.get_mut(&context_id) {
-                    engine.toggle_hanja_bookmark(index)
+                    let toggled = engine.toggle_hanja_bookmark(index);
+                    // 토글이 자체 emit한 PopupAction(HanjaCandidatesReordered)을
+                    // 함께 빼내 RPC 호출자가 시그널로 발행하도록 한다.
+                    let action = engine.take_popup_action();
+                    toggled.map(|(idx, b)| (idx, b, action))
                 } else {
                     None
                 };

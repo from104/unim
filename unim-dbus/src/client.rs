@@ -208,6 +208,21 @@ trait InputContext {
     #[zbus(signal)]
     fn hanja_bookmark_changed(&self, index: u32, bookmarked: bool) -> Result<()>;
 
+    /// 한자 후보 재정렬 시그널 (즐겨찾기 토글 후 즐겨찾기 우선 정렬)
+    #[zbus(signal)]
+    fn hanja_candidates_reordered(
+        &self,
+        target: String,
+        hanjas: Vec<String>,
+        meanings: Vec<String>,
+        bookmarks: Vec<bool>,
+        new_cursor: u32,
+        page: i32,
+        sel_row: i32,
+        sel_col: i32,
+        bookmarked: bool,
+    ) -> Result<()>;
+
     /// 팝업 네비게이션 시그널 (페이지/선택 변경)
     #[zbus(signal)]
     fn popup_navigate(

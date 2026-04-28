@@ -122,7 +122,9 @@ impl PopupState {
             meanings,
             bookmarks,
             target: target.to_string(),
-            top_row: String::new(),
+            // expanded(9x9) 모드에서 special과 동일한 가로 레이블 키 시퀀스를 쓰기 위해 default 부여.
+            // compact 모드는 top_row 미사용 → 영향 없음.
+            top_row: "QWERTYUIO".to_string(),
             current_page: 0,
             total_pages,
             sel_row: 0,
@@ -619,7 +621,29 @@ impl PopupState {
             }
 
             PopupKey::Modifier => PopupKeyResult::Consumed,
-            PopupKey::Letter(_) | PopupKey::Other => PopupKeyResult::NotHandled,
+
+            // expanded(9x9)에서만 special과 동일한 열 점프 동작.
+            // compact(1열)는 NotHandled로 남겨 회귀 방지.
+            PopupKey::Letter(col_idx) => {
+                if self.hanja_expanded {
+                    let col = col_idx as usize;
+                    if col < self.cols {
+                        self.sel_col = col;
+                        if !self.hanja_cell_exists(self.sel_row, self.sel_col) {
+                            for r in (0..self.rows).rev() {
+                                if self.hanja_cell_exists(r, self.sel_col) {
+                                    self.sel_row = r;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    PopupKeyResult::Updated
+                } else {
+                    PopupKeyResult::NotHandled
+                }
+            }
+            PopupKey::Other => PopupKeyResult::NotHandled,
         }
     }
 
@@ -703,6 +727,72 @@ impl PopupState {
         }
         if let Some(slot) = self.bookmarks.get_mut(index) {
             *slot = bookmarked;
+        }
+    }
+
+    /// 한자 후보 목록 일괄 교체 (즐겨찾기 토글 후 재정렬용).
+    ///
+    /// 페이지 수만 다시 계산하고, 현재 페이지/선택 위치는 유지한다.
+    /// 호출자는 보통 직후 [`set_selected_global`]을 호출해 새 정렬에서의
+    /// 토글된 한자 위치로 커서를 이동시킨다.
+    pub fn replace_hanja_items(
+        &mut self,
+        items: Vec<String>,
+        meanings: Vec<String>,
+        bookmarks: Vec<bool>,
+    ) {
+        if self.kind != PopupKind::Hanja {
+            return;
+        }
+        let total = items.len();
+        self.items = items;
+        self.meanings = meanings;
+        self.bookmarks = bookmarks;
+        self.bookmarks.resize(total, false);
+        self.meanings.resize(total, String::new());
+        self.total_pages = if total == 0 {
+            1
+        } else {
+            total.div_ceil(self.page_size)
+        };
+        if self.current_page >= self.total_pages {
+            self.current_page = self.total_pages.saturating_sub(1);
+        }
+        self.update_page_layout();
+    }
+
+    /// 전체 인덱스로 커서 위치를 강제 설정한다.
+    ///
+    /// 한자 즐겨찾기 토글 후 재정렬된 새 위치로 점프할 때 사용.
+    /// 페이지·sel_row·sel_col을 한 번에 갱신한다.
+    /// 한자 expanded 모드는 col 우선 인덱싱(idx = col*rows + row)을 따른다.
+    pub fn set_selected_global(&mut self, global_index: usize) {
+        if global_index >= self.items.len() {
+            return;
+        }
+        let new_page = global_index / self.page_size;
+        let page_offset = global_index % self.page_size;
+        if new_page != self.current_page {
+            self.current_page = new_page.min(self.total_pages.saturating_sub(1));
+            self.update_page_layout();
+        }
+        match self.kind {
+            PopupKind::Hanja => {
+                if self.hanja_expanded {
+                    // col 우선 인덱싱 (rows = MAX_ROWS = 9 보통)
+                    let rows = self.rows.max(1);
+                    self.sel_col = page_offset / rows;
+                    self.sel_row = page_offset % rows;
+                } else {
+                    self.sel_row = page_offset;
+                    self.sel_col = 0;
+                }
+            }
+            PopupKind::SpecialChar => {
+                let rows = self.rows.max(1);
+                self.sel_col = page_offset / rows;
+                self.sel_row = page_offset % rows;
+            }
         }
     }
 
@@ -1191,6 +1281,43 @@ mod tests {
     }
 
     #[test]
+    fn hanja_new_default_top_row_is_qwertyuio() {
+        let state = make_hanja(9);
+        assert_eq!(state.top_row(), "QWERTYUIO");
+    }
+
+    #[test]
+    fn hanja_expanded_letter_jumps_column() {
+        let mut state = make_hanja(81);
+        state.handle_key(PopupKey::Period); // expanded 진입
+        let result = state.handle_key(PopupKey::Letter(2)); // E 키 = col 2
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.sel_col, 2);
+        // Number(1) → row=0 → global = 2*9+0 = 18
+        let r2 = state.handle_key(PopupKey::Number(1));
+        assert_eq!(r2, PopupKeyResult::Select(18));
+    }
+
+    #[test]
+    fn hanja_compact_letter_not_handled() {
+        let mut state = make_hanja(9);
+        // compact에서는 Letter는 통과(NotHandled) — 회귀 방지
+        let result = state.handle_key(PopupKey::Letter(2));
+        assert_eq!(result, PopupKeyResult::NotHandled);
+    }
+
+    #[test]
+    fn hanja_expanded_letter_out_of_range_no_change() {
+        let mut state = make_hanja(10); // 페이지 1: 10개 → cols=2
+        state.handle_key(PopupKey::Period);
+        // cols=2 인 페이지에서 Letter(5) (Y 위치) 누르면 sel_col 변동 없음
+        let before = state.sel_col;
+        let result = state.handle_key(PopupKey::Letter(5));
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.sel_col, before);
+    }
+
+    #[test]
     fn hanja_expanded_click_selects() {
         let mut state = make_hanja(81);
         state.handle_key(PopupKey::Period);
@@ -1351,5 +1478,95 @@ mod tests {
         let mut state = make_special(10);
         state.handle_key(PopupKey::Tab);
         assert_eq!(state.current_page, 0); // 단일 페이지면 변경 없음
+    }
+
+    // --- 즐겨찾기 정렬 + 커서 이동 테스트 ---
+
+    #[test]
+    fn set_selected_global_compact_first_page() {
+        // compact: page_size=9, 단일 컬럼
+        let mut state = make_hanja(20);
+        state.set_selected_global(3);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 3);
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn set_selected_global_compact_other_page() {
+        let mut state = make_hanja(20);
+        state.set_selected_global(11);
+        assert_eq!(state.current_page, 1); // 11 / 9 = 1
+        assert_eq!(state.sel_row, 2);       // 11 % 9 = 2
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn set_selected_global_expanded() {
+        // expanded: 9x9, col 우선 인덱싱
+        let mut state = make_hanja(81);
+        state.handle_key(PopupKey::Period); // expanded 진입
+        state.set_selected_global(10);
+        // page_offset=10, rows=9 → col=10/9=1, row=10%9=1
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_col, 1);
+        assert_eq!(state.sel_row, 1);
+    }
+
+    #[test]
+    fn replace_hanja_items_recomputes_pages() {
+        let mut state = make_hanja(20);
+        state.replace_hanja_items(
+            vec!["A".into(), "B".into(), "C".into()],
+            vec!["a".into(), "b".into(), "c".into()],
+            vec![true, false, false],
+        );
+        assert_eq!(state.total_items(), 3);
+        assert_eq!(state.total_pages(), 1);
+        assert!(state.is_bookmarked(0));
+        assert!(!state.is_bookmarked(1));
+    }
+
+    /// toggle 모방: 후보 재정렬 + set_selected_global → 토글된 한자가 새 위치로 점프
+    #[test]
+    fn toggle_bookmark_reorders_candidates_and_moves_cursor() {
+        // 초기: [A, B, C] (모두 false)
+        let mut state = PopupState::new_hanja(
+            "한",
+            vec![
+                ("A".into(), "a".into()),
+                ("B".into(), "b".into()),
+                ("C".into(), "c".into()),
+            ],
+        );
+        // C를 bookmark 토글 → 정렬 후 [C, A, B], C는 인덱스 0
+        let new_items: Vec<String> = vec!["C".into(), "A".into(), "B".into()];
+        let new_meanings: Vec<String> = vec!["c".into(), "a".into(), "b".into()];
+        let new_bookmarks: Vec<bool> = vec![true, false, false];
+        state.replace_hanja_items(new_items, new_meanings, new_bookmarks);
+        state.set_selected_global(0);
+        assert_eq!(state.get_item(0), Some("C"));
+        assert!(state.is_bookmarked(0));
+        assert_eq!(state.sel_row, 0);
+        assert_eq!(state.sel_col, 0);
+
+        // 다시 C ★ 해제 → [A, B, C], C는 인덱스 2
+        state.replace_hanja_items(
+            vec!["A".into(), "B".into(), "C".into()],
+            vec!["a".into(), "b".into(), "c".into()],
+            vec![false, false, false],
+        );
+        state.set_selected_global(2);
+        assert_eq!(state.get_item(2), Some("C"));
+        assert!(!state.is_bookmarked(2));
+        assert_eq!(state.sel_row, 2);
+    }
+
+    #[test]
+    fn set_selected_global_out_of_range_no_change() {
+        let mut state = make_hanja(5);
+        let before_row = state.sel_row;
+        state.set_selected_global(100);
+        assert_eq!(state.sel_row, before_row);
     }
 }

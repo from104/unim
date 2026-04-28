@@ -54,6 +54,10 @@ export class HanjaPopup {
 
         /** @type {object[]} 렌더된 행/셀 위젯들 (compact: rows, expanded: cells) */
         this._widgets = [];
+        /** @type {St.Label[]} 확장 모드 가로 레이블 헤더 (sel_col 하이라이트용) */
+        this._colHeaders = [];
+        /** @type {string} 확장 모드 가로 레이블 키 시퀀스 (special과 동일) */
+        this._topRow = 'QWERTYUIO';
 
         /** @type {Array<{hanja: string, meaning: string}>} 전체 후보 */
         this._candidates = [];
@@ -229,6 +233,35 @@ export class HanjaPopup {
     }
 
     /**
+     * 한자 후보를 즐겨찾기 정렬 결과로 통째 교체하고 커서를 점프시킨다.
+     *
+     * 엔진의 HanjaCandidatesReordered 시그널로 호출됨. SelectHanja 인덱스
+     * 미스매치를 피하기 위해 호출자는 이 함수가 끝난 다음에야 selection을 보낼 수 있다.
+     *
+     * @param {Array<{hanja: string, meaning: string}>} candidates
+     * @param {Array<boolean>} bookmarks
+     * @param {number} page
+     * @param {number} selRow
+     * @param {number} selCol
+     */
+    setCandidates(candidates, bookmarks, page, selRow, selCol) {
+        if (!this.isVisible) return;
+        this._candidates = Array.isArray(candidates) ? candidates : [];
+        this._bookmarks = Array.isArray(bookmarks)
+            ? bookmarks.slice(0, this._candidates.length)
+            : [];
+        while (this._bookmarks.length < this._candidates.length) {
+            this._bookmarks.push(false);
+        }
+        this._currentPage = Math.max(0, page | 0);
+        this._mouseHoverRow = -1;
+        this._mouseHoverCol = -1;
+        this._selRow = Math.max(0, selRow | 0);
+        this._selCol = Math.max(0, selCol | 0);
+        this._renderBody();
+    }
+
+    /**
      * 팝업 표시 여부
      * @returns {boolean}
      */
@@ -345,6 +378,7 @@ export class HanjaPopup {
     _renderBody() {
         this._body.destroy_all_children();
         this._widgets = [];
+        this._colHeaders = [];
 
         if (this._cols > 1) {
             this._renderGrid();
@@ -399,12 +433,11 @@ export class HanjaPopup {
                 style_class: 'item-meaning',
                 text: candidate.meaning ? `  ${candidate.meaning}` : '',
             });
-            const isBookmarked = !!this._bookmarks[globalIdx];
+            // 첫 렌더에서 St 멀티 클래스 토큰화 이슈를 피해 단일 클래스로 시작.
+            // 'bookmarked' 토큰은 아래 _refreshAllBookmarks()에서 일괄 add한다.
             const star = new St.Label({
-                style_class: isBookmarked
-                    ? 'item-bookmark bookmarked'
-                    : 'item-bookmark',
-                text: isBookmarked ? '★' : '☆',
+                style_class: 'item-bookmark',
+                text: '☆',
             });
 
             row.add_child(num);
@@ -448,6 +481,24 @@ export class HanjaPopup {
      * @private
      */
     _renderGrid() {
+        // 가로 레이블 헤더 행 (special과 동일: 빈 row-number 셀 + topRow 문자들)
+        const headerRow = new St.BoxLayout({ style_class: 'grid-row' });
+        headerRow.add_child(new St.Label({
+            style_class: 'grid-row-number',
+            text: '',
+        }));
+        for (let col = 0; col < this._cols; col++) {
+            const headerChar = col < this._topRow.length ? this._topRow[col] : '';
+            const headerLabel = new St.Label({
+                style_class: 'grid-header',
+                text: headerChar,
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+            headerRow.add_child(headerLabel);
+            this._colHeaders.push(headerLabel);
+        }
+        this._body.add_child(headerRow);
+
         for (let row = 0; row < this._rows; row++) {
             const rowWidget = new St.BoxLayout({ style_class: 'grid-row' });
             const rowNumber = new St.Label({
@@ -527,6 +578,14 @@ export class HanjaPopup {
                 target.add_style_class_name('hovered');
             } else {
                 target.remove_style_class_name('hovered');
+            }
+        }
+        // 활성 열 헤더 하이라이트 (sel_col 기준, special과 동일)
+        for (let col = 0; col < this._colHeaders.length; col++) {
+            if (col === this._selCol) {
+                this._colHeaders[col].add_style_class_name('active');
+            } else {
+                this._colHeaders[col].remove_style_class_name('active');
             }
         }
         // 확장 모드: 마우스 호버가 없으면 엔진 선택 항목의 뜻풀이를 표시

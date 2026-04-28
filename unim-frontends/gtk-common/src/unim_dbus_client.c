@@ -90,6 +90,10 @@ struct _UnimDbusContext {
     UnimHanjaBookmarkChangedCallback hanja_bookmark_callback;
     gpointer hanja_bookmark_user_data;
     guint hanja_bookmark_signal_id;
+    /* HanjaCandidatesReordered 콜백 */
+    UnimHanjaCandidatesReorderedCallback hanja_reordered_callback;
+    gpointer hanja_reordered_user_data;
+    guint hanja_reordered_signal_id;
 };
 
 UnimDbusContext*
@@ -190,6 +194,10 @@ unim_dbus_context_free(UnimDbusContext *ctx)
     /* HanjaBookmarkChanged 시그널 구독 해제 */
     if (ctx->hanja_bookmark_signal_id > 0 && ctx->connection) {
         g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->hanja_bookmark_signal_id);
+    }
+    /* HanjaCandidatesReordered 시그널 구독 해제 */
+    if (ctx->hanja_reordered_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->hanja_reordered_signal_id);
     }
 
     if (ctx->connection) {
@@ -1176,4 +1184,105 @@ unim_dbus_set_hanja_bookmark_callback(UnimDbusContext *ctx,
 
     UNIM_DBUS_DEBUG("HanjaBookmarkChanged 시그널 구독: path=%s, id=%u",
                      ctx->context_path, ctx->hanja_bookmark_signal_id);
+}
+
+/* HanjaCandidatesReordered 시그널 핸들러 */
+static void
+on_hanja_candidates_reordered_signal(GDBusConnection *connection G_GNUC_UNUSED,
+                                      const gchar *sender_name G_GNUC_UNUSED,
+                                      const gchar *object_path G_GNUC_UNUSED,
+                                      const gchar *interface_name G_GNUC_UNUSED,
+                                      const gchar *signal_name G_GNUC_UNUSED,
+                                      GVariant *parameters,
+                                      gpointer user_data)
+{
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->hanja_reordered_callback) return;
+
+    /* 시그니처: (s, as, as, ab, u, i, i, i, b) */
+    const gchar *target = NULL;
+    GVariantIter *hanjas_iter = NULL;
+    GVariantIter *meanings_iter = NULL;
+    GVariantIter *bookmarks_iter = NULL;
+    guint new_cursor = 0;
+    gint page = 0;
+    gint sel_row = 0;
+    gint sel_col = 0;
+    gboolean bookmarked = FALSE;
+
+    g_variant_get(parameters, "(&sasasabuiiib)",
+                  &target, &hanjas_iter, &meanings_iter, &bookmarks_iter,
+                  &new_cursor, &page, &sel_row, &sel_col, &bookmarked);
+
+    /* 한자/뜻 배열 추출 */
+    GPtrArray *hanjas = g_ptr_array_new_with_free_func(g_free);
+    GPtrArray *meanings = g_ptr_array_new_with_free_func(g_free);
+    const gchar *s;
+    while (g_variant_iter_next(hanjas_iter, "&s", &s)) {
+        g_ptr_array_add(hanjas, g_strdup(s));
+    }
+    while (g_variant_iter_next(meanings_iter, "&s", &s)) {
+        g_ptr_array_add(meanings, g_strdup(s));
+    }
+    g_variant_iter_free(hanjas_iter);
+    g_variant_iter_free(meanings_iter);
+
+    /* 즐겨찾기 배열 추출 */
+    GArray *bookmarks = g_array_new(FALSE, FALSE, sizeof(gboolean));
+    gboolean b;
+    while (g_variant_iter_next(bookmarks_iter, "b", &b)) {
+        g_array_append_val(bookmarks, b);
+    }
+    g_variant_iter_free(bookmarks_iter);
+
+    /* UnimHanjaCandidate 배열 신규 할당 (콜백이 소유권 이관) */
+    gsize count = hanjas->len;
+    UnimHanjaCandidate *cands = g_new0(UnimHanjaCandidate, count > 0 ? count : 1);
+    for (gsize i = 0; i < count; i++) {
+        cands[i].hanja = g_strdup((const gchar *)g_ptr_array_index(hanjas, i));
+        cands[i].meaning = i < meanings->len
+                              ? g_strdup((const gchar *)g_ptr_array_index(meanings, i))
+                              : g_strdup("");
+    }
+    g_ptr_array_free(hanjas, TRUE);
+    g_ptr_array_free(meanings, TRUE);
+
+    UNIM_DBUS_DEBUG("HanjaCandidatesReordered 수신: target='%s', count=%zu, new_cursor=%u, page=%d",
+                     target, count, new_cursor, page);
+
+    ctx->hanja_reordered_callback(
+        target, cands, count,
+        (const gboolean *)bookmarks->data, bookmarks->len,
+        new_cursor, page, sel_row, sel_col, bookmarked,
+        ctx->hanja_reordered_user_data
+    );
+
+    g_array_free(bookmarks, TRUE);
+}
+
+void
+unim_dbus_set_hanja_candidates_reordered_callback(UnimDbusContext *ctx,
+                                                   UnimHanjaCandidatesReorderedCallback callback,
+                                                   gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->hanja_reordered_callback = callback;
+    ctx->hanja_reordered_user_data = user_data;
+
+    ctx->hanja_reordered_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "HanjaCandidatesReordered",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_hanja_candidates_reordered_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("HanjaCandidatesReordered 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->hanja_reordered_signal_id);
 }

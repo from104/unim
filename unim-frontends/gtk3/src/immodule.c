@@ -368,6 +368,42 @@ on_hanja_bookmark_changed(guint index, gboolean bookmarked, gpointer user_data)
     unim_hanja_popup_set_bookmark(unim->hanja_popup, (gsize)index, bookmarked);
 }
 
+/* 엔진 HanjaCandidatesReordered 시그널 → 후보·즐겨찾기·커서 일괄 교체 */
+static void
+on_hanja_candidates_reordered(const gchar *target,
+                               UnimHanjaCandidate *candidates_owned,
+                               gsize count,
+                               const gboolean *bookmarks,
+                               gsize bookmarks_count,
+                               guint new_cursor,
+                               gint page,
+                               gint sel_row,
+                               gint sel_col,
+                               gboolean bookmarked,
+                               gpointer user_data)
+{
+    (void)target;
+    (void)new_cursor;
+    (void)bookmarked;
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim || !unim->hanja_popup) {
+        unim_hanja_candidates_free(candidates_owned, count);
+        return;
+    }
+
+    /* 기존 candidates 해제 후 새 포인터 보관 */
+    if (unim->hanja_candidates) {
+        unim_hanja_candidates_free(unim->hanja_candidates, unim->hanja_count);
+    }
+    unim->hanja_candidates = candidates_owned;
+    unim->hanja_count = count;
+
+    unim_hanja_popup_replace_candidates(
+        unim->hanja_popup, candidates_owned, count,
+        bookmarks, bookmarks_count, page, sel_row, sel_col
+    );
+}
+
 static void
 unim_im_context_init(UnimIMContext *context)
 {
@@ -387,6 +423,8 @@ unim_im_context_init(UnimIMContext *context)
         unim_dbus_set_commit_text_callback(context->dbus_ctx, on_commit_text, context);
         unim_dbus_set_hanja_bookmark_callback(
             context->dbus_ctx, on_hanja_bookmark_changed, context);
+        unim_dbus_set_hanja_candidates_reordered_callback(
+            context->dbus_ctx, on_hanja_candidates_reordered, context);
     }
     context->is_focused = FALSE;
     context->client_window = NULL;

@@ -9,6 +9,7 @@
  */
 
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 import { unimLog, unimError } from './logging.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 /** 바이패스할 수정자 키들 */
@@ -215,16 +216,49 @@ export class KeyHandler {
         // 7. 결과 처리
         const { consumed, preedit, commit } = result;
 
-        if (commit && commit.length > 0) {
-            this._inputMethod.commitText(commit);
-        }
-
-
-        this._inputMethod.updatePreedit(preedit || '');
+        // commit + preedit 동시 송출 시 mutter Clutter race 회피:
+        //   commit() 직후 같은 frame에서 set_preedit_text()를 호출하면
+        //   특히 commit과 preedit이 같은 글자(예: ㄹ→ㄹ 분리)일 때
+        //   mutter가 갱신을 dedup/유실해 사용자에게 보이지 않는다.
+        //   commit이 있을 때만 preedit을 다음 main loop iteration으로 분리.
+        this._commitAndPreedit(commit, preedit);
         this._inputMethod.notify_key_event(event, consumed);
 
         // 8. 재진입으로 큐에 쌓인 키 순차 처리
         this._drainKeyQueue();
+    }
+
+    /**
+     * commit + preedit 송출 (race 회피).
+     *
+     * commit이 비어 있으면 기존처럼 즉시 preedit을 갱신해 latency를 보존.
+     * commit이 존재하면 commitText만 즉시 호출하고, preedit은 다음
+     * main loop iteration으로 분리해 mutter의 set_preedit_text dedup race를
+     *회피한다.
+     *
+     * NOTE: AutoTypeFix(extension.js:onAutoTypeFix)는 PRIORITY_HIGH 50/10ms
+     * 타임아웃을 사용한다. 본 헬퍼는 PRIORITY_DEFAULT 0ms를 사용해 자연스러운
+     * 큐 순서(AutoTypeFix가 동시에 발화해도 먼저 처리)를 유지한다.
+     *
+     * @param {string} commit - commit 텍스트 (없으면 빈 문자열/null)
+     * @param {string} preedit - preedit 텍스트 (없으면 빈 문자열/null)
+     * @private
+     */
+    _commitAndPreedit(commit, preedit) {
+        const hasCommit = commit && commit.length > 0;
+        if (hasCommit) {
+            this._inputMethod.commitText(commit);
+            const im = this._inputMethod;
+            const text = preedit || '';
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 0, () => {
+                if (im && typeof im.updatePreedit === 'function') {
+                    im.updatePreedit(text);
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+        } else {
+            this._inputMethod.updatePreedit(preedit || '');
+        }
     }
 
     /**
@@ -268,14 +302,8 @@ export class KeyHandler {
             }
 
             const { consumed, preedit, commit } = result;
-            if (commit && commit.length > 0) {
-                this._inputMethod.commitText(commit);
-            }
-            if (atfDelete > 0 && atfText && atfText.length > 0) {
-                this._inputMethod.deleteSurroundingText(-atfDelete, atfDelete);
-                this._inputMethod.commitText(atfText);
-            }
-            this._inputMethod.updatePreedit(preedit || '');
+            // _handleVfuncKey와 동일한 race 회피 (commit→preedit 분리)
+            this._commitAndPreedit(commit, preedit);
             this._inputMethod.notify_key_event(entry.event, consumed);
         }
     }
@@ -433,14 +461,8 @@ export class KeyHandler {
         // 7. 결과 처리
         const { consumed, preedit, commit } = result;
 
-        // commit 텍스트가 있으면 앱에 커밋
-        if (commit && commit.length > 0) {
-            this._inputMethod.commitText(commit);
-        }
-
-
-        // preedit 업데이트
-        this._inputMethod.updatePreedit(preedit || '');
+        // commit + preedit 동시 송출 시 mutter race 회피 (vfunc 경로와 동일)
+        this._commitAndPreedit(commit, preedit);
 
         // consumed=true면 키를 소비, false면 앱에 전달
         return consumed ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;

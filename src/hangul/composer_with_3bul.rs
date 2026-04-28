@@ -163,11 +163,23 @@ mod tests {
         let mut c = HangulComposer3Bul::new();
         c.add_jamo(JamoEnum::Cho(Cho::Giyeok));
         let committed = c.add_jamo(JamoEnum::Cho(Cho::Nieun));
-        // ㄱ만으로는 완성 음절이 안 되므로 get_syllable() Err → None
         // 새 음절 ㄴ 시작
         assert_eq!(c.get_current_cho(), Some(Cho::Nieun));
-        // committed는 ㄱ이 incomplete syllable이므로 None일 수 있음
-        let _ = committed;
+        // incomplete syllable(cho 단독)도 호환자모로 commit 흘려보내야
+        // GTK/Qt frontend가 preedit dedup 없이 두 번째 'ㄴ'을 표시할 수 있다.
+        assert_eq!(committed, Some('ㄱ'));
+    }
+
+    #[test]
+    fn test_3bul_cho_repeat_emits_compat() {
+        // 세벌식 ko_3bul390에는 ㄴ+ㄴ 조합 규칙이 없으므로 분리 경로.
+        // incomplete syllable(cho 단독)도 호환자모 'ㄴ'로 commit 흘려보내야 한다.
+        let mut c = HangulComposer3Bul::new();
+        let first = c.add_jamo(JamoEnum::Cho(Cho::Nieun));
+        assert_eq!(first, None);
+        let second = c.add_jamo(JamoEnum::Cho(Cho::Nieun));
+        assert_eq!(second, Some('ㄴ'));
+        assert_eq!(c.get_current_cho(), Some(Cho::Nieun));
     }
 
     // === 3벌식 복모음 조합 테스트 ===

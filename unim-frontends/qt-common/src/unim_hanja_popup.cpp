@@ -118,6 +118,17 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
         "  color: #cdd6f4;"
         "  border-radius: 6px;"
         "}"
+        /* compact 모드 즐겨찾기 강조 (gridcell 미지정 라벨에만 적용) */
+        "QLabel[bookmarked=\"true\"] {"
+        "  color: #f9e2af;"
+        "  background-color: rgba(249, 226, 175, 20);"
+        "  border-radius: 6px;"
+        "}"
+        "QLabel[bookmarked=\"true\"][selected=\"true\"] {"
+        "  background-color: rgba(249, 226, 175, 51);"
+        "  color: #f9e2af;"
+        "  border-radius: 6px;"
+        "}"
         "QLabel#pageLabel {"
         "  color: #6c7086;"
         "  font-size: %6px;"
@@ -344,6 +355,29 @@ void UnimHanjaPopup::setBookmark(quint32 globalIndex, bool bookmarked)
     }
 }
 
+void UnimHanjaPopup::replaceCandidates(const QList<UnimHanjaCandidate> &candidates,
+                                        const QList<bool> &bookmarks,
+                                        int page,
+                                        int selRow,
+                                        int selCol)
+{
+    m_candidates = candidates;
+    m_bookmarks = bookmarks;
+    while (m_bookmarks.size() < m_candidates.size()) {
+        m_bookmarks.append(false);
+    }
+    if (m_bookmarks.size() > m_candidates.size()) {
+        m_bookmarks = m_bookmarks.mid(0, m_candidates.size());
+    }
+    m_currentPage = page < 0 ? 0 : page;
+    m_selRow = selRow < 0 ? 0 : selRow;
+    m_selCol = selCol < 0 ? 0 : selCol;
+    m_selectedIndex = m_selRow; // compact용
+    if (isVisible()) {
+        updateList();
+    }
+}
+
 int UnimHanjaPopup::totalPages() const
 {
     int ps = (m_cols > 1) ? EXPANDED_PAGE_SIZE : COMPACT_PAGE_SIZE;
@@ -440,9 +474,15 @@ void UnimHanjaPopup::renderExpandedGrid(int pageStart, int pageEnd)
     grid->setHorizontalSpacing(2);
     grid->setVerticalSpacing(2);
 
+    /* 가로 레이블 키 시퀀스(special과 동일). 엔진 SSOT는 PopupState.top_row()이지만
+     * 멤버 추가/시그널 변경을 피하기 위해 동일 상수를 직접 사용. */
+    static const char TOP_ROW[] = "QWERTYUIO";
     for (int col = 0; col < EXPANDED_COLS; col++) {
-        QLabel *header = new QLabel(QString::number(col + 1), m_body);
+        QChar headerChar = (col < (int)(sizeof(TOP_ROW) - 1)) ? QChar(TOP_ROW[col]) : QChar();
+        QLabel *header = new QLabel(QString(headerChar), m_body);
         header->setProperty("gridheader", true);
+        header->setProperty("highlight", (col == m_selCol));
+        header->setAlignment(Qt::AlignCenter);
         header->style()->unpolish(header);
         header->style()->polish(header);
         grid->addWidget(header, 0, col);

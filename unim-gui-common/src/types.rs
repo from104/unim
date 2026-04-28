@@ -74,6 +74,19 @@ pub enum GuiAction {
         index: u32,
         bookmarked: bool,
     },
+    /// 한자 즐겨찾기 상태 일괄 적용 (첫 렌더 색상 동기화용)
+    HanjaBookmarkStatesFetched {
+        states: Vec<bool>,
+    },
+    /// 한자 후보 재정렬 (즐겨찾기 토글 직후, 커서 점프 포함)
+    HanjaCandidatesReordered {
+        candidates: Vec<(String, String)>,
+        bookmarks: Vec<bool>,
+        new_cursor: u32,
+        page: i32,
+        sel_row: i32,
+        sel_col: i32,
+    },
     /// 팝업 네비게이션 (페이지/선택 변경)
     PopupNavigate {
         page: i32,

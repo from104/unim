@@ -496,6 +496,56 @@ impl UnimHandler {
         Ok(())
     }
 
+    /// commit + preedit 송출 SSOT 헬퍼.
+    ///
+    /// 동일 frame에 commit과 preedit_draw를 함께 발사하면 일부 XIM 클라이언트
+    /// (Chrome, ibus 호환 GTK 등)가 commit 처리 도중 preedit을 초기화하면서
+    /// 새 preedit을 놓치는 race가 발생한다. (예: 두벌식 ㄹㄹㄹ 5연타 시
+    /// 두 번째 ㄹ 입력에서 daemon이 commit='ㄹ', preedit='ㄹ' 둘 다 반환 →
+    /// 클라이언트가 commit 처리하며 preedit을 비워버림.)
+    ///
+    /// 회피책: commit 후 flush → 10ms sleep → preedit + flush 분리 송출.
+    /// commit이 비어있으면 sleep을 건너뛰고, preedit이 비어있으면
+    /// `clear_preedit()`을 호출한다.
+    ///
+    /// AutoTypeFix N+1 BS 분기(handle_xevent 내 deferred_autofix 처리)도
+    /// 동일 패턴을 사용하나, autofix_commit_guard/전용 로깅 때문에
+    /// 인라인으로 유지한다. 패턴 변경 시 두 곳을 함께 수정할 것.
+    fn commit_then_preedit<C: Connection + xim::x11rb::HasConnection>(
+        &mut self,
+        server: &mut X11rbServer<C>,
+        user_ic: &mut UserInputContext<UnimInputContext>,
+        commit_text: &str,
+        preedit_text: &str,
+    ) -> Result<(), ServerError> {
+        let has_commit = !commit_text.is_empty();
+        let has_preedit = !preedit_text.is_empty();
+
+        // [1단계] commit 전송 + flush
+        if has_commit {
+            server.commit(&user_ic.ic, commit_text)?;
+            server.conn().flush().ok();
+        }
+
+        // [2단계] preedit 전송. commit이 있었으면 클라이언트가 commit을 완전히
+        // 처리한 뒤 새 preedit을 수신하도록 10ms 간격을 둔다.
+        if has_preedit {
+            if has_commit {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            self.preedit(server, user_ic, preedit_text)?;
+            server.conn().flush().ok();
+        } else {
+            // preedit이 비어있을 때는 clear_preedit으로 ibus 호환 처리
+            // (preedit_draw("") + PeWindow 정리). commit-only인 경우에도
+            // 기존 동작 유지 — sleep 없음.
+            self.clear_preedit(server, user_ic)?;
+            server.conn().flush().ok();
+        }
+
+        Ok(())
+    }
+
     /// DBus 팝업 시그널 처리 (main.rs 이벤트 루프에서 호출)
     pub fn handle_popup_event<C: Connection + xim::x11rb::HasConnection>(
         &mut self,
@@ -634,6 +684,25 @@ impl UnimHandler {
             PopupEvent::HanjaBookmarkChanged { index, bookmarked } => {
                 if let Some(ref mut hw) = self.hanja_window {
                     hw.set_bookmark(index as usize, bookmarked, self.display);
+                }
+            }
+            PopupEvent::HanjaCandidatesReordered {
+                target: _,
+                candidates,
+                bookmarks,
+                new_cursor,
+                page: _,
+                sel_row: _,
+                sel_col: _,
+                bookmarked: _,
+            } => {
+                if let Some(ref mut hw) = self.hanja_window {
+                    hw.replace_candidates(
+                        candidates,
+                        bookmarks,
+                        new_cursor as usize,
+                        self.display,
+                    );
                 }
             }
         }
@@ -1386,36 +1455,30 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             }
         };
 
-        // Commit 처리
-        // 중요: commit 전에 clear_preedit()을 호출하지 않음.
-        // clear_preedit()은 XIM PreeditDone을 전송하여 preedit 세션을 종료하는데,
-        // 이후 새 preedit 설정 시 PreeditStart→PreeditDraw 시퀀스가 발생하며
-        // 일부 XIM 클라이언트(GTK 등)가 이 빠른 전환을 올바르게 처리하지 못함.
-        // commit 후 preedit을 in-place로 업데이트하면 PreeditDraw만으로 교체됨.
-        if let Some(commit_text) = commit {
-            if !commit_text.is_empty() {
-                unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
-                // 특수문자 팝업이 열려있을 때 커밋 = 선택 완료 → flash 예약
-                if self.special_window.is_some() {
-                    self.special_flash_pending = true;
-                }
-                server.commit(&user_ic.ic, &commit_text)?;
-                // flush를 여기서 하지 않음 — commit과 preedit을 atomic batch로 전송하여
-                // 일부 XIM 클라이언트가 commit 처리 후 preedit을 놓치는 문제 방지
+        // Commit + Preedit 처리
+        //
+        // 과거에는 commit과 preedit을 같은 frame에서 발사한 뒤 하나의 flush로
+        // atomic batch 전송했으나, 일부 XIM 클라이언트(Chrome 등)가 commit 처리
+        // 도중 preedit을 초기화하면서 새 preedit을 놓치는 race가 있었다
+        // (예: 두벌식 ㄹㄹㄹ 5연타 시 두 번째 ㄹ 시각화 누락).
+        //
+        // 해결: commit_then_preedit() 헬퍼로 [commit→flush→10ms→preedit→flush]
+        // 분리 송출. AutoTypeFix N+1 BS 분기와 동일한 패턴.
+        let commit_text = commit.unwrap_or_default();
+        let preedit_text = preedit.unwrap_or_default();
+
+        if !commit_text.is_empty() {
+            unim_log!("XIM_HANDLER", "커밋: \"{}\"", commit_text);
+            // 특수문자 팝업이 열려있을 때 커밋 = 선택 완료 → flash 예약
+            if self.special_window.is_some() {
+                self.special_flash_pending = true;
             }
         }
-
-        // Preedit 처리
-        let preedit_text = preedit.unwrap_or_default();
-        if preedit_text.is_empty() {
-            self.clear_preedit(server, user_ic)?;
-        } else {
+        if !preedit_text.is_empty() {
             unim_log!("XIM_HANDLER", "Preedit: \"{}\"", preedit_text);
-            self.preedit(server, user_ic, &preedit_text)?;
         }
 
-        // commit + preedit을 하나의 flush로 atomic 전송
-        server.conn().flush().ok();
+        self.commit_then_preedit(server, user_ic, &commit_text, &preedit_text)?;
 
         Ok(consumed)
     }

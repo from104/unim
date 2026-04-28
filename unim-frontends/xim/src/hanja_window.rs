@@ -60,6 +60,8 @@ pub struct HanjaWindow {
     sel_bg_color: x11::xft::XftColor,
     /// 페이지 정보 색상 (#6c7086)
     page_color: x11::xft::XftColor,
+    /// 즐겨찾기 강조 색상 (Catppuccin yellow #f9e2af) — compact 별 + expanded 셀
+    bookmark_color: x11::xft::XftColor,
     /// Flash 효과 색상 (#3d4a6b — 선택+밝기 부스트)
     flash_color: x11::xft::XftColor,
     /// 통합 팝업 상태
@@ -274,6 +276,16 @@ impl HanjaWindow {
             alloc(b"#333c57\0", &mut sel_bg_color);
             alloc(b"#6c7086\0", &mut page_color);
         }
+        let mut bookmark_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
+        unsafe {
+            x11::xft::XftColorAllocName(
+                display,
+                visual,
+                colormap,
+                b"#f9e2af\0".as_ptr() as *const i8,
+                &mut bookmark_color,
+            );
+        }
         let mut flash_color: x11::xft::XftColor = unsafe { std::mem::zeroed() };
         unsafe {
             x11::xft::XftColorAllocName(
@@ -301,6 +313,7 @@ impl HanjaWindow {
             meaning_color,
             sel_bg_color,
             page_color,
+            bookmark_color,
             flash_color,
             popup_state: None,
             size,
@@ -409,6 +422,24 @@ impl HanjaWindow {
     ) {
         if let Some(ps) = self.popup_state.as_mut() {
             ps.set_bookmark_flags(flags);
+            self.redraw(display);
+        }
+    }
+
+    /// 한자 후보를 즐겨찾기 정렬 결과로 일괄 교체하고 커서를 점프시킨다.
+    /// (HanjaCandidatesReordered 시그널)
+    pub fn replace_candidates(
+        &mut self,
+        candidates: Vec<(String, String)>,
+        bookmarks: Vec<bool>,
+        new_cursor: usize,
+        display: *mut x11::xlib::Display,
+    ) {
+        if let Some(ps) = self.popup_state.as_mut() {
+            let items: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
+            let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
+            ps.replace_hanja_items(items, meanings, bookmarks);
+            ps.set_selected_global(new_cursor);
             self.redraw(display);
         }
     }
@@ -799,7 +830,8 @@ impl HanjaWindow {
                 ext.xOff as c_int
             };
             let star_x = (self.size.0 as c_int) - padding_x - star_width;
-            let star_color = if bookmarked { &self.text_color } else { &self.page_color };
+            // 즐겨찾기 별: Catppuccin 노랑(#f9e2af), 미설정: 회색(#6c7086)
+            let star_color = if bookmarked { &self.bookmark_color } else { &self.page_color };
             self.draw_string_with_fallback(display, star_color, star_x, y_pos, star_text);
         }
 
@@ -904,12 +936,19 @@ impl HanjaWindow {
         let cell_w = avail_w / EXPANDED_COLS as c_int;
         let grid_top = padding_y + header_h + dpi::scale(4, sf);
 
-        // 컬럼 헤더 (1~9)
+        // 컬럼 헤더 — special과 동일하게 가로 레이블 키 시퀀스(Q/W/E/.../O).
+        // 활성=header_color, 비활성=number_color (special의 active/inactive 대응).
+        const TOP_ROW: &[u8] = b"QWERTYUIO";
         for col in 0..EXPANDED_COLS {
-            let label = format!("{}", col + 1);
+            let label = (TOP_ROW[col] as char).to_string();
             let cx = padding_x + (col as c_int) * cell_w + cell_w / 2 - dpi::scale(4, sf);
             let cy = grid_top + line_h - text_offset;
-            self.draw_string_with_fallback(display, &self.number_color, cx, cy, &label);
+            let color = if col == sel_col {
+                &self.header_color
+            } else {
+                &self.number_color
+            };
+            self.draw_string_with_fallback(display, color, cx, cy, &label);
         }
 
         // 셀 배치 — col 우선 인덱싱
@@ -942,7 +981,8 @@ impl HanjaWindow {
                     }
                 }
                 let bookmarked = ps.is_bookmarked(global);
-                let color = if bookmarked { &self.header_color } else { &self.text_color };
+                // 즐겨찾기 셀: Catppuccin 노랑(#f9e2af), 일반: 본문 텍스트색(#cdd6f4)
+                let color = if bookmarked { &self.bookmark_color } else { &self.text_color };
                 // 셀 가운데 근처에 한자 (cell_w 기반 대략적 정렬 — 정밀 측정은 비용 큼)
                 let text_x = cx + dpi::scale(4, sf);
                 let text_y = cy + line_h - text_offset;
@@ -1037,6 +1077,7 @@ impl HanjaWindow {
                 &self.meaning_color,
                 &self.sel_bg_color,
                 &self.page_color,
+                &self.bookmark_color,
                 &self.flash_color,
             ];
             for color in colors {

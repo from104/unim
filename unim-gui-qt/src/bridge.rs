@@ -148,7 +148,9 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                     | GuiAction::ShowEmojiPopup { .. }
                     | GuiAction::HidePopup
                     | GuiAction::PopupNavigate { .. }
-                    | GuiAction::HanjaBookmarkChanged { .. } => {}
+                    | GuiAction::HanjaBookmarkChanged { .. }
+                    | GuiAction::HanjaBookmarkStatesFetched { .. }
+                    | GuiAction::HanjaCandidatesReordered { .. } => {}
                 }
             }
         });

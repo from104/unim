@@ -320,11 +320,16 @@ render_expanded_grid(UnimHanjaPopup *popup)
     gsize end = start + page_size;
     if (end > popup->count) end = popup->count;
 
+    /* 가로 레이블 키 시퀀스(special과 동일). 엔진 SSOT는 PopupState.top_row()이지만
+     * C-API 표면 확장을 피하기 위해 동일 상수를 직접 사용. */
+    static const char TOP_ROW[] = "QWERTYUIO";
     for (gint col = 0; col < EXPANDED_COLS; col++) {
-        gchar *header_text = g_strdup_printf("%d", col + 1);
+        gchar header_text[2] = { TOP_ROW[col], '\0' };
         GtkWidget *header = gtk_label_new(header_text);
-        g_free(header_text);
-        WIDGET_ADD_CSS_CLASS(header, "grid-row-number");
+        WIDGET_ADD_CSS_CLASS(header, "grid-header");
+        if (col == popup->sel_col) {
+            WIDGET_ADD_CSS_CLASS(header, "active");
+        }
         gtk_grid_attach(GTK_GRID(popup->grid), header, col, 0, 1, 1);
 
         for (gint row = 0; row < EXPANDED_ROWS; row++) {
@@ -1003,6 +1008,66 @@ unim_hanja_popup_set_bookmark(UnimHanjaPopup *popup,
     gsize end = start + get_page_candidate_count(popup);
     if (global_index >= start && global_index < end
         && unim_hanja_popup_is_visible(popup)) {
+        update_listbox(popup);
+    }
+}
+
+void
+unim_hanja_popup_replace_candidates(UnimHanjaPopup *popup,
+                                     UnimHanjaCandidate *candidates,
+                                     gsize count,
+                                     const gboolean *bookmarks,
+                                     gsize bookmarks_count,
+                                     gint page,
+                                     gint sel_row,
+                                     gint sel_col)
+{
+    if (!popup) return;
+
+    /* 이전 candidates 메모리는 호출자(im 모듈)가 해제. 본 함수는 새 포인터를 보관. */
+    popup->candidates = candidates;
+    popup->count = count;
+
+    g_free(popup->bookmarks);
+    popup->bookmarks = g_new0(gboolean, count > 0 ? count : 1);
+    gsize n = bookmarks_count < count ? bookmarks_count : count;
+    if (bookmarks) {
+        for (gsize i = 0; i < n; i++) {
+            popup->bookmarks[i] = bookmarks[i];
+        }
+    }
+
+    popup->current_page = page < 0 ? 0 : (gsize)page;
+    popup->sel_row = sel_row < 0 ? 0 : (gsize)sel_row;
+    popup->sel_col = sel_col < 0 ? 0 : (gsize)sel_col;
+    popup->selected_index = popup->sel_row;
+
+    /* PopupState도 재구성해서 keyboard 처리와 후보 텍스트 동기화 */
+    if (popup->popup_state) {
+        unim_popup_free(popup->popup_state);
+        popup->popup_state = NULL;
+    }
+    if (count > 0) {
+        const uint8_t **hanja_ptrs = g_malloc(sizeof(uint8_t*) * count);
+        size_t *hanja_lens = g_malloc(sizeof(size_t) * count);
+        const uint8_t **meaning_ptrs = g_malloc(sizeof(uint8_t*) * count);
+        size_t *meaning_lens = g_malloc(sizeof(size_t) * count);
+        for (gsize i = 0; i < count; i++) {
+            hanja_ptrs[i] = (const uint8_t *)candidates[i].hanja;
+            hanja_lens[i] = candidates[i].hanja ? strlen(candidates[i].hanja) : 0;
+            meaning_ptrs[i] = (const uint8_t *)candidates[i].meaning;
+            meaning_lens[i] = candidates[i].meaning ? strlen(candidates[i].meaning) : 0;
+        }
+        /* target은 헤더 라벨에서 추출하지 않고, im 모듈이 같은 target을 알고 있어
+         * 재구성 가능하지만 여기선 빈 문자열로 두고 키 처리 동기화만 신경 쓴다. */
+        popup->popup_state = unim_popup_new_hanja(
+            (const uint8_t *)"", 0,
+            hanja_ptrs, hanja_lens, meaning_ptrs, meaning_lens, count
+        );
+        g_free(hanja_ptrs); g_free(hanja_lens); g_free(meaning_ptrs); g_free(meaning_lens);
+    }
+
+    if (unim_hanja_popup_is_visible(popup)) {
         update_listbox(popup);
     }
 }

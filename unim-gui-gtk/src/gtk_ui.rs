@@ -129,6 +129,27 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                                     .set_bookmark(index, bookmarked);
                             }
                         }
+                        GuiAction::HanjaBookmarkStatesFetched { states } => {
+                            // 첫 렌더 색상 누락 방지: 일괄 setter로 update_page 강제
+                            if hanja_clone.borrow().is_visible() {
+                                hanja_clone.borrow_mut().set_bookmark_flags(states);
+                            }
+                        }
+                        GuiAction::HanjaCandidatesReordered {
+                            candidates,
+                            bookmarks,
+                            new_cursor: _,
+                            page,
+                            sel_row,
+                            sel_col,
+                        } => {
+                            // 즐겨찾기 토글 후 재정렬 — 후보·즐겨찾기·커서 일괄 갱신
+                            if hanja_clone.borrow().is_visible() {
+                                hanja_clone.borrow_mut().replace_candidates(
+                                    candidates, bookmarks, page, sel_row, sel_col,
+                                );
+                            }
+                        }
                         GuiAction::PopupNavigate {
                             page,
                             total_pages,

@@ -57,6 +57,8 @@ export class UnimDbusIME {
         this._onPopupNavigate = null;
         /** @type {Function|null} 한자 즐겨찾기 변경 콜백 */
         this._onHanjaBookmarkChanged = null;
+        /** @type {Function|null} 한자 후보 재정렬 콜백 (즐겨찾기 토글 후) */
+        this._onHanjaCandidatesReordered = null;
         /** @type {Function|null} AutoTypeFix 교정 콜백 */
         this._onAutoTypeFix = null;
         /** @type {Function|null} Config 갱신 콜백 (parsed JSON object) */
@@ -169,6 +171,7 @@ export class UnimDbusIME {
         this._onPopupNavigate = callbacks.onPopupNavigate || null;
         this._onAutoTypeFix = callbacks.onAutoTypeFix || null;
         this._onHanjaBookmarkChanged = callbacks.onHanjaBookmarkChanged || null;
+        this._onHanjaCandidatesReordered = callbacks.onHanjaCandidatesReordered || null;
     }
 
     /**
@@ -312,6 +315,9 @@ export class UnimDbusIME {
             } else if (signalName === 'HanjaBookmarkChanged' && this._onHanjaBookmarkChanged) {
                 const [index, bookmarked] = parameters.deep_unpack();
                 this._onHanjaBookmarkChanged(index, bookmarked);
+            } else if (signalName === 'HanjaCandidatesReordered' && this._onHanjaCandidatesReordered) {
+                const [target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked] = parameters.deep_unpack();
+                this._onHanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked);
             } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
@@ -992,6 +998,7 @@ export class UnimDbusIME {
         this._onHidePopup = null;
         this._onPopupNavigate = null;
         this._onHanjaBookmarkChanged = null;
+        this._onHanjaCandidatesReordered = null;
 
         unimLog('DBUS_IME', '자원 정리 완료');
     }

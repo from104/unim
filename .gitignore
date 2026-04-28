@@ -87,6 +87,11 @@ debs/
 .gemini/
 .claude/settings.local.json
 
+# direnv / dotenv (local toolchain pinning, may contain secrets)
+.envrc
+.env
+.direnv/
+
 graphify-out/
 .graphifyignore
 _workspace/

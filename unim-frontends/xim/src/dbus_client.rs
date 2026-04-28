@@ -51,6 +51,17 @@ pub enum PopupEvent {
     CommitText { text: String },
     /// 한자 즐겨찾기 변경 (엔진 → 프런트엔드)
     HanjaBookmarkChanged { index: u32, bookmarked: bool },
+    /// 한자 후보 재정렬 (즐겨찾기 토글 직후, 커서 점프 포함)
+    HanjaCandidatesReordered {
+        target: String,
+        candidates: Vec<(String, String)>,
+        bookmarks: Vec<bool>,
+        new_cursor: u32,
+        page: i32,
+        sel_row: i32,
+        sel_col: i32,
+        bookmarked: bool,
+    },
 }
 
 /// DBus 요청 타입
@@ -719,6 +730,13 @@ async fn subscribe_popup_signals(
             return;
         }
     };
+    let mut reordered_stream = match proxy.receive_hanja_candidates_reordered().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] HanjaCandidatesReordered 구독 실패: {}", e);
+            return;
+        }
+    };
 
     unim_log!(
         "XIM_DBUS",
@@ -786,6 +804,29 @@ async fn subscribe_popup_signals(
                 if let Ok(args) = signal.args() {
                     let _ = popup_tx.send(PopupEvent::HanjaBookmarkChanged {
                         index: args.index,
+                        bookmarked: args.bookmarked,
+                    });
+                }
+            }
+            Some(signal) = reordered_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let candidates: Vec<(String, String)> = args
+                        .hanjas
+                        .iter()
+                        .enumerate()
+                        .map(|(i, h)| {
+                            let m = args.meanings.get(i).cloned().unwrap_or_default();
+                            (h.clone(), m)
+                        })
+                        .collect();
+                    let _ = popup_tx.send(PopupEvent::HanjaCandidatesReordered {
+                        target: args.target.to_string(),
+                        candidates,
+                        bookmarks: args.bookmarks.clone(),
+                        new_cursor: args.new_cursor,
+                        page: args.page,
+                        sel_row: args.sel_row,
+                        sel_col: args.sel_col,
                         bookmarked: args.bookmarked,
                     });
                 }
