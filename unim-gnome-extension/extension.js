@@ -104,10 +104,8 @@ export default class UnimExtension extends Extension {
         this._conversionInProgress = false;
 
         // 이모지 팝업 accelerator (compositor-only Wayland 우회)
-        /** @type {number[]} grab_accelerator로 받은 action_id 목록 */
-        this._emojiAcceleratorIds = [];
-        /** @type {number} display 'accelerator-activated' 시그널 핸들러 ID */
-        this._emojiAcceleratorSignalId = 0;
+        /** @type {boolean} Main.wm.addKeybinding('shortcut-emoji-popup') 등록 여부 */
+        this._emojiShortcutBound = false;
     }
 
     enable() {
@@ -646,81 +644,64 @@ export default class UnimExtension extends Extension {
         // 항상 깨끗한 상태에서 시작
         this._ungrabEmojiAccelerator();
 
+        // config.yaml(SSoT) → gschema(internal cache) 동기화
         const cfg = this._dbusIME?.getCachedConfig();
         const popup = cfg?.engine?.emoji_popup;
-        if (!popup) {
-            unimLog('EXTENSION', 'emoji_popup config 없음 — accelerator 등록 skip');
+        const enabled = !!popup && popup.enabled !== false;
+        const rawTriggers = (enabled && Array.isArray(popup.trigger_keys)) ? popup.trigger_keys : [];
+        const accels = rawTriggers
+            .map(t => ({ raw: t, accel: triggerToAccelerator(t) }))
+            .filter(x => {
+                if (!x.accel) unimError('EXTENSION', `이모지 단축키 변환 실패: '${x.raw}' — skip`);
+                return !!x.accel;
+            })
+            .map(x => x.accel);
+
+        // gschema set_strv (내부 캐시 — Main.wm.addKeybinding이 요구)
+        try {
+            this._settings.set_strv('shortcut-emoji-popup', accels);
+        } catch (e) {
+            unimError('EXTENSION', `shortcut-emoji-popup set_strv 실패: ${e.message}`);
             return;
         }
-        if (popup.enabled === false) {
-            unimLog('EXTENSION', 'emoji_popup.enabled=false — accelerator 등록 skip');
-            return;
-        }
-        const triggers = Array.isArray(popup.trigger_keys) ? popup.trigger_keys : [];
-        if (triggers.length === 0) {
-            unimLog('EXTENSION', 'emoji_popup.trigger_keys 비어있음 — accelerator 등록 skip');
+
+        if (accels.length === 0) {
+            unimLog('EXTENSION', 'emoji_popup 비활성/빈 trigger — addKeybinding skip');
             return;
         }
 
-        for (const trigger of triggers) {
-            const accel = triggerToAccelerator(trigger);
-            if (!accel) {
-                unimError('EXTENSION', `이모지 단축키 변환 실패: '${trigger}' — skip`);
-                continue;
-            }
-
-            let actionId = 0;
-            try {
-                actionId = global.display.grab_accelerator(accel, Meta.KeyBindingFlags.NONE);
-            } catch (e) {
-                unimError('EXTENSION', `grab_accelerator(${accel}) 예외: ${e.message}`);
-                continue;
-            }
-
-            if (!actionId || actionId === 0) {
-                unimError('EXTENSION', `grab_accelerator(${accel}) 실패 (이미 점유?) — skip`);
-                continue;
-            }
-
-            this._emojiAcceleratorIds.push(actionId);
-            unimLog('EXTENSION', `이모지 단축키 등록: '${trigger}' → '${accel}' (id=${actionId})`);
-        }
-
-        // accelerator-activated 시그널은 한 번만 구독 (action_id 분기 처리)
-        if (this._emojiAcceleratorIds.length > 0 && this._emojiAcceleratorSignalId === 0) {
-            this._emojiAcceleratorSignalId = global.display.connect(
-                'accelerator-activated',
-                (_display, actionId, _deviceId, _timestamp) => {
-                    if (!this._emojiAcceleratorIds.includes(actionId)) return;
-                    unimLog('EXTENSION', `이모지 단축키 활성: id=${actionId} → TriggerAction(emoji_popup)`);
+        // Main.wm.addKeybinding (TypeFIX 단축키와 동일 패턴, GNOME Shell 표준 경로)
+        try {
+            Main.wm.addKeybinding(
+                'shortcut-emoji-popup',
+                this._settings,
+                Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.ALL,
+                () => {
+                    unimLog('EXTENSION', '이모지 단축키 활성 → TriggerAction(emoji_popup)');
                     this._dbusIME?.triggerAction('emoji_popup');
                 }
             );
+            this._emojiShortcutBound = true;
+            unimLog('EXTENSION', `이모지 단축키 등록: [${accels.join(', ')}]`);
+        } catch (e) {
+            unimError('EXTENSION', `addKeybinding(shortcut-emoji-popup) 실패: ${e.message}`);
         }
     }
 
     /**
-     * 등록된 이모지 accelerator를 모두 해제.
+     * 등록된 이모지 단축키 해제.
      * @private
      */
     _ungrabEmojiAccelerator() {
-        if (this._emojiAcceleratorSignalId > 0) {
+        if (this._emojiShortcutBound) {
             try {
-                global.display.disconnect(this._emojiAcceleratorSignalId);
-            } catch (_e) {
-                // disconnect 실패 무시
-            }
-            this._emojiAcceleratorSignalId = 0;
-        }
-
-        for (const id of this._emojiAcceleratorIds) {
-            try {
-                global.display.ungrab_accelerator(id);
+                Main.wm.removeKeybinding('shortcut-emoji-popup');
             } catch (e) {
-                unimError('EXTENSION', `ungrab_accelerator(${id}) 실패: ${e.message}`);
+                unimError('EXTENSION', `removeKeybinding 실패: ${e.message}`);
             }
+            this._emojiShortcutBound = false;
         }
-        this._emojiAcceleratorIds = [];
     }
 
     /**
