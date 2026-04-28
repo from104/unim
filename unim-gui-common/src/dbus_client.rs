@@ -355,7 +355,21 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             }
         }
         "ShowEmojiPopup" => {
-            if let Ok((x, y, w, h)) = msg.body().deserialize::<(i32, i32, i32, i32)>() {
+            // GNOME 환경에선 GNOME extension의 emoji_popup이 같은 시그널을 직접
+            // 받아 자체 St 위젯으로 표시한다. standalone GUI도 같은 시그널을 받아
+            // GTK4 popup을 띄우면 두 popup이 동시에 떠서, GTK4 popup의 키보드
+            // 포커스 grab → IM focus_out → 데몬 HidePopup 자동 발행 → popup 즉시
+            // 닫힘 race가 발생한다. GNOME에서는 standalone 측 표시를 skip한다.
+            let is_gnome = std::env::var("XDG_CURRENT_DESKTOP")
+                .ok()
+                .map(|v| v.to_ascii_uppercase().contains("GNOME"))
+                .unwrap_or(false);
+            if is_gnome {
+                unim_log!(
+                    "INDICATOR",
+                    "[Popup] ShowEmojiPopup skip (GNOME 환경 — extension 처리)"
+                );
+            } else if let Ok((x, y, w, h)) = msg.body().deserialize::<(i32, i32, i32, i32)>() {
                 if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
                     *path = Some(context_path.clone());
                 }
