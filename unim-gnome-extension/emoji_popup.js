@@ -19,7 +19,8 @@ import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { unimLog } from './logging.js';
 
-const COLS = 8;
+const COLS = 9;
+const TAB_ROW_MAX = 9; // 한 줄당 최대 탭 수 (한자/특수 popup 9열과 통일)
 const FAVORITES_TAB = '즐겨찾기';
 const SEARCH_TAB = '🔍 검색';
 const FLASH_DURATION_MS = 100;
@@ -103,10 +104,11 @@ export class EmojiPopup {
         });
         this._container.add_child(this._searchEntry);
 
-        // 탭 바
+        // 탭 바 — 2줄(row)로 분할: vertical 컨테이너 안에 horizontal row 2개.
+        // _rebuildTabBar()가 카테고리 수에 따라 동적으로 분배한다.
         this._tabBar = new St.BoxLayout({
             style_class: 'emoji-tabs',
-            vertical: false,
+            vertical: true,
             x_align: Clutter.ActorAlign.CENTER,
         });
         this._container.add_child(this._tabBar);
@@ -248,7 +250,33 @@ export class EmojiPopup {
 
     _rebuildTabBar() {
         this._tabBar.destroy_all_children();
-        for (const cat of this._categories) {
+
+        const total = this._categories.length;
+        if (total === 0) return;
+
+        // 카테고리를 두 줄로 분배.
+        // 첫 줄에 즐겨찾기 + 앞쪽 카테고리, 둘째 줄에 나머지.
+        // 9개 이하면 둘째 줄은 비워둔다(첫 줄만 표시되도록 빈 row를 넣지 않음).
+        const firstRowSize = total <= TAB_ROW_MAX
+            ? total
+            : Math.ceil(total / 2); // 17 → 9, 16 → 8
+
+        const makeRow = () => new St.BoxLayout({
+            style_class: 'emoji-tabs-row',
+            vertical: false,
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+
+        const row1 = makeRow();
+        this._tabBar.add_child(row1);
+        let row2 = null;
+        if (total > firstRowSize) {
+            row2 = makeRow();
+            this._tabBar.add_child(row2);
+        }
+
+        for (let i = 0; i < total; i++) {
+            const cat = this._categories[i];
             const btn = new St.Button({
                 style_class: 'emoji-tab',
                 label: cat.name,
@@ -260,7 +288,8 @@ export class EmojiPopup {
                 this._currentTab = tabName;
                 this._showTab(tabName);
             });
-            this._tabBar.add_child(btn);
+            const target = i < firstRowSize ? row1 : row2;
+            target.add_child(btn);
         }
     }
 
@@ -277,14 +306,19 @@ export class EmojiPopup {
     /** @private */
     _highlightActiveTab(name) {
         if (!this._tabBar) return;
+        // _tabBar는 vertical 컨테이너에 row(BoxLayout) 2개를 자식으로 가진다.
+        // 각 row의 자식 버튼들을 _categories 순서대로 매칭.
         let idx = 0;
-        for (const btn of this._tabBar.get_children()) {
-            if (this._categories[idx]?.name === name) {
-                btn.add_style_class_name('active');
-            } else {
-                btn.remove_style_class_name('active');
+        for (const row of this._tabBar.get_children()) {
+            if (!row.get_children) continue;
+            for (const btn of row.get_children()) {
+                if (this._categories[idx]?.name === name) {
+                    btn.add_style_class_name('active');
+                } else {
+                    btn.remove_style_class_name('active');
+                }
+                idx++;
             }
-            idx++;
         }
     }
 

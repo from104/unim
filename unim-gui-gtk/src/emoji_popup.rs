@@ -20,6 +20,8 @@ use crate::popup_positioning::{self, DisplayServer};
 const FAVORITES_KEY: &str = "favorites";
 /// 검색 결과 탭 식별자
 const SEARCH_KEY: &str = "search";
+/// 한 줄당 최대 탭 수 (한자/특수 popup 9열과 통일)
+const TAB_ROW_MAX: usize = 9;
 
 /// 이모지 팝업 상태
 pub struct EmojiPopup {
@@ -56,16 +58,85 @@ impl EmojiPopup {
         search_entry.add_css_class("emoji-search");
         vbox.append(&search_entry);
 
-        // 카테고리 탭 전환기 (상단)
+        // 카테고리 탭 전환기 (상단) — 2줄로 분할된 커스텀 ToggleButton bar.
+        // GTK4 StackSwitcher는 단일행 전용이라 한자/특수 popup의 9열 통일 디자인을
+        // 따르기 위해 ToggleButton을 직접 배치한다.
         let stack = gtk4::Stack::new();
         stack.set_transition_type(gtk4::StackTransitionType::SlideLeftRight);
         stack.set_vexpand(true);
 
-        let stack_switcher = gtk4::StackSwitcher::new();
-        stack_switcher.set_stack(Some(&stack));
-        stack_switcher.set_halign(gtk4::Align::Center);
-        stack_switcher.add_css_class("emoji-tabs");
-        vbox.append(&stack_switcher);
+        // 탭 컨테이너 (vertical) — 안에 row 2개 (horizontal)
+        let tab_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        tab_bar.set_halign(gtk4::Align::Center);
+        tab_bar.add_css_class("emoji-tabs");
+
+        // 즐겨찾기 + 카테고리 + (검색은 동적으로 추가됨) 합산 후 2줄 분배
+        let mut tab_specs: Vec<(String, String)> = Vec::new(); // (key, label)
+        tab_specs.push((FAVORITES_KEY.to_string(), "★ 즐겨찾기".to_string()));
+        for entry in emoji::categories() {
+            tab_specs.push((entry.keyword.to_string(), entry.keyword.to_string()));
+        }
+
+        let total = tab_specs.len();
+        let first_row_size = if total <= TAB_ROW_MAX {
+            total
+        } else {
+            (total + 1) / 2 // 17 → 9, 16 → 8
+        };
+
+        let row1 = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+        row1.set_halign(gtk4::Align::Center);
+        row1.add_css_class("emoji-tabs-row");
+        tab_bar.append(&row1);
+        let row2_opt = if total > first_row_size {
+            let row2 = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+            row2.set_halign(gtk4::Align::Center);
+            row2.add_css_class("emoji-tabs-row");
+            tab_bar.append(&row2);
+            Some(row2)
+        } else {
+            None
+        };
+
+        // 모든 토글 버튼을 그룹으로 묶어서 라디오 동작 (한 번에 하나만 active)
+        let tab_buttons: Rc<RefCell<Vec<(String, gtk4::ToggleButton)>>> =
+            Rc::new(RefCell::new(Vec::with_capacity(total)));
+        let mut group_leader: Option<gtk4::ToggleButton> = None;
+        for (i, (key, label)) in tab_specs.iter().enumerate() {
+            let btn = gtk4::ToggleButton::with_label(label);
+            btn.add_css_class("emoji-tab");
+            if let Some(ref leader) = group_leader {
+                btn.set_group(Some(leader));
+            } else {
+                group_leader = Some(btn.clone());
+            }
+            // 클릭 시 stack 페이지 전환
+            let stack_weak = stack.downgrade();
+            let key_clone = key.clone();
+            btn.connect_toggled(move |b| {
+                if !b.is_active() {
+                    return;
+                }
+                if let Some(stack) = stack_weak.upgrade() {
+                    stack.set_visible_child_name(&key_clone);
+                }
+            });
+
+            let target = if i < first_row_size {
+                &row1
+            } else {
+                row2_opt.as_ref().expect("row2 must exist when i >= first_row_size")
+            };
+            target.append(&btn);
+            tab_buttons.borrow_mut().push((key.clone(), btn));
+        }
+
+        // 즐겨찾기 탭을 기본 active
+        if let Some((_, btn)) = tab_buttons.borrow().first() {
+            btn.set_active(true);
+        }
+
+        vbox.append(&tab_bar);
 
         // 즐겨찾기 페이지
         let favorites_flow = Self::make_flow();
@@ -108,10 +179,13 @@ impl EmojiPopup {
         }
         Self::attach_flow_activation(&search_flow);
 
-        // 검색 입력 처리
+        // 검색 입력 처리 — 검색 시 stack에 검색 페이지 추가하고 활성화한다.
+        // 커스텀 탭바에는 검색 결과용 버튼은 만들지 않는다 (탭 토글이 active=false면 다른 탭으로
+        // 자동 전환되지 않도록 하기 위해 검색 시 모든 탭 active 해제).
         let stack_weak = stack.downgrade();
         let search_flow_clone = search_flow.clone();
         let search_added_clone = search_page_added.clone();
+        let tab_buttons_search = tab_buttons.clone();
         search_entry.connect_search_changed(move |entry| {
             let keyword = entry.text().to_string();
             if keyword.is_empty() {
@@ -120,6 +194,10 @@ impl EmojiPopup {
                     if *search_added_clone.borrow() {
                         stack.set_visible_child_name(FAVORITES_KEY);
                     }
+                }
+                // 즐겨찾기 탭 버튼 active
+                if let Some((_, btn)) = tab_buttons_search.borrow().first() {
+                    btn.set_active(true);
                 }
                 return;
             }
@@ -162,9 +240,10 @@ impl EmojiPopup {
 
         window.update_property(&[gtk4::accessible::Property::Label("이모지 선택")]);
 
-        // 이후 `stack_switcher`, `search_flow`, `search_page_added`는 클로저가 소유하므로
+        // 이후 `tab_bar`, `tab_buttons`, `search_flow`, `search_page_added`는 클로저가 소유하므로
         // 구조체 필드로 유지할 필요 없음 (컴파일러가 원본 값을 drop 처리)
-        let _ = stack_switcher;
+        let _ = tab_bar;
+        let _ = tab_buttons;
         let _ = search_flow;
         let _ = search_page_added;
 
@@ -180,8 +259,9 @@ impl EmojiPopup {
     fn make_flow() -> gtk4::FlowBox {
         let flow = gtk4::FlowBox::new();
         flow.set_selection_mode(gtk4::SelectionMode::Single);
+        // 한자/특수 popup 9열과 통일. row-major fill (FlowBox 기본) 보장.
         flow.set_max_children_per_line(9);
-        flow.set_min_children_per_line(6);
+        flow.set_min_children_per_line(9);
         flow.set_row_spacing(2);
         flow.set_column_spacing(2);
         flow.set_homogeneous(true);
