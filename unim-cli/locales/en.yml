@@ -23,7 +23,7 @@ korean_keyboard_layout_desc: "Korean keyboard layout (default: 2bul)"
 english_keyboard_layout_desc: "English keyboard layout (default: qwerty)"
 warning_multiple_stdin: "Standard input ('-') was specified multiple times. Duplicates are ignored."
 warning_label: "Warning: %{warning}"
-error_label: "Execution Error: %{error}"
+execution_error: "Execution Error: %{error}"
 
 # Config related
 config_subcommand_desc: "Manage settings"

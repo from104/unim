@@ -23,7 +23,7 @@ korean_keyboard_layout_desc: "한국어 자판 레이아웃 (기본 2bul)"
 english_keyboard_layout_desc: "영어 자판 레이아웃 (기본 qwerty)"
 warning_multiple_stdin: "표준 입력('-')이 여러 번 지정되었습니다. 중복된 항목은 무시됩니다."
 warning_label: "경고: %{warning}"
-error_label: "실행 오류: %{error}"
+execution_error: "실행 오류: %{error}"
 
 # 설정 관련
 config_subcommand_desc: "설정 관리"

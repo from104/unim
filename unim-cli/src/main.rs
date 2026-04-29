@@ -1328,7 +1328,7 @@ fn config_interactive() {
             }
             7 => {
                 if let Err(e) = config.save_to_default_path() {
-                    eprintln!("{}", t!("error_label", error = e.to_string()));
+                    eprintln!("{}", t!("execution_error", error = e.to_string()));
                 } else {
                     println!("{}", t!("config_saved"));
                 }
@@ -1348,14 +1348,14 @@ fn handle_config(command: Option<ConfigCommands>) {
         Some(ConfigCommands::Show) => config_show(),
         Some(ConfigCommands::Set { key, value }) => {
             if let Err(e) = config_set(key, &value) {
-                eprintln!("{}", t!("error_label", error = e));
+                eprintln!("{}", t!("execution_error", error = e));
                 process::exit(1);
             }
         }
         Some(ConfigCommands::Path) => config_path(),
         Some(ConfigCommands::Reset) => {
             if let Err(e) = config_reset() {
-                eprintln!("{}", t!("error_label", error = e));
+                eprintln!("{}", t!("execution_error", error = e));
                 process::exit(1);
             }
         }
@@ -1764,7 +1764,7 @@ fn main() -> io::Result<()> {
                 .build()
                 .map_err(|e| io::Error::other(format!("tokio runtime build failed: {}", e)))?;
             if let Err(e) = runtime.block_on(run_trigger(&action)) {
-                eprintln!("{}", t!("error_label", error = e));
+                eprintln!("{}", t!("execution_error", error = e));
                 process::exit(1);
             }
             Ok(())
@@ -1777,7 +1777,7 @@ fn main() -> io::Result<()> {
             }
 
             if let Err(e) = run_convert(config) {
-                eprintln!("{}", t!("error_label", error = e.to_string()));
+                eprintln!("{}", t!("execution_error", error = e.to_string()));
                 process::exit(1);
             }
 
