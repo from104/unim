@@ -6,7 +6,7 @@
   "metadata": {
     "display_name": "세벌식 390",
     "author": "공병우 (1990)",
-    "description": "세벌식 최종 이전의 390 자판. 숫자열 일부가 받침 대신 초성/중성 확장으로 재배치됨. 일부 원본 규약(9/・-이중모음 첫 모음 전용, / 문맥 의존)은 v1 스키마 범위 밖으로 6단계 엔진 재설계에서 다룸.",
+    "description": "공병우 박사가 1990년 발표한 세벌식 자판. 초성·중성·종성을 따로 두어 손가락 부담이 적고 빠른 입력이 가능.",
     "version": "1.0",
     "tags": ["korean", "3bul", "standard"]
   },
@@ -60,7 +60,7 @@
   "rule_sets": {
     "sun_arae_batchim": {
       "active": false,
-      "description": "순아래받침 규칙 (docs/references/research/순아래받침_규칙.md). 기본 종성 8개(ㄱㄴㄹㅁㅂㅅㅇㅎ)만 사용하는 사용자용 변종 키맵과 짝으로 사용. 기본 390 layout에는 겹받침이 직접 배치되어 있으므로 active=false.",
+      "description": "받침을 8개(ㄱㄴㄹㅁㅂㅅㅇㅎ)만 쓰는 단순화된 자판을 함께 쓸 때 켭니다. ㄴ+ㄴ→ㄷ, ㄱ+ㅎ→ㅋ처럼 두 키 조합으로 겹받침과 거센소리 받침을 만듭니다. 기본 390에는 받침이 직접 배치되어 있어 꺼져 있습니다.",
       "combinations": [
         { "first": "ᆫ", "second": "ᆫ", "result": "ᆮ" },
         { "first": "ᆫ", "second": "ᆺ", "result": "ᆽ" },
@@ -75,7 +75,7 @@
     },
     "sun_arae_moeum": {
       "active": false,
-      "description": "순아래모음 규칙. ㅒ,ㅖ를 입력 시, 시프트를 안쓰도록, 혹은 타건 흐름을 유지하도록 ㅒ,ㅖ를 조합으로 입력. 기본 390 layout에는 ㅒ,ㅖ가 직접 배치되어 있으므로 active=false.",
+      "description": "Shift 없이 ㅒ·ㅖ를 입력하고 싶을 때 켭니다. ㅑ+ㅣ→ㅒ, ㅕ+ㅣ→ㅖ처럼 두 모음을 이어 만듭니다. 기본 390에는 ㅒ·ㅖ가 직접 배치되어 있어 꺼져 있습니다.",
       "combinations": [
         { "first": "ㅑ", "second": "ㅣ", "result": "ㅒ" },
         { "first": "ㅕ", "second": "ㅣ", "result": "ㅖ" }

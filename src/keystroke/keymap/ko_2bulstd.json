@@ -6,7 +6,7 @@
   "metadata": {
     "display_name": "두벌식 표준",
     "author": "한국공업규격 KS X 5002 (1982)",
-    "description": "국가 표준 두벌식. 초성·종성 같은 자리, 중성은 오른손.",
+    "description": "한국에서 가장 많이 쓰이는 표준 두벌식 자판. 자음은 왼손, 모음은 오른손에 두어 익히기 쉬움. 국가 표준 KS X 5002 (1982).",
     "version": "1.0",
     "tags": ["korean", "2bul", "standard", "default"]
   },

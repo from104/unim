@@ -6,7 +6,7 @@
   "metadata": {
     "display_name": "Colemak-DH",
     "author": "Stevep99 (2020) · based on Shai Coleman's Colemak",
-    "description": "Colemak with D/H moved off the home row to reduce index-finger strain. Phase 6 내장 편의를 위해 자기 완결 포맷(inherits 미사용) 사용 — 사용자 프로필에서는 inherits로 다시 줄여 쓸 수 있음.",
+    "description": "Colemak에서 D·H 키를 좀 더 편한 위치로 옮겨 검지 부담을 줄인 변형. 2020년 발표.",
     "version": "1.0",
     "tags": ["english", "alt", "colemak-family"]
   },

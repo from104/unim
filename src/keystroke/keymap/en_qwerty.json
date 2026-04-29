@@ -5,7 +5,7 @@
   "type": "qwerty",
   "metadata": {
     "display_name": "QWERTY",
-    "description": "Standard QWERTY English layout.",
+    "description": "전 세계에서 가장 널리 쓰이는 표준 영문 자판.",
     "version": "1.0",
     "tags": ["english", "standard"]
   },

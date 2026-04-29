@@ -6,7 +6,7 @@
   "metadata": {
     "display_name": "Workman",
     "author": "OJ Bucao (2010)",
-    "description": "Alternative to Colemak that further optimizes for English finger travel.",
+    "description": "영문 단어 빈도에 맞춰 손가락 이동을 더 줄이도록 다듬은 자판. 2010년 OJ Bucao 발표.",
     "version": "1.0",
     "tags": ["english", "alt"]
   },

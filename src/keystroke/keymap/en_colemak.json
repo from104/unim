@@ -6,7 +6,7 @@
   "metadata": {
     "display_name": "Colemak",
     "author": "Shai Coleman (2006)",
-    "description": "Modern Dvorak alternative that keeps ZXCV near QWERTY positions for undo/cut/copy/paste.",
+    "description": "QWERTY와 비슷한 위치에 Z·X·C·V를 두어 단축키는 그대로 쓰면서 손가락 부담은 줄인 현대식 영문 자판. 2006년 발표.",
     "version": "1.0",
     "tags": ["english", "alt"]
   },

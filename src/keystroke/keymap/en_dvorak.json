@@ -6,7 +6,7 @@
   "metadata": {
     "display_name": "Dvorak",
     "author": "August Dvorak · William Dealey (1936)",
-    "description": "Dvorak Simplified Keyboard — vowels on the home row, most common consonants on the right.",
+    "description": "모음을 가운데 줄에 모아 손가락 이동을 줄인 영문 자판. 1936년 드보락 박사 고안.",
     "version": "1.0",
     "tags": ["english", "alt"]
   },

@@ -5,7 +5,7 @@
   "type": "3bul",
   "metadata": {
     "display_name": "세벌식 순아래",
-    "description": "Shift 사용을 최소화한 세벌식 변종. 종성을 상단(숫자열)까지 확장 배치해 아랫글쇠만으로 대부분 입력 가능.",
+    "description": "Shift 키를 거의 누르지 않도록 종성을 위쪽 숫자열까지 펼쳐 둔 세벌식 변종. 한 손 입력이나 손목 부담이 큰 사용자에게 적합.",
     "version": "1.0",
     "tags": ["korean", "3bul", "accessibility", "noshift"]
   },
