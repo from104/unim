@@ -1394,11 +1394,16 @@ impl InputContextHandler {
 
         let frontend = detect_frontend_type(&self.client_name);
 
-        // GNOME extension의 자체 InputContext는 사용자 앱 입력 대상이 아니므로
-        // last_active_input_context_path 후보에서 제외 — GTK4_IM 등 실제 프런트엔드만 등록.
-        if frontend != "GNOME" {
-            *self.last_active_input_context_path.lock().unwrap() = Some(self.path.clone());
-        }
+        // 모든 frontend의 InputContext를 last_active 후보로 등록한다.
+        // GNOME extension의 자체 context도 포함하는 이유:
+        //   - cursorai/Chrome/Electron 등 GTK_IM_MODULE을 받지 않는 앱은 Wayland
+        //     text-input v3 경로로 GNOME Shell InputMethod가 IM을 처리하며 데몬엔
+        //     `frontend=GNOME`으로만 보고된다.
+        //   - 이 경우 CommitText는 GNOME Shell이 현재 포커스 클라이언트로 자동
+        //     forward하므로 사용자가 보고 있는 창에 정확히 입력된다.
+        //   - GTK4_IM_MODULE=unim 사용 가능한 앱은 frontend=GTK4로 자체 context를
+        //     만들고, 그쪽이 더 최근 활동이면 last_active를 덮어쓴다.
+        *self.last_active_input_context_path.lock().unwrap() = Some(self.path.clone());
 
         if let Ok(is_korean) = response_rx.await {
             // InputMethod 경로에서 GlobalModeChanged 시그널 발송 (UI 동기화)
@@ -1713,6 +1718,9 @@ impl InputContextHandler {
     ) -> zbus::fdo::Result<()> {
         *self.cursor_rect.lock().unwrap() = (x, y, width, height);
         *self.last_cursor_rect.lock().unwrap() = (x, y, width, height);
+        // last_active도 함께 갱신 — cursor를 보고하는 context가 사용자가 입력 중인
+        // context. focus_in 보다 더 빈번/최신 신호이므로 창 전환 race를 보완한다.
+        *self.last_active_input_context_path.lock().unwrap() = Some(self.path.clone());
         unim_log!(
             "DBUS",
             "[DBus] CursorRect: context_id={}, x={}, y={}, w={}, h={}",
