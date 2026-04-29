@@ -73,8 +73,8 @@ impl EmojiPopup {
         // 즐겨찾기 + 카테고리 + (검색은 동적으로 추가됨) 합산 후 2줄 분배
         let mut tab_specs: Vec<(String, String)> = Vec::new(); // (key, label)
         tab_specs.push((FAVORITES_KEY.to_string(), "★ 즐겨찾기".to_string()));
-        for entry in emoji::categories() {
-            tab_specs.push((entry.keyword.to_string(), entry.keyword.to_string()));
+        for (id, ko_name, _en_name, _count) in emoji::list_categories() {
+            tab_specs.push((id, ko_name));
         }
 
         let total = tab_specs.len();
@@ -144,13 +144,13 @@ impl EmojiPopup {
         stack.add_titled(&favorites_page, Some(FAVORITES_KEY), "★ 즐겨찾기");
 
         // 카테고리 페이지들
-        for entry in emoji::categories() {
+        for (id, ko_name, _en_name, _count) in emoji::list_categories() {
             let flow = Self::make_flow();
-            for ch in entry.emojis {
-                flow.insert(&Self::make_emoji_cell(&ch.to_string()), -1);
+            for emoji_str in emoji::category_emojis(&id) {
+                flow.insert(&Self::make_emoji_cell(&emoji_str), -1);
             }
             let page = Self::wrap_scroll(&flow);
-            stack.add_titled(&page, Some(entry.keyword), entry.keyword);
+            stack.add_titled(&page, Some(&id), &ko_name);
         }
 
         // 검색 결과 페이지 (초기에는 숨김 — 입력 시 추가)
@@ -160,8 +160,8 @@ impl EmojiPopup {
         vbox.append(&stack);
         window.set_child(Some(&vbox));
 
-        // 즐겨찾기 기본 채우기
-        Self::fill_flow_with_strings(&favorites_flow, &emoji::load_favorites());
+        // 즐겨찾기 기본 채우기 (MRU 영속화 미구현 — popular fallback 사용)
+        Self::fill_flow_with_strings(&favorites_flow, &emoji::search_emoji_strings(""));
 
         // FlowBox 선택(클릭/Enter) → commit
         Self::attach_flow_activation(&favorites_flow);
@@ -343,8 +343,8 @@ impl EmojiPopup {
             h
         );
 
-        // 즐겨찾기 갱신
-        Self::fill_flow_with_strings(&self.favorites_flow, &emoji::load_favorites());
+        // 즐겨찾기 갱신 (MRU 영속화 미구현 — popular fallback 사용)
+        Self::fill_flow_with_strings(&self.favorites_flow, &emoji::search_emoji_strings(""));
         Self::attach_flow_activation(&self.favorites_flow);
 
         // 검색 엔트리 비움 + 포커스
