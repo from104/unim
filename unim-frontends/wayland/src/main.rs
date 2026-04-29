@@ -229,10 +229,15 @@ fn main() {
         // 팝업 이벤트 처리 (non-blocking)
         while let Ok(popup_event) = popup_rx.try_recv() {
             match popup_event {
-                dbus_client::PopupEvent::ShowHanja { target, candidates } => {
+                dbus_client::PopupEvent::ShowHanja {
+                    target,
+                    candidates,
+                    top_row,
+                } => {
                     if UnimConfig::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
                         if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                            app.popup_surface.show_hanja(shm, qh, &target, candidates);
+                            app.popup_surface
+                                .show_hanja(shm, qh, &target, candidates, &top_row);
                         }
                     }
                 }

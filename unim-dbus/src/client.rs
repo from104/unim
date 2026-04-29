@@ -158,11 +158,15 @@ trait InputContext {
     fn commit_text(&self, text: String) -> Result<()>;
 
     /// 한자 팝업 표시 시그널
+    ///
+    /// `top_row`는 활성 영문 키맵의 가장 위 9문자 (특수문자와 동일 source).
+    /// expanded(9x9) 컬럼 헤더와 Letter 키 점프에 사용한다.
     #[zbus(signal)]
     fn show_hanja_popup(
         &self,
         target: String,
         candidates: Vec<(String, String)>,
+        top_row: String,
         cursor_x: i32,
         cursor_y: i32,
         cursor_width: i32,

@@ -81,8 +81,11 @@ impl PopupSurface {
         qh: &QueueHandle<AppState>,
         target: &str,
         candidates: Vec<(String, String)>,
+        top_row: &str,
     ) {
-        self.popup_state = Some(PopupState::new_hanja(target, candidates));
+        self.popup_state = Some(PopupState::new_hanja_with_top_row(
+            target, candidates, top_row,
+        ));
         self.render_and_commit(shm, qh);
     }
 

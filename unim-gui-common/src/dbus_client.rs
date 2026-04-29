@@ -301,18 +301,26 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
 
     match member.as_str() {
         "ShowHanjaPopup" => {
-            if let Ok((target, candidates, x, y, w, h)) =
-                msg.body().deserialize::<(String, Vec<(String, String)>, i32, i32, i32, i32)>()
-            {
+            // 7-tuple: top_row가 3번째에 추가됨 (특수문자와 동일 시그니처).
+            if let Ok((target, candidates, top_row, x, y, w, h)) = msg.body().deserialize::<(
+                String,
+                Vec<(String, String)>,
+                String,
+                i32,
+                i32,
+                i32,
+                i32,
+            )>() {
                 // 활성 컨텍스트 경로 저장
                 if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
                     *path = Some(context_path.clone());
                 }
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowHanjaPopup 수신: target='{}', count={}, pos=({},{})",
+                    "[Popup] ShowHanjaPopup 수신: target='{}', count={}, top_row='{}', pos=({},{})",
                     target,
                     candidates.len(),
+                    top_row,
                     x,
                     y
                 );
@@ -320,6 +328,7 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                     context_path,
                     target,
                     candidates,
+                    top_row,
                     x,
                     y,
                     w,

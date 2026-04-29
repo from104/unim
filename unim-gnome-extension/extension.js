@@ -248,11 +248,11 @@ export default class UnimExtension extends Extension {
 
             // DBus 팝업 시그널 콜백 등록
             this._dbusIME.setPopupCallbacks({
-                onShowHanja: (target, candidates, cursorRect) => {
+                onShowHanja: (target, candidates, topRow, cursorRect) => {
                     // 팝업 표시 전에 즐겨찾기 상태 조회 (엔진이 candidates와 동일 순서로 반환)
                     const bookmarks = this._dbusIME.getHanjaBookmarkStates();
                     this._hanjaPopup.show(
-                        target, candidates,
+                        target, candidates, topRow,
                         (globalIdx) => {
                             // 선택 콜백: SelectHanja → 한자 반환 → 커밋
                             unimLog('HANJA', `선택 콜백: globalIdx=${globalIdx}, _hasFocus=${this._inputMethod?._hasFocus}`);

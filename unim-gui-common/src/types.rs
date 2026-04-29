@@ -43,6 +43,8 @@ pub enum GuiAction {
         context_path: String,
         target: String,
         candidates: Vec<(String, String)>,
+        /// 활성 영문 키맵 top_row (expanded 9x9 컬럼 헤더; 특수문자와 동일 source).
+        top_row: String,
         x: i32,
         y: i32,
         w: i32,

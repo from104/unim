@@ -56,7 +56,11 @@ export class HanjaPopup {
         this._widgets = [];
         /** @type {St.Label[]} 확장 모드 가로 레이블 헤더 (sel_col 하이라이트용) */
         this._colHeaders = [];
-        /** @type {string} 확장 모드 가로 레이블 키 시퀀스 (special과 동일) */
+        /**
+         * @type {string} 확장 모드 가로 레이블 키 시퀀스 (활성 영문 키맵의 top_row).
+         * show()에서 ShowHanjaPopup signal payload의 topRow로 매번 갱신된다.
+         * QWERTYUIO는 안전망 default — payload 누락 시에도 깨지지 않게 한다.
+         */
         this._topRow = 'QWERTYUIO';
 
         /** @type {Array<{hanja: string, meaning: string}>} 전체 후보 */
@@ -155,6 +159,7 @@ export class HanjaPopup {
      *
      * @param {string} target - 변환 대상 문자
      * @param {Array<{hanja: string, meaning: string}>} candidates - 후보 목록
+     * @param {string} topRow - 활성 영문 키맵의 가장 위 9문자 (9x9 컬럼 헤더)
      * @param {Function} onSelect - 선택 콜백 (globalIndex)
      * @param {Function} onCancel - 취소 콜백
      * @param {{x: number, y: number, width: number, height: number}} [cursorRect]
@@ -162,12 +167,16 @@ export class HanjaPopup {
      * @param {Function} [onToggleBookmark] - 우클릭 시 호출 (globalIndex)
      * @param {Function} [onToggleExpand] - 확장 아이콘 클릭 시 호출
      */
-    show(target, candidates, onSelect, onCancel, cursorRect, bookmarks,
+    show(target, candidates, topRow, onSelect, onCancel, cursorRect, bookmarks,
          onToggleBookmark, onToggleExpand) {
         if (!this._container || candidates.length === 0) return;
 
         this._target = target;
         this._candidates = candidates;
+        // payload가 비어 있으면 default(QWERTYUIO) 유지 — 백엔드 누락 방어
+        if (typeof topRow === 'string' && topRow.length > 0) {
+            this._topRow = topRow;
+        }
         this._bookmarks = Array.isArray(bookmarks)
             ? bookmarks.slice(0, candidates.length)
             : [];

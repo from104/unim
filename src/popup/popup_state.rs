@@ -99,12 +99,25 @@ pub struct PopupState {
 }
 
 impl PopupState {
-    /// 한자 팝업 생성
+    /// 한자 팝업 생성 (기본 top_row "QWERTYUIO" 사용).
+    ///
+    /// 키맵에 의존하는 컬럼 라벨이 필요하면 [`Self::new_hanja_with_top_row`]를
+    /// 호출한다. 본 헬퍼는 기존 호출자(테스트 다수)의 호환을 위해 유지된다.
+    pub fn new_hanja(target: &str, candidates: Vec<(String, String)>) -> Self {
+        Self::new_hanja_with_top_row(target, candidates, "QWERTYUIO")
+    }
+
+    /// 한자 팝업 생성 — expanded(9x9) 모드 컬럼 라벨을 외부 레이아웃에서 주입.
     ///
     /// # Arguments
     /// * `target` - 변환 대상 한글 문자열
     /// * `candidates` - (한자, 뜻) 쌍의 벡터
-    pub fn new_hanja(target: &str, candidates: Vec<(String, String)>) -> Self {
+    /// * `top_row` - 활성 영문 키맵의 가장 위 9문자 (예: "QWERTYUIO", "',.PYFGCR")
+    pub fn new_hanja_with_top_row(
+        target: &str,
+        candidates: Vec<(String, String)>,
+        top_row: &str,
+    ) -> Self {
         let total = candidates.len();
         let items: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
         let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
@@ -122,9 +135,7 @@ impl PopupState {
             meanings,
             bookmarks,
             target: target.to_string(),
-            // expanded(9x9) 모드에서 special과 동일한 가로 레이블 키 시퀀스를 쓰기 위해 default 부여.
-            // compact 모드는 top_row 미사용 → 영향 없음.
-            top_row: "QWERTYUIO".to_string(),
+            top_row: top_row.to_string(),
             current_page: 0,
             total_pages,
             sel_row: 0,
@@ -1287,6 +1298,24 @@ mod tests {
     }
 
     #[test]
+    fn hanja_new_with_top_row_dvorak() {
+        let candidates: Vec<(String, String)> = (0..9)
+            .map(|i| (format!("漢{}", i), format!("뜻{}", i)))
+            .collect();
+        let state = PopupState::new_hanja_with_top_row("한", candidates, "',.PYFGCR");
+        assert_eq!(state.top_row(), "',.PYFGCR");
+    }
+
+    #[test]
+    fn hanja_new_with_top_row_colemak() {
+        let candidates: Vec<(String, String)> = (0..9)
+            .map(|i| (format!("漢{}", i), format!("뜻{}", i)))
+            .collect();
+        let state = PopupState::new_hanja_with_top_row("한", candidates, "QWFPGJLUY");
+        assert_eq!(state.top_row(), "QWFPGJLUY");
+    }
+
+    #[test]
     fn hanja_expanded_letter_jumps_column() {
         let mut state = make_hanja(81);
         state.handle_key(PopupKey::Period); // expanded 진입
@@ -1568,5 +1597,105 @@ mod tests {
         let before_row = state.sel_row;
         state.set_selected_global(100);
         assert_eq!(state.sel_row, before_row);
+    }
+
+    /// 즐겨찾기 해제 시 stable sort 결과 검증.
+    /// 후보 [A*, B*, C, D, E] (A·B 즐겨찾기) 상태에서 A 해제 →
+    /// 정렬 결과 [B*, A, C, D, E], 새 인덱스 1로 점프하고 그 자리는 페이지 0의 row 1.
+    #[test]
+    fn unbookmark_keeps_stable_order_for_remaining_bookmarks() {
+        let mut state = PopupState::new_hanja(
+            "한",
+            vec![
+                ("A".into(), "a".into()),
+                ("B".into(), "b".into()),
+                ("C".into(), "c".into()),
+                ("D".into(), "d".into()),
+                ("E".into(), "e".into()),
+            ],
+        );
+        // 초기: A·B 즐겨찾기. 정렬은 외부에서 사전 적용된 상태로 진입한다고 가정 (input_engine과 동일).
+        state.set_bookmark_flags(vec![true, true, false, false, false]);
+        // A를 해제: 새 정렬은 [B*, A, C, D, E], A의 새 인덱스 = 1.
+        state.replace_hanja_items(
+            vec!["B".into(), "A".into(), "C".into(), "D".into(), "E".into()],
+            vec!["b".into(), "a".into(), "c".into(), "d".into(), "e".into()],
+            vec![true, false, false, false, false],
+        );
+        state.set_selected_global(1);
+
+        assert_eq!(state.get_item(1), Some("A"));
+        assert!(!state.is_bookmarked(1));
+        assert!(state.is_bookmarked(0)); // B는 여전히 즐겨찾기
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 1);
+        assert_eq!(state.sel_col, 0);
+    }
+
+    /// 즐겨찾기 해제 시 새 인덱스가 현재 페이지를 벗어나면 페이지가 점프해야 한다.
+    /// 10개 후보 중 X만 즐겨찾기 → X 해제 → stable sort 결과 X 인덱스 9 (페이지 1의 row 0).
+    /// 사용자 보고 케이스: 해제 후 "그 자리에 그대로" 보이지 않고 페이지가 넘어가야 한다.
+    #[test]
+    fn unbookmark_jumps_page_when_new_index_overflows_current_page() {
+        let mut state = PopupState::new_hanja(
+            "한",
+            vec![
+                ("X".into(), "x".into()),
+                ("A".into(), "a".into()),
+                ("B".into(), "b".into()),
+                ("C".into(), "c".into()),
+                ("D".into(), "d".into()),
+                ("E".into(), "e".into()),
+                ("F".into(), "f".into()),
+                ("G".into(), "g".into()),
+                ("H".into(), "h".into()),
+                ("I".into(), "i".into()),
+            ],
+        );
+        // X만 즐겨찾기 (정렬 후 [X*, A..I]).
+        state.set_bookmark_flags(vec![
+            true, false, false, false, false, false, false, false, false, false,
+        ]);
+        assert_eq!(state.total_pages, 2);
+        assert_eq!(state.current_page, 0);
+
+        // X 해제 → stable sort 결과 [A, B, C, D, E, F, G, H, I, X], X의 새 인덱스 = 9.
+        state.replace_hanja_items(
+            vec![
+                "A".into(),
+                "B".into(),
+                "C".into(),
+                "D".into(),
+                "E".into(),
+                "F".into(),
+                "G".into(),
+                "H".into(),
+                "I".into(),
+                "X".into(),
+            ],
+            vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                "e".into(),
+                "f".into(),
+                "g".into(),
+                "h".into(),
+                "i".into(),
+                "x".into(),
+            ],
+            vec![
+                false, false, false, false, false, false, false, false, false, false,
+            ],
+        );
+        state.set_selected_global(9);
+
+        assert_eq!(state.get_item(9), Some("X"));
+        assert!(!state.is_bookmarked(9));
+        // 새 인덱스가 첫 페이지(0..=8)를 벗어나 페이지 1로 점프해야 한다.
+        assert_eq!(state.current_page, 1);
+        assert_eq!(state.sel_row, 0); // 9 % 9 = 0
+        assert_eq!(state.sel_col, 0); // compact: 단일 컬럼
     }
 }

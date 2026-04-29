@@ -158,6 +158,21 @@
     background-color: rgba(249, 226, 175, 0.28);
 }
 
+/* 확장 모드 컬럼 헤더 — grid-cell.min-width(30px)와 동기화하여 라벨이 셀 위에 정렬 */
+.unim-hanja-popup .grid-header {
+    color: #7f849c;
+    font-weight: bold;
+    font-size: 11px;
+    min-width: 30px;
+    min-height: 18px;
+    padding: 0 4px;
+    text-align: center;
+}
+
+.unim-hanja-popup .grid-header.active {
+    color: #f9e2af;
+}
+
 /* 확장 모드 뜻풀이 스트립 */
 .unim-hanja-popup .popup-meaning-strip {
     color: #a6adc8;

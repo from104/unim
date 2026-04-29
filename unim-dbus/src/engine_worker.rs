@@ -929,6 +929,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
+                // 활성 영문 키맵의 top_row를 응답에 포함시켜 frontend의 9x9 컬럼 헤더가
+                // 키맵 변경에 동기화되도록 한다 (특수문자 응답과 동일 source).
+                let top_row = unim::config::english_layout_top_row_labels(
+                    &config.engine.english.layout,
+                )
+                .to_string();
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // 먼저 한자 변환을 시작하여 후보를 생성
                     engine.start_hanja_conversion();
@@ -939,11 +945,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     crate::service::HanjaCandidateResponse {
                         target: engine.get_hanja_target().to_string(),
                         candidates: engine.get_hanja_candidates(),
+                        top_row,
                     }
                 } else {
                     crate::service::HanjaCandidateResponse {
                         target: String::new(),
                         candidates: Vec::new(),
+                        top_row,
                     }
                 };
                 let _ = response.send(resp);

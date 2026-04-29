@@ -35,7 +35,7 @@ impl PopupState {
     /// PopupAction에 따라 팝업 상태를 업데이트합니다.
     pub fn handle_action(&mut self, action: PopupAction) {
         match action {
-            PopupAction::ShowHanja { target, candidates } => {
+            PopupAction::ShowHanja { target, candidates, .. } => {
                 self.visible = true;
                 self.title = format!("한자: {}", target);
                 self.candidates = candidates.iter().map(|(c, _)| c.clone()).collect();

@@ -39,6 +39,10 @@ pub struct HanjaPopup {
     cols: usize,
     /// 저장된 context_path (DBus 콜백용)
     context_path: String,
+    /// expanded(9x9) 컬럼 헤더 라벨 (활성 영문 키맵의 top_row).
+    /// show()에서 ShowHanjaPopup signal payload의 top_row로 매번 갱신된다.
+    /// QWERTYUIO는 안전망 default — payload 누락 시에도 렌더가 깨지지 않게 한다.
+    top_row: String,
 }
 
 impl HanjaPopup {
@@ -109,6 +113,7 @@ impl HanjaPopup {
             sel_col: 0,
             cols: 1,
             context_path: String::new(),
+            top_row: "QWERTYUIO".to_string(),
         }
     }
 
@@ -127,6 +132,7 @@ impl HanjaPopup {
         context_path: String,
         target: &str,
         candidates: Vec<(String, String)>,
+        top_row: &str,
         x: i32,
         y: i32,
         _w: i32,
@@ -139,8 +145,8 @@ impl HanjaPopup {
 
         unim_log!(
             "INDICATOR",
-            "[Popup] 한자 show() 진입: display_server={:?}, cursor=({},{},{})",
-            self.display_server, x, y, h
+            "[Popup] 한자 show() 진입: display_server={:?}, top_row='{}', cursor=({},{},{})",
+            self.display_server, top_row, x, y, h
         );
 
         self.context_path = context_path;
@@ -148,6 +154,10 @@ impl HanjaPopup {
         // set_bookmark_states()로 일괄 갱신된다 (GNOME extension.js:176 패턴).
         self.bookmarks = vec![false; candidates.len()];
         self.candidates = candidates;
+        // payload 누락 방어: 비어 있으면 기존 default(QWERTYUIO) 유지
+        if !top_row.is_empty() {
+            self.top_row = top_row.to_string();
+        }
         self.current_page = 0;
         self.sel_row = 0;
         self.sel_col = 0;
@@ -271,10 +281,9 @@ impl HanjaPopup {
         grid.set_column_spacing(2);
         self.body_container.append(&grid);
 
-        // 가로 레이블 키 시퀀스(special과 동일). 엔진 SSOT는 PopupState.top_row()이지만
-        // frontend 코드 최소화를 위해 동일 상수를 직접 사용한다.
-        const TOP_ROW: &str = "QWERTYUIO";
-        let top_row_chars: Vec<char> = TOP_ROW.chars().collect();
+        // 가로 레이블 키 시퀀스(special과 동일). show() 시점에 ShowHanjaPopup signal payload의
+        // top_row로 갱신된 self.top_row를 사용해 키맵 변경(qwerty/dvorak/colemak)에 동기화된다.
+        let top_row_chars: Vec<char> = self.top_row.chars().collect();
 
         // GNOME extension JS와 동일하게 col 우선 인덱싱: idx = col * rows + row
         for col in 0..EXPANDED_COLS {

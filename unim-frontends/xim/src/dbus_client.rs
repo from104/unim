@@ -18,6 +18,8 @@ pub enum PopupEvent {
     ShowHanja {
         target: String,
         candidates: Vec<(String, String)>,
+        /// 활성 영문 키맵 top_row (특수문자와 동일 source).
+        top_row: String,
         cursor_x: i32,
         cursor_y: i32,
     },
@@ -751,6 +753,7 @@ async fn subscribe_popup_signals(
                     let _ = popup_tx.send(PopupEvent::ShowHanja {
                         target: args.target,
                         candidates: args.candidates,
+                        top_row: args.top_row,
                         cursor_x: args.cursor_x,
                         cursor_y: args.cursor_y,
                     });

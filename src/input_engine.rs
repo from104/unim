@@ -18,6 +18,8 @@ pub enum PopupAction {
     ShowHanja {
         target: String,
         candidates: Vec<(String, String)>,
+        /// 활성 영문 키맵의 상단 행 라벨 (expanded 9x9 컬럼 헤더용).
+        top_row: String,
     },
     /// 특수문자 팝업 표시
     ShowSpecial {
@@ -1061,14 +1063,19 @@ impl InputEngine {
                     .collect();
                 self.hanja_candidates = candidates;
                 self.hanja_mode = true;
-                let mut popup_state =
-                    PopupState::new_hanja(&target_syllable, hanja_pairs.clone());
+                // expanded(9x9) 컬럼 라벨에 키맵별 top_row를 그대로 흘려보낸다 (special과 동일 source).
+                let mut popup_state = PopupState::new_hanja_with_top_row(
+                    &target_syllable,
+                    hanja_pairs.clone(),
+                    &self.top_row_labels,
+                );
                 popup_state.set_bookmark_flags(bookmark_flags);
                 self.popup_state = Some(popup_state);
                 // 팝업 액션 설정
                 self.popup_pending_action = Some(PopupAction::ShowHanja {
                     target: target_syllable,
                     candidates: hanja_pairs,
+                    top_row: self.top_row_labels.clone(),
                 });
                 return InputResult::hanja_candidates();
             }

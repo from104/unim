@@ -176,6 +176,8 @@ pub struct HanjaCandidateResponse {
     pub target: String,
     /// 후보 목록 (한자, 뜻풀이)
     pub candidates: Vec<(String, String)>,
+    /// 영문 키맵의 상단 행 레이블 (expanded 9x9 컬럼 헤더용; 특수문자와 동일 source).
+    pub top_row: String,
 }
 
 /// 특수문자 후보 응답
@@ -1209,16 +1211,30 @@ impl InputContextHandler {
         let is_standalone = Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone;
         if let Some(popup) = &response.popup_action {
             match popup {
-                PopupAction::ShowHanja { target, candidates } if is_standalone => {
+                PopupAction::ShowHanja {
+                    target,
+                    candidates,
+                    top_row,
+                } if is_standalone => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    Self::show_hanja_popup(&signal_ctx, target, candidates.clone(), x, y, w, h)
-                        .await
-                        .ok();
+                    Self::show_hanja_popup(
+                        &signal_ctx,
+                        target,
+                        candidates.clone(),
+                        top_row,
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                    .await
+                    .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowHanjaPopup 시그널 발행: target='{}', count={}",
+                        "[DBus] ShowHanjaPopup 시그널 발행: target='{}', count={}, top_row='{}'",
                         target,
-                        candidates.len()
+                        candidates.len(),
+                        top_row
                     );
                 }
                 PopupAction::ShowSpecial {
@@ -1553,11 +1569,15 @@ impl InputContextHandler {
     // =========================================
 
     /// 한자 팝업 표시 시그널
+    ///
+    /// `top_row`는 활성 영문 키맵의 가장 위 9문자 (예: "QWERTYUIO", "',.PYFGCR").
+    /// expanded(9x9) 컬럼 헤더와 Letter 키 점프에 사용한다. 특수문자 팝업과 동일 source.
     #[zbus(signal)]
     async fn show_hanja_popup(
         signal_ctx: &SignalContext<'_>,
         target: &str,
         candidates: Vec<(String, String)>,
+        top_row: &str,
         cursor_x: i32,
         cursor_y: i32,
         cursor_width: i32,
@@ -1867,9 +1887,10 @@ impl InputContextHandler {
 
         unim_log!(
             "DBUS",
-            "[DBus] GetHanjaCandidates: target='{}', count={}",
+            "[DBus] GetHanjaCandidates: target='{}', count={}, top_row='{}'",
             response.target,
-            response.candidates.len()
+            response.candidates.len(),
+            response.top_row
         );
 
         // Standalone 모드: unim-gui-gtk가 팝업을 표시하도록 시그널 발행
@@ -1881,6 +1902,7 @@ impl InputContextHandler {
                 &signal_ctx,
                 &response.target,
                 response.candidates.clone(),
+                &response.top_row,
                 x,
                 y,
                 w,

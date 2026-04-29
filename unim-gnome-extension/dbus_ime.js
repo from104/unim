@@ -119,7 +119,7 @@ export class UnimDbusIME {
 
             // GlobalModeChanged / ConfigChangedJson 시그널 수신
             this._imSignalId = this._imProxy.connect('g-signal',
-                (proxy, senderName, signalName, parameters) => {
+                (_proxy, _senderName, signalName, parameters) => {
                     if (signalName === 'GlobalModeChanged' && this._onModeChanged) {
                         const [isKorean] = parameters.deep_unpack();
                         this._onModeChanged(isKorean);
@@ -158,7 +158,7 @@ export class UnimDbusIME {
     /**
      * 팝업 콜백 등록
      * @param {object} callbacks
-     * @param {Function} [callbacks.onShowHanja] - (target, candidates, cursorRect)
+     * @param {Function} [callbacks.onShowHanja] - (target, candidates, topRow, cursorRect)
      * @param {Function} [callbacks.onShowSpecial] - (target, characters, topRow, cursorRect)
      * @param {Function} [callbacks.onHidePopup] - ()
      * @param {Function} [callbacks.onPopupNavigate] - (page, totalPages, selected, rows, cols, selRow, selCol)
@@ -244,7 +244,7 @@ export class UnimDbusIME {
         // InputContext 시그널 구독 (자기 context: 팝업 등)
         // AutoTypefixApply는 글로벌 구독에서만 처리 (중복 방지)
         this._icSignalId = this._icProxy.connect('g-signal',
-            (proxy, senderName, signalName, parameters) => {
+            (_proxy, _senderName, signalName, parameters) => {
                 if (signalName === 'AutoTypefixApply') return;
                 this._handleContextSignal(signalName, parameters, true);
             }
@@ -287,14 +287,15 @@ export class UnimDbusIME {
     _handleContextSignal(signalName, parameters, isOwnContext = false) {
         try {
             if (signalName === 'ShowHanjaPopup' && this._onShowHanja) {
-                const [target, candidatesRaw, cx, cy, cw, ch] = parameters.deep_unpack();
+                // 7-tuple: 활성 영문 키맵의 top_row를 5번째 인자로 받아 9x9 컬럼 헤더 동기화
+                const [target, candidatesRaw, topRow, cx, cy, cw, ch] = parameters.deep_unpack();
                 const candidates = candidatesRaw.map(([hanja, meaning]) => ({
                     hanja, meaning,
                 }));
                 const cursorRect = isOwnContext
                     ? { x: cx, y: cy, width: cw, height: ch }
                     : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowHanja(target, candidates, cursorRect);
+                this._onShowHanja(target, candidates, topRow, cursorRect);
             } else if (signalName === 'ShowSpecialPopup' && this._onShowSpecial) {
                 const [target, characters, topRow, cx, cy, cw, ch] = parameters.deep_unpack();
                 const cursorRect = isOwnContext
