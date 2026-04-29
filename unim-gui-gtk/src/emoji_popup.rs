@@ -161,7 +161,11 @@ impl EmojiPopup {
         window.set_child(Some(&vbox));
 
         // 즐겨찾기 기본 채우기 (MRU 영속화 미구현 — popular fallback 사용)
-        Self::fill_flow_with_strings(&favorites_flow, &emoji::search_emoji_strings(""));
+        {
+            let mru = emoji::load_favorites();
+            let items = if mru.is_empty() { emoji::search_emoji_strings("") } else { mru };
+            Self::fill_flow_with_strings(&favorites_flow, &items);
+        }
 
         // FlowBox 선택(클릭/Enter) → commit
         Self::attach_flow_activation(&favorites_flow);
@@ -343,8 +347,12 @@ impl EmojiPopup {
             h
         );
 
-        // 즐겨찾기 갱신 (MRU 영속화 미구현 — popular fallback 사용)
-        Self::fill_flow_with_strings(&self.favorites_flow, &emoji::search_emoji_strings(""));
+        // 즐겨찾기 갱신 — MRU 우선, 비어있으면 popular fallback.
+        {
+            let mru = emoji::load_favorites();
+            let items = if mru.is_empty() { emoji::search_emoji_strings("") } else { mru };
+            Self::fill_flow_with_strings(&self.favorites_flow, &items);
+        }
         Self::attach_flow_activation(&self.favorites_flow);
 
         // 검색 엔트리 비움 + 포커스

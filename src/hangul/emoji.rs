@@ -391,6 +391,58 @@ pub fn category_emojis(category_id: &str) -> Vec<String> {
     }
 }
 
+// ===========================================
+// MRU 즐겨찾기 (영속화)
+// ===========================================
+
+use std::path::PathBuf;
+
+/// 즐겨찾기 영속화 파일 경로 — `~/.config/unim/emoji-favorites.yaml`
+///
+/// XDG config dir 식별 실패 시 None.
+pub fn favorites_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("unim").join("emoji-favorites.yaml"))
+}
+
+/// 즐겨찾기 최대 보관 개수 (MRU 윈도우)
+pub const FAVORITES_MAX: usize = 32;
+
+/// 즐겨찾기 읽기 (YAML: 이모지 문자열 배열)
+///
+/// 파일이 없거나 파싱 실패 시 빈 vec를 반환합니다.
+pub fn load_favorites() -> Vec<String> {
+    let path = match favorites_path() {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    serde_yaml::from_str::<Vec<String>>(&content).unwrap_or_default()
+}
+
+/// 즐겨찾기 MRU 갱신 후 저장
+///
+/// `emoji`를 최상단으로 옮기고(없으면 추가) 최대 `FAVORITES_MAX`개로 잘라낸 뒤
+/// 파일에 기록합니다. 파일 쓰기 실패는 무시 (best-effort).
+pub fn touch_favorite(emoji: &str) -> Vec<String> {
+    let mut list = load_favorites();
+    list.retain(|e| e != emoji);
+    list.insert(0, emoji.to_string());
+    list.truncate(FAVORITES_MAX);
+
+    if let Some(path) = favorites_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(yaml) = serde_yaml::to_string(&list) {
+            let _ = std::fs::write(&path, yaml);
+        }
+    }
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

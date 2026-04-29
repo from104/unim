@@ -576,12 +576,14 @@ impl InputMethodService {
     /// 각 항목은 (카테고리 이름, 이모지 목록) 쌍. GUI가 탭을 구성할 때 사용합니다.
     async fn list_emoji_categories(&self) -> zbus::fdo::Result<Vec<(String, Vec<String>)>> {
         let mut list: Vec<(String, Vec<String>)> = Vec::new();
-        // 즐겨찾기 탭 — search_emoji_strings("")는 popular fallback을 반환한다
-        // (Unicode 보강 후 테스트 `search_empty_returns_popular`로 보장).
-        list.push((
-            "즐겨찾기".to_string(),
-            unim::hangul::emoji::search_emoji_strings(""),
-        ));
+        // 즐겨찾기 탭 — MRU 우선, 비어있으면 popular fallback.
+        let favorites = unim::hangul::emoji::load_favorites();
+        let favorite_items = if favorites.is_empty() {
+            unim::hangul::emoji::search_emoji_strings("")
+        } else {
+            favorites
+        };
+        list.push(("즐겨찾기".to_string(), favorite_items));
         // 9개 카테고리 (Smileys/People/Animals/Food/Travel/Activities/Objects/Symbols/Flags).
         for (id, ko_name, _en_name, _count) in unim::hangul::emoji::list_categories() {
             list.push((ko_name, unim::hangul::emoji::category_emojis(&id)));
@@ -591,11 +593,11 @@ impl InputMethodService {
 
     /// 이모지 즐겨찾기(MRU) 조회
     ///
-    /// MRU 영속화는 데이터 보강(31038ae) 시점에 일시 제거됨. 빈 vec 반환 시
-    /// GUI는 `list_emoji_categories`의 첫 항목(popular fallback)을 즐겨찾기 탭에
-    /// 그대로 표시한다. MRU 복원은 별도 후속 PR.
+    /// `~/.config/unim/emoji-favorites.yaml`에서 사용자별 MRU(최대 32개)를 읽어
+    /// 반환한다. 파일이 없으면 빈 vec — GUI는 `list_emoji_categories`의 즐겨찾기
+    /// 탭에 popular fallback을 그대로 보여준다.
     async fn get_emoji_favorites(&self) -> zbus::fdo::Result<Vec<String>> {
-        Ok(Vec::new())
+        Ok(unim::hangul::emoji::load_favorites())
     }
 
     /// 설정값 조회
@@ -1006,11 +1008,11 @@ impl InputMethodService {
     /// `last_active_input_context_path`가 비어있거나 path가 더이상 유효하지 않으면 경고 로그만
     /// 남기고 `Ok(())` 반환 — 호환성을 위해 실패하지 않는다.
     async fn commit_emoji(&self, emoji: &str) -> zbus::fdo::Result<()> {
-        // MRU 영속화는 데이터 보강(31038ae) 시점에 일시 제거됨 — 별도 PR로 복원 예정.
-        // emoji 빈 문자열 가드만 유지 (호환).
         if emoji.is_empty() {
             return Ok(());
         }
+        // MRU 즐겨찾기 갱신 (~/.config/unim/emoji-favorites.yaml).
+        unim::hangul::emoji::touch_favorite(emoji);
 
         let target_path_str = match self.last_active_input_context_path.lock().unwrap().clone() {
             Some(p) => p,
@@ -2203,7 +2205,7 @@ impl InputContextHandler {
     ) -> zbus::fdo::Result<()> {
         if !emoji.is_empty() {
             Self::commit_text(&signal_ctx, emoji).await.ok();
-            // MRU 영속화 일시 제거됨 (31038ae) — 별도 PR로 복원.
+            unim::hangul::emoji::touch_favorite(emoji);
         }
         Self::hide_popup(&signal_ctx).await.ok();
         unim_log!(
