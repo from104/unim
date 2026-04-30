@@ -3,7 +3,8 @@
 //! PopupState로부터 렌더링에 필요한 모든 데이터를 구조화하여 제공합니다.
 //! 프런트엔드는 이 뷰 모델만으로 화면을 그릴 수 있습니다.
 
-use super::popup_state::{PopupKind, PopupState};
+use super::popup_keys::PopupKind;
+use super::popup_state::PopupState;
 
 /// 개별 셀 데이터
 #[derive(Debug, Clone)]
