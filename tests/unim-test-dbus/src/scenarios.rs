@@ -74,16 +74,14 @@ pub fn scenarios_for_layout(layout: &Layout) -> Vec<TestScenario> {
 
 /// 레이아웃 공통 테스트 (영문 모드, 모드 전환 등)
 pub fn common_scenarios() -> Vec<TestScenario> {
-    vec![
-        TestScenario {
-            name: "영문 모드: 키 패스스루",
-            keys: vec![KeyPress::new(34)], // G in English mode
-            expected_final_preedit: "",
-            expected_total_commit: "",
-            steps: None,
-            initial_korean_mode: false,
-        },
-    ]
+    vec![TestScenario {
+        name: "영문 모드: 키 패스스루",
+        keys: vec![KeyPress::new(34)], // G in English mode
+        expected_final_preedit: "",
+        expected_total_commit: "",
+        steps: None,
+        initial_korean_mode: false,
+    }]
 }
 
 // ─── 2벌식 시나리오 ────────────────────────────────────────────────

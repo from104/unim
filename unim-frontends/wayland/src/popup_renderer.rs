@@ -73,46 +73,121 @@ fn render_hanja_page(
 
     let mut pixmap = Pixmap::new(width, height).unwrap();
     fill_rect(&mut pixmap, 0.0, 0.0, width as f32, height as f32, BASE);
-    fill_rect(&mut pixmap, 4.0, 4.0, width as f32 - 8.0, HEADER_H, SURFACE0);
+    fill_rect(
+        &mut pixmap,
+        4.0,
+        4.0,
+        width as f32 - 8.0,
+        HEADER_H,
+        SURFACE0,
+    );
 
     let mut font_system = FontSystem::new();
     let mut swash_cache = SwashCache::new();
 
     let header_text = format!("「{}」 → 한자", target);
-    draw_text(&mut pixmap, &mut font_system, &mut swash_cache, &header_text,
-        PADDING, 8.0, FONT_SIZE, BLUE, (width as f32 - PADDING * 2.0) * 0.7);
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &header_text,
+        PADDING,
+        8.0,
+        FONT_SIZE,
+        BLUE,
+        (width as f32 - PADDING * 2.0) * 0.7,
+    );
 
     let page_text = format!("{}/{}", current_page + 1, total_pages.max(1));
-    draw_text_right(&mut pixmap, &mut font_system, &mut swash_cache, &page_text,
-        width as f32 - PADDING, 8.0, FONT_SIZE - 2.0, OVERLAY0);
+    draw_text_right(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &page_text,
+        width as f32 - PADDING,
+        8.0,
+        FONT_SIZE - 2.0,
+        OVERLAY0,
+    );
 
     let items_y = PADDING + HEADER_H + 4.0;
     for (i, (hanja, meaning)) in page_items.iter().enumerate() {
         let row_y = items_y + (i as f32) * ROW_H;
         if i == selected {
-            fill_rect(&mut pixmap, 4.0, row_y, width as f32 - 8.0, ROW_H, SEL_HANJA_BG);
+            fill_rect(
+                &mut pixmap,
+                4.0,
+                row_y,
+                width as f32 - 8.0,
+                ROW_H,
+                SEL_HANJA_BG,
+            );
         }
         let text_y = row_y + 2.0;
         let num = format!("{}.", i + 1);
-        draw_text(&mut pixmap, &mut font_system, &mut swash_cache, &num,
-            PADDING, text_y, FONT_SIZE - 1.0, OVERLAY1, 24.0);
-        draw_text(&mut pixmap, &mut font_system, &mut swash_cache, hanja,
-            PADDING + 28.0, text_y, FONT_SIZE + 2.0, TEXT, 60.0);
+        draw_text(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &num,
+            PADDING,
+            text_y,
+            FONT_SIZE - 1.0,
+            OVERLAY1,
+            24.0,
+        );
+        draw_text(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            hanja,
+            PADDING + 28.0,
+            text_y,
+            FONT_SIZE + 2.0,
+            TEXT,
+            60.0,
+        );
         if !meaning.is_empty() {
-            draw_text(&mut pixmap, &mut font_system, &mut swash_cache, meaning,
-                PADDING + 90.0, text_y + 2.0, FONT_SIZE - 2.0, SUBTEXT0,
-                width as f32 - PADDING * 2.0 - 90.0);
+            draw_text(
+                &mut pixmap,
+                &mut font_system,
+                &mut swash_cache,
+                meaning,
+                PADDING + 90.0,
+                text_y + 2.0,
+                FONT_SIZE - 2.0,
+                SUBTEXT0,
+                width as f32 - PADDING * 2.0 - 90.0,
+            );
         }
     }
 
     let footer_y = items_y + (item_count as f32) * ROW_H + 4.0;
-    draw_text(&mut pixmap, &mut font_system, &mut swash_cache,
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
         "← → 페이지 | 1~9 선택 | ESC 취소",
-        PADDING, footer_y, FONT_SIZE - 3.0, OVERLAY0, width as f32 - PADDING * 2.0);
+        PADDING,
+        footer_y,
+        FONT_SIZE - 3.0,
+        OVERLAY0,
+        width as f32 - PADDING * 2.0,
+    );
 
     let pixels = rgba_to_argb32(pixmap.data());
-    unim_log!("WAYLAND", "한자 팝업 렌더링: {}×{}, {} 후보", width, height, item_count);
-    RenderedPopup { pixels, width, height }
+    unim_log!(
+        "WAYLAND",
+        "한자 팝업 렌더링: {}×{}, {} 후보",
+        width,
+        height,
+        item_count
+    );
+    RenderedPopup {
+        pixels,
+        width,
+        height,
+    }
 }
 
 /// 특수문자 팝업 렌더링 (PopupState 기반)
@@ -136,10 +211,26 @@ fn render_special_from_state(state: &PopupState) -> RenderedPopup {
     let mut swash_cache = SwashCache::new();
 
     // 헤더
-    fill_rect(&mut pixmap, 4.0, 4.0, width as f32 - 8.0, HEADER_H - 4.0, SURFACE0);
+    fill_rect(
+        &mut pixmap,
+        4.0,
+        4.0,
+        width as f32 - 8.0,
+        HEADER_H - 4.0,
+        SURFACE0,
+    );
     let header_text = format!("「{}」 → 특수문자", state.target());
-    draw_text(&mut pixmap, &mut font_system, &mut swash_cache, &header_text,
-        PADDING, 6.0, FONT_SIZE - 1.0, GREEN, width as f32 - PADDING * 2.0);
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &header_text,
+        PADDING,
+        6.0,
+        FONT_SIZE - 1.0,
+        GREEN,
+        width as f32 - PADDING * 2.0,
+    );
 
     let top_row_chars: Vec<char> = state.top_row().chars().collect();
 
@@ -153,8 +244,18 @@ fn render_special_from_state(state: &PopupState) -> RenderedPopup {
         };
         let color = if c == sel_col { GREEN } else { YELLOW };
         let cx = row_header_w + (c as f32) * CELL_SIZE;
-        draw_text_centered(&mut pixmap, &mut font_system, &mut swash_cache, &label,
-            cx, col_header_y, CELL_SIZE, CELL_SIZE, FONT_SIZE - 2.0, color);
+        draw_text_centered(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &label,
+            cx,
+            col_header_y,
+            CELL_SIZE,
+            CELL_SIZE,
+            FONT_SIZE - 2.0,
+            color,
+        );
     }
 
     // 행 번호 + 셀
@@ -163,8 +264,18 @@ fn render_special_from_state(state: &PopupState) -> RenderedPopup {
         let ry = grid_y + (r as f32) * CELL_SIZE;
         let label = format!("{}", r + 1);
         let color = if r == sel_row { GREEN } else { YELLOW };
-        draw_text_centered(&mut pixmap, &mut font_system, &mut swash_cache, &label,
-            0.0, ry, row_header_w, CELL_SIZE, FONT_SIZE - 2.0, color);
+        draw_text_centered(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &label,
+            0.0,
+            ry,
+            row_header_w,
+            CELL_SIZE,
+            FONT_SIZE - 2.0,
+            color,
+        );
 
         for c in 0..cols {
             if let Some(ch) = state.cell_text(r, c) {
@@ -173,21 +284,49 @@ fn render_special_from_state(state: &PopupState) -> RenderedPopup {
                 if is_selected {
                     fill_rect(&mut pixmap, cx, ry, CELL_SIZE, CELL_SIZE, SEL_SPECIAL_BG);
                 }
-                draw_text_centered(&mut pixmap, &mut font_system, &mut swash_cache, ch,
-                    cx, ry, CELL_SIZE, CELL_SIZE, FONT_SIZE, TEXT);
+                draw_text_centered(
+                    &mut pixmap,
+                    &mut font_system,
+                    &mut swash_cache,
+                    ch,
+                    cx,
+                    ry,
+                    CELL_SIZE,
+                    CELL_SIZE,
+                    FONT_SIZE,
+                    TEXT,
+                );
             }
         }
     }
 
     // 푸터
     let footer_y = grid_y + (rows as f32) * CELL_SIZE + 4.0;
-    let footer_text = format!("[{}]  {}/{}", state.target(), state.current_page() + 1, state.total_pages().max(1));
-    draw_text(&mut pixmap, &mut font_system, &mut swash_cache, &footer_text,
-        PADDING, footer_y, FONT_SIZE - 3.0, OVERLAY0, width as f32 - PADDING * 2.0);
+    let footer_text = format!(
+        "[{}]  {}/{}",
+        state.target(),
+        state.current_page() + 1,
+        state.total_pages().max(1)
+    );
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &footer_text,
+        PADDING,
+        footer_y,
+        FONT_SIZE - 3.0,
+        OVERLAY0,
+        width as f32 - PADDING * 2.0,
+    );
 
     let pixels = rgba_to_argb32(pixmap.data());
     unim_log!("WAYLAND", "특수문자 팝업 렌더링: {}×{}", width, height);
-    RenderedPopup { pixels, width, height }
+    RenderedPopup {
+        pixels,
+        width,
+        height,
+    }
 }
 
 // ─── 내부 렌더링 헬퍼 ───

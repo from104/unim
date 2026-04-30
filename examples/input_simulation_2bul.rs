@@ -17,11 +17,10 @@ fn main() {
         JamoEnum::Jung(Jungsung::A),    // ㅏ -> 하
         JamoEnum::Cho(Chosung::Nieun),  // ㄴ -> 한
         JamoEnum::Cho(Chosung::Giyeok), // ㄱ -> In 2-set, this becomes a final: '한' (but may shift later)
-        JamoEnum::Jung(Jungsung::Eu),   // ㅡ -> Dokkaebibul: 'ㄴ' stays as final of '한', 'ㄱ' becomes initial of '그'
-        JamoEnum::Cho(Chosung::Rieul),  // ㄹ -> '글'
-        JamoEnum::Cho(Chosung::Ieung),  // ㅇ -> '글' complete, 'ㅇ' starts new char
-        JamoEnum::Jung(Jungsung::I),    // ㅣ -> '이'
-        
+        JamoEnum::Jung(Jungsung::Eu), // ㅡ -> Dokkaebibul: 'ㄴ' stays as final of '한', 'ㄱ' becomes initial of '그'
+        JamoEnum::Cho(Chosung::Rieul), // ㄹ -> '글'
+        JamoEnum::Cho(Chosung::Ieung), // ㅇ -> '글' complete, 'ㅇ' starts new char
+        JamoEnum::Jung(Jungsung::I),  // ㅣ -> '이'
         // Complex combinations and double vowels
         JamoEnum::Cho(Chosung::Giyeok), // ㄱ
         JamoEnum::Jung(Jungsung::O),    // ㅗ -> 고
@@ -36,7 +35,7 @@ fn main() {
 
     for jamo in inputs {
         print!("Input: {:?} -> ", jamo.to_char());
-        
+
         // add_jamo returns a character if a previous syllable is finalized.
         let completed_char = composer.add_jamo(jamo);
 

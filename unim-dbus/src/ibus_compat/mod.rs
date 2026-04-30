@@ -11,18 +11,18 @@
 //! - `ibus_context`: `org.freedesktop.IBus.InputContext` 구현
 //! - `ibus_portal`: `org.freedesktop.portal.IBus` 포털 서비스
 
-pub mod ibus_types;
 pub mod address;
-pub mod ibus_service;
 pub mod ibus_context;
 pub mod ibus_portal;
+pub mod ibus_service;
+pub mod ibus_types;
 
 use tokio::sync::mpsc;
 use unim::unim_log;
 
 use crate::service::EngineRequest;
-use ibus_service::IBusServiceHandler;
 use ibus_portal::IBusPortalHandler;
+use ibus_service::IBusServiceHandler;
 
 /// IBus 호환 서비스명
 const IBUS_BUS_NAME: &str = "org.freedesktop.IBus";
@@ -45,10 +45,7 @@ pub async fn start_ibus_compat(
         .await?;
 
     // IBus 서비스명 등록 (이미 사용 중이면 대기열에 등록)
-    match connection
-        .request_name(IBUS_BUS_NAME)
-        .await
-    {
+    match connection.request_name(IBUS_BUS_NAME).await {
         Ok(_) => {
             unim_log!(
                 "DAEMON",
@@ -74,10 +71,7 @@ pub async fn start_ibus_compat(
         .at("/org/freedesktop/IBus/Portal", portal_handler)
         .await?;
 
-    match connection
-        .request_name(IBUS_PORTAL_BUS_NAME)
-        .await
-    {
+    match connection.request_name(IBUS_PORTAL_BUS_NAME).await {
         Ok(_) => {
             unim_log!(
                 "DAEMON",
@@ -86,11 +80,7 @@ pub async fn start_ibus_compat(
             );
         }
         Err(e) => {
-            unim_log!(
-                "DAEMON",
-                "[IBus Compat] Portal 서비스명 등록 실패: {}",
-                e
-            );
+            unim_log!("DAEMON", "[IBus Compat] Portal 서비스명 등록 실패: {}", e);
             // Portal 실패는 치명적이지 않음 (네이티브 앱은 주소 파일로 연결)
         }
     }

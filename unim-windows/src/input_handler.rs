@@ -122,7 +122,11 @@ pub fn process_key(
     let commit = if result.commit_changed {
         let s = engine.commit_str().to_string();
         engine.clear_commit();
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     } else {
         None
     };

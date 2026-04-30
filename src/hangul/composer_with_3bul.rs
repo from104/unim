@@ -6,11 +6,11 @@
 //! 즉시 로드해 `new_with_profile`로 위임한다. 자모 조합 규칙의 단일 source of
 //! truth는 `src/keystroke/keymap/ko_3bul390.json`(390/391/noshift는 base 동일).
 
-use crate::hangul::HangulChar;
 use crate::hangul::composer::BaseHangulComposer;
 use crate::hangul::composer::CombinedJamoMap;
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::jamo::*;
+use crate::hangul::HangulChar;
 
 use std::collections::VecDeque;
 

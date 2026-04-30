@@ -8,10 +8,10 @@ use unim::hangul::HangulChar;
 
 fn main() {
     println!("--- Korean Syllable Matrix Generation ---");
-    
+
     // There are 19 Initials, 21 Middles, and 28 Finals (including empty).
     // Total possible composed syllables: 19 * 21 * 28 = 11,172 characters.
-    
+
     for cho_seq in 0..CHOSEONG_NUMBER {
         println!("\n[Initial Sequence Index: {}]", cho_seq);
         for jung_seq in 0..JUNGSEONG_NUMBER {
@@ -29,6 +29,6 @@ fn main() {
         }
         println!();
     }
-    
+
     println!("\nSuccessfully generated the basic Korean matrix.");
 }

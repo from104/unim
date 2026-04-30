@@ -86,7 +86,10 @@ impl HanjaWindow {
         let scale_factor = dpi::get_scale_factor(display, screen);
 
         // 초기 크기 (후보 설정 시 조정)
-        let size: (u16, u16) = (dpi::scale_u16(300, scale_factor), dpi::scale_u16(200, scale_factor));
+        let size: (u16, u16) = (
+            dpi::scale_u16(300, scale_factor),
+            dpi::scale_u16(200, scale_factor),
+        );
 
         // 화면 크기 가져오기
         let screen_w = unsafe { x11::xlib::XDisplayWidth(display, screen) };
@@ -297,7 +300,13 @@ impl HanjaWindow {
             );
         }
 
-        unim_log!("XIM_HANJA", "한자 팝업 생성: pos=({},{}), scale={:.2}", final_x, final_y, scale_factor);
+        unim_log!(
+            "XIM_HANJA",
+            "한자 팝업 생성: pos=({},{}), scale={:.2}",
+            final_x,
+            final_y,
+            scale_factor
+        );
 
         Ok(Self {
             window,
@@ -415,11 +424,7 @@ impl HanjaWindow {
     }
 
     /// 전체 즐겨찾기 상태 일괄 반영 (초기 fetch 결과)
-    pub fn set_bookmark_flags(
-        &mut self,
-        flags: Vec<bool>,
-        display: *mut x11::xlib::Display,
-    ) {
+    pub fn set_bookmark_flags(&mut self, flags: Vec<bool>, display: *mut x11::xlib::Display) {
         if let Some(ps) = self.popup_state.as_mut() {
             ps.set_bookmark_flags(flags);
             self.redraw(display);
@@ -457,7 +462,8 @@ impl HanjaWindow {
                 test_bytes.len() as c_int,
                 &mut extents,
             );
-            (extents.height as c_int).max(dpi::scale(18, self.scale_factor)) + dpi::scale(4, self.scale_factor)
+            (extents.height as c_int).max(dpi::scale(18, self.scale_factor))
+                + dpi::scale(4, self.scale_factor)
         }
     }
 
@@ -831,7 +837,11 @@ impl HanjaWindow {
             };
             let star_x = (self.size.0 as c_int) - padding_x - star_width;
             // 즐겨찾기 별: Catppuccin 노랑(#f9e2af), 미설정: 회색(#6c7086)
-            let star_color = if bookmarked { &self.bookmark_color } else { &self.page_color };
+            let star_color = if bookmarked {
+                &self.bookmark_color
+            } else {
+                &self.page_color
+            };
             self.draw_string_with_fallback(display, star_color, star_x, y_pos, star_text);
         }
 
@@ -966,7 +976,8 @@ impl HanjaWindow {
                 // 선택 셀 배경
                 if col == sel_col && row == sel_row {
                     unsafe {
-                        let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
+                        let gc =
+                            x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
                         x11::xlib::XSetForeground(display, gc, self.sel_bg_color.pixel);
                         x11::xlib::XFillRectangle(
                             display,
@@ -982,7 +993,11 @@ impl HanjaWindow {
                 }
                 let bookmarked = ps.is_bookmarked(global);
                 // 즐겨찾기 셀: Catppuccin 노랑(#f9e2af), 일반: 본문 텍스트색(#cdd6f4)
-                let color = if bookmarked { &self.bookmark_color } else { &self.text_color };
+                let color = if bookmarked {
+                    &self.bookmark_color
+                } else {
+                    &self.text_color
+                };
                 // 셀 가운데 근처에 한자 (cell_w 기반 대략적 정렬 — 정밀 측정은 비용 큼)
                 let text_x = cx + dpi::scale(4, sf);
                 let text_y = cy + line_h - text_offset;

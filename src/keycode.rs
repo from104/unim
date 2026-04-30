@@ -441,7 +441,11 @@ impl KeyCode {
     pub fn to_char_for_layout(&self, layout: &str, shifted: bool) -> Option<char> {
         let normalized = crate::config::normalize_english_layout_name(layout);
         if normalized == crate::config::ENGLISH_LAYOUT_QWERTY {
-            return if shifted { self.to_shifted_char() } else { self.to_char() };
+            return if shifted {
+                self.to_shifted_char()
+            } else {
+                self.to_char()
+            };
         }
 
         if *self == KeyCode::Space {
@@ -511,11 +515,11 @@ impl KeyCode {
             0x30 => KeyCode::Num0,
 
             // 특수 키
-            0x0D => KeyCode::Enter,    // VK_RETURN
-            0x1B => KeyCode::Escape,   // VK_ESCAPE
+            0x0D => KeyCode::Enter,     // VK_RETURN
+            0x1B => KeyCode::Escape,    // VK_ESCAPE
             0x08 => KeyCode::Backspace, // VK_BACK
-            0x09 => KeyCode::Tab,      // VK_TAB
-            0x20 => KeyCode::Space,    // VK_SPACE
+            0x09 => KeyCode::Tab,       // VK_TAB
+            0x20 => KeyCode::Space,     // VK_SPACE
 
             // 기호 (OEM 키)
             0xBD => KeyCode::Minus,        // VK_OEM_MINUS (- _)
@@ -543,7 +547,7 @@ impl KeyCode {
             0x78 => KeyCode::F9,
             0x79 => KeyCode::F10,
             0x7A => KeyCode::F11,
-            0x7B => KeyCode::F12,      // VK_F12
+            0x7B => KeyCode::F12, // VK_F12
 
             // 편집 키
             0x2D => KeyCode::Insert,   // VK_INSERT
@@ -815,7 +819,6 @@ impl KeyCode {
     }
 }
 
-
 impl fmt::Display for KeyCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -913,46 +916,45 @@ const ROW_NAMES: [&str; 4] = ["1st", "2nd", "3nd", "4th"];
 
 /// 레이아웃별 물리키→문자 매핑 테이블 (JSON 키맵에서 동적 생성).
 /// key: 영어 프로필 이름 (e.g. "dvorak") → value: rows[row_index][col_index] = (lower, upper)
-static LAYOUT_TABLES: LazyLock<HashMap<String, Vec<Vec<(char, char)>>>> =
-    LazyLock::new(|| {
-        // Phase 9: QWERTY 는 to_char/to_shifted_char 빠른 경로로 처리되므로 테이블 불필요.
-        let layouts: &[&str] = &[
-            crate::config::ENGLISH_LAYOUT_DVORAK,
-            crate::config::ENGLISH_LAYOUT_COLEMAK,
-            crate::config::ENGLISH_LAYOUT_COLEMAK_DH,
-            crate::config::ENGLISH_LAYOUT_WORKMAN,
-        ];
-        let mut tables: HashMap<String, Vec<Vec<(char, char)>>> = HashMap::new();
-        for layout in layouts {
-            let keymap_file = crate::config::english_layout_keymap_name(layout);
-            let json_str = get_keymap_json(&keymap_file);
-            let json: serde_json::Value = serde_json::from_str(json_str)
-                .unwrap_or_else(|e| panic!("Failed to parse {keymap_file} keymap: {e}"));
-            let lower = &json["layout"]["lower"];
-            let upper = &json["layout"]["upper"];
-            let mut rows = Vec::with_capacity(4);
-            for row_name in &ROW_NAMES {
-                let lower_row = lower[row_name].as_array().unwrap_or_else(|| {
-                    panic!("Missing lower.{row_name} in {keymap_file}")
-                });
-                let upper_row = upper[row_name].as_array().unwrap_or_else(|| {
-                    panic!("Missing upper.{row_name} in {keymap_file}")
-                });
-                let pairs: Vec<(char, char)> = lower_row
-                    .iter()
-                    .zip(upper_row.iter())
-                    .map(|(l, u)| {
-                        let lc = l.as_str().unwrap().chars().next().unwrap();
-                        let uc = u.as_str().unwrap().chars().next().unwrap();
-                        (lc, uc)
-                    })
-                    .collect();
-                rows.push(pairs);
-            }
-            tables.insert((*layout).to_string(), rows);
+static LAYOUT_TABLES: LazyLock<HashMap<String, Vec<Vec<(char, char)>>>> = LazyLock::new(|| {
+    // Phase 9: QWERTY 는 to_char/to_shifted_char 빠른 경로로 처리되므로 테이블 불필요.
+    let layouts: &[&str] = &[
+        crate::config::ENGLISH_LAYOUT_DVORAK,
+        crate::config::ENGLISH_LAYOUT_COLEMAK,
+        crate::config::ENGLISH_LAYOUT_COLEMAK_DH,
+        crate::config::ENGLISH_LAYOUT_WORKMAN,
+    ];
+    let mut tables: HashMap<String, Vec<Vec<(char, char)>>> = HashMap::new();
+    for layout in layouts {
+        let keymap_file = crate::config::english_layout_keymap_name(layout);
+        let json_str = get_keymap_json(&keymap_file);
+        let json: serde_json::Value = serde_json::from_str(json_str)
+            .unwrap_or_else(|e| panic!("Failed to parse {keymap_file} keymap: {e}"));
+        let lower = &json["layout"]["lower"];
+        let upper = &json["layout"]["upper"];
+        let mut rows = Vec::with_capacity(4);
+        for row_name in &ROW_NAMES {
+            let lower_row = lower[row_name]
+                .as_array()
+                .unwrap_or_else(|| panic!("Missing lower.{row_name} in {keymap_file}"));
+            let upper_row = upper[row_name]
+                .as_array()
+                .unwrap_or_else(|| panic!("Missing upper.{row_name} in {keymap_file}"));
+            let pairs: Vec<(char, char)> = lower_row
+                .iter()
+                .zip(upper_row.iter())
+                .map(|(l, u)| {
+                    let lc = l.as_str().unwrap().chars().next().unwrap();
+                    let uc = u.as_str().unwrap().chars().next().unwrap();
+                    (lc, uc)
+                })
+                .collect();
+            rows.push(pairs);
         }
-        tables
-    });
+        tables.insert((*layout).to_string(), rows);
+    }
+    tables
+});
 
 #[cfg(test)]
 mod tests {
@@ -1118,27 +1120,67 @@ mod tests {
     fn test_to_char_for_layout_qwerty_consistency() {
         // Qwerty: to_char_for_layout == to_char / to_shifted_char (모든 문자키)
         let all_char_keys = [
-            KeyCode::A, KeyCode::B, KeyCode::C, KeyCode::D, KeyCode::E,
-            KeyCode::F, KeyCode::G, KeyCode::H, KeyCode::I, KeyCode::J,
-            KeyCode::K, KeyCode::L, KeyCode::M, KeyCode::N, KeyCode::O,
-            KeyCode::P, KeyCode::Q, KeyCode::R, KeyCode::S, KeyCode::T,
-            KeyCode::U, KeyCode::V, KeyCode::W, KeyCode::X, KeyCode::Y, KeyCode::Z,
-            KeyCode::Num0, KeyCode::Num1, KeyCode::Num2, KeyCode::Num3, KeyCode::Num4,
-            KeyCode::Num5, KeyCode::Num6, KeyCode::Num7, KeyCode::Num8, KeyCode::Num9,
-            KeyCode::Minus, KeyCode::Equal, KeyCode::BracketLeft, KeyCode::BracketRight,
-            KeyCode::Backslash, KeyCode::Semicolon, KeyCode::Quote, KeyCode::Backquote,
-            KeyCode::Comma, KeyCode::Period, KeyCode::Slash, KeyCode::Space,
+            KeyCode::A,
+            KeyCode::B,
+            KeyCode::C,
+            KeyCode::D,
+            KeyCode::E,
+            KeyCode::F,
+            KeyCode::G,
+            KeyCode::H,
+            KeyCode::I,
+            KeyCode::J,
+            KeyCode::K,
+            KeyCode::L,
+            KeyCode::M,
+            KeyCode::N,
+            KeyCode::O,
+            KeyCode::P,
+            KeyCode::Q,
+            KeyCode::R,
+            KeyCode::S,
+            KeyCode::T,
+            KeyCode::U,
+            KeyCode::V,
+            KeyCode::W,
+            KeyCode::X,
+            KeyCode::Y,
+            KeyCode::Z,
+            KeyCode::Num0,
+            KeyCode::Num1,
+            KeyCode::Num2,
+            KeyCode::Num3,
+            KeyCode::Num4,
+            KeyCode::Num5,
+            KeyCode::Num6,
+            KeyCode::Num7,
+            KeyCode::Num8,
+            KeyCode::Num9,
+            KeyCode::Minus,
+            KeyCode::Equal,
+            KeyCode::BracketLeft,
+            KeyCode::BracketRight,
+            KeyCode::Backslash,
+            KeyCode::Semicolon,
+            KeyCode::Quote,
+            KeyCode::Backquote,
+            KeyCode::Comma,
+            KeyCode::Period,
+            KeyCode::Slash,
+            KeyCode::Space,
         ];
         for key in all_char_keys {
             assert_eq!(
                 key.to_char_for_layout("qwerty", false),
                 key.to_char(),
-                "Qwerty lower mismatch for {:?}", key
+                "Qwerty lower mismatch for {:?}",
+                key
             );
             assert_eq!(
                 key.to_char_for_layout("qwerty", true),
                 key.to_shifted_char(),
-                "Qwerty upper mismatch for {:?}", key
+                "Qwerty upper mismatch for {:?}",
+                key
             );
         }
     }
@@ -1151,27 +1193,65 @@ mod tests {
 
         // 물리키 행별 배열 (QWERTY 물리 위치 순서)
         let row_keys: [&[KeyCode]; 4] = [
-            &[KeyCode::Backquote, KeyCode::Num1, KeyCode::Num2, KeyCode::Num3,
-              KeyCode::Num4, KeyCode::Num5, KeyCode::Num6, KeyCode::Num7,
-              KeyCode::Num8, KeyCode::Num9, KeyCode::Num0, KeyCode::Minus,
-              KeyCode::Equal, KeyCode::Backslash],
-            &[KeyCode::Q, KeyCode::W, KeyCode::E, KeyCode::R, KeyCode::T,
-              KeyCode::Y, KeyCode::U, KeyCode::I, KeyCode::O, KeyCode::P,
-              KeyCode::BracketLeft, KeyCode::BracketRight],
-            &[KeyCode::A, KeyCode::S, KeyCode::D, KeyCode::F, KeyCode::G,
-              KeyCode::H, KeyCode::J, KeyCode::K, KeyCode::L, KeyCode::Semicolon,
-              KeyCode::Quote],
-            &[KeyCode::Z, KeyCode::X, KeyCode::C, KeyCode::V, KeyCode::B,
-              KeyCode::N, KeyCode::M, KeyCode::Comma, KeyCode::Period, KeyCode::Slash],
+            &[
+                KeyCode::Backquote,
+                KeyCode::Num1,
+                KeyCode::Num2,
+                KeyCode::Num3,
+                KeyCode::Num4,
+                KeyCode::Num5,
+                KeyCode::Num6,
+                KeyCode::Num7,
+                KeyCode::Num8,
+                KeyCode::Num9,
+                KeyCode::Num0,
+                KeyCode::Minus,
+                KeyCode::Equal,
+                KeyCode::Backslash,
+            ],
+            &[
+                KeyCode::Q,
+                KeyCode::W,
+                KeyCode::E,
+                KeyCode::R,
+                KeyCode::T,
+                KeyCode::Y,
+                KeyCode::U,
+                KeyCode::I,
+                KeyCode::O,
+                KeyCode::P,
+                KeyCode::BracketLeft,
+                KeyCode::BracketRight,
+            ],
+            &[
+                KeyCode::A,
+                KeyCode::S,
+                KeyCode::D,
+                KeyCode::F,
+                KeyCode::G,
+                KeyCode::H,
+                KeyCode::J,
+                KeyCode::K,
+                KeyCode::L,
+                KeyCode::Semicolon,
+                KeyCode::Quote,
+            ],
+            &[
+                KeyCode::Z,
+                KeyCode::X,
+                KeyCode::C,
+                KeyCode::V,
+                KeyCode::B,
+                KeyCode::N,
+                KeyCode::M,
+                KeyCode::Comma,
+                KeyCode::Period,
+                KeyCode::Slash,
+            ],
         ];
         let row_names = ["1st", "2nd", "3nd", "4th"];
 
-        let layouts = [
-            "dvorak",
-            "colemak",
-            "colemak_dh",
-            "workman",
-        ];
+        let layouts = ["dvorak", "colemak", "colemak_dh", "workman"];
 
         for layout in layouts {
             let keymap_file = crate::config::english_layout_keymap_name(layout);
@@ -1186,20 +1266,26 @@ mod tests {
                 let keys = row_keys[row_idx];
 
                 for (col_idx, &keycode) in keys.iter().enumerate() {
-                    let expected_lower = lower_row[col_idx].as_str().unwrap().chars().next().unwrap();
-                    let expected_upper = upper_row[col_idx].as_str().unwrap().chars().next().unwrap();
+                    let expected_lower =
+                        lower_row[col_idx].as_str().unwrap().chars().next().unwrap();
+                    let expected_upper =
+                        upper_row[col_idx].as_str().unwrap().chars().next().unwrap();
 
                     assert_eq!(
                         keycode.to_char_for_layout(layout, false),
                         Some(expected_lower),
                         "{:?} {:?} lower: expected '{}' from JSON",
-                        layout, keycode, expected_lower
+                        layout,
+                        keycode,
+                        expected_lower
                     );
                     assert_eq!(
                         keycode.to_char_for_layout(layout, true),
                         Some(expected_upper),
                         "{:?} {:?} upper: expected '{}' from JSON",
-                        layout, keycode, expected_upper
+                        layout,
+                        keycode,
+                        expected_upper
                     );
                 }
             }

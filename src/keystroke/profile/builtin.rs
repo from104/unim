@@ -79,7 +79,10 @@ mod tests {
     fn aliases_resolve_to_same_content() {
         assert_eq!(get_builtin_json("2bul"), get_builtin_json("ko_2bulstd"));
         assert_eq!(get_builtin_json("390"), get_builtin_json("ko_3bul390"));
-        assert_eq!(get_builtin_json("noshift"), get_builtin_json("ko_3bul_noshift"));
+        assert_eq!(
+            get_builtin_json("noshift"),
+            get_builtin_json("ko_3bul_noshift")
+        );
         assert_eq!(
             get_builtin_json("3bul_qwerty"),
             get_builtin_json("ko_3bul_qwerty")

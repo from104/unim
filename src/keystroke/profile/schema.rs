@@ -380,7 +380,11 @@ mod tests {
         let raw: RawProfile = serde_json::from_str(json).unwrap();
         let profile = LayoutProfile::from_raw(raw);
         let rs = profile.rule_sets.get("r").unwrap();
-        assert_eq!(rs.combinations.len(), 2, "reinterpret가 combinations로 흡수");
+        assert_eq!(
+            rs.combinations.len(),
+            2,
+            "reinterpret가 combinations로 흡수"
+        );
         assert!(rs.reinterpret.is_empty(), "reinterpret는 drain되어 비움");
         let absorbed = &rs.combinations[1];
         assert_eq!(absorbed.first, "ᆶ");

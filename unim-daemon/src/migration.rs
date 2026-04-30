@@ -84,10 +84,7 @@ fn touch_guard(path: &Path) -> std::io::Result<()> {
 /// 가드 파일 존재 시 즉시 반환. 마이그레이션 실패 시에도 daemon 기동은 계속된다.
 pub fn migrate_v2() {
     let Some(guard) = guard_path() else {
-        unim_log!(
-            "DAEMON",
-            "마이그레이션 v2 skip: config 디렉토리 결정 불가"
-        );
+        unim_log!("DAEMON", "마이그레이션 v2 skip: config 디렉토리 결정 불가");
         return;
     };
 
@@ -117,16 +114,9 @@ pub fn migrate_v2() {
     if applied == 0 {
         // dconf에 커스텀 값이 하나도 없어도 가드는 생성 (재시도 무의미)
         if let Err(e) = touch_guard(&guard) {
-            unim_log!(
-                "DAEMON",
-                "마이그레이션 v2 경고: 가드 생성 실패: {}",
-                e
-            );
+            unim_log!("DAEMON", "마이그레이션 v2 경고: 가드 생성 실패: {}", e);
         }
-        unim_log!(
-            "DAEMON",
-            "마이그레이션 v2: 이관할 GSettings 커스텀 값 없음"
-        );
+        unim_log!("DAEMON", "마이그레이션 v2: 이관할 GSettings 커스텀 값 없음");
         return;
     }
 
@@ -162,11 +152,7 @@ pub fn migrate_v2() {
 /// 순수 마이그레이션 로직 — 테스트에서 mock reader로 호출.
 ///
 /// 반환: 실제로 이관된 키 개수.
-pub fn apply_migration(
-    config: &mut Config,
-    default: &Config,
-    reader: &dyn SettingReader,
-) -> usize {
+pub fn apply_migration(config: &mut Config, default: &Config, reader: &dyn SettingReader) -> usize {
     let mut applied = 0;
 
     // korean-layout → engine.korean.layout
@@ -286,19 +272,28 @@ pub fn apply_migration(
     let atf = &mut config.engine.auto_typefix;
 
     if atf.enabled == atf_def.enabled {
-        if let Some(v) = reader.read("auto-typefix-enabled").and_then(|r| parse_bool(&r)) {
+        if let Some(v) = reader
+            .read("auto-typefix-enabled")
+            .and_then(|r| parse_bool(&r))
+        {
             atf.enabled = v;
             applied += 1;
         }
     }
     if atf.forward == atf_def.forward {
-        if let Some(v) = reader.read("auto-typefix-forward").and_then(|r| parse_bool(&r)) {
+        if let Some(v) = reader
+            .read("auto-typefix-forward")
+            .and_then(|r| parse_bool(&r))
+        {
             atf.forward = v;
             applied += 1;
         }
     }
     if atf.reverse == atf_def.reverse {
-        if let Some(v) = reader.read("auto-typefix-reverse").and_then(|r| parse_bool(&r)) {
+        if let Some(v) = reader
+            .read("auto-typefix-reverse")
+            .and_then(|r| parse_bool(&r))
+        {
             atf.reverse = v;
             applied += 1;
         }
@@ -542,19 +537,15 @@ mod tests {
 
         let default_config = Config::default();
         let reader = MockReader::new(&[
-            ("korean-layout", "'3bul390'"),          // 덮어쓰기 금지
+            ("korean-layout", "'3bul390'"),              // 덮어쓰기 금지
             ("auto-typefix-time-window", "uint32 3000"), // 덮어쓰기 금지
-            ("english-layout", "'colemak'"),         // 기본값이니 이관
+            ("english-layout", "'colemak'"),             // 기본값이니 이관
         ]);
 
         let applied = apply_migration(&mut config, &default_config, &reader);
         assert_eq!(applied, 1, "영어 레이아웃만 이관되어야 함");
 
-        assert_eq!(
-            config.engine.korean.layout,
-            "ko_3bul391",
-            "사용자 값 보존"
-        );
+        assert_eq!(config.engine.korean.layout, "ko_3bul391", "사용자 값 보존");
         assert_eq!(
             config.engine.auto_typefix.forward_time_window_ms, 4500,
             "사용자 값 보존"
@@ -590,7 +581,10 @@ mod tests {
 
         let applied = apply_migration(&mut config, &default_config, &reader);
         assert_eq!(applied, 1);
-        assert_eq!(config.engine.korean.layout, default_config.engine.korean.layout);
+        assert_eq!(
+            config.engine.korean.layout,
+            default_config.engine.korean.layout
+        );
         assert_eq!(config.engine.english.layout, "workman");
     }
 

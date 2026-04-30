@@ -115,7 +115,10 @@ impl TextArea {
         let available_width = ui.available_width();
         let frame = egui::Frame::new()
             .inner_margin(egui::Margin::same(8))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 180, 180)))
+            .stroke(egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgb(180, 180, 180),
+            ))
             .corner_radius(4);
 
         frame.show(ui, |ui| {

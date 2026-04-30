@@ -26,14 +26,11 @@ pub struct EmojiEntry {
 
 /// 인기 이모지 (기본 표시용 — 빈 키워드 검색 결과)
 const POPULAR_EMOJIS: &[&str] = &[
-    "😀", "😂", "🥲", "😍", "🥰", "😊", "😎", "🤔", "😅", "😭",
-    "🙏", "👍", "👎", "❤️", "🔥", "✨", "🎉", "💯", "👀", "🤣",
-    "😱", "😤", "🥺", "😢", "💪", "🙌", "👏", "🤝", "✅", "❌",
-    "⭐", "💡", "📌", "🎵", "🎶", "☕", "🍕", "🍺", "🚀", "💻",
-    "📱", "⏰", "🔔", "📧", "🗓️", "📎", "✏️", "📝", "🔑", "🏠",
-    "🚗", "✈️", "🌍", "🌙", "☀️", "🌧️", "❄️", "🌸", "🍀", "🌈",
-    "🐱", "🐶", "🦊", "🐻", "🐼", "🐰", "🦁", "🐯", "🐸", "🦄",
-    "💎", "🎁", "🎂", "🏆", "🥇", "🎯", "♻️", "💤", "💬", "🔗",
+    "😀", "😂", "🥲", "😍", "🥰", "😊", "😎", "🤔", "😅", "😭", "🙏", "👍", "👎", "❤️", "🔥", "✨",
+    "🎉", "💯", "👀", "🤣", "😱", "😤", "🥺", "😢", "💪", "🙌", "👏", "🤝", "✅", "❌", "⭐", "💡",
+    "📌", "🎵", "🎶", "☕", "🍕", "🍺", "🚀", "💻", "📱", "⏰", "🔔", "📧", "🗓️", "📎", "✏️", "📝",
+    "🔑", "🏠", "🚗", "✈️", "🌍", "🌙", "☀️", "🌧️", "❄️", "🌸", "🍀", "🌈", "🐱", "🐶", "🦊", "🐻",
+    "🐼", "🐰", "🦁", "🐯", "🐸", "🦄", "💎", "🎁", "🎂", "🏆", "🥇", "🎯", "♻️", "💤", "💬", "🔗",
 ];
 
 /// 한국어 키워드 → 영어 검색 토큰 매핑.
@@ -49,238 +46,1039 @@ struct KoKeyword {
 
 const KO_KEYWORDS: &[KoKeyword] = &[
     // 표정·감정
-    KoKeyword { ko: "웃음",   en_tokens: &["grinning", "smiling", "smile", "laugh", "joy"] },
-    KoKeyword { ko: "웃는",   en_tokens: &["grinning", "smiling", "smile"] },
-    KoKeyword { ko: "행복",   en_tokens: &["grinning", "smiling", "joy"] },
-    KoKeyword { ko: "사랑",   en_tokens: &["heart", "love", "kiss", "smiling face with heart"] },
-    KoKeyword { ko: "심장",   en_tokens: &["heart"] },
-    KoKeyword { ko: "하트",   en_tokens: &["heart"] },
-    KoKeyword { ko: "키스",   en_tokens: &["kiss"] },
-    KoKeyword { ko: "윙크",   en_tokens: &["winking"] },
-    KoKeyword { ko: "슬픔",   en_tokens: &["sad", "crying", "cry", "loudly crying", "pensive", "frowning"] },
-    KoKeyword { ko: "울음",   en_tokens: &["crying", "cry"] },
-    KoKeyword { ko: "눈물",   en_tokens: &["crying", "tear"] },
-    KoKeyword { ko: "화남",   en_tokens: &["angry", "rage", "pouting", "anger"] },
-    KoKeyword { ko: "분노",   en_tokens: &["angry", "rage", "pouting"] },
-    KoKeyword { ko: "놀람",   en_tokens: &["astonished", "surprised", "shocked", "screaming"] },
-    KoKeyword { ko: "충격",   en_tokens: &["shocked", "screaming", "astonished"] },
-    KoKeyword { ko: "지침",   en_tokens: &["tired", "weary", "sleepy"] },
-    KoKeyword { ko: "졸림",   en_tokens: &["sleepy", "sleeping", "yawning"] },
-    KoKeyword { ko: "피곤",   en_tokens: &["tired", "weary", "exhausted"] },
-    KoKeyword { ko: "병",     en_tokens: &["face with thermometer", "ill", "nauseated", "sneezing", "mask"] },
-    KoKeyword { ko: "아픔",   en_tokens: &["face with thermometer", "ill", "nauseated"] },
-    KoKeyword { ko: "생각",   en_tokens: &["thinking"] },
-    KoKeyword { ko: "쿨",     en_tokens: &["sunglasses", "cool"] },
-    KoKeyword { ko: "혀",     en_tokens: &["tongue"] },
-    KoKeyword { ko: "악마",   en_tokens: &["devil", "imp", "demon"] },
-    KoKeyword { ko: "유령",   en_tokens: &["ghost"] },
-    KoKeyword { ko: "광대",   en_tokens: &["clown"] },
-    KoKeyword { ko: "외계인", en_tokens: &["alien"] },
-    KoKeyword { ko: "로봇",   en_tokens: &["robot"] },
-    KoKeyword { ko: "고양이", en_tokens: &["cat"] },
-    KoKeyword { ko: "원숭이", en_tokens: &["monkey", "see-no-evil"] },
-
+    KoKeyword {
+        ko: "웃음",
+        en_tokens: &["grinning", "smiling", "smile", "laugh", "joy"],
+    },
+    KoKeyword {
+        ko: "웃는",
+        en_tokens: &["grinning", "smiling", "smile"],
+    },
+    KoKeyword {
+        ko: "행복",
+        en_tokens: &["grinning", "smiling", "joy"],
+    },
+    KoKeyword {
+        ko: "사랑",
+        en_tokens: &["heart", "love", "kiss", "smiling face with heart"],
+    },
+    KoKeyword {
+        ko: "심장",
+        en_tokens: &["heart"],
+    },
+    KoKeyword {
+        ko: "하트",
+        en_tokens: &["heart"],
+    },
+    KoKeyword {
+        ko: "키스",
+        en_tokens: &["kiss"],
+    },
+    KoKeyword {
+        ko: "윙크",
+        en_tokens: &["winking"],
+    },
+    KoKeyword {
+        ko: "슬픔",
+        en_tokens: &[
+            "sad",
+            "crying",
+            "cry",
+            "loudly crying",
+            "pensive",
+            "frowning",
+        ],
+    },
+    KoKeyword {
+        ko: "울음",
+        en_tokens: &["crying", "cry"],
+    },
+    KoKeyword {
+        ko: "눈물",
+        en_tokens: &["crying", "tear"],
+    },
+    KoKeyword {
+        ko: "화남",
+        en_tokens: &["angry", "rage", "pouting", "anger"],
+    },
+    KoKeyword {
+        ko: "분노",
+        en_tokens: &["angry", "rage", "pouting"],
+    },
+    KoKeyword {
+        ko: "놀람",
+        en_tokens: &["astonished", "surprised", "shocked", "screaming"],
+    },
+    KoKeyword {
+        ko: "충격",
+        en_tokens: &["shocked", "screaming", "astonished"],
+    },
+    KoKeyword {
+        ko: "지침",
+        en_tokens: &["tired", "weary", "sleepy"],
+    },
+    KoKeyword {
+        ko: "졸림",
+        en_tokens: &["sleepy", "sleeping", "yawning"],
+    },
+    KoKeyword {
+        ko: "피곤",
+        en_tokens: &["tired", "weary", "exhausted"],
+    },
+    KoKeyword {
+        ko: "병",
+        en_tokens: &[
+            "face with thermometer",
+            "ill",
+            "nauseated",
+            "sneezing",
+            "mask",
+        ],
+    },
+    KoKeyword {
+        ko: "아픔",
+        en_tokens: &["face with thermometer", "ill", "nauseated"],
+    },
+    KoKeyword {
+        ko: "생각",
+        en_tokens: &["thinking"],
+    },
+    KoKeyword {
+        ko: "쿨",
+        en_tokens: &["sunglasses", "cool"],
+    },
+    KoKeyword {
+        ko: "혀",
+        en_tokens: &["tongue"],
+    },
+    KoKeyword {
+        ko: "악마",
+        en_tokens: &["devil", "imp", "demon"],
+    },
+    KoKeyword {
+        ko: "유령",
+        en_tokens: &["ghost"],
+    },
+    KoKeyword {
+        ko: "광대",
+        en_tokens: &["clown"],
+    },
+    KoKeyword {
+        ko: "외계인",
+        en_tokens: &["alien"],
+    },
+    KoKeyword {
+        ko: "로봇",
+        en_tokens: &["robot"],
+    },
+    KoKeyword {
+        ko: "고양이",
+        en_tokens: &["cat"],
+    },
+    KoKeyword {
+        ko: "원숭이",
+        en_tokens: &["monkey", "see-no-evil"],
+    },
     // 사람·신체
-    KoKeyword { ko: "손",     en_tokens: &["hand", "thumbs", "clapping", "raising hands", "ok hand", "waving", "raised hand"] },
-    KoKeyword { ko: "손가락", en_tokens: &["finger", "pointing", "ok hand", "victory"] },
-    KoKeyword { ko: "박수",   en_tokens: &["clapping"] },
-    KoKeyword { ko: "엄지",   en_tokens: &["thumbs"] },
-    KoKeyword { ko: "주먹",   en_tokens: &["fist"] },
-    KoKeyword { ko: "악수",   en_tokens: &["handshake"] },
-    KoKeyword { ko: "기도",   en_tokens: &["folded hands"] },
-    KoKeyword { ko: "근육",   en_tokens: &["flexed biceps", "muscle"] },
-    KoKeyword { ko: "사람",   en_tokens: &["person", "man", "woman", "people"] },
-    KoKeyword { ko: "남자",   en_tokens: &["man "] },
-    KoKeyword { ko: "여자",   en_tokens: &["woman"] },
-    KoKeyword { ko: "아기",   en_tokens: &["baby"] },
-    KoKeyword { ko: "아이",   en_tokens: &["child", "boy", "girl"] },
-    KoKeyword { ko: "노인",   en_tokens: &["older person", "old man", "old woman"] },
-    KoKeyword { ko: "가족",   en_tokens: &["family"] },
-    KoKeyword { ko: "커플",   en_tokens: &["couple"] },
-    KoKeyword { ko: "결혼",   en_tokens: &["bride", "wedding", "couple with heart"] },
-    KoKeyword { ko: "임신",   en_tokens: &["pregnant"] },
-    KoKeyword { ko: "수유",   en_tokens: &["breast-feeding"] },
-    KoKeyword { ko: "직업",   en_tokens: &["worker", "doctor", "teacher", "judge", "farmer", "cook", "police", "firefighter"] },
-    KoKeyword { ko: "경찰",   en_tokens: &["police"] },
-    KoKeyword { ko: "의사",   en_tokens: &["health worker", "doctor"] },
-    KoKeyword { ko: "선생",   en_tokens: &["teacher"] },
-    KoKeyword { ko: "산타",   en_tokens: &["santa"] },
-    KoKeyword { ko: "왕",     en_tokens: &["prince", "king crown"] },
-    KoKeyword { ko: "공주",   en_tokens: &["princess"] },
-    KoKeyword { ko: "마법사", en_tokens: &["mage"] },
-    KoKeyword { ko: "요정",   en_tokens: &["fairy", "elf"] },
-    KoKeyword { ko: "달리기", en_tokens: &["running"] },
-    KoKeyword { ko: "걷기",   en_tokens: &["walking"] },
-    KoKeyword { ko: "춤",     en_tokens: &["dancing", "dancer"] },
-    KoKeyword { ko: "수영",   en_tokens: &["swimming"] },
-
+    KoKeyword {
+        ko: "손",
+        en_tokens: &[
+            "hand",
+            "thumbs",
+            "clapping",
+            "raising hands",
+            "ok hand",
+            "waving",
+            "raised hand",
+        ],
+    },
+    KoKeyword {
+        ko: "손가락",
+        en_tokens: &["finger", "pointing", "ok hand", "victory"],
+    },
+    KoKeyword {
+        ko: "박수",
+        en_tokens: &["clapping"],
+    },
+    KoKeyword {
+        ko: "엄지",
+        en_tokens: &["thumbs"],
+    },
+    KoKeyword {
+        ko: "주먹",
+        en_tokens: &["fist"],
+    },
+    KoKeyword {
+        ko: "악수",
+        en_tokens: &["handshake"],
+    },
+    KoKeyword {
+        ko: "기도",
+        en_tokens: &["folded hands"],
+    },
+    KoKeyword {
+        ko: "근육",
+        en_tokens: &["flexed biceps", "muscle"],
+    },
+    KoKeyword {
+        ko: "사람",
+        en_tokens: &["person", "man", "woman", "people"],
+    },
+    KoKeyword {
+        ko: "남자",
+        en_tokens: &["man "],
+    },
+    KoKeyword {
+        ko: "여자",
+        en_tokens: &["woman"],
+    },
+    KoKeyword {
+        ko: "아기",
+        en_tokens: &["baby"],
+    },
+    KoKeyword {
+        ko: "아이",
+        en_tokens: &["child", "boy", "girl"],
+    },
+    KoKeyword {
+        ko: "노인",
+        en_tokens: &["older person", "old man", "old woman"],
+    },
+    KoKeyword {
+        ko: "가족",
+        en_tokens: &["family"],
+    },
+    KoKeyword {
+        ko: "커플",
+        en_tokens: &["couple"],
+    },
+    KoKeyword {
+        ko: "결혼",
+        en_tokens: &["bride", "wedding", "couple with heart"],
+    },
+    KoKeyword {
+        ko: "임신",
+        en_tokens: &["pregnant"],
+    },
+    KoKeyword {
+        ko: "수유",
+        en_tokens: &["breast-feeding"],
+    },
+    KoKeyword {
+        ko: "직업",
+        en_tokens: &[
+            "worker",
+            "doctor",
+            "teacher",
+            "judge",
+            "farmer",
+            "cook",
+            "police",
+            "firefighter",
+        ],
+    },
+    KoKeyword {
+        ko: "경찰",
+        en_tokens: &["police"],
+    },
+    KoKeyword {
+        ko: "의사",
+        en_tokens: &["health worker", "doctor"],
+    },
+    KoKeyword {
+        ko: "선생",
+        en_tokens: &["teacher"],
+    },
+    KoKeyword {
+        ko: "산타",
+        en_tokens: &["santa"],
+    },
+    KoKeyword {
+        ko: "왕",
+        en_tokens: &["prince", "king crown"],
+    },
+    KoKeyword {
+        ko: "공주",
+        en_tokens: &["princess"],
+    },
+    KoKeyword {
+        ko: "마법사",
+        en_tokens: &["mage"],
+    },
+    KoKeyword {
+        ko: "요정",
+        en_tokens: &["fairy", "elf"],
+    },
+    KoKeyword {
+        ko: "달리기",
+        en_tokens: &["running"],
+    },
+    KoKeyword {
+        ko: "걷기",
+        en_tokens: &["walking"],
+    },
+    KoKeyword {
+        ko: "춤",
+        en_tokens: &["dancing", "dancer"],
+    },
+    KoKeyword {
+        ko: "수영",
+        en_tokens: &["swimming"],
+    },
     // 동물·자연
-    KoKeyword { ko: "동물",   en_tokens: &["dog", "cat", "horse", "cow", "pig", "rabbit", "bear", "fox", "wolf"] },
-    KoKeyword { ko: "강아지", en_tokens: &["dog"] },
-    KoKeyword { ko: "개",     en_tokens: &["dog"] },
-    KoKeyword { ko: "곰",     en_tokens: &["bear"] },
-    KoKeyword { ko: "토끼",   en_tokens: &["rabbit"] },
-    KoKeyword { ko: "여우",   en_tokens: &["fox"] },
-    KoKeyword { ko: "사자",   en_tokens: &["lion"] },
-    KoKeyword { ko: "호랑이", en_tokens: &["tiger"] },
-    KoKeyword { ko: "말",     en_tokens: &["horse"] },
-    KoKeyword { ko: "소",     en_tokens: &["cow", "ox", "bull", "water buffalo"] },
-    KoKeyword { ko: "돼지",   en_tokens: &["pig", "boar"] },
-    KoKeyword { ko: "쥐",     en_tokens: &["mouse", "rat"] },
-    KoKeyword { ko: "새",     en_tokens: &["bird", "eagle", "duck", "owl", "swan", "rooster", "chicken"] },
-    KoKeyword { ko: "물고기", en_tokens: &["fish", "shark", "blowfish"] },
-    KoKeyword { ko: "바다",   en_tokens: &["whale", "octopus", "dolphin", "shark", "shell"] },
-    KoKeyword { ko: "벌레",   en_tokens: &["bug", "ant", "beetle", "spider", "butterfly", "honeybee"] },
-    KoKeyword { ko: "공룡",   en_tokens: &["t-rex", "sauropod", "dinosaur"] },
-    KoKeyword { ko: "유니콘", en_tokens: &["unicorn"] },
-    KoKeyword { ko: "꽃",     en_tokens: &["rose", "tulip", "blossom", "sunflower", "hibiscus", "bouquet"] },
-    KoKeyword { ko: "나무",   en_tokens: &["tree"] },
-    KoKeyword { ko: "잎",     en_tokens: &["leaf", "leaves", "herb", "shamrock", "four leaf clover"] },
-    KoKeyword { ko: "식물",   en_tokens: &["plant", "potted", "cactus", "tree", "leaf", "herb"] },
-    KoKeyword { ko: "선인장", en_tokens: &["cactus"] },
-    KoKeyword { ko: "버섯",   en_tokens: &["mushroom"] },
-    KoKeyword { ko: "날씨",   en_tokens: &["sun", "cloud", "rain", "snow", "lightning", "thunder", "rainbow", "tornado"] },
-    KoKeyword { ko: "비",     en_tokens: &["rain"] },
-    KoKeyword { ko: "눈",     en_tokens: &["snow", "snowflake"] },
-    KoKeyword { ko: "구름",   en_tokens: &["cloud"] },
-    KoKeyword { ko: "해",     en_tokens: &["sun"] },
-    KoKeyword { ko: "달",     en_tokens: &["moon"] },
-    KoKeyword { ko: "별",     en_tokens: &["star"] },
-    KoKeyword { ko: "무지개", en_tokens: &["rainbow"] },
-    KoKeyword { ko: "지구",   en_tokens: &["earth", "globe"] },
-    KoKeyword { ko: "불",     en_tokens: &["fire"] },
-
+    KoKeyword {
+        ko: "동물",
+        en_tokens: &[
+            "dog", "cat", "horse", "cow", "pig", "rabbit", "bear", "fox", "wolf",
+        ],
+    },
+    KoKeyword {
+        ko: "강아지",
+        en_tokens: &["dog"],
+    },
+    KoKeyword {
+        ko: "개",
+        en_tokens: &["dog"],
+    },
+    KoKeyword {
+        ko: "곰",
+        en_tokens: &["bear"],
+    },
+    KoKeyword {
+        ko: "토끼",
+        en_tokens: &["rabbit"],
+    },
+    KoKeyword {
+        ko: "여우",
+        en_tokens: &["fox"],
+    },
+    KoKeyword {
+        ko: "사자",
+        en_tokens: &["lion"],
+    },
+    KoKeyword {
+        ko: "호랑이",
+        en_tokens: &["tiger"],
+    },
+    KoKeyword {
+        ko: "말",
+        en_tokens: &["horse"],
+    },
+    KoKeyword {
+        ko: "소",
+        en_tokens: &["cow", "ox", "bull", "water buffalo"],
+    },
+    KoKeyword {
+        ko: "돼지",
+        en_tokens: &["pig", "boar"],
+    },
+    KoKeyword {
+        ko: "쥐",
+        en_tokens: &["mouse", "rat"],
+    },
+    KoKeyword {
+        ko: "새",
+        en_tokens: &["bird", "eagle", "duck", "owl", "swan", "rooster", "chicken"],
+    },
+    KoKeyword {
+        ko: "물고기",
+        en_tokens: &["fish", "shark", "blowfish"],
+    },
+    KoKeyword {
+        ko: "바다",
+        en_tokens: &["whale", "octopus", "dolphin", "shark", "shell"],
+    },
+    KoKeyword {
+        ko: "벌레",
+        en_tokens: &["bug", "ant", "beetle", "spider", "butterfly", "honeybee"],
+    },
+    KoKeyword {
+        ko: "공룡",
+        en_tokens: &["t-rex", "sauropod", "dinosaur"],
+    },
+    KoKeyword {
+        ko: "유니콘",
+        en_tokens: &["unicorn"],
+    },
+    KoKeyword {
+        ko: "꽃",
+        en_tokens: &[
+            "rose",
+            "tulip",
+            "blossom",
+            "sunflower",
+            "hibiscus",
+            "bouquet",
+        ],
+    },
+    KoKeyword {
+        ko: "나무",
+        en_tokens: &["tree"],
+    },
+    KoKeyword {
+        ko: "잎",
+        en_tokens: &["leaf", "leaves", "herb", "shamrock", "four leaf clover"],
+    },
+    KoKeyword {
+        ko: "식물",
+        en_tokens: &["plant", "potted", "cactus", "tree", "leaf", "herb"],
+    },
+    KoKeyword {
+        ko: "선인장",
+        en_tokens: &["cactus"],
+    },
+    KoKeyword {
+        ko: "버섯",
+        en_tokens: &["mushroom"],
+    },
+    KoKeyword {
+        ko: "날씨",
+        en_tokens: &[
+            "sun",
+            "cloud",
+            "rain",
+            "snow",
+            "lightning",
+            "thunder",
+            "rainbow",
+            "tornado",
+        ],
+    },
+    KoKeyword {
+        ko: "비",
+        en_tokens: &["rain"],
+    },
+    KoKeyword {
+        ko: "눈",
+        en_tokens: &["snow", "snowflake"],
+    },
+    KoKeyword {
+        ko: "구름",
+        en_tokens: &["cloud"],
+    },
+    KoKeyword {
+        ko: "해",
+        en_tokens: &["sun"],
+    },
+    KoKeyword {
+        ko: "달",
+        en_tokens: &["moon"],
+    },
+    KoKeyword {
+        ko: "별",
+        en_tokens: &["star"],
+    },
+    KoKeyword {
+        ko: "무지개",
+        en_tokens: &["rainbow"],
+    },
+    KoKeyword {
+        ko: "지구",
+        en_tokens: &["earth", "globe"],
+    },
+    KoKeyword {
+        ko: "불",
+        en_tokens: &["fire"],
+    },
     // 음식·음료
-    KoKeyword { ko: "음식",   en_tokens: &["pizza", "burger", "rice", "ramen", "sushi", "taco", "noodle", "bread", "sandwich"] },
-    KoKeyword { ko: "과일",   en_tokens: &["apple", "banana", "grape", "watermelon", "lemon", "orange", "peach", "strawberry"] },
-    KoKeyword { ko: "사과",   en_tokens: &["apple"] },
-    KoKeyword { ko: "바나나", en_tokens: &["banana"] },
-    KoKeyword { ko: "포도",   en_tokens: &["grape"] },
-    KoKeyword { ko: "야채",   en_tokens: &["carrot", "potato", "corn", "onion", "broccoli", "cucumber"] },
-    KoKeyword { ko: "채소",   en_tokens: &["carrot", "potato", "corn", "onion", "broccoli"] },
-    KoKeyword { ko: "고기",   en_tokens: &["meat", "poultry", "bacon", "steak"] },
-    KoKeyword { ko: "빵",     en_tokens: &["bread", "bagel", "croissant"] },
-    KoKeyword { ko: "치즈",   en_tokens: &["cheese"] },
-    KoKeyword { ko: "피자",   en_tokens: &["pizza"] },
-    KoKeyword { ko: "햄버거", en_tokens: &["hamburger"] },
-    KoKeyword { ko: "초밥",   en_tokens: &["sushi"] },
-    KoKeyword { ko: "국수",   en_tokens: &["noodle", "ramen"] },
-    KoKeyword { ko: "디저트", en_tokens: &["cake", "ice cream", "doughnut", "cookie", "candy", "lollipop", "chocolate", "pie"] },
-    KoKeyword { ko: "케이크", en_tokens: &["cake"] },
-    KoKeyword { ko: "쿠키",   en_tokens: &["cookie"] },
-    KoKeyword { ko: "음료",   en_tokens: &["coffee", "tea", "beer", "wine", "cocktail", "drink", "cup", "glass", "bottle"] },
-    KoKeyword { ko: "커피",   en_tokens: &["coffee", "hot beverage"] },
-    KoKeyword { ko: "차",     en_tokens: &["teacup"] },
-    KoKeyword { ko: "맥주",   en_tokens: &["beer"] },
-    KoKeyword { ko: "와인",   en_tokens: &["wine"] },
-    KoKeyword { ko: "술",     en_tokens: &["beer", "wine", "cocktail", "tumbler", "sake"] },
-
+    KoKeyword {
+        ko: "음식",
+        en_tokens: &[
+            "pizza", "burger", "rice", "ramen", "sushi", "taco", "noodle", "bread", "sandwich",
+        ],
+    },
+    KoKeyword {
+        ko: "과일",
+        en_tokens: &[
+            "apple",
+            "banana",
+            "grape",
+            "watermelon",
+            "lemon",
+            "orange",
+            "peach",
+            "strawberry",
+        ],
+    },
+    KoKeyword {
+        ko: "사과",
+        en_tokens: &["apple"],
+    },
+    KoKeyword {
+        ko: "바나나",
+        en_tokens: &["banana"],
+    },
+    KoKeyword {
+        ko: "포도",
+        en_tokens: &["grape"],
+    },
+    KoKeyword {
+        ko: "야채",
+        en_tokens: &["carrot", "potato", "corn", "onion", "broccoli", "cucumber"],
+    },
+    KoKeyword {
+        ko: "채소",
+        en_tokens: &["carrot", "potato", "corn", "onion", "broccoli"],
+    },
+    KoKeyword {
+        ko: "고기",
+        en_tokens: &["meat", "poultry", "bacon", "steak"],
+    },
+    KoKeyword {
+        ko: "빵",
+        en_tokens: &["bread", "bagel", "croissant"],
+    },
+    KoKeyword {
+        ko: "치즈",
+        en_tokens: &["cheese"],
+    },
+    KoKeyword {
+        ko: "피자",
+        en_tokens: &["pizza"],
+    },
+    KoKeyword {
+        ko: "햄버거",
+        en_tokens: &["hamburger"],
+    },
+    KoKeyword {
+        ko: "초밥",
+        en_tokens: &["sushi"],
+    },
+    KoKeyword {
+        ko: "국수",
+        en_tokens: &["noodle", "ramen"],
+    },
+    KoKeyword {
+        ko: "디저트",
+        en_tokens: &[
+            "cake",
+            "ice cream",
+            "doughnut",
+            "cookie",
+            "candy",
+            "lollipop",
+            "chocolate",
+            "pie",
+        ],
+    },
+    KoKeyword {
+        ko: "케이크",
+        en_tokens: &["cake"],
+    },
+    KoKeyword {
+        ko: "쿠키",
+        en_tokens: &["cookie"],
+    },
+    KoKeyword {
+        ko: "음료",
+        en_tokens: &[
+            "coffee", "tea", "beer", "wine", "cocktail", "drink", "cup", "glass", "bottle",
+        ],
+    },
+    KoKeyword {
+        ko: "커피",
+        en_tokens: &["coffee", "hot beverage"],
+    },
+    KoKeyword {
+        ko: "차",
+        en_tokens: &["teacup"],
+    },
+    KoKeyword {
+        ko: "맥주",
+        en_tokens: &["beer"],
+    },
+    KoKeyword {
+        ko: "와인",
+        en_tokens: &["wine"],
+    },
+    KoKeyword {
+        ko: "술",
+        en_tokens: &["beer", "wine", "cocktail", "tumbler", "sake"],
+    },
     // 여행·장소
-    KoKeyword { ko: "교통",   en_tokens: &["car", "bus", "train", "automobile", "taxi", "truck", "motorcycle", "scooter"] },
-    KoKeyword { ko: "자동차", en_tokens: &["automobile", "car", "taxi"] },
-    KoKeyword { ko: "버스",   en_tokens: &["bus"] },
-    KoKeyword { ko: "기차",   en_tokens: &["train", "locomotive"] },
-    KoKeyword { ko: "비행기", en_tokens: &["airplane", "aircraft"] },
-    KoKeyword { ko: "배",     en_tokens: &["ship", "boat", "ferry", "sailboat", "canoe"] },
-    KoKeyword { ko: "자전거", en_tokens: &["bicycle"] },
-    KoKeyword { ko: "오토바이", en_tokens: &["motorcycle", "motor scooter"] },
-    KoKeyword { ko: "로켓",   en_tokens: &["rocket"] },
-    KoKeyword { ko: "헬리콥터", en_tokens: &["helicopter"] },
-    KoKeyword { ko: "여행",   en_tokens: &["airplane", "luggage", "passport", "ticket"] },
-    KoKeyword { ko: "건물",   en_tokens: &["building", "house", "office", "factory", "hotel", "school", "hospital"] },
-    KoKeyword { ko: "집",     en_tokens: &["house", "home"] },
-    KoKeyword { ko: "산",     en_tokens: &["mountain", "volcano"] },
-    KoKeyword { ko: "바닷가", en_tokens: &["beach", "shore", "umbrella", "sunrise"] },
-    KoKeyword { ko: "사막",   en_tokens: &["desert"] },
-    KoKeyword { ko: "다리",   en_tokens: &["bridge"] },
-    KoKeyword { ko: "분수",   en_tokens: &["fountain"] },
-    KoKeyword { ko: "지도",   en_tokens: &["map", "globe"] },
-    KoKeyword { ko: "시계",   en_tokens: &["clock", "watch", "alarm", "hourglass", "stopwatch", "timer"] },
-
+    KoKeyword {
+        ko: "교통",
+        en_tokens: &[
+            "car",
+            "bus",
+            "train",
+            "automobile",
+            "taxi",
+            "truck",
+            "motorcycle",
+            "scooter",
+        ],
+    },
+    KoKeyword {
+        ko: "자동차",
+        en_tokens: &["automobile", "car", "taxi"],
+    },
+    KoKeyword {
+        ko: "버스",
+        en_tokens: &["bus"],
+    },
+    KoKeyword {
+        ko: "기차",
+        en_tokens: &["train", "locomotive"],
+    },
+    KoKeyword {
+        ko: "비행기",
+        en_tokens: &["airplane", "aircraft"],
+    },
+    KoKeyword {
+        ko: "배",
+        en_tokens: &["ship", "boat", "ferry", "sailboat", "canoe"],
+    },
+    KoKeyword {
+        ko: "자전거",
+        en_tokens: &["bicycle"],
+    },
+    KoKeyword {
+        ko: "오토바이",
+        en_tokens: &["motorcycle", "motor scooter"],
+    },
+    KoKeyword {
+        ko: "로켓",
+        en_tokens: &["rocket"],
+    },
+    KoKeyword {
+        ko: "헬리콥터",
+        en_tokens: &["helicopter"],
+    },
+    KoKeyword {
+        ko: "여행",
+        en_tokens: &["airplane", "luggage", "passport", "ticket"],
+    },
+    KoKeyword {
+        ko: "건물",
+        en_tokens: &[
+            "building", "house", "office", "factory", "hotel", "school", "hospital",
+        ],
+    },
+    KoKeyword {
+        ko: "집",
+        en_tokens: &["house", "home"],
+    },
+    KoKeyword {
+        ko: "산",
+        en_tokens: &["mountain", "volcano"],
+    },
+    KoKeyword {
+        ko: "바닷가",
+        en_tokens: &["beach", "shore", "umbrella", "sunrise"],
+    },
+    KoKeyword {
+        ko: "사막",
+        en_tokens: &["desert"],
+    },
+    KoKeyword {
+        ko: "다리",
+        en_tokens: &["bridge"],
+    },
+    KoKeyword {
+        ko: "분수",
+        en_tokens: &["fountain"],
+    },
+    KoKeyword {
+        ko: "지도",
+        en_tokens: &["map", "globe"],
+    },
+    KoKeyword {
+        ko: "시계",
+        en_tokens: &["clock", "watch", "alarm", "hourglass", "stopwatch", "timer"],
+    },
     // 활동
-    KoKeyword { ko: "스포츠", en_tokens: &["soccer", "basketball", "baseball", "football", "tennis", "ball", "golf", "skateboard"] },
-    KoKeyword { ko: "축구",   en_tokens: &["soccer"] },
-    KoKeyword { ko: "농구",   en_tokens: &["basketball"] },
-    KoKeyword { ko: "야구",   en_tokens: &["baseball"] },
-    KoKeyword { ko: "테니스", en_tokens: &["tennis"] },
-    KoKeyword { ko: "골프",   en_tokens: &["golf"] },
-    KoKeyword { ko: "메달",   en_tokens: &["medal"] },
-    KoKeyword { ko: "트로피", en_tokens: &["trophy"] },
-    KoKeyword { ko: "축하",   en_tokens: &["party", "tada", "confetti", "balloon", "fireworks"] },
-    KoKeyword { ko: "파티",   en_tokens: &["party", "tada", "confetti", "balloon"] },
-    KoKeyword { ko: "선물",   en_tokens: &["gift", "wrapped"] },
-    KoKeyword { ko: "게임",   en_tokens: &["video game", "joystick", "chess", "dart", "puzzle", "dice", "playing card"] },
-    KoKeyword { ko: "예술",   en_tokens: &["palette", "art", "performing arts"] },
-    KoKeyword { ko: "음악",   en_tokens: &["musical", "music", "guitar", "violin", "saxophone", "trumpet", "drum", "piano", "note"] },
-
+    KoKeyword {
+        ko: "스포츠",
+        en_tokens: &[
+            "soccer",
+            "basketball",
+            "baseball",
+            "football",
+            "tennis",
+            "ball",
+            "golf",
+            "skateboard",
+        ],
+    },
+    KoKeyword {
+        ko: "축구",
+        en_tokens: &["soccer"],
+    },
+    KoKeyword {
+        ko: "농구",
+        en_tokens: &["basketball"],
+    },
+    KoKeyword {
+        ko: "야구",
+        en_tokens: &["baseball"],
+    },
+    KoKeyword {
+        ko: "테니스",
+        en_tokens: &["tennis"],
+    },
+    KoKeyword {
+        ko: "골프",
+        en_tokens: &["golf"],
+    },
+    KoKeyword {
+        ko: "메달",
+        en_tokens: &["medal"],
+    },
+    KoKeyword {
+        ko: "트로피",
+        en_tokens: &["trophy"],
+    },
+    KoKeyword {
+        ko: "축하",
+        en_tokens: &["party", "tada", "confetti", "balloon", "fireworks"],
+    },
+    KoKeyword {
+        ko: "파티",
+        en_tokens: &["party", "tada", "confetti", "balloon"],
+    },
+    KoKeyword {
+        ko: "선물",
+        en_tokens: &["gift", "wrapped"],
+    },
+    KoKeyword {
+        ko: "게임",
+        en_tokens: &[
+            "video game",
+            "joystick",
+            "chess",
+            "dart",
+            "puzzle",
+            "dice",
+            "playing card",
+        ],
+    },
+    KoKeyword {
+        ko: "예술",
+        en_tokens: &["palette", "art", "performing arts"],
+    },
+    KoKeyword {
+        ko: "음악",
+        en_tokens: &[
+            "musical",
+            "music",
+            "guitar",
+            "violin",
+            "saxophone",
+            "trumpet",
+            "drum",
+            "piano",
+            "note",
+        ],
+    },
     // 사물
-    KoKeyword { ko: "옷",     en_tokens: &["clothes", "shirt", "jeans", "dress", "kimono", "sari", "swimsuit", "scarf", "gloves", "coat", "sock"] },
-    KoKeyword { ko: "신발",   en_tokens: &["shoe", "boot", "sandal", "sneaker"] },
-    KoKeyword { ko: "모자",   en_tokens: &["hat", "cap", "helmet", "crown"] },
-    KoKeyword { ko: "가방",   en_tokens: &["bag", "purse", "handbag", "backpack", "briefcase", "luggage"] },
-    KoKeyword { ko: "안경",   en_tokens: &["glasses", "goggles", "sunglasses"] },
-    KoKeyword { ko: "보석",   en_tokens: &["gem", "ring", "diamond"] },
-    KoKeyword { ko: "전자",   en_tokens: &["computer", "laptop", "keyboard", "mouse", "monitor", "phone", "mobile", "camera"] },
-    KoKeyword { ko: "컴퓨터", en_tokens: &["computer", "laptop", "desktop"] },
-    KoKeyword { ko: "휴대폰", en_tokens: &["mobile phone"] },
-    KoKeyword { ko: "전화",   en_tokens: &["telephone", "phone", "pager"] },
-    KoKeyword { ko: "카메라", en_tokens: &["camera"] },
-    KoKeyword { ko: "TV",     en_tokens: &["television"] },
-    KoKeyword { ko: "조명",   en_tokens: &["bulb", "lamp", "candle", "flashlight"] },
-    KoKeyword { ko: "책",     en_tokens: &["book"] },
-    KoKeyword { ko: "공책",   en_tokens: &["notebook", "bookmark", "ledger"] },
-    KoKeyword { ko: "신문",   en_tokens: &["newspaper"] },
-    KoKeyword { ko: "필기",   en_tokens: &["pencil", "pen", "ballpoint", "fountain pen", "memo", "writing"] },
-    KoKeyword { ko: "연필",   en_tokens: &["pencil"] },
-    KoKeyword { ko: "사무",   en_tokens: &["briefcase", "card index", "file folder", "calendar", "clipboard", "paperclip", "pin", "tape"] },
-    KoKeyword { ko: "메일",   en_tokens: &["mail", "envelope", "inbox", "outbox", "postbox"] },
-    KoKeyword { ko: "편지",   en_tokens: &["envelope", "love letter"] },
-    KoKeyword { ko: "돈",     en_tokens: &["money", "dollar", "yen", "euro", "pound", "credit card", "coin"] },
-    KoKeyword { ko: "자물쇠", en_tokens: &["lock", "key", "padlock"] },
-    KoKeyword { ko: "열쇠",   en_tokens: &["key"] },
-    KoKeyword { ko: "도구",   en_tokens: &["hammer", "wrench", "axe", "saw", "screwdriver", "pick", "ruler", "scale"] },
-    KoKeyword { ko: "총",     en_tokens: &["pistol", "gun"] },
-    KoKeyword { ko: "무기",   en_tokens: &["pistol", "knife", "axe", "sword", "dagger", "bow"] },
-    KoKeyword { ko: "약",     en_tokens: &["pill", "syringe", "stethoscope", "adhesive bandage"] },
-    KoKeyword { ko: "병원",   en_tokens: &["hospital", "syringe", "stethoscope", "pill"] },
-    KoKeyword { ko: "과학",   en_tokens: &["test tube", "petri", "dna", "microscope", "telescope", "satellite"] },
-    KoKeyword { ko: "변기",   en_tokens: &["toilet"] },
-    KoKeyword { ko: "샤워",   en_tokens: &["shower", "bathtub", "soap"] },
-    KoKeyword { ko: "휴지",   en_tokens: &["roll of paper", "tissue"] },
-
+    KoKeyword {
+        ko: "옷",
+        en_tokens: &[
+            "clothes", "shirt", "jeans", "dress", "kimono", "sari", "swimsuit", "scarf", "gloves",
+            "coat", "sock",
+        ],
+    },
+    KoKeyword {
+        ko: "신발",
+        en_tokens: &["shoe", "boot", "sandal", "sneaker"],
+    },
+    KoKeyword {
+        ko: "모자",
+        en_tokens: &["hat", "cap", "helmet", "crown"],
+    },
+    KoKeyword {
+        ko: "가방",
+        en_tokens: &[
+            "bag",
+            "purse",
+            "handbag",
+            "backpack",
+            "briefcase",
+            "luggage",
+        ],
+    },
+    KoKeyword {
+        ko: "안경",
+        en_tokens: &["glasses", "goggles", "sunglasses"],
+    },
+    KoKeyword {
+        ko: "보석",
+        en_tokens: &["gem", "ring", "diamond"],
+    },
+    KoKeyword {
+        ko: "전자",
+        en_tokens: &[
+            "computer", "laptop", "keyboard", "mouse", "monitor", "phone", "mobile", "camera",
+        ],
+    },
+    KoKeyword {
+        ko: "컴퓨터",
+        en_tokens: &["computer", "laptop", "desktop"],
+    },
+    KoKeyword {
+        ko: "휴대폰",
+        en_tokens: &["mobile phone"],
+    },
+    KoKeyword {
+        ko: "전화",
+        en_tokens: &["telephone", "phone", "pager"],
+    },
+    KoKeyword {
+        ko: "카메라",
+        en_tokens: &["camera"],
+    },
+    KoKeyword {
+        ko: "TV",
+        en_tokens: &["television"],
+    },
+    KoKeyword {
+        ko: "조명",
+        en_tokens: &["bulb", "lamp", "candle", "flashlight"],
+    },
+    KoKeyword {
+        ko: "책",
+        en_tokens: &["book"],
+    },
+    KoKeyword {
+        ko: "공책",
+        en_tokens: &["notebook", "bookmark", "ledger"],
+    },
+    KoKeyword {
+        ko: "신문",
+        en_tokens: &["newspaper"],
+    },
+    KoKeyword {
+        ko: "필기",
+        en_tokens: &[
+            "pencil",
+            "pen",
+            "ballpoint",
+            "fountain pen",
+            "memo",
+            "writing",
+        ],
+    },
+    KoKeyword {
+        ko: "연필",
+        en_tokens: &["pencil"],
+    },
+    KoKeyword {
+        ko: "사무",
+        en_tokens: &[
+            "briefcase",
+            "card index",
+            "file folder",
+            "calendar",
+            "clipboard",
+            "paperclip",
+            "pin",
+            "tape",
+        ],
+    },
+    KoKeyword {
+        ko: "메일",
+        en_tokens: &["mail", "envelope", "inbox", "outbox", "postbox"],
+    },
+    KoKeyword {
+        ko: "편지",
+        en_tokens: &["envelope", "love letter"],
+    },
+    KoKeyword {
+        ko: "돈",
+        en_tokens: &[
+            "money",
+            "dollar",
+            "yen",
+            "euro",
+            "pound",
+            "credit card",
+            "coin",
+        ],
+    },
+    KoKeyword {
+        ko: "자물쇠",
+        en_tokens: &["lock", "key", "padlock"],
+    },
+    KoKeyword {
+        ko: "열쇠",
+        en_tokens: &["key"],
+    },
+    KoKeyword {
+        ko: "도구",
+        en_tokens: &[
+            "hammer",
+            "wrench",
+            "axe",
+            "saw",
+            "screwdriver",
+            "pick",
+            "ruler",
+            "scale",
+        ],
+    },
+    KoKeyword {
+        ko: "총",
+        en_tokens: &["pistol", "gun"],
+    },
+    KoKeyword {
+        ko: "무기",
+        en_tokens: &["pistol", "knife", "axe", "sword", "dagger", "bow"],
+    },
+    KoKeyword {
+        ko: "약",
+        en_tokens: &["pill", "syringe", "stethoscope", "adhesive bandage"],
+    },
+    KoKeyword {
+        ko: "병원",
+        en_tokens: &["hospital", "syringe", "stethoscope", "pill"],
+    },
+    KoKeyword {
+        ko: "과학",
+        en_tokens: &[
+            "test tube",
+            "petri",
+            "dna",
+            "microscope",
+            "telescope",
+            "satellite",
+        ],
+    },
+    KoKeyword {
+        ko: "변기",
+        en_tokens: &["toilet"],
+    },
+    KoKeyword {
+        ko: "샤워",
+        en_tokens: &["shower", "bathtub", "soap"],
+    },
+    KoKeyword {
+        ko: "휴지",
+        en_tokens: &["roll of paper", "tissue"],
+    },
     // 기호
-    KoKeyword { ko: "기호",   en_tokens: &["symbol", "warning", "arrow", "math", "currency"] },
-    KoKeyword { ko: "확인",   en_tokens: &["check mark", "ballot"] },
-    KoKeyword { ko: "X",      en_tokens: &["cross mark"] },
-    KoKeyword { ko: "느낌표", en_tokens: &["exclamation"] },
-    KoKeyword { ko: "물음표", en_tokens: &["question"] },
-    KoKeyword { ko: "화살표", en_tokens: &["arrow"] },
-    KoKeyword { ko: "별자리", en_tokens: &["aries", "taurus", "gemini", "cancer", "leo", "virgo", "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces", "ophiuchus"] },
-    KoKeyword { ko: "재활용", en_tokens: &["recycling"] },
-    KoKeyword { ko: "주차",   en_tokens: &["parking"] },
-    KoKeyword { ko: "금지",   en_tokens: &["no entry", "prohibited", "no smoking"] },
-    KoKeyword { ko: "경고",   en_tokens: &["warning", "radioactive", "biohazard"] },
-    KoKeyword { ko: "성별",   en_tokens: &["female sign", "male sign", "transgender"] },
-    KoKeyword { ko: "키캡",   en_tokens: &["keycap"] },
-
+    KoKeyword {
+        ko: "기호",
+        en_tokens: &["symbol", "warning", "arrow", "math", "currency"],
+    },
+    KoKeyword {
+        ko: "확인",
+        en_tokens: &["check mark", "ballot"],
+    },
+    KoKeyword {
+        ko: "X",
+        en_tokens: &["cross mark"],
+    },
+    KoKeyword {
+        ko: "느낌표",
+        en_tokens: &["exclamation"],
+    },
+    KoKeyword {
+        ko: "물음표",
+        en_tokens: &["question"],
+    },
+    KoKeyword {
+        ko: "화살표",
+        en_tokens: &["arrow"],
+    },
+    KoKeyword {
+        ko: "별자리",
+        en_tokens: &[
+            "aries",
+            "taurus",
+            "gemini",
+            "cancer",
+            "leo",
+            "virgo",
+            "libra",
+            "scorpio",
+            "sagittarius",
+            "capricorn",
+            "aquarius",
+            "pisces",
+            "ophiuchus",
+        ],
+    },
+    KoKeyword {
+        ko: "재활용",
+        en_tokens: &["recycling"],
+    },
+    KoKeyword {
+        ko: "주차",
+        en_tokens: &["parking"],
+    },
+    KoKeyword {
+        ko: "금지",
+        en_tokens: &["no entry", "prohibited", "no smoking"],
+    },
+    KoKeyword {
+        ko: "경고",
+        en_tokens: &["warning", "radioactive", "biohazard"],
+    },
+    KoKeyword {
+        ko: "성별",
+        en_tokens: &["female sign", "male sign", "transgender"],
+    },
+    KoKeyword {
+        ko: "키캡",
+        en_tokens: &["keycap"],
+    },
     // 깃발
-    KoKeyword { ko: "깃발",   en_tokens: &["flag"] },
-    KoKeyword { ko: "한국",   en_tokens: &["south korea"] },
-    KoKeyword { ko: "북한",   en_tokens: &["north korea"] },
-    KoKeyword { ko: "미국",   en_tokens: &["united states"] },
-    KoKeyword { ko: "일본",   en_tokens: &["japan"] },
-    KoKeyword { ko: "중국",   en_tokens: &["china"] },
-    KoKeyword { ko: "영국",   en_tokens: &["united kingdom", "england", "scotland", "wales"] },
-    KoKeyword { ko: "프랑스", en_tokens: &["france"] },
-    KoKeyword { ko: "독일",   en_tokens: &["germany"] },
-    KoKeyword { ko: "러시아", en_tokens: &["russia"] },
-    KoKeyword { ko: "무지개기", en_tokens: &["rainbow flag"] },
-    KoKeyword { ko: "해적",   en_tokens: &["pirate flag"] },
+    KoKeyword {
+        ko: "깃발",
+        en_tokens: &["flag"],
+    },
+    KoKeyword {
+        ko: "한국",
+        en_tokens: &["south korea"],
+    },
+    KoKeyword {
+        ko: "북한",
+        en_tokens: &["north korea"],
+    },
+    KoKeyword {
+        ko: "미국",
+        en_tokens: &["united states"],
+    },
+    KoKeyword {
+        ko: "일본",
+        en_tokens: &["japan"],
+    },
+    KoKeyword {
+        ko: "중국",
+        en_tokens: &["china"],
+    },
+    KoKeyword {
+        ko: "영국",
+        en_tokens: &["united kingdom", "england", "scotland", "wales"],
+    },
+    KoKeyword {
+        ko: "프랑스",
+        en_tokens: &["france"],
+    },
+    KoKeyword {
+        ko: "독일",
+        en_tokens: &["germany"],
+    },
+    KoKeyword {
+        ko: "러시아",
+        en_tokens: &["russia"],
+    },
+    KoKeyword {
+        ko: "무지개기",
+        en_tokens: &["rainbow flag"],
+    },
+    KoKeyword {
+        ko: "해적",
+        en_tokens: &["pirate flag"],
+    },
 ];
 
 /// 카테고리 ID를 그대로 받았을 때만 hit. 사용자 편의용.
 fn match_category_id(keyword: &str) -> Option<usize> {
-    CATEGORIES.iter().position(|c| c.id.eq_ignore_ascii_case(keyword))
+    CATEGORIES
+        .iter()
+        .position(|c| c.id.eq_ignore_ascii_case(keyword))
 }
 
 /// 한국어 키워드면 매핑된 영어 토큰 목록을, 아니면 원문 토큰 단일 항목을 돌려줌.
@@ -374,7 +1172,12 @@ pub fn list_categories() -> Vec<(String, String, String, u32)> {
         .enumerate()
         .map(|(idx, info)| {
             let count = EMOJIS.iter().filter(|e| e.cat_idx as usize == idx).count() as u32;
-            (info.id.to_string(), info.ko.to_string(), info.en.to_string(), count)
+            (
+                info.id.to_string(),
+                info.ko.to_string(),
+                info.en.to_string(),
+                count,
+            )
         })
         .collect()
 }
@@ -463,7 +1266,17 @@ mod tests {
         let ids: Vec<&str> = CATEGORIES.iter().map(|c| c.id).collect();
         assert_eq!(
             ids,
-            vec!["Smileys","People","Animals","Food","Travel","Activities","Objects","Symbols","Flags"]
+            vec![
+                "Smileys",
+                "People",
+                "Animals",
+                "Food",
+                "Travel",
+                "Activities",
+                "Objects",
+                "Symbols",
+                "Flags"
+            ]
         );
     }
 
@@ -521,7 +1334,11 @@ mod tests {
     #[test]
     fn search_category_id_returns_full_category() {
         let r = search_emoji_strings("Flags");
-        assert!(r.len() >= 200, "Flags 카테고리 결과가 너무 적음: {}", r.len());
+        assert!(
+            r.len() >= 200,
+            "Flags 카테고리 결과가 너무 적음: {}",
+            r.len()
+        );
     }
 
     #[test]

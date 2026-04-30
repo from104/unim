@@ -160,9 +160,7 @@ impl UserDictionary {
     pub fn load_from_path(path: Option<std::path::PathBuf>) -> Self {
         let frequencies = if let Some(ref p) = path {
             match std::fs::read_to_string(p) {
-                Ok(content) => {
-                    serde_json::from_str(&content).unwrap_or_default()
-                }
+                Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
                 Err(_) => HashMap::new(),
             }
         } else {
@@ -179,10 +177,7 @@ impl UserDictionary {
 
     /// 한자 선택을 기록합니다.
     pub fn record_selection(&mut self, hangul: &str, hanja: &str) {
-        let entry = self
-            .frequencies
-            .entry(hangul.to_string())
-            .or_default();
+        let entry = self.frequencies.entry(hangul.to_string()).or_default();
         let count = entry.entry(hanja.to_string()).or_insert(0);
         *count += 1;
 

@@ -6,6 +6,8 @@
 pub mod globals;
 
 #[cfg(windows)]
+mod candidate_ui;
+#[cfg(windows)]
 mod class_factory;
 #[cfg(windows)]
 mod composition;
@@ -16,8 +18,6 @@ mod key_handler;
 #[cfg(windows)]
 mod lang_bar;
 #[cfg(windows)]
-mod candidate_ui;
-#[cfg(windows)]
 mod register;
 #[cfg(windows)]
 mod text_service;
@@ -25,9 +25,9 @@ mod text_service;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(windows)]
-use windows::Win32::Foundation::{BOOL, E_FAIL, E_INVALIDARG, HMODULE, S_FALSE, S_OK};
+use windows::core::{IUnknown, Interface, GUID, HRESULT};
 #[cfg(windows)]
-use windows::core::{GUID, HRESULT, IUnknown, Interface};
+use windows::Win32::Foundation::{BOOL, E_FAIL, E_INVALIDARG, HMODULE, S_FALSE, S_OK};
 #[cfg(windows)]
 const CLASS_E_CLASSNOTAVAILABLE: HRESULT = HRESULT(0x80040111_u32 as i32);
 

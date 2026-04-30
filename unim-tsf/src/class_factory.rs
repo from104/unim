@@ -1,8 +1,8 @@
 //! IClassFactory 구현
 
+use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Com::*;
-use windows::core::*;
 
 use crate::text_service::UnimTextService;
 
@@ -10,7 +10,9 @@ use crate::text_service::UnimTextService;
 pub struct UnimClassFactory;
 
 impl UnimClassFactory {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl IClassFactory_Impl for UnimClassFactory_Impl {

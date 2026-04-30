@@ -200,7 +200,11 @@ impl UserDictionary {
             return false;
         }
         let key = normalize(trimmed);
-        if self.reverse_words.iter().any(|e| e.word.to_lowercase() == key) {
+        if self
+            .reverse_words
+            .iter()
+            .any(|e| e.word.to_lowercase() == key)
+        {
             return false;
         }
         self.reverse_words.push(ReverseWord {
@@ -215,8 +219,7 @@ impl UserDictionary {
     pub fn remove_by_word(&mut self, word: &str) -> bool {
         let key = normalize(word);
         let before = self.reverse_words.len();
-        self.reverse_words
-            .retain(|e| e.word.to_lowercase() != key);
+        self.reverse_words.retain(|e| e.word.to_lowercase() != key);
         self.reverse_words.len() != before
     }
 
@@ -312,7 +315,10 @@ mod tests {
         let mut ud = UserDictionary::default();
         ud.add("Kubectl", None);
         assert!(ud.contains_reverse("kubectl"));
-        assert!(!ud.contains_reverse("Kubectl"), "호출자가 소문자로 정규화해야 함");
+        assert!(
+            !ud.contains_reverse("Kubectl"),
+            "호출자가 소문자로 정규화해야 함"
+        );
     }
 
     #[test]
@@ -359,7 +365,10 @@ mod tests {
         let reloaded = UserDictionary::load_from_path(&path);
         assert_eq!(reloaded.reverse_words.len(), 2);
         assert_eq!(reloaded.reverse_words[0].word, "git");
-        assert_eq!(reloaded.reverse_words[0].note.as_deref(), Some("git command"));
+        assert_eq!(
+            reloaded.reverse_words[0].note.as_deref(),
+            Some("git command")
+        );
         assert_eq!(reloaded.reverse_words[1].word, "kubectl");
         assert!(reloaded.reverse_words[1].note.is_none());
         assert_eq!(reloaded.version, 1);

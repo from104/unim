@@ -1,18 +1,17 @@
 //! TSF 프로필 등록/해제 + COM InProcServer32 레지스트리 등록
 
+use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Registry::*;
 use windows::Win32::UI::TextServices::*;
-use windows::core::*;
 
 use crate::globals::*;
 
 fn get_dll_path() -> Result<String> {
     let hmodule = crate::dll_instance();
     let mut buf = [0u16; 260];
-    let len = unsafe {
-        windows::Win32::System::LibraryLoader::GetModuleFileNameW(hmodule, &mut buf)
-    };
+    let len =
+        unsafe { windows::Win32::System::LibraryLoader::GetModuleFileNameW(hmodule, &mut buf) };
     if len == 0 {
         return Err(E_FAIL.into());
     }
@@ -32,7 +31,9 @@ fn set_reg_value(hkey: HKEY, name: Option<&HSTRING>, value: &str) -> Result<()> 
                 wide.len() * 2,
             )),
         );
-        if err.is_err() { return Err(E_FAIL.into()); }
+        if err.is_err() {
+            return Err(E_FAIL.into());
+        }
     }
     Ok(())
 }
@@ -44,14 +45,18 @@ unsafe fn register_com_server() -> Result<()> {
     let key_path: HSTRING = format!("CLSID\\{}", clsid_str).into();
     let mut hkey = HKEY::default();
     let err = RegCreateKeyW(HKEY_CLASSES_ROOT, &key_path, &mut hkey);
-    if err.is_err() { return Err(E_FAIL.into()); }
+    if err.is_err() {
+        return Err(E_FAIL.into());
+    }
     set_reg_value(hkey, None, UNIM_IME_NAME)?;
     let _ = RegCloseKey(hkey);
 
     let inproc_path: HSTRING = format!("CLSID\\{}\\InProcServer32", clsid_str).into();
     let mut hkey_inproc = HKEY::default();
     let err = RegCreateKeyW(HKEY_CLASSES_ROOT, &inproc_path, &mut hkey_inproc);
-    if err.is_err() { return Err(E_FAIL.into()); }
+    if err.is_err() {
+        return Err(E_FAIL.into());
+    }
     set_reg_value(hkey_inproc, None, &dll_path)?;
     let threading_model: HSTRING = "ThreadingModel".into();
     set_reg_value(hkey_inproc, Some(&threading_model), "Apartment")?;
@@ -73,12 +78,11 @@ pub fn register_server() -> Result<()> {
     unsafe {
         register_com_server()?;
 
-        let profiles: ITfInputProcessorProfiles =
-            windows::Win32::System::Com::CoCreateInstance(
-                &CLSID_TF_InputProcessorProfiles,
-                None,
-                windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-            )?;
+        let profiles: ITfInputProcessorProfiles = windows::Win32::System::Com::CoCreateInstance(
+            &CLSID_TF_InputProcessorProfiles,
+            None,
+            windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
+        )?;
 
         profiles.Register(&UNIM_CLSID)?;
 
@@ -95,12 +99,11 @@ pub fn register_server() -> Result<()> {
             0,
         )?;
 
-        let category_mgr: ITfCategoryMgr =
-            windows::Win32::System::Com::CoCreateInstance(
-                &CLSID_TF_CategoryMgr,
-                None,
-                windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-            )?;
+        let category_mgr: ITfCategoryMgr = windows::Win32::System::Com::CoCreateInstance(
+            &CLSID_TF_CategoryMgr,
+            None,
+            windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
+        )?;
 
         for cat in &[
             GUID_TFCAT_TIP_KEYBOARD,
@@ -133,11 +136,13 @@ pub fn unregister_server() -> Result<()> {
             }
         }
 
-        if let Ok(profiles) = windows::Win32::System::Com::CoCreateInstance::<_, ITfInputProcessorProfiles>(
-            &CLSID_TF_InputProcessorProfiles,
-            None,
-            windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-        ) {
+        if let Ok(profiles) =
+            windows::Win32::System::Com::CoCreateInstance::<_, ITfInputProcessorProfiles>(
+                &CLSID_TF_InputProcessorProfiles,
+                None,
+                windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
+            )
+        {
             let _ = profiles.Unregister(&UNIM_CLSID);
         }
 

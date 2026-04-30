@@ -248,12 +248,10 @@ impl UnimHandler {
                 context_path,
                 response: Some(response_tx),
             },
-            DbusRequest::CancelSpecialChar { context_path, .. } => {
-                DbusRequest::CancelSpecialChar {
-                    context_path,
-                    response: Some(response_tx),
-                }
-            }
+            DbusRequest::CancelSpecialChar { context_path, .. } => DbusRequest::CancelSpecialChar {
+                context_path,
+                response: Some(response_tx),
+            },
             other => other,
         };
 
@@ -345,7 +343,11 @@ impl UnimHandler {
                     HanjaClickResult::Select(page_idx) => {
                         let keysym = 0x31 + page_idx as u64; // '1'~'9'
                         self.send_synthetic_key(keysym);
-                        unim_log!("XIM_HANDLER", "좌클릭 → 합성 숫자키 '{}' 전송", page_idx + 1);
+                        unim_log!(
+                            "XIM_HANDLER",
+                            "좌클릭 → 합성 숫자키 '{}' 전송",
+                            page_idx + 1
+                        );
                     }
                     HanjaClickResult::NextPage => {
                         self.send_synthetic_key(0xff53); // Right
@@ -366,7 +368,8 @@ impl UnimHandler {
         if let Some(ref sw) = self.special_window {
             let (w, h) = sw.size();
             if event_x >= 0 && event_y >= 0 && event_x < w as i16 && event_y < h as i16 {
-                let result = sw.handle_button_press(button as u32, event_x as c_int, event_y as c_int);
+                let result =
+                    sw.handle_button_press(button as u32, event_x as c_int, event_y as c_int);
                 match result {
                     SpecialClickResult::Select(_row, _col) => {
                         // Enter 키로 현재 선택 확정 (엔진이 선택 처리)
@@ -637,15 +640,13 @@ impl UnimHandler {
                     // 자가 주입 BackSpace 카운터: N+1 (마지막 1개는 commit 트리거로 소비)
                     self.self_backspace_pending = delete_chars + 1;
                     // commit/preedit 분리 저장 (순방향: preedit 있음, 역방향: 없음)
-                    self.deferred_autofix =
-                        Some((commit_text.clone(), preedit_text.clone()));
+                    self.deferred_autofix = Some((commit_text.clone(), preedit_text.clone()));
 
                     // BackSpace를 XTEST 확장으로 일괄 주입 (GTK3 패턴)
                     // XSendEvent는 send_event=True 때문에 modern app이 무시하므로
                     // XTestFakeKeyEvent 사용 (실제 하드웨어 이벤트로 인식)
                     unsafe {
-                        let bs_keycode =
-                            x11::xlib::XKeysymToKeycode(self.display, 0xff08);
+                        let bs_keycode = x11::xlib::XKeysymToKeycode(self.display, 0xff08);
                         for _ in 0..delete_chars + 1 {
                             x11::xtest::XTestFakeKeyEvent(
                                 self.display,
@@ -665,10 +666,7 @@ impl UnimHandler {
                         }
                     }
                 } else {
-                    unim_log!(
-                        "XIM_HANDLER",
-                        "AutoTypeFix: 활성 IC 없음, 무시"
-                    );
+                    unim_log!("XIM_HANDLER", "AutoTypeFix: 활성 IC 없음, 무시");
                 }
             }
             PopupEvent::CommitText { text } => {
@@ -697,12 +695,7 @@ impl UnimHandler {
                 bookmarked: _,
             } => {
                 if let Some(ref mut hw) = self.hanja_window {
-                    hw.replace_candidates(
-                        candidates,
-                        bookmarks,
-                        new_cursor as usize,
-                        self.display,
-                    );
+                    hw.replace_candidates(candidates, bookmarks, new_cursor as usize, self.display);
                 }
             }
         }
@@ -976,8 +969,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         unim_log!("XIM_HANDLER", "focus_out 호출");
 
         // AutoTypeFix 진행 중이면 폐기 (포커스 변경 시 BS가 잘못된 창에 갈 수 있음)
-        if self.deferred_autofix.is_some() || self.self_backspace_pending > 0
-        {
+        if self.deferred_autofix.is_some() || self.self_backspace_pending > 0 {
             unim_log!(
                 "XIM_HANDLER",
                 "focus_out: AutoTypeFix 진행 중 폐기 (pending_bs={}, deferred={:?})",
@@ -1152,8 +1144,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         // 재진입한다. 이를 엔진에 넘기면 한글 조합 상태가 오염되므로 여기서
         // 가로채 Ok(false)로 반환하여 클라이언트(앱)가 직접 처리하도록 한다.
         // KeyPress/KeyRelease 쌍 모두 통과시키되, 카운터는 KeyPress에서만 감소.
-        let bs_keysym =
-            unsafe { x11::xlib::XKeycodeToKeysym(self.display, xev.detail, 0) as u32 };
+        let bs_keysym = unsafe { x11::xlib::XKeycodeToKeysym(self.display, xev.detail, 0) as u32 };
         if bs_keysym == 0xff08 && self.self_backspace_pending > 0 {
             if xev.response_type != KEY_RELEASE {
                 // KeyPress: 카운터 감소, 앱에 통과
@@ -1173,9 +1164,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     // N+1번째(마지막) BS: 앱에 전달하지 않고 소비(Ok(true))
                     // 여기서 진짜 user_ic.ic로 commit+preedit 실행
                     // 앞선 N개 BS는 이미 Ok(false)로 전달+flush 완료 → 순서 보장
-                    if let Some((commit_text, preedit_text)) =
-                        self.deferred_autofix.take()
-                    {
+                    if let Some((commit_text, preedit_text)) = self.deferred_autofix.take() {
                         let has_preedit = !preedit_text.is_empty();
                         self.autofix_commit_guard = true;
 
@@ -1208,14 +1197,10 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                         self.autofix_commit_guard = false;
 
                         if !has_preedit {
-                            if let Some(path) =
-                                self.autofix_context_path.take()
-                            {
-                                let _ = self.dbus_tx.blocking_send(
-                                    DbusRequest::Reset {
-                                        context_path: path,
-                                    },
-                                );
+                            if let Some(path) = self.autofix_context_path.take() {
+                                let _ = self
+                                    .dbus_tx
+                                    .blocking_send(DbusRequest::Reset { context_path: path });
                             }
                         }
                     }
@@ -1308,12 +1293,11 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                             Ok(mut hw) => {
                                 hw.set_candidates(self.display, self.screen, &target, candidates);
                                 // 초기 즐겨찾기 상태 fetch (GNOME extension.js:176 패턴)
-                                let bookmark_resp = self.send_dbus_request(
-                                    DbusRequest::GetHanjaBookmarkStates {
+                                let bookmark_resp =
+                                    self.send_dbus_request(DbusRequest::GetHanjaBookmarkStates {
                                         context_path: ctx_path.clone(),
                                         response: None,
-                                    },
-                                );
+                                    });
                                 if let Some(DbusResponse::HanjaBookmarkStates { states }) =
                                     bookmark_resp
                                 {

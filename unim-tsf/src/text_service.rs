@@ -3,9 +3,9 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
+use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::TextServices::*;
-use windows::core::*;
 
 use unim::config::Config;
 use unim::input_engine::InputEngine;
@@ -19,7 +19,7 @@ use crate::key_handler;
     ITfCompositionSink,
     ITfThreadMgrEventSink,
     ITfTextEditSink,
-    ITfDisplayAttributeProvider,
+    ITfDisplayAttributeProvider
 )]
 pub struct UnimTextService {
     pub(crate) thread_mgr: Mutex<Option<ITfThreadMgr>>,
@@ -54,12 +54,7 @@ impl UnimTextService {
 // ── ITfTextInputProcessorEx ──
 
 impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
-    fn ActivateEx(
-        &self,
-        ptim: Option<&ITfThreadMgr>,
-        tid: u32,
-        _dwflags: u32,
-    ) -> Result<()> {
+    fn ActivateEx(&self, ptim: Option<&ITfThreadMgr>, tid: u32, _dwflags: u32) -> Result<()> {
         let thread_mgr = ptim.ok_or(E_INVALIDARG)?;
         self.client_id.store(tid, Ordering::SeqCst);
         *self.thread_mgr.lock().unwrap() = Some(thread_mgr.clone());
@@ -86,9 +81,7 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
                 uVKey: 0x15, // VK_HANGUL
                 uModifiers: 0,
             };
-            let desc_hangul: Vec<u16> = "Toggle Korean/English"
-                .encode_utf16()
-                .collect();
+            let desc_hangul: Vec<u16> = "Toggle Korean/English".encode_utf16().collect();
             let _ = keystroke_mgr.PreserveKey(
                 tid,
                 &crate::globals::UNIM_CLSID,
@@ -100,9 +93,7 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
                 uVKey: 0x19, // VK_HANJA
                 uModifiers: 0,
             };
-            let desc_hanja: Vec<u16> = "Hanja conversion"
-                .encode_utf16()
-                .collect();
+            let desc_hanja: Vec<u16> = "Hanja conversion".encode_utf16().collect();
             let _ = keystroke_mgr.PreserveKey(
                 tid,
                 &crate::globals::UNIM_CLSID,
@@ -170,12 +161,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         Ok(BOOL::from(eaten))
     }
 
-    fn OnKeyDown(
-        &self,
-        pic: Option<&ITfContext>,
-        wparam: WPARAM,
-        _lparam: LPARAM,
-    ) -> Result<BOOL> {
+    fn OnKeyDown(&self, pic: Option<&ITfContext>, wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
         let context = pic.ok_or(E_INVALIDARG)?;
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
@@ -184,7 +170,13 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let comp_sink: ITfCompositionSink = unsafe { self.cast()? };
 
         let eaten = key_handler::handle_key_down(
-            &mut engine, &config, &mut comp_mgr, context, tid, wparam, &comp_sink,
+            &mut engine,
+            &config,
+            &mut comp_mgr,
+            context,
+            tid,
+            wparam,
+            &comp_sink,
         );
         Ok(BOOL::from(eaten))
     }
@@ -198,20 +190,11 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         Ok(FALSE)
     }
 
-    fn OnKeyUp(
-        &self,
-        _pic: Option<&ITfContext>,
-        _wparam: WPARAM,
-        _lparam: LPARAM,
-    ) -> Result<BOOL> {
+    fn OnKeyUp(&self, _pic: Option<&ITfContext>, _wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
         Ok(FALSE)
     }
 
-    fn OnPreservedKey(
-        &self,
-        _pic: Option<&ITfContext>,
-        _rguid: *const GUID,
-    ) -> Result<BOOL> {
+    fn OnPreservedKey(&self, _pic: Option<&ITfContext>, _rguid: *const GUID) -> Result<BOOL> {
         Ok(FALSE)
     }
 }
@@ -233,11 +216,25 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
 // ── ITfThreadMgrEventSink ──
 
 impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
-    fn OnInitDocumentMgr(&self, _pdim: Option<&ITfDocumentMgr>) -> Result<()> { Ok(()) }
-    fn OnUninitDocumentMgr(&self, _pdim: Option<&ITfDocumentMgr>) -> Result<()> { Ok(()) }
-    fn OnSetFocus(&self, _pdimfocus: Option<&ITfDocumentMgr>, _pdimprevfocus: Option<&ITfDocumentMgr>) -> Result<()> { Ok(()) }
-    fn OnPushContext(&self, _pic: Option<&ITfContext>) -> Result<()> { Ok(()) }
-    fn OnPopContext(&self, _pic: Option<&ITfContext>) -> Result<()> { Ok(()) }
+    fn OnInitDocumentMgr(&self, _pdim: Option<&ITfDocumentMgr>) -> Result<()> {
+        Ok(())
+    }
+    fn OnUninitDocumentMgr(&self, _pdim: Option<&ITfDocumentMgr>) -> Result<()> {
+        Ok(())
+    }
+    fn OnSetFocus(
+        &self,
+        _pdimfocus: Option<&ITfDocumentMgr>,
+        _pdimprevfocus: Option<&ITfDocumentMgr>,
+    ) -> Result<()> {
+        Ok(())
+    }
+    fn OnPushContext(&self, _pic: Option<&ITfContext>) -> Result<()> {
+        Ok(())
+    }
+    fn OnPopContext(&self, _pic: Option<&ITfContext>) -> Result<()> {
+        Ok(())
+    }
 }
 
 // ── ITfTextEditSink ──
@@ -263,7 +260,9 @@ impl ITfDisplayAttributeProvider_Impl for UnimTextService_Impl {
 
     fn GetDisplayAttributeInfo(&self, guid: *const GUID) -> Result<ITfDisplayAttributeInfo> {
         unsafe {
-            if guid.is_null() { return Err(E_INVALIDARG.into()); }
+            if guid.is_null() {
+                return Err(E_INVALIDARG.into());
+            }
             let guid = &*guid;
             if *guid == crate::globals::UNIM_DISPLAY_ATTR_INPUT {
                 Ok(crate::display_attr::InputDisplayAttribute::new().into())

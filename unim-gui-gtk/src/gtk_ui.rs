@@ -126,9 +126,7 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                         }
                         GuiAction::HanjaBookmarkChanged { index, bookmarked } => {
                             if hanja_clone.borrow().is_visible() {
-                                hanja_clone
-                                    .borrow_mut()
-                                    .set_bookmark(index, bookmarked);
+                                hanja_clone.borrow_mut().set_bookmark(index, bookmarked);
                             }
                         }
                         GuiAction::HanjaBookmarkStatesFetched { states } => {

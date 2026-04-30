@@ -25,10 +25,7 @@ use super::schema::{KeyLayout, LayoutMetadata, LayoutProfile, LayoutRows};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InheritError {
     /// base 프로필을 네임스페이스에서 찾지 못함.
-    BaseNotFound {
-        child: String,
-        missing_base: String,
-    },
+    BaseNotFound { child: String, missing_base: String },
     /// inherits 체인에서 순환 감지. 감지된 지점까지의 체인 포함.
     Cycle(Vec<String>),
 }
@@ -81,12 +78,12 @@ fn resolve_with_chain(
     };
 
     // base를 네임스페이스에서 찾는다.
-    let base_raw = registry.find_raw(base_name).ok_or_else(|| {
-        InheritError::BaseNotFound {
+    let base_raw = registry
+        .find_raw(base_name)
+        .ok_or_else(|| InheritError::BaseNotFound {
             child: profile.name.clone(),
             missing_base: base_name.clone(),
-        }
-    })?;
+        })?;
 
     // 재귀 해석 — base가 또 inherits를 가질 수 있음.
     chain.push(profile.name.clone());
@@ -159,10 +156,26 @@ fn merge_layout(base: KeyLayout, child: KeyLayout) -> KeyLayout {
 /// "모든 키가 없는 행"이란 의미가 없으므로 empty = not specified로 간주한다.
 fn merge_rows(base: LayoutRows, child: LayoutRows) -> LayoutRows {
     LayoutRows {
-        row1: if child.row1.is_empty() { base.row1 } else { child.row1 },
-        row2: if child.row2.is_empty() { base.row2 } else { child.row2 },
-        row3: if child.row3.is_empty() { base.row3 } else { child.row3 },
-        row4: if child.row4.is_empty() { base.row4 } else { child.row4 },
+        row1: if child.row1.is_empty() {
+            base.row1
+        } else {
+            child.row1
+        },
+        row2: if child.row2.is_empty() {
+            base.row2
+        } else {
+            child.row2
+        },
+        row3: if child.row3.is_empty() {
+            base.row3
+        } else {
+            child.row3
+        },
+        row4: if child.row4.is_empty() {
+            base.row4
+        } else {
+            child.row4
+        },
     }
 }
 
@@ -283,9 +296,15 @@ mod tests {
         let child = reg.find_raw("row_child").unwrap();
         let merged = resolve(&child, &reg).unwrap();
         // child가 덮어쓴 행
-        assert_eq!(merged.layout.lower.row2, vec!["X".to_string(), "Y".to_string()]);
+        assert_eq!(
+            merged.layout.lower.row2,
+            vec!["X".to_string(), "Y".to_string()]
+        );
         // base에서 상속된 행 (child가 비움 = 유지)
-        assert_eq!(merged.layout.upper.row2, vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(
+            merged.layout.upper.row2,
+            vec!["A".to_string(), "B".to_string()]
+        );
         assert_eq!(merged.layout.lower.row3, vec!["c".to_string()]);
         // inherits는 해석 완료 후 None
         assert!(merged.inherits.is_none());

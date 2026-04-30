@@ -1,8 +1,8 @@
 //! Display Attributes — preedit 밑줄 스타일링
 
+use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::TextServices::*;
-use windows::core::*;
 
 use crate::globals;
 
@@ -12,7 +12,9 @@ use crate::globals;
 pub struct InputDisplayAttribute;
 
 impl InputDisplayAttribute {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl ITfDisplayAttributeInfo_Impl for InputDisplayAttribute_Impl {
@@ -38,7 +40,9 @@ impl ITfDisplayAttributeInfo_Impl for InputDisplayAttribute_Impl {
                     },
                     crLine: TF_DA_COLOR {
                         r#type: TF_DA_COLORTYPE(2),
-                        Anonymous: TF_DA_COLOR_0 { cr: COLORREF(0x00C86400) },
+                        Anonymous: TF_DA_COLOR_0 {
+                            cr: COLORREF(0x00C86400),
+                        },
                     },
                     lsStyle: TF_DA_LINESTYLE(1), // TF_LS_SOLID
                     fBoldLine: FALSE,
@@ -49,8 +53,12 @@ impl ITfDisplayAttributeInfo_Impl for InputDisplayAttribute_Impl {
         Ok(())
     }
 
-    fn SetAttributeInfo(&self, _pda: *const TF_DISPLAYATTRIBUTE) -> Result<()> { Ok(()) }
-    fn Reset(&self) -> Result<()> { Ok(()) }
+    fn SetAttributeInfo(&self, _pda: *const TF_DISPLAYATTRIBUTE) -> Result<()> {
+        Ok(())
+    }
+    fn Reset(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 // ── Converted (변환 완료) 디스플레이 속성 ──
@@ -59,7 +67,9 @@ impl ITfDisplayAttributeInfo_Impl for InputDisplayAttribute_Impl {
 pub struct ConvertedDisplayAttribute;
 
 impl ConvertedDisplayAttribute {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl ITfDisplayAttributeInfo_Impl for ConvertedDisplayAttribute_Impl {
@@ -81,7 +91,9 @@ impl ITfDisplayAttributeInfo_Impl for ConvertedDisplayAttribute_Impl {
                     },
                     crBk: TF_DA_COLOR {
                         r#type: TF_DA_COLORTYPE(2),
-                        Anonymous: TF_DA_COLOR_0 { cr: COLORREF(0x00FFFF00) },
+                        Anonymous: TF_DA_COLOR_0 {
+                            cr: COLORREF(0x00FFFF00),
+                        },
                     },
                     crLine: TF_DA_COLOR {
                         r#type: TF_DA_COLORTYPE(0),
@@ -96,8 +108,12 @@ impl ITfDisplayAttributeInfo_Impl for ConvertedDisplayAttribute_Impl {
         Ok(())
     }
 
-    fn SetAttributeInfo(&self, _pda: *const TF_DISPLAYATTRIBUTE) -> Result<()> { Ok(()) }
-    fn Reset(&self) -> Result<()> { Ok(()) }
+    fn SetAttributeInfo(&self, _pda: *const TF_DISPLAYATTRIBUTE) -> Result<()> {
+        Ok(())
+    }
+    fn Reset(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 // ── Display Attribute 열거자 ──
@@ -109,7 +125,9 @@ pub struct DisplayAttributeEnum {
 
 impl DisplayAttributeEnum {
     pub fn new() -> Self {
-        Self { index: std::sync::Mutex::new(0) }
+        Self {
+            index: std::sync::Mutex::new(0),
+        }
     }
 }
 
@@ -149,7 +167,11 @@ impl IEnumTfDisplayAttributeInfo_Impl for DisplayAttributeEnum_Impl {
                 *pcfetched = fetched;
             }
 
-            if fetched == ulcount { Ok(()) } else { Err(S_FALSE.into()) }
+            if fetched == ulcount {
+                Ok(())
+            } else {
+                Err(S_FALSE.into())
+            }
         }
     }
 

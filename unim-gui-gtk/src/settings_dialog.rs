@@ -14,12 +14,11 @@ use libadwaita::prelude::*;
 use rust_i18n::t;
 
 use unim::config::{
-    Config, InputCategory, ModeSharingMode, PopupMode,
-    AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
-    AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
-    AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
-    AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
-    AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
+    Config, InputCategory, ModeSharingMode, PopupMode, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
+    AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
+    AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
+    AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
+    AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
 use unim::keystroke::profile::{resolve_inherits, LayoutProfile, ProfileRegistry};
 use unim::typefix_blacklist::{Blacklist, Direction, EntryStatus};
@@ -300,9 +299,11 @@ impl RuleSetsHandle {
         let profile_default: Option<&Vec<String>> = profile.active_rule_sets.as_ref();
 
         if profile.rule_sets.is_empty() {
-            self.group.set_description(Some(&t!("group_layout_options_empty")));
+            self.group
+                .set_description(Some(&t!("group_layout_options_empty")));
         } else {
-            self.group.set_description(Some(&t!("group_layout_options_title")));
+            self.group
+                .set_description(Some(&t!("group_layout_options_title")));
         }
 
         // 현재 GUI에 표시 중인 활성 집합을 미리 계산 — 첫 토글 시
@@ -394,7 +395,9 @@ fn build_rule_sets_group() -> RuleSetsHandle {
 }
 
 fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title(t!("group_layouts_keymap")).build();
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_layouts_keymap"))
+        .build();
 
     // 한국어 자판 — 내장 + 사용자 프로필 통합
     let kor_row = adw::ComboRow::builder()
@@ -563,7 +566,9 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
 }
 
 fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title(t!("group_input_mode")).build();
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_input_mode"))
+        .build();
 
     // 초기 입력 모드
     let init_row = adw::ComboRow::builder()
@@ -571,7 +576,8 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
         .subtitle(t!("row_initial_mode_subtitle"))
         .build();
     init_row.set_tooltip_text(Some(t!("row_initial_mode_tooltip").as_ref()));
-    let init_list = gtk4::StringList::new(&[t!("mode_english").as_ref(), t!("mode_korean").as_ref()]);
+    let init_list =
+        gtk4::StringList::new(&[t!("mode_english").as_ref(), t!("mode_korean").as_ref()]);
     init_row.set_model(Some(&init_list));
     {
         let s = state.borrow();
@@ -603,7 +609,10 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
         .subtitle(t!("row_mode_sharing_subtitle"))
         .build();
     share_row.set_tooltip_text(Some(t!("row_mode_sharing_tooltip").as_ref()));
-    let share_list = gtk4::StringList::new(&[t!("mode_share_global").as_ref(), t!("mode_share_perapp").as_ref()]);
+    let share_list = gtk4::StringList::new(&[
+        t!("mode_share_global").as_ref(),
+        t!("mode_share_perapp").as_ref(),
+    ]);
     share_row.set_model(Some(&share_list));
     {
         let s = state.borrow();
@@ -635,7 +644,10 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
         .subtitle(t!("row_popup_mode_subtitle"))
         .build();
     popup_row.set_tooltip_text(Some(t!("row_popup_mode_tooltip").as_ref()));
-    let popup_list = gtk4::StringList::new(&[t!("popup_mode_standalone").as_ref(), t!("popup_mode_embedded").as_ref()]);
+    let popup_list = gtk4::StringList::new(&[
+        t!("popup_mode_standalone").as_ref(),
+        t!("popup_mode_embedded").as_ref(),
+    ]);
     popup_row.set_model(Some(&popup_list));
     {
         let s = state.borrow();
@@ -870,7 +882,12 @@ fn build_forward_group(state: &State) -> adw::PreferencesGroup {
     group.add(&fwd_sw);
 
     // 임계 음절 수
-    let init_kor = state.borrow().config.engine.auto_typefix.kor_syllable_threshold as i32;
+    let init_kor = state
+        .borrow()
+        .config
+        .engine
+        .auto_typefix
+        .kor_syllable_threshold as i32;
     let kor_row = build_int_scale_row(
         state,
         &t!("row_typefix_kor_threshold"),
@@ -951,7 +968,12 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
     group.add(&rev_sw);
 
     // 임계 글자 수
-    let init_eng = state.borrow().config.engine.auto_typefix.eng_word_min_length as i32;
+    let init_eng = state
+        .borrow()
+        .config
+        .engine
+        .auto_typefix
+        .eng_word_min_length as i32;
     let eng_row = build_int_scale_row(
         state,
         &t!("row_typefix_eng_threshold"),
@@ -1078,7 +1100,12 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     group.add(&rollback_sw);
 
     // 관찰 창 (초)
-    let init_obs = state.borrow().config.engine.auto_typefix.observation_timeout_secs as i32;
+    let init_obs = state
+        .borrow()
+        .config
+        .engine
+        .auto_typefix
+        .observation_timeout_secs as i32;
     let obs_row = build_int_scale_row(
         state,
         &t!("row_typefix_observe_window"),
@@ -1093,7 +1120,12 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     group.add(&obs_row);
 
     // 임시 억제 만료 (시간)
-    let init_exp = state.borrow().config.engine.auto_typefix.tentative_expiry_hours as i32;
+    let init_exp = state
+        .borrow()
+        .config
+        .engine
+        .auto_typefix
+        .tentative_expiry_hours as i32;
     let exp_row = build_int_scale_row(
         state,
         &t!("row_typefix_tentative_expiry"),
@@ -1146,7 +1178,9 @@ fn build_gnome_page(_window: &adw::PreferencesWindow) -> Option<adw::Preferences
         .build();
 
     // 표시
-    let disp = adw::PreferencesGroup::builder().title(t!("group_display")).build();
+    let disp = adw::PreferencesGroup::builder()
+        .title(t!("group_display"))
+        .build();
 
     let panel_row = adw::SwitchRow::builder()
         .title(t!("row_panel_indicator"))
@@ -1291,9 +1325,15 @@ fn build_blacklist_page() -> adw::PreferencesPage {
         .icon_name("edit-clear-all-symbolic")
         .build();
 
-    let tentative_group = adw::PreferencesGroup::builder().title(t!("blacklist_group_tentative")).build();
-    let confirmed_group = adw::PreferencesGroup::builder().title(t!("blacklist_group_confirmed")).build();
-    let inactive_group = adw::PreferencesGroup::builder().title(t!("blacklist_group_inactive")).build();
+    let tentative_group = adw::PreferencesGroup::builder()
+        .title(t!("blacklist_group_tentative"))
+        .build();
+    let confirmed_group = adw::PreferencesGroup::builder()
+        .title(t!("blacklist_group_confirmed"))
+        .build();
+    let inactive_group = adw::PreferencesGroup::builder()
+        .title(t!("blacklist_group_inactive"))
+        .build();
     page.add(&tentative_group);
     page.add(&confirmed_group);
     page.add(&inactive_group);
@@ -1406,15 +1446,22 @@ fn refill_blacklist_groups(refs: &Rc<BlacklistPageRefs>) {
         refs.inactive_rows.borrow_mut().push(row.upcast());
     }
 
-    refs.tentative_group.set_description(Some(t!("blacklist_tentative_desc", count = t_count.to_string()).as_ref()));
-    refs.confirmed_group
-        .set_description(Some(t!("blacklist_confirmed_desc", count = c_count.to_string()).as_ref()));
-    refs.inactive_group
-        .set_description(Some(t!("blacklist_inactive_desc", count = i_count.to_string()).as_ref()));
+    refs.tentative_group.set_description(Some(
+        t!("blacklist_tentative_desc", count = t_count.to_string()).as_ref(),
+    ));
+    refs.confirmed_group.set_description(Some(
+        t!("blacklist_confirmed_desc", count = c_count.to_string()).as_ref(),
+    ));
+    refs.inactive_group.set_description(Some(
+        t!("blacklist_inactive_desc", count = i_count.to_string()).as_ref(),
+    ));
 }
 
 fn empty_placeholder_row(text: &str) -> adw::ActionRow {
-    adw::ActionRow::builder().title(text).sensitive(false).build()
+    adw::ActionRow::builder()
+        .title(text)
+        .sensitive(false)
+        .build()
 }
 
 #[derive(Clone, Copy)]
@@ -1434,11 +1481,8 @@ fn build_blacklist_row(
     // 역방향: ASCII가 영단어(예: "wood") → eng_to_kor 하면 사용자가 Korean 모드에서 본
     //         자모 조합(예: "ㅊㅊ"/세벌식390)이 나온다.
     // 순방향: ASCII가 영어 타이핑(예: "gksrmf") → eng_to_kor 하면 의도한 한글(예: "한글").
-    let hangul_form = unim::typefix::eng_to_kor(
-        &entry.ascii,
-        &entry.korean_layout,
-        &entry.english_layout,
-    );
+    let hangul_form =
+        unim::typefix::eng_to_kor(&entry.ascii, &entry.korean_layout, &entry.english_layout);
 
     // 방향별 주/부 표시 규칙:
     // - 역방향(한→영): 주 = 한글(사용자가 친 실제 모습), 부 = 영어(저장된 ASCII)
@@ -1742,7 +1786,11 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
         .transient_for(&refs.window)
         .modal(true)
         .title({
-            let s = if is_edit { t!("userdict_dialog_edit_title") } else { t!("userdict_btn_add_tooltip") };
+            let s = if is_edit {
+                t!("userdict_dialog_edit_title")
+            } else {
+                t!("userdict_btn_add_tooltip")
+            };
             s.into_owned()
         })
         .default_width(420)
@@ -1760,8 +1808,12 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
     content.set_margin_end(18);
 
     let group = adw::PreferencesGroup::new();
-    let word_row = adw::EntryRow::builder().title(t!("userdict_dialog_field_word")).build();
-    let note_row = adw::EntryRow::builder().title(t!("userdict_dialog_field_desc")).build();
+    let word_row = adw::EntryRow::builder()
+        .title(t!("userdict_dialog_field_word"))
+        .build();
+    let note_row = adw::EntryRow::builder()
+        .title(t!("userdict_dialog_field_desc"))
+        .build();
 
     // 기존 엔트리 로드
     if let Some(idx) = edit_idx {
@@ -1781,7 +1833,11 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
     let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     btn_box.set_halign(gtk4::Align::End);
     let cancel_btn = gtk4::Button::with_label(&t!("common_cancel"));
-    let save_label = if is_edit { t!("common_save") } else { t!("common_add") };
+    let save_label = if is_edit {
+        t!("common_save")
+    } else {
+        t!("common_add")
+    };
     let save_btn = gtk4::Button::with_label(save_label.as_ref());
     save_btn.add_css_class("suggested-action");
     btn_box.append(&cancel_btn);
@@ -1822,7 +1878,11 @@ fn show_userdict_edit_dialog(refs: &Rc<UserDictPageRefs>, edit_idx: Option<usize
             }
             match ud.save_to_default_path() {
                 Ok(_) => {
-                    let toast_msg = if is_edit { t!("settings_toast_saved") } else { t!("settings_toast_added") };
+                    let toast_msg = if is_edit {
+                        t!("settings_toast_saved")
+                    } else {
+                        t!("settings_toast_added")
+                    };
                     show_toast(toast_msg.as_ref());
                     refill_userdict_group(&refs_c);
                     dialog_c.close();

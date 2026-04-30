@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use windows::Win32::UI::TextServices::*;
 use windows::core::*;
+use windows::Win32::UI::TextServices::*;
 
 /// 조합 상태 관리자
 pub struct CompositionManager {
@@ -19,8 +19,12 @@ impl CompositionManager {
         }
     }
 
-    pub fn is_active(&self) -> bool { self.composition.is_some() }
-    pub fn clear(&mut self) { self.composition = None; }
+    pub fn is_active(&self) -> bool {
+        self.composition.is_some()
+    }
+    pub fn clear(&mut self) {
+        self.composition = None;
+    }
 
     pub fn start_composition(
         &mut self,
@@ -57,7 +61,8 @@ impl CompositionManager {
             };
             let session_intf: ITfEditSession = session.into();
             unsafe {
-                let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+                let _ =
+                    context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
             }
         }
     }
@@ -70,7 +75,8 @@ impl CompositionManager {
             };
             let session_intf: ITfEditSession = session.into();
             unsafe {
-                let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+                let _ =
+                    context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
             }
         }
         self.composition = None;
@@ -84,7 +90,8 @@ impl CompositionManager {
             };
             let session_intf: ITfEditSession = session.into();
             unsafe {
-                let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+                let _ =
+                    context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
             }
         }
         self.composition = None;

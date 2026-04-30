@@ -109,7 +109,10 @@ impl KeystrokeBuffer {
     pub fn to_ascii_string(&self, english_layout: &str) -> String {
         let mut s = String::with_capacity(self.entries.len());
         for entry in &self.entries {
-            if let Some(c) = entry.keycode.to_char_for_layout(english_layout, entry.modifier.shift) {
+            if let Some(c) = entry
+                .keycode
+                .to_char_for_layout(english_layout, entry.modifier.shift)
+            {
                 s.push(c);
             }
         }
@@ -222,7 +225,8 @@ pub fn check_forward(
         let partial_ascii: String = entries[..i]
             .iter()
             .filter_map(|e| {
-                e.keycode.to_char_for_layout(english_layout, e.modifier.shift)
+                e.keycode
+                    .to_char_for_layout(english_layout, e.modifier.shift)
             })
             .collect();
         if partial_ascii.is_empty() {
@@ -315,10 +319,7 @@ pub fn check_reverse(
     //
     // 사용자 사전 단어도 이 검사는 유지: 자연스러운 한글 문장 타이핑 중
     // 의도치 않은 교정을 막기 위함.
-    if config.skip_on_complete_syllable
-        && !buffer.has_preedit
-        && buffer.committed_chars > 0
-    {
+    if config.skip_on_complete_syllable && !buffer.has_preedit && buffer.committed_chars > 0 {
         return None;
     }
 
@@ -330,8 +331,7 @@ pub fn check_reverse(
     }
 
     // 화면에 있는 글자 수 = committed 한글 음절 + preedit(있으면 1)
-    let screen_chars = buffer.committed_chars as u32
-        + if buffer.has_preedit { 1 } else { 0 };
+    let screen_chars = buffer.committed_chars as u32 + if buffer.has_preedit { 1 } else { 0 };
 
     if screen_chars == 0 {
         return None;
@@ -398,9 +398,9 @@ mod tests {
     fn test_count_korean_syllables() {
         assert_eq!(count_korean_syllables("한글"), 2);
         assert_eq!(count_korean_syllables("안녕하세요"), 5);
-        assert_eq!(count_korean_syllables("ㅎ"), 0);       // 독립 자음
-        assert_eq!(count_korean_syllables("ㅏ"), 0);       // 독립 모음
-        assert_eq!(count_korean_syllables("한ㄱ"), 1);     // 1음절 + 독립 자음
+        assert_eq!(count_korean_syllables("ㅎ"), 0); // 독립 자음
+        assert_eq!(count_korean_syllables("ㅏ"), 0); // 독립 모음
+        assert_eq!(count_korean_syllables("한ㄱ"), 1); // 1음절 + 독립 자음
         assert_eq!(count_korean_syllables(""), 0);
     }
 
@@ -420,7 +420,10 @@ mod tests {
     #[test]
     fn test_keystroke_buffer_shift() {
         let mut buf = KeystrokeBuffer::new();
-        let shifted = ModifierState { shift: true, ..Default::default() };
+        let shifted = ModifierState {
+            shift: true,
+            ..Default::default()
+        };
         buf.push(KeyCode::A, shifted);
         assert_eq!(buf.to_ascii_string("qwerty"), "A");
     }
@@ -429,7 +432,14 @@ mod tests {
     fn test_forward_gksrmf() {
         // "gksrmf" → "한글" (2음절)
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+        for key in [
+            KeyCode::G,
+            KeyCode::K,
+            KeyCode::S,
+            KeyCode::R,
+            KeyCode::M,
+            KeyCode::F,
+        ] {
             buf.push(key, ModifierState::default());
         }
 
@@ -523,7 +533,14 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "qwerty",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -547,7 +564,14 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "qwerty",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(result.is_none());
     }
 
@@ -555,13 +579,27 @@ mod tests {
     fn test_reverse_not_in_dictionary() {
         // "gksrmf" — 사전에 없음
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+        for key in [
+            KeyCode::G,
+            KeyCode::K,
+            KeyCode::S,
+            KeyCode::R,
+            KeyCode::M,
+            KeyCode::F,
+        ] {
             buf.push(key, ModifierState::default());
         }
         buf.committed_chars = 2;
 
         let config = AutoTypeFixConfig::default();
-        let result = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "qwerty",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(result.is_none());
     }
 
@@ -584,7 +622,10 @@ mod tests {
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.corrected, "서기");
-        assert_eq!(r.commit_text, "서", "받침 분리: commit은 '서'여야 함 ('석' 아님)");
+        assert_eq!(
+            r.commit_text, "서",
+            "받침 분리: commit은 '서'여야 함 ('석' 아님)"
+        );
         // replay는 [R, L] — ㄱ+ㅣ=기 재생성 가능해야 함 ([L]만이면 ㅣ만 나옴)
         assert_eq!(r.replay_keys.len(), 2, "replay는 [R, L] 2개여야 함");
         assert_eq!(r.replay_keys[0].0, KeyCode::R);
@@ -595,7 +636,15 @@ mod tests {
     fn test_forward_incomplete_syllable_skip_3set() {
         // "preedit" 세벌식 → 중간에 독립 자모가 끼어 트리거 안 됨
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::P, KeyCode::R, KeyCode::E, KeyCode::E, KeyCode::D, KeyCode::I, KeyCode::T] {
+        for key in [
+            KeyCode::P,
+            KeyCode::R,
+            KeyCode::E,
+            KeyCode::E,
+            KeyCode::D,
+            KeyCode::I,
+            KeyCode::T,
+        ] {
             buf.push(key, ModifierState::default());
         }
 
@@ -605,14 +654,25 @@ mod tests {
         };
 
         let result = check_forward(&buf, &config, "ko_3bul390", "qwerty", &empty_bl());
-        assert!(result.is_none(), "세벌식: 중간에 독립 자모가 있으면 트리거하면 안 됨");
+        assert!(
+            result.is_none(),
+            "세벌식: 중간에 독립 자모가 있으면 트리거하면 안 됨"
+        );
     }
 
     #[test]
     fn test_forward_incomplete_syllable_skip_2set() {
         // "preedit" 두벌식 → 중간에 독립 자모가 끼면 트리거 안 됨
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::P, KeyCode::R, KeyCode::E, KeyCode::E, KeyCode::D, KeyCode::I, KeyCode::T] {
+        for key in [
+            KeyCode::P,
+            KeyCode::R,
+            KeyCode::E,
+            KeyCode::E,
+            KeyCode::D,
+            KeyCode::I,
+            KeyCode::T,
+        ] {
             buf.push(key, ModifierState::default());
         }
 
@@ -627,12 +687,17 @@ mod tests {
         let converted = crate::typefix::eng_to_kor(ascii, "ko_2bulstd", "qwerty");
         let chars: Vec<char> = converted.chars().collect();
         let all_complete = chars.len() <= 1
-            || chars[..chars.len() - 1].iter().all(|c| ('\u{AC00}'..='\u{D7A3}').contains(c));
+            || chars[..chars.len() - 1]
+                .iter()
+                .all(|c| ('\u{AC00}'..='\u{D7A3}').contains(c));
         if all_complete {
             // 두벌식에서 모두 완성 음절이면 트리거될 수 있음 — 그건 정상
             assert!(result.is_some() || result.is_none());
         } else {
-            assert!(result.is_none(), "두벌식: 중간에 독립 자모가 있으면 트리거하면 안 됨");
+            assert!(
+                result.is_none(),
+                "두벌식: 중간에 독립 자모가 있으면 트리거하면 안 됨"
+            );
         }
     }
 
@@ -675,7 +740,10 @@ mod tests {
     fn test_to_ascii_string_shift_mixed() {
         // Shift+S → Qwerty "S", Dvorak "O"
         let mut buf = KeystrokeBuffer::new();
-        let shifted = ModifierState { shift: true, ..Default::default() };
+        let shifted = ModifierState {
+            shift: true,
+            ..Default::default()
+        };
         buf.push(KeyCode::S, shifted);
         assert_eq!(buf.to_ascii_string("qwerty"), "S");
         assert_eq!(buf.to_ascii_string("dvorak"), "O");
@@ -688,7 +756,14 @@ mod tests {
         // 물리키 [G, K, S, R, M, F] → Qwerty "gksrmf" → "한글"
         // 같은 물리키 → Dvorak "itopmf" → eng_to_kor(Dvorak) → "한글"
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+        for key in [
+            KeyCode::G,
+            KeyCode::K,
+            KeyCode::S,
+            KeyCode::R,
+            KeyCode::M,
+            KeyCode::F,
+        ] {
             buf.push(key, ModifierState::default());
         }
 
@@ -736,7 +811,14 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, "ko_2bulstd", "dvorak", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "dvorak",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(result.is_some(), "Dvorak reverse should find 'hello'");
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -750,7 +832,13 @@ mod tests {
         // Semicolon은 is_character_key()=true이므로 push 가능
         // Colemak에서 Semicolon(2,9) → 'o'
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::H, KeyCode::K, KeyCode::U, KeyCode::U, KeyCode::Semicolon] {
+        for key in [
+            KeyCode::H,
+            KeyCode::K,
+            KeyCode::U,
+            KeyCode::U,
+            KeyCode::Semicolon,
+        ] {
             buf.push(key, ModifierState::default());
         }
         assert_eq!(buf.len(), 5, "Semicolon should be accepted by push");
@@ -764,7 +852,14 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, "ko_2bulstd", "colemak", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "colemak",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(result.is_some(), "Colemak reverse should find 'hello'");
         let r = result.unwrap();
         assert_eq!(r.corrected, "hello");
@@ -792,16 +887,33 @@ mod tests {
         };
 
         // Qwerty: "hello" → 사전에 있음
-        let result_qwerty = check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict);
+        let result_qwerty = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "qwerty",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(result_qwerty.is_some());
         assert_eq!(result_qwerty.unwrap().corrected, "hello");
 
         // Dvorak: 같은 물리키지만 다른 문자열 → 사전에 없을 가능성 높음
-        let result_dvorak = check_reverse(&buf, &config, "ko_2bulstd", "dvorak", &empty_bl(), &EmptyUserDict);
+        let result_dvorak = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "dvorak",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         // E(1,2) in Dvorak = '.' → not alpha, push may fail
         // 실제로는 buf는 이미 만들어졌으므로, to_ascii_string 결과가 다름
         if let Some(r) = result_dvorak {
-            assert_ne!(r.corrected, "hello", "같은 물리키가 Dvorak에서는 다른 단어여야 함");
+            assert_ne!(
+                r.corrected, "hello",
+                "같은 물리키가 Dvorak에서는 다른 단어여야 함"
+            );
         }
         // result_dvorak이 None이면 — 비알파벳 문자 포함으로 사전 매칭 실패 → 정상
     }
@@ -828,7 +940,14 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        let result = check_reverse(&buf, &config, "ko_2bulstd", "workman", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "workman",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(result.is_some(), "Workman reverse should find 'world'");
         assert_eq!(result.unwrap().corrected, "world");
     }
@@ -897,9 +1016,7 @@ mod tests {
             skip_on_english_word: true,
             ..AutoTypeFixConfig::default()
         };
-        assert!(
-            check_forward(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl()).is_none()
-        );
+        assert!(check_forward(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl()).is_none());
     }
 
     #[test]
@@ -919,7 +1036,15 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
         assert!(
-            check_reverse(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict).is_none(),
+            check_reverse(
+                &buf,
+                &on,
+                "ko_2bulstd",
+                "qwerty",
+                &empty_bl(),
+                &EmptyUserDict
+            )
+            .is_none(),
             "모두 완성 음절(preedit 없음)이면 ON에서 억제되어야 함"
         );
     }
@@ -940,7 +1065,14 @@ mod tests {
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
             ..AutoTypeFixConfig::default()
         };
-        let result = check_reverse(&buf, &off, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &off,
+            "ko_2bulstd",
+            "qwerty",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(
             result.is_some(),
             "skip_on_complete_syllable=false 이면 완성 음절이어도 트리거되어야 함"
@@ -965,7 +1097,14 @@ mod tests {
             // 기존 테스트는 사전 hit 즉시 발화하는 종전 동작을 가정한다.
             ..AutoTypeFixConfig::default()
         };
-        let result = check_reverse(&buf, &on, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict);
+        let result = check_reverse(
+            &buf,
+            &on,
+            "ko_2bulstd",
+            "qwerty",
+            &empty_bl(),
+            &EmptyUserDict,
+        );
         assert!(
             result.is_some(),
             "preedit이 있으면 complete-syllable skip 토글이 ON이어도 억제되지 않아야 함"
@@ -978,7 +1117,14 @@ mod tests {
     fn forward_suppressed_by_tentative_blacklist() {
         // "gksrmf" → "한글" 이 평상시엔 트리거되지만, blacklist에 tentative로 있으면 None.
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+        for key in [
+            KeyCode::G,
+            KeyCode::K,
+            KeyCode::S,
+            KeyCode::R,
+            KeyCode::M,
+            KeyCode::F,
+        ] {
             buf.push(key, ModifierState::default());
         }
         let config = AutoTypeFixConfig::default();
@@ -987,13 +1133,23 @@ mod tests {
         bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
 
         let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &bl);
-        assert!(result.is_none(), "tentative blacklist 엔트리는 forward를 억제해야 함");
+        assert!(
+            result.is_none(),
+            "tentative blacklist 엔트리는 forward를 억제해야 함"
+        );
     }
 
     #[test]
     fn forward_suppressed_by_confirmed_blacklist() {
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+        for key in [
+            KeyCode::G,
+            KeyCode::K,
+            KeyCode::S,
+            KeyCode::R,
+            KeyCode::M,
+            KeyCode::F,
+        ] {
             buf.push(key, ModifierState::default());
         }
         let config = AutoTypeFixConfig::default();
@@ -1003,14 +1159,24 @@ mod tests {
         bl.promote_to_confirmed(0);
 
         let result = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &bl);
-        assert!(result.is_none(), "confirmed blacklist 엔트리는 forward를 억제해야 함");
+        assert!(
+            result.is_none(),
+            "confirmed blacklist 엔트리는 forward를 억제해야 함"
+        );
     }
 
     #[test]
     fn forward_not_suppressed_by_inactive_blacklist() {
         // inactive 상태는 기록만 남고 억제 효과 없음.
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+        for key in [
+            KeyCode::G,
+            KeyCode::K,
+            KeyCode::S,
+            KeyCode::R,
+            KeyCode::M,
+            KeyCode::F,
+        ] {
             buf.push(key, ModifierState::default());
         }
         let config = AutoTypeFixConfig::default();
@@ -1028,7 +1194,14 @@ mod tests {
     fn forward_layout_mismatch_not_suppressed() {
         // blacklist는 Qwerty 기준, 검사는 Dvorak → 매칭 안 됨.
         let mut buf = KeystrokeBuffer::new();
-        for key in [KeyCode::G, KeyCode::K, KeyCode::S, KeyCode::R, KeyCode::M, KeyCode::F] {
+        for key in [
+            KeyCode::G,
+            KeyCode::K,
+            KeyCode::S,
+            KeyCode::R,
+            KeyCode::M,
+            KeyCode::F,
+        ] {
             buf.push(key, ModifierState::default());
         }
         let config = AutoTypeFixConfig::default();
@@ -1099,12 +1272,7 @@ mod tests {
         );
 
         // 3) 롤백(BS+모드전환) 감지 후 blacklist 등록
-        bl.add_or_hit_tentative(
-            &suppression_key,
-            Direction::Reverse,
-            "ko_2bulstd",
-            "qwerty",
-        );
+        bl.add_or_hit_tentative(&suppression_key, Direction::Reverse, "ko_2bulstd", "qwerty");
 
         // 4) 동일 입력 재발생 → 이번에는 억제되어야 함
         let mut buf2 = KeystrokeBuffer::new();
@@ -1114,8 +1282,7 @@ mod tests {
         buf2.committed_chars = 3;
         buf2.has_preedit = true;
 
-        let result2 =
-            check_reverse(&buf2, &config, "ko_2bulstd", "qwerty", &bl, &EmptyUserDict);
+        let result2 = check_reverse(&buf2, &config, "ko_2bulstd", "qwerty", &bl, &EmptyUserDict);
         assert!(
             result2.is_none(),
             "역방향 롤백 학습 후 같은 단어 재입력은 억제되어야 함"
@@ -1166,7 +1333,15 @@ mod tests {
         };
 
         assert!(
-            check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict).is_none(),
+            check_reverse(
+                &buf,
+                &config,
+                "ko_2bulstd",
+                "qwerty",
+                &empty_bl(),
+                &EmptyUserDict
+            )
+            .is_none(),
             "user dict 미등록 시 길이 미달이면 억제"
         );
 
@@ -1195,10 +1370,19 @@ mod tests {
             ..AutoTypeFixConfig::default()
         };
 
-        assert!(!dictionary_contains("rustc"), "전제: 내장 사전에 'rustc' 없음");
         assert!(
-            check_reverse(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl(), &EmptyUserDict).is_none()
+            !dictionary_contains("rustc"),
+            "전제: 내장 사전에 'rustc' 없음"
         );
+        assert!(check_reverse(
+            &buf,
+            &config,
+            "ko_2bulstd",
+            "qwerty",
+            &empty_bl(),
+            &EmptyUserDict
+        )
+        .is_none());
 
         let mut ud = UserDictionary::default();
         ud.add("rustc", None);

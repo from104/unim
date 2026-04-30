@@ -273,13 +273,7 @@ impl Blacklist {
     }
 
     /// 해당 입력이 **활성** 억제 대상인지 확인.
-    pub fn is_suppressed(
-        &self,
-        ascii: &str,
-        direction: Direction,
-        kl: &str,
-        el: &str,
-    ) -> bool {
+    pub fn is_suppressed(&self, ascii: &str, direction: Direction, kl: &str, el: &str) -> bool {
         self.entries.iter().any(|e| {
             e.status.is_active()
                 && e.direction == direction
@@ -289,13 +283,7 @@ impl Blacklist {
         })
     }
 
-    fn find_idx(
-        &self,
-        ascii: &str,
-        direction: Direction,
-        kl: &str,
-        el: &str,
-    ) -> Option<usize> {
+    fn find_idx(&self, ascii: &str, direction: Direction, kl: &str, el: &str) -> Option<usize> {
         self.entries.iter().position(|e| {
             e.direction == direction
                 && e.korean_layout == kl
@@ -306,13 +294,7 @@ impl Blacklist {
 
     /// tentative 엔트리 추가. 이미 있으면 hit_count 증가 + last_seen_at 갱신.
     /// 기존 엔트리가 Inactive이면 Tentative로 되살린다 (observed_at은 현재 시각으로 리셋).
-    pub fn add_or_hit_tentative(
-        &mut self,
-        ascii: &str,
-        direction: Direction,
-        kl: &str,
-        el: &str,
-    ) {
+    pub fn add_or_hit_tentative(&mut self, ascii: &str, direction: Direction, kl: &str, el: &str) {
         let now = now_unix();
         match self.find_idx(ascii, direction, kl, el) {
             Some(idx) => {
@@ -411,9 +393,12 @@ mod tests {
     #[test]
     fn is_suppressed_active_states() {
         let mut bl = Blacklist::default();
-        bl.entries.push(sample_entry("gksrmf", EntryStatus::Tentative, 0));
-        bl.entries.push(sample_entry("world", EntryStatus::Confirmed, 0));
-        bl.entries.push(sample_entry("inactive", EntryStatus::Inactive, 0));
+        bl.entries
+            .push(sample_entry("gksrmf", EntryStatus::Tentative, 0));
+        bl.entries
+            .push(sample_entry("world", EntryStatus::Confirmed, 0));
+        bl.entries
+            .push(sample_entry("inactive", EntryStatus::Inactive, 0));
 
         assert!(bl.is_suppressed("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty"));
         assert!(bl.is_suppressed("world", Direction::Forward, "ko_2bulstd", "qwerty"));
@@ -444,7 +429,8 @@ mod tests {
     #[test]
     fn add_or_hit_revives_inactive() {
         let mut bl = Blacklist::default();
-        bl.entries.push(sample_entry("gksrmf", EntryStatus::Inactive, 0));
+        bl.entries
+            .push(sample_entry("gksrmf", EntryStatus::Inactive, 0));
         bl.add_or_hit_tentative("gksrmf", Direction::Forward, "ko_2bulstd", "qwerty");
         assert_eq!(bl.entries.len(), 1);
         assert_eq!(bl.entries[0].status, EntryStatus::Tentative);
@@ -456,11 +442,23 @@ mod tests {
         let hour_secs = 60 * 60u64;
         let mut bl = Blacklist::default();
         // 10시간 전 tentative → 만료 대상 (4시간 임계)
-        bl.entries.push(sample_entry("old", EntryStatus::Tentative, now.saturating_sub(10 * hour_secs)));
+        bl.entries.push(sample_entry(
+            "old",
+            EntryStatus::Tentative,
+            now.saturating_sub(10 * hour_secs),
+        ));
         // 2시간 전 tentative → 유지
-        bl.entries.push(sample_entry("fresh", EntryStatus::Tentative, now.saturating_sub(2 * hour_secs)));
+        bl.entries.push(sample_entry(
+            "fresh",
+            EntryStatus::Tentative,
+            now.saturating_sub(2 * hour_secs),
+        ));
         // 오래된 confirmed → 유지
-        bl.entries.push(sample_entry("confirmed", EntryStatus::Confirmed, now.saturating_sub(10 * hour_secs)));
+        bl.entries.push(sample_entry(
+            "confirmed",
+            EntryStatus::Confirmed,
+            now.saturating_sub(10 * hour_secs),
+        ));
 
         bl.expire_tentatives(4);
 
@@ -472,7 +470,8 @@ mod tests {
     #[test]
     fn promote_deactivate_reactivate_remove() {
         let mut bl = Blacklist::default();
-        bl.entries.push(sample_entry("a", EntryStatus::Tentative, 0));
+        bl.entries
+            .push(sample_entry("a", EntryStatus::Tentative, 0));
         bl.promote_to_confirmed(0);
         assert_eq!(bl.entries[0].status, EntryStatus::Confirmed);
         bl.deactivate(0);
@@ -491,8 +490,10 @@ mod tests {
         let path = unique_temp_path("round-trip");
 
         let mut bl = Blacklist::default();
-        bl.entries.push(sample_entry("gksrmf", EntryStatus::Tentative, 1713258000));
-        bl.entries.push(sample_entry("world", EntryStatus::Confirmed, 1713258000));
+        bl.entries
+            .push(sample_entry("gksrmf", EntryStatus::Tentative, 1713258000));
+        bl.entries
+            .push(sample_entry("world", EntryStatus::Confirmed, 1713258000));
 
         bl.save_to_path(&path).unwrap();
         let reloaded = Blacklist::load_from_path(&path);

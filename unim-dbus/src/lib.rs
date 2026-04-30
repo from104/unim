@@ -8,11 +8,11 @@
 //! - `service`: DBus 서비스 구현체 (서버 측)
 //! - `client`: DBus 클라이언트 구현체 (프론트엔드 측)
 
-pub mod interfaces;
-pub mod service;
 pub mod client;
 pub mod engine_worker;
 pub mod ibus_compat;
+pub mod interfaces;
+pub mod service;
 
 /// DBus 버스 이름
 pub const BUS_NAME: &str = "org.atit.unim.InputMethod";

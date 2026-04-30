@@ -120,18 +120,14 @@ mod tests {
         let qwerty_3bul_json = get_keymap_json("ko_3bul_qwerty");
         let dubeolsik_json = get_keymap_json("ko_2bulstd");
 
-        let qwerty_3bul_map = KeyboardMap::create_keyboard_map_from_str(
-            en_json,
-            qwerty_3bul_json,
-            true,
-        );
-        let dubeolsik_map = KeyboardMap::create_keyboard_map_from_str(
-            en_json,
-            dubeolsik_json,
-            false,
-        );
+        let qwerty_3bul_map =
+            KeyboardMap::create_keyboard_map_from_str(en_json, qwerty_3bul_json, true);
+        let dubeolsik_map =
+            KeyboardMap::create_keyboard_map_from_str(en_json, dubeolsik_json, false);
 
-        let q_3bul = qwerty_3bul_map.get(&'q').expect("ko_3bul_qwerty must map 'q'");
+        let q_3bul = qwerty_3bul_map
+            .get(&'q')
+            .expect("ko_3bul_qwerty must map 'q'");
         let q_2bul = dubeolsik_map.get(&'q').expect("ko_2bulstd must map 'q'");
         assert_ne!(
             q_3bul, q_2bul,
@@ -145,7 +141,10 @@ mod tests {
         let primary = get_keymap_json("ko_3bul_qwerty");
         let alias = get_keymap_json("3bul_qwerty");
         assert_eq!(primary, alias);
-        assert_ne!(primary, KO_2BULSTD, "ko_3bul_qwerty must not fall back to KO_2BULSTD");
+        assert_ne!(
+            primary, KO_2BULSTD,
+            "ko_3bul_qwerty must not fall back to KO_2BULSTD"
+        );
     }
 
     /// T1-D: 4축 정합성 — BUILTIN_NAMES 10종 전수에 대해
@@ -179,7 +178,10 @@ mod tests {
             // (b) profile builtin arm 존재
             let profile_json = get_builtin_json(name)
                 .unwrap_or_else(|| panic!("builtin '{name}' missing get_builtin_json arm"));
-            assert!(!profile_json.is_empty(), "{name}: profile JSON must be non-empty");
+            assert!(
+                !profile_json.is_empty(),
+                "{name}: profile JSON must be non-empty"
+            );
 
             // (c) v1 profile parse 가능 + schema_version == 1
             let profile = parse_profile_str(profile_json)

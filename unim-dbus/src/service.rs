@@ -112,10 +112,7 @@ pub enum EngineRequest {
         height: i32,
     },
     /// 입력 필드 목적 설정 (비밀번호/PIN 등)
-    SetContentType {
-        context_id: u32,
-        purpose: u32,
-    },
+    SetContentType { context_id: u32, purpose: u32 },
     /// Surrounding text 설정
     SetSurroundingText {
         context_id: u32,
@@ -164,9 +161,7 @@ pub enum EngineRequest {
     /// 선택 텍스트가 한글이면 `kor_to_eng`로 영문 변환 후 등록,
     /// 이미 알파벳이면 그대로 등록.
     /// 반환값: 실제 등록된 영문 단어 (빈 문자열이면 실패/선택 없음).
-    RegisterUserDictFromSelection {
-        response: oneshot::Sender<String>,
-    },
+    RegisterUserDictFromSelection { response: oneshot::Sender<String> },
 }
 
 /// 한자 후보 응답
@@ -413,10 +408,7 @@ impl InputMethodService {
     /// payload는 전체 Config의 JSON 직렬화. GNOME extension / GTK GUI /
     /// Qt GUI 등 모든 클라이언트가 이 한 번의 시그널로 전 설정을 갱신한다.
     #[zbus(signal)]
-    async fn config_changed_json(
-        signal_ctx: &SignalContext<'_>,
-        json: &str,
-    ) -> zbus::Result<()>;
+    async fn config_changed_json(signal_ctx: &SignalContext<'_>, json: &str) -> zbus::Result<()>;
 
     /// 글로벌 TypeFix 변환 (마지막 포커스된 컨텍스트 대상)
     /// direction: 0=자동, 1=영→한, 2=한→영
@@ -454,11 +446,7 @@ impl InputMethodService {
     /// 역방향 사용자 사전: 단어 추가
     /// word는 영문 알파벳만 허용. note는 설명(빈 문자열이면 미부여).
     /// 성공 시 true, 중복/빈값/비영문이면 false.
-    async fn add_reverse_user_dict_word(
-        &self,
-        word: &str,
-        note: &str,
-    ) -> zbus::fdo::Result<bool> {
+    async fn add_reverse_user_dict_word(&self, word: &str, note: &str) -> zbus::fdo::Result<bool> {
         let (tx, rx) = oneshot::channel();
         self.engine_tx
             .send(EngineRequest::UserDictAdd {
@@ -503,9 +491,7 @@ impl InputMethodService {
     }
 
     /// 역방향 사용자 사전: 전체 목록 조회 (word, note, added_at).
-    async fn list_reverse_user_dict_words(
-        &self,
-    ) -> zbus::fdo::Result<Vec<(String, String, u64)>> {
+    async fn list_reverse_user_dict_words(&self) -> zbus::fdo::Result<Vec<(String, String, u64)>> {
         let (tx, rx) = oneshot::channel();
         self.engine_tx
             .send(EngineRequest::UserDictList { response: tx })
@@ -634,8 +620,7 @@ impl InputMethodService {
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "emoji_popup" => config.engine.emoji_popup.enabled.to_string(),
             "emoji_popup_keys" => config.engine.emoji_popup.trigger_keys.join(","),
-            "app_rules" => serde_json::to_string(&config.engine.app_rules)
-                .unwrap_or_default(),
+            "app_rules" => serde_json::to_string(&config.engine.app_rules).unwrap_or_default(),
             _ => {
                 return Err(zbus::fdo::Error::InvalidArgs(format!(
                     "Unknown key: {}",
@@ -842,9 +827,8 @@ impl InputMethodService {
     /// 클라이언트가 단일 메서드 호출로 전체 설정을 읽을 수 있다.
     async fn get_config_yaml(&self) -> zbus::fdo::Result<String> {
         let config = self.config.read().await;
-        let yaml = serde_yaml::to_string(&*config).map_err(|e| {
-            zbus::fdo::Error::Failed(format!("Config YAML 직렬화 실패: {}", e))
-        })?;
+        let yaml = serde_yaml::to_string(&*config)
+            .map_err(|e| zbus::fdo::Error::Failed(format!("Config YAML 직렬화 실패: {}", e)))?;
         Ok(yaml)
     }
 
@@ -854,9 +838,8 @@ impl InputMethodService {
     /// JS 클라이언트가 YAML 파서 없이 시작 시점의 전체 Config를 읽기 위한 메서드.
     async fn get_config_json(&self) -> zbus::fdo::Result<String> {
         let config = self.config.read().await;
-        let json = serde_json::to_string(&*config).map_err(|e| {
-            zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e))
-        })?;
+        let json = serde_json::to_string(&*config)
+            .map_err(|e| zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e)))?;
         Ok(json)
     }
 
@@ -874,9 +857,8 @@ impl InputMethodService {
         yaml: String,
     ) -> zbus::fdo::Result<()> {
         // 1. 파싱
-        let mut new_config: Config = serde_yaml::from_str(&yaml).map_err(|e| {
-            zbus::fdo::Error::InvalidArgs(format!("YAML 파싱 실패: {}", e))
-        })?;
+        let mut new_config: Config = serde_yaml::from_str(&yaml)
+            .map_err(|e| zbus::fdo::Error::InvalidArgs(format!("YAML 파싱 실패: {}", e)))?;
 
         // 2. 범위 방어
         new_config.engine.auto_typefix.clamp_ranges();
@@ -895,9 +877,8 @@ impl InputMethodService {
             let mut cfg = self.config.write().await;
             *cfg = new_config;
             // JSON 직렬화도 lock 안에서 (Config 복제 비용 회피)
-            serde_json::to_string(&*cfg).map_err(|e| {
-                zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e))
-            })?
+            serde_json::to_string(&*cfg)
+                .map_err(|e| zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e)))?
         };
         // lock drop 완료
 
@@ -971,11 +952,7 @@ impl InputMethodService {
                     )
                     .await;
                 if let Err(e) = result {
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] ShowEmojiPopup(global) 발행 실패: {}",
-                        e
-                    );
+                    unim_log!("DBUS", "[DBus] ShowEmojiPopup(global) 발행 실패: {}", e);
                 } else {
                     unim_log!(
                         "DBUS",
@@ -1208,7 +1185,8 @@ impl InputContextHandler {
 
         // 팝업 시그널 자동 발행 (Push 방식: 인디케이터가 팝업 표시)
         // Standalone 모드일 때만 Show 시그널 발행 (Embedded 모드에서는 IM 모듈이 자체 처리)
-        let is_standalone = Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone;
+        let is_standalone =
+            Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone;
         if let Some(popup) = &response.popup_action {
             match popup {
                 PopupAction::ShowHanja {
@@ -1312,13 +1290,9 @@ impl InputContextHandler {
                     );
                 }
                 PopupAction::HanjaBookmarkChanged { index, bookmarked } => {
-                    Self::hanja_bookmark_changed(
-                        &signal_ctx,
-                        *index as u32,
-                        *bookmarked,
-                    )
-                    .await
-                    .ok();
+                    Self::hanja_bookmark_changed(&signal_ctx, *index as u32, *bookmarked)
+                        .await
+                        .ok();
                     unim_log!(
                         "DBUS",
                         "[DBus] HanjaBookmarkChanged: index={}, bookmarked={}",
@@ -1337,10 +1311,8 @@ impl InputContextHandler {
                     bookmarked,
                 } => {
                     // 후보·즐겨찾기·커서를 한 시그널로 전달해 frontend가 일괄 갱신.
-                    let hanjas: Vec<String> =
-                        candidates.iter().map(|(h, _)| h.clone()).collect();
-                    let meanings: Vec<String> =
-                        candidates.iter().map(|(_, m)| m.clone()).collect();
+                    let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
+                    let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
                     Self::hanja_candidates_reordered(
                         &signal_ctx,
                         target,
@@ -1515,7 +1487,12 @@ impl InputContextHandler {
             .await
             .ok();
 
-        unim_log!("DBUS", "[DBus] Reset: context_id={}, commit='{}'", self.id, commit);
+        unim_log!(
+            "DBUS",
+            "[DBus] Reset: context_id={}, commit='{}'",
+            self.id,
+            commit
+        );
         Ok(())
     }
 
@@ -1693,8 +1670,8 @@ impl InputContextHandler {
         match action {
             "emoji_popup" => {
                 // Standalone 모드일 때만 시그널 발행 (Embedded는 IM 모듈이 자체 처리)
-                let is_standalone = Config::load_from_default_path().engine.popup_mode
-                    == PopupMode::Standalone;
+                let is_standalone =
+                    Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone;
                 if !is_standalone {
                     unim_log!(
                         "DBUS",
@@ -2085,7 +2062,12 @@ impl InputContextHandler {
             String::new()
         };
 
-        unim_log!("DBUS", "[DBus] CancelHanja: context_id={}, commit='{}'", self.id, commit_text);
+        unim_log!(
+            "DBUS",
+            "[DBus] CancelHanja: context_id={}, commit='{}'",
+            self.id,
+            commit_text
+        );
         Ok(commit_text)
     }
 
@@ -2213,7 +2195,12 @@ impl InputContextHandler {
             String::new()
         };
 
-        unim_log!("DBUS", "[DBus] CancelSpecialChar: context_id={}, commit='{}'", self.id, commit_text);
+        unim_log!(
+            "DBUS",
+            "[DBus] CancelSpecialChar: context_id={}, commit='{}'",
+            self.id,
+            commit_text
+        );
         Ok(commit_text)
     }
 
