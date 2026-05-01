@@ -247,6 +247,10 @@ export class HanjaPopup {
      * 엔진의 HanjaCandidatesReordered 시그널로 호출됨. SelectHanja 인덱스
      * 미스매치를 피하기 위해 호출자는 이 함수가 끝난 다음에야 selection을 보낼 수 있다.
      *
+     * 정렬로 인해 마지막 페이지의 항목 수가 줄거나 페이지 수 자체가 변할 수 있으므로
+     * `_rows`/`_cols`/`_totalPages`를 페이로드와 정합하게 재계산한다. 재계산을 빼면
+     * stale layout으로 cursor가 빈 셀로 떨어진다 (defect 1b).
+     *
      * @param {Array<{hanja: string, meaning: string}>} candidates
      * @param {Array<boolean>} bookmarks
      * @param {number} page
@@ -267,6 +271,31 @@ export class HanjaPopup {
         this._mouseHoverCol = -1;
         this._selRow = Math.max(0, selRow | 0);
         this._selCol = Math.max(0, selCol | 0);
+
+        // 페이지 레이아웃 재계산: 현재 모드(compact/expanded)는 유지하고
+        // 신규 후보 수에 맞춰 _rows/_cols/_totalPages를 갱신한다.
+        // 페이지 사이즈는 _cols 의존이므로 _cols를 먼저 확정해야 한다.
+        const isExpanded = this._cols > 1;
+        const pageSize = isExpanded ? EXPANDED_PAGE_SIZE : COMPACT_PAGE_SIZE;
+        const total = this._candidates.length;
+        this._totalPages = Math.max(1, Math.ceil(total / pageSize));
+        if (this._currentPage >= this._totalPages) {
+            this._currentPage = this._totalPages - 1;
+        }
+        const pageStart = this._currentPage * pageSize;
+        const pageItems = Math.max(0, Math.min(pageSize, total - pageStart));
+        if (isExpanded) {
+            // expanded: col 우선 인덱싱. 마지막 페이지에서 pageItems가 81 미만이면
+            // cols/rows를 줄여 빈 셀을 최소화한다 (engine과 동일 정책: col 우선이므로
+            // rows는 MAX_ROWS, cols는 ceil(items/rows)).
+            this._rows = Math.min(MAX_ROWS, Math.max(1, pageItems));
+            this._cols = Math.min(MAX_COLS, Math.max(1, Math.ceil(pageItems / MAX_ROWS)));
+            if (this._rows > MAX_ROWS) this._rows = MAX_ROWS;
+        } else {
+            this._rows = Math.max(1, Math.min(COMPACT_PAGE_SIZE, pageItems));
+            this._cols = 1;
+        }
+
         this._renderBody();
     }
 
