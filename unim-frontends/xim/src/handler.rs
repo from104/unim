@@ -689,13 +689,23 @@ impl UnimHandler {
                 candidates,
                 bookmarks,
                 new_cursor,
-                page: _,
-                sel_row: _,
-                sel_col: _,
+                page,
+                sel_row,
+                sel_col,
                 bookmarked: _,
             } => {
                 if let Some(ref mut hw) = self.hanja_window {
-                    hw.replace_candidates(candidates, bookmarks, new_cursor as usize, self.display);
+                    // 다른 프런트엔드와 동일 시맨틱: payload의 page/sel_row/sel_col을
+                    // 직접 적용 (defect 1c). new_cursor는 검증/디버그용으로만 전달.
+                    hw.replace_candidates(
+                        candidates,
+                        bookmarks,
+                        new_cursor as usize,
+                        page.max(0) as usize,
+                        sel_row.max(0) as usize,
+                        sel_col.max(0) as usize,
+                        self.display,
+                    );
                 }
             }
         }

@@ -433,18 +433,29 @@ impl HanjaWindow {
 
     /// 한자 후보를 즐겨찾기 정렬 결과로 일괄 교체하고 커서를 점프시킨다.
     /// (HanjaCandidatesReordered 시그널)
+    ///
+    /// 페이로드의 `page`/`sel_row`/`sel_col`을 직접 적용한다. 다른 프런트엔드와
+    /// 동일 시맨틱: 엔진이 정렬 후 산출한 cursor 좌표를 그대로 신뢰. 과거에는
+    /// `set_selected_global(new_cursor)` 한 번 호출로 page/row/col을 재계산했지만,
+    /// 이는 엔진의 col-우선 인덱싱 정책에만 의존하는 단일 경로였다 (defect 1c).
+    /// 이제 `_` 인자로 새 cursor 정합 검증을 위해 받기만 하고, 실제 적용은
+    /// `replace_hanja_items` + `set_navigate_state`로 명시 분리.
+    #[allow(clippy::too_many_arguments)]
     pub fn replace_candidates(
         &mut self,
         candidates: Vec<(String, String)>,
         bookmarks: Vec<bool>,
-        new_cursor: usize,
+        _new_cursor: usize,
+        page: usize,
+        sel_row: usize,
+        sel_col: usize,
         display: *mut x11::xlib::Display,
     ) {
         if let Some(ps) = self.popup_state.as_mut() {
             let items: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
             let meanings: Vec<String> = candidates.iter().map(|(_, m)| m.clone()).collect();
             ps.replace_hanja_items(items, meanings, bookmarks);
-            ps.set_selected_global(new_cursor);
+            ps.set_navigate_state(page, sel_row, sel_col);
             self.redraw(display);
         }
     }
