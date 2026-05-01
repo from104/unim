@@ -1,44 +1,83 @@
 //! 이모지 팝업 윈도우
 //!
-//! DBus `ShowEmojiPopup` 시그널을 받아 이모지 선택 팝업을 표시합니다.
-//! - 카테고리 탭 (즐겨찾기 + `unim::emoji::categories()`)
-//! - 검색 (`search_emoji(keyword)`)
-//! - 즐겨찾기 MRU (선택 시 자동 갱신; 엔진이 `touch_favorite` 호출)
+//! DBus `ShowEmojiPopupV2` 시그널을 받아 9×9 그리드 + 좌측 세로 9 탭으로 이모지를
+//! 표시합니다. 키 처리는 엔진(`process_popup_key`)이 담당하고, GUI 는 `PopupNavigate`
+//! 시그널만 받아 페이지/셀을 갱신합니다 — 한자/특수문자 팝업과 동일 패턴.
 //!
-//! GUI가 모든 상태를 자체 관리하고, 선택 확정 시 DBus `CommitEmoji`로 커밋합니다.
+//! POPUP_SPEC.md 규격 준수:
+//! - 9×9 고정 grid (FlowBox 폐기)
+//! - 좌측 세로 9 탭 (`최근/표정·인물/동물·자연/음식·음료/활동/여행·장소/사물/기호/국기`)
+//! - 하단 페이지 인디케이터
+//! - 검색 SearchEntry 제거 (PR #1 단계에서 데이터 측 검색 폐기)
+//! - 셀 클릭 → DBus `CommitEmoji`
 //!
-//! PR #1 (emoji overhaul): 본 파일은 PR #2 에서 9×9 grid + 좌측 9 탭으로 전면
-//! 재작성된다. 그 전까지는 PR #1 이 도입한 deprecated shim 들을 그대로 사용한다.
-
-#![allow(deprecated)]
-
-use std::cell::RefCell;
-use std::rc::Rc;
+//! PR #2 (emoji overhaul, OPTION X engine-driven):
+//! 좌측 탭 클릭은 시각적 active 토글만 — 카테고리 전환은 키보드 Tab/ShiftTab 으로
+//! 엔진이 처리한 뒤 `ShowEmojiPopupV2` 가 재발행되어 전체 화면이 갱신된다. 탭 클릭
+//! 으로 카테고리를 직접 전환하려면 daemon 측 RPC (`EmojiSetCategory`) 가 추가되어야
+//! 하며 — 이는 PR #4/#5 범위.
 
 use gtk4::prelude::*;
-use unim::emoji;
+use rust_i18n::t;
 use unim::unim_log;
 
 use crate::popup_positioning::{self, DisplayServer};
 
-/// 즐겨찾기 탭 식별자
-const FAVORITES_KEY: &str = "favorites";
-/// 검색 결과 탭 식별자
-const SEARCH_KEY: &str = "search";
-/// 한 줄당 최대 탭 수 (한자/특수 popup 9열과 통일)
-const TAB_ROW_MAX: usize = 9;
+/// 이모지 그리드: 9×9 고정 (특수문자와 동일).
+const MAX_ROWS: usize = 9;
+const MAX_COLS: usize = 9;
+const PAGE_SIZE: usize = MAX_ROWS * MAX_COLS;
+/// 좌측 세로 탭 수 (Recent + 8 카테고리).
+const TAB_COUNT: usize = 9;
+
+/// 카테고리 id 별 locale key — `data.rs::CATEGORIES` 와 1:1.
+fn tab_label_for(cat_id: &str) -> String {
+    let key = match cat_id {
+        "Recent" => "emoji_tab_recent",
+        "SmileysPeople" => "emoji_tab_smileys_people",
+        "Animals" => "emoji_tab_animals_nature",
+        "Food" => "emoji_tab_food_drink",
+        "Activities" => "emoji_tab_activities",
+        "Travel" => "emoji_tab_travel_places",
+        "Objects" => "emoji_tab_objects",
+        "Symbols" => "emoji_tab_symbols",
+        "Flags" => "emoji_tab_flags",
+        _ => return cat_id.to_string(),
+    };
+    t!(key).to_string()
+}
 
 /// 이모지 팝업 상태
 pub struct EmojiPopup {
     pub window: gtk4::Window,
     display_server: DisplayServer,
-    search_entry: gtk4::SearchEntry,
-    stack: gtk4::Stack,
-    favorites_flow: gtk4::FlowBox,
+    /// 헤더 라벨 ("「최근 사용」 → 이모지" 형식)
+    header_label: gtk4::Label,
+    /// 좌측 9 탭 ToggleButton (Recent + 8 카테고리)
+    tab_buttons: Vec<gtk4::ToggleButton>,
+    /// 9×9 그리드 셀 라벨 (column-major: cells[col][row])
+    cells: Vec<Vec<gtk4::Label>>,
+    /// 상단 컬럼 헤더 라벨 (`top_row` 9 문자)
+    col_headers: Vec<gtk4::Label>,
+    /// 좌측 행 번호 라벨 (1..=9)
+    row_numbers: Vec<gtk4::Label>,
+    /// 페이지 인디케이터 (footer)
+    footer_label: gtk4::Label,
+    /// 현재 카테고리의 emoji 풀 (시작 카테고리만; 키 입력 시 daemon 이 ShowEmojiPopupV2 재발행)
+    items: Vec<String>,
+    /// 카테고리 id 캐시 (헤더 라벨용)
+    current_cat_id: String,
+    /// 현재 페이지 (0-based)
+    current_page: usize,
+    /// 총 페이지 수
+    total_pages: usize,
+    /// 선택 (col, row)
+    sel_col: usize,
+    sel_row: usize,
 }
 
 impl EmojiPopup {
-    /// 새 이모지 팝업 생성
+    /// 새 이모지 팝업 생성 — 빈 9×9 grid + 좌측 9 탭 골격을 만든다.
     pub fn new(app: &libadwaita::Application) -> Self {
         let display_server = popup_positioning::detect_display_server();
 
@@ -46,192 +85,128 @@ impl EmojiPopup {
             .application(app)
             .decorated(false)
             .resizable(false)
-            .default_width(380)
-            .default_height(320)
             .build();
+        window.set_focusable(false);
         window.add_css_class("unim-emoji-popup");
 
-        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-        vbox.set_margin_top(8);
-        vbox.set_margin_bottom(8);
-        vbox.set_margin_start(8);
-        vbox.set_margin_end(8);
+        // 외곽: vbox = [header, hbox(left_tabs | grid), footer]
+        let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
-        // 검색 엔트리
-        let search_entry = gtk4::SearchEntry::new();
-        search_entry.set_placeholder_text(Some("이모지 검색 (예: 사랑, 동물, 음식)"));
-        search_entry.add_css_class("emoji-search");
-        vbox.append(&search_entry);
+        // 헤더 라벨 ("「Recent」 → 이모지")
+        let header_label = gtk4::Label::new(None);
+        header_label.add_css_class("popup-header");
+        header_label.set_halign(gtk4::Align::Fill);
+        header_label.set_xalign(0.0);
+        vbox.append(&header_label);
 
-        // 카테고리 탭 전환기 (상단) — 2줄로 분할된 커스텀 ToggleButton bar.
-        // GTK4 StackSwitcher는 단일행 전용이라 한자/특수 popup의 9열 통일 디자인을
-        // 따르기 위해 ToggleButton을 직접 배치한다.
-        let stack = gtk4::Stack::new();
-        stack.set_transition_type(gtk4::StackTransitionType::SlideLeftRight);
-        stack.set_vexpand(true);
+        // 본문: 좌측 탭 + 우측 grid
+        let body_hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        body_hbox.set_margin_top(4);
 
-        // 탭 컨테이너 (vertical) — 안에 row 2개 (horizontal)
-        let tab_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-        tab_bar.set_halign(gtk4::Align::Center);
-        tab_bar.add_css_class("emoji-tabs");
+        // 좌측 세로 탭 컨테이너
+        let tab_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        tab_box.add_css_class("emoji-tabs");
+        tab_box.set_valign(gtk4::Align::Start);
 
-        // 즐겨찾기 + 카테고리 + (검색은 동적으로 추가됨) 합산 후 2줄 분배
-        let mut tab_specs: Vec<(String, String)> = Vec::new(); // (key, label)
-        tab_specs.push((FAVORITES_KEY.to_string(), "★ 즐겨찾기".to_string()));
-        for (id, ko_name, _en_name, _count) in emoji::list_categories() {
-            tab_specs.push((id, ko_name));
-        }
-
-        let total = tab_specs.len();
-        let first_row_size = if total <= TAB_ROW_MAX {
-            total
-        } else {
-            (total + 1) / 2 // 17 → 9, 16 → 8
-        };
-
-        let row1 = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
-        row1.set_halign(gtk4::Align::Center);
-        row1.add_css_class("emoji-tabs-row");
-        tab_bar.append(&row1);
-        let row2_opt = if total > first_row_size {
-            let row2 = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
-            row2.set_halign(gtk4::Align::Center);
-            row2.add_css_class("emoji-tabs-row");
-            tab_bar.append(&row2);
-            Some(row2)
-        } else {
-            None
-        };
-
-        // 모든 토글 버튼을 그룹으로 묶어서 라디오 동작 (한 번에 하나만 active)
-        let tab_buttons: Rc<RefCell<Vec<(String, gtk4::ToggleButton)>>> =
-            Rc::new(RefCell::new(Vec::with_capacity(total)));
-        let mut group_leader: Option<gtk4::ToggleButton> = None;
-        for (i, (key, label)) in tab_specs.iter().enumerate() {
-            let btn = gtk4::ToggleButton::with_label(label);
-            btn.add_css_class("emoji-tab");
-            if let Some(ref leader) = group_leader {
-                btn.set_group(Some(leader));
+        let mut tab_buttons: Vec<gtk4::ToggleButton> = Vec::with_capacity(TAB_COUNT);
+        let mut group_anchor: Option<gtk4::ToggleButton> = None;
+        for i in 0..TAB_COUNT {
+            let btn = gtk4::ToggleButton::new();
+            btn.set_label("");
+            btn.add_css_class("emoji-tab-button");
+            btn.set_focusable(false);
+            // 탭 그룹화 — 한 번에 하나만 active
+            if let Some(anchor) = group_anchor.as_ref() {
+                btn.set_group(Some(anchor));
             } else {
-                group_leader = Some(btn.clone());
+                group_anchor = Some(btn.clone());
             }
-            // 클릭 시 stack 페이지 전환
-            let stack_weak = stack.downgrade();
-            let key_clone = key.clone();
-            btn.connect_toggled(move |b| {
-                if !b.is_active() {
-                    return;
-                }
-                if let Some(stack) = stack_weak.upgrade() {
-                    stack.set_visible_child_name(&key_clone);
+            // 탭 클릭은 시각적 active 토글만 — 실제 카테고리 전환은 키보드 Tab/ShiftTab
+            // (엔진이 처리, ShowEmojiPopupV2 재발행). RPC 미배선 경고 로그.
+            let tab_idx = i;
+            btn.connect_clicked(move |b| {
+                if b.is_active() {
+                    unim_log!(
+                        "INDICATOR",
+                        "[EmojiPopup] 탭 클릭 idx={} — RPC 미배선 (PR #4/#5 에서 EmojiSetCategory 추가 예정)",
+                        tab_idx
+                    );
                 }
             });
+            tab_box.append(&btn);
+            tab_buttons.push(btn);
+        }
+        body_hbox.append(&tab_box);
 
-            let target = if i < first_row_size {
-                &row1
-            } else {
-                row2_opt
-                    .as_ref()
-                    .expect("row2 must exist when i >= first_row_size")
-            };
-            target.append(&btn);
-            tab_buttons.borrow_mut().push((key.clone(), btn));
+        // 우측 grid (9×9 + 컬럼 헤더 + 행 번호 — 특수문자와 동일 패턴)
+        let grid = gtk4::Grid::new();
+        grid.add_css_class("emoji-grid");
+        grid.set_row_spacing(1);
+        grid.set_column_spacing(1);
+
+        // (0,0) 코너 빈 셀
+        let corner = gtk4::Label::new(None);
+        corner.add_css_class("grid-row-number");
+        grid.attach(&corner, 0, 0, 1, 1);
+
+        // 컬럼 헤더 (top_row 9문자) — grid row 0, columns 1..=9
+        let mut col_headers = Vec::with_capacity(MAX_COLS);
+        for col in 0..MAX_COLS {
+            let label = gtk4::Label::new(None);
+            label.add_css_class("grid-header");
+            label.set_halign(gtk4::Align::Center);
+            grid.attach(&label, (col + 1) as i32, 0, 1, 1);
+            col_headers.push(label);
         }
 
-        // 즐겨찾기 탭을 기본 active
-        if let Some((_, btn)) = tab_buttons.borrow().first() {
-            btn.set_active(true);
+        // 행 번호 (1..=9) — grid column 0, rows 1..=9
+        let mut row_numbers = Vec::with_capacity(MAX_ROWS);
+        for row in 0..MAX_ROWS {
+            let num_label = gtk4::Label::new(Some(&format!("{}", row + 1)));
+            num_label.add_css_class("grid-row-number");
+            num_label.set_halign(gtk4::Align::Center);
+            grid.attach(&num_label, 0, (row + 1) as i32, 1, 1);
+            row_numbers.push(num_label);
         }
 
-        vbox.append(&tab_bar);
+        // 9×9 데이터 셀 (column-major: cells[col][row])
+        let mut cells = Vec::with_capacity(MAX_COLS);
+        for col in 0..MAX_COLS {
+            let mut col_cells = Vec::with_capacity(MAX_ROWS);
+            for row in 0..MAX_ROWS {
+                let label = gtk4::Label::new(None);
+                label.add_css_class("grid-cell");
+                label.set_halign(gtk4::Align::Center);
 
-        // 즐겨찾기 페이지
-        let favorites_flow = Self::make_flow();
-        let favorites_page = Self::wrap_scroll(&favorites_flow);
-        stack.add_titled(&favorites_page, Some(FAVORITES_KEY), "★ 즐겨찾기");
+                // 클릭 → CommitEmoji (현 라벨 텍스트를 그대로 emoji 문자열로 사용)
+                let gesture = gtk4::GestureClick::new();
+                let label_weak = label.downgrade();
+                gesture.connect_released(move |_, _, _, _| {
+                    if let Some(lbl) = label_weak.upgrade() {
+                        let text = lbl.text().to_string();
+                        commit_emoji_via_dbus(text);
+                    }
+                });
+                label.add_controller(gesture);
 
-        // 카테고리 페이지들
-        for (id, ko_name, _en_name, _count) in emoji::list_categories() {
-            let flow = Self::make_flow();
-            for emoji_str in emoji::category_emojis(&id) {
-                flow.insert(&Self::make_emoji_cell(&emoji_str), -1);
+                grid.attach(&label, (col + 1) as i32, (row + 1) as i32, 1, 1);
+                col_cells.push(label);
             }
-            let page = Self::wrap_scroll(&flow);
-            stack.add_titled(&page, Some(&id), &ko_name);
+            cells.push(col_cells);
         }
+        body_hbox.append(&grid);
 
-        // 검색 결과 페이지 (초기에는 숨김 — 입력 시 추가)
-        let search_flow = Self::make_flow();
-        let search_page_added = Rc::new(RefCell::new(false));
+        vbox.append(&body_hbox);
 
-        vbox.append(&stack);
+        // 페이지 인디케이터 (footer)
+        let footer_label = gtk4::Label::new(None);
+        footer_label.add_css_class("popup-footer");
+        footer_label.set_halign(gtk4::Align::Center);
+        vbox.append(&footer_label);
+
         window.set_child(Some(&vbox));
 
-        // 즐겨찾기 기본 채우기 (MRU 영속화 미구현 — popular fallback 사용)
-        {
-            let mru = emoji::load_favorites();
-            let items = if mru.is_empty() {
-                emoji::search_emoji_strings("")
-            } else {
-                mru
-            };
-            Self::fill_flow_with_strings(&favorites_flow, &items);
-        }
-
-        // FlowBox 선택(클릭/Enter) → commit
-        Self::attach_flow_activation(&favorites_flow);
-        // 각 카테고리 FlowBox에도 activation 필요
-        let mut child = stack.first_child();
-        while let Some(page) = child {
-            if let Some(scroll) = page.downcast_ref::<gtk4::ScrolledWindow>() {
-                if let Some(fb_widget) = scroll.child() {
-                    if let Ok(fb) = fb_widget.downcast::<gtk4::FlowBox>() {
-                        Self::attach_flow_activation(&fb);
-                    }
-                }
-            }
-            child = page.next_sibling();
-        }
-        Self::attach_flow_activation(&search_flow);
-
-        // 검색 입력 처리 — 검색 시 stack에 검색 페이지 추가하고 활성화한다.
-        // 커스텀 탭바에는 검색 결과용 버튼은 만들지 않는다 (탭 토글이 active=false면 다른 탭으로
-        // 자동 전환되지 않도록 하기 위해 검색 시 모든 탭 active 해제).
-        let stack_weak = stack.downgrade();
-        let search_flow_clone = search_flow.clone();
-        let search_added_clone = search_page_added.clone();
-        let tab_buttons_search = tab_buttons.clone();
-        search_entry.connect_search_changed(move |entry| {
-            let keyword = entry.text().to_string();
-            if keyword.is_empty() {
-                // 검색 페이지 숨기고 즐겨찾기로 복귀
-                if let Some(stack) = stack_weak.upgrade() {
-                    if *search_added_clone.borrow() {
-                        stack.set_visible_child_name(FAVORITES_KEY);
-                    }
-                }
-                // 즐겨찾기 탭 버튼 active
-                if let Some((_, btn)) = tab_buttons_search.borrow().first() {
-                    btn.set_active(true);
-                }
-                return;
-            }
-
-            let results = emoji::search_emoji(&keyword);
-            let strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
-            Self::fill_flow_with_strings(&search_flow_clone, &strings);
-
-            if let Some(stack) = stack_weak.upgrade() {
-                if !*search_added_clone.borrow() {
-                    let page = Self::wrap_scroll(&search_flow_clone);
-                    stack.add_titled(&page, Some(SEARCH_KEY), "🔍 검색");
-                    *search_added_clone.borrow_mut() = true;
-                }
-                stack.set_visible_child_name(SEARCH_KEY);
-            }
-        });
-
-        // ESC로 닫기
+        // ESC → 숨김 (한자/특수와 동일)
         let key_controller = gtk4::EventControllerKey::new();
         let window_weak = window.downgrade();
         key_controller.connect_key_pressed(move |_, key, _, _| {
@@ -245,106 +220,59 @@ impl EmojiPopup {
         });
         window.add_controller(key_controller);
 
-        // 포커스 상실 시 숨김
-        let window_focus_clone = window.clone();
-        window.connect_is_active_notify(move |w| {
-            if !w.is_active() {
-                window_focus_clone.set_visible(false);
-            }
-        });
-
-        window.update_property(&[gtk4::accessible::Property::Label("이모지 선택")]);
-
-        // 이후 `tab_bar`, `tab_buttons`, `search_flow`, `search_page_added`는 클로저가 소유하므로
-        // 구조체 필드로 유지할 필요 없음 (컴파일러가 원본 값을 drop 처리)
-        let _ = tab_bar;
-        let _ = tab_buttons;
-        let _ = search_flow;
-        let _ = search_page_added;
+        // AT-SPI 접근성
+        window.update_property(&[gtk4::accessible::Property::Label(
+            t!("emoji_popup_title").as_ref(),
+        )]);
 
         Self {
             window,
             display_server,
-            search_entry,
-            stack,
-            favorites_flow,
+            header_label,
+            tab_buttons,
+            cells,
+            col_headers,
+            row_numbers,
+            footer_label,
+            items: Vec::new(),
+            current_cat_id: String::new(),
+            current_page: 0,
+            total_pages: 0,
+            sel_col: 0,
+            sel_row: 0,
         }
     }
 
-    fn make_flow() -> gtk4::FlowBox {
-        let flow = gtk4::FlowBox::new();
-        flow.set_selection_mode(gtk4::SelectionMode::Single);
-        // 한자/특수 popup 9열과 통일. row-major fill (FlowBox 기본) 보장.
-        flow.set_max_children_per_line(9);
-        flow.set_min_children_per_line(9);
-        flow.set_row_spacing(2);
-        flow.set_column_spacing(2);
-        flow.set_homogeneous(true);
-        flow.add_css_class("emoji-flow");
-        flow
-    }
-
-    fn wrap_scroll(flow: &gtk4::FlowBox) -> gtk4::ScrolledWindow {
-        gtk4::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk4::PolicyType::Never)
-            .vscrollbar_policy(gtk4::PolicyType::Automatic)
-            .min_content_height(220)
-            .child(flow)
-            .build()
-    }
-
-    fn make_emoji_cell(emoji_str: &str) -> gtk4::FlowBoxChild {
-        let label = gtk4::Label::new(Some(emoji_str));
-        label.add_css_class("emoji-cell");
-        let child = gtk4::FlowBoxChild::new();
-        child.set_child(Some(&label));
-        child.set_focusable(true);
-        // 이모지 문자열을 tooltip에 박아서 나중에 선택 시 읽어올 수 있도록
-        child.set_tooltip_text(Some(emoji_str));
-        child
-    }
-
-    fn fill_flow_with_strings(flow: &gtk4::FlowBox, items: &[String]) {
-        // 기존 자식 제거
-        while let Some(child) = flow.first_child() {
-            flow.remove(&child);
-        }
-        if items.is_empty() {
-            let label = gtk4::Label::new(Some("(항목 없음)"));
-            label.add_css_class("emoji-empty");
-            let child = gtk4::FlowBoxChild::new();
-            child.set_child(Some(&label));
-            child.set_focusable(false);
-            flow.insert(&child, -1);
-            return;
-        }
-        for s in items {
-            flow.insert(&Self::make_emoji_cell(s), -1);
-        }
-    }
-
-    fn attach_flow_activation(flow: &gtk4::FlowBox) {
-        flow.connect_child_activated(|_, child| {
-            // tooltip_text에 저장해둔 이모지 문자열 추출
-            let emoji_str = child
-                .tooltip_text()
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            if emoji_str.is_empty() {
-                return;
-            }
-            commit_emoji_via_dbus(emoji_str);
-        });
-    }
-
-    /// 이모지 팝업 표시
-    pub fn show(&mut self, context_path: String, x: i32, y: i32, _w: i32, h: i32) {
+    /// 이모지 팝업 표시 (`ShowEmojiPopupV2` 시그널 핸들러)
+    ///
+    /// # Arguments
+    /// * `context_path` — DBus `CommitEmoji` 콜백용 InputContext 경로.
+    /// * `target_cat_id` — 시작 카테고리 id ("Recent"/"SmileysPeople"/.../"Flags").
+    /// * `items` — 시작 카테고리의 emoji 풀 (전체).
+    /// * `top_row` — 활성 영문 키맵의 상단 9 문자.
+    /// * `recent` — 'Recent' 탭 캐시 (현재 표시에는 직접 쓰지 않음 — daemon 의 popup_state 가
+    ///   cat_index=0 일 때 items 에 동일 내용을 이미 담아 보낸다).
+    /// * `categories` — 좌측 9 탭 메타 — `(id, ko, en, count)` 튜플 9개.
+    #[allow(clippy::too_many_arguments)]
+    pub fn show(
+        &mut self,
+        context_path: String,
+        target_cat_id: String,
+        items: Vec<String>,
+        top_row: String,
+        _recent: Vec<String>,
+        categories: Vec<(String, String, String, u32)>,
+        x: i32,
+        y: i32,
+        _w: i32,
+        h: i32,
+    ) {
+        // GNOME Wayland: extension 이 팝업 전담 (GTK 윈도우가 포커스를 뺏어 FocusOut 유발)
         if self.display_server == DisplayServer::GnomeWayland {
-            // GNOME Wayland: extension의 EmojiPopup이 팝업 전담
-            // (GTK 윈도우가 포커스를 뺏어 FocusOut 유발하므로 전면 스킵)
             return;
         }
 
+        // 활성 컨텍스트 경로 저장 (셀 클릭 → CommitEmoji DBus 호출용)
         {
             use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
             if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
@@ -354,43 +282,214 @@ impl EmojiPopup {
 
         unim_log!(
             "INDICATOR",
-            "[EmojiPopup] show() 진입: display_server={:?}, cursor=({},{},{})",
-            self.display_server,
+            "[EmojiPopup] show 진입: cat='{}', items={}, cats={}, cursor=({},{},{})",
+            target_cat_id,
+            items.len(),
+            categories.len(),
             x,
             y,
             h
         );
 
-        // 즐겨찾기 갱신 — MRU 우선, 비어있으면 popular fallback.
-        {
-            let mru = emoji::load_favorites();
-            let items = if mru.is_empty() {
-                emoji::search_emoji_strings("")
+        // 좌측 탭 라벨 갱신 + active 동기화
+        let mut active_idx: usize = 0;
+        for (i, btn) in self.tab_buttons.iter().enumerate() {
+            if let Some((id, _, _, _)) = categories.get(i) {
+                btn.set_label(&tab_label_for(id));
+                btn.set_visible(true);
+                if id == &target_cat_id {
+                    active_idx = i;
+                }
             } else {
-                mru
-            };
-            Self::fill_flow_with_strings(&self.favorites_flow, &items);
+                btn.set_label("");
+                btn.set_visible(false);
+            }
         }
-        Self::attach_flow_activation(&self.favorites_flow);
+        if let Some(btn) = self.tab_buttons.get(active_idx) {
+            btn.set_active(true);
+        }
 
-        // 검색 엔트리 비움 + 포커스
-        self.search_entry.set_text("");
-        self.stack.set_visible_child_name(FAVORITES_KEY);
+        // 컬럼 헤더 (top_row) 갱신
+        let chars: Vec<char> = top_row.chars().collect();
+        for (i, header) in self.col_headers.iter().enumerate() {
+            let s = chars.get(i).map(|c| c.to_string()).unwrap_or_default();
+            header.set_text(&s);
+        }
+
+        // 헤더 라벨: "「표정·인물」 → 이모지"
+        let cat_label = categories
+            .iter()
+            .find(|(id, _, _, _)| id == &target_cat_id)
+            .map(|(id, _, _, _)| tab_label_for(id))
+            .unwrap_or_else(|| target_cat_id.clone());
+        self.header_label.set_text(&format!("「{}」 → 이모지", cat_label));
+
+        self.current_cat_id = target_cat_id;
+        self.items = items;
+        self.total_pages = if self.items.is_empty() {
+            1
+        } else {
+            self.items.len().div_ceil(PAGE_SIZE)
+        };
+        self.current_page = 0;
+        self.sel_col = 0;
+        self.sel_row = 0;
+
+        self.update_grid();
 
         popup_positioning::position_popup(&self.window, x, y, h, self.display_server);
         self.window.set_visible(true);
-        self.search_entry.grab_focus();
+        unim_log!(
+            "INDICATOR",
+            "[EmojiPopup] 표시 완료: cat='{}', pages={}, realized={}",
+            self.current_cat_id,
+            self.total_pages,
+            self.window.is_realized()
+        );
     }
 
-    /// 이모지 팝업 숨김
+    /// 그리드 내용 업데이트 — 현재 페이지의 81 셀 (column-major) + 페이지 인디케이터.
+    fn update_grid(&self) {
+        let start = self.current_page * PAGE_SIZE;
+        let page_count = if start >= self.items.len() {
+            0
+        } else {
+            (self.items.len() - start).min(PAGE_SIZE)
+        };
+
+        // 행/열 활성 수 (특수문자와 동일 column-major 채움)
+        let active_cols = if page_count == 0 {
+            0
+        } else {
+            page_count.div_ceil(MAX_ROWS)
+        };
+        let active_rows = if active_cols == 0 {
+            0
+        } else {
+            page_count.min(MAX_ROWS)
+        };
+
+        for col in 0..MAX_COLS {
+            for row in 0..MAX_ROWS {
+                let idx = col * MAX_ROWS + row;
+                let label = &self.cells[col][row];
+
+                if idx < page_count {
+                    let global = start + idx;
+                    label.set_text(&self.items[global]);
+                    label.set_visible(true);
+                } else if col < active_cols && row < active_rows {
+                    label.set_text("");
+                    label.set_visible(true);
+                } else {
+                    label.set_visible(false);
+                }
+                label.remove_css_class("selected");
+            }
+        }
+
+        // 컬럼 헤더 가시성 (active_cols 만)
+        for (i, header) in self.col_headers.iter().enumerate() {
+            header.set_visible(i < active_cols);
+            header.remove_css_class("active");
+        }
+        for (i, num) in self.row_numbers.iter().enumerate() {
+            num.set_visible(i < active_rows);
+            num.remove_css_class("active");
+        }
+
+        // 페이지 인디케이터 (특수문자와 동일 식)
+        if self.total_pages > 1 {
+            self.footer_label.set_text(&format!(
+                "[{}]  {}/{}",
+                tab_label_for(&self.current_cat_id),
+                self.current_page + 1,
+                self.total_pages
+            ));
+            self.footer_label.set_visible(true);
+        } else {
+            self.footer_label.set_visible(false);
+        }
+
+        self.update_selection();
+    }
+
+    /// 선택 하이라이트 갱신 (셀 + 컬럼 헤더 + 행 번호)
+    fn update_selection(&self) {
+        for col_cells in &self.cells {
+            for cell in col_cells {
+                cell.remove_css_class("selected");
+            }
+        }
+        if self.sel_col < MAX_COLS && self.sel_row < MAX_ROWS {
+            self.cells[self.sel_col][self.sel_row].add_css_class("selected");
+        }
+        for (col, header) in self.col_headers.iter().enumerate() {
+            if col == self.sel_col {
+                header.add_css_class("active");
+            } else {
+                header.remove_css_class("active");
+            }
+        }
+        for (row, num) in self.row_numbers.iter().enumerate() {
+            if row == self.sel_row {
+                num.add_css_class("active");
+            } else {
+                num.remove_css_class("active");
+            }
+        }
+    }
+
+    /// `PopupNavigate` 시그널 핸들러 — 페이지/셀 갱신.
+    ///
+    /// 카테고리 전환은 daemon 이 `ShowEmojiPopupV2` 를 재발행하여 [`Self::show`] 가
+    /// 다시 호출되므로, 본 함수는 같은 카테고리 내 페이지/셀 변경만 처리한다.
+    pub fn navigate(
+        &mut self,
+        page: i32,
+        _total_pages: i32,
+        _selected: i32,
+        _rows: i32,
+        _cols: i32,
+        sel_row: i32,
+        sel_col: i32,
+    ) {
+        let new_page = page.max(0) as usize;
+        if new_page != self.current_page {
+            self.current_page = new_page;
+            // 페이지 변경 시 grid 전체 재렌더 (selection 도 갱신됨)
+            self.sel_row = sel_row.max(0) as usize;
+            self.sel_col = sel_col.max(0) as usize;
+            self.update_grid();
+        } else {
+            self.sel_row = sel_row.max(0) as usize;
+            self.sel_col = sel_col.max(0) as usize;
+            self.update_selection();
+        }
+    }
+
+    /// 팝업 숨김
     pub fn hide(&self) {
         self.window.set_visible(false);
     }
+
+    /// 팝업이 현재 표시 중인지
+    pub fn is_visible(&self) -> bool {
+        self.window.is_visible()
+    }
 }
 
-/// DBus를 통해 이모지 커밋
+/// 셀 클릭 콜백에서 호출 — 라벨 텍스트(emoji)를 그대로 받아 DBus `CommitEmoji` RPC.
+///
+/// 한자/특수문자는 column-major 인덱스만 보내지만 (`SelectHanja`/`SelectSpecialChar`),
+/// 이모지는 그런 인덱스 RPC (`SelectEmojiAtIndex`) 가 PR #1 에 추가되지 않았다 —
+/// 기존 `CommitEmoji(emoji)` 를 그대로 사용. 라벨 텍스트가 빈 문자열이면 no-op.
 fn commit_emoji_via_dbus(emoji_str: String) {
     use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+
+    if emoji_str.is_empty() {
+        return;
+    }
 
     let context_path = ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone());
 
@@ -402,10 +501,13 @@ fn commit_emoji_via_dbus(emoji_str: String) {
             path
         );
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+            {
+                Ok(r) => r,
+                Err(_) => return,
+            };
             rt.block_on(async {
                 if let Ok(conn) = zbus::Connection::session().await {
                     let proxy = zbus::Proxy::new(
@@ -430,70 +532,97 @@ fn commit_emoji_via_dbus(emoji_str: String) {
     }
 }
 
-/// 이모지 팝업 CSS
+/// 이모지 팝업 CSS — 한자/특수문자와 통일된 디자인.
 pub fn popup_css() -> &'static str {
     r#"
     .unim-emoji-popup {
         background-color: rgba(30, 30, 46, 0.97);
         border: 1px solid rgba(255, 255, 255, 0.15);
         border-radius: 12px;
+        padding: 12px;
     }
 
-    .unim-emoji-popup .emoji-search {
+    .unim-emoji-popup .popup-header {
         background-color: #313244;
-        color: #cdd6f4;
-        border-radius: 8px;
-        padding: 4px 8px;
+        color: #a6e3a1;
+        font-size: 13px;
+        font-weight: bold;
+        padding: 6px 8px;
+        border-radius: 4px;
+        margin-bottom: 6px;
     }
 
     .unim-emoji-popup .emoji-tabs {
         padding: 2px 0;
     }
 
-    .unim-emoji-popup .emoji-tabs button {
-        min-width: 36px;
-        padding: 2px 8px;
+    .unim-emoji-popup .emoji-tab-button {
+        min-width: 96px;
+        padding: 4px 8px;
         color: #cdd6f4;
         background: transparent;
         border-radius: 6px;
+        font-size: 11px;
     }
 
-    .unim-emoji-popup .emoji-tabs button:checked {
+    .unim-emoji-popup .emoji-tab-button:hover {
+        background-color: rgba(255, 255, 255, 0.06);
+    }
+
+    .unim-emoji-popup .emoji-tab-button:checked {
         background-color: rgba(166, 227, 161, 0.25);
         color: #a6e3a1;
         font-weight: bold;
     }
 
-    .unim-emoji-popup .emoji-flow {
+    .unim-emoji-popup .emoji-grid {
         background: transparent;
-        padding: 4px;
     }
 
-    .unim-emoji-popup .emoji-cell {
-        font-size: 22px;
-        min-width: 32px;
-        min-height: 32px;
+    .unim-emoji-popup .grid-cell {
+        color: #cdd6f4;
+        font-size: 18px;
+        min-width: 30px;
+        min-height: 30px;
+        border-radius: 4px;
         padding: 2px;
     }
 
-    .unim-emoji-popup flowboxchild {
-        border-radius: 6px;
-        padding: 2px;
+    .unim-emoji-popup .grid-cell:hover {
+        background-color: rgba(255, 255, 255, 0.05);
     }
 
-    .unim-emoji-popup flowboxchild:selected,
-    .unim-emoji-popup flowboxchild:focus {
+    .unim-emoji-popup .grid-cell.selected {
         background-color: rgba(166, 227, 161, 0.25);
+        font-weight: bold;
     }
 
-    .unim-emoji-popup flowboxchild:hover {
-        background-color: rgba(255, 255, 255, 0.08);
+    .unim-emoji-popup .grid-header {
+        color: #f9e2af;
+        font-weight: bold;
+        font-size: 11px;
+        min-width: 28px;
+        min-height: 18px;
     }
 
-    .unim-emoji-popup .emoji-empty {
+    .unim-emoji-popup .grid-header.active {
+        color: #a6e3a1;
+    }
+
+    .unim-emoji-popup .grid-row-number {
+        color: #7f849c;
+        font-weight: bold;
+        font-size: 12px;
+        min-width: 20px;
+    }
+
+    .unim-emoji-popup .grid-row-number.active {
+        color: #a6e3a1;
+    }
+
+    .unim-emoji-popup .popup-footer {
         color: #6c7086;
-        font-style: italic;
-        padding: 12px;
+        font-size: 12px;
     }
     "#
 }

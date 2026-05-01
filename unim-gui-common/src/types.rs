@@ -61,9 +61,24 @@ pub enum GuiAction {
         w: i32,
         h: i32,
     },
-    /// 이모지 팝업 표시 (Super+. 트리거)
+    /// 이모지 팝업 표시 (Super+. 트리거).
+    ///
+    /// PR #2 (emoji overhaul, OPTION X engine-driven): payload 가 한자/특수문자처럼
+    /// 카테고리·페이지·MRU 데이터를 통째로 담는다 (`ShowEmojiPopupV2` 시그널).
+    /// 옛 `ShowEmojiPopup` 시그널 (cursor 만) 은 dbus_client 에서 v2 가 도착하면
+    /// drop 되어 중복 표시를 막는다 — PR #5 에서 v1 시그널 자체 제거 예정.
     ShowEmojiPopup {
         context_path: String,
+        /// 시작 카테고리 id ("Recent"/"SmileysPeople"/.../"Flags").
+        target_cat_id: String,
+        /// 시작 카테고리의 emoji 풀 (전체).
+        items: Vec<String>,
+        /// 활성 영문 키맵 상단 9 문자 (Letter 키 점프 + 컬럼 헤더).
+        top_row: String,
+        /// 'Recent' 탭 캐시 (MRU 81개).
+        recent: Vec<String>,
+        /// 좌측 9 탭 메타 — `(id, ko, en, count)` 튜플 9개.
+        categories: Vec<(String, String, String, u32)>,
         x: i32,
         y: i32,
         w: i32,
