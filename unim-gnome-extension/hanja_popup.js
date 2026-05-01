@@ -56,6 +56,8 @@ export class HanjaPopup {
         this._widgets = [];
         /** @type {St.Label[]} 확장 모드 가로 레이블 헤더 (sel_col 하이라이트용) */
         this._colHeaders = [];
+        /** @type {St.Label[]} 확장 모드 행 번호 라벨 (sel_row 하이라이트용 — special과 정합) */
+        this._rowNumbers = [];
         /**
          * @type {string} 확장 모드 가로 레이블 키 시퀀스 (활성 영문 키맵의 top_row).
          * show()에서 ShowHanjaPopup signal payload의 topRow로 매번 갱신된다.
@@ -417,6 +419,7 @@ export class HanjaPopup {
         this._body.destroy_all_children();
         this._widgets = [];
         this._colHeaders = [];
+        this._rowNumbers = [];
 
         if (this._cols > 1) {
             this._renderGrid();
@@ -544,6 +547,7 @@ export class HanjaPopup {
                 text: `${row + 1}`,
             });
             rowWidget.add_child(rowNumber);
+            this._rowNumbers.push(rowNumber);
 
             for (let col = 0; col < this._cols; col++) {
                 const idx = this._globalIndex(row, col);
@@ -624,6 +628,14 @@ export class HanjaPopup {
                 this._colHeaders[col].add_style_class_name('active');
             } else {
                 this._colHeaders[col].remove_style_class_name('active');
+            }
+        }
+        // 활성 행 번호 하이라이트 (sel_row 기준, special과 동일 — UX 일관성)
+        for (let row = 0; row < this._rowNumbers.length; row++) {
+            if (row === this._selRow) {
+                this._rowNumbers[row].add_style_class_name('active');
+            } else {
+                this._rowNumbers[row].remove_style_class_name('active');
             }
         }
         // 확장 모드: 마우스 호버가 없으면 엔진 선택 항목의 뜻풀이를 표시
