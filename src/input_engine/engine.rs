@@ -5,7 +5,7 @@
 //! 분산 `impl InputEngine` 블록으로 구현된다.
 
 use super::build_korean_context;
-use super::types::{InputResult, PopupAction};
+use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
 use crate::config::{Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
@@ -54,12 +54,15 @@ pub struct InputEngine {
     pub(super) toggle_keys: Vec<KeyCode>,
     /// 자동 영문 전환 활성화 여부 (설정 캐시)
     pub(super) auto_english_enabled: bool,
-    /// 자동 영문 전환 트리거 (파싱된 `(KeyCode, Shift 조건)` 캐시)
+    /// 자동 영문 전환 트리거 (파싱된 카테고리별 캐시)
     ///
-    /// - `(code, None)`: shift 무관 매칭 (Escape 등 제어 키)
-    /// - `(code, Some(true))`: shift 필수 (문자 키의 shift 문자. 예: `ShiftSemicolon` → `:`)
-    /// - `(code, Some(false))`: shift 없어야 함 (기본 문자 키. 예: `Slash` → `/`)
-    pub(super) auto_english_triggers: Vec<(KeyCode, Option<bool>)>,
+    /// 두 카테고리:
+    /// - `Functional { code, shift }`: KeyCode 비교 (Escape/Tab/F*/Shift 명시 문자)
+    /// - `Character(ch)`: keymap 산출 char 비교 (비-QWERTY 한국어 레이아웃 안전)
+    ///
+    /// 표기 문법: `key:Escape` / `char:/` (접두사). 무접두사는 legacy 호환으로
+    /// `Functional` 로 흡수한다.
+    pub(super) auto_english_triggers: Vec<AutoEnglishTrigger>,
     /// 이모지 팝업 트리거 (modifier, keycode) 쌍 목록
     pub(super) emoji_triggers: Vec<(ModifierState, KeyCode)>,
     /// 이모지 팝업 기능 활성 여부

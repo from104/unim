@@ -44,7 +44,7 @@ popup_mode_embedded: "Embedded"
 group_auto_english: "Auto English Mode"
 row_auto_english_enable: "Enable Auto English Mode"
 row_auto_english_triggers: "Trigger Keys"
-row_auto_english_triggers_subtitle: "Comma separated. Shift combos use ShiftSemicolon form (e.g. Escape, Slash, ShiftSlash)"
+row_auto_english_triggers_subtitle: "Comma separated. Use key:<Name> for keycode match or char:<chr> for layout-aware character match (e.g. key:Escape, char:/, char:,)"
 
 # Layout options page
 group_layout_options_empty: "This layout has no option rules."
@@ -174,7 +174,7 @@ row_popup_mode_tooltip: "Only Standalone works on Wayland (GNOME/KDE/Sway). A da
 
 # General > Auto English
 row_auto_english_enable_tooltip: "Recommended for vim/Emacs/terminal users. Password fields are unaffected (already English-only)."
-row_auto_english_triggers_tooltip: "If a trigger key collides with the Hangul toggle, the toggle wins and auto-switch never fires."
+row_auto_english_triggers_tooltip: "char:<chr> matches the produced character regardless of Korean layout (so '/' fires on Sebeolsik 390 too). Shift is ignored for char: triggers — register both '/' and '?' if you want them separately. If a trigger key collides with the Hangul toggle, the toggle wins."
 
 # TypeFix > Forward
 row_typefix_forward_enable_tooltip: "Turn OFF if you write a lot of English code (noisy). Leave ON for everyday writing."

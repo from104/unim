@@ -4,6 +4,27 @@
 //! 정의한다. 외부에서는 `crate::input_engine::{PopupAction, InputResult}` 경로로
 //! 동일하게 접근한다.
 
+use crate::keycode::KeyCode;
+
+/// 자동 영문 전환 트리거 — 두 카테고리.
+///
+/// - `Functional`: 제어 키(Escape/Tab/F*/Arrow* …) 또는 Shift 명시된 문자 키.
+///   `keycode == code && shift 조건` 으로 비교한다 (현 로직 유지).
+/// - `Character`: 키맵을 거쳐 산출된 char 와 비교한다. 비-QWERTY 한국어
+///   레이아웃(예: 세벌식390) 에서도 사용자가 의도한 문자(`'/'` 등) 가 어떤
+///   keycode 로 매핑되든 정확히 잡아낸다. shift 조건은 별도로 비교하지 않으며,
+///   사용자가 `'/'` 와 `'?'` 를 구분하려면 둘 다 등록해야 한다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AutoEnglishTrigger {
+    /// KeyCode 기반 매칭.
+    /// - `shift = None`: shift 무관 매칭
+    /// - `shift = Some(true)`: shift 필수
+    /// - `shift = Some(false)`: shift 없을 때만
+    Functional { code: KeyCode, shift: Option<bool> },
+    /// 키맵 산출 char 매칭. shift 무관 — 산출된 글자가 `ch` 와 같으면 발동.
+    Character(char),
+}
+
 /// 팝업 동작 (ProcessKeyEvent 후 발생)
 #[derive(Debug, Clone)]
 pub enum PopupAction {

@@ -410,26 +410,32 @@ fn default_auto_english_enabled() -> bool {
     false
 }
 fn default_auto_english_trigger_keys() -> Vec<String> {
-    vec!["Escape".to_string(), "Slash".to_string()]
+    vec!["key:Escape".to_string(), "char:/".to_string()]
 }
 
 /// 자동 영문 모드 전환 설정
 ///
-/// 특정 키(기본: Escape, Slash)를 한글 모드에서 입력하면
+/// 특정 키(기본: `key:Escape`, `char:/`)를 한글 모드에서 입력하면
 /// 조합을 커밋하고 영문 모드로 영구 전환한다. vi/vim 명령 모드 진입,
 /// CLI 도구의 `/` prefix 같은 워크플로우를 편리하게 만든다.
 ///
-/// 트리거 키 이름 규약:
-/// - 일반 KeyCode 이름 그대로: `"Escape"`, `"Slash"`, `"Semicolon"`
-/// - Shift 조합은 `"Shift"` 접두사로: `"ShiftSemicolon"` = `:`, `"ShiftSlash"` = `?`
+/// 트리거 키 표기 문법(접두사 기반):
+/// - `"key:<KeyCode>"`  — Functional 매칭. KeyCode 이름 직접 비교.
+///   예: `"key:Escape"`, `"key:Tab"`, `"key:F1"`, `"key:ShiftSemicolon"` (Shift 조합).
+/// - `"char:<문자>"`    — Character 매칭. 키맵을 거쳐 산출된 char 와 비교.
+///   비-QWERTY 한국어 레이아웃(예: 세벌식390) 에서도 산출 문자가 같으면 발동.
+///   예: `"char:/"`, `"char:,"`, `"char:?"`. shift 무관 — `'/'` 와 `'?'` 를
+///   구분하려면 둘 다 등록.
+/// - 무접두사(legacy)   — 종전 표기 유지. `"Escape"` / `"Slash"` / `"ShiftSemicolon"`
+///   등은 자동으로 Functional 로 흡수되어 100% 호환.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AutoEnglishConfig {
     /// 활성화 여부 (기본 false, opt-in)
     #[serde(default = "default_auto_english_enabled")]
     pub enabled: bool,
-    /// 자동 영문 전환을 유발하는 키 이름 목록.
-    /// `KeyCode::from_name()` 호환 이름 또는 `"Shift<KeyName>"` 가상 이름.
+    /// 자동 영문 전환을 유발하는 트리거 키 표기 목록.
+    /// 표기 문법은 위 docstring 참조 (`key:` / `char:` / 무접두사 legacy).
     #[serde(default = "default_auto_english_trigger_keys")]
     pub trigger_keys: Vec<String>,
 }
@@ -1464,8 +1470,8 @@ engine:
         assert!(!c.enabled, "기본은 비활성 (opt-in)");
         assert_eq!(
             c.trigger_keys,
-            vec!["Escape", "Slash"],
-            "기본 트리거 키는 ESC / '/'"
+            vec!["key:Escape", "char:/"],
+            "기본 트리거 키는 key:Escape / char:/ (비-QWERTY 한국어 안전)"
         );
     }
 
@@ -1496,7 +1502,7 @@ engine:
         assert!(!cfg.engine.auto_english.enabled);
         assert_eq!(
             cfg.engine.auto_english.trigger_keys,
-            vec!["Escape", "Slash"]
+            vec!["key:Escape", "char:/"]
         );
     }
 
