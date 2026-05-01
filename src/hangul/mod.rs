@@ -1,26 +1,39 @@
+//! 순수 한글 처리 모듈
+//!
+//! 한글 자모(`jamo`), 음절(`char`), 조합기(`composer`, `composer_with_2bul`,
+//! `composer_with_3bul`), 입력 컨텍스트(`input_context`)를 묶는다.
+//!
+//! 한자(`crate::hanja`), 이모지(`crate::emoji`), 초성 특수문자
+//! (`crate::special_chars`)는 이제 별도 최상위 모듈로 분리되었다. 외부 크레이트
+//! 호환을 위해 `#[doc(hidden)]` 재노출만 잠시 유지한다.
+
 pub mod char;
 pub mod composer;
 pub mod composer_with_2bul;
 pub mod composer_with_3bul;
-pub mod emoji;
-pub mod hanja;
-pub mod hanja_bookmark;
 pub mod input_context;
 pub mod jamo;
-pub mod special_chars;
 
 // Re-export commonly used items for easier access
 pub use char::{HangulChar, HangulCharExt, HangulError};
 pub use composer::HangulComposer;
 pub use composer_with_2bul::HangulComposer2Bul;
 pub use composer_with_3bul::HangulComposer3Bul;
-pub use hanja::{HanjaDictionary, HanjaEntry};
-pub use hanja_bookmark::HanjaBookmarkStore;
 pub use input_context::{ComposerType, HangulInputContext};
 pub use jamo::{Cho, JamoEnum, Jong, Jung};
-pub use special_chars::SpecialCharEntry;
 
 // --- Additional Aliases for Examples/Compatibility ---
 pub use crate::hangul::jamo::Cho as Chosung;
 pub use crate::hangul::jamo::Jong as Jongsung;
 pub use crate::hangul::jamo::Jung as Jungsung;
+
+// === 하위 호환 재노출 (외부 크레이트가 새 경로로 이전할 때까지 유지) ===
+// 신규 코드는 `crate::hanja`, `crate::emoji`, `crate::special_chars`를 직접 사용하라.
+#[doc(hidden)]
+pub use crate::emoji;
+#[doc(hidden)]
+pub use crate::hanja::{HanjaBookmarkStore, HanjaDictionary, HanjaEntry};
+#[doc(hidden)]
+pub use crate::special_chars;
+#[doc(hidden)]
+pub use crate::special_chars::SpecialCharEntry;

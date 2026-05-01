@@ -35,11 +35,11 @@ pub struct InputEngine {
     /// 한국어 키보드 레이아웃 설정 캐시
     pub(super) korean_layout: KoreanLayout,
     /// 한자 사전 (Arc로 래핑하여 공유)
-    pub(super) hanja_dict: std::sync::Arc<crate::hangul::HanjaDictionary>,
+    pub(super) hanja_dict: std::sync::Arc<crate::hanja::HanjaDictionary>,
     /// 한자 즐겨찾기 저장소 (영구 저장)
-    pub(super) hanja_bookmarks: crate::hangul::HanjaBookmarkStore,
+    pub(super) hanja_bookmarks: crate::hanja::HanjaBookmarkStore,
     /// 현재 한자 후보 목록
-    pub(super) hanja_candidates: Vec<crate::hangul::HanjaEntry>,
+    pub(super) hanja_candidates: Vec<crate::hanja::HanjaEntry>,
     /// 한자 선택 모드 활성화 여부
     pub(super) hanja_mode: bool,
     /// 한자 변환 대상 문자열 (preedit 또는 마지막 음절)
@@ -105,7 +105,7 @@ impl InputEngine {
         let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
         // 한자 사전 초기화 (한 번만 로드하여 Arc로 공유)
-        let hanja_dict = std::sync::Arc::new(crate::hangul::HanjaDictionary::new());
+        let hanja_dict = std::sync::Arc::new(crate::hanja::HanjaDictionary::new());
 
         Self {
             input_category: config.engine.default_category,
@@ -117,7 +117,7 @@ impl InputEngine {
             korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout.clone(),
             hanja_dict,
-            hanja_bookmarks: crate::hangul::HanjaBookmarkStore::load_default(),
+            hanja_bookmarks: crate::hanja::HanjaBookmarkStore::load_default(),
             hanja_candidates: Vec::new(),
             hanja_mode: false,
             hanja_target: String::new(),

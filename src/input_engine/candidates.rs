@@ -73,7 +73,7 @@ impl InputEngine {
 
             // 한자 후보 없음 → 초성이면 특수문자 검색 시도
             let ch = target_syllable.chars().next().unwrap_or('\0');
-            if let Some(entry) = crate::hangul::special_chars::search_by_choseong(ch) {
+            if let Some(entry) = crate::special_chars::search_by_choseong(ch) {
                 unim_log!(
                     "ENGINE",
                     "특수문자 후보 발견: '{}' ({}) -> {} 개",
