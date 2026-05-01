@@ -11,7 +11,7 @@ impl PopupState {
     /// 현재 페이지 레이아웃 재계산
     pub(super) fn update_page_layout(&mut self) {
         match self.kind {
-            PopupKind::SpecialChar => {
+            PopupKind::SpecialChar | PopupKind::Emoji => {
                 let page_chars = self.page_item_count();
                 self.cols = if page_chars == 0 {
                     1
@@ -139,7 +139,9 @@ impl PopupState {
     /// 현재 선택된 항목의 전체 인덱스
     pub fn selected_global_index(&self) -> Option<usize> {
         match self.kind {
-            PopupKind::SpecialChar => self.special_global_index(self.sel_row, self.sel_col),
+            PopupKind::SpecialChar | PopupKind::Emoji => {
+                self.special_global_index(self.sel_row, self.sel_col)
+            }
             PopupKind::Hanja => self.hanja_global_index_rc(self.sel_row, self.sel_col),
         }
     }
@@ -285,7 +287,7 @@ impl PopupState {
                     self.sel_col = 0;
                 }
             }
-            PopupKind::SpecialChar => {
+            PopupKind::SpecialChar | PopupKind::Emoji => {
                 let rows = self.rows.max(1);
                 self.sel_col = page_offset / rows;
                 self.sel_row = page_offset % rows;
@@ -301,7 +303,7 @@ impl PopupState {
     /// 특수문자 그리드에서 (row, col) 위치의 텍스트
     pub fn cell_text(&self, row: usize, col: usize) -> Option<&str> {
         match self.kind {
-            PopupKind::SpecialChar => {
+            PopupKind::SpecialChar | PopupKind::Emoji => {
                 let global = self.special_global_index(row, col)?;
                 self.items.get(global).map(|s| s.as_str())
             }
@@ -323,6 +325,81 @@ impl PopupState {
         self.update_page_layout();
         self.sel_row = sel_row.min(self.rows.saturating_sub(1));
         self.sel_col = sel_col.min(self.cols.saturating_sub(1));
+    }
+
+    // === Emoji 전용 접근자/뮤테이터 (PR #1) ===
+
+    /// 현재 카테고리 인덱스 (이모지 팝업, 다른 kind 에선 0).
+    pub fn emoji_cat_index(&self) -> usize {
+        self.cat_index
+    }
+
+    /// 카테고리 메타 슬라이스 (이모지 팝업 좌측 탭 렌더링용).
+    pub fn emoji_categories(&self) -> &[crate::popup::popup_state::EmojiCatMeta] {
+        &self.categories
+    }
+
+    /// 'Recent' 탭 캐시 — cat_index=0 일 때 items 와 동일.
+    pub fn emoji_recent(&self) -> &[String] {
+        &self.recent_emojis
+    }
+
+    /// 카테고리 전환 시 emoji pool 갱신 (엔진 전용).
+    ///
+    /// `cat_index` 가 [0, categories.len()) 범위가 아니면 무시한다.
+    /// `total_in_cat` 은 카테고리 전체 emoji 수 (total_pages 재계산용).
+    /// 호출 시 페이지·셀 위치를 모두 0,0 으로 리셋한다.
+    pub fn replace_for_emoji_category(
+        &mut self,
+        cat_index: usize,
+        items: Vec<String>,
+        total_in_cat: usize,
+    ) {
+        if self.kind != PopupKind::Emoji {
+            return;
+        }
+        if cat_index >= self.categories.len() {
+            return;
+        }
+        self.cat_index = cat_index;
+        self.target = self.categories[cat_index].id.clone();
+        self.items = items;
+        self.total_pages = if total_in_cat == 0 {
+            1
+        } else {
+            total_in_cat.div_ceil(self.page_size)
+        };
+        self.current_page = 0;
+        self.sel_row = 0;
+        self.sel_col = 0;
+        self.update_page_layout();
+    }
+
+    /// 'Recent' 캐시 갱신 (MRU bump 후 엔진이 호출).
+    ///
+    /// cat_index=0 (Recent 탭) 일 때 `items` 도 함께 갱신한다 — 같은 페이지를
+    /// 보고 있으면 emoji 위치 이동이 즉시 반영된다.
+    pub fn update_emoji_recent(&mut self, recent: Vec<String>) {
+        if self.kind != PopupKind::Emoji {
+            return;
+        }
+        // Recent 탭 cat 메타의 total 갱신 (페이지 인디케이터용).
+        if let Some(cat) = self.categories.get_mut(0) {
+            cat.total = recent.len();
+        }
+        if self.cat_index == 0 {
+            self.items = recent.clone();
+            self.total_pages = if recent.is_empty() {
+                1
+            } else {
+                recent.len().div_ceil(self.page_size)
+            };
+            if self.current_page >= self.total_pages {
+                self.current_page = self.total_pages.saturating_sub(1);
+            }
+            self.update_page_layout();
+        }
+        self.recent_emojis = recent;
     }
 
     /// 한자 페이지 항목 (한자, 뜻) 슬라이스

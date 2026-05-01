@@ -79,7 +79,7 @@ impl PopupState {
             // 한자 후보 재정렬도 Windows standalone egui UI에서 시각적 동기화 대상이 아님
             PopupAction::HanjaCandidatesReordered { .. } => {}
             // 이모지 팝업은 Windows standalone egui UI에서 미지원 — 무시
-            PopupAction::ShowEmoji => {}
+            PopupAction::ShowEmoji { .. } => {}
         }
     }
 

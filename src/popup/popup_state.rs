@@ -7,29 +7,48 @@
 //! [`super::popup_layout`] 형제 모듈에서 분산 `impl` 블록으로 제공됩니다.
 //! 테스트는 헬퍼 공유를 위해 본 파일 하단에 일괄 유지합니다.
 
-use super::popup_keys::{PopupKind, HANJA_PAGE_SIZE, SPECIAL_PAGE_SIZE};
+use super::popup_keys::{PopupKind, EMOJI_PAGE_SIZE, HANJA_PAGE_SIZE, SPECIAL_PAGE_SIZE};
+
+/// 이모지 카테고리 메타 (popup_state 가 보유, GUI 가 좌측 탭 그릴 때 사용).
+///
+/// PR #1: 'Recent' 는 cat_index 0 에 위치하며 runtime 동적이다.
+/// 이외 8개는 `src/emoji/data.rs::CATEGORIES` 에 정적으로 정의된다.
+#[derive(Debug, Clone)]
+pub struct EmojiCatMeta {
+    /// 카테고리 ID — "Recent" | "SmileysPeople" | "Animals" | ... | "Flags".
+    pub id: String,
+    /// 한국어 라벨 ("최근 사용", "표정·인물", ...).
+    pub label_ko: String,
+    /// 영어 라벨 ("Recent", "Smileys & people", ...).
+    pub label_en: String,
+    /// 카테고리 내 총 emoji 수 (페이지 인디케이터 / total_pages 계산용).
+    pub total: usize,
+}
 
 /// 팝업 상태 (단일 진실 소스)
 #[derive(Debug, Clone)]
 pub struct PopupState {
     pub(super) kind: PopupKind,
-    /// 전체 문자 목록 (한자 또는 특수문자)
+    /// 현재 페이지의 항목 목록 (한자/특수문자/이모지 공용).
+    ///
+    /// 이모지의 경우 "현재 페이지의 81개 슬라이스" 가 들어있다 — 카테고리 전환 시
+    /// 엔진이 `replace_for_emoji_category` 를 호출해 새 슬라이스로 갱신한다.
     pub(super) items: Vec<String>,
-    /// 한자 뜻 (한자 팝업에서만 사용, 특수문자는 빈 벡터)
+    /// 한자 뜻 (한자 팝업에서만 사용, 특수문자/이모지는 빈 벡터)
     pub(super) meanings: Vec<String>,
     /// 즐겨찾기 플래그 (한자 팝업 전용, items와 동일 길이)
     pub(super) bookmarks: Vec<bool>,
-    /// 대상 글자 (초성 또는 한글)
+    /// 대상 글자 (초성 또는 한글; 이모지에선 카테고리 id 를 그대로 빌려 사용).
     pub(super) target: String,
-    /// 상단 행 레이블 (특수문자: "QWERTYUIO" 등)
+    /// 상단 행 레이블 (특수문자/이모지: "QWERTYUIO" 등)
     pub(super) top_row: String,
     /// 현재 페이지 (0-based)
     pub(super) current_page: usize,
     /// 전체 페이지 수
     pub(super) total_pages: usize,
-    /// 선택 행 (특수문자: 0..rows-1, 한자: 0..page_items-1)
+    /// 선택 행 (특수문자/이모지: 0..rows-1, 한자: 0..page_items-1)
     pub(super) sel_row: usize,
-    /// 선택 열 (한자는 항상 0)
+    /// 선택 열 (한자 compact 는 항상 0)
     pub(super) sel_col: usize,
     /// 현재 페이지 행 수
     pub(super) rows: usize,
@@ -39,6 +58,15 @@ pub struct PopupState {
     pub(super) page_size: usize,
     /// 한자 팝업 확장 모드 여부 (true면 9×9 그리드, false면 1×9 리스트)
     pub(super) hanja_expanded: bool,
+
+    // === Emoji 전용 필드 (다른 kind 에선 기본값 / 빈 컨테이너) ===
+    /// 카테고리 인덱스 (0=최근, 1..=8=SmileysPeople..Flags).
+    pub(super) cat_index: usize,
+    /// 카테고리 메타 — 좌측 9 탭. Hanja/SpecialChar 는 빈 벡터.
+    pub(super) categories: Vec<EmojiCatMeta>,
+    /// 현재 'Recent' 탭에 표시할 emoji 캐시 (cat_index=0 일 때 items 와 동일).
+    /// MRU bump 시 엔진이 갱신한다.
+    pub(super) recent_emojis: Vec<String>,
 }
 
 impl PopupState {
@@ -87,6 +115,9 @@ impl PopupState {
             cols: 1,
             page_size: HANJA_PAGE_SIZE,
             hanja_expanded: false,
+            cat_index: 0,
+            categories: Vec::new(),
+            recent_emojis: Vec::new(),
         }
     }
 
@@ -119,6 +150,64 @@ impl PopupState {
             cols: 0,
             page_size: SPECIAL_PAGE_SIZE,
             hanja_expanded: false,
+            cat_index: 0,
+            categories: Vec::new(),
+            recent_emojis: Vec::new(),
+        };
+        state.update_page_layout();
+        state
+    }
+
+    /// 이모지 팝업 생성 (PR #1 emoji overhaul, OPTION X engine-driven).
+    ///
+    /// `items` 는 **현재 카테고리의 1 페이지(최대 81개) 슬라이스** 다 — 전체 emoji
+    /// pool 은 호출자(엔진) 가 보관한다. 카테고리 전환 시 엔진이
+    /// [`PopupState::replace_for_emoji_category`] 를 호출해 새 슬라이스로 교체한다.
+    ///
+    /// # Arguments
+    ///
+    /// * `cat_index` - 초기 카테고리 인덱스 (0=Recent, 1..=8=Smileys..Flags).
+    /// * `items` - 현재 카테고리의 emoji 페이지 (이모지 문자열 vec).
+    /// * `total_in_cat` - 현재 카테고리의 전체 emoji 수 (total_pages 계산용).
+    /// * `top_row` - 활성 영문 키맵의 상단 9 문자 (Letter 키 점프 + 컬럼 헤더).
+    /// * `categories` - 좌측 9 탭 메타 (Recent + 8 카테고리).
+    /// * `recent_emojis` - 'Recent' 탭에 표시할 MRU 이모지 (cat_index=0 일 때 items 와 동일 가능).
+    pub fn new_emoji(
+        cat_index: usize,
+        items: Vec<String>,
+        total_in_cat: usize,
+        top_row: &str,
+        categories: Vec<EmojiCatMeta>,
+        recent_emojis: Vec<String>,
+    ) -> Self {
+        let target_id = categories
+            .get(cat_index)
+            .map(|c| c.id.clone())
+            .unwrap_or_default();
+        let total_pages = if total_in_cat == 0 {
+            1
+        } else {
+            total_in_cat.div_ceil(EMOJI_PAGE_SIZE)
+        };
+
+        let mut state = Self {
+            kind: PopupKind::Emoji,
+            items,
+            meanings: Vec::new(),
+            bookmarks: Vec::new(),
+            target: target_id,
+            top_row: top_row.to_string(),
+            current_page: 0,
+            total_pages,
+            sel_row: 0,
+            sel_col: 0,
+            rows: 0,
+            cols: 0,
+            page_size: EMOJI_PAGE_SIZE,
+            hanja_expanded: false,
+            cat_index,
+            categories,
+            recent_emojis,
         };
         state.update_page_layout();
         state
@@ -896,6 +985,247 @@ mod tests {
         assert_eq!(state.current_page, 0);
         assert_eq!(state.sel_row, 1);
         assert_eq!(state.sel_col, 0);
+    }
+
+    // =========================================================
+    // PR #1 emoji overhaul — PopupState::Emoji 분기 테스트
+    // =========================================================
+
+    fn make_emoji_categories() -> Vec<EmojiCatMeta> {
+        vec![
+            EmojiCatMeta {
+                id: "Recent".into(),
+                label_ko: "최근 사용".into(),
+                label_en: "Recent".into(),
+                total: 0,
+            },
+            EmojiCatMeta {
+                id: "SmileysPeople".into(),
+                label_ko: "표정·인물".into(),
+                label_en: "Smileys & people".into(),
+                total: 553,
+            },
+            EmojiCatMeta {
+                id: "Animals".into(),
+                label_ko: "동물·자연".into(),
+                label_en: "Animals & nature".into(),
+                total: 153,
+            },
+            EmojiCatMeta {
+                id: "Food".into(),
+                label_ko: "음식·음료".into(),
+                label_en: "Food & drink".into(),
+                total: 135,
+            },
+            EmojiCatMeta {
+                id: "Activities".into(),
+                label_ko: "활동".into(),
+                label_en: "Activities".into(),
+                total: 85,
+            },
+            EmojiCatMeta {
+                id: "Travel".into(),
+                label_ko: "여행·장소".into(),
+                label_en: "Travel & places".into(),
+                total: 218,
+            },
+            EmojiCatMeta {
+                id: "Objects".into(),
+                label_ko: "사물".into(),
+                label_en: "Objects".into(),
+                total: 262,
+            },
+            EmojiCatMeta {
+                id: "Symbols".into(),
+                label_ko: "기호".into(),
+                label_en: "Symbols".into(),
+                total: 223,
+            },
+            EmojiCatMeta {
+                id: "Flags".into(),
+                label_ko: "국기".into(),
+                label_en: "Flags".into(),
+                total: 269,
+            },
+        ]
+    }
+
+    fn make_emoji_state(start_cat: usize, n: usize) -> PopupState {
+        let items: Vec<String> = (0..n).map(|i| format!("E{i}")).collect();
+        PopupState::new_emoji(
+            start_cat,
+            items,
+            n,
+            "QWERTYUIO",
+            make_emoji_categories(),
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn emoji_page_layout_full() {
+        // 81개 → rows=9, cols=9, total_pages=1
+        let state = make_emoji_state(1, 81);
+        assert_eq!(state.rows, 9);
+        assert_eq!(state.cols, 9);
+        assert_eq!(state.total_pages, 1);
+        assert_eq!(state.kind(), PopupKind::Emoji);
+    }
+
+    #[test]
+    fn emoji_page_layout_partial() {
+        // 50개 → cols=ceil(50/9)=6, rows=ceil(50/6)=9
+        let state = make_emoji_state(1, 50);
+        assert_eq!(state.cols, 6);
+        assert_eq!(state.rows, 9);
+        assert_eq!(state.total_pages, 1);
+    }
+
+    #[test]
+    fn emoji_arrow_navigation() {
+        let mut state = make_emoji_state(1, 81);
+        state.handle_key(PopupKey::Right);
+        state.handle_key(PopupKey::Down);
+        assert_eq!(state.sel_col, 1);
+        assert_eq!(state.sel_row, 1);
+    }
+
+    #[test]
+    fn emoji_tab_switch_category() {
+        let mut state = make_emoji_state(0, 0);
+        // Tab → cat_index +1, current_page=0, sel=(0,0)
+        state.handle_key(PopupKey::Tab);
+        assert_eq!(state.emoji_cat_index(), 1);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 0);
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn emoji_tab_wrap_around() {
+        let mut state = make_emoji_state(8, 269);
+        // 8 → Tab → 0 (Recent)
+        state.handle_key(PopupKey::Tab);
+        assert_eq!(state.emoji_cat_index(), 0);
+    }
+
+    #[test]
+    fn emoji_shift_tab_prev_category() {
+        let mut state = make_emoji_state(0, 0);
+        state.handle_key(PopupKey::ShiftTab);
+        // 0 → ShiftTab → 8 (Flags), wrap around backwards
+        assert_eq!(state.emoji_cat_index(), 8);
+    }
+
+    #[test]
+    fn emoji_page_down_up() {
+        // 200개 → 81+81+38 → total_pages=3
+        let mut state = make_emoji_state(1, 200);
+        assert_eq!(state.total_pages, 3);
+        state.handle_key(PopupKey::PageDown);
+        assert_eq!(state.current_page, 1);
+        state.handle_key(PopupKey::PageUp);
+        assert_eq!(state.current_page, 0);
+        // PageUp from page 0 wraps to last
+        state.handle_key(PopupKey::PageUp);
+        assert_eq!(state.current_page, 2);
+    }
+
+    #[test]
+    fn emoji_letter_jump_qwerty() {
+        let mut state = make_emoji_state(1, 81);
+        // Letter(2) (E) → col 2
+        state.handle_key(PopupKey::Letter(2));
+        assert_eq!(state.sel_col, 2);
+        assert_eq!(state.sel_row, 0);
+    }
+
+    #[test]
+    fn emoji_number_select() {
+        let mut state = make_emoji_state(1, 81);
+        // sel_col=0, Number(3) → row 2 → global 0*9+2 = 2 → Select(2)
+        let r = state.handle_key(PopupKey::Number(3));
+        assert_eq!(r, PopupKeyResult::Select(2));
+    }
+
+    #[test]
+    fn emoji_escape_cancels() {
+        let mut state = make_emoji_state(1, 81);
+        let r = state.handle_key(PopupKey::Escape);
+        assert_eq!(r, PopupKeyResult::Cancel);
+    }
+
+    #[test]
+    fn emoji_space_consumed_no_commit() {
+        // 이모지에선 Space 가 commit/페이지 전환 모두 아니다 — Consumed.
+        let mut state = make_emoji_state(1, 81);
+        let r = state.handle_key(PopupKey::Space);
+        assert_eq!(r, PopupKeyResult::Consumed);
+        assert_eq!(state.current_page, 0);
+    }
+
+    #[test]
+    fn emoji_replace_for_category_resets_page_and_sel() {
+        let mut state = make_emoji_state(0, 0);
+        state.handle_key(PopupKey::Tab); // cat_index=1
+        // 시뮬레이션: 카테고리 1 의 풀 553 개 가 들어옴.
+        let pool: Vec<String> = (0..553).map(|i| format!("p{i}")).collect();
+        state.replace_for_emoji_category(1, pool, 553);
+        assert_eq!(state.emoji_cat_index(), 1);
+        assert_eq!(state.total_pages, 553_usize.div_ceil(81));
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 0);
+        assert_eq!(state.sel_col, 0);
+        // target 도 카테고리 id 로 갱신.
+        assert_eq!(state.target(), "SmileysPeople");
+    }
+
+    #[test]
+    fn emoji_update_recent_grows_total_pages_when_on_recent_tab() {
+        let mut state = make_emoji_state(0, 0);
+        assert_eq!(state.total_pages, 1);
+        let recent: Vec<String> = (0..82).map(|i| format!("r{i}")).collect();
+        state.update_emoji_recent(recent);
+        assert_eq!(state.total_pages, 2);
+        assert_eq!(state.emoji_recent().len(), 82);
+    }
+
+    #[test]
+    fn emoji_recent_max_truncation_via_touch() {
+        // touch 정책 자체는 emoji::recent::touch_recent 가 담당. 본 테스트는
+        // popup_state 가 update_emoji_recent 를 호출했을 때 81 초과를 그대로
+        // 반영하는지(엔진 책임) 확인 — popup_state 는 truncate 하지 않음.
+        let mut state = make_emoji_state(0, 0);
+        let recent: Vec<String> = (0..200).map(|i| format!("r{i}")).collect();
+        state.update_emoji_recent(recent);
+        assert_eq!(state.emoji_recent().len(), 200);
+    }
+
+    #[test]
+    fn emoji_global_index_uses_special_column_first() {
+        // Emoji 도 SpecialChar 와 동일하게 col*rows + row (열 우선) 인덱싱.
+        let state = make_emoji_state(1, 81);
+        assert_eq!(state.special_global_index(0, 0), Some(0));
+        assert_eq!(state.special_global_index(1, 0), Some(1));
+        assert_eq!(state.special_global_index(0, 1), Some(9));
+    }
+
+    #[test]
+    fn emoji_click_select_returns_global_index() {
+        let mut state = make_emoji_state(1, 81);
+        let r = state.handle_click(2, 3);
+        // (row=2, col=3) → 3*9+2 = 29
+        assert_eq!(r, PopupKeyResult::Select(29));
+    }
+
+    #[test]
+    fn emoji_view_model_basic() {
+        let state = make_emoji_state(1, 50);
+        let vm = state.view_model();
+        assert_eq!(vm.kind, PopupKind::Emoji);
+        // 푸터: 카테고리 한글 라벨 + page 1/1
+        assert!(vm.footer_text.contains("표정·인물"));
+        assert!(vm.footer_text.contains("1 / 1"));
     }
 
     /// 즐겨찾기 해제 시 새 인덱스가 현재 페이지를 벗어나면 페이지가 점프해야 한다.

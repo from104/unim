@@ -6,6 +6,11 @@
 //! - 즐겨찾기 MRU (선택 시 자동 갱신; 엔진이 `touch_favorite` 호출)
 //!
 //! GUI가 모든 상태를 자체 관리하고, 선택 확정 시 DBus `CommitEmoji`로 커밋합니다.
+//!
+//! PR #1 (emoji overhaul): 본 파일은 PR #2 에서 9×9 grid + 좌측 9 탭으로 전면
+//! 재작성된다. 그 전까지는 PR #1 이 도입한 deprecated shim 들을 그대로 사용한다.
+
+#![allow(deprecated)]
 
 use std::cell::RefCell;
 use std::rc::Rc;

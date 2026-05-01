@@ -130,11 +130,6 @@ pub enum EngineRequest {
         context_id: u32,
         response: oneshot::Sender<Option<(u32, String)>>,
     },
-    /// 이모지 검색
-    SearchEmoji {
-        keyword: String,
-        response: oneshot::Sender<Vec<String>>,
-    },
     /// 역방향 사용자 사전: 단어 추가
     UserDictAdd {
         word: String,
@@ -545,47 +540,51 @@ impl InputMethodService {
         Ok(word)
     }
 
-    /// 이모지 검색
-    /// keyword가 빈 문자열이면 인기 이모지를 반환합니다.
+    /// 이모지 검색 — **DEPRECATED (PR #1 emoji overhaul)**.
+    ///
+    /// 검색 기능이 폐기되어 항상 빈 vec 를 반환한다. PR #5 cleanup 에서 RPC 자체가
+    /// 제거되며, 그 전까지는 GNOME extension 이 안전하게 호출할 수 있도록 shim 으로 유지한다.
     async fn search_emoji(&self, keyword: &str) -> zbus::fdo::Result<Vec<String>> {
-        let results = unim::emoji::search_emoji(keyword);
-        let emoji_strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
         unim_log!(
             "DBUS",
-            "[DBus] SearchEmoji: keyword='{}', count={}",
-            keyword,
-            emoji_strings.len()
+            "[DBus] SearchEmoji(deprecated): keyword='{}' — returning empty (PR #1 검색 폐기)",
+            keyword
         );
-        Ok(emoji_strings)
+        Ok(Vec::new())
     }
 
-    /// 이모지 카테고리 목록 조회
+    /// 이모지 카테고리 목록 조회 — **PR #1 shim**.
     ///
-    /// 각 항목은 (카테고리 이름, 이모지 목록) 쌍. GUI가 탭을 구성할 때 사용합니다.
+    /// 각 항목은 `(카테고리 이름, 이모지 목록)` 쌍. PR #1 부터 첫 항목은
+    /// "최근 사용" (MRU 81개) 이고, 이후 8 카테고리 (SmileysPeople, Animals, ...,
+    /// Flags) 가 따라온다. PR #3 에서 GNOME extension 이 시그널 payload 로 대체되면
+    /// 본 RPC 는 PR #5 에서 제거된다.
     async fn list_emoji_categories(&self) -> zbus::fdo::Result<Vec<(String, Vec<String>)>> {
         let mut list: Vec<(String, Vec<String>)> = Vec::new();
-        // 즐겨찾기 탭 — MRU 우선, 비어있으면 popular fallback.
-        let favorites = unim::emoji::load_favorites();
-        let favorite_items = if favorites.is_empty() {
-            unim::emoji::search_emoji_strings("")
-        } else {
-            favorites
-        };
-        list.push(("즐겨찾기".to_string(), favorite_items));
-        // 9개 카테고리 (Smileys/People/Animals/Food/Travel/Activities/Objects/Symbols/Flags).
+        // 첫 항목: 최근 사용 (MRU). 비어 있으면 빈 vec — popular fallback 폐기.
+        let recent = unim::emoji::load_recent();
+        list.push(("최근 사용".to_string(), recent));
+        // 8 카테고리 (SmileysPeople/Animals/Food/Activities/Travel/Objects/Symbols/Flags).
         for (id, ko_name, _en_name, _count) in unim::emoji::list_categories() {
             list.push((ko_name, unim::emoji::category_emojis(&id)));
         }
         Ok(list)
     }
 
-    /// 이모지 즐겨찾기(MRU) 조회
+    /// 이모지 즐겨찾기(MRU) 조회 — **PR #1 shim** (rename 권고: GetEmojiRecent).
     ///
-    /// `~/.config/unim/emoji-favorites.yaml`에서 사용자별 MRU(최대 32개)를 읽어
-    /// 반환한다. 파일이 없으면 빈 vec — GUI는 `list_emoji_categories`의 즐겨찾기
-    /// 탭에 popular fallback을 그대로 보여준다.
+    /// `~/.config/unim/emoji-recent.yaml` 에서 사용자별 MRU (최대 81개) 를 읽어
+    /// 반환한다. 옛 favorites 파일은 PR #1 에서 zero-state 로 폐기됐다.
     async fn get_emoji_favorites(&self) -> zbus::fdo::Result<Vec<String>> {
-        Ok(unim::emoji::load_favorites())
+        Ok(unim::emoji::load_recent())
+    }
+
+    /// 이모지 최근 사용(MRU) 조회 (PR #1 신규 RPC 이름).
+    ///
+    /// 의미상 `get_emoji_favorites` 와 동일 — GNOME extension PR #3 마이그레이션
+    /// 시 이 이름으로 호출하도록 변경된다. PR #5 cleanup 에서 옛 이름 제거.
+    async fn get_emoji_recent(&self) -> zbus::fdo::Result<Vec<String>> {
+        Ok(unim::emoji::load_recent())
     }
 
     /// 설정값 조회
@@ -990,8 +989,8 @@ impl InputMethodService {
         if emoji.is_empty() {
             return Ok(());
         }
-        // MRU 즐겨찾기 갱신 (~/.config/unim/emoji-favorites.yaml).
-        unim::emoji::touch_favorite(emoji);
+        // MRU 최근 사용 갱신 (~/.config/unim/emoji-recent.yaml).
+        unim::emoji::touch_recent(emoji);
 
         let target_path_str = match self.last_active_input_context_path.lock().unwrap().clone() {
             Some(p) => p,
@@ -1240,12 +1239,38 @@ impl InputContextHandler {
                         characters.len()
                     );
                 }
-                PopupAction::ShowEmoji if is_standalone => {
+                PopupAction::ShowEmoji {
+                    target_cat_id,
+                    items,
+                    top_row,
+                    recent,
+                    categories,
+                } if is_standalone => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
+                    // PR #1: dual-emit — 옛 4-인자 시그널 + 신규 확장 시그널.
+                    // GNOME extension PR #3 마이그레이션이 끝나면 옛 시그널은 PR #5 에서 제거.
                     Self::show_emoji_popup(&signal_ctx, x, y, w, h).await.ok();
+                    Self::show_emoji_popup_v2(
+                        &signal_ctx,
+                        target_cat_id,
+                        items.clone(),
+                        top_row,
+                        recent.clone(),
+                        categories.clone(),
+                        x,
+                        y,
+                        w,
+                        h,
+                    )
+                    .await
+                    .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopup 시그널 발행: pos=({},{},{},{})",
+                        "[DBus] ShowEmojiPopup(v1+v2) 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                        target_cat_id,
+                        items.len(),
+                        recent.len(),
+                        categories.len(),
                         x,
                         y,
                         w,
@@ -1574,20 +1599,41 @@ impl InputContextHandler {
         cursor_height: i32,
     ) -> zbus::Result<()>;
 
-    /// 이모지 팝업 표시 시그널 (Super+. 트리거)
+    /// 이모지 팝업 표시 시그널 — **DEPRECATED (PR #1)**.
     ///
-    /// GUI가 카테고리 탭/검색/즐겨찾기를 자체 관리하므로 커서 위치만 전달합니다.
-    ///
-    /// GNOME Wayland 환경에서는 컴포지터가 Super 조합 키를 가로채 IM 모듈에 도달하지
-    /// 못하므로, GNOME extension이 `global.display.grab_accelerator()`로 단축키를
-    /// 직접 캡처해 [`InputContextHandler::trigger_action`]("emoji_popup")을 호출하고,
-    /// 본 시그널이 발행되어 인디케이터/팝업 GUI가 이모지 선택 창을 띄운다.
-    ///
-    /// X11 및 IM-only 환경에서는 엔진이 키 입력을 직접 받아 처리하므로
-    /// 본 RPC 경로는 사용되지 않는다.
+    /// PR #1 부터는 `show_emoji_popup_v2` 가 카테고리·페이지·MRU payload 를 함께
+    /// 푸시한다. 옛 GNOME extension (PR #3 미적용 버전) 호환을 위해 dual-emit 으로
+    /// 본 시그널도 유지한다 — PR #5 cleanup 에서 제거 예정.
     #[zbus(signal)]
     async fn show_emoji_popup(
         signal_ctx: &SignalContext<'_>,
+        cursor_x: i32,
+        cursor_y: i32,
+        cursor_width: i32,
+        cursor_height: i32,
+    ) -> zbus::Result<()>;
+
+    /// 이모지 팝업 표시 시그널 v2 (PR #1 emoji overhaul, OPTION X engine-driven).
+    ///
+    /// 한자/특수문자 시그널과 동일하게 카테고리·페이지·MRU 데이터를 push 한다 —
+    /// GUI 가 별도 sync RPC (`list_emoji_categories` / `get_emoji_favorites`) 를
+    /// 호출할 필요가 없다.
+    ///
+    /// payload:
+    /// - `target_cat_id`: 시작 카테고리 id ("Recent" / "SmileysPeople" / ... / "Flags").
+    /// - `items`: 시작 카테고리의 emoji 풀 (전체).
+    /// - `top_row`: 활성 영문 키맵 상단 9 문자.
+    /// - `recent`: 'Recent' 탭 캐시 (MRU 81개).
+    /// - `categories`: 좌측 9 탭 메타 — `(id, ko, en, count)` 튜플 9개 (Recent + 8).
+    #[zbus(signal)]
+    #[allow(clippy::too_many_arguments)]
+    async fn show_emoji_popup_v2(
+        signal_ctx: &SignalContext<'_>,
+        target_cat_id: &str,
+        items: Vec<String>,
+        top_row: &str,
+        recent: Vec<String>,
+        categories: Vec<(String, String, String, u32)>,
         cursor_x: i32,
         cursor_y: i32,
         cursor_width: i32,
@@ -2214,7 +2260,7 @@ impl InputContextHandler {
     ) -> zbus::fdo::Result<()> {
         if !emoji.is_empty() {
             Self::commit_text(&signal_ctx, emoji).await.ok();
-            unim::emoji::touch_favorite(emoji);
+            unim::emoji::touch_recent(emoji);
         }
         Self::hide_popup(&signal_ctx).await.ok();
         unim_log!(

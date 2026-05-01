@@ -1165,12 +1165,6 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(result);
             }
 
-            EngineRequest::SearchEmoji { keyword, response } => {
-                let results = unim::emoji::search_emoji(&keyword);
-                let emoji_strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
-                let _ = response.send(emoji_strings);
-            }
-
             EngineRequest::UserDictAdd {
                 word,
                 note,
