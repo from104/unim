@@ -320,6 +320,23 @@ render_expanded_grid(UnimHanjaPopup *popup)
     gsize end = start + page_size;
     if (end > popup->count) end = popup->count;
 
+    /* (0, 0) corner — 빈 라벨 (special과 정합) */
+    GtkWidget *corner = gtk_label_new(NULL);
+    WIDGET_ADD_CSS_CLASS(corner, "grid-row-number");
+    gtk_grid_attach(GTK_GRID(popup->grid), corner, 0, 0, 1, 1);
+
+    /* 행 번호 (col 0, row 1..=9). sel_row면 active CSS — UX 일관성 (special과 정합). */
+    for (gint row = 0; row < EXPANDED_ROWS; row++) {
+        gchar num_text[4];
+        g_snprintf(num_text, sizeof(num_text), "%d", row + 1);
+        GtkWidget *num_label = gtk_label_new(num_text);
+        WIDGET_ADD_CSS_CLASS(num_label, "grid-row-number");
+        if (row == popup->sel_row) {
+            WIDGET_ADD_CSS_CLASS(num_label, "active");
+        }
+        gtk_grid_attach(GTK_GRID(popup->grid), num_label, 0, row + 1, 1, 1);
+    }
+
     /* 가로 레이블 키 시퀀스(special과 동일). 엔진 SSOT는 PopupState.top_row()이지만
      * C-API 표면 확장을 피하기 위해 동일 상수를 직접 사용. */
     static const char TOP_ROW[] = "QWERTYUIO";
@@ -330,7 +347,7 @@ render_expanded_grid(UnimHanjaPopup *popup)
         if (col == popup->sel_col) {
             WIDGET_ADD_CSS_CLASS(header, "active");
         }
-        gtk_grid_attach(GTK_GRID(popup->grid), header, col, 0, 1, 1);
+        gtk_grid_attach(GTK_GRID(popup->grid), header, col + 1, 0, 1, 1);
 
         for (gint row = 0; row < EXPANDED_ROWS; row++) {
             gsize offset = (gsize)col * EXPANDED_ROWS + (gsize)row;
@@ -356,7 +373,7 @@ render_expanded_grid(UnimHanjaPopup *popup)
                               GSIZE_TO_POINTER(global));
             g_signal_connect(cell, "clicked", G_CALLBACK(on_grid_cell_clicked), popup);
 
-            gtk_grid_attach(GTK_GRID(popup->grid), cell, col, row + 1, 1, 1);
+            gtk_grid_attach(GTK_GRID(popup->grid), cell, col + 1, row + 1, 1, 1);
         }
     }
 }
