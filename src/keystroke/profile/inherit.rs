@@ -114,6 +114,18 @@ fn merge(base: LayoutProfile, child: LayoutProfile) -> LayoutProfile {
             merged
         },
         active_rule_sets: child.active_rule_sets.or(base.active_rule_sets),
+        key_meta: match (base.key_meta, child.key_meta) {
+            (None, None) => None,
+            (Some(b), None) => Some(b),
+            (None, Some(c)) => Some(c),
+            (Some(mut b), Some(c)) => {
+                // 같은 키는 child 우선 (rule_sets와 동일 정책).
+                for (k, v) in c {
+                    b.insert(k, v);
+                }
+                Some(b)
+            }
+        },
     }
 }
 

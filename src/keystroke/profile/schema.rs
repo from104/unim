@@ -14,8 +14,8 @@
 //! combinations 해석·inherits 병합·자모 enum 변환은 builder에서 수행한다.
 //! 본 모듈은 순수 스키마(문자열 수준)만 다룬다.
 
-use serde::Deserialize;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 
 use super::localized::LocalizedText;
 
@@ -50,6 +50,49 @@ pub struct RawProfile {
     pub rule_sets: Option<BTreeMap<String, RuleSet>>,
     #[serde(default)]
     pub active_rule_sets: Option<Vec<String>>,
+    /// schema_version 2 신규 — 키별 메타데이터.
+    /// 키는 layout 셀과 동일한 컨벤션의 리터럴 문자열(예: `"/"`, `"ᆮ"`).
+    /// PR-A는 schema·파싱만. 동작 적용은 PR-B.
+    #[serde(default)]
+    pub key_meta: Option<HashMap<String, KeyMeta>>,
+}
+
+// ============================================================================
+// schema_version 2 — 키 메타데이터 (PR-A: dangling)
+// ============================================================================
+
+/// 키 단위 메타데이터. 향후 룰 A·B 동작의 데이터 표현.
+///
+/// - `vowel_combine_head`: 룰 A. 이 키의 모음만 이중모음(ㅘ/ㅙ/ㅚ/ㅝ/ㅞ/ㅟ) 결합 가능.
+/// - `context_alt`: 룰 B. preedit 상태에 따른 키 출력 분기.
+///
+/// PR-A에서는 schema 정의만 — 엔진/composer 동작 분기는 PR-B에서.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vowel_combine_head: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_alt: Option<ContextAlt>,
+}
+
+/// 컨텍스트 분기 규칙. preedit 상태(`when`)가 true면 `to`, 아니면 `fallback`.
+///
+/// 예: `/` 키, preedit 초성-only일 때 ㅗ, 그 외 리터럴 `/`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextAlt {
+    pub when: ContextCondition,
+    pub to: String,
+    pub fallback: String,
+}
+
+/// preedit 상태 조건. 향후 `Empty`/`JungEnded`/`JongEnded` 등 추가 여지.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextCondition {
+    /// `is_filled_only_cho()` — 초성 1개만 들어 있는 preedit.
+    ChoseongOnly,
 }
 
 // ============================================================================
@@ -178,6 +221,7 @@ impl RawProfile {
             || self.combinations.is_some()
             || self.rule_sets.is_some()
             || self.active_rule_sets.is_some()
+            || self.key_meta.is_some()
     }
 }
 
@@ -185,14 +229,14 @@ impl RawProfile {
 // 정규화된 런타임 표현
 // ============================================================================
 
-/// 정규화된 런타임 프로필 (v1 only).
+/// 정규화된 런타임 프로필 (v1·v2).
 ///
 /// JSON 구조를 1:1로 매핑하되, `rule_sets`의 legacy `reinterpret`만
 /// `combinations`로 흡수한다. combinations 해석, inherits 병합,
 /// active_rule_sets 적용은 builder에서.
 #[derive(Debug, Clone)]
 pub struct LayoutProfile {
-    /// 항상 1 이상. 0.2.0부터 v0(=0)는 거부됨.
+    /// 1 또는 2. 0.2.0부터 v0(=0)는 거부됨. PR-A에서 v2 신설(`key_meta` 도입).
     pub schema_version: u8,
     pub language: String,
     pub name: String,
@@ -209,6 +253,9 @@ pub struct LayoutProfile {
     /// `None`이면 각 rule_set의 `active` 값을 그대로 사용.
     /// `Some(list)`이면 이 목록의 이름만 active, 나머지는 강제 off.
     pub active_rule_sets: Option<Vec<String>>,
+    /// schema_version 2 신규 — 키별 메타데이터. PR-A에서는 dangling(미사용).
+    /// 키는 layout 셀과 동일한 컨벤션의 리터럴 문자열(예: `"/"`, `"ᆮ"`).
+    pub key_meta: Option<HashMap<String, KeyMeta>>,
 }
 
 impl LayoutProfile {
@@ -249,6 +296,7 @@ impl LayoutProfile {
             combinations: raw.combinations,
             rule_sets,
             active_rule_sets: raw.active_rule_sets,
+            key_meta: raw.key_meta,
         }
     }
 }
@@ -421,5 +469,127 @@ mod tests {
         let desc = profile.metadata.description.as_ref().unwrap();
         assert_eq!(desc.resolve("ko"), "단일");
         assert_eq!(desc.resolve("xx"), "단일");
+    }
+
+    // ========================================================================
+    // schema_version 2 — key_meta (PR-A)
+    // ========================================================================
+
+    /// schema_version 2 + 키 메타데이터를 포함한 JSON이 LayoutProfile로 정상 파싱.
+    /// PR-A에서는 dangling 필드이므로 동작 영향 없음 — 파싱 성공만 검증.
+    #[test]
+    fn schema_v2_key_meta_parses_successfully() {
+        let json = r#"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "v2_test",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "key_meta": {
+                "/": {
+                    "vowel_combine_head": true,
+                    "context_alt": {
+                        "when": "choseong_only",
+                        "to": "ㅗ",
+                        "fallback": "/"
+                    }
+                },
+                "9": {
+                    "vowel_combine_head": true
+                }
+            }
+        }"#;
+        let raw: RawProfile = serde_json::from_str(json).unwrap();
+        let profile = LayoutProfile::from_raw(raw);
+        assert_eq!(profile.schema_version, 2);
+        let km = profile.key_meta.as_ref().expect("key_meta present");
+        let slash = km.get("/").expect("'/' key meta present");
+        assert_eq!(slash.vowel_combine_head, Some(true));
+        let alt = slash.context_alt.as_ref().expect("context_alt present");
+        assert_eq!(alt.when, ContextCondition::ChoseongOnly);
+        assert_eq!(alt.to, "ㅗ");
+        assert_eq!(alt.fallback, "/");
+        let nine = km.get("9").expect("'9' key meta present");
+        assert_eq!(nine.vowel_combine_head, Some(true));
+        assert!(nine.context_alt.is_none());
+    }
+
+    /// `KeyMeta`/`ContextAlt`/`ContextCondition` round-trip 직렬화/역직렬화.
+    /// `skip_serializing_if = "Option::is_none"` 적용 검증 포함.
+    #[test]
+    fn key_meta_round_trip_serde() {
+        let original = KeyMeta {
+            vowel_combine_head: Some(true),
+            context_alt: Some(ContextAlt {
+                when: ContextCondition::ChoseongOnly,
+                to: "ㅗ".to_string(),
+                fallback: "/".to_string(),
+            }),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        // snake_case 직렬화 확인 — `choseong_only`로 출력되어야 함.
+        assert!(
+            json.contains(r#""when":"choseong_only""#),
+            "ContextCondition::ChoseongOnly는 snake_case로 직렬화: got {json}"
+        );
+        let decoded: KeyMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.vowel_combine_head, Some(true));
+        let alt = decoded.context_alt.expect("round-trip preserves context_alt");
+        assert_eq!(alt.when, ContextCondition::ChoseongOnly);
+        assert_eq!(alt.to, "ㅗ");
+        assert_eq!(alt.fallback, "/");
+
+        // 빈 KeyMeta는 두 필드 모두 생략되어야 함 (skip_serializing_if).
+        let empty = KeyMeta::default();
+        let empty_json = serde_json::to_string(&empty).unwrap();
+        assert_eq!(
+            empty_json, "{}",
+            "default KeyMeta는 빈 객체로 직렬화: got {empty_json}"
+        );
+    }
+
+    /// `key_meta` 부재인 기존 v1 자판 JSON은 그대로 파싱되어야 한다 (default None).
+    #[test]
+    fn v1_without_key_meta_still_parses() {
+        let raw: RawProfile = serde_json::from_str(v1_json()).unwrap();
+        let profile = LayoutProfile::from_raw(raw);
+        assert_eq!(profile.schema_version, 1);
+        assert!(
+            profile.key_meta.is_none(),
+            "v1 JSON에서는 key_meta 누락 → None"
+        );
+    }
+
+    /// `ContextCondition`은 `snake_case` 변이체만 허용. 잘못된 값은 파싱 에러.
+    #[test]
+    fn key_meta_rejects_unknown_when_value() {
+        let json = r#"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "bad",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "key_meta": {
+                "/": {
+                    "context_alt": {
+                        "when": "foo",
+                        "to": "ㅗ",
+                        "fallback": "/"
+                    }
+                }
+            }
+        }"#;
+        let result: Result<RawProfile, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "unknown `when` 값 'foo'는 파싱 에러여야 함"
+        );
     }
 }
