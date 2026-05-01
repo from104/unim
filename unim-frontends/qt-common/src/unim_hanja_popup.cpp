@@ -166,6 +166,17 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
         "  qproperty-alignment: AlignCenter;"
         "  min-height: 0px;"
         "}"
+        "QLabel[gridrownumber=\"true\"] {"
+        "  color: #7f849c;"
+        "  font-size: %6px;"
+        "  padding: 0 4px;"
+        "  qproperty-alignment: AlignCenter;"
+        "  min-height: 0px;"
+        "}"
+        /* 행/열 강조 (special과 동일 글로벌 selector — UX 일관성) */
+        "QLabel[highlight=\"true\"] {"
+        "  color: #f9e2af;"
+        "}"
     ).arg(padding).arg(labelPadV).arg(labelPadH).arg(fontSize)
      .arg(minHeight).arg(pageFontSize).arg(pagePadH));
 
@@ -474,6 +485,22 @@ void UnimHanjaPopup::renderExpandedGrid(int pageStart, int pageEnd)
     grid->setHorizontalSpacing(2);
     grid->setVerticalSpacing(2);
 
+    /* (0, 0) corner — 빈 라벨 (special과 정합) */
+    QLabel *corner = new QLabel(QString(), m_body);
+    corner->setProperty("gridrownumber", true);
+    grid->addWidget(corner, 0, 0);
+
+    /* 행 번호 (col 0, row 1..=9). sel_row면 highlight=true — UX 일관성 (special과 정합). */
+    for (int row = 0; row < EXPANDED_ROWS; row++) {
+        QLabel *numLabel = new QLabel(QString::number(row + 1), m_body);
+        numLabel->setProperty("gridrownumber", true);
+        numLabel->setProperty("highlight", (row == m_selRow));
+        numLabel->setAlignment(Qt::AlignCenter);
+        numLabel->style()->unpolish(numLabel);
+        numLabel->style()->polish(numLabel);
+        grid->addWidget(numLabel, row + 1, 0);
+    }
+
     /* 가로 레이블 키 시퀀스(special과 동일). 엔진 SSOT는 PopupState.top_row()이지만
      * 멤버 추가/시그널 변경을 피하기 위해 동일 상수를 직접 사용. */
     static const char TOP_ROW[] = "QWERTYUIO";
@@ -485,7 +512,7 @@ void UnimHanjaPopup::renderExpandedGrid(int pageStart, int pageEnd)
         header->setAlignment(Qt::AlignCenter);
         header->style()->unpolish(header);
         header->style()->polish(header);
-        grid->addWidget(header, 0, col);
+        grid->addWidget(header, 0, col + 1);
 
         for (int row = 0; row < EXPANDED_ROWS; row++) {
             int offset = col * EXPANDED_ROWS + row;
@@ -504,7 +531,7 @@ void UnimHanjaPopup::renderExpandedGrid(int pageStart, int pageEnd)
             cell->setAlignment(Qt::AlignCenter);
             cell->style()->unpolish(cell);
             cell->style()->polish(cell);
-            grid->addWidget(cell, row + 1, col);
+            grid->addWidget(cell, row + 1, col + 1);
             m_cells.push_back(cell);
         }
     }
