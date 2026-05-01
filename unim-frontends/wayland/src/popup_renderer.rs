@@ -47,6 +47,9 @@ pub fn render_popup(state: &PopupState) -> RenderedPopup {
             }
         }
         PopupKind::SpecialChar => render_special_from_state(state),
+        // PR #1: 이모지 팝업도 9×9 그리드 — SpecialChar 렌더러를 재사용한다.
+        // 본격 UI (좌측 9 탭 + 페이지 인디케이터) 는 PR #5 에서 추가.
+        PopupKind::Emoji => render_special_from_state(state),
     }
 }
 

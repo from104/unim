@@ -836,12 +836,13 @@ pub extern "C" fn unim_popup_handle_click(
 
 // --- 팝업 ViewModel 쿼리 ---
 
-/// 팝업 종류 반환 (0=Hanja, 1=SpecialChar)
+/// 팝업 종류 반환 (0=Hanja, 1=SpecialChar, 2=Emoji)
 #[no_mangle]
 pub extern "C" fn unim_popup_get_kind(state: &PopupState) -> i32 {
     match state.kind() {
         PopupKind::Hanja => 0,
         PopupKind::SpecialChar => 1,
+        PopupKind::Emoji => 2,
     }
 }
 

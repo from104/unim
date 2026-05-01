@@ -52,6 +52,68 @@ impl PopupState {
         match self.kind() {
             PopupKind::SpecialChar => self.special_view_model(),
             PopupKind::Hanja => self.hanja_view_model(),
+            PopupKind::Emoji => self.emoji_view_model(),
+        }
+    }
+
+    /// 이모지 팝업 뷰 모델 — SpecialChar 와 동일 9×9 그리드, 푸터에 카테고리 라벨 추가.
+    fn emoji_view_model(&self) -> PopupViewModel {
+        // 셀 채우기는 SpecialChar 와 동일.
+        let top_row_chars: Vec<char> = self.top_row().chars().collect();
+        let col_headers: Vec<String> = (0..self.cols())
+            .map(|c| {
+                if c < top_row_chars.len() {
+                    top_row_chars[c].to_string()
+                } else {
+                    format!("{}", c + 1)
+                }
+            })
+            .collect();
+        let row_headers: Vec<String> = (1..=self.rows()).map(|r| format!("{}", r)).collect();
+
+        let mut cells = Vec::with_capacity(self.rows());
+        for r in 0..self.rows() {
+            let mut row = Vec::with_capacity(self.cols());
+            for c in 0..self.cols() {
+                if let Some(text) = self.cell_text(r, c) {
+                    row.push(Some(CellData {
+                        text: text.to_string(),
+                        meaning: None,
+                        is_selected: r == self.sel_row() && c == self.sel_col(),
+                        is_col_highlight: c == self.sel_col(),
+                        is_row_highlight: r == self.sel_row(),
+                    }));
+                } else {
+                    row.push(None);
+                }
+            }
+            cells.push(row);
+        }
+
+        // 푸터: 카테고리 라벨 + 페이지 인디케이터.
+        let cat_label = self
+            .emoji_categories()
+            .get(self.emoji_cat_index())
+            .map(|c| c.label_ko.as_str())
+            .unwrap_or("");
+        let footer_text = format!(
+            "[{}]  {} / {}",
+            cat_label,
+            self.current_page() + 1,
+            self.total_pages()
+        );
+
+        PopupViewModel {
+            kind: PopupKind::Emoji,
+            target: self.target().to_string(),
+            cells,
+            col_headers,
+            row_headers,
+            sel_row: self.sel_row(),
+            sel_col: self.sel_col(),
+            current_page: self.current_page(),
+            total_pages: self.total_pages(),
+            footer_text,
         }
     }
 

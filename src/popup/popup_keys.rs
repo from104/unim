@@ -13,6 +13,11 @@ pub enum PopupKind {
     Hanja,
     /// 특수문자 팝업 (9×9 그리드, 81개/페이지)
     SpecialChar,
+    /// 이모지 팝업 (9×9 그리드 + 좌측 9 카테고리 탭).
+    ///
+    /// PR #1: SpecialChar 와 동일 페이지 모델을 차용하되, Tab/ShiftTab 은
+    /// "다음/이전 카테고리" 로 의미 재해석된다 (페이지 전환은 PageDown/PageUp).
+    Emoji,
 }
 
 /// 툴킷 중립 키 열거형
@@ -67,6 +72,9 @@ pub(super) const MAX_ROWS: usize = 9;
 pub(super) const MAX_COLS: usize = 9;
 pub(super) const SPECIAL_PAGE_SIZE: usize = MAX_ROWS * MAX_COLS; // 81
 
+/// 이모지 페이지 크기 (9×9, SpecialChar 와 동일).
+pub(super) const EMOJI_PAGE_SIZE: usize = MAX_ROWS * MAX_COLS; // 81
+
 /// 한자 페이지 크기
 pub(super) const HANJA_PAGE_SIZE: usize = 9;
 
@@ -76,6 +84,7 @@ impl PopupState {
         match self.kind {
             PopupKind::SpecialChar => self.handle_special_key(key),
             PopupKind::Hanja => self.handle_hanja_key(key),
+            PopupKind::Emoji => self.handle_emoji_key(key),
         }
     }
 
@@ -86,7 +95,7 @@ impl PopupState {
     /// * `col` - 클릭한 열 (0-based, 한자는 항상 0)
     pub fn handle_click(&mut self, row: usize, col: usize) -> PopupKeyResult {
         match self.kind {
-            PopupKind::SpecialChar => {
+            PopupKind::SpecialChar | PopupKind::Emoji => {
                 if row < self.rows && col < self.cols && self.cell_exists(row, col) {
                     self.sel_row = row;
                     self.sel_col = col;
@@ -410,6 +419,172 @@ impl PopupState {
                     PopupKeyResult::NotHandled
                 }
             }
+            PopupKey::Other => PopupKeyResult::NotHandled,
+        }
+    }
+
+    // --- 이모지 키 처리 (PR #1 emoji overhaul) ---
+    //
+    // SpecialChar 와 같은 9×9 페이지 모델을 차용하되, 다음 차이가 있다:
+    //
+    // - Tab / ShiftTab → "다음/이전 카테고리" 로 의미 재해석. 페이지 전환은
+    //   PageUp / PageDown 만 사용한다 (사용자 결정 #8 / 매핑서 X.2.e).
+    // - Space → 페이지 전환 효과 제거 (이모지 commit 없음, 무동작 → Consumed).
+    // - 그 외 키 매핑은 `handle_special_key` 와 동일하다.
+    //
+    // 카테고리 자체의 emoji pool 교체는 엔진(`InputEngine::popup_dispatch`)이
+    // 담당한다. 본 함수는 cat_index 만 갱신하고 `PopupKeyResult::Updated` 를
+    // 반환한다 — 엔진 측에서 `state.cat_index` 변화를 감지해 새 카테고리의
+    // emoji 슬라이스로 `replace_for_category` 를 호출한다.
+    fn handle_emoji_key(&mut self, key: PopupKey) -> PopupKeyResult {
+        match key {
+            PopupKey::Escape => PopupKeyResult::Cancel,
+
+            PopupKey::Letter(col_idx) => {
+                let col = col_idx as usize;
+                if col < self.cols {
+                    self.sel_col = col;
+                    if !self.cell_exists(self.sel_row, self.sel_col) {
+                        for r in (0..self.rows).rev() {
+                            if self.cell_exists(r, self.sel_col) {
+                                self.sel_row = r;
+                                break;
+                            }
+                        }
+                    }
+                }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Number(n) => {
+                let row_idx = (n - 1) as usize;
+                if row_idx < self.rows && self.cell_exists(row_idx, self.sel_col) {
+                    self.sel_row = row_idx;
+                    if let Some(idx) = self.selected_global_index() {
+                        return PopupKeyResult::Select(idx);
+                    }
+                }
+                PopupKeyResult::Consumed
+            }
+
+            PopupKey::Enter => {
+                if let Some(idx) = self.selected_global_index() {
+                    PopupKeyResult::Select(idx)
+                } else {
+                    PopupKeyResult::Consumed
+                }
+            }
+
+            PopupKey::Up => {
+                if self.rows == 0 {
+                    return PopupKeyResult::Consumed;
+                }
+                if self.sel_row > 0 {
+                    self.sel_row -= 1;
+                } else {
+                    self.sel_row = self.rows - 1;
+                }
+                while self.sel_row > 0 && !self.cell_exists(self.sel_row, self.sel_col) {
+                    self.sel_row -= 1;
+                }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Down => {
+                if self.rows == 0 {
+                    return PopupKeyResult::Consumed;
+                }
+                if self.sel_row + 1 < self.rows {
+                    self.sel_row += 1;
+                } else {
+                    self.sel_row = 0;
+                }
+                if !self.cell_exists(self.sel_row, self.sel_col) {
+                    self.sel_row = 0;
+                }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Left => {
+                if self.cols == 0 {
+                    return PopupKeyResult::Consumed;
+                }
+                if self.sel_col > 0 {
+                    self.sel_col -= 1;
+                } else {
+                    self.sel_col = self.cols - 1;
+                }
+                if !self.cell_exists(self.sel_row, self.sel_col) {
+                    self.sel_row = 0;
+                }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Right => {
+                if self.cols == 0 {
+                    return PopupKeyResult::Consumed;
+                }
+                if self.sel_col + 1 < self.cols {
+                    self.sel_col += 1;
+                } else {
+                    self.sel_col = 0;
+                }
+                if !self.cell_exists(self.sel_row, self.sel_col) {
+                    self.sel_row = 0;
+                }
+                PopupKeyResult::Updated
+            }
+
+            // Tab / ShiftTab: 카테고리 순환 (cat_index 만 갱신, emoji pool 은 엔진이 교체).
+            PopupKey::Tab => {
+                let cat_total = self.categories.len().max(1);
+                self.cat_index = (self.cat_index + 1) % cat_total;
+                self.current_page = 0;
+                self.sel_row = 0;
+                self.sel_col = 0;
+                PopupKeyResult::Updated
+            }
+            PopupKey::ShiftTab => {
+                let cat_total = self.categories.len().max(1);
+                self.cat_index = if self.cat_index == 0 {
+                    cat_total - 1
+                } else {
+                    self.cat_index - 1
+                };
+                self.current_page = 0;
+                self.sel_row = 0;
+                self.sel_col = 0;
+                PopupKeyResult::Updated
+            }
+
+            // PageDown / PageUp: 같은 카테고리 내 페이지 전환.
+            PopupKey::PageDown => {
+                if self.total_pages > 1 {
+                    self.current_page = (self.current_page + 1) % self.total_pages;
+                    self.update_page_layout();
+                    self.sel_row = 0;
+                    self.sel_col = 0;
+                }
+                PopupKeyResult::Updated
+            }
+            PopupKey::PageUp => {
+                if self.total_pages > 1 {
+                    self.current_page = if self.current_page > 0 {
+                        self.current_page - 1
+                    } else {
+                        self.total_pages - 1
+                    };
+                    self.update_page_layout();
+                    self.sel_row = 0;
+                    self.sel_col = 0;
+                }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Space => PopupKeyResult::Consumed,
+            PopupKey::Period => PopupKeyResult::Consumed,
+            PopupKey::Modifier => PopupKeyResult::Consumed,
+            PopupKey::Backspace => PopupKeyResult::Consumed,
             PopupKey::Other => PopupKeyResult::NotHandled,
         }
     }

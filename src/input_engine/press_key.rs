@@ -5,7 +5,7 @@
 //! 인라인 가능성을 보존한다.
 
 use super::engine::InputEngine;
-use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
+use super::types::{AutoEnglishTrigger, InputResult};
 use crate::config::{Config, InputCategory};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
@@ -55,20 +55,25 @@ impl InputEngine {
             return InputResult::not_consumed();
         }
 
-        // 한자/특수문자 팝업 활성 상태에서 키 인터셉트
-        if self.hanja_mode || self.special_char_mode {
+        // 팝업(한자/특수문자/이모지) 활성 상태에서 키 인터셉트.
+        // PR #1: Emoji 팝업도 이 분기로 들어오도록 popup_state 진입.
+        if self.hanja_mode || self.special_char_mode || self.is_emoji_popup_active() {
             return self.process_popup_key(keycode, modifier, _config);
         }
 
-        // 이모지 팝업 트리거 (Super+. 등) — 단축키 early return 이전에 체크
+        // 이모지 팝업 트리거 (Super+. 등) — 단축키 early return 이전에 체크.
+        // PR #1 (R1/R2 안전망):
+        //   R1: 이미 emoji popup 이 떠 있으면 위 분기에서 처리 (재트리거 가드 자동).
+        //   R2: 한자/특수 모드도 위 분기에서 흡수 — emoji 트리거가 그쪽 모드를 깨지 않는다.
         if self.matches_emoji_trigger(keycode, modifier) {
             unim_log!("ENGINE", "이모지 팝업 트리거 감지: {:?}", keycode);
-            // 조합 중이면 먼저 커밋
+            // 조합 중이면 먼저 커밋.
             let was_composing = self.korean_context.is_composing();
             if was_composing {
                 self.flush_preedit();
             }
-            self.popup_pending_action = Some(PopupAction::ShowEmoji);
+            // PR #1: PopupState::Emoji 진입 + 카테고리/페이지/Recent payload 구성.
+            self.start_emoji_popup();
             if was_composing {
                 return InputResult::committed();
             }

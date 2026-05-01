@@ -43,8 +43,24 @@ pub enum PopupAction {
     },
     /// 이모지 팝업 표시 (Super+. 단축키)
     ///
-    /// 엔진은 트리거만 담당하고, GUI가 카테고리/검색/즐겨찾기 상태를 자체 관리합니다.
-    ShowEmoji,
+    /// PR #1 (emoji overhaul, OPTION X): payload 가 한자/특수문자처럼
+    /// 카테고리·페이지·MRU 데이터를 함께 push 하도록 확장됐다.
+    ///
+    /// - `target_cat_id`: 시작 카테고리 id ("Recent" / "SmileysPeople" / ...).
+    /// - `items`: 시작 카테고리의 1 페이지 (최대 81개) 슬라이스.
+    /// - `top_row`: 활성 영문 키맵 상단 9 문자 (Letter 키 점프 + 컬럼 헤더).
+    /// - `recent`: 'Recent' 탭에 표시할 MRU 이모지 (시작 시 캐시).
+    /// - `categories`: 좌측 9 탭 메타 — `(id, ko, en, count)` 4-튜플.
+    ///
+    /// 옛 `ShowEmoji` (cursor only) 시그널은 PR #5 cleanup 까지 dual-emit 한다 —
+    /// `unim-dbus/src/service.rs` 가 양쪽 시그널을 모두 발행 (backward compat).
+    ShowEmoji {
+        target_cat_id: String,
+        items: Vec<String>,
+        top_row: String,
+        recent: Vec<String>,
+        categories: Vec<(String, String, String, u32)>,
+    },
     /// 팝업 숨김
     HidePopup,
     /// 페이지/선택 변경 (UI 업데이트용)

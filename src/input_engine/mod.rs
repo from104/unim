@@ -1259,7 +1259,7 @@ mod tests {
         let result = engine.press_key(KeyCode::Period, modifier, &config);
         assert!(result.consumed);
         let action = engine.take_popup_action();
-        assert!(matches!(action, Some(PopupAction::ShowEmoji)));
+        assert!(matches!(action, Some(PopupAction::ShowEmoji { .. })));
     }
 
     #[test]
@@ -1324,7 +1324,7 @@ mod tests {
         assert!(result.commit_changed);
         assert!(matches!(
             engine.take_popup_action(),
-            Some(PopupAction::ShowEmoji)
+            Some(PopupAction::ShowEmoji { .. })
         ));
     }
 
@@ -1351,7 +1351,7 @@ mod tests {
         engine.press_key(KeyCode::E, ctrl_shift, &config);
         assert!(matches!(
             engine.take_popup_action(),
-            Some(PopupAction::ShowEmoji)
+            Some(PopupAction::ShowEmoji { .. })
         ));
     }
 
