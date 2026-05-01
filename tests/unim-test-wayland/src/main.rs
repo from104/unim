@@ -638,11 +638,21 @@ fn run_auto_test(verbose: bool) -> i32 {
             Ok(im) => im.get_config("korean_layout").await.unwrap_or_default(),
             Err(_) => String::new(),
         };
-        println!("레이아웃: {}", if layout.is_empty() { "기본값" } else { &layout });
+        println!(
+            "레이아웃: {}",
+            if layout.is_empty() {
+                "기본값"
+            } else {
+                &layout
+            }
+        );
 
         let ctx_path = match client.create_context("wayland-test", "").await {
             Ok(p) => p,
-            Err(e) => { eprintln!("{RED}❌ 컨텍스트 실패: {e}{RESET}"); return 1; }
+            Err(e) => {
+                eprintln!("{RED}❌ 컨텍스트 실패: {e}{RESET}");
+                return 1;
+            }
         };
 
         let im = client.input_method().await.unwrap();
@@ -655,18 +665,48 @@ fn run_auto_test(verbose: bool) -> i32 {
             vec![
                 ("초성: ㅎ", vec![(50, 0)], "ㅎ", "", true),
                 ("초성+중성: 하", vec![(50, 0), (33, 0)], "하", "", true),
-                ("완성형: 한", vec![(50, 0), (33, 0), (31, 0)], "한", "", true),
-                ("두 글자: 한글", vec![(50,0),(33,0),(31,0),(37,0),(34,0),(17,0)], "글", "한", true),
+                (
+                    "완성형: 한",
+                    vec![(50, 0), (33, 0), (31, 0)],
+                    "한",
+                    "",
+                    true,
+                ),
+                (
+                    "두 글자: 한글",
+                    vec![(50, 0), (33, 0), (31, 0), (37, 0), (34, 0), (17, 0)],
+                    "글",
+                    "한",
+                    true,
+                ),
                 ("Backspace", vec![(50, 0), (33, 0), (14, 0)], "ㅎ", "", true),
-                ("스페이스 확정", vec![(50, 0), (33, 0), (57, 0)], "", "하 ", true),
+                (
+                    "스페이스 확정",
+                    vec![(50, 0), (33, 0), (57, 0)],
+                    "",
+                    "하 ",
+                    true,
+                ),
                 ("영문 패스스루", vec![(34, 0)], "", "", false),
             ]
         } else {
             vec![
                 ("초성: ㅎ", vec![(34, 0)], "ㅎ", "", true),
                 ("초성+중성: 하", vec![(34, 0), (37, 0)], "하", "", true),
-                ("완성형: 한", vec![(34, 0), (37, 0), (31, 0)], "한", "", true),
-                ("두 글자: 한글", vec![(34,0),(37,0),(31,0),(19,0),(50,0),(33,0)], "글", "한", true),
+                (
+                    "완성형: 한",
+                    vec![(34, 0), (37, 0), (31, 0)],
+                    "한",
+                    "",
+                    true,
+                ),
+                (
+                    "두 글자: 한글",
+                    vec![(34, 0), (37, 0), (31, 0), (19, 0), (50, 0), (33, 0)],
+                    "글",
+                    "한",
+                    true,
+                ),
                 ("영문 패스스루", vec![(34, 0)], "", "", false),
             ]
         };
@@ -692,12 +732,20 @@ fn run_auto_test(verbose: bool) -> i32 {
                         last_preedit = pre;
                         total_commit.push_str(&com);
                     }
-                    Err(e) => { eprintln!("    {RED}ProcessKey 실패: {e}{RESET}"); ok = false; break; }
+                    Err(e) => {
+                        eprintln!("    {RED}ProcessKey 실패: {e}{RESET}");
+                        ok = false;
+                        break;
+                    }
                 }
             }
 
-            if ok && !exp_pre.is_empty() && last_preedit != *exp_pre { ok = false; }
-            if ok && !exp_com.is_empty() && total_commit != *exp_com { ok = false; }
+            if ok && !exp_pre.is_empty() && last_preedit != *exp_pre {
+                ok = false;
+            }
+            if ok && !exp_com.is_empty() && total_commit != *exp_com {
+                ok = false;
+            }
 
             let _ = ic.reset().await;
 
@@ -708,10 +756,14 @@ fn run_auto_test(verbose: bool) -> i32 {
                 failed += 1;
                 println!("  {RED}FAIL{RESET} {name}");
                 if !exp_pre.is_empty() && last_preedit != *exp_pre {
-                    println!("       {DIM}preedit: 기대=\"{exp_pre}\" 실제=\"{last_preedit}\"{RESET}");
+                    println!(
+                        "       {DIM}preedit: 기대=\"{exp_pre}\" 실제=\"{last_preedit}\"{RESET}"
+                    );
                 }
                 if !exp_com.is_empty() && total_commit != *exp_com {
-                    println!("       {DIM}commit: 기대=\"{exp_com}\" 실제=\"{total_commit}\"{RESET}");
+                    println!(
+                        "       {DIM}commit: 기대=\"{exp_com}\" 실제=\"{total_commit}\"{RESET}"
+                    );
                 }
             }
         }
@@ -725,7 +777,11 @@ fn run_auto_test(verbose: bool) -> i32 {
         } else {
             println!("{RED}{BOLD}❌ {failed} FAILED{RESET} / {passed} passed / {total} total");
         }
-        if failed > 0 { 1 } else { 0 }
+        if failed > 0 {
+            1
+        } else {
+            0
+        }
     })
 }
 

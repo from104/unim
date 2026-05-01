@@ -182,7 +182,8 @@ fn configure_flatpak_im_env() {
     // flatpak override --user --env=QT_IM_MODULE= --env=GTK_IM_MODULE=
     match Command::new("flatpak")
         .args([
-            "override", "--user",
+            "override",
+            "--user",
             "--env=QT_IM_MODULE=",
             "--env=GTK_IM_MODULE=",
         ])
@@ -205,11 +206,7 @@ fn configure_flatpak_im_env() {
             );
         }
         Err(e) => {
-            unim_log!(
-                "DAEMON",
-                "[Flatpak] override 실행 오류 (비치명적): {}",
-                e
-            );
+            unim_log!("DAEMON", "[Flatpak] override 실행 오류 (비치명적): {}", e);
         }
     }
 }

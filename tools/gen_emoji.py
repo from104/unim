@@ -95,6 +95,7 @@ def main():
     out.append("}")
     out.append("")
     out.append("/// Windows 11 emoji panel과 매칭되는 9개 메이저 카테고리.")
+    out.append("#[rustfmt::skip]")
     out.append("pub static CATEGORIES: &[EmojiCategoryInfo] = &[")
     for g in CAT_ORDER:
         cat_id, ko, en = GROUP_TO_CAT[g]
@@ -110,6 +111,7 @@ def main():
     out.append("    pub subgroup: &'static str,")
     out.append("}")
     out.append("")
+    out.append("#[rustfmt::skip]")
     out.append("pub static EMOJIS: &[EmojiDatum] = &[")
     total = 0
     cat_counts = {}

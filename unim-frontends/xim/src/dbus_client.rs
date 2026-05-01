@@ -150,10 +150,7 @@ pub enum DbusRequest {
     /// 엔진이 Space를 직접 ToggleBookmark로 변환한다. 이 variant는 향후 마우스
     /// 기반 토글(우클릭 등) 대비용으로 남겨둔다.
     #[allow(dead_code)]
-    ToggleHanjaBookmark {
-        context_path: String,
-        index: u32,
-    },
+    ToggleHanjaBookmark { context_path: String, index: u32 },
 }
 
 /// DBus 응답 타입
@@ -193,9 +190,7 @@ pub enum DbusResponse {
         commit: String,
     },
     /// 한자 즐겨찾기 상태 조회 결과
-    HanjaBookmarkStates {
-        states: Vec<bool>,
-    },
+    HanjaBookmarkStates { states: Vec<bool> },
 }
 
 /// DBus 클라이언트
@@ -450,7 +445,10 @@ async fn run_dbus_client(
                 }
             }
 
-            DbusRequest::CancelHanja { context_path, response } => {
+            DbusRequest::CancelHanja {
+                context_path,
+                response,
+            } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
                         .path(obj_path)
@@ -468,7 +466,9 @@ async fn run_dbus_client(
                             Err(e) => {
                                 unim_log!("XIM_DBUS", "[XIM-DBus] 한자 취소 실패: {}", e);
                                 if let Some(tx) = response {
-                                    let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                                    let _ = tx.send(DbusResponse::CommitText {
+                                        text: String::new(),
+                                    });
                                 }
                             }
                         }
@@ -556,7 +556,10 @@ async fn run_dbus_client(
                 }
             }
 
-            DbusRequest::CancelSpecialChar { context_path, response } => {
+            DbusRequest::CancelSpecialChar {
+                context_path,
+                response,
+            } => {
                 if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
                     if let Ok(proxy) = InputContextProxy::builder(&connection)
                         .path(obj_path)
@@ -566,7 +569,11 @@ async fn run_dbus_client(
                     {
                         match proxy.cancel_special_char().await {
                             Ok(text) => {
-                                unim_log!("XIM_DBUS", "[XIM-DBus] 특수문자 취소: commit='{}'", text);
+                                unim_log!(
+                                    "XIM_DBUS",
+                                    "[XIM-DBus] 특수문자 취소: commit='{}'",
+                                    text
+                                );
                                 if let Some(tx) = response {
                                     let _ = tx.send(DbusResponse::CommitText { text });
                                 }
@@ -574,7 +581,9 @@ async fn run_dbus_client(
                             Err(e) => {
                                 unim_log!("XIM_DBUS", "[XIM-DBus] 특수문자 취소 실패: {}", e);
                                 if let Some(tx) = response {
-                                    let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                                    let _ = tx.send(DbusResponse::CommitText {
+                                        text: String::new(),
+                                    });
                                 }
                             }
                         }
@@ -728,14 +737,22 @@ async fn subscribe_popup_signals(
     let mut bookmark_stream = match proxy.receive_hanja_bookmark_changed().await {
         Ok(s) => s,
         Err(e) => {
-            unim_log!("XIM_DBUS", "[XIM-DBus] HanjaBookmarkChanged 구독 실패: {}", e);
+            unim_log!(
+                "XIM_DBUS",
+                "[XIM-DBus] HanjaBookmarkChanged 구독 실패: {}",
+                e
+            );
             return;
         }
     };
     let mut reordered_stream = match proxy.receive_hanja_candidates_reordered().await {
         Ok(s) => s,
         Err(e) => {
-            unim_log!("XIM_DBUS", "[XIM-DBus] HanjaCandidatesReordered 구독 실패: {}", e);
+            unim_log!(
+                "XIM_DBUS",
+                "[XIM-DBus] HanjaCandidatesReordered 구독 실패: {}",
+                e
+            );
             return;
         }
     };

@@ -526,7 +526,6 @@ impl BaseHangulComposer {
             complete_korean
         }
     }
-
 }
 
 /// 음절이 완성되지 않은 `HangulChar`(예: 초성만, 중성만, 종성만 채워진 상태)에서

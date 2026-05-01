@@ -411,16 +411,9 @@ impl SpecialWindow {
                 let col = (click_x - header_col_w) / self.cell_w;
                 let row = (click_y - header_row_h) / self.cell_h;
                 let ps = self.popup_state.as_ref().unwrap();
-                if col >= 0 && row >= 0
-                    && (row as usize) < ps.rows()
-                    && (col as usize) < ps.cols()
+                if col >= 0 && row >= 0 && (row as usize) < ps.rows() && (col as usize) < ps.cols()
                 {
-                    unim_log!(
-                        "XIM_SPECIAL",
-                        "좌클릭 선택: row={}, col={}",
-                        row,
-                        col
-                    );
+                    unim_log!("XIM_SPECIAL", "좌클릭 선택: row={}, col={}", row, col);
                     SpecialClickResult::Select(row as usize, col as usize)
                 } else {
                     SpecialClickResult::Consumed

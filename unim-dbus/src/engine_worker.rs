@@ -227,10 +227,7 @@ fn find_retrigger_layouts(
     recent: &[RecentCorrection],
     ascii: &str,
     direction: Direction,
-) -> Option<(
-    unim::config::KoreanLayout,
-    unim::config::EnglishLayout,
-)> {
+) -> Option<(unim::config::KoreanLayout, unim::config::EnglishLayout)> {
     recent
         .iter()
         .find(|r| r.direction == direction && r.ascii == ascii && rollback_threshold_met(r))
@@ -464,7 +461,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         // 재트리거 시점(AutoTypeFix 결과 발생 직전)에서 수행.
                         // AutoTypeFix에 의한 자동 전환(아래 블록)은 별도 경로이므로 기록하지 않는다.
                         if atf_config.rollback_detection {
-                            observe_rollback_event(&mut recent_corrections, context_id, false, true);
+                            observe_rollback_event(
+                                &mut recent_corrections,
+                                context_id,
+                                false,
+                                true,
+                            );
                         }
                         // 모드 변경 시 키스트로크 버퍼 초기화
                         keystroke_buffers.remove(&context_id);
@@ -579,9 +581,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // 매칭되는 RecentCorrection 항목의 레이아웃을 캡처
                                 // (등록 시 사용 — 사용자가 실제로 타이핑한 당시 레이아웃을 반영).
                                 let retrigger_layouts = if atf_config.rollback_detection {
-                                    recent_corrections
-                                        .get(&context_id)
-                                        .and_then(|list| find_retrigger_layouts(list, &key, direction))
+                                    recent_corrections.get(&context_id).and_then(|list| {
+                                        find_retrigger_layouts(list, &key, direction)
+                                    })
                                 } else {
                                     None
                                 };
@@ -641,10 +643,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     Direction::Forward => fix.original.clone(),
                                     Direction::Reverse => fix.corrected.clone(),
                                 };
-                                recent_corrections
-                                    .entry(context_id)
-                                    .or_default()
-                                    .push(RecentCorrection {
+                                recent_corrections.entry(context_id).or_default().push(
+                                    RecentCorrection {
                                         ascii: suppression_key,
                                         direction,
                                         korean_layout: config.engine.korean.layout.clone(),
@@ -652,7 +652,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                         corrected_at: Instant::now(),
                                         erasure_observed: false,
                                         mode_switch_observed: false,
-                                    });
+                                    },
+                                );
 
                                 unim_log!(
                                     "ENGINE_WORKER",
@@ -664,13 +665,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                                 // 교정 후 모드 전환: 영→한이면 한글로, 한→영이면 영어로
                                 let new_mode = match current_mode {
-                                    unim::config::InputCategory::English => unim::config::InputCategory::Korean,
-                                    unim::config::InputCategory::Korean => unim::config::InputCategory::English,
+                                    unim::config::InputCategory::English => {
+                                        unim::config::InputCategory::Korean
+                                    }
+                                    unim::config::InputCategory::Korean => {
+                                        unim::config::InputCategory::English
+                                    }
                                 };
                                 engine.set_input_category(new_mode);
                                 config.engine.default_category = new_mode;
                                 // Global 동기화는 contexts borrow 해제 후 별도 처리
-                                mode_changed = Some(new_mode == unim::config::InputCategory::Korean);
+                                mode_changed =
+                                    Some(new_mode == unim::config::InputCategory::Korean);
 
                                 unim_log!(
                                     "ENGINE_WORKER",
@@ -713,7 +719,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     // EngineResponse.preedit은 비워둠 (타이밍 문제 방지)
                                     preedit = Some(String::new());
 
-                                    Some((fix.delete_chars, fix.commit_text.clone(), replay_preedit))
+                                    Some((
+                                        fix.delete_chars,
+                                        fix.commit_text.clone(),
+                                        replay_preedit,
+                                    ))
                                 } else {
                                     // 역방향: 엔진 리셋 (한글 조합 상태 제거)
                                     let current_category = engine.input_category();
@@ -725,7 +735,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     // preedit은 cleared(final_preedit=Some(""))되므로,
                                     // trigger 키가 만든 글자는 화면에 없다.
                                     // 따라서 trigger 전까지의 키스트로크만 시뮬하여 글자 수 산출.
-                                    let ascii_before_trigger = &buf_ascii[..buf_ascii.len().saturating_sub(1)];
+                                    let ascii_before_trigger =
+                                        &buf_ascii[..buf_ascii.len().saturating_sub(1)];
                                     let kor_sim = unim::typefix::eng_to_kor(
                                         ascii_before_trigger,
                                         &config.engine.korean.layout,
@@ -734,7 +745,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     // trigger 키 제외 시뮬 결과에서 마지막 글자는 preedit(조합 중).
                                     // trigger 키의 ProcessKeyEvent 응답이 preedit을 clear하므로
                                     // 그 글자는 화면에서 사라짐 → 추가로 1개 차감.
-                                    let real_delete = kor_sim.chars().count().saturating_sub(1) as u32;
+                                    let real_delete =
+                                        kor_sim.chars().count().saturating_sub(1) as u32;
 
                                     unim_log!(
                                         "ENGINE_WORKER",
@@ -778,22 +790,23 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     //   영어 모드에서 현재 키 commit을 막아야 시그널이 깔끔하게 교체
                     // 역방향 (한→영, replay_keys 없음): commit/preedit 그대로 유지
                     //   한글 조합은 이미 화면에 있고, 시그널이 교체 처리
-                    let (final_preedit, final_commit) = if let Some(ref mut atf) = auto_typefix_result {
-                        if !fix_has_replay {
-                            // 역방향: commit/preedit 억제, delete_chars 유지
-                            // 한글은 키:글자 비율이 1:1이 아니므로
-                            // committed_chars + has_preedit이 정확한 화면 글자 수
-                            (Some(String::new()), None)
-                        } else {
-                            // 순방향: commit 억제, delete_chars 1 감소
-                            if atf.0 > 0 {
-                                atf.0 -= 1;
+                    let (final_preedit, final_commit) =
+                        if let Some(ref mut atf) = auto_typefix_result {
+                            if !fix_has_replay {
+                                // 역방향: commit/preedit 억제, delete_chars 유지
+                                // 한글은 키:글자 비율이 1:1이 아니므로
+                                // committed_chars + has_preedit이 정확한 화면 글자 수
+                                (Some(String::new()), None)
+                            } else {
+                                // 순방향: commit 억제, delete_chars 1 감소
+                                if atf.0 > 0 {
+                                    atf.0 -= 1;
+                                }
+                                (Some(String::new()), None)
                             }
-                            (Some(String::new()), None)
-                        }
-                    } else {
-                        (preedit, commit)
-                    };
+                        } else {
+                            (preedit, commit)
+                        };
 
                     EngineResponse {
                         consumed: result.consumed,
@@ -871,9 +884,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // Global 모드에서는 전역 default_category가 다시 적용되도록 preserve=false.
                 let preserve_mode =
                     config.engine.mode_sharing != unim::config::ModeSharingMode::Global;
-                let commit = contexts
-                    .get_mut(&context_id)
-                    .and_then(|engine| reset_engine_and_capture_commit(engine, &config, preserve_mode));
+                let commit = contexts.get_mut(&context_id).and_then(|engine| {
+                    reset_engine_and_capture_commit(engine, &config, preserve_mode)
+                });
                 unim_log!(
                     "ENGINE_WORKER",
                     "[Engine Worker] FocusOut: context_id={}, commit={:?}",
@@ -931,10 +944,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             } => {
                 // 활성 영문 키맵의 top_row를 응답에 포함시켜 frontend의 9x9 컬럼 헤더가
                 // 키맵 변경에 동기화되도록 한다 (특수문자 응답과 동일 source).
-                let top_row = unim::config::english_layout_top_row_labels(
-                    &config.engine.english.layout,
-                )
-                .to_string();
+                let top_row =
+                    unim::config::english_layout_top_row_labels(&config.engine.english.layout)
+                        .to_string();
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // 먼저 한자 변환을 시작하여 후보를 생성
                     engine.start_hanja_conversion();
@@ -1021,10 +1033,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                let top_row = unim::config::english_layout_top_row_labels(
-                    &config.engine.english.layout,
-                )
-                .to_string();
+                let top_row =
+                    unim::config::english_layout_top_row_labels(&config.engine.english.layout)
+                        .to_string();
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // start_hanja_conversion이 이미 특수문자 fallback을 처리하므로
                     // 엔진의 특수문자 모드 상태를 확인
@@ -1165,7 +1176,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 note,
                 response,
             } => {
-                let note_opt = if note.trim().is_empty() { None } else { Some(note) };
+                let note_opt = if note.trim().is_empty() {
+                    None
+                } else {
+                    Some(note)
+                };
                 let ok = user_dict.add(&word, note_opt);
                 if ok {
                     if let Err(e) = user_dict.save_to_default_path() {
@@ -1228,7 +1243,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 note,
                 response,
             } => {
-                let note_opt = if note.trim().is_empty() { None } else { Some(note) };
+                let note_opt = if note.trim().is_empty() {
+                    None
+                } else {
+                    Some(note)
+                };
                 let ok = user_dict.update_at(index as usize, &word, note_opt);
                 if ok {
                     if let Err(e) = user_dict.save_to_default_path() {
@@ -1256,10 +1275,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             let end = cursor.max(anchor).min(chars.len());
                             let selection: String = chars[start..end].iter().collect();
                             // 한글이면 영문으로 변환, 이미 알파벳이면 그대로
-                            let candidate = if selection
-                                .chars()
-                                .all(|c| c.is_ascii_alphabetic())
-                            {
+                            let candidate = if selection.chars().all(|c| c.is_ascii_alphabetic()) {
                                 selection.clone()
                             } else {
                                 unim::typefix::kor_to_eng(
@@ -1345,27 +1361,62 @@ mod tests {
 
     #[test]
     fn forward_requires_both_flags() {
-        assert!(!rollback_threshold_met(&mk_rc(Direction::Forward, false, false)));
-        assert!(!rollback_threshold_met(&mk_rc(Direction::Forward, true, false)));
-        assert!(!rollback_threshold_met(&mk_rc(Direction::Forward, false, true)));
-        assert!(rollback_threshold_met(&mk_rc(Direction::Forward, true, true)));
+        assert!(!rollback_threshold_met(&mk_rc(
+            Direction::Forward,
+            false,
+            false
+        )));
+        assert!(!rollback_threshold_met(&mk_rc(
+            Direction::Forward,
+            true,
+            false
+        )));
+        assert!(!rollback_threshold_met(&mk_rc(
+            Direction::Forward,
+            false,
+            true
+        )));
+        assert!(rollback_threshold_met(&mk_rc(
+            Direction::Forward,
+            true,
+            true
+        )));
     }
 
     #[test]
     fn reverse_allows_either_flag() {
-        assert!(!rollback_threshold_met(&mk_rc(Direction::Reverse, false, false)));
+        assert!(!rollback_threshold_met(&mk_rc(
+            Direction::Reverse,
+            false,
+            false
+        )));
         // BS는 역방향에서 실제로는 도달하지 못하지만, 논리적으로는 OR의 한 쪽을 구성.
-        assert!(rollback_threshold_met(&mk_rc(Direction::Reverse, true, false)));
+        assert!(rollback_threshold_met(&mk_rc(
+            Direction::Reverse,
+            true,
+            false
+        )));
         // 핵심 케이스: 관찰창 내의 수동 모드 전환만으로도 역방향은 관찰 완료.
-        assert!(rollback_threshold_met(&mk_rc(Direction::Reverse, false, true)));
-        assert!(rollback_threshold_met(&mk_rc(Direction::Reverse, true, true)));
+        assert!(rollback_threshold_met(&mk_rc(
+            Direction::Reverse,
+            false,
+            true
+        )));
+        assert!(rollback_threshold_met(&mk_rc(
+            Direction::Reverse,
+            true,
+            true
+        )));
     }
 
     #[test]
     fn find_retrigger_layouts_requires_threshold_met() {
         // 플래그 없으면 매칭 안 됨
         let list = vec![mk_rc(Direction::Reverse, false, false)];
-        assert_eq!(find_retrigger_layouts(&list, "speed", Direction::Reverse), None);
+        assert_eq!(
+            find_retrigger_layouts(&list, "speed", Direction::Reverse),
+            None
+        );
 
         // 역방향: switch만 세팅되어도 매칭 → 레이아웃 반환
         let list = vec![mk_rc(Direction::Reverse, false, true)];
@@ -1376,7 +1427,10 @@ mod tests {
 
         // 순방향: switch만 세팅 → AND 미달 → 매칭 안 됨
         let list = vec![mk_rc(Direction::Forward, false, true)];
-        assert_eq!(find_retrigger_layouts(&list, "speed", Direction::Forward), None);
+        assert_eq!(
+            find_retrigger_layouts(&list, "speed", Direction::Forward),
+            None
+        );
 
         // 순방향: BS + switch 모두 → 매칭
         let list = vec![mk_rc(Direction::Forward, true, true)];
@@ -1387,9 +1441,15 @@ mod tests {
     fn find_retrigger_layouts_direction_and_ascii_specific() {
         // 역방향 "speed" 엔트리, 역방향 "other"로 질의 → 매칭 안 됨
         let list = vec![mk_rc(Direction::Reverse, false, true)]; // ascii="speed"
-        assert_eq!(find_retrigger_layouts(&list, "other", Direction::Reverse), None);
+        assert_eq!(
+            find_retrigger_layouts(&list, "other", Direction::Reverse),
+            None
+        );
         // 같은 ASCII지만 방향이 다르면 매칭 안 됨
-        assert_eq!(find_retrigger_layouts(&list, "speed", Direction::Forward), None);
+        assert_eq!(
+            find_retrigger_layouts(&list, "speed", Direction::Forward),
+            None
+        );
     }
 
     #[test]

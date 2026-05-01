@@ -112,9 +112,7 @@ fn main() {
         // 하지만 종료 시퀀스를 타는 것이 중요.
         // DBus 팝업 시그널 처리 (논블로킹)
         while let Ok(popup_event) = popup_rx.try_recv() {
-            if let Err(err) =
-                unim_handler.handle_popup_event(popup_event, &mut server)
-            {
+            if let Err(err) = unim_handler.handle_popup_event(popup_event, &mut server) {
                 unim_log!("XIM", "팝업 이벤트 처리 오류: {:?}", err);
             }
             server.conn().flush().ok();

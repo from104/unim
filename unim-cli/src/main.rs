@@ -8,12 +8,12 @@ use std::process;
 use unim::config::{
     english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
     normalize_korean_layout_name, Config as UnimConfig, InputCategory, ModeSharingMode,
-    ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
-    AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
+    AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN, ENGLISH_LAYOUT_BUILTINS,
+    KOREAN_LAYOUT_BUILTINS,
 };
 use unim::hangul::composer_with_2bul::HangulComposer2Bul;
 use unim::hangul::composer_with_3bul::HangulComposer3Bul;
@@ -1102,7 +1102,11 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 _ => return Err(format!("Invalid value for auto-english: {}", value)),
             };
             config.engine.auto_english.enabled = enabled;
-            let status = if enabled { t!("enabled") } else { t!("disabled") };
+            let status = if enabled {
+                t!("enabled")
+            } else {
+                t!("disabled")
+            };
             println!("{}", t!("auto_english_changed", status = status));
         }
         ConfigKey::AutoEnglishKeys => {
@@ -1132,10 +1136,15 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             );
         }
         ConfigKey::EmojiPopup => {
-            let enabled: bool = value.parse()
+            let enabled: bool = value
+                .parse()
                 .map_err(|_| "Invalid value, use true/false".to_string())?;
             config.engine.emoji_popup.enabled = enabled;
-            let status = if enabled { t!("enabled") } else { t!("disabled") };
+            let status = if enabled {
+                t!("enabled")
+            } else {
+                t!("disabled")
+            };
             println!("{}: {}", t!("emoji_popup_label"), status);
         }
         ConfigKey::EmojiPopupKeys => {
@@ -1213,8 +1222,10 @@ fn config_interactive() {
         match selection {
             0 => {
                 let layouts = KOREAN_LAYOUT_BUILTINS;
-                let layout_names: Vec<&str> =
-                    layouts.iter().map(|n| korean_layout_display_name(n)).collect();
+                let layout_names: Vec<&str> = layouts
+                    .iter()
+                    .map(|n| korean_layout_display_name(n))
+                    .collect();
                 let current_idx = layouts
                     .iter()
                     .position(|n| *n == config.engine.korean.layout.as_str())
@@ -1230,8 +1241,10 @@ fn config_interactive() {
             }
             1 => {
                 let layouts = ENGLISH_LAYOUT_BUILTINS;
-                let layout_names: Vec<&str> =
-                    layouts.iter().map(|n| english_layout_display_name(n)).collect();
+                let layout_names: Vec<&str> = layouts
+                    .iter()
+                    .map(|n| english_layout_display_name(n))
+                    .collect();
                 let current_idx = layouts
                     .iter()
                     .position(|n| *n == config.engine.english.layout.as_str())
@@ -1660,7 +1673,8 @@ fn layout_validate(file: &std::path::Path) -> i32 {
         match resolve_inherits(&profile, &reg) {
             Ok(p) => p,
             Err(e) => {
-                warnings.push(t!("layout_validate_inherits_warn", err = e.to_string()).into_owned());
+                warnings
+                    .push(t!("layout_validate_inherits_warn", err = e.to_string()).into_owned());
                 profile.clone()
             }
         }
@@ -1675,7 +1689,8 @@ fn layout_validate(file: &std::path::Path) -> i32 {
     if let Some(active) = resolved.active_rule_sets.as_ref() {
         for name in active {
             if !resolved.rule_sets.contains_key(name) {
-                warnings.push(t!("layout_validate_unknown_set", name = name.to_string()).into_owned());
+                warnings
+                    .push(t!("layout_validate_unknown_set", name = name.to_string()).into_owned());
             }
         }
     }
@@ -1735,9 +1750,14 @@ async fn run_trigger(action: &str) -> Result<(), String> {
         .input_method()
         .await
         .map_err(|e| t!("trigger_error_daemon_unreachable", err = e.to_string()).to_string())?;
-    im.trigger_action(action)
-        .await
-        .map_err(|e| t!("trigger_error_action_failed", action = action, err = e.to_string()).to_string())?;
+    im.trigger_action(action).await.map_err(|e| {
+        t!(
+            "trigger_error_action_failed",
+            action = action,
+            err = e.to_string()
+        )
+        .to_string()
+    })?;
     println!("{}", t!("trigger_success", action = action));
     Ok(())
 }

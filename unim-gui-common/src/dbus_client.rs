@@ -242,10 +242,7 @@ async fn watch_mode_signals(
         }
     }
 
-    unim_log!(
-        "INDICATOR",
-        "[DBus] 시그널 스트림 종료 (서비스 종료?)"
-    );
+    unim_log!("INDICATOR", "[DBus] 시그널 스트림 종료 (서비스 종료?)");
 }
 
 /// GlobalModeChanged 시그널 처리
@@ -294,23 +291,15 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
         Some(m) => m.to_string(),
         None => return,
     };
-    let context_path = header
-        .path()
-        .map(|p| p.to_string())
-        .unwrap_or_default();
+    let context_path = header.path().map(|p| p.to_string()).unwrap_or_default();
 
     match member.as_str() {
         "ShowHanjaPopup" => {
             // 7-tuple: top_row가 3번째에 추가됨 (특수문자와 동일 시그니처).
-            if let Ok((target, candidates, top_row, x, y, w, h)) = msg.body().deserialize::<(
-                String,
-                Vec<(String, String)>,
-                String,
-                i32,
-                i32,
-                i32,
-                i32,
-            )>() {
+            if let Ok((target, candidates, top_row, x, y, w, h)) =
+                msg.body()
+                    .deserialize::<(String, Vec<(String, String)>, String, i32, i32, i32, i32)>()
+            {
                 // 활성 컨텍스트 경로 저장
                 if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
                     *path = Some(context_path.clone());
@@ -338,7 +327,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
         }
         "ShowSpecialPopup" => {
             if let Ok((target, characters, top_row, x, y, w, h)) =
-                msg.body().deserialize::<(String, Vec<String>, String, i32, i32, i32, i32)>()
+                msg.body()
+                    .deserialize::<(String, Vec<String>, String, i32, i32, i32, i32)>()
             {
                 if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
                     *path = Some(context_path.clone());
@@ -411,18 +401,31 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                     index,
                     bookmarked
                 );
-                let _ = popup_tx.send(GuiAction::HanjaBookmarkChanged {
-                    index,
-                    bookmarked,
-                });
+                let _ = popup_tx.send(GuiAction::HanjaBookmarkChanged { index, bookmarked });
             }
         }
         "HanjaCandidatesReordered" => {
-            if let Ok((target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, _bookmarked)) =
-                msg.body().deserialize::<(
-                    String, Vec<String>, Vec<String>, Vec<bool>, u32, i32, i32, i32, bool,
-                )>()
-            {
+            if let Ok((
+                target,
+                hanjas,
+                meanings,
+                bookmarks,
+                new_cursor,
+                page,
+                sel_row,
+                sel_col,
+                _bookmarked,
+            )) = msg.body().deserialize::<(
+                String,
+                Vec<String>,
+                Vec<String>,
+                Vec<bool>,
+                u32,
+                i32,
+                i32,
+                i32,
+                bool,
+            )>() {
                 unim_log!(
                     "INDICATOR",
                     "[Popup] HanjaCandidatesReordered 수신: target='{}', count={}, new_cursor={}, page={}",
@@ -446,8 +449,9 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             }
         }
         "PopupNavigate" => {
-            if let Ok((page, total_pages, selected, rows, cols, sel_row, sel_col)) =
-                msg.body().deserialize::<(i32, i32, i32, i32, i32, i32, i32)>()
+            if let Ok((page, total_pages, selected, rows, cols, sel_row, sel_col)) = msg
+                .body()
+                .deserialize::<(i32, i32, i32, i32, i32, i32, i32)>()
             {
                 let _ = popup_tx.send(GuiAction::PopupNavigate {
                     page,

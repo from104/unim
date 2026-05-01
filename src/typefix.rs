@@ -4,10 +4,10 @@
 //! - `eng_to_kor`: 영문 타이핑을 한글로 변환 ("gksrmf" → "한글")
 //! - `kor_to_eng`: 한글을 영문 키스트로크로 변환 ("한글" → "gksrmf")
 
+use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keystroke::korean_to_keystrokes::korean_to_keystrokes;
-use crate::keystroke::{KeyboardMap, get_keymap_json};
-use crate::hangul::input_context::{ComposerType, HangulInputContext};
+use crate::keystroke::{get_keymap_json, KeyboardMap};
 use std::collections::HashMap;
 
 /// 영문 키스트로크를 한글로 변환합니다.
@@ -77,7 +77,8 @@ pub fn is_english_keystrokes(text: &str, keyboard_map: &HashMap<char, JamoEnum>)
     if text.is_empty() {
         return false;
     }
-    text.chars().all(|c| keyboard_map.contains_key(&c) || c == ' ')
+    text.chars()
+        .all(|c| keyboard_map.contains_key(&c) || c == ' ')
 }
 
 /// 텍스트가 한글(영문으로 변환 가능)인지 판별합니다.
@@ -88,9 +89,7 @@ pub fn is_korean_text(text: &str) -> bool {
     text.chars().all(|c| {
         // 한글 음절 범위: U+AC00 ~ U+D7A3
         // 한글 자모 범위: U+3131 ~ U+3163
-        ('\u{AC00}'..='\u{D7A3}').contains(&c)
-            || ('\u{3131}'..='\u{3163}').contains(&c)
-            || c == ' '
+        ('\u{AC00}'..='\u{D7A3}').contains(&c) || ('\u{3131}'..='\u{3163}').contains(&c) || c == ' '
     })
 }
 

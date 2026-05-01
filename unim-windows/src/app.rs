@@ -155,8 +155,9 @@ impl UnimApp {
             if self.text_area.cursor_pos >= delete {
                 self.text_area.cursor_pos -= delete;
                 let start_byte = self.text_area.char_to_byte_pos(self.text_area.cursor_pos);
-                let end_byte =
-                    self.text_area.char_to_byte_pos(self.text_area.cursor_pos + delete);
+                let end_byte = self
+                    .text_area
+                    .char_to_byte_pos(self.text_area.cursor_pos + delete);
                 self.text_area.committed_text.drain(start_byte..end_byte);
             }
             self.text_area.insert_commit(&replacement);
@@ -169,9 +170,11 @@ impl UnimApp {
             // surrounding text 설정
             let text = self.text_area.committed_text.clone();
             let cursor = self.text_area.cursor_pos as u32;
-            let anchor = self.text_area.selection_start.unwrap_or(self.text_area.cursor_pos) as u32;
-            self.engine
-                .set_surrounding_text(text, cursor, anchor);
+            let anchor = self
+                .text_area
+                .selection_start
+                .unwrap_or(self.text_area.cursor_pos) as u32;
+            self.engine.set_surrounding_text(text, cursor, anchor);
 
             // 자동 감지 방향으로 변환
             if let Some((_offset_from_cursor, _delete_count, replacement)) =
@@ -240,14 +243,14 @@ impl eframe::App for UnimApp {
                         ("두벌식", unim::config::KOREAN_LAYOUT_DUBEOLSIK),
                         ("세벌식 390", unim::config::KOREAN_LAYOUT_SEBEOLSIK_390),
                         ("세벌식 391", unim::config::KOREAN_LAYOUT_SEBEOLSIK_391),
-                        ("세벌식 순아래", unim::config::KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT),
+                        (
+                            "세벌식 순아래",
+                            unim::config::KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
+                        ),
                     ];
                     for (name, layout) in layouts {
                         let selected = self.config.engine.korean.layout == layout;
-                        if ui
-                            .selectable_label(selected, name)
-                            .clicked()
-                        {
+                        if ui.selectable_label(selected, name).clicked() {
                             self.config.engine.korean.layout = layout.to_string();
                             self.engine = InputEngine::new(&self.config);
                         }
@@ -308,8 +311,10 @@ impl UnimApp {
         if self.text_area.selected_text().is_some() {
             let text = self.text_area.committed_text.clone();
             let cursor = self.text_area.cursor_pos as u32;
-            let anchor =
-                self.text_area.selection_start.unwrap_or(self.text_area.cursor_pos) as u32;
+            let anchor = self
+                .text_area
+                .selection_start
+                .unwrap_or(self.text_area.cursor_pos) as u32;
             self.engine.set_surrounding_text(text, cursor, anchor);
 
             if let Some((_offset_from_cursor, _delete_count, replacement)) =

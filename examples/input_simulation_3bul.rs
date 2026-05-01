@@ -17,27 +17,24 @@ fn main() {
         JamoEnum::Jung(Jungsung::A),      // Jung (Middle) ㅏ -> 가
         JamoEnum::Jong(Jongsung::Giyeok), // Jong (Final) ㄱ -> 각
         JamoEnum::Jong(Jongsung::Siot),   // Jong (Final) ㅅ -> 갃 (Complex final)
-
         // New character starts
-        JamoEnum::Cho(Chosung::Nieun),    // Cho ㄴ -> Previous '갃' is finalized
-        JamoEnum::Jung(Jungsung::Ae),     // Jung ㅐ -> 내
-        JamoEnum::Jong(Jongsung::Nieun),  // Jong ㄴ -> 낸
-        JamoEnum::Jong(Jongsung::Jieut),  // Jong ㅈ -> 낸ㅈ (Complex final)
-
+        JamoEnum::Cho(Chosung::Nieun), // Cho ㄴ -> Previous '갃' is finalized
+        JamoEnum::Jung(Jungsung::Ae),  // Jung ㅐ -> 내
+        JamoEnum::Jong(Jongsung::Nieun), // Jong ㄴ -> 낸
+        JamoEnum::Jong(Jongsung::Jieut), // Jong ㅈ -> 낸ㅈ (Complex final)
         // Starting with a vowel (Middle)
-        JamoEnum::Jung(Jungsung::Eo),     // Jung ㅓ -> Previous '낸ㅈ' is finalized, starts standalone Middle
-        JamoEnum::Jong(Jongsung::Rieul),  // Jong ㄹ -> 얼
-
+        JamoEnum::Jung(Jungsung::Eo), // Jung ㅓ -> Previous '낸ㅈ' is finalized, starts standalone Middle
+        JamoEnum::Jong(Jongsung::Rieul), // Jong ㄹ -> 얼
         // Starting with initial (Cho)
-        JamoEnum::Cho(Chosung::Rieul),    // Cho ㄹ -> '얼' is finalized
-        JamoEnum::Jung(Jungsung::A),      // Jung ㅏ -> 라
+        JamoEnum::Cho(Chosung::Rieul), // Cho ㄹ -> '얼' is finalized
+        JamoEnum::Jung(Jungsung::A),   // Jung ㅏ -> 라
     ];
 
     println!("--- 3-Set Korean Input Simulation ---");
 
     for jamo in inputs {
         print!("Input: {:?} -> ", jamo.to_char());
-        
+
         // add_jamo processes the input and returns a char if the buffer shifts.
         let completed_char = composer.add_jamo(jamo);
 

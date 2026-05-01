@@ -604,7 +604,9 @@ fn u32_to_popup_key(key: u32) -> PopupKey {
     use popup_key_constants::*;
     match key {
         POPUP_KEY_NUMBER_1..=POPUP_KEY_NUMBER_9 => PopupKey::Number(key as u8),
-        POPUP_KEY_LETTER_0..=POPUP_KEY_LETTER_8 => PopupKey::Letter((key - POPUP_KEY_LETTER_0) as u8),
+        POPUP_KEY_LETTER_0..=POPUP_KEY_LETTER_8 => {
+            PopupKey::Letter((key - POPUP_KEY_LETTER_0) as u8)
+        }
         POPUP_KEY_UP => PopupKey::Up,
         POPUP_KEY_DOWN => PopupKey::Down,
         POPUP_KEY_LEFT => PopupKey::Left,
@@ -629,15 +631,15 @@ pub extern "C" fn unim_popup_key_from_gdk(gdk_keyval: u32) -> u32 {
     use popup_key_constants::*;
     match gdk_keyval {
         0x31..=0x39 => POPUP_KEY_NUMBER_1 + (gdk_keyval - 0x31), // '1'-'9'
-        0x71 => POPUP_KEY_LETTER_0,     // q
-        0x77 => POPUP_KEY_LETTER_0 + 1, // w
-        0x65 => POPUP_KEY_LETTER_0 + 2, // e
-        0x72 => POPUP_KEY_LETTER_0 + 3, // r
-        0x74 => POPUP_KEY_LETTER_0 + 4, // t
-        0x79 => POPUP_KEY_LETTER_0 + 5, // y
-        0x75 => POPUP_KEY_LETTER_0 + 6, // u
-        0x69 => POPUP_KEY_LETTER_0 + 7, // i
-        0x6f => POPUP_KEY_LETTER_0 + 8, // o
+        0x71 => POPUP_KEY_LETTER_0,                              // q
+        0x77 => POPUP_KEY_LETTER_0 + 1,                          // w
+        0x65 => POPUP_KEY_LETTER_0 + 2,                          // e
+        0x72 => POPUP_KEY_LETTER_0 + 3,                          // r
+        0x74 => POPUP_KEY_LETTER_0 + 4,                          // t
+        0x79 => POPUP_KEY_LETTER_0 + 5,                          // y
+        0x75 => POPUP_KEY_LETTER_0 + 6,                          // u
+        0x69 => POPUP_KEY_LETTER_0 + 7,                          // i
+        0x6f => POPUP_KEY_LETTER_0 + 8,                          // o
         0xff52 => POPUP_KEY_UP,
         0xff54 => POPUP_KEY_DOWN,
         0xff51 => POPUP_KEY_LEFT,

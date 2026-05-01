@@ -347,8 +347,7 @@ mod tests {
 
     #[test]
     fn new_with_profile_2bul_from_builtin() {
-        let profile =
-            crate::keystroke::profile::load_builtin_profile("ko_2bulstd").unwrap();
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_2bulstd").unwrap();
         let mut ctx = HangulInputContext::new_with_profile(&profile).unwrap();
         assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
         // 기본 조합 동작 확인: ㄱ + ㅏ + ㄱ = 각
@@ -360,8 +359,7 @@ mod tests {
 
     #[test]
     fn new_with_profile_3bul_from_builtin() {
-        let profile =
-            crate::keystroke::profile::load_builtin_profile("ko_3bul390").unwrap();
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul390").unwrap();
         let mut ctx = HangulInputContext::new_with_profile(&profile).unwrap();
         assert_eq!(ctx.get_composer_type(), ComposerType::ThreeBul);
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
@@ -372,8 +370,7 @@ mod tests {
     #[test]
     fn new_with_profile_english_type_falls_back_to_2bul() {
         // 영문 프로필(qwerty 등)도 한글 컨텍스트 생성 경로상 2벌식 composer로 폴백.
-        let profile =
-            crate::keystroke::profile::load_builtin_profile("en_qwerty").unwrap();
+        let profile = crate::keystroke::profile::load_builtin_profile("en_qwerty").unwrap();
         let ctx = HangulInputContext::new_with_profile(&profile).unwrap();
         assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
     }

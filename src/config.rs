@@ -40,10 +40,7 @@ impl ModeSharingMode {
 
     /// 사용 가능한 모든 모드를 반환합니다.
     pub fn all() -> &'static [ModeSharingMode] {
-        &[
-            ModeSharingMode::Global,
-            ModeSharingMode::PerApp,
-        ]
+        &[ModeSharingMode::Global, ModeSharingMode::PerApp]
     }
 }
 
@@ -983,7 +980,10 @@ mod tests {
         assert_eq!(normalize_korean_layout_name("2bul"), "ko_2bulstd");
         assert_eq!(normalize_korean_layout_name("390"), "ko_3bul390");
         // 이미 정식 이름
-        assert_eq!(normalize_korean_layout_name("ko_3bul_qwerty"), "ko_3bul_qwerty");
+        assert_eq!(
+            normalize_korean_layout_name("ko_3bul_qwerty"),
+            "ko_3bul_qwerty"
+        );
         // 사용자 프로필은 pass-through
         assert_eq!(normalize_korean_layout_name("my_custom"), "my_custom");
     }
@@ -1143,10 +1143,7 @@ word_commit: false
             deserialized.engine.english.layout,
             config.engine.english.layout
         );
-        assert_eq!(
-            deserialized.engine.mode_sharing,
-            config.engine.mode_sharing
-        );
+        assert_eq!(deserialized.engine.mode_sharing, config.engine.mode_sharing);
     }
 
     #[test]
@@ -1158,14 +1155,8 @@ word_commit: false
         config.save_to_path(&path).unwrap();
         let loaded = Config::load_from_path(&path).unwrap();
 
-        assert_eq!(
-            loaded.engine.korean.layout,
-            config.engine.korean.layout
-        );
-        assert_eq!(
-            loaded.engine.toggle_keys,
-            config.engine.toggle_keys
-        );
+        assert_eq!(loaded.engine.korean.layout, config.engine.korean.layout);
+        assert_eq!(loaded.engine.toggle_keys, config.engine.toggle_keys);
 
         // 정리
         let _ = std::fs::remove_dir_all(&dir);
@@ -1347,14 +1338,20 @@ preferred_direct: false
             ..Default::default()
         };
         c.clamp_ranges();
-        assert_eq!(c.observation_timeout_secs, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX);
+        assert_eq!(
+            c.observation_timeout_secs,
+            AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX
+        );
 
         let mut c = AutoTypeFixConfig {
             observation_timeout_secs: 0,
             ..Default::default()
         };
         c.clamp_ranges();
-        assert_eq!(c.observation_timeout_secs, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN);
+        assert_eq!(
+            c.observation_timeout_secs,
+            AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN
+        );
     }
 
     #[test]

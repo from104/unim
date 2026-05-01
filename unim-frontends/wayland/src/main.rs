@@ -234,7 +234,9 @@ fn main() {
                     candidates,
                     top_row,
                 } => {
-                    if UnimConfig::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
+                    if UnimConfig::load_from_default_path().engine.popup_mode
+                        != PopupMode::Standalone
+                    {
                         if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
                             app.popup_surface
                                 .show_hanja(shm, qh, &target, candidates, &top_row);
@@ -246,7 +248,9 @@ fn main() {
                     characters,
                     top_row,
                 } => {
-                    if UnimConfig::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
+                    if UnimConfig::load_from_default_path().engine.popup_mode
+                        != PopupMode::Standalone
+                    {
                         if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
                             app.popup_surface
                                 .show_special(shm, qh, &target, characters, &top_row);

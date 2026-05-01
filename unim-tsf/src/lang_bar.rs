@@ -2,10 +2,10 @@
 
 use std::sync::Mutex;
 
+use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::TextServices::*;
 use windows::Win32::UI::WindowsAndMessaging::HICON;
-use windows::core::*;
 
 use crate::globals;
 
@@ -48,7 +48,9 @@ impl ITfLangBarItem_Impl for UnimLangBarButton_Impl {
                     "English"
                 };
                 for (i, c) in text.encode_utf16().enumerate() {
-                    if i >= 31 { break; }
+                    if i >= 31 {
+                        break;
+                    }
                     desc[i] = c;
                 }
 

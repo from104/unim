@@ -2,9 +2,9 @@
 
 use std::sync::Mutex;
 
+use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::TextServices::*;
-use windows::core::*;
 
 #[implement(ITfCandidateListUIElement, ITfUIElement)]
 pub struct UnimCandidateList {

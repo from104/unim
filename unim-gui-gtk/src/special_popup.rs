@@ -195,7 +195,10 @@ impl SpecialPopup {
         unim_log!(
             "INDICATOR",
             "[Popup] 특수문자 show() 진입: display_server={:?}, cursor=({},{},{})",
-            self.display_server, x, y, h
+            self.display_server,
+            x,
+            y,
+            h
         );
 
         // 헤더 텍스트
@@ -369,12 +372,7 @@ fn select_special_via_dbus(col: usize, row: usize) {
     // column-major 인덱스 계산
     let index = (col * MAX_ROWS + row) as u32;
 
-    let context_path = {
-        ACTIVE_CONTEXT_PATH
-            .lock()
-            .ok()
-            .and_then(|p| p.clone())
-    };
+    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
 
     if let Some(path) = context_path {
         unim_log!(
@@ -400,8 +398,7 @@ fn select_special_via_dbus(col: usize, row: usize) {
                     )
                     .await;
                     if let Ok(proxy) = proxy {
-                        let _: Result<String, _> =
-                            proxy.call("SelectSpecialChar", &(index,)).await;
+                        let _: Result<String, _> = proxy.call("SelectSpecialChar", &(index,)).await;
                     }
                 }
             });

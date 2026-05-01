@@ -1,127 +1,17 @@
-//! 키코드 정의 모듈
+//! 키코드 변환 핫패스
 //!
-//! 물리적 키보드 키코드와 수정자 키 상태를 정의합니다.
-//! X11 및 Wayland 키코드와의 변환을 지원합니다.
+//! 매 keystroke 호출되는 [`KeyCode::to_char_for_layout`] 등 hot path 함수와
+//! 플랫폼별 변환 (X11/evdev/Win32), 이름 매핑, 그리고 비-QWERTY 레이아웃의
+//! 물리키 → (lower, upper) 매핑 테이블을 한 곳에 모아 인라인·분기예측을 보존한다.
+//!
+//! 모든 메서드는 [`KeyCode`] 의 동일한 `impl` 블록에 속하며 외부 시그니처 변경 없음.
 
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::LazyLock;
 
 use crate::keystroke::get_keymap_json;
 
-/// 키보드 키코드 열거형
-///
-/// 물리적 키보드 키를 추상화하여 다양한 프론트엔드에서 통일된 방식으로 사용할 수 있도록 합니다.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[repr(u16)]
-pub enum KeyCode {
-    // 알파벳 키 (A-Z)
-    A = 0x04,
-    B = 0x05,
-    C = 0x06,
-    D = 0x07,
-    E = 0x08,
-    F = 0x09,
-    G = 0x0A,
-    H = 0x0B,
-    I = 0x0C,
-    J = 0x0D,
-    K = 0x0E,
-    L = 0x0F,
-    M = 0x10,
-    N = 0x11,
-    O = 0x12,
-    P = 0x13,
-    Q = 0x14,
-    R = 0x15,
-    S = 0x16,
-    T = 0x17,
-    U = 0x18,
-    V = 0x19,
-    W = 0x1A,
-    X = 0x1B,
-    Y = 0x1C,
-    Z = 0x1D,
-
-    // 숫자 키 (0-9)
-    Num1 = 0x1E,
-    Num2 = 0x1F,
-    Num3 = 0x20,
-    Num4 = 0x21,
-    Num5 = 0x22,
-    Num6 = 0x23,
-    Num7 = 0x24,
-    Num8 = 0x25,
-    Num9 = 0x26,
-    Num0 = 0x27,
-
-    // 특수 키
-    Enter = 0x28,
-    Escape = 0x29,
-    Backspace = 0x2A,
-    Tab = 0x2B,
-    Space = 0x2C,
-
-    // 기호 키
-    Minus = 0x2D,        // - _
-    Equal = 0x2E,        // = +
-    BracketLeft = 0x2F,  // [ {
-    BracketRight = 0x30, // ] }
-    Backslash = 0x31,    // \ |
-    Semicolon = 0x33,    // ; :
-    Quote = 0x34,        // ' "
-    Backquote = 0x35,    // ` ~
-    Comma = 0x36,        // , <
-    Period = 0x37,       // . >
-    Slash = 0x38,        // / ?
-
-    // 기능 키
-    CapsLock = 0x39,
-    F1 = 0x3A,
-    F2 = 0x3B,
-    F3 = 0x3C,
-    F4 = 0x3D,
-    F5 = 0x3E,
-    F6 = 0x3F,
-    F7 = 0x40,
-    F8 = 0x41,
-    F9 = 0x42,
-    F10 = 0x43,
-    F11 = 0x44,
-    F12 = 0x45,
-
-    // 편집 키
-    Insert = 0x49,
-    Home = 0x4A,
-    PageUp = 0x4B,
-    Delete = 0x4C,
-    End = 0x4D,
-    PageDown = 0x4E,
-
-    // 화살표 키
-    Right = 0x4F,
-    Left = 0x50,
-    Down = 0x51,
-    Up = 0x52,
-
-    // 한국어/한자 키
-    Korean = 0x90, // 한/영 전환
-    Hanja = 0x91,  // 한자 변환
-
-    // 수정자 키
-    LeftControl = 0xE0,
-    LeftShift = 0xE1,
-    LeftAlt = 0xE2,
-    LeftSuper = 0xE3,
-    RightControl = 0xE4,
-    RightShift = 0xE5,
-    RightAlt = 0xE6,
-    RightSuper = 0xE7,
-
-    // 알 수 없는 키
-    #[default]
-    Unknown = 0xFFFF,
-}
+use super::KeyCode;
 
 impl KeyCode {
     /// X11 하드웨어 키코드에서 KeyCode로 변환합니다.
@@ -441,7 +331,11 @@ impl KeyCode {
     pub fn to_char_for_layout(&self, layout: &str, shifted: bool) -> Option<char> {
         let normalized = crate::config::normalize_english_layout_name(layout);
         if normalized == crate::config::ENGLISH_LAYOUT_QWERTY {
-            return if shifted { self.to_shifted_char() } else { self.to_char() };
+            return if shifted {
+                self.to_shifted_char()
+            } else {
+                self.to_char()
+            };
         }
 
         if *self == KeyCode::Space {
@@ -511,11 +405,11 @@ impl KeyCode {
             0x30 => KeyCode::Num0,
 
             // 특수 키
-            0x0D => KeyCode::Enter,    // VK_RETURN
-            0x1B => KeyCode::Escape,   // VK_ESCAPE
+            0x0D => KeyCode::Enter,     // VK_RETURN
+            0x1B => KeyCode::Escape,    // VK_ESCAPE
             0x08 => KeyCode::Backspace, // VK_BACK
-            0x09 => KeyCode::Tab,      // VK_TAB
-            0x20 => KeyCode::Space,    // VK_SPACE
+            0x09 => KeyCode::Tab,       // VK_TAB
+            0x20 => KeyCode::Space,     // VK_SPACE
 
             // 기호 (OEM 키)
             0xBD => KeyCode::Minus,        // VK_OEM_MINUS (- _)
@@ -543,7 +437,7 @@ impl KeyCode {
             0x78 => KeyCode::F9,
             0x79 => KeyCode::F10,
             0x7A => KeyCode::F11,
-            0x7B => KeyCode::F12,      // VK_F12
+            0x7B => KeyCode::F12, // VK_F12
 
             // 편집 키
             0x2D => KeyCode::Insert,   // VK_INSERT
@@ -575,59 +469,6 @@ impl KeyCode {
 
             _ => KeyCode::Unknown,
         }
-    }
-
-    /// 해당 KeyCode가 문자 입력 키인지 확인합니다.
-    pub fn is_character_key(&self) -> bool {
-        self.to_char().is_some()
-    }
-
-    /// 해당 KeyCode가 수정자 키인지 확인합니다.
-    pub fn is_modifier(&self) -> bool {
-        matches!(
-            self,
-            KeyCode::LeftControl
-                | KeyCode::LeftShift
-                | KeyCode::LeftAlt
-                | KeyCode::LeftSuper
-                | KeyCode::RightControl
-                | KeyCode::RightShift
-                | KeyCode::RightAlt
-                | KeyCode::RightSuper
-        )
-    }
-
-    /// 해당 KeyCode가 알파벳 키(A-Z)인지 확인합니다.
-    pub fn is_alpha(&self) -> bool {
-        matches!(
-            self,
-            KeyCode::A
-                | KeyCode::B
-                | KeyCode::C
-                | KeyCode::D
-                | KeyCode::E
-                | KeyCode::F
-                | KeyCode::G
-                | KeyCode::H
-                | KeyCode::I
-                | KeyCode::J
-                | KeyCode::K
-                | KeyCode::L
-                | KeyCode::M
-                | KeyCode::N
-                | KeyCode::O
-                | KeyCode::P
-                | KeyCode::Q
-                | KeyCode::R
-                | KeyCode::S
-                | KeyCode::T
-                | KeyCode::U
-                | KeyCode::V
-                | KeyCode::W
-                | KeyCode::X
-                | KeyCode::Y
-                | KeyCode::Z
-        )
     }
 
     /// KeyCode의 설정용 이름을 반환합니다.
@@ -815,405 +656,47 @@ impl KeyCode {
     }
 }
 
-
-impl fmt::Display for KeyCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-/// 수정자 키 상태
-///
-/// Shift, Control, Alt, Super 키의 현재 눌림 상태를 나타냅니다.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(C)]
-pub struct ModifierState {
-    /// Shift 키 눌림 상태
-    pub shift: bool,
-    /// Control 키 눌림 상태
-    pub control: bool,
-    /// Alt 키 눌림 상태
-    pub alt: bool,
-    /// Super (Windows/Command) 키 눌림 상태
-    pub super_key: bool,
-    /// Caps Lock 활성화 상태
-    pub caps_lock: bool,
-    /// Num Lock 활성화 상태
-    pub num_lock: bool,
-}
-
-impl ModifierState {
-    /// 새로운 빈 ModifierState를 생성합니다.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// X11 수정자 마스크에서 ModifierState를 생성합니다.
-    ///
-    /// # Arguments
-    ///
-    /// * `mask` - X11 수정자 마스크 (GDK 스타일)
-    pub fn from_x11_mask(mask: u32) -> Self {
-        const SHIFT_MASK: u32 = 1 << 0;
-        const LOCK_MASK: u32 = 1 << 1;
-        const CONTROL_MASK: u32 = 1 << 2;
-        const MOD1_MASK: u32 = 1 << 3; // Alt
-        const MOD4_MASK: u32 = 1 << 6; // Super
-
-        Self {
-            shift: (mask & SHIFT_MASK) != 0,
-            control: (mask & CONTROL_MASK) != 0,
-            alt: (mask & MOD1_MASK) != 0,
-            super_key: (mask & MOD4_MASK) != 0,
-            caps_lock: (mask & LOCK_MASK) != 0,
-            num_lock: false, // X11에서 별도 처리 필요
-        }
-    }
-
-    /// Win32 수정자 비트마스크에서 ModifierState를 생성합니다.
-    ///
-    /// # Arguments
-    ///
-    /// * `modifiers` - 비트마스크: bit0=Shift, bit1=Control, bit2=Alt,
-    ///                 bit3=Super(Win), bit4=CapsLock, bit5=NumLock
-    pub fn from_win32_modifiers(modifiers: u32) -> Self {
-        Self {
-            shift: (modifiers & 0x01) != 0,
-            control: (modifiers & 0x02) != 0,
-            alt: (modifiers & 0x04) != 0,
-            super_key: (modifiers & 0x08) != 0,
-            caps_lock: (modifiers & 0x10) != 0,
-            num_lock: (modifiers & 0x20) != 0,
-        }
-    }
-
-    /// 수정자가 하나도 눌리지 않은 상태인지 확인합니다.
-    pub fn is_empty(&self) -> bool {
-        !self.shift && !self.control && !self.alt && !self.super_key
-    }
-
-    /// Shift만 눌린 상태인지 확인합니다.
-    pub fn is_shift_only(&self) -> bool {
-        self.shift && !self.control && !self.alt && !self.super_key
-    }
-
-    /// Control만 눌린 상태인지 확인합니다.
-    pub fn is_control_only(&self) -> bool {
-        !self.shift && self.control && !self.alt && !self.super_key
-    }
-
-    /// Alt만 눌린 상태인지 확인합니다.
-    pub fn is_alt_only(&self) -> bool {
-        !self.shift && !self.control && self.alt && !self.super_key
-    }
-}
-
 /// JSON 키맵의 행 이름 (1st, 2nd, 3nd, 4th)
 const ROW_NAMES: [&str; 4] = ["1st", "2nd", "3nd", "4th"];
 
 /// 레이아웃별 물리키→문자 매핑 테이블 (JSON 키맵에서 동적 생성).
 /// key: 영어 프로필 이름 (e.g. "dvorak") → value: rows[row_index][col_index] = (lower, upper)
-static LAYOUT_TABLES: LazyLock<HashMap<String, Vec<Vec<(char, char)>>>> =
-    LazyLock::new(|| {
-        // Phase 9: QWERTY 는 to_char/to_shifted_char 빠른 경로로 처리되므로 테이블 불필요.
-        let layouts: &[&str] = &[
-            crate::config::ENGLISH_LAYOUT_DVORAK,
-            crate::config::ENGLISH_LAYOUT_COLEMAK,
-            crate::config::ENGLISH_LAYOUT_COLEMAK_DH,
-            crate::config::ENGLISH_LAYOUT_WORKMAN,
-        ];
-        let mut tables: HashMap<String, Vec<Vec<(char, char)>>> = HashMap::new();
-        for layout in layouts {
-            let keymap_file = crate::config::english_layout_keymap_name(layout);
-            let json_str = get_keymap_json(&keymap_file);
-            let json: serde_json::Value = serde_json::from_str(json_str)
-                .unwrap_or_else(|e| panic!("Failed to parse {keymap_file} keymap: {e}"));
-            let lower = &json["layout"]["lower"];
-            let upper = &json["layout"]["upper"];
-            let mut rows = Vec::with_capacity(4);
-            for row_name in &ROW_NAMES {
-                let lower_row = lower[row_name].as_array().unwrap_or_else(|| {
-                    panic!("Missing lower.{row_name} in {keymap_file}")
-                });
-                let upper_row = upper[row_name].as_array().unwrap_or_else(|| {
-                    panic!("Missing upper.{row_name} in {keymap_file}")
-                });
-                let pairs: Vec<(char, char)> = lower_row
-                    .iter()
-                    .zip(upper_row.iter())
-                    .map(|(l, u)| {
-                        let lc = l.as_str().unwrap().chars().next().unwrap();
-                        let uc = u.as_str().unwrap().chars().next().unwrap();
-                        (lc, uc)
-                    })
-                    .collect();
-                rows.push(pairs);
-            }
-            tables.insert((*layout).to_string(), rows);
+static LAYOUT_TABLES: LazyLock<HashMap<String, Vec<Vec<(char, char)>>>> = LazyLock::new(|| {
+    // Phase 9: QWERTY 는 to_char/to_shifted_char 빠른 경로로 처리되므로 테이블 불필요.
+    let layouts: &[&str] = &[
+        crate::config::ENGLISH_LAYOUT_DVORAK,
+        crate::config::ENGLISH_LAYOUT_COLEMAK,
+        crate::config::ENGLISH_LAYOUT_COLEMAK_DH,
+        crate::config::ENGLISH_LAYOUT_WORKMAN,
+    ];
+    let mut tables: HashMap<String, Vec<Vec<(char, char)>>> = HashMap::new();
+    for layout in layouts {
+        let keymap_file = crate::config::english_layout_keymap_name(layout);
+        let json_str = get_keymap_json(&keymap_file);
+        let json: serde_json::Value = serde_json::from_str(json_str)
+            .unwrap_or_else(|e| panic!("Failed to parse {keymap_file} keymap: {e}"));
+        let lower = &json["layout"]["lower"];
+        let upper = &json["layout"]["upper"];
+        let mut rows = Vec::with_capacity(4);
+        for row_name in &ROW_NAMES {
+            let lower_row = lower[row_name]
+                .as_array()
+                .unwrap_or_else(|| panic!("Missing lower.{row_name} in {keymap_file}"));
+            let upper_row = upper[row_name]
+                .as_array()
+                .unwrap_or_else(|| panic!("Missing upper.{row_name} in {keymap_file}"));
+            let pairs: Vec<(char, char)> = lower_row
+                .iter()
+                .zip(upper_row.iter())
+                .map(|(l, u)| {
+                    let lc = l.as_str().unwrap().chars().next().unwrap();
+                    let uc = u.as_str().unwrap().chars().next().unwrap();
+                    (lc, uc)
+                })
+                .collect();
+            rows.push(pairs);
         }
-        tables
-    });
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_keycode_from_evdev() {
-        assert_eq!(KeyCode::from_evdev_keycode(30), KeyCode::A);
-        assert_eq!(KeyCode::from_evdev_keycode(48), KeyCode::B);
-        assert_eq!(KeyCode::from_evdev_keycode(2), KeyCode::Num1);
-        assert_eq!(KeyCode::from_evdev_keycode(28), KeyCode::Enter);
-        assert_eq!(KeyCode::from_evdev_keycode(57), KeyCode::Space);
-        assert_eq!(KeyCode::from_evdev_keycode(9999), KeyCode::Unknown);
+        tables.insert((*layout).to_string(), rows);
     }
-
-    #[test]
-    fn test_keycode_from_x11() {
-        // X11 keycode = evdev + 8
-        assert_eq!(KeyCode::from_x11_keycode(38), KeyCode::A); // 30 + 8
-        assert_eq!(KeyCode::from_x11_keycode(56), KeyCode::B); // 48 + 8
-    }
-
-    #[test]
-    fn test_keycode_to_char() {
-        assert_eq!(KeyCode::A.to_char(), Some('a'));
-        assert_eq!(KeyCode::A.to_shifted_char(), Some('A'));
-        assert_eq!(KeyCode::Num1.to_char(), Some('1'));
-        assert_eq!(KeyCode::Num1.to_shifted_char(), Some('!'));
-        assert_eq!(KeyCode::Enter.to_char(), None);
-    }
-
-    #[test]
-    fn test_modifier_state() {
-        let empty = ModifierState::new();
-        assert!(empty.is_empty());
-
-        let shift_only = ModifierState {
-            shift: true,
-            ..Default::default()
-        };
-        assert!(shift_only.is_shift_only());
-        assert!(!shift_only.is_empty());
-
-        let from_x11 = ModifierState::from_x11_mask(0b0101); // Shift + Control
-        assert!(from_x11.shift);
-        assert!(from_x11.control);
-        assert!(!from_x11.alt);
-    }
-
-    #[test]
-    fn test_keycode_from_win32_vk() {
-        // 알파벳
-        assert_eq!(KeyCode::from_win32_vk(0x41), KeyCode::A);
-        assert_eq!(KeyCode::from_win32_vk(0x5A), KeyCode::Z);
-        assert_eq!(KeyCode::from_win32_vk(0x48), KeyCode::H);
-
-        // 숫자
-        assert_eq!(KeyCode::from_win32_vk(0x30), KeyCode::Num0);
-        assert_eq!(KeyCode::from_win32_vk(0x31), KeyCode::Num1);
-        assert_eq!(KeyCode::from_win32_vk(0x39), KeyCode::Num9);
-
-        // 특수 키
-        assert_eq!(KeyCode::from_win32_vk(0x0D), KeyCode::Enter);
-        assert_eq!(KeyCode::from_win32_vk(0x1B), KeyCode::Escape);
-        assert_eq!(KeyCode::from_win32_vk(0x08), KeyCode::Backspace);
-        assert_eq!(KeyCode::from_win32_vk(0x09), KeyCode::Tab);
-        assert_eq!(KeyCode::from_win32_vk(0x20), KeyCode::Space);
-
-        // OEM 기호 키
-        assert_eq!(KeyCode::from_win32_vk(0xBD), KeyCode::Minus);
-        assert_eq!(KeyCode::from_win32_vk(0xBB), KeyCode::Equal);
-        assert_eq!(KeyCode::from_win32_vk(0xDB), KeyCode::BracketLeft);
-        assert_eq!(KeyCode::from_win32_vk(0xDD), KeyCode::BracketRight);
-        assert_eq!(KeyCode::from_win32_vk(0xDC), KeyCode::Backslash);
-        assert_eq!(KeyCode::from_win32_vk(0xBA), KeyCode::Semicolon);
-        assert_eq!(KeyCode::from_win32_vk(0xDE), KeyCode::Quote);
-        assert_eq!(KeyCode::from_win32_vk(0xC0), KeyCode::Backquote);
-        assert_eq!(KeyCode::from_win32_vk(0xBC), KeyCode::Comma);
-        assert_eq!(KeyCode::from_win32_vk(0xBE), KeyCode::Period);
-        assert_eq!(KeyCode::from_win32_vk(0xBF), KeyCode::Slash);
-
-        // 기능 키
-        assert_eq!(KeyCode::from_win32_vk(0x70), KeyCode::F1);
-        assert_eq!(KeyCode::from_win32_vk(0x7B), KeyCode::F12);
-        assert_eq!(KeyCode::from_win32_vk(0x14), KeyCode::CapsLock);
-
-        // 편집/화살표 키
-        assert_eq!(KeyCode::from_win32_vk(0x2D), KeyCode::Insert);
-        assert_eq!(KeyCode::from_win32_vk(0x2E), KeyCode::Delete);
-        assert_eq!(KeyCode::from_win32_vk(0x24), KeyCode::Home);
-        assert_eq!(KeyCode::from_win32_vk(0x23), KeyCode::End);
-        assert_eq!(KeyCode::from_win32_vk(0x27), KeyCode::Right);
-        assert_eq!(KeyCode::from_win32_vk(0x25), KeyCode::Left);
-        assert_eq!(KeyCode::from_win32_vk(0x26), KeyCode::Up);
-        assert_eq!(KeyCode::from_win32_vk(0x28), KeyCode::Down);
-
-        // 한국어/한자
-        assert_eq!(KeyCode::from_win32_vk(0x15), KeyCode::Korean);
-        assert_eq!(KeyCode::from_win32_vk(0x19), KeyCode::Hanja);
-
-        // 수정자
-        assert_eq!(KeyCode::from_win32_vk(0xA0), KeyCode::LeftShift);
-        assert_eq!(KeyCode::from_win32_vk(0xA1), KeyCode::RightShift);
-        assert_eq!(KeyCode::from_win32_vk(0xA2), KeyCode::LeftControl);
-        assert_eq!(KeyCode::from_win32_vk(0xA5), KeyCode::RightAlt);
-        assert_eq!(KeyCode::from_win32_vk(0x5B), KeyCode::LeftSuper);
-
-        // 알 수 없는 키
-        assert_eq!(KeyCode::from_win32_vk(0xFFFF), KeyCode::Unknown);
-    }
-
-    #[test]
-    fn test_modifier_from_win32() {
-        // 빈 상태
-        let empty = ModifierState::from_win32_modifiers(0);
-        assert!(empty.is_empty());
-        assert!(!empty.caps_lock);
-
-        // Shift만
-        let shift_only = ModifierState::from_win32_modifiers(0x01);
-        assert!(shift_only.shift);
-        assert!(!shift_only.control);
-        assert!(shift_only.is_shift_only());
-
-        // Shift + Control
-        let shift_ctrl = ModifierState::from_win32_modifiers(0x03);
-        assert!(shift_ctrl.shift);
-        assert!(shift_ctrl.control);
-        assert!(!shift_ctrl.alt);
-
-        // Alt만
-        let alt_only = ModifierState::from_win32_modifiers(0x04);
-        assert!(alt_only.alt);
-        assert!(alt_only.is_alt_only());
-
-        // CapsLock + NumLock
-        let locks = ModifierState::from_win32_modifiers(0x30);
-        assert!(locks.caps_lock);
-        assert!(locks.num_lock);
-        assert!(!locks.shift);
-
-        // 전체 비트
-        let all = ModifierState::from_win32_modifiers(0x3F);
-        assert!(all.shift);
-        assert!(all.control);
-        assert!(all.alt);
-        assert!(all.super_key);
-        assert!(all.caps_lock);
-        assert!(all.num_lock);
-    }
-
-    #[test]
-    fn test_keycode_is_modifier() {
-        assert!(KeyCode::LeftShift.is_modifier());
-        assert!(KeyCode::RightAlt.is_modifier());
-        assert!(!KeyCode::A.is_modifier());
-        assert!(!KeyCode::Space.is_modifier());
-    }
-
-    // ── to_char_for_layout 테스트 ──
-
-    #[test]
-    fn test_to_char_for_layout_qwerty_consistency() {
-        // Qwerty: to_char_for_layout == to_char / to_shifted_char (모든 문자키)
-        let all_char_keys = [
-            KeyCode::A, KeyCode::B, KeyCode::C, KeyCode::D, KeyCode::E,
-            KeyCode::F, KeyCode::G, KeyCode::H, KeyCode::I, KeyCode::J,
-            KeyCode::K, KeyCode::L, KeyCode::M, KeyCode::N, KeyCode::O,
-            KeyCode::P, KeyCode::Q, KeyCode::R, KeyCode::S, KeyCode::T,
-            KeyCode::U, KeyCode::V, KeyCode::W, KeyCode::X, KeyCode::Y, KeyCode::Z,
-            KeyCode::Num0, KeyCode::Num1, KeyCode::Num2, KeyCode::Num3, KeyCode::Num4,
-            KeyCode::Num5, KeyCode::Num6, KeyCode::Num7, KeyCode::Num8, KeyCode::Num9,
-            KeyCode::Minus, KeyCode::Equal, KeyCode::BracketLeft, KeyCode::BracketRight,
-            KeyCode::Backslash, KeyCode::Semicolon, KeyCode::Quote, KeyCode::Backquote,
-            KeyCode::Comma, KeyCode::Period, KeyCode::Slash, KeyCode::Space,
-        ];
-        for key in all_char_keys {
-            assert_eq!(
-                key.to_char_for_layout("qwerty", false),
-                key.to_char(),
-                "Qwerty lower mismatch for {:?}", key
-            );
-            assert_eq!(
-                key.to_char_for_layout("qwerty", true),
-                key.to_shifted_char(),
-                "Qwerty upper mismatch for {:?}", key
-            );
-        }
-    }
-
-    /// JSON 키맵에서 기대값을 읽어 to_char_for_layout() 결과와 비교하는 포괄적 테스트.
-    /// 모든 비-QWERTY 레이아웃의 모든 물리키를 JSON 원본과 교차 검증한다.
-    #[test]
-    fn test_to_char_for_layout_all_non_qwerty_vs_json() {
-        use crate::keystroke::get_keymap_json;
-
-        // 물리키 행별 배열 (QWERTY 물리 위치 순서)
-        let row_keys: [&[KeyCode]; 4] = [
-            &[KeyCode::Backquote, KeyCode::Num1, KeyCode::Num2, KeyCode::Num3,
-              KeyCode::Num4, KeyCode::Num5, KeyCode::Num6, KeyCode::Num7,
-              KeyCode::Num8, KeyCode::Num9, KeyCode::Num0, KeyCode::Minus,
-              KeyCode::Equal, KeyCode::Backslash],
-            &[KeyCode::Q, KeyCode::W, KeyCode::E, KeyCode::R, KeyCode::T,
-              KeyCode::Y, KeyCode::U, KeyCode::I, KeyCode::O, KeyCode::P,
-              KeyCode::BracketLeft, KeyCode::BracketRight],
-            &[KeyCode::A, KeyCode::S, KeyCode::D, KeyCode::F, KeyCode::G,
-              KeyCode::H, KeyCode::J, KeyCode::K, KeyCode::L, KeyCode::Semicolon,
-              KeyCode::Quote],
-            &[KeyCode::Z, KeyCode::X, KeyCode::C, KeyCode::V, KeyCode::B,
-              KeyCode::N, KeyCode::M, KeyCode::Comma, KeyCode::Period, KeyCode::Slash],
-        ];
-        let row_names = ["1st", "2nd", "3nd", "4th"];
-
-        let layouts = [
-            "dvorak",
-            "colemak",
-            "colemak_dh",
-            "workman",
-        ];
-
-        for layout in layouts {
-            let keymap_file = crate::config::english_layout_keymap_name(layout);
-            let json_str = get_keymap_json(&keymap_file);
-            let json: serde_json::Value = serde_json::from_str(json_str).unwrap();
-            let lower_layout = &json["layout"]["lower"];
-            let upper_layout = &json["layout"]["upper"];
-
-            for (row_idx, row_name) in row_names.iter().enumerate() {
-                let lower_row = lower_layout[row_name].as_array().unwrap();
-                let upper_row = upper_layout[row_name].as_array().unwrap();
-                let keys = row_keys[row_idx];
-
-                for (col_idx, &keycode) in keys.iter().enumerate() {
-                    let expected_lower = lower_row[col_idx].as_str().unwrap().chars().next().unwrap();
-                    let expected_upper = upper_row[col_idx].as_str().unwrap().chars().next().unwrap();
-
-                    assert_eq!(
-                        keycode.to_char_for_layout(layout, false),
-                        Some(expected_lower),
-                        "{:?} {:?} lower: expected '{}' from JSON",
-                        layout, keycode, expected_lower
-                    );
-                    assert_eq!(
-                        keycode.to_char_for_layout(layout, true),
-                        Some(expected_upper),
-                        "{:?} {:?} upper: expected '{}' from JSON",
-                        layout, keycode, expected_upper
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_to_char_for_layout_space_all_layouts() {
-        for layout in crate::config::ENGLISH_LAYOUT_BUILTINS {
-            assert_eq!(
-                KeyCode::Space.to_char_for_layout(layout, false),
-                Some(' '),
-                "Space should be ' ' for {layout}"
-            );
-        }
-    }
-}
+    tables
+});

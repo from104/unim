@@ -378,7 +378,10 @@ async fn run_dbus_client(
                 }
             }
 
-            DbusRequest::CancelHanja { context_path, response } => {
+            DbusRequest::CancelHanja {
+                context_path,
+                response,
+            } => {
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     match proxy.cancel_hanja().await {
                         Ok(text) => {
@@ -390,7 +393,9 @@ async fn run_dbus_client(
                         Err(e) => {
                             unim_log!("WAYLAND_DBUS", "한자 취소 실패: {}", e);
                             if let Some(tx) = response {
-                                let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                                let _ = tx.send(DbusResponse::CommitText {
+                                    text: String::new(),
+                                });
                             }
                         }
                     }
@@ -463,7 +468,10 @@ async fn run_dbus_client(
                 }
             }
 
-            DbusRequest::CancelSpecialChar { context_path, response } => {
+            DbusRequest::CancelSpecialChar {
+                context_path,
+                response,
+            } => {
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     match proxy.cancel_special_char().await {
                         Ok(text) => {
@@ -475,7 +483,9 @@ async fn run_dbus_client(
                         Err(e) => {
                             unim_log!("WAYLAND_DBUS", "특수문자 취소 실패: {}", e);
                             if let Some(tx) = response {
-                                let _ = tx.send(DbusResponse::CommitText { text: String::new() });
+                                let _ = tx.send(DbusResponse::CommitText {
+                                    text: String::new(),
+                                });
                             }
                         }
                     }

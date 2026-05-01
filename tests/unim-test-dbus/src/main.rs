@@ -135,8 +135,7 @@ async fn run_scenario(
         ));
     }
 
-    if !scenario.expected_total_commit.is_empty()
-        && total_commit != scenario.expected_total_commit
+    if !scenario.expected_total_commit.is_empty() && total_commit != scenario.expected_total_commit
     {
         failures.push(format!(
             "total commit: 기대=\"{}\" 실제=\"{}\"",
@@ -210,7 +209,11 @@ async fn test_hanja_popup(
         Ok((target, candidates)) => {
             if verbose {
                 eprintln!(
-                    "  {}한자 후보: target=\"{}\", count={}{}", DIM, target, candidates.len(), RESET
+                    "  {}한자 후보: target=\"{}\", count={}{}",
+                    DIM,
+                    target,
+                    candidates.len(),
+                    RESET
                 );
                 for (i, (hanja, meaning)) in candidates.iter().take(3).enumerate() {
                     eprintln!("  {}  [{}] {} ({}){}", DIM, i, hanja, meaning, RESET);
@@ -221,7 +224,11 @@ async fn test_hanja_popup(
                 results.push(TestResult {
                     name: "한자 후보 조회".to_string(),
                     passed: false,
-                    detail: Some(format!("target=\"{}\", 후보={}개", target, candidates.len())),
+                    detail: Some(format!(
+                        "target=\"{}\", 후보={}개",
+                        target,
+                        candidates.len()
+                    )),
                 });
                 let _ = ic.reset().await;
                 return results;
@@ -243,7 +250,11 @@ async fn test_hanja_popup(
                     results.push(TestResult {
                         name: format!("한자 선택 [0] → \"{}\"", selected),
                         passed: not_empty,
-                        detail: if not_empty { None } else { Some("빈 문자열 반환".to_string()) },
+                        detail: if not_empty {
+                            None
+                        } else {
+                            Some("빈 문자열 반환".to_string())
+                        },
                     });
                 }
                 Err(e) => {
@@ -315,12 +326,17 @@ async fn test_special_char_popup(
         Layout::Dubeolsik => KeyPress::new(34),    // G → ㅎ
     };
 
-    let _ = ic.process_key_event(0, choseong_key.keycode, choseong_key.state).await;
+    let _ = ic
+        .process_key_event(0, choseong_key.keycode, choseong_key.state)
+        .await;
 
     // Hanja 키 → 한자 없음 → 특수문자 모드
     let hanja_result = ic.process_key_event(0, 123, 0).await;
     if verbose {
-        eprintln!("  {}특수문자 Hanja키 결과: {:?}{}", DIM, hanja_result, RESET);
+        eprintln!(
+            "  {}특수문자 Hanja키 결과: {:?}{}",
+            DIM, hanja_result, RESET
+        );
     }
 
     // Pull 방식: get_special_char_candidates 호출
@@ -329,7 +345,11 @@ async fn test_special_char_popup(
             if verbose {
                 eprintln!(
                     "  {}특수문자 후보: target=\"{}\", count={}, top_row=\"{}\"{}",
-                    DIM, target, characters.len(), top_row, RESET
+                    DIM,
+                    target,
+                    characters.len(),
+                    top_row,
+                    RESET
                 );
                 for (i, ch) in characters.iter().take(5).enumerate() {
                     eprintln!("  {}  [{}] {}{}", DIM, i, ch, RESET);
@@ -340,7 +360,11 @@ async fn test_special_char_popup(
                 results.push(TestResult {
                     name: "특수문자 후보 조회".to_string(),
                     passed: false,
-                    detail: Some(format!("target=\"{}\", 후보={}개", target, characters.len())),
+                    detail: Some(format!(
+                        "target=\"{}\", 후보={}개",
+                        target,
+                        characters.len()
+                    )),
                 });
                 let _ = ic.reset().await;
                 return results;
@@ -447,7 +471,10 @@ async fn main() {
                 l
             }
             Err(_) => {
-                println!("{}레이아웃 감지 실패 — 2벌식으로 기본 설정{}", YELLOW, RESET);
+                println!(
+                    "{}레이아웃 감지 실패 — 2벌식으로 기본 설정{}",
+                    YELLOW, RESET
+                );
                 Layout::Dubeolsik
             }
         },

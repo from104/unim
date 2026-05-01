@@ -51,11 +51,7 @@ pub fn write_address_file() -> io::Result<PathBuf> {
 
     fs::write(&path, &content)?;
 
-    unim_log!(
-        "DAEMON",
-        "[IBus Compat] 주소 파일 생성: {}",
-        path.display()
-    );
+    unim_log!("DAEMON", "[IBus Compat] 주소 파일 생성: {}", path.display());
 
     Ok(path)
 }
@@ -73,20 +69,12 @@ pub fn remove_address_file() {
                         e
                     );
                 } else {
-                    unim_log!(
-                        "DAEMON",
-                        "[IBus Compat] 주소 파일 삭제: {}",
-                        path.display()
-                    );
+                    unim_log!("DAEMON", "[IBus Compat] 주소 파일 삭제: {}", path.display());
                 }
             }
         }
         Err(e) => {
-            unim_log!(
-                "DAEMON",
-                "[IBus Compat] 주소 파일 경로 확인 실패: {}",
-                e
-            );
+            unim_log!("DAEMON", "[IBus Compat] 주소 파일 경로 확인 실패: {}", e);
         }
     }
 }

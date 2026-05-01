@@ -125,7 +125,9 @@ impl EmojiPopup {
             let target = if i < first_row_size {
                 &row1
             } else {
-                row2_opt.as_ref().expect("row2 must exist when i >= first_row_size")
+                row2_opt
+                    .as_ref()
+                    .expect("row2 must exist when i >= first_row_size")
             };
             target.append(&btn);
             tab_buttons.borrow_mut().push((key.clone(), btn));
@@ -163,7 +165,11 @@ impl EmojiPopup {
         // 즐겨찾기 기본 채우기 (MRU 영속화 미구현 — popular fallback 사용)
         {
             let mru = emoji::load_favorites();
-            let items = if mru.is_empty() { emoji::search_emoji_strings("") } else { mru };
+            let items = if mru.is_empty() {
+                emoji::search_emoji_strings("")
+            } else {
+                mru
+            };
             Self::fill_flow_with_strings(&favorites_flow, &items);
         }
 
@@ -315,7 +321,10 @@ impl EmojiPopup {
     fn attach_flow_activation(flow: &gtk4::FlowBox) {
         flow.connect_child_activated(|_, child| {
             // tooltip_text에 저장해둔 이모지 문자열 추출
-            let emoji_str = child.tooltip_text().map(|s| s.to_string()).unwrap_or_default();
+            let emoji_str = child
+                .tooltip_text()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
             if emoji_str.is_empty() {
                 return;
             }
@@ -350,7 +359,11 @@ impl EmojiPopup {
         // 즐겨찾기 갱신 — MRU 우선, 비어있으면 popular fallback.
         {
             let mru = emoji::load_favorites();
-            let items = if mru.is_empty() { emoji::search_emoji_strings("") } else { mru };
+            let items = if mru.is_empty() {
+                emoji::search_emoji_strings("")
+            } else {
+                mru
+            };
             Self::fill_flow_with_strings(&self.favorites_flow, &items);
         }
         Self::attach_flow_activation(&self.favorites_flow);

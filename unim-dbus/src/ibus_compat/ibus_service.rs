@@ -11,9 +11,9 @@ use zbus::zvariant::{ObjectPath, OwnedObjectPath, Value};
 
 use unim::unim_log;
 
-use crate::service::EngineRequest;
 use super::ibus_context::IBusInputContextHandler;
 use super::ibus_types;
+use crate::service::EngineRequest;
 
 /// IBus 컨텍스트 ID 시작값 (기존 UNIM 컨텍스트와 충돌 방지)
 const IBUS_CONTEXT_ID_BASE: u32 = 1_000_000;
@@ -29,10 +29,7 @@ pub struct IBusServiceHandler {
 }
 
 impl IBusServiceHandler {
-    pub fn new(
-        engine_tx: mpsc::Sender<EngineRequest>,
-        connection: zbus::Connection,
-    ) -> Self {
+    pub fn new(engine_tx: mpsc::Sender<EngineRequest>, connection: zbus::Connection) -> Self {
         Self {
             next_context_id: Arc::new(AtomicU32::new(IBUS_CONTEXT_ID_BASE)),
             engine_tx,
@@ -44,10 +41,7 @@ impl IBusServiceHandler {
 #[interface(name = "org.freedesktop.IBus")]
 impl IBusServiceHandler {
     /// InputContext 생성
-    async fn create_input_context(
-        &self,
-        client_name: &str,
-    ) -> zbus::fdo::Result<OwnedObjectPath> {
+    async fn create_input_context(&self, client_name: &str) -> zbus::fdo::Result<OwnedObjectPath> {
         let id = self.next_context_id.fetch_add(1, Ordering::SeqCst);
         let path_str = format!("{}{}", IBUS_IC_PATH_PREFIX, id);
         let path = ObjectPath::try_from(path_str.as_str())

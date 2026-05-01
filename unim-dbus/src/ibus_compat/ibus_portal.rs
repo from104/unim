@@ -11,8 +11,8 @@ use zbus::zvariant::{ObjectPath, OwnedObjectPath};
 
 use unim::unim_log;
 
-use crate::service::EngineRequest;
 use super::ibus_context::IBusInputContextHandler;
+use crate::service::EngineRequest;
 
 /// IBus 포털 컨텍스트 ID 시작값
 const IBUS_PORTAL_ID_BASE: u32 = 2_000_000;
@@ -28,10 +28,7 @@ pub struct IBusPortalHandler {
 }
 
 impl IBusPortalHandler {
-    pub fn new(
-        engine_tx: mpsc::Sender<EngineRequest>,
-        connection: zbus::Connection,
-    ) -> Self {
+    pub fn new(engine_tx: mpsc::Sender<EngineRequest>, connection: zbus::Connection) -> Self {
         Self {
             next_context_id: Arc::new(AtomicU32::new(IBUS_PORTAL_ID_BASE)),
             engine_tx,
@@ -43,10 +40,7 @@ impl IBusPortalHandler {
 #[interface(name = "org.freedesktop.IBus.Portal")]
 impl IBusPortalHandler {
     /// Flatpak 앱용 InputContext 생성
-    async fn create_input_context(
-        &self,
-        client_name: &str,
-    ) -> zbus::fdo::Result<OwnedObjectPath> {
+    async fn create_input_context(&self, client_name: &str) -> zbus::fdo::Result<OwnedObjectPath> {
         let id = self.next_context_id.fetch_add(1, Ordering::SeqCst);
         let path_str = format!("{}{}", IBUS_PORTAL_IC_PATH_PREFIX, id);
         let path = ObjectPath::try_from(path_str.as_str())

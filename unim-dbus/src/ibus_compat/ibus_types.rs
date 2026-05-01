@@ -143,20 +143,20 @@ pub fn serialize_engine_desc() -> Value<'static> {
     Value::new(zvariant::Structure::from((
         Value::new("IBusEngineDesc".to_string()),
         empty_attachments(),
-        Value::new("unim".to_string()),          // name
-        Value::new("UNIM".to_string()),           // longname
+        Value::new("unim".to_string()),                // name
+        Value::new("UNIM".to_string()),                // longname
         Value::new("Korean Input Method".to_string()), // description
-        Value::new("ko".to_string()),             // language
-        Value::new("MIT".to_string()),            // license
-        Value::new("from104".to_string()),        // author
-        Value::new("".to_string()),               // icon
-        Value::new("default".to_string()),        // layout
-        Value::new("".to_string()),               // layout_variant
-        Value::new("".to_string()),               // layout_option
-        Value::new("0".to_string()),              // rank
-        Value::new("".to_string()),               // hotkeys
-        Value::new("unim".to_string()),           // symbol
-        Value::new("".to_string()),               // setup
+        Value::new("ko".to_string()),                  // language
+        Value::new("MIT".to_string()),                 // license
+        Value::new("from104".to_string()),             // author
+        Value::new("".to_string()),                    // icon
+        Value::new("default".to_string()),             // layout
+        Value::new("".to_string()),                    // layout_variant
+        Value::new("".to_string()),                    // layout_option
+        Value::new("0".to_string()),                   // rank
+        Value::new("".to_string()),                    // hotkeys
+        Value::new("unim".to_string()),                // symbol
+        Value::new("".to_string()),                    // setup
     )))
 }
 

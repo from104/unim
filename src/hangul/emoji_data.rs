@@ -14,6 +14,7 @@ pub struct EmojiCategoryInfo {
 }
 
 /// Windows 11 emoji panel과 매칭되는 9개 메이저 카테고리.
+#[rustfmt::skip]
 pub static CATEGORIES: &[EmojiCategoryInfo] = &[
     EmojiCategoryInfo { id: "Smileys", ko: "표정", en: "Smileys & emotion" },
     EmojiCategoryInfo { id: "People", ko: "사람", en: "People & body" },
@@ -29,12 +30,13 @@ pub static CATEGORIES: &[EmojiCategoryInfo] = &[
 /// 이모지 1건의 메타데이터.
 #[derive(Debug, Clone, Copy)]
 pub struct EmojiDatum {
-    pub emoji:    &'static str,
-    pub cat_idx:  u8,
-    pub en_name:  &'static str,
+    pub emoji: &'static str,
+    pub cat_idx: u8,
+    pub en_name: &'static str,
     pub subgroup: &'static str,
 }
 
+#[rustfmt::skip]
 pub static EMOJIS: &[EmojiDatum] = &[
     // === Smileys (168) ===
     EmojiDatum { emoji: "😀", cat_idx: 0, en_name: "grinning face", subgroup: "face-smiling" },
@@ -1946,4 +1948,3 @@ pub static EMOJIS: &[EmojiDatum] = &[
 ];
 
 pub const TOTAL_EMOJIS: usize = 1898;
-

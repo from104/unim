@@ -146,7 +146,11 @@ impl HanjaPopup {
         unim_log!(
             "INDICATOR",
             "[Popup] 한자 show() 진입: display_server={:?}, top_row='{}', cursor=({},{},{})",
-            self.display_server, top_row, x, y, h
+            self.display_server,
+            top_row,
+            x,
+            y,
+            h
         );
 
         self.context_path = context_path;
@@ -205,8 +209,11 @@ impl HanjaPopup {
         } else {
             self.page_label.set_text("");
         }
-        self.expand_icon
-            .set_text(if self.cols > 1 { ICON_COMPACT } else { ICON_EXPAND });
+        self.expand_icon.set_text(if self.cols > 1 {
+            ICON_COMPACT
+        } else {
+            ICON_EXPAND
+        });
     }
 
     /// compact 모드 렌더 (1×9 ListBox)
@@ -419,7 +426,6 @@ impl HanjaPopup {
             self.update_page();
         }
     }
-
 }
 
 /// 엔진에서 현재 한자 후보의 북마크 상태를 비동기로 받아 GUI 이벤트 루프에
@@ -456,15 +462,13 @@ fn fetch_bookmark_states_async(context_path: String) {
                 Ok(p) => p,
                 Err(_) => return,
             };
-            let states: Result<Vec<bool>, _> =
-                proxy.call("GetHanjaBookmarkStates", &()).await;
+            let states: Result<Vec<bool>, _> = proxy.call("GetHanjaBookmarkStates", &()).await;
             if let Ok(states) = states {
                 // 첫 렌더 색상 누락 방지: 일괄 setter 1회로 set_bookmark_flags →
                 // update_page() 강제. (이전엔 true 인덱스만 개별 발행해 race로
                 // 첫 렌더에서 색이 누락되곤 했음)
-                let _ = tx.send(
-                    unim_gui_common::types::GuiAction::HanjaBookmarkStatesFetched { states },
-                );
+                let _ = tx
+                    .send(unim_gui_common::types::GuiAction::HanjaBookmarkStatesFetched { states });
             }
         });
     });
@@ -474,12 +478,7 @@ fn fetch_bookmark_states_async(context_path: String) {
 fn select_hanja_via_dbus(page_local_index: u32) {
     use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
 
-    let context_path = {
-        ACTIVE_CONTEXT_PATH
-            .lock()
-            .ok()
-            .and_then(|p| p.clone())
-    };
+    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
 
     if let Some(path) = context_path {
         unim_log!(

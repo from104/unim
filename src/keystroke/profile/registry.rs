@@ -117,10 +117,7 @@ impl ProfileRegistry {
             let content = match fs::read_to_string(&path) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!(
-                        "[UNIM] layout profile 읽기 실패: {} — {e}",
-                        path.display()
-                    );
+                    eprintln!("[UNIM] layout profile 읽기 실패: {} — {e}", path.display());
                     report.errors.push((path, e.to_string()));
                     continue;
                 }
@@ -140,10 +137,7 @@ impl ProfileRegistry {
                     }
                 }
                 Err(e) => {
-                    eprintln!(
-                        "[UNIM] layout profile 파싱 실패: {} — {e}",
-                        path.display()
-                    );
+                    eprintln!("[UNIM] layout profile 파싱 실패: {} — {e}", path.display());
                     report.errors.push((path, e.to_string()));
                 }
             }
@@ -315,17 +309,10 @@ mod tests {
     fn name_field_is_key_not_file_stem() {
         // 파일명(`custom.json`)이 아니라 JSON 내부 name("my_layout")로 조회돼야 함.
         let dir = temp_subdir("name-key");
-        write_profile(
-            &dir,
-            "custom.json",
-            &minimal_v1_profile_json("my_layout"),
-        );
+        write_profile(&dir, "custom.json", &minimal_v1_profile_json("my_layout"));
 
         let reg = ProfileRegistry::with_user_dir(dir.clone());
-        assert!(
-            reg.find_raw("my_layout").is_some(),
-            "JSON name 필드로 조회"
-        );
+        assert!(reg.find_raw("my_layout").is_some(), "JSON name 필드로 조회");
         assert!(
             reg.find_raw("custom").is_none(),
             "파일 stem으로 조회되면 안 됨"
@@ -337,11 +324,7 @@ mod tests {
     fn malformed_json_logged_and_skipped() {
         let dir = temp_subdir("malformed");
         write_profile(&dir, "broken.json", "{ not valid json");
-        write_profile(
-            &dir,
-            "ok.json",
-            &minimal_v1_profile_json("good_one"),
-        );
+        write_profile(&dir, "ok.json", &minimal_v1_profile_json("good_one"));
 
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         assert!(reg.find_raw("good_one").is_some());
@@ -354,11 +337,7 @@ mod tests {
         let dir = temp_subdir("non-json");
         write_profile(&dir, "readme.md", "hello");
         write_profile(&dir, "config.yaml", "foo: bar");
-        write_profile(
-            &dir,
-            "real.json",
-            &minimal_v1_profile_json("real"),
-        );
+        write_profile(&dir, "real.json", &minimal_v1_profile_json("real"));
 
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         assert_eq!(reg.user_names(), vec!["real".to_string()]);
@@ -385,11 +364,7 @@ mod tests {
             "override.json",
             &minimal_v1_profile_json("ko_3bul390"),
         );
-        write_profile(
-            &dir,
-            "new.json",
-            &minimal_v1_profile_json("my_custom"),
-        );
+        write_profile(&dir, "new.json", &minimal_v1_profile_json("my_custom"));
 
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         let names = reg.list_names();

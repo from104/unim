@@ -6,11 +6,11 @@
 //! `ko_2bulstd`를 즉시 로드해 `new_with_profile`로 위임한다. 자모 조합 규칙의
 //! 단일 source of truth는 `src/keystroke/keymap/ko_2bulstd.json`.
 
-use crate::hangul::HangulChar;
 use crate::hangul::composer::BaseHangulComposer;
 use crate::hangul::composer::CombinedJamoMap;
 use crate::hangul::composer::HangulComposer;
 use crate::hangul::jamo::*;
+use crate::hangul::HangulChar;
 
 use std::collections::VecDeque;
 
@@ -240,8 +240,8 @@ mod tests {
         let mut c = HangulComposer2Bul::new();
         c.add_jamo(JamoEnum::Cho(Cho::G));
         c.add_jamo(JamoEnum::Jung(Jung::A));
-        c.add_jamo(JamoEnum::Cho(Cho::G));  // → 종성 ㄱ
-        c.add_jamo(JamoEnum::Cho(Cho::S));  // → 겹받침 ㄳ
+        c.add_jamo(JamoEnum::Cho(Cho::G)); // → 종성 ㄱ
+        c.add_jamo(JamoEnum::Cho(Cho::S)); // → 겹받침 ㄳ
         assert_eq!(c.get_current_jong(), Some(Jong::GiyeokSiot));
     }
 
@@ -300,8 +300,8 @@ mod tests {
         let mut c = HangulComposer2Bul::new();
         c.add_jamo(JamoEnum::Cho(Cho::G));
         c.add_jamo(JamoEnum::Jung(Jung::A));
-        c.add_jamo(JamoEnum::Cho(Cho::G));  // 종성 ㄱ
-        let committed = c.add_jamo(JamoEnum::Cho(Cho::N));  // 조합 불가
+        c.add_jamo(JamoEnum::Cho(Cho::G)); // 종성 ㄱ
+        let committed = c.add_jamo(JamoEnum::Cho(Cho::N)); // 조합 불가
         assert!(committed.is_some());
         assert_eq!(committed.unwrap(), '각');
     }
@@ -314,8 +314,8 @@ mod tests {
         let mut c = HangulComposer2Bul::new();
         c.add_jamo(JamoEnum::Cho(Cho::G));
         c.add_jamo(JamoEnum::Jung(Jung::A));
-        c.add_jamo(JamoEnum::Cho(Cho::G));  // 각
-        let committed = c.add_jamo(JamoEnum::Jung(Jung::A));  // 도깨비불
+        c.add_jamo(JamoEnum::Cho(Cho::G)); // 각
+        let committed = c.add_jamo(JamoEnum::Jung(Jung::A)); // 도깨비불
         assert_eq!(committed, Some('가'));
         assert_eq!(c.get_current_cho(), Some(Cho::G));
         assert_eq!(c.get_current_jung(), Some(Jung::A));
@@ -327,10 +327,10 @@ mod tests {
         let mut c = HangulComposer2Bul::new();
         c.add_jamo(JamoEnum::Cho(Cho::G));
         c.add_jamo(JamoEnum::Jung(Jung::A));
-        c.add_jamo(JamoEnum::Cho(Cho::R));   // 갈
-        c.add_jamo(JamoEnum::Cho(Cho::G));   // 갈ㄱ(ㄺ)
+        c.add_jamo(JamoEnum::Cho(Cho::R)); // 갈
+        c.add_jamo(JamoEnum::Cho(Cho::G)); // 갈ㄱ(ㄺ)
         assert_eq!(c.get_current_jong(), Some(Jong::RieulGiyeok));
-        let committed = c.add_jamo(JamoEnum::Jung(Jung::A));  // 도깨비불
+        let committed = c.add_jamo(JamoEnum::Jung(Jung::A)); // 도깨비불
         assert_eq!(committed, Some('갈'));
         assert_eq!(c.get_current_cho(), Some(Cho::G));
         assert_eq!(c.get_current_jung(), Some(Jung::A));
@@ -386,7 +386,7 @@ mod tests {
         let mut c = HangulComposer2Bul::new();
         c.add_jamo(JamoEnum::Cho(Cho::H));
         c.add_jamo(JamoEnum::Jung(Jung::A));
-        c.add_jamo(JamoEnum::Cho(Cho::N));  // 한
+        c.add_jamo(JamoEnum::Cho(Cho::N)); // 한
         let ch = c.force_compose_korean();
         assert_eq!(ch, Some('한'));
         assert!(!c.is_compose());

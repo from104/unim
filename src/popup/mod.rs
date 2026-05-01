@@ -4,8 +4,11 @@
 //! 프런트엔드(GTK, Qt, XIM, Wayland, GNOME Shell)는 이 모듈의 PopupState를 사용하여
 //! 키 처리와 상태 관리를 수행하고, 렌더링만 각자 담당합니다.
 
+mod popup_keys;
+mod popup_layout;
 mod popup_state;
 mod view_model;
 
-pub use popup_state::{PopupKey, PopupKeyResult, PopupKind, PopupState};
+pub use popup_keys::{PopupKey, PopupKeyResult, PopupKind};
+pub use popup_state::PopupState;
 pub use view_model::{CellData, PopupViewModel};

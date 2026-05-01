@@ -41,10 +41,7 @@ pub enum BuildError {
         rule_set: Option<String>,
     },
     /// rule_set 엔트리의 `first` 코드포인트가 cho/jung/jong 범위 밖.
-    ScopeInferenceFailed {
-        text: String,
-        rule_set: String,
-    },
+    ScopeInferenceFailed { text: String, rule_set: String },
 }
 
 impl fmt::Display for BuildError {
@@ -273,7 +270,11 @@ fn build_from_block(block: &CombinationsBlock) -> Result<CombinedJamoMap, BuildE
 }
 
 fn parse_cho_triple(t: &RawTriple, rs: Option<&str>) -> Result<(Cho, Cho, Cho), BuildError> {
-    Ok((parse_cho(&t.first, rs)?, parse_cho(&t.second, rs)?, parse_cho(&t.result, rs)?))
+    Ok((
+        parse_cho(&t.first, rs)?,
+        parse_cho(&t.second, rs)?,
+        parse_cho(&t.result, rs)?,
+    ))
 }
 
 fn parse_jung_triple(t: &RawTriple, rs: Option<&str>) -> Result<(Jung, Jung, Jung), BuildError> {
@@ -292,11 +293,7 @@ fn parse_jong_triple(t: &RawTriple, rs: Option<&str>) -> Result<(Jong, Jong, Jon
     ))
 }
 
-fn apply_rule_set(
-    map: &mut CombinedJamoMap,
-    name: &str,
-    rs: &RuleSet,
-) -> Result<(), BuildError> {
+fn apply_rule_set(map: &mut CombinedJamoMap, name: &str, rs: &RuleSet) -> Result<(), BuildError> {
     for t in &rs.combinations {
         let first_ch = first_char_of(&t.first, "first", Some(name))?;
         let scope = infer_scope(first_ch).ok_or_else(|| BuildError::ScopeInferenceFailed {
@@ -392,7 +389,8 @@ mod tests {
         let profile = load_builtin_profile("ko_2bulstd").unwrap();
         let map = build_combined_jamo_map(&profile).unwrap();
         assert_eq!(
-            map, expected_2bul_combinations(),
+            map,
+            expected_2bul_combinations(),
             "ko_2bulstd v1 JSON은 두벌식 기본 조합 규칙과 일치해야 함"
         );
     }
@@ -413,7 +411,13 @@ mod tests {
 
     #[test]
     fn english_builtins_have_empty_combinations() {
-        for name in &["en_qwerty", "en_dvorak", "en_colemak", "en_colemak_dh", "en_workman"] {
+        for name in &[
+            "en_qwerty",
+            "en_dvorak",
+            "en_colemak",
+            "en_colemak_dh",
+            "en_workman",
+        ] {
             let profile = load_builtin_profile(name).unwrap();
             let map = build_combined_jamo_map(&profile).unwrap();
             assert!(map.is_empty(), "{name}: 영문 프로필은 조합 규칙 없음");
@@ -583,7 +587,11 @@ mod tests {
 
     #[test]
     fn infer_scope_for_various_codepoints() {
-        assert_eq!(infer_scope('ㄱ'), Some(Scope::Cho), "U+3131 compat consonant");
+        assert_eq!(
+            infer_scope('ㄱ'),
+            Some(Scope::Cho),
+            "U+3131 compat consonant"
+        );
         assert_eq!(infer_scope('ᄀ'), Some(Scope::Cho), "U+1100 choseong");
         assert_eq!(infer_scope('ㅏ'), Some(Scope::Jung), "U+314F compat vowel");
         assert_eq!(infer_scope('ᅡ'), Some(Scope::Jung), "U+1161 jungseong");
@@ -595,10 +603,7 @@ mod tests {
 
     #[test]
     fn jong_reverse_map_includes_u11xx() {
-        assert!(
-            JONG_BY_CHAR.contains_key(&'ᆨ'),
-            "U+11A8 jong ᆨ must resolve"
-        );
+        assert!(JONG_BY_CHAR.contains_key(&'ᆨ'), "U+11A8 jong ᆨ must resolve");
         assert_eq!(JONG_BY_CHAR.get(&'ᆨ'), Some(&Jong::Giyeok));
     }
 

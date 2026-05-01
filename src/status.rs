@@ -81,10 +81,7 @@ mod tests {
         assert_eq!(InputCategory::Korean.as_str(), "korean");
         assert_eq!(InputCategory::English.as_str(), "english");
 
-        assert_eq!(
-            "korean".parse::<InputCategory>(),
-            Ok(InputCategory::Korean)
-        );
+        assert_eq!("korean".parse::<InputCategory>(), Ok(InputCategory::Korean));
         assert_eq!(
             "english".parse::<InputCategory>(),
             Ok(InputCategory::English)

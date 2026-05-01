@@ -9,8 +9,8 @@ use zbus::zvariant::{ObjectPath, Value};
 
 use unim::unim_log;
 
-use crate::service::{EngineRequest, EngineResponse};
 use super::ibus_types;
+use crate::service::{EngineRequest, EngineResponse};
 
 /// IBus InputContext 핸들러
 pub struct IBusInputContextHandler {
@@ -58,11 +58,7 @@ impl IBusInputContextHandler {
             if !commit.is_empty() {
                 let text = ibus_types::serialize_ibus_text(commit);
                 if let Err(e) = Self::commit_text(signal_ctx, text).await {
-                    unim_log!(
-                        "DAEMON",
-                        "[IBus Compat] CommitText 시그널 실패: {}",
-                        e
-                    );
+                    unim_log!("DAEMON", "[IBus Compat] CommitText 시그널 실패: {}", e);
                 }
             }
         }
@@ -137,7 +133,8 @@ impl IBusInputContextHandler {
     #[zbus(name = "FocusIn")]
     async fn focus_in(&mut self) -> zbus::fdo::Result<()> {
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-        let _ = self.engine_tx
+        let _ = self
+            .engine_tx
             .send(EngineRequest::FocusIn {
                 context_id: self.context_id,
                 window_id: self.window_id.clone(),
@@ -155,7 +152,8 @@ impl IBusInputContextHandler {
         #[zbus(signal_context)] signal_ctx: zbus::SignalContext<'_>,
     ) -> zbus::fdo::Result<()> {
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-        let _ = self.engine_tx
+        let _ = self
+            .engine_tx
             .send(EngineRequest::FocusOut {
                 context_id: self.context_id,
                 response: response_tx,
@@ -182,7 +180,8 @@ impl IBusInputContextHandler {
         #[zbus(signal_context)] signal_ctx: zbus::SignalContext<'_>,
     ) -> zbus::fdo::Result<()> {
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-        let _ = self.engine_tx
+        let _ = self
+            .engine_tx
             .send(EngineRequest::Reset {
                 context_id: self.context_id,
                 response: response_tx,
@@ -218,7 +217,8 @@ impl IBusInputContextHandler {
     ) -> zbus::fdo::Result<()> {
         self.cursor_x = x;
         self.cursor_y = y;
-        let _ = self.engine_tx
+        let _ = self
+            .engine_tx
             .send(EngineRequest::ReportCursorRect {
                 context_id: self.context_id,
                 x,
@@ -246,7 +246,8 @@ impl IBusInputContextHandler {
     /// 컨텍스트 파괴
     #[zbus(name = "Destroy")]
     async fn destroy(&self) -> zbus::fdo::Result<()> {
-        let _ = self.engine_tx
+        let _ = self
+            .engine_tx
             .send(EngineRequest::DestroyContext {
                 id: self.context_id,
             })
@@ -254,7 +255,8 @@ impl IBusInputContextHandler {
 
         // object server에서 핸들러 제거
         if let Ok(path) = ObjectPath::try_from(self.object_path.as_str()) {
-            let _ = self.connection
+            let _ = self
+                .connection
                 .object_server()
                 .remove::<IBusInputContextHandler, _>(path)
                 .await;
@@ -301,7 +303,8 @@ impl IBusInputContextHandler {
     /// 콘텐츠 타입 설정
     #[zbus(name = "SetContentType")]
     async fn set_content_type(&self, purpose: u32, _hints: u32) -> zbus::fdo::Result<()> {
-        let _ = self.engine_tx
+        let _ = self
+            .engine_tx
             .send(EngineRequest::SetContentType {
                 context_id: self.context_id,
                 purpose,
@@ -320,7 +323,8 @@ impl IBusInputContextHandler {
     ) -> zbus::fdo::Result<()> {
         // IBusText에서 문자열 추출
         let text_str = extract_ibus_text_string(&text).unwrap_or_default();
-        let _ = self.engine_tx
+        let _ = self
+            .engine_tx
             .send(EngineRequest::SetSurroundingText {
                 context_id: self.context_id,
                 text: text_str,
@@ -333,11 +337,7 @@ impl IBusInputContextHandler {
 
     /// 속성 활성화 (stub)
     #[zbus(name = "PropertyActivate")]
-    async fn property_activate(
-        &self,
-        _prop_name: &str,
-        _state: i32,
-    ) -> zbus::fdo::Result<()> {
+    async fn property_activate(&self, _prop_name: &str, _state: i32) -> zbus::fdo::Result<()> {
         Ok(())
     }
 

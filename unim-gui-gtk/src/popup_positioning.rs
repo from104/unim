@@ -348,7 +348,10 @@ fn clamp_to_screen_x11(
     let monitors = display.monitors();
 
     let (screen_w, screen_h) = if monitors.n_items() > 0 {
-        let monitor = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>().unwrap();
+        let monitor = monitors
+            .item(0)
+            .and_downcast::<gtk4::gdk::Monitor>()
+            .unwrap();
         let geo = monitor.geometry();
         let scale = monitor.scale_factor();
         (geo.width() * scale, geo.height() * scale)
@@ -388,7 +391,10 @@ pub fn clamp_to_screen(
     let monitors = display.monitors();
 
     let (screen_w, screen_h) = if monitors.n_items() > 0 {
-        let monitor = monitors.item(0).and_downcast::<gtk4::gdk::Monitor>().unwrap();
+        let monitor = monitors
+            .item(0)
+            .and_downcast::<gtk4::gdk::Monitor>()
+            .unwrap();
         let geo = monitor.geometry();
         (geo.width(), geo.height())
     } else {

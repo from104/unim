@@ -74,8 +74,8 @@ pub fn parse_profile_str(json: &str) -> Result<LayoutProfile, LoadError> {
 
 /// 내장 10종 중 하나를 로드. `name`은 정식 이름(`en_qwerty`) 또는 별칭(`qwerty`) 허용.
 pub fn load_builtin_profile(name: &str) -> Result<LayoutProfile, LoadError> {
-    let json = builtin::get_builtin_json(name)
-        .ok_or_else(|| LoadError::NotFound(name.to_string()))?;
+    let json =
+        builtin::get_builtin_json(name).ok_or_else(|| LoadError::NotFound(name.to_string()))?;
     parse_profile_str(json)
 }
 
