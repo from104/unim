@@ -15,8 +15,10 @@ pub struct CellData {
     pub meaning: Option<String>,
     /// 현재 선택된 셀인지
     pub is_selected: bool,
-    /// 선택된 열과 같은 열인지 (특수문자 열 헤더 강조용)
+    /// 선택된 열과 같은 열인지 (특수문자/한자 expanded 열 헤더 강조용)
     pub is_col_highlight: bool,
+    /// 선택된 행과 같은 행인지 (특수문자/한자 expanded 행 번호 강조용)
+    pub is_row_highlight: bool,
 }
 
 /// 팝업 뷰 모델 — 렌더링에 필요한 모든 데이터
@@ -78,6 +80,7 @@ impl PopupState {
                         meaning: None,
                         is_selected: r == self.sel_row() && c == self.sel_col(),
                         is_col_highlight: c == self.sel_col(),
+                        is_row_highlight: r == self.sel_row(),
                     }));
                 } else {
                     row.push(None);
@@ -123,6 +126,7 @@ impl PopupState {
                 },
                 is_selected: i == self.sel_row(),
                 is_col_highlight: false,
+                is_row_highlight: i == self.sel_row(),
             };
             cells.push(vec![Some(cell)]);
         }
@@ -191,6 +195,25 @@ mod tests {
         // col 1은 highlight
         assert!(vm.cells[0][1].as_ref().unwrap().is_col_highlight);
         assert!(!vm.cells[0][0].as_ref().unwrap().is_col_highlight);
+        // row 1도 highlight (sel_row와 같은 행의 모든 셀)
+        assert!(vm.cells[1][0].as_ref().unwrap().is_row_highlight);
+        assert!(vm.cells[1][2].as_ref().unwrap().is_row_highlight);
+        assert!(!vm.cells[0][0].as_ref().unwrap().is_row_highlight);
+        assert!(!vm.cells[2][1].as_ref().unwrap().is_row_highlight);
+    }
+
+    #[test]
+    fn special_view_model_row_highlight_initial() {
+        // 초기 상태(sel_row=0, sel_col=0): 0행 전체가 row_highlight, 0열 전체가 col_highlight
+        let state = PopupState::new_special(
+            "ㄱ",
+            (0..81).map(|i| format!("S{}", i)).collect(),
+            "QWERTYUIO",
+        );
+        let vm = state.view_model();
+        assert!(vm.cells[0][0].as_ref().unwrap().is_row_highlight);
+        assert!(vm.cells[0][1].as_ref().unwrap().is_row_highlight);
+        assert!(!vm.cells[1][0].as_ref().unwrap().is_row_highlight);
     }
 
     #[test]
@@ -226,6 +249,11 @@ mod tests {
         );
         assert!(vm.cells[0][0].as_ref().unwrap().is_selected);
         assert!(!vm.cells[1][0].as_ref().unwrap().is_selected);
+        // row highlight: 선택 행만 (compact 1열에서는 is_selected와 일치하지만 의미상 분리)
+        assert!(vm.cells[0][0].as_ref().unwrap().is_row_highlight);
+        assert!(!vm.cells[1][0].as_ref().unwrap().is_row_highlight);
+        // hanja compact는 1열이라 col_highlight는 항상 false
+        assert!(!vm.cells[0][0].as_ref().unwrap().is_col_highlight);
     }
 
     #[test]
