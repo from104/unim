@@ -1166,7 +1166,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             }
 
             EngineRequest::SearchEmoji { keyword, response } => {
-                let results = unim::hangul::emoji::search_emoji(&keyword);
+                let results = unim::emoji::search_emoji(&keyword);
                 let emoji_strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
                 let _ = response.send(emoji_strings);
             }

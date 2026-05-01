@@ -548,7 +548,7 @@ impl InputMethodService {
     /// 이모지 검색
     /// keyword가 빈 문자열이면 인기 이모지를 반환합니다.
     async fn search_emoji(&self, keyword: &str) -> zbus::fdo::Result<Vec<String>> {
-        let results = unim::hangul::emoji::search_emoji(keyword);
+        let results = unim::emoji::search_emoji(keyword);
         let emoji_strings: Vec<String> = results.iter().map(|c| c.to_string()).collect();
         unim_log!(
             "DBUS",
@@ -565,16 +565,16 @@ impl InputMethodService {
     async fn list_emoji_categories(&self) -> zbus::fdo::Result<Vec<(String, Vec<String>)>> {
         let mut list: Vec<(String, Vec<String>)> = Vec::new();
         // 즐겨찾기 탭 — MRU 우선, 비어있으면 popular fallback.
-        let favorites = unim::hangul::emoji::load_favorites();
+        let favorites = unim::emoji::load_favorites();
         let favorite_items = if favorites.is_empty() {
-            unim::hangul::emoji::search_emoji_strings("")
+            unim::emoji::search_emoji_strings("")
         } else {
             favorites
         };
         list.push(("즐겨찾기".to_string(), favorite_items));
         // 9개 카테고리 (Smileys/People/Animals/Food/Travel/Activities/Objects/Symbols/Flags).
-        for (id, ko_name, _en_name, _count) in unim::hangul::emoji::list_categories() {
-            list.push((ko_name, unim::hangul::emoji::category_emojis(&id)));
+        for (id, ko_name, _en_name, _count) in unim::emoji::list_categories() {
+            list.push((ko_name, unim::emoji::category_emojis(&id)));
         }
         Ok(list)
     }
@@ -585,7 +585,7 @@ impl InputMethodService {
     /// 반환한다. 파일이 없으면 빈 vec — GUI는 `list_emoji_categories`의 즐겨찾기
     /// 탭에 popular fallback을 그대로 보여준다.
     async fn get_emoji_favorites(&self) -> zbus::fdo::Result<Vec<String>> {
-        Ok(unim::hangul::emoji::load_favorites())
+        Ok(unim::emoji::load_favorites())
     }
 
     /// 설정값 조회
@@ -991,7 +991,7 @@ impl InputMethodService {
             return Ok(());
         }
         // MRU 즐겨찾기 갱신 (~/.config/unim/emoji-favorites.yaml).
-        unim::hangul::emoji::touch_favorite(emoji);
+        unim::emoji::touch_favorite(emoji);
 
         let target_path_str = match self.last_active_input_context_path.lock().unwrap().clone() {
             Some(p) => p,
@@ -2214,7 +2214,7 @@ impl InputContextHandler {
     ) -> zbus::fdo::Result<()> {
         if !emoji.is_empty() {
             Self::commit_text(&signal_ctx, emoji).await.ok();
-            unim::hangul::emoji::touch_favorite(emoji);
+            unim::emoji::touch_favorite(emoji);
         }
         Self::hide_popup(&signal_ctx).await.ok();
         unim_log!(

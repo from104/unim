@@ -1,7 +1,7 @@
 //! 이모지 팝업 윈도우
 //!
 //! DBus `ShowEmojiPopup` 시그널을 받아 이모지 선택 팝업을 표시합니다.
-//! - 카테고리 탭 (즐겨찾기 + `unim::hangul::emoji::categories()`)
+//! - 카테고리 탭 (즐겨찾기 + `unim::emoji::categories()`)
 //! - 검색 (`search_emoji(keyword)`)
 //! - 즐겨찾기 MRU (선택 시 자동 갱신; 엔진이 `touch_favorite` 호출)
 //!
@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use unim::hangul::emoji;
+use unim::emoji;
 use unim::unim_log;
 
 use crate::popup_positioning::{self, DisplayServer};
