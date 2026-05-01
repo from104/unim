@@ -68,10 +68,8 @@
       <description>Read the selected text (Korean or English) and register the corresponding English word to the reverse AutoTypeFix user dictionary.</description>
     </key>
 
-    <key type="as" name="shortcut-emoji-popup">
-      <default>['&lt;Super&gt;period']</default>
-      <summary>Emoji Popup Shortcut (internal cache)</summary>
-      <description>이모지 팝업을 여는 단축키. SSoT는 config.yaml의 engine.emoji_popup.trigger_keys이며, 이 키는 Main.wm.addKeybinding 호출에 필요한 internal cache로 extension이 자동 동기화한다 (사용자가 직접 편집하지 말 것 — unim-gui-gtk/unim-cli로 변경).</description>
-    </key>
+    <!-- shortcut-emoji-popup 키는 PR #3 (이모지 전면 개선) 에서 제거됨.
+         이모지 팝업 트리거는 engine 의 `engine.emoji_popup.trigger_keys` 가 단일 진실
+         소스이며 IM 모듈을 통해 들어온 키 이벤트에서 직접 매칭한다. -->
   </schema>
 </schemalist>

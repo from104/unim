@@ -160,6 +160,11 @@ export class UnimDbusIME {
      * @param {object} callbacks
      * @param {Function} [callbacks.onShowHanja] - (target, candidates, topRow, cursorRect)
      * @param {Function} [callbacks.onShowSpecial] - (target, characters, topRow, cursorRect)
+     * @param {Function} [callbacks.onShowEmoji]
+     *   - (targetCatId, items, topRow, recent, categoriesRaw, cursorRect).
+     *     PR #3 부터 V2 시그널만 사용 — payload 에 카테고리·MRU 메타가 포함되어
+     *     5단계 sync RPC (`listEmojiCategories` / `getEmojiFavorites` / `searchEmoji`)
+     *     의존을 모두 제거.
      * @param {Function} [callbacks.onHidePopup] - ()
      * @param {Function} [callbacks.onPopupNavigate] - (page, totalPages, selected, rows, cols, selRow, selCol)
      */
@@ -302,12 +307,32 @@ export class UnimDbusIME {
                     ? { x: cx, y: cy, width: cw, height: ch }
                     : this._adjustCursorRect(cx, cy, cw, ch);
                 this._onShowSpecial(target, characters, topRow, cursorRect);
-            } else if (signalName === 'ShowEmojiPopup' && this._onShowEmoji) {
-                const [cx, cy, cw, ch] = parameters.deep_unpack();
+            } else if (signalName === 'ShowEmojiPopup') {
+                // PR #3: V1 시그널은 V2 와 dual-emit 으로 발행되며 GNOME extension 은
+                // V2 만 구독한다. V1 은 PR #5 cleanup 에서 제거 — 수신해도 무시.
+                return;
+            } else if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
+                // payload: (target_cat_id, items, top_row, recent, categories, x, y, w, h)
+                // categories 는 (id, ko, en, count) 튜플 9개.
+                const [
+                    targetCatId,
+                    items,
+                    topRow,
+                    recent,
+                    categoriesRaw,
+                    cx, cy, cw, ch,
+                ] = parameters.deep_unpack();
                 const cursorRect = isOwnContext
                     ? { x: cx, y: cy, width: cw, height: ch }
                     : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowEmoji(cursorRect);
+                this._onShowEmoji(
+                    targetCatId,
+                    items,
+                    topRow,
+                    recent,
+                    categoriesRaw,
+                    cursorRect
+                );
             } else if (signalName === 'HidePopup' && this._onHidePopup) {
                 this._onHidePopup();
             } else if (signalName === 'PopupNavigate' && this._onPopupNavigate) {
@@ -739,80 +764,6 @@ export class UnimDbusIME {
     // ===========================================
     // 이모지 팝업 (Super+. 트리거)
     // ===========================================
-
-    /**
-     * 이모지 카테고리 목록 조회 (정적 데이터)
-     *
-     * 첫 항목은 "즐겨찾기" 탭으로, 인기 이모지를 기본값으로 반환합니다.
-     * 실제 MRU 즐겨찾기는 별도로 `getEmojiFavorites()`로 조회하십시오.
-     *
-     * @returns {Array<{name: string, emojis: string[]}>}
-     */
-    listEmojiCategories() {
-        if (!this._imProxy) return [];
-        try {
-            const result = this._imProxy.call_sync(
-                'ListEmojiCategories',
-                null,
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-            if (!result) return [];
-            const [raw] = result.deep_unpack();
-            return raw.map(([name, emojis]) => ({ name, emojis }));
-        } catch (e) {
-            unimError('DBUS_IME', `ListEmojiCategories 실패: ${e.message}`);
-            return [];
-        }
-    }
-
-    /**
-     * 즐겨찾기(MRU) 이모지 조회
-     * @returns {string[]}
-     */
-    getEmojiFavorites() {
-        if (!this._imProxy) return [];
-        try {
-            const result = this._imProxy.call_sync(
-                'GetEmojiFavorites',
-                null,
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-            if (!result) return [];
-            const [list] = result.deep_unpack();
-            return list;
-        } catch (e) {
-            unimError('DBUS_IME', `GetEmojiFavorites 실패: ${e.message}`);
-            return [];
-        }
-    }
-
-    /**
-     * 키워드로 이모지 검색
-     * @param {string} keyword - 검색어
-     * @returns {string[]}
-     */
-    searchEmoji(keyword) {
-        if (!this._imProxy) return [];
-        try {
-            const result = this._imProxy.call_sync(
-                'SearchEmoji',
-                new GLib.Variant('(s)', [keyword || '']),
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-            if (!result) return [];
-            const [list] = result.deep_unpack();
-            return list;
-        } catch (e) {
-            unimError('DBUS_IME', `SearchEmoji 실패: ${e.message}`);
-            return [];
-        }
-    }
 
     /**
      * 선택한 이모지를 **마지막으로 포커스를 받은 실제 입력 컨텍스트**에 커밋.

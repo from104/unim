@@ -304,93 +304,107 @@
 }
 
 /* ============================================ */
-/* IME: 이모지 팝업 (Super+. 트리거) */
+/* IME: 이모지 팝업 (PR #3 — 9×9 grid + 좌측 세로 9 탭) */
+/*                                                */
+/* 한자/특수문자 팝업과 시각적으로 통일. 검색 입력 박스/  */
+/* 가로 탭 바 등 옛 스타일은 모두 제거.                  */
 /* ============================================ */
 
 .unim-emoji-popup {
     background-color: rgba(30, 30, 46, 0.97);
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 12px;
-    padding: 10px;
-    min-width: 380px;
-    spacing: 6px;
+    padding: 12px;
 }
 
-.unim-emoji-popup .emoji-search {
+.unim-emoji-popup .popup-header {
     background-color: #313244;
-    color: #cdd6f4;
-    border-radius: 8px;
-    padding: 4px 8px;
-    caret-color: #a6e3a1;
-    margin-bottom: 4px;
+    color: #a6e3a1;
+    font-size: 13px;
+    font-weight: bold;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
 }
 
-.unim-emoji-popup .emoji-search StLabel.hint {
-    color: #6c7086;
+.unim-emoji-popup .emoji-body {
+    spacing: 8px;
 }
 
-.unim-emoji-popup .emoji-tabs {
+/* 좌측 세로 9 탭 — 특수문자 패턴 차용, 가로 → 세로 전환 */
+.unim-emoji-popup .emoji-tabs-vertical {
     spacing: 2px;
-    padding: 2px 0;
-    margin-bottom: 4px;
+    padding: 2px 4px 2px 0;
+    margin-right: 6px;
 }
 
-.unim-emoji-popup .emoji-tab {
+.unim-emoji-popup .emoji-tab-vertical {
     background-color: transparent;
     color: #cdd6f4;
     font-size: 12px;
-    padding: 3px 8px;
+    padding: 6px 10px;
     border-radius: 6px;
     border: none;
+    min-width: 92px;
+    text-align: left;
 }
 
-.unim-emoji-popup .emoji-tab:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-.unim-emoji-popup .emoji-tab.active {
+.unim-emoji-popup .emoji-tab-vertical.active {
     background-color: rgba(166, 227, 161, 0.25);
     color: #a6e3a1;
     font-weight: bold;
 }
 
-.unim-emoji-popup .emoji-grid {
-    spacing: 2px;
-}
-
-.unim-emoji-popup .emoji-row {
-    spacing: 2px;
-}
-
-.unim-emoji-popup .emoji-cell {
-    background-color: transparent;
+/* 9×9 그리드 셀 — 특수문자와 동일 (이모지는 폰트 사이즈만 키움) */
+.unim-emoji-popup .grid-cell {
     color: #cdd6f4;
     font-size: 20px;
-    min-width: 36px;
-    min-height: 36px;
-    border-radius: 6px;
-    padding: 2px;
+    min-width: 32px;
+    min-height: 32px;
+    text-align: center;
+    border-radius: 4px;
+}
+
+.unim-emoji-popup .grid-cell.selected {
+    background-color: rgba(166, 227, 161, 0.25);
+}
+
+.unim-emoji-popup .grid-cell.hovered {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.unim-emoji-popup .grid-cell.selected.hovered {
+    background-color: rgba(166, 227, 161, 0.35);
+}
+
+.unim-emoji-popup .grid-header {
+    color: #f9e2af;
+    font-weight: bold;
+    font-size: 11px;
+    min-width: 32px;
+    min-height: 24px;
     text-align: center;
 }
 
-.unim-emoji-popup .emoji-cell:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-.unim-emoji-popup .emoji-cell.selected {
-    background-color: rgba(166, 227, 161, 0.25);
+.unim-emoji-popup .grid-header.active {
     color: #a6e3a1;
 }
 
-.unim-emoji-popup .emoji-empty {
-    color: #6c7086;
-    font-style: italic;
-    padding: 12px;
+.unim-emoji-popup .grid-row-number {
+    color: #7f849c;
+    font-weight: bold;
+    font-size: 12px;
+    min-width: 20px;
 }
 
+.unim-emoji-popup .grid-row-number.active {
+    color: #a6e3a1;
+}
+
+/* 하단 페이지 인디케이터 (`[카테고리]  i/N`) — 특수문자와 동일 */
 .unim-emoji-popup .popup-footer {
     color: #6c7086;
-    font-size: 11px;
+    font-size: 12px;
     text-align: center;
     padding-top: 4px;
 }
