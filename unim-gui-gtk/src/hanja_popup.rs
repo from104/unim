@@ -280,7 +280,9 @@ impl HanjaPopup {
         }
     }
 
-    /// expanded 모드 렌더 (9×9 Grid; col=0열은 1-9 번호, 셀은 한자 한 글자)
+    /// expanded 모드 렌더 (9×9 Grid + 좌측 행 번호 + 상단 열 헤더).
+    /// (0, 0) corner / row 0 = col 헤더 / col 0 = row 번호 / 셀은 (col+1, row+1).
+    /// special_popup.rs 레이아웃과 동일 정합 (UX 일관성).
     fn render_grid(&self, start: usize, end: usize) {
         let grid = gtk4::Grid::new();
         grid.add_css_class("hanja-grid");
@@ -288,9 +290,25 @@ impl HanjaPopup {
         grid.set_column_spacing(2);
         self.body_container.append(&grid);
 
+        // (0, 0): corner 빈 셀
+        let corner = gtk4::Label::new(None);
+        corner.add_css_class("grid-row-number");
+        grid.attach(&corner, 0, 0, 1, 1);
+
         // 가로 레이블 키 시퀀스(special과 동일). show() 시점에 ShowHanjaPopup signal payload의
         // top_row로 갱신된 self.top_row를 사용해 키맵 변경(qwerty/dvorak/colemak)에 동기화된다.
         let top_row_chars: Vec<char> = self.top_row.chars().collect();
+
+        // 행 번호 (col 0, row 1..=9) — sel_row면 active CSS (special과 정합)
+        for row in 0..EXPANDED_ROWS {
+            let num_label = gtk4::Label::new(Some(&format!("{}", row + 1)));
+            num_label.add_css_class("grid-row-number");
+            num_label.set_halign(gtk4::Align::Center);
+            if row == self.sel_row {
+                num_label.add_css_class("active");
+            }
+            grid.attach(&num_label, 0, (row + 1) as i32, 1, 1);
+        }
 
         // GNOME extension JS와 동일하게 col 우선 인덱싱: idx = col * rows + row
         for col in 0..EXPANDED_COLS {
@@ -304,7 +322,7 @@ impl HanjaPopup {
             if col == self.sel_col {
                 header.add_css_class("active");
             }
-            grid.attach(&header, col as i32, 0, 1, 1);
+            grid.attach(&header, (col + 1) as i32, 0, 1, 1);
 
             for row in 0..EXPANDED_ROWS {
                 let offset = col * EXPANDED_ROWS + row;
@@ -326,7 +344,7 @@ impl HanjaPopup {
                 cell.connect_clicked(move |_| {
                     select_hanja_via_dbus(global_for_click);
                 });
-                grid.attach(&cell, col as i32, (row + 1) as i32, 1, 1);
+                grid.attach(&cell, (col + 1) as i32, (row + 1) as i32, 1, 1);
             }
         }
     }
@@ -618,6 +636,22 @@ pub fn popup_css() -> &'static str {
         font-size: 11px;
         min-width: 22px;
         min-height: 22px;
+    }
+
+    .unim-hanja-popup .grid-row-number.active {
+        color: #f9e2af;
+    }
+
+    .unim-hanja-popup .grid-header {
+        color: #7f849c;
+        font-weight: bold;
+        font-size: 11px;
+        min-width: 28px;
+        min-height: 18px;
+    }
+
+    .unim-hanja-popup .grid-header.active {
+        color: #f9e2af;
     }
 
     .unim-hanja-popup .grid-cell {
