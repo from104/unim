@@ -63,6 +63,7 @@
     padding: 4px 8px;
     border-radius: 6px;
     height: 28px;
+    transition-duration: 120ms;
 }
 
 .unim-hanja-popup .popup-item.selected {
@@ -99,6 +100,7 @@
     font-size: 14px;
     margin-left: auto;
     padding-left: 8px;
+    transition-duration: 120ms;
 }
 
 .unim-hanja-popup .popup-item .item-bookmark.bookmarked {
@@ -139,6 +141,7 @@
     padding: 2px 4px;
     text-align: center;
     border-radius: 4px;
+    transition-duration: 120ms;
 }
 
 .unim-hanja-popup .grid-cell.selected {
@@ -171,6 +174,7 @@
     min-height: 18px;
     padding: 0 4px;
     text-align: center;
+    transition-duration: 120ms;
 }
 
 .unim-hanja-popup .grid-header.active {

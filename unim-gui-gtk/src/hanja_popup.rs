@@ -567,6 +567,7 @@ pub fn popup_css() -> &'static str {
         border-radius: 6px;
         min-height: 28px;
         padding: 4px 8px;
+        transition: background-color 120ms ease;
     }
 
     .unim-hanja-popup .hanja-list row:selected {
@@ -595,6 +596,7 @@ pub fn popup_css() -> &'static str {
         font-size: 14px;
         margin-left: 8px;
         min-width: 16px;
+        transition: color 120ms ease;
     }
 
     .hanja-bookmark.bookmarked {
@@ -662,6 +664,7 @@ pub fn popup_css() -> &'static str {
         min-height: 28px;
         border-radius: 4px;
         padding: 2px;
+        transition: background-color 120ms ease, color 120ms ease;
     }
 
     .unim-hanja-popup .grid-cell:hover {
