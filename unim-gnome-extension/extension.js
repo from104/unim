@@ -24,59 +24,6 @@ import { SpecialPopup } from './special_popup.js';
 import { EmojiPopup } from './emoji_popup.js';
 import { unimLog, unimError } from './logging.js';
 
-/**
- * UNIM trigger 문자열 → GNOME accelerator 형식 변환
- *
- * 입력: `"Super+Period"`, `"Control+Shift+E"`, `"Meta+Period"` 등
- * 출력: `"<Super>period"`, `"<Primary><Shift>e"`, `"<Super>period"`
- *
- * 변환 규칙:
- *  - `+` 로 split, 토큰 trim
- *  - modifier 매핑 (대소문자 무시):
- *      Super/Meta/Win → `<Super>`
- *      Control/Ctrl   → `<Primary>`
- *      Alt            → `<Alt>`
- *      Shift          → `<Shift>`
- *  - 마지막 비-modifier 토큰은 lowercase로 (Period → period)
- *  - 비-modifier 토큰이 정확히 1개여야 함
- *  - 빈 문자열 / 알 수 없는 토큰 / 비-modifier 0개 또는 2개 이상 → null
- *
- * @param {string} trigger
- * @returns {string|null}
- */
-export function triggerToAccelerator(trigger) {
-    if (typeof trigger !== 'string') return null;
-    const parts = trigger.split('+').map(s => s.trim()).filter(s => s.length > 0);
-    if (parts.length === 0) return null;
-
-    const modMap = {
-        super: '<Super>',
-        meta: '<Super>',
-        win: '<Super>',
-        control: '<Primary>',
-        ctrl: '<Primary>',
-        alt: '<Alt>',
-        shift: '<Shift>',
-    };
-
-    const mods = [];
-    let key = null;
-
-    for (const tok of parts) {
-        const lower = tok.toLowerCase();
-        if (Object.prototype.hasOwnProperty.call(modMap, lower)) {
-            mods.push(modMap[lower]);
-        } else {
-            // 비-modifier 토큰은 1개만 허용
-            if (key !== null) return null;
-            key = lower;
-        }
-    }
-
-    if (!key || key.length === 0) return null;
-    return mods.join('') + key;
-}
-
 export default class UnimExtension extends Extension {
     constructor(metadata) {
         super(metadata);
@@ -102,10 +49,6 @@ export default class UnimExtension extends Extension {
 
         // TypeFIX 상태
         this._conversionInProgress = false;
-
-        // 이모지 팝업 accelerator (compositor-only Wayland 우회)
-        /** @type {boolean} Main.wm.addKeybinding('shortcut-emoji-popup') 등록 여부 */
-        this._emojiShortcutBound = false;
     }
 
     enable() {
@@ -129,20 +72,15 @@ export default class UnimExtension extends Extension {
             // TypeFIX 단축키
             this._bindAllShortcuts();
 
-            // DBus 연결 (IME 모드 무관 — emoji 단축키 + 인디케이터 모드 동기화 공용)
-            // GNOME Wayland compositor가 Super 조합 키를 가로채므로
-            // grab_accelerator 우회는 enable-ime=false 환경(GTK4_IM_MODULE=unim 등
-            // 외부 IM 모듈 사용 시)에서도 작동해야 한다.
+            // DBus 연결 (IME 모드 무관 — 인디케이터 모드 동기화 공용)
+            // PR #3 부터 emoji 트리거 키바인딩은 제거됨 (engine 이 직접 키 받음).
             this._dbusIME = new UnimDbusIME();
             const windowId = this._getActiveWindowId();
             const connected = this._dbusIME.connect(windowId, (isKorean) => {
                 if (this._indicator) this._indicator._onModeChanged(isKorean);
             });
-            if (connected) {
-                this._grabEmojiAccelerator();
-                this._dbusIME.setOnConfigChanged(() => this._rebindEmojiAccelerator());
-            } else {
-                unimError('EXTENSION', 'unim-daemon DBus 연결 실패 — emoji 단축키/모드 동기화 비활성');
+            if (!connected) {
+                unimError('EXTENSION', 'unim-daemon DBus 연결 실패 — 모드 동기화 비활성');
                 this._dbusIME = null;
             }
 
@@ -164,9 +102,6 @@ export default class UnimExtension extends Extension {
     }
 
     disable() {
-        // 이모지 단축키 해제 (DBus 끊기 전에)
-        this._ungrabEmojiAccelerator();
-
         // IME 비활성화
         this._disableIME();
 
@@ -243,7 +178,7 @@ export default class UnimExtension extends Extension {
             this._hanjaPopup.enable();
             this._specialPopup = new SpecialPopup();
             this._specialPopup.enable();
-            this._emojiPopup = new EmojiPopup(this._dbusIME);
+            this._emojiPopup = new EmojiPopup();
             this._emojiPopup.enable();
 
             // DBus 팝업 시그널 콜백 등록
@@ -309,20 +244,28 @@ export default class UnimExtension extends Extension {
                         cursorRect
                     );
                 },
-                onShowEmoji: (cursorRect) => {
+                onShowEmoji: (targetCatId, items, topRow, recent, categoriesRaw, cursorRect) => {
                     // 다른 팝업 먼저 닫기
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
-                    this._emojiPopup?.show(cursorRect);
+                    // PR #3: 모달 grab/검색/sync RPC 모두 제거. V2 시그널 payload 만으로 즉시 그림.
+                    // 카테고리 전환 시 데몬이 V2 시그널을 재발행하므로 동일 호출 path 로 재구성.
+                    this._emojiPopup?.show(
+                        targetCatId,
+                        items,
+                        topRow,
+                        recent,
+                        categoriesRaw,
+                        (emoji) => this._dbusIME?.commitEmoji(emoji),
+                        cursorRect
+                    );
                 },
                 onHidePopup: () => {
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
-                    // emoji popup은 시그널로 닫지 않는다.
-                    // 이유: GTK4_IM_MODULE=unim 환경에서 emoji popup이 키보드 포커스를
-                    // grab하면 사용자 앱(ghostty 등)의 InputContext가 focus_out을 발생시키고,
-                    // 데몬이 그 context에 HidePopup을 자동 broadcast해 popup이 즉시 닫힌다.
-                    // emoji popup은 자체 lifecycle(commit/ESC/외부 클릭)로 충분히 닫힌다.
+                    // PR #3: emoji popup 도 엔진 dismiss 시 닫힌다 (모달 grab 이 없어
+                    // focus_out 자동 broadcast 가 더 이상 발생하지 않음).
+                    this._emojiPopup?.hide();
                 },
                 onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
                     if (this._hanjaPopup?.isVisible) {
@@ -333,6 +276,10 @@ export default class UnimExtension extends Extension {
                     }
                     if (this._specialPopup?.isVisible) {
                         this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
+                    }
+                    if (this._emojiPopup?.isVisible) {
+                        this._emojiPopup.updateFromNavigate(
+                            page, totalPages, rows, cols, selRow, selCol);
                     }
                 },
                 onHanjaBookmarkChanged: (index, bookmarked) => {
@@ -375,23 +322,16 @@ export default class UnimExtension extends Extension {
                 },
             });
 
-            // 7. (이모지 단축키 등록은 enable() 본체에서 처리 — IME 모드 무관)
-
-            // 8. 포커스 감시 시작
+            // 7. 포커스 감시 시작
             this._focusWindowId = global.display.connect(
                 'notify::focus-window',
                 this._onFocusWindowChanged.bind(this)
             );
             // 7. 포커스 상실 핸들러 (조합 중 텍스트 커밋)
             this._inputMethod.setFocusOutHandler(() => {
-                // emoji popup은 자체 키보드 포커스(검색 entry)를 받기 때문에
-                // 입력창의 focus_out이 popup 표시 직후에 발생한다. 이때 데몬에
-                // FocusOut을 보내면 데몬이 HidePopup 시그널을 자동 발행해 popup이
-                // 즉시 닫힌다. popup이 보이는 동안에는 focus_out을 무시한다.
-                if (this._emojiPopup?.isVisible) {
-                    return false;
-                }
-                // 팝업 열려있으면 먼저 취소 (trigger text 커밋 + 팝업 닫기)
+                // PR #3 부터 emoji popup 은 모달 grab 을 가지지 않으므로 자체 focus
+                // 가로채기가 없다 — 한자/특수 팝업과 동일하게 일반 팝업 cleanup 경로
+                // 를 따른다.
                 this._cleanupPopups();
                 // DBus FocusOut → 조합 중 텍스트 커밋
                 const commit = this._dbusIME.focusOut();
@@ -648,93 +588,12 @@ export default class UnimExtension extends Extension {
     // ===========================================
 
     // ===========================================
-    // 이모지 팝업 단축키 (compositor-only Wayland 우회)
+    // 이모지 팝업 (PR #3: extension 은 단순 receiver)
+    //
+    // 트리거 키바인딩은 PR #3 부터 제거됨 — 엔진(`press_key.rs::matches_emoji_trigger`)
+    // 이 IM 모듈을 통해 들어온 키 이벤트에서 직접 트리거를 매칭한다.
+    // GNOME Wayland 의 compositor 가 Super+. 를 가로채는 환경 대응은 별도 추적 (R8).
     // ===========================================
-
-    /**
-     * 이모지 팝업 trigger를 `global.display.grab_accelerator`로 전역 캡처.
-     *
-     * GNOME Wayland에서 IM 모듈은 Super 조합 키를 받지 못한다(compositor가 가로챔).
-     * extension에서 직접 캡처해 데몬에 `TriggerAction("emoji_popup")`를 전달.
-     *
-     * Config(`engine.emoji_popup`):
-     *   - `enabled: bool` - false이면 등록 skip
-     *   - `trigger_keys: string[]` - 예: `["Super+Period"]`
-     *
-     * @private
-     */
-    _grabEmojiAccelerator() {
-        // 항상 깨끗한 상태에서 시작
-        this._ungrabEmojiAccelerator();
-
-        // config.yaml(SSoT) → gschema(internal cache) 동기화
-        const cfg = this._dbusIME?.getCachedConfig();
-        const popup = cfg?.engine?.emoji_popup;
-        const enabled = !!popup && popup.enabled !== false;
-        const rawTriggers = (enabled && Array.isArray(popup.trigger_keys)) ? popup.trigger_keys : [];
-        const accels = rawTriggers
-            .map(t => ({ raw: t, accel: triggerToAccelerator(t) }))
-            .filter(x => {
-                if (!x.accel) unimError('EXTENSION', `이모지 단축키 변환 실패: '${x.raw}' — skip`);
-                return !!x.accel;
-            })
-            .map(x => x.accel);
-
-        // gschema set_strv (내부 캐시 — Main.wm.addKeybinding이 요구)
-        try {
-            this._settings.set_strv('shortcut-emoji-popup', accels);
-        } catch (e) {
-            unimError('EXTENSION', `shortcut-emoji-popup set_strv 실패: ${e.message}`);
-            return;
-        }
-
-        if (accels.length === 0) {
-            unimLog('EXTENSION', 'emoji_popup 비활성/빈 trigger — addKeybinding skip');
-            return;
-        }
-
-        // Main.wm.addKeybinding (TypeFIX 단축키와 동일 패턴, GNOME Shell 표준 경로)
-        try {
-            Main.wm.addKeybinding(
-                'shortcut-emoji-popup',
-                this._settings,
-                Meta.KeyBindingFlags.NONE,
-                Shell.ActionMode.ALL,
-                () => {
-                    unimLog('EXTENSION', '이모지 단축키 활성 → TriggerAction(emoji_popup)');
-                    this._dbusIME?.triggerAction('emoji_popup');
-                }
-            );
-            this._emojiShortcutBound = true;
-            unimLog('EXTENSION', `이모지 단축키 등록: [${accels.join(', ')}]`);
-        } catch (e) {
-            unimError('EXTENSION', `addKeybinding(shortcut-emoji-popup) 실패: ${e.message}`);
-        }
-    }
-
-    /**
-     * 등록된 이모지 단축키 해제.
-     * @private
-     */
-    _ungrabEmojiAccelerator() {
-        if (this._emojiShortcutBound) {
-            try {
-                Main.wm.removeKeybinding('shortcut-emoji-popup');
-            } catch (e) {
-                unimError('EXTENSION', `removeKeybinding 실패: ${e.message}`);
-            }
-            this._emojiShortcutBound = false;
-        }
-    }
-
-    /**
-     * Config 변경 시 이모지 accelerator 재바인드.
-     * @private
-     */
-    _rebindEmojiAccelerator() {
-        unimLog('EXTENSION', '이모지 accelerator 재바인드 (config 변경)');
-        this._grabEmojiAccelerator();
-    }
 
     _bindAllShortcuts() {
         this._unbindAllShortcuts();

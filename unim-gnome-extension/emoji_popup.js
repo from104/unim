@@ -1,75 +1,112 @@
 /**
- * UNIM 이모지 팝업 (GNOME Shell Extension)
+ * UNIM 이모지 팝업 (GNOME Shell Extension) — engine-driven receiver.
  *
- * Super+. 단축키 트리거 시 DBus `ShowEmojiPopup` 시그널을 받아 카테고리 탭 +
- * 검색 + 즐겨찾기(MRU)를 가진 이모지 선택 UI를 compositor 위에 표시한다.
+ * PR #3 (이모지 전면 개선) 부터 본 팝업은 한자/특수문자 팝업과 동일한 구조의
+ * 단순 receiver 다. 키 입력·페이지·선택 인덱스는 모두 엔진(`popup_state`) 이
+ * 단일 진실 소스로 관리하고, 본 모듈은 DBus 시그널로 받은 상태를 9×9 그리드 +
+ * 좌측 9 탭(세로) + 하단 페이지 인디케이터로 렌더링만 한다.
  *
- * - 카테고리 데이터: `UnimDbusIME.listEmojiCategories()`  (서비스 측 단일 진실 공급원)
- * - 즐겨찾기 MRU  : `UnimDbusIME.getEmojiFavorites()`     (엔진이 commit 시 자동 갱신)
- * - 검색          : `UnimDbusIME.searchEmoji(keyword)`
- * - 선택          : `UnimDbusIME.commitEmoji(emoji)`      (HidePopup + MRU 갱신 포함)
+ * - `show(target_cat_id, items, top_row, recent, categories, cursorRect)`
+ *      : `ShowEmojiPopupV2` 시그널 수신 후 호출. 카테고리/MRU/페이지 메타 일체를
+ *        payload 로 받아 즉시 그린다.
+ * - `updateFromShow(...)` : 카테고리 전환 등 데몬이 ShowEmojiPopupV2 를 재발행하면
+ *        같은 인스턴스를 재구성한다 (한자 patten 동일).
+ * - `updateFromNavigate(page, totalPages, rows, cols, selRow, selCol)`
+ *      : `PopupNavigate` 시그널로 페이지/선택 위치 갱신.
+ * - 마우스 클릭 → `commitEmoji(emoji)` RPC 직접 호출.
+ *
+ * 키 입력 처리 / `Main.pushModal` grab / 검색 입력 등은 모두 제거됨.
  *
  * @module emoji_popup
+ * @see POPUP_SPEC.md
  */
 
-import GLib from 'gi://GLib';
-import Shell from 'gi://Shell';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { unimLog } from './logging.js';
 
-const COLS = 9;
-const TAB_ROW_MAX = 9; // 한 줄당 최대 탭 수 (한자/특수 popup 9열과 통일)
-const FAVORITES_TAB = '즐겨찾기';
-const SEARCH_TAB = '🔍 검색';
-const FLASH_DURATION_MS = 100;
+/** 그리드 상수 (특수문자 팝업과 동일 — 엔진 popup_state 와 합의) */
+const MAX_ROWS = 9;
+const MAX_COLS = 9;
+const PAGE_SIZE = MAX_ROWS * MAX_COLS; // 81
+
+/** 카테고리 id → locale 라벨 (GTK 측 `tab_label_for` 와 합의 유지) */
+const TAB_LABEL_KO = {
+    Recent: '최근 사용',
+    SmileysPeople: '표정·인물',
+    Animals: '동물·자연',
+    Food: '음식·음료',
+    Activities: '활동',
+    Travel: '여행·장소',
+    Objects: '사물',
+    Symbols: '기호',
+    Flags: '국기',
+};
 
 /**
  * EmojiPopup
  *
- * GNOME Shell St 위젯 기반 이모지 선택 팝업.
- * 한자/특수문자 팝업과 달리 엔진에서 상태를 관리하지 않고 GUI가 자체적으로
- * 카테고리 선택·검색·즐겨찾기를 제어한다.
+ * 9×9 그리드 + 좌측 세로 9 탭 + 하단 페이지 인디케이터.
+ * 키 처리·검색·모달 grab 없음 — 엔진/데몬 시그널만 수신.
  */
 export class EmojiPopup {
-    /**
-     * @param {import('./dbus_ime.js').UnimDbusIME} dbusIME
-     */
-    constructor(dbusIME) {
-        this._dbusIME = dbusIME;
-        /** @type {St.BoxLayout|null} */
+    constructor() {
+        /** @type {St.BoxLayout|null} 외곽 컨테이너 */
         this._container = null;
-        /** @type {St.Entry|null} */
-        this._searchEntry = null;
-        /** @type {St.BoxLayout|null} 탭 헤더 */
+        /** @type {St.Label|null} 헤더 (`「Recent」 → 이모지` 등) */
+        this._header = null;
+        /** @type {St.BoxLayout|null} body (좌측 탭 + 우측 그리드) */
+        this._body = null;
+        /** @type {St.BoxLayout|null} 좌측 세로 탭 컨테이너 */
         this._tabBar = null;
-        /** @type {St.BoxLayout|null} 현재 탭 이모지 그리드 */
+        /** @type {St.BoxLayout|null} 그리드 컨테이너 */
         this._grid = null;
-        /** @type {St.Label|null} */
+        /** @type {St.Label|null} 페이지 인디케이터 */
         this._footer = null;
 
-        /** @type {Array<{name: string, emojis: string[]}>} 카테고리 (첫 항목 = 즐겨찾기) */
-        this._categories = [];
-        /** @type {string} 현재 선택된 탭 이름 */
-        this._currentTab = FAVORITES_TAB;
-        /** @type {string} 검색 키워드 */
-        this._searchText = '';
-        /** @type {number} 현재 탭 내 선택 인덱스 */
-        this._selIndex = 0;
-        /** @type {string[]} 현재 탭에 표시 중인 이모지 (네비게이션 대상) */
-        this._visibleEmojis = [];
+        /** @type {St.Label[][]} 셀 라벨 [row][col] */
+        this._cells = [];
+        /** @type {St.Label[]} 열 헤더 라벨 */
+        this._colHeaders = [];
+        /** @type {St.Label[]} 행 번호 라벨 */
+        this._rowNumbers = [];
+        /** @type {Map<string, St.Button>} 카테고리 id → 탭 버튼 */
+        this._tabButtons = new Map();
 
-        /** @type {boolean} 플래시 대기 중 */
-        this._pendingCommit = false;
-        /** @type {number|null} 검색 debounce 타임아웃 ID */
-        this._searchDebounceId = null;
-        /** @type {Clutter.Grab|null} 활성 modal grab */
-        this._modalGrab = null;
+        /** @type {string[]} 현재 카테고리의 emoji 풀 (엔진 send) */
+        this._items = [];
+        /** @type {string} 현재 카테고리 id */
+        this._currentCatId = 'Recent';
+        /** @type {string} top_row 키 (열 헤더 표시용) */
+        this._topRow = '';
+        /** @type {Array<{id:string, ko:string, en:string, count:number}>} */
+        this._categories = [];
+
+        /** @type {number} 엔진 소관 — 현재 페이지 (0-based) */
+        this._currentPage = 0;
+        /** @type {number} 엔진 소관 — 전체 페이지 수 */
+        this._totalPages = 0;
+        /** @type {number} 현재 페이지의 행 수 */
+        this._rows = 0;
+        /** @type {number} 현재 페이지의 열 수 */
+        this._cols = 0;
+        /** @type {number} 엔진 소관 — 선택 행 */
+        this._engineSelRow = 0;
+        /** @type {number} 엔진 소관 — 선택 열 */
+        this._engineSelCol = 0;
+
+        /** @type {number} 마우스 호버 행 (-1=비활성) */
+        this._mouseHoverRow = -1;
+        /** @type {number} 마우스 호버 열 (-1=비활성) */
+        this._mouseHoverCol = -1;
+
+        /** @type {Function|null} 셀 클릭 시 emoji 문자 commit 콜백 */
+        this._onCommit = null;
     }
 
     /**
-     * 위젯 초기화
+     * 위젯 초기화 (Main.layoutManager 에 chrome 으로 추가)
      */
     enable() {
         this._container = new St.BoxLayout({
@@ -77,54 +114,29 @@ export class EmojiPopup {
             vertical: true,
             visible: false,
             reactive: true,
-            can_focus: true,
-            track_hover: true,
         });
 
-        // 팝업 자체에도 key handler를 걸어 search entry 외부에서도 ESC 동작
-        this._container.connect('key-press-event', (_actor, event) => {
-            if (event.get_key_symbol() === Clutter.KEY_Escape) {
-                this.hide();
-                return Clutter.EVENT_STOP;
-            }
-            return Clutter.EVENT_PROPAGATE;
-        });
+        this._header = new St.Label({ style_class: 'popup-header' });
+        this._container.add_child(this._header);
 
-        // 검색 엔트리
-        this._searchEntry = new St.Entry({
-            style_class: 'emoji-search',
-            hint_text: '이모지 검색 (예: 사랑, 동물, 음식)',
-            can_focus: true,
+        this._body = new St.BoxLayout({
+            style_class: 'emoji-body',
+            vertical: false,
         });
-        this._searchEntry.clutter_text.connect('text-changed', () => {
-            this._onSearchChanged();
-        });
-        this._searchEntry.clutter_text.connect('key-press-event', (actor, event) => {
-            return this._onSearchKey(event);
-        });
-        this._container.add_child(this._searchEntry);
+        this._container.add_child(this._body);
 
-        // 탭 바 — 2줄(row)로 분할: vertical 컨테이너 안에 horizontal row 2개.
-        // _rebuildTabBar()가 카테고리 수에 따라 동적으로 분배한다.
+        // 좌측 세로 탭 컨테이너
         this._tabBar = new St.BoxLayout({
-            style_class: 'emoji-tabs',
-            vertical: true,
-            x_align: Clutter.ActorAlign.CENTER,
-        });
-        this._container.add_child(this._tabBar);
-
-        // 그리드
-        this._grid = new St.BoxLayout({
-            style_class: 'emoji-grid',
+            style_class: 'emoji-tabs-vertical',
             vertical: true,
         });
-        this._container.add_child(this._grid);
+        this._body.add_child(this._tabBar);
 
-        // 풋터
-        this._footer = new St.Label({
-            style_class: 'popup-footer',
-            x_align: Clutter.ActorAlign.CENTER,
-        });
+        // 우측 그리드 컨테이너
+        this._grid = new St.BoxLayout({ vertical: true });
+        this._body.add_child(this._grid);
+
+        this._footer = new St.Label({ style_class: 'popup-footer' });
         this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
@@ -143,10 +155,12 @@ export class EmojiPopup {
             this._container.destroy();
             this._container = null;
         }
-        this._searchEntry = null;
+        this._header = null;
+        this._body = null;
         this._tabBar = null;
         this._grid = null;
         this._footer = null;
+        this._tabButtons.clear();
     }
 
     /**
@@ -158,359 +172,316 @@ export class EmojiPopup {
     }
 
     /**
-     * 이모지 팝업 표시
-     * @param {{x:number,y:number,width:number,height:number}} [cursorRect]
+     * `ShowEmojiPopupV2` 시그널 페이로드로 팝업 표시 (또는 카테고리 전환 시 재구성).
+     *
+     * @param {string} targetCatId - 시작 카테고리 id ("Recent" / "SmileysPeople" / ...).
+     * @param {string[]} items - 시작 카테고리 emoji 풀.
+     * @param {string} topRow - 활성 영문 키맵 상단 9 문자.
+     * @param {string[]} _recent - Recent 캐시 (현재 표시 직접 사용 X — 엔진이 cat_index=0 일 때
+     *   `items` 로 보냄. 동기화 디버깅용으로만 보관).
+     * @param {Array<[string,string,string,number]>} categoriesRaw -
+     *   (id, ko, en, count) 튜플 9개 (Recent + 8 통합 카테고리).
+     * @param {Function} onCommit - 셀 클릭 시 emoji 문자 commit 콜백 (extension 의 commitEmoji 등).
+     * @param {{x:number,y:number,width:number,height:number}} [cursorRect] - 커서 위치.
      */
-    show(cursorRect) {
+    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect) {
         if (!this._container) return;
 
-        // 카테고리/즐겨찾기 최신화
-        this._categories = this._dbusIME?.listEmojiCategories() ?? [];
-        if (this._categories.length === 0) {
-            unimLog('EMOJI', '카테고리 로드 실패');
-            return;
-        }
+        this._items = Array.isArray(items) ? items.slice() : [];
+        this._currentCatId = targetCatId || 'Recent';
+        this._topRow = topRow || '';
+        this._categories = (categoriesRaw || []).map(([id, ko, en, count]) => ({
+            id, ko, en, count: Number(count) || 0,
+        }));
+        this._onCommit = typeof onCommit === 'function' ? onCommit : null;
 
-        const favorites = this._dbusIME?.getEmojiFavorites() ?? [];
-        // 첫 항목이 "즐겨찾기" (서비스에서 기본 인기 이모지 반환). 사용자 MRU가 있으면 그것으로 대체.
-        if (favorites.length > 0 && this._categories.length > 0) {
-            this._categories[0] = { name: FAVORITES_TAB, emojis: favorites };
-        } else {
-            this._categories[0] = { name: FAVORITES_TAB, emojis: this._categories[0].emojis };
-        }
+        // 페이지/선택 초기값 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
+        this._currentPage = 0;
+        this._totalPages = Math.max(1, Math.ceil(this._items.length / PAGE_SIZE));
+        this._engineSelRow = 0;
+        this._engineSelCol = 0;
+        this._mouseHoverRow = -1;
+        this._mouseHoverCol = -1;
 
+        this._updateHeader();
         this._rebuildTabBar();
-
-        this._currentTab = FAVORITES_TAB;
-        this._searchText = '';
-        if (this._searchEntry) this._searchEntry.set_text('');
-        this._selIndex = 0;
-        this._showTab(FAVORITES_TAB);
+        this._updateGrid();
 
         this._container.show();
         this._positionPopup(cursorRect);
 
-        // modal grab — 팝업이 열린 동안 KeyHandler vfunc을 우회하여 키 입력을
-        // 팝업의 search entry로 직접 라우팅 (엔진에 가지 않음)
-        this._acquireModalGrab();
-
-        if (this._searchEntry) {
-            this._searchEntry.grab_key_focus();
-        }
-        unimLog('EMOJI', `팝업 표시 (카테고리 ${this._categories.length}개)`);
-    }
-
-    /** @private */
-    _acquireModalGrab() {
-        if (this._modalGrab || !this._container) return;
-        try {
-            this._modalGrab = Main.pushModal(this._container, {
-                actionMode: Shell.ActionMode.NORMAL,
-            });
-            // pushModal 반환이 객체(Grab)면 성공, 0이면 실패 (구형 API)
-            if (typeof this._modalGrab === 'number' && this._modalGrab === 0) {
-                this._modalGrab = null;
-                unimLog('EMOJI', 'pushModal 실패 (fallback: key focus only)');
-            }
-        } catch (e) {
-            this._modalGrab = null;
-            unimLog('EMOJI', `pushModal 예외: ${e.message}`);
-        }
-    }
-
-    /** @private */
-    _releaseModalGrab() {
-        if (!this._modalGrab) return;
-        try {
-            Main.popModal(this._modalGrab);
-        } catch (e) {
-            unimLog('EMOJI', `popModal 예외: ${e.message}`);
-        }
-        this._modalGrab = null;
+        unimLog(
+            'EMOJI',
+            `팝업 표시: cat='${this._currentCatId}', items=${this._items.length}, ` +
+            `cats=${this._categories.length}, totalPages=${this._totalPages}`
+        );
     }
 
     /**
      * 팝업 숨김
      */
     hide() {
-        if (this._searchDebounceId) {
-            GLib.source_remove(this._searchDebounceId);
-            this._searchDebounceId = null;
-        }
-        this._releaseModalGrab();
         if (this._container) {
             this._container.hide();
         }
-        this._pendingCommit = false;
+        this._items = [];
+        this._mouseHoverRow = -1;
+        this._mouseHoverCol = -1;
+        this._onCommit = null;
     }
-
-    // ===========================================
-    // 탭 관리
-    // ===========================================
-
-    _rebuildTabBar() {
-        this._tabBar.destroy_all_children();
-
-        const total = this._categories.length;
-        if (total === 0) return;
-
-        // 카테고리를 두 줄로 분배.
-        // 첫 줄에 즐겨찾기 + 앞쪽 카테고리, 둘째 줄에 나머지.
-        // 9개 이하면 둘째 줄은 비워둔다(첫 줄만 표시되도록 빈 row를 넣지 않음).
-        const firstRowSize = total <= TAB_ROW_MAX
-            ? total
-            : Math.ceil(total / 2); // 17 → 9, 16 → 8
-
-        const makeRow = () => new St.BoxLayout({
-            style_class: 'emoji-tabs-row',
-            vertical: false,
-            x_align: Clutter.ActorAlign.CENTER,
-        });
-
-        const row1 = makeRow();
-        this._tabBar.add_child(row1);
-        let row2 = null;
-        if (total > firstRowSize) {
-            row2 = makeRow();
-            this._tabBar.add_child(row2);
-        }
-
-        for (let i = 0; i < total; i++) {
-            const cat = this._categories[i];
-            const btn = new St.Button({
-                style_class: 'emoji-tab',
-                label: cat.name,
-                can_focus: false,
-                reactive: true,
-            });
-            const tabName = cat.name;
-            btn.connect('clicked', () => {
-                this._currentTab = tabName;
-                this._showTab(tabName);
-            });
-            const target = i < firstRowSize ? row1 : row2;
-            target.add_child(btn);
-        }
-    }
-
-    /** @private */
-    _showTab(name) {
-        const cat = this._categories.find(c => c.name === name);
-        if (!cat) return;
-        this._visibleEmojis = cat.emojis.slice();
-        this._selIndex = 0;
-        this._renderGrid(`${name} (${cat.emojis.length})`);
-        this._highlightActiveTab(name);
-    }
-
-    /** @private */
-    _highlightActiveTab(name) {
-        if (!this._tabBar) return;
-        // _tabBar는 vertical 컨테이너에 row(BoxLayout) 2개를 자식으로 가진다.
-        // 각 row의 자식 버튼들을 _categories 순서대로 매칭.
-        let idx = 0;
-        for (const row of this._tabBar.get_children()) {
-            if (!row.get_children) continue;
-            for (const btn of row.get_children()) {
-                if (this._categories[idx]?.name === name) {
-                    btn.add_style_class_name('active');
-                } else {
-                    btn.remove_style_class_name('active');
-                }
-                idx++;
-            }
-        }
-    }
-
-    // ===========================================
-    // 검색
-    // ===========================================
-
-    _onSearchChanged() {
-        const keyword = this._searchEntry?.get_text() ?? '';
-        this._searchText = keyword;
-
-        // 100ms debounce — 빠른 타이핑 시 매 타자 DBus 호출 방지
-        if (this._searchDebounceId) {
-            GLib.source_remove(this._searchDebounceId);
-        }
-        this._searchDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
-            this._searchDebounceId = null;
-            if (!this.isVisible) return GLib.SOURCE_REMOVE;
-
-            if (keyword === '') {
-                // 빈 검색 → 즐겨찾기 탭으로 복귀
-                this._currentTab = FAVORITES_TAB;
-                this._showTab(FAVORITES_TAB);
-                return GLib.SOURCE_REMOVE;
-            }
-
-            const results = this._dbusIME?.searchEmoji(keyword) ?? [];
-            this._currentTab = SEARCH_TAB;
-            this._visibleEmojis = results;
-            this._selIndex = 0;
-            this._renderGrid(`${SEARCH_TAB} "${keyword}" (${results.length})`);
-            this._highlightActiveTab(null); // 검색 중엔 카테고리 탭 강조 해제
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _onSearchKey(event) {
-        const sym = event.get_key_symbol();
-        if (sym === Clutter.KEY_Escape) {
-            this.hide();
-            return Clutter.EVENT_STOP;
-        }
-        if (sym === Clutter.KEY_Return || sym === Clutter.KEY_KP_Enter) {
-            if (this._selIndex < this._visibleEmojis.length) {
-                this._commitAt(this._selIndex);
-            }
-            return Clutter.EVENT_STOP;
-        }
-        if (sym === Clutter.KEY_Tab) {
-            this._cycleTab(1);
-            return Clutter.EVENT_STOP;
-        }
-        if (sym === Clutter.KEY_ISO_Left_Tab) {
-            this._cycleTab(-1);
-            return Clutter.EVENT_STOP;
-        }
-        if (sym === Clutter.KEY_Left) {
-            this._moveSelection(-1);
-            return Clutter.EVENT_STOP;
-        }
-        if (sym === Clutter.KEY_Right) {
-            this._moveSelection(1);
-            return Clutter.EVENT_STOP;
-        }
-        if (sym === Clutter.KEY_Up) {
-            this._moveSelection(-COLS);
-            return Clutter.EVENT_STOP;
-        }
-        if (sym === Clutter.KEY_Down) {
-            this._moveSelection(COLS);
-            return Clutter.EVENT_STOP;
-        }
-        return Clutter.EVENT_PROPAGATE;
-    }
-
-    _cycleTab(direction) {
-        if (this._categories.length === 0) return;
-        let idx = this._categories.findIndex(c => c.name === this._currentTab);
-        if (idx < 0) idx = 0;
-        idx = (idx + direction + this._categories.length) % this._categories.length;
-        this._currentTab = this._categories[idx].name;
-        if (this._searchEntry) this._searchEntry.set_text('');
-        this._showTab(this._currentTab);
-    }
-
-    _moveSelection(delta) {
-        if (this._visibleEmojis.length === 0) return;
-        let next = this._selIndex + delta;
-        if (next < 0) next = 0;
-        if (next >= this._visibleEmojis.length) next = this._visibleEmojis.length - 1;
-        this._selIndex = next;
-        this._updateSelectionHighlight();
-    }
-
-    // ===========================================
-    // 그리드 렌더링
-    // ===========================================
 
     /**
-     * 그리드 재구성 + 풋터 갱신
-     * @param {string} caption 풋터 텍스트
+     * 데몬 PopupNavigate 시그널로 페이지/선택 위치 갱신 (엔진이 단일 진실 소스).
+     *
+     * @param {number} page
+     * @param {number} totalPages
+     * @param {number} rows
+     * @param {number} cols
+     * @param {number} selRow
+     * @param {number} selCol
+     */
+    updateFromNavigate(page, totalPages, rows, cols, selRow, selCol) {
+        if (!this.isVisible) return;
+
+        const pageChanged = this._currentPage !== page;
+        this._currentPage = page;
+        this._totalPages = totalPages;
+        this._rows = rows;
+        this._cols = cols;
+        this._engineSelRow = selRow;
+        this._engineSelCol = selCol;
+
+        if (pageChanged) {
+            this._updateGrid();
+        }
+        this._updateSelection();
+    }
+
+    // ===========================================
+    // 내부 메서드
+    // ===========================================
+
+    /** @private */
+    _updateHeader() {
+        if (!this._header) return;
+        const label = TAB_LABEL_KO[this._currentCatId] || this._currentCatId;
+        this._header.set_text(`「${label}」 → 이모지`);
+    }
+
+    /**
+     * 좌측 세로 9 탭 재구성. 활성 카테고리에 .active 부여.
      * @private
      */
-    _renderGrid(caption) {
-        this._grid.destroy_all_children();
+    _rebuildTabBar() {
+        if (!this._tabBar) return;
+        this._tabBar.destroy_all_children();
+        this._tabButtons.clear();
 
-        if (this._visibleEmojis.length === 0) {
-            const empty = new St.Label({
-                style_class: 'emoji-empty',
-                text: '(항목 없음)',
+        for (const cat of this._categories) {
+            const label = TAB_LABEL_KO[cat.id] || cat.ko || cat.en || cat.id;
+            const btn = new St.Button({
+                style_class: 'emoji-tab-vertical',
+                label,
+                can_focus: false,
+                reactive: false, // 클릭 비활성 — 카테고리 전환은 키보드(Tab/ShiftTab)로만
+            });
+            if (cat.id === this._currentCatId) {
+                btn.add_style_class_name('active');
+            }
+            this._tabBar.add_child(btn);
+            this._tabButtons.set(cat.id, btn);
+        }
+    }
+
+    /**
+     * 열 우선 채움 레이아웃으로 전체 인덱스 계산.
+     * @private
+     */
+    _getItemIndex(row, col) {
+        const pageStart = this._currentPage * PAGE_SIZE;
+        const pageOffset = col * MAX_ROWS + row;
+        const globalIdx = pageStart + pageOffset;
+        return globalIdx < this._items.length ? globalIdx : -1;
+    }
+
+    /** @private */
+    _cellHasItem(row, col) {
+        return this._getItemIndex(row, col) >= 0;
+    }
+
+    /**
+     * 9×9 그리드 재구성 + 푸터 갱신.
+     * @private
+     */
+    _updateGrid() {
+        if (!this._grid) return;
+        this._grid.destroy_all_children();
+        this._cells = [];
+        this._colHeaders = [];
+        this._rowNumbers = [];
+
+        // 현재 페이지 항목 수 및 열 수 계산
+        const pageStart = this._currentPage * PAGE_SIZE;
+        const pageItemCount = Math.max(0,
+            Math.min(PAGE_SIZE, this._items.length - pageStart));
+        // 빈 페이지(예: Recent 비어있음)는 9 열을 그대로 그리되 셀이 빈 라벨로 남는다 —
+        // 사용자가 9×9 레이아웃을 인지하도록.
+        this._cols = pageItemCount === 0
+            ? MAX_COLS
+            : Math.min(MAX_COLS, Math.ceil(pageItemCount / MAX_ROWS));
+
+        // 열 헤더 행
+        const headerRow = new St.BoxLayout({ style_class: 'grid-row' });
+        headerRow.add_child(new St.Label({
+            style_class: 'grid-row-number',
+            text: '',
+        }));
+
+        for (let col = 0; col < this._cols; col++) {
+            const headerChar = col < this._topRow.length ? this._topRow[col] : '';
+            const label = new St.Label({
+                style_class: 'grid-header',
+                text: headerChar,
                 x_align: Clutter.ActorAlign.CENTER,
             });
-            this._grid.add_child(empty);
-        } else {
-            for (let row = 0; row * COLS < this._visibleEmojis.length; row++) {
-                const rowBox = new St.BoxLayout({ style_class: 'emoji-row' });
-                for (let col = 0; col < COLS; col++) {
-                    const idx = row * COLS + col;
-                    if (idx >= this._visibleEmojis.length) break;
-                    const emoji = this._visibleEmojis[idx];
-                    const cell = new St.Button({
-                        style_class: 'emoji-cell',
-                        label: emoji,
-                        reactive: true,
-                        can_focus: false,
-                    });
-                    cell.connect('clicked', () => {
-                        this._selIndex = idx;
-                        this._commitAt(idx);
-                    });
-                    cell.connect('enter-event', () => {
-                        this._selIndex = idx;
-                        this._updateSelectionHighlight();
-                        return Clutter.EVENT_PROPAGATE;
-                    });
-                    rowBox.add_child(cell);
+            headerRow.add_child(label);
+            this._colHeaders.push(label);
+        }
+        this._grid.add_child(headerRow);
+
+        // 데이터 행 — 빈 페이지에서도 9 행 모두 렌더 (사용자 요구: 9×9 표 유지)
+        const minRows = pageItemCount === 0 ? MAX_ROWS : 0;
+        this._rows = 0;
+        for (let row = 0; row < MAX_ROWS; row++) {
+            let hasAny = false;
+            for (let col = 0; col < this._cols; col++) {
+                if (this._cellHasItem(row, col)) {
+                    hasAny = true;
+                    break;
                 }
-                this._grid.add_child(rowBox);
+            }
+            if (!hasAny && row >= minRows) break;
+
+            this._rows++;
+            const rowWidget = new St.BoxLayout({ style_class: 'grid-row' });
+
+            const rowNum = new St.Label({
+                style_class: 'grid-row-number',
+                text: `${row + 1}`,
+            });
+            rowWidget.add_child(rowNum);
+            this._rowNumbers.push(rowNum);
+
+            const rowCells = [];
+            for (let col = 0; col < this._cols; col++) {
+                const idx = this._getItemIndex(row, col);
+                const ch = idx >= 0 ? this._items[idx] : '';
+                const cell = new St.Label({
+                    style_class: 'grid-cell',
+                    text: ch,
+                    x_align: Clutter.ActorAlign.CENTER,
+                    reactive: idx >= 0,
+                });
+
+                if (idx >= 0) {
+                    const r = row;
+                    const c = col;
+                    const emoji = ch;
+
+                    // 마우스 호버 (선택과 독립)
+                    cell.connect('enter-event', () => {
+                        this._mouseHoverRow = r;
+                        this._mouseHoverCol = c;
+                        this._updateSelection();
+                        return Clutter.EVENT_STOP;
+                    });
+                    cell.connect('leave-event', () => {
+                        this._mouseHoverRow = -1;
+                        this._mouseHoverCol = -1;
+                        this._updateSelection();
+                        return Clutter.EVENT_STOP;
+                    });
+
+                    // 마우스 클릭 → emoji 직접 commit (한자/특수와 다른 패턴 —
+                    // emoji 는 SelectAtIndex RPC 가 없고 데몬이 commitEmoji(s) 로
+                    // last-active path 로 redirect 한다)
+                    cell.connect('button-press-event', () => {
+                        if (this._onCommit) {
+                            this._onCommit(emoji);
+                        }
+                        return Clutter.EVENT_STOP;
+                    });
+                }
+
+                rowWidget.add_child(cell);
+                rowCells.push(cell);
+            }
+
+            this._grid.add_child(rowWidget);
+            this._cells.push(rowCells);
+        }
+
+        // 푸터 — 카테고리 라벨 + 페이지 인디케이터 (특수문자와 동일 형식)
+        if (this._footer) {
+            const catLabel = TAB_LABEL_KO[this._currentCatId] || this._currentCatId;
+            if (this._totalPages > 1) {
+                this._footer.set_text(
+                    `[${catLabel}]  ${this._currentPage + 1}/${this._totalPages}`);
+                this._footer.show();
+            } else {
+                this._footer.set_text(`[${catLabel}]`);
+                this._footer.show();
             }
         }
 
-        if (this._footer) {
-            this._footer.set_text(caption || '');
-        }
-
-        this._updateSelectionHighlight();
+        this._updateSelection();
     }
 
-    _updateSelectionHighlight() {
-        if (!this._grid) return;
-        let idx = 0;
-        for (const row of this._grid.get_children()) {
-            if (!row.get_children) continue;
-            for (const cell of row.get_children()) {
-                if (idx === this._selIndex) {
+    /**
+     * 선택/호버 하이라이트 갱신.
+     *
+     * .selected = 엔진이 관리하는 선택 위치 (PopupNavigate 시그널 기반).
+     * .hovered  = 마우스 커서가 가리키는 위치 (선택과 독립, 표시만).
+     *
+     * @private
+     */
+    _updateSelection() {
+        // 셀 하이라이트
+        for (let row = 0; row < this._cells.length; row++) {
+            for (let col = 0; col < this._cells[row].length; col++) {
+                const cell = this._cells[row][col];
+                if (row === this._engineSelRow && col === this._engineSelCol) {
                     cell.add_style_class_name('selected');
                 } else {
                     cell.remove_style_class_name('selected');
                 }
-                idx++;
+                if (row === this._mouseHoverRow && col === this._mouseHoverCol) {
+                    cell.add_style_class_name('hovered');
+                } else {
+                    cell.remove_style_class_name('hovered');
+                }
+            }
+        }
+        // 활성 열 헤더 (엔진 선택 기준)
+        for (let col = 0; col < this._colHeaders.length; col++) {
+            if (col === this._engineSelCol) {
+                this._colHeaders[col].add_style_class_name('active');
+            } else {
+                this._colHeaders[col].remove_style_class_name('active');
+            }
+        }
+        // 활성 행 번호
+        for (let row = 0; row < this._rowNumbers.length; row++) {
+            if (row === this._engineSelRow) {
+                this._rowNumbers[row].add_style_class_name('active');
+            } else {
+                this._rowNumbers[row].remove_style_class_name('active');
             }
         }
     }
 
     /**
-     * 지정 인덱스의 이모지를 커밋.
-     * 플래시 후 DBus CommitEmoji 호출. 서비스가 HidePopup 시그널을 보내면 숨김.
-     * @param {number} idx
-     * @private
-     */
-    _commitAt(idx) {
-        const emoji = this._visibleEmojis[idx];
-        if (!emoji || this._pendingCommit) return;
-        this._pendingCommit = true;
-        this._selIndex = idx;
-        this._updateSelectionHighlight();
-
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, FLASH_DURATION_MS, () => {
-            this._dbusIME?.commitEmoji(emoji);
-            // CommitEmoji가 HidePopup 시그널을 보내 extension.js가 hide()를 호출.
-            // 방어적으로 여기서도 숨김 (시그널 누락 시).
-            this.hide();
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    // ===========================================
-    // 포지셔닝
-    // ===========================================
-
-    /**
-     * 커서 위치 기반 팝업 배치 (SpecialPopup과 동일 규칙)
+     * 커서 위치 기반 팝업 포지셔닝 (특수문자 팝업과 동일).
      * @private
      */
     _positionPopup(cursorRect) {
@@ -519,13 +490,14 @@ export class EmojiPopup {
 
         const [, natW] = this._container.get_preferred_width(-1);
         const [, natH] = this._container.get_preferred_height(-1);
-        const popupWidth = natW > 0 ? natW : 400;
-        const popupHeight = natH > 0 ? natH : 360;
+        const popupWidth = natW > 0 ? natW : 480;
+        const popupHeight = natH > 0 ? natH : 380;
         let x, y;
 
         if (cursorRect && (cursorRect.x > 0 || cursorRect.y > 0)) {
             x = cursorRect.x;
             y = cursorRect.y + cursorRect.height + 4;
+
             if (y + popupHeight > monitor.y + monitor.height) {
                 y = cursorRect.y - popupHeight - 4;
             }
@@ -543,3 +515,4 @@ export class EmojiPopup {
         this._container.set_position(x, y);
     }
 }
+
