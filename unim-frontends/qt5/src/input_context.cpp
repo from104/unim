@@ -125,6 +125,22 @@ UnimInputContext::UnimInputContext()
                 m_hanjaPopup->setBookmark(index, bookmarked);
             }
         });
+        // HanjaCandidatesReordered 시그널 → 후보·즐겨찾기·커서 일괄 교체
+        // (item-tracking: 토글된 한자가 정렬 후 새 위치로 이동, cursor도 따라감)
+        m_dbus->setHanjaCandidatesReorderedCallback(
+            [this](const QString &target,
+                   const QList<UnimHanjaCandidate> &candidates,
+                   const QList<bool> &bookmarks,
+                   quint32 newCursor, qint32 page, qint32 selRow, qint32 selCol,
+                   bool bookmarked) {
+                Q_UNUSED(target);
+                Q_UNUSED(newCursor);
+                Q_UNUSED(bookmarked);
+                if (m_hanjaPopup) {
+                    m_hanjaPopup->replaceCandidates(candidates, bookmarks,
+                                                     page, selRow, selCol);
+                }
+            });
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }

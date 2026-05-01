@@ -12,6 +12,7 @@
 #include <QStringList>
 #include <QDBusConnection>
 #include <QDBusInterface>
+#include <QDBusMessage>
 #include <QDBusReply>
 #include <QObject>
 #include <memory>
@@ -203,6 +204,25 @@ public:
     using HanjaBookmarkChangedCallback = std::function<void(quint32 index, bool bookmarked)>;
     void setHanjaBookmarkChangedCallback(HanjaBookmarkChangedCallback callback);
 
+    /**
+     * HanjaCandidatesReordered 콜백 설정.
+     *
+     * 시그널 시그니처: (s, as, as, ab, u, i, i, i, b)
+     *   target, hanjas[], meanings[], bookmarks[], new_cursor, page, sel_row, sel_col, bookmarked
+     *
+     * 콜백은 후보·즐겨찾기·커서를 한 호출로 일괄 교체하기 위한 payload를 받는다.
+     */
+    using HanjaCandidatesReorderedCallback = std::function<void(
+        const QString &target,
+        const QList<UnimHanjaCandidate> &candidates,
+        const QList<bool> &bookmarks,
+        quint32 newCursor,
+        qint32 page,
+        qint32 selRow,
+        qint32 selCol,
+        bool bookmarked)>;
+    void setHanjaCandidatesReorderedCallback(HanjaCandidatesReorderedCallback callback);
+
 private:
     QDBusConnection m_bus;
     QString m_contextPath;
@@ -212,10 +232,12 @@ private:
     AutoTypeFixCallback m_autoTypeFixCallback;
     CommitTextCallback m_commitTextCallback;
     HanjaBookmarkChangedCallback m_hanjaBookmarkCallback;
+    HanjaCandidatesReorderedCallback m_hanjaReorderedCallback;
 
     friend class UnimAutoTypeFixReceiver;
     friend class UnimCommitTextReceiver;
     friend class UnimHanjaBookmarkReceiver;
+    friend class UnimHanjaCandidatesReorderedReceiver;
 };
 
 /**
@@ -256,6 +278,24 @@ public:
         : QObject(parent), m_client(client) {}
 public slots:
     void onHanjaBookmarkChanged(quint32 index, bool bookmarked);
+private:
+    UnimDbusClient *m_client;
+};
+
+/**
+ * HanjaCandidatesReordered DBus 시그널 수신 헬퍼 (QObject 필요)
+ *
+ * 시그니처: (s, as, as, ab, u, i, i, i, b). QtDBus는 ab(bool 배열)을
+ * QDBusArgument로 디마샬링하므로 본 receiver는 generic QDBusMessage 슬롯으로
+ * 받아 직접 파싱한다 (GTK 측 패턴과 동일).
+ */
+class UnimHanjaCandidatesReorderedReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimHanjaCandidatesReorderedReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onReordered(const QDBusMessage &msg);
 private:
     UnimDbusClient *m_client;
 };

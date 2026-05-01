@@ -636,3 +636,82 @@ void UnimHanjaBookmarkReceiver::onHanjaBookmarkChanged(quint32 index, bool bookm
         m_client->m_hanjaBookmarkCallback(index, bookmarked);
     }
 }
+
+/* HanjaCandidatesReordered 시그널 등록 + 파서.
+ * 시그니처: (s, as, as, ab, u, i, i, i, b)
+ *
+ * QtDBus의 자동 슬롯 디마샬링은 ab(QList<bool>)를 직접 매핑하지 못해
+ * QDBusMessage 통째로 받아 인덱스별로 파싱한다. GTK 측 client (gtk-common)와
+ * 동일한 시그니처·필드 순서. */
+void UnimDbusClient::setHanjaCandidatesReorderedCallback(HanjaCandidatesReorderedCallback callback) {
+    m_hanjaReorderedCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimHanjaCandidatesReorderedReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("HanjaCandidatesReordered"),
+        receiver,
+        SLOT(onReordered(QDBusMessage))
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("HanjaCandidatesReordered signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimHanjaCandidatesReorderedReceiver::onReordered(const QDBusMessage &msg) {
+    if (!m_client || !m_client->m_hanjaReorderedCallback) return;
+
+    const QList<QVariant> args = msg.arguments();
+    if (args.size() < 9) {
+        UNIM_DBUS_DEBUG(QString::asprintf("HanjaCandidatesReordered: 인자 부족 (%d)",
+                         static_cast<int>(args.size())));
+        return;
+    }
+
+    QString target = args.at(0).toString();
+    QStringList hanjas = args.at(1).toStringList();
+    QStringList meanings = args.at(2).toStringList();
+
+    QList<bool> bookmarks;
+    {
+        const QVariant &v = args.at(3);
+        if (v.canConvert<QDBusArgument>()) {
+            const QDBusArgument arg = v.value<QDBusArgument>();
+            arg.beginArray();
+            while (!arg.atEnd()) {
+                bool b = false;
+                arg >> b;
+                bookmarks.append(b);
+            }
+            arg.endArray();
+        } else {
+            const QVariantList list = v.toList();
+            for (const QVariant &e : list) bookmarks.append(e.toBool());
+        }
+    }
+
+    quint32 newCursor = args.at(4).toUInt();
+    qint32 page       = args.at(5).toInt();
+    qint32 selRow     = args.at(6).toInt();
+    qint32 selCol     = args.at(7).toInt();
+    bool bookmarked   = args.at(8).toBool();
+
+    QList<UnimHanjaCandidate> candidates;
+    int n = hanjas.size();
+    candidates.reserve(n);
+    for (int i = 0; i < n; i++) {
+        UnimHanjaCandidate c;
+        c.hanja = hanjas.at(i);
+        c.meaning = i < meanings.size() ? meanings.at(i) : QString();
+        candidates.append(c);
+    }
+
+    UNIM_DBUS_DEBUG(QString::asprintf(
+        "HanjaCandidatesReordered received: target='%s', count=%d, new_cursor=%u, page=%d, sel=(%d,%d), bookmarked=%d",
+        qPrintable(target), n, newCursor, page, selRow, selCol, int(bookmarked)));
+
+    m_client->m_hanjaReorderedCallback(target, candidates, bookmarks,
+                                        newCursor, page, selRow, selCol, bookmarked);
+}
