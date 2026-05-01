@@ -354,11 +354,24 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             }
         }
         "ShowEmojiPopup" => {
-            // GNOME 환경에선 GNOME extension의 emoji_popup이 같은 시그널을 직접
-            // 받아 자체 St 위젯으로 표시한다. standalone GUI도 같은 시그널을 받아
-            // GTK4 popup을 띄우면 두 popup이 동시에 떠서, GTK4 popup의 키보드
-            // 포커스 grab → IM focus_out → 데몬 HidePopup 자동 발행 → popup 즉시
-            // 닫힘 race가 발생한다. GNOME에서는 standalone 측 표시를 skip한다.
+            // PR #2 (emoji overhaul): v1 시그널은 dual-emit backward-compat 로만
+            // 유지된다 — GUI 표시는 ShowEmojiPopupV2 가 담당한다 (카테고리/페이지/MRU
+            // payload 포함). 본 분기는 활성 컨텍스트 경로만 갱신하고 v2 가 실제
+            // 팝업을 띄우도록 양보한다. v1 자체 제거는 PR #5 cleanup 에서 수행.
+            let _ = msg.body().deserialize::<(i32, i32, i32, i32)>();
+            if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
+                *path = Some(context_path.clone());
+            }
+            unim_log!(
+                "INDICATOR",
+                "[Popup] ShowEmojiPopup(v1) 수신 — v2 가 표시 담당, v1 무시"
+            );
+        }
+        "ShowEmojiPopupV2" => {
+            // GNOME 환경에선 GNOME extension 의 emoji_popup 이 (앞으로 PR #3 에서)
+            // 같은 시그널을 직접 받아 자체 St 위젯으로 표시한다. standalone GUI 도
+            // 같은 시그널을 받아 GTK4 popup 을 띄우면 두 popup 이 동시에 떠 키보드
+            // 포커스 race 가 난다 — GNOME 에서는 standalone 측 표시를 skip 한다.
             let is_gnome = std::env::var("XDG_CURRENT_DESKTOP")
                 .ok()
                 .map(|v| v.to_ascii_uppercase().contains("GNOME"))
@@ -366,15 +379,39 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             if is_gnome {
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowEmojiPopup skip (GNOME 환경 — extension 처리)"
+                    "[Popup] ShowEmojiPopupV2 skip (GNOME 환경 — extension 처리)"
                 );
-            } else if let Ok((x, y, w, h)) = msg.body().deserialize::<(i32, i32, i32, i32)>() {
+            } else if let Ok((
+                target_cat_id,
+                items,
+                top_row,
+                recent,
+                categories,
+                x,
+                y,
+                w,
+                h,
+            )) = msg.body().deserialize::<(
+                String,
+                Vec<String>,
+                String,
+                Vec<String>,
+                Vec<(String, String, String, u32)>,
+                i32,
+                i32,
+                i32,
+                i32,
+            )>() {
                 if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
                     *path = Some(context_path.clone());
                 }
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowEmojiPopup 수신: pos=({},{},{},{})",
+                    "[Popup] ShowEmojiPopupV2 수신: cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                    target_cat_id,
+                    items.len(),
+                    recent.len(),
+                    categories.len(),
                     x,
                     y,
                     w,
@@ -382,6 +419,11 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 );
                 let _ = popup_tx.send(GuiAction::ShowEmojiPopup {
                     context_path,
+                    target_cat_id,
+                    items,
+                    top_row,
+                    recent,
+                    categories,
                     x,
                     y,
                     w,

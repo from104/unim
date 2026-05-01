@@ -110,6 +110,11 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                         }
                         GuiAction::ShowEmojiPopup {
                             context_path,
+                            target_cat_id,
+                            items,
+                            top_row,
+                            recent,
+                            categories,
                             x,
                             y,
                             w,
@@ -117,7 +122,18 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                         } => {
                             hanja_clone.borrow().hide();
                             special_clone.borrow().hide();
-                            emoji_clone.borrow_mut().show(context_path, x, y, w, h);
+                            emoji_clone.borrow_mut().show(
+                                context_path,
+                                target_cat_id,
+                                items,
+                                top_row,
+                                recent,
+                                categories,
+                                x,
+                                y,
+                                w,
+                                h,
+                            );
                         }
                         GuiAction::HidePopup => {
                             hanja_clone.borrow().hide();
@@ -172,6 +188,17 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                             }
                             if special_clone.borrow().is_visible() {
                                 special_clone.borrow_mut().navigate(
+                                    page,
+                                    total_pages,
+                                    selected,
+                                    rows,
+                                    cols,
+                                    sel_row,
+                                    sel_col,
+                                );
+                            }
+                            if emoji_clone.borrow().is_visible() {
+                                emoji_clone.borrow_mut().navigate(
                                     page,
                                     total_pages,
                                     selected,
