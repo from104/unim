@@ -254,6 +254,34 @@ impl InputEngine {
         if let Some(c) = ch {
             unim_log!("ENGINE", "문자 키: '{}'", c);
 
+            // 룰 B (schema v2 `key_meta.context_alt`) — 한글 모드 + 팝업 비활성에서만.
+            // 조건이 맞으면 정상 jamo 흐름으로 진입하고, 불충족이면 fallback 리터럴 commit.
+            if matches!(self.input_category, InputCategory::Korean)
+                && self.popup_state.is_none()
+                && !self.hanja_mode
+                && !self.special_char_mode
+            {
+                if let Some(meta) = self.key_meta_map.get(&c) {
+                    if let Some(alt) = meta.context_alt.clone() {
+                        let cond_ok = match alt.when {
+                            crate::keystroke::profile::ContextCondition::ChoseongOnly => {
+                                self.korean_context.is_only_cho_filled()
+                            }
+                        };
+                        if !cond_ok {
+                            unim_log!(
+                                "ENGINE",
+                                "key_meta.context_alt 불충족 → fallback '{}' commit",
+                                alt.fallback
+                            );
+                            self.flush_preedit();
+                            self.commit_buffer.push_str(&alt.fallback);
+                            return InputResult::committed();
+                        }
+                    }
+                }
+            }
+
             // 키보드 맵에서 자모 찾기
             if let Some(ref keyboard_map) = self.keyboard_map {
                 if let Some(jamo) = keyboard_map.get(&c) {

@@ -28,6 +28,9 @@ pub struct InputEngine {
     pub(super) preedit_cache: String,
     /// 키보드 맵 (한국어) - 영어 키 -> 한국어 자모 매핑
     pub(super) keyboard_map: Option<HashMap<char, JamoEnum>>,
+    /// 키별 메타데이터 (schema v2 `key_meta`) — context_alt 분기 등에 사용.
+    /// 한국어 레이아웃 기준으로 빌드되며, 누락 시 빈 맵.
+    pub(super) key_meta_map: HashMap<char, crate::keystroke::profile::KeyMeta>,
     /// 영어 키보드 레이아웃 맵 (JSON 기반 동적 로드)
     pub(super) english_keymap: EnglishKeymap,
     /// 영어 키보드 레이아웃 설정
@@ -104,6 +107,7 @@ impl InputEngine {
 
         let keyboard_map =
             Self::create_keyboard_map(&config.engine.korean.layout, &config.engine.english.layout);
+        let key_meta_map = Self::create_key_meta_map(&config.engine.korean.layout);
 
         let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
@@ -116,6 +120,7 @@ impl InputEngine {
             commit_buffer: String::new(),
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
+            key_meta_map,
             english_keymap,
             korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout.clone(),
@@ -221,6 +226,18 @@ impl InputEngine {
         crate::keystroke::KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_three_bul)
     }
 
+    /// 한국어 레이아웃의 schema v2 `key_meta`를 char 기반 runtime 맵으로 빌드합니다.
+    /// 누락 또는 v1 자판이면 빈 맵.
+    pub(super) fn create_key_meta_map(
+        korean_layout: &KoreanLayout,
+    ) -> HashMap<char, crate::keystroke::profile::KeyMeta> {
+        let ko_json = crate::keystroke::get_keymap_json(korean_layout);
+        match crate::keystroke::profile::parse_profile_str(ko_json) {
+            Ok(profile) => crate::keystroke::profile::build_key_meta_char_map(&profile),
+            Err(_) => HashMap::new(),
+        }
+    }
+
     /// 영어 키맵을 생성합니다.
     ///
     /// # Arguments
@@ -323,6 +340,7 @@ impl InputEngine {
 
             // 키보드 맵 업데이트
             self.keyboard_map = Some(Self::create_keyboard_map(&layout, &self.english_layout));
+            self.key_meta_map = Self::create_key_meta_map(&layout);
 
             // 컨텍스트 업데이트 — v1 builder 경로로 통일
             let composer_type = if crate::config::is_sebeolsik_layout(&layout) {
@@ -358,6 +376,7 @@ impl InputEngine {
 
         // 키맵 갱신 (layout 동일이어도 영어 레이아웃과 짝이 맞도록 안전하게 재생성)
         self.keyboard_map = Some(Self::create_keyboard_map(&new_layout, &self.english_layout));
+        self.key_meta_map = Self::create_key_meta_map(&new_layout);
 
         // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
         self.korean_context = build_korean_context(config, composer_type);

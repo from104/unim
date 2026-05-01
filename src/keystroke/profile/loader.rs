@@ -86,13 +86,15 @@ mod tests {
 
     #[test]
     fn loads_all_builtin_profiles_as_v1() {
-        // Phase 6 이관 후: 모든 내장 프로필은 v1 포맷 (영문 계열은 combinations 없음).
+        // Phase 6 이관 후: 모든 내장 프로필은 v1 또는 v2 포맷.
+        // v2는 schema 확장(key_meta 등)을 담은 자판에서만 사용.
         for name in BUILTIN_NAMES {
             let profile = load_builtin_profile(name)
                 .unwrap_or_else(|e| panic!("failed to load builtin {name}: {e}"));
-            assert_eq!(
-                profile.schema_version, 1,
-                "{name}: Phase 6 이관 후 모든 내장은 v1 포맷"
+            assert!(
+                matches!(profile.schema_version, 1 | 2),
+                "{name}: 내장 프로필은 v1 또는 v2 (was {})",
+                profile.schema_version
             );
             assert!(!profile.name.is_empty(), "{name}: name 필드 있어야 함");
 

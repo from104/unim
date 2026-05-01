@@ -24,12 +24,14 @@ pub mod localized;
 pub mod registry;
 pub mod schema;
 
-pub use builder::{build_combined_jamo_map, resolve_active_rule_set_names, BuildError};
+pub use builder::{
+    build_combined_jamo_map, build_key_meta_char_map, resolve_active_rule_set_names, BuildError,
+};
 pub use inherit::{resolve as resolve_inherits, InheritError};
 pub use loader::{load_builtin_profile, parse_profile_str, LoadError};
 pub use localized::LocalizedText;
 pub use registry::{ProfileRegistry, ScanReport};
 pub use schema::{
-    CombinationsBlock, KeyLayout, LayoutMetadata, LayoutProfile, LayoutRows, RawTriple,
-    ReinterpretTriple, RuleSet,
+    CombinationsBlock, ContextAlt, ContextCondition, KeyLayout, KeyMeta, LayoutMetadata,
+    LayoutProfile, LayoutRows, RawTriple, ReinterpretTriple, RuleSet,
 };

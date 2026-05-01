@@ -1422,4 +1422,101 @@ mod tests {
         config.engine.korean.active_rule_sets = Some(vec!["__nonexistent__".to_string()]);
         let _ = InputEngine::new(&config);
     }
+
+    // ====================================================================
+    // 룰 B (schema v2 `key_meta.context_alt`) — `/` 키 컨텍스트 분기
+    // ====================================================================
+
+    fn make_3bul390_engine_no_auto_english() -> (InputEngine, Config) {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_3bul390".to_string();
+        // 룰 B 검증을 위해 auto_english 비활성 — 기본 trigger_keys에 char:/가 있어
+        // 활성 시 / 키가 auto-english 트리거로 먼저 잡힌다.
+        config.engine.auto_english.enabled = false;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        (engine, config)
+    }
+
+    /// 룰 B: preedit 빈 상태에서 영어 자판 `/` 키 → 리터럴 '/' commit
+    #[test]
+    fn test_rule_b_empty_preedit_commits_slash() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        let none = ModifierState::default();
+        let result = engine.press_key(KeyCode::Slash, none, &config);
+        assert!(result.consumed);
+        assert!(result.commit_changed);
+        assert_eq!(engine.commit_str(), "/");
+        assert!(engine.preedit_str().is_empty());
+    }
+
+    /// 룰 B: 초성 ㄱ만 채워진 상태에서 `/` → ㄱ + ㅗ로 합성 (preedit "고")
+    #[test]
+    fn test_rule_b_choseong_only_keeps_jamo() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        let none = ModifierState::default();
+        // ko_3bul390에서 'k' 키는 ㄱ (3nd 행)
+        engine.press_key(KeyCode::K, none, &config);
+        assert_eq!(engine.preedit_str(), "\u{3131}"); // ㄱ choseong-only
+
+        // 영어 자판 `/` 키 → ko_3bul390 한국어 자판의 ㅗ로 매핑됨
+        let result = engine.press_key(KeyCode::Slash, none, &config);
+        assert!(result.consumed);
+        // commit는 비어있어야 함 (음절 조합 진행 중)
+        assert!(
+            engine.commit_str().is_empty(),
+            "commit='{}'",
+            engine.commit_str()
+        );
+        assert_eq!(engine.preedit_str(), "고");
+    }
+
+    /// 룰 B: 초성+중성 채워진 상태에서 `/` → 리터럴 '/' commit (ㅘ로 합성 안 됨)
+    #[test]
+    fn test_rule_b_cho_jung_filled_commits_slash() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        let none = ModifierState::default();
+        // ㄱ → preedit "ㄱ"
+        engine.press_key(KeyCode::K, none, &config);
+        // ko_3bul390에서 'f' 키는 ㅏ (3nd 행)
+        engine.press_key(KeyCode::F, none, &config);
+        assert_eq!(engine.preedit_str(), "가");
+
+        // 영어 자판 / 입력 → preedit "가" flush + '/' commit (룰 B fallback)
+        let result = engine.press_key(KeyCode::Slash, none, &config);
+        assert!(result.consumed);
+        assert!(result.commit_changed);
+        assert!(
+            engine.commit_str().ends_with('/'),
+            "commit='{}'",
+            engine.commit_str()
+        );
+        assert!(engine.preedit_str().is_empty());
+    }
+
+    /// 룰 B: 영문 모드에서 `/` → 룰 B 미적용 (한글 분기 진입 안 함)
+    #[test]
+    fn test_rule_b_english_mode_unaffected() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        engine.set_input_category(InputCategory::English);
+        let none = ModifierState::default();
+        let _ = engine.press_key(KeyCode::Slash, none, &config);
+        // 영문 모드는 process_english_key 경로 — 룰 B 코드가 실행되지 않음.
+        // 패닉 없으면 OK.
+    }
+
+    /// 룰 B 회귀: 두벌식(ko_2bulstd)은 key_meta가 없어 룰 B 미적용
+    #[test]
+    fn test_rule_b_two_bul_no_key_meta_branch() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_2bulstd".to_string();
+        config.engine.auto_english.enabled = false;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        // 두벌식 키맵에는 key_meta가 없어 key_meta_map이 비어 있어야 함
+        assert!(
+            engine.key_meta_map.is_empty(),
+            "ko_2bulstd should have empty key_meta_map"
+        );
+    }
 }

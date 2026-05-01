@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "language": "korean",
   "name": "3bul391",
   "type": "3bul",
@@ -56,5 +56,14 @@
       { "first": "ᆸ", "second": "ᆺ", "result": "ᆹ" },
       { "first": "ᆺ", "second": "ᆺ", "result": "ᆻ" }
     ]
+  },
+  "key_meta": {
+    "/": {
+      "context_alt": {
+        "when": "choseong_only",
+        "to": "ㅗ",
+        "fallback": "/"
+      }
+    }
   }
 }

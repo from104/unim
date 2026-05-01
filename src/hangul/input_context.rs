@@ -199,6 +199,15 @@ impl HangulInputContext {
         self.composer.is_compose() || !self.preedit.is_empty()
     }
 
+    /// 현재 조합 상태가 "초성만" 채워진 상태인지 반환합니다.
+    /// 세벌식 `key_meta.context_alt.when == "choseong_only"` 분기에서 사용.
+    #[inline]
+    pub fn is_only_cho_filled(&self) -> bool {
+        self.composer.get_current_cho().is_some()
+            && self.composer.get_current_jung().is_none()
+            && self.composer.get_current_jong().is_none()
+    }
+
     /// 현재 사용 중인 컴포저 타입을 반환합니다.
     #[inline]
     pub fn get_composer_type(&self) -> ComposerType {

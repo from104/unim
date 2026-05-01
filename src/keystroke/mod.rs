@@ -183,12 +183,13 @@ mod tests {
                 "{name}: profile JSON must be non-empty"
             );
 
-            // (c) v1 profile parse 가능 + schema_version == 1
+            // (c) v1+ profile parse 가능 + schema_version >= 1 (v0 schema는 거부)
             let profile = parse_profile_str(profile_json)
                 .unwrap_or_else(|e| panic!("builtin '{name}' profile parse failed: {e}"));
-            assert_eq!(
-                profile.schema_version, 1,
-                "{name}: profile must declare schema_version == 1 (v0 schema is rejected)"
+            assert!(
+                matches!(profile.schema_version, 1 | 2),
+                "{name}: profile must declare schema_version 1 or 2 (was {}, v0 schema is rejected)",
+                profile.schema_version
             );
 
             // (d) 한글 빌트인은 combinations 필드 보유, 영문은 없음 허용
