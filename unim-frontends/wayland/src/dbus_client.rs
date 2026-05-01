@@ -89,6 +89,19 @@ pub enum DbusRequest {
         width: i32,
         height: i32,
     },
+    /// 한자 즐겨찾기 상태 일괄 조회 (현재 후보 순서와 동일).
+    /// 한자 팝업 표시 직후 한 번 호출하여 초기 ☆/★ 상태를 페인트한다.
+    GetHanjaBookmarkStates {
+        context_path: String,
+        response: Option<std_mpsc::Sender<DbusResponse>>,
+    },
+    /// 한자 즐겨찾기 토글 (마우스 우클릭 등 향후 확장 대비).
+    ///
+    /// Wayland는 popup 키를 로컬에서 처리하지 않고 모든 키를 엔진으로 보내므로
+    /// 엔진이 Space를 ToggleHanjaBookmark로 변환한다. 이 variant는 현재 호출
+    /// 경로가 없지만 다른 프런트엔드와 시그니처를 맞추어 둔다.
+    #[allow(dead_code)]
+    ToggleHanjaBookmark { context_path: String, index: u32 },
 }
 
 /// 팝업 이벤트 (시그널 기반)
@@ -114,6 +127,38 @@ pub enum PopupEvent {
         delete_chars: u32,
         commit_text: String,
         preedit_text: String,
+    },
+    /// 팝업 네비게이션 (페이지·선택 변경)
+    Navigate {
+        page: i32,
+        #[allow(dead_code)]
+        total_pages: i32,
+        #[allow(dead_code)]
+        selected: i32,
+        #[allow(dead_code)]
+        rows: i32,
+        #[allow(dead_code)]
+        cols: i32,
+        sel_row: i32,
+        sel_col: i32,
+    },
+    /// 한자 즐겨찾기 상태 변경 (엔진 → 프런트엔드)
+    HanjaBookmarkChanged { index: u32, bookmarked: bool },
+    /// 한자 후보 재정렬 (즐겨찾기 토글 직후, 커서 점프 포함)
+    HanjaCandidatesReordered {
+        #[allow(dead_code)]
+        target: String,
+        candidates: Vec<(String, String)>,
+        bookmarks: Vec<bool>,
+        new_cursor: u32,
+        #[allow(dead_code)]
+        page: i32,
+        #[allow(dead_code)]
+        sel_row: i32,
+        #[allow(dead_code)]
+        sel_col: i32,
+        #[allow(dead_code)]
+        bookmarked: bool,
     },
 }
 
@@ -156,6 +201,8 @@ pub enum DbusResponse {
         #[allow(dead_code)]
         commit: String,
     },
+    /// 한자 즐겨찾기 상태 일괄 조회 결과 (현재 후보 순서와 동일)
+    HanjaBookmarkStates { states: Vec<bool> },
 }
 
 /// DBus 클라이언트
@@ -503,6 +550,34 @@ async fn run_dbus_client(
                     let _ = proxy.report_cursor_rect(x, y, width, height).await;
                 }
             }
+
+            DbusRequest::GetHanjaBookmarkStates {
+                context_path,
+                response,
+            } => {
+                let mut states: Vec<bool> = Vec::new();
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    match proxy.get_hanja_bookmark_states().await {
+                        Ok(s) => states = s,
+                        Err(e) => {
+                            unim_log!("WAYLAND_DBUS", "GetHanjaBookmarkStates 실패: {}", e);
+                        }
+                    }
+                }
+                if let Some(tx) = response {
+                    let _ = tx.send(DbusResponse::HanjaBookmarkStates { states });
+                }
+            }
+
+            DbusRequest::ToggleHanjaBookmark {
+                context_path,
+                index,
+            } => {
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    // 엔진이 persist + HanjaBookmarkChanged/Reordered 시그널 발행
+                    let _ = proxy.toggle_hanja_bookmark(index).await;
+                }
+            }
         }
     }
 
@@ -566,6 +641,35 @@ async fn subscribe_popup_signals(
             return;
         }
     };
+    let mut navigate_stream = match proxy.receive_popup_navigate().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("WAYLAND_DBUS", "PopupNavigate 시그널 구독 실패: {}", e);
+            return;
+        }
+    };
+    let mut bookmark_stream = match proxy.receive_hanja_bookmark_changed().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!(
+                "WAYLAND_DBUS",
+                "HanjaBookmarkChanged 시그널 구독 실패: {}",
+                e
+            );
+            return;
+        }
+    };
+    let mut reordered_stream = match proxy.receive_hanja_candidates_reordered().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!(
+                "WAYLAND_DBUS",
+                "HanjaCandidatesReordered 시그널 구독 실패: {}",
+                e
+            );
+            return;
+        }
+    };
 
     unim_log!("WAYLAND_DBUS", "팝업 시그널 구독 시작: {}", context_path);
 
@@ -598,6 +702,50 @@ async fn subscribe_popup_signals(
                         delete_chars: args.delete_chars,
                         commit_text: args.commit_text.to_string(),
                         preedit_text: args.preedit_text.to_string(),
+                    });
+                }
+            }
+            Some(signal) = navigate_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::Navigate {
+                        page: args.page,
+                        total_pages: args.total_pages,
+                        selected: args.selected,
+                        rows: args.rows,
+                        cols: args.cols,
+                        sel_row: args.sel_row,
+                        sel_col: args.sel_col,
+                    });
+                }
+            }
+            Some(signal) = bookmark_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::HanjaBookmarkChanged {
+                        index: args.index,
+                        bookmarked: args.bookmarked,
+                    });
+                }
+            }
+            Some(signal) = reordered_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let candidates: Vec<(String, String)> = args
+                        .hanjas
+                        .iter()
+                        .enumerate()
+                        .map(|(i, h)| {
+                            let m = args.meanings.get(i).cloned().unwrap_or_default();
+                            (h.clone(), m)
+                        })
+                        .collect();
+                    let _ = popup_tx.send(PopupEvent::HanjaCandidatesReordered {
+                        target: args.target.to_string(),
+                        candidates,
+                        bookmarks: args.bookmarks.clone(),
+                        new_cursor: args.new_cursor,
+                        page: args.page,
+                        sel_row: args.sel_row,
+                        sel_col: args.sel_col,
+                        bookmarked: args.bookmarked,
                     });
                 }
             }

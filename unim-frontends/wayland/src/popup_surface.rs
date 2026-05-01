@@ -124,6 +124,73 @@ impl PopupSurface {
         }
     }
 
+    /// 한자 즐겨찾기 플래그 일괄 적용 + 재렌더 (ShowHanja 직후 초기 fetch).
+    pub fn apply_hanja_bookmark_flags(
+        &mut self,
+        flags: Vec<bool>,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+    ) {
+        if let Some(ref mut ps) = self.popup_state {
+            ps.set_bookmark_flags(flags);
+        }
+        self.render_and_commit(shm, qh);
+    }
+
+    /// 한자 즐겨찾기 단일 토글 반영 + 재렌더 (HanjaBookmarkChanged 시그널).
+    pub fn apply_hanja_bookmark_changed(
+        &mut self,
+        index: usize,
+        bookmarked: bool,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+    ) {
+        if let Some(ref mut ps) = self.popup_state {
+            ps.set_bookmark(index, bookmarked);
+        }
+        self.render_and_commit(shm, qh);
+    }
+
+    /// 한자 후보 재정렬 + 커서 점프 + 재렌더 (HanjaCandidatesReordered 시그널).
+    ///
+    /// 다른 프런트엔드(GTK Standalone/IM, Qt IM, GNOME extension)와 동일하게
+    /// payload의 page/sel_row/sel_col 을 직접 적용한다. set_selected_global 은
+    /// new_cursor 로 페이지·행·열을 한 번에 재계산하므로 일관된 결과를 낸다.
+    pub fn apply_hanja_candidates_reordered(
+        &mut self,
+        candidates: Vec<(String, String)>,
+        bookmarks: Vec<bool>,
+        new_cursor: u32,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+    ) {
+        if let Some(ref mut ps) = self.popup_state {
+            let (items, meanings): (Vec<String>, Vec<String>) = candidates.into_iter().unzip();
+            ps.replace_hanja_items(items, meanings, bookmarks);
+            ps.set_selected_global(new_cursor as usize);
+        }
+        self.render_and_commit(shm, qh);
+    }
+
+    /// 팝업 네비게이션(페이지·선택 변경) 적용 + 재렌더 (PopupNavigate 시그널).
+    pub fn apply_popup_navigate(
+        &mut self,
+        page: i32,
+        sel_row: i32,
+        sel_col: i32,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+    ) {
+        if let Some(ref mut ps) = self.popup_state {
+            ps.set_navigate_state(
+                page.max(0) as usize,
+                sel_row.max(0) as usize,
+                sel_col.max(0) as usize,
+            );
+        }
+        self.render_and_commit(shm, qh);
+    }
+
     /// 렌더링 + SHM 버퍼 커밋
     fn render_and_commit(&mut self, shm: &WlShm, qh: &QueueHandle<AppState>) {
         let surface = match self.surface {

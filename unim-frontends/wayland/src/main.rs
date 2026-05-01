@@ -237,9 +237,17 @@ fn main() {
                     if UnimConfig::load_from_default_path().engine.popup_mode
                         != PopupMode::Standalone
                     {
-                        if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
+                        // 1) PopupState 생성 + 첫 렌더
+                        if let (Some(shm), Some(qh)) = (app.shm.clone(), app.qh.clone()) {
                             app.popup_surface
-                                .show_hanja(shm, qh, &target, candidates, &top_row);
+                                .show_hanja(&shm, &qh, &target, candidates, &top_row);
+                        }
+                        // 2) 초기 즐겨찾기 상태 fetch 후 ☆/★ 재페인트
+                        //    (XIM handler.rs:1306 / GNOME extension.js:176 패턴)
+                        let flags = app.fetch_initial_bookmark_states();
+                        if let (Some(shm), Some(qh)) = (app.shm.clone(), app.qh.clone()) {
+                            app.popup_surface
+                                .apply_hanja_bookmark_flags(flags, &shm, &qh);
                         }
                     }
                 }
@@ -273,6 +281,39 @@ fn main() {
                         preedit_text
                     );
                     app.apply_auto_typefix(delete_chars, &commit_text, &preedit_text);
+                }
+                dbus_client::PopupEvent::Navigate {
+                    page,
+                    sel_row,
+                    sel_col,
+                    ..
+                } => {
+                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
+                        app.popup_surface
+                            .apply_popup_navigate(page, sel_row, sel_col, shm, qh);
+                    }
+                }
+                dbus_client::PopupEvent::HanjaBookmarkChanged { index, bookmarked } => {
+                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
+                        app.popup_surface.apply_hanja_bookmark_changed(
+                            index as usize,
+                            bookmarked,
+                            shm,
+                            qh,
+                        );
+                    }
+                }
+                dbus_client::PopupEvent::HanjaCandidatesReordered {
+                    candidates,
+                    bookmarks,
+                    new_cursor,
+                    ..
+                } => {
+                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
+                        app.popup_surface.apply_hanja_candidates_reordered(
+                            candidates, bookmarks, new_cursor, shm, qh,
+                        );
+                    }
                 }
             }
         }

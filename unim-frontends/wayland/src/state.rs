@@ -359,6 +359,28 @@ impl AppState {
         self.popup_surface.hide();
     }
 
+    /// 한자 팝업 표시 직후 즐겨찾기 상태 fetch (XIM handler.rs:1306 패턴).
+    ///
+    /// 엔진은 [`HanjaBookmarkChanged`]/[`HanjaCandidatesReordered`] 시그널로 변화만
+    /// 알리므로, 첫 표시 시 ☆/★ 페인트를 위해서는 한 번 동기 조회가 필요하다.
+    pub fn fetch_initial_bookmark_states(&mut self) -> Vec<bool> {
+        let (tx, rx) = std_mpsc::channel();
+        if self
+            .dbus_tx
+            .blocking_send(DbusRequest::GetHanjaBookmarkStates {
+                context_path: self.context_path.clone(),
+                response: Some(tx),
+            })
+            .is_err()
+        {
+            return Vec::new();
+        }
+        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(DbusResponse::HanjaBookmarkStates { states }) => states,
+            _ => Vec::new(),
+        }
+    }
+
     /// 키 반복 타이머 만료 처리
     pub fn handle_repeat_timer(&mut self) {
         let count = self.repeat_timer.read().unwrap_or(0);

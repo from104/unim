@@ -40,35 +40,30 @@ pub struct RenderedPopup {
 pub fn render_popup(state: &PopupState) -> RenderedPopup {
     match state.kind() {
         PopupKind::Hanja => {
-            let items = state.hanja_page_items();
-            let candidates: Vec<(String, String)> = items
-                .iter()
-                .map(|(h, m)| (h.to_string(), m.to_string()))
-                .collect();
-            // 전체 후보 목록을 재구성하지 않고, 현재 페이지 데이터만 렌더링
-            render_hanja_page(
-                state.target(),
-                &candidates,
-                state.sel_row(),
-                state.current_page(),
-                state.total_pages(),
-            )
+            if state.is_hanja_expanded() {
+                render_hanja_expanded(state)
+            } else {
+                render_hanja_compact(state)
+            }
         }
         PopupKind::SpecialChar => render_special_from_state(state),
     }
 }
 
-/// 한자 팝업 페이지 렌더링 (이미 슬라이스된 페이지 항목)
-fn render_hanja_page(
-    target: &str,
-    page_items: &[(String, String)],
-    selected: usize,
-    current_page: usize,
-    total_pages: usize,
-) -> RenderedPopup {
+/// 한자 팝업 compact(1×9) 모드 렌더링.
+///
+/// 행 우측에 ☆/★ 표시(즐겨찾기 여부)를 추가하고, 즐겨찾기 셀의 한자 글자색을
+/// Catppuccin yellow(#f9e2af, [`YELLOW`]) 로 강조하여 다른 프런트엔드(XIM,
+/// GTK Standalone, GTK IM, Qt IM, GNOME extension)와 시각 일관성을 맞춘다.
+fn render_hanja_compact(state: &PopupState) -> RenderedPopup {
+    let target = state.target();
+    let page_items = state.hanja_page_items();
+    let selected = state.sel_row();
+    let current_page = state.current_page();
+    let total_pages = state.total_pages();
     let item_count = page_items.len();
 
-    let width = 340u32;
+    let width = 360u32;
     let height = (PADDING + HEADER_H + 4.0 + (item_count as f32) * ROW_H + ROW_H + PADDING) as u32;
 
     let mut pixmap = Pixmap::new(width, height).unwrap();
@@ -110,9 +105,15 @@ fn render_hanja_page(
         OVERLAY0,
     );
 
+    let page_size = 9; // compact 모드 page_size (HANJA_PAGE_SIZE)
     let items_y = PADDING + HEADER_H + 4.0;
+    let star_w = 18.0;
+    let star_x = width as f32 - PADDING - star_w;
     for (i, (hanja, meaning)) in page_items.iter().enumerate() {
         let row_y = items_y + (i as f32) * ROW_H;
+        let global_idx = current_page * page_size + i;
+        let bookmarked = state.is_bookmarked(global_idx);
+
         if i == selected {
             fill_rect(
                 &mut pixmap,
@@ -136,6 +137,8 @@ fn render_hanja_page(
             OVERLAY1,
             24.0,
         );
+        // 즐겨찾기는 한자 글자색을 노랑으로 강조 (XIM hanja_window.rs:1007 패턴).
+        let hanja_color = if bookmarked { YELLOW } else { TEXT };
         draw_text(
             &mut pixmap,
             &mut font_system,
@@ -144,7 +147,7 @@ fn render_hanja_page(
             PADDING + 28.0,
             text_y,
             FONT_SIZE + 2.0,
-            TEXT,
+            hanja_color,
             60.0,
         );
         if !meaning.is_empty() {
@@ -157,9 +160,23 @@ fn render_hanja_page(
                 text_y + 2.0,
                 FONT_SIZE - 2.0,
                 SUBTEXT0,
-                width as f32 - PADDING * 2.0 - 90.0,
+                width as f32 - PADDING * 2.0 - 90.0 - star_w - 4.0,
             );
         }
+        // ☆/★ 별 표시 (행 우측 끝). XIM hanja_window.rs:851 패턴.
+        let star_text = if bookmarked { "★" } else { "☆" };
+        let star_color = if bookmarked { YELLOW } else { OVERLAY0 };
+        draw_text(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            star_text,
+            star_x,
+            text_y,
+            FONT_SIZE,
+            star_color,
+            star_w,
+        );
     }
 
     let footer_y = items_y + (item_count as f32) * ROW_H + 4.0;
@@ -167,7 +184,7 @@ fn render_hanja_page(
         &mut pixmap,
         &mut font_system,
         &mut swash_cache,
-        "← → 페이지 | 1~9 선택 | ESC 취소",
+        "← → 페이지 | 1~9 선택 | Space ★ | . 확장 | ESC 취소",
         PADDING,
         footer_y,
         FONT_SIZE - 3.0,
@@ -178,10 +195,164 @@ fn render_hanja_page(
     let pixels = rgba_to_argb32(pixmap.data());
     unim_log!(
         "WAYLAND",
-        "한자 팝업 렌더링: {}×{}, {} 후보",
+        "한자 팝업 렌더링(compact): {}×{}, {} 후보",
         width,
         height,
         item_count
+    );
+    RenderedPopup {
+        pixels,
+        width,
+        height,
+    }
+}
+
+/// 한자 팝업 expanded(9×9) 모드 렌더링.
+///
+/// 특수문자 그리드와 같은 9×9 셀 레이아웃이며, 즐겨찾기된 한자는 셀 글자색을
+/// Catppuccin yellow(#f9e2af) 로 강조한다 (XIM hanja_window.rs:1005~1015 패턴).
+fn render_hanja_expanded(state: &PopupState) -> RenderedPopup {
+    let rows = state.rows();
+    let cols = state.cols();
+    let sel_row = state.sel_row();
+    let sel_col = state.sel_col();
+    let current_page = state.current_page();
+    let total_pages = state.total_pages();
+    let target = state.target();
+
+    let row_header_w = 24.0f32;
+    let header_h = CELL_SIZE;
+    let footer_h = 24.0f32;
+
+    let width = (row_header_w + (cols as f32) * CELL_SIZE + PADDING) as u32;
+    let height = (HEADER_H + header_h + (rows as f32) * CELL_SIZE + footer_h + PADDING) as u32;
+
+    let mut pixmap = Pixmap::new(width, height).unwrap();
+    fill_rect(&mut pixmap, 0.0, 0.0, width as f32, height as f32, BASE);
+
+    let mut font_system = FontSystem::new();
+    let mut swash_cache = SwashCache::new();
+
+    // 헤더
+    fill_rect(
+        &mut pixmap,
+        4.0,
+        4.0,
+        width as f32 - 8.0,
+        HEADER_H - 4.0,
+        SURFACE0,
+    );
+    let header_text = format!("「{}」 → 한자", target);
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &header_text,
+        PADDING,
+        6.0,
+        FONT_SIZE - 1.0,
+        BLUE,
+        width as f32 - PADDING * 2.0,
+    );
+
+    let top_row_chars: Vec<char> = state.top_row().chars().collect();
+
+    // 열 헤더 (top_row 또는 1~9)
+    let col_header_y = HEADER_H;
+    for c in 0..cols {
+        let label = if c < top_row_chars.len() {
+            top_row_chars[c].to_string()
+        } else {
+            format!("{}", c + 1)
+        };
+        let color = if c == sel_col { BLUE } else { OVERLAY0 };
+        let cx = row_header_w + (c as f32) * CELL_SIZE;
+        draw_text_centered(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &label,
+            cx,
+            col_header_y,
+            CELL_SIZE,
+            CELL_SIZE,
+            FONT_SIZE - 2.0,
+            color,
+        );
+    }
+
+    // 행 번호 + 셀
+    let grid_y = HEADER_H + header_h;
+    for r in 0..rows {
+        let ry = grid_y + (r as f32) * CELL_SIZE;
+        let label = format!("{}", r + 1);
+        let color = if r == sel_row { BLUE } else { OVERLAY0 };
+        draw_text_centered(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &label,
+            0.0,
+            ry,
+            row_header_w,
+            CELL_SIZE,
+            FONT_SIZE - 2.0,
+            color,
+        );
+
+        for c in 0..cols {
+            if let Some(ch) = state.cell_text(r, c) {
+                let cx = row_header_w + (c as f32) * CELL_SIZE;
+                let is_selected = r == sel_row && c == sel_col;
+                if is_selected {
+                    fill_rect(&mut pixmap, cx, ry, CELL_SIZE, CELL_SIZE, SEL_HANJA_BG);
+                }
+                // expanded 모드 col 우선 인덱싱 (popup_layout.rs:114-127)
+                let global = current_page * (rows * cols) + c * rows + r;
+                let bookmarked = state.is_bookmarked(global);
+                let cell_color = if bookmarked { YELLOW } else { TEXT };
+                draw_text_centered(
+                    &mut pixmap,
+                    &mut font_system,
+                    &mut swash_cache,
+                    ch,
+                    cx,
+                    ry,
+                    CELL_SIZE,
+                    CELL_SIZE,
+                    FONT_SIZE,
+                    cell_color,
+                );
+            }
+        }
+    }
+
+    // 푸터
+    let footer_y = grid_y + (rows as f32) * CELL_SIZE + 4.0;
+    let footer_text = format!(
+        "{}/{}  Space ★ | . 축소 | ESC 취소",
+        current_page + 1,
+        total_pages.max(1)
+    );
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &footer_text,
+        PADDING,
+        footer_y,
+        FONT_SIZE - 3.0,
+        OVERLAY0,
+        width as f32 - PADDING * 2.0,
+    );
+
+    let pixels = rgba_to_argb32(pixmap.data());
+    unim_log!(
+        "WAYLAND",
+        "한자 팝업 렌더링(expanded): {}×{}, {} 페이지",
+        width,
+        height,
+        total_pages
     );
     RenderedPopup {
         pixels,
