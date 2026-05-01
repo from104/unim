@@ -364,7 +364,7 @@ impl HanjaWindow {
             // 9 cells × ~32px + col-header 행 = 9 + 1 = 10 rows
             let grid_rows = (EXPANDED_ROWS + 1) as c_int;
             let h = (padding_y + header_h + gap + grid_rows * line_h + footer_h + padding_y) as u16;
-            (dpi::scale_u16(420, sf), h)
+            (dpi::scale_u16(440, sf), h)
         } else {
             let page_count = ps.rows();
             let items_h = (page_count as c_int) * line_h;
@@ -516,7 +516,7 @@ impl HanjaWindow {
         let (width, height) = if ps.is_hanja_expanded() {
             let grid_rows = (EXPANDED_ROWS + 1) as c_int;
             let h = (padding_y + header_h + gap + grid_rows * line_h + footer_h + padding_y) as u16;
-            (dpi::scale_u16(420, sf), h)
+            (dpi::scale_u16(440, sf), h)
         } else {
             let page_count = ps.rows();
             let items_h = (page_count as c_int) * line_h;
@@ -952,9 +952,13 @@ impl HanjaWindow {
             );
         }
 
-        // 셀 너비 = (가용 폭) / 9
-        let avail_w = (self.size.0 as c_int) - 2 * padding_x;
+        // 좌측 행 번호 영역 폭 (UX 일관성: special·GTK·Qt·GNOME과 동일하게 행 번호 헤더 노출)
+        let row_label_w = dpi::scale(20, sf);
+
+        // 셀 너비 = (가용 폭 - 행 번호 영역) / 9
+        let avail_w = (self.size.0 as c_int) - 2 * padding_x - row_label_w;
         let cell_w = avail_w / EXPANDED_COLS as c_int;
+        let grid_left = padding_x + row_label_w;
         let grid_top = padding_y + header_h + dpi::scale(4, sf);
 
         // 컬럼 헤더 — special과 동일하게 가로 레이블 키 시퀀스(Q/W/E/.../O).
@@ -962,7 +966,7 @@ impl HanjaWindow {
         const TOP_ROW: &[u8] = b"QWERTYUIO";
         for col in 0..EXPANDED_COLS {
             let label = (TOP_ROW[col] as char).to_string();
-            let cx = padding_x + (col as c_int) * cell_w + cell_w / 2 - dpi::scale(4, sf);
+            let cx = grid_left + (col as c_int) * cell_w + cell_w / 2 - dpi::scale(4, sf);
             let cy = grid_top + line_h - text_offset;
             let color = if col == sel_col {
                 &self.header_color
@@ -974,6 +978,20 @@ impl HanjaWindow {
 
         // 셀 배치 — col 우선 인덱싱
         let cells_top = grid_top + line_h;
+
+        // 행 번호 헤더 (좌측 1..9). sel_row면 header_color, 아니면 number_color.
+        for row in 0..EXPANDED_ROWS {
+            let label = format!("{}", row + 1);
+            let rx = padding_x + dpi::scale(4, sf);
+            let ry = cells_top + (row as c_int) * line_h + line_h - text_offset;
+            let color = if row == sel_row {
+                &self.header_color
+            } else {
+                &self.number_color
+            };
+            self.draw_string_with_fallback(display, color, rx, ry, &label);
+        }
+
         for col in 0..EXPANDED_COLS {
             for row in 0..EXPANDED_ROWS {
                 let offset = col * EXPANDED_ROWS + row;
@@ -982,7 +1000,7 @@ impl HanjaWindow {
                     Some(s) => s,
                     None => continue,
                 };
-                let cx = padding_x + (col as c_int) * cell_w;
+                let cx = grid_left + (col as c_int) * cell_w;
                 let cy = cells_top + (row as c_int) * line_h;
                 // 선택 셀 배경
                 if col == sel_col && row == sel_row {
