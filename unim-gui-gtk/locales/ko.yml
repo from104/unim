@@ -44,7 +44,7 @@ popup_mode_embedded: "내장 (Embedded)"
 group_auto_english: "자동 영문 전환"
 row_auto_english_enable: "자동 영문 전환 사용"
 row_auto_english_triggers: "트리거 키"
-row_auto_english_triggers_subtitle: "쉼표로 구분. Shift 조합은 ShiftSemicolon 형식 (예: Escape, Slash, ShiftSlash)"
+row_auto_english_triggers_subtitle: "쉼표 구분. key:<이름> 은 KeyCode 비교, char:<문자> 는 키맵 산출 문자 비교 (비-QWERTY 안전). 예: key:Escape, char:/, char:,"
 
 # 자판 옵션 페이지
 group_layout_options_empty: "이 자판은 옵션 규칙이 없습니다."
@@ -174,7 +174,7 @@ row_popup_mode_tooltip: "Wayland 환경(GNOME/KDE/Sway)에서는 Standalone만 �
 
 # 일반 > 자동 영문 전환
 row_auto_english_enable_tooltip: "vim/Emacs/터미널 사용자에게 추천. 비밀번호 필드는 이미 강제 영문이라 영향 없음."
-row_auto_english_triggers_tooltip: "한/영 토글 키와 겹치면 토글이 우선이라 자동 전환이 발동하지 않습니다."
+row_auto_english_triggers_tooltip: "char:<문자> 는 한국어 레이아웃과 무관하게 산출 문자를 비교 (세벌식390 의 '/' 도 정상 발동). Shift 무관 — '/' 와 '?' 를 구분하려면 둘 다 등록. 한/영 토글 키와 겹치면 토글이 우선."
 
 # 오타 교정 > 순방향
 row_typefix_forward_enable_tooltip: "영문 코드 작성 시 노이즈가 많으면 OFF 권장. 일상 글쓰기는 ON이 편합니다."

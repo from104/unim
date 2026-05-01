@@ -5,7 +5,7 @@
 //! 분산 `impl InputEngine` 블록으로 구현된다.
 
 use super::build_korean_context;
-use super::types::{InputResult, PopupAction};
+use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
 use crate::config::{Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
@@ -35,11 +35,11 @@ pub struct InputEngine {
     /// 한국어 키보드 레이아웃 설정 캐시
     pub(super) korean_layout: KoreanLayout,
     /// 한자 사전 (Arc로 래핑하여 공유)
-    pub(super) hanja_dict: std::sync::Arc<crate::hangul::HanjaDictionary>,
+    pub(super) hanja_dict: std::sync::Arc<crate::hanja::HanjaDictionary>,
     /// 한자 즐겨찾기 저장소 (영구 저장)
-    pub(super) hanja_bookmarks: crate::hangul::HanjaBookmarkStore,
+    pub(super) hanja_bookmarks: crate::hanja::HanjaBookmarkStore,
     /// 현재 한자 후보 목록
-    pub(super) hanja_candidates: Vec<crate::hangul::HanjaEntry>,
+    pub(super) hanja_candidates: Vec<crate::hanja::HanjaEntry>,
     /// 한자 선택 모드 활성화 여부
     pub(super) hanja_mode: bool,
     /// 한자 변환 대상 문자열 (preedit 또는 마지막 음절)
@@ -54,12 +54,15 @@ pub struct InputEngine {
     pub(super) toggle_keys: Vec<KeyCode>,
     /// 자동 영문 전환 활성화 여부 (설정 캐시)
     pub(super) auto_english_enabled: bool,
-    /// 자동 영문 전환 트리거 (파싱된 `(KeyCode, Shift 조건)` 캐시)
+    /// 자동 영문 전환 트리거 (파싱된 카테고리별 캐시)
     ///
-    /// - `(code, None)`: shift 무관 매칭 (Escape 등 제어 키)
-    /// - `(code, Some(true))`: shift 필수 (문자 키의 shift 문자. 예: `ShiftSemicolon` → `:`)
-    /// - `(code, Some(false))`: shift 없어야 함 (기본 문자 키. 예: `Slash` → `/`)
-    pub(super) auto_english_triggers: Vec<(KeyCode, Option<bool>)>,
+    /// 두 카테고리:
+    /// - `Functional { code, shift }`: KeyCode 비교 (Escape/Tab/F*/Shift 명시 문자)
+    /// - `Character(ch)`: keymap 산출 char 비교 (비-QWERTY 한국어 레이아웃 안전)
+    ///
+    /// 표기 문법: `key:Escape` / `char:/` (접두사). 무접두사는 legacy 호환으로
+    /// `Functional` 로 흡수한다.
+    pub(super) auto_english_triggers: Vec<AutoEnglishTrigger>,
     /// 이모지 팝업 트리거 (modifier, keycode) 쌍 목록
     pub(super) emoji_triggers: Vec<(ModifierState, KeyCode)>,
     /// 이모지 팝업 기능 활성 여부
@@ -105,7 +108,7 @@ impl InputEngine {
         let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
         // 한자 사전 초기화 (한 번만 로드하여 Arc로 공유)
-        let hanja_dict = std::sync::Arc::new(crate::hangul::HanjaDictionary::new());
+        let hanja_dict = std::sync::Arc::new(crate::hanja::HanjaDictionary::new());
 
         Self {
             input_category: config.engine.default_category,
@@ -117,7 +120,7 @@ impl InputEngine {
             korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout.clone(),
             hanja_dict,
-            hanja_bookmarks: crate::hangul::HanjaBookmarkStore::load_default(),
+            hanja_bookmarks: crate::hanja::HanjaBookmarkStore::load_default(),
             hanja_candidates: Vec::new(),
             hanja_mode: false,
             hanja_target: String::new(),

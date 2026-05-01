@@ -1,11 +1,14 @@
 pub mod auto_typefix;
 pub mod config;
+pub mod emoji;
 pub mod hangul;
+pub mod hanja;
 pub mod input_engine;
 pub mod keycode;
 pub mod keystroke;
 pub mod logging;
 pub mod popup;
+pub mod special_chars;
 pub mod status;
 pub mod typefix;
 pub mod typefix_blacklist;

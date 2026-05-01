@@ -9,10 +9,9 @@
 //! 위해, 빈 키워드 검색은 인기 이모지를, 카테고리 ID 검색은 해당 카테고리 전체를
 //! 반환합니다.
 
-#[path = "emoji_data.rs"]
-mod emoji_data;
-
-pub use emoji_data::{EmojiCategoryInfo, EmojiDatum, CATEGORIES, EMOJIS, TOTAL_EMOJIS};
+#[cfg(test)]
+use super::data::TOTAL_EMOJIS;
+use super::data::{CATEGORIES, EMOJIS};
 
 /// 이모지 항목 (레거시 — 외부 호환용)
 ///

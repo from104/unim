@@ -680,8 +680,9 @@ fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title(t!("group_auto_english"))
         .description(
-            "지정된 키(기본: Escape, Slash)를 한글 모드에서 입력하면 \
-             조합을 커밋하고 영문 모드로 전환합니다 (vi/CLI 명령 호환).",
+            "지정된 키(기본: key:Escape, char:/)를 한글 모드에서 입력하면 \
+             조합을 커밋하고 영문 모드로 전환합니다 (vi/CLI 명령 호환). \
+             char:<문자> 는 한국어 레이아웃과 무관하게 산출 문자를 비교합니다.",
         )
         .build();
 

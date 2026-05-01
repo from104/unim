@@ -1,11 +1,11 @@
 //! Press 계열 키 처리 hot path.
 //!
 //! `press_key_code`/`press_key`/`process_korean_key`/`process_english_key`/
-//! `parse_trigger_key`/`is_auto_english_trigger` + preedit/상태 helper들을 한 파일에 묶어
+//! `parse_trigger_key`/`match_auto_english_trigger` + preedit/상태 helper들을 한 파일에 묶어
 //! 인라인 가능성을 보존한다.
 
 use super::engine::InputEngine;
-use super::types::{InputResult, PopupAction};
+use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
 use crate::config::{Config, InputCategory};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
@@ -146,17 +146,25 @@ impl InputEngine {
 
         // 자동 영문 전환 (opt-in): 지정 트리거 키 입력 시 조합 커밋 + 영문 모드로 영구 전환.
         // 제어 키(Escape/Tab/Enter 등)는 passthrough, 문자 키(`/`/`:` 등)는 해당 문자 commit.
-        if self.is_auto_english_trigger(keycode, modifier) {
+        if let Some(trigger) = self.match_auto_english_trigger(keycode, modifier) {
             let was_composing = self.korean_context.is_composing();
             if was_composing {
                 self.flush_preedit();
             }
             self.set_input_category(InputCategory::English);
 
-            let produced = if modifier.shift {
-                keycode.to_shifted_char()
-            } else {
-                keycode.to_char()
+            let produced = match trigger {
+                // Functional: 종전대로 QWERTY 영문 char 산출 (대부분 None — passthrough).
+                AutoEnglishTrigger::Functional { .. } => {
+                    if modifier.shift {
+                        keycode.to_shifted_char()
+                    } else {
+                        keycode.to_char()
+                    }
+                }
+                // Character: 트리거 등록 char 그대로 commit (비-QWERTY 한국어 안전).
+                // 매칭 단계에서 이미 `produces_char_in_korean(...) == Some(ch)` 가 보장됐다.
+                AutoEnglishTrigger::Character(ch) => Some(ch),
             };
 
             if let Some(c) = produced {
@@ -356,19 +364,42 @@ impl InputEngine {
         InputResult::not_consumed()
     }
 
-    /// Config 의 자동 영문 전환 트리거 이름을 `(KeyCode, shift 조건)`으로 파싱합니다.
+    /// Config 의 자동 영문 전환 트리거 이름을 `AutoEnglishTrigger` 로 파싱합니다.
     ///
-    /// `"Shift"` 접두사가 있으면 Shift 필수로 해석합니다.
-    /// 문자 키(기호·숫자)는 접두사가 없으면 Shift 없을 때만 매칭되도록 제한하고,
-    /// 제어 키(Escape/Tab/Enter/F*/Arrows 등)는 Shift 무관으로 매칭합니다.
+    /// 표기 문법(접두사 기반):
+    /// - `"key:<Name>"`     — `Functional`. `<Name>` 은 `KeyCode::from_name` 호환,
+    ///                         `"Shift<Name>"` 가상 이름 허용 (예: `key:ShiftSemicolon`).
+    /// - `"char:<문자>"`    — `Character`. `<문자>` 의 첫 char 만 사용 (예: `char:/`).
+    /// - 무접두사 (legacy)  — 종전 규칙대로 `Functional` 로 흡수
+    ///                         (`Escape` / `Slash` / `ShiftSemicolon` 등 호환).
     ///
     /// # Returns
     ///
-    /// - `Some((code, None))`: Shift 무관
-    /// - `Some((code, Some(true)))`: Shift 필수
-    /// - `Some((code, Some(false)))`: Shift 없을 때만
-    /// - `None`: 알 수 없는 이름
-    pub(super) fn parse_trigger_key(name: &str) -> Option<(KeyCode, Option<bool>)> {
+    /// - `Some(AutoEnglishTrigger::Functional { … })`
+    /// - `Some(AutoEnglishTrigger::Character(ch))`
+    /// - `None` — 알 수 없는 이름 / 빈 char
+    pub(super) fn parse_trigger_key(name: &str) -> Option<AutoEnglishTrigger> {
+        if let Some(rest) = name.strip_prefix("char:") {
+            let ch = rest.chars().next()?;
+            return Some(AutoEnglishTrigger::Character(ch));
+        }
+
+        if let Some(rest) = name.strip_prefix("key:") {
+            let (code, shift) = Self::parse_functional_name(rest)?;
+            return Some(AutoEnglishTrigger::Functional { code, shift });
+        }
+
+        // legacy: 접두사 없이 KeyCode 이름 또는 "Shift<Name>" 만 들어온 경우
+        // → Functional 로 흡수해 100% 호환성 유지.
+        let (code, shift) = Self::parse_functional_name(name)?;
+        Some(AutoEnglishTrigger::Functional { code, shift })
+    }
+
+    /// `key:` 접두사 분기와 legacy 분기에서 공유하는 KeyCode 파서.
+    ///
+    /// `"Shift<Name>"` 는 Shift 필수, 문자 키(알파벳/숫자/기호)는 Shift 없을 때만,
+    /// 제어 키(Escape/Tab/Enter/F*/Arrows …)는 Shift 무관으로 매핑한다.
+    fn parse_functional_name(name: &str) -> Option<(KeyCode, Option<bool>)> {
         if let Some(stripped) = name.strip_prefix("Shift") {
             let code = KeyCode::from_name(stripped);
             if code == KeyCode::Unknown {
@@ -439,29 +470,63 @@ impl InputEngine {
         Some((code, if shift_sensitive { Some(false) } else { None }))
     }
 
-    /// 이 키 입력이 자동 영문 전환 트리거에 해당하는지 판정합니다.
+    /// 이 키 입력에 매칭되는 자동 영문 트리거가 있으면 그 트리거를 반환.
     ///
-    /// 활성화되어 있고, 현재 한글 모드이며, `(keycode, shift)` 조합이
-    /// 사전 파싱된 트리거 목록 중 하나와 일치할 때만 `true`.
-    pub(super) fn is_auto_english_trigger(
+    /// 활성화 + 한글 모드에서만 평가.
+    ///
+    /// - `Functional { code, shift }` — `(keycode, shift)` 직접 비교.
+    /// - `Character(ch)` — 키맵 거친 산출 char 비교. 한국어 자판이 비-QWERTY
+    ///   (예: 세벌식390) 인 경우엔 KeyboardMap 의 `Special(ch)` 매핑까지 확인하여
+    ///   해당 자판에서 산출되는 실제 문자(`'/'` 등) 와 비교한다.
+    pub(super) fn match_auto_english_trigger(
         &self,
         keycode: KeyCode,
         modifier: ModifierState,
-    ) -> bool {
+    ) -> Option<AutoEnglishTrigger> {
         if !self.auto_english_enabled {
-            return false;
+            return None;
         }
         if self.input_category != InputCategory::Korean {
-            return false;
+            return None;
         }
-        self.auto_english_triggers.iter().any(|(code, shift_req)| {
-            *code == keycode
-                && match shift_req {
-                    None => true,
-                    Some(required) => *required == modifier.shift,
+        self.auto_english_triggers
+            .iter()
+            .find(|t| match t {
+                AutoEnglishTrigger::Functional { code, shift } => {
+                    *code == keycode
+                        && match shift {
+                            None => true,
+                            Some(required) => *required == modifier.shift,
+                        }
                 }
-        })
+                AutoEnglishTrigger::Character(ch) => {
+                    self.produces_char_in_korean(keycode, modifier.shift) == Some(*ch)
+                }
+            })
+            .copied()
     }
+
+    /// 한국어 모드에서 `(keycode, shift)` 가 어떤 char 를 산출할지 계산한다.
+    ///
+    /// 산출 경로:
+    /// 1. `english_keymap.get_char` 로 영문 자판의 char 를 얻는다 (e.g. `'G'`).
+    /// 2. KoreanLayout 의 `keyboard_map` 에서 그 char 를 lookup.
+    ///    - `Some(JamoEnum::Special(ch))` 면 그 자판이 의도한 비-자모 char (e.g. 세벌식390 의 `'/'`).
+    ///    - `Some(JamoEnum::Cho/Jung/Jong)` 면 한글 자모이므로 char 산출 없음 → `None`.
+    ///    - 매핑이 없으면(QWERTY std 에서 기호 등) 영문 char 를 그대로 사용.
+    /// 3. `keyboard_map` 자체가 없으면 영문 char 를 그대로 사용.
+    fn produces_char_in_korean(&self, keycode: KeyCode, shift: bool) -> Option<char> {
+        let en_ch = self.english_keymap.get_char(keycode, shift)?;
+        let Some(ref kmap) = self.keyboard_map else {
+            return Some(en_ch);
+        };
+        match kmap.get(&en_ch) {
+            Some(JamoEnum::Special(c)) => Some(*c),
+            Some(_) => None, // 자모로 매핑됨 → char 산출 아님
+            None => Some(en_ch),
+        }
+    }
+
 
     /// preedit 캐시를 업데이트합니다.
     pub(super) fn update_preedit_cache(&mut self) {

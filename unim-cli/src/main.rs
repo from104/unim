@@ -389,7 +389,7 @@ enum ConfigKey {
     /// 자동 영문 모드 전환 활성화 (true, false)
     #[value(name = "auto-english")]
     AutoEnglish,
-    /// 자동 영문 전환 트리거 키 (예: Escape,Slash,ShiftSlash)
+    /// 자동 영문 전환 트리거 키 (예: key:Escape,char:/,char:,)
     #[value(name = "auto-english-keys")]
     AutoEnglishKeys,
     /// 앱별 모드 규칙 (JSON 형식)
