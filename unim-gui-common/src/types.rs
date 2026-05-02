@@ -65,8 +65,7 @@ pub enum GuiAction {
     ///
     /// PR #2 (emoji overhaul, OPTION X engine-driven): payload 가 한자/특수문자처럼
     /// 카테고리·페이지·MRU 데이터를 통째로 담는다 (`ShowEmojiPopupV2` 시그널).
-    /// 옛 `ShowEmojiPopup` 시그널 (cursor 만) 은 dbus_client 에서 v2 가 도착하면
-    /// drop 되어 중복 표시를 막는다 — PR #5 에서 v1 시그널 자체 제거 예정.
+    /// PR #5 cleanup 으로 옛 4-인자 `ShowEmojiPopup` 시그널은 완전히 제거됐다.
     ShowEmojiPopup {
         context_path: String,
         /// 시작 카테고리 id ("Recent"/"SmileysPeople"/.../"Flags").

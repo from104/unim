@@ -265,6 +265,31 @@ fn main() {
                         }
                     }
                 }
+                dbus_client::PopupEvent::ShowEmoji {
+                    target_cat_id,
+                    items,
+                    top_row,
+                    recent,
+                    categories,
+                } => {
+                    // Embedded 모드에서만 자체 surface 표시.
+                    // Standalone 모드에서는 GTK standalone GUI / GNOME extension 이 처리.
+                    if UnimConfig::load_from_default_path().engine.popup_mode
+                        != PopupMode::Standalone
+                    {
+                        if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
+                            app.popup_surface.show_emoji(
+                                shm,
+                                qh,
+                                &target_cat_id,
+                                items,
+                                &top_row,
+                                recent,
+                                categories,
+                            );
+                        }
+                    }
+                }
                 dbus_client::PopupEvent::Hide => {
                     app.popup_surface.hide();
                 }

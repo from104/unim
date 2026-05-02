@@ -102,6 +102,49 @@ impl PopupSurface {
         self.render_and_commit(shm, qh);
     }
 
+    /// 이모지 팝업 표시 (PR #5 — `ShowEmojiPopupV2` 시그널 핸들러).
+    ///
+    /// `categories` 는 시그널 튜플 형식 `(id, ko, en, count)` 9개 — 본 함수에서
+    /// `EmojiCatMeta` 로 변환하여 [`PopupState::new_emoji`] 에 전달한다.
+    #[allow(clippy::too_many_arguments)]
+    pub fn show_emoji(
+        &mut self,
+        shm: &WlShm,
+        qh: &QueueHandle<AppState>,
+        target_cat_id: &str,
+        items: Vec<String>,
+        top_row: &str,
+        recent: Vec<String>,
+        categories: Vec<(String, String, String, u32)>,
+    ) {
+        let categories: Vec<unim::popup::EmojiCatMeta> = categories
+            .into_iter()
+            .map(|(id, ko, en, count)| unim::popup::EmojiCatMeta {
+                id,
+                label_ko: ko,
+                label_en: en,
+                total: count as usize,
+            })
+            .collect();
+        let cat_index = categories
+            .iter()
+            .position(|c| c.id.eq_ignore_ascii_case(target_cat_id))
+            .unwrap_or(0);
+        let total_in_cat = categories
+            .get(cat_index)
+            .map(|c| c.total)
+            .unwrap_or(items.len());
+        self.popup_state = Some(PopupState::new_emoji(
+            cat_index,
+            items,
+            total_in_cat,
+            top_row,
+            categories,
+            recent,
+        ));
+        self.render_and_commit(shm, qh);
+    }
+
     /// 팝업 숨기기
     pub fn hide(&mut self) {
         if let Some(ref surface) = self.surface {

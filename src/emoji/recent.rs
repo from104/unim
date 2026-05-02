@@ -11,7 +11,8 @@
 //!   3. `RECENT_MAX` 초과 분은 뒤에서 잘라낸다 (LRU eviction).
 //!
 //! 검색(`search.rs`) 과 즐겨찾기(`favorites_path`/`load_favorites`/`touch_favorite`/
-//! `FAVORITES_MAX`) 는 폐기됐다. 외부 호환성은 PR #5 cleanup 에서 정리한다.
+//! `FAVORITES_MAX`) 는 PR #1 에서 폐기됐고 PR #5 cleanup 에서 backward-compat
+//! shim 도 함께 제거됐다.
 
 use super::data::{CATEGORIES, EMOJIS};
 use std::path::PathBuf;
@@ -80,62 +81,6 @@ pub fn list_categories() -> Vec<(String, String, String, u32)> {
             )
         })
         .collect()
-}
-
-// =====================================================================
-// PR #1 backward-compat shims — GUI/extension 마이그레이션이 끝날 때까지
-// 깨지지 않도록 옛 API 이름을 유지한다. PR #5 cleanup 에서 제거.
-// =====================================================================
-
-/// 옛 즐겨찾기 경로 — `recent_path` 의 별칭. **DEPRECATED**.
-#[deprecated(note = "PR #1: rename to recent_path")]
-pub fn favorites_path() -> Option<PathBuf> {
-    recent_path()
-}
-
-/// 옛 즐겨찾기 최대 보관 개수 — `RECENT_MAX` 별칭. **DEPRECATED**.
-#[deprecated(note = "PR #1: rename to RECENT_MAX")]
-pub const FAVORITES_MAX: usize = RECENT_MAX;
-
-/// 옛 즐겨찾기 읽기 — `load_recent` 별칭. **DEPRECATED**.
-#[deprecated(note = "PR #1: rename to load_recent")]
-pub fn load_favorites() -> Vec<String> {
-    load_recent()
-}
-
-/// 옛 즐겨찾기 MRU 갱신 — `touch_recent` 별칭. **DEPRECATED**.
-#[deprecated(note = "PR #1: rename to touch_recent")]
-pub fn touch_favorite(emoji: &str) -> Vec<String> {
-    touch_recent(emoji)
-}
-
-/// 옛 검색 API — 검색은 PR #1 에서 폐기됐다. 항상 빈 vec 반환. **DEPRECATED**.
-#[deprecated(note = "PR #1: emoji search removed")]
-pub fn search_emoji(_keyword: &str) -> Vec<char> {
-    Vec::new()
-}
-
-/// 옛 검색 API (string) — 검색은 PR #1 에서 폐기됐다. **DEPRECATED**.
-///
-/// 빈 키워드일 때만 비어있지 않은 fallback (Recent 또는 SmileysPeople 카테고리)
-/// 을 반환하여 옛 GUI 의 "기본 표시" 동작을 보존한다.
-#[deprecated(note = "PR #1: emoji search removed; use category_emojis or load_recent")]
-pub fn search_emoji_strings(keyword: &str) -> Vec<String> {
-    if keyword.is_empty() {
-        let r = load_recent();
-        if !r.is_empty() {
-            return r;
-        }
-        return category_emojis("SmileysPeople");
-    }
-    Vec::new()
-}
-
-/// 옛 EmojiEntry — 외부 호환용. 신규 코드는 `EmojiDatum` 직접 사용. **DEPRECATED**.
-#[deprecated(note = "PR #1: use EmojiDatum directly")]
-pub struct EmojiEntry {
-    pub keyword: &'static str,
-    pub emojis: &'static [char],
 }
 
 /// 카테고리 ID 로 이모지 목록 반환. 알 수 없는 id 는 빈 vec.

@@ -12,9 +12,3 @@ pub use data::{EmojiCategoryInfo, EmojiDatum, CATEGORIES, EMOJIS, TOTAL_EMOJIS};
 pub use recent::{
     category_emojis, list_categories, load_recent, recent_path, touch_recent, RECENT_MAX,
 };
-// PR #1 backward-compat shims (DEPRECATED — PR #5 cleanup 대상).
-#[allow(deprecated)]
-pub use recent::{
-    favorites_path, load_favorites, search_emoji, search_emoji_strings, touch_favorite,
-    EmojiEntry, FAVORITES_MAX,
-};

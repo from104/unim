@@ -540,49 +540,12 @@ impl InputMethodService {
         Ok(word)
     }
 
-    /// 이모지 검색 — **DEPRECATED (PR #1 emoji overhaul)**.
-    ///
-    /// 검색 기능이 폐기되어 항상 빈 vec 를 반환한다. PR #5 cleanup 에서 RPC 자체가
-    /// 제거되며, 그 전까지는 GNOME extension 이 안전하게 호출할 수 있도록 shim 으로 유지한다.
-    async fn search_emoji(&self, keyword: &str) -> zbus::fdo::Result<Vec<String>> {
-        unim_log!(
-            "DBUS",
-            "[DBus] SearchEmoji(deprecated): keyword='{}' — returning empty (PR #1 검색 폐기)",
-            keyword
-        );
-        Ok(Vec::new())
-    }
-
-    /// 이모지 카테고리 목록 조회 — **PR #1 shim**.
-    ///
-    /// 각 항목은 `(카테고리 이름, 이모지 목록)` 쌍. PR #1 부터 첫 항목은
-    /// "최근 사용" (MRU 81개) 이고, 이후 8 카테고리 (SmileysPeople, Animals, ...,
-    /// Flags) 가 따라온다. PR #3 에서 GNOME extension 이 시그널 payload 로 대체되면
-    /// 본 RPC 는 PR #5 에서 제거된다.
-    async fn list_emoji_categories(&self) -> zbus::fdo::Result<Vec<(String, Vec<String>)>> {
-        let mut list: Vec<(String, Vec<String>)> = Vec::new();
-        // 첫 항목: 최근 사용 (MRU). 비어 있으면 빈 vec — popular fallback 폐기.
-        let recent = unim::emoji::load_recent();
-        list.push(("최근 사용".to_string(), recent));
-        // 8 카테고리 (SmileysPeople/Animals/Food/Activities/Travel/Objects/Symbols/Flags).
-        for (id, ko_name, _en_name, _count) in unim::emoji::list_categories() {
-            list.push((ko_name, unim::emoji::category_emojis(&id)));
-        }
-        Ok(list)
-    }
-
-    /// 이모지 즐겨찾기(MRU) 조회 — **PR #1 shim** (rename 권고: GetEmojiRecent).
+    /// 이모지 최근 사용(MRU) 조회 (PR #1 신규 RPC).
     ///
     /// `~/.config/unim/emoji-recent.yaml` 에서 사용자별 MRU (최대 81개) 를 읽어
-    /// 반환한다. 옛 favorites 파일은 PR #1 에서 zero-state 로 폐기됐다.
-    async fn get_emoji_favorites(&self) -> zbus::fdo::Result<Vec<String>> {
-        Ok(unim::emoji::load_recent())
-    }
-
-    /// 이모지 최근 사용(MRU) 조회 (PR #1 신규 RPC 이름).
-    ///
-    /// 의미상 `get_emoji_favorites` 와 동일 — GNOME extension PR #3 마이그레이션
-    /// 시 이 이름으로 호출하도록 변경된다. PR #5 cleanup 에서 옛 이름 제거.
+    /// 반환한다. 일반적으로는 `ShowEmojiPopupV2` 시그널의 `recent` payload 가
+    /// frontend 에 푸시되므로 이 RPC 를 호출할 필요가 없지만, GUI 가 명시적
+    /// refresh 가 필요할 때 사용한다.
     async fn get_emoji_recent(&self) -> zbus::fdo::Result<Vec<String>> {
         Ok(unim::emoji::load_recent())
     }
@@ -905,12 +868,12 @@ impl InputMethodService {
     /// 동일한 동작을 가능하게 한다. cursor 좌표는 마지막으로 보고된 전역 캐시 사용.
     ///
     /// 지원 액션:
-    /// - `"emoji_popup"`: Standalone 모드에서 `ShowEmojiPopup` 시그널 발행. Embedded 모드는 no-op.
+    /// - `"emoji_popup"`: Standalone 모드에서 `ShowEmojiPopupV2` 시그널 발행. Embedded 모드는 no-op.
     ///
     /// 알 수 없는 액션은 경고 로그만 남기고 `Ok(())` — 향후 액션 추가 시 호환성 보장.
     ///
     /// **시그널 발행 경로**: 기존 GUI 구독(`path_namespace=/org/atit/unim`,
-    /// `interface=org.atit.unim.InputContext`)을 그대로 활용하기 위해 `ShowEmojiPopup`을
+    /// `interface=org.atit.unim.InputContext`)을 그대로 활용하기 위해 `ShowEmojiPopupV2`를
     /// `org.atit.unim.InputContext` 인터페이스로 InputMethod path에서 수동 발행한다.
     /// (별도 InputMethod-level signal을 추가하면 zbus `#[proxy]` 매크로 충돌 발생.)
     async fn trigger_action(&self, action: &str) -> zbus::fdo::Result<()> {
@@ -918,9 +881,12 @@ impl InputMethodService {
         match action {
             "emoji_popup" => {
                 // Standalone 모드일 때만 시그널 발행 (Embedded는 IM 모듈이 자체 처리)
-                let is_standalone = {
+                let (is_standalone, english_layout) = {
                     let cfg = self.config.read().await;
-                    cfg.engine.popup_mode == PopupMode::Standalone
+                    (
+                        cfg.engine.popup_mode == PopupMode::Standalone,
+                        cfg.engine.english.layout.clone(),
+                    )
                 };
                 if !is_standalone {
                     unim_log!(
@@ -940,23 +906,39 @@ impl InputMethodService {
                     .unwrap_or_else(|| crate::INPUT_METHOD_PATH.to_string());
                 let path = zbus::zvariant::ObjectPath::try_from(target_path_str.as_str())
                     .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
+                let (target_cat_id, items, top_row, recent, categories) =
+                    build_emoji_show_payload(&english_layout);
                 let result = self
                     .connection
                     .emit_signal(
                         None::<&str>,
                         &path,
                         "org.atit.unim.InputContext",
-                        "ShowEmojiPopup",
-                        &(x, y, w, h),
+                        "ShowEmojiPopupV2",
+                        &(
+                            target_cat_id.as_str(),
+                            items.clone(),
+                            top_row.as_str(),
+                            recent.clone(),
+                            categories.clone(),
+                            x,
+                            y,
+                            w,
+                            h,
+                        ),
                     )
                     .await;
                 if let Err(e) = result {
-                    unim_log!("DBUS", "[DBus] ShowEmojiPopup(global) 발행 실패: {}", e);
+                    unim_log!("DBUS", "[DBus] ShowEmojiPopupV2(global) 발행 실패: {}", e);
                 } else {
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopup(global) 시그널 발행: path={}, x={}, y={}, w={}, h={}",
+                        "[DBus] ShowEmojiPopupV2(global) 시그널 발행: path={}, cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
                         target_path_str,
+                        target_cat_id,
+                        items.len(),
+                        recent.len(),
+                        categories.len(),
                         x,
                         y,
                         w,
@@ -1110,6 +1092,41 @@ fn detect_frontend_type(client_name: &str) -> &'static str {
     }
 }
 
+/// `ShowEmojiPopupV2` 발행 시 들어가는 5-튜플 payload 를 만든다.
+///
+/// `trigger_action("emoji_popup")` 처럼 엔진 파이프라인을 거치지 않는 외부 우회
+/// 경로에서 사용. 시작 카테고리는 항상 `Recent`(MRU) 이며 `items` 도 동일한 MRU
+/// 리스트를 그대로 담는다 (popup_state cat_index=0 의 동작과 일치).
+///
+/// 반환: `(target_cat_id, items, top_row, recent, categories)`.
+fn build_emoji_show_payload(
+    english_layout: &str,
+) -> (
+    String,
+    Vec<String>,
+    String,
+    Vec<String>,
+    Vec<(String, String, String, u32)>,
+) {
+    let recent = unim::emoji::load_recent();
+    let mut categories: Vec<(String, String, String, u32)> = Vec::with_capacity(9);
+    categories.push((
+        "Recent".to_string(),
+        "최근 사용".to_string(),
+        "Recent".to_string(),
+        recent.len() as u32,
+    ));
+    categories.extend(unim::emoji::list_categories());
+    let top_row = unim::config::english_layout_top_row_labels(english_layout).to_string();
+    (
+        "Recent".to_string(),
+        recent.clone(),
+        top_row,
+        recent,
+        categories,
+    )
+}
+
 impl InputContextHandler {
     /// 새 핸들러 생성
     ///
@@ -1247,9 +1264,7 @@ impl InputContextHandler {
                     categories,
                 } if is_standalone => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                    // PR #1: dual-emit — 옛 4-인자 시그널 + 신규 확장 시그널.
-                    // GNOME extension PR #3 마이그레이션이 끝나면 옛 시그널은 PR #5 에서 제거.
-                    Self::show_emoji_popup(&signal_ctx, x, y, w, h).await.ok();
+                    // PR #5: v1 4-인자 시그널 제거. ShowEmojiPopupV2 single-emit.
                     Self::show_emoji_popup_v2(
                         &signal_ctx,
                         target_cat_id,
@@ -1266,7 +1281,7 @@ impl InputContextHandler {
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopup(v1+v2) 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
                         target_cat_id,
                         items.len(),
                         recent.len(),
@@ -1599,25 +1614,11 @@ impl InputContextHandler {
         cursor_height: i32,
     ) -> zbus::Result<()>;
 
-    /// 이모지 팝업 표시 시그널 — **DEPRECATED (PR #1)**.
-    ///
-    /// PR #1 부터는 `show_emoji_popup_v2` 가 카테고리·페이지·MRU payload 를 함께
-    /// 푸시한다. 옛 GNOME extension (PR #3 미적용 버전) 호환을 위해 dual-emit 으로
-    /// 본 시그널도 유지한다 — PR #5 cleanup 에서 제거 예정.
-    #[zbus(signal)]
-    async fn show_emoji_popup(
-        signal_ctx: &SignalContext<'_>,
-        cursor_x: i32,
-        cursor_y: i32,
-        cursor_width: i32,
-        cursor_height: i32,
-    ) -> zbus::Result<()>;
-
     /// 이모지 팝업 표시 시그널 v2 (PR #1 emoji overhaul, OPTION X engine-driven).
     ///
     /// 한자/특수문자 시그널과 동일하게 카테고리·페이지·MRU 데이터를 push 한다 —
-    /// GUI 가 별도 sync RPC (`list_emoji_categories` / `get_emoji_favorites`) 를
-    /// 호출할 필요가 없다.
+    /// GUI 가 별도 sync RPC 를 호출할 필요가 없다. (PR #5 에서 v1 4-인자 시그널은
+    /// 완전히 제거됨.)
     ///
     /// payload:
     /// - `target_cat_id`: 시작 카테고리 id ("Recent" / "SmileysPeople" / ... / "Flags").
@@ -1716,8 +1717,8 @@ impl InputContextHandler {
         match action {
             "emoji_popup" => {
                 // Standalone 모드일 때만 시그널 발행 (Embedded는 IM 모듈이 자체 처리)
-                let is_standalone =
-                    Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone;
+                let cfg_snapshot = Config::load_from_default_path();
+                let is_standalone = cfg_snapshot.engine.popup_mode == PopupMode::Standalone;
                 if !is_standalone {
                     unim_log!(
                         "DBUS",
@@ -1726,10 +1727,29 @@ impl InputContextHandler {
                     return Ok(());
                 }
                 let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                Self::show_emoji_popup(&signal_ctx, x, y, w, h).await.ok();
+                let (target_cat_id, items, top_row, recent, categories) =
+                    build_emoji_show_payload(&cfg_snapshot.engine.english.layout);
+                Self::show_emoji_popup_v2(
+                    &signal_ctx,
+                    &target_cat_id,
+                    items.clone(),
+                    &top_row,
+                    recent.clone(),
+                    categories.clone(),
+                    x,
+                    y,
+                    w,
+                    h,
+                )
+                .await
+                .ok();
                 unim_log!(
                     "DBUS",
-                    "[DBus] ShowEmojiPopup 시그널 발행 (trigger_action): x={}, y={}, w={}, h={}",
+                    "[DBus] ShowEmojiPopupV2 시그널 발행 (trigger_action): cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                    target_cat_id,
+                    items.len(),
+                    recent.len(),
+                    categories.len(),
                     x,
                     y,
                     w,

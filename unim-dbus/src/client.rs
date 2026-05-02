@@ -20,9 +20,6 @@ trait InputMethod {
     /// 전역 입력 모드 조회
     fn get_global_mode(&self) -> Result<bool>;
 
-    /// 이모지 검색
-    fn search_emoji(&self, keyword: &str) -> Result<Vec<String>>;
-
     /// 설정값 조회
     fn get_config(&self, key: &str) -> Result<String>;
 
@@ -186,13 +183,26 @@ trait InputContext {
         cursor_height: i32,
     ) -> Result<()>;
 
-    /// 이모지 팝업 표시 시그널 (단축키 우회 트리거)
+    /// 이모지 팝업 표시 시그널 v2 (PR #1 emoji overhaul, OPTION X engine-driven).
     ///
-    /// GNOME extension 등이 [`InputContextProxy::trigger_action`]("emoji_popup")
-    /// 호출 시 데몬이 발행한다. cursor 좌표는 가장 최근 보고된 위치.
+    /// 한자/특수문자 시그널과 동일하게 카테고리·페이지·MRU 데이터를 push 한다 —
+    /// GUI/extension 이 별도 sync RPC 를 호출할 필요가 없다.
+    ///
+    /// payload:
+    /// - `target_cat_id`: 시작 카테고리 id ("Recent" / "SmileysPeople" / ... / "Flags").
+    /// - `items`: 시작 카테고리의 emoji 풀 (전체).
+    /// - `top_row`: 활성 영문 키맵 상단 9 문자.
+    /// - `recent`: 'Recent' 탭 캐시 (MRU 81개).
+    /// - `categories`: 좌측 9 탭 메타 — `(id, ko, en, count)` 튜플 9개 (Recent + 8).
     #[zbus(signal)]
-    fn show_emoji_popup(
+    #[allow(clippy::too_many_arguments)]
+    fn show_emoji_popup_v2(
         &self,
+        target_cat_id: String,
+        items: Vec<String>,
+        top_row: String,
+        recent: Vec<String>,
+        categories: Vec<(String, String, String, u32)>,
         cursor_x: i32,
         cursor_y: i32,
         cursor_width: i32,

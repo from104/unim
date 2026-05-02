@@ -353,20 +353,6 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 });
             }
         }
-        "ShowEmojiPopup" => {
-            // PR #2 (emoji overhaul): v1 시그널은 dual-emit backward-compat 로만
-            // 유지된다 — GUI 표시는 ShowEmojiPopupV2 가 담당한다 (카테고리/페이지/MRU
-            // payload 포함). 본 분기는 활성 컨텍스트 경로만 갱신하고 v2 가 실제
-            // 팝업을 띄우도록 양보한다. v1 자체 제거는 PR #5 cleanup 에서 수행.
-            let _ = msg.body().deserialize::<(i32, i32, i32, i32)>();
-            if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
-                *path = Some(context_path.clone());
-            }
-            unim_log!(
-                "INDICATOR",
-                "[Popup] ShowEmojiPopup(v1) 수신 — v2 가 표시 담당, v1 무시"
-            );
-        }
         "ShowEmojiPopupV2" => {
             // GNOME 환경에선 GNOME extension 의 emoji_popup 이 (앞으로 PR #3 에서)
             // 같은 시그널을 직접 받아 자체 St 위젯으로 표시한다. standalone GUI 도

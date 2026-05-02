@@ -307,10 +307,6 @@ export class UnimDbusIME {
                     ? { x: cx, y: cy, width: cw, height: ch }
                     : this._adjustCursorRect(cx, cy, cw, ch);
                 this._onShowSpecial(target, characters, topRow, cursorRect);
-            } else if (signalName === 'ShowEmojiPopup') {
-                // PR #3: V1 시그널은 V2 와 dual-emit 으로 발행되며 GNOME extension 은
-                // V2 만 구독한다. V1 은 PR #5 cleanup 에서 제거 — 수신해도 무시.
-                return;
             } else if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
                 // payload: (target_cat_id, items, top_row, recent, categories, x, y, w, h)
                 // categories 는 (id, ko, en, count) 튜플 9개.
@@ -833,11 +829,11 @@ export class UnimDbusIME {
      * **`_imProxy`(InputMethod) 사용**: extension 자체의 `_icProxy`는 사용자 앱이
      * 아닌 extension 자신의 컨텍스트라, GTK4_IM 모듈이 기다리는 InputContext path와
      * 일치하지 않는다. InputMethod-level RPC는 데몬이 캐시한 last-active 실제 입력
-     * 컨텍스트 path로 `ShowEmojiPopup` 시그널을 redirect하므로 단축키 캡처 주체와
+     * 컨텍스트 path로 `ShowEmojiPopupV2` 시그널을 redirect하므로 단축키 캡처 주체와
      * 입력 주체가 분리된 환경(extension+GTK4_IM)에서도 정확한 컨텍스트로 popup이 발생한다.
      *
      * 사용 예: `triggerAction('emoji_popup')` →
-     * 데몬이 popup_mode/last-active path 게이트를 검사 후 ShowEmojiPopup signal 발행.
+     * 데몬이 popup_mode/last-active path 게이트를 검사 후 ShowEmojiPopupV2 signal 발행.
      *
      * @param {string} name - 액션 이름 (예: 'emoji_popup')
      */
