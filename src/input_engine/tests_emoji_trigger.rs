@@ -140,6 +140,51 @@ fn test_emoji_trigger_flushes_composing() {
     ));
 }
 
+/// 이슈 #1 검증: emoji 팝업 진입 시 Recent 가 비었으면 두 번째 탭(cat_index=1)
+/// 으로 시작하고, 비어있지 않으면 Recent 탭(cat_index=0) 으로 시작한다.
+///
+/// `load_recent()` 가 환경(`~/.config/unim/emoji-recent.yaml`)에 의존하므로
+/// 본 테스트는 두 시나리오를 contract 형태로 검증한다 — 즉 popup_state 의
+/// cat_index 가 0 이면 recent_emojis 비어있지 않아야 하고, cat_index=1 이면
+/// recent_emojis 비어있고 새 카테고리의 items 가 비어있지 않아야 한다.
+#[test]
+fn test_emoji_popup_skips_empty_recent_tab() {
+    let mut engine = create_test_engine();
+    let config = Config::default();
+    let modifier = ModifierState {
+        super_key: true,
+        ..Default::default()
+    };
+    let result = engine.press_key(KeyCode::Period, modifier, &config);
+    assert!(result.consumed);
+    let action = engine.take_popup_action();
+    assert!(matches!(action, Some(PopupAction::ShowEmoji { .. })));
+
+    let state = engine.popup_state().expect("emoji popup_state present");
+    let cat_index = state.emoji_cat_index();
+    let cats = state.emoji_categories();
+    assert!(cats.len() >= 2, "minimum: Recent + 1 정적 카테고리");
+
+    if state.emoji_recent().is_empty() {
+        // Recent 비어있으면 두 번째 탭으로 자동 진입.
+        assert_eq!(
+            cat_index, 1,
+            "빈 recent → cat_index=1 (두 번째 탭)으로 시작해야 함"
+        );
+        // 두 번째 탭은 정적 카테고리 (SmileysPeople 등)이므로 풀이 비어있지 않다.
+        assert!(
+            state.emoji_items().len() > 0,
+            "두 번째 카테고리는 items 가 비어있지 않아야 함"
+        );
+    } else {
+        // Recent 가 있으면 첫 탭(0) 으로 시작.
+        assert_eq!(
+            cat_index, 0,
+            "비어있지 않은 recent → cat_index=0 (Recent 탭) 유지"
+        );
+    }
+}
+
 #[test]
 fn test_emoji_custom_trigger_from_config() {
     let mut config = Config::default();

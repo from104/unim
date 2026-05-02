@@ -257,7 +257,10 @@ export default class UnimExtension extends Extension {
                         recent,
                         categoriesRaw,
                         (emoji) => this._dbusIME?.commitEmoji(emoji),
-                        cursorRect
+                        cursorRect,
+                        // 좌측 탭 마우스 클릭 → SetEmojiCategory RPC. 데몬이 popup_state 갱신 후
+                        // ShowEmojiPopupV2 를 재발행하므로 본 onShowEmoji 가 다시 호출되어 재구성.
+                        (idx) => this._dbusIME?.setEmojiCategory(idx)
                     );
                 },
                 onHidePopup: () => {

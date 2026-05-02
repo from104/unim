@@ -788,6 +788,36 @@ export class UnimDbusIME {
     }
 
     /**
+     * 이모지 팝업 카테고리 변경 — 마우스 클릭으로 좌측 탭을 직접 전환할 때 호출.
+     *
+     * `_imProxy.SetEmojiCategory(idx)` RPC 를 호출하면 데몬이 마지막 포커스
+     * 컨텍스트의 popup_state 를 갱신하고 `ShowEmojiPopupV2` 시그널을 재발행한다.
+     * 본 extension 의 `_onShowEmoji` 핸들러가 그 시그널을 받아 동일 인스턴스를
+     * 재구성하므로, 키보드 Tab/ShiftTab 과 동일한 화면 효과가 된다.
+     *
+     * @param {number} idx - 0..=8 카테고리 인덱스 (0=Recent, 1..=8=Smileys..Flags)
+     */
+    setEmojiCategory(idx) {
+        if (!this._imProxy) return;
+        if (typeof idx !== 'number' || idx < 0 || !Number.isInteger(idx)) {
+            unimError('DBUS_IME', `setEmojiCategory: 잘못된 idx=${idx}`);
+            return;
+        }
+        try {
+            this._imProxy.call_sync(
+                'SetEmojiCategory',
+                new GLib.Variant('(u)', [idx]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            unimLog('DBUS_IME', `SetEmojiCategory(${idx}) 호출 완료`);
+        } catch (e) {
+            unimError('DBUS_IME', `SetEmojiCategory(${idx}) 실패: ${e.message}`);
+        }
+    }
+
+    /**
      * 특수문자 모드 취소
      */
     cancelSpecialChar() {

@@ -157,6 +157,31 @@ pub enum EngineRequest {
     /// 이미 알파벳이면 그대로 등록.
     /// 반환값: 실제 등록된 영문 단어 (빈 문자열이면 실패/선택 없음).
     RegisterUserDictFromSelection { response: oneshot::Sender<String> },
+    /// 이모지 팝업 카테고리 변경 (마우스 클릭 → 직접 카테고리 전환).
+    ///
+    /// 워커는 마지막 포커스 컨텍스트의 popup_state 가 emoji 인 경우에만 처리한다.
+    /// 응답으로 갱신된 카테고리 메타·페이지 풀을 돌려주어 service.rs 가
+    /// `ShowEmojiPopupV2` 시그널을 재발행할 수 있게 한다.
+    /// 응답이 `None` 이면 emoji popup 이 활성화되지 않았거나 idx 가 범위 밖이라 무시됨.
+    SetEmojiCategory {
+        idx: u32,
+        response: oneshot::Sender<Option<EmojiShowPayload>>,
+    },
+}
+
+/// 이모지 카테고리 전환 응답 — `ShowEmojiPopupV2` 시그널 재발행용 payload.
+#[derive(Debug, Clone)]
+pub struct EmojiShowPayload {
+    /// 새 활성 카테고리 id (예: "SmileysPeople").
+    pub target_cat_id: String,
+    /// 해당 카테고리 emoji 풀 전체 (페이지 슬라이싱은 GUI 측 책임).
+    pub items: Vec<String>,
+    /// 현재 활성 영문 키맵의 상단 행 9 문자.
+    pub top_row: String,
+    /// MRU Recent 캐시 (popup payload 호환용).
+    pub recent: Vec<String>,
+    /// 카테고리 메타 9 튜플 (id, ko, en, total).
+    pub categories: Vec<(String, String, String, u32)>,
 }
 
 /// 한자 후보 응답
@@ -953,6 +978,128 @@ impl InputMethodService {
                     other
                 );
             }
+        }
+        Ok(())
+    }
+
+    /// 이모지 팝업 카테고리 변경 — GNOME extension 등 GUI 가 마우스 클릭으로
+    /// 좌측 탭을 직접 전환할 때 호출하는 RPC.
+    ///
+    /// 동작:
+    /// 1. 워커에 `SetEmojiCategory { idx }` 보내 마지막 포커스 컨텍스트의 popup_state
+    ///    (PopupKind::Emoji) 의 cat_index/items 를 갱신.
+    /// 2. 워커가 갱신된 payload (target_cat_id, items, top_row, recent, categories)
+    ///    를 응답으로 돌려주면 `ShowEmojiPopupV2` 시그널을 `last_active_input_context_path`
+    ///    경로로 재발행하여 모든 V2 구독자(GTK4 GUI, GNOME extension, XIM, Wayland)가
+    ///    동일하게 카테고리 전환에 반응하도록 한다.
+    ///
+    /// emoji popup 이 활성화되지 않았거나 idx 가 범위 밖이면 워커가 `None` 을 반환하여
+    /// 시그널 발행을 생략한다 (호환성: RPC 자체는 실패하지 않는다).
+    async fn set_emoji_category(&self, idx: u32) -> zbus::fdo::Result<()> {
+        let (tx, rx) = oneshot::channel();
+        if self
+            .engine_tx
+            .send(EngineRequest::SetEmojiCategory { idx, response: tx })
+            .await
+            .is_err()
+        {
+            unim_log!(
+                "DBUS",
+                "[DBus] SetEmojiCategory(idx={}): 엔진 워커 송신 실패",
+                idx
+            );
+            return Ok(());
+        }
+        let payload = match rx.await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory(idx={}): emoji popup 비활성 또는 idx 범위 밖 — 시그널 재발행 skip",
+                    idx
+                );
+                return Ok(());
+            }
+            Err(_) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory(idx={}): 응답 채널 수신 실패",
+                    idx
+                );
+                return Ok(());
+            }
+        };
+
+        // Standalone 모드만 시그널 발행 — Embedded 는 IM 모듈이 자체 처리.
+        let is_standalone = {
+            let cfg = self.config.read().await;
+            cfg.engine.popup_mode == PopupMode::Standalone
+        };
+        if !is_standalone {
+            unim_log!(
+                "DBUS",
+                "[DBus] SetEmojiCategory(idx={}) skipped: Embedded 모드",
+                idx
+            );
+            return Ok(());
+        }
+
+        let (x, y, w, h) = *self.last_cursor_rect.lock().unwrap();
+        let target_path_str = self
+            .last_active_input_context_path
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| crate::INPUT_METHOD_PATH.to_string());
+        let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory: 잘못된 path '{}': {} — skip",
+                    target_path_str,
+                    e
+                );
+                return Ok(());
+            }
+        };
+        let result = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "ShowEmojiPopupV2",
+                &(
+                    payload.target_cat_id.as_str(),
+                    payload.items.clone(),
+                    payload.top_row.as_str(),
+                    payload.recent.clone(),
+                    payload.categories.clone(),
+                    x,
+                    y,
+                    w,
+                    h,
+                ),
+            )
+            .await;
+        if let Err(e) = result {
+            unim_log!(
+                "DBUS",
+                "[DBus] SetEmojiCategory ShowEmojiPopupV2 발행 실패: {}",
+                e
+            );
+        } else {
+            unim_log!(
+                "DBUS",
+                "[DBus] SetEmojiCategory(idx={}) ShowEmojiPopupV2 재발행: path={}, cat='{}', items={}, recent={}, cats={}",
+                idx,
+                target_path_str,
+                payload.target_cat_id,
+                payload.items.len(),
+                payload.recent.len(),
+                payload.categories.len()
+            );
         }
         Ok(())
     }

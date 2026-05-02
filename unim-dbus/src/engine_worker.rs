@@ -10,11 +10,12 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use crate::service::{EngineRequest, EngineResponse};
+use crate::service::{EmojiShowPayload, EngineRequest, EngineResponse};
 use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{Config, EnglishLayout, KoreanLayout};
 use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
+use unim::popup::PopupKind;
 use unim::typefix_blacklist::{Blacklist, Direction};
 use unim::typefix_userdict::UserDictionary;
 use unim::unim_log;
@@ -1330,6 +1331,86 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     String::new()
                 };
                 let _ = response.send(word);
+            }
+
+            EngineRequest::SetEmojiCategory { idx, response } => {
+                // GNOME extension 등 GUI 의 마우스 클릭 탭 전환을 위해 마지막 포커스
+                // 컨텍스트의 popup_state(PopupKind::Emoji) 의 cat_index/items 를 갱신하고
+                // payload 를 응답한다.
+                let payload: Option<EmojiShowPayload> = (|| {
+                    let ctx_id = last_focused_context_id?;
+                    let engine = contexts.get_mut(&ctx_id)?;
+                    // popup_state 가 emoji 인지 확인
+                    if !engine.is_emoji_popup_active() {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] SetEmojiCategory(idx={}): emoji popup 비활성 — skip",
+                            idx
+                        );
+                        return None;
+                    }
+                    let idx_usize = idx as usize;
+                    // 카테고리 인덱스 범위 검증
+                    let cat_count = engine
+                        .popup_state()
+                        .map(|s| s.emoji_categories().len())
+                        .unwrap_or(0);
+                    if idx_usize >= cat_count {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] SetEmojiCategory(idx={}): 범위 밖 (cats={}) — skip",
+                            idx,
+                            cat_count
+                        );
+                        return None;
+                    }
+                    // popup_state 갱신 (cat_index/items/페이지 리셋)
+                    engine.refresh_emoji_category_items(idx_usize);
+
+                    // 갱신된 popup_state 에서 ShowEmojiPopupV2 payload 추출
+                    let state = engine.popup_state()?;
+                    if state.kind() != PopupKind::Emoji {
+                        return None;
+                    }
+                    let cats: Vec<(String, String, String, u32)> = state
+                        .emoji_categories()
+                        .iter()
+                        .map(|c| {
+                            (
+                                c.id.clone(),
+                                c.label_ko.clone(),
+                                c.label_en.clone(),
+                                c.total as u32,
+                            )
+                        })
+                        .collect();
+                    let target_cat_id = cats
+                        .get(idx_usize)
+                        .map(|c| c.0.clone())
+                        .unwrap_or_default();
+                    let items: Vec<String> = state.emoji_items().iter().cloned().collect();
+                    let recent: Vec<String> = state.emoji_recent().iter().cloned().collect();
+                    let top_row = unim::config::english_layout_top_row_labels(
+                        &config.engine.english.layout,
+                    )
+                    .to_string();
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] SetEmojiCategory(idx={}): cat='{}', items={}, cats={}",
+                        idx,
+                        target_cat_id,
+                        items.len(),
+                        cats.len()
+                    );
+                    Some(EmojiShowPayload {
+                        target_cat_id,
+                        items,
+                        top_row,
+                        recent,
+                        categories: cats,
+                    })
+                })();
+                let _ = response.send(payload);
             }
         }
     }

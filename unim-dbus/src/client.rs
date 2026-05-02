@@ -59,6 +59,16 @@ trait InputMethod {
     /// 캐시가 비어있으면 데몬이 경고 로그만 남기고 no-op (호환성 유지).
     fn commit_emoji(&self, emoji: &str) -> Result<()>;
 
+    /// 이모지 팝업 카테고리 변경 — GUI 가 마우스 클릭으로 좌측 탭을 직접 전환할 때 호출.
+    ///
+    /// 데몬은 마지막 포커스 컨텍스트의 popup_state(Emoji) 의 cat_index/items 를 갱신한 후
+    /// `ShowEmojiPopupV2` 시그널을 `last_active_input_context_path` 로 재발행한다.
+    /// 모든 V2 구독자(GTK4 GUI, GNOME extension, XIM, Wayland)가 동일하게 카테고리
+    /// 전환에 반응한다.
+    ///
+    /// idx 가 범위 밖이거나 emoji popup 이 활성화되지 않으면 no-op.
+    fn set_emoji_category(&self, idx: u32) -> Result<()>;
+
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
     fn global_mode_changed(&self, is_korean: bool) -> Result<()>;
