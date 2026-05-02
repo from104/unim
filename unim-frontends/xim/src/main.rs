@@ -5,6 +5,7 @@
 
 mod dbus_client;
 mod dpi;
+mod emoji_window;
 mod handler;
 mod hanja_window;
 mod pe_window;

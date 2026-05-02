@@ -47,9 +47,8 @@ pub fn render_popup(state: &PopupState) -> RenderedPopup {
             }
         }
         PopupKind::SpecialChar => render_special_from_state(state),
-        // PR #1: 이모지 팝업도 9×9 그리드 — SpecialChar 렌더러를 재사용한다.
-        // 본격 UI (좌측 9 탭 + 페이지 인디케이터) 는 PR #5 에서 추가.
-        PopupKind::Emoji => render_special_from_state(state),
+        // PR #5: 이모지 팝업 — 9×9 그리드 + 좌측 9 탭 + 하단 페이지 인디케이터.
+        PopupKind::Emoji => render_emoji_from_state(state),
     }
 }
 
@@ -357,6 +356,184 @@ fn render_hanja_expanded(state: &PopupState) -> RenderedPopup {
         height,
         total_pages
     );
+    RenderedPopup {
+        pixels,
+        width,
+        height,
+    }
+}
+
+/// 이모지 팝업 렌더링 (PR #5 — PopupState 기반).
+///
+/// `render_special_from_state` 의 9×9 그리드 + 컬럼/행 헤더 + 페이지 푸터 패턴을
+/// 차용하고, 좌측에 9 카테고리 탭(Recent + 8) 을 추가한다. 활성 탭은 Green 강조,
+/// 비활성은 Overlay1.
+fn render_emoji_from_state(state: &PopupState) -> RenderedPopup {
+    let rows = state.rows();
+    let cols = state.cols();
+    let sel_row = state.sel_row();
+    let sel_col = state.sel_col();
+    let cat_index = state.emoji_cat_index();
+    let categories = state.emoji_categories();
+
+    let tab_w = 90.0f32;
+    let row_header_w = 24.0f32;
+    let header_h = CELL_SIZE;
+    let footer_h = 24.0f32;
+
+    let width = (tab_w + row_header_w + (cols as f32) * CELL_SIZE + PADDING) as u32;
+    let height = (HEADER_H + header_h + (rows as f32) * CELL_SIZE + footer_h + PADDING) as u32;
+
+    let mut pixmap = Pixmap::new(width, height).unwrap();
+    fill_rect(&mut pixmap, 0.0, 0.0, width as f32, height as f32, BASE);
+
+    // 좌측 탭 영역 배경 (Surface0)
+    fill_rect(&mut pixmap, 0.0, 0.0, tab_w, height as f32, SURFACE0);
+
+    let mut font_system = FontSystem::new();
+    let mut swash_cache = SwashCache::new();
+
+    // 헤더 (그리드 영역)
+    fill_rect(
+        &mut pixmap,
+        tab_w + 4.0,
+        4.0,
+        width as f32 - tab_w - 8.0,
+        HEADER_H - 4.0,
+        SURFACE0,
+    );
+    let cat_label = categories
+        .get(cat_index)
+        .map(|c| c.label_ko.clone())
+        .unwrap_or_default();
+    let header_text = format!("이모지 → {}", cat_label);
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &header_text,
+        tab_w + PADDING,
+        6.0,
+        FONT_SIZE - 1.0,
+        GREEN,
+        width as f32 - tab_w - PADDING * 2.0,
+    );
+
+    // 좌측 9 탭 (Recent + 8 카테고리)
+    for (i, cat) in categories.iter().enumerate().take(9) {
+        let ty = HEADER_H + (i as f32) * CELL_SIZE;
+        if i == cat_index {
+            fill_rect(&mut pixmap, 0.0, ty, tab_w, CELL_SIZE, SEL_SPECIAL_BG);
+        }
+        let label = if cat.label_ko.is_empty() {
+            cat.id.clone()
+        } else {
+            cat.label_ko.clone()
+        };
+        let color = if i == cat_index { GREEN } else { OVERLAY1 };
+        draw_text(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &label,
+            6.0,
+            ty + (CELL_SIZE - FONT_SIZE) / 2.0,
+            FONT_SIZE - 2.0,
+            color,
+            tab_w - 12.0,
+        );
+    }
+
+    // 열 헤더 (top_row 레이블)
+    let top_row_chars: Vec<char> = state.top_row().chars().collect();
+    let grid_x_origin = tab_w + row_header_w;
+    let col_header_y = HEADER_H;
+    for c in 0..cols {
+        let label = if c < top_row_chars.len() {
+            top_row_chars[c].to_string()
+        } else {
+            format!("{}", c + 1)
+        };
+        let color = if c == sel_col { GREEN } else { YELLOW };
+        let cx = grid_x_origin + (c as f32) * CELL_SIZE;
+        draw_text_centered(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &label,
+            cx,
+            col_header_y,
+            CELL_SIZE,
+            CELL_SIZE,
+            FONT_SIZE - 2.0,
+            color,
+        );
+    }
+
+    // 행 번호 + 셀
+    let grid_y = HEADER_H + header_h;
+    for r in 0..rows {
+        let ry = grid_y + (r as f32) * CELL_SIZE;
+        let label = format!("{}", r + 1);
+        let color = if r == sel_row { GREEN } else { OVERLAY1 };
+        draw_text_centered(
+            &mut pixmap,
+            &mut font_system,
+            &mut swash_cache,
+            &label,
+            tab_w,
+            ry,
+            row_header_w,
+            CELL_SIZE,
+            FONT_SIZE - 2.0,
+            color,
+        );
+
+        for c in 0..cols {
+            if let Some(ch) = state.cell_text(r, c) {
+                let cx = grid_x_origin + (c as f32) * CELL_SIZE;
+                let is_selected = r == sel_row && c == sel_col;
+                if is_selected {
+                    fill_rect(&mut pixmap, cx, ry, CELL_SIZE, CELL_SIZE, SEL_SPECIAL_BG);
+                }
+                draw_text_centered(
+                    &mut pixmap,
+                    &mut font_system,
+                    &mut swash_cache,
+                    ch,
+                    cx,
+                    ry,
+                    CELL_SIZE,
+                    CELL_SIZE,
+                    FONT_SIZE,
+                    TEXT,
+                );
+            }
+        }
+    }
+
+    // 푸터 ([cat]  page/total)
+    let footer_y = grid_y + (rows as f32) * CELL_SIZE + 4.0;
+    let footer_text = format!(
+        "[{}]  {}/{}",
+        cat_label,
+        state.current_page() + 1,
+        state.total_pages().max(1)
+    );
+    draw_text(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &footer_text,
+        tab_w + PADDING,
+        footer_y,
+        FONT_SIZE - 3.0,
+        OVERLAY0,
+        width as f32 - tab_w - PADDING * 2.0,
+    );
+
+    let pixels = rgba_to_argb32(pixmap.data());
+    unim_log!("WAYLAND", "이모지 팝업 렌더링: {}×{}, cat={}", width, height, cat_index);
     RenderedPopup {
         pixels,
         width,

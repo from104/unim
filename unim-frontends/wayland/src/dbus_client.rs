@@ -120,6 +120,17 @@ pub enum PopupEvent {
         characters: Vec<String>,
         top_row: String,
     },
+    /// 이모지 팝업 표시 (PR #5: ShowEmojiPopupV2 시그널).
+    ///
+    /// Standalone 모드에서 데몬이 InputContext path 로 발행. Embedded 모드에서는
+    /// IM 모듈이 자체 처리하므로 본 이벤트는 발생하지 않는다.
+    ShowEmoji {
+        target_cat_id: String,
+        items: Vec<String>,
+        top_row: String,
+        recent: Vec<String>,
+        categories: Vec<(String, String, String, u32)>,
+    },
     /// 팝업 숨김
     Hide,
     /// AutoTypeFix 교정 (delete_surrounding_text + 교정 텍스트 커밋)
@@ -627,6 +638,13 @@ async fn subscribe_popup_signals(
             return;
         }
     };
+    let mut emoji_stream = match proxy.receive_show_emoji_popup_v2().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("WAYLAND_DBUS", "ShowEmojiPopupV2 시그널 구독 실패: {}", e);
+            return;
+        }
+    };
     let mut hide_stream = match proxy.receive_hide_popup().await {
         Ok(s) => s,
         Err(e) => {
@@ -690,6 +708,17 @@ async fn subscribe_popup_signals(
                         target: args.target,
                         characters: args.characters,
                         top_row: args.top_row,
+                    });
+                }
+            }
+            Some(signal) = emoji_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::ShowEmoji {
+                        target_cat_id: args.target_cat_id,
+                        items: args.items,
+                        top_row: args.top_row,
+                        recent: args.recent,
+                        categories: args.categories,
                     });
                 }
             }

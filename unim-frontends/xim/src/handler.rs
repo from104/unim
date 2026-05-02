@@ -21,6 +21,7 @@ use xim::{
 };
 
 use crate::dbus_client::{DbusRequest, DbusResponse, PopupEvent};
+use crate::emoji_window::EmojiWindow;
 use crate::hanja_window::{HanjaClickResult, HanjaWindow};
 use crate::pe_window::PeWindow;
 use crate::special_window::{SpecialClickResult, SpecialWindow};
@@ -106,6 +107,8 @@ pub struct UnimHandler {
     special_window: Option<SpecialWindow>,
     /// 특수문자 팝업이 활성일 때의 컨텍스트 경로
     special_context_path: Option<String>,
+    /// 이모지 팝업 윈도우 (PR #5)
+    emoji_window: Option<EmojiWindow>,
     /// 한자/특수문자 키 keysym 목록 (설정 기반)
     hanja_keysyms: Vec<u32>,
     /// 특수문자 선택 시 flash 효과 대기 플래그
@@ -170,6 +173,7 @@ impl UnimHandler {
             hanja_client_window: None,
             special_window: None,
             special_context_path: None,
+            emoji_window: None,
             hanja_keysyms,
             special_flash_pending: false,
             last_focused_ic_info: None,
@@ -579,6 +583,14 @@ impl UnimHandler {
                         self.display,
                     );
                 }
+                if let Some(ref mut ew) = self.emoji_window {
+                    ew.update_from_navigate(
+                        page as usize,
+                        sel_row as usize,
+                        sel_col as usize,
+                        self.display,
+                    );
+                }
             }
             PopupEvent::Hide => {
                 // 팝업 닫기 (엔진이 결정)
@@ -597,6 +609,10 @@ impl UnimHandler {
                     unim_log!("XIM_HANDLER", "HidePopup 시그널: 특수문자 팝업 닫기");
                 }
                 self.special_context_path = None;
+                if let Some(ew) = self.emoji_window.take() {
+                    ew.clean(self.display, self.screen);
+                    unim_log!("XIM_HANDLER", "HidePopup 시그널: 이모지 팝업 닫기");
+                }
                 self.hanja_client_window = None;
                 let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
                 server.conn().flush().ok();
@@ -605,6 +621,66 @@ impl UnimHandler {
                 // Embedded 모드: GetHanjaCandidates에서 직접 처리
                 // Standalone 모드: GNOME extension이 처리
                 // → 여기서는 무시
+            }
+            PopupEvent::ShowEmoji {
+                target_cat_id,
+                items,
+                top_row,
+                recent,
+                categories,
+                cursor_x,
+                cursor_y,
+            } => {
+                // Embedded 모드: XIM 자체 emoji_window 표시.
+                // Standalone 모드: GNOME extension 또는 GTK standalone 이 처리 → skip.
+                let is_embedded = matches!(self.config.engine.popup_mode, PopupMode::Embedded);
+                if !is_embedded {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "ShowEmojiPopupV2 수신 (Standalone 모드) — skip"
+                    );
+                } else {
+                    // 기존 한자/특수문자 팝업 닫기 (엔진이 HidePopup 도 발행하지만 안전망)
+                    if let Some(hw) = self.hanja_window.take() {
+                        hw.clean(self.display, self.screen);
+                    }
+                    self.hanja_context_path = None;
+                    if let Some(mut sw) = self.special_window.take() {
+                        if self.special_flash_pending {
+                            sw.flash_selection(self.display);
+                            self.special_flash_pending = false;
+                        }
+                        sw.clean(self.display, self.screen);
+                    }
+                    self.special_context_path = None;
+
+                    // 기존 emoji_window 가 있으면 정리 후 재생성
+                    if let Some(ew) = self.emoji_window.take() {
+                        ew.clean(self.display, self.screen);
+                    }
+                    match EmojiWindow::new(self.display, self.screen, cursor_x, cursor_y) {
+                        Ok(mut ew) => {
+                            ew.set_state(
+                                self.display,
+                                self.screen,
+                                &target_cat_id,
+                                items,
+                                &top_row,
+                                recent,
+                                categories,
+                            );
+                            self.emoji_window = Some(ew);
+                            unim_log!(
+                                "XIM_HANDLER",
+                                "ShowEmojiPopupV2: 이모지 팝업 표시 cat='{}'",
+                                target_cat_id
+                            );
+                        }
+                        Err(e) => {
+                            unim_log!("XIM_HANDLER", "이모지 팝업 생성 실패: {}", e);
+                        }
+                    }
+                }
             }
             PopupEvent::AutoTypeFix {
                 delete_chars,

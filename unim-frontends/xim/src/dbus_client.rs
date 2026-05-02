@@ -31,6 +31,20 @@ pub enum PopupEvent {
         cursor_x: i32,
         cursor_y: i32,
     },
+    /// 이모지 팝업 표시 (PR #5: ShowEmojiPopupV2 시그널).
+    ///
+    /// 한자/특수문자와 다르게 카테고리 메타·MRU·페이지 데이터를 한꺼번에 받는다.
+    /// XIM 은 Embedded 모드에서만 자체 emoji_window 를 띄우고, Standalone 모드에서는
+    /// 본 이벤트를 무시한다 (GTK standalone GUI / GNOME extension 이 표시 담당).
+    ShowEmoji {
+        target_cat_id: String,
+        items: Vec<String>,
+        top_row: String,
+        recent: Vec<String>,
+        categories: Vec<(String, String, String, u32)>,
+        cursor_x: i32,
+        cursor_y: i32,
+    },
     /// 팝업 숨김
     Hide,
     /// 팝업 네비게이션 (페이지/선택 변경)
@@ -706,6 +720,13 @@ async fn subscribe_popup_signals(
             return;
         }
     };
+    let mut emoji_stream = match proxy.receive_show_emoji_popup_v2().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("XIM_DBUS", "[XIM-DBus] ShowEmojiPopupV2 구독 실패: {}", e);
+            return;
+        }
+    };
     let mut hide_stream = match proxy.receive_hide_popup().await {
         Ok(s) => s,
         Err(e) => {
@@ -782,6 +803,19 @@ async fn subscribe_popup_signals(
                         target: args.target,
                         characters: args.characters,
                         top_row: args.top_row,
+                        cursor_x: args.cursor_x,
+                        cursor_y: args.cursor_y,
+                    });
+                }
+            }
+            Some(signal) = emoji_stream.next() => {
+                if let Ok(args) = signal.args() {
+                    let _ = popup_tx.send(PopupEvent::ShowEmoji {
+                        target_cat_id: args.target_cat_id,
+                        items: args.items,
+                        top_row: args.top_row,
+                        recent: args.recent,
+                        categories: args.categories,
                         cursor_x: args.cursor_x,
                         cursor_y: args.cursor_y,
                     });
