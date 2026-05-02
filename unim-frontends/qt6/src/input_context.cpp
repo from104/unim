@@ -8,6 +8,7 @@
 #include "unim_dbus_client.hpp"
 #include "unim_hanja_popup.hpp"
 #include "unim_special_popup.hpp"
+#include "unim_emoji_popup.hpp"
 
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -70,6 +71,8 @@ UnimInputContext::UnimInputContext()
     : QPlatformInputContext()
     , m_dbus(nullptr)
     , m_hanjaPopup(nullptr)
+    , m_specialPopup(nullptr)
+    , m_emojiPopup(nullptr)
     , m_focusObject(nullptr)
     , m_composing(false)
 {
@@ -142,12 +145,60 @@ UnimInputContext::UnimInputContext()
                                                      page, selRow, selCol);
                 }
             });
+
+        /* PR #4: 이모지 팝업 시그널 콜백 — ShowEmojiPopupV2/PopupNavigate/HidePopup */
+        m_dbus->setShowEmojiPopupCallback(
+            [this](const QString &targetCatId,
+                   const QStringList &items,
+                   const QString &topRow,
+                   const QStringList &recent,
+                   const QList<UnimDbusClient::EmojiCategoryInfo> &categories,
+                   qint32 cx, qint32 cy, qint32 cw, qint32 ch) {
+                Q_UNUSED(cw);
+                if (isStandalonePopup()) return;
+                ensurePopups();
+                if (!m_emojiPopup) return;
+
+                if (m_hanjaPopup) m_hanjaPopup->hidePopup();
+                if (m_specialPopup) m_specialPopup->hidePopup();
+
+                QList<UnimEmojiCategoryInfo> cats;
+                cats.reserve(categories.size());
+                for (const auto &c : categories) {
+                    UnimEmojiCategoryInfo info;
+                    info.id = c.id;
+                    info.nameKo = c.nameKo;
+                    info.nameEn = c.nameEn;
+                    info.count = c.count;
+                    cats.append(info);
+                }
+
+                m_emojiPopup->showPopup(
+                    targetCatId, items, topRow, recent, cats,
+                    cx, cy, ch,
+                    [this](const QString &emoji) {
+                        if (m_dbus) m_dbus->commitEmoji(emoji);
+                        if (m_emojiPopup) m_emojiPopup->hidePopup();
+                    });
+            });
+        m_dbus->setPopupNavigateCallback(
+            [this](qint32 page, qint32 totalPages, qint32 selected,
+                   qint32 rows, qint32 cols, qint32 selRow, qint32 selCol) {
+                if (m_emojiPopup && m_emojiPopup->isVisible()) {
+                    m_emojiPopup->navigatePopup(page, totalPages, selected,
+                                                 rows, cols, selRow, selCol);
+                }
+            });
+        m_dbus->setHidePopupCallback([this]() {
+            if (m_emojiPopup && m_emojiPopup->isVisible()) {
+                m_emojiPopup->hidePopup();
+            }
+        });
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }
 
     /* 팝업은 lazy 초기화 — QApplication 초기화 전에 QWidget 생성 불가 */
-    m_specialPopup = nullptr;
 }
 
 void UnimInputContext::ensurePopups()
@@ -163,6 +214,8 @@ void UnimInputContext::ensurePopups()
     }
     if (!m_specialPopup)
         m_specialPopup = new UnimSpecialPopup();
+    if (!m_emojiPopup)
+        m_emojiPopup = new UnimEmojiPopup();
 }
 
 bool UnimInputContext::isStandalonePopup() const
@@ -184,6 +237,8 @@ bool UnimInputContext::isStandalonePopup() const
 
 UnimInputContext::~UnimInputContext()
 {
+    delete m_emojiPopup;
+    m_emojiPopup = nullptr;
     delete m_specialPopup;
     m_specialPopup = nullptr;
     delete m_hanjaPopup;
@@ -226,6 +281,11 @@ void UnimInputContext::reset()
             if (!trigger.isEmpty()) commitString(trigger);
         }
     }
+
+    /* 이모지 팝업 — PR #4 (엔진이 reset 시 HidePopup 시그널 발행하지만 즉시 닫음) */
+    if (m_emojiPopup && m_emojiPopup->isVisible()) {
+        m_emojiPopup->hidePopup();
+    }
 }
 
 void UnimInputContext::commit()
@@ -256,6 +316,11 @@ void UnimInputContext::commit()
             QString trigger = m_dbus->cancelSpecialChar();
             if (!trigger.isEmpty()) commitString(trigger);
         }
+    }
+
+    /* 이모지 팝업 — PR #4 */
+    if (m_emojiPopup && m_emojiPopup->isVisible()) {
+        m_emojiPopup->hidePopup();
     }
 }
 

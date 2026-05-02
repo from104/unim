@@ -223,6 +223,63 @@ public:
         bool bookmarked)>;
     void setHanjaCandidatesReorderedCallback(HanjaCandidatesReorderedCallback callback);
 
+    /* =========================================
+     * 이모지 팝업 시그널 (PR #4 emoji overhaul)
+     * ========================================= */
+
+    /**
+     * 이모지 카테고리 메타 (id, name_ko, name_en, count) — `ShowEmojiPopupV2`
+     * payload 의 `categories: a(sssu)` 와 1:1.
+     */
+    struct EmojiCategoryInfo {
+        QString id;
+        QString nameKo;
+        QString nameEn;
+        quint32 count;
+    };
+
+    /**
+     * `ShowEmojiPopupV2` 시그널 콜백.
+     *
+     * 시그니처: (s, as, s, as, a(sssu), i, i, i, i)
+     *   target_cat_id, items[], top_row, recent[], categories[], cx, cy, cw, ch.
+     */
+    using ShowEmojiPopupCallback = std::function<void(
+        const QString &targetCatId,
+        const QStringList &items,
+        const QString &topRow,
+        const QStringList &recent,
+        const QList<EmojiCategoryInfo> &categories,
+        qint32 cursorX,
+        qint32 cursorY,
+        qint32 cursorWidth,
+        qint32 cursorHeight)>;
+    void setShowEmojiPopupCallback(ShowEmojiPopupCallback callback);
+
+    /**
+     * `PopupNavigate` 시그널 콜백 — 한자/특수/이모지 공통.
+     *
+     * 시그니처: (i, i, i, i, i, i, i)
+     *   page, total_pages, selected, rows, cols, sel_row, sel_col.
+     */
+    using PopupNavigateCallback = std::function<void(
+        qint32 page, qint32 totalPages, qint32 selected,
+        qint32 rows, qint32 cols, qint32 selRow, qint32 selCol)>;
+    void setPopupNavigateCallback(PopupNavigateCallback callback);
+
+    /**
+     * `HidePopup` 시그널 콜백 — 인자 없음.
+     */
+    using HidePopupCallback = std::function<void()>;
+    void setHidePopupCallback(HidePopupCallback callback);
+
+    /**
+     * `CommitEmoji(s)` RPC — 셀 클릭/Enter 시 emoji 커밋.
+     *
+     * 엔진이 popup_state 갱신 + Recent MRU 업데이트 + HidePopup 시그널 발행한다.
+     */
+    bool commitEmoji(const QString &emoji);
+
 private:
     QDBusConnection m_bus;
     QString m_contextPath;
@@ -233,11 +290,17 @@ private:
     CommitTextCallback m_commitTextCallback;
     HanjaBookmarkChangedCallback m_hanjaBookmarkCallback;
     HanjaCandidatesReorderedCallback m_hanjaReorderedCallback;
+    ShowEmojiPopupCallback m_showEmojiPopupCallback;
+    PopupNavigateCallback m_popupNavigateCallback;
+    HidePopupCallback m_hidePopupCallback;
 
     friend class UnimAutoTypeFixReceiver;
     friend class UnimCommitTextReceiver;
     friend class UnimHanjaBookmarkReceiver;
     friend class UnimHanjaCandidatesReorderedReceiver;
+    friend class UnimShowEmojiPopupReceiver;
+    friend class UnimPopupNavigateReceiver;
+    friend class UnimHidePopupReceiver;
 };
 
 /**
@@ -296,6 +359,55 @@ public:
         : QObject(parent), m_client(client) {}
 public slots:
     void onReordered(const QDBusMessage &msg);
+private:
+    UnimDbusClient *m_client;
+};
+
+/**
+ * ShowEmojiPopupV2 시그널 수신 헬퍼 (PR #4)
+ *
+ * 시그니처: (s, as, s, as, a(sssu), i, i, i, i). a(sssu) struct array 는
+ * QtDBus 자동 디마샬링이 어려워 generic QDBusMessage 슬롯으로 받아 직접
+ * 파싱한다 (HanjaCandidatesReordered 와 동일 패턴).
+ */
+class UnimShowEmojiPopupReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimShowEmojiPopupReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onShowEmoji(const QDBusMessage &msg);
+private:
+    UnimDbusClient *m_client;
+};
+
+/**
+ * PopupNavigate 시그널 수신 헬퍼 (PR #4)
+ *
+ * 시그니처: (i, i, i, i, i, i, i) — 자동 디마샬링 가능.
+ */
+class UnimPopupNavigateReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimPopupNavigateReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onPopupNavigate(qint32 page, qint32 totalPages, qint32 selected,
+                          qint32 rows, qint32 cols, qint32 selRow, qint32 selCol);
+private:
+    UnimDbusClient *m_client;
+};
+
+/**
+ * HidePopup 시그널 수신 헬퍼 (PR #4) — 인자 없음.
+ */
+class UnimHidePopupReceiver : public QObject {
+    Q_OBJECT
+public:
+    explicit UnimHidePopupReceiver(UnimDbusClient *client, QObject *parent = nullptr)
+        : QObject(parent), m_client(client) {}
+public slots:
+    void onHidePopup();
 private:
     UnimDbusClient *m_client;
 };

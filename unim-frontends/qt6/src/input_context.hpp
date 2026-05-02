@@ -17,6 +17,7 @@
 class UnimDbusClient;
 class UnimHanjaPopup;
 class UnimSpecialPopup;
+class UnimEmojiPopup;
 
 class UnimInputContext : public QPlatformInputContext
 {
@@ -50,6 +51,7 @@ private:
     UnimDbusClient *m_dbus;
     UnimHanjaPopup *m_hanjaPopup;
     UnimSpecialPopup *m_specialPopup;
+    UnimEmojiPopup *m_emojiPopup;
     QObject *m_focusObject;
     QString m_windowId;
     bool m_composing;

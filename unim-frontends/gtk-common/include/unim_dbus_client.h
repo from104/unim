@@ -268,6 +268,122 @@ void unim_dbus_set_hanja_candidates_reordered_callback(
 );
 
 /* =========================================
+ * 이모지 팝업 시그널 (PR #4 emoji overhaul)
+ * ========================================= */
+
+/**
+ * 이모지 카테고리 메타 (id, name_ko, name_en, count) — `ShowEmojiPopupV2`
+ * payload 의 `categories: a(sssu)` 와 1:1.
+ */
+typedef struct {
+    gchar *id;
+    gchar *name_ko;
+    gchar *name_en;
+    guint count;
+} UnimEmojiCategoryMeta;
+
+/**
+ * `ShowEmojiPopupV2` 시그널 콜백 타입.
+ *
+ * 시그니처: `(s, as, s, as, a(sssu), i, i, i, i)`
+ *   target_cat_id, items[], top_row, recent[], categories[], cursor_x, cursor_y, cursor_width, cursor_height.
+ *
+ * 핸들러는 콜백 호출 후 모든 owned 메모리를 해제한다 — 콜백은 필요한 경우
+ * 자체 깊은 복사를 수행해야 한다.
+ *
+ * @param target_cat_id 시작 카테고리 id (예: "Recent" / "SmileysPeople" / ... / "Flags")
+ * @param items 시작 카테고리 emoji 풀 (UTF-8 문자열 배열)
+ * @param item_count items 길이
+ * @param top_row 활성 영문 키맵 상단 9 문자
+ * @param recent 'Recent' 캐시 (UTF-8 배열)
+ * @param recent_count recent 길이
+ * @param categories 좌측 9 탭 메타 (정확히 9개)
+ * @param category_count categories 길이
+ * @param cursor_x 커서 X 좌표 (화면 절대)
+ * @param cursor_y 커서 Y 좌표
+ * @param cursor_width 커서 너비
+ * @param cursor_height 커서 높이
+ * @param user_data 사용자 데이터
+ */
+typedef void (*UnimShowEmojiPopupCallback)(
+    const gchar *target_cat_id,
+    const gchar * const *items,
+    gsize item_count,
+    const gchar *top_row,
+    const gchar * const *recent,
+    gsize recent_count,
+    const UnimEmojiCategoryMeta *categories,
+    gsize category_count,
+    gint cursor_x,
+    gint cursor_y,
+    gint cursor_width,
+    gint cursor_height,
+    gpointer user_data
+);
+
+/**
+ * `ShowEmojiPopupV2` 시그널 구독 및 콜백 설정.
+ *
+ * 본 시그널은 InputMethod 글로벌 시그널이 아니라 InputContext 시그널
+ * (`org.atit.unim.InputContext`) 에 발행된다 — `unim_dbus_context_new()` 가
+ * 만든 `context_path` 에 한정해 구독한다.
+ */
+void unim_dbus_set_show_emoji_popup_callback(UnimDbusContext *ctx,
+                                              UnimShowEmojiPopupCallback callback,
+                                              gpointer user_data);
+
+/**
+ * `PopupNavigate` 시그널 콜백 타입.
+ *
+ * 시그니처: `(i, i, i, i, i, i, i)`
+ *   page, total_pages, selected, rows, cols, sel_row, sel_col.
+ *
+ * 한자/특수문자/이모지 팝업이 모두 같은 시그널을 수신 — 어느 팝업이 떠 있는지
+ * 는 IM 모듈 측에서 자체 분기한다.
+ */
+typedef void (*UnimPopupNavigateCallback)(gint page,
+                                           gint total_pages,
+                                           gint selected,
+                                           gint rows,
+                                           gint cols,
+                                           gint sel_row,
+                                           gint sel_col,
+                                           gpointer user_data);
+
+/**
+ * `PopupNavigate` 시그널 구독 및 콜백 설정.
+ */
+void unim_dbus_set_popup_navigate_callback(UnimDbusContext *ctx,
+                                            UnimPopupNavigateCallback callback,
+                                            gpointer user_data);
+
+/**
+ * `HidePopup` 시그널 콜백 타입.
+ *
+ * 한자/특수문자/이모지 모두 같은 시그널로 숨김 — IM 모듈은 떠 있는 팝업 모두를
+ * 숨겨야 한다.
+ */
+typedef void (*UnimHidePopupCallback)(gpointer user_data);
+
+/**
+ * `HidePopup` 시그널 구독 및 콜백 설정.
+ */
+void unim_dbus_set_hide_popup_callback(UnimDbusContext *ctx,
+                                        UnimHidePopupCallback callback,
+                                        gpointer user_data);
+
+/**
+ * `CommitEmoji(s)` RPC — 셀 클릭/Enter 시 emoji 를 커밋.
+ *
+ * 엔진이 popup_state 갱신 + Recent MRU 업데이트 + HidePopup 시그널 발행한다.
+ *
+ * @param ctx 컨텍스트
+ * @param emoji 커밋할 이모지 문자열
+ * @return 성공 시 TRUE
+ */
+gboolean unim_dbus_commit_emoji(UnimDbusContext *ctx, const gchar *emoji);
+
+/* =========================================
  * 특수문자 변환 관련 함수
  * ========================================= */
 

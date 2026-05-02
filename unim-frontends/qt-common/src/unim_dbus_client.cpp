@@ -715,3 +715,145 @@ void UnimHanjaCandidatesReorderedReceiver::onReordered(const QDBusMessage &msg) 
     m_client->m_hanjaReorderedCallback(target, candidates, bookmarks,
                                         newCursor, page, selRow, selCol, bookmarked);
 }
+
+/* =========================================
+ * 이모지 팝업 시그널 (PR #4 emoji overhaul)
+ * ========================================= */
+
+void UnimDbusClient::setShowEmojiPopupCallback(ShowEmojiPopupCallback callback) {
+    m_showEmojiPopupCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimShowEmojiPopupReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("ShowEmojiPopupV2"),
+        receiver,
+        SLOT(onShowEmoji(QDBusMessage))
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("ShowEmojiPopupV2 signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimShowEmojiPopupReceiver::onShowEmoji(const QDBusMessage &msg) {
+    if (!m_client || !m_client->m_showEmojiPopupCallback) return;
+
+    const QList<QVariant> args = msg.arguments();
+    if (args.size() < 9) {
+        UNIM_DBUS_DEBUG(QString::asprintf("ShowEmojiPopupV2: 인자 부족 (%d)",
+                         static_cast<int>(args.size())));
+        return;
+    }
+
+    QString targetCatId = args.at(0).toString();
+    QStringList items = args.at(1).toStringList();
+    QString topRow = args.at(2).toString();
+    QStringList recent = args.at(3).toStringList();
+
+    /* a(sssu) — QDBusArgument 로 직접 파싱 */
+    QList<UnimDbusClient::EmojiCategoryInfo> categories;
+    {
+        const QVariant &v = args.at(4);
+        if (v.canConvert<QDBusArgument>()) {
+            const QDBusArgument arg = v.value<QDBusArgument>();
+            arg.beginArray();
+            while (!arg.atEnd()) {
+                UnimDbusClient::EmojiCategoryInfo info{};
+                arg.beginStructure();
+                arg >> info.id >> info.nameKo >> info.nameEn >> info.count;
+                arg.endStructure();
+                categories.append(info);
+            }
+            arg.endArray();
+        }
+    }
+
+    qint32 cx = args.at(5).toInt();
+    qint32 cy = args.at(6).toInt();
+    qint32 cw = args.at(7).toInt();
+    qint32 ch = args.at(8).toInt();
+
+    UNIM_DBUS_DEBUG(QString::asprintf(
+        "ShowEmojiPopupV2 received: cat='%s', items=%d, recent=%d, cats=%d, cursor=(%d,%d,%d,%d)",
+        qPrintable(targetCatId),
+        static_cast<int>(items.size()),
+        static_cast<int>(recent.size()),
+        static_cast<int>(categories.size()),
+        cx, cy, cw, ch));
+
+    m_client->m_showEmojiPopupCallback(targetCatId, items, topRow, recent,
+                                        categories, cx, cy, cw, ch);
+}
+
+void UnimDbusClient::setPopupNavigateCallback(PopupNavigateCallback callback) {
+    m_popupNavigateCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimPopupNavigateReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("PopupNavigate"),
+        receiver,
+        SLOT(onPopupNavigate(qint32,qint32,qint32,qint32,qint32,qint32,qint32))
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("PopupNavigate signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimPopupNavigateReceiver::onPopupNavigate(qint32 page, qint32 totalPages, qint32 selected,
+                                                 qint32 rows, qint32 cols, qint32 selRow, qint32 selCol) {
+    if (m_client && m_client->m_popupNavigateCallback) {
+        UNIM_DBUS_DEBUG(QString::asprintf(
+            "PopupNavigate received: page=%d/%d, sel=(%d,%d)",
+            page, totalPages, selRow, selCol));
+        m_client->m_popupNavigateCallback(page, totalPages, selected, rows, cols, selRow, selCol);
+    }
+}
+
+void UnimDbusClient::setHidePopupCallback(HidePopupCallback callback) {
+    m_hidePopupCallback = std::move(callback);
+    if (!m_connected || m_contextPath.isEmpty()) return;
+
+    auto *receiver = new UnimHidePopupReceiver(this);
+    m_bus.connect(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("HidePopup"),
+        receiver,
+        SLOT(onHidePopup())
+    );
+    UNIM_DBUS_DEBUG(QString::asprintf("HidePopup signal subscribed: path=%s",
+                     qPrintable(m_contextPath)));
+}
+
+void UnimHidePopupReceiver::onHidePopup() {
+    if (m_client && m_client->m_hidePopupCallback) {
+        UNIM_DBUS_DEBUG("HidePopup received");
+        m_client->m_hidePopupCallback();
+    }
+}
+
+bool UnimDbusClient::commitEmoji(const QString &emoji) {
+    if (!m_connected || m_contextPath.isEmpty()) return false;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        QString::fromUtf8(UNIM_DBUS_SERVICE),
+        m_contextPath,
+        QString::fromUtf8(UNIM_DBUS_IC_INTERFACE),
+        QStringLiteral("CommitEmoji")
+    );
+    msg << emoji;
+
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("CommitEmoji 실패: emoji='%s', err=%s",
+                         qPrintable(emoji), qPrintable(reply.errorMessage())));
+        return false;
+    }
+    return true;
+}

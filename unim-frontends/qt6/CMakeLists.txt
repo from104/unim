@@ -26,9 +26,11 @@ target_sources(unim PRIVATE
     ${QT_COMMON_DIR}/src/unim_dbus_client.cpp
     ${QT_COMMON_DIR}/src/unim_hanja_popup.cpp
     ${QT_COMMON_DIR}/src/unim_special_popup.cpp
+    ${QT_COMMON_DIR}/src/unim_emoji_popup.cpp
     ${QT_COMMON_DIR}/include/unim_dbus_client.hpp
     ${QT_COMMON_DIR}/include/unim_hanja_popup.hpp
     ${QT_COMMON_DIR}/include/unim_special_popup.hpp
+    ${QT_COMMON_DIR}/include/unim_emoji_popup.hpp
 )
 
 # UNIM C-API (PopupState)
