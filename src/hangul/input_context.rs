@@ -2,7 +2,7 @@
 //!
 //! 키보드 레이아웃, 현재 조합 상태, preedit/committed 문자열 등을 관리합니다.
 
-use crate::hangul::composer::HangulComposer;
+use crate::hangul::composer::{HangulComposer, JamoMeta};
 use crate::hangul::composer_with_2bul::HangulComposer2Bul;
 use crate::hangul::composer_with_3bul::HangulComposer3Bul;
 use crate::hangul::jamo::JamoEnum;
@@ -93,12 +93,32 @@ impl HangulInputContext {
         }
     }
 
-    /// 자모를 입력받아 처리합니다.
+    /// 자모를 입력받아 처리합니다 (default meta).
+    ///
+    /// 룰 A를 신경 쓰지 않는 caller(테스트, 자동 한영 변환 등) 호환 경로.
+    /// `JamoMeta::default()`(=결합 가능)로 위임.
     ///
     /// # Returns
     /// 입력 처리 성공 여부
+    #[inline]
     pub fn process_jamo(&mut self, jamo: JamoEnum) -> bool {
-        unim_log!("CONTEXT", "process_jamo: {:?}", jamo);
+        self.process_jamo_with_meta(jamo, JamoMeta::default())
+    }
+
+    /// 자모와 키-출처 메타데이터를 함께 입력받아 처리합니다.
+    ///
+    /// 룰 A(`vowel_combine_head`) 같은 키-별 속성을 composer 큐까지 전달.
+    /// 키맵 → key_meta_map → JamoMeta 변환은 호출자(`press_key`)가 담당.
+    ///
+    /// # Returns
+    /// 입력 처리 성공 여부
+    pub fn process_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> bool {
+        unim_log!(
+            "CONTEXT",
+            "process_jamo_with_meta: {:?} meta={:?}",
+            jamo,
+            meta
+        );
         unim_log!(
             "CONTEXT",
             "  BEFORE: preedit='{}', committed='{}', composer={:?}",
@@ -107,7 +127,7 @@ impl HangulInputContext {
             self.composer.current_korean()
         );
 
-        if let Some(committed_char) = self.composer.add_jamo(jamo) {
+        if let Some(committed_char) = self.composer.add_jamo_with_meta(jamo, meta) {
             unim_log!("CONTEXT", "  -> 음절 완성: '{}'", committed_char);
             self.committed.push(committed_char);
         }
@@ -206,6 +226,49 @@ impl HangulInputContext {
         self.composer.get_current_cho().is_some()
             && self.composer.get_current_jung().is_none()
             && self.composer.get_current_jong().is_none()
+    }
+
+    /// "중성만" 채워진 상태 (cho 없이 jung만, jong 없음).
+    /// `context_alt.when == "jungseong_only"` 분기.
+    #[inline]
+    pub fn is_only_jung_filled(&self) -> bool {
+        self.composer.get_current_cho().is_none()
+            && self.composer.get_current_jung().is_some()
+            && self.composer.get_current_jong().is_none()
+    }
+
+    /// "초성+중성" 채워짐, 종성 없음.
+    /// `context_alt.when == "cho_jung_filled"` 분기.
+    #[inline]
+    pub fn is_cho_jung_filled(&self) -> bool {
+        self.composer.get_current_cho().is_some()
+            && self.composer.get_current_jung().is_some()
+            && self.composer.get_current_jong().is_none()
+    }
+
+    /// 종성이 들어 있는 상태 (cho/jung 동반 여부 무관).
+    /// `context_alt.when == "jongseong_filled"` 분기.
+    #[inline]
+    pub fn is_jong_filled(&self) -> bool {
+        self.composer.get_current_jong().is_some()
+    }
+
+    /// 큐의 마지막 자모가 초성인지.
+    /// `context_alt.when == "last_is_cho"` 분기.
+    pub fn last_jamo_is_cho(&mut self) -> bool {
+        matches!(self.composer.jamo_queue().back(), Some(JamoEnum::Cho(_)))
+    }
+
+    /// 큐의 마지막 자모가 중성인지.
+    /// `context_alt.when == "last_is_jung"` 분기.
+    pub fn last_jamo_is_jung(&mut self) -> bool {
+        matches!(self.composer.jamo_queue().back(), Some(JamoEnum::Jung(_)))
+    }
+
+    /// 큐의 마지막 자모가 종성인지.
+    /// `context_alt.when == "last_is_jong"` 분기.
+    pub fn last_jamo_is_jong(&mut self) -> bool {
+        matches!(self.composer.jamo_queue().back(), Some(JamoEnum::Jong(_)))
     }
 
     /// 현재 사용 중인 컴포저 타입을 반환합니다.
@@ -346,6 +409,80 @@ mod tests {
         let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
         ctx.process_jamo(JamoEnum::Cho(Cho::G));
         assert_eq!(ctx.get_preedit(), "ㄱ");
+    }
+
+    // ========================================================================
+    // ContextCondition helper 단위 테스트
+    // ========================================================================
+
+    /// 빈 상태 — 모든 조건 false 외 is_only_jung_filled/is_jong_filled도 false.
+    #[test]
+    fn context_helpers_empty_state() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        assert!(!ctx.is_composing());
+        assert!(!ctx.is_only_cho_filled());
+        assert!(!ctx.is_only_jung_filled());
+        assert!(!ctx.is_cho_jung_filled());
+        assert!(!ctx.is_jong_filled());
+        assert!(!ctx.last_jamo_is_cho());
+        assert!(!ctx.last_jamo_is_jung());
+        assert!(!ctx.last_jamo_is_jong());
+    }
+
+    /// 초성만 채워짐.
+    #[test]
+    fn context_helpers_choseong_only() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        ctx.process_jamo(JamoEnum::Cho(Cho::G));
+        assert!(ctx.is_composing());
+        assert!(ctx.is_only_cho_filled());
+        assert!(!ctx.is_only_jung_filled());
+        assert!(!ctx.is_cho_jung_filled());
+        assert!(!ctx.is_jong_filled());
+        assert!(ctx.last_jamo_is_cho());
+        assert!(!ctx.last_jamo_is_jung());
+        assert!(!ctx.last_jamo_is_jong());
+    }
+
+    /// 중성만 (cho 없이 jung만).
+    #[test]
+    fn context_helpers_jungseong_only() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        ctx.process_jamo(JamoEnum::Jung(Jung::A));
+        assert!(ctx.is_composing());
+        assert!(!ctx.is_only_cho_filled());
+        assert!(ctx.is_only_jung_filled());
+        assert!(!ctx.is_cho_jung_filled());
+        assert!(!ctx.is_jong_filled());
+        assert!(ctx.last_jamo_is_jung());
+    }
+
+    /// 초성+중성, 종성 없음.
+    #[test]
+    fn context_helpers_cho_jung_filled() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        ctx.process_jamo(JamoEnum::Cho(Cho::G));
+        ctx.process_jamo(JamoEnum::Jung(Jung::A));
+        assert!(ctx.is_composing());
+        assert!(!ctx.is_only_cho_filled());
+        assert!(!ctx.is_only_jung_filled());
+        assert!(ctx.is_cho_jung_filled());
+        assert!(!ctx.is_jong_filled());
+        assert!(ctx.last_jamo_is_jung());
+    }
+
+    /// 종성까지 채워짐.
+    #[test]
+    fn context_helpers_jongseong_filled() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        ctx.process_jamo(JamoEnum::Cho(Cho::G));
+        ctx.process_jamo(JamoEnum::Jung(Jung::A));
+        ctx.process_jamo(JamoEnum::Jong(Jong::Giyeok));
+        assert!(ctx.is_composing());
+        assert!(!ctx.is_cho_jung_filled());
+        assert!(ctx.is_jong_filled());
+        assert!(ctx.last_jamo_is_jong());
+        assert!(!ctx.last_jamo_is_jung());
     }
 
     #[test]

@@ -9,6 +9,7 @@
 use crate::hangul::composer::BaseHangulComposer;
 use crate::hangul::composer::CombinedJamoMap;
 use crate::hangul::composer::HangulComposer;
+use crate::hangul::composer::JamoMeta;
 use crate::hangul::jamo::*;
 use crate::hangul::HangulChar;
 
@@ -293,11 +294,17 @@ mod tests {
 
 impl HangulComposer for HangulComposer3Bul {
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
+        // 룰 A 미지정 호출 — default meta(=결합 가능)로 위임. press_key가
+        // process_jamo_with_meta로 들어오면 `add_jamo_with_meta` override가 받은 meta를 사용한다.
+        self.add_jamo_with_meta(jamo, JamoMeta::default())
+    }
+
+    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
         if !self.base_composer.is_valid_jamo(&jamo) {
             return None;
         }
 
-        self.base_composer.add_jamo_with(jamo, |base| {
+        self.base_composer.add_jamo_with(jamo, meta, |base| {
             if base.jamo_queue().is_empty() {
                 base.clear();
                 return true;

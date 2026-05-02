@@ -239,17 +239,48 @@ pub fn resolve_active_rule_set_names(profile: &LayoutProfile) -> Vec<String> {
 ///    중복 키는 rule_set 쪽이 덮어쓴다(`LAYOUT_PROFILE_V1.md` §11).
 /// 프로필의 `key_meta`를 char 키 기준 runtime 맵으로 변환합니다.
 ///
-/// JSON의 키는 단일 문자만 인정 (영어 자판 char). 다중 문자 키 항목은 무시.
-/// `key_meta` 자체가 없으면 빈 맵 반환.
+/// 병합 순서:
+/// 1. base `profile.key_meta`로 시작.
+/// 2. active rule_sets(이름순 BTreeMap)의 `key_meta`를 필드 단위로 덮어씀
+///    (rule_set이 우선; 같은 키의 다른 필드는 보존).
+/// 3. 단일 문자 키만 char 맵에 수록 (다중 문자 String 키는 layout 셀 한정 — 향후).
+///
+/// rule_set의 active=false면 그 set의 key_meta는 적용되지 않음.
 pub fn build_key_meta_char_map(profile: &LayoutProfile) -> HashMap<char, KeyMeta> {
+    // 1. base + active rule_set key_meta를 String 키 단위로 병합.
+    let mut merged: HashMap<String, KeyMeta> = HashMap::new();
+    if let Some(ref base) = profile.key_meta {
+        for (k, meta) in base {
+            merged.insert(k.clone(), meta.clone());
+        }
+    }
+    let active = resolve_active_rule_set_names(profile);
+    for name in &active {
+        let rs = profile
+            .rule_sets
+            .get(name)
+            .expect("active 이름은 rule_sets에 존재");
+        let Some(ref rs_km) = rs.key_meta else {
+            continue;
+        };
+        for (k, addn) in rs_km {
+            let entry = merged.entry(k.clone()).or_default();
+            // 필드 단위 덮어쓰기 — Some(...)만 적용.
+            if addn.vowel_combine_head.is_some() {
+                entry.vowel_combine_head = addn.vowel_combine_head;
+            }
+            if addn.context_alt.is_some() {
+                entry.context_alt = addn.context_alt.clone();
+            }
+        }
+    }
+
+    // 2. String → char 좁히기. 다중 문자 키는 무시.
     let mut map: HashMap<char, KeyMeta> = HashMap::new();
-    let Some(ref raw) = profile.key_meta else {
-        return map;
-    };
-    for (k, meta) in raw {
+    for (k, meta) in merged {
         let mut chars = k.chars();
         if let (Some(c), None) = (chars.next(), chars.next()) {
-            map.insert(c, meta.clone());
+            map.insert(c, meta);
         }
     }
     map
@@ -554,6 +585,246 @@ mod tests {
         let kb = (JamoEnum::Jong(Jong::Nieun), JamoEnum::Jong(Jong::Hieuh));
         assert!(map.contains_key(&ka), "a는 active_rule_sets 포함");
         assert!(!map.contains_key(&kb), "b는 제외 — override 강제");
+    }
+
+    // ========================================================================
+    // rule_set의 key_meta 병합 — 룰 A·B 토글 가능성 검증
+    // ========================================================================
+
+    /// rule_set이 active=true일 때 key_meta가 base에 병합된다.
+    #[test]
+    fn rule_set_key_meta_active_merges_into_base() {
+        let json = r##"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "t",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "rule_sets": {
+                "vowel_strict": {
+                    "active": true,
+                    "key_meta": {
+                        "v": { "vowel_combine_head": false }
+                    }
+                }
+            }
+        }"##;
+        let profile = crate::keystroke::profile::parse_profile_str(json).unwrap();
+        let map = build_key_meta_char_map(&profile);
+        assert_eq!(
+            map.get(&'v').and_then(|m| m.vowel_combine_head),
+            Some(false),
+            "active rule_set의 key_meta가 char map에 들어와야 함"
+        );
+    }
+
+    /// rule_set이 active=false면 key_meta는 무시된다.
+    #[test]
+    fn rule_set_key_meta_inactive_is_ignored() {
+        let json = r##"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "t",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "rule_sets": {
+                "vowel_strict": {
+                    "active": false,
+                    "key_meta": {
+                        "v": { "vowel_combine_head": false }
+                    }
+                }
+            }
+        }"##;
+        let profile = crate::keystroke::profile::parse_profile_str(json).unwrap();
+        let map = build_key_meta_char_map(&profile);
+        assert!(
+            !map.contains_key(&'v'),
+            "active=false rule_set의 key_meta는 적용되지 않아야 함"
+        );
+    }
+
+    /// active_rule_sets override로 vowel_strict를 강제 비활성화하면 v 키 룰 A 풀린다.
+    #[test]
+    fn active_rule_sets_override_disables_key_meta() {
+        let json = r##"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "t",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "rule_sets": {
+                "vowel_strict": {
+                    "active": true,
+                    "key_meta": {
+                        "v": { "vowel_combine_head": false }
+                    }
+                }
+            },
+            "active_rule_sets": []
+        }"##;
+        let profile = crate::keystroke::profile::parse_profile_str(json).unwrap();
+        let map = build_key_meta_char_map(&profile);
+        assert!(
+            !map.contains_key(&'v'),
+            "active_rule_sets=[]는 모든 rule_set off → key_meta 미적용"
+        );
+    }
+
+    /// 두 rule_set이 같은 키의 다른 필드를 정의하면 필드 단위로 병합된다.
+    #[test]
+    fn two_rule_sets_merge_per_field_for_same_key() {
+        let json = r##"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "t",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "rule_sets": {
+                "rs_combine": {
+                    "active": true,
+                    "key_meta": {
+                        "/": { "vowel_combine_head": false }
+                    }
+                },
+                "rs_alt": {
+                    "active": true,
+                    "key_meta": {
+                        "/": {
+                            "context_alt": {
+                                "when": "choseong_only",
+                                "to": "ㅗ",
+                                "fallback": "/"
+                            }
+                        }
+                    }
+                }
+            }
+        }"##;
+        let profile = crate::keystroke::profile::parse_profile_str(json).unwrap();
+        let map = build_key_meta_char_map(&profile);
+        let slash = map.get(&'/').expect("/ 키 KeyMeta 존재해야 함");
+        assert_eq!(slash.vowel_combine_head, Some(false));
+        assert!(slash.context_alt.is_some(), "context_alt도 살아남아야 함");
+    }
+
+    /// base `key_meta`는 토글 불가 — 항상 적용. rule_set이 같은 키의 다른 필드를
+    /// 정의하면 base + rule_set이 필드 단위로 합쳐진다.
+    #[test]
+    fn base_key_meta_combines_with_rule_set_key_meta() {
+        let json = r##"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "t",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "key_meta": {
+                "/": { "vowel_combine_head": true }
+            },
+            "rule_sets": {
+                "rs_alt": {
+                    "active": true,
+                    "key_meta": {
+                        "/": {
+                            "context_alt": {
+                                "when": "choseong_only",
+                                "to": "ㅗ",
+                                "fallback": "/"
+                            }
+                        }
+                    }
+                }
+            }
+        }"##;
+        let profile = crate::keystroke::profile::parse_profile_str(json).unwrap();
+        let map = build_key_meta_char_map(&profile);
+        let slash = map.get(&'/').expect("/ 키 KeyMeta 존재");
+        assert_eq!(
+            slash.vowel_combine_head,
+            Some(true),
+            "base의 vowel_combine_head 보존"
+        );
+        assert!(
+            slash.context_alt.is_some(),
+            "rule_set의 context_alt 추가 적용"
+        );
+    }
+
+    /// rule_set이 base의 같은 필드를 덮어쓴다 — rule_set 우선.
+    #[test]
+    fn rule_set_key_meta_overrides_base_for_same_field() {
+        let json = r##"{
+            "schema_version": 2,
+            "language": "korean",
+            "name": "t",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "key_meta": {
+                "v": { "vowel_combine_head": true }
+            },
+            "rule_sets": {
+                "rs_strict": {
+                    "active": true,
+                    "key_meta": {
+                        "v": { "vowel_combine_head": false }
+                    }
+                }
+            }
+        }"##;
+        let profile = crate::keystroke::profile::parse_profile_str(json).unwrap();
+        let map = build_key_meta_char_map(&profile);
+        assert_eq!(
+            map.get(&'v').and_then(|m| m.vowel_combine_head),
+            Some(false),
+            "rule_set이 base의 같은 필드를 덮어씀"
+        );
+    }
+
+    /// ko_3bul390 빌트인 — 기본 active 상태에서 v/b/`/` 키가 룰대로 채워졌는지.
+    #[test]
+    fn ko_3bul390_builtin_rule_sets_apply_key_meta() {
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul390").unwrap();
+        let map = build_key_meta_char_map(&profile);
+        assert_eq!(
+            map.get(&'v').and_then(|m| m.vowel_combine_head),
+            Some(false),
+            "v 키는 vowel_strict rule_set으로 head=false"
+        );
+        assert_eq!(
+            map.get(&'b').and_then(|m| m.vowel_combine_head),
+            Some(false),
+            "b 키는 vowel_strict rule_set으로 head=false"
+        );
+        assert!(
+            map.get(&'/')
+                .and_then(|m| m.context_alt.as_ref())
+                .is_some(),
+            "/ 키는 slash_context_alt rule_set으로 context_alt 보유"
+        );
     }
 
     #[test]

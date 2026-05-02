@@ -9,6 +9,7 @@
 use crate::hangul::composer::BaseHangulComposer;
 use crate::hangul::composer::CombinedJamoMap;
 use crate::hangul::composer::HangulComposer;
+use crate::hangul::composer::JamoMeta;
 use crate::hangul::jamo::*;
 use crate::hangul::HangulChar;
 
@@ -116,7 +117,9 @@ impl HangulComposer2Bul {
 
         if let Some(JamoEnum::Jong(jong)) = last_jamo {
             if jamo.is_jung() {
-                self.base_composer.jamo_queue().pop_back();
+                // 평행 meta_queue도 동시 pop. 도깨비불 처리는 키 출처와 무관하므로
+                // pop된 meta는 폐기.
+                self.base_composer.pop_back_synced();
                 let completed = self.force_compose_korean();
 
                 if let Ok(new_cho) = jong.to_cho() {
@@ -450,18 +453,47 @@ impl HangulComposer for HangulComposer2Bul {
             return result;
         }
 
-        // 3. 조합 규칙 검사를 포함한 자모 추가
-        self.base_composer.add_jamo_with(jamo, |base| {
+        // 3. 조합 규칙 검사를 포함한 자모 추가 (default meta — 두벌식은 룰 A 미적용 자판이므로
+        //    모든 ㅗ/ㅜ가 결합 가능. press_key가 process_jamo_with_meta로 들어오면
+        //    `add_jamo_with_meta` override가 받은 meta를 사용한다.)
+        self.base_composer
+            .add_jamo_with(jamo, JamoMeta::default(), |base| {
+                if base.jamo_queue().is_empty() {
+                    base.clear();
+                    return true;
+                }
+
+                // 2벌식 규칙 위반 검사
+                if check_2bul_violation(base).is_some() {
+                    return false;
+                }
+
+                base.compose_korean()
+            })
+    }
+
+    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
+        if !self.base_composer.is_valid_jamo(&jamo) {
+            return None;
+        }
+
+        // handle_cho_after_jung / handle_dokkaebi_effect는 default meta로 충분 —
+        // 두벌식 도깨비불은 종성→초성 자동 변환이며 키 출처와 무관.
+        if let Some(result) = self.handle_cho_after_jung(jamo) {
+            return result;
+        }
+        if let Some(result) = self.handle_dokkaebi_effect(jamo) {
+            return result;
+        }
+
+        self.base_composer.add_jamo_with(jamo, meta, |base| {
             if base.jamo_queue().is_empty() {
                 base.clear();
                 return true;
             }
-
-            // 2벌식 규칙 위반 검사
             if check_2bul_violation(base).is_some() {
                 return false;
             }
-
             base.compose_korean()
         })
     }

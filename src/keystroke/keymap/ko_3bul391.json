@@ -57,12 +57,26 @@
       { "first": "ᆺ", "second": "ᆺ", "result": "ᆻ" }
     ]
   },
-  "key_meta": {
-    "/": {
-      "context_alt": {
-        "when": "choseong_only",
-        "to": "ㅗ",
-        "fallback": "/"
+  "rule_sets": {
+    "vowel_strict": {
+      "active": true,
+      "description": "ㅗ·ㅜ가 위치한 키마다 이중모음 결합 가부를 따로 둡니다. /·9 키의 ㅗ·ㅜ는 후속 ㅏ/ㅐ/ㅣ/ㅓ/ㅔ와 합쳐 ㅘ/ㅙ/ㅚ/ㅝ/ㅞ/ㅟ로 결합되지만, v·b 키의 ㅗ·ㅜ는 단순 모음만 — 후속 모음이 와도 새 음절로 분리됩니다. 끄면 모든 ㅗ·ㅜ가 합쳐질 수 있어 v·b 키에서도 합용 가능.",
+      "key_meta": {
+        "v": { "vowel_combine_head": false },
+        "b": { "vowel_combine_head": false }
+      }
+    },
+    "slash_context_alt": {
+      "active": true,
+      "description": "/ 키를 컨텍스트에 따라 분기합니다. preedit이 초성 한 개만 들어 있을 때는 ㅗ로 동작해 ㅘ/ㅙ/ㅚ 합용을 가능하게 하고, 그 외(빈 preedit·중성·종성 채워짐·영어 모드)에서는 리터럴 / 로 출력됩니다. 끄면 / 키가 어떤 상황에서도 항상 ㅗ로 동작합니다.",
+      "key_meta": {
+        "/": {
+          "context_alt": {
+            "when": "choseong_only",
+            "to": "ㅗ",
+            "fallback": "/"
+          }
+        }
       }
     }
   }

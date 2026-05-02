@@ -263,10 +263,17 @@ impl InputEngine {
             {
                 if let Some(meta) = self.key_meta_map.get(&c) {
                     if let Some(alt) = meta.context_alt.clone() {
+                        use crate::keystroke::profile::ContextCondition as C;
                         let cond_ok = match alt.when {
-                            crate::keystroke::profile::ContextCondition::ChoseongOnly => {
-                                self.korean_context.is_only_cho_filled()
-                            }
+                            C::Empty => !self.korean_context.is_composing(),
+                            C::Composing => self.korean_context.is_composing(),
+                            C::ChoseongOnly => self.korean_context.is_only_cho_filled(),
+                            C::JungseongOnly => self.korean_context.is_only_jung_filled(),
+                            C::ChoJungFilled => self.korean_context.is_cho_jung_filled(),
+                            C::JongseongFilled => self.korean_context.is_jong_filled(),
+                            C::LastIsCho => self.korean_context.last_jamo_is_cho(),
+                            C::LastIsJung => self.korean_context.last_jamo_is_jung(),
+                            C::LastIsJong => self.korean_context.last_jamo_is_jong(),
                         };
                         if !cond_ok {
                             unim_log!(
@@ -298,8 +305,15 @@ impl InputEngine {
                         return InputResult::committed();
                     }
 
-                    // 일반 자모 입력
-                    self.korean_context.process_jamo(*jamo);
+                    // 일반 자모 입력 — 키-출처 메타데이터(룰 A: vowel_combine_head)를
+                    // composer 큐로 전달. key_meta 부재 시 default(=결합 가능).
+                    let jamo_meta = self
+                        .key_meta_map
+                        .get(&c)
+                        .map(|km| km.to_jamo_meta())
+                        .unwrap_or_default();
+                    self.korean_context
+                        .process_jamo_with_meta(*jamo, jamo_meta);
 
                     // committed 문자가 있으면 commit_buffer에 추가
                     let committed = self.korean_context.get_committed();

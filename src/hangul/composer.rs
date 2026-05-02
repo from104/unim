@@ -13,6 +13,33 @@ use std::collections::{HashMap, VecDeque};
 /// 튜플 키 `(첫번째 자모, 두번째 자모)`를 사용하여 조합된 자모를 조회합니다.
 pub type CombinedJamoMap = HashMap<(JamoEnum, JamoEnum), JamoEnum>;
 
+/// 자모 큐에 함께 보관되는 키-출처 메타데이터.
+///
+/// 한 키에 여러 의미를 부여할 수 있는 자판(예: 세벌식 390/391)에서
+/// "이 자모가 이중모음 head로 결합 가능한가" 같은 키-별 속성을 추적한다.
+///
+/// # 룰 A (vowel_combine_head)
+/// 세벌식 390/391의 lower row4 4번째(v 키)·5번째(b 키)에 매핑된 ㅗ·ㅜ는
+/// 단순 모음만 — 후속 ㅏ/ㅐ/ㅣ/ㅓ/ㅔ가 와도 합용 시도 안 함, 새 음절로 분리.
+/// 반면 같은 자판의 `/`·`9` 키 ㅗ·ㅜ는 ㅘ/ㅙ/ㅚ/ㅝ/ㅞ/ㅟ로 결합 가능.
+///
+/// 기본값(`true`)은 두벌식 호환 — 자판 JSON `key_meta.vowel_combine_head` 명시 부재 시
+/// 모든 ㅗ/ㅜ가 결합 가능으로 해석된다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JamoMeta {
+    /// 이 자모가 이중모음의 첫 모음으로 결합 가능한지 여부.
+    /// `false`면 후속 jung이 와도 합용하지 않고 음절 분리.
+    pub vowel_combine_head: bool,
+}
+
+impl Default for JamoMeta {
+    fn default() -> Self {
+        Self {
+            vowel_combine_head: true,
+        }
+    }
+}
+
 /// 한글 자모를 조합하여 한글 음절을 만드는 기능을 정의하는 트레이트입니다.
 ///
 /// 이 트레이트는 자모 입력, 삭제, 조합 상태 확인 등의 기본적인 인터페이스를 제공합니다.
@@ -33,6 +60,16 @@ pub trait HangulComposer {
     /// * `Some(char)`: 입력된 자모로 인해 이전 음절 조합이 완료된 경우, 완성된 한글 음절.
     /// * `None`: 조합이 계속 진행 중인 경우.
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char>;
+
+    /// `add_jamo`의 메타데이터 확장 버전.
+    ///
+    /// 룰 A(이중모음 head 결합 가부) 같은 키-출처 정보를 함께 큐에 보관하기 위함.
+    /// 기본 구현은 `meta`를 무시하고 `add_jamo`로 위임하여 기존 호출 호환성을 보존.
+    /// 룰 A를 지원하는 구현(`BaseHangulComposer`/`HangulComposer2Bul`/`HangulComposer3Bul`)은
+    /// override하여 `meta`를 큐에 함께 push해야 한다.
+    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, _meta: JamoMeta) -> Option<char> {
+        self.add_jamo(jamo)
+    }
 
     /// 마지막으로 입력된 한글 자모를 제거하고 조합 상태를 갱신합니다.
     ///
@@ -175,6 +212,10 @@ pub trait HangulComposer {
 pub struct BaseHangulComposer {
     jamo_queue: VecDeque<JamoEnum>,
     last_jamo_queue: VecDeque<JamoEnum>,
+    /// `jamo_queue`와 길이·인덱스가 항상 일치하는 평행 메타데이터 큐.
+    /// 룰 A(vowel_combine_head 검사)에서 사용. 모든 push/pop은 sync helper로 강제.
+    meta_queue: VecDeque<JamoMeta>,
+    last_meta_queue: VecDeque<JamoMeta>,
     combined_jamo: CombinedJamoMap,
     current_korean_char: HangulChar,
 }
@@ -189,9 +230,58 @@ impl BaseHangulComposer {
         BaseHangulComposer {
             jamo_queue: VecDeque::with_capacity(6),
             last_jamo_queue: VecDeque::with_capacity(6),
+            meta_queue: VecDeque::with_capacity(6),
+            last_meta_queue: VecDeque::with_capacity(6),
             combined_jamo: HashMap::new(),
             current_korean_char: HangulChar::default(),
         }
+    }
+
+    // ========================================================================
+    // 큐 sync helpers — jamo_queue와 meta_queue를 항상 같은 길이로 유지.
+    // 외부에서 `jamo_queue()` 가변 참조로 직접 mutate하는 곳이 1곳뿐(2bul 도깨비불).
+    // 그 호출점만 `pop_back_synced()`로 옮기면 평행 큐 무결성 유지.
+    // ========================================================================
+
+    /// jamo와 meta를 한 쌍으로 큐에 push.
+    pub fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
+        self.jamo_queue.push_back(jamo);
+        self.meta_queue.push_back(meta);
+    }
+
+    /// jamo와 meta를 한 쌍으로 큐에서 pop.
+    pub fn pop_back_synced(&mut self) -> Option<(JamoEnum, JamoMeta)> {
+        let j = self.jamo_queue.pop_back()?;
+        let m = self.meta_queue.pop_back().unwrap_or_default();
+        Some((j, m))
+    }
+
+    /// 두 큐를 모두 비움.
+    pub fn clear_queues_synced(&mut self) {
+        self.jamo_queue.clear();
+        self.meta_queue.clear();
+    }
+
+    /// 현재 큐를 last로 백업하고 두 큐를 모두 비움.
+    pub fn backup_to_last_synced(&mut self) {
+        self.last_jamo_queue.clear();
+        self.last_jamo_queue.extend(&self.jamo_queue);
+        self.last_meta_queue.clear();
+        self.last_meta_queue.extend(&self.meta_queue);
+        self.jamo_queue.clear();
+        self.meta_queue.clear();
+    }
+
+    /// 현재 jung_phoneme의 인덱스(자모 큐 기준 첫 번째 jung 위치)에 해당하는 meta를 반환.
+    /// 룰 A 검사에서 "첫 번째 jung이 결합 head 가능한가" 판정에 사용.
+    pub fn first_jung_meta(&self) -> Option<JamoMeta> {
+        self.jamo_queue
+            .iter()
+            .zip(self.meta_queue.iter())
+            .find_map(|(j, m)| match j {
+                JamoEnum::Jung(_) => Some(*m),
+                _ => None,
+            })
     }
 
     /// 내부적으로 새로운 음절 시작 여부를 판단합니다.
@@ -323,128 +413,11 @@ impl BaseHangulComposer {
         self.current_korean_char.is_filled_jong()
     }
 
-    /// 초성을 조합합니다.
-    ///
-    /// 자모 큐에서 초성만 추출하여 조합 규칙에 따라 초성을 설정합니다.
-    ///
-    /// # 반환값
-    ///
-    /// * `true`: 조합에 성공한 경우
-    /// * `false`: 조합에 실패한 경우
-    fn compose_cho(&mut self) -> bool {
-        let mut cho_vec = Vec::new();
-
-        // 초성만 걸러냄
-        for jamo in &self.jamo_queue {
-            if let JamoEnum::Cho(cho) = jamo {
-                cho_vec.push(*cho);
-            }
-        }
-
-        if cho_vec.is_empty() {
-            self.clear_cho();
-        } else {
-            self.set_cho(Some(cho_vec[0]));
-            if cho_vec.len() > 1 {
-                cho_vec.remove(0);
-                for cho in cho_vec {
-                    let first_jamo = JamoEnum::Cho(self.get_cho().unwrap());
-                    let second_jamo = JamoEnum::Cho(cho);
-
-                    if let Some(JamoEnum::Cho(combined_cho)) =
-                        self.combined_jamo.get(&(first_jamo, second_jamo))
-                    {
-                        self.set_cho(Some(*combined_cho));
-                    } else {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    /// 중성을 조합합니다.
-    ///
-    /// 자모 큐에서 중성만 추출하여 조합 규칙에 따라 중성을 설정합니다.
-    ///
-    /// # 반환값
-    ///
-    /// * `true`: 조합에 성공한 경우
-    /// * `false`: 조합에 실패한 경우
-    fn compose_jung(&mut self) -> bool {
-        let mut jung_vec = Vec::new();
-
-        // 중성만 걸러냄
-        for jamo in &self.jamo_queue {
-            if let JamoEnum::Jung(jung) = jamo {
-                jung_vec.push(*jung);
-            }
-        }
-
-        if jung_vec.is_empty() {
-            self.clear_jung();
-        } else {
-            self.set_jung(Some(jung_vec[0]));
-            if jung_vec.len() > 1 {
-                jung_vec.remove(0);
-                for jung in jung_vec {
-                    let first_jamo = JamoEnum::Jung(self.get_jung().unwrap());
-                    let second_jamo = JamoEnum::Jung(jung);
-
-                    if let Some(JamoEnum::Jung(combined_jung)) =
-                        self.combined_jamo.get(&(first_jamo, second_jamo))
-                    {
-                        self.set_jung(Some(*combined_jung));
-                    } else {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    /// 종성을 조합합니다.
-    ///
-    /// 자모 큐에서 종성만 추출하여 조합 규칙에 따라 종성을 설정합니다.
-    ///
-    /// # 반환값
-    ///
-    /// * `true`: 조합에 성공한 경우
-    /// * `false`: 조합에 실패한 경우
-    fn compose_jong(&mut self) -> bool {
-        let mut jong_vec = Vec::new();
-
-        // 종성만 걸러냄
-        for jamo in &self.jamo_queue {
-            if let JamoEnum::Jong(jong) = jamo {
-                jong_vec.push(*jong);
-            }
-        }
-
-        if jong_vec.is_empty() {
-            self.clear_jong();
-        } else {
-            self.set_jong(Some(jong_vec[0]));
-            if jong_vec.len() > 1 {
-                jong_vec.remove(0);
-                for jong in jong_vec {
-                    let first_jamo = JamoEnum::Jong(self.get_jong().unwrap());
-                    let second_jamo = JamoEnum::Jong(jong);
-
-                    if let Some(JamoEnum::Jong(combined_jong)) =
-                        self.combined_jamo.get(&(first_jamo, second_jamo))
-                    {
-                        self.set_jong(Some(*combined_jong));
-                    } else {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
+    // NOTE: 과거 inherent `compose_cho`/`compose_jung`/`compose_jong`이 여기 있었으나
+    // trait impl(아래 `impl HangulComposer for BaseHangulComposer`)와 중복이고,
+    // method resolution이 inherent 우선이라 trait impl 코드가 dead로 묻혀있었다.
+    // 룰 A를 trait impl `compose_jung`에 추가하면서 inherent를 제거 — 이제 모든 호출이
+    // trait method로 dispatch되어 룰 A가 일관 적용된다.
 
     /// 입력된 자모가 유효한 초성, 중성, 종성인지 확인합니다.
     ///
@@ -463,7 +436,7 @@ impl BaseHangulComposer {
         )
     }
 
-    /// 콜백 기반 자모 추가 메서드
+    /// 콜백 기반 자모 추가 메서드 (룰 A meta 포함).
     ///
     /// 외부에서 주입된 `compose_fn` 함수를 사용하여 조합 규칙을 적용합니다.
     /// 이를 통해 2벌식/3벌식이 각자의 compose_korean 로직을 사용할 수 있습니다.
@@ -471,23 +444,35 @@ impl BaseHangulComposer {
     /// # 매개변수
     ///
     /// * `jamo` - 추가할 자모
+    /// * `meta` - 자모 큐에 함께 보관될 메타데이터 (룰 A: vowel_combine_head).
+    ///   기본 호출에서는 `JamoMeta::default()`(=결합 가능) 사용.
     /// * `compose_fn` - 조합을 시도하는 클로저 (성공 시 true, 실패 시 false 반환)
     ///
     /// # 반환값
     ///
     /// * `Some(char)` - 이전 음절이 완성된 경우
     /// * `None` - 조합이 계속 진행 중인 경우
-    pub fn add_jamo_with<F>(&mut self, jamo: JamoEnum, compose_fn: F) -> Option<char>
+    pub fn add_jamo_with<F>(
+        &mut self,
+        jamo: JamoEnum,
+        meta: JamoMeta,
+        compose_fn: F,
+    ) -> Option<char>
     where
         F: Fn(&mut Self) -> bool,
     {
-        unim_log!("COMPOSER", "BaseComposer.add_jamo_with: {:?}", jamo);
+        unim_log!(
+            "COMPOSER",
+            "BaseComposer.add_jamo_with_meta: {:?} meta={:?}",
+            jamo,
+            meta
+        );
 
         if !self.is_valid_jamo(&jamo) {
             return None;
         }
 
-        self.jamo_queue.push_back(jamo);
+        self.push_back_synced(jamo, meta);
 
         if compose_fn(self) {
             unim_log!(
@@ -498,7 +483,7 @@ impl BaseHangulComposer {
             None
         } else {
             // 조합 실패 -> 이전 글자 완성 후 새 글자 시작
-            self.jamo_queue.pop_back();
+            self.pop_back_synced();
             compose_fn(self);
             let complete_korean = self
                 .current_korean_char
@@ -507,11 +492,9 @@ impl BaseHangulComposer {
                 .or_else(|| extract_incomplete_compat_char(&self.current_korean_char));
             unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
 
-            // 큐 상태 백업 및 초기화
-            self.last_jamo_queue.clear();
-            self.last_jamo_queue.extend(&self.jamo_queue);
-            self.jamo_queue.clear();
-            self.jamo_queue.push_back(jamo);
+            // 큐 상태 백업 및 초기화 (jamo_queue + meta_queue 동시)
+            self.backup_to_last_synced();
+            self.push_back_synced(jamo, meta);
             self.clear();
 
             // 새 음절 시작 시 compose_fn을 다시 호출하여 상태 업데이트
@@ -565,10 +548,19 @@ impl HangulComposer for BaseHangulComposer {
     /// * `Some(char)` - 입력된 자모로 인해 이전 음절 조합이 완료된 경우, 완성된 한국어 음절.
     /// * `None` - 조합이 계속 진행 중인 경우.
     fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
-        unim_log!("COMPOSER", "BaseComposer.add_jamo: {:?}", jamo);
-        self.jamo_queue.push_back(jamo);
+        self.add_jamo_with_meta(jamo, JamoMeta::default())
+    }
+
+    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
+        unim_log!(
+            "COMPOSER",
+            "BaseComposer.add_jamo_with_meta: {:?} meta={:?}",
+            jamo,
+            meta
+        );
+        self.push_back_synced(jamo, meta);
         if !self.compose_korean() {
-            self.jamo_queue.pop_back();
+            self.pop_back_synced();
             self.compose_korean();
             let complete_korean = self
                 .current_korean_char
@@ -576,10 +568,8 @@ impl HangulComposer for BaseHangulComposer {
                 .ok()
                 .or_else(|| extract_incomplete_compat_char(&self.current_korean_char));
             unim_log!("COMPOSER", "  -> 음절 분리: complete={:?}", complete_korean);
-            self.last_jamo_queue.clear();
-            self.last_jamo_queue.extend(&self.jamo_queue);
-            self.jamo_queue.clear();
-            self.jamo_queue.push_back(jamo);
+            self.backup_to_last_synced();
+            self.push_back_synced(jamo, meta);
             self.clear();
             self.compose_korean();
             unim_log!(
@@ -608,9 +598,9 @@ impl HangulComposer for BaseHangulComposer {
         if self.jamo_queue.is_empty() {
             None
         } else {
-            let jamo = self.jamo_queue.pop_back();
+            let popped = self.pop_back_synced().map(|(j, _)| j);
             self.compose_korean();
-            jamo
+            popped
         }
     }
 
@@ -672,8 +662,10 @@ impl HangulComposer for BaseHangulComposer {
             self.compose_korean();
             let complete_korean = self.current_korean_char.get_syllable();
             self.clear();
-            self.jamo_queue.clear();
+            // jamo_queue와 meta_queue를 동시 초기화 + last_*도 동시 초기화
+            self.clear_queues_synced();
             self.last_jamo_queue.clear();
+            self.last_meta_queue.clear();
             complete_korean.ok()
         } else {
             None
@@ -740,28 +732,41 @@ impl HangulComposer for BaseHangulComposer {
 
     /// 한국어 중성 조합 (내부 사용)
     ///
+    /// # 룰 A — vowel_combine_head 검사
+    /// 두 개 이상의 jung이 큐에 있을 때, 첫 번째 jung의 `meta.vowel_combine_head`가 `false`면
+    /// 결합 거부 → `false` 반환 → 음절 분리 path로 진입.
+    /// 첫 번째 jung이 결합 가능(`true`)이어야만 다음 jung과 합용 시도.
+    ///
     /// # 반환값
     ///
     /// * `true` - 조합에 성공한 경우
     /// * `false` - 조합에 실패한 경우
     fn compose_jung(&mut self) -> bool {
-        let jung_phonemes: Vec<Jung> = self
+        // jung phoneme과 그 meta를 평행하게 수집 (jamo_queue와 meta_queue는 항상 동일 길이).
+        let jung_with_meta: Vec<(Jung, JamoMeta)> = self
             .jamo_queue
             .iter()
-            .filter_map(|p| {
-                if let JamoEnum::Jung(j) = p {
-                    Some(*j)
-                } else {
-                    None
-                }
+            .zip(self.meta_queue.iter())
+            .filter_map(|(p, m)| match p {
+                JamoEnum::Jung(j) => Some((*j, *m)),
+                _ => None,
             })
             .collect();
 
-        if jung_phonemes.is_empty() {
+        if jung_with_meta.is_empty() {
             self.current_korean_char.clear_jung();
         } else {
-            let mut jung = jung_phonemes[0];
-            for next_jung in jung_phonemes.iter().skip(1) {
+            let (mut jung, first_meta) = jung_with_meta[0];
+            // 두 번째 이후 jung이 있으면 결합 시도 직전에 룰 A 검사.
+            // 첫 jung이 vowel_combine_head=false면 즉시 결합 거부.
+            if jung_with_meta.len() > 1 && !first_meta.vowel_combine_head {
+                unim_log!(
+                    "COMPOSER",
+                    "compose_jung: 룰 A 결합 거부 (first.vowel_combine_head=false)"
+                );
+                return false;
+            }
+            for (next_jung, _) in jung_with_meta.iter().skip(1) {
                 if let Some(JamoEnum::Jung(new_jung)) = self
                     .combined_jamo
                     .get(&(JamoEnum::Jung(jung), JamoEnum::Jung(*next_jung)))

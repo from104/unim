@@ -1519,4 +1519,130 @@ mod tests {
             "ko_2bulstd should have empty key_meta_map"
         );
     }
+
+    // ========================================================================
+    // 룰 A — 이중모음 결합 키 제한 (vowel_combine_head)
+    //
+    // 세벌식 390/391의 lower row4 4번째(v 키 ㅗ)·5번째(b 키 ㅜ)는
+    // `vowel_combine_head=false`로 명시되어 단순 모음만. 후속 ㅏ/ㅐ/ㅣ/ㅓ/ㅔ가
+    // 와도 ㅘ/ㅙ/ㅚ/ㅝ/ㅞ/ㅟ로 합용 시도 안 함, 새 음절로 분리.
+    // 같은 자판의 `/` 키 ㅗ(룰 B로 진입)와 `9` 키 ㅜ는 결합 가능.
+    // ========================================================================
+
+    /// 룰 A negative: ㄱ + v(ㅗ_simple) + ㅏ → "고" commit + 새 음절 "ㅏ" 시작
+    #[test]
+    fn test_rule_a_v_key_o_does_not_combine_with_a() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        let none = ModifierState::default();
+        // ㄱ → preedit "ㄱ"
+        engine.press_key(KeyCode::K, none, &config);
+        // v 키 → ㅗ (vowel_combine_head=false). preedit "고".
+        engine.press_key(KeyCode::V, none, &config);
+        assert_eq!(engine.preedit_str(), "고");
+        // ㅏ → 합용 거부. "고" commit + 새 음절 "ㅏ".
+        engine.press_key(KeyCode::F, none, &config);
+        assert!(
+            engine.commit_str().ends_with('고'),
+            "expected '고' committed, got commit='{}'",
+            engine.commit_str()
+        );
+        assert_eq!(engine.preedit_str(), "\u{314F}"); // ㅏ
+    }
+
+    /// 룰 A positive: ㄱ + /(룰 B → ㅗ_head) + ㅏ → preedit "과" (정상 합용)
+    #[test]
+    fn test_rule_a_slash_key_o_combines_with_a_via_rule_b() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        let none = ModifierState::default();
+        engine.press_key(KeyCode::K, none, &config); // ㄱ
+        engine.press_key(KeyCode::Slash, none, &config); // 룰 B: ㅗ + head=true
+        assert_eq!(engine.preedit_str(), "고");
+        engine.press_key(KeyCode::F, none, &config); // ㅏ
+        // 합용 성공 → preedit "과", commit 비어있음.
+        assert!(
+            engine.commit_str().is_empty(),
+            "expected empty commit, got '{}'",
+            engine.commit_str()
+        );
+        assert_eq!(engine.preedit_str(), "과");
+    }
+
+    /// 룰 A negative: ㄱ + b(ㅜ_simple) + ㅓ → "구" commit + 새 음절 "ㅓ"
+    #[test]
+    fn test_rule_a_b_key_u_does_not_combine_with_eo() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        let none = ModifierState::default();
+        engine.press_key(KeyCode::K, none, &config); // ㄱ
+        engine.press_key(KeyCode::B, none, &config); // ㅜ (head=false)
+        assert_eq!(engine.preedit_str(), "구");
+        // ko_3bul390에서 ㅓ는 't' 키 (lower 2nd 슬롯 5).
+        engine.press_key(KeyCode::T, none, &config); // ㅓ
+        assert!(
+            engine.commit_str().ends_with('구'),
+            "expected '구' committed, got commit='{}'",
+            engine.commit_str()
+        );
+        assert_eq!(engine.preedit_str(), "\u{3153}"); // ㅓ
+    }
+
+    /// 룰 A positive: ㄱ + 9(ㅜ_head) + ㅓ → preedit "궈" (정상 합용)
+    #[test]
+    fn test_rule_a_nine_key_u_combines_with_eo() {
+        let (mut engine, config) = make_3bul390_engine_no_auto_english();
+        let none = ModifierState::default();
+        engine.press_key(KeyCode::K, none, &config); // ㄱ
+        engine.press_key(KeyCode::Num9, none, &config); // ㅜ (head=true)
+        assert_eq!(engine.preedit_str(), "구");
+        engine.press_key(KeyCode::T, none, &config); // ㅓ
+        assert!(
+            engine.commit_str().is_empty(),
+            "expected empty commit, got '{}'",
+            engine.commit_str()
+        );
+        assert_eq!(engine.preedit_str(), "궈");
+    }
+
+    /// 룰 A 회귀: 두벌식(ko_2bulstd)은 key_meta 부재 → 모든 ㅗ가 결합 가능 → ㅗ+ㅏ→ㅘ
+    #[test]
+    fn test_rule_a_two_bul_default_combines_o_a() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_2bulstd".to_string();
+        config.engine.auto_english.enabled = false;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        let none = ModifierState::default();
+        // 두벌식 ㅗ는 'h' 키 (lower 3nd slot 9). qwerty 'h' 슬롯은 KeyCode::H.
+        // 두벌식 ㅏ는 'k' 키 (lower 3nd slot 7).
+        // 두벌식 ㄱ은 'r' 키 (lower 2nd slot 1).
+        engine.press_key(KeyCode::R, none, &config); // ㄱ
+        engine.press_key(KeyCode::H, none, &config); // ㅗ
+        engine.press_key(KeyCode::K, none, &config); // ㅏ → ㅘ 정상 합용
+        assert!(
+            engine.commit_str().is_empty(),
+            "expected empty commit, got '{}'",
+            engine.commit_str()
+        );
+        assert_eq!(engine.preedit_str(), "과");
+    }
+
+    /// 룰 A: ko_3bul391에서도 v/b 키 룰 동일 적용
+    #[test]
+    fn test_rule_a_v_key_3bul391_does_not_combine() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_3bul391".to_string();
+        config.engine.auto_english.enabled = false;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        let none = ModifierState::default();
+        engine.press_key(KeyCode::K, none, &config); // ㄱ
+        engine.press_key(KeyCode::V, none, &config); // ㅗ_simple
+        assert_eq!(engine.preedit_str(), "고");
+        engine.press_key(KeyCode::F, none, &config); // ㅏ → 분리
+        assert!(
+            engine.commit_str().ends_with('고'),
+            "expected '고' committed, got commit='{}'",
+            engine.commit_str()
+        );
+        assert_eq!(engine.preedit_str(), "\u{314F}"); // ㅏ
+    }
 }

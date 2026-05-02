@@ -61,12 +61,11 @@ pub struct RawProfile {
 // schema_version 2 — 키 메타데이터 (PR-A: dangling)
 // ============================================================================
 
-/// 키 단위 메타데이터. 향후 룰 A·B 동작의 데이터 표현.
+/// 키 단위 메타데이터. 룰 A·B 동작의 데이터 표현.
 ///
 /// - `vowel_combine_head`: 룰 A. 이 키의 모음만 이중모음(ㅘ/ㅙ/ㅚ/ㅝ/ㅞ/ㅟ) 결합 가능.
+///   누락(`None`)이면 결합 가능(`true`)으로 해석 — 두벌식 호환.
 /// - `context_alt`: 룰 B. preedit 상태에 따른 키 출력 분기.
-///
-/// PR-A에서는 schema 정의만 — 엔진/composer 동작 분기는 PR-B에서.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyMeta {
@@ -74,6 +73,17 @@ pub struct KeyMeta {
     pub vowel_combine_head: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_alt: Option<ContextAlt>,
+}
+
+impl KeyMeta {
+    /// `KeyMeta`를 composer 큐에 보관될 `JamoMeta`로 변환.
+    ///
+    /// `vowel_combine_head` 누락 시 `true`(결합 가능)로 해석 — 두벌식 호환.
+    pub fn to_jamo_meta(&self) -> crate::hangul::composer::JamoMeta {
+        crate::hangul::composer::JamoMeta {
+            vowel_combine_head: self.vowel_combine_head.unwrap_or(true),
+        }
+    }
 }
 
 /// 컨텍스트 분기 규칙. preedit 상태(`when`)가 true면 `to`, 아니면 `fallback`.
@@ -87,12 +97,36 @@ pub struct ContextAlt {
     pub fallback: String,
 }
 
-/// preedit 상태 조건. 향후 `Empty`/`JungEnded`/`JongEnded` 등 추가 여지.
+/// preedit 상태 조건 — `key_meta.context_alt.when` 으로 사용.
+///
+/// 두 축으로 분류:
+/// - **상태 축**: 현재 `HangulChar`의 cho/jung/jong 채워짐 패턴.
+/// - **마지막 자모 축**: composer 큐의 마지막 자모 종류 (도깨비불 등 시퀀스 분기).
+///
+/// JSON에서는 snake_case로 표기(`"choseong_only"`, `"jongseong_filled"` 등).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextCondition {
-    /// `is_filled_only_cho()` — 초성 1개만 들어 있는 preedit.
+    // === 상태 축 ===
+    /// 조합 중 아님 — preedit 비어 있음 (cho/jung/jong 모두 없음).
+    Empty,
+    /// 조합 중 — cho/jung/jong 중 하나라도 있음.
+    Composing,
+    /// 초성 1개만 채워짐 (jung·jong 없음).
     ChoseongOnly,
+    /// 중성만 채워짐 (cho 없이 jung만, jong 없음).
+    JungseongOnly,
+    /// 초성+중성 채워짐, 종성 없음.
+    ChoJungFilled,
+    /// 종성이 채워진 상태 (cho/jung 동반 여부 무관).
+    JongseongFilled,
+    // === 마지막 자모 축 (큐 back) ===
+    /// 큐의 마지막 자모가 초성.
+    LastIsCho,
+    /// 큐의 마지막 자모가 중성.
+    LastIsJung,
+    /// 큐의 마지막 자모가 종성.
+    LastIsJong,
 }
 
 // ============================================================================
@@ -204,6 +238,11 @@ pub struct RuleSet {
     /// 초안 시기 `scope` 필드. 자동 판별로 대체되어 무시되지만 파싱 에러 방지용으로 수용.
     #[serde(default)]
     pub scope: Option<String>,
+    /// schema_version 2 — rule_set이 토글하는 키 메타데이터.
+    /// active=true일 때 base `key_meta`에 병합 (rule_set 우선). active=false면 무시.
+    /// 룰 A(vowel_combine_head)·룰 B(context_alt)를 자판 단위로 켜고 끌 수 있게 하는 표현.
+    #[serde(default)]
+    pub key_meta: Option<HashMap<String, KeyMeta>>,
 }
 
 // ============================================================================
@@ -562,6 +601,31 @@ mod tests {
             profile.key_meta.is_none(),
             "v1 JSON에서는 key_meta 누락 → None"
         );
+    }
+
+    /// `ContextCondition` 9개 변이체가 모두 snake_case JSON으로 round-trip되는지.
+    #[test]
+    fn context_condition_all_variants_round_trip() {
+        let cases = [
+            (ContextCondition::Empty, "\"empty\""),
+            (ContextCondition::Composing, "\"composing\""),
+            (ContextCondition::ChoseongOnly, "\"choseong_only\""),
+            (ContextCondition::JungseongOnly, "\"jungseong_only\""),
+            (ContextCondition::ChoJungFilled, "\"cho_jung_filled\""),
+            (ContextCondition::JongseongFilled, "\"jongseong_filled\""),
+            (ContextCondition::LastIsCho, "\"last_is_cho\""),
+            (ContextCondition::LastIsJung, "\"last_is_jung\""),
+            (ContextCondition::LastIsJong, "\"last_is_jong\""),
+        ];
+        for (variant, json) in cases {
+            let serialized = serde_json::to_string(&variant).unwrap();
+            assert_eq!(
+                serialized, json,
+                "직렬화: {variant:?} -> {json}, 실제={serialized}"
+            );
+            let decoded: ContextCondition = serde_json::from_str(json).unwrap();
+            assert_eq!(decoded, variant, "역직렬화: {json} -> {variant:?}");
+        }
     }
 
     /// `ContextCondition`은 `snake_case` 변이체만 허용. 잘못된 값은 파싱 에러.
