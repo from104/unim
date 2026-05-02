@@ -105,6 +105,12 @@ export class EmojiPopup {
         this._onCommit = null;
         /** @type {Function|null} 좌측 탭 클릭 시 카테고리 인덱스 콜백 (idx → daemon RPC) */
         this._onTabClick = null;
+
+        /** @type {number} stage captured-event 핸들러 ID — popup 떠있는 동안만 활성.
+         *  GNOME Shell 이 Tab 을 focus chain 으로 흡수해 IM 모듈에 도달하지 않으므로,
+         *  popup 활성 중 Tab/Shift+Tab 을 stage 레벨에서 캡처해 setEmojiCategory RPC 로
+         *  직접 라우팅한다 (마우스 클릭과 동일한 우회 패턴). */
+        this._stageKeyHandler = 0;
     }
 
     /**
@@ -215,6 +221,7 @@ export class EmojiPopup {
 
         this._container.show();
         this._positionPopup(cursorRect);
+        this._installStageTabHandler();
 
         unimLog(
             'EMOJI',
@@ -224,9 +231,47 @@ export class EmojiPopup {
     }
 
     /**
+     * Stage 레벨 captured-event 리스너로 Tab/Shift+Tab 을 가로채 카테고리 전환.
+     * GNOME Shell focus chain 이 Tab 을 흡수하기 때문에 IM 모듈로 도달하지 않으므로
+     * extension 측에서 직접 RPC 호출한다 (마우스 클릭과 동일한 우회).
+     */
+    _installStageTabHandler() {
+        if (this._stageKeyHandler) return;
+        this._stageKeyHandler = global.stage.connect('captured-event', (_actor, event) => {
+            if (!this._container?.visible) return Clutter.EVENT_PROPAGATE;
+            if (event.type() !== Clutter.EventType.KEY_PRESS) return Clutter.EVENT_PROPAGATE;
+            const sym = event.get_key_symbol();
+            const isShift = (event.get_state() & Clutter.ModifierType.SHIFT_MASK) !== 0;
+            const isTab = sym === Clutter.KEY_Tab;
+            const isShiftTab = sym === Clutter.KEY_ISO_Left_Tab || (isTab && isShift);
+            if (!isTab && !isShiftTab) return Clutter.EVENT_PROPAGATE;
+            if (typeof this._onTabClick !== 'function') return Clutter.EVENT_PROPAGATE;
+            const total = this._categories.length;
+            if (total === 0) return Clutter.EVENT_PROPAGATE;
+            const cur = this._categories.findIndex(c => c.id === this._currentCatId);
+            const curIdx = cur < 0 ? 0 : cur;
+            const next = isShiftTab
+                ? (curIdx - 1 + total) % total
+                : (curIdx + 1) % total;
+            this._onTabClick(next);
+            return Clutter.EVENT_STOP;
+        });
+    }
+
+    /**
+     * Stage Tab 핸들러 해제 (popup 숨김 시 호출).
+     */
+    _uninstallStageTabHandler() {
+        if (!this._stageKeyHandler) return;
+        global.stage.disconnect(this._stageKeyHandler);
+        this._stageKeyHandler = 0;
+    }
+
+    /**
      * 팝업 숨김
      */
     hide() {
+        this._uninstallStageTabHandler();
         if (this._container) {
             this._container.hide();
         }
