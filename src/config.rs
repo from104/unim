@@ -47,9 +47,8 @@ impl ModeSharingMode {
 /// 한국어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
 ///
 /// 레거시 시절 enum(`Dubeolsik` / `Sebeolsik390` / ...)이었던 필드를 Phase 8에서
-/// 문자열로 통합. 내장 5종은 `ko_2bulstd`·`ko_3bul390`·`ko_3bul391`·`ko_3bul_noshift`·
-/// `ko_3bul_qwerty`, 사용자 정의는 `~/.config/unim/layouts/<name>.json` 파일의
-/// `name` 필드.
+/// 문자열로 통합. 내장 4종은 `ko_2bulstd`·`ko_3bul390`·`ko_3bul391`·`ko_3bul_noshift`,
+/// 사용자 정의는 `~/.config/unim/layouts/<name>.json` 파일의 `name` 필드.
 ///
 /// YAML 역직렬화 시 `normalize_korean_layout_name`을 거쳐 레거시 enum 값
 /// (`Dubeolsik` 등)과 별칭(`2bul` 등)을 모두 수용한다. 이는 *config 값 정규화*이며,
@@ -62,15 +61,17 @@ pub const KOREAN_LAYOUT_DUBEOLSIK: &str = "ko_2bulstd";
 pub const KOREAN_LAYOUT_SEBEOLSIK_390: &str = "ko_3bul390";
 pub const KOREAN_LAYOUT_SEBEOLSIK_391: &str = "ko_3bul391";
 pub const KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT: &str = "ko_3bul_noshift";
-pub const KOREAN_LAYOUT_SEBEOLSIK_QWERTY: &str = "ko_3bul_qwerty";
 
-/// 내장 한국어 자판 5종(이관 시점 기준). 표시용·CLI 나열 등에 사용.
+/// 내장 한국어 자판 4종(이관 시점 기준). 표시용·CLI 나열 등에 사용.
+///
+/// 0.2.0+: 쿼티형 세벌식(`ko_3bul_qwerty`)은 빌트인에서 제거되어 연구 자료로만
+/// 보존된다. 사용자가 직접 사용하려면 `docs/references/keymaps/ko_3bul_qwerty.json`
+/// 을 `~/.config/unim/layouts/`에 복사.
 pub const KOREAN_LAYOUT_BUILTINS: &[&str] = &[
     KOREAN_LAYOUT_DUBEOLSIK,
     KOREAN_LAYOUT_SEBEOLSIK_390,
     KOREAN_LAYOUT_SEBEOLSIK_391,
     KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
-    KOREAN_LAYOUT_SEBEOLSIK_QWERTY,
 ];
 
 /// 레거시 enum 이름·별칭을 내장 정식 이름으로 승격한다.
@@ -85,7 +86,6 @@ pub fn normalize_korean_layout_name(raw: &str) -> String {
         "SebeolsikNoShift" | "noshift" | "3bul_noshift" => {
             KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT.to_string()
         }
-        "3bul_qwerty" => KOREAN_LAYOUT_SEBEOLSIK_QWERTY.to_string(),
         other => other.to_string(),
     }
 }
@@ -109,7 +109,6 @@ pub fn korean_layout_display_name(name: &str) -> &'static str {
         KOREAN_LAYOUT_SEBEOLSIK_390 => "세벌식 390",
         KOREAN_LAYOUT_SEBEOLSIK_391 => "세벌식 최종",
         KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT => "세벌식 순아래",
-        KOREAN_LAYOUT_SEBEOLSIK_QWERTY => "쿼티형 세벌식",
         _ => "",
     }
 }
@@ -985,12 +984,15 @@ mod tests {
         // 축약 별칭
         assert_eq!(normalize_korean_layout_name("2bul"), "ko_2bulstd");
         assert_eq!(normalize_korean_layout_name("390"), "ko_3bul390");
-        // 이미 정식 이름
+        assert_eq!(
+            normalize_korean_layout_name("3bul_noshift"),
+            "ko_3bul_noshift"
+        );
+        // 사용자 프로필은 pass-through (쿼티형 세벌식도 0.2.0+에서는 사용자 프로필 경로)
         assert_eq!(
             normalize_korean_layout_name("ko_3bul_qwerty"),
             "ko_3bul_qwerty"
         );
-        // 사용자 프로필은 pass-through
         assert_eq!(normalize_korean_layout_name("my_custom"), "my_custom");
     }
 
@@ -1001,6 +1003,7 @@ mod tests {
         assert!(is_sebeolsik_layout("ko_3bul390"));
         assert!(is_sebeolsik_layout("Sebeolsik391"));
         assert!(is_sebeolsik_layout("3bul_noshift"));
+        // ko_3bul_qwerty는 빌트인 아니지만 prefix 매칭으로 세벌식 계열 분류됨 (사용자 프로필)
         assert!(is_sebeolsik_layout("ko_3bul_qwerty"));
     }
 
@@ -1027,11 +1030,11 @@ mod tests {
     #[test]
     fn korean_config_serde_roundtrips_rule_sets() {
         let mut kc = KoreanConfig::default();
-        kc.layout = "ko_3bul_qwerty".to_string();
+        kc.layout = "ko_3bul390".to_string();
         kc.active_rule_sets = Some(vec!["set_a".to_string(), "set_b".to_string()]);
         let yaml = serde_yaml::to_string(&kc).unwrap();
         let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(back.layout, "ko_3bul_qwerty");
+        assert_eq!(back.layout, "ko_3bul390");
         assert_eq!(
             back.active_rule_sets,
             Some(vec!["set_a".to_string(), "set_b".to_string()])
@@ -1206,10 +1209,13 @@ word_commit: false
     #[test]
     fn test_korean_layout_builtins() {
         let all = KOREAN_LAYOUT_BUILTINS;
-        assert_eq!(all.len(), 5);
+        assert_eq!(all.len(), 4);
         assert!(all.contains(&"ko_2bulstd"));
+        assert!(all.contains(&"ko_3bul390"));
+        assert!(all.contains(&"ko_3bul391"));
         assert!(all.contains(&"ko_3bul_noshift"));
-        assert!(all.contains(&"ko_3bul_qwerty"));
+        // 0.2.0+: ko_3bul_qwerty는 빌트인 아님 (연구 자료로만 보존)
+        assert!(!all.contains(&"ko_3bul_qwerty"));
     }
 
     #[test]

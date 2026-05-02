@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn builtin_3bul_matches_expected_table() {
-        // ko_3bul_qwerty는 고유 조합이라 제외 (쿼티형 세벌식은 base와 다름).
+        // 0.2.0+: ko_3bul_qwerty는 빌트인에서 제거됨 (연구 자료로만 보존).
         let expected = expected_3bul_base_combinations();
         for name in &["ko_3bul390", "ko_3bul391", "ko_3bul_noshift"] {
             let profile = load_builtin_profile(name).unwrap();
