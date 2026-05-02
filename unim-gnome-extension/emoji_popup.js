@@ -103,6 +103,8 @@ export class EmojiPopup {
 
         /** @type {Function|null} 셀 클릭 시 emoji 문자 commit 콜백 */
         this._onCommit = null;
+        /** @type {Function|null} 좌측 탭 클릭 시 카테고리 인덱스 콜백 (idx → daemon RPC) */
+        this._onTabClick = null;
     }
 
     /**
@@ -183,8 +185,11 @@ export class EmojiPopup {
      *   (id, ko, en, count) 튜플 9개 (Recent + 8 통합 카테고리).
      * @param {Function} onCommit - 셀 클릭 시 emoji 문자 commit 콜백 (extension 의 commitEmoji 등).
      * @param {{x:number,y:number,width:number,height:number}} [cursorRect] - 커서 위치.
+     * @param {Function} [onTabClick] - 좌측 탭 마우스 클릭 시 카테고리 인덱스 콜백 (idx).
+     *   extension 이 `_dbusIME.setEmojiCategory(idx)` RPC 를 호출하도록 한다.
+     *   생략하면 탭 클릭 비활성 (키보드 Tab/ShiftTab 만 동작).
      */
-    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect) {
+    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick) {
         if (!this._container) return;
 
         this._items = Array.isArray(items) ? items.slice() : [];
@@ -194,6 +199,7 @@ export class EmojiPopup {
             id, ko, en, count: Number(count) || 0,
         }));
         this._onCommit = typeof onCommit === 'function' ? onCommit : null;
+        this._onTabClick = typeof onTabClick === 'function' ? onTabClick : null;
 
         // 페이지/선택 초기값 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
         this._currentPage = 0;
@@ -228,6 +234,7 @@ export class EmojiPopup {
         this._mouseHoverRow = -1;
         this._mouseHoverCol = -1;
         this._onCommit = null;
+        this._onTabClick = null;
     }
 
     /**
@@ -277,16 +284,31 @@ export class EmojiPopup {
         this._tabBar.destroy_all_children();
         this._tabButtons.clear();
 
-        for (const cat of this._categories) {
+        const hasClickHandler = typeof this._onTabClick === 'function';
+        for (let i = 0; i < this._categories.length; i++) {
+            const cat = this._categories[i];
             const label = TAB_LABEL_KO[cat.id] || cat.ko || cat.en || cat.id;
             const btn = new St.Button({
                 style_class: 'emoji-tab-vertical',
                 label,
                 can_focus: false,
-                reactive: false, // 클릭 비활성 — 카테고리 전환은 키보드(Tab/ShiftTab)로만
+                // 마우스 클릭으로 카테고리 전환 — 콜백이 있을 때만 활성화.
+                // 키보드 Tab/ShiftTab 은 별도 경로(엔진)로 항상 동작.
+                reactive: hasClickHandler,
+                track_hover: hasClickHandler,
             });
             if (cat.id === this._currentCatId) {
                 btn.add_style_class_name('active');
+            }
+            if (hasClickHandler) {
+                const idx = i;
+                btn.connect('clicked', () => {
+                    try {
+                        this._onTabClick(idx);
+                    } catch (e) {
+                        unimLog('EMOJI', `tab click handler error: ${e?.message ?? e}`);
+                    }
+                });
             }
             this._tabBar.add_child(btn);
             this._tabButtons.set(cat.id, btn);

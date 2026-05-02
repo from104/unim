@@ -210,8 +210,9 @@ impl InputEngine {
 
     /// 이모지 팝업 진입 — `popup_state` 에 `PopupKind::Emoji` 분기 생성.
     ///
-    /// 시작 카테고리는 'Recent' (cat_index=0). Recent 가 비어있더라도 빈 페이지가
-    /// 그려진다 (사용자 결정 #11 — 빈 셀은 그대로 둔다).
+    /// 시작 카테고리: Recent 가 비어있지 않으면 'Recent' (cat_index=0).
+    /// Recent 가 비어있으면 두 번째 탭(SmileysPeople, cat_index=1)으로 시작 —
+    /// 빈 그리드 첫인상을 피하기 위해.
     pub(super) fn start_emoji_popup(&mut self) {
         // 카테고리 메타: Recent (runtime 동적) + data.rs 의 8 카테고리.
         let recent = crate::emoji::load_recent();
@@ -231,10 +232,18 @@ impl InputEngine {
             });
         }
 
-        // 초기 카테고리: Recent (cat_index=0). items 는 recent 슬라이스 그대로.
-        let cat_index: usize = 0;
-        let total_in_cat = recent.len();
-        let items: Vec<String> = recent.clone();
+        // 초기 카테고리: Recent 가 비어있으면 cat_index=1 (두 번째 탭) 로 시작.
+        // 사용자 첫인상에 빈 그리드가 보이지 않도록.
+        let (cat_index, total_in_cat, items): (usize, usize, Vec<String>) = if recent.is_empty()
+            && categories.len() > 1
+        {
+            let cat_id = categories[1].id.clone();
+            let pool = crate::emoji::category_emojis(&cat_id);
+            let total = pool.len();
+            (1, total, pool)
+        } else {
+            (0, recent.len(), recent.clone())
+        };
 
         let popup_state = PopupState::new_emoji(
             cat_index,
@@ -277,7 +286,10 @@ impl InputEngine {
     }
 
     /// 카테고리 전환 시 popup_state.items 갱신 (engine 이 emoji pool 보유).
-    pub(super) fn refresh_emoji_category_items(&mut self, cat_index: usize) {
+    ///
+    /// GNOME extension 의 마우스 클릭 탭 전환 등 외부 RPC 도 사용한다 — 이 때문에
+    /// 가시성을 `pub` 으로 둔다. `cat_index` 가 범위 밖이면 무시된다.
+    pub fn refresh_emoji_category_items(&mut self, cat_index: usize) {
         let Some(state) = self.popup_state.as_ref() else {
             return;
         };

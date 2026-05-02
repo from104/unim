@@ -344,6 +344,12 @@ impl PopupState {
         &self.recent_emojis
     }
 
+    /// 현재 카테고리의 emoji 풀 슬라이스 (외부 RPC 가 ShowEmojiPopupV2 payload 를
+    /// 재구성할 때 사용한다).
+    pub fn emoji_items(&self) -> &[String] {
+        &self.items
+    }
+
     /// 카테고리 전환 시 emoji pool 갱신 (엔진 전용).
     ///
     /// `cat_index` 가 [0, categories.len()) 범위가 아니면 무시한다.
