@@ -18,6 +18,7 @@
 #include "unim_dbus_client.h"
 #include "unim_hanja_popup.h"
 #include "unim_special_popup.h"
+#include "unim_emoji_popup.h"
 
 /* X11 위치 계산을 위한 헤더 */
 #ifdef GDK_WINDOWING_X11
@@ -60,6 +61,9 @@ struct _UnimIMContext {
     UnimSpecialPopup *special_popup;   /* 특수문자 후보 팝업 */
     gchar **special_characters;        /* 현재 특수문자 목록 */
     gsize special_count;               /* 특수문자 개수 */
+
+    /* 이모지 팝업 (PR #4 emoji overhaul, 시그널 기반) */
+    UnimEmojiPopup *emoji_popup;
     
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
@@ -348,6 +352,26 @@ on_hanja_toggle_bookmark(gsize global_index, gpointer user_data)
     unim_dbus_toggle_hanja_bookmark(unim->dbus_ctx, (guint)global_index);
 }
 
+/* 이모지 팝업 시그널 핸들러 forward declarations (PR #4 — 정의는 selected 콜백 옆) */
+static void on_show_emoji_popup(const gchar *target_cat_id,
+                                 const gchar * const *items,
+                                 gsize item_count,
+                                 const gchar *top_row,
+                                 const gchar * const *recent,
+                                 gsize recent_count,
+                                 const UnimEmojiCategoryMeta *categories,
+                                 gsize category_count,
+                                 gint cursor_x,
+                                 gint cursor_y,
+                                 gint cursor_width,
+                                 gint cursor_height,
+                                 gpointer user_data);
+static void on_popup_navigate(gint page, gint total_pages, gint selected,
+                               gint rows, gint cols,
+                               gint sel_row, gint sel_col,
+                               gpointer user_data);
+static void on_hide_popup(gpointer user_data);
+
 /* 엔진 HanjaBookmarkChanged 시그널 → 팝업 별 갱신 */
 static void
 on_hanja_bookmark_changed(guint index, gboolean bookmarked, gpointer user_data)
@@ -435,6 +459,17 @@ unim_im_context_init(UnimIMContext *context)
     context->special_popup = unim_special_popup_new();
     context->special_characters = NULL;
     context->special_count = 0;
+
+    /* 이모지 팝업 초기화 (PR #4) — 시그널 기반, 별도 후보 캐시 없음 */
+    context->emoji_popup = unim_emoji_popup_new();
+    if (context->dbus_ctx) {
+        unim_dbus_set_show_emoji_popup_callback(
+            context->dbus_ctx, on_show_emoji_popup, context);
+        unim_dbus_set_popup_navigate_callback(
+            context->dbus_ctx, on_popup_navigate, context);
+        unim_dbus_set_hide_popup_callback(
+            context->dbus_ctx, on_hide_popup, context);
+    }
     
     /* 한자키 설정 로드 */
     context->hanja_keysyms = NULL;
@@ -495,11 +530,17 @@ unim_im_context_dispose(GObject *obj)
         unim_special_popup_free(context->special_popup);
         context->special_popup = NULL;
     }
-    
+
     if (context->special_characters) {
         unim_special_chars_free(context->special_characters, context->special_count);
         context->special_characters = NULL;
         context->special_count = 0;
+    }
+
+    /* 이모지 팝업 해제 (PR #4) */
+    if (context->emoji_popup) {
+        unim_emoji_popup_free(context->emoji_popup);
+        context->emoji_popup = NULL;
     }
 
     if (context->dbus_ctx) {
@@ -571,15 +612,115 @@ on_special_char_selected(const gchar *character, gpointer user_data)
     if (unim->special_popup) {
         unim_special_popup_hide(unim->special_popup);
     }
-    
+
     /* 엔진 특수문자 모드 취소 (preedit 클리어) */
     unim_dbus_cancel_special_char(unim->dbus_ctx);
 
     /* preedit 클리어 (preedit-end까지 발사) */
     unim_emit_preedit(unim, "");
-    
+
     /* 특수문자 커밋 */
     g_signal_emit_by_name(unim, "commit", character);
+}
+
+/* 이모지 커밋 콜백 — 셀 클릭/Enter 시 호출 (PR #4) */
+static void
+on_emoji_commit(const gchar *emoji, gpointer user_data)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim || !emoji || !*emoji || !unim->dbus_ctx) return;
+
+    UNIM_DEBUG("이모지 커밋 콜백: emoji='%s'", emoji);
+
+    /* CommitEmoji RPC — 엔진이 popup_state 갱신 + Recent MRU + HidePopup 발행 */
+    unim_dbus_commit_emoji(unim->dbus_ctx, emoji);
+
+    if (unim->emoji_popup) {
+        unim_emoji_popup_hide(unim->emoji_popup);
+    }
+}
+
+/* ShowEmojiPopupV2 시그널 핸들러 (PR #4) */
+static void
+on_show_emoji_popup(const gchar *target_cat_id,
+                     const gchar * const *items,
+                     gsize item_count,
+                     const gchar *top_row,
+                     const gchar * const *recent,
+                     gsize recent_count,
+                     const UnimEmojiCategoryMeta *categories,
+                     gsize category_count,
+                     gint cursor_x,
+                     gint cursor_y,
+                     gint cursor_width,
+                     gint cursor_height,
+                     gpointer user_data)
+{
+    (void)cursor_width;
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim || !unim->emoji_popup) return;
+    if (is_standalone_popup(unim->dbus_ctx)) return;
+
+    UNIM_DEBUG("ShowEmojiPopupV2 시그널: cat='%s', items=%zu, recent=%zu, cats=%zu",
+               target_cat_id ? target_cat_id : "", item_count, recent_count, category_count);
+
+    /* 다른 팝업 숨김 */
+    if (unim->hanja_popup) unim_hanja_popup_hide(unim->hanja_popup);
+    if (unim->special_popup) unim_special_popup_hide(unim->special_popup);
+
+    /* UnimEmojiCategoryMeta → UnimEmojiCategory (필드 동일, 타입만 분리) */
+    UnimEmojiCategory *cats = NULL;
+    if (category_count > 0 && categories) {
+        cats = g_new0(UnimEmojiCategory, category_count);
+        for (gsize i = 0; i < category_count; i++) {
+            cats[i].id = categories[i].id;
+            cats[i].name_ko = categories[i].name_ko;
+            cats[i].name_en = categories[i].name_en;
+            cats[i].count = categories[i].count;
+        }
+    }
+
+    unim_emoji_popup_show(
+        unim->emoji_popup,
+        target_cat_id,
+        items, item_count,
+        top_row,
+        recent, recent_count,
+        cats, category_count,
+        cursor_x, cursor_y, cursor_height,
+        on_emoji_commit, unim
+    );
+
+    g_free(cats);
+}
+
+/* PopupNavigate 시그널 핸들러 — 한자/특수/이모지 공통 (PR #4) */
+static void
+on_popup_navigate(gint page, gint total_pages, gint selected,
+                   gint rows, gint cols,
+                   gint sel_row, gint sel_col,
+                   gpointer user_data)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim) return;
+
+    if (unim->emoji_popup && unim_emoji_popup_is_visible(unim->emoji_popup)) {
+        unim_emoji_popup_navigate(unim->emoji_popup,
+                                   page, total_pages, selected,
+                                   rows, cols, sel_row, sel_col);
+    }
+}
+
+/* HidePopup 시그널 핸들러 — 모든 팝업 숨김 (PR #4) */
+static void
+on_hide_popup(gpointer user_data)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim) return;
+
+    if (unim->emoji_popup && unim_emoji_popup_is_visible(unim->emoji_popup)) {
+        unim_emoji_popup_hide(unim->emoji_popup);
+    }
 }
 
 /* 커서 위치로부터 화면 절대 좌표 계산 (GTK3의 gdk_window_get_origin 방식과 동일) */
@@ -1113,6 +1254,12 @@ unim_im_context_focus_out(GtkIMContext *context)
             }
         }
     }
+    /* 이모지 팝업 (PR #4) — 엔진이 reset 시 자동으로 HidePopup 시그널을 발행하지만
+     * 신속한 시각 피드백을 위해 IM 모듈에서도 즉시 닫는다. */
+    if (unim->emoji_popup && unim_emoji_popup_is_visible(unim->emoji_popup)) {
+        UNIM_DEBUG("focus_out: 이모지 팝업 닫기");
+        unim_emoji_popup_hide(unim->emoji_popup);
+    }
 
     /* 2. 조합 중인 글자를 커밋 */
     if (unim->dbus_ctx) {
@@ -1178,6 +1325,12 @@ unim_im_context_reset(GtkIMContext *context)
                 g_free(trigger);
             }
         }
+    }
+
+    /* 4. 이모지 팝업이 표시 중이면 닫기 (PR #4) */
+    if (unim->emoji_popup && unim_emoji_popup_is_visible(unim->emoji_popup)) {
+        UNIM_DEBUG("reset: 이모지 팝업 닫기");
+        unim_emoji_popup_hide(unim->emoji_popup);
     }
 }
 

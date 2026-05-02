@@ -94,6 +94,18 @@ struct _UnimDbusContext {
     UnimHanjaCandidatesReorderedCallback hanja_reordered_callback;
     gpointer hanja_reordered_user_data;
     guint hanja_reordered_signal_id;
+    /* ShowEmojiPopupV2 콜백 (PR #4) */
+    UnimShowEmojiPopupCallback show_emoji_popup_callback;
+    gpointer show_emoji_popup_user_data;
+    guint show_emoji_popup_signal_id;
+    /* PopupNavigate 콜백 (PR #4 — 한자/특수/이모지 공통) */
+    UnimPopupNavigateCallback popup_navigate_callback;
+    gpointer popup_navigate_user_data;
+    guint popup_navigate_signal_id;
+    /* HidePopup 콜백 (PR #4 — 한자/특수/이모지 공통) */
+    UnimHidePopupCallback hide_popup_callback;
+    gpointer hide_popup_user_data;
+    guint hide_popup_signal_id;
 };
 
 UnimDbusContext*
@@ -198,6 +210,18 @@ unim_dbus_context_free(UnimDbusContext *ctx)
     /* HanjaCandidatesReordered 시그널 구독 해제 */
     if (ctx->hanja_reordered_signal_id > 0 && ctx->connection) {
         g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->hanja_reordered_signal_id);
+    }
+    /* ShowEmojiPopupV2 시그널 구독 해제 (PR #4) */
+    if (ctx->show_emoji_popup_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->show_emoji_popup_signal_id);
+    }
+    /* PopupNavigate 시그널 구독 해제 (PR #4) */
+    if (ctx->popup_navigate_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->popup_navigate_signal_id);
+    }
+    /* HidePopup 시그널 구독 해제 (PR #4) */
+    if (ctx->hide_popup_signal_id > 0 && ctx->connection) {
+        g_dbus_connection_signal_unsubscribe(ctx->connection, ctx->hide_popup_signal_id);
     }
 
     if (ctx->connection) {
@@ -1285,4 +1309,260 @@ unim_dbus_set_hanja_candidates_reordered_callback(UnimDbusContext *ctx,
 
     UNIM_DBUS_DEBUG("HanjaCandidatesReordered 시그널 구독: path=%s, id=%u",
                      ctx->context_path, ctx->hanja_reordered_signal_id);
+}
+
+/* =========================================
+ * 이모지 팝업 시그널 (PR #4 emoji overhaul)
+ * ========================================= */
+
+/* ShowEmojiPopupV2 시그널 핸들러
+ * 시그니처: (s, as, s, as, a(sssu), i, i, i, i)
+ *   target_cat_id, items[], top_row, recent[], categories[], cx, cy, cw, ch
+ */
+static void
+on_show_emoji_popup_signal(GDBusConnection *connection G_GNUC_UNUSED,
+                            const gchar *sender_name G_GNUC_UNUSED,
+                            const gchar *object_path G_GNUC_UNUSED,
+                            const gchar *interface_name G_GNUC_UNUSED,
+                            const gchar *signal_name G_GNUC_UNUSED,
+                            GVariant *parameters,
+                            gpointer user_data)
+{
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->show_emoji_popup_callback) return;
+
+    const gchar *target_cat_id = NULL;
+    GVariantIter *items_iter = NULL;
+    const gchar *top_row = NULL;
+    GVariantIter *recent_iter = NULL;
+    GVariantIter *categories_iter = NULL;
+    gint cx = 0, cy = 0, cw = 0, ch = 0;
+
+    g_variant_get(parameters, "(&sas&sasa(sssu)iiii)",
+                  &target_cat_id,
+                  &items_iter,
+                  &top_row,
+                  &recent_iter,
+                  &categories_iter,
+                  &cx, &cy, &cw, &ch);
+
+    /* items 배열 추출 */
+    GPtrArray *items_arr = g_ptr_array_new_with_free_func(g_free);
+    const gchar *s = NULL;
+    while (g_variant_iter_next(items_iter, "&s", &s)) {
+        g_ptr_array_add(items_arr, g_strdup(s));
+    }
+    g_variant_iter_free(items_iter);
+
+    /* recent 배열 추출 */
+    GPtrArray *recent_arr = g_ptr_array_new_with_free_func(g_free);
+    while (g_variant_iter_next(recent_iter, "&s", &s)) {
+        g_ptr_array_add(recent_arr, g_strdup(s));
+    }
+    g_variant_iter_free(recent_iter);
+
+    /* categories 배열 추출 */
+    gsize cat_count = g_variant_iter_n_children(categories_iter);
+    UnimEmojiCategoryMeta *cats = g_new0(UnimEmojiCategoryMeta, cat_count > 0 ? cat_count : 1);
+    const gchar *cid = NULL;
+    const gchar *cko = NULL;
+    const gchar *cen = NULL;
+    guint ccount = 0;
+    gsize ci = 0;
+    while (g_variant_iter_next(categories_iter, "(&s&s&su)", &cid, &cko, &cen, &ccount)) {
+        cats[ci].id = g_strdup(cid ? cid : "");
+        cats[ci].name_ko = g_strdup(cko ? cko : "");
+        cats[ci].name_en = g_strdup(cen ? cen : "");
+        cats[ci].count = ccount;
+        ci++;
+    }
+    g_variant_iter_free(categories_iter);
+
+    UNIM_DBUS_DEBUG("ShowEmojiPopupV2 시그널 수신: cat='%s', items=%u, recent=%u, cats=%zu, cursor=(%d,%d,%d,%d)",
+                     target_cat_id ? target_cat_id : "",
+                     items_arr->len, recent_arr->len, cat_count,
+                     cx, cy, cw, ch);
+
+    /* 콜백을 호출하기 위해 const char* const* 배열로 변환 */
+    const gchar **items_ptrs = g_new0(const gchar*, items_arr->len + 1);
+    for (gsize i = 0; i < items_arr->len; i++) {
+        items_ptrs[i] = (const gchar*)g_ptr_array_index(items_arr, i);
+    }
+    const gchar **recent_ptrs = g_new0(const gchar*, recent_arr->len + 1);
+    for (gsize i = 0; i < recent_arr->len; i++) {
+        recent_ptrs[i] = (const gchar*)g_ptr_array_index(recent_arr, i);
+    }
+
+    ctx->show_emoji_popup_callback(
+        target_cat_id ? target_cat_id : "",
+        items_ptrs, items_arr->len,
+        top_row ? top_row : "",
+        recent_ptrs, recent_arr->len,
+        cats, cat_count,
+        cx, cy, cw, ch,
+        ctx->show_emoji_popup_user_data
+    );
+
+    /* 정리 */
+    g_free(items_ptrs);
+    g_free(recent_ptrs);
+    g_ptr_array_free(items_arr, TRUE);
+    g_ptr_array_free(recent_arr, TRUE);
+    for (gsize i = 0; i < cat_count; i++) {
+        g_free(cats[i].id);
+        g_free(cats[i].name_ko);
+        g_free(cats[i].name_en);
+    }
+    g_free(cats);
+}
+
+void
+unim_dbus_set_show_emoji_popup_callback(UnimDbusContext *ctx,
+                                         UnimShowEmojiPopupCallback callback,
+                                         gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->show_emoji_popup_callback = callback;
+    ctx->show_emoji_popup_user_data = user_data;
+
+    ctx->show_emoji_popup_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "ShowEmojiPopupV2",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_show_emoji_popup_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("ShowEmojiPopupV2 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->show_emoji_popup_signal_id);
+}
+
+/* PopupNavigate 시그널 핸들러 (page, total_pages, selected, rows, cols, sel_row, sel_col) */
+static void
+on_popup_navigate_signal(GDBusConnection *connection G_GNUC_UNUSED,
+                          const gchar *sender_name G_GNUC_UNUSED,
+                          const gchar *object_path G_GNUC_UNUSED,
+                          const gchar *interface_name G_GNUC_UNUSED,
+                          const gchar *signal_name G_GNUC_UNUSED,
+                          GVariant *parameters,
+                          gpointer user_data)
+{
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->popup_navigate_callback) return;
+
+    gint page = 0, total = 0, selected = 0;
+    gint rows = 0, cols = 0, sr = 0, sc = 0;
+    g_variant_get(parameters, "(iiiiiii)",
+                  &page, &total, &selected, &rows, &cols, &sr, &sc);
+
+    UNIM_DBUS_DEBUG("PopupNavigate 시그널 수신: page=%d/%d, sel=(%d,%d)",
+                     page, total, sr, sc);
+
+    ctx->popup_navigate_callback(page, total, selected, rows, cols, sr, sc,
+                                  ctx->popup_navigate_user_data);
+}
+
+void
+unim_dbus_set_popup_navigate_callback(UnimDbusContext *ctx,
+                                       UnimPopupNavigateCallback callback,
+                                       gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->popup_navigate_callback = callback;
+    ctx->popup_navigate_user_data = user_data;
+
+    ctx->popup_navigate_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "PopupNavigate",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_popup_navigate_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("PopupNavigate 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->popup_navigate_signal_id);
+}
+
+/* HidePopup 시그널 핸들러 (인자 없음) */
+static void
+on_hide_popup_signal(GDBusConnection *connection G_GNUC_UNUSED,
+                      const gchar *sender_name G_GNUC_UNUSED,
+                      const gchar *object_path G_GNUC_UNUSED,
+                      const gchar *interface_name G_GNUC_UNUSED,
+                      const gchar *signal_name G_GNUC_UNUSED,
+                      GVariant *parameters G_GNUC_UNUSED,
+                      gpointer user_data)
+{
+    UnimDbusContext *ctx = (UnimDbusContext *)user_data;
+    if (!ctx || !ctx->hide_popup_callback) return;
+
+    UNIM_DBUS_DEBUG("HidePopup 시그널 수신");
+    ctx->hide_popup_callback(ctx->hide_popup_user_data);
+}
+
+void
+unim_dbus_set_hide_popup_callback(UnimDbusContext *ctx,
+                                   UnimHidePopupCallback callback,
+                                   gpointer user_data)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path) return;
+
+    ctx->hide_popup_callback = callback;
+    ctx->hide_popup_user_data = user_data;
+
+    ctx->hide_popup_signal_id = g_dbus_connection_signal_subscribe(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        UNIM_DBUS_IC_INTERFACE,
+        "HidePopup",
+        ctx->context_path,
+        NULL,
+        G_DBUS_SIGNAL_FLAGS_NONE,
+        on_hide_popup_signal,
+        ctx,
+        NULL
+    );
+
+    UNIM_DBUS_DEBUG("HidePopup 시그널 구독: path=%s, id=%u",
+                     ctx->context_path, ctx->hide_popup_signal_id);
+}
+
+gboolean
+unim_dbus_commit_emoji(UnimDbusContext *ctx, const gchar *emoji)
+{
+    if (!ctx || !ctx->connection || !ctx->context_path || !emoji) return FALSE;
+
+    GError *error = NULL;
+    GVariant *ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "CommitEmoji",
+        g_variant_new("(s)", emoji),
+        NULL,
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+    if (error) {
+        UNIM_DBUS_DEBUG("CommitEmoji 실패: emoji='%s', err=%s", emoji, error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+    if (ret) g_variant_unref(ret);
+    return TRUE;
 }
