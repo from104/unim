@@ -21,7 +21,7 @@ use xim::{
 };
 
 use crate::dbus_client::{DbusRequest, DbusResponse, PopupEvent};
-use crate::emoji_window::EmojiWindow;
+use crate::emoji_window::{EmojiClickResult, EmojiWindow};
 use crate::hanja_window::{HanjaClickResult, HanjaWindow};
 use crate::pe_window::PeWindow;
 use crate::special_window::{SpecialClickResult, SpecialWindow};
@@ -109,6 +109,8 @@ pub struct UnimHandler {
     special_context_path: Option<String>,
     /// 이모지 팝업 윈도우 (PR #5)
     emoji_window: Option<EmojiWindow>,
+    /// 이모지 팝업이 활성일 때의 컨텍스트 경로 (Phase 9: 마우스 ◀/▶ RPC 용)
+    emoji_context_path: Option<String>,
     /// 한자/특수문자 키 keysym 목록 (설정 기반)
     hanja_keysyms: Vec<u32>,
     /// 특수문자 선택 시 flash 효과 대기 플래그
@@ -174,6 +176,7 @@ impl UnimHandler {
             special_window: None,
             special_context_path: None,
             emoji_window: None,
+            emoji_context_path: None,
             hanja_keysyms,
             special_flash_pending: false,
             last_focused_ic_info: None,
@@ -307,12 +310,13 @@ impl UnimHandler {
     /// 를 보존한 채로 페이지를 바꾸고 PopupNavigate 시그널을 발행.
     /// `direction`: 0 = 이전, 1 = 다음.
     fn invoke_popup_change_page(&self, direction: i32) {
-        // 한자/특수문자 어떤 팝업이 활성이든 같은 RPC 가 동작 — popup 활성 여부는
+        // 한자/특수문자/이모지 어떤 팝업이 활성이든 같은 RPC 가 동작 — popup 활성 여부는
         // 데몬이 판정하고 비활성/단일 페이지면 no-op.
         let path = self
             .hanja_context_path
             .clone()
-            .or_else(|| self.special_context_path.clone());
+            .or_else(|| self.special_context_path.clone())
+            .or_else(|| self.emoji_context_path.clone());
         if let Some(p) = path {
             let _ = self.dbus_tx.try_send(DbusRequest::PopupChangePage {
                 context_path: p,
@@ -429,12 +433,54 @@ impl UnimHandler {
             return Ok(true);
         }
 
+        // 이모지 팝업 (Phase 9)
+        if let Some(ref ew) = self.emoji_window {
+            let (w, h) = ew.size();
+            if event_x >= 0 && event_y >= 0 && event_x < w as i16 && event_y < h as i16 {
+                let result =
+                    ew.handle_button_press(button as u32, event_x as c_int, event_y as c_int);
+                match result {
+                    EmojiClickResult::Select(_row, _col) => {
+                        // 합성 Enter — 엔진이 현재 선택 셀을 commit
+                        self.send_synthetic_key(0xff0d);
+                        unim_log!("XIM_HANDLER", "이모지 좌클릭 → 합성 Enter 전송");
+                    }
+                    EmojiClickResult::SelectCategory(tab_idx) => {
+                        // 합성 숫자키 1~9 — 엔진이 카테고리 전환 처리
+                        let keysym = 0x31 + tab_idx as u64; // '1'~'9'
+                        self.send_synthetic_key(keysym);
+                        unim_log!(
+                            "XIM_HANDLER",
+                            "이모지 탭 클릭 → 합성 숫자키 '{}' 전송",
+                            tab_idx + 1
+                        );
+                    }
+                    EmojiClickResult::NextPage => {
+                        self.invoke_popup_change_page(1);
+                    }
+                    EmojiClickResult::PrevPage => {
+                        self.invoke_popup_change_page(0);
+                    }
+                    EmojiClickResult::Consumed => {}
+                }
+                return Ok(true);
+            }
+            // 외부 클릭 → Escape
+            unim_log!("XIM_HANDLER", "이모지 팝업 외부 클릭 → 합성 Escape 전송");
+            conn.ungrab_pointer(x11rb::CURRENT_TIME)?;
+            conn.flush()?;
+            self.send_synthetic_key(0xff1b); // Escape
+            return Ok(true);
+        }
+
         Ok(false)
     }
 
-    /// 한자/특수문자 팝업이 활성 상태인지 확인
+    /// 한자/특수문자/이모지 팝업이 활성 상태인지 확인 (마우스 클릭 라우팅용)
     pub fn has_hanja_popup(&self) -> bool {
-        self.hanja_window.is_some() || self.special_window.is_some()
+        self.hanja_window.is_some()
+            || self.special_window.is_some()
+            || self.emoji_window.is_some()
     }
 
     /// ConfigureNotify 이벤트 처리
@@ -647,6 +693,7 @@ impl UnimHandler {
                     ew.clean(self.display, self.screen);
                     unim_log!("XIM_HANDLER", "HidePopup 시그널: 이모지 팝업 닫기");
                 }
+                self.emoji_context_path = None;
                 self.hanja_client_window = None;
                 let _ = server.conn().ungrab_pointer(x11rb::CURRENT_TIME);
                 server.conn().flush().ok();
@@ -704,6 +751,8 @@ impl UnimHandler {
                                 categories,
                             );
                             self.emoji_window = Some(ew);
+                            // Phase 9: 마우스 ◀/▶ RPC 호출용으로 활성 컨텍스트 보존.
+                            self.emoji_context_path = self.last_focused_context_path.clone();
                             unim_log!(
                                 "XIM_HANDLER",
                                 "ShowEmojiPopupV2: 이모지 팝업 표시 cat='{}'",
