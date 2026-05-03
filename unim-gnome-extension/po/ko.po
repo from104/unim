@@ -249,3 +249,12 @@ msgstr "한/영 상태 아이콘을 GNOME 상단 패널에 표시"
 msgid "한글 → 영어"
 msgstr "한글 → 영어"
 
+# 팝업 페이지 이동 (한자/특수문자/이모지 공통)
+#: hanja_popup.js special_popup.js emoji_popup.js
+msgid "Previous page"
+msgstr "이전 페이지"
+
+#: hanja_popup.js special_popup.js emoji_popup.js
+msgid "Next page"
+msgstr "다음 페이지"
+

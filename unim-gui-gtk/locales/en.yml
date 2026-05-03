@@ -218,3 +218,7 @@ emoji_tab_travel_places: "Travel & Places"
 emoji_tab_objects: "Objects"
 emoji_tab_symbols: "Symbols"
 emoji_tab_flags: "Flags"
+
+# Popup page navigation (shared by hanja/special/emoji popups)
+popup_previous_page: "Previous page"
+popup_next_page: "Next page"

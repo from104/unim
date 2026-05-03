@@ -218,3 +218,7 @@ emoji_tab_travel_places: "여행·장소"
 emoji_tab_objects: "사물"
 emoji_tab_symbols: "기호"
 emoji_tab_flags: "국기"
+
+# 팝업 페이지 이동 (한자/특수문자/이모지 공통)
+popup_previous_page: "이전 페이지"
+popup_next_page: "다음 페이지"
