@@ -65,7 +65,10 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
     , m_selCol(0)
     , m_mainLayout(nullptr)
     , m_gridLayout(nullptr)
+    , m_footerBox(nullptr)
     , m_footerLabel(nullptr)
+    , m_prevPageBtn(nullptr)
+    , m_nextPageBtn(nullptr)
     , m_flashTimer(nullptr)
     , m_pendingHide(false)
 {
@@ -140,6 +143,24 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
         "  font-size: %7px;"
         "  padding: %2px %3px;"
         "}"
+        /* 마우스 페이지 이동 ◀/▶ (Phase 5) */
+        "QPushButton#prevPageBtn, QPushButton#nextPageBtn {"
+        "  color: #7f849c;"
+        "  background: transparent;"
+        "  border: none;"
+        "  font-size: %7px;"
+        "  min-width: 22px;"
+        "  min-height: 22px;"
+        "  padding: 2px 6px;"
+        "  border-radius: 4px;"
+        "}"
+        "QPushButton#prevPageBtn:hover, QPushButton#nextPageBtn:hover {"
+        "  color: #89b4fa;"
+        "  background-color: rgba(137, 180, 250, 51);"
+        "}"
+        "QPushButton#prevPageBtn:pressed, QPushButton#nextPageBtn:pressed {"
+        "  background-color: rgba(137, 180, 250, 89);"
+        "}"
     ).arg(widgetPad).arg(cellPadV).arg(cellPadH).arg(fontSize)
      .arg(cellSize).arg(headerFontSize).arg(footerFontSize));
 
@@ -152,12 +173,42 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
     m_gridLayout->setSpacing(1);
     m_mainLayout->addLayout(m_gridLayout);
 
-    /* 페이지 레이블 */
-    m_footerLabel = new QLabel(this);
+    /* 푸터: [◀] [페이지 라벨] [▶] (Phase 5) — 단일 페이지면 footer_box hide */
+    m_footerBox = new QWidget(this);
+    m_footerBox->setObjectName("specialFooterBox");
+    QHBoxLayout *footerLayout = new QHBoxLayout(m_footerBox);
+    footerLayout->setContentsMargins(0, 0, 0, 0);
+    footerLayout->setSpacing(4);
+
+    m_prevPageBtn = new QPushButton(QStringLiteral("\xE2\x97\x80"), m_footerBox); /* ◀ */
+    m_prevPageBtn->setObjectName("prevPageBtn");
+    m_prevPageBtn->setFlat(true);
+    m_prevPageBtn->setFocusPolicy(Qt::NoFocus);
+    m_prevPageBtn->setCursor(Qt::PointingHandCursor);
+    m_prevPageBtn->setToolTip(QStringLiteral("이전 페이지"));
+    QObject::connect(m_prevPageBtn, &QPushButton::clicked, this, [this]() {
+        if (m_pageChangeCallback) m_pageChangeCallback(0);
+    });
+    footerLayout->addWidget(m_prevPageBtn, 0);
+
+    m_footerLabel = new QLabel(m_footerBox);
     m_footerLabel->setObjectName("footerLabel");
     m_footerLabel->setAlignment(Qt::AlignCenter);
-    m_footerLabel->setVisible(false);
-    m_mainLayout->addWidget(m_footerLabel);
+    footerLayout->addWidget(m_footerLabel, 1);
+
+    m_nextPageBtn = new QPushButton(QStringLiteral("\xE2\x96\xB6"), m_footerBox); /* ▶ */
+    m_nextPageBtn->setObjectName("nextPageBtn");
+    m_nextPageBtn->setFlat(true);
+    m_nextPageBtn->setFocusPolicy(Qt::NoFocus);
+    m_nextPageBtn->setCursor(Qt::PointingHandCursor);
+    m_nextPageBtn->setToolTip(QStringLiteral("다음 페이지"));
+    QObject::connect(m_nextPageBtn, &QPushButton::clicked, this, [this]() {
+        if (m_pageChangeCallback) m_pageChangeCallback(1);
+    });
+    footerLayout->addWidget(m_nextPageBtn, 0);
+
+    m_footerBox->setVisible(false);
+    m_mainLayout->addWidget(m_footerBox);
 
     /* 셀/헤더 초기화 */
     std::memset(m_cells, 0, sizeof(m_cells));
@@ -339,12 +390,12 @@ void UnimSpecialPopup::updateGrid()
         }
     }
 
-    /* 페이지 표시 */
+    /* 페이지 표시: 단일 페이지면 footer_box 통째 hide */
     if (m_totalPages > 1) {
         m_footerLabel->setText(QString("%1 / %2").arg(m_currentPage + 1).arg(m_totalPages));
-        m_footerLabel->setVisible(true);
+        m_footerBox->setVisible(true);
     } else {
-        m_footerLabel->setVisible(false);
+        m_footerBox->setVisible(false);
     }
 
     updateSelection();
@@ -511,4 +562,9 @@ bool UnimSpecialPopup::handleKey(int key)
     default:
         return false;
     }
+}
+
+void UnimSpecialPopup::setPageChangeCallback(PageChangeCallback callback)
+{
+    m_pageChangeCallback = std::move(callback);
 }

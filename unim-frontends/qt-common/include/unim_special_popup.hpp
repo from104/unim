@@ -10,7 +10,9 @@
 
 #include <QWidget>
 #include <QLabel>
+#include <QPushButton>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QKeyEvent>
 #include <QStringList>
@@ -61,6 +63,13 @@ public:
      */
     bool handleKey(int key);
 
+    /**
+     * 페이지 이동 콜백 (◀/▶ 풋터 버튼 클릭용).
+     * @param direction 0=Prev, 1=Next
+     */
+    using PageChangeCallback = std::function<void(int direction)>;
+    void setPageChangeCallback(PageChangeCallback callback);
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
 
@@ -93,10 +102,14 @@ private:
     QLabel *m_cells[SPECIAL_MAX_ROWS][SPECIAL_MAX_COLS];
     QLabel *m_colHeaders[SPECIAL_MAX_COLS];
     QLabel *m_rowHeaders[SPECIAL_MAX_ROWS];
+    QWidget *m_footerBox;       /* ◀ + footer label + ▶ 컨테이너 */
     QLabel *m_footerLabel;
+    QPushButton *m_prevPageBtn; /* ◀ */
+    QPushButton *m_nextPageBtn; /* ▶ */
 
     /* 콜백 */
     UnimSpecialSelectCallback m_callback;
+    PageChangeCallback m_pageChangeCallback;
 
     /* 플래시 타이머 */
     QTimer *m_flashTimer;

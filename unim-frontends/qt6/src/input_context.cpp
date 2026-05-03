@@ -131,18 +131,21 @@ UnimInputContext::UnimInputContext()
         });
         // HanjaCandidatesReordered 시그널 → 후보·즐겨찾기·커서 일괄 교체
         // (item-tracking: 토글된 한자가 정렬 후 새 위치로 이동, cursor도 따라감)
+        // Phase 7: was=true → now=false (★ 해제) 시 cursor 셀 yellow flash.
         m_dbus->setHanjaCandidatesReorderedCallback(
             [this](const QString &target,
                    const QList<UnimHanjaCandidate> &candidates,
                    const QList<bool> &bookmarks,
                    quint32 newCursor, qint32 page, qint32 selRow, qint32 selCol,
-                   bool bookmarked) {
+                   bool bookmarked, bool wasBookmarked) {
                 Q_UNUSED(target);
                 Q_UNUSED(newCursor);
-                Q_UNUSED(bookmarked);
                 if (m_hanjaPopup) {
                     m_hanjaPopup->replaceCandidates(candidates, bookmarks,
                                                      page, selRow, selCol);
+                    if (wasBookmarked && !bookmarked) {
+                        m_hanjaPopup->flashCursorCell();
+                    }
                 }
             });
 
@@ -211,11 +214,23 @@ void UnimInputContext::ensurePopups()
                 m_dbus->toggleHanjaBookmark(globalIndex);
             }
         });
+        /* ◀/▶ 풋터 → DBus PopupChangePage (Phase 5) */
+        m_hanjaPopup->setPageChangeCallback([this](int direction) {
+            if (m_dbus) m_dbus->popupChangePage(direction);
+        });
     }
-    if (!m_specialPopup)
+    if (!m_specialPopup) {
         m_specialPopup = new UnimSpecialPopup();
-    if (!m_emojiPopup)
+        m_specialPopup->setPageChangeCallback([this](int direction) {
+            if (m_dbus) m_dbus->popupChangePage(direction);
+        });
+    }
+    if (!m_emojiPopup) {
         m_emojiPopup = new UnimEmojiPopup();
+        m_emojiPopup->setPageChangeCallback([this](int direction) {
+            if (m_dbus) m_dbus->popupChangePage(direction);
+        });
+    }
 }
 
 bool UnimInputContext::isStandalonePopup() const

@@ -198,6 +198,16 @@ public:
     bool toggleHanjaBookmark(quint32 index);
 
     /**
+     * 팝업 페이지 이동 (마우스 ◀/▶ 버튼 클릭용).
+     *
+     * @param direction 0 (or negative) = 이전, 1 (or positive) = 다음
+     * @return 호출 성공 여부 (실제 변경은 PopupNavigate 시그널로 통지됨)
+     *
+     * 한자/특수/이모지 popup 모두에 동작. popup 비활성/단일 페이지면 데몬에서 no-op.
+     */
+    bool popupChangePage(qint32 direction);
+
+    /**
      * HanjaBookmarkChanged 콜백 설정
      * @param callback (index, bookmarked)를 받는 콜백
      */
@@ -207,8 +217,9 @@ public:
     /**
      * HanjaCandidatesReordered 콜백 설정.
      *
-     * 시그널 시그니처: (s, as, as, ab, u, i, i, i, b)
-     *   target, hanjas[], meanings[], bookmarks[], new_cursor, page, sel_row, sel_col, bookmarked
+     * 시그널 시그니처: (s, as, as, ab, u, i, i, i, b, b)
+     *   target, hanjas[], meanings[], bookmarks[], new_cursor, page, sel_row, sel_col,
+     *   bookmarked (새 상태), was_bookmarked (Phase 7 visual flash 용 직전 상태).
      *
      * 콜백은 후보·즐겨찾기·커서를 한 호출로 일괄 교체하기 위한 payload를 받는다.
      */
@@ -220,7 +231,8 @@ public:
         qint32 page,
         qint32 selRow,
         qint32 selCol,
-        bool bookmarked)>;
+        bool bookmarked,
+        bool wasBookmarked)>;
     void setHanjaCandidatesReorderedCallback(HanjaCandidatesReorderedCallback callback);
 
     /* =========================================

@@ -612,6 +612,27 @@ bool UnimDbusClient::toggleHanjaBookmark(quint32 index)
     return true;
 }
 
+bool UnimDbusClient::popupChangePage(qint32 direction)
+{
+    if (!isValid()) return false;
+
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        UNIM_DBUS_SERVICE,
+        m_contextPath,
+        UNIM_DBUS_IC_INTERFACE,
+        QStringLiteral("PopupChangePage")
+    );
+    msg << direction;
+
+    QDBusMessage reply = m_bus.call(msg, QDBus::Block, UNIM_DBUS_TIMEOUT_MS);
+    if (reply.type() == QDBusMessage::ErrorMessage) {
+        UNIM_DBUS_DEBUG(QString::asprintf("PopupChangePage 실패 dir=%d: %s",
+                         direction, qPrintable(reply.errorMessage())));
+        return false;
+    }
+    return true;
+}
+
 void UnimDbusClient::setHanjaBookmarkChangedCallback(HanjaBookmarkChangedCallback callback) {
     m_hanjaBookmarkCallback = std::move(callback);
     if (!m_connected || m_contextPath.isEmpty()) return;
@@ -694,11 +715,12 @@ void UnimHanjaCandidatesReorderedReceiver::onReordered(const QDBusMessage &msg) 
         }
     }
 
-    quint32 newCursor = args.at(4).toUInt();
-    qint32 page       = args.at(5).toInt();
-    qint32 selRow     = args.at(6).toInt();
-    qint32 selCol     = args.at(7).toInt();
-    bool bookmarked   = args.at(8).toBool();
+    quint32 newCursor   = args.at(4).toUInt();
+    qint32 page         = args.at(5).toInt();
+    qint32 selRow       = args.at(6).toInt();
+    qint32 selCol       = args.at(7).toInt();
+    bool bookmarked     = args.at(8).toBool();
+    bool wasBookmarked  = args.size() >= 10 ? args.at(9).toBool() : false;
 
     QList<UnimHanjaCandidate> candidates;
     int n = hanjas.size();
@@ -711,11 +733,12 @@ void UnimHanjaCandidatesReorderedReceiver::onReordered(const QDBusMessage &msg) 
     }
 
     UNIM_DBUS_DEBUG(QString::asprintf(
-        "HanjaCandidatesReordered received: target='%s', count=%d, new_cursor=%u, page=%d, sel=(%d,%d), bookmarked=%d",
-        qPrintable(target), n, newCursor, page, selRow, selCol, int(bookmarked)));
+        "HanjaCandidatesReordered received: target='%s', count=%d, new_cursor=%u, page=%d, sel=(%d,%d), was=%d now=%d",
+        qPrintable(target), n, newCursor, page, selRow, selCol, int(wasBookmarked), int(bookmarked)));
 
     m_client->m_hanjaReorderedCallback(target, candidates, bookmarks,
-                                        newCursor, page, selRow, selCol, bookmarked);
+                                        newCursor, page, selRow, selCol,
+                                        bookmarked, wasBookmarked);
 }
 
 /* =========================================

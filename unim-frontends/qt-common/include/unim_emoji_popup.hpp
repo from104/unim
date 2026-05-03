@@ -17,6 +17,7 @@
 #include <QWidget>
 #include <QLabel>
 #include <QToolButton>
+#include <QPushButton>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -86,6 +87,13 @@ public:
      */
     void setRecent(const QStringList &emojis);
 
+    /**
+     * 페이지 이동 콜백 (◀/▶ 풋터 버튼 클릭용).
+     * @param direction 0=Prev, 1=Next
+     */
+    using PageChangeCallback = std::function<void(int direction)>;
+    void setPageChangeCallback(PageChangeCallback callback);
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
 
@@ -113,7 +121,10 @@ private:
     QVBoxLayout *m_tabLayout;
     QGridLayout *m_gridLayout;
     QLabel *m_headerLabel;
+    QWidget *m_footerBox;       /* ◀ + footerLabel + ▶ — 단일 페이지 시 hide */
     QLabel *m_footerLabel;
+    QPushButton *m_prevPageBtn; /* ◀ */
+    QPushButton *m_nextPageBtn; /* ▶ */
     QLabel *m_cells[EMOJI_MAX_COLS][EMOJI_MAX_ROWS];
     QLabel *m_colHeaders[EMOJI_MAX_COLS];
     QLabel *m_rowHeaders[EMOJI_MAX_ROWS];
@@ -121,6 +132,7 @@ private:
 
     /* 콜백 */
     UnimEmojiCommitCallback m_callback;
+    PageChangeCallback m_pageChangeCallback;
 
     /* 플래시 타이머 */
     QTimer *m_flashTimer;
