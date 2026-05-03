@@ -162,6 +162,47 @@ grep -i 'ToggleExpanded\|9x9\|expanded' ~/.unim-errors.log
 
 ---
 
+## 7-1. "Wayland popup shows ◀/▶ buttons but mouse clicks do nothing"
+
+### Symptom
+
+On `unim-frontends/wayland` popups (compositors: GNOME mutter, KWin, Sway, etc.) the ◀/▶ buttons render correctly but a mouse left-click on them produces no reaction.
+
+### Cause
+
+Wayland popups are drawn on `zwp_input_popup_surface_v2`. For pointer events to reach this surface, the compositor must route them into the IM popup. Some compositors (notably some GNOME mutter versions) treat the IM popup as pass-through, so the click falls through to the application below.
+
+### Fix
+
+- **Immediate workaround**: keyboard `←` / `→` (or `Page Up` / `Page Down`). 100 % equivalent to the mouse buttons.
+- **GNOME users**: the GNOME Shell extension popup takes over and renders outside mutter, so ◀/▶ clicks work there. If they still fail on GNOME, the extension is probably disabled or missing — check with `gnome-extensions list --enabled | grep unim`.
+- **Long-term**: depends on compositor support for IM popup pointer routing. File reports at [GitHub Issues](https://github.com/from104/unim/issues), include compositor name and version.
+
+> Keyboard ←/→ is guaranteed across every compositor. Mouse ◀/▶ is best-effort, gated by compositor policy.
+
+---
+
+## 7-2. "XIM emoji popup shows ◀/▶ alongside category tabs"
+
+### Symptom
+
+In XIM (`unim-frontends/xim`) the emoji popup shows category tabs (smileys, animals, food, …) along the top *and* ◀/▶ paginate buttons at the bottom. Both react to left-click, which can be confusing.
+
+### Cause / status
+
+**Working as intended.** The XIM emoji popup has two distinct controls: (1) category tabs along the top (left-click switches category), (2) ◀/▶ in the footer (left-click moves one page within the active category). Both use left-click but they live in different regions.
+
+### Fix
+
+- Memorize the layout: category tabs on top, page nav on the bottom.
+- Or use the keyboard:
+  - **Switch category**: `Tab` (next) / `Shift+Tab` (previous).
+  - **Page nav**: `←` / `→` (or `Page Up`/`Page Down`).
+
+> The behavior is intended but visually under-separated. Tracked for a footer color tweak in a future release.
+
+---
+
 ## 8. "AutoTypeFix not firing"
 
 ### Diagnosis

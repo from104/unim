@@ -167,6 +167,47 @@ grep -i 'ToggleExpanded\|9x9\|expanded' ~/.unim-errors.log
 
 ---
 
+## 7-1. "Wayland에서 ◀/▶ 페이지 버튼이 보이는데 마우스 클릭이 안 먹음"
+
+### 증상
+
+`unim-frontends/wayland`로 동작하는 popup(컴포지터: GNOME mutter, KWin, Sway 등)에서 ◀/▶ 버튼이 시각적으로 분명히 그려지는데 마우스 좌클릭에 반응이 없다.
+
+### 원인
+
+Wayland popup은 `zwp_input_popup_surface_v2` 위에 그려진다. 이 surface로 pointer 이벤트가 들어오려면 컴포지터가 IM popup으로 pointer 라우팅을 허용해야 하는데, 일부 컴포지터(특히 GNOME mutter 일부 버전)는 IM popup을 "pass-through" 처리해 클릭이 아래 앱으로 빠진다.
+
+### 처방
+
+- **즉시 우회**: 키보드 `←` / `→` (또는 `Page Up` / `Page Down`)로 페이지 이동. 마우스 ◀/▶와 100% 동일 동작.
+- **GNOME 사용자**: GNOME Shell 확장 popup으로 자동 전환되므로 ◀/▶ 클릭이 정상 동작 (`unim-gnome-extension`이 mutter 외부에서 자체 그린다). 만일 GNOME에서도 안 되면 확장이 비활성 또는 미설치 상태인지 `gnome-extensions list --enabled | grep unim`으로 확인.
+- **장기 대응**: 컴포지터 측 IM popup pointer 라우팅 지원 여부에 의존. 보고는 [GitHub Issues](https://github.com/from104/unim/issues)에 컴포지터 이름·버전 명시.
+
+> 키보드 ←/→ 동작은 모든 컴포지터에서 보장된다. 마우스 ◀/▶는 컴포지터 정책상 best-effort.
+
+---
+
+## 7-2. "XIM 이모지 popup의 ◀/▶가 카테고리 탭과 겹치게 동작"
+
+### 증상
+
+XIM(`unim-frontends/xim`)에서 이모지 popup을 띄우면 카테고리 탭(스마일·동물·음식 …)과 ◀/▶ 페이지 버튼이 같은 영역 근처에 동시에 표시된다. "어느 게 누른 거지?" 헷갈린다.
+
+### 원인 / 정상 여부
+
+**정상 동작이다.** XIM 이모지 popup은 (1) 상단에 카테고리 탭(좌클릭으로 카테고리 전환), (2) 하단에 ◀/▶(좌클릭으로 한 페이지 이동) 두 컨트롤을 모두 가진다. 둘 다 좌클릭이지만 영역이 다르다 — 카테고리 탭은 popup 상단, ◀/▶는 footer.
+
+### 처방
+
+- 좌클릭 영역을 명확히 인지: 카테고리는 위, 페이지 이동은 아래.
+- 헷갈리면 키보드로 처리:
+  - **카테고리 전환**: `Tab` (다음) / `Shift+Tab` (이전).
+  - **페이지 이동**: `←` / `→` (또는 `Page Up`/`Page Down`).
+
+> 정상 동작이지만 시각적 분리가 부족하다는 피드백은 받고 있다 — 향후 footer 색 분리 예정.
+
+---
+
 ## 8. "AutoTypeFix가 작동 안 함"
 
 ### 진단
