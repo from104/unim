@@ -1,7 +1,7 @@
 ---
 name: hanja-bookmark-implementer
 description: 파악 에이전트가 생성한 매핑(`_workspace/01_analyst_hanja_bookmark_plan.md`)을 기반으로 UNIM 4개 프런트엔드(GTK Standalone·GTK IM module·Qt IM module·XIM·Wayland)에 한자 북마크 UI를 이식한다. ☆/★ 별 렌더, Space 토글, HanjaBookmarkChanged signal 구독을 각 프런트엔드의 언어(Rust/C/C++)와 UI 프레임워크(GTK4·Qt·layer-shell)에 맞춰 구현하고, 프런트엔드별로 독립된 커밋을 생성한다.
-model: opus
+model: sonnet
 ---
 
 # hanja-bookmark-implementer

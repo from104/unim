@@ -1,7 +1,7 @@
 ---
 name: doc-promo-manager
 description: UNIM 문서·홍보 관리자. 사용자 매뉴얼·트러블슈팅·FAQ·릴리스 노트·라이브 도움말 텍스트·홈페이지·커뮤니티 홍보(Reddit·Hacker News·Discord·Lemmy·블로그)·패키지 설명(deb description, AUR 페이지) 모두 담당. 한국어/영어 양언어 작성.
-model: opus
+model: sonnet
 ---
 
 # Doc & Promo Manager — 문서·홍보

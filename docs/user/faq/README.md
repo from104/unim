@@ -83,6 +83,19 @@ If the user rejects a correction with BS+mode-switch → marked Pending. The *ne
 
 ---
 
+## Q5-1. When I un-bookmark a hanja, the popup jumps to a different page — is that intended?
+
+**Yes, that is the designed behavior.** Bookmarking (★) promotes a hanja to the top of page 1; un-bookmarking (☆) demotes it back to its lexicographic home. If that home is on a different page, the popup follows.
+
+To make sure you do not miss that jump, the destination cell **flashes Catppuccin yellow (`#f9e2af`) for 140 ms**. The flash answers "I just unstarred it — where did it go?" with a single visual signal.
+
+- Bookmarking (★ on) does not flash: the cursor predictably lands at page 1 row 1, which is hard to miss.
+- Un-bookmarking (☆ off) flashes: the destination is unpredictable, so the flash spotlights it.
+
+For mechanics see [user manual §4.2](../user-guide/README.md#42-hanja-conversion) and [popup spec §3.6/§3.7](../../dev/specs/POPUP_SPEC.md).
+
+---
+
 ## Q5. What's the difference between the 9-cell and 81-cell Hanja popup?
 
 | Item | 9-cell (compact) | 81-cell (expanded) |

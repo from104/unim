@@ -352,6 +352,15 @@ on_hanja_toggle_bookmark(gsize global_index, gpointer user_data)
     unim_dbus_toggle_hanja_bookmark(unim->dbus_ctx, (guint)global_index);
 }
 
+/* 푸터 ◀/▶ 클릭 → DBus PopupChangePage 호출 (Phase 4) */
+static void
+on_hanja_page_change(gint direction, gpointer user_data)
+{
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+    if (!unim || !unim->dbus_ctx) return;
+    unim_dbus_popup_change_page(unim->dbus_ctx, direction);
+}
+
 /* 이모지 팝업 시그널 핸들러 forward declarations (PR #4 — 정의는 selected 콜백 옆) */
 static void on_show_emoji_popup(const gchar *target_cat_id,
                                  const gchar * const *items,
@@ -381,7 +390,10 @@ on_hanja_bookmark_changed(guint index, gboolean bookmarked, gpointer user_data)
     unim_hanja_popup_set_bookmark(unim->hanja_popup, (gsize)index, bookmarked);
 }
 
-/* 엔진 HanjaCandidatesReordered 시그널 → 후보·즐겨찾기·커서 일괄 교체 */
+/* 엔진 HanjaCandidatesReordered 시그널 → 후보·즐겨찾기·커서 일괄 교체.
+ *
+ * Phase 7 (visual flash): bookmarked + was_bookmarked 둘 다 받아서 ★ 해제
+ * (was=true → now=false) 일 때 popup 의 cursor 셀 yellow flash 를 트리거. */
 static void
 on_hanja_candidates_reordered(const gchar *target,
                                UnimHanjaCandidate *candidates_owned,
@@ -393,11 +405,11 @@ on_hanja_candidates_reordered(const gchar *target,
                                gint sel_row,
                                gint sel_col,
                                gboolean bookmarked,
+                               gboolean was_bookmarked,
                                gpointer user_data)
 {
     (void)target;
     (void)new_cursor;
-    (void)bookmarked;
     UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
     if (!unim || !unim->hanja_popup) {
         unim_hanja_candidates_free(candidates_owned, count);
@@ -415,6 +427,11 @@ on_hanja_candidates_reordered(const gchar *target,
         unim->hanja_popup, candidates_owned, count,
         bookmarks, bookmarks_count, page, sel_row, sel_col
     );
+
+    /* ★ 해제 시 cursor 셀 140ms yellow flash (Phase 7) */
+    if (was_bookmarked && !bookmarked) {
+        unim_hanja_popup_flash_cursor_cell(unim->hanja_popup);
+    }
 }
 
 static void
@@ -450,6 +467,8 @@ unim_im_context_init(UnimIMContext *context)
     if (context->hanja_popup) {
         unim_hanja_popup_set_toggle_bookmark_callback(
             context->hanja_popup, on_hanja_toggle_bookmark, context);
+        unim_hanja_popup_set_page_change_callback(
+            context->hanja_popup, on_hanja_page_change, context);
     }
     context->hanja_candidates = NULL;
     context->hanja_count = 0;
@@ -457,11 +476,19 @@ unim_im_context_init(UnimIMContext *context)
     
     /* 특수문자 팝업 초기화 */
     context->special_popup = unim_special_popup_new();
+    if (context->special_popup) {
+        unim_special_popup_set_page_change_callback(
+            context->special_popup, on_hanja_page_change, context);
+    }
     context->special_characters = NULL;
     context->special_count = 0;
 
     /* 이모지 팝업 초기화 (PR #4) — 시그널 기반, 별도 후보 캐시 없음 */
     context->emoji_popup = unim_emoji_popup_new();
+    if (context->emoji_popup) {
+        unim_emoji_popup_set_page_change_callback(
+            context->emoji_popup, on_hanja_page_change, context);
+    }
     if (context->dbus_ctx) {
         unim_dbus_set_show_emoji_popup_callback(
             context->dbus_ctx, on_show_emoji_popup, context);

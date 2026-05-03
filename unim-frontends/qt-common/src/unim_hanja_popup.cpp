@@ -17,6 +17,8 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QTimer>
+#include <QPointer>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -66,6 +68,8 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
     , m_body(nullptr)
     , m_pageLabel(nullptr)
     , m_expandIcon(nullptr)
+    , m_prevPageBtn(nullptr)
+    , m_nextPageBtn(nullptr)
     , m_currentPage(0)
     , m_selectedIndex(0)
     , m_selRow(0)
@@ -177,6 +181,30 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
         "QLabel[highlight=\"true\"] {"
         "  color: #f9e2af;"
         "}"
+        /* 마우스 페이지 이동 ◀/▶ (Phase 5)
+         * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 셀과 시각 비례 */
+        "QPushButton#prevPageBtn, QPushButton#nextPageBtn {"
+        "  color: #7f849c;"
+        "  background: transparent;"
+        "  border: none;"
+        "  font-size: %6px;"
+        "  min-width: 28px;"
+        "  min-height: 28px;"
+        "  padding: 4px 10px;"
+        "  border-radius: 4px;"
+        "}"
+        "QPushButton#prevPageBtn:hover, QPushButton#nextPageBtn:hover {"
+        "  color: #89b4fa;"
+        "  background-color: rgba(137, 180, 250, 51);"
+        "}"
+        "QPushButton#prevPageBtn:pressed, QPushButton#nextPageBtn:pressed {"
+        "  background-color: rgba(137, 180, 250, 89);"
+        "}"
+        /* ★ 해제 후 cursor 셀 yellow flash (Phase 7) */
+        "QLabel[bookmarkFlash=\"true\"] {"
+        "  background-color: #f9e2af;"
+        "  color: #1e1e2e;"
+        "}"
     ).arg(padding).arg(labelPadV).arg(labelPadH).arg(fontSize)
      .arg(minHeight).arg(pageFontSize).arg(pagePadH));
 
@@ -189,17 +217,42 @@ UnimHanjaPopup::UnimHanjaPopup(QWidget *parent)
     m_body = new QWidget(this);
     m_layout->addWidget(m_body);
 
-    /* 푸터: 페이지 라벨(좌) + 확장 아이콘(우) */
+    /* 푸터: [◀] [페이지 라벨] [▶] [⊞] (Phase 5: ◀/▶ 추가) */
     QWidget *footer = new QWidget(this);
     QHBoxLayout *footerLayout = new QHBoxLayout(footer);
     footerLayout->setContentsMargins(0, 0, 0, 0);
-    footerLayout->setSpacing(2);
+    footerLayout->setSpacing(4);
+
+    m_prevPageBtn = new QPushButton(QStringLiteral("\xE2\x97\x80"), footer); /* ◀ */
+    m_prevPageBtn->setObjectName("prevPageBtn");
+    m_prevPageBtn->setFlat(true);
+    m_prevPageBtn->setFocusPolicy(Qt::NoFocus);
+    m_prevPageBtn->setCursor(Qt::PointingHandCursor);
+    /* tr() — Qt 번역 시스템. .ts 미배포 시 영문 fallback. msgid 표준 일관성. */
+    m_prevPageBtn->setToolTip(QObject::tr("Previous page"));
+    m_prevPageBtn->setVisible(false);
+    QObject::connect(m_prevPageBtn, &QPushButton::clicked, this, [this]() {
+        if (m_pageChangeCallback) m_pageChangeCallback(0);
+    });
+    footerLayout->addWidget(m_prevPageBtn, 0);
 
     m_pageLabel = new QLabel(footer);
     m_pageLabel->setObjectName("pageLabel");
-    m_pageLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_pageLabel->setAlignment(Qt::AlignCenter);
     m_pageLabel->setVisible(false);
     footerLayout->addWidget(m_pageLabel, 1);
+
+    m_nextPageBtn = new QPushButton(QStringLiteral("\xE2\x96\xB6"), footer); /* ▶ */
+    m_nextPageBtn->setObjectName("nextPageBtn");
+    m_nextPageBtn->setFlat(true);
+    m_nextPageBtn->setFocusPolicy(Qt::NoFocus);
+    m_nextPageBtn->setCursor(Qt::PointingHandCursor);
+    m_nextPageBtn->setToolTip(QObject::tr("Next page"));
+    m_nextPageBtn->setVisible(false);
+    QObject::connect(m_nextPageBtn, &QPushButton::clicked, this, [this]() {
+        if (m_pageChangeCallback) m_pageChangeCallback(1);
+    });
+    footerLayout->addWidget(m_nextPageBtn, 0);
 
     m_expandIcon = new QLabel(footer);
     m_expandIcon->setObjectName("expandIcon");
@@ -333,6 +386,43 @@ void UnimHanjaPopup::setToggleBookmarkCallback(ToggleBookmarkCallback callback)
     m_toggleBookmarkCallback = std::move(callback);
 }
 
+void UnimHanjaPopup::setPageChangeCallback(PageChangeCallback callback)
+{
+    m_pageChangeCallback = std::move(callback);
+}
+
+void UnimHanjaPopup::flashCursorCell()
+{
+    if (!isVisible()) return;
+
+    /* compact: m_cells[sel_row], expanded: column-major m_cells[col*EXPANDED_ROWS + row].
+     * renderExpandedGrid 가 m_cells 에 (col, row) 셀 라벨을 (col*9+row) 인덱스로 push 한다고 가정 — */
+    int idx = -1;
+    if (m_cols > 1) {
+        idx = m_selCol * EXPANDED_ROWS + m_selRow;
+    } else {
+        idx = m_selRow;
+    }
+    if (idx < 0 || idx >= static_cast<int>(m_cells.size())) return;
+    QLabel *cell = m_cells[idx];
+    if (!cell) return;
+
+    /* dynamic property + style polish 로 적용 → 140ms 후 제거. */
+    cell->setProperty("bookmarkFlash", true);
+    cell->style()->unpolish(cell);
+    cell->style()->polish(cell);
+    cell->update();
+
+    QPointer<QLabel> weak(cell);
+    QTimer::singleShot(140, this, [weak]() {
+        if (!weak) return;
+        weak->setProperty("bookmarkFlash", false);
+        weak->style()->unpolish(weak);
+        weak->style()->polish(weak);
+        weak->update();
+    });
+}
+
 void UnimHanjaPopup::setBookmarkStates(const QList<bool> &states)
 {
     m_bookmarks.clear();
@@ -429,15 +519,17 @@ void UnimHanjaPopup::updateList()
         renderCompactList(pageStart, pageEnd);
     }
 
-    /* 푸터 — 페이지 라벨 + 확장 아이콘 갱신 */
+    /* 푸터 — 페이지 라벨 + ◀/▶ 가시성 + 확장 아이콘 갱신 */
     int total = totalPages();
-    if (total > 1) {
+    bool multi = total > 1;
+    if (multi) {
         m_pageLabel->setText(QString("%1/%2").arg(m_currentPage + 1).arg(total));
-        m_pageLabel->setVisible(true);
     } else {
         m_pageLabel->setText(QString());
-        m_pageLabel->setVisible(false);
     }
+    m_pageLabel->setVisible(multi);
+    if (m_prevPageBtn) m_prevPageBtn->setVisible(multi);
+    if (m_nextPageBtn) m_nextPageBtn->setVisible(multi);
     if (m_expandIcon) {
         /* QStringLiteral은 매크로이므로 ternary로 풀 수 없다 — QString::fromUtf8 사용. */
         m_expandIcon->setText(QString::fromUtf8(m_cols > 1 ? ICON_COMPACT : ICON_EXPAND));

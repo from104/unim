@@ -30,6 +30,9 @@ const PAGE_SIZE: usize = MAX_ROWS * MAX_COLS;
 /// 좌측 세로 탭 수 (Recent + 8 카테고리).
 const TAB_COUNT: usize = 9;
 
+const ICON_PREV_PAGE: &str = "◀";
+const ICON_NEXT_PAGE: &str = "▶";
+
 /// 카테고리 id 별 locale key — `data.rs::CATEGORIES` 와 1:1.
 fn tab_label_for(cat_id: &str) -> String {
     let key = match cat_id {
@@ -61,8 +64,14 @@ pub struct EmojiPopup {
     col_headers: Vec<gtk4::Label>,
     /// 좌측 행 번호 라벨 (1..=9)
     row_numbers: Vec<gtk4::Label>,
+    /// 푸터 컨테이너 (◀ + 페이지 라벨 + ▶)
+    footer_box: gtk4::Box,
     /// 페이지 인디케이터 (footer)
     footer_label: gtk4::Label,
+    /// 이전 페이지 버튼 (◀) — 단일 페이지 시 hide
+    prev_page_btn: gtk4::Button,
+    /// 다음 페이지 버튼 (▶) — 단일 페이지 시 hide
+    next_page_btn: gtk4::Button,
     /// 현재 카테고리의 emoji 풀 (시작 카테고리만; 키 입력 시 daemon 이 ShowEmojiPopupV2 재발행)
     items: Vec<String>,
     /// 카테고리 id 캐시 (헤더 라벨용)
@@ -198,11 +207,39 @@ impl EmojiPopup {
 
         vbox.append(&body_hbox);
 
-        // 페이지 인디케이터 (footer)
+        // 푸터: [◀] [카테고리 n/N] [▶]
+        let footer_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        footer_box.add_css_class("popup-footer-box");
+
+        let prev_page_btn = gtk4::Button::with_label(ICON_PREV_PAGE);
+        prev_page_btn.add_css_class("popup-page-btn");
+        prev_page_btn.add_css_class("flat");
+        prev_page_btn.set_can_focus(false);
+        prev_page_btn.set_focusable(false);
+        prev_page_btn.set_tooltip_text(Some(&t!("popup_previous_page")));
+        prev_page_btn.connect_clicked(|_| {
+            crate::hanja_popup::popup_change_page_via_dbus(0);
+        });
+        footer_box.append(&prev_page_btn);
+
         let footer_label = gtk4::Label::new(None);
         footer_label.add_css_class("popup-footer");
         footer_label.set_halign(gtk4::Align::Center);
-        vbox.append(&footer_label);
+        footer_label.set_hexpand(true);
+        footer_box.append(&footer_label);
+
+        let next_page_btn = gtk4::Button::with_label(ICON_NEXT_PAGE);
+        next_page_btn.add_css_class("popup-page-btn");
+        next_page_btn.add_css_class("flat");
+        next_page_btn.set_can_focus(false);
+        next_page_btn.set_focusable(false);
+        next_page_btn.set_tooltip_text(Some(&t!("popup_next_page")));
+        next_page_btn.connect_clicked(|_| {
+            crate::hanja_popup::popup_change_page_via_dbus(1);
+        });
+        footer_box.append(&next_page_btn);
+
+        vbox.append(&footer_box);
 
         window.set_child(Some(&vbox));
 
@@ -233,7 +270,10 @@ impl EmojiPopup {
             cells,
             col_headers,
             row_numbers,
+            footer_box,
             footer_label,
+            prev_page_btn,
+            next_page_btn,
             items: Vec::new(),
             current_cat_id: String::new(),
             current_page: 0,
@@ -398,7 +438,7 @@ impl EmojiPopup {
             num.remove_css_class("active");
         }
 
-        // 페이지 인디케이터 (특수문자와 동일 식)
+        // 페이지 인디케이터: 단일 페이지면 footer_box hide, 여러 페이지면 ◀/▶ 노출
         if self.total_pages > 1 {
             self.footer_label.set_text(&format!(
                 "[{}]  {}/{}",
@@ -406,9 +446,11 @@ impl EmojiPopup {
                 self.current_page + 1,
                 self.total_pages
             ));
-            self.footer_label.set_visible(true);
+            self.prev_page_btn.set_visible(true);
+            self.next_page_btn.set_visible(true);
+            self.footer_box.set_visible(true);
         } else {
-            self.footer_label.set_visible(false);
+            self.footer_box.set_visible(false);
         }
 
         self.update_selection();
@@ -623,6 +665,34 @@ pub fn popup_css() -> &'static str {
     .unim-emoji-popup .popup-footer {
         color: #6c7086;
         font-size: 12px;
+    }
+
+    .unim-emoji-popup .popup-footer-box {
+        margin-top: 4px;
+    }
+
+    /* 마우스 페이지 이동 ◀/▶ 버튼 (Phase 3, GNOME extension 정합)
+     * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 그리드 셀(28-30px)과 시각 비례 */
+    .unim-emoji-popup button.popup-page-btn {
+        color: #7f849c;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        font-size: 14px;
+        min-width: 28px;
+        min-height: 28px;
+        padding: 4px 10px;
+        margin: 0;
+        border-radius: 4px;
+    }
+
+    .unim-emoji-popup button.popup-page-btn:hover {
+        color: #89b4fa;
+        background-color: rgba(137, 180, 250, 0.2);
+    }
+
+    .unim-emoji-popup button.popup-page-btn:active {
+        background-color: rgba(137, 180, 250, 0.35);
     }
     "#
 }

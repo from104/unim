@@ -176,16 +176,21 @@ impl InputEngine {
     /// 주어진 후보 인덱스의 즐겨찾기 상태를 토글합니다.
     ///
     /// 한자 모드가 아니거나 인덱스가 범위를 벗어나면 None을 반환합니다.
-    /// 성공 시 (new_index, 새 상태)를 반환합니다 — 토글 직후 즐겨찾기 우선
-    /// 정렬이 재적용되므로 토글된 한자의 인덱스가 바뀔 수 있다.
+    /// 성공 시 `(new_index, 새 상태, 직전 상태)` 3-튜플을 반환한다 — 토글 직후
+    /// 즐겨찾기 우선 정렬이 재적용되므로 토글된 한자의 인덱스가 바뀔 수 있다.
+    /// 직전 상태(`was_bookmarked`)는 frontend가 ON→OFF 전환에 한해 시각 신호를
+    /// 띄울 때 사용한다.
     ///
     /// 또한 [`PopupAction::HanjaCandidatesReordered`] 액션을 발행해 frontend가
     /// 후보 리스트·즐겨찾기·커서 위치를 한 번에 교체하도록 한다.
-    pub fn toggle_hanja_bookmark(&mut self, index: usize) -> Option<(usize, bool)> {
+    pub fn toggle_hanja_bookmark(&mut self, index: usize) -> Option<(usize, bool, bool)> {
         if !self.hanja_mode || index >= self.hanja_candidates.len() {
             return None;
         }
         let hanja = self.hanja_candidates[index].hanja.clone();
+        // 토글 직전 상태 — emit payload용. toggle() 호출 후의 새 상태와 함께 전달해
+        // frontend가 ON→OFF 케이스만 골라 flash 등 시각 신호를 띄울 수 있게 한다.
+        let was_state = self.hanja_bookmarks.is_bookmarked(&self.hanja_target, &hanja);
         let new_state = self.hanja_bookmarks.toggle(&self.hanja_target, &hanja);
 
         // (1) 후보 재정렬 (즐겨찾기 우선, stable sort)
@@ -236,18 +241,20 @@ impl InputEngine {
             sel_row,
             sel_col,
             bookmarked: new_state,
+            was_bookmarked: was_state,
         });
 
         unim_log!(
             "ENGINE",
-            "한자 즐겨찾기 토글+재정렬: target='{}', '{}' [{} -> {}] state={}",
+            "한자 즐겨찾기 토글+재정렬: target='{}', '{}' [{} -> {}] state={} (was={})",
             self.hanja_target,
             hanja,
             index,
             new_index,
-            new_state
+            new_state,
+            was_state
         );
-        Some((new_index, new_state))
+        Some((new_index, new_state, was_state))
     }
 
     /// 한자 모드를 취소합니다.

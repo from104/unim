@@ -94,7 +94,11 @@ pub enum GuiAction {
     HanjaBookmarkStatesFetched {
         states: Vec<bool>,
     },
-    /// 한자 후보 재정렬 (즐겨찾기 토글 직후, 커서 점프 포함)
+    /// 한자 후보 재정렬 (즐겨찾기 토글 직후, 커서 점프 포함).
+    ///
+    /// `bookmarked` 는 새 상태, `was_bookmarked` 는 토글 직전 상태.
+    /// `was_bookmarked == true && bookmarked == false` (★ 해제) 일 때
+    /// frontend 가 cursor 셀에 짧은 yellow flash 를 적용한다 (Phase 7).
     HanjaCandidatesReordered {
         candidates: Vec<(String, String)>,
         bookmarks: Vec<bool>,
@@ -102,6 +106,8 @@ pub enum GuiAction {
         page: i32,
         sel_row: i32,
         sel_col: i32,
+        bookmarked: bool,
+        was_bookmarked: bool,
     },
     /// 팝업 네비게이션 (페이지/선택 변경)
     PopupNavigate {

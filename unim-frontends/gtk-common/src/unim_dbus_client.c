@@ -1160,6 +1160,38 @@ unim_dbus_toggle_hanja_bookmark(UnimDbusContext *ctx, guint index)
     return TRUE;
 }
 
+gboolean
+unim_dbus_popup_change_page(UnimDbusContext *ctx, gint direction)
+{
+    GError *error = NULL;
+    GVariant *ret;
+
+    if (!ctx || !ctx->connection || !ctx->context_path) return FALSE;
+
+    ret = g_dbus_connection_call_sync(
+        ctx->connection,
+        UNIM_DBUS_SERVICE,
+        ctx->context_path,
+        UNIM_DBUS_IC_INTERFACE,
+        "PopupChangePage",
+        g_variant_new("(i)", direction),
+        NULL, /* 반환 시그니처 없음 */
+        G_DBUS_CALL_FLAGS_NONE,
+        UNIM_DBUS_TIMEOUT_MS,
+        NULL,
+        &error
+    );
+
+    if (error) {
+        UNIM_DBUS_DEBUG("PopupChangePage 실패 dir=%d: %s", direction, error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+
+    if (ret) g_variant_unref(ret);
+    return TRUE;
+}
+
 /* HanjaBookmarkChanged 시그널 핸들러 */
 static void
 on_hanja_bookmark_changed_signal(GDBusConnection *connection G_GNUC_UNUSED,
@@ -1223,7 +1255,10 @@ on_hanja_candidates_reordered_signal(GDBusConnection *connection G_GNUC_UNUSED,
     UnimDbusContext *ctx = (UnimDbusContext *)user_data;
     if (!ctx || !ctx->hanja_reordered_callback) return;
 
-    /* 시그니처: (s, as, as, ab, u, i, i, i, b) */
+    /* 시그니처: (s, as, as, ab, u, i, i, i, b, b)
+     *  - 마지막 b: was_bookmarked (Phase 1, mouse-paginate UX). 본 콜백은 아직
+     *    사용하지 않지만 g_variant_get 가 정확한 시그니처를 요구하므로 받아만 둔다 —
+     *    Phase 7 (visual flash) 에서 콜백 시그니처 확장 시 넘기게 된다. */
     const gchar *target = NULL;
     GVariantIter *hanjas_iter = NULL;
     GVariantIter *meanings_iter = NULL;
@@ -1233,10 +1268,11 @@ on_hanja_candidates_reordered_signal(GDBusConnection *connection G_GNUC_UNUSED,
     gint sel_row = 0;
     gint sel_col = 0;
     gboolean bookmarked = FALSE;
+    gboolean was_bookmarked = FALSE;
 
-    g_variant_get(parameters, "(&sasasabuiiib)",
+    g_variant_get(parameters, "(&sasasabuiiibb)",
                   &target, &hanjas_iter, &meanings_iter, &bookmarks_iter,
-                  &new_cursor, &page, &sel_row, &sel_col, &bookmarked);
+                  &new_cursor, &page, &sel_row, &sel_col, &bookmarked, &was_bookmarked);
 
     /* 한자/뜻 배열 추출 */
     GPtrArray *hanjas = g_ptr_array_new_with_free_func(g_free);
@@ -1271,13 +1307,13 @@ on_hanja_candidates_reordered_signal(GDBusConnection *connection G_GNUC_UNUSED,
     g_ptr_array_free(hanjas, TRUE);
     g_ptr_array_free(meanings, TRUE);
 
-    UNIM_DBUS_DEBUG("HanjaCandidatesReordered 수신: target='%s', count=%zu, new_cursor=%u, page=%d",
-                     target, count, new_cursor, page);
+    UNIM_DBUS_DEBUG("HanjaCandidatesReordered 수신: target='%s', count=%zu, new_cursor=%u, page=%d, was=%d now=%d",
+                     target, count, new_cursor, page, was_bookmarked, bookmarked);
 
     ctx->hanja_reordered_callback(
         target, cands, count,
         (const gboolean *)bookmarks->data, bookmarks->len,
-        new_cursor, page, sel_row, sel_col, bookmarked,
+        new_cursor, page, sel_row, sel_col, bookmarked, was_bookmarked,
         ctx->hanja_reordered_user_data
     );
 

@@ -15,7 +15,7 @@ mod surrounding;
 mod types;
 
 pub use engine::InputEngine;
-pub use types::{InputResult, PopupAction};
+pub use types::{InputResult, PageDirection, PopupAction};
 
 use crate::config::Config;
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
@@ -30,6 +30,8 @@ mod tests_scenarios;
 mod tests_auto_english;
 #[cfg(test)]
 mod tests_emoji_trigger;
+#[cfg(test)]
+mod tests_popup_change_page;
 #[cfg(test)]
 mod tests_profile;
 

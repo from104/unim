@@ -102,6 +102,11 @@ pub enum DbusRequest {
     /// 경로가 없지만 다른 프런트엔드와 시그니처를 맞추어 둔다.
     #[allow(dead_code)]
     ToggleHanjaBookmark { context_path: String, index: u32 },
+    /// 팝업 페이지 이동 (Phase 9: 마우스 ◀/▶ 클릭).
+    ///
+    /// `direction`: 0 = 이전, 1 = 다음. 데몬이 popup_state cursor 보존하며 페이지 이동 후
+    /// PopupNavigate 시그널을 발행한다. 단일 페이지/popup 비활성이면 no-op.
+    PopupChangePage { context_path: String, direction: i32 },
 }
 
 /// 팝업 이벤트 (시그널 기반)
@@ -587,6 +592,16 @@ async fn run_dbus_client(
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     // 엔진이 persist + HanjaBookmarkChanged/Reordered 시그널 발행
                     let _ = proxy.toggle_hanja_bookmark(index).await;
+                }
+            }
+
+            DbusRequest::PopupChangePage {
+                context_path,
+                direction,
+            } => {
+                // Phase 9: 마우스 ◀/▶ 클릭 → daemon 이 popup_state cursor 보존 페이지 이동.
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    let _ = proxy.popup_change_page(direction).await;
                 }
             }
         }

@@ -140,7 +140,45 @@ Snap has no global override mechanism. Add a conditional snippet to `~/.profile`
 4. Pick with digits 1–9, navigate with arrow keys, Enter to commit, ESC to cancel.
 5. With more than nine candidates, press **`.` (period)** to toggle to a 9×9=81-cell expanded grid. The ⊞/⊟ icon in the corner reflects the current mode.
 
-> **Bookmarks**: you can star frequently used Hanja. With the candidate focused, **Space** toggles ☆ ↔ ★. The `HanjaBookmarkChanged` DBus signal refreshes every open popup across GTK/Qt/XIM/Wayland/GNOME instantly.
+#### Page navigation (mouse / keyboard)
+
+When candidates exceed one page (9 cells or 81 cells), the footer shows **◀ / ▶** buttons.
+
+```text
+[◀]  page 2 / 5  [▶]  ⊞
+```
+
+- **Mouse left-click** ◀ : previous page, ▶ : next page. Pressing ▶ on the last page wraps to the first; ◀ on the first page wraps to the last.
+- **Keyboard** `←` / `Page Up` : previous page, `→` / `Page Down` : next page. Same wrap-around.
+- If all candidates fit on a single page, the ◀/▶ buttons are **hidden** (avoids the "controls visible but inactive" confusion).
+- The cursor's row/column is preserved across page changes — e.g. with the 81-cell grid, focusing cell (3, 4) and pressing ▶ lands you at cell (3, 4) of the next page.
+
+> **Acronym**: *cursor* here means the highlighted cell currently holding keyboard focus (rendered as a background highlight).
+
+##### Right-click semantics — frontend differences
+
+The ◀ / ▶ page buttons behave identically across every frontend, but **right-clicking on the grid body itself** carries different meaning depending on the frontend you are using. If you want to use it as a mouse shortcut, learn your environment's mapping; otherwise stick to the keyboard shortcuts which are uniform.
+
+- **GNOME Shell extension** (Wayland and X11): **toggle ★ bookmark** — equivalent to keyboard Space.
+- **GTK IM modules** (gtk3 / gtk4): **next page** (wrap-around) — equivalent to `→` / Page Down.
+- **Qt IM modules** (qt5 / qt6): **next page** (wrap-around).
+- **XIM** (hanja / special-character / emoji popups alike): **next page** (wrap-around).
+- **Other frontends** (GTK Standalone `unim-gui-gtk`, raw Wayland, Windows egui): no action (undefined).
+
+> **Why is GNOME different?** GNOME Shell exposes each candidate cell as a `Clutter.Actor`, so per-cell right-click hit-testing is natural — mapping right-click to the bookmark toggle saves a hand move. GTK/Qt IM modules and XIM run in X11/Wayland override-redirect windows where per-cell hit-testing is more limited, so they keep the classical IME convention of right-click = next page.
+>
+> **In short**: ◀ / ▶, keyboard `←` / `→`, and Space mean the same thing everywhere. Only the right-click on the grid body varies. If in doubt, the keyboard alone covers every action.
+
+#### Bookmarks ☆/★
+
+You can star frequently used Hanja. With a candidate focused, **Space** toggles ☆ (unbookmarked) ↔ ★ (bookmarked). The `HanjaCandidatesReordered` DBus signal refreshes every open popup across GTK/Qt/XIM/Wayland/GNOME/Windows instantly.
+
+When you toggle, the candidate list reorders and the cursor follows the affected hanja:
+
+- **★ on**: the hanja is *promoted* to the top of page 1 (the ★-group), and the cursor moves to that position (page 1, row 1).
+- **☆ off**: the hanja is *demoted* back to its lexicographic home and the cursor jumps to that home position (often on a different page). The destination cell **flashes Catppuccin yellow `#f9e2af` for 140 ms** so you immediately notice "I unstarred this and it landed here".
+
+> **Why is there flash on un-bookmark but not on bookmark?** Bookmarking always lands on page 1 row 1, which is a predictable, eye-catching location — no extra hint needed. Un-bookmarking can jump to *any* page, so the flash is what tells you where the candidate went.
 
 ### 4.3 Special characters
 
@@ -267,10 +305,13 @@ Visible only in a GNOME session. Indicator and key-interception options for the 
 | Korean mode, after typed jamos | Hanja (F9) | Hanja popup |
 | Hanja popup | 1–9 | Direct select |
 | Hanja popup | Arrows | Move focus |
+| Hanja popup | `←`/`→` or PageUp/PageDown | Page navigation (wrap-around) |
+| Hanja popup | Mouse ◀ / ▶ | Page navigation (wrap-around, hidden on single page) |
+| Hanja popup | Mouse right-click | **Frontend-specific**: GNOME = toggle ★ bookmark / GTK·Qt IM·XIM = next page / others = no action (see §4.2) |
 | Hanja popup | Enter | Commit focused |
 | Hanja popup | ESC | Cancel |
 | Hanja popup | `.` | 9 ↔ 81 grid toggle |
-| Hanja popup | Space | Bookmark ☆/★ |
+| Hanja popup | Space | Bookmark ☆/★ (un-bookmark flashes destination cell 140 ms) |
 | Korean mode, lone consonant | Hanja (F9) | Special-char popup |
 | Composing | BackSpace | Delete last jamo |
 | After unwanted forward correction | BS + Hangul | Trigger Tentative learning |

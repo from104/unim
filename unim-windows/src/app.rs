@@ -5,7 +5,7 @@ use unim::input_engine::InputEngine;
 
 use crate::input_handler;
 use crate::ui::main_window::TextArea;
-use crate::ui::popup::PopupState;
+use crate::ui::popup::{PopupClickAction, PopupState};
 
 /// UNIM Windows 앱 상태
 pub struct UnimApp {
@@ -300,8 +300,20 @@ impl eframe::App for UnimApp {
             });
         });
 
-        // 팝업
-        self.popup.show(ctx);
+        // 팝업 (Phase 9: 마우스 ◀/▶ 클릭 시 engine.popup_change_page 호출)
+        if let Some(click) = self.popup.show(ctx) {
+            let dir = match click {
+                PopupClickAction::PrevPage => unim::input_engine::PageDirection::Prev,
+                PopupClickAction::NextPage => unim::input_engine::PageDirection::Next,
+            };
+            // 엔진 popup_change_page → PopupAction::PageJump 발행 → handle_action 으로 흡수.
+            let _ = self.engine.popup_change_page(dir);
+            // 보류 액션 즉시 적용 (PageJump → page index 갱신)
+            while let Some(action) = self.engine.take_popup_action() {
+                self.popup.handle_action(action);
+            }
+            ctx.request_repaint();
+        }
     }
 }
 

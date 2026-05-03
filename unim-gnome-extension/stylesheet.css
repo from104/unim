@@ -212,23 +212,46 @@
 }
 
 .unim-hanja-popup .popup-footer-box,
-.unim-special-popup .popup-footer-box {
+.unim-special-popup .popup-footer-box,
+.unim-emoji-popup .popup-footer-box {
     padding-top: 6px;
     margin-top: 4px;
+    spacing: 4px;
 }
 
-.unim-hanja-popup .popup-nav-btn,
-.unim-special-popup .popup-nav-btn {
-    color: #6c7086;
-    font-size: 12px;
-    padding: 2px 8px;
+/* 마우스 페이지 이동 버튼 (◀ / ▶) — 한자/특수문자/이모지 공통
+ * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 셀과 시각 비례 */
+.unim-hanja-popup .popup-page-btn,
+.unim-special-popup .popup-page-btn,
+.unim-emoji-popup .popup-page-btn {
+    color: #7f849c;
+    font-size: 14px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px 10px;
     border-radius: 4px;
 }
 
-.unim-hanja-popup .popup-nav-btn:hover,
-.unim-special-popup .popup-nav-btn:hover {
-    color: #cdd6f4;
-    background-color: rgba(255, 255, 255, 0.1);
+.unim-hanja-popup .popup-page-btn:hover,
+.unim-special-popup .popup-page-btn:hover,
+.unim-emoji-popup .popup-page-btn:hover {
+    color: #89b4fa;
+    background-color: rgba(137, 180, 250, 0.2);
+}
+
+.unim-hanja-popup .popup-page-btn:active,
+.unim-special-popup .popup-page-btn:active,
+.unim-emoji-popup .popup-page-btn:active {
+    background-color: rgba(137, 180, 250, 0.35);
+}
+
+/* 즐겨찾기 ★ 해제 시 cursor 셀에 부여되는 일시적 yellow flash (Phase 7).
+ * 적용 후 ~140ms 후 JS 가 클래스 제거. transition 으로 부드럽게 fade out. */
+.unim-hanja-popup .grid-cell.bookmark-flash,
+.unim-hanja-popup .popup-item.bookmark-flash {
+    background-color: #f9e2af;
+    color: #1e1e2e;
+    transition-duration: 140ms;
 }
 
 /* ============================================ */

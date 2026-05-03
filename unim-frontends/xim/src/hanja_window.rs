@@ -20,13 +20,18 @@ const EXPANDED_ROWS: usize = 9;
 /// 모드 표시 아이콘 (GTK Standalone·GNOME extension과 동일)
 const ICON_EXPAND: &str = "⊞";
 const ICON_COMPACT: &str = "⊟";
+/// 마우스 페이지 이동 글리프 (Phase 6)
+const ICON_PREV_PAGE: &str = "◀";
+const ICON_NEXT_PAGE: &str = "▶";
 
 /// 한자 팝업 마우스 클릭 결과
 pub enum HanjaClickResult {
     /// 후보 선택 (페이지 내 0-based 인덱스)
     Select(u32),
-    /// 다음 페이지
+    /// 다음 페이지 (우클릭 또는 ▶ 좌클릭)
     NextPage,
+    /// 이전 페이지 (◀ 좌클릭, Phase 6)
+    PrevPage,
     /// 이벤트 소비됨
     Consumed,
 }
@@ -70,9 +75,29 @@ pub struct HanjaWindow {
     size: (u16, u16),
     /// DPI 스케일 팩터
     scale_factor: f64,
+    /// ◀ 버튼 영역 (헤더 페이지 라벨 좌측). (x0, y0, x1, y1).
+    /// `redraw_*` 가 그릴 때마다 갱신, `handle_button_press` 가 hit-test.
+    /// (0,0,0,0) 이면 비활성 (단일 페이지). Phase 6.
+    prev_btn_rect: (c_int, c_int, c_int, c_int),
+    /// ▶ 버튼 영역 (헤더 페이지 라벨 우측). 위와 동일.
+    next_btn_rect: (c_int, c_int, c_int, c_int),
+    /// ★ 해제 후 cursor 셀 yellow flash 종료 시각 (Phase 7).
+    /// `redraw_*` 가 현재 시간이 이 값 이전이면 cursor 셀에 flash_color 배경을 적용.
+    /// None 이면 flash 비활성.
+    flash_until: Option<std::time::Instant>,
 }
 
 use std::os::raw::c_ulong;
+
+/// 점 (x, y) 가 (x0, y0, x1, y1) 사각형 내부인지 판정.
+/// (0, 0, 0, 0) 은 비활성 영역 — 항상 false.
+fn hit_rect(x: c_int, y: c_int, rect: (c_int, c_int, c_int, c_int)) -> bool {
+    let (x0, y0, x1, y1) = rect;
+    if x0 == 0 && y0 == 0 && x1 == 0 && y1 == 0 {
+        return false;
+    }
+    x >= x0 && x < x1 && y >= y0 && y < y1
+}
 
 impl HanjaWindow {
     /// 한자 팝업 윈도우 생성
@@ -327,6 +352,9 @@ impl HanjaWindow {
             popup_state: None,
             size,
             scale_factor,
+            prev_btn_rect: (0, 0, 0, 0),
+            next_btn_rect: (0, 0, 0, 0),
+            flash_until: None,
         })
     }
 
@@ -531,12 +559,13 @@ impl HanjaWindow {
     }
 
     /// 마우스 버튼 클릭 처리 — 행 인덱스 계산만 수행 (키 처리는 엔진에 위임).
-    /// expanded(9×9) 모드의 좌클릭은 col/row → 글로벌 인덱스 변환과 합성 키 시퀀스가
-    /// 비자명하므로 현재는 키보드 전용으로 한정한다 (Consumed 반환).
-    /// compact 모드 동작은 기존과 동일.
+    /// Phase 6: 좌클릭 시 헤더 ◀/▶ 영역 hit-test 우선 → PrevPage / NextPage 반환.
+    /// expanded(9×9) 모드의 셀 좌클릭은 키보드 전용으로 한정한다 (Consumed 반환),
+    /// 다만 ◀/▶ 영역은 expanded 에서도 동작.
     pub fn handle_button_press(
         &self,
         button: u32,
+        x: c_int,
         y: c_int,
         display: *mut x11::xlib::Display,
     ) -> HanjaClickResult {
@@ -549,11 +578,20 @@ impl HanjaWindow {
 
         match button {
             1 => {
+                // 헤더 ◀/▶ 영역 우선 hit-test (compact + expanded 공통)
+                if hit_rect(x, y, self.prev_btn_rect) {
+                    unim_log!("XIM_HANJA", "좌클릭 ◀ → 이전 페이지 요청");
+                    return HanjaClickResult::PrevPage;
+                }
+                if hit_rect(x, y, self.next_btn_rect) {
+                    unim_log!("XIM_HANJA", "좌클릭 ▶ → 다음 페이지 요청");
+                    return HanjaClickResult::NextPage;
+                }
                 if line_h == 0 {
                     return HanjaClickResult::Consumed;
                 }
                 if ps.is_hanja_expanded() {
-                    // 9×9 grid 클릭 → 키보드 전용으로 한정 (별도 합성 키 시퀀스 필요).
+                    // 9×9 grid 셀 클릭 → 키보드 전용으로 한정 (별도 합성 키 시퀀스 필요).
                     unim_log!("XIM_HANJA", "expanded 모드 좌클릭은 무시 (keyboard-only)");
                     return HanjaClickResult::Consumed;
                 }
@@ -566,7 +604,7 @@ impl HanjaWindow {
                 }
             }
             3 => {
-                // 우클릭 → 다음 페이지
+                // 우클릭 → 다음 페이지 (기존 동작 유지)
                 unim_log!("XIM_HANJA", "우클릭 → 다음 페이지 요청");
                 HanjaClickResult::NextPage
             }
@@ -660,6 +698,18 @@ impl HanjaWindow {
         }
     }
 
+    /// ★ 해제 후 cursor 셀에 짧은 yellow flash 효과 부여 (Phase 7).
+    ///
+    /// `flash_until` 을 현재 + 140ms 로 설정하고 즉시 redraw — `redraw_compact`/
+    /// `redraw_expanded` 가 sel_row/sel_col 셀에 flash_color 배경을 그린다.
+    /// 다음 키 이벤트 또는 마우스 이동 시 자연스럽게 새 redraw 가 일어나며,
+    /// 그 시점에 `flash_until` 이 만료되어 있으면 normal 색으로 그려진다 — 별도
+    /// 타이머 없이 시각 신호 종료.
+    pub fn flash_cursor_cell(&mut self, display: *mut x11::xlib::Display) {
+        self.flash_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(140));
+        self.redraw(display);
+    }
+
     /// 다시 그리기 — PopupState에서 데이터를 읽어 Catppuccin Mocha 렌더링.
     /// is_hanja_expanded()로 compact(1×9) ↔ expanded(9×9) 분기.
     pub fn redraw(&mut self, display: *mut x11::xlib::Display) {
@@ -724,28 +774,95 @@ impl HanjaWindow {
             padding_y + line_h - text_offset,
             &header_text,
         );
-        // 페이지 번호 (헤더 오른쪽)
-        let page_str = format!("{}/{}", ps.current_page() + 1, ps.total_pages());
-        let page_bytes = page_str.as_bytes();
+        // 페이지 번호 + ◀/▶ 버튼 (헤더 오른쪽). 단일 페이지면 ◀/▶ 숨김.
+        // Phase 6: 좌클릭 시 hit-test 위해 prev_btn_rect / next_btn_rect 갱신.
+        let total_pages = ps.total_pages();
+        let multi = total_pages > 1;
+        let page_str = format!("{}/{}", ps.current_page() + 1, total_pages);
+        let page_y = padding_y + line_h - text_offset;
         unsafe {
-            let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            let mut page_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
             x11::xft::XftTextExtentsUtf8(
-                display,
-                self.xft_font,
-                page_bytes.as_ptr(),
-                page_bytes.len() as c_int,
-                &mut extents,
+                display, self.xft_font,
+                page_str.as_bytes().as_ptr(), page_str.as_bytes().len() as c_int,
+                &mut page_ext,
             );
-            let page_x = (self.size.0 as c_int) - padding_x - extents.xOff as c_int;
+            let next_bytes = ICON_NEXT_PAGE.as_bytes();
+            let mut next_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display, self.xft_font,
+                next_bytes.as_ptr(), next_bytes.len() as c_int,
+                &mut next_ext,
+            );
+            let prev_bytes = ICON_PREV_PAGE.as_bytes();
+            let mut prev_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display, self.xft_font,
+                prev_bytes.as_ptr(), prev_bytes.len() as c_int,
+                &mut prev_ext,
+            );
+
+            let gap = dpi::scale(6, sf);
+            let right_edge = (self.size.0 as c_int) - padding_x;
+            // 우→좌 순으로 배치: ▶ → 페이지번호 → ◀
+            let next_x = right_edge - next_ext.xOff as c_int;
+            let page_x = next_x - gap - page_ext.xOff as c_int;
+            let prev_x = page_x - gap - prev_ext.xOff as c_int;
+
+            // hit-target ≥28px (WCAG 2.5.5 초과). 글리프는 그대로, rect만 확장.
+            let min_hit = dpi::scale(28, sf);
+            let expand_rect = |cx: c_int, cy_top: c_int, cy_bot: c_int, glyph_w: c_int| -> (c_int, c_int, c_int, c_int) {
+                let cur_w = glyph_w + gap;
+                let extra_w = (min_hit - cur_w).max(0) / 2;
+                let cur_h = cy_bot - cy_top;
+                let extra_h = (min_hit - cur_h).max(0) / 2;
+                (
+                    cx - gap / 2 - extra_w,
+                    cy_top - extra_h,
+                    cx + glyph_w + gap / 2 + extra_w,
+                    cy_bot + extra_h,
+                )
+            };
+            if multi {
+                // ◀ 그리기 + rect 저장
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw, &self.page_color, self.xft_font,
+                    prev_x, page_y,
+                    prev_bytes.as_ptr(), prev_bytes.len() as c_int,
+                );
+                self.prev_btn_rect = expand_rect(
+                    prev_x,
+                    page_y - line_h + text_offset,
+                    page_y + dpi::scale(2, sf),
+                    prev_ext.xOff as c_int,
+                );
+            } else {
+                self.prev_btn_rect = (0, 0, 0, 0);
+            }
+
+            // 페이지 번호 (항상 그림 — 단일 페이지면 "1/1")
             x11::xft::XftDrawStringUtf8(
-                self.xft_draw,
-                &self.page_color,
-                self.xft_font,
-                page_x,
-                padding_y + line_h - text_offset,
-                page_bytes.as_ptr(),
-                page_bytes.len() as c_int,
+                self.xft_draw, &self.page_color, self.xft_font,
+                page_x, page_y,
+                page_str.as_bytes().as_ptr(), page_str.as_bytes().len() as c_int,
             );
+
+            if multi {
+                // ▶ 그리기 + rect 저장
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw, &self.page_color, self.xft_font,
+                    next_x, page_y,
+                    next_bytes.as_ptr(), next_bytes.len() as c_int,
+                );
+                self.next_btn_rect = expand_rect(
+                    next_x,
+                    page_y - line_h + text_offset,
+                    page_y + dpi::scale(2, sf),
+                    next_ext.xOff as c_int,
+                );
+            } else {
+                self.next_btn_rect = (0, 0, 0, 0);
+            }
         }
 
         // 후보 행
@@ -754,11 +871,19 @@ impl HanjaWindow {
             let y_pos = items_start_y + (i as c_int) * line_h + line_h - text_offset;
             let row_top = items_start_y + (i as c_int) * line_h;
 
-            // 선택된 항목 배경 (#313654)
+            // 선택된 항목 배경 (#313654, ★ 해제 flash 진행 중이면 yellow #f9e2af)
             if i == selected_index {
+                let flash_active = self
+                    .flash_until
+                    .is_some_and(|t| std::time::Instant::now() < t);
+                let bg_pixel = if flash_active {
+                    self.flash_color.pixel
+                } else {
+                    self.sel_bg_color.pixel
+                };
                 unsafe {
                     let gc = x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
-                    x11::xlib::XSetForeground(display, gc, self.sel_bg_color.pixel);
+                    x11::xlib::XSetForeground(display, gc, bg_pixel);
                     x11::xlib::XFillRectangle(
                         display,
                         self.window,
@@ -928,28 +1053,89 @@ impl HanjaWindow {
             padding_y + line_h - text_offset,
             &header_text,
         );
-        // 페이지 번호
+        // 페이지 번호 + ◀/▶ 버튼 (Phase 6, compact 와 동일 로직).
+        let multi = total_pages > 1;
         let page_str = format!("{}/{}", current_page + 1, total_pages);
-        let page_bytes = page_str.as_bytes();
+        let page_y = padding_y + line_h - text_offset;
         unsafe {
-            let mut extents: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            let mut page_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
             x11::xft::XftTextExtentsUtf8(
-                display,
-                self.xft_font,
-                page_bytes.as_ptr(),
-                page_bytes.len() as c_int,
-                &mut extents,
+                display, self.xft_font,
+                page_str.as_bytes().as_ptr(), page_str.as_bytes().len() as c_int,
+                &mut page_ext,
             );
-            let page_x = (self.size.0 as c_int) - padding_x - extents.xOff as c_int;
+            let next_bytes = ICON_NEXT_PAGE.as_bytes();
+            let mut next_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display, self.xft_font,
+                next_bytes.as_ptr(), next_bytes.len() as c_int,
+                &mut next_ext,
+            );
+            let prev_bytes = ICON_PREV_PAGE.as_bytes();
+            let mut prev_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display, self.xft_font,
+                prev_bytes.as_ptr(), prev_bytes.len() as c_int,
+                &mut prev_ext,
+            );
+
+            let gap = dpi::scale(6, sf);
+            let right_edge = (self.size.0 as c_int) - padding_x;
+            let next_x = right_edge - next_ext.xOff as c_int;
+            let page_x = next_x - gap - page_ext.xOff as c_int;
+            let prev_x = page_x - gap - prev_ext.xOff as c_int;
+
+            // hit-target ≥28px (WCAG 2.5.5 초과). 글리프는 그대로, rect만 확장.
+            let min_hit = dpi::scale(28, sf);
+            let expand_rect = |cx: c_int, cy_top: c_int, cy_bot: c_int, glyph_w: c_int| -> (c_int, c_int, c_int, c_int) {
+                let cur_w = glyph_w + gap;
+                let extra_w = (min_hit - cur_w).max(0) / 2;
+                let cur_h = cy_bot - cy_top;
+                let extra_h = (min_hit - cur_h).max(0) / 2;
+                (
+                    cx - gap / 2 - extra_w,
+                    cy_top - extra_h,
+                    cx + glyph_w + gap / 2 + extra_w,
+                    cy_bot + extra_h,
+                )
+            };
+            if multi {
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw, &self.page_color, self.xft_font,
+                    prev_x, page_y,
+                    prev_bytes.as_ptr(), prev_bytes.len() as c_int,
+                );
+                self.prev_btn_rect = expand_rect(
+                    prev_x,
+                    page_y - line_h + text_offset,
+                    page_y + dpi::scale(2, sf),
+                    prev_ext.xOff as c_int,
+                );
+            } else {
+                self.prev_btn_rect = (0, 0, 0, 0);
+            }
+
             x11::xft::XftDrawStringUtf8(
-                self.xft_draw,
-                &self.page_color,
-                self.xft_font,
-                page_x,
-                padding_y + line_h - text_offset,
-                page_bytes.as_ptr(),
-                page_bytes.len() as c_int,
+                self.xft_draw, &self.page_color, self.xft_font,
+                page_x, page_y,
+                page_str.as_bytes().as_ptr(), page_str.as_bytes().len() as c_int,
             );
+
+            if multi {
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw, &self.page_color, self.xft_font,
+                    next_x, page_y,
+                    next_bytes.as_ptr(), next_bytes.len() as c_int,
+                );
+                self.next_btn_rect = expand_rect(
+                    next_x,
+                    page_y - line_h + text_offset,
+                    page_y + dpi::scale(2, sf),
+                    next_ext.xOff as c_int,
+                );
+            } else {
+                self.next_btn_rect = (0, 0, 0, 0);
+            }
         }
 
         // 좌측 행 번호 영역 폭 (UX 일관성: special·GTK·Qt·GNOME과 동일하게 행 번호 헤더 노출)
@@ -1002,12 +1188,20 @@ impl HanjaWindow {
                 };
                 let cx = grid_left + (col as c_int) * cell_w;
                 let cy = cells_top + (row as c_int) * line_h;
-                // 선택 셀 배경
+                // 선택 셀 배경 (★ 해제 flash 진행 중이면 yellow)
                 if col == sel_col && row == sel_row {
+                    let flash_active = self
+                        .flash_until
+                        .is_some_and(|t| std::time::Instant::now() < t);
+                    let bg_pixel = if flash_active {
+                        self.flash_color.pixel
+                    } else {
+                        self.sel_bg_color.pixel
+                    };
                     unsafe {
                         let gc =
                             x11::xlib::XCreateGC(display, self.window, 0, std::ptr::null_mut());
-                        x11::xlib::XSetForeground(display, gc, self.sel_bg_color.pixel);
+                        x11::xlib::XSetForeground(display, gc, bg_pixel);
                         x11::xlib::XFillRectangle(
                             display,
                             self.window,

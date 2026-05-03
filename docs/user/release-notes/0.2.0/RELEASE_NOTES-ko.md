@@ -36,7 +36,10 @@
 ### 3. 한자 팝업 확장
 
 - **9×9 = 81칸 확장 그리드**: 마침표(`.`) 키로 compact 9칸 ↔ expanded 81칸 토글. GTK Standalone, GTK IM, Qt IM, XIM 전 프론트엔드에 통일 적용 (GNOME Extension은 0.1.x부터 지원). ⊞/⊟ 아이콘으로 현재 모드 시각화.
-- **즐겨찾기 (Hanja Bookmark)**: 후보 포커스 상태에서 Space 키로 ☆/★ 토글. `HanjaBookmarkChanged` DBus 시그널이 GTK/Qt/XIM/Wayland/GNOME의 모든 열린 팝업을 즉시 갱신.
+- **즐겨찾기 (Hanja Bookmark)**: 후보 포커스 상태에서 Space 키로 ☆/★ 토글. `HanjaCandidatesReordered` DBus 시그널이 GTK/Qt/XIM/Wayland/GNOME/Windows의 모든 열린 팝업을 즉시 갱신.
+- **마우스 페이지 이동 ◀/▶ (전 popup, 전 프런트엔드)**: 한자·특수문자·이모지 popup 모두 footer에 ◀(이전) / ▶(다음) 버튼 추가. 단일 페이지면 자동으로 숨김. 적용 프런트엔드 — GNOME Shell extension, GTK Standalone(`unim-gui-gtk`), GTK3/4 IM modules, Qt5/6 IM modules, XIM, Wayland(`unim-frontends/wayland`), Windows egui(`unim-windows/`). 키보드 ←/→ / PageUp/PageDown와 동일하게 wrap-around 동작.
+- **즐겨찾기 해제 시 cursor flash (한자 한정)**: ☆로 해제하면 한자가 사전순 원위치로 demote되고 cursor가 그 위치로 점프. 도착한 셀이 **140ms 동안 Catppuccin yellow `#f9e2af`로 깜박여(flash)** 사용자가 자동 페이지 이동을 인지하게 한다. 등록(★ ON) 시에는 flash 없음 (cursor가 1페이지 상단으로 따라가므로 시각 단서가 충분).
+- **Wayland popup pointer 입력 인프라 활성화**: `WlPointer` 이벤트 핸들링이 `unim-frontends/wayland`에 추가되어 popup의 ◀/▶ 클릭을 받는다. 실제 라우팅은 컴포지터의 `zwp_input_popup_surface_v2` pointer 정책에 의존 — 차단되는 컴포지터에서는 키보드 ←/→가 동등 대안. (트러블슈팅 §7-1 참고)
 
 ### 4. 자동 영문 모드 전환 (Auto-English-Mode)
 
@@ -60,6 +63,9 @@
 - **`KoreanLayout` enum 제거 (Phase 8)**: `korean.layout`은 String. 내장(`ko_2bulstd`/`ko_3bul390`/...) 또는 사용자 프로필 이름. 레거시 `custom_layout: Option<String>` 필드는 `layout`으로 병합. 기존 `config.yaml`(`layout: Dubeolsik`)과 `typefix-blacklist.yaml`은 serde compat 레이어로 자동 정규화.
 - **`EnglishLayout` enum 제거 (Phase 9)**: 한국어와 대칭. `english.layout`은 String (내장: `qwerty`/`dvorak`/`colemak`/`colemak_dh`/`workman`). 레거시 YAML 자동 정규화.
 - **트레이/팝업 즉시 동기화**: `unim-gui`가 `GlobalModeChanged` 시그널 수신 즉시 트레이 아이콘과 팝업을 동기화하도록 리팩터.
+- **페이지 이동 wrap-around 정책 명문화** (POPUP_SPEC v3.1): 키보드 `←`/`→`·`Page Up`/`Page Down`과 마우스 `◀`/`▶`가 모두 동일한 wrap-around로 동작 (첫 페이지에서 `◀`/`Page Up` → 마지막 페이지, 마지막에서 그 반대). 단일 페이지(`total_pages == 1`)면 페이지 이동 자체가 no-op + 버튼 숨김.
+- **DBus signal 페이로드 변경 (호환성 깨짐, 개발자)**: `HanjaCandidatesReordered`가 9-tuple → **10-tuple**. 토글 직전 상태를 담은 `was_bookmarked: bool` 필드가 추가됐다. 프런트엔드는 `was_bookmarked && !bookmarked`일 때 cursor flash를 띄운다. (구버전 9-tuple과의 호환은 보장되지 않음 — DBus 시그널 구독자는 양쪽 다 동시 업그레이드.)
+- **DBus RPC 신설 (개발자)**: `popup_change_page(direction: i32)` (0=Prev, 1=Next). 마우스 ◀/▶가 호출하는 일원화 진입점. 한자·특수문자·이모지 popup 공통.
 
 ---
 

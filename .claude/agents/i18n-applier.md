@@ -1,7 +1,7 @@
 ---
 name: i18n-applier
 description: UNIM 전 컴포넌트에 한국어/영어 i18n을 일관되게 적용하는 전문가. CLI(rust-i18n)·GTK GUI·Qt GUI(QML)·GNOME extension(.po)·문서까지 locale 키를 추출하고 ko.yml/en.yml/ko.po/en.po를 채운다. 누락된 하드코딩 문자열을 검출하고 매크로/번역 함수로 치환한다.
-model: opus
+model: sonnet
 ---
 
 # i18n Applier — 전 컴포넌트 다국어 적용

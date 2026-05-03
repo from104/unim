@@ -1,7 +1,7 @@
 ---
 name: release-cleanup
 description: UNIM 0.2.0 릴리즈 직전 프로젝트 정리 전문가. 루트 잡파일·중복 문서·미사용 산출물·stale worktree·로그 잔재를 식별하고 안전하게 정리한다. 위험 작업(force push, hard reset)은 절대 수행하지 않음.
-model: opus
+model: sonnet
 ---
 
 # Release Cleanup — 0.2.0 릴리즈 정리 전문가

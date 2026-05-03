@@ -16,6 +16,10 @@ use unim::unim_log;
 
 use crate::dpi;
 
+/// 마우스 페이지 이동 글리프 (Phase 9)
+const ICON_PREV_PAGE: &str = "◀";
+const ICON_NEXT_PAGE: &str = "▶";
+
 /// 이모지 팝업 마우스 클릭 결과
 #[allow(dead_code)]
 pub enum EmojiClickResult {
@@ -23,10 +27,22 @@ pub enum EmojiClickResult {
     Select(usize, usize),
     /// 좌측 카테고리 탭 클릭 (cat_index, 0..=8)
     SelectCategory(usize),
-    /// 다음 페이지
+    /// 다음 페이지 (우클릭 또는 ▶ 좌클릭)
     NextPage,
+    /// 이전 페이지 (◀ 좌클릭, Phase 9)
+    PrevPage,
     /// 이벤트 소비됨
     Consumed,
+}
+
+/// 점 (x, y) 가 (x0, y0, x1, y1) 사각형 내부인지 판정.
+/// (0, 0, 0, 0) 은 비활성 영역 — 항상 false.
+fn hit_rect(x: c_int, y: c_int, rect: (c_int, c_int, c_int, c_int)) -> bool {
+    let (x0, y0, x1, y1) = rect;
+    if x0 == 0 && y0 == 0 && x1 == 0 && y1 == 0 {
+        return false;
+    }
+    x >= x0 && x < x1 && y >= y0 && y < y1
 }
 
 /// 이모지 팝업 윈도우 (XIM)
@@ -67,6 +83,10 @@ pub struct EmojiWindow {
     tab_w: c_int,
     /// DPI 스케일 팩터
     scale_factor: f64,
+    /// ◀ 버튼 영역 (푸터). (0,0,0,0) 이면 단일 페이지로 비활성. Phase 9.
+    prev_btn_rect: (c_int, c_int, c_int, c_int),
+    /// ▶ 버튼 영역 (푸터). 위와 동일.
+    next_btn_rect: (c_int, c_int, c_int, c_int),
 }
 
 impl EmojiWindow {
@@ -319,6 +339,8 @@ impl EmojiWindow {
             cell_h: 0,
             tab_w: 0,
             scale_factor,
+            prev_btn_rect: (0, 0, 0, 0),
+            next_btn_rect: (0, 0, 0, 0),
         })
     }
 
@@ -469,6 +491,15 @@ impl EmojiWindow {
         }
         match button {
             1 => {
+                // Phase 9: 푸터 ◀/▶ 영역 우선 hit-test (단일 페이지면 비활성).
+                if hit_rect(click_x, click_y, self.prev_btn_rect) {
+                    unim_log!("XIM_EMOJI", "좌클릭 ◀ → 이전 페이지 요청");
+                    return EmojiClickResult::PrevPage;
+                }
+                if hit_rect(click_x, click_y, self.next_btn_rect) {
+                    unim_log!("XIM_EMOJI", "좌클릭 ▶ → 다음 페이지 요청");
+                    return EmojiClickResult::NextPage;
+                }
                 // 좌측 탭 영역
                 if click_x < self.tab_w {
                     let header_row_h = self.cell_h;
@@ -696,19 +727,14 @@ impl EmojiWindow {
             }
         }
 
-        // 5. 푸터 (카테고리명 + 페이지)
+        // 5. 푸터 (카테고리명 + 페이지 + ◀/▶ 마우스 페이지 버튼) — Phase 9
         let footer_y = header_row_h + (rows as c_int) * self.cell_h + dpi::scale(18, sf);
         let cat_label = categories
             .get(cat_index)
             .map(|c| c.label_ko.clone())
             .unwrap_or_default();
-        let footer_text = format!(
-            "[{}]  {} / {}",
-            cat_label,
-            ps.current_page() + 1,
-            ps.total_pages().max(1)
-        );
-        let fb = footer_text.as_bytes();
+        let cat_text = format!("[{}]", cat_label);
+        let cb = cat_text.as_bytes();
         unsafe {
             x11::xft::XftDrawStringUtf8(
                 self.xft_draw,
@@ -716,9 +742,114 @@ impl EmojiWindow {
                 self.xft_font,
                 self.tab_w + text_margin,
                 footer_y,
-                fb.as_ptr(),
-                fb.len() as c_int,
+                cb.as_ptr(),
+                cb.len() as c_int,
             );
+        }
+
+        // 우측 정렬: ◀  n/N  ▶
+        let total_pages = ps.total_pages().max(1);
+        let multi = total_pages > 1;
+        let page_str = format!("{} / {}", ps.current_page() + 1, total_pages);
+        let line_h = self.cell_h;
+        unsafe {
+            let mut page_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display,
+                self.xft_font,
+                page_str.as_bytes().as_ptr(),
+                page_str.as_bytes().len() as c_int,
+                &mut page_ext,
+            );
+            let next_bytes = ICON_NEXT_PAGE.as_bytes();
+            let mut next_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display,
+                self.xft_font,
+                next_bytes.as_ptr(),
+                next_bytes.len() as c_int,
+                &mut next_ext,
+            );
+            let prev_bytes = ICON_PREV_PAGE.as_bytes();
+            let mut prev_ext: x11::xrender::XGlyphInfo = std::mem::zeroed();
+            x11::xft::XftTextExtentsUtf8(
+                display,
+                self.xft_font,
+                prev_bytes.as_ptr(),
+                prev_bytes.len() as c_int,
+                &mut prev_ext,
+            );
+
+            let gap = dpi::scale(8, sf);
+            let right_edge = (self.size.0 as c_int) - text_margin;
+            let next_x = right_edge - next_ext.xOff as c_int;
+            let page_x = next_x - gap - page_ext.xOff as c_int;
+            let prev_x = page_x - gap - prev_ext.xOff as c_int;
+
+            // hit-target ≥28px (WCAG 2.5.5 초과). 글리프는 그대로, rect만 확장.
+            let min_hit = dpi::scale(28, sf);
+            let expand_rect = |cx: c_int, cy_top: c_int, cy_bot: c_int, glyph_w: c_int| -> (c_int, c_int, c_int, c_int) {
+                let cur_w = glyph_w + gap;
+                let extra_w = (min_hit - cur_w).max(0) / 2;
+                let cur_h = cy_bot - cy_top;
+                let extra_h = (min_hit - cur_h).max(0) / 2;
+                (
+                    cx - gap / 2 - extra_w,
+                    cy_top - extra_h,
+                    cx + glyph_w + gap / 2 + extra_w,
+                    cy_bot + extra_h,
+                )
+            };
+            if multi {
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw,
+                    &self.page_color,
+                    self.xft_font,
+                    prev_x,
+                    footer_y,
+                    prev_bytes.as_ptr(),
+                    prev_bytes.len() as c_int,
+                );
+                self.prev_btn_rect = expand_rect(
+                    prev_x,
+                    footer_y - line_h + dpi::scale(2, sf),
+                    footer_y + dpi::scale(4, sf),
+                    prev_ext.xOff as c_int,
+                );
+            } else {
+                self.prev_btn_rect = (0, 0, 0, 0);
+            }
+
+            x11::xft::XftDrawStringUtf8(
+                self.xft_draw,
+                &self.page_color,
+                self.xft_font,
+                page_x,
+                footer_y,
+                page_str.as_bytes().as_ptr(),
+                page_str.as_bytes().len() as c_int,
+            );
+
+            if multi {
+                x11::xft::XftDrawStringUtf8(
+                    self.xft_draw,
+                    &self.page_color,
+                    self.xft_font,
+                    next_x,
+                    footer_y,
+                    next_bytes.as_ptr(),
+                    next_bytes.len() as c_int,
+                );
+                self.next_btn_rect = expand_rect(
+                    next_x,
+                    footer_y - line_h + dpi::scale(2, sf),
+                    footer_y + dpi::scale(4, sf),
+                    next_ext.xOff as c_int,
+                );
+            } else {
+                self.next_btn_rect = (0, 0, 0, 0);
+            }
+
             x11::xlib::XFlush(display);
         }
     }

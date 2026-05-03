@@ -65,7 +65,10 @@ UnimEmojiPopup::UnimEmojiPopup(QWidget *parent)
     , m_tabLayout(nullptr)
     , m_gridLayout(nullptr)
     , m_headerLabel(nullptr)
+    , m_footerBox(nullptr)
     , m_footerLabel(nullptr)
+    , m_prevPageBtn(nullptr)
+    , m_nextPageBtn(nullptr)
     , m_flashTimer(nullptr)
     , m_pendingHide(false)
 {
@@ -163,6 +166,25 @@ UnimEmojiPopup::UnimEmojiPopup(QWidget *parent)
         "  color: #a6e3a1;"
         "  font-weight: bold;"
         "}"
+        /* 마우스 페이지 이동 ◀/▶ (Phase 5)
+         * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 셀과 시각 비례 */
+        "QPushButton#prevPageBtn, QPushButton#nextPageBtn {"
+        "  color: #7f849c;"
+        "  background: transparent;"
+        "  border: none;"
+        "  font-size: %6px;"
+        "  min-width: 28px;"
+        "  min-height: 28px;"
+        "  padding: 4px 10px;"
+        "  border-radius: 4px;"
+        "}"
+        "QPushButton#prevPageBtn:hover, QPushButton#nextPageBtn:hover {"
+        "  color: #89b4fa;"
+        "  background-color: rgba(137, 180, 250, 51);"
+        "}"
+        "QPushButton#prevPageBtn:pressed, QPushButton#nextPageBtn:pressed {"
+        "  background-color: rgba(137, 180, 250, 89);"
+        "}"
     ).arg(widgetPad).arg(headerFontSize+2).arg(headerFontSize)
      .arg(cellSize).arg(fontSize).arg(footerFontSize));
 
@@ -202,12 +224,43 @@ UnimEmojiPopup::UnimEmojiPopup(QWidget *parent)
 
     m_mainLayout->addLayout(m_bodyLayout);
 
-    /* 페이지 인디케이터 */
-    m_footerLabel = new QLabel(this);
+    /* 푸터: [◀] [페이지 라벨] [▶] (Phase 5) — 단일 페이지 시 footer_box hide */
+    m_footerBox = new QWidget(this);
+    m_footerBox->setObjectName("emojiFooterBox");
+    QHBoxLayout *footerLayout = new QHBoxLayout(m_footerBox);
+    footerLayout->setContentsMargins(0, 0, 0, 0);
+    footerLayout->setSpacing(4);
+
+    m_prevPageBtn = new QPushButton(QStringLiteral("\xE2\x97\x80"), m_footerBox); /* ◀ */
+    m_prevPageBtn->setObjectName("prevPageBtn");
+    m_prevPageBtn->setFlat(true);
+    m_prevPageBtn->setFocusPolicy(Qt::NoFocus);
+    m_prevPageBtn->setCursor(Qt::PointingHandCursor);
+    /* tr() — Qt 번역 시스템. .ts 미배포 시 영문 fallback. msgid 표준 일관성. */
+    m_prevPageBtn->setToolTip(QObject::tr("Previous page"));
+    QObject::connect(m_prevPageBtn, &QPushButton::clicked, this, [this]() {
+        if (m_pageChangeCallback) m_pageChangeCallback(0);
+    });
+    footerLayout->addWidget(m_prevPageBtn, 0);
+
+    m_footerLabel = new QLabel(m_footerBox);
     m_footerLabel->setObjectName("footerLabel");
     m_footerLabel->setAlignment(Qt::AlignCenter);
-    m_footerLabel->setVisible(false);
-    m_mainLayout->addWidget(m_footerLabel);
+    footerLayout->addWidget(m_footerLabel, 1);
+
+    m_nextPageBtn = new QPushButton(QStringLiteral("\xE2\x96\xB6"), m_footerBox); /* ▶ */
+    m_nextPageBtn->setObjectName("nextPageBtn");
+    m_nextPageBtn->setFlat(true);
+    m_nextPageBtn->setFocusPolicy(Qt::NoFocus);
+    m_nextPageBtn->setCursor(Qt::PointingHandCursor);
+    m_nextPageBtn->setToolTip(QObject::tr("Next page"));
+    QObject::connect(m_nextPageBtn, &QPushButton::clicked, this, [this]() {
+        if (m_pageChangeCallback) m_pageChangeCallback(1);
+    });
+    footerLayout->addWidget(m_nextPageBtn, 0);
+
+    m_footerBox->setVisible(false);
+    m_mainLayout->addWidget(m_footerBox);
 
     std::memset(m_cells, 0, sizeof(m_cells));
     std::memset(m_colHeaders, 0, sizeof(m_colHeaders));
@@ -404,15 +457,15 @@ void UnimEmojiPopup::rebuildGrid()
         }
     }
 
-    /* 페이지 인디케이터 */
+    /* 페이지 인디케이터: 단일 페이지면 footer_box hide */
     if (m_totalPages > 1) {
         m_footerLabel->setText(QString("[%1]  %2/%3")
                                .arg(tabLabelFor(m_currentCatId))
                                .arg(m_currentPage + 1)
                                .arg(m_totalPages));
-        m_footerLabel->setVisible(true);
+        m_footerBox->setVisible(true);
     } else {
-        m_footerLabel->setVisible(false);
+        m_footerBox->setVisible(false);
     }
 
     updateSelection();
@@ -535,4 +588,9 @@ void UnimEmojiPopup::setRecent(const QStringList &emojis)
 {
     m_recent = emojis;
     EP_DEBUG(QString("Recent 캐시 갱신: count=%1").arg(m_recent.size()));
+}
+
+void UnimEmojiPopup::setPageChangeCallback(PageChangeCallback callback)
+{
+    m_pageChangeCallback = std::move(callback);
 }

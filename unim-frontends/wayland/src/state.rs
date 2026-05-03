@@ -17,8 +17,12 @@ use unim::unim_log;
 use wayland_client::{
     globals::GlobalListContents,
     protocol::{
-        wl_compositor::WlCompositor, wl_keyboard::KeyState, wl_registry::WlRegistry,
-        wl_seat::WlSeat, wl_shm::WlShm,
+        wl_compositor::WlCompositor,
+        wl_keyboard::KeyState,
+        wl_pointer::{self, WlPointer},
+        wl_registry::WlRegistry,
+        wl_seat::{self, WlSeat},
+        wl_shm::WlShm,
     },
     Connection, Dispatch, QueueHandle, WEnum,
 };
@@ -80,6 +84,14 @@ pub struct AppState {
 
     // 팝업 서피스
     pub popup_surface: PopupSurface,
+
+    // Phase 9: 팝업 마우스 페이지 이동 (wl_pointer)
+    /// wl_seat 의 pointer capability — capabilities 이벤트에서 생성.
+    pub pointer: Option<WlPointer>,
+    /// pointer 가 popup surface 위에 있을 때의 마지막 (x, y) 좌표 (surface-local).
+    pointer_pos: (f32, f32),
+    /// pointer 가 현재 popup surface 위에 있는지.
+    pointer_on_popup: bool,
 }
 
 impl AppState {
@@ -113,6 +125,9 @@ impl AppState {
             should_exit: false,
             qh: None,
             popup_surface: PopupSurface::new(),
+            pointer: None,
+            pointer_pos: (0.0, 0.0),
+            pointer_on_popup: false,
         }
     }
 
@@ -474,14 +489,97 @@ impl Dispatch<WlRegistry, GlobalListContents> for AppState {
 // --- WlSeat ---
 impl Dispatch<WlSeat, ()> for AppState {
     fn event(
-        _state: &mut Self,
-        _proxy: &WlSeat,
-        _event: wayland_client::protocol::wl_seat::Event,
+        state: &mut Self,
+        seat: &WlSeat,
+        event: wl_seat::Event,
+        _data: &(),
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        // Phase 9: pointer capability 발견 시 wl_pointer 인스턴스 생성 (팝업 마우스 페이지 이동용).
+        if let wl_seat::Event::Capabilities { capabilities } = event {
+            if let WEnum::Value(caps) = capabilities {
+                let has_pointer = caps.contains(wl_seat::Capability::Pointer);
+                if has_pointer && state.pointer.is_none() {
+                    let pointer = seat.get_pointer(qh, ());
+                    unim_log!("WAYLAND", "wl_pointer 생성 (Phase 9 마우스 페이지 이동)");
+                    state.pointer = Some(pointer);
+                } else if !has_pointer {
+                    if let Some(p) = state.pointer.take() {
+                        p.release();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- WlPointer (Phase 9) ---
+impl Dispatch<WlPointer, ()> for AppState {
+    fn event(
+        state: &mut Self,
+        _proxy: &WlPointer,
+        event: wl_pointer::Event,
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        // Seat 이벤트 처리 불필요
+        match event {
+            wl_pointer::Event::Enter {
+                surface_x,
+                surface_y,
+                ..
+            } => {
+                state.pointer_pos = (surface_x as f32, surface_y as f32);
+                state.pointer_on_popup = true;
+            }
+            wl_pointer::Event::Leave { .. } => {
+                state.pointer_on_popup = false;
+            }
+            wl_pointer::Event::Motion {
+                surface_x,
+                surface_y,
+                ..
+            } => {
+                state.pointer_pos = (surface_x as f32, surface_y as f32);
+            }
+            wl_pointer::Event::Button {
+                button,
+                state: btn_state,
+                ..
+            } => {
+                // BTN_LEFT = 0x110 (272). Pressed 만 처리.
+                let pressed = matches!(
+                    btn_state,
+                    WEnum::Value(wl_pointer::ButtonState::Pressed)
+                );
+                if !pressed || button != 0x110 || !state.pointer_on_popup {
+                    return;
+                }
+                let (x, y) = state.pointer_pos;
+                let hit = state.popup_surface.hit_test(x, y);
+                use crate::popup_surface::PopupHitTest;
+                let direction: i32 = match hit {
+                    PopupHitTest::PrevPage => 0,
+                    PopupHitTest::NextPage => 1,
+                    PopupHitTest::None => return,
+                };
+                unim_log!(
+                    "WAYLAND",
+                    "팝업 마우스 클릭 hit: dir={} pos=({:.1},{:.1})",
+                    direction,
+                    x,
+                    y
+                );
+                let _ = state.dbus_tx.blocking_send(
+                    crate::dbus_client::DbusRequest::PopupChangePage {
+                        context_path: state.context_path.clone(),
+                        direction,
+                    },
+                );
+            }
+            _ => {}
+        }
     }
 }
 

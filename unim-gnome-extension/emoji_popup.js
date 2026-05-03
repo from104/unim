@@ -24,12 +24,17 @@
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { unimLog } from './logging.js';
 
 /** 그리드 상수 (특수문자 팝업과 동일 — 엔진 popup_state 와 합의) */
 const MAX_ROWS = 9;
 const MAX_COLS = 9;
 const PAGE_SIZE = MAX_ROWS * MAX_COLS; // 81
+
+/** 페이지 이동 버튼 글리프 */
+const ICON_PREV_PAGE = '◀';
+const ICON_NEXT_PAGE = '▶';
 
 /** 카테고리 id → locale 라벨 (GTK 측 `tab_label_for` 와 합의 유지) */
 const TAB_LABEL_KO = {
@@ -62,8 +67,14 @@ export class EmojiPopup {
         this._tabBar = null;
         /** @type {St.BoxLayout|null} 그리드 컨테이너 */
         this._grid = null;
-        /** @type {St.Label|null} 페이지 인디케이터 */
+        /** @type {St.BoxLayout|null} 풋터 컨테이너 (◀ + 라벨 + ▶) */
         this._footer = null;
+        /** @type {St.Button|null} 이전 페이지 버튼 */
+        this._prevPageBtn = null;
+        /** @type {St.Button|null} 다음 페이지 버튼 */
+        this._nextPageBtn = null;
+        /** @type {St.Label|null} 페이지 인디케이터 라벨 */
+        this._pageLabel = null;
 
         /** @type {St.Label[][]} 셀 라벨 [row][col] */
         this._cells = [];
@@ -105,6 +116,8 @@ export class EmojiPopup {
         this._onCommit = null;
         /** @type {Function|null} 좌측 탭 클릭 시 카테고리 인덱스 콜백 (idx → daemon RPC) */
         this._onTabClick = null;
+        /** @type {Function|null} 페이지 이동 콜백 (direction: 0=Prev, 1=Next) */
+        this._onChangePage = null;
 
         /** @type {number} stage captured-event 핸들러 ID — popup 떠있는 동안만 활성.
          *  GNOME Shell 이 Tab 을 focus chain 으로 흡수해 IM 모듈에 도달하지 않으므로,
@@ -144,7 +157,42 @@ export class EmojiPopup {
         this._grid = new St.BoxLayout({ vertical: true });
         this._body.add_child(this._grid);
 
-        this._footer = new St.Label({ style_class: 'popup-footer' });
+        // 풋터: [◀] [카테고리 n/N] [▶]
+        this._footer = new St.BoxLayout({
+            style_class: 'popup-footer-box',
+            vertical: false,
+        });
+        // accessible_name — 스크린리더가 ◀/▶ 글리프 대신 의미있는 라벨 읽음 (a11y).
+        this._prevPageBtn = new St.Button({
+            style_class: 'popup-page-btn',
+            label: ICON_PREV_PAGE,
+            can_focus: false,
+            reactive: true,
+            track_hover: true,
+            accessible_name: _('Previous page'),
+        });
+        this._prevPageBtn.connect('clicked', () => {
+            if (this._onChangePage) this._onChangePage(0);
+        });
+        this._pageLabel = new St.Label({
+            style_class: 'popup-footer',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        this._nextPageBtn = new St.Button({
+            style_class: 'popup-page-btn',
+            label: ICON_NEXT_PAGE,
+            can_focus: false,
+            reactive: true,
+            track_hover: true,
+            accessible_name: _('Next page'),
+        });
+        this._nextPageBtn.connect('clicked', () => {
+            if (this._onChangePage) this._onChangePage(1);
+        });
+        this._footer.add_child(this._prevPageBtn);
+        this._footer.add_child(this._pageLabel);
+        this._footer.add_child(this._nextPageBtn);
         this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
@@ -168,6 +216,9 @@ export class EmojiPopup {
         this._tabBar = null;
         this._grid = null;
         this._footer = null;
+        this._prevPageBtn = null;
+        this._nextPageBtn = null;
+        this._pageLabel = null;
         this._tabButtons.clear();
     }
 
@@ -194,8 +245,9 @@ export class EmojiPopup {
      * @param {Function} [onTabClick] - 좌측 탭 마우스 클릭 시 카테고리 인덱스 콜백 (idx).
      *   extension 이 `_dbusIME.setEmojiCategory(idx)` RPC 를 호출하도록 한다.
      *   생략하면 탭 클릭 비활성 (키보드 Tab/ShiftTab 만 동작).
+     * @param {Function} [onChangePage] - 풋터 ◀/▶ 클릭 시 호출 (direction: 0=Prev, 1=Next).
      */
-    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick) {
+    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick, onChangePage) {
         if (!this._container) return;
 
         this._items = Array.isArray(items) ? items.slice() : [];
@@ -206,6 +258,7 @@ export class EmojiPopup {
         }));
         this._onCommit = typeof onCommit === 'function' ? onCommit : null;
         this._onTabClick = typeof onTabClick === 'function' ? onTabClick : null;
+        this._onChangePage = typeof onChangePage === 'function' ? onChangePage : null;
 
         // 페이지/선택 초기값 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
         this._currentPage = 0;
@@ -280,6 +333,7 @@ export class EmojiPopup {
         this._mouseHoverCol = -1;
         this._onCommit = null;
         this._onTabClick = null;
+        this._onChangePage = null;
     }
 
     /**
@@ -488,17 +542,20 @@ export class EmojiPopup {
             this._cells.push(rowCells);
         }
 
-        // 푸터 — 카테고리 라벨 + 페이지 인디케이터 (특수문자와 동일 형식)
-        if (this._footer) {
+        // 푸터 — 카테고리 라벨 + 페이지 인디케이터 (◀/▶ 는 단일 페이지일 때 hide)
+        if (this._footer && this._pageLabel) {
             const catLabel = TAB_LABEL_KO[this._currentCatId] || this._currentCatId;
             if (this._totalPages > 1) {
-                this._footer.set_text(
+                this._pageLabel.set_text(
                     `[${catLabel}]  ${this._currentPage + 1}/${this._totalPages}`);
-                this._footer.show();
+                this._prevPageBtn?.show();
+                this._nextPageBtn?.show();
             } else {
-                this._footer.set_text(`[${catLabel}]`);
-                this._footer.show();
+                this._pageLabel.set_text(`[${catLabel}]`);
+                this._prevPageBtn?.hide();
+                this._nextPageBtn?.hide();
             }
+            this._footer.show();
         }
 
         this._updateSelection();

@@ -10,6 +10,7 @@
 
 #include <QWidget>
 #include <QLabel>
+#include <QPushButton>
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QKeyEvent>
@@ -88,6 +89,21 @@ public:
     using ToggleBookmarkCallback = std::function<void(quint32 globalIndex)>;
     void setToggleBookmarkCallback(ToggleBookmarkCallback callback);
 
+    /**
+     * ◀/▶ 풋터 버튼 클릭 콜백 (프런트엔드 → unim_dbus_popup_change_page 등 위임).
+     *
+     * @param direction 0=Prev, 1=Next
+     */
+    using PageChangeCallback = std::function<void(int direction)>;
+    void setPageChangeCallback(PageChangeCallback callback);
+
+    /**
+     * ★ 해제 후 cursor 셀 (sel_row, sel_col) 에 짧은 yellow flash 효과 부여.
+     * `replaceCandidates()` 직후 ★ 해제 (was=true → now=false) 시 호출.
+     * 적용 후 ~140ms 뒤 stylesheet 클래스가 자동 제거된다.
+     */
+    void flashCursorCell();
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
 
@@ -112,6 +128,9 @@ private:
     QWidget *m_body;              /* compact list 또는 expanded grid 컨테이너 */
     QLabel *m_pageLabel;
     QLabel *m_expandIcon;         /* ⊞/⊟ 모드 표시 */
+    QPushButton *m_prevPageBtn;   /* ◀ — 단일 페이지 시 hide */
+    QPushButton *m_nextPageBtn;   /* ▶ — 단일 페이지 시 hide */
+    PageChangeCallback m_pageChangeCallback;
     /* 동적 셀 풀 — render 단계에서 갈아끼운다 (max 81) */
     std::vector<QLabel*> m_cells;
 

@@ -77,6 +77,7 @@ pub enum PopupEvent {
         sel_row: i32,
         sel_col: i32,
         bookmarked: bool,
+        was_bookmarked: bool,
     },
 }
 
@@ -165,6 +166,9 @@ pub enum DbusRequest {
     /// 기반 토글(우클릭 등) 대비용으로 남겨둔다.
     #[allow(dead_code)]
     ToggleHanjaBookmark { context_path: String, index: u32 },
+    /// 팝업 페이지 이동 (마우스 ◀/▶ 좌클릭 또는 우클릭 다음 페이지).
+    /// `direction`: 0 = 이전, 1 = 다음. Phase 6.
+    PopupChangePage { context_path: String, direction: i32 },
 }
 
 /// DBus 응답 타입
@@ -670,6 +674,23 @@ async fn run_dbus_client(
                     }
                 }
             }
+
+            DbusRequest::PopupChangePage {
+                context_path,
+                direction,
+            } => {
+                if let Ok(obj_path) = ObjectPath::try_from(context_path.as_str()) {
+                    if let Ok(proxy) = InputContextProxy::builder(&connection)
+                        .path(obj_path)
+                        .expect("path error")
+                        .build()
+                        .await
+                    {
+                        // 엔진이 PopupNavigate 시그널 발행 → cursor 보존된 페이지 점프.
+                        let _ = proxy.popup_change_page(direction).await;
+                    }
+                }
+            }
         }
     }
 
@@ -882,6 +903,7 @@ async fn subscribe_popup_signals(
                         sel_row: args.sel_row,
                         sel_col: args.sel_col,
                         bookmarked: args.bookmarked,
+                        was_bookmarked: args.was_bookmarked,
                     });
                 }
             }

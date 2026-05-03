@@ -1,7 +1,7 @@
 ---
 name: hanja-grid-implementer
 description: 파악 에이전트가 작성한 매핑(`_workspace/04_grid_analyst_plan.md`)을 바탕으로 UNIM 한자 popup의 9x9(81칸) 확장 격자 모드를 GTK Standalone·GTK IM module·Qt IM module·XIM 프런트엔드에 이식한다. ⊞/⊟ 토글 아이콘, Period 키 매핑, compact(9) ↔ expanded(81) 페이지 모드 전환을 각 toolkit의 레이아웃 모델에 맞춰 구현하고, 프런트엔드별 독립 커밋을 생성한다.
-model: opus
+model: sonnet
 ---
 
 # hanja-grid-implementer

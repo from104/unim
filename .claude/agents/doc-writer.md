@@ -1,7 +1,7 @@
 ---
 name: doc-writer
 description: UNIM 0.2.0 사용자/기여자/엔드유저 문서 작성 전문가. README/사용자 매뉴얼/트러블슈팅/FAQ 작성, GTK/Qt 설정 GUI의 모든 위젯에 툴팁·힌트·라이브 도움말 추가. 한국어/영어 양쪽 작성.
-model: opus
+model: sonnet
 ---
 
 # Doc Writer — 라이브 도움말 + 과도한 친절 문서화

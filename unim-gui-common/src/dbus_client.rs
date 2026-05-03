@@ -433,6 +433,9 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             }
         }
         "HanjaCandidatesReordered" => {
+            // Phase 1+7 (mouse-paginate UX): 시그니처는 10-tuple — 마지막 두 필드가
+            // (bookmarked, was_bookmarked). 둘 다 GuiAction 으로 전달해 frontend 가
+            // ★ 해제 시 yellow flash 를 트리거할 수 있게 한다 (Phase 7).
             if let Ok((
                 target,
                 hanjas,
@@ -442,7 +445,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 page,
                 sel_row,
                 sel_col,
-                _bookmarked,
+                bookmarked,
+                was_bookmarked,
             )) = msg.body().deserialize::<(
                 String,
                 Vec<String>,
@@ -453,14 +457,17 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 i32,
                 i32,
                 bool,
+                bool,
             )>() {
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] HanjaCandidatesReordered 수신: target='{}', count={}, new_cursor={}, page={}",
+                    "[Popup] HanjaCandidatesReordered 수신: target='{}', count={}, new_cursor={}, page={}, was={} now={}",
                     target,
                     hanjas.len(),
                     new_cursor,
-                    page
+                    page,
+                    was_bookmarked,
+                    bookmarked
                 );
                 let pairs: Vec<(String, String)> = hanjas
                     .into_iter()
@@ -473,6 +480,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                     page,
                     sel_row,
                     sel_col,
+                    bookmarked,
+                    was_bookmarked,
                 });
             }
         }

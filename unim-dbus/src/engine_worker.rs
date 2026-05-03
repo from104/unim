@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use crate::service::{EmojiShowPayload, EngineRequest, EngineResponse};
+use crate::service::{EmojiShowPayload, EngineRequest, EngineResponse, PopupNavigatePayload};
 use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{Config, EnglishLayout, KoreanLayout};
-use unim::input_engine::InputEngine;
+use unim::input_engine::{InputEngine, PageDirection};
 use unim::keycode::{KeyCode, ModifierState};
 use unim::popup::PopupKind;
 use unim::typefix_blacklist::{Blacklist, Direction};
@@ -1020,11 +1020,47 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 토글이 자체 emit한 PopupAction(HanjaCandidatesReordered)을
                     // 함께 빼내 RPC 호출자가 시그널로 발행하도록 한다.
                     let action = engine.take_popup_action();
-                    toggled.map(|(idx, b)| (idx, b, action))
+                    toggled.map(|(idx, b, _was)| (idx, b, action))
                 } else {
                     None
                 };
                 let _ = response.send(result);
+            }
+
+            EngineRequest::PopupChangePage {
+                context_id,
+                direction,
+                response,
+            } => {
+                let payload: Option<PopupNavigatePayload> =
+                    if let Some(engine) = contexts.get_mut(&context_id) {
+                        // direction <= 0: Prev, > 0: Next.
+                        let dir = if direction <= 0 {
+                            PageDirection::Prev
+                        } else {
+                            PageDirection::Next
+                        };
+                        let changed = engine.popup_change_page(dir).is_some();
+                        // popup_change_page 가 PageJump 액션을 pending 에 넣어둠 — 여기서 비워준다
+                        // (시그널로는 PopupNavigate 만 발행하므로 PageJump 는 폐기).
+                        let _ = engine.take_popup_action();
+                        if changed {
+                            engine.popup_state().map(|state| PopupNavigatePayload {
+                                page: state.current_page() as u32,
+                                total_pages: state.total_pages() as u32,
+                                selected: state.sel_row() as u32,
+                                rows: state.rows() as u32,
+                                cols: state.cols() as u32,
+                                sel_row: state.sel_row() as u32,
+                                sel_col: state.sel_col() as u32,
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                let _ = response.send(payload);
             }
 
             // =========================================

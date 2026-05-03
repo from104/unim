@@ -36,7 +36,10 @@ Built-in layouts moved to self-contained v1 JSON files in `src/keystroke/keymap/
 ### 3. Hanja popup expansion
 
 - **9×9 = 81-cell expanded grid**: period (`.`) toggles compact 9 ↔ expanded 81 across GTK Standalone, GTK IM, Qt IM, and XIM (the GNOME extension already had it). The ⊞/⊟ icon indicates the current mode.
-- **Hanja bookmarks**: with a candidate focused, Space toggles ☆/★. The `HanjaBookmarkChanged` DBus signal refreshes every open popup across GTK/Qt/XIM/Wayland/GNOME instantly.
+- **Hanja bookmarks**: with a candidate focused, Space toggles ☆/★. The `HanjaCandidatesReordered` DBus signal refreshes every open popup across GTK/Qt/XIM/Wayland/GNOME/Windows instantly.
+- **Mouse paginate buttons ◀/▶ (every popup, every frontend)**: hanja, special-character, and emoji popups all gain ◀ (previous) / ▶ (next) buttons in the footer. Hidden automatically when there is only a single page. Applied to: GNOME Shell extension, GTK Standalone (`unim-gui-gtk`), GTK3/4 IM modules, Qt5/6 IM modules, XIM, Wayland (`unim-frontends/wayland`), Windows egui (`unim-windows/`). Behaves identically to keyboard `←`/`→` and `Page Up`/`Page Down` with wrap-around.
+- **Cursor flash on un-bookmark (hanja only)**: when you unstar (☆), the hanja is demoted back to its lexicographic position and the cursor jumps there — the destination cell **flashes Catppuccin yellow `#f9e2af` for 140 ms** so you notice the auto page jump. Bookmarking (★ on) does not flash, since the cursor predictably lands at page 1 row 1.
+- **Wayland popup pointer input infrastructure**: `WlPointer` event handling added to `unim-frontends/wayland` so the popup ◀/▶ can receive clicks. Actual routing depends on the compositor's `zwp_input_popup_surface_v2` pointer policy — keyboard `←`/`→` is the universal fallback on compositors that block IM popup pointer events. (See troubleshooting §7-1.)
 
 ### 4. Auto-English-Mode
 
@@ -60,6 +63,9 @@ Built-in layouts moved to self-contained v1 JSON files in `src/keystroke/keymap/
 - **`KoreanLayout` enum removed (Phase 8)**: `korean.layout` is a String; built-ins or user profile names. Legacy `custom_layout: Option<String>` merged into `layout`. Existing YAML auto-normalizes via serde compat.
 - **`EnglishLayout` enum removed (Phase 9)**: symmetric. `english.layout` String (`qwerty` / `dvorak` / `colemak` / `colemak_dh` / `workman`).
 - **Tray/popup live sync**: `unim-gui` synchronizes immediately on `GlobalModeChanged`.
+- **Page navigation wrap-around documented** (POPUP_SPEC v3.1): keyboard `←`/`→`/`Page Up`/`Page Down` and mouse `◀`/`▶` all wrap around (first → last and back). When `total_pages == 1`, the move is a no-op and the buttons are hidden.
+- **DBus signal payload (breaking, dev-facing)**: `HanjaCandidatesReordered` grew from 9-tuple to **10-tuple** with a new trailing `was_bookmarked: bool` field that holds the pre-toggle state. Frontends raise the cursor flash when `was_bookmarked && !bookmarked`. Subscribers must upgrade in lockstep — the 9-tuple shape is no longer accepted.
+- **DBus RPC added (dev-facing)**: `popup_change_page(direction: i32)` (0=Prev, 1=Next), the unified entry point invoked by mouse ◀/▶. Shared by hanja, special-character, and emoji popups.
 
 ---
 

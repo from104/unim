@@ -25,6 +25,19 @@ pub(crate) enum AutoEnglishTrigger {
     Character(char),
 }
 
+/// 팝업 페이지 이동 방향 (마우스 ◀/▶ 버튼 등에서 사용).
+///
+/// 한자/특수문자/이모지 팝업의 wrap-around 페이지 이동에 공통으로 쓰인다.
+/// `Prev`는 이전 페이지(첫 페이지에서는 마지막으로 wrap), `Next`는 다음 페이지
+/// (마지막 페이지에서는 첫 페이지로 wrap).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageDirection {
+    /// 이전 페이지로 이동 (첫 페이지면 마지막으로 wrap).
+    Prev,
+    /// 다음 페이지로 이동 (마지막 페이지면 첫 페이지로 wrap).
+    Next,
+}
+
 /// 팝업 동작 (ProcessKeyEvent 후 발생)
 #[derive(Debug, Clone)]
 pub enum PopupAction {
@@ -100,8 +113,24 @@ pub enum PopupAction {
         sel_row: usize,
         /// 새 sel_col
         sel_col: usize,
-        /// 토글된 한자의 새 즐겨찾기 상태 (편의용)
+        /// 토글된 한자의 새 즐겨찾기 상태 (편의용).
+        /// `was_bookmarked`와 항상 반대 (toggle).
         bookmarked: bool,
+        /// 토글 직전의 즐겨찾기 상태.
+        ///
+        /// frontend가 ON→OFF 전환을 감지해 "원위치 점프 flash" 시각 신호를 띄우는 용도.
+        /// `was_bookmarked == true && bookmarked == false` 이면 사용자가 별을 해제한 케이스.
+        was_bookmarked: bool,
+    },
+    /// 마우스 ◀/▶ 버튼 등 외부 RPC로 페이지가 이동했음을 알리는 액션.
+    ///
+    /// 기존 `PopupNavigate`로 prefix-가능하지만, frontend가 "사용자가 명시적으로
+    /// 페이지를 바꿨다"는 시각 단서(짧은 transition 등)를 띄울 수 있도록 별도 액션으로 분리.
+    /// payload는 새 페이지 인덱스 단일 값 — 페이지 외 상태(cursor 등)는
+    /// 동시에 함께 발행되는 `PopupNavigate`가 전달한다.
+    PageJump {
+        /// 이동 후 페이지 인덱스 (0-based).
+        page_index: u32,
     },
 }
 

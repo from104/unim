@@ -5,7 +5,7 @@
 //! 담당한다.
 
 use super::engine::InputEngine;
-use super::types::{InputResult, PopupAction};
+use super::types::{InputResult, PageDirection, PopupAction};
 use crate::config::Config;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::popup::{EmojiCatMeta, PopupKey, PopupKeyResult, PopupKind, PopupState};
@@ -194,6 +194,44 @@ impl InputEngine {
     /// 현재 팝업 상태에 대한 가변 참조를 반환합니다.
     pub fn popup_state_mut(&mut self) -> Option<&mut PopupState> {
         self.popup_state.as_mut()
+    }
+
+    /// 마우스 ◀/▶ 버튼 등 외부 RPC에서 호출되는 페이지 이동.
+    ///
+    /// `PopupKey::PageUp/PageDown` 분기는 sel_row/sel_col 을 (0,0) 으로 리셋하므로
+    /// 그 경로를 사용하지 않고 직접 `current_page` 를 wrap-around 갱신한 뒤
+    /// `set_navigate_state` 로 prev cursor (row,col) 위치를 그대로 복원한다.
+    ///
+    /// total_pages <= 1 이거나 popup_state 가 없으면 `None` 반환 (no-op).
+    /// 정상 처리되면 새 페이지 인덱스를 반환하고 `PopupAction::PageJump` 를
+    /// pending 액션으로 설정한다 — DBus 측은 이를 받아 `PopupNavigate` 시그널을
+    /// 발행한다.
+    pub fn popup_change_page(&mut self, dir: PageDirection) -> Option<u32> {
+        let state = self.popup_state.as_mut()?;
+        let total = state.total_pages();
+        if total <= 1 {
+            return None;
+        }
+        let cur = state.current_page();
+        let prev_row = state.sel_row();
+        let prev_col = state.sel_col();
+        let new_page = match dir {
+            PageDirection::Next => (cur + 1) % total,
+            PageDirection::Prev => {
+                if cur == 0 {
+                    total - 1
+                } else {
+                    cur - 1
+                }
+            }
+        };
+        // set_navigate_state 가 page 변경 + layout 재계산 + cursor 보정(min 적용)을 처리.
+        state.set_navigate_state(new_page, prev_row, prev_col);
+
+        self.popup_pending_action = Some(PopupAction::PageJump {
+            page_index: new_page as u32,
+        });
+        Some(new_page as u32)
     }
 
     // =========================================

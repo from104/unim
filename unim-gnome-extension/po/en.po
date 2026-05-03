@@ -249,3 +249,12 @@ msgstr "Show Korean/English status icon in the GNOME top panel"
 msgid "한글 → 영어"
 msgstr "Korean -> English"
 
+# Popup page navigation (shared by hanja/special/emoji popups)
+#: hanja_popup.js special_popup.js emoji_popup.js
+msgid "Previous page"
+msgstr "Previous page"
+
+#: hanja_popup.js special_popup.js emoji_popup.js
+msgid "Next page"
+msgstr "Next page"
+

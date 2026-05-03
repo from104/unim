@@ -338,8 +338,10 @@ export class UnimDbusIME {
                 const [index, bookmarked] = parameters.deep_unpack();
                 this._onHanjaBookmarkChanged(index, bookmarked);
             } else if (signalName === 'HanjaCandidatesReordered' && this._onHanjaCandidatesReordered) {
-                const [target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked] = parameters.deep_unpack();
-                this._onHanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked);
+                // Phase 1 (mouse-paginate UX): wasBookmarked (직전 상태) 추가됨.
+                // 콜백이 9-arity 이면 무시되고, 10-arity 면 활용된다 (Phase 7 visual flash).
+                const [target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked] = parameters.deep_unpack();
+                this._onHanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked);
             } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
@@ -673,6 +675,31 @@ export class UnimDbusIME {
         } catch (e) {
             unimError('DBUS_IME', `ToggleHanjaBookmark 실패: ${e.message}`);
             return null;
+        }
+    }
+
+    /**
+     * 팝업 페이지 이동 (마우스 ◀/▶ 버튼 클릭용).
+     *
+     * 한자/특수문자/이모지 모든 popup 종류에 동작. popup 이 활성 아니거나
+     * 단일 페이지면 데몬에서 no-op. 페이지 변경 시 PopupNavigate 시그널이
+     * 발행돼 frontend 가 일괄 갱신한다 (cursor sel_row/sel_col 보존).
+     *
+     * @param {number} direction - 0(또는 음수) = 이전 페이지, 1(이상) = 다음 페이지
+     */
+    popupChangePage(direction) {
+        if (!this._icProxy) return;
+
+        try {
+            this._icProxy.call_sync(
+                'PopupChangePage',
+                new GLib.Variant('(i)', [direction | 0]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+        } catch (e) {
+            unimError('DBUS_IME', `PopupChangePage 실패: ${e.message}`);
         }
     }
 

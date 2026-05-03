@@ -16,6 +16,7 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { unimLog } from './logging.js';
 
 /** 그리드 상수 */
@@ -25,6 +26,10 @@ const PAGE_SIZE = MAX_ROWS * MAX_COLS; // 81
 
 /** 선택 플래시 지속 시간 (ms) */
 const FLASH_DURATION_MS = 120;
+
+/** 페이지 이동 버튼 글리프 */
+const ICON_PREV_PAGE = '◀';
+const ICON_NEXT_PAGE = '▶';
 
 /**
  * SpecialPopup
@@ -40,8 +45,14 @@ export class SpecialPopup {
         this._header = null;
         /** @type {St.Widget} 그리드 */
         this._grid = null;
-        /** @type {St.Label} 풋터 */
+        /** @type {St.BoxLayout} 풋터 컨테이너 (◀ + 라벨 + ▶) */
         this._footer = null;
+        /** @type {St.Button} 이전 페이지 버튼 */
+        this._prevPageBtn = null;
+        /** @type {St.Button} 다음 페이지 버튼 */
+        this._nextPageBtn = null;
+        /** @type {St.Label} 페이지 표시 라벨 */
+        this._pageLabel = null;
         /** @type {St.Label[][]} 셀 라벨 [row][col] */
         this._cells = [];
         /** @type {St.Label[]} 열 헤더 라벨 */
@@ -81,6 +92,8 @@ export class SpecialPopup {
         this._onSelect = null;
         /** @type {Function|null} 취소 콜백 */
         this._onCancel = null;
+        /** @type {Function|null} 페이지 이동 콜백 (direction: 0=Prev, 1=Next) */
+        this._onChangePage = null;
     }
 
     /**
@@ -100,7 +113,42 @@ export class SpecialPopup {
         this._grid = new St.BoxLayout({ vertical: true });
         this._container.add_child(this._grid);
 
-        this._footer = new St.Label({ style_class: 'popup-footer' });
+        // 풋터: [◀] [target n/N] [▶]
+        this._footer = new St.BoxLayout({
+            style_class: 'popup-footer-box',
+            vertical: false,
+        });
+        // accessible_name — 스크린리더가 ◀/▶ 글리프 대신 의미있는 라벨 읽음 (a11y).
+        this._prevPageBtn = new St.Button({
+            style_class: 'popup-page-btn',
+            label: ICON_PREV_PAGE,
+            can_focus: false,
+            reactive: true,
+            track_hover: true,
+            accessible_name: _('Previous page'),
+        });
+        this._prevPageBtn.connect('clicked', () => {
+            if (this._onChangePage) this._onChangePage(0);
+        });
+        this._pageLabel = new St.Label({
+            style_class: 'popup-footer',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        this._nextPageBtn = new St.Button({
+            style_class: 'popup-page-btn',
+            label: ICON_NEXT_PAGE,
+            can_focus: false,
+            reactive: true,
+            track_hover: true,
+            accessible_name: _('Next page'),
+        });
+        this._nextPageBtn.connect('clicked', () => {
+            if (this._onChangePage) this._onChangePage(1);
+        });
+        this._footer.add_child(this._prevPageBtn);
+        this._footer.add_child(this._pageLabel);
+        this._footer.add_child(this._nextPageBtn);
         this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
@@ -118,8 +166,9 @@ export class SpecialPopup {
      * @param {Function} onSelect - 선택 콜백 (globalIndex)
      * @param {Function} onCancel - 취소 콜백
      * @param {{x: number, y: number, width: number, height: number}} [cursorRect] - 커서 위치
+     * @param {Function} [onChangePage] - 페이지 이동 ◀/▶ 클릭 시 호출 (direction: 0=Prev, 1=Next)
      */
-    show(target, characters, topRow, onSelect, onCancel, cursorRect) {
+    show(target, characters, topRow, onSelect, onCancel, cursorRect, onChangePage) {
         if (!this._container || characters.length === 0) return;
 
         this._target = target;
@@ -127,6 +176,7 @@ export class SpecialPopup {
         this._topRow = topRow || '';
         this._onSelect = onSelect;
         this._onCancel = onCancel;
+        this._onChangePage = onChangePage || null;
         this._pendingHide = false;
 
         // 초기 상태 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
@@ -159,6 +209,7 @@ export class SpecialPopup {
         this._mouseHoverCol = -1;
         this._onSelect = null;
         this._onCancel = null;
+        this._onChangePage = null;
     }
 
     /**
@@ -398,9 +449,11 @@ export class SpecialPopup {
             this._cells.push(rowCells);
         }
 
-        // 풋터
+        // 풋터: 단일 페이지면 컨테이너 전체 hide, 여러 페이지면 표시 + ◀/▶ 노출
         if (this._totalPages > 1) {
-            this._footer.set_text(`[${this._target}]  ${this._currentPage + 1}/${this._totalPages}`);
+            this._pageLabel.set_text(`[${this._target}]  ${this._currentPage + 1}/${this._totalPages}`);
+            this._prevPageBtn.show();
+            this._nextPageBtn.show();
             this._footer.show();
         } else {
             this._footer.hide();

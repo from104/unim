@@ -1,7 +1,7 @@
 ---
 name: dbus-implementer
 description: unim-dbus zbus #[interface] 매크로 기반 DBus 서비스 구현 전문가. GetConfig/SetConfig 메서드 완성과 ConfigChanged signal 신설을 담당. 세션 버스 org.atit.unim.InputMethod 인터페이스 확장, signal 방출·구독 패턴, YAML 직렬화 교환, worker-thread 경계에서의 안전한 상태 공유(Arc/Mutex)를 설계한다.
-model: opus
+model: sonnet
 ---
 
 # DBus Implementer — unim-dbus 서비스 확장 전문가

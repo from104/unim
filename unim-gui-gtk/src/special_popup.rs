@@ -6,6 +6,7 @@
 //! GNOME extension과 동일한 디자인/레이아웃.
 
 use gtk4::prelude::*;
+use rust_i18n::t;
 use unim::unim_log;
 
 use crate::popup_positioning::{self, DisplayServer};
@@ -14,13 +15,21 @@ const MAX_ROWS: usize = 9;
 const MAX_COLS: usize = 9;
 const PAGE_SIZE: usize = MAX_ROWS * MAX_COLS; // 81
 
+const ICON_PREV_PAGE: &str = "◀";
+const ICON_NEXT_PAGE: &str = "▶";
+
 /// 특수문자 팝업 상태
 pub struct SpecialPopup {
     pub window: gtk4::Window,
     #[allow(dead_code)]
     grid: gtk4::Grid,
     header_label: gtk4::Label,
+    footer_box: gtk4::Box,
     footer_label: gtk4::Label,
+    /// 이전 페이지 버튼 (◀) — 단일 페이지 시 hide
+    prev_page_btn: gtk4::Button,
+    /// 다음 페이지 버튼 (▶) — 단일 페이지 시 hide
+    next_page_btn: gtk4::Button,
     display_server: DisplayServer,
     /// 전체 문자 목록
     characters: Vec<String>,
@@ -127,11 +136,40 @@ impl SpecialPopup {
 
         vbox.append(&grid);
 
-        // 페이지 라벨
+        // 푸터: [◀] [target n/N] [▶]
+        let footer_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        footer_box.add_css_class("popup-footer-box");
+        footer_box.set_halign(gtk4::Align::Fill);
+
+        let prev_page_btn = gtk4::Button::with_label(ICON_PREV_PAGE);
+        prev_page_btn.add_css_class("popup-page-btn");
+        prev_page_btn.add_css_class("flat");
+        prev_page_btn.set_can_focus(false);
+        prev_page_btn.set_focusable(false);
+        prev_page_btn.set_tooltip_text(Some(&t!("popup_previous_page")));
+        prev_page_btn.connect_clicked(|_| {
+            crate::hanja_popup::popup_change_page_via_dbus(0);
+        });
+        footer_box.append(&prev_page_btn);
+
         let footer_label = gtk4::Label::new(None);
         footer_label.add_css_class("popup-footer");
         footer_label.set_halign(gtk4::Align::Center);
-        vbox.append(&footer_label);
+        footer_label.set_hexpand(true);
+        footer_box.append(&footer_label);
+
+        let next_page_btn = gtk4::Button::with_label(ICON_NEXT_PAGE);
+        next_page_btn.add_css_class("popup-page-btn");
+        next_page_btn.add_css_class("flat");
+        next_page_btn.set_can_focus(false);
+        next_page_btn.set_focusable(false);
+        next_page_btn.set_tooltip_text(Some(&t!("popup_next_page")));
+        next_page_btn.connect_clicked(|_| {
+            crate::hanja_popup::popup_change_page_via_dbus(1);
+        });
+        footer_box.append(&next_page_btn);
+
+        vbox.append(&footer_box);
 
         window.set_child(Some(&vbox));
 
@@ -142,7 +180,10 @@ impl SpecialPopup {
             window,
             grid,
             header_label,
+            footer_box,
             footer_label,
+            prev_page_btn,
+            next_page_btn,
             display_server,
             characters: Vec::new(),
             target: String::new(),
@@ -279,7 +320,7 @@ impl SpecialPopup {
             }
         }
 
-        // 페이지 표시
+        // 페이지 표시: 단일 페이지면 footer_box 자체 hide (◀/▶ 도 함께 사라짐)
         if self.total_pages > 1 {
             self.footer_label.set_text(&format!(
                 "[{}]  {}/{}",
@@ -287,9 +328,11 @@ impl SpecialPopup {
                 self.current_page + 1,
                 self.total_pages
             ));
-            self.footer_label.set_visible(true);
+            self.prev_page_btn.set_visible(true);
+            self.next_page_btn.set_visible(true);
+            self.footer_box.set_visible(true);
         } else {
-            self.footer_label.set_visible(false);
+            self.footer_box.set_visible(false);
         }
 
         // 선택 하이라이트
@@ -473,6 +516,34 @@ pub fn popup_css() -> &'static str {
     .unim-special-popup .popup-footer {
         color: #6c7086;
         font-size: 12px;
+    }
+
+    .unim-special-popup .popup-footer-box {
+        margin-top: 4px;
+    }
+
+    /* 마우스 페이지 이동 ◀/▶ 버튼 (Phase 3, GNOME extension 정합)
+     * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 그리드 셀(28px)과 시각 비례 */
+    .unim-special-popup button.popup-page-btn {
+        color: #7f849c;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        font-size: 14px;
+        min-width: 28px;
+        min-height: 28px;
+        padding: 4px 10px;
+        margin: 0;
+        border-radius: 4px;
+    }
+
+    .unim-special-popup button.popup-page-btn:hover {
+        color: #89b4fa;
+        background-color: rgba(137, 180, 250, 0.2);
+    }
+
+    .unim-special-popup button.popup-page-btn:active {
+        background-color: rgba(137, 180, 250, 0.35);
     }
     "#
 }

@@ -4,6 +4,7 @@
 //! POPUP_SPEC.md Section 3 규격을 준수합니다.
 
 use gtk4::prelude::*;
+use rust_i18n::t;
 use unim::unim_log;
 
 use crate::popup_positioning::{self, DisplayServer};
@@ -14,6 +15,12 @@ const EXPANDED_COLS: usize = 9;
 const EXPANDED_ROWS: usize = 9;
 const ICON_EXPAND: &str = "⊞";
 const ICON_COMPACT: &str = "⊟";
+const ICON_PREV_PAGE: &str = "◀";
+const ICON_NEXT_PAGE: &str = "▶";
+
+/// ★ 해제 후 cursor 셀에 적용되는 yellow flash 지속시간 (ms).
+/// CSS `.bookmark-flash` 와 짝.
+const BOOKMARK_FLASH_DURATION_MS: u32 = 140;
 
 /// 한자 팝업 상태
 pub struct HanjaPopup {
@@ -22,6 +29,10 @@ pub struct HanjaPopup {
     body_container: gtk4::Box,
     page_label: gtk4::Label,
     target_label: gtk4::Label,
+    /// 이전 페이지 버튼 (◀) — 단일 페이지 시 hide
+    prev_page_btn: gtk4::Button,
+    /// 다음 페이지 버튼 (▶) — 단일 페이지 시 hide
+    next_page_btn: gtk4::Button,
     /// 확장/축소 토글 아이콘 라벨 (⊞/⊟)
     expand_icon: gtk4::Label,
     display_server: DisplayServer,
@@ -74,18 +85,39 @@ impl HanjaPopup {
         body_container.add_css_class("hanja-body");
         vbox.append(&body_container);
 
-        // 푸터: 페이지 라벨 + 확장 아이콘
-        let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        // 푸터: [◀] [페이지 n/N] [▶] [⊞]
+        let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         footer.add_css_class("popup-footer-box");
+
+        let prev_page_btn = gtk4::Button::with_label(ICON_PREV_PAGE);
+        prev_page_btn.add_css_class("popup-page-btn");
+        prev_page_btn.add_css_class("flat");
+        prev_page_btn.set_can_focus(false);
+        prev_page_btn.set_focusable(false);
+        prev_page_btn.set_tooltip_text(Some(&t!("popup_previous_page")));
+        prev_page_btn.connect_clicked(|_| {
+            popup_change_page_via_dbus(0);
+        });
+        footer.append(&prev_page_btn);
 
         let page_label = gtk4::Label::new(None);
         page_label.add_css_class("page-label");
-        page_label.set_halign(gtk4::Align::Start);
+        page_label.set_halign(gtk4::Align::Center);
         page_label.set_hexpand(true);
         footer.append(&page_label);
 
-        // 확장/축소 아이콘 — 현재는 시각적 표시만 담당 (GNOME extension도 동일하게
-        // 클릭 콜백이 미배선). Period 키 입력으로 토글되며, navigate()가 cols 변화를
+        let next_page_btn = gtk4::Button::with_label(ICON_NEXT_PAGE);
+        next_page_btn.add_css_class("popup-page-btn");
+        next_page_btn.add_css_class("flat");
+        next_page_btn.set_can_focus(false);
+        next_page_btn.set_focusable(false);
+        next_page_btn.set_tooltip_text(Some(&t!("popup_next_page")));
+        next_page_btn.connect_clicked(|_| {
+            popup_change_page_via_dbus(1);
+        });
+        footer.append(&next_page_btn);
+
+        // 확장/축소 아이콘 — Period 키로 토글되며, navigate()가 cols 변화를
         // 감지하여 아이콘 텍스트를 갱신한다.
         let expand_icon = gtk4::Label::new(Some(ICON_EXPAND));
         expand_icon.add_css_class("popup-expand-icon");
@@ -104,6 +136,8 @@ impl HanjaPopup {
             body_container,
             page_label,
             target_label,
+            prev_page_btn,
+            next_page_btn,
             expand_icon,
             display_server,
             candidates: Vec::new(),
@@ -202,12 +236,16 @@ impl HanjaPopup {
             self.render_list(start, end);
         }
 
-        // 푸터 갱신
+        // 푸터 갱신: 단일 페이지면 ◀/▶ hide, 여러 페이지면 show + 라벨 갱신
         if total_pages > 1 {
             self.page_label
                 .set_text(&format!("{}/{}", self.current_page + 1, total_pages));
+            self.prev_page_btn.set_visible(true);
+            self.next_page_btn.set_visible(true);
         } else {
             self.page_label.set_text("");
+            self.prev_page_btn.set_visible(false);
+            self.next_page_btn.set_visible(false);
         }
         self.expand_icon.set_text(if self.cols > 1 {
             ICON_COMPACT
@@ -444,6 +482,52 @@ impl HanjaPopup {
             self.update_page();
         }
     }
+
+    /// 현재 cursor 셀(`sel_row`, `sel_col`)에 짧은 yellow flash 효과를 부여한다.
+    ///
+    /// `replace_candidates()` 직후 ★ 해제(true → false) 일 때 GTK UI 가 호출.
+    /// 적용 후 BOOKMARK_FLASH_DURATION_MS 후 클래스 자동 제거.
+    pub fn flash_cursor_cell(&self) {
+        if !self.window.is_visible() {
+            return;
+        }
+
+        // body_container 의 첫 자식: ScrolledWindow(ListBox) 또는 Grid.
+        // self.cols 로 현재 모드 판별 후 위젯을 찾는다.
+        let Some(first_child) = self.body_container.first_child() else {
+            return;
+        };
+
+        let target: Option<gtk4::Widget> = if self.cols > 1 {
+            // expanded: Grid 직접. sel_row/sel_col → Grid.child_at(col+1, row+1).
+            // (0,0) corner / row 0 헤더 / col 0 행번호. 셀은 (col+1, row+1).
+            first_child
+                .downcast_ref::<gtk4::Grid>()
+                .and_then(|g| g.child_at((self.sel_col + 1) as i32, (self.sel_row + 1) as i32))
+        } else {
+            // compact: ScrolledWindow → ListBox → row_at_index(sel_row)
+            first_child
+                .downcast_ref::<gtk4::ScrolledWindow>()
+                .and_then(|sw| sw.child())
+                .and_then(|w| w.downcast::<gtk4::ListBox>().ok())
+                .and_then(|lb| lb.row_at_index(self.sel_row as i32))
+                .map(|r| r.upcast::<gtk4::Widget>())
+        };
+
+        let Some(widget) = target else {
+            return;
+        };
+        widget.add_css_class("bookmark-flash");
+        let weak = widget.downgrade();
+        gtk4::glib::timeout_add_local_once(
+            std::time::Duration::from_millis(BOOKMARK_FLASH_DURATION_MS as u64),
+            move || {
+                if let Some(w) = weak.upgrade() {
+                    w.remove_css_class("bookmark-flash");
+                }
+            },
+        );
+    }
 }
 
 /// 엔진에서 현재 한자 후보의 북마크 상태를 비동기로 받아 GUI 이벤트 루프에
@@ -490,6 +574,45 @@ fn fetch_bookmark_states_async(context_path: String) {
             }
         });
     });
+}
+
+/// DBus를 통해 popup 페이지 이동 (마우스 ◀/▶ 클릭).
+///
+/// `direction`: 0 (or negative) = 이전 페이지, 1 (or positive) = 다음 페이지.
+/// 한자/특수문자/이모지 popup 모두에 동작 — 데몬 popup_state 가 단일 진실 소스.
+pub fn popup_change_page_via_dbus(direction: i32) {
+    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+
+    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
+
+    if let Some(path) = context_path {
+        unim_log!(
+            "INDICATOR",
+            "[Popup] PopupChangePage DBus 호출: dir={}, path={}",
+            direction,
+            path
+        );
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                if let Ok(conn) = zbus::Connection::session().await {
+                    let proxy = zbus::Proxy::new(
+                        &conn,
+                        "org.atit.unim.InputMethod",
+                        path.as_str(),
+                        "org.atit.unim.InputContext",
+                    )
+                    .await;
+                    if let Ok(proxy) = proxy {
+                        let _: Result<(), _> = proxy.call("PopupChangePage", &(direction,)).await;
+                    }
+                }
+            });
+        });
+    }
 }
 
 /// DBus를 통해 한자 선택
@@ -627,6 +750,37 @@ pub fn popup_css() -> &'static str {
         color: #7f849c;
         font-size: 14px;
         padding: 2px 6px;
+    }
+
+    /* 마우스 페이지 이동 ◀/▶ 버튼 (Phase 2-3, GNOME extension 정합)
+     * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 그리드 셀(28px)과 시각 비례 */
+    button.popup-page-btn {
+        color: #7f849c;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        font-size: 14px;
+        min-width: 28px;
+        min-height: 28px;
+        padding: 4px 10px;
+        margin: 0;
+        border-radius: 4px;
+    }
+
+    button.popup-page-btn:hover {
+        color: #89b4fa;
+        background-color: rgba(137, 180, 250, 0.2);
+    }
+
+    button.popup-page-btn:active {
+        background-color: rgba(137, 180, 250, 0.35);
+    }
+
+    /* ★ 해제 후 cursor 셀에 일시 적용 (140ms) — Catppuccin yellow */
+    .unim-hanja-popup .grid-cell.bookmark-flash,
+    .unim-hanja-popup .hanja-list row.bookmark-flash {
+        background-color: #f9e2af;
+        color: #1e1e2e;
     }
 
     .unim-hanja-popup .hanja-grid {
