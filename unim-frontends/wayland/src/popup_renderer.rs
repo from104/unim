@@ -761,24 +761,29 @@ fn draw_page_footer(
     let mut prev_rect = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
     let mut next_rect = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
 
+    // hit-target ≥28px (WCAG 2.5.5 초과). 글리프는 그대로, rect만 확장.
+    const MIN_HIT: f32 = 28.0;
+    let expand = |cx: f32, glyph_w: f32, top: f32, bot: f32| -> (f32, f32, f32, f32) {
+        let cur_w = glyph_w + gap;
+        let extra_w = ((MIN_HIT - cur_w).max(0.0)) / 2.0;
+        let cur_h = bot - top;
+        let extra_h = ((MIN_HIT - cur_h).max(0.0)) / 2.0;
+        (
+            cx - gap / 2.0 - extra_w,
+            top - extra_h,
+            cx + glyph_w + gap / 2.0 + extra_w,
+            bot + extra_h,
+        )
+    };
+
     if multi_page {
         draw_text(pixmap, font_system, swash_cache, "◀", prev_x, y, size, color, icon_w);
-        prev_rect = (
-            prev_x - gap / 2.0,
-            y,
-            prev_x + icon_w + gap / 2.0,
-            y + row_h,
-        );
+        prev_rect = expand(prev_x, icon_w, y, y + row_h);
     }
     draw_text(pixmap, font_system, swash_cache, page_str, page_x, y, size, color, page_w + 2.0);
     if multi_page {
         draw_text(pixmap, font_system, swash_cache, "▶", next_x, y, size, color, icon_w);
-        next_rect = (
-            next_x - gap / 2.0,
-            y,
-            next_x + icon_w + gap / 2.0,
-            y + row_h,
-        );
+        next_rect = expand(next_x, icon_w, y, y + row_h);
     }
 
     (prev_rect, next_rect)

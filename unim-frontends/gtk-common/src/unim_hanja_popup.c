@@ -627,16 +627,17 @@ unim_hanja_popup_new(void)
             ".unim-hanja-vbox .popup-footer-box {"
             "  margin-top: 4px;"
             "}"
-            /* 마우스 페이지 이동 ◀/▶ (Phase 4) */
+            /* 마우스 페이지 이동 ◀/▶ (Phase 4)
+             * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, grid-cell(28px)과 시각 비례 */
             ".unim-hanja-vbox button.popup-page-btn {"
             "  color: #7f849c;"
             "  background: transparent;"
             "  border: none;"
             "  box-shadow: none;"
-            "  font-size: 13px;"
-            "  min-width: 22px;"
-            "  min-height: 22px;"
-            "  padding: 2px 6px;"
+            "  font-size: 14px;"
+            "  min-width: 28px;"
+            "  min-height: 28px;"
+            "  padding: 4px 10px;"
             "  margin: 0;"
             "  border-radius: 4px;"
             "}"

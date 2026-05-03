@@ -185,8 +185,14 @@ impl PopupState {
                 ui.separator();
                 ui.horizontal(|ui| {
                     // Phase 9: 마우스 ◀/▶ 페이지 버튼 (단일 페이지면 hide).
+                    // hit-target ≥28×28px (WCAG 2.5.5 초과).
+                    let page_btn_size = egui::vec2(28.0, 28.0);
                     if multi_page {
-                        if ui.button("◀").clicked() {
+                        if ui
+                            .add_sized(page_btn_size, egui::Button::new("◀"))
+                            .on_hover_text("Previous page")
+                            .clicked()
+                        {
                             click_action = Some(PopupClickAction::PrevPage);
                         }
                     }
@@ -196,7 +202,11 @@ impl PopupState {
                         self.total_pages.max(1)
                     ));
                     if multi_page {
-                        if ui.button("▶").clicked() {
+                        if ui
+                            .add_sized(page_btn_size, egui::Button::new("▶"))
+                            .on_hover_text("Next page")
+                            .clicked()
+                        {
                             click_action = Some(PopupClickAction::NextPage);
                         }
                     }

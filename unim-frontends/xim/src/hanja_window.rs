@@ -809,6 +809,20 @@ impl HanjaWindow {
             let page_x = next_x - gap - page_ext.xOff as c_int;
             let prev_x = page_x - gap - prev_ext.xOff as c_int;
 
+            // hit-target ≥28px (WCAG 2.5.5 초과). 글리프는 그대로, rect만 확장.
+            let min_hit = dpi::scale(28, sf);
+            let expand_rect = |cx: c_int, cy_top: c_int, cy_bot: c_int, glyph_w: c_int| -> (c_int, c_int, c_int, c_int) {
+                let cur_w = glyph_w + gap;
+                let extra_w = (min_hit - cur_w).max(0) / 2;
+                let cur_h = cy_bot - cy_top;
+                let extra_h = (min_hit - cur_h).max(0) / 2;
+                (
+                    cx - gap / 2 - extra_w,
+                    cy_top - extra_h,
+                    cx + glyph_w + gap / 2 + extra_w,
+                    cy_bot + extra_h,
+                )
+            };
             if multi {
                 // ◀ 그리기 + rect 저장
                 x11::xft::XftDrawStringUtf8(
@@ -816,11 +830,11 @@ impl HanjaWindow {
                     prev_x, page_y,
                     prev_bytes.as_ptr(), prev_bytes.len() as c_int,
                 );
-                self.prev_btn_rect = (
-                    prev_x - gap / 2,
+                self.prev_btn_rect = expand_rect(
+                    prev_x,
                     page_y - line_h + text_offset,
-                    prev_x + prev_ext.xOff as c_int + gap / 2,
                     page_y + dpi::scale(2, sf),
+                    prev_ext.xOff as c_int,
                 );
             } else {
                 self.prev_btn_rect = (0, 0, 0, 0);
@@ -840,11 +854,11 @@ impl HanjaWindow {
                     next_x, page_y,
                     next_bytes.as_ptr(), next_bytes.len() as c_int,
                 );
-                self.next_btn_rect = (
-                    next_x - gap / 2,
+                self.next_btn_rect = expand_rect(
+                    next_x,
                     page_y - line_h + text_offset,
-                    next_x + next_ext.xOff as c_int + gap / 2,
                     page_y + dpi::scale(2, sf),
+                    next_ext.xOff as c_int,
                 );
             } else {
                 self.next_btn_rect = (0, 0, 0, 0);
@@ -1071,17 +1085,31 @@ impl HanjaWindow {
             let page_x = next_x - gap - page_ext.xOff as c_int;
             let prev_x = page_x - gap - prev_ext.xOff as c_int;
 
+            // hit-target ≥28px (WCAG 2.5.5 초과). 글리프는 그대로, rect만 확장.
+            let min_hit = dpi::scale(28, sf);
+            let expand_rect = |cx: c_int, cy_top: c_int, cy_bot: c_int, glyph_w: c_int| -> (c_int, c_int, c_int, c_int) {
+                let cur_w = glyph_w + gap;
+                let extra_w = (min_hit - cur_w).max(0) / 2;
+                let cur_h = cy_bot - cy_top;
+                let extra_h = (min_hit - cur_h).max(0) / 2;
+                (
+                    cx - gap / 2 - extra_w,
+                    cy_top - extra_h,
+                    cx + glyph_w + gap / 2 + extra_w,
+                    cy_bot + extra_h,
+                )
+            };
             if multi {
                 x11::xft::XftDrawStringUtf8(
                     self.xft_draw, &self.page_color, self.xft_font,
                     prev_x, page_y,
                     prev_bytes.as_ptr(), prev_bytes.len() as c_int,
                 );
-                self.prev_btn_rect = (
-                    prev_x - gap / 2,
+                self.prev_btn_rect = expand_rect(
+                    prev_x,
                     page_y - line_h + text_offset,
-                    prev_x + prev_ext.xOff as c_int + gap / 2,
                     page_y + dpi::scale(2, sf),
+                    prev_ext.xOff as c_int,
                 );
             } else {
                 self.prev_btn_rect = (0, 0, 0, 0);
@@ -1099,11 +1127,11 @@ impl HanjaWindow {
                     next_x, page_y,
                     next_bytes.as_ptr(), next_bytes.len() as c_int,
                 );
-                self.next_btn_rect = (
-                    next_x - gap / 2,
+                self.next_btn_rect = expand_rect(
+                    next_x,
                     page_y - line_h + text_offset,
-                    next_x + next_ext.xOff as c_int + gap / 2,
                     page_y + dpi::scale(2, sf),
+                    next_ext.xOff as c_int,
                 );
             } else {
                 self.next_btn_rect = (0, 0, 0, 0);

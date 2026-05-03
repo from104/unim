@@ -143,15 +143,16 @@ UnimSpecialPopup::UnimSpecialPopup(QWidget *parent)
         "  font-size: %7px;"
         "  padding: %2px %3px;"
         "}"
-        /* 마우스 페이지 이동 ◀/▶ (Phase 5) */
+        /* 마우스 페이지 이동 ◀/▶ (Phase 5)
+         * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 셀과 시각 비례 */
         "QPushButton#prevPageBtn, QPushButton#nextPageBtn {"
         "  color: #7f849c;"
         "  background: transparent;"
         "  border: none;"
         "  font-size: %7px;"
-        "  min-width: 22px;"
-        "  min-height: 22px;"
-        "  padding: 2px 6px;"
+        "  min-width: 28px;"
+        "  min-height: 28px;"
+        "  padding: 4px 10px;"
         "  border-radius: 4px;"
         "}"
         "QPushButton#prevPageBtn:hover, QPushButton#nextPageBtn:hover {"
