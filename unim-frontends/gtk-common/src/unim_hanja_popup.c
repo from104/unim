@@ -750,7 +750,9 @@ unim_hanja_popup_new(void)
 #if GTK_CHECK_VERSION(4, 0, 0)
     gtk_widget_set_focusable(popup->prev_page_btn, FALSE);
 #endif
-    gtk_widget_set_tooltip_text(popup->prev_page_btn, "이전 페이지");
+    /* English fallback — IM 모듈에 i18n 인프라(gettext) 부재. msgid 표기로 통일하여
+     * 영문 LANG 환경 부조화를 해소. PR 범위 비대화 방지 위해 .po 도입은 보류. */
+    gtk_widget_set_tooltip_text(popup->prev_page_btn, "Previous page");
     g_signal_connect(popup->prev_page_btn, "clicked",
                      G_CALLBACK(hanja_prev_page_clicked), popup);
 
@@ -766,7 +768,7 @@ unim_hanja_popup_new(void)
 #if GTK_CHECK_VERSION(4, 0, 0)
     gtk_widget_set_focusable(popup->next_page_btn, FALSE);
 #endif
-    gtk_widget_set_tooltip_text(popup->next_page_btn, "다음 페이지");
+    gtk_widget_set_tooltip_text(popup->next_page_btn, "Next page");
     g_signal_connect(popup->next_page_btn, "clicked",
                      G_CALLBACK(hanja_next_page_clicked), popup);
 

@@ -224,7 +224,8 @@ unim_special_popup_new(void)
 #if GTK_CHECK_VERSION(4, 0, 0)
     gtk_widget_set_focusable(popup->prev_page_btn, FALSE);
 #endif
-    gtk_widget_set_tooltip_text(popup->prev_page_btn, "이전 페이지");
+    /* English fallback — IM 모듈에 i18n 인프라 부재. msgid 표준으로 통일. */
+    gtk_widget_set_tooltip_text(popup->prev_page_btn, "Previous page");
     g_signal_connect(popup->prev_page_btn, "clicked",
                      G_CALLBACK(special_prev_page_clicked), popup);
 
@@ -239,7 +240,7 @@ unim_special_popup_new(void)
 #if GTK_CHECK_VERSION(4, 0, 0)
     gtk_widget_set_focusable(popup->next_page_btn, FALSE);
 #endif
-    gtk_widget_set_tooltip_text(popup->next_page_btn, "다음 페이지");
+    gtk_widget_set_tooltip_text(popup->next_page_btn, "Next page");
     g_signal_connect(popup->next_page_btn, "clicked",
                      G_CALLBACK(special_next_page_clicked), popup);
 

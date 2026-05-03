@@ -236,7 +236,8 @@ UnimEmojiPopup::UnimEmojiPopup(QWidget *parent)
     m_prevPageBtn->setFlat(true);
     m_prevPageBtn->setFocusPolicy(Qt::NoFocus);
     m_prevPageBtn->setCursor(Qt::PointingHandCursor);
-    m_prevPageBtn->setToolTip(QStringLiteral("이전 페이지"));
+    /* tr() — Qt 번역 시스템. .ts 미배포 시 영문 fallback. msgid 표준 일관성. */
+    m_prevPageBtn->setToolTip(QObject::tr("Previous page"));
     QObject::connect(m_prevPageBtn, &QPushButton::clicked, this, [this]() {
         if (m_pageChangeCallback) m_pageChangeCallback(0);
     });
@@ -252,7 +253,7 @@ UnimEmojiPopup::UnimEmojiPopup(QWidget *parent)
     m_nextPageBtn->setFlat(true);
     m_nextPageBtn->setFocusPolicy(Qt::NoFocus);
     m_nextPageBtn->setCursor(Qt::PointingHandCursor);
-    m_nextPageBtn->setToolTip(QStringLiteral("다음 페이지"));
+    m_nextPageBtn->setToolTip(QObject::tr("Next page"));
     QObject::connect(m_nextPageBtn, &QPushButton::clicked, this, [this]() {
         if (m_pageChangeCallback) m_pageChangeCallback(1);
     });
