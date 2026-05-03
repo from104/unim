@@ -1000,7 +1000,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 index,
                 response,
             } => {
-                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                // popup-owner 라우팅 (ToggleHanjaBookmark 와 동일 사유 — 마우스 클릭이
+                // GNOME extension 자체 context 로 들어와도 popup 은 GTK4_IM 등 다른
+                // context 에 살아있을 수 있다).
+                let target_id = resolve_popup_owner(&contexts, context_id);
+                let result = if let Some(engine) = contexts.get_mut(&target_id) {
                     engine.select_hanja(index)
                 } else {
                     None
@@ -1012,7 +1016,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                let target = if let Some(engine) = contexts.get_mut(&context_id) {
+                let target_id = resolve_popup_owner(&contexts, context_id);
+                let target = if let Some(engine) = contexts.get_mut(&target_id) {
                     // cancel 전에 hanja_target(원래 한글)을 저장하여 즉시 커밋할 수 있도록 반환
                     let t = engine.get_hanja_target().to_string();
                     let result = if !t.is_empty() { Some(t) } else { None };
@@ -1028,8 +1033,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
+                let target_id = resolve_popup_owner(&contexts, context_id);
                 let states = contexts
-                    .get(&context_id)
+                    .get(&target_id)
                     .map(|engine| engine.hanja_bookmark_states())
                     .unwrap_or_default();
                 let _ = response.send(states);
@@ -1140,7 +1146,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 index,
                 response,
             } => {
-                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                let target_id = resolve_popup_owner(&contexts, context_id);
+                let result = if let Some(engine) = contexts.get_mut(&target_id) {
                     engine.select_special_char(index).map(|c| c.to_string())
                 } else {
                     None
@@ -1152,7 +1159,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 context_id,
                 response,
             } => {
-                let target = if let Some(engine) = contexts.get_mut(&context_id) {
+                let target_id = resolve_popup_owner(&contexts, context_id);
+                let target = if let Some(engine) = contexts.get_mut(&target_id) {
                     // cancel 전에 special_char_target(원래 초성)을 저장하여 즉시 커밋할 수 있도록 반환
                     let t = engine.get_special_char_target().to_string();
                     let result = if !t.is_empty() { Some(t) } else { None };

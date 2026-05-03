@@ -625,6 +625,38 @@ impl InputMethodService {
             "korean_custom_layout" => config.engine.korean.layout.clone(),
             "popup_mode" => config.engine.popup_mode.name().to_string(),
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
+            "auto_typefix_forward" => config.engine.auto_typefix.forward.to_string(),
+            "auto_typefix_reverse" => config.engine.auto_typefix.reverse.to_string(),
+            "auto_typefix_kor_threshold" => {
+                config.engine.auto_typefix.kor_syllable_threshold.to_string()
+            }
+            "auto_typefix_eng_min_length" => {
+                config.engine.auto_typefix.eng_word_min_length.to_string()
+            }
+            "auto_typefix_forward_time_window_ms" => {
+                config.engine.auto_typefix.forward_time_window_ms.to_string()
+            }
+            "auto_typefix_reverse_time_window_ms" => {
+                config.engine.auto_typefix.reverse_time_window_ms.to_string()
+            }
+            "auto_typefix_skip_on_english_word" => {
+                config.engine.auto_typefix.skip_on_english_word.to_string()
+            }
+            "auto_typefix_skip_on_complete_syllable" => {
+                config.engine.auto_typefix.skip_on_complete_syllable.to_string()
+            }
+            "auto_typefix_rollback_detection" => {
+                config.engine.auto_typefix.rollback_detection.to_string()
+            }
+            "auto_typefix_tentative_expiry_hours" => {
+                config.engine.auto_typefix.tentative_expiry_hours.to_string()
+            }
+            "auto_typefix_observation_timeout_secs" => {
+                config.engine.auto_typefix.observation_timeout_secs.to_string()
+            }
+            "auto_typefix_user_dict_enabled" => {
+                config.engine.auto_typefix.user_dict_enabled.to_string()
+            }
             "auto_english" => config.engine.auto_english.enabled.to_string(),
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "emoji_popup" => config.engine.emoji_popup.enabled.to_string(),
@@ -765,6 +797,78 @@ impl InputMethodService {
                 }
                 "auto_typefix" => {
                     config.engine.auto_typefix.enabled = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_typefix_forward" => {
+                    config.engine.auto_typefix.forward = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_typefix_reverse" => {
+                    config.engine.auto_typefix.reverse = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_typefix_kor_threshold" => {
+                    let v: u8 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.auto_typefix.kor_syllable_threshold = v;
+                    config.engine.auto_typefix.clamp_ranges();
+                }
+                "auto_typefix_eng_min_length" => {
+                    let v: u8 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.auto_typefix.eng_word_min_length = v;
+                    config.engine.auto_typefix.clamp_ranges();
+                }
+                "auto_typefix_forward_time_window_ms" => {
+                    let v: u32 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.auto_typefix.forward_time_window_ms = v;
+                    config.engine.auto_typefix.clamp_ranges();
+                }
+                "auto_typefix_reverse_time_window_ms" => {
+                    let v: u32 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.auto_typefix.reverse_time_window_ms = v;
+                    config.engine.auto_typefix.clamp_ranges();
+                }
+                "auto_typefix_skip_on_english_word" => {
+                    config.engine.auto_typefix.skip_on_english_word = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_typefix_skip_on_complete_syllable" => {
+                    config.engine.auto_typefix.skip_on_complete_syllable = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_typefix_rollback_detection" => {
+                    config.engine.auto_typefix.rollback_detection = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "auto_typefix_tentative_expiry_hours" => {
+                    let v: u16 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.auto_typefix.tentative_expiry_hours = v;
+                    config.engine.auto_typefix.clamp_ranges();
+                }
+                "auto_typefix_observation_timeout_secs" => {
+                    let v: u8 = value.parse().map_err(|_| {
+                        zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                    })?;
+                    config.engine.auto_typefix.observation_timeout_secs = v;
+                    config.engine.auto_typefix.clamp_ranges();
+                }
+                "auto_typefix_user_dict_enabled" => {
+                    config.engine.auto_typefix.user_dict_enabled = value
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
                 }
@@ -1307,6 +1411,75 @@ impl InputContextHandler {
             path,
             last_cursor_rect,
             last_active_input_context_path,
+        }
+    }
+
+    /// `CommitText` 와 `HidePopup` 시그널을 popup-owner path 로 redirect 발행.
+    ///
+    /// GNOME extension 자체 InputContext 에서 RPC (SelectHanja/CancelHanja/
+    /// SelectSpecialChar/CancelSpecialChar) 가 들어와도, 실제 입력 대상은 다른
+    /// frontend (GTK4_IM 등) 의 path 다. last_active path 가 popup-owner 와
+    /// 일치한다는 가정하에 그 path 로 시그널을 발행해 사용자 앱에 commit 도달하게 한다.
+    /// last_active 가 비어있으면 self.path 로 fallback (호출자 = popup-owner 인 단순
+    /// 케이스 — 기존 동작 유지).
+    ///
+    /// `text` 가 비어있으면 `CommitText` 는 발행하지 않고 `HidePopup` 만 발행한다.
+    async fn redirect_commit_and_hide(&self, text: &str) {
+        let target_path_str = self
+            .last_active_input_context_path
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| self.path.clone());
+        let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] redirect_commit_and_hide: 잘못된 path '{}': {} — skip",
+                    target_path_str,
+                    e
+                );
+                return;
+            }
+        };
+        if !text.is_empty() {
+            let r = self
+                .connection
+                .emit_signal(
+                    None::<&str>,
+                    &path,
+                    "org.atit.unim.InputContext",
+                    "CommitText",
+                    &(text.to_string(),),
+                )
+                .await;
+            if let Err(e) = r {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] redirect_commit_and_hide CommitText 발행 실패: {} (path={})",
+                    e,
+                    target_path_str
+                );
+            }
+        }
+        let r = self
+            .connection
+            .emit_signal(
+                None::<&str>,
+                &path,
+                "org.atit.unim.InputContext",
+                "HidePopup",
+                &(),
+            )
+            .await;
+        if let Err(e) = r {
+            unim_log!(
+                "DBUS",
+                "[DBus] redirect_commit_and_hide HidePopup 발행 실패: {} (path={})",
+                e,
+                target_path_str
+            );
         }
     }
 }
@@ -2137,7 +2310,7 @@ impl InputContextHandler {
     /// 반환값: 선택된 한자 (실패 시 빈 문자열)
     async fn select_hanja(
         &self,
-        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(signal_context)] _signal_ctx: SignalContext<'_>,
         index: u32,
     ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
@@ -2156,14 +2329,10 @@ impl InputContextHandler {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
             .unwrap_or_default();
 
-        // 선택된 한자를 CommitText 시그널로 프론트엔드에 전달
-        if !hanja.is_empty() {
-            Self::commit_text(&signal_ctx, &hanja).await.ok();
-        }
-
-        // 마우스 클릭 선택은 ProcessKeyEvent를 거치지 않으므로
-        // HidePopup 시그널을 여기서 명시적으로 발행해야 함
-        Self::hide_popup(&signal_ctx).await.ok();
+        // CommitText / HidePopup 을 popup-owner path 로 redirect 발행 — GNOME extension 자체
+        // context 에서 RPC 가 들어와도 commit 은 GTK4_IM 등 실제 입력 대상 path 로 보낸다.
+        // last_active path 가 없으면 self.path 로 fallback (기존 동일 path 동작 보존).
+        self.redirect_commit_and_hide(&hanja).await;
 
         unim_log!(
             "DBUS",
@@ -2341,7 +2510,7 @@ impl InputContextHandler {
     /// 한자 모드 취소 (남은 preedit을 커밋하고 반환)
     async fn cancel_hanja(
         &self,
-        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(signal_context)] _signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
 
@@ -2354,8 +2523,11 @@ impl InputContextHandler {
             .ok();
 
         let commit_text = if let Ok(Some(preedit)) = response_rx.await {
+            // CommitText 를 popup-owner path 로 redirect (select_hanja 와 동일 사유).
+            // HidePopup 도 함께 발행 — popup 외부 마우스 클릭 cancel 후 GTK4_IM 모듈이
+            // popup 을 닫게 한다.
             if !preedit.is_empty() {
-                Self::commit_text(&signal_ctx, &preedit).await.ok();
+                self.redirect_commit_and_hide(&preedit).await;
             }
             preedit
         } else {
@@ -2433,7 +2605,7 @@ impl InputContextHandler {
     /// 반환값: 선택된 특수문자 (실패 시 빈 문자열)
     async fn select_special_char(
         &self,
-        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(signal_context)] _signal_ctx: SignalContext<'_>,
         index: u32,
     ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
@@ -2452,14 +2624,8 @@ impl InputContextHandler {
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
             .unwrap_or_default();
 
-        // 선택된 특수문자를 CommitText 시그널로 프론트엔드에 전달
-        if !ch.is_empty() {
-            Self::commit_text(&signal_ctx, &ch).await.ok();
-        }
-
-        // 마우스 클릭 선택은 ProcessKeyEvent를 거치지 않으므로
-        // HidePopup 시그널을 여기서 명시적으로 발행해야 함
-        Self::hide_popup(&signal_ctx).await.ok();
+        // CommitText / HidePopup 을 popup-owner path 로 redirect (select_hanja 와 동일).
+        self.redirect_commit_and_hide(&ch).await;
 
         unim_log!(
             "DBUS",
@@ -2474,7 +2640,7 @@ impl InputContextHandler {
     /// 특수문자 모드 취소 (남은 preedit을 커밋하고 반환)
     async fn cancel_special_char(
         &self,
-        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        #[zbus(signal_context)] _signal_ctx: SignalContext<'_>,
     ) -> zbus::fdo::Result<String> {
         let (response_tx, response_rx) = oneshot::channel();
 
@@ -2488,7 +2654,7 @@ impl InputContextHandler {
 
         let commit_text = if let Ok(Some(preedit)) = response_rx.await {
             if !preedit.is_empty() {
-                Self::commit_text(&signal_ctx, &preedit).await.ok();
+                self.redirect_commit_and_hide(&preedit).await;
             }
             preedit
         } else {
