@@ -308,8 +308,9 @@ export class UnimDbusIME {
                     : this._adjustCursorRect(cx, cy, cw, ch);
                 this._onShowSpecial(target, characters, topRow, cursorRect);
             } else if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
-                // payload: (target_cat_id, items, top_row, recent, categories, x, y, w, h)
+                // payload: (target_cat_id, items, top_row, recent, categories, x, y, w, h, home_row)
                 // categories 는 (id, ko, en, count) 튜플 9개.
+                // home_row 는 카테고리 단축키 표시용 9 문자 (영문 키맵별 변환).
                 const [
                     targetCatId,
                     items,
@@ -317,6 +318,7 @@ export class UnimDbusIME {
                     recent,
                     categoriesRaw,
                     cx, cy, cw, ch,
+                    homeRow,
                 ] = parameters.deep_unpack();
                 const cursorRect = isOwnContext
                     ? { x: cx, y: cy, width: cw, height: ch }
@@ -327,7 +329,8 @@ export class UnimDbusIME {
                     topRow,
                     recent,
                     categoriesRaw,
-                    cursorRect
+                    cursorRect,
+                    homeRow || ''
                 );
             } else if (signalName === 'HidePopup' && this._onHidePopup) {
                 this._onHidePopup();

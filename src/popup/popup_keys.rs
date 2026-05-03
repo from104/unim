@@ -28,8 +28,10 @@ pub enum PopupKind {
 pub enum PopupKey {
     /// 숫자 1-9 (1-based)
     Number(u8),
-    /// QWERTYUIO 물리 위치 (0-based: Q=0, W=1, ..., O=8)
+    /// QWERTYUIO 물리 위치 (0-based: Q=0, W=1, ..., O=8) — 한자 expanded·특수문자 열 점프
     Letter(u8),
+    /// ASDFGHJKL 물리 위치 (0-based: A=0, S=1, ..., L=8) — 이모지 카테고리 단축키
+    CatLetter(u8),
     Up,
     Down,
     Left,
@@ -241,6 +243,8 @@ impl PopupState {
 
             PopupKey::Period => PopupKeyResult::Consumed,
             PopupKey::Modifier => PopupKeyResult::Consumed,
+            // CatLetter 는 이모지 전용 키 — 특수문자 모드에서는 무관, 키 소비.
+            PopupKey::CatLetter(_) => PopupKeyResult::Consumed,
             PopupKey::Other | PopupKey::Backspace => PopupKeyResult::NotHandled,
         }
     }
@@ -419,6 +423,8 @@ impl PopupState {
                     PopupKeyResult::NotHandled
                 }
             }
+            // CatLetter 는 이모지 전용 키 — 한자 모드에서는 무관, 키 소비.
+            PopupKey::CatLetter(_) => PopupKeyResult::Consumed,
             PopupKey::Other => PopupKeyResult::NotHandled,
         }
     }
@@ -533,6 +539,22 @@ impl PopupState {
                     self.sel_row = 0;
                 }
                 PopupKeyResult::Updated
+            }
+
+            // CatLetter: 홈 행(ASDFGHJKL 위치) 단축키로 9 카테고리 직접 점프.
+            // cat_idx 가 categories 범위 밖이면 무동작 (Consumed).
+            PopupKey::CatLetter(cat_idx) => {
+                let cat_total = self.categories.len();
+                let target = cat_idx as usize;
+                if target < cat_total && target != self.cat_index {
+                    self.cat_index = target;
+                    self.current_page = 0;
+                    self.sel_row = 0;
+                    self.sel_col = 0;
+                    PopupKeyResult::Updated
+                } else {
+                    PopupKeyResult::Consumed
+                }
             }
 
             // Tab / ShiftTab: 카테고리 순환 (cat_index 만 갱신, emoji pool 은 엔진이 교체).

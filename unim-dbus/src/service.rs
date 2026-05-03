@@ -204,6 +204,8 @@ pub struct EmojiShowPayload {
     pub recent: Vec<String>,
     /// 카테고리 메타 9 튜플 (id, ko, en, total).
     pub categories: Vec<(String, String, String, u32)>,
+    /// 현재 활성 영문 키맵의 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
+    pub home_row: String,
 }
 
 /// 한자 후보 응답
@@ -1043,7 +1045,7 @@ impl InputMethodService {
                     .unwrap_or_else(|| crate::INPUT_METHOD_PATH.to_string());
                 let path = zbus::zvariant::ObjectPath::try_from(target_path_str.as_str())
                     .map_err(|e| zbus::fdo::Error::Failed(format!("Invalid path: {}", e)))?;
-                let (target_cat_id, items, top_row, recent, categories) =
+                let (target_cat_id, items, top_row, recent, categories, home_row) =
                     build_emoji_show_payload(&english_layout);
                 let result = self
                     .connection
@@ -1062,6 +1064,7 @@ impl InputMethodService {
                             y,
                             w,
                             h,
+                            home_row.as_str(),
                         ),
                     )
                     .await;
@@ -1070,7 +1073,7 @@ impl InputMethodService {
                 } else {
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopupV2(global) 시그널 발행: path={}, cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                        "[DBus] ShowEmojiPopupV2(global) 시그널 발행: path={}, cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
                         target_path_str,
                         target_cat_id,
                         items.len(),
@@ -1079,7 +1082,8 @@ impl InputMethodService {
                         x,
                         y,
                         w,
-                        h
+                        h,
+                        home_row
                     );
                 }
             }
@@ -1192,6 +1196,7 @@ impl InputMethodService {
                     y,
                     w,
                     h,
+                    payload.home_row.as_str(),
                 ),
             )
             .await;
@@ -1351,13 +1356,13 @@ fn detect_frontend_type(client_name: &str) -> &'static str {
     }
 }
 
-/// `ShowEmojiPopupV2` 발행 시 들어가는 5-튜플 payload 를 만든다.
+/// `ShowEmojiPopupV2` 발행 시 들어가는 6-튜플 payload 를 만든다.
 ///
 /// `trigger_action("emoji_popup")` 처럼 엔진 파이프라인을 거치지 않는 외부 우회
 /// 경로에서 사용. 시작 카테고리는 항상 `Recent`(MRU) 이며 `items` 도 동일한 MRU
 /// 리스트를 그대로 담는다 (popup_state cat_index=0 의 동작과 일치).
 ///
-/// 반환: `(target_cat_id, items, top_row, recent, categories)`.
+/// 반환: `(target_cat_id, items, top_row, recent, categories, home_row)`.
 fn build_emoji_show_payload(
     english_layout: &str,
 ) -> (
@@ -1366,6 +1371,7 @@ fn build_emoji_show_payload(
     String,
     Vec<String>,
     Vec<(String, String, String, u32)>,
+    String,
 ) {
     let recent = unim::emoji::load_recent();
     let mut categories: Vec<(String, String, String, u32)> = Vec::with_capacity(9);
@@ -1377,12 +1383,14 @@ fn build_emoji_show_payload(
     ));
     categories.extend(unim::emoji::list_categories());
     let top_row = unim::config::english_layout_top_row_labels(english_layout).to_string();
+    let home_row = unim::config::english_layout_home_row_labels(english_layout).to_string();
     (
         "Recent".to_string(),
         recent.clone(),
         top_row,
         recent,
         categories,
+        home_row,
     )
 }
 
@@ -1590,6 +1598,7 @@ impl InputContextHandler {
                     top_row,
                     recent,
                     categories,
+                    home_row,
                 } if is_standalone => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
                     // PR #5: v1 4-인자 시그널 제거. ShowEmojiPopupV2 single-emit.
@@ -1604,12 +1613,13 @@ impl InputContextHandler {
                         y,
                         w,
                         h,
+                        home_row,
                     )
                     .await
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                        "[DBus] ShowEmojiPopupV2 시그널 발행: target='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
                         target_cat_id,
                         items.len(),
                         recent.len(),
@@ -1617,7 +1627,8 @@ impl InputContextHandler {
                         x,
                         y,
                         w,
-                        h
+                        h,
+                        home_row
                     );
                 }
                 PopupAction::HidePopup => {
@@ -1979,6 +1990,7 @@ impl InputContextHandler {
         cursor_y: i32,
         cursor_width: i32,
         cursor_height: i32,
+        home_row: &str,
     ) -> zbus::Result<()>;
 
     /// 팝업 숨김 시그널
@@ -2071,7 +2083,7 @@ impl InputContextHandler {
                     return Ok(());
                 }
                 let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
-                let (target_cat_id, items, top_row, recent, categories) =
+                let (target_cat_id, items, top_row, recent, categories, home_row) =
                     build_emoji_show_payload(&cfg_snapshot.engine.english.layout);
                 Self::show_emoji_popup_v2(
                     &signal_ctx,
@@ -2084,12 +2096,13 @@ impl InputContextHandler {
                     y,
                     w,
                     h,
+                    &home_row,
                 )
                 .await
                 .ok();
                 unim_log!(
                     "DBUS",
-                    "[DBus] ShowEmojiPopupV2 시그널 발행 (trigger_action): cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                    "[DBus] ShowEmojiPopupV2 시그널 발행 (trigger_action): cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}), home='{}'",
                     target_cat_id,
                     items.len(),
                     recent.len(),
@@ -2097,7 +2110,8 @@ impl InputContextHandler {
                     x,
                     y,
                     w,
-                    h
+                    h,
+                    home_row
                 );
             }
             // 향후 확장 지점 (예: "hanja_popup", "special_popup")

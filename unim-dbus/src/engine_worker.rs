@@ -1470,13 +1470,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         &config.engine.english.layout,
                     )
                     .to_string();
+                    let home_row = unim::config::english_layout_home_row_labels(
+                        &config.engine.english.layout,
+                    )
+                    .to_string();
                     unim_log!(
                         "ENGINE_WORKER",
-                        "[Engine Worker] SetEmojiCategory(idx={}): cat='{}', items={}, cats={}",
+                        "[Engine Worker] SetEmojiCategory(idx={}): cat='{}', items={}, cats={}, home='{}'",
                         idx,
                         target_cat_id,
                         items.len(),
-                        cats.len()
+                        cats.len(),
+                        home_row
                     );
                     Some(EmojiShowPayload {
                         target_cat_id,
@@ -1484,6 +1489,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         top_row,
                         recent,
                         categories: cats,
+                        home_row,
                     })
                 })();
                 let _ = response.send(payload);

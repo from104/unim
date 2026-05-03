@@ -55,6 +55,16 @@ impl InputEngine {
             KeyCode::U => PopupKey::Letter(6),
             KeyCode::I => PopupKey::Letter(7),
             KeyCode::O => PopupKey::Letter(8),
+            // 이모지 카테고리 단축키: 홈 행 물리 키 위치 (ASDFGHJKL) 기준 (레이아웃 무관)
+            KeyCode::A => PopupKey::CatLetter(0),
+            KeyCode::S => PopupKey::CatLetter(1),
+            KeyCode::D => PopupKey::CatLetter(2),
+            KeyCode::F => PopupKey::CatLetter(3),
+            KeyCode::G => PopupKey::CatLetter(4),
+            KeyCode::H => PopupKey::CatLetter(5),
+            KeyCode::J => PopupKey::CatLetter(6),
+            KeyCode::K => PopupKey::CatLetter(7),
+            KeyCode::L => PopupKey::CatLetter(8),
             _ => PopupKey::Other,
         }
     }
@@ -139,6 +149,7 @@ impl InputEngine {
                                     top_row: self.top_row_labels.clone(),
                                     recent,
                                     categories: cats,
+                                    home_row: self.home_row_labels.clone(),
                                 });
                                 return InputResult::preedit_updated();
                             }
@@ -356,6 +367,7 @@ impl InputEngine {
             top_row: self.top_row_labels.clone(),
             recent,
             categories: cat_payload,
+            home_row: self.home_row_labels.clone(),
         });
     }
 

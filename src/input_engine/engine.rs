@@ -78,6 +78,8 @@ pub struct InputEngine {
     pub(super) popup_pending_action: Option<PopupAction>,
     /// 영어 레이아웃 top_row_labels 캐시 (특수문자 팝업용)
     pub(super) top_row_labels: String,
+    /// 영어 레이아웃 home_row_labels 캐시 (이모지 카테고리 단축키 표시용)
+    pub(super) home_row_labels: String,
     /// 현재 입력 필드의 목적 (비밀번호 등)
     pub(super) content_purpose: ContentPurpose,
     /// Surrounding text (커서 주변 텍스트)
@@ -160,6 +162,10 @@ impl InputEngine {
             popup_state: None,
             popup_pending_action: None,
             top_row_labels: crate::config::english_layout_top_row_labels(
+                &config.engine.english.layout,
+            )
+            .to_string(),
+            home_row_labels: crate::config::english_layout_home_row_labels(
                 &config.engine.english.layout,
             )
             .to_string(),

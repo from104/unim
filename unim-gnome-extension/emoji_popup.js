@@ -246,13 +246,16 @@ export class EmojiPopup {
      *   extension 이 `_dbusIME.setEmojiCategory(idx)` RPC 를 호출하도록 한다.
      *   생략하면 탭 클릭 비활성 (키보드 Tab/ShiftTab 만 동작).
      * @param {Function} [onChangePage] - 풋터 ◀/▶ 클릭 시 호출 (direction: 0=Prev, 1=Next).
+     * @param {string} [homeRow] - 영문 키맵 홈 행 9 문자 (카테고리 단축키 표시).
+     *   비어 있으면 단축키 라벨 "(키)" 부분을 생략한다.
      */
-    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick, onChangePage) {
+    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick, onChangePage, homeRow) {
         if (!this._container) return;
 
         this._items = Array.isArray(items) ? items.slice() : [];
         this._currentCatId = targetCatId || 'Recent';
         this._topRow = topRow || '';
+        this._homeRow = typeof homeRow === 'string' ? homeRow : '';
         this._categories = (categoriesRaw || []).map(([id, ko, en, count]) => ({
             id, ko, en, count: Number(count) || 0,
         }));
@@ -386,7 +389,14 @@ export class EmojiPopup {
         const hasClickHandler = typeof this._onTabClick === 'function';
         for (let i = 0; i < this._categories.length; i++) {
             const cat = this._categories[i];
-            const label = TAB_LABEL_KO[cat.id] || cat.ko || cat.en || cat.id;
+            const baseLabel = TAB_LABEL_KO[cat.id] || cat.ko || cat.en || cat.id;
+            // 홈 행 단축키 표시: "(키)" 형태로 라벨 뒤에 부착.
+            // 영문 키맵에 따라 표시 문자가 달라진다 (qwerty→ASDFGHJKL, dvorak→AOEUIDHTN ...).
+            // homeRow 가 비어 있거나 i 가 9를 넘으면 단축키 표기 생략.
+            const keyChar = (this._homeRow && i < this._homeRow.length)
+                ? this._homeRow[i]
+                : '';
+            const label = keyChar ? `${baseLabel} (${keyChar})` : baseLabel;
             const btn = new St.Button({
                 style_class: 'emoji-tab-vertical',
                 label,

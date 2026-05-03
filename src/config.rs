@@ -190,6 +190,21 @@ pub fn english_layout_top_row_labels(name: &str) -> &'static str {
     }
 }
 
+/// 내장 영어 자판의 홈 행(3rd row) 앞 9개 키 레이블 — 이모지 카테고리 단축키 표시용.
+/// 물리 키 위치 (qwerty 의 ASDFGHJKL) 는 `KeyCode::A..L` 로 고정 매핑되며, 본 함수는
+/// 사용자에게 보일 레이블만 레이아웃에 따라 변환한다.
+/// 내장이 아니면 빈 문자열.
+pub fn english_layout_home_row_labels(name: &str) -> &'static str {
+    match normalize_english_layout_name(name).as_str() {
+        ENGLISH_LAYOUT_QWERTY => "ASDFGHJKL",
+        ENGLISH_LAYOUT_DVORAK => "AOEUIDHTN",
+        ENGLISH_LAYOUT_COLEMAK => "ARSTDHNEI",
+        ENGLISH_LAYOUT_COLEMAK_DH => "ARSTGMNEI",
+        ENGLISH_LAYOUT_WORKMAN => "ASHTGYNEO",
+        _ => "",
+    }
+}
+
 /// 입력 필드의 목적 (Content Type Hint)
 ///
 /// 프론트엔드가 감지한 입력 필드의 용도를 나타냅니다.

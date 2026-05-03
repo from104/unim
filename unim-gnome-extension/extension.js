@@ -253,7 +253,7 @@ export default class UnimExtension extends Extension {
                         }
                     );
                 },
-                onShowEmoji: (targetCatId, items, topRow, recent, categoriesRaw, cursorRect) => {
+                onShowEmoji: (targetCatId, items, topRow, recent, categoriesRaw, cursorRect, homeRow) => {
                     // 다른 팝업 먼저 닫기
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
@@ -271,7 +271,8 @@ export default class UnimExtension extends Extension {
                         // ShowEmojiPopupV2 를 재발행하므로 본 onShowEmoji 가 다시 호출되어 재구성.
                         (idx) => this._dbusIME?.setEmojiCategory(idx),
                         // ◀/▶ 풋터 클릭 → PopupChangePage RPC.
-                        (direction) => this._dbusIME?.popupChangePage(direction)
+                        (direction) => this._dbusIME?.popupChangePage(direction),
+                        homeRow || ''
                     );
                 },
                 onHidePopup: () => {

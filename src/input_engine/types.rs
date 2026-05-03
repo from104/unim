@@ -73,6 +73,8 @@ pub enum PopupAction {
         top_row: String,
         recent: Vec<String>,
         categories: Vec<(String, String, String, u32)>,
+        /// 활성 영문 키맵 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
+        home_row: String,
     },
     /// 팝업 숨김
     HidePopup,
