@@ -330,12 +330,11 @@ export class HanjaPopup {
         const pageStart = this._currentPage * pageSize;
         const pageItems = Math.max(0, Math.min(pageSize, total - pageStart));
         if (isExpanded) {
-            // expanded: col 우선 인덱싱. 마지막 페이지에서 pageItems가 81 미만이면
-            // cols/rows를 줄여 빈 셀을 최소화한다 (engine과 동일 정책: col 우선이므로
-            // rows는 MAX_ROWS, cols는 ceil(items/rows)).
-            this._rows = Math.min(MAX_ROWS, Math.max(1, pageItems));
-            this._cols = Math.min(MAX_COLS, Math.max(1, Math.ceil(pageItems / MAX_ROWS)));
-            if (this._rows > MAX_ROWS) this._rows = MAX_ROWS;
+            // expanded: 81 미만이어도 항상 9×9 그리드 고정.
+            // 카테고리/페이지 전환 시 그리드가 출렁이지 않도록 시각 일관성 유지 —
+            // 빈 셀은 _globalIndex 가 -1 을 반환해 reactive=false 로 자동 비활성.
+            this._rows = MAX_ROWS;
+            this._cols = MAX_COLS;
         } else {
             this._rows = Math.max(1, Math.min(COMPACT_PAGE_SIZE, pageItems));
             this._cols = 1;
@@ -392,15 +391,22 @@ export class HanjaPopup {
     updateFromNavigate(page, totalPages, _selected, rows, cols, selRow, selCol) {
         if (!this.isVisible) return;
 
+        // expanded 모드(엔진이 보내는 cols>1 또는 현재 _cols>1)는 항상 9×9 고정.
+        // 엔진의 popup_state.cols 는 page_chars 에 따라 동적이지만 GNOME extension
+        // 표시는 81 미만이어도 9×9 표를 유지한다 (빈 셀 처리는 _globalIndex 자동).
+        const isExpanded = (cols > 1) || (this._cols > 1);
+        const newCols = isExpanded ? MAX_COLS : (cols > 0 ? cols : 1);
+        const newRows = isExpanded ? MAX_ROWS : (rows > 0 ? rows : 1);
+
         const layoutChanged =
             this._currentPage !== page ||
-            this._cols !== cols ||
-            this._rows !== rows;
+            this._cols !== newCols ||
+            this._rows !== newRows;
 
         this._currentPage = page;
         this._totalPages = totalPages;
-        this._rows = rows > 0 ? rows : 1;
-        this._cols = cols > 0 ? cols : 1;
+        this._rows = newRows;
+        this._cols = newCols;
         this._selRow = selRow;
         this._selCol = selCol;
 
