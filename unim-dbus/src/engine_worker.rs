@@ -59,6 +59,31 @@ fn extract_app_id(window_id: &str) -> &str {
     window_id.split(':').next().unwrap_or(window_id)
 }
 
+/// Popup RPC (PopupChangePage / ToggleHanjaBookmark) 라우팅 보정.
+///
+/// 호출 context (`caller`) 에 popup 이 활성이면 그대로 반환. 비활성이면
+/// `popup_state` 가 `Some` 인 다른 context 를 찾아 그 ID 를 반환한다 — GNOME
+/// extension 은 자체 InputContext 를 두지만, 실제 popup 은 다른 frontend
+/// (GTK4_IM, Qt, XIM 등) 의 context 에 살 수 있다. 시그널은 글로벌 구독으로
+/// 모두 받지만 RPC 만 호출 context 로 가는 비대칭을 보정한다.
+///
+/// 활성 popup 을 가진 context 가 없으면 `caller` 를 그대로 반환 — 호출자가
+/// "no popup" no-op 분기로 빠지게 한다.
+fn resolve_popup_owner(contexts: &HashMap<u32, InputEngine>, caller: u32) -> u32 {
+    if contexts
+        .get(&caller)
+        .and_then(|e| e.popup_state())
+        .is_some()
+    {
+        return caller;
+    }
+    contexts
+        .iter()
+        .find(|(_, e)| e.popup_state().is_some())
+        .map(|(id, _)| *id)
+        .unwrap_or(caller)
+}
+
 /// Ctrl+Z AutoTypeFix 되돌리기 시도.
 /// 해당 컨텍스트에 활성 UndoState가 있고 키가 Ctrl+Z이면 되돌리기 응답을 반환한다.
 /// 그렇지 않으면 None (일반 키 처리 계속).
@@ -1015,7 +1040,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 index,
                 response,
             } => {
-                let result = if let Some(engine) = contexts.get_mut(&context_id) {
+                // popup-owner 로 라우팅: 호출 context (예: GNOME extension 자체 context)
+                // 에 popup 이 없을 수 있다. 그 경우 popup_state 가 활성인 다른 context 로
+                // fallback 한다. 구독은 모든 context의 시그널을 글로벌로 받는데,
+                // RPC 만 호출 context 로 가는 비대칭을 보정.
+                let target_id = resolve_popup_owner(&contexts, context_id);
+                let result = if let Some(engine) = contexts.get_mut(&target_id) {
                     let toggled = engine.toggle_hanja_bookmark(index);
                     // 토글이 자체 emit한 PopupAction(HanjaCandidatesReordered)을
                     // 함께 빼내 RPC 호출자가 시그널로 발행하도록 한다.
@@ -1032,8 +1062,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 direction,
                 response,
             } => {
+                // popup-owner 로 라우팅 (ToggleHanjaBookmark 와 동일 사유).
+                let target_id = resolve_popup_owner(&contexts, context_id);
                 let payload: Option<PopupNavigatePayload> =
-                    if let Some(engine) = contexts.get_mut(&context_id) {
+                    if let Some(engine) = contexts.get_mut(&target_id) {
                         // direction <= 0: Prev, > 0: Next.
                         let dir = if direction <= 0 {
                             PageDirection::Prev

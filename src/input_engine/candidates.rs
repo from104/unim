@@ -193,11 +193,16 @@ impl InputEngine {
         let was_state = self.hanja_bookmarks.is_bookmarked(&self.hanja_target, &hanja);
         let new_state = self.hanja_bookmarks.toggle(&self.hanja_target, &hanja);
 
-        // (1) 후보 재정렬 (즐겨찾기 우선, stable sort)
+        // (1) 후보 재정렬 — 자연 빈도순(dict.search)부터 다시 받아서 즐겨찾기 우선으로
+        // stable sort 한다. 이전 로직(`self.hanja_candidates.sort_by_key(...)`)은
+        // 해제(true→false) 시 모든 키가 동일해져 stable sort 가 입력 순서를 보존하므로
+        // 방금 해제된 한자가 0번 자리에 그대로 머물렀다 — 자연 위치로 점프 못함.
+        // dict 에서 빈도순을 매번 다시 받아 정렬 기반을 리셋한다.
         let target = self.hanja_target.clone();
+        let mut fresh = self.hanja_dict.search(&target);
         let bookmarks_ref = &self.hanja_bookmarks;
-        self.hanja_candidates
-            .sort_by_key(|e| !bookmarks_ref.is_bookmarked(&target, &e.hanja));
+        fresh.sort_by_key(|e| !bookmarks_ref.is_bookmarked(&target, &e.hanja));
+        self.hanja_candidates = fresh;
 
         // (2) 토글된 한자의 새 위치 산출
         let new_index = self
