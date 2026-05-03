@@ -656,8 +656,8 @@ impl KeyCode {
     }
 }
 
-/// JSON 키맵의 행 이름 (1st, 2nd, 3nd, 4th)
-const ROW_NAMES: [&str; 4] = ["1st", "2nd", "3nd", "4th"];
+/// JSON 키맵의 행 이름 (1st, 2nd, 3rd, 4th)
+const ROW_NAMES: [&str; 4] = ["1st", "2nd", "3rd", "4th"];
 
 /// 레이아웃별 물리키→문자 매핑 테이블 (JSON 키맵에서 동적 생성).
 /// key: 영어 프로필 이름 (e.g. "dvorak") → value: rows[row_index][col_index] = (lower, upper)

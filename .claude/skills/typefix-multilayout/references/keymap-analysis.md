@@ -74,7 +74,7 @@ auto_typefix::check_reverse(buf, atf_config, config.engine.english.layout)
     "lower": {
       "1st": ["`","1","2",...],     // 숫자행
       "2nd": ["'",",",".","p",...], // 상단 알파벳행
-      "3nd": ["a","o","e","u",...], // 홈행
+      "3rd": ["a","o","e","u",...], // 홈행
       "4th": [";","q","j","k",...}  // 하단 알파벳행
     },
     "upper": { ... }               // Shift 상태

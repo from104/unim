@@ -223,8 +223,8 @@ mod tests {
             "type": "3bul",
             "inherits": "no_such_base",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             }
         }"#;
         let profile = parse_profile_str(json).unwrap();
@@ -241,16 +241,16 @@ mod tests {
             "a.json",
             r#"{"schema_version":1,"language":"korean","name":"a","type":"3bul",
                 "inherits":"b",
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}}}"#,
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}}}"#,
         );
         write(
             &dir,
             "b.json",
             r#"{"schema_version":1,"language":"korean","name":"b","type":"3bul",
                 "inherits":"a",
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}}}"#,
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}}}"#,
         );
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         let a = reg.find_raw("a").unwrap();
@@ -273,8 +273,8 @@ mod tests {
             "self.json",
             r#"{"schema_version":1,"language":"korean","name":"self_loop","type":"3bul",
                 "inherits":"self_loop",
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}}}"#,
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}}}"#,
         );
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         let p = reg.find_raw("self_loop").unwrap();
@@ -292,8 +292,8 @@ mod tests {
             "base.json",
             r#"{"schema_version":1,"language":"english","name":"row_base","type":"qwerty",
                 "layout":{
-                    "upper":{"1st":[],"2nd":["A","B"],"3nd":[],"4th":[]},
-                    "lower":{"1st":[],"2nd":["a","b"],"3nd":["c"],"4th":[]}}}"#,
+                    "upper":{"1st":[],"2nd":["A","B"],"3rd":[],"4th":[]},
+                    "lower":{"1st":[],"2nd":["a","b"],"3rd":["c"],"4th":[]}}}"#,
         );
         write(
             &dir,
@@ -301,8 +301,8 @@ mod tests {
             r#"{"schema_version":1,"language":"english","name":"row_child","type":"qwerty",
                 "inherits":"row_base",
                 "layout":{
-                    "upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                    "lower":{"1st":[],"2nd":["X","Y"],"3nd":[],"4th":[]}}}"#,
+                    "upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                    "lower":{"1st":[],"2nd":["X","Y"],"3rd":[],"4th":[]}}}"#,
         );
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         let child = reg.find_raw("row_child").unwrap();
@@ -331,8 +331,8 @@ mod tests {
             &dir,
             "base.json",
             r##"{"schema_version":1,"language":"korean","name":"combo_base","type":"3bul",
-                 "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                           "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}},
+                 "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                           "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}},
                  "combinations":{
                     "cho":[{"first":"ㄱ","second":"ㄱ","result":"ㄲ"}],
                     "jung":[],"jong":[]}}"##,
@@ -342,8 +342,8 @@ mod tests {
             "child.json",
             r##"{"schema_version":1,"language":"korean","name":"combo_child","type":"3bul",
                  "inherits":"combo_base",
-                 "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                           "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}},
+                 "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                           "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}},
                  "combinations":{
                     "cho":[{"first":"ㄷ","second":"ㄷ","result":"ㄸ"}],
                     "jung":[],"jong":[]}}"##,
@@ -364,8 +364,8 @@ mod tests {
             &dir,
             "base.json",
             r##"{"schema_version":1,"language":"korean","name":"combo_base2","type":"3bul",
-                 "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                           "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}},
+                 "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                           "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}},
                  "combinations":{
                     "cho":[{"first":"ㄱ","second":"ㄱ","result":"ㄲ"}],
                     "jung":[],"jong":[]}}"##,
@@ -375,8 +375,8 @@ mod tests {
             "child.json",
             r#"{"schema_version":1,"language":"korean","name":"combo_child2","type":"3bul",
                 "inherits":"combo_base2",
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}}}"#,
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}}}"#,
         );
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         let child = reg.find_raw("combo_child2").unwrap();
@@ -394,8 +394,8 @@ mod tests {
             &dir,
             "base.json",
             r#"{"schema_version":1,"language":"korean","name":"rs_base","type":"3bul",
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}},
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}},
                 "rule_sets":{
                     "only_in_base":{"active":true,"combinations":[]},
                     "shared":{"active":false,"combinations":[]}}}"#,
@@ -405,8 +405,8 @@ mod tests {
             "child.json",
             r#"{"schema_version":1,"language":"korean","name":"rs_child","type":"3bul",
                 "inherits":"rs_base",
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}},
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}},
                 "rule_sets":{
                     "only_in_child":{"active":true,"combinations":[]},
                     "shared":{"active":true,"combinations":[]}}}"#,
@@ -431,8 +431,8 @@ mod tests {
             "gp.json",
             r##"{"schema_version":1,"language":"korean","name":"gp","type":"3bul",
                  "metadata":{"author":"gp-author","version":"1.0"},
-                 "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                           "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}},
+                 "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                           "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}},
                  "combinations":{
                     "cho":[{"first":"ㄱ","second":"ㄱ","result":"ㄲ"}],
                     "jung":[],"jong":[]}}"##,
@@ -443,16 +443,16 @@ mod tests {
             r#"{"schema_version":1,"language":"korean","name":"p","type":"3bul",
                 "inherits":"gp",
                 "metadata":{"author":"p-author"},
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}}}"#,
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}}}"#,
         );
         write(
             &dir,
             "c.json",
             r#"{"schema_version":1,"language":"korean","name":"c","type":"3bul",
                 "inherits":"p",
-                "layout":{"upper":{"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                          "lower":{"1st":[],"2nd":[],"3nd":[],"4th":[]}}}"#,
+                "layout":{"upper":{"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                          "lower":{"1st":[],"2nd":[],"3rd":[],"4th":[]}}}"#,
         );
         let reg = ProfileRegistry::with_user_dir(dir.clone());
         let c = reg.find_raw("c").unwrap();

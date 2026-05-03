@@ -130,8 +130,8 @@ mod tests {
             "name": "tiny",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {
                 "cho": [{"first":"ㄱ","second":"ㄱ","result":"ㄲ"}],
@@ -165,8 +165,8 @@ mod tests {
             "name": "legacy_user_layout",
             "type": "2bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             }
         }"##;
         let err = parse_profile_str(v0_json).unwrap_err();

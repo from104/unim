@@ -107,7 +107,7 @@ fn test_rule_b_empty_preedit_commits_slash() {
 fn test_rule_b_choseong_only_keeps_jamo() {
     let (mut engine, config) = make_3bul390_engine_no_auto_english();
     let none = ModifierState::default();
-    // ko_3bul390에서 'k' 키는 ㄱ (3nd 행)
+    // ko_3bul390에서 'k' 키는 ㄱ (3rd 행)
     engine.press_key(KeyCode::K, none, &config);
     assert_eq!(engine.preedit_str(), "\u{3131}"); // ㄱ choseong-only
 
@@ -130,7 +130,7 @@ fn test_rule_b_cho_jung_filled_commits_slash() {
     let none = ModifierState::default();
     // ㄱ → preedit "ㄱ"
     engine.press_key(KeyCode::K, none, &config);
-    // ko_3bul390에서 'f' 키는 ㅏ (3nd 행)
+    // ko_3bul390에서 'f' 키는 ㅏ (3rd 행)
     engine.press_key(KeyCode::F, none, &config);
     assert_eq!(engine.preedit_str(), "가");
 
@@ -263,8 +263,8 @@ fn test_rule_a_two_bul_default_combines_o_a() {
     let mut engine = InputEngine::new(&config);
     engine.set_input_category(InputCategory::Korean);
     let none = ModifierState::default();
-    // 두벌식 ㅗ는 'h' 키 (lower 3nd slot 9). qwerty 'h' 슬롯은 KeyCode::H.
-    // 두벌식 ㅏ는 'k' 키 (lower 3nd slot 7).
+    // 두벌식 ㅗ는 'h' 키 (lower 3rd slot 9). qwerty 'h' 슬롯은 KeyCode::H.
+    // 두벌식 ㅏ는 'k' 키 (lower 3rd slot 7).
     // 두벌식 ㄱ은 'r' 키 (lower 2nd slot 1).
     engine.press_key(KeyCode::R, none, &config); // ㄱ
     engine.press_key(KeyCode::H, none, &config); // ㅗ

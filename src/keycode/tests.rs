@@ -294,7 +294,7 @@ fn test_to_char_for_layout_all_non_qwerty_vs_json() {
             KeyCode::Slash,
         ],
     ];
-    let row_names = ["1st", "2nd", "3nd", "4th"];
+    let row_names = ["1st", "2nd", "3rd", "4th"];
 
     let layouts = ["dvorak", "colemak", "colemak_dh", "workman"];
 

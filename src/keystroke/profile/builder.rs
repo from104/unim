@@ -490,8 +490,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {
                 "cho": [{"first":"ㄱ","second":"ㄱ","result":"ㄲ"}],
@@ -513,8 +513,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -544,8 +544,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -569,8 +569,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -600,8 +600,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -631,8 +631,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -661,8 +661,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -692,8 +692,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -734,8 +734,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "key_meta": {
@@ -779,8 +779,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "key_meta": {
@@ -835,8 +835,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {"cho":[],"jung":[],"jong":[]},
             "rule_sets": {
@@ -860,8 +860,8 @@ mod tests {
             "name": "t",
             "type": "3bul",
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             },
             "combinations": {
                 "cho": [{"first":"X","second":"ㄱ","result":"ㄲ"}],

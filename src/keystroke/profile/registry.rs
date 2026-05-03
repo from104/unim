@@ -261,8 +261,8 @@ mod tests {
                 "name": "{name}",
                 "type": "3bul",
                 "layout": {{
-                    "upper": {{"1st":[],"2nd":[],"3nd":[],"4th":[]}},
-                    "lower": {{"1st":[],"2nd":[],"3nd":[],"4th":[]}}
+                    "upper": {{"1st":[],"2nd":[],"3rd":[],"4th":[]}},
+                    "lower": {{"1st":[],"2nd":[],"3rd":[],"4th":[]}}
                 }}
             }}"#
         )
@@ -290,8 +290,8 @@ mod tests {
             "type": "2bul",
             "metadata": {"author": "user-override"},
             "layout": {
-                "upper": {"1st":[],"2nd":[],"3nd":[],"4th":[]},
-                "lower": {"1st":[],"2nd":[],"3nd":[],"4th":[]}
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
             }
         }"#;
         write_profile(&dir, "my_3bul390.json", json);
