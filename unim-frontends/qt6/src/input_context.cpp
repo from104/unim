@@ -579,7 +579,21 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                         UNIM_DEBUG("popup_mode=Standalone, 특수문자 팝업 표시 생략");
                     }
                 } else {
-                    UNIM_DEBUG("한자/특수문자 후보 없음");
+                    UNIM_DEBUG("한자/특수문자 후보 없음 → idle Hanja: emoji 트리거 위임");
+                    /* idle (preedit/조합 비어있음) → 엔진의 dual-purpose
+                     * Hanja 분기가 emoji popup 트리거. ShowEmojiPopupV2
+                     * signal handler 가 popup 을 띄운다. */
+                    quint32 mod_state_emoji = 0;
+                    if (keyEvent->modifiers() & Qt::ShiftModifier)   mod_state_emoji |= (1 << 0);
+                    if (keyEvent->modifiers() & Qt::ControlModifier) mod_state_emoji |= (1 << 2);
+                    if (keyEvent->modifiers() & Qt::AltModifier)     mod_state_emoji |= (1 << 3);
+                    if (keyEvent->modifiers() & Qt::MetaModifier)    mod_state_emoji |= (1 << 26);
+                    quint32 scanCode_emoji = keyEvent->nativeScanCode();
+                    quint32 evdev_emoji = (scanCode_emoji > 8) ? (scanCode_emoji - 8) : 0;
+                    /* idle Hanja 키는 InputResult::consumed() 반환 — commit/preedit
+                     * 변동 없음. 응답값은 무시하고 RPC 호출만으로 엔진의 emoji
+                     * popup state 진입을 유도. */
+                    (void)m_dbus->processKey(keyEvent->key(), evdev_emoji, mod_state_emoji);
                 }
             }
         }

@@ -1584,8 +1584,14 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     return Ok(true);
                 }
             }
-            unim_log!("XIM_HANDLER", "한자/특수문자 후보 없음");
-            return Ok(true);
+            unim_log!(
+                "XIM_HANDLER",
+                "한자/특수문자 후보 없음 → idle Hanja: ProcessKey 위임"
+            );
+            // fall-through to general key processing (line 1596+).
+            // 엔진의 dual-purpose Hanja 분기가 emoji popup 트리거 →
+            // ShowEmojiPopupV2 signal 발행 → frontend 의 emoji popup
+            // handler 가 popup 을 띄운다.
         }
 
         // ======================================================================

@@ -1057,9 +1057,32 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
                     UNIM_DEBUG("특수문자 후보 표시: target='%s', count=%zu, top_row='%s'",
                                sp_target, sp_count, sp_top_row ? sp_top_row : "N/A");
                 } else {
-                    UNIM_DEBUG("특수문자 후보도 없음");
+                    UNIM_DEBUG("특수문자 후보도 없음 → idle Hanja: emoji 트리거 위임");
                     if (sp_chars) {
                         unim_special_chars_free(sp_chars, sp_count);
+                    }
+                    /* idle (preedit/조합 비어있음) → 엔진의 dual-purpose
+                     * Hanja 분기가 emoji popup 트리거. ShowEmojiPopupV2
+                     * signal handler 가 popup 을 띄운다. */
+                    UnimDbusKeyResult emoji_result = {0};
+                    guint evdev = event->hardware_keycode > 0
+                                      ? event->hardware_keycode - 8
+                                      : 0;
+                    if (unim_dbus_process_key(unim->dbus_ctx,
+                                              event->keyval,
+                                              evdev,
+                                              event->state,
+                                              &emoji_result)) {
+                        if (emoji_result.preedit) {
+                            unim_emit_preedit(unim, emoji_result.preedit);
+                        }
+                        if (emoji_result.commit
+                            && strlen(emoji_result.commit) > 0) {
+                            g_signal_emit_by_name(context, "commit",
+                                                  emoji_result.commit);
+                        }
+                        g_free(emoji_result.preedit);
+                        g_free(emoji_result.commit);
                     }
                 }
                 g_free(sp_target);
