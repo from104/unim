@@ -425,11 +425,6 @@ export class EmojiPopup {
         return globalIdx < this._items.length ? globalIdx : -1;
     }
 
-    /** @private */
-    _cellHasItem(row, col) {
-        return this._getItemIndex(row, col) >= 0;
-    }
-
     /**
      * 9×9 그리드 재구성 + 푸터 갱신.
      * @private
@@ -441,15 +436,15 @@ export class EmojiPopup {
         this._colHeaders = [];
         this._rowNumbers = [];
 
-        // 현재 페이지 항목 수 및 열 수 계산
+        // 현재 페이지 항목 수 — 그리드 자체는 항상 9×9 고정으로 유지.
+        // 81 미만이어도 빈 셀(빈 라벨)로 채워 사용자가 일정한 레이아웃 위치를
+        // 학습할 수 있게 한다 (탭 전환·페이지 이동 시 그리드 크기가 출렁이면
+        // 인지 부담이 크다).
         const pageStart = this._currentPage * PAGE_SIZE;
         const pageItemCount = Math.max(0,
             Math.min(PAGE_SIZE, this._items.length - pageStart));
-        // 빈 페이지(예: Recent 비어있음)는 9 열을 그대로 그리되 셀이 빈 라벨로 남는다 —
-        // 사용자가 9×9 레이아웃을 인지하도록.
-        this._cols = pageItemCount === 0
-            ? MAX_COLS
-            : Math.min(MAX_COLS, Math.ceil(pageItemCount / MAX_ROWS));
+        void pageItemCount; // 진단·디버그용 — 그리드 차원 결정에는 미사용
+        this._cols = MAX_COLS;
 
         // 열 헤더 행
         const headerRow = new St.BoxLayout({ style_class: 'grid-row' });
@@ -470,19 +465,10 @@ export class EmojiPopup {
         }
         this._grid.add_child(headerRow);
 
-        // 데이터 행 — 빈 페이지에서도 9 행 모두 렌더 (사용자 요구: 9×9 표 유지)
-        const minRows = pageItemCount === 0 ? MAX_ROWS : 0;
+        // 데이터 행 — 81 미만이어도 항상 9 행 모두 렌더해 9×9 표 유지.
+        // 빈 셀은 idx<0 으로 분기되어 라벨 텍스트가 비고 hover/click 도 비활성.
         this._rows = 0;
         for (let row = 0; row < MAX_ROWS; row++) {
-            let hasAny = false;
-            for (let col = 0; col < this._cols; col++) {
-                if (this._cellHasItem(row, col)) {
-                    hasAny = true;
-                    break;
-                }
-            }
-            if (!hasAny && row >= minRows) break;
-
             this._rows++;
             const rowWidget = new St.BoxLayout({ style_class: 'grid-row' });
 
