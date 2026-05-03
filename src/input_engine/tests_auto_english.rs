@@ -281,6 +281,52 @@ fn test_auto_english_default_works_on_3bul390() {
     assert_eq!(engine.input_category(), InputCategory::English);
 }
 
+/// **회귀 방지**: 세벌식390 + `slash_context_alt` 활성 + `char:/` + 빈 preedit + Slash 키
+/// → context_alt fallback `/` 가 산출되므로 트리거 발동 + 영문 전환 + '/' commit.
+#[test]
+fn test_auto_english_3bul390_slash_key_empty_preedit_triggers() {
+    let (mut engine, config) =
+        make_engine_with_layout_and_triggers("ko_3bul390", vec!["char:/"]);
+    let modifier = ModifierState::default();
+
+    engine.set_input_category(InputCategory::Korean);
+
+    // 빈 preedit + Slash → slash_context_alt 의 fallback '/' 가 발동.
+    let result = engine.press_key(KeyCode::Slash, modifier, &config);
+    assert!(result.consumed, "fallback '/' 산출 → 트리거 소비");
+    assert!(result.commit_changed);
+    assert!(
+        engine.commit_str().ends_with('/'),
+        "committed='{}'",
+        engine.commit_str()
+    );
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
+/// **회귀 방지**: 세벌식390 + `slash_context_alt` 활성 + `char:/` + 초성-only(ㄱ) + Slash 키
+/// → context_alt 조건 충족 → ㅗ 자모 경로 → 트리거 미발동 → "고" 합성 + 한글 모드 유지.
+#[test]
+fn test_auto_english_3bul390_slash_key_choseong_only_no_trigger() {
+    let (mut engine, config) =
+        make_engine_with_layout_and_triggers("ko_3bul390", vec!["char:/"]);
+    let modifier = ModifierState::default();
+
+    engine.set_input_category(InputCategory::Korean);
+    // 세벌식390 'k' 키 → ㄱ (초성-only)
+    engine.press_key(KeyCode::K, modifier, &config);
+
+    let result = engine.press_key(KeyCode::Slash, modifier, &config);
+    // 자모(ㅗ) 합성 경로 → preedit 업데이트, commit 비어있음, 한글 모드 유지.
+    assert!(result.consumed);
+    assert!(
+        engine.commit_str().is_empty(),
+        "commit='{}'",
+        engine.commit_str()
+    );
+    assert_eq!(engine.preedit_str(), "고");
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+}
+
 /// QWERTY + `char:?` + Shift+Slash → '?' commit + 영문 전환
 #[test]
 fn test_auto_english_character_question_mark() {
