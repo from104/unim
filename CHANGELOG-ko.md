@@ -8,6 +8,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 ### 호환성 깨짐
 
+- **DBus 시그널 `HanjaCandidatesReordered` 페이로드가 10-tuple로 변경** (기존 9-tuple). 토글 직전 즐겨찾기 상태를 담은 `was_bookmarked: bool` 필드가 끝에 추가됐다 — 프런트엔드는 `was_bookmarked && !bookmarked`일 때만 cursor flash를 띄우는 식으로 분기. `org.atit.unim.InputContext`의 외부 구독자는 unpacking 코드를 함께 갱신해야 함 (9-tuple은 더 이상 수용하지 않음).
 - **자판 프로필 v0 스키마 미지원 전환.** v1 마커
   (`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`,
   `active_rule_sets`) 중 하나도 없는 0.1.x 시기의 v0 JSON은 이제 로더가
@@ -32,6 +33,10 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 ### 추가됨
 
+- **모든 popup·모든 프런트엔드에 마우스 페이지 이동 ◀/▶ 버튼**: 한자·특수문자·이모지 popup 모두 footer에 ◀(이전) / ▶(다음) 버튼을 추가. 적용 프런트엔드 — GNOME Shell extension, GTK Standalone(`unim-gui-gtk`), GTK3/4 IM modules, Qt5/6 IM modules, XIM, Wayland(`unim-frontends/wayland`), Windows egui(`unim-windows/`). 키보드 `←`/`→` 및 `Page Up`/`Page Down`과 동일한 wrap-around 동작이고 `total_pages == 1`이면 버튼이 숨겨진다. 일원화 진입점으로 신설된 DBus RPC: `popup_change_page(direction: i32)` (0=Prev, 1=Next).
+- **한자 즐겨찾기 해제 cursor flash** (Catppuccin yellow `#f9e2af`, 140ms): ☆로 해제하면 popup이 재정렬되고 cursor가 그 한자의 사전순 원위치로 점프(다른 페이지일 수 있음). 도착 셀이 짧게 깜박여 자동 페이지 이동을 인지하게 한다. 등록(★ ON)은 cursor가 1페이지 상단으로 따라가므로 flash 없음. 한자 popup 한정 — 특수문자·이모지는 즐겨찾기 개념이 없다.
+- **Wayland popup pointer 입력 인프라** (`unim-frontends/wayland`): `WlPointer` 이벤트 핸들링으로 popup ◀/▶가 클릭을 받는다. 실제 라우팅은 컴포지터의 `zwp_input_popup_surface_v2` pointer 정책 의존이고, 키보드 `←`/`→`가 보편 대안 (트러블슈팅 §7-1 참고).
+- **i18n 키 추가**: `popup_previous_page`, `popup_next_page`를 ko/en (yml·po 4지점)에 동기 추가.
 - **BUILTIN_NAMES × 4축 정합성 테스트** (`src/keystroke/mod.rs`):
   10종 빌트인 전수에 대해 (a) `get_keymap_json`이 `KO_2BULSTD`로 fallback되지
   않음, (b) `get_builtin_json`이 v1 JSON 반환, (c) `schema_version == 1`로

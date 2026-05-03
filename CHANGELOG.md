@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ### Breaking changes
 
+- **DBus signal `HanjaCandidatesReordered` is now a 10-tuple** (was 9). The new trailing field `was_bookmarked: bool` holds the pre-toggle bookmark state so frontends can render the cursor flash only on un-bookmark (`was_bookmarked && !bookmarked`). External subscribers of `org.atit.unim.InputContext` must upgrade their unpacking — the 9-tuple shape is rejected.
 - **Layout profile v0 schema is no longer supported.** v0 (legacy) JSON files
   without any v1 marker (`schema_version`, `metadata`, `inherits`,
   `combinations`, `rule_sets`, `active_rule_sets`) are now rejected by the
@@ -33,6 +34,10 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ### Added
 
+- **Mouse paginate buttons (◀/▶) on every popup, every frontend**: hanja, special-character, and emoji popups gain ◀ (previous) / ▶ (next) footer buttons across GNOME Shell extension, GTK Standalone (`unim-gui-gtk`), GTK3/4 IM modules, Qt5/6 IM modules, XIM, Wayland (`unim-frontends/wayland`), and Windows egui (`unim-windows/`). Behavior matches keyboard `←`/`→` and `Page Up`/`Page Down` with wrap-around; buttons are hidden when `total_pages == 1`. New unified DBus RPC `popup_change_page(direction: i32)` (0=Prev, 1=Next) is the shared entry point.
+- **Hanja un-bookmark cursor flash** (Catppuccin yellow `#f9e2af`, 140 ms): when the user unstars (☆) a candidate, the popup reorders and the cursor jumps to the candidate's lexicographic home — possibly on a different page. The destination cell briefly flashes so the user perceives the auto page jump. Bookmarking (★ on) does not flash since the cursor lands predictably at page 1 row 1. Hanja popup only — special-character / emoji popups have no bookmark concept.
+- **Wayland popup pointer input infrastructure** (`unim-frontends/wayland`): `WlPointer` event handling lets popup ◀/▶ receive clicks. Compositor support for `zwp_input_popup_surface_v2` pointer routing is required; keyboard `←`/`→` is the universal fallback (see troubleshooting §7-1).
+- **i18n keys**: `popup_previous_page`, `popup_next_page` added to ko/en (`yml` and `po` files, 4 sync points).
 - **BUILTIN_NAMES × 4-axis integrity test** (`src/keystroke/mod.rs`):
   for each builtin, asserts (a) `get_keymap_json` does not fall back to
   `KO_2BULSTD`, (b) `get_builtin_json` returns the v1 JSON, (c) it parses
