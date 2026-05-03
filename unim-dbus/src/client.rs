@@ -120,6 +120,15 @@ trait InputContext {
     /// 한자 후보 즐겨찾기 토글 - 반환: (index, bookmarked)
     fn toggle_hanja_bookmark(&self, index: u32) -> Result<(u32, bool)>;
 
+    /// 팝업(한자/특수문자/이모지) 페이지 이동 — 마우스 ◀/▶ 버튼 등 외부 RPC 진입점.
+    ///
+    /// `direction`: 0 = 이전 페이지, 1 = 다음 페이지.
+    /// 첫/마지막 페이지에서 wrap-around 한다. cursor (sel_row, sel_col) 은
+    /// 가능한 한 보존된다 (셀이 없으면 마지막 유효 행/열로 보정).
+    /// total_pages <= 1 이거나 popup 활성 아니면 no-op (시그널 미발행).
+    /// 페이지가 바뀌면 `PopupNavigate` 시그널을 발행한다.
+    fn popup_change_page(&self, direction: i32) -> Result<()>;
+
     /// 한자 모드 취소 - 반환: 커밋된 트리거 문자
     fn cancel_hanja(&self) -> Result<String>;
 
@@ -237,7 +246,11 @@ trait InputContext {
     #[zbus(signal)]
     fn hanja_bookmark_changed(&self, index: u32, bookmarked: bool) -> Result<()>;
 
-    /// 한자 후보 재정렬 시그널 (즐겨찾기 토글 후 즐겨찾기 우선 정렬)
+    /// 한자 후보 재정렬 시그널 (즐겨찾기 토글 후 즐겨찾기 우선 정렬).
+    ///
+    /// `was_bookmarked` 는 토글 직전 상태 — frontend 가 ON→OFF (별 해제) 케이스에
+    /// 한해 "원위치 점프 flash" 등 시각 신호를 띄울 때 사용한다.
+    #[allow(clippy::too_many_arguments)]
     #[zbus(signal)]
     fn hanja_candidates_reordered(
         &self,
@@ -250,6 +263,7 @@ trait InputContext {
         sel_row: i32,
         sel_col: i32,
         bookmarked: bool,
+        was_bookmarked: bool,
     ) -> Result<()>;
 
     /// 팝업 네비게이션 시그널 (페이지/선택 변경)

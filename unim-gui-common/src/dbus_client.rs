@@ -433,6 +433,9 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             }
         }
         "HanjaCandidatesReordered" => {
+            // Phase 1 (mouse-paginate UX): 시그니처에 was_bookmarked 가 추가되어
+            // 10-tuple 이 됐다. gui-common 은 아직 was_bookmarked 를 사용하지 않지만
+            // deserialize 시 정확한 시그니처가 필요하므로 받아만 두고 폐기한다.
             if let Ok((
                 target,
                 hanjas,
@@ -443,6 +446,7 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 sel_row,
                 sel_col,
                 _bookmarked,
+                _was_bookmarked,
             )) = msg.body().deserialize::<(
                 String,
                 Vec<String>,
@@ -452,6 +456,7 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 i32,
                 i32,
                 i32,
+                bool,
                 bool,
             )>() {
                 unim_log!(

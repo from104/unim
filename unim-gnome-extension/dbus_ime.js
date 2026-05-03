@@ -338,8 +338,10 @@ export class UnimDbusIME {
                 const [index, bookmarked] = parameters.deep_unpack();
                 this._onHanjaBookmarkChanged(index, bookmarked);
             } else if (signalName === 'HanjaCandidatesReordered' && this._onHanjaCandidatesReordered) {
-                const [target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked] = parameters.deep_unpack();
-                this._onHanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked);
+                // Phase 1 (mouse-paginate UX): wasBookmarked (직전 상태) 추가됨.
+                // 콜백이 9-arity 이면 무시되고, 10-arity 면 활용된다 (Phase 7 visual flash).
+                const [target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked] = parameters.deep_unpack();
+                this._onHanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked);
             } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);

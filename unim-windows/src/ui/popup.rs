@@ -78,6 +78,8 @@ impl PopupState {
             PopupAction::HanjaBookmarkChanged { .. } => {}
             // 한자 후보 재정렬도 Windows standalone egui UI에서 시각적 동기화 대상이 아님
             PopupAction::HanjaCandidatesReordered { .. } => {}
+            // 페이지 점프 (마우스 ◀/▶) 는 Windows standalone egui UI 에서 시각 동기화 대상 아님
+            PopupAction::PageJump { .. } => {}
             // 이모지 팝업은 Windows standalone egui UI에서 미지원 — 무시
             PopupAction::ShowEmoji { .. } => {}
         }

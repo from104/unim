@@ -638,7 +638,9 @@ void UnimHanjaBookmarkReceiver::onHanjaBookmarkChanged(quint32 index, bool bookm
 }
 
 /* HanjaCandidatesReordered 시그널 등록 + 파서.
- * 시그니처: (s, as, as, ab, u, i, i, i, b)
+ * 시그니처: (s, as, as, ab, u, i, i, i, b, b)
+ *  - 마지막 b: was_bookmarked (Phase 1 mouse-paginate UX, args[9]).
+ *    본 콜백은 아직 사용하지 않지만 Phase 7 visual flash 에서 활용 예정.
  *
  * QtDBus의 자동 슬롯 디마샬링은 ab(QList<bool>)를 직접 매핑하지 못해
  * QDBusMessage 통째로 받아 인덱스별로 파싱한다. GTK 측 client (gtk-common)와

@@ -167,6 +167,28 @@ pub enum EngineRequest {
         idx: u32,
         response: oneshot::Sender<Option<EmojiShowPayload>>,
     },
+    /// 팝업 페이지 이동 (마우스 ◀/▶ 버튼 등 외부 RPC).
+    ///
+    /// `direction`: -1 또는 0 = 이전 페이지, 그 외(+1 등) = 다음 페이지. wrap-around.
+    /// 응답: 페이지가 바뀌면 `Some(PopupNavigatePayload)` (page/total_pages/sel_row/sel_col 등),
+    /// 단일 페이지·popup 비활성·context 부재 시 `None`.
+    PopupChangePage {
+        context_id: u32,
+        direction: i32,
+        response: oneshot::Sender<Option<PopupNavigatePayload>>,
+    },
+}
+
+/// 팝업 페이지 이동 응답 — service.rs 가 `PopupNavigate` 시그널 페이로드로 변환.
+#[derive(Debug, Clone, Copy)]
+pub struct PopupNavigatePayload {
+    pub page: u32,
+    pub total_pages: u32,
+    pub selected: u32,
+    pub rows: u32,
+    pub cols: u32,
+    pub sel_row: u32,
+    pub sel_col: u32,
 }
 
 /// 이모지 카테고리 전환 응답 — `ShowEmojiPopupV2` 시그널 재발행용 payload.
@@ -1496,6 +1518,7 @@ impl InputContextHandler {
                     sel_row,
                     sel_col,
                     bookmarked,
+                    was_bookmarked,
                 } => {
                     // 후보·즐겨찾기·커서를 한 시그널로 전달해 frontend가 일괄 갱신.
                     let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
@@ -1511,19 +1534,30 @@ impl InputContextHandler {
                         *sel_row as i32,
                         *sel_col as i32,
                         *bookmarked,
+                        *was_bookmarked,
                     )
                     .await
                     .ok();
                     unim_log!(
                         "DBUS",
-                        "[DBus] HanjaCandidatesReordered: target='{}', count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={}",
+                        "[DBus] HanjaCandidatesReordered: target='{}', count={}, new_cursor={}, page={}, sel=({},{}), bookmarked={} (was={})",
                         target,
                         candidates.len(),
                         new_cursor,
                         page,
                         sel_row,
                         sel_col,
-                        bookmarked
+                        bookmarked,
+                        was_bookmarked
+                    );
+                }
+                PopupAction::PageJump { page_index } => {
+                    // 마우스 ◀/▶ 등 외부 RPC 응답 — process_key 경로에서는 발생 안 함이지만
+                    // 안전하게 PopupNavigate 시그널로 변환. (현 진입점은 popup_change_page RPC.)
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] PageJump: page_index={} (process_key 경로 — no-op)",
+                        page_index
                     );
                 }
                 // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
@@ -1818,6 +1852,9 @@ impl InputContextHandler {
     /// frontend는 candidates+meanings+bookmarks를 그대로 받아 후보 리스트를
     /// 통째로 교체하고 (page, sel_row, sel_col)로 커서를 점프시킨다.
     /// new_cursor는 토글된 한자의 새 전체 인덱스(편의용).
+    /// `was_bookmarked` 는 토글 직전 상태 — frontend 가 OFF→ON 인지 ON→OFF 인지
+    /// 분기해 시각 신호(예: 별 해제 시 원위치 점프 flash)를 띄우는 용도.
+    #[allow(clippy::too_many_arguments)]
     #[zbus(signal)]
     async fn hanja_candidates_reordered(
         signal_ctx: &SignalContext<'_>,
@@ -1830,6 +1867,7 @@ impl InputContextHandler {
         sel_row: i32,
         sel_col: i32,
         bookmarked: bool,
+        was_bookmarked: bool,
     ) -> zbus::Result<()>;
 
     // =========================================
@@ -2222,6 +2260,7 @@ impl InputContextHandler {
             sel_row,
             sel_col,
             bookmarked: bm,
+            was_bookmarked: was_bm,
         }) = popup_action
         {
             let hanjas: Vec<String> = candidates.iter().map(|(h, _)| h.clone()).collect();
@@ -2237,6 +2276,7 @@ impl InputContextHandler {
                 sel_row as i32,
                 sel_col as i32,
                 bm,
+                was_bm,
             )
             .await
             .ok();
@@ -2249,6 +2289,67 @@ impl InputContextHandler {
             bookmarked
         );
         Ok((idx as u32, bookmarked))
+    }
+
+    /// 팝업 페이지 이동 (마우스 ◀/▶ 버튼 클릭용).
+    ///
+    /// `direction`: -1 또는 0 = 이전 페이지, +1 (그 외) = 다음 페이지.
+    /// 첫/마지막 페이지에서 wrap-around 한다. cursor (sel_row, sel_col) 은
+    /// 가능한 한 보존된다 (셀이 없으면 마지막 유효 위치로 보정).
+    ///
+    /// 한자/특수문자/이모지 모든 popup 종류에서 동작. popup 이 활성 아니거나
+    /// total_pages <= 1 이면 no-op (시그널 미발행). 페이지가 바뀌면 기존
+    /// `PopupNavigate` 시그널을 발행해 frontend 가 일괄 갱신하도록 한다.
+    async fn popup_change_page(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        direction: i32,
+    ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::PopupChangePage {
+                context_id: self.id,
+                direction,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let payload = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        if let Some(p) = payload {
+            Self::popup_navigate(
+                &signal_ctx,
+                p.page as i32,
+                p.total_pages as i32,
+                p.selected as i32,
+                p.rows as i32,
+                p.cols as i32,
+                p.sel_row as i32,
+                p.sel_col as i32,
+            )
+            .await
+            .ok();
+            unim_log!(
+                "DBUS",
+                "[DBus] PopupChangePage: dir={}, page={}/{}, sel=({},{})",
+                direction,
+                p.page,
+                p.total_pages,
+                p.sel_row,
+                p.sel_col
+            );
+        } else {
+            unim_log!(
+                "DBUS",
+                "[DBus] PopupChangePage: dir={}, no-op (single page or no popup)",
+                direction
+            );
+        }
+        Ok(())
     }
 
     /// 한자 모드 취소 (남은 preedit을 커밋하고 반환)

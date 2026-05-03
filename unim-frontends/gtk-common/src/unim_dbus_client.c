@@ -1223,7 +1223,10 @@ on_hanja_candidates_reordered_signal(GDBusConnection *connection G_GNUC_UNUSED,
     UnimDbusContext *ctx = (UnimDbusContext *)user_data;
     if (!ctx || !ctx->hanja_reordered_callback) return;
 
-    /* 시그니처: (s, as, as, ab, u, i, i, i, b) */
+    /* 시그니처: (s, as, as, ab, u, i, i, i, b, b)
+     *  - 마지막 b: was_bookmarked (Phase 1, mouse-paginate UX). 본 콜백은 아직
+     *    사용하지 않지만 g_variant_get 가 정확한 시그니처를 요구하므로 받아만 둔다 —
+     *    Phase 7 (visual flash) 에서 콜백 시그니처 확장 시 넘기게 된다. */
     const gchar *target = NULL;
     GVariantIter *hanjas_iter = NULL;
     GVariantIter *meanings_iter = NULL;
@@ -1233,10 +1236,12 @@ on_hanja_candidates_reordered_signal(GDBusConnection *connection G_GNUC_UNUSED,
     gint sel_row = 0;
     gint sel_col = 0;
     gboolean bookmarked = FALSE;
+    gboolean was_bookmarked = FALSE;
 
-    g_variant_get(parameters, "(&sasasabuiiib)",
+    g_variant_get(parameters, "(&sasasabuiiibb)",
                   &target, &hanjas_iter, &meanings_iter, &bookmarks_iter,
-                  &new_cursor, &page, &sel_row, &sel_col, &bookmarked);
+                  &new_cursor, &page, &sel_row, &sel_col, &bookmarked, &was_bookmarked);
+    (void)was_bookmarked; /* Phase 7 reserved */
 
     /* 한자/뜻 배열 추출 */
     GPtrArray *hanjas = g_ptr_array_new_with_free_func(g_free);
