@@ -23,6 +23,7 @@ use unim::keystroke::korean_to_keystrokes::korean_to_keystrokes;
 use unim::keystroke::profile::{
     build_combined_jamo_map, parse_profile_str, resolve_inherits, ProfileRegistry,
 };
+use unim::typefix_blacklist::Blacklist;
 use unim::typefix_userdict::UserDictionary;
 use unim::unim_log;
 
@@ -185,6 +186,15 @@ enum ConfigCommands {
         #[command(subcommand)]
         action: UserDictCommand,
     },
+    /// Manage AutoTypeFix blacklist (learned correction suppressions)
+    #[command(
+        about = h("help_cmd_blacklist_about"),
+        long_about = h("help_cmd_blacklist_long"),
+    )]
+    Blacklist {
+        #[command(subcommand)]
+        action: BlacklistCommand,
+    },
 }
 
 /// 역방향 사용자 사전 (AutoTypeFix reverse 전용 whitelist) 관리 서브커맨드.
@@ -236,6 +246,41 @@ enum UserDictCommand {
     #[command(
         about = h("help_ud_path_about"),
         long_about = h("help_ud_path_long"),
+    )]
+    Path,
+}
+
+/// AutoTypeFix 블랙리스트 관리 서브커맨드.
+#[derive(Subcommand, Debug)]
+enum BlacklistCommand {
+    /// List blacklist entries (placeholder)
+    #[command(
+        about = h("help_bl_list_about"),
+        long_about = h("help_bl_list_long"),
+    )]
+    List,
+    /// Remove a blacklist entry by index (placeholder)
+    #[command(
+        about = h("help_bl_remove_about"),
+        long_about = h("help_bl_remove_long"),
+    )]
+    Remove {
+        #[arg(
+            help = h("help_bl_remove_idx_short"),
+            long_help = h("help_bl_remove_idx_long"),
+        )]
+        index: usize,
+    },
+    /// Clear all blacklist entries (placeholder)
+    #[command(
+        about = h("help_bl_clear_about"),
+        long_about = h("help_bl_clear_long"),
+    )]
+    Clear,
+    /// Show blacklist file path (placeholder)
+    #[command(
+        about = h("help_bl_path_about"),
+        long_about = h("help_bl_path_long"),
     )]
     Path,
 }
@@ -1379,6 +1424,7 @@ fn handle_config(command: Option<ConfigCommands>) {
             }
             UserDictCommand::Path => user_dict_path(),
         },
+        Some(ConfigCommands::Blacklist { action }) => handle_blacklist(action),
         None => {
             config_show();
             println!("\n{}", t!("help_hint"));
@@ -1459,6 +1505,106 @@ fn user_dict_clear() -> Result<(), String> {
 
 fn user_dict_path() {
     if let Some(path) = UserDictionary::default_path() {
+        println!("{}", path.display());
+    } else {
+        eprintln!("{}", t!("error_path_not_found"));
+    }
+}
+
+// ============================================================================
+// Blacklist 서브커맨드 (AutoTypeFix 학습형 오탐 억제 목록)
+// ============================================================================
+
+fn handle_blacklist(action: BlacklistCommand) {
+    match action {
+        BlacklistCommand::List => blacklist_list(),
+        BlacklistCommand::Remove { index } => {
+            if let Err(e) = blacklist_remove(index) {
+                eprintln!("{}: {}", t!("error_label"), e);
+                process::exit(1);
+            }
+        }
+        BlacklistCommand::Clear => {
+            if let Err(e) = blacklist_clear() {
+                eprintln!("{}: {}", t!("error_label"), e);
+                process::exit(1);
+            }
+        }
+        BlacklistCommand::Path => blacklist_path(),
+    }
+}
+
+fn blacklist_list() {
+    let bl = Blacklist::load_from_default_path();
+    if bl.entries.is_empty() {
+        println!("{}", t!("blacklist_empty"));
+        if let Some(path) = Blacklist::default_path() {
+            println!("({}: {})", t!("blacklist_path_label"), path.display());
+        }
+        return;
+    }
+    println!("{} ({}):", t!("blacklist_list_title"), bl.entries.len());
+    println!("{}", "-".repeat(80));
+    for (i, e) in bl.entries.iter().enumerate() {
+        println!(
+            "  {:>3}. [{:?}] [{:?}] {} | {} / {} | hits:{}",
+            i + 1,
+            e.status,
+            e.direction,
+            e.ascii,
+            e.korean_layout,
+            e.english_layout,
+            e.hit_count
+        );
+    }
+}
+
+fn blacklist_remove(index: usize) -> Result<(), String> {
+    if index == 0 {
+        return Err(t!("blacklist_index_one_based").to_string());
+    }
+    let mut bl = Blacklist::load_from_default_path();
+    let idx = index - 1;
+    if idx >= bl.entries.len() {
+        return Err(t!(
+            "blacklist_index_out_of_range",
+            max = bl.entries.len().to_string()
+        )
+        .to_string());
+    }
+    bl.remove(idx);
+    bl.save_to_default_path()
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    println!("{}", t!("blacklist_removed", index = index.to_string()));
+    Ok(())
+}
+
+fn blacklist_clear() -> Result<(), String> {
+    let mut bl = Blacklist::load_from_default_path();
+    if bl.entries.is_empty() {
+        println!("{}", t!("blacklist_empty"));
+        return Ok(());
+    }
+    let count = bl.entries.len();
+    let theme = ColorfulTheme::default();
+    let ok = Confirm::with_theme(&theme)
+        .with_prompt(t!("blacklist_clear_confirm", count = count.to_string()).to_string())
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if !ok {
+        println!("{}", t!("exit_canceled"));
+        return Ok(());
+    }
+    bl.entries.clear();
+    bl.save_to_default_path()
+        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
+    println!("{}", t!("blacklist_cleared", count = count.to_string()));
+    Ok(())
+}
+
+fn blacklist_path() {
+    if let Some(path) = Blacklist::default_path() {
         println!("{}", path.display());
     } else {
         eprintln!("{}", t!("error_path_not_found"));

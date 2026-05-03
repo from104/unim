@@ -198,6 +198,9 @@ help_cli_english_keyboard_long: "변환에 사용할 영어 자판 종류.\n  qw
 help_cmd_config_about: "데몬 설정 조회·변경·초기화"
 help_cmd_config_long: "UNIM 데몬의 설정(~/.config/unim/config.yaml)을 다룹니다.\n\n자식 서브커맨드:\n  show         현재 설정 요약 출력\n  set          설정 항목 변경 후 저장\n  path         설정 파일 절대 경로 출력\n  reset        설정을 기본값으로 초기화\n  interactive  대화형 편집 세션\n  layout       자판 프로필 조회·검증 (Layout Profile v1)\n  user-dict    역방향 사용자 사전 관리 (한→영 교정 whitelist)\n\n자세히는 'unim-cli help config <SUB>' 사용."
 
+help_cmd_blacklist_about: "AutoTypeFix 학습형 억제 목록 (블랙리스트) 관리"
+help_cmd_blacklist_long: "AutoTypeFix 블랙리스트 파일(~/.config/unim/typefix-blacklist.yaml)을 조회·관리합니다.\n\n블랙리스트는 자동 교정 후 사용자가 롤백한 단어를 기록해\n반복 오교정을 억제합니다.\n\n자식 서브커맨드:\n  list             모든 항목 표시 (상태·방향·ASCII·레이아웃)\n  remove <index>   1-based 인덱스로 항목 제거\n  clear            전체 삭제 (확인 필요)\n  path             블랙리스트 파일 경로 출력"
+
 help_cmd_trigger_about: "데몬에 액션 트리거 (외부 단축키 도구용 universal entry point)"
 help_cmd_trigger_long: "OS 단축키 도구(KDE 글로벌 단축키, Hyprland binds, Sway, xbindkeys, AutoHotkey 등)에서\n호출하기 위한 진입점입니다. 데몬의 org.atit.unim.InputMethod.TriggerAction RPC를\n호출해 현재 활성 InputContext에 액션을 발사시킵니다.\n\n지원 액션:\n  emoji_popup    이모지 팝업 표시 (현재 커서 위치)\n  (향후 hanja_popup, special_char_popup 등 확장 예정)\n\n예시:\n  unim-cli trigger emoji_popup\n\n환경별 설정 예시는 docs/user/keyboard-shortcuts.md 참고\n(KDE/Hyprland/Sway/X11 xbindkeys 모두 정리되어 있음)."
 
@@ -265,3 +268,29 @@ help_layout_validate_about: "프로필 파일 스키마·자모·rule_set 검증
 help_layout_validate_long: "프로필 JSON 파일이 스키마를 만족하는지, 자모 해석이 가능한지,\nactive_rule_sets 가 정의된 rule_set만 참조하는지 검사합니다.\n\nexit code:\n  0  통과 (오류·경고 없음)\n  1  통과 (경고만 있음)\n  2  오류 — 데몬에서 사용 시 실패할 수 있음"
 help_layout_validate_file_short: "검사할 JSON 파일 경로"
 help_layout_validate_file_long: "프로필 JSON 파일의 경로 (상대/절대 모두 가능).\n파일이 존재하지 않으면 오류로 처리됩니다."
+
+# 블랙리스트 메시지
+blacklist_list_title: "AutoTypeFix 블랙리스트"
+blacklist_empty: "블랙리스트가 비어 있습니다."
+blacklist_path_label: "경로"
+blacklist_removed: "#%{index} 항목을 제거했습니다."
+blacklist_cleared: "블랙리스트를 비웠습니다. (%{count}개 삭제)"
+blacklist_clear_confirm: "블랙리스트 %{count}개 항목을 모두 삭제하시겠습니까?"
+blacklist_index_one_based: "인덱스는 1 이상이어야 합니다."
+blacklist_index_out_of_range: "인덱스가 범위를 벗어났습니다 (최대 %{max})."
+
+# ── blacklist 자식 서브커맨드 ────────────────────────────────────────────────
+help_bl_list_about: "블랙리스트 항목 목록 표시"
+help_bl_list_long: "AutoTypeFix 블랙리스트의 모든 항목을 상태·방향·ASCII 시퀀스·레이아웃 쌍과 함께 출력합니다."
+
+help_bl_remove_about: "1-based 인덱스로 항목 제거"
+help_bl_remove_long: "list 에서 보여준 1-based 인덱스로 항목을 제거합니다. 즉시 파일에 저장됩니다."
+help_bl_remove_idx_short: "1-based 인덱스 (list 출력 기준)"
+help_bl_remove_idx_long: "제거할 항목의 1-based 인덱스. 먼저 'blacklist list' 로 인덱스를 확인하세요."
+
+help_bl_clear_about: "모든 블랙리스트 항목 삭제 (확인 필요)"
+help_bl_clear_long: "블랙리스트 전체를 삭제합니다. 실행 전 확인 프롬프트가 표시됩니다. 되돌릴 수 없습니다."
+
+help_bl_path_about: "블랙리스트 파일 경로 출력"
+help_bl_path_long: "블랙리스트 파일의 절대 경로를 출력합니다.\n기본 경로: $XDG_CONFIG_HOME/unim/typefix-blacklist.yaml (보통 ~/.config/unim/typefix-blacklist.yaml)."
+

@@ -197,6 +197,9 @@ help_cli_english_keyboard_long: "English keyboard variant used during conversion
 help_cmd_config_about: "View, modify, and reset daemon settings"
 help_cmd_config_long: "Manage the UNIM daemon's settings file (~/.config/unim/config.yaml).\n\nChild subcommands:\n  show         Print a human-readable summary of current settings\n  set          Change one setting and save\n  path         Print absolute path of the config file\n  reset        Reset settings to defaults\n  interactive  Start an interactive editor session\n  layout       Inspect/validate keyboard layout profiles (Layout Profile v1)\n  user-dict    Manage reverse user dictionary (KO->EN correction whitelist)\n\nFor details: 'unim-cli help config <SUB>'."
 
+help_cmd_blacklist_about: "Manage AutoTypeFix learned suppression list (blacklist)"
+help_cmd_blacklist_long: "View and manage the AutoTypeFix blacklist file\n(~/.config/unim/typefix-blacklist.yaml).\n\nThe blacklist records words that AutoTypeFix has auto-corrected and the user\nthen rolled back — preventing repeated unwanted corrections.\n\nChild subcommands:\n  list             Show all entries (status, direction, ascii)\n  remove <index>   Remove entry by 1-based index shown in list\n  clear            Delete all entries (with confirmation)\n  path             Print blacklist file path"
+
 help_cmd_trigger_about: "Trigger an action on the daemon (universal entry point for hotkey tools)"
 help_cmd_trigger_long: "Entry point for OS shortcut tools (KDE global shortcuts, Hyprland binds, Sway,\nxbindkeys, AutoHotkey, etc.). It calls the daemon's\norg.atit.unim.InputMethod.TriggerAction RPC, which dispatches the action to the\ncurrently active InputContext.\n\nSupported actions:\n  emoji_popup    Show the emoji popup at the cursor\n  (planned: hanja_popup, special_char_popup, ...)\n\nExample:\n  unim-cli trigger emoji_popup\n\nSee docs/user/keyboard-shortcuts.md for per-environment setup\n(KDE / Hyprland / Sway / X11 xbindkeys all covered)."
 
@@ -251,6 +254,16 @@ help_ud_clear_long: "Delete every entry in the dictionary. A confirmation prompt
 help_ud_path_about: "Print dictionary file path"
 help_ud_path_long: "Print the absolute path of the user dictionary file on a single line.\nDefault: $XDG_DATA_HOME/unim/typefix_userdict.json (typically ~/.local/share/unim/...)."
 
+# Blacklist subcommand
+blacklist_list_title: "AutoTypeFix blacklist"
+blacklist_empty: "No blacklist entries."
+blacklist_path_label: "path"
+blacklist_removed: "Removed entry #%{index}."
+blacklist_cleared: "Blacklist cleared (%{count} entries deleted)."
+blacklist_clear_confirm: "Delete all %{count} blacklist entries?"
+blacklist_index_one_based: "Index must be 1-based (>=1)."
+blacklist_index_out_of_range: "Index out of range (max %{max})."
+
 # ── layout children ─────────────────────────────────────────────────────────
 help_layout_list_about: "List builtin and user profile names"
 help_layout_list_long: "List every profile name available — builtins plus those in\n~/.config/unim/layouts/. Names produced here are valid arguments for\ndescribe/validate."
@@ -264,3 +277,19 @@ help_layout_validate_about: "Validate profile schema, jamo, and rule_sets"
 help_layout_validate_long: "Validate that a profile JSON file matches the schema, that all jamos resolve,\nand that active_rule_sets only refers to defined rule_sets.\n\nExit codes:\n  0  passed (no errors or warnings)\n  1  passed (warnings only)\n  2  errors — the daemon may fail to load this profile"
 help_layout_validate_file_short: "Path to the JSON file to validate"
 help_layout_validate_file_long: "Path to the profile JSON (relative or absolute).\nA missing file is treated as an error."
+
+# ── blacklist children ──────────────────────────────────────────────────────
+help_bl_list_about: "List blacklist entries"
+help_bl_list_long: "Print all entries in the AutoTypeFix blacklist with their status,\ndirection, ASCII sequence, and layout pair."
+
+help_bl_remove_about: "Remove entry by 1-based index"
+help_bl_remove_long: "Remove the entry at the given 1-based index (as shown by 'list').\nThe file is saved immediately."
+help_bl_remove_idx_short: "1-based index (from 'list')"
+help_bl_remove_idx_long: "1-based index of the entry to remove. Use 'blacklist list' first to see indices."
+
+help_bl_clear_about: "Clear all blacklist entries (with confirmation)"
+help_bl_clear_long: "Delete all entries. A confirmation prompt is shown first. Cannot be undone."
+
+help_bl_path_about: "Print the blacklist file path"
+help_bl_path_long: "Print the absolute path of the blacklist file.\nDefault: $XDG_CONFIG_HOME/unim/typefix-blacklist.yaml (typically ~/.config/unim/typefix-blacklist.yaml)."
+
