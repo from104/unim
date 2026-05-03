@@ -220,6 +220,19 @@ gboolean unim_dbus_get_hanja_bookmark_states(UnimDbusContext *ctx,
 gboolean unim_dbus_toggle_hanja_bookmark(UnimDbusContext *ctx, guint index);
 
 /**
+ * 팝업 페이지 이동 (마우스 ◀/▶ 버튼 클릭용).
+ *
+ * @param ctx 컨텍스트
+ * @param direction 0 (or negative) = 이전 페이지, 1 (or positive) = 다음 페이지
+ * @return 호출 성공 여부 (실제 페이지 변경은 PopupNavigate 시그널로 통지됨)
+ *
+ * 한자/특수문자/이모지 모든 popup 종류에 동작. popup 이 활성 아니거나
+ * 단일 페이지면 데몬에서 no-op. 페이지 변경 시 PopupNavigate 시그널이
+ * 발행돼 구독자가 일괄 갱신된다 (cursor sel_row/sel_col 보존).
+ */
+gboolean unim_dbus_popup_change_page(UnimDbusContext *ctx, gint direction);
+
+/**
  * HanjaBookmarkChanged 시그널 콜백 타입
  *
  * @param index 변경된 후보의 전체 인덱스
@@ -255,6 +268,7 @@ typedef void (*UnimHanjaCandidatesReorderedCallback)(
     gint sel_row,
     gint sel_col,
     gboolean bookmarked,
+    gboolean was_bookmarked,
     gpointer user_data
 );
 

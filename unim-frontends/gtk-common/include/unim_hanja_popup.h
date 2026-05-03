@@ -107,6 +107,22 @@ void unim_hanja_popup_set_toggle_bookmark_callback(UnimHanjaPopup *popup,
                                                     gpointer user_data);
 
 /**
+ * 페이지 이동 콜백 (◀/▶ 풋터 버튼 클릭용)
+ *
+ * @param direction 0=Prev, 1=Next
+ * @param user_data 사용자 데이터
+ */
+typedef void (*UnimHanjaPageChangeCallback)(gint direction, gpointer user_data);
+
+/**
+ * 페이지 이동 콜백 설정 (◀/▶ 클릭 → 엔진 DBus 호출 연결용).
+ * 보통 unim_dbus_popup_change_page() 를 엮어둔다.
+ */
+void unim_hanja_popup_set_page_change_callback(UnimHanjaPopup *popup,
+                                                UnimHanjaPageChangeCallback callback,
+                                                gpointer user_data);
+
+/**
  * 전체 즐겨찾기 상태를 일괄 반영 (초기 fetch 결과용)
  *
  * @param popup 팝업
@@ -144,6 +160,15 @@ void unim_hanja_popup_replace_candidates(UnimHanjaPopup *popup,
                                           gint page,
                                           gint sel_row,
                                           gint sel_col);
+
+/**
+ * 현재 cursor 셀 (sel_row, sel_col) 에 짧은 yellow flash 효과를 부여한다.
+ *
+ * `replace_candidates()` 직후 ★ 해제 (was=true → now=false) 시 호출하면
+ * 사용자에게 페이지 점프를 시각적으로 알린다. 적용 후 ~140ms 뒤
+ * `.bookmark-flash` CSS 클래스가 자동 제거된다.
+ */
+void unim_hanja_popup_flash_cursor_cell(UnimHanjaPopup *popup);
 
 G_END_DECLS
 

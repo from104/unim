@@ -72,6 +72,20 @@ gboolean unim_special_popup_is_visible(UnimSpecialPopup *popup);
  */
 gboolean unim_special_popup_handle_key(UnimSpecialPopup *popup, guint keyval);
 
+/**
+ * 페이지 이동 콜백 (◀/▶ 풋터 버튼 클릭용).
+ *
+ * @param direction 0=Prev, 1=Next
+ */
+typedef void (*UnimSpecialPageChangeCallback)(gint direction, gpointer user_data);
+
+/**
+ * 페이지 이동 콜백 설정 (◀/▶ → unim_dbus_popup_change_page 등 위임).
+ */
+void unim_special_popup_set_page_change_callback(UnimSpecialPopup *popup,
+                                                  UnimSpecialPageChangeCallback callback,
+                                                  gpointer user_data);
+
 G_END_DECLS
 
 #endif /* UNIM_SPECIAL_POPUP_H */

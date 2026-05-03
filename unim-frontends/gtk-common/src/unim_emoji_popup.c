@@ -76,7 +76,10 @@ struct _UnimEmojiPopup {
     GtkWidget *window;
     GtkWidget *header_label;          /* 「카테고리」 → 이모지 */
     GtkWidget *grid;                  /* 9×9 grid */
+    GtkWidget *footer_box;            /* ◀ + label + ▶ — 단일 페이지 시 hide */
     GtkWidget *footer_label;          /* 페이지 인디케이터 */
+    GtkWidget *prev_page_btn;         /* ◀ */
+    GtkWidget *next_page_btn;         /* ▶ */
 
     /* 좌측 9 탭 */
     GtkWidget *tab_buttons[TAB_COUNT];
@@ -106,6 +109,10 @@ struct _UnimEmojiPopup {
     UnimEmojiCommitCallback callback;
     gpointer user_data;
 
+    /* 페이지 이동 콜백 (◀/▶ 클릭 → DBus PopupChangePage) */
+    void (*page_change_callback)(gint direction, gpointer user_data);
+    gpointer page_change_user_data;
+
     /* 클릭 후 플래시 표시용 지연 숨김 플래그 */
     gboolean pending_hide;
 };
@@ -114,6 +121,8 @@ struct _UnimEmojiPopup {
 static void update_grid(UnimEmojiPopup *popup);
 static void update_selection(UnimEmojiPopup *popup);
 static void clear_grid(UnimEmojiPopup *popup);
+static void emoji_prev_page_clicked(GtkButton *button, gpointer user_data);
+static void emoji_next_page_clicked(GtkButton *button, gpointer user_data);
 static void free_categories(UnimEmojiPopup *popup);
 static void free_items(UnimEmojiPopup *popup);
 static void free_recent(UnimEmojiPopup *popup);
@@ -251,15 +260,48 @@ unim_emoji_popup_new(void)
         G_CALLBACK(on_grid_button_press), popup);
 #endif
 
-    /* 페이지 인디케이터 */
+    /* 페이지 인디케이터: [◀] [카테고리 n/N] [▶] — 단일 페이지 시 footer_box hide */
+    popup->footer_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    WIDGET_ADD_CSS_CLASS(popup->footer_box, "popup-footer-box");
+
+    popup->prev_page_btn = gtk_button_new_with_label("\xE2\x97\x80"); /* ◀ */
+    WIDGET_ADD_CSS_CLASS(popup->prev_page_btn, "popup-page-btn");
+    WIDGET_ADD_CSS_CLASS(popup->prev_page_btn, "flat");
+    gtk_widget_set_can_focus(popup->prev_page_btn, FALSE);
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_widget_set_focusable(popup->prev_page_btn, FALSE);
+#endif
+    gtk_widget_set_tooltip_text(popup->prev_page_btn, "이전 페이지");
+    g_signal_connect(popup->prev_page_btn, "clicked",
+                     G_CALLBACK(emoji_prev_page_clicked), popup);
+
     popup->footer_label = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(popup->footer_label), 0.5);
+    gtk_widget_set_hexpand(popup->footer_label, TRUE);
     WIDGET_ADD_CSS_CLASS(popup->footer_label, "popup-footer");
+
+    popup->next_page_btn = gtk_button_new_with_label("\xE2\x96\xB6"); /* ▶ */
+    WIDGET_ADD_CSS_CLASS(popup->next_page_btn, "popup-page-btn");
+    WIDGET_ADD_CSS_CLASS(popup->next_page_btn, "flat");
+    gtk_widget_set_can_focus(popup->next_page_btn, FALSE);
 #if GTK_CHECK_VERSION(4, 0, 0)
-    gtk_box_append(GTK_BOX(vbox), popup->footer_label);
+    gtk_widget_set_focusable(popup->next_page_btn, FALSE);
+#endif
+    gtk_widget_set_tooltip_text(popup->next_page_btn, "다음 페이지");
+    g_signal_connect(popup->next_page_btn, "clicked",
+                     G_CALLBACK(emoji_next_page_clicked), popup);
+
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->prev_page_btn);
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->footer_label);
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->next_page_btn);
+    gtk_box_append(GTK_BOX(vbox), popup->footer_box);
 #else
-    gtk_box_pack_start(GTK_BOX(vbox), popup->footer_label, FALSE, FALSE, 0);
-    gtk_widget_set_no_show_all(popup->footer_label, TRUE);
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->prev_page_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->footer_label, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->next_page_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), popup->footer_box, FALSE, FALSE, 0);
+    gtk_widget_set_no_show_all(popup->footer_box, TRUE);
 #endif
 
     /* 팝업 전용 CSS */
@@ -348,6 +390,19 @@ unim_emoji_popup_new(void)
         ".unim-emoji-vbox label.popup-footer {"
         "  color: #6c7086; font-size: 12px;"
         "  min-height: 0; padding: 0; margin: 0;"
+        "}"
+        /* 마우스 페이지 이동 ◀/▶ (Phase 4) */
+        ".unim-emoji-vbox .popup-footer-box { margin-top: 4px; }"
+        ".unim-emoji-vbox button.popup-page-btn {"
+        "  color: #7f849c; background: transparent; border: none; box-shadow: none;"
+        "  font-size: 13px; min-width: 22px; min-height: 22px;"
+        "  padding: 2px 6px; margin: 0; border-radius: 4px;"
+        "}"
+        ".unim-emoji-vbox button.popup-page-btn:hover {"
+        "  color: #89b4fa; background-color: rgba(137, 180, 250, 0.2);"
+        "}"
+        ".unim-emoji-vbox button.popup-page-btn:active {"
+        "  background-color: rgba(137, 180, 250, 0.35);"
         "}";
 
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -519,23 +574,26 @@ update_grid(UnimEmojiPopup *popup)
         }
     }
 
-    /* 페이지 인디케이터 */
-    if (popup->footer_label && popup->total_pages > 1) {
+    /* 페이지 인디케이터: 단일 페이지면 footer_box 자체 hide (◀/▶ 같이 사라짐) */
+    if (popup->footer_box && popup->total_pages > 1) {
         gchar page_text[128];
         g_snprintf(page_text, sizeof(page_text), "[%s]  %d/%d",
                    tab_label_for(popup->current_cat_id),
                    popup->current_page + 1, popup->total_pages);
         gtk_label_set_text(GTK_LABEL(popup->footer_label), page_text);
 #if GTK_CHECK_VERSION(4, 0, 0)
+        gtk_widget_set_visible(popup->footer_box, TRUE);
         gtk_widget_set_visible(popup->footer_label, TRUE);
+        gtk_widget_set_visible(popup->prev_page_btn, TRUE);
+        gtk_widget_set_visible(popup->next_page_btn, TRUE);
 #else
-        gtk_widget_show(popup->footer_label);
+        gtk_widget_show_all(popup->footer_box);
 #endif
-    } else if (popup->footer_label) {
+    } else if (popup->footer_box) {
 #if GTK_CHECK_VERSION(4, 0, 0)
-        gtk_widget_set_visible(popup->footer_label, FALSE);
+        gtk_widget_set_visible(popup->footer_box, FALSE);
 #else
-        gtk_widget_hide(popup->footer_label);
+        gtk_widget_hide(popup->footer_box);
 #endif
     }
 
@@ -958,4 +1016,32 @@ unim_emoji_popup_set_recent(UnimEmojiPopup *popup,
 
     /* 'Recent' 탭 라벨에 count 표시 등은 향후 — 현재는 데이터만 보관 */
     EMOJI_DEBUG("Recent 캐시 갱신: count=%zu", popup->recent_count);
+}
+
+/* ===== Phase 4: 마우스 페이지 이동 ◀/▶ ===== */
+
+void
+unim_emoji_popup_set_page_change_callback(UnimEmojiPopup *popup,
+                                            UnimEmojiPageChangeCallback callback,
+                                            gpointer user_data)
+{
+    if (!popup) return;
+    popup->page_change_callback = callback;
+    popup->page_change_user_data = user_data;
+}
+
+static void
+emoji_prev_page_clicked(GtkButton *button G_GNUC_UNUSED, gpointer user_data)
+{
+    UnimEmojiPopup *popup = (UnimEmojiPopup *)user_data;
+    if (!popup || !popup->page_change_callback) return;
+    popup->page_change_callback(0, popup->page_change_user_data);
+}
+
+static void
+emoji_next_page_clicked(GtkButton *button G_GNUC_UNUSED, gpointer user_data)
+{
+    UnimEmojiPopup *popup = (UnimEmojiPopup *)user_data;
+    if (!popup || !popup->page_change_callback) return;
+    popup->page_change_callback(1, popup->page_change_user_data);
 }

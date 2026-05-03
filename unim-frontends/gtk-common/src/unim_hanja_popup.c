@@ -26,6 +26,10 @@
 #define EXPANDED_ROWS          9
 #define ICON_EXPAND            "\xE2\x8A\x9E"  /* ⊞ U+229E (compact 상태에서 표시) */
 #define ICON_COMPACT           "\xE2\x8A\x9F"  /* ⊟ U+229F (expanded 상태에서 표시) */
+#define ICON_PREV_PAGE         "\xE2\x97\x80"  /* ◀ U+25C0 */
+#define ICON_NEXT_PAGE         "\xE2\x96\xB6"  /* ▶ U+25B6 */
+/* ★ 해제 후 cursor 셀에 적용되는 yellow flash 지속시간 (ms) */
+#define BOOKMARK_FLASH_DURATION_MS 140
 
 /* 디버그 로깅 */
 #include <stdio.h>
@@ -94,7 +98,9 @@ struct _UnimHanjaPopup {
     GtkWidget *body_container;   /* compact ListBox 또는 expanded Grid를 자식으로 보유 */
     GtkWidget *listbox;          /* compact 모드 ListBox (활성일 때만 비-NULL) */
     GtkWidget *grid;             /* expanded 모드 Grid (활성일 때만 비-NULL) */
-    GtkWidget *footer_box;       /* page_label + expand_icon 가로 배치 */
+    GtkWidget *footer_box;       /* prev_btn + page_label + next_btn + expand_icon 가로 배치 */
+    GtkWidget *prev_page_btn;    /* ◀ 이전 페이지 버튼 — 단일 페이지 시 hide */
+    GtkWidget *next_page_btn;    /* ▶ 다음 페이지 버튼 — 단일 페이지 시 hide */
     GtkWidget *page_label;       /* 페이지 표시 */
     GtkWidget *expand_icon;      /* ⊞/⊟ 모드 표시 라벨 */
 
@@ -115,6 +121,10 @@ struct _UnimHanjaPopup {
     /* Space 토글 콜백 (프런트엔드 → DBus 호출) */
     UnimHanjaToggleBookmarkCallback toggle_bookmark_callback;
     gpointer toggle_bookmark_user_data;
+
+    /* 풋터 ◀/▶ 클릭 콜백 (프런트엔드 → DBus 호출) */
+    UnimHanjaPageChangeCallback page_change_callback;
+    gpointer page_change_user_data;
 };
 
 /* 현재 모드의 페이지 사이즈 (compact=9, expanded=81) */
@@ -170,6 +180,8 @@ static void render_compact_list(UnimHanjaPopup *popup);
 static void render_expanded_grid(UnimHanjaPopup *popup);
 static void on_grid_cell_clicked(GtkButton *button, gpointer user_data);
 static void on_row_activated(GtkListBox *listbox, GtkListBoxRow *row, gpointer user_data);
+static void hanja_prev_page_clicked(GtkButton *button, gpointer user_data);
+static void hanja_next_page_clicked(GtkButton *button, gpointer user_data);
 #if GTK_CHECK_VERSION(4, 0, 0)
 static void on_listbox_right_click(GtkGestureClick *gesture, gint n_press,
                                     gdouble x, gdouble y, gpointer user_data);
@@ -192,7 +204,7 @@ update_listbox(UnimHanjaPopup *popup)
         render_compact_list(popup);
     }
 
-    /* 푸터 갱신 — page_label + expand_icon */
+    /* 푸터 갱신 — page_label + ◀/▶ 가시성 + expand_icon */
     gsize total = get_total_pages(popup);
     if (popup->page_label) {
         if (total > 1) {
@@ -202,6 +214,13 @@ update_listbox(UnimHanjaPopup *popup)
         } else {
             gtk_label_set_text(GTK_LABEL(popup->page_label), "");
         }
+    }
+    /* 단일 페이지면 ◀/▶ hide (disabled 보다 깔끔). */
+    if (popup->prev_page_btn) {
+        gtk_widget_set_visible(popup->prev_page_btn, total > 1);
+    }
+    if (popup->next_page_btn) {
+        gtk_widget_set_visible(popup->next_page_btn, total > 1);
     }
     if (popup->expand_icon) {
         gtk_label_set_text(GTK_LABEL(popup->expand_icon),
@@ -608,6 +627,32 @@ unim_hanja_popup_new(void)
             ".unim-hanja-vbox .popup-footer-box {"
             "  margin-top: 4px;"
             "}"
+            /* 마우스 페이지 이동 ◀/▶ (Phase 4) */
+            ".unim-hanja-vbox button.popup-page-btn {"
+            "  color: #7f849c;"
+            "  background: transparent;"
+            "  border: none;"
+            "  box-shadow: none;"
+            "  font-size: 13px;"
+            "  min-width: 22px;"
+            "  min-height: 22px;"
+            "  padding: 2px 6px;"
+            "  margin: 0;"
+            "  border-radius: 4px;"
+            "}"
+            ".unim-hanja-vbox button.popup-page-btn:hover {"
+            "  color: #89b4fa;"
+            "  background-color: rgba(137, 180, 250, 0.2);"
+            "}"
+            ".unim-hanja-vbox button.popup-page-btn:active {"
+            "  background-color: rgba(137, 180, 250, 0.35);"
+            "}"
+            /* ★ 해제 시 cursor 셀 yellow flash (Phase 7) */
+            ".unim-hanja-vbox .grid-cell.bookmark-flash,"
+            ".unim-hanja-vbox list row.bookmark-flash {"
+            "  background-color: #f9e2af;"
+            "  color: #1e1e2e;"
+            "}"
             ".unim-hanja-vbox label.popup-expand-icon {"
             "  color: #7f849c;"
             "  font-size: 14px;"
@@ -693,25 +738,51 @@ unim_hanja_popup_new(void)
     gtk_box_pack_start(GTK_BOX(vbox), popup->body_container, TRUE, TRUE, 0);
 #endif
 
-    /* 푸터: page_label(좌) + expand_icon(우)을 가로 배치 */
-    popup->footer_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    /* 푸터: [◀] [page_label] [▶] [⊞] 가로 배치 */
+    popup->footer_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     WIDGET_ADD_CSS_CLASS(popup->footer_box, "popup-footer-box");
 
+    popup->prev_page_btn = gtk_button_new_with_label(ICON_PREV_PAGE);
+    WIDGET_ADD_CSS_CLASS(popup->prev_page_btn, "popup-page-btn");
+    WIDGET_ADD_CSS_CLASS(popup->prev_page_btn, "flat");
+    gtk_widget_set_can_focus(popup->prev_page_btn, FALSE);
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_widget_set_focusable(popup->prev_page_btn, FALSE);
+#endif
+    gtk_widget_set_tooltip_text(popup->prev_page_btn, "이전 페이지");
+    g_signal_connect(popup->prev_page_btn, "clicked",
+                     G_CALLBACK(hanja_prev_page_clicked), popup);
+
     popup->page_label = gtk_label_new("");
-    gtk_label_set_xalign(GTK_LABEL(popup->page_label), 0.0);
+    gtk_label_set_xalign(GTK_LABEL(popup->page_label), 0.5);
     gtk_widget_set_hexpand(popup->page_label, TRUE);
     WIDGET_ADD_CSS_CLASS(popup->page_label, "page-label");
+
+    popup->next_page_btn = gtk_button_new_with_label(ICON_NEXT_PAGE);
+    WIDGET_ADD_CSS_CLASS(popup->next_page_btn, "popup-page-btn");
+    WIDGET_ADD_CSS_CLASS(popup->next_page_btn, "flat");
+    gtk_widget_set_can_focus(popup->next_page_btn, FALSE);
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_widget_set_focusable(popup->next_page_btn, FALSE);
+#endif
+    gtk_widget_set_tooltip_text(popup->next_page_btn, "다음 페이지");
+    g_signal_connect(popup->next_page_btn, "clicked",
+                     G_CALLBACK(hanja_next_page_clicked), popup);
 
     popup->expand_icon = gtk_label_new(ICON_EXPAND);
     gtk_label_set_xalign(GTK_LABEL(popup->expand_icon), 1.0);
     WIDGET_ADD_CSS_CLASS(popup->expand_icon, "popup-expand-icon");
 
 #if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->prev_page_btn);
     gtk_box_append(GTK_BOX(popup->footer_box), popup->page_label);
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->next_page_btn);
     gtk_box_append(GTK_BOX(popup->footer_box), popup->expand_icon);
     gtk_box_append(GTK_BOX(vbox), popup->footer_box);
 #else
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->prev_page_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->page_label, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->next_page_btn, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(popup->footer_box), popup->expand_icon, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(vbox), popup->footer_box, FALSE, FALSE, 2);
 #endif
@@ -1090,4 +1161,81 @@ unim_hanja_popup_replace_candidates(UnimHanjaPopup *popup,
     if (unim_hanja_popup_is_visible(popup)) {
         update_listbox(popup);
     }
+}
+
+/* ===== Phase 4 (mouse-paginate UX): page-change 콜백 + bookmark flash ===== */
+
+void
+unim_hanja_popup_set_page_change_callback(UnimHanjaPopup *popup,
+                                            UnimHanjaPageChangeCallback callback,
+                                            gpointer user_data)
+{
+    if (!popup) return;
+    popup->page_change_callback = callback;
+    popup->page_change_user_data = user_data;
+}
+
+/* ◀ / ▶ 버튼 clicked 핸들러 — 콜백 위임 (보통 unim_dbus_popup_change_page 호출). */
+static void
+hanja_prev_page_clicked(GtkButton *button G_GNUC_UNUSED, gpointer user_data)
+{
+    UnimHanjaPopup *popup = (UnimHanjaPopup *)user_data;
+    if (!popup || !popup->page_change_callback) return;
+    popup->page_change_callback(0, popup->page_change_user_data);
+}
+
+static void
+hanja_next_page_clicked(GtkButton *button G_GNUC_UNUSED, gpointer user_data)
+{
+    UnimHanjaPopup *popup = (UnimHanjaPopup *)user_data;
+    if (!popup || !popup->page_change_callback) return;
+    popup->page_change_callback(1, popup->page_change_user_data);
+}
+
+/* ★ 해제 후 cursor 셀 yellow flash — BOOKMARK_FLASH_DURATION_MS 후 클래스 자동 제거. */
+typedef struct {
+    GtkWidget *target;
+} UnimBookmarkFlashCtx;
+
+static gboolean
+remove_bookmark_flash_class(gpointer user_data)
+{
+    UnimBookmarkFlashCtx *ctx = (UnimBookmarkFlashCtx *)user_data;
+    if (ctx) {
+        if (ctx->target && GTK_IS_WIDGET(ctx->target)) {
+#if GTK_CHECK_VERSION(4, 0, 0)
+            gtk_widget_remove_css_class(ctx->target, "bookmark-flash");
+#else
+            GtkStyleContext *sc = gtk_widget_get_style_context(ctx->target);
+            if (sc) gtk_style_context_remove_class(sc, "bookmark-flash");
+#endif
+        }
+        g_free(ctx);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+void
+unim_hanja_popup_flash_cursor_cell(UnimHanjaPopup *popup)
+{
+    if (!popup || !unim_hanja_popup_is_visible(popup)) return;
+
+    GtkWidget *target = NULL;
+    if (popup->cols > 1 && popup->grid) {
+        /* expanded: Grid 의 (col+1, row+1) 셀 — corner/header 보정. */
+        target = gtk_grid_get_child_at(GTK_GRID(popup->grid),
+                                       popup->sel_col + 1, popup->sel_row + 1);
+    } else if (popup->listbox) {
+        /* compact: ListBoxRow at sel_row. */
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(popup->listbox),
+                                                            popup->sel_row);
+        if (row) target = GTK_WIDGET(row);
+    }
+    if (!target) return;
+
+    WIDGET_ADD_CSS_CLASS(target, "bookmark-flash");
+
+    UnimBookmarkFlashCtx *ctx = g_new0(UnimBookmarkFlashCtx, 1);
+    ctx->target = target;
+    g_timeout_add(BOOKMARK_FLASH_DURATION_MS, remove_bookmark_flash_class, ctx);
 }

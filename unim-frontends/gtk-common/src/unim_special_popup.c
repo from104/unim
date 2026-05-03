@@ -54,7 +54,10 @@ struct _UnimSpecialPopup {
     GtkWidget *window;
     GtkWidget *header_label;  /* 헤더 (「X」 → 특수문자) */
     GtkWidget *grid;
+    GtkWidget *footer_box;    /* ◀ + footer_label + ▶ — 단일 페이지 시 hide */
     GtkWidget *footer_label;
+    GtkWidget *prev_page_btn; /* ◀ */
+    GtkWidget *next_page_btn; /* ▶ */
 
     /* 데이터 */
     gchar *target;            /* 대상 문자 (푸터 표시용) */
@@ -82,6 +85,10 @@ struct _UnimSpecialPopup {
     UnimSpecialSelectCallback callback;
     gpointer user_data;
 
+    /* 페이지 이동 콜백 (◀/▶ 클릭 → DBus PopupChangePage) */
+    void (*page_change_callback)(gint direction, gpointer user_data);
+    gpointer page_change_user_data;
+
     /* 영문 키맵 상단 행 레이블 */
     gchar top_row[10];  /* 예: "QWERTYUIO" + null */
 
@@ -95,6 +102,8 @@ struct _UnimSpecialPopup {
 /* 전방 선언 */
 static void update_grid(UnimSpecialPopup *popup);
 static void update_selection(UnimSpecialPopup *popup);
+static void special_prev_page_clicked(GtkButton *button, gpointer user_data);
+static void special_next_page_clicked(GtkButton *button, gpointer user_data);
 static gint get_char_index(UnimSpecialPopup *popup, gint row, gint col);
 static gboolean cell_has_char(UnimSpecialPopup *popup, gint row, gint col);
 static void select_current(UnimSpecialPopup *popup);
@@ -204,15 +213,47 @@ unim_special_popup_new(void)
     g_signal_connect(popup->window, "button-press-event", G_CALLBACK(on_grid_button_press), popup);
 #endif
 
-    /* 페이지 표시 (하단) */
+    /* 푸터: [◀] [페이지 표시] [▶] (하단) — 단일 페이지 시 footer_box 전체 hide */
+    popup->footer_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    WIDGET_ADD_CSS_CLASS(popup->footer_box, "popup-footer-box");
+
+    popup->prev_page_btn = gtk_button_new_with_label("\xE2\x97\x80"); /* ◀ */
+    WIDGET_ADD_CSS_CLASS(popup->prev_page_btn, "popup-page-btn");
+    WIDGET_ADD_CSS_CLASS(popup->prev_page_btn, "flat");
+    gtk_widget_set_can_focus(popup->prev_page_btn, FALSE);
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_widget_set_focusable(popup->prev_page_btn, FALSE);
+#endif
+    gtk_widget_set_tooltip_text(popup->prev_page_btn, "이전 페이지");
+    g_signal_connect(popup->prev_page_btn, "clicked",
+                     G_CALLBACK(special_prev_page_clicked), popup);
+
     popup->footer_label = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(popup->footer_label), 0.5);
+    gtk_widget_set_hexpand(popup->footer_label, TRUE);
+
+    popup->next_page_btn = gtk_button_new_with_label("\xE2\x96\xB6"); /* ▶ */
+    WIDGET_ADD_CSS_CLASS(popup->next_page_btn, "popup-page-btn");
+    WIDGET_ADD_CSS_CLASS(popup->next_page_btn, "flat");
+    gtk_widget_set_can_focus(popup->next_page_btn, FALSE);
 #if GTK_CHECK_VERSION(4, 0, 0)
-    gtk_box_append(GTK_BOX(vbox), popup->footer_label);
+    gtk_widget_set_focusable(popup->next_page_btn, FALSE);
+#endif
+    gtk_widget_set_tooltip_text(popup->next_page_btn, "다음 페이지");
+    g_signal_connect(popup->next_page_btn, "clicked",
+                     G_CALLBACK(special_next_page_clicked), popup);
+
+#if GTK_CHECK_VERSION(4, 0, 0)
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->prev_page_btn);
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->footer_label);
+    gtk_box_append(GTK_BOX(popup->footer_box), popup->next_page_btn);
+    gtk_box_append(GTK_BOX(vbox), popup->footer_box);
 #else
-    gtk_box_pack_start(GTK_BOX(vbox), popup->footer_label, FALSE, FALSE, 0);
-    /* show_all이 숨긴 footer를 다시 보이게 하는 것 방지 */
-    gtk_widget_set_no_show_all(popup->footer_label, TRUE);
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->prev_page_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->footer_label, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(popup->footer_box), popup->next_page_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), popup->footer_box, FALSE, FALSE, 0);
+    gtk_widget_set_no_show_all(popup->footer_box, TRUE);
 #endif
 
     /* 팝업 전용 CSS 클래스 */
@@ -277,6 +318,19 @@ unim_special_popup_new(void)
         "}"
         ".unim-special-vbox label.footer {"
         "  color: #6c7086; font-size: 12px; min-height: 0; padding: 0; margin: 0;"
+        "}"
+        /* 마우스 페이지 이동 ◀/▶ (Phase 4) */
+        ".unim-special-vbox .popup-footer-box { margin-top: 4px; }"
+        ".unim-special-vbox button.popup-page-btn {"
+        "  color: #7f849c; background: transparent; border: none; box-shadow: none;"
+        "  font-size: 13px; min-width: 22px; min-height: 22px;"
+        "  padding: 2px 6px; margin: 0; border-radius: 4px;"
+        "}"
+        ".unim-special-vbox button.popup-page-btn:hover {"
+        "  color: #89b4fa; background-color: rgba(137, 180, 250, 0.2);"
+        "}"
+        ".unim-special-vbox button.popup-page-btn:active {"
+        "  background-color: rgba(137, 180, 250, 0.35);"
         "}";
 
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -469,8 +523,8 @@ update_grid(UnimSpecialPopup *popup)
         }
     }
 
-    /* 페이지 표시 (2페이지 이상일 때만) */
-    if (popup->footer_label && popup->total_pages > 1) {
+    /* 페이지 표시 (2페이지 이상일 때만 ◀/▶ 노출, footer_box 자체 hide) */
+    if (popup->footer_box && popup->total_pages > 1) {
         gchar page_text[64];
         g_snprintf(page_text, sizeof(page_text), "[%s]  %d/%d",
                    popup->target ? popup->target : "",
@@ -478,15 +532,18 @@ update_grid(UnimSpecialPopup *popup)
         gtk_label_set_text(GTK_LABEL(popup->footer_label), page_text);
         WIDGET_ADD_CSS_CLASS(popup->footer_label, "footer");
 #if GTK_CHECK_VERSION(4, 0, 0)
+        gtk_widget_set_visible(popup->footer_box, TRUE);
         gtk_widget_set_visible(popup->footer_label, TRUE);
+        gtk_widget_set_visible(popup->prev_page_btn, TRUE);
+        gtk_widget_set_visible(popup->next_page_btn, TRUE);
 #else
-        gtk_widget_show(popup->footer_label);
+        gtk_widget_show_all(popup->footer_box);
 #endif
-    } else if (popup->footer_label) {
+    } else if (popup->footer_box) {
 #if GTK_CHECK_VERSION(4, 0, 0)
-        gtk_widget_set_visible(popup->footer_label, FALSE);
+        gtk_widget_set_visible(popup->footer_box, FALSE);
 #else
-        gtk_widget_hide(popup->footer_label);
+        gtk_widget_hide(popup->footer_box);
 #endif
     }
 
@@ -829,4 +886,32 @@ unim_special_popup_handle_key(UnimSpecialPopup *popup, guint keyval)
     default:
         return FALSE;
     }
+}
+
+/* ===== Phase 4: 마우스 페이지 이동 ◀/▶ ===== */
+
+void
+unim_special_popup_set_page_change_callback(UnimSpecialPopup *popup,
+                                              UnimSpecialPageChangeCallback callback,
+                                              gpointer user_data)
+{
+    if (!popup) return;
+    popup->page_change_callback = callback;
+    popup->page_change_user_data = user_data;
+}
+
+static void
+special_prev_page_clicked(GtkButton *button G_GNUC_UNUSED, gpointer user_data)
+{
+    UnimSpecialPopup *popup = (UnimSpecialPopup *)user_data;
+    if (!popup || !popup->page_change_callback) return;
+    popup->page_change_callback(0, popup->page_change_user_data);
+}
+
+static void
+special_next_page_clicked(GtkButton *button G_GNUC_UNUSED, gpointer user_data)
+{
+    UnimSpecialPopup *popup = (UnimSpecialPopup *)user_data;
+    if (!popup || !popup->page_change_callback) return;
+    popup->page_change_callback(1, popup->page_change_user_data);
 }

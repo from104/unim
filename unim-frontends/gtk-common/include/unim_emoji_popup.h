@@ -147,6 +147,20 @@ void unim_emoji_popup_set_recent(UnimEmojiPopup *popup,
                                   const gchar * const *emojis,
                                   gsize count);
 
+/**
+ * 페이지 이동 콜백 (◀/▶ 풋터 버튼 클릭용).
+ *
+ * @param direction 0=Prev, 1=Next
+ */
+typedef void (*UnimEmojiPageChangeCallback)(gint direction, gpointer user_data);
+
+/**
+ * 페이지 이동 콜백 설정 (◀/▶ → unim_dbus_popup_change_page 등 위임).
+ */
+void unim_emoji_popup_set_page_change_callback(UnimEmojiPopup *popup,
+                                                UnimEmojiPageChangeCallback callback,
+                                                gpointer user_data);
+
 G_END_DECLS
 
 #endif /* UNIM_EMOJI_POPUP_H */
