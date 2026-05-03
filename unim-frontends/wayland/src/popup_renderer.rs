@@ -34,6 +34,10 @@ pub struct RenderedPopup {
     pub pixels: Vec<u8>, // ARGB32 (wl_shm 용)
     pub width: u32,
     pub height: u32,
+    /// ◀ 마우스 페이지 버튼 영역 (x0, y0, x1, y1). (0,0,0,0) 이면 단일 페이지로 비활성. Phase 9.
+    pub prev_btn_rect: (f32, f32, f32, f32),
+    /// ▶ 마우스 페이지 버튼 영역. 위와 동일.
+    pub next_btn_rect: (f32, f32, f32, f32),
 }
 
 /// PopupState 기반 통합 렌더링 진입점
@@ -96,7 +100,8 @@ fn render_hanja_compact(state: &PopupState) -> RenderedPopup {
     );
 
     let page_text = format!("{}/{}", current_page + 1, total_pages.max(1));
-    draw_text_right(
+    // Phase 9: 헤더 우측에 ◀/▶ + 페이지 라벨 (마우스 페이지 이동 hit-test rect 반환).
+    let (prev_btn_rect, next_btn_rect) = draw_page_footer(
         &mut pixmap,
         &mut font_system,
         &mut swash_cache,
@@ -105,6 +110,7 @@ fn render_hanja_compact(state: &PopupState) -> RenderedPopup {
         8.0,
         FONT_SIZE - 2.0,
         OVERLAY0,
+        total_pages > 1,
     );
 
     let page_size = 9; // compact 모드 page_size (HANJA_PAGE_SIZE)
@@ -206,6 +212,8 @@ fn render_hanja_compact(state: &PopupState) -> RenderedPopup {
         pixels,
         width,
         height,
+        prev_btn_rect,
+        next_btn_rect,
     }
 }
 
@@ -329,23 +337,30 @@ fn render_hanja_expanded(state: &PopupState) -> RenderedPopup {
         }
     }
 
-    // 푸터
+    // 푸터 (좌측: 키 안내, 우측: ◀ n/N ▶ — Phase 9)
     let footer_y = grid_y + (rows as f32) * CELL_SIZE + 4.0;
-    let footer_text = format!(
-        "{}/{}  Space ★ | . 축소 | ESC 취소",
-        current_page + 1,
-        total_pages.max(1)
-    );
     draw_text(
         &mut pixmap,
         &mut font_system,
         &mut swash_cache,
-        &footer_text,
+        "Space ★ | . 축소 | ESC 취소",
         PADDING,
         footer_y,
         FONT_SIZE - 3.0,
         OVERLAY0,
-        width as f32 - PADDING * 2.0,
+        (width as f32 - PADDING * 2.0) * 0.6,
+    );
+    let page_str = format!("{}/{}", current_page + 1, total_pages.max(1));
+    let (prev_btn_rect, next_btn_rect) = draw_page_footer(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &page_str,
+        width as f32 - PADDING,
+        footer_y,
+        FONT_SIZE - 2.0,
+        OVERLAY0,
+        total_pages > 1,
     );
 
     let pixels = rgba_to_argb32(pixmap.data());
@@ -360,6 +375,8 @@ fn render_hanja_expanded(state: &PopupState) -> RenderedPopup {
         pixels,
         width,
         height,
+        prev_btn_rect,
+        next_btn_rect,
     }
 }
 
@@ -512,24 +529,32 @@ fn render_emoji_from_state(state: &PopupState) -> RenderedPopup {
         }
     }
 
-    // 푸터 ([cat]  page/total)
+    // 푸터 ([cat] 좌측, ◀ n/N ▶ 우측 — Phase 9)
     let footer_y = grid_y + (rows as f32) * CELL_SIZE + 4.0;
-    let footer_text = format!(
-        "[{}]  {}/{}",
-        cat_label,
-        state.current_page() + 1,
-        state.total_pages().max(1)
-    );
+    let cat_text = format!("[{}]", cat_label);
     draw_text(
         &mut pixmap,
         &mut font_system,
         &mut swash_cache,
-        &footer_text,
+        &cat_text,
         tab_w + PADDING,
         footer_y,
         FONT_SIZE - 3.0,
         OVERLAY0,
-        width as f32 - tab_w - PADDING * 2.0,
+        (width as f32 - tab_w - PADDING * 2.0) * 0.5,
+    );
+    let total_pages = state.total_pages().max(1);
+    let page_str = format!("{}/{}", state.current_page() + 1, total_pages);
+    let (prev_btn_rect, next_btn_rect) = draw_page_footer(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &page_str,
+        width as f32 - PADDING,
+        footer_y,
+        FONT_SIZE - 2.0,
+        OVERLAY0,
+        total_pages > 1,
     );
 
     let pixels = rgba_to_argb32(pixmap.data());
@@ -538,6 +563,8 @@ fn render_emoji_from_state(state: &PopupState) -> RenderedPopup {
         pixels,
         width,
         height,
+        prev_btn_rect,
+        next_btn_rect,
     }
 }
 
@@ -651,24 +678,32 @@ fn render_special_from_state(state: &PopupState) -> RenderedPopup {
         }
     }
 
-    // 푸터
+    // 푸터 (좌측: [target], 우측: ◀ n/N ▶ — Phase 9)
     let footer_y = grid_y + (rows as f32) * CELL_SIZE + 4.0;
-    let footer_text = format!(
-        "[{}]  {}/{}",
-        state.target(),
-        state.current_page() + 1,
-        state.total_pages().max(1)
-    );
+    let target_text = format!("[{}]", state.target());
     draw_text(
         &mut pixmap,
         &mut font_system,
         &mut swash_cache,
-        &footer_text,
+        &target_text,
         PADDING,
         footer_y,
         FONT_SIZE - 3.0,
         OVERLAY0,
-        width as f32 - PADDING * 2.0,
+        (width as f32 - PADDING * 2.0) * 0.5,
+    );
+    let total_pages = state.total_pages().max(1);
+    let page_str = format!("{}/{}", state.current_page() + 1, total_pages);
+    let (prev_btn_rect, next_btn_rect) = draw_page_footer(
+        &mut pixmap,
+        &mut font_system,
+        &mut swash_cache,
+        &page_str,
+        width as f32 - PADDING,
+        footer_y,
+        FONT_SIZE - 2.0,
+        OVERLAY0,
+        total_pages > 1,
     );
 
     let pixels = rgba_to_argb32(pixmap.data());
@@ -677,10 +712,77 @@ fn render_special_from_state(state: &PopupState) -> RenderedPopup {
         pixels,
         width,
         height,
+        prev_btn_rect,
+        next_btn_rect,
     }
 }
 
 // ─── 내부 렌더링 헬퍼 ───
+
+/// Phase 9: 푸터 우측에 `◀ n/N ▶` 를 그리고 hit-test rect 반환.
+///
+/// `multi_page=false` 이면 ◀/▶ 만 숨기고 페이지 라벨은 표시. rect 는 (0,0,0,0).
+fn draw_page_footer(
+    pixmap: &mut Pixmap,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    page_str: &str,
+    right_x: f32,
+    y: f32,
+    size: f32,
+    color: Color,
+    multi_page: bool,
+) -> ((f32, f32, f32, f32), (f32, f32, f32, f32)) {
+    // 글리프 너비 추정 — Cosmic-text 측정 비용 줄이려 고정값 (FONT_SIZE-2 기준).
+    let icon_w = size * 1.2;
+    let gap = 6.0_f32;
+    let row_h = size * LINE_HEIGHT;
+
+    // 페이지 텍스트 너비 측정
+    let metrics = Metrics::new(size, size * LINE_HEIGHT);
+    let mut buffer = Buffer::new(font_system, metrics);
+    buffer.set_size(font_system, Some(120.0), Some(row_h));
+    buffer.set_text(font_system, page_str, Attrs::new(), Shaping::Advanced);
+    buffer.shape_until_scroll(font_system, false);
+    let mut page_w = 0.0_f32;
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs.iter() {
+            let gx = glyph.x + glyph.w;
+            if gx > page_w {
+                page_w = gx;
+            }
+        }
+    }
+
+    let next_x = right_x - icon_w;
+    let page_x = next_x - gap - page_w;
+    let prev_x = page_x - gap - icon_w;
+
+    let mut prev_rect = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
+    let mut next_rect = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
+
+    if multi_page {
+        draw_text(pixmap, font_system, swash_cache, "◀", prev_x, y, size, color, icon_w);
+        prev_rect = (
+            prev_x - gap / 2.0,
+            y,
+            prev_x + icon_w + gap / 2.0,
+            y + row_h,
+        );
+    }
+    draw_text(pixmap, font_system, swash_cache, page_str, page_x, y, size, color, page_w + 2.0);
+    if multi_page {
+        draw_text(pixmap, font_system, swash_cache, "▶", next_x, y, size, color, icon_w);
+        next_rect = (
+            next_x - gap / 2.0,
+            y,
+            next_x + icon_w + gap / 2.0,
+            y + row_h,
+        );
+    }
+
+    (prev_rect, next_rect)
+}
 
 fn fill_rect(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, color: Color) {
     let Some(rect) = Rect::from_xywh(x, y, w, h) else {
@@ -730,63 +832,6 @@ fn draw_text(
                     let a = buf_color.a() as u32;
                     if a > 0 {
                         // Alpha blending
-                        let inv_a = 255 - a;
-                        data[idx] =
-                            ((buf_color.r() as u32 * a + data[idx] as u32 * inv_a) / 255) as u8;
-                        data[idx + 1] =
-                            ((buf_color.g() as u32 * a + data[idx + 1] as u32 * inv_a) / 255) as u8;
-                        data[idx + 2] =
-                            ((buf_color.b() as u32 * a + data[idx + 2] as u32 * inv_a) / 255) as u8;
-                        data[idx + 3] = (a + data[idx + 3] as u32 * inv_a / 255).min(255) as u8;
-                    }
-                }
-            }
-        },
-    );
-}
-
-fn draw_text_right(
-    pixmap: &mut Pixmap,
-    font_system: &mut FontSystem,
-    swash_cache: &mut SwashCache,
-    text: &str,
-    right_x: f32,
-    y: f32,
-    size: f32,
-    color: Color,
-) {
-    // 텍스트 너비 측정 후 오른쪽 정렬
-    let metrics = Metrics::new(size, size * LINE_HEIGHT);
-    let mut buffer = Buffer::new(font_system, metrics);
-    buffer.set_size(font_system, Some(200.0), Some(size * LINE_HEIGHT * 2.0));
-    buffer.set_text(font_system, text, Attrs::new(), Shaping::Advanced);
-    buffer.shape_until_scroll(font_system, false);
-
-    // 텍스트 너비 계산
-    let mut max_x = 0.0f32;
-    for run in buffer.layout_runs() {
-        for glyph in run.glyphs.iter() {
-            let gx = glyph.x + glyph.w;
-            if gx > max_x {
-                max_x = gx;
-            }
-        }
-    }
-
-    let x = right_x - max_x;
-    buffer.draw(
-        font_system,
-        swash_cache,
-        color,
-        |px, py, _w, _h, buf_color| {
-            let dx = x as i32 + px;
-            let dy = y as i32 + py;
-            if dx >= 0 && dy >= 0 && (dx as u32) < pixmap.width() && (dy as u32) < pixmap.height() {
-                let idx = ((dy as u32) * pixmap.width() + (dx as u32)) as usize * 4;
-                let data = pixmap.data_mut();
-                if idx + 3 < data.len() {
-                    let a = buf_color.a() as u32;
-                    if a > 0 {
                         let inv_a = 255 - a;
                         data[idx] =
                             ((buf_color.r() as u32 * a + data[idx] as u32 * inv_a) / 255) as u8;

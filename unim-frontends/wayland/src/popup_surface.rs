@@ -38,6 +38,18 @@ pub struct PopupSurface {
     /// 현재 크기
     cur_width: u32,
     cur_height: u32,
+    /// 마지막 렌더링의 ◀ 버튼 hit-test 영역 (x0, y0, x1, y1). Phase 9.
+    prev_btn_rect: (f32, f32, f32, f32),
+    /// 마지막 렌더링의 ▶ 버튼 hit-test 영역.
+    next_btn_rect: (f32, f32, f32, f32),
+}
+
+/// 마우스 클릭 hit-test 결과 (Phase 9).
+#[derive(Debug, Clone, Copy)]
+pub enum PopupHitTest {
+    PrevPage,
+    NextPage,
+    None,
 }
 
 #[allow(dead_code)]
@@ -52,6 +64,28 @@ impl PopupSurface {
             popup_state: None,
             cur_width: 0,
             cur_height: 0,
+            prev_btn_rect: (0.0, 0.0, 0.0, 0.0),
+            next_btn_rect: (0.0, 0.0, 0.0, 0.0),
+        }
+    }
+
+    /// Phase 9: surface 좌표 (x, y) 가 ◀/▶ 버튼 영역에 hit 하는지 검사.
+    ///
+    /// 단일 페이지면 양쪽 rect 가 (0,0,0,0) 이라 항상 None 반환.
+    pub fn hit_test(&self, x: f32, y: f32) -> PopupHitTest {
+        let in_rect = |rect: (f32, f32, f32, f32)| {
+            let (x0, y0, x1, y1) = rect;
+            if x0 == 0.0 && y0 == 0.0 && x1 == 0.0 && y1 == 0.0 {
+                return false;
+            }
+            x >= x0 && x < x1 && y >= y0 && y < y1
+        };
+        if in_rect(self.prev_btn_rect) {
+            PopupHitTest::PrevPage
+        } else if in_rect(self.next_btn_rect) {
+            PopupHitTest::NextPage
+        } else {
+            PopupHitTest::None
         }
     }
 
@@ -248,6 +282,10 @@ impl PopupSurface {
             Some(ps) => popup_renderer::render_popup(ps),
             None => return,
         };
+
+        // Phase 9: 마우스 ◀/▶ hit-test 영역 캐시.
+        self.prev_btn_rect = rendered.prev_btn_rect;
+        self.next_btn_rect = rendered.next_btn_rect;
 
         self.attach_buffer(&surface, shm, qh, &rendered);
     }
