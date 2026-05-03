@@ -433,9 +433,9 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             }
         }
         "HanjaCandidatesReordered" => {
-            // Phase 1 (mouse-paginate UX): 시그니처에 was_bookmarked 가 추가되어
-            // 10-tuple 이 됐다. gui-common 은 아직 was_bookmarked 를 사용하지 않지만
-            // deserialize 시 정확한 시그니처가 필요하므로 받아만 두고 폐기한다.
+            // Phase 1+7 (mouse-paginate UX): 시그니처는 10-tuple — 마지막 두 필드가
+            // (bookmarked, was_bookmarked). 둘 다 GuiAction 으로 전달해 frontend 가
+            // ★ 해제 시 yellow flash 를 트리거할 수 있게 한다 (Phase 7).
             if let Ok((
                 target,
                 hanjas,
@@ -445,8 +445,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 page,
                 sel_row,
                 sel_col,
-                _bookmarked,
-                _was_bookmarked,
+                bookmarked,
+                was_bookmarked,
             )) = msg.body().deserialize::<(
                 String,
                 Vec<String>,
@@ -461,11 +461,13 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             )>() {
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] HanjaCandidatesReordered 수신: target='{}', count={}, new_cursor={}, page={}",
+                    "[Popup] HanjaCandidatesReordered 수신: target='{}', count={}, new_cursor={}, page={}, was={} now={}",
                     target,
                     hanjas.len(),
                     new_cursor,
-                    page
+                    page,
+                    was_bookmarked,
+                    bookmarked
                 );
                 let pairs: Vec<(String, String)> = hanjas
                     .into_iter()
@@ -478,6 +480,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                     page,
                     sel_row,
                     sel_col,
+                    bookmarked,
+                    was_bookmarked,
                 });
             }
         }

@@ -158,12 +158,18 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                             page,
                             sel_row,
                             sel_col,
+                            bookmarked,
+                            was_bookmarked,
                         } => {
-                            // 즐겨찾기 토글 후 재정렬 — 후보·즐겨찾기·커서 일괄 갱신
+                            // 즐겨찾기 토글 후 재정렬 — 후보·즐겨찾기·커서 일괄 갱신.
+                            // ★ 해제 (was=true → now=false) 시 cursor 셀 140ms yellow flash.
                             if hanja_clone.borrow().is_visible() {
                                 hanja_clone.borrow_mut().replace_candidates(
                                     candidates, bookmarks, page, sel_row, sel_col,
                                 );
+                                if was_bookmarked && !bookmarked {
+                                    hanja_clone.borrow().flash_cursor_cell();
+                                }
                             }
                         }
                         GuiAction::PopupNavigate {
