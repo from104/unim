@@ -526,7 +526,7 @@ impl InputEngine {
     ///   (예: 세벌식390) 인 경우엔 KeyboardMap 의 `Special(ch)` 매핑까지 확인하여
     ///   해당 자판에서 산출되는 실제 문자(`'/'` 등) 와 비교한다.
     pub(super) fn match_auto_english_trigger(
-        &self,
+        &mut self,
         keycode: KeyCode,
         modifier: ModifierState,
     ) -> Option<AutoEnglishTrigger> {
@@ -536,6 +536,9 @@ impl InputEngine {
         if self.input_category != InputCategory::Korean {
             return None;
         }
+        // produces_char_in_korean 은 (&mut self) 라 트리거 iter 클로저 안에서 호출 불가 —
+        // 결과는 (keycode, shift) 에 결정적이므로 미리 한 번 계산해 둔다.
+        let produced_char = self.produces_char_in_korean(keycode, modifier.shift);
         self.auto_english_triggers
             .iter()
             .find(|t| match t {
@@ -546,9 +549,7 @@ impl InputEngine {
                             Some(required) => *required == modifier.shift,
                         }
                 }
-                AutoEnglishTrigger::Character(ch) => {
-                    self.produces_char_in_korean(keycode, modifier.shift) == Some(*ch)
-                }
+                AutoEnglishTrigger::Character(ch) => produced_char == Some(*ch),
             })
             .copied()
     }
@@ -557,13 +558,42 @@ impl InputEngine {
     ///
     /// 산출 경로:
     /// 1. `english_keymap.get_char` 로 영문 자판의 char 를 얻는다 (e.g. `'G'`).
-    /// 2. KoreanLayout 의 `keyboard_map` 에서 그 char 를 lookup.
-    ///    - `Some(JamoEnum::Special(ch))` 면 그 자판이 의도한 비-자모 char (e.g. 세벌식390 의 `'/'`).
+    /// 2. `key_meta.context_alt` 가 있으면 현재 preedit 상태로 분기 평가.
+    ///    - 조건 충족(jamo 경로 활성) → `None` (자모 산출 예정).
+    ///    - 조건 불충족(fallback 경로) → `Some(fallback 첫 char)` (e.g. 세벌식390 `/`).
+    /// 3. KoreanLayout 의 `keyboard_map` 에서 영문 char 를 lookup.
+    ///    - `Some(JamoEnum::Special(ch))` 면 그 자판이 의도한 비-자모 char.
     ///    - `Some(JamoEnum::Cho/Jung/Jong)` 면 한글 자모이므로 char 산출 없음 → `None`.
     ///    - 매핑이 없으면(QWERTY std 에서 기호 등) 영문 char 를 그대로 사용.
-    /// 3. `keyboard_map` 자체가 없으면 영문 char 를 그대로 사용.
-    fn produces_char_in_korean(&self, keycode: KeyCode, shift: bool) -> Option<char> {
+    /// 4. `keyboard_map` 자체가 없으면 영문 char 를 그대로 사용.
+    fn produces_char_in_korean(&mut self, keycode: KeyCode, shift: bool) -> Option<char> {
         let en_ch = self.english_keymap.get_char(keycode, shift)?;
+
+        // key_meta.context_alt 가 있으면 process_korean_key 의 룰 B 분기와 동일하게 평가.
+        // 한글 모드에서 fallback 경로를 타는 키(예: 세벌식390 의 빈 preedit `/`)는
+        // 사용자에게 실제로 char 가 commit 되므로 자동 영문 트리거 후보가 되어야 한다.
+        if let Some(meta) = self.key_meta_map.get(&en_ch) {
+            if let Some(alt) = meta.context_alt.as_ref() {
+                use crate::keystroke::profile::ContextCondition as C;
+                let cond_ok = match alt.when {
+                    C::Empty => !self.korean_context.is_composing(),
+                    C::Composing => self.korean_context.is_composing(),
+                    C::ChoseongOnly => self.korean_context.is_only_cho_filled(),
+                    C::JungseongOnly => self.korean_context.is_only_jung_filled(),
+                    C::ChoJungFilled => self.korean_context.is_cho_jung_filled(),
+                    C::JongseongFilled => self.korean_context.is_jong_filled(),
+                    C::LastIsCho => self.korean_context.last_jamo_is_cho(),
+                    C::LastIsJung => self.korean_context.last_jamo_is_jung(),
+                    C::LastIsJong => self.korean_context.last_jamo_is_jong(),
+                };
+                return if cond_ok {
+                    None
+                } else {
+                    alt.fallback.chars().next()
+                };
+            }
+        }
+
         let Some(ref kmap) = self.keyboard_map else {
             return Some(en_ch);
         };
