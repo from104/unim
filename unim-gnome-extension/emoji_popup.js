@@ -24,6 +24,7 @@
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { unimLog } from './logging.js';
 
 /** 그리드 상수 (특수문자 팝업과 동일 — 엔진 popup_state 와 합의) */
@@ -161,12 +162,14 @@ export class EmojiPopup {
             style_class: 'popup-footer-box',
             vertical: false,
         });
+        // accessible_name — 스크린리더가 ◀/▶ 글리프 대신 의미있는 라벨 읽음 (a11y).
         this._prevPageBtn = new St.Button({
             style_class: 'popup-page-btn',
             label: ICON_PREV_PAGE,
             can_focus: false,
             reactive: true,
             track_hover: true,
+            accessible_name: _('Previous page'),
         });
         this._prevPageBtn.connect('clicked', () => {
             if (this._onChangePage) this._onChangePage(0);
@@ -182,6 +185,7 @@ export class EmojiPopup {
             can_focus: false,
             reactive: true,
             track_hover: true,
+            accessible_name: _('Next page'),
         });
         this._nextPageBtn.connect('clicked', () => {
             if (this._onChangePage) this._onChangePage(1);
