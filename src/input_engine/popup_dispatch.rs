@@ -63,10 +63,15 @@ impl InputEngine {
     pub(super) fn process_popup_key(
         &mut self,
         keycode: KeyCode,
-        _modifier: ModifierState,
+        modifier: ModifierState,
         config: &Config,
     ) -> InputResult {
-        let popup_key = Self::keycode_to_popup_key(keycode);
+        // Shift+Tab 은 별도 keysym(ISO_Left_Tab) 또는 evdev Tab+Shift 양쪽으로 들어올 수
+        // 있다. evdev 기반 매핑(Tab) + modifier.shift 조합을 PopupKey::ShiftTab 으로 흡수.
+        let popup_key = match keycode {
+            KeyCode::Tab if modifier.shift => PopupKey::ShiftTab,
+            _ => Self::keycode_to_popup_key(keycode),
+        };
 
         let (result, is_emoji_kind, prev_cat_index) = if let Some(ref mut state) = self.popup_state {
             let is_emoji = state.kind() == PopupKind::Emoji;
@@ -93,7 +98,11 @@ impl InputEngine {
             }
 
             PopupKeyResult::Updated => {
-                // PR #1: 이모지 팝업이고 카테고리가 바뀐 경우 emoji pool 교체.
+                // 이모지 팝업이고 카테고리가 바뀐 경우 emoji pool 교체 + ShowEmoji 재발행.
+                // PopupNavigate 만으로는 GNOME extension 의 emoji popup 이 카테고리
+                // 라벨/탭/아이콘풀을 재구성하지 못한다 (updateFromNavigate 는 페이지/그리드만
+                // 갱신). 마우스 탭 클릭(SetEmojiCategory RPC)이 ShowEmojiPopupV2 를 재발행해
+                // onShowEmoji 콜백으로 popup 전체를 다시 그리는 흐름과 동일하게 맞춘다.
                 if is_emoji_kind {
                     let cur_cat = self
                         .popup_state
@@ -102,6 +111,38 @@ impl InputEngine {
                         .unwrap_or(prev_cat_index);
                     if cur_cat != prev_cat_index {
                         self.refresh_emoji_category_items(cur_cat);
+                        if let Some(state) = self.popup_state.as_ref() {
+                            if state.kind() == PopupKind::Emoji {
+                                let cats: Vec<(String, String, String, u32)> = state
+                                    .emoji_categories()
+                                    .iter()
+                                    .map(|c| {
+                                        (
+                                            c.id.clone(),
+                                            c.label_ko.clone(),
+                                            c.label_en.clone(),
+                                            c.total as u32,
+                                        )
+                                    })
+                                    .collect();
+                                let target_cat_id = cats
+                                    .get(cur_cat)
+                                    .map(|c| c.0.clone())
+                                    .unwrap_or_default();
+                                let items: Vec<String> =
+                                    state.emoji_items().iter().cloned().collect();
+                                let recent: Vec<String> =
+                                    state.emoji_recent().iter().cloned().collect();
+                                self.popup_pending_action = Some(PopupAction::ShowEmoji {
+                                    target_cat_id,
+                                    items,
+                                    top_row: self.top_row_labels.clone(),
+                                    recent,
+                                    categories: cats,
+                                });
+                                return InputResult::preedit_updated();
+                            }
+                        }
                     }
                 }
                 // PopupState 내부 상태가 변경됨 → PopupNavigate 액션 발행
@@ -127,7 +168,7 @@ impl InputEngine {
                 unim_log!("ENGINE", "팝업 미지원 키 {:?} → 팝업 닫고 재처리", keycode);
                 self.popup_cancel();
                 // 키를 다시 처리 (재귀 방지: popup 모드가 이미 해제됨)
-                self.press_key(keycode, _modifier, config)
+                self.press_key(keycode, modifier, config)
             }
         }
     }
