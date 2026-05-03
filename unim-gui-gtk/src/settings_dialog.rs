@@ -551,16 +551,7 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     }
     group.add(&emoji_sw);
 
-    // 이모지 팝업 트리거 키
-    group.add(&build_string_list_row(
-        state,
-        &t!("row_emoji_popup_keys"),
-        Some(t!("row_emoji_popup_keys_subtitle").as_ref()),
-        Some(t!("row_emoji_popup_keys_tooltip").as_ref()),
-        |cfg| cfg.engine.emoji_popup.trigger_keys.join(", "),
-        |cfg, v| cfg.engine.emoji_popup.trigger_keys = v,
-        "emoji_popup_keys",
-    ));
+    // 단축키 설정 row 는 제거됨 — 한자 키 idle 상태가 단일 진입점.
 
     group
 }

@@ -24,9 +24,7 @@ row_toggle_keys_subtitle: "쉼표로 구분 (예: Korean, RightAlt)"
 row_hanja_keys: "한자 키"
 row_hanja_keys_subtitle: "쉼표로 구분 (예: Hanja, F9)"
 row_emoji_popup: "이모지 팝업"
-row_emoji_popup_subtitle: "Super+. 등 트리거 키로 이모지 팝업 표시"
-row_emoji_popup_keys: "이모지 팝업 트리거 키"
-row_emoji_popup_keys_subtitle: "쉼표로 구분 (예: Super+Period, Control+Shift+E)"
+row_emoji_popup_subtitle: "한자 키가 idle 상태(조합 중인 한글 없음)일 때 이모지 팝업 표시"
 
 # 일반 > 입력 모드
 group_input_mode: "입력 모드"
@@ -165,7 +163,6 @@ row_english_layout_tooltip: "AutoTypeFix가 영문 단어를 추론할 때도 �
 row_emoji_popup_tooltip: "OFF로 두면 콜론 문자열이 그대로 입력됩니다. 코드 작성 시 충돌이 잦으면 OFF 권장."
 row_toggle_keys_tooltip: "한/영 전환에 사용할 키를 쉼표로 구분해 입력합니다. 예: Korean, RightAlt, ShiftSpace."
 row_hanja_keys_tooltip: "한자 변환 팝업을 띄울 키를 쉼표로 구분해 입력합니다. 예: Hanja, F9."
-row_emoji_popup_keys_tooltip: "이모지 팝업을 띄울 키 조합을 쉼표로 구분해 입력합니다. 예: Super+Period, Control+Shift+E."
 
 # 일반 > 입력 모드
 row_initial_mode_tooltip: "「영문」으로 두면 시스템 기본이 영문이라 안전. 한글을 자주 쓰면 「한글」도 무방."

@@ -24,9 +24,7 @@ row_toggle_keys_subtitle: "Comma separated (e.g. Korean, RightAlt)"
 row_hanja_keys: "Hanja Keys"
 row_hanja_keys_subtitle: "Comma separated (e.g. Hanja, F9)"
 row_emoji_popup: "Emoji Popup"
-row_emoji_popup_subtitle: "Show emoji popup with trigger keys (Super+. etc.)"
-row_emoji_popup_keys: "Emoji Popup Trigger Keys"
-row_emoji_popup_keys_subtitle: "Comma separated (e.g. Super+Period, Control+Shift+E)"
+row_emoji_popup_subtitle: "Show emoji popup when the Hanja key is pressed without an active composition"
 
 # General > Input mode
 group_input_mode: "Input Mode"
@@ -165,7 +163,6 @@ row_english_layout_tooltip: "AutoTypeFix uses this layout when inferring English
 row_emoji_popup_tooltip: "When OFF, colon strings are typed verbatim. Turn OFF if you write code with frequent colon collisions."
 row_toggle_keys_tooltip: "Comma-separated list of keys used to toggle Korean/English mode. Examples: Korean, RightAlt, ShiftSpace."
 row_hanja_keys_tooltip: "Comma-separated list of keys that open the Hanja popup. Examples: Hanja, F9."
-row_emoji_popup_keys_tooltip: "Comma-separated key combinations that open the emoji popup. Examples: Super+Period, Control+Shift+E."
 
 # General > Input mode
 row_initial_mode_tooltip: "English is the safe default. Korean is fine if you primarily type Korean."

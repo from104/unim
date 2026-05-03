@@ -395,12 +395,9 @@ enum ConfigKey {
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
-    /// 이모지 팝업 활성화 (true, false)
+    /// 이모지 팝업 활성화 (true, false). 트리거는 한자 키 idle 상태일 때.
     #[value(name = "emoji-popup")]
     EmojiPopup,
-    /// 이모지 팝업 트리거 키 (예: Super+Period)
-    #[value(name = "emoji-popup-keys")]
-    EmojiPopupKeys,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -741,11 +738,6 @@ fn config_show() {
         t!("disabled")
     };
     println!("{}: {}", t!("emoji_popup_label"), emoji_status);
-    println!(
-        "{}: {}",
-        t!("emoji_popup_keys_label"),
-        config.engine.emoji_popup.trigger_keys.join(", ")
-    );
     println!();
     if let Some(path) = UnimConfig::default_config_path() {
         println!("{}: {}", t!("config_file_label"), path.display());
@@ -1146,22 +1138,6 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("disabled")
             };
             println!("{}: {}", t!("emoji_popup_label"), status);
-        }
-        ConfigKey::EmojiPopupKeys => {
-            let keys: Vec<String> = value
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            if keys.is_empty() {
-                return Err("At least one trigger required".to_string());
-            }
-            config.engine.emoji_popup.trigger_keys = keys;
-            println!(
-                "{}: {}",
-                t!("emoji_popup_keys_label"),
-                config.engine.emoji_popup.trigger_keys.join(", ")
-            );
         }
     }
 

@@ -61,24 +61,8 @@ impl InputEngine {
             return self.process_popup_key(keycode, modifier, _config);
         }
 
-        // 이모지 팝업 트리거 (Super+. 등) — 단축키 early return 이전에 체크.
-        // PR #1 (R1/R2 안전망):
-        //   R1: 이미 emoji popup 이 떠 있으면 위 분기에서 처리 (재트리거 가드 자동).
-        //   R2: 한자/특수 모드도 위 분기에서 흡수 — emoji 트리거가 그쪽 모드를 깨지 않는다.
-        if self.matches_emoji_trigger(keycode, modifier) {
-            unim_log!("ENGINE", "이모지 팝업 트리거 감지: {:?}", keycode);
-            // 조합 중이면 먼저 커밋.
-            let was_composing = self.korean_context.is_composing();
-            if was_composing {
-                self.flush_preedit();
-            }
-            // PR #1: PopupState::Emoji 진입 + 카테고리/페이지/Recent payload 구성.
-            self.start_emoji_popup();
-            if was_composing {
-                return InputResult::committed();
-            }
-            return InputResult::consumed();
-        }
+        // 이모지 팝업 진입은 한자 키 dual-purpose 가 단일 진입점이다 (preedit/조합 idle
+        // 상태에서 한자 키가 start_emoji_popup() 호출). 별도 단축키 트리거는 제거됨.
 
         // Control/Alt가 눌린 경우 (단축키) 무시
         if modifier.control || modifier.alt || modifier.super_key {
@@ -144,8 +128,21 @@ impl InputEngine {
             modifier.caps_lock
         );
 
-        // Hanja 키 처리 - 한자 변환 모드 시작
-        if keycode == KeyCode::Hanja {
+        // Hanja 키 처리 — preedit/조합 상태에 따라 dispatch.
+        //   * 조합 중: 한자 변환 (기존 동작)
+        //   * idle (조합 없음): 이모지 팝업 트리거 (윈도우 IME 흉내 대신 dual-purpose).
+        //     emoji_popup_enabled=false 이면 silent no-op (사용자가 끈 의도 존중).
+        //
+        // 설정 기반 매칭 — `hanja_keys` config (기본 `["Hanja", "F9"]`) 의 모든 키가 트리거.
+        if self.hanja_keys.contains(&keycode) {
+            let idle =
+                self.preedit_cache.is_empty() && !self.korean_context.is_composing();
+            if idle {
+                if self.emoji_popup_enabled {
+                    self.start_emoji_popup();
+                }
+                return InputResult::consumed();
+            }
             return self.start_hanja_conversion();
         }
 

@@ -68,8 +68,8 @@
       <description>Read the selected text (Korean or English) and register the corresponding English word to the reverse AutoTypeFix user dictionary.</description>
     </key>
 
-    <!-- shortcut-emoji-popup 키는 PR #3 (이모지 전면 개선) 에서 제거됨.
-         이모지 팝업 트리거는 engine 의 `engine.emoji_popup.trigger_keys` 가 단일 진실
-         소스이며 IM 모듈을 통해 들어온 키 이벤트에서 직접 매칭한다. -->
+    <!-- 이모지 팝업 단축키 설정은 제공하지 않는다.
+         트리거는 한자 키가 idle (조합 중인 한글 없음) 상태일 때 단일 진입점으로 동작 —
+         엔진의 press_key.rs Hanja 분기가 start_emoji_popup() 을 호출한다. -->
   </schema>
 </schemalist>

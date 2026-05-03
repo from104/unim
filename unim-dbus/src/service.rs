@@ -628,7 +628,6 @@ impl InputMethodService {
             "auto_english" => config.engine.auto_english.enabled.to_string(),
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "emoji_popup" => config.engine.emoji_popup.enabled.to_string(),
-            "emoji_popup_keys" => config.engine.emoji_popup.trigger_keys.join(","),
             "app_rules" => serde_json::to_string(&config.engine.app_rules).unwrap_or_default(),
             _ => {
                 return Err(zbus::fdo::Error::InvalidArgs(format!(
@@ -791,19 +790,6 @@ impl InputMethodService {
                     config.engine.emoji_popup.enabled = value
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
-                }
-                "emoji_popup_keys" => {
-                    let keys: Vec<String> = value
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    if keys.is_empty() {
-                        return Err(zbus::fdo::Error::InvalidArgs(
-                            "At least one trigger required".to_string(),
-                        ));
-                    }
-                    config.engine.emoji_popup.trigger_keys = keys;
                 }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =

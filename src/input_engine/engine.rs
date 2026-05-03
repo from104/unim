@@ -9,7 +9,7 @@ use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
 use crate::config::{Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
-use crate::keycode::{KeyCode, ModifierState};
+use crate::keycode::KeyCode;
 use crate::keystroke::EnglishKeymap;
 use crate::popup::PopupState;
 use std::collections::HashMap;
@@ -55,6 +55,9 @@ pub struct InputEngine {
     pub(super) special_char_target: String,
     /// 한/영 전환 키 목록 (설정 기반)
     pub(super) toggle_keys: Vec<KeyCode>,
+    /// 한자 변환 트리거 키 목록 (설정 기반 — 기본 `["Hanja", "F9"]`).
+    /// preedit 비었을 때는 dual-purpose 로 emoji 팝업 트리거로 동작.
+    pub(super) hanja_keys: Vec<KeyCode>,
     /// 자동 영문 전환 활성화 여부 (설정 캐시)
     pub(super) auto_english_enabled: bool,
     /// 자동 영문 전환 트리거 (파싱된 카테고리별 캐시)
@@ -66,9 +69,8 @@ pub struct InputEngine {
     /// 표기 문법: `key:Escape` / `char:/` (접두사). 무접두사는 legacy 호환으로
     /// `Functional` 로 흡수한다.
     pub(super) auto_english_triggers: Vec<AutoEnglishTrigger>,
-    /// 이모지 팝업 트리거 (modifier, keycode) 쌍 목록
-    pub(super) emoji_triggers: Vec<(ModifierState, KeyCode)>,
-    /// 이모지 팝업 기능 활성 여부
+    /// 이모지 팝업 기능 활성 여부.
+    /// 트리거는 한자 키가 idle 상태일 때만 — 별도 단축키 없음.
     pub(super) emoji_popup_enabled: bool,
     /// 통합 팝업 상태 (한자/특수문자 공용)
     pub(super) popup_state: Option<PopupState>,
@@ -139,6 +141,13 @@ impl InputEngine {
                 .map(|name| KeyCode::from_name(name))
                 .filter(|k| *k != KeyCode::Unknown)
                 .collect(),
+            hanja_keys: config
+                .engine
+                .hanja_keys
+                .iter()
+                .map(|name| KeyCode::from_name(name))
+                .filter(|k| *k != KeyCode::Unknown)
+                .collect(),
             auto_english_enabled: config.engine.auto_english.enabled,
             auto_english_triggers: config
                 .engine
@@ -146,13 +155,6 @@ impl InputEngine {
                 .trigger_keys
                 .iter()
                 .filter_map(|n| Self::parse_trigger_key(n))
-                .collect(),
-            emoji_triggers: config
-                .engine
-                .emoji_popup
-                .trigger_keys
-                .iter()
-                .filter_map(|s| Self::parse_emoji_trigger(s))
                 .collect(),
             emoji_popup_enabled: config.engine.emoji_popup.enabled,
             popup_state: None,
@@ -166,47 +168,6 @@ impl InputEngine {
             surrounding_cursor: 0,
             surrounding_anchor: 0,
         }
-    }
-
-    /// 이모지 트리거 문자열을 파싱합니다.
-    ///
-    /// 형식: "Super+Period", "Control+Shift+E" 처럼 `+`로 구분된 토큰.
-    /// 각 토큰은 modifier 이름(Super/Control/Alt/Shift) 또는 KeyCode 이름.
-    /// 유효하지 않거나 KeyCode가 없는 경우 None을 반환합니다.
-    pub(super) fn parse_emoji_trigger(spec: &str) -> Option<(ModifierState, KeyCode)> {
-        let mut modifier = ModifierState::new();
-        let mut keycode: Option<KeyCode> = None;
-        for token in spec.split('+') {
-            match token.trim() {
-                "" => continue,
-                "Super" | "Meta" | "Win" => modifier.super_key = true,
-                "Control" | "Ctrl" => modifier.control = true,
-                "Alt" => modifier.alt = true,
-                "Shift" => modifier.shift = true,
-                other => {
-                    let kc = KeyCode::from_name(other);
-                    if kc == KeyCode::Unknown {
-                        return None;
-                    }
-                    keycode = Some(kc);
-                }
-            }
-        }
-        keycode.map(|k| (modifier, k))
-    }
-
-    /// 현재 키 입력이 이모지 팝업 트리거와 일치하는지 확인합니다.
-    pub(super) fn matches_emoji_trigger(&self, keycode: KeyCode, modifier: ModifierState) -> bool {
-        if !self.emoji_popup_enabled || self.emoji_triggers.is_empty() {
-            return false;
-        }
-        self.emoji_triggers.iter().any(|(m, k)| {
-            *k == keycode
-                && m.shift == modifier.shift
-                && m.control == modifier.control
-                && m.alt == modifier.alt
-                && m.super_key == modifier.super_key
-        })
     }
 
     /// 키보드 맵을 생성합니다.

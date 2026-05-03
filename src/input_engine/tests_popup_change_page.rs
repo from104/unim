@@ -263,6 +263,76 @@ fn unbookmark_restores_candidate_to_natural_dict_position() {
     );
 }
 
+// =====================================================================
+// Hanja 키 dual-purpose: preedit 있으면 한자, idle 이면 이모지 트리거
+// =====================================================================
+
+/// preedit 있을 때 Hanja → 기존대로 한자 모드 진입 (회귀).
+#[test]
+fn hanja_key_with_preedit_starts_hanja_conversion() {
+    let mut engine = create_test_engine();
+    engine.set_input_category(InputCategory::Korean);
+    let config = Config::default();
+    let m = ModifierState::default();
+    engine.press_key(KeyCode::R, m, &config); // ㄱ
+    engine.press_key(KeyCode::K, m, &config); // ㅏ
+    let r = engine.press_key(KeyCode::Hanja, m, &config);
+    if !r.hanja_candidates_available {
+        eprintln!("환경 사전 없음 — skip");
+        return;
+    }
+    assert!(engine.is_hanja_mode(), "Hanja 키 → 한자 모드 진입");
+}
+
+/// idle 상태(preedit 없음) + emoji 활성 → 이모지 팝업 진입.
+#[test]
+fn hanja_key_idle_with_emoji_enabled_starts_emoji_popup() {
+    let mut engine = create_test_engine();
+    engine.set_input_category(InputCategory::Korean);
+    engine.emoji_popup_enabled = true;
+    let config = Config::default();
+    let m = ModifierState::default();
+    let _r = engine.press_key(KeyCode::Hanja, m, &config);
+    // 이모지 팝업 활성: popup_state.kind() == Emoji
+    let kind = engine.popup_state().map(|s| s.kind());
+    assert_eq!(
+        kind,
+        Some(crate::popup::PopupKind::Emoji),
+        "idle Hanja + emoji_enabled → 이모지 팝업"
+    );
+    assert!(!engine.is_hanja_mode(), "한자 모드는 진입하지 않음");
+}
+
+/// `hanja_keys` config 의 두 번째 키(F9)도 한자 모드 트리거 — 이전엔 dead 였음.
+#[test]
+fn hanja_keys_config_f9_also_triggers_hanja_mode() {
+    let mut engine = create_test_engine();
+    engine.set_input_category(InputCategory::Korean);
+    let config = Config::default();
+    let m = ModifierState::default();
+    engine.press_key(KeyCode::R, m, &config); // ㄱ
+    engine.press_key(KeyCode::K, m, &config); // ㅏ
+    let r = engine.press_key(KeyCode::F9, m, &config);
+    if !r.hanja_candidates_available {
+        eprintln!("환경 사전 없음 — skip");
+        return;
+    }
+    assert!(engine.is_hanja_mode(), "F9 도 hanja_keys config 매칭 시 한자 모드");
+}
+
+/// idle 상태 + emoji 비활성 → no-op (popup 미활성, hanja 미진입).
+#[test]
+fn hanja_key_idle_with_emoji_disabled_is_noop() {
+    let mut engine = create_test_engine();
+    engine.set_input_category(InputCategory::Korean);
+    engine.emoji_popup_enabled = false;
+    let config = Config::default();
+    let m = ModifierState::default();
+    let _r = engine.press_key(KeyCode::Hanja, m, &config);
+    assert!(engine.popup_state().is_none(), "popup 비활성 유지");
+    assert!(!engine.is_hanja_mode(), "한자 모드 미진입");
+}
+
 #[test]
 fn toggle_hanja_bookmark_action_carries_was_bookmarked_field() {
     // PopupAction::HanjaCandidatesReordered 페이로드에 was_bookmarked 가 들어있고

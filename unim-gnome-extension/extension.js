@@ -608,11 +608,11 @@ export default class UnimExtension extends Extension {
     // ===========================================
 
     // ===========================================
-    // 이모지 팝업 (PR #3: extension 은 단순 receiver)
+    // 이모지 팝업 (extension 은 단순 receiver)
     //
-    // 트리거 키바인딩은 PR #3 부터 제거됨 — 엔진(`press_key.rs::matches_emoji_trigger`)
-    // 이 IM 모듈을 통해 들어온 키 이벤트에서 직접 트리거를 매칭한다.
-    // GNOME Wayland 의 compositor 가 Super+. 를 가로채는 환경 대응은 별도 추적 (R8).
+    // 트리거: 한자 키가 idle (preedit/조합 비어있음) 상태에서 눌릴 때.
+    // 엔진의 press_key.rs Hanja 분기가 start_emoji_popup() 을 호출한다.
+    // 별도 단축키 트리거는 제공하지 않는다.
     // ===========================================
 
     _bindAllShortcuts() {

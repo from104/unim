@@ -646,22 +646,19 @@ pub struct EngineConfig {
 
 /// 이모지 팝업 설정
 ///
-/// Super+. 단축키로 이모지 팝업을 열고, 카테고리 탭/즐겨찾기/검색을 제공합니다.
+/// 한자 키가 idle (preedit/조합 비어있음) 상태일 때 이모지 팝업을 트리거한다.
+/// 별도 단축키 설정은 제공하지 않는다 — 한자 키 단일 진입점.
+/// `enabled=false` 면 idle 한자 키도 silent no-op (한자 변환은 영향 없음).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EmojiPopupConfig {
     /// 기능 활성화 여부
     pub enabled: bool,
-    /// 팝업 트리거 키 (modifier+KeyCode 이름 조합, 예: "Super+Period")
-    pub trigger_keys: Vec<String>,
 }
 
 impl Default for EmojiPopupConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            trigger_keys: vec!["Super+Period".to_string()],
-        }
+        Self { enabled: true }
     }
 }
 

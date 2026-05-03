@@ -29,8 +29,6 @@ mod tests_scenarios;
 #[cfg(test)]
 mod tests_auto_english;
 #[cfg(test)]
-mod tests_emoji_trigger;
-#[cfg(test)]
 mod tests_popup_change_page;
 #[cfg(test)]
 mod tests_profile;
