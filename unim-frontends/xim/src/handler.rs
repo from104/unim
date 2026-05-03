@@ -301,6 +301,26 @@ impl UnimHandler {
         Ok(())
     }
 
+    /// Phase 6: 마우스 ◀/▶ 클릭 → DBus PopupChangePage RPC.
+    ///
+    /// 합성 키 (Right/Left) 대신 RPC 직접 호출 — popup_state 가 cursor sel_row/sel_col
+    /// 를 보존한 채로 페이지를 바꾸고 PopupNavigate 시그널을 발행.
+    /// `direction`: 0 = 이전, 1 = 다음.
+    fn invoke_popup_change_page(&self, direction: i32) {
+        // 한자/특수문자 어떤 팝업이 활성이든 같은 RPC 가 동작 — popup 활성 여부는
+        // 데몬이 판정하고 비활성/단일 페이지면 no-op.
+        let path = self
+            .hanja_context_path
+            .clone()
+            .or_else(|| self.special_context_path.clone());
+        if let Some(p) = path {
+            let _ = self.dbus_tx.try_send(DbusRequest::PopupChangePage {
+                context_path: p,
+                direction,
+            });
+        }
+    }
+
     /// 합성 키 전송 (마우스 클릭 → 키 이벤트 변환용)
     fn send_synthetic_key(&self, keysym: u64) {
         if let Some(client_win) = self.hanja_client_window {
@@ -342,7 +362,12 @@ impl UnimHandler {
         if let Some(ref hw) = self.hanja_window {
             let (w, h) = (hw.size().0 as i16, hw.size().1 as i16);
             if event_x >= 0 && event_y >= 0 && event_x < w && event_y < h {
-                let result = hw.handle_button_press(button as u32, event_y as c_int, self.display);
+                let result = hw.handle_button_press(
+                    button as u32,
+                    event_x as c_int,
+                    event_y as c_int,
+                    self.display,
+                );
                 match result {
                     HanjaClickResult::Select(page_idx) => {
                         let keysym = 0x31 + page_idx as u64; // '1'~'9'
@@ -354,7 +379,12 @@ impl UnimHandler {
                         );
                     }
                     HanjaClickResult::NextPage => {
-                        self.send_synthetic_key(0xff53); // Right
+                        // Phase 6: 우클릭 또는 ▶ 좌클릭 → DBus PopupChangePage(1).
+                        // 합성 키 (Right) 대신 RPC 직접 호출 — popup_state cursor 보존.
+                        self.invoke_popup_change_page(1);
+                    }
+                    HanjaClickResult::PrevPage => {
+                        self.invoke_popup_change_page(0);
                     }
                     HanjaClickResult::Consumed => {}
                 }
@@ -381,7 +411,11 @@ impl UnimHandler {
                         unim_log!("XIM_HANDLER", "특수문자 좌클릭 → 합성 Enter 전송");
                     }
                     SpecialClickResult::NextPage => {
-                        self.send_synthetic_key(0xff09); // Tab
+                        // Phase 6: 합성 Tab 대신 PopupChangePage(1) RPC.
+                        self.invoke_popup_change_page(1);
+                    }
+                    SpecialClickResult::PrevPage => {
+                        self.invoke_popup_change_page(0);
                     }
                     SpecialClickResult::Consumed => {}
                 }
@@ -768,7 +802,8 @@ impl UnimHandler {
                 page,
                 sel_row,
                 sel_col,
-                bookmarked: _,
+                bookmarked,
+                was_bookmarked,
             } => {
                 if let Some(ref mut hw) = self.hanja_window {
                     // 다른 프런트엔드와 동일 시맨틱: payload의 page/sel_row/sel_col을
@@ -782,6 +817,10 @@ impl UnimHandler {
                         sel_col.max(0) as usize,
                         self.display,
                     );
+                    // Phase 7: ★ 해제 (was=true → now=false) 시 cursor 셀 yellow flash.
+                    if was_bookmarked && !bookmarked {
+                        hw.flash_cursor_cell(self.display);
+                    }
                 }
             }
         }

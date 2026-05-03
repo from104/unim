@@ -14,8 +14,11 @@ use crate::dpi;
 pub enum SpecialClickResult {
     /// 셀 선택 (행, 열)
     Select(usize, usize),
-    /// 다음 페이지
+    /// 다음 페이지 (우클릭 또는 ▶ 좌클릭)
     NextPage,
+    /// 이전 페이지 (◀ 좌클릭, Phase 6)
+    #[allow(dead_code)]
+    PrevPage,
     /// 이벤트 소비됨
     Consumed,
 }
