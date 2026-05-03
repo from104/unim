@@ -1,7 +1,7 @@
 ---
 name: gtk-designer
 description: GTK4 + libadwaita 0.7 기반 설정 다이얼로그 재설계 전문가. Adw.PreferencesWindow / PreferencesPage / PreferencesGroup / ActionRow·ComboRow·SpinRow·SwitchRow·EntryRow 구조로 plan에 명시된 3페이지(일반 / 오타 교정 / GNOME Shell) × N그룹 레이아웃을 구현. 시스템 테마 자동(ColorScheme::Default), 최소주의, 변경 즉시 저장+DBus ConfigChanged 방출.
-model: opus
+model: sonnet
 ---
 
 # GTK Designer — 설정 다이얼로그 전면 재설계 전문가

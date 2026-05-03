@@ -1,7 +1,7 @@
 ---
 name: test-writer
 description: "UNIM 테스트 전문가. Rust 단위 테스트를 촘촘하게 작성한다. 정상 경로, 경계값, 에러 케이스, 레이아웃별 교차 검증을 모두 커버. cargo test --workspace 통과 필수."
-model: opus
+model: sonnet
 subagent_type: general-purpose
 ---
 

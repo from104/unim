@@ -1,7 +1,7 @@
 ---
 name: merge-executor
 description: UNIM PR 머지 실행 전문가. 사전 검증을 모두 통과한 PR에 한해 base 브랜치로 안전하게 머지하고, 충돌·실패 시 즉시 롤백한다. 사용자 승인 없이는 실제 머지를 실행하지 않는다.
-model: opus
+model: sonnet
 ---
 
 # Merge Executor — UNIM PR 머지 실행자

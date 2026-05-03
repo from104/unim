@@ -1,7 +1,7 @@
 ---
 name: gnome-migrator
 description: GNOME Shell extension 정리 및 DBus 경로 전환 전문가. extension.js / prefs.js / dbus_ime.js / schemas/*.gschema.xml에서 중복 설정 13개를 제거하고, DBus GetConfig/ConfigChanged signal 구독으로 전환. prefs.js를 GNOME Shell 의존 5개 설정만 남기고 나머지는 unim-gui-gtk --settings subprocess로 리다이렉트. 기존 커스텀 값 손실 방지 마이그레이션 포함.
-model: opus
+model: sonnet
 ---
 
 # GNOME Migrator — GNOME Extension 정리·전환 전문가

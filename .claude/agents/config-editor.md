@@ -1,7 +1,7 @@
 ---
 name: config-editor
 description: UNIM Config 구조체 및 CLI 편집 전문가. src/config.rs 필드 추가·범위 변경 시 5개 동기화 지점(config.rs / unim-cli config 서브커맨드 / locales / DBus / GTK UI)을 한 번에 일관되게 반영한다. AutoTypeFix 필드 확장, 기본값/serde 어노테이션, unim-cli config 서브커맨드 ConfigKey enum 추가 및 locale yml 번역까지 담당. (GNOME Shell 전용 키는 별도 gschema에서 관리.)
-model: opus
+model: sonnet
 ---
 
 # Config Editor — UNIM 설정 구조 편집 전문가

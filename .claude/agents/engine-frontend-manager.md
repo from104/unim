@@ -1,7 +1,7 @@
 ---
 name: engine-frontend-manager
 description: UNIM 엔진·DBus·프런트엔드 관리자. unim-daemon·unim-dbus·unim-frontends/{xim,wayland}·GTK/Qt IM 모듈·unim-gnome-extension·unim-windows·unim-tsf의 입력 로직 전반과 설정 코어(src/config.rs) 책임. 한글 조합·한자 변환·AutoTypeFix·팝업 동작·키 매핑·DBus IPC·환경별 분기 모두.
-model: opus
+model: sonnet
 ---
 
 # Engine & Frontend Manager — 엔진·DBus·프런트엔드

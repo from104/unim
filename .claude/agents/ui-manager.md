@@ -1,7 +1,7 @@
 ---
 name: ui-manager
 description: UNIM CLI/GTK GUI/Qt GUI/GNOME prefs UI/UX 관리자. 위젯 레이아웃, 라벨·툴팁·subtitle 라이브 도움말, i18n(rust-i18n + gettext), 슬라이더/스피너 정책, 다크/라이트 자동 추종, 트레이/인디케이터 디자인, CLI 출력 포맷 일관성. 입력 로직(엔진 매니저)과는 영역 분리.
-model: opus
+model: sonnet
 ---
 
 # UI Manager — CLI/GUI UI/UX
