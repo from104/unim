@@ -612,7 +612,6 @@ v1 §9의 처음 두 항목은 v2에서 구현됨. v1 문서에 cross-ref 주석
 
 - v1 베이스: [LAYOUT_PROFILE_V1.md](LAYOUT_PROFILE_V1.md) (§3.5 rule_sets 의미, §4 inherits)
 - v1 IMPL 하네스: [LAYOUT_PROFILE_V1_IMPL.md](LAYOUT_PROFILE_V1_IMPL.md)
-- 사전 조사: `_workspace/3bul_strict_vowel_research.md`
-- 구현 plan: `_workspace/3bul_strict_vowel_plan.md`
+- 사전 조사 / 구현 plan: 옵시디언 `2 Projects/ATIT/unim/archive/_workspace/3bul_strict_vowel_{research,plan}.md`
 - ContextCondition 단위 테스트: `src/keystroke/profile/schema.rs::tests::context_condition_all_variants_round_trip`
 - 룰 A·B 통합 테스트: `src/input_engine/mod.rs::tests::test_rule_*`
