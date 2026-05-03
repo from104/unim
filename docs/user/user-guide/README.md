@@ -155,6 +155,20 @@ When candidates exceed one page (9 cells or 81 cells), the footer shows **◀ / 
 
 > **Acronym**: *cursor* here means the highlighted cell currently holding keyboard focus (rendered as a background highlight).
 
+##### Right-click semantics — frontend differences
+
+The ◀ / ▶ page buttons behave identically across every frontend, but **right-clicking on the grid body itself** carries different meaning depending on the frontend you are using. If you want to use it as a mouse shortcut, learn your environment's mapping; otherwise stick to the keyboard shortcuts which are uniform.
+
+- **GNOME Shell extension** (Wayland and X11): **toggle ★ bookmark** — equivalent to keyboard Space.
+- **GTK IM modules** (gtk3 / gtk4): **next page** (wrap-around) — equivalent to `→` / Page Down.
+- **Qt IM modules** (qt5 / qt6): **next page** (wrap-around).
+- **XIM** (hanja / special-character / emoji popups alike): **next page** (wrap-around).
+- **Other frontends** (GTK Standalone `unim-gui-gtk`, raw Wayland, Windows egui): no action (undefined).
+
+> **Why is GNOME different?** GNOME Shell exposes each candidate cell as a `Clutter.Actor`, so per-cell right-click hit-testing is natural — mapping right-click to the bookmark toggle saves a hand move. GTK/Qt IM modules and XIM run in X11/Wayland override-redirect windows where per-cell hit-testing is more limited, so they keep the classical IME convention of right-click = next page.
+>
+> **In short**: ◀ / ▶, keyboard `←` / `→`, and Space mean the same thing everywhere. Only the right-click on the grid body varies. If in doubt, the keyboard alone covers every action.
+
 #### Bookmarks ☆/★
 
 You can star frequently used Hanja. With a candidate focused, **Space** toggles ☆ (unbookmarked) ↔ ★ (bookmarked). The `HanjaCandidatesReordered` DBus signal refreshes every open popup across GTK/Qt/XIM/Wayland/GNOME/Windows instantly.
@@ -293,6 +307,7 @@ Visible only in a GNOME session. Indicator and key-interception options for the 
 | Hanja popup | Arrows | Move focus |
 | Hanja popup | `←`/`→` or PageUp/PageDown | Page navigation (wrap-around) |
 | Hanja popup | Mouse ◀ / ▶ | Page navigation (wrap-around, hidden on single page) |
+| Hanja popup | Mouse right-click | **Frontend-specific**: GNOME = toggle ★ bookmark / GTK·Qt IM·XIM = next page / others = no action (see §4.2) |
 | Hanja popup | Enter | Commit focused |
 | Hanja popup | ESC | Cancel |
 | Hanja popup | `.` | 9 ↔ 81 grid toggle |
