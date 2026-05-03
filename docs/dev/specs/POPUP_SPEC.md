@@ -100,6 +100,18 @@ sequenceDiagram
 | `InputContext` | `GetSpecialCharCandidates` | — | `(s target, as chars, s top_row)` | 특수문자 후보 |
 | `InputContext` | `SelectSpecialChar` | `(u index)` | `(s char)` | 특수문자 선택 |
 | `InputContext` | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
+| `InputContext` | `popup_change_page` | `(i direction)` | — | **마우스 ◀/▶용 페이지 이동** (0=Prev, 1=Next). 한자/특수문자/이모지 모든 팝업에서 동작, 단일 페이지면 no-op. (v3.1) |
+| `InputContext` | `ToggleHanjaBookmark` | `(u index)` | `(u new_index, b bookmarked)` | 한자 즐겨찾기 토글. 결과는 `HanjaCandidatesReordered` 시그널로 일괄 통지. |
+
+### 2.5 DBus 시그널 정리
+
+| 시그널 | 페이로드 | 용도 |
+|--------|---------|------|
+| `ShowHanjaPopup` | `(s target, a(ss) candidates, u top_row, i cursor_x, i cursor_y, u cursor_w, u cursor_h)` | 한자 팝업 표시 |
+| `ShowSpecialPopup` | `(s target, as chars, s top_row, ...)` | 특수문자 팝업 표시 |
+| `HidePopup` | — | 팝업 닫기 |
+| `PopupNavigate` | `(u page, u total_pages, u selected, u rows, u cols, u sel_row, u sel_col)` | 페이지/커서 변경. 마우스 ◀/▶, 키보드 PageUp/PageDown이 모두 이 시그널로 일괄 통지. |
+| `HanjaCandidatesReordered` | `(s target, as hanjas, as meanings, ab bookmarks, u new_cursor, u page, u sel_row, u sel_col, b bookmarked, b was_bookmarked)` | 한자 즐겨찾기 토글 후 재정렬·커서 점프. **`was_bookmarked`는 v3.1에서 추가**된 토글 직전 상태 — 프런트엔드는 `was_bookmarked && !bookmarked`일 때 cursor 셀에 flash(140ms #f9e2af)를 띄운다. |
 
 ---
 
@@ -154,23 +166,62 @@ sequenceDiagram
 | 키 | 동작 | 상세 |
 |----|------|------|
 | `1`~`9` | 즉시 선택+커밋 | `globalIndex = page * 9 + (num - 1)` |
-| `Enter` / `Space` | 현재 선택 확정 | 하이라이트된 항목 커밋 |
+| `Enter` | 현재 선택 확정 | 하이라이트된 항목 커밋 |
+| `Space` | 즐겨찾기 ☆/★ 토글 | 후보 promote/demote + 자동 페이지 점프(§3.6) |
 | `↑` | 이전 항목 | wrap-around (0 → 마지막) |
 | `↓` | 다음 항목 | wrap-around (마지막 → 0) |
-| `←` / `Page Up` | 이전 페이지 | 첫 페이지에서는 무효 |
-| `→` / `Page Down` | 다음 페이지 | 마지막 페이지에서는 무효 |
+| `←` / `Page Up` | 이전 페이지 | **wrap-around** — 첫 페이지에서 누르면 마지막 페이지로 |
+| `→` / `Page Down` | 다음 페이지 | **wrap-around** — 마지막 페이지에서 누르면 첫 페이지로 |
 | `Escape` | 취소 | preedit 복원, 팝업 닫기 |
 | **기타 키** | 팝업 닫고 키 재처리 | 팝업 취소 후 해당 키를 엔진에 다시 전달 |
 
-### 3.5 동작 규칙
+> Wrap-around 정책 (v3.1): 키보드 ←/→/PageUp/PageDown, 마우스 ◀/▶ 모두 동일하게 wrap-around. 단일 페이지(`total_pages == 1`)인 경우 페이지 이동 자체가 no-op.
+
+### 3.5 마우스 입력
+
+| 동작 | 입력 | 결과 |
+|------|------|------|
+| 셀 좌클릭 | Button 1 on candidate row | `SelectHanja(globalIndex)` → 커밋 |
+| ◀ 좌클릭 | Button 1 on prev-page button | `popup_change_page(-1)` → wrap |
+| ▶ 좌클릭 | Button 1 on next-page button | `popup_change_page(+1)` → wrap |
+| 우클릭 | Button 3 on grid area | `popup_change_page(+1)` (기존 동작 유지, GTK common·Qt common·XIM 한정) |
+
+> GNOME Shell 확장의 우클릭은 즐겨찾기 토글로 매핑되어 페이지 이동에 쓰지 않는다 (확장은 ◀/▶ 버튼만 사용).
+
+### 3.6 푸터 레이아웃
+
+```
+[◀] [page n / N] [▶] [⊞]
+ ↑    ↑           ↑    ↑
+ |    페이지       |    compact ↔ expanded 토글 아이콘
+ |    인디케이터    다음 페이지 버튼
+ 이전 페이지 버튼
+```
+
+- `total_pages > 1`일 때만 ◀/▶ 표시. 단일 페이지에서는 둘 다 **숨김** (disabled가 아니라 hide).
+- ◀/▶ 버튼 색: Catppuccin Overlay1 (`#7f849c`) 기본 / Blue (`#89b4fa`) hover.
+- ⊞ 아이콘은 expanded(81칸) 모드, ⊟ 아이콘은 compact(9칸) 모드를 시각화.
+- 본 푸터 레이아웃은 한자 팝업에 적용. 특수문자·이모지 팝업도 동일 ◀/▶ 위치를 따르되 ⊞ 아이콘은 없다 (특수문자/이모지는 expand 토글이 없다).
+
+> **v3.1 구현 범위**: ◀/▶ 마우스 페이지 이동은 한자·특수문자·이모지 팝업을 가진 모든 프런트엔드에 일괄 적용 — GNOME Shell extension, GTK Standalone (`unim-gui-gtk`), GTK IM modules (gtk3/gtk4), Qt IM modules (qt5/qt6), XIM (한자/특수문자/이모지), Wayland (`unim-frontends/wayland`), Windows egui (`unim-windows/`). 즐겨찾기 해제 cursor flash는 한자 팝업 한정 (특수문자·이모지는 즐겨찾기 개념이 없다). Wayland 환경에서 ◀/▶ 클릭은 컴포지터의 IM popup pointer 라우팅 지원에 의존 — GNOME mutter처럼 이를 차단하는 컴포지터에서는 키보드 ←/→로 동등하게 동작한다.
+
+### 3.7 동작 규칙
 
 1. **트리거**: 한국어 모드에서 한자키(F9/Hanja) 입력 시
 2. **대상**: preedit의 마지막 음절 (예: "대한민국" → "국")
-3. **후보 순서**: 사전 저장 순서 (빈도순)
+3. **후보 순서**: 사전 저장 순서 (빈도순). 즐겨찾기(★)는 stable sort로 상단 promote.
 4. **선택 시**: `SelectHanja(globalIndex)` → 엔진이 한자 문자열 반환 → 프론트엔드가 커밋
 5. **취소 시**: `CancelHanja()` → preedit(원래 한글) 유지 → 팝업 닫기
 6. **포커스 상실**: 자동 취소 (CancelHanja 호출)
 7. **한자 후보 없음 + 초성**: 자동으로 특수문자 검색으로 전환
+8. **즐겨찾기 토글 후 자동 점프** (v3.1):
+   - ★ ON: 토글된 한자가 1페이지 상단으로 promote → cursor가 그 위치로 이동.
+   - ★ OFF: 토글된 한자가 사전순 원위치로 demote → cursor가 그 위치로 점프 (다른 페이지일 수 있음).
+   - 두 경우 모두 `HanjaCandidatesReordered` 시그널이 발행돼 모든 열린 팝업이 일괄 갱신.
+9. **즐겨찾기 해제 시각 신호** (v3.1):
+   - `was_bookmarked == true && bookmarked == false`인 reorder 이벤트에서, cursor가 점프해 도착한 셀에 **140ms 동안 Catppuccin yellow `#f9e2af` flash**.
+   - 등록(★ ON) 시에는 flash 없음 — cursor가 자연스럽게 promote된 page 0 row 0을 따라가므로 시각 단서가 충분.
+   - flash는 사용자가 "내가 별을 끄니 이 한자가 여기로 갔구나"를 인지하게 만드는 핵심 단서.
 
 ---
 
@@ -250,11 +301,30 @@ rows_in_last_col = page_chars - (cols - 1) * MAX_ROWS
 | `←` / `→` | 열 이동 | wrap 없음, 경계에서 정지 |
 | `Enter` | 현재 선택 확정 | 플래시(120ms) → 커밋 |
 | `Escape` / `BackSpace` | 취소 | preedit 복원 |
-| `Page Down` / `Tab` | 다음 페이지 | |
-| `Page Up` / `Shift+Tab` | 이전 페이지 | |
+| `Page Down` / `Tab` | 다음 페이지 | **wrap-around** — 마지막 페이지에서 누르면 첫 페이지로 |
+| `Page Up` / `Shift+Tab` | 이전 페이지 | **wrap-around** — 첫 페이지에서 누르면 마지막 페이지로 |
 | **기타 키** | 팝업 닫고 키 재처리 | |
 
-### 4.6 동작 규칙
+### 4.6 마우스 입력
+
+| 동작 | 입력 | 결과 |
+|------|------|------|
+| 셀 좌클릭 | Button 1 on cell | `SelectSpecialChar(globalIndex)` → 커밋 |
+| ◀ 좌클릭 | Button 1 on prev-page button | `popup_change_page(-1)` → wrap |
+| ▶ 좌클릭 | Button 1 on next-page button | `popup_change_page(+1)` → wrap |
+| 우클릭 | Button 3 on grid area | `popup_change_page(+1)` (기존 동작 유지, 해당 프런트엔드 한정) |
+
+### 4.7 푸터 레이아웃
+
+```
+[◀] [page n / N] [▶]
+```
+
+- `total_pages > 1`일 때만 ◀/▶ 표시. 단일 페이지에서는 숨김.
+- 한자 팝업과 달리 `⊞` expand 아이콘은 없다 (특수문자/이모지는 81칸 그리드 고정).
+- 색·hover 규칙은 한자 팝업의 §3.6과 동일.
+
+### 4.8 동작 규칙
 
 1. **트리거**: 한국어 모드에서 초성(ㄱ~ㅎ) + 한자키 입력 시
 2. **전환 조건**: 한자 후보 없는 초성이면 자동으로 특수문자 검색
@@ -466,10 +536,23 @@ connect(m_hanjaPopup, &UnimHanjaPopup::selected,
 
 ```rust
 pub enum PopupAction {
-    ShowHanja { target, candidates },
+    ShowHanja   { target, candidates, top_row },
     ShowSpecial { target, characters, top_row },
+    ShowEmoji   { target_cat_id, items, top_row, recent, categories },
     HidePopup,
-    PopupNavigate { page, total_pages, selected },
+    PopupNavigate { page, total_pages, selected, rows, cols, sel_row, sel_col },
+    HanjaBookmarkChanged { index, bookmarked },           // 구버전 호환
+    HanjaCandidatesReordered {
+        target: String,
+        candidates: Vec<(String, String)>,
+        bookmarks: Vec<bool>,
+        new_cursor: usize,
+        page: usize,
+        sel_row: usize,
+        sel_col: usize,
+        bookmarked: bool,        // 토글 후 상태
+        was_bookmarked: bool,    // 토글 전 상태 (v3.1) — flash 시각 신호 분기용
+    },
 }
 ```
 
@@ -478,12 +561,13 @@ pub enum PopupAction {
 
 ### 9.2 엔진 키 처리 흐름
 
-1. `press_key` → 한자/특수문자 모드 활성 확인
+1. `press_key` → 한자/특수문자/이모지 모드 활성 확인
 2. 모드 활성이면 `process_popup_key`에 위임
 3. 숫자키 → `popup_select(abs_index)` → 선택/커밋
 4. 화살표 → 선택 이동 → `PopupNavigate` 액션 발행
 5. ESC → `popup_cancel()` → `HidePopup` 액션 발행
-6. 기타 → 팝업 취소 후 키 재처리
+6. 마우스 ◀/▶ 클릭 → DBus `popup_change_page(±1)` → 엔진이 `PopupKey::PageUp/PageDown` 분기에 위임 → `PopupNavigate` 발행 (cursor sel_row/sel_col 보존)
+7. 기타 → 팝업 취소 후 키 재처리
 
 ---
 
@@ -495,3 +579,4 @@ pub enum PopupAction {
 | 2026-02-18 | v1.1 | 특수문자 팝업 추가 |
 | 2026-02-26 | v2 | 중앙집중 GUI 방식으로 전환 |
 | 2026-03-02 | **v3** | **모듈별 개별 팝업으로 복귀, 문서 전면 개편** |
+| 2026-05-03 | **v3.1** | **마우스 페이지 이동 ◀/▶ 버튼 (한자/특수문자/이모지), 페이지 이동 wrap-around 정책 명시, 한자 즐겨찾기 해제 시 cursor flash(140ms #f9e2af) 추가, `popup_change_page` RPC + `was_bookmarked` 시그널 필드 추가** |
