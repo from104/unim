@@ -14,6 +14,7 @@
  * @module hanja_popup
  */
 
+import GLib from 'gi://GLib';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -28,6 +29,13 @@ const COMPACT_PAGE_SIZE = 9;
 /** 확장 아이콘 텍스트 (⊞ expand / ⊟ compact) */
 const ICON_EXPAND = '⊞';
 const ICON_COMPACT = '⊟';
+
+/** 페이지 이동 버튼 글리프 */
+const ICON_PREV_PAGE = '◀';
+const ICON_NEXT_PAGE = '▶';
+
+/** ★ 해제 시 cursor 셀 yellow flash 지속시간 (ms) — Catppuccin yellow #f9e2af */
+const BOOKMARK_FLASH_DURATION_MS = 140;
 
 /**
  * HanjaPopup
@@ -45,8 +53,12 @@ export class HanjaPopup {
         this._body = null;
         /** @type {St.Label} 뜻풀이 표시 라벨 (확장 모드 전용 툴팁) */
         this._meaningStrip = null;
-        /** @type {St.BoxLayout} 풋터 컨테이너 (확장 아이콘 + 페이지) */
+        /** @type {St.BoxLayout} 풋터 컨테이너 (페이지 이동 + 페이지 라벨 + 확장 아이콘) */
         this._footer = null;
+        /** @type {St.Button} 이전 페이지 버튼 (◀) — 단일 페이지 시 hide */
+        this._prevPageBtn = null;
+        /** @type {St.Button} 다음 페이지 버튼 (▶) — 단일 페이지 시 hide */
+        this._nextPageBtn = null;
         /** @type {St.Label} 확장/축소 토글 아이콘 */
         this._expandIcon = null;
         /** @type {St.Label} 페이지 표시 라벨 */
@@ -97,6 +109,8 @@ export class HanjaPopup {
         this._onToggleBookmark = null;
         /** @type {Function|null} 확장/축소 토글 콜백 — 확장 아이콘 클릭용 */
         this._onToggleExpand = null;
+        /** @type {Function|null} 페이지 이동 콜백 (direction: -1/0=Prev, 1=Next) */
+        this._onChangePage = null;
     }
 
     /**
@@ -124,10 +138,35 @@ export class HanjaPopup {
         });
         this._container.add_child(this._meaningStrip);
 
-        // 풋터: [⊞] ←→ [page/total]
+        // 풋터: [◀] [page/total] [▶] [⊞]
         this._footer = new St.BoxLayout({
             style_class: 'popup-footer-box',
             vertical: false,
+        });
+        this._prevPageBtn = new St.Button({
+            style_class: 'popup-page-btn',
+            label: ICON_PREV_PAGE,
+            can_focus: false,
+            reactive: true,
+            track_hover: true,
+        });
+        this._prevPageBtn.connect('clicked', () => {
+            if (this._onChangePage) this._onChangePage(0);
+        });
+        this._pageLabel = new St.Label({
+            style_class: 'popup-footer',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        this._nextPageBtn = new St.Button({
+            style_class: 'popup-page-btn',
+            label: ICON_NEXT_PAGE,
+            can_focus: false,
+            reactive: true,
+            track_hover: true,
+        });
+        this._nextPageBtn.connect('clicked', () => {
+            if (this._onChangePage) this._onChangePage(1);
         });
         this._expandIcon = new St.Label({
             style_class: 'popup-expand-icon',
@@ -141,13 +180,10 @@ export class HanjaPopup {
             }
             return Clutter.EVENT_STOP;
         });
-        this._pageLabel = new St.Label({
-            style_class: 'popup-footer',
-            x_expand: true,
-            x_align: Clutter.ActorAlign.END,
-        });
-        this._footer.add_child(this._expandIcon);
+        this._footer.add_child(this._prevPageBtn);
         this._footer.add_child(this._pageLabel);
+        this._footer.add_child(this._nextPageBtn);
+        this._footer.add_child(this._expandIcon);
         this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
@@ -168,9 +204,10 @@ export class HanjaPopup {
      * @param {boolean[]} [bookmarks] - 후보별 즐겨찾기 플래그
      * @param {Function} [onToggleBookmark] - 우클릭 시 호출 (globalIndex)
      * @param {Function} [onToggleExpand] - 확장 아이콘 클릭 시 호출
+     * @param {Function} [onChangePage] - 페이지 이동 ◀/▶ 클릭 시 호출 (direction: 0=Prev, 1=Next)
      */
     show(target, candidates, topRow, onSelect, onCancel, cursorRect, bookmarks,
-         onToggleBookmark, onToggleExpand) {
+         onToggleBookmark, onToggleExpand, onChangePage) {
         if (!this._container || candidates.length === 0) return;
 
         this._target = target;
@@ -189,6 +226,7 @@ export class HanjaPopup {
         this._onCancel = onCancel;
         this._onToggleBookmark = onToggleBookmark || null;
         this._onToggleExpand = onToggleExpand || null;
+        this._onChangePage = onChangePage || null;
 
         // 초기 상태 (엔진의 첫 PopupNavigate가 즉시 덮어씀)
         this._currentPage = 0;
@@ -227,6 +265,7 @@ export class HanjaPopup {
         this._onCancel = null;
         this._onToggleBookmark = null;
         this._onToggleExpand = null;
+        this._onChangePage = null;
     }
 
     /**
@@ -299,6 +338,32 @@ export class HanjaPopup {
         }
 
         this._renderBody();
+    }
+
+    /**
+     * 현재 cursor 셀에 짧은 yellow flash 효과를 부여한다 (★ 해제 시 페이지 점프 신호).
+     *
+     * `setCandidates()` 가 적용된 직후에 호출되어야 한다 — 위젯이 새 layout 으로
+     * 재구성된 다음에야 (sel_row, sel_col) 가 올바른 셀을 가리킨다.
+     *
+     * 적용 후 BOOKMARK_FLASH_DURATION_MS 후 클래스가 자동 제거된다.
+     */
+    flashCursorCell() {
+        if (!this.isVisible) return;
+        // 새 widget 들이 add 된 직후의 frame 에서 클래스 부여 (즉시 적용은 transition 없이 끝남)
+        for (const w of this._widgets) {
+            if (w.r === this._selRow && w.c === this._selCol) {
+                const target = w.cell || w.row;
+                if (!target) continue;
+                target.add_style_class_name('bookmark-flash');
+                const ref = target;
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, BOOKMARK_FLASH_DURATION_MS, () => {
+                    if (ref) ref.remove_style_class_name?.('bookmark-flash');
+                    return GLib.SOURCE_REMOVE;
+                });
+                return;
+            }
+        }
     }
 
     /**
@@ -435,11 +500,15 @@ export class HanjaPopup {
             this._meaningStrip.hide();
         }
 
-        // 페이지 표시
+        // 페이지 표시 + ◀/▶ 가시성 (단일 페이지 시 hide)
         if (this._totalPages > 1) {
             this._pageLabel.set_text(`${this._currentPage + 1}/${this._totalPages}`);
+            this._prevPageBtn.show();
+            this._nextPageBtn.show();
         } else {
             this._pageLabel.set_text('');
+            this._prevPageBtn.hide();
+            this._nextPageBtn.hide();
         }
 
         this._updateSelection();

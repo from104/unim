@@ -679,6 +679,31 @@ export class UnimDbusIME {
     }
 
     /**
+     * 팝업 페이지 이동 (마우스 ◀/▶ 버튼 클릭용).
+     *
+     * 한자/특수문자/이모지 모든 popup 종류에 동작. popup 이 활성 아니거나
+     * 단일 페이지면 데몬에서 no-op. 페이지 변경 시 PopupNavigate 시그널이
+     * 발행돼 frontend 가 일괄 갱신한다 (cursor sel_row/sel_col 보존).
+     *
+     * @param {number} direction - 0(또는 음수) = 이전 페이지, 1(이상) = 다음 페이지
+     */
+    popupChangePage(direction) {
+        if (!this._icProxy) return;
+
+        try {
+            this._icProxy.call_sync(
+                'PopupChangePage',
+                new GLib.Variant('(i)', [direction | 0]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+        } catch (e) {
+            unimError('DBUS_IME', `PopupChangePage 실패: ${e.message}`);
+        }
+    }
+
+    /**
      * 한자 모드 취소
      */
     cancelHanja() {

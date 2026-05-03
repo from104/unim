@@ -217,6 +217,11 @@ export default class UnimExtension extends Extension {
                             // 확장 아이콘 클릭: Period 키를 엔진에 전달해 토글
                             // GDK keyval 0x2e ('.'), evdev keycode 52
                             this._dbusIME.processKey(0x2e, 52, 0);
+                        },
+                        (direction) => {
+                            // 페이지 ◀/▶ 클릭: PopupChangePage RPC.
+                            // 데몬이 PopupNavigate 시그널을 재발행 → updateFromNavigate 가 layout 갱신.
+                            this._dbusIME.popupChangePage(direction);
                         }
                     );
                 },
@@ -241,7 +246,11 @@ export default class UnimExtension extends Extension {
                                 this._inputMethod.updatePreedit('');
                             }
                         },
-                        cursorRect
+                        cursorRect,
+                        (direction) => {
+                            // 페이지 ◀/▶ 클릭: PopupChangePage RPC.
+                            this._dbusIME.popupChangePage(direction);
+                        }
                     );
                 },
                 onShowEmoji: (targetCatId, items, topRow, recent, categoriesRaw, cursorRect) => {
@@ -260,7 +269,9 @@ export default class UnimExtension extends Extension {
                         cursorRect,
                         // 좌측 탭 마우스 클릭 → SetEmojiCategory RPC. 데몬이 popup_state 갱신 후
                         // ShowEmojiPopupV2 를 재발행하므로 본 onShowEmoji 가 다시 호출되어 재구성.
-                        (idx) => this._dbusIME?.setEmojiCategory(idx)
+                        (idx) => this._dbusIME?.setEmojiCategory(idx),
+                        // ◀/▶ 풋터 클릭 → PopupChangePage RPC.
+                        (direction) => this._dbusIME?.popupChangePage(direction)
                     );
                 },
                 onHidePopup: () => {
@@ -290,14 +301,20 @@ export default class UnimExtension extends Extension {
                         this._hanjaPopup.setBookmark(index, bookmarked);
                     }
                 },
-                onHanjaCandidatesReordered: (target, hanjas, meanings, bookmarks, _newCursor, page, selRow, selCol, _bookmarked) => {
+                onHanjaCandidatesReordered: (target, hanjas, meanings, bookmarks, _newCursor, page, selRow, selCol, bookmarked, wasBookmarked) => {
                     if (!this._hanjaPopup?.isVisible) return;
                     const candidates = hanjas.map((h, i) => ({
                         hanja: h,
                         meaning: i < meanings.length ? meanings[i] : '',
                     }));
                     this._hanjaPopup.setCandidates(candidates, bookmarks, page, selRow, selCol);
-                    unimLog('HANJA', `재정렬 적용: target='${target}', count=${candidates.length}, page=${page}, sel=(${selRow},${selCol})`);
+                    // 즐겨찾기 ★ 해제 (was=true → bookmarked=false) 시 cursor 셀에 yellow flash.
+                    // 점프 사실을 사용자가 인지하도록 시각 신호. ★ 등록(false→true)은 promote 자체가
+                    // 시각적으로 충분하므로 flash 생략.
+                    if (wasBookmarked === true && bookmarked === false) {
+                        this._hanjaPopup.flashCursorCell?.();
+                    }
+                    unimLog('HANJA', `재정렬 적용: target='${target}', count=${candidates.length}, page=${page}, sel=(${selRow},${selCol}), was=${wasBookmarked}, now=${bookmarked}`);
                 },
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
                     if (this._vkbd && this._inputMethod && this._inputMethod._hasFocus) {
