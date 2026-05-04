@@ -21,7 +21,6 @@ const ICON_PREV_PAGE: &str = "◀";
 const ICON_NEXT_PAGE: &str = "▶";
 
 /// 이모지 팝업 마우스 클릭 결과
-#[allow(dead_code)]
 pub enum EmojiClickResult {
     /// 셀 선택 (행, 열)
     Select(usize, usize),
@@ -344,14 +343,7 @@ impl EmojiWindow {
         })
     }
 
-    /// 윈도우 ID
-    #[allow(dead_code)]
-    pub fn window_id(&self) -> u32 {
-        self.window as u32
-    }
-
     /// 윈도우 크기
-    #[allow(dead_code)]
     pub fn size(&self) -> (u16, u16) {
         self.size
     }

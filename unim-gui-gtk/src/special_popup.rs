@@ -21,8 +21,6 @@ const ICON_NEXT_PAGE: &str = "▶";
 /// 특수문자 팝업 상태
 pub struct SpecialPopup {
     pub window: gtk4::Window,
-    #[allow(dead_code)]
-    grid: gtk4::Grid,
     header_label: gtk4::Label,
     footer_box: gtk4::Box,
     footer_label: gtk4::Label,
@@ -178,7 +176,6 @@ impl SpecialPopup {
 
         Self {
             window,
-            grid,
             header_label,
             footer_box,
             footer_label,

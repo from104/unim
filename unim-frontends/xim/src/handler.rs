@@ -87,7 +87,6 @@ const EVENT_MASK: u32 = 1;
 
 /// UNIM XIM 핸들러
 pub struct UnimHandler {
-    #[allow(dead_code)]
     config: Config,
     /// preedit 윈도우들 (윈도우 ID -> PeWindow)
     preedit_windows: AHashMap<NonZeroU32, PeWindow>,
