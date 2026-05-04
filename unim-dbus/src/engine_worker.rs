@@ -11,8 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::service::{
-    popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupNavigatePayload,
-    PopupRenderPayload,
+    popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupRenderPayload,
 };
 use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{Config, EnglishLayout, KoreanLayout};

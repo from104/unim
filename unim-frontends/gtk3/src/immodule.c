@@ -85,6 +85,11 @@ struct _UnimIMContext {
     guint autofix_bs_pending;        /* 자가 주입 BackSpace 잔여 수 */
     gchar *autofix_commit_text;      /* 지연 commit 텍스트 */
     gchar *autofix_preedit_text;     /* 지연 preedit 텍스트 */
+
+    /* 데몬 popup 세션 활성 여부 (Show*Popup* 시그널 → TRUE, HidePopup → FALSE).
+     * Emoji popup 은 idle 트리거라 is_composing=FALSE 인데, 그러면 nav 키가
+     * IM 우회 (앱 전달) 되어 popup 조작 불가. popup 가시 중엔 우회 차단. */
+    gboolean popup_active;
 };
 
 struct _UnimIMContextClass {
@@ -638,6 +643,11 @@ on_show_emoji_popup(const gchar *target_cat_id,
     (void)cursor_width;
     UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
     if (!unim || !unim->emoji_popup) return;
+
+    /* Emoji popup 활성 마킹 — standalone 모드에서도 nav 키 우회를 막아야 한다.
+     * (popup 은 다른 프로세스가 그리지만 키는 본 IM 모듈을 통과한다.) */
+    unim->popup_active = TRUE;
+
     /* Standalone 모드면 GUI 가 팝업 전담 — IM 모듈 표시 건너뜀 */
     if (is_standalone_popup(unim->dbus_ctx)) return;
 
@@ -699,6 +709,9 @@ on_hide_popup(gpointer user_data)
 {
     UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
     if (!unim) return;
+
+    /* Popup 세션 종료 — nav 키 우회 차단 해제 */
+    unim->popup_active = FALSE;
 
     if (unim->emoji_popup && unim_emoji_popup_is_visible(unim->emoji_popup)) {
         unim_emoji_popup_hide(unim->emoji_popup);
@@ -1095,8 +1108,10 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     }
 
     /* 조합 중이 아닌 경우, 특수키는 IM에서 처리하지 않고 앱으로 직접 전달 */
-    /* (터미널에서 방향키, Backspace 등이 동작하도록 함) */
-    if (!unim_dbus_is_composing(unim->dbus_ctx)) {
+    /* (터미널에서 방향키, Backspace 등이 동작하도록 함)
+     * 단 emoji popup 등 idle 트리거 popup 가시 중엔 우회 차단 — 그렇지 않으면
+     * 화살표/Esc/Home/End/PgUp/PgDn 이 popup 으로 가지 않고 앱에 전달된다. */
+    if (!unim_dbus_is_composing(unim->dbus_ctx) && !unim->popup_active) {
         /* 기능키 (F1~F12, 단 F9은 한자키로 위에서 처리됨) */
         if (event->keyval >= GDK_KEY_F1 && event->keyval <= GDK_KEY_F12) {
             return FALSE;
