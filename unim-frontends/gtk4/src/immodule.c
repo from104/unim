@@ -763,7 +763,16 @@ on_hide_popup(gpointer user_data)
     }
 }
 
-/* 커서 위치로부터 화면 절대 좌표 계산 (GTK3의 gdk_window_get_origin 방식과 동일) */
+/* 커서 위치로부터 화면 절대 좌표 계산 (X11 framebuffer 물리 픽셀 기준)
+ *
+ * GTK4 좌표 단위 정리:
+ *   cursor_area, p_out, surface_tx/ty  → 논리 픽셀 (CSS px, scale_factor 로 나뉜 값)
+ *   XTranslateCoordinates abs_x/abs_y  → X11 framebuffer 물리 픽셀
+ *   XMoveWindow / popup_positioning.rs → 물리 픽셀 기대
+ *
+ * 따라서 논리 좌표에 scale_factor 를 곱해 물리 픽셀로 변환한 뒤 abs_x/abs_y 를 더해야 한다.
+ * fractional 스케일(예: 1.25×) 환경은 GDK 내부에서 반올림되므로 정수 scale_factor 로 충분.
+ */
 static void
 calculate_popup_position(UnimIMContext *unim, gint *out_x, gint *out_y)
 {
@@ -773,7 +782,7 @@ calculate_popup_position(UnimIMContext *unim, gint *out_x, gint *out_y)
     if (unim->client_widget) {
         GtkNative *native = gtk_widget_get_native(unim->client_widget);
         if (native) {
-            /* 위젯→native 위젯 좌표 변환 */
+            /* 위젯→native 위젯 좌표 변환 (논리 픽셀) */
             graphene_point_t p_in = GRAPHENE_POINT_INIT(
                 (float)unim->cursor_area.x,
                 (float)(unim->cursor_area.y + unim->cursor_area.height));
@@ -781,34 +790,44 @@ calculate_popup_position(UnimIMContext *unim, gint *out_x, gint *out_y)
             if (gtk_widget_compute_point(unim->client_widget,
                                           GTK_WIDGET(native),
                                           &p_in, &p_out)) {
-                /* native 위젯→surface 좌표 변환 (CSD 장식/그림자 보정) */
+                /* native→surface 오프셋 (CSD 장식/그림자, 논리 픽셀) */
                 double surface_tx, surface_ty;
                 gtk_native_get_surface_transform(native, &surface_tx, &surface_ty);
-                /* surface_transform: widget→surface 변환 (GTK4 실제 동작) */
-                popup_x = (gint)(p_out.x + surface_tx);
-                popup_y = (gint)(p_out.y + surface_ty);
-            }
 
 #ifdef GDK_WINDOWING_X11
-            /* X11: surface 절대 위치 보정 */
-            {
                 GdkSurface *surface = gtk_native_get_surface(native);
                 if (surface && GDK_IS_X11_SURFACE(surface)) {
+                    /* scale_factor: 논리→물리 픽셀 배율 (HiDPI/fractional 환경) */
+                    gint scale = gdk_surface_get_scale_factor(surface);
+                    if (scale < 1) scale = 1;
+
+                    /* 논리 좌표를 물리 픽셀로 변환 */
+                    popup_x = (gint)((p_out.x + surface_tx) * scale);
+                    popup_y = (gint)((p_out.y + surface_ty) * scale);
+
+                    /* X11 surface 원점을 framebuffer 절대 좌표로 변환 (이미 물리 픽셀) */
                     Display *xdisplay = gdk_x11_display_get_xdisplay(
                         gdk_surface_get_display(surface));
                     Window xwindow = gdk_x11_surface_get_xid(surface);
                     gint abs_x = 0, abs_y = 0;
                     Window child_return;
-
                     XTranslateCoordinates(xdisplay, xwindow,
                         DefaultRootWindow(xdisplay),
                         0, 0, &abs_x, &abs_y, &child_return);
 
                     popup_x += abs_x;
                     popup_y += abs_y;
+                } else {
+                    /* non-X11 fallback: 단순 논리 좌표 합산 */
+                    popup_x = (gint)(p_out.x + surface_tx);
+                    popup_y = (gint)(p_out.y + surface_ty);
                 }
-            }
+#else
+                /* non-X11 build: 단순 논리 좌표 합산 */
+                popup_x = (gint)(p_out.x + surface_tx);
+                popup_y = (gint)(p_out.y + surface_ty);
 #endif
+            }
         }
     }
 

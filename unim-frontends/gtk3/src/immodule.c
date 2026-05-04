@@ -1403,16 +1403,33 @@ unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectangle *area)
     if (area) {
         unim->cursor_area = *area;
 
-        /* 커서 위치를 데몬에 보고 (팝업 포지셔닝용) */
+        /* 커서 위치를 데몬에 보고 (팝업 포지셔닝용)
+         *
+         * GTK3 좌표 단위 (GTK4 immodule.c calculate_popup_position 와 동일 패턴):
+         *   area->x, area->y           → 논리 픽셀 (window-local, scale_factor 미반영)
+         *   gdk_window_get_origin 결과 → X11 framebuffer 물리 픽셀 (root coords, device px)
+         *   unim_dbus_report_cursor_rect → 물리 픽셀 기대 (popup_positioning.rs)
+         *
+         * gdk_window_get_root_coords 는 일부 fractional scaling 환경에서 입력 단위 처리가
+         * 모호 → gdk_window_get_origin + 명시적 scale 곱하기로 일관성 보장.
+         * GDK_SCALE=1 (일반 환경) 에서는 scale=1 이라 곱해도 결과 동일.
+         */
         if (unim->dbus_ctx && unim->client_window) {
-            gint abs_x = 0, abs_y = 0;
-            /* 위젯 로컬 좌표 → 화면 절대 좌표 (X11/Wayland 공용) */
-            gdk_window_get_root_coords(unim->client_window,
-                                        area->x, area->y,
-                                        &abs_x, &abs_y);
+            gint scale = gdk_window_get_scale_factor(unim->client_window);
+            if (scale < 1) scale = 1;
+
+            gint origin_x = 0, origin_y = 0;
+            gdk_window_get_origin(unim->client_window, &origin_x, &origin_y);
+
+            /* 논리 좌표를 물리 픽셀로 변환한 뒤 window root offset 더하기 */
+            gint abs_x = (area->x * scale) + origin_x;
+            gint abs_y = (area->y * scale) + origin_y;
+            gint abs_w = area->width * scale;
+            gint abs_h = area->height * scale;
+
             unim_dbus_report_cursor_rect(unim->dbus_ctx,
                                           abs_x, abs_y,
-                                          area->width, area->height);
+                                          abs_w, abs_h);
         }
     }
 }
