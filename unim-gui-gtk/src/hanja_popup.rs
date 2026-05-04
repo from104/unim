@@ -452,6 +452,33 @@ impl HanjaPopup {
         self.window.is_visible()
     }
 
+    /// 통합 PopupRender 시그널 핸들러 (Phase B 통합 SoT).
+    ///
+    /// daemon 산출 view_model 의 미리 포맷된 문자열을 적용 — header (target_label),
+    /// footer (page_label) text, expand 아이콘 (⊞/⊟) 텍스트/visibility.
+    /// 셀/그리드 갱신은 PopupNavigate 시그널이 dual-emit 되어 기존 `navigate()`
+    /// 가 그대로 처리.
+    pub fn update_from_render(
+        &mut self,
+        header_text: &str,
+        footer_text: &str,
+        show_footer: bool,
+        expand_visible: bool,
+        expand_text: &str,
+    ) {
+        self.target_label.set_text(header_text);
+        self.page_label.set_text(footer_text);
+        self.page_label.set_visible(show_footer);
+        self.prev_page_btn.set_visible(show_footer);
+        self.next_page_btn.set_visible(show_footer);
+        if expand_visible {
+            self.expand_icon.set_text(expand_text);
+            self.expand_icon.set_visible(true);
+        } else {
+            self.expand_icon.set_visible(false);
+        }
+    }
+
     /// 특정 후보의 즐겨찾기 상태를 갱신 (HanjaBookmarkChanged 시그널에서 호출)
     pub fn set_bookmark(&mut self, global_index: u32, bookmarked: bool) {
         let idx = global_index as usize;

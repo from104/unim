@@ -119,4 +119,29 @@ pub enum GuiAction {
         sel_row: i32,
         sel_col: i32,
     },
+    /// 통합 PopupRender — daemon 산출 view_model 전체 (Phase B 통합 SoT).
+    ///
+    /// 헤더/푸터/탭 라벨/확장 아이콘 등 미리 포맷된 문자열을 frontend 가 그대로 적용.
+    /// 셀 데이터는 column-major 평면 (`cells[col*rows + row] = (text, meaning, flags)`).
+    /// flags 비트는 0x01=has_data, 0x02=selected, 0x04=col_hl, 0x08=row_hl, 0x10=bookmarked.
+    PopupRender {
+        kind: u32,
+        target: String,
+        header_text: String,
+        footer_text: String,
+        show_footer: bool,
+        rows: u32,
+        cols: u32,
+        sel_row: u32,
+        sel_col: u32,
+        current_page: u32,
+        total_pages: u32,
+        cells: Vec<(String, String, u32)>,
+        col_headers: Vec<(String, bool)>,
+        row_headers: Vec<(String, bool)>,
+        expand_visible: bool,
+        expand_text: String,
+        tab_labels: Vec<String>,
+        active_tab_index: u32,
+    },
 }

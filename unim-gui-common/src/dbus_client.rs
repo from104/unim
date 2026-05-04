@@ -501,6 +501,55 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 });
             }
         }
+        "PopupRender" => {
+            // 통합 view_model — daemon SoT. tuple 묶음:
+            // (kind, (target,header,footer,expand), layout 6, (showF,expV), cells,
+            //  col_headers, row_headers, tab_labels, active_tab_index)
+            type PopupRenderTuple = (
+                u32,
+                (String, String, String, String),
+                (u32, u32, u32, u32, u32, u32),
+                (bool, bool),
+                Vec<(String, String, u32)>,
+                Vec<(String, bool)>,
+                Vec<(String, bool)>,
+                Vec<String>,
+                u32,
+            );
+            if let Ok((
+                kind,
+                (target, header_text, footer_text, expand_text),
+                (rows, cols, sel_row, sel_col, current_page, total_pages),
+                (show_footer, expand_visible),
+                cells,
+                col_headers,
+                row_headers,
+                tab_labels,
+                active_tab_index,
+            )) = msg.body().deserialize::<PopupRenderTuple>()
+            {
+                let _ = popup_tx.send(GuiAction::PopupRender {
+                    kind,
+                    target,
+                    header_text,
+                    footer_text,
+                    show_footer,
+                    rows,
+                    cols,
+                    sel_row,
+                    sel_col,
+                    current_page,
+                    total_pages,
+                    cells,
+                    col_headers,
+                    row_headers,
+                    expand_visible,
+                    expand_text,
+                    tab_labels,
+                    active_tab_index,
+                });
+            }
+        }
         _ => {}
     }
 }

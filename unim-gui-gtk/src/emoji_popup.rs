@@ -522,6 +522,32 @@ impl EmojiPopup {
     pub fn is_visible(&self) -> bool {
         self.window.is_visible()
     }
+
+    /// 통합 PopupRender 시그널 핸들러 (Phase B 통합 SoT).
+    ///
+    /// daemon 산출 view_model 의 미리 포맷된 문자열을 적용 — 헤더 ("「Smileys」 → 이모지")
+    /// + footer ("[Smileys] 1/3") + show_footer + tab_labels (단축키 prefix 포함,
+    /// "Smileys (a)" 형식). 카테고리 탭 라벨은 daemon 이 home_row 기반으로 산출.
+    pub fn update_from_render(
+        &mut self,
+        header_text: &str,
+        footer_text: &str,
+        show_footer: bool,
+        tab_labels: &[String],
+    ) {
+        self.header_label.set_text(header_text);
+        self.footer_label.set_text(footer_text);
+        self.footer_box.set_visible(show_footer);
+        self.prev_page_btn.set_visible(show_footer);
+        self.next_page_btn.set_visible(show_footer);
+        // 탭 라벨 — daemon 이 단축키 prefix 포함하여 산출. tab_labels 와 self.tab_labels
+        // 는 같은 순서 (categories 와 1:1). 부족하면 빈 라벨.
+        for (i, label) in self.tab_labels.iter().enumerate() {
+            if let Some(text) = tab_labels.get(i) {
+                label.set_text(text);
+            }
+        }
+    }
 }
 
 /// 셀 클릭 콜백에서 호출 — 라벨 텍스트(emoji)를 그대로 받아 DBus `CommitEmoji` RPC.

@@ -399,6 +399,23 @@ impl SpecialPopup {
     pub fn is_visible(&self) -> bool {
         self.window.is_visible()
     }
+
+    /// 통합 PopupRender 시그널 핸들러 (Phase B 통합 SoT).
+    ///
+    /// daemon 산출 view_model 의 미리 포맷된 문자열을 적용 — 헤더 ("「ㄱ」 → 특수문자")
+    /// + footer ("[ㄱ] 1/3") + show_footer (단일 페이지면 footer hide).
+    pub fn update_from_render(
+        &mut self,
+        header_text: &str,
+        footer_text: &str,
+        show_footer: bool,
+    ) {
+        self.header_label.set_text(header_text);
+        self.footer_label.set_text(footer_text);
+        self.footer_box.set_visible(show_footer);
+        self.prev_page_btn.set_visible(show_footer);
+        self.next_page_btn.set_visible(show_footer);
+    }
 }
 
 /// DBus를 통해 특수문자 선택
