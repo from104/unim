@@ -118,11 +118,14 @@ export class EmojiPopup {
         this._onTabClick = null;
         /** @type {Function|null} 페이지 이동 콜백 (direction: 0=Prev, 1=Next) */
         this._onChangePage = null;
+        /** @type {Function|null} popup 키 콜백 (stage 핸들러 → processKey RPC).
+         *  emoji popup 은 idle 트리거라 IM 세션이 engage 안 돼 화살표/Esc/Home/End/PgUp/Dn
+         *  등이 IM filter 를 거치지 않는다 — extension 측 stage 캡처로 우회. */
+        this._onPopupKey = null;
 
         /** @type {number} stage captured-event 핸들러 ID — popup 떠있는 동안만 활성.
-         *  GNOME Shell 이 Tab 을 focus chain 으로 흡수해 IM 모듈에 도달하지 않으므로,
-         *  popup 활성 중 Tab/Shift+Tab 을 stage 레벨에서 캡처해 setEmojiCategory RPC 로
-         *  직접 라우팅한다 (마우스 클릭과 동일한 우회 패턴). */
+         *  popup 가시 중 popup 키 전부 (Esc/arrow/Home/End/PgUp/PgDn/Tab/Letter 등) 를
+         *  stage 레벨에서 캡처해 processKey RPC 로 직접 라우팅한다. */
         this._stageKeyHandler = 0;
     }
 
@@ -249,7 +252,7 @@ export class EmojiPopup {
      * @param {string} [homeRow] - 영문 키맵 홈 행 9 문자 (카테고리 단축키 표시).
      *   비어 있으면 단축키 라벨 "(키)" 부분을 생략한다.
      */
-    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick, onChangePage, homeRow) {
+    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick, onChangePage, homeRow, onPopupKey) {
         if (!this._container) return;
 
         this._items = Array.isArray(items) ? items.slice() : [];
@@ -262,6 +265,7 @@ export class EmojiPopup {
         this._onCommit = typeof onCommit === 'function' ? onCommit : null;
         this._onTabClick = typeof onTabClick === 'function' ? onTabClick : null;
         this._onChangePage = typeof onChangePage === 'function' ? onChangePage : null;
+        this._onPopupKey = typeof onPopupKey === 'function' ? onPopupKey : null;
 
         // 페이지/선택 초기값 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
         this._currentPage = 0;
@@ -277,7 +281,7 @@ export class EmojiPopup {
 
         this._container.show();
         this._positionPopup(cursorRect);
-        this._installStageTabHandler();
+        this._installStageKeyHandler();
 
         unimLog(
             'EMOJI',
@@ -287,37 +291,49 @@ export class EmojiPopup {
     }
 
     /**
-     * Stage 레벨 captured-event 리스너로 Tab/Shift+Tab 을 가로채 카테고리 전환.
-     * GNOME Shell focus chain 이 Tab 을 흡수하기 때문에 IM 모듈로 도달하지 않으므로
-     * extension 측에서 직접 RPC 호출한다 (마우스 클릭과 동일한 우회).
+     * Stage 레벨 captured-event 리스너로 popup 활성 중 모든 popup 키를 가로채
+     * 엔진(processKey RPC)으로 전달한다.
+     *
+     * 이모지 팝업은 idle 상태(preedit 비어있음)에서 Hanja 키로 트리거되므로
+     * Wayland text-input v3 가 IM 세션을 engage 하지 않는다 — 따라서 화살표·
+     * Esc·Home/End·PageUp/Down 등 "non-text" 키는 IM filter_key_event 를
+     * 거치지 않고 앱으로 직접 전달된다 (한자/특수문자 popup 은 조합 중 트리거
+     * 라 preedit 이 있어 IM 이 engage 되어 있어 정상 동작).
+     *
+     * 본 stage 핸들러가 popup 가시 중인 동안 모든 popup 관련 키를 stage 레벨
+     * 에서 캡처해 _onPopupKey 콜백으로 직접 RPC 호출한다. 엔진이 PopupNavigate
+     * /HidePopup/ShowEmoji 시그널을 emit 하면 popup UI 가 갱신된다.
      */
-    _installStageTabHandler() {
+    _installStageKeyHandler() {
         if (this._stageKeyHandler) return;
         this._stageKeyHandler = global.stage.connect('captured-event', (_actor, event) => {
             if (!this._container?.visible) return Clutter.EVENT_PROPAGATE;
             if (event.type() !== Clutter.EventType.KEY_PRESS) return Clutter.EVENT_PROPAGATE;
             const sym = event.get_key_symbol();
-            const isShift = (event.get_state() & Clutter.ModifierType.SHIFT_MASK) !== 0;
-            const isTab = sym === Clutter.KEY_Tab;
-            const isShiftTab = sym === Clutter.KEY_ISO_Left_Tab || (isTab && isShift);
-            if (!isTab && !isShiftTab) return Clutter.EVENT_PROPAGATE;
-            if (typeof this._onTabClick !== 'function') return Clutter.EVENT_PROPAGATE;
-            const total = this._categories.length;
-            if (total === 0) return Clutter.EVENT_PROPAGATE;
-            const cur = this._categories.findIndex(c => c.id === this._currentCatId);
-            const curIdx = cur < 0 ? 0 : cur;
-            const next = isShiftTab
-                ? (curIdx - 1 + total) % total
-                : (curIdx + 1) % total;
-            this._onTabClick(next);
+            const state = event.get_state();
+            // Modifier 단독 키는 통과 (Shift/Ctrl/Alt 등)
+            if (
+                sym === Clutter.KEY_Shift_L || sym === Clutter.KEY_Shift_R ||
+                sym === Clutter.KEY_Control_L || sym === Clutter.KEY_Control_R ||
+                sym === Clutter.KEY_Alt_L || sym === Clutter.KEY_Alt_R ||
+                sym === Clutter.KEY_Super_L || sym === Clutter.KEY_Super_R
+            ) {
+                return Clutter.EVENT_PROPAGATE;
+            }
+            if (typeof this._onPopupKey !== 'function') return Clutter.EVENT_PROPAGATE;
+
+            const keycode = event.get_key_code();
+            // Mutter 의 stage event 는 X11 hardware keycode 를 준다 — evdev 는 +8 offset.
+            const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
+            this._onPopupKey(sym, evdevKeycode, state);
             return Clutter.EVENT_STOP;
         });
     }
 
     /**
-     * Stage Tab 핸들러 해제 (popup 숨김 시 호출).
+     * Stage 키 핸들러 해제 (popup 숨김 시 호출).
      */
-    _uninstallStageTabHandler() {
+    _uninstallStageKeyHandler() {
         if (!this._stageKeyHandler) return;
         global.stage.disconnect(this._stageKeyHandler);
         this._stageKeyHandler = 0;
@@ -327,7 +343,7 @@ export class EmojiPopup {
      * 팝업 숨김
      */
     hide() {
-        this._uninstallStageTabHandler();
+        this._uninstallStageKeyHandler();
         if (this._container) {
             this._container.hide();
         }
@@ -337,6 +353,7 @@ export class EmojiPopup {
         this._onCommit = null;
         this._onTabClick = null;
         this._onChangePage = null;
+        this._onPopupKey = null;
     }
 
     /**

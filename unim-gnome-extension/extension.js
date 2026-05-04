@@ -272,7 +272,23 @@ export default class UnimExtension extends Extension {
                         (idx) => this._dbusIME?.setEmojiCategory(idx),
                         // ◀/▶ 풋터 클릭 → PopupChangePage RPC.
                         (direction) => this._dbusIME?.popupChangePage(direction),
-                        homeRow || ''
+                        homeRow || '',
+                        // popup 키 (Esc/화살표/Home/End/PgUp/PgDn/Tab/Letter 등) → processKey RPC.
+                        // emoji popup 은 idle 트리거라 IM 세션이 engage 되지 않아 navigation/edit
+                        // 키들이 IM filter_key_event 를 거치지 않는다 (Wayland text-input v3
+                        // spec). stage 캡처에서 직접 RPC 호출 + 반환된 commit 을 IM 으로 적용.
+                        (keyval, keycode, state) => {
+                            if (!this._dbusIME?.isConnected) return;
+                            const result = this._dbusIME.processKey(keyval, keycode, state);
+                            if (!result) return;
+                            const { commit, preedit } = result;
+                            if (commit && commit.length > 0) {
+                                this._inputMethod?.commitText(commit);
+                            }
+                            if (typeof preedit === 'string') {
+                                this._inputMethod?.updatePreedit(preedit);
+                            }
+                        }
                     );
                 },
                 onHidePopup: () => {
