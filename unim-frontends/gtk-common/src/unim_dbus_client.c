@@ -78,6 +78,11 @@ struct _UnimDbusContext {
     gchar *context_path;
     gchar *preedit_cache;      /* 현재 preedit 캐시 */
     gboolean is_composing;     /* 조합 중인지 */
+    /* dedupe: reset/focus_out wrapper가 sync로 *commit emit한 직후 daemon이
+     * CommitText signal을 또 emit하므로, 마지막 sync commit 값을 기억해서
+     * 1회만 skip한다. (외부 click pass-through로 underlying app이 reset 호출
+     * 시 이중 commit 발생하던 버그 방지) */
+    gchar *pending_skip_commit;
     /* AutoTypeFix 콜백 */
     UnimAutoTypeFixCallback auto_typefix_callback;
     gpointer auto_typefix_user_data;
@@ -161,6 +166,7 @@ unim_dbus_context_new(const gchar *client_name, const gchar *window_id)
 
     ctx->preedit_cache = g_strdup("");
     ctx->is_composing = FALSE;
+    ctx->pending_skip_commit = NULL;
 
     UNIM_DBUS_DEBUG("InputContext 생성: %s (window_id: %s)", ctx->context_path, effective_window_id);
 
@@ -229,6 +235,7 @@ unim_dbus_context_free(UnimDbusContext *ctx)
     }
     g_free(ctx->context_path);
     g_free(ctx->preedit_cache);
+    g_free(ctx->pending_skip_commit);
     g_free(ctx);
 }
 
@@ -395,6 +402,10 @@ unim_dbus_reset(UnimDbusContext *ctx, gchar **commit)
         if (commit) {
             *commit = g_strdup(ctx->preedit_cache);
             UNIM_DBUS_DEBUG("Reset 커밋: \"%s\"", *commit);
+            /* dedupe: daemon이 곧 CommitText signal로 같은 값을 보낼 예정이므로
+             * signal handler가 1회 skip하도록 표시 */
+            g_free(ctx->pending_skip_commit);
+            ctx->pending_skip_commit = g_strdup(*commit);
         }
     }
 
@@ -1041,6 +1052,15 @@ on_commit_text_signal(GDBusConnection *connection,
     g_variant_get(parameters, "(&s)", &text);
 
     if (text && text[0] != '\0') {
+        /* dedupe: wrapper(reset/focus_out)가 sync로 *commit emit한 직후 daemon
+         * 이 같은 값을 CommitText signal로 또 emit. 1회만 skip해서 이중 commit
+         * 을 방지한다. */
+        if (ctx->pending_skip_commit && strcmp(text, ctx->pending_skip_commit) == 0) {
+            UNIM_DBUS_DEBUG("CommitText 시그널 dedupe skip: text='%s'", text);
+            g_free(ctx->pending_skip_commit);
+            ctx->pending_skip_commit = NULL;
+            return;
+        }
         UNIM_DBUS_DEBUG("CommitText 시그널 수신: text='%s'", text);
         ctx->commit_text_callback(text, ctx->commit_text_user_data);
     }
