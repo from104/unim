@@ -404,6 +404,42 @@ mod tests {
     }
 
     #[test]
+    fn special_home_jumps_to_first_page() {
+        let mut state = make_special(100);
+        state.current_page = 1;
+        state.sel_row = 5;
+        state.sel_col = 2;
+        state.update_page_layout();
+        let result = state.handle_key(PopupKey::Home);
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 0);
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn special_end_jumps_to_last_data_cell() {
+        // 100 chars: page 0 = 81 (9×9), page 1 = 19 (cols=3, rows=7)
+        // last index in page 1 = 18, col=18/7=2, row=18%7=4
+        let mut state = make_special(100);
+        let result = state.handle_key(PopupKey::End);
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.current_page, 1);
+        assert_eq!(state.sel_col, 2);
+        assert_eq!(state.sel_row, 4);
+    }
+
+    #[test]
+    fn special_end_full_page_last_cell() {
+        // 81 chars: 1 page, last index = 80 → col=8, row=8
+        let mut state = make_special(81);
+        state.handle_key(PopupKey::End);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_col, 8);
+        assert_eq!(state.sel_row, 8);
+    }
+
+    #[test]
     fn special_modifier_consumed() {
         let mut state = make_special(81);
         let result = state.handle_key(PopupKey::Modifier);
@@ -568,6 +604,44 @@ mod tests {
         let result = state.handle_key(PopupKey::Space);
         // page 1 * 9 + sel_row 0 = 9
         assert_eq!(result, PopupKeyResult::ToggleBookmark(9));
+    }
+
+    #[test]
+    fn hanja_compact_home_jumps_to_first_page_first_row() {
+        let mut state = make_hanja(20);
+        state.current_page = 2;
+        state.sel_row = 1;
+        state.update_page_layout();
+        let result = state.handle_key(PopupKey::Home);
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 0);
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn hanja_compact_end_jumps_to_last_page_last_row() {
+        // 20 candidates, compact: 9/page → 3 pages, last page has 2 items (idx 18, 19)
+        let mut state = make_hanja(20);
+        let result = state.handle_key(PopupKey::End);
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.current_page, 2);
+        assert_eq!(state.sel_col, 0);
+        // page 2 has 2 items (rows=2), last row = 1
+        assert_eq!(state.sel_row, 1);
+    }
+
+    #[test]
+    fn hanja_expanded_end_jumps_to_last_data_cell() {
+        // 100 candidates, expanded: 81/page → 2 pages, last page has 19 items
+        // 19 → cols=3, rows=7. last index 18 → col=18/7=2, row=18%7=4
+        let mut state = make_hanja(100);
+        state.handle_key(PopupKey::Period); // expanded
+        let result = state.handle_key(PopupKey::End);
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.current_page, 1);
+        assert_eq!(state.sel_col, 2);
+        assert_eq!(state.sel_row, 4);
     }
 
     #[test]
@@ -1129,6 +1203,32 @@ mod tests {
         // PageUp from page 0 wraps to last
         state.handle_key(PopupKey::PageUp);
         assert_eq!(state.current_page, 2);
+    }
+
+    #[test]
+    fn emoji_home_jumps_to_first_page() {
+        let mut state = make_emoji_state(1, 200);
+        state.current_page = 2;
+        state.sel_row = 4;
+        state.sel_col = 3;
+        state.update_page_layout();
+        let result = state.handle_key(PopupKey::Home);
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.sel_row, 0);
+        assert_eq!(state.sel_col, 0);
+    }
+
+    #[test]
+    fn emoji_end_jumps_to_last_data_cell() {
+        // 200 emojis → 81+81+38, last page has 38 items.
+        // 38 → cols=ceil(38/9)=5, rows=ceil(38/5)=8. last idx=37 → col=37/8=4, row=37%8=5
+        let mut state = make_emoji_state(1, 200);
+        let result = state.handle_key(PopupKey::End);
+        assert_eq!(result, PopupKeyResult::Updated);
+        assert_eq!(state.current_page, 2);
+        assert_eq!(state.sel_col, 4);
+        assert_eq!(state.sel_row, 5);
     }
 
     #[test]

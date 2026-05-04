@@ -41,6 +41,8 @@ impl InputEngine {
             KeyCode::Right => PopupKey::Right,
             KeyCode::PageUp => PopupKey::PageUp,
             KeyCode::PageDown => PopupKey::PageDown,
+            KeyCode::Home => PopupKey::Home,
+            KeyCode::End => PopupKey::End,
             KeyCode::Tab => PopupKey::Tab,
             KeyCode::Space => PopupKey::Space,
             KeyCode::Backspace => PopupKey::Backspace,

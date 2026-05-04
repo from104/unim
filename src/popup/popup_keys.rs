@@ -42,6 +42,10 @@ pub enum PopupKey {
     ShiftTab,
     PageUp,
     PageDown,
+    /// Home — 첫 페이지의 첫 셀로 점프
+    Home,
+    /// End — 마지막 페이지의 마지막 데이터 셀로 점프
+    End,
     Space,
     Backspace,
     /// '.' (Period) — 한자 팝업 확장/축소 토글
@@ -87,6 +91,45 @@ impl PopupState {
             PopupKind::SpecialChar => self.handle_special_key(key),
             PopupKind::Hanja => self.handle_hanja_key(key),
             PopupKind::Emoji => self.handle_emoji_key(key),
+        }
+    }
+
+    /// Home: 첫 페이지의 첫 셀(0,0)로 점프 — 3개 popup 공통 로직.
+    fn jump_to_first(&mut self) {
+        self.current_page = 0;
+        self.update_page_layout();
+        self.sel_row = 0;
+        self.sel_col = 0;
+    }
+
+    /// End: 마지막 페이지의 마지막 데이터 셀로 점프 — 3개 popup 공통 로직.
+    /// compact 한자(cols=1)는 sel_col=0 유지하고 마지막 행으로, 그리드는 column-major
+    /// 채움 순서대로 마지막 셀의 (row, col) 계산.
+    fn jump_to_last(&mut self) {
+        if self.total_pages == 0 {
+            self.sel_row = 0;
+            self.sel_col = 0;
+            return;
+        }
+        self.current_page = self.total_pages - 1;
+        self.update_page_layout();
+        let count = self.page_item_count();
+        if count == 0 {
+            self.sel_row = 0;
+            self.sel_col = 0;
+            return;
+        }
+        let rows = self.rows.max(1);
+        // compact 한자(cols=1)는 단일 열 — 마지막 행으로.
+        // 그리드(expanded hanja, special, emoji)는 column-major 채움이므로
+        // last_idx = count-1, col = idx/rows, row = idx%rows.
+        let last = count - 1;
+        if self.kind == PopupKind::Hanja && !self.hanja_expanded {
+            self.sel_col = 0;
+            self.sel_row = last;
+        } else {
+            self.sel_col = last / rows;
+            self.sel_row = last % rows;
         }
     }
 
@@ -238,6 +281,15 @@ impl PopupState {
                     self.sel_row = 0;
                     self.sel_col = 0;
                 }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Home => {
+                self.jump_to_first();
+                PopupKeyResult::Updated
+            }
+            PopupKey::End => {
+                self.jump_to_last();
                 PopupKeyResult::Updated
             }
 
@@ -397,6 +449,15 @@ impl PopupState {
                     self.sel_row = 0;
                     self.sel_col = 0;
                 }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Home => {
+                self.jump_to_first();
+                PopupKeyResult::Updated
+            }
+            PopupKey::End => {
+                self.jump_to_last();
                 PopupKeyResult::Updated
             }
 
@@ -600,6 +661,15 @@ impl PopupState {
                     self.sel_row = 0;
                     self.sel_col = 0;
                 }
+                PopupKeyResult::Updated
+            }
+
+            PopupKey::Home => {
+                self.jump_to_first();
+                PopupKeyResult::Updated
+            }
+            PopupKey::End => {
+                self.jump_to_last();
                 PopupKeyResult::Updated
             }
 
