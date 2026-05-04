@@ -23,7 +23,6 @@
 
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
-import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { unimLog } from './logging.js';
@@ -123,18 +122,11 @@ export class EmojiPopup {
          *  emoji popup 은 idle 트리거라 IM 세션이 engage 안 돼 화살표/Esc/Home/End/PgUp/Dn
          *  등이 IM filter 를 거치지 않는다 — extension 측 stage 캡처로 우회. */
         this._onPopupKey = null;
-        /** @type {Function|null} popup 영역 밖 클릭 시 호출 (reset+hide 용도). */
-        this._onOutsideClick = null;
 
         /** @type {number} stage captured-event 핸들러 ID — popup 떠있는 동안만 활성.
-         *  popup 가시 중 popup 키 전부 (Esc/arrow/Home/End/PgUp/PgDn/Tab/Letter 등) +
-         *  popup 영역 밖 클릭을 stage 레벨에서 캡처. */
-        this._stageHandler = 0;
-
-        /** @type {object|null} Main.pushModal grab 토큰 — popup 가시 중에만 유지.
-         *  Wayland 클라이언트(특히 VTE/ghostty 등 IM 부분 참여 터미널)가 키 이벤트를
-         *  surface 로 직행시켜 stage captured-event 가 안 발화하는 것을 방지한다. */
-        this._modalGrab = null;
+         *  popup 가시 중 popup 키 전부 (Esc/arrow/Home/End/PgUp/PgDn/Tab/Letter 등) 를
+         *  stage 레벨에서 캡처해 processKey RPC 로 직접 라우팅한다. */
+        this._stageKeyHandler = 0;
     }
 
     /**
@@ -260,7 +252,7 @@ export class EmojiPopup {
      * @param {string} [homeRow] - 영문 키맵 홈 행 9 문자 (카테고리 단축키 표시).
      *   비어 있으면 단축키 라벨 "(키)" 부분을 생략한다.
      */
-    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick, onChangePage, homeRow, onPopupKey, onOutsideClick) {
+    show(targetCatId, items, topRow, _recent, categoriesRaw, onCommit, cursorRect, onTabClick, onChangePage, homeRow, onPopupKey) {
         if (!this._container) return;
 
         this._items = Array.isArray(items) ? items.slice() : [];
@@ -274,7 +266,6 @@ export class EmojiPopup {
         this._onTabClick = typeof onTabClick === 'function' ? onTabClick : null;
         this._onChangePage = typeof onChangePage === 'function' ? onChangePage : null;
         this._onPopupKey = typeof onPopupKey === 'function' ? onPopupKey : null;
-        this._onOutsideClick = typeof onOutsideClick === 'function' ? onOutsideClick : null;
 
         // 페이지/선택 초기값 (엔진의 첫 PopupNavigate 시그널이 곧 덮어씀)
         this._currentPage = 0;
@@ -290,8 +281,7 @@ export class EmojiPopup {
 
         this._container.show();
         this._positionPopup(cursorRect);
-        this._installStageHandler();
-        this._pushModalGrab();
+        this._installStageKeyHandler();
 
         unimLog(
             'EMOJI',
@@ -301,129 +291,59 @@ export class EmojiPopup {
     }
 
     /**
-     * Modal grab push — popup 가시 중에만 유지.
+     * Stage 레벨 captured-event 리스너로 popup 활성 중 모든 popup 키를 가로채
+     * 엔진(processKey RPC)으로 전달한다.
      *
-     * Wayland 텍스트 클라이언트(VTE/ghostty 등) 가 키 이벤트를 surface 로 직행시키면
-     * stage captured-event 가 발화하지 않는다. Modal grab 은 키/포인터 이벤트를
-     * 강제로 우리 actor 로 라우팅해 어떤 클라이언트가 포커스를 가지든 균일하게
-     * 가로챌 수 있게 한다.
+     * 이모지 팝업은 idle 상태(preedit 비어있음)에서 Hanja 키로 트리거되므로
+     * Wayland text-input v3 가 IM 세션을 engage 하지 않는다 — 따라서 화살표·
+     * Esc·Home/End·PageUp/Down 등 "non-text" 키는 IM filter_key_event 를
+     * 거치지 않고 앱으로 직접 전달된다 (한자/특수문자 popup 은 조합 중 트리거
+     * 라 preedit 이 있어 IM 이 engage 되어 있어 정상 동작).
      *
-     * 카테고리 전환 등으로 show() 가 재진입할 때 idempotent — 이미 grab 이
-     * 활성이면 no-op.
-     * @private
+     * 본 stage 핸들러가 popup 가시 중인 동안 모든 popup 관련 키를 stage 레벨
+     * 에서 캡처해 _onPopupKey 콜백으로 직접 RPC 호출한다. 엔진이 PopupNavigate
+     * /HidePopup/ShowEmoji 시그널을 emit 하면 popup UI 가 갱신된다.
      */
-    _pushModalGrab() {
-        if (this._modalGrab || !this._container) return;
-        try {
-            const grab = Main.pushModal(this._container, {
-                actionMode: Shell.ActionMode.POPUP,
-            });
-            // Keyboard grab 획득 실패 시 popModal 후 stage 캡처로 폴백.
-            // (다른 모달이 이미 활성 중이면 grab 이 비거나 keyboard 비트가 빠진다.)
-            if (grab && (grab.get_seat_state?.() & Clutter.GrabState.KEYBOARD)) {
-                this._modalGrab = grab;
-            } else if (grab) {
-                Main.popModal(grab);
-                unimLog('EMOJI', 'pushModal: keyboard grab 미획득 — stage 캡처 폴백');
-            }
-        } catch (e) {
-            unimLog('EMOJI', `pushModal 실패 (stage 캡처 폴백): ${e?.message ?? e}`);
-        }
-    }
-
-    /**
-     * Modal grab pop — popup 숨김 시 호출.
-     * @private
-     */
-    _popModalGrab() {
-        if (!this._modalGrab) return;
-        try {
-            Main.popModal(this._modalGrab);
-        } catch (e) {
-            unimLog('EMOJI', `popModal 실패: ${e?.message ?? e}`);
-        }
-        this._modalGrab = null;
-    }
-
-    /**
-     * Stage 레벨 captured-event 리스너로 popup 활성 중 모든 popup 키 + 외부 클릭을
-     * 가로챈다.
-     *
-     * 키: 엔진(processKey RPC)으로 전달 — Wayland text-input v3 가 IM 을
-     * engage 하지 않거나(idle 트리거) 부분 참여만 하는 클라이언트(VTE/ghostty
-     * 등 터미널)에서 화살표/Esc/Home/End/PgUp/PgDn 가 IM filter 를 거치지
-     * 않는 것을 우회한다. Modal grab 과 결합하면 모든 wayland 클라이언트에서
-     * 균일하게 동작.
-     *
-     * 외부 클릭: popup actor 트리 밖 BUTTON_PRESS 발생 시 _onOutsideClick
-     * 콜백을 호출 (extension.js 가 reset RPC + popup hide). 클라이언트가
-     * IM reset 을 발화하지 않는 환경(터미널 등) 에서도 popup 이 닫히게 한다.
-     * @private
-     */
-    _installStageHandler() {
-        if (this._stageHandler) return;
-        this._stageHandler = global.stage.connect('captured-event', (_actor, event) => {
+    _installStageKeyHandler() {
+        if (this._stageKeyHandler) return;
+        this._stageKeyHandler = global.stage.connect('captured-event', (_actor, event) => {
             if (!this._container?.visible) return Clutter.EVENT_PROPAGATE;
-            const type = event.type();
-
-            if (type === Clutter.EventType.KEY_PRESS) {
-                const sym = event.get_key_symbol();
-                const state = event.get_state();
-                // Modifier 단독 키는 통과 (Shift/Ctrl/Alt 등)
-                if (
-                    sym === Clutter.KEY_Shift_L || sym === Clutter.KEY_Shift_R ||
-                    sym === Clutter.KEY_Control_L || sym === Clutter.KEY_Control_R ||
-                    sym === Clutter.KEY_Alt_L || sym === Clutter.KEY_Alt_R ||
-                    sym === Clutter.KEY_Super_L || sym === Clutter.KEY_Super_R
-                ) {
-                    return Clutter.EVENT_PROPAGATE;
-                }
-                if (typeof this._onPopupKey !== 'function') return Clutter.EVENT_PROPAGATE;
-
-                const keycode = event.get_key_code();
-                // Mutter 의 stage event 는 X11 hardware keycode 를 준다 — evdev 는 +8 offset.
-                const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
-                this._onPopupKey(sym, evdevKeycode, state);
-                return Clutter.EVENT_STOP;
+            if (event.type() !== Clutter.EventType.KEY_PRESS) return Clutter.EVENT_PROPAGATE;
+            const sym = event.get_key_symbol();
+            const state = event.get_state();
+            // Modifier 단독 키는 통과 (Shift/Ctrl/Alt 등)
+            if (
+                sym === Clutter.KEY_Shift_L || sym === Clutter.KEY_Shift_R ||
+                sym === Clutter.KEY_Control_L || sym === Clutter.KEY_Control_R ||
+                sym === Clutter.KEY_Alt_L || sym === Clutter.KEY_Alt_R ||
+                sym === Clutter.KEY_Super_L || sym === Clutter.KEY_Super_R
+            ) {
+                return Clutter.EVENT_PROPAGATE;
             }
+            if (typeof this._onPopupKey !== 'function') return Clutter.EVENT_PROPAGATE;
 
-            if (type === Clutter.EventType.BUTTON_PRESS) {
-                // popup actor 트리 내부 클릭은 propagate 해서 셀/탭/풋터 핸들러가 동작하게.
-                const source = event.get_source();
-                if (source && this._container && this._container.contains(source)) {
-                    return Clutter.EVENT_PROPAGATE;
-                }
-                // 외부 클릭 — reset+hide 호출 후 stop.
-                if (typeof this._onOutsideClick === 'function') {
-                    try {
-                        this._onOutsideClick();
-                    } catch (e) {
-                        unimLog('EMOJI', `outside click handler error: ${e?.message ?? e}`);
-                    }
-                }
-                return Clutter.EVENT_STOP;
-            }
-
-            return Clutter.EVENT_PROPAGATE;
+            const keycode = event.get_key_code();
+            // Mutter 의 stage event 는 X11 hardware keycode 를 준다 — evdev 는 +8 offset.
+            const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
+            this._onPopupKey(sym, evdevKeycode, state);
+            return Clutter.EVENT_STOP;
         });
     }
 
     /**
-     * Stage 핸들러 해제 (popup 숨김 시 호출).
-     * @private
+     * Stage 키 핸들러 해제 (popup 숨김 시 호출).
      */
-    _uninstallStageHandler() {
-        if (!this._stageHandler) return;
-        global.stage.disconnect(this._stageHandler);
-        this._stageHandler = 0;
+    _uninstallStageKeyHandler() {
+        if (!this._stageKeyHandler) return;
+        global.stage.disconnect(this._stageKeyHandler);
+        this._stageKeyHandler = 0;
     }
 
     /**
      * 팝업 숨김
      */
     hide() {
-        this._popModalGrab();
-        this._uninstallStageHandler();
+        this._uninstallStageKeyHandler();
         if (this._container) {
             this._container.hide();
         }
@@ -434,7 +354,6 @@ export class EmojiPopup {
         this._onTabClick = null;
         this._onChangePage = null;
         this._onPopupKey = null;
-        this._onOutsideClick = null;
     }
 
     /**
