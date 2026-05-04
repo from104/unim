@@ -1,0 +1,220 @@
+/* GNOME Shell extension St CSS — 한자 popup + 공유 footer/page-btn/flash.
+ * 본 파일은 `tools/popup-styles/gen.py` 가 popup_tokens.toml 의 디자인 값을
+ * 치환하여 unim-gnome-extension/stylesheet.css 의 GENERATED-POPUP-CSS 마커 사이에
+ * 삽입한다. 셀렉터(.popup-item, .grid-cell 등)는 GNOME extension 측 actor
+ * 클래스 모델에 맞춘 것이며, 디자인 값만 토큰 SoT 에서 끌어온다. */
+
+.unim-hanja-popup {
+    background-color: {{colors.bg_main}};
+    border: 1px solid {{colors.border}};
+    border-radius: {{spacing.popup_radius}};
+    padding: {{spacing.popup_padding}};
+    min-width: {{spacing.popup_min_width}};
+    max-width: {{spacing.popup_max_width}};
+}
+
+.unim-hanja-popup .popup-header {
+    background-color: {{colors.bg_header}};
+    color: {{colors.accent}};
+    font-size: {{fonts.header_size}};
+    font-weight: {{fonts.header_weight}};
+    padding: {{spacing.header_padding}};
+    border-radius: {{spacing.header_radius}};
+    margin-bottom: {{spacing.header_margin_bottom}};
+}
+
+.unim-hanja-popup .popup-item {
+    color: {{colors.text_primary}};
+    padding: {{spacing.item_padding}};
+    border-radius: {{spacing.item_radius}};
+    height: {{spacing.item_height}};
+    transition-duration: {{transitions.duration_default}};
+}
+
+.unim-hanja-popup .popup-item.selected {
+    background-color: {{colors.accent_bg_low}};
+}
+
+.unim-hanja-popup .popup-item.hovered {
+    background-color: {{colors.bg_overlay_low}};
+}
+
+.unim-hanja-popup .popup-item.selected.hovered {
+    background-color: {{colors.accent_bg_high}};
+}
+
+.unim-hanja-popup .popup-item .item-number {
+    color: {{colors.text_dim}};
+    font-size: {{fonts.item_meta_size}};
+    margin-right: 6px;
+}
+
+.unim-hanja-popup .popup-item .item-hanja {
+    font-size: {{fonts.item_main_size}};
+    font-weight: {{fonts.item_main_weight}};
+    margin-right: 8px;
+}
+
+.unim-hanja-popup .popup-item .item-meaning {
+    color: {{colors.text_secondary}};
+    font-size: {{fonts.meaning_size}};
+}
+
+.unim-hanja-popup .popup-item .item-bookmark {
+    color: {{colors.text_faint}};
+    font-size: {{fonts.bookmark_icon_size}};
+    margin-left: auto;
+    padding-left: 8px;
+    transition-duration: {{transitions.duration_default}};
+}
+
+.unim-hanja-popup .popup-item .item-bookmark.bookmarked {
+    color: {{colors.bookmark}};
+}
+
+/* Compact 리스트: 즐겨찾기 행 강조 */
+.unim-hanja-popup .popup-item.bookmarked {
+    background-color: {{colors.bookmark_bg_xlow}};
+}
+
+.unim-hanja-popup .popup-item.bookmarked.selected {
+    background-color: {{colors.bookmark_bg_mid}};
+}
+
+/* 확장 모드 그리드 */
+.unim-hanja-popup .grid-row {
+    padding: 0;
+}
+
+.unim-hanja-popup .grid-row-number {
+    color: {{colors.text_dim}};
+    font-weight: {{fonts.grid_row_number_weight}};
+    font-size: {{fonts.grid_row_number_size}};
+    min-width: {{spacing.row_number_min_width}};
+}
+
+.unim-hanja-popup .grid-row-number.active {
+    color: {{colors.bookmark}};
+}
+
+.unim-hanja-popup .grid-cell {
+    color: {{colors.text_primary}};
+    font-size: {{fonts.cell_size}};
+    font-weight: {{fonts.cell_weight}};
+    min-width: {{spacing.cell_min_width}};
+    min-height: {{spacing.cell_min_height}};
+    padding: {{spacing.cell_padding}};
+    text-align: center;
+    border-radius: {{spacing.cell_radius}};
+    transition-duration: {{transitions.duration_default}};
+}
+
+.unim-hanja-popup .grid-cell.selected {
+    background-color: {{colors.accent_bg_mid}};
+}
+
+.unim-hanja-popup .grid-cell.hovered {
+    background-color: {{colors.bg_overlay_med}};
+}
+
+.unim-hanja-popup .grid-cell.selected.hovered {
+    background-color: {{colors.accent_bg_higher}};
+}
+
+.unim-hanja-popup .grid-cell.bookmarked {
+    color: {{colors.bookmark}};
+    background-color: {{colors.bookmark_bg_low}};
+}
+
+.unim-hanja-popup .grid-cell.bookmarked.selected {
+    background-color: {{colors.bookmark_bg_high}};
+}
+
+/* 확장 모드 컬럼 헤더 — grid-cell.min-width 와 동기화하여 라벨이 셀 위에 정렬 */
+.unim-hanja-popup .grid-header {
+    color: {{colors.text_dim}};
+    font-weight: {{fonts.grid_header_weight}};
+    font-size: {{fonts.grid_header_size}};
+    min-width: {{spacing.cell_min_width}};
+    min-height: {{spacing.grid_header_min_height}};
+    padding: 0 4px;
+    text-align: center;
+    transition-duration: {{transitions.duration_default}};
+}
+
+.unim-hanja-popup .grid-header.active {
+    color: {{colors.bookmark}};
+}
+
+/* 확장 모드 뜻풀이 스트립 */
+.unim-hanja-popup .popup-meaning-strip {
+    color: {{colors.text_secondary}};
+    font-size: {{fonts.meaning_size}};
+    padding: {{spacing.meaning_strip_padding}};
+    margin-top: {{spacing.meaning_strip_margin_top}};
+    background-color: {{colors.meaning_strip_bg}};
+    border-radius: {{spacing.meaning_strip_radius}};
+    min-height: {{spacing.meaning_strip_min_height}};
+}
+
+/* 확장 토글 아이콘 */
+.unim-hanja-popup .popup-expand-icon {
+    color: {{colors.expand_icon_color}};
+    font-size: {{fonts.expand_icon_size}};
+    padding: {{spacing.expand_icon_padding}};
+    border-radius: {{spacing.expand_icon_radius}};
+}
+
+.unim-hanja-popup .popup-expand-icon:hover {
+    color: {{colors.expand_icon_hover_color}};
+    background-color: {{colors.expand_icon_hover_bg}};
+}
+
+.unim-hanja-popup .popup-footer {
+    color: {{colors.text_faint}};
+    font-size: {{fonts.footer_size}};
+    text-align: center;
+}
+
+.unim-hanja-popup .popup-footer-box,
+.unim-special-popup .popup-footer-box,
+.unim-emoji-popup .popup-footer-box {
+    padding-top: {{spacing.footer_padding_top}};
+    margin-top: {{spacing.footer_margin_top}};
+    spacing: {{spacing.footer_spacing}};
+}
+
+/* 마우스 페이지 이동 버튼 (◀ / ▶) — 한자/특수문자/이모지 공통
+ * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 셀과 시각 비례 */
+.unim-hanja-popup .popup-page-btn,
+.unim-special-popup .popup-page-btn,
+.unim-emoji-popup .popup-page-btn {
+    color: {{colors.page_btn_color}};
+    font-size: {{fonts.expand_icon_size}};
+    min-width: {{spacing.page_btn_min_width}};
+    min-height: {{spacing.page_btn_min_height}};
+    padding: {{spacing.page_btn_padding}};
+    border-radius: {{spacing.page_btn_radius}};
+}
+
+.unim-hanja-popup .popup-page-btn:hover,
+.unim-special-popup .popup-page-btn:hover,
+.unim-emoji-popup .popup-page-btn:hover {
+    color: {{colors.page_btn_hover_color}};
+    background-color: {{colors.page_btn_hover_bg}};
+}
+
+.unim-hanja-popup .popup-page-btn:active,
+.unim-special-popup .popup-page-btn:active,
+.unim-emoji-popup .popup-page-btn:active {
+    background-color: {{colors.page_btn_active_bg}};
+}
+
+/* 즐겨찾기 ★ 해제 시 cursor 셀에 부여되는 일시적 yellow flash (Phase 7).
+ * 적용 후 ~140ms 후 JS 가 클래스 제거. transition 으로 부드럽게 fade out. */
+.unim-hanja-popup .grid-cell.bookmark-flash,
+.unim-hanja-popup .popup-item.bookmark-flash {
+    background-color: {{colors.bookmark_flash_bg}};
+    color: {{colors.bookmark_flash_text}};
+    transition-duration: 140ms;
+}

@@ -1,0 +1,163 @@
+# UNIM popup design tokens — Single Source of Truth
+#
+# 한자/이모지/특수문자 popup 의 색·간격·폰트·전이 디자인 값.
+# unim-gui-gtk 의 popup CSS 와 unim-gnome-extension 의 stylesheet.css 가 본 파일을
+# 기반으로 빌드된다 (`tools/popup-styles/gen.py`). 본 파일 외부에서 popup 디자인
+# 값을 직접 수정하는 것은 금지 — 변경 시 항상 본 파일 수정 후 `make gen-popup-css`.
+#
+# 팔레트 기준: Catppuccin Mocha (https://catppuccin.com).
+# 단계:
+#   - phase 1 (B2-shared-css 1단계): 토큰 정의만 (본 파일).
+#   - phase 2: gen.py 빌드 스크립트.
+#   - phase 3: 한자 popup CSS 마이그레이션 (template 도입).
+#   - phase 4: 이모지/특수문자 popup 확대.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 색상 (Catppuccin Mocha)
+# ─────────────────────────────────────────────────────────────────────────────
+[colors]
+# 컨테이너 배경 — 약간 투명한 어두운 보라
+bg_main          = "rgba(30, 30, 46, 0.95)"
+border           = "rgba(255, 255, 255, 0.15)"
+# 헤더 배경 (compact 한자 popup target 라벨용)
+bg_header        = "#313244"
+# 호버 오버레이 (그리드 셀 호버)
+bg_overlay_low   = "rgba(255, 255, 255, 0.04)"
+bg_overlay_med   = "rgba(255, 255, 255, 0.06)"
+# 뜻풀이 스트립 배경
+meaning_strip_bg = "rgba(255, 255, 255, 0.04)"
+
+# 텍스트 계층
+text_primary     = "#cdd6f4"  # 본문 (한자 글자, 그리드 셀 본문)
+text_secondary   = "#a6adc8"  # 뜻풀이
+text_dim         = "#7f849c"  # 행 번호 / 컬럼 헤더
+text_faint       = "#6c7086"  # footer / 비활성 북마크 별
+
+# 액센트 (선택/포커스/액션)
+accent           = "#89b4fa"
+accent_bg_low    = "rgba(137, 180, 250, 0.20)"  # compact selected
+accent_bg_mid    = "rgba(137, 180, 250, 0.25)"  # grid selected
+accent_bg_high   = "rgba(137, 180, 250, 0.35)"  # compact selected.hovered
+accent_bg_higher = "rgba(137, 180, 250, 0.40)"  # grid selected.hovered
+
+# 북마크 (★)
+bookmark           = "#f9e2af"
+bookmark_bg_xlow   = "rgba(249, 226, 175, 0.08)"  # compact bookmarked
+bookmark_bg_low    = "rgba(249, 226, 175, 0.12)"  # grid cell bookmarked
+bookmark_bg_mid    = "rgba(249, 226, 175, 0.20)"  # compact bookmarked.selected
+bookmark_bg_high   = "rgba(249, 226, 175, 0.28)"  # grid cell bookmarked.selected
+
+# 북마크 ★ 해제 후 cursor 셀에 일시 적용되는 flash (140ms)
+bookmark_flash_bg   = "#f9e2af"
+bookmark_flash_text = "#1e1e2e"
+
+# 확장 토글 아이콘 (⊞ / ⊟)
+expand_icon_color       = "#89b4fa"                       # = accent (눈에 띄도록)
+expand_icon_hover_color = "#cdd6f4"                       # = text_primary
+expand_icon_hover_bg    = "rgba(137, 180, 250, 0.20)"     # = accent_bg_low
+
+# Footer 페이지 버튼 (◀ / ▶) — 한자/특수문자/이모지 공통
+page_btn_color        = "#7f849c"                          # = text_dim (idle)
+page_btn_hover_color  = "#89b4fa"                          # = accent (hover)
+page_btn_hover_bg     = "rgba(137, 180, 250, 0.20)"        # = accent_bg_low
+page_btn_active_bg    = "rgba(137, 180, 250, 0.35)"        # = accent_bg_high
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 간격·크기
+# ─────────────────────────────────────────────────────────────────────────────
+[spacing]
+# popup 컨테이너
+popup_padding      = "12px"
+popup_radius       = "12px"
+popup_min_width    = "280px"
+popup_max_width    = "420px"
+
+# 헤더
+header_padding         = "6px 8px"
+header_radius          = "4px"
+header_margin_bottom   = "6px"
+
+# Compact 행
+item_padding = "4px 8px"
+item_radius  = "6px"
+item_height  = "28px"
+
+# 그리드 셀 (expanded)
+cell_padding    = "2px 4px"
+cell_radius     = "4px"
+cell_min_width  = "30px"
+cell_min_height = "30px"
+
+# 그리드 헤더 (열 레이블)
+grid_header_min_height = "18px"
+
+# 뜻풀이 스트립
+meaning_strip_radius     = "4px"
+meaning_strip_padding    = "4px 8px"
+meaning_strip_min_height = "18px"
+meaning_strip_margin_top = "4px"
+
+# 확장 토글 아이콘 (⊞ / ⊟)
+expand_icon_padding = "2px 6px"
+expand_icon_radius  = "4px"
+
+# Footer (페이지 표시 + ◀/▶)
+footer_padding_top = "6px"
+footer_margin_top  = "4px"
+footer_spacing     = "4px"
+
+# 행 번호 (그리드 좌측)
+row_number_min_width = "20px"
+
+# 페이지 버튼 ◀ / ▶ — hit-target 28×28 (WCAG 2.5.5 24×24 초과)
+page_btn_min_width  = "28px"
+page_btn_min_height = "28px"
+page_btn_padding    = "4px 10px"
+page_btn_radius     = "4px"
+
+# Compact 북마크 별 (compact 행 우측)
+bookmark_icon_min_width = "16px"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 폰트
+# ─────────────────────────────────────────────────────────────────────────────
+[fonts]
+# 헤더 라벨
+header_size   = "13px"
+header_weight = "bold"
+
+# Compact 행 — 숫자/뜻풀이는 작게
+item_meta_size  = "12px"     # number, meaning
+# Compact 한자 글자
+item_main_size   = "18px"
+item_main_weight = "bold"
+
+# 그리드 셀 — 한자 글자 (16px, expanded 9×9 일 때)
+cell_size   = "16px"
+cell_weight = "bold"
+
+# 그리드 헤더 (열 레이블)
+grid_header_size   = "11px"
+grid_header_weight = "bold"
+
+# 그리드 행 번호
+grid_row_number_size   = "12px"
+grid_row_number_weight = "bold"
+
+# 뜻풀이 (compact 행 / 그리드 스트립)
+meaning_size = "12px"
+
+# 확장 토글 아이콘
+expand_icon_size = "14px"
+
+# Footer
+footer_size = "12px"
+
+# 북마크 별
+bookmark_icon_size = "14px"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 전이 (호버·선택 애니메이션)
+# ─────────────────────────────────────────────────────────────────────────────
+[transitions]
+duration_default = "120ms"

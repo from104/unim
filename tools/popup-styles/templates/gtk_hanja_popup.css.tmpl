@@ -1,0 +1,208 @@
+/* GTK4 CSS — unim-gui-gtk 한자 popup.
+ * 본 파일은 `tools/popup-styles/gen.py` 가 popup_tokens.toml 의 디자인 값을
+ * 치환하여 unim-gui-gtk/src/popup_styles.generated.css 에 출력한다 — Rust 측
+ * `popup_css()` 함수가 `include_str!` 로 임베드한다. 셀렉터(.hanja-list row,
+ * .grid-cell-selected 등)는 GTK4 ListBox/Grid 위젯 모델에 맞춘 것이며, 디자인
+ * 값만 토큰 SoT 에서 끌어온다. */
+
+.unim-hanja-popup {
+    background-color: {{colors.bg_main}};
+    border: 1px solid {{colors.border}};
+    border-radius: {{spacing.popup_radius}};
+    padding: {{spacing.popup_padding}};
+    min-width: {{spacing.popup_min_width}};
+    max-width: {{spacing.popup_max_width}};
+}
+
+.unim-hanja-vbox {
+    padding: 0;
+    margin: 0;
+}
+
+.hanja-target {
+    background-color: {{colors.bg_header}};
+    color: {{colors.accent}};
+    font-size: {{fonts.header_size}};
+    font-weight: {{fonts.header_weight}};
+    padding: {{spacing.header_padding}};
+    border-radius: {{spacing.header_radius}};
+    margin-bottom: {{spacing.header_margin_bottom}};
+}
+
+.unim-hanja-popup .hanja-list {
+    background: transparent;
+    border-radius: {{spacing.item_radius}};
+}
+
+.unim-hanja-popup .hanja-list row {
+    background: transparent;
+    border-radius: {{spacing.item_radius}};
+    min-height: {{spacing.item_height}};
+    padding: {{spacing.item_padding}};
+    transition: background-color {{transitions.duration_default}} ease;
+}
+
+.unim-hanja-popup .hanja-list row:selected {
+    background-color: {{colors.accent_bg_low}};
+}
+
+.unim-hanja-popup .hanja-list row:selected:hover {
+    background-color: {{colors.accent_bg_high}};
+}
+
+.hanja-num {
+    color: {{colors.text_dim}};
+    font-size: {{fonts.item_meta_size}};
+    min-width: {{spacing.row_number_min_width}};
+}
+
+.hanja-char {
+    color: {{colors.text_primary}};
+    font-size: {{fonts.item_main_size}};
+    font-weight: {{fonts.item_main_weight}};
+}
+
+.hanja-meaning {
+    color: {{colors.text_secondary}};
+    font-size: {{fonts.meaning_size}};
+}
+
+.hanja-bookmark {
+    color: {{colors.text_faint}};
+    font-size: {{fonts.bookmark_icon_size}};
+    margin-left: 8px;
+    min-width: {{spacing.bookmark_icon_min_width}};
+    transition: color {{transitions.duration_default}} ease;
+}
+
+.hanja-bookmark.bookmarked {
+    color: {{colors.bookmark}};
+}
+
+.unim-hanja-popup .hanja-list row.bookmarked {
+    background-color: {{colors.bookmark_bg_xlow}};
+}
+
+.unim-hanja-popup .hanja-list row.bookmarked:selected {
+    background-color: {{colors.bookmark_bg_mid}};
+}
+
+.unim-hanja-popup .hanja-list row:selected .hanja-char,
+.unim-hanja-popup .hanja-list row:selected .hanja-meaning,
+.unim-hanja-popup .hanja-list row:selected .hanja-num {
+    color: {{colors.text_primary}};
+}
+
+.page-label {
+    color: {{colors.text_faint}};
+    font-size: {{fonts.footer_size}};
+    padding: 4px 8px 2px 0;
+}
+
+.popup-footer-box {
+    margin-top: {{spacing.footer_margin_top}};
+}
+
+.popup-expand-icon {
+    color: {{colors.expand_icon_color}};
+    font-size: {{fonts.expand_icon_size}};
+    padding: {{spacing.expand_icon_padding}};
+    border-radius: {{spacing.expand_icon_radius}};
+}
+
+.popup-expand-icon:hover {
+    color: {{colors.expand_icon_hover_color}};
+    background-color: {{colors.expand_icon_hover_bg}};
+}
+
+/* 마우스 페이지 이동 ◀/▶ 버튼 — hit-target 28×28 (WCAG 2.5.5 24×24 초과) */
+button.popup-page-btn {
+    color: {{colors.page_btn_color}};
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    font-size: {{fonts.expand_icon_size}};
+    min-width: {{spacing.page_btn_min_width}};
+    min-height: {{spacing.page_btn_min_height}};
+    padding: {{spacing.page_btn_padding}};
+    margin: 0;
+    border-radius: {{spacing.page_btn_radius}};
+}
+
+button.popup-page-btn:hover {
+    color: {{colors.page_btn_hover_color}};
+    background-color: {{colors.page_btn_hover_bg}};
+}
+
+button.popup-page-btn:active {
+    background-color: {{colors.page_btn_active_bg}};
+}
+
+/* ★ 해제 후 cursor 셀에 일시 적용 (140ms) — Catppuccin yellow */
+.unim-hanja-popup .grid-cell.bookmark-flash,
+.unim-hanja-popup .hanja-list row.bookmark-flash {
+    background-color: {{colors.bookmark_flash_bg}};
+    color: {{colors.bookmark_flash_text}};
+}
+
+.unim-hanja-popup .hanja-grid {
+    padding: 4px;
+}
+
+.unim-hanja-popup .grid-row-number {
+    color: {{colors.text_dim}};
+    font-size: {{fonts.grid_row_number_size}};
+    font-weight: {{fonts.grid_row_number_weight}};
+    min-width: {{spacing.row_number_min_width}};
+    min-height: {{spacing.cell_min_height}};
+}
+
+.unim-hanja-popup .grid-row-number.active {
+    color: {{colors.bookmark}};
+}
+
+.unim-hanja-popup .grid-header {
+    color: {{colors.text_dim}};
+    font-weight: {{fonts.grid_header_weight}};
+    font-size: {{fonts.grid_header_size}};
+    min-width: {{spacing.cell_min_width}};
+    min-height: {{spacing.grid_header_min_height}};
+}
+
+.unim-hanja-popup .grid-header.active {
+    color: {{colors.bookmark}};
+}
+
+.unim-hanja-popup .grid-cell {
+    background: transparent;
+    color: {{colors.text_primary}};
+    font-size: {{fonts.cell_size}};
+    font-weight: {{fonts.cell_weight}};
+    min-width: {{spacing.cell_min_width}};
+    min-height: {{spacing.cell_min_height}};
+    border-radius: {{spacing.cell_radius}};
+    padding: {{spacing.cell_padding}};
+    transition: background-color {{transitions.duration_default}} ease,
+                color {{transitions.duration_default}} ease;
+}
+
+.unim-hanja-popup .grid-cell:hover {
+    background-color: {{colors.bg_overlay_med}};
+}
+
+.unim-hanja-popup .grid-cell-selected {
+    background-color: {{colors.accent_bg_mid}};
+}
+
+.unim-hanja-popup .grid-cell-selected:hover {
+    background-color: {{colors.accent_bg_higher}};
+}
+
+.unim-hanja-popup .grid-cell.bookmarked {
+    color: {{colors.bookmark}};
+    background-color: {{colors.bookmark_bg_low}};
+}
+
+.unim-hanja-popup .grid-cell.bookmarked.grid-cell-selected {
+    background-color: {{colors.bookmark_bg_high}};
+}

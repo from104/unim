@@ -36,8 +36,18 @@
 }
 
 /* ============================================ */
-/* IME: 한자 팝업 */
+/* IME: 한자 팝업 + 공유 popup 영역 */
+/* 본 영역은 tools/popup-styles/popup_tokens.toml + templates/st_hanja_popup.css.tmpl
+ * 에서 자동 생성된다. 직접 편집 금지 — 디자인 변경은 popup_tokens.toml 수정 후
+ * `make gen-popup-css` 실행. */
 /* ============================================ */
+
+/* GENERATED-POPUP-CSS BEGIN — DO NOT EDIT (run `make gen-popup-css`) */
+/* GNOME Shell extension St CSS — 한자 popup + 공유 footer/page-btn/flash.
+ * 본 파일은 `tools/popup-styles/gen.py` 가 popup_tokens.toml 의 디자인 값을
+ * 치환하여 unim-gnome-extension/stylesheet.css 의 GENERATED-POPUP-CSS 마커 사이에
+ * 삽입한다. 셀렉터(.popup-item, .grid-cell 등)는 GNOME extension 측 actor
+ * 클래스 모델에 맞춘 것이며, 디자인 값만 토큰 SoT 에서 끌어온다. */
 
 .unim-hanja-popup {
     background-color: rgba(30, 30, 46, 0.95);
@@ -67,11 +77,11 @@
 }
 
 .unim-hanja-popup .popup-item.selected {
-    background-color: rgba(137, 180, 250, 0.2);
+    background-color: rgba(137, 180, 250, 0.20);
 }
 
 .unim-hanja-popup .popup-item.hovered {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.04);
 }
 
 .unim-hanja-popup .popup-item.selected.hovered {
@@ -113,7 +123,7 @@
 }
 
 .unim-hanja-popup .popup-item.bookmarked.selected {
-    background-color: rgba(249, 226, 175, 0.2);
+    background-color: rgba(249, 226, 175, 0.20);
 }
 
 /* 확장 모드 그리드 */
@@ -153,7 +163,7 @@
 }
 
 .unim-hanja-popup .grid-cell.selected.hovered {
-    background-color: rgba(137, 180, 250, 0.4);
+    background-color: rgba(137, 180, 250, 0.40);
 }
 
 .unim-hanja-popup .grid-cell.bookmarked {
@@ -165,7 +175,7 @@
     background-color: rgba(249, 226, 175, 0.28);
 }
 
-/* 확장 모드 컬럼 헤더 — grid-cell.min-width(30px)와 동기화하여 라벨이 셀 위에 정렬 */
+/* 확장 모드 컬럼 헤더 — grid-cell.min-width 와 동기화하여 라벨이 셀 위에 정렬 */
 .unim-hanja-popup .grid-header {
     color: #7f849c;
     font-weight: bold;
@@ -202,7 +212,7 @@
 
 .unim-hanja-popup .popup-expand-icon:hover {
     color: #cdd6f4;
-    background-color: rgba(137, 180, 250, 0.2);
+    background-color: rgba(137, 180, 250, 0.20);
 }
 
 .unim-hanja-popup .popup-footer {
@@ -236,7 +246,7 @@
 .unim-special-popup .popup-page-btn:hover,
 .unim-emoji-popup .popup-page-btn:hover {
     color: #89b4fa;
-    background-color: rgba(137, 180, 250, 0.2);
+    background-color: rgba(137, 180, 250, 0.20);
 }
 
 .unim-hanja-popup .popup-page-btn:active,
@@ -253,6 +263,7 @@
     color: #1e1e2e;
     transition-duration: 140ms;
 }
+/* GENERATED-POPUP-CSS END */
 
 /* ============================================ */
 /* IME: 특수문자 팝업 */

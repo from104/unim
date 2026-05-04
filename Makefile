@@ -56,6 +56,7 @@ endef
 # ─── Phony ───────────────────────────────────────────────────────────────────
 
 .PHONY: all help build build-rust build-frontends build-tests clean clean-all \
+        gen-popup-css gen-popup-css-check \
         _check-build \
         install install-core install-frontends install-icons install-gui-gtk install-gui-qt \
         install-gnome-extension install-extension install-systemd \
@@ -93,8 +94,18 @@ help:
 
 all: build
 
-build: build-rust build-frontends
+build: gen-popup-css build-rust build-frontends
 	@echo "✅ UNIM 전체 빌드 완료!"
+
+# Popup CSS — design tokens (popup_tokens.toml) → GTK CSS + GNOME Shell stylesheet.
+# 직접 편집 금지: 디자인 변경은 popup_tokens.toml 수정 후 `make gen-popup-css`.
+gen-popup-css:
+	@echo "🎨 Generating popup CSS from design tokens..."
+	@python3 tools/popup-styles/gen.py
+
+# CI guard — 토큰/template 변경 후 commit 안 한 drift 검출.
+gen-popup-css-check:
+	@python3 tools/popup-styles/gen.py --check
 
 build-rust:
 	@echo "🔨 Building Rust workspace..."
