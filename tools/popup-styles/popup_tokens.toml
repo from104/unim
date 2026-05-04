@@ -18,6 +18,8 @@
 [colors]
 # 컨테이너 배경 — 약간 투명한 어두운 보라
 bg_main          = "rgba(30, 30, 46, 0.95)"
+# 이모지 popup 전용 — 약간 더 불투명 (그리드 영역이 넓어 가독성 우선)
+bg_main_emoji    = "rgba(30, 30, 46, 0.97)"
 border           = "rgba(255, 255, 255, 0.15)"
 # 헤더 배경 (compact 한자 popup target 라벨용)
 bg_header        = "#313244"
@@ -87,14 +89,29 @@ item_padding = "4px 8px"
 item_radius  = "6px"
 item_height  = "28px"
 
-# 그리드 셀 (expanded)
+# 그리드 셀 (expanded — hanja/special)
 cell_padding    = "2px 4px"
 cell_radius     = "4px"
 cell_min_width  = "30px"
 cell_min_height = "30px"
 
+# 이모지 그리드 셀 — 폰트가 크므로 약간 더 큼
+emoji_cell_padding    = "2px"
+emoji_cell_min_width  = "32px"
+emoji_cell_min_height = "32px"
+
 # 그리드 헤더 (열 레이블)
 grid_header_min_height = "18px"
+# 이모지 그리드 헤더 — 셀 크기에 맞춰 키움
+emoji_grid_header_min_height = "24px"
+
+# 이모지 좌측 세로 9 탭
+emoji_tab_min_width = "96px"
+emoji_tab_padding   = "6px 10px"
+emoji_tab_radius    = "6px"
+emoji_tabs_padding  = "2px 4px 2px 0"
+emoji_tabs_spacing  = "2px"
+emoji_body_spacing  = "8px"
 
 # 뜻풀이 스트립
 meaning_strip_radius     = "4px"
@@ -140,6 +157,11 @@ item_main_weight = "bold"
 # 그리드 셀 — 한자 글자 (16px, expanded 9×9 일 때)
 cell_size   = "16px"
 cell_weight = "bold"
+
+# 이모지 그리드 셀 — 컬러 글리프 가독성을 위해 더 크게
+emoji_cell_size = "20px"
+# 이모지 탭 라벨
+emoji_tab_size  = "12px"
 
 # 그리드 헤더 (열 레이블)
 grid_header_size   = "11px"

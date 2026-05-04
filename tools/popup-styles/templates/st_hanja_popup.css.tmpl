@@ -298,3 +298,112 @@
     font-size: {{fonts.footer_size}};
     text-align: center;
 }
+
+/* ============================================ */
+/* 이모지 popup (.unim-emoji-popup) — 9×9 그리드 + 좌측 세로 9 탭.
+ * 시각적으로 한자/특수문자와 통일되며 녹색 액센트(accent_special) 차용.
+ * 셀은 컬러 글리프 가독성을 위해 약간 더 크게(emoji_cell_*). */
+/* ============================================ */
+
+.unim-emoji-popup {
+    background-color: {{colors.bg_main_emoji}};
+    border: 1px solid {{colors.border}};
+    border-radius: {{spacing.popup_radius}};
+    padding: {{spacing.popup_padding}};
+}
+
+.unim-emoji-popup .popup-header {
+    background-color: {{colors.bg_header}};
+    color: {{colors.accent_special}};
+    font-size: {{fonts.header_size}};
+    font-weight: {{fonts.header_weight}};
+    padding: {{spacing.header_padding}};
+    border-radius: {{spacing.header_radius}};
+    margin-bottom: {{spacing.header_margin_bottom}};
+}
+
+.unim-emoji-popup .emoji-body {
+    spacing: {{spacing.emoji_body_spacing}};
+}
+
+/* 좌측 세로 9 탭 — 특수문자 패턴 차용, 가로 → 세로 전환 */
+.unim-emoji-popup .emoji-tabs-vertical {
+    spacing: {{spacing.emoji_tabs_spacing}};
+    padding: {{spacing.emoji_tabs_padding}};
+    margin-right: 6px;
+}
+
+.unim-emoji-popup .emoji-tab-vertical {
+    background-color: transparent;
+    color: {{colors.text_primary}};
+    font-size: {{fonts.emoji_tab_size}};
+    padding: {{spacing.emoji_tab_padding}};
+    border-radius: {{spacing.emoji_tab_radius}};
+    border: none;
+    min-width: {{spacing.emoji_tab_min_width}};
+    text-align: left;
+}
+
+.unim-emoji-popup .emoji-tab-vertical.active {
+    background-color: {{colors.accent_special_bg_mid}};
+    color: {{colors.accent_special}};
+    font-weight: bold;
+}
+
+.unim-emoji-popup .grid-row {
+    padding: 0;
+}
+
+.unim-emoji-popup .grid-cell {
+    color: {{colors.text_primary}};
+    font-size: {{fonts.emoji_cell_size}};
+    min-width: {{spacing.emoji_cell_min_width}};
+    min-height: {{spacing.emoji_cell_min_height}};
+    padding: {{spacing.emoji_cell_padding}};
+    text-align: center;
+    border-radius: {{spacing.cell_radius}};
+    transition-duration: {{transitions.duration_default}};
+}
+
+.unim-emoji-popup .grid-cell.selected {
+    background-color: {{colors.accent_special_bg_mid}};
+}
+
+.unim-emoji-popup .grid-cell.hovered {
+    background-color: {{colors.bg_overlay_med}};
+}
+
+.unim-emoji-popup .grid-cell.selected.hovered {
+    background-color: {{colors.accent_special_bg_high}};
+}
+
+.unim-emoji-popup .grid-header {
+    color: {{colors.bookmark}};
+    font-weight: {{fonts.grid_header_weight}};
+    font-size: {{fonts.grid_header_size}};
+    min-width: {{spacing.emoji_cell_min_width}};
+    min-height: {{spacing.emoji_grid_header_min_height}};
+    text-align: center;
+}
+
+.unim-emoji-popup .grid-header.active {
+    color: {{colors.accent_special}};
+}
+
+.unim-emoji-popup .grid-row-number {
+    color: {{colors.text_dim}};
+    font-weight: {{fonts.grid_row_number_weight}};
+    font-size: {{fonts.grid_row_number_size}};
+    min-width: {{spacing.row_number_min_width}};
+}
+
+.unim-emoji-popup .grid-row-number.active {
+    color: {{colors.accent_special}};
+}
+
+.unim-emoji-popup .popup-footer {
+    color: {{colors.text_faint}};
+    font-size: {{fonts.footer_size}};
+    text-align: center;
+    padding-top: 4px;
+}

@@ -311,3 +311,132 @@ button.popup-page-btn:active {
 .unim-special-popup button.popup-page-btn:active {
     background-color: {{colors.page_btn_active_bg}};
 }
+
+/* ============================================ */
+/* 이모지 popup (.unim-emoji-popup) — 9×9 그리드 + 좌측 세로 9 탭.
+ * GTK4 측 클래스: popup-header, emoji-tabs, emoji-tab-button(:hover/:checked),
+ * emoji-grid, grid-cell(.selected), grid-header, grid-row-number,
+ * popup-footer, popup-footer-box, popup-page-btn. */
+/* ============================================ */
+
+.unim-emoji-popup {
+    background-color: {{colors.bg_main_emoji}};
+    border: 1px solid {{colors.border}};
+    border-radius: {{spacing.popup_radius}};
+    padding: {{spacing.popup_padding}};
+}
+
+.unim-emoji-popup .popup-header {
+    background-color: {{colors.bg_header}};
+    color: {{colors.accent_special}};
+    font-size: {{fonts.header_size}};
+    font-weight: {{fonts.header_weight}};
+    padding: {{spacing.header_padding}};
+    border-radius: {{spacing.header_radius}};
+    margin-bottom: {{spacing.header_margin_bottom}};
+}
+
+.unim-emoji-popup .emoji-tabs {
+    padding: 2px 0;
+}
+
+.unim-emoji-popup .emoji-tab-button {
+    min-width: {{spacing.emoji_tab_min_width}};
+    padding: {{spacing.emoji_tab_padding}};
+    color: {{colors.text_primary}};
+    background: transparent;
+    border-radius: {{spacing.emoji_tab_radius}};
+    font-size: {{fonts.emoji_tab_size}};
+}
+
+.unim-emoji-popup .emoji-tab-button:hover {
+    background-color: {{colors.bg_overlay_med}};
+}
+
+.unim-emoji-popup .emoji-tab-button:checked {
+    background-color: {{colors.accent_special_bg_mid}};
+    color: {{colors.accent_special}};
+    font-weight: bold;
+}
+
+.unim-emoji-popup .emoji-grid {
+    background: transparent;
+}
+
+.unim-emoji-popup .grid-cell {
+    color: {{colors.text_primary}};
+    font-size: {{fonts.emoji_cell_size}};
+    min-width: {{spacing.emoji_cell_min_width}};
+    min-height: {{spacing.emoji_cell_min_height}};
+    border-radius: {{spacing.cell_radius}};
+    padding: {{spacing.emoji_cell_padding}};
+    transition: background-color {{transitions.duration_default}} ease,
+                color {{transitions.duration_default}} ease;
+}
+
+.unim-emoji-popup .grid-cell:hover {
+    background-color: {{colors.bg_overlay_med}};
+}
+
+.unim-emoji-popup .grid-cell.selected {
+    background-color: {{colors.accent_special_bg_mid}};
+    font-weight: bold;
+}
+
+.unim-emoji-popup .grid-cell.selected:hover {
+    background-color: {{colors.accent_special_bg_high}};
+}
+
+.unim-emoji-popup .grid-header {
+    color: {{colors.bookmark}};
+    font-weight: {{fonts.grid_header_weight}};
+    font-size: {{fonts.grid_header_size}};
+    min-width: {{spacing.emoji_cell_min_width}};
+    min-height: {{spacing.emoji_grid_header_min_height}};
+}
+
+.unim-emoji-popup .grid-header.active {
+    color: {{colors.accent_special}};
+}
+
+.unim-emoji-popup .grid-row-number {
+    color: {{colors.text_dim}};
+    font-size: {{fonts.grid_row_number_size}};
+    font-weight: {{fonts.grid_row_number_weight}};
+    min-width: {{spacing.row_number_min_width}};
+}
+
+.unim-emoji-popup .grid-row-number.active {
+    color: {{colors.accent_special}};
+}
+
+.unim-emoji-popup .popup-footer {
+    color: {{colors.text_faint}};
+    font-size: {{fonts.footer_size}};
+}
+
+.unim-emoji-popup .popup-footer-box {
+    margin-top: {{spacing.footer_margin_top}};
+}
+
+.unim-emoji-popup button.popup-page-btn {
+    color: {{colors.page_btn_color}};
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    font-size: {{fonts.expand_icon_size}};
+    min-width: {{spacing.page_btn_min_width}};
+    min-height: {{spacing.page_btn_min_height}};
+    padding: {{spacing.page_btn_padding}};
+    margin: 0;
+    border-radius: {{spacing.page_btn_radius}};
+}
+
+.unim-emoji-popup button.popup-page-btn:hover {
+    color: {{colors.page_btn_hover_color}};
+    background-color: {{colors.page_btn_hover_bg}};
+}
+
+.unim-emoji-popup button.popup-page-btn:active {
+    background-color: {{colors.page_btn_active_bg}};
+}

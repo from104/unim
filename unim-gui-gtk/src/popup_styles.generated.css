@@ -311,3 +311,132 @@ button.popup-page-btn:active {
 .unim-special-popup button.popup-page-btn:active {
     background-color: rgba(137, 180, 250, 0.35);
 }
+
+/* ============================================ */
+/* 이모지 popup (.unim-emoji-popup) — 9×9 그리드 + 좌측 세로 9 탭.
+ * GTK4 측 클래스: popup-header, emoji-tabs, emoji-tab-button(:hover/:checked),
+ * emoji-grid, grid-cell(.selected), grid-header, grid-row-number,
+ * popup-footer, popup-footer-box, popup-page-btn. */
+/* ============================================ */
+
+.unim-emoji-popup {
+    background-color: rgba(30, 30, 46, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.unim-emoji-popup .popup-header {
+    background-color: #313244;
+    color: #a6e3a1;
+    font-size: 13px;
+    font-weight: bold;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+
+.unim-emoji-popup .emoji-tabs {
+    padding: 2px 0;
+}
+
+.unim-emoji-popup .emoji-tab-button {
+    min-width: 96px;
+    padding: 6px 10px;
+    color: #cdd6f4;
+    background: transparent;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.unim-emoji-popup .emoji-tab-button:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.unim-emoji-popup .emoji-tab-button:checked {
+    background-color: rgba(166, 227, 161, 0.25);
+    color: #a6e3a1;
+    font-weight: bold;
+}
+
+.unim-emoji-popup .emoji-grid {
+    background: transparent;
+}
+
+.unim-emoji-popup .grid-cell {
+    color: #cdd6f4;
+    font-size: 20px;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 4px;
+    padding: 2px;
+    transition: background-color 120ms ease,
+                color 120ms ease;
+}
+
+.unim-emoji-popup .grid-cell:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.unim-emoji-popup .grid-cell.selected {
+    background-color: rgba(166, 227, 161, 0.25);
+    font-weight: bold;
+}
+
+.unim-emoji-popup .grid-cell.selected:hover {
+    background-color: rgba(166, 227, 161, 0.35);
+}
+
+.unim-emoji-popup .grid-header {
+    color: #f9e2af;
+    font-weight: bold;
+    font-size: 11px;
+    min-width: 32px;
+    min-height: 24px;
+}
+
+.unim-emoji-popup .grid-header.active {
+    color: #a6e3a1;
+}
+
+.unim-emoji-popup .grid-row-number {
+    color: #7f849c;
+    font-size: 12px;
+    font-weight: bold;
+    min-width: 20px;
+}
+
+.unim-emoji-popup .grid-row-number.active {
+    color: #a6e3a1;
+}
+
+.unim-emoji-popup .popup-footer {
+    color: #6c7086;
+    font-size: 12px;
+}
+
+.unim-emoji-popup .popup-footer-box {
+    margin-top: 4px;
+}
+
+.unim-emoji-popup button.popup-page-btn {
+    color: #7f849c;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    font-size: 14px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px 10px;
+    margin: 0;
+    border-radius: 4px;
+}
+
+.unim-emoji-popup button.popup-page-btn:hover {
+    color: #89b4fa;
+    background-color: rgba(137, 180, 250, 0.20);
+}
+
+.unim-emoji-popup button.popup-page-btn:active {
+    background-color: rgba(137, 180, 250, 0.35);
+}
