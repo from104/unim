@@ -306,12 +306,15 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 }
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowHanjaPopup 수신: target='{}', count={}, top_row='{}', pos=({},{})",
+                    "[Popup] ShowHanjaPopup 수신: target='{}', count={}, top_row='{}', pos=({},{},{}x{}){}",
                     target,
                     candidates.len(),
                     top_row,
                     x,
-                    y
+                    y,
+                    w,
+                    h,
+                    if x == 0 && y == 0 { " ⚠️ cursor_rect 미갱신 의심 (0,0)" } else { "" }
                 );
                 let _ = popup_tx.send(GuiAction::ShowHanjaPopup {
                     context_path,
@@ -335,11 +338,14 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 }
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowSpecialPopup 수신: target='{}', count={}, pos=({},{})",
+                    "[Popup] ShowSpecialPopup 수신: target='{}', count={}, pos=({},{},{}x{}){}",
                     target,
                     characters.len(),
                     x,
-                    y
+                    y,
+                    w,
+                    h,
+                    if x == 0 && y == 0 { " ⚠️ cursor_rect 미갱신 의심 (0,0)" } else { "" }
                 );
                 let _ = popup_tx.send(GuiAction::ShowSpecialPopup {
                     context_path,
@@ -354,18 +360,22 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
             }
         }
         "ShowEmojiPopupV2" => {
-            // GNOME 환경에선 GNOME extension 의 emoji_popup 이 (앞으로 PR #3 에서)
-            // 같은 시그널을 직접 받아 자체 St 위젯으로 표시한다. standalone GUI 도
-            // 같은 시그널을 받아 GTK4 popup 을 띄우면 두 popup 이 동시에 떠 키보드
-            // 포커스 race 가 난다 — GNOME 에서는 standalone 측 표시를 skip 한다.
-            let is_gnome = std::env::var("XDG_CURRENT_DESKTOP")
+            // GNOME Wayland 한정: extension Clutter.InputMethod 가 같은 시그널을
+            // 받아 자체 St 위젯으로 표시한다. standalone GUI 도 같이 띄우면 두 popup
+            // 이 동시에 떠 키보드 포커스 race 가 난다 — GNOME+Wayland 에서만 skip.
+            // GNOME+X11 은 extension 이 동작하지 않으므로 standalone 표시 필요.
+            let is_gnome_wayland = std::env::var("XDG_SESSION_TYPE")
                 .ok()
-                .map(|v| v.to_ascii_uppercase().contains("GNOME"))
-                .unwrap_or(false);
-            if is_gnome {
+                .map(|v| v == "wayland")
+                .unwrap_or(false)
+                && std::env::var("XDG_CURRENT_DESKTOP")
+                    .ok()
+                    .map(|v| v.to_ascii_uppercase().contains("GNOME"))
+                    .unwrap_or(false);
+            if is_gnome_wayland {
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowEmojiPopupV2 skip (GNOME 환경 — extension 처리)"
+                    "[Popup] ShowEmojiPopupV2 skip (GNOME Wayland — extension 처리)"
                 );
             } else if let Ok((
                 target_cat_id,
@@ -377,6 +387,7 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 y,
                 w,
                 h,
+                _home_row,
             )) = msg.body().deserialize::<(
                 String,
                 Vec<String>,
@@ -387,13 +398,14 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                 i32,
                 i32,
                 i32,
+                String,
             )>() {
                 if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
                     *path = Some(context_path.clone());
                 }
                 unim_log!(
                     "INDICATOR",
-                    "[Popup] ShowEmojiPopupV2 수신: cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{})",
+                    "[Popup] ShowEmojiPopupV2 수신: cat='{}', items={}, recent={}, cats={}, pos=({},{},{},{}){}",
                     target_cat_id,
                     items.len(),
                     recent.len(),
@@ -401,7 +413,8 @@ fn handle_popup_signal(msg: &zbus::Message, popup_tx: &Sender<GuiAction>) {
                     x,
                     y,
                     w,
-                    h
+                    h,
+                    if x == 0 && y == 0 { " ⚠️ cursor_rect 미갱신 의심 (0,0)" } else { "" }
                 );
                 let _ = popup_tx.send(GuiAction::ShowEmojiPopup {
                     context_path,

@@ -213,6 +213,8 @@ trait InputContext {
     /// - `top_row`: 활성 영문 키맵 상단 9 문자.
     /// - `recent`: 'Recent' 탭 캐시 (MRU 81개).
     /// - `categories`: 좌측 9 탭 메타 — `(id, ko, en, count)` 튜플 9개 (Recent + 8).
+    /// - `cursor_x/y/width/height`: 커서 위치 (X11 물리 픽셀).
+    /// - `home_row`: 활성 영문 키맵 홈 행 9 문자 (hjkl... 등).
     #[zbus(signal)]
     #[allow(clippy::too_many_arguments)]
     fn show_emoji_popup_v2(
@@ -226,6 +228,7 @@ trait InputContext {
         cursor_y: i32,
         cursor_width: i32,
         cursor_height: i32,
+        home_row: String,
     ) -> Result<()>;
 
     /// AutoTypeFix 교정 시그널 (엔진 → 프론트엔드)
