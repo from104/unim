@@ -226,6 +226,16 @@ impl InputEngine {
         self.input_category
     }
 
+    /// 활성 영문 키맵의 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
+    pub fn home_row_labels(&self) -> &str {
+        &self.home_row_labels
+    }
+
+    /// 활성 영문 키맵의 상단 행 9 문자 (특수문자/이모지 컬럼 헤더용).
+    pub fn top_row_labels(&self) -> &str {
+        &self.top_row_labels
+    }
+
     /// 입력 카테고리를 설정합니다.
     pub fn set_input_category(&mut self, category: InputCategory) {
         if self.input_category != category {

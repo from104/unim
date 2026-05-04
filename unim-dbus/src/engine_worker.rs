@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use crate::service::{EmojiShowPayload, EngineRequest, EngineResponse, PopupNavigatePayload};
+use crate::service::{
+    popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupNavigatePayload,
+    PopupRenderPayload,
+};
 use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{Config, EnglishLayout, KoreanLayout};
 use unim::input_engine::{InputEngine, PageDirection};
@@ -57,6 +60,91 @@ struct RecentCorrection {
 /// ':' 가 없으면 window_id 전체를 app_id로 사용합니다.
 fn extract_app_id(window_id: &str) -> &str {
     window_id.split(':').next().unwrap_or(window_id)
+}
+
+/// 활성 popup 의 view_model 을 DBus payload 로 변환. popup 비활성이면 None.
+///
+/// engine 의 `home_row_labels` 를 view_model 에 주입 (이모지 카테고리 단축키 표시용).
+fn build_render_state(engine: &unim::input_engine::InputEngine) -> Option<PopupRenderPayload> {
+    let state = engine.popup_state()?;
+    let vm = state.view_model(engine.home_row_labels());
+
+    let kind = match vm.kind {
+        unim::popup::PopupKind::Hanja => 0u32,
+        unim::popup::PopupKind::SpecialChar => 1u32,
+        unim::popup::PopupKind::Emoji => 2u32,
+    };
+
+    let rows = vm.cells.len() as u32;
+    let cols = vm.cells.first().map(|r| r.len()).unwrap_or(0) as u32;
+
+    // column-major 직렬화: cells[col*rows + row] = cells[row][col]
+    let mut cells_flat: Vec<(String, String, u32)> =
+        Vec::with_capacity((rows * cols) as usize);
+    for c in 0..cols as usize {
+        for r in 0..rows as usize {
+            let cell_opt = vm.cells.get(r).and_then(|row| row.get(c)).and_then(|x| x.as_ref());
+            match cell_opt {
+                Some(cd) => {
+                    let mut flags = popup_render_flags::HAS_DATA;
+                    if cd.is_selected {
+                        flags |= popup_render_flags::SELECTED;
+                    }
+                    if cd.is_col_highlight {
+                        flags |= popup_render_flags::COL_HIGHLIGHT;
+                    }
+                    if cd.is_row_highlight {
+                        flags |= popup_render_flags::ROW_HIGHLIGHT;
+                    }
+                    if cd.is_bookmarked {
+                        flags |= popup_render_flags::BOOKMARKED;
+                    }
+                    cells_flat.push((
+                        cd.text.clone(),
+                        cd.meaning.clone().unwrap_or_default(),
+                        flags,
+                    ));
+                }
+                None => {
+                    cells_flat.push((String::new(), String::new(), 0));
+                }
+            }
+        }
+    }
+
+    let col_headers: Vec<(String, bool)> = vm
+        .col_headers
+        .iter()
+        .zip(vm.col_header_active.iter())
+        .map(|(t, a)| (t.clone(), *a))
+        .collect();
+    let row_headers: Vec<(String, bool)> = vm
+        .row_headers
+        .iter()
+        .zip(vm.row_header_active.iter())
+        .map(|(t, a)| (t.clone(), *a))
+        .collect();
+
+    Some(PopupRenderPayload {
+        kind,
+        target: vm.target,
+        header_text: vm.header_text,
+        footer_text: vm.footer_text,
+        show_footer: vm.show_footer,
+        rows,
+        cols,
+        sel_row: vm.sel_row as u32,
+        sel_col: vm.sel_col as u32,
+        current_page: vm.current_page as u32,
+        total_pages: vm.total_pages as u32,
+        cells: cells_flat,
+        col_headers,
+        row_headers,
+        expand_visible: vm.expand_visible,
+        expand_text: vm.expand_text,
+        tab_labels: vm.tab_labels,
+        active_tab_index: vm.active_tab_index as u32,
+    })
 }
 
 /// Popup RPC (PopupChangePage / ToggleHanjaBookmark) 라우팅 보정.
@@ -113,6 +201,7 @@ fn try_autotypefix_undo(
         mode_changed: None,
         popup_action: None,
         auto_typefix: Some((delete_chars, obs.original, String::new())),
+        render_state: None,
     })
 }
 
@@ -429,6 +518,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         mode_changed: None,
                         popup_action: None,
                         auto_typefix: None,
+                        render_state: None,
                     });
                     continue;
                 }
@@ -834,6 +924,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             (preedit, commit)
                         };
 
+                    let render_state = build_render_state(engine);
                     EngineResponse {
                         consumed: result.consumed,
                         preedit: final_preedit,
@@ -841,6 +932,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         mode_changed,
                         popup_action,
                         auto_typefix: auto_typefix_result,
+                        render_state,
                     }
                 } else {
                     EngineResponse {
@@ -850,6 +942,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         mode_changed: None,
                         popup_action: None,
                         auto_typefix: None,
+                        render_state: None,
                     }
                 };
 
@@ -980,16 +1073,19 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // (이후 ProcessKeyEvent에서 stale 시그널이 발행되지 않도록)
                     engine.take_popup_action();
 
+                    let render_state = build_render_state(engine);
                     crate::service::HanjaCandidateResponse {
                         target: engine.get_hanja_target().to_string(),
                         candidates: engine.get_hanja_candidates(),
                         top_row,
+                        render_state,
                     }
                 } else {
                     crate::service::HanjaCandidateResponse {
                         target: String::new(),
                         candidates: Vec::new(),
                         top_row,
+                        render_state: None,
                     }
                 };
                 let _ = response.send(resp);
@@ -1056,7 +1152,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // 토글이 자체 emit한 PopupAction(HanjaCandidatesReordered)을
                     // 함께 빼내 RPC 호출자가 시그널로 발행하도록 한다.
                     let action = engine.take_popup_action();
-                    toggled.map(|(idx, b, _was)| (idx, b, action))
+                    let render = build_render_state(engine);
+                    toggled.map(|(idx, b, _was)| (idx, b, action, render))
                 } else {
                     None
                 };
@@ -1070,7 +1167,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             } => {
                 // popup-owner 로 라우팅 (ToggleHanjaBookmark 와 동일 사유).
                 let target_id = resolve_popup_owner(&contexts, context_id);
-                let payload: Option<PopupNavigatePayload> =
+                let payload: Option<PopupRenderPayload> =
                     if let Some(engine) = contexts.get_mut(&target_id) {
                         // direction <= 0: Prev, > 0: Next.
                         let dir = if direction <= 0 {
@@ -1083,15 +1180,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         // (시그널로는 PopupNavigate 만 발행하므로 PageJump 는 폐기).
                         let _ = engine.take_popup_action();
                         if changed {
-                            engine.popup_state().map(|state| PopupNavigatePayload {
-                                page: state.current_page() as u32,
-                                total_pages: state.total_pages() as u32,
-                                selected: state.sel_row() as u32,
-                                rows: state.rows() as u32,
-                                cols: state.cols() as u32,
-                                sel_row: state.sel_row() as u32,
-                                sel_col: state.sel_col() as u32,
-                            })
+                            build_render_state(engine)
                         } else {
                             None
                         }
@@ -1108,9 +1197,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // popup-owner 로 라우팅 (PopupChangePage 와 동일 사유).
                 // GNOME extension·gui-gtk 에서 마우스로 ⊞/⊟ 아이콘 클릭 시 호출 —
                 // popup_state 가 Hanja 면 toggle_hanja_expanded() 적용 후 갱신된
-                // layout 을 PopupNavigate payload 로 반환.
+                // view_model 을 반환.
                 let target_id = resolve_popup_owner(&contexts, context_id);
-                let payload: Option<PopupNavigatePayload> =
+                let payload: Option<PopupRenderPayload> =
                     if let Some(engine) = contexts.get_mut(&target_id) {
                         let toggled = if let Some(state) = engine.popup_state_mut() {
                             if state.kind() == unim::popup::PopupKind::Hanja {
@@ -1123,15 +1212,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             false
                         };
                         if toggled {
-                            engine.popup_state().map(|state| PopupNavigatePayload {
-                                page: state.current_page() as u32,
-                                total_pages: state.total_pages() as u32,
-                                selected: state.sel_row() as u32,
-                                rows: state.rows() as u32,
-                                cols: state.cols() as u32,
-                                sel_row: state.sel_row() as u32,
-                                sel_col: state.sel_col() as u32,
-                            })
+                            build_render_state(engine)
                         } else {
                             None
                         }
@@ -1155,6 +1236,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // start_hanja_conversion이 이미 특수문자 fallback을 처리하므로
                     // 엔진의 특수문자 모드 상태를 확인
                     if engine.is_special_char_mode() {
+                        let render_state = build_render_state(engine);
                         crate::service::SpecialCharResponse {
                             target: engine.get_special_char_target().to_string(),
                             characters: engine
@@ -1163,12 +1245,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 .map(|c| c.to_string())
                                 .collect(),
                             top_row,
+                            render_state,
                         }
                     } else {
                         crate::service::SpecialCharResponse {
                             target: String::new(),
                             characters: Vec::new(),
                             top_row,
+                            render_state: None,
                         }
                     }
                 } else {
@@ -1176,6 +1260,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         target: String::new(),
                         characters: Vec::new(),
                         top_row,
+                        render_state: None,
                     }
                 };
                 let _ = response.send(resp);

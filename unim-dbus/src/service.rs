@@ -80,12 +80,15 @@ pub enum EngineRequest {
     },
     /// 한자 즐겨찾기 토글
     ///
-    /// 응답: `(new_index, bookmarked, popup_action)`. popup_action은
-    /// 보통 `HanjaCandidatesReordered`이며 RPC 측에서 시그널로 발행한다.
+    /// 응답: `(new_index, bookmarked, popup_action, render_state)`. popup_action 은
+    /// 보통 `HanjaCandidatesReordered` 이며 RPC 측에서 legacy 시그널로 발행한다.
+    /// `render_state` 는 토글 후 view_model 스냅샷 — popup_render 시그널로도 발행.
     ToggleHanjaBookmark {
         context_id: u32,
         index: usize,
-        response: oneshot::Sender<Option<(usize, bool, Option<PopupAction>)>>,
+        response: oneshot::Sender<
+            Option<(usize, bool, Option<PopupAction>, Option<PopupRenderPayload>)>,
+        >,
     },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
@@ -170,24 +173,25 @@ pub enum EngineRequest {
     /// 팝업 페이지 이동 (마우스 ◀/▶ 버튼 등 외부 RPC).
     ///
     /// `direction`: -1 또는 0 = 이전 페이지, 그 외(+1 등) = 다음 페이지. wrap-around.
-    /// 응답: 페이지가 바뀌면 `Some(PopupNavigatePayload)` (page/total_pages/sel_row/sel_col 등),
-    /// 단일 페이지·popup 비활성·context 부재 시 `None`.
+    /// 응답: 페이지가 바뀌면 `Some(PopupRenderPayload)` (전체 view_model 스냅샷,
+    /// service.rs 가 popup_navigate + popup_render 두 시그널로 변환). 단일
+    /// 페이지·popup 비활성·context 부재 시 `None`.
     PopupChangePage {
         context_id: u32,
         direction: i32,
-        response: oneshot::Sender<Option<PopupNavigatePayload>>,
+        response: oneshot::Sender<Option<PopupRenderPayload>>,
     },
 
     /// 한자 popup 확장 모드 토글 (마우스 ⊞/⊟ 아이콘 클릭).
     ///
     /// popup-owner context 로 라우팅 (GNOME extension·gui-gtk 처럼 popup 이 다른
     /// context 에 살 때 호출 context 기준이 아닌 popup_state 가 살아있는 context 를
-    /// 찾아 toggle_hanja_expanded() 를 적용). 응답은 PopupChangePage 와 동일한
-    /// PopupNavigate payload — frontend 가 그리드 차원 갱신.
+    /// 찾아 toggle_hanja_expanded() 를 적용). 응답: 전체 `PopupRenderPayload` —
+    /// service.rs 가 popup_navigate + popup_render 시그널로 변환.
     /// 활성 한자 popup 이 없으면 `None`.
     TogglePopupExpand {
         context_id: u32,
-        response: oneshot::Sender<Option<PopupNavigatePayload>>,
+        response: oneshot::Sender<Option<PopupRenderPayload>>,
     },
 }
 
@@ -220,6 +224,53 @@ pub struct EmojiShowPayload {
     pub home_row: String,
 }
 
+/// `PopupRender` 시그널 페이로드 — engine `PopupViewModel` 의 DBus-friendly 평면 표현.
+///
+/// daemon = SoT. 두 frontend (GNOME extension / unim-gui-gtk) 가 본 페이로드를 그대로
+/// 렌더링하여 헤더·푸터·셀·탭·확장 아이콘 등을 표시한다. 서식 문자열·visibility 조건이
+/// 모두 daemon 산출이라 frontend 간 표시 일관성 자동 보장.
+#[derive(Debug, Clone)]
+pub struct PopupRenderPayload {
+    /// 0=Hanja, 1=SpecialChar, 2=Emoji
+    pub kind: u32,
+    pub target: String,
+    pub header_text: String,
+    pub footer_text: String,
+    pub show_footer: bool,
+    pub rows: u32,
+    pub cols: u32,
+    pub sel_row: u32,
+    pub sel_col: u32,
+    pub current_page: u32,
+    pub total_pages: u32,
+    /// 셀 데이터 — column-major, 길이 = rows * cols. 각 (text, meaning, flags).
+    /// flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_highlight,
+    ///            0x08=row_highlight, 0x10=bookmarked.
+    /// has_data=0 이면 빈 셀 (text/meaning 무시).
+    pub cells: Vec<(String, String, u32)>,
+    /// 컬럼 헤더 (text, is_active) — 한자 compact 는 빈 벡터.
+    pub col_headers: Vec<(String, bool)>,
+    /// 행 헤더 (text, is_active).
+    pub row_headers: Vec<(String, bool)>,
+    /// 한자 expand 토글 아이콘 가시성 (한자 popup 만 true).
+    pub expand_visible: bool,
+    /// 한자 expand 토글 텍스트 ("⊞" / "⊟").
+    pub expand_text: String,
+    /// 이모지 좌측 9 카테고리 탭 라벨 (단축키 prefix 포함). 그 외 popup 은 빈 벡터.
+    pub tab_labels: Vec<String>,
+    /// 이모지 활성 탭 인덱스 (0..9).
+    pub active_tab_index: u32,
+}
+
+/// PopupRenderPayload 의 cell flag 비트 정의.
+pub mod popup_render_flags {
+    pub const HAS_DATA: u32 = 0x01;
+    pub const SELECTED: u32 = 0x02;
+    pub const COL_HIGHLIGHT: u32 = 0x04;
+    pub const ROW_HIGHLIGHT: u32 = 0x08;
+    pub const BOOKMARKED: u32 = 0x10;
+}
+
 /// 한자 후보 응답
 #[derive(Debug)]
 pub struct HanjaCandidateResponse {
@@ -229,6 +280,9 @@ pub struct HanjaCandidateResponse {
     pub candidates: Vec<(String, String)>,
     /// 영문 키맵의 상단 행 레이블 (expanded 9x9 컬럼 헤더용; 특수문자와 동일 source).
     pub top_row: String,
+    /// PopupRender 페이로드 — Standalone 모드에서 ShowHanjaPopup 직후 popup_render
+    /// 시그널 발행에 사용. popup 비활성이면 None.
+    pub render_state: Option<PopupRenderPayload>,
 }
 
 /// 특수문자 후보 응답
@@ -240,6 +294,9 @@ pub struct SpecialCharResponse {
     pub characters: Vec<String>,
     /// 영문 키맵의 상단 행 레이블 (예: "QWERTYUIO")
     pub top_row: String,
+    /// PopupRender 페이로드 — Standalone 모드에서 ShowSpecialPopup 직후 popup_render
+    /// 시그널 발행에 사용. popup 비활성이면 None.
+    pub render_state: Option<PopupRenderPayload>,
 }
 
 /// 엔진 응답
@@ -257,6 +314,9 @@ pub struct EngineResponse {
     pub popup_action: Option<PopupAction>,
     /// AutoTypeFix 교정 결과 (삭제할 문자 수, commit 텍스트, preedit 텍스트)
     pub auto_typefix: Option<(u32, String, String)>,
+    /// PopupRender 페이로드 — popup 활성 상태일 때 매 키 처리 후 산출되어 frontend
+    /// 가 시각 갱신에 사용. popup 비활성이면 None.
+    pub render_state: Option<PopupRenderPayload>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -1502,6 +1562,46 @@ impl InputContextHandler {
             );
         }
     }
+
+    /// PopupRender 시그널 발행 헬퍼 — engine view_model 페이로드를 unpack 하여 emit.
+    /// frontend (GNOME / gui-gtk) 가 본 시그널로 헤더·푸터·셀·탭·확장 아이콘 모두 즉시 렌더.
+    async fn emit_popup_render(signal_ctx: &SignalContext<'_>, rs: &PopupRenderPayload) {
+        Self::popup_render(
+            signal_ctx,
+            rs.kind,
+            (
+                rs.target.clone(),
+                rs.header_text.clone(),
+                rs.footer_text.clone(),
+                rs.expand_text.clone(),
+            ),
+            (
+                rs.rows,
+                rs.cols,
+                rs.sel_row,
+                rs.sel_col,
+                rs.current_page,
+                rs.total_pages,
+            ),
+            (rs.show_footer, rs.expand_visible),
+            rs.cells.clone(),
+            rs.col_headers.clone(),
+            rs.row_headers.clone(),
+            rs.tab_labels.clone(),
+            rs.active_tab_index,
+        )
+        .await
+        .ok();
+        unim_log!(
+            "DBUS",
+            "[DBus] PopupRender: kind={}, target='{}', cells={}, page={}/{}",
+            rs.kind,
+            rs.target,
+            rs.cells.len(),
+            rs.current_page + 1,
+            rs.total_pages
+        );
+    }
 }
 
 #[interface(name = "org.atit.unim.InputContext")]
@@ -1745,6 +1845,12 @@ impl InputContextHandler {
                 // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
                 _ => {}
             }
+        }
+
+        // PopupRender 시그널 발행 (Phase B 통합 SoT — frontend 가 이걸로 헤더·푸터·셀·탭
+        // 전부 즉시 렌더). popup 활성 시에만 산출.
+        if let Some(rs) = &response.render_state {
+            Self::emit_popup_render(&signal_ctx, rs).await;
         }
 
         // AutoTypeFix: 교정 결과가 있으면 비동기 시그널로 발행
@@ -2020,6 +2126,35 @@ impl InputContextHandler {
         cols: i32,
         sel_row: i32,
         sel_col: i32,
+    ) -> zbus::Result<()>;
+
+    /// 팝업 렌더 시그널 — engine `PopupViewModel` 의 DBus 표현 (Phase B 통합 SoT).
+    ///
+    /// popup 활성 시 매 상태 변화마다 발행. frontend (GNOME / gui-gtk) 는 본 시그널만
+    /// 구독하면 헤더·푸터·셀·탭·확장 아이콘 모두 즉시 렌더 가능 — 서식 문자열·visibility
+    /// 조건이 daemon 측 SoT.
+    ///
+    /// 인자 묶음 (zbus 의 단일 시그널 인자 수 한계 회피용 그룹화):
+    /// - `texts`: `(target, header_text, footer_text, expand_text)`.
+    /// - `layout`: `(rows, cols, sel_row, sel_col, current_page, total_pages)` (u32 6개).
+    /// - `flags`: `(show_footer, expand_visible)`.
+    /// - `cells`: column-major 길이 `rows*cols`, 각 `(text, meaning, flags_bits)`.
+    ///   `flags_bits` 비트는 [`popup_render_flags`] 참조 — has_data/selected/col_hl/row_hl/bookmarked.
+    /// - `col_headers`/`row_headers`: `(text, is_active)`.
+    /// - `tab_labels`: 이모지 좌측 탭 라벨 (단축키 prefix 포함).
+    #[zbus(signal)]
+    #[allow(clippy::too_many_arguments)]
+    async fn popup_render(
+        signal_ctx: &SignalContext<'_>,
+        kind: u32,
+        texts: (String, String, String, String),
+        layout: (u32, u32, u32, u32, u32, u32),
+        flags: (bool, bool),
+        cells: Vec<(String, String, u32)>,
+        col_headers: Vec<(String, bool)>,
+        row_headers: Vec<(String, bool)>,
+        tab_labels: Vec<String>,
+        active_tab_index: u32,
     ) -> zbus::Result<()>;
 
     /// 한자 즐겨찾기 상태 변경 시그널 (Space 토글 등으로 상태가 바뀐 경우)
@@ -2323,6 +2458,10 @@ impl InputContextHandler {
             )
             .await
             .ok();
+            // 통합 popup_render — 헤더/푸터/셀/expand 아이콘 등 즉시 렌더.
+            if let Some(rs) = &response.render_state {
+                Self::emit_popup_render(&signal_ctx, rs).await;
+            }
             unim_log!(
                 "DBUS",
                 "[DBus] GetHanjaCandidates -> ShowHanjaPopup 시그널 발행 (Standalone)"
@@ -2421,7 +2560,7 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
 
-        let (idx, bookmarked, popup_action) = response_rx
+        let (idx, bookmarked, popup_action, render_state) = response_rx
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?
             .ok_or_else(|| zbus::fdo::Error::Failed("한자 모드 아님 또는 범위 밖".to_string()))?;
@@ -2463,6 +2602,11 @@ impl InputContextHandler {
             .ok();
         }
 
+        // 통합 popup_render — frontend 가 이걸로 즐겨찾기 토글 + 재정렬 일괄 적용.
+        if let Some(rs) = render_state {
+            Self::emit_popup_render(&signal_ctx, &rs).await;
+        }
+
         unim_log!(
             "DBUS",
             "[DBus] ToggleHanjaBookmark: index={}, bookmarked={}",
@@ -2501,27 +2645,30 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
-        if let Some(p) = payload {
+        if let Some(rs) = payload {
+            // Legacy popup_navigate (frontend 점진 마이그레이션 동안 dual-emit).
             Self::popup_navigate(
                 &signal_ctx,
-                p.page as i32,
-                p.total_pages as i32,
-                p.selected as i32,
-                p.rows as i32,
-                p.cols as i32,
-                p.sel_row as i32,
-                p.sel_col as i32,
+                rs.current_page as i32,
+                rs.total_pages as i32,
+                rs.sel_row as i32,
+                rs.rows as i32,
+                rs.cols as i32,
+                rs.sel_row as i32,
+                rs.sel_col as i32,
             )
             .await
             .ok();
+            // 통합 popup_render — frontend 가 본 시그널만 구독해도 헤더/푸터/셀/탭 모두 갱신.
+            Self::emit_popup_render(&signal_ctx, &rs).await;
             unim_log!(
                 "DBUS",
                 "[DBus] PopupChangePage: dir={}, page={}/{}, sel=({},{})",
                 direction,
-                p.page,
-                p.total_pages,
-                p.sel_row,
-                p.sel_col
+                rs.current_page,
+                rs.total_pages,
+                rs.sel_row,
+                rs.sel_col
             );
         } else {
             unim_log!(
@@ -2557,25 +2704,28 @@ impl InputContextHandler {
             .await
             .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
 
-        if let Some(p) = payload {
+        if let Some(rs) = payload {
+            // Legacy popup_navigate (dual-emit).
             Self::popup_navigate(
                 &signal_ctx,
-                p.page as i32,
-                p.total_pages as i32,
-                p.selected as i32,
-                p.rows as i32,
-                p.cols as i32,
-                p.sel_row as i32,
-                p.sel_col as i32,
+                rs.current_page as i32,
+                rs.total_pages as i32,
+                rs.sel_row as i32,
+                rs.rows as i32,
+                rs.cols as i32,
+                rs.sel_row as i32,
+                rs.sel_col as i32,
             )
             .await
             .ok();
+            // 통합 popup_render.
+            Self::emit_popup_render(&signal_ctx, &rs).await;
             unim_log!(
                 "DBUS",
                 "[DBus] TogglePopupExpand: page={}/{}, cols={} (1=compact, 9=expanded)",
-                p.page,
-                p.total_pages,
-                p.cols
+                rs.current_page,
+                rs.total_pages,
+                rs.cols
             );
         } else {
             unim_log!("DBUS", "[DBus] TogglePopupExpand: no-op (no active popup)");
@@ -2668,6 +2818,10 @@ impl InputContextHandler {
             )
             .await
             .ok();
+            // 통합 popup_render.
+            if let Some(rs) = &response.render_state {
+                Self::emit_popup_render(&signal_ctx, rs).await;
+            }
             unim_log!(
                 "DBUS",
                 "[DBus] GetSpecialCharCandidates -> ShowSpecialPopup 시그널 발행 (Standalone)"
