@@ -707,6 +707,30 @@ export class UnimDbusIME {
     }
 
     /**
+     * 한자 popup 확장 모드 토글 (마우스 ⊞/⊟ 아이콘 클릭).
+     *
+     * 호출 context (extension 자체) 와 popup-owner context 가 다를 수 있어
+     * 데몬이 resolve_popup_owner 로 라우팅 보정한다 — Period 키 처리(processKey)는
+     * 호출 context 에 한정되어 popup-owner 의 popup_state 에 닿지 않는 회귀가
+     * 있었으므로 본 전용 RPC 사용. 활성 한자 popup 이 없으면 데몬에서 no-op.
+     */
+    togglePopupExpand() {
+        if (!this._icProxy) return;
+
+        try {
+            this._icProxy.call_sync(
+                'TogglePopupExpand',
+                null,
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+        } catch (e) {
+            unimError('DBUS_IME', `TogglePopupExpand 실패: ${e.message}`);
+        }
+    }
+
+    /**
      * 한자 모드 취소
      */
     cancelHanja() {

@@ -214,9 +214,11 @@ export default class UnimExtension extends Extension {
                             this._dbusIME.toggleHanjaBookmark(globalIdx);
                         },
                         () => {
-                            // 확장 아이콘 클릭: Period 키를 엔진에 전달해 토글
-                            // GDK keyval 0x2e ('.'), evdev keycode 52
-                            this._dbusIME.processKey(0x2e, 52, 0);
+                            // 확장 아이콘 클릭 → TogglePopupExpand RPC.
+                            // Period 키 (processKey) 는 호출 context 에만 적용되어
+                            // popup-owner 가 다른 context (앱) 일 때 적용 안 되는 회귀가
+                            // 있어 popup-owner 라우팅 전용 RPC 로 전환.
+                            this._dbusIME.togglePopupExpand();
                         },
                         (direction) => {
                             // 페이지 ◀/▶ 클릭: PopupChangePage RPC.

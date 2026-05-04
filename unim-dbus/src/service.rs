@@ -177,6 +177,18 @@ pub enum EngineRequest {
         direction: i32,
         response: oneshot::Sender<Option<PopupNavigatePayload>>,
     },
+
+    /// 한자 popup 확장 모드 토글 (마우스 ⊞/⊟ 아이콘 클릭).
+    ///
+    /// popup-owner context 로 라우팅 (GNOME extension·gui-gtk 처럼 popup 이 다른
+    /// context 에 살 때 호출 context 기준이 아닌 popup_state 가 살아있는 context 를
+    /// 찾아 toggle_hanja_expanded() 를 적용). 응답은 PopupChangePage 와 동일한
+    /// PopupNavigate payload — frontend 가 그리드 차원 갱신.
+    /// 활성 한자 popup 이 없으면 `None`.
+    TogglePopupExpand {
+        context_id: u32,
+        response: oneshot::Sender<Option<PopupNavigatePayload>>,
+    },
 }
 
 /// 팝업 페이지 이동 응답 — service.rs 가 `PopupNavigate` 시그널 페이로드로 변환.
@@ -2517,6 +2529,56 @@ impl InputContextHandler {
                 "[DBus] PopupChangePage: dir={}, no-op (single page or no popup)",
                 direction
             );
+        }
+        Ok(())
+    }
+
+    /// 한자 popup 확장 모드 토글 (마우스 ⊞/⊟ 아이콘 클릭용).
+    ///
+    /// 호출 context 가 popup-owner 와 다를 수 있으므로 engine_worker 가
+    /// `resolve_popup_owner` 로 보정. 토글 후 변경된 layout (cols=1↔9) 을
+    /// `PopupNavigate` 시그널로 발행해 frontend 가 그리드 재구성.
+    /// 활성 한자 popup 이 없으면 no-op.
+    async fn toggle_popup_expand(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.engine_tx
+            .send(EngineRequest::TogglePopupExpand {
+                context_id: self.id,
+                response: response_tx,
+            })
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine not available".to_string()))?;
+
+        let payload = response_rx
+            .await
+            .map_err(|_| zbus::fdo::Error::Failed("Engine response failed".to_string()))?;
+
+        if let Some(p) = payload {
+            Self::popup_navigate(
+                &signal_ctx,
+                p.page as i32,
+                p.total_pages as i32,
+                p.selected as i32,
+                p.rows as i32,
+                p.cols as i32,
+                p.sel_row as i32,
+                p.sel_col as i32,
+            )
+            .await
+            .ok();
+            unim_log!(
+                "DBUS",
+                "[DBus] TogglePopupExpand: page={}/{}, cols={} (1=compact, 9=expanded)",
+                p.page,
+                p.total_pages,
+                p.cols
+            );
+        } else {
+            unim_log!("DBUS", "[DBus] TogglePopupExpand: no-op (no active popup)");
         }
         Ok(())
     }

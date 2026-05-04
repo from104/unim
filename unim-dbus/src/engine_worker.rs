@@ -1101,6 +1101,46 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(payload);
             }
 
+            EngineRequest::TogglePopupExpand {
+                context_id,
+                response,
+            } => {
+                // popup-owner 로 라우팅 (PopupChangePage 와 동일 사유).
+                // GNOME extension·gui-gtk 에서 마우스로 ⊞/⊟ 아이콘 클릭 시 호출 —
+                // popup_state 가 Hanja 면 toggle_hanja_expanded() 적용 후 갱신된
+                // layout 을 PopupNavigate payload 로 반환.
+                let target_id = resolve_popup_owner(&contexts, context_id);
+                let payload: Option<PopupNavigatePayload> =
+                    if let Some(engine) = contexts.get_mut(&target_id) {
+                        let toggled = if let Some(state) = engine.popup_state_mut() {
+                            if state.kind() == unim::popup::PopupKind::Hanja {
+                                state.toggle_hanja_expanded();
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if toggled {
+                            engine.popup_state().map(|state| PopupNavigatePayload {
+                                page: state.current_page() as u32,
+                                total_pages: state.total_pages() as u32,
+                                selected: state.sel_row() as u32,
+                                rows: state.rows() as u32,
+                                cols: state.cols() as u32,
+                                sel_row: state.sel_row() as u32,
+                                sel_col: state.sel_col() as u32,
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                let _ = response.send(payload);
+            }
+
             // =========================================
             // 특수문자 변환 요청 처리
             // =========================================

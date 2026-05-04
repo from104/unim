@@ -117,11 +117,19 @@ impl HanjaPopup {
         });
         footer.append(&next_page_btn);
 
-        // 확장/축소 아이콘 — Period 키로 토글되며, navigate()가 cols 변화를
-        // 감지하여 아이콘 텍스트를 갱신한다.
+        // 확장/축소 아이콘 — Period 키 또는 마우스 클릭으로 토글.
+        // navigate()가 cols 변화를 감지해 아이콘 텍스트를 갱신한다.
         let expand_icon = gtk4::Label::new(Some(ICON_EXPAND));
         expand_icon.add_css_class("popup-expand-icon");
         expand_icon.set_halign(gtk4::Align::End);
+        // 마우스 클릭 → TogglePopupExpand RPC (popup-owner 라우팅 보정).
+        let click_gesture = gtk4::GestureClick::new();
+        click_gesture.connect_released(|_, _, _, _| {
+            toggle_popup_expand_via_dbus();
+        });
+        expand_icon.add_controller(click_gesture);
+        // 호버 시 마우스 커서 변경 (시각 피드백)
+        expand_icon.set_cursor_from_name(Some("pointer"));
         footer.append(&expand_icon);
 
         vbox.append(&footer);
@@ -608,6 +616,45 @@ pub fn popup_change_page_via_dbus(direction: i32) {
                     .await;
                     if let Ok(proxy) = proxy {
                         let _: Result<(), _> = proxy.call("PopupChangePage", &(direction,)).await;
+                    }
+                }
+            });
+        });
+    }
+}
+
+/// 한자 popup 확장 모드 토글 (마우스 ⊞/⊟ 아이콘 클릭).
+///
+/// 호출 context (gui-gtk 자체) 와 popup-owner context 가 다를 수 있어 데몬이
+/// resolve_popup_owner 로 라우팅 보정 — 활성 popup 의 toggle_hanja_expanded()
+/// 적용 후 PopupNavigate 시그널 발행.
+pub fn toggle_popup_expand_via_dbus() {
+    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+
+    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
+
+    if let Some(path) = context_path {
+        unim_log!(
+            "INDICATOR",
+            "[Popup] TogglePopupExpand DBus 호출: path={}",
+            path
+        );
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                if let Ok(conn) = zbus::Connection::session().await {
+                    let proxy = zbus::Proxy::new(
+                        &conn,
+                        "org.atit.unim.InputMethod",
+                        path.as_str(),
+                        "org.atit.unim.InputContext",
+                    )
+                    .await;
+                    if let Ok(proxy) = proxy {
+                        let _: Result<(), _> = proxy.call("TogglePopupExpand", &()).await;
                     }
                 }
             });
