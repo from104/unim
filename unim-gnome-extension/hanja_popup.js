@@ -391,10 +391,15 @@ export class HanjaPopup {
     updateFromNavigate(page, totalPages, _selected, rows, cols, selRow, selCol) {
         if (!this.isVisible) return;
 
-        // expanded 모드(엔진이 보내는 cols>1 또는 현재 _cols>1)는 항상 9×9 고정.
-        // 엔진의 popup_state.cols 는 page_chars 에 따라 동적이지만 GNOME extension
-        // 표시는 81 미만이어도 9×9 표를 유지한다 (빈 셀 처리는 _globalIndex 자동).
-        const isExpanded = (cols > 1) || (this._cols > 1);
+        // expanded 모드 판정은 엔진이 보내는 cols 만 본다.
+        // 이전엔 `(this._cols > 1)` OR 조건도 있었으나, 한 번 expanded 가 된 후엔
+        // _cols=9 가 유지되어 엔진이 compact(cols=1) 로 토글해도 계속 expanded 로
+        // 인식되는 단방향 잠금 버그가 있었다 (양방향 ⊞/⊟ 토글 + 페이지 갱신 깨짐).
+        // 엔진의 popup_state.cols 가 SoT — toggle_hanja_expanded() 가 cols 를
+        // 1 ↔ 9 로 정확히 갱신해 PopupNavigate 시그널로 보낸다.
+        const isExpanded = cols > 1;
+        // expanded 일 때만 9×9 강제 (81 미만 페이지에서도 그리드 차원 일정 유지).
+        // compact 일 때는 엔진이 보낸 rows 그대로 (1 ~ 9 사이의 후보 수).
         const newCols = isExpanded ? MAX_COLS : (cols > 0 ? cols : 1);
         const newRows = isExpanded ? MAX_ROWS : (rows > 0 ? rows : 1);
 
