@@ -14,7 +14,7 @@ use libadwaita::prelude::*;
 use rust_i18n::t;
 
 use unim::config::{
-    Config, InputCategory, ModeSharingMode, PopupMode, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
+    Config, InputCategory, ModeSharingMode, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
     AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
@@ -635,41 +635,6 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&share_row);
-
-    // 팝업 모드
-    let popup_row = adw::ComboRow::builder()
-        .title(t!("row_popup_mode"))
-        .subtitle(t!("row_popup_mode_subtitle"))
-        .build();
-    popup_row.set_tooltip_text(Some(t!("row_popup_mode_tooltip").as_ref()));
-    let popup_list = gtk4::StringList::new(&[
-        t!("popup_mode_standalone").as_ref(),
-        t!("popup_mode_embedded").as_ref(),
-    ]);
-    popup_row.set_model(Some(&popup_list));
-    {
-        let s = state.borrow();
-        popup_row.set_selected(match s.config.engine.popup_mode {
-            PopupMode::Standalone => 0,
-            PopupMode::Embedded => 1,
-        });
-    }
-    {
-        let state_c = state.clone();
-        popup_row.connect_selected_notify(move |row| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
-                return;
-            }
-            s.config.engine.popup_mode = if row.selected() == 1 {
-                PopupMode::Embedded
-            } else {
-                PopupMode::Standalone
-            };
-            save_and_notify(&s.config, "popup_mode");
-        });
-    }
-    group.add(&popup_row);
 
     group
 }

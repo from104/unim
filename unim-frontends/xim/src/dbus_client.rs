@@ -125,6 +125,7 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 한자 취소 (트리거 문자 반환)
+    #[allow(dead_code)]
     CancelHanja {
         context_path: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
@@ -142,6 +143,7 @@ pub enum DbusRequest {
         response: Option<std_mpsc::Sender<DbusResponse>>,
     },
     /// 특수문자 취소 (트리거 문자 반환)
+    #[allow(dead_code)]
     CancelSpecialChar {
         context_path: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
@@ -155,6 +157,7 @@ pub enum DbusRequest {
         height: i32,
     },
     /// 한자 즐겨찾기 상태 조회 (Vec<bool> 응답)
+    #[allow(dead_code)]
     GetHanjaBookmarkStates {
         context_path: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
@@ -168,6 +171,7 @@ pub enum DbusRequest {
     ToggleHanjaBookmark { context_path: String, index: u32 },
     /// 팝업 페이지 이동 (마우스 ◀/▶ 좌클릭 또는 우클릭 다음 페이지).
     /// `direction`: 0 = 이전, 1 = 다음. Phase 6.
+    #[allow(dead_code)]
     PopupChangePage { context_path: String, direction: i32 },
 }
 
@@ -185,7 +189,10 @@ pub enum DbusResponse {
         commit: Option<String>,
     },
     /// 커밋 텍스트 (focus_out 등에서)
-    CommitText { text: String },
+    CommitText {
+        #[allow(dead_code)]
+        text: String,
+    },
     /// 한자 후보 목록
     HanjaCandidates {
         target: String,
@@ -200,6 +207,7 @@ pub enum DbusResponse {
     SpecialCharCandidates {
         target: String,
         characters: Vec<String>,
+        #[allow(dead_code)]
         top_row: String,
     },
     /// 특수문자 선택 결과
@@ -208,7 +216,10 @@ pub enum DbusResponse {
         commit: String,
     },
     /// 한자 즐겨찾기 상태 조회 결과
-    HanjaBookmarkStates { states: Vec<bool> },
+    HanjaBookmarkStates {
+        #[allow(dead_code)]
+        states: Vec<bool>,
+    },
 }
 
 /// DBus 클라이언트

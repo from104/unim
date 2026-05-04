@@ -389,9 +389,6 @@ enum ConfigKey {
     /// 한자/특수문자 키 (예: Hanja,F9)
     #[value(name = "hanja-keys")]
     HanjaKeys,
-    /// 팝업 표시 방식 (standalone, embedded)
-    #[value(name = "popup-mode")]
-    PopupMode,
     /// 자동 오타 교정 활성화 (true, false)
     #[value(name = "auto-typefix")]
     AutoTypeFix,
@@ -699,11 +696,6 @@ fn config_show() {
         t!("hanja_keys_label"),
         config.engine.hanja_keys.join(", ")
     );
-    println!(
-        "{}: {}",
-        t!("popup_mode_label"),
-        config.engine.popup_mode.name()
-    );
     let auto_typefix_status = if config.engine.auto_typefix.enabled {
         t!("enabled")
     } else {
@@ -931,24 +923,6 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 "{}: {}",
                 t!("hanja_keys_label"),
                 config.engine.hanja_keys.join(", ")
-            );
-        }
-        ConfigKey::PopupMode => {
-            let mode = match value {
-                "standalone" | "Standalone" => unim::config::PopupMode::Standalone,
-                "embedded" | "Embedded" => unim::config::PopupMode::Embedded,
-                _ => {
-                    return Err(format!(
-                        "Invalid popup mode: {}. Allowed: standalone, embedded",
-                        value
-                    ));
-                }
-            };
-            config.engine.popup_mode = mode;
-            println!(
-                "{}: {}",
-                t!("popup_mode_label"),
-                config.engine.popup_mode.name()
             );
         }
         ConfigKey::AutoTypeFix => {

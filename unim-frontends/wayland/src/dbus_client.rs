@@ -91,6 +91,7 @@ pub enum DbusRequest {
     },
     /// 한자 즐겨찾기 상태 일괄 조회 (현재 후보 순서와 동일).
     /// 한자 팝업 표시 직후 한 번 호출하여 초기 ☆/★ 상태를 페인트한다.
+    #[allow(dead_code)]
     GetHanjaBookmarkStates {
         context_path: String,
         response: Option<std_mpsc::Sender<DbusResponse>>,
@@ -102,33 +103,27 @@ pub enum DbusRequest {
     /// 경로가 없지만 다른 프런트엔드와 시그니처를 맞추어 둔다.
     #[allow(dead_code)]
     ToggleHanjaBookmark { context_path: String, index: u32 },
-    /// 팝업 페이지 이동 (Phase 9: 마우스 ◀/▶ 클릭).
-    ///
-    /// `direction`: 0 = 이전, 1 = 다음. 데몬이 popup_state cursor 보존하며 페이지 이동 후
-    /// PopupNavigate 시그널을 발행한다. 단일 페이지/popup 비활성이면 no-op.
-    PopupChangePage { context_path: String, direction: i32 },
 }
 
 /// 팝업 이벤트 (시그널 기반)
 #[derive(Debug)]
 pub enum PopupEvent {
-    /// 한자 팝업 표시
+    /// 한자 팝업 표시 (Standalone 모드에서는 unim-gui-gtk 가 전담 — 필드 미사용)
+    #[allow(dead_code)]
     ShowHanja {
         target: String,
         candidates: Vec<(String, String)>,
-        /// 활성 영문 키맵 top_row (특수문자와 동일 source).
         top_row: String,
     },
-    /// 특수문자 팝업 표시
+    /// 특수문자 팝업 표시 (Standalone 모드에서는 unim-gui-gtk 가 전담 — 필드 미사용)
+    #[allow(dead_code)]
     ShowSpecial {
         target: String,
         characters: Vec<String>,
         top_row: String,
     },
-    /// 이모지 팝업 표시 (PR #5: ShowEmojiPopupV2 시그널).
-    ///
-    /// Standalone 모드에서 데몬이 InputContext path 로 발행. Embedded 모드에서는
-    /// IM 모듈이 자체 처리하므로 본 이벤트는 발생하지 않는다.
+    /// 이모지 팝업 표시 (Standalone 모드에서는 unim-gui-gtk / GNOME extension 이 전담 — 필드 미사용)
+    #[allow(dead_code)]
     ShowEmoji {
         target_cat_id: String,
         items: Vec<String>,
@@ -144,36 +139,30 @@ pub enum PopupEvent {
         commit_text: String,
         preedit_text: String,
     },
-    /// 팝업 네비게이션 (페이지·선택 변경)
+    /// 팝업 네비게이션 (페이지·선택 변경) — Standalone 모드: unim-gui-gtk 전담
+    #[allow(dead_code)]
     Navigate {
         page: i32,
-        #[allow(dead_code)]
         total_pages: i32,
-        #[allow(dead_code)]
         selected: i32,
-        #[allow(dead_code)]
         rows: i32,
-        #[allow(dead_code)]
         cols: i32,
         sel_row: i32,
         sel_col: i32,
     },
-    /// 한자 즐겨찾기 상태 변경 (엔진 → 프런트엔드)
+    /// 한자 즐겨찾기 상태 변경 (엔진 → 프런트엔드) — Standalone 모드: unim-gui-gtk 전담
+    #[allow(dead_code)]
     HanjaBookmarkChanged { index: u32, bookmarked: bool },
-    /// 한자 후보 재정렬 (즐겨찾기 토글 직후, 커서 점프 포함)
+    /// 한자 후보 재정렬 (즐겨찾기 토글 직후, 커서 점프 포함) — Standalone 모드: unim-gui-gtk 전담
+    #[allow(dead_code)]
     HanjaCandidatesReordered {
-        #[allow(dead_code)]
         target: String,
         candidates: Vec<(String, String)>,
         bookmarks: Vec<bool>,
         new_cursor: u32,
-        #[allow(dead_code)]
         page: i32,
-        #[allow(dead_code)]
         sel_row: i32,
-        #[allow(dead_code)]
         sel_col: i32,
-        #[allow(dead_code)]
         bookmarked: bool,
     },
 }
@@ -218,6 +207,7 @@ pub enum DbusResponse {
         commit: String,
     },
     /// 한자 즐겨찾기 상태 일괄 조회 결과 (현재 후보 순서와 동일)
+    #[allow(dead_code)]
     HanjaBookmarkStates { states: Vec<bool> },
 }
 
@@ -595,15 +585,6 @@ async fn run_dbus_client(
                 }
             }
 
-            DbusRequest::PopupChangePage {
-                context_path,
-                direction,
-            } => {
-                // Phase 9: 마우스 ◀/▶ 클릭 → daemon 이 popup_state cursor 보존 페이지 이동.
-                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
-                    let _ = proxy.popup_change_page(direction).await;
-                }
-            }
         }
     }
 

@@ -146,16 +146,18 @@ impl EmojiPopup {
             } else {
                 group_anchor = Some(btn.clone());
             }
-            // 탭 클릭은 시각적 active 토글만 — 실제 카테고리 전환은 키보드 Tab/ShiftTab
-            // (엔진이 처리, ShowEmojiPopupV2 재발행). RPC 미배선 경고 로그.
+            // 탭 클릭 시 daemon SetEmojiCategory RPC → 엔진이 카테고리 전환 후
+            // ShowEmojiPopupV2 재발행 → 전체 화면 갱신. (키보드 Tab/ShiftTab과 동일
+            // 경로)
             let tab_idx = i;
             btn.connect_clicked(move |b| {
                 if b.is_active() {
                     unim_log!(
                         "INDICATOR",
-                        "[EmojiPopup] 탭 클릭 idx={} — RPC 미배선 (PR #4/#5 에서 EmojiSetCategory 추가 예정)",
+                        "[EmojiPopup] 탭 클릭 idx={} → SetEmojiCategory RPC",
                         tab_idx
                     );
+                    set_emoji_category_via_dbus(tab_idx as u32);
                 }
             });
             grid.attach(&btn, 0, (i + 1) as i32, 1, 1);
@@ -616,6 +618,55 @@ fn commit_emoji_via_dbus(emoji_str: String) {
         unim_log!(
             "INDICATOR",
             "[EmojiPopup] CommitEmoji 실패: ACTIVE_CONTEXT_PATH가 비어있음"
+        );
+    }
+}
+
+/// 탭 클릭 콜백에서 호출 — daemon `SetEmojiCategory(idx)` RPC.
+///
+/// daemon이 active context의 popup_state를 idx로 갱신한 뒤 `ShowEmojiPopupV2`
+/// 를 재발행 → unim-gui-gtk가 새 카테고리 grid로 화면 전체 갱신. 키보드
+/// Tab/Shift+Tab과 동일 경로.
+fn set_emoji_category_via_dbus(idx: u32) {
+    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+
+    let context_path = ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone());
+
+    if let Some(path) = context_path {
+        unim_log!(
+            "INDICATOR",
+            "[EmojiPopup] SetEmojiCategory DBus 호출: idx={}, path={}",
+            idx,
+            path
+        );
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(r) => r,
+                Err(_) => return,
+            };
+            rt.block_on(async {
+                if let Ok(conn) = zbus::Connection::session().await {
+                    let proxy = zbus::Proxy::new(
+                        &conn,
+                        "org.atit.unim.InputMethod",
+                        path.as_str(),
+                        "org.atit.unim.InputContext",
+                    )
+                    .await;
+                    if let Ok(proxy) = proxy {
+                        let _: Result<(), _> =
+                            proxy.call("SetEmojiCategory", &(idx,)).await;
+                    }
+                }
+            });
+        });
+    } else {
+        unim_log!(
+            "INDICATOR",
+            "[EmojiPopup] SetEmojiCategory 실패: ACTIVE_CONTEXT_PATH가 비어있음"
         );
     }
 }

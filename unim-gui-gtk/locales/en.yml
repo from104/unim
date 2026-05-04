@@ -34,9 +34,6 @@ mode_korean: "Korean"
 row_mode_sharing: "Mode Sharing"
 mode_share_global: "Global"
 mode_share_perapp: "Per-App"
-row_popup_mode: "Popup Mode"
-popup_mode_standalone: "Standalone"
-popup_mode_embedded: "Embedded"
 
 # General > Auto English mode
 group_auto_english: "Auto English Mode"
@@ -136,7 +133,6 @@ row_english_layout_subtitle: "QWERTY is the default. Change only if you use Dvor
 # General > Input mode (NEW subtitle)
 row_initial_mode_subtitle: "Whether the daemon starts in Korean or English mode."
 row_mode_sharing_subtitle: "Per-window: each window keeps its own mode. Global: switching once syncs everywhere."
-row_popup_mode_subtitle: "Standalone: GUI / GNOME extension paints (stable everywhere). Embedded: IM module renders directly (X11 only, faster but limited)."
 
 # General > Auto English (NEW subtitle)
 row_auto_english_enable_subtitle: "Forces English mode when a trigger key is pressed in Korean mode."
@@ -167,7 +163,6 @@ row_hanja_keys_tooltip: "Comma-separated list of keys that open the Hanja popup.
 # General > Input mode
 row_initial_mode_tooltip: "English is the safe default. Korean is fine if you primarily type Korean."
 row_mode_sharing_tooltip: "Per-window (recommended) keeps the terminal in English while the editor stays in Korean. Pick global to enforce one mode everywhere."
-row_popup_mode_tooltip: "Only Standalone works on Wayland (GNOME/KDE/Sway). A daemon restart is required after changing."
 
 # General > Auto English
 row_auto_english_enable_tooltip: "Recommended for vim/Emacs/terminal users. Password fields are unaffected (already English-only)."

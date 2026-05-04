@@ -4,12 +4,8 @@
 //! DBus를 통해 unim-daemon과 통신합니다.
 
 mod dbus_client;
-mod dpi;
-mod emoji_window;
 mod handler;
-mod hanja_window;
 mod pe_window;
-mod special_window;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -152,18 +148,8 @@ fn main() {
                         unim_handler.configure_notify(&e);
                         server.conn().flush().ok();
                     }
-                    Event::ButtonPress(e) => {
-                        // 마우스 클릭 감지 (한자 팝업 내부/외부)
-                        if unim_handler.has_hanja_popup() {
-                            if let Err(err) = unim_handler.handle_button_press(
-                                e.detail,
-                                e.event_x,
-                                e.event_y,
-                                server.conn(),
-                            ) {
-                                unim_log!("XIM", "ButtonPress 처리 오류: {:?}", err);
-                            }
-                        }
+                    Event::ButtonPress(_e) => {
+                        // Standalone 모드: 팝업 클릭은 unim-gui-gtk가 처리
                         server.conn().flush().ok();
                     }
                     Event::DestroyNotify(_) | Event::UnmapNotify(_) | Event::MappingNotify(_) => {

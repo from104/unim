@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
-use unim::config::{Config, InputCategory, PopupMode};
+use unim::config::{Config, InputCategory};
 use unim::input_engine::PopupAction;
 use unim::unim_log;
 
@@ -697,7 +697,6 @@ impl InputMethodService {
             // Phase 8: korean_custom_layout 필드 폐지. korean_layout이 이제 프로필 이름
             // 문자열을 직접 담는다. 호환성 — 구 클라이언트가 이 키로 조회 시 동일값 반환.
             "korean_custom_layout" => config.engine.korean.layout.clone(),
-            "popup_mode" => config.engine.popup_mode.name().to_string(),
             "auto_typefix" => config.engine.auto_typefix.enabled.to_string(),
             "auto_typefix_forward" => config.engine.auto_typefix.forward.to_string(),
             "auto_typefix_reverse" => config.engine.auto_typefix.reverse.to_string(),
@@ -861,18 +860,6 @@ impl InputMethodService {
                     };
                     // korean_layout과 동일한 캐시 동작.
                     config.engine.korean.switch_layout(&target, None);
-                }
-                "popup_mode" => {
-                    config.engine.popup_mode = match value {
-                        "Standalone" => unim::config::PopupMode::Standalone,
-                        "Embedded" => unim::config::PopupMode::Embedded,
-                        _ => {
-                            return Err(zbus::fdo::Error::InvalidArgs(format!(
-                                "Invalid value: {}",
-                                value
-                            )))
-                        }
-                    };
                 }
                 "auto_typefix" => {
                     config.engine.auto_typefix.enabled = value
@@ -1096,21 +1083,10 @@ impl InputMethodService {
         unim_log!("DBUS", "[DBus] TriggerAction(global): action='{}'", action);
         match action {
             "emoji_popup" => {
-                // Standalone 모드일 때만 시그널 발행 (Embedded는 IM 모듈이 자체 처리)
-                let (is_standalone, english_layout) = {
+                let english_layout = {
                     let cfg = self.config.read().await;
-                    (
-                        cfg.engine.popup_mode == PopupMode::Standalone,
-                        cfg.engine.english.layout.clone(),
-                    )
+                    cfg.engine.english.layout.clone()
                 };
-                if !is_standalone {
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] TriggerAction(global,emoji_popup) skipped: Embedded 모드"
-                    );
-                    return Ok(());
-                }
                 let (x, y, w, h) = *self.last_cursor_rect.lock().unwrap();
                 // 마지막 실제 입력 컨텍스트 path가 있으면 그 path에서 시그널 발행
                 // (없으면 InputMethod path fallback — 1번 작업의 기존 동작 유지)
@@ -1222,20 +1198,6 @@ impl InputMethodService {
                 return Ok(());
             }
         };
-
-        // Standalone 모드만 시그널 발행 — Embedded 는 IM 모듈이 자체 처리.
-        let is_standalone = {
-            let cfg = self.config.read().await;
-            cfg.engine.popup_mode == PopupMode::Standalone
-        };
-        if !is_standalone {
-            unim_log!(
-                "DBUS",
-                "[DBus] SetEmojiCategory(idx={}) skipped: Embedded 모드",
-                idx
-            );
-            return Ok(());
-        }
 
         let (x, y, w, h) = *self.last_cursor_rect.lock().unwrap();
         let target_path_str = self
@@ -1653,16 +1615,13 @@ impl InputContextHandler {
         }
 
         // 팝업 시그널 자동 발행 (Push 방식: 인디케이터가 팝업 표시)
-        // Standalone 모드일 때만 Show 시그널 발행 (Embedded 모드에서는 IM 모듈이 자체 처리)
-        let is_standalone =
-            Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone;
         if let Some(popup) = &response.popup_action {
             match popup {
                 PopupAction::ShowHanja {
                     target,
                     candidates,
                     top_row,
-                } if is_standalone => {
+                } => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
                     Self::show_hanja_popup(
                         &signal_ctx,
@@ -1688,7 +1647,7 @@ impl InputContextHandler {
                     target,
                     characters,
                     top_row,
-                } if is_standalone => {
+                } => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
                     Self::show_special_popup(
                         &signal_ctx,
@@ -1716,7 +1675,7 @@ impl InputContextHandler {
                     recent,
                     categories,
                     home_row,
-                } if is_standalone => {
+                } => {
                     let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
                     // PR #5: v1 4-인자 시그널 제거. ShowEmojiPopupV2 single-emit.
                     Self::show_emoji_popup_v2(
@@ -1847,8 +1806,6 @@ impl InputContextHandler {
                         page_index
                     );
                 }
-                // Embedded 모드에서 ShowHanja/ShowSpecial은 IM 모듈이 자체 처리
-                _ => {}
             }
         }
 
@@ -2224,16 +2181,7 @@ impl InputContextHandler {
         );
         match action {
             "emoji_popup" => {
-                // Standalone 모드일 때만 시그널 발행 (Embedded는 IM 모듈이 자체 처리)
                 let cfg_snapshot = Config::load_from_default_path();
-                let is_standalone = cfg_snapshot.engine.popup_mode == PopupMode::Standalone;
-                if !is_standalone {
-                    unim_log!(
-                        "DBUS",
-                        "[DBus] TriggerAction(emoji_popup) skipped: Embedded 모드"
-                    );
-                    return Ok(());
-                }
                 let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
                 let (target_cat_id, items, top_row, recent, categories, home_row) =
                     build_emoji_show_payload(&cfg_snapshot.engine.english.layout);
@@ -2446,10 +2394,8 @@ impl InputContextHandler {
             response.top_row
         );
 
-        // Standalone 모드: unim-gui-gtk가 팝업을 표시하도록 시그널 발행
-        if !response.candidates.is_empty()
-            && Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone
-        {
+        // unim-gui-gtk가 팝업을 표시하도록 시그널 발행
+        if !response.candidates.is_empty() {
             let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
             Self::show_hanja_popup(
                 &signal_ctx,
@@ -2806,10 +2752,8 @@ impl InputContextHandler {
             response.top_row
         );
 
-        // Standalone 모드: unim-gui-gtk가 팝업을 표시하도록 시그널 발행
-        if !response.characters.is_empty()
-            && Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone
-        {
+        // unim-gui-gtk가 팝업을 표시하도록 시그널 발행
+        if !response.characters.is_empty() {
             let (x, y, w, h) = *self.cursor_rect.lock().unwrap();
             Self::show_special_popup(
                 &signal_ctx,

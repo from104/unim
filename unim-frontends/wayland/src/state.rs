@@ -17,12 +17,9 @@ use unim::unim_log;
 use wayland_client::{
     globals::GlobalListContents,
     protocol::{
-        wl_compositor::WlCompositor,
         wl_keyboard::KeyState,
-        wl_pointer::{self, WlPointer},
         wl_registry::WlRegistry,
         wl_seat::{self, WlSeat},
-        wl_shm::WlShm,
     },
     Connection, Dispatch, QueueHandle, WEnum,
 };
@@ -38,7 +35,6 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
 
 use crate::dbus_client::{DbusRequest, DbusResponse};
 use crate::keymap::KeymapHandler;
-use crate::popup_surface::PopupSurface;
 use crate::repeat::{PressState, RepeatInfo, RepeatTimer};
 
 /// Wayland 애플리케이션 전체 상태
@@ -47,8 +43,6 @@ pub struct AppState {
     pub seat: Option<WlSeat>,
     pub im_manager: Option<ZwpInputMethodManagerV2>,
     pub vk_manager: Option<ZwpVirtualKeyboardManagerV1>,
-    pub compositor: Option<WlCompositor>,
-    pub shm: Option<WlShm>,
 
     // 프로토콜 오브젝트
     pub input_method: Option<ZwpInputMethodV2>,
@@ -78,20 +72,6 @@ pub struct AppState {
 
     // 종료 플래그
     pub should_exit: bool,
-
-    // 이벤트 큐 핸들 (팝업 렌더링용)
-    pub qh: Option<QueueHandle<Self>>,
-
-    // 팝업 서피스
-    pub popup_surface: PopupSurface,
-
-    // Phase 9: 팝업 마우스 페이지 이동 (wl_pointer)
-    /// wl_seat 의 pointer capability — capabilities 이벤트에서 생성.
-    pub pointer: Option<WlPointer>,
-    /// pointer 가 popup surface 위에 있을 때의 마지막 (x, y) 좌표 (surface-local).
-    pointer_pos: (f32, f32),
-    /// pointer 가 현재 popup surface 위에 있는지.
-    pointer_on_popup: bool,
 }
 
 impl AppState {
@@ -103,8 +83,6 @@ impl AppState {
             seat: None,
             im_manager: None,
             vk_manager: None,
-            compositor: None,
-            shm: None,
             input_method: None,
             keyboard_grab: None,
             virtual_keyboard: None,
@@ -123,11 +101,6 @@ impl AppState {
             dbus_tx,
             context_path,
             should_exit: false,
-            qh: None,
-            popup_surface: PopupSurface::new(),
-            pointer: None,
-            pointer_pos: (0.0, 0.0),
-            pointer_on_popup: false,
         }
     }
 
@@ -163,11 +136,6 @@ impl AppState {
 
         self.input_method = Some(im);
         self.keyboard_grab = Some(grab);
-
-        // 팝업 서피스 초기화
-        if let (Some(ref compositor), Some(ref im_ref)) = (&self.compositor, &self.input_method) {
-            self.popup_surface.init(compositor, im_ref, qh);
-        }
 
         true
     }
@@ -369,15 +337,13 @@ impl AppState {
         // 키 반복 취소
         self.repeat_timer.cancel();
         self.press_state = PressState::NotPressing;
-
-        // 팝업 숨기기
-        self.popup_surface.hide();
     }
 
     /// 한자 팝업 표시 직후 즐겨찾기 상태 fetch (XIM handler.rs:1306 패턴).
     ///
     /// 엔진은 [`HanjaBookmarkChanged`]/[`HanjaCandidatesReordered`] 시그널로 변화만
     /// 알리므로, 첫 표시 시 ☆/★ 페인트를 위해서는 한 번 동기 조회가 필요하다.
+    #[allow(dead_code)]
     pub fn fetch_initial_bookmark_states(&mut self) -> Vec<bool> {
         let (tx, rx) = std_mpsc::channel();
         if self
@@ -489,97 +455,14 @@ impl Dispatch<WlRegistry, GlobalListContents> for AppState {
 // --- WlSeat ---
 impl Dispatch<WlSeat, ()> for AppState {
     fn event(
-        state: &mut Self,
-        seat: &WlSeat,
-        event: wl_seat::Event,
-        _data: &(),
-        _conn: &Connection,
-        qh: &QueueHandle<Self>,
-    ) {
-        // Phase 9: pointer capability 발견 시 wl_pointer 인스턴스 생성 (팝업 마우스 페이지 이동용).
-        if let wl_seat::Event::Capabilities { capabilities } = event {
-            if let WEnum::Value(caps) = capabilities {
-                let has_pointer = caps.contains(wl_seat::Capability::Pointer);
-                if has_pointer && state.pointer.is_none() {
-                    let pointer = seat.get_pointer(qh, ());
-                    unim_log!("WAYLAND", "wl_pointer 생성 (Phase 9 마우스 페이지 이동)");
-                    state.pointer = Some(pointer);
-                } else if !has_pointer {
-                    if let Some(p) = state.pointer.take() {
-                        p.release();
-                    }
-                }
-            }
-        }
-    }
-}
-
-// --- WlPointer (Phase 9) ---
-impl Dispatch<WlPointer, ()> for AppState {
-    fn event(
-        state: &mut Self,
-        _proxy: &WlPointer,
-        event: wl_pointer::Event,
+        _state: &mut Self,
+        _seat: &WlSeat,
+        _event: wl_seat::Event,
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        match event {
-            wl_pointer::Event::Enter {
-                surface_x,
-                surface_y,
-                ..
-            } => {
-                state.pointer_pos = (surface_x as f32, surface_y as f32);
-                state.pointer_on_popup = true;
-            }
-            wl_pointer::Event::Leave { .. } => {
-                state.pointer_on_popup = false;
-            }
-            wl_pointer::Event::Motion {
-                surface_x,
-                surface_y,
-                ..
-            } => {
-                state.pointer_pos = (surface_x as f32, surface_y as f32);
-            }
-            wl_pointer::Event::Button {
-                button,
-                state: btn_state,
-                ..
-            } => {
-                // BTN_LEFT = 0x110 (272). Pressed 만 처리.
-                let pressed = matches!(
-                    btn_state,
-                    WEnum::Value(wl_pointer::ButtonState::Pressed)
-                );
-                if !pressed || button != 0x110 || !state.pointer_on_popup {
-                    return;
-                }
-                let (x, y) = state.pointer_pos;
-                let hit = state.popup_surface.hit_test(x, y);
-                use crate::popup_surface::PopupHitTest;
-                let direction: i32 = match hit {
-                    PopupHitTest::PrevPage => 0,
-                    PopupHitTest::NextPage => 1,
-                    PopupHitTest::None => return,
-                };
-                unim_log!(
-                    "WAYLAND",
-                    "팝업 마우스 클릭 hit: dir={} pos=({:.1},{:.1})",
-                    direction,
-                    x,
-                    y
-                );
-                let _ = state.dbus_tx.blocking_send(
-                    crate::dbus_client::DbusRequest::PopupChangePage {
-                        context_path: state.context_path.clone(),
-                        direction,
-                    },
-                );
-            }
-            _ => {}
-        }
+        // capabilities 이벤트 수신 (현재 별도 처리 없음)
     }
 }
 

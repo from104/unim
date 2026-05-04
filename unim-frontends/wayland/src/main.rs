@@ -9,17 +9,12 @@
 
 mod dbus_client;
 mod keymap;
-mod popup_renderer;
-mod popup_surface;
 mod repeat;
 mod state;
 
 use std::os::fd::{AsFd, AsRawFd};
 
-use unim::config::{Config as UnimConfig, PopupMode};
 use unim::unim_log;
-use wayland_client::protocol::wl_compositor::WlCompositor;
-use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::{globals::registry_queue_init, Connection};
 use wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2;
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
@@ -61,7 +56,6 @@ fn main() {
 
     let qh = event_queue.handle();
     let mut app = AppState::new(dbus_tx);
-    app.qh = Some(qh.clone());
 
     // 글로벌 바인딩
     // wl_seat
@@ -108,28 +102,6 @@ fn main() {
                 "zwp_virtual_keyboard_manager_v1 바인딩 실패: {} (키 바이패스 불가)",
                 err
             );
-        }
-    }
-
-    // wl_compositor (팝업 서피스용)
-    match globals.bind::<WlCompositor, _, _>(&qh, 4..=6, ()) {
-        Ok(comp) => {
-            unim_log!("WAYLAND", "wl_compositor 바인딩 성공");
-            app.compositor = Some(comp);
-        }
-        Err(err) => {
-            unim_log!("WAYLAND", "wl_compositor 바인딩 실패: {}", err);
-        }
-    }
-
-    // wl_shm (팝업 SHM 버퍼용)
-    match globals.bind::<WlShm, _, _>(&qh, 1..=1, ()) {
-        Ok(shm) => {
-            unim_log!("WAYLAND", "wl_shm 바인딩 성공");
-            app.shm = Some(shm);
-        }
-        Err(err) => {
-            unim_log!("WAYLAND", "wl_shm 바인딩 실패: {}", err);
         }
     }
 
@@ -229,69 +201,17 @@ fn main() {
         // 팝업 이벤트 처리 (non-blocking)
         while let Ok(popup_event) = popup_rx.try_recv() {
             match popup_event {
-                dbus_client::PopupEvent::ShowHanja {
-                    target,
-                    candidates,
-                    top_row,
-                } => {
-                    if UnimConfig::load_from_default_path().engine.popup_mode
-                        != PopupMode::Standalone
-                    {
-                        // 1) PopupState 생성 + 첫 렌더
-                        if let (Some(shm), Some(qh)) = (app.shm.clone(), app.qh.clone()) {
-                            app.popup_surface
-                                .show_hanja(&shm, &qh, &target, candidates, &top_row);
-                        }
-                        // 2) 초기 즐겨찾기 상태 fetch 후 ☆/★ 재페인트
-                        //    (XIM handler.rs:1306 / GNOME extension.js:176 패턴)
-                        let flags = app.fetch_initial_bookmark_states();
-                        if let (Some(shm), Some(qh)) = (app.shm.clone(), app.qh.clone()) {
-                            app.popup_surface
-                                .apply_hanja_bookmark_flags(flags, &shm, &qh);
-                        }
-                    }
+                dbus_client::PopupEvent::ShowHanja { .. } => {
+                    // Standalone 모드: unim-gui-gtk 가 팝업 전담 — 자체 surface 표시 없음
                 }
-                dbus_client::PopupEvent::ShowSpecial {
-                    target,
-                    characters,
-                    top_row,
-                } => {
-                    if UnimConfig::load_from_default_path().engine.popup_mode
-                        != PopupMode::Standalone
-                    {
-                        if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                            app.popup_surface
-                                .show_special(shm, qh, &target, characters, &top_row);
-                        }
-                    }
+                dbus_client::PopupEvent::ShowSpecial { .. } => {
+                    // Standalone 모드: unim-gui-gtk 가 팝업 전담 — 자체 surface 표시 없음
                 }
-                dbus_client::PopupEvent::ShowEmoji {
-                    target_cat_id,
-                    items,
-                    top_row,
-                    recent,
-                    categories,
-                } => {
-                    // Embedded 모드에서만 자체 surface 표시.
-                    // Standalone 모드에서는 GTK standalone GUI / GNOME extension 이 처리.
-                    if UnimConfig::load_from_default_path().engine.popup_mode
-                        != PopupMode::Standalone
-                    {
-                        if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                            app.popup_surface.show_emoji(
-                                shm,
-                                qh,
-                                &target_cat_id,
-                                items,
-                                &top_row,
-                                recent,
-                                categories,
-                            );
-                        }
-                    }
+                dbus_client::PopupEvent::ShowEmoji { .. } => {
+                    // Standalone 모드: unim-gui-gtk / GNOME extension 이 팝업 전담
                 }
                 dbus_client::PopupEvent::Hide => {
-                    app.popup_surface.hide();
+                    // Standalone 모드: unim-gui-gtk 가 팝업 숨김 전담
                 }
                 dbus_client::PopupEvent::AutoTypeFix {
                     delete_chars,
@@ -307,38 +227,14 @@ fn main() {
                     );
                     app.apply_auto_typefix(delete_chars, &commit_text, &preedit_text);
                 }
-                dbus_client::PopupEvent::Navigate {
-                    page,
-                    sel_row,
-                    sel_col,
-                    ..
-                } => {
-                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                        app.popup_surface
-                            .apply_popup_navigate(page, sel_row, sel_col, shm, qh);
-                    }
+                dbus_client::PopupEvent::Navigate { .. } => {
+                    // Standalone 모드: unim-gui-gtk 가 팝업 내비게이션 전담
                 }
-                dbus_client::PopupEvent::HanjaBookmarkChanged { index, bookmarked } => {
-                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                        app.popup_surface.apply_hanja_bookmark_changed(
-                            index as usize,
-                            bookmarked,
-                            shm,
-                            qh,
-                        );
-                    }
+                dbus_client::PopupEvent::HanjaBookmarkChanged { .. } => {
+                    // Standalone 모드: unim-gui-gtk 가 한자 즐겨찾기 전담
                 }
-                dbus_client::PopupEvent::HanjaCandidatesReordered {
-                    candidates,
-                    bookmarks,
-                    new_cursor,
-                    ..
-                } => {
-                    if let (Some(ref shm), Some(ref qh)) = (&app.shm, &app.qh) {
-                        app.popup_surface.apply_hanja_candidates_reordered(
-                            candidates, bookmarks, new_cursor, shm, qh,
-                        );
-                    }
+                dbus_client::PopupEvent::HanjaCandidatesReordered { .. } => {
+                    // Standalone 모드: unim-gui-gtk 가 한자 후보 재정렬 전담
                 }
             }
         }

@@ -696,25 +696,6 @@ pub struct AppRule {
     pub default_category: InputCategory,
 }
 
-/// 팝업 표시 방식
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub enum PopupMode {
-    /// 독립 프로세스 팝업 (unim-gui-gtk에서 표시)
-    #[default]
-    Standalone,
-    /// 프론트엔드 내장 팝업 (기존 방식)
-    Embedded,
-}
-
-impl PopupMode {
-    pub fn name(&self) -> &str {
-        match self {
-            PopupMode::Standalone => "Standalone",
-            PopupMode::Embedded => "Embedded",
-        }
-    }
-}
-
 /// 엔진 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -733,8 +714,6 @@ pub struct EngineConfig {
     pub hanja_keys: Vec<String>,
     /// 앱별 기본 모드 규칙
     pub app_rules: Vec<AppRule>,
-    /// 팝업 표시 방식 (Standalone: GUI 통합, Embedded: 프론트엔드 내장)
-    pub popup_mode: PopupMode,
     /// 자동 오타 교정 (AutoTypeFix) 설정
     pub auto_typefix: AutoTypeFixConfig,
     /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
@@ -771,7 +750,6 @@ impl Default for EngineConfig {
             toggle_keys: vec!["Korean".to_string(), "RightAlt".to_string()],
             hanja_keys: vec!["Hanja".to_string(), "F9".to_string()],
             app_rules: Vec::new(),
-            popup_mode: PopupMode::default(),
             auto_typefix: AutoTypeFixConfig::default(),
             auto_english: AutoEnglishConfig::default(),
             emoji_popup: EmojiPopupConfig::default(),

@@ -6,15 +6,13 @@
 
 #include "input_context.hpp"
 #include "unim_dbus_client.hpp"
-#include "unim_hanja_popup.hpp"
-#include "unim_special_popup.hpp"
-#include "unim_emoji_popup.hpp"
 
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QTextCharFormat>
+#include <QWidget>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDebug>
@@ -69,11 +67,9 @@ static void unim_check_debug_env()
 
 UnimInputContext::UnimInputContext()
     : m_dbus(nullptr)
-    , m_hanjaPopup(nullptr)
-    , m_specialPopup(nullptr)
-    , m_emojiPopup(nullptr)
     , m_focusObject(nullptr)
     , m_composing(false)
+    , m_popupActive(false)
 {
     unim_check_debug_env();
     UNIM_DEBUG("UnimInputContext 생성 시작");
@@ -122,142 +118,28 @@ UnimInputContext::UnimInputContext()
             ev.setCommitString(text);
             QCoreApplication::sendEvent(focusObj, &ev);
         });
-        // HanjaBookmarkChanged 시그널 → 팝업 별 갱신
-        m_dbus->setHanjaBookmarkChangedCallback([this](quint32 index, bool bookmarked) {
-            if (m_hanjaPopup) {
-                m_hanjaPopup->setBookmark(index, bookmarked);
-            }
-        });
-        // HanjaCandidatesReordered 시그널 → 후보·즐겨찾기·커서 일괄 교체
-        // (item-tracking: 토글된 한자가 정렬 후 새 위치로 이동, cursor도 따라감)
-        // Phase 7: was=true → now=false (★ 해제) 시 cursor 셀 yellow flash.
-        m_dbus->setHanjaCandidatesReorderedCallback(
-            [this](const QString &target,
-                   const QList<UnimHanjaCandidate> &candidates,
-                   const QList<bool> &bookmarks,
-                   quint32 newCursor, qint32 page, qint32 selRow, qint32 selCol,
-                   bool bookmarked, bool wasBookmarked) {
-                Q_UNUSED(target);
-                Q_UNUSED(newCursor);
-                if (m_hanjaPopup) {
-                    m_hanjaPopup->replaceCandidates(candidates, bookmarks,
-                                                     page, selRow, selCol);
-                    if (wasBookmarked && !bookmarked) {
-                        m_hanjaPopup->flashCursorCell();
-                    }
-                }
-            });
-
-        /* PR #4: 이모지 팝업 시그널 콜백 — ShowEmojiPopupV2/PopupNavigate/HidePopup */
+        /* Standalone popup 시그널 핸들러 — m_popupActive 플래그 관리용 */
         m_dbus->setShowEmojiPopupCallback(
-            [this](const QString &targetCatId,
-                   const QStringList &items,
-                   const QString &topRow,
-                   const QStringList &recent,
-                   const QList<UnimDbusClient::EmojiCategoryInfo> &categories,
-                   qint32 cx, qint32 cy, qint32 cw, qint32 ch) {
-                Q_UNUSED(cw);
-                if (isStandalonePopup()) return;  /* GUI 팝업이 전담 */
-                ensurePopups();
-                if (!m_emojiPopup) return;
-
-                /* 다른 팝업 숨김 */
-                if (m_hanjaPopup) m_hanjaPopup->hidePopup();
-                if (m_specialPopup) m_specialPopup->hidePopup();
-
-                /* DBusClient 의 카테고리 메타 → 위젯 메타 (필드 동일, 타입만 분리) */
-                QList<UnimEmojiCategoryInfo> cats;
-                cats.reserve(categories.size());
-                for (const auto &c : categories) {
-                    UnimEmojiCategoryInfo info;
-                    info.id = c.id;
-                    info.nameKo = c.nameKo;
-                    info.nameEn = c.nameEn;
-                    info.count = c.count;
-                    cats.append(info);
-                }
-
-                m_emojiPopup->showPopup(
-                    targetCatId, items, topRow, recent, cats,
-                    cx, cy, ch,
-                    [this](const QString &emoji) {
-                        if (m_dbus) m_dbus->commitEmoji(emoji);
-                        if (m_emojiPopup) m_emojiPopup->hidePopup();
-                    });
-            });
-        m_dbus->setPopupNavigateCallback(
-            [this](qint32 page, qint32 totalPages, qint32 selected,
-                   qint32 rows, qint32 cols, qint32 selRow, qint32 selCol) {
-                if (m_emojiPopup && m_emojiPopup->isVisible()) {
-                    m_emojiPopup->navigatePopup(page, totalPages, selected,
-                                                 rows, cols, selRow, selCol);
-                }
+            [this](const QString &,
+                   const QStringList &,
+                   const QString &,
+                   const QStringList &,
+                   const QList<UnimDbusClient::EmojiCategoryInfo> &,
+                   qint32, qint32, qint32, qint32) {
+                /* Standalone: unim-gui-gtk 가 팝업 전담. 플래그만 세운다. */
+                m_popupActive = true;
             });
         m_dbus->setHidePopupCallback([this]() {
-            if (m_emojiPopup && m_emojiPopup->isVisible()) {
-                m_emojiPopup->hidePopup();
-            }
+            m_popupActive = false;
         });
     } else {
         UNIM_DEBUG("UnimInputContext 생성 (DBus 연결 실패)");
     }
 
-    /* 팝업은 lazy 초기화 — QApplication 초기화 전에 QWidget 생성 불가 */
-}
-
-void UnimInputContext::ensurePopups()
-{
-    if (!m_hanjaPopup) {
-        m_hanjaPopup = new UnimHanjaPopup();
-        m_hanjaPopup->setToggleBookmarkCallback([this](quint32 globalIndex) {
-            if (m_dbus) {
-                m_dbus->toggleHanjaBookmark(globalIndex);
-            }
-        });
-        /* ◀/▶ 풋터 → DBus PopupChangePage (Phase 5) */
-        m_hanjaPopup->setPageChangeCallback([this](int direction) {
-            if (m_dbus) m_dbus->popupChangePage(direction);
-        });
-    }
-    if (!m_specialPopup) {
-        m_specialPopup = new UnimSpecialPopup();
-        m_specialPopup->setPageChangeCallback([this](int direction) {
-            if (m_dbus) m_dbus->popupChangePage(direction);
-        });
-    }
-    if (!m_emojiPopup) {
-        m_emojiPopup = new UnimEmojiPopup();
-        m_emojiPopup->setPageChangeCallback([this](int direction) {
-            if (m_dbus) m_dbus->popupChangePage(direction);
-        });
-    }
-}
-
-bool UnimInputContext::isStandalonePopup() const
-{
-    QDBusMessage msg = QDBusMessage::createMethodCall(
-        QStringLiteral("org.atit.unim.InputMethod"),
-        QStringLiteral("/org/atit/unim/InputMethod"),
-        QStringLiteral("org.atit.unim.InputMethod"),
-        QStringLiteral("GetConfig")
-    );
-    msg << QStringLiteral("popup_mode");
-    QDBusMessage reply = QDBusConnection::sessionBus().call(msg, QDBus::Block, 100);
-    if (reply.type() == QDBusMessage::ReplyMessage &&
-        reply.arguments().value(0).toString() == QStringLiteral("Standalone")) {
-        return true;
-    }
-    return false;
 }
 
 UnimInputContext::~UnimInputContext()
 {
-    delete m_emojiPopup;
-    m_emojiPopup = nullptr;
-    delete m_specialPopup;
-    m_specialPopup = nullptr;
-    delete m_hanjaPopup;
-    m_hanjaPopup = nullptr;
     delete m_dbus;
     m_dbus = nullptr;
 }
@@ -279,28 +161,6 @@ void UnimInputContext::reset()
         updatePreedit();
     }
 
-    /* 한자 팝업이 표시 중이면 닫기 */
-    if (m_hanjaPopup && m_hanjaPopup->isVisible()) {
-        m_hanjaPopup->hidePopup();
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelHanja();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-    }
-
-    /* 특수문자 팝업이 표시 중이면 닫기 */
-    if (m_specialPopup && m_specialPopup->isVisible()) {
-        m_specialPopup->hidePopup();
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelSpecialChar();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-    }
-
-    /* 이모지 팝업 — PR #4 (엔진이 reset 시 HidePopup 시그널 발행하지만 즉시 닫음) */
-    if (m_emojiPopup && m_emojiPopup->isVisible()) {
-        m_emojiPopup->hidePopup();
-    }
 }
 
 void UnimInputContext::commit()
@@ -313,29 +173,6 @@ void UnimInputContext::commit()
         }
         m_composing = false;
         updatePreedit();
-    }
-
-    /* 한자 팝업이 표시 중이면 닫기 */
-    if (m_hanjaPopup && m_hanjaPopup->isVisible()) {
-        m_hanjaPopup->hidePopup();
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelHanja();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-    }
-
-    /* 특수문자 팝업이 표시 중이면 닫기 */
-    if (m_specialPopup && m_specialPopup->isVisible()) {
-        m_specialPopup->hidePopup();
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelSpecialChar();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-    }
-
-    /* 이모지 팝업 — PR #4 */
-    if (m_emojiPopup && m_emojiPopup->isVisible()) {
-        m_emojiPopup->hidePopup();
     }
 }
 
@@ -382,9 +219,6 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         return false;
     }
 
-    /* 팝업 lazy 초기화 (QApplication 초기화 완료 후) */
-    ensurePopups();
-
     if (event->type() != QEvent::KeyPress) {
         return false;
     }
@@ -403,186 +237,24 @@ bool UnimInputContext::filterEvent(const QEvent *event)
         return false;
     }
 
-    /* 한자 팝업이 표시 중이면 먼저 팝업에서 키 처리 */
-    if (m_hanjaPopup && m_hanjaPopup->isVisible()) {
-        /* Escape → 조합 복원 + 팝업 닫기 */
-        if (key == Qt::Key_Escape) {
-            UNIM_DEBUG("한자 팝업 Escape -> 조합 복원 + 팝업 닫기");
-
-            /* ProcessKey(0,0,0)로 엔진 리셋 → preedit/commit 응답 받기 */
-            if (m_dbus) {
-                UnimDbusKeyResult resetResult = m_dbus->processKey(0, 0, 0);
-                if (!resetResult.commit.isEmpty()) {
-                    commitString(resetResult.commit);
-                }
-            }
-
-            /* CancelHanja → 한자 모드 해제 */
-            if (m_dbus) {
-                m_dbus->cancelHanja();
-            }
-
-            /* preedit 복원 */
-            m_composing = m_dbus && m_dbus->isComposing();
-            updatePreedit();
-
-            /* 팝업 닫기 */
-            m_hanjaPopup->hidePopup();
-            return true;
-        }
-
-        /* 팝업 내부 처리 (숫자 선택, 네비게이션, 모디파이어 등) */
-        if (m_hanjaPopup->handleKey(key)) {
-            return true;
-        }
-
-        /* 미지원 키 → 조합 커밋 + 팝업 닫기 + fall-through (엔진에 키 전달) */
-        UNIM_DEBUG("한자 팝업 미지원 키 -> 조합 커밋 + 팝업 닫고 엔진에 키 전달");
-
-        /* 1. FocusOut으로 조합 중 한글 커밋 */
-        if (m_dbus) {
-            QString commitText = m_dbus->focusOut();
-            if (!commitText.isEmpty()) {
-                UNIM_DEBUG(QString::asprintf("조합 커밋: \"%s\"", qPrintable(commitText)));
-                commitString(commitText);
-            }
-        }
-
-        /* preedit 클리어 */
-        m_composing = false;
-        updatePreedit();
-
-        /* 2. CancelHanja + 팝업 닫기 */
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelHanja();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-        m_hanjaPopup->hidePopup();
-
-        /* 3. FocusIn으로 컨텍스트 복원 (FocusOut 후 필요) */
-        if (m_dbus) {
-            m_dbus->focusIn(m_windowId);
-        }
-
-        /* fall-through → 아래 processKey 경로에서 엔진이 새 키 처리 */
-    }
-
-    /* 특수문자 팝업이 표시 중이면 먼저 팝업에서 키 처리 */
-    if (m_specialPopup && m_specialPopup->isVisible()) {
-        /* Escape → 팝업 닫기 + 조합 복원 */
-        if (key == Qt::Key_Escape) {
-            UNIM_DEBUG("특수문자 팝업 Escape -> 조합 복원 + 팝업 닫기");
-
-            if (m_dbus) {
-                UnimDbusKeyResult resetResult = m_dbus->processKey(0, 0, 0);
-                if (!resetResult.commit.isEmpty()) {
-                    commitString(resetResult.commit);
-                }
-            }
-
-            if (m_dbus) {
-                m_dbus->cancelSpecialChar();
-            }
-
-            m_composing = m_dbus && m_dbus->isComposing();
-            updatePreedit();
-            m_specialPopup->hidePopup();
-            return true;
-        }
-
-        /* 팝업 내부 처리 */
-        if (m_specialPopup->handleKey(key)) {
-            return true;
-        }
-
-        /* 미지원 키 → 조합 커밋 + 팝업 닫기 + fall-through */
-        UNIM_DEBUG("특수문자 팝업 미지원 키 -> 조합 커밋 + 팝업 닫고 엔진에 키 전달");
-
-        if (m_dbus) {
-            QString commitText = m_dbus->focusOut();
-            if (!commitText.isEmpty()) {
-                commitString(commitText);
-            }
-        }
-
-        m_composing = false;
-        updatePreedit();
-
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelSpecialChar();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-        m_specialPopup->hidePopup();
-
-        if (m_dbus) {
-            m_dbus->focusIn(m_windowId);
-        }
-    }
-
-    /* 한자 키 처리 (F9 또는 Hangul_Hanja) */
+    /* 한자 키 처리 (F9 또는 Hangul_Hanja) — Standalone: unim-gui-gtk 팝업 전담 */
     if (key == Qt::Key_F9 || key == Qt::Key_Hangul_Hanja) {
         if (m_dbus) {
-            /* 먼저 한자 후보 조회 (start_hanja_conversion 트리거) */
             QString target;
             QList<UnimHanjaCandidate> candidates;
-            if (m_hanjaPopup && m_dbus->getHanjaCandidates(target, candidates) && !candidates.isEmpty()) {
-                int popupX = m_cursorRect.x();
-                int popupY = m_cursorRect.y() + m_cursorRect.height() + 4;
-
-                UNIM_DEBUG(QString::asprintf("한자 후보 표시: target='%s', count=%d, pos=(%d,%d)",
-                           qPrintable(target), candidates.size(), popupX, popupY));
-
-                if (!isStandalonePopup()) {
-                    m_hanjaPopup->showPopup(target, candidates, popupX, popupY, m_cursorRect.height(),
-                        [this](const QString &hanja) {
-                            UNIM_DEBUG(QString::asprintf("한자 선택: '%s'", qPrintable(hanja)));
-                            if (m_dbus) {
-                                m_dbus->cancelHanja();
-                            }
-                            m_composing = false;
-                            updatePreedit();
-                            commitString(hanja);
-                        });
-
-                    // 초기 즐겨찾기 상태 fetch
-                    QList<bool> states;
-                    if (m_dbus->getHanjaBookmarkStates(states)) {
-                        m_hanjaPopup->setBookmarkStates(states);
-                    }
-                } else {
-                    UNIM_DEBUG("popup_mode=Standalone, 한자 팝업 표시 생략");
-                }
+            if (m_dbus->getHanjaCandidates(target, candidates) && !candidates.isEmpty()) {
+                UNIM_DEBUG(QString::asprintf("한자 후보 %d개 — Standalone popup 위임", candidates.size()));
+                /* 후보 데이터 사용 안 함 — unim-gui-gtk 가 DBus 시그널로 팝업 표시 */
             } else {
                 /* 한자 후보 없음 → 특수문자 후보 확인 */
                 QString spTarget;
                 QStringList spChars;
                 QString spTopRow;
-                if (m_specialPopup && m_dbus->getSpecialCharCandidates(spTarget, spChars, spTopRow) && !spChars.isEmpty()) {
-                    int popupX = m_cursorRect.x();
-                    int popupY = m_cursorRect.y() + m_cursorRect.height() + 4;
-
-                    UNIM_DEBUG(QString::asprintf("특수문자 후보 표시: target='%s', count=%d",
-                               qPrintable(spTarget), spChars.size()));
-
-                    if (!isStandalonePopup()) {
-                        m_specialPopup->showPopup(spTarget, spChars, spTopRow, popupX, popupY, m_cursorRect.height(),
-                            [this](const QString &character) {
-                                UNIM_DEBUG(QString::asprintf("특수문자 선택: '%s'", qPrintable(character)));
-                                if (m_dbus) {
-                                    m_dbus->cancelSpecialChar();
-                                }
-                                m_composing = false;
-                                updatePreedit();
-                                commitString(character);
-                            });
-                    } else {
-                        UNIM_DEBUG("popup_mode=Standalone, 특수문자 팝업 표시 생략");
-                    }
+                if (m_dbus->getSpecialCharCandidates(spTarget, spChars, spTopRow) && !spChars.isEmpty()) {
+                    UNIM_DEBUG(QString::asprintf("특수문자 후보 %d개 — Standalone popup 위임", spChars.size()));
+                    /* 후보 데이터 사용 안 함 — unim-gui-gtk 가 DBus 시그널로 팝업 표시 */
                 } else {
                     UNIM_DEBUG("한자/특수문자 후보 없음 → idle Hanja: emoji 트리거 위임");
-                    /* idle (preedit/조합 비어있음) → 엔진의 dual-purpose
-                     * Hanja 분기가 emoji popup 트리거. ShowEmojiPopupV2
-                     * signal handler 가 popup 을 띄운다. */
                     quint32 mod_state_emoji = 0;
                     if (keyEvent->modifiers() & Qt::ShiftModifier)   mod_state_emoji |= (1 << 0);
                     if (keyEvent->modifiers() & Qt::ControlModifier) mod_state_emoji |= (1 << 2);
@@ -590,9 +262,6 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                     if (keyEvent->modifiers() & Qt::MetaModifier)    mod_state_emoji |= (1 << 26);
                     quint32 scanCode_emoji = keyEvent->nativeScanCode();
                     quint32 evdev_emoji = (scanCode_emoji > 8) ? (scanCode_emoji - 8) : 0;
-                    /* idle Hanja 키는 InputResult::consumed() 반환 — commit/preedit
-                     * 변동 없음. 응답값은 무시하고 RPC 호출만으로 엔진의 emoji
-                     * popup state 진입을 유도. */
                     (void)m_dbus->processKey(keyEvent->key(), evdev_emoji, mod_state_emoji);
                 }
             }
@@ -701,26 +370,6 @@ Qt::LayoutDirection UnimInputContext::inputDirection() const
 void UnimInputContext::setFocusObject(QObject *object)
 {
     UNIM_DEBUG(QString::asprintf("setFocusObject: object=%p", static_cast<void*>(object)));
-
-    /* 한자 팝업이 표시 중이면 닫기 */
-    if (m_hanjaPopup && m_hanjaPopup->isVisible()) {
-        UNIM_DEBUG("setFocusObject: 한자 팝업 닫기");
-        m_hanjaPopup->hidePopup();
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelHanja();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-    }
-
-    /* 특수문자 팝업이 표시 중이면 닫기 */
-    if (m_specialPopup && m_specialPopup->isVisible()) {
-        UNIM_DEBUG("setFocusObject: 특수문자 팝업 닫기");
-        m_specialPopup->hidePopup();
-        if (m_dbus) {
-            QString trigger = m_dbus->cancelSpecialChar();
-            if (!trigger.isEmpty()) commitString(trigger);
-        }
-    }
 
     if (m_focusObject && m_composing && m_dbus) {
         UNIM_DEBUG("setFocusObject: 조합 중, 커밋 수행");

@@ -15,9 +15,6 @@
 
 /* 전방 선언 */
 class UnimDbusClient;
-class UnimHanjaPopup;
-class UnimSpecialPopup;
-class UnimEmojiPopup;
 
 class UnimInputContext : public QPlatformInputContext
 {
@@ -43,18 +40,14 @@ public:
     void setFocusObject(QObject *object) override;
 
 private:
-    void ensurePopups();
-    bool isStandalonePopup() const;
     void updatePreedit();
     void commitString(const QString &str);
 
     UnimDbusClient *m_dbus;
-    UnimHanjaPopup *m_hanjaPopup;
-    UnimSpecialPopup *m_specialPopup;
-    UnimEmojiPopup *m_emojiPopup;
     QObject *m_focusObject;
     QString m_windowId;
     bool m_composing;
+    bool m_popupActive;  /* Standalone popup 활성 여부 (nav 키 우회 차단용) */
     QRect m_cursorRect;
 };
 

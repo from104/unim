@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use unim::config::{
-    Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode, PopupMode,
+    Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode,
 };
 use unim::unim_log;
 
@@ -219,22 +219,6 @@ pub fn apply_migration(config: &mut Config, default: &Config, reader: &dyn Setti
         }
     }
 
-    // popup-mode → engine.popup_mode
-    if config.engine.popup_mode == default.engine.popup_mode {
-        if let Some(raw) = reader.read("popup-mode") {
-            if let Some(v) = parse_popup_mode(&raw) {
-                config.engine.popup_mode = v;
-                applied += 1;
-            } else {
-                unim_log!(
-                    "DAEMON",
-                    "마이그레이션: popup-mode 값 해석 실패 (skip): {}",
-                    raw
-                );
-            }
-        }
-    }
-
     // toggle-keys → engine.toggle_keys
     if config.engine.toggle_keys == default.engine.toggle_keys {
         if let Some(raw) = reader.read("toggle-keys") {
@@ -404,14 +388,6 @@ fn parse_mode_sharing(raw: &str) -> Option<ModeSharingMode> {
     }
 }
 
-fn parse_popup_mode(raw: &str) -> Option<PopupMode> {
-    match strip_quotes(raw) {
-        "Standalone" | "standalone" => Some(PopupMode::Standalone),
-        "Embedded" | "embedded" => Some(PopupMode::Embedded),
-        _ => None,
-    }
-}
-
 /// GVariant as (array of string) 파서
 ///
 /// 예: `['Korean', 'RightAlt']` 또는 `['Hanja', 'F9']`
@@ -479,8 +455,6 @@ mod tests {
             parse_mode_sharing("'per_app'"),
             Some(ModeSharingMode::PerApp)
         );
-        assert_eq!(parse_popup_mode("'Embedded'"), Some(PopupMode::Embedded));
-
         assert_eq!(
             parse_string_list("['Korean', 'RightAlt']"),
             Some(vec!["Korean".to_string(), "RightAlt".to_string()])
@@ -497,7 +471,6 @@ mod tests {
             ("english-layout", "'dvorak'"),
             ("initial-mode", "'Korean'"),
             ("mode-sharing", "'per_app'"),
-            ("popup-mode", "'Embedded'"),
             ("toggle-keys", "['ShiftSpace']"),
             ("hanja-keys", "['F9']"),
             ("auto-typefix-enabled", "false"),
@@ -509,13 +482,12 @@ mod tests {
         ]);
 
         let applied = apply_migration(&mut config, &default_config, &reader);
-        assert_eq!(applied, 13);
+        assert_eq!(applied, 12);
 
         assert_eq!(config.engine.korean.layout, "ko_3bul390");
         assert_eq!(config.engine.english.layout, "dvorak");
         assert_eq!(config.engine.default_category, InputCategory::Korean);
         assert_eq!(config.engine.mode_sharing, ModeSharingMode::PerApp);
-        assert_eq!(config.engine.popup_mode, PopupMode::Embedded);
         assert_eq!(config.engine.toggle_keys, vec!["ShiftSpace".to_string()]);
         assert_eq!(config.engine.hanja_keys, vec!["F9".to_string()]);
         assert!(!config.engine.auto_typefix.enabled);
