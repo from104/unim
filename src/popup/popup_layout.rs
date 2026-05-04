@@ -9,6 +9,15 @@ use super::popup_state::PopupState;
 
 impl PopupState {
     /// 현재 페이지 레이아웃 재계산
+    ///
+    /// Grid 종류(SpecialChar / Emoji / Hanja-expanded)는 **항상 rows=MAX_ROWS=9** 고정.
+    /// cols 만 `ceil(page_chars/9).clamp(1, 9)` 로 가변.
+    ///
+    /// 종전엔 rows 도 `ceil(page_chars/cols).min(9)` 로 가변이라, 부분 페이지(예:
+    /// 19 아이템 → cols=3, rows=7)에서 column-major 채움 인덱싱이 시각 측 9×9
+    /// 강제와 어긋났다 — char[7] 이 엔진엔 (col=1, row=0), 시각엔 (col=0, row=7)
+    /// 로 보여 Number(7) 키가 엉뚱한 셀을 선택하던 회귀.
+    /// 엔진 rows 를 9 로 고정해 시각·엔진 인덱싱을 일치시킨다.
     pub(super) fn update_page_layout(&mut self) {
         match self.kind {
             PopupKind::SpecialChar | PopupKind::Emoji => {
@@ -18,13 +27,7 @@ impl PopupState {
                 } else {
                     ((page_chars + MAX_ROWS - 1) / MAX_ROWS).clamp(1, MAX_COLS)
                 };
-                self.rows = if page_chars == 0 {
-                    1
-                } else {
-                    ((page_chars + self.cols - 1) / self.cols)
-                        .min(MAX_ROWS)
-                        .max(1)
-                };
+                self.rows = MAX_ROWS;
             }
             PopupKind::Hanja => {
                 if self.hanja_expanded {
@@ -34,13 +37,7 @@ impl PopupState {
                     } else {
                         ((page_chars + MAX_ROWS - 1) / MAX_ROWS).clamp(1, MAX_COLS)
                     };
-                    self.rows = if page_chars == 0 {
-                        1
-                    } else {
-                        ((page_chars + self.cols - 1) / self.cols)
-                            .min(MAX_ROWS)
-                            .max(1)
-                    };
+                    self.rows = MAX_ROWS;
                 } else {
                     let page_items = self.page_item_count();
                     self.rows = page_items;

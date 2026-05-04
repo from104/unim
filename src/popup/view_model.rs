@@ -221,6 +221,8 @@ mod tests {
 
     #[test]
     fn special_view_model_basic() {
+        // 20 chars → cols=3, rows=9 (rows 고정 정책). col=0 chars 0..8,
+        // col=1 chars 9..17, col=2 chars 18..19. 빈 셀은 None.
         let state = PopupState::new_special(
             "ㄱ",
             (0..20).map(|i| format!("S{}", i)).collect(),
@@ -230,15 +232,17 @@ mod tests {
         assert_eq!(vm.kind, PopupKind::SpecialChar);
         assert_eq!(vm.target, "ㄱ");
         assert_eq!(vm.col_headers.len(), 3); // 3열
-        assert_eq!(vm.row_headers.len(), 7); // 7행
+        assert_eq!(vm.row_headers.len(), 9); // 9행 (고정)
         assert_eq!(vm.col_headers[0], "Q");
         assert_eq!(vm.col_headers[1], "W");
         assert_eq!(vm.col_headers[2], "E");
         assert_eq!(vm.row_headers[0], "1");
-        assert_eq!(vm.cells.len(), 7); // 7행
+        assert_eq!(vm.cells.len(), 9); // 9행 (고정)
         assert!(vm.cells[0][0].is_some());
         assert_eq!(vm.cells[0][0].as_ref().unwrap().text, "S0");
         assert!(vm.cells[0][0].as_ref().unwrap().is_selected); // (0,0) 선택
+        // col=2 row=2 이상은 빈 셀 (S20 없음 → idx 2*9+2=20 >= 20)
+        assert!(vm.cells[2][2].is_none());
         assert_eq!(vm.footer_text, "[ㄱ]  1 / 1");
     }
 

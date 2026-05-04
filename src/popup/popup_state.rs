@@ -236,10 +236,11 @@ mod tests {
 
     #[test]
     fn special_page_layout_partial() {
-        // 20 chars → cols = ceil(20/9) = 3, rows = ceil(20/3) = 7
+        // 20 chars → cols = ceil(20/9) = 3, rows = MAX_ROWS = 9 (시각·엔진 인덱싱 일치).
+        // 빈 셀(idx >= 20)은 cell_exists 가 false 반환하여 자동 비활성.
         let state = make_special(20);
         assert_eq!(state.cols, 3);
-        assert_eq!(state.rows, 7);
+        assert_eq!(state.rows, 9);
         assert_eq!(state.total_pages, 1);
     }
 
@@ -419,14 +420,15 @@ mod tests {
 
     #[test]
     fn special_end_jumps_to_last_data_cell() {
-        // 100 chars: page 0 = 81 (9×9), page 1 = 19 (cols=3, rows=7)
-        // last index in page 1 = 18, col=18/7=2, row=18%7=4
+        // 100 chars: page 0 = 81 (9×9), page 1 = 19 (cols=3, rows=9 고정).
+        // column-major 채움: col=0 chars 0..8, col=1 chars 9..17, col=2 char 18.
+        // last index in page 1 = 18, col=18/9=2, row=18%9=0.
         let mut state = make_special(100);
         let result = state.handle_key(PopupKey::End);
         assert_eq!(result, PopupKeyResult::Updated);
         assert_eq!(state.current_page, 1);
         assert_eq!(state.sel_col, 2);
-        assert_eq!(state.sel_row, 4);
+        assert_eq!(state.sel_row, 0);
     }
 
     #[test]
@@ -468,9 +470,9 @@ mod tests {
         let mut state = make_special(100);
         state.current_page = 1;
         state.update_page_layout();
-        // 19 chars: cols = ceil(19/9) = 3, rows = ceil(19/3) = 7
+        // 19 chars: cols = ceil(19/9) = 3, rows = MAX_ROWS = 9 (고정).
         assert_eq!(state.cols, 3);
-        assert_eq!(state.rows, 7);
+        assert_eq!(state.rows, 9);
     }
 
     #[test]
@@ -482,9 +484,10 @@ mod tests {
 
     #[test]
     fn special_empty() {
+        // 빈 페이지: cols=1 유지(분기 분리 보존), rows 는 9 고정 (grid).
         let state = make_special(0);
         assert_eq!(state.total_pages, 1);
-        assert_eq!(state.rows, 1);
+        assert_eq!(state.rows, 9);
         assert_eq!(state.cols, 1);
     }
 
@@ -633,15 +636,15 @@ mod tests {
 
     #[test]
     fn hanja_expanded_end_jumps_to_last_data_cell() {
-        // 100 candidates, expanded: 81/page → 2 pages, last page has 19 items
-        // 19 → cols=3, rows=7. last index 18 → col=18/7=2, row=18%7=4
+        // 100 candidates, expanded: 81/page → 2 pages, last page has 19 items.
+        // 19 → cols=3, rows=9 (고정). last index 18 → col=18/9=2, row=18%9=0.
         let mut state = make_hanja(100);
         state.handle_key(PopupKey::Period); // expanded
         let result = state.handle_key(PopupKey::End);
         assert_eq!(result, PopupKeyResult::Updated);
         assert_eq!(state.current_page, 1);
         assert_eq!(state.sel_col, 2);
-        assert_eq!(state.sel_row, 4);
+        assert_eq!(state.sel_row, 0);
     }
 
     #[test]
@@ -859,8 +862,9 @@ mod tests {
 
     #[test]
     fn special_single_char() {
+        // 1 char → cols=1, rows=9 (고정). 단일 셀 (0,0) 만 채워짐.
         let state = make_special(1);
-        assert_eq!(state.rows, 1);
+        assert_eq!(state.rows, 9);
         assert_eq!(state.cols, 1);
         assert_eq!(state.total_pages, 1);
     }
@@ -1222,13 +1226,13 @@ mod tests {
     #[test]
     fn emoji_end_jumps_to_last_data_cell() {
         // 200 emojis → 81+81+38, last page has 38 items.
-        // 38 → cols=ceil(38/9)=5, rows=ceil(38/5)=8. last idx=37 → col=37/8=4, row=37%8=5
+        // 38 → cols=ceil(38/9)=5, rows=9 (고정). last idx=37 → col=37/9=4, row=37%9=1.
         let mut state = make_emoji_state(1, 200);
         let result = state.handle_key(PopupKey::End);
         assert_eq!(result, PopupKeyResult::Updated);
         assert_eq!(state.current_page, 2);
         assert_eq!(state.sel_col, 4);
-        assert_eq!(state.sel_row, 5);
+        assert_eq!(state.sel_row, 1);
     }
 
     #[test]
