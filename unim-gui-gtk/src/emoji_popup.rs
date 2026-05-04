@@ -58,6 +58,8 @@ pub struct EmojiPopup {
     header_label: gtk4::Label,
     /// 좌측 9 탭 ToggleButton (Recent + 8 카테고리)
     tab_buttons: Vec<gtk4::ToggleButton>,
+    /// 탭 라벨 (단축키 가시성을 위해 우측 정렬되도록 별도 Label 위젯 사용)
+    tab_labels: Vec<gtk4::Label>,
     /// 9×9 그리드 셀 라벨 (column-major: cells[col][row])
     cells: Vec<Vec<gtk4::Label>>,
     /// 상단 컬럼 헤더 라벨 (`top_row` 9 문자)
@@ -118,12 +120,21 @@ impl EmojiPopup {
         tab_box.set_valign(gtk4::Align::Start);
 
         let mut tab_buttons: Vec<gtk4::ToggleButton> = Vec::with_capacity(TAB_COUNT);
+        let mut tab_labels: Vec<gtk4::Label> = Vec::with_capacity(TAB_COUNT);
         let mut group_anchor: Option<gtk4::ToggleButton> = None;
         for i in 0..TAB_COUNT {
             let btn = gtk4::ToggleButton::new();
-            btn.set_label("");
             btn.add_css_class("emoji-tab-button");
             btn.set_focusable(false);
+            // 라벨은 우측 정렬 — "카테고리 (k)" 의 단축키가 우측 일관 위치에 노출.
+            // ToggleButton::set_label() 의 자동 라벨은 xalign 노출이 없으므로 명시
+            // Label 위젯을 child 로 연결한다.
+            let label = gtk4::Label::new(Some(""));
+            label.add_css_class("emoji-tab-label");
+            label.set_xalign(1.0);
+            label.set_halign(gtk4::Align::End);
+            label.set_hexpand(true);
+            btn.set_child(Some(&label));
             // 탭 그룹화 — 한 번에 하나만 active
             if let Some(anchor) = group_anchor.as_ref() {
                 btn.set_group(Some(anchor));
@@ -144,6 +155,7 @@ impl EmojiPopup {
             });
             tab_box.append(&btn);
             tab_buttons.push(btn);
+            tab_labels.push(label);
         }
         body_hbox.append(&tab_box);
 
@@ -267,6 +279,7 @@ impl EmojiPopup {
             display_server,
             header_label,
             tab_buttons,
+            tab_labels,
             cells,
             col_headers,
             row_numbers,
@@ -334,14 +347,15 @@ impl EmojiPopup {
         // 좌측 탭 라벨 갱신 + active 동기화
         let mut active_idx: usize = 0;
         for (i, btn) in self.tab_buttons.iter().enumerate() {
+            let label = &self.tab_labels[i];
             if let Some((id, _, _, _)) = categories.get(i) {
-                btn.set_label(&tab_label_for(id));
+                label.set_text(&tab_label_for(id));
                 btn.set_visible(true);
                 if id == &target_cat_id {
                     active_idx = i;
                 }
             } else {
-                btn.set_label("");
+                label.set_text("");
                 btn.set_visible(false);
             }
         }

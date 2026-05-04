@@ -105,9 +105,10 @@ grid_header_min_height = "18px"
 # 이모지 그리드 헤더 — 셀 크기에 맞춰 키움
 emoji_grid_header_min_height = "24px"
 
-# 이모지 좌측 세로 9 탭
+# 이모지 좌측 세로 9 탭 — 라벨은 우측 정렬되어 단축키 "(k)" 가 우측에서
+# 일관 위치에 노출됨. padding 우측을 약간 더 줘서 정렬 후에도 답답하지 않게.
 emoji_tab_min_width = "96px"
-emoji_tab_padding   = "6px 10px"
+emoji_tab_padding   = "6px 12px"
 emoji_tab_radius    = "6px"
 emoji_tabs_padding  = "2px 4px 2px 0"
 emoji_tabs_spacing  = "2px"

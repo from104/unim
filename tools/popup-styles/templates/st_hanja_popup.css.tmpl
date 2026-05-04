@@ -341,7 +341,9 @@
     border-radius: {{spacing.emoji_tab_radius}};
     border: none;
     min-width: {{spacing.emoji_tab_min_width}};
-    text-align: left;
+    /* 단축키 가시성 — "카테고리 (k)" 의 (k) 가 항상 우측 일관 위치에 보이도록
+     * 우측 정렬. 라벨 길이가 달라도 단축키 위치는 고정. */
+    text-align: right;
 }
 
 .unim-emoji-popup .emoji-tab-vertical.active {
