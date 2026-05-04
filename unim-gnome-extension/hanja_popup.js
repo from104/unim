@@ -136,8 +136,33 @@ export class HanjaPopup {
             reactive: true,
         });
 
-        this._header = new St.Label({ style_class: 'popup-header' });
-        this._container.add_child(this._header);
+        // 헤더: [⊞/⊟ expand] [헤더 라벨]
+        // expand 토글을 가장 왼쪽에 두면 마우스로 빠르게 모드 전환 가능 +
+        // 확장 모드 헤더에서 한자 뜻이 라벨 부분을 채워 일관된 위치에 보인다.
+        this._headerBox = new St.BoxLayout({
+            style_class: 'popup-header-box',
+            vertical: false,
+        });
+        this._expandIcon = new St.Label({
+            style_class: 'popup-expand-icon',
+            text: ICON_EXPAND,
+            reactive: true,
+            track_hover: true,
+        });
+        this._expandIcon.connect('button-press-event', () => {
+            if (this._onToggleExpand) {
+                this._onToggleExpand();
+            }
+            return Clutter.EVENT_STOP;
+        });
+        this._header = new St.Label({
+            style_class: 'popup-header',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.START,
+        });
+        this._headerBox.add_child(this._expandIcon);
+        this._headerBox.add_child(this._header);
+        this._container.add_child(this._headerBox);
 
         this._body = new St.BoxLayout({ vertical: true });
         this._container.add_child(this._body);
@@ -150,7 +175,9 @@ export class HanjaPopup {
         });
         this._container.add_child(this._meaningStrip);
 
-        // 풋터: [◀] [page/total] [▶] [⊞]
+        // 풋터: [◀] [page/total] [▶]  — 한자 popup 은 단일 페이지여도 항상 가시
+        // (popup 크기 안정 정책). ◀/▶ 는 단일 페이지일 때 reactive=false 처리하지
+        // 않고 노출 유지 — 클릭해도 데몬이 page wrap 으로 처리.
         this._footer = new St.BoxLayout({
             style_class: 'popup-footer-box',
             vertical: false,
@@ -183,22 +210,9 @@ export class HanjaPopup {
         this._nextPageBtn.connect('clicked', () => {
             if (this._onChangePage) this._onChangePage(1);
         });
-        this._expandIcon = new St.Label({
-            style_class: 'popup-expand-icon',
-            text: ICON_EXPAND,
-            reactive: true,
-            track_hover: true,
-        });
-        this._expandIcon.connect('button-press-event', () => {
-            if (this._onToggleExpand) {
-                this._onToggleExpand();
-            }
-            return Clutter.EVENT_STOP;
-        });
         this._footer.add_child(this._prevPageBtn);
         this._footer.add_child(this._pageLabel);
         this._footer.add_child(this._nextPageBtn);
-        this._footer.add_child(this._expandIcon);
         this._container.add_child(this._footer);
 
         Main.layoutManager.addChrome(this._container, {
@@ -533,10 +547,10 @@ export class HanjaPopup {
      * 통합 PopupRender 시그널 핸들러 (Phase B 통합 SoT).
      *
      * daemon 산출 view_model 의 미리 포맷된 문자열을 적용:
-     * - footer_text: page indicator (e.g., "1/3"). show_footer=false 면 hide.
-     * - expand_text: ⊞/⊟ 아이콘 텍스트.
-     * - header: hanja popup 은 header 라벨 없음 (compact list 의 첫 번째 컬럼이
-     *   숫자 레이블로 대체) — 무시.
+     * - header_text: compact "「target」 → 한자" / expanded "「target」 → {hanja}  {meaning}".
+     *   확장 모드에서 selection 이동 시 daemon 이 재발행 — 헤더가 항상 선택된 한자 뜻 반영.
+     * - footer_text: page indicator (e.g., "1/3"). 한자 popup 은 단일 페이지여도 always show.
+     * - expand_text: ⊞/⊟ 아이콘 텍스트 (header 좌측에 위치).
      *
      * 셀/선택 갱신은 기존 updateFromNavigate 가 PopupNavigate 시그널로 처리.
      * 추후 popup_render 단독 구독 모델로 전환 예정.
@@ -544,6 +558,10 @@ export class HanjaPopup {
      */
     updateFromRender(state) {
         if (!this.isVisible) return;
+        // 헤더 텍스트 — daemon SoT. 확장 모드에서 선택 이동 시 헤더가 자동 갱신.
+        if (this._header) {
+            this._header.set_text(state.headerText || '');
+        }
         // 푸터 텍스트 + visibility — daemon SoT.
         if (this._pageLabel) {
             this._pageLabel.set_text(state.footerText || '');
@@ -557,7 +575,7 @@ export class HanjaPopup {
                 this._footer.hide();
             }
         }
-        // 확장 아이콘 텍스트 — daemon 이 ⊞/⊟ 결정.
+        // 확장 아이콘 텍스트 — daemon 이 ⊞/⊟ 결정 (header 좌측에 위치).
         if (this._expandIcon && state.expandVisible) {
             this._expandIcon.set_text(state.expandText || '');
             this._expandIcon.show();
@@ -652,7 +670,8 @@ export class HanjaPopup {
             this._renderList();
         }
 
-        // 확장 아이콘 상태
+        // 확장 아이콘 상태 (header 좌측에 위치 — daemon SoT updateFromRender 가
+        // 곧 덮어씀; 이 줄은 PopupRender 시그널 도달 전 짧은 idle window 의 폴백).
         this._expandIcon.set_text(this._cols > 1 ? ICON_COMPACT : ICON_EXPAND);
 
         // compact 모드로 전환되면 뜻풀이 스트립 숨김
@@ -660,16 +679,13 @@ export class HanjaPopup {
             this._meaningStrip.hide();
         }
 
-        // 페이지 표시 + ◀/▶ 가시성 (단일 페이지 시 hide)
-        if (this._totalPages > 1) {
-            this._pageLabel.set_text(`${this._currentPage + 1}/${this._totalPages}`);
-            this._prevPageBtn.show();
-            this._nextPageBtn.show();
-        } else {
-            this._pageLabel.set_text('');
-            this._prevPageBtn.hide();
-            this._nextPageBtn.hide();
-        }
+        // 페이지 라벨 + 풋터 — 한자 popup 은 단일 페이지여도 항상 가시 (popup 크기 안정).
+        // ◀/▶ 버튼은 hide() 하지 않고 노출 유지하여 footer 폭이 페이지 수와 무관하게 일정.
+        // 단일 페이지일 때 클릭은 데몬이 page wrap (no-op) 으로 처리.
+        this._pageLabel.set_text(`${this._currentPage + 1}/${this._totalPages}`);
+        this._prevPageBtn.show();
+        this._nextPageBtn.show();
+        this._footer.show();
 
         this._updateSelection();
     }

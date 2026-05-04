@@ -74,18 +74,41 @@ impl HanjaPopup {
         let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         vbox.add_css_class("unim-hanja-vbox");
 
-        // 타겟 글자 라벨
+        // 헤더: [⊞/⊟ expand 토글] [target_label]
+        // expand 아이콘을 헤더 좌측 최상단에 두면 마우스 빠른 모드 전환 + 확장 모드
+        // 헤더에 한자 뜻이 라벨에 채워져 일관된 위치에 표시된다.
+        let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+        header_box.add_css_class("popup-header-box");
+
+        let expand_icon = gtk4::Label::new(Some(ICON_EXPAND));
+        expand_icon.add_css_class("popup-expand-icon");
+        expand_icon.set_halign(gtk4::Align::Start);
+        // 마우스 클릭 → TogglePopupExpand RPC (popup-owner 라우팅 보정).
+        let click_gesture = gtk4::GestureClick::new();
+        click_gesture.connect_released(|_, _, _, _| {
+            toggle_popup_expand_via_dbus();
+        });
+        expand_icon.add_controller(click_gesture);
+        // 호버 시 마우스 커서 변경 (시각 피드백)
+        expand_icon.set_cursor_from_name(Some("pointer"));
+        header_box.append(&expand_icon);
+
         let target_label = gtk4::Label::new(None);
         target_label.add_css_class("hanja-target");
         target_label.set_halign(gtk4::Align::Start);
-        vbox.append(&target_label);
+        target_label.set_hexpand(true);
+        target_label.set_xalign(0.0);
+        header_box.append(&target_label);
+
+        vbox.append(&header_box);
 
         // 본문 컨테이너 — compact는 ListBox, expanded는 Grid를 동적으로 차일드로 둔다
         let body_container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         body_container.add_css_class("hanja-body");
         vbox.append(&body_container);
 
-        // 푸터: [◀] [페이지 n/N] [▶] [⊞]
+        // 푸터: [◀] [페이지 n/N] [▶]
+        // 한자 popup 은 단일 페이지여도 항상 가시 — popup 크기 안정 정책.
         let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
         footer.add_css_class("popup-footer-box");
 
@@ -116,21 +139,6 @@ impl HanjaPopup {
             popup_change_page_via_dbus(1);
         });
         footer.append(&next_page_btn);
-
-        // 확장/축소 아이콘 — Period 키 또는 마우스 클릭으로 토글.
-        // navigate()가 cols 변화를 감지해 아이콘 텍스트를 갱신한다.
-        let expand_icon = gtk4::Label::new(Some(ICON_EXPAND));
-        expand_icon.add_css_class("popup-expand-icon");
-        expand_icon.set_halign(gtk4::Align::End);
-        // 마우스 클릭 → TogglePopupExpand RPC (popup-owner 라우팅 보정).
-        let click_gesture = gtk4::GestureClick::new();
-        click_gesture.connect_released(|_, _, _, _| {
-            toggle_popup_expand_via_dbus();
-        });
-        expand_icon.add_controller(click_gesture);
-        // 호버 시 마우스 커서 변경 (시각 피드백)
-        expand_icon.set_cursor_from_name(Some("pointer"));
-        footer.append(&expand_icon);
 
         vbox.append(&footer);
 
@@ -244,17 +252,14 @@ impl HanjaPopup {
             self.render_list(start, end);
         }
 
-        // 푸터 갱신: 단일 페이지면 ◀/▶ hide, 여러 페이지면 show + 라벨 갱신
-        if total_pages > 1 {
-            self.page_label
-                .set_text(&format!("{}/{}", self.current_page + 1, total_pages));
-            self.prev_page_btn.set_visible(true);
-            self.next_page_btn.set_visible(true);
-        } else {
-            self.page_label.set_text("");
-            self.prev_page_btn.set_visible(false);
-            self.next_page_btn.set_visible(false);
-        }
+        // 한자 popup 은 단일 페이지여도 풋터 항상 가시 — popup 크기 안정 정책.
+        // ◀/▶ 도 노출 유지 (단일 페이지일 때 클릭은 데몬이 page wrap no-op 처리).
+        // PopupRender 시그널이 도달하면 update_from_render 가 footer_text/visibility 를
+        // daemon SoT 로 덮어쓴다 — 본 줄들은 첫 idle window 폴백.
+        self.page_label
+            .set_text(&format!("{}/{}", self.current_page + 1, total_pages));
+        self.prev_page_btn.set_visible(true);
+        self.next_page_btn.set_visible(true);
         self.expand_icon.set_text(if self.cols > 1 {
             ICON_COMPACT
         } else {

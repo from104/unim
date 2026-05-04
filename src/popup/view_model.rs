@@ -252,7 +252,6 @@ impl PopupState {
     }
 
     fn hanja_view_model(&self) -> PopupViewModel {
-        let header_text = format!("「{}」 → 한자", self.target());
         let expand_text = if self.is_hanja_expanded() {
             "⊟".to_string()
         } else {
@@ -299,12 +298,23 @@ impl PopupState {
                 cells.push(row);
             }
 
-            let show_footer = self.total_pages() > 1;
-            let footer_text = if show_footer {
-                format!("{}/{}", self.current_page() + 1, self.total_pages())
+            // 확장 모드 헤더는 선택된 한자의 뜻을 표시 — `「target」 → {hanja}  {meaning}`.
+            // 빈 셀에 커서가 있을 경우(81 미만 페이지) 기본 헤더로 폴백.
+            let header_text = if let Some(global) = self.hanja_global_index_rc(self.sel_row(), self.sel_col()) {
+                let hanja = self.get_item(global).unwrap_or("");
+                let meaning = self.get_meaning(global).unwrap_or("");
+                if meaning.is_empty() {
+                    format!("「{}」 → {}", self.target(), hanja)
+                } else {
+                    format!("「{}」 → {}  {}", self.target(), hanja, meaning)
+                }
             } else {
-                String::new()
+                format!("「{}」 → 한자", self.target())
             };
+
+            // 페이지 네비 푸터는 항상 가시 — popup 크기 안정 (한자 popup 정책).
+            let show_footer = true;
+            let footer_text = format!("{}/{}", self.current_page() + 1, self.total_pages());
 
             PopupViewModel {
                 kind: PopupKind::Hanja,
@@ -351,12 +361,12 @@ impl PopupState {
                 cells.push(vec![Some(cell)]);
             }
 
-            let show_footer = self.total_pages() > 1;
-            let footer_text = if show_footer {
-                format!("{}/{}", self.current_page() + 1, self.total_pages())
-            } else {
-                String::new()
-            };
+            // 페이지 네비 푸터는 항상 가시 — popup 크기 안정 (한자 popup 정책).
+            let show_footer = true;
+            let footer_text = format!("{}/{}", self.current_page() + 1, self.total_pages());
+
+            // compact 모드 헤더는 기본형 — 각 행에 hanja+meaning 인라인 표시되므로 헤더에 별도 표기 불필요.
+            let header_text = format!("「{}」 → 한자", self.target());
 
             PopupViewModel {
                 kind: PopupKind::Hanja,
@@ -530,5 +540,56 @@ mod tests {
         assert!(vm.show_footer);
         assert_eq!(vm.footer_text, "1/2");
         assert_eq!(vm.expand_text, "⊟"); // expanded → 축소 아이콘
+    }
+
+    #[test]
+    fn hanja_view_model_footer_always_shown_single_page() {
+        // 5 개 후보 (compact 9/page → 1 page) — 단일 페이지여도 footer 가시 + "1/1".
+        // popup 크기 안정 정책 (한자 popup 한정).
+        let candidates: Vec<(String, String)> = (0..5)
+            .map(|i| (format!("漢{}", i), format!("뜻{}", i)))
+            .collect();
+        let state = PopupState::new_hanja("한", candidates);
+        let vm = state.view_model("");
+        assert!(vm.show_footer, "단일 페이지여도 푸터 가시");
+        assert_eq!(vm.footer_text, "1/1");
+    }
+
+    #[test]
+    fn hanja_view_model_expanded_header_with_meaning() {
+        // expanded 모드 헤더는 선택된 한자의 뜻을 포함 — `「target」 → {hanja}  {meaning}`.
+        let candidates: Vec<(String, String)> = vec![
+            ("韓".to_string(), "나라 한".to_string()),
+            ("漢".to_string(), "한나라 한".to_string()),
+        ];
+        let mut state = PopupState::new_hanja("한", candidates);
+        state.handle_key(super::super::PopupKey::Period); // expanded
+        let vm = state.view_model("");
+        // 초기 sel = (0,0) → 첫 번째 후보 "韓" 선택
+        assert_eq!(vm.header_text, "「한」 → 韓  나라 한");
+    }
+
+    #[test]
+    fn hanja_view_model_expanded_header_meaning_changes_on_selection() {
+        let candidates: Vec<(String, String)> = vec![
+            ("韓".to_string(), "나라 한".to_string()),
+            ("漢".to_string(), "한나라 한".to_string()),
+        ];
+        let mut state = PopupState::new_hanja("한", candidates);
+        state.handle_key(super::super::PopupKey::Period); // expanded
+        // expanded 9×9 column-major: idx 0=(0,0) 韓, idx 1=(1,0) 漢
+        state.handle_key(super::super::PopupKey::Down); // (1, 0) → 漢
+        let vm = state.view_model("");
+        assert_eq!(vm.header_text, "「한」 → 漢  한나라 한");
+    }
+
+    #[test]
+    fn hanja_view_model_expanded_header_no_meaning() {
+        // 의미 비어있을 때: `「target」 → {hanja}` (meaning 없이).
+        let candidates: Vec<(String, String)> = vec![("韓".to_string(), "".to_string())];
+        let mut state = PopupState::new_hanja("한", candidates);
+        state.handle_key(super::super::PopupKey::Period);
+        let vm = state.view_model("");
+        assert_eq!(vm.header_text, "「한」 → 韓");
     }
 }
