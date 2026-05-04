@@ -1325,11 +1325,16 @@ mod tests {
     #[test]
     fn emoji_view_model_basic() {
         let state = make_emoji_state(1, 50);
-        let vm = state.view_model();
+        let vm = state.view_model("ASDFGHJKL");
         assert_eq!(vm.kind, PopupKind::Emoji);
-        // 푸터: 카테고리 한글 라벨 + page 1/1
-        assert!(vm.footer_text.contains("표정·인물"));
-        assert!(vm.footer_text.contains("1 / 1"));
+        // 단일 페이지면 footer 텍스트 비어있음 + show_footer=false
+        assert!(!vm.show_footer);
+        assert_eq!(vm.footer_text, "");
+        // 헤더는 카테고리 라벨
+        assert!(vm.header_text.contains("표정·인물"));
+        // 탭 라벨에 단축키 prefix 포함
+        assert_eq!(vm.tab_labels.len(), 9);
+        assert!(vm.tab_labels[0].contains("(A)") || vm.tab_labels[0].contains("(a)"));
     }
 
     /// 즐겨찾기 해제 시 새 인덱스가 현재 페이지를 벗어나면 페이지가 점프해야 한다.
