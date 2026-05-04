@@ -497,11 +497,15 @@ export class EmojiPopup {
         // 탭 라벨 — daemon 이 단축키 prefix 포함하여 산출.
         // _tabButtons 는 Map<cat.id, btn>. categories 와 같은 순서로 삽입되므로
         // values() iteration 도 같은 순서. tabLabels[i] 와 1:1 대응.
+        // 자동 label 대신 child St.Label 을 사용하므로 child 의 set_text() 로 갱신.
         if (Array.isArray(state.tabLabels) && state.tabLabels.length > 0 && this._tabButtons) {
             let i = 0;
             for (const btn of this._tabButtons.values()) {
                 if (i < state.tabLabels.length) {
-                    btn.set_label(state.tabLabels[i]);
+                    const labelWidget = btn.get_child();
+                    if (labelWidget && typeof labelWidget.set_text === 'function') {
+                        labelWidget.set_text(state.tabLabels[i]);
+                    }
                 }
                 i++;
             }
@@ -539,9 +543,20 @@ export class EmojiPopup {
                 ? this._homeRow[i]
                 : '';
             const label = keyChar ? `${baseLabel} (${keyChar})` : baseLabel;
+            // St.Button 의 자동 label 은 내부 St.Label 의 x_align 을 노출하지 않아
+            // CSS `text-align: right` 도 무시된다 (St 의 CSS subset 한계).
+            // 단축키 가시성을 위한 우측 정렬을 보장하려면 명시 St.Label 을 child 로
+            // 두고 x_align: END + x_expand 를 직접 지정해야 한다 — gui-gtk 와 동일 패턴.
+            const labelWidget = new St.Label({
+                text: label,
+                style_class: 'emoji-tab-label',
+                x_align: Clutter.ActorAlign.END,
+                x_expand: true,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
             const btn = new St.Button({
                 style_class: 'emoji-tab-vertical',
-                label,
+                child: labelWidget,
                 can_focus: false,
                 // 마우스 클릭으로 카테고리 전환 — 콜백이 있을 때만 활성화.
                 // 키보드 Tab/ShiftTab 은 별도 경로(엔진)로 항상 동작.

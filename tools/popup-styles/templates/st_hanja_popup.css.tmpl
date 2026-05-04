@@ -341,13 +341,24 @@
     border-radius: {{spacing.emoji_tab_radius}};
     border: none;
     min-width: {{spacing.emoji_tab_min_width}};
-    /* 단축키 가시성 — "카테고리 (k)" 의 (k) 가 항상 우측 일관 위치에 보이도록
-     * 우측 정렬. 라벨 길이가 달라도 단축키 위치는 고정. */
-    text-align: right;
+}
+
+/* St.Button 의 자동 label 은 CSS text-align 을 무시하므로, JS 측에서 명시
+ * St.Label child 를 만들고 (x_align: END, x_expand: true) 본 클래스를 부여한다.
+ * 본 규칙은 inner Label 에 active 상태 색상·font-weight 를 명시 적용해
+ * St 의 자식 상속 한계를 보완하는 안전망. */
+.unim-emoji-popup .emoji-tab-vertical .emoji-tab-label {
+    color: inherit;
+    font-size: inherit;
 }
 
 .unim-emoji-popup .emoji-tab-vertical.active {
     background-color: {{colors.accent_special_bg_mid}};
+    color: {{colors.accent_special}};
+    font-weight: bold;
+}
+
+.unim-emoji-popup .emoji-tab-vertical.active .emoji-tab-label {
     color: {{colors.accent_special}};
     font-weight: bold;
 }
