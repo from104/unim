@@ -383,6 +383,50 @@ export class EmojiPopup {
         this._updateSelection();
     }
 
+    /**
+     * 통합 PopupRender 시그널 핸들러 (Phase B 통합 SoT).
+     *
+     * daemon 산출 view_model 의 미리 포맷된 문자열을 적용:
+     * - header_text: "「Smileys」 → 이모지"
+     * - footer_text: "[Smileys]  1 / 3"
+     * - show_footer: 단일 페이지면 false → footer hide.
+     * - tab_labels: 좌측 9 탭 라벨 (단축키 prefix 포함, "Smileys (a)").
+     * - active_tab_index: 활성 카테고리 인덱스.
+     *
+     * 셀/그리드 렌더는 기존 updateFromNavigate 가 PopupNavigate 시그널로 처리.
+     * @param {object} state
+     */
+    updateFromRender(state) {
+        if (!this._container?.visible) return;
+        if (this._header) {
+            this._header.set_text(state.headerText || '');
+        }
+        if (this._pageLabel) {
+            this._pageLabel.set_text(state.footerText || '');
+        }
+        if (this._footer) {
+            if (state.showFooter) {
+                this._footer.show();
+                this._prevPageBtn?.show();
+                this._nextPageBtn?.show();
+            } else {
+                this._footer.hide();
+            }
+        }
+        // 탭 라벨 — daemon 이 단축키 prefix 포함하여 산출.
+        // _tabButtons 는 Map<cat.id, btn>. categories 와 같은 순서로 삽입되므로
+        // values() iteration 도 같은 순서. tabLabels[i] 와 1:1 대응.
+        if (Array.isArray(state.tabLabels) && state.tabLabels.length > 0 && this._tabButtons) {
+            let i = 0;
+            for (const btn of this._tabButtons.values()) {
+                if (i < state.tabLabels.length) {
+                    btn.set_label(state.tabLabels[i]);
+                }
+                i++;
+            }
+        }
+    }
+
     // ===========================================
     // 내부 메서드
     // ===========================================

@@ -55,6 +55,8 @@ export class UnimDbusIME {
         this._onHidePopup = null;
         /** @type {Function|null} 팝업 네비게이션 콜백 */
         this._onPopupNavigate = null;
+        /** @type {Function|null} popup_render 시그널 콜백 (통합 view_model state) */
+        this._onPopupRender = null;
         /** @type {Function|null} 한자 즐겨찾기 변경 콜백 */
         this._onHanjaBookmarkChanged = null;
         /** @type {Function|null} 한자 후보 재정렬 콜백 (즐겨찾기 토글 후) */
@@ -177,6 +179,7 @@ export class UnimDbusIME {
         this._onAutoTypeFix = callbacks.onAutoTypeFix || null;
         this._onHanjaBookmarkChanged = callbacks.onHanjaBookmarkChanged || null;
         this._onHanjaCandidatesReordered = callbacks.onHanjaCandidatesReordered || null;
+        this._onPopupRender = callbacks.onPopupRender || null;
     }
 
     /**
@@ -349,6 +352,44 @@ export class UnimDbusIME {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
                 this._onAutoTypeFix(deleteChars, commitText, preeditText);
+            } else if (signalName === 'PopupRender' && this._onPopupRender) {
+                // 통합 popup render state — daemon 산출 view_model. 헤더/푸터/셀/탭/확장 아이콘
+                // 모두 즉시 렌더 가능. tuple 묶음:
+                //   kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages),
+                //   (showFooter, expandVisible), cells[(text,meaning,flags)],
+                //   col_headers[(text,active)], row_headers[(text,active)], tab_labels[],
+                //   active_tab_index
+                const [
+                    kind,
+                    [target, headerText, footerText, expandText],
+                    [rows, cols, selRow, selCol, currentPage, totalPages],
+                    [showFooter, expandVisible],
+                    cells,
+                    colHeaders,
+                    rowHeaders,
+                    tabLabels,
+                    activeTabIndex,
+                ] = parameters.deep_unpack();
+                this._onPopupRender({
+                    kind,
+                    target,
+                    headerText,
+                    footerText,
+                    showFooter,
+                    rows,
+                    cols,
+                    selRow,
+                    selCol,
+                    currentPage,
+                    totalPages,
+                    cells, // [[text, meaning, flags], ...] column-major, length = rows*cols
+                    colHeaders, // [[text, isActive], ...]
+                    rowHeaders, // [[text, isActive], ...]
+                    expandVisible,
+                    expandText,
+                    tabLabels,
+                    activeTabIndex,
+                });
             }
         } catch (e) {
             unimError('DBUS_IME', `시그널 처리 오류 (${signalName}): ${e.message}`);
@@ -1029,6 +1070,8 @@ export class UnimDbusIME {
         this._onShowEmoji = null;
         this._onHidePopup = null;
         this._onPopupNavigate = null;
+        /** @type {Function|null} popup_render 시그널 콜백 (통합 view_model state) */
+        this._onPopupRender = null;
         this._onHanjaBookmarkChanged = null;
         this._onHanjaCandidatesReordered = null;
 

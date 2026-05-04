@@ -256,6 +256,34 @@ export class SpecialPopup {
     }
 
     /**
+     * 통합 PopupRender 시그널 핸들러 (Phase B 통합 SoT).
+     *
+     * daemon 산출 view_model 의 미리 포맷된 문자열을 적용:
+     * - header_text: "「ㄱ」 → 특수문자"
+     * - footer_text: "[ㄱ]  1 / 3"
+     * - show_footer: 단일 페이지면 false → footer hide.
+     * @param {object} state
+     */
+    updateFromRender(state) {
+        if (!this.isVisible) return;
+        if (this._header) {
+            this._header.set_text(state.headerText || '');
+        }
+        if (this._pageLabel) {
+            this._pageLabel.set_text(state.footerText || '');
+        }
+        if (this._footer) {
+            if (state.showFooter) {
+                this._footer.show();
+                this._prevPageBtn?.show();
+                this._nextPageBtn?.show();
+            } else {
+                this._footer.hide();
+            }
+        }
+    }
+
+    /**
      * 자원 정리
      */
     disable() {

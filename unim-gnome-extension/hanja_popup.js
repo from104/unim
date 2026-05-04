@@ -422,6 +422,43 @@ export class HanjaPopup {
     }
 
     /**
+     * 통합 PopupRender 시그널 핸들러 (Phase B 통합 SoT).
+     *
+     * daemon 산출 view_model 의 미리 포맷된 문자열을 적용:
+     * - footer_text: page indicator (e.g., "1/3"). show_footer=false 면 hide.
+     * - expand_text: ⊞/⊟ 아이콘 텍스트.
+     * - header: hanja popup 은 header 라벨 없음 (compact list 의 첫 번째 컬럼이
+     *   숫자 레이블로 대체) — 무시.
+     *
+     * 셀/선택 갱신은 기존 updateFromNavigate 가 PopupNavigate 시그널로 처리.
+     * 추후 popup_render 단독 구독 모델로 전환 예정.
+     * @param {object} state
+     */
+    updateFromRender(state) {
+        if (!this.isVisible) return;
+        // 푸터 텍스트 + visibility — daemon SoT.
+        if (this._pageLabel) {
+            this._pageLabel.set_text(state.footerText || '');
+        }
+        if (this._footer) {
+            if (state.showFooter) {
+                this._footer.show();
+                this._prevPageBtn?.show();
+                this._nextPageBtn?.show();
+            } else {
+                this._footer.hide();
+            }
+        }
+        // 확장 아이콘 텍스트 — daemon 이 ⊞/⊟ 결정.
+        if (this._expandIcon && state.expandVisible) {
+            this._expandIcon.set_text(state.expandText || '');
+            this._expandIcon.show();
+        } else if (this._expandIcon) {
+            this._expandIcon.hide();
+        }
+    }
+
+    /**
      * 자원 정리
      */
     disable() {

@@ -315,6 +315,17 @@ export default class UnimExtension extends Extension {
                             page, totalPages, rows, cols, selRow, selCol);
                     }
                 },
+                onPopupRender: (state) => {
+                    // 통합 view_model — daemon SoT. 헤더/푸터/탭 라벨/확장 아이콘 등 미리 포맷된
+                    // 문자열을 그대로 적용. 각 popup 의 updateFromRender 가 본 state 를 일괄 반영.
+                    if (this._hanjaPopup?.isVisible && state.kind === 0) {
+                        this._hanjaPopup.updateFromRender?.(state);
+                    } else if (this._specialPopup?.isVisible && state.kind === 1) {
+                        this._specialPopup.updateFromRender?.(state);
+                    } else if (this._emojiPopup?.isVisible && state.kind === 2) {
+                        this._emojiPopup.updateFromRender?.(state);
+                    }
+                },
                 onHanjaBookmarkChanged: (index, bookmarked) => {
                     if (this._hanjaPopup?.isVisible) {
                         this._hanjaPopup.setBookmark(index, bookmarked);
