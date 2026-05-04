@@ -309,11 +309,21 @@ impl HanjaPopup {
             }
             hbox.append(&star_label);
 
+            // 우클릭 → 즐겨찾기 토글 (GNOME extension button-press button=3 정합).
+            // GestureClick 의 기본 button=0 은 모든 버튼이라, set_button(3) 으로 우클릭만.
+            let right_gesture = gtk4::GestureClick::new();
+            right_gesture.set_button(gtk4::gdk::BUTTON_SECONDARY);
+            let global_for_right = global_idx as u32;
+            right_gesture.connect_released(move |_, _, _, _| {
+                toggle_hanja_bookmark_via_dbus(global_for_right);
+            });
+            row.add_controller(right_gesture);
+
             row.set_child(Some(&hbox));
             list_box.append(&row);
         }
 
-        // compact: 클릭 → global 인덱스로 SelectHanja
+        // compact: 좌클릭/Enter → global 인덱스로 SelectHanja
         let page_start = start;
         list_box.connect_row_activated(move |_lb, row| {
             let global = page_start + row.index() as usize;
@@ -390,6 +400,14 @@ impl HanjaPopup {
                 cell.connect_clicked(move |_| {
                     select_hanja_via_dbus(global_for_click);
                 });
+                // 우클릭 → 즐겨찾기 토글 (compact 와 동일).
+                let right_gesture = gtk4::GestureClick::new();
+                right_gesture.set_button(gtk4::gdk::BUTTON_SECONDARY);
+                let global_for_right = global as u32;
+                right_gesture.connect_released(move |_, _, _, _| {
+                    toggle_hanja_bookmark_via_dbus(global_for_right);
+                });
+                cell.add_controller(right_gesture);
                 grid.attach(&cell, (col + 1) as i32, (row + 1) as i32, 1, 1);
             }
         }
@@ -655,6 +673,49 @@ pub fn toggle_popup_expand_via_dbus() {
                     .await;
                     if let Ok(proxy) = proxy {
                         let _: Result<(), _> = proxy.call("TogglePopupExpand", &()).await;
+                    }
+                }
+            });
+        });
+    }
+}
+
+/// 한자 후보 즐겨찾기 토글 (마우스 우클릭).
+///
+/// GNOME extension 의 button-press-event(BUTTON_SECONDARY) 와 동일 의미.
+/// `global_index` 는 전체 후보 인덱스 (페이지 로컬이 아님). 데몬이
+/// resolve_popup_owner 로 popup-owner context 에 라우팅 + ToggleHanjaBookmark
+/// 처리 후 HanjaBookmarkChanged + HanjaCandidatesReordered 시그널 발행 →
+/// gtk_ui::handle_gui_action 이 flash_cursor_cell() 트리거.
+pub fn toggle_hanja_bookmark_via_dbus(global_index: u32) {
+    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+
+    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
+
+    if let Some(path) = context_path {
+        unim_log!(
+            "INDICATOR",
+            "[Popup] ToggleHanjaBookmark DBus 호출: idx={}, path={}",
+            global_index,
+            path
+        );
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                if let Ok(conn) = zbus::Connection::session().await {
+                    let proxy = zbus::Proxy::new(
+                        &conn,
+                        "org.atit.unim.InputMethod",
+                        path.as_str(),
+                        "org.atit.unim.InputContext",
+                    )
+                    .await;
+                    if let Ok(proxy) = proxy {
+                        let _: Result<(u32, bool), _> =
+                            proxy.call("ToggleHanjaBookmark", &(global_index,)).await;
                     }
                 }
             });
