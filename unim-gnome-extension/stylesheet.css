@@ -263,10 +263,10 @@
     color: #1e1e2e;
     transition-duration: 140ms;
 }
-/* GENERATED-POPUP-CSS END */
 
 /* ============================================ */
-/* IME: 특수문자 팝업 */
+/* 특수문자 popup (.unim-special-popup) — 한자 expanded 와 동일한 9×9 그리드.
+ * 헤더는 녹색 액센트(accent_special)로 한자(파란색)와 시각적 구분. */
 /* ============================================ */
 
 .unim-special-popup {
@@ -286,13 +286,19 @@
     margin-bottom: 6px;
 }
 
+.unim-special-popup .grid-row {
+    padding: 0;
+}
+
 .unim-special-popup .grid-cell {
     color: #cdd6f4;
     font-size: 16px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 2px 4px;
     text-align: center;
     border-radius: 4px;
+    transition-duration: 120ms;
 }
 
 .unim-special-popup .grid-cell.selected {
@@ -300,7 +306,7 @@
 }
 
 .unim-special-popup .grid-cell.hovered {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.06);
 }
 
 .unim-special-popup .grid-cell.selected.hovered {
@@ -311,8 +317,9 @@
     color: #f9e2af;
     font-weight: bold;
     font-size: 11px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 30px;
+    min-height: 18px;
+    padding: 0 4px;
     text-align: center;
 }
 
@@ -336,6 +343,11 @@
     font-size: 12px;
     text-align: center;
 }
+/* GENERATED-POPUP-CSS END */
+
+/* ============================================ */
+/* IME: 특수문자 팝업 — 한자 popup 과 함께 GENERATED-POPUP-CSS 영역에서 자동 생성. */
+/* ============================================ */
 
 /* ============================================ */
 /* IME: 이모지 팝업 (PR #3 — 9×9 grid + 좌측 세로 9 탭) */

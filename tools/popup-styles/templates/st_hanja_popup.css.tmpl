@@ -218,3 +218,83 @@
     color: {{colors.bookmark_flash_text}};
     transition-duration: 140ms;
 }
+
+/* ============================================ */
+/* 특수문자 popup (.unim-special-popup) — 한자 expanded 와 동일한 9×9 그리드.
+ * 헤더는 녹색 액센트(accent_special)로 한자(파란색)와 시각적 구분. */
+/* ============================================ */
+
+.unim-special-popup {
+    background-color: {{colors.bg_main}};
+    border: 1px solid {{colors.border}};
+    border-radius: {{spacing.popup_radius}};
+    padding: {{spacing.popup_padding}};
+}
+
+.unim-special-popup .popup-header {
+    background-color: {{colors.bg_header}};
+    color: {{colors.accent_special}};
+    font-size: {{fonts.header_size}};
+    font-weight: {{fonts.header_weight}};
+    padding: {{spacing.header_padding}};
+    border-radius: {{spacing.header_radius}};
+    margin-bottom: {{spacing.header_margin_bottom}};
+}
+
+.unim-special-popup .grid-row {
+    padding: 0;
+}
+
+.unim-special-popup .grid-cell {
+    color: {{colors.text_primary}};
+    font-size: {{fonts.cell_size}};
+    min-width: {{spacing.cell_min_width}};
+    min-height: {{spacing.cell_min_height}};
+    padding: {{spacing.cell_padding}};
+    text-align: center;
+    border-radius: {{spacing.cell_radius}};
+    transition-duration: {{transitions.duration_default}};
+}
+
+.unim-special-popup .grid-cell.selected {
+    background-color: {{colors.accent_special_bg_mid}};
+}
+
+.unim-special-popup .grid-cell.hovered {
+    background-color: {{colors.bg_overlay_med}};
+}
+
+.unim-special-popup .grid-cell.selected.hovered {
+    background-color: {{colors.accent_special_bg_high}};
+}
+
+.unim-special-popup .grid-header {
+    color: {{colors.bookmark}};
+    font-weight: {{fonts.grid_header_weight}};
+    font-size: {{fonts.grid_header_size}};
+    min-width: {{spacing.cell_min_width}};
+    min-height: {{spacing.grid_header_min_height}};
+    padding: 0 4px;
+    text-align: center;
+}
+
+.unim-special-popup .grid-header.active {
+    color: {{colors.accent_special}};
+}
+
+.unim-special-popup .grid-row-number {
+    color: {{colors.text_dim}};
+    font-weight: {{fonts.grid_row_number_weight}};
+    font-size: {{fonts.grid_row_number_size}};
+    min-width: {{spacing.row_number_min_width}};
+}
+
+.unim-special-popup .grid-row-number.active {
+    color: {{colors.accent_special}};
+}
+
+.unim-special-popup .popup-footer {
+    color: {{colors.text_faint}};
+    font-size: {{fonts.footer_size}};
+    text-align: center;
+}

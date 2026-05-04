@@ -225,21 +225,27 @@ export class SpecialPopup {
      *
      * 이것이 팝업 상태를 갱신하는 유일한 경로.
      *
+     * 9×9 그리드 시각 일관성 정책 (한자 expanded 와 동일):
+     * 엔진이 보내는 rows/cols 는 카운트만 참고하고, 그리드 차원은 항상
+     * MAX_ROWS×MAX_COLS 로 고정. 페이지 전환·정렬 시 그리드가 출렁이지 않아
+     * 사용자가 셀 위치를 학습하기 쉽다. 빈 셀은 _cellHasChar 가 false 를
+     * 반환해 자동 비활성.
+     *
      * @param {number} page - 현재 페이지 (0-based)
      * @param {number} totalPages - 전체 페이지 수
-     * @param {number} rows - 현재 페이지 행 수
-     * @param {number} cols - 현재 페이지 열 수
+     * @param {number} _rows - 엔진의 페이지 행 수 (시각 차원에 미반영)
+     * @param {number} _cols - 엔진의 페이지 열 수 (시각 차원에 미반영)
      * @param {number} selRow - 선택 행
      * @param {number} selCol - 선택 열
      */
-    updateFromNavigate(page, totalPages, rows, cols, selRow, selCol) {
+    updateFromNavigate(page, totalPages, _rows, _cols, selRow, selCol) {
         if (!this.isVisible) return;
 
         const pageChanged = this._currentPage !== page;
         this._currentPage = page;
         this._totalPages = totalPages;
-        this._rows = rows;
-        this._cols = cols;
+        this._rows = MAX_ROWS;
+        this._cols = MAX_COLS;
         this._engineSelRow = selRow;
         this._engineSelCol = selCol;
 
@@ -316,14 +322,6 @@ export class SpecialPopup {
     }
 
     /**
-     * 셀에 문자가 있는지 확인
-     * @private
-     */
-    _cellHasChar(row, col) {
-        return this._getCharIndex(row, col) >= 0;
-    }
-
-    /**
      * 현재 선택 확정 (플래시 효과 포함)
      *
      * hide()는 여기서 호출하지 않음.
@@ -350,7 +348,12 @@ export class SpecialPopup {
     }
 
     /**
-     * 그리드 재구성
+     * 그리드 재구성 — 항상 9×9 그리드 고정.
+     *
+     * 한자 popup expanded 와 동일 정책: 페이지 항목 수가 81 미만이어도 시각
+     * 차원은 MAX_ROWS × MAX_COLS 로 일정. 빈 셀은 reactive=false / 클릭 핸들러
+     * 미연결로 자동 비활성. 그리드가 출렁이지 않아 사용자가 셀 위치를 학습하기
+     * 쉽다.
      * @private
      */
     _updateGrid() {
@@ -359,19 +362,17 @@ export class SpecialPopup {
         this._colHeaders = [];
         this._rowNumbers = [];
 
-        // 현재 페이지 문자 수 및 열 수 계산
-        const pageStart = this._currentPage * PAGE_SIZE;
-        const pageCharCount = Math.min(PAGE_SIZE, this._characters.length - pageStart);
-        this._cols = Math.min(MAX_COLS, Math.ceil(pageCharCount / MAX_ROWS));
+        this._rows = MAX_ROWS;
+        this._cols = MAX_COLS;
 
-        // 열 헤더 행
+        // 열 헤더 행 — 항상 9 컬럼 (top_row 짧으면 빈 라벨)
         const headerRow = new St.BoxLayout({ style_class: 'grid-row' });
         headerRow.add_child(new St.Label({
             style_class: 'grid-row-number',
             text: '',
         }));
 
-        for (let col = 0; col < this._cols; col++) {
+        for (let col = 0; col < MAX_COLS; col++) {
             const headerChar = col < this._topRow.length ? this._topRow[col] : '';
             const label = new St.Label({
                 style_class: 'grid-header',
@@ -383,19 +384,8 @@ export class SpecialPopup {
         }
         this._grid.add_child(headerRow);
 
-        // 데이터 행
-        this._rows = 0;
+        // 데이터 행 — 항상 9 행, 빈 셀은 reactive=false 로 비활성
         for (let row = 0; row < MAX_ROWS; row++) {
-            let hasAny = false;
-            for (let col = 0; col < this._cols; col++) {
-                if (this._cellHasChar(row, col)) {
-                    hasAny = true;
-                    break;
-                }
-            }
-            if (!hasAny) break;
-
-            this._rows++;
             const rowWidget = new St.BoxLayout({ style_class: 'grid-row' });
 
             const rowNum = new St.Label({
@@ -406,14 +396,14 @@ export class SpecialPopup {
             this._rowNumbers.push(rowNum);
 
             const rowCells = [];
-            for (let col = 0; col < this._cols; col++) {
+            for (let col = 0; col < MAX_COLS; col++) {
                 const idx = this._getCharIndex(row, col);
                 const ch = idx >= 0 ? this._characters[idx] : '';
                 const cell = new St.Label({
                     style_class: 'grid-cell',
                     text: ch,
                     x_align: Clutter.ActorAlign.CENTER,
-                    reactive: true,
+                    reactive: idx >= 0,
                 });
 
                 if (idx >= 0) {

@@ -33,12 +33,17 @@ text_secondary   = "#a6adc8"  # 뜻풀이
 text_dim         = "#7f849c"  # 행 번호 / 컬럼 헤더
 text_faint       = "#6c7086"  # footer / 비활성 북마크 별
 
-# 액센트 (선택/포커스/액션)
+# 액센트 (선택/포커스/액션) — 한자 popup 기본 (파란색)
 accent           = "#89b4fa"
 accent_bg_low    = "rgba(137, 180, 250, 0.20)"  # compact selected
 accent_bg_mid    = "rgba(137, 180, 250, 0.25)"  # grid selected
 accent_bg_high   = "rgba(137, 180, 250, 0.35)"  # compact selected.hovered
 accent_bg_higher = "rgba(137, 180, 250, 0.40)"  # grid selected.hovered
+
+# 특수문자/이모지 popup 액센트 (녹색) — 시각적으로 한자와 구분
+accent_special           = "#a6e3a1"
+accent_special_bg_mid    = "rgba(166, 227, 161, 0.25)"  # grid selected
+accent_special_bg_high   = "rgba(166, 227, 161, 0.35)"  # grid selected.hovered
 
 # 북마크 (★)
 bookmark           = "#f9e2af"

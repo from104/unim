@@ -259,46 +259,42 @@ impl SpecialPopup {
         );
     }
 
-    /// 열 헤더 업데이트
+    /// 열 헤더 업데이트 — 항상 9 컬럼 모두 표시 (top_row 가 짧으면 빈 라벨).
+    /// 한자 popup expanded 모드와 마찬가지로 그리드 차원이 페이지마다 출렁이지
+    /// 않도록 9×9 시각 일관성을 유지한다.
     fn update_col_headers(&self) {
         let chars: Vec<char> = self.top_row.chars().collect();
         for (i, header) in self.col_headers.iter().enumerate() {
-            if i < chars.len() && i < self.active_cols {
+            if i < chars.len() {
                 header.set_text(&chars[i].to_string());
-                header.set_visible(true);
             } else {
                 header.set_text("");
-                header.set_visible(false);
             }
+            header.set_visible(true);
         }
     }
 
-    /// 그리드 내용 업데이트
+    /// 그리드 내용 업데이트 — 9×9 그리드 항상 유지 (페이지 항목 수 < 81 이어도).
+    /// 빈 셀은 reactive=false 효과를 위해 `set_visible(true)` + 빈 텍스트로 표시.
     fn update_grid(&mut self) {
         let start = self.current_page * PAGE_SIZE;
         let page_count = (self.characters.len() - start).min(PAGE_SIZE);
 
-        // 현재 페이지의 행/열 수 계산
-        self.active_cols = if page_count == 0 {
-            0
-        } else {
-            (page_count + MAX_ROWS - 1) / MAX_ROWS
-        };
-        self.active_rows = if self.active_cols == 0 {
-            0
-        } else {
-            page_count.min(MAX_ROWS)
-        };
+        // 9×9 그리드 항상 강제 (한자 expanded 정책과 동일).
+        // active_rows/active_cols 는 헤더/번호 강조에만 사용되므로 9 로 고정.
+        self.active_rows = MAX_ROWS;
+        self.active_cols = MAX_COLS;
 
         // 열 헤더 업데이트
         self.update_col_headers();
 
-        // 행 번호 가시성 업데이트
-        for (row, num_label) in self.row_numbers.iter().enumerate() {
-            num_label.set_visible(row < self.active_rows);
+        // 행 번호 항상 9 행 모두 가시
+        for num_label in self.row_numbers.iter() {
+            num_label.set_visible(true);
         }
 
-        // 열 우선(column-major) 채움
+        // 열 우선(column-major) 채움 — 81 셀 전부 visible 유지, 데이터 없는 셀은
+        // 빈 텍스트.
         for col in 0..MAX_COLS {
             for row in 0..MAX_ROWS {
                 let idx = col * MAX_ROWS + row;
@@ -307,16 +303,11 @@ impl SpecialPopup {
                 if idx < page_count {
                     let char_idx = start + idx;
                     label.set_text(&self.characters[char_idx]);
-                    label.set_visible(true);
-                    label.remove_css_class("selected");
-                } else if col < self.active_cols && row < self.active_rows {
-                    label.set_text("");
-                    label.set_visible(true);
-                    label.remove_css_class("selected");
                 } else {
-                    label.set_visible(false);
-                    label.remove_css_class("selected");
+                    label.set_text("");
                 }
+                label.set_visible(true);
+                label.remove_css_class("selected");
             }
         }
 
@@ -373,13 +364,17 @@ impl SpecialPopup {
     }
 
     /// 네비게이션 업데이트 (PopupNavigate 시그널)
+    ///
+    /// 9×9 그리드는 시각적으로 항상 고정 — 엔진이 보내는 rows/cols 는 시각
+    /// 차원에 영향을 주지 않고, 선택 셀(sel_row/sel_col) 만 갱신한다.
+    /// 한자 popup expanded 모드와 동일 정책.
     pub fn navigate(
         &mut self,
         page: i32,
         _total_pages: i32,
         _selected: i32,
-        rows: i32,
-        cols: i32,
+        _rows: i32,
+        _cols: i32,
         sel_row: i32,
         sel_col: i32,
     ) {
@@ -390,8 +385,6 @@ impl SpecialPopup {
             self.update_grid();
         }
 
-        self.active_rows = rows.max(0) as usize;
-        self.active_cols = cols.max(0) as usize;
         self.sel_row = sel_row.max(0) as usize;
         self.sel_col = sel_col.max(0) as usize;
         self.update_selection();
@@ -449,101 +442,12 @@ fn select_special_via_dbus(col: usize, row: usize) {
     }
 }
 
-/// 특수문자 팝업용 CSS (GNOME extension stylesheet.css와 동일 디자인)
+/// 특수문자 팝업용 CSS — 한자 popup 의 generated CSS 에 통합되어 있다.
+///
+/// `tools/popup-styles/popup_tokens.toml` + `templates/gtk_hanja_popup.css.tmpl`
+/// 에서 `.unim-special-popup` 룰셋이 함께 생성되어 `popup_styles.generated.css`
+/// 에 포함된다 — `hanja_popup::popup_css()` 가 그 전체를 임베드하므로 본 함수는
+/// 빈 문자열만 반환한다 (gtk_ui::load_css 의 concat 호환용 stub).
 pub fn popup_css() -> &'static str {
-    r#"
-    .unim-special-popup {
-        background-color: rgba(30, 30, 46, 0.95);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 12px;
-        padding: 12px;
-    }
-
-    .unim-special-popup .popup-header {
-        background-color: #313244;
-        color: #a6e3a1;
-        font-size: 13px;
-        font-weight: bold;
-        padding: 6px 8px;
-        border-radius: 4px;
-        margin-bottom: 6px;
-    }
-
-    .unim-special-popup .special-grid {
-        background: transparent;
-    }
-
-    .unim-special-popup .grid-cell {
-        color: #cdd6f4;
-        font-size: 16px;
-        min-width: 28px;
-        min-height: 28px;
-        border-radius: 4px;
-    }
-
-    .unim-special-popup .grid-cell:hover {
-        background-color: rgba(255, 255, 255, 0.05);
-    }
-
-    .unim-special-popup .grid-cell.selected {
-        background-color: rgba(166, 227, 161, 0.25);
-        font-weight: bold;
-    }
-
-    .unim-special-popup .grid-header {
-        color: #f9e2af;
-        font-weight: bold;
-        font-size: 11px;
-        min-width: 28px;
-        min-height: 28px;
-    }
-
-    .unim-special-popup .grid-header.active {
-        color: #a6e3a1;
-    }
-
-    .unim-special-popup .grid-row-number {
-        color: #7f849c;
-        font-weight: bold;
-        font-size: 12px;
-        min-width: 20px;
-    }
-
-    .unim-special-popup .grid-row-number.active {
-        color: #a6e3a1;
-    }
-
-    .unim-special-popup .popup-footer {
-        color: #6c7086;
-        font-size: 12px;
-    }
-
-    .unim-special-popup .popup-footer-box {
-        margin-top: 4px;
-    }
-
-    /* 마우스 페이지 이동 ◀/▶ 버튼 (Phase 3, GNOME extension 정합)
-     * hit-target 28×28px — WCAG 2.5.5 (24×24) 초과, 그리드 셀(28px)과 시각 비례 */
-    .unim-special-popup button.popup-page-btn {
-        color: #7f849c;
-        background: transparent;
-        border: none;
-        box-shadow: none;
-        font-size: 14px;
-        min-width: 28px;
-        min-height: 28px;
-        padding: 4px 10px;
-        margin: 0;
-        border-radius: 4px;
-    }
-
-    .unim-special-popup button.popup-page-btn:hover {
-        color: #89b4fa;
-        background-color: rgba(137, 180, 250, 0.2);
-    }
-
-    .unim-special-popup button.popup-page-btn:active {
-        background-color: rgba(137, 180, 250, 0.35);
-    }
-    "#
+    ""
 }

@@ -206,3 +206,108 @@ button.popup-page-btn:active {
 .unim-hanja-popup .grid-cell.bookmarked.grid-cell-selected {
     background-color: rgba(249, 226, 175, 0.28);
 }
+
+/* ============================================ */
+/* 특수문자 popup (.unim-special-popup) — 한자 expanded 와 동일 9×9 그리드.
+ * 헤더는 녹색 액센트(accent_special)로 한자(파란)와 시각적 구분. */
+/* ============================================ */
+
+.unim-special-popup {
+    background-color: rgba(30, 30, 46, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.unim-special-popup .popup-header {
+    background-color: #313244;
+    color: #a6e3a1;
+    font-size: 13px;
+    font-weight: bold;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+
+.unim-special-popup .special-grid {
+    background: transparent;
+}
+
+.unim-special-popup .grid-cell {
+    color: #cdd6f4;
+    font-size: 16px;
+    min-width: 30px;
+    min-height: 30px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background-color 120ms ease,
+                color 120ms ease;
+}
+
+.unim-special-popup .grid-cell:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.unim-special-popup .grid-cell.selected {
+    background-color: rgba(166, 227, 161, 0.25);
+    font-weight: bold;
+}
+
+.unim-special-popup .grid-cell.selected:hover {
+    background-color: rgba(166, 227, 161, 0.35);
+}
+
+.unim-special-popup .grid-header {
+    color: #f9e2af;
+    font-weight: bold;
+    font-size: 11px;
+    min-width: 30px;
+    min-height: 18px;
+}
+
+.unim-special-popup .grid-header.active {
+    color: #a6e3a1;
+}
+
+.unim-special-popup .grid-row-number {
+    color: #7f849c;
+    font-size: 12px;
+    font-weight: bold;
+    min-width: 20px;
+    min-height: 30px;
+}
+
+.unim-special-popup .grid-row-number.active {
+    color: #a6e3a1;
+}
+
+.unim-special-popup .popup-footer {
+    color: #6c7086;
+    font-size: 12px;
+}
+
+.unim-special-popup .popup-footer-box {
+    margin-top: 4px;
+}
+
+.unim-special-popup button.popup-page-btn {
+    color: #7f849c;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    font-size: 14px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px 10px;
+    margin: 0;
+    border-radius: 4px;
+}
+
+.unim-special-popup button.popup-page-btn:hover {
+    color: #89b4fa;
+    background-color: rgba(137, 180, 250, 0.20);
+}
+
+.unim-special-popup button.popup-page-btn:active {
+    background-color: rgba(137, 180, 250, 0.35);
+}
