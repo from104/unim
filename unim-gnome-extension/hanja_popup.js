@@ -17,6 +17,7 @@
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
+import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { unimLog } from './logging.js';
@@ -112,6 +113,16 @@ export class HanjaPopup {
         this._onToggleExpand = null;
         /** @type {Function|null} 페이지 이동 콜백 (direction: -1/0=Prev, 1=Next) */
         this._onChangePage = null;
+        /** @type {Function|null} popup 키 콜백 (stage 핸들러 → processKey RPC).
+         *  VTE/ghostty 등 IM 부분 참여 클라이언트가 nav 키를 IM filter 로 안 보내는 것 우회. */
+        this._onPopupKey = null;
+        /** @type {Function|null} popup 영역 밖 클릭 시 호출 (cancel + commit). */
+        this._onOutsideClick = null;
+
+        /** @type {number} stage captured-event 핸들러 ID — popup 가시 중에만 활성. */
+        this._stageHandler = 0;
+        /** @type {object|null} Main.pushModal grab 토큰 — popup 가시 중에만 유지. */
+        this._modalGrab = null;
     }
 
     /**
@@ -211,7 +222,7 @@ export class HanjaPopup {
      * @param {Function} [onChangePage] - 페이지 이동 ◀/▶ 클릭 시 호출 (direction: 0=Prev, 1=Next)
      */
     show(target, candidates, topRow, onSelect, onCancel, cursorRect, bookmarks,
-         onToggleBookmark, onToggleExpand, onChangePage) {
+         onToggleBookmark, onToggleExpand, onChangePage, onPopupKey, onOutsideClick) {
         if (!this._container || candidates.length === 0) return;
 
         this._target = target;
@@ -231,6 +242,8 @@ export class HanjaPopup {
         this._onToggleBookmark = onToggleBookmark || null;
         this._onToggleExpand = onToggleExpand || null;
         this._onChangePage = onChangePage || null;
+        this._onPopupKey = typeof onPopupKey === 'function' ? onPopupKey : null;
+        this._onOutsideClick = typeof onOutsideClick === 'function' ? onOutsideClick : null;
 
         // 초기 상태 (엔진의 첫 PopupNavigate가 즉시 덮어씀)
         this._currentPage = 0;
@@ -247,14 +260,107 @@ export class HanjaPopup {
 
         this._container.show();
         this._positionPopup(cursorRect);
+        this._installStageHandler();
+        this._pushModalGrab();
 
         unimLog('HANJA', `팝업 표시: target="${target}", ${candidates.length}개 후보`);
+    }
+
+    /**
+     * Stage captured-event 리스너 — KEY_PRESS / BUTTON_PRESS 가로채기.
+     * 자세한 설명은 emoji_popup.js 참고 (동일 패턴).
+     * @private
+     */
+    _installStageHandler() {
+        if (this._stageHandler) return;
+        this._stageHandler = global.stage.connect('captured-event', (_actor, event) => {
+            if (!this._container?.visible) return Clutter.EVENT_PROPAGATE;
+            const type = event.type();
+
+            if (type === Clutter.EventType.KEY_PRESS) {
+                const sym = event.get_key_symbol();
+                const state = event.get_state();
+                if (
+                    sym === Clutter.KEY_Shift_L || sym === Clutter.KEY_Shift_R ||
+                    sym === Clutter.KEY_Control_L || sym === Clutter.KEY_Control_R ||
+                    sym === Clutter.KEY_Alt_L || sym === Clutter.KEY_Alt_R ||
+                    sym === Clutter.KEY_Super_L || sym === Clutter.KEY_Super_R
+                ) {
+                    return Clutter.EVENT_PROPAGATE;
+                }
+                if (typeof this._onPopupKey !== 'function') return Clutter.EVENT_PROPAGATE;
+
+                const keycode = event.get_key_code();
+                const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
+                this._onPopupKey(sym, evdevKeycode, state);
+                return Clutter.EVENT_STOP;
+            }
+
+            if (type === Clutter.EventType.BUTTON_PRESS) {
+                const source = event.get_source();
+                if (source && this._container && this._container.contains(source)) {
+                    return Clutter.EVENT_PROPAGATE;
+                }
+                if (typeof this._onOutsideClick === 'function') {
+                    try {
+                        this._onOutsideClick();
+                    } catch (e) {
+                        unimLog('HANJA', `outside click handler error: ${e?.message ?? e}`);
+                    }
+                }
+                return Clutter.EVENT_STOP;
+            }
+
+            return Clutter.EVENT_PROPAGATE;
+        });
+    }
+
+    /** @private */
+    _uninstallStageHandler() {
+        if (!this._stageHandler) return;
+        global.stage.disconnect(this._stageHandler);
+        this._stageHandler = 0;
+    }
+
+    /**
+     * Modal grab push — Wayland 텍스트 클라이언트(특히 VTE/ghostty 등 IM 부분
+     * 참여 터미널)가 키 이벤트를 surface 로 직행시키는 것을 우회.
+     * @private
+     */
+    _pushModalGrab() {
+        if (this._modalGrab || !this._container) return;
+        try {
+            const grab = Main.pushModal(this._container, {
+                actionMode: Shell.ActionMode.POPUP,
+            });
+            if (grab && (grab.get_seat_state?.() & Clutter.GrabState.KEYBOARD)) {
+                this._modalGrab = grab;
+            } else if (grab) {
+                Main.popModal(grab);
+                unimLog('HANJA', 'pushModal: keyboard grab 미획득 — stage 캡처 폴백');
+            }
+        } catch (e) {
+            unimLog('HANJA', `pushModal 실패 (stage 캡처 폴백): ${e?.message ?? e}`);
+        }
+    }
+
+    /** @private */
+    _popModalGrab() {
+        if (!this._modalGrab) return;
+        try {
+            Main.popModal(this._modalGrab);
+        } catch (e) {
+            unimLog('HANJA', `popModal 실패: ${e?.message ?? e}`);
+        }
+        this._modalGrab = null;
     }
 
     /**
      * 팝업 숨김
      */
     hide() {
+        this._popModalGrab();
+        this._uninstallStageHandler();
         if (this._container) {
             this._container.hide();
         }
@@ -270,6 +376,8 @@ export class HanjaPopup {
         this._onToggleBookmark = null;
         this._onToggleExpand = null;
         this._onChangePage = null;
+        this._onPopupKey = null;
+        this._onOutsideClick = null;
     }
 
     /**

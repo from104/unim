@@ -186,6 +186,22 @@ export default class UnimExtension extends Extension {
                 onShowHanja: (target, candidates, topRow, cursorRect) => {
                     // 팝업 표시 전에 즐겨찾기 상태 조회 (엔진이 candidates와 동일 순서로 반환)
                     const bookmarks = this._dbusIME.getHanjaBookmarkStates();
+                    // popup 키 콜백 — stage 핸들러 → processKey RPC. VTE/ghostty 등 IM
+                    // 부분 참여 클라이언트에서 nav 키(Esc/화살표/Home/End/PgUp/PgDn) 가 IM
+                    // filter 를 거치지 않는 것을 우회. modal grab 과 결합해 모든 클라이언트
+                    // 에서 균일하게 동작.
+                    const popupKeyHandler = (keyval, keycode, state) => {
+                        if (!this._dbusIME?.isConnected) return;
+                        const result = this._dbusIME.processKey(keyval, keycode, state);
+                        if (!result) return;
+                        const { commit, preedit } = result;
+                        if (commit && commit.length > 0) {
+                            this._inputMethod?.commitText(commit);
+                        }
+                        if (typeof preedit === 'string') {
+                            this._inputMethod?.updatePreedit(preedit);
+                        }
+                    };
                     this._hanjaPopup.show(
                         target, candidates, topRow,
                         (globalIdx) => {
@@ -224,10 +240,34 @@ export default class UnimExtension extends Extension {
                             // 페이지 ◀/▶ 클릭: PopupChangePage RPC.
                             // 데몬이 PopupNavigate 시그널을 재발행 → updateFromNavigate 가 layout 갱신.
                             this._dbusIME.popupChangePage(direction);
+                        },
+                        popupKeyHandler,
+                        () => {
+                            // 외부 클릭 — preedit commit + popup close.
+                            // 클라이언트(터미널 등) 가 IM reset 을 발화하지 않는 환경에서도
+                            // popup 영역 밖 클릭으로 닫히게 한다.
+                            const commit = this._dbusIME.cancelHanja();
+                            if (commit && this._inputMethod) {
+                                this._inputMethod.commitText(commit);
+                                this._inputMethod.updatePreedit('');
+                            }
+                            this._hanjaPopup?.hide();
                         }
                     );
                 },
                 onShowSpecial: (target, characters, topRow, cursorRect) => {
+                    const popupKeyHandler = (keyval, keycode, state) => {
+                        if (!this._dbusIME?.isConnected) return;
+                        const result = this._dbusIME.processKey(keyval, keycode, state);
+                        if (!result) return;
+                        const { commit, preedit } = result;
+                        if (commit && commit.length > 0) {
+                            this._inputMethod?.commitText(commit);
+                        }
+                        if (typeof preedit === 'string') {
+                            this._inputMethod?.updatePreedit(preedit);
+                        }
+                    };
                     this._specialPopup.show(
                         target, characters, topRow,
                         (globalIdx) => {
@@ -252,6 +292,16 @@ export default class UnimExtension extends Extension {
                         (direction) => {
                             // 페이지 ◀/▶ 클릭: PopupChangePage RPC.
                             this._dbusIME.popupChangePage(direction);
+                        },
+                        popupKeyHandler,
+                        () => {
+                            // 외부 클릭 — preedit commit + popup close.
+                            const commit = this._dbusIME.cancelSpecialChar();
+                            if (commit && this._inputMethod) {
+                                this._inputMethod.commitText(commit);
+                                this._inputMethod.updatePreedit('');
+                            }
+                            this._specialPopup?.hide();
                         }
                     );
                 },
@@ -290,6 +340,13 @@ export default class UnimExtension extends Extension {
                             if (typeof preedit === 'string') {
                                 this._inputMethod?.updatePreedit(preedit);
                             }
+                        },
+                        // 외부 클릭 — emoji popup 은 idle 트리거이므로 reset RPC 호출 후 hide.
+                        // 클라이언트(터미널 등) 가 IM reset 을 발화하지 않는 환경에서도
+                        // popup 영역 밖 클릭으로 닫히게 한다.
+                        () => {
+                            this._dbusIME?.reset?.();
+                            this._emojiPopup?.hide();
                         }
                     );
                 },
