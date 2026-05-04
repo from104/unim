@@ -107,6 +107,25 @@ impl InputEngine {
             self.set_input_category(InputCategory::English);
         }
 
+        // Hanja 키는 언어 모드 무관 dispatch — preedit/조합 상태에 따라 분기.
+        //   * 조합 중 (Korean only): 한자 변환
+        //   * idle (조합 없음): 이모지 팝업 트리거 (emoji_popup_enabled=true 일 때)
+        //
+        // English 모드에서도 idle Hanja → 이모지가 동작해야 함. 종전엔 분기가
+        // process_korean_key 안에 있어 영문 모드에서 Hanja 키가 not_consumed 로
+        // 떨어져 첫 키 입력이 무시됐다.
+        if self.hanja_keys.contains(&keycode) {
+            let idle =
+                self.preedit_cache.is_empty() && !self.korean_context.is_composing();
+            if idle {
+                if self.emoji_popup_enabled {
+                    self.start_emoji_popup();
+                }
+                return InputResult::consumed();
+            }
+            return self.start_hanja_conversion();
+        }
+
         // 입력 카테고리에 따른 처리
         match self.input_category {
             InputCategory::Korean => self.process_korean_key(keycode, modifier),
@@ -128,23 +147,8 @@ impl InputEngine {
             modifier.caps_lock
         );
 
-        // Hanja 키 처리 — preedit/조합 상태에 따라 dispatch.
-        //   * 조합 중: 한자 변환 (기존 동작)
-        //   * idle (조합 없음): 이모지 팝업 트리거 (윈도우 IME 흉내 대신 dual-purpose).
-        //     emoji_popup_enabled=false 이면 silent no-op (사용자가 끈 의도 존중).
-        //
-        // 설정 기반 매칭 — `hanja_keys` config (기본 `["Hanja", "F9"]`) 의 모든 키가 트리거.
-        if self.hanja_keys.contains(&keycode) {
-            let idle =
-                self.preedit_cache.is_empty() && !self.korean_context.is_composing();
-            if idle {
-                if self.emoji_popup_enabled {
-                    self.start_emoji_popup();
-                }
-                return InputResult::consumed();
-            }
-            return self.start_hanja_conversion();
-        }
+        // Hanja 키 dispatch 는 press_key() 상위에서 언어 모드 무관하게 처리됨
+        // (영문 모드 첫 키 회귀 방지). 여기까진 도달하지 않는다.
 
         // 자동 영문 전환 (opt-in): 지정 트리거 키 입력 시 조합 커밋 + 영문 모드로 영구 전환.
         // 제어 키(Escape/Tab/Enter 등)는 passthrough, 문자 키(`/`/`:` 등)는 해당 문자 commit.

@@ -333,6 +333,40 @@ fn hanja_key_idle_with_emoji_disabled_is_noop() {
     assert!(!engine.is_hanja_mode(), "한자 모드 미진입");
 }
 
+/// 회귀 방지: English 모드 idle 상태에서도 Hanja 키가 이모지 팝업을 트리거해야 함.
+/// 종전엔 dispatch 가 process_korean_key 안에 있어 영문 모드 첫 Hanja 키가
+/// not_consumed 로 떨어져 무시됐다 (터미널 부팅 직후 사용자 보고 회귀).
+#[test]
+fn hanja_key_idle_in_english_mode_starts_emoji_popup() {
+    let mut engine = create_test_engine();
+    engine.set_input_category(InputCategory::English);
+    engine.emoji_popup_enabled = true;
+    let config = Config::default();
+    let m = ModifierState::default();
+    let r = engine.press_key(KeyCode::Hanja, m, &config);
+    assert!(r.consumed, "Hanja 키는 영문 모드라도 consumed");
+    let kind = engine.popup_state().map(|s| s.kind());
+    assert_eq!(
+        kind,
+        Some(crate::popup::PopupKind::Emoji),
+        "English 모드 idle Hanja → 이모지 팝업"
+    );
+}
+
+/// 영문 모드 + emoji 비활성 → no-op (consumed=true, popup 없음).
+#[test]
+fn hanja_key_idle_in_english_mode_emoji_disabled_is_noop_consumed() {
+    let mut engine = create_test_engine();
+    engine.set_input_category(InputCategory::English);
+    engine.emoji_popup_enabled = false;
+    let config = Config::default();
+    let m = ModifierState::default();
+    let r = engine.press_key(KeyCode::Hanja, m, &config);
+    assert!(r.consumed, "emoji 비활성이라도 Hanja 키는 consumed (앱 누설 방지)");
+    assert!(engine.popup_state().is_none(), "popup 비활성 유지");
+    assert!(!engine.is_hanja_mode(), "한자 모드 미진입");
+}
+
 #[test]
 fn toggle_hanja_bookmark_action_carries_was_bookmarked_field() {
     // PopupAction::HanjaCandidatesReordered 페이로드에 was_bookmarked 가 들어있고
