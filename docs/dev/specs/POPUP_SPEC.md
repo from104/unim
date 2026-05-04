@@ -102,16 +102,36 @@ sequenceDiagram
 | `InputContext` | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
 | `InputContext` | `popup_change_page` | `(i direction)` | — | **마우스 ◀/▶용 페이지 이동** (0=Prev, 1=Next). 한자/특수문자/이모지 모든 팝업에서 동작, 단일 페이지면 no-op. (v3.1) |
 | `InputContext` | `ToggleHanjaBookmark` | `(u index)` | `(u new_index, b bookmarked)` | 한자 즐겨찾기 토글. 결과는 `HanjaCandidatesReordered` 시그널로 일괄 통지. |
+| `InputContext` | `TogglePopupExpand` | — | — | **마우스 ⊞/⊟용 한자 popup 확장 모드 토글** (v3.2). compact↔expanded 전환. popup-owner 라우팅 보정 (caller 와 popup_state 활성 context 가 다를 수 있음 → daemon 이 `resolve_popup_owner`로 자동 보정). 활성 한자 popup 이 없으면 no-op. |
 
 ### 2.5 DBus 시그널 정리
 
 | 시그널 | 페이로드 | 용도 |
 |--------|---------|------|
-| `ShowHanjaPopup` | `(s target, a(ss) candidates, u top_row, i cursor_x, i cursor_y, u cursor_w, u cursor_h)` | 한자 팝업 표시 |
+| `ShowHanjaPopup` | `(s target, a(ss) candidates, u top_row, i cursor_x, i cursor_y, u cursor_w, u cursor_h)` | 한자 팝업 표시 (활성화 트리거 + 커서 좌표) |
 | `ShowSpecialPopup` | `(s target, as chars, s top_row, ...)` | 특수문자 팝업 표시 |
 | `HidePopup` | — | 팝업 닫기 |
-| `PopupNavigate` | `(u page, u total_pages, u selected, u rows, u cols, u sel_row, u sel_col)` | 페이지/커서 변경. 마우스 ◀/▶, 키보드 PageUp/PageDown이 모두 이 시그널로 일괄 통지. |
+| `PopupNavigate` | `(u page, u total_pages, u selected, u rows, u cols, u sel_row, u sel_col)` | (legacy, v3.2 부터 PopupRender 와 dual-emit) 페이지/커서 변경. |
 | `HanjaCandidatesReordered` | `(s target, as hanjas, as meanings, ab bookmarks, u new_cursor, u page, u sel_row, u sel_col, b bookmarked, b was_bookmarked)` | 한자 즐겨찾기 토글 후 재정렬·커서 점프. **`was_bookmarked`는 v3.1에서 추가**된 토글 직전 상태 — 프런트엔드는 `was_bookmarked && !bookmarked`일 때 cursor 셀에 flash(140ms #f9e2af)를 띄운다. |
+| `PopupRender` (v3.2) | `(u kind, (s target, s header_text, s footer_text, s expand_text), (u rows, u cols, u sel_row, u sel_col, u current_page, u total_pages), (b show_footer, b expand_visible), a(ssu) cells, a(sb) col_headers, a(sb) row_headers, as tab_labels, u active_tab_index)` | **통합 view_model 페이로드** — daemon SoT (Phase B). 헤더/푸터/탭 라벨/확장 아이콘 모두 미리 포맷된 문자열. frontend 가 본 시그널만으로 즉시 렌더 가능. popup 활성 시 매 상태 변화마다 발행. |
+
+#### `PopupRender` 페이로드 상세
+
+| 필드 | 의미 |
+|------|------|
+| `kind` | 0=Hanja, 1=SpecialChar, 2=Emoji |
+| `target` | 한자: 음절 / 특수문자: 초성 / 이모지: 카테고리 id |
+| `header_text` | "「{target}」 → 한자/특수문자/이모지" (daemon 산출) |
+| `footer_text` | "n/N" (한자) / "[target] n/N" (특수) / "[Smileys] n/N" (이모지) |
+| `expand_text` | "⊞" (compact) / "⊟" (expanded). 한자 popup 만 의미 있음. |
+| `rows`, `cols` | 그리드 차원 (한자 expanded·특수·이모지 = MAX_ROWS=9 고정 정책) |
+| `sel_row`, `sel_col`, `current_page`, `total_pages` | 셀/페이지 위치 |
+| `show_footer` | 단일 페이지면 false → footer hide (◀/▶ 함께 hide) |
+| `expand_visible` | 한자 popup 만 true |
+| `cells` | column-major 평면 배열 (길이 = rows*cols), 각 `(text, meaning, flags)`. flags 비트: `0x01=has_data`, `0x02=selected`, `0x04=col_highlight`, `0x08=row_highlight`, `0x10=bookmarked` |
+| `col_headers` / `row_headers` | `(text, is_active)` 튜플 — sel_col/sel_row 와 일치하는 헤더만 active=true |
+| `tab_labels` | 이모지 좌측 9 카테고리 탭 라벨 (단축키 prefix 포함, "Smileys (a)") |
+| `active_tab_index` | 이모지 활성 카테고리 인덱스 (0=Recent, 1..=8=Smileys..Flags) |
 
 ---
 
@@ -172,7 +192,10 @@ sequenceDiagram
 | `↓` | 다음 항목 | wrap-around (마지막 → 0) |
 | `←` / `Page Up` | 이전 페이지 | **wrap-around** — 첫 페이지에서 누르면 마지막 페이지로 |
 | `→` / `Page Down` | 다음 페이지 | **wrap-around** — 마지막 페이지에서 누르면 첫 페이지로 |
+| `Home` (v3.2) | 첫 페이지 첫 셀 | `current_page=0, sel_row=0, sel_col=0` 점프 |
+| `End` (v3.2) | 마지막 페이지 마지막 데이터 셀 | column-major 채움 순서 — last_idx=count-1, col=last/rows, row=last%rows. compact (cols=1) 는 sel_col=0 유지하고 sel_row=last. |
 | `Escape` | 취소 | preedit 복원, 팝업 닫기 |
+| `.` (Period) | compact ↔ expanded 토글 | 1×9 ↔ 9×9 그리드 전환 |
 | **기타 키** | 팝업 닫고 키 재처리 | 팝업 취소 후 해당 키를 엔진에 다시 전달 |
 
 > Wrap-around 정책 (v3.1): 키보드 ←/→/PageUp/PageDown, 마우스 ◀/▶ 모두 동일하게 wrap-around. 단일 페이지(`total_pages == 1`)인 경우 페이지 이동 자체가 no-op.
@@ -283,13 +306,14 @@ col 8: index 72~80 (행 1~9)
 
 ```
 cols = ceil(page_chars / MAX_ROWS)  // 최소 1, 최대 9
+rows = MAX_ROWS                     // 항상 9 고정 (v3.2 — rows 고정 정책)
 ```
 
-마지막 열의 행 수:
-
-```
-rows_in_last_col = page_chars - (cols - 1) * MAX_ROWS
-```
+> **v3.2 rows=9 고정 정책**: 종전엔 `rows = ceil(page_chars / cols).min(9)` 동적 계산이었으나
+> 시각 측 9×9 강제와 column-major 인덱싱이 어긋나 Number(7) 등이 엉뚱한 셀을 선택하던
+> 회귀가 있었다. 엔진 rows 를 9 로 고정해 시각·엔진 인덱싱(`col*9+row`)을 일치시킨다.
+> 빈 셀(idx >= page_chars)은 `cell_exists` 가 false 반환 → Number/arrow 네비게이션 자동 비활성.
+> 이 정책은 SpecialChar / Emoji / Hanja-expanded 모두에 적용.
 
 ### 4.5 키 바인딩
 
@@ -303,6 +327,8 @@ rows_in_last_col = page_chars - (cols - 1) * MAX_ROWS
 | `Escape` / `BackSpace` | 취소 | preedit 복원 |
 | `Page Down` / `Tab` | 다음 페이지 | **wrap-around** — 마지막 페이지에서 누르면 첫 페이지로 |
 | `Page Up` / `Shift+Tab` | 이전 페이지 | **wrap-around** — 첫 페이지에서 누르면 마지막 페이지로 |
+| `Home` (v3.2) | 첫 페이지 (0,0) | `current_page=0, sel_row=0, sel_col=0` |
+| `End` (v3.2) | 마지막 페이지 마지막 데이터 셀 | column-major: col=last/9, row=last%9 |
 | **기타 키** | 팝업 닫고 키 재처리 | |
 
 ### 4.6 마우스 입력
@@ -538,7 +564,7 @@ connect(m_hanjaPopup, &UnimHanjaPopup::selected,
 pub enum PopupAction {
     ShowHanja   { target, candidates, top_row },
     ShowSpecial { target, characters, top_row },
-    ShowEmoji   { target_cat_id, items, top_row, recent, categories },
+    ShowEmoji   { target_cat_id, items, top_row, recent, categories, home_row },
     HidePopup,
     PopupNavigate { page, total_pages, selected, rows, cols, sel_row, sel_col },
     HanjaBookmarkChanged { index, bookmarked },           // 구버전 호환
@@ -569,9 +595,127 @@ pub enum PopupAction {
 6. 마우스 ◀/▶ 클릭 → DBus `popup_change_page(±1)` → 엔진이 `PopupKey::PageUp/PageDown` 분기에 위임 → `PopupNavigate` 발행 (cursor sel_row/sel_col 보존)
 7. 기타 → 팝업 취소 후 키 재처리
 
+> **idle Hanja 키 dispatch 정책 (v3.2)**: Hanja 키는 `input_category` 와 무관하게
+> `press_key()` 의 언어 분기 직전에 처리. preedit/조합 idle 이면 emoji popup 트리거,
+> 조합 중이면 한자 변환. 종전엔 `process_korean_key` 안에 있어 영문 모드 첫 Hanja 키가
+> not_consumed 로 떨어져 무시되던 회귀가 있었다.
+
 ---
 
-## 10. 변경 이력
+## 10. Phase B — Daemon SoT 통합 view_model (v3.2)
+
+### 10.1 동기
+
+GNOME extension 과 unim-gui-gtk 두 standalone frontend 가 헤더·푸터·탭 라벨·확장
+아이콘 등을 각자 inline 으로 포맷하던 중복을 제거. 새 popup 시각 상태 추가 시
+양쪽을 모두 수정해야 하는 유지보수 비용을 줄이고 표시 일관성을 보장.
+
+### 10.2 PopupViewModel (engine 측 SoT)
+
+`src/popup/view_model.rs` 의 `PopupViewModel` 가 단일 진실 소스. frontend 가
+consume 하기 위한 모든 데이터를 한 번에 산출:
+
+```rust
+pub struct CellData {
+    pub text: String,
+    pub meaning: Option<String>,    // 한자 전용
+    pub is_selected: bool,
+    pub is_col_highlight: bool,
+    pub is_row_highlight: bool,
+    pub is_bookmarked: bool,        // 한자 popup 전용
+}
+
+pub struct PopupViewModel {
+    pub kind: PopupKind,
+    pub target: String,
+    pub header_text: String,        // "「한」 → 한자" 등
+    pub cells: Vec<Vec<Option<CellData>>>,
+    pub col_headers: Vec<String>,
+    pub col_header_active: Vec<bool>,
+    pub row_headers: Vec<String>,
+    pub row_header_active: Vec<bool>,
+    pub sel_row: usize,
+    pub sel_col: usize,
+    pub current_page: usize,
+    pub total_pages: usize,
+    pub footer_text: String,        // "1/3" 또는 "[ㄱ] 1/3" 등
+    pub show_footer: bool,          // 단일 페이지면 false
+    pub expand_visible: bool,       // 한자 popup 만 true
+    pub expand_text: String,        // "⊞" / "⊟"
+    pub tab_labels: Vec<String>,    // "Smileys (a)" 등 (이모지 전용)
+    pub active_tab_index: usize,
+}
+
+impl PopupState {
+    pub fn view_model(&self, home_row: &str) -> PopupViewModel { ... }
+}
+```
+
+`home_row` 는 활성 영문 키맵의 홈 행 9 문자 — 이모지 카테고리 단축키 표시용
+(`engine.home_row_labels()`). 한자/특수문자에선 무시.
+
+### 10.3 PopupRender 시그널 발행 흐름
+
+```text
+                                  daemon (unim-dbus)
+                                  ┌──────────────────────────────┐
+   ProcessKey RPC ────────────────►│ engine.press_key()           │
+                                  │   ↓                          │
+                                  │ engine.popup_state()         │
+                                  │   .view_model(home_row)      │
+                                  │   ↓                          │
+                                  │ build_render_state()         │
+                                  │   ↓                          │
+                                  │ EngineResponse.render_state  │
+                                  │   ↓                          │
+                                  │ emit_popup_render(signal_ctx)│
+                                  └──────────────┬───────────────┘
+                                                  │ DBus PopupRender signal
+                                                  ▼
+                          ┌────────────────────────────────────────────┐
+                          │ frontend (GNOME / gui-gtk)                  │
+                          │   onPopupRender(state) / GuiAction::Render  │
+                          │   ↓                                          │
+                          │   popup.update_from_render(state)           │
+                          └────────────────────────────────────────────┘
+```
+
+발행 지점 (daemon 측 모두 자동 처리):
+
+- **ProcessKey** 처리 후 popup 활성 상태면 `build_render_state` → emit (legacy 시그널과 함께)
+- **PopupChangePage** RPC: `Option<PopupRenderPayload>` 반환 + popup_render 발행
+- **TogglePopupExpand** RPC: 동일
+- **ToggleHanjaBookmark** RPC: 응답 4-튜플에 render_state 포함 + popup_render 발행
+- **GetHanjaCandidates** / **GetSpecialCharCandidates** (Standalone 모드): show 시그널 직후 popup_render 발행
+
+### 10.4 Frontend 마이그레이션 (Phase B3-B4)
+
+각 popup 의 `update_from_render(state)` 가 daemon 산출 문자열을 그대로 적용:
+
+| 항목 | daemon SoT 필드 | frontend 적용 위젯 |
+|------|----------------|-------------------|
+| 헤더 텍스트 | `header_text` | hanja: `target_label` / 특수: `header_label` / 이모지: `header_label` |
+| 푸터 텍스트 | `footer_text` | `page_label` / `_pageLabel` |
+| 푸터 가시성 | `show_footer` | footer_box visible + ◀/▶ 버튼 visible 동기화 |
+| 확장 아이콘 | `expand_text` + `expand_visible` | 한자 popup 의 `expand_icon` |
+| 탭 라벨 (단축키 prefix 포함) | `tab_labels[i]` | 이모지 popup 좌측 9 탭 |
+
+셀/그리드 갱신은 v3.2 시점에선 legacy `PopupNavigate` 시그널이 dual-emit 되어
+기존 경로 유지. 추후 `popup_render.cells` 단독 구독 모델로 전환 가능.
+
+### 10.5 Legacy 시그널 호환성
+
+다음 시그널은 v3.2 에서 `PopupRender` 와 dual-emit:
+
+- `PopupNavigate` — 셀/그리드 위치 갱신 (다른 frontend 가 아직 구독)
+- `HanjaBookmarkChanged` — 단일 인덱스 갱신 (구버전 호환)
+- `HanjaCandidatesReordered` — 재정렬 + flash 신호 (was_bookmarked 필드 사용)
+
+이들은 점진적 폐기 가능하나 0.2.x 시리즈는 호환 유지.
+
+---
+
+## 11. 변경 이력
 
 | 날짜 | 버전 | 변경 내용 |
 |------|------|----------|
@@ -580,3 +724,4 @@ pub enum PopupAction {
 | 2026-02-26 | v2 | 중앙집중 GUI 방식으로 전환 |
 | 2026-03-02 | **v3** | **모듈별 개별 팝업으로 복귀, 문서 전면 개편** |
 | 2026-05-03 | **v3.1** | **마우스 페이지 이동 ◀/▶ 버튼 (한자/특수문자/이모지), 페이지 이동 wrap-around 정책 명시, 한자 즐겨찾기 해제 시 cursor flash(140ms #f9e2af) 추가, `popup_change_page` RPC + `was_bookmarked` 시그널 필드 추가** |
+| 2026-05-04 | **v3.2** | **Phase B 통합 SoT — `PopupViewModel` 확장 + `PopupRender` DBus 시그널 추가 (헤더/푸터/탭/확장 아이콘 daemon 산출). `TogglePopupExpand` RPC (마우스 ⊞/⊟ 클릭). 키 바인딩 추가: `Home`/`End` (3개 popup), `.` Period (한자 expand 토글). 엔진 `update_page_layout` rows=9 고정 정책 (시각·엔진 column-major 인덱싱 일치). idle Hanja 키가 영문 모드에서도 emoji popup 트리거. 디자인 토큰 SoT (`tools/popup-styles/popup_tokens.toml` + 양 frontend 자동 생성 CSS). 우클릭 즐겨찾기 토글 gui-gtk parity. 이모지 popup nav/edit 키 stage 캡처 (Wayland idle text-input 우회). 이모지 카테고리 라벨 우측 정렬.** |

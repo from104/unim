@@ -158,10 +158,14 @@ GNOME extension 고유 사항:
 |--------|-------|-----------|
 | `GlobalModeChanged(isKorean)` | InputMethod | 인디케이터 아이콘 갱신 |
 | `ConfigChangedJson(jsonStr)` | InputMethod | `_configCache` 갱신 + 콜백 |
-| `ShowHanjaPopup(target, candidates, rect)` | InputContext | → `_onShowHanja` |
+| `ShowHanjaPopup(target, candidates, rect)` | InputContext | → `_onShowHanja` (활성화 + 커서) |
 | `ShowSpecialPopup(target, characters, topRow, rect)` | InputContext | → `_onShowSpecial` |
+| `ShowEmojiPopupV2(catId, items, top_row, recent, cats, rect, home_row)` | InputContext | → `_onShowEmoji` |
 | `HidePopup` | InputContext | → `_onHidePopup` |
-| `PopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol)` | InputContext | → `_onPopupNavigate` |
+| `PopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol)` | InputContext | (legacy v3.2 부터 PopupRender 와 dual-emit) → `_onPopupNavigate` (셀/그리드 갱신용) |
+| `HanjaBookmarkChanged(index, bookmarked)` | InputContext | → `_onHanjaBookmarkChanged` |
+| `HanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selR, selC, bookmarked, wasBookmarked)` | InputContext | → `_onHanjaCandidatesReordered` (cursor flash 분기) |
+| `PopupRender(...)` (v3.2) | InputContext | → `_onPopupRender` — 통합 view_model. 헤더/푸터/탭 라벨/확장 아이콘 등 daemon 산출 문자열 일괄 적용. 자세한 페이로드는 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
 | `AutoTypefixApply(deleteChars, commit, preedit)` | InputContext | 자기 context에서만 `_onAutoTypeFix` 호출 |
 
 - InputContext 시그널은 `_icProxy` g-signal과 **세션 버스 글로벌 구독(`signal_subscribe`)** 두 경로를 병용. 자기 context는 proxy 경로, 외부 context(Wayland 전용)는 글로벌 경로로 처리하여 중복 방지.

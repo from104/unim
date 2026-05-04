@@ -220,6 +220,9 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `GetSpecialCharCandidates` | — | `(s, a(s), s)` | 특수문자 후보 조회 → (target, [문자열], top_row) |
 | `SelectSpecialChar` | `char_str: s` | — | 특수문자 선택 → preedit 교체 + 커밋 |
 | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
+| `ToggleHanjaBookmark` | `index: u` | `(u, b)` | 한자 즐겨찾기 토글 → (new_index, bookmarked). HanjaCandidatesReordered + PopupRender 시그널 동반 발행. |
+| `popup_change_page` | `direction: i` | — | 마우스 ◀/▶ 페이지 이동. 0/음수=Prev, 양수=Next. wrap-around. PopupNavigate + PopupRender 시그널 발행. popup-owner 라우팅 (caller context 와 popup_state 활성 context 가 다를 수 있음). |
+| `TogglePopupExpand` | — | — | (v3.2) 한자 popup compact↔expanded 토글 (마우스 ⊞/⊟ 클릭). popup-owner 라우팅. 활성 한자 popup 없으면 no-op. |
 
 ### 6.2 시그널
 
@@ -227,6 +230,14 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 |--------|----------|------|
 | `UpdatePreeditText` | `text: s, cursor_pos: u, visible: b` | Preedit 변경 알림 (XIM/Wayland) |
 | `CommitText` | `text: s` | 외부(인디케이터 등)로의 커밋 브로드캐스트. **FocusOut 경로에서는 발송하지 않음** — §6.5 참조 (552b5bd) |
+| `ShowHanjaPopup` | `target: s, candidates: a(ss), top_row: s, cursor: i,i,u,u` | 한자 popup 활성화 트리거 + 커서 좌표 |
+| `ShowSpecialPopup` | `target: s, chars: as, top_row: s, cursor: ...` | 특수문자 popup 활성화 |
+| `ShowEmojiPopupV2` | `target_cat_id, items, top_row, recent, categories, cursor, home_row` | 이모지 popup 활성화 |
+| `HidePopup` | — | popup 닫기 |
+| `PopupNavigate` (legacy) | `page, total_pages, selected, rows, cols, sel_row, sel_col` | 페이지/커서 변경. v3.2 부터 PopupRender 와 dual-emit. |
+| `HanjaBookmarkChanged` | `index: u, bookmarked: b` | 즐겨찾기 단일 갱신 (구버전 호환) |
+| `HanjaCandidatesReordered` | `target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, bookmarked, was_bookmarked` | 즐겨찾기 토글 후 재정렬·커서 점프. `was_bookmarked && !bookmarked` 시 frontend 가 cursor flash. |
+| `PopupRender` (v3.2) | `kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages), (showFooter,expandVisible), cells:a(ssu), col_headers:a(sb), row_headers:a(sb), tab_labels:as, active_tab_index:u` | **통합 view_model** — daemon SoT. 헤더·푸터·탭 라벨·확장 아이콘 모두 미리 포맷. frontend 가 본 시그널만으로 즉시 렌더. cells flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_hl, 0x08=row_hl, 0x10=bookmarked. 자세한 사양은 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
 
 ### 6.3 ProcessKeyEvent 상세
 
