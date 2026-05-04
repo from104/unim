@@ -810,7 +810,11 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 "{}",
                 t!("layout_changed", kind = kind, layout = normalized.as_str())
             );
-            config.engine.korean.layout = normalized;
+            // GTK 설정과 동일한 캐시 동작 — 이전 자판의 active_rule_sets 보존,
+            // 새 자판의 캐시된 값(있으면) 복원. 사용자가 자판을 왕복해도 룰셋 ON/OFF
+            // 의도가 잃지 않는다. (CLI는 프로필 객체가 없어 stale 정리는 생략 — daemon이
+            // 다음 로드 시 처리.)
+            config.engine.korean.switch_layout(&normalized, None);
         }
         ConfigKey::EnglishLayout => {
             let normalized = normalize_english_layout_name(value);
@@ -853,6 +857,9 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 (Some(names), disp)
             };
             config.engine.korean.active_rule_sets = new_value;
+            // 현재 자판의 캐시도 동기화 — 다음 자판 전환 시 이 상태가 보존된다.
+            // None일 때 캐시 entry는 제거되어 "프로필 기본값" 의도가 보존된다.
+            config.engine.korean.cache_active_rule_sets();
             println!("{}: {}", t!("korean_active_rule_sets_label"), display);
         }
         ConfigKey::DefaultCategory => {

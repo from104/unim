@@ -3,6 +3,7 @@
 //! UNIM 입력기의 설정을 관리합니다.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -485,6 +486,22 @@ pub struct KoreanConfig {
     /// 누락된다(기본 상태에서 config.yaml이 깔끔). `Some(vec![])`은 `[]`로 명시 저장.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_rule_sets: Option<Vec<String>>,
+
+    /// 키맵(자판 프로필)별 `active_rule_sets` 스냅샷 캐시 — 사용자 편의용.
+    ///
+    /// GTK 설정에서 자판을 전환할 때 이전 자판의 활성 룰셋 ON/OFF 상태를 잃지 않도록
+    /// 키맵 이름을 키로 매핑해 보존한다. 기본값은 빈 맵 (캐시 미사용 → 프로필 기본값).
+    ///
+    /// - **Key**: `effective_layout_name()` (정규화된 자판 이름, 예: `ko_2bulstd`).
+    /// - **Value**: 그 자판에서 사용자가 마지막으로 설정한 active rule_sets 이름 목록.
+    ///   빈 vec(`[]`)도 유효한 의도("모두 OFF") — `active_rule_sets: Some(vec![])` 의미와 동일.
+    ///
+    /// daemon은 본 캐시를 읽지 **않는다** — 활성 자판의 효과는 `active_rule_sets` 만 결정.
+    /// GUI가 자판 전환 시 본 캐시에서 새 자판의 값을 꺼내 `active_rule_sets`로 복원한다.
+    ///
+    /// `BTreeMap`은 직렬화 순서 안정성 (자판명 알파벳 순서). 빈 맵일 때 YAML에서 누락.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub layout_rule_sets: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for KoreanConfig {
@@ -492,6 +509,7 @@ impl Default for KoreanConfig {
         Self {
             layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
             active_rule_sets: None,
+            layout_rule_sets: BTreeMap::new(),
         }
     }
 }
@@ -502,6 +520,67 @@ impl KoreanConfig {
     /// 있어 두 단계 모두 안전하다.
     pub fn effective_layout_name(&self) -> String {
         normalize_korean_layout_name(&self.layout)
+    }
+
+    /// 한국어 자판 전환을 캐시 보존/복원과 함께 수행한다.
+    ///
+    /// **이 함수는 GUI 토글이 만드는 사용자 의도를 자판 전환 직후에도 유지하는
+    /// 데에 핵심**이다 — 이전 자판의 `active_rule_sets`(Some)을 캐시에 저장하고,
+    /// 새 자판의 캐시된 값(있으면)을 복원한다.
+    ///
+    /// - **이전 자판**: `active_rule_sets == Some(...)`이면 그 자판 이름으로
+    ///   `layout_rule_sets`에 보존. `None` (프로필 기본값)은 캐시하지 않는다 —
+    ///   "기본값 사용" 의도가 의미상 캐시 hit과 구별되어야 하기 때문.
+    /// - **새 자판**: `layout_rule_sets[new_layout]`이 존재하면 그 값으로
+    ///   `active_rule_sets` 복원, 없으면 `None`(프로필 기본값).
+    ///
+    /// 호출자가 새 프로필의 유효한 rule_set 이름 슬라이스를 알고 있으면
+    /// `valid_rule_set_names`에 넘기면 stale 이름을 자동 정리한다 (예: 사용자가
+    /// 캐시 후 프로필 JSON을 편집해 일부 rule_set을 제거한 경우). `None`이면 필터링
+    /// 생략 — 다음 GUI/CLI 조작 때 정리된다.
+    ///
+    /// 같은 자판으로의 "전환"은 의미가 없으므로 무시한다 (캐시 변동 없음).
+    pub fn switch_layout(&mut self, new_layout: &str, valid_rule_set_names: Option<&[String]>) {
+        let new_norm = normalize_korean_layout_name(new_layout);
+        let old_norm = self.effective_layout_name();
+        if old_norm == new_norm {
+            return;
+        }
+
+        // 1. 이전 자판의 명시 상태(Some) 보존. None은 캐시하지 않음.
+        if let Some(active) = self.active_rule_sets.as_ref() {
+            self.layout_rule_sets.insert(old_norm, active.clone());
+        }
+
+        // 2. 자판 변경.
+        self.layout = new_norm.clone();
+
+        // 3. 새 자판의 캐시 복원 (없으면 None → 프로필 기본값 사용).
+        self.active_rule_sets = self.layout_rule_sets.get(&new_norm).cloned();
+
+        // 4. stale rule_set 이름 정리 (호출자가 valid 집합 제공한 경우).
+        if let (Some(list), Some(valid)) = (self.active_rule_sets.as_mut(), valid_rule_set_names) {
+            list.retain(|n| valid.iter().any(|v| v == n));
+        }
+    }
+
+    /// 현재 자판의 `active_rule_sets` 값을 캐시(`layout_rule_sets`)에 동기화한다.
+    /// 사용자 토글 또는 CLI `set` 직후에 호출.
+    ///
+    /// - `Some(list)` → `layout_rule_sets[current_layout] = list` (덮어쓰기).
+    /// - `None` (프로필 기본값으로 재설정 의도) → 해당 자판의 캐시 entry 제거.
+    ///   (캐시가 남아있으면 다음 자판 전환 시 stale Some으로 복원되어 사용자 의도와
+    ///   어긋난다.)
+    pub fn cache_active_rule_sets(&mut self) {
+        let layout = self.effective_layout_name();
+        match self.active_rule_sets.as_ref() {
+            Some(list) => {
+                self.layout_rule_sets.insert(layout, list.clone());
+            }
+            None => {
+                self.layout_rule_sets.remove(&layout);
+            }
+        }
     }
 }
 
@@ -522,6 +601,9 @@ struct KoreanConfigCompat {
     /// 있으면 `Some(...)` (빈 list `[]` 포함, 이는 "모두 OFF" 의도).
     #[serde(default)]
     active_rule_sets: Option<Vec<String>>,
+    /// 키맵별 active_rule_sets 캐시 (GTK GUI 사용자 편의용).
+    #[serde(default)]
+    layout_rule_sets: BTreeMap<String, Vec<String>>,
     /// 레거시 override 필드 — Some이면 `layout`을 덮어씀. 본 통합 이후 제거됨.
     #[serde(default)]
     custom_layout: Option<String>,
@@ -534,6 +616,7 @@ impl Default for KoreanConfigCompat {
             preedit_johab: false,
             word_commit: false,
             active_rule_sets: None,
+            layout_rule_sets: BTreeMap::new(),
             custom_layout: None,
         }
     }
@@ -548,6 +631,7 @@ impl From<KoreanConfigCompat> for KoreanConfig {
         Self {
             layout: normalize_korean_layout_name(&layout),
             active_rule_sets: c.active_rule_sets,
+            layout_rule_sets: c.layout_rule_sets,
         }
     }
 }
@@ -1092,6 +1176,153 @@ word_commit: false
 "#;
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(kc.active_rule_sets, None);
+    }
+
+    // ─────────────────────────────────────────────
+    // layout_rule_sets 캐시 동작 — switch_layout / cache_active_rule_sets
+    // ─────────────────────────────────────────────
+
+    #[test]
+    fn switch_layout_caches_old_and_restores_new() {
+        // A에서 토글 후 B로 전환 → A의 상태가 캐시에 보존되어야 한다.
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_2bulstd".to_string();
+        kc.active_rule_sets = Some(vec!["a_set".to_string()]);
+        kc.switch_layout("ko_3bul390", None);
+
+        assert_eq!(kc.layout, "ko_3bul390");
+        // 새 자판은 캐시 없으므로 None (프로필 기본값 사용).
+        assert_eq!(kc.active_rule_sets, None);
+        // 이전 자판 상태는 캐시에 보존.
+        assert_eq!(
+            kc.layout_rule_sets.get("ko_2bulstd"),
+            Some(&vec!["a_set".to_string()])
+        );
+    }
+
+    #[test]
+    fn switch_layout_restores_cached_state_on_return() {
+        // A → B → A 왕복 시 A의 상태가 복원되어야 한다.
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_2bulstd".to_string();
+        kc.active_rule_sets = Some(vec!["a_set".to_string()]);
+        kc.switch_layout("ko_3bul390", None);
+        // B에서 다른 상태로 토글.
+        kc.active_rule_sets = Some(vec!["b_set".to_string()]);
+        kc.cache_active_rule_sets();
+        // 다시 A로.
+        kc.switch_layout("ko_2bulstd", None);
+
+        assert_eq!(kc.layout, "ko_2bulstd");
+        assert_eq!(
+            kc.active_rule_sets,
+            Some(vec!["a_set".to_string()]),
+            "A로 돌아왔을 때 A의 활성 룰셋 상태가 복원되어야 함"
+        );
+        // B의 캐시도 보존되어야 함 (다음에 B로 갈 때 사용).
+        assert_eq!(
+            kc.layout_rule_sets.get("ko_3bul390"),
+            Some(&vec!["b_set".to_string()])
+        );
+    }
+
+    #[test]
+    fn switch_layout_preserves_explicit_all_off() {
+        // Some(vec![]) (명시 All OFF) 의도가 캐시 → 복원 시 보존되어야 한다.
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_2bulstd".to_string();
+        kc.active_rule_sets = Some(Vec::new()); // 명시 All OFF
+        kc.switch_layout("ko_3bul390", None);
+        kc.switch_layout("ko_2bulstd", None);
+
+        assert_eq!(
+            kc.active_rule_sets,
+            Some(Vec::<String>::new()),
+            "명시 All OFF 의도가 자판 왕복 후에도 보존"
+        );
+    }
+
+    #[test]
+    fn switch_layout_does_not_cache_none() {
+        // None(프로필 기본값 사용)은 캐시하지 않는다 — 캐시되면 다음에 None을 못 만듦.
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_2bulstd".to_string();
+        kc.active_rule_sets = None;
+        kc.switch_layout("ko_3bul390", None);
+
+        assert!(
+            kc.layout_rule_sets.is_empty(),
+            "None은 캐시되지 않아야 함 (의미상 '캐시 없음 = 프로필 기본')"
+        );
+    }
+
+    #[test]
+    fn switch_layout_same_name_is_noop() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_2bulstd".to_string();
+        kc.active_rule_sets = Some(vec!["x".to_string()]);
+        let before = kc.layout_rule_sets.clone();
+        kc.switch_layout("ko_2bulstd", None);
+        assert_eq!(kc.layout_rule_sets, before);
+        assert_eq!(kc.active_rule_sets, Some(vec!["x".to_string()]));
+    }
+
+    #[test]
+    fn switch_layout_filters_stale_rule_set_names() {
+        // 캐시된 이름 중 새 프로필에 없는 것은 정리.
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_2bulstd".to_string();
+        kc.layout_rule_sets.insert(
+            "ko_3bul390".to_string(),
+            vec!["valid".to_string(), "stale".to_string()],
+        );
+        let valid_names = vec!["valid".to_string(), "other".to_string()];
+        kc.switch_layout("ko_3bul390", Some(&valid_names));
+        assert_eq!(kc.active_rule_sets, Some(vec!["valid".to_string()]));
+    }
+
+    #[test]
+    fn cache_active_rule_sets_writes_some_removes_none() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_2bulstd".to_string();
+        kc.active_rule_sets = Some(vec!["x".to_string()]);
+        kc.cache_active_rule_sets();
+        assert_eq!(
+            kc.layout_rule_sets.get("ko_2bulstd"),
+            Some(&vec!["x".to_string()])
+        );
+        // None으로 되돌리면 캐시 entry 제거.
+        kc.active_rule_sets = None;
+        kc.cache_active_rule_sets();
+        assert!(!kc.layout_rule_sets.contains_key("ko_2bulstd"));
+    }
+
+    #[test]
+    fn korean_config_serde_roundtrips_layout_rule_sets() {
+        let mut kc = KoreanConfig::default();
+        kc.layout = "ko_3bul390".to_string();
+        kc.layout_rule_sets
+            .insert("ko_2bulstd".to_string(), vec!["a".to_string()]);
+        kc.layout_rule_sets
+            .insert("ko_3bul390".to_string(), vec!["b".to_string(), "c".to_string()]);
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.layout_rule_sets.len(), 2);
+        assert_eq!(
+            back.layout_rule_sets.get("ko_2bulstd"),
+            Some(&vec!["a".to_string()])
+        );
+    }
+
+    #[test]
+    fn korean_config_empty_layout_rule_sets_skips_field_in_yaml() {
+        let kc = KoreanConfig::default();
+        assert!(kc.layout_rule_sets.is_empty());
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        assert!(
+            !yaml.contains("layout_rule_sets"),
+            "빈 BTreeMap일 때 YAML에 layout_rule_sets 키 없어야 함: {yaml}"
+        );
     }
 
     /// 명시적 빈 list (`active_rule_sets: []`)는 `Some(vec![])`로 로드되어

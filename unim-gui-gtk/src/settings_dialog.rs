@@ -263,13 +263,16 @@ fn collect_korean_profile_choices() -> Vec<(String, String)> {
 /// Phase 8: `korean.layout`이 enum → String으로 통합되어 별칭 분기 불필요.
 /// 레거시 값은 `normalize_korean_layout_name`이 정식 이름으로 승격.
 ///
-/// 새 프로필에 정의되지 않은 `active_rule_sets` 이름은 silently drop (§3.5).
+/// **자판별 룰셋 캐시**: `KoreanConfig::switch_layout`이 이전 자판의
+/// `active_rule_sets`(Some이면)를 `layout_rule_sets`에 보존하고, 새 자판의 캐시된
+/// 값(있으면)을 복원한다. 사용자가 자판을 왕복해도 룰셋 ON/OFF 의도가 잃지 않는다.
+/// 새 프로필에 정의되지 않은 stale 이름은 valid 슬라이스로 자동 정리.
 fn apply_korean_profile_choice(config: &mut Config, name: &str, new_profile: &LayoutProfile) {
-    config.engine.korean.layout = unim::config::normalize_korean_layout_name(name);
-    // 새 프로필에 없는 rule_set 이름 드롭. None(미설정)은 그대로 둔다.
-    if let Some(list) = config.engine.korean.active_rule_sets.as_mut() {
-        list.retain(|n| new_profile.rule_sets.contains_key(n));
-    }
+    let valid_names: Vec<String> = new_profile.rule_sets.keys().cloned().collect();
+    config
+        .engine
+        .korean
+        .switch_layout(name, Some(&valid_names));
 }
 
 /// 레지스트리에서 프로필을 찾아 inherits까지 해석한다. 실패 시 `None`.
@@ -361,19 +364,23 @@ impl RuleSetsHandle {
                 // 첫 토글 시 None → Some(현재 표시 중 활성 집합)으로 "고정".
                 // 이후 사용자의 모든 토글이 명시 override로 저장되어, 모두 OFF
                 // 의도(`Some(vec![])`)도 손실 없이 보존된다.
-                let list = s
-                    .config
-                    .engine
-                    .korean
-                    .active_rule_sets
-                    .get_or_insert_with(|| (*seed).clone());
-                if on {
-                    if !list.contains(&name_c) {
-                        list.push(name_c.clone());
+                {
+                    let list = s
+                        .config
+                        .engine
+                        .korean
+                        .active_rule_sets
+                        .get_or_insert_with(|| (*seed).clone());
+                    if on {
+                        if !list.contains(&name_c) {
+                            list.push(name_c.clone());
+                        }
+                    } else {
+                        list.retain(|x| x != &name_c);
                     }
-                } else {
-                    list.retain(|x| x != &name_c);
                 }
+                // 현재 자판의 캐시도 동기화 — 다음 자판 전환 시 본 상태가 보존된다.
+                s.config.engine.korean.cache_active_rule_sets();
                 save_and_notify(&s.config, "korean_active_rule_sets");
             });
 

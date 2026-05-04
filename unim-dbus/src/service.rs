@@ -764,8 +764,9 @@ impl InputMethodService {
                             "korean_layout cannot be empty".to_string(),
                         ));
                     }
-                    config.engine.korean.layout =
-                        unim::config::normalize_korean_layout_name(trimmed);
+                    // GTK/CLI와 동일한 캐시 동작 — 이전 자판의 active_rule_sets 보존,
+                    // 새 자판의 캐시된 값(있으면) 복원. switch_layout이 자판 정규화도 수행.
+                    config.engine.korean.switch_layout(trimmed, None);
                 }
                 "english_layout" => {
                     // Phase 9: 프로필 이름 문자열 직접 수용. 레거시 enum 이름·소문자 별칭
@@ -845,17 +846,21 @@ impl InputMethodService {
                             .collect();
                         config.engine.korean.active_rule_sets = Some(names);
                     }
+                    // 현재 자판의 캐시 동기화 — 다음 자판 전환 시 본 상태가 보존된다.
+                    config.engine.korean.cache_active_rule_sets();
                 }
                 "korean_custom_layout" => {
                     // Phase 8 호환: custom_layout 필드는 폐지되고 korean_layout이 문자열
                     // 이므로 이 키도 korean_layout을 직접 업데이트한다. 빈 문자열은
                     // 기본(ko_2bulstd)으로 복귀.
                     let trimmed = value.trim();
-                    config.engine.korean.layout = if trimmed.is_empty() {
+                    let target = if trimmed.is_empty() {
                         unim::config::KOREAN_LAYOUT_DUBEOLSIK.to_string()
                     } else {
-                        unim::config::normalize_korean_layout_name(trimmed)
+                        trimmed.to_string()
                     };
+                    // korean_layout과 동일한 캐시 동작.
+                    config.engine.korean.switch_layout(&target, None);
                 }
                 "popup_mode" => {
                     config.engine.popup_mode = match value {
