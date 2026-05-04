@@ -371,11 +371,13 @@
     spacing: 8px;
 }
 
-/* 좌측 세로 9 탭 — 특수문자 패턴 차용, 가로 → 세로 전환 */
+/* 좌측 세로 9 탭 — 특수문자 패턴 차용, 가로 → 세로 전환.
+ * 탭과 emoji 그리드는 동일 Clutter.GridLayout 의 col 0 / col 2.. 로 부착되며
+ * row 인덱스가 같은 탭과 emoji 행이 단일 row 높이로 자연 정렬된다.
+ * 본 클래스는 GridLayout 시점에서 wrapper container 가 사라졌으므로 유지만 한다. */
 .unim-emoji-popup .emoji-tabs-vertical {
     spacing: 2px;
     padding: 2px 4px 2px 0;
-    margin-right: 6px;
 }
 
 .unim-emoji-popup .emoji-tab-vertical {
@@ -386,6 +388,9 @@
     border-radius: 6px;
     border: none;
     min-width: 96px;
+    /* 탭(col 0)과 행 번호(col 1) 사이 시각적 여백 — 본래 wrapper 의
+     * margin-right 6px 역할을 본 button 으로 이전. */
+    margin-right: 6px;
 }
 
 /* St.Button 의 자동 label 은 CSS text-align 을 무시하므로, JS 측에서 명시

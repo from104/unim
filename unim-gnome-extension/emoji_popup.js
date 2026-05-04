@@ -63,10 +63,10 @@ export class EmojiPopup {
         this._header = null;
         /** @type {St.BoxLayout|null} body (좌측 탭 + 우측 그리드) */
         this._body = null;
-        /** @type {St.BoxLayout|null} 좌측 세로 탭 컨테이너 */
-        this._tabBar = null;
-        /** @type {St.BoxLayout|null} 그리드 컨테이너 */
+        /** @type {St.Widget|null} 통합 그리드 (탭 + 행 번호 + 컬럼 헤더 + 셀) */
         this._grid = null;
+        /** @type {Clutter.GridLayout|null} 그리드 layout manager — 동일 열의 헤더/셀 자연 정렬 */
+        this._gridLayout = null;
         /** @type {St.BoxLayout|null} 풋터 컨테이너 (◀ + 라벨 + ▶) */
         this._footer = null;
         /** @type {St.Button|null} 이전 페이지 버튼 */
@@ -149,15 +149,16 @@ export class EmojiPopup {
         });
         this._container.add_child(this._body);
 
-        // 좌측 세로 탭 컨테이너
-        this._tabBar = new St.BoxLayout({
-            style_class: 'emoji-tabs-vertical',
-            vertical: true,
-        });
-        this._body.add_child(this._tabBar);
-
-        // 우측 그리드 컨테이너
-        this._grid = new St.BoxLayout({ vertical: true });
+        // 통합 그리드 컨테이너 — Clutter.GridLayout 으로 카테고리 탭(좌측 세로
+        // 9개) + 행 번호 + 컬럼 헤더 + 9×9 셀을 한 그리드에 배치한다.
+        // BoxLayout 분리 구조는 행마다 자체 폭/높이로 정렬이 어긋나기 때문.
+        // 레이아웃:
+        //   col 0    : 카테고리 탭 (rows 1..9, row 0 은 빈 corner)
+        //   col 1    : 행 번호 (rows 1..9)
+        //   col 2..10: 컬럼 헤더 (row 0) + emoji 셀 (rows 1..9)
+        // 같은 row 인덱스의 탭과 emoji 셀이 동일 row 높이로 정렬된다.
+        this._gridLayout = new Clutter.GridLayout();
+        this._grid = new St.Widget({ layout_manager: this._gridLayout });
         this._body.add_child(this._grid);
 
         // 풋터: [◀] [카테고리 n/N] [▶]
@@ -216,8 +217,8 @@ export class EmojiPopup {
         }
         this._header = null;
         this._body = null;
-        this._tabBar = null;
         this._grid = null;
+        this._gridLayout = null;
         this._footer = null;
         this._prevPageBtn = null;
         this._nextPageBtn = null;
@@ -276,7 +277,7 @@ export class EmojiPopup {
         this._mouseHoverCol = -1;
 
         this._updateHeader();
-        this._rebuildTabBar();
+        // _updateGrid 가 내부적으로 _rebuildTabBar 를 호출 — 별도 호출 불필요.
         this._updateGrid();
 
         this._container.show();
@@ -404,14 +405,12 @@ export class EmojiPopup {
         if (this._pageLabel) {
             this._pageLabel.set_text(state.footerText || '');
         }
+        // Footer 항상 노출 — popup 크기 안정화를 위해 단일 페이지(예: Recent) 에서도
+        // ◀/▶ 와 N/M 표기 유지. daemon hint(state.showFooter) 는 무시.
         if (this._footer) {
-            if (state.showFooter) {
-                this._footer.show();
-                this._prevPageBtn?.show();
-                this._nextPageBtn?.show();
-            } else {
-                this._footer.hide();
-            }
+            this._footer.show();
+            this._prevPageBtn?.show();
+            this._nextPageBtn?.show();
         }
         // 탭 라벨 — daemon 이 단축키 prefix 포함하여 산출.
         // _tabButtons 는 Map<cat.id, btn>. categories 와 같은 순서로 삽입되므로
@@ -447,8 +446,7 @@ export class EmojiPopup {
      * @private
      */
     _rebuildTabBar() {
-        if (!this._tabBar) return;
-        this._tabBar.destroy_all_children();
+        if (!this._gridLayout) return;
         this._tabButtons.clear();
 
         const hasClickHandler = typeof this._onTabClick === 'function';
@@ -495,7 +493,9 @@ export class EmojiPopup {
                     }
                 });
             }
-            this._tabBar.add_child(btn);
+            // GridLayout 의 col 0, row i+1 에 부착 (row 0 은 컬럼 헤더 행).
+            // 같은 row 인덱스의 emoji 셀과 동일 row 높이로 자연 정렬된다.
+            this._gridLayout.attach(btn, 0, i + 1, 1, 1);
             this._tabButtons.set(cat.id, btn);
         }
     }
@@ -512,57 +512,61 @@ export class EmojiPopup {
     }
 
     /**
-     * 9×9 그리드 재구성 + 푸터 갱신.
+     * 통합 그리드 재구성 + 푸터 갱신.
+     *
+     * 레이아웃 (Clutter.GridLayout):
+     *   col 0    : 카테고리 탭 (rows 1..9)
+     *   col 1    : 행 번호 (rows 1..9)
+     *   col 2..10: 컬럼 헤더 (row 0) + 9×9 emoji 셀 (rows 1..9)
+     *
+     * 같은 row 인덱스의 탭과 emoji 행은 GridLayout 이 단일 row 높이로 통일해
+     * 자연 정렬한다 (BoxLayout 분리 구조의 vertical drift 해소).
      * @private
      */
     _updateGrid() {
-        if (!this._grid) return;
+        if (!this._grid || !this._gridLayout) return;
         this._grid.destroy_all_children();
         this._cells = [];
         this._colHeaders = [];
         this._rowNumbers = [];
 
-        // 현재 페이지 항목 수 — 그리드 자체는 항상 9×9 고정으로 유지.
-        // 81 미만이어도 빈 셀(빈 라벨)로 채워 사용자가 일정한 레이아웃 위치를
-        // 학습할 수 있게 한다 (탭 전환·페이지 이동 시 그리드 크기가 출렁이면
-        // 인지 부담이 크다).
-        const pageStart = this._currentPage * PAGE_SIZE;
-        const pageItemCount = Math.max(0,
-            Math.min(PAGE_SIZE, this._items.length - pageStart));
-        void pageItemCount; // 진단·디버그용 — 그리드 차원 결정에는 미사용
         this._cols = MAX_COLS;
 
-        // 열 헤더 행
-        const headerRow = new St.BoxLayout({ style_class: 'grid-row' });
-        headerRow.add_child(new St.Label({
+        // 카테고리 탭 (col 0, rows 1..9) — destroy_all_children 으로 지워졌으므로
+        // 재부착. _rebuildTabBar 를 먼저 호출해 같은 그리드에 다시 attach 한다.
+        this._rebuildTabBar();
+
+        // 행 번호 열 위 corner placeholder (col 1, row 0)
+        const cornerRowNum = new St.Label({
             style_class: 'grid-row-number',
             text: '',
-        }));
+        });
+        this._gridLayout.attach(cornerRowNum, 1, 0, 1, 1);
 
+        // 열 헤더 (row=0, cols 2..10)
         for (let col = 0; col < this._cols; col++) {
             const headerChar = col < this._topRow.length ? this._topRow[col] : '';
             const label = new St.Label({
                 style_class: 'grid-header',
                 text: headerChar,
                 x_align: Clutter.ActorAlign.CENTER,
+                x_expand: true,
             });
-            headerRow.add_child(label);
+            this._gridLayout.attach(label, col + 2, 0, 1, 1);
             this._colHeaders.push(label);
         }
-        this._grid.add_child(headerRow);
 
         // 데이터 행 — 81 미만이어도 항상 9 행 모두 렌더해 9×9 표 유지.
         // 빈 셀은 idx<0 으로 분기되어 라벨 텍스트가 비고 hover/click 도 비활성.
         this._rows = 0;
         for (let row = 0; row < MAX_ROWS; row++) {
             this._rows++;
-            const rowWidget = new St.BoxLayout({ style_class: 'grid-row' });
 
             const rowNum = new St.Label({
                 style_class: 'grid-row-number',
                 text: `${row + 1}`,
             });
-            rowWidget.add_child(rowNum);
+            this._gridLayout.attach(rowNum, 1, row + 1, 1, 1);
             this._rowNumbers.push(rowNum);
 
             const rowCells = [];
@@ -573,6 +577,7 @@ export class EmojiPopup {
                     style_class: 'grid-cell',
                     text: ch,
                     x_align: Clutter.ActorAlign.CENTER,
+                    x_expand: true,
                     reactive: idx >= 0,
                 });
 
@@ -606,27 +611,24 @@ export class EmojiPopup {
                     });
                 }
 
-                rowWidget.add_child(cell);
+                this._gridLayout.attach(cell, col + 2, row + 1, 1, 1);
                 rowCells.push(cell);
             }
 
-            this._grid.add_child(rowWidget);
             this._cells.push(rowCells);
         }
 
-        // 푸터 — 카테고리 라벨 + 페이지 인디케이터 (◀/▶ 는 단일 페이지일 때 hide)
+        // 푸터 — 카테고리 라벨 + 페이지 인디케이터.
+        // 단일 페이지(예: Recent 탭)에서도 ◀/▶ 와 N/M 표기를 항상 노출해 popup
+        // 크기를 안정화한다 (탭 전환마다 footer 가 줄었다 늘면 인지 부담 ↑).
+        // 데몬은 page=0/totalPages=1 에서 PopupChangePage(0|1) 를 받으면 no-op.
         if (this._footer && this._pageLabel) {
             const catLabel = TAB_LABEL_KO[this._currentCatId] || this._currentCatId;
-            if (this._totalPages > 1) {
-                this._pageLabel.set_text(
-                    `[${catLabel}]  ${this._currentPage + 1}/${this._totalPages}`);
-                this._prevPageBtn?.show();
-                this._nextPageBtn?.show();
-            } else {
-                this._pageLabel.set_text(`[${catLabel}]`);
-                this._prevPageBtn?.hide();
-                this._nextPageBtn?.hide();
-            }
+            const total = Math.max(this._totalPages, 1);
+            this._pageLabel.set_text(
+                `[${catLabel}]  ${this._currentPage + 1}/${total}`);
+            this._prevPageBtn?.show();
+            this._nextPageBtn?.show();
             this._footer.show();
         }
 

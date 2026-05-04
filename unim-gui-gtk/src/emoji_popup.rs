@@ -100,7 +100,13 @@ impl EmojiPopup {
         window.set_focusable(false);
         window.add_css_class("unim-emoji-popup");
 
-        // 외곽: vbox = [header, hbox(left_tabs | grid), footer]
+        // 외곽: vbox = [header, grid(통합), footer]
+        // 통합 grid 레이아웃 (Clutter.GridLayout 패턴과 동일):
+        //   col 0    : 카테고리 탭 (rows 1..9)
+        //   col 1    : 행 번호    (rows 1..9)
+        //   col 2..10: 컬럼 헤더(row 0) + 9×9 emoji 셀 (rows 1..9)
+        // GtkGrid 가 같은 row 의 모든 자식을 단일 row 높이로 정렬해
+        // 좌측 탭과 우측 emoji 행이 자연스레 위아래로 일치한다.
         let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
 
         // 헤더 라벨 ("「Recent」 → 이모지")
@@ -110,15 +116,14 @@ impl EmojiPopup {
         header_label.set_xalign(0.0);
         vbox.append(&header_label);
 
-        // 본문: 좌측 탭 + 우측 grid
-        let body_hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-        body_hbox.set_margin_top(4);
+        // 본문 통합 grid
+        let grid = gtk4::Grid::new();
+        grid.add_css_class("emoji-grid");
+        grid.set_row_spacing(1);
+        grid.set_column_spacing(1);
+        grid.set_margin_top(4);
 
-        // 좌측 세로 탭 컨테이너
-        let tab_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-        tab_box.add_css_class("emoji-tabs");
-        tab_box.set_valign(gtk4::Align::Start);
-
+        // 좌측 카테고리 탭 (col 0, rows 1..=9) — emoji 행과 row 인덱스 매칭
         let mut tab_buttons: Vec<gtk4::ToggleButton> = Vec::with_capacity(TAB_COUNT);
         let mut tab_labels: Vec<gtk4::Label> = Vec::with_capacity(TAB_COUNT);
         let mut group_anchor: Option<gtk4::ToggleButton> = None;
@@ -153,44 +158,32 @@ impl EmojiPopup {
                     );
                 }
             });
-            tab_box.append(&btn);
+            grid.attach(&btn, 0, (i + 1) as i32, 1, 1);
             tab_buttons.push(btn);
             tab_labels.push(label);
         }
-        body_hbox.append(&tab_box);
 
-        // 우측 grid (9×9 + 컬럼 헤더 + 행 번호 — 특수문자와 동일 패턴)
-        let grid = gtk4::Grid::new();
-        grid.add_css_class("emoji-grid");
-        grid.set_row_spacing(1);
-        grid.set_column_spacing(1);
-
-        // (0,0) 코너 빈 셀
-        let corner = gtk4::Label::new(None);
-        corner.add_css_class("grid-row-number");
-        grid.attach(&corner, 0, 0, 1, 1);
-
-        // 컬럼 헤더 (top_row 9문자) — grid row 0, columns 1..=9
+        // 컬럼 헤더 (top_row 9문자) — row 0, cols 2..=10
         let mut col_headers = Vec::with_capacity(MAX_COLS);
         for col in 0..MAX_COLS {
             let label = gtk4::Label::new(None);
             label.add_css_class("grid-header");
             label.set_halign(gtk4::Align::Center);
-            grid.attach(&label, (col + 1) as i32, 0, 1, 1);
+            grid.attach(&label, (col + 2) as i32, 0, 1, 1);
             col_headers.push(label);
         }
 
-        // 행 번호 (1..=9) — grid column 0, rows 1..=9
+        // 행 번호 (1..=9) — col 1, rows 1..=9
         let mut row_numbers = Vec::with_capacity(MAX_ROWS);
         for row in 0..MAX_ROWS {
             let num_label = gtk4::Label::new(Some(&format!("{}", row + 1)));
             num_label.add_css_class("grid-row-number");
             num_label.set_halign(gtk4::Align::Center);
-            grid.attach(&num_label, 0, (row + 1) as i32, 1, 1);
+            grid.attach(&num_label, 1, (row + 1) as i32, 1, 1);
             row_numbers.push(num_label);
         }
 
-        // 9×9 데이터 셀 (column-major: cells[col][row])
+        // 9×9 데이터 셀 (column-major: cells[col][row]) — cols 2..=10, rows 1..=9
         let mut cells = Vec::with_capacity(MAX_COLS);
         for col in 0..MAX_COLS {
             let mut col_cells = Vec::with_capacity(MAX_ROWS);
@@ -210,14 +203,13 @@ impl EmojiPopup {
                 });
                 label.add_controller(gesture);
 
-                grid.attach(&label, (col + 1) as i32, (row + 1) as i32, 1, 1);
+                grid.attach(&label, (col + 2) as i32, (row + 1) as i32, 1, 1);
                 col_cells.push(label);
             }
             cells.push(col_cells);
         }
-        body_hbox.append(&grid);
 
-        vbox.append(&body_hbox);
+        vbox.append(&grid);
 
         // 푸터: [◀] [카테고리 n/N] [▶]
         let footer_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
@@ -441,20 +433,19 @@ impl EmojiPopup {
             num.remove_css_class("active");
         }
 
-        // 페이지 인디케이터: 단일 페이지면 footer_box hide, 여러 페이지면 ◀/▶ 노출
-        if self.total_pages > 1 {
-            self.footer_label.set_text(&format!(
-                "[{}]  {}/{}",
-                tab_label_for(&self.current_cat_id),
-                self.current_page + 1,
-                self.total_pages
-            ));
-            self.prev_page_btn.set_visible(true);
-            self.next_page_btn.set_visible(true);
-            self.footer_box.set_visible(true);
-        } else {
-            self.footer_box.set_visible(false);
-        }
+        // 페이지 인디케이터 — 단일 페이지(예: Recent) 에서도 ◀/▶ 와 N/M 표기 항상
+        // 노출해 popup 크기 안정화 (탭 전환마다 footer 가 늘었다 줄면 인지 부담 ↑).
+        // 데몬은 totalPages=1 에서 PopupChangePage 를 받으면 no-op.
+        let total = self.total_pages.max(1);
+        self.footer_label.set_text(&format!(
+            "[{}]  {}/{}",
+            tab_label_for(&self.current_cat_id),
+            self.current_page + 1,
+            total
+        ));
+        self.prev_page_btn.set_visible(true);
+        self.next_page_btn.set_visible(true);
+        self.footer_box.set_visible(true);
 
         self.update_selection();
     }
@@ -532,14 +523,15 @@ impl EmojiPopup {
         &mut self,
         header_text: &str,
         footer_text: &str,
-        show_footer: bool,
+        _show_footer: bool,
         tab_labels: &[String],
     ) {
         self.header_label.set_text(header_text);
         self.footer_label.set_text(footer_text);
-        self.footer_box.set_visible(show_footer);
-        self.prev_page_btn.set_visible(show_footer);
-        self.next_page_btn.set_visible(show_footer);
+        // Footer 항상 노출 — popup 크기 안정화. daemon hint(_show_footer) 는 무시.
+        self.footer_box.set_visible(true);
+        self.prev_page_btn.set_visible(true);
+        self.next_page_btn.set_visible(true);
         // 탭 라벨 — daemon 이 단축키 prefix 포함하여 산출. tab_labels 와 self.tab_labels
         // 는 같은 순서 (categories 와 1:1). 부족하면 빈 라벨.
         for (i, label) in self.tab_labels.iter().enumerate() {

@@ -336,10 +336,8 @@ button.popup-page-btn:active {
     margin-bottom: 6px;
 }
 
-.unim-emoji-popup .emoji-tabs {
-    padding: 2px 0;
-}
-
+/* 좌측 카테고리 탭 — 통합 GtkGrid 의 col 0 (rows 1..9). 같은 row 의 emoji 셀과
+ * 동일 row 높이로 자연 정렬된다. wrapper container (.emoji-tabs) 는 폐기. */
 .unim-emoji-popup .emoji-tab-button {
     min-width: 96px;
     padding: 6px 12px;
@@ -347,6 +345,8 @@ button.popup-page-btn:active {
     background: transparent;
     border-radius: 6px;
     font-size: 12px;
+    /* 탭(col 0)과 행 번호(col 1) 사이 시각적 여백 */
+    margin-right: 6px;
 }
 
 .unim-emoji-popup .emoji-tab-button:hover {
