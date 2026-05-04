@@ -402,25 +402,17 @@ impl EmojiPopup {
         );
     }
 
-    /// 그리드 내용 업데이트 — 현재 페이지의 81 셀 (column-major) + 페이지 인디케이터.
+    /// 그리드 내용 업데이트 — 항상 9×9 그리드 유지 (한자 expanded / 특수문자 정책 일관).
+    ///
+    /// 페이지 항목 수가 81 미만이어도 시각 차원은 MAX_ROWS×MAX_COLS 로 일정.
+    /// 빈 셀(idx >= page_count)은 빈 텍스트 + selected 클래스 제거 — 그리드가
+    /// 출렁이지 않아 사용자가 셀 위치를 학습하기 쉽다.
     fn update_grid(&self) {
         let start = self.current_page * PAGE_SIZE;
         let page_count = if start >= self.items.len() {
             0
         } else {
             (self.items.len() - start).min(PAGE_SIZE)
-        };
-
-        // 행/열 활성 수 (특수문자와 동일 column-major 채움)
-        let active_cols = if page_count == 0 {
-            0
-        } else {
-            page_count.div_ceil(MAX_ROWS)
-        };
-        let active_rows = if active_cols == 0 {
-            0
-        } else {
-            page_count.min(MAX_ROWS)
         };
 
         for col in 0..MAX_COLS {
@@ -431,24 +423,21 @@ impl EmojiPopup {
                 if idx < page_count {
                     let global = start + idx;
                     label.set_text(&self.items[global]);
-                    label.set_visible(true);
-                } else if col < active_cols && row < active_rows {
-                    label.set_text("");
-                    label.set_visible(true);
                 } else {
-                    label.set_visible(false);
+                    label.set_text("");
                 }
+                label.set_visible(true);
                 label.remove_css_class("selected");
             }
         }
 
-        // 컬럼 헤더 가시성 (active_cols 만)
-        for (i, header) in self.col_headers.iter().enumerate() {
-            header.set_visible(i < active_cols);
+        // 컬럼 헤더 / 행 번호 — 항상 9 모두 가시.
+        for header in self.col_headers.iter() {
+            header.set_visible(true);
             header.remove_css_class("active");
         }
-        for (i, num) in self.row_numbers.iter().enumerate() {
-            num.set_visible(i < active_rows);
+        for num in self.row_numbers.iter() {
+            num.set_visible(true);
             num.remove_css_class("active");
         }
 
