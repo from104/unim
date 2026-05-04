@@ -174,6 +174,26 @@ impl SpecialPopup {
         // AT-SPI 접근성
         window.update_property(&[gtk4::accessible::Property::Label("특수문자 선택")]);
 
+        // RC2: 팝업이 숨겨질 때 CancelSpecialChar RPC → 엔진 상태 정리.
+        // 키 grab 없이 비정상 닫힘(outside-click 등) 후에도 엔진이
+        // 특수문자 대기 상태에 걸리지 않도록 보장. idempotent (no-op on double).
+        window.connect_hide(|_| {
+            cancel_special_via_dbus();
+        });
+
+        // X11 outside-click dismiss: popup 영역 밖 클릭 시 window.hide()
+        // 키 grab 절대 금지 — 마우스 grab 만.
+        #[cfg(feature = "gdk4-x11")]
+        if display_server == DisplayServer::X11 {
+            let window_weak = window.downgrade();
+            popup_positioning::x11_install_outside_click_handler(&window, move || {
+                if let Some(win) = window_weak.upgrade() {
+                    unim_log!("INDICATOR", "[Popup] 특수문자 외부 클릭 → hide()");
+                    win.set_visible(false);
+                }
+            });
+        }
+
         Self {
             window,
             header_label,
@@ -454,6 +474,48 @@ fn select_special_via_dbus(col: usize, row: usize) {
             });
         });
     }
+}
+
+/// RC2: 팝업이 숨겨질 때 엔진 특수문자 상태 정리.
+///
+/// `window.connect_hide` 콜백에서 호출. 정상 선택/취소 경로에서 엔진이 이미
+/// cancel을 처리했으므로 중복 호출은 no-op. outside-click 등 비정상 닫힘 후
+/// 엔진이 특수문자 대기 상태에 걸리지 않도록 보장한다.
+fn cancel_special_via_dbus() {
+    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+
+    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
+    let Some(path) = context_path else { return };
+
+    unim_log!(
+        "INDICATOR",
+        "[Popup] CancelSpecialChar (hide hook) DBus 호출: path={}",
+        path
+    );
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        rt.block_on(async {
+            if let Ok(conn) = zbus::Connection::session().await {
+                if let Ok(proxy) = zbus::Proxy::new(
+                    &conn,
+                    "org.atit.unim.InputMethod",
+                    path.as_str(),
+                    "org.atit.unim.InputContext",
+                )
+                .await
+                {
+                    let _: Result<String, _> =
+                        proxy.call("CancelSpecialChar", &()).await;
+                }
+            }
+        });
+    });
 }
 
 /// 특수문자 팝업용 CSS — 한자 popup 의 generated CSS 에 통합되어 있다.

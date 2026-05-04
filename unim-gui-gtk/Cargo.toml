@@ -26,6 +26,9 @@ libadwaita = { version = "0.7", features = ["v1_4"] }
 # X11 direct access (override-redirect)
 x11 = { version = "2.21", features = ["xlib"], optional = true }
 
+# XCB direct access (outside-click dismiss — fcitx5 패턴, GTK4와 별도 connection)
+xcb = { version = "1.7", optional = true }
+
 # Async runtime for DBus
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
@@ -40,5 +43,5 @@ unim-dbus = { path = "../unim-dbus" }
 rust-i18n = "3"
 
 [features]
-default = ["gdk4-x11", "x11"]
+default = ["gdk4-x11", "x11", "xcb"]
 wayland = ["gtk4-layer-shell"]

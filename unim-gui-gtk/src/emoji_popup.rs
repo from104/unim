@@ -266,6 +266,31 @@ impl EmojiPopup {
             t!("emoji_popup_title").as_ref(),
         )]);
 
+        // RC2: 이모지 팝업이 숨겨질 때 ACTIVE_CONTEXT_PATH 초기화.
+        // 이모지는 별도 CancelEmoji RPC가 없으며, 엔진은 HidePopup 시그널로
+        // 상태를 정리한다. 팝업이 닫힌 후 stale path로 CommitEmoji가 호출되지
+        // 않도록 경로를 비워둔다.
+        window.connect_hide(|_| {
+            use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+            if let Ok(mut p) = ACTIVE_CONTEXT_PATH.lock() {
+                *p = None;
+            }
+            unim_log!("INDICATOR", "[EmojiPopup] 팝업 숨김 → ACTIVE_CONTEXT_PATH 초기화");
+        });
+
+        // X11 outside-click dismiss: popup 영역 밖 클릭 시 window.hide()
+        // 키 grab 절대 금지 — 마우스 grab 만.
+        #[cfg(feature = "gdk4-x11")]
+        if display_server == DisplayServer::X11 {
+            let window_weak = window.downgrade();
+            popup_positioning::x11_install_outside_click_handler(&window, move || {
+                if let Some(win) = window_weak.upgrade() {
+                    unim_log!("INDICATOR", "[EmojiPopup] 외부 클릭 → hide()");
+                    win.set_visible(false);
+                }
+            });
+        }
+
         Self {
             window,
             display_server,
