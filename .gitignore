@@ -96,3 +96,4 @@ graphify-out/
 .graphifyignore
 _workspace/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
