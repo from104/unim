@@ -17,7 +17,7 @@ use unim::unim_log;
 
 use xim::{
     x11rb::{HasConnection, X11rbServer},
-    InputStyle, Server, ServerError, ServerHandler, UserInputContext,
+    InputContext, InputStyle, Server, ServerError, ServerHandler, UserInputContext,
 };
 
 use crate::dbus_client::{DbusRequest, DbusResponse, PopupEvent};
@@ -828,14 +828,32 @@ impl UnimHandler {
                 }
             }
             PopupEvent::CommitText { text } => {
-                // Standalone 팝업 마우스 클릭 시 커밋
-                // XIM은 server.commit()에 IC 참조가 필요하므로 직접 커밋 불가.
-                // Embedded 모드에서는 자체 팝업이 직접 처리함.
-                unim_log!(
-                    "XIM_HANDLER",
-                    "CommitText 시그널 수신 (Standalone): '{}' — XIM은 키보드 선택 사용 권장",
-                    text
-                );
+                // Standalone popup 마우스 클릭 시 커밋. last_focused_ic_info에 캐시된
+                // (client_win, im_id, ic_id)로 InputContext를 재구성해서 server.commit
+                // 호출. server.commit 내부는 client_win + im_id + ic_id만 사용하므로
+                // locale은 빈 문자열로 충분.
+                if let Some((cw, im_id, ic_id)) = self.last_focused_ic_info {
+                    let ic = InputContext::new(cw, im_id, ic_id, String::new());
+                    match server.commit(&ic, &text) {
+                        Ok(()) => unim_log!(
+                            "XIM_HANDLER",
+                            "CommitText (Standalone): '{}' → server.commit OK",
+                            text
+                        ),
+                        Err(e) => unim_log!(
+                            "XIM_HANDLER",
+                            "CommitText (Standalone): '{}' → server.commit 실패: {:?}",
+                            text,
+                            e
+                        ),
+                    }
+                } else {
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "CommitText (Standalone): '{}' → 활성 IC 없음, 무시",
+                        text
+                    );
+                }
             }
             PopupEvent::HanjaBookmarkChanged { index, bookmarked } => {
                 if let Some(ref mut hw) = self.hanja_window {
@@ -1410,8 +1428,34 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         // ======================================================================
         // GNOME extension 기준 모델: 팝업은 순수 UI, 키 처리는 엔진이 전담.
         // 엔진이 PopupNavigate/HidePopup 시그널로 팝업 상태를 갱신한다.
-        // keysym은 한자키 체크에도 사용
-        let keysym = unsafe { x11::xlib::XKeycodeToKeysym(self.display, xev.detail, 0) as u32 };
+        // keysym은 한자키 체크에도 사용.
+        //
+        // P0-3: XkbKeycodeToKeysym(group, level) — Shift/CapsLock 반영.
+        // state 비트에서 level을 산출: ShiftMask(1) 또는 LockMask(2) 적용 시 level=1.
+        // group은 일반적으로 0 (다중 키보드 그룹 레이아웃 미사용 시 무해).
+        let xstate = u16::from(xev.state) as u32;
+        let level = if (xstate & (x11::xlib::ShiftMask | x11::xlib::LockMask)) != 0 {
+            1i32
+        } else {
+            0i32
+        };
+        let keysym = unsafe {
+            x11::xlib::XkbKeycodeToKeysym(self.display, xev.detail, 0, level) as u32
+        };
+
+        // ======================================================================
+        // P0-2: 팝업 활성 게이트 — 팝업이 열려있을 때 모든 키를 ProcessKey로 직통
+        // ======================================================================
+        // Embedded 팝업(hanja_window/special_window/emoji_window)이 활성인 동안에는
+        // hanja_keysyms 분기를 포함한 모든 키를 엔진에 위임한다.
+        // Embedded 모드는 자체 팝업이 있으므로 아래 Standalone 분기와 독립적으로
+        // BUTTON_PRESS(grab_pointer) 이벤트로 닫힘을 처리한다.
+        if self.hanja_window.is_some()
+            || self.special_window.is_some()
+            || self.emoji_window.is_some()
+        {
+            // fall-through to 일반 키 처리 (ProcessKey 위임)
+        } else {
 
         // ======================================================================
         // 한자/특수문자 키 처리 (설정 기반)
@@ -1548,36 +1592,46 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     let popup_x = abs_x + spot.x as c_int;
                     let popup_y = abs_y + spot.y as c_int + 4;
 
-                    // Standalone 모드에서는 프론트엔드 팝업을 표시하지 않음
-                    if Config::load_from_default_path().engine.popup_mode != PopupMode::Standalone {
-                        match SpecialWindow::new(self.display, self.screen, popup_x, popup_y) {
-                            Ok(mut sw) => {
-                                sw.set_characters(
-                                    self.display,
-                                    self.screen,
-                                    &target,
-                                    characters,
-                                    &top_row,
-                                );
-                                let popup_wid = sw.window_id();
-                                self.special_window = Some(sw);
-                                self.special_context_path = Some(ctx_path);
-                                self.hanja_client_window = app_win.map(|w| w.get() as u64);
-                                let _ = server.conn().grab_pointer(
-                                    false,
-                                    popup_wid,
-                                    EventMask::BUTTON_PRESS,
-                                    GrabMode::ASYNC,
-                                    GrabMode::ASYNC,
-                                    x11rb::NONE,
-                                    x11rb::NONE,
-                                    x11rb::CURRENT_TIME,
-                                );
-                                server.conn().flush().ok();
-                            }
-                            Err(e) => {
-                                unim_log!("XIM_HANDLER", "특수문자 팝업 생성 실패: {}", e);
-                            }
+                    // Standalone 모드: daemon의 GetSpecialCharCandidates RPC 처리만으로
+                    // 이미 ShowSpecialPopup 시그널이 발행되어 unim-gui-gtk가 popup 표시함.
+                    // ProcessKey 위임은 금지 — daemon이 동일 Hanja 키를 dual-purpose 분기로
+                    // 또 처리해서 emoji popup signal까지 발행 → 두 popup 중첩 회귀.
+                    if Config::load_from_default_path().engine.popup_mode == PopupMode::Standalone {
+                        unim_log!(
+                            "XIM_HANDLER",
+                            "특수문자 후보 있음 (Standalone) → 키 consumed: target='{}'",
+                            target
+                        );
+                        return Ok(true);
+                    }
+                    // Embedded 모드: 자체 SpecialWindow 생성 후 키 소비
+                    match SpecialWindow::new(self.display, self.screen, popup_x, popup_y) {
+                        Ok(mut sw) => {
+                            sw.set_characters(
+                                self.display,
+                                self.screen,
+                                &target,
+                                characters,
+                                &top_row,
+                            );
+                            let popup_wid = sw.window_id();
+                            self.special_window = Some(sw);
+                            self.special_context_path = Some(ctx_path);
+                            self.hanja_client_window = app_win.map(|w| w.get() as u64);
+                            let _ = server.conn().grab_pointer(
+                                false,
+                                popup_wid,
+                                EventMask::BUTTON_PRESS,
+                                GrabMode::ASYNC,
+                                GrabMode::ASYNC,
+                                x11rb::NONE,
+                                x11rb::NONE,
+                                x11rb::CURRENT_TIME,
+                            );
+                            server.conn().flush().ok();
+                        }
+                        Err(e) => {
+                            unim_log!("XIM_HANDLER", "특수문자 팝업 생성 실패: {}", e);
                         }
                     }
                     return Ok(true);
@@ -1587,20 +1641,26 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                 "XIM_HANDLER",
                 "한자/특수문자 후보 없음 → idle Hanja: ProcessKey 위임"
             );
-            // fall-through to general key processing (line 1596+).
+            // fall-through to general key processing below.
             // 엔진의 dual-purpose Hanja 분기가 emoji popup 트리거 →
             // ShowEmojiPopupV2 signal 발행 → frontend 의 emoji popup
             // handler 가 popup 을 띄운다.
         }
 
+        } // end else (팝업 비활성 시 hanja/special 분기)
+
         // ======================================================================
         // 일반 키 처리
         // ======================================================================
 
-        // DBus를 통해 키 이벤트 처리
+        // DBus를 통해 키 이벤트 처리.
+        // keyval 은 GTK/Qt 와 동일한 X keysym (예: 한자키 0xff34, F9 0xffc6) 을
+        // 보내야 한다 — `xev.detail` 은 X11 hardware keycode (예: 131) 이라
+        // 데몬이 dual-purpose Hanja 분기를 못 잡아 idle Hanja → emoji popup
+        // 트리거가 동작하지 않는다. line 1414 에서 이미 산출한 keysym 사용.
         let response = self.send_dbus_request(DbusRequest::ProcessKey {
             context_path: user_ic.user_data.context_path.clone(),
-            keyval: xev.detail as u32,
+            keyval: keysym,
             keycode: evdev_code as u32,
             state: u16::from(xev.state) as u32,
             response: None,
