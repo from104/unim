@@ -1,15 +1,18 @@
-//! v1 자판 프로필 JSON 스키마 — serde 역직렬화 타입.
+//! v1/v2/v3 자판 프로필 JSON 스키마 — serde 역직렬화 타입.
 //!
-//! 스펙: `docs/dev/plans/LAYOUT_PROFILE_V1.md`
+//! 스펙: `docs/dev/plans/LAYOUT_PROFILE_V1.md`, `_workspace/anmatae/01_schema_v3.md`
 //!
 //! # 구조
-//! - `RawProfile` — JSON에서 직접 역직렬화되는 평면 구조. v1 필드가 optional.
-//! - `LayoutProfile` — 정규화 후의 런타임 표현.
+//! - `RawProfile` — JSON에서 직접 역직렬화되는 평면 구조. v1/v3 필드가 optional.
+//! - `LayoutProfile` — 정규화 후의 런타임 표현 (v1/v2/v3 공통).
 //!
 //! 0.2.0부터 v0(legacy) 스키마는 더 이상 지원되지 않는다. 로더는 v1 마커
 //! (`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`,
 //! `active_rule_sets`) 중 하나라도 존재해야 v1으로 인식하고, 모두 없는 JSON은
 //! `LoadError::UnsupportedSchema`로 거부한다.
+//!
+//! v3 마커(`moachigi`, `jamo_symbol_map`)가 존재하거나 `schema_version == 3`이면
+//! v3 경로로 파싱된다. v3는 v1/v2를 완전히 포함한다(후방 호환 보장).
 //!
 //! combinations 해석·inherits 병합·자모 enum 변환은 builder에서 수행한다.
 //! 본 모듈은 순수 스키마(문자열 수준)만 다룬다.
@@ -18,6 +21,231 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 use super::localized::LocalizedText;
+
+// ============================================================================
+// v3 — 모아치기 Raw 타입 (JSON 역직렬화)
+// ============================================================================
+
+/// v3 — 모아치기 동작 파라미터 (JSON raw).
+/// `type == "anmatae"` 또는 `"moachigi_3bul"` 일 때 필수.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawMoachigiSpec {
+    /// 음절 경계 기준. `"strict"` (기본) | `"region_filled"`.
+    pub syllable_boundary: String,
+    /// 겹받침 입력 시 순서 무관 허용.
+    #[serde(default)]
+    pub jong_unordered: bool,
+    /// 복모음 입력 시 순서 무관 허용.
+    #[serde(default)]
+    pub jung_unordered: bool,
+    /// 영역이 채워지면 자동 분리 (syllable_boundary == "region_filled" 와 동의어).
+    /// 중복이지만 명시적 표현을 허용하기 위해 존재.
+    #[serde(default)]
+    pub region_filled: bool,
+}
+
+/// v3 — rule_set이 덮어쓰는 모아치기 파라미터 (모두 optional).
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RawMoachigiOverride {
+    #[serde(default)]
+    pub syllable_boundary: Option<String>,
+    #[serde(default)]
+    pub jong_unordered: Option<bool>,
+    #[serde(default)]
+    pub jung_unordered: Option<bool>,
+    #[serde(default)]
+    pub region_filled: Option<bool>,
+}
+
+/// v3 — 고어 자모 위치 등 특수 키 → 즉시 commit 문자 매핑 (JSON raw).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawSymbolEmit {
+    pub emit_char: char,
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// v3 — `_region_map` JSON 블록 (cho/jung/jong 영역별 키 목록).
+///
+/// 키: layout 셀 리터럴 문자열 (예: `"a"`, `";"`, `","` 등).
+/// 값: 대응되는 자모 리터럴 문자열 (참고용, 로더는 Region만 추출).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct RawRegionMap {
+    #[serde(default)]
+    pub cho: HashMap<String, String>,
+    #[serde(default)]
+    pub jung: HashMap<String, String>,
+    #[serde(default)]
+    pub jong: HashMap<String, String>,
+}
+
+// ============================================================================
+// v3 — 정규화된 런타임 모아치기 타입
+// ============================================================================
+
+/// 음절 경계 정책.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SyllableBoundary {
+    /// 영역 전환 순서 기반 (세벌식 기본 동작). 기본값.
+    #[default]
+    Strict,
+    /// 영역이 채워지면 자동 분리.
+    RegionFilled,
+}
+
+impl SyllableBoundary {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "region_filled" => Self::RegionFilled,
+            _ => Self::Strict,
+        }
+    }
+}
+
+/// 모아치기 동작 파라미터 (정규화된 런타임 표현).
+#[derive(Debug, Clone, Default)]
+pub struct MoachigiSpec {
+    pub syllable_boundary: SyllableBoundary,
+    pub jong_unordered: bool,
+    pub jung_unordered: bool,
+    /// `syllable_boundary == RegionFilled`와 동의어. 편의 접근자.
+    pub region_filled: bool,
+}
+
+impl MoachigiSpec {
+    pub fn from_raw(raw: RawMoachigiSpec) -> Self {
+        let boundary = SyllableBoundary::from_str(&raw.syllable_boundary);
+        let region_filled = boundary == SyllableBoundary::RegionFilled || raw.region_filled;
+        Self {
+            syllable_boundary: if region_filled {
+                SyllableBoundary::RegionFilled
+            } else {
+                boundary
+            },
+            jong_unordered: raw.jong_unordered,
+            jung_unordered: raw.jung_unordered,
+            region_filled,
+        }
+    }
+
+    /// rule_set moachigi_overrides를 layer-merge로 적용.
+    /// 나중 override가 이전 값을 덮어씀 (자식 우선).
+    pub fn apply_override(&mut self, ov: &MoachigiOverride) {
+        if let Some(sb) = &ov.syllable_boundary {
+            self.syllable_boundary = *sb;
+            self.region_filled = *sb == SyllableBoundary::RegionFilled;
+        }
+        if let Some(v) = ov.jong_unordered {
+            self.jong_unordered = v;
+        }
+        if let Some(v) = ov.jung_unordered {
+            self.jung_unordered = v;
+        }
+        if let Some(v) = ov.region_filled {
+            self.region_filled = v;
+            if v {
+                self.syllable_boundary = SyllableBoundary::RegionFilled;
+            }
+        }
+    }
+}
+
+/// rule_set moachigi_overrides 정규화.
+#[derive(Debug, Clone, Default)]
+pub struct MoachigiOverride {
+    pub syllable_boundary: Option<SyllableBoundary>,
+    pub jong_unordered: Option<bool>,
+    pub jung_unordered: Option<bool>,
+    pub region_filled: Option<bool>,
+}
+
+impl MoachigiOverride {
+    pub fn from_raw(raw: RawMoachigiOverride) -> Self {
+        Self {
+            syllable_boundary: raw
+                .syllable_boundary
+                .as_deref()
+                .map(SyllableBoundary::from_str),
+            jong_unordered: raw.jong_unordered,
+            jung_unordered: raw.jung_unordered,
+            region_filled: raw.region_filled,
+        }
+    }
+}
+
+/// 고어 자모 위치 즉시 commit 기호 (정규화된 런타임 표현).
+#[derive(Debug, Clone)]
+pub struct SymbolEmit {
+    pub emit_char: char,
+    pub comment: Option<String>,
+}
+
+impl SymbolEmit {
+    pub fn from_raw(raw: RawSymbolEmit) -> Self {
+        Self {
+            emit_char: raw.emit_char,
+            comment: raw.comment,
+        }
+    }
+}
+
+/// v3 — 모아치기 자판의 키 영역 (초성/중성/종성 고정 구역).
+///
+/// `key_to_region_map`의 값 타입. `add_jamo_with_region()` 호출 시 region 인자로 전달.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Region {
+    /// 초성 구역. U+1100–U+115F 범위 자모.
+    Cho,
+    /// 중성 구역. U+1161–U+11A7 범위 자모.
+    Jung,
+    /// 종성 구역. U+11A8–U+11FF 범위 자모.
+    Jong,
+}
+
+impl Region {
+    /// 자모 리터럴 문자열의 첫 코드포인트에서 Region을 추론.
+    ///
+    /// - U+1100–U+115F → `Cho`
+    /// - U+1161–U+11A7 → `Jung`
+    /// - U+11A8–U+11FF → `Jong`
+    /// - 그 외 → `None` (자모 아님)
+    pub fn infer_from_jamo_str(s: &str) -> Option<Self> {
+        let cp = s.chars().next()? as u32;
+        match cp {
+            0x1100..=0x115F => Some(Region::Cho),
+            0x1161..=0x11A7 => Some(Region::Jung),
+            0x11A8..=0x11FF => Some(Region::Jong),
+            _ => None,
+        }
+    }
+}
+
+/// v3 타입에서 사용하는 composer 선택자 (JSON `type` 필드에서 파생).
+///
+/// `"anmatae"`는 `Moachigi3Bul`로 수용한다. 안마태는 알고리즘이 아닌 자판이므로
+/// composer 레벨 명칭에 등장하지 않는다. JSON의 `name`/`metadata`에서만 "안마태"를 사용.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum LayoutTypeV3 {
+    /// 기존 값 (`"2bul"` / `"3bul"` / 영문 계열) — 기존 composer.
+    #[default]
+    Jamo,
+    /// `"moachigi_3bul"` 또는 레거시 `"anmatae"` — `HangulComposer3BulMoachigi`.
+    /// 안마태 자판은 이 알고리즘을 사용하는 자판 JSON의 하나.
+    Moachigi3Bul,
+}
+
+impl LayoutTypeV3 {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            // "anmatae"는 레거시 값 — Moachigi3Bul로 수용 (composer 레벨에서는 동일 알고리즘)
+            "moachigi_3bul" | "anmatae" => Self::Moachigi3Bul,
+            _ => Self::Jamo,
+        }
+    }
+}
 
 // ============================================================================
 // JSON Raw 구조 (파일에서 바로 역직렬화)
@@ -55,6 +283,19 @@ pub struct RawProfile {
     /// PR-A는 schema·파싱만. 동작 적용은 PR-B.
     #[serde(default)]
     pub key_meta: Option<HashMap<String, KeyMeta>>,
+
+    // ── v3 신규 필드 (optional, v3 게이트용 implicit 마커) ──────────────
+    /// v3 — 모아치기 동작 파라미터. `type == "anmatae"` / `"moachigi_3bul"` 시 필수.
+    #[serde(default)]
+    pub moachigi: Option<RawMoachigiSpec>,
+    /// v3 — 고어 자모 위치 등 특수 키 → 즉시 commit 문자 매핑.
+    /// 키: layout 셀 리터럴. 값: `{emit_char, comment}`.
+    #[serde(default)]
+    pub jamo_symbol_map: Option<HashMap<String, RawSymbolEmit>>,
+    /// v3 — 안마태 자판 등 영역 고정 자판의 키→영역 매핑 (JSON `_region_map` 블록).
+    /// 존재하면 자동 추론 대신 명시값 사용.
+    #[serde(default, rename = "_region_map")]
+    pub region_map: Option<RawRegionMap>,
 }
 
 // ============================================================================
@@ -243,6 +484,10 @@ pub struct RuleSet {
     /// 룰 A(vowel_combine_head)·룰 B(context_alt)를 자판 단위로 켜고 끌 수 있게 하는 표현.
     #[serde(default)]
     pub key_meta: Option<HashMap<String, KeyMeta>>,
+    /// v3 — 이 rule_set이 활성화될 때 base moachigi 파라미터를 덮어쓰는 override.
+    /// 존재하면 base `MoachigiSpec`에 layer-merge로 적용된다.
+    #[serde(default)]
+    pub moachigi_overrides: Option<RawMoachigiOverride>,
 }
 
 // ============================================================================
@@ -261,6 +506,18 @@ impl RawProfile {
             || self.rule_sets.is_some()
             || self.active_rule_sets.is_some()
             || self.key_meta.is_some()
+            // v3 마커도 v1 마커로 인정 (v3는 v1 상위 집합).
+            || self.moachigi.is_some()
+            || self.jamo_symbol_map.is_some()
+    }
+
+    /// v3 경로로 파싱해야 하는지 판정.
+    /// - `schema_version == 3` 명시
+    /// - 또는 `moachigi` / `jamo_symbol_map` implicit 마커 존재
+    pub fn is_v3(&self) -> bool {
+        self.schema_version == Some(3)
+            || self.moachigi.is_some()
+            || self.jamo_symbol_map.is_some()
     }
 }
 
@@ -268,23 +525,23 @@ impl RawProfile {
 // 정규화된 런타임 표현
 // ============================================================================
 
-/// 정규화된 런타임 프로필 (v1·v2).
+/// 정규화된 런타임 프로필 (v1·v2·v3).
 ///
 /// JSON 구조를 1:1로 매핑하되, `rule_sets`의 legacy `reinterpret`만
 /// `combinations`로 흡수한다. combinations 해석, inherits 병합,
 /// active_rule_sets 적용은 builder에서.
 #[derive(Debug, Clone)]
 pub struct LayoutProfile {
-    /// 1 또는 2. 0.2.0부터 v0(=0)는 거부됨. PR-A에서 v2 신설(`key_meta` 도입).
+    /// 1, 2, 또는 3. 0.2.0부터 v0(=0)는 거부됨.
     pub schema_version: u8,
     pub language: String,
     pub name: String,
-    /// `"2bul"` / `"3bul"` / `"qwerty"` / `"dvorak"` 등.
+    /// `"2bul"` / `"3bul"` / `"anmatae"` / `"moachigi_3bul"` / `"qwerty"` 등.
     pub layout_type: String,
     pub metadata: LayoutMetadata,
     pub inherits: Option<String>,
     pub layout: KeyLayout,
-    /// v1 프로필은 자기 완결 — 항상 명시되어야 하지만, 영문 계열처럼
+    /// v1/v3 프로필은 자기 완결 — 항상 명시되어야 하지만, 영문 계열처럼
     /// 자모 조합이 의미 없는 경우 비어 있을 수 있다(빈 블록 또는 None).
     /// 한글 계열은 builder가 None을 거부.
     pub combinations: Option<CombinationsBlock>,
@@ -295,18 +552,173 @@ pub struct LayoutProfile {
     /// schema_version 2 신규 — 키별 메타데이터. PR-A에서는 dangling(미사용).
     /// 키는 layout 셀과 동일한 컨벤션의 리터럴 문자열(예: `"/"`, `"ᆮ"`).
     pub key_meta: Option<HashMap<String, KeyMeta>>,
+
+    // ── v3 신규 필드 ──────────────────────────────────────────────────────
+    /// v3 — 모아치기 동작 파라미터. v1/v2면 `None`.
+    pub moachigi: Option<MoachigiSpec>,
+    /// v3 — 고어 자모 위치 즉시 commit 기호. v1/v2면 empty map.
+    pub jamo_symbol_map: HashMap<String, SymbolEmit>,
+    /// v3 — JSON `type` 필드에서 파생된 composer 선택자.
+    pub layout_type_v3: LayoutTypeV3,
+    /// v3 — 키 문자열 → Region 매핑 (모아치기 자판용).
+    ///
+    /// `_region_map` 명시 시 그대로, 없으면 `layout.lower` 자모에서 자동 추론.
+    /// v1/v2 자판은 empty map (Region 개념 없음).
+    pub key_to_region_map: HashMap<String, Region>,
 }
 
 impl LayoutProfile {
-    /// `RawProfile`을 정규화해 `LayoutProfile`로 변환.
+    /// `RawProfile`을 정규화해 `LayoutProfile`로 변환 (v1/v2 경로).
     ///
     /// 호출자(`parse_profile_str`)가 사전에 `has_v1_markers()`로 v0를 거부했음을 가정.
     pub fn from_raw(raw: RawProfile) -> Self {
         let schema_version = raw.schema_version.unwrap_or(1);
+        let layout_type_str = raw.r#type.clone();
 
         // rule_sets의 legacy `reinterpret` 필드를 combinations로 흡수.
-        let rule_sets = raw
-            .rule_sets
+        let rule_sets = Self::normalize_rule_sets(raw.rule_sets);
+
+        LayoutProfile {
+            schema_version,
+            language: raw.language,
+            name: raw.name,
+            layout_type: layout_type_str.clone(),
+            metadata: raw.metadata.unwrap_or_default(),
+            inherits: raw.inherits,
+            layout: raw.layout,
+            combinations: raw.combinations,
+            rule_sets,
+            active_rule_sets: raw.active_rule_sets,
+            key_meta: raw.key_meta,
+            // v3 필드는 v1/v2에서 빈 값
+            moachigi: None,
+            jamo_symbol_map: HashMap::new(),
+            layout_type_v3: LayoutTypeV3::Jamo,
+            key_to_region_map: HashMap::new(),
+        }
+    }
+
+    /// `RawProfile`을 정규화해 `LayoutProfile`로 변환 (v3 경로).
+    ///
+    /// 호출자(`parse_profile_str`)가 `validate_v3`를 먼저 호출했음을 가정.
+    pub fn from_raw_v3(raw: RawProfile) -> Self {
+        let schema_version = raw.schema_version.unwrap_or(3);
+        let layout_type_str = raw.r#type.clone();
+        let layout_type_v3 = LayoutTypeV3::from_str(&layout_type_str);
+
+        let rule_sets = Self::normalize_rule_sets(raw.rule_sets);
+
+        let moachigi = raw.moachigi.map(MoachigiSpec::from_raw);
+
+        // jamo_symbol_map: 충돌 경고만 (에러 아님). 실제 layout key 충돌 검사는
+        // 런타임에서 수행. 여기서는 파싱만.
+        let jamo_symbol_map = raw
+            .jamo_symbol_map
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, SymbolEmit::from_raw(v)))
+            .collect();
+
+        // key_to_region_map: _region_map 명시 우선 → 없으면 layout.lower 자모 자동 추론.
+        let key_to_region_map =
+            Self::build_key_to_region_map(raw.region_map.as_ref(), &raw.layout);
+
+        LayoutProfile {
+            schema_version,
+            language: raw.language,
+            name: raw.name,
+            layout_type: layout_type_str,
+            metadata: raw.metadata.unwrap_or_default(),
+            inherits: raw.inherits,
+            layout: raw.layout,
+            combinations: raw.combinations,
+            rule_sets,
+            active_rule_sets: raw.active_rule_sets,
+            key_meta: raw.key_meta,
+            moachigi,
+            jamo_symbol_map,
+            layout_type_v3,
+            key_to_region_map,
+        }
+    }
+
+    /// `_region_map` 명시 → 그대로 빌드. 없으면 `layout.lower` 자모로 자동 추론.
+    ///
+    /// 우선순위: 명시 `_region_map` > `layout.lower` 자동 추론.
+    fn build_key_to_region_map(
+        region_map: Option<&RawRegionMap>,
+        layout: &KeyLayout,
+    ) -> HashMap<String, Region> {
+        let mut map = HashMap::new();
+
+        if let Some(rm) = region_map {
+            // 경로 1: _region_map 명시 — cho/jung/jong 블록에서 직접 읽기.
+            for key in rm.cho.keys() {
+                map.insert(key.clone(), Region::Cho);
+            }
+            for key in rm.jung.keys() {
+                map.insert(key.clone(), Region::Jung);
+            }
+            for key in rm.jong.keys() {
+                map.insert(key.clone(), Region::Jong);
+            }
+        } else {
+            // 경로 2: layout.lower 자모 리터럴에서 자동 추론.
+            let rows: Vec<&str> = layout
+                .lower
+                .row1
+                .iter()
+                .chain(layout.lower.row2.iter())
+                .chain(layout.lower.row3.iter())
+                .chain(layout.lower.row4.iter())
+                .map(|s| s.as_str())
+                .collect();
+            for jamo_str in rows {
+                if let Some(region) = Region::infer_from_jamo_str(jamo_str) {
+                    map.insert(jamo_str.to_string(), region);
+                }
+            }
+        }
+
+        map
+    }
+
+    /// 활성화된 rule_set들의 moachigi_overrides를 base moachigi에 layer-merge 적용.
+    ///
+    /// `active_rule_sets` 순서대로 적용. 뒤에 오는 rule_set이 우선.
+    /// `active_rule_sets == None`이면 각 rule_set의 `active` 필드 기준.
+    /// 결과가 `None`이면 moachigi 비활성.
+    pub fn merged_moachigi(&self) -> Option<MoachigiSpec> {
+        let base = self.moachigi.as_ref()?;
+        let mut merged = base.clone();
+
+        // 활성 rule_set 이름 목록 결정.
+        let active_names: Vec<&str> = if let Some(list) = &self.active_rule_sets {
+            list.iter().map(|s| s.as_str()).collect()
+        } else {
+            self.rule_sets
+                .iter()
+                .filter(|(_, rs)| rs.active)
+                .map(|(name, _)| name.as_str())
+                .collect()
+        };
+
+        for name in &active_names {
+            if let Some(rs) = self.rule_sets.get(*name) {
+                if let Some(raw_ov) = &rs.moachigi_overrides {
+                    let ov = MoachigiOverride::from_raw(raw_ov.clone());
+                    merged.apply_override(&ov);
+                }
+            }
+        }
+        Some(merged)
+    }
+
+    /// rule_sets의 legacy `reinterpret`를 combinations로 흡수하는 공통 헬퍼.
+    fn normalize_rule_sets(
+        raw_rule_sets: Option<BTreeMap<String, RuleSet>>,
+    ) -> BTreeMap<String, RuleSet> {
+        raw_rule_sets
             .unwrap_or_default()
             .into_iter()
             .map(|(name, mut rs)| {
@@ -322,21 +734,7 @@ impl LayoutProfile {
                 rs.scope = None;
                 (name, rs)
             })
-            .collect();
-
-        LayoutProfile {
-            schema_version,
-            language: raw.language,
-            name: raw.name,
-            layout_type: raw.r#type,
-            metadata: raw.metadata.unwrap_or_default(),
-            inherits: raw.inherits,
-            layout: raw.layout,
-            combinations: raw.combinations,
-            rule_sets,
-            active_rule_sets: raw.active_rule_sets,
-            key_meta: raw.key_meta,
-        }
+            .collect()
     }
 }
 

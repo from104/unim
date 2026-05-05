@@ -183,7 +183,10 @@ enum Scope {
 /// 규약 (`LAYOUT_PROFILE_V1.md` §3.3):
 /// - 초성: U+1100–U+1112 (조합형) / U+3131–U+314E (호환 자음).
 /// - 중성: U+1161–U+1175 (조합형) / U+314F–U+3163 (호환 모음).
-/// - 종성: **U+11A8–U+11C2만 허용** (호환 자모 불허).
+/// - 종성: U+11A8–U+11FF (현대 + 옛한글 겹받침 포함). 호환 자모 불허.
+///
+/// 0.3.0+: 안마태 자판(v3)의 옛한글 겹받침(U+11C3–U+11FF)을 허용하기 위해
+/// 종성 범위를 0x11A8–0x11FF로 확장. 기존 v1/v2 자판은 0x11A8–0x11C2만 사용.
 ///
 /// 호환 자음 영역(U+3131–U+314E)은 Cho로 간주 — 현 v1 프로필 구현상
 /// rule_set 내에서 이 영역이 종성으로 쓰일 일이 없음. 종성 쓰려면 반드시 U+11xx.
@@ -192,7 +195,7 @@ fn infer_scope(c: char) -> Option<Scope> {
     match cp {
         0x1100..=0x1112 => Some(Scope::Cho),
         0x1161..=0x1175 => Some(Scope::Jung),
-        0x11A8..=0x11C2 => Some(Scope::Jong),
+        0x11A8..=0x11FF => Some(Scope::Jong),
         0x3131..=0x314E => Some(Scope::Cho),
         0x314F..=0x3163 => Some(Scope::Jung),
         _ => None,

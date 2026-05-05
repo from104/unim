@@ -31,6 +31,9 @@ pub struct InputEngine {
     /// 키별 메타데이터 (schema v2 `key_meta`) — context_alt 분기 등에 사용.
     /// 한국어 레이아웃 기준으로 빌드되며, 누락 시 빈 맵.
     pub(super) key_meta_map: HashMap<char, crate::keystroke::profile::KeyMeta>,
+    /// v3 — jamo_symbol_map: 키 문자 → 즉시 commit 문자 (고어 자모 위치 기호 대체 등).
+    /// 안마태 등 v3 자판 전용. v1/v2 자판에서는 빈 맵.
+    pub(super) jamo_symbol_map: HashMap<char, char>,
     /// 영어 키보드 레이아웃 맵 (JSON 기반 동적 로드)
     pub(super) english_keymap: EnglishKeymap,
     /// 영어 키보드 레이아웃 설정
@@ -112,6 +115,7 @@ impl InputEngine {
         let keyboard_map =
             Self::create_keyboard_map(&config.engine.korean.layout, &config.engine.english.layout);
         let key_meta_map = Self::create_key_meta_map(&config.engine.korean.layout);
+        let jamo_symbol_map = Self::create_jamo_symbol_map(&config.engine.korean.layout);
 
         let english_keymap = Self::create_english_keymap(&config.engine.english.layout);
 
@@ -125,6 +129,7 @@ impl InputEngine {
             preedit_cache: String::new(),
             keyboard_map: Some(keyboard_map),
             key_meta_map,
+            jamo_symbol_map,
             english_keymap,
             korean_layout: config.engine.korean.layout.clone(),
             english_layout: config.engine.english.layout.clone(),
@@ -201,6 +206,26 @@ impl InputEngine {
         let ko_json = crate::keystroke::get_keymap_json(korean_layout);
         match crate::keystroke::profile::parse_profile_str(ko_json) {
             Ok(profile) => crate::keystroke::profile::build_key_meta_char_map(&profile),
+            Err(_) => HashMap::new(),
+        }
+    }
+
+    /// v3 jamo_symbol_map을 char → char 런타임 맵으로 빌드합니다.
+    ///
+    /// 키: 입력 문자(Shift 포함, 예: `'B'`). 값: 즉시 commit할 문자(예: `'"'`).
+    /// v1/v2 자판이거나 jamo_symbol_map 없으면 빈 맵.
+    pub(super) fn create_jamo_symbol_map(korean_layout: &KoreanLayout) -> HashMap<char, char> {
+        let ko_json = crate::keystroke::get_keymap_json(korean_layout);
+        match crate::keystroke::profile::parse_profile_str(ko_json) {
+            Ok(profile) => profile
+                .jamo_symbol_map
+                .into_iter()
+                .filter_map(|(key_str, sym)| {
+                    // key_str은 단일 문자 리터럴이어야 함 (예: "B", ";", "," 등).
+                    let key_char = key_str.chars().next()?;
+                    Some((key_char, sym.emit_char))
+                })
+                .collect(),
             Err(_) => HashMap::new(),
         }
     }
@@ -318,6 +343,7 @@ impl InputEngine {
             // 키보드 맵 업데이트
             self.keyboard_map = Some(Self::create_keyboard_map(&layout, &self.english_layout));
             self.key_meta_map = Self::create_key_meta_map(&layout);
+            self.jamo_symbol_map = Self::create_jamo_symbol_map(&layout);
 
             // 컨텍스트 업데이트 — v1 builder 경로로 통일
             let composer_type = if crate::config::is_sebeolsik_layout(&layout) {

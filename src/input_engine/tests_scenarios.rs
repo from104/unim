@@ -416,3 +416,106 @@ fn test_scenario_caps_lock_english() {
     engine.press_key(KeyCode::A, caps, &config);
     assert_eq!(engine.commit_str(), "A");
 }
+
+// ============================================================================
+// I-AM 통합 테스트 — 안마태 자판 (Phase 3 Final)
+// ============================================================================
+
+/// 안마태 레이아웃으로 엔진을 초기화하는 헬퍼.
+fn create_anmatae_engine() -> (InputEngine, Config) {
+    let mut config = Config::default();
+    config.engine.korean.layout = "ko_anmatae".to_string();
+    let engine = InputEngine::new(&config);
+    (engine, config)
+}
+
+/// I-AM4: 안마태 자판에서 Shift+B → `"` (U+201C) 즉시 commit.
+/// jamo_symbol_map 경로: keyboard_map 우회 + composer 큐 무영향.
+#[test]
+fn i_am4_jamo_symbol_map_shift_b_commits_left_quote() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    // Shift+B → 'B' 문자 → jamo_symbol_map에서 " 반환
+    let result = engine.press_key(KeyCode::B, shift, &config);
+    assert!(result.commit_changed, "Shift+B should produce commit");
+    assert_eq!(engine.commit_str(), "\u{201C}", "Shift+B → 여는 큰따옴표 \"");
+    assert!(engine.preedit_str().is_empty(), "preedit은 비어있어야 함");
+}
+
+/// I-AM4b: 안마태 자판에서 Shift+G → `"` (U+201D) 즉시 commit.
+#[test]
+fn i_am4b_jamo_symbol_map_shift_g_commits_right_quote() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::G, shift, &config);
+    assert!(result.commit_changed, "Shift+G should produce commit");
+    assert_eq!(engine.commit_str(), "\u{201D}", "Shift+G → 닫는 큰따옴표 \"");
+}
+
+/// I-AM4c: 안마태 자판에서 Shift+J → `·` (U+00B7) 즉시 commit.
+#[test]
+fn i_am4c_jamo_symbol_map_shift_j_commits_middle_dot() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::J, shift, &config);
+    assert!(result.commit_changed, "Shift+J should produce commit");
+    assert_eq!(engine.commit_str(), "\u{00B7}", "Shift+J → 가운뎃점 ·");
+}
+
+/// I-AM4d: 안마태 자판에서 Shift+T → `…` (U+2026) 즉시 commit.
+#[test]
+fn i_am4d_jamo_symbol_map_shift_t_commits_ellipsis() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::T, shift, &config);
+    assert!(result.commit_changed, "Shift+T should produce commit");
+    assert_eq!(engine.commit_str(), "\u{2026}", "Shift+T → 줄임표 …");
+}
+
+/// I-AM5: 안마태 자판에서 ESC 입력 → 조합 없으면 not_consumed (기존 동작 회귀).
+#[test]
+fn i_am5_escape_reset_no_composition() {
+    let (mut engine, config) = create_anmatae_engine();
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::Escape, ModifierState::default(), &config);
+    assert!(!result.commit_changed, "ESC with no composition → not_consumed");
+    assert!(engine.preedit_str().is_empty(), "preedit 없음");
+}
+
+/// I-AM-LOAD: 안마태 자판 로드 시 jamo_symbol_map 6개 빌드 검증.
+#[test]
+fn i_am_load_jamo_symbol_map_6_entries() {
+    let (engine, _config) = create_anmatae_engine();
+    assert_eq!(
+        engine.jamo_symbol_map.len(),
+        6,
+        "안마태 jamo_symbol_map = 6개 (B/G/J/N/T/W upper)"
+    );
+    assert_eq!(engine.jamo_symbol_map.get(&'B'), Some(&'\u{201C}'));
+    assert_eq!(engine.jamo_symbol_map.get(&'G'), Some(&'\u{201D}'));
+    assert_eq!(engine.jamo_symbol_map.get(&'J'), Some(&'\u{00B7}'));
+    assert_eq!(engine.jamo_symbol_map.get(&'N'), Some(&'\u{2018}'));
+    assert_eq!(engine.jamo_symbol_map.get(&'T'), Some(&'\u{2026}'));
+    assert_eq!(engine.jamo_symbol_map.get(&'W'), Some(&'\u{2019}'));
+}

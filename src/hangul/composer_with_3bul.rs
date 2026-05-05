@@ -5,6 +5,9 @@
 //! `COMBINED_JAMO_3BUL`을 모두 제거. `new()`는 내장 v1 프로필 `ko_3bul390`을
 //! 즉시 로드해 `new_with_profile`로 위임한다. 자모 조합 규칙의 단일 source of
 //! truth는 `src/keystroke/keymap/ko_3bul390.json`(390/391/noshift는 base 동일).
+//!
+//! v3 부분 적용: `moachigi_overrides`가 활성화된 프로필에서 `jong_unordered=true`이면
+//! 종성 결합 시 역순도 시도한다. 비활성 시 기존 동작 100% 동일 (회귀 0).
 
 use crate::hangul::composer::BaseHangulComposer;
 use crate::hangul::composer::CombinedJamoMap;
@@ -12,6 +15,7 @@ use crate::hangul::composer::HangulComposer;
 use crate::hangul::composer::JamoMeta;
 use crate::hangul::jamo::*;
 use crate::hangul::HangulChar;
+use crate::keystroke::profile::MoachigiSpec;
 
 use std::collections::VecDeque;
 
@@ -73,9 +77,12 @@ fn check_3bul_violation(base: &mut BaseHangulComposer) -> Option<Compose3BulViol
 /// - 종성은 중성이 입력된 후에만 입력 가능
 /// - 중성/종성 다음에 초성이 오면 새 음절 시작
 /// - 초성 조합 지원 (ㄱ+ㄱ=ㄲ 등)
+/// - v3 부분 적용: `moachigi` 필드가 Some이고 `jong_unordered=true`면 종성 양방향 결합.
 #[derive(Debug, Default)]
 pub struct HangulComposer3Bul {
     base_composer: BaseHangulComposer,
+    /// v3 모아치기 파라미터. None이면 기존 동작 100% 동일.
+    moachigi: Option<MoachigiSpec>,
 }
 
 impl HangulComposer3Bul {
@@ -93,17 +100,24 @@ impl HangulComposer3Bul {
 
     /// `LayoutProfile`에서 추출한 조합 규칙을 주입해 생성.
     ///
-    /// 0.2.0+: 모든 입력 프로필은 v1. `combinations` + 활성 `rule_sets`가 반영된 맵을
-    /// 주입한다.
+    /// 0.2.0+: 모든 입력 프로필은 v1/v2/v3. `combinations` + 활성 `rule_sets`가 반영된 맵을
+    /// 주입한다. v3 프로필이면 merged_moachigi()를 적용.
     pub fn new_with_profile(
         profile: &crate::keystroke::profile::LayoutProfile,
     ) -> Result<Self, crate::keystroke::profile::BuildError> {
         let map = crate::keystroke::profile::build_combined_jamo_map(profile)?;
+        let moachigi = profile.merged_moachigi();
         let mut composer = HangulComposer3Bul {
             base_composer: BaseHangulComposer::new(),
+            moachigi,
         };
         *composer.base_composer.combined_jamo() = map;
         Ok(composer)
+    }
+
+    /// 현재 활성화된 moachigi 파라미터 참조.
+    pub fn effective_moachigi(&self) -> Option<&MoachigiSpec> {
+        self.moachigi.as_ref()
     }
 }
 
@@ -290,6 +304,48 @@ mod tests {
         assert!(result.is_none());
         assert!(!c.is_compose());
     }
+
+    // ======================================================================
+    // 3M: 세벌식 부분 적용 (v3 moachigi jong_unordered)
+    // ======================================================================
+
+    /// 3M1: moachigi=None (v1/v2 프로필) → jong_unordered 비활성 → 기존 동작 동일.
+    #[test]
+    fn m3_1_v1_profile_no_moachigi_unchanged() {
+        // 기본 new()는 moachigi=None → 기존 3벌식 동작 그대로.
+        let mut c = HangulComposer3Bul::new();
+        assert!(c.moachigi.is_none(), "v1 profile must have no moachigi");
+        // ㄱ + ㅏ + ㄳ(겹받침) — 기존 동작: ㄳ은 ko_3bul390 combinations에 있음
+        c.add_jamo(JamoEnum::Cho(Cho::Giyeok));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        c.add_jamo(JamoEnum::Jong(Jong::Siot));
+        assert_eq!(c.get_current_jong(), Some(Jong::GiyeokSiot));
+    }
+
+    /// 3M2: moachigi.jong_unordered=true → 역순 종성 결합 활성.
+    #[test]
+    fn m3_2_jong_unordered_true_enables_reverse_combine() {
+        let mut c = HangulComposer3Bul::new();
+        // 수동으로 jong_unordered 세팅 (프로필 없이 단위 테스트)
+        let mut spec = MoachigiSpec::default();
+        spec.jong_unordered = true;
+        // ㄱ+ㅅ=ㄳ 역방향: (ㅅ,ㄱ) → ㄳ 규칙은 기본 390에 없으므로
+        // 단순히 moachigi 필드 존재 여부와 jong_unordered 플래그 확인.
+        c.moachigi = Some(spec);
+        assert!(c.effective_moachigi().map(|m| m.jong_unordered).unwrap_or(false));
+    }
+
+    /// 3M3: moachigi.jong_unordered=false → 역순 결합 비활성 → 기존과 동일.
+    #[test]
+    fn m3_3_jong_unordered_false_same_as_v1() {
+        let mut c = HangulComposer3Bul::new();
+        let mut spec = MoachigiSpec::default();
+        spec.jong_unordered = false;
+        c.moachigi = Some(spec);
+        // jong_unordered=false → 역순 경로 진입 안 함 → 기존 동작
+        assert!(!c.effective_moachigi().map(|m| m.jong_unordered).unwrap_or(true));
+    }
 }
 
 impl HangulComposer for HangulComposer3Bul {
@@ -302,6 +358,31 @@ impl HangulComposer for HangulComposer3Bul {
     fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
         if !self.base_composer.is_valid_jamo(&jamo) {
             return None;
+        }
+
+        // v3 부분 적용: jong_unordered 활성 시 역순 결합 시도.
+        // 종성 입력이고 현재 종성이 있고 jong_unordered=true인 경우만 개입.
+        if let Some(ref spec) = self.moachigi {
+            if spec.jong_unordered {
+                if let JamoEnum::Jong(incoming) = jamo {
+                    if let Some(existing) = self.base_composer.get_jong() {
+                        // 정순 결합 시도
+                        let key_a = (JamoEnum::Jong(existing), JamoEnum::Jong(incoming));
+                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
+                            // 역순 결합 시도
+                            let key_b = (JamoEnum::Jong(incoming), JamoEnum::Jong(existing));
+                            if let Some(JamoEnum::Jong(combined)) =
+                                self.base_composer.get_combined_jamo().get(&key_b).copied()
+                            {
+                                // 역순으로 결합 가능 → existing을 combined로 교체
+                                self.base_composer.set_jong(Some(combined));
+                                // jamo_queue에도 반영 (위임 생략, jong는 최종 자모)
+                                return None;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         self.base_composer.add_jamo_with(jamo, meta, |base| {

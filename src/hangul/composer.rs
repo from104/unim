@@ -1,6 +1,7 @@
 use crate::hangul::char::HangulChar;
 use crate::hangul::jamo::JamoEnum;
 use crate::hangul::jamo::*;
+use crate::keystroke::profile::MoachigiSpec;
 use crate::unim_log;
 /**
  * 한글 조합 취상위 클래스
@@ -12,6 +13,20 @@ use std::collections::{HashMap, VecDeque};
 /// 자모 조합 규칙을 정의하는 해시맵 타입 앨리어스입니다.
 /// 튜플 키 `(첫번째 자모, 두번째 자모)`를 사용하여 조합된 자모를 조회합니다.
 pub type CombinedJamoMap = HashMap<(JamoEnum, JamoEnum), JamoEnum>;
+
+/// 안마태/모아치기 자판에서 키별로 고정되는 자모 영역.
+///
+/// 자판 JSON의 layout 셀에서 해당 자모가 속한 영역을 사전 계산해 `KeyToRegionMap`에 보관.
+/// `HangulComposer3BulMoachigi::add_jamo_with_region`에서 음절 경계 결정에 사용.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Region {
+    /// 초성 영역.
+    Cho,
+    /// 중성 영역.
+    Jung,
+    /// 종성 영역.
+    Jong,
+}
 
 /// 자모 큐에 함께 보관되는 키-출처 메타데이터.
 ///
@@ -69,6 +84,23 @@ pub trait HangulComposer {
     /// override하여 `meta`를 큐에 함께 push해야 한다.
     fn add_jamo_with_meta(&mut self, jamo: JamoEnum, _meta: JamoMeta) -> Option<char> {
         self.add_jamo(jamo)
+    }
+
+    /// `add_jamo`의 영역 정보 확장 버전 — 안마태/모아치기 전용.
+    ///
+    /// `region`은 이 키가 자판 JSON에서 속하는 고정 영역(Cho/Jung/Jong).
+    /// `spec`은 현재 자판의 모아치기 파라미터.
+    ///
+    /// 기본 구현은 `region`/`spec`을 무시하고 `add_jamo_with_meta`로 위임하므로
+    /// 기존 2벌식·3벌식 구현체에 영향 없음.
+    /// `HangulComposer3BulMoachigi`만 이 메서드를 override하여 영역 기반 경계 알고리즘 적용.
+    fn add_jamo_with_region(
+        &mut self,
+        jamo: JamoEnum,
+        _region: Region,
+        _spec: &MoachigiSpec,
+    ) -> Option<char> {
+        self.add_jamo_with_meta(jamo, JamoMeta::default())
     }
 
     /// 마지막으로 입력된 한글 자모를 제거하고 조합 상태를 갱신합니다.

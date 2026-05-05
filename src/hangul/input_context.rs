@@ -5,6 +5,7 @@
 use crate::hangul::composer::{HangulComposer, JamoMeta};
 use crate::hangul::composer_with_2bul::HangulComposer2Bul;
 use crate::hangul::composer_with_3bul::HangulComposer3Bul;
+use crate::hangul::composer_with_3bul_moachigi::HangulComposer3BulMoachigi;
 use crate::hangul::jamo::JamoEnum;
 use crate::unim_log;
 
@@ -14,7 +15,9 @@ pub enum ComposerType {
     #[default]
     TwoBul,
     ThreeBul,
-    // TODO: ThreeBulFinal, ThreeBulNoShift 등 추가 가능
+    /// v3 — 세벌식 모아치기(3-beol moachigi) 전용 composer.
+    /// 안마태 자판을 포함하는 모든 `layout_type: "moachigi_3bul"` 자판에 사용.
+    ThreeBulMoachigi,
 }
 
 impl ComposerType {
@@ -23,6 +26,7 @@ impl ComposerType {
         match self {
             ComposerType::TwoBul => Box::new(HangulComposer2Bul::new()),
             ComposerType::ThreeBul => Box::new(HangulComposer3Bul::new()),
+            ComposerType::ThreeBulMoachigi => Box::new(HangulComposer3BulMoachigi::new()),
         }
     }
 }
@@ -78,6 +82,17 @@ impl HangulInputContext {
                     preedit: String::new(),
                     committed: String::new(),
                     composer_type: ComposerType::ThreeBul,
+                })
+            }
+            // v3 — 세벌식 모아치기 전용 composer (안마태 포함).
+            // JSON "type" 정식 값: "moachigi_3bul". "anmatae"도 수용 (레거시·테스트 호환).
+            "moachigi_3bul" | "anmatae" => {
+                let composer = HangulComposer3BulMoachigi::new_with_profile(profile)?;
+                Ok(Self {
+                    composer: Box::new(composer),
+                    preedit: String::new(),
+                    committed: String::new(),
+                    composer_type: ComposerType::ThreeBulMoachigi,
                 })
             }
             // "2bul" 또는 영문 계열(qwerty/dvorak/...): 한글 조합 경로는 2벌식 기반.
