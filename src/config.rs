@@ -519,11 +519,13 @@ pub struct KoreanConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bidirectional_combine: Option<bool>,
 
-    /// 모아치기 — 동시 입력 시간 (밀리초). Phase 4 예약 필드.
+    /// 모아치기 — 동시 입력 시간 (밀리초).
     ///
     /// `None` = 자판 프로필 기본값 사용(`chord_window_ms`).
-    /// `Some(0)` = 동시 입력 OFF (기본). `Some(N)` = N ms 이내에 들어온 키를 한 음절로 모아 처리.
-    /// `supports_moachigi=false` 자판에서는 무시된다. 현재 Phase 4 미구현 — 동작은 0=OFF.
+    /// `Some(0)` = 동시 입력 OFF. `Some(N)` = N ms 이내에 들어온 키를 한 음절로 모아 처리.
+    /// `supports_moachigi=false` 자판에서는 무시된다.
+    /// `bidirectional_combine=false`이면 chord도 무시된다 (옵션 2 종속).
+    /// Phase 4 구현 완료 (InputEngine 레벨 ChordBuffer).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chord_window_ms: Option<u16>,
 }

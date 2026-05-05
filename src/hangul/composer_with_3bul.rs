@@ -9,7 +9,7 @@
 //! v3 부분 적용 (Phase 3-rework2):
 //! - `bidirectional_combine=true`이면 cho/jung/jong 영역별로 (a,b) 실패 시 (b,a) 재시도.
 //!   기존 `jong_unordered`를 일반화한 버전. 옵션 OFF 시 기존 동작 100% 동일 (회귀 0).
-//! - `chord_window_ms`는 Phase 4에서 구현. 현재는 0=OFF만 처리 (즉시 입력).
+//! - `chord_window_ms`: Phase 4 구현 완료. InputEngine 레벨 ChordBuffer가 담당.
 
 use crate::hangul::composer::BaseHangulComposer;
 use crate::hangul::composer::CombinedJamoMap;

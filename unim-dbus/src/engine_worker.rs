@@ -201,6 +201,7 @@ fn try_autotypefix_undo(
         popup_action: None,
         auto_typefix: Some((delete_chars, obs.original, String::new())),
         render_state: None,
+        chord_pending: None,
     })
 }
 
@@ -276,22 +277,29 @@ fn reset_engine_and_capture_commit(
     preserve_mode: bool,
 ) -> Option<String> {
     let mut commit_text = String::new();
+
+    // chord buffer 선처리: FocusOut/Reset 시 대기 중인 chord 자모를 flush 후 커밋.
+    // idle flush 타이머보다 먼저 도착하므로 여기서 처리해야 커밋이 누락되지 않는다.
+    if let Some(chord_text) = engine.chord_idle_flush_commit() {
+        commit_text.push_str(&chord_text);
+    }
+
     if engine.is_hanja_mode() {
         let t = engine.get_hanja_target().to_string();
         engine.cancel_hanja();
         if !t.is_empty() {
-            commit_text = t;
+            commit_text.push_str(&t);
         }
     } else if engine.is_special_char_mode() {
         let t = engine.get_special_char_target().to_string();
         engine.cancel_special_char();
         if !t.is_empty() {
-            commit_text = t;
+            commit_text.push_str(&t);
         }
     } else {
         let preedit = engine.preedit_str();
         if !preedit.is_empty() {
-            commit_text = preedit.to_string();
+            commit_text.push_str(preedit);
         }
     }
 
@@ -518,6 +526,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         popup_action: None,
                         auto_typefix: None,
                         render_state: None,
+                        chord_pending: None,
                     });
                     continue;
                 }
@@ -924,6 +933,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         };
 
                     let render_state = build_render_state(engine);
+                    // chord 진행 중이면 idle flush 타이머 정보를 응답에 포함.
+                    // service.rs 가 tokio::spawn 으로 타이머를 시작한다.
+                    let chord_pending = engine.chord_pending_info();
                     EngineResponse {
                         consumed: result.consumed,
                         preedit: final_preedit,
@@ -932,6 +944,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         popup_action,
                         auto_typefix: auto_typefix_result,
                         render_state,
+                        chord_pending,
                     }
                 } else {
                     EngineResponse {
@@ -942,6 +955,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         popup_action: None,
                         auto_typefix: None,
                         render_state: None,
+                        chord_pending: None,
                     }
                 };
 
@@ -1639,6 +1653,40 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     })
                 })();
                 let _ = response.send(payload);
+            }
+
+            // =========================================
+            // chord idle flush
+            // =========================================
+            EngineRequest::ChordIdleFlush {
+                context_id,
+                epoch,
+                response,
+            } => {
+                // epoch 검증: 불일치 시 이미 reset/force_flush/layout-change 등으로
+                // chord 가 폐기된 것이므로 무시한다.
+                let commit = if let Some(engine) = contexts.get_mut(&context_id) {
+                    if engine.chord_epoch_valid(epoch) {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] ChordIdleFlush: context_id={}, epoch={}",
+                            context_id,
+                            epoch
+                        );
+                        engine.chord_idle_flush_commit()
+                    } else {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] ChordIdleFlush 무시: context_id={}, epoch={} (stale)",
+                            context_id,
+                            epoch
+                        );
+                        None
+                    }
+                } else {
+                    None
+                };
+                let _ = response.send(commit);
             }
         }
     }

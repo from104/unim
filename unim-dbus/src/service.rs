@@ -204,6 +204,18 @@ pub enum EngineRequest {
         context_id: u32,
         response: oneshot::Sender<Option<u32>>,
     },
+
+    /// chord idle flush — 윈도우 만료 시 자동 flush.
+    ///
+    /// `process_key_event` 에서 chord 진행 중 tokio::spawn + tokio::time::sleep 으로
+    /// 지연 발사. epoch 불일치(reset/layout-change/clear 등으로 이미 폐기) 시 무시.
+    ///
+    /// 응답: flush 된 commit 텍스트 (없으면 None). service.rs 가 CommitText 시그널 발행.
+    ChordIdleFlush {
+        context_id: u32,
+        epoch: u64,
+        response: oneshot::Sender<Option<String>>,
+    },
 }
 
 /// 팝업 페이지 이동 응답 — service.rs 가 `PopupNavigate` 시그널 페이로드로 변환.
@@ -328,6 +340,12 @@ pub struct EngineResponse {
     /// PopupRender 페이로드 — popup 활성 상태일 때 매 키 처리 후 산출되어 frontend
     /// 가 시각 갱신에 사용. popup 비활성이면 None.
     pub render_state: Option<PopupRenderPayload>,
+    /// chord idle flush 타이머 정보 — chord 진행 중일 때 Some((epoch, window_ms)).
+    ///
+    /// service.rs 가 tokio::spawn 으로 window_ms 후 ChordIdleFlush 를 engine_tx 에 전송.
+    /// epoch 는 취소 판별용 (reset/layout-change 등이 epoch 를 증가시켜 타이머 무효화).
+    /// None 이면 chord 진행 중 아님 — 타이머 불필요.
+    pub chord_pending: Option<(u64, u16)>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -1911,6 +1929,48 @@ impl InputContextHandler {
             Self::auto_typefix_apply(&signal_ctx, *delete_chars, commit_text, preedit_text)
                 .await
                 .ok();
+        }
+
+        // chord idle flush 타이머: chord 진행 중이면 window_ms 후 자동 flush.
+        // tokio::spawn 으로 비동기 타이머를 시작하고, 만료 시 ChordIdleFlush 를 engine_tx 로 전송.
+        // engine_worker 는 epoch 검증 후 flush/commit 처리 → response 로 commit 텍스트 반환.
+        // service.rs 가 CommitText 시그널 발행.
+        if let Some((epoch, window_ms)) = response.chord_pending {
+            let engine_tx_clone = self.engine_tx.clone();
+            let connection_clone = self.connection.clone();
+            let path_clone = self.path.clone();
+            let context_id = self.id;
+            let sleep_ms = u64::from(window_ms);
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(sleep_ms)).await;
+                let (resp_tx, resp_rx) = oneshot::channel();
+                let sent = engine_tx_clone
+                    .send(EngineRequest::ChordIdleFlush {
+                        context_id,
+                        epoch,
+                        response: resp_tx,
+                    })
+                    .await;
+                if sent.is_err() {
+                    return;
+                }
+                let Ok(Some(commit_text)) = resp_rx.await else {
+                    return;
+                };
+                // CommitText 시그널 발행
+                if let Ok(ctx) =
+                    zbus::SignalContext::new(&connection_clone, path_clone.as_str())
+                {
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text='{}'",
+                        context_id,
+                        epoch,
+                        commit_text
+                    );
+                    InputContextHandler::commit_text(&ctx, &commit_text).await.ok();
+                }
+            });
         }
 
         unim_log!(

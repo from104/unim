@@ -8,6 +8,7 @@
 //! 사용한다.
 
 mod candidates;
+mod chord_buffer;
 mod engine;
 mod popup_dispatch;
 mod press_key;
@@ -22,6 +23,8 @@ use crate::hangul::input_context::{ComposerType, HangulInputContext};
 
 #[cfg(test)]
 mod test_helpers;
+#[cfg(test)]
+mod tests_chord;
 #[cfg(test)]
 mod tests_composition;
 #[cfg(test)]

@@ -5,6 +5,7 @@
 //! 분산 `impl InputEngine` 블록으로 구현된다.
 
 use super::build_korean_context;
+use super::chord_buffer::ChordBuffer;
 use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
 use crate::config::{Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
@@ -80,6 +81,9 @@ pub struct InputEngine {
     pub(super) top_row_labels: String,
     /// 영어 레이아웃 home_row_labels 캐시 (이모지 카테고리 단축키 표시용)
     pub(super) home_row_labels: String,
+    /// chord 윈도우 버퍼 — 안마태 모아치기 동시 입력 처리.
+    /// `chord_window_ms == 0` 이면 비활성 (즉시 처리, 회귀 0).
+    pub(super) chord_buffer: ChordBuffer,
     /// 현재 입력 필드의 목적 (비밀번호 등)
     pub(super) content_purpose: ContentPurpose,
     /// Surrounding text (커서 주변 텍스트)
@@ -169,11 +173,57 @@ impl InputEngine {
                 &config.engine.english.layout,
             )
             .to_string(),
+            chord_buffer: ChordBuffer::new(Self::compute_chord_window_ms(config)),
             content_purpose: ContentPurpose::Normal,
             surrounding_text: String::new(),
             surrounding_cursor: 0,
             surrounding_anchor: 0,
         }
+    }
+
+    /// Config에서 유효 chord_window_ms를 계산.
+    ///
+    /// - `moachigi.is_none()` (supports_moachigi=false 자판) → 0
+    /// - `bidirectional_combine=false` (사용자 재정의 또는 프로필 기본) → 0 (옵션 2 종속)
+    /// - 그 외 → 사용자 설정(`chord_window_ms`) 또는 프로필 기본값
+    pub(super) fn compute_chord_window_ms(config: &Config) -> u16 {
+        use crate::keystroke::profile::{resolve_inherits, ProfileRegistry};
+
+        let name = config.engine.korean.effective_layout_name();
+        let registry = ProfileRegistry::new();
+
+        // 프로필 찾기 실패 → 0 (안전 폴백)
+        let Some(raw) = registry.find_raw(&name) else {
+            return 0;
+        };
+        let profile = match resolve_inherits(&raw, &registry) {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
+
+        // supports_moachigi=false → moachigi=None → chord 무관
+        let Some(moachigi) = profile.moachigi else {
+            return 0;
+        };
+
+        // bidirectional_combine 최종 값 결정 (사용자 재정의 우선)
+        let bidir = config
+            .engine
+            .korean
+            .bidirectional_combine
+            .unwrap_or(moachigi.bidirectional_combine);
+
+        // 옵션 1 OFF → 옵션 2 무시
+        if !bidir {
+            return 0;
+        }
+
+        // chord_window_ms: 사용자 설정 → 프로필 기본값
+        config
+            .engine
+            .korean
+            .chord_window_ms
+            .unwrap_or(moachigi.chord_window_ms)
     }
 
     /// 키보드 맵을 생성합니다.
@@ -277,6 +327,47 @@ impl InputEngine {
         self.korean_context.clear();
         self.commit_buffer.clear();
         self.preedit_cache.clear();
+        self.chord_buffer.clear();
+    }
+
+    // =========================================================================
+    // chord idle flush 공개 API (engine_worker/unim-dbus 접근용)
+    // =========================================================================
+
+    /// chord 진행 중 여부 + idle flush 타이머 정보.
+    ///
+    /// 반환값: `Some((epoch, window_ms))` — chord 버퍼에 자모가 대기 중.
+    /// `None` — chord 비활성 또는 버퍼 비어있음.
+    pub fn chord_pending_info(&self) -> Option<(u64, u16)> {
+        if self.chord_buffer.has_pending() {
+            Some((
+                self.chord_buffer.current_epoch(),
+                self.chord_buffer.window_ms_pub(),
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// idle flush 타이머 epoch 유효성 검증.
+    ///
+    /// 타이머 발화 시 epoch 가 현재 chord_buffer epoch 와 일치하고
+    /// 버퍼가 비어있지 않으면 `true`.
+    pub fn chord_epoch_valid(&self, epoch: u64) -> bool {
+        self.chord_buffer.is_idle_epoch_valid(epoch)
+    }
+
+    /// chord idle flush: 대기 중인 chord 자모를 flush → compose → preedit commit.
+    ///
+    /// 반환값: commit 된 텍스트 (`None` 이면 대기 없음 또는 결과 없음).
+    /// 내부적으로 `force_flush` + `apply_chord_entries` + `flush_preedit` 를 순서대로 호출.
+    pub fn chord_idle_flush_commit(&mut self) -> Option<String> {
+        let entries = self.chord_buffer.force_flush()?;
+        self.apply_chord_entries(entries);
+        self.flush_preedit();
+        let text = self.commit_buffer.clone();
+        self.commit_buffer.clear();
+        if text.is_empty() { None } else { Some(text) }
     }
 
     /// 조합 중인지 확인합니다.
@@ -329,6 +420,10 @@ impl InputEngine {
             snapshot.engine.korean.layout = layout.clone();
             snapshot.engine.korean.active_rule_sets = None;
             self.korean_context = build_korean_context(&snapshot, composer_type);
+            // chord_buffer: 레이아웃 변경 시 윈도우 재계산 (새 자판이 supports_moachigi=false면 0으로)
+            let new_window = Self::compute_chord_window_ms(&snapshot);
+            self.chord_buffer.clear();
+            self.chord_buffer.set_window_ms(new_window);
             self.korean_layout = layout;
         }
     }
@@ -357,6 +452,10 @@ impl InputEngine {
 
         // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
         self.korean_context = build_korean_context(config, composer_type);
+        // chord_buffer: config 갱신 시 윈도우 재계산
+        let new_window = Self::compute_chord_window_ms(config);
+        self.chord_buffer.clear();
+        self.chord_buffer.set_window_ms(new_window);
         self.korean_layout = new_layout;
     }
 

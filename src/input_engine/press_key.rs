@@ -4,6 +4,7 @@
 //! `parse_trigger_key`/`match_auto_english_trigger` + preedit/상태 helper들을 한 파일에 묶어
 //! 인라인 가능성을 보존한다.
 
+use super::chord_buffer::JamoEntry;
 use super::engine::InputEngine;
 use super::types::{AutoEnglishTrigger, InputResult};
 use crate::config::{Config, InputCategory};
@@ -199,6 +200,11 @@ impl InputEngine {
 
         // Backspace 처리
         if keycode == KeyCode::Backspace {
+            // chord 버퍼에 대기 중인 자모가 있으면 먼저 flush
+            if let Some(entries) = self.chord_buffer.force_flush() {
+                unim_log!("ENGINE", "Backspace: chord flush {} 자모", entries.len());
+                self.apply_chord_entries(entries);
+            }
             if self.korean_context.is_composing() {
                 self.korean_context.backspace();
                 self.update_preedit_cache();
@@ -210,6 +216,10 @@ impl InputEngine {
 
         // Enter 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Enter {
+            if let Some(entries) = self.chord_buffer.force_flush() {
+                unim_log!("ENGINE", "Enter: chord flush {} 자모", entries.len());
+                self.apply_chord_entries(entries);
+            }
             if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_log!("ENGINE", "Enter -> 조합 커밋 후 키 통과");
@@ -220,6 +230,10 @@ impl InputEngine {
 
         // Tab 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Tab {
+            if let Some(entries) = self.chord_buffer.force_flush() {
+                unim_log!("ENGINE", "Tab: chord flush {} 자모", entries.len());
+                self.apply_chord_entries(entries);
+            }
             if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_log!("ENGINE", "Tab -> 조합 커밋 후 키 통과");
@@ -230,6 +244,8 @@ impl InputEngine {
 
         // Escape 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Escape {
+            // chord 버퍼 폐기 (Escape는 입력 취소 의미)
+            self.chord_buffer.clear();
             if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_log!("ENGINE", "Escape -> 조합 커밋 후 키 통과");
@@ -240,6 +256,11 @@ impl InputEngine {
 
         // Space 처리
         if keycode == KeyCode::Space {
+            // chord 버퍼에 대기 중인 자모가 있으면 먼저 flush (chord-flush-on-space)
+            if let Some(entries) = self.chord_buffer.force_flush() {
+                unim_log!("ENGINE", "Space: chord flush {} 자모", entries.len());
+                self.apply_chord_entries(entries);
+            }
             if self.korean_context.is_composing() {
                 self.flush_preedit();
             }
@@ -295,70 +316,109 @@ impl InputEngine {
                 if let Some(jamo) = keyboard_map.get(&c) {
                     unim_log!("ENGINE", "자모 매핑: {:?}", jamo);
 
-                    // Special 자모는 비-한국어 문자이므로 별도 처리
+                    // Special 자모는 비-한국어 문자이므로 별도 처리.
+                    // chord 버퍼가 활성 중이면 먼저 flush한다.
                     if let JamoEnum::Special(special_char) = jamo {
-                        let ch_to_commit = *special_char; // 먼저 복사
+                        let ch_to_commit = *special_char;
                         unim_log!("ENGINE", "Special 자모 처리: '{}'", ch_to_commit);
-                        // 조합 중이면 먼저 커밋
+                        if let Some(entries) = self.chord_buffer.force_flush() {
+                            self.apply_chord_entries(entries);
+                        }
                         self.flush_preedit();
-                        // Special 문자를 commit_buffer에 추가
                         self.commit_buffer.push(ch_to_commit);
                         return InputResult::committed();
                     }
 
-                    // 일반 자모 입력 — 키-출처 메타데이터(룰 A: vowel_combine_head)를
-                    // composer 큐로 전달. key_meta 부재 시 default(=결합 가능).
+                    // 일반 자모 — chord 경로 분기
+                    let jamo_copy = *jamo;
                     let jamo_meta = self
                         .key_meta_map
                         .get(&c)
                         .map(|km| km.to_jamo_meta())
                         .unwrap_or_default();
-                    self.korean_context
-                        .process_jamo_with_meta(*jamo, jamo_meta);
 
-                    // committed 문자가 있으면 commit_buffer에 추가
-                    let committed = self.korean_context.get_committed();
-                    unim_log!(
-                        "ENGINE",
-                        "context.committed='{}', context.preedit='{}'",
-                        committed,
-                        self.korean_context.get_preedit()
-                    );
+                    if self.chord_buffer.is_active() {
+                        // chord 모드: 버퍼에 push → flush 여부 결정
+                        unim_log!("ENGINE", "chord push: {:?}", jamo_copy);
+                        match self.chord_buffer.push(jamo_copy, jamo_meta) {
+                            None => {
+                                // 아직 chord 진행 중 → preedit 변경 없음
+                                // (chord 완성 전 partial preedit은 표시하지 않음)
+                                unim_log!("ENGINE", "chord 진행 중 → preedit 대기");
+                                return InputResult::preedit_updated();
+                            }
+                            Some(entries) => {
+                                // 이전 chord 만료 flush + 새 chord 시작됨
+                                // entries = 이전 chord 자모들 (새 자모는 이미 새 버퍼에 있음)
+                                unim_log!(
+                                    "ENGINE",
+                                    "chord 만료 flush {} 자모 → 새 chord 시작",
+                                    entries.len()
+                                );
+                                self.apply_chord_entries(entries);
+                                // 새 chord의 첫 자모가 버퍼에 들어갔으므로 preedit 대기
+                                return if !self.commit_buffer.is_empty() {
+                                    InputResult::committed()
+                                } else {
+                                    InputResult::preedit_updated()
+                                };
+                            }
+                        }
+                    } else {
+                        // chord OFF (window_ms=0) → 즉시 처리 (기존 동작 100% 동일)
+                        self.korean_context
+                            .process_jamo_with_meta(jamo_copy, jamo_meta);
 
-                    if !committed.is_empty() {
-                        self.commit_buffer.push_str(committed);
-                        // committed 문자열만 비우기 (preedit은 유지)
-                        self.korean_context.clear_committed();
+                        let committed = self.korean_context.get_committed();
                         unim_log!(
                             "ENGINE",
-                            "commit_buffer에 추가 후: '{}'",
-                            self.commit_buffer
+                            "context.committed='{}', context.preedit='{}'",
+                            committed,
+                            self.korean_context.get_preedit()
                         );
-                    }
 
-                    self.update_preedit_cache();
-                    unim_log!(
-                        "ENGINE",
-                        "preedit_cache 업데이트 후: '{}'",
-                        self.preedit_cache
-                    );
+                        if !committed.is_empty() {
+                            self.commit_buffer.push_str(committed);
+                            self.korean_context.clear_committed();
+                            unim_log!(
+                                "ENGINE",
+                                "commit_buffer에 추가 후: '{}'",
+                                self.commit_buffer
+                            );
+                        }
 
-                    if !self.commit_buffer.is_empty() {
-                        unim_log!("ENGINE", "-> InputResult::committed()");
-                        return InputResult::committed();
+                        self.update_preedit_cache();
+                        unim_log!(
+                            "ENGINE",
+                            "preedit_cache 업데이트 후: '{}'",
+                            self.preedit_cache
+                        );
+
+                        if !self.commit_buffer.is_empty() {
+                            unim_log!("ENGINE", "-> InputResult::committed()");
+                            return InputResult::committed();
+                        }
+                        unim_log!("ENGINE", "-> InputResult::preedit_updated()");
+                        return InputResult::preedit_updated();
                     }
-                    unim_log!("ENGINE", "-> InputResult::preedit_updated()");
-                    return InputResult::preedit_updated();
                 }
             }
 
-            // 자모가 아닌 문자 (기호 등)
+            // 자모가 아닌 문자 (기호 등): chord 버퍼 flush 후 처리
+            if let Some(entries) = self.chord_buffer.force_flush() {
+                unim_log!("ENGINE", "비-자모 문자: chord flush {} 자모", entries.len());
+                self.apply_chord_entries(entries);
+            }
             self.flush_preedit();
             self.commit_buffer.push(c);
             return InputResult::committed();
         }
 
-        // 조합 중에 문자가 아닌 키(화살표, F키 등) 입력 시 커밋 후 키 통과
+        // 조합 중에 문자가 아닌 키(화살표, F키 등) 입력 시 chord flush 후 커밋 후 키 통과
+        if let Some(entries) = self.chord_buffer.force_flush() {
+            unim_log!("ENGINE", "비문자키: chord flush {} 자모", entries.len());
+            self.apply_chord_entries(entries);
+        }
         if self.korean_context.is_composing() {
             self.flush_preedit();
             unim_log!("ENGINE", "비문자키 -> 조합 커밋 후 키 통과");
@@ -622,9 +682,31 @@ impl InputEngine {
         }
     }
 
+    /// chord 버퍼에서 꺼낸 자모 목록을 compositor에 순차 적용한다.
+    ///
+    /// 영역별 정렬(Cho→Jung→Jong)은 `ChordBuffer::force_flush()`/`push()` 반환 시점에
+    /// 이미 완료되어 있다. 이 함수는 단순히 순서대로 `process_jamo_with_meta`를 호출한다.
+    ///
+    /// commit_buffer 갱신 포함. preedit_cache 갱신은 **호출자가** 필요 시 수행.
+    pub(super) fn apply_chord_entries(&mut self, entries: Vec<JamoEntry>) {
+        for entry in entries {
+            self.korean_context
+                .process_jamo_with_meta(entry.jamo, entry.meta);
+            let committed = self.korean_context.get_committed();
+            if !committed.is_empty() {
+                self.commit_buffer.push_str(committed);
+                self.korean_context.clear_committed();
+            }
+        }
+        self.update_preedit_cache();
+    }
+
     /// 입력 카테고리를 토글합니다.
     pub(super) fn toggle_input_category(&mut self) {
-        // 조합 중이면 먼저 플러시
+        // chord 버퍼 남은 자모 flush 후 조합 커밋
+        if let Some(entries) = self.chord_buffer.force_flush() {
+            self.apply_chord_entries(entries);
+        }
         self.flush_preedit();
 
         self.input_category = match self.input_category {
