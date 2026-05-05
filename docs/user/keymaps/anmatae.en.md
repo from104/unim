@@ -1,0 +1,266 @@
+# Ahnmatae Keyboard (2003) User Guide
+
+> Requires **UNIM v0.3.0+**. Designed by Father Ahnmatae and Prof. Kim Jin-hyung of KAIST, published 2003.
+
+---
+
+## Overview
+
+The Ahnmatae keyboard (안마태 자판) is a **three-beol (3벌식)** Korean layout with fixed regions for initial consonants (cho, 초성), vowels (jung, 중성), and final consonants (jong, 종성). Unlike standard two-beol or three-beol layouts, it supports **moachigi** (모아치기) — chord-based input where the jamo (자모, individual phonemes) of a syllable are typed simultaneously or in rapid succession and composed together.
+
+- **Designers**: Father Ahnmatae + Prof. Kim Jin-hyung, KAIST (2003)
+- **Layout type**: Three-beol (3bul), 4-row arrangement
+- **Key features**: Fixed cho/jung/jong regions, bidirectional jamo combine, moachigi (chord) option
+- **Built-in profile name**: `ko_3bul_anmatae`
+
+> **Archaic jamo (옛한글) not supported**: The original Ahnmatae layout placed archaic jamo at positions W/T/G/J/B/N (upper layer). In UNIM these positions are remapped to Korean typography symbols. Archaic jamo input is not supported in v0.3.0 and will be considered in a future release.
+
+---
+
+## Key Layout
+
+### Region Overview
+
+The Ahnmatae layout fixes each key's phoneme region across four rows.
+
+| Row | Region | Contents |
+|-----|--------|----------|
+| Row 2 (QWERTY `Q`–`]` row) | cho (initial) + jung (vowel) | ㅁ ㅅ ㄴ ㄹ ㅎ + ㅕ ㅑ ㅡ ㅛ ㅠ |
+| Row 3 (QWERTY `A`–`'` row) | cho (initial) + jung (vowel) | ㅂ ㅈ ㄷ ㄱ ㅇ + ㅓ ㅏ ㅣ ㅗ ㅜ |
+| Row 4 (QWERTY `Z`–`/` row) | jong (final consonant) | ᆽ ᆮ ᆸ ᆨ ᆼ ᆺ ᆫ ᆷ ᆯ ᇂ |
+
+> Cho and jung keys are interleaved across rows 2 and 3. Row 4 is exclusively jong.
+
+### Lower Layer (no Shift)
+
+```
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│ ` │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │ 9 │ 0 │ - │ = │ \ │  ← Row 1 (numbers/symbols)
+├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┼───┼───┴───┘   │
+│ ㅁ│ ㅅ│ ㄴ│ ㄹ│ ㅎ│ ㅕ│ ㅑ│ ㅡ│ ㅛ│ ㅠ│ [ │ ]          │  ← Row 2 (cho + jung)
+├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┼───┤            │
+│ ㅂ│ ㅈ│ ㄷ│ ㄱ│ ㅇ│ ㅓ│ ㅏ│ ㅣ│ ㅗ│ ㅜ│ ' │            │  ← Row 3 (cho + jung)
+├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┴───┘            │
+│ ᆽ│ ᆮ│ ᆸ│ ᆨ│ ᆼ│ ᆺ│ ᆫ│ ᆷ│ ᆯ│ ᇂ                       │  ← Row 4 (jong only)
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
+
+> Row 4 jamo use **jongseong codepoints** (U+11A8 range), distinct from the compatibility jamo (U+3131 range) used in rows 2–3 for initial consonants. They represent the same sounds but differ internally — this is intentional and correct.
+
+### Upper Layer (Shift held)
+
+```
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│ ~ │ ! │ @ │ # │ $ │ % │ ^ │ & │ * │ ( │ ) │ _ │ + │ | │  ← Row 1
+├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┼───┼───┴───┘   │
+│ ㅁ│ ' │ ㄴ│ ㄹ│ … │ ; │ '│ / │ [ │ ] │ { │ }          │  ← Row 2
+├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┼───┤            │
+│ ㅂ│ ㅈ│ ㄷ│ ㄱ│ " │ ㅓ│ · │ ㅣ│ ㅗ│ ㅜ│ " │            │  ← Row 3
+├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┴───┘            │
+│ ᆽ│ ᆮ│ ᆸ│ ᆨ│ " │ ' │ ᆫ│ ᆷ│ ᆯ│ ?                      │  ← Row 4
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
+
+#### Korean Typography Symbols (6 keys)
+
+The six positions where the original Ahnmatae layout placed archaic jamo are remapped to typography symbols in UNIM.
+
+| Key | Input | Symbol | Codepoint | Use |
+|-----|-------|--------|-----------|-----|
+| W | Shift+W | `'` | U+2019 | Right single quotation mark |
+| T | Shift+T | `…` | U+2026 | Horizontal ellipsis |
+| G | Shift+G | `"` | U+201D | Right double quotation mark |
+| J | Shift+J | `·` | U+00B7 | Middle dot (Korean punctuation) |
+| B | Shift+B | `"` | U+201C | Left double quotation mark |
+| N | Shift+N | `'` | U+2018 | Left single quotation mark |
+
+---
+
+## Jamo Combination Rules
+
+Complex jamo are produced by combining two simpler jamo.
+
+### Initial Consonant (Cho) Combinations
+
+| First | Second | Result |
+|-------|--------|--------|
+| ㄱ | ㄷ | ㄸ |
+| ㄱ | ㅇ | ㄲ |
+| ㄱ | ㅎ | ㅋ |
+| ㄴ | ㅅ | ㅆ |
+| ㄷ | ㅈ | ㅉ |
+| ㄷ | ㅎ | ㅌ |
+| ㅂ | ㅈ | ㅃ |
+| ㅂ | ㅎ | ㅍ |
+| ㅈ | ㅎ | ㅊ |
+
+Example: `ㄱ` + `ㅎ` → `ㅋ` (aspirated), `ㄱ` + `ㄷ` → `ㄸ` (tense/doubled)
+
+### Vowel (Jung) Combinations
+
+| First | Second | Result |
+|-------|--------|--------|
+| ㅏ | ㅣ | ㅐ |
+| ㅓ | ㅣ | ㅔ |
+| ㅗ | ㅏ | ㅘ |
+| ㅗ | ㅣ | ㅚ |
+| ㅜ | ㅓ | ㅝ |
+| ㅜ | ㅣ | ㅟ |
+| ㅡ | ㅣ | ㅢ |
+| (8 more) | | |
+
+### Final Consonant (Jong) Combinations (order-independent)
+
+When `bidirectional_combine` is ON, both `(ᆨ, ᆯ)` and `(ᆯ, ᆨ)` produce `ᆰ` (ㄺ cluster).
+
+| Combination | Result |
+|-------------|--------|
+| ᆨ + ᆼ | ᆩ |
+| ᆨ + ᆯ | ᆰ |
+| ᆨ + ᆺ | ᆪ |
+| ᆫ + ᆽ | ᆬ |
+| ᆫ + ᇂ | ᆭ |
+| ᆯ + ᆷ | ᆱ |
+| ᆯ + ᆸ | ᆲ |
+| ᆯ + ᆺ | ᆳ |
+| ᆸ + ᆺ | ᆹ |
+| (11 more) | |
+
+---
+
+## Moachigi Options
+
+Selecting "Ahnmatae Keyboard (2003)" in the GTK settings dialog automatically reveals the **Moachigi** option group. This group is only shown for layouts with `supports_moachigi=true`.
+
+### Option 1 — Bidirectional Jamo Combine
+
+**Default: ON**
+
+Within each region (cho / jung / jong), jamo combination is attempted regardless of input order.
+
+- **ON**: `(ᆯ, ᆨ)` is treated the same as `(ᆨ, ᆯ)` and produces `ᆰ` (ㄺ cluster). You can type the final consonants of "닭" (chicken) as ᆯ → ᆨ without worrying about order.
+- **OFF**: Only the forward direction defined in the combinations table is recognized. Option 2 (chord window) requires this option to be ON.
+
+### Option 2 — Chord Window (ms)
+
+**Default: 50ms** | Range: 10–100ms | 0 = OFF
+
+All jamo typed within N milliseconds of the first keystroke are collected into one chord and composed as a single syllable.
+
+#### How It Works (Single Window)
+
+```
+First jamo arrives
+    │
+    ├─ Timer starts (N ms, single window — not reset on each keystroke)
+    │
+    ├─ Additional jamo within window → accumulated in chord buffer
+    │
+    └─ Window expires (or next-key arrival detects expiry)
+           ├─ 1 jamo in buffer  → normal sequential processing
+           └─ 2+ jamo in buffer → chord compose
+                  (classify by region → bidirectional combine → commit syllable)
+```
+
+The window is flushed by any of the following:
+
+- Idle timeout (automatic flush after N ms with no further input)
+- Non-jamo key: Space, Enter, Tab, Backspace, arrow keys, symbols
+- Korean/English mode switch
+- Focus loss (FocusOut)
+- Escape (chord discarded — uncommitted jamo are dropped)
+- MAX 8 jamo reached (immediate flush)
+
+**Setting to 0** disables chord entirely. Each jamo is processed immediately, identical to standard three-beol behavior.
+
+> **Option 2 requires Option 1 (Bidirectional Combine) to be ON.**
+
+---
+
+## GTK Settings Dialog
+
+1. Click the tray icon → open **Settings**
+2. **Keyboard** tab → Korean layout selector → choose **"Ahnmatae Keyboard (2003)"**
+3. The **Moachigi** group appears immediately below the layout selector
+4. **Bidirectional Jamo Combine** toggle: leave ON unless you have a specific reason to disable
+5. **Chord Window (ms)** slider: 10–100ms range. Fast typists: lower (20–30ms). Slower typists: higher (80–100ms). Drag to 0 to disable chord entirely.
+
+> Switching to a different layout (e.g., 390, 391, QWERTY-style three-beol) automatically hides the Moachigi group.
+
+---
+
+## Input Scenarios
+
+### Normal Sequential Input (chord OFF or in-order typing)
+
+| Input sequence | Output | Notes |
+|----------------|--------|-------|
+| ㄱ → ㅏ → ㅁ | 감 | cho → jung → jong |
+| ᆸ → ᆺ | ᆹ (ㅄ cluster) | jong combination |
+
+### Moachigi Chord Input (chord ON, within 50ms)
+
+| Simultaneous input (within 50ms) | Output | Notes |
+|----------------------------------|--------|-------|
+| ㄱ + ㅎ + ㅡ + ㅣ | 킈 | cho: ㄱ+ㅎ→ㅋ, jung: ㅡ+ㅣ→ㅢ |
+| ᆨ + ᆯ | ᆰ | jong cluster, order-independent |
+
+### Syllable Separation (window expired)
+
+| Input | Output | Notes |
+|-------|--------|-------|
+| ㄱ + ㅡ → (50ms expires) → ㅎ + ㅣ | 그히 | Two syllables due to timeout |
+| ㄱ + ㅜ → (50ms expires) → ㅎ + ㅏ + ㄷ + ㅏ | 구하다 | Correct syllable separation |
+
+### Typography Symbol Input
+
+| Key | Output | Use |
+|-----|--------|-----|
+| Shift+B | `"` | Left double quote |
+| Shift+G | `"` | Right double quote |
+| Shift+N | `'` | Left single quote |
+| Shift+W | `'` | Right single quote |
+| Shift+J | `·` | Middle dot |
+| Shift+T | `…` | Ellipsis |
+
+---
+
+## Troubleshooting
+
+### "구하다" (guhada) comes out as "쿠ㅏ다"
+
+The chord window is capturing `ㄱ` and `ㅎ` together and combining them into `ㅋ`. Two fixes:
+
+- **Fix 1**: Lower the chord window or set it to 0. This forces each jamo to be processed immediately, preventing cross-syllable merging.
+- **Fix 2**: Keep chord enabled but pause briefly between syllables — let 50ms pass after typing `ㄱ+ㅜ` before starting `ㅎ+ㅏ+ㄷ+ㅏ`.
+
+### Screen shows nothing while I type (chord in progress)
+
+The preedit (in-progress text) is not shown while the chord window is open. With a 50ms window this is imperceptible in practice. If you raise the slider above 100ms the delay becomes noticeable — this is expected behavior.
+
+### I switched layouts but the Moachigi group is still visible
+
+Close and reopen the settings dialog, or restart the UNIM daemon.
+
+### Escape drops my in-progress input
+
+Escape during a chord discards the entire buffer — all uncommitted jamo are dropped. This is intentional. To commit the in-progress syllable instead, press Space or Enter.
+
+---
+
+## Limitations and Non-Goals
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Archaic jamo (옛한글) input | **Not supported** | Archaic codepoints trigger `LoadError::ArchaicJamoNotSupported`. Planned post-v0.4.0. |
+| Preedit display during chord | **Not supported** | Screen is silent while chord window is open. Imperceptible at 50ms default. |
+| Variant layouts (e.g., Sinsebeolsik-M) | **Not built-in** | Only the 2003 standard Ahnmatae layout is included. Variants can be provided as user-defined layout JSON files. |
+| Maximum jamo per chord | 8 | Immediate flush at 8 jamo. |
+
+---
+
+## References
+
+- Ahnmatae, Kim Jin-hyung (2003), "Design of a Moachigi Hangul Input Keyboard"
+- UNIM layout profile v3 schema: `docs/dev/architecture/LAYOUT_PROFILE_V3.md`
+- Layout JSON: `src/keystroke/keymap/ko_3bul_anmatae.json`

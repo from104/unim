@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
   `src/keystroke/profile/schema.rs`. `RawProfile::has_v1_markers()` replaces
   the v0/v1 detection role. Builder's `fallback_for(layout_type)` v0
   compatibility path also deleted.
+- **`HangulComposer3BulMoachigi` separate composer** removed. Moachigi logic is now handled entirely within `HangulComposer3Bul` via the `chord_buffer` layer in `InputEngine`. No user-visible behavior change.
 
 ### Added
 
@@ -45,6 +46,14 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
   `combinations` block. Closes the previous English-side coverage gap that
   could re-introduce silent fallback regressions like the early `en_workman`
   miss.
+- **Ahnmatae (안마태 2003) keyboard built-in** (`ko_3bul_anmatae`): First moachigi (chord-based) Korean layout in UNIM. Three-beol layout with fixed cho/jung/jong regions. Includes 9 cho, 15 jung, and 20 jong combination rules. Archaic jamo (옛한글) positions (W/T/G/J/B/N upper) are remapped to Korean typography symbols (`"` `"` `'` `'` `·` `…`); archaic codepoints anywhere in the profile trigger `LoadError::ArchaicJamoNotSupported`.
+- **Layout profile v3 schema** (`schema_version: 3`): Three new top-level fields for moachigi layouts:
+  - `supports_moachigi: bool` — signals that this layout supports chord input; GTK settings dialog shows the Moachigi group only when true.
+  - `bidirectional_combine: bool` — when true, cho/jung/jong combinations are attempted in both `(a,b)` and `(b,a)` order. Default true for `ko_3bul_anmatae`.
+  - `chord_window_ms: u32` — duration of the single chord window in milliseconds (0 = chord disabled). Default 50 ms for `ko_3bul_anmatae`. Range exposed in GUI: 10–100 ms via slider.
+- **Moachigi chord engine** (`src/input_engine/chord_buffer.rs`): Single-window chord accumulator. First jamo starts an N-ms timer; jamo arriving within the window are buffered. On expiry: 1 jamo → normal sequential processing; 2+ jamo → region-classified chord compose with bidirectional combine. Flush triggers: idle timeout (tokio timer), Space/Enter/Tab/Backspace, mode switch, FocusOut, Escape (discard), MAX 8 jamo.
+- **GTK settings dialog — Moachigi group**: New `AdwPreferencesGroup` with a toggle row ("Bidirectional Jamo Combine") and a slider row ("Chord Window (ms)", 10–100 ms). Group is shown only when the selected layout has `supports_moachigi=true`; hidden automatically when switching to other layouts.
+- **User guide** for Ahnmatae keyboard: `docs/user/keymaps/anmatae.md` (Korean) and `docs/user/keymaps/anmatae.en.md` (English).
 
 ## [0.2.0] 2026-04-26
 
