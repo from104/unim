@@ -50,7 +50,7 @@ group_moachigi_title: "Moachigi Settings"
 row_moachigi_bidirectional_label: "Bidirectional jamo combine"
 row_moachigi_bidirectional_tooltip: "Tries both orders (a,b) and (b,a) when combining jamo within cho/jung/jong regions."
 row_moachigi_chord_label: "Chord window (ms)"
-row_moachigi_chord_tooltip: "0 = chord input OFF. Keys within N ms treated as chord. (Phase 4)"
+row_moachigi_chord_tooltip: "0 = chord input OFF. Keys within N ms are grouped into one syllable."
 
 # TypeFix > Forward
 group_typefix_forward: "Auto Forward Correction (EN→KO)"

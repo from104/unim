@@ -116,6 +116,13 @@ impl InputEngine {
         // process_korean_key 안에 있어 영문 모드에서 Hanja 키가 not_consumed 로
         // 떨어져 첫 키 입력이 무시됐다.
         if self.hanja_keys.contains(&keycode) {
+            // chord 버퍼에 대기 중인 자모가 있으면 먼저 flush — Space/Enter와 동일 패턴.
+            // chord 진행 중 한자 키 입력 시 현재 chord를 음절로 확정한 뒤 한자 변환 진입.
+            // (chord 진행 중 preedit 무표시는 사용자 결정 — chord 끝나고 표시해도 충분)
+            if let Some(entries) = self.chord_buffer.force_flush() {
+                unim_log!("ENGINE", "Hanja: chord flush {} 자모", entries.len());
+                self.apply_chord_entries(entries);
+            }
             let idle =
                 self.preedit_cache.is_empty() && !self.korean_context.is_composing();
             if idle {

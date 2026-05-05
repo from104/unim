@@ -18,7 +18,7 @@
 //! - `supports_moachigi: bool` — 자판이 모아치기를 지원하는지. GUI 활성화 게이트.
 //! - `bidirectional_combine: bool` — 양방향 자모 결합. cho/jung/jong 영역별 (a,b) 실패 시 (b,a) 재시도.
 //! - `chord_window_ms: u16` — 동시 입력 시간(ms). 0=OFF. bidirectional_combine 종속.
-//!   Phase 4에서 실제 chord 동작 구현 예정. 현재는 필드만 파싱/저장.
+//!   N ms 이내 키를 한 음절로 모아 처리 (ChordBuffer idle/force_flush 구현).
 //!
 //! combinations 해석·inherits 병합·자모 enum 변환은 builder에서 수행한다.
 //! 본 모듈은 순수 스키마(문자열 수준)만 다룬다.
@@ -41,7 +41,7 @@ pub struct MoachigiSpec {
     /// 양방향 자모 결합. true이면 cho/jung/jong 영역별로 (a,b) 실패 시 (b,a) 재시도.
     pub bidirectional_combine: bool,
     /// 동시 입력 시간(ms). 0=OFF. bidirectional_combine=true일 때만 유효.
-    /// Phase 4에서 실제 chord 동작 구현 예정. 현재는 0만 동작.
+    /// N ms 이내에 들어온 키를 한 음절로 모아 처리 (ChordBuffer idle/force_flush 구현).
     pub chord_window_ms: u16,
 }
 
@@ -92,7 +92,7 @@ pub struct RawProfile {
     #[serde(default)]
     pub bidirectional_combine: bool,
     /// v3 — 동시 입력 시간(ms). 0=OFF. bidirectional_combine=true일 때만 유효.
-    /// Phase 4에서 실제 chord 동작 구현 예정.
+    /// N ms 이내에 들어온 키를 한 음절로 모아 처리 (ChordBuffer 구현).
     #[serde(default)]
     pub chord_window_ms: u16,
 }

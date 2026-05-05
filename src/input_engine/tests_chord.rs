@@ -16,6 +16,7 @@ mod tests {
     use crate::hangul::jamo::{Cho, Jong, Jung, JamoEnum};
     use crate::input_engine::chord_buffer::JamoEntry;
     use crate::input_engine::InputEngine;
+    use crate::keycode::{KeyCode, ModifierState};
 
     /// chord OFF 엔진 생성 (기본 두벌식 — supports_moachigi=false → chord OFF)
     fn engine_chord_off() -> InputEngine {
@@ -333,5 +334,52 @@ mod tests {
 
         let commit = e.chord_idle_flush_commit();
         assert_eq!(commit.as_deref(), Some("킈"), "ㄱ+ㅎ+ㅡ+ㅣ → '킈' commit");
+    }
+
+    // =========================================================================
+    // Phase 5 fix: 한자 키 chord flush 보완
+    // =========================================================================
+
+    /// chord-flush-on-hanja: chord 진행 중(ㄱ ㅏ 버퍼) 한자 키 → "가" commit + 한자 변환 진입.
+    ///
+    /// press_key.rs hanja_keys dispatch 직전에 force_flush + apply가 추가되어,
+    /// chord 버퍼가 활성 상태에서 한자 키가 들어와도 현재 chord를 먼저 음절로 확정한다.
+    /// (chord 진행 중 preedit 무표시는 사용자 결정 — chord 끝나고 표시해도 충분)
+    #[test]
+    fn chord_flush_on_hanja() {
+        let config = {
+            let mut c = Config::default();
+            c.engine.korean.layout = "ko_3bul_anmatae".to_string();
+            c.engine.korean.bidirectional_combine = Some(true);
+            c.engine.korean.chord_window_ms = Some(5000);
+            c
+        };
+        let mut e = InputEngine::new(&config);
+        e.set_input_category(crate::config::InputCategory::Korean);
+
+        let m = ModifierState::default();
+
+        // chord 버퍼에 ㄱ (R) + ㅏ (K) 를 push — press_key 경로 사용
+        // 안마태 자판에서 R=ㄱ(Cho), K=ㅏ(Jung) 매핑 (anmatae 프로필 기준)
+        // 직접 push 방식으로 chord 버퍼 활성 상태 만들기
+        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        assert!(e.chord_pending_info().is_some(), "chord 버퍼 활성 (ㄱ+ㅏ 대기)");
+
+        // 한자 키 press → force_flush → "가" 조합 → start_hanja_conversion
+        let result = e.press_key(KeyCode::Hanja, m, &config);
+
+        // hanja_mode 진입 확인 (hanja_mode=true → ShowHanja 결과)
+        assert!(
+            e.hanja_mode,
+            "한자 키 후 hanja_mode=true (한자 변환 진입)"
+        );
+
+        // chord flush로 "가"가 preedit에 남았거나 commit에 들어왔어야 함
+        // start_hanja_conversion은 preedit "가"를 후보로 올리므로 preedit는 "가"
+        let preedit = e.preedit_str();
+        assert_eq!(preedit, "가", "chord flush 후 한자 변환 대상은 '가'");
+
+        let _ = result; // consumed() 여부는 구현 내부
     }
 }
