@@ -256,6 +256,13 @@ export default class UnimExtension extends Extension {
                     );
                 },
                 onShowEmoji: (targetCatId, items, topRow, recent, categoriesRaw, cursorRect, homeRow) => {
+                    // emoji popup 은 idle 트리거 (preedit 없음) → mutter 가 wayland
+                    // text-input v3 를 enable 하지 않아 commitText 가 휘발한다.
+                    // popup 활성 동안 ZWSP (U+200B) preedit 을 유지해 IM engage 강제 —
+                    // 한자/특수처럼 preedit 활성 상태에서 commit 이 가능하게 만든다.
+                    if (this._inputMethod) {
+                        this._inputMethod.updatePreedit('​'); // ZWSP — invisible
+                    }
                     // 다른 팝업 먼저 닫기
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
@@ -267,7 +274,17 @@ export default class UnimExtension extends Extension {
                         topRow,
                         recent,
                         categoriesRaw,
-                        (emoji) => this._dbusIME?.commitEmoji(emoji),
+                        (emoji) => {
+                            // 한자/특수와 동일 패턴 — Clutter.InputMethod 직접 commit.
+                            // ZWSP preedit 으로 IM 이 engage 된 상태이므로 클리어 + commit
+                            // 이 atomic batch 로 wayland text-input v3 commit_string 도달.
+                            // commitEmoji RPC 는 popup state cleanup + MRU 갱신용 보조.
+                            if (this._inputMethod) {
+                                this._inputMethod.updatePreedit('');
+                                this._inputMethod.commitText(emoji);
+                            }
+                            this._dbusIME?.commitEmoji(emoji);
+                        },
                         cursorRect,
                         // 좌측 탭 마우스 클릭 → SetEmojiCategory RPC. 데몬이 popup_state 갱신 후
                         // ShowEmojiPopupV2 를 재발행하므로 본 onShowEmoji 가 다시 호출되어 재구성.
@@ -294,11 +311,18 @@ export default class UnimExtension extends Extension {
                     );
                 },
                 onHidePopup: () => {
+                    // emoji popup 활성이었다면 onShowEmoji 의 ZWSP preedit 잔재 클리어 —
+                    // commit 으로 닫힌 케이스(콜백에서 이미 클리어 + commit) 와 dismiss
+                    // 케이스(엔진 cancel/취소) 모두 안전하게 처리.
+                    const wasEmojiVisible = this._emojiPopup?.isVisible;
                     this._hanjaPopup?.hide();
                     this._specialPopup?.hide();
                     // PR #3: emoji popup 도 엔진 dismiss 시 닫힌다 (모달 grab 이 없어
                     // focus_out 자동 broadcast 가 더 이상 발생하지 않음).
                     this._emojiPopup?.hide();
+                    if (wasEmojiVisible && this._inputMethod) {
+                        this._inputMethod.updatePreedit('');
+                    }
                 },
                 onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
                     if (this._hanjaPopup?.isVisible) {
@@ -537,9 +561,12 @@ export default class UnimExtension extends Extension {
                 this._inputMethod.commitText(trigger);
             }
         }
-        // 이모지 팝업은 엔진 상태가 없으므로 그냥 숨김만 수행
+        // 이모지 팝업은 엔진 상태가 없으므로 그냥 숨김만 수행 + ZWSP preedit 잔재 클리어.
         if (this._emojiPopup?.isVisible) {
             this._emojiPopup.hide();
+            if (this._inputMethod) {
+                this._inputMethod.updatePreedit('');
+            }
         }
         // 팝업 키 핸들러는 더 이상 사용하지 않음 (ProcessKeyEvent 경로로 통일)
     }
