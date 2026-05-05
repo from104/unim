@@ -1,0 +1,102 @@
+{
+  "schema_version": 3,
+  "language": "korean",
+  "name": "ko_3bul_qwerty",
+  "type": "3bul",
+  "supports_moachigi": true,
+  "metadata": {
+    "display_name": {
+      "ko": "쿼티형 세벌식 v2 (모아치기)",
+      "en": "QWERTY-Style Sebeolsik v2 (Moachigi)"
+    },
+    "author": "UNIM 프로젝트 (2026)",
+    "description": {
+      "ko": "쿼티형 세벌식 자판 초안 v2 기반. 알파벳 26자리 포화 배치(초성 10 + 중성 6 + 종성 10) — lower만으로 모든 한글 입력 가능(Shift 무필요). upper 26칸은 lower와 다르게 채워 Shift로 자주 쓰는 자모/기호를 직접 입력 가능: 쌍자음 5(ㄲ/ㄸ/ㅃ/ㅆ/ㅉ)·결합 모음 6(ㅒ/ㅖ/ㅢ/ㅙ/ㅘ/ㅞ)·거센소리 종성 4(ᆿ/ᇀ/ᇁ/ᆾ)·결합/쌍 종성 5(ᆻ/ᆰ/ᆬ/ᆱ/ᆭ)·한국어 조판 기호 6(「/」/※/·/“/”). 왼손 종성·오른손 초성·중앙 중성의 세벌식 관례 유지. 경음화는 두 경로 병존(ㄱ+ㄱ 연타 / ㄱ+ㅇ 복사), y-glide도 두 경로 병존(ㅏ+ㅡ 후행 / ㅏ+ㅏ 연타). 종성 영역은 키가 초성이 될 수 없어 모아치기 시 영역 내부 순서 자유. supports_moachigi=true; 모아치기 옵션(`korean.bidirectional_combine` / `korean.chord_window_ms`)은 사용자 config에서 opt-in. 설계 문서: docs/references/research/쿼티형 세벌식 초안 v2.md.",
+      "en": "Based on QWERTY-style sebeolsik draft v2. All 26 alphabet positions saturated (10 cho + 6 jung + 10 jong) — every Hangul character is reachable using only the lower layer (Shift is not required). All 26 upper-layer positions differ from lower, putting frequently used jamo/marks directly under Shift: 5 double consonants (ㄲ/ㄸ/ㅃ/ㅆ/ㅉ), 6 combined vowels (ㅒ/ㅖ/ㅢ/ㅙ/ㅘ/ㅞ), 4 aspirated jongseong (ᆿ/ᇀ/ᇁ/ᆾ), 5 compound/double jongseong (ᆻ/ᆰ/ᆬ/ᆱ/ᆭ), and 6 Korean typography marks (「/」/※/·/“/”). Follows the sebeolsik convention: jong on the left hand, cho on the right, jung in the middle. Tense consonants via two paths (ㄱ+ㄱ doubled / ㄱ+ㅇ ㅇ-copy); y-glide via two paths (ㅏ+ㅡ trailing / ㅏ+ㅏ doubled). Within the jong region, keys cannot serve as initial consonants — moachigi pair combinations are order-free. supports_moachigi=true; the moachigi options (`korean.bidirectional_combine` / `korean.chord_window_ms`) are opt-in in the user config. Design doc: docs/references/research/쿼티형 세벌식 초안 v2.md."
+    },
+    "version": "2.1",
+    "tags": [
+      "korean",
+      "3bul",
+      "qwerty-compat",
+      "noshift",
+      "accessibility",
+      "moachigi",
+      "v2"
+    ]
+  },
+  "layout": {
+    "upper": {
+      "1st": ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|"],
+      "2nd": ["ᆻ", "ᆰ", "ᆭ", "ᇁ", "ㅖ", "「", "ㄸ", "」", "ㅆ", "ㅃ", "{", "}"],
+      "3rd": ["“", "ᆬ", "ㅢ", "ㅒ", "ㅙ", "※", "·", "ㄲ", "ㅉ", ":", "\""],
+      "4th": ["ᆱ", "ᆿ", "ᇀ", "ᆾ", "ㅞ", "ㅘ", "”", "<", ">", "?"]
+    },
+    "lower": {
+      "1st": ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "\\"],
+      "2nd": ["ᆺ", "ᆯ", "ᇂ", "ᆸ", "ㅓ", "ㄹ", "ㄷ", "ㅁ", "ㅅ", "ㅂ", "[", "]"],
+      "3rd": ["ᆼ", "ᆫ", "ㅣ", "ㅏ", "ㅡ", "ㄴ", "ㅇ", "ㄱ", "ㅈ", ";", "'"],
+      "4th": ["ᆷ", "ᆨ", "ᆮ", "ᆽ", "ㅜ", "ㅗ", "ㅎ", ",", ".", "/"]
+    }
+  },
+  "combinations": {
+    "cho": [
+      { "first": "ㄱ", "second": "ㅎ", "result": "ㅋ" },
+      { "first": "ㄷ", "second": "ㅎ", "result": "ㅌ" },
+      { "first": "ㅂ", "second": "ㅎ", "result": "ㅍ" },
+      { "first": "ㅈ", "second": "ㅎ", "result": "ㅊ" },
+      { "first": "ㄱ", "second": "ㄱ", "result": "ㄲ" },
+      { "first": "ㄷ", "second": "ㄷ", "result": "ㄸ" },
+      { "first": "ㅂ", "second": "ㅂ", "result": "ㅃ" },
+      { "first": "ㅅ", "second": "ㅅ", "result": "ㅆ" },
+      { "first": "ㅈ", "second": "ㅈ", "result": "ㅉ" },
+      { "first": "ㄱ", "second": "ㅇ", "result": "ㄲ" },
+      { "first": "ㄷ", "second": "ㅇ", "result": "ㄸ" },
+      { "first": "ㅂ", "second": "ㅇ", "result": "ㅃ" },
+      { "first": "ㅅ", "second": "ㅇ", "result": "ㅆ" },
+      { "first": "ㅈ", "second": "ㅇ", "result": "ㅉ" }
+    ],
+    "jung": [
+      { "first": "ㅏ", "second": "ㅡ", "result": "ㅑ" },
+      { "first": "ㅓ", "second": "ㅡ", "result": "ㅕ" },
+      { "first": "ㅗ", "second": "ㅡ", "result": "ㅛ" },
+      { "first": "ㅜ", "second": "ㅡ", "result": "ㅠ" },
+      { "first": "ㅏ", "second": "ㅏ", "result": "ㅑ" },
+      { "first": "ㅓ", "second": "ㅓ", "result": "ㅕ" },
+      { "first": "ㅗ", "second": "ㅗ", "result": "ㅛ" },
+      { "first": "ㅜ", "second": "ㅜ", "result": "ㅠ" },
+      { "first": "ㅏ", "second": "ㅣ", "result": "ㅐ" },
+      { "first": "ㅓ", "second": "ㅣ", "result": "ㅔ" },
+      { "first": "ㅗ", "second": "ㅣ", "result": "ㅚ" },
+      { "first": "ㅜ", "second": "ㅣ", "result": "ㅟ" },
+      { "first": "ㅡ", "second": "ㅣ", "result": "ㅢ" },
+      { "first": "ㅗ", "second": "ㅏ", "result": "ㅘ" },
+      { "first": "ㅜ", "second": "ㅓ", "result": "ㅝ" },
+      { "first": "ㅑ", "second": "ㅣ", "result": "ㅒ" },
+      { "first": "ㅕ", "second": "ㅣ", "result": "ㅖ" },
+      { "first": "ㅘ", "second": "ㅣ", "result": "ㅙ" },
+      { "first": "ㅝ", "second": "ㅣ", "result": "ㅞ" }
+    ],
+    "jong": [
+      { "first": "ᆨ", "second": "ᆺ", "result": "ᆪ" },
+      { "first": "ᆫ", "second": "ᆽ", "result": "ᆬ" },
+      { "first": "ᆫ", "second": "ᇂ", "result": "ᆭ" },
+      { "first": "ᆯ", "second": "ᆨ", "result": "ᆰ" },
+      { "first": "ᆯ", "second": "ᆷ", "result": "ᆱ" },
+      { "first": "ᆯ", "second": "ᆸ", "result": "ᆲ" },
+      { "first": "ᆯ", "second": "ᆺ", "result": "ᆳ" },
+      { "first": "ᆯ", "second": "ᇂ", "result": "ᆶ" },
+      { "first": "ᆸ", "second": "ᆺ", "result": "ᆹ" },
+      { "first": "ᆨ", "second": "ᆨ", "result": "ᆩ" },
+      { "first": "ᆺ", "second": "ᆺ", "result": "ᆻ" },
+      { "first": "ᆨ", "second": "ᆼ", "result": "ᆩ" },
+      { "first": "ᆺ", "second": "ᆼ", "result": "ᆻ" },
+      { "first": "ᆨ", "second": "ᇂ", "result": "ᆿ" },
+      { "first": "ᆮ", "second": "ᇂ", "result": "ᇀ" },
+      { "first": "ᆸ", "second": "ᇂ", "result": "ᇁ" },
+      { "first": "ᆽ", "second": "ᇂ", "result": "ᆾ" },
+      { "first": "ᆶ", "second": "ᆮ", "result": "ᆴ" },
+      { "first": "ᆶ", "second": "ᆸ", "result": "ᆵ" }
+    ]
+  }
+}
