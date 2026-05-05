@@ -11,14 +11,14 @@
 //! `active_rule_sets`) 중 하나라도 존재해야 v1으로 인식하고, 모두 없는 JSON은
 //! `LoadError::UnsupportedSchema`로 거부한다.
 //!
-//! v3 마커(`supports_moachigi`/`bidirectional_combine`/`chord_window_ms`)가 존재하거나
-//! `schema_version == 3`이면 v3 경로로 파싱된다. v3는 v1/v2를 완전히 포함한다(후방 호환 보장).
+//! v3 마커(`supports_moachigi`)가 존재하거나 `schema_version == 3`이면 v3 경로로 파싱된다.
+//! v3는 v1/v2를 완전히 포함한다(후방 호환 보장).
 //!
-//! # v3 모아치기 3 필드 (Phase 3-rework2)
+//! # v3 모아치기 (Phase 7 options-cleanup)
 //! - `supports_moachigi: bool` — 자판이 모아치기를 지원하는지. GUI 활성화 게이트.
-//! - `bidirectional_combine: bool` — 양방향 자모 결합. cho/jung/jong 영역별 (a,b) 실패 시 (b,a) 재시도.
-//! - `chord_window_ms: u16` — 동시 입력 시간(ms). 0=OFF. bidirectional_combine 종속.
-//!   N ms 이내 키를 한 음절로 모아 처리 (ChordBuffer idle/force_flush 구현).
+//!   자판은 capability만 선언. 실제 동작 옵션은 사용자 config(~/.config/unim/config.yaml)에서만 읽힘.
+//! - `bidirectional_combine` / `chord_window_ms` 키맵 필드는 Phase 7에서 deprecated:
+//!   JSON에 남아 있어도 파싱 후 무시됨. 두 값의 진실 공급원은 사용자 config.
 //!
 //! combinations 해석·inherits 병합·자모 enum 변환은 builder에서 수행한다.
 //! 본 모듈은 순수 스키마(문자열 수준)만 다룬다.
@@ -32,16 +32,17 @@ use super::localized::LocalizedText;
 // v3 — 모아치기 런타임 표현 (Phase 3-rework2 단순화)
 // ============================================================================
 
-/// v3 — 모아치기 동작 파라미터 (정규화된 런타임 표현).
+/// v3 — 모아치기 capability 마커 (정규화된 런타임 표현).
 ///
-/// Phase 3-rework2에서 단순화: 기존 복잡 구조(syllable_boundary 등)를 두 필드로 대체.
-/// JSON에서는 `RawProfile.bidirectional_combine` / `RawProfile.chord_window_ms` 최상위 필드.
+/// Phase 7 options-cleanup: 두 동작 옵션(bidirectional_combine/chord_window_ms)은
+/// 키맵에서 제거되어 사용자 config(~/.config/unim/config.yaml)가 진실 공급원이 됨.
+/// `MoachigiSpec`은 "이 자판이 모아치기를 지원함"의 capability 마커 역할만 보유.
+/// 두 필드는 하위 호환용으로 남기되 항상 false/0 (사용자 config에서 주입됨).
 #[derive(Debug, Clone, Default)]
 pub struct MoachigiSpec {
-    /// 양방향 자모 결합. true이면 cho/jung/jong 영역별로 (a,b) 실패 시 (b,a) 재시도.
+    /// deprecated — 항상 false. 실제 값은 사용자 config `korean.bidirectional_combine`.
     pub bidirectional_combine: bool,
-    /// 동시 입력 시간(ms). 0=OFF. bidirectional_combine=true일 때만 유효.
-    /// N ms 이내에 들어온 키를 한 음절로 모아 처리 (ChordBuffer idle/force_flush 구현).
+    /// deprecated — 항상 0. 실제 값은 사용자 config `korean.chord_window_ms`.
     pub chord_window_ms: u16,
 }
 
@@ -84,15 +85,15 @@ pub struct RawProfile {
 
     // ── v3 신규 필드 (optional, v3 게이트용 implicit 마커) ──────────────
     /// v3 — 이 자판이 모아치기를 지원하는지. GUI 옵션 활성화 게이트.
-    /// true인 자판에서만 bidirectional_combine/chord_window_ms GUI 위젯 활성.
+    /// true인 자판에서만 모아치기 GUI 위젯 활성.
     #[serde(default)]
     pub supports_moachigi: bool,
-    /// v3 — 양방향 자모 결합. true이면 (a,b) 실패 시 (b,a) 재시도.
-    /// supports_moachigi=true인 자판에서만 유효.
+    /// Phase 7 deprecated — JSON에 있어도 파싱 후 무시. 사용자 config가 진실 공급원.
+    /// 하위 호환(레거시 JSON 파싱 오류 방지)을 위해 필드만 유지.
     #[serde(default)]
     pub bidirectional_combine: bool,
-    /// v3 — 동시 입력 시간(ms). 0=OFF. bidirectional_combine=true일 때만 유효.
-    /// N ms 이내에 들어온 키를 한 음절로 모아 처리 (ChordBuffer 구현).
+    /// Phase 7 deprecated — JSON에 있어도 파싱 후 무시. 사용자 config가 진실 공급원.
+    /// 하위 호환(레거시 JSON 파싱 오류 방지)을 위해 필드만 유지.
     #[serde(default)]
     pub chord_window_ms: u16,
 }
@@ -303,18 +304,15 @@ impl RawProfile {
             || self.key_meta.is_some()
             // v3 마커도 v1 마커로 인정 (v3는 v1 상위 집합).
             || self.supports_moachigi
-            || self.bidirectional_combine
-            || self.chord_window_ms > 0
     }
 
     /// v3 경로로 파싱해야 하는지 판정.
     /// - `schema_version == 3` 명시
-    /// - 또는 `supports_moachigi` / `bidirectional_combine` / `chord_window_ms > 0` implicit 마커 존재
+    /// - 또는 `supports_moachigi` implicit 마커 존재
+    /// Phase 7: bidirectional_combine/chord_window_ms는 더 이상 v3 마커로 쓰지 않음
+    /// (두 필드는 사용자 config 소관).
     pub fn is_v3(&self) -> bool {
-        self.schema_version == Some(3)
-            || self.supports_moachigi
-            || self.bidirectional_combine
-            || self.chord_window_ms > 0
+        self.schema_version == Some(3) || self.supports_moachigi
     }
 }
 
@@ -350,9 +348,10 @@ pub struct LayoutProfile {
     /// 키는 layout 셀과 동일한 컨벤션의 리터럴 문자열(예: `"/"`, `"ᆮ"`).
     pub key_meta: Option<HashMap<String, KeyMeta>>,
 
-    // ── v3 신규 필드 (Phase 3-rework2) ───────────────────────────────────
-    /// v3 — 모아치기 동작 파라미터. v1/v2면 `None`.
-    /// supports_moachigi=true이고 bidirectional_combine이 설정된 경우에만 Some.
+    // ── v3 신규 필드 (Phase 3-rework2, Phase 7 capability-only) ─────────
+    /// v3 — 모아치기 capability 마커. v1/v2면 `None`.
+    /// supports_moachigi=true이면 Some(MoachigiSpec::default()). 두 필드값은 항상 false/0.
+    /// 실제 동작 옵션은 사용자 config에서 주입됨 (InputEngine::compute_chord_window_ms).
     pub moachigi: Option<MoachigiSpec>,
 }
 
@@ -394,11 +393,10 @@ impl LayoutProfile {
         let rule_sets = Self::normalize_rule_sets(raw.rule_sets);
 
         // supports_moachigi=true인 경우에만 MoachigiSpec 생성.
+        // Phase 7: 두 옵션(bidirectional_combine/chord_window_ms)은 사용자 config 소관.
+        // 키맵 JSON에 해당 필드가 있어도 무시 — MoachigiSpec은 capability 마커만 표현.
         let moachigi = if raw.supports_moachigi {
-            Some(MoachigiSpec {
-                bidirectional_combine: raw.bidirectional_combine,
-                chord_window_ms: raw.chord_window_ms,
-            })
+            Some(MoachigiSpec::default())
         } else {
             None
         };
@@ -769,7 +767,10 @@ mod tests {
     // v3 — 모아치기 3 필드 (Phase 3-rework2)
     // ========================================================================
 
-    /// sv3-supports-moachigi: supports_moachigi=true, bidirectional_combine=true 파싱.
+    /// sv3-supports-moachigi: supports_moachigi=true → moachigi=Some, capability 마커만.
+    ///
+    /// Phase 7: 키맵의 bidirectional_combine/chord_window_ms는 MoachigiSpec에 반영 안 됨.
+    /// 두 값은 사용자 config 소관. MoachigiSpec은 capability 마커(Some/None)만 표현.
     #[test]
     fn sv3_supports_moachigi_parses_correctly() {
         let json = r#"{
@@ -788,13 +789,15 @@ mod tests {
         }"#;
         let raw: RawProfile = serde_json::from_str(json).unwrap();
         assert!(raw.supports_moachigi);
+        // raw 필드 파싱은 유지 (deny_unknown_fields 호환)
         assert!(raw.bidirectional_combine);
         assert_eq!(raw.chord_window_ms, 0);
         assert!(raw.is_v3());
         let profile = LayoutProfile::from_raw_v3(raw);
+        // Phase 7: MoachigiSpec은 capability 마커. 두 필드값은 항상 default(false/0).
         let m = profile.moachigi.as_ref().expect("moachigi Some");
-        assert!(m.bidirectional_combine);
-        assert_eq!(m.chord_window_ms, 0);
+        assert!(!m.bidirectional_combine, "Phase7: 키맵 값 무시 → false");
+        assert_eq!(m.chord_window_ms, 0, "Phase7: 키맵 값 무시 → 0");
     }
 
     /// sv3-no-supports-moachigi: supports_moachigi=false → moachigi None.
@@ -828,7 +831,10 @@ mod tests {
         assert!(profile.moachigi.is_none(), "v1 프로필 → moachigi None");
     }
 
-    /// sv3-chord-window: chord_window_ms=50 파싱.
+    /// sv3-chord-window (Phase 7): 키맵 JSON에 chord_window_ms=50 있어도 MoachigiSpec에 반영 안 됨.
+    ///
+    /// raw 파싱은 OK (레거시 JSON 호환). 하지만 MoachigiSpec.chord_window_ms는 항상 0.
+    /// 실제 chord 활성은 사용자 config `korean.chord_window_ms`에서 주입됨.
     #[test]
     fn sv3_chord_window_ms_parses() {
         let json = r#"{
@@ -846,9 +852,70 @@ mod tests {
             "chord_window_ms": 50
         }"#;
         let raw: RawProfile = serde_json::from_str(json).unwrap();
+        // raw 파싱: JSON 필드 읽힘 (deny_unknown_fields 호환)
         assert_eq!(raw.chord_window_ms, 50);
         let profile = LayoutProfile::from_raw_v3(raw);
         let m = profile.moachigi.as_ref().unwrap();
-        assert_eq!(m.chord_window_ms, 50);
+        // Phase 7: 키맵 값 무시 → 항상 0. 사용자 config가 진실 공급원.
+        assert_eq!(m.chord_window_ms, 0, "Phase7: 키맵 chord_window_ms 무시");
+        assert!(!m.bidirectional_combine, "Phase7: 키맵 bidirectional_combine 무시");
+    }
+
+    // ========================================================================
+    // Phase 7 신규: opt-keymap-no-fields / opt-keymap-stale-fields
+    // (InputEngine 접근 필요한 opt-config-* 테스트는 tests_chord.rs에 위치)
+    // ========================================================================
+
+    /// opt-keymap-no-fields: supports_moachigi=true, 두 옵션 필드 없음 → 정상 파싱 + moachigi Some.
+    #[test]
+    fn opt_keymap_no_fields() {
+        let json = r#"{
+            "schema_version": 3,
+            "language": "korean",
+            "name": "anmatae_no_opts",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "supports_moachigi": true
+        }"#;
+        let raw: RawProfile = serde_json::from_str(json).expect("두 옵션 없이도 파싱 OK");
+        assert!(raw.supports_moachigi);
+        assert!(!raw.bidirectional_combine, "default false");
+        assert_eq!(raw.chord_window_ms, 0, "default 0");
+        assert!(raw.is_v3());
+        let profile = LayoutProfile::from_raw_v3(raw);
+        assert!(profile.moachigi.is_some(), "supports_moachigi=true → capability 마커 Some");
+    }
+
+    /// opt-keymap-stale-fields: 레거시 JSON에 두 필드 잔존해도 파싱 OK + MoachigiSpec 무시.
+    #[test]
+    fn opt_keymap_stale_fields() {
+        // 이전 포맷: bidirectional_combine + chord_window_ms 모두 있음
+        let json = r#"{
+            "schema_version": 3,
+            "language": "korean",
+            "name": "anmatae_legacy",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "supports_moachigi": true,
+            "bidirectional_combine": true,
+            "chord_window_ms": 50
+        }"#;
+        // 파싱 OK (deny_unknown_fields 우회 — 필드 남겨둠)
+        let raw: RawProfile = serde_json::from_str(json).expect("레거시 JSON 파싱 OK");
+        let profile = LayoutProfile::from_raw_v3(raw);
+        // capability 마커: Some
+        assert!(profile.moachigi.is_some(), "supports_moachigi=true → Some");
+        let m = profile.moachigi.as_ref().unwrap();
+        // 두 값 무시됨 → 항상 default
+        assert!(!m.bidirectional_combine, "키맵 bidirectional_combine 무시");
+        assert_eq!(m.chord_window_ms, 0, "키맵 chord_window_ms 무시");
     }
 }

@@ -297,6 +297,7 @@ mod tests {
     // ======================================================================
 
     /// sv3-anmatae: supports_moachigi=true, bidirectional_combine=true → v3 경로.
+    /// Phase 7: supports_moachigi=true → capability 마커 Some. 두 옵션값은 무시.
     #[test]
     fn sv3_anmatae_parses_correctly() {
         let json = r#"{
@@ -314,8 +315,9 @@ mod tests {
         }"#;
         let profile = parse_profile_str(json).unwrap();
         assert_eq!(profile.schema_version, 3);
-        let m = profile.moachigi.as_ref().expect("moachigi should be Some");
-        assert!(m.bidirectional_combine);
+        let m = profile.moachigi.as_ref().expect("moachigi should be Some (capability)");
+        // Phase 7: 키맵 값 무시 → false/0. 사용자 config가 진실 공급원.
+        assert!(!m.bidirectional_combine, "Phase7: 키맵 값 무시");
     }
 
     /// sv3-missing-moachigi: supports_moachigi=false → moachigi None (정상).
@@ -336,7 +338,7 @@ mod tests {
         assert!(profile.moachigi.is_none(), "supports_moachigi=false → moachigi None");
     }
 
-    /// sv3-chord: chord_window_ms=50 파싱.
+    /// sv3-chord (Phase 7): 키맵 chord_window_ms=50 → MoachigiSpec 무시. 파싱은 OK.
     #[test]
     fn sv3_chord_window_ms_parses() {
         let json = r#"{
@@ -355,10 +357,11 @@ mod tests {
         }"#;
         let profile = parse_profile_str(json).unwrap();
         let m = profile.moachigi.as_ref().unwrap();
-        assert_eq!(m.chord_window_ms, 50);
+        // Phase 7: 키맵 값 무시 → 항상 0. 사용자 config 주입 경로만 유효.
+        assert_eq!(m.chord_window_ms, 0, "Phase7: 키맵 chord_window_ms 무시");
     }
 
-    /// sv3-implicit-marker: schema_version 없이 supports_moachigi=true만으로 v3 인식.
+    /// sv3-implicit-marker (Phase 7): supports_moachigi=true → v3 인식 + capability 마커. 옵션값 무시.
     #[test]
     fn sv3_implicit_marker_via_supports_moachigi() {
         let json = r#"{
@@ -374,9 +377,10 @@ mod tests {
             "bidirectional_combine": true
         }"#;
         let profile = parse_profile_str(json).unwrap();
-        assert!(profile.moachigi.is_some());
+        assert!(profile.moachigi.is_some(), "supports_moachigi=true → capability 마커 Some");
         let m = profile.moachigi.as_ref().unwrap();
-        assert!(m.bidirectional_combine);
+        // Phase 7: 키맵 값 무시 → false. 사용자 config가 진실 공급원.
+        assert!(!m.bidirectional_combine, "Phase7: 키맵 값 무시");
     }
 
     /// R3a: ko_3bul390 로드 → v1/v2 경로, moachigi None.
@@ -406,15 +410,20 @@ mod tests {
         assert!(profile.moachigi.is_none());
     }
 
-    /// ko_3bul_anmatae: 내장 안마태 로드 → v3, supports_moachigi=true, bidirectional_combine=true.
+    /// ko_3bul_anmatae: 내장 안마태 로드 → v3, supports_moachigi=true, moachigi capability 마커.
+    ///
+    /// Phase 7: 키맵 JSON의 bidirectional_combine/chord_window_ms 제거됨.
+    /// MoachigiSpec은 capability 마커(Some)만. 두 옵션값은 사용자 config 소관.
     #[test]
     fn e4b_anmatae_layout_loads_with_moachigi() {
         let profile = load_builtin_profile("ko_3bul_anmatae")
             .expect("ko_3bul_anmatae should load");
         assert_eq!(profile.name, "ko_3bul_anmatae");
         assert_eq!(profile.schema_version, 3);
-        let m = profile.moachigi.as_ref().expect("anmatae must have moachigi");
-        assert!(m.bidirectional_combine, "anmatae default: bidirectional_combine=true");
+        let m = profile.moachigi.as_ref().expect("anmatae must have moachigi (capability)");
+        // Phase 7: 키맵 값 무시 → 항상 default. 사용자 config에서 주입됨.
+        assert!(!m.bidirectional_combine, "Phase7: 키맵 값 무시 → false");
+        assert_eq!(m.chord_window_ms, 0, "Phase7: 키맵 값 무시 → 0");
     }
 
     // ======================================================================

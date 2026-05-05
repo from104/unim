@@ -382,4 +382,59 @@ mod tests {
 
         let _ = result; // consumed() 여부는 구현 내부
     }
+
+    // =========================================================================
+    // Phase 7 신규: opt-config-none-default-off / opt-config-some-on /
+    //               opt-supports-false-ignore
+    // =========================================================================
+
+    /// opt-config-none-default-off: 안마태 자판 + 사용자 config 두 값 None → chord OFF.
+    ///
+    /// Phase 7 OPT-IN: 자판 선택만으로 모아치기 자동 활성화 안 됨.
+    /// 사용자가 명시적으로 bidirectional_combine=Some(true) + chord_window_ms=Some(N)
+    /// 설정해야만 chord ON.
+    #[test]
+    fn opt_config_none_default_off() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_3bul_anmatae".to_string();
+        // 사용자 config: 두 값 모두 None (명시 활성화 없음)
+        config.engine.korean.bidirectional_combine = None;
+        config.engine.korean.chord_window_ms = None;
+        let window = InputEngine::compute_chord_window_ms(&config);
+        assert_eq!(window, 0, "사용자 config None → chord OFF (OPT-IN 디폴트)");
+        let e = InputEngine::new(&config);
+        assert!(!e.chord_buffer.is_active(), "chord OFF 확인");
+    }
+
+    /// opt-config-some-on: 안마태 자판 + 사용자 config 두 값 Some → chord 활성.
+    ///
+    /// Phase 7 OPT-IN: 사용자가 명시 활성화 시 chord ON.
+    #[test]
+    fn opt_config_some_on() {
+        let mut config = Config::default();
+        config.engine.korean.layout = "ko_3bul_anmatae".to_string();
+        config.engine.korean.bidirectional_combine = Some(true);
+        config.engine.korean.chord_window_ms = Some(50);
+        let window = InputEngine::compute_chord_window_ms(&config);
+        assert_eq!(window, 50, "사용자 config Some(50) → chord_window=50");
+        let e = InputEngine::new(&config);
+        assert!(e.chord_buffer.is_active(), "chord ON 확인");
+    }
+
+    /// opt-supports-false-ignore: supports_moachigi=false 자판 + 사용자 config Some → 무시.
+    ///
+    /// Phase 7: supports_moachigi=false이면 capability 게이트에서 강제 OFF.
+    /// 사용자 config 값이 Some이어도 무시됨.
+    #[test]
+    fn opt_supports_false_ignore() {
+        let mut config = Config::default();
+        // ko_2bulstd: supports_moachigi=false
+        config.engine.korean.layout = "ko_2bulstd".to_string();
+        config.engine.korean.bidirectional_combine = Some(true);
+        config.engine.korean.chord_window_ms = Some(50);
+        let window = InputEngine::compute_chord_window_ms(&config);
+        assert_eq!(window, 0, "supports_moachigi=false → 사용자 config 무시, chord OFF");
+        let e = InputEngine::new(&config);
+        assert!(!e.chord_buffer.is_active(), "chord OFF 확인");
+    }
 }

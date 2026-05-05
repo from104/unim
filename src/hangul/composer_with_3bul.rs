@@ -333,16 +333,20 @@ mod tests {
         assert_eq!(c.get_current_jong(), Some(Jong::GiyeokSiot));
     }
 
-    /// O1-jong-rev: bidirectional_combine=true → 역순 종성 결합 활성 검증.
+    /// O1-jong-rev: bidirectional_combine=true (사용자 config 주입) → 역순 종성 결합 활성 검증.
+    ///
+    /// Phase 7: 프로필 로드 후 moachigi 수동 주입 (사용자 config 주입 패턴).
     #[test]
     fn o1_jong_rev_bidirectional_combine_true() {
         let mut c = HangulComposer3Bul::new();
-        // 안마태 프로필 로드 (bidirectional_combine=true)
+        // 안마태 프로필 로드 (Phase 7: MoachigiSpec은 capability 마커만)
         let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
             .expect("anmatae profile must load");
         let mut ac = HangulComposer3Bul::new_with_profile(&profile)
             .expect("anmatae must build");
-        assert!(ac.is_bidirectional_combine(), "anmatae: bidirectional_combine=true");
+        // Phase 7: 사용자 config 주입 패턴 — 직접 설정
+        ac.moachigi = Some(MoachigiSpec { bidirectional_combine: true, chord_window_ms: 0 });
+        assert!(ac.is_bidirectional_combine(), "사용자 config 주입: bidirectional_combine=true");
         // ㄱ+ㅏ 후 종성 ᆺ+ᆨ (역순) → ᆪ (= ᆨ+ᆺ 규칙 있음)
         ac.add_jamo(JamoEnum::Cho(Cho::Giyeok));
         ac.add_jamo(JamoEnum::Jung(Jung::A));
@@ -389,18 +393,21 @@ mod tests {
     // O1-cho-rev / O1-jung-rev: cho·jung 영역 양방향 결합 (Phase 3-rework3)
     // ======================================================================
 
-    /// O1-cho-rev: bidirectional_combine=true → 역순 초성 결합 활성 검증.
+    /// O1-cho-rev: bidirectional_combine=true (사용자 config 주입) → 역순 초성 결합 활성 검증.
     ///
     /// 안마태 자판에 (ㄱ,ㅎ)→ㅋ 정방향 등록.
     /// 입력 순서: ㅎ(cho=H) → ㄱ(incoming=G).
     ///   - 정순 (H,G): 없음 → 역순 (G,H)→K 매치 → cho = K(ㅋ).
+    /// Phase 7: 프로필 로드 후 moachigi 수동 주입 (사용자 config 주입 패턴).
     #[test]
     fn o1_cho_rev_bidirectional_combine_true() {
         let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
             .expect("anmatae profile must load");
         let mut ac = HangulComposer3Bul::new_with_profile(&profile)
             .expect("anmatae must build");
-        assert!(ac.is_bidirectional_combine(), "anmatae: bidirectional_combine=true");
+        // Phase 7: 사용자 config 주입 패턴
+        ac.moachigi = Some(MoachigiSpec { bidirectional_combine: true, chord_window_ms: 0 });
+        assert!(ac.is_bidirectional_combine(), "사용자 config 주입: bidirectional_combine=true");
         // ㅎ 입력 → cho = H
         ac.add_jamo(JamoEnum::Cho(Cho::H));
         assert_eq!(ac.get_current_cho(), Some(Cho::H));
@@ -409,18 +416,21 @@ mod tests {
         assert_eq!(ac.get_current_cho(), Some(Cho::K), "역순 cho 결합: (G,H)→K");
     }
 
-    /// O1-jung-rev: bidirectional_combine=true → 역순 중성 결합 활성 검증.
+    /// O1-jung-rev: bidirectional_combine=true (사용자 config 주입) → 역순 중성 결합 활성 검증.
     ///
     /// 안마태 자판에 (ㅗ,ㅏ)→ㅘ 정방향 등록.
     /// 입력 순서: ㅏ(jung=A) → ㅗ(incoming=O).
     ///   - 정순 (A,O): 없음 → 역순 (O,A)→WA 매치 → jung = WA(ㅘ).
+    /// Phase 7: 프로필 로드 후 moachigi 수동 주입 (사용자 config 주입 패턴).
     #[test]
     fn o1_jung_rev_bidirectional_combine_true() {
         let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
             .expect("anmatae profile must load");
         let mut ac = HangulComposer3Bul::new_with_profile(&profile)
             .expect("anmatae must build");
-        assert!(ac.is_bidirectional_combine(), "anmatae: bidirectional_combine=true");
+        // Phase 7: 사용자 config 주입 패턴
+        ac.moachigi = Some(MoachigiSpec { bidirectional_combine: true, chord_window_ms: 0 });
+        assert!(ac.is_bidirectional_combine(), "사용자 config 주입: bidirectional_combine=true");
         // cho 먼저 입력해 음절 시작
         ac.add_jamo(JamoEnum::Cho(Cho::G));
         // ㅏ 입력 → jung = A

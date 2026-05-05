@@ -416,28 +416,31 @@ struct MoachigiHandle {
 
 impl MoachigiHandle {
     /// `profile.moachigi`에 따라 그룹 표시 여부와 위젯 초기값을 갱신.
+    ///
+    /// Phase 7 OPT-IN: 키맵 spec 기본값 미사용. 사용자 config 명시값만 반영.
+    /// None = OFF (사용자가 명시적으로 활성화해야 모아치기 동작).
     fn refresh(&self, profile: &LayoutProfile, state: &State) {
-        let Some(spec) = &profile.moachigi else {
+        if profile.moachigi.is_none() {
             self.group.set_visible(false);
             return;
-        };
+        }
         self.group.set_visible(true);
 
-        // 사용자 override → 없으면 프로필 기본값
+        // OPT-IN: 사용자 config 명시값만. None → OFF(false/0).
         let bidir_val = state
             .borrow()
             .config
             .engine
             .korean
             .bidirectional_combine
-            .unwrap_or(spec.bidirectional_combine);
+            .unwrap_or(false);
         let chord_val = state
             .borrow()
             .config
             .engine
             .korean
             .chord_window_ms
-            .unwrap_or(spec.chord_window_ms) as f64;
+            .unwrap_or(0) as f64;
 
         // updating 플래그로 콜백 폭주 방지
         {

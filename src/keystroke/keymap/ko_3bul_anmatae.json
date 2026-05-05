@@ -23,8 +23,6 @@
     ]
   },
   "supports_moachigi": true,
-  "bidirectional_combine": true,
-  "chord_window_ms": 50,
   "layout": {
     "upper": {
       "1st": ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|"],
@@ -41,13 +39,13 @@
   },
   "combinations": {
     "cho": [
-      { "first": "ㄱ", "second": "ㄷ", "result": "ㄸ" },
       { "first": "ㄱ", "second": "ㅇ", "result": "ㄲ" },
-      { "first": "ㄱ", "second": "ㅎ", "result": "ㅋ" },
-      { "first": "ㄴ", "second": "ㅅ", "result": "ㅆ" },
-      { "first": "ㄷ", "second": "ㅈ", "result": "ㅉ" },
-      { "first": "ㄷ", "second": "ㅎ", "result": "ㅌ" },
+      { "first": "ㄷ", "second": "ㄱ", "result": "ㄸ" },
       { "first": "ㅂ", "second": "ㅈ", "result": "ㅃ" },
+      { "first": "ㅅ", "second": "ㄴ", "result": "ㅆ" },
+      { "first": "ㅈ", "second": "ㄷ", "result": "ㅉ" },
+      { "first": "ㄱ", "second": "ㅎ", "result": "ㅋ" },
+      { "first": "ㄷ", "second": "ㅎ", "result": "ㅌ" },
       { "first": "ㅂ", "second": "ㅎ", "result": "ㅍ" },
       { "first": "ㅈ", "second": "ㅎ", "result": "ㅊ" }
     ],

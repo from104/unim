@@ -183,10 +183,12 @@ impl InputEngine {
 
     /// Config에서 유효 chord_window_ms를 계산.
     ///
-    /// - `moachigi.is_none()` (supports_moachigi=false 자판) → 0
-    /// - `bidirectional_combine=false` (사용자 재정의 또는 프로필 기본) → 0 (옵션 2 종속)
-    /// - 그 외 → 사용자 설정(`chord_window_ms`) 또는 프로필 기본값
-    pub(super) fn compute_chord_window_ms(config: &Config) -> u16 {
+    /// Phase 7 OPT-IN: 키맵 기본값 참조 완전 제거. 사용자 config 명시값만 사용.
+    /// - `moachigi.is_none()` (supports_moachigi=false 자판) → 0 (강제 OFF)
+    /// - 사용자 config `bidirectional_combine` = None 또는 Some(false) → 0 (OPT-IN 디폴트 OFF)
+    /// - 사용자 config `chord_window_ms` = None → 0 (OPT-IN 디폴트 OFF)
+    /// - 두 값 모두 Some(true)/Some(N) → N 반환
+    pub(crate) fn compute_chord_window_ms(config: &Config) -> u16 {
         use crate::keystroke::profile::{resolve_inherits, ProfileRegistry};
 
         let name = config.engine.korean.effective_layout_name();
@@ -201,29 +203,25 @@ impl InputEngine {
             Err(_) => return 0,
         };
 
-        // supports_moachigi=false → moachigi=None → chord 무관
-        let Some(moachigi) = profile.moachigi else {
+        // supports_moachigi=false → chord 강제 OFF (자판 capability 게이트)
+        if profile.moachigi.is_none() {
             return 0;
-        };
+        }
 
-        // bidirectional_combine 최종 값 결정 (사용자 재정의 우선)
+        // OPT-IN: 사용자가 명시적으로 활성화하지 않으면 OFF.
+        // None = OFF (키맵 기본값 미참조).
         let bidir = config
             .engine
             .korean
             .bidirectional_combine
-            .unwrap_or(moachigi.bidirectional_combine);
+            .unwrap_or(false);
 
-        // 옵션 1 OFF → 옵션 2 무시
         if !bidir {
             return 0;
         }
 
-        // chord_window_ms: 사용자 설정 → 프로필 기본값
-        config
-            .engine
-            .korean
-            .chord_window_ms
-            .unwrap_or(moachigi.chord_window_ms)
+        // chord_window_ms: 사용자 설정만. None = 0 (OFF).
+        config.engine.korean.chord_window_ms.unwrap_or(0)
     }
 
     /// 키보드 맵을 생성합니다.
