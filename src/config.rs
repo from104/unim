@@ -756,26 +756,6 @@ pub struct EngineConfig {
     pub auto_typefix: AutoTypeFixConfig,
     /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
     pub auto_english: AutoEnglishConfig,
-    /// 이모지 팝업 설정 (Super+. 단축키)
-    pub emoji_popup: EmojiPopupConfig,
-}
-
-/// 이모지 팝업 설정
-///
-/// 한자 키가 idle (preedit/조합 비어있음) 상태일 때 이모지 팝업을 트리거한다.
-/// 별도 단축키 설정은 제공하지 않는다 — 한자 키 단일 진입점.
-/// `enabled=false` 면 idle 한자 키도 silent no-op (한자 변환은 영향 없음).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct EmojiPopupConfig {
-    /// 기능 활성화 여부
-    pub enabled: bool,
-}
-
-impl Default for EmojiPopupConfig {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
 }
 
 impl Default for EngineConfig {
@@ -790,7 +770,6 @@ impl Default for EngineConfig {
             app_rules: Vec::new(),
             auto_typefix: AutoTypeFixConfig::default(),
             auto_english: AutoEnglishConfig::default(),
-            emoji_popup: EmojiPopupConfig::default(),
         }
     }
 }

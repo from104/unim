@@ -761,7 +761,6 @@ impl InputMethodService {
             }
             "auto_english" => config.engine.auto_english.enabled.to_string(),
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
-            "emoji_popup" => config.engine.emoji_popup.enabled.to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules).unwrap_or_default(),
             // 모아치기 설정 (supports_moachigi 자판 전용)
             "korean_bidirectional_combine" => match config.engine.korean.bidirectional_combine {
@@ -993,11 +992,6 @@ impl InputMethodService {
                         ));
                     }
                     config.engine.auto_english.trigger_keys = keys;
-                }
-                "emoji_popup" => {
-                    config.engine.emoji_popup.enabled = value
-                        .parse()
-                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
                 }
                 "app_rules" => {
                     let rules: Vec<unim::config::AppRule> =

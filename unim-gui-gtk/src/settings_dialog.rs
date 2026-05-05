@@ -466,6 +466,7 @@ fn build_moachigi_group(state: &State) -> MoachigiHandle {
     // SwitchRow: bidirectional_combine
     let bidir_row = adw::SwitchRow::builder()
         .title(t!("row_moachigi_bidirectional_label"))
+        .subtitle(t!("row_moachigi_bidirectional_subtitle"))
         .build();
     bidir_row.set_tooltip_text(Some(t!("row_moachigi_bidirectional_tooltip").as_ref()));
     {
@@ -503,6 +504,7 @@ fn build_moachigi_group(state: &State) -> MoachigiHandle {
     }
     let chord_row = adw::ActionRow::builder()
         .title(t!("row_moachigi_chord_label"))
+        .subtitle(t!("row_moachigi_chord_subtitle"))
         .build();
     chord_row.set_tooltip_text(Some(t!("row_moachigi_chord_tooltip").as_ref()));
     chord_row.add_suffix(&chord_scale);
@@ -657,30 +659,8 @@ fn build_keymap_group(
         "hanja_keys",
     ));
 
-    // 이모지 팝업 enable/disable
-    let emoji_sw = adw::SwitchRow::builder()
-        .title(t!("row_emoji_popup"))
-        .subtitle(t!("row_emoji_popup_subtitle"))
-        .build();
-    emoji_sw.set_tooltip_text(Some(t!("row_emoji_popup_tooltip").as_ref()));
-    {
-        let s = state.borrow();
-        emoji_sw.set_active(s.config.engine.emoji_popup.enabled);
-    }
-    {
-        let state_c = state.clone();
-        emoji_sw.connect_active_notify(move |sw| {
-            let mut s = state_c.borrow_mut();
-            if s.updating {
-                return;
-            }
-            s.config.engine.emoji_popup.enabled = sw.is_active();
-            save_and_notify(&s.config, "emoji_popup");
-        });
-    }
-    group.add(&emoji_sw);
-
     // 단축키 설정 row 는 제거됨 — 한자 키 idle 상태가 단일 진입점.
+    // 이모지 팝업은 항상 활성 — 별도 토글 없음.
 
     group
 }
@@ -1858,11 +1838,9 @@ fn refill_userdict_group(refs: &Rc<UserDictPageRefs>) {
     }
 
     let count = ud.len();
-    refs.group.set_description(Some(&format!(
-        "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. \
-         CLI 명령어나 짧은 고유명사를 등록하세요. ({}개 등록)",
-        count
-    )));
+    refs.group.set_description(Some(
+        t!("userdict_group_desc_count", count = count.to_string()).as_ref(),
+    ));
 }
 
 /// 추가/편집 다이얼로그. `edit_idx=None`이면 신규 추가.

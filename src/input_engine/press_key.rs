@@ -110,7 +110,7 @@ impl InputEngine {
 
         // Hanja 키는 언어 모드 무관 dispatch — preedit/조합 상태에 따라 분기.
         //   * 조합 중 (Korean only): 한자 변환
-        //   * idle (조합 없음): 이모지 팝업 트리거 (emoji_popup_enabled=true 일 때)
+        //   * idle (조합 없음): 이모지 팝업 트리거 (항상 ON)
         //
         // English 모드에서도 idle Hanja → 이모지가 동작해야 함. 종전엔 분기가
         // process_korean_key 안에 있어 영문 모드에서 Hanja 키가 not_consumed 로
@@ -126,9 +126,7 @@ impl InputEngine {
             let idle =
                 self.preedit_cache.is_empty() && !self.korean_context.is_composing();
             if idle {
-                if self.emoji_popup_enabled {
-                    self.start_emoji_popup();
-                }
+                self.start_emoji_popup();
                 return InputResult::consumed();
             }
             return self.start_hanja_conversion();

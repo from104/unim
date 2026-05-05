@@ -70,9 +70,6 @@ pub struct InputEngine {
     /// 표기 문법: `key:Escape` / `char:/` (접두사). 무접두사는 legacy 호환으로
     /// `Functional` 로 흡수한다.
     pub(super) auto_english_triggers: Vec<AutoEnglishTrigger>,
-    /// 이모지 팝업 기능 활성 여부.
-    /// 트리거는 한자 키가 idle 상태일 때만 — 별도 단축키 없음.
-    pub(super) emoji_popup_enabled: bool,
     /// 통합 팝업 상태 (한자/특수문자 공용)
     pub(super) popup_state: Option<PopupState>,
     /// 처리 대기 팝업 액션
@@ -162,7 +159,6 @@ impl InputEngine {
                 .iter()
                 .filter_map(|n| Self::parse_trigger_key(n))
                 .collect(),
-            emoji_popup_enabled: config.engine.emoji_popup.enabled,
             popup_state: None,
             popup_pending_action: None,
             top_row_labels: crate::config::english_layout_top_row_labels(

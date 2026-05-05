@@ -437,9 +437,6 @@ enum ConfigKey {
     /// 앱별 모드 규칙 (JSON 형식)
     #[value(name = "app-rules")]
     AppRules,
-    /// 이모지 팝업 활성화 (true, false). 트리거는 한자 키 idle 상태일 때.
-    #[value(name = "emoji-popup")]
-    EmojiPopup,
     /// 모아치기 양방향 자모 결합 (true, false). supports_moachigi 자판 전용.
     #[value(name = "korean-bidirectional-combine")]
     KoreanBidirectionalCombine,
@@ -775,12 +772,6 @@ fn config_show() {
             format!("{} rules", config.engine.app_rules.len())
         }
     );
-    let emoji_status = if config.engine.emoji_popup.enabled {
-        t!("enabled")
-    } else {
-        t!("disabled")
-    };
-    println!("{}: {}", t!("emoji_popup_label"), emoji_status);
     // 모아치기 설정 (supports_moachigi 자판에서만 유효)
     if config.engine.korean.bidirectional_combine.is_some()
         || config.engine.korean.chord_window_ms.is_some()
@@ -1172,18 +1163,6 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("app_rules_label"),
                 config.engine.app_rules.len()
             );
-        }
-        ConfigKey::EmojiPopup => {
-            let enabled: bool = value
-                .parse()
-                .map_err(|_| "Invalid value, use true/false".to_string())?;
-            config.engine.emoji_popup.enabled = enabled;
-            let status = if enabled {
-                t!("enabled")
-            } else {
-                t!("disabled")
-            };
-            println!("{}: {}", t!("emoji_popup_label"), status);
         }
         ConfigKey::KoreanBidirectionalCombine => {
             if value.is_empty() {
