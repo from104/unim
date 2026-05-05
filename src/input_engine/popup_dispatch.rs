@@ -374,7 +374,11 @@ impl InputEngine {
     }
 
     /// 이모지 팝업 종료 — popup_state 클리어. 호출자는 별도로 HidePopup 발행.
-    pub(super) fn cancel_emoji_popup(&mut self) {
+    ///
+    /// 외부 crate (unim-dbus) 의 `EngineRequest::CancelEmojiPopup` 핸들러가 마우스
+    /// 클릭 commit 경로에서 호출 — 키보드 엔터(`commit_at_index`) 와 동일한 state
+    /// cleanup 보장.
+    pub fn cancel_emoji_popup(&mut self) {
         self.popup_state = None;
     }
 

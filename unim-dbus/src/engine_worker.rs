@@ -1221,6 +1221,28 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 let _ = response.send(payload);
             }
 
+            EngineRequest::CancelEmojiPopup {
+                context_id,
+                response,
+            } => {
+                // popup-owner 로 라우팅 — popup_state 가 살아있는 context 를 찾아
+                // cancel_emoji_popup() 호출. 키보드 엔터 경로 (popup_dispatch 의
+                // commit_at_index) 와 동일한 cleanup 을 마우스 클릭 commit 에서도
+                // 보장 — popup_state 잔재 race 차단.
+                let target_id = resolve_popup_owner(&contexts, context_id);
+                let cleaned = if let Some(engine) = contexts.get_mut(&target_id) {
+                    if engine.popup_state().is_some() {
+                        engine.cancel_emoji_popup();
+                        Some(target_id)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let _ = response.send(cleaned);
+            }
+
             // =========================================
             // 특수문자 변환 요청 처리
             // =========================================

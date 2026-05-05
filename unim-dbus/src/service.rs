@@ -193,6 +193,17 @@ pub enum EngineRequest {
         context_id: u32,
         response: oneshot::Sender<Option<PopupRenderPayload>>,
     },
+
+    /// emoji popup 취소 — engine 의 popup_state 를 None 으로 리셋.
+    ///
+    /// 마우스 클릭으로 emoji 가 commit 되었을 때 호출. 키보드 엔터 경로 (popup_dispatch
+    /// 가 SelectAtIndex 처리 시 cancel_emoji_popup() 호출) 와 동일하게 engine state 를
+    /// 정리한다. popup-owner context 로 라우팅 (popup 이 살아있는 context 를 찾아 cleanup).
+    /// 응답: 정리된 context_id (popup 활성 context 가 없으면 None).
+    CancelEmojiPopup {
+        context_id: u32,
+        response: oneshot::Sender<Option<u32>>,
+    },
 }
 
 /// 팝업 페이지 이동 응답 — service.rs 가 `PopupNavigate` 시그널 페이로드로 변환.
@@ -1282,11 +1293,49 @@ impl InputMethodService {
             None => {
                 unim_log!(
                     "DBUS",
-                    "[DBus] CommitEmoji(global): last_active_input_context_path 없음 — skip"
+                    "[DBus] CommitEmoji(global): last_active 없음 — MRU 만 갱신, popup state cleanup skip"
                 );
                 return Ok(());
             }
         };
+
+        // last_active path → context_id 추출 (e.g., "/org/atit/unim/InputContext_5" → 5).
+        // 추출 실패해도 cleanup 은 popup-owner 라우팅으로 fallback.
+        let caller_id = target_path_str
+            .rsplit('_')
+            .next()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+
+        // engine popup_state 정리 — 키보드 엔터(SelectAtIndex) 와 동일하게
+        // cancel_emoji_popup() 호출. popup-owner 라우팅으로 popup 살아있는 context 처리.
+        let (cleanup_tx, cleanup_rx) = oneshot::channel();
+        let cleanup_send = self.engine_tx.send(EngineRequest::CancelEmojiPopup {
+            context_id: caller_id,
+            response: cleanup_tx,
+        }).await;
+        if cleanup_send.is_ok() {
+            match cleanup_rx.await {
+                Ok(Some(cleaned_id)) => unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(global) popup_state cleanup OK (context_id={})",
+                    cleaned_id
+                ),
+                Ok(None) => unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(global) popup_state cleanup: 활성 popup 없음 (no-op)"
+                ),
+                Err(_) => unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(global) popup_state cleanup 응답 실패"
+                ),
+            }
+        } else {
+            unim_log!(
+                "DBUS",
+                "[DBus] CommitEmoji(global) popup_state cleanup 송신 실패"
+            );
+        }
 
         let path = match zbus::zvariant::ObjectPath::try_from(target_path_str.as_str()) {
             Ok(p) => p,
@@ -1323,7 +1372,7 @@ impl InputMethodService {
             }
         }
 
-        // HidePopup 발행 — InputContext 측 commit_emoji와 동일한 후처리
+        // HidePopup 발행 — popup UI cleanup
         let r = self
             .connection
             .emit_signal(
@@ -1334,13 +1383,18 @@ impl InputMethodService {
                 &(),
             )
             .await;
-        if let Err(e) = r {
-            unim_log!(
+        match r {
+            Ok(_) => unim_log!(
+                "DBUS",
+                "[DBus] CommitEmoji(global) HidePopup 시그널 발행 OK (path={})",
+                target_path_str
+            ),
+            Err(e) => unim_log!(
                 "DBUS",
                 "[DBus] CommitEmoji(global) HidePopup 발행 실패: {} (path={})",
                 e,
                 target_path_str
-            );
+            ),
         }
 
         unim_log!(
@@ -2852,6 +2906,7 @@ impl InputContextHandler {
     /// 이모지 커밋 (GUI 팝업에서 선택한 이모지를 현재 컨텍스트로 커밋)
     ///
     /// `HidePopup` 시그널도 함께 발행하여 다른 구독자의 팝업 상태를 정리합니다.
+    /// engine 의 popup_state 도 `CancelEmojiPopup` 로 비워 키보드 엔터 경로와 정합.
     async fn commit_emoji(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
@@ -2861,10 +2916,34 @@ impl InputContextHandler {
             Self::commit_text(&signal_ctx, emoji).await.ok();
             unim::emoji::touch_recent(emoji);
         }
+
+        // engine popup_state 정리 (popup-owner 라우팅) — 키보드 엔터의
+        // cancel_emoji_popup() 와 동일 cleanup. 응답은 진단 로그만 남기고 무시.
+        let (cleanup_tx, cleanup_rx) = oneshot::channel();
+        if self.engine_tx.send(EngineRequest::CancelEmojiPopup {
+            context_id: self.id,
+            response: cleanup_tx,
+        }).await.is_ok() {
+            match cleanup_rx.await {
+                Ok(Some(cleaned_id)) => unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(ctx={}) popup_state cleanup OK (cleaned context={})",
+                    self.id,
+                    cleaned_id
+                ),
+                Ok(None) => unim_log!(
+                    "DBUS",
+                    "[DBus] CommitEmoji(ctx={}) popup_state cleanup: 활성 popup 없음 (no-op)",
+                    self.id
+                ),
+                Err(_) => {}
+            }
+        }
+
         Self::hide_popup(&signal_ctx).await.ok();
         unim_log!(
             "DBUS",
-            "[DBus] CommitEmoji: context_id={}, emoji='{}'",
+            "[DBus] CommitEmoji: context_id={}, emoji='{}', HidePopup 시그널 발행 OK",
             self.id,
             emoji
         );
