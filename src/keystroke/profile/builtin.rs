@@ -28,7 +28,7 @@ pub const KO_3BUL391: &str = include_str!("../keymap/ko_3bul391.json");
 /// 한국어 세벌식 순아래(noshift).
 pub const KO_3BUL_NOSHIFT: &str = include_str!("../keymap/ko_3bul_noshift.json");
 /// 한국어 안마태 자판 (2003) — v3 모아치기 schema.
-pub const KO_ANMATAE: &str = include_str!("../keymap/anmatae.json");
+pub const KO_3BUL_ANMATAE: &str = include_str!("../keymap/ko_3bul_anmatae.json");
 
 /// 내장 프로필 정식 이름 목록 (로더 조회·CLI `layout list`용).
 pub const BUILTIN_NAMES: [&str; 10] = [
@@ -41,7 +41,7 @@ pub const BUILTIN_NAMES: [&str; 10] = [
     "ko_3bul390",
     "ko_3bul391",
     "ko_3bul_noshift",
-    "ko_anmatae",
+    "ko_3bul_anmatae",
 ];
 
 /// `name` 또는 `src/keystroke/mod.rs:17-30`의 별칭(`2bul`/`390`/`3bul391` 등)으로
@@ -58,7 +58,7 @@ pub fn get_builtin_json(name: &str) -> Option<&'static str> {
         "ko_3bul390" | "3bul390" | "390" => Some(KO_3BUL390),
         "ko_3bul391" | "3bul391" | "391" => Some(KO_3BUL391),
         "ko_3bul_noshift" | "3bul_noshift" | "noshift" => Some(KO_3BUL_NOSHIFT),
-        "ko_anmatae" | "anmatae" | "anmatae_2003" => Some(KO_ANMATAE),
+        "ko_3bul_anmatae" | "ko_anmatae" | "anmatae" | "anmatae_2003" => Some(KO_3BUL_ANMATAE),
         _ => None,
     }
 }

@@ -1,0 +1,94 @@
+{
+  "schema_version": 3,
+  "language": "korean",
+  "name": "ko_3bul_anmatae",
+  "type": "3bul",
+  "metadata": {
+    "display_name": {
+      "ko": "안마태 자판 (2003)",
+      "en": "Ahnmatae Keyboard (2003)"
+    },
+    "author": "안마태·김진형 (2003)",
+    "description": {
+      "ko": "안마태 신부와 KAIST 김진형 교수가 2003년 발표한 모아치기 세벌식 자판. cho/jung/jong 영역이 고정되며, 양방향 자모 결합으로 겹받침 순서에 유연성을 준다. 원본의 옛한글 자리(W·T·G·J·B·N upper)는 한글 조판 기호로 대체.",
+      "en": "Three-beol moachigi keyboard developed by Father Ahnmatae and Prof. Kim Jin-hyung of KAIST, published 2003. Fixed cho/jung/jong regions; bidirectional jamo combine for flexible jongseong order. Original archaic-jamo positions (W/T/G/J/B/N upper) replaced with Korean typography symbols."
+    },
+    "version": "2.0",
+    "tags": [
+      "korean",
+      "anmatae",
+      "moachigi",
+      "3bul",
+      "phonetic"
+    ]
+  },
+  "supports_moachigi": true,
+  "bidirectional_combine": true,
+  "chord_window_ms": 50,
+  "layout": {
+    "upper": {
+      "1st": ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|"],
+      "2nd": ["ㅁ", "'", "ㄴ", "ㄹ", "…", ";", "'", "/", "[", "]", "{", "}"],
+      "3rd": ["ㅂ", "ㅈ", "ㄷ", "ㄱ", "“", "ㅓ", "·", "ㅣ", "ㅗ", "ㅜ", "\""],
+      "4th": ["ᆽ", "ᆮ", "ᆸ", "ᆨ", "”", "‘", "ᆫ", "ᆷ", "ᆯ", "?"]
+    },
+    "lower": {
+      "1st": ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "\\"],
+      "2nd": ["ㅁ", "ㅅ", "ㄴ", "ㄹ", "ㅎ", "ㅕ", "ㅑ", "ㅡ", "ㅛ", "ㅠ", "[", "]"],
+      "3rd": ["ㅂ", "ㅈ", "ㄷ", "ㄱ", "ㅇ", "ㅓ", "ㅏ", "ㅣ", "ㅗ", "ㅜ", "'"],
+      "4th": ["ᆽ", "ᆮ", "ᆸ", "ᆨ", "ᆼ", "ᆺ", "ᆫ", "ᆷ", "ᆯ", "ᇂ"]
+    }
+  },
+  "combinations": {
+    "cho": [
+      { "first": "ㄱ", "second": "ㄷ", "result": "ㄸ" },
+      { "first": "ㄱ", "second": "ㅇ", "result": "ㄲ" },
+      { "first": "ㄱ", "second": "ㅎ", "result": "ㅋ" },
+      { "first": "ㄴ", "second": "ㅅ", "result": "ㅆ" },
+      { "first": "ㄷ", "second": "ㅈ", "result": "ㅉ" },
+      { "first": "ㄷ", "second": "ㅎ", "result": "ㅌ" },
+      { "first": "ㅂ", "second": "ㅈ", "result": "ㅃ" },
+      { "first": "ㅂ", "second": "ㅎ", "result": "ㅍ" },
+      { "first": "ㅈ", "second": "ㅎ", "result": "ㅊ" }
+    ],
+    "jung": [
+      { "first": "ㅏ", "second": "ㅣ", "result": "ㅐ" },
+      { "first": "ㅑ", "second": "ㅣ", "result": "ㅒ" },
+      { "first": "ㅓ", "second": "ㅣ", "result": "ㅔ" },
+      { "first": "ㅕ", "second": "ㅣ", "result": "ㅖ" },
+      { "first": "ㅗ", "second": "ㅏ", "result": "ㅘ" },
+      { "first": "ㅗ", "second": "ㅐ", "result": "ㅙ" },
+      { "first": "ㅗ", "second": "ㅣ", "result": "ㅚ" },
+      { "first": "ㅜ", "second": "ㅓ", "result": "ㅝ" },
+      { "first": "ㅜ", "second": "ㅔ", "result": "ㅞ" },
+      { "first": "ㅜ", "second": "ㅣ", "result": "ㅟ" },
+      { "first": "ㅡ", "second": "ㅣ", "result": "ㅢ" },
+      { "first": "ㅘ", "second": "ㅣ", "result": "ㅙ" },
+      { "first": "ㅚ", "second": "ㅏ", "result": "ㅙ" },
+      { "first": "ㅝ", "second": "ㅣ", "result": "ㅞ" },
+      { "first": "ㅟ", "second": "ㅓ", "result": "ㅞ" }
+    ],
+    "jong": [
+      { "first": "ᆨ", "second": "ᆼ", "result": "ᆩ" },
+      { "first": "ᆺ", "second": "ᆫ", "result": "ᆻ" },
+      { "first": "ᆨ", "second": "ᇂ", "result": "ᆿ" },
+      { "first": "ᆮ", "second": "ᇂ", "result": "ᇀ" },
+      { "first": "ᆸ", "second": "ᇂ", "result": "ᇁ" },
+      { "first": "ᆽ", "second": "ᇂ", "result": "ᆾ" },
+      { "first": "ᆨ", "second": "ᆯ", "result": "ᆰ" },
+      { "first": "ᆨ", "second": "ᆺ", "result": "ᆪ" },
+      { "first": "ᆫ", "second": "ᆽ", "result": "ᆬ" },
+      { "first": "ᆫ", "second": "ᇂ", "result": "ᆭ" },
+      { "first": "ᆯ", "second": "ᆷ", "result": "ᆱ" },
+      { "first": "ᆯ", "second": "ᆸ", "result": "ᆲ" },
+      { "first": "ᆯ", "second": "ᆺ", "result": "ᆳ" },
+      { "first": "ᆯ", "second": "ᇀ", "result": "ᆴ" },
+      { "first": "ᆯ", "second": "ᇁ", "result": "ᆵ" },
+      { "first": "ᆯ", "second": "ᇂ", "result": "ᆶ" },
+      { "first": "ᆲ", "second": "ᇂ", "result": "ᆵ" },
+      { "first": "ᆶ", "second": "ᆮ", "result": "ᆴ" },
+      { "first": "ᆶ", "second": "ᆸ", "result": "ᆵ" },
+      { "first": "ᆸ", "second": "ᆺ", "result": "ᆹ" }
+    ]
+  }
+}

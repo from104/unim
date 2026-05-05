@@ -84,8 +84,10 @@ pub fn show_settings_dialog(app: &adw::Application) {
         .icon_name("preferences-system-symbolic")
         .build();
     let rule_sets_handle = build_rule_sets_group();
-    page_general.add(&build_keymap_group(&state, &rule_sets_handle));
+    let moachigi_handle = build_moachigi_group(&state);
+    page_general.add(&build_keymap_group(&state, &rule_sets_handle, &moachigi_handle));
     page_general.add(&rule_sets_handle.group);
+    page_general.add(&moachigi_handle.group);
     page_general.add(&build_input_mode_group(&state));
     page_general.add(&build_auto_english_group(&state));
     window.add(&page_general);
@@ -401,7 +403,121 @@ fn build_rule_sets_group() -> RuleSetsHandle {
     }
 }
 
-fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::PreferencesGroup {
+/// 모아치기 설정 그룹 핸들 — `supports_moachigi=true` 자판에서만 표시.
+#[derive(Clone)]
+struct MoachigiHandle {
+    group: adw::PreferencesGroup,
+    bidir_row: adw::SwitchRow,
+    /// ActionRow는 Scale의 부모로만 사용 — 직접 접근 없이 lifetime 보존용.
+    #[allow(dead_code)]
+    chord_row: adw::ActionRow,
+    chord_scale: gtk4::Scale,
+}
+
+impl MoachigiHandle {
+    /// `profile.moachigi`에 따라 그룹 표시 여부와 위젯 초기값을 갱신.
+    fn refresh(&self, profile: &LayoutProfile, state: &State) {
+        let Some(spec) = &profile.moachigi else {
+            self.group.set_visible(false);
+            return;
+        };
+        self.group.set_visible(true);
+
+        // 사용자 override → 없으면 프로필 기본값
+        let bidir_val = state
+            .borrow()
+            .config
+            .engine
+            .korean
+            .bidirectional_combine
+            .unwrap_or(spec.bidirectional_combine);
+        let chord_val = state
+            .borrow()
+            .config
+            .engine
+            .korean
+            .chord_window_ms
+            .unwrap_or(spec.chord_window_ms) as f64;
+
+        // updating 플래그로 콜백 폭주 방지
+        {
+            let mut s = state.borrow_mut();
+            s.updating = true;
+        }
+        self.bidir_row.set_active(bidir_val);
+        self.chord_scale.set_value(chord_val);
+        {
+            let mut s = state.borrow_mut();
+            s.updating = false;
+        }
+    }
+}
+
+fn build_moachigi_group(state: &State) -> MoachigiHandle {
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_moachigi_title"))
+        .build();
+    // 처음엔 숨김 — refresh()에서 supports_moachigi 확인 후 표시
+    group.set_visible(false);
+
+    // SwitchRow: bidirectional_combine
+    let bidir_row = adw::SwitchRow::builder()
+        .title(t!("row_moachigi_bidirectional_label"))
+        .build();
+    bidir_row.set_tooltip_text(Some(t!("row_moachigi_bidirectional_tooltip").as_ref()));
+    {
+        let state_c = state.clone();
+        bidir_row.connect_active_notify(move |r| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.korean.bidirectional_combine = Some(r.is_active());
+            save_and_notify(&s.config, "korean_bidirectional_combine");
+        });
+    }
+    group.add(&bidir_row);
+
+    // Scale: chord_window_ms (0–100 ms)
+    let chord_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 100.0, 5.0);
+    chord_scale.set_draw_value(true);
+    chord_scale.set_value_pos(gtk4::PositionType::Right);
+    chord_scale.set_hexpand(true);
+    // 눈금 마크: 0, 50, 100
+    for mark in [0.0_f64, 50.0, 100.0] {
+        chord_scale.add_mark(mark, gtk4::PositionType::Bottom, None);
+    }
+    {
+        let state_c = state.clone();
+        chord_scale.connect_value_changed(move |s_widget| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.korean.chord_window_ms = Some(s_widget.value() as u16);
+            save_and_notify(&s.config, "korean_chord_window_ms");
+        });
+    }
+    let chord_row = adw::ActionRow::builder()
+        .title(t!("row_moachigi_chord_label"))
+        .build();
+    chord_row.set_tooltip_text(Some(t!("row_moachigi_chord_tooltip").as_ref()));
+    chord_row.add_suffix(&chord_scale);
+    group.add(&chord_row);
+
+    MoachigiHandle {
+        group,
+        bidir_row,
+        chord_row: chord_row.clone(),
+        chord_scale,
+    }
+}
+
+fn build_keymap_group(
+    state: &State,
+    rule_sets: &RuleSetsHandle,
+    moachigi: &MoachigiHandle,
+) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title(t!("group_layouts_keymap"))
         .build();
@@ -438,10 +554,11 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
         .unwrap_or(0);
     kor_row.set_selected(current_idx as u32);
 
-    // 초기 rule_sets 채우기
+    // 초기 rule_sets + moachigi 채우기
     if let Some((init_name, _)) = choices.get(current_idx) {
         if let Some(profile) = load_and_resolve(init_name) {
             rule_sets.refresh(&profile, state);
+            moachigi.refresh(&profile, state);
         }
     }
 
@@ -449,6 +566,7 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
     {
         let state_c = state.clone();
         let rule_sets_c = rule_sets.clone();
+        let moachigi_c = moachigi.clone();
         let choices_c = choices.clone();
         kor_row.connect_selected_notify(move |row| {
             let idx = row.selected() as usize;
@@ -470,6 +588,7 @@ fn build_keymap_group(state: &State, rule_sets: &RuleSetsHandle) -> adw::Prefere
             // rule_sets 그룹 재구성 — updating 플래그 내부 flip으로 콜백 폭주 방지
             state_c.borrow_mut().updating = true;
             rule_sets_c.refresh(&profile, &state_c);
+            moachigi_c.refresh(&profile, &state_c);
             state_c.borrow_mut().updating = false;
         });
     }

@@ -116,26 +116,6 @@ fn merge(base: LayoutProfile, child: LayoutProfile) -> LayoutProfile {
         active_rule_sets: child.active_rule_sets.or(base.active_rule_sets),
         // v3 필드: child 우선, base fallback
         moachigi: child.moachigi.or(base.moachigi),
-        jamo_symbol_map: {
-            let mut merged = base.jamo_symbol_map;
-            for (k, v) in child.jamo_symbol_map {
-                merged.insert(k, v);
-            }
-            merged
-        },
-        layout_type_v3: if child.layout_type_v3 != Default::default() {
-            child.layout_type_v3
-        } else {
-            base.layout_type_v3
-        },
-        key_to_region_map: {
-            // child 우선, base fallback. child가 비어있으면 base 사용.
-            if !child.key_to_region_map.is_empty() {
-                child.key_to_region_map
-            } else {
-                base.key_to_region_map
-            }
-        },
         key_meta: match (base.key_meta, child.key_meta) {
             (None, None) => None,
             (Some(b), None) => Some(b),

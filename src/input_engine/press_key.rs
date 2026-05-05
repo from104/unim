@@ -255,20 +255,6 @@ impl InputEngine {
         if let Some(c) = ch {
             unim_log!("ENGINE", "문자 키: '{}'", c);
 
-            // v3 jamo_symbol_map: keyboard_map 조회 전에 먼저 체크.
-            // 매핑된 키이면 조합 커밋 후 즉시 기호 commit (composer 큐 우회).
-            if let Some(&emit_char) = self.jamo_symbol_map.get(&c) {
-                unim_log!(
-                    "ENGINE",
-                    "jamo_symbol_map 히트: '{}' → emit '{}'",
-                    c,
-                    emit_char
-                );
-                self.flush_preedit();
-                self.commit_buffer.push(emit_char);
-                return InputResult::committed();
-            }
-
             // 룰 B (schema v2 `key_meta.context_alt`) — 한글 모드 + 팝업 비활성에서만.
             // 조건이 맞으면 정상 jamo 흐름으로 진입하고, 불충족이면 fallback 리터럴 commit.
             if matches!(self.input_category, InputCategory::Korean)

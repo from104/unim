@@ -46,6 +46,11 @@ group_layout_options_empty: "이 자판은 옵션 규칙이 없습니다."
 group_layout_options_title: "선택된 자판의 옵션 규칙"
 row_rule_sets_label: "규칙 세트"
 row_layout_pending: "자판 프로필 로드 후 표시"
+group_moachigi_title: "모아치기 설정"
+row_moachigi_bidirectional_label: "양방향 자모 결합"
+row_moachigi_bidirectional_tooltip: "초성·중성·종성 영역 내에서 순서 무관하게 자모 결합을 시도합니다."
+row_moachigi_chord_label: "동시 입력 시간 (ms)"
+row_moachigi_chord_tooltip: "0 = 동시 입력 OFF. N ms 이내에 들어온 키를 한 음절로 모아 처리합니다. (Phase 4)"
 
 # 오타 교정 > 순방향
 group_typefix_forward: "자동 순방향 교정 (영→한)"

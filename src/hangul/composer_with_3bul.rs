@@ -6,8 +6,10 @@
 //! 즉시 로드해 `new_with_profile`로 위임한다. 자모 조합 규칙의 단일 source of
 //! truth는 `src/keystroke/keymap/ko_3bul390.json`(390/391/noshift는 base 동일).
 //!
-//! v3 부분 적용: `moachigi_overrides`가 활성화된 프로필에서 `jong_unordered=true`이면
-//! 종성 결합 시 역순도 시도한다. 비활성 시 기존 동작 100% 동일 (회귀 0).
+//! v3 부분 적용 (Phase 3-rework2):
+//! - `bidirectional_combine=true`이면 cho/jung/jong 영역별로 (a,b) 실패 시 (b,a) 재시도.
+//!   기존 `jong_unordered`를 일반화한 버전. 옵션 OFF 시 기존 동작 100% 동일 (회귀 0).
+//! - `chord_window_ms`는 Phase 4에서 구현. 현재는 0=OFF만 처리 (즉시 입력).
 
 use crate::hangul::composer::BaseHangulComposer;
 use crate::hangul::composer::CombinedJamoMap;
@@ -77,12 +79,13 @@ fn check_3bul_violation(base: &mut BaseHangulComposer) -> Option<Compose3BulViol
 /// - 종성은 중성이 입력된 후에만 입력 가능
 /// - 중성/종성 다음에 초성이 오면 새 음절 시작
 /// - 초성 조합 지원 (ㄱ+ㄱ=ㄲ 등)
-/// - v3 부분 적용: `moachigi` 필드가 Some이고 `jong_unordered=true`면 종성 양방향 결합.
+/// - v3 모아치기: `moachigi.bidirectional_combine=true`이면 cho/jung/jong 양방향 결합.
+///   None 또는 false면 기존 동작 100% 동일 (회귀 0).
 #[derive(Debug, Default)]
 pub struct HangulComposer3Bul {
     base_composer: BaseHangulComposer,
     /// v3 모아치기 파라미터. None이면 기존 동작 100% 동일.
-    moachigi: Option<MoachigiSpec>,
+    pub(crate) moachigi: Option<MoachigiSpec>,
 }
 
 impl HangulComposer3Bul {
@@ -118,6 +121,14 @@ impl HangulComposer3Bul {
     /// 현재 활성화된 moachigi 파라미터 참조.
     pub fn effective_moachigi(&self) -> Option<&MoachigiSpec> {
         self.moachigi.as_ref()
+    }
+
+    /// bidirectional_combine 활성 여부 편의 접근자.
+    pub fn is_bidirectional_combine(&self) -> bool {
+        self.moachigi
+            .as_ref()
+            .map(|m| m.bidirectional_combine)
+            .unwrap_or(false)
     }
 }
 
@@ -306,13 +317,12 @@ mod tests {
     }
 
     // ======================================================================
-    // 3M: 세벌식 부분 적용 (v3 moachigi jong_unordered)
+    // O1: bidirectional_combine (Phase 3-rework2)
     // ======================================================================
 
-    /// 3M1: moachigi=None (v1/v2 프로필) → jong_unordered 비활성 → 기존 동작 동일.
+    /// O1-off-regression: moachigi=None (v1/v2 프로필) → 기존 동작 100% 동일.
     #[test]
-    fn m3_1_v1_profile_no_moachigi_unchanged() {
-        // 기본 new()는 moachigi=None → 기존 3벌식 동작 그대로.
+    fn o1_off_regression_v1_profile_unchanged() {
         let mut c = HangulComposer3Bul::new();
         assert!(c.moachigi.is_none(), "v1 profile must have no moachigi");
         // ㄱ + ㅏ + ㄳ(겹받침) — 기존 동작: ㄳ은 ko_3bul390 combinations에 있음
@@ -323,28 +333,148 @@ mod tests {
         assert_eq!(c.get_current_jong(), Some(Jong::GiyeokSiot));
     }
 
-    /// 3M2: moachigi.jong_unordered=true → 역순 종성 결합 활성.
+    /// O1-jong-rev: bidirectional_combine=true → 역순 종성 결합 활성 검증.
     #[test]
-    fn m3_2_jong_unordered_true_enables_reverse_combine() {
+    fn o1_jong_rev_bidirectional_combine_true() {
         let mut c = HangulComposer3Bul::new();
-        // 수동으로 jong_unordered 세팅 (프로필 없이 단위 테스트)
-        let mut spec = MoachigiSpec::default();
-        spec.jong_unordered = true;
-        // ㄱ+ㅅ=ㄳ 역방향: (ㅅ,ㄱ) → ㄳ 규칙은 기본 390에 없으므로
-        // 단순히 moachigi 필드 존재 여부와 jong_unordered 플래그 확인.
-        c.moachigi = Some(spec);
-        assert!(c.effective_moachigi().map(|m| m.jong_unordered).unwrap_or(false));
+        // 안마태 프로필 로드 (bidirectional_combine=true)
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
+            .expect("anmatae profile must load");
+        let mut ac = HangulComposer3Bul::new_with_profile(&profile)
+            .expect("anmatae must build");
+        assert!(ac.is_bidirectional_combine(), "anmatae: bidirectional_combine=true");
+        // ㄱ+ㅏ 후 종성 ᆺ+ᆨ (역순) → ᆪ (= ᆨ+ᆺ 규칙 있음)
+        ac.add_jamo(JamoEnum::Cho(Cho::Giyeok));
+        ac.add_jamo(JamoEnum::Jung(Jung::A));
+        ac.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        // 정순 ᆨ+ᆺ=ᆪ 규칙 있음, 역순 검증은 플래그로만 확인
+        assert!(ac.effective_moachigi().map(|m| m.bidirectional_combine).unwrap_or(false));
+        // 수동으로 역순 세팅 확인 (단위 테스트)
+        c.moachigi = Some(MoachigiSpec { bidirectional_combine: true, chord_window_ms: 0 });
+        assert!(c.is_bidirectional_combine());
     }
 
-    /// 3M3: moachigi.jong_unordered=false → 역순 결합 비활성 → 기존과 동일.
+    /// O1-off: bidirectional_combine=false → 역순 경로 진입 안 함.
     #[test]
-    fn m3_3_jong_unordered_false_same_as_v1() {
+    fn o1_off_bidirectional_combine_false() {
         let mut c = HangulComposer3Bul::new();
-        let mut spec = MoachigiSpec::default();
-        spec.jong_unordered = false;
-        c.moachigi = Some(spec);
-        // jong_unordered=false → 역순 경로 진입 안 함 → 기존 동작
-        assert!(!c.effective_moachigi().map(|m| m.jong_unordered).unwrap_or(true));
+        c.moachigi = Some(MoachigiSpec { bidirectional_combine: false, chord_window_ms: 0 });
+        assert!(!c.is_bidirectional_combine());
+    }
+
+    /// O2-zero-default: chord_window_ms=0 → 기존 동작 (즉시 처리).
+    #[test]
+    fn o2_zero_chord_window_is_default_behavior() {
+        let mut c = HangulComposer3Bul::new();
+        c.moachigi = Some(MoachigiSpec { bidirectional_combine: true, chord_window_ms: 0 });
+        // chord_window_ms=0 → 즉시 처리 → 기존과 동일한 순서 동작
+        assert_eq!(c.effective_moachigi().map(|m| m.chord_window_ms), Some(0));
+    }
+
+    /// O2-off-when-O1-off: bidirectional_combine=false → chord_window_ms 무시.
+    #[test]
+    fn o2_off_when_o1_off() {
+        let mut c = HangulComposer3Bul::new();
+        c.moachigi = Some(MoachigiSpec { bidirectional_combine: false, chord_window_ms: 50 });
+        // bidirectional_combine=false → chord 기능 무시
+        assert!(!c.is_bidirectional_combine());
+        // 종성 입력은 기존 경로로 (bidirectional_combine 인터셉트 없음)
+        c.add_jamo(JamoEnum::Cho(Cho::Giyeok));
+        c.add_jamo(JamoEnum::Jung(Jung::A));
+        c.add_jamo(JamoEnum::Jong(Jong::Giyeok));
+        assert_eq!(c.get_current_jong(), Some(Jong::Giyeok));
+    }
+
+    // ======================================================================
+    // O1-cho-rev / O1-jung-rev: cho·jung 영역 양방향 결합 (Phase 3-rework3)
+    // ======================================================================
+
+    /// O1-cho-rev: bidirectional_combine=true → 역순 초성 결합 활성 검증.
+    ///
+    /// 안마태 자판에 (ㄱ,ㅎ)→ㅋ 정방향 등록.
+    /// 입력 순서: ㅎ(cho=H) → ㄱ(incoming=G).
+    ///   - 정순 (H,G): 없음 → 역순 (G,H)→K 매치 → cho = K(ㅋ).
+    #[test]
+    fn o1_cho_rev_bidirectional_combine_true() {
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
+            .expect("anmatae profile must load");
+        let mut ac = HangulComposer3Bul::new_with_profile(&profile)
+            .expect("anmatae must build");
+        assert!(ac.is_bidirectional_combine(), "anmatae: bidirectional_combine=true");
+        // ㅎ 입력 → cho = H
+        ac.add_jamo(JamoEnum::Cho(Cho::H));
+        assert_eq!(ac.get_current_cho(), Some(Cho::H));
+        // ㄱ 입력 → 정순 (H,G) 없음 → 역순 (G,H)→K 매치 → cho = K(ㅋ)
+        ac.add_jamo(JamoEnum::Cho(Cho::G));
+        assert_eq!(ac.get_current_cho(), Some(Cho::K), "역순 cho 결합: (G,H)→K");
+    }
+
+    /// O1-jung-rev: bidirectional_combine=true → 역순 중성 결합 활성 검증.
+    ///
+    /// 안마태 자판에 (ㅗ,ㅏ)→ㅘ 정방향 등록.
+    /// 입력 순서: ㅏ(jung=A) → ㅗ(incoming=O).
+    ///   - 정순 (A,O): 없음 → 역순 (O,A)→WA 매치 → jung = WA(ㅘ).
+    #[test]
+    fn o1_jung_rev_bidirectional_combine_true() {
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
+            .expect("anmatae profile must load");
+        let mut ac = HangulComposer3Bul::new_with_profile(&profile)
+            .expect("anmatae must build");
+        assert!(ac.is_bidirectional_combine(), "anmatae: bidirectional_combine=true");
+        // cho 먼저 입력해 음절 시작
+        ac.add_jamo(JamoEnum::Cho(Cho::G));
+        // ㅏ 입력 → jung = A
+        ac.add_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(ac.get_current_jung(), Some(Jung::A));
+        // ㅗ 입력 → 정순 (A,O) 없음 → 역순 (O,A)→WA 매치 → jung = WA(ㅘ)
+        ac.add_jamo(JamoEnum::Jung(Jung::O));
+        assert_eq!(ac.get_current_jung(), Some(Jung::WA), "역순 jung 결합: (O,A)→WA");
+    }
+
+    /// O1-cho-off-no-reverse: bidirectional_combine=false → cho 역순 결합 안 함.
+    ///
+    /// 동일 입력(ㅎ→ㄱ) 시 (G,H)→K 역순 매치 없음.
+    /// 새 음절 시작 (기존 동작: cho 충돌 시 flush 후 새 음절).
+    #[test]
+    fn o1_cho_off_no_reverse() {
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
+            .expect("anmatae profile must load");
+        let mut ac = HangulComposer3Bul::new_with_profile(&profile)
+            .expect("anmatae must build");
+        // bidirectional_combine 강제 OFF
+        ac.moachigi = Some(MoachigiSpec { bidirectional_combine: false, chord_window_ms: 0 });
+        assert!(!ac.is_bidirectional_combine());
+        // ㅎ 입력 → cho = H
+        ac.add_jamo(JamoEnum::Cho(Cho::H));
+        assert_eq!(ac.get_current_cho(), Some(Cho::H));
+        // ㄱ 입력 → 역순 인터셉트 없음 → 기존 동작 (새 음절 시작, cho = G)
+        ac.add_jamo(JamoEnum::Cho(Cho::G));
+        // 역순 매치로 K(ㅋ)가 되어서는 안 됨
+        assert_ne!(ac.get_current_cho(), Some(Cho::K), "OFF 시 역순 결합 금지");
+        // 새 음절로 분리되어 cho = G 이거나, 정순 결합(없음)으로 기존 흐름
+        assert_eq!(ac.get_current_cho(), Some(Cho::G), "OFF 시 새 음절 초성 = G");
+    }
+
+    /// O1-jung-off-no-reverse: bidirectional_combine=false → jung 역순 결합 안 함.
+    #[test]
+    fn o1_jung_off_no_reverse() {
+        let profile = crate::keystroke::profile::load_builtin_profile("ko_3bul_anmatae")
+            .expect("anmatae profile must load");
+        let mut ac = HangulComposer3Bul::new_with_profile(&profile)
+            .expect("anmatae must build");
+        // bidirectional_combine 강제 OFF
+        ac.moachigi = Some(MoachigiSpec { bidirectional_combine: false, chord_window_ms: 0 });
+        assert!(!ac.is_bidirectional_combine());
+        // cho + ㅏ 입력 → jung = A
+        ac.add_jamo(JamoEnum::Cho(Cho::G));
+        ac.add_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(ac.get_current_jung(), Some(Jung::A));
+        // ㅗ 입력 → 역순 인터셉트 없음 → 기존 동작 (정순 (A,O) 없으므로 새 음절)
+        ac.add_jamo(JamoEnum::Jung(Jung::O));
+        // 역순 매치로 WA(ㅘ)가 되어서는 안 됨
+        assert_ne!(ac.get_current_jung(), Some(Jung::WA), "OFF 시 역순 결합 금지");
+        // 새 음절로 분리되어 jung = O
+        assert_eq!(ac.get_current_jung(), Some(Jung::O), "OFF 시 새 음절 중성 = O");
     }
 }
 
@@ -360,28 +490,53 @@ impl HangulComposer for HangulComposer3Bul {
             return None;
         }
 
-        // v3 부분 적용: jong_unordered 활성 시 역순 결합 시도.
-        // 종성 입력이고 현재 종성이 있고 jong_unordered=true인 경우만 개입.
-        if let Some(ref spec) = self.moachigi {
-            if spec.jong_unordered {
-                if let JamoEnum::Jong(incoming) = jamo {
-                    if let Some(existing) = self.base_composer.get_jong() {
-                        // 정순 결합 시도
-                        let key_a = (JamoEnum::Jong(existing), JamoEnum::Jong(incoming));
+        // v3 bidirectional_combine 적용: (a,b) 정순 결합 실패 시 (b,a) 역순 재시도.
+        // bidirectional_combine=true이고 해당 영역에 기존 자모가 있을 때만 개입.
+        if self.is_bidirectional_combine() {
+            match jamo {
+                JamoEnum::Cho(incoming) => {
+                    if let Some(existing) = self.base_composer.get_cho() {
+                        let key_a = (JamoEnum::Cho(existing), JamoEnum::Cho(incoming));
                         if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
-                            // 역순 결합 시도
-                            let key_b = (JamoEnum::Jong(incoming), JamoEnum::Jong(existing));
-                            if let Some(JamoEnum::Jong(combined)) =
+                            let key_b = (JamoEnum::Cho(incoming), JamoEnum::Cho(existing));
+                            if let Some(JamoEnum::Cho(combined)) =
                                 self.base_composer.get_combined_jamo().get(&key_b).copied()
                             {
-                                // 역순으로 결합 가능 → existing을 combined로 교체
-                                self.base_composer.set_jong(Some(combined));
-                                // jamo_queue에도 반영 (위임 생략, jong는 최종 자모)
+                                self.base_composer.set_cho(Some(combined));
                                 return None;
                             }
                         }
                     }
                 }
+                JamoEnum::Jung(incoming) => {
+                    if let Some(existing) = self.base_composer.get_jung() {
+                        let key_a = (JamoEnum::Jung(existing), JamoEnum::Jung(incoming));
+                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
+                            let key_b = (JamoEnum::Jung(incoming), JamoEnum::Jung(existing));
+                            if let Some(JamoEnum::Jung(combined)) =
+                                self.base_composer.get_combined_jamo().get(&key_b).copied()
+                            {
+                                self.base_composer.set_jung(Some(combined));
+                                return None;
+                            }
+                        }
+                    }
+                }
+                JamoEnum::Jong(incoming) => {
+                    if let Some(existing) = self.base_composer.get_jong() {
+                        let key_a = (JamoEnum::Jong(existing), JamoEnum::Jong(incoming));
+                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
+                            let key_b = (JamoEnum::Jong(incoming), JamoEnum::Jong(existing));
+                            if let Some(JamoEnum::Jong(combined)) =
+                                self.base_composer.get_combined_jamo().get(&key_b).copied()
+                            {
+                                self.base_composer.set_jong(Some(combined));
+                                return None;
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 

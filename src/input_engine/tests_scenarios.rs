@@ -429,10 +429,10 @@ fn create_anmatae_engine() -> (InputEngine, Config) {
     (engine, config)
 }
 
-/// I-AM4: 안마태 자판에서 Shift+B → `"` (U+201C) 즉시 commit.
-/// jamo_symbol_map 경로: keyboard_map 우회 + composer 큐 무영향.
+/// I-AM4: 안마태 자판에서 Shift+B → `"` (U+201D, 닫는 큰따옴표) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.4th[4] 위치).
 #[test]
-fn i_am4_jamo_symbol_map_shift_b_commits_left_quote() {
+fn i_am4_shift_b_commits_right_double_quote() {
     let (mut engine, config) = create_anmatae_engine();
     let shift = ModifierState {
         shift: true,
@@ -440,16 +440,16 @@ fn i_am4_jamo_symbol_map_shift_b_commits_left_quote() {
     };
     engine.set_input_category(InputCategory::Korean);
 
-    // Shift+B → 'B' 문자 → jamo_symbol_map에서 " 반환
     let result = engine.press_key(KeyCode::B, shift, &config);
     assert!(result.commit_changed, "Shift+B should produce commit");
-    assert_eq!(engine.commit_str(), "\u{201C}", "Shift+B → 여는 큰따옴표 \"");
+    assert_eq!(engine.commit_str(), "\u{201D}", "Shift+B → 닫는 큰따옴표 \u{201D}");
     assert!(engine.preedit_str().is_empty(), "preedit은 비어있어야 함");
 }
 
-/// I-AM4b: 안마태 자판에서 Shift+G → `"` (U+201D) 즉시 commit.
+/// I-AM4b: 안마태 자판에서 Shift+G → `"` (U+201C, 여는 큰따옴표) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.3rd[4] 위치).
 #[test]
-fn i_am4b_jamo_symbol_map_shift_g_commits_right_quote() {
+fn i_am4b_shift_g_commits_left_double_quote() {
     let (mut engine, config) = create_anmatae_engine();
     let shift = ModifierState {
         shift: true,
@@ -459,12 +459,13 @@ fn i_am4b_jamo_symbol_map_shift_g_commits_right_quote() {
 
     let result = engine.press_key(KeyCode::G, shift, &config);
     assert!(result.commit_changed, "Shift+G should produce commit");
-    assert_eq!(engine.commit_str(), "\u{201D}", "Shift+G → 닫는 큰따옴표 \"");
+    assert_eq!(engine.commit_str(), "\u{201C}", "Shift+G → 여는 큰따옴표 \u{201C}");
 }
 
-/// I-AM4c: 안마태 자판에서 Shift+J → `·` (U+00B7) 즉시 commit.
+/// I-AM4c: 안마태 자판에서 Shift+J → `·` (U+00B7, 가운뎃점) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.3rd[6] 위치).
 #[test]
-fn i_am4c_jamo_symbol_map_shift_j_commits_middle_dot() {
+fn i_am4c_shift_j_commits_middle_dot() {
     let (mut engine, config) = create_anmatae_engine();
     let shift = ModifierState {
         shift: true,
@@ -477,9 +478,10 @@ fn i_am4c_jamo_symbol_map_shift_j_commits_middle_dot() {
     assert_eq!(engine.commit_str(), "\u{00B7}", "Shift+J → 가운뎃점 ·");
 }
 
-/// I-AM4d: 안마태 자판에서 Shift+T → `…` (U+2026) 즉시 commit.
+/// I-AM4d: 안마태 자판에서 Shift+T → `…` (U+2026, 줄임표) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.2nd[4] 위치).
 #[test]
-fn i_am4d_jamo_symbol_map_shift_t_commits_ellipsis() {
+fn i_am4d_shift_t_commits_ellipsis() {
     let (mut engine, config) = create_anmatae_engine();
     let shift = ModifierState {
         shift: true,
@@ -503,19 +505,21 @@ fn i_am5_escape_reset_no_composition() {
     assert!(engine.preedit_str().is_empty(), "preedit 없음");
 }
 
-/// I-AM-LOAD: 안마태 자판 로드 시 jamo_symbol_map 6개 빌드 검증.
+/// I-AM-LOAD: 안마태 자판 로드 시 상단 레이어 기호들이 keyboard_map에 Special로 등록됨.
+/// 위치별 실제 매핑 확인 (upper.Xth[pos] → English Shift+Key).
 #[test]
-fn i_am_load_jamo_symbol_map_6_entries() {
+fn i_am_load_upper_symbols_in_keyboard_map() {
+    use crate::hangul::jamo::JamoEnum;
     let (engine, _config) = create_anmatae_engine();
-    assert_eq!(
-        engine.jamo_symbol_map.len(),
-        6,
-        "안마태 jamo_symbol_map = 6개 (B/G/J/N/T/W upper)"
-    );
-    assert_eq!(engine.jamo_symbol_map.get(&'B'), Some(&'\u{201C}'));
-    assert_eq!(engine.jamo_symbol_map.get(&'G'), Some(&'\u{201D}'));
-    assert_eq!(engine.jamo_symbol_map.get(&'J'), Some(&'\u{00B7}'));
-    assert_eq!(engine.jamo_symbol_map.get(&'N'), Some(&'\u{2018}'));
-    assert_eq!(engine.jamo_symbol_map.get(&'T'), Some(&'\u{2026}'));
-    assert_eq!(engine.jamo_symbol_map.get(&'W'), Some(&'\u{2019}'));
+    let km = engine.keyboard_map.as_ref().expect("keyboard_map 있어야 함");
+    // upper.4th[4] → Shift+B → U+201D (닫는 큰따옴표)
+    assert_eq!(km.get(&'B'), Some(&JamoEnum::Special('\u{201D}')), "B → \u{201D}");
+    // upper.3rd[4] → Shift+G → U+201C (여는 큰따옴표)
+    assert_eq!(km.get(&'G'), Some(&JamoEnum::Special('\u{201C}')), "G → \u{201C}");
+    // upper.3rd[6] → Shift+J → U+00B7 (가운뎃점)
+    assert_eq!(km.get(&'J'), Some(&JamoEnum::Special('\u{00B7}')), "J → ·");
+    // upper.4th[5] → Shift+N → U+2018 (여는 작은따옴표)
+    assert_eq!(km.get(&'N'), Some(&JamoEnum::Special('\u{2018}')), "N → \u{2018}");
+    // upper.2nd[4] → Shift+T → U+2026 (줄임표)
+    assert_eq!(km.get(&'T'), Some(&JamoEnum::Special('\u{2026}')), "T → …");
 }

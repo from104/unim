@@ -46,6 +46,11 @@ group_layout_options_empty: "This layout has no option rules."
 group_layout_options_title: "Option rules for selected layout"
 row_rule_sets_label: "Rule sets"
 row_layout_pending: "Shown after layout profile loads"
+group_moachigi_title: "Moachigi Settings"
+row_moachigi_bidirectional_label: "Bidirectional jamo combine"
+row_moachigi_bidirectional_tooltip: "Tries both orders (a,b) and (b,a) when combining jamo within cho/jung/jong regions."
+row_moachigi_chord_label: "Chord window (ms)"
+row_moachigi_chord_tooltip: "0 = chord input OFF. Keys within N ms treated as chord. (Phase 4)"
 
 # TypeFix > Forward
 group_typefix_forward: "Auto Forward Correction (EN→KO)"

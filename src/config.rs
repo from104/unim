@@ -95,7 +95,15 @@ pub fn normalize_korean_layout_name(raw: &str) -> String {
 pub fn is_sebeolsik_layout(name: &str) -> bool {
     matches!(
         name,
-        "Sebeolsik390" | "Sebeolsik391" | "SebeolsikNoShift" | "390" | "391" | "noshift"
+        "Sebeolsik390"
+            | "Sebeolsik391"
+            | "SebeolsikNoShift"
+            | "390"
+            | "391"
+            | "noshift"
+            | "ko_anmatae"
+            | "anmatae"
+            | "anmatae_2003"
     ) || name.starts_with("ko_3bul")
         || name.starts_with("3bul")
 }
@@ -502,6 +510,22 @@ pub struct KoreanConfig {
     /// `BTreeMap`은 직렬화 순서 안정성 (자판명 알파벳 순서). 빈 맵일 때 YAML에서 누락.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub layout_rule_sets: BTreeMap<String, Vec<String>>,
+
+    /// 모아치기 — 양방향 자모 결합 사용자 재정의.
+    ///
+    /// `None` = 자판 프로필 기본값 사용(`supports_moachigi=true` 자판의 `bidirectional_combine`).
+    /// `Some(true/false)` = 사용자가 프로필 기본값을 재정의.
+    /// `supports_moachigi=false` 자판에서는 무시된다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bidirectional_combine: Option<bool>,
+
+    /// 모아치기 — 동시 입력 시간 (밀리초). Phase 4 예약 필드.
+    ///
+    /// `None` = 자판 프로필 기본값 사용(`chord_window_ms`).
+    /// `Some(0)` = 동시 입력 OFF (기본). `Some(N)` = N ms 이내에 들어온 키를 한 음절로 모아 처리.
+    /// `supports_moachigi=false` 자판에서는 무시된다. 현재 Phase 4 미구현 — 동작은 0=OFF.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chord_window_ms: Option<u16>,
 }
 
 impl Default for KoreanConfig {
@@ -510,6 +534,8 @@ impl Default for KoreanConfig {
             layout: KOREAN_LAYOUT_DUBEOLSIK.to_string(),
             active_rule_sets: None,
             layout_rule_sets: BTreeMap::new(),
+            bidirectional_combine: None,
+            chord_window_ms: None,
         }
     }
 }
@@ -607,6 +633,12 @@ struct KoreanConfigCompat {
     /// 레거시 override 필드 — Some이면 `layout`을 덮어씀. 본 통합 이후 제거됨.
     #[serde(default)]
     custom_layout: Option<String>,
+    /// 모아치기 — 양방향 자모 결합 사용자 재정의.
+    #[serde(default)]
+    bidirectional_combine: Option<bool>,
+    /// 모아치기 — 동시 입력 시간 (ms). Phase 4 예약.
+    #[serde(default)]
+    chord_window_ms: Option<u16>,
 }
 
 impl Default for KoreanConfigCompat {
@@ -618,6 +650,8 @@ impl Default for KoreanConfigCompat {
             active_rule_sets: None,
             layout_rule_sets: BTreeMap::new(),
             custom_layout: None,
+            bidirectional_combine: None,
+            chord_window_ms: None,
         }
     }
 }
@@ -632,6 +666,8 @@ impl From<KoreanConfigCompat> for KoreanConfig {
             layout: normalize_korean_layout_name(&layout),
             active_rule_sets: c.active_rule_sets,
             layout_rule_sets: c.layout_rule_sets,
+            bidirectional_combine: c.bidirectional_combine,
+            chord_window_ms: c.chord_window_ms,
         }
     }
 }
@@ -1079,6 +1115,10 @@ mod tests {
         assert!(is_sebeolsik_layout("3bul_noshift"));
         // ko_3bul_qwerty는 빌트인 아니지만 prefix 매칭으로 세벌식 계열 분류됨 (사용자 프로필)
         assert!(is_sebeolsik_layout("ko_3bul_qwerty"));
+        // 안마태 자판 — ko_anmatae / anmatae / anmatae_2003 모두 세벌식으로 분류
+        assert!(is_sebeolsik_layout("ko_anmatae"));
+        assert!(is_sebeolsik_layout("anmatae"));
+        assert!(is_sebeolsik_layout("anmatae_2003"));
     }
 
     #[test]

@@ -33,6 +33,5 @@ pub use localized::LocalizedText;
 pub use registry::{ProfileRegistry, ScanReport};
 pub use schema::{
     CombinationsBlock, ContextAlt, ContextCondition, KeyLayout, KeyMeta, LayoutMetadata,
-    LayoutProfile, LayoutRows, LayoutTypeV3, MoachigiOverride, MoachigiSpec, RawTriple,
-    ReinterpretTriple, RuleSet, SyllableBoundary, SymbolEmit,
+    LayoutProfile, LayoutRows, MoachigiSpec, RawTriple, ReinterpretTriple, RuleSet,
 };

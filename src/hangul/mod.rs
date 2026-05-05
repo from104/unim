@@ -5,21 +5,22 @@
 //!
 //! 한자(`crate::hanja`), 이모지(`crate::emoji`), 초성 특수문자
 //! (`crate::special_chars`)는 이제 별도 최상위 모듈로 분리되었다.
+//!
+//! Phase 3-rework2: `composer_with_3bul_moachigi` 폐기.
+//! 안마태 자판은 `HangulComposer3Bul`에 `bidirectional_combine` 옵션으로 통합.
 
 pub mod char;
 pub mod composer;
 pub mod composer_with_2bul;
 pub mod composer_with_3bul;
-pub mod composer_with_3bul_moachigi;
 pub mod input_context;
 pub mod jamo;
 
 // Re-export commonly used items for easier access
 pub use char::{HangulChar, HangulCharExt, HangulError};
-pub use composer::{HangulComposer, Region};
+pub use composer::HangulComposer;
 pub use composer_with_2bul::HangulComposer2Bul;
 pub use composer_with_3bul::HangulComposer3Bul;
-pub use composer_with_3bul_moachigi::HangulComposer3BulMoachigi;
 pub use input_context::{ComposerType, HangulInputContext};
 pub use jamo::{Cho, JamoEnum, Jong, Jung};
 

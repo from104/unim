@@ -5,19 +5,18 @@
 use crate::hangul::composer::{HangulComposer, JamoMeta};
 use crate::hangul::composer_with_2bul::HangulComposer2Bul;
 use crate::hangul::composer_with_3bul::HangulComposer3Bul;
-use crate::hangul::composer_with_3bul_moachigi::HangulComposer3BulMoachigi;
 use crate::hangul::jamo::JamoEnum;
 use crate::unim_log;
 
-/// 지원하는 한글 컴포저 타입
+/// 지원하는 한글 컴포저 타입.
+///
+/// Phase 3-rework2: `ThreeBulMoachigi` 폐기. 안마태 자판은 `ThreeBul`로 통합.
+/// `HangulComposer3Bul`이 `bidirectional_combine` 옵션으로 모아치기 동작 담당.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ComposerType {
     #[default]
     TwoBul,
     ThreeBul,
-    /// v3 — 세벌식 모아치기(3-beol moachigi) 전용 composer.
-    /// 안마태 자판을 포함하는 모든 `layout_type: "moachigi_3bul"` 자판에 사용.
-    ThreeBulMoachigi,
 }
 
 impl ComposerType {
@@ -26,7 +25,6 @@ impl ComposerType {
         match self {
             ComposerType::TwoBul => Box::new(HangulComposer2Bul::new()),
             ComposerType::ThreeBul => Box::new(HangulComposer3Bul::new()),
-            ComposerType::ThreeBulMoachigi => Box::new(HangulComposer3BulMoachigi::new()),
         }
     }
 }
@@ -75,24 +73,15 @@ impl HangulInputContext {
         profile: &crate::keystroke::profile::LayoutProfile,
     ) -> Result<Self, crate::keystroke::profile::BuildError> {
         match profile.layout_type.as_str() {
-            "3bul" => {
+            // Phase 3-rework2: "moachigi_3bul" / "anmatae"도 ThreeBul 경로로 통합.
+            // HangulComposer3Bul이 moachigi.bidirectional_combine 옵션으로 처리.
+            "3bul" | "moachigi_3bul" | "anmatae" => {
                 let composer = HangulComposer3Bul::new_with_profile(profile)?;
                 Ok(Self {
                     composer: Box::new(composer),
                     preedit: String::new(),
                     committed: String::new(),
                     composer_type: ComposerType::ThreeBul,
-                })
-            }
-            // v3 — 세벌식 모아치기 전용 composer (안마태 포함).
-            // JSON "type" 정식 값: "moachigi_3bul". "anmatae"도 수용 (레거시·테스트 호환).
-            "moachigi_3bul" | "anmatae" => {
-                let composer = HangulComposer3BulMoachigi::new_with_profile(profile)?;
-                Ok(Self {
-                    composer: Box::new(composer),
-                    preedit: String::new(),
-                    committed: String::new(),
-                    composer_type: ComposerType::ThreeBulMoachigi,
                 })
             }
             // "2bul" 또는 영문 계열(qwerty/dvorak/...): 한글 조합 경로는 2벌식 기반.

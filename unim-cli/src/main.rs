@@ -440,6 +440,12 @@ enum ConfigKey {
     /// 이모지 팝업 활성화 (true, false). 트리거는 한자 키 idle 상태일 때.
     #[value(name = "emoji-popup")]
     EmojiPopup,
+    /// 모아치기 양방향 자모 결합 (true, false). supports_moachigi 자판 전용.
+    #[value(name = "korean-bidirectional-combine")]
+    KoreanBidirectionalCombine,
+    /// 모아치기 화음 윈도우 (ms, 0=OFF). supports_moachigi 자판 전용. Phase 4 예약.
+    #[value(name = "korean-chord-window-ms")]
+    KoreanChordWindowMs,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -775,6 +781,20 @@ fn config_show() {
         t!("disabled")
     };
     println!("{}: {}", t!("emoji_popup_label"), emoji_status);
+    // 모아치기 설정 (supports_moachigi 자판에서만 유효)
+    if config.engine.korean.bidirectional_combine.is_some()
+        || config.engine.korean.chord_window_ms.is_some()
+    {
+        println!("-- 모아치기 (moachigi) --");
+        match config.engine.korean.bidirectional_combine {
+            Some(v) => println!("  korean-bidirectional-combine: {v}"),
+            None => println!("  korean-bidirectional-combine: 자판 기본값"),
+        }
+        match config.engine.korean.chord_window_ms {
+            Some(v) => println!("  korean-chord-window-ms: {v}ms"),
+            None => println!("  korean-chord-window-ms: 자판 기본값"),
+        }
+    }
     println!();
     if let Some(path) = UnimConfig::default_config_path() {
         println!("{}: {}", t!("config_file_label"), path.display());
@@ -1164,6 +1184,31 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("disabled")
             };
             println!("{}: {}", t!("emoji_popup_label"), status);
+        }
+        ConfigKey::KoreanBidirectionalCombine => {
+            if value.is_empty() {
+                config.engine.korean.bidirectional_combine = None;
+                println!("korean.bidirectional_combine: 자판 기본값 사용");
+            } else {
+                let enabled: bool = value
+                    .parse()
+                    .map_err(|_| "Invalid value, use true/false (or empty to reset)".to_string())?;
+                config.engine.korean.bidirectional_combine = Some(enabled);
+                let status = if enabled { "활성화" } else { "비활성화" };
+                println!("korean.bidirectional_combine: {status}");
+            }
+        }
+        ConfigKey::KoreanChordWindowMs => {
+            if value.is_empty() {
+                config.engine.korean.chord_window_ms = None;
+                println!("korean.chord_window_ms: 자판 기본값 사용");
+            } else {
+                let ms: u16 = value
+                    .parse()
+                    .map_err(|_| "Invalid value, use 0~65535 ms (or empty to reset)".to_string())?;
+                config.engine.korean.chord_window_ms = Some(ms);
+                println!("korean.chord_window_ms: {ms}ms");
+            }
         }
     }
 

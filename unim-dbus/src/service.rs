@@ -745,6 +745,15 @@ impl InputMethodService {
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "emoji_popup" => config.engine.emoji_popup.enabled.to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules).unwrap_or_default(),
+            // 모아치기 설정 (supports_moachigi 자판 전용)
+            "korean_bidirectional_combine" => match config.engine.korean.bidirectional_combine {
+                None => "default".to_string(),
+                Some(v) => v.to_string(),
+            },
+            "korean_chord_window_ms" => match config.engine.korean.chord_window_ms {
+                None => "default".to_string(),
+                Some(v) => v.to_string(),
+            },
             _ => {
                 return Err(zbus::fdo::Error::InvalidArgs(format!(
                     "Unknown key: {}",
@@ -978,6 +987,27 @@ impl InputMethodService {
                             zbus::fdo::Error::InvalidArgs(format!("Invalid JSON: {}", e))
                         })?;
                     config.engine.app_rules = rules;
+                }
+                // 모아치기 설정
+                "korean_bidirectional_combine" => {
+                    if value.is_empty() || value == "default" {
+                        config.engine.korean.bidirectional_combine = None;
+                    } else {
+                        let v: bool = value.parse().map_err(|_| {
+                            zbus::fdo::Error::InvalidArgs("Invalid bool".to_string())
+                        })?;
+                        config.engine.korean.bidirectional_combine = Some(v);
+                    }
+                }
+                "korean_chord_window_ms" => {
+                    if value.is_empty() || value == "default" {
+                        config.engine.korean.chord_window_ms = None;
+                    } else {
+                        let v: u16 = value.parse().map_err(|_| {
+                            zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                        })?;
+                        config.engine.korean.chord_window_ms = Some(v);
+                    }
                 }
                 _ => {
                     return Err(zbus::fdo::Error::InvalidArgs(format!(
