@@ -10,10 +10,10 @@
     },
     "author": "안마태·김진형 (2003)",
     "description": {
-      "ko": "안마태 신부와 KAIST 김진형 교수가 2003년 발표한 모아치기 세벌식 자판. cho/jung/jong 영역이 고정되며, 양방향 자모 결합으로 겹받침 순서에 유연성을 준다. 원본의 옛한글 자리(W·T·G·J·B·N upper)는 한글 조판 기호로 대체.",
-      "en": "Three-beol moachigi keyboard developed by Father Ahnmatae and Prof. Kim Jin-hyung of KAIST, published 2003. Fixed cho/jung/jong regions; bidirectional jamo combine for flexible jongseong order. Original archaic-jamo positions (W/T/G/J/B/N upper) replaced with Korean typography symbols."
+      "ko": "안마태 신부와 KAIST 김진형 교수가 2003년 발표한 모아치기 세벌식 자판. cho/jung/jong 영역이 고정된다. 모아치기 옵션(`korean.bidirectional_combine` / `korean.chord_window_ms`)은 사용자 config에 보관되며 디폴트 OFF(opt-in)이다. 옵션이 켜지면 양방향 결합과 동시 입력 윈도우가 활성화되어 겹받침 순서·자모 동시 타건이 가능해진다. upper 24칸(원본 옛한글 자리 + lower 중복 자리)을 모두 lower와 다른 의미로 채워 Shift 입력 효율을 극대화: 쌍자음 5(ㄲ/ㄸ/ㅃ/ㅆ/ㅉ)·결합 모음 5(ㅒ/ㅖ/ㅢ/ㅘ/ㅞ)·거센소리 종성 4(ᆾ/ᇀ/ᇁ/ᆿ)·결합/쌍 종성 4(ᆻ/ᆬ/ᆱ/ᆰ)·한국어 조판 기호 6(「/」/※/·/“/”).",
+      "en": "Three-beol moachigi keyboard developed by Father Ahnmatae and Prof. Kim Jin-hyung of KAIST, published 2003. Fixed cho/jung/jong regions. Moachigi options (`korean.bidirectional_combine` / `korean.chord_window_ms`) live in the user config and default to OFF (opt-in); enabling them activates bidirectional combine and the chord window. All 24 upper-layer positions (original archaic-jamo slots + slots that previously duplicated lower jamo) are filled with distinct, useful values: 5 double consonants (ㄲ/ㄸ/ㅃ/ㅆ/ㅉ), 5 combined vowels (ㅒ/ㅖ/ㅢ/ㅘ/ㅞ), 4 aspirated jongseong (ᆾ/ᇀ/ᇁ/ᆿ), 4 compound/double jongseong (ᆻ/ᆬ/ᆱ/ᆰ), and 6 Korean typography marks (「/」/※/·/“/”) — maximising Shift-row efficiency."
     },
-    "version": "2.0",
+    "version": "2.2",
     "tags": [
       "korean",
       "anmatae",
@@ -26,9 +26,9 @@
   "layout": {
     "upper": {
       "1st": ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|"],
-      "2nd": ["ㅁ", "'", "ㄴ", "ㄹ", "…", ";", "'", "/", "[", "]", "{", "}"],
-      "3rd": ["ㅂ", "ㅈ", "ㄷ", "ㄱ", "“", "ㅓ", "·", "ㅣ", "ㅗ", "ㅜ", "\""],
-      "4th": ["ᆽ", "ᆮ", "ᆸ", "ᆨ", "”", "‘", "ᆫ", "ᆷ", "ᆯ", "?"]
+      "2nd": ["「", "ㅆ", "」", "※", "·", ";", "'", "/", "[", "]", "{", "}"],
+      "3rd": ["ㅃ", "ㅉ", "ㄸ", "ㄲ", "“", "ㅖ", "ㅒ", "ㅢ", "ㅘ", "ㅞ", "\""],
+      "4th": ["ᆾ", "ᇀ", "ᇁ", "ᆿ", "”", "ᆻ", "ᆬ", "ᆱ", "ᆰ", "?"]
     },
     "lower": {
       "1st": ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "\\"],
