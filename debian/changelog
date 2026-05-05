@@ -1,3 +1,34 @@
+unim (0.3.0-1) unstable; urgency=medium
+
+  * Release 0.3.0.
+  * Ahnmatae (안마태 2003) keyboard built-in (`ko_3bul_anmatae`): first
+    moachigi (chord-based) Korean layout in UNIM. Three-beol layout with
+    fixed cho/jung/jong regions, 9 cho / 15 jung / 20 jong combinations.
+    Archaic jamo positions (W/T/G/J/B/N upper) remapped to Korean
+    typography symbols (`"` `"` `'` `'` `·` `…`); archaic codepoints
+    anywhere in the profile trigger LoadError::ArchaicJamoNotSupported.
+  * Layout profile v3 schema (schema_version: 3): single new top-level
+    field `supports_moachigi: bool` marks the layout as chord-capable.
+    Bidirectional combine and chord window settings live in the user
+    config (`~/.config/unim/config.yaml`), not in the keymap JSON.
+  * Moachigi chord engine (`src/input_engine/chord_buffer.rs`):
+    single-window chord accumulator. First jamo starts an N-ms tokio
+    timer; jamo arriving within the window are buffered. On expiry:
+    1 jamo → normal sequential processing; 2+ jamo → region-classified
+    chord compose with bidirectional combine. Default OFF (opt-in).
+  * GTK settings dialog — Moachigi group: toggle row ("동시 입력 자모
+    역순 결합") and slider row ("동시 입력 시간 (ms)", 10–100 ms).
+    Group is shown only when the selected layout has
+    supports_moachigi=true.
+  * `HangulComposer3BulMoachigi` separate composer removed; moachigi
+    logic is now handled entirely within `HangulComposer3Bul` via the
+    `chord_buffer` layer in `InputEngine`. No user-visible behavior
+    change.
+  * Layout profile v0 schema is no longer supported (legacy JSON files
+    without v1 markers are rejected with LoadError::UnsupportedSchema).
+
+ -- Seo Kihyun <from104@gmail.com>  Tue, 05 May 2026 16:30:00 +0900
+
 unim (0.2.0-1) unstable; urgency=medium
 
   * Release 0.2.0.

@@ -3,7 +3,7 @@
     "name": "UNIM",
     "description": "Korean Input Method Extension for GNOME Shell. Provides native Hangul input via Clutter.InputMethod, TypeFix text conversion hotkeys, and input mode indicator.",
     "url": "https://github.com/from104/unim",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "shell-version": ["45", "46", "47", "48"],
     "settings-schema": "org.gnome.shell.extensions.unim",
     "gettext-domain": "unim-gnome@from104.github.io"

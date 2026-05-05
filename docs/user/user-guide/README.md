@@ -1,6 +1,6 @@
 # UNIM User Manual (English)
 
-> UNIM 0.2.0 — Universal Next-generation Input Method
+> UNIM 0.3.0 — Universal Next-generation Input Method
 > A Rust-based input method engine for fluid Korean/English typing.
 > Goal of this document: get a first-time user to type one Korean syllable within five minutes.
 
@@ -23,12 +23,12 @@
 #### Debian/Ubuntu
 
 ```bash
-# Install the .deb packages built for UNIM 0.2.0
-sudo apt install ./unim_0.2.0_amd64.deb \
-                 ./unim-common_0.2.0_amd64.deb \
-                 ./unim-im-gtk_0.2.0_amd64.deb \
-                 ./unim-im-qt_0.2.0_amd64.deb \
-                 ./unim-gui-gtk_0.2.0_amd64.deb
+# Install the .deb packages built for UNIM 0.3.0
+sudo apt install ./unim_0.3.0_amd64.deb \
+                 ./unim-common_0.3.0_amd64.deb \
+                 ./unim-im-gtk_0.3.0_amd64.deb \
+                 ./unim-im-qt_0.3.0_amd64.deb \
+                 ./unim-gui-gtk_0.3.0_amd64.deb
 
 # Remove IBus (avoids conflict on GNOME)
 sudo apt remove ibus
@@ -382,4 +382,4 @@ systemctl --user restart unim-daemon
 
 ---
 
-Doc version: 0.2.0 / 2026-04-26 / License: same as the project.
+Doc version: 0.3.0 / 2026-05-05 / License: same as the project.

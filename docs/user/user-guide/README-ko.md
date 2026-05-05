@@ -1,6 +1,6 @@
 # UNIM 사용자 매뉴얼 (한국어)
 
-> UNIM 0.2.0 — Universal Next-generation Input Method
+> UNIM 0.3.0 — Universal Next-generation Input Method
 > 한국어와 영어를 자유롭게 오가며 타이핑하기 위한 Rust 기반 입력기.
 > 이 문서는 처음 쓰는 사람도 5분 안에 한글 한 글자를 칠 수 있게 만드는 것이 목표다.
 
@@ -23,12 +23,12 @@
 #### Debian/Ubuntu
 
 ```bash
-# 패키지 설치 (UNIM 0.2.0 .deb 패키지가 이미 빌드돼 있다고 가정)
-sudo apt install ./unim_0.2.0_amd64.deb \
-                 ./unim-common_0.2.0_amd64.deb \
-                 ./unim-im-gtk_0.2.0_amd64.deb \
-                 ./unim-im-qt_0.2.0_amd64.deb \
-                 ./unim-gui-gtk_0.2.0_amd64.deb
+# 패키지 설치 (UNIM 0.3.0 .deb 패키지가 이미 빌드돼 있다고 가정)
+sudo apt install ./unim_0.3.0_amd64.deb \
+                 ./unim-common_0.3.0_amd64.deb \
+                 ./unim-im-gtk_0.3.0_amd64.deb \
+                 ./unim-im-qt_0.3.0_amd64.deb \
+                 ./unim-gui-gtk_0.3.0_amd64.deb
 
 # IBus 제거 (GNOME 환경에서 충돌 방지)
 sudo apt remove ibus
@@ -399,4 +399,4 @@ systemctl --user restart unim-daemon
 
 ---
 
-문서 버전: 0.2.0 / 작성일: 2026-04-26 / 라이선스: 본문 라이선스는 프로젝트와 동일.
+문서 버전: 0.3.0 / 작성일: 2026-05-05 / 라이선스: 본문 라이선스는 프로젝트와 동일.
