@@ -2,10 +2,11 @@
 //!
 //! 키보드 레이아웃, 현재 조합 상태, preedit/committed 문자열 등을 관리합니다.
 
-use crate::hangul::composer::{HangulComposer, JamoMeta};
+use crate::hangul::composer::{CombinedJamoMap, HangulComposer, JamoMeta};
 use crate::hangul::composer_with_2bul::HangulComposer2Bul;
 use crate::hangul::composer_with_3bul::HangulComposer3Bul;
-use crate::hangul::jamo::JamoEnum;
+use crate::hangul::jamo::{Cho, Jong, Jung, JamoEnum};
+use crate::input_engine::chord_compose::{ChordEntry, ChordEntryKind, compose_chord};
 use crate::unim_log;
 
 /// 지원하는 한글 컴포저 타입.
@@ -43,6 +44,10 @@ pub struct HangulInputContext {
     preedit: String,
     committed: String,
     composer_type: ComposerType,
+    /// chord inject 후 보관하는 입력 순서 자모 목록.
+    /// backspace 시 마지막 자모를 pop 한 뒤 chord_compose 재실행 → 재inject.
+    /// inject 외 경로(sequential add_jamo, commit, clear, reset)에서는 비어있음.
+    chord_input_order: Vec<JamoEnum>,
 }
 
 impl Default for HangulInputContext {
@@ -59,6 +64,7 @@ impl HangulInputContext {
             preedit: String::new(),
             committed: String::new(),
             composer_type,
+            chord_input_order: Vec::new(),
         }
     }
 
@@ -82,6 +88,7 @@ impl HangulInputContext {
                     preedit: String::new(),
                     committed: String::new(),
                     composer_type: ComposerType::ThreeBul,
+                    chord_input_order: Vec::new(),
                 })
             }
             // "2bul" 또는 영문 계열(qwerty/dvorak/...): 한글 조합 경로는 2벌식 기반.
@@ -92,6 +99,7 @@ impl HangulInputContext {
                     preedit: String::new(),
                     committed: String::new(),
                     composer_type: ComposerType::TwoBul,
+                    chord_input_order: Vec::new(),
                 })
             }
         }
@@ -117,6 +125,9 @@ impl HangulInputContext {
     /// # Returns
     /// 입력 처리 성공 여부
     pub fn process_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> bool {
+        // sequential 자모 추가: chord inject 추적 종료.
+        self.chord_input_order.clear();
+
         unim_log!(
             "CONTEXT",
             "process_jamo_with_meta: {:?} meta={:?}",
@@ -147,7 +158,63 @@ impl HangulInputContext {
     }
 
     /// 마지막 입력된 자모를 제거합니다 (Backspace).
+    ///
+    /// chord inject 모드(`chord_input_order` 비어있지 않음)일 때:
+    ///   - 입력 순서의 마지막 자모 pop → 남은 자모로 `compose_chord` 재실행 → 재inject.
+    ///   - 자모가 0개 남으면 preedit 비우고 종료.
+    ///
+    /// sequential 모드일 때: 기존 composer.remove_jamo() 경로.
     pub fn backspace(&mut self) -> bool {
+        // ── chord inject 모드 ──────────────────────────────────────────────
+        if !self.chord_input_order.is_empty() {
+            self.chord_input_order.pop(); // 마지막 자모 제거
+            if self.chord_input_order.is_empty() {
+                // 자모 전부 제거 → preedit 비움
+                self.composer.clear_queues_synced();
+                self.composer.clear_jamo();
+                self.preedit.clear();
+                return true;
+            }
+            // 남은 자모로 chord_compose 재실행
+            let remaining = self.chord_input_order.clone();
+            let combined_jamo = self.composer.get_combined_jamo().clone();
+            let entries: Vec<ChordEntry> = remaining
+                .iter()
+                .enumerate()
+                .map(|(i, j)| ChordEntry {
+                    kind: ChordEntryKind::Jamo(*j),
+                    input_order: i as u8,
+                    meta: JamoMeta::default(),
+                })
+                .collect();
+            let result = compose_chord(&entries, &combined_jamo);
+            // inject_to_preedit=true면 재inject (비자모·fallback 없음 보장)
+            if result.inject_to_preedit && result.non_jamos.is_empty() {
+                self.composer.clear_queues_synced();
+                self.composer.clear_jamo();
+                let default_meta = JamoMeta::default();
+                if let Some(c) = result.cho {
+                    self.composer.push_back_synced(JamoEnum::Cho(c), default_meta);
+                }
+                if let Some(j) = result.jung {
+                    self.composer.push_back_synced(JamoEnum::Jung(j), default_meta);
+                }
+                if let Some(jo) = result.jong {
+                    self.composer.push_back_synced(JamoEnum::Jong(jo), default_meta);
+                }
+                self.composer.compose_korean();
+                self.update_preedit();
+            } else {
+                // 재합성 실패(조합 안 되는 자모 조합 등) → preedit 비움
+                self.chord_input_order.clear();
+                self.composer.clear_queues_synced();
+                self.composer.clear_jamo();
+                self.preedit.clear();
+            }
+            return true;
+        }
+
+        // ── sequential 모드 ───────────────────────────────────────────────
         if self.composer.is_compose() {
             if self.composer.remove_jamo().is_some() {
                 self.update_preedit();
@@ -176,6 +243,7 @@ impl HangulInputContext {
 
     /// 현재 조합 중인 내용을 강제로 확정(commit)합니다.
     pub fn commit(&mut self) -> Option<char> {
+        self.chord_input_order.clear();
         let c = self.composer.force_compose_korean();
         if let Some(ch) = c {
             self.committed.push(ch);
@@ -198,6 +266,7 @@ impl HangulInputContext {
 
     /// 입력 컨텍스트를 완전히 초기화합니다.
     pub fn clear(&mut self) {
+        self.chord_input_order.clear();
         self.composer.force_compose_korean();
         self.preedit.clear();
         self.committed.clear();
@@ -206,6 +275,7 @@ impl HangulInputContext {
     /// IME 리셋 - 현재 조합을 포기하고 상태만 초기화합니다.
     /// (committed 문자열은 유지하지 않음)
     pub fn reset(&mut self) {
+        self.chord_input_order.clear();
         self.composer.force_compose_korean();
         self.preedit.clear();
         self.committed.clear();
@@ -273,6 +343,61 @@ impl HangulInputContext {
     /// `context_alt.when == "last_is_jong"` 분기.
     pub fn last_jamo_is_jong(&mut self) -> bool {
         matches!(self.composer.jamo_queue().back(), Some(JamoEnum::Jong(_)))
+    }
+
+    /// chord 결합 결과를 preedit 에 직접 주입합니다 (Phase 3 모아쓰기 경로).
+    ///
+    /// 호출 전 기존 preedit 는 flush_preedit() 으로 확정되어 있어야 합니다.
+    /// jamo_queue 를 [cho?, jung?, jong?] 순으로 재구성하고 compose_korean() 을 통해
+    /// current_korean_char 를 갱신한다. is_compose()=true 상태를 유지하므로
+    /// 이후 flush_preedit() → commit() → force_compose_korean() 경로가 올바르게 동작.
+    ///
+    /// # 인자
+    /// - `cho`: 초성 (없으면 None)
+    /// - `jung`: 중성 (없으면 None)
+    /// - `jong`: 종성 (없으면 None)
+    /// - `input_order`: chord 입력 순서 자모 목록 (backspace 역제거용). 빈 Vec 이면 추적 비활성.
+    ///
+    /// 모두 None 이면 no-op (빈 preedit).
+    pub fn inject_chord_syllable(
+        &mut self,
+        cho: Option<Cho>,
+        jung: Option<Jung>,
+        jong: Option<Jong>,
+        input_order: Vec<JamoEnum>,
+    ) {
+        if cho.is_none() && jung.is_none() && jong.is_none() {
+            return;
+        }
+        // chord_input_order 갱신 — backspace 역제거 추적.
+        self.chord_input_order = input_order;
+
+        // 큐 초기화 (호출자가 이미 flush_preedit 완료 — 기존 조합 없음).
+        // push_back_synced 로 jamo_queue+meta_queue 를 동기화하면서 재구성.
+        self.composer.clear_queues_synced();
+        self.composer.clear_jamo();
+        // [cho?, jung?, jong?] 순서로 push_back_synced.
+        // compose_korean() 이 jamo_queue+meta_queue 를 left-fold 하므로
+        // 각 영역에 정확히 1개씩만 push 하면 올바른 음절이 조합된다.
+        let default_meta = JamoMeta::default();
+        if let Some(c) = cho {
+            self.composer.push_back_synced(JamoEnum::Cho(c), default_meta);
+        }
+        if let Some(j) = jung {
+            self.composer.push_back_synced(JamoEnum::Jung(j), default_meta);
+        }
+        if let Some(jo) = jong {
+            self.composer.push_back_synced(JamoEnum::Jong(jo), default_meta);
+        }
+        // compose_korean() 으로 current_korean_char 갱신 → update_preedit() 로 preedit 설정.
+        self.composer.compose_korean();
+        self.update_preedit();
+    }
+
+    /// 현재 자모 조합 테이블을 반환합니다 (chord_compose 에 전달용).
+    #[inline]
+    pub fn get_combined_jamo(&self) -> &CombinedJamoMap {
+        self.composer.get_combined_jamo()
     }
 
     /// 현재 사용 중인 컴포저 타입을 반환합니다.
@@ -523,5 +648,104 @@ mod tests {
         let profile = crate::keystroke::profile::load_builtin_profile("en_qwerty").unwrap();
         let ctx = HangulInputContext::new_with_profile(&profile).unwrap();
         assert_eq!(ctx.get_composer_type(), ComposerType::TwoBul);
+    }
+
+    // ========================================================================
+    // Phase 4: chord inject backspace 단위 테스트
+    // ========================================================================
+
+    /// 시나리오 1: ㅎㄱ → chord "ㅋ" → BS → "ㅎ" → BS → ""
+    /// ㅎ+ㄱ 은 combined_jamo 조합이 없으므로 현 테스트에서는
+    /// 직접 inject_chord_syllable 로 preedit "ㅋ" 를 주입하고
+    /// input_order=[ㅎ,ㄱ] 로 추적한 뒤 backspace 2번 동작을 검증.
+    #[test]
+    fn backspace_after_chord_inject_pops_to_h() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        // chord 결과 "ㅋ"(cho-only) 를 직접 inject.
+        // input_order 는 [ㅎ, ㄱ] (입력 순서).
+        ctx.inject_chord_syllable(
+            Some(Cho::K), // ㅋ
+            None,
+            None,
+            vec![JamoEnum::Cho(Cho::H), JamoEnum::Cho(Cho::G)],
+        );
+        assert_eq!(ctx.get_preedit(), "ㅋ");
+
+        // backspace 1번 → input_order 에서 ㄱ pop → [ㅎ] 남음 → chord_compose([ㅎ]) → "ㅎ"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "ㅎ");
+
+        // backspace 1번 → [ㅎ] pop → [] 비어있음 → preedit ""
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "");
+    }
+
+    /// 시나리오 2: ㄱㅏㅁ chord → "감" → BS → "가" → BS → "ㄱ" → BS → ""
+    #[test]
+    fn backspace_after_chord_gam_pops_step_by_step() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        // "감" inject (cho=ㄱ, jung=ㅏ, jong=ㅁ), input_order=[ㄱ,ㅏ,ㅁ]
+        ctx.inject_chord_syllable(
+            Some(Cho::G),
+            Some(Jung::A),
+            Some(Jong::M),
+            vec![
+                JamoEnum::Cho(Cho::G),
+                JamoEnum::Jung(Jung::A),
+                JamoEnum::Jong(Jong::M),
+            ],
+        );
+        assert_eq!(ctx.get_preedit(), "감");
+
+        // BS → ㅁ pop → [ㄱ, ㅏ] → chord_compose([ㄱ,ㅏ]) → "가"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "가");
+
+        // BS → ㅏ pop → [ㄱ] → chord_compose([ㄱ]) → "ㄱ"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "ㄱ");
+
+        // BS → ㄱ pop → [] → preedit ""
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "");
+    }
+
+    /// 시나리오 3: sequential 입력 후 backspace 는 chord_input_order 비어있으므로 기존 경로.
+    #[test]
+    fn backspace_after_sequential_unchanged() {
+        let mut ctx = HangulInputContext::new(ComposerType::TwoBul);
+        ctx.process_jamo(JamoEnum::Cho(Cho::G));
+        ctx.process_jamo(JamoEnum::Jung(Jung::A));
+        assert_eq!(ctx.get_preedit(), "가");
+
+        assert!(ctx.backspace()); // ㅏ 제거 → "ㄱ"
+        assert_eq!(ctx.get_preedit(), "ㄱ");
+
+        assert!(ctx.backspace()); // ㄱ 제거 → ""
+        assert_eq!(ctx.get_preedit(), "");
+
+        assert!(!ctx.backspace()); // 빈 상태
+    }
+
+    /// 시나리오 4: chord inject 후 sequential 자모 추가 → chord_input_order 비워짐 → 이후 BS 는 sequential 경로.
+    #[test]
+    fn backspace_after_chord_then_sequential_clears_chord_order() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        // "가" chord inject
+        ctx.inject_chord_syllable(
+            Some(Cho::G),
+            Some(Jung::A),
+            None,
+            vec![JamoEnum::Cho(Cho::G), JamoEnum::Jung(Jung::A)],
+        );
+        assert_eq!(ctx.get_preedit(), "가");
+
+        // sequential ㅁ 추가 → chord_input_order 비워짐 → "감"
+        ctx.process_jamo(JamoEnum::Jong(Jong::M));
+        assert_eq!(ctx.get_preedit(), "감");
+
+        // backspace → sequential 경로 → ㅁ 제거 → "가"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "가");
     }
 }

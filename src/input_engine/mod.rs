@@ -9,12 +9,14 @@
 
 mod candidates;
 mod chord_buffer;
+pub mod chord_compose;
 mod engine;
 mod popup_dispatch;
 mod press_key;
 mod surrounding;
 mod types;
 
+pub use chord_compose::{compose_chord, ChordEntry, ChordEntryKind, ChordResult};
 pub use engine::InputEngine;
 pub use types::{InputResult, PageDirection, PopupAction};
 
@@ -35,6 +37,8 @@ mod tests_auto_english;
 mod tests_popup_change_page;
 #[cfg(test)]
 mod tests_profile;
+#[cfg(test)]
+mod tests_chord_compose;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///

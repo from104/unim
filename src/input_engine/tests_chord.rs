@@ -14,7 +14,7 @@ mod tests {
     use crate::config::Config;
     use crate::hangul::composer::JamoMeta;
     use crate::hangul::jamo::{Cho, Jong, Jung, JamoEnum};
-    use crate::input_engine::chord_buffer::JamoEntry;
+    use crate::input_engine::chord_compose::{ChordEntry, ChordEntryKind};
     use crate::input_engine::InputEngine;
     use crate::keycode::{KeyCode, ModifierState};
 
@@ -35,9 +35,9 @@ mod tests {
         e
     }
 
-    /// chord 버퍼에 자모 목록을 직접 주입 후 flush해 commit을 얻는 헬퍼.
+    /// chord 버퍼에 항목 목록을 직접 주입 후 flush해 commit을 얻는 헬퍼.
     /// `force_flush` 시뮬레이션 — 실제 키 경로를 거치지 않고 apply_chord_entries를 직접 테스트.
-    fn flush_entries(engine: &mut InputEngine, entries: Vec<JamoEntry>) -> String {
+    fn flush_entries(engine: &mut InputEngine, entries: Vec<ChordEntry>) -> String {
         engine.apply_chord_entries(entries);
         // commit_buffer 내용 수집 후 초기화
         let out = engine.commit_str().to_string();
@@ -53,8 +53,20 @@ mod tests {
         }
     }
 
-    fn entry(jamo: JamoEnum) -> JamoEntry {
-        JamoEntry { jamo, meta: JamoMeta::default() }
+    fn entry(jamo: JamoEnum) -> ChordEntry {
+        ChordEntry {
+            kind: ChordEntryKind::Jamo(jamo),
+            input_order: 0,
+            meta: JamoMeta::default(),
+        }
+    }
+
+    fn non_jamo_entry(c: char) -> ChordEntry {
+        ChordEntry {
+            kind: ChordEntryKind::NonJamo(c),
+            input_order: 0,
+            meta: JamoMeta::default(),
+        }
     }
 
     // =========================================================================
@@ -157,6 +169,29 @@ mod tests {
     // C-2: "구하다" 해결 검증
     // =========================================================================
 
+    /// chord-bidirectional-reverse-cho: 역순 ㅎ+ㄱ → ㅋ.
+    ///
+    /// 회귀 가드 — Phase 7 와이어링 누락 버그(build_korean_context가 사용자 config의
+    /// bidirectional_combine을 composer.moachigi에 주입하지 않던 문제) 재발 방지.
+    /// 정순 (ㄱ,ㅎ)→ㅋ 만 keymap에 정의되어 있고, 역순 (ㅎ,ㄱ)는 composer의
+    /// bidirectional_combine retry 경로가 활성화되어야만 ㅋ로 결합된다.
+    /// 본 테스트가 실패하면 user config → composer 와이어링 회귀.
+    #[test]
+    fn chord_bidirectional_reverse_cho_h_g() {
+        let mut e = engine_anmatae_chord(5000);
+        // 역순 입력: ㅎ → ㄱ → ㅏ. 정순 (ㄱ,ㅎ)→ㅋ 키맵 정의를 (ㅎ,ㄱ) 로 역참조.
+        let entries = vec![
+            entry(JamoEnum::Cho(Cho::H)),
+            entry(JamoEnum::Cho(Cho::G)),
+            entry(JamoEnum::Jung(Jung::A)),
+        ];
+        let result = flush_entries(&mut e, entries);
+        assert_eq!(
+            result, "카",
+            "역순 ㅎ+ㄱ → bidirectional retry → ㅋ + ㅏ = 카"
+        );
+    }
+
     /// chord-Q2-guhada: ㄱ ㅜ → "구" + ㅎ ㅏ → "하" + ㄷ ㅏ → "다" → "구하다"
     #[test]
     fn chord_q2_guhada() {
@@ -170,7 +205,7 @@ mod tests {
 
         let mut total = String::new();
         for (jamos, expected_syllable) in chords {
-            let entries: Vec<JamoEntry> = jamos.iter().map(|j| entry(*j)).collect();
+            let entries: Vec<ChordEntry> = jamos.iter().map(|j| entry(*j)).collect();
             let result = flush_entries(&mut e, entries);
             assert_eq!(&result, expected_syllable, "chord 음절 불일치");
             total.push_str(&result);
@@ -182,15 +217,20 @@ mod tests {
     // 종속성 테스트
     // =========================================================================
 
-    /// chord-O1-off-O2-on: bidirectional_combine=false + chord_window_ms=50 → chord OFF
+    /// chord-O1-off-O2-on: bidirectional_combine=false + chord_window_ms=50 → chord ON
+    ///
+    /// Phase 5a~: chord_window_ms 와 bidirectional_combine 은 독립 게이트.
+    /// chord 타이밍 윈도우(ChordBuffer) 활성화는 chord_window_ms > 0 만으로 결정.
+    /// bidirectional_combine=false 는 composer retry/chord_compose permutation 게이트이며
+    /// ChordBuffer 활성화와 무관하다.
     #[test]
     fn chord_o1_off_o2_on() {
         let mut config = Config::default();
         config.engine.korean.layout = "ko_3bul_anmatae".to_string();
-        config.engine.korean.bidirectional_combine = Some(false); // O1 OFF
-        config.engine.korean.chord_window_ms = Some(50);          // O2 설정
+        config.engine.korean.bidirectional_combine = Some(false); // O1 OFF (bidir 게이트만)
+        config.engine.korean.chord_window_ms = Some(50);          // O2 설정 → chord ON
         let e = InputEngine::new(&config);
-        assert!(!e.chord_buffer.is_active(), "O1 OFF → chord 무시");
+        assert!(e.chord_buffer.is_active(), "chord_window_ms=50 → chord ON (bidir과 독립)");
     }
 
     /// chord-supports-false: 두벌식(supports_moachigi=false) + chord_window_ms=50 → OFF
@@ -219,7 +259,7 @@ mod tests {
     fn idle_flush_single() {
         let mut e = engine_anmatae_chord(50);
         // ㄱ 단독 push → chord 진행 중 (버퍼에 1개)
-        let push_result = e.chord_buffer.push(
+        let push_result = e.chord_buffer.push_jamo(
             JamoEnum::Cho(Cho::G),
             JamoMeta::default(),
         );
@@ -239,9 +279,9 @@ mod tests {
     fn idle_flush_syllable() {
         let mut e = engine_anmatae_chord(50);
         // 영역 정렬: Cho, Jung, Jong 순으로 직접 push
-        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
-        e.chord_buffer.push(JamoEnum::Jung(Jung::A), JamoMeta::default());
-        e.chord_buffer.push(JamoEnum::Jong(Jong::Mieum), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Jong(Jong::Mieum), JamoMeta::default());
         assert!(e.chord_pending_info().is_some(), "3자모 대기 중");
 
         let commit = e.chord_idle_flush_commit();
@@ -254,7 +294,7 @@ mod tests {
     #[test]
     fn idle_flush_cancel_on_reset() {
         let mut e = engine_anmatae_chord(50);
-        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
         let (epoch_before, _) = e.chord_pending_info().unwrap();
 
         // reset() → chord_buffer.clear() → epoch 증가
@@ -270,8 +310,8 @@ mod tests {
     #[test]
     fn idle_flush_cancel_on_focusout() {
         let mut e = engine_anmatae_chord(50);
-        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
-        e.chord_buffer.push(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
         assert!(e.chord_pending_info().is_some());
 
         // chord_idle_flush_commit() = FocusOut 경로의 chord 처리와 동일 호출
@@ -286,7 +326,7 @@ mod tests {
     #[test]
     fn idle_flush_cancel_on_layout_change() {
         let mut e = engine_anmatae_chord(50);
-        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
         let (epoch_before, _) = e.chord_pending_info().unwrap();
 
         // 레이아웃 변경 — chord_buffer.clear() + epoch 증가
@@ -305,11 +345,11 @@ mod tests {
     #[test]
     fn idle_flush_window_stable() {
         let mut e = engine_anmatae_chord(50);
-        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
         let (epoch_after_first, _) = e.chord_pending_info().unwrap();
 
         // 두 번째 자모: epoch 변화 없어야 함 (단일 윈도우)
-        e.chord_buffer.push(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
         let (epoch_after_second, _) = e.chord_pending_info().unwrap();
         assert_eq!(
             epoch_after_first, epoch_after_second,
@@ -326,10 +366,10 @@ mod tests {
     fn idle_flush_many_keys() {
         let mut e = engine_anmatae_chord(50);
         // 영역 정렬 적용: Cho, Cho, Jung, Jung
-        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
-        e.chord_buffer.push(JamoEnum::Cho(Cho::H), JamoMeta::default());
-        e.chord_buffer.push(JamoEnum::Jung(Jung::Eu), JamoMeta::default());
-        e.chord_buffer.push(JamoEnum::Jung(Jung::I), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::H), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::Eu), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::I), JamoMeta::default());
         assert!(e.chord_pending_info().is_some(), "4자모 대기 중");
 
         let commit = e.chord_idle_flush_commit();
@@ -362,8 +402,8 @@ mod tests {
         // chord 버퍼에 ㄱ (R) + ㅏ (K) 를 push — press_key 경로 사용
         // 안마태 자판에서 R=ㄱ(Cho), K=ㅏ(Jung) 매핑 (anmatae 프로필 기준)
         // 직접 push 방식으로 chord 버퍼 활성 상태 만들기
-        e.chord_buffer.push(JamoEnum::Cho(Cho::G), JamoMeta::default());
-        e.chord_buffer.push(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
         assert!(e.chord_pending_info().is_some(), "chord 버퍼 활성 (ㄱ+ㅏ 대기)");
 
         // 한자 키 press → force_flush → "가" 조합 → start_hanja_conversion
@@ -436,5 +476,238 @@ mod tests {
         assert_eq!(window, 0, "supports_moachigi=false → 사용자 config 무시, chord OFF");
         let e = InputEngine::new(&config);
         assert!(!e.chord_buffer.is_active(), "chord OFF 확인");
+    }
+
+    // =========================================================================
+    // Phase 2 신규: 비자모 수용 + press_key 라우팅
+    // =========================================================================
+
+    /// chord_non_jamo_commit_with_jamo:
+    /// chord 활성 + 자모 + 비자모 혼합 apply_chord_entries → 자모 음절 + 비자모 commit 순서 검증.
+    ///
+    /// entries: [Jamo(ㄱ), Jamo(ㅏ), NonJamo('-')]
+    /// 기대: "가-" (자모 음절 후 비자모 commit)
+    #[test]
+    fn chord_non_jamo_commit_with_jamo() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            entry(JamoEnum::Cho(Cho::G)),
+            entry(JamoEnum::Jung(Jung::A)),
+            non_jamo_entry('-'),
+        ];
+        let result = flush_entries(&mut e, entries);
+        assert_eq!(result, "가-", "ㄱ+ㅏ+'-' → 가-");
+    }
+
+    /// chord_non_jamo_only_commit:
+    /// chord 활성 + 비자모만 apply_chord_entries → 비자모 그대로 commit.
+    #[test]
+    fn chord_non_jamo_only_commit() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![non_jamo_entry('a'), non_jamo_entry('b')];
+        let result = flush_entries(&mut e, entries);
+        assert_eq!(result, "ab", "비자모만 → ab commit");
+    }
+
+    /// chord_off_non_jamo_immediate:
+    /// chord OFF (window=0) + 비자모 push_non_jamo → 즉시 반환 (Some).
+    ///
+    /// chord_buffer API 레벨 검증: chord OFF 시 push_non_jamo → Some([NonJamo]) 즉시 반환.
+    #[test]
+    fn chord_off_non_jamo_immediate() {
+        use crate::input_engine::chord_buffer::ChordBuffer;
+        let mut buf = ChordBuffer::new(0); // chord OFF
+        let r = buf.push_non_jamo('-');
+        assert!(r.is_some(), "chord OFF + 비자모 push_non_jamo → Some 즉시 반환");
+        let entries = r.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0].kind, ChordEntryKind::NonJamo('-')));
+    }
+
+    /// chord_max_size_16_mixed:
+    /// 자모 8개 + 비자모 8개 = 16개 누적 후 17번째 → 즉시 flush.
+    /// CHORD_BUFFER_MAX=16 검증.
+    #[test]
+    fn chord_max_size_16_mixed() {
+        use crate::input_engine::chord_buffer::ChordBuffer;
+        let mut buf = ChordBuffer::new(5000);
+        for _ in 0..8 {
+            assert!(buf.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default()).is_none());
+        }
+        for _ in 0..8 {
+            assert!(buf.push_non_jamo('x').is_none());
+        }
+        assert_eq!(buf.len(), 16, "16개 누적 확인");
+        // 17번째 push → MAX flush
+        let r = buf.push_jamo(JamoEnum::Cho(Cho::H), JamoMeta::default());
+        assert!(r.is_some(), "17번째 → MAX flush");
+        assert_eq!(r.unwrap().len(), 17, "flush 결과 17개");
+        assert_eq!(buf.len(), 0);
+    }
+
+    // =========================================================================
+    // Phase 3 신규: chord_compose 통합 — 시나리오 1-7 + 분기 직접 테스트
+    // =========================================================================
+
+    /// phase3_scenario_1_ga:
+    /// 2키 [Cho(ㄱ), Jung(ㅏ)] → inject_to_preedit=true → preedit "가", commit 비어있음.
+    #[test]
+    fn phase3_scenario_1_ga() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 0, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jung(Jung::A)), input_order: 1, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let committed = e.commit_str().to_string();
+        let preedit = e.preedit_str().to_string();
+        assert_eq!(committed, "", "시나리오1: commit 비어있음 (preedit inject)");
+        assert_eq!(preedit, "가", "시나리오1: preedit '가'");
+    }
+
+    /// phase3_scenario_2_gam:
+    /// 3키 [Cho(ㄱ), Jung(ㅏ), Jong(ᆷ)] → preedit "감".
+    #[test]
+    fn phase3_scenario_2_gam() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 0, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jung(Jung::A)), input_order: 1, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jong(Jong::Mieum)), input_order: 2, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let committed = e.commit_str().to_string();
+        let preedit = e.preedit_str().to_string();
+        assert_eq!(committed, "", "시나리오2: commit 비어있음");
+        assert_eq!(preedit, "감", "시나리오2: preedit '감'");
+    }
+
+    /// phase3_scenario_5_ga_dash:
+    /// 3키 [Cho(ㄱ), Jung(ㅏ), NonJamo('-')] → Case C: commit "가-", preedit "".
+    #[test]
+    fn phase3_scenario_5_ga_dash() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 0, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jung(Jung::A)), input_order: 1, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::NonJamo('-'), input_order: 2, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        // 비자모 포함 → flush_preedit 후 commit
+        let committed = e.commit_str().to_string();
+        let preedit = e.preedit_str().to_string();
+        assert_eq!(committed, "가-", "시나리오5: '가-' commit");
+        assert_eq!(preedit, "", "시나리오5: preedit 비어있음");
+    }
+
+    /// phase3_scenario_6_h_g_to_k:
+    /// 2키 [Cho(ㅎ), Cho(ㄱ)] → anmatae 조합 ㅎ+ㄱ=ㅋ → preedit "ㅋ", commit "".
+    #[test]
+    fn phase3_scenario_6_h_g_to_k() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::H)), input_order: 0, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 1, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let committed = e.commit_str().to_string();
+        let preedit = e.preedit_str().to_string();
+        assert_eq!(committed, "", "시나리오6: commit 비어있음");
+        assert_eq!(preedit, "ㅋ", "시나리오6: preedit 'ㅋ' (ㅎ+ㄱ=ㅋ)");
+    }
+
+    /// phase3_scenario_7_kkya:
+    /// 4키 [Cho(ㄱ), Cho(ㄱ), Jung(ㅏ), Jung(ㅏ)] → ㄱ+ㄱ=ㄲ 성공, ㅏ+ㅏ 조합 없음 → all_reduced=false
+    /// → fallback_jamos commit (ㄱ,ㄱ or ㄲ + ㅏ,ㅏ 호환자모).
+    /// anmatae 에 ㅏ+ㅏ 조합 항목 없으면 partial reduce 실패 → 모두 fallback commit.
+    #[test]
+    fn phase3_scenario_7_kkya() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 0, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 1, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jung(Jung::A)), input_order: 2, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jung(Jung::A)), input_order: 3, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let preedit = e.preedit_str().to_string();
+        let committed = e.commit_str().to_string();
+        let combined = format!("{}{}", committed, preedit);
+        // ㅏ+ㅏ 조합 없음 → all_reduced=false → fallback.
+        // 결과: 빈 preedit + fallback commit (ㄲ or ㄱㄱ 포함, ㅏㅏ 포함)
+        assert_eq!(preedit, "", "시나리오7 fallback: preedit 비어있음");
+        assert!(!committed.is_empty(), "시나리오7 fallback: commit 있음");
+        // ㄱ+ㄱ=ㄲ reduce 성공하면 ㄲ, 실패면 ㄱㄱ. 어느쪽이든 포함.
+        assert!(
+            combined.contains('ㄲ') || combined.contains("ㄱㄱ"),
+            "시나리오7: 초성 fallback 포함 (실제='{}')", combined
+        );
+    }
+
+    /// phase3_chord_fail_falls_back:
+    /// 2키 [Cho(ㄱ), Cho(ㅈ)] → anmatae 에 ㄱ+ㅈ 조합 없음 → fallback 호환자모 commit.
+    #[test]
+    fn phase3_chord_fail_falls_back() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 0, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::J)), input_order: 1, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let committed = e.commit_str().to_string();
+        let preedit = e.preedit_str().to_string();
+        // ㄱ+ㅈ 조합 없음 → fallback 호환자모 "ㄱㅈ" commit (또는 preedit "ㄱ" + commit "ㅈ" 등)
+        // 핵심: 빈 결과 아님 + preedit 에 "가" "나" 등 한글 음절 없음
+        assert_eq!(preedit, "", "조합 실패: preedit 비어있음");
+        assert!(!committed.is_empty(), "조합 실패: fallback commit 있음");
+    }
+
+    /// phase3_single_jamo_sequential:
+    /// 1키 [Cho(ㄱ)] → 1키 분기 (풀어쓰기) → composer 직접 호출 → preedit "ㄱ".
+    #[test]
+    fn phase3_single_jamo_sequential() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 0, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let committed = e.commit_str().to_string();
+        let preedit = e.preedit_str().to_string();
+        assert_eq!(committed, "", "1키 분기: commit 비어있음");
+        assert_eq!(preedit, "ㄱ", "1키 분기: preedit 'ㄱ'");
+    }
+
+    /// phase3_single_non_jamo_commit:
+    /// 1키 [NonJamo('-')] → 1키 분기 → flush_preedit + commit "-".
+    #[test]
+    fn phase3_single_non_jamo_commit() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::NonJamo('-'), input_order: 0, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let committed = e.commit_str().to_string();
+        let preedit = e.preedit_str().to_string();
+        assert_eq!(committed, "-", "1키 비자모: '-' commit");
+        assert_eq!(preedit, "", "1키 비자모: preedit 비어있음");
+    }
+
+    /// phase3_keui_regression:
+    /// 4키 [Cho(ㄱ), Cho(ㅎ), Jung(ㅡ), Jung(ㅣ)] → chord_compose → "킈".
+    /// idle_flush_many_keys 와 동일 시나리오를 apply_chord_entries 직접 경로로 검증.
+    #[test]
+    fn phase3_keui_regression() {
+        let mut e = engine_anmatae_chord(5000);
+        let entries = vec![
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::G)), input_order: 0, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Cho(Cho::H)), input_order: 1, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jung(Jung::Eu)), input_order: 2, meta: JamoMeta::default() },
+            ChordEntry { kind: ChordEntryKind::Jamo(JamoEnum::Jung(Jung::I)), input_order: 3, meta: JamoMeta::default() },
+        ];
+        e.apply_chord_entries(entries);
+        let preedit = e.preedit_str().to_string();
+        // inject_to_preedit=true → "킈" preedit (음절 형성)
+        assert_eq!(preedit, "킈", "phase3 keui 회귀: preedit '킈'");
+        assert_eq!(e.commit_str(), "", "phase3 keui 회귀: commit 비어있음");
     }
 }

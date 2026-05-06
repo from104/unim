@@ -179,11 +179,14 @@ impl InputEngine {
 
     /// Config에서 유효 chord_window_ms를 계산.
     ///
-    /// Phase 7 OPT-IN: 키맵 기본값 참조 완전 제거. 사용자 config 명시값만 사용.
-    /// - `moachigi.is_none()` (supports_moachigi=false 자판) → 0 (강제 OFF)
-    /// - 사용자 config `bidirectional_combine` = None 또는 Some(false) → 0 (OPT-IN 디폴트 OFF)
+    /// Phase 5a~: chord_window_ms와 bidirectional_combine은 독립 게이트.
+    /// - `moachigi.is_none()` (supports_moachigi=false 자판) → 0 (강제 OFF, 자판 capability 게이트)
     /// - 사용자 config `chord_window_ms` = None → 0 (OPT-IN 디폴트 OFF)
-    /// - 두 값 모두 Some(true)/Some(N) → N 반환
+    /// - 사용자 config `chord_window_ms` = Some(0) → 0 (명시적 OFF)
+    /// - 사용자 config `chord_window_ms` = Some(N) → N 반환
+    ///
+    /// `bidirectional_combine`은 composer retry 및 chord_compose permutation 게이트이며
+    /// chord 타이밍 윈도우(ChordBuffer) 활성화와는 독립적으로 동작한다.
     pub(crate) fn compute_chord_window_ms(config: &Config) -> u16 {
         use crate::keystroke::profile::{resolve_inherits, ProfileRegistry};
 
@@ -204,19 +207,8 @@ impl InputEngine {
             return 0;
         }
 
-        // OPT-IN: 사용자가 명시적으로 활성화하지 않으면 OFF.
-        // None = OFF (키맵 기본값 미참조).
-        let bidir = config
-            .engine
-            .korean
-            .bidirectional_combine
-            .unwrap_or(false);
-
-        if !bidir {
-            return 0;
-        }
-
         // chord_window_ms: 사용자 설정만. None = 0 (OFF).
+        // bidirectional_combine과 독립 — 두 옵션은 별도 게이트.
         config.engine.korean.chord_window_ms.unwrap_or(0)
     }
 
@@ -467,5 +459,49 @@ impl InputEngine {
             self.english_keymap = Self::create_english_keymap(&layout);
             self.english_layout = layout;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// chord_window_ms 와 bidirectional_combine 이 독립 게이트임을 검증.
+    ///
+    /// - chord_window_ms=Some(60), bidirectional_combine=None → 60 반환 (bidir 없어도 chord 동작)
+    /// - chord_window_ms=None, bidirectional_combine=Some(true) → 0 반환 (chord_window 없으면 OFF)
+    /// - chord_window_ms=Some(80), bidirectional_combine=Some(false) → 80 반환 (bidir과 무관)
+    #[test]
+    fn compute_chord_window_independent_of_bidirectional() {
+        let mut config = Config::default();
+        // 모아치기 지원 자판으로 설정
+        config.engine.korean.layout = "ko_anmatae".to_string();
+
+        // 케이스 1: chord_window_ms=Some(60), bidirectional_combine=None → 60
+        config.engine.korean.chord_window_ms = Some(60);
+        config.engine.korean.bidirectional_combine = None;
+        assert_eq!(
+            InputEngine::compute_chord_window_ms(&config),
+            60,
+            "chord_window_ms=Some(60), bidir=None should return 60"
+        );
+
+        // 케이스 2: chord_window_ms=None, bidirectional_combine=Some(true) → 0
+        config.engine.korean.chord_window_ms = None;
+        config.engine.korean.bidirectional_combine = Some(true);
+        assert_eq!(
+            InputEngine::compute_chord_window_ms(&config),
+            0,
+            "chord_window_ms=None should return 0 regardless of bidir"
+        );
+
+        // 케이스 3: chord_window_ms=Some(80), bidirectional_combine=Some(false) → 80
+        config.engine.korean.chord_window_ms = Some(80);
+        config.engine.korean.bidirectional_combine = Some(false);
+        assert_eq!(
+            InputEngine::compute_chord_window_ms(&config),
+            80,
+            "chord_window_ms=Some(80), bidir=Some(false) should return 80 (independent)"
+        );
     }
 }

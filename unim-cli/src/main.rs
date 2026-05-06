@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 use unim::config::{
     english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
-    normalize_korean_layout_name, Config as UnimConfig, InputCategory, ModeSharingMode,
+    normalize_korean_layout_name, Config as UnimConfig, InputCategory, KoreanConfig,
+    ModeSharingMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -1167,7 +1168,7 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
         ConfigKey::KoreanBidirectionalCombine => {
             if value.is_empty() {
                 config.engine.korean.bidirectional_combine = None;
-                println!("korean.bidirectional_combine: 자판 기본값 사용");
+                println!("korean.bidirectional_combine: 미설정 (OFF)");
             } else {
                 let enabled: bool = value
                     .parse()
@@ -1180,13 +1181,14 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
         ConfigKey::KoreanChordWindowMs => {
             if value.is_empty() {
                 config.engine.korean.chord_window_ms = None;
-                println!("korean.chord_window_ms: 자판 기본값 사용");
+                println!("korean.chord_window_ms: 미설정 (모아치기 OFF)");
             } else {
                 let ms: u16 = value
                     .parse()
-                    .map_err(|_| "Invalid value, use 0~65535 ms (or empty to reset)".to_string())?;
+                    .map_err(|_| "Invalid value, use 0 (OFF) or 10-150 ms (or empty to reset)".to_string())?;
+                KoreanConfig::validate_chord_window_ms(Some(ms))?;
                 config.engine.korean.chord_window_ms = Some(ms);
-                println!("korean.chord_window_ms: {ms}ms");
+                println!("korean.chord_window_ms: {ms}ms (범위 10-150, 0=OFF)");
             }
         }
     }

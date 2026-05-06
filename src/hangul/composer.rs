@@ -194,6 +194,13 @@ pub trait HangulComposer {
 
     // 현재 조합 중인 한글
     fn current_korean(&mut self) -> &mut HangulChar;
+
+    /// jamo 와 meta 를 한 쌍으로 큐에 push (meta_queue 동기화 보장).
+    /// inject_chord_syllable 등 외부에서 큐를 직접 구성할 때 사용.
+    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta);
+
+    /// jamo_queue + meta_queue 를 동시에 비움 (동기화 보장).
+    fn clear_queues_synced(&mut self);
 }
 
 /// `HangulComposer` 트레이트의 기본 구현을 제공하는 구조체입니다.
@@ -936,5 +943,13 @@ impl HangulComposer for BaseHangulComposer {
     /// 현재 조합 중인 한국어의 가변 참조
     fn current_korean(&mut self) -> &mut HangulChar {
         &mut self.current_korean_char
+    }
+
+    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
+        BaseHangulComposer::push_back_synced(self, jamo, meta)
+    }
+
+    fn clear_queues_synced(&mut self) {
+        BaseHangulComposer::clear_queues_synced(self)
     }
 }

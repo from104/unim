@@ -4,7 +4,30 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
-## [0.3.0] 2026-05-05
+
+## [0.4.0] 2026-05-07
+
+### Added
+
+- **Moachigi v4 — Atomic Window Principle**: The chord window now makes all branching decisions at expiry time, not on each keystroke. 1 jamo in buffer → normal sequential processing; 2+ jamo → region-sorted chord compose with permutation search. This eliminates the previous mid-window commit artifacts.
+- **`chord_compose` module** (`src/input_engine/chord_compose.rs`): Region-classified permutation search for chord composition. cho ≤ 2 keys (2 permutations), jung/jong ≤ 3 keys (6 permutations), with fallback to compatibility jamo on no match.
+- **Non-jamo keys stay outside the chord window**: punctuation and symbols (e.g., `-`, `,`) no longer join the chord buffer. On window expiry, if a syllable can be formed it is committed first, then the non-jamo character is emitted. If no combination succeeds, compatibility jamo + the non-jamo character are committed in sequence.
+- **`bidirectional_combine` semantics clarified**: The option is now independent of `chord_window_ms`. Sequential (time-separated) jamo can also combine bidirectionally — e.g., ㅎ typed before ㄱ produces ㅋ even without chord timing.
+- **`chord_window_ms` defaults and range updated**: default 50 ms → **60 ms**, range 10–100 ms → **10–150 ms**.
+- **`KoreanConfig::validate_chord_window_ms`**: New validation function. Accepts 0 (chord disabled) or 10–150 ms; rejects all other values with a descriptive error.
+- **Backspace restores chord preedit**: pressing Backspace during or after a chord removes jamo in `input_order` reverse sequence and recomposes the remaining syllable, matching the behavior users expect from sequential three-beol.
+- **Settings GUI updates** (`unim-gui-gtk`): `chord_window_ms` slider range extended to 10–150 ms, default marker moved to 60 ms, tick marks at 10 / 30 / 50 / 60 / 80 / 100 / 120 / 150. Tooltips updated to note the independence of the two moachigi options and to recommend 80–100 ms for beginners.
+- **User guide — keyboard compatibility section**: `docs/user/keymaps/anmatae.md` and `anmatae.en.md` gain a new "Keyboard Compatibility (NKRO Recommended)" section covering KRO limits, USB polling rate, and a ghosting self-diagnosis guide (`xev`, online key tester, window-expansion test).
+- **Troubleshooting — moachigi section** (§15): `docs/user/troubleshooting/README-ko.md` and `README.md` gain "모아치기(chord)가 제대로 인식 안 됨" / "Moachigi not recognized correctly" covering the five most common root causes: window too short, NKRO not supported, low USB polling rate, bidirectional_combine off, and layout not moachigi-capable.
+
+### Changed
+
+- `chord_window_ms` slider in the GTK settings dialog: previous range 10–100 ms is now 10–150 ms; previous default 50 ms is now 60 ms.
+- `bidirectional_combine` tooltip text updated to emphasize that it operates independently of the chord window and applies to sequential input as well.
+
+---
+
+## [0.3.0] 2026-05-06
 
 ### Breaking changes
 
@@ -32,6 +55,7 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
   the v0/v1 detection role. Builder's `fallback_for(layout_type)` v0
   compatibility path also deleted.
 - **`HangulComposer3BulMoachigi` separate composer** removed. Moachigi logic is now handled entirely within `HangulComposer3Bul` via the `chord_buffer` layer in `InputEngine`. No user-visible behavior change.
+- **`emoji_popup.enabled` config field** removed across all 5 sync points (`src/config.rs` `EmojiPopupConfig` struct, `src/input_engine/{engine,press_key}.rs` gate, `unim-cli config emoji-popup` subcommand, `unim-dbus` `GetConfig`/`SetConfig` branches, `unim-gui-gtk` SwitchRow + `row_emoji_popup*` locale keys, `emoji_popup_label` CLI label). The Hanja key idle trigger is now unconditionally always-on — single entry point for both Hanja conversion (during composition) and emoji popup (when idle). Existing `~/.config/unim/config.yaml` lines under `engine.emoji_popup` are silently ignored via `#[serde(default)]` and dropped on next save.
 
 ### Added
 
@@ -47,6 +71,7 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
   could re-introduce silent fallback regressions like the early `en_workman`
   miss.
 - **Ahnmatae (안마태 2003) keyboard built-in** (`ko_3bul_anmatae`): First moachigi (chord-based) Korean layout in UNIM. Three-beol layout with fixed cho/jung/jong regions. Includes 9 cho, 15 jung, and 20 jong combination rules. Archaic jamo (옛한글) positions (W/T/G/J/B/N upper) are remapped to Korean typography symbols (`"` `"` `'` `'` `·` `…`); archaic codepoints anywhere in the profile trigger `LoadError::ArchaicJamoNotSupported`.
+- **Qwerty Sebeolsik v2 keyboard built-in** (`ko_3bul_qwerty`, v2): Reintroduced under the v3 moachigi schema after being dropped from built-ins in 0.2.0. Alphabet 26-seat saturation (10 cho / 6 jung / 10 jong) on lower — full Korean input without Shift. Upper 26 seats carry differentiated content: 5 doubled jamo (KK→ㄲ, UU→ㄸ, PP→ㅃ, OO→ㅆ, LL→ㅉ), 6 combined medials (T→ㅖ, F→ㅒ, D→ㅢ, G→ㅙ, N→ㅘ, B→ㅞ), 4 aspirated finals (X→ᆿ, C→ᇀ, R→ᇁ, V→ᆾ), 5 combined/doubled finals (Q→ᆻ, W→ᆰ, S→ᆬ, Z→ᆱ, E→ᆭ), and 6 Korean typography symbols (Y→「, I→」, H→※, J→·, A→", M→").
 - **Layout profile v3 schema** (`schema_version: 3`): Adds a single top-level capability marker for moachigi layouts:
   - `supports_moachigi: bool` — signals that this layout is chord-capable. The GTK settings dialog reveals the Moachigi group only when this flag is true. Behavior options live in the user config, not the keymap (see below).
 - **Moachigi user config** (`~/.config/unim/config.yaml` under `korean.*`): two new opt-in settings, applied only when the active layout has `supports_moachigi=true`:
@@ -55,6 +80,10 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 - **Moachigi chord engine** (`src/input_engine/chord_buffer.rs`): Single-window chord accumulator. First jamo starts an N-ms tokio timer; jamo arriving within the window are buffered. On expiry: 1 jamo → normal sequential processing; 2+ jamo → region-classified chord compose with bidirectional combine. Flush triggers: idle timeout (tokio timer), Space/Enter/Tab/Backspace/Hanja/etc., mode switch, FocusOut, Escape (discard), MAX 8 jamo.
 - **GTK settings dialog — Moachigi group**: New `AdwPreferencesGroup` with a toggle row ("동시 입력 자모 역순 결합" / "Bidirectional Jamo Combine") and a slider row ("동시 입력 시간 (ms)" / "Chord Window (ms)", 10–100 ms). Group is shown only when the selected layout has `supports_moachigi=true`; hidden automatically when switching to other layouts.
 - **User guide** for Ahnmatae keyboard: `docs/user/keymaps/anmatae.md` (Korean) and `docs/user/keymaps/anmatae.en.md` (English).
+
+### Changed
+
+- **Settings dialog live help enrichment** (`unim-gui-gtk/src/settings_dialog.rs` + `locales/{ko,en}.yml`): Every settings row in the dialog gained richer subtitles and tooltips in both Korean and English — 26 tooltips reworked, 15 subtitles reworked, 5 new i18n keys added (`row_moachigi_bidirectional_subtitle`, `row_moachigi_chord_subtitle`, `userdict_group_desc_count`, plus enriched `mode_share_*` labels). Tooltips now follow a consistent four-element template (what / when / why / recommended-value-or-side-effect) with concrete numeric guidance (e.g., AutoTypeFix forward `2`, reverse `3`, observe window `5–15s`, tentative expiry `1–12h`) and explicit X11 / GNOME Wayland behavior differences where applicable. Domain terminology unified across locales (`AutoTypeFix`, `순방향`/`역방향`, `preedit`/`조합`, `IME`/`실시간 입력기`).
 
 ## [0.2.0] 2026-04-26
 

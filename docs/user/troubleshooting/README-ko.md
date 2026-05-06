@@ -361,6 +361,77 @@ journalctl --user -u unim-daemon -n 500 > unim-mem.log
 
 ---
 
+## 15. "모아치기(chord)가 제대로 인식 안 됨"
+
+모아치기 관련 문제는 원인이 다양하다. 아래 항목을 순서대로 확인한다.
+
+### 15-1. 현재 자판이 모아치기를 지원하지 않음
+
+모아치기는 `supports_moachigi: true`인 자판에서만 동작한다. 현재는 **안마태 자판 (ko_3bul_anmatae)** 과 **쿼티형 세벌식 v2 (ko_3bul_qwerty)** 만 해당된다.
+
+```bash
+# 현재 자판 확인
+unim-cli config show | grep -E 'layout|keymap'
+```
+
+출력에서 `ko_3bul_anmatae` 또는 `ko_3bul_qwerty`가 아니라면 GTK 설정에서 자판을 변경해야 한다. 모아치기 지원 자판으로 바꾸면 설정 다이얼로그에 **모아치기** 그룹이 자동으로 나타난다.
+
+### 15-2. chord_window_ms가 너무 짧음
+
+`chord_window_ms` 기본 권장값은 **60ms**다. 처음 모아치기를 시작하거나 입력 속도가 빠르지 않다면 **80~100ms** 부터 시작해 익숙해지면 줄여 나가는 것이 좋다.
+
+```bash
+# 현재 설정값 확인
+unim-cli config get korean.chord_window_ms
+
+# 80ms로 변경
+unim-cli config set korean.chord_window_ms 80
+```
+
+또는 GTK 설정 다이얼로그 > 자판 > **동시 입력 시간 (ms)** 슬라이더로 조정한다.
+
+### 15-3. bidirectional_combine이 비활성 상태
+
+자모 역순 결합(예: ᆯ+ᆨ → ᆰ, ㅎ+ㄱ → ㅋ)이 안 된다면 **양방향 자모 결합** 옵션이 꺼져 있는 것이다.
+
+```bash
+# 현재 상태 확인
+unim-cli config get korean.bidirectional_combine
+
+# 활성화
+unim-cli config set korean.bidirectional_combine true
+```
+
+또는 GTK 설정 다이얼로그 > 자판 > **양방향 자모 결합** 토글을 ON.
+
+### 15-4. 키보드가 NKRO를 지원하지 않음 (ghosting)
+
+일반 멤브레인 키보드는 2~3 KRO(Key Rollover) 한계로 인해 여러 키를 동시에 눌렀을 때 일부 키가 운영체제에 전달되지 않는다(ghosting). chord가 누락되거나 엉뚱한 자모로 조합된다면 키보드 자체가 동시 입력을 지원하지 못하는 것일 수 있다.
+
+자가 진단:
+
+```sh
+# X11 환경에서 동시 키 이벤트 확인
+xev -event keyboard
+```
+
+Wayland 환경에서는 `xev` 대신 `wev` 사용 (`apt install wev` 또는 동등).
+
+나타나는 창에 포커스를 두고 chord에서 사용하는 키를 모두 동시에 누른다. 터미널에 `KeyPress event`가 키 수만큼 모두 찍혀야 한다. 또는 브라우저에서 [keyboardchecker.com](https://keyboardchecker.com) 등 온라인 키 테스터를 사용한다.
+
+해결: 게이밍 키보드 또는 메커니컬 키보드의 NKRO 모드 사용 권장. 자세한 내용은 [안마태 자판 가이드 — 키보드 호환성](../keymaps/anmatae.md#키보드-호환성-nkro-권장) 참고.
+
+### 15-5. USB 폴링 레이트 낮음 (125Hz = 8ms 분해능)
+
+USB 키보드의 기본 폴링 레이트는 125Hz(= 8ms 간격)다. `chord_window_ms`를 10~30ms처럼 짧게 설정하면 폴링 주기 자체가 윈도우의 상당 부분을 차지해 일부 키를 놓칠 수 있다.
+
+해결:
+
+- `chord_window_ms`를 **60ms 이상**으로 올려 폴링 지연 여유분 확보.
+- 1000Hz 폴링 지원 게이밍 키보드 사용, 또는 USB 포트 변경.
+
+---
+
 ## 빌드 실패
 
 ### 일반 빌드 실패

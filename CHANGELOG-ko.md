@@ -1,8 +1,32 @@
 # Changelog
 
+<!-- markdownlint-disable MD024 -->
+
 UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주목할만한 변경 사항은 이 파일에 기록됩니다.
 
 형식은 [Keep a Changelog (korean)]를 기반으로 하며 이 프로젝트는 [Semantic Versioning (korean)]을 따릅니다.
+
+## [0.4.0] 2026-05-07
+
+### 추가됨
+
+- **모아치기 v4 — Atomic Window Principle**: chord 윈도우가 만료되는 시점에 모든 분기를 결정한다. 버퍼에 자모 1개 → 일반 풀어쓰기 처리; 2개 이상 → 영역 정렬 + permutation 결합(chord compose). 이전 방식에서 발생하던 윈도우 중간 commit 아티팩트가 제거된다.
+- **`chord_compose` 모듈** (`src/input_engine/chord_compose.rs`): 영역별 permutation 탐색으로 chord를 조합한다. cho ≤ 2키(2 순열), jung/jong ≤ 3키(6 순열), 매칭 실패 시 호환자모로 fallback.
+- **비자모 키의 chord 윈도우 미합류**: 구두점·기호(예: `-`, `,`)는 chord 버퍼에 포함되지 않는다. 윈도우 만료 시 음절 형성이 가능하면 음절을 먼저 commit하고 이후 비자모 문자를 출력한다. 결합 실패 시 호환자모 + 비자모 문자 순으로 commit.
+- **`bidirectional_combine` 의미 보강**: `chord_window_ms`와 완전 독립 옵션으로 명확화. 시간차가 있는 순차 입력에서도 역방향 결합이 적용된다 — 예: ㅎ 타건 후 ㄱ를 눌러도 ㅋ 생성.
+- **`chord_window_ms` 기본값 및 범위 갱신**: 기본값 50ms → **60ms**, 범위 10~100ms → **10~150ms**.
+- **`KoreanConfig::validate_chord_window_ms`**: 신규 검증 함수. 0(chord 비활성) 또는 10~150ms만 허용; 그 외 값은 오류 반환.
+- **Backspace 시 chord preedit 복원**: chord 도중 또는 직후에 Backspace를 누르면 `input_order` 역순으로 자모를 제거하고 나머지 자모로 음절을 재합성. 일반 세벌식과 동일한 사용자 기대치 충족.
+- **설정 GUI 갱신** (`unim-gui-gtk`): `chord_window_ms` 슬라이더 범위 10~150ms로 확장, 기본값 표시 60ms로 이동, tick 마크 10 / 30 / 50 / 60 / 80 / 100 / 120 / 150 추가. tooltip이 두 모아치기 옵션의 독립성과 입문자 권장값(80~100ms)을 명시.
+- **사용자 가이드 — 키보드 호환성 섹션**: `docs/user/keymaps/anmatae.md`·`anmatae.en.md`에 "키보드 호환성 (NKRO 권장)" 섹션 추가. KRO 한계, USB 폴링 레이트, ghosting 자가진단(xev·온라인 키 테스터·윈도우 확장 테스트) 포함.
+- **트러블슈팅 §15 — 모아치기 섹션**: `docs/user/troubleshooting/README-ko.md`·`README.md`에 "모아치기가 제대로 인식 안 됨" / "Moachigi not recognized correctly" 섹션 추가. 5가지 주요 원인(윈도우 너무 짧음, NKRO 미지원, USB 폴링 레이트 낮음, bidirectional_combine 비활성, 자판 미지원) 진단·해결 수록.
+
+### 변경됨
+
+- GTK 설정 다이얼로그의 `chord_window_ms` 슬라이더: 범위 10~100ms → 10~150ms, 기본값 50ms → 60ms.
+- `bidirectional_combine` tooltip: chord 윈도우와 독립 동작하며 순차 입력에도 적용됨을 명시.
+
+---
 
 ## [Unreleased]
 

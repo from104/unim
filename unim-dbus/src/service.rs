@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
-use unim::config::{Config, InputCategory};
+use unim::config::{Config, InputCategory, KoreanConfig};
 use unim::input_engine::PopupAction;
 use unim::unim_log;
 
@@ -1017,6 +1017,9 @@ impl InputMethodService {
                     } else {
                         let v: u16 = value.parse().map_err(|_| {
                             zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                        })?;
+                        KoreanConfig::validate_chord_window_ms(Some(v)).map_err(|e| {
+                            zbus::fdo::Error::InvalidArgs(e)
                         })?;
                         config.engine.korean.chord_window_ms = Some(v);
                     }

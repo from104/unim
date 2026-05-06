@@ -268,6 +268,52 @@ The window is flushed by any of the following:
 
 ---
 
+## Keyboard Compatibility (NKRO Recommended)
+
+Moachigi (chord input) requires that every key pressed simultaneously is reported to the operating system as a separate key event. This property is called **N-Key Rollover (NKRO)**. Without it, some keys in a simultaneous press are silently dropped — a phenomenon known as **ghosting** — causing chords to be incomplete or composed as the wrong jamo.
+
+### KRO Limits and Ghosting
+
+Most membrane keyboards support only **2-KRO or 3-KRO**. On a 3-KRO keyboard, pressing four keys simultaneously means one of them is never reported. A typical Ahnmatae chord covers 2–4 keys (e.g., 2 cho + 2 jung), so a **6-KRO keyboard handles the majority of chords fine**. Complex chords that span all three regions (cho 2 + jung 2 + jong 2 = up to 6 keys) require NKRO.
+
+| Keyboard type | KRO level | Moachigi suitability |
+| ------------- | --------- | -------------------- |
+| Standard membrane (budget) | 2–3 KRO | Simple 2-key chords OK; complex chords risk ghosting |
+| Gaming membrane | 6–10 KRO (certain key combinations) | Most chords OK |
+| Mechanical (USB) | 6–14 KRO, NKRO mode often available | Recommended |
+| Mechanical (PS/2 interface) | Full NKRO | Ideal |
+
+> Recommendation: use a **mechanical keyboard in NKRO mode** or a **PS/2-connected keyboard**. Many USB mechanical keyboards allow switching to NKRO via a firmware toggle (e.g., Fn+N or a BIOS-level setting — consult your keyboard's documentation).
+
+### USB Polling Rate
+
+USB keyboards report key events to the OS at a default rate of **125 Hz (one report every 8 ms)**. When `chord_window_ms` is set to 10–30 ms, that 8 ms polling interval consumes a significant portion of the window, and some chord keys may only be reported in the next polling cycle — causing them to be missed. To work around this:
+
+- Raise `chord_window_ms` to **60 ms or higher** to give the polling interval adequate headroom.
+- Switch to a **1000 Hz (1 ms) polling** gaming keyboard, or try a different USB port.
+
+### Ghosting Self-Diagnosis
+
+#### Method 1 — xev (Linux X11)
+
+```sh
+xev -event keyboard
+```
+
+Focus the white window that appears, then press all the keys of your target chord simultaneously. The terminal should print one `KeyPress event` line per key. If any key is missing from the output, ghosting is occurring.
+
+Example: to type `킈` on the Ahnmatae layout, press Q (ㄱ), H (ㅎ), U (ㅡ), and I (ㅣ) at once. The `xev` log must show four `KeyPress` events — `q`, `h`, `u`, `i` — or a chord key is being dropped.
+
+#### Method 2 — Online key tester
+
+Open a key-tester site such as [keyboardchecker.com](https://keyboardchecker.com) or [keyboard-test.com](https://keyboard-test.com) in your browser, then press all the keys in your chord simultaneously. Every key should light up on the on-screen keyboard visualization. Any key that stays unlit is being ghosted.
+
+#### Method 3 — Raise chord_window_ms above 100 ms as a test
+
+Increasing the window relaxes the simultaneity requirement. If chords work correctly at 100 ms+ but fail at your normal setting, the issue is polling rate or KRO — not input speed.
+
+---
+
 ## Troubleshooting
 
 ### "구하다" (guhada) comes out as "쿠ㅏ다"

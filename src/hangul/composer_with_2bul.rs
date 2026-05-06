@@ -586,4 +586,12 @@ impl HangulComposer for HangulComposer2Bul {
     fn current_korean(&mut self) -> &mut HangulChar {
         self.base_composer.current_korean()
     }
+
+    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
+        self.base_composer.push_back_synced(jamo, meta)
+    }
+
+    fn clear_queues_synced(&mut self) {
+        self.base_composer.clear_queues_synced()
+    }
 }

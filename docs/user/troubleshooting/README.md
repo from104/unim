@@ -354,6 +354,77 @@ journalctl --user -u unim-daemon -n 500 > unim-mem.log
 
 ---
 
+## 15. "Moachigi (chord) not recognized correctly"
+
+Chord input failures have several possible causes. Work through the items below in order.
+
+### 15-1. The active layout does not support moachigi
+
+Chord input is only available for layouts that carry `supports_moachigi: true`. Currently only the **Ahnmatae layout (ko_3bul_anmatae)** and **Qwerty Sebeolsik v2 (ko_3bul_qwerty)** qualify.
+
+```bash
+# Check the active layout
+unim-cli config show | grep -E 'layout|keymap'
+```
+
+If the output shows a different layout, switch to one of the moachigi-capable layouts in the GTK settings dialog. The **Moachigi** option group appears automatically once a compatible layout is selected.
+
+### 15-2. chord_window_ms is too short
+
+The recommended default for `chord_window_ms` is **60 ms**. If you are new to moachigi or type at a moderate pace, start at **80–100 ms** and lower the value as you become comfortable.
+
+```bash
+# Check current setting
+unim-cli config get korean.chord_window_ms
+
+# Set to 80 ms
+unim-cli config set korean.chord_window_ms 80
+```
+
+Alternatively, use the GTK settings dialog → Keyboard → **Chord Window (ms)** slider.
+
+### 15-3. bidirectional_combine is off
+
+If reverse-order jamo combinations do not work (e.g., ᆯ+ᆨ → ᆰ, or ㅎ+ㄱ → ㅋ), the **Bidirectional Jamo Combine** option is disabled.
+
+```bash
+# Check current state
+unim-cli config get korean.bidirectional_combine
+
+# Enable
+unim-cli config set korean.bidirectional_combine true
+```
+
+Or use the GTK settings dialog → Keyboard → **Bidirectional Jamo Combine** toggle → ON.
+
+### 15-4. Keyboard does not support NKRO (ghosting)
+
+Standard membrane keyboards are limited to 2–3 KRO (Key Rollover). When more keys are pressed simultaneously than the keyboard can report, the extras are silently dropped — this is called **ghosting**. Symptoms include chords that are consistently incomplete or produce the wrong jamo.
+
+Self-diagnosis:
+
+```sh
+# Check simultaneous key events on X11
+xev -event keyboard
+```
+
+On Wayland, use `wev` instead of `xev` (`apt install wev` or equivalent).
+
+Focus the window that appears, then press all keys in your chord at once. The terminal must print one `KeyPress event` per key. You can also use an online key tester such as [keyboardchecker.com](https://keyboardchecker.com).
+
+Fix: use a gaming keyboard or a mechanical keyboard in NKRO mode. See [Ahnmatae keyboard guide — Keyboard Compatibility](../keymaps/anmatae.en.md#keyboard-compatibility-nkro-recommended) for details.
+
+### 15-5. Low USB polling rate (125 Hz = 8 ms resolution)
+
+The default USB polling rate is 125 Hz (one report every 8 ms). If `chord_window_ms` is set to 10–30 ms, the polling interval itself occupies most of the window, causing some chord keys to be missed.
+
+Fix:
+
+- Raise `chord_window_ms` to **60 ms or higher** to accommodate polling latency.
+- Switch to a 1000 Hz gaming keyboard, or try a different USB port.
+
+---
+
 ## Build failure
 
 ```bash
