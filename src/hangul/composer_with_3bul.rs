@@ -502,6 +502,11 @@ impl HangulComposer for HangulComposer3Bul {
 
         // v3 bidirectional_combine 적용: (a,b) 정순 결합 실패 시 (b,a) 역순 재시도.
         // bidirectional_combine=true이고 해당 영역에 기존 자모가 있을 때만 개입.
+        //
+        // 결합 성공 시 current_korean_char.set_*만으로는 부족하다 — `jamo_queue` 의
+        // 마지막 항목(기존 자모)도 결합 결과로 교체해야 다음 자모 추가 시 base
+        // composer 의 compose_korean 이 stale 큐를 재합성해 결합 결과를 덮어쓰는
+        // 회귀를 막는다. (기존 jung/jong/cho 동일 패턴.)
         if self.is_bidirectional_combine() {
             match jamo {
                 JamoEnum::Cho(incoming) => {
@@ -512,6 +517,9 @@ impl HangulComposer for HangulComposer3Bul {
                             if let Some(JamoEnum::Cho(combined)) =
                                 self.base_composer.get_combined_jamo().get(&key_b).copied()
                             {
+                                self.base_composer.pop_back_synced();
+                                self.base_composer
+                                    .push_back_synced(JamoEnum::Cho(combined), meta);
                                 self.base_composer.set_cho(Some(combined));
                                 return None;
                             }
@@ -526,6 +534,9 @@ impl HangulComposer for HangulComposer3Bul {
                             if let Some(JamoEnum::Jung(combined)) =
                                 self.base_composer.get_combined_jamo().get(&key_b).copied()
                             {
+                                self.base_composer.pop_back_synced();
+                                self.base_composer
+                                    .push_back_synced(JamoEnum::Jung(combined), meta);
                                 self.base_composer.set_jung(Some(combined));
                                 return None;
                             }
@@ -540,6 +551,9 @@ impl HangulComposer for HangulComposer3Bul {
                             if let Some(JamoEnum::Jong(combined)) =
                                 self.base_composer.get_combined_jamo().get(&key_b).copied()
                             {
+                                self.base_composer.pop_back_synced();
+                                self.base_composer
+                                    .push_back_synced(JamoEnum::Jong(combined), meta);
                                 self.base_composer.set_jong(Some(combined));
                                 return None;
                             }
@@ -651,5 +665,13 @@ impl HangulComposer for HangulComposer3Bul {
 
     fn current_korean(&mut self) -> &mut HangulChar {
         self.base_composer.current_korean()
+    }
+
+    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
+        self.base_composer.push_back_synced(jamo, meta)
+    }
+
+    fn clear_queues_synced(&mut self) {
+        self.base_composer.clear_queues_synced()
     }
 }

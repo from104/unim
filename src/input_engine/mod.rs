@@ -76,6 +76,23 @@ fn build_korean_context(config: &Config, fallback_type: ComposerType) -> HangulI
         resolved.active_rule_sets = Some(list.clone());
     }
 
+    // Phase 7 와이어링: 사용자 config 의 moachigi 값을 profile.moachigi 에 주입.
+    // profile 자체의 bidirectional_combine/chord_window_ms 는 deprecated(항상 false/0)
+    // 이므로, supports_moachigi 자판이면 사용자 config 값으로 덮어쓴다.
+    // composer 의 is_bidirectional_combine() 는 이 필드를 읽으므로, 주입 누락 시
+    // (a,b) 실패 → (b,a) 역순 재시도 경로가 영영 발화하지 않는다.
+    if resolved.moachigi.is_some() {
+        use crate::keystroke::profile::MoachigiSpec;
+        resolved.moachigi = Some(MoachigiSpec {
+            bidirectional_combine: config
+                .engine
+                .korean
+                .bidirectional_combine
+                .unwrap_or(false),
+            chord_window_ms: config.engine.korean.chord_window_ms.unwrap_or(0),
+        });
+    }
+
     match HangulInputContext::new_with_profile(&resolved) {
         Ok(ctx) => ctx,
         Err(e) => {
