@@ -1665,7 +1665,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             } => {
                 // epoch 검증: 불일치 시 이미 reset/force_flush/layout-change 등으로
                 // chord 가 폐기된 것이므로 무시한다.
-                let commit = if let Some(engine) = contexts.get_mut(&context_id) {
+                let payload = if let Some(engine) = contexts.get_mut(&context_id) {
                     if engine.chord_epoch_valid(epoch) {
                         unim_log!(
                             "ENGINE_WORKER",
@@ -1673,7 +1673,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             context_id,
                             epoch
                         );
-                        engine.chord_idle_flush_commit()
+                        // idle 만료: preedit 유지 모드 (사용자 명세 v4 후속 결정).
+                        // commit 은 비자모/composer 종결분만, preedit 은 진행 중 음절.
+                        Some(engine.chord_idle_flush_pending())
                     } else {
                         unim_log!(
                             "ENGINE_WORKER",
@@ -1681,12 +1683,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             context_id,
                             epoch
                         );
+                        // stale: 선행 timer 가 이미 처리 후 후속 timer 발화 — 시그널 발사 skip.
                         None
                     }
                 } else {
                     None
                 };
-                let _ = response.send(commit);
+                let _ = response.send(payload);
             }
         }
     }

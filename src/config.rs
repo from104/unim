@@ -523,7 +523,7 @@ pub struct KoreanConfig {
     ///
     /// `None` = OPT-IN OFF (미설정). GUI/CLI 활성화 토글 시 60ms 기본값으로 채운다.
     /// `Some(0)` = 동시 입력 OFF. `Some(N)` = N ms 이내에 들어온 키를 한 음절로 모아 처리.
-    /// 유효 범위: 10-150ms (0=OFF, 1-9·151+ 은 거부). 권장 기본값 60ms.
+    /// 유효 범위: 10-200ms (0=OFF, 1-9·201+ 은 거부). 권장 기본값 60ms.
     /// `supports_moachigi=false` 자판에서는 무시된다.
     /// `bidirectional_combine`과 독립적으로 동작 (Phase 5a~: 두 옵션 분리).
     /// InputEngine 레벨 ChordBuffer로 구현됨 (idle flush + force_flush 패턴).
@@ -555,18 +555,18 @@ impl KoreanConfig {
     ///
     /// - `None` = OK (미설정, OPT-IN OFF)
     /// - `Some(0)` = OK (명시적 OFF)
-    /// - `Some(10..=150)` = OK (유효 범위)
+    /// - `Some(10..=200)` = OK (유효 범위)
     /// - `Some(1..=9)` = Err (너무 작음 — 입력 지연 유발)
-    /// - `Some(151..)` = Err (너무 큼)
+    /// - `Some(201..)` = Err (너무 큼)
     pub fn validate_chord_window_ms(value: Option<u16>) -> Result<(), String> {
         match value {
             None | Some(0) => Ok(()),
-            Some(n) if (10..=150).contains(&n) => Ok(()),
+            Some(n) if (10..=200).contains(&n) => Ok(()),
             Some(n) if n < 10 => Err(format!(
-                "chord_window_ms {n}은 범위를 벗어납니다. 유효값: 0(OFF) 또는 10-150ms"
+                "chord_window_ms {n}은 범위를 벗어납니다. 유효값: 0(OFF) 또는 10-200ms"
             )),
             Some(n) => Err(format!(
-                "chord_window_ms {n}은 범위를 벗어납니다. 유효값: 0(OFF) 또는 10-150ms"
+                "chord_window_ms {n}은 범위를 벗어납니다. 유효값: 0(OFF) 또는 10-200ms"
             )),
         }
     }
@@ -1569,10 +1569,11 @@ preferred_direct: false
         assert!(KoreanConfig::validate_chord_window_ms(Some(10)).is_ok());
         assert!(KoreanConfig::validate_chord_window_ms(Some(60)).is_ok());
         assert!(KoreanConfig::validate_chord_window_ms(Some(150)).is_ok());
+        assert!(KoreanConfig::validate_chord_window_ms(Some(200)).is_ok());
         // Err cases
         assert!(KoreanConfig::validate_chord_window_ms(Some(1)).is_err());
         assert!(KoreanConfig::validate_chord_window_ms(Some(9)).is_err());
-        assert!(KoreanConfig::validate_chord_window_ms(Some(151)).is_err());
+        assert!(KoreanConfig::validate_chord_window_ms(Some(201)).is_err());
         assert!(KoreanConfig::validate_chord_window_ms(Some(65535)).is_err());
     }
 

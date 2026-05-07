@@ -750,7 +750,26 @@ impl InputEngine {
             // ── 2+키 분기: 모아쓰기 (chord_compose 경로)
             let combined_jamo = self.korean_context.get_combined_jamo();
             let result = compose_chord(&entries, combined_jamo);
-            self.apply_chord_result(result);
+            // Case B (모아쓰기 실패 + 비자모 없음): fallback commit 대신 sequential push
+            // → composer inline retry 가 시간차 결합 시도, 결과는 preedit 으로 유지.
+            // (사용자 결정: chord_window 만료 = preedit 갱신만, commit 안 함.
+            //  단 Case A 는 inject_chord_syllable, Case C 는 비자모 강제 종결 그대로.)
+            if !result.inject_to_preedit && result.non_jamos.is_empty() {
+                let mut sorted = entries.clone();
+                sorted.sort_by_key(|e| e.input_order);
+                for entry in &sorted {
+                    if let ChordEntryKind::Jamo(jamo) = entry.kind {
+                        self.korean_context.process_jamo_with_meta(jamo, entry.meta);
+                        let committed = self.korean_context.get_committed();
+                        if !committed.is_empty() {
+                            self.commit_buffer.push_str(committed);
+                            self.korean_context.clear_committed();
+                        }
+                    }
+                }
+            } else {
+                self.apply_chord_result(result);
+            }
         }
 
         self.update_preedit_cache();

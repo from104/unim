@@ -63,6 +63,10 @@ export class UnimDbusIME {
         this._onHanjaCandidatesReordered = null;
         /** @type {Function|null} AutoTypeFix 교정 콜백 */
         this._onAutoTypeFix = null;
+        /** @type {Function|null} CommitText 시그널 콜백 (chord idle flush 등 비동기 commit 경로) */
+        this._onCommitText = null;
+        /** @type {Function|null} UpdatePreeditText 시그널 콜백 (chord idle flush preedit 갱신 등) */
+        this._onUpdatePreedit = null;
         /** @type {Function|null} Config 갱신 콜백 (parsed JSON object) */
         this._onConfigChanged = null;
         /** @type {object|null} 캐시된 Config (GetConfigJson / ConfigChangedJson payload) */
@@ -180,6 +184,8 @@ export class UnimDbusIME {
         this._onHanjaBookmarkChanged = callbacks.onHanjaBookmarkChanged || null;
         this._onHanjaCandidatesReordered = callbacks.onHanjaCandidatesReordered || null;
         this._onPopupRender = callbacks.onPopupRender || null;
+        this._onCommitText = callbacks.onCommitText || null;
+        this._onUpdatePreedit = callbacks.onUpdatePreedit || null;
     }
 
     /**
@@ -352,6 +358,18 @@ export class UnimDbusIME {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
                 this._onAutoTypeFix(deleteChars, commitText, preeditText);
+            } else if (signalName === 'CommitText' && isOwnContext && this._onCommitText) {
+                // 비동기 commit 경로 (예: chord idle flush). ProcessKeyEvent return 의 commit
+                // 필드와 별개로 daemon 이 InputContext path 로 emit 한 CommitText 시그널.
+                const [text] = parameters.deep_unpack();
+                unimLog('DBUS_IME', `CommitText: text='${text}'`);
+                this._onCommitText(text);
+            } else if (signalName === 'UpdatePreeditText' && isOwnContext && this._onUpdatePreedit) {
+                // 비동기 preedit 갱신 (예: chord idle flush preedit 유지 모드).
+                // payload: (text, cursor_pos, visible).
+                const [text, cursorPos, visible] = parameters.deep_unpack();
+                unimLog('DBUS_IME', `UpdatePreeditText: text='${text}', cursor=${cursorPos}, visible=${visible}`);
+                this._onUpdatePreedit(text, cursorPos, visible);
             } else if (signalName === 'PopupRender' && this._onPopupRender) {
                 // 통합 popup render state — daemon 산출 view_model. 헤더/푸터/셀/탭/확장 아이콘
                 // 모두 즉시 렌더 가능. tuple 묶음:

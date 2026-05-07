@@ -1185,10 +1185,10 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             } else {
                 let ms: u16 = value
                     .parse()
-                    .map_err(|_| "Invalid value, use 0 (OFF) or 10-150 ms (or empty to reset)".to_string())?;
+                    .map_err(|_| "Invalid value, use 0 (OFF) or 10-200 ms (or empty to reset)".to_string())?;
                 KoreanConfig::validate_chord_window_ms(Some(ms))?;
                 config.engine.korean.chord_window_ms = Some(ms);
-                println!("korean.chord_window_ms: {ms}ms (범위 10-150, 0=OFF)");
+                println!("korean.chord_window_ms: {ms}ms (범위 10-200, 0=OFF)");
             }
         }
     }

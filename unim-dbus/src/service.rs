@@ -205,16 +205,24 @@ pub enum EngineRequest {
         response: oneshot::Sender<Option<u32>>,
     },
 
-    /// chord idle flush — 윈도우 만료 시 자동 flush.
+    /// chord idle flush — 윈도우 만료 시 자동 flush (preedit 유지 모드).
     ///
     /// `process_key_event` 에서 chord 진행 중 tokio::spawn + tokio::time::sleep 으로
     /// 지연 발사. epoch 불일치(reset/layout-change/clear 등으로 이미 폐기) 시 무시.
     ///
-    /// 응답: flush 된 commit 텍스트 (없으면 None). service.rs 가 CommitText 시그널 발행.
+    /// 응답: `Option<(commit_opt, preedit)>` —
+    /// - `None` → stale (epoch 불일치) 또는 buffer empty → 시그널 발사 안 함.
+    /// - `Some((commit_opt, preedit))` → 정상 flush 결과.
+    ///   - `commit_opt` 는 composer 가 종결한 음절/비자모만 (없으면 None).
+    ///   - `preedit` 은 composer 가 들고 있는 진행 중 음절 (풀어쓰기/모아쓰기 결과).
+    ///
+    /// service.rs 가 commit 있으면 `CommitText`, 정상 flush면 `UpdatePreeditText`
+    /// 시그널 발행. stale 응답은 시그널 발사 skip — race condition (선행 timer 가
+    /// 이미 처리 후 후속 timer 발화 시) 으로 인한 빈 preedit clear 방지.
     ChordIdleFlush {
         context_id: u32,
         epoch: u64,
-        response: oneshot::Sender<Option<String>>,
+        response: oneshot::Sender<Option<(Option<String>, String)>>,
     },
 }
 
@@ -1951,21 +1959,37 @@ impl InputContextHandler {
                 if sent.is_err() {
                     return;
                 }
-                let Ok(Some(commit_text)) = resp_rx.await else {
+                let Ok(Some((commit_opt, preedit))) = resp_rx.await else {
+                    // None = stale/empty (race or 이미 처리됨) → 시그널 발사 skip.
                     return;
                 };
-                // CommitText 시그널 발행
+                // CommitText (자모/비자모 종결분) + UpdatePreeditText (진행 중 음절) 발행
                 if let Ok(ctx) =
                     zbus::SignalContext::new(&connection_clone, path_clone.as_str())
                 {
+                    if let Some(commit_text) = commit_opt {
+                        unim_log!(
+                            "DBUS",
+                            "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text='{}'",
+                            context_id,
+                            epoch,
+                            commit_text
+                        );
+                        InputContextHandler::commit_text(&ctx, &commit_text).await.ok();
+                    }
+                    let visible = !preedit.is_empty();
+                    let cursor_pos = preedit.chars().count() as u32;
                     unim_log!(
                         "DBUS",
-                        "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text='{}'",
+                        "[DBus] ChordIdleFlush UpdatePreedit: context_id={}, epoch={}, preedit='{}', visible={}",
                         context_id,
                         epoch,
-                        commit_text
+                        preedit,
+                        visible
                     );
-                    InputContextHandler::commit_text(&ctx, &commit_text).await.ok();
+                    InputContextHandler::update_preedit_text(&ctx, &preedit, cursor_pos, visible)
+                        .await
+                        .ok();
                 }
             });
         }

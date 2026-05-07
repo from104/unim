@@ -343,7 +343,7 @@ impl InputEngine {
         self.chord_buffer.is_idle_epoch_valid(epoch)
     }
 
-    /// chord idle flush: 대기 중인 chord 자모를 flush → compose → preedit commit.
+    /// chord 강제 종결: FocusOut/Reset 경로에서 호출 (포커스 빠짐 → 음절 강제 commit).
     ///
     /// 반환값: commit 된 텍스트 (`None` 이면 대기 없음 또는 결과 없음).
     /// 내부적으로 `force_flush` + `apply_chord_entries` + `flush_preedit` 를 순서대로 호출.
@@ -354,6 +354,28 @@ impl InputEngine {
         let text = self.commit_buffer.clone();
         self.commit_buffer.clear();
         if text.is_empty() { None } else { Some(text) }
+    }
+
+    /// chord idle 만료 flush: idle timer 경로 전용 (preedit 유지).
+    ///
+    /// 반환값: `(commit_opt, preedit)` —
+    /// - `commit_opt` 는 비자모/composer 가 종결한 음절만 commit (Case C 또는 sequential
+    ///   push 도중 syllable 완성 시).
+    /// - `preedit` 은 composer 가 들고 있는 진행 중 음절 (풀어쓰기/모아쓰기 결과).
+    ///
+    /// 사용자 명세: chord_window 만료 = preedit 갱신만, 자모 강제 commit 금지.
+    /// 후속 타건이 일반 결합 규칙으로 결합 시도하다 실패하면 그때 commit.
+    pub fn chord_idle_flush_pending(&mut self) -> (Option<String>, String) {
+        let Some(entries) = self.chord_buffer.force_flush() else {
+            return (None, self.preedit_cache.clone());
+        };
+        self.apply_chord_entries(entries);
+        let commit = if self.commit_buffer.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.commit_buffer))
+        };
+        (commit, self.preedit_cache.clone())
     }
 
     /// 조합 중인지 확인합니다.

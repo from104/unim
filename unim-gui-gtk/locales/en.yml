@@ -49,7 +49,7 @@ row_moachigi_bidirectional_label: "Bidirectional jamo combine"
 row_moachigi_bidirectional_subtitle: "Combines ㅎ→ㄱ into ㅋ (both sequential and chord input)"
 row_moachigi_bidirectional_tooltip: "When combining jamo, tries reverse order (ㅎ,ㄱ→ㅋ) in addition to forward order (ㄱ,ㅎ→ㅋ). Applies to slow sequential typing as well, so intended combinations work even with a delay between keystrokes. Independent of chord_window_ms — can be enabled even without chord mode."
 row_moachigi_chord_label: "Chord window (ms)"
-row_moachigi_chord_subtitle: "10-150ms (recommended 60ms, beginners 80-100ms)"
+row_moachigi_chord_subtitle: "0=OFF, 50/100/150/200ms (beginners 100-150ms, fine values via CLI)"
 row_moachigi_chord_tooltip: "Treat keys pressed within N ms of the first keystroke as a chord. 60ms is the standard value; beginners should start with 80-100ms. 0 disables chord mode. Independent of bidirectional combine — chord-bundled jamo are auto-sorted by region and combined via permutation."
 
 # TypeFix > Forward

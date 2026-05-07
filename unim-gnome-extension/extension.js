@@ -370,6 +370,20 @@ export default class UnimExtension extends Extension {
                     }
                     unimLog('HANJA', `재정렬 적용: target='${target}', count=${candidates.length}, page=${page}, sel=(${selRow},${selCol}), was=${wasBookmarked}, now=${bookmarked}`);
                 },
+                onCommitText: (text) => {
+                    // chord idle flush 등 비동기 commit 경로. daemon 이 InputContext path 로
+                    // emit 한 CommitText 시그널을 받아 _inputMethod 로 직접 commit.
+                    if (text && this._inputMethod) {
+                        this._inputMethod.commitText(text);
+                    }
+                },
+                onUpdatePreedit: (text, _cursorPos, visible) => {
+                    // chord idle flush preedit 유지 모드 — daemon 이 InputContext path 로
+                    // emit 한 UpdatePreeditText 시그널을 받아 _inputMethod 로 preedit 갱신.
+                    if (this._inputMethod) {
+                        this._inputMethod.updatePreedit(visible ? text : '');
+                    }
+                },
                 onAutoTypeFix: (deleteChars, commitText, preeditText) => {
                     if (this._vkbd && this._inputMethod && this._inputMethod._hasFocus) {
                         unimLog('EXT', `AutoTypeFix 적용: bs=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);

@@ -507,7 +507,20 @@ impl HangulComposer for HangulComposer3Bul {
         // 마지막 항목(기존 자모)도 결합 결과로 교체해야 다음 자모 추가 시 base
         // composer 의 compose_korean 이 stale 큐를 재합성해 결합 결과를 덮어쓰는
         // 회귀를 막는다. (기존 jung/jong/cho 동일 패턴.)
-        if self.is_bidirectional_combine() {
+        //
+        // 영역 단위 인접 검사 (사용자 명세): queue 마지막 자모가 incoming 과
+        // 같은 영역(cho/jung/jong)일 때만 역순 결합 시도. 사이에 다른 영역 자모가
+        // 있으면 비인접 → 일반 path. 회귀 fix: 구하다 → 쿠ㅏ다 (queue=[ㄱ,ㅜ,ㅎ]
+        // 같은 음절 경계 양방향 결합 차단).
+        let last_in_queue: Option<JamoEnum> =
+            self.base_composer.jamo_queue().back().copied();
+        let same_region_adjacent = matches!(
+            (jamo, last_in_queue),
+            (JamoEnum::Cho(_), Some(JamoEnum::Cho(_)))
+                | (JamoEnum::Jung(_), Some(JamoEnum::Jung(_)))
+                | (JamoEnum::Jong(_), Some(JamoEnum::Jong(_)))
+        );
+        if self.is_bidirectional_combine() && same_region_adjacent {
             match jamo {
                 JamoEnum::Cho(incoming) => {
                     if let Some(existing) = self.base_composer.get_cho() {

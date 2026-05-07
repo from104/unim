@@ -251,10 +251,10 @@ mod tests {
     // 검증한다. sleep 없이 직접 push 후 chord_idle_flush_commit() 호출.
     // =========================================================================
 
-    /// idle-flush-single: ㄱ push → chord_pending_info Some → idle_flush_commit → "ㄱ"
+    /// idle-flush-single: ㄱ push → chord_pending_info Some → idle_flush_pending → preedit='ㄱ'
     ///
-    /// 사용자 명세: 첫 타건 후 N ms 안에 추가 키 없으면 단일 자모 일반 풀어쓰기 commit.
-    /// chord_idle_flush_commit() 이 이 동작을 구현.
+    /// 사용자 명세 v4 후속: chord_window 만료 = preedit 갱신만, commit 안 함.
+    /// 단일 자모 ㄱ 은 풀어쓰기로 composer 에 push 되어 preedit 유지 → 후속 키와 결합 가능.
     #[test]
     fn idle_flush_single() {
         let mut e = engine_anmatae_chord(50);
@@ -266,15 +266,17 @@ mod tests {
         assert!(push_result.is_none(), "chord 진행 중 — None 반환");
         assert!(e.chord_pending_info().is_some(), "chord_pending_info Some");
 
-        // idle flush 시뮬레이션 (실제 타이머 없이 직접 호출)
-        let commit = e.chord_idle_flush_commit();
-        assert_eq!(commit.as_deref(), Some("ㄱ"), "단일 자모 → 'ㄱ' commit");
+        // idle flush 시뮬레이션 (preedit 유지 모드)
+        let (commit, preedit) = e.chord_idle_flush_pending();
+        assert!(commit.is_none(), "단일 자모는 commit 안 함 (preedit 유지)");
+        assert_eq!(preedit, "ㄱ", "preedit='ㄱ' 유지");
         assert!(e.chord_pending_info().is_none(), "flush 후 pending 없음");
     }
 
-    /// idle-flush-syllable: ㄱ ㅏ ᆷ push → idle_flush_commit → "감"
+    /// idle-flush-syllable: ㄱ ㅏ ᆷ push → idle_flush_pending → preedit='감'
     ///
-    /// 사용자 명세: 윈도우 안에 3개 자모 push → 만료 시 묶음처리 → "감"
+    /// 사용자 명세: 윈도우 안에 3개 자모 → 만료 시 묶음처리 → '감' preedit (commit 안 함).
+    /// 한자 변환 등 후속 처리 가능 상태 유지.
     #[test]
     fn idle_flush_syllable() {
         let mut e = engine_anmatae_chord(50);
@@ -284,8 +286,9 @@ mod tests {
         e.chord_buffer.push_jamo(JamoEnum::Jong(Jong::Mieum), JamoMeta::default());
         assert!(e.chord_pending_info().is_some(), "3자모 대기 중");
 
-        let commit = e.chord_idle_flush_commit();
-        assert_eq!(commit.as_deref(), Some("감"), "ㄱ+ㅏ+ᆷ → '감' commit");
+        let (commit, preedit) = e.chord_idle_flush_pending();
+        assert!(commit.is_none(), "모아쓰기 결과는 commit 안 함 (preedit 유지)");
+        assert_eq!(preedit, "감", "ㄱ+ㅏ+ᆷ → '감' preedit");
     }
 
     /// idle-flush-cancel-on-reset: push 후 reset() → chord_pending_info None (epoch 무효)
@@ -358,10 +361,9 @@ mod tests {
         assert!(e.chord_epoch_valid(epoch_after_first), "동일 epoch 유효");
     }
 
-    /// idle-flush-many-keys: ㄱ ㅎ ㅡ ㅣ push → idle_flush_commit → "킈"
+    /// idle-flush-many-keys: ㄱ ㅎ ㅡ ㅣ push → idle_flush_pending → preedit='킈'
     ///
-    /// 사용자 명세: 4개 자모 50ms 안 → 5번째 키 없어도 50ms 후 자동 "킈" commit.
-    /// 여기서는 sleep 없이 직접 flush 호출로 결과 검증.
+    /// 사용자 명세: 4개 자모 50ms 안 → 5번째 키 없어도 50ms 후 자동 '킈' preedit (commit 안 함).
     #[test]
     fn idle_flush_many_keys() {
         let mut e = engine_anmatae_chord(50);
@@ -372,8 +374,9 @@ mod tests {
         e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::I), JamoMeta::default());
         assert!(e.chord_pending_info().is_some(), "4자모 대기 중");
 
-        let commit = e.chord_idle_flush_commit();
-        assert_eq!(commit.as_deref(), Some("킈"), "ㄱ+ㅎ+ㅡ+ㅣ → '킈' commit");
+        let (commit, preedit) = e.chord_idle_flush_pending();
+        assert!(commit.is_none(), "모아쓰기 결과는 commit 안 함 (preedit 유지)");
+        assert_eq!(preedit, "킈", "ㄱ+ㅎ+ㅡ+ㅣ → '킈' preedit");
     }
 
     // =========================================================================
@@ -617,9 +620,10 @@ mod tests {
     }
 
     /// phase3_scenario_7_kkya:
-    /// 4키 [Cho(ㄱ), Cho(ㄱ), Jung(ㅏ), Jung(ㅏ)] → ㄱ+ㄱ=ㄲ 성공, ㅏ+ㅏ 조합 없음 → all_reduced=false
-    /// → fallback_jamos commit (ㄱ,ㄱ or ㄲ + ㅏ,ㅏ 호환자모).
-    /// anmatae 에 ㅏ+ㅏ 조합 항목 없으면 partial reduce 실패 → 모두 fallback commit.
+    /// 4키 [Cho(ㄱ), Cho(ㄱ), Jung(ㅏ), Jung(ㅏ)] → 모아쓰기 결합 실패 (ㅏ+ㅏ 조합 없음).
+    /// 사용자 명세 v4 후속: Case B 는 fallback commit 대신 sequential push (composer
+    /// inline retry) → 일반 결합 규칙으로 점진 처리. 결과는 composer 의존.
+    /// 검증: 빈 결과 아님 + 입력 자모 흔적이 commit/preedit 어딘가에 남음.
     #[test]
     fn phase3_scenario_7_kkya() {
         let mut e = engine_anmatae_chord(5000);
@@ -633,19 +637,22 @@ mod tests {
         let preedit = e.preedit_str().to_string();
         let committed = e.commit_str().to_string();
         let combined = format!("{}{}", committed, preedit);
-        // ㅏ+ㅏ 조합 없음 → all_reduced=false → fallback.
-        // 결과: 빈 preedit + fallback commit (ㄲ or ㄱㄱ 포함, ㅏㅏ 포함)
-        assert_eq!(preedit, "", "시나리오7 fallback: preedit 비어있음");
-        assert!(!committed.is_empty(), "시나리오7 fallback: commit 있음");
-        // ㄱ+ㄱ=ㄲ reduce 성공하면 ㄲ, 실패면 ㄱㄱ. 어느쪽이든 포함.
+        // sequential push 결과: composer 가 점진 결합/분리 → ㄱ/ㄲ/ㅏ 흔적 + 빈 결과 아님.
+        assert!(!combined.is_empty(), "시나리오7: 입력 흔적 남음 (combined='{}')", combined);
         assert!(
-            combined.contains('ㄲ') || combined.contains("ㄱㄱ"),
-            "시나리오7: 초성 fallback 포함 (실제='{}')", combined
+            combined.contains('ㄱ') || combined.contains('ㄲ') || combined.contains('가'),
+            "시나리오7: 초성 ㄱ/ㄲ/가 흔적 (실제='{}')", combined
+        );
+        assert!(
+            combined.contains('ㅏ') || combined.contains('가'),
+            "시나리오7: 중성 ㅏ 흔적 (실제='{}')", combined
         );
     }
 
     /// phase3_chord_fail_falls_back:
-    /// 2키 [Cho(ㄱ), Cho(ㅈ)] → anmatae 에 ㄱ+ㅈ 조합 없음 → fallback 호환자모 commit.
+    /// 2키 [Cho(ㄱ), Cho(ㅈ)] → 모아쓰기 결합 실패 (ㄱ+ㅈ 조합 없음).
+    /// 사용자 명세 v4 후속: Case B sequential push → composer 가 ㄱ commit + ㅈ preedit
+    /// (또는 합쳐서 commit) 등 일반 결합 규칙 처리.
     #[test]
     fn phase3_chord_fail_falls_back() {
         let mut e = engine_anmatae_chord(5000);
@@ -656,10 +663,11 @@ mod tests {
         e.apply_chord_entries(entries);
         let committed = e.commit_str().to_string();
         let preedit = e.preedit_str().to_string();
-        // ㄱ+ㅈ 조합 없음 → fallback 호환자모 "ㄱㅈ" commit (또는 preedit "ㄱ" + commit "ㅈ" 등)
-        // 핵심: 빈 결과 아님 + preedit 에 "가" "나" 등 한글 음절 없음
-        assert_eq!(preedit, "", "조합 실패: preedit 비어있음");
-        assert!(!committed.is_empty(), "조합 실패: fallback commit 있음");
+        let combined = format!("{}{}", committed, preedit);
+        // ㄱ + ㅈ 흔적이 어딘가에 남음 (commit 또는 preedit).
+        assert!(!combined.is_empty(), "조합 실패: 입력 흔적 남음 (combined='{}')", combined);
+        assert!(combined.contains('ㄱ'), "조합 실패: ㄱ 흔적 (실제='{}')", combined);
+        assert!(combined.contains('ㅈ'), "조합 실패: ㅈ 흔적 (실제='{}')", combined);
     }
 
     /// phase3_single_jamo_sequential:

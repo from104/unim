@@ -482,14 +482,24 @@ fn build_moachigi_group(state: &State) -> MoachigiHandle {
     }
     group.add(&bidir_row);
 
-    // Scale: chord_window_ms (10–150 ms, 권장 60ms)
-    let chord_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 10.0, 150.0, 5.0);
+    // Scale: chord_window_ms (0=OFF 또는 10–200 ms, step 50, tick 50 단위)
+    // 0/50/100/150/200 만 슬라이더로 도달. 미세값(예: 60, 80)은 CLI 로 별도 설정.
+    let chord_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 200.0, 50.0);
+    chord_scale.set_width_request(280);
+    chord_scale.set_hexpand(false);
+    chord_scale.set_valign(gtk4::Align::Center);
     chord_scale.set_draw_value(true);
-    chord_scale.set_value_pos(gtk4::PositionType::Right);
-    chord_scale.set_hexpand(true);
-    // 눈금 마크: 10/30/50/60/80/100/120/150
-    for mark in [10.0_f64, 30.0, 50.0, 60.0, 80.0, 100.0, 120.0, 150.0] {
-        chord_scale.add_mark(mark, gtk4::PositionType::Bottom, None);
+    chord_scale.set_value_pos(gtk4::PositionType::Top);
+    chord_scale.set_digits(0);
+    chord_scale.set_round_digits(0);
+    // 눈금 마크 50ms 단위 (라벨 표시): 0(OFF)/50/100/150/200
+    for mark in [0.0_f64, 50.0, 100.0, 150.0, 200.0] {
+        let label = if mark == 0.0 {
+            "OFF".to_string()
+        } else {
+            format!("{}", mark as i32)
+        };
+        chord_scale.add_mark(mark, gtk4::PositionType::Bottom, Some(&label));
     }
     {
         let state_c = state.clone();
