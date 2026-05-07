@@ -16,6 +16,9 @@ Cargo.lock
 *.a
 *.lib
 
+# Windows MSI output (cross-compile 산출물 — installer/wix 정의로 wixl 가 생성)
+/dist/
+
 # GNOME Extension build artifacts
 *.zip
 unim-gnome-extension/lib/
