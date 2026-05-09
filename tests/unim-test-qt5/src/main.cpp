@@ -25,8 +25,64 @@
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusReply>
+#include <QDBusVariant>
+#include <QStyleFactory>
+#include <QStyle>
+#include <QPalette>
+#include <QTimer>
 #include <cstdlib>
 #include <cstring>
+
+/*
+ * 시스템 라이트/다크 테마를 freedesktop portal에서 읽어 Fusion + palette로 적용한다.
+ * portal이 없거나 응답 못하면 light 폴백.
+ */
+static void applySystemTheme(QApplication &app) {
+    app.setStyle(QStyleFactory::create("Fusion"));
+
+    bool preferDark = false;
+    QDBusInterface portal(
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Settings",
+        QDBusConnection::sessionBus()
+    );
+    if (portal.isValid()) {
+        QDBusReply<QDBusVariant> reply = portal.call(
+            "Read", QString("org.freedesktop.appearance"), QString("color-scheme")
+        );
+        if (reply.isValid()) {
+            QVariant v = reply.value().variant();
+            while (v.canConvert<QDBusVariant>()) {
+                v = v.value<QDBusVariant>().variant();
+            }
+            preferDark = (v.toUInt() == 1); // 0=no pref, 1=dark, 2=light
+        }
+    }
+
+    if (preferDark) {
+        QPalette p;
+        p.setColor(QPalette::Window, QColor(53, 53, 53));
+        p.setColor(QPalette::WindowText, Qt::white);
+        p.setColor(QPalette::Base, QColor(35, 35, 35));
+        p.setColor(QPalette::AlternateBase, QColor(53, 53, 53));
+        p.setColor(QPalette::ToolTipBase, Qt::white);
+        p.setColor(QPalette::ToolTipText, Qt::white);
+        p.setColor(QPalette::Text, Qt::white);
+        p.setColor(QPalette::Button, QColor(53, 53, 53));
+        p.setColor(QPalette::ButtonText, Qt::white);
+        p.setColor(QPalette::BrightText, Qt::red);
+        p.setColor(QPalette::Highlight, QColor(42, 130, 218));
+        p.setColor(QPalette::HighlightedText, Qt::black);
+        p.setColor(QPalette::Link, QColor(42, 130, 218));
+        p.setColor(QPalette::Disabled, QPalette::Text, QColor(128, 128, 128));
+        p.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(128, 128, 128));
+        p.setColor(QPalette::Disabled, QPalette::WindowText, QColor(128, 128, 128));
+        app.setPalette(p);
+    } else {
+        app.setPalette(app.style()->standardPalette());
+    }
+}
 
 /* 디버그 로깅 시스템 */
 static bool unim_debug_enabled = false;
@@ -273,6 +329,13 @@ private:
 
         // 포커스 변경 시그널 연결
         connect(qApp, &QApplication::focusChanged, this, &TestWindow::onFocusChanged);
+
+        // 시작 시 첫 입력 필드(QLineEdit)에 자동 포커스 — 이벤트 루프 진입 후 실행
+        QTimer::singleShot(0, this, [this]() {
+            if (auto *first = findChild<QLineEdit *>()) {
+                first->setFocus(Qt::OtherFocusReason);
+            }
+        });
     }
 
     QFrame *createSeparator() {
@@ -404,7 +467,17 @@ private:
 #include "main.moc"
 
 int main(int argc, char *argv[]) {
+    // X11/Wayland HiDPI: 시스템 화면 확대 자동 반영 (Qt5 기본 OFF, Qt6 기본 ON)
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    qputenv("QT_AUTO_SCREEN_SCALE_FACTOR", "1");
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
+
     QApplication app(argc, argv);
+
+    // 시스템 라이트/다크 테마 추종 (Fusion + portal palette)
+    applySystemTheme(app);
 
     TestWindow window;
     window.show();
