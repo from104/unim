@@ -115,6 +115,81 @@ static gboolean unim_debug_checked = FALSE;
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
+#include <unistd.h>
+#include <glib/gstdio.h>
+
+/* 호스트 프로세스 이름을 sanitize 한 형태로 반환. 실패 시 "unknown".
+ * 반환값은 g_free 로 해제. */
+static gchar *
+unim_log_process_name(void)
+{
+    gchar *contents = NULL;
+    gchar *name = NULL;
+    if (g_file_get_contents("/proc/self/comm", &contents, NULL, NULL) && contents) {
+        name = g_strstrip(contents);
+    }
+    if (!name || !*name) {
+        g_free(contents);
+        return g_strdup("unknown");
+    }
+    gchar *out = g_strdup(name);
+    g_free(contents);
+    for (gchar *p = out; *p; p++) {
+        if (!(g_ascii_isalnum(*p) || *p == '-' || *p == '_')) *p = '-';
+    }
+    return out;
+}
+
+/* 윈도우 세션·앱(프로세스)별 로그 파일 경로 계산.
+ *   ~/.unim-log/{session-tag}_{YYYY-MM-DD}_{progname}-{pid}.log
+ *   session-tag 우선순위: XDG_SESSION_ID > WAYLAND_DISPLAY > DISPLAY.
+ *   progname/pid 는 호스트 프로세스 (GTK IM 모듈은 호스트 앱 안에서 동작).
+ * 반환값은 g_free 로 해제해야 한다. 실패 시 NULL.
+ */
+static gchar *
+unim_log_resolve_path(void)
+{
+    const gchar *home = g_get_home_dir();
+    if (!home) return NULL;
+
+    gchar *log_dir = g_build_filename(home, ".unim-log", NULL);
+    g_mkdir_with_parents(log_dir, 0700);
+
+    const gchar *xdg = g_getenv("XDG_SESSION_ID");
+    const gchar *wl = g_getenv("WAYLAND_DISPLAY");
+    const gchar *x11 = g_getenv("DISPLAY");
+    gchar *raw_tag = NULL;
+    if (xdg && *xdg) {
+        raw_tag = g_strdup_printf("xdg-%s", xdg);
+    } else if (wl && *wl) {
+        raw_tag = g_strdup_printf("wl-%s", wl);
+    } else if (x11 && *x11) {
+        raw_tag = g_strdup_printf("x11-%s", x11);
+    } else {
+        raw_tag = g_strdup("unknown");
+    }
+    for (gchar *p = raw_tag; *p; p++) {
+        if (!(g_ascii_isalnum(*p) || *p == '-' || *p == '_')) *p = '-';
+    }
+
+    time_t now;
+    time(&now);
+    struct tm *tm_info = localtime(&now);
+    char date[16];
+    strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
+
+    gchar *progname = unim_log_process_name();
+    pid_t pid = getpid();
+
+    gchar *fname = g_strdup_printf("%s_%s_%s-%d.log", raw_tag, date, progname, (int)pid);
+    gchar *path = g_build_filename(log_dir, fname, NULL);
+
+    g_free(raw_tag);
+    g_free(progname);
+    g_free(fname);
+    g_free(log_dir);
+    return path;
+}
 
 /* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
 static void
@@ -146,9 +221,8 @@ unim_log_message(const char *module, const char *format, ...)
     g_print("%s\n", log_line);
 
     /* 파일 출력 */
-    const gchar *home = g_get_home_dir();
-    if (home) {
-        gchar *log_path = g_build_filename(home, ".unim-errors.log", NULL);
+    gchar *log_path = unim_log_resolve_path();
+    if (log_path) {
         FILE *f = fopen(log_path, "a");
         if (f) {
             fprintf(f, "%s\n", log_line);

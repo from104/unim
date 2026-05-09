@@ -9,15 +9,75 @@
 #include <QDBusMessage>
 #include <QDBusPendingReply>
 #include <QStandardPaths>
+#include <QDir>
 #include <QDateTime>
 #include <QFile>
 #include <QTextStream>
 #include <cstdlib>
 #include <cstring>
+#include <unistd.h>
 
 /* 디버그 로깅 */
 static bool unim_dbus_debug_enabled = false;
 static bool unim_dbus_debug_checked = false;
+
+/* ASCII 알파벳/숫자/대시/언더스코어만 통과시키고 나머지는 '-' 로 치환 */
+static QString unimLogSanitize(const QString &raw)
+{
+    QString out;
+    out.reserve(raw.size());
+    for (int i = 0; i < raw.size(); ++i) {
+        QChar c = raw.at(i);
+        ushort u = c.unicode();
+        const bool ok = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z')
+                     || (u >= '0' && u <= '9') || u == '-' || u == '_';
+        out.append(ok ? c : QChar('-'));
+    }
+    return out;
+}
+
+/* 호스트 프로세스 이름. 실패 시 "unknown". */
+static QString unimLogProcessName()
+{
+    QFile f(QStringLiteral("/proc/self/comm"));
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QByteArray data = f.readAll().trimmed();
+        f.close();
+        if (!data.isEmpty()) {
+            QString s = unimLogSanitize(QString::fromLocal8Bit(data));
+            if (!s.isEmpty()) return s;
+        }
+    }
+    return QStringLiteral("unknown");
+}
+
+/* 윈도우 세션·앱(프로세스)별 로그 파일 경로:
+ *   ~/.unim-log/{session-tag}_{YYYY-MM-DD}_{progname}-{pid}.log
+ *   session-tag 우선순위: XDG_SESSION_ID > WAYLAND_DISPLAY > DISPLAY.
+ *   progname/pid 는 호스트 프로세스 (Qt IM 모듈은 호스트 앱 안에서 동작).
+ */
+static QString unimLogPath()
+{
+    QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    QString dir = home + "/.unim-log";
+    QDir().mkpath(dir);
+
+    QByteArray xdg = qgetenv("XDG_SESSION_ID");
+    QByteArray wl = qgetenv("WAYLAND_DISPLAY");
+    QByteArray x11 = qgetenv("DISPLAY");
+    QString rawTag;
+    if (!xdg.isEmpty()) rawTag = QStringLiteral("xdg-") + QString::fromLocal8Bit(xdg);
+    else if (!wl.isEmpty()) rawTag = QStringLiteral("wl-") + QString::fromLocal8Bit(wl);
+    else if (!x11.isEmpty()) rawTag = QStringLiteral("x11-") + QString::fromLocal8Bit(x11);
+    else rawTag = QStringLiteral("unknown");
+
+    const QString tag = unimLogSanitize(rawTag);
+    const QString date = QDateTime::currentDateTime().toString("yyyy-MM-dd");
+    const QString progname = unimLogProcessName();
+    const long long pid = static_cast<long long>(getpid());
+
+    return dir + "/" + tag + "_" + date + "_" + progname + "-" + QString::number(pid) + ".log";
+}
 
 /* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
 static void unim_log_message(const char *module, const QString &message)
@@ -31,7 +91,7 @@ static void unim_log_message(const char *module, const QString &message)
     qDebug().noquote() << logLine;
 
     /* 파일 출력 */
-    QString logPath = QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/.unim-errors.log";
+    QString logPath = unimLogPath();
     QFile file(logPath);
     if (file.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream out(&file);
