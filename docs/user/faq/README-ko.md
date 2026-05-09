@@ -145,9 +145,12 @@ systemctl --user start unim-daemon
 
 ## Q7. 자판은 어떤 게 있고, 새로 추가할 수 있나?
 
-### 내장 (0.2.0 기준 한국어 10종)
+### 내장 한국어 자판
 
-`ko_2bulstd`(두벌식 표준), `ko_3bul390`(세벌식 390), `ko_3bul391`(세벌식 391), `ko_3bul_noshift`(세벌식 순아래), `ko_3bul_qwerty`(세벌식 쿼티형), 그 외 변종 5종.
+`ko_2bulstd`(두벌식 표준), `ko_3bul390`(세벌식 390), `ko_3bul391`(세벌식 391), `ko_3bul_noshift`(세벌식 순아래), `ko_3bul_anmatae`(안마태, 모아치기).
+
+> 참고: 쿼티형 세벌식(`ko_3bul_qwerty`)은 빌트인이 아닌 연구 자료로만 보존된다.
+> `docs/references/keymaps/ko_3bul_qwerty_v2.json`을 `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사하면 사용자 프로필로 활성화된다.
 
 ### 영어
 

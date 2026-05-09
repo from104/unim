@@ -367,14 +367,14 @@ journalctl --user -u unim-daemon -n 500 > unim-mem.log
 
 ### 15-1. 현재 자판이 모아치기를 지원하지 않음
 
-모아치기는 `supports_moachigi: true`인 자판에서만 동작한다. 현재는 **안마태 자판 (ko_3bul_anmatae)** 과 **쿼티형 세벌식 v2 (ko_3bul_qwerty)** 만 해당된다.
+모아치기는 `supports_moachigi: true`인 자판에서만 동작한다. 빌트인 중에는 **안마태 자판 (ko_3bul_anmatae)** 만 해당된다. **쿼티형 세벌식 v2** 는 빌트인이 아닌 연구 자료(`docs/references/keymaps/ko_3bul_qwerty_v2.json`)로 보존되며, `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사한 사용자 프로필에서 모아치기 지원을 켤 수 있다.
 
 ```bash
 # 현재 자판 확인
 unim-cli config show | grep -E 'layout|keymap'
 ```
 
-출력에서 `ko_3bul_anmatae` 또는 `ko_3bul_qwerty`가 아니라면 GTK 설정에서 자판을 변경해야 한다. 모아치기 지원 자판으로 바꾸면 설정 다이얼로그에 **모아치기** 그룹이 자동으로 나타난다.
+출력이 모아치기 지원 자판이 아니라면 GTK 설정에서 자판을 변경해야 한다. 모아치기 지원 자판으로 바꾸면 설정 다이얼로그에 **모아치기** 그룹이 자동으로 나타난다.
 
 ### 15-2. chord_window_ms가 너무 짧음
 

@@ -5,6 +5,14 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
 
+## [Unreleased]
+
+### Removed
+
+- **Qwerty Sebeolsik (`ko_3bul_qwerty`) dropped from built-ins**: removed from `BUILTIN_NAMES` (10 → reduced) and from the `get_builtin_json` / `get_keymap_json` match arms in `src/keystroke/profile/builtin.rs` and `src/keystroke/mod.rs`. The full v3 moachigi schema JSON is preserved as a research reference at `docs/references/keymaps/ko_3bul_qwerty_v2.json` — copy it to `~/.config/unim/layouts/ko_3bul_qwerty.json` to keep using it as a user profile. CLI `--korean` help, `unim-cli config set korean-layout` enumeration, GTK settings dialog alias map, FAQ §Q7, and troubleshooting §15-1 all updated accordingly.
+
+---
+
 ## [0.4.0] 2026-05-07
 
 ### Added

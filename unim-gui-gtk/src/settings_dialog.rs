@@ -562,7 +562,6 @@ fn build_keymap_group(
                         | ("3bul390" | "390", "ko_3bul390")
                         | ("3bul391" | "391", "ko_3bul391")
                         | ("3bul_noshift" | "noshift", "ko_3bul_noshift")
-                        | ("3bul_qwerty", "ko_3bul_qwerty")
                 )
             })
         })

@@ -144,9 +144,12 @@ systemctl --user start unim-daemon
 
 ## Q7. What layouts exist, and can I add my own?
 
-### Built-in (10 Korean layouts as of 0.2.0)
+### Built-in Korean layouts
 
-`ko_2bulstd` (Dubeolsik standard), `ko_3bul390` (Sebeolsik 390), `ko_3bul391`, `ko_3bul_noshift`, `ko_3bul_qwerty` (Sebeolsik Qwerty-style), plus 5 variants.
+`ko_2bulstd` (Dubeolsik standard), `ko_3bul390` (Sebeolsik 390), `ko_3bul391`, `ko_3bul_noshift`, `ko_3bul_anmatae` (Ahnmatae, chord/moachigi).
+
+> Note: Qwerty Sebeolsik (`ko_3bul_qwerty`) is preserved as a research reference, not as a built-in.
+> Copy `docs/references/keymaps/ko_3bul_qwerty_v2.json` to `~/.config/unim/layouts/ko_3bul_qwerty.json` to activate it as a user profile.
 
 ### English
 

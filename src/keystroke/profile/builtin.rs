@@ -1,15 +1,14 @@
-//! 내장 자판 프로필 9종 — v1 자기 완결 JSON을 `include_str!`로 컴파일 시 임베드.
+//! 내장 자판 프로필 — v1 자기 완결 JSON을 `include_str!`로 컴파일 시 임베드.
 //!
 //! Phase 6 이관 완료(2026-04-23): `docs/plans/new_keymaps/*.json` 드래프트가
 //! `src/keystroke/keymap/`로 옮겨지고 schema_version=1 자기 완결 포맷으로 대체됨.
 //! 기존 v0 fallback 경로(`build_combined_jamo_map`의 `None` 분기)는 사용자가
 //! 직접 작성한 자체 v0 JSON을 위해서만 남는다.
 //!
-//! 0.3.0+: 쿼티형 세벌식(`ko_3bul_qwerty`)이 v3 모아치기 schema로 재도입된다.
-//! 알파벳 26자리 포화 배치(초성 10 + 중성 6 + 종성 10) + Shift 무필요 lower 포화 +
-//! upper 26칸을 쌍자음·결합 모음·거센/결합 종성·한국어 조판 기호로 채워 Shift
-//! 직접 입력 자리 제공. 설계 자료: `docs/references/research/쿼티형 세벌식 초안 v2.md`.
-//! 0.2.0 reference 자료(이전 v1 배열)는 `docs/references/keymaps/ko_3bul_qwerty.json`.
+//! 쿼티형 세벌식(`ko_3bul_qwerty`)은 빌트인이 아닌 연구 자료로만 보존된다.
+//! 사용하려면 `docs/references/keymaps/ko_3bul_qwerty_v2.json`을
+//! `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사. 설계 문서:
+//! `docs/references/research/쿼티형 세벌식 초안 v2.md`.
 
 /// 영어 QWERTY.
 pub const EN_QWERTY: &str = include_str!("../keymap/en_qwerty.json");
@@ -31,11 +30,9 @@ pub const KO_3BUL391: &str = include_str!("../keymap/ko_3bul391.json");
 pub const KO_3BUL_NOSHIFT: &str = include_str!("../keymap/ko_3bul_noshift.json");
 /// 한국어 안마태 자판 (2003) — v3 모아치기 schema.
 pub const KO_3BUL_ANMATAE: &str = include_str!("../keymap/ko_3bul_anmatae.json");
-/// 한국어 쿼티형 세벌식 v2 — v3 모아치기 schema, 알파벳 26자리 포화 배치 + Shift 직접 자리.
-pub const KO_3BUL_QWERTY: &str = include_str!("../keymap/ko_3bul_qwerty.json");
 
 /// 내장 프로필 정식 이름 목록 (로더 조회·CLI `layout list`용).
-pub const BUILTIN_NAMES: [&str; 11] = [
+pub const BUILTIN_NAMES: [&str; 10] = [
     "en_qwerty",
     "en_dvorak",
     "en_colemak",
@@ -46,7 +43,6 @@ pub const BUILTIN_NAMES: [&str; 11] = [
     "ko_3bul391",
     "ko_3bul_noshift",
     "ko_3bul_anmatae",
-    "ko_3bul_qwerty",
 ];
 
 /// `name` 또는 `src/keystroke/mod.rs:17-30`의 별칭(`2bul`/`390`/`3bul391` 등)으로
@@ -64,7 +60,6 @@ pub fn get_builtin_json(name: &str) -> Option<&'static str> {
         "ko_3bul391" | "3bul391" | "391" => Some(KO_3BUL391),
         "ko_3bul_noshift" | "3bul_noshift" | "noshift" => Some(KO_3BUL_NOSHIFT),
         "ko_3bul_anmatae" | "ko_anmatae" | "anmatae" | "anmatae_2003" => Some(KO_3BUL_ANMATAE),
-        "ko_3bul_qwerty" | "3bul_qwerty" | "qwerty_sebul" => Some(KO_3BUL_QWERTY),
         _ => None,
     }
 }
@@ -93,19 +88,15 @@ mod tests {
         );
     }
 
-    /// 0.3.0+: 쿼티형 세벌식 v2가 v3 모아치기 schema로 재도입됨.
-    /// 정식 이름 `ko_3bul_qwerty` + 별칭 `3bul_qwerty` / `qwerty_sebul` 모두 동일 JSON.
+    /// 쿼티형 세벌식(`ko_3bul_qwerty`)은 빌트인이 아닌 연구 자료
+    /// (`docs/references/keymaps/ko_3bul_qwerty_v2.json`)로만 보존된다.
+    /// 사용자가 `~/.config/unim/layouts/`에 직접 배치해야 사용할 수 있다.
     #[test]
-    fn ko_3bul_qwerty_v2_is_builtin() {
-        let canonical = get_builtin_json("ko_3bul_qwerty");
-        assert!(canonical.is_some(), "ko_3bul_qwerty should resolve");
-        assert_eq!(get_builtin_json("3bul_qwerty"), canonical);
-        assert_eq!(get_builtin_json("qwerty_sebul"), canonical);
-        // v3 모아치기 schema 마커 + 정식 name 필드 검증.
-        let json = canonical.unwrap();
-        assert!(json.contains("\"schema_version\": 3"));
-        assert!(json.contains("\"supports_moachigi\": true"));
-        assert!(json.contains("\"name\": \"ko_3bul_qwerty\""));
+    fn ko_3bul_qwerty_is_not_builtin() {
+        assert!(get_builtin_json("ko_3bul_qwerty").is_none());
+        assert!(get_builtin_json("3bul_qwerty").is_none());
+        assert!(get_builtin_json("qwerty_sebul").is_none());
+        assert!(!BUILTIN_NAMES.contains(&"ko_3bul_qwerty"));
     }
 
     #[test]

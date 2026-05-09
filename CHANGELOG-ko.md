@@ -44,6 +44,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 ### 제거됨
 
+- **쿼티형 세벌식(`ko_3bul_qwerty`) 빌트인에서 제거**: `BUILTIN_NAMES`(11→10), `src/keystroke/profile/builtin.rs`·`src/keystroke/mod.rs`의 `get_builtin_json` / `get_keymap_json` match arm 일괄 제거. v3 모아치기 schema JSON 본문은 `docs/references/keymaps/ko_3bul_qwerty_v2.json`에 연구 자료로 보존되며, `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사하면 사용자 프로필로 계속 사용 가능. CLI `--korean` 도움말, `unim-cli config set korean-layout` 안내, GTK 설정 다이얼로그의 별칭 매핑, FAQ §Q7, 트러블슈팅 §15-1도 함께 정리.
 - **Rust 상수 자모 조합 테이블** (`JUNG_COMBINATIONS`, `JONG_COMBINATIONS`,
   `CHO_COMBINATIONS`, Lazy static `COMBINED_JAMO_2BUL`/`_3BUL`)을
   `src/hangul/composer_with_{2,3}bul.rs`에서 삭제.

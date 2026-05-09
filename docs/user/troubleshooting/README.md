@@ -360,14 +360,14 @@ Chord input failures have several possible causes. Work through the items below 
 
 ### 15-1. The active layout does not support moachigi
 
-Chord input is only available for layouts that carry `supports_moachigi: true`. Currently only the **Ahnmatae layout (ko_3bul_anmatae)** and **Qwerty Sebeolsik v2 (ko_3bul_qwerty)** qualify.
+Chord input is only available for layouts that carry `supports_moachigi: true`. Among the built-ins, only the **Ahnmatae layout (ko_3bul_anmatae)** qualifies. **Qwerty Sebeolsik v2** is preserved as a research reference (`docs/references/keymaps/ko_3bul_qwerty_v2.json`); copy it to `~/.config/unim/layouts/ko_3bul_qwerty.json` to enable it as a moachigi-capable user profile.
 
 ```bash
 # Check the active layout
 unim-cli config show | grep -E 'layout|keymap'
 ```
 
-If the output shows a different layout, switch to one of the moachigi-capable layouts in the GTK settings dialog. The **Moachigi** option group appears automatically once a compatible layout is selected.
+If the active layout is not moachigi-capable, switch to one in the GTK settings dialog. The **Moachigi** option group appears automatically once a compatible layout is selected.
 
 ### 15-2. chord_window_ms is too short
 
