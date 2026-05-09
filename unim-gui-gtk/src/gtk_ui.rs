@@ -30,8 +30,8 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
         .build();
 
     app.connect_activate(move |app| {
-        // 다크 모드 강제
-        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+        // 시스템 테마 자동 추종 (라이트/다크) — portal 기반
+        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
 
         load_css();
         let mode_window = build_popup_window(app, state.clone());

@@ -34,7 +34,7 @@ use std::rc::Rc;
 
 const GSCHEMA_ID: &str = "org.gnome.shell.extensions.unim";
 const TOAST_TIMEOUT_SECS: u32 = 2;
-const WINDOW_MIN_WIDTH: i32 = 520;
+const WINDOW_MIN_WIDTH: i32 = 680;
 const WINDOW_MIN_HEIGHT: i32 = 640;
 
 // ─────────────────────────────────────────────────────────────
@@ -485,13 +485,15 @@ fn build_moachigi_group(state: &State) -> MoachigiHandle {
     // Scale: chord_window_ms (0=OFF 또는 10–200 ms, step 50, tick 50 단위)
     // 0/50/100/150/200 만 슬라이더로 도달. 미세값(예: 60, 80)은 CLI 로 별도 설정.
     let chord_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 200.0, 50.0);
-    chord_scale.set_width_request(280);
+    chord_scale.set_width_request(120);
     chord_scale.set_hexpand(false);
     chord_scale.set_valign(gtk4::Align::Center);
     chord_scale.set_draw_value(true);
     chord_scale.set_value_pos(gtk4::PositionType::Top);
     chord_scale.set_digits(0);
     chord_scale.set_round_digits(0);
+    // 마우스 휠 1 tick = 10ms 변화 (드래그/클릭은 임의 값)
+    chord_scale.adjustment().set_step_increment(10.0);
     // 눈금 마크 50ms 단위 (라벨 표시): 0(OFF)/50/100/150/200
     for mark in [0.0_f64, 50.0, 100.0, 150.0, 200.0] {
         let label = if mark == 0.0 {
@@ -854,6 +856,22 @@ fn build_int_scale_row(
         save_and_notify(&st.config, label);
     });
 
+    // 마우스 휠 1 tick = +/-1 (정수 슬라이더)
+    {
+        let scale_c = scale.clone();
+        let min_v = min as f64;
+        let max_v = max as f64;
+        let scroll_ctrl =
+            gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
+        scroll_ctrl.connect_scroll(move |_, _dx, dy| {
+            let delta = if dy > 0.0 { 1.0 } else { -1.0 };
+            let new_val = (scale_c.value() + delta).clamp(min_v, max_v);
+            scale_c.set_value(new_val);
+            gtk4::glib::Propagation::Stop
+        });
+        scale.add_controller(scroll_ctrl);
+    }
+
     row.add_suffix(&scale);
     row
 }
@@ -923,6 +941,22 @@ fn build_time_window_row(
         set_ms(&mut st.config, ms);
         save_and_notify(&st.config, label);
     });
+
+    // 마우스 휠 1 tick = +/-0.5초
+    {
+        let scale_c = scale.clone();
+        let min_v = min_s;
+        let max_v = max_s;
+        let scroll_ctrl =
+            gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
+        scroll_ctrl.connect_scroll(move |_, _dx, dy| {
+            let delta = if dy > 0.0 { 0.5 } else { -0.5 };
+            let new_val = (scale_c.value() + delta).clamp(min_v, max_v);
+            scale_c.set_value(new_val);
+            gtk4::glib::Propagation::Stop
+        });
+        scale.add_controller(scroll_ctrl);
+    }
 
     row.add_suffix(&scale);
     row
