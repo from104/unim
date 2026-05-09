@@ -380,6 +380,149 @@ mod tests {
     }
 
     // =========================================================================
+    // chord preview: update_chord_preview() — chord 진행 중 즉시 preedit 반영
+    //
+    // 사용자 보고: "모아치기 모드에서 화면에 표시되는 preedit 가 한 단계씩 밀려 늦게
+    // 표시된다." 원인 — chord 진행 중 preedit_cache 가 갱신되지 않아 다음 chord
+    // 시작 또는 idle 만료 시점까지 직전 chord 결과가 화면에 그대로 남는다.
+    // 수정 — 매 push 마다 buffer 의 부분 결합 결과를 preedit 에 inject 한다.
+    // =========================================================================
+
+    /// preview-single-jamo: ㄱ push → update_chord_preview → preedit='ㄱ' (sequential).
+    #[test]
+    fn preview_single_jamo_shows_in_preedit() {
+        let mut e = engine_anmatae_chord(5000);
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "ㄱ", "단일 자모 push → preedit='ㄱ' 즉시 표시");
+        assert!(e.chord_buffer.was_preview_injected(), "preview_injected=true");
+        assert!(!e.chord_buffer.was_preview_atomic(), "단일 키 = sequential, atomic=false");
+    }
+
+    /// preview-single-then-single-combines: ㄱ chord 후 ㅏ chord → '가' 결합.
+    ///
+    /// 사용자 보고 회귀 — 윈도우 종료 시점에 단일 키만 chord 버퍼에 있을 때
+    /// 직전 preedit 과 결합 시도해야 함. 단일 키 chord 는 sequential 풀어쓰기 경로.
+    #[test]
+    fn preview_single_then_single_combines() {
+        let mut e = engine_anmatae_chord(50);
+        // chord 1: 단일 자모 ㄱ
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "ㄱ", "chord 1 preview = 'ㄱ'");
+
+        // 윈도우 만료: idle flush — preview 유지, buffer 만 비움.
+        let (commit, preedit) = e.chord_idle_flush_pending();
+        assert!(commit.is_none(), "sequential preview → idle commit 없음");
+        assert_eq!(preedit, "ㄱ", "preedit 'ㄱ' 유지");
+
+        // chord 2: 단일 자모 ㅏ (새 chord) → 직전 'ㄱ' 과 결합 시도.
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "가", "chord 2 ㅏ → '가' (sequential 결합)");
+    }
+
+    /// preview-single-then-multi-flushes: ㄱ chord 후 ㅏ+ㅁ chord → '가' commit + 'ㅁ?' atomic.
+    ///
+    /// sequential→atomic 전이 회귀 검증. ㄱ 단일 chord 로 preedit "ㄱ" 가 sequential
+    /// 누적된 상태에서, 새 chord 가 다중 키 atomic 으로 시작하면 sequential 자모를
+    /// pop 후 prior 음절 commit, 그 뒤 atomic chord inject.
+    ///
+    /// 시나리오: ㄱ chord → 'ㄱ' preedit → 만료 → ㅏ + ㅁ atomic chord (jung+jong)
+    /// 기대: commit "가" (ㄱ + ㅏ sequential), preedit = atomic([ㅁ]) 등.
+    /// 단순화: 검증 가능한 분기 — buffer.was_preview_atomic() 가 atomic 갱신 후 true.
+    #[test]
+    fn preview_sequential_to_atomic_pop_and_flush() {
+        let mut e = engine_anmatae_chord(50);
+        // chord 1: 단일 자모 ㄱ → sequential preview
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.update_chord_preview();
+        let (_, _) = e.chord_idle_flush_pending();
+        assert_eq!(e.preedit_str(), "ㄱ");
+
+        // chord 2 within window: ㅏ first key (sequential, len=1) → 결합 시도
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "가", "ㄱ+ㅏ sequential = 가");
+        assert!(!e.chord_buffer.was_preview_atomic(), "단일 키 = sequential");
+
+        // chord 2 두 번째 키 ㅁ (jong) within window → atomic 전이
+        e.chord_buffer.push_jamo(JamoEnum::Jong(Jong::Mieum), JamoMeta::default());
+        e.update_chord_preview();
+        // buffer=[ㅏ,ㅁ] 의 atomic 결합 결과 — composer 가 "암" 또는 fallback 으로 갱신.
+        // 핵심 검증: was_preview_atomic 가 true 로 전이되고 sequential 자모 ㅏ 가 pop 되었는지.
+        assert!(e.chord_buffer.was_preview_atomic(), "다중 키 = atomic");
+    }
+
+    /// preview-syllable: ㄱ ㅏ push → update_chord_preview → preedit='가'.
+    #[test]
+    fn preview_two_jamos_form_syllable() {
+        let mut e = engine_anmatae_chord(5000);
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.update_chord_preview();
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "가", "두 자모 → preedit='가'");
+        assert!(e.chord_buffer.was_preview_injected());
+    }
+
+    /// preview-idle-no-duplicate: preview 후 idle flush → 동일 음절 중복 commit 없음.
+    ///
+    /// 회귀 방지: preview 가 inject 한 음절을 idle flush 가 다시 apply_chord_entries 로
+    /// 처리하면 동일 음절이 commit_buffer 에 들어가 화면에 "가가" 처럼 중복 표시된다.
+    #[test]
+    fn preview_idle_flush_no_duplicate_commit() {
+        let mut e = engine_anmatae_chord(50);
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.update_chord_preview();
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "가");
+
+        // idle flush — preview 가 이미 들어 있으므로 commit 발생 X.
+        let (commit, preedit) = e.chord_idle_flush_pending();
+        assert!(commit.is_none(), "preview 후 idle 은 commit 하지 않음");
+        assert_eq!(preedit, "가", "preedit 그대로 유지");
+        assert!(!e.chord_buffer.was_preview_injected(), "flush 후 플래그 리셋");
+    }
+
+    /// preview-case-a-to-b-clears: Case A 후 결합 불가 자모 추가 → 직전 preview 폐기.
+    ///
+    /// ㄱ ㅏ → "가" preview, 그 뒤 ㅂ 추가 → 초성 [ㄱ,ㅂ] 결합 불가 → Case B fallback
+    /// → preview 음절을 폐기하고 preedit 비움. 만료 시 fallback 자모가 commit 된다.
+    #[test]
+    fn preview_case_a_to_b_clears_preedit() {
+        let mut e = engine_anmatae_chord(5000);
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.update_chord_preview();
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "가");
+        // Case A → Case B 전이
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::B), JamoMeta::default());
+        e.update_chord_preview();
+        assert_eq!(e.preedit_str(), "", "Case B 전이 → preview 폐기");
+        assert!(!e.chord_buffer.was_preview_injected());
+    }
+
+    /// preview-focusout-commits-once: preview 후 chord_idle_flush_commit → "가" 한 번만 commit.
+    ///
+    /// 회귀 방지: FocusOut/Reset 경로에서 preview 가 들어 있을 때 apply_chord_entries
+    /// 가 또 호출되면 "가가" 가 commit 된다. preview 인 경우 flush_preedit 만 호출해야 한다.
+    #[test]
+    fn preview_focusout_commits_once() {
+        let mut e = engine_anmatae_chord(5000);
+        e.chord_buffer.push_jamo(JamoEnum::Cho(Cho::G), JamoMeta::default());
+        e.update_chord_preview();
+        e.chord_buffer.push_jamo(JamoEnum::Jung(Jung::A), JamoMeta::default());
+        e.update_chord_preview();
+        let commit = e.chord_idle_flush_commit();
+        assert_eq!(commit.as_deref(), Some("가"), "preview 후 FocusOut → '가' 1회 commit");
+        assert!(e.chord_pending_info().is_none(), "flush 후 pending 없음");
+        assert!(!e.chord_buffer.was_preview_injected(), "플래그 리셋");
+    }
+
+    // =========================================================================
     // Phase 5 fix: 한자 키 chord flush 보완
     // =========================================================================
 

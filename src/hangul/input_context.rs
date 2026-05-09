@@ -287,6 +287,31 @@ impl HangulInputContext {
         self.committed.clear();
     }
 
+    /// 조합 중 상태(컴포저 큐 + preedit)만 비웁니다 (committed 유지).
+    ///
+    /// chord preview 가 이전 단계에 inject 한 부분 음절을 폐기하고
+    /// 새 입력 결과로 다시 채울 때 사용한다. `commit()` 과 달리
+    /// `force_compose_korean()` 을 호출하지 않으므로 진행 중 음절을
+    /// committed 에 흘려보내지 않는다.
+    pub fn clear_composing(&mut self) {
+        self.chord_input_order.clear();
+        self.composer.clear_queues_synced();
+        self.composer.clear_jamo();
+        self.preedit.clear();
+    }
+
+    /// composer 큐의 마지막 자모 한 개를 제거하고 preedit 을 재계산합니다.
+    ///
+    /// `backspace()` 가 `chord_input_order` 가 비어있지 않으면 chord 분기로 가서
+    /// 다른 데이터를 건드리는 점을 회피하기 위한 직접 경로다. chord preview 의
+    /// sequential→atomic 전이 시 `process_jamo_with_meta` 가 추가한 자모 1개를
+    /// 안전하게 되돌리는 용도. `chord_input_order` 는 손대지 않는다.
+    pub fn pop_last_jamo(&mut self) -> Option<JamoEnum> {
+        let popped = self.composer.remove_jamo();
+        self.update_preedit();
+        popped
+    }
+
     /// 현재 조합 중인지 여부를 반환합니다.
     #[inline]
     pub fn is_composing(&self) -> bool {

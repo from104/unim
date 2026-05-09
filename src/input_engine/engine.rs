@@ -346,10 +346,16 @@ impl InputEngine {
     /// chord 강제 종결: FocusOut/Reset 경로에서 호출 (포커스 빠짐 → 음절 강제 commit).
     ///
     /// 반환값: commit 된 텍스트 (`None` 이면 대기 없음 또는 결과 없음).
-    /// 내부적으로 `force_flush` + `apply_chord_entries` + `flush_preedit` 를 순서대로 호출.
+    ///
+    /// preview 가 이미 inject 된 상태(Case A 진행 중) 면 `apply_chord_entries`
+    /// 를 다시 호출하지 않고 preedit 만 `flush_preedit` 으로 commit. preview 가
+    /// 없는 경우(Case B/C 또는 1키 풀어쓰기) 는 종전대로 entries 를 적용.
     pub fn chord_idle_flush_commit(&mut self) -> Option<String> {
+        let preview_was_injected = self.chord_buffer.was_preview_injected();
         let entries = self.chord_buffer.force_flush()?;
-        self.apply_chord_entries(entries);
+        if !preview_was_injected {
+            self.apply_chord_entries(entries);
+        }
         self.flush_preedit();
         let text = self.commit_buffer.clone();
         self.commit_buffer.clear();
@@ -365,11 +371,20 @@ impl InputEngine {
     ///
     /// 사용자 명세: chord_window 만료 = preedit 갱신만, 자모 강제 commit 금지.
     /// 후속 타건이 일반 결합 규칙으로 결합 시도하다 실패하면 그때 commit.
+    ///
+    /// preview 가 이미 inject 된 상태이면 buffer 만 비우고 preedit 은 그대로 유지
+    /// (apply_chord_entries 재호출 시 동일 음절이 commit 으로 흘러가는 중복을 차단).
     pub fn chord_idle_flush_pending(&mut self) -> (Option<String>, String) {
+        let preview_was_injected = self.chord_buffer.was_preview_injected();
         let Some(entries) = self.chord_buffer.force_flush() else {
             return (None, self.preedit_cache.clone());
         };
-        self.apply_chord_entries(entries);
+        if !preview_was_injected {
+            self.apply_chord_entries(entries);
+        } else {
+            // preview 가 이미 preedit 을 들고 있음. 캐시만 동기화.
+            self.update_preedit_cache();
+        }
         let commit = if self.commit_buffer.is_empty() {
             None
         } else {

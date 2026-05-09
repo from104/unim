@@ -119,12 +119,9 @@ impl InputEngine {
         // 떨어져 첫 키 입력이 무시됐다.
         if self.hanja_keys.contains(&keycode) {
             // chord 버퍼에 대기 중인 자모가 있으면 먼저 flush — Space/Enter와 동일 패턴.
-            // chord 진행 중 한자 키 입력 시 현재 chord를 음절로 확정한 뒤 한자 변환 진입.
-            // (chord 진행 중 preedit 무표시는 사용자 결정 — chord 끝나고 표시해도 충분)
-            if let Some(entries) = self.chord_buffer.force_flush() {
-                unim_log!("ENGINE", "Hanja: chord flush {} 자모", entries.len());
-                self.apply_chord_entries(entries);
-            }
+            // chord 진행 중 한자 키 입력 시 현재 chord 를 음절로 확정한 뒤 한자 변환 진입.
+            // (preview inject 된 경우 finalize_chord_buffer 가 중복 처리 회피)
+            self.finalize_chord_buffer();
             let idle =
                 self.preedit_cache.is_empty() && !self.korean_context.is_composing();
             if idle {
@@ -207,11 +204,8 @@ impl InputEngine {
 
         // Backspace 처리
         if keycode == KeyCode::Backspace {
-            // chord 버퍼에 대기 중인 자모가 있으면 먼저 flush
-            if let Some(entries) = self.chord_buffer.force_flush() {
-                unim_log!("ENGINE", "Backspace: chord flush {} 자모", entries.len());
-                self.apply_chord_entries(entries);
-            }
+            // chord 버퍼에 대기 중인 자모가 있으면 먼저 finalize (preview 이미 반영 여부 자동 처리)
+            self.finalize_chord_buffer();
             if self.korean_context.is_composing() {
                 self.korean_context.backspace();
                 self.update_preedit_cache();
@@ -223,10 +217,7 @@ impl InputEngine {
 
         // Enter 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Enter {
-            if let Some(entries) = self.chord_buffer.force_flush() {
-                unim_log!("ENGINE", "Enter: chord flush {} 자모", entries.len());
-                self.apply_chord_entries(entries);
-            }
+            self.finalize_chord_buffer();
             if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_log!("ENGINE", "Enter -> 조합 커밋 후 키 통과");
@@ -237,10 +228,7 @@ impl InputEngine {
 
         // Tab 처리 - 조합 커밋 후 키 통과
         if keycode == KeyCode::Tab {
-            if let Some(entries) = self.chord_buffer.force_flush() {
-                unim_log!("ENGINE", "Tab: chord flush {} 자모", entries.len());
-                self.apply_chord_entries(entries);
-            }
+            self.finalize_chord_buffer();
             if self.korean_context.is_composing() {
                 self.flush_preedit();
                 unim_log!("ENGINE", "Tab -> 조합 커밋 후 키 통과");
@@ -263,11 +251,7 @@ impl InputEngine {
 
         // Space 처리
         if keycode == KeyCode::Space {
-            // chord 버퍼에 대기 중인 자모가 있으면 먼저 flush (chord-flush-on-space)
-            if let Some(entries) = self.chord_buffer.force_flush() {
-                unim_log!("ENGINE", "Space: chord flush {} 자모", entries.len());
-                self.apply_chord_entries(entries);
-            }
+            self.finalize_chord_buffer();
             if self.korean_context.is_composing() {
                 self.flush_preedit();
             }
@@ -324,13 +308,11 @@ impl InputEngine {
                     unim_log!("ENGINE", "자모 매핑: {:?}", jamo);
 
                     // Special 자모는 비-한국어 문자이므로 별도 처리.
-                    // chord 버퍼가 활성 중이면 먼저 flush한다.
+                    // chord 버퍼가 활성 중이면 먼저 finalize 한다.
                     if let JamoEnum::Special(special_char) = jamo {
                         let ch_to_commit = *special_char;
                         unim_log!("ENGINE", "Special 자모 처리: '{}'", ch_to_commit);
-                        if let Some(entries) = self.chord_buffer.force_flush() {
-                            self.apply_chord_entries(entries);
-                        }
+                        self.finalize_chord_buffer();
                         self.flush_preedit();
                         self.commit_buffer.push(ch_to_commit);
                         return InputResult::committed();
@@ -347,23 +329,54 @@ impl InputEngine {
                     if self.chord_buffer.is_active() {
                         // chord 모드: 버퍼에 push → flush 여부 결정
                         unim_log!("ENGINE", "chord push: {:?}", jamo_copy);
+                        // push 직전 preview 상태 capture (chord_buffer 내부에서 만료/MAX flush 시 리셋되므로)
+                        let prev_preview_active = self.chord_buffer.was_preview_injected();
+                        let prev_was_atomic = self.chord_buffer.was_preview_atomic();
                         match self.chord_buffer.push_jamo(jamo_copy, jamo_meta) {
                             None => {
-                                // 아직 chord 진행 중 → preedit 변경 없음
-                                // (chord 완성 전 partial preedit은 표시하지 않음)
-                                unim_log!("ENGINE", "chord 진행 중 → preedit 대기");
-                                return InputResult::preedit_updated();
-                            }
-                            Some(entries) => {
-                                // 이전 chord 만료 flush + 새 chord 시작됨
-                                // entries = 이전 chord 자모들 (새 자모는 이미 새 버퍼에 있음)
+                                // 윈도우 내 누적 — 현재 buffer 부분 결합 결과를 preedit 에 반영
+                                self.update_chord_preview();
                                 unim_log!(
                                     "ENGINE",
-                                    "chord 만료 flush {} 자모 → 새 chord 시작",
-                                    entries.len()
+                                    "chord 진행 중 (preview) -> preedit='{}'",
+                                    self.preedit_cache
                                 );
-                                self.apply_chord_entries(entries);
-                                // 새 chord의 첫 자모가 버퍼에 들어갔으므로 preedit 대기
+                                return if !self.commit_buffer.is_empty() {
+                                    InputResult::committed()
+                                } else {
+                                    InputResult::preedit_updated()
+                                };
+                            }
+                            Some(entries) => {
+                                unim_log!(
+                                    "ENGINE",
+                                    "chord 만료 flush {} 자모 → 새 chord 시작 (prev_preview={}, atomic={})",
+                                    entries.len(),
+                                    prev_preview_active,
+                                    prev_was_atomic
+                                );
+                                let new_chord_started = self.chord_buffer.has_pending();
+                                if prev_preview_active {
+                                    if new_chord_started {
+                                        // 만료(expired) flush + 새 chord 1개 키. 직전 preview 의 컴포저 상태는
+                                        // 그대로 두고, update_chord_preview 의 단일 키 sequential 경로가
+                                        // process_jamo 로 결합 시도하도록 위임 (사용자가 원하는 "가" 형성).
+                                    } else {
+                                        // MAX flush: buffer 가 비었고 entries 는 이전 + 현재 자모 전체.
+                                        // preview 흔적을 정확히 되돌린 뒤 전체 재적용.
+                                        if prev_was_atomic {
+                                            self.korean_context.clear_composing();
+                                        } else {
+                                            self.korean_context.pop_last_jamo();
+                                        }
+                                        self.apply_chord_entries(entries);
+                                    }
+                                } else {
+                                    self.apply_chord_entries(entries);
+                                }
+                                if new_chord_started {
+                                    self.update_chord_preview();
+                                }
                                 return if !self.commit_buffer.is_empty() {
                                     InputResult::committed()
                                 } else {
@@ -415,20 +428,47 @@ impl InputEngine {
             if self.chord_buffer.is_active() {
                 // chord 모드: 비자모도 윈도우에 합류
                 unim_log!("ENGINE", "chord push_non_jamo: '{}'", c);
+                let prev_preview_active = self.chord_buffer.was_preview_injected();
+                let prev_was_atomic = self.chord_buffer.was_preview_atomic();
                 match self.chord_buffer.push_non_jamo(c) {
                     None => {
-                        // chord 진행 중 → 윈도우 내 누적
-                        unim_log!("ENGINE", "chord 진행 중 (비자모) → 대기");
-                        return InputResult::preedit_updated();
+                        // 비자모 합류 — Case C 가 되므로 preview 는 폐기되고 빈 preedit.
+                        // (실제 commit 은 만료/finalize 시점에 apply_chord_entries 로 처리)
+                        self.update_chord_preview();
+                        return if !self.commit_buffer.is_empty() {
+                            InputResult::committed()
+                        } else {
+                            InputResult::preedit_updated()
+                        };
                     }
                     Some(entries) => {
-                        // 이전 chord 만료 flush
                         unim_log!(
                             "ENGINE",
-                            "chord 만료 flush (비자모 트리거) {} 항목",
-                            entries.len()
+                            "chord 만료 flush (비자모 트리거) {} 항목 (prev_preview={}, atomic={})",
+                            entries.len(),
+                            prev_preview_active,
+                            prev_was_atomic
                         );
-                        self.apply_chord_entries(entries);
+                        let new_chord_started = self.chord_buffer.has_pending();
+                        if prev_preview_active {
+                            if new_chord_started {
+                                // 비자모로 새 chord 가 단일 키로 시작됨. 단일 비자모는 update_chord_preview 가
+                                // flush_preedit + commit 처리. 직전 preview 컴포저 상태 그대로 둠.
+                            } else {
+                                // MAX flush — 정확한 undo 후 전체 재적용
+                                if prev_was_atomic {
+                                    self.korean_context.clear_composing();
+                                } else {
+                                    self.korean_context.pop_last_jamo();
+                                }
+                                self.apply_chord_entries(entries);
+                            }
+                        } else {
+                            self.apply_chord_entries(entries);
+                        }
+                        if new_chord_started {
+                            self.update_chord_preview();
+                        }
                         return if !self.commit_buffer.is_empty() {
                             InputResult::committed()
                         } else {
@@ -438,10 +478,7 @@ impl InputEngine {
                 }
             } else {
                 // chord OFF: 기존 동작 유지 (즉시 commit)
-                if let Some(entries) = self.chord_buffer.force_flush() {
-                    unim_log!("ENGINE", "비-자모 문자: chord flush {} 항목", entries.len());
-                    self.apply_chord_entries(entries);
-                }
+                self.finalize_chord_buffer();
                 self.flush_preedit();
                 self.commit_buffer.push(c);
                 return InputResult::committed();
@@ -449,10 +486,7 @@ impl InputEngine {
         }
 
         // 조합 중에 문자가 아닌 키(화살표, F키 등) 입력 시 chord flush 후 커밋 후 키 통과
-        if let Some(entries) = self.chord_buffer.force_flush() {
-            unim_log!("ENGINE", "비문자키: chord flush {} 자모", entries.len());
-            self.apply_chord_entries(entries);
-        }
+        self.finalize_chord_buffer();
         if self.korean_context.is_composing() {
             self.flush_preedit();
             unim_log!("ENGINE", "비문자키 -> 조합 커밋 후 키 통과");
@@ -716,6 +750,125 @@ impl InputEngine {
         }
     }
 
+    /// chord 버퍼의 현재 부분 결합 결과를 preedit 에 미리 inject 한다.
+    ///
+    /// chord 진행 중에도 화면에는 결합 진행 상황이 즉시 보이도록 하기 위한 핵심 경로다.
+    /// `chord_buffer.push_*` 가 `None` (윈도우 내 누적) 을 반환했을 때 호출되며, 만료된
+    /// 이전 chord 의 잔여 처리 직후 새 chord 의 첫 키에 대해서도 호출된다.
+    ///
+    /// ## 단일 키 vs 다중 키 분기 (Atomic Window Principle 의 preview 변형)
+    /// - **단일 키 (len == 1)** — sequential 풀어쓰기 경로. `process_jamo_with_meta` 로
+    ///   기존 컴포저 상태(직전 preedit) 와 결합 시도. ㄱ 단독 chord 후 ㅏ 단독 chord 가
+    ///   들어와도 일반 한글 조합과 동일하게 "가" 로 합쳐진다. `preview_is_atomic = false`.
+    /// - **다중 키 (len >= 2)** — atomic 모아쓰기 경로. `compose_chord` + `inject_chord_syllable`.
+    ///   `preview_is_atomic = true`.
+    ///
+    /// ## 다중 키 진입 시 직전 preview 처리
+    /// - 직전이 atomic preview 였다면 `inject_chord_syllable` 자체가 큐를 비우고 재구성하므로
+    ///   추가 정리 불필요 (mid-chord 갱신).
+    /// - 직전이 sequential preview 였다면 `process_jamo_with_meta` 가 컴포저에 자모 1개를
+    ///   추가한 상태이므로 `pop_last_jamo` 로 그 자모를 되돌린 뒤 `flush_preedit` 으로
+    ///   직전 음절을 commit, 그 후 atomic chord 를 inject.
+    /// - 직전 preview 없음(첫 atomic) — `flush_preedit` 으로 무관한 직전 조합을 commit 후 inject.
+    ///
+    /// ## Case B/C (다중 키 결합 실패 또는 비자모 포함)
+    /// 직전 preview 가 atomic 이었다면 `clear_composing` 으로 폐기. sequential 이었다면
+    /// `pop_last_jamo` 로 1개 자모만 되돌리고 prior 상태 유지. 만료(idle) 시
+    /// `apply_chord_entries` 가 fallback/비자모를 처리한다.
+    ///
+    /// idle / force flush 시 `preview_injected == true` 이면 호출자는 `apply_chord_entries`
+    /// 를 다시 호출하지 않아 동일 음절 중복 commit 을 막는다.
+    pub(super) fn update_chord_preview(&mut self) {
+        let entries: Vec<crate::input_engine::chord_compose::ChordEntry> =
+            self.chord_buffer.peek_entries().to_vec();
+        if entries.is_empty() {
+            self.update_preedit_cache();
+            return;
+        }
+
+        let was_preview_active = self.chord_buffer.was_preview_injected();
+        let was_atomic = self.chord_buffer.was_preview_atomic();
+
+        if entries.len() == 1 {
+            // 단일 키 chord — sequential 결합 경로.
+            // 직전 컴포저 상태(이전 chord 결과 또는 sequential 누적)와 그대로 결합.
+            let entry = &entries[0];
+            match entry.kind {
+                ChordEntryKind::Jamo(jamo) => {
+                    self.korean_context.process_jamo_with_meta(jamo, entry.meta);
+                    let committed = self.korean_context.get_committed();
+                    if !committed.is_empty() {
+                        self.commit_buffer.push_str(committed);
+                        self.korean_context.clear_committed();
+                    }
+                    self.chord_buffer.mark_preview_injected(true);
+                    self.chord_buffer.mark_preview_atomic(false);
+                }
+                ChordEntryKind::NonJamo(c) => {
+                    // 단일 비자모 — 직전 조합 commit + 자체 commit (preview 없음).
+                    self.flush_preedit();
+                    self.commit_buffer.push(c);
+                    self.chord_buffer.mark_preview_injected(false);
+                    self.chord_buffer.mark_preview_atomic(false);
+                }
+            }
+        } else {
+            // 다중 키 chord — atomic 모아쓰기 경로.
+            let combined_jamo = self.korean_context.get_combined_jamo();
+            let result = compose_chord(&entries, combined_jamo);
+            let case_a = result.inject_to_preedit && result.non_jamos.is_empty();
+
+            if case_a {
+                if was_preview_active && !was_atomic {
+                    // sequential→atomic 전이: 직전 sequential 자모 1개를 되돌리고 prior commit.
+                    self.korean_context.pop_last_jamo();
+                }
+                if !was_atomic {
+                    // sequential→atomic 또는 첫 atomic 진입 — prior 조합을 commit.
+                    // (atomic→atomic mid-chord 갱신은 inject_chord_syllable 이 자체적으로 큐를 재구성)
+                    self.flush_preedit();
+                }
+                self.korean_context.inject_chord_syllable(
+                    result.cho,
+                    result.jung,
+                    result.jong,
+                    result.input_order_jamos,
+                );
+                self.chord_buffer.mark_preview_injected(true);
+                self.chord_buffer.mark_preview_atomic(true);
+            } else if was_preview_active {
+                // Case A → B/C 전이: 직전 preview 폐기.
+                if was_atomic {
+                    self.korean_context.clear_composing();
+                } else {
+                    // sequential 상태에서 결합 실패 — 추가된 자모 1개만 되돌림.
+                    self.korean_context.pop_last_jamo();
+                }
+                self.chord_buffer.mark_preview_injected(false);
+                self.chord_buffer.mark_preview_atomic(false);
+            }
+        }
+
+        self.update_preedit_cache();
+    }
+
+    /// chord 버퍼를 강제 비우고, preview 가 이미 inject 된 상태면 중복 처리 회피.
+    ///
+    /// `apply_chord_entries` 를 직접 호출하면 Case A 의 `flush_preedit + inject_chord_syllable`
+    /// 가 preview 와 중복되어 동일 음절이 commit 에 두 번 들어간다. 이 헬퍼는 그 함정을
+    /// 모든 호출자(Backspace/Enter/Tab/Space/Hanja/Special/비-문자키 등)에서 차단한다.
+    pub(super) fn finalize_chord_buffer(&mut self) {
+        let preview_was_injected = self.chord_buffer.was_preview_injected();
+        let Some(entries) = self.chord_buffer.force_flush() else {
+            return;
+        };
+        if !preview_was_injected {
+            self.apply_chord_entries(entries);
+        }
+        // preview_injected == true: korean_context 가 이미 chord 음절을 들고 있음.
+        // entries 는 폐기 — 호출자는 이후 flush_preedit / process_backspace 등으로 마무리.
+    }
+
     /// chord 버퍼에서 꺼낸 항목 목록을 compositor에 적용한다 (Phase 3 — chord_compose 통합).
     ///
     /// ## 분기 원칙 (Atomic Window Principle)
@@ -828,10 +981,8 @@ impl InputEngine {
 
     /// 입력 카테고리를 토글합니다.
     pub(super) fn toggle_input_category(&mut self) {
-        // chord 버퍼 남은 자모 flush 후 조합 커밋
-        if let Some(entries) = self.chord_buffer.force_flush() {
-            self.apply_chord_entries(entries);
-        }
+        // chord 버퍼 남은 자모 finalize 후 조합 커밋 (preview 이미 반영 시 중복 commit 회피)
+        self.finalize_chord_buffer();
         self.flush_preedit();
 
         self.input_category = match self.input_category {

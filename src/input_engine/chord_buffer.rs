@@ -56,6 +56,24 @@ pub struct ChordBuffer {
     epoch: u64,
     /// 현재 chord 내 다음 input_order 카운터.
     next_order: u8,
+    /// 현재 buffer 의 부분 결합 결과가 preedit 에 미리 inject 된 상태.
+    ///
+    /// `update_chord_preview` 가 Case A(전 영역 reduce 성공) 결과를
+    /// `inject_chord_syllable` 로 미리 주입했을 때 `true`. 이후 idle/force flush 시
+    /// `apply_chord_entries` 를 다시 호출하면 동일 음절이 두 번 commit 되므로,
+    /// 호출자는 이 플래그를 보고 중복 처리를 회피한다.
+    ///
+    /// `clear` / `force_flush` / 새 chord 시작 / 만료 flush / MAX flush 시 false 로 리셋.
+    preview_injected: bool,
+    /// 마지막 preview 가 atomic 모아쓰기(`inject_chord_syllable`) 였는지 여부.
+    ///
+    /// - `true`: 다중 키(buffer.len >= 2) atomic chord — composer 가 chord 음절로 통째 교체된 상태.
+    /// - `false`: 단일 키(buffer.len == 1) sequential — composer 가 직전 상태 + 자모 1개로 누적된 상태.
+    ///
+    /// sequential → atomic 전이 시 composer 의 마지막 자모 1개를 pop 해 sequential 흔적을
+    /// 지우고 직전 음절을 commit 한 뒤 atomic chord 를 inject 해야 한다. atomic → atomic
+    /// (mid-chord) 갱신은 `inject_chord_syllable` 자체가 composer 큐를 비우고 재구성하므로 추가 처리 불필요.
+    preview_is_atomic: bool,
 }
 
 impl ChordBuffer {
@@ -66,6 +84,8 @@ impl ChordBuffer {
             start: None,
             epoch: 0,
             next_order: 0,
+            preview_injected: false,
+            preview_is_atomic: false,
         }
     }
 
@@ -101,6 +121,47 @@ impl ChordBuffer {
     #[inline]
     pub fn window_ms_pub(&self) -> u16 {
         self.window_ms
+    }
+
+    /// 현재 버퍼의 ChordEntry 슬라이스를 반환 (preview 계산용).
+    ///
+    /// chord 진행 중에도 buffer 를 비파괴적으로 들여다보고 부분 결합 결과를
+    /// preedit 에 미리 inject 하기 위해 사용한다.
+    #[inline]
+    pub fn peek_entries(&self) -> &[ChordEntry] {
+        &self.buffer
+    }
+
+    /// preview 가 inject 되었는지 여부.
+    ///
+    /// `true` 이면 `apply_chord_entries` 호출자가 중복 처리를 피하도록 분기.
+    #[inline]
+    pub fn was_preview_injected(&self) -> bool {
+        self.preview_injected
+    }
+
+    /// preview 상태를 갱신한다.
+    ///
+    /// `update_chord_preview` 가 Case A 결과를 inject 한 직후 `true`,
+    /// 비-Case-A(B/C) 로 전이되어 preview 를 폐기할 때 `false` 로 호출.
+    #[inline]
+    pub fn mark_preview_injected(&mut self, v: bool) {
+        self.preview_injected = v;
+    }
+
+    /// 마지막 preview 가 atomic(다중 키 inject)이었는지 반환.
+    #[inline]
+    pub fn was_preview_atomic(&self) -> bool {
+        self.preview_is_atomic
+    }
+
+    /// 마지막 preview 의 atomic 여부를 갱신한다.
+    ///
+    /// - `true`: `inject_chord_syllable` 호출 직후 (다중 키).
+    /// - `false`: `process_jamo_with_meta` 호출 직후 (단일 키 sequential) 또는 preview 폐기.
+    #[inline]
+    pub fn mark_preview_atomic(&mut self, v: bool) {
+        self.preview_is_atomic = v;
     }
 
     /// 자모를 버퍼에 push한다.
@@ -156,6 +217,8 @@ impl ChordBuffer {
             let flushed = std::mem::take(&mut self.buffer);
             self.epoch = self.epoch.wrapping_add(1);
             self.next_order = 0;
+            self.preview_injected = false;
+            self.preview_is_atomic = false;
             entry.input_order = self.next_order;
             self.next_order = self.next_order.wrapping_add(1);
             self.buffer.push(entry);
@@ -171,6 +234,8 @@ impl ChordBuffer {
             self.epoch = self.epoch.wrapping_add(1);
             self.next_order = 0;
             self.start = None;
+            self.preview_injected = false;
+            self.preview_is_atomic = false;
             return Some(flushed);
         }
 
@@ -179,6 +244,8 @@ impl ChordBuffer {
             // 새 chord 시작 — epoch 증가, next_order 리셋
             self.epoch = self.epoch.wrapping_add(1);
             self.next_order = 0;
+            self.preview_injected = false;
+            self.preview_is_atomic = false;
             self.start = Some(now);
         }
         entry.input_order = self.next_order;
@@ -193,12 +260,16 @@ impl ChordBuffer {
     /// flush 후 epoch를 증가시켜 진행 중이던 idle flush 타이머를 무효화한다.
     pub fn force_flush(&mut self) -> Option<ChordFlushResult> {
         if self.buffer.is_empty() {
+            self.preview_injected = false;
+            self.preview_is_atomic = false;
             return None;
         }
         let flushed = std::mem::take(&mut self.buffer);
         self.epoch = self.epoch.wrapping_add(1);
         self.next_order = 0;
         self.start = None;
+        self.preview_injected = false;
+        self.preview_is_atomic = false;
         Some(flushed)
     }
 
@@ -210,6 +281,8 @@ impl ChordBuffer {
         self.start = None;
         self.next_order = 0;
         self.epoch = self.epoch.wrapping_add(1);
+        self.preview_injected = false;
+        self.preview_is_atomic = false;
     }
 
     /// idle flush 타이머 epoch 유효성 검증.
