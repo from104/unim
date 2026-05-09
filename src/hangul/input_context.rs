@@ -160,14 +160,36 @@ impl HangulInputContext {
     /// 마지막 입력된 자모를 제거합니다 (Backspace).
     ///
     /// chord inject 모드(`chord_input_order` 비어있지 않음)일 때:
-    ///   - 입력 순서의 마지막 자모 pop → 남은 자모로 `compose_chord` 재실행 → 재inject.
+    ///   - 자모를 **종성 → 중성 → 초성** 우선순위로 제거 (사용자 멘탈 모델 — 음절 끝에서부터).
+    ///     같은 영역 내에서는 입력 순서 가장 뒤(가장 늦게 입력된 자모)부터.
+    ///   - 남은 자모로 `compose_chord` 재실행 → 재inject.
     ///   - 자모가 0개 남으면 preedit 비우고 종료.
     ///
     /// sequential 모드일 때: 기존 composer.remove_jamo() 경로.
     pub fn backspace(&mut self) -> bool {
         // ── chord inject 모드 ──────────────────────────────────────────────
         if !self.chord_input_order.is_empty() {
-            self.chord_input_order.pop(); // 마지막 자모 제거
+            // 종성 → 중성 → 초성 순으로 가장 뒤쪽 자모 1개를 제거.
+            let pos = self
+                .chord_input_order
+                .iter()
+                .rposition(|j| matches!(j, JamoEnum::Jong(_)))
+                .or_else(|| {
+                    self.chord_input_order
+                        .iter()
+                        .rposition(|j| matches!(j, JamoEnum::Jung(_)))
+                })
+                .or_else(|| {
+                    self.chord_input_order
+                        .iter()
+                        .rposition(|j| matches!(j, JamoEnum::Cho(_)))
+                });
+            if let Some(idx) = pos {
+                self.chord_input_order.remove(idx);
+            } else {
+                // 알 수 없는 자모 종류만 남은 이상 상태 — 안전하게 마지막 1개 제거.
+                self.chord_input_order.pop();
+            }
             if self.chord_input_order.is_empty() {
                 // 자모 전부 제거 → preedit 비움
                 self.composer.clear_queues_synced();
@@ -750,6 +772,69 @@ mod tests {
         assert_eq!(ctx.get_preedit(), "");
 
         assert!(!ctx.backspace()); // 빈 상태
+    }
+
+    /// 시나리오 5: 입력 순서가 [cho, jong, jung] 처럼 섞여도 BS 는 종성 → 중성 → 초성 우선.
+    ///
+    /// 사용자 멘탈 모델: 음절 끝에서부터 지운다. chord 입력 순서가 어떻든
+    /// 화면상 음절의 끝 → 종성, 그 다음 중성, 마지막 초성 순으로 제거되어야 한다.
+    #[test]
+    fn backspace_chord_priority_jong_jung_cho() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        // "감" inject — 입력 순서를 일부러 [ㄱ, ㅁ, ㅏ] 로 설정 (초성, 종성, 중성).
+        ctx.inject_chord_syllable(
+            Some(Cho::G),
+            Some(Jung::A),
+            Some(Jong::M),
+            vec![
+                JamoEnum::Cho(Cho::G),
+                JamoEnum::Jong(Jong::M),
+                JamoEnum::Jung(Jung::A),
+            ],
+        );
+        assert_eq!(ctx.get_preedit(), "감");
+
+        // BS 1 → 종성 ㅁ 우선 제거 → 남은 [ㄱ, ㅏ] → "가"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "가", "종성 우선 제거");
+
+        // BS 2 → 중성 ㅏ 제거 → [ㄱ] → "ㄱ"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "ㄱ", "중성 제거");
+
+        // BS 3 → 초성 ㄱ 제거 → []
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "");
+    }
+
+    /// 시나리오 6: 같은 영역에 자모가 여럿일 때 가장 뒤(가장 늦게 입력) 자모부터 제거.
+    ///
+    /// 종성에 ㄴ+ㅎ 가 결합된 ㄶ 의 경우 chord_input_order 에 둘 다 들어 있다.
+    /// BS 1 → 늦게 입력된 ㅎ 제거 → ㄶ → ㄴ 으로 축소.
+    #[test]
+    fn backspace_chord_within_area_removes_latest() {
+        let mut ctx = HangulInputContext::new(ComposerType::ThreeBul);
+        // "갆" — cho=ㄱ, jung=ㅏ, jong=ㄶ. input_order=[ㄱ,ㅏ,ㄴ,ㅎ].
+        ctx.inject_chord_syllable(
+            Some(Cho::G),
+            Some(Jung::A),
+            Some(Jong::NH),
+            vec![
+                JamoEnum::Cho(Cho::G),
+                JamoEnum::Jung(Jung::A),
+                JamoEnum::Jong(Jong::N),
+                JamoEnum::Jong(Jong::H),
+            ],
+        );
+        assert_eq!(ctx.get_preedit(), "갆");
+
+        // BS → 종성 중 가장 뒤 ㅎ 제거 → 남은 [ㄱ,ㅏ,ㄴ] → "간"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "간", "종성 영역 가장 뒤 자모 제거");
+
+        // BS → 종성 ㄴ 제거 → "가"
+        assert!(ctx.backspace());
+        assert_eq!(ctx.get_preedit(), "가");
     }
 
     /// 시나리오 4: chord inject 후 sequential 자모 추가 → chord_input_order 비워짐 → 이후 BS 는 sequential 경로.
