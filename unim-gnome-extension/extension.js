@@ -57,17 +57,8 @@ export default class UnimExtension extends Extension {
             this._settings = this.getSettings();
             this._vkbd = new VirtualKeyboard();
 
-            // 패널 인디케이터
-            if (this._settings.get_boolean('show-panel-indicator')) {
-                this._addIndicator();
-            }
-
-            // 설정 변경 리스너
-            this._connectSettingChanged('show-panel-indicator', () => {
-                const show = this._settings.get_boolean('show-panel-indicator');
-                if (show && !this._indicator) this._addIndicator();
-                else if (!show && this._indicator) this._removeIndicator();
-            });
+            // 패널 인디케이터 — 항상 표시 (show-panel-indicator 설정 키 deprecated)
+            this._addIndicator();
 
             // TypeFIX 단축키
             this._bindAllShortcuts();

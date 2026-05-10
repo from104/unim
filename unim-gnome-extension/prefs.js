@@ -71,10 +71,6 @@ export default class UnimPreferences extends ExtensionPreferences {
         });
         page.add(displayGroup);
 
-        this._addSwitch(displayGroup, settings, 'show-panel-indicator',
-            _('상단 패널 인디케이터'),
-            _('한/영 상태 아이콘을 GNOME 상단 패널에 표시'));
-
         // 패널 클릭 동작 (왼쪽 클릭 한/영 전환 vs 메뉴)
         const clickOptions = new Gtk.StringList();
         clickOptions.append(_('왼쪽 클릭 = 한/영 전환'));
