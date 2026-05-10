@@ -616,6 +616,8 @@ export class HanjaPopup {
             const star = new St.Label({
                 style_class: 'item-bookmark',
                 text: '☆',
+                x_expand: true,
+                x_align: Clutter.ActorAlign.END,
             });
 
             row.add_child(num);
