@@ -59,10 +59,19 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 
 | 컴포넌트 | 경로 | 설명 |
 |----------|------|------|
-| **GUI Common** | `unim-gui-common/` | DBus 통신, 트레이 공통 로직 |
-| **GUI GTK** | `unim-gui-gtk/` | GTK 기반 시스템 트레이 및 설정 UI |
-| **GUI Qt** | `unim-gui-qt/` | Qt6 기반 시스템 트레이 및 설정 UI |
+| **GUI Common** | `unim-gui-common/` | DBus 통신·트레이·popup 모델·설정 헬퍼 등 toolkit 무관 공통 로직 |
+| **GUI GTK** | `unim-gui-gtk/` | GTK4/libadwaita 트레이·popup·설정 UI (GNOME·Xfce·Cinnamon 등 GTK 데스크톱) |
+| **GUI Qt** | `unim-gui-qt/` | Qt6/QML 트레이·popup·설정 UI (KDE Plasma 네이티브, GTK 의존 없음) |
 | **GNOME Extension** | `unim-gnome-extension/` | GNOME Shell 확장 (인디케이터, 오타 변환, 설정) |
+
+데스크톱별 GUI 매트릭스:
+
+| 환경 | autostart 패키지 | 한자/특수/이모지 popup | 설정 다이얼로그 |
+|------|------------------|------------------------|-----------------|
+| GNOME | unim-gnome (extension) | GNOME Shell extension | unim-gui-gtk (Adwaita) |
+| KDE Plasma | unim-gui-qt | unim-gui-qt (QML) | unim-gui-qt (QML) |
+| Xfce/Cinnamon/MATE | unim-gui-gtk | unim-gui-gtk (GTK4) | unim-gui-gtk (GTK4) |
+| Sway/Hyprland 등 WM | unim-gui-gtk 또는 unim-gui-qt | 선택한 GUI | 선택한 GUI |
 
 ## 📖 컴포넌트별 명세(SPEC) 인덱스
 

@@ -136,6 +136,10 @@ Description: UNIM Korean IME — Qt6/QML settings GUI (alternative)
  UNIM Korean Input Method Engine, built with Qt6 and cxx-qt. Feature
  parity with unim-gui-gtk, native look-and-feel on KDE Plasma.
  .
+ Hanja/special-character/emoji popups and the full settings dialog
+ are now implemented in Qt6/QML directly — no GTK4/libadwaita
+ runtime dependency, no out-of-process unim-gui-gtk fallback.
+ .
  Coexists with unim-gui-gtk — pick whichever fits the desktop. KDE
  Plasma users who prefer native Qt styling should install this one.
 
