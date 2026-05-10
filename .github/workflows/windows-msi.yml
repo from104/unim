@@ -1,0 +1,167 @@
+name: Windows MSI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'unim-tsf/**'
+      - 'unim-windows/**'
+      - 'installer/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/windows-msi.yml'
+  pull_request:
+    paths:
+      - 'unim-tsf/**'
+      - 'unim-windows/**'
+      - 'installer/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/windows-msi.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  WIN_TARGET: x86_64-pc-windows-msvc
+
+jobs:
+  build-msi:
+    name: Build MSVC + WiX MSI
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify GUID/version sync (gen-guids.sh)
+        shell: bash
+        run: |
+          bash installer/wix/gen-guids.sh
+          if ! git diff --exit-code installer/wix/generated/guids.wxi; then
+            echo "::error::installer/wix/generated/guids.wxi out of sync with unim-tsf/src/globals.rs"
+            echo "::error::Run 'bash installer/wix/gen-guids.sh' locally and commit the result."
+            exit 1
+          fi
+
+      - name: Install Rust toolchain (stable, MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-msvc
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: cargo check (workspace, MSVC target)
+        run: cargo check --workspace --target ${{ env.WIN_TARGET }} --locked
+
+      - name: cargo build (release, unim-tsf + unim-windows)
+        run: |
+          cargo build --release --target ${{ env.WIN_TARGET }} `
+            -p unim-tsf `
+            -p unim-windows `
+            --locked
+
+      - name: Verify build artifacts
+        shell: bash
+        run: |
+          out="target/${WIN_TARGET}/release"
+          missing=0
+          for f in unim_tsf.dll unim-windows.exe; do
+            if [[ ! -f "$out/$f" ]]; then
+              echo "::error::missing $out/$f"
+              missing=1
+            else
+              size=$(stat -c%s "$out/$f")
+              echo "  ok  $out/$f ($size bytes)"
+            fi
+          done
+          [[ $missing -eq 0 ]]
+
+      - name: Read workspace version
+        id: version
+        shell: bash
+        run: |
+          v=$(grep -E '^version *= *"' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "UNIM version: $v"
+
+      - name: Locate WiX Toolset (v3)
+        id: wix
+        shell: pwsh
+        run: |
+          $candle = (Get-Command candle.exe -ErrorAction SilentlyContinue)?.Source
+          if (-not $candle -and $env:WIX) {
+            $candle = Join-Path $env:WIX 'bin\candle.exe'
+          }
+          if (-not (Test-Path $candle)) {
+            Write-Error "candle.exe not found. WiX Toolset v3 must be available on the runner."
+          }
+          $bin = Split-Path $candle -Parent
+          "wix_bin=$bin" >> $env:GITHUB_OUTPUT
+          Write-Host "WiX bin: $bin"
+          & "$bin\candle.exe" -? | Select-Object -First 3
+
+      - name: Build MSI (candle + light)
+        shell: pwsh
+        run: |
+          $winOut = "target\${env:WIN_TARGET}\release"
+          $dist = "dist"
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+
+          $candle = "${{ steps.wix.outputs.wix_bin }}\candle.exe"
+          $light  = "${{ steps.wix.outputs.wix_bin }}\light.exe"
+
+          & $candle `
+            -arch x64 `
+            -dWIN_OUT_DIR="$winOut" `
+            -out "installer\wix\unim.wixobj" `
+            "installer\wix\unim.wxs"
+
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $msi = "$dist\unim-${{ steps.version.outputs.version }}-x64.msi"
+          & $light `
+            -sval `
+            -out "$msi" `
+            "installer\wix\unim.wixobj"
+
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Write-Host "Built: $msi"
+          Get-Item $msi | Select-Object Name, Length, LastWriteTime
+
+      - name: MSI integrity check (msiinfo via WiX dark/heat? skip — light -sval covers ICE)
+        shell: pwsh
+        run: |
+          $msi = "dist\unim-${{ steps.version.outputs.version }}-x64.msi"
+          if (-not (Test-Path $msi)) { Write-Error "MSI not produced"; exit 1 }
+          $size = (Get-Item $msi).Length
+          if ($size -lt 100000) {
+            Write-Error "MSI suspiciously small: $size bytes"; exit 1
+          }
+          Write-Host "MSI size OK: $size bytes"
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unim-${{ steps.version.outputs.version }}-x64-msi
+          path: dist/unim-${{ steps.version.outputs.version }}-x64.msi
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload raw binaries (for diagnostics)
+        uses: actions/upload-artifact@v4
+        with:
+          name: unim-${{ steps.version.outputs.version }}-x64-binaries
+          path: |
+            target/${{ env.WIN_TARGET }}/release/unim_tsf.dll
+            target/${{ env.WIN_TARGET }}/release/unim-windows.exe
+          if-no-files-found: error
+          retention-days: 7

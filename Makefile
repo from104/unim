@@ -291,16 +291,20 @@ clean-deb:
 	@rm -rf $(DEB_DIR)
 	@rm -f ../*.deb ../*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
 
-# ─── Windows (native / cross-compile) ────────────────────────────────────────
-# 호스트가 Windows면 네이티브 빌드, Linux/mac이면 cross-compile.
-# WIN_TARGET 을 명시하면 해당 트리플 사용. 미지정 시 rustup 설치된 windows
-# 트리플 중 첫 번째(알파벳순으로 gnu 우선)를 자동 선택.
+# ─── Windows (native / cross-compile + MSI 가이드) ───────────────────────────
+# 정도(正道) 빌드 경로:
+#   1) 실제 배포용 MSI 는 GitHub Actions (windows-2022 + MSVC + WiX 3.x) 산출물.
+#      Workflow:  .github/workflows/windows-msi.yml
+#      Artifact:  unim-<version>-x64-msi
+#   2) 로컬 (Linux 호스트) 타깃은 sanity check 전용 — cargo check / cargo build
+#      로 cross-compile 가능 여부만 검증한다. Linux 산출물은 MSI 로 패키징하지
+#      말 것. mingw GNU ABI 의 windows-rs COM vtable 정합성을 보장할 수 없다.
 #
-# 사전 준비 (Linux cross-compile):
-#   rustup target add x86_64-pc-windows-gnu       # mingw (권장)
+# Sanity 사전 준비 (Linux cross-compile):
+#   rustup target add x86_64-pc-windows-gnu       # mingw (sanity 권장)
 #   sudo apt install mingw-w64                    # gnu 타겟용 linker
 #   # 또는
-#   rustup target add x86_64-pc-windows-msvc      # msvc (lld linker 필요)
+#   rustup target add x86_64-pc-windows-msvc      # msvc (lld 필요, sanity 한정)
 
 WIN_CRATES := -p unim -p unim-capi -p unim-windows -p unim-tsf
 
@@ -335,10 +339,13 @@ check-windows:
 	@echo "🔍 Windows 컴파일 검증 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
 	$(_check_windows_env)
 	@$(CARGO) check $(WIN_CARGO_FLAGS) $(WIN_CRATES)
-	@echo "✅ Windows check 통과"
+	@echo "✅ Windows check 통과 (sanity)"
 
 build-windows:
-	@echo "🔨 Windows 빌드 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
+	@echo "🔨 Windows sanity 빌드 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
+	@if [ -z "$(WIN_NATIVE)" ]; then \
+		echo "⚠️  로컬 (Linux) 빌드는 sanity 전용. 배포용 MSI 는 GitHub Actions windows-msi.yml 에서만 빌드한다."; \
+	fi
 	$(_check_windows_env)
 	@$(CARGO) build --release $(WIN_CARGO_FLAGS) $(WIN_CRATES)
 	@echo "✅ Windows 빌드 완료: $(WIN_OUT_DIR)/"
@@ -346,7 +353,29 @@ build-windows:
 
 clean-windows:
 	@rm -rf target/x86_64-pc-windows-gnu target/x86_64-pc-windows-msvc
+	@rm -rf dist
 	@echo "✅ Windows target 디렉토리 정리 완료"
+
+# globals.rs → installer/wix/generated/guids.wxi 단일 진실원 동기화
+wxi-guids:
+	@bash installer/wix/gen-guids.sh
+
+# wxi 가 globals.rs 와 동기화돼 있는지 검사 (CI 와 동일)
+check-wxi-guids:
+	@bash installer/wix/gen-guids.sh >/dev/null
+	@if ! git diff --exit-code installer/wix/generated/guids.wxi >/dev/null 2>&1; then \
+		echo "❌ installer/wix/generated/guids.wxi 가 unim-tsf/src/globals.rs 와 어긋남."; \
+		echo "   make wxi-guids 실행 후 커밋."; \
+		exit 1; \
+	fi
+	@echo "✅ wxi GUID/version 동기화"
+
+msi:
+	@echo "ℹ️  배포용 MSI 는 GitHub Actions (.github/workflows/windows-msi.yml) 에서 빌드."
+	@echo "   - 로컬 Linux 호스트의 wixl 빌드는 폐기되었다 (P0: 토큰 치환 미흡, mingw ABI 불일치)."
+	@echo "   - PR 트리거 또는 workflow_dispatch 로 실행 → Artifact 'unim-<version>-x64-msi' 다운로드."
+	@echo "   - 로컬 sanity 만 필요하면: make wxi-guids && make check-windows"
+	@exit 0
 
 # ─── Test & Verification ─────────────────────────────────────────────────────
 
