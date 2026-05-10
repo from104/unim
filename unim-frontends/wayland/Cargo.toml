@@ -3,6 +3,9 @@ name = "unim-wayland"
 version.workspace = true
 edition = "2021"
 description = "UNIM Wayland Input Method Frontend"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-wayland"

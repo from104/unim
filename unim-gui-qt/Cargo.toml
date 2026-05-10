@@ -3,6 +3,9 @@ name = "unim-gui-qt"
 version.workspace = true
 edition = "2021"
 description = "UNIM Qt6 GUI - Popups, tray, and settings (cxx-qt)"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-gui-qt"

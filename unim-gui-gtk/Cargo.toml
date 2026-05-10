@@ -3,6 +3,9 @@ name = "unim-gui-gtk"
 version.workspace = true
 edition = "2021"
 description = "UNIM GUI - Integrated tray, popups, and settings"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-gui-gtk"

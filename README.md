@@ -259,3 +259,19 @@ cargo run --example string_processing
 GNOME 확장의 자세한 설치 및 사용 방법은 [unim-gnome-extension/SPEC.md](unim-gnome-extension/SPEC.md)를 참조하세요.
 
 장기 개발 계획은 [ROADMAP.md](ROADMAP.md)를 참조하세요.
+
+---
+
+## 📜 라이선스 / License
+
+본 프로젝트는 **MIT License** 로 배포됩니다. 전문은 [LICENSE](LICENSE) 파일을 참조하세요.
+
+## 🙏 Credits / 출처
+
+UNIM은 다음과 같은 외부 데이터·표준을 함께 배포하며, 각 출처의 라이선스를 준수합니다. 자세한 내용은 [NOTICE](NOTICE)와 [`LICENSES/`](LICENSES/) 디렉터리를 참조하세요.
+
+- **한자 사전** (`src/data/hanja.txt`) — [libhangul](https://github.com/libhangul/libhangul) 프로젝트 (Copyright © 2005, 2006 Choe Hwanjin), **BSD 3-Clause License**.
+- **이모지 데이터** (`src/emoji/data.rs`) — [Unicode CLDR](https://cldr.unicode.org/) `emoji-test.txt` (Unicode 15.0)에서 자동 생성, **Unicode License v3**.
+- **자판 표준** (`docs/references/keymaps/*.json`) — KS X 5002, 세벌식 390/391, QWERTY/Dvorak/Colemak/Workman 등 공개 표준. 각 JSON의 `metadata.author` 필드 참조.
+- **Rust crate 의존성** — Cargo.lock에 기록된 모든 transitive 의존성은 MIT / Apache-2.0 / BSD / Unicode 라이선스로, MIT와 호환됩니다.
+- **시스템 라이브러리** — GTK3/4, Qt5/6, libwayland, libX11, libxkbcommon, glib 등은 동적 링크되며 각 upstream의 LGPL/MIT/X11 라이선스를 따릅니다.

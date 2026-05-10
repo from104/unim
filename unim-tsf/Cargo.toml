@@ -3,6 +3,9 @@ name = "unim-tsf"
 version.workspace = true
 edition = "2021"
 description = "UNIM Korean IME - Windows TSF (Text Services Framework) DLL"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [lib]
 crate-type = ["cdylib"]

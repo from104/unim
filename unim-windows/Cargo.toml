@@ -3,6 +3,9 @@ name = "unim-windows"
 version.workspace = true
 edition = "2021"
 description = "UNIM Korean IME - Windows standalone GUI"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-windows"

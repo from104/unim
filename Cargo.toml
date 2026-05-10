@@ -3,6 +3,9 @@ name = "unim"
 version.workspace = true
 edition = "2021"
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 once_cell = "1.19"
@@ -25,6 +28,9 @@ version = "0.3.0"
 # Cargo.lock v4 (used by this workspace) requires Rust 1.78+.
 # Older toolchains will fail with "lock file version 4 requires a newer Cargo".
 rust-version = "1.78"
+license = "MIT"
+repository = "https://github.com/from104/unim"
+authors = ["from104 <from104@github.com>"]
 
 [workspace]
 members = [

@@ -3,6 +3,9 @@ name = "unim-dbus"
 version.workspace = true
 edition = "2021"
 description = "UNIM DBus IPC Library"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [lib]
 name = "unim_dbus"

@@ -3,6 +3,9 @@ name = "unim-xim"
 version.workspace = true
 edition = "2021"
 description = "UNIM XIM (X Input Method) Frontend"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-xim"

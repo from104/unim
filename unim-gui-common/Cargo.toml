@@ -3,6 +3,9 @@ name = "unim-gui-common"
 version.workspace = true
 edition = "2021"
 description = "Common GUI logic for UNIM (DBus, Tray, Types)"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 # Core

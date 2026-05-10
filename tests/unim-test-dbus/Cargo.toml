@@ -3,6 +3,9 @@ name = "unim-test-dbus"
 version.workspace = true
 edition = "2021"
 description = "UNIM DBus automated regression test"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-test-dbus"
