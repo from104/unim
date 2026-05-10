@@ -160,13 +160,16 @@ install-icons:
 	install -m 644 data/icons/unim-korean.svg data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
 install-gui-gtk:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
-	-install -m 755 target/release/unim-gui-gtk $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
-	-install -m 644 unim-gui-gtk/data/unim-gui-gtk.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/ 2>/dev/null || true
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-gui-gtk $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-gui-gtk/data/unim-gui-gtk.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	install -m 644 unim-gui-gtk/data/unim-gui-gtk-launcher.desktop $(DESTDIR)$(DATADIR)/applications/unim-gui-gtk.desktop
 
 install-gui-qt:
-	install -d $(DESTDIR)$(BINDIR)
-	-install -m 755 target/release/unim-gui-qt $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-gui-qt $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-gui-qt/data/unim-gui-qt.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	install -m 644 unim-gui-qt/data/unim-gui-qt-launcher.desktop $(DESTDIR)$(DATADIR)/applications/unim-gui-qt.desktop
 
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
@@ -190,10 +193,14 @@ uninstall-icons:
 	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg
 
 uninstall-gui-gtk:
-	rm -f $(DESTDIR)$(BINDIR)/unim-gui-gtk $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-gtk.desktop
+	rm -f $(DESTDIR)$(BINDIR)/unim-gui-gtk \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-gtk.desktop \
+	      $(DESTDIR)$(DATADIR)/applications/unim-gui-gtk.desktop
 
 uninstall-gui-qt:
-	rm -f $(DESTDIR)$(BINDIR)/unim-gui-qt
+	rm -f $(DESTDIR)$(BINDIR)/unim-gui-qt \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-qt.desktop \
+	      $(DESTDIR)$(DATADIR)/applications/unim-gui-qt.desktop
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────
 
@@ -224,11 +231,23 @@ gnome-extension:
 	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/ 2>/dev/null \
 		|| (sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/icons/ && \
 		    cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/)
+	@# schemas/ may be root-owned from a previous sudo install — reclaim before glib-compile.
+	@if [ -d unim-gnome-extension/schemas ] && [ ! -w unim-gnome-extension/schemas ]; then \
+		sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/schemas; \
+	fi
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || true
+	@# locale/ likewise — reclaim ownership before msgfmt writes .mo files.
+	@if [ -d unim-gnome-extension/locale ] && [ ! -w unim-gnome-extension/locale ]; then \
+		sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/locale; \
+	fi
 	@if command -v msgfmt >/dev/null 2>&1; then \
 		for po in unim-gnome-extension/po/*.po; do \
 			lang=$$(basename $$po .po); \
 			mkdir -p unim-gnome-extension/locale/$$lang/LC_MESSAGES; \
+			if [ -e unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo ] && \
+			   [ ! -w unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo ]; then \
+				sudo chown $(shell id -u):$(shell id -g) unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo; \
+			fi; \
 			msgfmt $$po -o unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo; \
 		done; \
 	fi

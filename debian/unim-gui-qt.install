@@ -3,4 +3,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 debian/tmp/usr/bin/unim-gui-qt
+debian/tmp/etc/xdg/autostart/unim-gui-qt.desktop
+debian/tmp/usr/share/applications/unim-gui-qt.desktop
 debian/tmp/usr/share/man/man1/unim-gui-qt.1

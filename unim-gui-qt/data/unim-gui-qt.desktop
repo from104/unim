@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=UNIM GUI (Qt)
+Name[ko]=UNIM GUI (Qt)
+Comment=Korean Input Method GUI (tray, popups, settings)
+Comment[ko]=한글 입력기 GUI (트레이, 팝업, 설정)
+Exec=unim-gui-qt
+Icon=unim-korean
+Terminal=false
+Type=Application
+Categories=System;Utility;
+X-KDE-autostart-after=panel
+StartupNotify=false
+NoDisplay=true
+OnlyShowIn=KDE;
