@@ -200,7 +200,7 @@ pub async fn fetch_active_frontends(connection: &zbus::Connection) -> Vec<String
 
 /// ActiveFrontendsChanged 시그널 구독 + debounce 200ms.
 ///
-/// gnome-shell 등록 여부에 따라 `controller.start()` / `controller.stop()` 호출.
+/// gnome-shell 등록 여부에 따라 `controller.spawn_start()` / `controller.spawn_stop()` 호출.
 pub async fn watch_active_frontends(connection: zbus::Connection, controller: Arc<TrayController>) {
     use futures_util::StreamExt;
 
@@ -257,9 +257,9 @@ pub async fn watch_active_frontends(connection: zbus::Connection, controller: Ar
                         names
                     );
                     if has_gnome {
-                        controller.stop();
+                        controller.spawn_stop();
                     } else {
-                        controller.start();
+                        controller.spawn_start();
                     }
                 }
             }

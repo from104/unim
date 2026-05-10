@@ -123,15 +123,15 @@ fn main() {
                         has_gnome
                     );
                     if !has_gnome {
-                        dbus_controller.start();
+                        dbus_controller.spawn_start();
                     }
                 } else {
                     // 프록시 실패 시 일단 트레이 시작
-                    dbus_controller.start();
+                    dbus_controller.spawn_start();
                 }
             } else {
                 // 연결 실패 시 일단 트레이 시작 (watch_dbus_signals가 재연결 처리)
-                dbus_controller.start();
+                dbus_controller.spawn_start();
             }
 
             dbus_client::watch_dbus_signals(

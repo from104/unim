@@ -102,7 +102,7 @@ fn main() {
                 Err(e) => {
                     unim_log!("INDICATOR", "[Qt] DBus 연결 실패: {}", e);
                     // 연결 실패 시 일단 트레이 시작
-                    qt_controller.start();
+                    qt_controller.spawn_start();
                     dbus_client::handle_dbus_actions(dbus_action_rx).await;
                     return;
                 }
@@ -125,10 +125,10 @@ fn main() {
                     has_gnome
                 );
                 if !has_gnome {
-                    qt_controller.start();
+                    qt_controller.spawn_start();
                 }
             } else {
-                qt_controller.start();
+                qt_controller.spawn_start();
             }
 
             // ActiveFrontendsChanged 감시 (별도 task)

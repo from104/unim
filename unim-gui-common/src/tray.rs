@@ -46,6 +46,11 @@ impl TrayController {
     }
 
     /// 트레이가 이미 떠 있으면 no-op.
+    ///
+    /// 주의: 내부적으로 `ksni::blocking::TrayMethods::spawn`이 자체 tokio runtime을
+    /// `block_on`하므로, 호출자가 이미 tokio runtime 컨텍스트(예: `rt.block_on(...)`) 안이면
+    /// "Cannot start a runtime from within a runtime" panic이 발생한다. 그런 경우
+    /// `Arc<TrayController>::spawn_start()`로 별도 OS 스레드에 위임하라.
     pub fn start(&self) {
         let mut guard = self.handle.lock().unwrap();
         if guard.is_some() {
@@ -68,12 +73,31 @@ impl TrayController {
     }
 
     /// 트레이를 종료한다. 이미 꺼져 있으면 no-op.
+    ///
+    /// 주의: `ksni::blocking::Handle::shutdown` 역시 자체 tokio runtime을 사용하므로
+    /// tokio runtime 컨텍스트 안에서 직접 호출하면 panic. `spawn_stop()`을 사용하라.
     pub fn stop(&self) {
         let mut guard = self.handle.lock().unwrap();
         if let Some(h) = guard.take() {
             h.shutdown();
             unim_log!("INDICATOR", "[TrayController] 트레이 종료됨");
         }
+    }
+
+    /// `start()`를 별도 OS 스레드에서 실행하고 완료까지 대기한다.
+    ///
+    /// tokio runtime 안(`rt.block_on(async { ... })`)에서 호출해도 안전하다.
+    /// ksni가 내부적으로 자체 `current_thread` runtime을 만들어 `block_on`하기 때문에
+    /// runtime-in-runtime panic을 피하려면 이 메서드를 사용해야 한다.
+    pub fn spawn_start(self: &Arc<Self>) {
+        let me = self.clone();
+        let _ = thread::spawn(move || me.start()).join();
+    }
+
+    /// `stop()`을 별도 OS 스레드에서 실행하고 완료까지 대기한다.
+    pub fn spawn_stop(self: &Arc<Self>) {
+        let me = self.clone();
+        let _ = thread::spawn(move || me.stop()).join();
     }
 
     pub fn is_running(&self) -> bool {
@@ -184,7 +208,7 @@ impl ksni::Tray for UnimTray {
             InputCategory::English => true,
         };
         unim_log!("INDICATOR", "트레이 좌클릭 → 모드 토글: korean={}", next_korean);
-        let _ = self.dbus_action_tx.blocking_send(GuiAction::SetGlobalMode(next_korean));
+        let _ = self.dbus_action_tx.try_send(GuiAction::SetGlobalMode(next_korean));
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -205,7 +229,7 @@ impl ksni::Tray for UnimTray {
                     label: korean_label,
                     activate: Box::new(|this: &mut Self| {
                         unim_log!("INDICATOR", "메뉴 → 한국어 모드로 전환 요청");
-                        let _ = this.dbus_action_tx.blocking_send(GuiAction::SetGlobalMode(true));
+                        let _ = this.dbus_action_tx.try_send(GuiAction::SetGlobalMode(true));
                     }),
                     ..Default::default()
                 }
@@ -227,7 +251,7 @@ impl ksni::Tray for UnimTray {
                     label: english_label,
                     activate: Box::new(|this: &mut Self| {
                         unim_log!("INDICATOR", "메뉴 → 영어 모드로 전환 요청");
-                        let _ = this.dbus_action_tx.blocking_send(GuiAction::SetGlobalMode(false));
+                        let _ = this.dbus_action_tx.try_send(GuiAction::SetGlobalMode(false));
                     }),
                     ..Default::default()
                 }
