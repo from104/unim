@@ -95,6 +95,14 @@ pub mod qobject {
         #[qsignal]
         fn config_reloaded(self: Pin<&mut Self>);
 
+        /// Blacklist CRUD 완료 — QML ListView 갱신 트리거
+        #[qsignal]
+        fn blacklist_changed(self: Pin<&mut Self>);
+
+        /// UserDict CRUD 완료 — QML ListView 갱신 트리거
+        #[qsignal]
+        fn userdict_changed(self: Pin<&mut Self>);
+
         // ─── i18n 헬퍼 ───
 
         /// 모드 상태 라벨
@@ -209,6 +217,94 @@ pub mod qobject {
         /// Config를 파일/DBus 경유 재로드 후 프로퍼티 갱신
         #[qinvokable]
         fn reload_config(self: Pin<&mut Self>);
+
+        // ─── Blacklist CRUD invokable ───
+
+        /// 전체 Blacklist 항목 수
+        #[qinvokable]
+        fn blacklist_count(self: &UnimBridge) -> i32;
+
+        /// 특정 status 항목 수 (0=Tentative, 1=Confirmed, 2=Inactive)
+        #[qinvokable]
+        fn blacklist_count_by_status(self: &UnimBridge, status: i32) -> i32;
+
+        /// idx번째 항목의 ASCII 문자열
+        #[qinvokable]
+        fn blacklist_entry_ascii(self: &UnimBridge, idx: i32) -> QString;
+
+        /// idx번째 항목의 방향 (0=Forward, 1=Reverse)
+        #[qinvokable]
+        fn blacklist_entry_direction(self: &UnimBridge, idx: i32) -> i32;
+
+        /// idx번째 항목의 상태 (0=Tentative, 1=Confirmed, 2=Inactive)
+        #[qinvokable]
+        fn blacklist_entry_status(self: &UnimBridge, idx: i32) -> i32;
+
+        /// idx번째 항목의 hit count
+        #[qinvokable]
+        fn blacklist_entry_hits(self: &UnimBridge, idx: i32) -> i32;
+
+        /// idx번째 항목의 관찰 시각 (Unix seconds)
+        #[qinvokable]
+        fn blacklist_entry_observed_at(self: &UnimBridge, idx: i32) -> i64;
+
+        /// 해당 status 기준으로 필터링한 전체 idx 목록 (JSON array)
+        #[qinvokable]
+        fn blacklist_indices_by_status(self: &UnimBridge, status: i32) -> QString;
+
+        /// Tentative → Confirmed 승격
+        #[qinvokable]
+        fn blacklist_promote(self: Pin<&mut Self>, idx: i32);
+
+        /// Confirmed → Inactive 비활성화
+        #[qinvokable]
+        fn blacklist_deactivate(self: Pin<&mut Self>, idx: i32);
+
+        /// Inactive → Confirmed 재활성화
+        #[qinvokable]
+        fn blacklist_reactivate(self: Pin<&mut Self>, idx: i32);
+
+        /// 항목 삭제
+        #[qinvokable]
+        fn blacklist_remove(self: Pin<&mut Self>, idx: i32);
+
+        /// 디스크에서 재로드
+        #[qinvokable]
+        fn blacklist_reload(self: Pin<&mut Self>);
+
+        // ─── UserDict CRUD invokable ───
+
+        /// 전체 UserDict 항목 수
+        #[qinvokable]
+        fn userdict_count(self: &UnimBridge) -> i32;
+
+        /// idx번째 단어
+        #[qinvokable]
+        fn userdict_word(self: &UnimBridge, idx: i32) -> QString;
+
+        /// idx번째 메모
+        #[qinvokable]
+        fn userdict_note(self: &UnimBridge, idx: i32) -> QString;
+
+        /// 단어 추가 — 성공: 빈 문자열, 실패: 에러 메시지
+        #[qinvokable]
+        fn userdict_add(self: Pin<&mut Self>, word: QString, note: QString) -> QString;
+
+        /// idx번째 항목 갱신 — 성공: 빈 문자열, 실패: 에러 메시지
+        #[qinvokable]
+        fn userdict_update(self: Pin<&mut Self>, idx: i32, word: QString, note: QString) -> QString;
+
+        /// idx번째 항목 삭제
+        #[qinvokable]
+        fn userdict_remove(self: Pin<&mut Self>, idx: i32);
+
+        /// 디스크에서 재로드
+        #[qinvokable]
+        fn userdict_reload(self: Pin<&mut Self>);
+
+        /// 사전 검증 — 성공: 빈 문자열, 실패: 에러 메시지 (저장 안 함)
+        #[qinvokable]
+        fn userdict_validate(self: &UnimBridge, word: QString) -> QString;
 
         // ─── PopupModel 조회 invokable ───
 
@@ -339,6 +435,8 @@ pub mod qobject {
 }
 
 use unim::config::{Config, InputCategory, ModeSharingMode};
+use unim::typefix_blacklist::Blacklist;
+use unim::typefix_userdict::UserDictionary;
 use unim_gui_common::dbus_client;
 use unim_gui_common::popup_dbus;
 use unim_gui_common::popup_position::compute_popup_xy;
@@ -394,6 +492,9 @@ pub struct UnimBridgeRust {
     rev_window_ms: i32,
     rev_skip_complete: bool,
     rev_userdict_enabled: bool,
+    // Blacklist / UserDict (CRUD 상태, Mutex 없이 메인 스레드만 접근)
+    blacklist: Blacklist,
+    userdict: UserDictionary,
 }
 
 impl Default for UnimBridgeRust {
@@ -448,6 +549,8 @@ impl UnimBridgeRust {
             rev_window_ms: atf.reverse_time_window_ms as i32,
             rev_skip_complete: atf.skip_on_complete_syllable,
             rev_userdict_enabled: atf.user_dict_enabled,
+            blacklist: Blacklist::load_from_default_path(),
+            userdict: UserDictionary::load_from_default_path(),
             config,
         }
     }
@@ -545,6 +648,33 @@ impl qobject::UnimBridge {
             "row_ime_enable" => t!("row_ime_enable"),
             "row_ime_enable_subtitle" => t!("row_ime_enable_subtitle"),
             "page_gnome_title" => t!("page_gnome_title"),
+            // Blacklist 페이지
+            "blacklist_group_tentative" => t!("blacklist_group_tentative"),
+            "blacklist_group_confirmed" => t!("blacklist_group_confirmed"),
+            "blacklist_group_inactive" => t!("blacklist_group_inactive"),
+            "blacklist_empty" => t!("blacklist_empty"),
+            "blacklist_tentative_desc" => t!("blacklist_tentative_desc", count = ""),
+            "blacklist_confirmed_desc" => t!("blacklist_confirmed_desc", count = ""),
+            "blacklist_inactive_desc" => t!("blacklist_inactive_desc", count = ""),
+            "blacklist_btn_confirm" => t!("blacklist_btn_confirm"),
+            "blacklist_btn_disable" => t!("blacklist_btn_disable"),
+            "blacklist_btn_delete" => t!("blacklist_btn_delete"),
+            "blacklist_btn_reactivate" => t!("blacklist_btn_reactivate"),
+            "blacklist_kind_forward" => t!("blacklist_kind_forward"),
+            "blacklist_kind_reverse" => t!("blacklist_kind_reverse"),
+            "blacklist_reload_button" => t!("blacklist_reload_button"),
+            // UserDict 페이지
+            "userdict_group_title" => t!("userdict_group_title"),
+            "userdict_empty" => t!("userdict_empty"),
+            "userdict_add_button" => t!("userdict_add_button"),
+            "userdict_edit_dialog_title_add" => t!("userdict_edit_dialog_title_add"),
+            "userdict_edit_dialog_title_edit" => t!("userdict_edit_dialog_title_edit"),
+            "userdict_edit_dialog_word_label" => t!("userdict_edit_dialog_word_label"),
+            "userdict_edit_dialog_note_label" => t!("userdict_edit_dialog_note_label"),
+            "userdict_validate_empty_word" => t!("userdict_validate_empty_word"),
+            "userdict_validate_not_ascii" => t!("userdict_validate_not_ascii"),
+            "userdict_validate_duplicate" => t!("userdict_validate_duplicate"),
+            "userdict_reload_button" => t!("userdict_reload_button"),
             _ => std::borrow::Cow::Owned(k.clone()),
         };
         QString::from(translated.as_ref())
@@ -959,6 +1089,301 @@ impl qobject::UnimBridge {
         self.as_mut().set_rev_userdict_enabled(rev_ud);
         self.config_reloaded();
     }
+}
+
+// ─── Blacklist CRUD invokable 구현 ───
+
+impl qobject::UnimBridge {
+    pub fn blacklist_count(&self) -> i32 {
+        self.rust().blacklist.entries.len() as i32
+    }
+
+    pub fn blacklist_count_by_status(&self, status: i32) -> i32 {
+        let target = status_from_i32(status);
+        self.rust()
+            .blacklist
+            .entries
+            .iter()
+            .filter(|e| e.status == target)
+            .count() as i32
+    }
+
+    pub fn blacklist_entry_ascii(&self, idx: i32) -> QString {
+        if idx < 0 {
+            return QString::from("");
+        }
+        self.rust()
+            .blacklist
+            .entries
+            .get(idx as usize)
+            .map(|e| QString::from(e.ascii.as_str()))
+            .unwrap_or_else(|| QString::from(""))
+    }
+
+    pub fn blacklist_entry_direction(&self, idx: i32) -> i32 {
+        use unim::typefix_blacklist::Direction;
+        if idx < 0 {
+            return 0;
+        }
+        self.rust()
+            .blacklist
+            .entries
+            .get(idx as usize)
+            .map(|e| match e.direction {
+                Direction::Forward => 0,
+                Direction::Reverse => 1,
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn blacklist_entry_status(&self, idx: i32) -> i32 {
+        use unim::typefix_blacklist::EntryStatus;
+        if idx < 0 {
+            return 0;
+        }
+        self.rust()
+            .blacklist
+            .entries
+            .get(idx as usize)
+            .map(|e| match e.status {
+                EntryStatus::Tentative => 0,
+                EntryStatus::Confirmed => 1,
+                EntryStatus::Inactive => 2,
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn blacklist_entry_hits(&self, idx: i32) -> i32 {
+        if idx < 0 {
+            return 0;
+        }
+        self.rust()
+            .blacklist
+            .entries
+            .get(idx as usize)
+            .map(|e| e.hit_count as i32)
+            .unwrap_or(0)
+    }
+
+    pub fn blacklist_entry_observed_at(&self, idx: i32) -> i64 {
+        if idx < 0 {
+            return 0;
+        }
+        self.rust()
+            .blacklist
+            .entries
+            .get(idx as usize)
+            .map(|e| e.observed_at as i64)
+            .unwrap_or(0)
+    }
+
+    pub fn blacklist_indices_by_status(&self, status: i32) -> QString {
+        let target = status_from_i32(status);
+        let indices: Vec<String> = self
+            .rust()
+            .blacklist
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.status == target)
+            .map(|(i, _)| i.to_string())
+            .collect();
+        QString::from(format!("[{}]", indices.join(",")).as_str())
+    }
+
+    pub fn blacklist_promote(mut self: Pin<&mut Self>, idx: i32) {
+        if idx < 0 {
+            return;
+        }
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.blacklist.promote_to_confirmed(idx as usize);
+            let _ = rust.blacklist.save_to_default_path();
+        }
+        self.as_mut().blacklist_changed();
+    }
+
+    pub fn blacklist_deactivate(mut self: Pin<&mut Self>, idx: i32) {
+        if idx < 0 {
+            return;
+        }
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.blacklist.deactivate(idx as usize);
+            let _ = rust.blacklist.save_to_default_path();
+        }
+        self.as_mut().blacklist_changed();
+    }
+
+    pub fn blacklist_reactivate(mut self: Pin<&mut Self>, idx: i32) {
+        if idx < 0 {
+            return;
+        }
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.blacklist.reactivate_as_confirmed(idx as usize);
+            let _ = rust.blacklist.save_to_default_path();
+        }
+        self.as_mut().blacklist_changed();
+    }
+
+    pub fn blacklist_remove(mut self: Pin<&mut Self>, idx: i32) {
+        if idx < 0 {
+            return;
+        }
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.blacklist.remove(idx as usize);
+            let _ = rust.blacklist.save_to_default_path();
+        }
+        self.as_mut().blacklist_changed();
+    }
+
+    pub fn blacklist_reload(mut self: Pin<&mut Self>) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.blacklist = Blacklist::load_from_default_path();
+        }
+        self.as_mut().blacklist_changed();
+    }
+}
+
+// ─── UserDict CRUD invokable 구현 ───
+
+impl qobject::UnimBridge {
+    pub fn userdict_count(&self) -> i32 {
+        self.rust().userdict.reverse_words.len() as i32
+    }
+
+    pub fn userdict_word(&self, idx: i32) -> QString {
+        if idx < 0 {
+            return QString::from("");
+        }
+        self.rust()
+            .userdict
+            .reverse_words
+            .get(idx as usize)
+            .map(|e| QString::from(e.word.as_str()))
+            .unwrap_or_else(|| QString::from(""))
+    }
+
+    pub fn userdict_note(&self, idx: i32) -> QString {
+        if idx < 0 {
+            return QString::from("");
+        }
+        self.rust()
+            .userdict
+            .reverse_words
+            .get(idx as usize)
+            .and_then(|e| e.note.as_deref())
+            .map(QString::from)
+            .unwrap_or_else(|| QString::from(""))
+    }
+
+    pub fn userdict_add(mut self: Pin<&mut Self>, word: QString, note: QString) -> QString {
+        let w = word.to_string();
+        let n = note.to_string();
+        let note_opt = if n.trim().is_empty() { None } else { Some(n) };
+        let ok = {
+            let mut rust = self.as_mut().rust_mut();
+            let added = rust.userdict.add(&w, note_opt);
+            if added {
+                let _ = rust.userdict.save_to_default_path();
+            }
+            added
+        };
+        if ok {
+            self.as_mut().userdict_changed();
+            QString::from("")
+        } else {
+            // 실패 원인 판별
+            let err = userdict_error_for_add(&self.rust().userdict, &w);
+            err
+        }
+    }
+
+    pub fn userdict_update(
+        mut self: Pin<&mut Self>,
+        idx: i32,
+        word: QString,
+        note: QString,
+    ) -> QString {
+        if idx < 0 {
+            return QString::from(t!("userdict_validate_empty_word").as_ref());
+        }
+        let w = word.to_string();
+        let n = note.to_string();
+        let note_opt = if n.trim().is_empty() { None } else { Some(n) };
+        let ok = {
+            let mut rust = self.as_mut().rust_mut();
+            let updated = rust.userdict.update_at(idx as usize, &w, note_opt);
+            if updated {
+                let _ = rust.userdict.save_to_default_path();
+            }
+            updated
+        };
+        if ok {
+            self.as_mut().userdict_changed();
+            QString::from("")
+        } else {
+            userdict_error_for_add(&self.rust().userdict, &w)
+        }
+    }
+
+    pub fn userdict_remove(mut self: Pin<&mut Self>, idx: i32) {
+        if idx < 0 {
+            return;
+        }
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.userdict.remove_at(idx as usize);
+            let _ = rust.userdict.save_to_default_path();
+        }
+        self.as_mut().userdict_changed();
+    }
+
+    pub fn userdict_reload(mut self: Pin<&mut Self>) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.userdict = UserDictionary::load_from_default_path();
+        }
+        self.as_mut().userdict_changed();
+    }
+
+    pub fn userdict_validate(&self, word: QString) -> QString {
+        let w = word.to_string();
+        userdict_error_for_add(&self.rust().userdict, &w)
+    }
+}
+
+// ─── Blacklist/UserDict 헬퍼 함수 ───
+
+fn status_from_i32(status: i32) -> unim::typefix_blacklist::EntryStatus {
+    use unim::typefix_blacklist::EntryStatus;
+    match status {
+        1 => EntryStatus::Confirmed,
+        2 => EntryStatus::Inactive,
+        _ => EntryStatus::Tentative,
+    }
+}
+
+fn userdict_error_for_add(ud: &UserDictionary, word: &str) -> QString {
+    let trimmed = word.trim();
+    if trimmed.is_empty() {
+        return QString::from(t!("userdict_validate_empty_word").as_ref());
+    }
+    if !trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
+        return QString::from(t!("userdict_validate_not_ascii").as_ref());
+    }
+    let key = trimmed.to_lowercase();
+    if ud
+        .reverse_words
+        .iter()
+        .any(|e| e.word.to_lowercase() == key)
+    {
+        return QString::from(t!("userdict_validate_duplicate").as_ref());
+    }
+    QString::from("")
 }
 
 // ─── PopupModel 조회 invokable 구현 ───
