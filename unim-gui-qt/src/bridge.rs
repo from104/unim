@@ -10,6 +10,31 @@ use cxx_qt_lib::QString;
 use rust_i18n::t;
 use std::sync::{Arc, Mutex, RwLock};
 
+// ─── 5-B: 화면 크기 동적 조회 C++ 헬퍼 FFI ───
+extern "C" {
+    /// 커서 좌표 기준으로 해당 모니터의 availableGeometry 반환.
+    /// Qt main thread 에서만 호출해야 한다 (QGuiApplication 접근).
+    fn unim_screen_geom_for(
+        cursor_x: i32,
+        cursor_y: i32,
+        out_x: *mut i32,
+        out_y: *mut i32,
+        out_w: *mut i32,
+        out_h: *mut i32,
+    );
+}
+
+/// 커서 위치 기준 화면의 (x, y, w, h) 반환.
+/// **반드시 Qt main thread에서 호출** (queue 클로저 안에서).
+fn screen_for(cursor_x: i32, cursor_y: i32) -> (i32, i32, i32, i32) {
+    let (mut sx, mut sy, mut sw, mut sh) = (0i32, 0i32, 1920i32, 1080i32);
+    // SAFETY: Qt main thread에서만 호출, 포인터는 스택 변수.
+    unsafe {
+        unim_screen_geom_for(cursor_x, cursor_y, &mut sx, &mut sy, &mut sw, &mut sh);
+    }
+    (sx, sy, sw, sh)
+}
+
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
@@ -1659,10 +1684,7 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
         // GuiAction 수신 → Qt 시그널 발행
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
-            // popup 좌표 계산용 팝업 창 크기 추정치
-            // TODO: Qt에서 QGuiApplication::primaryScreen()으로 실제 화면 크기 조회
-            const SCREEN_W: i32 = 1920;
-            const SCREEN_H: i32 = 1080;
+            // popup 창 크기 추정치 (화면 크기는 런타임에 동적 조회)
             const POPUP_W: i32 = 300;
             const POPUP_H_COMPACT: i32 = 160;
             const POPUP_H_EXPANDED: i32 = 340;
@@ -1689,12 +1711,14 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                     }
 
                     GuiAction::ShowHanjaPopup { x, y, h, .. } => {
-                        let (px, py) = compute_popup_xy(
-                            x, y, h,
-                            POPUP_W, POPUP_H_COMPACT,
-                            0, 0, SCREEN_W, SCREEN_H,
-                        );
                         qt.queue(move |mut bridge| {
+                            // Qt main thread에서 화면 크기 동적 조회 (5-B)
+                            let (sx, sy, sw, sh) = screen_for(x, y);
+                            let (px, py) = compute_popup_xy(
+                                x, y, h,
+                                POPUP_W, POPUP_H_COMPACT,
+                                sx, sy, sw, sh,
+                            );
                             bridge.as_mut().set_popup_kind(0); // Hanja
                             bridge.as_mut().set_popup_x(px);
                             bridge.as_mut().set_popup_y(py);
@@ -1705,12 +1729,14 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                     }
 
                     GuiAction::ShowSpecialPopup { x, y, h, .. } => {
-                        let (px, py) = compute_popup_xy(
-                            x, y, h,
-                            POPUP_W, POPUP_H_COMPACT,
-                            0, 0, SCREEN_W, SCREEN_H,
-                        );
                         qt.queue(move |mut bridge| {
+                            // Qt main thread에서 화면 크기 동적 조회 (5-B)
+                            let (sx, sy, sw, sh) = screen_for(x, y);
+                            let (px, py) = compute_popup_xy(
+                                x, y, h,
+                                POPUP_W, POPUP_H_COMPACT,
+                                sx, sy, sw, sh,
+                            );
                             bridge.as_mut().set_popup_kind(1); // Special
                             bridge.as_mut().set_popup_x(px);
                             bridge.as_mut().set_popup_y(py);
@@ -1721,12 +1747,14 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                     }
 
                     GuiAction::ShowEmojiPopup { x, y, h, .. } => {
-                        let (px, py) = compute_popup_xy(
-                            x, y, h,
-                            POPUP_W, POPUP_H_EXPANDED,
-                            0, 0, SCREEN_W, SCREEN_H,
-                        );
                         qt.queue(move |mut bridge| {
+                            // Qt main thread에서 화면 크기 동적 조회 (5-B)
+                            let (sx, sy, sw, sh) = screen_for(x, y);
+                            let (px, py) = compute_popup_xy(
+                                x, y, h,
+                                POPUP_W, POPUP_H_EXPANDED,
+                                sx, sy, sw, sh,
+                            );
                             bridge.as_mut().set_popup_kind(2); // Emoji
                             bridge.as_mut().set_popup_x(px);
                             bridge.as_mut().set_popup_y(py);

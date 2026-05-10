@@ -46,14 +46,18 @@ Window {
                 Layout.alignment: Qt.AlignTop
 
                 Repeater {
-                    model: bridge ? bridge.popup_tab_count() : 9
+                    model: {
+                        const _ = repaintTrigger.repaintCount
+                        return bridge ? bridge.popup_tab_count() : 9
+                    }
                     delegate: Rectangle {
                         width: 36; height: 36
                         property int tabIdx: index
-                        property bool isActive: bridge
-                                                ? (bridge.popup_active_tab() === tabIdx)
-                                                : false
                         property int _rep: repaintTrigger.repaintCount
+                        property bool isActive: {
+                            const _ = repaintTrigger.repaintCount
+                            return bridge ? (bridge.popup_active_tab() === tabIdx) : false
+                        }
 
                         color: isActive ? palette.highlight
                                         : (tabMouse.containsMouse ? palette.alternateBase : "transparent")
@@ -63,7 +67,10 @@ Window {
 
                         Text {
                             anchors.centerIn: parent
-                            text: bridge ? bridge.popup_tab_label(tabIdx) : ""
+                            text: {
+                                const _ = repaintTrigger.repaintCount
+                                return bridge ? bridge.popup_tab_label(tabIdx) : ""
+                            }
                             font.pixelSize: 18
                             color: isActive ? palette.highlightedText : palette.windowText
                         }
@@ -88,7 +95,10 @@ Window {
                 // 헤더 (카테고리명)
                 Text {
                     Layout.fillWidth: true
-                    text: bridge ? bridge.popup_header_text() : ""
+                    text: {
+                        const _ = repaintTrigger.repaintCount
+                        return bridge ? bridge.popup_header_text() : ""
+                    }
                     color: palette.windowText
                     font.pixelSize: 12
                     font.bold: true
@@ -116,7 +126,10 @@ Window {
 
                             width: 36; height: 36
 
-                            property int cellFlags: bridge ? bridge.popup_cell_flags(ri, ci) : 0
+                            property int cellFlags: {
+                                const _ = repaintTrigger.repaintCount
+                                return bridge ? bridge.popup_cell_flags(ri, ci) : 0
+                            }
                             property bool hasData:    (cellFlags & 0x01) !== 0
                             property bool isSelected: (cellFlags & 0x02) !== 0
 
@@ -129,8 +142,11 @@ Window {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: (hasData && bridge)
-                                      ? bridge.popup_cell_text(ri, ci) : ""
+                                text: {
+                                    const _ = repaintTrigger.repaintCount
+                                    return (hasData && bridge)
+                                           ? bridge.popup_cell_text(ri, ci) : ""
+                                }
                                 font.pixelSize: 22
                                 color: isSelected ? palette.highlightedText : palette.windowText
                             }
@@ -154,7 +170,10 @@ Window {
                 // 푸터
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: bridge ? bridge.popup_show_footer() : false
+                    visible: {
+                        const _ = repaintTrigger.repaintCount
+                        return bridge ? bridge.popup_show_footer() : false
+                    }
                     spacing: 2
 
                     Button {
@@ -164,7 +183,10 @@ Window {
                     Text {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
-                        text: bridge ? bridge.popup_footer_text() : ""
+                        text: {
+                            const _ = repaintTrigger.repaintCount
+                            return bridge ? bridge.popup_footer_text() : ""
+                        }
                         color: palette.windowText
                         font.pixelSize: 11
                     }

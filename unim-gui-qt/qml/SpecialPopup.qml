@@ -43,7 +43,10 @@ Window {
             // ─── 헤더 ───
             Text {
                 Layout.fillWidth: true
-                text: bridge ? bridge.popup_header_text() : ""
+                text: {
+                    const _ = repaintTrigger.repaintCount
+                    return bridge ? bridge.popup_header_text() : ""
+                }
                 color: palette.windowText
                 font.pixelSize: 13
                 font.bold: true
@@ -69,13 +72,23 @@ Window {
                     model: 9
                     delegate: Rectangle {
                         width: 30; height: 20
-                        color: bridge && bridge.popup_col_header_hl(index)
-                               ? palette.highlight : "transparent"
+                        property int _rep: repaintTrigger.repaintCount
+                        color: {
+                            const _ = repaintTrigger.repaintCount
+                            return bridge && bridge.popup_col_header_hl(index)
+                                   ? palette.highlight : "transparent"
+                        }
                         Text {
                             anchors.centerIn: parent
-                            text: bridge ? bridge.popup_col_header(index) : ""
-                            color: bridge && bridge.popup_col_header_hl(index)
-                                   ? palette.highlightedText : palette.windowText
+                            text: {
+                                const _ = repaintTrigger.repaintCount
+                                return bridge ? bridge.popup_col_header(index) : ""
+                            }
+                            color: {
+                                const _ = repaintTrigger.repaintCount
+                                return bridge && bridge.popup_col_header_hl(index)
+                                       ? palette.highlightedText : palette.windowText
+                            }
                             font.pixelSize: 11
                             font.bold: true
                         }
@@ -95,13 +108,22 @@ Window {
                             id: specialRowHeaderComp
                             Rectangle {
                                 width: 20; height: 28
-                                color: bridge && bridge.popup_row_header_hl(ri)
-                                       ? palette.highlight : "transparent"
+                                color: {
+                                    const _ = repaintTrigger.repaintCount
+                                    return bridge && bridge.popup_row_header_hl(ri)
+                                           ? palette.highlight : "transparent"
+                                }
                                 Text {
                                     anchors.centerIn: parent
-                                    text: bridge ? bridge.popup_row_header(ri) : String(ri + 1)
-                                    color: bridge && bridge.popup_row_header_hl(ri)
-                                           ? palette.highlightedText : palette.windowText
+                                    text: {
+                                        const _ = repaintTrigger.repaintCount
+                                        return bridge ? bridge.popup_row_header(ri) : String(ri + 1)
+                                    }
+                                    color: {
+                                        const _ = repaintTrigger.repaintCount
+                                        return bridge && bridge.popup_row_header_hl(ri)
+                                               ? palette.highlightedText : palette.windowText
+                                    }
                                     font.pixelSize: 11
                                 }
                             }
@@ -114,9 +136,13 @@ Window {
                                 property int rowIdx: ri       // 0-8
                                 width: 30; height: 28
 
-                                property int cellFlags: bridge
-                                                        ? bridge.popup_cell_flags(rowIdx, colIdx)
-                                                        : 0
+                                property int _rep: repaintTrigger.repaintCount
+                                property int cellFlags: {
+                                    const _ = repaintTrigger.repaintCount
+                                    return bridge
+                                           ? bridge.popup_cell_flags(rowIdx, colIdx)
+                                           : 0
+                                }
                                 property bool hasData:    (cellFlags & 0x01) !== 0
                                 property bool isSelected: (cellFlags & 0x02) !== 0
                                 property bool isColHl:    (cellFlags & 0x04) !== 0
@@ -134,8 +160,11 @@ Window {
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: (hasData && bridge)
-                                          ? bridge.popup_cell_text(rowIdx, colIdx) : ""
+                                    text: {
+                                        const _ = repaintTrigger.repaintCount
+                                        return (hasData && bridge)
+                                               ? bridge.popup_cell_text(rowIdx, colIdx) : ""
+                                    }
                                     color: isSelected ? palette.highlightedText : palette.windowText
                                     font.pixelSize: 14
                                 }
@@ -160,7 +189,10 @@ Window {
             // ─── 푸터: [◀] [N/M] [▶] ───
             RowLayout {
                 Layout.fillWidth: true
-                visible: bridge ? bridge.popup_show_footer() : false
+                visible: {
+                    const _ = repaintTrigger.repaintCount
+                    return bridge ? bridge.popup_show_footer() : false
+                }
                 spacing: 2
 
                 Button {
@@ -170,7 +202,10 @@ Window {
                 Text {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
-                    text: bridge ? bridge.popup_footer_text() : ""
+                    text: {
+                        const _ = repaintTrigger.repaintCount
+                        return bridge ? bridge.popup_footer_text() : ""
+                    }
                     color: palette.windowText
                     font.pixelSize: 11
                 }

@@ -16,5 +16,9 @@ fn main() {
             .qml_file("qml/settings/GnomePage.qml"),
     )
     .files(["src/bridge.rs"])
+    // 5-B: 화면 크기 동적 조회 C++ 헬퍼
+    .cpp_file("cpp/screen_query.cpp")
+    .include_dir("cpp")
+    .qt_module("Gui")
     .build();
 }
