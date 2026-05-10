@@ -1570,13 +1570,31 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             }
 
             EngineRequest::SetEmojiCategory { idx, response } => {
-                // GNOME extension 등 GUI 의 마우스 클릭 탭 전환을 위해 마지막 포커스
-                // 컨텍스트의 popup_state(PopupKind::Emoji) 의 cat_index/items 를 갱신하고
-                // payload 를 응답한다.
+                // GNOME extension 등 GUI 의 마우스 클릭 탭 전환을 위해 emoji popup
+                // 활성 컨텍스트의 popup_state(PopupKind::Emoji) 의 cat_index/items
+                // 를 갱신하고 payload 를 응답한다.
+                //
+                // popup-owner 라우팅: extension 자체 IC 가 popup 을 표시하지만
+                // last_focused_context_id 는 다른 frontend(GTK4_IM/Qt/XIM 등) 의
+                // context 일 수 있다. 키보드 Tab 은 ProcessKey 가 호출 context_id
+                // 로 들어오지만 SetEmojiCategory 는 글로벌 RPC 라 popup_state 가
+                // 살아있는 context 를 직접 찾아야 한다.
                 let payload: Option<EmojiShowPayload> = (|| {
-                    let ctx_id = last_focused_context_id?;
+                    let ctx_id = last_focused_context_id
+                        .filter(|id| {
+                            contexts
+                                .get(id)
+                                .map(|e| e.is_emoji_popup_active())
+                                .unwrap_or(false)
+                        })
+                        .or_else(|| {
+                            contexts
+                                .iter()
+                                .find(|(_, e)| e.is_emoji_popup_active())
+                                .map(|(id, _)| *id)
+                        })?;
                     let engine = contexts.get_mut(&ctx_id)?;
-                    // popup_state 가 emoji 인지 확인
+                    // popup_state 가 emoji 인지 재확인 (방어)
                     if !engine.is_emoji_popup_active() {
                         unim_log!(
                             "ENGINE_WORKER",
