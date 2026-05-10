@@ -2,6 +2,7 @@
 //!
 //! DBus 시그널을 수신하여 Qt 시그널로 변환합니다.
 //! popup 3종(한자/특수문자/이모지)은 PopupModel을 통해 QML에 데이터를 제공합니다.
+//! Phase 3: settings 다이얼로그용 Config 프로퍼티 및 invokable 추가.
 
 use core::pin::Pin;
 use cxx_qt::{CxxQtType, Threading};
@@ -30,6 +31,37 @@ pub mod qobject {
         #[qproperty(u32, popup_kind)]
         #[qproperty(i32, popup_x)]
         #[qproperty(i32, popup_y)]
+        // ─── Settings 프로퍼티 ───
+        // 일반 > 자판
+        #[qproperty(QString, korean_layout)]
+        #[qproperty(QString, english_layout)]
+        #[qproperty(QString, toggle_keys)]
+        #[qproperty(QString, hanja_keys)]
+        // 일반 > 입력 모드
+        #[qproperty(i32, initial_mode)]       // 0=Korean, 1=English
+        #[qproperty(i32, mode_sharing)]       // 0=Global, 1=PerApp
+        // 일반 > 자동 영문 전환
+        #[qproperty(bool, auto_english_enabled)]
+        #[qproperty(QString, auto_english_triggers)]
+        // 모아치기
+        #[qproperty(bool, moachigi_bidir)]
+        #[qproperty(i32, moachigi_chord_ms)]  // 0=OFF
+        // AutoTypeFix 마스터
+        #[qproperty(bool, autotypefix_enabled)]
+        #[qproperty(bool, autotypefix_rollback)]
+        #[qproperty(i32, autotypefix_obs_secs)]
+        #[qproperty(i32, autotypefix_expiry_hours)]
+        // AutoTypeFix 순방향
+        #[qproperty(bool, fwd_enabled)]
+        #[qproperty(i32, fwd_kor_threshold)]
+        #[qproperty(i32, fwd_window_ms)]
+        #[qproperty(bool, fwd_skip_engword)]
+        // AutoTypeFix 역방향
+        #[qproperty(bool, rev_enabled)]
+        #[qproperty(i32, rev_eng_threshold)]
+        #[qproperty(i32, rev_window_ms)]
+        #[qproperty(bool, rev_skip_complete)]
+        #[qproperty(bool, rev_userdict_enabled)]
         #[namespace = "unim"]
         type UnimBridge = super::UnimBridgeRust;
 
@@ -51,6 +83,18 @@ pub mod qobject {
         #[qsignal]
         fn popup_hide(self: Pin<&mut Self>);
 
+        /// settings 창 열기 요청
+        #[qsignal]
+        fn open_settings(self: Pin<&mut Self>);
+
+        /// 저장 완료 토스트 알림 — QML에서 Popup/SnackBar로 표시
+        #[qsignal]
+        fn toast_message(self: Pin<&mut Self>, text: QString);
+
+        /// settings config 재로드 완료 — QML 프로퍼티 갱신 요청
+        #[qsignal]
+        fn config_reloaded(self: Pin<&mut Self>);
+
         // ─── i18n 헬퍼 ───
 
         /// 모드 상태 라벨
@@ -60,6 +104,111 @@ pub mod qobject {
         /// 앱 윈도우 타이틀
         #[qinvokable]
         fn window_title(self: &UnimBridge) -> QString;
+
+        // ─── Settings i18n 헬퍼 ───
+
+        /// t!() 래퍼 — QML에서 qsTr 대신 Rust i18n 키로 번역
+        #[qinvokable]
+        fn tr_key(self: &UnimBridge, key: QString) -> QString;
+
+        // ─── Settings 조회 invokable ───
+
+        /// 사용 가능한 한국어 자판 목록 (JSON array string)
+        #[qinvokable]
+        fn available_korean_layouts(self: &UnimBridge) -> QString;
+
+        /// 사용 가능한 영어 자판 목록 (JSON array string)
+        #[qinvokable]
+        fn available_english_layouts(self: &UnimBridge) -> QString;
+
+        /// 현재 한국어 자판의 표시 이름
+        #[qinvokable]
+        fn korean_layout_display(self: &UnimBridge) -> QString;
+
+        /// GNOME 세션 여부
+        #[qinvokable]
+        fn is_gnome_session(self: &UnimBridge) -> bool;
+
+        /// Wayland 세션 여부
+        #[qinvokable]
+        fn is_wayland_session(self: &UnimBridge) -> bool;
+
+        // ─── Settings setter invokable ───
+        // 주의: cxx-qt가 qproperty마다 set_<name>을 자동 생성하므로,
+        //       invokable setter는 "apply_" 접두사를 사용해 충돌 방지.
+
+        #[qinvokable]
+        fn apply_korean_layout(self: Pin<&mut Self>, name: QString);
+
+        #[qinvokable]
+        fn apply_english_layout(self: Pin<&mut Self>, name: QString);
+
+        #[qinvokable]
+        fn apply_toggle_keys(self: Pin<&mut Self>, keys: QString);
+
+        #[qinvokable]
+        fn apply_hanja_keys(self: Pin<&mut Self>, keys: QString);
+
+        #[qinvokable]
+        fn apply_initial_mode(self: Pin<&mut Self>, mode: i32);
+
+        #[qinvokable]
+        fn apply_mode_sharing(self: Pin<&mut Self>, mode: i32);
+
+        #[qinvokable]
+        fn apply_auto_english_enabled(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_auto_english_triggers(self: Pin<&mut Self>, keys: QString);
+
+        #[qinvokable]
+        fn apply_moachigi_bidir(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_moachigi_chord_ms(self: Pin<&mut Self>, ms: i32);
+
+        #[qinvokable]
+        fn apply_autotypefix_enabled(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_autotypefix_rollback(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_autotypefix_obs_secs(self: Pin<&mut Self>, secs: i32);
+
+        #[qinvokable]
+        fn apply_autotypefix_expiry_hours(self: Pin<&mut Self>, hours: i32);
+
+        #[qinvokable]
+        fn apply_fwd_enabled(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_fwd_kor_threshold(self: Pin<&mut Self>, v: i32);
+
+        #[qinvokable]
+        fn apply_fwd_window_ms(self: Pin<&mut Self>, ms: i32);
+
+        #[qinvokable]
+        fn apply_fwd_skip_engword(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_rev_enabled(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_rev_eng_threshold(self: Pin<&mut Self>, v: i32);
+
+        #[qinvokable]
+        fn apply_rev_window_ms(self: Pin<&mut Self>, ms: i32);
+
+        #[qinvokable]
+        fn apply_rev_skip_complete(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
+        fn apply_rev_userdict_enabled(self: Pin<&mut Self>, enabled: bool);
+
+        /// Config를 파일/DBus 경유 재로드 후 프로퍼티 갱신
+        #[qinvokable]
+        fn reload_config(self: Pin<&mut Self>);
 
         // ─── PopupModel 조회 invokable ───
 
@@ -189,10 +338,16 @@ pub mod qobject {
     impl cxx_qt::Initialize for UnimBridge {}
 }
 
+use unim::config::{Config, InputCategory, ModeSharingMode};
 use unim_gui_common::dbus_client;
 use unim_gui_common::popup_dbus;
 use unim_gui_common::popup_position::compute_popup_xy;
 use unim_gui_common::popup_state::PopupModel;
+use unim_gui_common::settings_dbus::save_config_via_dbus;
+use unim_gui_common::settings_helpers::{
+    apply_korean_profile_choice, collect_korean_profile_choices, is_gnome_session as detect_gnome,
+    is_wayland_session as detect_wayland, load_and_resolve,
+};
 use unim_gui_common::tray::TrayController;
 use unim_gui_common::types::{GuiAction, IndicatorState};
 
@@ -207,11 +362,51 @@ pub struct UnimBridgeRust {
     popup_y: i32,
     // toolkit-free 팝업 모델 (백그라운드 스레드와 공유)
     popup_model: Arc<Mutex<PopupModel>>,
+    // ─── Settings 상태 ───
+    config: Config,
+    // 일반 > 자판
+    korean_layout: QString,
+    english_layout: QString,
+    toggle_keys: QString,
+    hanja_keys: QString,
+    // 일반 > 입력 모드
+    initial_mode: i32,
+    mode_sharing: i32,
+    // 자동 영문 전환
+    auto_english_enabled: bool,
+    auto_english_triggers: QString,
+    // 모아치기
+    moachigi_bidir: bool,
+    moachigi_chord_ms: i32,
+    // AutoTypeFix 마스터
+    autotypefix_enabled: bool,
+    autotypefix_rollback: bool,
+    autotypefix_obs_secs: i32,
+    autotypefix_expiry_hours: i32,
+    // AutoTypeFix 순방향
+    fwd_enabled: bool,
+    fwd_kor_threshold: i32,
+    fwd_window_ms: i32,
+    fwd_skip_engword: bool,
+    // AutoTypeFix 역방향
+    rev_enabled: bool,
+    rev_eng_threshold: i32,
+    rev_window_ms: i32,
+    rev_skip_complete: bool,
+    rev_userdict_enabled: bool,
 }
 
-#[allow(clippy::derivable_impls)]
 impl Default for UnimBridgeRust {
     fn default() -> Self {
+        let config = Config::load_from_default_path();
+        Self::from_config(config)
+    }
+}
+
+impl UnimBridgeRust {
+    fn from_config(config: Config) -> Self {
+        let atf = &config.engine.auto_typefix;
+        let kor = &config.engine.korean;
         Self {
             is_korean: false,
             connected: false,
@@ -220,6 +415,40 @@ impl Default for UnimBridgeRust {
             popup_x: 0,
             popup_y: 0,
             popup_model: Arc::new(Mutex::new(PopupModel::new())),
+            korean_layout: QString::from(
+                unim::config::korean_layout_display_name(&kor.effective_layout_name()),
+            ),
+            english_layout: QString::from(config.engine.english.layout.as_str()),
+            toggle_keys: QString::from(config.engine.toggle_keys.join(", ").as_str()),
+            hanja_keys: QString::from(config.engine.hanja_keys.join(", ").as_str()),
+            initial_mode: match config.engine.default_category {
+                InputCategory::Korean => 0,
+                InputCategory::English => 1,
+            },
+            mode_sharing: match config.engine.mode_sharing {
+                ModeSharingMode::Global => 0,
+                ModeSharingMode::PerApp => 1,
+            },
+            auto_english_enabled: config.engine.auto_english.enabled,
+            auto_english_triggers: QString::from(
+                config.engine.auto_english.trigger_keys.join(", ").as_str(),
+            ),
+            moachigi_bidir: kor.bidirectional_combine.unwrap_or(false),
+            moachigi_chord_ms: kor.chord_window_ms.unwrap_or(0) as i32,
+            autotypefix_enabled: atf.enabled,
+            autotypefix_rollback: atf.rollback_detection,
+            autotypefix_obs_secs: atf.observation_timeout_secs as i32,
+            autotypefix_expiry_hours: atf.tentative_expiry_hours as i32,
+            fwd_enabled: atf.forward,
+            fwd_kor_threshold: atf.kor_syllable_threshold as i32,
+            fwd_window_ms: atf.forward_time_window_ms as i32,
+            fwd_skip_engword: atf.skip_on_english_word,
+            rev_enabled: atf.reverse,
+            rev_eng_threshold: atf.eng_word_min_length as i32,
+            rev_window_ms: atf.reverse_time_window_ms as i32,
+            rev_skip_complete: atf.skip_on_complete_syllable,
+            rev_userdict_enabled: atf.user_dict_enabled,
+            config,
         }
     }
 }
@@ -238,6 +467,497 @@ impl qobject::UnimBridge {
 
     pub fn window_title(&self) -> QString {
         QString::from(&t!("qt_window_title").to_string())
+    }
+
+    pub fn tr_key(&self, key: QString) -> QString {
+        // rust_i18n t!()은 리터럴만 받으므로, 런타임 키를 지원하기 위해
+        // GTK locales의 키를 직접 조회하는 방식 대신 알려진 키만 처리.
+        // QML은 이를 통해 Rust i18n 번역을 표시한다.
+        // 알 수 없는 키는 그대로 반환 (개발 중 새 키 발견 용이).
+        let k = key.to_string();
+        let translated = match k.as_str() {
+            "settings_window_title" => t!("settings_window_title"),
+            "page_general_title" => t!("page_general_title"),
+            "page_typefix_title" => t!("page_typefix_title"),
+            "page_blacklist_title" => t!("page_blacklist_title"),
+            "page_userdict_title" => t!("page_userdict_title"),
+            "group_layouts_keymap" => t!("group_layouts_keymap"),
+            "row_korean_layout" => t!("row_korean_layout"),
+            "row_korean_layout_subtitle" => t!("row_korean_layout_subtitle"),
+            "row_english_layout" => t!("row_english_layout"),
+            "row_toggle_keys" => t!("row_toggle_keys"),
+            "row_toggle_keys_subtitle" => t!("row_toggle_keys_subtitle"),
+            "row_hanja_keys" => t!("row_hanja_keys"),
+            "row_hanja_keys_subtitle" => t!("row_hanja_keys_subtitle"),
+            "group_input_mode" => t!("group_input_mode"),
+            "row_initial_mode" => t!("row_initial_mode"),
+            "row_mode_sharing" => t!("row_mode_sharing"),
+            "mode_share_global" => t!("mode_share_global"),
+            "mode_share_perapp" => t!("mode_share_perapp"),
+            "group_auto_english" => t!("group_auto_english"),
+            "row_auto_english_enable" => t!("row_auto_english_enable"),
+            "row_auto_english_triggers" => t!("row_auto_english_triggers"),
+            "row_auto_english_triggers_subtitle" => t!("row_auto_english_triggers_subtitle"),
+            "group_moachigi_title" => t!("group_moachigi_title"),
+            "row_moachigi_bidirectional_label" => t!("row_moachigi_bidirectional_label"),
+            "row_moachigi_bidirectional_subtitle" => t!("row_moachigi_bidirectional_subtitle"),
+            "row_moachigi_chord_label" => t!("row_moachigi_chord_label"),
+            "row_moachigi_chord_subtitle" => t!("row_moachigi_chord_subtitle"),
+            "group_typefix_master" => t!("group_typefix_master"),
+            "row_typefix_master" => t!("row_typefix_master"),
+            "row_typefix_master_subtitle" => t!("row_typefix_master_subtitle"),
+            "group_typefix_retrigger" => t!("group_typefix_retrigger"),
+            "row_typefix_retrigger_subtitle" => t!("row_typefix_retrigger_subtitle"),
+            "row_typefix_observe_window" => t!("row_typefix_observe_window"),
+            "row_typefix_observe_window_subtitle" => t!("row_typefix_observe_window_subtitle"),
+            "row_typefix_tentative_expiry" => t!("row_typefix_tentative_expiry"),
+            "row_typefix_tentative_expiry_subtitle" => t!("row_typefix_tentative_expiry_subtitle"),
+            "group_typefix_forward" => t!("group_typefix_forward"),
+            "row_typefix_enable" => t!("row_typefix_enable"),
+            "row_typefix_kor_threshold" => t!("row_typefix_kor_threshold"),
+            "row_typefix_kor_threshold_subtitle" => t!("row_typefix_kor_threshold_subtitle"),
+            "row_typefix_forward_window" => t!("row_typefix_forward_window"),
+            "row_typefix_forward_window_subtitle" => t!("row_typefix_forward_window_subtitle"),
+            "row_typefix_skip_engword" => t!("row_typefix_skip_engword"),
+            "row_typefix_skip_engword_subtitle" => t!("row_typefix_skip_engword_subtitle"),
+            "group_typefix_reverse" => t!("group_typefix_reverse"),
+            "row_typefix_eng_threshold" => t!("row_typefix_eng_threshold"),
+            "row_typefix_eng_threshold_subtitle" => t!("row_typefix_eng_threshold_subtitle"),
+            "row_typefix_reverse_window" => t!("row_typefix_forward_window"),
+            "row_typefix_reverse_window_subtitle" => t!("row_typefix_reverse_window_subtitle"),
+            "row_typefix_skip_complete" => t!("row_typefix_skip_complete"),
+            "row_typefix_skip_complete_subtitle" => t!("row_typefix_skip_complete_subtitle"),
+            "row_typefix_userdict" => t!("row_typefix_userdict"),
+            "row_typefix_userdict_subtitle" => t!("row_typefix_userdict_subtitle"),
+            "settings_toast_saved" => t!("settings_toast_saved"),
+            "settings_toast_save_failed" => t!("settings_toast_save_failed", err = ""),
+            "common_ok" => t!("common_ok"),
+            "common_cancel" => t!("common_cancel"),
+            "common_save" => t!("common_save"),
+            "common_add" => t!("common_add"),
+            "group_display" => t!("group_display"),
+            "row_panel_indicator" => t!("row_panel_indicator"),
+            "row_panel_indicator_subtitle" => t!("row_panel_indicator_subtitle"),
+            "row_show_notification" => t!("row_show_notification"),
+            "row_show_notification_subtitle" => t!("row_show_notification_subtitle"),
+            "group_ime" => t!("group_ime"),
+            "group_ime_subtitle" => t!("group_ime_subtitle"),
+            "row_ime_enable" => t!("row_ime_enable"),
+            "row_ime_enable_subtitle" => t!("row_ime_enable_subtitle"),
+            "page_gnome_title" => t!("page_gnome_title"),
+            _ => std::borrow::Cow::Owned(k.clone()),
+        };
+        QString::from(translated.as_ref())
+    }
+}
+
+// ─── Settings 조회 invokable ───
+
+impl qobject::UnimBridge {
+    pub fn available_korean_layouts(&self) -> QString {
+        let choices = collect_korean_profile_choices();
+        // JSON array: [{"name":"ko_2bulstd","display":"두벌식 표준"}, ...]
+        let json = choices
+            .iter()
+            .map(|(n, d)| format!("{{\"name\":\"{}\",\"display\":\"{}\"}}", n, d))
+            .collect::<Vec<_>>()
+            .join(",");
+        QString::from(format!("[{}]", json).as_str())
+    }
+
+    pub fn available_english_layouts(&self) -> QString {
+        let builtins = unim::config::ENGLISH_LAYOUT_BUILTINS;
+        let json = builtins
+            .iter()
+            .map(|l| {
+                format!(
+                    "{{\"name\":\"{}\",\"display\":\"{}\"}}",
+                    l,
+                    unim::config::english_layout_display_name(l)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        QString::from(format!("[{}]", json).as_str())
+    }
+
+    pub fn korean_layout_display(&self) -> QString {
+        let name = self.rust().config.engine.korean.effective_layout_name();
+        let display = unim::config::korean_layout_display_name(&name);
+        QString::from(display)
+    }
+
+    pub fn is_gnome_session(&self) -> bool {
+        detect_gnome()
+    }
+
+    pub fn is_wayland_session(&self) -> bool {
+        detect_wayland()
+    }
+}
+
+// ─── Settings setter invokable 구현 (apply_ 접두사로 qproperty auto-setter 충돌 방지) ───
+
+/// 저장 + DBus 전파 + QML 토스트 헬퍼
+fn save_and_emit(
+    pin: Pin<&mut qobject::UnimBridge>,
+    label: &str,
+) {
+    let config = pin.rust().config.clone();
+    if let Err(e) = config.save_to_default_path() {
+        unim::unim_log!("SETTINGS-QT", "[Settings] 저장 실패 ({}): {}", label, e);
+        return;
+    }
+    save_config_via_dbus(&config, label);
+    let msg = QString::from(t!("settings_toast_saved").as_ref());
+    pin.toast_message(msg);
+}
+
+impl qobject::UnimBridge {
+    pub fn apply_korean_layout(mut self: Pin<&mut Self>, name: QString) {
+        let name_str = name.to_string();
+        let Some(profile) = load_and_resolve(&name_str) else {
+            return;
+        };
+        let display: &str = unim::config::korean_layout_display_name(&name_str);
+        let display_qs = QString::from(display);
+        {
+            let mut rust = self.as_mut().rust_mut();
+            apply_korean_profile_choice(&mut rust.config, &name_str, &profile);
+            rust.korean_layout = display_qs.clone();
+        }
+        self.as_mut().set_korean_layout(display_qs);
+        save_and_emit(self, "korean_layout");
+    }
+
+    pub fn apply_english_layout(mut self: Pin<&mut Self>, name: QString) {
+        let name_str = name.to_string();
+        let qs = name.clone();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.english.layout = name_str;
+            rust.english_layout = qs.clone();
+        }
+        self.as_mut().set_english_layout(qs);
+        save_and_emit(self, "english_layout");
+    }
+
+    pub fn apply_toggle_keys(mut self: Pin<&mut Self>, keys: QString) {
+        let s = keys.to_string();
+        let parsed: Vec<String> = s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
+        let qs = keys.clone();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.toggle_keys = parsed;
+            rust.toggle_keys = qs.clone();
+        }
+        self.as_mut().set_toggle_keys(qs);
+        save_and_emit(self, "toggle_keys");
+    }
+
+    pub fn apply_hanja_keys(mut self: Pin<&mut Self>, keys: QString) {
+        let s = keys.to_string();
+        let parsed: Vec<String> = s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
+        let qs = keys.clone();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.hanja_keys = parsed;
+            rust.hanja_keys = qs.clone();
+        }
+        self.as_mut().set_hanja_keys(qs);
+        save_and_emit(self, "hanja_keys");
+    }
+
+    pub fn apply_initial_mode(mut self: Pin<&mut Self>, mode: i32) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.default_category = if mode == 0 {
+                InputCategory::Korean
+            } else {
+                InputCategory::English
+            };
+            rust.initial_mode = mode;
+        }
+        self.as_mut().set_initial_mode(mode);
+        save_and_emit(self, "initial_mode");
+    }
+
+    pub fn apply_mode_sharing(mut self: Pin<&mut Self>, mode: i32) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.mode_sharing = if mode == 1 {
+                ModeSharingMode::PerApp
+            } else {
+                ModeSharingMode::Global
+            };
+            rust.mode_sharing = mode;
+        }
+        self.as_mut().set_mode_sharing(mode);
+        save_and_emit(self, "mode_sharing");
+    }
+
+    pub fn apply_auto_english_enabled(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_english.enabled = enabled;
+            rust.auto_english_enabled = enabled;
+        }
+        self.as_mut().set_auto_english_enabled(enabled);
+        save_and_emit(self, "auto_english_enabled");
+    }
+
+    pub fn apply_auto_english_triggers(mut self: Pin<&mut Self>, keys: QString) {
+        let s = keys.to_string();
+        let parsed: Vec<String> = s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
+        let qs = keys.clone();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_english.trigger_keys = parsed;
+            rust.auto_english_triggers = qs.clone();
+        }
+        self.as_mut().set_auto_english_triggers(qs);
+        save_and_emit(self, "auto_english_triggers");
+    }
+
+    pub fn apply_moachigi_bidir(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.korean.bidirectional_combine = Some(enabled);
+            rust.moachigi_bidir = enabled;
+        }
+        self.as_mut().set_moachigi_bidir(enabled);
+        save_and_emit(self, "moachigi_bidir");
+    }
+
+    pub fn apply_moachigi_chord_ms(mut self: Pin<&mut Self>, ms: i32) {
+        let v: Option<u16> = if ms <= 0 { None } else { Some(ms as u16) };
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.korean.chord_window_ms = v;
+            rust.moachigi_chord_ms = ms;
+        }
+        self.as_mut().set_moachigi_chord_ms(ms);
+        save_and_emit(self, "moachigi_chord_ms");
+    }
+
+    pub fn apply_autotypefix_enabled(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.enabled = enabled;
+            rust.autotypefix_enabled = enabled;
+        }
+        self.as_mut().set_autotypefix_enabled(enabled);
+        save_and_emit(self, "autotypefix_enabled");
+    }
+
+    pub fn apply_autotypefix_rollback(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.rollback_detection = enabled;
+            rust.autotypefix_rollback = enabled;
+        }
+        self.as_mut().set_autotypefix_rollback(enabled);
+        save_and_emit(self, "autotypefix_rollback");
+    }
+
+    pub fn apply_autotypefix_obs_secs(mut self: Pin<&mut Self>, secs: i32) {
+        let v = secs.clamp(
+            unim::config::AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN as i32,
+            unim::config::AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX as i32,
+        ) as u8;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.observation_timeout_secs = v;
+            rust.autotypefix_obs_secs = v as i32;
+        }
+        self.as_mut().set_autotypefix_obs_secs(v as i32);
+        save_and_emit(self, "autotypefix_obs_secs");
+    }
+
+    pub fn apply_autotypefix_expiry_hours(mut self: Pin<&mut Self>, hours: i32) {
+        let v = hours.clamp(
+            unim::config::AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN as i32,
+            unim::config::AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX as i32,
+        ) as u16;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.tentative_expiry_hours = v;
+            rust.autotypefix_expiry_hours = v as i32;
+        }
+        self.as_mut().set_autotypefix_expiry_hours(v as i32);
+        save_and_emit(self, "autotypefix_expiry_hours");
+    }
+
+    pub fn apply_fwd_enabled(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.forward = enabled;
+            rust.fwd_enabled = enabled;
+        }
+        self.as_mut().set_fwd_enabled(enabled);
+        save_and_emit(self, "fwd_enabled");
+    }
+
+    pub fn apply_fwd_kor_threshold(mut self: Pin<&mut Self>, v: i32) {
+        let val = v.clamp(
+            unim::config::AUTO_TYPEFIX_KOR_THRESHOLD_MIN as i32,
+            unim::config::AUTO_TYPEFIX_KOR_THRESHOLD_MAX as i32,
+        ) as u8;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.kor_syllable_threshold = val;
+            rust.fwd_kor_threshold = val as i32;
+        }
+        self.as_mut().set_fwd_kor_threshold(val as i32);
+        save_and_emit(self, "fwd_kor_threshold");
+    }
+
+    pub fn apply_fwd_window_ms(mut self: Pin<&mut Self>, ms: i32) {
+        let val = (ms as u32).clamp(
+            unim::config::AUTO_TYPEFIX_TIME_WINDOW_MIN,
+            unim::config::AUTO_TYPEFIX_TIME_WINDOW_MAX,
+        );
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.forward_time_window_ms = val;
+            rust.fwd_window_ms = val as i32;
+        }
+        self.as_mut().set_fwd_window_ms(val as i32);
+        save_and_emit(self, "fwd_window_ms");
+    }
+
+    pub fn apply_fwd_skip_engword(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.skip_on_english_word = enabled;
+            rust.fwd_skip_engword = enabled;
+        }
+        self.as_mut().set_fwd_skip_engword(enabled);
+        save_and_emit(self, "fwd_skip_engword");
+    }
+
+    pub fn apply_rev_enabled(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.reverse = enabled;
+            rust.rev_enabled = enabled;
+        }
+        self.as_mut().set_rev_enabled(enabled);
+        save_and_emit(self, "rev_enabled");
+    }
+
+    pub fn apply_rev_eng_threshold(mut self: Pin<&mut Self>, v: i32) {
+        let val = v.clamp(
+            unim::config::AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN as i32,
+            unim::config::AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX as i32,
+        ) as u8;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.eng_word_min_length = val;
+            rust.rev_eng_threshold = val as i32;
+        }
+        self.as_mut().set_rev_eng_threshold(val as i32);
+        save_and_emit(self, "rev_eng_threshold");
+    }
+
+    pub fn apply_rev_window_ms(mut self: Pin<&mut Self>, ms: i32) {
+        let val = (ms as u32).clamp(
+            unim::config::AUTO_TYPEFIX_TIME_WINDOW_MIN,
+            unim::config::AUTO_TYPEFIX_TIME_WINDOW_MAX,
+        );
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.reverse_time_window_ms = val;
+            rust.rev_window_ms = val as i32;
+        }
+        self.as_mut().set_rev_window_ms(val as i32);
+        save_and_emit(self, "rev_window_ms");
+    }
+
+    pub fn apply_rev_skip_complete(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.skip_on_complete_syllable = enabled;
+            rust.rev_skip_complete = enabled;
+        }
+        self.as_mut().set_rev_skip_complete(enabled);
+        save_and_emit(self, "rev_skip_complete");
+    }
+
+    pub fn apply_rev_userdict_enabled(mut self: Pin<&mut Self>, enabled: bool) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config.engine.auto_typefix.user_dict_enabled = enabled;
+            rust.rev_userdict_enabled = enabled;
+        }
+        self.as_mut().set_rev_userdict_enabled(enabled);
+        save_and_emit(self, "rev_userdict_enabled");
+    }
+
+    pub fn reload_config(mut self: Pin<&mut Self>) {
+        let new_config = Config::load_from_default_path();
+        let atf = &new_config.engine.auto_typefix;
+        let kor = &new_config.engine.korean;
+        // 프로퍼티 갱신
+        let kor_display = QString::from(
+            unim::config::korean_layout_display_name(&kor.effective_layout_name())
+        );
+        let eng_layout = QString::from(new_config.engine.english.layout.as_str());
+        let toggle_keys = QString::from(new_config.engine.toggle_keys.join(", ").as_str());
+        let hanja_keys = QString::from(new_config.engine.hanja_keys.join(", ").as_str());
+        let initial_mode = match new_config.engine.default_category {
+            InputCategory::Korean => 0,
+            InputCategory::English => 1,
+        };
+        let mode_sharing = match new_config.engine.mode_sharing {
+            ModeSharingMode::Global => 0,
+            ModeSharingMode::PerApp => 1,
+        };
+        let ae_enabled = new_config.engine.auto_english.enabled;
+        let ae_triggers = QString::from(new_config.engine.auto_english.trigger_keys.join(", ").as_str());
+        let moachigi_bidir = kor.bidirectional_combine.unwrap_or(false);
+        let moachigi_chord_ms = kor.chord_window_ms.unwrap_or(0) as i32;
+        let atf_enabled = atf.enabled;
+        let atf_rollback = atf.rollback_detection;
+        let atf_obs = atf.observation_timeout_secs as i32;
+        let atf_expiry = atf.tentative_expiry_hours as i32;
+        let fwd_en = atf.forward;
+        let fwd_kor = atf.kor_syllable_threshold as i32;
+        let fwd_ms = atf.forward_time_window_ms as i32;
+        let fwd_skip = atf.skip_on_english_word;
+        let rev_en = atf.reverse;
+        let rev_eng = atf.eng_word_min_length as i32;
+        let rev_ms = atf.reverse_time_window_ms as i32;
+        let rev_syl = atf.skip_on_complete_syllable;
+        let rev_ud = atf.user_dict_enabled;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.config = new_config;
+        }
+        self.as_mut().set_korean_layout(kor_display);
+        self.as_mut().set_english_layout(eng_layout);
+        self.as_mut().set_toggle_keys(toggle_keys);
+        self.as_mut().set_hanja_keys(hanja_keys);
+        self.as_mut().set_initial_mode(initial_mode);
+        self.as_mut().set_mode_sharing(mode_sharing);
+        self.as_mut().set_auto_english_enabled(ae_enabled);
+        self.as_mut().set_auto_english_triggers(ae_triggers);
+        self.as_mut().set_moachigi_bidir(moachigi_bidir);
+        self.as_mut().set_moachigi_chord_ms(moachigi_chord_ms);
+        self.as_mut().set_autotypefix_enabled(atf_enabled);
+        self.as_mut().set_autotypefix_rollback(atf_rollback);
+        self.as_mut().set_autotypefix_obs_secs(atf_obs);
+        self.as_mut().set_autotypefix_expiry_hours(atf_expiry);
+        self.as_mut().set_fwd_enabled(fwd_en);
+        self.as_mut().set_fwd_kor_threshold(fwd_kor);
+        self.as_mut().set_fwd_window_ms(fwd_ms);
+        self.as_mut().set_fwd_skip_engword(fwd_skip);
+        self.as_mut().set_rev_enabled(rev_en);
+        self.as_mut().set_rev_eng_threshold(rev_eng);
+        self.as_mut().set_rev_window_ms(rev_ms);
+        self.as_mut().set_rev_skip_complete(rev_syl);
+        self.as_mut().set_rev_userdict_enabled(rev_ud);
+        self.config_reloaded();
     }
 }
 
@@ -471,6 +1191,12 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
         let (popup_tx, popup_rx) = std::sync::mpsc::channel::<GuiAction>();
         let (tray_update_tx, _tray_update_rx) = std::sync::mpsc::channel::<()>();
 
+        // 트레이 메뉴 "설정" → bridge.open_settings() 시그널 경로 등록.
+        // tray.rs::open_settings()가 SETTINGS_TX.send(OpenSettings) 호출 → popup_rx 수신 → qt 시그널.
+        if let Ok(mut tx) = unim_gui_common::types::SETTINGS_TX.lock() {
+            *tx = Some(popup_tx.clone());
+        }
+
         // popup_model Arc 공유
         let popup_model = self.rust().popup_model.clone();
 
@@ -526,6 +1252,13 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                             bridge.as_mut().set_is_korean(is_korean);
                             bridge.as_mut().set_connected(true);
                             bridge.as_mut().mode_changed(is_korean);
+                        })
+                        .ok();
+                    }
+
+                    GuiAction::OpenSettings => {
+                        qt.queue(move |mut bridge| {
+                            bridge.as_mut().open_settings();
                         })
                         .ok();
                     }
@@ -666,9 +1399,7 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                         // PopupRender signal이 북마크 상태를 포함해 전체를 다시 렌더링함
                     }
 
-                    GuiAction::ShowModePopup
-                    | GuiAction::OpenSettings
-                    | GuiAction::SetGlobalMode(_) => {}
+                    GuiAction::ShowModePopup | GuiAction::SetGlobalMode(_) => {}
                 }
             }
         });

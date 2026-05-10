@@ -16,7 +16,11 @@ use unim::unim_log;
 
 use unim_gui_common::dbus_client;
 use unim_gui_common::tray::TrayController;
-use unim_gui_common::types::{GuiAction, IndicatorState, SETTINGS_TX};
+use unim_gui_common::types::{GuiAction, IndicatorState};
+
+// bridge 모듈은 rust_i18n 매크로 확장에서 i18n!() 결과를 참조한다.
+// GTK locales 키가 필요하므로 bridge.rs 내부에서 별도 include 경로를 사용하지 않고
+// main.rs의 i18n!() 확장 결과를 공유한다.
 
 // rust-i18n 매크로 — locales 디렉토리의 ko.yml/en.yml 사용
 rust_i18n::i18n!("locales", fallback = "en");
@@ -40,30 +44,8 @@ fn main() {
     // 상태 초기화
     let state = Arc::new(RwLock::new(IndicatorState::default()));
 
-    // 설정 요청 채널 (트레이 메뉴 "설정" → unim-gui-gtk --settings 서브프로세스로 리다이렉트)
-    // Qt GUI는 독자 설정 UI를 유지하지 않고 GTK 설정 앱을 기동한다.
-    let (settings_tx, settings_rx) = std::sync::mpsc::channel::<GuiAction>();
-    if let Ok(mut tx) = SETTINGS_TX.lock() {
-        *tx = Some(settings_tx);
-    }
-
-    thread::spawn(move || {
-        while let Ok(action) = settings_rx.recv() {
-            if matches!(action, GuiAction::OpenSettings) {
-                match std::process::Command::new("unim-gui-gtk")
-                    .arg("--settings")
-                    .spawn()
-                {
-                    Ok(_child) => {
-                        unim_log!("INDICATOR", "unim-gui-gtk --settings 기동");
-                    }
-                    Err(e) => {
-                        unim_log!("INDICATOR", "unim-gui-gtk 실행 실패: {}", e);
-                    }
-                }
-            }
-        }
-    });
+    // Phase 3: OpenSettings는 bridge::initialize에서 SETTINGS_TX에 popup_tx를 등록한다.
+    // bridge가 popup_rx로 OpenSettings를 받아 open_settings() 시그널을 QML로 발사.
 
     // 더미 popup_tx (Qt는 트레이에서만 사용)
     let (popup_tx, _popup_rx) = std::sync::mpsc::channel::<GuiAction>();

@@ -6,7 +6,14 @@ fn main() {
             .qml_file("qml/main.qml")
             .qml_file("qml/HanjaPopup.qml")
             .qml_file("qml/SpecialPopup.qml")
-            .qml_file("qml/EmojiPopup.qml"),
+            .qml_file("qml/EmojiPopup.qml")
+            // Phase 3: Settings 다이얼로그
+            .qml_file("qml/SettingsWindow.qml")
+            .qml_file("qml/settings/GeneralPage.qml")
+            .qml_file("qml/settings/AutoTypeFixPage.qml")
+            .qml_file("qml/settings/BlacklistPage.qml")
+            .qml_file("qml/settings/UserDictPage.qml")
+            .qml_file("qml/settings/GnomePage.qml"),
     )
     .files(["src/bridge.rs"])
     .build();

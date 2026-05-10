@@ -25,6 +25,21 @@ Window {
         onPopup_hide: function() {
             // 모든 팝업 숨김은 visible 바인딩이 처리
         }
+
+        // Phase 3: 트레이 "설정" 클릭 → SettingsWindow 열기
+        onOpen_settings: function() {
+            settingsWindow.bridge = bridge
+            settingsWindow.show()
+            settingsWindow.raise()
+            settingsWindow.requestActivate()
+        }
+    }
+
+    // ─── Phase 3: 설정 창 (항상 생성, visible=false) ───
+    SettingsWindow {
+        id: settingsWindow
+        bridge: bridge
+        visible: false
     }
 
     // ─── 한자 팝업 ───
