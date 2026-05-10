@@ -15,10 +15,13 @@ use crate::types::{GuiAction, IndicatorState, ACTIVE_CONTEXT_PATH, UNIM_BUS_NAME
 
 /// DBus GlobalModeChanged 시그널 구독하여 트레이 업데이트 (비동기)
 /// NameOwnerChanged 시그널을 감시하여 데몬 시작/종료 시 자동 재연결
+///
+/// `dbus_action_rx`: 트레이에서 보내는 SetGlobalMode 액션 수신 채널.
 pub async fn watch_dbus_signals(
     state: Arc<RwLock<IndicatorState>>,
     tray_update_tx: std::sync::mpsc::Sender<()>,
     popup_tx: Sender<GuiAction>,
+    mut dbus_action_rx: tokio::sync::mpsc::Receiver<GuiAction>,
 ) {
     use futures_util::StreamExt;
 
@@ -63,6 +66,7 @@ pub async fn watch_dbus_signals(
                 state.clone(),
                 tray_update_tx.clone(),
                 popup_tx.clone(),
+                &mut dbus_action_rx,
             )
             .await;
         } else {
@@ -86,6 +90,7 @@ pub async fn watch_dbus_signals(
                         state.clone(),
                         tray_update_tx.clone(),
                         popup_tx.clone(),
+                        &mut dbus_action_rx,
                     )
                     .await;
                 }
@@ -136,6 +141,7 @@ pub async fn watch_dbus_signals(
                         state.clone(),
                         tray_update_tx.clone(),
                         popup_tx.clone(),
+                        &mut dbus_action_rx,
                     )
                     .await;
                 } else if !old_owner.is_empty() && new_owner.is_empty() {
@@ -157,12 +163,58 @@ pub async fn watch_dbus_signals(
     }
 }
 
+/// Qt tray 전용: SetGlobalMode 액션만 처리하는 경량 DBus 태스크.
+///
+/// Qt GUI 에서는 bridge.rs 가 자체 DBus 스레드를 보유하므로 watch_dbus_signals 를
+/// 재사용하지 않는다. 이 함수는 tray 에서 SetGlobalMode 를 받으면 proxy 로 전달한다.
+pub async fn handle_dbus_actions(mut rx: tokio::sync::mpsc::Receiver<GuiAction>) {
+    loop {
+        // DBus 연결
+        let connection = match zbus::Connection::session().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                unim_log!("INDICATOR", "[Qt-tray] DBus 연결 실패: {}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+        let proxy = match InputMethodProxy::new(&connection).await {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!("INDICATOR", "[Qt-tray] InputMethodProxy 생성 실패: {}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+        unim_log!("INDICATOR", "[Qt-tray] DBus 액션 처리 준비 완료");
+        while let Some(action) = rx.recv().await {
+            if let GuiAction::SetGlobalMode(is_korean) = action {
+                unim_log!("INDICATOR", "[Qt-tray] set_global_mode: korean={}", is_korean);
+                if let Err(e) = proxy.set_global_mode(is_korean).await {
+                    unim_log!("INDICATOR", "[Qt-tray] set_global_mode 실패: {}", e);
+                    // 연결이 끊겼을 가능성 — 외부 loop 에서 재연결
+                    break;
+                }
+            }
+        }
+        // rx 가 닫히면 완전 종료
+        if rx.is_closed() {
+            break;
+        }
+        unim_log!("INDICATOR", "[Qt-tray] DBus 연결 끊김, 재연결 시도...");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
 /// GlobalModeChanged + 팝업 시그널 감시 (서비스가 연결된 상태에서 호출)
+///
+/// `dbus_action_rx`: 트레이 SetGlobalMode 액션을 수신해 proxy.set_global_mode() 호출.
 async fn watch_mode_signals(
     connection: &zbus::Connection,
     state: Arc<RwLock<IndicatorState>>,
     tray_update_tx: std::sync::mpsc::Sender<()>,
     popup_tx: Sender<GuiAction>,
+    dbus_action_rx: &mut tokio::sync::mpsc::Receiver<GuiAction>,
 ) {
     use futures_util::StreamExt;
 
@@ -229,7 +281,7 @@ async fn watch_mode_signals(
         "[DBus] InputContext 팝업 시그널 구독 시작 (path_namespace)"
     );
 
-    // 두 스트림을 동시에 감시
+    // 세 스트림을 동시에 감시: 모드 시그널 / 팝업 시그널 / 트레이 액션
     loop {
         tokio::select! {
             Some(signal) = mode_stream.next() => {
@@ -237,6 +289,14 @@ async fn watch_mode_signals(
             }
             Some(Ok(msg)) = popup_stream.next() => {
                 handle_popup_signal(&msg, &popup_tx);
+            }
+            Some(action) = dbus_action_rx.recv() => {
+                if let GuiAction::SetGlobalMode(is_korean) = action {
+                    unim_log!("INDICATOR", "[DBus] set_global_mode 호출: korean={}", is_korean);
+                    if let Err(e) = proxy.set_global_mode(is_korean).await {
+                        unim_log!("INDICATOR", "[DBus] set_global_mode 실패: {}", e);
+                    }
+                }
             }
             else => break,
         }

@@ -70,6 +70,8 @@ fn main() {
     let dbus_popup_tx = popup_tx.clone();
     // 트레이 업데이트 요청 채널 (DBus -> ksni)
     let (tray_update_tx, tray_update_rx) = std::sync::mpsc::channel::<()>();
+    // 트레이 → DBus watcher: SetGlobalMode 액션 채널 (tokio mpsc, async 수신)
+    let (dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(16);
 
     thread::spawn(move || {
         // 별도의 tokio 런타임 생성 (독립 스레드)
@@ -89,6 +91,7 @@ fn main() {
             dbus_state,
             tray_update_tx,
             dbus_popup_tx,
+            dbus_action_rx,
         ));
     });
 
@@ -99,6 +102,7 @@ fn main() {
         let tray = UnimTray {
             state: tray_state,
             popup_tx: popup_tx.clone(),
+            dbus_action_tx,
         };
         match tray.spawn() {
             Ok(handle) => {

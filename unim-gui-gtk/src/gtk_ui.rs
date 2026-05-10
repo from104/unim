@@ -58,6 +58,8 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                         GuiAction::UpdateCategory(_category) => {
                             // UI 업데이트는 창이 표시될 때 자동 처리
                         }
+                        // DBus watcher 스레드가 처리 — UI 루프에서는 무시
+                        GuiAction::SetGlobalMode(_) => {}
                         GuiAction::OpenSettings => {
                             settings_dialog::show_settings_dialog(&app_clone);
                         }

@@ -36,6 +36,8 @@ impl Default for IndicatorState {
 pub enum GuiAction {
     ShowModePopup,
     UpdateCategory(InputCategory),
+    /// 트레이 → DBus watcher: 엔진 모드 변경 요청 (true=한국어, false=영어)
+    SetGlobalMode(bool),
     /// 설정 다이얼로그 열기
     OpenSettings,
     /// 한자 팝업 표시

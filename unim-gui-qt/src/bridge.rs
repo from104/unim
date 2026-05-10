@@ -119,10 +119,15 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                 Ok(rt) => rt,
                 Err(_) => return,
             };
+            // bridge.rs 의 DBus 스레드는 시그널 수신 전용.
+            // tray SetGlobalMode 는 main.rs 의 handle_dbus_actions 태스크가 처리하므로
+            // 여기서는 항상 비어있는 더미 채널을 전달한다.
+            let (_dummy_tx, dummy_rx) = tokio::sync::mpsc::channel::<unim_gui_common::types::GuiAction>(1);
             rt.block_on(dbus_client::watch_dbus_signals(
                 dbus_state,
                 tray_update_tx,
                 popup_tx,
+                dummy_rx,
             ));
         });
 
@@ -141,7 +146,7 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
                         })
                         .ok();
                     }
-                    GuiAction::ShowModePopup | GuiAction::OpenSettings => {}
+                    GuiAction::ShowModePopup | GuiAction::OpenSettings | GuiAction::SetGlobalMode(_) => {}
                     // 팝업 액션은 unim-gui-gtk에서만 처리 (Qt GUI에서는 무시)
                     GuiAction::ShowHanjaPopup { .. }
                     | GuiAction::ShowSpecialPopup { .. }

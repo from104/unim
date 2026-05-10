@@ -73,10 +73,30 @@ fn main() {
     // 더미 popup_tx (트레이에서 사용)
     let (popup_tx, _popup_rx) = std::sync::mpsc::channel::<GuiAction>();
 
+    // 트레이 → DBus watcher: SetGlobalMode 액션 채널
+    // Qt tray 전용 DBus set_global_mode 처리 스레드 (bridge.rs 와 독립)
+    let (dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(16);
+    thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                unim_log!("INDICATOR", "Qt tray dbus 런타임 생성 실패: {}", e);
+                return;
+            }
+        };
+        rt.block_on(unim_gui_common::dbus_client::handle_dbus_actions(
+            dbus_action_rx,
+        ));
+    });
+
     thread::spawn(move || {
         let tray = UnimTray {
             state: tray_state,
             popup_tx,
+            dbus_action_tx,
         };
         match tray.spawn() {
             Ok(handle) => {

@@ -6,6 +6,8 @@
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 
+use tokio::sync::mpsc::Sender as TokioSender;
+
 use ksni::menu::*;
 use rust_i18n::t;
 use unim::status::InputCategory;
@@ -18,6 +20,8 @@ use crate::types::{GuiAction, IndicatorState, SETTINGS_TX};
 pub struct UnimTray {
     pub state: Arc<RwLock<IndicatorState>>,
     pub popup_tx: Sender<GuiAction>,
+    /// 트레이 → DBus watcher: SetGlobalMode 전달 채널 (tokio mpsc)
+    pub dbus_action_tx: TokioSender<GuiAction>,
 }
 
 impl ksni::Tray for UnimTray {
@@ -73,7 +77,18 @@ impl ksni::Tray for UnimTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.popup_tx.send(GuiAction::ShowModePopup);
+        // 좌클릭 = 한/영 토글: 현재 모드의 반대값을 엔진에 전달
+        let current = self
+            .state
+            .read()
+            .map(|s| s.category)
+            .unwrap_or(InputCategory::English);
+        let next_korean = match current {
+            InputCategory::Korean => false,
+            InputCategory::English => true,
+        };
+        unim_log!("INDICATOR", "트레이 좌클릭 → 모드 토글: korean={}", next_korean);
+        let _ = self.dbus_action_tx.blocking_send(GuiAction::SetGlobalMode(next_korean));
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -93,13 +108,8 @@ impl ksni::Tray for UnimTray {
                 StandardItem {
                     label: korean_label,
                     activate: Box::new(|this: &mut Self| {
-                        if let Ok(mut s) = this.state.write() {
-                            s.category = InputCategory::Korean;
-                            let _ = this
-                                .popup_tx
-                                .send(GuiAction::UpdateCategory(InputCategory::Korean));
-                            unim_log!("INDICATOR", "한국어 모드로 전환");
-                        }
+                        unim_log!("INDICATOR", "메뉴 → 한국어 모드로 전환 요청");
+                        let _ = this.dbus_action_tx.blocking_send(GuiAction::SetGlobalMode(true));
                     }),
                     ..Default::default()
                 }
@@ -120,13 +130,8 @@ impl ksni::Tray for UnimTray {
                 StandardItem {
                     label: english_label,
                     activate: Box::new(|this: &mut Self| {
-                        if let Ok(mut s) = this.state.write() {
-                            s.category = InputCategory::English;
-                            let _ = this
-                                .popup_tx
-                                .send(GuiAction::UpdateCategory(InputCategory::English));
-                            unim_log!("INDICATOR", "영어 모드로 전환");
-                        }
+                        unim_log!("INDICATOR", "메뉴 → 영어 모드로 전환 요청");
+                        let _ = this.dbus_action_tx.blocking_send(GuiAction::SetGlobalMode(false));
                     }),
                     ..Default::default()
                 }
