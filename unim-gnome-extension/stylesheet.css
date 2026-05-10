@@ -108,6 +108,7 @@
 .unim-hanja-popup .popup-item .item-bookmark {
     color: #6c7086;
     font-size: 14px;
+    margin-left: auto;
     padding-left: 8px;
     transition-duration: 120ms;
 }
