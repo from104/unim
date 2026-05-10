@@ -12,10 +12,10 @@
 //! - 셀 클릭 → DBus `CommitEmoji`
 //!
 //! PR #2 (emoji overhaul, OPTION X engine-driven):
-//! 좌측 탭 클릭은 시각적 active 토글만 — 카테고리 전환은 키보드 Tab/ShiftTab 으로
-//! 엔진이 처리한 뒤 `ShowEmojiPopupV2` 가 재발행되어 전체 화면이 갱신된다. 탭 클릭
-//! 으로 카테고리를 직접 전환하려면 daemon 측 RPC (`EmojiSetCategory`) 가 추가되어야
-//! 하며 — 이는 PR #4/#5 범위.
+//! 좌측 탭 클릭은 daemon `SetEmojiCategory(idx)` RPC (글로벌 InputMethod 인터페이스) 를
+//! 호출 → 엔진이 popup_state 의 cat_index/items 를 갱신 → `ShowEmojiPopupV2` 가
+//! `last_active_input_context_path` 로 재발행 → 본 GUI 가 동일 시그널을 받아 전체
+//! 화면 갱신. 키보드 Tab/ShiftTab 과 완전 동일 경로.
 
 use gtk4::prelude::*;
 use rust_i18n::t;
@@ -627,48 +627,69 @@ fn commit_emoji_via_dbus(emoji_str: String) {
 /// daemon이 active context의 popup_state를 idx로 갱신한 뒤 `ShowEmojiPopupV2`
 /// 를 재발행 → unim-gui-gtk가 새 카테고리 grid로 화면 전체 갱신. 키보드
 /// Tab/Shift+Tab과 동일 경로.
+///
+/// `SetEmojiCategory`는 `org.atit.unim.InputMethod` 인터페이스(글로벌
+/// `/org/atit/unim/InputMethod` path)에 정의되어 있다. ACTIVE_CONTEXT_PATH
+/// (InputContext path) 로 호출하면 메서드 디스패치에 실패해 ShowEmojiPopupV2
+/// 재발행이 일어나지 않는다 — GNOME extension `_imProxy.SetEmojiCategory(...)` 와
+/// 동일한 글로벌 InputMethod proxy를 사용해야 한다.
 fn set_emoji_category_via_dbus(idx: u32) {
-    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
-
-    let context_path = ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone());
-
-    if let Some(path) = context_path {
-        unim_log!(
-            "INDICATOR",
-            "[EmojiPopup] SetEmojiCategory DBus 호출: idx={}, path={}",
-            idx,
-            path
-        );
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(r) => r,
-                Err(_) => return,
-            };
-            rt.block_on(async {
-                if let Ok(conn) = zbus::Connection::session().await {
-                    let proxy = zbus::Proxy::new(
-                        &conn,
-                        "org.atit.unim.InputMethod",
-                        path.as_str(),
-                        "org.atit.unim.InputContext",
-                    )
-                    .await;
-                    if let Ok(proxy) = proxy {
-                        let _: Result<(), _> =
-                            proxy.call("SetEmojiCategory", &(idx,)).await;
-                    }
+    unim_log!(
+        "INDICATOR",
+        "[EmojiPopup] SetEmojiCategory DBus 호출: idx={}",
+        idx
+    );
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        rt.block_on(async {
+            let conn = match zbus::Connection::session().await {
+                Ok(c) => c,
+                Err(e) => {
+                    unim_log!(
+                        "INDICATOR",
+                        "[EmojiPopup] SetEmojiCategory 세션 버스 연결 실패: {}",
+                        e
+                    );
+                    return;
                 }
-            });
+            };
+            let proxy = match zbus::Proxy::new(
+                &conn,
+                "org.atit.unim.InputMethod",
+                "/org/atit/unim/InputMethod",
+                "org.atit.unim.InputMethod",
+            )
+            .await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    unim_log!(
+                        "INDICATOR",
+                        "[EmojiPopup] SetEmojiCategory proxy 생성 실패: {}",
+                        e
+                    );
+                    return;
+                }
+            };
+            if let Err(e) = proxy
+                .call::<_, _, ()>("SetEmojiCategory", &(idx,))
+                .await
+            {
+                unim_log!(
+                    "INDICATOR",
+                    "[EmojiPopup] SetEmojiCategory RPC 실패: idx={}, err={}",
+                    idx,
+                    e
+                );
+            }
         });
-    } else {
-        unim_log!(
-            "INDICATOR",
-            "[EmojiPopup] SetEmojiCategory 실패: ACTIVE_CONTEXT_PATH가 비어있음"
-        );
-    }
+    });
 }
 
 /// 이모지 팝업 CSS — `tools/popup-styles/popup_tokens.toml` +
