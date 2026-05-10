@@ -8,6 +8,11 @@
 rust_i18n::i18n!("locales", fallback = "en");
 
 pub mod dbus_client;
+pub mod popup_dbus;
+pub mod popup_position;
+pub mod popup_state;
+pub mod settings_dbus;
+pub mod settings_helpers;
 pub mod tray;
 pub mod types;
 

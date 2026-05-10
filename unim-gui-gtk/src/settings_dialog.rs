@@ -20,10 +20,16 @@ use unim::config::{
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
-use unim::keystroke::profile::{resolve_inherits, LayoutProfile, ProfileRegistry};
-use unim::typefix_blacklist::{Blacklist, Direction, EntryStatus};
+use unim::keystroke::profile::LayoutProfile;
+use unim::typefix_blacklist::{Blacklist, EntryStatus};
 use unim::typefix_userdict::UserDictionary;
 use unim::unim_log;
+
+use unim_gui_common::settings_dbus::save_config_via_dbus;
+use unim_gui_common::settings_helpers::{
+    apply_korean_profile_choice, collect_korean_profile_choices, direction_label, is_gnome_session,
+    is_wayland_session, load_and_resolve, ms_to_seconds, seconds_to_ms,
+};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -173,10 +179,7 @@ fn save_and_notify(config: &Config, label: &str) {
     }
 
     // 2. DBus 전파 (fire-and-forget)
-    match serde_yaml::to_string(config) {
-        Ok(yaml) => spawn_set_config_yaml(yaml, label.to_string()),
-        Err(e) => unim_log!("INDICATOR", "[Settings] YAML 직렬화 실패: {}", e),
-    }
+    save_config_via_dbus(config, label);
 
     // 3. 토스트
     show_toast(&t!("settings_toast_saved"));
@@ -194,95 +197,11 @@ fn show_toast(text: &str) {
     });
 }
 
-/// DBus SetConfigYaml fire-and-forget.
-///
-/// 새로운 tokio current-thread 런타임을 임시로 생성하여 호출.
-/// 메인 GTK 스레드를 차단하지 않기 위해 별도 OS 스레드에 위임.
-fn spawn_set_config_yaml(yaml: String, label: String) {
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(e) => {
-                unim_log!("INDICATOR", "[Settings] tokio 런타임 생성 실패: {}", e);
-                return;
-            }
-        };
-        rt.block_on(async move {
-            match send_set_config_yaml(&yaml).await {
-                Ok(()) => unim_log!(
-                    "INDICATOR",
-                    "[Settings] DBus SetConfigYaml 성공 ({})",
-                    label
-                ),
-                Err(e) => unim_log!(
-                    "INDICATOR",
-                    "[Settings] DBus SetConfigYaml 실패 ({}): {}",
-                    label,
-                    e
-                ),
-            }
-        });
-    });
-}
-
-async fn send_set_config_yaml(yaml: &str) -> zbus::Result<()> {
-    use unim_dbus::client::InputMethodProxy;
-    let conn = zbus::Connection::session().await?;
-    let proxy = InputMethodProxy::new(&conn).await?;
-    proxy.set_config_yaml(yaml).await
-}
 
 // ─────────────────────────────────────────────────────────────
 // Page 1: 일반
 // ─────────────────────────────────────────────────────────────
 
-/// 한국어 프로필 선택지 — (name, display_string).
-fn collect_korean_profile_choices() -> Vec<(String, String)> {
-    let reg = ProfileRegistry::new();
-    let mut out: Vec<(String, String)> = Vec::new();
-    for name in reg.list_names() {
-        if let Some(p) = reg.find_raw(&name) {
-            if p.language != "korean" {
-                continue;
-            }
-            let disp = p
-                .metadata
-                .display_name
-                .as_ref()
-                .map(|d| d.resolve("ko").to_string())
-                .unwrap_or_else(|| name.clone());
-            out.push((name, disp));
-        }
-    }
-    out
-}
-
-/// 선택된 프로필 이름을 Config에 반영한다.
-///
-/// Phase 8: `korean.layout`이 enum → String으로 통합되어 별칭 분기 불필요.
-/// 레거시 값은 `normalize_korean_layout_name`이 정식 이름으로 승격.
-///
-/// **자판별 룰셋 캐시**: `KoreanConfig::switch_layout`이 이전 자판의
-/// `active_rule_sets`(Some이면)를 `layout_rule_sets`에 보존하고, 새 자판의 캐시된
-/// 값(있으면)을 복원한다. 사용자가 자판을 왕복해도 룰셋 ON/OFF 의도가 잃지 않는다.
-/// 새 프로필에 정의되지 않은 stale 이름은 valid 슬라이스로 자동 정리.
-fn apply_korean_profile_choice(config: &mut Config, name: &str, new_profile: &LayoutProfile) {
-    let valid_names: Vec<String> = new_profile.rule_sets.keys().cloned().collect();
-    config
-        .engine
-        .korean
-        .switch_layout(name, Some(&valid_names));
-}
-
-/// 레지스트리에서 프로필을 찾아 inherits까지 해석한다. 실패 시 `None`.
-fn load_and_resolve(name: &str) -> Option<LayoutProfile> {
-    let reg = ProfileRegistry::new();
-    let raw = reg.find_raw(name)?;
-    resolve_inherits(&raw, &reg).ok()
-}
 
 /// 동적 규칙 세트 그룹 핸들 — 자판 변경 시 SwitchRow 재구성.
 #[derive(Clone)]
@@ -1251,29 +1170,9 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
     group
 }
 
-fn ms_to_seconds(ms: u32) -> f64 {
-    ms as f64 / 1000.0
-}
-
-fn seconds_to_ms(secs: f64) -> u32 {
-    (secs * 1000.0).round() as u32
-}
-
 // ─────────────────────────────────────────────────────────────
 // Page 3: GNOME Shell
 // ─────────────────────────────────────────────────────────────
-
-fn is_gnome_session() -> bool {
-    std::env::var("XDG_CURRENT_DESKTOP")
-        .map(|s| s.to_uppercase().contains("GNOME"))
-        .unwrap_or(false)
-}
-
-fn is_wayland_session() -> bool {
-    std::env::var("XDG_SESSION_TYPE")
-        .map(|s| s.to_lowercase() == "wayland")
-        .unwrap_or(false)
-}
 
 fn build_gnome_page(_window: &adw::PreferencesWindow) -> Option<adw::PreferencesPage> {
     // GSettings 스키마가 설치되어 있지 않으면 페이지를 생략
@@ -1675,13 +1574,6 @@ fn build_blacklist_row(
     }
 
     row
-}
-
-fn direction_label(dir: Direction) -> String {
-    match dir {
-        Direction::Forward => t!("blacklist_kind_forward").into_owned(),
-        Direction::Reverse => t!("blacklist_kind_reverse").into_owned(),
-    }
 }
 
 /// 버튼 하나를 만들어 `action`을 실행하고 페이지를 rebuild한다.

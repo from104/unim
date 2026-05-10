@@ -9,6 +9,10 @@ use gtk4::prelude::*;
 use rust_i18n::t;
 use unim::unim_log;
 
+use unim_gui_common::popup_dbus::{
+    cancel_special_via_dbus, popup_change_page_via_dbus, select_special_via_dbus,
+};
+
 use crate::popup_positioning::{self, DisplayServer};
 
 const MAX_ROWS: usize = 9;
@@ -146,7 +150,7 @@ impl SpecialPopup {
         prev_page_btn.set_focusable(false);
         prev_page_btn.set_tooltip_text(Some(&t!("popup_previous_page")));
         prev_page_btn.connect_clicked(|_| {
-            crate::hanja_popup::popup_change_page_via_dbus(0);
+            popup_change_page_via_dbus(0);
         });
         footer_box.append(&prev_page_btn);
 
@@ -163,7 +167,7 @@ impl SpecialPopup {
         next_page_btn.set_focusable(false);
         next_page_btn.set_tooltip_text(Some(&t!("popup_next_page")));
         next_page_btn.connect_clicked(|_| {
-            crate::hanja_popup::popup_change_page_via_dbus(1);
+            popup_change_page_via_dbus(1);
         });
         footer_box.append(&next_page_btn);
 
@@ -435,88 +439,6 @@ impl SpecialPopup {
     }
 }
 
-/// DBus를 통해 특수문자 선택
-fn select_special_via_dbus(col: usize, row: usize) {
-    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
-
-    // column-major 인덱스 계산
-    let index = (col * MAX_ROWS + row) as u32;
-
-    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
-
-    if let Some(path) = context_path {
-        unim_log!(
-            "INDICATOR",
-            "[Popup] 특수문자 선택 DBus 호출: index={} (col={}, row={}), path={}",
-            index,
-            col,
-            row,
-            path
-        );
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            rt.block_on(async {
-                if let Ok(conn) = zbus::Connection::session().await {
-                    let proxy = zbus::Proxy::new(
-                        &conn,
-                        "org.atit.unim.InputMethod",
-                        path.as_str(),
-                        "org.atit.unim.InputContext",
-                    )
-                    .await;
-                    if let Ok(proxy) = proxy {
-                        let _: Result<String, _> = proxy.call("SelectSpecialChar", &(index,)).await;
-                    }
-                }
-            });
-        });
-    }
-}
-
-/// RC2: 팝업이 숨겨질 때 엔진 특수문자 상태 정리.
-///
-/// `window.connect_hide` 콜백에서 호출. 정상 선택/취소 경로에서 엔진이 이미
-/// cancel을 처리했으므로 중복 호출은 no-op. outside-click 등 비정상 닫힘 후
-/// 엔진이 특수문자 대기 상태에 걸리지 않도록 보장한다.
-fn cancel_special_via_dbus() {
-    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
-
-    let context_path = { ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone()) };
-    let Some(path) = context_path else { return };
-
-    unim_log!(
-        "INDICATOR",
-        "[Popup] CancelSpecialChar (hide hook) DBus 호출: path={}",
-        path
-    );
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(r) => r,
-            Err(_) => return,
-        };
-        rt.block_on(async {
-            if let Ok(conn) = zbus::Connection::session().await {
-                if let Ok(proxy) = zbus::Proxy::new(
-                    &conn,
-                    "org.atit.unim.InputMethod",
-                    path.as_str(),
-                    "org.atit.unim.InputContext",
-                )
-                .await
-                {
-                    let _: Result<String, _> =
-                        proxy.call("CancelSpecialChar", &()).await;
-                }
-            }
-        });
-    });
-}
 
 /// 특수문자 팝업용 CSS — 한자 popup 의 generated CSS 에 통합되어 있다.
 ///

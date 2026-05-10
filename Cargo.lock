@@ -5493,6 +5493,7 @@ dependencies = [
  "futures-util",
  "ksni",
  "rust-i18n",
+ "serde_yaml",
  "tokio",
  "unim",
  "unim-dbus",

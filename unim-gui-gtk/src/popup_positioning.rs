@@ -3,19 +3,16 @@
 //! X11: GDK X11 surface를 통한 위치 설정
 //! Wayland (Sway/Hyprland): gtk4-layer-shell
 //! GNOME Wayland: 팝업 생성 건너뜀 (extension 처리)
+//!
+//! `DisplayServer` enum, `detect_display_server`, `is_gnome_wayland`는
+//! `unim-gui-common::popup_position`으로 추출됨. 여기서 re-export.
 
 use gtk4::prelude::*;
 use unim::unim_log;
 
-/// 디스플레이 서버 환경
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DisplayServer {
-    X11,
-    WaylandLayerShell,
-    GnomeWayland,
-}
+pub use unim_gui_common::popup_position::{is_gnome_wayland, DisplayServer};
 
-/// 현재 디스플레이 서버 환경 감지
+/// 현재 디스플레이 서버 환경 감지 (GDK 백엔드 확인 필요로 GTK 측에 유지)
 pub fn detect_display_server() -> DisplayServer {
     // GNOME Wayland 감지
     if is_gnome_wayland() {
@@ -29,33 +26,6 @@ pub fn detect_display_server() -> DisplayServer {
     } else {
         DisplayServer::WaylandLayerShell
     }
-}
-
-/// GNOME Wayland 환경인지 감지
-fn is_gnome_wayland() -> bool {
-    let is_wayland = std::env::var("XDG_SESSION_TYPE")
-        .map(|v| v == "wayland")
-        .unwrap_or(false);
-
-    if !is_wayland {
-        return false;
-    }
-
-    if std::env::var("GNOME_SHELL_SESSION_MODE").is_ok() {
-        return true;
-    }
-    if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
-        if desktop.to_uppercase().contains("GNOME") {
-            return true;
-        }
-    }
-    if let Ok(session) = std::env::var("DESKTOP_SESSION") {
-        if session.to_lowercase().contains("gnome") {
-            return true;
-        }
-    }
-
-    false
 }
 
 /// 팝업 윈도우를 커서 좌표에 배치 (화면 경계 보정 포함)

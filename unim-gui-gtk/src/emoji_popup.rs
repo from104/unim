@@ -21,6 +21,10 @@ use gtk4::prelude::*;
 use rust_i18n::t;
 use unim::unim_log;
 
+use unim_gui_common::popup_dbus::{
+    commit_emoji_via_dbus, popup_change_page_via_dbus, set_emoji_category_via_dbus,
+};
+
 use crate::popup_positioning::{self, DisplayServer};
 
 /// 이모지 그리드: 9×9 고정 (특수문자와 동일).
@@ -224,7 +228,7 @@ impl EmojiPopup {
         prev_page_btn.set_focusable(false);
         prev_page_btn.set_tooltip_text(Some(&t!("popup_previous_page")));
         prev_page_btn.connect_clicked(|_| {
-            crate::hanja_popup::popup_change_page_via_dbus(0);
+            popup_change_page_via_dbus(0);
         });
         footer_box.append(&prev_page_btn);
 
@@ -241,7 +245,7 @@ impl EmojiPopup {
         next_page_btn.set_focusable(false);
         next_page_btn.set_tooltip_text(Some(&t!("popup_next_page")));
         next_page_btn.connect_clicked(|_| {
-            crate::hanja_popup::popup_change_page_via_dbus(1);
+            popup_change_page_via_dbus(1);
         });
         footer_box.append(&next_page_btn);
 
@@ -569,128 +573,6 @@ impl EmojiPopup {
     }
 }
 
-/// 셀 클릭 콜백에서 호출 — 라벨 텍스트(emoji)를 그대로 받아 DBus `CommitEmoji` RPC.
-///
-/// 한자/특수문자는 column-major 인덱스만 보내지만 (`SelectHanja`/`SelectSpecialChar`),
-/// 이모지는 그런 인덱스 RPC (`SelectEmojiAtIndex`) 가 PR #1 에 추가되지 않았다 —
-/// 기존 `CommitEmoji(emoji)` 를 그대로 사용. 라벨 텍스트가 빈 문자열이면 no-op.
-fn commit_emoji_via_dbus(emoji_str: String) {
-    use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
-
-    if emoji_str.is_empty() {
-        return;
-    }
-
-    let context_path = ACTIVE_CONTEXT_PATH.lock().ok().and_then(|p| p.clone());
-
-    if let Some(path) = context_path {
-        unim_log!(
-            "INDICATOR",
-            "[EmojiPopup] CommitEmoji DBus 호출: emoji='{}', path={}",
-            emoji_str,
-            path
-        );
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(r) => r,
-                Err(_) => return,
-            };
-            rt.block_on(async {
-                if let Ok(conn) = zbus::Connection::session().await {
-                    let proxy = zbus::Proxy::new(
-                        &conn,
-                        "org.atit.unim.InputMethod",
-                        path.as_str(),
-                        "org.atit.unim.InputContext",
-                    )
-                    .await;
-                    if let Ok(proxy) = proxy {
-                        let _: Result<(), _> =
-                            proxy.call("CommitEmoji", &(emoji_str.as_str(),)).await;
-                    }
-                }
-            });
-        });
-    } else {
-        unim_log!(
-            "INDICATOR",
-            "[EmojiPopup] CommitEmoji 실패: ACTIVE_CONTEXT_PATH가 비어있음"
-        );
-    }
-}
-
-/// 탭 클릭 콜백에서 호출 — daemon `SetEmojiCategory(idx)` RPC.
-///
-/// daemon이 active context의 popup_state를 idx로 갱신한 뒤 `ShowEmojiPopupV2`
-/// 를 재발행 → unim-gui-gtk가 새 카테고리 grid로 화면 전체 갱신. 키보드
-/// Tab/Shift+Tab과 동일 경로.
-///
-/// `SetEmojiCategory`는 `org.atit.unim.InputMethod` 인터페이스(글로벌
-/// `/org/atit/unim/InputMethod` path)에 정의되어 있다. ACTIVE_CONTEXT_PATH
-/// (InputContext path) 로 호출하면 메서드 디스패치에 실패해 ShowEmojiPopupV2
-/// 재발행이 일어나지 않는다 — GNOME extension `_imProxy.SetEmojiCategory(...)` 와
-/// 동일한 글로벌 InputMethod proxy를 사용해야 한다.
-fn set_emoji_category_via_dbus(idx: u32) {
-    unim_log!(
-        "INDICATOR",
-        "[EmojiPopup] SetEmojiCategory DBus 호출: idx={}",
-        idx
-    );
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(r) => r,
-            Err(_) => return,
-        };
-        rt.block_on(async {
-            let conn = match zbus::Connection::session().await {
-                Ok(c) => c,
-                Err(e) => {
-                    unim_log!(
-                        "INDICATOR",
-                        "[EmojiPopup] SetEmojiCategory 세션 버스 연결 실패: {}",
-                        e
-                    );
-                    return;
-                }
-            };
-            let proxy = match zbus::Proxy::new(
-                &conn,
-                "org.atit.unim.InputMethod",
-                "/org/atit/unim/InputMethod",
-                "org.atit.unim.InputMethod",
-            )
-            .await
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    unim_log!(
-                        "INDICATOR",
-                        "[EmojiPopup] SetEmojiCategory proxy 생성 실패: {}",
-                        e
-                    );
-                    return;
-                }
-            };
-            if let Err(e) = proxy
-                .call::<_, _, ()>("SetEmojiCategory", &(idx,))
-                .await
-            {
-                unim_log!(
-                    "INDICATOR",
-                    "[EmojiPopup] SetEmojiCategory RPC 실패: idx={}, err={}",
-                    idx,
-                    e
-                );
-            }
-        });
-    });
-}
 
 /// 이모지 팝업 CSS — `tools/popup-styles/popup_tokens.toml` +
 /// `templates/gtk_hanja_popup.css.tmpl` 에서 `.unim-emoji-popup` 룰셋이 함께
