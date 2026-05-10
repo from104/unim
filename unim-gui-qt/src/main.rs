@@ -10,13 +10,12 @@ pub mod bridge;
 
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
 
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QUrl};
-use ksni::blocking::TrayMethods;
 use unim::unim_log;
 
-use unim_gui_common::tray::UnimTray;
+use unim_gui_common::dbus_client;
+use unim_gui_common::tray::TrayController;
 use unim_gui_common::types::{GuiAction, IndicatorState, SETTINGS_TX};
 
 // rust-i18n 매크로 — locales 디렉토리의 ko.yml/en.yml 사용
@@ -66,16 +65,25 @@ fn main() {
         }
     });
 
-    // ksni 트레이 시작 (별도 스레드)
-    let tray_state = state.clone();
-    let (_tray_update_tx, tray_update_rx) = std::sync::mpsc::channel::<()>();
-
-    // 더미 popup_tx (트레이에서 사용)
+    // 더미 popup_tx (Qt는 트레이에서만 사용)
     let (popup_tx, _popup_rx) = std::sync::mpsc::channel::<GuiAction>();
 
     // 트레이 → DBus watcher: SetGlobalMode 액션 채널
-    // Qt tray 전용 DBus set_global_mode 처리 스레드 (bridge.rs 와 독립)
     let (dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(16);
+
+    // TrayController (Arc로 dbus watcher와 공유)
+    let controller = Arc::new(TrayController::new(
+        state.clone(),
+        popup_tx,
+        dbus_action_tx,
+    ));
+
+    // 트레이 업데이트 채널
+    let (_tray_update_tx, tray_update_rx) = std::sync::mpsc::channel::<()>();
+    TrayController::run_update_loop(controller.clone(), tray_update_rx);
+
+    // Qt tray 전용 DBus 태스크 (handle_dbus_actions) + ActiveFrontendsChanged watcher
+    let qt_controller = controller.clone();
     thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -87,34 +95,52 @@ fn main() {
                 return;
             }
         };
-        rt.block_on(unim_gui_common::dbus_client::handle_dbus_actions(
-            dbus_action_rx,
-        ));
-    });
-
-    thread::spawn(move || {
-        let tray = UnimTray {
-            state: tray_state,
-            popup_tx,
-            dbus_action_tx,
-        };
-        match tray.spawn() {
-            Ok(handle) => {
-                unim_log!("INDICATOR", "시스템 트레이 시작됨 (Qt6)");
-                loop {
-                    match tray_update_rx.recv_timeout(Duration::from_millis(100)) {
-                        Ok(()) => {
-                            handle.update(|_| {});
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                    }
+        rt.block_on(async {
+            // DBus 연결
+            let connection = match zbus::Connection::session().await {
+                Ok(c) => c,
+                Err(e) => {
+                    unim_log!("INDICATOR", "[Qt] DBus 연결 실패: {}", e);
+                    // 연결 실패 시 일단 트레이 시작
+                    qt_controller.start();
+                    dbus_client::handle_dbus_actions(dbus_action_rx).await;
+                    return;
                 }
+            };
+
+            // 자기 자신 등록 (best-effort)
+            if let Ok(proxy) = unim_dbus::client::InputMethodProxy::new(&connection).await {
+                if let Err(e) = proxy.register_frontend("unim-gui-qt").await {
+                    unim_log!("INDICATOR", "[Qt][RegisterFrontend] 등록 실패 (무시): {}", e);
+                } else {
+                    unim_log!("INDICATOR", "[Qt][RegisterFrontend] unim-gui-qt 등록됨");
+                }
+                // 초기 활성 프런트엔드 조회
+                let frontends = dbus_client::fetch_active_frontends(&connection).await;
+                let has_gnome = frontends.iter().any(|n| n == "gnome-shell");
+                unim_log!(
+                    "INDICATOR",
+                    "[Qt][ActiveFrontends] 초기값: {:?}, gnome-shell={}",
+                    frontends,
+                    has_gnome
+                );
+                if !has_gnome {
+                    qt_controller.start();
+                }
+            } else {
+                qt_controller.start();
             }
-            Err(e) => {
-                unim_log!("INDICATOR", "시스템 트레이 시작 실패: {}", e);
-            }
-        }
+
+            // ActiveFrontendsChanged 감시 (별도 task)
+            let af_controller = qt_controller.clone();
+            let af_conn = connection.clone();
+            tokio::spawn(async move {
+                dbus_client::watch_active_frontends(af_conn, af_controller).await;
+            });
+
+            // SetGlobalMode 액션 처리
+            dbus_client::handle_dbus_actions(dbus_action_rx).await;
+        });
     });
 
     // Qt 앱 생성

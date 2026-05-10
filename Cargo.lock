@@ -5533,7 +5533,9 @@ dependencies = [
  "serde_json",
  "tokio",
  "unim",
+ "unim-dbus",
  "unim-gui-common",
+ "zbus 4.4.0",
 ]
 
 [[package]]

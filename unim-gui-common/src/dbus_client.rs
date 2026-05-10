@@ -11,17 +11,20 @@ use unim::status::InputCategory;
 use unim::unim_log;
 use unim_dbus::client::InputMethodProxy;
 
+use crate::tray::TrayController;
 use crate::types::{GuiAction, IndicatorState, ACTIVE_CONTEXT_PATH, UNIM_BUS_NAME};
 
 /// DBus GlobalModeChanged 시그널 구독하여 트레이 업데이트 (비동기)
 /// NameOwnerChanged 시그널을 감시하여 데몬 시작/종료 시 자동 재연결
 ///
 /// `dbus_action_rx`: 트레이에서 보내는 SetGlobalMode 액션 수신 채널.
+/// `controller`: TrayController — ActiveFrontendsChanged 에 따라 start/stop.
 pub async fn watch_dbus_signals(
     state: Arc<RwLock<IndicatorState>>,
     tray_update_tx: std::sync::mpsc::Sender<()>,
     popup_tx: Sender<GuiAction>,
     mut dbus_action_rx: tokio::sync::mpsc::Receiver<GuiAction>,
+    controller: Arc<TrayController>,
 ) {
     use futures_util::StreamExt;
 
@@ -60,6 +63,12 @@ pub async fn watch_dbus_signals(
                 "[DBus] {} 서비스 발견, 연결 시도...",
                 UNIM_BUS_NAME
             );
+            // ActiveFrontendsChanged watcher 시작 (별도 태스크)
+            let af_controller = controller.clone();
+            let af_conn = connection.clone();
+            tokio::spawn(async move {
+                watch_active_frontends(af_conn, af_controller).await;
+            });
             // 서비스가 있으면 즉시 연결 시도
             watch_mode_signals(
                 &connection,
@@ -85,6 +94,12 @@ pub async fn watch_dbus_signals(
                     unim_log!("INDICATOR", "[DBus] {} 서비스 활성화 성공", UNIM_BUS_NAME);
                     // 활성화 후 잠시 대기 후 연결
                     tokio::time::sleep(Duration::from_millis(500)).await;
+                    // ActiveFrontendsChanged watcher 시작
+                    let af_controller = controller.clone();
+                    let af_conn = connection.clone();
+                    tokio::spawn(async move {
+                        watch_active_frontends(af_conn, af_controller).await;
+                    });
                     watch_mode_signals(
                         &connection,
                         state.clone(),
@@ -135,6 +150,13 @@ pub async fn watch_dbus_signals(
                         new_owner
                     );
 
+                    // ActiveFrontendsChanged watcher 재시작
+                    let af_controller = controller.clone();
+                    let af_conn = connection.clone();
+                    tokio::spawn(async move {
+                        watch_active_frontends(af_conn, af_controller).await;
+                    });
+
                     // 모드 시그널 감시 시작 (서비스 종료될 때까지)
                     watch_mode_signals(
                         &connection,
@@ -161,6 +183,91 @@ pub async fn watch_dbus_signals(
         );
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
+}
+
+/// 활성 프런트엔드 목록 1회 조회.
+///
+/// 데몬이 없거나 호출 실패 시 빈 Vec 반환.
+pub async fn fetch_active_frontends(connection: &zbus::Connection) -> Vec<String> {
+    match InputMethodProxy::new(connection).await {
+        Ok(proxy) => proxy.get_active_frontends().await.unwrap_or_default(),
+        Err(e) => {
+            unim_log!("INDICATOR", "[ActiveFrontends] proxy 생성 실패: {}", e);
+            vec![]
+        }
+    }
+}
+
+/// ActiveFrontendsChanged 시그널 구독 + debounce 200ms.
+///
+/// gnome-shell 등록 여부에 따라 `controller.start()` / `controller.stop()` 호출.
+pub async fn watch_active_frontends(connection: zbus::Connection, controller: Arc<TrayController>) {
+    use futures_util::StreamExt;
+
+    let proxy = match InputMethodProxy::new(&connection).await {
+        Ok(p) => p,
+        Err(e) => {
+            unim_log!("INDICATOR", "[ActiveFrontends] proxy 생성 실패: {}", e);
+            return;
+        }
+    };
+
+    let mut stream = match proxy.receive_active_frontends_changed().await {
+        Ok(s) => s,
+        Err(e) => {
+            unim_log!("INDICATOR", "[ActiveFrontends] signal 구독 실패: {}", e);
+            return;
+        }
+    };
+
+    unim_log!("INDICATOR", "[ActiveFrontends] 시그널 구독 시작");
+
+    // debounce: 마지막 이벤트 후 200ms 대기 후 적용
+    let mut pending: Option<Vec<String>> = None;
+    let debounce = Duration::from_millis(200);
+
+    loop {
+        // 대기 중인 이벤트가 있으면 200ms sleep_until, 없으면 무한 대기
+        let timeout = if pending.is_some() {
+            tokio::time::sleep(debounce)
+        } else {
+            // 절대 만료하지 않을 sleep (signal이 오면 select!가 먼저 취소)
+            tokio::time::sleep(Duration::from_secs(86400))
+        };
+
+        tokio::select! {
+            Some(signal) = stream.next() => {
+                if let Ok(args) = signal.args() {
+                    unim_log!(
+                        "INDICATOR",
+                        "[ActiveFrontends] 변경 이벤트: {:?}",
+                        args.names
+                    );
+                    pending = Some(args.names.to_vec());
+                }
+            }
+            _ = timeout, if pending.is_some() => {
+                // debounce 만료 → 적용
+                if let Some(names) = pending.take() {
+                    let has_gnome = names.iter().any(|n| n == "gnome-shell");
+                    unim_log!(
+                        "INDICATOR",
+                        "[ActiveFrontends] 적용: gnome-shell={}, names={:?}",
+                        has_gnome,
+                        names
+                    );
+                    if has_gnome {
+                        controller.stop();
+                    } else {
+                        controller.start();
+                    }
+                }
+            }
+            else => break,
+        }
+    }
+
+    unim_log!("INDICATOR", "[ActiveFrontends] 시그널 스트림 종료");
 }
 
 /// Qt tray 전용: SetGlobalMode 액션만 처리하는 경량 DBus 태스크.

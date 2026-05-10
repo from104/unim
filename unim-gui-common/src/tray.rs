@@ -4,16 +4,112 @@
 //! 툴킷에 무관한 코드로, 향후 `unim-gui-common`으로 추출될 대상입니다.
 
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+use std::time::Duration;
 
 use tokio::sync::mpsc::Sender as TokioSender;
 
+use ksni::blocking::TrayMethods;
 use ksni::menu::*;
 use rust_i18n::t;
 use unim::status::InputCategory;
 use unim::unim_log;
 
 use crate::types::{GuiAction, IndicatorState, SETTINGS_TX};
+
+/// ksni 트레이 라이프사이클 컨트롤러.
+///
+/// `Arc<TrayController>`로 공유해 dbus watcher 태스크에서 start/stop 호출 가능.
+/// gnome-shell 이 활성 프런트엔드에 등록되면 트레이를 숨기고,
+/// 해제되면 다시 띄운다 (shutdown→respawn 패턴).
+pub struct TrayController {
+    state: Arc<RwLock<IndicatorState>>,
+    popup_tx: Sender<GuiAction>,
+    dbus_action_tx: TokioSender<GuiAction>,
+    /// ksni handle 보관. None = 트레이 꺼진 상태.
+    handle: Mutex<Option<ksni::blocking::Handle<UnimTray>>>,
+}
+
+impl TrayController {
+    pub fn new(
+        state: Arc<RwLock<IndicatorState>>,
+        popup_tx: Sender<GuiAction>,
+        dbus_action_tx: TokioSender<GuiAction>,
+    ) -> Self {
+        Self {
+            state,
+            popup_tx,
+            dbus_action_tx,
+            handle: Mutex::new(None),
+        }
+    }
+
+    /// 트레이가 이미 떠 있으면 no-op.
+    pub fn start(&self) {
+        let mut guard = self.handle.lock().unwrap();
+        if guard.is_some() {
+            return;
+        }
+        let tray = UnimTray {
+            state: self.state.clone(),
+            popup_tx: self.popup_tx.clone(),
+            dbus_action_tx: self.dbus_action_tx.clone(),
+        };
+        match tray.spawn() {
+            Ok(h) => {
+                unim_log!("INDICATOR", "[TrayController] 트레이 시작됨");
+                *guard = Some(h);
+            }
+            Err(e) => {
+                unim_log!("INDICATOR", "[TrayController] 트레이 시작 실패: {}", e);
+            }
+        }
+    }
+
+    /// 트레이를 종료한다. 이미 꺼져 있으면 no-op.
+    pub fn stop(&self) {
+        let mut guard = self.handle.lock().unwrap();
+        if let Some(h) = guard.take() {
+            h.shutdown();
+            unim_log!("INDICATOR", "[TrayController] 트레이 종료됨");
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.handle.lock().unwrap().is_some()
+    }
+
+    /// 트레이 아이콘 업데이트 요청.
+    pub fn update(&self) {
+        if let Ok(guard) = self.handle.lock() {
+            if let Some(h) = guard.as_ref() {
+                h.update(|_| {});
+            }
+        }
+    }
+
+    /// 별도 스레드에서 트레이 업데이트 루프 실행.
+    ///
+    /// `update_rx`: `()` 수신 시 트레이 아이콘 갱신.
+    /// 컨트롤러 소유권은 Arc로 공유되어 있어야 한다.
+    pub fn run_update_loop(
+        controller: Arc<TrayController>,
+        update_rx: std::sync::mpsc::Receiver<()>,
+    ) {
+        thread::spawn(move || {
+            loop {
+                match update_rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(()) => {
+                        controller.update();
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+        });
+    }
+}
 
 /// ksni 트레이 구현
 #[derive(Debug)]

@@ -13,14 +13,13 @@ mod special_popup;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
 
-use ksni::blocking::TrayMethods;
 use unim::unim_log;
 
 use unim_gui_common::dbus_client;
-use unim_gui_common::tray::UnimTray;
+use unim_gui_common::tray::TrayController;
 use unim_gui_common::types::{GuiAction, IndicatorState, SETTINGS_TX};
+// unim-dbus proxy (RegisterFrontend + fetch_active_frontends)
 
 // 설정 다이얼로그·팝업 등 GUI 전용 문자열에 대한 i18n.
 // `locales/{ko,en}.yml` 파일이 컴파일 시점에 임베드된다.
@@ -65,13 +64,31 @@ fn main() {
         *tx = Some(popup_tx.clone());
     }
 
+    // 트레이 → DBus watcher: SetGlobalMode 액션 채널 (tokio mpsc, async 수신)
+    let (dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(16);
+
+    // TrayController 생성 (Arc로 dbus watcher와 공유)
+    let controller = Arc::new(TrayController::new(
+        state.clone(),
+        popup_tx.clone(),
+        dbus_action_tx,
+    ));
+
+    // 트레이 업데이트 채널 (DBus -> TrayController)
+    let (tray_update_tx, tray_update_rx) = std::sync::mpsc::channel::<()>();
+
+    // 초기 tray spawn: DBus 연결 전 초기값으로 시작하되,
+    // watch_active_frontends가 gnome-shell 감지 시 stop() 호출함.
+    // 시작 직후 gnome-shell 여부는 DBus watcher 루프 내 fetch로 판단.
+    // TODO: 데몬 재시작 시 RegisterFrontend 재호출 필요 (향후 구현)
+
+    // 트레이 업데이트 루프 (컨트롤러 공유)
+    TrayController::run_update_loop(controller.clone(), tray_update_rx);
+
     // DBus 시그널 감시 스레드 (ksni와 완전 분리)
     let dbus_state = state.clone();
     let dbus_popup_tx = popup_tx.clone();
-    // 트레이 업데이트 요청 채널 (DBus -> ksni)
-    let (tray_update_tx, tray_update_rx) = std::sync::mpsc::channel::<()>();
-    // 트레이 → DBus watcher: SetGlobalMode 액션 채널 (tokio mpsc, async 수신)
-    let (dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(16);
+    let dbus_controller = controller.clone();
 
     thread::spawn(move || {
         // 별도의 tokio 런타임 생성 (독립 스레드)
@@ -86,49 +103,46 @@ fn main() {
             }
         };
 
-        // handle을 전달하지 않고, 채널만 사용
-        rt.block_on(dbus_client::watch_dbus_signals(
-            dbus_state,
-            tray_update_tx,
-            dbus_popup_tx,
-            dbus_action_rx,
-        ));
-    });
-
-    // ksni 트레이 시작 (별도 스레드)
-    let tray_state = state.clone();
-
-    thread::spawn(move || {
-        let tray = UnimTray {
-            state: tray_state,
-            popup_tx: popup_tx.clone(),
-            dbus_action_tx,
-        };
-        match tray.spawn() {
-            Ok(handle) => {
-                unim_log!("INDICATOR", "시스템 트레이 시작됨");
-                // 트레이 업데이트 요청 대기 및 처리
-                loop {
-                    // 100ms 타임아웃으로 채널 폴링
-                    match tray_update_rx.recv_timeout(Duration::from_millis(100)) {
-                        Ok(()) => {
-                            // 트레이 아이콘 업데이트
-                            handle.update(|_| {});
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            // 타임아웃 - 계속 대기
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            // 채널 닫힘 - 종료
-                            break;
-                        }
+        rt.block_on(async {
+            // 데몬 연결 후 초기 활성 프런트엔드 조회 → 트레이 초기 spawn 결정
+            let connection = zbus::Connection::session().await;
+            if let Ok(ref conn) = connection {
+                // 자기 자신 등록 (best-effort)
+                if let Ok(proxy) = unim_dbus::client::InputMethodProxy::new(conn).await {
+                    if let Err(e) = proxy.register_frontend("unim-gui-gtk").await {
+                        unim_log!("INDICATOR", "[RegisterFrontend] 등록 실패 (무시): {}", e);
+                    } else {
+                        unim_log!("INDICATOR", "[RegisterFrontend] unim-gui-gtk 등록됨");
                     }
+                    let frontends = dbus_client::fetch_active_frontends(conn).await;
+                    let has_gnome = frontends.iter().any(|n| n == "gnome-shell");
+                    unim_log!(
+                        "INDICATOR",
+                        "[ActiveFrontends] 초기값: {:?}, gnome-shell={}",
+                        frontends,
+                        has_gnome
+                    );
+                    if !has_gnome {
+                        dbus_controller.start();
+                    }
+                } else {
+                    // 프록시 실패 시 일단 트레이 시작
+                    dbus_controller.start();
                 }
+            } else {
+                // 연결 실패 시 일단 트레이 시작 (watch_dbus_signals가 재연결 처리)
+                dbus_controller.start();
             }
-            Err(e) => {
-                unim_log!("INDICATOR", "시스템 트레이 시작 실패: {}", e);
-            }
-        }
+
+            dbus_client::watch_dbus_signals(
+                dbus_state,
+                tray_update_tx,
+                dbus_popup_tx,
+                dbus_action_rx,
+                dbus_controller,
+            )
+            .await;
+        });
     });
 
     // GTK4/libadwaita 앱 시작 (메인 스레드)

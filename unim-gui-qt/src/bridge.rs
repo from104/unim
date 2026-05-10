@@ -49,6 +49,7 @@ pub mod qobject {
 }
 
 use unim_gui_common::dbus_client;
+use unim_gui_common::tray::TrayController;
 use unim_gui_common::types::{GuiAction, IndicatorState};
 
 /// Rust 측 QObject 구조체
@@ -122,12 +123,22 @@ impl cxx_qt::Constructor<()> for qobject::UnimBridge {
             // bridge.rs 의 DBus 스레드는 시그널 수신 전용.
             // tray SetGlobalMode 는 main.rs 의 handle_dbus_actions 태스크가 처리하므로
             // 여기서는 항상 비어있는 더미 채널을 전달한다.
+            // TrayController는 main.rs 에서 관리하므로 여기서는 no-op dummy 사용.
             let (_dummy_tx, dummy_rx) = tokio::sync::mpsc::channel::<unim_gui_common::types::GuiAction>(1);
+            let (dummy_popup_tx, _) = std::sync::mpsc::channel::<GuiAction>();
+            let (dummy_dbus_tx, _) = tokio::sync::mpsc::channel::<GuiAction>(1);
+            let dummy_state = Arc::new(std::sync::RwLock::new(IndicatorState::default()));
+            let dummy_controller = Arc::new(TrayController::new(
+                dummy_state,
+                dummy_popup_tx,
+                dummy_dbus_tx,
+            ));
             rt.block_on(dbus_client::watch_dbus_signals(
                 dbus_state,
                 tray_update_tx,
                 popup_tx,
                 dummy_rx,
+                dummy_controller,
             ));
         });
 
