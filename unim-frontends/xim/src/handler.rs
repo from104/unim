@@ -368,13 +368,23 @@ impl UnimHandler {
     /// 두 번째 ㄹ 입력에서 daemon이 commit='ㄹ', preedit='ㄹ' 둘 다 반환 →
     /// 클라이언트가 commit 처리하며 preedit을 비워버림.)
     ///
-    /// 회피책: commit 후 flush → 10ms sleep → preedit + flush 분리 송출.
-    /// commit이 비어있으면 sleep을 건너뛰고, preedit이 비어있으면
-    /// `clear_preedit()`을 호출한다.
+    /// 회피책: commit 직전에 `clear_preedit()` 을 강제 호출해 현재 preedit
+    /// 사이클을 종료(PreeditDraw(empty)+PreeditDone)시켜 xim crate 내부의
+    /// `ic.preedit_started=false` 로 reset한 다음 commit → 새 preedit_draw.
+    /// 그러면 새 preedit_draw 호출 시 xim crate 가 자동으로 PreeditStart 를
+    /// 재발사(server.rs:205-214)해 PREEDIT_CALLBACKS(ON-THE-SPOT) 모드
+    /// 클라이언트가 PreeditStart 없이 도착한 PreeditDraw 를 무시하던
+    /// 누락 버그를 차단한다.
     ///
-    /// AutoTypeFix N+1 BS 분기(handle_xevent 내 deferred_autofix 처리)도
-    /// 동일 패턴을 사용하나, autofix_commit_guard/전용 로깅 때문에
-    /// 인라인으로 유지한다. 패턴 변경 시 두 곳을 함께 수정할 것.
+    /// 배경: xim-0.5.0/src/server.rs:236-248 의 `commit()` 은 단순히 Commit
+    /// 메시지만 보내고 `preedit_started` 를 그대로 둔다. 그러나 일부 ON-THE-SPOT
+    /// 클라이언트(unim-test-xim 등)는 commit 후 PreeditDone 을 자체 가정 →
+    /// 다음 PreeditDraw 가 PreeditStart 없이 도착하면 무시. XTerm/WezTerm 은
+    /// PreeditPosition(OVER-THE-SPOT) 모드라 이 사이클 영향이 없어 무관.
+    ///
+    /// AutoTypeFix N+1 BS 분기(handle_xevent 내 deferred_autofix 처리)는
+    /// XTest 가짜 이벤트 주입 + per-key sleep 컨텍스트라 별개 동작 — 본
+    /// 함수 변경의 영향 범위 밖.
     fn commit_then_preedit<C: Connection + xim::x11rb::HasConnection>(
         &mut self,
         server: &mut X11rbServer<C>,
@@ -385,24 +395,25 @@ impl UnimHandler {
         let has_commit = !commit_text.is_empty();
         let has_preedit = !preedit_text.is_empty();
 
-        // [1단계] commit 전송 + flush
         if has_commit {
+            // [1단계] 현재 preedit 사이클 종료 — xim crate 가 PreeditDraw(empty)
+            // + PreeditDone 을 발사하고 preedit_started=false 로 reset.
+            // 이 호출이 noop 인 경우(이미 preedit 비어있음)도 무해.
+            self.clear_preedit(server, user_ic)?;
+
+            // [2단계] commit 전송
             server.commit(&user_ic.ic, commit_text)?;
             server.conn().flush().ok();
         }
 
-        // [2단계] preedit 전송. commit이 있었으면 클라이언트가 commit을 완전히
-        // 처리한 뒤 새 preedit을 수신하도록 10ms 간격을 둔다.
+        // [3단계] 새 preedit 전송 — preedit_started=false 인 상태에서
+        // preedit_draw 가 호출되면 xim crate 가 PreeditStart 를 자동 재발사.
         if has_preedit {
-            if has_commit {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
             self.preedit(server, user_ic, preedit_text)?;
             server.conn().flush().ok();
-        } else {
-            // preedit이 비어있을 때는 clear_preedit으로 ibus 호환 처리
-            // (preedit_draw("") + PeWindow 정리). commit-only인 경우에도
-            // 기존 동작 유지 — sleep 없음.
+        } else if !has_commit {
+            // commit 도 없고 preedit 도 비어있는 케이스만 별도 clear.
+            // commit 분기는 이미 [1단계] 에서 clear 처리됨.
             self.clear_preedit(server, user_ic)?;
             server.conn().flush().ok();
         }

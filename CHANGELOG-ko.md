@@ -30,6 +30,14 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 ## [Unreleased]
 
+### 고침 (best-effort)
+
+- **XIM `commit_then_preedit` 가 `commit()` 직전 `clear_preedit()` 강제** (`unim-frontends/xim/src/handler.rs:378-`): xim-0.5.0/src/server.rs:236-248 의 `commit()` 은 `preedit_started` 를 갱신하지 않으므로 직후 `preedit_draw()` 가 PreeditStart 재발사를 건너뛰는(server.rs:205-214) 문제를 우회. `clear_preedit()` 호출이 crate 의 `PreeditDraw(empty) + PreeditDone` 자동 발사를 트리거해 `preedit_started=false` 로 reset, 이후 새 `preedit_draw()` 가 PreeditStart 를 재발사한다. 통상 OVER-THE-SPOT 경로(XTerm·WezTerm 등)에서 commit 직후 preedit 가시화는 정상 복귀하지만 **모든 ON-THE-SPOT(PREEDIT_CALLBACKS) 클라이언트에서는 회귀 잔존** — 아래 알려진 문제 참고.
+
+### 알려진 문제
+
+- **XIM ON-THE-SPOT(PREEDIT_CALLBACKS) commit 직후 preedit 누락 (미해결)**: 한글 음절 commit 직후 새 자모를 입력해도 preedit 가 한 프레임 가시화되지 않다가 추가 자모가 들어와야 보이기 시작. 자체 XIM client(`unim-test-xim` 등)와 일부 ON-THE-SPOT XIM 앱에서 재현. **무영향**: XTerm·WezTerm·기타 OVER-THE-SPOT 클라이언트, GTK3/4·Qt5/6·Wayland·GNOME extension. 위의 best-effort 적용 후에도 일부 ON-THE-SPOT 클라이언트에서 잔존. 근본 원인은 xim-0.5.0 의 `commit()` 이 `preedit_started` 상태머신을 갱신하지 않는 점 — crate 측 fix 또는 UNIM 측의 protocol 시퀀스 재설계 필요. 추적: `docs/user/troubleshooting/README-ko.md` §B.
+
 ### 호환성 깨짐
 
 - **DBus 시그널 `HanjaCandidatesReordered` 페이로드가 10-tuple로 변경** (기존 9-tuple). 토글 직전 즐겨찾기 상태를 담은 `was_bookmarked: bool` 필드가 끝에 추가됐다 — 프런트엔드는 `was_bookmarked && !bookmarked`일 때만 cursor flash를 띄우는 식으로 분기. `org.atit.unim.InputContext`의 외부 구독자는 unpacking 코드를 함께 갱신해야 함 (9-tuple은 더 이상 수용하지 않음).

@@ -495,6 +495,7 @@ Attach `unim-report.txt` to your issue. Skim it once first — passwords/tokens 
 - English-mode space drop (gedit): fixed via `consumed=true commit=" "` path.
 - AutoTypeFix residual BS (XIM): fixed via N+1 BS model. Chrome preedit edge case is a known SKIP.
 - `tentative_expiry_hours` unit changed days → hours (1..=12) since 0.2.0; existing config auto-migrates.
+- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (UNRESOLVED)**: After committing a Hangul syllable, the next jamo's preedit is invisible for one frame and only renders once an additional jamo arrives to form a syllable. Affects custom XIM clients (e.g. `unim-test-xim`) and some ON-THE-SPOT XIM apps. **Unaffected**: XTerm, WezTerm, other OVER-THE-SPOT (PreeditPosition) clients, GTK3/4, Qt5/6, Wayland, GNOME extension. Best-effort mitigation forces `clear_preedit()` before `commit()` in `commit_then_preedit()` to make xim-0.5.0 emit PreeditDone automatically, but the regression persists on some ON-THE-SPOT clients. Root cause is xim-0.5.0/src/server.rs:236-248 `commit()` not updating `preedit_started`; needs an upstream fix or a redesigned protocol sequence. Trace: `unim-frontends/xim/src/handler.rs:378-`.
 
 ### C. Multiple daemon instances
 

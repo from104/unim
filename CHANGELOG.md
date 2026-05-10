@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ## [Unreleased]
 
+### Fixed (best-effort)
+
+- **XIM `commit_then_preedit` now forces `clear_preedit()` before `commit()`** (`unim-frontends/xim/src/handler.rs:378-`): xim-0.5.0/src/server.rs:236-248 `commit()` does not toggle `preedit_started`, so a subsequent `preedit_draw()` skips the PreeditStart re-emission (server.rs:205-214). Forcing `clear_preedit()` first makes the crate emit `PreeditDraw(empty) + PreeditDone` and resets `preedit_started=false`, so the new `preedit_draw()` re-fires PreeditStart cleanly. This restores the post-commit preedit on the typical OVER-THE-SPOT path (XTerm, WezTerm) but **does not fully resolve the regression on every ON-THE-SPOT (PREEDIT_CALLBACKS) client** — see Known Issues.
+
+### Known Issues
+
+- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (UNRESOLVED)**: After committing a Hangul syllable, the next jamo's preedit is invisible for one frame and only renders once an additional jamo arrives. Reproduces in custom XIM clients (e.g. `unim-test-xim`) and some ON-THE-SPOT XIM apps. **Unaffected**: XTerm, WezTerm, other OVER-THE-SPOT clients, GTK3/4, Qt5/6, Wayland, GNOME extension. Best-effort mitigation above shipped; root cause is xim-0.5.0's `commit()` not driving the `preedit_started` state machine — needs an upstream xim fix or a redesigned protocol sequence on the UNIM side. Tracked in `docs/user/troubleshooting/README.md` §B.
+
 ### Removed
 
 - **Qwerty Sebeolsik (`ko_3bul_qwerty`) dropped from built-ins**: removed from `BUILTIN_NAMES` (10 → reduced) and from the `get_builtin_json` / `get_keymap_json` match arms in `src/keystroke/profile/builtin.rs` and `src/keystroke/mod.rs`. The full v3 moachigi schema JSON is preserved as a research reference at `docs/references/keymaps/ko_3bul_qwerty_v2.json` — copy it to `~/.config/unim/layouts/ko_3bul_qwerty.json` to keep using it as a user profile. CLI `--korean` help, `unim-cli config set korean-layout` enumeration, GTK settings dialog alias map, FAQ §Q7, and troubleshooting §15-1 all updated accordingly.

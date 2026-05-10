@@ -504,6 +504,7 @@ make build 2>&1 | tee /tmp/unim-build.log
 - **영문 모드 Space 누락 (gedit)**: 0.2.0에서 `consumed=true commit=" "` 경로로 수정. 회귀 시 `engine_worker.rs` Space 처리 분기 점검.
 - **AutoTypeFix 잔존 BS (XIM)**: 0.2.0 N+1 BS 모델로 수정됨. Chrome preedit edge case는 알려진 SKIP.
 - **`tentative_expiry_hours` 단위**: 0.2.0부터 days→hours로 변경 (1..=12). 기존 config는 자동 마이그레이션.
+- **XIM ON-THE-SPOT(PREEDIT_CALLBACKS) 모드 commit 직후 preedit 누락 (미해결)**: 한글 음절 commit 직후 새 자모를 입력해도 preedit가 한 프레임 가시화되지 않다가 추가 자모가 들어와 음절이 형성되어야 보이기 시작. 영향 범위 — 자체 XIM client(예: `unim-test-xim`)·일부 ON-THE-SPOT XIM 앱. **무영향** — XTerm·WezTerm·기타 OVER-THE-SPOT(PreeditPosition) 클라이언트, GTK3/4·Qt5/6·Wayland·GNOME extension 모두 정상. `commit_then_preedit()` 에서 commit 직전 `clear_preedit()` 강제(xim-0.5.0의 PreeditDone 자동 발사) best-effort 적용했으나 일부 ON-THE-SPOT 클라이언트에서 회귀 잔존. xim crate 의 `commit()` 이 `preedit_started` 상태를 갱신하지 않는 점이 근본 원인 — crate 측 fix 또는 별도 protocol 시퀀스 재설계 필요. 추적: `unim-frontends/xim/src/handler.rs:378-`, `xim-0.5.0/src/server.rs:236-248`.
 
 ### C. 데몬 다중 인스턴스
 
