@@ -73,6 +73,13 @@ export default class UnimExtension extends Extension {
             if (!connected) {
                 unimError('EXTENSION', 'unim-daemon DBus 연결 실패 — 모드 동기화 비활성');
                 this._dbusIME = null;
+            } else {
+                // 데몬에 프런트엔드 등록
+                try {
+                    this._dbusIME.registerFrontend('gnome-shell');
+                } catch (e) {
+                    console.warn(`[unim] RegisterFrontend 실패: ${e.message}`);
+                }
             }
 
             // IME 활성화
@@ -98,6 +105,10 @@ export default class UnimExtension extends Extension {
 
         // DBus 연결 종료 (enable() 본체에서 만든 instance — IME 모드 라이프사이클 외부)
         if (this._dbusIME) {
+            // 데몬에 프런트엔드 해제 (실패 무시 — disable 중이라 데몬이 없을 수 있음)
+            try {
+                this._dbusIME.unregisterFrontend('gnome-shell');
+            } catch (_e) { /* no-op */ }
             this._dbusIME.destroy();
             this._dbusIME = null;
         }

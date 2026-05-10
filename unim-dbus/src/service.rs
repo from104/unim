@@ -7,6 +7,7 @@
 //! `InputEngine`은 `Send + Sync`를 구현하지 않으므로 (HangulComposer trait object),
 //! 엔진은 별도의 전용 스레드에서 실행하고 채널을 통해 통신합니다.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -386,6 +387,8 @@ pub struct InputMethodService {
     /// 일치시켜, 단축키 캡처 주체(GNOME extension)와 입력 주체(GTK4_IM)가 분리된
     /// 환경에서도 emoji가 사용자 앱에 정확히 들어가게 한다.
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
+    /// 현재 등록된 프런트엔드 이름 집합 (ephemeral; 데몬 재시작 시 초기화)
+    active_frontends: Arc<RwLock<HashSet<String>>>,
 }
 
 impl InputMethodService {
@@ -407,6 +410,7 @@ impl InputMethodService {
             connection,
             last_cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
             last_active_input_context_path: Arc::new(std::sync::Mutex::new(None)),
+            active_frontends: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -540,6 +544,71 @@ impl InputMethodService {
         let mode = self.global_mode.read().await;
         Ok(*mode == InputMode::Korean)
     }
+
+    /// 프런트엔드 등록 (멱등; 이미 등록된 이름 재호출은 no-op, signal 미발산)
+    async fn register_frontend(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        name: String,
+    ) -> zbus::fdo::Result<()> {
+        let inserted = {
+            let mut set = self.active_frontends.write().await;
+            set.insert(name.clone())
+        };
+        if inserted {
+            let names = {
+                let set = self.active_frontends.read().await;
+                let mut v: Vec<String> = set.iter().cloned().collect();
+                v.sort();
+                v
+            };
+            unim_log!("DBUS", "[DBus] RegisterFrontend: '{}' 등록됨, 활성 목록={:?}", name, names);
+            Self::active_frontends_changed(&signal_ctx, names).await?;
+        } else {
+            unim_log!("DBUS", "[DBus] RegisterFrontend: '{}' 이미 등록됨 (no-op)", name);
+        }
+        Ok(())
+    }
+
+    /// 프런트엔드 등록 해제 (없으면 no-op, signal 미발산)
+    async fn unregister_frontend(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        name: String,
+    ) -> zbus::fdo::Result<()> {
+        let removed = {
+            let mut set = self.active_frontends.write().await;
+            set.remove(&name)
+        };
+        if removed {
+            let names = {
+                let set = self.active_frontends.read().await;
+                let mut v: Vec<String> = set.iter().cloned().collect();
+                v.sort();
+                v
+            };
+            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 해제됨, 활성 목록={:?}", name, names);
+            Self::active_frontends_changed(&signal_ctx, names).await?;
+        } else {
+            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 미등록 (no-op)", name);
+        }
+        Ok(())
+    }
+
+    /// 현재 등록된 프런트엔드 목록 조회 (정렬된 Vec<String>)
+    async fn get_active_frontends(&self) -> Vec<String> {
+        let set = self.active_frontends.read().await;
+        let mut v: Vec<String> = set.iter().cloned().collect();
+        v.sort();
+        v
+    }
+
+    /// 활성 프런트엔드 목록 변경 시그널
+    #[zbus(signal)]
+    async fn active_frontends_changed(
+        signal_ctx: &SignalContext<'_>,
+        names: Vec<String>,
+    ) -> zbus::Result<()>;
 
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
@@ -3059,5 +3128,94 @@ impl InputContextHandler {
             emoji
         );
         Ok(())
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// active_frontends 단위 테스트 (daemon 없이 순수 메모리 상태 검증)
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    /// 헬퍼: 테스트용 active_frontends Arc 생성
+    fn make_set() -> Arc<RwLock<HashSet<String>>> {
+        Arc::new(RwLock::new(HashSet::new()))
+    }
+
+    /// 멱등성: 동일 이름을 두 번 insert해도 set 크기 1
+    #[tokio::test]
+    async fn test_register_frontend_idempotent() {
+        let set = make_set();
+        {
+            let mut s = set.write().await;
+            let first = s.insert("gnome-shell".to_string());
+            let second = s.insert("gnome-shell".to_string());
+            assert!(first, "첫 등록은 true");
+            assert!(!second, "재등록은 false (no-op)");
+            assert_eq!(s.len(), 1);
+        }
+    }
+
+    /// 등록 후 조회: 정렬된 Vec 반환
+    #[tokio::test]
+    async fn test_get_active_frontends_sorted() {
+        let set = make_set();
+        {
+            let mut s = set.write().await;
+            s.insert("unim-xim".to_string());
+            s.insert("gnome-shell".to_string());
+            s.insert("unim-wayland".to_string());
+        }
+        let names = {
+            let s = set.read().await;
+            let mut v: Vec<String> = s.iter().cloned().collect();
+            v.sort();
+            v
+        };
+        assert_eq!(names, vec!["gnome-shell", "unim-wayland", "unim-xim"]);
+    }
+
+    /// unregister: 제거 후 set 비어 있음, 없는 이름 제거는 false
+    #[tokio::test]
+    async fn test_unregister_frontend_idempotent() {
+        let set = make_set();
+        {
+            let mut s = set.write().await;
+            s.insert("gnome-shell".to_string());
+        }
+        let removed = {
+            let mut s = set.write().await;
+            s.remove("gnome-shell")
+        };
+        assert!(removed, "존재하는 이름 제거 true");
+        let removed_again = {
+            let mut s = set.write().await;
+            s.remove("gnome-shell")
+        };
+        assert!(!removed_again, "이미 없는 이름 제거 false (no-op)");
+        let s = set.read().await;
+        assert!(s.is_empty());
+    }
+
+    /// signal 발산 조건: insert 결과 true일 때만 signal emit 필요
+    #[tokio::test]
+    async fn test_signal_emit_condition() {
+        let set = make_set();
+        let inserted = {
+            let mut s = set.write().await;
+            s.insert("unim-gui-gtk".to_string())
+        };
+        // 변경 있을 때만 signal 발산 (inserted == true)
+        assert!(inserted, "signal emit 해야 함");
+
+        let inserted_dup = {
+            let mut s = set.write().await;
+            s.insert("unim-gui-gtk".to_string())
+        };
+        // 중복 등록 — signal 발산 불필요
+        assert!(!inserted_dup, "signal emit 불필요");
     }
 }

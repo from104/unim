@@ -69,6 +69,15 @@ trait InputMethod {
     /// idx 가 범위 밖이거나 emoji popup 이 활성화되지 않으면 no-op.
     fn set_emoji_category(&self, idx: u32) -> Result<()>;
 
+    /// 프런트엔드 등록 (멱등; 이미 등록된 이름 재호출은 no-op)
+    fn register_frontend(&self, name: &str) -> Result<()>;
+
+    /// 프런트엔드 등록 해제 (없으면 no-op)
+    fn unregister_frontend(&self, name: &str) -> Result<()>;
+
+    /// 현재 등록된 프런트엔드 목록 조회 (정렬된 Vec<String>)
+    fn get_active_frontends(&self) -> Result<Vec<String>>;
+
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
     fn global_mode_changed(&self, is_korean: bool) -> Result<()>;
@@ -80,6 +89,10 @@ trait InputMethod {
     /// 전체 Config JSON payload 설정 변경 시그널
     #[zbus(signal)]
     fn config_changed_json(&self, json: String) -> Result<()>;
+
+    /// 활성 프런트엔드 목록 변경 시그널 (변경 시마다 전체 목록 브로드캐스트)
+    #[zbus(signal)]
+    fn active_frontends_changed(&self, names: Vec<String>) -> Result<()>;
 }
 
 /// InputContext 프록시 생성을 위한 trait

@@ -123,6 +123,19 @@ enum Commands {
         )]
         action: String,
     },
+    /// Query daemon runtime state
+    #[command(about = "Query daemon runtime state")]
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum DaemonCommands {
+    /// List currently registered frontends
+    #[command(about = "List currently registered frontends")]
+    Frontends,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1863,6 +1876,32 @@ fn layout_validate(file: &std::path::Path) -> i32 {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Daemon query path
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 데몬의 `GetActiveFrontends` RPC를 호출하여 현재 등록된 프런트엔드 목록 출력.
+async fn run_daemon_frontends() -> Result<(), String> {
+    let client = unim_dbus::client::UnimClient::connect()
+        .await
+        .map_err(|e| format!("daemon unreachable: {}", e))?;
+    let im = client
+        .input_method()
+        .await
+        .map_err(|e| format!("input_method proxy failed: {}", e))?;
+    let frontends = im
+        .get_active_frontends()
+        .await
+        .map_err(|e| format!("GetActiveFrontends failed: {}", e))?;
+    if frontends.is_empty() {
+        println!("(none)");
+    } else {
+        for name in &frontends {
+            println!("{}", name);
+        }
+    }
+    Ok(())
+}
+
 // Trigger path — universal entry point for OS shortcut tools (KDE, Hyprland, AHK ...)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1915,6 +1954,21 @@ fn main() -> io::Result<()> {
             if let Err(e) = runtime.block_on(run_trigger(&action)) {
                 eprintln!("{}", t!("execution_error", error = e));
                 process::exit(1);
+            }
+            Ok(())
+        }
+        Some(Commands::Daemon { command }) => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| io::Error::other(format!("tokio runtime build failed: {}", e)))?;
+            match command {
+                DaemonCommands::Frontends => {
+                    if let Err(e) = runtime.block_on(run_daemon_frontends()) {
+                        eprintln!("{}", t!("execution_error", error = e));
+                        process::exit(1);
+                    }
+                }
             }
             Ok(())
         }

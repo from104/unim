@@ -901,6 +901,69 @@ export class UnimDbusIME {
     }
 
     /**
+     * 프런트엔드 등록 (멱등; 재호출 no-op)
+     * @param {string} name - 프런트엔드 식별자 (예: 'gnome-shell')
+     */
+    registerFrontend(name) {
+        if (!this._imProxy) return;
+        try {
+            this._imProxy.call_sync(
+                'RegisterFrontend',
+                new GLib.Variant('(s)', [name]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            unimLog('DBUS_IME', `RegisterFrontend('${name}') 완료`);
+        } catch (e) {
+            unimError('DBUS_IME', `RegisterFrontend('${name}') 실패: ${e.message}`);
+        }
+    }
+
+    /**
+     * 프런트엔드 등록 해제 (없으면 no-op)
+     * @param {string} name - 프런트엔드 식별자
+     */
+    unregisterFrontend(name) {
+        if (!this._imProxy) return;
+        try {
+            this._imProxy.call_sync(
+                'UnregisterFrontend',
+                new GLib.Variant('(s)', [name]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            unimLog('DBUS_IME', `UnregisterFrontend('${name}') 완료`);
+        } catch (e) {
+            unimError('DBUS_IME', `UnregisterFrontend('${name}') 실패: ${e.message}`);
+        }
+    }
+
+    /**
+     * 현재 등록된 프런트엔드 목록 조회
+     * @returns {string[]} 프런트엔드 이름 배열 (정렬됨), 실패 시 빈 배열
+     */
+    getActiveFrontends() {
+        if (!this._imProxy) return [];
+        try {
+            const result = this._imProxy.call_sync(
+                'GetActiveFrontends',
+                null,
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+            if (!result) return [];
+            const [names] = result.deep_unpack();
+            return names;
+        } catch (e) {
+            unimError('DBUS_IME', `GetActiveFrontends 실패: ${e.message}`);
+            return [];
+        }
+    }
+
+    /**
      * 이모지 팝업 카테고리 변경 — 마우스 클릭으로 좌측 탭을 직접 전환할 때 호출.
      *
      * `_imProxy.SetEmojiCategory(idx)` RPC 를 호출하면 데몬이 마지막 포커스
