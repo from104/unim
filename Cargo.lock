@@ -2040,6 +2040,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "gdk4-wayland"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd34518488cd624a85e75e82540bc24c72cfeb0aea6bad7faed683ca3977dba0"
+dependencies = [
+ "gdk4",
+ "gdk4-wayland-sys",
+ "gio 0.20.12",
+ "glib 0.20.12",
+ "libc",
+]
+
+[[package]]
+name = "gdk4-wayland-sys"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c7a0f2332c531d62ee3f14f5e839ac1abac59e9b052adf1495124c00d89a34b"
+dependencies = [
+ "glib-sys 0.20.10",
+ "libc",
+ "system-deps 7.0.7",
+]
+
+[[package]]
 name = "gdk4-x11"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4718,7 +4742,7 @@ dependencies = [
  "wayland-client",
  "wayland-csd-frame",
  "wayland-cursor",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-protocols-wlr",
  "wayland-scanner",
  "xkbcommon 0.7.0",
@@ -4744,7 +4768,7 @@ dependencies = [
  "wayland-client",
  "wayland-csd-frame",
  "wayland-cursor",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-protocols-experimental",
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
@@ -5540,6 +5564,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "unim-popup-service"
+version = "0.3.0"
+dependencies = [
+ "dirs 5.0.1",
+ "gdk4-wayland",
+ "gdk4-x11",
+ "gtk4",
+ "gtk4-layer-shell",
+ "ksni",
+ "libadwaita",
+ "libc",
+ "rust-i18n",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "unim",
+ "unim-dbus",
+ "unim-gui-common",
+ "wayland-client",
+ "wayland-protocols 0.31.2",
+ "wayland-protocols-misc",
+ "x11",
+ "xcb",
+ "zbus 4.4.0",
+]
+
+[[package]]
 name = "unim-test-dbus"
 version = "0.3.0"
 dependencies = [
@@ -5560,7 +5611,7 @@ dependencies = [
  "unim",
  "unim-dbus",
  "wayland-client",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "xkbcommon 0.7.0",
 ]
 
@@ -5587,7 +5638,7 @@ dependencies = [
  "unim",
  "unim-dbus",
  "wayland-client",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-protocols-misc",
  "xkbcommon 0.8.0",
  "zbus 4.4.0",
@@ -5809,6 +5860,18 @@ dependencies = [
 
 [[package]]
 name = "wayland-protocols"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f81f365b8b4a97f422ac0e8737c438024b5951734506b0e1d775c73030561f4"
+dependencies = [
+ "bitflags 2.10.0",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
+]
+
+[[package]]
+name = "wayland-protocols"
 version = "0.32.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baeda9ffbcfc8cd6ddaade385eaf2393bd2115a69523c735f12242353c3df4f3"
@@ -5828,7 +5891,7 @@ dependencies = [
  "bitflags 2.10.0",
  "wayland-backend",
  "wayland-client",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-scanner",
 ]
 
@@ -5841,7 +5904,7 @@ dependencies = [
  "bitflags 2.10.0",
  "wayland-backend",
  "wayland-client",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-scanner",
 ]
 
@@ -5854,7 +5917,7 @@ dependencies = [
  "bitflags 2.10.0",
  "wayland-backend",
  "wayland-client",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-scanner",
 ]
 
@@ -5867,7 +5930,7 @@ dependencies = [
  "bitflags 2.10.0",
  "wayland-backend",
  "wayland-client",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-scanner",
 ]
 
@@ -6478,7 +6541,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wayland-backend",
  "wayland-client",
- "wayland-protocols",
+ "wayland-protocols 0.32.10",
  "wayland-protocols-plasma",
  "web-sys",
  "web-time",
