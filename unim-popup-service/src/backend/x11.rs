@@ -95,7 +95,7 @@ fn position_popup_x11(window: &gtk4::Window, _cursor_x: i32, _cursor_y: i32, _cu
         screen_h
     );
 
-    #[cfg(feature = "gdk4-x11")]
+    #[cfg(feature = "x11-backend")]
     {
         // 이미 realize된 경우: 직접 이동
         if window.is_realized() {
@@ -148,7 +148,7 @@ fn position_popup_x11(window: &gtk4::Window, _cursor_x: i32, _cursor_y: i32, _cu
         });
     }
 
-    #[cfg(not(feature = "gdk4-x11"))]
+    #[cfg(not(feature = "x11-backend"))]
     {
         let _ = (window, popup_x, popup_y);
         unim_log!(
@@ -181,7 +181,7 @@ fn position_popup_x11(window: &gtk4::Window, _cursor_x: i32, _cursor_y: i32, _cu
 /// 한계:
 /// - press~다음 polling iteration(최대 16ms) 사이 race. 일반 click(>50ms)에 무해.
 /// - inside-click 정확도는 popup widget의 normal event handling이 담당.
-#[cfg(all(feature = "gdk4-x11", feature = "xcb"))]
+#[cfg(all(feature = "x11-backend", feature = "x11-backend"))]
 pub fn x11_install_outside_click_handler(
     window: &gtk4::Window,
     on_dismiss: impl Fn() + 'static,
@@ -311,7 +311,7 @@ pub fn x11_install_outside_click_handler(
 }
 
 /// xcb feature 비활성 빌드용 stub
-#[cfg(all(feature = "gdk4-x11", not(feature = "xcb")))]
+#[cfg(all(feature = "x11-backend", not(feature = "x11-backend")))]
 pub fn x11_install_outside_click_handler(
     window: &gtk4::Window,
     on_dismiss: impl Fn() + 'static,
@@ -321,7 +321,7 @@ pub fn x11_install_outside_click_handler(
 }
 
 /// X11 윈도우 이동
-#[cfg(feature = "gdk4-x11")]
+#[cfg(feature = "x11-backend")]
 fn x11_move_window(
     display: &gtk4::gdk::Display,
     x11_surface: &gdk4_x11::X11Surface,
@@ -384,7 +384,7 @@ struct XSetWindowAttributes {
 }
 
 /// X11 윈도우를 override-redirect 팝업으로 설정 (WM 우회 + 포커스 방지)
-#[cfg(feature = "gdk4-x11")]
+#[cfg(feature = "x11-backend")]
 fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11Surface) {
     unsafe {
         let x11_display = display.downcast_ref::<gdk4_x11::X11Display>().unwrap();

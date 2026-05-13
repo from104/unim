@@ -12,7 +12,8 @@ use unim_gui_common::popup_dbus::{
     select_hanja_via_dbus, toggle_hanja_bookmark_via_dbus, toggle_popup_expand_via_dbus,
 };
 
-use crate::popup_positioning::{self, DisplayServer};
+use crate::backend::x11 as popup_positioning;
+use crate::backend::x11::DisplayServer;
 
 const COMPACT_PAGE_SIZE: usize = 9;
 const EXPANDED_PAGE_SIZE: usize = 81;
@@ -164,7 +165,7 @@ impl HanjaPopup {
         // 키 grab 절대 금지 (ghostty key-lock 회귀 방지) — 마우스 grab 만.
         // connect_hide → cancel_hanja_via_dbus 가 이미 등록되어 있으므로
         // 여기서는 hide()만 호출하면 된다.
-        #[cfg(feature = "gdk4-x11")]
+        #[cfg(feature = "x11-backend")]
         if display_server == DisplayServer::X11 {
             let window_weak = window.downgrade();
             popup_positioning::x11_install_outside_click_handler(&window, move || {

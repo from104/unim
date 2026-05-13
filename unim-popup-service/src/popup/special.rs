@@ -13,7 +13,8 @@ use unim_gui_common::popup_dbus::{
     cancel_special_via_dbus, popup_change_page_via_dbus, select_special_via_dbus,
 };
 
-use crate::popup_positioning::{self, DisplayServer};
+use crate::backend::x11 as popup_positioning;
+use crate::backend::x11::DisplayServer;
 
 const MAX_ROWS: usize = 9;
 const MAX_COLS: usize = 9;
@@ -187,7 +188,7 @@ impl SpecialPopup {
 
         // X11 outside-click dismiss: popup 영역 밖 클릭 시 window.hide()
         // 키 grab 절대 금지 — 마우스 grab 만.
-        #[cfg(feature = "gdk4-x11")]
+        #[cfg(feature = "x11-backend")]
         if display_server == DisplayServer::X11 {
             let window_weak = window.downgrade();
             popup_positioning::x11_install_outside_click_handler(&window, move || {
