@@ -490,7 +490,7 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
 
 /// Wayland: gtk4-layer-shell 사용
 fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, cursor_h: i32) {
-    #[cfg(feature = "wayland")]
+    #[cfg(feature = "wayland-backend")]
     {
         use gtk4_layer_shell::{Edge, KeyboardInteractivity, Layer, LayerShell};
 
@@ -519,7 +519,7 @@ fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, c
         );
     }
 
-    #[cfg(not(feature = "wayland"))]
+    #[cfg(not(feature = "wayland-backend"))]
     {
         let _ = (window, cursor_x, cursor_y, cursor_h);
         unim_log!(
