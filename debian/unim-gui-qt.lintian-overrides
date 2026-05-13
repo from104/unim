@@ -1,6 +1,0 @@
-# unim-gui-qt — lintian overrides (justified)
-
-# embedded-library libyaml: see unim-common.lintian-overrides for rationale.
-unim-gui-qt: embedded-library libyaml [usr/bin/unim-gui-qt]
-
-unim-gui-qt: initial-upload-closes-no-bugs *

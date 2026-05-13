@@ -125,23 +125,23 @@ Description: UNIM Korean IME — GTK4/libadwaita settings GUI
  every desktop session. This is the default GUI on GNOME, Xfce,
  MATE, Cinnamon and any GTK-centric desktop.
 
-Package: unim-gui-qt
+Package: unim-popup-service
 Architecture: any
 Depends: unim-common (= ${binary:Version}),
+         unim-gui-gtk (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
-Recommends: unim-im-qt
-Description: UNIM Korean IME — Qt6/QML settings GUI (alternative)
- Alternative settings dialog and system-tray indicator for the
- UNIM Korean Input Method Engine, built with Qt6 and cxx-qt. Feature
- parity with unim-gui-gtk, native look-and-feel on KDE Plasma.
+Description: UNIM Korean IME — popup & tray service (GTK4, X11/Wayland)
+ Standalone GTK4 popup·tray service for hanja/special-character/emoji
+ popups across non-GNOME desktops (KDE Plasma, Xfce, Cinnamon).
  .
- Hanja/special-character/emoji popups and the full settings dialog
- are now implemented in Qt6/QML directly — no GTK4/libadwaita
- runtime dependency, no out-of-process unim-gui-gtk fallback.
+ Runs as a separate process, receives DBus signals from unim-daemon,
+ and renders popups via GTK4. Detects X11 vs Wayland session at
+ runtime and applies the appropriate backend (X11 override-redirect +
+ XCB outside-click polling, or Wayland xdg-popup / input_popup_v2).
  .
- Coexists with unim-gui-gtk — pick whichever fits the desktop. KDE
- Plasma users who prefer native Qt styling should install this one.
+ Replaces the previous unim-gui-qt binary; the Qt6/QML GUI has been
+ deprecated and removed in favour of a single GTK4 codebase.
 
 Package: unim-gnome
 Architecture: all
@@ -168,7 +168,7 @@ Depends: unim-common (= ${source:Version}),
          unim-xim (= ${source:Version}),
          unim-wayland (= ${source:Version}),
          unim-gui-gtk (= ${source:Version}),
-         unim-gui-qt (= ${source:Version}),
+         unim-popup-service (= ${source:Version}),
          unim-gnome (= ${source:Version}),
          ${misc:Depends}
 Description: Korean Input Method Engine — full stack (meta-package)

@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# unim-gui-gtk — GTK4/libadwaita settings GUI + tray indicator
+# unim-gui-gtk — Settings GUI 전용 (GTK4/libadwaita)
+# popup·tray는 unim-popup-service로 이관됨
 # ─────────────────────────────────────────────────────────────────────────────
 
 debian/tmp/usr/bin/unim-gui-gtk
-debian/tmp/etc/xdg/autostart/unim-gui-gtk.desktop
 debian/tmp/usr/share/applications/unim-gui-gtk.desktop
 debian/tmp/usr/share/man/man1/unim-gui-gtk.1

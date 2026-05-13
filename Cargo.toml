@@ -41,7 +41,6 @@ members = [
     "unim-daemon",
     "unim-gui-common",
     "unim-gui-gtk",
-    "unim-gui-qt",
     "unim-popup-service",
     "unim-dbus",
     "unim-windows",
