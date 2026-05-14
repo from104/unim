@@ -1,0 +1,6 @@
+# unim-settings — lintian overrides (justified)
+
+# embedded-library libyaml: see unim-common.lintian-overrides for rationale.
+unim-settings: embedded-library libyaml [usr/bin/unim-settings]
+
+unim-settings: initial-upload-closes-no-bugs *

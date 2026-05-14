@@ -1,14 +1,14 @@
 [package]
-name = "unim-gui"
+name = "unim-indicator"
 version.workspace = true
 edition = "2021"
-description = "UNIM GUI — tray indicator + settings dialog (GTK4/libadwaita). popup은 unim-popup-service로 분리됨"
+description = "UNIM tray indicator (GTK4 + StatusNotifierItem). 트레이 책임 전용 프로세스 — 설정 GUI는 unim-settings, popup은 unim-popup-service가 담당."
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "unim-gui"
+name = "unim-indicator"
 path = "src/main.rs"
 
 [dependencies]
@@ -16,9 +16,8 @@ path = "src/main.rs"
 unim = { path = ".." }
 unim-gui-common = { path = "../unim-gui-common" }
 unim-dbus = { path = "../unim-dbus" }
-dirs = "5.0"
 
-# Modern GTK4 UI (settings dialog)
+# GTK4 메인 루프 (트레이 백그라운드 호스트)
 gtk4 = "0.9"
 libadwaita = { version = "0.7", features = ["v1_4"] }
 
@@ -28,9 +27,6 @@ ksni = { version = "0.3", features = ["blocking"] }
 # Async runtime for DBus
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
-
-# Config serialization (for DBus set_config_yaml client call)
-serde_yaml = "0.9"
 
 # i18n (locales/{ko,en}.yml)
 rust-i18n = "3"

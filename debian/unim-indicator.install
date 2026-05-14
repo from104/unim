@@ -1,0 +1,7 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# unim-indicator — GTK4 system-tray indicator (StatusNotifierItem)
+# 한 책임, 한 프로세스: 트레이 전용. settings / popup 은 별도 패키지.
+# ─────────────────────────────────────────────────────────────────────────────
+
+debian/tmp/usr/bin/unim-indicator
+debian/tmp/etc/xdg/autostart/unim-indicator.desktop

@@ -1,9 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# unim-gui — GTK4/libadwaita 트레이 + 설정 다이얼로그
-# popup(한자/특수문자/이모지)은 unim-popup-service로 분리됨
+# unim-settings — GTK4/libadwaita settings dialog
+# 한 책임, 한 프로세스: 설정 다이얼로그 전용. tray / popup 은 별도 패키지.
 # ─────────────────────────────────────────────────────────────────────────────
 
-debian/tmp/usr/bin/unim-gui
-debian/tmp/etc/xdg/autostart/unim-gui.desktop
-debian/tmp/usr/share/applications/unim-gui.desktop
-debian/tmp/usr/share/man/man1/unim-gui.1
+debian/tmp/usr/bin/unim-settings
+debian/tmp/usr/share/applications/unim-settings.desktop

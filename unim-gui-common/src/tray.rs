@@ -146,7 +146,7 @@ pub struct UnimTray {
 
 impl ksni::Tray for UnimTray {
     fn id(&self) -> String {
-        "unim-gui".into()
+        "unim-indicator".into()
     }
 
     fn icon_theme_path(&self) -> String {

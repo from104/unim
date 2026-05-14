@@ -503,19 +503,23 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 response,
             } => {
                 // 팝업 바이패스: 다른 context에 한자/특수문자 팝업이 활성이고
-                // 현재 context의 윈도우가 unim-gui (인디케이터)이면 키를 소비하지 않음
-                // → GNOME extension이 consumed=false를 받아 키를 GTK 팝업 윈도우로 전달
+                // 현재 context의 윈도우가 UNIM 자체 GUI 프로세스(인디케이터/설정/팝업 서비스)이면
+                // 키를 소비하지 않음 → 키가 팝업 윈도우로 전달되도록 한다.
                 let popup_bypass = contexts.iter().any(|(&id, engine)| {
                     id != context_id && (engine.is_hanja_mode() || engine.is_special_char_mode())
                 }) && context_windows
                     .get(&context_id)
-                    .map(|wid| wid.starts_with("unim-gui-"))
+                    .map(|wid| {
+                        wid.starts_with("unim-indicator")
+                            || wid.starts_with("unim-settings")
+                            || wid.starts_with("unim-popup-service")
+                    })
                     .unwrap_or(false);
 
                 if popup_bypass {
                     unim_log!(
                         "ENGINE_WORKER",
-                        "[Engine Worker] ProcessKey 바이패스 (팝업 활성, unim-gui 윈도우): context_id={}",
+                        "[Engine Worker] ProcessKey 바이패스 (팝업 활성, UNIM GUI 윈도우): context_id={}",
                         context_id
                     );
                     let _ = response.send(EngineResponse {

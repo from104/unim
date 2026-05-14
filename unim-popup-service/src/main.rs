@@ -1,7 +1,7 @@
 //! UNIM popup service — standalone GTK4 popup 전용 프로세스.
 //!
 //! 책임: daemon DBus signal → popup ViewModel → GTK4 popup window.
-//! 트레이/설정 GUI는 `unim-gui`가 담당. 본 service는 popup만 다룬다.
+//! 트레이는 `unim-indicator`, 설정 GUI는 `unim-settings`가 담당. 본 service는 popup만 다룬다.
 //! X11/Wayland 환경 자동 검출 후 적절한 backend 사용.
 
 #![allow(dead_code)]
@@ -95,7 +95,7 @@ fn main() {
                 tray_update_tx,
                 dbus_popup_tx,
                 dbus_action_rx,
-                None, // 트레이는 unim-gui가 담당
+                None, // 트레이는 unim-indicator가 담당
             )
             .await;
         });

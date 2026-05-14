@@ -1,17 +1,14 @@
-//! UNIM GUI — 트레이 인디케이터 + 설정 다이얼로그 (GTK4/libadwaita).
+//! UNIM Indicator — 시스템 트레이 백그라운드 프로세스.
 //!
-//! popup(한자/특수문자/이모지) 표시는 `unim-popup-service`가 담당하고,
-//! 이 바이너리는 시스템 트레이와 설정 GUI를 책임진다.
-//!
-//! 모드:
-//!   - 기본: 트레이 + DBus watcher + GTK 메인 루프 (트레이 메뉴 "설정" → 다이얼로그)
-//!   - `--settings`: 다이얼로그만 표시 후 종료
+//! 한 책임, 한 프로세스 원칙:
+//!   - 트레이 indicator + DBus watcher 만 담당.
+//!   - 설정 다이얼로그는 `unim-settings` 프로세스 spawn.
+//!   - popup(한자/특수문자/이모지)은 `unim-popup-service` 별도 프로세스.
 
 mod gtk_ui;
-mod settings_dialog;
 
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::thread;
 
 use unim::unim_log;
@@ -36,21 +33,12 @@ fn main() {
     unim_gui_common::init_locale();
     rust_i18n::set_locale(detect_locale());
 
-    // --settings: 설정 다이얼로그만 표시 후 종료
-    let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--settings") {
-        unim_log!("INDICATOR", "UNIM settings 다이얼로그 시작");
-        gtk_ui::run_settings_only();
-        return;
-    }
-
-    unim_log!("INDICATOR", "UNIM GUI 시작 (tray + settings 대기)");
+    unim_log!("INDICATOR", "UNIM indicator 시작 (tray-only)");
 
     let state = Arc::new(RwLock::new(IndicatorState::default()));
 
-    // GuiAction 채널 — 트레이 메뉴 "설정" → GTK 이벤트 루프 전달
+    // GuiAction 채널 — 트레이 메뉴 "설정" → GTK 이벤트 루프 → unim-settings spawn
     let (popup_tx, popup_rx) = mpsc::channel::<GuiAction>();
-    let popup_rx = Arc::new(Mutex::new(popup_rx));
     if let Ok(mut tx) = SETTINGS_TX.lock() {
         *tx = Some(popup_tx.clone());
     }
@@ -85,10 +73,10 @@ fn main() {
             let connection = zbus::Connection::session().await;
             if let Ok(ref conn) = connection {
                 if let Ok(proxy) = unim_dbus::client::InputMethodProxy::new(conn).await {
-                    if let Err(e) = proxy.register_frontend("unim-gui").await {
+                    if let Err(e) = proxy.register_frontend("unim-indicator").await {
                         unim_log!("INDICATOR", "[RegisterFrontend] 실패: {}", e);
                     } else {
-                        unim_log!("INDICATOR", "[RegisterFrontend] unim-gui 등록됨");
+                        unim_log!("INDICATOR", "[RegisterFrontend] unim-indicator 등록됨");
                     }
                     let frontends = dbus_client::fetch_active_frontends(conn).await;
                     let has_gnome = frontends.iter().any(|n| n == "gnome-shell");
@@ -119,5 +107,5 @@ fn main() {
         });
     });
 
-    gtk_ui::run_gui(state, popup_rx);
+    gtk_ui::run_tray_host(popup_rx);
 }

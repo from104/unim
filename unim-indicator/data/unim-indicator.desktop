@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=UNIM GUI
-Name[ko]=UNIM GUI
+Name=UNIM Indicator
+Name[ko]=UNIM 인디케이터
 Comment=Korean Input Method tray indicator
 Comment[ko]=한글 입력기 트레이 인디케이터
-Exec=unim-gui
+Exec=unim-indicator
 Icon=unim-korean
 Terminal=false
 Type=Application

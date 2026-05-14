@@ -5191,23 +5191,7 @@ dependencies = [
  "serde_yaml",
  "tokio",
  "unim",
- "zbus 4.4.0",
-]
-
-[[package]]
-name = "unim-gui"
-version = "0.3.0"
-dependencies = [
- "dirs 5.0.1",
- "gtk4",
- "ksni",
- "libadwaita",
- "rust-i18n",
- "serde_yaml",
- "tokio",
- "unim",
- "unim-dbus",
- "unim-gui-common",
+ "unim-popup-types",
  "zbus 4.4.0",
 ]
 
@@ -5222,6 +5206,21 @@ dependencies = [
  "tokio",
  "unim",
  "unim-dbus",
+ "zbus 4.4.0",
+]
+
+[[package]]
+name = "unim-indicator"
+version = "0.3.0"
+dependencies = [
+ "gtk4",
+ "ksni",
+ "libadwaita",
+ "rust-i18n",
+ "tokio",
+ "unim",
+ "unim-dbus",
+ "unim-gui-common",
  "zbus 4.4.0",
 ]
 
@@ -5249,6 +5248,26 @@ dependencies = [
  "wayland-protocols-misc",
  "x11",
  "xcb",
+ "zbus 4.4.0",
+]
+
+[[package]]
+name = "unim-popup-types"
+version = "0.3.0"
+
+[[package]]
+name = "unim-settings"
+version = "0.3.0"
+dependencies = [
+ "dirs 5.0.1",
+ "gtk4",
+ "libadwaita",
+ "rust-i18n",
+ "serde_yaml",
+ "tokio",
+ "unim",
+ "unim-dbus",
+ "unim-gui-common",
  "zbus 4.4.0",
 ]
 

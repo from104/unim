@@ -1,0 +1,33 @@
+[package]
+name = "unim-settings"
+version.workspace = true
+edition = "2021"
+description = "UNIM settings dialog (GTK4/libadwaita). 설정 다이얼로그 전용 프로세스 — 트레이는 unim-indicator, popup은 unim-popup-service가 담당."
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "unim-settings"
+path = "src/main.rs"
+
+[dependencies]
+# Core
+unim = { path = ".." }
+unim-gui-common = { path = "../unim-gui-common" }
+unim-dbus = { path = "../unim-dbus" }
+dirs = "5.0"
+
+# Modern GTK4 UI (settings dialog)
+gtk4 = "0.9"
+libadwaita = { version = "0.7", features = ["v1_4"] }
+
+# Async runtime for DBus (set_config_yaml client call)
+tokio = { version = "1", features = ["rt", "sync"] }
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+
+# Config serialization (for DBus set_config_yaml client call)
+serde_yaml = "0.9"
+
+# i18n (locales/{ko,en}.yml)
+rust-i18n = "3"
