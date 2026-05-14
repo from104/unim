@@ -109,26 +109,27 @@ Description: UNIM Korean IME — Wayland input-method frontend
  Hyprland, COSMIC, Labwc, Wayfire). GNOME Shell users should
  additionally install unim-gnome for native indicator integration.
 
-Package: unim-gui-gtk
+Package: unim-gui
 Architecture: any
 Depends: unim-common (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
-Recommends: unim-im-gtk
-Description: UNIM Korean IME — GTK4/libadwaita settings GUI
- Settings dialog and system-tray indicator for the UNIM Korean
- Input Method Engine, built with GTK4 and libadwaita. Provides the
- full configuration surface (hotkeys, layouts, TypeFix, blacklist,
- popup behaviour, per-app rules).
+Recommends: unim-popup-service, unim-im-gtk
+Description: UNIM Korean IME — GTK4 tray indicator + settings GUI
+ System-tray indicator (StatusNotifierItem) and settings dialog for
+ the UNIM Korean Input Method Engine, built with GTK4 and libadwaita.
+ Provides hotkey/layout/TypeFix/blacklist/popup-behaviour configuration
+ and the global mode-toggle indicator.
  .
- Ships an XDG autostart entry so the tray indicator starts with
- every desktop session. This is the default GUI on GNOME, Xfce,
- MATE, Cinnamon and any GTK-centric desktop.
+ Hanja/special-character/emoji popups are rendered by the companion
+ package "unim-popup-service" — install it for popup support on KDE
+ Plasma, Xfce, Cinnamon and other non-GNOME desktops. GNOME Shell
+ users get popups via the unim-gnome extension instead.
 
 Package: unim-popup-service
 Architecture: any
 Depends: unim-common (= ${binary:Version}),
-         unim-gui-gtk (= ${binary:Version}),
+         unim-gui (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
 Description: UNIM Korean IME — popup & tray service (GTK4, X11/Wayland)
@@ -146,7 +147,7 @@ Description: UNIM Korean IME — popup & tray service (GTK4, X11/Wayland)
 Package: unim-gnome
 Architecture: all
 Depends: unim-common (= ${source:Version}),
-         unim-gui-gtk (= ${source:Version}),
+         unim-gui (= ${source:Version}),
          ${misc:Depends},
          gnome-shell
 Description: UNIM Korean IME — GNOME Shell extension
@@ -156,7 +157,7 @@ Description: UNIM Korean IME — GNOME Shell extension
  (Push model via D-Bus signal, avoids Wayland popup-surface
  limitations on Mutter).
  .
- Requires GNOME Shell. Pulls in unim-gui-gtk automatically because
+ Requires GNOME Shell. Pulls in unim-gui automatically because
  the extension exposes a "preferences" entry point that launches
  the GTK settings dialog.
 
@@ -167,7 +168,7 @@ Depends: unim-common (= ${source:Version}),
          unim-im-qt (= ${source:Version}),
          unim-xim (= ${source:Version}),
          unim-wayland (= ${source:Version}),
-         unim-gui-gtk (= ${source:Version}),
+         unim-gui (= ${source:Version}),
          unim-popup-service (= ${source:Version}),
          unim-gnome (= ${source:Version}),
          ${misc:Depends}

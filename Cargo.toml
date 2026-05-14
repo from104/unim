@@ -40,7 +40,7 @@ members = [
     "unim-frontends/wayland",
     "unim-daemon",
     "unim-gui-common",
-    "unim-gui-gtk",
+    "unim-gui",
     "unim-popup-service",
     "unim-dbus",
     "unim-windows",

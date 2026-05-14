@@ -5195,6 +5195,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "unim-gui"
+version = "0.3.0"
+dependencies = [
+ "dirs 5.0.1",
+ "gtk4",
+ "ksni",
+ "libadwaita",
+ "rust-i18n",
+ "serde_yaml",
+ "tokio",
+ "unim",
+ "unim-dbus",
+ "unim-gui-common",
+ "zbus 4.4.0",
+]
+
+[[package]]
 name = "unim-gui-common"
 version = "0.3.0"
 dependencies = [
@@ -5206,20 +5223,6 @@ dependencies = [
  "unim",
  "unim-dbus",
  "zbus 4.4.0",
-]
-
-[[package]]
-name = "unim-gui-gtk"
-version = "0.3.0"
-dependencies = [
- "dirs 5.0.1",
- "gtk4",
- "libadwaita",
- "rust-i18n",
- "serde_yaml",
- "unim",
- "unim-dbus",
- "unim-gui-common",
 ]
 
 [[package]]

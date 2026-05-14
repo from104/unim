@@ -1,6 +1,7 @@
-//! UNIM popup service — standalone process.
+//! UNIM popup service — standalone GTK4 popup 전용 프로세스.
 //!
-//! 책임: daemon DBus signal → popup ViewModel → GTK4 popup window + 트레이.
+//! 책임: daemon DBus signal → popup ViewModel → GTK4 popup window.
+//! 트레이/설정 GUI는 `unim-gui`가 담당. 본 service는 popup만 다룬다.
 //! X11/Wayland 환경 자동 검출 후 적절한 backend 사용.
 
 #![allow(dead_code)]
@@ -15,10 +16,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use unim::unim_log;
-
 use unim_gui_common::dbus_client;
-use unim_gui_common::tray::TrayController;
-use unim_gui_common::types::{GuiAction, IndicatorState, SETTINGS_TX};
+use unim_gui_common::types::{GuiAction, IndicatorState};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -34,7 +33,6 @@ fn detect_locale() -> &'static str {
 }
 
 fn main() {
-    // 단일 인스턴스 검증 — 다른 인스턴스가 lock을 잡고 있으면 즉시 종료.
     let _lock = match single_instance::acquire() {
         Some(f) => f,
         None => {
@@ -53,37 +51,22 @@ fn main() {
         backend_kind
     );
 
-    // 상태 초기화
+    // 상태 — popup 처리에만 사용 (TrayController 없음)
     let state = Arc::new(RwLock::new(IndicatorState::default()));
 
-    // 채널들
+    // popup channel — DBus watcher → GTK 메인 루프
     let (popup_tx, popup_rx) = mpsc::channel::<GuiAction>();
     let popup_rx = Arc::new(Mutex::new(popup_rx));
 
-    // 트레이 메뉴 "설정" 에서 open_settings() 호출 시 GTK 이벤트 루프로 전달
-    if let Ok(mut tx) = SETTINGS_TX.lock() {
-        *tx = Some(popup_tx.clone());
-    }
+    // dbus_action 채널은 트레이용이지만 popup-service에서는 사용 안 함 (idle)
+    let (_dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(1);
 
-    // 트레이 → DBus watcher: SetGlobalMode 액션 채널 (tokio mpsc, async 수신)
-    let (dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(16);
+    // 더미 tray_update 채널 (controller가 None이므로 어떤 알림도 발행 안 됨)
+    let (tray_update_tx, _tray_update_rx) = std::sync::mpsc::channel::<()>();
 
-    // TrayController 생성 (Arc로 dbus watcher와 공유)
-    let controller = Arc::new(TrayController::new(
-        state.clone(),
-        popup_tx.clone(),
-        dbus_action_tx,
-    ));
-
-    // 트레이 업데이트 채널 (DBus -> TrayController)
-    let (tray_update_tx, tray_update_rx) = std::sync::mpsc::channel::<()>();
-    TrayController::run_update_loop(controller.clone(), tray_update_rx);
-
-    // DBus 시그널 감시 스레드 (ksni와 완전 분리)
+    // DBus 시그널 감시 스레드 — controller=None으로 트레이 미시작
     let dbus_state = state.clone();
     let dbus_popup_tx = popup_tx.clone();
-    let dbus_controller = controller.clone();
-
     thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -91,37 +74,20 @@ fn main() {
         {
             Ok(rt) => rt,
             Err(e) => {
-                unim_log!("INDICATOR", "tokio 런타임 생성 실패: {}", e);
+                unim_log!("INDICATOR", "tokio 런타임 실패: {}", e);
                 return;
             }
         };
-
         rt.block_on(async {
             let connection = zbus::Connection::session().await;
             if let Ok(ref conn) = connection {
-                // popup-service 자기 자신 등록
                 if let Ok(proxy) = unim_dbus::client::InputMethodProxy::new(conn).await {
                     if let Err(e) = proxy.register_frontend("popup-service").await {
-                        unim_log!("INDICATOR", "[RegisterFrontend] 등록 실패 (무시): {}", e);
+                        unim_log!("INDICATOR", "[RegisterFrontend] 실패: {}", e);
                     } else {
                         unim_log!("INDICATOR", "[RegisterFrontend] popup-service 등록됨");
                     }
-                    let frontends = dbus_client::fetch_active_frontends(conn).await;
-                    let has_gnome = frontends.iter().any(|n| n == "gnome-shell");
-                    unim_log!(
-                        "INDICATOR",
-                        "[ActiveFrontends] 초기값: {:?}, gnome-shell={}",
-                        frontends,
-                        has_gnome
-                    );
-                    if !has_gnome {
-                        dbus_controller.spawn_start();
-                    }
-                } else {
-                    dbus_controller.spawn_start();
                 }
-            } else {
-                dbus_controller.spawn_start();
             }
 
             dbus_client::watch_dbus_signals(
@@ -129,7 +95,7 @@ fn main() {
                 tray_update_tx,
                 dbus_popup_tx,
                 dbus_action_rx,
-                dbus_controller,
+                None, // 트레이는 unim-gui가 담당
             )
             .await;
         });

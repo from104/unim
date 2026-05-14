@@ -1,8 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# unim-gui-gtk — Settings GUI 전용 (GTK4/libadwaita)
-# popup·tray는 unim-popup-service로 이관됨
+# unim-gui — GTK4/libadwaita 트레이 + 설정 다이얼로그
+# popup(한자/특수문자/이모지)은 unim-popup-service로 분리됨
 # ─────────────────────────────────────────────────────────────────────────────
 
-debian/tmp/usr/bin/unim-gui-gtk
-debian/tmp/usr/share/applications/unim-gui-gtk.desktop
-debian/tmp/usr/share/man/man1/unim-gui-gtk.1
+debian/tmp/usr/bin/unim-gui
+debian/tmp/etc/xdg/autostart/unim-gui.desktop
+debian/tmp/usr/share/applications/unim-gui.desktop
+debian/tmp/usr/share/man/man1/unim-gui.1
