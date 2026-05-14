@@ -1,8 +1,8 @@
 [Desktop Entry]
 Name=UNIM Popup Service
 Name[ko]=UNIM 팝업 서비스
-Comment=Korean Input Method popup & tray service
-Comment[ko]=한글 입력기 팝업·트레이 서비스
+Comment=Korean Input Method popup service (hanja / special-char / emoji)
+Comment[ko]=한글 입력기 팝업 서비스 (한자 / 특수문자 / 이모지)
 Exec=unim-popup-service
 Icon=unim-korean
 Terminal=false
@@ -14,4 +14,3 @@ X-GNOME-AutoRestart=true
 X-GNOME-UsesNotifications=true
 StartupNotify=false
 NoDisplay=true
-NotShowIn=GNOME;

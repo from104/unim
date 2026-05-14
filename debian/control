@@ -163,18 +163,18 @@ Package: unim-gnome
 Architecture: all
 Depends: unim-common (= ${source:Version}),
          unim-settings (= ${source:Version}),
+         unim-popup-service (= ${source:Version}),
          ${misc:Depends},
          gnome-shell
 Description: UNIM Korean IME — GNOME Shell extension
  Native GNOME Shell extension for the UNIM Korean Input Method
  Engine. Adds a top-panel indicator, hotkey management, per-app
- input-mode rules, and in-shell hanja / special-character popup
- (Push model via D-Bus signal, avoids Wayland popup-surface
- limitations on Mutter).
+ input-mode rules, and virtual keyboard / preedit overlay on
+ Wayland (Mutter).
  .
- Requires GNOME Shell. Pulls in unim-settings automatically because
- the extension's "preferences" entry point launches the GTK
- settings dialog (`unim-settings`).
+ Hanja / special-character / emoji popups are rendered by the
+ companion `unim-popup-service` (GTK4) so that all desktops share
+ a single popup implementation. Settings UI is `unim-settings`.
 
 Package: unim
 Architecture: all

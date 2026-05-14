@@ -19,9 +19,9 @@ import { UnimDbusIME } from './dbus_ime.js';
 import { UnimInputMethod } from './unim_input_method.js';
 import { KeyHandler } from './key_handler.js';
 import { PreeditOverlay } from './preedit_overlay.js';
-import { HanjaPopup } from './hanja_popup.js';
-import { SpecialPopup } from './special_popup.js';
-import { EmojiPopup } from './emoji_popup.js';
+// 한자/특수문자/이모지 popup 은 unim-popup-service (GTK4) 가 전담.
+// GNOME extension 은 popup show signal 시 emoji ZWSP preedit 만 관리하고
+// commit/cancel 결과는 daemon CommitText 시그널로 InputMethod 에 반영된다.
 import { unimLog, unimError } from './logging.js';
 
 export default class UnimExtension extends Extension {
@@ -37,9 +37,10 @@ export default class UnimExtension extends Extension {
         this._inputMethod = null;
         this._keyHandler = null;
         this._preeditOverlay = null;
-        this._hanjaPopup = null;
-        this._specialPopup = null;
-        this._emojiPopup = null;
+        // emoji popup 활성 여부 — ShowEmojiPopupV2 / HidePopup 시그널로 추적.
+        // popup 자체는 unim-popup-service 가 표시. extension 은 ZWSP preedit 으로
+        // wayland text-input v3 IM 세션을 engage 시켜 commitText 가 휘발하지 않도록 한다.
+        this._emojiPopupActive = false;
 
         this._focusWindowId = 0;
 
@@ -175,202 +176,22 @@ export default class UnimExtension extends Extension {
             this._preeditOverlay = new PreeditOverlay();
             this._preeditOverlay.enable();
 
-            // 6. 한자/특수문자/이모지 팝업 초기화
-            this._hanjaPopup = new HanjaPopup();
-            this._hanjaPopup.enable();
-            this._specialPopup = new SpecialPopup();
-            this._specialPopup.enable();
-            this._emojiPopup = new EmojiPopup();
-            this._emojiPopup.enable();
-
-            // DBus 팝업 시그널 콜백 등록
+            // 한자/특수문자/이모지 popup 표시는 unim-popup-service (GTK4) 가 전담.
+            // GNOME extension 은 emoji popup 활성 시 ZWSP preedit 으로 wayland text-input v3
+            // IM 세션을 engage 시켜 daemon CommitText 시그널의 commitText 가 휘발하지 않게
+            // 보장만 담당한다. 한자/특수는 preedit 활성 상태에서 트리거되므로 IM 이 이미 engage.
             this._dbusIME.setPopupCallbacks({
-                onShowHanja: (target, candidates, topRow, cursorRect) => {
-                    // 팝업 표시 전에 즐겨찾기 상태 조회 (엔진이 candidates와 동일 순서로 반환)
-                    const bookmarks = this._dbusIME.getHanjaBookmarkStates();
-                    this._hanjaPopup.show(
-                        target, candidates, topRow,
-                        (globalIdx) => {
-                            // 선택 콜백: SelectHanja → 한자 반환 → 커밋
-                            unimLog('HANJA', `선택 콜백: globalIdx=${globalIdx}, _hasFocus=${this._inputMethod?._hasFocus}`);
-                            const hanja = this._dbusIME.selectHanja(globalIdx);
-                            unimLog('HANJA', `selectHanja 반환: '${hanja}', _hasFocus=${this._inputMethod?._hasFocus}`);
-                            if (hanja && this._inputMethod) {
-                                // preedit 클리어 후 한자 커밋
-                                this._inputMethod.updatePreedit('');
-                                this._inputMethod.commitText(hanja);
-                            }
-                        },
-                        () => {
-                            // 취소 콜백 (마우스 클릭 취소용)
-                            const commit = this._dbusIME.cancelHanja();
-                            if (commit && this._inputMethod) {
-                                this._inputMethod.commitText(commit);
-                                this._inputMethod.updatePreedit('');
-                            }
-                        },
-                        cursorRect,
-                        bookmarks,
-                        (globalIdx) => {
-                            // 우클릭: 즐겨찾기 토글
-                            this._dbusIME.toggleHanjaBookmark(globalIdx);
-                        },
-                        () => {
-                            // 확장 아이콘 클릭 → TogglePopupExpand RPC.
-                            // Period 키 (processKey) 는 호출 context 에만 적용되어
-                            // popup-owner 가 다른 context (앱) 일 때 적용 안 되는 회귀가
-                            // 있어 popup-owner 라우팅 전용 RPC 로 전환.
-                            this._dbusIME.togglePopupExpand();
-                        },
-                        (direction) => {
-                            // 페이지 ◀/▶ 클릭: PopupChangePage RPC.
-                            // 데몬이 PopupNavigate 시그널을 재발행 → updateFromNavigate 가 layout 갱신.
-                            this._dbusIME.popupChangePage(direction);
-                        }
-                    );
-                },
-                onShowSpecial: (target, characters, topRow, cursorRect) => {
-                    this._specialPopup.show(
-                        target, characters, topRow,
-                        (globalIdx) => {
-                            // 선택 콜백: SelectSpecialChar → 특수문자 반환 → 커밋
-                            unimLog('SPECIAL', `선택 콜백: globalIdx=${globalIdx}, _hasFocus=${this._inputMethod?._hasFocus}`);
-                            const ch = this._dbusIME.selectSpecialChar(globalIdx);
-                            unimLog('SPECIAL', `selectSpecialChar 반환: '${ch}', _hasFocus=${this._inputMethod?._hasFocus}`);
-                            if (ch && this._inputMethod) {
-                                this._inputMethod.updatePreedit('');
-                                this._inputMethod.commitText(ch);
-                            }
-                        },
-                        () => {
-                            // 취소 콜백 (마우스 클릭 취소용)
-                            const commit = this._dbusIME.cancelSpecialChar();
-                            if (commit && this._inputMethod) {
-                                this._inputMethod.commitText(commit);
-                                this._inputMethod.updatePreedit('');
-                            }
-                        },
-                        cursorRect,
-                        (direction) => {
-                            // 페이지 ◀/▶ 클릭: PopupChangePage RPC.
-                            this._dbusIME.popupChangePage(direction);
-                        }
-                    );
-                },
-                onShowEmoji: (targetCatId, items, topRow, recent, categoriesRaw, cursorRect, homeRow) => {
-                    // emoji popup 은 idle 트리거 (preedit 없음) → mutter 가 wayland
-                    // text-input v3 를 enable 하지 않아 commitText 가 휘발한다.
-                    // popup 활성 동안 ZWSP (U+200B) preedit 을 유지해 IM engage 강제 —
-                    // 한자/특수처럼 preedit 활성 상태에서 commit 이 가능하게 만든다.
+                onShowEmoji: () => {
+                    this._emojiPopupActive = true;
                     if (this._inputMethod) {
                         this._inputMethod.updatePreedit('​'); // ZWSP — invisible
                     }
-                    // 다른 팝업 먼저 닫기
-                    this._hanjaPopup?.hide();
-                    this._specialPopup?.hide();
-                    // PR #3: 모달 grab/검색/sync RPC 모두 제거. V2 시그널 payload 만으로 즉시 그림.
-                    // 카테고리 전환 시 데몬이 V2 시그널을 재발행하므로 동일 호출 path 로 재구성.
-                    this._emojiPopup?.show(
-                        targetCatId,
-                        items,
-                        topRow,
-                        recent,
-                        categoriesRaw,
-                        (emoji) => {
-                            // 한자/특수와 동일 패턴 — Clutter.InputMethod 직접 commit.
-                            // ZWSP preedit 으로 IM 이 engage 된 상태이므로 클리어 + commit
-                            // 이 atomic batch 로 wayland text-input v3 commit_string 도달.
-                            // commitEmoji RPC 는 popup state cleanup + MRU 갱신용 보조.
-                            if (this._inputMethod) {
-                                this._inputMethod.updatePreedit('');
-                                this._inputMethod.commitText(emoji);
-                            }
-                            this._dbusIME?.commitEmoji(emoji);
-                        },
-                        cursorRect,
-                        // 좌측 탭 마우스 클릭 → SetEmojiCategory RPC. 데몬이 popup_state 갱신 후
-                        // ShowEmojiPopupV2 를 재발행하므로 본 onShowEmoji 가 다시 호출되어 재구성.
-                        (idx) => this._dbusIME?.setEmojiCategory(idx),
-                        // ◀/▶ 풋터 클릭 → PopupChangePage RPC.
-                        (direction) => this._dbusIME?.popupChangePage(direction),
-                        homeRow || '',
-                        // popup 키 (Esc/화살표/Home/End/PgUp/PgDn/Tab/Letter 등) → processKey RPC.
-                        // emoji popup 은 idle 트리거라 IM 세션이 engage 되지 않아 navigation/edit
-                        // 키들이 IM filter_key_event 를 거치지 않는다 (Wayland text-input v3
-                        // spec). stage 캡처에서 직접 RPC 호출 + 반환된 commit 을 IM 으로 적용.
-                        (keyval, keycode, state) => {
-                            if (!this._dbusIME?.isConnected) return;
-                            const result = this._dbusIME.processKey(keyval, keycode, state);
-                            if (!result) return;
-                            const { commit, preedit } = result;
-                            if (commit && commit.length > 0) {
-                                this._inputMethod?.commitText(commit);
-                            }
-                            if (typeof preedit === 'string') {
-                                this._inputMethod?.updatePreedit(preedit);
-                            }
-                        }
-                    );
                 },
                 onHidePopup: () => {
-                    // emoji popup 활성이었다면 onShowEmoji 의 ZWSP preedit 잔재 클리어 —
-                    // commit 으로 닫힌 케이스(콜백에서 이미 클리어 + commit) 와 dismiss
-                    // 케이스(엔진 cancel/취소) 모두 안전하게 처리.
-                    const wasEmojiVisible = this._emojiPopup?.isVisible;
-                    this._hanjaPopup?.hide();
-                    this._specialPopup?.hide();
-                    // PR #3: emoji popup 도 엔진 dismiss 시 닫힌다 (모달 grab 이 없어
-                    // focus_out 자동 broadcast 가 더 이상 발생하지 않음).
-                    this._emojiPopup?.hide();
-                    if (wasEmojiVisible && this._inputMethod) {
+                    if (this._emojiPopupActive && this._inputMethod) {
                         this._inputMethod.updatePreedit('');
                     }
-                },
-                onPopupNavigate: (page, totalPages, selected, rows, cols, selRow, selCol) => {
-                    if (this._hanjaPopup?.isVisible) {
-                        // 한자 팝업: 9x9 확장 모드를 위해 rows/cols/selRow/selCol을 모두 전달
-                        // (Period 키로 토글되는 expanded 그리드는 cols>1을 신호로 활성화됨)
-                        this._hanjaPopup.updateFromNavigate(
-                            page, totalPages, selected, rows, cols, selRow, selCol);
-                    }
-                    if (this._specialPopup?.isVisible) {
-                        this._specialPopup.updateFromNavigate(page, totalPages, rows, cols, selRow, selCol);
-                    }
-                    if (this._emojiPopup?.isVisible) {
-                        this._emojiPopup.updateFromNavigate(
-                            page, totalPages, rows, cols, selRow, selCol);
-                    }
-                },
-                onPopupRender: (state) => {
-                    // 통합 view_model — daemon SoT. 헤더/푸터/탭 라벨/확장 아이콘 등 미리 포맷된
-                    // 문자열을 그대로 적용. 각 popup 의 updateFromRender 가 본 state 를 일괄 반영.
-                    if (this._hanjaPopup?.isVisible && state.kind === 0) {
-                        this._hanjaPopup.updateFromRender?.(state);
-                    } else if (this._specialPopup?.isVisible && state.kind === 1) {
-                        this._specialPopup.updateFromRender?.(state);
-                    } else if (this._emojiPopup?.isVisible && state.kind === 2) {
-                        this._emojiPopup.updateFromRender?.(state);
-                    }
-                },
-                onHanjaBookmarkChanged: (index, bookmarked) => {
-                    if (this._hanjaPopup?.isVisible) {
-                        this._hanjaPopup.setBookmark(index, bookmarked);
-                    }
-                },
-                onHanjaCandidatesReordered: (target, hanjas, meanings, bookmarks, _newCursor, page, selRow, selCol, bookmarked, wasBookmarked) => {
-                    if (!this._hanjaPopup?.isVisible) return;
-                    const candidates = hanjas.map((h, i) => ({
-                        hanja: h,
-                        meaning: i < meanings.length ? meanings[i] : '',
-                    }));
-                    this._hanjaPopup.setCandidates(candidates, bookmarks, page, selRow, selCol);
-                    // 즐겨찾기 ★ 해제 (was=true → bookmarked=false) 시 cursor 셀에 yellow flash.
-                    // 점프 사실을 사용자가 인지하도록 시각 신호. ★ 등록(false→true)은 promote 자체가
-                    // 시각적으로 충분하므로 flash 생략.
-                    if (wasBookmarked === true && bookmarked === false) {
-                        this._hanjaPopup.flashCursorCell?.();
-                    }
-                    unimLog('HANJA', `재정렬 적용: target='${target}', count=${candidates.length}, page=${page}, sel=(${selRow},${selCol}), was=${wasBookmarked}, now=${bookmarked}`);
+                    this._emojiPopupActive = false;
                 },
                 onCommitText: (text) => {
                     // chord idle flush 등 비동기 commit 경로. daemon 이 InputContext path 로
@@ -481,22 +302,11 @@ export default class UnimExtension extends Extension {
             this._preeditOverlay = null;
         }
 
-        // 팝업 정리
-        if (this._hanjaPopup) {
-            this._hanjaPopup.hide();
-            this._hanjaPopup.disable();
-            this._hanjaPopup = null;
+        // 팝업은 unim-popup-service 가 자체 dismiss. extension 은 ZWSP preedit 잔재만 정리.
+        if (this._emojiPopupActive && this._inputMethod) {
+            this._inputMethod.updatePreedit('');
         }
-        if (this._specialPopup) {
-            this._specialPopup.hide();
-            this._specialPopup.disable();
-            this._specialPopup = null;
-        }
-        if (this._emojiPopup) {
-            this._emojiPopup.hide();
-            this._emojiPopup.disable();
-            this._emojiPopup = null;
-        }
+        this._emojiPopupActive = false;
 
         // (DBus 연결 자체는 disable()이 정리 — IME 토글 시 유지하여 emoji 단축키 보존)
 
@@ -518,16 +328,9 @@ export default class UnimExtension extends Extension {
     _onFocusWindowChanged() {
         const focusWindow = global.display.focus_window;
 
-        // 팝업이 열려있고 포커스가 null(Chrome 위젯 클릭 등)이면
-        // 마우스 클릭 이벤트가 먼저 처리되도록 지연
-        const popupVisible = this._hanjaPopup?.isVisible
-            || this._specialPopup?.isVisible
-            || this._emojiPopup?.isVisible;
-        if (popupVisible && !focusWindow) {
-            return; // Chrome 위젯 클릭 — 팝업 유지, 클릭 핸들러에 맡김
-        }
-
-        // 실제 창 전환 시 팝업 닫기 + 엔진 모드 취소
+        // popup-service 가 자체 outside-click dismiss 처리. focus null 케이스도 popup-service
+        // 가 GTK4 grab 으로 직접 캡처하므로 GNOME extension 은 별도 분기 불필요.
+        // 실제 창 전환 시 ZWSP preedit 잔재만 정리.
         this._cleanupPopups();
 
         if (!focusWindow) {
@@ -559,32 +362,15 @@ export default class UnimExtension extends Extension {
     }
 
     /**
-     * 열려있는 한자/특수문자 팝업 정리
+     * popup-service 가 popup 렌더·dismiss 를 전담. extension 은 emoji ZWSP preedit
+     * 잔재만 정리한다. 한자/특수 cancel RPC 는 popup-service 가 직접 호출하므로 여기선 생략.
      * @private
      */
     _cleanupPopups() {
-        if (this._hanjaPopup?.isVisible) {
-            this._hanjaPopup.hide();
-            const trigger = this._dbusIME?.cancelHanja();
-            if (trigger && this._inputMethod) {
-                this._inputMethod.commitText(trigger);
-            }
+        if (this._emojiPopupActive && this._inputMethod) {
+            this._inputMethod.updatePreedit('');
         }
-        if (this._specialPopup?.isVisible) {
-            this._specialPopup.hide();
-            const trigger = this._dbusIME?.cancelSpecialChar();
-            if (trigger && this._inputMethod) {
-                this._inputMethod.commitText(trigger);
-            }
-        }
-        // 이모지 팝업은 엔진 상태가 없으므로 그냥 숨김만 수행 + ZWSP preedit 잔재 클리어.
-        if (this._emojiPopup?.isVisible) {
-            this._emojiPopup.hide();
-            if (this._inputMethod) {
-                this._inputMethod.updatePreedit('');
-            }
-        }
-        // 팝업 키 핸들러는 더 이상 사용하지 않음 (ProcessKeyEvent 경로로 통일)
+        this._emojiPopupActive = false;
     }
 
     /**
