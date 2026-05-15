@@ -40,6 +40,8 @@ wayland-protocols-misc = { version = "0.3", features = ["client"], optional = tr
 # Async runtime for DBus
 tokio = { version = "1", features = ["rt", "sync"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
+# zbus MessageStream::next() 를 위해 StreamExt 필요 (Phase 2 signal re-emit forward).
+futures-util = "0.3"
 
 # i18n
 rust-i18n = "3"

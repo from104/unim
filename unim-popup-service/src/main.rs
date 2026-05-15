@@ -109,6 +109,13 @@ fn main() {
                     Ok(_) => unim_log!("INDICATOR", "[Popup] bus name org.atit.unim.PopupService 획득"),
                     Err(e) => unim_log!("INDICATOR", "[Popup] bus name 획득 실패: {}", e),
                 }
+
+                // Phase 2: daemon InputContext popup signal → PopupServer signal 재발행.
+                // 별도 task 로 분리하여 watch_dbus_signals(GTK popup window 트리거) 와 병렬 처리.
+                let conn_for_forward = conn.clone();
+                tokio::spawn(async move {
+                    dbus_server::forward_daemon_popup_signals(conn_for_forward).await;
+                });
             }
 
             dbus_client::watch_dbus_signals(
