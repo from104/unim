@@ -672,6 +672,9 @@ impl InputMethodService {
 
     /// 이모지 최근 사용(MRU) 조회 (PR #1 신규 RPC).
     ///
+    /// **internal-only**: 외부 frontend 는 popup-service `org.atit.unim.Popup`
+    /// interface 의 `GetEmojiRecent` 를 호출. 본 method 는 popup-service forward 전용.
+    ///
     /// `~/.config/unim/emoji-recent.yaml` 에서 사용자별 MRU (최대 81개) 를 읽어
     /// 반환한다. 일반적으로는 `ShowEmojiPopupV2` 시그널의 `recent` payload 가
     /// frontend 에 푸시되므로 이 RPC 를 호출할 필요가 없지만, GUI 가 명시적
@@ -1187,8 +1190,8 @@ impl InputMethodService {
         Ok(())
     }
 
-    /// 이모지 팝업 카테고리 변경 — GNOME extension 등 GUI 가 마우스 클릭으로
-    /// 좌측 탭을 직접 전환할 때 호출하는 RPC.
+    /// 이모지 팝업 카테고리 변경 — **internal-only** (popup-service forward 전용).
+    /// 외부 frontend 는 popup-service `org.atit.unim.Popup::SetEmojiCategory` 호출.
     ///
     /// 동작:
     /// 1. 워커에 `SetEmojiCategory { idx }` 보내 마지막 포커스 컨텍스트의 popup_state
@@ -1296,7 +1299,8 @@ impl InputMethodService {
         Ok(())
     }
 
-    /// 글로벌 이모지 커밋 — InputContext 비보유 클라이언트(GNOME extension의 emoji 팝업)용.
+    /// 글로벌 이모지 커밋 — **internal-only** (popup-service forward 전용).
+    /// 외부 frontend 는 popup-service `org.atit.unim.Popup::CommitEmoji` 호출.
     ///
     /// GNOME extension은 자체 InputContext를 가지나, GTK4_IM_MODULE=unim 환경에서는
     /// extension의 context로 commit하면 GTK4_IM 모듈을 우회하여 사용자 앱에 도달하지 못한다.
@@ -2150,8 +2154,20 @@ impl InputContextHandler {
     async fn commit_text(signal_ctx: &SignalContext<'_>, text: &str) -> zbus::Result<()>;
 
     // =========================================
-    // 팝업 관련 시그널 (unim-gui-gtk/unim-gui-qt가 구독)
+    // 팝업 관련 시그널 — **internal-only** (popup-service forwarding 전용)
     // =========================================
+    //
+    // 외부 frontend(GNOME extension / popup-service GTK4 popup window) 는 본
+    // `org.atit.unim.InputContext` 인터페이스의 popup signal 을 직접 구독하지
+    // 않는다. popup-service 의 `org.atit.unim.Popup` interface (path
+    // `/org/atit/unim/popup`) 가 단일 SoT 로 popup signal 을 발행한다.
+    //
+    // daemon 측 popup signal 은 popup-service 의 forward_daemon_popup_signals
+    // task 가 구독하여 `org.atit.unim.Popup` signal 로 1:1 재발행하는 internal
+    // 통신 표면으로만 사용된다. 직접 구독은 deprecated — popup-service Popup
+    // interface 를 사용할 것.
+    //
+    // 참고: docs/architecture/dbus-popup-migration-plan.md Phase 2 (signal re-emit).
 
     /// 한자 팝업 표시 시그널
     ///
@@ -2500,8 +2516,20 @@ impl InputContextHandler {
     ) -> zbus::Result<()>;
 
     // =========================================
-    // 한자 변환 관련 메서드
+    // 한자 / 특수문자 / 이모지 popup 관련 메서드 — **internal-only**
     // =========================================
+    //
+    // 외부 frontend 는 본 `org.atit.unim.InputContext` 인터페이스의 popup method
+    // (GetHanjaCandidates / SelectHanja / GetHanjaBookmarkStates /
+    // ToggleHanjaBookmark / PopupChangePage / TogglePopupExpand / CancelHanja /
+    // GetSpecialCharCandidates / SelectSpecialChar / CancelSpecialChar) 를
+    // 직접 호출하지 않는다.
+    //
+    // popup-service 의 `org.atit.unim.Popup` interface 가 단일 외부 표면이며,
+    // 본 method 들은 popup-service `PopupServer` 가 popup-owner context 에
+    // forward 하는 internal-only 호출 표면으로만 사용된다.
+    //
+    // 참고: docs/architecture/dbus-popup-migration-plan.md Phase 3 (method forward).
 
     /// 한자 후보 목록 조회
     /// 반환값: (변환 대상, [(한자, 뜻풀이), ...])
