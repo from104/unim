@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 mod backend;
+mod dbus_server;
 mod gtk_ui;
 mod popup;
 mod single_instance;
@@ -87,6 +88,26 @@ fn main() {
                     } else {
                         unim_log!("INDICATOR", "[RegisterFrontend] popup-service 등록됨");
                     }
+                }
+
+                // org.atit.unim.Popup interface 노출 — Phase 1 skeleton (Phase 2/3 에서
+                // signal re-emit + method forward 구현). 외부 frontend(GNOME ext) 가 popup
+                // 전반을 본 서비스에 의존하도록 단일 SoT.
+                let popup_server = dbus_server::PopupServer::new();
+                match conn
+                    .object_server()
+                    .at("/org/atit/unim/popup", popup_server)
+                    .await
+                {
+                    Ok(_) => unim_log!("INDICATOR", "[Popup] /org/atit/unim/popup 등록됨"),
+                    Err(e) => unim_log!("INDICATOR", "[Popup] object 등록 실패: {}", e),
+                }
+                match conn
+                    .request_name("org.atit.unim.PopupService")
+                    .await
+                {
+                    Ok(_) => unim_log!("INDICATOR", "[Popup] bus name org.atit.unim.PopupService 획득"),
+                    Err(e) => unim_log!("INDICATOR", "[Popup] bus name 획득 실패: {}", e),
                 }
             }
 
