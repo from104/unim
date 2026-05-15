@@ -58,13 +58,17 @@ endef
 .PHONY: all help build build-rust build-frontends build-tests clean clean-all \
         gen-popup-css gen-popup-css-check \
         _check-build \
-        install install-core install-frontends install-icons install-gui-gtk install-gui-qt \
+        install install-core install-frontends install-icons \
+        install-indicator install-settings install-popup-service \
         install-gnome-extension install-extension install-systemd \
-        uninstall uninstall-core uninstall-frontends uninstall-icons uninstall-gui-gtk uninstall-gui-qt \
+        uninstall uninstall-core uninstall-frontends uninstall-icons \
+        uninstall-indicator uninstall-settings uninstall-popup-service \
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
         deb clean-deb test test-dbus dev-restart \
+        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-core dev-daemon dev-xim dev-wayland \
+        dev-indicator dev-settings dev-popup-service dev-extension \
         check-windows build-windows clean-windows
 
 # ─── Help ────────────────────────────────────────────────────────────────────
@@ -83,7 +87,7 @@ help:
 	@echo "  test-{gtk3,gtk4,qt5,qt6,xim,gnome,wayland,dbus}"
 	@echo "  sandbox-{gtk3,gtk4,qt5,qt6,xim,indicator}"
 	@echo ""
-	@echo "  dev-{gtk3,gtk4,qt5,qt6,core,daemon,xim,wayland,gui-gtk,gui-qt,extension,restart}"
+	@echo "  dev-{gtk3,gtk4,qt5,qt6,core,daemon,xim,wayland,indicator,settings,popup-service,extension,restart}"
 	@echo ""
 	@echo "  check-windows / build-windows / clean-windows  (WIN_TARGET=...)"
 	@echo "  install-gnome-extension / uninstall-gnome-extension / pack"
@@ -120,7 +124,7 @@ build-frontends: build-rust
 
 # ─── Install ─────────────────────────────────────────────────────────────────
 
-install: _check-build install-core install-gui-gtk install-gui-qt install-frontends install-icons install-gnome-extension
+install: _check-build install-core install-indicator install-settings install-popup-service install-frontends install-icons install-gnome-extension
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 
 # 빌드 산출물 존재 여부 확인 (sudo make install 시 빌드를 root로 실행하는 것을 방지)

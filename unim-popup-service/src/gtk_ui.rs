@@ -25,7 +25,8 @@ use crate::popup::special::SpecialPopup;
 /// GTK4/libadwaita 앱 실행
 pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Receiver<GuiAction>>>) {
     let app = adw::Application::builder()
-        .application_id("io.github.from104.unim.gui")
+        .application_id("io.github.from104.unim.popup")
+        .flags(gtk4::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 
     app.connect_activate(move |app| {
