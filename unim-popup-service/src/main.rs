@@ -90,10 +90,9 @@ fn main() {
                     }
                 }
 
-                // org.atit.unim.Popup interface 노출 — Phase 1 skeleton (Phase 2/3 에서
-                // signal re-emit + method forward 구현). 외부 frontend(GNOME ext) 가 popup
-                // 전반을 본 서비스에 의존하도록 단일 SoT.
-                let popup_server = dbus_server::PopupServer::new();
+                // org.atit.unim.Popup interface 노출 — Phase 3 method forward 구현.
+                // 외부 frontend(GNOME ext) 가 popup 전반을 본 서비스에 의존하도록 단일 SoT.
+                let popup_server = dbus_server::PopupServer::new(conn.clone());
                 match conn
                     .object_server()
                     .at("/org/atit/unim/popup", popup_server)

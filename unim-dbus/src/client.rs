@@ -69,6 +69,9 @@ trait InputMethod {
     /// idx 가 범위 밖이거나 emoji popup 이 활성화되지 않으면 no-op.
     fn set_emoji_category(&self, idx: u32) -> Result<()>;
 
+    /// 이모지 MRU(Recent) 목록 조회 — popup-service Popup interface forward 용.
+    fn get_emoji_recent(&self) -> Result<Vec<String>>;
+
     /// 프런트엔드 등록 (멱등; 이미 등록된 이름 재호출은 no-op)
     fn register_frontend(&self, name: &str) -> Result<()>;
 
@@ -144,6 +147,12 @@ trait InputContext {
 
     /// 한자 모드 취소 - 반환: 커밋된 트리거 문자
     fn cancel_hanja(&self) -> Result<String>;
+
+    /// 한자 popup compact↔expanded 모드 토글 — popup-service Popup interface forward 용.
+    ///
+    /// 호출 컨텍스트와 popup-owner 컨텍스트가 다를 수 있어 daemon 측에서
+    /// `resolve_popup_owner` 로 라우팅 보정한다.
+    fn toggle_popup_expand(&self) -> Result<()>;
 
     /// 특수문자 후보 조회 - 반환: (target, characters, top_row)
     fn get_special_char_candidates(&self) -> Result<(String, Vec<String>, String)>;

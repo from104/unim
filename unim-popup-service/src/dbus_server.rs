@@ -15,41 +15,63 @@
 //! Phase 2 : daemon InputContext signal 구독 → 본 인터페이스 signal 재발행.
 //! Phase 3 : method body 를 daemon InputContext popup method forward 로 구현.
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use zbus::{interface, Connection, SignalContext};
 
 use unim::unim_log;
 use unim_dbus::client::{InputContextProxy, InputMethodProxy};
+use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
 
 /// `org.atit.unim.Popup` 가 노출되는 단일 path. PopupServer 객체 위치.
 pub const POPUP_OBJECT_PATH: &str = "/org/atit/unim/popup";
 
 /// `org.atit.unim.Popup` interface 서버.
 ///
-/// daemon InputContextProxy 핸들을 보유하여 Phase 3 에서 method 호출을 daemon 으로
-/// forward 한다. Phase 1 에선 핸들 보관만 — method body 는 stub.
+/// daemon InputMethod / InputContext popup method 를 매 호출 시 proxy 생성으로
+/// forward 한다. InputContext path 는 `ACTIVE_CONTEXT_PATH` (popup-owner 가
+/// 직전 ShowHanjaPopup 등으로 갱신한 path) 를 사용.
 pub struct PopupServer {
-    /// daemon InputMethodProxy — 글로벌 emoji method (`commit_emoji`,
-    /// `set_emoji_category`, `get_emoji_recent`) forward 용. lazy 로 잡아 둔다.
-    pub im_proxy: Arc<Mutex<Option<InputMethodProxy<'static>>>>,
-    /// 현재 popup-owner InputContext proxy — `unim_gui_common::types::ACTIVE_CONTEXT_PATH`
-    /// 에 따라 동적으로 갱신. Phase 3 에서 method forward 시 사용.
-    pub ic_proxy: Arc<Mutex<Option<InputContextProxy<'static>>>>,
+    conn: Connection,
 }
 
 impl PopupServer {
-    pub fn new() -> Self {
-        Self {
-            im_proxy: Arc::new(Mutex::new(None)),
-            ic_proxy: Arc::new(Mutex::new(None)),
-        }
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
     }
-}
 
-impl Default for PopupServer {
-    fn default() -> Self {
-        Self::new()
+    /// 현재 popup-owner InputContext path 조회. 없으면 Err.
+    fn active_context_path(&self) -> zbus::fdo::Result<String> {
+        ACTIVE_CONTEXT_PATH
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .ok_or_else(|| {
+                zbus::fdo::Error::Failed(
+                    "active InputContext path 없음 (popup signal 미수신 상태)".into(),
+                )
+            })
+    }
+
+    /// daemon InputContext proxy 동적 생성. popup-owner path 기반.
+    async fn ic_proxy(&self) -> zbus::fdo::Result<InputContextProxy<'static>> {
+        let path = self.active_context_path()?;
+        let owned_path = zbus::zvariant::ObjectPath::try_from(path.clone())
+            .map_err(|e| {
+                zbus::fdo::Error::Failed(format!("ObjectPath 변환 실패 '{}': {}", path, e))
+            })?
+            .into_owned();
+        InputContextProxy::builder(&self.conn)
+            .path(owned_path)
+            .map_err(|e| zbus::fdo::Error::Failed(format!("InputContextProxy path 실패: {}", e)))?
+            .build()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("InputContextProxy build 실패: {}", e)))
+    }
+
+    /// daemon InputMethod proxy 동적 생성. path/service 고정.
+    async fn im_proxy(&self) -> zbus::fdo::Result<InputMethodProxy<'_>> {
+        InputMethodProxy::new(&self.conn)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("InputMethodProxy 실패: {}", e)))
     }
 }
 
@@ -168,86 +190,113 @@ impl PopupServer {
     // Phase 3: daemon InputContext popup method forward 로 교체.
     // =========================================
 
-    /// 한자 후보 목록 조회 — daemon `GetHanjaCandidates` forward (Phase 3).
+    /// 한자 후보 목록 조회 — daemon `GetHanjaCandidates` forward.
+    /// daemon proxy 는 `(target, Vec<(hanja, meaning)>)` 만 반환하므로 `top_row` 는
+    /// 빈 문자열로 채운다 (top_row 는 ShowHanjaPopup 시그널 payload 로 따로 전달됨).
     async fn get_hanja_candidates(
         &self,
     ) -> zbus::fdo::Result<(String, Vec<(String, String)>, String)> {
-        unim_log!("POPUP", "[Popup] GetHanjaCandidates (stub Phase 1)");
-        Ok((String::new(), Vec::new(), String::new()))
+        let proxy = self.ic_proxy().await?;
+        let (target, candidates) = proxy
+            .get_hanja_candidates()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("GetHanjaCandidates forward: {}", e)))?;
+        Ok((target, candidates, String::new()))
     }
 
-    /// 한자 선택 — daemon `SelectHanja` forward.
-    async fn select_hanja(&self, _index: u32) -> zbus::fdo::Result<String> {
-        unim_log!("POPUP", "[Popup] SelectHanja stub idx={}", _index);
-        Ok(String::new())
+    async fn select_hanja(&self, index: u32) -> zbus::fdo::Result<String> {
+        let proxy = self.ic_proxy().await?;
+        proxy
+            .select_hanja(index)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("SelectHanja forward: {}", e)))
     }
 
-    /// 한자 즐겨찾기 상태 조회 — daemon `GetHanjaBookmarkStates` forward.
     async fn get_hanja_bookmark_states(&self) -> zbus::fdo::Result<Vec<bool>> {
-        unim_log!("POPUP", "[Popup] GetHanjaBookmarkStates stub");
-        Ok(Vec::new())
+        let proxy = self.ic_proxy().await?;
+        proxy.get_hanja_bookmark_states().await.map_err(|e| {
+            zbus::fdo::Error::Failed(format!("GetHanjaBookmarkStates forward: {}", e))
+        })
     }
 
-    /// 한자 즐겨찾기 토글 — daemon `ToggleHanjaBookmark` forward.
-    async fn toggle_hanja_bookmark(&self, _index: u32) -> zbus::fdo::Result<(u32, bool)> {
-        unim_log!("POPUP", "[Popup] ToggleHanjaBookmark stub idx={}", _index);
-        Ok((0, false))
+    async fn toggle_hanja_bookmark(&self, index: u32) -> zbus::fdo::Result<(u32, bool)> {
+        let proxy = self.ic_proxy().await?;
+        proxy.toggle_hanja_bookmark(index).await.map_err(|e| {
+            zbus::fdo::Error::Failed(format!("ToggleHanjaBookmark forward: {}", e))
+        })
     }
 
-    /// popup 페이지 이동 — daemon `PopupChangePage` forward.
-    async fn popup_change_page(&self, _direction: i32) -> zbus::fdo::Result<()> {
-        unim_log!("POPUP", "[Popup] PopupChangePage stub dir={}", _direction);
-        Ok(())
+    async fn popup_change_page(&self, direction: i32) -> zbus::fdo::Result<()> {
+        let proxy = self.ic_proxy().await?;
+        proxy
+            .popup_change_page(direction)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("PopupChangePage forward: {}", e)))
     }
 
-    /// 한자 popup compact↔expanded 토글 — daemon `TogglePopupExpand` forward.
     async fn toggle_popup_expand(&self) -> zbus::fdo::Result<()> {
-        unim_log!("POPUP", "[Popup] TogglePopupExpand stub");
-        Ok(())
+        let proxy = self.ic_proxy().await?;
+        proxy
+            .toggle_popup_expand()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("TogglePopupExpand forward: {}", e)))
     }
 
-    /// 한자 모드 취소 — daemon `CancelHanja` forward.
     async fn cancel_hanja(&self) -> zbus::fdo::Result<String> {
-        unim_log!("POPUP", "[Popup] CancelHanja stub");
-        Ok(String::new())
+        let proxy = self.ic_proxy().await?;
+        proxy
+            .cancel_hanja()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("CancelHanja forward: {}", e)))
     }
 
-    /// 특수문자 후보 목록 조회 — daemon `GetSpecialCharCandidates` forward.
     async fn get_special_char_candidates(
         &self,
     ) -> zbus::fdo::Result<(String, Vec<String>, String)> {
-        unim_log!("POPUP", "[Popup] GetSpecialCharCandidates stub");
-        Ok((String::new(), Vec::new(), String::new()))
+        let proxy = self.ic_proxy().await?;
+        proxy.get_special_char_candidates().await.map_err(|e| {
+            zbus::fdo::Error::Failed(format!("GetSpecialCharCandidates forward: {}", e))
+        })
     }
 
-    /// 특수문자 선택 — daemon `SelectSpecialChar` forward.
-    async fn select_special_char(&self, _idx: u32) -> zbus::fdo::Result<String> {
-        unim_log!("POPUP", "[Popup] SelectSpecialChar stub idx={}", _idx);
-        Ok(String::new())
+    async fn select_special_char(&self, idx: u32) -> zbus::fdo::Result<String> {
+        let proxy = self.ic_proxy().await?;
+        proxy
+            .select_special_char(idx)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("SelectSpecialChar forward: {}", e)))
     }
 
-    /// 특수문자 모드 취소 — daemon `CancelSpecialChar` forward.
     async fn cancel_special_char(&self) -> zbus::fdo::Result<String> {
-        unim_log!("POPUP", "[Popup] CancelSpecialChar stub");
-        Ok(String::new())
+        let proxy = self.ic_proxy().await?;
+        proxy
+            .cancel_special_char()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("CancelSpecialChar forward: {}", e)))
     }
 
-    /// 이모지 commit — daemon InputMethod `CommitEmoji` forward.
-    async fn commit_emoji(&self, _emoji: &str) -> zbus::fdo::Result<()> {
-        unim_log!("POPUP", "[Popup] CommitEmoji stub '{}'", _emoji);
-        Ok(())
+    async fn commit_emoji(&self, emoji: &str) -> zbus::fdo::Result<()> {
+        let proxy = self.im_proxy().await?;
+        proxy
+            .commit_emoji(emoji)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("CommitEmoji forward: {}", e)))
     }
 
-    /// 이모지 카테고리 전환 — daemon InputMethod `SetEmojiCategory` forward.
-    async fn set_emoji_category(&self, _idx: u32) -> zbus::fdo::Result<()> {
-        unim_log!("POPUP", "[Popup] SetEmojiCategory stub idx={}", _idx);
-        Ok(())
+    async fn set_emoji_category(&self, idx: u32) -> zbus::fdo::Result<()> {
+        let proxy = self.im_proxy().await?;
+        proxy
+            .set_emoji_category(idx)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("SetEmojiCategory forward: {}", e)))
     }
 
-    /// 이모지 MRU 조회 — daemon InputMethod `GetEmojiRecent` forward.
     async fn get_emoji_recent(&self) -> zbus::fdo::Result<Vec<String>> {
-        unim_log!("POPUP", "[Popup] GetEmojiRecent stub");
-        Ok(Vec::new())
+        let proxy = self.im_proxy().await?;
+        proxy
+            .get_emoji_recent()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(format!("GetEmojiRecent forward: {}", e)))
     }
 }
 
