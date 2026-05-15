@@ -9,7 +9,6 @@
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
-import Meta from 'gi://Meta';
 import { unimLog, unimError } from './logging.js';
 
 /** DBus 서비스 상수 */
@@ -17,6 +16,12 @@ const UNIM_BUS_NAME = 'org.atit.unim.InputMethod';
 const UNIM_OBJECT_PATH = '/org/atit/unim/InputMethod';
 const UNIM_IM_INTERFACE = 'org.atit.unim.InputMethod';
 const UNIM_IC_INTERFACE = 'org.atit.unim.InputContext';
+
+// popup-service Popup interface — ShowEmojiPopupV2 / HidePopup signal 구독 대상.
+// daemon InputContext 의 popup signal 표면은 popup-service 가 mediator 로 격리.
+const POPUP_SERVICE_BUS = 'org.atit.unim.PopupService';
+const POPUP_OBJECT_PATH = '/org/atit/unim/popup';
+const POPUP_INTERFACE = 'org.atit.unim.Popup';
 
 /** DBus 호출 타임아웃 (밀리초). 입력 지연을 최소화하기 위해 짧게 설정. */
 const DBUS_TIMEOUT_MS = 500;
@@ -264,32 +269,64 @@ export class UnimDbusIME {
             }
         );
 
-        // 모든 InputContext의 팝업 시그널을 글로벌 구독
-        // Wayland에서만 활성: 다른 프론트엔드(XIM/GTK/Qt)의 팝업을 GNOME extension이 표시
-        // X11에서는 gui-gtk가 팝업을 처리하므로 글로벌 구독 불필요 (중복 팝업 방지)
+        // AutoTypefixApply 글로벌 구독 — 자기 context 의 g-signal proxy 가 introspection
+        // 미등록 signal 을 누락할 수 있어 별도 구독.
         const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
         this._popupSignalId = bus.signal_subscribe(
             UNIM_BUS_NAME,
             UNIM_IC_INTERFACE,
-            null,   // 모든 시그널
-            null,   // 모든 object path
+            'AutoTypefixApply',
+            null,
             null,
             Gio.DBusSignalFlags.NONE,
             (_conn, _sender, path, _iface, signalName, parameters) => {
                 const isOwn = (path === this._contextPath);
-                // AutoTypefixApply는 자기 context도 글로벌 구독에서 처리
-                // (g-signal proxy가 introspection 미등록 시그널을 전달하지 않을 수 있음)
-                if (signalName === 'AutoTypefixApply' && isOwn) {
+                if (isOwn) {
                     this._handleContextSignal(signalName, parameters, true);
-                    return;
                 }
-                // 자기 context의 다른 시그널은 _icProxy g-signal에서 이미 처리
-                if (isOwn) return;
-                // X11에서는 gui-gtk가 팝업을 담당하므로 스킵 (중복 팝업 방지)
-                if (!Meta.is_wayland_compositor()) return;
-                this._handleContextSignal(signalName, parameters, false);
             }
         );
+
+        // popup-service Popup interface signal 구독 — ShowEmojiPopupV2 / HidePopup 만
+        // 활용 (Wayland text-input v3 IM 세션 engage 용 ZWSP preedit 트릭). 한자/특수
+        // popup signal 은 popup-service 가 자체 GTK4 popup 으로 표시하므로 GNOME ext
+        // 는 처리 불요.
+        this._popupServiceSignalId = bus.signal_subscribe(
+            POPUP_SERVICE_BUS,
+            POPUP_INTERFACE,
+            null,                  // ShowEmojiPopupV2 / HidePopup 모두 받음 (signal 명 분기는 핸들러)
+            POPUP_OBJECT_PATH,
+            null,
+            Gio.DBusSignalFlags.NONE,
+            (_conn, _sender, _path, _iface, signalName, parameters) => {
+                this._handlePopupServiceSignal(signalName, parameters);
+            }
+        );
+    }
+
+    /**
+     * popup-service `org.atit.unim.Popup` signal 처리.
+     * GNOME extension 은 ShowEmojiPopupV2 / HidePopup 만 활용 — emoji popup 활성 시
+     * ZWSP preedit 으로 wayland text-input v3 IM 세션을 engage 시켜 commitText 가
+     * 휘발하지 않게 한다. 한자/특수 popup 표시·dismiss 는 popup-service 가 전담.
+     * @private
+     */
+    _handlePopupServiceSignal(signalName, _parameters) {
+        try {
+            if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
+                // payload 시그너처는 daemon InputContext 의 ShowEmojiPopupV2 와 동일하지만
+                // GNOME ext 는 본 콜백에서 payload 자체는 무시하고 ZWSP preedit setup 만
+                // 수행하므로 deserialize 비용 절감을 위해 인자 unpack 생략.
+                this._onShowEmoji();
+            } else if (signalName === 'HidePopup' && this._onHidePopup) {
+                this._onHidePopup();
+            }
+            // 그 외 popup signal (ShowHanjaPopup / ShowSpecialPopup / PopupNavigate /
+            // PopupRender / HanjaBookmarkChanged / HanjaCandidatesReordered) 은
+            // popup-service GTK4 popup 이 자체 처리. GNOME ext 무관.
+        } catch (e) {
+            unimError('DBUS_IME', `popup-service signal 처리 오류 (${signalName}): ${e.message}`);
+        }
     }
 
     /**
@@ -299,62 +336,13 @@ export class UnimDbusIME {
      * @private
      */
     _handleContextSignal(signalName, parameters, isOwnContext = false) {
+        // popup 관련 signal (ShowHanjaPopup / ShowSpecialPopup / ShowEmojiPopupV2 /
+        // HidePopup / PopupNavigate / PopupRender / HanjaBookmarkChanged /
+        // HanjaCandidatesReordered) 은 popup-service `org.atit.unim.Popup` interface
+        // 가 단일 SoT. GNOME ext 는 popup-service 측 구독 핸들러
+        // _handlePopupServiceSignal 에서 ZWSP preedit 트릭만 처리.
         try {
-            if (signalName === 'ShowHanjaPopup' && this._onShowHanja) {
-                // 7-tuple: 활성 영문 키맵의 top_row를 5번째 인자로 받아 9x9 컬럼 헤더 동기화
-                const [target, candidatesRaw, topRow, cx, cy, cw, ch] = parameters.deep_unpack();
-                const candidates = candidatesRaw.map(([hanja, meaning]) => ({
-                    hanja, meaning,
-                }));
-                const cursorRect = isOwnContext
-                    ? { x: cx, y: cy, width: cw, height: ch }
-                    : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowHanja(target, candidates, topRow, cursorRect);
-            } else if (signalName === 'ShowSpecialPopup' && this._onShowSpecial) {
-                const [target, characters, topRow, cx, cy, cw, ch] = parameters.deep_unpack();
-                const cursorRect = isOwnContext
-                    ? { x: cx, y: cy, width: cw, height: ch }
-                    : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowSpecial(target, characters, topRow, cursorRect);
-            } else if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
-                // payload: (target_cat_id, items, top_row, recent, categories, x, y, w, h, home_row)
-                // categories 는 (id, ko, en, count) 튜플 9개.
-                // home_row 는 카테고리 단축키 표시용 9 문자 (영문 키맵별 변환).
-                const [
-                    targetCatId,
-                    items,
-                    topRow,
-                    recent,
-                    categoriesRaw,
-                    cx, cy, cw, ch,
-                    homeRow,
-                ] = parameters.deep_unpack();
-                const cursorRect = isOwnContext
-                    ? { x: cx, y: cy, width: cw, height: ch }
-                    : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowEmoji(
-                    targetCatId,
-                    items,
-                    topRow,
-                    recent,
-                    categoriesRaw,
-                    cursorRect,
-                    homeRow || ''
-                );
-            } else if (signalName === 'HidePopup' && this._onHidePopup) {
-                this._onHidePopup();
-            } else if (signalName === 'PopupNavigate' && this._onPopupNavigate) {
-                const [page, totalPages, selected, rows, cols, selRow, selCol] = parameters.deep_unpack();
-                this._onPopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol);
-            } else if (signalName === 'HanjaBookmarkChanged' && this._onHanjaBookmarkChanged) {
-                const [index, bookmarked] = parameters.deep_unpack();
-                this._onHanjaBookmarkChanged(index, bookmarked);
-            } else if (signalName === 'HanjaCandidatesReordered' && this._onHanjaCandidatesReordered) {
-                // Phase 1 (mouse-paginate UX): wasBookmarked (직전 상태) 추가됨.
-                // 콜백이 9-arity 이면 무시되고, 10-arity 면 활용된다 (Phase 7 visual flash).
-                const [target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked] = parameters.deep_unpack();
-                this._onHanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked);
-            } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
+            if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
                 this._onAutoTypeFix(deleteChars, commitText, preeditText);
@@ -370,44 +358,6 @@ export class UnimDbusIME {
                 const [text, cursorPos, visible] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `UpdatePreeditText: text='${text}', cursor=${cursorPos}, visible=${visible}`);
                 this._onUpdatePreedit(text, cursorPos, visible);
-            } else if (signalName === 'PopupRender' && this._onPopupRender) {
-                // 통합 popup render state — daemon 산출 view_model. 헤더/푸터/셀/탭/확장 아이콘
-                // 모두 즉시 렌더 가능. tuple 묶음:
-                //   kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages),
-                //   (showFooter, expandVisible), cells[(text,meaning,flags)],
-                //   col_headers[(text,active)], row_headers[(text,active)], tab_labels[],
-                //   active_tab_index
-                const [
-                    kind,
-                    [target, headerText, footerText, expandText],
-                    [rows, cols, selRow, selCol, currentPage, totalPages],
-                    [showFooter, expandVisible],
-                    cells,
-                    colHeaders,
-                    rowHeaders,
-                    tabLabels,
-                    activeTabIndex,
-                ] = parameters.deep_unpack();
-                this._onPopupRender({
-                    kind,
-                    target,
-                    headerText,
-                    footerText,
-                    showFooter,
-                    rows,
-                    cols,
-                    selRow,
-                    selCol,
-                    currentPage,
-                    totalPages,
-                    cells, // [[text, meaning, flags], ...] column-major, length = rows*cols
-                    colHeaders, // [[text, isActive], ...]
-                    rowHeaders, // [[text, isActive], ...]
-                    expandVisible,
-                    expandText,
-                    tabLabels,
-                    activeTabIndex,
-                });
             }
         } catch (e) {
             unimError('DBUS_IME', `시그널 처리 오류 (${signalName}): ${e.message}`);
@@ -585,48 +535,9 @@ export class UnimDbusIME {
         }
     }
 
-    /**
-     * 외부 프론트엔드(GTK/Qt/XIM)의 커서 좌표를 compositor 절대좌표로 변환
-     *
-     * - GNOME extension 자체 context: compositor 좌표이므로 변환 불필요
-     * - Native Wayland 앱 (GTK3/GTK4): 윈도우 상대좌표 → focused window 위치 더함
-     * - XWayland 앱 (XIM/Qt): X11 절대좌표 → compositor 좌표와 동일 (scale=1)
-     *
-     * @param {number} cx - 커서 X
-     * @param {number} cy - 커서 Y
-     * @param {number} cw - 커서 너비
-     * @param {number} ch - 커서 높이
-     * @returns {{x: number, y: number, width: number, height: number}}
-     * @private
-     */
-    _adjustCursorRect(cx, cy, cw, ch) {
-        const focusWindow = global.display?.focus_window;
-        if (!focusWindow) {
-            return { x: cx, y: cy, width: cw, height: ch };
-        }
-
-        const isX11 = focusWindow.get_client_type() === Meta.WindowClientType.X11;
-
-        if (isX11) {
-            // XWayland 앱: X11 절대좌표 → compositor 좌표와 동일 (scale=1 기준)
-            return { x: cx, y: cy, width: cw, height: ch };
-        }
-
-        // Native Wayland 앱 (GTK3/GTK4 등): 윈도우 상대좌표
-        // focused window의 buffer_rect (surface 원점 포함)을 더해 절대좌표로 변환
-        const bufferRect = focusWindow.get_buffer_rect();
-        const adjusted = {
-            x: bufferRect.x + cx,
-            y: bufferRect.y + cy,
-            width: cw,
-            height: ch,
-        };
-
-        unimLog('DBUS_IME',
-            `좌표 변환 (Wayland): raw=(${cx},${cy}) + window=(${bufferRect.x},${bufferRect.y}) → (${adjusted.x},${adjusted.y})`);
-
-        return adjusted;
-    }
+    // _adjustCursorRect 제거됨 (Phase 5): popup signal 핸들러 가 GNOME ext 에서
+    // 제거되면서 좌표 변환 호출자 부재. popup-service GTK4 popup 은 자체 좌표
+    // 계산을 수행한다.
 
     // ===========================================
     // 한자 / 특수문자 / 이모지 RPC 메서드는 unim-popup-service 가 직접 호출한다.
@@ -780,7 +691,7 @@ export class UnimDbusIME {
      * InputContext 파괴 → 프록시 해제 → 시그널 해제
      */
     destroy() {
-        // 글로벌 팝업 시그널 구독 해제
+        // AutoTypefixApply 글로벌 시그널 구독 해제
         if (this._popupSignalId > 0) {
             try {
                 const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
@@ -789,6 +700,17 @@ export class UnimDbusIME {
                 // 버스 접근 실패 무시
             }
             this._popupSignalId = 0;
+        }
+
+        // popup-service Popup interface 시그널 구독 해제
+        if (this._popupServiceSignalId > 0) {
+            try {
+                const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
+                bus.signal_unsubscribe(this._popupServiceSignalId);
+            } catch (_e) {
+                // 버스 접근 실패 무시
+            }
+            this._popupServiceSignalId = 0;
         }
 
         // InputContext 시그널 해제 + 파괴
