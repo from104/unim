@@ -5202,6 +5202,7 @@ dependencies = [
  "futures-util",
  "ksni",
  "rust-i18n",
+ "serde",
  "serde_yaml",
  "tokio",
  "unim",
