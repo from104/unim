@@ -306,26 +306,63 @@ export class UnimDbusIME {
 
     /**
      * popup-service `org.atit.unim.Popup` signal 처리.
-     * GNOME extension 은 ShowEmojiPopupV2 / HidePopup 만 활용 — emoji popup 활성 시
-     * ZWSP preedit 으로 wayland text-input v3 IM 세션을 engage 시켜 commitText 가
-     * 휘발하지 않게 한다. 한자/특수 popup 표시·dismiss 는 popup-service 가 전담.
+     *
+     * GNOME Wayland 환경에서는 Mutter 가 wlr-layer-shell·xdg_popup·input_popup_v2 모두
+     * 지원 안 해서 popup-service GTK4 popup 이 화면에 표시되지 않는다. 따라서
+     * extension 이 popup-service signal 을 받아 St 위젯으로 직접 렌더한다 — 단,
+     * popup-service 는 여전히 origin (signal 발행 + RPC 수신) 이며 SoT 는 daemon
+     * 의 PopupRenderPayload 1개. extension 은 평면 payload 를 그대로 그리는
+     * thin renderer 일 뿐 자체 상태 절대 보유 안 함.
+     *
+     * 처리 대상:
+     *   ShowHanjaPopup / ShowSpecialPopup / ShowEmojiPopupV2 → cursor 좌표로 popup show
+     *   HidePopup                                           → hide
+     *   PopupRender                                         → grid/header/footer/tabs 갱신
+     *   PopupNavigate                                       → 무시 (PopupRender 가 동반 발행됨)
+     *   HanjaBookmarkChanged / HanjaCandidatesReordered     → 무시 (동일)
      * @private
      */
-    _handlePopupServiceSignal(signalName, _parameters) {
+    _handlePopupServiceSignal(signalName, parameters) {
         try {
-            if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
-                // payload 시그너처는 daemon InputContext 의 ShowEmojiPopupV2 와 동일하지만
-                // GNOME ext 는 본 콜백에서 payload 자체는 무시하고 ZWSP preedit setup 만
-                // 수행하므로 deserialize 비용 절감을 위해 인자 unpack 생략.
-                this._onShowEmoji();
+            if (signalName === 'ShowHanjaPopup' && this._onShowHanja) {
+                // (target, candidates, top_row, x, y, w, h)
+                this._onShowHanja(this._extractCursor(parameters, 3));
+            } else if (signalName === 'ShowSpecialPopup' && this._onShowSpecial) {
+                this._onShowSpecial(this._extractCursor(parameters, 3));
+            } else if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
+                // (target, items, top_row, recent, categories, x, y, w, h, home_row)
+                this._onShowEmoji(this._extractCursor(parameters, 5));
             } else if (signalName === 'HidePopup' && this._onHidePopup) {
                 this._onHidePopup();
+            } else if (signalName === 'PopupRender' && this._onPopupRender) {
+                this._onPopupRender(parameters);
             }
-            // 그 외 popup signal (ShowHanjaPopup / ShowSpecialPopup / PopupNavigate /
-            // PopupRender / HanjaBookmarkChanged / HanjaCandidatesReordered) 은
-            // popup-service GTK4 popup 이 자체 처리. GNOME ext 무관.
+            // PopupNavigate / HanjaBookmarkChanged / HanjaCandidatesReordered 는
+            // PopupRender 가 동반 발행되므로 별도 처리 불요.
         } catch (e) {
             unimError('DBUS_IME', `popup-service signal 처리 오류 (${signalName}): ${e.message}`);
+        }
+    }
+
+    /**
+     * Show*Popup tuple 에서 cursor (x, y, w, h) 추출.
+     * @param {GLib.Variant} parameters
+     * @param {number} base - cursor.x 시작 인덱스 (Hanja/Special=3, Emoji=5)
+     * @returns {{x:number,y:number,width:number,height:number}|null}
+     * @private
+     */
+    _extractCursor(parameters, base) {
+        try {
+            const arr = parameters.deep_unpack();
+            return {
+                x: arr[base],
+                y: arr[base + 1],
+                width: arr[base + 2],
+                height: arr[base + 3],
+            };
+        } catch (e) {
+            unimError('DBUS_IME', `cursor 추출 실패: ${e.message}`);
+            return null;
         }
     }
 
@@ -540,11 +577,86 @@ export class UnimDbusIME {
     // 계산을 수행한다.
 
     // ===========================================
-    // 한자 / 특수문자 / 이모지 RPC 메서드는 unim-popup-service 가 직접 호출한다.
-    // GNOME extension 은 popup 표시·입력 캡처를 popup-service 에 위임하고,
-    // commit/cancel 결과는 daemon CommitText 시그널을 통해 InputMethod 에 반영된다.
-    // SetEmojiCategory 등 popup-internal RPC 도 popup-service 책임이므로 제거.
+    // popup-service `org.atit.unim.Popup` interface RPC 호출 헬퍼.
+    //
+    // GNOME Wayland 환경에서는 extension 이 popup 을 직접 렌더하므로 마우스 클릭·
+    // 페이지 이동·확장 토글·북마크 토글·이모지 커밋 등을 popup-service 로 보내야 한다.
+    // popup-service 가 daemon InputContext 로 forward 하므로 popup-owner routing 일관성
+    // 유지. extension 은 인자만 wrap 해서 fire-and-forget 비동기 호출.
     // ===========================================
+
+    /** popup-service Popup interface 의 method 를 fire-and-forget 으로 호출. @private */
+    _callPopupService(method, variant) {
+        const conn = this._imProxy ? this._imProxy.get_connection() : null;
+        if (!conn) {
+            unimError('DBUS_IME', `${method}: DBus 연결 없음`);
+            return;
+        }
+        conn.call(
+            POPUP_SERVICE_BUS,
+            POPUP_OBJECT_PATH,
+            POPUP_INTERFACE,
+            method,
+            variant,
+            null,
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (src, res) => {
+                try {
+                    src.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `${method} 실패: ${e.message}`);
+                }
+            }
+        );
+    }
+
+    /** PopupRender 평면 payload 의 셀 클릭 → 한자 선택 */
+    popupSelectHanja(index) {
+        this._callPopupService('SelectHanja', new GLib.Variant('(u)', [index]));
+    }
+
+    /** PopupRender 평면 payload 의 셀 클릭 → 특수문자 선택 */
+    popupSelectSpecial(index) {
+        this._callPopupService('SelectSpecialChar', new GLib.Variant('(u)', [index]));
+    }
+
+    /** PopupRender 평면 payload 의 셀 클릭 → 이모지 commit (str 그대로) */
+    popupCommitEmoji(emojiStr) {
+        if (!emojiStr) return;
+        this._callPopupService('CommitEmoji', new GLib.Variant('(s)', [emojiStr]));
+    }
+
+    /** 한자 셀 우클릭 → 북마크 토글 */
+    popupToggleHanjaBookmark(index) {
+        this._callPopupService('ToggleHanjaBookmark', new GLib.Variant('(u)', [index]));
+    }
+
+    /** ◀/▶ 클릭 → 페이지 이동 (direction: 0=prev, 1=next) */
+    popupChangePage(direction) {
+        this._callPopupService('PopupChangePage', new GLib.Variant('(i)', [direction]));
+    }
+
+    /** ⊞/⊟ 클릭 → 한자 popup 확장 모드 토글 */
+    popupToggleExpand() {
+        this._callPopupService('TogglePopupExpand', null);
+    }
+
+    /** 이모지 좌측 카테고리 탭 클릭 → 카테고리 전환 */
+    popupSetEmojiCategory(idx) {
+        this._callPopupService('SetEmojiCategory', new GLib.Variant('(u)', [idx]));
+    }
+
+    /** popup 영역 밖 클릭 등으로 popup hide 시 한자 상태 정리 */
+    popupCancelHanja() {
+        this._callPopupService('CancelHanja', null);
+    }
+
+    /** popup 영역 밖 클릭 등으로 popup hide 시 특수문자 상태 정리 */
+    popupCancelSpecial() {
+        this._callPopupService('CancelSpecialChar', null);
+    }
 
     /**
      * 프런트엔드 등록 (멱등; 재호출 no-op)

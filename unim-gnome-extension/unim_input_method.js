@@ -48,6 +48,12 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._resetHandler = null;
         /** @type {{x: number, y: number, width: number, height: number}} 커서 위치 */
         this._cursorRect = { x: 0, y: 0, width: 0, height: 0 };
+        /**
+         * 마지막 키 이벤트 timestamp (ms). vfunc_set_cursor_location 에서 cursor 점프가
+         * 키 입력으로 인한 것인지(POST_KEY_GRACE_MS 이내) 외부 클릭으로 인한 것인지
+         * 구분하는 기준. 0 이면 아직 키 입력 없음.
+         */
+        this._lastKeyEventTimeMs = 0;
         /** @type {Object|null} DBus IME 클라이언트 연동 */
         this._dbusIME = null;
         /**
@@ -93,6 +99,14 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     /**
+     * 현재 preedit 텍스트가 비어있지 않은지 — 외부 click 시 reset 필요 여부 판단용.
+     * @returns {boolean}
+     */
+    hasPreedit() {
+        return typeof this._preeditText === 'string' && this._preeditText.length > 0;
+    }
+
+    /**
      * 리셋 콜백 등록 (팝업 정리 등)
      * @param {Function|null} handler - () => void
      */
@@ -116,6 +130,10 @@ class UnimInputMethod extends Clutter.InputMethod {
     vfunc_filter_key_event(event) {
         if (!event) return false;
         if (!this._active) return false;
+
+        // 키 이벤트 timestamp 갱신 — vfunc_set_cursor_location 의 cursor 점프
+        // 감지에서 "최근 키 입력에 의한 cursor 이동인지" 구분에 사용.
+        this._lastKeyEventTimeMs = Date.now();
 
         const eventType = event.type();
         const keyval = event.get_key_symbol();
@@ -232,22 +250,61 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_set_cursor_location(rect) {
-        if (rect) {
-            this._cursorRect = {
-                x: rect.get_x(),
-                y: rect.get_y(),
-                width: rect.get_width(),
-                height: rect.get_height(),
-            };
-            
-            if (this._dbusIME) {
-                this._dbusIME.reportCursorRect(
-                    Math.round(this._cursorRect.x),
-                    Math.round(this._cursorRect.y),
-                    Math.round(this._cursorRect.width),
-                    Math.round(this._cursorRect.height)
-                );
+        if (!rect) return;
+        const newRect = {
+            x: rect.get_x(),
+            y: rect.get_y(),
+            width: rect.get_width(),
+            height: rect.get_height(),
+        };
+
+        // 외부 cursor 점프 감지 — toolkit 이 reset 을 안 보내는 GNOME Shell IBus 한계 보완.
+        // 같은 윈도우 안 다른 위치 마우스 클릭이나 외부 cursor 이동 시 set_cursor_location
+        // 만 호출됨. preedit 활성 + 최근 키 입력 없음 + 좌표가 큰 폭으로 점프하면
+        // 외부 cursor 변경으로 판정하고 vfunc_reset 직접 호출 → preedit commit + popup
+        // cancel (IME 표준 동작).
+        //
+        // 위양성 방어:
+        //   - preedit 없으면 skip (한글 조합 중이 아니면 어차피 reset 불요)
+        //   - 최근 100ms 이내 키 입력 있으면 skip (글자 입력으로 인한 자연 cursor 이동)
+        //   - 작은 이동(< 50px 직선 거리) skip (글자 단위 이동은 클릭이 아니라 typing)
+        //   - 초기 cursor 보고(이전 좌표 0,0) skip (focus_in 직후 위양성 차단)
+        const POST_KEY_GRACE_MS = 100;
+        const JUMP_THRESHOLD_PX2 = 50 * 50;
+        const prev = this._cursorRect;
+        const initialReport = prev.x === 0 && prev.y === 0;
+        const elapsedMs = this._lastKeyEventTimeMs > 0
+            ? Date.now() - this._lastKeyEventTimeMs : Number.MAX_SAFE_INTEGER;
+        if (this.hasPreedit() && !initialReport && elapsedMs > POST_KEY_GRACE_MS) {
+            const dx = newRect.x - prev.x;
+            const dy = newRect.y - prev.y;
+            if (dx * dx + dy * dy > JUMP_THRESHOLD_PX2) {
+                unimLog('IME',
+                    `외부 cursor 점프 감지: prev=(${prev.x},${prev.y}) → new=(${newRect.x},${newRect.y}) ` +
+                    `elapsed=${elapsedMs}ms — vfunc_reset 트리거`);
+                this._cursorRect = newRect;   // reset 전 갱신 (재귀 방지)
+                try {
+                    this.vfunc_reset();
+                } catch (e) {
+                    unimError('IME', `cursor-jump reset 실패: ${e.message}`);
+                }
+                // reset 후 cursor 좌표는 새 위치로. daemon 통보도 새 좌표로.
+                if (this._dbusIME) {
+                    this._dbusIME.reportCursorRect(
+                        Math.round(newRect.x), Math.round(newRect.y),
+                        Math.round(newRect.width), Math.round(newRect.height)
+                    );
+                }
+                return;
             }
+        }
+
+        this._cursorRect = newRect;
+        if (this._dbusIME) {
+            this._dbusIME.reportCursorRect(
+                Math.round(newRect.x), Math.round(newRect.y),
+                Math.round(newRect.width), Math.round(newRect.height)
+            );
         }
     }
 

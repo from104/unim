@@ -16,6 +16,7 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 import { VirtualKeyboard } from './vkbd.js';
 import { UnimIndicator } from './indicator.js';
 import { UnimDbusIME } from './dbus_ime.js';
+import { PopupView, unpackPopupRender } from './popup_view.js';
 import { UnimInputMethod } from './unim_input_method.js';
 import { KeyHandler } from './key_handler.js';
 import { PreeditOverlay } from './preedit_overlay.js';
@@ -176,22 +177,63 @@ export default class UnimExtension extends Extension {
             this._preeditOverlay = new PreeditOverlay();
             this._preeditOverlay.enable();
 
-            // 한자/특수문자/이모지 popup 표시는 unim-popup-service (GTK4) 가 전담.
-            // GNOME extension 은 emoji popup 활성 시 ZWSP preedit 으로 wayland text-input v3
-            // IM 세션을 engage 시켜 daemon CommitText 시그널의 commitText 가 휘발하지 않게
-            // 보장만 담당한다. 한자/특수는 preedit 활성 상태에서 트리거되므로 IM 이 이미 engage.
+            // 6. Popup view — **GNOME Wayland 에서만 활성화**.
+            //    Mutter 가 wlr-layer-shell·input_popup_v2 모두 지원 안 해서 popup-service
+            //    GTK4 popup 이 표시되지 않으므로 extension 이 PopupRenderPayload 평면 payload
+            //    를 St 위젯으로 렌더한다. X11 환경에서는 popup-service GTK4 popup 이 정상
+            //    표시되므로 PopupView 활성 시 popup 이 두 번 그려진다 — 따라서 X11 에서는
+            //    PopupView 를 띄우지 않고 popup-service 에 위임.
+            //    popup-service 는 양 환경 모두에서 origin (RPC 수신 + signal 발행).
+            const isWayland = Meta.is_wayland_compositor();
+            if (isWayland) {
+                this._popupView = new PopupView({
+                    selectHanja:         (i) => this._dbusIME.popupSelectHanja(i),
+                    selectSpecial:       (i) => this._dbusIME.popupSelectSpecial(i),
+                    commitEmoji:         (s) => this._dbusIME.popupCommitEmoji(s),
+                    toggleHanjaBookmark: (i) => this._dbusIME.popupToggleHanjaBookmark(i),
+                    popupChangePage:     (d) => this._dbusIME.popupChangePage(d),
+                    togglePopupExpand:   ()  => this._dbusIME.popupToggleExpand(),
+                    setEmojiCategory:    (i) => this._dbusIME.popupSetEmojiCategory(i),
+                    // P3/P6: PopupView.hide() 안에서 호출하는 cancel RPC. 누락 시
+                    // outside-click·정상 dismiss 양쪽 모두 daemon engine state 정리 실패.
+                    cancelHanja:         ()  => this._dbusIME.popupCancelHanja(),
+                    cancelSpecial:       ()  => this._dbusIME.popupCancelSpecial(),
+                });
+                unimLog('EXTENSION', 'PopupView 활성 (GNOME Wayland)');
+            } else {
+                this._popupView = null;
+                unimLog('EXTENSION', 'PopupView 비활성 (X11) — popup-service GTK4 popup 이 전담');
+            }
+
+            // popup-service signal → PopupView. emoji popup 의 ZWSP preedit 트릭은
+            // wayland text-input v3 IM 세션을 engage 시켜 commitText 가 휘발하지 않게
+            // 보장 (별도 책임). 한자/특수는 preedit 활성 상태에서 트리거되므로 IM 이 이미 engage.
             this._dbusIME.setPopupCallbacks({
-                onShowEmoji: () => {
+                onShowHanja: (cursorRect) => {
+                    if (this._popupView) this._popupView.show(cursorRect);
+                },
+                onShowSpecial: (cursorRect) => {
+                    if (this._popupView) this._popupView.show(cursorRect);
+                },
+                onShowEmoji: (cursorRect) => {
                     this._emojiPopupActive = true;
                     if (this._inputMethod) {
                         this._inputMethod.updatePreedit('​'); // ZWSP — invisible
                     }
+                    if (this._popupView) this._popupView.show(cursorRect);
                 },
                 onHidePopup: () => {
                     if (this._emojiPopupActive && this._inputMethod) {
                         this._inputMethod.updatePreedit('');
                     }
                     this._emojiPopupActive = false;
+                    if (this._popupView) this._popupView.hide();
+                },
+                onPopupRender: (parameters) => {
+                    const payload = unpackPopupRender(parameters);
+                    if (payload && this._popupView) {
+                        this._popupView.update(payload);
+                    }
                 },
                 onCommitText: (text) => {
                     // chord idle flush 등 비동기 commit 경로. daemon 이 InputContext path 로
@@ -258,6 +300,11 @@ export default class UnimExtension extends Extension {
                 this._cleanupPopups();
             });
 
+            // 같은 윈도우 내 클릭 시 reset 트리거는 unim_input_method.js 의
+            // vfunc_set_cursor_location 안 cursor-jump 감지 로직이 담당.
+            // (이전엔 global.stage button-press hook 시도했으나 mutter compositor 가
+            // user app window click 을 stage 에 안 전달해 fire 되지 않아 폐기.)
+
             this._inputMethod.setActive(true);
             unimLog('EXTENSION', 'IME 활성화 완료');
         } catch (e) {
@@ -302,7 +349,14 @@ export default class UnimExtension extends Extension {
             this._preeditOverlay = null;
         }
 
-        // 팝업은 unim-popup-service 가 자체 dismiss. extension 은 ZWSP preedit 잔재만 정리.
+        // PopupView 정리 — GNOME Wayland 환경에서 extension 이 직접 렌더한 popup.
+        // popup-service 측 dismiss 는 CancelHanja/CancelSpecialChar RPC 로 별도 처리됨.
+        if (this._popupView) {
+            this._popupView.destroy();
+            this._popupView = null;
+        }
+
+        // ZWSP preedit 잔재 정리.
         if (this._emojiPopupActive && this._inputMethod) {
             this._inputMethod.updatePreedit('');
         }
@@ -362,11 +416,19 @@ export default class UnimExtension extends Extension {
     }
 
     /**
-     * popup-service 가 popup 렌더·dismiss 를 전담. extension 은 emoji ZWSP preedit
-     * 잔재만 정리한다. 한자/특수 cancel RPC 는 popup-service 가 직접 호출하므로 여기선 생략.
+     * 포커스 손실·리셋 시 popup 정리. PopupView hide + popup-service 측 한자/특수 상태
+     * cleanup RPC + emoji ZWSP preedit 잔재 제거.
      * @private
      */
     _cleanupPopups() {
+        if (this._popupView) {
+            this._popupView.hide();
+        }
+        if (this._dbusIME) {
+            // popup-service forward 가 popup_state 비활성 시 no-op 처리하므로 idempotent.
+            this._dbusIME.popupCancelHanja();
+            this._dbusIME.popupCancelSpecial();
+        }
         if (this._emojiPopupActive && this._inputMethod) {
             this._inputMethod.updatePreedit('');
         }
