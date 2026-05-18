@@ -150,10 +150,11 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                             }
                         }
                         GuiAction::HanjaBookmarkStatesFetched { states } => {
-                            // 첫 렌더 색상 누락 방지: 일괄 setter로 update_page 강제
-                            if hanja_clone.borrow().is_visible() {
-                                hanja_clone.borrow_mut().set_bookmark_flags(states);
-                            }
+                            // 첫 렌더 색상 누락 방지: 가시성 확인 없이 일괄 setter 호출.
+                            // set_bookmark_flags 내부에서 visible 일 때만 update_page 를
+                            // 호출하므로, 응답이 set_visible(true) 직전에 도착해도 state 는
+                            // 보존되고 다음 렌더에서 자연 반영된다.
+                            hanja_clone.borrow_mut().set_bookmark_flags(states);
                         }
                         GuiAction::HanjaCandidatesReordered {
                             candidates,

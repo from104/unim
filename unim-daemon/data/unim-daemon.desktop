@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=UNIM Daemon
+Name[ko]=UNIM 데몬
+Comment=Korean Input Method daemon — bootstrap autostart for non-GNOME desktops (KDE/XFCE/LXDE)
+Comment[ko]=한글 입력기 데몬 — GNOME 이외 데스크톱(KDE/XFCE/LXDE) 부팅 시 자동 시작 부트스트랩
+Exec=/usr/libexec/unim-daemon -n --replace
+Type=Application
+Categories=System;Utility;
+StartupNotify=false
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=false
+NotShowIn=GNOME;

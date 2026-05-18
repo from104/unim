@@ -40,7 +40,10 @@ fn popup_active() -> bool {
 
 /// popup-service Popup interface 의 method 를 fire-and-forget 호출.
 ///
-/// 인자는 zbus body tuple. 반환값은 무시 (`Result<_, _>` 만 캡처).
+/// 인자는 zbus body tuple. 반환값은 무시 — `call_method` 로 raw `Message` 만
+/// 받아 응답 시그너처를 deserialize 하지 않는다. (method 마다 응답 시그너처가
+/// 다르므로 단일 헬퍼에서 `call::<_, _, R>` 로 강제하면 String 반환 method 에서
+/// "Signature mismatch: got `s`, expected ``" 가 발생.)
 fn call_popup_service<Args>(method: &'static str, args: Args)
 where
     Args: serde::Serialize + zbus::zvariant::DynamicType + Send + 'static,
@@ -71,7 +74,7 @@ where
                     return;
                 }
             };
-            if let Err(e) = proxy.call::<_, _, ()>(method, &args).await {
+            if let Err(e) = proxy.call_method(method, &args).await {
                 unim_log!("INDICATOR", "[Popup] RPC ({}) 실패: {}", method, e);
             }
         });
@@ -109,8 +112,19 @@ pub fn fetch_bookmark_states_async(_context_path: String) {
                 Err(_) => return,
             };
             let states: Result<Vec<bool>, _> = proxy.call("GetHanjaBookmarkStates", &()).await;
-            if let Ok(states) = states {
-                let _ = tx.send(GuiAction::HanjaBookmarkStatesFetched { states });
+            match states {
+                Ok(states) => {
+                    let _ = tx.send(GuiAction::HanjaBookmarkStatesFetched { states });
+                }
+                Err(e) => {
+                    // silent drop 금지 — fetch 실패 시 첫 렌더 북마크 스타일이 영영
+                    // 적용되지 않으므로 한 줄이라도 흔적 남긴다 (관측 #2042 재발 방지).
+                    unim_log!(
+                        "INDICATOR",
+                        "[Popup] fetch_bookmark_states_async RPC 실패: {}",
+                        e
+                    );
+                }
             }
         });
     });

@@ -73,6 +73,12 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | Xfce/Cinnamon/MATE | unim-gui-gtk | unim-gui-gtk (GTK4) | unim-gui-gtk (GTK4) |
 | Sway/Hyprland 등 WM | unim-gui-gtk 또는 unim-gui-qt | 선택한 GUI | 선택한 GUI |
 
+> ⚠️ **환경 제약 — KDE Plasma 5.x Wayland 미지원**
+>
+> 한자/특수문자/이모지 popup 은 Wayland 환경에서 `gtk4-layer-shell` 라이브러리로 위치를 지정합니다. Ubuntu 24.04 (noble) 표준 저장소에는 해당 패키지가 없어, **KDE Plasma 5.x Wayland 세션에서는 popup 이 표시되지 않습니다.** 해당 환경에서는 X11 세션을 사용하거나 GNOME 으로 우회해 주세요.
+>
+> Plasma 6, Sway, Hyprland 등 다른 Wayland 환경은 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 동작합니다.
+
 ## 📖 컴포넌트별 명세(SPEC) 인덱스
 
 컴포넌트마다 세부 명세는 코드 옆 `SPEC.md`에 두었다. 아래가 전체 조감도:

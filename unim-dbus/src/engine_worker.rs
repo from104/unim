@@ -238,6 +238,15 @@ fn handle_focus_in(
         }
     }
 
+    // Global 모드: default_category 를 engine 에 적용 — 다른 context 에서 토글로
+    // 갱신된 전역 모드를 FocusIn 시 자동 동기화. press_key 직후 propagate 와 별개로
+    // 새로 생성된 context · stale context · timing race 모두 보호.
+    if config.engine.mode_sharing == unim::config::ModeSharingMode::Global {
+        if let Some(engine) = contexts.get_mut(&context_id) {
+            engine.set_input_category(config.engine.default_category);
+        }
+    }
+
     // 앱별 기본 모드 규칙 적용 (해당 앱을 처음 본 경우에만)
     if !config.engine.app_rules.is_empty() {
         if let Some(engine) = contexts.get_mut(&context_id) {
@@ -535,6 +544,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     continue;
                 }
 
+                // Global 모드 변경 시 다른 context 들에 전파할 새 mode (engine 빌림이
+                // 끝난 후 blocking 없이 iter_mut 으로 적용).
+                let mut global_mode_propagate: Option<unim::config::InputCategory> = None;
+
                 let resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // keycode를 KeyCode로 변환
                     let key = KeyCode::from_evdev_keycode(keycode as u16);
@@ -611,6 +624,19 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     current_mode
                                 );
                             }
+                        }
+                        // Global 모드: default_category 도 함께 갱신. FocusOut 시
+                        // reset 이 default 를 적용하더라도 같은 모드 유지되고, 다른
+                        // context FocusIn 시에도 동일 모드로 동기화 (블록 종료 후
+                        // `global_mode_propagate` 변수로 처리).
+                        if config.engine.mode_sharing == unim::config::ModeSharingMode::Global {
+                            config.engine.default_category = current_mode;
+                            global_mode_propagate = Some(current_mode);
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] Global 모드 갱신: default_category={:?}",
+                                current_mode
+                            );
                         }
                         Some(current_mode == unim::config::InputCategory::Korean)
                     } else {
@@ -976,6 +1002,17 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 }
 
                 let _ = response.send(resp);
+
+                // Global 모드에서 한/영 토글 발생 시 다른 활성 context 들에도 동일
+                // 모드 즉시 적용 — 같은 앱 안 여러 윈도우 / 다른 앱 무관하게 모드
+                // 일관성 보장 (Global 정책의 의도). 위 engine 빌림이 종료된 후 처리.
+                if let Some(new_mode) = global_mode_propagate {
+                    for (cid, eng) in contexts.iter_mut() {
+                        if *cid != context_id {
+                            eng.set_input_category(new_mode);
+                        }
+                    }
+                }
             }
 
             EngineRequest::FocusIn {
@@ -1674,7 +1711,30 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         home_row,
                     })
                 })();
-                let _ = response.send(payload);
+                // PopupRenderPayload 도 함께 만들어 ShowEmojiPopupV2 와 함께 발행되도록
+                // 한다. 갱신된 popup_state 가 SoT 라 popup-owner engine 에서 build_render_state
+                // 호출. payload(None) 인 경우 render 도 None — service.rs 측 skip.
+                let render: Option<PopupRenderPayload> = if payload.is_some() {
+                    let ctx_id = last_focused_context_id
+                        .filter(|id| {
+                            contexts
+                                .get(id)
+                                .map(|e| e.is_emoji_popup_active())
+                                .unwrap_or(false)
+                        })
+                        .or_else(|| {
+                            contexts
+                                .iter()
+                                .find(|(_, e)| e.is_emoji_popup_active())
+                                .map(|(id, _)| *id)
+                        });
+                    ctx_id
+                        .and_then(|id| contexts.get(&id))
+                        .and_then(build_render_state)
+                } else {
+                    None
+                };
+                let _ = response.send(payload.map(|p| (p, render)));
             }
 
             // =========================================

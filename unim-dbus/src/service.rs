@@ -164,12 +164,14 @@ pub enum EngineRequest {
     /// 이모지 팝업 카테고리 변경 (마우스 클릭 → 직접 카테고리 전환).
     ///
     /// 워커는 마지막 포커스 컨텍스트의 popup_state 가 emoji 인 경우에만 처리한다.
-    /// 응답으로 갱신된 카테고리 메타·페이지 풀을 돌려주어 service.rs 가
-    /// `ShowEmojiPopupV2` 시그널을 재발행할 수 있게 한다.
+    /// 응답으로 갱신된 카테고리 메타·페이지 풀(EmojiShowPayload)과 함께 통합
+    /// view-model(PopupRenderPayload) 도 돌려주어 service.rs 가 `ShowEmojiPopupV2`
+    /// 와 `PopupRender` 두 시그널을 재발행한다. PopupRender 가 함께 발행돼야
+    /// extension/GUI 가 평면 cells 갱신을 적용한다.
     /// 응답이 `None` 이면 emoji popup 이 활성화되지 않았거나 idx 가 범위 밖이라 무시됨.
     SetEmojiCategory {
         idx: u32,
-        response: oneshot::Sender<Option<EmojiShowPayload>>,
+        response: oneshot::Sender<Option<(EmojiShowPayload, Option<PopupRenderPayload>)>>,
     },
     /// 팝업 페이지 이동 (마우스 ◀/▶ 버튼 등 외부 RPC).
     ///
@@ -1218,8 +1220,8 @@ impl InputMethodService {
             );
             return Ok(());
         }
-        let payload = match rx.await {
-            Ok(Some(p)) => p,
+        let (payload, render) = match rx.await {
+            Ok(Some(t)) => t,
             Ok(None) => {
                 unim_log!(
                     "DBUS",
@@ -1296,6 +1298,61 @@ impl InputMethodService {
                 payload.categories.len()
             );
         }
+
+        // PopupRender 도 동반 발행 — 평면 cells 기반으로 동작하는 frontend
+        // (GNOME extension PopupView 등) 가 grid 를 즉시 갱신할 수 있도록.
+        // 누락 시 카테고리 탭을 클릭해도 셀이 안 바뀌는 버그가 발생.
+        if let Some(rs) = render {
+            let render_result = self
+                .connection
+                .emit_signal(
+                    None::<&str>,
+                    &path,
+                    "org.atit.unim.InputContext",
+                    "PopupRender",
+                    &(
+                        rs.kind,
+                        (
+                            rs.target.clone(),
+                            rs.header_text.clone(),
+                            rs.footer_text.clone(),
+                            rs.expand_text.clone(),
+                        ),
+                        (
+                            rs.rows,
+                            rs.cols,
+                            rs.sel_row,
+                            rs.sel_col,
+                            rs.current_page,
+                            rs.total_pages,
+                        ),
+                        (rs.show_footer, rs.expand_visible),
+                        rs.cells.clone(),
+                        rs.col_headers.clone(),
+                        rs.row_headers.clone(),
+                        rs.tab_labels.clone(),
+                        rs.active_tab_index,
+                    ),
+                )
+                .await;
+            if let Err(e) = render_result {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory PopupRender 발행 실패: {}",
+                    e
+                );
+            } else {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory(idx={}) PopupRender 재발행: cells={}, page={}/{}",
+                    idx,
+                    rs.cells.len(),
+                    rs.current_page + 1,
+                    rs.total_pages
+                );
+            }
+        }
+
         Ok(())
     }
 

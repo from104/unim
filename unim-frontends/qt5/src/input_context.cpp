@@ -146,10 +146,27 @@ UnimInputContext::UnimInputContext()
             QObject *focusObj = QGuiApplication::focusObject();
             if (!focusObj) return;
 
+            // [KONSOLE-DIAG] 진단: focusObject 클래스명 확인
+            const char *className = focusObj->metaObject()->className();
+            UNIM_DEBUG(QString::asprintf("AutoTypeFix focus class: %s",
+                       className ? className : "(null)"));
+            const bool isTerminalDisplay =
+                className && std::strstr(className, "TerminalDisplay") != nullptr;
+
             // 1. 기존 텍스트 삭제 + commit 텍스트 적용
             {
                 QInputMethodEvent ev;
-                ev.setCommitString(commitText, -(int)deleteChars, (int)deleteChars);
+                if (isTerminalDisplay) {
+                    // [KONSOLE-DIAG] Konsole 은 replacementStart/Length 무시 →
+                    // commit string 에 \b 직접 포함하는 워크어라운드 검증
+                    QString prefixed = QString((int)deleteChars, QChar(0x08)) + commitText;
+                    ev.setCommitString(prefixed);
+                    UNIM_DEBUG(QString::asprintf(
+                        "AutoTypeFix konsole-mode: \\b*%u + '%s'",
+                        deleteChars, qPrintable(commitText)));
+                } else {
+                    ev.setCommitString(commitText, -(int)deleteChars, (int)deleteChars);
+                }
                 QCoreApplication::sendEvent(focusObj, &ev);
             }
 

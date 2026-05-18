@@ -59,6 +59,17 @@ fn main() {
     let (popup_tx, popup_rx) = mpsc::channel::<GuiAction>();
     let popup_rx = Arc::new(Mutex::new(popup_rx));
 
+    // popup_dbus.rs 의 fetch_bookmark_states_async / cancel 등 fire-and-forget
+    // 헬퍼들이 응답을 흘려 보낼 채널을 SETTINGS_TX 전역에 등록한다. 미등록 시
+    // 헬퍼 첫 줄 `let Some(tx) = tx_opt else { return };` 에서 silent fail →
+    // 한자 popup 첫 렌더 북마크 스타일 누락의 근본 원인 (관측 #2040 후속).
+    {
+        use unim_gui_common::types::SETTINGS_TX;
+        if let Ok(mut slot) = SETTINGS_TX.lock() {
+            *slot = Some(popup_tx.clone());
+        }
+    }
+
     // dbus_action 채널은 트레이용이지만 popup-service에서는 사용 안 함 (idle)
     let (_dbus_action_tx, dbus_action_rx) = tokio::sync::mpsc::channel::<GuiAction>(1);
 
@@ -82,16 +93,15 @@ fn main() {
         rt.block_on(async {
             let connection = zbus::Connection::session().await;
             if let Ok(ref conn) = connection {
-                if let Ok(proxy) = unim_dbus::client::InputMethodProxy::new(conn).await {
-                    if let Err(e) = proxy.register_frontend("popup-service").await {
-                        unim_log!("INDICATOR", "[RegisterFrontend] 실패: {}", e);
-                    } else {
-                        unim_log!("INDICATOR", "[RegisterFrontend] popup-service 등록됨");
-                    }
-                }
+                // ──────────────────────────────────────────────────────────
+                // 1) PopupService 인프라 *먼저* 등록 — daemon 응답에 의존 안 함.
+                //
+                // 과거 흐름은 register_frontend 를 가장 먼저 await 했는데, autostart
+                // 환경에서 daemon NoReply 또는 응답 지연 시 popup_server/bus name/
+                // forward task 가 줄줄이 stuck → popup 전체 미동작. 시작 순서를
+                // 뒤집어 PopupService 가 즉시 노출되도록 보장한다.
+                // ──────────────────────────────────────────────────────────
 
-                // org.atit.unim.Popup interface 노출 — Phase 3 method forward 구현.
-                // 외부 frontend(GNOME ext) 가 popup 전반을 본 서비스에 의존하도록 단일 SoT.
                 let popup_server = dbus_server::PopupServer::new(conn.clone());
                 match conn
                     .object_server()
@@ -109,11 +119,29 @@ fn main() {
                     Err(e) => unim_log!("INDICATOR", "[Popup] bus name 획득 실패: {}", e),
                 }
 
-                // Phase 2: daemon InputContext popup signal → PopupServer signal 재발행.
-                // 별도 task 로 분리하여 watch_dbus_signals(GTK popup window 트리거) 와 병렬 처리.
+                // daemon InputContext popup signal → PopupServer signal 재발행.
+                // 별도 task — watch_dbus_signals (GTK 트리거) 와 병렬 동작.
                 let conn_for_forward = conn.clone();
                 tokio::spawn(async move {
                     dbus_server::forward_daemon_popup_signals(conn_for_forward).await;
+                });
+
+                // ──────────────────────────────────────────────────────────
+                // 2) register_frontend 는 fire-and-forget — 응답 안 와도 무관.
+                //
+                // 단순 best-effort 통지일 뿐이고, PopupService 본업(signal forward
+                // + popup window 트리거) 은 이미 위에서 등록 완료. daemon 미준비
+                // /응답 지연 시에도 PopupService 가 stuck 하지 않게 분리.
+                // ──────────────────────────────────────────────────────────
+                let conn_for_reg = conn.clone();
+                tokio::spawn(async move {
+                    match unim_dbus::client::InputMethodProxy::new(&conn_for_reg).await {
+                        Ok(proxy) => match proxy.register_frontend("popup-service").await {
+                            Ok(_) => unim_log!("INDICATOR", "[RegisterFrontend] popup-service 등록됨"),
+                            Err(e) => unim_log!("INDICATOR", "[RegisterFrontend] 실패: {}", e),
+                        },
+                        Err(e) => unim_log!("INDICATOR", "[RegisterFrontend] proxy 실패: {}", e),
+                    }
                 });
             }
 

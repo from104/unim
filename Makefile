@@ -137,7 +137,8 @@ _check-build:
 install-core:
 	@echo "Installing core components..."
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(REAL_LIBDIR) $(DESTDIR)$(LIBEXECDIR) \
-	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
+	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR) \
+	           $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	install -m 755 target/release/libunim_capi.so $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0.1.0
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so
@@ -147,6 +148,10 @@ install-core:
 	install -m 644 im-config/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" im-config/25_unim.rc > $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc && chmod 644 $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" scripts/org.atit.unim.InputMethod.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
+	# 비-GNOME 데스크톱(KDE/XFCE/LXDE) 부팅 시 daemon 자동 시작.
+	# GNOME 은 gnome-shell 이 직접 daemon 을 DBus 자동활성하므로 NotShowIn=GNOME 으로 제외.
+	# daemon 이 살아있어야 popup-service kickstart 도 동작.
+	install -m 644 unim-daemon/data/unim-daemon.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
 	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
@@ -174,9 +179,12 @@ install-settings:
 	install -m 644 unim-settings/data/unim-settings.desktop $(DESTDIR)$(DATADIR)/applications/
 
 install-popup-service:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
 	install -m 755 target/release/unim-popup-service $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-popup-service/data/unim-popup-service.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	# D-Bus auto-activation — daemon 이 PopupService 호출 시 자동 launching.
+	# .xdg/autostart 의존 race(daemon 미준비 시 register_frontend NoReply 에서 stuck)
+	# 를 회피한다. unim-daemon InputMethod.service 와 동일 패턴.
+	sed "s|@BINDIR@|$(BINDIR)|g" scripts/org.atit.unim.PopupService.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service
 
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
@@ -189,6 +197,7 @@ uninstall-core:
 	      $(DESTDIR)$(LIBEXECDIR)/unim-daemon $(DESTDIR)$(LIBEXECDIR)/unim-xim $(DESTDIR)$(LIBEXECDIR)/unim-wayland \
 	      $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc \
 	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-daemon.desktop \
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1
 
 uninstall-frontends:
@@ -209,6 +218,7 @@ uninstall-settings:
 
 uninstall-popup-service:
 	rm -f $(DESTDIR)$(BINDIR)/unim-popup-service \
+	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service \
 	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-popup-service.desktop
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────

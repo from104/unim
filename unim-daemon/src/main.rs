@@ -239,6 +239,48 @@ fn start_module(module: &Module) -> Option<(String, Child)> {
     }
 }
 
+/// popup-service 를 DBus 자동활성 trigger 한다. fire-and-forget.
+///
+/// `org.freedesktop.DBus.StartServiceByName` 은 dbus-daemon 표준 API 로,
+/// 지정된 well-known name 의 service 를 activatable list 에서 찾아 spawn 한다.
+/// 이미 떠 있으면 `AlreadyRunning` 반환, no-op. 부팅 직후 popup-service 가
+/// 활성화되어 트레이/팝업이 즉시 준비됨. KDE 등 GNOME extension 외 환경 필수.
+///
+/// 이전엔 `call_method(... Peer.Ping ...)` 패턴을 썼으나 destination 라우팅이
+/// 자기 자신(InputMethod) 으로 fallback 되어 PopupService 활성 트리거 실패함.
+/// 표준 `StartServiceByName` 으로 destination 모호성 제거.
+fn spawn_popup_service_kickstart(conn: &Connection) {
+    let conn = conn.clone();
+    tokio::spawn(async move {
+        let dbus_proxy = match zbus::fdo::DBusProxy::new(&conn).await {
+            Ok(p) => p,
+            Err(e) => {
+                unim_log!("DAEMON", "[Popup] DBusProxy 생성 실패 (비치명적): {}", e);
+                return;
+            }
+        };
+        let name = match zbus::names::WellKnownName::try_from("org.atit.unim.PopupService") {
+            Ok(n) => n,
+            Err(e) => {
+                unim_log!("DAEMON", "[Popup] WellKnownName 파싱 실패: {}", e);
+                return;
+            }
+        };
+        match dbus_proxy.start_service_by_name(name, 0).await {
+            Ok(reply) => unim_log!(
+                "DAEMON",
+                "[Popup] popup-service StartServiceByName 성공: reply={:?}",
+                reply
+            ),
+            Err(e) => unim_log!(
+                "DAEMON",
+                "[Popup] popup-service 자동활성 실패 (비치명적, lazy activation fallback): {}",
+                e
+            ),
+        }
+    });
+}
+
 /// DBus 서비스를 시작합니다.
 async fn start_dbus_service(
     engine_tx: mpsc::Sender<unim_dbus::service::EngineRequest>,
@@ -501,6 +543,14 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // popup-service 자동 활성화 kickstart.
+    // GNOME extension 외 환경(KDE/XFCE/X11 등)에서는 popup-service 가 트레이/팝업의
+    // 표시 책임을 진다. lazy DBus 자동활성에 맡기면 사용자가 첫 한자/이모지 키를
+    // 누를 때까지 spawn 되지 않아 트레이도 안 뜨고 popup 응답도 지연된다.
+    // org.freedesktop.DBus.Peer.Ping 은 모든 service 가 자동 구현하는 no-op 메서드.
+    // 실패해도 lazy activation fallback 이 유효하므로 비치명적.
+    spawn_popup_service_kickstart(&_connection);
 
     // 메모리 회수 주기 태스크: C 라이브러리(zbus 등) glibc malloc 영역의 여유 청크를
     // OS에 반환한다. jemalloc은 background thread로 자체 회수하므로 여기서는 glibc

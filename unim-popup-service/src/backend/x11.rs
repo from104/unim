@@ -489,6 +489,11 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
 }
 
 /// Wayland: gtk4-layer-shell 사용
+///
+/// 본 경로는 `wayland-backend` feature 가 켜진 경우에만 실 동작한다.
+/// 시스템에 `libgtk4-layer-shell` 라이브러리가 없는 환경(예: Ubuntu 24.04 noble,
+/// Plasma 5.x 표준 패키지)에서는 feature off 로 빌드되어 popup 표시가 불가하다.
+/// 특히 KDE Plasma 5.x Wayland 는 공식 미지원 — X11 세션 또는 GNOME 사용을 권장.
 fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, cursor_h: i32) {
     #[cfg(feature = "wayland-backend")]
     {
@@ -524,7 +529,7 @@ fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, c
         let _ = (window, cursor_x, cursor_y, cursor_h);
         unim_log!(
             "INDICATOR",
-            "[Popup] wayland feature 미활성, Wayland 팝업 불가"
+            "[Popup] wayland feature 미활성, Wayland 팝업 불가 (KDE Plasma 5.x Wayland 미지원 — X11 세션 권장)"
         );
     }
 }

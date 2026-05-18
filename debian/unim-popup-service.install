@@ -3,5 +3,8 @@
 # 한자/특수문자/이모지 popup + 시스템 트레이 전담 (X11/Wayland)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# D-Bus auto-activation — daemon InputMethod 과 동일 패턴. autostart .desktop 폐기
+# (autostart 환경에서 register_frontend NoReply 로 popup-service 가 stuck 하는 race
+# 회피). daemon 이 PopupService 호출 시 자동 launching.
 debian/tmp/usr/bin/unim-popup-service
-debian/tmp/etc/xdg/autostart/unim-popup-service.desktop
+debian/tmp/usr/share/dbus-1/services/org.atit.unim.PopupService.service

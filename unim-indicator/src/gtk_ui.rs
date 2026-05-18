@@ -23,7 +23,10 @@ pub fn run_tray_host(popup_rx: Receiver<GuiAction>) {
     app.connect_activate(move |app| {
         adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
 
-        let _ = app.hold(); // 윈도우 없어도 종료 안 됨 (트레이 백그라운드)
+        // gio::Application::hold() 는 ApplicationHoldGuard(RAII) 반환.
+        // guard 가 drop 되면 즉시 release → hold count 0 → 1초 idle 후 GTK quit.
+        // 트레이 호스트는 process lifetime 동안 영구 hold 가 필요하므로 forget.
+        std::mem::forget(app.hold());
         unim_log!("INDICATOR", "[GUI] GTK Application activated (tray-host mode)");
     });
 

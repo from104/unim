@@ -232,6 +232,17 @@ impl HanjaPopup {
             h
         );
 
+        // 활성 컨텍스트 경로 저장 — special/emoji popup 과 동일 패턴.
+        // dbus_server.rs::ic_proxy 가 본 mutex 에서 path 를 읽어 daemon 으로 forward.
+        // 누락 시 GetHanjaBookmarkStates 가 "active InputContext path 없음" 에러로
+        // silent fail → 첫 렌더의 북마크 스타일 미적용 (관측 #2042).
+        {
+            use unim_gui_common::types::ACTIVE_CONTEXT_PATH;
+            if let Ok(mut path) = ACTIVE_CONTEXT_PATH.lock() {
+                *path = Some(context_path.clone());
+            }
+        }
+
         self.context_path = context_path;
         // 초기 북마크 상태는 모두 false로 출발 — DBus fetch 결과가 돌아오면
         // set_bookmark_states()로 일괄 갱신된다 (GNOME extension.js:176 패턴).
@@ -250,11 +261,13 @@ impl HanjaPopup {
             .set_text(&format!("「{}」 → 한자", target));
         self.update_page();
 
-        // 엔진에서 현재 북마크 상태를 비동기로 가져와 렌더를 보정
-        fetch_bookmark_states_async(self.context_path.clone());
-
         popup_positioning::position_popup(&self.window, x, y, h, self.display_server);
         self.window.set_visible(true);
+
+        // 엔진에서 현재 북마크 상태를 비동기로 가져와 렌더를 보정.
+        // set_visible(true) 이후에 호출해야 응답 도착 시점에 is_visible() 가드가
+        // 참이 되어 set_bookmark_flags → update_page 가 실행된다 (첫 렌더 색상 보정).
+        fetch_bookmark_states_async(self.context_path.clone());
         unim_log!(
             "INDICATOR",
             "[Popup] 한자 팝업 표시 완료: target='{}', realized={}",
