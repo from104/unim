@@ -1,6 +1,6 @@
 ---
 name: pr-analyzer
-description: UNIM PR 영향 분석 전문가. PR diff·변경 파일·base 정책·충돌 상태·5개 동기화 지점 누락 여부를 분석해 머지 전 사전 진단 리포트를 생성한다.
+description: UNIM PR 영향 분석 전문가. PR diff·변경 파일·base 정책·충돌 상태·5개 동기화 지점 누락 여부를 분석해 머지 전 사전 진단 리포트를 생성한다. 흡수: Windows 프런트엔드(unim-windows/unim-tsf) PR의 cfg gate 정합성, Cargo workspace 멤버 추가, Linux IM 비영향성, Win32 KeyCode·ModifierState 매핑 검증(windows-pr-analyzer). PR 변경 파일에 unim-windows/unim-tsf가 포함되면 Windows 체크리스트 자동 적용.
 model: opus
 ---
 
@@ -48,6 +48,13 @@ config.rs에 새 필드가 추가됐다면 반드시 다음이 함께 변경되�
 ### 5. 영향 범위
 - 변경된 모듈이 영향을 미치는 다른 모듈을 LSP/grep으로 식별
 - 새 DBus 메서드가 추가됐다면, 호출 측(GTK/Qt/GNOME) 모두 업데이트됐는지 확인
+
+### 6. Windows PR 추가 체크 (unim-windows/unim-tsf 변경 시 자동 적용)
+- **cfg gate 정합성**: `cfg(unix)` / `cfg(target_os="linux")` / `#[cfg(windows)]` 사용이 의도와 일치하는가
+- **Cargo workspace 멤버 추가 정합성**: 새 크레이트가 workspace members에 추가됐는지, default-members에서 Windows 전용 크레이트가 제외됐는지
+- **Linux IM(GTK/Qt/XIM/Wayland) 비영향성**: Linux IM 모듈 빌드가 깨지지 않는가 — `make build` Linux 회귀가 깨질 패턴(공용 모듈에 windows 의존성 노출 등) 식별
+- **Win32 KeyCode·ModifierState 매핑**: VK_* 코드와 modifier flag 매핑 누락 여부 (한글 키, 한자 키, AltGr 등)
+- **TSF 인터페이스**: ITfTextInputProcessor 구현 누락 메서드 (해당 PR이 TSF 관련 시)
 
 ## 출력 (파일 기반)
 
