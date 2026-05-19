@@ -60,15 +60,19 @@ endef
         _check-build \
         install install-core install-frontends install-icons \
         install-indicator install-settings install-popup-service \
+        install-keymap-studio install-typing-practice \
         install-gnome-extension install-extension install-systemd \
         uninstall uninstall-core uninstall-frontends uninstall-icons \
         uninstall-indicator uninstall-settings uninstall-popup-service \
+        uninstall-keymap-studio uninstall-typing-practice \
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
         deb clean-deb rpm clean-rpm test test-dbus dev-restart \
         dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-core dev-daemon dev-xim dev-wayland \
         dev-indicator dev-settings dev-popup-service dev-extension \
+        dev-keymap-studio dev-typing-practice \
+        build-keymap-studio build-typing-practice \
         check-windows build-windows clean-windows
 
 # ─── Help ────────────────────────────────────────────────────────────────────
@@ -188,6 +192,16 @@ install-popup-service:
 	# 를 회피한다. unim-daemon InputMethod.service 와 동일 패턴.
 	sed "s|@BINDIR@|$(BINDIR)|g" scripts/org.atit.unim.PopupService.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service
 
+install-keymap-studio:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-keymap-studio $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-keymap-studio/data/unim-keymap-studio.desktop $(DESTDIR)$(DATADIR)/applications/
+
+install-typing-practice:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-typing-practice $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-typing-practice/data/unim-typing-practice.desktop $(DESTDIR)$(DATADIR)/applications/
+
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
 uninstall: uninstall-core uninstall-indicator uninstall-settings uninstall-popup-service uninstall-frontends uninstall-icons uninstall-gnome-extension
@@ -226,6 +240,14 @@ uninstall-popup-service:
 	rm -f $(DESTDIR)$(BINDIR)/unim-popup-service \
 	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service \
 	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-popup-service.desktop
+
+uninstall-keymap-studio:
+	rm -f $(DESTDIR)$(BINDIR)/unim-keymap-studio \
+	      $(DESTDIR)$(DATADIR)/applications/unim-keymap-studio.desktop
+
+uninstall-typing-practice:
+	rm -f $(DESTDIR)$(BINDIR)/unim-typing-practice \
+	      $(DESTDIR)$(DATADIR)/applications/unim-typing-practice.desktop
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────
 
@@ -538,6 +560,18 @@ dev-popup-service:
 	@sleep 0.5
 	@sudo cp target/release/unim-popup-service $(DEV_BINDIR)/
 	@echo "✅ unim-popup-service 배포 완료!"
+
+dev-keymap-studio:
+	@$(CARGO) run -p unim-keymap-studio
+
+dev-typing-practice:
+	@$(CARGO) run -p unim-typing-practice
+
+build-keymap-studio:
+	@$(CARGO) build --release -p unim-keymap-studio
+
+build-typing-practice:
+	@$(CARGO) build --release -p unim-typing-practice
 
 dev-extension:
 	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)/schemas

@@ -1,0 +1,19 @@
+# UNIM 타자 연습 (한국어)
+app_title: UNIM 타자 연습
+practice_corpus: 연습 지문
+corpus_short: 짧은 글
+corpus_medium: 중간 글
+corpus_long: 긴 글
+stat_wpm: WPM
+stat_cpm: CPM
+stat_accuracy: 정확도
+stat_error_rate: 오타율
+btn_restart: 다시 시작
+btn_other_corpus: 다른 지문
+btn_copy_result: 결과 복사
+toast_practice_done: 연습 완료 — WPM %{wpm}, 정확도 %{acc}%
+toast_copied: 결과 복사됨
+hint_ime_warning: 한글 IME가 켜져 있어도 이 창에서는 ASCII 키 입력만 수집합니다.
+hint_select_profile: 좌측에서 자판을 선택하세요
+heatmap_title: 키 오타 히트맵
+progress_label: 진행률

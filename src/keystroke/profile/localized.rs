@@ -7,11 +7,11 @@
 //! 단일 문자열은 내부적으로 `{ "default": "..." }` 형태로 저장된다.
 //! locale 조회 시 fallback: 요청 locale → `"en"` → `"default"` → 첫 값.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// 다국어 텍스트. serde untagged로 문자열/객체 둘 다 역직렬화.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum LocalizedText {
     /// 단일 문자열. 내부 표현에서는 `default` 키로 저장한 것과 동일하게 취급.

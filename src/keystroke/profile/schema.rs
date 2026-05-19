@@ -54,7 +54,11 @@ pub struct MoachigiSpec {
 ///
 /// 모든 v1 필드는 optional이지만, 로더(`parse_profile_str`)는 v1 마커 중
 /// 하나라도 존재해야 수용한다(v0 거부).
-#[derive(Debug, Clone, Deserialize)]
+///
+/// `Serialize`는 사용자 디렉토리(`~/.config/unim/layouts/`)에 키맵을 저장하는
+/// 도구(`unim-keymap-studio`)를 위해 derive된다. optional 필드는 None일 때
+/// JSON에 노출하지 않아 round-trip 시 원본 형태를 보존한다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawProfile {
     // ── 공통 필수 ──────────────────────────────────────
@@ -65,36 +69,38 @@ pub struct RawProfile {
     pub layout: KeyLayout,
 
     // ── v1 필드 (optional, 단 하나 이상 존재해야 v1 인정) ──
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_version: Option<u8>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<LayoutMetadata>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherits: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub combinations: Option<CombinationsBlock>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule_sets: Option<BTreeMap<String, RuleSet>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_rule_sets: Option<Vec<String>>,
     /// schema_version 2 신규 — 키별 메타데이터.
     /// 키는 layout 셀과 동일한 컨벤션의 리터럴 문자열(예: `"/"`, `"ᆮ"`).
     /// PR-A는 schema·파싱만. 동작 적용은 PR-B.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_meta: Option<HashMap<String, KeyMeta>>,
 
     // ── v3 신규 필드 (optional, v3 게이트용 implicit 마커) ──────────────
     /// v3 — 이 자판이 모아치기를 지원하는지. GUI 옵션 활성화 게이트.
     /// true인 자판에서만 모아치기 GUI 위젯 활성.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub supports_moachigi: bool,
     /// Phase 7 deprecated — JSON에 있어도 파싱 후 무시. 사용자 config가 진실 공급원.
     /// 하위 호환(레거시 JSON 파싱 오류 방지)을 위해 필드만 유지.
-    #[serde(default)]
+    /// 직렬화 시에는 제외(deprecated 필드를 새로 저장하지 않음).
+    #[serde(default, skip_serializing)]
     pub bidirectional_combine: bool,
     /// Phase 7 deprecated — JSON에 있어도 파싱 후 무시. 사용자 config가 진실 공급원.
     /// 하위 호환(레거시 JSON 파싱 오류 방지)을 위해 필드만 유지.
-    #[serde(default)]
+    /// 직렬화 시에는 제외(deprecated 필드를 새로 저장하지 않음).
+    #[serde(default, skip_serializing)]
     pub chord_window_ms: u16,
 }
 
@@ -174,13 +180,13 @@ pub enum ContextCondition {
 // Layout 구조 (v0/v1 공통)
 // ============================================================================
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KeyLayout {
     pub upper: LayoutRows,
     pub lower: LayoutRows,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LayoutRows {
     /// 숫자열. 3벌식은 14키, 2벌식/영문 계열은 14키.
     #[serde(rename = "1st", default)]
@@ -200,22 +206,22 @@ pub struct LayoutRows {
 // v1 메타데이터
 // ============================================================================
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct LayoutMetadata {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<LocalizedText>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<LocalizedText>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 }
 
@@ -224,21 +230,21 @@ pub struct LayoutMetadata {
 // ============================================================================
 
 /// 자판 기본 조합 규칙. 존재하면 자기 완결 — Rust const 미참조.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CombinationsBlock {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cho: Vec<RawTriple>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jung: Vec<RawTriple>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jong: Vec<RawTriple>,
 }
 
 /// `(first, second) → result` 조합 엔트리 (해석 전 문자열).
 ///
 /// 자모 enum으로의 변환은 Phase 2 `builder`에서. 여기서는 순수 문자열.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RawTriple {
     pub first: String,
@@ -249,7 +255,7 @@ pub struct RawTriple {
 /// `reinterpret` 엔트리 — 기획 초안에서는 별도 타입으로 분리되었으나 v1 최종안에선
 /// 일반 `RawTriple`로 통합되었다. 이 타입은 **레거시 드래프트 JSON 호환용**으로 유지.
 /// 로더가 감지하면 `combinations`에 등가로 흡수 후 무시한다.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ReinterpretTriple {
     pub from: String,
@@ -261,28 +267,30 @@ pub struct ReinterpretTriple {
 // v1 규칙 세트
 // ============================================================================
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RuleSet {
     /// 기본 활성 여부.
     #[serde(default)]
     pub active: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<LocalizedText>,
     /// 세트에 속하는 pair combinations. scope는 first 자모 코드포인트로 자동 판별.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub combinations: Vec<RawTriple>,
     /// 초안 시기 `reinterpret` 필드. v1 최종 스키마에서는 `combinations`로 통합되었으나
     /// 기존 드래프트 JSON 호환을 위해 필드를 남겨 둠. 로더가 `combinations`로 흡수.
-    #[serde(default)]
+    /// 직렬화 시에는 제외(deprecated; 새 파일은 `combinations`로만 저장).
+    #[serde(default, skip_serializing)]
     pub reinterpret: Vec<ReinterpretTriple>,
     /// 초안 시기 `scope` 필드. 자동 판별로 대체되어 무시되지만 파싱 에러 방지용으로 수용.
-    #[serde(default)]
+    /// 직렬화 시에는 제외(deprecated).
+    #[serde(default, skip_serializing)]
     pub scope: Option<String>,
     /// schema_version 2 — rule_set이 토글하는 키 메타데이터.
     /// active=true일 때 base `key_meta`에 병합 (rule_set 우선). active=false면 무시.
     /// 룰 A(vowel_combine_head)·룰 B(context_alt)를 자판 단위로 켜고 끌 수 있게 하는 표현.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_meta: Option<HashMap<String, KeyMeta>>,
 }
 
