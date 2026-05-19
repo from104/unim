@@ -14,62 +14,71 @@ _아직 변경 사항 없음._
 
 ## [0.3.0] 2026-05-19
 
-### 호환성 깨짐
+이 릴리스는 모아치기(동시 자모 입력) 기능, 팝업 마우스 조작 전면 개편, 즐겨찾기(★), 단일 통합 설정 창, 그리고 UNIM 최초의 빌트인 모아치기 자판 안마태를 선보입니다.
 
-- **DBus 시그널 `HanjaCandidatesReordered` 페이로드가 10-tuple로 변경** (기존 9-tuple). 토글 직전 즐겨찾기 상태를 담은 `was_bookmarked: bool` 필드가 끝에 추가됐다 — 프런트엔드는 `was_bookmarked && !bookmarked`일 때만 cursor flash를 띄우는 식으로 분기. `org.atit.unim.InputContext`의 외부 구독자는 unpacking 코드를 함께 갱신해야 함 (9-tuple은 더 이상 수용하지 않음).
-- **자판 프로필 v0 스키마 미지원 전환.** v1 마커(`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`, `active_rule_sets`) 중 하나도 없는 0.1.x 시기의 v0 JSON은 이제 로더가 `LoadError::UnsupportedSchema`로 거부하고 콘솔에 경고를 출력한다. `~/.config/unim/layouts/*.json`의 사용자 v0 프로필은 `"schema_version": 1`을 추가하고 `combinations` 블록을 명시적으로 채워 v1으로 변환할 것([`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md) §3 참고). 빌트인 프로필은 0.2.0 시점에 모두 v1로 이관 완료된 상태.
+### ✨ 새 기능
 
-### 제거됨
+- **안마태(Ahnmatae 2003) 자판 기본 내장**: 2003년 안마태 신부(Matthew Y. Ahn)가 설계한 한손 모아치기 세벌식 자판이 빌트인으로 추가됩니다. 여러 자모를 동시에 눌러 한 음절을 입력하는 방식으로, 설정 → 자판에서 선택할 수 있습니다.
 
-- **`unim-gui-qt` 패키지 제거**: Qt6/cxx-qt 대체 GUI 패키지(`unim-gui-qt`)가 완전히 제거됐다. KDE Plasma 사용자는 `unim-settings`(= `unim-gui-gtk`)와 `unim-popup-service`로 전환한다. 기존 설정 파일(`~/.config/unim/config.yaml`)과 자판 레이아웃(`~/.config/unim/layouts/`)은 그대로 보존된다.
-- **Rust 상수 자모 조합 테이블** (`JUNG_COMBINATIONS`, `JONG_COMBINATIONS`, `CHO_COMBINATIONS`, Lazy static `COMBINED_JAMO_2BUL`/`_3BUL`)을 `src/hangul/composer_with_{2,3}bul.rs`에서 삭제. `HangulComposer{2,3}Bul::new()`는 이제 `new_with_profile(load_builtin_profile("ko_2bulstd"|"ko_3bul390"))`로 위임. 자모 조합 규칙의 단일 source of truth는 v1 빌트인 프로필 JSON.
-- **`SchemaKind` enum + `detect()`** 삭제(`src/keystroke/profile/schema.rs`). v0/v1 판별 역할은 `RawProfile::has_v1_markers()`로 단순화. 빌더의 `fallback_for(layout_type)` v0 호환 경로도 함께 삭제.
-- **`HangulComposer3BulMoachigi` 별도 컴포저 제거**: 모아치기 로직이 `InputEngine`의 `chord_buffer` 레이어를 통해 `HangulComposer3Bul` 내부로 통합됨. 사용자 체감 변화 없음.
-- **`emoji_popup.enabled` 설정 필드 전체 5지점에서 제거**: 한자 키 idle 트리거가 이제 항상 켜진다 — 조합 중에는 한자 변환, idle 상태에서는 이모지 팝업이 단일 진입점.
-- **쿼티형 세벌식(`ko_3bul_qwerty`) 빌트인에서 제거**: v3 모아치기 schema JSON 본문은 `docs/references/keymaps/ko_3bul_qwerty_v2.json`에 연구 자료로 보존. `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사하면 사용자 프로필로 계속 사용 가능.
+- **모아치기(동시 자모 입력) 엔진 v4**: 안마태 등 모아치기 지원 자판을 선택하면, 여러 자모를 동시에 눌렀을 때 UNIM이 음절로 조합해 줍니다. 기본 chord 창은 60ms이며, 처음 쓰는 분께는 100~150ms를 권장합니다. 설정 → 자판 → 동시 입력 시간(ms) 슬라이더로 조정할 수 있고, 0으로 설정하면 모아치기가 꺼집니다.
+  - **자모 역순 결합** (기본 OFF): 켜면 초·중·종성 결합을 두 가지 순서로 모두 시도해, 손가락이 어느 순서로 닿아도 올바른 음절이 완성됩니다. 이 옵션은 순차 입력(시간 간격을 두고 누르는 일반 타이핑)에도 함께 적용됩니다.
+  - 모아치기 도중이나 직후 Backspace를 누르면 자모를 하나씩 지우고 남은 자모로 음절을 재합성합니다. 일반 세벌식과 동일한 느낌입니다.
+  - 구두점·기호는 chord 창 안에서 눌러도 자모 결합에 포함되지 않고 항상 별도 문자로 처리됩니다.
 
-### 추가됨
+- **팝업 바깥 클릭으로 닫기**: GNOME 환경에서 한자·특수문자·이모지 팝업이 떴을 때, 팝업 바깥을 좌클릭하면 팝업이 닫힙니다. 그 클릭은 아래 창에 그대로 전달됩니다. 이전에는 ESC 만 가능했습니다.
 
-- **팝업 단일 SoT 아키텍처 — `unim-popup-service`**: 한자·특수문자·이모지 팝업의 렌더링 책임이 daemon에서 신규 사이드카 프로세스 `unim-popup-service`로 이관됐다. daemon의 `org.atit.unim.InputContext` 시그널 8종을 `org.atit.unim.Popup` 인터페이스로 forward하여 모든 환경에서 단일 view-model(PopupRender)을 공유한다. D-Bus auto-activation(`org.atit.unim.PopupService.service`) 방식으로 기동 — autostart .desktop 폐기.
-- **GNOME Shell extension `popup_view.js` 통합**: GNOME Wayland 환경에서 Mutter가 wlr-layer-shell 미지원이므로 extension이 St 위젯(`PopupView`)으로 한자·특수문자·이모지 팝업을 직접 렌더한다. popup-service와 동일한 CSS 토큰·클래스명 공유. `Meta.is_wayland_compositor()`가 true일 때만 활성화 — X11에서는 popup-service GTK4 popup 사용(이중 렌더 방지).
-- **외부 좌클릭 dismiss**: 팝업 바깥 좌클릭 시 팝업이 닫히며, 클릭 이벤트는 아래 창에 그대로 전달된다. 팝업 외부 클릭은 정상 동작이다.
-- **안마태 2003(안마태) 자판 빌트인** (`ko_3bul_anmatae`): UNIM 최초의 모아치기(chord 기반) 한글 자판. 고정 초·중·종성 영역을 갖는 세벌식 자판. 초성 9개·중성 15개·종성 20개 결합 규칙 포함.
-- **Qwerty형 세벌식 v2 빌트인** (`ko_3bul_qwerty`, v2): 0.2.0 빌트인 제거 후 모아치기 v3 schema로 재도입. Shift 없는 26자리 알파벳 포화(10 초성 / 6 중성 / 10 종성) 레이아웃.
-- **자판 프로필 v3 schema**: `supports_moachigi: bool` 최상위 능력 마커 추가. GTK 설정 다이얼로그는 이 플래그가 true일 때만 모아치기 그룹을 노출.
-- **모아치기 사용자 설정**: `~/.config/unim/config.yaml`의 `korean.*` 하위에 두 개의 opt-in 설정이 추가됨:
-  - `korean.bidirectional_combine: Option<bool>` — true이면 초·중·종성 결합을 `(a,b)`·`(b,a)` 양방향으로 시도. 기본 unset → OFF.
-  - `korean.chord_window_ms: Option<u16>` — 단일 chord 윈도우 지속 시간(ms). 0 또는 unset = chord 비활성. GUI 슬라이더 범위 10~200ms. 기본 unset → OFF.
-- **모아치기 chord 엔진** (`src/input_engine/chord_buffer.rs`): 단일 윈도우 chord 누산기. 자모 1개 → 일반 처리; 2개 이상 → 영역 분류 + permutation 탐색.
-- **모아치기 v4 — Atomic Window Principle**: 윈도우 만료 시점에 모든 분기 결정. 중간 commit 아티팩트 제거.
-- **`chord_compose` 모듈** (`src/input_engine/chord_compose.rs`): 영역별 permutation 탐색 (cho ≤ 2키, jung/jong ≤ 3키, 실패 시 호환자모 fallback).
-- **`chord_window_ms` 범위 및 기본값 갱신**: 범위 10~100ms → **10~200ms**, 기본값 50ms → **60ms**.
-- **`KoreanConfig::validate_chord_window_ms`**: 신규 검증 함수. 0(chord 비활성) 또는 10~200ms만 허용.
-- **Backspace 시 chord preedit 복원**: chord 도중·직후 Backspace가 `input_order` 역순으로 자모를 제거하고 나머지로 음절을 재합성.
-- **GTK 설정 다이얼로그 — 모아치기 그룹**: "동시 입력 자모 역순 결합" 토글 + "동시 입력 시간(ms)" 슬라이더(10~200ms, 기본 60ms, tick 마크 10 / 50 / 100 / 150 / 200). `supports_moachigi=true`인 자판 선택 시만 표시.
-- **모든 popup·모든 프런트엔드에 마우스 페이지 이동 ◀/▶ 버튼**: 한자·특수문자·이모지 popup 모두 footer에 ◀(이전) / ▶(다음) 버튼 추가. 키보드 `←`/`→` 및 `Page Up`/`Page Down`과 동일한 wrap-around 동작. `total_pages == 1`이면 버튼 숨김. 신규 DBus RPC: `popup_change_page(direction: i32)`.
-- **한자 즐겨찾기 해제 cursor flash** (Catppuccin yellow `#f9e2af`, 140ms): ☆로 해제 시 popup 재정렬 + cursor가 사전순 원위치로 점프. 도착 셀이 깜박여 자동 페이지 이동을 인지하게 한다.
-- **Wayland popup pointer 입력 인프라** (`unim-frontends/wayland`): `WlPointer` 이벤트 핸들링으로 popup ◀/▶ 클릭 수신.
-- **i18n 키 추가**: `popup_previous_page`, `popup_next_page`를 ko/en (yml·po 4지점)에 동기 추가.
-- **BUILTIN_NAMES × 4축 정합성 테스트**: 10종 빌트인 전수에 대해 fallback 미발생·v1 schema·combinations 보유를 단일 테스트로 검증.
-- **AutoTypeFix 학습 blacklist 강화**: retrigger 시점에 tentative 억제 항목 등록 + 즉시 억제.
-- **사용자 가이드 — 키보드 호환성 섹션**: `docs/user/keymaps/anmatae.md`·`anmatae.en.md`에 NKRO 권장 섹션 추가.
-- **트러블슈팅 §15 — 모아치기 섹션**: 5가지 주요 원인(윈도우 너무 짧음, NKRO 미지원, USB 폴링 레이트 낮음, bidirectional_combine 비활성, 자판 미지원) 진단·해결 수록.
-- **RPM 패키징** (`rpm/unim.spec`): Fedora/RHEL/openSUSE 계열 패키지 지원 추가.
+- **팝업 마우스 페이지 이동 (◀/▶)**: 한자·특수문자·이모지 팝업 모두 하단에 ◀(이전)·▶(다음) 버튼이 생겼습니다. 버튼 클릭 또는 팝업 안에서 우클릭으로 다음 페이지로 이동할 수 있습니다. 페이지가 하나뿐이면 버튼은 숨겨집니다.
 
-### 변경됨
+- **한자 즐겨찾기 (★/☆)**: 자주 쓰는 한자 후보에 별표를 달 수 있습니다. 같은 음절을 다시 변환하면 즐겨찾기 항목이 목록 맨 위에 나타납니다. GTK·Qt에서는 Space 키로, GNOME에서는 우클릭으로 토글합니다. 별표를 해제하면 후보가 사전순 원위치로 이동하고, 도착한 칸이 노란색으로 잠깐 깜박여(140ms) 어디로 옮겨졌는지 알 수 있습니다.
 
-- **설정 다이얼로그 라이브 도움말 보강**: 26개 tooltip·15개 subtitle 재작성, 5개 i18n 키 신규 추가. four-element 템플릿(무엇/언제/왜/권장값) 적용.
-- GTK 설정 다이얼로그의 `chord_window_ms` 슬라이더: 범위 10~100ms → **10~200ms**, 기본값 50ms → 60ms.
-- `bidirectional_combine` tooltip: chord 윈도우와 독립 동작하며 순차 입력에도 적용됨을 명시.
+- **한자 팝업 9×9 확장 격자 모드**: 한자 팝업은 기본으로 9개씩 표시합니다. 오른쪽 하단의 ⊞ 아이콘을 누르면 81개를 한 화면에 볼 수 있는 확장 격자 모드로 전환됩니다. ⊟를 누르면 다시 기본 모드로 돌아옵니다.
 
-### 고침 (best-effort)
+- **이모지 팝업 카테고리 탭 + 단축키**: 이모지 팝업 왼쪽에 9개 카테고리(Smileys, Animals, Food…) 탭이 세로로 생겼습니다. A / S / D / F … 키를 누르면 마우스 없이 즉시 해당 카테고리로 이동합니다.
 
-- **XIM `commit_then_preedit` 가 `commit()` 직전 `clear_preedit()` 강제** (`unim-frontends/xim/src/handler.rs`): OVER-THE-SPOT 경로(XTerm·WezTerm)에서 commit 직후 preedit 가시화 정상 복귀. XIM 한정 잔존 회귀 회피책 적용 완료.
+- **AutoTypeFix(자동 한영 오타 교정) 학습 블랙리스트**: AutoTypeFix가 잘못 교정한 단어를 우클릭 → "자동 교정 안 함"으로 등록하면, 이후 그 단어는 자동 교정되지 않습니다. 등록한 단어 목록은 설정 → 억제 단어에서 확인·관리할 수 있습니다.
 
-### 알려진 이슈
+- **RPM 패키지 지원**: Fedora·openSUSE·RHEL 계열 사용자를 위한 `.rpm` 패키지 빌드를 지원합니다. 다만 spec 파일이 새로 작성된 것으로, 모든 배포판 환경에서 충분히 검증되지 않았습니다. 문제 발생 시 [GitHub Issues](https://github.com/from104/unim/issues)로 제보해 주세요.
 
-- **KDE Plasma 5.x Wayland popup 미지원**: Ubuntu 24.04 (noble) 표준 저장소에 `gtk4-layer-shell` 패키지가 없어 한자/특수문자/이모지 팝업이 표시되지 않습니다. X11 세션 사용 또는 GNOME으로 우회 권장.
-- **KDE Plasma 6 Wayland / Sway / Hyprland / river — 실험적, 검증 미흡**: 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 **이론상** 동작하지만, **0.3.0 QA 사이클에서 충분히 테스트되지 않았습니다.** popup 위치 정렬, IME 포커스 전환, layer-shell 좌표 변환 등에서 미세 회귀가 있을 수 있습니다. 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
+### 🔄 달라진 점
+
+- **단일 통합 설정 창 (`unim-settings`)**: 기존에 GTK·Qt 두 가지로 나뉘던 설정 창이 GTK4 + libadwaita 기반의 `unim-settings` 하나로 통합되었습니다. 데스크톱 환경에 관계없이 동일한 설정 화면을 사용합니다.
+
+- **트레이 인디케이터 분리 (`unim-indicator`)**: 트레이 아이콘이 별도 프로세스로 분리되었습니다. 설정 창을 닫아도 트레이 아이콘이 사라지지 않으며, 반대로 트레이를 종료해도 설정 창은 유지됩니다.
+
+- **팝업 렌더링 별도 서비스 분리 (`unim-popup-service`)**: 한자·특수문자·이모지 팝업 렌더링이 별도 백그라운드 프로세스로 분리되었습니다. 처음 한자 변환을 실행하면 자동으로 시작되므로, 별도로 켤 필요가 없습니다.
+
+- **설정 화면 수치 입력이 슬라이더로 변경**: 동시 입력 시간 등 숫자를 입력하는 항목이 슬라이더 + 눈금 표시 방식으로 바뀌었습니다. 마우스 한 번으로 원하는 값에 가까운 위치를 클릭할 수 있습니다.
+
+- **설정 도움말 텍스트 개선**: 설정 화면의 모든 항목에 더 명확한 설명과 권장값이 추가되었습니다. 각 옵션이 무엇을 하는지, 언제 켜면 좋은지, 어떤 값부터 시작하면 좋은지 구체적인 예시와 함께 안내합니다.
+
+- **이모지 팝업 항상 사용 가능**: 이모지 팝업 사용 여부를 별도로 설정하는 옵션이 없어졌습니다. 이제 한글 조합 중이 아닐 때 한자 키를 누르면 언제든 이모지 팝업이 열립니다. 기존 설정 파일에 `engine.emoji_popup` 항목이 있으면 조용히 무시되고, 다음 저장 시 제거됩니다.
+
+- **모아치기 창 범위·기본값 변경**: 동시 입력 시간의 상한이 200ms(기존 100ms)로 늘어났고, 기본값은 60ms(기존 50ms)로 조정되었습니다. 동시 입력이 어렵게 느껴지는 분은 100~150ms부터 시작해 보세요.
+
+### 🐛 고친 버그
+
+- **XIM 환경(XTerm·WezTerm 등 OVER-THE-SPOT 방식)에서 음절 확정 직후 다음 자모가 안 보이던 문제 해소**: 한 음절을 입력하고 바로 다음 자모를 누르면 조합 중 표시(preedit)가 즉시 나타납니다. 이전에는 첫 자모가 보이지 않다가 두 번째 자모를 눌러야 나타났습니다. 일부 드문 XIM 앱에서는 잔존할 수 있습니다 — 알려진 이슈 참고.
+
+- **빌드 경고 0건 달성**: 이번 릴리스는 컴파일러 경고 없이 빌드됩니다. 사용자가 직접 느끼는 변화는 아니지만, 향후 버그 발생 가능성을 낮춥니다.
+
+### 🗑️ 제거
+
+- **쿼티형 세벌식(`ko_3bul_qwerty`) 빌트인에서 제거**: 이 자판이 기본 목록에서 빠졌습니다. 기존에 이 자판을 사용하고 있었다면 업그레이드 후 자동으로 다른 자판으로 전환되지 않으니, 설정 → 자판에서 새 자판을 선택해야 합니다. 계속 쓰고 싶다면 `docs/references/keymaps/ko_3bul_qwerty_v2.json`을 `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사하면 사용자 자판으로 불러올 수 있습니다.
+
+- **Qt 설정 창(`unim-gui-qt`) 제거**: Qt6 기반 대체 설정 창이 제거되었습니다. KDE Plasma 포함 모든 환경에서 GTK4 `unim-settings`가 단일 설정 창입니다.
+
+### ⚠️ 업그레이드 안내
+
+- **0.2.0에서 올리는 경우**: 설정 파일(`~/.config/unim/config.yaml`)과 사용자 자판(`~/.config/unim/layouts/*.json`)은 그대로 유지됩니다. 별도 마이그레이션이 필요 없습니다.
+- **`unim-gui-qt` 사용자**: `apt remove unim-gui-qt && apt install unim-settings unim-popup-service` 로 전환하세요.
+- **`ko_3bul_qwerty` 사용자**: 자판 선택이 자동으로 이전되지 않습니다. 업그레이드 후 설정 → 자판에서 다시 선택하거나, 위 제거 항목의 우회 방법을 따라 사용자 자판으로 등록하세요.
+- **UNIM 0.1.x에서 만든 사용자 자판 JSON(v0 형식)**: `~/.config/unim/layouts/`에 직접 작성한 자판 파일이 있다면 v1 형식으로 변환해야 합니다(`"schema_version": 1`과 `combinations` 블록 추가). 변환 방법은 `docs/dev/plans/LAYOUT_PROFILE_V1.md`를 참고하세요.
+
+### 🚧 알려진 이슈
+
+- **KDE Plasma 5.x Wayland**: 한자·특수문자·이모지 팝업이 표시되지 않습니다. 필요한 시스템 라이브러리(`gtk4-layer-shell`)가 Ubuntu 24.04 표준 저장소에 없습니다. X11 세션을 사용하거나 GNOME으로 전환하세요.
+- **KDE Plasma 6 Wayland / Sway / Hyprland / river 등 단독 Wayland 컴포지터**: 이번 릴리스에서 충분히 검증되지 않았습니다. 팝업 위치·IME 포커스 전환·입력 포커스 전환에 미세 회귀가 있을 수 있습니다. 문제 발생 시 [GitHub Issues](https://github.com/from104/unim/issues)로 제보해 주세요.
+- **일부 드문 XIM ON-THE-SPOT 앱**: 음절 확정 직후 다음 자모의 preedit이 한 프레임 누락될 수 있습니다. XTerm·WezTerm·GTK·Qt·Wayland·GNOME 환경은 영향 없습니다.
 
 ---
 
