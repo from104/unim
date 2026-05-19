@@ -1,0 +1,35 @@
+# UNIM Keymap Studio (English)
+app_title: UNIM Keymap Studio
+tab_view: View
+tab_edit: Edit
+view_metadata: Profile info
+edit_metadata: Metadata
+edit_layout: Key layout
+edit_combinations: Combinations
+combos_cho: Choseong combinations
+combos_jung: Jungseong combinations
+combos_jong: Jongseong combinations
+rule_sets_title: Rule sets
+rule_sets_active: active
+moachigi_group: Moachigi (v3)
+moachigi_capability: Layout supports moachigi
+moachigi_capability_hint: Actual moachigi options live in the user config
+btn_save: Save
+btn_save_as: Save As
+btn_revert: Revert
+btn_add: Add
+btn_remove: Remove
+btn_edit: Edit
+dialog_edit_key_title: Edit key
+dialog_edit_combo_title: Edit combination
+dialog_save_as_title: Save As
+dialog_field_first: First
+dialog_field_second: Second
+dialog_field_result: Result
+dialog_field_value: Value
+dialog_field_name: Profile name
+toast_saved: Saved — %{path}
+toast_save_failed: Save failed — %{err}
+toast_revert: Reverted to original
+combo_section_empty: No combinations registered
+no_profile_hint: Pick a profile on the left

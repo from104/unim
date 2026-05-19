@@ -1,0 +1,35 @@
+# UNIM 키맵 스튜디오 (한국어)
+app_title: UNIM 키맵 스튜디오
+tab_view: 보기
+tab_edit: 편집
+view_metadata: 자판 정보
+edit_metadata: 메타데이터
+edit_layout: 자판 배열
+edit_combinations: 조합 규칙
+combos_cho: 초성 조합
+combos_jung: 중성 조합
+combos_jong: 종성 조합
+rule_sets_title: 규칙 세트
+rule_sets_active: 활성
+moachigi_group: 모아치기 (v3)
+moachigi_capability: 자판이 모아치기를 지원
+moachigi_capability_hint: 실제 동작 옵션은 사용자 설정에서 조정합니다
+btn_save: 저장
+btn_save_as: 다른 이름으로 저장
+btn_revert: 원본으로 복원
+btn_add: 추가
+btn_remove: 삭제
+btn_edit: 편집
+dialog_edit_key_title: 키 편집
+dialog_edit_combo_title: 조합 편집
+dialog_save_as_title: 다른 이름으로 저장
+dialog_field_first: 첫번째
+dialog_field_second: 두번째
+dialog_field_result: 결과
+dialog_field_value: 값
+dialog_field_name: 자판 이름
+toast_saved: 저장됨 — %{path}
+toast_save_failed: 저장 실패 — %{err}
+toast_revert: 원본 복원됨
+combo_section_empty: 등록된 조합이 없습니다
+no_profile_hint: 좌측에서 자판을 선택하세요

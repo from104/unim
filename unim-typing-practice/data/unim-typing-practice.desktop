@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=UNIM Typing Practice
+Name[ko]=UNIM 타자 연습
+Comment=Practice typing on any Hangul keymap, with WPM, accuracy, and key heatmap
+Comment[ko]=원하는 한글 자판으로 타자 연습 — WPM·정확도·키 히트맵
+Exec=unim-typing-practice
+Icon=input-keyboard
+Categories=Utility;Education;
+Keywords=typing;practice;hangul;keymap;wpm;
+NoDisplay=false

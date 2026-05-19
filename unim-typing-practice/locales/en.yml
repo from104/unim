@@ -1,0 +1,19 @@
+# UNIM Typing Practice (English)
+app_title: UNIM Typing Practice
+practice_corpus: Corpus
+corpus_short: Short
+corpus_medium: Medium
+corpus_long: Long
+stat_wpm: WPM
+stat_cpm: CPM
+stat_accuracy: Accuracy
+stat_error_rate: Error rate
+btn_restart: Restart
+btn_other_corpus: Other corpus
+btn_copy_result: Copy result
+toast_practice_done: Done — WPM %{wpm}, accuracy %{acc}%
+toast_copied: Result copied
+hint_ime_warning: This window only collects ASCII keys, even if your Hangul IME is enabled.
+hint_select_profile: Pick a profile on the left
+heatmap_title: Key error heatmap
+progress_label: Progress

@@ -5540,6 +5540,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "unim-keymap-common"
+version = "0.3.0"
+dependencies = [
+ "cairo-rs 0.20.12",
+ "dirs 5.0.1",
+ "gtk4",
+ "libadwaita",
+ "rust-i18n",
+ "serde",
+ "serde_json",
+ "unim",
+ "unim-gui-common",
+]
+
+[[package]]
+name = "unim-keymap-studio"
+version = "0.3.0"
+dependencies = [
+ "gtk4",
+ "libadwaita",
+ "rust-i18n",
+ "serde_json",
+ "unim",
+ "unim-keymap-common",
+]
+
+[[package]]
 name = "unim-test-dbus"
 version = "0.3.0"
 dependencies = [
@@ -5571,6 +5598,17 @@ dependencies = [
  "unim",
  "windows",
  "windows-core 0.58.0",
+]
+
+[[package]]
+name = "unim-typing-practice"
+version = "0.3.0"
+dependencies = [
+ "gtk4",
+ "libadwaita",
+ "rust-i18n",
+ "unim",
+ "unim-keymap-common",
 ]
 
 [[package]]

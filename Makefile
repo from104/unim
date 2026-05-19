@@ -59,12 +59,16 @@ endef
         gen-popup-css gen-popup-css-check \
         _check-build \
         install install-core install-frontends install-icons install-gui-gtk install-gui-qt \
+        install-keymap-studio install-typing-practice \
         install-gnome-extension install-extension install-systemd \
         uninstall uninstall-core uninstall-frontends uninstall-icons uninstall-gui-gtk uninstall-gui-qt \
+        uninstall-keymap-studio uninstall-typing-practice \
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
         deb clean-deb test test-dbus dev-restart \
+        dev-keymap-studio dev-typing-practice \
+        build-keymap-studio build-typing-practice \
         check-windows build-windows clean-windows
 
 # ─── Help ────────────────────────────────────────────────────────────────────
@@ -171,6 +175,16 @@ install-gui-qt:
 	install -m 644 unim-gui-qt/data/unim-gui-qt.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 	install -m 644 unim-gui-qt/data/unim-gui-qt-launcher.desktop $(DESTDIR)$(DATADIR)/applications/unim-gui-qt.desktop
 
+install-keymap-studio:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-keymap-studio $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-keymap-studio/data/unim-keymap-studio.desktop $(DESTDIR)$(DATADIR)/applications/
+
+install-typing-practice:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-typing-practice $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-typing-practice/data/unim-typing-practice.desktop $(DESTDIR)$(DATADIR)/applications/
+
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
 uninstall: uninstall-core uninstall-gui-gtk uninstall-gui-qt uninstall-frontends uninstall-icons uninstall-gnome-extension
@@ -201,6 +215,14 @@ uninstall-gui-qt:
 	rm -f $(DESTDIR)$(BINDIR)/unim-gui-qt \
 	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-qt.desktop \
 	      $(DESTDIR)$(DATADIR)/applications/unim-gui-qt.desktop
+
+uninstall-keymap-studio:
+	rm -f $(DESTDIR)$(BINDIR)/unim-keymap-studio \
+	      $(DESTDIR)$(DATADIR)/applications/unim-keymap-studio.desktop
+
+uninstall-typing-practice:
+	rm -f $(DESTDIR)$(BINDIR)/unim-typing-practice \
+	      $(DESTDIR)$(DATADIR)/applications/unim-typing-practice.desktop
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────
 
@@ -487,6 +509,18 @@ dev-gui-qt:
 	@sleep 0.5
 	@sudo cp target/release/unim-gui-qt $(DEV_BINDIR)/
 	@echo "✅ unim-gui-qt 배포 완료!"
+
+dev-keymap-studio:
+	@$(CARGO) run -p unim-keymap-studio
+
+dev-typing-practice:
+	@$(CARGO) run -p unim-typing-practice
+
+build-keymap-studio:
+	@$(CARGO) build --release -p unim-keymap-studio
+
+build-typing-practice:
+	@$(CARGO) build --release -p unim-typing-practice
 
 dev-extension:
 	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)/schemas

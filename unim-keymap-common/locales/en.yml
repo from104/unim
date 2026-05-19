@@ -1,0 +1,21 @@
+# UNIM keymap tools shared labels (English)
+sidebar_builtin: Built-in
+sidebar_user: User
+badge_override: overrides
+badge_moachigi: moachigi
+badge_v3: v3
+case_upper: Upper
+case_lower: Lower
+key_panel_jamo: Jamo
+key_panel_meta: Key meta
+key_panel_combos: In combinations
+key_panel_empty: Select a key
+meta_author: Author
+meta_description: Description
+meta_version: Version
+meta_schema_version: Schema
+meta_language: Language
+meta_type: Type
+meta_license: License
+meta_tags: Tags
+no_profile_selected: Select a profile

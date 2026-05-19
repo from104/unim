@@ -143,6 +143,32 @@ Description: UNIM Korean IME — Qt6/QML settings GUI (alternative)
  Coexists with unim-gui-gtk — pick whichever fits the desktop. KDE
  Plasma users who prefer native Qt styling should install this one.
 
+Package: unim-keymap-studio
+Architecture: any
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Description: UNIM Keymap Studio — view and edit Hangul keymaps
+ GTK4/libadwaita tool that opens any v1·v2·v3 Hangul keymap
+ profile (built-in or user-defined), shows the 4×N key layout
+ with Upper/Lower toggle and per-key metadata, and lets you edit
+ individual keys, cho/jung/jong combinations, rule sets and the
+ moachigi marker. Saves to ~/.config/unim/layouts/ so the result
+ is immediately picked up by the rest of UNIM.
+
+Package: unim-typing-practice
+Architecture: any
+Depends: unim-common (= ${binary:Version}),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Description: UNIM Typing Practice — WPM/accuracy/heatmap on any Hangul keymap
+ GTK4/libadwaita tool that runs a typing-practice session on
+ the currently selected UNIM Hangul keymap. Captures raw ASCII
+ keys (bypassing any active system IME), feeds them through the
+ keymap's composer, and reports live WPM, CPM, accuracy and
+ error rate. After each session the per-key error heatmap is
+ painted on top of the keyboard.
+
 Package: unim-gnome
 Architecture: all
 Depends: unim-common (= ${source:Version}),

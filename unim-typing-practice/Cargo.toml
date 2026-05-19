@@ -1,0 +1,21 @@
+[package]
+name = "unim-typing-practice"
+version.workspace = true
+edition = "2021"
+description = "UNIM Typing Practice - WPM/accuracy/heatmap on any Hangul keymap (GTK4)"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "unim-typing-practice"
+path = "src/main.rs"
+
+[dependencies]
+unim = { path = ".." }
+unim-keymap-common = { path = "../unim-keymap-common" }
+
+gtk4 = "0.9"
+libadwaita = { version = "0.7", features = ["v1_4"] }
+
+rust-i18n = "3"
