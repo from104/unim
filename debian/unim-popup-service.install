@@ -8,3 +8,4 @@
 # 회피). daemon 이 PopupService 호출 시 자동 launching.
 debian/tmp/usr/bin/unim-popup-service
 debian/tmp/usr/share/dbus-1/services/org.atit.unim.PopupService.service
+debian/tmp/usr/share/man/man1/unim-popup-service.1

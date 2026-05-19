@@ -147,6 +147,8 @@ Depends: unim-common (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
 Recommends: unim-indicator, unim-settings
+Replaces: unim-gui-qt (<< 0.3.0~)
+Breaks: unim-gui-qt (<< 0.3.0~)
 Description: UNIM Korean IME — popup & tray service (GTK4, X11/Wayland)
  Standalone GTK4 popup·tray service for hanja/special-character/emoji
  popups across non-GNOME desktops (KDE Plasma, Xfce, Cinnamon).

@@ -5,3 +5,4 @@
 
 debian/tmp/usr/bin/unim-indicator
 debian/tmp/etc/xdg/autostart/unim-indicator.desktop
+debian/tmp/usr/share/man/man1/unim-indicator.1

@@ -66,7 +66,7 @@ endef
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
-        deb clean-deb test test-dbus dev-restart \
+        deb clean-deb rpm clean-rpm test test-dbus dev-restart \
         dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-core dev-daemon dev-xim dev-wayland \
         dev-indicator dev-settings dev-popup-service dev-extension \
         check-windows build-windows clean-windows
@@ -153,7 +153,9 @@ install-core:
 	# daemon 이 살아있어야 popup-service kickstart 도 동작.
 	install -m 644 unim-daemon/data/unim-daemon.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
-	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 $(DESTDIR)$(PREFIX)/share/man/man1/
+	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 \
+	               docs/man/unim-indicator.1 docs/man/unim-settings.1 docs/man/unim-popup-service.1 \
+	               $(DESTDIR)$(PREFIX)/share/man/man1/
 
 install-frontends:
 	@echo "Installing IM modules..."
@@ -198,7 +200,11 @@ uninstall-core:
 	      $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc \
 	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service \
 	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-daemon.desktop \
-	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-cli.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-indicator.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-popup-service.1
 
 uninstall-frontends:
 	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/im-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so \
@@ -309,6 +315,25 @@ deb:
 clean-deb:
 	@rm -rf $(DEB_DIR)
 	@rm -f ../*.deb ../*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
+
+# ─── RPM ─────────────────────────────────────────────────────────────────────
+
+RPM_VERSION := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+RPM_TOPDIR  := $(CURDIR)/rpm/build
+
+rpm: _check-build
+	@echo "  → Preparing RPM source tarball..."
+	@mkdir -p $(RPM_TOPDIR)/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+	@git archive --format=tar.gz --prefix=unim-$(RPM_VERSION)/ HEAD \
+	    -o $(RPM_TOPDIR)/SOURCES/unim-$(RPM_VERSION).tar.gz
+	@cp rpm/unim.spec $(RPM_TOPDIR)/SPECS/unim.spec
+	@echo "  → Running rpmbuild..."
+	@rpmbuild --define "_topdir $(RPM_TOPDIR)" -ba $(RPM_TOPDIR)/SPECS/unim.spec
+	@echo "✅ RPM packages: $(RPM_TOPDIR)/RPMS/" && find $(RPM_TOPDIR)/RPMS -name '*.rpm' | sort
+
+clean-rpm:
+	@rm -rf $(RPM_TOPDIR)
+	@echo "✅ RPM build directory cleaned"
 
 # ─── Windows (native / cross-compile) ────────────────────────────────────────
 # 호스트가 Windows면 네이티브 빌드, Linux/mac이면 cross-compile.
