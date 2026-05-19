@@ -476,6 +476,67 @@ Attach `unim-report.txt` to your issue. Skim it once first — passwords/tokens 
 
 ---
 
+## 16. popup-service debugging (0.3.0+)
+
+### "Hanja / special-character / emoji popup never appears" (GNOME X11 or KDE/Xfce)
+
+Since 0.3.0, all popups are rendered exclusively by `unim-popup-service`. Even if the daemon is running, popups will not appear if popup-service is not available.
+
+#### Diagnostic commands
+
+```bash
+# Check whether popup-service process is running
+pgrep -a unim-popup
+
+# Verify the DBus interface is exposed
+busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
+
+# Check that the D-Bus service activation file is installed
+ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
+   /usr/share/dbus-1/services/org.atit.unim.PopupService.service 2>/dev/null
+```
+
+#### Fixes
+
+- If the service file is absent, `unim-popup-service` is not installed.
+
+  ```bash
+  # deb
+  sudo apt install ./unim-popup-service_0.3.0_amd64.deb
+  # rpm
+  sudo dnf install ./unim-popup-service-0.3.0.x86_64.rpm
+  # from source
+  sudo make install PREFIX=/usr
+  ```
+
+- If the service file exists but popups still do not appear, start the service manually to see log output:
+
+  ```bash
+  UNIM_DEVELOP=1 unim-popup-service &
+  # trigger hanja popup, then check terminal output
+  ```
+
+- If `busctl` introspect fails entirely, the service is not responding. Check:
+
+  ```bash
+  systemctl --user status unim-popup-service
+  journalctl --user -t unim-popup-service -b --no-pager
+  ```
+
+### "Popup closes immediately when I click it"
+
+Clicking **outside** the popup is intentional dismiss behavior — the popup closes and the click event is passed through to the window underneath. Clicking inside a cell or button should not close the popup. If clicking inside the popup dismisses it, the popup position or size is being calculated incorrectly; check the DBus caret coordinates (`caret_rect`).
+
+### "Two popups appear at once on GNOME Wayland"
+
+`Meta.is_wayland_compositor()` detection has failed, causing both the extension `PopupView` and the popup-service GTK4 window to render simultaneously. Check your GNOME Shell version, then disable and re-enable the `unim-gnome@from104.github.io` extension.
+
+### "XIM ON-THE-SPOT preedit missing after commit"
+
+A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT clients (XTerm, WezTerm) now work correctly. Some ON-THE-SPOT (PREEDIT_CALLBACKS) clients still exhibit the regression — this is a known unresolved issue caused by xim-0.5.0's `commit()` not updating `preedit_started`. Workaround: use an OVER-THE-SPOT client (XTerm) or switch to the GTK/Qt IM modules.
+
+---
+
 ## 0.2.0 release-specific notes
 
 > Auxiliary diagnostics drafted by manual-test-planner just before the 0.2.0 release. The user-facing sections above (§1–§14) take precedence; this section keeps only supplementary diagnostic tools and regression-watch items.

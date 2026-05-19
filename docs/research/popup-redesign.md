@@ -246,3 +246,44 @@
 - [Mozilla bug 1575136 (X11 popup type)](https://bugzilla.mozilla.org/show_bug.cgi?id=1575136)
 - [Fix GTK4 application themes on KDE Plasma 6 Wayland (gist)](https://gist.github.com/DenebTM/3cad3bbaee0cdc2ad190162a969e4a87)
 - [How Input Methods Work in Linux (Nerufic)](https://nerufic.com/en/posts/how-input-methods-work-in-linux/)
+
+---
+
+## 후속 노트 — 0.3.0 구현 결과 (2026-05-19)
+
+### 달성한 것
+
+`arch/popup-unify` 브랜치에서 사전 리서치에서 제안한 설계를 전면 구현했다.
+
+|항목|결과|
+|---|---|
+|렌더러 통합|`unim-popup-service` (GTK4) + GNOME extension `popup_view.js` 두 렌더러로 수렴|
+|`unim-gui-qt` 폐기|완료. KDE 사용자는 `unim-gui-gtk` + `unim-popup-service`로 마이그레이션|
+|D-Bus forward 계층|`org.atit.unim.Popup` 인터페이스 신설. daemon은 forward만, 렌더러가 구독|
+|단일 view-model SoT|`PopupRender` payload — 셀·헤더·푸터·탭·하이라이트 완전 통합|
+|GNOME Wayland|Mutter `wlr-layer-shell` 미지원 확인 → extension St 위젯으로 우회|
+|GNOME X11|popup-service GTK4 윈도우 (D-Bus auto-activation)|
+|KDE/Xfce/X11 WM|popup-service GTK4 윈도우|
+|Wayland WM (Sway/Hyprland)|popup-service `libgtk4-layer-shell` 조건부 지원|
+|외부 좌클릭 dismiss|팝업 영역 밖 클릭 → 팝업 닫힘 + 클릭 이벤트 pass-through|
+|D-Bus auto-activation|`org.atit.unim.PopupService.service` — autostart .desktop 제거|
+
+### 미해결 사항
+
+- **KDE Plasma 5.x Wayland**: Ubuntu 24.04 표준 저장소에 `gtk4-layer-shell` 미제공.
+  팝업 위치 지정 불가. 회피책: X11 세션 사용 또는 GNOME으로 전환.
+- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop**: `commit_then_preedit` 경로
+  `clear_preedit()` → `commit()` 순서 수정으로 best-effort 완화. 일부 클라이언트에서
+  잔존. upstream xim-0.5.0 수정 대기 중.
+
+### 설계 변경점
+
+사전 리서치에서 `unim-daemon` 내부에 팝업 렌더링을 유지하는 안과 완전 분리하는 안을
+비교했다. 최종 구현은 **완전 분리** 방향을 채택했으며, daemon은 view-model 생성과
+forward만 담당한다. 이로써 렌더러 교체/추가가 daemon 코드 변경 없이 가능해졌다.
+
+### 관련 문서
+
+- [POPUP_SPEC.md](../dev/specs/POPUP_SPEC.md)
+- [IME_BEHAVIOR.md §4](../dev/architecture/IME_BEHAVIOR.md)
+- [0.3.0 릴리즈 노트](../user/release-notes/0.3.0/README.md)

@@ -19,7 +19,7 @@
 | **CLI** | `unim-cli/` | Rust | 한↔영 변환 + `config` 서브커맨드 통합 명령줄 도구 |
 | **GUI Common** | `unim-gui-common/` | Rust | DBus 통신, 트레이 공통 로직 |
 | **GUI GTK** | `unim-gui-gtk/` | Rust | GTK 기반 시스템 트레이, 설정 UI |
-| **GUI Qt** | `unim-gui-qt/` | Rust (cxx-qt) | Qt6 기반 시스템 트레이, 설정 UI |
+| **Popup Service** | `unim-popup-service/` | Rust+GTK4 | 한자·특수문자·이모지 팝업 단일 렌더러 (D-Bus auto-activation) |
 | **GTK3 IM Module** | `unim-frontends/gtk3/` | C | GTK3 입력 모듈 |
 | **GTK4 IM Module** | `unim-frontends/gtk4/` | C | GTK4 입력 모듈 |
 | **GTK Common** | `unim-frontends/gtk-common/` | C | GTK3/4 공통 코드 (한자 팝업 등) |
@@ -45,18 +45,32 @@
 - **AutoTypeFix 억제 사전** (사용자 데이터): `~/.config/unim/typefix-blacklist.yaml` — 데몬이 mtime 감시로 자동 리로드
 - **로그 파일**: `~/.unim-errors.log` (`UNIM_DEVELOP=1` 시 활성화)
 
-### 팝업 아키텍처
+### 팝업 아키텍처 (0.3.0 — 단일 SoT)
 
-한자/특수문자 팝업은 두 가지 모드로 동작합니다 (`popup_mode` 설정):
+0.3.0부터 팝업은 **`unim-popup-service`** 사이드카가 단일 렌더러로 처리합니다.
 
-| 모드 | 팝업 주체 | 시그널 발행 | 환경 |
-| ---- | --------- | ---------- | ---- |
-| **Standalone** (기본) | unim-gui-gtk 또는 GNOME Extension | ShowHanja/ShowSpecial DBus 시그널 | 모든 환경 |
-| **Embedded** | IM 모듈 자체 (GTK/Qt/XIM/Wayland) | 시그널 미발행 | X11 전용 |
+```text
+[unim-daemon] ──PopupRender payload──→ [unim-popup-service] ──GTK4 window──→ 화면
+                                              또는
+                                       [GNOME extension popup_view.js] ──St 위젯──→ 화면
+```
 
-- 엔진이 `PopupAction`으로 팝업 상태를 중앙 관리 (키 네비게이션, 선택, 취소)
-- FocusOut/Reset 시 엔진이 팝업을 취소하고 `HidePopup` 시그널 발행
-- GNOME+Wayland: GNOME Extension이 모든 프론트엔드의 팝업을 Push 방식으로 표시
+| 환경 | 렌더러 | 조건 |
+| ---- | ------ | ---- |
+| GNOME Wayland | extension `popup_view.js` (St 위젯) | `Meta.is_wayland_compositor() == true` |
+| GNOME X11 / KDE / Xfce / X11 WM | `unim-popup-service` GTK4 윈도우 | D-Bus auto-activation |
+| Wayland WM (Sway/Hyprland) | `unim-popup-service` GTK4 (wayland-backend) | `libgtk4-layer-shell` 필요 |
+
+**핵심 원칙**:
+
+- daemon은 시그널 8종을 `org.atit.unim.Popup` 인터페이스로 forward만 한다
+- `PopupRender` payload가 단일 view-model SoT — 셀·헤더·푸터·탭·하이라이트 모두 포함
+- 렌더러는 `PopupRender`만 소비하고, 자체 상태를 관리하지 않는다
+- 외부 좌클릭 dismiss: 클릭 이벤트는 아래 창에 pass-through
+- 팝업 dismiss 단일 경로: `focus_out` / `reset` (cursor-jump 감지 보완)
+
+엔진이 `PopupAction`으로 팝업 상태를 중앙 관리 (키 네비게이션, 선택, 취소).
+FocusOut/Reset 시 엔진이 팝업을 취소하고 `HidePopup` 시그널 발행.
 
 ### GNOME Extension 키 처리
 

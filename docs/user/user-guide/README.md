@@ -91,6 +91,24 @@ If all five steps work, you are done. If not, head to [troubleshooting](../troub
 
 ---
 
+## 2.5 Popup behavior overview
+
+Since UNIM 0.3.0, hanja, special-character, and emoji popups are rendered by a single service: **`unim-popup-service`**.
+
+| Environment | Popup renderer | Notes |
+|-------------|---------------|-------|
+| GNOME Wayland | GNOME Extension `popup_view.js` (St widget) | Mutter does not support wlr-layer-shell; extension renders directly |
+| GNOME X11 / KDE / Xfce / X11 WM | `unim-popup-service` GTK4 window | Auto-launched via D-Bus activation |
+| Wayland (KDE Plasma 6 / Sway / Hyprland) | `unim-popup-service` GTK4 window (wayland-backend) | Requires `libgtk4-layer-shell` |
+
+**Single source of truth**: regardless of environment, the daemon's `PopupRender` payload (cells, header, footer, tabs, highlight) is the single view-model delivered to all renderers. Only the rendering implementation differs.
+
+**Outside-click dismiss**: clicking outside the popup closes it, and the click event is passed through to the window below. If a popup closes unexpectedly, this is intended behavior — see [troubleshooting](../troubleshooting/README.md#popup-dismiss).
+
+**KDE Plasma 5.x Wayland**: `gtk4-layer-shell` is not available in the Ubuntu 24.04 standard repository, so popups do not appear. Workaround: use an X11 session or switch to GNOME.
+
+---
+
 ## 3. Per-environment setup
 
 | Environment | Install method | IM module | Popup owner | Watch out for |
@@ -235,7 +253,7 @@ Opt-in feature for vim command mode (`Esc`), CLI slash commands (`/`), etc. Off 
 
 ## 5. Settings GUI Tour
 
-Two GUIs ship: `unim-gui-gtk` (GTK4 + libadwaita) or `unim-gui-qt` (Qt6 cxx-qt). GTK is the default.
+Launch `unim-settings` (GTK4 + libadwaita) to tweak settings. As of v0.3.0 UNIM ships a single GUI — the Qt dialog (`unim-gui-qt`) was retired, while the tray and popup are now owned by `unim-indicator` and `unim-popup-service` respectively.
 
 ```bash
 unim-gtk-settings &

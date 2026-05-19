@@ -246,10 +246,62 @@ cargo --version              # 1.95.0 이상
 
 ---
 
+---
+
+## Q15. 안마태(안마태)와 Moachigi(모아치기)가 뭐가 다른가?
+
+**안마태**는 구체적인 자판 배열 이름이다. 2003년에 완성된 세벌식 계열 자판으로, 초·중·종성이 키보드 영역별로 고정 배치된다. UNIM에서는 `ko_3bul_anmatae` 프로필로 내장됐다.
+
+**Moachigi**(모아치기, "모아서 치기")는 입력 방식이다. 여러 자모를 동시에 또는 짧은 시간 안에 연달아 누르면 하나의 음절로 묶어서 처리한다. 일반 두벌식·세벌식이 한 키씩 순서대로 처리하는 것과 달리, 모아치기는 chord 윈도우(기본 60ms) 안에 들어온 키를 한꺼번에 처리한다.
+
+즉, 안마태 자판으로 모아치기를 하는 것이 UNIM 0.3.0의 첫 모아치기 지원이다. `supports_moachigi=true` 자판에서만 모아치기 설정 그룹이 GTK 설정창에 나타난다.
+
+---
+
+## Q16. popup-service가 안 뜨는 증상은 어떻게 진단하나?
+
+`unim-popup-service`가 설치됐는지 먼저 확인한다.
+
+```bash
+busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
+```
+
+응답이 없으면 패키지 미설치 또는 D-Bus 서비스 파일 누락이다. 자세한 진단은 [트러블슈팅 §16](../troubleshooting/README-ko.md#16-popup-service-디버깅-030).
+
+---
+
+## Q17. deb에서 rpm으로 또는 그 반대로 마이그레이션할 때 설정이 유지되나?
+
+예. 사용자 설정과 레이아웃은 `~/.config/unim/` 아래에 저장되며, 패키지 형식과 무관하다.
+
+- `~/.config/unim/config.yaml` — 주 설정 파일
+- `~/.config/unim/layouts/*.json` — 사용자 자판 프로필
+- `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix 억제 사전
+- `~/.config/unim/userdict.yaml` — 사용자 사전
+
+패키지를 제거하고 다른 형식으로 재설치해도 위 파일들은 건드리지 않는다. 단, `unim-gui-qt` 패키지는 0.3.0에서 제거됐으니 `unim-gui-gtk`와 `unim-popup-service`로 대체한다.
+
+---
+
+## Q18. chord_window_ms 적정값은 얼마인가?
+
+범위는 **10–200ms**, 기본값은 **60ms**다. 60ms는 숙련자 기준으로 설계됐다.
+
+| 프로필 | 권장 범위 | 설명 |
+|--------|----------|------|
+| 입문자 | 100–150ms | 키를 동시에 누르는 타이밍이 불안정할 때 넉넉하게 |
+| 일반 | 60–100ms | 대부분의 사용자에게 편안한 범위 |
+| 숙련자 | 10–60ms | 오입력 최소화, 반응 속도 우선 |
+
+`chord_window_ms`를 0으로 설정하면 모아치기가 완전히 꺼진다. 설정창의 슬라이더로 조정하거나 `unim-cli config set chord-window-ms 80` 명령을 쓴다.
+
+---
+
 ## 더 읽을 거리
 
 - [사용자 매뉴얼](../user-guide/README-ko.md)
 - [트러블슈팅](../troubleshooting/README-ko.md)
+- [릴리즈 노트 0.3.0](../release-notes/0.3.0/README.md)
 - [릴리즈 노트 0.2.0](../release-notes/0.2.0/RELEASE_NOTES-ko.md)
 - [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)
 - [`docs/dev/specs/POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)

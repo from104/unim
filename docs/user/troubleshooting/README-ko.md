@@ -485,6 +485,60 @@ make build 2>&1 | tee /tmp/unim-build.log
 
 ---
 
+## 16. popup-service 디버깅 (0.3.0+)
+
+### 증상: 한자·특수문자·이모지 팝업이 전혀 안 뜸 (GNOME X11 또는 KDE/Xfce)
+
+0.3.0부터 팝업은 `unim-popup-service`가 단독으로 렌더한다. 데몬은 살아 있어도 popup-service가 없으면 팝업이 나타나지 않는다.
+
+#### 진단 명령
+
+```bash
+# popup-service 프로세스 확인
+pgrep -a unim-popup
+
+# DBus 인터페이스 노출 확인
+busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
+
+# D-Bus 서비스 파일 설치 확인
+ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
+   /usr/share/dbus-1/services/org.atit.unim.PopupService.service 2>/dev/null
+```
+
+#### 해결 방법
+
+- 서비스 파일이 없으면 `unim-popup-service` 패키지가 설치되지 않은 것이다.
+
+  ```bash
+  # deb 설치
+  sudo apt install ./unim-popup-service_0.3.0_amd64.deb
+  # 또는 소스 빌드 후
+  sudo make install PREFIX=/usr
+  ```
+
+- 서비스 파일이 있는데도 팝업이 안 뜨면 수동으로 기동해 로그를 확인한다.
+
+  ```bash
+  UNIM_DEVELOP=1 unim-popup-service &
+  # 이후 한자 팝업 트리거 → 터미널 로그 확인
+  ```
+
+- `busctl` introspect가 실패하면 `org.atit.unim.PopupService` 자체가 응답하지 않는 것이다. `systemctl --user status unim-popup-service` 또는 `journalctl --user -t unim-popup-service -b --no-pager`로 오류 원인을 확인한다.
+
+### 증상: 팝업이 클릭하자마자 바로 닫힘
+
+팝업 **외부** 좌클릭 시 팝업이 닫히는 것은 **의도된 동작**이다. 클릭 이벤트는 아래 창에 그대로 전달된다. 팝업 내부 셀·버튼 영역을 클릭하면 닫히지 않는다. 팝업 내부를 클릭했는데도 닫힌다면 팝업 크기·위치가 잘못 계산된 것이다 — DBus caret 좌표(`caret_rect`) 값을 확인한다.
+
+### 증상: GNOME Wayland에서 팝업이 두 번 뜸
+
+`Meta.is_wayland_compositor()` 감지가 실패해 extension PopupView와 popup-service GTK4 팝업이 동시에 열리는 경우다. GNOME Shell 버전을 확인하고, 확장(`unim-gnome@from104.github.io`)을 비활성화 후 재활성화해 본다.
+
+### 증상: XIM ON-THE-SPOT commit 직후 preedit 누락
+
+0.3.0에서 `commit_then_preedit` best-effort 적용이 완료됐다. XTerm·WezTerm 등 OVER-THE-SPOT 환경에서는 정상 복귀됐다. 일부 ON-THE-SPOT(PREEDIT_CALLBACKS) 클라이언트에서는 회귀가 잔존한다. 이는 xim-0.5.0 crate 내부 `commit()`이 `preedit_started` 상태머신을 갱신하지 않는 근본 원인 때문이며, 현재 알려진 미해결 이슈다. OVER-THE-SPOT 환경(XTerm 등)으로 우회하거나 GTK/Qt IM 모듈을 사용한다.
+
+---
+
 ## 0.2.0 릴리스 특이 진단
 
 > 0.2.0 릴리스 직전 manual-test-planner가 작성한 추가 진단 시나리오. 위 §1–§14와 중복되는 항목은 사용자 README가 우선이며, 아래는 보조 진단 도구·세부 회귀 케이스 위주로만 남긴다.
