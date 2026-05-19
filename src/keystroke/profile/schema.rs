@@ -309,6 +309,7 @@ impl RawProfile {
     /// v3 경로로 파싱해야 하는지 판정.
     /// - `schema_version == 3` 명시
     /// - 또는 `supports_moachigi` implicit 마커 존재
+    ///
     /// Phase 7: bidirectional_combine/chord_window_ms는 더 이상 v3 마커로 쓰지 않음
     /// (두 필드는 사용자 config 소관).
     pub fn is_v3(&self) -> bool {

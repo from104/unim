@@ -1,6 +1,7 @@
 //! 메인 텍스트 입력 창 UI
 
 /// 텍스트 입력 영역의 상태
+#[derive(Default)]
 pub struct TextArea {
     /// 확정된 텍스트 (committed)
     pub committed_text: String,
@@ -12,16 +13,6 @@ pub struct TextArea {
     pub selection_start: Option<usize>,
 }
 
-impl Default for TextArea {
-    fn default() -> Self {
-        Self {
-            committed_text: String::new(),
-            preedit: String::new(),
-            cursor_pos: 0,
-            selection_start: None,
-        }
-    }
-}
 
 impl TextArea {
     /// 커밋된 텍스트를 커서 위치에 삽입합니다.

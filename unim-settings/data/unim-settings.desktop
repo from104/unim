@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=UNIM Settings
+Name[ko]=UNIM 설정
+Comment=Korean Input Method settings — UNIM
+Comment[ko]=UNIM 한글 입력기 설정
+Exec=unim-settings
+Icon=unim-korean
+Terminal=false
+Type=Application
+Categories=Settings;
+StartupNotify=false
+Keywords=korean;hangul;input;ime;keyboard;unim;
+NotShowIn=KDE;

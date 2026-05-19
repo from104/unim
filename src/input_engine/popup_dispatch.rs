@@ -142,9 +142,9 @@ impl InputEngine {
                                     .map(|c| c.0.clone())
                                     .unwrap_or_default();
                                 let items: Vec<String> =
-                                    state.emoji_items().iter().cloned().collect();
+                                    state.emoji_items().to_vec();
                                 let recent: Vec<String> =
-                                    state.emoji_recent().iter().cloned().collect();
+                                    state.emoji_recent().to_vec();
                                 self.popup_pending_action = Some(PopupAction::ShowEmoji {
                                     target_cat_id,
                                     items,

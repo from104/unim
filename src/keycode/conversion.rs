@@ -7,7 +7,8 @@
 //! 모든 메서드는 [`KeyCode`] 의 동일한 `impl` 블록에 속하며 외부 시그니처 변경 없음.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
+
+use once_cell::sync::Lazy;
 
 use crate::keystroke::get_keymap_json;
 
@@ -661,7 +662,8 @@ const ROW_NAMES: [&str; 4] = ["1st", "2nd", "3rd", "4th"];
 
 /// 레이아웃별 물리키→문자 매핑 테이블 (JSON 키맵에서 동적 생성).
 /// key: 영어 프로필 이름 (e.g. "dvorak") → value: rows[row_index][col_index] = (lower, upper)
-static LAYOUT_TABLES: LazyLock<HashMap<String, Vec<Vec<(char, char)>>>> = LazyLock::new(|| {
+type LayoutTable = HashMap<String, Vec<Vec<(char, char)>>>;
+static LAYOUT_TABLES: Lazy<LayoutTable> = Lazy::new(|| {
     // Phase 9: QWERTY 는 to_char/to_shifted_char 빠른 경로로 처리되므로 테이블 불필요.
     let layouts: &[&str] = &[
         crate::config::ENGLISH_LAYOUT_DVORAK,

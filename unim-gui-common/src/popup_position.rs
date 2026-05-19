@@ -51,6 +51,7 @@ pub fn is_gnome_wayland() -> bool {
 /// 화면 하단을 벗어나면 cursor 위로 폴백(cursor_y - win_h - 4).
 /// 수평은 오른쪽 경계를 넘지 않도록 클램프.
 /// 결과는 `(screen_x, screen_y)` 기준 절대 좌표.
+#[allow(clippy::too_many_arguments)] // 9 arg 는 cursor·win·screen 3 묶음 좌표계로 의미 명확
 pub fn compute_popup_xy(
     cursor_x: i32,
     cursor_y: i32,

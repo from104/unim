@@ -106,7 +106,7 @@ impl IBusInputContextHandler {
         }
 
         // IBus keycode = X11 keycode = evdev + 8 → evdev로 변환
-        let evdev_keycode = if keycode > 8 { keycode - 8 } else { 0 };
+        let evdev_keycode = keycode.saturating_sub(8);
 
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.engine_tx

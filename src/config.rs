@@ -23,10 +23,12 @@ pub enum InputCategory {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(C)]
 pub enum ModeSharingMode {
-    /// 모든 앱/창이 동일한 한/영 상태를 공유 (기본)
+    /// 모든 앱/창이 동일한 한/영 상태를 공유 (기본). 어떤 context 에서 한/영 토글이
+    /// 일어나면 default_category 및 모든 활성 context 의 input_category 가 동기화됨
+    /// — 같은 앱 안 여러 윈도우 간 모드 일관성 보장.
     #[default]
     Global,
-    /// 각 앱이 독립적인 한/영 상태를 유지 (window_id의 ':' 앞부분으로 앱 식별)
+    /// 각 앱이 독립적인 한/영 상태를 유지. window_id 의 ':' 앞부분으로 앱 식별.
     PerApp,
 }
 
@@ -1077,6 +1079,7 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

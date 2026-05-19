@@ -53,7 +53,7 @@ impl ModifierState {
     /// # Arguments
     ///
     /// * `modifiers` - 비트마스크: bit0=Shift, bit1=Control, bit2=Alt,
-    ///                 bit3=Super(Win), bit4=CapsLock, bit5=NumLock
+    ///   bit3=Super(Win), bit4=CapsLock, bit5=NumLock
     pub fn from_win32_modifiers(modifiers: u32) -> Self {
         Self {
             shift: (modifiers & 0x01) != 0,

@@ -132,6 +132,209 @@ impl HangulComposer3Bul {
     }
 }
 
+
+impl HangulComposer for HangulComposer3Bul {
+    fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
+        // 룰 A 미지정 호출 — default meta(=결합 가능)로 위임. press_key가
+        // process_jamo_with_meta로 들어오면 `add_jamo_with_meta` override가 받은 meta를 사용한다.
+        self.add_jamo_with_meta(jamo, JamoMeta::default())
+    }
+
+    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
+        if !self.base_composer.is_valid_jamo(&jamo) {
+            return None;
+        }
+
+        // v3 bidirectional_combine 적용: (a,b) 정순 결합 실패 시 (b,a) 역순 재시도.
+        // bidirectional_combine=true이고 해당 영역에 기존 자모가 있을 때만 개입.
+        //
+        // 결합 성공 시 current_korean_char.set_*만으로는 부족하다 — `jamo_queue` 의
+        // 마지막 항목(기존 자모)도 결합 결과로 교체해야 다음 자모 추가 시 base
+        // composer 의 compose_korean 이 stale 큐를 재합성해 결합 결과를 덮어쓰는
+        // 회귀를 막는다. (기존 jung/jong/cho 동일 패턴.)
+        //
+        // 영역 단위 인접 검사 (사용자 명세): queue 마지막 자모가 incoming 과
+        // 같은 영역(cho/jung/jong)일 때만 역순 결합 시도. 사이에 다른 영역 자모가
+        // 있으면 비인접 → 일반 path. 회귀 fix: 구하다 → 쿠ㅏ다 (queue=[ㄱ,ㅜ,ㅎ]
+        // 같은 음절 경계 양방향 결합 차단).
+        let last_in_queue: Option<JamoEnum> =
+            self.base_composer.jamo_queue().back().copied();
+        let same_region_adjacent = matches!(
+            (jamo, last_in_queue),
+            (JamoEnum::Cho(_), Some(JamoEnum::Cho(_)))
+                | (JamoEnum::Jung(_), Some(JamoEnum::Jung(_)))
+                | (JamoEnum::Jong(_), Some(JamoEnum::Jong(_)))
+        );
+        if self.is_bidirectional_combine() && same_region_adjacent {
+            match jamo {
+                JamoEnum::Cho(incoming) => {
+                    if let Some(existing) = self.base_composer.get_cho() {
+                        let key_a = (JamoEnum::Cho(existing), JamoEnum::Cho(incoming));
+                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
+                            let key_b = (JamoEnum::Cho(incoming), JamoEnum::Cho(existing));
+                            if let Some(JamoEnum::Cho(combined)) =
+                                self.base_composer.get_combined_jamo().get(&key_b).copied()
+                            {
+                                self.base_composer.pop_back_synced();
+                                self.base_composer
+                                    .push_back_synced(JamoEnum::Cho(combined), meta);
+                                self.base_composer.set_cho(Some(combined));
+                                return None;
+                            }
+                        }
+                    }
+                }
+                JamoEnum::Jung(incoming) => {
+                    if let Some(existing) = self.base_composer.get_jung() {
+                        let key_a = (JamoEnum::Jung(existing), JamoEnum::Jung(incoming));
+                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
+                            let key_b = (JamoEnum::Jung(incoming), JamoEnum::Jung(existing));
+                            if let Some(JamoEnum::Jung(combined)) =
+                                self.base_composer.get_combined_jamo().get(&key_b).copied()
+                            {
+                                self.base_composer.pop_back_synced();
+                                self.base_composer
+                                    .push_back_synced(JamoEnum::Jung(combined), meta);
+                                self.base_composer.set_jung(Some(combined));
+                                return None;
+                            }
+                        }
+                    }
+                }
+                JamoEnum::Jong(incoming) => {
+                    if let Some(existing) = self.base_composer.get_jong() {
+                        let key_a = (JamoEnum::Jong(existing), JamoEnum::Jong(incoming));
+                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
+                            let key_b = (JamoEnum::Jong(incoming), JamoEnum::Jong(existing));
+                            if let Some(JamoEnum::Jong(combined)) =
+                                self.base_composer.get_combined_jamo().get(&key_b).copied()
+                            {
+                                self.base_composer.pop_back_synced();
+                                self.base_composer
+                                    .push_back_synced(JamoEnum::Jong(combined), meta);
+                                self.base_composer.set_jong(Some(combined));
+                                return None;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        self.base_composer.add_jamo_with(jamo, meta, |base| {
+            if base.jamo_queue().is_empty() {
+                base.clear();
+                return true;
+            }
+
+            if check_3bul_violation(base).is_some() {
+                return false;
+            }
+
+            base.compose_korean()
+        })
+    }
+
+    fn remove_jamo(&mut self) -> Option<JamoEnum> {
+        self.base_composer.remove_jamo()
+    }
+
+    fn compose_korean(&mut self) -> bool {
+        if self.base_composer.jamo_queue().is_empty() {
+            self.base_composer.clear();
+            return true;
+        }
+
+        if check_3bul_violation(&mut self.base_composer).is_some() {
+            return false;
+        }
+
+        self.base_composer.compose_korean()
+    }
+
+    fn force_compose_korean(&mut self) -> Option<char> {
+        self.base_composer.force_compose_korean()
+    }
+
+    fn is_compose(&self) -> bool {
+        self.base_composer.is_compose()
+    }
+
+    fn is_new_syllable(&self) -> bool {
+        self.base_composer.is_new_syllable()
+    }
+
+    fn compose_cho(&mut self) -> bool {
+        self.base_composer.compose_cho()
+    }
+
+    fn compose_jung(&mut self) -> bool {
+        self.base_composer.compose_jung()
+    }
+
+    fn compose_jong(&mut self) -> bool {
+        self.base_composer.compose_jong()
+    }
+
+    fn clear_jamo(&mut self) {
+        self.base_composer.clear_jamo()
+    }
+
+    fn get_current_cho(&self) -> Option<Cho> {
+        self.base_composer.get_current_cho()
+    }
+
+    fn get_current_jung(&self) -> Option<Jung> {
+        self.base_composer.get_current_jung()
+    }
+
+    fn get_current_jong(&self) -> Option<Jong> {
+        self.base_composer.get_current_jong()
+    }
+
+    fn set_current_cho(&mut self, cho: Option<Cho>) -> bool {
+        self.base_composer.set_current_cho(cho)
+    }
+
+    fn set_current_jung(&mut self, jung: Option<Jung>) -> bool {
+        self.base_composer.set_current_jung(jung)
+    }
+
+    fn set_current_jong(&mut self, jong: Option<Jong>) -> bool {
+        self.base_composer.set_current_jong(jong)
+    }
+
+    fn get_combined_jamo(&self) -> &CombinedJamoMap {
+        self.base_composer.get_combined_jamo()
+    }
+
+    fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
+        self.base_composer.jamo_queue()
+    }
+
+    fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
+        self.base_composer.last_jamo_queue()
+    }
+
+    fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
+        self.base_composer.combined_jamo()
+    }
+
+    fn current_korean(&mut self) -> &mut HangulChar {
+        self.base_composer.current_korean()
+    }
+
+    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
+        self.base_composer.push_back_synced(jamo, meta)
+    }
+
+    fn clear_queues_synced(&mut self) {
+        self.base_composer.clear_queues_synced()
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,6 +601,7 @@ mod tests {
     /// 안마태 자판에 (ㄱ,ㅎ)→ㅋ 정방향 등록.
     /// 입력 순서: ㅎ(cho=H) → ㄱ(incoming=G).
     ///   - 정순 (H,G): 없음 → 역순 (G,H)→K 매치 → cho = K(ㅋ).
+    ///
     /// Phase 7: 프로필 로드 후 moachigi 수동 주입 (사용자 config 주입 패턴).
     #[test]
     fn o1_cho_rev_bidirectional_combine_true() {
@@ -421,6 +625,7 @@ mod tests {
     /// 안마태 자판에 (ㅗ,ㅏ)→ㅘ 정방향 등록.
     /// 입력 순서: ㅏ(jung=A) → ㅗ(incoming=O).
     ///   - 정순 (A,O): 없음 → 역순 (O,A)→WA 매치 → jung = WA(ㅘ).
+    ///
     /// Phase 7: 프로필 로드 후 moachigi 수동 주입 (사용자 config 주입 패턴).
     #[test]
     fn o1_jung_rev_bidirectional_combine_true() {
@@ -485,206 +690,5 @@ mod tests {
         assert_ne!(ac.get_current_jung(), Some(Jung::WA), "OFF 시 역순 결합 금지");
         // 새 음절로 분리되어 jung = O
         assert_eq!(ac.get_current_jung(), Some(Jung::O), "OFF 시 새 음절 중성 = O");
-    }
-}
-
-impl HangulComposer for HangulComposer3Bul {
-    fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
-        // 룰 A 미지정 호출 — default meta(=결합 가능)로 위임. press_key가
-        // process_jamo_with_meta로 들어오면 `add_jamo_with_meta` override가 받은 meta를 사용한다.
-        self.add_jamo_with_meta(jamo, JamoMeta::default())
-    }
-
-    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
-        if !self.base_composer.is_valid_jamo(&jamo) {
-            return None;
-        }
-
-        // v3 bidirectional_combine 적용: (a,b) 정순 결합 실패 시 (b,a) 역순 재시도.
-        // bidirectional_combine=true이고 해당 영역에 기존 자모가 있을 때만 개입.
-        //
-        // 결합 성공 시 current_korean_char.set_*만으로는 부족하다 — `jamo_queue` 의
-        // 마지막 항목(기존 자모)도 결합 결과로 교체해야 다음 자모 추가 시 base
-        // composer 의 compose_korean 이 stale 큐를 재합성해 결합 결과를 덮어쓰는
-        // 회귀를 막는다. (기존 jung/jong/cho 동일 패턴.)
-        //
-        // 영역 단위 인접 검사 (사용자 명세): queue 마지막 자모가 incoming 과
-        // 같은 영역(cho/jung/jong)일 때만 역순 결합 시도. 사이에 다른 영역 자모가
-        // 있으면 비인접 → 일반 path. 회귀 fix: 구하다 → 쿠ㅏ다 (queue=[ㄱ,ㅜ,ㅎ]
-        // 같은 음절 경계 양방향 결합 차단).
-        let last_in_queue: Option<JamoEnum> =
-            self.base_composer.jamo_queue().back().copied();
-        let same_region_adjacent = matches!(
-            (jamo, last_in_queue),
-            (JamoEnum::Cho(_), Some(JamoEnum::Cho(_)))
-                | (JamoEnum::Jung(_), Some(JamoEnum::Jung(_)))
-                | (JamoEnum::Jong(_), Some(JamoEnum::Jong(_)))
-        );
-        if self.is_bidirectional_combine() && same_region_adjacent {
-            match jamo {
-                JamoEnum::Cho(incoming) => {
-                    if let Some(existing) = self.base_composer.get_cho() {
-                        let key_a = (JamoEnum::Cho(existing), JamoEnum::Cho(incoming));
-                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
-                            let key_b = (JamoEnum::Cho(incoming), JamoEnum::Cho(existing));
-                            if let Some(JamoEnum::Cho(combined)) =
-                                self.base_composer.get_combined_jamo().get(&key_b).copied()
-                            {
-                                self.base_composer.pop_back_synced();
-                                self.base_composer
-                                    .push_back_synced(JamoEnum::Cho(combined), meta);
-                                self.base_composer.set_cho(Some(combined));
-                                return None;
-                            }
-                        }
-                    }
-                }
-                JamoEnum::Jung(incoming) => {
-                    if let Some(existing) = self.base_composer.get_jung() {
-                        let key_a = (JamoEnum::Jung(existing), JamoEnum::Jung(incoming));
-                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
-                            let key_b = (JamoEnum::Jung(incoming), JamoEnum::Jung(existing));
-                            if let Some(JamoEnum::Jung(combined)) =
-                                self.base_composer.get_combined_jamo().get(&key_b).copied()
-                            {
-                                self.base_composer.pop_back_synced();
-                                self.base_composer
-                                    .push_back_synced(JamoEnum::Jung(combined), meta);
-                                self.base_composer.set_jung(Some(combined));
-                                return None;
-                            }
-                        }
-                    }
-                }
-                JamoEnum::Jong(incoming) => {
-                    if let Some(existing) = self.base_composer.get_jong() {
-                        let key_a = (JamoEnum::Jong(existing), JamoEnum::Jong(incoming));
-                        if self.base_composer.get_combined_jamo().get(&key_a).is_none() {
-                            let key_b = (JamoEnum::Jong(incoming), JamoEnum::Jong(existing));
-                            if let Some(JamoEnum::Jong(combined)) =
-                                self.base_composer.get_combined_jamo().get(&key_b).copied()
-                            {
-                                self.base_composer.pop_back_synced();
-                                self.base_composer
-                                    .push_back_synced(JamoEnum::Jong(combined), meta);
-                                self.base_composer.set_jong(Some(combined));
-                                return None;
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        self.base_composer.add_jamo_with(jamo, meta, |base| {
-            if base.jamo_queue().is_empty() {
-                base.clear();
-                return true;
-            }
-
-            if check_3bul_violation(base).is_some() {
-                return false;
-            }
-
-            base.compose_korean()
-        })
-    }
-
-    fn remove_jamo(&mut self) -> Option<JamoEnum> {
-        self.base_composer.remove_jamo()
-    }
-
-    fn compose_korean(&mut self) -> bool {
-        if self.base_composer.jamo_queue().is_empty() {
-            self.base_composer.clear();
-            return true;
-        }
-
-        if check_3bul_violation(&mut self.base_composer).is_some() {
-            return false;
-        }
-
-        self.base_composer.compose_korean()
-    }
-
-    fn force_compose_korean(&mut self) -> Option<char> {
-        self.base_composer.force_compose_korean()
-    }
-
-    fn is_compose(&self) -> bool {
-        self.base_composer.is_compose()
-    }
-
-    fn is_new_syllable(&self) -> bool {
-        self.base_composer.is_new_syllable()
-    }
-
-    fn compose_cho(&mut self) -> bool {
-        self.base_composer.compose_cho()
-    }
-
-    fn compose_jung(&mut self) -> bool {
-        self.base_composer.compose_jung()
-    }
-
-    fn compose_jong(&mut self) -> bool {
-        self.base_composer.compose_jong()
-    }
-
-    fn clear_jamo(&mut self) {
-        self.base_composer.clear_jamo()
-    }
-
-    fn get_current_cho(&self) -> Option<Cho> {
-        self.base_composer.get_current_cho()
-    }
-
-    fn get_current_jung(&self) -> Option<Jung> {
-        self.base_composer.get_current_jung()
-    }
-
-    fn get_current_jong(&self) -> Option<Jong> {
-        self.base_composer.get_current_jong()
-    }
-
-    fn set_current_cho(&mut self, cho: Option<Cho>) -> bool {
-        self.base_composer.set_current_cho(cho)
-    }
-
-    fn set_current_jung(&mut self, jung: Option<Jung>) -> bool {
-        self.base_composer.set_current_jung(jung)
-    }
-
-    fn set_current_jong(&mut self, jong: Option<Jong>) -> bool {
-        self.base_composer.set_current_jong(jong)
-    }
-
-    fn get_combined_jamo(&self) -> &CombinedJamoMap {
-        self.base_composer.get_combined_jamo()
-    }
-
-    fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
-        self.base_composer.jamo_queue()
-    }
-
-    fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
-        self.base_composer.last_jamo_queue()
-    }
-
-    fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
-        self.base_composer.combined_jamo()
-    }
-
-    fn current_korean(&mut self) -> &mut HangulChar {
-        self.base_composer.current_korean()
-    }
-
-    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
-        self.base_composer.push_back_synced(jamo, meta)
-    }
-
-    fn clear_queues_synced(&mut self) {
-        self.base_composer.clear_queues_synced()
     }
 }

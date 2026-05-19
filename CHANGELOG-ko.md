@@ -6,75 +6,67 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 형식은 [Keep a Changelog (korean)]를 기반으로 하며 이 프로젝트는 [Semantic Versioning (korean)]을 따릅니다.
 
-## [0.4.0] 2026-05-07
+## [Unreleased]
 
-### 추가됨
-
-- **모아치기 v4 — Atomic Window Principle**: chord 윈도우가 만료되는 시점에 모든 분기를 결정한다. 버퍼에 자모 1개 → 일반 풀어쓰기 처리; 2개 이상 → 영역 정렬 + permutation 결합(chord compose). 이전 방식에서 발생하던 윈도우 중간 commit 아티팩트가 제거된다.
-- **`chord_compose` 모듈** (`src/input_engine/chord_compose.rs`): 영역별 permutation 탐색으로 chord를 조합한다. cho ≤ 2키(2 순열), jung/jong ≤ 3키(6 순열), 매칭 실패 시 호환자모로 fallback.
-- **비자모 키의 chord 윈도우 미합류**: 구두점·기호(예: `-`, `,`)는 chord 버퍼에 포함되지 않는다. 윈도우 만료 시 음절 형성이 가능하면 음절을 먼저 commit하고 이후 비자모 문자를 출력한다. 결합 실패 시 호환자모 + 비자모 문자 순으로 commit.
-- **`bidirectional_combine` 의미 보강**: `chord_window_ms`와 완전 독립 옵션으로 명확화. 시간차가 있는 순차 입력에서도 역방향 결합이 적용된다 — 예: ㅎ 타건 후 ㄱ를 눌러도 ㅋ 생성.
-- **`chord_window_ms` 기본값 및 범위 갱신**: 기본값 50ms → **60ms**, 범위 10~100ms → **10~150ms**.
-- **`KoreanConfig::validate_chord_window_ms`**: 신규 검증 함수. 0(chord 비활성) 또는 10~150ms만 허용; 그 외 값은 오류 반환.
-- **Backspace 시 chord preedit 복원**: chord 도중 또는 직후에 Backspace를 누르면 `input_order` 역순으로 자모를 제거하고 나머지 자모로 음절을 재합성. 일반 세벌식과 동일한 사용자 기대치 충족.
-- **설정 GUI 갱신** (`unim-gui-gtk`): `chord_window_ms` 슬라이더 범위 10~150ms로 확장, 기본값 표시 60ms로 이동, tick 마크 10 / 30 / 50 / 60 / 80 / 100 / 120 / 150 추가. tooltip이 두 모아치기 옵션의 독립성과 입문자 권장값(80~100ms)을 명시.
-- **사용자 가이드 — 키보드 호환성 섹션**: `docs/user/keymaps/anmatae.md`·`anmatae.en.md`에 "키보드 호환성 (NKRO 권장)" 섹션 추가. KRO 한계, USB 폴링 레이트, ghosting 자가진단(xev·온라인 키 테스터·윈도우 확장 테스트) 포함.
-- **트러블슈팅 §15 — 모아치기 섹션**: `docs/user/troubleshooting/README-ko.md`·`README.md`에 "모아치기가 제대로 인식 안 됨" / "Moachigi not recognized correctly" 섹션 추가. 5가지 주요 원인(윈도우 너무 짧음, NKRO 미지원, USB 폴링 레이트 낮음, bidirectional_combine 비활성, 자판 미지원) 진단·해결 수록.
-
-### 변경됨
-
-- GTK 설정 다이얼로그의 `chord_window_ms` 슬라이더: 범위 10~100ms → 10~150ms, 기본값 50ms → 60ms.
-- `bidirectional_combine` tooltip: chord 윈도우와 독립 동작하며 순차 입력에도 적용됨을 명시.
+_아직 변경 사항 없음._
 
 ---
 
-## [Unreleased]
-
-### 고침 (best-effort)
-
-- **XIM `commit_then_preedit` 가 `commit()` 직전 `clear_preedit()` 강제** (`unim-frontends/xim/src/handler.rs:378-`): xim-0.5.0/src/server.rs:236-248 의 `commit()` 은 `preedit_started` 를 갱신하지 않으므로 직후 `preedit_draw()` 가 PreeditStart 재발사를 건너뛰는(server.rs:205-214) 문제를 우회. `clear_preedit()` 호출이 crate 의 `PreeditDraw(empty) + PreeditDone` 자동 발사를 트리거해 `preedit_started=false` 로 reset, 이후 새 `preedit_draw()` 가 PreeditStart 를 재발사한다. 통상 OVER-THE-SPOT 경로(XTerm·WezTerm 등)에서 commit 직후 preedit 가시화는 정상 복귀하지만 **모든 ON-THE-SPOT(PREEDIT_CALLBACKS) 클라이언트에서는 회귀 잔존** — 아래 알려진 문제 참고.
-
-### 알려진 문제
-
-- **XIM ON-THE-SPOT(PREEDIT_CALLBACKS) commit 직후 preedit 누락 (미해결)**: 한글 음절 commit 직후 새 자모를 입력해도 preedit 가 한 프레임 가시화되지 않다가 추가 자모가 들어와야 보이기 시작. 자체 XIM client(`unim-test-xim` 등)와 일부 ON-THE-SPOT XIM 앱에서 재현. **무영향**: XTerm·WezTerm·기타 OVER-THE-SPOT 클라이언트, GTK3/4·Qt5/6·Wayland·GNOME extension. 위의 best-effort 적용 후에도 일부 ON-THE-SPOT 클라이언트에서 잔존. 근본 원인은 xim-0.5.0 의 `commit()` 이 `preedit_started` 상태머신을 갱신하지 않는 점 — crate 측 fix 또는 UNIM 측의 protocol 시퀀스 재설계 필요. 추적: `docs/user/troubleshooting/README-ko.md` §B.
+## [0.3.0] 2026-05-19
 
 ### 호환성 깨짐
 
 - **DBus 시그널 `HanjaCandidatesReordered` 페이로드가 10-tuple로 변경** (기존 9-tuple). 토글 직전 즐겨찾기 상태를 담은 `was_bookmarked: bool` 필드가 끝에 추가됐다 — 프런트엔드는 `was_bookmarked && !bookmarked`일 때만 cursor flash를 띄우는 식으로 분기. `org.atit.unim.InputContext`의 외부 구독자는 unpacking 코드를 함께 갱신해야 함 (9-tuple은 더 이상 수용하지 않음).
-- **자판 프로필 v0 스키마 미지원 전환.** v1 마커
-  (`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`,
-  `active_rule_sets`) 중 하나도 없는 0.1.x 시기의 v0 JSON은 이제 로더가
-  `LoadError::UnsupportedSchema`로 거부하고 콘솔에 경고를 출력한다.
-  `~/.config/unim/layouts/*.json`의 사용자 v0 프로필은 `"schema_version": 1`을
-  추가하고 `combinations` 블록을 명시적으로 채워 v1으로 변환할 것
-  ([`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md)
-  §3 참고). 빌트인 프로필은 0.2.0 시점에 모두 v1로 이관 완료된 상태.
+- **자판 프로필 v0 스키마 미지원 전환.** v1 마커(`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`, `active_rule_sets`) 중 하나도 없는 0.1.x 시기의 v0 JSON은 이제 로더가 `LoadError::UnsupportedSchema`로 거부하고 콘솔에 경고를 출력한다. `~/.config/unim/layouts/*.json`의 사용자 v0 프로필은 `"schema_version": 1`을 추가하고 `combinations` 블록을 명시적으로 채워 v1으로 변환할 것([`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md) §3 참고). 빌트인 프로필은 0.2.0 시점에 모두 v1로 이관 완료된 상태.
 
 ### 제거됨
 
-- **쿼티형 세벌식(`ko_3bul_qwerty`) 빌트인에서 제거**: `BUILTIN_NAMES`(11→10), `src/keystroke/profile/builtin.rs`·`src/keystroke/mod.rs`의 `get_builtin_json` / `get_keymap_json` match arm 일괄 제거. v3 모아치기 schema JSON 본문은 `docs/references/keymaps/ko_3bul_qwerty_v2.json`에 연구 자료로 보존되며, `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사하면 사용자 프로필로 계속 사용 가능. CLI `--korean` 도움말, `unim-cli config set korean-layout` 안내, GTK 설정 다이얼로그의 별칭 매핑, FAQ §Q7, 트러블슈팅 §15-1도 함께 정리.
-- **Rust 상수 자모 조합 테이블** (`JUNG_COMBINATIONS`, `JONG_COMBINATIONS`,
-  `CHO_COMBINATIONS`, Lazy static `COMBINED_JAMO_2BUL`/`_3BUL`)을
-  `src/hangul/composer_with_{2,3}bul.rs`에서 삭제.
-  `HangulComposer{2,3}Bul::new()`는 이제
-  `new_with_profile(load_builtin_profile("ko_2bulstd"|"ko_3bul390"))`로 위임.
-  자모 조합 규칙의 단일 source of truth는 v1 빌트인 프로필 JSON.
-- **`SchemaKind` enum + `detect()`** 삭제
-  (`src/keystroke/profile/schema.rs`). v0/v1 판별 역할은
-  `RawProfile::has_v1_markers()`로 단순화. 빌더의
-  `fallback_for(layout_type)` v0 호환 경로도 함께 삭제.
+- **`unim-gui-qt` 패키지 제거**: Qt6/cxx-qt 대체 GUI 패키지(`unim-gui-qt`)가 완전히 제거됐다. KDE Plasma 사용자는 `unim-settings`(= `unim-gui-gtk`)와 `unim-popup-service`로 전환한다. 기존 설정 파일(`~/.config/unim/config.yaml`)과 자판 레이아웃(`~/.config/unim/layouts/`)은 그대로 보존된다.
+- **Rust 상수 자모 조합 테이블** (`JUNG_COMBINATIONS`, `JONG_COMBINATIONS`, `CHO_COMBINATIONS`, Lazy static `COMBINED_JAMO_2BUL`/`_3BUL`)을 `src/hangul/composer_with_{2,3}bul.rs`에서 삭제. `HangulComposer{2,3}Bul::new()`는 이제 `new_with_profile(load_builtin_profile("ko_2bulstd"|"ko_3bul390"))`로 위임. 자모 조합 규칙의 단일 source of truth는 v1 빌트인 프로필 JSON.
+- **`SchemaKind` enum + `detect()`** 삭제(`src/keystroke/profile/schema.rs`). v0/v1 판별 역할은 `RawProfile::has_v1_markers()`로 단순화. 빌더의 `fallback_for(layout_type)` v0 호환 경로도 함께 삭제.
+- **`HangulComposer3BulMoachigi` 별도 컴포저 제거**: 모아치기 로직이 `InputEngine`의 `chord_buffer` 레이어를 통해 `HangulComposer3Bul` 내부로 통합됨. 사용자 체감 변화 없음.
+- **`emoji_popup.enabled` 설정 필드 전체 5지점에서 제거**: 한자 키 idle 트리거가 이제 항상 켜진다 — 조합 중에는 한자 변환, idle 상태에서는 이모지 팝업이 단일 진입점.
+- **쿼티형 세벌식(`ko_3bul_qwerty`) 빌트인에서 제거**: v3 모아치기 schema JSON 본문은 `docs/references/keymaps/ko_3bul_qwerty_v2.json`에 연구 자료로 보존. `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사하면 사용자 프로필로 계속 사용 가능.
 
 ### 추가됨
 
-- **모든 popup·모든 프런트엔드에 마우스 페이지 이동 ◀/▶ 버튼**: 한자·특수문자·이모지 popup 모두 footer에 ◀(이전) / ▶(다음) 버튼을 추가. 적용 프런트엔드 — GNOME Shell extension, GTK Standalone(`unim-gui-gtk`), GTK3/4 IM modules, Qt5/6 IM modules, XIM, Wayland(`unim-frontends/wayland`), Windows egui(`unim-windows/`). 키보드 `←`/`→` 및 `Page Up`/`Page Down`과 동일한 wrap-around 동작이고 `total_pages == 1`이면 버튼이 숨겨진다. 일원화 진입점으로 신설된 DBus RPC: `popup_change_page(direction: i32)` (0=Prev, 1=Next).
-- **한자 즐겨찾기 해제 cursor flash** (Catppuccin yellow `#f9e2af`, 140ms): ☆로 해제하면 popup이 재정렬되고 cursor가 그 한자의 사전순 원위치로 점프(다른 페이지일 수 있음). 도착 셀이 짧게 깜박여 자동 페이지 이동을 인지하게 한다. 등록(★ ON)은 cursor가 1페이지 상단으로 따라가므로 flash 없음. 한자 popup 한정 — 특수문자·이모지는 즐겨찾기 개념이 없다.
-- **Wayland popup pointer 입력 인프라** (`unim-frontends/wayland`): `WlPointer` 이벤트 핸들링으로 popup ◀/▶가 클릭을 받는다. 실제 라우팅은 컴포지터의 `zwp_input_popup_surface_v2` pointer 정책 의존이고, 키보드 `←`/`→`가 보편 대안 (트러블슈팅 §7-1 참고).
+- **팝업 단일 SoT 아키텍처 — `unim-popup-service`**: 한자·특수문자·이모지 팝업의 렌더링 책임이 daemon에서 신규 사이드카 프로세스 `unim-popup-service`로 이관됐다. daemon의 `org.atit.unim.InputContext` 시그널 8종을 `org.atit.unim.Popup` 인터페이스로 forward하여 모든 환경에서 단일 view-model(PopupRender)을 공유한다. D-Bus auto-activation(`org.atit.unim.PopupService.service`) 방식으로 기동 — autostart .desktop 폐기.
+- **GNOME Shell extension `popup_view.js` 통합**: GNOME Wayland 환경에서 Mutter가 wlr-layer-shell 미지원이므로 extension이 St 위젯(`PopupView`)으로 한자·특수문자·이모지 팝업을 직접 렌더한다. popup-service와 동일한 CSS 토큰·클래스명 공유. `Meta.is_wayland_compositor()`가 true일 때만 활성화 — X11에서는 popup-service GTK4 popup 사용(이중 렌더 방지).
+- **외부 좌클릭 dismiss**: 팝업 바깥 좌클릭 시 팝업이 닫히며, 클릭 이벤트는 아래 창에 그대로 전달된다. 팝업 외부 클릭은 정상 동작이다.
+- **안마태 2003(안마태) 자판 빌트인** (`ko_3bul_anmatae`): UNIM 최초의 모아치기(chord 기반) 한글 자판. 고정 초·중·종성 영역을 갖는 세벌식 자판. 초성 9개·중성 15개·종성 20개 결합 규칙 포함.
+- **Qwerty형 세벌식 v2 빌트인** (`ko_3bul_qwerty`, v2): 0.2.0 빌트인 제거 후 모아치기 v3 schema로 재도입. Shift 없는 26자리 알파벳 포화(10 초성 / 6 중성 / 10 종성) 레이아웃.
+- **자판 프로필 v3 schema**: `supports_moachigi: bool` 최상위 능력 마커 추가. GTK 설정 다이얼로그는 이 플래그가 true일 때만 모아치기 그룹을 노출.
+- **모아치기 사용자 설정**: `~/.config/unim/config.yaml`의 `korean.*` 하위에 두 개의 opt-in 설정이 추가됨:
+  - `korean.bidirectional_combine: Option<bool>` — true이면 초·중·종성 결합을 `(a,b)`·`(b,a)` 양방향으로 시도. 기본 unset → OFF.
+  - `korean.chord_window_ms: Option<u16>` — 단일 chord 윈도우 지속 시간(ms). 0 또는 unset = chord 비활성. GUI 슬라이더 범위 10~200ms. 기본 unset → OFF.
+- **모아치기 chord 엔진** (`src/input_engine/chord_buffer.rs`): 단일 윈도우 chord 누산기. 자모 1개 → 일반 처리; 2개 이상 → 영역 분류 + permutation 탐색.
+- **모아치기 v4 — Atomic Window Principle**: 윈도우 만료 시점에 모든 분기 결정. 중간 commit 아티팩트 제거.
+- **`chord_compose` 모듈** (`src/input_engine/chord_compose.rs`): 영역별 permutation 탐색 (cho ≤ 2키, jung/jong ≤ 3키, 실패 시 호환자모 fallback).
+- **`chord_window_ms` 범위 및 기본값 갱신**: 범위 10~100ms → **10~200ms**, 기본값 50ms → **60ms**.
+- **`KoreanConfig::validate_chord_window_ms`**: 신규 검증 함수. 0(chord 비활성) 또는 10~200ms만 허용.
+- **Backspace 시 chord preedit 복원**: chord 도중·직후 Backspace가 `input_order` 역순으로 자모를 제거하고 나머지로 음절을 재합성.
+- **GTK 설정 다이얼로그 — 모아치기 그룹**: "동시 입력 자모 역순 결합" 토글 + "동시 입력 시간(ms)" 슬라이더(10~200ms, 기본 60ms, tick 마크 10 / 50 / 100 / 150 / 200). `supports_moachigi=true`인 자판 선택 시만 표시.
+- **모든 popup·모든 프런트엔드에 마우스 페이지 이동 ◀/▶ 버튼**: 한자·특수문자·이모지 popup 모두 footer에 ◀(이전) / ▶(다음) 버튼 추가. 키보드 `←`/`→` 및 `Page Up`/`Page Down`과 동일한 wrap-around 동작. `total_pages == 1`이면 버튼 숨김. 신규 DBus RPC: `popup_change_page(direction: i32)`.
+- **한자 즐겨찾기 해제 cursor flash** (Catppuccin yellow `#f9e2af`, 140ms): ☆로 해제 시 popup 재정렬 + cursor가 사전순 원위치로 점프. 도착 셀이 깜박여 자동 페이지 이동을 인지하게 한다.
+- **Wayland popup pointer 입력 인프라** (`unim-frontends/wayland`): `WlPointer` 이벤트 핸들링으로 popup ◀/▶ 클릭 수신.
 - **i18n 키 추가**: `popup_previous_page`, `popup_next_page`를 ko/en (yml·po 4지점)에 동기 추가.
-- **BUILTIN_NAMES × 4축 정합성 테스트** (`src/keystroke/mod.rs`):
-  10종 빌트인 전수에 대해 (a) `get_keymap_json`이 `KO_2BULSTD`로 fallback되지
-  않음, (b) `get_builtin_json`이 v1 JSON 반환, (c) `schema_version == 1`로
-  파싱, (d) 한국어 빌트인은 `combinations` 블록 보유를 단일 테스트가 검증.
-  영문 빌트인 미커버 갭(예: `en_workman`)으로 인한 무성의 fallback 회귀를 차단.
+- **BUILTIN_NAMES × 4축 정합성 테스트**: 10종 빌트인 전수에 대해 fallback 미발생·v1 schema·combinations 보유를 단일 테스트로 검증.
+- **AutoTypeFix 학습 blacklist 강화**: retrigger 시점에 tentative 억제 항목 등록 + 즉시 억제.
+- **사용자 가이드 — 키보드 호환성 섹션**: `docs/user/keymaps/anmatae.md`·`anmatae.en.md`에 NKRO 권장 섹션 추가.
+- **트러블슈팅 §15 — 모아치기 섹션**: 5가지 주요 원인(윈도우 너무 짧음, NKRO 미지원, USB 폴링 레이트 낮음, bidirectional_combine 비활성, 자판 미지원) 진단·해결 수록.
+- **RPM 패키징** (`rpm/unim.spec`): Fedora/RHEL/openSUSE 계열 패키지 지원 추가.
+
+### 변경됨
+
+- **설정 다이얼로그 라이브 도움말 보강**: 26개 tooltip·15개 subtitle 재작성, 5개 i18n 키 신규 추가. four-element 템플릿(무엇/언제/왜/권장값) 적용.
+- GTK 설정 다이얼로그의 `chord_window_ms` 슬라이더: 범위 10~100ms → **10~200ms**, 기본값 50ms → 60ms.
+- `bidirectional_combine` tooltip: chord 윈도우와 독립 동작하며 순차 입력에도 적용됨을 명시.
+
+### 고침 (best-effort)
+
+- **XIM `commit_then_preedit` 가 `commit()` 직전 `clear_preedit()` 강제** (`unim-frontends/xim/src/handler.rs`): OVER-THE-SPOT 경로(XTerm·WezTerm)에서 commit 직후 preedit 가시화 정상 복귀. XIM 한정 잔존 회귀 회피책 적용 완료.
+
+---
 
 ## [0.2.0] 2026-04-26
 

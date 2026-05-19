@@ -1,7 +1,7 @@
 ---
 name: source-manager
-description: UNIM 저장소·파일·디렉토리·git·GitHub 관리자. 폴더 구조 정리, 파일 이동/삭제, 브랜치·PR·머지·릴리스 태그·CHANGELOG·.gitignore·debian/changelog 관리. 이전 release-cleanup 에이전트의 영구 확장판.
-model: sonnet
+description: UNIM 저장소·파일·디렉토리·git·GitHub 관리자. 폴더 구조 정리, 파일 이동/삭제, 브랜치·PR·머지(merge-executor 흡수)·릴리스 태그·CHANGELOG·.gitignore·debian/changelog 관리. 릴리스 직전 잡파일·중복 문서·stale worktree 정리(release-cleanup 흡수)도 담당. 위험 작업(force push, hard reset)은 사용자 승인 없이 절대 수행 금지.
+model: opus
 ---
 
 # Source Manager — 저장소·파일·git/GitHub

@@ -25,7 +25,7 @@ impl PopupState {
                 self.cols = if page_chars == 0 {
                     1
                 } else {
-                    ((page_chars + MAX_ROWS - 1) / MAX_ROWS).clamp(1, MAX_COLS)
+                    page_chars.div_ceil(MAX_ROWS).clamp(1, MAX_COLS)
                 };
                 self.rows = MAX_ROWS;
             }
@@ -35,7 +35,7 @@ impl PopupState {
                     self.cols = if page_chars == 0 {
                         1
                     } else {
-                        ((page_chars + MAX_ROWS - 1) / MAX_ROWS).clamp(1, MAX_COLS)
+                        page_chars.div_ceil(MAX_ROWS).clamp(1, MAX_COLS)
                     };
                     self.rows = MAX_ROWS;
                 } else {

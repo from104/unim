@@ -87,9 +87,7 @@ pub enum EngineRequest {
     ToggleHanjaBookmark {
         context_id: u32,
         index: usize,
-        response: oneshot::Sender<
-            Option<(usize, bool, Option<PopupAction>, Option<PopupRenderPayload>)>,
-        >,
+        response: oneshot::Sender<Option<ToggleHanjaBookmarkResult>>,
     },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
@@ -164,12 +162,14 @@ pub enum EngineRequest {
     /// 이모지 팝업 카테고리 변경 (마우스 클릭 → 직접 카테고리 전환).
     ///
     /// 워커는 마지막 포커스 컨텍스트의 popup_state 가 emoji 인 경우에만 처리한다.
-    /// 응답으로 갱신된 카테고리 메타·페이지 풀을 돌려주어 service.rs 가
-    /// `ShowEmojiPopupV2` 시그널을 재발행할 수 있게 한다.
+    /// 응답으로 갱신된 카테고리 메타·페이지 풀(EmojiShowPayload)과 함께 통합
+    /// view-model(PopupRenderPayload) 도 돌려주어 service.rs 가 `ShowEmojiPopupV2`
+    /// 와 `PopupRender` 두 시그널을 재발행한다. PopupRender 가 함께 발행돼야
+    /// extension/GUI 가 평면 cells 갱신을 적용한다.
     /// 응답이 `None` 이면 emoji popup 이 활성화되지 않았거나 idx 가 범위 밖이라 무시됨.
     SetEmojiCategory {
         idx: u32,
-        response: oneshot::Sender<Option<EmojiShowPayload>>,
+        response: oneshot::Sender<Option<(EmojiShowPayload, Option<PopupRenderPayload>)>>,
     },
     /// 팝업 페이지 이동 (마우스 ◀/▶ 버튼 등 외부 RPC).
     ///
@@ -227,109 +227,28 @@ pub enum EngineRequest {
     },
 }
 
-/// 팝업 페이지 이동 응답 — service.rs 가 `PopupNavigate` 시그널 페이로드로 변환.
-#[derive(Debug, Clone, Copy)]
-pub struct PopupNavigatePayload {
-    pub page: u32,
-    pub total_pages: u32,
-    pub selected: u32,
-    pub rows: u32,
-    pub cols: u32,
-    pub sel_row: u32,
-    pub sel_col: u32,
-}
+// Popup DBus payload 타입은 `unim-popup-types` crate 가 단일 SoT 로 소유한다.
+// daemon · popup-service · 추후 GNOME ext 가 동일하게 import.
+pub use unim_popup_types::{
+    popup_render_flags, EmojiShowPayload, HanjaCandidateResponse, PopupNavigatePayload,
+    PopupRenderPayload, SpecialCharResponse,
+};
 
-/// 이모지 카테고리 전환 응답 — `ShowEmojiPopupV2` 시그널 재발행용 payload.
-#[derive(Debug, Clone)]
-pub struct EmojiShowPayload {
-    /// 새 활성 카테고리 id (예: "SmileysPeople").
-    pub target_cat_id: String,
-    /// 해당 카테고리 emoji 풀 전체 (페이지 슬라이싱은 GUI 측 책임).
-    pub items: Vec<String>,
-    /// 현재 활성 영문 키맵의 상단 행 9 문자.
-    pub top_row: String,
-    /// MRU Recent 캐시 (popup payload 호환용).
-    pub recent: Vec<String>,
-    /// 카테고리 메타 9 튜플 (id, ko, en, total).
-    pub categories: Vec<(String, String, String, u32)>,
-    /// 현재 활성 영문 키맵의 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
-    pub home_row: String,
-}
+/// `ToggleHanjaBookmark` 응답 — `(new_index, bookmarked, popup_action, render_state)`.
+/// type alias 로 추출해 EngineRequest 의 very_complex_type 경고를 회피.
+pub type ToggleHanjaBookmarkResult =
+    (usize, bool, Option<PopupAction>, Option<PopupRenderPayload>);
 
-/// `PopupRender` 시그널 페이로드 — engine `PopupViewModel` 의 DBus-friendly 평면 표현.
-///
-/// daemon = SoT. 두 frontend (GNOME extension / unim-gui-gtk) 가 본 페이로드를 그대로
-/// 렌더링하여 헤더·푸터·셀·탭·확장 아이콘 등을 표시한다. 서식 문자열·visibility 조건이
-/// 모두 daemon 산출이라 frontend 간 표시 일관성 자동 보장.
-#[derive(Debug, Clone)]
-pub struct PopupRenderPayload {
-    /// 0=Hanja, 1=SpecialChar, 2=Emoji
-    pub kind: u32,
-    pub target: String,
-    pub header_text: String,
-    pub footer_text: String,
-    pub show_footer: bool,
-    pub rows: u32,
-    pub cols: u32,
-    pub sel_row: u32,
-    pub sel_col: u32,
-    pub current_page: u32,
-    pub total_pages: u32,
-    /// 셀 데이터 — column-major, 길이 = rows * cols. 각 (text, meaning, flags).
-    /// flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_highlight,
-    ///            0x08=row_highlight, 0x10=bookmarked.
-    /// has_data=0 이면 빈 셀 (text/meaning 무시).
-    pub cells: Vec<(String, String, u32)>,
-    /// 컬럼 헤더 (text, is_active) — 한자 compact 는 빈 벡터.
-    pub col_headers: Vec<(String, bool)>,
-    /// 행 헤더 (text, is_active).
-    pub row_headers: Vec<(String, bool)>,
-    /// 한자 expand 토글 아이콘 가시성 (한자 popup 만 true).
-    pub expand_visible: bool,
-    /// 한자 expand 토글 텍스트 ("⊞" / "⊟").
-    pub expand_text: String,
-    /// 이모지 좌측 9 카테고리 탭 라벨 (단축키 prefix 포함). 그 외 popup 은 빈 벡터.
-    pub tab_labels: Vec<String>,
-    /// 이모지 활성 탭 인덱스 (0..9).
-    pub active_tab_index: u32,
-}
-
-/// PopupRenderPayload 의 cell flag 비트 정의.
-pub mod popup_render_flags {
-    pub const HAS_DATA: u32 = 0x01;
-    pub const SELECTED: u32 = 0x02;
-    pub const COL_HIGHLIGHT: u32 = 0x04;
-    pub const ROW_HIGHLIGHT: u32 = 0x08;
-    pub const BOOKMARKED: u32 = 0x10;
-}
-
-/// 한자 후보 응답
-#[derive(Debug)]
-pub struct HanjaCandidateResponse {
-    /// 변환 대상 문자열
-    pub target: String,
-    /// 후보 목록 (한자, 뜻풀이)
-    pub candidates: Vec<(String, String)>,
-    /// 영문 키맵의 상단 행 레이블 (expanded 9x9 컬럼 헤더용; 특수문자와 동일 source).
-    pub top_row: String,
-    /// PopupRender 페이로드 — Standalone 모드에서 ShowHanjaPopup 직후 popup_render
-    /// 시그널 발행에 사용. popup 비활성이면 None.
-    pub render_state: Option<PopupRenderPayload>,
-}
-
-/// 특수문자 후보 응답
-#[derive(Debug)]
-pub struct SpecialCharResponse {
-    /// 변환 대상 초성
-    pub target: String,
-    /// 특수문자 목록
-    pub characters: Vec<String>,
-    /// 영문 키맵의 상단 행 레이블 (예: "QWERTYUIO")
-    pub top_row: String,
-    /// PopupRender 페이로드 — Standalone 모드에서 ShowSpecialPopup 직후 popup_render
-    /// 시그널 발행에 사용. popup 비활성이면 None.
-    pub render_state: Option<PopupRenderPayload>,
-}
+/// `build_emoji_show_payload` 반환 — `(target_cat_id, items, top_row, recent, categories, home_row)`.
+/// type alias 로 추출해 very_complex_type 경고를 회피.
+pub type EmojiShowPayloadTuple = (
+    String,
+    Vec<String>,
+    String,
+    Vec<String>,
+    Vec<(String, String, String, u32)>,
+    String,
+);
 
 /// 엔진 응답
 #[derive(Debug)]
@@ -768,6 +687,9 @@ impl InputMethodService {
     }
 
     /// 이모지 최근 사용(MRU) 조회 (PR #1 신규 RPC).
+    ///
+    /// **internal-only**: 외부 frontend 는 popup-service `org.atit.unim.Popup`
+    /// interface 의 `GetEmojiRecent` 를 호출. 본 method 는 popup-service forward 전용.
     ///
     /// `~/.config/unim/emoji-recent.yaml` 에서 사용자별 MRU (최대 81개) 를 읽어
     /// 반환한다. 일반적으로는 `ShowEmojiPopupV2` 시그널의 `recent` payload 가
@@ -1284,8 +1206,8 @@ impl InputMethodService {
         Ok(())
     }
 
-    /// 이모지 팝업 카테고리 변경 — GNOME extension 등 GUI 가 마우스 클릭으로
-    /// 좌측 탭을 직접 전환할 때 호출하는 RPC.
+    /// 이모지 팝업 카테고리 변경 — **internal-only** (popup-service forward 전용).
+    /// 외부 frontend 는 popup-service `org.atit.unim.Popup::SetEmojiCategory` 호출.
     ///
     /// 동작:
     /// 1. 워커에 `SetEmojiCategory { idx }` 보내 마지막 포커스 컨텍스트의 popup_state
@@ -1312,8 +1234,8 @@ impl InputMethodService {
             );
             return Ok(());
         }
-        let payload = match rx.await {
-            Ok(Some(p)) => p,
+        let (payload, render) = match rx.await {
+            Ok(Some(t)) => t,
             Ok(None) => {
                 unim_log!(
                     "DBUS",
@@ -1390,10 +1312,66 @@ impl InputMethodService {
                 payload.categories.len()
             );
         }
+
+        // PopupRender 도 동반 발행 — 평면 cells 기반으로 동작하는 frontend
+        // (GNOME extension PopupView 등) 가 grid 를 즉시 갱신할 수 있도록.
+        // 누락 시 카테고리 탭을 클릭해도 셀이 안 바뀌는 버그가 발생.
+        if let Some(rs) = render {
+            let render_result = self
+                .connection
+                .emit_signal(
+                    None::<&str>,
+                    &path,
+                    "org.atit.unim.InputContext",
+                    "PopupRender",
+                    &(
+                        rs.kind,
+                        (
+                            rs.target.clone(),
+                            rs.header_text.clone(),
+                            rs.footer_text.clone(),
+                            rs.expand_text.clone(),
+                        ),
+                        (
+                            rs.rows,
+                            rs.cols,
+                            rs.sel_row,
+                            rs.sel_col,
+                            rs.current_page,
+                            rs.total_pages,
+                        ),
+                        (rs.show_footer, rs.expand_visible),
+                        rs.cells.clone(),
+                        rs.col_headers.clone(),
+                        rs.row_headers.clone(),
+                        rs.tab_labels.clone(),
+                        rs.active_tab_index,
+                    ),
+                )
+                .await;
+            if let Err(e) = render_result {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory PopupRender 발행 실패: {}",
+                    e
+                );
+            } else {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory(idx={}) PopupRender 재발행: cells={}, page={}/{}",
+                    idx,
+                    rs.cells.len(),
+                    rs.current_page + 1,
+                    rs.total_pages
+                );
+            }
+        }
+
         Ok(())
     }
 
-    /// 글로벌 이모지 커밋 — InputContext 비보유 클라이언트(GNOME extension의 emoji 팝업)용.
+    /// 글로벌 이모지 커밋 — **internal-only** (popup-service forward 전용).
+    /// 외부 frontend 는 popup-service `org.atit.unim.Popup::CommitEmoji` 호출.
     ///
     /// GNOME extension은 자체 InputContext를 가지나, GTK4_IM_MODULE=unim 환경에서는
     /// extension의 context로 commit하면 GTK4_IM 모듈을 우회하여 사용자 앱에 도달하지 못한다.
@@ -1578,16 +1556,7 @@ fn detect_frontend_type(client_name: &str) -> &'static str {
 /// 리스트를 그대로 담는다 (popup_state cat_index=0 의 동작과 일치).
 ///
 /// 반환: `(target_cat_id, items, top_row, recent, categories, home_row)`.
-fn build_emoji_show_payload(
-    english_layout: &str,
-) -> (
-    String,
-    Vec<String>,
-    String,
-    Vec<String>,
-    Vec<(String, String, String, u32)>,
-    String,
-) {
+fn build_emoji_show_payload(english_layout: &str) -> EmojiShowPayloadTuple {
     let recent = unim::emoji::load_recent();
     let mut categories: Vec<(String, String, String, u32)> = Vec::with_capacity(9);
     categories.push((
@@ -1747,6 +1716,10 @@ impl InputContextHandler {
     }
 }
 
+// zbus `#[interface]` 매크로가 자동 생성하는 trampoline 메서드는 시그널 컨텍스트 등을
+// 위해 인자가 7개를 초과하기 쉽다. 매크로 외부에서 조정 불가하므로 impl 블록 전체에
+// `too_many_arguments` 를 silence (실제 사용자 facing API 는 DBus 시그니처로 제한됨).
+#[allow(clippy::too_many_arguments)]
 #[interface(name = "org.atit.unim.InputContext")]
 impl InputContextHandler {
     /// 키 이벤트 처리
@@ -2247,8 +2220,20 @@ impl InputContextHandler {
     async fn commit_text(signal_ctx: &SignalContext<'_>, text: &str) -> zbus::Result<()>;
 
     // =========================================
-    // 팝업 관련 시그널 (unim-gui-gtk/unim-gui-qt가 구독)
+    // 팝업 관련 시그널 — **internal-only** (popup-service forwarding 전용)
     // =========================================
+    //
+    // 외부 frontend(GNOME extension / popup-service GTK4 popup window) 는 본
+    // `org.atit.unim.InputContext` 인터페이스의 popup signal 을 직접 구독하지
+    // 않는다. popup-service 의 `org.atit.unim.Popup` interface (path
+    // `/org/atit/unim/popup`) 가 단일 SoT 로 popup signal 을 발행한다.
+    //
+    // daemon 측 popup signal 은 popup-service 의 forward_daemon_popup_signals
+    // task 가 구독하여 `org.atit.unim.Popup` signal 로 1:1 재발행하는 internal
+    // 통신 표면으로만 사용된다. 직접 구독은 deprecated — popup-service Popup
+    // interface 를 사용할 것.
+    //
+    // 참고: docs/architecture/dbus-popup-migration-plan.md Phase 2 (signal re-emit).
 
     /// 한자 팝업 표시 시그널
     ///
@@ -2597,8 +2582,20 @@ impl InputContextHandler {
     ) -> zbus::Result<()>;
 
     // =========================================
-    // 한자 변환 관련 메서드
+    // 한자 / 특수문자 / 이모지 popup 관련 메서드 — **internal-only**
     // =========================================
+    //
+    // 외부 frontend 는 본 `org.atit.unim.InputContext` 인터페이스의 popup method
+    // (GetHanjaCandidates / SelectHanja / GetHanjaBookmarkStates /
+    // ToggleHanjaBookmark / PopupChangePage / TogglePopupExpand / CancelHanja /
+    // GetSpecialCharCandidates / SelectSpecialChar / CancelSpecialChar) 를
+    // 직접 호출하지 않는다.
+    //
+    // popup-service 의 `org.atit.unim.Popup` interface 가 단일 외부 표면이며,
+    // 본 method 들은 popup-service `PopupServer` 가 popup-owner context 에
+    // forward 하는 internal-only 호출 표면으로만 사용된다.
+    //
+    // 참고: docs/architecture/dbus-popup-migration-plan.md Phase 3 (method forward).
 
     /// 한자 후보 목록 조회
     /// 반환값: (변환 대상, [(한자, 뜻풀이), ...])

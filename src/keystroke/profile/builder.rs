@@ -240,6 +240,7 @@ pub fn resolve_active_rule_set_names(profile: &LayoutProfile) -> Vec<String> {
 ///    `None`이면 빈 맵(영문 계열). 0.2.0부터 v0 fallback(Rust const 클론)은 제거됨.
 /// 2. 활성 rule_sets의 각 엔트리를 스코프 추론 후 map에 insert.
 ///    중복 키는 rule_set 쪽이 덮어쓴다(`LAYOUT_PROFILE_V1.md` §11).
+///
 /// 프로필의 `key_meta`를 char 키 기준 runtime 맵으로 변환합니다.
 ///
 /// 병합 순서:

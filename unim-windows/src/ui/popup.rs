@@ -106,10 +106,10 @@ impl PopupState {
                 // Phase 9: ★ 해제 (was→false) 시 cursor 셀 flash. enum payload 의 `bookmarked`
                 // 가 false 이면 OFF 결과 → flash. (XIM/GTK/Qt와 동일 정책 — 단순화하여
                 // was_bookmarked 비교 대신 bookmarked==false 로 분기.)
-                self.page = page as usize;
-                self.selected = (page as usize) * (self.rows * self.cols.max(1))
-                    + (sel_row as usize) * self.cols.max(1)
-                    + sel_col as usize;
+                self.page = page;
+                self.selected = page * (self.rows * self.cols.max(1))
+                    + sel_row * self.cols.max(1)
+                    + sel_col;
                 if !bookmarked {
                     self.flash_until = Some(
                         std::time::Instant::now() + std::time::Duration::from_millis(140),
@@ -187,28 +187,26 @@ impl PopupState {
                     // Phase 9: 마우스 ◀/▶ 페이지 버튼 (단일 페이지면 hide).
                     // hit-target ≥28×28px (WCAG 2.5.5 초과).
                     let page_btn_size = egui::vec2(28.0, 28.0);
-                    if multi_page {
-                        if ui
+                    if multi_page
+                        && ui
                             .add_sized(page_btn_size, egui::Button::new("◀"))
                             .on_hover_text("Previous page")
                             .clicked()
-                        {
-                            click_action = Some(PopupClickAction::PrevPage);
-                        }
+                    {
+                        click_action = Some(PopupClickAction::PrevPage);
                     }
                     ui.label(format!(
                         "{}/{}",
                         self.page + 1,
                         self.total_pages.max(1)
                     ));
-                    if multi_page {
-                        if ui
+                    if multi_page
+                        && ui
                             .add_sized(page_btn_size, egui::Button::new("▶"))
                             .on_hover_text("Next page")
                             .clicked()
-                        {
-                            click_action = Some(PopupClickAction::NextPage);
-                        }
+                    {
+                        click_action = Some(PopupClickAction::NextPage);
                     }
                     ui.separator();
                     ui.label("←→ 이동  Enter 선택  Esc 취소");

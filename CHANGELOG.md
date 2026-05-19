@@ -4,46 +4,13 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
-
 ## [Unreleased]
 
-### Fixed (best-effort)
-
-- **XIM `commit_then_preedit` now forces `clear_preedit()` before `commit()`** (`unim-frontends/xim/src/handler.rs:378-`): xim-0.5.0/src/server.rs:236-248 `commit()` does not toggle `preedit_started`, so a subsequent `preedit_draw()` skips the PreeditStart re-emission (server.rs:205-214). Forcing `clear_preedit()` first makes the crate emit `PreeditDraw(empty) + PreeditDone` and resets `preedit_started=false`, so the new `preedit_draw()` re-fires PreeditStart cleanly. This restores the post-commit preedit on the typical OVER-THE-SPOT path (XTerm, WezTerm) but **does not fully resolve the regression on every ON-THE-SPOT (PREEDIT_CALLBACKS) client** — see Known Issues.
-
-### Known Issues
-
-- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (UNRESOLVED)**: After committing a Hangul syllable, the next jamo's preedit is invisible for one frame and only renders once an additional jamo arrives. Reproduces in custom XIM clients (e.g. `unim-test-xim`) and some ON-THE-SPOT XIM apps. **Unaffected**: XTerm, WezTerm, other OVER-THE-SPOT clients, GTK3/4, Qt5/6, Wayland, GNOME extension. Best-effort mitigation above shipped; root cause is xim-0.5.0's `commit()` not driving the `preedit_started` state machine — needs an upstream xim fix or a redesigned protocol sequence on the UNIM side. Tracked in `docs/user/troubleshooting/README.md` §B.
-
-### Removed
-
-- **Qwerty Sebeolsik (`ko_3bul_qwerty`) dropped from built-ins**: removed from `BUILTIN_NAMES` (10 → reduced) and from the `get_builtin_json` / `get_keymap_json` match arms in `src/keystroke/profile/builtin.rs` and `src/keystroke/mod.rs`. The full v3 moachigi schema JSON is preserved as a research reference at `docs/references/keymaps/ko_3bul_qwerty_v2.json` — copy it to `~/.config/unim/layouts/ko_3bul_qwerty.json` to keep using it as a user profile. CLI `--korean` help, `unim-cli config set korean-layout` enumeration, GTK settings dialog alias map, FAQ §Q7, and troubleshooting §15-1 all updated accordingly.
+_No changes yet._
 
 ---
 
-## [0.4.0] 2026-05-07
-
-### Added
-
-- **Moachigi v4 — Atomic Window Principle**: The chord window now makes all branching decisions at expiry time, not on each keystroke. 1 jamo in buffer → normal sequential processing; 2+ jamo → region-sorted chord compose with permutation search. This eliminates the previous mid-window commit artifacts.
-- **`chord_compose` module** (`src/input_engine/chord_compose.rs`): Region-classified permutation search for chord composition. cho ≤ 2 keys (2 permutations), jung/jong ≤ 3 keys (6 permutations), with fallback to compatibility jamo on no match.
-- **Non-jamo keys stay outside the chord window**: punctuation and symbols (e.g., `-`, `,`) no longer join the chord buffer. On window expiry, if a syllable can be formed it is committed first, then the non-jamo character is emitted. If no combination succeeds, compatibility jamo + the non-jamo character are committed in sequence.
-- **`bidirectional_combine` semantics clarified**: The option is now independent of `chord_window_ms`. Sequential (time-separated) jamo can also combine bidirectionally — e.g., ㅎ typed before ㄱ produces ㅋ even without chord timing.
-- **`chord_window_ms` defaults and range updated**: default 50 ms → **60 ms**, range 10–100 ms → **10–150 ms**.
-- **`KoreanConfig::validate_chord_window_ms`**: New validation function. Accepts 0 (chord disabled) or 10–150 ms; rejects all other values with a descriptive error.
-- **Backspace restores chord preedit**: pressing Backspace during or after a chord removes jamo in `input_order` reverse sequence and recomposes the remaining syllable, matching the behavior users expect from sequential three-beol.
-- **Settings GUI updates** (`unim-gui-gtk`): `chord_window_ms` slider range extended to 10–150 ms, default marker moved to 60 ms, tick marks at 10 / 30 / 50 / 60 / 80 / 100 / 120 / 150. Tooltips updated to note the independence of the two moachigi options and to recommend 80–100 ms for beginners.
-- **User guide — keyboard compatibility section**: `docs/user/keymaps/anmatae.md` and `anmatae.en.md` gain a new "Keyboard Compatibility (NKRO Recommended)" section covering KRO limits, USB polling rate, and a ghosting self-diagnosis guide (`xev`, online key tester, window-expansion test).
-- **Troubleshooting — moachigi section** (§15): `docs/user/troubleshooting/README-ko.md` and `README.md` gain "모아치기(chord)가 제대로 인식 안 됨" / "Moachigi not recognized correctly" covering the five most common root causes: window too short, NKRO not supported, low USB polling rate, bidirectional_combine off, and layout not moachigi-capable.
-
-### Changed
-
-- `chord_window_ms` slider in the GTK settings dialog: previous range 10–100 ms is now 10–150 ms; previous default 50 ms is now 60 ms.
-- `bidirectional_combine` tooltip text updated to emphasize that it operates independently of the chord window and applies to sequential input as well.
-
----
-
-## [0.3.0] 2026-05-06
+## [0.3.0] 2026-05-19
 
 ### Breaking changes
 
@@ -92,14 +59,37 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
   - `supports_moachigi: bool` — signals that this layout is chord-capable. The GTK settings dialog reveals the Moachigi group only when this flag is true. Behavior options live in the user config, not the keymap (see below).
 - **Moachigi user config** (`~/.config/unim/config.yaml` under `korean.*`): two new opt-in settings, applied only when the active layout has `supports_moachigi=true`:
   - `korean.bidirectional_combine: Option<bool>` — when `true`, cho/jung/jong combinations are attempted in both `(a,b)` and `(b,a)` order. Default unset → **OFF** (opt-in).
-  - `korean.chord_window_ms: Option<u16>` — duration of the single chord window in milliseconds. `0` or unset = chord disabled. GUI exposes 10–100 ms via slider. Default unset → **OFF** (opt-in).
+  - `korean.chord_window_ms: Option<u16>` — duration of the single chord window in milliseconds. `0` or unset = chord disabled. GUI exposes 10–200 ms via slider. Default unset → **OFF** (opt-in).
 - **Moachigi chord engine** (`src/input_engine/chord_buffer.rs`): Single-window chord accumulator. First jamo starts an N-ms tokio timer; jamo arriving within the window are buffered. On expiry: 1 jamo → normal sequential processing; 2+ jamo → region-classified chord compose with bidirectional combine. Flush triggers: idle timeout (tokio timer), Space/Enter/Tab/Backspace/Hanja/etc., mode switch, FocusOut, Escape (discard), MAX 8 jamo.
-- **GTK settings dialog — Moachigi group**: New `AdwPreferencesGroup` with a toggle row ("동시 입력 자모 역순 결합" / "Bidirectional Jamo Combine") and a slider row ("동시 입력 시간 (ms)" / "Chord Window (ms)", 10–100 ms). Group is shown only when the selected layout has `supports_moachigi=true`; hidden automatically when switching to other layouts.
+- **Moachigi v4 — Atomic Window Principle**: The chord window now makes all branching decisions at expiry time, not on each keystroke. 1 jamo in buffer → normal sequential processing; 2+ jamo → region-sorted chord compose with permutation search. This eliminates the previous mid-window commit artifacts.
+- **`chord_compose` module** (`src/input_engine/chord_compose.rs`): Region-classified permutation search for chord composition. cho ≤ 2 keys (2 permutations), jung/jong ≤ 3 keys (6 permutations), with fallback to compatibility jamo on no match.
+- **Non-jamo keys stay outside the chord window**: punctuation and symbols (e.g., `-`, `,`) no longer join the chord buffer. On window expiry, if a syllable can be formed it is committed first, then the non-jamo character is emitted. If no combination succeeds, compatibility jamo + the non-jamo character are committed in sequence.
+- **`bidirectional_combine` semantics clarified**: The option is now independent of `chord_window_ms`. Sequential (time-separated) jamo can also combine bidirectionally — e.g., ㅎ typed before ㄱ produces ㅋ even without chord timing.
+- **`chord_window_ms` defaults and range updated**: default 50 ms → **60 ms**, range 10–100 ms → **10–200 ms**.
+- **`KoreanConfig::validate_chord_window_ms`**: New validation function. Accepts 0 (chord disabled) or 10–200 ms; rejects all other values with a descriptive error.
+- **Backspace restores chord preedit**: pressing Backspace during or after a chord removes jamo in `input_order` reverse sequence and recomposes the remaining syllable, matching the behavior users expect from sequential three-beol.
+- **GTK settings dialog — Moachigi group**: New `AdwPreferencesGroup` with a toggle row ("동시 입력 자모 역순 결합" / "Bidirectional Jamo Combine") and a slider row ("동시 입력 시간 (ms)" / "Chord Window (ms)", 10–200 ms, default 60 ms, tick marks at 10 / 50 / 100 / 150 / 200). Group is shown only when the selected layout has `supports_moachigi=true`; hidden automatically when switching to other layouts. Tooltips note independence of the two moachigi options and recommend 100–150 ms for beginners.
 - **User guide** for Ahnmatae keyboard: `docs/user/keymaps/anmatae.md` (Korean) and `docs/user/keymaps/anmatae.en.md` (English).
+- **User guide — keyboard compatibility section**: `docs/user/keymaps/anmatae.md` and `anmatae.en.md` gain a new "Keyboard Compatibility (NKRO Recommended)" section covering KRO limits, USB polling rate, and a ghosting self-diagnosis guide (`xev`, online key tester, window-expansion test).
+- **Troubleshooting — moachigi section** (§15): `docs/user/troubleshooting/README-ko.md` and `README.md` gain "모아치기(chord)가 제대로 인식 안 됨" / "Moachigi not recognized correctly" covering the five most common root causes: window too short, NKRO not supported, low USB polling rate, bidirectional_combine off, and layout not moachigi-capable.
 
 ### Changed
 
 - **Settings dialog live help enrichment** (`unim-gui-gtk/src/settings_dialog.rs` + `locales/{ko,en}.yml`): Every settings row in the dialog gained richer subtitles and tooltips in both Korean and English — 26 tooltips reworked, 15 subtitles reworked, 5 new i18n keys added (`row_moachigi_bidirectional_subtitle`, `row_moachigi_chord_subtitle`, `userdict_group_desc_count`, plus enriched `mode_share_*` labels). Tooltips now follow a consistent four-element template (what / when / why / recommended-value-or-side-effect) with concrete numeric guidance (e.g., AutoTypeFix forward `2`, reverse `3`, observe window `5–15s`, tentative expiry `1–12h`) and explicit X11 / GNOME Wayland behavior differences where applicable. Domain terminology unified across locales (`AutoTypeFix`, `순방향`/`역방향`, `preedit`/`조합`, `IME`/`실시간 입력기`).
+- `chord_window_ms` slider in the GTK settings dialog: previous range 10–100 ms is now 10–200 ms; previous default 50 ms is now 60 ms.
+- `bidirectional_combine` tooltip text updated to emphasize that it operates independently of the chord window and applies to sequential input as well.
+
+### Fixed (best-effort)
+
+- **XIM `commit_then_preedit` now forces `clear_preedit()` before `commit()`** (`unim-frontends/xim/src/handler.rs:378-`): xim-0.5.0/src/server.rs:236-248 `commit()` does not toggle `preedit_started`, so a subsequent `preedit_draw()` skips the PreeditStart re-emission (server.rs:205-214). Forcing `clear_preedit()` first makes the crate emit `PreeditDraw(empty) + PreeditDone` and resets `preedit_started=false`, so the new `preedit_draw()` re-fires PreeditStart cleanly. This restores the post-commit preedit on the typical OVER-THE-SPOT path (XTerm, WezTerm) but **does not fully resolve the regression on every ON-THE-SPOT (PREEDIT_CALLBACKS) client** — see Known Issues.
+
+### Known Issues
+
+- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (UNRESOLVED)**: After committing a Hangul syllable, the next jamo's preedit is invisible for one frame and only renders once an additional jamo arrives. Reproduces in custom XIM clients (e.g. `unim-test-xim`) and some ON-THE-SPOT XIM apps. **Unaffected**: XTerm, WezTerm, other OVER-THE-SPOT clients, GTK3/4, Qt5/6, Wayland, GNOME extension. Best-effort mitigation above shipped; root cause is xim-0.5.0's `commit()` not driving the `preedit_started` state machine — needs an upstream xim fix or a redesigned protocol sequence on the UNIM side. Tracked in `docs/user/troubleshooting/README.md` §B.
+
+### Removed (continued)
+
+- **Qwerty Sebeolsik (`ko_3bul_qwerty`) dropped from built-ins**: removed from `BUILTIN_NAMES` (10 → reduced) and from the `get_builtin_json` / `get_keymap_json` match arms in `src/keystroke/profile/builtin.rs` and `src/keystroke/mod.rs`. The full v3 moachigi schema JSON is preserved as a research reference at `docs/references/keymaps/ko_3bul_qwerty_v2.json` — copy it to `~/.config/unim/layouts/ko_3bul_qwerty.json` to keep using it as a user profile. CLI `--korean` help, `unim-cli config set korean-layout` enumeration, GTK settings dialog alias map, FAQ §Q7, and troubleshooting §15-1 all updated accordingly.
 
 ## [0.2.0] 2026-04-26
 

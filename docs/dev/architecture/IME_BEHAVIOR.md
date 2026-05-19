@@ -128,11 +128,37 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
 
 ## 4. 팝업 동작
 
+### 4.0 팝업 렌더링 아키텍처 (0.3.0+)
+
+0.3.0부터 팝업 렌더링은 daemon에서 분리되어 별도 사이드카 프로세스 `unim-popup-service`
+또는 GNOME extension의 `popup_view.js`가 담당한다. Daemon은 view-model을
+`PopupRender` payload로 생성하고, `org.atit.unim.Popup` 인터페이스로 forward만 한다.
+
+```
+엔진 → daemon (view-model 생성) → org.atit.unim.Popup 인터페이스 forward
+                                         ↓                         ↓
+                              unim-popup-service (GTK4)   GNOME extension popup_view.js (St 위젯)
+```
+
+| 환경 | 렌더러 | 조건 |
+| ---- | ------ | ---- |
+| GNOME Wayland | `popup_view.js` (St 위젯) | `Meta.is_wayland_compositor() == true` |
+| GNOME X11 | `unim-popup-service` GTK4 윈도우 | D-Bus auto-activation |
+| KDE / Xfce / X11 WM | `unim-popup-service` GTK4 윈도우 | D-Bus auto-activation |
+| Wayland WM (Sway/Hyprland) | `unim-popup-service` GTK4 | `libgtk4-layer-shell` 필요 |
+
+`PopupRender` payload는 셀·헤더·푸터·탭·하이라이트를 포함하는 단일 view-model SoT이다.
+렌더러는 이 payload만 소비하며 자체 상태를 관리하지 않는다.
+
+**외부 좌클릭 dismiss**: 팝업 영역 밖을 좌클릭하면 팝업이 닫히고
+클릭 이벤트는 아래 창에 그대로 pass-through된다.
+
 ### 4.1 한자 팝업
 - **위치**: 커서(caret) 바로 아래
 - **화면 경계 처리**: 오른쪽/아래 넘침 시 왼쪽/위로 조정
 - **선택**: 숫자 1-9 직접 선택, ↑↓ 네비게이션, Enter 확정
-- **페이지**: ← → PgUp PgDn Space로 이동
+- **페이지**: ← → PgUp PgDn Space로 이동; ◀/▶ 마우스 버튼 (총 페이지 1일 때 자동 숨김)
+- **그리드 토글**: Period(`.`) 키로 9-셀 컴팩트 ↔ 81-셀 확장 그리드 전환
 - **선택 시 커밋 플로우**: SelectHanja → CancelHanja(엔진 preedit 리셋) → clearPreedit → commit
 - **취소**: Escape 또는 미등록 키 입력 시 닫기 + 원래 문자 유지
 - **포커스 이동 시 자동 닫기**
@@ -151,6 +177,21 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
   1. 팝업 닫기 + 해당 모드 취소 (CancelHanja / CancelSpecialChar)
   2. **나머지 IME 키 처리 로직으로 fall-through** (네비게이션 키 → commit+바이패스, 문자 키 → ProcessKey)
   3. 즉시 return하지 않음 — GTK3 immodule.c의 "미지원 키 → 닫기 → fall-through" 패턴을 따름
+
+### 4.4 팝업 forward 흐름 (0.3.0+)
+
+프런트엔드 → 데몬으로의 팝업 관련 신호 경로:
+
+```
+프런트엔드 (ProcessKeyEvent) → daemon 엔진 처리
+    → PopupAction (Select/Cancel/Navigate) → view-model 생성
+    → org.atit.unim.InputContext 시그널 발행
+    → daemon popup_dispatch → org.atit.unim.Popup 인터페이스로 forward
+    → unim-popup-service 또는 GNOME extension popup_view.js 수신 → 렌더링
+```
+
+팝업 관련 시그널/메서드를 daemon에 직접 추가하지 말 것.
+`org.atit.unim.Popup` 인터페이스를 통해 forward한다.
 
 ---
 
@@ -345,11 +386,25 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
 
 | 시그널 | 파라미터 | 용도 |
 |-------|---------|------|
-| `ShowHanjaPopup` | (target, candidates, cursor_rect) | 한자 팝업 표시 |
-| `ShowSpecialPopup` | (target, characters, top_row, cursor_rect) | 특수문자 팝업 표시 |
-| `HidePopup` | - | 팝업 닫기 |
-| `PopupNavigate` | (page, totalPages, selected, rows, cols, selRow, selCol) | 팝업 상태 업데이트 |
 | `GlobalModeChanged` | (is_korean) | 한/영 모드 변경 알림 |
+
+> **주의 (0.3.0+)**: 팝업 관련 시그널은 `org.atit.unim.InputContext`에서 발행되지만
+> 프런트엔드가 직접 구독하지 않는다. 대신 daemon이 `org.atit.unim.Popup` 인터페이스로
+> forward하고, 렌더러(popup-service 또는 GNOME extension)가 해당 인터페이스를 구독한다.
+
+`org.atit.unim.Popup` 인터페이스 시그널 (렌더러 전용):
+
+| 시그널 | 파라미터 | 용도 |
+|-------|---------|------|
+| `PopupRender` | (payload: PopupRenderPayload) | 단일 view-model — 셀·헤더·푸터·탭·하이라이트 |
+| `ShowHanjaPopup` | (cursor_rect) | 한자 팝업 위치 지정 + 표시 트리거 |
+| `ShowSpecialCharPopup` | (cursor_rect) | 특수문자 팝업 위치 지정 + 표시 트리거 |
+| `ShowEmojiPopupV2` | (cursor_rect) | 이모지 팝업 위치 지정 + 표시 트리거 |
+| `HidePopup` | - | 팝업 닫기 |
+| `CancelHanja` | - | 한자 모드 취소 |
+| `CancelSpecialChar` | - | 특수문자 모드 취소 |
+| `HanjaBookmarkChanged` | - | 북마크 변경 알림 |
+| `PopupNavigate` | (page, totalPages, selected, rows, cols, selRow, selCol) | 팝업 네비게이션 상태 (PopupRender 동반 발행) |
 
 ---
 

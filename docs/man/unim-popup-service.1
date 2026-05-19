@@ -1,0 +1,86 @@
+.TH UNIM-POPUP-SERVICE 1 "May 2026" "UNIM 0.3.0" "User Commands"
+.SH NAME
+unim\-popup\-service \- UNIM popup rendering sidecar service
+.SH SYNOPSIS
+.B unim\-popup\-service
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+\fBunim-popup-service\fR is the dedicated popup rendering process for UNIM
+(Universal Next-generation Input Method). It subscribes to the
+\fBorg.atit.unim.Popup\fR D\-Bus interface and renders hanja, special-character,
+and emoji popups as a GTK4 window.
+.PP
+In UNIM 0.3.0 this process is the single source of truth (SoT) for popup
+state on X11 environments and Wayland desktops other than GNOME. On
+GNOME Wayland, the GNOME Shell extension renders popups directly using
+St widgets because Mutter does not support the wlr-layer-shell or
+zwp_input_popup_v2 protocols required for GTK4 overlay windows.
+.PP
+The process is normally started automatically via D\-Bus session activation
+(\fBorg.atit.unim.PopupService.service\fR). Manual launch is only needed for
+debugging.
+.SH OPTIONS
+.TP
+.B \-\-no\-daemon
+Run in the foreground without daemonizing.
+.TP
+.B \-\-help
+Print usage and exit.
+.SH D\-BUS INTERFACE
+.TP
+.B Service
+org.atit.unim.PopupService
+.TP
+.B Object path
+/org/atit/unim/popup
+.TP
+.B Interface
+org.atit.unim.Popup
+.PP
+The interface exposes the following signals (forwarded from the daemon):
+.TP
+.B PopupRender
+The single view\-model payload. Contains cells, header, footer, tabs,
+highlight index, and pagination state. All renderers consume this signal
+exclusively.
+.TP
+.B ShowHanjaPopup, ShowSpecialCharPopup, ShowEmojiPopupV2
+Cursor\-coordinate trigger signals that inform the renderer where to
+position the popup window.
+.TP
+.B HidePopup, CancelHanja, CancelSpecialChar
+Dismiss signals. The popup\-service closes the GTK4 window on receipt.
+.TP
+.B HanjaBookmarkChanged, PopupNavigate
+Navigation and bookmark signals. Each is accompanied by a PopupRender
+re\-emission from the daemon.
+.PP
+To verify the interface is live:
+.PP
+.nf
+busctl \-\-user introspect org.atit.unim.PopupService /org/atit/unim/popup
+.fi
+.SH ENVIRONMENT
+.TP
+.B UNIM_DEVELOP
+Set to "1" to enable verbose debug logging.
+.SH FILES
+.TP
+.B ~/.local/share/dbus\-1/services/org.atit.unim.PopupService.service
+Per-user D\-Bus activation file (installed by package or \fBmake install\fR).
+.TP
+.B /usr/share/dbus\-1/services/org.atit.unim.PopupService.service
+System\-wide D\-Bus activation file.
+.SH NOTES
+.PP
+KDE Plasma 5.x Wayland: the \fBgtk4\-layer\-shell\fR library required for
+Wayland popup positioning is not available in the Ubuntu 24.04 (noble)
+standard repositories. Popups will not appear on that configuration.
+Use an X11 session or switch to GNOME as a workaround.
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-daemon (1),
+.BR unim\-cli (1),
+.BR busctl (1)

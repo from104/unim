@@ -208,7 +208,7 @@ impl ChordBuffer {
         let now = Instant::now();
 
         // 윈도우 만료 여부 체크 (단일 윈도우: 첫 타건 시점 기준 절대 만료)
-        let expired = self.start.map_or(false, |t| {
+        let expired = self.start.is_some_and(|t| {
             now.duration_since(t).as_millis() >= self.window_ms as u128
         });
 

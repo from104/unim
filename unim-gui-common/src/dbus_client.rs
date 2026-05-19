@@ -24,7 +24,7 @@ pub async fn watch_dbus_signals(
     tray_update_tx: std::sync::mpsc::Sender<()>,
     popup_tx: Sender<GuiAction>,
     mut dbus_action_rx: tokio::sync::mpsc::Receiver<GuiAction>,
-    controller: Arc<TrayController>,
+    controller: Option<Arc<TrayController>>,
 ) {
     use futures_util::StreamExt;
 
@@ -201,7 +201,7 @@ pub async fn fetch_active_frontends(connection: &zbus::Connection) -> Vec<String
 /// ActiveFrontendsChanged 시그널 구독 + debounce 200ms.
 ///
 /// gnome-shell 등록 여부에 따라 `controller.spawn_start()` / `controller.spawn_stop()` 호출.
-pub async fn watch_active_frontends(connection: zbus::Connection, controller: Arc<TrayController>) {
+pub async fn watch_active_frontends(connection: zbus::Connection, controller: Option<Arc<TrayController>>) {
     use futures_util::StreamExt;
 
     let proxy = match InputMethodProxy::new(&connection).await {
@@ -256,10 +256,12 @@ pub async fn watch_active_frontends(connection: zbus::Connection, controller: Ar
                         has_gnome,
                         names
                     );
-                    if has_gnome {
-                        controller.spawn_stop();
-                    } else {
-                        controller.spawn_start();
+                    if let Some(c) = controller.as_ref() {
+                        if has_gnome {
+                            c.spawn_stop();
+                        } else {
+                            c.spawn_start();
+                        }
                     }
                 }
             }

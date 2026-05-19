@@ -1,6 +1,0 @@
-# unim-gui-gtk — lintian overrides (justified)
-
-# embedded-library libyaml: see unim-common.lintian-overrides for rationale.
-unim-gui-gtk: embedded-library libyaml [usr/bin/unim-gui-gtk]
-
-unim-gui-gtk: initial-upload-closes-no-bugs *

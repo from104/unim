@@ -1,0 +1,60 @@
+[package]
+name = "unim-popup-service"
+version.workspace = true
+edition = "2021"
+description = "UNIM popup service — standalone GTK4 popup + tray (X11 + Wayland)"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "unim-popup-service"
+path = "src/main.rs"
+
+[dependencies]
+# Core
+unim = { path = ".." }
+unim-gui-common = { path = "../unim-gui-common" }
+unim-dbus = { path = "../unim-dbus" }
+dirs = "5.0"
+
+# GTK4 + libadwaita
+gtk4 = "0.9"
+gdk4-x11 = { version = "0.9", optional = true }
+gdk4-wayland = { version = "0.9", optional = true }
+gtk4-layer-shell = { version = "0.4", optional = true }
+libadwaita = { version = "0.7", features = ["v1_4"] }
+
+# System tray (StatusNotifierItem)
+ksni = { version = "0.3", features = ["blocking"] }
+
+# X11 direct access (override-redirect, outside-click)
+x11 = { version = "2.21", features = ["xlib"], optional = true }
+xcb = { version = "1.7", optional = true }
+
+# Wayland direct (input_popup_surface_v2 Phase 5)
+wayland-client = { version = "0.31", optional = true }
+wayland-protocols = { version = "0.31", features = ["unstable", "client"], optional = true }
+wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
+
+# Async runtime for DBus
+tokio = { version = "1", features = ["rt", "sync"] }
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+# zbus MessageStream::next() 를 위해 StreamExt 필요 (Phase 2 signal re-emit forward).
+futures-util = "0.3"
+
+# i18n
+rust-i18n = "3"
+
+# 단일 인스턴스 lock (flock)
+libc = "0.2"
+
+# Config serialization
+serde_yaml = "0.9"
+serde_json = "1"
+
+[features]
+default = ["x11-backend"]
+# wayland-backend은 시스템에 libgtk4-layer-shell-dev 가 있을 때만 enable (Phase 4).
+x11-backend = ["dep:x11", "dep:xcb", "dep:gdk4-x11"]
+wayland-backend = ["dep:wayland-client", "dep:wayland-protocols", "dep:gdk4-wayland", "dep:gtk4-layer-shell"]

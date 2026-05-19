@@ -91,6 +91,24 @@ sudo apt remove ibus
 
 ---
 
+## 2.5 팝업 동작 개요
+
+UNIM 0.3.0부터 한자·특수문자·이모지 팝업은 **`unim-popup-service`** 가 단일 렌더러로 처리한다.
+
+| 환경 | 팝업 렌더 주체 | 비고 |
+|------|--------------|------|
+| GNOME Wayland | GNOME Extension `popup_view.js` (St 위젯) | Mutter가 wlr-layer-shell 미지원이므로 extension 자체 렌더 |
+| GNOME X11 / KDE / Xfce / WM (X11) | `unim-popup-service` GTK4 윈도우 | D-Bus auto-activation으로 자동 기동 |
+| Wayland (KDE Plasma 6 / Sway / Hyprland) | `unim-popup-service` GTK4 윈도우 (wayland-backend) | `libgtk4-layer-shell` 필요 |
+
+**공통 SoT**: 환경과 무관하게 daemon의 `PopupRender` payload(셀·헤더·푸터·탭·하이라이트)가 단일 view-model로 모든 렌더러에 전달된다. 렌더 구현만 다를 뿐 동작은 동일하다.
+
+**외부 클릭 dismiss**: 팝업 바깥 좌클릭 시 팝업이 닫히며, 클릭 이벤트는 아래 창에 그대로 전달된다. 팝업이 예상치 않게 닫혔다면 의도된 동작이다 — [트러블슈팅 §popup-dismiss](../troubleshooting/README-ko.md) 참고.
+
+**KDE Plasma 5.x Wayland 미해결**: `gtk4-layer-shell`이 Ubuntu 24.04 표준 저장소에 없어 팝업이 표시되지 않는다. X11 세션 또는 GNOME으로 우회.
+
+---
+
 ## 3. 환경별 설정 가이드
 
 | 환경 | 설치 방법 | IM 모듈 | 팝업 주체 | 주의점 |
@@ -235,7 +253,7 @@ vim 명령 모드(`Esc`), CLI 슬래시 명령(`/`) 같은 비한글 컨텍스�
 
 ## 5. 설정 GUI 투어
 
-`unim-gui-gtk`(GTK4 + libadwaita 다이얼로그) 또는 `unim-gui-qt`(Qt6 cxx-qt 다이얼로그) 중 하나를 띄워 설정을 만진다. 기본은 GTK 버전.
+`unim-settings`(GTK4 + libadwaita 다이얼로그) 를 띄워 설정을 만진다. v0.3.0 부터 단일 GUI 정책 — Qt 다이얼로그(`unim-gui-qt`) 는 폐기, 트레이/팝업은 각각 `unim-indicator`·`unim-popup-service` 가 별도 책임.
 
 ```bash
 unim-gtk-settings &     # GTK4/libadwaita

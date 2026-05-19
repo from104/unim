@@ -243,10 +243,66 @@ The error `lock file version 4 requires '-Znext-lockfile-bump'` is always this i
 
 ---
 
+---
+
+## Q15. What is the difference between Ahnmatae and Moachigi?
+
+**Ahnmatae** (안마태) is a specific keyboard layout. Finalized in 2003, it is a three-beol (sebeolsik) style layout with fixed cho/jung/jong regions mapped to distinct keyboard zones. In UNIM it ships as the `ko_3bul_anmatae` built-in profile.
+
+**Moachigi** (모아치기, "gather-and-strike") is an input method. Multiple jamo pressed simultaneously or within a short window are combined into a single syllable. Unlike ordinary dubeolsik/sebeolsik which process one key at a time, moachigi collects all keys within the chord window (default 60 ms) and resolves them at expiry.
+
+In UNIM 0.3.0, Ahnmatae is the first built-in layout that supports moachigi. The moachigi settings group in the GTK settings dialog appears only when the selected layout has `supports_moachigi=true`.
+
+---
+
+## Q16. How do I diagnose a missing popup-service?
+
+First check whether `unim-popup-service` is available on the bus:
+
+```bash
+busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
+```
+
+No response means the package is not installed or the D-Bus service file is missing. See [troubleshooting §16](../troubleshooting/README.md#16-popup-service-debugging-030) for the full diagnosis flow.
+
+---
+
+## Q17. Will my settings survive a deb to rpm (or rpm to deb) migration?
+
+Yes. All user data lives under `~/.config/unim/` and is independent of the package format:
+
+- `~/.config/unim/config.yaml` — main settings
+- `~/.config/unim/layouts/*.json` — custom keyboard profiles
+- `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix suppression dictionary
+- `~/.config/unim/userdict.yaml` — user dictionary
+
+Uninstalling one package format and installing the other leaves these files untouched. Note that `unim-gui-qt` was removed in 0.3.0; replace it with `unim-gui-gtk` and `unim-popup-service`.
+
+---
+
+## Q18. What is the right chord_window_ms value?
+
+Valid range: **10–200 ms**. Default: **60 ms** (tuned for experienced typists).
+
+| Profile | Recommended range | Notes |
+|---------|------------------|-------|
+| Beginner | 100–150 ms | Chord timing still inconsistent; extra window prevents missed chords |
+| General | 60–100 ms | Comfortable for most users |
+| Expert | 10–60 ms | Minimize false positives, maximize responsiveness |
+
+Set to `0` to disable moachigi entirely. Adjust via the settings dialog slider or:
+
+```bash
+unim-cli config set chord-window-ms 80
+```
+
+---
+
 ## Read more
 
 - [User manual](../user-guide/README.md)
 - [Troubleshooting](../troubleshooting/README.md)
+- [Release notes 0.3.0](../release-notes/0.3.0/README.en.md)
 - [Release notes 0.2.0](../release-notes/0.2.0/RELEASE_NOTES.md)
 - [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)
 - [`POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)

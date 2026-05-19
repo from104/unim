@@ -58,13 +58,17 @@ endef
 .PHONY: all help build build-rust build-frontends build-tests clean clean-all \
         gen-popup-css gen-popup-css-check \
         _check-build \
-        install install-core install-frontends install-icons install-gui-gtk install-gui-qt \
+        install install-core install-frontends install-icons \
+        install-indicator install-settings install-popup-service \
         install-gnome-extension install-extension install-systemd \
-        uninstall uninstall-core uninstall-frontends uninstall-icons uninstall-gui-gtk uninstall-gui-qt \
+        uninstall uninstall-core uninstall-frontends uninstall-icons \
+        uninstall-indicator uninstall-settings uninstall-popup-service \
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
-        deb clean-deb test test-dbus dev-restart \
+        deb clean-deb rpm clean-rpm test test-dbus dev-restart \
+        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-core dev-daemon dev-xim dev-wayland \
+        dev-indicator dev-settings dev-popup-service dev-extension \
         check-windows build-windows clean-windows
 
 # ─── Help ────────────────────────────────────────────────────────────────────
@@ -83,7 +87,7 @@ help:
 	@echo "  test-{gtk3,gtk4,qt5,qt6,xim,gnome,wayland,dbus}"
 	@echo "  sandbox-{gtk3,gtk4,qt5,qt6,xim,indicator}"
 	@echo ""
-	@echo "  dev-{gtk3,gtk4,qt5,qt6,core,daemon,xim,wayland,gui-gtk,gui-qt,extension,restart}"
+	@echo "  dev-{gtk3,gtk4,qt5,qt6,core,daemon,xim,wayland,indicator,settings,popup-service,extension,restart}"
 	@echo ""
 	@echo "  check-windows / build-windows / clean-windows  (WIN_TARGET=...)"
 	@echo "  install-gnome-extension / uninstall-gnome-extension / pack"
@@ -120,7 +124,7 @@ build-frontends: build-rust
 
 # ─── Install ─────────────────────────────────────────────────────────────────
 
-install: _check-build install-core install-gui-gtk install-gui-qt install-frontends install-icons install-gnome-extension
+install: _check-build install-core install-indicator install-settings install-popup-service install-frontends install-icons install-gnome-extension
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 
 # 빌드 산출물 존재 여부 확인 (sudo make install 시 빌드를 root로 실행하는 것을 방지)
@@ -133,7 +137,8 @@ _check-build:
 install-core:
 	@echo "Installing core components..."
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(REAL_LIBDIR) $(DESTDIR)$(LIBEXECDIR) \
-	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
+	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR) \
+	           $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	install -m 755 target/release/libunim_capi.so $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0.1.0
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so
@@ -143,8 +148,14 @@ install-core:
 	install -m 644 im-config/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" im-config/25_unim.rc > $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc && chmod 644 $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" scripts/org.atit.unim.InputMethod.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
+	# 비-GNOME 데스크톱(KDE/XFCE/LXDE) 부팅 시 daemon 자동 시작.
+	# GNOME 은 gnome-shell 이 직접 daemon 을 DBus 자동활성하므로 NotShowIn=GNOME 으로 제외.
+	# daemon 이 살아있어야 popup-service kickstart 도 동작.
+	install -m 644 unim-daemon/data/unim-daemon.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
-	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 docs/man/unim-gui-gtk.1 docs/man/unim-gui-qt.1 $(DESTDIR)$(PREFIX)/share/man/man1/
+	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 \
+	               docs/man/unim-indicator.1 docs/man/unim-settings.1 docs/man/unim-popup-service.1 \
+	               $(DESTDIR)$(PREFIX)/share/man/man1/
 
 install-frontends:
 	@echo "Installing IM modules..."
@@ -159,21 +170,27 @@ install-icons:
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -m 644 data/icons/unim-korean.svg data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
-install-gui-gtk:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart $(DESTDIR)$(DATADIR)/applications
-	install -m 755 target/release/unim-gui-gtk $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-gui-gtk/data/unim-gui-gtk.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
-	install -m 644 unim-gui-gtk/data/unim-gui-gtk-launcher.desktop $(DESTDIR)$(DATADIR)/applications/unim-gui-gtk.desktop
+install-indicator:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
+	install -m 755 target/release/unim-indicator $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-indicator/data/unim-indicator.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 
-install-gui-qt:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart $(DESTDIR)$(DATADIR)/applications
-	install -m 755 target/release/unim-gui-qt $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-gui-qt/data/unim-gui-qt.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
-	install -m 644 unim-gui-qt/data/unim-gui-qt-launcher.desktop $(DESTDIR)$(DATADIR)/applications/unim-gui-qt.desktop
+install-settings:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-settings $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-settings/data/unim-settings.desktop $(DESTDIR)$(DATADIR)/applications/
+
+install-popup-service:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
+	install -m 755 target/release/unim-popup-service $(DESTDIR)$(BINDIR)/
+	# D-Bus auto-activation — daemon 이 PopupService 호출 시 자동 launching.
+	# .xdg/autostart 의존 race(daemon 미준비 시 register_frontend NoReply 에서 stuck)
+	# 를 회피한다. unim-daemon InputMethod.service 와 동일 패턴.
+	sed "s|@BINDIR@|$(BINDIR)|g" scripts/org.atit.unim.PopupService.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service
 
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
-uninstall: uninstall-core uninstall-gui-gtk uninstall-gui-qt uninstall-frontends uninstall-icons uninstall-gnome-extension
+uninstall: uninstall-core uninstall-indicator uninstall-settings uninstall-popup-service uninstall-frontends uninstall-icons uninstall-gnome-extension
 	@echo "✅ UNIM 제거 완료!"
 
 uninstall-core:
@@ -182,7 +199,12 @@ uninstall-core:
 	      $(DESTDIR)$(LIBEXECDIR)/unim-daemon $(DESTDIR)$(LIBEXECDIR)/unim-xim $(DESTDIR)$(LIBEXECDIR)/unim-wayland \
 	      $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc \
 	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service \
-	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-daemon.desktop \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-cli.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-indicator.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-popup-service.1
 
 uninstall-frontends:
 	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/im-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so \
@@ -192,15 +214,18 @@ uninstall-icons:
 	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-korean.svg \
 	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg
 
-uninstall-gui-gtk:
-	rm -f $(DESTDIR)$(BINDIR)/unim-gui-gtk \
-	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-gtk.desktop \
-	      $(DESTDIR)$(DATADIR)/applications/unim-gui-gtk.desktop
+uninstall-indicator:
+	rm -f $(DESTDIR)$(BINDIR)/unim-indicator \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-indicator.desktop
 
-uninstall-gui-qt:
-	rm -f $(DESTDIR)$(BINDIR)/unim-gui-qt \
-	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-qt.desktop \
-	      $(DESTDIR)$(DATADIR)/applications/unim-gui-qt.desktop
+uninstall-settings:
+	rm -f $(DESTDIR)$(BINDIR)/unim-settings \
+	      $(DESTDIR)$(DATADIR)/applications/unim-settings.desktop
+
+uninstall-popup-service:
+	rm -f $(DESTDIR)$(BINDIR)/unim-popup-service \
+	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-popup-service.desktop
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────
 
@@ -291,6 +316,25 @@ clean-deb:
 	@rm -rf $(DEB_DIR)
 	@rm -f ../*.deb ../*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
 
+# ─── RPM ─────────────────────────────────────────────────────────────────────
+
+RPM_VERSION := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+RPM_TOPDIR  := $(CURDIR)/rpm/build
+
+rpm: _check-build
+	@echo "  → Preparing RPM source tarball..."
+	@mkdir -p $(RPM_TOPDIR)/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+	@git archive --format=tar.gz --prefix=unim-$(RPM_VERSION)/ HEAD \
+	    -o $(RPM_TOPDIR)/SOURCES/unim-$(RPM_VERSION).tar.gz
+	@cp rpm/unim.spec $(RPM_TOPDIR)/SPECS/unim.spec
+	@echo "  → Running rpmbuild..."
+	@rpmbuild --define "_topdir $(RPM_TOPDIR)" -ba $(RPM_TOPDIR)/SPECS/unim.spec
+	@echo "✅ RPM packages: $(RPM_TOPDIR)/RPMS/" && find $(RPM_TOPDIR)/RPMS -name '*.rpm' | sort
+
+clean-rpm:
+	@rm -rf $(RPM_TOPDIR)
+	@echo "✅ RPM build directory cleaned"
+
 # ─── Windows (native / cross-compile) ────────────────────────────────────────
 # 호스트가 Windows면 네이티브 빌드, Linux/mac이면 cross-compile.
 # WIN_TARGET 을 명시하면 해당 트리플 사용. 미지정 시 rustup 설치된 windows
@@ -357,7 +401,7 @@ test:
 	          $(QT5_PLUGIN_DIR)/libunim.so $(QT6_PLUGIN_DIR)/libunim.so; do \
 		printf "  %-55s %s\n" "$$f" "$$([ -f $(DESTDIR)$$f ] && echo '✓' || echo '✗')"; \
 	done
-	@for cmd in unim-cli unim-gui-gtk; do \
+	@for cmd in unim-cli unim-indicator unim-settings unim-popup-service; do \
 		printf "  %-55s %s\n" "$(BINDIR)/$$cmd" "$$([ -f $(DESTDIR)$(BINDIR)/$$cmd ] && echo '✓' || echo '✗')"; \
 	done
 	@for cmd in unim-daemon unim-xim unim-wayland; do \
@@ -474,19 +518,26 @@ dev-wayland:
 	@sudo cp target/release/unim-wayland $(DEV_LIBEXECDIR)
 	@echo "✅ Wayland IM 배포 완료!"
 
-dev-gui-gtk:
-	@$(CARGO) build --release -p unim-gui-gtk
-	@pkill -9 -x unim-gui-gtk 2>/dev/null || true
+dev-indicator:
+	@$(CARGO) build --release -p unim-indicator
+	@pkill -9 -x unim-indicator 2>/dev/null || true
 	@sleep 0.5
-	@sudo cp target/release/unim-gui-gtk $(DEV_BINDIR)/
-	@echo "✅ unim-gui-gtk 배포 완료!"
+	@sudo cp target/release/unim-indicator $(DEV_BINDIR)/
+	@echo "✅ unim-indicator 배포 완료!"
 
-dev-gui-qt:
-	@$(CARGO) build --release -p unim-gui-qt
-	@pkill -9 -x unim-gui-qt 2>/dev/null || true
+dev-settings:
+	@$(CARGO) build --release -p unim-settings
+	@pkill -9 -x unim-settings 2>/dev/null || true
 	@sleep 0.5
-	@sudo cp target/release/unim-gui-qt $(DEV_BINDIR)/
-	@echo "✅ unim-gui-qt 배포 완료!"
+	@sudo cp target/release/unim-settings $(DEV_BINDIR)/
+	@echo "✅ unim-settings 배포 완료!"
+
+dev-popup-service:
+	@$(CARGO) build --release -p unim-popup-service
+	@pkill -9 -x unim-popup-service 2>/dev/null || true
+	@sleep 0.5
+	@sudo cp target/release/unim-popup-service $(DEV_BINDIR)/
+	@echo "✅ unim-popup-service 배포 완료!"
 
 dev-extension:
 	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)/schemas
@@ -503,8 +554,8 @@ dev-extension:
 
 dev-restart:
 	@pkill -9 -x unim-daemon 2>/dev/null; pkill -9 -x unim-xim 2>/dev/null; \
-	 pkill -9 -x unim-wayland 2>/dev/null; pkill -9 -x unim-gui-gtk 2>/dev/null; \
-	 pkill -9 -x unim-gui-qt 2>/dev/null; sleep 1
+	 pkill -9 -x unim-wayland 2>/dev/null; pkill -9 -x unim-indicator 2>/dev/null; \
+	 pkill -9 -x unim-settings 2>/dev/null; pkill -9 -x unim-popup-service 2>/dev/null; sleep 1
 	@UNIM_DEVELOP=1 $(DEV_LIBEXECDIR)unim-daemon -n --replace &
 	@sleep 1
 	@echo "✅ 모든 UNIM 프로세스 재시작 완료!"

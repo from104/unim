@@ -587,25 +587,23 @@ impl Dispatch<wayland_client::protocol::wl_registry::WlRegistry, GlobalList> for
         _conn: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        match event {
-            wayland_client::protocol::wl_registry::Event::Global {
-                name: _,
-                interface,
-                version,
-            } => {
-                if interface == "zwp_text_input_manager_v3" {
-                    let manager = data
-                        .bind::<ZwpTextInputManagerV3, _, _>(&qh, version..=version, ())
-                        .expect("Failed to bind text input manager");
-                    state.text_input_manager = Some(manager);
-                    unim_log!("TEST_WAYLAND", "zwp_text_input_manager_v3 바인딩됨");
+        if let wayland_client::protocol::wl_registry::Event::Global {
+            name: _,
+            interface,
+            version,
+        } = event
+        {
+            if interface == "zwp_text_input_manager_v3" {
+                let manager = data
+                    .bind::<ZwpTextInputManagerV3, _, _>(qh, version..=version, ())
+                    .expect("Failed to bind text input manager");
+                state.text_input_manager = Some(manager);
+                unim_log!("TEST_WAYLAND", "zwp_text_input_manager_v3 바인딩됨");
 
-                    if state.seat.is_some() {
-                        state.init_text_input(qh);
-                    }
+                if state.seat.is_some() {
+                    state.init_text_input(qh);
                 }
             }
-            _ => {}
         }
     }
 }
@@ -661,7 +659,8 @@ fn run_auto_test(verbose: bool) -> i32 {
         let is_3bul = layout.contains("3bul");
 
         // 테스트 케이스: (name, keys[(keycode, state)], expected_preedit, expected_commit, korean)
-        let cases: Vec<(&str, Vec<(u32, u32)>, &str, &str, bool)> = if is_3bul {
+        type WaylandTestCase<'a> = (&'a str, Vec<(u32, u32)>, &'a str, &'a str, bool);
+        let cases: Vec<WaylandTestCase> = if is_3bul {
             vec![
                 ("초성: ㅎ", vec![(50, 0)], "ㅎ", "", true),
                 ("초성+중성: 하", vec![(50, 0), (33, 0)], "하", "", true),

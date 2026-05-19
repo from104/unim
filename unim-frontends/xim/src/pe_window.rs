@@ -121,12 +121,12 @@ impl PeWindow {
         unsafe {
             let window_type_atom = x11::xlib::XInternAtom(
                 display,
-                b"_NET_WM_WINDOW_TYPE\0".as_ptr() as *const i8,
+                c"_NET_WM_WINDOW_TYPE".as_ptr(),
                 x11::xlib::False,
             );
             let popup_atom = x11::xlib::XInternAtom(
                 display,
-                b"_NET_WM_WINDOW_TYPE_POPUP_MENU\0".as_ptr() as *const i8,
+                c"_NET_WM_WINDOW_TYPE_POPUP_MENU".as_ptr(),
                 x11::xlib::False,
             );
             let xa_atom = 4u64;
@@ -149,7 +149,7 @@ impl PeWindow {
             let xa_string = 31u64;
             let xa_wm_class = x11::xlib::XInternAtom(
                 display,
-                b"WM_CLASS\0".as_ptr() as *const i8,
+                c"WM_CLASS".as_ptr(),
                 x11::xlib::False,
             );
             x11::xlib::XChangeProperty(

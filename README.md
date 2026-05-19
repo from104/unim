@@ -1,7 +1,7 @@
 # UNIM: 차세대 범용 입력기 (Universal Next-generation Input Method)
 
-![release](https://img.shields.io/badge/release-0.2.0-blue)
-![status](https://img.shields.io/badge/status-Phase%208%20cleanup%20%2B%20AutoTypeFix-green)
+![release](https://img.shields.io/badge/release-0.3.0-blue)
+![status](https://img.shields.io/badge/status-popup--unify%20%2B%20moachigi-green)
 ![rust](https://img.shields.io/badge/rust-1.95%2B-orange)
 ![license](https://img.shields.io/badge/license-see%20LICENSE-lightgrey)
 
@@ -12,9 +12,19 @@
 > - [사용자 매뉴얼 (한국어)](docs/user/user-guide/README-ko.md) · [User Manual (English)](docs/user/user-guide/README.md)
 > - [트러블슈팅 (한국어)](docs/user/troubleshooting/README-ko.md) · [Troubleshooting](docs/user/troubleshooting/README.md)
 > - [FAQ (한국어)](docs/user/faq/README-ko.md) · [FAQ (English)](docs/user/faq/README.md)
-> - [0.2.0 릴리즈 노트 (한국어)](docs/user/release-notes/0.2.0/RELEASE_NOTES-ko.md) · [Release Notes (English)](docs/user/release-notes/0.2.0/RELEASE_NOTES.md)
+> - [0.3.0 릴리즈 노트 (한국어)](docs/user/release-notes/0.3.0/README.md) · [Release Notes (English)](docs/user/release-notes/0.3.0/README.en.md)
 >
 > 🚀 **5분 빠른 시작**: 아래 [§5. 환경 변수 설정](#5-환경-변수-설정-범용-데스크톱-환경) 또는 [사용자 매뉴얼 §2](docs/user/user-guide/README-ko.md#2-빠른-시작-5분).
+
+## v0.3.0 주요 신기능
+
+| 기능 | 요약 |
+|------|------|
+| **Popup 단일 SoT 아키텍처** | daemon → `unim-popup-service` 이관. 8개 시그널 forward, `org.atit.unim.Popup` 인터페이스. D-Bus auto-activation |
+| **GNOME extension popup_view 통합** | Wayland에서 St 위젯(`popup_view.js`)으로 자체 렌더. 팝업 외부 좌클릭 dismiss(클릭 이벤트는 아래 창에 전달) |
+| **안마태 + Moachigi v4 Atomic Window** | chord_window_ms 슬라이더 10–200ms (기본 60ms). 윈도우 만료 시 단일 결정, 중간 commit 아티팩트 없음 |
+| **AutoTypeFix 학습 blacklist** | retrigger 시점에 tentative 억제 항목 등록 + 즉시 억제. GUI "억제 단어" 페이지 |
+| **Hanja 마우스 페이지네이션 + 9×9** | ◀/▶ 버튼 전 프런트엔드 통일. Period 키로 compact ↔ expanded 81칸 전환 |
 
 ## 🚀 최종 비전
 
@@ -60,18 +70,24 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | 컴포넌트 | 경로 | 설명 |
 |----------|------|------|
 | **GUI Common** | `unim-gui-common/` | DBus 통신·트레이·popup 모델·설정 헬퍼 등 toolkit 무관 공통 로직 |
-| **GUI GTK** | `unim-gui-gtk/` | GTK4/libadwaita 트레이·popup·설정 UI (GNOME·Xfce·Cinnamon 등 GTK 데스크톱) |
-| **GUI Qt** | `unim-gui-qt/` | Qt6/QML 트레이·popup·설정 UI (KDE Plasma 네이티브, GTK 의존 없음) |
-| **GNOME Extension** | `unim-gnome-extension/` | GNOME Shell 확장 (인디케이터, 오타 변환, 설정) |
+| **GUI GTK** | `unim-gui-gtk/` | GTK4/libadwaita 트레이·설정 UI (GNOME·Xfce·Cinnamon 등 GTK 데스크톱) |
+| **Popup Service** | `unim-popup-service/` | 한자·특수문자·이모지 팝업 단일 렌더러 (GTK4, D-Bus auto-activation) |
+| **GNOME Extension** | `unim-gnome-extension/` | GNOME Shell 확장 (인디케이터, 오타 변환, popup_view, 설정) |
 
 데스크톱별 GUI 매트릭스:
 
 | 환경 | autostart 패키지 | 한자/특수/이모지 popup | 설정 다이얼로그 |
 |------|------------------|------------------------|-----------------|
-| GNOME | unim-gnome (extension) | GNOME Shell extension | unim-gui-gtk (Adwaita) |
-| KDE Plasma | unim-gui-qt | unim-gui-qt (QML) | unim-gui-qt (QML) |
-| Xfce/Cinnamon/MATE | unim-gui-gtk | unim-gui-gtk (GTK4) | unim-gui-gtk (GTK4) |
-| Sway/Hyprland 등 WM | unim-gui-gtk 또는 unim-gui-qt | 선택한 GUI | 선택한 GUI |
+| GNOME Wayland | unim-gnome (extension) | GNOME Shell extension popup_view.js (St 위젯) | unim-gui-gtk (Adwaita) |
+| GNOME X11 | unim-gnome (extension) | unim-popup-service (GTK4) | unim-gui-gtk (Adwaita) |
+| KDE Plasma / Xfce / MATE | unim-gui-gtk | unim-popup-service (GTK4) | unim-gui-gtk (GTK4) |
+| Sway/Hyprland 등 WM | unim-gui-gtk | unim-popup-service (GTK4, wayland-backend) | unim-gui-gtk (GTK4) |
+
+> ⚠️ **환경 제약 — KDE Plasma 5.x Wayland 미지원**
+>
+> 한자/특수문자/이모지 popup 은 Wayland 환경에서 `gtk4-layer-shell` 라이브러리로 위치를 지정합니다. Ubuntu 24.04 (noble) 표준 저장소에는 해당 패키지가 없어, **KDE Plasma 5.x Wayland 세션에서는 popup 이 표시되지 않습니다.** 해당 환경에서는 X11 세션을 사용하거나 GNOME 으로 우회해 주세요.
+>
+> Plasma 6, Sway, Hyprland 등 다른 Wayland 환경은 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 동작합니다.
 
 ## 📖 컴포넌트별 명세(SPEC) 인덱스
 

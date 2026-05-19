@@ -186,7 +186,7 @@ Within each region (cho / jung / jong), jamo combination is attempted regardless
 
 ### Option 2 — Chord Window (ms)
 
-**Default: OFF (opt-in)** | Recommended: 50ms | Range: 10–100ms | 0 = OFF | User config key: `korean.chord_window_ms`
+**Default: OFF (opt-in)** | Recommended: 60ms | Range: 10–200ms | 0 = OFF | User config key: `korean.chord_window_ms`
 
 All jamo typed within N milliseconds of the first keystroke are collected into one chord and composed as a single syllable.
 
@@ -226,7 +226,7 @@ The window is flushed by any of the following:
 2. **Keyboard** tab → Korean layout selector → choose **"Ahnmatae Keyboard (2003)"**
 3. The **Moachigi** group appears immediately below the layout selector (both options default OFF)
 4. **Bidirectional Jamo Combine** toggle: enable this first if you want moachigi behavior. Otherwise the layout recognizes only the forward jong order, just like a standard three-beol.
-5. **Chord Window (ms)** slider: drag from 0 (OFF, default) up to 10–100ms to activate chord input. Fast typists: lower (20–30ms). Slower typists: higher (80–100ms).
+5. **Chord Window (ms)** slider: drag from 0 (OFF, default) up to 10–200ms to activate chord input. Fast typists: lower (20–30ms). Slower typists: higher (80–150ms). Recommended default is 60ms.
 
 > Switching to a different layout (e.g., 390, 391, QWERTY-style three-beol) automatically hides the Moachigi group. The user-config option values are preserved and re-applied when you switch back to Ahnmatae.
 

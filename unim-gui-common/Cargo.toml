@@ -21,6 +21,7 @@ zbus = { version = "4", default-features = false, features = ["tokio"] }
 futures-util = "0.3"
 
 # Config serialization (for settings_dbus)
+serde = "1"
 serde_yaml = "0.9"
 
 # i18n (locales/{ko,en}.yml; LANG/LC_ALL 자동 감지)
