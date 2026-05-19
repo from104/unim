@@ -15,7 +15,7 @@ page_blacklist_title: "Suppression List"
 page_userdict_title: "User Dictionary"
 
 # General > Layouts and keymap
-group_layouts_keymap: "Layouts & Keymap"
+group_layouts_keymap: "Layouts and Keymap"
 row_korean_layout: "Korean Layout"
 row_korean_layout_subtitle: "10 built-in layouts + user layouts (~/.config/unim/layouts/*.json)"
 row_english_layout: "English Layout"
@@ -50,7 +50,7 @@ row_moachigi_bidirectional_subtitle: "Combines ㅎ→ㄱ into ㅋ (both sequenti
 row_moachigi_bidirectional_tooltip: "When combining jamo, tries reverse order (ㅎ,ㄱ→ㅋ) in addition to forward order (ㄱ,ㅎ→ㅋ). Applies to slow sequential typing as well, so intended combinations work even with a delay between keystrokes. Independent of chord_window_ms — can be enabled even without chord mode."
 row_moachigi_chord_label: "Chord window (ms)"
 row_moachigi_chord_subtitle: "0=OFF, 50/100/150/200ms (beginners 100-150ms, fine values via CLI)"
-row_moachigi_chord_tooltip: "Treat keys pressed within N ms of the first keystroke as a chord. 60ms is the standard value; beginners should start with 80-100ms. 0 disables chord mode. Independent of bidirectional combine — chord-bundled jamo are auto-sorted by region and combined via permutation."
+row_moachigi_chord_tooltip: "Treat keys pressed within N ms of the first keystroke as a chord. GUI slider: presets 0(OFF)/50/100/150/200ms; valid range 10–200ms (fine values via CLI). 60ms is the standard value; beginners should start at 100–150ms. 0 disables chord mode. Independent of bidirectional combine — chord-bundled jamo are auto-sorted by region and combined via permutation."
 
 # TypeFix > Forward
 group_typefix_forward: "Auto Forward Correction (EN→KO)"
