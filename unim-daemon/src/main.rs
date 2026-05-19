@@ -296,7 +296,7 @@ async fn start_dbus_service(
     let flags = RequestNameFlags::ReplaceExisting | RequestNameFlags::AllowReplacement;
 
     let mut reply = dbus_proxy
-        .request_name(BUS_NAME.try_into().unwrap(), flags.into())
+        .request_name(BUS_NAME.try_into().unwrap(), flags)
         .await?;
 
     if reply == RequestNameReply::Exists {
@@ -312,7 +312,7 @@ async fn start_dbus_service(
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         reply = dbus_proxy
-            .request_name(BUS_NAME.try_into().unwrap(), flags.into())
+            .request_name(BUS_NAME.try_into().unwrap(), flags)
             .await?;
     }
 
@@ -584,7 +584,7 @@ async fn main() {
 
     let mut processes: Vec<(String, Child)> = modules
         .iter()
-        .filter_map(|module| start_module(module))
+        .filter_map(start_module)
         .collect();
 
     unim_log!(

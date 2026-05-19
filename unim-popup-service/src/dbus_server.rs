@@ -75,6 +75,7 @@ impl PopupServer {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // zbus #[interface] 자동 생성 trampoline 의 인자 수는 외부 조정 불가
 #[interface(name = "org.atit.unim.Popup")]
 impl PopupServer {
     // =========================================
@@ -366,6 +367,7 @@ pub async fn forward_daemon_popup_signals(connection: Connection) {
 /// daemon InputContext signal 의 시그너처와 PopupServer signal 의 시그너처는
 /// Phase 1 설계 시 1:1 일치하도록 맞춰 두었다. deserialize 실패는 시그너처
 /// drift 의 신호이므로 ERROR 로그.
+#[allow(clippy::type_complexity)] // DBus signature 평면 tuple 형태가 SoT — alias 추출 시 가독성 저하
 async fn re_emit(
     ctx: &SignalContext<'_>,
     msg: &zbus::Message,

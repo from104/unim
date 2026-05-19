@@ -271,7 +271,7 @@ impl UnimHandler {
                     event.width,
                     event.height
                 );
-                pe.configure_notify(event.clone(), self.display);
+                pe.configure_notify(*event, self.display);
             }
         }
     }
@@ -966,7 +966,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             return Ok(true); // 소비된 것으로 처리
         }
 
-        let evdev_code = if xev.detail > 8 { xev.detail - 8 } else { 0 };
+        let evdev_code = xev.detail.saturating_sub(8);
 
         unim_log!(
             "XIM_HANDLER",

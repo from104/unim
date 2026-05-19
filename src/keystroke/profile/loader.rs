@@ -205,7 +205,7 @@ mod tests {
             let profile = load_builtin_profile(name)
                 .unwrap_or_else(|e| panic!("failed to load builtin {name}: {e}"));
             assert!(
-                matches!(profile.schema_version, 1 | 2 | 3),
+                matches!(profile.schema_version, 1..=3),
                 "{name}: 내장 프로필은 v1/v2/v3 (was {})",
                 profile.schema_version
             );

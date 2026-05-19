@@ -21,7 +21,7 @@ struct CompoundMaps {
 /// # Arguments
 /// * `input` - 변환할 한국어 문자열.
 /// * `keyboard_map` - 영어 키(`char`)와 한국어 자모(`JamoEnum`) 매핑 정보.
-///                    `keyboard_map::KeyboardMap::create_keyboard_map` 함수로 생성됩니다.
+///   `keyboard_map::KeyboardMap::create_keyboard_map` 함수로 생성됩니다.
 /// * `is_3bul` - `true`이면 3벌식(390), `false`이면 2벌식(표준) 규칙을 적용합니다.
 ///
 /// # Returns

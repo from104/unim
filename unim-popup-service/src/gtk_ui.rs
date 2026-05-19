@@ -244,35 +244,29 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                             // 미리 포맷된 문자열을 그대로 적용. 셀/그리드 갱신은 PopupNavigate
                             // 가 dual-emit 되어 기존 navigate() 가 처리.
                             match kind {
-                                0 => {
-                                    if hanja_clone.borrow().is_visible() {
-                                        hanja_clone.borrow_mut().update_from_render(
-                                            &header_text,
-                                            &footer_text,
-                                            show_footer,
-                                            expand_visible,
-                                            &expand_text,
-                                        );
-                                    }
+                                0 if hanja_clone.borrow().is_visible() => {
+                                    hanja_clone.borrow_mut().update_from_render(
+                                        &header_text,
+                                        &footer_text,
+                                        show_footer,
+                                        expand_visible,
+                                        &expand_text,
+                                    );
                                 }
-                                1 => {
-                                    if special_clone.borrow().is_visible() {
-                                        special_clone.borrow_mut().update_from_render(
-                                            &header_text,
-                                            &footer_text,
-                                            show_footer,
-                                        );
-                                    }
+                                1 if special_clone.borrow().is_visible() => {
+                                    special_clone.borrow_mut().update_from_render(
+                                        &header_text,
+                                        &footer_text,
+                                        show_footer,
+                                    );
                                 }
-                                2 => {
-                                    if emoji_clone.borrow().is_visible() {
-                                        emoji_clone.borrow_mut().update_from_render(
-                                            &header_text,
-                                            &footer_text,
-                                            show_footer,
-                                            &tab_labels,
-                                        );
-                                    }
+                                2 if emoji_clone.borrow().is_visible() => {
+                                    emoji_clone.borrow_mut().update_from_render(
+                                        &header_text,
+                                        &footer_text,
+                                        show_footer,
+                                        &tab_labels,
+                                    );
                                 }
                                 _ => {}
                             }

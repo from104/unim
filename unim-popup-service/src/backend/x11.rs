@@ -434,12 +434,12 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
         // _NET_WM_WINDOW_TYPE_POPUP_MENU
         let wm_type = XInternAtom(
             xdisplay as *mut _,
-            b"_NET_WM_WINDOW_TYPE\0".as_ptr() as *const _,
+            c"_NET_WM_WINDOW_TYPE".as_ptr(),
             0,
         );
         let popup_type = XInternAtom(
             xdisplay as *mut _,
-            b"_NET_WM_WINDOW_TYPE_POPUP_MENU\0".as_ptr() as *const _,
+            c"_NET_WM_WINDOW_TYPE_POPUP_MENU".as_ptr(),
             0,
         );
         const XA_ATOM: std::ffi::c_ulong = 4;
@@ -459,12 +459,12 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
         // _NET_WM_STATE_ABOVE: 항상 최상위
         let wm_state = XInternAtom(
             xdisplay as *mut _,
-            b"_NET_WM_STATE\0".as_ptr() as *const _,
+            c"_NET_WM_STATE".as_ptr(),
             0,
         );
         let state_above = XInternAtom(
             xdisplay as *mut _,
-            b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const _,
+            c"_NET_WM_STATE_ABOVE".as_ptr(),
             0,
         );
         XChangeProperty(

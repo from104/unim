@@ -18,18 +18,13 @@ pub struct PreeditText {
 }
 
 /// 입력 모드
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 pub enum InputMode {
     /// 한국어 모드
+    #[default]
     Korean,
     /// 영어(English) 모드
     English,
-}
-
-impl Default for InputMode {
-    fn default() -> Self {
-        Self::Korean
-    }
 }
 
 impl From<unim::config::InputCategory> for InputMode {

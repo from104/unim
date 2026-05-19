@@ -223,6 +223,7 @@ impl SpecialPopup {
     }
 
     /// 특수문자 팝업 표시
+    #[allow(clippy::too_many_arguments)] // payload 평면 매개변수
     pub fn show(
         &mut self,
         context_path: String,
@@ -250,7 +251,7 @@ impl SpecialPopup {
         self.target = target.to_string();
         self.characters = characters;
         self.top_row = top_row;
-        self.total_pages = (self.characters.len() + PAGE_SIZE - 1) / PAGE_SIZE;
+        self.total_pages = self.characters.len().div_ceil(PAGE_SIZE);
         self.current_page = 0;
         self.sel_col = 0;
         self.sel_row = 0;
@@ -390,6 +391,7 @@ impl SpecialPopup {
     /// 9×9 그리드는 시각적으로 항상 고정 — 엔진이 보내는 rows/cols 는 시각
     /// 차원에 영향을 주지 않고, 선택 셀(sel_row/sel_col) 만 갱신한다.
     /// 한자 popup expanded 모드와 동일 정책.
+    #[allow(clippy::too_many_arguments)] // PopupNavigate 시그널 payload 평면 매개변수
     pub fn navigate(
         &mut self,
         page: i32,

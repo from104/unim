@@ -206,6 +206,7 @@ impl HanjaPopup {
     }
 
     /// 한자 팝업 표시
+    #[allow(clippy::too_many_arguments)] // payload 평면 매개변수 (target/candidates/row/col/page/sel 묶음)
     pub fn show(
         &mut self,
         context_path: String,
@@ -462,6 +463,7 @@ impl HanjaPopup {
 
     /// 네비게이션 업데이트 (PopupNavigate 시그널)
     /// rows/cols 변화로 compact↔expanded 자동 전환을 감지한다.
+    #[allow(clippy::too_many_arguments)] // PopupNavigate 시그널 payload 평면 매개변수
     pub fn navigate(
         &mut self,
         page: i32,
@@ -634,7 +636,6 @@ impl HanjaPopup {
 /// `HanjaBookmarkChanged` 액션을 다량 발행하는 헬퍼.
 ///
 /// 초기 별 상태를 표시하기 위해 사용된다 (GNOME extension.js:176 패턴).
-
 /// 한자 팝업용 CSS (GNOME extension stylesheet.css와 동일 디자인)
 /// 한자 popup CSS — `tools/popup-styles/popup_tokens.toml` + GTK template 에서
 /// 자동 생성된다 (`make gen-popup-css`). 직접 편집 금지.

@@ -8,7 +8,8 @@
 //! 트리거 시: 화면의 기존 문자를 삭제하고 교정 결과를 commit.
 
 use std::collections::HashSet;
-use std::sync::LazyLock;
+
+use once_cell::sync::Lazy;
 
 use crate::keycode::{KeyCode, ModifierState};
 
@@ -29,7 +30,7 @@ pub use reverse::check_reverse;
 static ENGLISH_WORDS: &str = include_str!("../data/english_words.txt");
 
 /// 영어 사전 HashSet (lazy 초기화)
-pub(crate) static DICTIONARY: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+pub(crate) static DICTIONARY: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     ENGLISH_WORDS
         .lines()
         .filter(|line| !line.is_empty())

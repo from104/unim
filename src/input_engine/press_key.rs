@@ -543,11 +543,11 @@ impl InputEngine {
     /// Config 의 자동 영문 전환 트리거 이름을 `AutoEnglishTrigger` 로 파싱합니다.
     ///
     /// 표기 문법(접두사 기반):
-    /// - `"key:<Name>"`     — `Functional`. `<Name>` 은 `KeyCode::from_name` 호환,
-    ///                         `"Shift<Name>"` 가상 이름 허용 (예: `key:ShiftSemicolon`).
-    /// - `"char:<문자>"`    — `Character`. `<문자>` 의 첫 char 만 사용 (예: `char:/`).
-    /// - 무접두사 (legacy)  — 종전 규칙대로 `Functional` 로 흡수
-    ///                         (`Escape` / `Slash` / `ShiftSemicolon` 등 호환).
+    /// - `"key:<Name>"` — `Functional`. `<Name>` 은 `KeyCode::from_name` 호환,
+    ///   `"Shift<Name>"` 가상 이름 허용 (예: `key:ShiftSemicolon`).
+    /// - `"char:<문자>"` — `Character`. `<문자>` 의 첫 char 만 사용 (예: `char:/`).
+    /// - 무접두사 (legacy) — 종전 규칙대로 `Functional` 로 흡수
+    ///   (`Escape` / `Slash` / `ShiftSemicolon` 등 호환).
     ///
     /// # Returns
     ///

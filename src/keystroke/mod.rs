@@ -152,7 +152,7 @@ mod tests {
             let profile = parse_profile_str(profile_json)
                 .unwrap_or_else(|e| panic!("builtin '{name}' profile parse failed: {e}"));
             assert!(
-                matches!(profile.schema_version, 1 | 2 | 3),
+                matches!(profile.schema_version, 1..=3),
                 "{name}: profile must declare schema_version 1, 2, or 3 (was {}, v0 schema is rejected)",
                 profile.schema_version
             );

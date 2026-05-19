@@ -181,7 +181,7 @@ fn try_autotypefix_undo(
     key: KeyCode,
     modifier: ModifierState,
 ) -> Option<EngineResponse> {
-    if !(key == KeyCode::Z && modifier.control && !modifier.shift && !modifier.alt) {
+    if key != KeyCode::Z || !modifier.control || modifier.shift || modifier.alt {
         return None;
     }
     let obs = undo_states.remove(&context_id)?;
@@ -673,7 +673,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     {
                         let buf = keystroke_buffers
                             .entry(context_id)
-                            .or_insert_with(KeystrokeBuffer::new);
+                            .or_default();
 
                         // 알파벳 키면 버퍼에 추가
                         if buf.push(key, modifier) {
@@ -1683,8 +1683,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         .get(idx_usize)
                         .map(|c| c.0.clone())
                         .unwrap_or_default();
-                    let items: Vec<String> = state.emoji_items().iter().cloned().collect();
-                    let recent: Vec<String> = state.emoji_recent().iter().cloned().collect();
+                    let items: Vec<String> = state.emoji_items().to_vec();
+                    let recent: Vec<String> = state.emoji_recent().to_vec();
                     let top_row = unim::config::english_layout_top_row_labels(
                         &config.engine.english.layout,
                     )

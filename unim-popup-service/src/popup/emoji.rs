@@ -512,6 +512,7 @@ impl EmojiPopup {
     ///
     /// 카테고리 전환은 daemon 이 `ShowEmojiPopupV2` 를 재발행하여 [`Self::show`] 가
     /// 다시 호출되므로, 본 함수는 같은 카테고리 내 페이지/셀 변경만 처리한다.
+    #[allow(clippy::too_many_arguments)] // PopupNavigate 시그널 payload 평면 매개변수
     pub fn navigate(
         &mut self,
         page: i32,
@@ -550,7 +551,7 @@ impl EmojiPopup {
     ///
     /// daemon 산출 view_model 의 미리 포맷된 문자열을 적용 — 헤더 ("「Smileys」 → 이모지")
     /// + footer ("[Smileys] 1/3") + show_footer + tab_labels (단축키 prefix 포함,
-    /// "Smileys (a)" 형식). 카테고리 탭 라벨은 daemon 이 home_row 기반으로 산출.
+    ///   "Smileys (a)" 형식). 카테고리 탭 라벨은 daemon 이 home_row 기반으로 산출.
     pub fn update_from_render(
         &mut self,
         header_text: &str,

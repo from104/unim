@@ -147,6 +147,166 @@ impl HangulComposer2Bul {
     }
 }
 
+impl HangulComposer for HangulComposer2Bul {
+    fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
+        if !self.base_composer.is_valid_jamo(&jamo) {
+            return None;
+        }
+
+        // 1. 초성+중성 상태에서 초성 → 종성 변환
+        if let Some(result) = self.handle_cho_after_jung(jamo) {
+            return result;
+        }
+
+        // 2. 도깨비불 현상 처리
+        if let Some(result) = self.handle_dokkaebi_effect(jamo) {
+            return result;
+        }
+
+        // 3. 조합 규칙 검사를 포함한 자모 추가 (default meta — 두벌식은 룰 A 미적용 자판이므로
+        //    모든 ㅗ/ㅜ가 결합 가능. press_key가 process_jamo_with_meta로 들어오면
+        //    `add_jamo_with_meta` override가 받은 meta를 사용한다.)
+        self.base_composer
+            .add_jamo_with(jamo, JamoMeta::default(), |base| {
+                if base.jamo_queue().is_empty() {
+                    base.clear();
+                    return true;
+                }
+
+                // 2벌식 규칙 위반 검사
+                if check_2bul_violation(base).is_some() {
+                    return false;
+                }
+
+                base.compose_korean()
+            })
+    }
+
+    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
+        if !self.base_composer.is_valid_jamo(&jamo) {
+            return None;
+        }
+
+        // handle_cho_after_jung / handle_dokkaebi_effect는 default meta로 충분 —
+        // 두벌식 도깨비불은 종성→초성 자동 변환이며 키 출처와 무관.
+        if let Some(result) = self.handle_cho_after_jung(jamo) {
+            return result;
+        }
+        if let Some(result) = self.handle_dokkaebi_effect(jamo) {
+            return result;
+        }
+
+        self.base_composer.add_jamo_with(jamo, meta, |base| {
+            if base.jamo_queue().is_empty() {
+                base.clear();
+                return true;
+            }
+            if check_2bul_violation(base).is_some() {
+                return false;
+            }
+            base.compose_korean()
+        })
+    }
+
+    fn remove_jamo(&mut self) -> Option<JamoEnum> {
+        self.base_composer.remove_jamo()
+    }
+
+    fn compose_korean(&mut self) -> bool {
+        if self.base_composer.jamo_queue().is_empty() {
+            self.base_composer.clear();
+            return true;
+        }
+
+        if check_2bul_violation(&mut self.base_composer).is_some() {
+            return false;
+        }
+
+        self.base_composer.compose_korean()
+    }
+
+    fn force_compose_korean(&mut self) -> Option<char> {
+        self.base_composer.force_compose_korean()
+    }
+
+    fn is_compose(&self) -> bool {
+        self.base_composer.is_compose()
+    }
+
+    fn is_new_syllable(&self) -> bool {
+        self.base_composer.is_new_syllable()
+    }
+
+    fn compose_cho(&mut self) -> bool {
+        self.base_composer.compose_cho()
+    }
+
+    fn compose_jung(&mut self) -> bool {
+        self.base_composer.compose_jung()
+    }
+
+    fn compose_jong(&mut self) -> bool {
+        self.base_composer.compose_jong()
+    }
+
+    fn clear_jamo(&mut self) {
+        self.base_composer.clear_jamo()
+    }
+
+    fn get_current_cho(&self) -> Option<Cho> {
+        self.base_composer.get_current_cho()
+    }
+
+    fn get_current_jung(&self) -> Option<Jung> {
+        self.base_composer.get_current_jung()
+    }
+
+    fn get_current_jong(&self) -> Option<Jong> {
+        self.base_composer.get_current_jong()
+    }
+
+    fn set_current_cho(&mut self, cho: Option<Cho>) -> bool {
+        self.base_composer.set_current_cho(cho)
+    }
+
+    fn set_current_jung(&mut self, jung: Option<Jung>) -> bool {
+        self.base_composer.set_current_jung(jung)
+    }
+
+    fn set_current_jong(&mut self, jong: Option<Jong>) -> bool {
+        self.base_composer.set_current_jong(jong)
+    }
+
+    fn get_combined_jamo(&self) -> &CombinedJamoMap {
+        self.base_composer.get_combined_jamo()
+    }
+
+    fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
+        self.base_composer.jamo_queue()
+    }
+
+    fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
+        self.base_composer.last_jamo_queue()
+    }
+
+    fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
+        self.base_composer.combined_jamo()
+    }
+
+    fn current_korean(&mut self) -> &mut HangulChar {
+        self.base_composer.current_korean()
+    }
+
+    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
+        self.base_composer.push_back_synced(jamo, meta)
+    }
+
+    fn clear_queues_synced(&mut self) {
+        self.base_composer.clear_queues_synced()
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,164 +594,5 @@ mod tests {
         c.add_jamo(JamoEnum::Cho(Cho::R)); // 글
         let ch = c.force_compose_korean();
         assert_eq!(ch, Some('글'));
-    }
-}
-
-impl HangulComposer for HangulComposer2Bul {
-    fn add_jamo(&mut self, jamo: JamoEnum) -> Option<char> {
-        if !self.base_composer.is_valid_jamo(&jamo) {
-            return None;
-        }
-
-        // 1. 초성+중성 상태에서 초성 → 종성 변환
-        if let Some(result) = self.handle_cho_after_jung(jamo) {
-            return result;
-        }
-
-        // 2. 도깨비불 현상 처리
-        if let Some(result) = self.handle_dokkaebi_effect(jamo) {
-            return result;
-        }
-
-        // 3. 조합 규칙 검사를 포함한 자모 추가 (default meta — 두벌식은 룰 A 미적용 자판이므로
-        //    모든 ㅗ/ㅜ가 결합 가능. press_key가 process_jamo_with_meta로 들어오면
-        //    `add_jamo_with_meta` override가 받은 meta를 사용한다.)
-        self.base_composer
-            .add_jamo_with(jamo, JamoMeta::default(), |base| {
-                if base.jamo_queue().is_empty() {
-                    base.clear();
-                    return true;
-                }
-
-                // 2벌식 규칙 위반 검사
-                if check_2bul_violation(base).is_some() {
-                    return false;
-                }
-
-                base.compose_korean()
-            })
-    }
-
-    fn add_jamo_with_meta(&mut self, jamo: JamoEnum, meta: JamoMeta) -> Option<char> {
-        if !self.base_composer.is_valid_jamo(&jamo) {
-            return None;
-        }
-
-        // handle_cho_after_jung / handle_dokkaebi_effect는 default meta로 충분 —
-        // 두벌식 도깨비불은 종성→초성 자동 변환이며 키 출처와 무관.
-        if let Some(result) = self.handle_cho_after_jung(jamo) {
-            return result;
-        }
-        if let Some(result) = self.handle_dokkaebi_effect(jamo) {
-            return result;
-        }
-
-        self.base_composer.add_jamo_with(jamo, meta, |base| {
-            if base.jamo_queue().is_empty() {
-                base.clear();
-                return true;
-            }
-            if check_2bul_violation(base).is_some() {
-                return false;
-            }
-            base.compose_korean()
-        })
-    }
-
-    fn remove_jamo(&mut self) -> Option<JamoEnum> {
-        self.base_composer.remove_jamo()
-    }
-
-    fn compose_korean(&mut self) -> bool {
-        if self.base_composer.jamo_queue().is_empty() {
-            self.base_composer.clear();
-            return true;
-        }
-
-        if check_2bul_violation(&mut self.base_composer).is_some() {
-            return false;
-        }
-
-        self.base_composer.compose_korean()
-    }
-
-    fn force_compose_korean(&mut self) -> Option<char> {
-        self.base_composer.force_compose_korean()
-    }
-
-    fn is_compose(&self) -> bool {
-        self.base_composer.is_compose()
-    }
-
-    fn is_new_syllable(&self) -> bool {
-        self.base_composer.is_new_syllable()
-    }
-
-    fn compose_cho(&mut self) -> bool {
-        self.base_composer.compose_cho()
-    }
-
-    fn compose_jung(&mut self) -> bool {
-        self.base_composer.compose_jung()
-    }
-
-    fn compose_jong(&mut self) -> bool {
-        self.base_composer.compose_jong()
-    }
-
-    fn clear_jamo(&mut self) {
-        self.base_composer.clear_jamo()
-    }
-
-    fn get_current_cho(&self) -> Option<Cho> {
-        self.base_composer.get_current_cho()
-    }
-
-    fn get_current_jung(&self) -> Option<Jung> {
-        self.base_composer.get_current_jung()
-    }
-
-    fn get_current_jong(&self) -> Option<Jong> {
-        self.base_composer.get_current_jong()
-    }
-
-    fn set_current_cho(&mut self, cho: Option<Cho>) -> bool {
-        self.base_composer.set_current_cho(cho)
-    }
-
-    fn set_current_jung(&mut self, jung: Option<Jung>) -> bool {
-        self.base_composer.set_current_jung(jung)
-    }
-
-    fn set_current_jong(&mut self, jong: Option<Jong>) -> bool {
-        self.base_composer.set_current_jong(jong)
-    }
-
-    fn get_combined_jamo(&self) -> &CombinedJamoMap {
-        self.base_composer.get_combined_jamo()
-    }
-
-    fn jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
-        self.base_composer.jamo_queue()
-    }
-
-    fn last_jamo_queue(&mut self) -> &mut VecDeque<JamoEnum> {
-        self.base_composer.last_jamo_queue()
-    }
-
-    fn combined_jamo(&mut self) -> &mut CombinedJamoMap {
-        self.base_composer.combined_jamo()
-    }
-
-    fn current_korean(&mut self) -> &mut HangulChar {
-        self.base_composer.current_korean()
-    }
-
-    fn push_back_synced(&mut self, jamo: JamoEnum, meta: JamoMeta) {
-        self.base_composer.push_back_synced(jamo, meta)
-    }
-
-    fn clear_queues_synced(&mut self) {
-        self.base_composer.clear_queues_synced()
     }
 }

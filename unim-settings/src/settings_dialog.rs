@@ -727,6 +727,7 @@ fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
 /// - 현재 값은 핸들 위에 표시(`draw_value=true`)
 /// - 최솟값/최댓값 위치에 tick 마크 + 라벨
 /// - step=1, 정수만 허용
+#[allow(clippy::too_many_arguments)] // title/subtitle/tooltip + min/max/init + label/set 묶음
 fn build_int_scale_row(
     state: &State,
     title: &str,

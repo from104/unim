@@ -25,13 +25,19 @@ pub struct KeystrokeBuffer {
     pub has_preedit: bool,
 }
 
-impl KeystrokeBuffer {
-    pub fn new() -> Self {
+impl Default for KeystrokeBuffer {
+    fn default() -> Self {
         Self {
             entries: VecDeque::with_capacity(16),
             committed_chars: 0,
             has_preedit: false,
         }
+    }
+}
+
+impl KeystrokeBuffer {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// 문자 키 추가. 비문자 키(Enter, Backspace 등)면 false 반환.
@@ -64,6 +70,10 @@ impl KeystrokeBuffer {
     /// 현재 키스트로크 수
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     /// 엔트리를 Vec으로 복사해서 반환

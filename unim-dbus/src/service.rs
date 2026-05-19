@@ -87,9 +87,7 @@ pub enum EngineRequest {
     ToggleHanjaBookmark {
         context_id: u32,
         index: usize,
-        response: oneshot::Sender<
-            Option<(usize, bool, Option<PopupAction>, Option<PopupRenderPayload>)>,
-        >,
+        response: oneshot::Sender<Option<ToggleHanjaBookmarkResult>>,
     },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
@@ -235,6 +233,22 @@ pub use unim_popup_types::{
     popup_render_flags, EmojiShowPayload, HanjaCandidateResponse, PopupNavigatePayload,
     PopupRenderPayload, SpecialCharResponse,
 };
+
+/// `ToggleHanjaBookmark` 응답 — `(new_index, bookmarked, popup_action, render_state)`.
+/// type alias 로 추출해 EngineRequest 의 very_complex_type 경고를 회피.
+pub type ToggleHanjaBookmarkResult =
+    (usize, bool, Option<PopupAction>, Option<PopupRenderPayload>);
+
+/// `build_emoji_show_payload` 반환 — `(target_cat_id, items, top_row, recent, categories, home_row)`.
+/// type alias 로 추출해 very_complex_type 경고를 회피.
+pub type EmojiShowPayloadTuple = (
+    String,
+    Vec<String>,
+    String,
+    Vec<String>,
+    Vec<(String, String, String, u32)>,
+    String,
+);
 
 /// 엔진 응답
 #[derive(Debug)]
@@ -1542,16 +1556,7 @@ fn detect_frontend_type(client_name: &str) -> &'static str {
 /// 리스트를 그대로 담는다 (popup_state cat_index=0 의 동작과 일치).
 ///
 /// 반환: `(target_cat_id, items, top_row, recent, categories, home_row)`.
-fn build_emoji_show_payload(
-    english_layout: &str,
-) -> (
-    String,
-    Vec<String>,
-    String,
-    Vec<String>,
-    Vec<(String, String, String, u32)>,
-    String,
-) {
+fn build_emoji_show_payload(english_layout: &str) -> EmojiShowPayloadTuple {
     let recent = unim::emoji::load_recent();
     let mut categories: Vec<(String, String, String, u32)> = Vec::with_capacity(9);
     categories.push((
@@ -1711,6 +1716,10 @@ impl InputContextHandler {
     }
 }
 
+// zbus `#[interface]` 매크로가 자동 생성하는 trampoline 메서드는 시그널 컨텍스트 등을
+// 위해 인자가 7개를 초과하기 쉽다. 매크로 외부에서 조정 불가하므로 impl 블록 전체에
+// `too_many_arguments` 를 silence (실제 사용자 facing API 는 DBus 시그니처로 제한됨).
+#[allow(clippy::too_many_arguments)]
 #[interface(name = "org.atit.unim.InputContext")]
 impl InputContextHandler {
     /// 키 이벤트 처리
