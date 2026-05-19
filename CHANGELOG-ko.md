@@ -66,6 +66,11 @@ _아직 변경 사항 없음._
 
 - **XIM `commit_then_preedit` 가 `commit()` 직전 `clear_preedit()` 강제** (`unim-frontends/xim/src/handler.rs`): OVER-THE-SPOT 경로(XTerm·WezTerm)에서 commit 직후 preedit 가시화 정상 복귀. XIM 한정 잔존 회귀 회피책 적용 완료.
 
+### 알려진 이슈
+
+- **KDE Plasma 5.x Wayland popup 미지원**: Ubuntu 24.04 (noble) 표준 저장소에 `gtk4-layer-shell` 패키지가 없어 한자/특수문자/이모지 팝업이 표시되지 않습니다. X11 세션 사용 또는 GNOME으로 우회 권장.
+- **KDE Plasma 6 Wayland / Sway / Hyprland / river — 실험적, 검증 미흡**: 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 **이론상** 동작하지만, **0.3.0 QA 사이클에서 충분히 테스트되지 않았습니다.** popup 위치 정렬, IME 포커스 전환, layer-shell 좌표 변환 등에서 미세 회귀가 있을 수 있습니다. 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
+
 ---
 
 ## [0.2.0] 2026-04-26

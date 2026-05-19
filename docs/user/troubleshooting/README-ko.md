@@ -581,15 +581,20 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 - 데몬이 mtime 핫리로드 못함 → `pkill -SIGHUP unim-daemon`
 - 5지점 sync 깨짐 가능성 → CLI/엔진/GUI/locale/dbus 5점 모두 갱신됐는지 점검.
 
-### G. 환경 매트릭스 (0.2.0 시점)
+### G. 환경 매트릭스 (0.3.0 시점)
 
-| 환경 | 알려진 이슈 |
-|------|-------------|
-| Wayland + GNOME | 정상 (Push 모드) |
-| Wayland + KDE | 한자 popup 미표시 (Push 모드 미구현) |
-| X11 + GNOME | XIM 폴백 권장 |
-| X11 + KDE | 정상 |
-| 순수 Wayland (Weston/sway) | 한자 popup 미해결 SKIP |
+| 환경 | 지원 상태 | 비고 |
+|------|----------|------|
+| GNOME Wayland | ✅ 검증 | GNOME extension `popup_view.js` (St 위젯) 자체 렌더 |
+| GNOME X11 | ✅ 검증 | popup-service GTK4 + GNOME extension 보조 |
+| X11 + KDE Plasma 5.x | ✅ 검증 | popup-service GTK4 |
+| X11 + XFCE / MATE / Cinnamon / LXDE | ✅ 검증 | popup-service GTK4 |
+| Wayland + KDE Plasma 5.x | ❌ 미지원 | `gtk4-layer-shell` 미배포 (Ubuntu 24.04 noble 표준 저장소) → X11 세션 / GNOME 우회 |
+| Wayland + KDE Plasma 6 | ⚠️ 실험적 | `wayland-backend` feature + `libgtk4-layer-shell` 필요. 0.3.0 QA 미검증 |
+| Sway / Hyprland / river (단독 Wayland) | ⚠️ 실험적 | 동상. popup 위치·IME 포커스 회귀 가능 |
+| Weston 등 reference Wayland | ⚠️ 실험적 | 동상 |
+
+⚠️ 실험적 환경에서 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
 
 ### H. 로그 분석 슬래시 명령
 

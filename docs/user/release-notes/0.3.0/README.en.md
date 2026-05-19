@@ -125,7 +125,8 @@ Tentative suppression entries are now registered and applied at retrigger time (
 
 ## Known issues
 
-- **KDE Plasma 5.x Wayland**: `gtk4-layer-shell` unavailable in Ubuntu 24.04 standard repositories; popups do not appear. Workaround: use an X11 session or switch to GNOME.
+- **KDE Plasma 5.x Wayland — unsupported**: `gtk4-layer-shell` unavailable in Ubuntu 24.04 standard repositories; popups do not appear. Workaround: use an X11 session or switch to GNOME.
+- **KDE Plasma 6 Wayland / Sway / Hyprland / river — experimental, undertested**: builds with the `wayland-backend` cargo feature and `libgtk4-layer-shell` installed are theoretically functional but were **not exercised in the 0.3.0 QA cycle**. Expect possible regressions in popup placement, IME focus handover, and layer-shell coordinate translation. Please file bug reports via [GitHub Issues](https://github.com/from104/unim/issues).
 - **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop**: persists on some clients after the best-effort fix. Waiting on an upstream xim-0.5.0 fix.
 
 ---

@@ -78,16 +78,18 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 
 | 환경 | autostart 패키지 | 한자/특수/이모지 popup | 설정 다이얼로그 |
 |------|------------------|------------------------|-----------------|
-| GNOME Wayland | unim-gnome (extension) | GNOME Shell extension popup_view.js (St 위젯) | unim-gui-gtk (Adwaita) |
-| GNOME X11 | unim-gnome (extension) | unim-popup-service (GTK4) | unim-gui-gtk (Adwaita) |
-| KDE Plasma / Xfce / MATE | unim-gui-gtk | unim-popup-service (GTK4) | unim-gui-gtk (GTK4) |
-| Sway/Hyprland 등 WM | unim-gui-gtk | unim-popup-service (GTK4, wayland-backend) | unim-gui-gtk (GTK4) |
+| GNOME Wayland | unim-gnome (extension) | GNOME Shell extension popup_view.js (St 위젯) | unim-settings (Adwaita) |
+| GNOME X11 | unim-gnome (extension) | unim-popup-service (GTK4) | unim-settings (Adwaita) |
+| KDE Plasma (X11) / Xfce / MATE / Cinnamon / LXDE | unim-indicator | unim-popup-service (GTK4) | unim-settings (GTK4) |
+| KDE Plasma 6 Wayland / Sway / Hyprland 등 WM ⚠️ 실험적 | unim-indicator | unim-popup-service (GTK4, wayland-backend) | unim-settings (GTK4) |
 
-> ⚠️ **환경 제약 — KDE Plasma 5.x Wayland 미지원**
+> ⚠️ **환경 지원 상태 — v0.3.0 릴리스 시점**
 >
-> 한자/특수문자/이모지 popup 은 Wayland 환경에서 `gtk4-layer-shell` 라이브러리로 위치를 지정합니다. Ubuntu 24.04 (noble) 표준 저장소에는 해당 패키지가 없어, **KDE Plasma 5.x Wayland 세션에서는 popup 이 표시되지 않습니다.** 해당 환경에서는 X11 세션을 사용하거나 GNOME 으로 우회해 주세요.
+> **검증된 환경**: GNOME Shell (X11 / Wayland), 일반 X11 데스크톱 (KDE Plasma 5.x, XFCE, MATE, Cinnamon, LXDE).
 >
-> Plasma 6, Sway, Hyprland 등 다른 Wayland 환경은 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 동작합니다.
+> **미지원 — KDE Plasma 5.x Wayland**: 한자/특수문자/이모지 popup 은 Wayland 환경에서 `gtk4-layer-shell` 라이브러리로 위치를 지정합니다. Ubuntu 24.04 (noble) 표준 저장소에는 해당 패키지가 없어, **KDE Plasma 5.x Wayland 세션에서는 popup 이 표시되지 않습니다.** X11 세션을 사용하거나 GNOME 으로 우회해 주세요.
+>
+> **실험적 — KDE Plasma 6 Wayland / Sway / Hyprland / river 등 단독 Wayland 컴포지터**: 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 **이론상** 동작하지만, **본 0.3.0 릴리스 시점에 충분히 테스트되지 않았습니다.** popup 위치 정렬, IME 포커스 전환, layer-shell 좌표 변환 등에서 미세 회귀가 있을 수 있습니다. 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
 
 ## 📖 컴포넌트별 명세(SPEC) 인덱스
 

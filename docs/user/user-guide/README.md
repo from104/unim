@@ -105,7 +105,9 @@ Since UNIM 0.3.0, hanja, special-character, and emoji popups are rendered by a s
 
 **Outside-click dismiss**: clicking outside the popup closes it, and the click event is passed through to the window below. If a popup closes unexpectedly, this is intended behavior — see [troubleshooting](../troubleshooting/README.md#popup-dismiss).
 
-**KDE Plasma 5.x Wayland**: `gtk4-layer-shell` is not available in the Ubuntu 24.04 standard repository, so popups do not appear. Workaround: use an X11 session or switch to GNOME.
+**KDE Plasma 5.x Wayland — unsupported**: `gtk4-layer-shell` is not available in the Ubuntu 24.04 standard repository, so popups do not appear. Workaround: use an X11 session or switch to GNOME.
+
+**KDE Plasma 6 Wayland / Sway / Hyprland / river — experimental, undertested**: builds with the `wayland-backend` cargo feature and `libgtk4-layer-shell` installed are theoretically functional but were **not exercised in the 0.3.0 QA cycle**. Expect possible regressions in popup placement, IME focus handover, and layer-shell coordinate translation.
 
 ---
 

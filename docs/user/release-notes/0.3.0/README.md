@@ -125,7 +125,8 @@ retrigger 시점에 tentative 억제 항목 등록 + 즉시 억제. GUI "억제 
 
 ## 알려진 미해결 이슈
 
-- **KDE Plasma 5.x Wayland**: `gtk4-layer-shell` 미지원으로 팝업 미표시. X11 세션 또는 GNOME으로 우회.
+- **KDE Plasma 5.x Wayland — 미지원**: `gtk4-layer-shell` 미지원으로 팝업 미표시. X11 세션 또는 GNOME으로 우회.
+- **KDE Plasma 6 Wayland / Sway / Hyprland / river — 실험적, 검증 미흡**: `wayland-backend` cargo feature + `libgtk4-layer-shell` 조합으로 이론상 동작하지만 본 릴리스의 QA 사이클에서 충분히 테스트되지 않았습니다. popup 위치, IME 포커스 전환, layer-shell 좌표 변환 등에서 미세 회귀 가능. 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 제보 환영.
 - **XIM ON-THE-SPOT(PREEDIT_CALLBACKS) preedit 누락**: best-effort 적용 후에도 일부 클라이언트에서 잔존. xim-0.5.0 crate 업스트림 fix 대기.
 
 ---

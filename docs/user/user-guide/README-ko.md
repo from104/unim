@@ -105,7 +105,9 @@ UNIM 0.3.0부터 한자·특수문자·이모지 팝업은 **`unim-popup-service
 
 **외부 클릭 dismiss**: 팝업 바깥 좌클릭 시 팝업이 닫히며, 클릭 이벤트는 아래 창에 그대로 전달된다. 팝업이 예상치 않게 닫혔다면 의도된 동작이다 — [트러블슈팅 §popup-dismiss](../troubleshooting/README-ko.md) 참고.
 
-**KDE Plasma 5.x Wayland 미해결**: `gtk4-layer-shell`이 Ubuntu 24.04 표준 저장소에 없어 팝업이 표시되지 않는다. X11 세션 또는 GNOME으로 우회.
+**KDE Plasma 5.x Wayland 미지원**: `gtk4-layer-shell`이 Ubuntu 24.04 표준 저장소에 없어 팝업이 표시되지 않는다. X11 세션 또는 GNOME으로 우회.
+
+**KDE Plasma 6 Wayland / Sway / Hyprland / river — 실험적, 검증 미흡**: `wayland-backend` cargo feature + `libgtk4-layer-shell` 조합으로 빌드 시 이론상 동작하나, 본 0.3.0 릴리스의 QA 사이클에서 충분히 테스트되지 않았다. popup 위치, IME 포커스 전환, layer-shell 좌표 변환에서 미세 회귀가 있을 수 있다.
 
 ---
 

@@ -569,12 +569,17 @@ A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT cl
 - 9-cell ↔ 81-cell toggle blocked → period (`.`) key intercepted elsewhere; check keymap.
 - Bookmark (★) sync: `HanjaBookmarkChanged` signal not reaching listeners → `busctl --user monitor org.atit.unim.InputMethod`.
 
-### E. Environment matrix as of 0.2.0
+### E. Environment matrix as of 0.3.0
 
-| Environment | Known issue |
-| --- | --- |
-| Wayland + GNOME | OK (Push mode) |
-| Wayland + KDE | Hanja popup not shown (Push mode not implemented) |
-| X11 + GNOME | XIM fallback recommended |
-| X11 + KDE | OK |
-| Pure Wayland (Weston/sway) | Hanja popup unresolved — SKIP |
+| Environment | Support | Notes |
+| --- | --- | --- |
+| GNOME Wayland | ✅ Validated | GNOME extension `popup_view.js` (St widgets) renders popups directly |
+| GNOME X11 | ✅ Validated | popup-service GTK4 + GNOME extension assist |
+| X11 + KDE Plasma 5.x | ✅ Validated | popup-service GTK4 |
+| X11 + XFCE / MATE / Cinnamon / LXDE | ✅ Validated | popup-service GTK4 |
+| Wayland + KDE Plasma 5.x | ❌ Unsupported | `gtk4-layer-shell` missing in Ubuntu 24.04 (noble) standard repos → use X11 session or GNOME |
+| Wayland + KDE Plasma 6 | ⚠️ Experimental | Requires `wayland-backend` feature + `libgtk4-layer-shell`. Not exercised in 0.3.0 QA |
+| Sway / Hyprland / river (standalone Wayland) | ⚠️ Experimental | Same as above. Possible regressions in popup placement and IME focus handover |
+| Weston etc. reference Wayland | ⚠️ Experimental | Same as above |
+
+⚠️ For issues on experimental environments, please file a bug at [GitHub Issues](https://github.com/from104/unim/issues).

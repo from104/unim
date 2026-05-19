@@ -86,6 +86,8 @@ _No changes yet._
 ### Known Issues
 
 - **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (UNRESOLVED)**: After committing a Hangul syllable, the next jamo's preedit is invisible for one frame and only renders once an additional jamo arrives. Reproduces in custom XIM clients (e.g. `unim-test-xim`) and some ON-THE-SPOT XIM apps. **Unaffected**: XTerm, WezTerm, other OVER-THE-SPOT clients, GTK3/4, Qt5/6, Wayland, GNOME extension. Best-effort mitigation above shipped; root cause is xim-0.5.0's `commit()` not driving the `preedit_started` state machine — needs an upstream xim fix or a redesigned protocol sequence on the UNIM side. Tracked in `docs/user/troubleshooting/README.md` §B.
+- **KDE Plasma 5.x Wayland popup unsupported**: `gtk4-layer-shell` is unavailable in Ubuntu 24.04 (noble) standard repositories, so hanja/special/emoji popups do not appear. Workaround: use an X11 session or switch to GNOME.
+- **KDE Plasma 6 Wayland / Sway / Hyprland / river — experimental, undertested**: builds with the `wayland-backend` cargo feature and `libgtk4-layer-shell` installed are theoretically functional but were **not exercised in the 0.3.0 QA cycle**. Expect possible regressions in popup placement, IME focus handover, and layer-shell coordinate translation. Bug reports via [GitHub Issues](https://github.com/from104/unim/issues) welcome.
 
 ### Removed (continued)
 
