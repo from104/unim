@@ -5342,7 +5342,9 @@ dependencies = [
  "libadwaita",
  "rust-i18n",
  "unim",
+ "unim-dbus",
  "unim-keymap-common",
+ "zbus 4.4.0",
 ]
 
 [[package]]

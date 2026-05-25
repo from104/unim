@@ -14,8 +14,12 @@ path = "src/main.rs"
 [dependencies]
 unim = { path = ".." }
 unim-keymap-common = { path = "../unim-keymap-common" }
+unim-dbus = { path = "../unim-dbus" }
 
-gtk4 = "0.9"
+gtk4 = { version = "0.9", features = ["v4_10"] }
 libadwaita = { version = "0.7", features = ["v1_4"] }
+
+# DBus 가용성 확인용 — blocking 짧은 호출만 사용.
+zbus = { version = "4", default-features = false, features = ["blocking"] }
 
 rust-i18n = "3"

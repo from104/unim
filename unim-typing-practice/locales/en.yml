@@ -8,12 +8,111 @@ stat_wpm: WPM
 stat_cpm: CPM
 stat_accuracy: Accuracy
 stat_error_rate: Error rate
+# StatCell label (unit beside value, label below).
+# CPM is keystrokes per minute (Korean standard) — Hangul syllables count each jamo.
+stat_wpm_label: words / min
+stat_cpm_label: keys / min
 btn_restart: Restart
 btn_other_corpus: Other corpus
 btn_copy_result: Copy result
 toast_practice_done: Done — WPM %{wpm}, accuracy %{acc}%
 toast_copied: Result copied
-hint_ime_warning: This window only collects ASCII keys, even if your Hangul IME is enabled.
+hint_ime_warning: Even with an IME enabled, the keymap shows ASCII keys only.
 hint_select_profile: Pick a profile on the left
 heatmap_title: Key error heatmap
 progress_label: Progress
+# Right column line-position card caption.
+line_position_caption: Line position
+# Currently active layout (read from UNIM daemon's korean.layout).
+practice_active_layout: Active layout
+# Inactive-daemon dialog.
+dialog_unim_inactive_title: UNIM is not running
+dialog_unim_inactive_body: Typing practice requires UNIM. Please follow the steps below.
+dialog_btn_close: Close and exit
+dialog_btn_help: Help
+dialog_step_1_title: Turn UNIM on from the tray
+dialog_step_1_body: Click the UNIM icon in your panel to activate it.
+dialog_step_2_title: Reopen this app
+dialog_step_2_body: After UNIM is running, reopen this window.
+dialog_step_3_title: Verify the layout is detected
+dialog_step_3_body: When the header shows the layout name, you are ready.
+# CorpusDropdown meta.
+corpus_meta_short: "3 lines"
+corpus_meta_medium: "8 lines"
+corpus_meta_long: "20 lines"
+# Result page.
+result_session_label: This session
+result_label_typed: Typed chars
+result_label_errors: Errors
+result_label_backspace: Backspace
+result_label_time: Time
+result_label_per_line_wpm: WPM per line
+result_label_key_stats: Key stats
+result_label_heatmap_subtitle: Most-missed keys on this layout
+result_legend_low: Low
+result_legend_high: High
+result_btn_back: Back to practice
+btn_copy: Copy result
+# IME chip in InputField.
+ime_chip_hangul: Han
+ime_chip_en: EN
+# Subtitle (stat caption).
+stat_caption_wpm: words / min
+stat_caption_cpm: keys / min
+# Bottom keyboard-shape widget.
+keyboard_view_title: Keyboard preview
+# Header / result view / helpers.
+header_corpus_label: Corpus
+header_restart_tooltip: Restart from the beginning
+header_menu_tooltip: Menu
+header_settings_tooltip: Open UNIM settings
+toast_layout_changed: 'Layout changed — restarting with %{label}'
+menu_copy_result: Copy result
+menu_view_heatmap: Show error heatmap
+menu_back_to_practice: Back to practice
+view_practice: Practice
+view_result: Result
+result_summary: This session
+result_no_data: No completed session yet. Finish one round to see the result here.
+ime_warning_short: ASCII keys collected
+# Input field placeholder (5th pass: simplified to gtk::Entry).
+input_placeholder: Type the line above here
+# Header help button + help dialog.
+header_help_tooltip: Usage and shortcuts
+help_dialog_title: Usage and shortcuts
+help_dialog_intro: |-
+  Type the highlighted line. The app advances to the next line automatically.
+  ・ Space / Enter / Tab — force advance
+  ・ Lines complete once you typed enough words, typos do not block progress
+  ・ CPM counts keystrokes; WPM is CPM ÷ 5
+help_dialog_shortcuts: Shortcuts
+help_shortcut_help: Open this help
+help_shortcut_restart: Restart from the beginning
+help_shortcut_copy: Copy result
+help_shortcut_practice: Practice view
+help_shortcut_result: Result view
+help_shortcut_import_file: Import corpus file
+help_shortcut_import_clip: Import corpus from clipboard
+help_dialog_close: Close
+# User corpus import (menu + toast + file dialog).
+menu_import_file: Import corpus file…
+menu_import_clipboard: Import from clipboard
+dialog_pick_corpus_title: Pick a corpus file (max 2000 bytes)
+toast_corpus_imported: 'Imported "%{name}"'
+toast_corpus_import_failed: 'Import failed — %{reason}'
+# User corpus — rename / delete.
+menu_rename_corpus: Rename current corpus…
+menu_delete_corpus: Delete current corpus…
+dialog_rename_title: Rename corpus
+dialog_rename_body: Enter a new name. Only alphanumerics, Hangul, `_`, `-` are kept.
+dialog_rename_placeholder: New name
+dialog_rename_btn: Rename
+dialog_cancel: Cancel
+dialog_delete_title: Delete corpus
+dialog_delete_body: 'Really delete "%{name}"? This cannot be undone.'
+dialog_delete_btn: Delete
+toast_corpus_renamed: 'Renamed "%{old}" → "%{new}"'
+toast_corpus_deleted: 'Deleted "%{name}"'
+toast_not_user_corpus: Built-in corpora cannot be changed — pick a user corpus
+toast_corpus_rename_failed: 'Rename failed — %{reason}'
+toast_corpus_delete_failed: 'Delete failed — %{reason}'
