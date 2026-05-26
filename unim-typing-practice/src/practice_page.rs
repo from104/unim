@@ -19,9 +19,10 @@ use libadwaita::prelude::*;
 use libadwaita::{self as adw};
 
 
+use unim_keymap_common::keyboard_view::KeyboardView;
+
 use crate::active_layout;
 use crate::corpus::{self, CorpusEntry, CorpusKind, USER_CORPUS_MAX_BYTES};
-use crate::keyboard_view::KeyboardView;
 use crate::practice_engine::{align_input_to_target, PracticeSession};
 use crate::segmented_progress::SegmentedProgress;
 use crate::triangle_spinner::TriangleSpinner;
@@ -317,7 +318,7 @@ pub fn build(toast: adw::ToastOverlay, header: &adw::HeaderBar) -> gtk::Widget {
 
     // 키보드 카드 — cardBgSoft, 가운데 정렬. slot 패턴으로 reload 시 교체 가능.
     let kbd_view_slot: Rc<RefCell<Rc<KeyboardView>>> =
-        Rc::new(RefCell::new(KeyboardView::new(
+        Rc::new(RefCell::new(KeyboardView::with_profiles(
             Some(&profile),
             en_profile_slot.borrow().as_ref(),
         )));
@@ -501,7 +502,7 @@ pub fn build(toast: adw::ToastOverlay, header: &adw::HeaderBar) -> gtk::Widget {
 
     // 키보드 히트맵 — Practice KeyboardView 와 동일 시각 디자인.
     let heat_view_slot: Rc<RefCell<Rc<KeyboardView>>> =
-        Rc::new(RefCell::new(KeyboardView::new(
+        Rc::new(RefCell::new(KeyboardView::with_profiles(
             Some(&profile),
             en_profile_slot.borrow().as_ref(),
         )));
@@ -1125,7 +1126,7 @@ pub fn build(toast: adw::ToastOverlay, header: &adw::HeaderBar) -> gtk::Widget {
 
             // 새 영문 profile 도 함께 로드 (자판 변경된 한·영 모두 반영).
             let (_, new_en_profile) = active_layout::load_active_english_profile();
-            let new_kbd = KeyboardView::new(Some(&new_profile), new_en_profile.as_ref());
+            let new_kbd = KeyboardView::with_profiles(Some(&new_profile), new_en_profile.as_ref());
             {
                 let old = kbd_view_slot.borrow();
                 kbd_card_inner.remove(old.root());
@@ -1133,7 +1134,7 @@ pub fn build(toast: adw::ToastOverlay, header: &adw::HeaderBar) -> gtk::Widget {
             kbd_card_inner.append(new_kbd.root());
             *kbd_view_slot.borrow_mut() = new_kbd;
 
-            let new_heat = KeyboardView::new(Some(&new_profile), new_en_profile.as_ref());
+            let new_heat = KeyboardView::with_profiles(Some(&new_profile), new_en_profile.as_ref());
             {
                 let old = heat_view_slot.borrow();
                 heat_card_inner.remove(old.root());
