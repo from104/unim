@@ -450,9 +450,9 @@ pub extern "C" fn unim_mode_sharing_at(index: usize) -> unim::config::ModeSharin
 
 /// 내장 한국어 자판의 개수를 반환합니다.
 ///
-/// Phase 8 이관 시점: 5종 (ko_2bulstd, ko_3bul390, ko_3bul391, ko_3bul_noshift,
-/// ko_3bul_qwerty). 사용자 정의 프로필은 `~/.config/unim/layouts/` 스캔 경로를
-/// 사용하므로 여기서 세지 않는다.
+/// 현재 4종 (ko_2bulstd, ko_3bul390, ko_3bul391, ko_3bul_noshift). 값은
+/// `KOREAN_LAYOUT_BUILTINS`에서 동적으로 산출하므로 빌트인이 늘면 자동 반영된다.
+/// 사용자 정의 프로필은 `~/.config/unim/layouts/` 스캔 경로를 쓰므로 여기서 세지 않는다.
 #[no_mangle]
 pub extern "C" fn unim_korean_layout_count() -> usize {
     unim::config::KOREAN_LAYOUT_BUILTINS.len()
@@ -481,7 +481,7 @@ pub extern "C" fn unim_korean_layout_display_name(index: usize) -> UnimStr {
 /// 지원하는 영어 레이아웃 개수를 반환합니다.
 #[no_mangle]
 pub extern "C" fn unim_english_layout_count() -> usize {
-    5 // Qwerty, Dvorak, Colemak, ColemakDh, Workman
+    unim::config::ENGLISH_LAYOUT_BUILTINS.len()
 }
 
 /// 영어 레이아웃 이름을 반환합니다.

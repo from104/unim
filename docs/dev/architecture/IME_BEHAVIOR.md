@@ -247,12 +247,14 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
 - [ ] Enter 커밋+바이패스 (이중 커밋 없음)
 - [ ] Ctrl/Alt 조합 바이패스
 - [ ] 한영전환 동작
-- [ ] 한자/특수문자 팝업 표시/선택/취소
-- [ ] 팝업 커서 위치 배치 + 경계 조정
-- [ ] 포커스 이동 시 팝업 자동 닫기
+- [ ] 한자/특수문자 팝업 선택/취소 (팝업 *렌더링* 자체는 0.3.0+ `unim-popup-service`
+      또는 GNOME extension `popup_view.js`가 담당 — 프런트엔드는 키를 데몬에 forward할 뿐
+      자체 팝업 위젯을 그리지 않는다. §4.0 참조)
+- [ ] caret 좌표(`caret_rect`)를 데몬에 보고 (popup-service가 이 좌표로 위치 배치)
+- [ ] 포커스 이동 시 팝업 취소(CancelHanja/CancelSpecialChar) 호출
 - [ ] BackSpace 자모 삭제
-- [ ] 팝업 키 처리: PopupState 위임 (C-API 또는 직접 사용)
-- [ ] PopupNavigate 시그널 수신 → 팝업 UI 업데이트
+- [ ] 팝업 활성 시 키 처리 위임 (Rust 프런트엔드는 `PopupState` 직접, GTK/Qt는 capi 경유 —
+      §8.6. 단 *그리기*가 아니라 키→PopupKeyResult 변환·forward 목적)
 
 ---
 
@@ -344,7 +346,10 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
 
 ### 8.6 팝업 키 처리 위임 (PopupState 통합)
 
-팝업이 활성화된 상태에서의 키 처리는 `PopupState`(Rust `src/popup/`)에 위임:
+팝업이 활성화된 상태에서의 **키 처리**(렌더링 아님)는 `PopupState`(Rust `src/popup/`)에 위임.
+0.3.0+ 에서 팝업의 **시각적 렌더링**은 프런트엔드가 아니라 `unim-popup-service`(또는 GNOME
+extension `popup_view.js`)가 전담한다(§4.0). 아래 위임은 어디까지나 keysym → PopupKeyResult
+변환·라우팅 책임이며, 프런트엔드가 PopupState로 픽셀을 그리지는 않는다:
 
 ```
 ■ Rust 프런트엔드 (XIM, Wayland):

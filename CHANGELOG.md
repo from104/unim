@@ -6,7 +6,19 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ## [Unreleased]
 
-_No changes yet._
+### ✨ Added
+
+- **App icons for the four GTK apps**: The indicator, settings, Keymap Studio, and Typing Practice apps each ship a distinct icon. App IDs now follow reverse-DNS naming consistently (app ID == `.desktop` file name == icon name, e.g. `io.github.from104.unim.Settings`), so the icon shows up correctly in the GNOME Wayland taskbar and Overview. The tray Korean/English status icon is unchanged.
+
+### 🔄 Changed
+
+- **Keymap Studio redesigned**: The old left-sidebar + two-tab layout is replaced by a three-step header dropdown (Language › Source › Layout) plus four tabs (Basics / Layout / Combinations / Extensions). Built-in layouts are protected (only "Save As" is allowed); your own layouts save in place. See `unim-keymap-studio/README.md`.
+
+### 🧹 Internal
+
+- **unim-capi header sync**: The public C header (`unim.h`) is kept in sync with the Rust surface (added two `UnimInputResult` fields and the `POPUP_KEY_PERIOD` constant), and a build-time guard (`build.rs` + cbindgen) now warns automatically if the header drifts out of sync.
+- **Keymap tools share one keyboard widget**: Keymap Studio and Typing Practice now share a single 5-row keyboard widget (three duplicate copies merged into one), and dead code (the old `KeyboardWidget`, `ProfileSidebar`, etc.) was removed.
+- **Frontend cleanup**: Unused embedded popup widgets were removed from the GTK/Qt IM modules — all popups are now drawn solely by the popup-service — and the frontends no longer link against unim-capi.
 
 ---
 

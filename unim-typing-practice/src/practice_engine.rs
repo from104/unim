@@ -294,35 +294,6 @@ pub fn align_input_to_target(target: &[char], input: &[char]) -> Vec<bool> {
     matched
 }
 
-/// `keyboard_view` 가 한글 라벨 산출에 사용하는 헬퍼 — ASCII 키 코드(`byte`)에
-/// 대응하는 셀(row, col, 라벨)을 찾는다.
-///
-/// 4차 엔진과 동일 시그너처를 유지하여 `keyboard_view.rs` 호환성을 보장한다.
-pub fn find_cell_for_ascii(
-    profile: &LayoutProfile,
-    byte: u8,
-    shift: bool,
-) -> Option<(u8, u8, String)> {
-    let (row, col) = qwerty_position(byte)?;
-    let rows = if shift {
-        &profile.layout.upper
-    } else {
-        &profile.layout.lower
-    };
-    let slice: &Vec<String> = match row {
-        0 => &rows.row1,
-        1 => &rows.row2,
-        2 => &rows.row3,
-        3 => &rows.row4,
-        _ => return None,
-    };
-    let label = slice
-        .get(col as usize)
-        .map(|s| s.as_str())
-        .filter(|s| !s.is_empty())?;
-    Some((row, col, label.to_string()))
-}
-
 /// QWERTY 기준 ASCII 키 → (row, col) 매핑.
 pub fn qwerty_position(byte: u8) -> Option<(u8, u8)> {
     let b = if byte.is_ascii_uppercase() {
@@ -330,7 +301,8 @@ pub fn qwerty_position(byte: u8) -> Option<(u8, u8)> {
     } else {
         byte
     };
-    const ROW0: &[u8] = b"`1234567890-=";
+    // 숫자열 끝(index 13)에 backslash(`\`/`|`) 가 저장된다 (UNIM 키맵 데이터 규약).
+    const ROW0: &[u8] = b"`1234567890-=\\";
     const ROW1: &[u8] = b"qwertyuiop[]";
     const ROW2: &[u8] = b"asdfghjkl;'";
     const ROW3: &[u8] = b"zxcvbnm,./";

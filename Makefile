@@ -173,16 +173,17 @@ install-frontends:
 install-icons:
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -m 644 data/icons/unim-korean.svg data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 data/icons/io.github.from104.unim.Settings.svg data/icons/io.github.from104.unim.Indicator.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
 install-indicator:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	install -m 755 target/release/unim-indicator $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-indicator/data/unim-indicator.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	install -m 644 unim-indicator/data/io.github.from104.unim.Indicator.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 
 install-settings:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
 	install -m 755 target/release/unim-settings $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-settings/data/unim-settings.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 unim-settings/data/io.github.from104.unim.Settings.desktop $(DESTDIR)$(DATADIR)/applications/
 
 install-popup-service:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
@@ -193,14 +194,16 @@ install-popup-service:
 	sed "s|@BINDIR@|$(BINDIR)|g" scripts/org.atit.unim.PopupService.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service
 
 install-keymap-studio:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -m 755 target/release/unim-keymap-studio $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-keymap-studio/data/unim-keymap-studio.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 unim-keymap-studio/data/io.github.from104.unim.KeymapStudio.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 data/icons/io.github.from104.unim.KeymapStudio.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
 install-typing-practice:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -m 755 target/release/unim-typing-practice $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-typing-practice/data/unim-typing-practice.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 unim-typing-practice/data/io.github.from104.unim.TypingPractice.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 data/icons/io.github.from104.unim.TypingPractice.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
@@ -226,15 +229,17 @@ uninstall-frontends:
 
 uninstall-icons:
 	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-korean.svg \
-	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.Indicator.svg
 
 uninstall-indicator:
 	rm -f $(DESTDIR)$(BINDIR)/unim-indicator \
-	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-indicator.desktop
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/io.github.from104.unim.Indicator.desktop
 
 uninstall-settings:
 	rm -f $(DESTDIR)$(BINDIR)/unim-settings \
-	      $(DESTDIR)$(DATADIR)/applications/unim-settings.desktop
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.Settings.desktop
 
 uninstall-popup-service:
 	rm -f $(DESTDIR)$(BINDIR)/unim-popup-service \
@@ -243,11 +248,13 @@ uninstall-popup-service:
 
 uninstall-keymap-studio:
 	rm -f $(DESTDIR)$(BINDIR)/unim-keymap-studio \
-	      $(DESTDIR)$(DATADIR)/applications/unim-keymap-studio.desktop
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.KeymapStudio.desktop \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.KeymapStudio.svg
 
 uninstall-typing-practice:
 	rm -f $(DESTDIR)$(BINDIR)/unim-typing-practice \
-	      $(DESTDIR)$(DATADIR)/applications/unim-typing-practice.desktop
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.TypingPractice.desktop \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.TypingPractice.svg
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────
 

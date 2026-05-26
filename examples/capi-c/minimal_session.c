@@ -26,8 +26,10 @@ int main() {
     unim_engine_reset(engine);
 
     // 2. Test 3-bul 390
+    // Phase 8: layout is now a profile-name string (the KoreanLayout enum was
+    // removed). Pass "ko_3bul390" instead of the old UNIM_HANGUL_LAYOUT_* enum.
     printf("\n--- Testing 3-bul 390 (Should be '한') ---\n");
-    unim_engine_set_hangul_layout(engine, UNIM_HANGUL_LAYOUT_SEBEOLSIK_390);
+    unim_engine_set_korean_layout(engine, "ko_3bul390");
     // ㅎ(M:50), ㅏ(F:33), ㄴ(S:31)
     printf("Pressing 'M'(50), 'F'(33), 'S'(31)...\n");
     unim_engine_press_key(engine, config, 50, no_mod); // ㅎ

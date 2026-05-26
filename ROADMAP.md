@@ -22,9 +22,9 @@
 - [x] **Qt5/Qt6 플러그인**: C++ 기반 QPlatformInputContext 플러그인 구현 (공통 코드 `qt-common` 분리).
 - [x] **XIM 프론트엔드**: Rust `xim` crate 기반 X11 XIM 서버 구현 (Over-The-Spot Preedit, 프로토콜 적합성 검증 완료).
 - [x] **Wayland 프론트엔드**: `input-method-v2` + `virtual-keyboard-v1` 프로토콜 기반 구현 (KDE Plasma 지원).
-- [x] **한자/특수문자 입력**: XIM 자체 Xft 팝업 + GNOME Extension 자체 팝업 + GTK/Qt/Wayland는 `unim-gui` 중앙 팝업으로 통합.
-- [x] **설정 도구**: GTK/Qt GUI 설정 도구 (`unim-gtk-settings`, `unim-qt-settings`) + CLI (`unim-cli config`).
-- [x] **시스템 트레이**: `unim-gui` 트레이 아이콘 및 팝업 통합.
+- [x] **한자/특수문자 입력**: 모든 팝업이 `unim-popup-service` 단일 서비스로 중앙화 완료. GNOME Wayland만 Shell extension `popup_view.js`(St 위젯)로 자체 렌더, 그 외 환경(X11·기타 Wayland)은 popup-service(GTK4)가 전담. GTK/Qt IM 모듈의 임베디드 팝업 위젯은 제거됨.
+- [x] **설정 도구**: GTK4 통합 설정 창 (`unim-settings`) + CLI (`unim-cli config`).
+- [x] **시스템 트레이**: 트레이 인디케이터(`unim-indicator`) 별도 프로세스로 분리.
 
 ### 3단계: 문서화 및 안정화 (진행 중)
 
@@ -59,6 +59,7 @@
 - [x] **Phase 5 — GTK GUI**: settings_dialog의 한국어 자판 ComboRow가 모든 한국어 프로필(내장 + 사용자) 표시. 선택 시 규칙 세트 SwitchRow가 동적 재구성.
 - [x] **Phase 6 — 내장 10종 v1 이관**: `docs/references/keymaps/*.json` 9종 + 신규 `ko_3bul_qwerty` 1종을 `src/keystroke/keymap/`로 이관. 기존 Rust const와 동일 `CombinedJamoMap` 산출 (behavior-preserving, regression test로 고정).
 - [x] **Phase 7 — 문서·마이그레이션 공지**: 본 섹션 + CHANGELOG Added 블록 + README 간단 안내.
+- [x] **키맵 도구 제공**: 자판을 눈으로 보고(보기), 편집하고(키맵 스튜디오), 익히는(타자 연습) GTK4 도구 3종 제공. 키맵 스튜디오·타자 연습은 5행 키보드 위젯을 공유. 키맵 스튜디오는 헤더 3단 드롭다운(언어 › 출처 › 자판) + 4탭 구성, 빌트인 보호 / 사용자 자판 저장 정책.
 
 ### 4단계: 자동 상태 전환 (지능화)
 
@@ -72,9 +73,11 @@
 - [ ] **입력 컨텍스트 통합**: 단순 "변환 도구"에서 완전한 입력기(IME) 서비스로 진화 (리눅스용 `ibus`, `fcitx5` 연동).
 - [ ] **크로스 플랫폼 지원**: Windows(TSF) 및 macOS용 네이티브 백그라운드 서비스 및 연동 방안 조사.
 
+> **메모 — `unim-capi` 위치**: 현재 UNIM 내부 컴포넌트는 모두 DBus 또는 Rust API를 직접 사용해 unim-capi를 링크하는 in-tree 소비자가 없습니다(프런트엔드의 capi 링크 의존도 해제됨). unim-capi는 외부 프로그램이 UNIM 코어를 임베딩하기 위한 **공개 C API**로 유지하며, 공개 헤더 `unim.h`는 빌드 시 Rust 표면과의 드리프트를 자동 검사합니다. 위 크로스 플랫폼 임베딩의 토대가 됩니다.
+
 ### 6단계: 엔진 재설계 (고급 한글 입력 기법 지원)
 
-현재 UNIM의 한글 엔진은 **정적 키맵 + 하드코딩 오토마타** 구조라 아래 기능들을 표현할 수 없다. 날개셋 한글 입력기 조사(연구 문서 미작성, 향후 추가 예정)와 순아래받침 규칙 조사(`docs/references/research/순아래받침_규칙.md`)에서 드러난 공통 결론: **낱자에 "어디서 왔는지" 정보가 붙어야 하고, 키 해석이 컴포저 상태에 접근할 수 있어야 한다**. 이 두 전제를 도입하는 엔진 리팩터가 아래 모든 항목의 선행 조건이다.
+현재 UNIM의 한글 엔진은 **정적 키맵 + 하드코딩 오토마타** 구조라 아래 기능들을 표현할 수 없다. 복벌식·갈마들이 조사(`docs/references/research/복벌식·갈마들이 조사.md`)와 순아래받침 규칙 조사(`docs/references/research/순아래받침_규칙.md`)에서 드러난 공통 결론: **낱자에 "어디서 왔는지" 정보가 붙어야 하고, 키 해석이 컴포저 상태에 접근할 수 있어야 한다**. 이 두 전제를 도입하는 엔진 리팩터가 아래 모든 항목의 선행 조건이다.
 
 - [ ] **낱자 provenance 태깅**: `Jamo` 표현을 `(kind, source_key)` 튜플로 확장해 같은 ㅗ/ㅜ라도 어느 키에서 왔는지 구별. 세벌식 390의 `9`-ㅜ, `/`-ㅗ 이중모음 전용 역할, 복벌식 자동 판정의 근거가 되는 날개셋문자 64-bit 토큰 개념(연구 문서 §4.1)에 대응.
 - [ ] **문맥 의존 키 해석 (글쇠 수식 최소 집합)**: 키→자모 매핑이 컴포저 상태(`has_cho`/`has_jung`/`has_jong`/`syllable_empty`)를 조회할 수 있도록 predicate 엔진 도입. 두벌식 `/`, 세벌식 390 `/` 같은 적응형 글쇠(연구 문서 §4.2) 지원. 날개셋의 Turing-complete 수식 전면 이식은 별도.

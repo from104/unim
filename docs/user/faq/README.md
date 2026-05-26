@@ -1,6 +1,6 @@
 # UNIM FAQ (English)
 
-> The questions people actually ask about UNIM 0.2.0.
+> The questions people actually ask about UNIM 0.3.0.
 > Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.
 
 ---
@@ -277,6 +277,26 @@ Yes. All user data lives under `~/.config/unim/` and is independent of the packa
 - `~/.config/unim/userdict.yaml` — user dictionary
 
 Uninstalling one package format and installing the other leaves these files untouched. Note that `unim-gui-qt` was removed in 0.3.0; replace it with `unim-gui-gtk` and `unim-popup-service`.
+
+---
+
+## Q19. Is there a tool to view, edit, or practice keyboard layouts?
+
+Two GTK4 companion tools ship alongside UNIM.
+
+- **`unim-keymap-studio` (Keymap Studio)**: view and edit Korean/English layouts visually.
+  A three-stage header dropdown (language > source > layout) selects the target, and four tabs
+  (Basic / Keymap / Combos / Extended) show the content. The **Combos** and **Extended** tabs
+  appear only for Korean layouts. The header's right side holds [Help] / [Settings] / [Menu].
+  - **Built-in layouts** are read-only, so only "Save As" is available; **user layouts** support
+    both "Save" and "Save As".
+  - User layouts are written as JSON under `~/.config/unim/layouts/` (same location as the
+    user-defined layouts in Q7).
+- **`unim-typing-practice` (Typing Practice)**: practice typing with the currently active layout.
+  It measures WPM/CPM, accuracy, and a typo heatmap so you can see which keys you mistype most.
+
+Both tools share the same five-row keyboard widget, so the layout looks consistent across them.
+For shortcuts see [user manual §5.6](../user-guide/README.md#56-keyboard-layout-tools-keymap-studio--typing-practice).
 
 ---
 

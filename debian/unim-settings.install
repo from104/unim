@@ -4,5 +4,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 debian/tmp/usr/bin/unim-settings
-debian/tmp/usr/share/applications/unim-settings.desktop
+debian/tmp/usr/share/applications/io.github.from104.unim.Settings.desktop
+debian/tmp/usr/share/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg
 debian/tmp/usr/share/man/man1/unim-settings.1

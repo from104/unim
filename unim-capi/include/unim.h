@@ -71,6 +71,8 @@ typedef struct {
     bool consumed;
     bool preedit_changed;
     bool commit_changed;
+    bool hanja_candidates_available;
+    bool special_char_candidates_available;
 } UnimInputResult;
 
 /**
@@ -454,6 +456,7 @@ typedef struct PopupState UnimPopupState;
 #define UNIM_POPUP_KEY_BACKSPACE 31
 #define UNIM_POPUP_KEY_MODIFIER  32
 #define UNIM_POPUP_KEY_OTHER     33
+#define UNIM_POPUP_KEY_PERIOD    34
 
 /* PopupKeyResult kind constants */
 #define UNIM_POPUP_RESULT_SELECT          0

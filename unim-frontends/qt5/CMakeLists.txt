@@ -25,28 +25,14 @@ add_library(unim MODULE
     src/plugin.cpp
     src/input_context.cpp
     ${QT_COMMON_DIR}/src/unim_dbus_client.cpp
-    ${QT_COMMON_DIR}/src/unim_hanja_popup.cpp
-    ${QT_COMMON_DIR}/src/unim_special_popup.cpp
-    ${QT_COMMON_DIR}/src/unim_emoji_popup.cpp
     ${QT_COMMON_DIR}/include/unim_dbus_client.hpp
-    ${QT_COMMON_DIR}/include/unim_hanja_popup.hpp
-    ${QT_COMMON_DIR}/include/unim_special_popup.hpp
-    ${QT_COMMON_DIR}/include/unim_emoji_popup.hpp
 )
-
-# UNIM C-API (PopupState)
-set(UNIM_ROOT "${CMAKE_SOURCE_DIR}/../..")
-set(UNIM_CAPI_INCLUDE "${UNIM_ROOT}/unim-capi/include")
-set(UNIM_CAPI_LIB_DIR "${UNIM_ROOT}/target/release")
 
 target_include_directories(unim PRIVATE
     ${QT_COMMON_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${Qt5Gui_PRIVATE_INCLUDE_DIRS}
-    ${UNIM_CAPI_INCLUDE}
 )
-
-target_link_directories(unim PRIVATE ${UNIM_CAPI_LIB_DIR})
 
 target_link_libraries(unim
     Qt5::Core
@@ -54,7 +40,6 @@ target_link_libraries(unim
     Qt5::GuiPrivate
     Qt5::DBus
     Qt5::Widgets
-    unim_capi
 )
 
 # 설치 경로 — qmake 감지 후 폴백

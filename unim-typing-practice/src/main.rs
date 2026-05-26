@@ -7,7 +7,6 @@ mod active_layout;
 mod app;
 mod corpus;
 mod daemon_check;
-mod keyboard_view;
 mod practice_engine;
 mod practice_page;
 mod segmented_progress;

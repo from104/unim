@@ -1,6 +1,6 @@
 # UNIM 트러블슈팅 (한국어)
 
-> UNIM 0.2.0 — 증상 → 1차 진단 → 2차 명령 → 해결 순서로 정리.
+> UNIM 0.3.0 — 증상 → 1차 진단 → 2차 명령 → 해결 순서로 정리.
 > "한 번도 한글이 안 나간다"부터 "특정 앱에서만 깨진다"까지 자주 마주치는 14개 증상을 다룬다.
 
 전체 진단의 출발점은 두 가지다. 하나는 **데몬이 살아 있는가**, 다른 하나는 **로그가 무엇이라고 말하는가**.
@@ -120,16 +120,21 @@ busctl --user monitor org.atit.unim.InputMethod
 
 ### 처방
 
-| 환경 | 권장 popup_mode | 비고 |
-|------|----------------|------|
-| GNOME+Wayland | `Standalone` | 확장이 시그널 받아 그림 |
-| KDE+Wayland | `Standalone` | unim-gui-gtk가 그림 |
-| X11 (어떤 DE든) | `Embedded` 또는 `Standalone` | Embedded는 IM 모듈이 자체 렌더 |
-| 순수 Wayland (Sway 등) | `Standalone` | 미해결 영역 — [팝업 명세](../../dev/specs/POPUP_SPEC.md) §8.4 참고 |
+| 환경 | 팝업 렌더 주체 (0.3.0+) | 비고 |
+| ---- | ----------------------- | ---- |
+| GNOME+Wayland | GNOME extension `popup_view.js` (St 위젯) | 확장이 `PopupRender` 시그널 받아 직접 그림 |
+| GNOME X11 / KDE / Xfce / WM (X11) | `unim-popup-service` (GTK4) | D-Bus auto-activation으로 자동 기동 |
+| Wayland (KDE Plasma 6 / Sway 등) | `unim-popup-service` (GTK4, wayland-backend) | `libgtk4-layer-shell` 필요, 실험적 — [팝업 명세](../../dev/specs/POPUP_SPEC.md) §12 참고 |
+
+> 0.3.0부터 IM 모듈은 더 이상 자체 팝업을 그리지 않는다. 한자·특수문자·이모지 팝업 렌더링은
+> 전부 `unim-popup-service`(또는 GNOME extension)로 중앙화됐다. 따라서 진단도 popup_mode가
+> 아니라 렌더러 프로세스가 살아 있는지를 본다.
 
 ```bash
-unim-cli config set popup_mode Standalone
-systemctl --user restart unim-daemon
+# X11/KDE/Xfce: popup-service 가 떠 있나? (없으면 §16 참고)
+pgrep -a unim-popup
+# GNOME Wayland: extension 이 활성인가?
+gnome-extensions list --enabled | grep unim
 ```
 
 > **DBus가 죽었을 때**: `busctl --user list | grep atit` → 비어 있으면 데몬이 서비스 등록을 못 한 것. `journalctl --user -u unim-daemon -n 100` 로그 확인.

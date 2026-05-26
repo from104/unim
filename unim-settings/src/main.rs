@@ -31,7 +31,7 @@ fn main() {
     unim_log!("SETTINGS", "UNIM settings 다이얼로그 시작");
 
     let app = adw::Application::builder()
-        .application_id("io.github.from104.unim.settings")
+        .application_id("io.github.from104.unim.Settings")
         .build();
 
     app.connect_activate(|app| {

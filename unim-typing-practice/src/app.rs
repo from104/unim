@@ -8,8 +8,9 @@ use gtk4::{self as gtk};
 use libadwaita::prelude::*;
 use libadwaita::{self as adw};
 
+use unim_keymap_common::keyboard_view::KEYBOARD_CSS;
+
 use crate::daemon_check;
-use crate::keyboard_view::KEYBOARD_VIEW_CSS;
 use crate::practice_page;
 
 pub fn build_window(app: &adw::Application) {
@@ -329,7 +330,7 @@ row:selected .typing-corpus-row .typing-row-action {{
 
 {}
 "#,
-        KEYBOARD_VIEW_CSS
+        KEYBOARD_CSS
     );
     provider.load_from_data(&combined);
     if let Some(display) = gtk::gdk::Display::default() {

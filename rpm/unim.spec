@@ -266,11 +266,13 @@ per-app input-mode rules, and virtual keyboard / preedit overlay on Wayland.
 
 %files indicator
 %{_bindir}/unim-indicator
-%{_sysconfdir}/xdg/autostart/unim-indicator.desktop
+%{_sysconfdir}/xdg/autostart/io.github.from104.unim.Indicator.desktop
+%{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.Indicator.svg
 
 %files settings
 %{_bindir}/unim-settings
-%{_datadir}/applications/unim-settings.desktop
+%{_datadir}/applications/io.github.from104.unim.Settings.desktop
+%{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg
 
 %files popup-service
 %{_bindir}/unim-popup-service

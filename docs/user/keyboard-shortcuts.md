@@ -146,6 +146,39 @@ journalctl --user -u unim-daemon -f
 
 ---
 
+## 자판 도구 앱 내부 단축키
+
+위 `Super+.` 는 데스크톱 전역 단축키지만, 함께 설치되는 두 GTK4 자판 도구는 **앱 창 안에서만**
+동작하는 자체 단축키를 가집니다(컴포지터 등록 불필요). 자세한 사용법은
+[사용자 매뉴얼 §5.6](user-guide/README-ko.md#56-자판-도구-keymap-studio--typing-practice).
+
+### unim-keymap-studio (자판 보기·편집)
+
+| 키 | 동작 |
+| -- | ---- |
+| F1 | 도움말 |
+| Ctrl + N | 새 자판 |
+| Ctrl + D | 현재 자판 복제 |
+| Ctrl + S | 저장 (사용자 자판) |
+| Ctrl + Shift + S | 다른 이름으로 저장 |
+| Ctrl + E | 내보내기 |
+| Ctrl + I | 가져오기 |
+| Ctrl + 1 / 2 / 3 / 4 | 탭 전환 (기본 / 자판 / 조합 / 확장) |
+
+### unim-typing-practice (타자 연습)
+
+| 키 | 동작 |
+| -- | ---- |
+| F1 | 도움말 |
+| Ctrl + R | 다시 시작 |
+| Ctrl + Shift + C | 결과 복사 |
+| Ctrl + 1 | 연습 화면 |
+| Ctrl + 2 | 결과 화면 |
+| Ctrl + O | 파일에서 글감 가져오기 |
+| Ctrl + Shift + V | 클립보드에서 글감 가져오기 |
+
+---
+
 ## 참고
 
 - X11/XIM에서는 X server가 modifier 키 조합을 IM에 redirect 해주기 때문에 자동 동작합니다.

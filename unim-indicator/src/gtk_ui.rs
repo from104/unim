@@ -16,7 +16,7 @@ use unim_gui_common::types::GuiAction;
 /// 트레이 host — GTK 메인 루프 유지 + OpenSettings → unim-settings spawn.
 pub fn run_tray_host(popup_rx: Receiver<GuiAction>) {
     let app = adw::Application::builder()
-        .application_id("io.github.from104.unim.indicator")
+        .application_id("io.github.from104.unim.Indicator")
         .flags(gtk4::gio::ApplicationFlags::NON_UNIQUE)
         .build();
 
