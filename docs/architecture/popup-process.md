@@ -4,6 +4,24 @@
 **브랜치**: `arch/popup-unify`
 **범위**: popup 전용 standalone 프로세스, GTK4-rs 단일 toolkit, X11/Wayland 둘 다 1차 지원
 
+> **구현 현황 (0.3.0, 2026-05)**: 이 문서는 설계 시점의 계획서다. 실제 구현은 본 계획을
+> 대부분 따랐으나 아래 항목이 달라졌으니 코드를 기준으로 읽을 것.
+>
+> - **팝업 중앙화 완료**: 한자·특수문자·이모지 팝업은 전부 `unim-popup-service`(독립 GTK4
+>   프로세스)가 렌더한다. GTK/Qt IM 모듈은 자체 팝업 위젯을 더 이상 갖지 않고 DBus 위임만
+>   하며, 과거의 임베디드/로컬 팝업 위젯 코드는 제거됐다.
+> - **DBus 인터페이스**: 실제 bus name·object path·시그널 이름은 §4가 아니라
+>   [`docs/dev/specs/POPUP_SPEC.md`](../dev/specs/POPUP_SPEC.md)(`org.atit.unim.Popup`
+>   인터페이스, `PopupRender` 통합 view-model SoT)와 코드가 정본이다.
+> - **트레이 분리**: 트레이는 `unim-gui-gtk`가 아니라 별도 `unim-indicator` 프로세스가
+>   책임진다(§7·§8의 "popup-service가 트레이도 담당"·"unim-gui-gtk 트레이 이관" 서술은 폐기).
+> - **GNOME Wayland 분기**: GNOME Shell + Wayland에서는 popup-service GTK4 대신 GNOME
+>   extension의 `popup_view.js`(St 위젯)가 직접 렌더한다(§1 분리도의 "gnome-extension 자체
+>   popup"이 이 경로). popup-service는 D-Bus auto-activation으로 기동된다(autostart .desktop 폐기).
+> - **4개 GUI 앱 고유 아이콘**: indicator/settings/keymap-studio/typing-practice 4개 GUI 앱이
+>   각자 고유 아이콘을 가지며 `io.github.from104.unim.{Indicator,Settings,KeymapStudio,TypingPractice}.svg`
+>   로 hicolor에 설치된다. 트레이 한/영 상태 아이콘(`unim-korean`/`unim-english`)은 별개로 유지된다.
+
 ---
 
 ## 1. 프로세스 분리도

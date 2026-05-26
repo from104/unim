@@ -1,6 +1,6 @@
 # UNIM Troubleshooting (English)
 
-> UNIM 0.2.0 — organized as Symptom → first diagnosis → second-level command → fix.
+> UNIM 0.3.0 — organized as Symptom → first diagnosis → second-level command → fix.
 > Covers 14 commonly seen symptoms, from "Korean never types" to "broken in one specific app".
 
 Every diagnosis starts with two questions: **is the daemon alive?** and **what does the log say?**
@@ -117,16 +117,21 @@ busctl --user monitor org.atit.unim.InputMethod
 
 ### Fix
 
-| Environment | Recommended `popup_mode` | Note |
-|------|----------------|------|
-| GNOME+Wayland | `Standalone` | Extension paints |
-| KDE+Wayland | `Standalone` | unim-gui-gtk paints |
-| X11 (any DE) | `Embedded` or `Standalone` | Embedded means the IM module renders directly |
-| Pure Wayland (Sway, etc.) | `Standalone` | Open issue — see [popup spec §8.4](../../dev/specs/POPUP_SPEC.md) |
+| Environment | Popup renderer (0.3.0+) | Note |
+| ----------- | ----------------------- | ---- |
+| GNOME+Wayland | GNOME extension `popup_view.js` (St widget) | Extension receives `PopupRender` and paints directly |
+| GNOME X11 / KDE / Xfce / X11 WM | `unim-popup-service` (GTK4) | Auto-launched via D-Bus activation |
+| Wayland (KDE Plasma 6 / Sway, etc.) | `unim-popup-service` (GTK4, wayland-backend) | Needs `libgtk4-layer-shell`, experimental — see [popup spec §12](../../dev/specs/POPUP_SPEC.md) |
+
+> Since 0.3.0, IM modules no longer draw their own popups. Rendering of the hanja /
+> special-char / emoji popups is centralized in `unim-popup-service` (or the GNOME
+> extension). Diagnosis therefore checks whether the renderer process is alive, not `popup_mode`.
 
 ```bash
-unim-cli config set popup_mode Standalone
-systemctl --user restart unim-daemon
+# X11/KDE/Xfce: is popup-service running? (if not, see §16)
+pgrep -a unim-popup
+# GNOME Wayland: is the extension enabled?
+gnome-extensions list --enabled | grep unim
 ```
 
 > **DBus dead?**: `busctl --user list | grep atit` — if empty, the daemon failed to register. Check `journalctl --user -u unim-daemon -n 100`.

@@ -146,6 +146,40 @@ If you don't see that message:
 
 ---
 
+## In-app shortcuts for the layout tools
+
+The `Super+.` above is a desktop-global shortcut, but the two GTK4 layout tools that ship with
+UNIM have their own shortcuts that work **only inside their windows** (no compositor registration
+needed). For usage details see
+[user manual §5.6](../user-guide/README.md#56-keyboard-layout-tools-keymap-studio--typing-practice).
+
+### unim-keymap-studio (view / edit layouts)
+
+| Key | Action |
+| --- | ------ |
+| F1 | Help |
+| Ctrl + N | New layout |
+| Ctrl + D | Duplicate current layout |
+| Ctrl + S | Save (user layouts) |
+| Ctrl + Shift + S | Save As |
+| Ctrl + E | Export |
+| Ctrl + I | Import |
+| Ctrl + 1 / 2 / 3 / 4 | Switch tab (Basic / Keymap / Combos / Extended) |
+
+### unim-typing-practice (typing practice)
+
+| Key | Action |
+| --- | ------ |
+| F1 | Help |
+| Ctrl + R | Restart |
+| Ctrl + Shift + C | Copy results |
+| Ctrl + 1 | Practice view |
+| Ctrl + 2 | Results view |
+| Ctrl + O | Import material from file |
+| Ctrl + Shift + V | Import material from clipboard |
+
+---
+
 ## Notes
 
 - On X11/XIM, the X server redirects modifier-based combos to the IM, so it works automatically.

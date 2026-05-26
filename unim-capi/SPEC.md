@@ -1,8 +1,16 @@
 # UNIM C API (unim-capi) 세부 기능 명세
 
 > `unim-capi`는 코어 엔진(`src/`)의 **C FFI 바인딩 레이어**입니다.
-> GTK/Qt IM 모듈, 설정 도구 등 C/C++ 프론트엔드가 Rust 코어와 통신하는 유일한 경로입니다.
-> `cbindgen`으로 자동 생성되는 `unim.h` 헤더를 통해 C/C++ 코드에서 사용됩니다.
+> **외부 애플리케이션이 UNIM 엔진을 임베드하기 위한 공개 C API**로 포지셔닝됩니다.
+> C/C++ 코드는 `include/unim.h` 헤더(수작업 관리되는 단일 진실원천)를 통해 사용합니다.
+
+> [!IMPORTANT]
+> 현재 **in-tree 라이브 소비자는 0개**입니다.
+> - unim-daemon, Windows(`unim-windows`/`unim-tsf`), `unim-popup-service`는 모두 `unim` 크레이트를 **직접** 사용합니다.
+> - Linux 프론트엔드(GTK3/4, Qt5/6)는 IM 모듈 → 자체 C DBus 클라이언트(`unim_dbus_*`) → unim-daemon 경로로 동작하며 **capi를 링크하지 않습니다** (자세한 내용은 §11 참고).
+>
+> 따라서 capi의 in-tree 사용처는 `examples/capi-c`(외부 임베더용 데모)와 capi 자체 단위 테스트뿐입니다.
+> capi는 외부 임베딩 시나리오를 위해 유지·관리되는 안정 API입니다.
 
 ---
 
@@ -11,26 +19,28 @@
 ### 1.1 역할
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
-│  GTK IM 모듈  │────▶│              │     │                  │
-│  (C)         │     │  unim-capi   │────▶│  unim (코어 엔진) │
-│  Qt IM 모듈   │────▶│  (C FFI)     │     │  (Rust)          │
-│  (C++)       │     │              │     │                  │
-│  설정 도구    │────▶│  libunim_capi│     │  libhangul 대체   │
-│  (C/C++)     │     │  .so / .a    │     │                  │
-└──────────────┘     └──────────────┘     └──────────────────┘
+┌────────────────────┐     ┌──────────────┐     ┌──────────────────┐
+│  외부 임베더 앱     │────▶│              │     │                  │
+│  (C/C++)           │     │  unim-capi   │────▶│  unim (코어 엔진) │
+│  examples/capi-c   │────▶│  (C FFI)     │     │  (Rust)          │
+│                    │     │  libunim_capi│     │  libhangul 대체   │
+│                    │     │  .so / .a    │     │                  │
+└────────────────────┘     └──────────────┘     └──────────────────┘
 ```
+
+> Linux IM 프론트엔드는 이 경로를 사용하지 않습니다 (§11 참고).
 
 ### 1.2 파일 구조
 
 ```
 unim-capi/
 ├── Cargo.toml          # crate-type: [cdylib, staticlib]
-├── cbindgen.toml       # C 헤더 자동 생성 설정
+├── build.rs            # soname 링크 + C-API 드리프트 가드 (§7 참고)
+├── cbindgen.toml       # C 헤더 생성 설정 (드리프트 가드용)
 ├── src/
-│   └── lib.rs          # FFI 함수 구현 (579행, 40+ 함수)
+│   └── lib.rs          # FFI 함수 구현
 └── include/
-    └── unim.h          # cbindgen으로 생성된 C 헤더 (448행)
+    └── unim.h          # 수작업 관리되는 단일 진실원천(SoT) C 헤더
 ```
 
 ### 1.3 빌드 산출물
@@ -61,9 +71,11 @@ C 코드에서는 내부 구조를 알 수 없으며, **포인터로만** 접근
 
 ```c
 typedef struct {
-    bool consumed;         // 키가 소비되었는지
-    bool preedit_changed;  // preedit 변경됨
-    bool commit_changed;   // commit 변경됨
+    bool consumed;                          // 키가 소비되었는지
+    bool preedit_changed;                   // preedit 변경됨
+    bool commit_changed;                    // commit 변경됨
+    bool hanja_candidates_available;        // 한자 후보 사용 가능
+    bool special_char_candidates_available; // 특수문자 후보 사용 가능
 } UnimInputResult;
 ```
 
@@ -218,7 +230,10 @@ typedef struct {
 
 ## 4. 사용 패턴
 
-### 4.1 GTK IM 모듈에서의 일반적인 사용
+> 아래 예시는 **외부 임베더 애플리케이션**이 UNIM 엔진을 직접 사용하는 패턴입니다.
+> (in-tree Linux 프론트엔드는 capi 대신 DBus 경로를 사용합니다 — §11 참고.)
+
+### 4.1 엔진 임베딩의 일반적인 사용
 
 ```c
 #include "unim.h"
@@ -315,53 +330,84 @@ pub unsafe extern "C" fn unim_config_delete(config: *mut Config) {
 
 `unim-capi` 함수들은 **스레드 안전하지 않습니다**.
 동일한 `UnimEngine` 또는 `UnimConfig` 인스턴스를 여러 스레드에서 동시에 사용하면 안 됩니다.
-이는 GTK/Qt IM 모듈이 항상 메인 스레드에서 실행되므로 실질적인 제약이 아닙니다.
+임베더 앱은 단일 스레드(보통 UI/메인 스레드)에서 인스턴스를 사용해야 합니다.
 
 ---
 
-## 6. cbindgen 설정
+## 6. cbindgen 설정 (드리프트 가드용)
 
-[cbindgen.toml](cbindgen.toml)에 의해 C 헤더가 자동 생성됩니다.
+[cbindgen.toml](cbindgen.toml)은 `build.rs`가 드리프트 가드(§7)를 수행할 때
+사용하는 생성 설정입니다. **배포 헤더는 cbindgen 출력이 아니라 수작업 관리되는
+`include/unim.h`** 입니다 (§7 참고).
 
 ```toml
 language = "C"
 include_guard = "UNIM_CAPI_H"
 cpp_compat = true           # C++ extern "C" 래핑
+style = "type"
+documentation = true
+documentation_style = "doxy"
 
 [export]
-include = ["InputResult", "InputCategory", "ModifierState", "UnimStr"]
+include = [
+    "InputResult", "InputCategory", "ModifierState",
+    "ModeSharingMode", "UnimStr", "CPopupKeyResult",
+]
 
 [export.rename]
 "InputResult"    = "UnimInputResult"
 "InputCategory"  = "UnimInputCategory"
 "ModifierState"  = "UnimModifierState"
+"ModeSharingMode" = "UnimModeSharingMode"
+"CPopupKeyResult" = "UnimPopupKeyResult"
+# Opaque/값 타입 rename — 기존 소비자가 의존하는 Unim* 이름 유지
+"Config"      = "UnimConfig"
+"InputEngine" = "UnimEngine"
+"PopupState"  = "UnimPopupState"
 
-[fn]
-prefix = "UNIM_API"
+[parse]
+parse_deps = true
+include = ["unim"]
 ```
 
 | 설정 | 효과 |
 |------|------|
 | `cpp_compat = true` | `#ifdef __cplusplus extern "C"` 래핑 |
-| `export.rename` | Rust 타입명 → `Unim` 접두사 C 타입명 |
-| `fn.prefix = "UNIM_API"` | 함수에 `UNIM_API` 매크로 접두 (DLL export 등) |
-| `parse_deps = false` | 의존 크레이트 내부는 파싱하지 않음 |
-| `style = "Both"` | typedef + struct 이름 모두 생성 |
+| `export.rename` | Rust 타입명 → `Unim` 접두사 C 타입명 (소비자 호환 유지) |
+| `parse_deps = true` | 코어(`unim`) 크레이트 내부 타입까지 파싱 (완전 자동 생성 전환 대비) |
+| `style = "type"` | typedef 스타일 타입명 생성 |
 
 ---
 
-## 7. 수동 관리 헤더
+## 7. 헤더 관리 — 단일 진실원천 + 드리프트 가드
 
-현재 `include/unim.h`는 `cbindgen` 자동 생성이 아닌 **수동으로 작성된 헤더**입니다.
+배포되는 `include/unim.h`는 **수작업으로 관리되는 단일 진실원천(source of truth)** 입니다.
+`lib.rs`에서 새 FFI 함수를 추가하면 **반드시 `include/unim.h`에도 직접 추가**해야 합니다.
+
+이 수작업 헤더가 Rust `#[no_mangle]` export 집합과 조용히 어긋나는 것을 막기 위해,
+`build.rs`가 **드리프트 가드**를 수행합니다:
+
+```
+build.rs (빌드 시)
+  1. cbindgen으로 OUT_DIR에 헤더를 생성
+  2. 생성 헤더의 export 함수 집합 ↔ 커밋된 include/unim.h 함수 집합 대조
+  3. 불일치 시 cargo:warning 발행 (MISSING / 미exported)
+     → 빌드 실패는 아님 (read-only 트리 패키징 영향 없음)
+```
 
 > [!NOTE]
-> `cbindgen.toml`에 `parse_deps = false`로 설정되어 있어,
-> 코어(`unim`) 크레이트의 타입(`Config`, `InputEngine`, `InputResult` 등)이
-> 자동 생성에 포함되지 않습니다.
-> 따라서 수동 헤더에서 Opaque 타입(`typedef struct Config UnimConfig`)과
-> 값 타입(`UnimInputResult`, `UnimModifierState`)을 직접 정의합니다.
+> 드리프트 가드는 함수 시그니처 단위가 아닌 **exported 함수 이름 집합**을 비교합니다.
+> 일치 시 `C-API drift guard OK: N exported functions in sync` 로그를 남깁니다.
+> `cbindgen.toml`의 rename/`parse_deps=true` 설정은 향후 완전 자동 생성으로
+> 전환하더라도 기존 소비자(opaque/값 타입 이름)와 호환되도록 맞춰져 있습니다.
 
-`lib.rs`에서 새 FFI 함수를 추가하면 **반드시 `include/unim.h`에도 수동으로 추가**해야 합니다.
+### 7.1 최근 헤더 동기화
+
+| 추가 항목 | 위치 |
+|-----------|------|
+| `UnimInputResult.hanja_candidates_available` | 값 타입 필드 |
+| `UnimInputResult.special_char_candidates_available` | 값 타입 필드 |
+| `#define UNIM_POPUP_KEY_PERIOD 34` | popup 키 상수 |
 
 ---
 
@@ -413,11 +459,31 @@ cargo test -p unim-capi
 
 ## 11. 소비자 목록
 
-| 컴포넌트 | 언어 | 링크 방식 | 사용 API 그룹 |
-|----------|------|-----------|--------------|
-| GTK3 IM 모듈 | C | 동적 (`.so`) | 엔진 + 입력 처리 |
-| GTK4 IM 모듈 | C | 동적 (`.so`) | 엔진 + 입력 처리 |
-| Qt5 IM 모듈 | C++ | 동적 (`.so`) | 엔진 + 입력 처리 |
-| Qt6 IM 모듈 | C++ | 동적 (`.so`) | 엔진 + 입력 처리 |
-| GTK 설정 도구 | C | 동적 (`.so`) | 설정 Getter/Setter + 레이아웃 헬퍼 |
-| Qt 설정 도구 | C++ | 동적 (`.so`) | 설정 Getter/Setter + 레이아웃 헬퍼 |
+### 11.1 현재 in-tree 소비자
+
+| 컴포넌트 | 언어 | 링크 방식 | 용도 |
+|----------|------|-----------|------|
+| `examples/capi-c` | C | 동적 (`.so`) | 외부 임베더용 데모 (`minimal_session.c`) |
+| capi 단위 테스트 | Rust | (크레이트 내부) | FFI 함수 동작 검증 (§10) |
+
+> [!NOTE]
+> **라이브(런타임) in-tree 소비자는 없습니다.** capi는 외부 애플리케이션이 UNIM 엔진을
+> 임베드할 때를 위한 공개 C API입니다.
+
+### 11.2 capi를 사용하지 **않는** 컴포넌트 (참고)
+
+혼동을 막기 위해, 과거 capi 소비자로 오해되기 쉬운 컴포넌트의 실제 경로를 명시합니다.
+
+| 컴포넌트 | 실제 엔진 접근 경로 |
+|----------|--------------------|
+| GTK3/GTK4 IM 모듈 | IM 모듈 → 자체 C DBus 클라이언트(`unim_dbus_*`) → unim-daemon (capi 미링크) |
+| Qt5/Qt6 IM 모듈 | 플러그인 → 자체 C++ DBus 클라이언트 → unim-daemon (capi 미링크) |
+| unim-daemon | `unim` 크레이트 직접 사용 |
+| `unim-popup-service` | `unim` 크레이트의 popup 모듈 직접 사용 |
+| Windows (`unim-windows`/`unim-tsf`) | `unim` 크레이트 직접 사용 |
+
+> [!NOTE]
+> 과거 프론트엔드가 capi에서 쓰던 유일한 심볼은 `unim_popup_*`였으나, 해당 임베디드 팝업
+> 위젯이 프론트엔드에서 제거되면서 capi 의존이 통째로 사라졌습니다. 모든 팝업은 이제
+> `unim-popup-service`(독립 GTK4 프로세스)가 렌더링합니다.
+> capi 헤더에는 `unim_popup_*` API가 외부 임베더를 위해 그대로 남아 있습니다.

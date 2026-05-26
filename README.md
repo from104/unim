@@ -74,6 +74,17 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | **Popup Service** | `unim-popup-service/` | 한자·특수문자·이모지 팝업 단일 렌더러 (GTK4, D-Bus auto-activation) |
 | **GNOME Extension** | `unim-gnome-extension/` | GNOME Shell 확장 (인디케이터, 오타 변환, popup_view, 설정) |
 
+#### 보조 GUI 앱 (4종)
+
+UNIM은 트레이·설정 외에 키맵 관리·타자 연습을 위한 GTK4 보조 앱을 함께 제공합니다. 네 앱 모두 **고유 아이콘**과 역DNS 명명(`app_id` == `.desktop` 파일명 == 아이콘 이름)을 가져, GNOME Wayland 작업표시줄·오버뷰에서 각자의 아이콘으로 표시됩니다.
+
+| 앱 | 경로 | 앱 ID | 역할 |
+|----|------|-------|------|
+| **인디케이터** | `unim-indicator/` | `io.github.from104.unim.Indicator` | 시스템 트레이 아이콘 (한/영 상태 표시) |
+| **설정** | `unim-settings/` | `io.github.from104.unim.Settings` | GTK4/libadwaita 통합 설정 창 |
+| **키맵 스튜디오** | `unim-keymap-studio/` | `io.github.from104.unim.KeymapStudio` | 자판 보기·편집 도구 (헤더 3단 드롭다운 + 4탭) |
+| **타자 연습** | `unim-typing-practice/` | `io.github.from104.unim.TypingPractice` | 자판별 타자 연습 (키스트로크 통계) |
+
 데스크톱별 GUI 매트릭스:
 
 | 환경 | autostart 패키지 | 한자/특수/이모지 popup | 설정 다이얼로그 |
@@ -149,7 +160,7 @@ DBus는 UNIM 시스템의 **중추신경계** 역할을 하며 다음과 같이 
 ### 3. C-API 및 라이브러리 연동
 
 - **`unim-capi`**: Rust 코어를 C 언어에서 사용할 수 있도록 래핑한 계층입니다.
-- 설정 도구(`unim-cli config`)나 일부 성능이 중요한 툴킷 모듈은 DBus 대신 이 C-API를 통해 엔진 데이터에 직접 접근하거나 설정을 관리합니다.
+- 현재 UNIM 내부 컴포넌트는 모두 DBus 또는 Rust API를 직접 사용하므로, `unim-capi`를 링크하는 in-tree 소비자는 없습니다. 외부 프로그램에서 UNIM 코어를 임베딩하기 위한 **공개 C API**로 유지됩니다(공개 헤더 `unim.h`는 빌드 시 Rust 표면과의 드리프트를 자동 검사).
 
 ### 4. 데몬 관리 및 Systemd 통합
 

@@ -317,6 +317,74 @@ Visible only in a GNOME session. Indicator and key-interception options for the 
 
 ---
 
+## 5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)
+
+Separate from the settings GUI, two GTK4 companion tools ship with UNIM for viewing, editing,
+and practicing layouts. Each registers in the app list with its own icon
+(`io.github.from104.unim.KeymapStudio`, `io.github.from104.unim.TypingPractice`).
+
+```bash
+unim-keymap-studio &      # view / edit layouts
+unim-typing-practice &    # typing practice
+```
+
+### 5.6.1 unim-keymap-studio — view / edit layouts
+
+<!-- screenshot: keymap-studio -->
+
+See which jamo/characters each key produces for Korean/English layouts, and build your own.
+
+- **Three-stage header dropdown**: narrow down by "language > source > layout". E.g. Korean >
+  User > `my_3bul_variant`.
+- **Four tabs**: Basic (metadata) · Keymap (per-key mapping grid) · Combos (jamo-combination
+  rules) · Extended (rule_set toggles). The **Combos** and **Extended** tabs appear **only for
+  Korean layouts** (English layouts have no jamo-combination concept).
+- **Header-right buttons**: [Help] (F1) · [Settings] · [Menu].
+- **Save policy**: built-in layouts are read-only, so only "Save As" is offered. User layouts
+  support both "Save" and "Save As". A new user layout is written as JSON under
+  `~/.config/unim/layouts/`, which the daemon auto-scans so it shows up in the settings GUI's
+  layout list.
+
+#### Shortcuts
+
+| Key | Action |
+| --- | ------ |
+| F1 | Help |
+| Ctrl + N | New layout |
+| Ctrl + D | Duplicate current layout |
+| Ctrl + S | Save (user layouts) |
+| Ctrl + Shift + S | Save As |
+| Ctrl + E | Export |
+| Ctrl + I | Import |
+| Ctrl + 1 / 2 / 3 / 4 | Switch tab (Basic / Keymap / Combos / Extended) |
+
+### 5.6.2 unim-typing-practice — typing practice
+
+<!-- screenshot: typing-practice -->
+
+Practice typing with the currently **active layout** (the one the daemon uses). It auto-reloads
+when you switch layouts.
+
+- **Metrics**: WPM (words per minute), CPM (characters per minute), accuracy, and a **typo
+  heatmap** that colors the on-screen keyboard to show which keys you mistype most.
+- **Practice material**: built-in words/sentences, plus import from a file (Ctrl+O) or the
+  clipboard (Ctrl+Shift+V).
+- Shares the **same five-row keyboard widget** as Keymap Studio, so the layout looks consistent.
+
+#### Shortcuts
+
+| Key | Action |
+| --- | ------ |
+| F1 | Help |
+| Ctrl + R | Restart |
+| Ctrl + Shift + C | Copy results |
+| Ctrl + 1 | Practice view |
+| Ctrl + 2 | Results view |
+| Ctrl + O | Import material from file |
+| Ctrl + Shift + V | Import material from clipboard |
+
+---
+
 ## 6. Key cheat sheet
 
 | Situation | Key | Result |
