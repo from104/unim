@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a4458"/>
+      <stop offset="100%" stop-color="#3d3846"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#base)" stroke="#1c1c1c" stroke-width="2"/>
+  <text x="58" y="84" font-family="sans-serif" font-size="74" font-weight="900"
+        text-anchor="middle" fill="#f6f5f4">한</text>
+  <rect x="96" y="34" width="8" height="60" rx="4" fill="#62a0ea"/>
+</svg>
