@@ -5237,13 +5237,13 @@ dependencies = [
  "serde",
  "serde_json",
  "unim",
- "unim-gui-common",
 ]
 
 [[package]]
 name = "unim-keymap-studio"
 version = "0.3.0"
 dependencies = [
+ "dirs 5.0.1",
  "gtk4",
  "libadwaita",
  "rust-i18n",

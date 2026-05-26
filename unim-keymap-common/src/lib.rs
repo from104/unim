@@ -9,14 +9,13 @@
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+pub mod keyboard_view;
 pub mod keyboard_widget;
 pub mod locale;
-pub mod profile_sidebar;
 pub mod serializable;
 pub mod state;
 
-pub use keyboard_widget::{KeyCell, KeyboardWidget};
+pub use keyboard_view::{qwerty_position, KeyboardView};
 pub use locale::{detect_locale, init_locale};
-pub use profile_sidebar::ProfileSidebar;
 pub use serializable::{layout_user_path, save_profile_json, SaveError};
 pub use state::SharedRegistry;
