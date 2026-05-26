@@ -1,18 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  UNIM Windows MSI Installer
-  - wixl(msitools) compatible WiX 3 source
-  - Builds from Linux: `wixl -v -a x64 -o unim-0.2.0-x64.msi unim.wxs`
-  - Bundles: unim-windows.exe (standalone GUI) + unim_tsf.dll (TSF IME DLL)
-  - TSF registration: DllRegisterServer via SelfRegCost (calls register_server() in unim-tsf)
-  - COM CLSID: registered statically (HKCR\CLSID\{A1B2C3D4-...}) so regsvr32 is not strictly required
+  UNIM Korean IME — Windows MSI installer (WiX Toolset 3.x).
+
+  Build (Windows runner, GitHub Actions or local):
+    candle.exe -arch x64 -dWIN_OUT_DIR=path\to\release -out unim.wixobj installer\wix\unim.wxs
+    light.exe   -ext WixUIExtension -out dist\unim-x64.msi unim.wixobj
+
+  Or via cargo-wix:
+    cargo wix --target x86_64-pc-windows-msvc --no-build -p unim-tsf
+
+  TSF registration: dual track.
+    (1) Static registry keys below mirror what unim-tsf/src/register.rs writes.
+    (2) <File SelfRegCost="1"> invokes DllRegisterServer for the COM-API
+        registration that requires live ITfInputProcessorProfiles calls.
+
+  GUID source of truth: unim-tsf/src/globals.rs. Run
+  `bash installer/wix/gen-guids.sh` whenever globals.rs changes.
 -->
+<?include generated/guids.wxi ?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 
   <Product Id="*"
            Name="UNIM Korean IME"
            Language="1033"
-           Version="0.2.0"
+           Version="$(var.UnimVersion)"
            Manufacturer="atit.org"
            UpgradeCode="4F1A2B3C-5D6E-7F80-9A1B-2C3D4E5F6A7B">
 
@@ -20,116 +31,137 @@
              Compressed="yes"
              InstallScope="perMachine"
              Platform="x64"
-             Manufacturer="atit.org"
              Description="UNIM Korean Input Method (Hangul + Hanja)"
-             Comments="https://github.com/atit-org/unim"
-             Languages="1033" />
+             Comments="https://github.com/from104/unim" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of UNIM is already installed." />
 
     <Media Id="1" Cabinet="unim.cab" EmbedCab="yes" />
 
-    <!-- Directory layout -->
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLDIR" Name="UNIM">
-          <!-- Standalone GUI executable -->
+
+          <!-- Standalone GUI executable (egui tray + settings). -->
           <Component Id="UnimWindowsExe"
                      Guid="5A6B7C8D-9E0F-1A2B-3C4D-5E6F7A8B9C0D"
                      Win64="yes">
             <File Id="unim_windows.exe"
                   Name="unim-windows.exe"
-                  Source="$(var.WIN_OUT_DIR)/unim-windows.exe"
+                  Source="$(var.WIN_OUT_DIR)\unim-windows.exe"
                   KeyPath="yes" />
           </Component>
 
-          <!-- TSF IME DLL: ALL registration via static registry (no regsvr32 needed).
-               Mirrors what unim-tsf/src/register.rs::register_server() does at runtime. -->
+          <!--
+            TSF IME DLL.
+            SelfRegCost="1" enables MSI's built-in self-registration:
+            DllRegisterServer is invoked at InstallFinalize, which calls
+            register_server() in unim-tsf to register the TSF profile and
+            categories via ITfInputProcessorProfileMgr / ITfCategoryMgr
+            (the COM API path Microsoft documents as the canonical method).
+
+            Static registry entries below provide the COM CLSID / TIP entry /
+            language profile / category keys so the IME survives a profile
+            corruption or a sandboxed install where DllRegisterServer might
+            silently fail. Both paths are idempotent.
+          -->
           <Component Id="UnimTsfDll"
                      Guid="6B7C8D9E-0F1A-2B3C-4D5E-6F7A8B9C0D1E"
                      Win64="yes">
             <File Id="unim_tsf.dll"
                   Name="unim_tsf.dll"
-                  Source="$(var.WIN_OUT_DIR)/unim_tsf.dll"
+                  Source="$(var.WIN_OUT_DIR)\unim_tsf.dll"
+                  SelfRegCost="1"
                   KeyPath="yes" />
 
-            <!-- (1) COM CLSID registration (HKCR\CLSID\{CLSID}) -->
-            <RegistryKey Root="HKCR" Key="CLSID\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
+            <!-- (1) COM CLSID — HKCR\CLSID\{CLSID} -->
+            <RegistryKey Root="HKCR" Key="CLSID\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="UNIM Korean IME" />
             </RegistryKey>
-            <RegistryKey Root="HKCR" Key="CLSID\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\InProcServer32">
+            <RegistryKey Root="HKCR" Key="CLSID\$(var.UnimClsid)\InProcServer32" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="[#unim_tsf.dll]" />
               <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
             </RegistryKey>
 
-            <!-- (2) TSF TIP entry (HKLM\SOFTWARE\Microsoft\CTF\TIP\{CLSID}) -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
+            <!-- (2) TIP entry — HKLM\SOFTWARE\Microsoft\CTF\TIP\{CLSID} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- (3) TSF Language Profile (HKLM\SOFTWARE\Microsoft\CTF\TIP\{CLSID}\LanguageProfile\0x0412\{PROFILE_GUID}) -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\LanguageProfile\0x00000412\{B2C3D4E5-F6A7-8901-BCDE-F12345678901}">
+            <!-- (3) Language profile — HKLM\...\CTF\TIP\{CLSID}\LanguageProfile\0x00000412\{PROFILE_GUID} -->
+            <RegistryKey Root="HKLM"
+                         Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\LanguageProfile\$(var.UnimLangIdHexPadded)\$(var.UnimProfileGuid)"
+                         ForceCreateOnInstall="yes"
+                         ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Name="Description" Value="UNIM Korean IME" />
               <RegistryValue Type="integer" Name="Enable" Value="1" />
             </RegistryKey>
 
-            <!-- (4) TSF Categories: TIP_KEYBOARD -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Category\{34745C63-B2F0-4784-8B67-5E12C8701A31}\{34745C63-B2F0-4784-8B67-5E12C8701A31}">
+            <!--
+              (4) TSF categories.
+              Format (Microsoft SampleIME pattern):
+                Category\Category\{CATEGORY_GUID}\{CLSID}     ← Category subkey is CLSID
+                Category\Item\{CATEGORY_GUID}\{CLSID}         ← Item subkey is CLSID
+              Previously this file used {CATEGORY_GUID}\{CATEGORY_GUID} (a
+              copy-paste bug); that prevented OS-side TIP category discovery.
+            -->
+
+            <!-- TIP_KEYBOARD = {34745C63-B2F0-4784-8B67-5E12C8701A31} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{34745C63-B2F0-4784-8B67-5E12C8701A31}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Item\{34745C63-B2F0-4784-8B67-5E12C8701A31}\{34745C63-B2F0-4784-8B67-5E12C8701A31}">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{34745C63-B2F0-4784-8B67-5E12C8701A31}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- (5) TSF Categories: DISPLAYATTRIBUTEPROVIDER -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Category\{046B8C80-1647-40F7-9B21-B93B81AABC1B}\{046B8C80-1647-40F7-9B21-B93B81AABC1B}">
+            <!-- DISPLAYATTRIBUTEPROVIDER = {046B8C80-1647-40F7-9B21-B93B81AABC1B} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{046B8C80-1647-40F7-9B21-B93B81AABC1B}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Item\{046B8C80-1647-40F7-9B21-B93B81AABC1B}\{046B8C80-1647-40F7-9B21-B93B81AABC1B}">
-              <RegistryValue Type="string" Value="" />
-            </RegistryKey>
-
-            <!-- (6) TSF Categories: TIPCAP_UIELEMENTENABLED -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Category\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}">
-              <RegistryValue Type="string" Value="" />
-            </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Item\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{046B8C80-1647-40F7-9B21-B93B81AABC1B}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- (7) TSF Categories: TIPCAP_IMMERSIVESUPPORT -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Category\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}">
+            <!-- TIPCAP_UIELEMENTENABLED = {78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Item\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- (8) TSF Categories: TIPCAP_SYSTRAYSUPPORT -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Category\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}">
+            <!-- TIPCAP_IMMERSIVESUPPORT = {13A016DF-560B-46CD-947A-4C3AF1E0E35D} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Item\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+
+            <!-- TIPCAP_SYSTRAYSUPPORT = {25504FB4-7BAB-4BC1-9C69-CF81890F0EF5} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
           </Component>
 
-          <!-- Helper batch scripts for manual TSF (un)register -->
+          <!-- Fallback batch scripts in case an end user needs manual (un)register. -->
           <Component Id="RegisterScripts"
                      Guid="8D9E0F1A-2B3C-4D5E-6F7A-8B9C0D1E2F30"
                      Win64="yes">
             <File Id="register_bat"
                   Name="register-tsf.bat"
-                  Source="../scripts/register-tsf.bat"
+                  Source="..\scripts\register-tsf.bat"
                   KeyPath="yes" />
             <File Id="unregister_bat"
                   Name="unregister-tsf.bat"
-                  Source="../scripts/unregister-tsf.bat" />
+                  Source="..\scripts\unregister-tsf.bat" />
           </Component>
         </Directory>
       </Directory>
 
-      <!-- Start Menu shortcut -->
       <Directory Id="ProgramMenuFolder">
         <Directory Id="ApplicationProgramsFolder" Name="UNIM">
           <Component Id="StartMenuShortcuts"
@@ -156,7 +188,6 @@
       </Directory>
     </Directory>
 
-    <!-- Feature: Required (no optional components for now) -->
     <Feature Id="Complete"
              Title="UNIM Korean IME"
              Description="Hangul + Hanja Korean input method for Windows (TSF + standalone GUI)"
@@ -171,19 +202,16 @@
       <ComponentRef Id="StartMenuShortcuts" />
     </Feature>
 
-    <!-- Add/Remove Programs metadata -->
-    <Property Id="ARPHELPLINK" Value="https://github.com/atit-org/unim" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/from104/unim" />
     <Property Id="ARPURLINFOABOUT" Value="https://atit.org" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="0" />
 
-    <!-- All TSF registration is handled via static RegistryKey entries above.
-         No CustomAction / regsvr32 needed. -->
-
-    <!-- Icon: placeholder; provide installer/assets/unim.ico to enable.
-         Re-enable by uncommenting next 2 lines + adding -D HAS_ICON=1 in Makefile.
-    <Property Id="ARPPRODUCTICON" Value="unim.ico" />
-    <Icon Id="unim.ico" SourceFile="../assets/unim.ico" /> -->
+    <!--
+      ARPPRODUCTICON: enable by placing installer/assets/unim.ico and uncommenting.
+      <Property Id="ARPPRODUCTICON" Value="unim.ico" />
+      <Icon Id="unim.ico" SourceFile="..\assets\unim.ico" />
+    -->
 
   </Product>
 </Wix>
