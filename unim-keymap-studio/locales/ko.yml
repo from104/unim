@@ -1,35 +1,194 @@
 # UNIM 키맵 스튜디오 (한국어)
 app_title: UNIM 키맵 스튜디오
-tab_view: 보기
-tab_edit: 편집
-view_metadata: 자판 정보
-edit_metadata: 메타데이터
-edit_layout: 자판 배열
-edit_combinations: 조합 규칙
-combos_cho: 초성 조합
-combos_jung: 중성 조합
-combos_jong: 종성 조합
-rule_sets_title: 규칙 세트
-rule_sets_active: 활성
-moachigi_group: 모아치기 (v3)
-moachigi_capability: 자판이 모아치기를 지원
-moachigi_capability_hint: 실제 동작 옵션은 사용자 설정에서 조정합니다
+
+# 헤더 — 좌측 ProfileDropdown
+header_profile_dropdown_label: 자판
+header_profile_dropdown_tooltip: 자판 선택 (언어 > 출처 > 자판명)
+dropdown_lang_korean: 한글
+dropdown_lang_english: 영문
+dropdown_source_builtin: 빌트인
+dropdown_source_user: 사용자
+dropdown_empty: (없음)
+
+# 헤더 — 우측 아이콘
+header_help_tooltip: 사용법과 단축키 (F1)
+header_settings_tooltip: UNIM 설정 열기
+header_menu_tooltip: 메뉴
+
+# 탭 이름
+tab_basic: 기본
+tab_keymap: 자판
+tab_combos: 조합
+tab_extended: 확장
+
+# 뱃지
+badge_builtin: 빌트인
+badge_v3: v3
+badge_moachigi: 모아치기
+badge_override: 재정의
+sidebar_builtin: 빌트인
+sidebar_user: 사용자
+
+# 기본 탭
+basic_builtin_banner: 빌트인 자판입니다 — 편집 후 '다른 이름으로 저장'으로만 보관됩니다
+basic_lang_group: 언어 및 종류
+basic_lang_label: 언어
+basic_layout_type_label: 자판 유형 (예 2bul, 3bul, qwerty)
+basic_name_group: 이름과 표시
+basic_name_label: 식별자 (name)
+basic_display_name_ko: 표시 이름 (한국어)
+basic_display_name_en: 표시 이름 (English)
+basic_inherits_label: 상속 자판 (inherits)
+basic_meta_group: 메타데이터
+basic_desc_ko: 설명 (한국어)
+basic_desc_en: 설명 (English)
+basic_tags_label: 태그 (쉼표 구분)
+basic_advanced_group: 고급
+basic_moachigi_switch: 모아치기 (v3) 지원
+basic_moachigi_hint: 켜면 schema_version=3 으로 저장됩니다
+
+# 자판 탭
+keymap_click_hint: 키를 클릭하면 위쪽(Shift)·아래쪽(평문) 글자를 편집할 수 있습니다
+key_edit_title: 키 편집 — %{row}행 %{col}열
+key_edit_upper_label: 위쪽 (Shift)
+key_edit_lower_label: 아래쪽 (평문)
+key_edit_jamo_helper: 한글 자모 빠른 선택
+key_edit_scope_label: 스코프
+key_edit_scope_cho: 초성 (Cho)
+key_edit_scope_jung: 중성 (Jung)
+key_edit_scope_jong: 종성 (Jong)
+key_edit_jamo_label: 자모
+key_edit_fill_upper: 위쪽에 채우기
+key_edit_fill_lower: 아래쪽에 채우기
+key_edit_validation_one_char: 한 글자만 입력하세요
+
+# 조합 탭
+combos_cho: 초성 조합 (Cho)
+combos_jung: 중성 조합 (Jung)
+combos_jong: 종성 조합 (Jong)
+combo_section_empty: 등록된 조합이 없습니다
+combo_dialog_add_title: 조합 추가
+combo_dialog_edit_title: 조합 편집
+combo_dialog_first: 첫 번째 자모
+combo_dialog_second: 두 번째 자모
+combo_dialog_result: 결과 자모
+combo_dialog_scope_hint: 같은 스코프 자모만 사용할 수 있습니다
+
+# 확장 탭 — 규칙 세트
+extended_rule_sets_title: 규칙 세트 (Rule Sets)
+extended_rule_sets_add: 새 규칙 세트
+extended_rule_sets_empty: 등록된 규칙 세트가 없습니다
+badge_active: 활성
+badge_inactive: 비활성
+rule_set_active: 활성
+rule_set_add_combo: 조합 추가…
+extended_rule_set_key_meta: 키 메타데이터 (이 세트 한정)
+rule_set_add_key_meta: 키 메타 추가…
+rule_set_add_title: 규칙 세트 추가
+rule_set_edit_title: 규칙 세트 편집
+rule_set_name_label: 이름
+rule_set_desc_ko: 설명 (한국어)
+rule_set_desc_en: 설명 (English)
+rule_set_name_required: 이름을 입력하세요
+rule_set_name_exists: 같은 이름의 규칙 세트가 이미 있습니다
+
+# 확장 탭 — 전역 key_meta
+extended_key_meta_title: 전역 키 메타데이터 (Key Meta)
+extended_key_meta_desc: 활성 규칙 세트의 키 메타가 전역보다 우선합니다
+extended_key_meta_add: 새 키 메타
+extended_key_meta_empty: 등록된 키 메타가 없습니다
+key_meta_row_title: "키: '%{key}'"
+key_meta_dialog_title: 키 메타데이터
+key_meta_key_label: 키 식별자
+key_meta_key_required: 키 식별자를 입력하세요
+key_meta_unset: 미설정
+key_meta_vowel_combine_head: vowel_combine_head (룰 A)
+key_meta_context_alt_use: context_alt 사용 (룰 B)
+key_meta_context_when: 조건 (when)
+key_meta_context_to: 변환 (to)
+key_meta_context_fallback: 폴백 (fallback)
+key_meta_when_empty: 비어 있음 (empty)
+key_meta_when_composing: 조합 중 (composing)
+key_meta_when_choseong_only: 초성만 (choseong_only)
+key_meta_when_jungseong_only: 중성만 (jungseong_only)
+key_meta_when_cho_jung_filled: 초성+중성 (cho_jung_filled)
+key_meta_when_jongseong_filled: 종성 채워짐 (jongseong_filled)
+key_meta_when_last_is_cho: 마지막=초성 (last_is_cho)
+key_meta_when_last_is_jung: 마지막=중성 (last_is_jung)
+key_meta_when_last_is_jong: 마지막=종성 (last_is_jong)
+
+# 다른 이름으로 저장
+save_as_title: 다른 이름으로 저장
+save_as_name_label: 새 식별자 (name)
+save_as_hint_ok: 사용 가능합니다
+save_as_hint_builtin: 빌트인 자판과 이름이 같습니다
+save_as_hint_user_exists: 이미 같은 이름의 사용자 자판이 있습니다
+save_as_hint_invalid: 영문·숫자·_·- 만 사용할 수 있습니다
+save_as_hint_empty: 이름을 입력하세요
+save_as_path_preview: 저장 위치 — %{path}
+
+# 미저장 변경 가드
+discard_changes_title: 변경 사항이 저장되지 않았습니다
+discard_changes_body: 변경 사항을 버리고 다른 자판으로 이동하시겠습니까?
+discard_btn_keep: 그대로 두기
+discard_btn_discard: 버리고 이동
+
+# 헤더 메뉴
+menu_new_profile: 새 자판 만들기
+menu_duplicate_profile: 현재 자판 복제
+menu_export_json: JSON으로 내보내기…
+menu_import_json: JSON 가져오기…
+menu_open_user_folder: 사용자 자판 폴더 열기
+menu_help: 사용법과 단축키
+
+# 새 자판 / 복제 다이얼로그
+new_profile_title: 새 자판 만들기
+new_profile_name: 이름
+new_profile_language: 언어
+duplicate_profile_title: 현재 자판 복제
+duplicate_profile_name: 새 이름
+
+# 도움말
+help_dialog_title: 사용법과 단축키
+help_dialog_intro: 헤더 좌측 드롭다운에서 자판을 고르고, 네 탭(기본·자판·조합·확장)에서 편집합니다. 빌트인 자판은 '다른 이름으로 저장'으로만 보관할 수 있습니다.
+help_shortcut_help: 이 도움말
+help_shortcut_new: 새 자판 만들기
+help_shortcut_duplicate: 현재 자판 복제
+help_shortcut_save: 저장
+help_shortcut_save_as: 다른 이름으로 저장
+help_shortcut_export: JSON 내보내기
+help_shortcut_import: JSON 가져오기
+help_shortcut_tabs: 탭 전환 (기본·자판·조합·확장)
+
+# Toast
+toast_saved: 저장됨 — %{path}
+toast_save_failed: 저장 실패 — %{err}
+toast_reverted: 원본 복원됨
+toast_builtin_save_blocked: 빌트인 자판입니다 — '다른 이름으로 저장'으로만 보관됩니다
+toast_exported: 내보냄 — %{path}
+toast_imported: "%{name} 자판을 가져왔습니다"
+toast_import_invalid: 가져오기 실패 — 올바른 자판 JSON 이 아닙니다 (%{err})
+toast_open_folder_failed: 사용자 자판 폴더를 열 수 없습니다
+
+# 공용 버튼
 btn_save: 저장
 btn_save_as: 다른 이름으로 저장
 btn_revert: 원본으로 복원
 btn_add: 추가
 btn_remove: 삭제
 btn_edit: 편집
-dialog_edit_key_title: 키 편집
-dialog_edit_combo_title: 조합 편집
-dialog_save_as_title: 다른 이름으로 저장
-dialog_field_first: 첫번째
-dialog_field_second: 두번째
-dialog_field_result: 결과
-dialog_field_value: 값
-dialog_field_name: 자판 이름
-toast_saved: 저장됨 — %{path}
-toast_save_failed: 저장 실패 — %{err}
-toast_revert: 원본 복원됨
-combo_section_empty: 등록된 조합이 없습니다
-no_profile_hint: 좌측에서 자판을 선택하세요
+btn_cancel: 취소
+btn_apply: 적용
+btn_ok: 확인
+
+# 메타 라벨
+meta_author: 저자
+meta_version: 버전
+meta_description: 설명
+meta_license: 라이선스
+meta_schema_version: 스키마 버전
+meta_language: 언어
+meta_type: 유형
+
+case_upper: Shift
+case_lower: 평문
