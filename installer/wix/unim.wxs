@@ -6,8 +6,9 @@
     candle.exe -arch x64 -dWIN_OUT_DIR=path\to\release -out unim.wixobj installer\wix\unim.wxs
     light.exe   -ext WixUIExtension -out dist\unim-x64.msi unim.wixobj
 
-  Or via cargo-wix:
-    cargo wix --target x86_64-pc-windows-msvc --no-build -p unim-tsf
+  Or via cargo-wix (flags written without leading dashes to keep this XML
+  comment valid; supply them literally on the command line):
+    cargo wix  [target x86_64-pc-windows-msvc]  [no-build]  [package unim-tsf]
 
   TSF registration: dual track.
     (1) Static registry keys below mirror what unim-tsf/src/register.rs writes.
