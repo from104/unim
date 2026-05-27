@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use windows::core::*;
-use windows::Win32::Foundation::BOOL;
+use windows::core::BOOL;
 use windows::Win32::UI::TextServices::*;
 
 /// 조합 상태 관리자

@@ -88,21 +88,21 @@ impl UnimTextService {
 // ── ITfTextInputProcessorEx ──
 
 impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
-    fn ActivateEx(&self, ptim: Option<&ITfThreadMgr>, tid: u32, _dwflags: u32) -> Result<()> {
-        let thread_mgr = ptim.ok_or(E_INVALIDARG)?;
+    fn ActivateEx(&self, ptim: Ref<'_, ITfThreadMgr>, tid: u32, _dwflags: u32) -> Result<()> {
+        let thread_mgr = ptim.as_ref().ok_or(E_INVALIDARG)?;
         self.client_id.store(tid, Ordering::SeqCst);
         *self.thread_mgr.lock().unwrap() = Some(thread_mgr.clone());
 
         unsafe {
             let keystroke_mgr: ITfKeystrokeMgr = thread_mgr.cast()?;
-            let this_sink: ITfKeyEventSink = self.cast()?;
-            keystroke_mgr.AdviseKeyEventSink(tid, &this_sink, TRUE)?;
+            let this_sink: ITfKeyEventSink = self.to_interface();
+            keystroke_mgr.AdviseKeyEventSink(tid, &this_sink, true)?;
             *self.key_event_sink_installed.lock().unwrap() = true;
         }
 
         unsafe {
             let source: ITfSource = thread_mgr.cast()?;
-            let this_sink: ITfThreadMgrEventSink = self.cast()?;
+            let this_sink: ITfThreadMgrEventSink = self.to_interface();
             let cookie = source.AdviseSink(&ITfThreadMgrEventSink::IID, &this_sink)?;
             *self.thread_mgr_sink_cookie.lock().unwrap() = Some(cookie);
         }
@@ -145,7 +145,7 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
 }
 
 impl ITfTextInputProcessor_Impl for UnimTextService_Impl {
-    fn Activate(&self, ptim: Option<&ITfThreadMgr>, tid: u32) -> Result<()> {
+    fn Activate(&self, ptim: Ref<'_, ITfThreadMgr>, tid: u32) -> Result<()> {
         self.ActivateEx(ptim, tid, 0)
     }
 
@@ -241,7 +241,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
 
     fn OnTestKeyDown(
         &self,
-        pic: Option<&ITfContext>,
+        pic: Ref<'_, ITfContext>,
         wparam: WPARAM,
         _lparam: LPARAM,
     ) -> Result<BOOL> {
@@ -254,19 +254,20 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             .as_ref()
             .map(|w| w.is_active())
             .unwrap_or(false);
-        let eaten = key_handler::test_key_down(&engine, &config, wparam, pic, popup_active);
+        let eaten =
+            key_handler::test_key_down(&engine, &config, wparam, pic.as_ref(), popup_active);
         Ok(BOOL::from(eaten))
     }
 
-    fn OnKeyDown(&self, pic: Option<&ITfContext>, wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
-        let context = pic.ok_or(E_INVALIDARG)?;
+    fn OnKeyDown(&self, pic: Ref<'_, ITfContext>, wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
+        let context = pic.as_ref().ok_or(E_INVALIDARG)?;
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
         let mut popup_win = self.popup_window.lock().unwrap();
         let mut atf_state = self.atf_state.lock().unwrap();
         let tid = self.client_id();
-        let comp_sink: ITfCompositionSink = unsafe { self.cast()? };
+        let comp_sink: ITfCompositionSink = self.to_interface();
 
         // 갭1: 키 처리 전후 모드 비교를 위해 이전 카테고리 저장.
         let prev_category = engine.input_category();
@@ -298,18 +299,18 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
 
     fn OnTestKeyUp(
         &self,
-        _pic: Option<&ITfContext>,
+        _pic: Ref<'_, ITfContext>,
         _wparam: WPARAM,
         _lparam: LPARAM,
     ) -> Result<BOOL> {
         Ok(FALSE)
     }
 
-    fn OnKeyUp(&self, _pic: Option<&ITfContext>, _wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
+    fn OnKeyUp(&self, _pic: Ref<'_, ITfContext>, _wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
         Ok(FALSE)
     }
 
-    fn OnPreservedKey(&self, _pic: Option<&ITfContext>, _rguid: *const GUID) -> Result<BOOL> {
+    fn OnPreservedKey(&self, _pic: Ref<'_, ITfContext>, _rguid: *const GUID) -> Result<BOOL> {
         // 현재 PreserveKey 로 등록하는 키가 없으므로 호출되지 않는다.
         // 한/영·한자는 OnKeyDown 경로에서 처리한다.
         Ok(FALSE)
@@ -322,7 +323,7 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
     fn OnCompositionTerminated(
         &self,
         _ecwrite: u32,
-        _pcomposition: Option<&ITfComposition>,
+        _pcomposition: Ref<'_, ITfComposition>,
     ) -> Result<()> {
         self.composition_mgr.lock().unwrap().clear();
         self.engine.lock().unwrap().reset();
@@ -339,23 +340,23 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
 // ── ITfThreadMgrEventSink ──
 
 impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
-    fn OnInitDocumentMgr(&self, _pdim: Option<&ITfDocumentMgr>) -> Result<()> {
+    fn OnInitDocumentMgr(&self, _pdim: Ref<'_, ITfDocumentMgr>) -> Result<()> {
         Ok(())
     }
-    fn OnUninitDocumentMgr(&self, _pdim: Option<&ITfDocumentMgr>) -> Result<()> {
+    fn OnUninitDocumentMgr(&self, _pdim: Ref<'_, ITfDocumentMgr>) -> Result<()> {
         Ok(())
     }
     fn OnSetFocus(
         &self,
-        _pdimfocus: Option<&ITfDocumentMgr>,
-        _pdimprevfocus: Option<&ITfDocumentMgr>,
+        _pdimfocus: Ref<'_, ITfDocumentMgr>,
+        _pdimprevfocus: Ref<'_, ITfDocumentMgr>,
     ) -> Result<()> {
         Ok(())
     }
-    fn OnPushContext(&self, _pic: Option<&ITfContext>) -> Result<()> {
+    fn OnPushContext(&self, _pic: Ref<'_, ITfContext>) -> Result<()> {
         Ok(())
     }
-    fn OnPopContext(&self, _pic: Option<&ITfContext>) -> Result<()> {
+    fn OnPopContext(&self, _pic: Ref<'_, ITfContext>) -> Result<()> {
         Ok(())
     }
 }
@@ -365,9 +366,9 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
 impl ITfTextEditSink_Impl for UnimTextService_Impl {
     fn OnEndEdit(
         &self,
-        _pic: Option<&ITfContext>,
+        _pic: Ref<'_, ITfContext>,
         _ecreadonly: u32,
-        _peditrecord: Option<&ITfEditRecord>,
+        _peditrecord: Ref<'_, ITfEditRecord>,
     ) -> Result<()> {
         Ok(())
     }

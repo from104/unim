@@ -1,5 +1,6 @@
 //! 키 이벤트 처리 — VK → KeyCode → InputEngine
 
+use windows::core::BOOL;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::TextServices::*;

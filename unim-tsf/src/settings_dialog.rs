@@ -206,9 +206,9 @@ unsafe extern "system" fn page_wnd_proc(
             // 트랙바 스크롤 알림을 메인 다이얼로그로 전달
             if let Ok(parent) = GetParent(hwnd) {
                 if let Ok(dlg) = GetParent(parent) {
-                    SendMessageW(dlg, WM_HSCROLL, wparam, lparam);
+                    SendMessageW(dlg, WM_HSCROLL, Some(wparam), Some(lparam));
                 } else {
-                    SendMessageW(parent, WM_HSCROLL, wparam, lparam);
+                    SendMessageW(parent, WM_HSCROLL, Some(wparam), Some(lparam));
                 }
             }
             LRESULT(0)
@@ -217,9 +217,9 @@ unsafe extern "system" fn page_wnd_proc(
             // 콤보/에딧 알림을 메인 다이얼로그로 전달
             if let Ok(parent) = GetParent(hwnd) {
                 if let Ok(dlg) = GetParent(parent) {
-                    SendMessageW(dlg, WM_COMMAND, wparam, lparam);
+                    SendMessageW(dlg, WM_COMMAND, Some(wparam), Some(lparam));
                 } else {
-                    SendMessageW(parent, WM_COMMAND, wparam, lparam);
+                    SendMessageW(parent, WM_COMMAND, Some(wparam), Some(lparam));
                 }
             }
             LRESULT(0)
@@ -288,9 +288,9 @@ unsafe fn create_static(
         PCWSTR(text_w.as_ptr()),
         WS_CHILD | WS_VISIBLE,
         x, y, w, h,
-        parent,
+        Some(parent),
         None,
-        crate::dll_instance(),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default()
 }
@@ -307,9 +307,9 @@ unsafe fn create_groupbox(
         PCWSTR(text_w.as_ptr()),
         WS_CHILD | WS_VISIBLE | WINDOW_STYLE(BS_GROUPBOX_VALUE),
         x, y, w, h,
-        parent,
+        Some(parent),
         None,
-        crate::dll_instance(),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default()
 }
@@ -328,13 +328,13 @@ unsafe fn create_checkbox(
         PCWSTR(text_w.as_ptr()),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
         x, y, w, h,
-        parent,
-        HMENU(id as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(parent),
+        Some(HMENU(id as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     if checked {
-        SendMessageW(hwnd, BM_SETCHECK, WPARAM(BST_CHECKED.0 as usize), LPARAM(0));
+        SendMessageW(hwnd, BM_SETCHECK, Some(WPARAM(BST_CHECKED.0 as usize)), Some(LPARAM(0)));
     }
     hwnd
 }
@@ -351,14 +351,14 @@ unsafe fn create_trackbar(
         PCWSTR::null(),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(TBS_HORZ | TBS_AUTOTICKS),
         x, y, w, h,
-        parent,
-        HMENU(id as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(parent),
+        Some(HMENU(id as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     let range_param = (((max as u32) << 16) | (min as u32 & 0xFFFF)) as isize;
-    SendMessageW(hwnd, TBM_SETRANGE, WPARAM(1), LPARAM(range_param));
-    SendMessageW(hwnd, TBM_SETPOS, WPARAM(1), LPARAM(pos as isize));
+    SendMessageW(hwnd, TBM_SETRANGE, Some(WPARAM(1)), Some(LPARAM(range_param)));
+    SendMessageW(hwnd, TBM_SETPOS, Some(WPARAM(1)), Some(LPARAM(pos as isize)));
     hwnd
 }
 
@@ -375,9 +375,9 @@ unsafe fn create_value_label(
         PCWSTR(text_w.as_ptr()),
         WS_CHILD | WS_VISIBLE | WINDOW_STYLE(SS_CENTER_VALUE),
         x, y, w, h,
-        parent,
-        HMENU(id as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(parent),
+        Some(HMENU(id as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default()
 }
@@ -395,16 +395,16 @@ unsafe fn create_combobox(
         PCWSTR::null(),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(CBS_DROPDOWNLIST_VALUE),
         x, y, w, h,
-        parent,
-        HMENU(id as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(parent),
+        Some(HMENU(id as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     for item in items.iter() {
         let item_w = to_wide_nul(item);
-        SendMessageW(hwnd, CB_ADDSTRING, WPARAM(0), LPARAM(item_w.as_ptr() as isize));
+        SendMessageW(hwnd, CB_ADDSTRING, Some(WPARAM(0)), Some(LPARAM(item_w.as_ptr() as isize)));
     }
-    SendMessageW(hwnd, CB_SETCURSEL, WPARAM(selected_idx), LPARAM(0));
+    SendMessageW(hwnd, CB_SETCURSEL, Some(WPARAM(selected_idx)), Some(LPARAM(0)));
     hwnd
 }
 
@@ -421,9 +421,9 @@ unsafe fn create_edit(
         PCWSTR(text_w.as_ptr()),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(ES_AUTOHSCROLL_VALUE),
         x, y, w, h,
-        parent,
-        HMENU(id as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(parent),
+        Some(HMENU(id as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default()
 }
@@ -441,9 +441,9 @@ unsafe fn create_button(
         PCWSTR(text_w.as_ptr()),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
         x, y, w, h,
-        parent,
-        HMENU(id as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(parent),
+        Some(HMENU(id as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default()
 }
@@ -451,15 +451,15 @@ unsafe fn create_button(
 // ─── 헬퍼: 값 읽기 ──────────────────────────────────────────────────────────
 
 unsafe fn trackbar_get_pos(hwnd: HWND) -> i32 {
-    SendMessageW(hwnd, TBM_GETPOS, WPARAM(0), LPARAM(0)).0 as i32
+    SendMessageW(hwnd, TBM_GETPOS, Some(WPARAM(0)), Some(LPARAM(0))).0 as i32
 }
 
 unsafe fn checkbox_checked(hwnd: HWND) -> bool {
-    SendMessageW(hwnd, BM_GETCHECK, WPARAM(0), LPARAM(0)).0 == BST_CHECKED.0 as isize
+    SendMessageW(hwnd, BM_GETCHECK, Some(WPARAM(0)), Some(LPARAM(0))).0 == BST_CHECKED.0 as isize
 }
 
 unsafe fn combobox_get_sel(hwnd: HWND) -> usize {
-    let r = SendMessageW(hwnd, CB_GETCURSEL, WPARAM(0), LPARAM(0)).0;
+    let r = SendMessageW(hwnd, CB_GETCURSEL, Some(WPARAM(0)), Some(LPARAM(0))).0;
     if r < 0 { 0 } else { r as usize }
 }
 
@@ -496,7 +496,7 @@ unsafe fn update_value_label(hwnd_dlg: HWND, label_id: u32, value: i32) {
 /// hwnd 와 모든 자식 창에서 컨트롤 ID 로 HWND 찾기 (1단계 깊이 탐색)
 unsafe fn find_child_by_id(hwnd: HWND, id: u32) -> Option<HWND> {
     // 직접 자식에서 찾기
-    if let Ok(h) = GetDlgItem(hwnd, id as i32) {
+    if let Ok(h) = GetDlgItem(Some(hwnd), id as i32) {
         if !h.is_invalid() {
             return Some(h);
         }
@@ -516,14 +516,14 @@ unsafe fn find_child_by_id(hwnd: HWND, id: u32) -> Option<HWND> {
             return FALSE; // 중단
         }
         // 한 단계 더 내려가기
-        let _ = EnumChildWindows(child, Some(enum_cb), lparam);
+        let _ = EnumChildWindows(Some(child), Some(enum_cb), lparam);
         if (*ctx.found).is_some() {
             return FALSE;
         }
         TRUE
     }
 
-    let _ = EnumChildWindows(hwnd, Some(enum_cb), LPARAM(ctx_ptr));
+    let _ = EnumChildWindows(Some(hwnd), Some(enum_cb), LPARAM(ctx_ptr));
     found
 }
 
@@ -531,7 +531,7 @@ unsafe fn find_child_by_id(hwnd: HWND, id: u32) -> Option<HWND> {
 
 unsafe fn restore_parent(parent: HWND) {
     if !parent.is_invalid() {
-        let _ = EnableWindow(parent, TRUE);
+        let _ = EnableWindow(parent, true);
     }
 }
 
@@ -548,8 +548,8 @@ unsafe fn tab_insert(hwnd_tab: HWND, idx: usize, label: &str) {
     SendMessageW(
         hwnd_tab,
         TCM_INSERTITEMW,
-        WPARAM(idx),
-        LPARAM(&mut ti as *mut TCITEMW as isize),
+        Some(WPARAM(idx)),
+        Some(LPARAM(&mut ti as *mut TCITEMW as isize)),
     );
 }
 
@@ -868,16 +868,16 @@ unsafe fn build_page_typefix(page: HWND, config: &Config) {
 // ─── 헬퍼: ListBox 항목 추가 / 전체 리프레시 ────────────────────────────────
 
 unsafe fn listbox_clear(hwnd: HWND) {
-    SendMessageW(hwnd, LB_RESETCONTENT, WPARAM(0), LPARAM(0));
+    SendMessageW(hwnd, LB_RESETCONTENT, Some(WPARAM(0)), Some(LPARAM(0)));
 }
 
 unsafe fn listbox_add(hwnd: HWND, text: &str) {
     let w = to_wide_nul(text);
-    SendMessageW(hwnd, LB_ADDSTRING, WPARAM(0), LPARAM(w.as_ptr() as isize));
+    SendMessageW(hwnd, LB_ADDSTRING, Some(WPARAM(0)), Some(LPARAM(w.as_ptr() as isize)));
 }
 
 unsafe fn listbox_get_sel(hwnd: HWND) -> Option<usize> {
-    let r = SendMessageW(hwnd, LB_GETCURSEL, WPARAM(0), LPARAM(0)).0;
+    let r = SendMessageW(hwnd, LB_GETCURSEL, Some(WPARAM(0)), Some(LPARAM(0))).0;
     if r < 0 { None } else { Some(r as usize) }
 }
 
@@ -941,9 +941,9 @@ unsafe fn build_page_blacklist(page: HWND, blacklist: &Blacklist) {
         PCWSTR::null(),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(LBS_NOTIFY as u32),
         lm, y, full_w, list_h,
-        page,
-        HMENU(ID_BL_LIST as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(page),
+        Some(HMENU(ID_BL_LIST as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     y += list_h + gap;
@@ -997,9 +997,9 @@ unsafe fn build_page_userdict(page: HWND, userdict: &UserDictionary) {
         PCWSTR::null(),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(LBS_NOTIFY as u32),
         lm, y, full_w, list_h,
-        page,
-        HMENU(ID_UD_LIST as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(page),
+        Some(HMENU(ID_UD_LIST as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     y += list_h + gap;
@@ -1050,9 +1050,9 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
         PCWSTR::null(),
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         TAB_X, TAB_Y, TAB_W, TAB_H,
-        hwnd,
-        HMENU(ID_TABCTRL as *mut core::ffi::c_void),
-        crate::dll_instance(),
+        Some(hwnd),
+        Some(HMENU(ID_TABCTRL as *mut core::ffi::c_void)),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     state.hwnd_tab = hwnd_tab;
@@ -1069,9 +1069,9 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
         PCWSTR::null(),
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         PAGE_X, PAGE_Y, PAGE_W, PAGE_H,
-        hwnd_tab,
+        Some(hwnd_tab),
         None,
-        crate::dll_instance(),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     state.hwnd_page_general = hwnd_page_general;
@@ -1083,9 +1083,9 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
         PCWSTR::null(),
         WS_CHILD | WS_CLIPSIBLINGS,  // 초기에는 숨김
         PAGE_X, PAGE_Y, PAGE_W, PAGE_H,
-        hwnd_tab,
+        Some(hwnd_tab),
         None,
-        crate::dll_instance(),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     state.hwnd_page_typefix = hwnd_page_typefix;
@@ -1097,9 +1097,9 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
         PCWSTR::null(),
         WS_CHILD | WS_CLIPSIBLINGS,  // 초기에는 숨김
         PAGE_X, PAGE_Y, PAGE_W, PAGE_H,
-        hwnd_tab,
+        Some(hwnd_tab),
         None,
-        crate::dll_instance(),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     state.hwnd_page_blacklist = hwnd_page_blacklist;
@@ -1111,9 +1111,9 @@ unsafe fn build_all_controls(hwnd: HWND, state: &mut DlgState) {
         PCWSTR::null(),
         WS_CHILD | WS_CLIPSIBLINGS,  // 초기에는 숨김
         PAGE_X, PAGE_Y, PAGE_W, PAGE_H,
-        hwnd_tab,
+        Some(hwnd_tab),
         None,
-        crate::dll_instance(),
+        Some(crate::dll_instance().into()),
         None,
     ).unwrap_or_default();
     state.hwnd_page_userdict = hwnd_page_userdict;
@@ -1166,7 +1166,7 @@ unsafe fn switch_tab(state: &mut DlgState, tab_idx: i32) {
 // ─── 컨트롤 수집: 현재 상태 → Config 반영 ───────────────────────────────────
 
 unsafe fn get_ctrl(page: HWND, id: u32) -> Option<HWND> {
-    GetDlgItem(page, id as i32).ok().filter(|h| !h.is_invalid())
+    GetDlgItem(Some(page), id as i32).ok().filter(|h| !h.is_invalid())
 }
 
 unsafe fn collect_general(state: &mut DlgState) {
@@ -1281,7 +1281,7 @@ unsafe fn try_save(hwnd: HWND, config: &Config) {
         let msg_w = to_wide_nul(&msg);
         let title_w = to_wide_nul("UNIM 설정");
         MessageBoxW(
-            hwnd,
+            Some(hwnd),
             PCWSTR(msg_w.as_ptr()),
             PCWSTR(title_w.as_ptr()),
             MB_OK | MB_ICONERROR,
@@ -1346,14 +1346,14 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
                 Ok(()) => {
                     let msg_w   = to_wide_nul("기본 입력기로 설정되었습니다.");
                     let title_w = to_wide_nul("UNIM 설정");
-                    MessageBoxW(hwnd, PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
+                    MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
                         MB_OK | MB_ICONINFORMATION);
                 }
                 Err(e) => {
                     let msg_str = format!("기본 입력기 설정 실패:\n{}", e);
                     let msg_w   = to_wide_nul(&msg_str);
                     let title_w = to_wide_nul("UNIM 설정");
-                    MessageBoxW(hwnd, PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
+                    MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
                         MB_OK | MB_ICONERROR);
                 }
             }
@@ -1439,7 +1439,7 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
                 } else {
                     let msg_w   = to_wide_nul("추가 실패: 이미 존재하거나 영문이 아닌 단어입니다.");
                     let title_w = to_wide_nul("UNIM 설정");
-                    MessageBoxW(hwnd, PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
+                    MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
                         MB_OK | MB_ICONWARNING);
                 }
             }
@@ -1461,7 +1461,7 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
                         } else {
                             let msg_w   = to_wide_nul("수정 실패: 중복이거나 영문이 아닌 단어입니다.");
                             let title_w = to_wide_nul("UNIM 설정");
-                            MessageBoxW(hwnd, PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
+                            MessageBoxW(Some(hwnd), PCWSTR(msg_w.as_ptr()), PCWSTR(title_w.as_ptr()),
                                 MB_OK | MB_ICONWARNING);
                         }
                     }
@@ -1515,7 +1515,8 @@ unsafe extern "system" fn settings_wnd_proc(
             // TCN_SELCHANGE 는 u32(0xFFFFFED9) — windows 0.58 상수 사용
             if nmhdr.code == TCN_SELCHANGE {
                 let state = &mut *(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut DlgState);
-                let tab_idx = SendMessageW(state.hwnd_tab, TCM_GETCURSEL, WPARAM(0), LPARAM(0)).0 as i32;
+                let tab_idx =
+                    SendMessageW(state.hwnd_tab, TCM_GETCURSEL, Some(WPARAM(0)), Some(LPARAM(0))).0 as i32;
                 switch_tab(state, tab_idx);
             }
             LRESULT(0)
@@ -1577,7 +1578,7 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
         let state_ptr = Box::into_raw(state);
 
         if !hwnd_parent.is_invalid() {
-            let _ = EnableWindow(hwnd_parent, FALSE);
+            let _ = EnableWindow(hwnd_parent, false);
         }
 
         let hwnd_dlg = CreateWindowExW(
@@ -1586,9 +1587,9 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
             w!("UNIM 입력기 설정"),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
             CW_USEDEFAULT, CW_USEDEFAULT, DLG_W, DLG_H,
-            hwnd_parent,
+            Some(hwnd_parent),
             None,
-            crate::dll_instance(),
+            Some(crate::dll_instance().into()),
             Some(state_ptr as *const core::ffi::c_void),
         );
 

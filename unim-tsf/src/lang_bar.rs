@@ -150,8 +150,8 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
         Ok(())
     }
 
-    fn InitMenu(&self, pmenu: Option<&ITfMenu>) -> Result<()> {
-        let Some(menu) = pmenu else { return Ok(()); };
+    fn InitMenu(&self, pmenu: Ref<'_, ITfMenu>) -> Result<()> {
+        let Some(menu) = pmenu.as_ref() else { return Ok(()); };
         unsafe {
             // 메뉴 항목: 한/영 전환
             let toggle_text: Vec<u16> = "한/영 전환".encode_utf16().collect();
@@ -248,9 +248,9 @@ impl UnimLangBarButton_Impl {
 // ── ITfSource (싱크 관리) ──
 
 impl ITfSource_Impl for UnimLangBarButton_Impl {
-    fn AdviseSink(&self, riid: *const GUID, punk: Option<&IUnknown>) -> Result<u32> {
+    fn AdviseSink(&self, riid: *const GUID, punk: Ref<'_, IUnknown>) -> Result<u32> {
         unsafe {
-            if riid.is_null() || punk.is_none() {
+            if riid.is_null() || punk.is_null() {
                 return Err(E_INVALIDARG.into());
             }
             if *riid != ITfLangBarItemSink::IID {

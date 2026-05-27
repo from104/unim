@@ -33,7 +33,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(windows)]
 use windows::core::{IUnknown, Interface, GUID, HRESULT};
 #[cfg(windows)]
-use windows::Win32::Foundation::{BOOL, E_FAIL, E_INVALIDARG, HMODULE, S_FALSE, S_OK};
+use windows::core::BOOL;
+#[cfg(windows)]
+use windows::Win32::Foundation::{E_FAIL, E_INVALIDARG, HMODULE, S_FALSE, S_OK};
 #[cfg(windows)]
 const CLASS_E_CLASSNOTAVAILABLE: HRESULT = HRESULT(0x80040111_u32 as i32);
 

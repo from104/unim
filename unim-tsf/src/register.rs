@@ -12,7 +12,9 @@ fn get_dll_path() -> Result<String> {
     let hmodule = crate::dll_instance();
     let mut buf = [0u16; 260];
     let len =
-        unsafe { windows::Win32::System::LibraryLoader::GetModuleFileNameW(hmodule, &mut buf) };
+        unsafe {
+            windows::Win32::System::LibraryLoader::GetModuleFileNameW(Some(hmodule), &mut buf)
+        };
     if len == 0 {
         return Err(E_FAIL.into());
     }
@@ -25,7 +27,7 @@ fn set_reg_value(hkey: HKEY, name: Option<&HSTRING>, value: &str) -> Result<()> 
         let err = RegSetValueExW(
             hkey,
             name.map(|h| PCWSTR(h.as_ptr())).unwrap_or(PCWSTR::null()),
-            0,
+            Some(0),
             REG_SZ,
             Some(std::slice::from_raw_parts(
                 wide.as_ptr() as *const u8,
@@ -166,7 +168,7 @@ pub fn get_default_on_startup() -> bool {
         let subkey: HSTRING = PREF_SUBKEY.into();
         let value: HSTRING = PREF_VALUE_NAME.into();
         let mut hkey = HKEY::default();
-        if RegOpenKeyExW(HKEY_CURRENT_USER, &subkey, 0, KEY_READ, &mut hkey).is_err() {
+        if RegOpenKeyExW(HKEY_CURRENT_USER, &subkey, Some(0), KEY_READ, &mut hkey).is_err() {
             return false;
         }
         let mut data: u32 = 0;
@@ -195,7 +197,7 @@ pub fn set_default_on_startup(enabled: bool) -> Result<()> {
         }
         let data: u32 = u32::from(enabled);
         let bytes = data.to_ne_bytes();
-        let err = RegSetValueExW(hkey, PCWSTR(value.as_ptr()), 0, REG_DWORD, Some(&bytes));
+        let err = RegSetValueExW(hkey, PCWSTR(value.as_ptr()), Some(0), REG_DWORD, Some(&bytes));
         let _ = RegCloseKey(hkey);
         if err.is_err() {
             return Err(E_FAIL.into());

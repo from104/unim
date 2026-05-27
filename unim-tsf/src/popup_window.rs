@@ -273,7 +273,7 @@ fn to_wide(s: &str) -> Vec<u16> {
 unsafe fn fill_rect_color(hdc: HDC, rect: &RECT, color: COLORREF) {
     let brush = CreateSolidBrush(color);
     let _ = FillRect(hdc, rect, brush);
-    let _ = DeleteObject(brush);
+    let _ = DeleteObject(brush.into());
 }
 
 /// 셀 RECT 계산 (격자 원점: (MARGIN + LABEL_W, MARGIN + LABEL_H)).
@@ -319,14 +319,14 @@ unsafe fn render(hdc: HDC, state: &PopupState) {
         0,
         0,
         0,
-        DEFAULT_CHARSET.0 as u32,
-        OUT_DEFAULT_PRECIS.0 as u32,
-        CLIP_DEFAULT_PRECIS.0 as u32,
-        CLEARTYPE_QUALITY.0 as u32,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
         (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
         w!("맑은 고딕"),
     );
-    let old_font = SelectObject(hdc, font);
+    let old_font = SelectObject(hdc, font.into());
     SetBkMode(hdc, TRANSPARENT);
 
     // ── 열 레이블 (top_row 문자: Q~O 물리 위치) ──
@@ -413,7 +413,7 @@ unsafe fn render(hdc: HDC, state: &PopupState) {
         // 셀 테두리
         let frame_brush = CreateSolidBrush(COLORREF(0x00CCCCCC));
         let _ = FrameRect(hdc, &rect, frame_brush);
-        let _ = DeleteObject(frame_brush);
+        let _ = DeleteObject(frame_brush.into());
 
         // 텍스트
         if let Some(cand_str) = cand {
@@ -464,7 +464,7 @@ unsafe fn render(hdc: HDC, state: &PopupState) {
 
     // ── 정리 ──
     SelectObject(hdc, old_font);
-    let _ = DeleteObject(font);
+    let _ = DeleteObject(font.into());
 }
 
 // ─── 윈도우 프로시저 ────────────────────────────────────────────────────────
@@ -493,9 +493,9 @@ unsafe extern "system" fn popup_wnd_proc(
             let state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut PopupState;
             if !state_ptr.is_null() {
                 if !(*state_ptr).flash_active() {
-                    KillTimer(hwnd, 1).ok();
+                    KillTimer(Some(hwnd), 1).ok();
                 }
-                let _ = InvalidateRect(hwnd, None, FALSE);
+                let _ = InvalidateRect(Some(hwnd), None, false);
             }
             LRESULT(0)
         }
@@ -534,7 +534,7 @@ impl PopupWindow {
                 100,
                 None,
                 None,
-                crate::dll_instance(),
+                Some(crate::dll_instance().into()),
                 None,
             )?;
 
@@ -576,7 +576,7 @@ impl PopupWindow {
         unsafe {
             SetWindowPos(
                 self.hwnd,
-                HWND_TOPMOST,
+                Some(HWND_TOPMOST),
                 x,
                 y,
                 w,
@@ -584,7 +584,7 @@ impl PopupWindow {
                 SWP_SHOWWINDOW | SWP_NOACTIVATE,
             )
             .ok();
-            let _ = InvalidateRect(self.hwnd, None, TRUE);
+            let _ = InvalidateRect(Some(self.hwnd), None, true);
         }
     }
 
@@ -598,7 +598,7 @@ impl PopupWindow {
             // HidePopup 수신 → 윈도우 숨김
             unsafe {
                 let _ = ShowWindow(self.hwnd, SW_HIDE);
-                KillTimer(self.hwnd, 1).ok();
+                KillTimer(Some(self.hwnd), 1).ok();
             }
             return;
         }
@@ -607,7 +607,7 @@ impl PopupWindow {
         let now_flash = self.state.flash_active();
         if now_flash && !was_flash {
             unsafe {
-                SetTimer(self.hwnd, 1, FLASH_MS + 10, None);
+                SetTimer(Some(self.hwnd), 1, FLASH_MS + 10, None);
             }
         }
 
@@ -615,7 +615,7 @@ impl PopupWindow {
         unsafe {
             SetWindowPos(
                 self.hwnd,
-                HWND_TOPMOST,
+                Some(HWND_TOPMOST),
                 0,
                 0,
                 w,
@@ -623,7 +623,7 @@ impl PopupWindow {
                 SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER,
             )
             .ok();
-            let _ = InvalidateRect(self.hwnd, None, FALSE);
+            let _ = InvalidateRect(Some(self.hwnd), None, false);
         }
     }
 
@@ -632,7 +632,7 @@ impl PopupWindow {
         self.state.visible = false;
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_HIDE);
-            KillTimer(self.hwnd, 1).ok();
+            KillTimer(Some(self.hwnd), 1).ok();
         }
     }
 }
