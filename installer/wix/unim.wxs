@@ -42,16 +42,6 @@
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLDIR" Name="UNIM">
 
-          <!-- Standalone GUI executable (egui tray + settings). -->
-          <Component Id="UnimWindowsExe"
-                     Guid="5A6B7C8D-9E0F-1A2B-3C4D-5E6F7A8B9C0D"
-                     Win64="yes">
-            <File Id="unim_windows.exe"
-                  Name="unim-windows.exe"
-                  Source="$(var.WIN_OUT_DIR)\unim-windows.exe"
-                  KeyPath="yes" />
-          </Component>
-
           <!--
             TSF IME DLL.
             SelfRegCost="1" enables MSI's built-in self-registration:
@@ -166,11 +156,6 @@
         <Directory Id="ApplicationProgramsFolder" Name="UNIM">
           <Component Id="StartMenuShortcuts"
                      Guid="7C8D9E0F-1A2B-3C4D-5E6F-7A8B9C0D1E2F">
-            <Shortcut Id="UnimWindowsShortcut"
-                      Name="UNIM Korean IME"
-                      Description="UNIM Korean Input Method (standalone GUI)"
-                      Target="[INSTALLDIR]unim-windows.exe"
-                      WorkingDirectory="INSTALLDIR" />
             <Shortcut Id="UnimUninstallShortcut"
                       Name="Uninstall UNIM"
                       Description="Remove UNIM Korean IME"
@@ -190,13 +175,12 @@
 
     <Feature Id="Complete"
              Title="UNIM Korean IME"
-             Description="Hangul + Hanja Korean input method for Windows (TSF + standalone GUI)"
+             Description="Hangul + Hanja Korean input method for Windows (TSF)"
              Display="expand"
              Level="1"
              ConfigurableDirectory="INSTALLDIR"
              AllowAdvertise="no"
              Absent="disallow">
-      <ComponentRef Id="UnimWindowsExe" />
       <ComponentRef Id="UnimTsfDll" />
       <ComponentRef Id="RegisterScripts" />
       <ComponentRef Id="StartMenuShortcuts" />

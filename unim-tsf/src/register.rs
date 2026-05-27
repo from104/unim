@@ -3,6 +3,7 @@
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Registry::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::HKL;
 use windows::Win32::UI::TextServices::*;
 
 use crate::globals::*;
@@ -113,6 +114,91 @@ pub fn register_server() -> Result<()> {
             GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT,
         ] {
             category_mgr.RegisterCategory(&UNIM_CLSID, cat, &UNIM_CLSID)?;
+        }
+    }
+    Ok(())
+}
+
+// ── 기본 입력기(default profile) 설정 — 사용자 컨텍스트 전용 ──
+//
+// SetDefaultLanguageProfile / ActivateProfile 은 HKCU 와 현재 세션에 작용하므로
+// 반드시 로그인한 사용자 프로세스(unim-windows.exe)에서 호출해야 한다.
+// per-machine MSI 의 DllRegisterServer(SYSTEM 컨텍스트)에서 부르면 효과가 없다.
+
+/// UNIM 을 한국어(0x0412)의 기본 입력 프로필로 지정하고 현재 세션에서 활성화한다.
+pub fn set_as_default() -> Result<()> {
+    unsafe {
+        // 이미 COM 초기화돼 있으면 S_FALSE / RPC_E_CHANGED_MODE 가 오지만 무시한다.
+        let _ = windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        );
+
+        let profiles: ITfInputProcessorProfiles = windows::Win32::System::Com::CoCreateInstance(
+            &CLSID_TF_InputProcessorProfiles,
+            None,
+            windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
+        )?;
+
+        profiles.SetDefaultLanguageProfile(UNIM_LANGID_KOREAN, &UNIM_CLSID, &UNIM_PROFILE_GUID)?;
+
+        let mgr: ITfInputProcessorProfileMgr = profiles.cast()?;
+        mgr.ActivateProfile(
+            TF_PROFILETYPE_INPUTPROCESSOR,
+            UNIM_LANGID_KOREAN,
+            &UNIM_CLSID,
+            &UNIM_PROFILE_GUID,
+            HKL::default(),
+            TF_IPPMF_ENABLEPROFILE | TF_IPPMF_FORSESSION,
+        )?;
+    }
+    Ok(())
+}
+
+// ── "시작 시 기본 입력기로 설정" 선호값 (HKCU\Software\atit.org\UNIM) ──
+
+const PREF_SUBKEY: &str = "Software\\atit.org\\UNIM";
+const PREF_VALUE_NAME: &str = "DefaultOnStartup";
+
+/// 선호값을 읽는다. 키가 없거나 0이면 false.
+pub fn get_default_on_startup() -> bool {
+    unsafe {
+        let subkey: HSTRING = PREF_SUBKEY.into();
+        let value: HSTRING = PREF_VALUE_NAME.into();
+        let mut hkey = HKEY::default();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, &subkey, 0, KEY_READ, &mut hkey).is_err() {
+            return false;
+        }
+        let mut data: u32 = 0;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        let res = RegQueryValueExW(
+            hkey,
+            PCWSTR(value.as_ptr()),
+            None,
+            None,
+            Some(&mut data as *mut u32 as *mut u8),
+            Some(&mut size),
+        );
+        let _ = RegCloseKey(hkey);
+        res.is_ok() && data != 0
+    }
+}
+
+/// 선호값을 기록한다 (REG_DWORD).
+pub fn set_default_on_startup(enabled: bool) -> Result<()> {
+    unsafe {
+        let subkey: HSTRING = PREF_SUBKEY.into();
+        let value: HSTRING = PREF_VALUE_NAME.into();
+        let mut hkey = HKEY::default();
+        if RegCreateKeyW(HKEY_CURRENT_USER, &subkey, &mut hkey).is_err() {
+            return Err(E_FAIL.into());
+        }
+        let data: u32 = u32::from(enabled);
+        let bytes = data.to_ne_bytes();
+        let err = RegSetValueExW(hkey, PCWSTR(value.as_ptr()), 0, REG_DWORD, Some(&bytes));
+        let _ = RegCloseKey(hkey);
+        if err.is_err() {
+            return Err(E_FAIL.into());
         }
     }
     Ok(())

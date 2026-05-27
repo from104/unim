@@ -48,7 +48,6 @@ members = [
     "unim-keymap-studio",
     "unim-typing-practice",
     "unim-dbus",
-    "unim-windows",
     "unim-tsf",
     "tests/unim-test-wayland",
     "tests/unim-test-dbus",

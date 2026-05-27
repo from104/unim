@@ -5,7 +5,6 @@ on:
     branches: [main, develop]
     paths:
       - 'unim-tsf/**'
-      - 'unim-windows/**'
       - 'installer/**'
       - 'src/**'
       - 'Cargo.toml'
@@ -14,7 +13,6 @@ on:
   pull_request:
     paths:
       - 'unim-tsf/**'
-      - 'unim-windows/**'
       - 'installer/**'
       - 'src/**'
       - 'Cargo.toml'
@@ -58,14 +56,20 @@ jobs:
           cache-targets: true
           cache-on-failure: true
 
-      - name: cargo check (workspace, MSVC target)
-        run: cargo check --workspace --target ${{ env.WIN_TARGET }} --locked
+      - name: cargo check (Windows crates, MSVC target)
+        # --workspace 는 불가: gtk/cairo-sys 등 Linux 전용 GUI 크레이트가
+        # Windows 타깃으로 cross-compile 되지 않는다. build 스텝과 동일하게
+        # Windows 대상 크레이트(+코어 의존)만 검증한다.
+        run: |
+          cargo check --target ${{ env.WIN_TARGET }} --locked `
+            -p unim `
+            -p unim-capi `
+            -p unim-tsf
 
-      - name: cargo build (release, unim-tsf + unim-windows)
+      - name: cargo build (release, unim-tsf)
         run: |
           cargo build --release --target ${{ env.WIN_TARGET }} `
             -p unim-tsf `
-            -p unim-windows `
             --locked
 
       - name: Verify build artifacts
@@ -73,7 +77,7 @@ jobs:
         run: |
           out="target/${WIN_TARGET}/release"
           missing=0
-          for f in unim_tsf.dll unim-windows.exe; do
+          for f in unim_tsf.dll; do
             if [[ ! -f "$out/$f" ]]; then
               echo "::error::missing $out/$f"
               missing=1
@@ -162,6 +166,5 @@ jobs:
           name: unim-${{ steps.version.outputs.version }}-x64-binaries
           path: |
             target/${{ env.WIN_TARGET }}/release/unim_tsf.dll
-            target/${{ env.WIN_TARGET }}/release/unim-windows.exe
           if-no-files-found: error
           retention-days: 7

@@ -6,9 +6,11 @@
 pub mod globals;
 
 #[cfg(windows)]
-mod candidate_ui;
+mod auto_typefix;
 #[cfg(windows)]
 mod class_factory;
+#[cfg(windows)]
+mod fn_configure;
 #[cfg(windows)]
 mod composition;
 #[cfg(windows)]
@@ -18,7 +20,11 @@ mod key_handler;
 #[cfg(windows)]
 mod lang_bar;
 #[cfg(windows)]
-mod register;
+mod popup_window;
+#[cfg(windows)]
+pub mod register;
+#[cfg(windows)]
+pub mod settings_dialog;
 #[cfg(windows)]
 mod text_service;
 
