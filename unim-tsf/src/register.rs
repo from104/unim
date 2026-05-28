@@ -1,4 +1,7 @@
 //! TSF 프로필 등록/해제 + COM InProcServer32 레지스트리 등록
+//!
+//! 카테고리 등록은 SampleIME 표준 8종을 따른다.
+//! GUID/패턴 출처: docs/dev/windows/TSF_RESEARCH_REDESIGN.md (SampleIME 분석)
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
@@ -7,6 +10,25 @@ use windows::Win32::UI::Input::KeyboardAndMouse::HKL;
 use windows::Win32::UI::TextServices::*;
 
 use crate::globals::*;
+
+/// SampleIME 표준 8종 — researcher 보고서 docs/dev/windows/TSF_RESEARCH_REDESIGN.md 참조.
+///
+/// 누락 시 결함:
+/// - COMLESS 없음 → conhost/wezterm 등 콘솔에서 IME 활성화 자체가 안 됨 (결함 5)
+/// - INPUTMODECOMPARTMENT 없음 → Windows 설정 "옵션" 버튼 미노출 (결함 3)
+/// - SECUREMODE 없음 → UAC/비밀번호 필드 호환성 (결함 1 일부)
+///
+/// register_server / unregister_server 양쪽이 동일 const 를 사용해 드리프트 차단.
+const TSF_CATEGORIES: &[GUID] = &[
+    GUID_TFCAT_TIP_KEYBOARD,
+    GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER,
+    GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
+    GUID_TFCAT_TIPCAP_SECUREMODE,
+    GUID_TFCAT_TIPCAP_COMLESS,
+    GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT,
+    GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
+    GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT,
+];
 
 fn get_dll_path() -> Result<String> {
     let hmodule = crate::dll_instance();
@@ -33,6 +55,24 @@ fn set_reg_value(hkey: HKEY, name: Option<&HSTRING>, value: &str) -> Result<()> 
                 wide.as_ptr() as *const u8,
                 wide.len() * 2,
             )),
+        );
+        if err.is_err() {
+            return Err(E_FAIL.into());
+        }
+    }
+    Ok(())
+}
+
+/// REG_DWORD 헬퍼 — LanguageProfile 의 Enable / SubstituteLayout / IconIndex 등 정수값 기록.
+fn set_reg_dword(hkey: HKEY, name: &HSTRING, value: u32) -> Result<()> {
+    let bytes = value.to_ne_bytes();
+    unsafe {
+        let err = RegSetValueExW(
+            hkey,
+            PCWSTR(name.as_ptr()),
+            Some(0),
+            REG_DWORD,
+            Some(&bytes),
         );
         if err.is_err() {
             return Err(E_FAIL.into());
@@ -102,19 +142,42 @@ pub fn register_server() -> Result<()> {
             0,
         )?;
 
+        // ── LanguageProfile 키에 6개 값 직접 기록 ──
+        // AddLanguageProfile 이 묵시로 일부를 만들지만, MSI 의 static 키 와
+        // 일치시키고 Windows 설정 페이지가 이름/아이콘을 제대로 표시하도록 보강.
+        let dll_path = get_dll_path()?;
+        let clsid_str = format!("{{{:?}}}", UNIM_CLSID);
+        let profile_str = format!("{{{:?}}}", UNIM_PROFILE_GUID);
+        let lp_path: HSTRING = format!(
+            "SOFTWARE\\Microsoft\\CTF\\TIP\\{}\\LanguageProfile\\0x{:08X}\\{}",
+            clsid_str, UNIM_LANGID_KOREAN, profile_str
+        )
+        .into();
+        let mut hkey_lp = HKEY::default();
+        if RegCreateKeyW(HKEY_LOCAL_MACHINE, &lp_path, &mut hkey_lp).is_ok() {
+            let name_enable: HSTRING = "Enable".into();
+            let name_substitute: HSTRING = "SubstituteLayout".into();
+            let name_icon_file: HSTRING = "IconFile".into();
+            let name_icon_index: HSTRING = "IconIndex".into();
+            let name_display: HSTRING = "Display".into();
+            let name_description: HSTRING = "Description".into();
+            let _ = set_reg_dword(hkey_lp, &name_enable, 1);
+            let _ = set_reg_dword(hkey_lp, &name_substitute, u32::from(UNIM_LANGID_KOREAN));
+            let _ = set_reg_value(hkey_lp, Some(&name_icon_file), &dll_path);
+            let _ = set_reg_dword(hkey_lp, &name_icon_index, 0);
+            let _ = set_reg_value(hkey_lp, Some(&name_display), UNIM_IME_NAME);
+            let _ = set_reg_value(hkey_lp, Some(&name_description), UNIM_IME_NAME);
+            let _ = RegCloseKey(hkey_lp);
+        }
+
         let category_mgr: ITfCategoryMgr = windows::Win32::System::Com::CoCreateInstance(
             &CLSID_TF_CategoryMgr,
             None,
             windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
         )?;
 
-        for cat in &[
-            GUID_TFCAT_TIP_KEYBOARD,
-            GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER,
-            GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
-            GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
-            GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT,
-        ] {
+        // SampleIME 표준 8종 — 위 TSF_CATEGORIES 정의 참조.
+        for cat in TSF_CATEGORIES {
             category_mgr.RegisterCategory(&UNIM_CLSID, cat, &UNIM_CLSID)?;
         }
     }
@@ -213,13 +276,8 @@ pub fn unregister_server() -> Result<()> {
             None,
             windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
         ) {
-            for cat in &[
-                GUID_TFCAT_TIP_KEYBOARD,
-                GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER,
-                GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
-                GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
-                GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT,
-            ] {
+            // SampleIME 표준 8종 — 위 TSF_CATEGORIES 정의 참조 (등록/해제 일치).
+            for cat in TSF_CATEGORIES {
                 let _ = category_mgr.UnregisterCategory(&UNIM_CLSID, cat, &UNIM_CLSID);
             }
         }

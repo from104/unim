@@ -79,22 +79,30 @@
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- (3) Language profile — HKLM\...\CTF\TIP\{CLSID}\LanguageProfile\0x00000412\{PROFILE_GUID} -->
+            <!-- (3) Language profile — HKLM\...\CTF\TIP\{CLSID}\LanguageProfile\0x00000412\{PROFILE_GUID}
+                 6 values matching unim-tsf/src/register.rs writes (Enable + SubstituteLayout +
+                 IconFile + IconIndex + Display + Description). SubstituteLayout=1042=0x412=ko-KR. -->
             <RegistryKey Root="HKLM"
                          Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\LanguageProfile\$(var.UnimLangIdHexPadded)\$(var.UnimProfileGuid)"
                          ForceCreateOnInstall="yes"
                          ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Name="Description" Value="UNIM Korean IME" />
               <RegistryValue Type="integer" Name="Enable" Value="1" />
+              <RegistryValue Type="integer" Name="SubstituteLayout" Value="1042" />
+              <RegistryValue Type="string" Name="IconFile" Value="[#unim_tsf.dll]" />
+              <RegistryValue Type="integer" Name="IconIndex" Value="0" />
+              <RegistryValue Type="string" Name="Display" Value="UNIM Korean IME" />
             </RegistryKey>
 
             <!--
-              (4) TSF categories.
+              (4) TSF categories — SampleIME 표준 8종.
+              See: docs/dev/windows/TSF_RESEARCH_REDESIGN.md (researcher 보고서).
+              Mirrors TSF_CATEGORIES const in unim-tsf/src/register.rs.
               Format (Microsoft SampleIME pattern):
                 Category\Category\{CATEGORY_GUID}\{CLSID}     ← Category subkey is CLSID
                 Category\Item\{CATEGORY_GUID}\{CLSID}         ← Item subkey is CLSID
-              Previously this file used {CATEGORY_GUID}\{CATEGORY_GUID} (a
-              copy-paste bug); that prevented OS-side TIP category discovery.
+              UIELEMENTENABLED GUID was previously {78D0B53D-...} (ITfTextLayoutSink)
+              — corrected to {49D2F9CF-...} matching windows-rs / msctf.h.
             -->
 
             <!-- TIP_KEYBOARD = {34745C63-B2F0-4784-8B67-5E12C8701A31} -->
@@ -113,11 +121,35 @@
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- TIPCAP_UIELEMENTENABLED = {78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA} -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <!-- TIPCAP_UIELEMENTENABLED = {49D2F9CF-1F5E-11D7-A6D3-00065B84435C} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{49D2F9CF-1F5E-11D7-A6D3-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{49D2F9CF-1F5E-11D7-A6D3-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+
+            <!-- TIPCAP_SECUREMODE = {49D2F9CE-1F5E-11D7-A6D3-00065B84435C} — UAC/password fields -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{49D2F9CE-1F5E-11D7-A6D3-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{49D2F9CE-1F5E-11D7-A6D3-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+
+            <!-- TIPCAP_COMLESS = {364215D9-75BC-11D7-A6EF-00065B84435C} — conhost / console activation -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{364215D9-75BC-11D7-A6EF-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{364215D9-75BC-11D7-A6EF-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+
+            <!-- TIPCAP_INPUTMODECOMPARTMENT = {CCF05DD7-4A87-11D7-A6E2-00065B84435C} — Windows Settings "Options" exposure -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{CCF05DD7-4A87-11D7-A6E2-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{CCF05DD7-4A87-11D7-A6E2-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 

@@ -114,7 +114,12 @@ impl ITfLangBarItem_Impl for UnimLangBarButton_Impl {
                 *pinfo = TF_LANGBARITEMINFO {
                     clsidService: globals::UNIM_CLSID,
                     guidItem: globals::UNIM_LANGBAR_ITEM_GUID,
-                    dwStyle: 0x00020000, // TF_LBI_STYLE_BTN_BUTTON
+                    // SampleIME 표준: BTN_BUTTON | SHOWNINTRAY.
+                    // SHOWNINTRAY 플래그는 Windows 10/11 트레이 IME 인디케이터에
+                    // 본 항목을 노출시킨다 (결함 2 해결).
+                    // 이전 코드의 0x00020000 은 TF_LBI_STYLE_BTN_MENU 값이라
+                    // 의미가 어긋났던 점도 함께 수정.
+                    dwStyle: TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY,
                     ulSort: 0,
                     szDescription: desc,
                 };
