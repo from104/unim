@@ -35,7 +35,8 @@
              Description="UNIM Korean Input Method (Hangul + Hanja)"
              Comments="https://github.com/from104/unim" />
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of UNIM is already installed." />
+    <MajorUpgrade Schedule="afterInstallValidate"
+                  DowngradeErrorMessage="A newer version of UNIM is already installed." />
 
     <Media Id="1" Cabinet="unim.cab" EmbedCab="yes" />
 

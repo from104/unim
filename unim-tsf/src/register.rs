@@ -149,14 +149,30 @@ pub fn register_server() -> Result<()> {
     Ok(())
 }
 
-/// OutputDebugStringW 래퍼 — DebugView 로 진단 로그 측정용.
-/// compartment 동기화 디버깅(`crate::compartment`)에서도 재사용한다.
+/// 진단 로그 ON/OFF 컴파일 상수. `true`(=1) 면 `%TEMP%\unim-tsf.log` 에 남기고,
+/// `false`(=0) 면 완전 no-op (릴리스 기본값은 false 권장).
+///
+/// 리눅스 프런트엔드의 unim_log 처럼 파일에 무조건 남기되, 이 상수로 토글한다.
+/// DebugView 등 외부 도구 불필요 — 로그 파일을 직접 열어 본다.
+pub(crate) const UNIM_DEBUG_LOG: bool = true;
+
+/// 진단 로그 한 줄을 `%TEMP%\unim-tsf.log` 에 append 한다 (UNIM_DEBUG_LOG=true 일 때).
+///
+/// compartment / lang_bar / notify_tray 디버깅에서 공용. 실패해도 무시(크래시 없음).
 pub(crate) fn dbg_log(msg: &str) {
-    let line = format!("[UNIM-TSF] {}\n", msg);
-    let wide: Vec<u16> = line.encode_utf16().chain(std::iter::once(0)).collect();
-    unsafe {
-        windows::Win32::System::Diagnostics::Debug::OutputDebugStringW(PCWSTR(wide.as_ptr()));
+    if !UNIM_DEBUG_LOG {
+        return;
     }
+    use std::io::Write;
+    let path = std::env::temp_dir().join("unim-tsf.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "[unim-tsf {}] {}", process_tag(), msg);
+    }
+}
+
+/// 로그 식별용 짧은 태그 (PID). 여러 앱에 DLL 이 로드되므로 구분에 쓴다.
+fn process_tag() -> u32 {
+    std::process::id()
 }
 
 // ── 기본 입력기(default profile) 설정 — 사용자 컨텍스트 전용 ──

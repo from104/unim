@@ -42,7 +42,6 @@ CLSID=$(format_guid "$(extract UNIM_CLSID)")
 PROFILE=$(format_guid "$(extract UNIM_PROFILE_GUID)")
 DISP_INPUT=$(format_guid "$(extract UNIM_DISPLAY_ATTR_INPUT)")
 DISP_CONVERTED=$(format_guid "$(extract UNIM_DISPLAY_ATTR_CONVERTED)")
-LANGBAR=$(format_guid "$(extract UNIM_LANGBAR_ITEM_GUID)")
 LANGID_HEX=$(grep -E '^pub const UNIM_LANGID_KOREAN' "$SRC" | sed -E 's/.*0x([0-9A-Fa-f]+).*/\1/')
 
 VERSION=$(grep -E '^version *= *"' Cargo.toml | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')
@@ -65,7 +64,6 @@ cat > "$OUT" <<EOF
   <?define UnimProfileGuid = "{${PROFILE}}" ?>
   <?define UnimDisplayAttrInput = "{${DISP_INPUT}}" ?>
   <?define UnimDisplayAttrConverted = "{${DISP_CONVERTED}}" ?>
-  <?define UnimLangBarItem = "{${LANGBAR}}" ?>
   <?define UnimLangIdHex = "0x${LANGID_HEX}" ?>
   <?define UnimLangIdHexPadded = "0x0000${LANGID_HEX}" ?>
   <?define UnimVersion = "${VERSION}" ?>

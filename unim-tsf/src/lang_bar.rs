@@ -10,9 +10,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
-    CreateBitmap, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-    GetStockObject, PatBlt, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TextOutW, BLACKNESS,
-    DEFAULT_GUI_FONT, HBITMAP, HGDIOBJ, TRANSPARENT, WHITENESS,
+    CreateBitmap, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, DeleteDC, DeleteObject,
+    GetDC, PatBlt, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TextOutW, BLACKNESS,
+    CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE, FW_NORMAL,
+    HBITMAP, HGDIOBJ, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
 };
 use windows::Win32::UI::TextServices::*;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -71,7 +72,26 @@ fn create_status_icon(text: &str) -> Option<HICON> {
         // ── 컬러 비트맵에 배경(흰색) + 텍스트(검정) ──
         let old_bmp = SelectObject(mem_dc, HGDIOBJ(color_bmp.0));
         let _ = PatBlt(mem_dc, 0, 0, cx, cy, WHITENESS);
-        let old_font = SelectObject(mem_dc, GetStockObject(DEFAULT_GUI_FONT));
+        // 한글 글리프가 있는 폰트(맑은 고딕)로 그린다. DEFAULT_GUI_FONT
+        // (Tahoma/MS Sans Serif)는 한글 글리프가 없어 "한" 이 .notdef
+        // 빈 박스로만 그려진다. 높이는 음수(문자 높이)여야 작은 아이콘에 맞다.
+        let hfont = CreateFontW(
+            -(cy * 3 / 4),
+            0,
+            0,
+            0,
+            FW_NORMAL.0 as i32,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY,
+            (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
+            w!("Malgun Gothic"),
+        );
+        let old_font = SelectObject(mem_dc, HGDIOBJ(hfont.0));
         SetBkMode(mem_dc, TRANSPARENT);
         SetTextColor(mem_dc, COLORREF(0x0000_0000));
         let wide: Vec<u16> = text.encode_utf16().collect();
@@ -80,6 +100,8 @@ fn create_status_icon(text: &str) -> Option<HICON> {
         let y = (cy / 2 - cy / 3).max(0);
         let _ = TextOutW(mem_dc, x, y, &wide);
         SelectObject(mem_dc, old_font);
+        // CreateFontW 핸들은 스톡 오브젝트가 아니므로 반드시 DeleteObject.
+        let _ = DeleteObject(HGDIOBJ(hfont.0));
         SelectObject(mem_dc, old_bmp);
 
         let ii = ICONINFO {
@@ -319,13 +341,19 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
     }
 
     fn GetIcon(&self) -> Result<HICON> {
-        // 한/영 상태를 런타임에 그려 아이콘 반환. 실패 시 NULL 폴백.
+        // 한/영 상태를 런타임에 그려 아이콘 반환.
+        // SampleIME/Weasel 규약: 유효 HICON 이면 S_OK, NULL 이면 E_FAIL.
+        // 과거엔 실패 시 NULL+Ok 를 반환했는데, TSF 가 "S_OK 인데 NULL"을 받아
+        // 트레이에 빈/깨진 아이콘을 그릴 수 있어 규약대로 E_FAIL 로 바꾼다.
         let text = if self.state.is_korean.load(Ordering::SeqCst) {
             "한"
         } else {
             "A"
         };
-        Ok(create_status_icon(text).unwrap_or_default())
+        match create_status_icon(text) {
+            Some(hicon) if !hicon.is_invalid() => Ok(hicon),
+            _ => Err(E_FAIL.into()),
+        }
     }
 
     fn GetText(&self) -> Result<BSTR> {
