@@ -9,14 +9,97 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::HBITMAP;
+use windows::Win32::Graphics::Gdi::{
+    CreateBitmap, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
+    GetStockObject, PatBlt, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TextOutW, BLACKNESS,
+    DEFAULT_GUI_FONT, HBITMAP, HGDIOBJ, TRANSPARENT, WHITENESS,
+};
 use windows::Win32::UI::TextServices::*;
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, HICON};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateIconIndirect, GetForegroundWindow, GetSystemMetrics, HICON, ICONINFO, SM_CXSMICON,
+    SM_CYSMICON,
+};
 
 use unim::config::{Config, InputCategory};
 use unim::input_engine::InputEngine;
 
 use crate::globals;
+
+/// 한/영 상태 텍스트("한"/"A")를 GDI 로 그려 작은 트레이용 HICON 을 만든다.
+///
+/// .ico 리소스를 DLL 에 임베드하지 않고 런타임에 그려, 현재 입력 상태를 반영한다.
+/// 어떤 단계든 실패하면 `None` 을 돌려주고 호출자(GetIcon)는 NULL HICON 으로
+/// 폴백한다 — 절대 패닉/크래시하지 않는다. 반환 HICON 의 소유권은 OS 에 있다
+/// (ITfLangBarItemButton::GetIcon 계약 — OS 가 DestroyIcon 호출).
+fn create_status_icon(text: &str) -> Option<HICON> {
+    unsafe {
+        let cx = GetSystemMetrics(SM_CXSMICON);
+        let cy = GetSystemMetrics(SM_CYSMICON);
+        if cx <= 0 || cy <= 0 {
+            return None;
+        }
+
+        let screen_dc = GetDC(None);
+        if screen_dc.is_invalid() {
+            return None;
+        }
+
+        let mem_dc = CreateCompatibleDC(Some(screen_dc));
+        let color_bmp = CreateCompatibleBitmap(screen_dc, cx, cy);
+        // 1bpp AND 마스크. 전부 0 으로 채우면 아이콘 전체가 불투명.
+        let mask_bmp: HBITMAP = CreateBitmap(cx, cy, 1, 1, None);
+
+        if mem_dc.is_invalid() || color_bmp.is_invalid() || mask_bmp.is_invalid() {
+            let _ = DeleteObject(HGDIOBJ(color_bmp.0));
+            let _ = DeleteObject(HGDIOBJ(mask_bmp.0));
+            if !mem_dc.is_invalid() {
+                let _ = DeleteDC(mem_dc);
+            }
+            ReleaseDC(None, screen_dc);
+            return None;
+        }
+
+        // ── 마스크를 전부 0(불투명) 으로 초기화 ──
+        let mask_dc = CreateCompatibleDC(Some(screen_dc));
+        if !mask_dc.is_invalid() {
+            let old = SelectObject(mask_dc, HGDIOBJ(mask_bmp.0));
+            let _ = PatBlt(mask_dc, 0, 0, cx, cy, BLACKNESS);
+            SelectObject(mask_dc, old);
+            let _ = DeleteDC(mask_dc);
+        }
+
+        // ── 컬러 비트맵에 배경(흰색) + 텍스트(검정) ──
+        let old_bmp = SelectObject(mem_dc, HGDIOBJ(color_bmp.0));
+        let _ = PatBlt(mem_dc, 0, 0, cx, cy, WHITENESS);
+        let old_font = SelectObject(mem_dc, GetStockObject(DEFAULT_GUI_FONT));
+        SetBkMode(mem_dc, TRANSPARENT);
+        SetTextColor(mem_dc, COLORREF(0x0000_0000));
+        let wide: Vec<u16> = text.encode_utf16().collect();
+        // 작은 아이콘이라 정밀 측정 없이 대략 가운데로 오프셋.
+        let x = (cx / 2 - cx / 4).max(0);
+        let y = (cy / 2 - cy / 3).max(0);
+        let _ = TextOutW(mem_dc, x, y, &wide);
+        SelectObject(mem_dc, old_font);
+        SelectObject(mem_dc, old_bmp);
+
+        let ii = ICONINFO {
+            fIcon: TRUE,
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mask_bmp,
+            hbmColor: color_bmp,
+        };
+        // CreateIconIndirect 는 비트맵을 복사하므로 이후 우리 비트맵 삭제 가능.
+        let hicon = CreateIconIndirect(&ii).ok();
+
+        let _ = DeleteObject(HGDIOBJ(color_bmp.0));
+        let _ = DeleteObject(HGDIOBJ(mask_bmp.0));
+        let _ = DeleteDC(mem_dc);
+        ReleaseDC(None, screen_dc);
+
+        hicon.filter(|h| !h.is_invalid())
+    }
+}
 
 // 메뉴 항목 ID
 const MENU_ID_TOGGLE: u32 = 0;
@@ -34,9 +117,14 @@ const MENU_ID_SETTINGS: u32 = 2;
 pub struct LangBarState {
     pub is_korean: AtomicBool,
     pub sink: Mutex<Option<ITfLangBarItemSink>>,
+    /// ActivateEx 에서 주입되는 thread_mgr + client id.
+    /// `update()` 가 OS 입력 표시기 compartment 를 동기화할 때 사용한다.
+    /// 키 입력 경로(OnKeyDown)와 랭귀지바 클릭 경로(toggle_engine_mode) 양쪽이
+    /// 모두 `update()` 를 거치므로, compartment 동기화를 여기 한 곳에 모은다.
+    tsf: Mutex<Option<(ITfThreadMgr, u32)>>,
 }
 
-// SAFETY: ITfLangBarItemSink 는 TSF STA 스레드에서만 접근하며,
+// SAFETY: ITfLangBarItemSink / ITfThreadMgr 는 TSF STA 스레드에서만 접근하며,
 // Mutex 로 보호하므로 Send/Sync 를 수동 구현.
 unsafe impl Send for LangBarState {}
 unsafe impl Sync for LangBarState {}
@@ -46,10 +134,20 @@ impl LangBarState {
         Arc::new(Self {
             is_korean: AtomicBool::new(is_korean),
             sink: Mutex::new(None),
+            tsf: Mutex::new(None),
         })
     }
 
-    /// is_korean 을 갱신하고, 등록된 sink 가 있으면 OnUpdate 를 발사한다.
+    /// ActivateEx 에서 thread_mgr + client id 를 주입한다.
+    /// 이후 `update()` 호출 시 compartment 동기화가 활성화된다.
+    pub fn set_tsf(&self, thread_mgr: ITfThreadMgr, tid: u32) {
+        *self.tsf.lock().unwrap() = Some((thread_mgr, tid));
+    }
+
+    /// is_korean 을 갱신하고, sink OnUpdate 발사 + OS compartment 동기화를 한다.
+    ///
+    /// OnKeyDown(엔진 토글)·toggle_engine_mode(랭귀지바 클릭) 양쪽이 이 한 곳을
+    /// 거치므로, 모드 변경 시 랭귀지바와 OS 입력 표시기가 항상 함께 갱신된다.
     pub fn update(&self, is_korean: bool) {
         self.is_korean.store(is_korean, Ordering::SeqCst);
         if let Ok(guard) = self.sink.lock() {
@@ -57,6 +155,12 @@ impl LangBarState {
                 unsafe {
                     let _ = sink.OnUpdate(TF_LBI_STATUS | TF_LBI_ICON | TF_LBI_TEXT);
                 }
+            }
+        }
+        // OS 입력 표시기 동기화 (compartment 2개). thread_mgr 미주입 시 skip.
+        if let Ok(guard) = self.tsf.lock() {
+            if let Some((ref tmgr, tid)) = *guard {
+                crate::compartment::sync_keyboard_mode(tmgr, tid, is_korean);
             }
         }
     }
@@ -113,12 +217,16 @@ impl ITfLangBarItem_Impl for UnimLangBarButton_Impl {
 
                 *pinfo = TF_LANGBARITEMINFO {
                     clsidService: globals::UNIM_CLSID,
-                    guidItem: globals::UNIM_LANGBAR_ITEM_GUID,
+                    // 표준 입력 모드 인디케이터 GUID. 커스텀 GUID 를 쓰면 OS 가
+                    // 본 항목을 "일반 버튼" 으로만 취급해 작업표시줄 시계 옆
+                    // 한/영 표시기("가"/"A")를 그리지 않는다. GUID_LBI_INPUTMODE
+                    // ({2C77A81E-41CC-4178-A3A7-5F8A987568E6}) 로 지정해야 OS·
+                    // ctfmon 이 본 항목을 입력 모드 인디케이터로 인식해 트레이에
+                    // 현재 모드를 그린다 (MS IME·SampleIME 와 동일).
+                    guidItem: GUID_LBI_INPUTMODE,
                     // SampleIME 표준: BTN_BUTTON | SHOWNINTRAY.
                     // SHOWNINTRAY 플래그는 Windows 10/11 트레이 IME 인디케이터에
-                    // 본 항목을 노출시킨다 (결함 2 해결).
-                    // 이전 코드의 0x00020000 은 TF_LBI_STYLE_BTN_MENU 값이라
-                    // 의미가 어긋났던 점도 함께 수정.
+                    // 본 항목을 노출시킨다.
                     dwStyle: TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY,
                     ulSort: 0,
                     szDescription: desc,
@@ -211,7 +319,13 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
     }
 
     fn GetIcon(&self) -> Result<HICON> {
-        Ok(HICON::default())
+        // 한/영 상태를 런타임에 그려 아이콘 반환. 실패 시 NULL 폴백.
+        let text = if self.state.is_korean.load(Ordering::SeqCst) {
+            "한"
+        } else {
+            "A"
+        };
+        Ok(create_status_icon(text).unwrap_or_default())
     }
 
     fn GetText(&self) -> Result<BSTR> {

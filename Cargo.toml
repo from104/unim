@@ -53,3 +53,14 @@ members = [
     "tests/unim-test-dbus",
 ]
 resolver = "2"
+
+# UB on Windows TSF: Rust panic unwinding across the C ABI / COM boundary
+# (msctf.dll calls into unim_tsf.dll's DllRegisterServer / IUnknown vtable)
+# is undefined behavior and was crashing msctf with 0xC0000005. `abort` is the
+# only safe choice for cdylib targets exposed via COM. Applied to all release
+# binaries for consistency (Linux IM components also benefit from clean abort).
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

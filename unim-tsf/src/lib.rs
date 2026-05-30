@@ -12,6 +12,8 @@ mod class_factory;
 #[cfg(windows)]
 mod fn_configure;
 #[cfg(windows)]
+mod compartment;
+#[cfg(windows)]
 mod composition;
 #[cfg(windows)]
 mod display_attr;
@@ -62,7 +64,7 @@ pub fn dll_release() {
 
 #[cfg(windows)]
 #[no_mangle]
-unsafe extern "system" fn DllMain(
+pub unsafe extern "system" fn DllMain(
     hinst_dll: HMODULE,
     fdw_reason: u32,
     _lpv_reserved: *mut core::ffi::c_void,
@@ -76,7 +78,7 @@ unsafe extern "system" fn DllMain(
 
 #[cfg(windows)]
 #[no_mangle]
-unsafe extern "system" fn DllGetClassObject(
+pub unsafe extern "system" fn DllGetClassObject(
     rclsid: *const GUID,
     riid: *const GUID,
     ppv: *mut *mut core::ffi::c_void,
@@ -97,7 +99,7 @@ unsafe extern "system" fn DllGetClassObject(
 
 #[cfg(windows)]
 #[no_mangle]
-extern "system" fn DllCanUnloadNow() -> HRESULT {
+pub extern "system" fn DllCanUnloadNow() -> HRESULT {
     if DLL_REF_COUNT.load(Ordering::SeqCst) == 0 {
         S_OK
     } else {
@@ -107,7 +109,7 @@ extern "system" fn DllCanUnloadNow() -> HRESULT {
 
 #[cfg(windows)]
 #[no_mangle]
-unsafe extern "system" fn DllRegisterServer() -> HRESULT {
+pub unsafe extern "system" fn DllRegisterServer() -> HRESULT {
     match register::register_server() {
         Ok(()) => S_OK,
         Err(_) => E_FAIL,
@@ -116,7 +118,7 @@ unsafe extern "system" fn DllRegisterServer() -> HRESULT {
 
 #[cfg(windows)]
 #[no_mangle]
-unsafe extern "system" fn DllUnregisterServer() -> HRESULT {
+pub unsafe extern "system" fn DllUnregisterServer() -> HRESULT {
     match register::unregister_server() {
         Ok(()) => S_OK,
         Err(_) => E_FAIL,

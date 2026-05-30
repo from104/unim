@@ -1,7 +1,14 @@
-//! TSF 프로필 등록/해제 + COM InProcServer32 레지스트리 등록
+//! TSF 프로필 등록/해제 + COM InProcServer32 레지스트리 등록.
 //!
-//! 카테고리 등록은 SampleIME 표준 8종을 따른다.
-//! GUID/패턴 출처: docs/dev/windows/TSF_RESEARCH_REDESIGN.md (SampleIME 분석)
+//! 카테고리 / LanguageProfile / TIP root 키는 `installer/wix/unim.wxs` 의 static
+//! block 이 작성한다 (SampleIME 표준 8종 — researcher 보고서
+//! `docs/dev/windows/TSF_RESEARCH_REDESIGN.md` 참조). 본 모듈은 `HKCR\CLSID\{CLSID}`
+//! (+ `InProcServer32`) 와 LanguageProfile 6개 값만 직접 기록한다.
+//!
+//! 과거 `ITfInputProcessorProfiles::AddLanguageProfile` 및
+//! `ITfCategoryMgr::RegisterCategory` 호출은 wxs 가 이미 동일 키를 박은 상태에서
+//! `msctf.dll` 내부 (offset 0x97e5a) 에서 `0xC0000005` NULL deref 를 일으켜 제거함
+//! (재진입/state 충돌 추정).
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
@@ -10,25 +17,6 @@ use windows::Win32::UI::Input::KeyboardAndMouse::HKL;
 use windows::Win32::UI::TextServices::*;
 
 use crate::globals::*;
-
-/// SampleIME 표준 8종 — researcher 보고서 docs/dev/windows/TSF_RESEARCH_REDESIGN.md 참조.
-///
-/// 누락 시 결함:
-/// - COMLESS 없음 → conhost/wezterm 등 콘솔에서 IME 활성화 자체가 안 됨 (결함 5)
-/// - INPUTMODECOMPARTMENT 없음 → Windows 설정 "옵션" 버튼 미노출 (결함 3)
-/// - SECUREMODE 없음 → UAC/비밀번호 필드 호환성 (결함 1 일부)
-///
-/// register_server / unregister_server 양쪽이 동일 const 를 사용해 드리프트 차단.
-const TSF_CATEGORIES: &[GUID] = &[
-    GUID_TFCAT_TIP_KEYBOARD,
-    GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER,
-    GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
-    GUID_TFCAT_TIPCAP_SECUREMODE,
-    GUID_TFCAT_TIPCAP_COMLESS,
-    GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT,
-    GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
-    GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT,
-];
 
 fn get_dll_path() -> Result<String> {
     let hmodule = crate::dll_instance();
@@ -119,32 +107,15 @@ unsafe fn unregister_com_server() -> Result<()> {
 
 pub fn register_server() -> Result<()> {
     unsafe {
+        // (1) HKCR\CLSID\{CLSID} (+ InProcServer32) — COM 서버 등록.
+        //     MSI wxs static 블록도 동일 키를 박지만, 외부 regsvr32 시나리오와
+        //     drift 방지 위해 양쪽 유지.
         register_com_server()?;
 
-        let profiles: ITfInputProcessorProfiles = windows::Win32::System::Com::CoCreateInstance(
-            &CLSID_TF_InputProcessorProfiles,
-            None,
-            windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-        )?;
-
-        profiles.Register(&UNIM_CLSID)?;
-
-        let display_name: Vec<u16> = UNIM_IME_NAME
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        profiles.AddLanguageProfile(
-            &UNIM_CLSID,
-            UNIM_LANGID_KOREAN,
-            &UNIM_PROFILE_GUID,
-            &display_name,
-            &[],
-            0,
-        )?;
-
-        // ── LanguageProfile 키에 6개 값 직접 기록 ──
-        // AddLanguageProfile 이 묵시로 일부를 만들지만, MSI 의 static 키 와
-        // 일치시키고 Windows 설정 페이지가 이름/아이콘을 제대로 표시하도록 보강.
+        // (2) LanguageProfile 6개 값 직접 기록.
+        //     예전엔 ITfInputProcessorProfiles::AddLanguageProfile 을 호출했으나,
+        //     wxs 가 이미 동일 LP 키를 박은 뒤 재호출하면 msctf.dll 0x97e5a
+        //     에서 0xC0000005 NULL deref. 직접 RegSetValueExW 로 우회.
         let dll_path = get_dll_path()?;
         let clsid_str = format!("{{{:?}}}", UNIM_CLSID);
         let profile_str = format!("{{{:?}}}", UNIM_PROFILE_GUID);
@@ -170,18 +141,22 @@ pub fn register_server() -> Result<()> {
             let _ = RegCloseKey(hkey_lp);
         }
 
-        let category_mgr: ITfCategoryMgr = windows::Win32::System::Com::CoCreateInstance(
-            &CLSID_TF_CategoryMgr,
-            None,
-            windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-        )?;
-
-        // SampleIME 표준 8종 — 위 TSF_CATEGORIES 정의 참조.
-        for cat in TSF_CATEGORIES {
-            category_mgr.RegisterCategory(&UNIM_CLSID, cat, &UNIM_CLSID)?;
-        }
+        // (3) Category 8종 + TIP root + profiles.Register 는 모두 wxs 가 박는다.
+        //     ITfCategoryMgr::RegisterCategory / ITfInputProcessorProfiles::Register
+        //     를 여기서 호출하면 msctf.dll 와 충돌하므로 호출하지 않는다.
+        //     (수정 이력: docs/dev/windows/TSF_RESEARCH_REDESIGN.md 결함 1 참조)
     }
     Ok(())
+}
+
+/// OutputDebugStringW 래퍼 — DebugView 로 진단 로그 측정용.
+/// compartment 동기화 디버깅(`crate::compartment`)에서도 재사용한다.
+pub(crate) fn dbg_log(msg: &str) {
+    let line = format!("[UNIM-TSF] {}\n", msg);
+    let wide: Vec<u16> = line.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        windows::Win32::System::Diagnostics::Debug::OutputDebugStringW(PCWSTR(wide.as_ptr()));
+    }
 }
 
 // ── 기본 입력기(default profile) 설정 — 사용자 컨텍스트 전용 ──
@@ -271,27 +246,10 @@ pub fn set_default_on_startup(enabled: bool) -> Result<()> {
 
 pub fn unregister_server() -> Result<()> {
     unsafe {
-        if let Ok(category_mgr) = windows::Win32::System::Com::CoCreateInstance::<_, ITfCategoryMgr>(
-            &CLSID_TF_CategoryMgr,
-            None,
-            windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-        ) {
-            // SampleIME 표준 8종 — 위 TSF_CATEGORIES 정의 참조 (등록/해제 일치).
-            for cat in TSF_CATEGORIES {
-                let _ = category_mgr.UnregisterCategory(&UNIM_CLSID, cat, &UNIM_CLSID);
-            }
-        }
-
-        if let Ok(profiles) =
-            windows::Win32::System::Com::CoCreateInstance::<_, ITfInputProcessorProfiles>(
-                &CLSID_TF_InputProcessorProfiles,
-                None,
-                windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-            )
-        {
-            let _ = profiles.Unregister(&UNIM_CLSID);
-        }
-
+        // wxs `ForceDeleteOnUninstall="yes"` 가 LanguageProfile / Category /
+        // TIP root 키를 모두 제거하므로 ITfCategoryMgr::UnregisterCategory /
+        // ITfInputProcessorProfiles::Unregister 는 호출하지 않는다 (register
+        // 측과 대칭, msctf 충돌 방지).
         unregister_com_server()?;
     }
     Ok(())

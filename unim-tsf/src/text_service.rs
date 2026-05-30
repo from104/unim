@@ -116,6 +116,9 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
                         .clone()
                         .expect("langbar_state must be initialized in new()")
                 };
+                // compartment 동기화용 thread_mgr + tid 주입. 이후 state.update()
+                // (OnKeyDown · 랭귀지바 클릭 양쪽)가 OS 입력 표시기를 갱신한다.
+                state_arc.set_tsf(thread_mgr.clone(), tid);
                 // 갭2: engine Arc · config Arc 를 버튼에 주입
                 let btn = UnimLangBarButton::new(
                     state_arc,
@@ -138,6 +141,17 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
         // 필요하고 rguid 로 키를 구별해야 한다. 대신 일반 OnTestKeyDown/OnKeyDown
         // 경로에서 KeyCode::Korean / KeyCode::Hanja 로 받아 공유 InputEngine 이
         // 처리하도록 둔다. (key_handler::test_key_down 이 해당 키를 소비 처리)
+
+        // ── compartment 초기 동기화 ──────────────────────────────────────
+        // 현재 엔진의 한/영 상태를 thread-manager compartment 2개에 1회 set 해
+        // OS 입력 표시기를 UNIM 상태와 일치시킨다 (이전 IME 표시기 잔상 제거).
+        // OPENCLOSE 는 thread-mgr 공유 상태이지만 SampleIME 도 활성화 시
+        // 초기값을 set 하므로 1회 set 은 안전. 실패해도 입력 기능엔 무관.
+        {
+            let is_korean =
+                self.engine.lock().unwrap().input_category() == InputCategory::Korean;
+            crate::compartment::sync_keyboard_mode(thread_mgr, tid, is_korean);
+        }
 
         crate::dll_add_ref();
         Ok(())
@@ -289,6 +303,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let current_category = engine.input_category();
         if prev_category != current_category {
             let is_korean = current_category == InputCategory::Korean;
+            // state.update() 가 랭귀지바 OnUpdate + OS compartment 동기화를 함께 처리.
             if let Some(ref state) = *self.langbar_state.lock().unwrap() {
                 state.update(is_korean);
             }
