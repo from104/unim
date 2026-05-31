@@ -17,9 +17,33 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::TextServices::*;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIconIndirect, GetForegroundWindow, GetSystemMetrics, HICON, ICONINFO, SM_CXSMICON,
-    SM_CYSMICON,
+    AppendMenuW, CreateIconIndirect, CreatePopupMenu, DestroyMenu, GetForegroundWindow,
+    GetSystemMetrics, MessageBoxW, SetForegroundWindow, HICON, ICONINFO, MB_ICONINFORMATION,
+    MB_OK, MENU_ITEM_FLAGS, SM_CXSMICON, SM_CYSMICON, TPM_LEFTALIGN, TPM_NONOTIFY, TPM_RETURNCMD,
+    TPM_TOPALIGN,
 };
+
+/// 문자열 메뉴 항목 플래그. Win32 `MF_STRING` == 0x0 이지만 windows-rs 0.62 가
+/// 상수를 노출하지 않아 직접 정의한다 (AppendMenuW 의 uflags 인자용).
+const MF_STRING: MENU_ITEM_FLAGS = MENU_ITEM_FLAGS(0x0000_0000);
+
+// windows-rs 0.62 의 TrackPopupMenuEx 바인딩은 반환을 `BOOL` 로 감싸, TPM_RETURNCMD
+// 로 받아야 하는 "선택된 메뉴 항목 ID(정수)" 를 그대로 꺼내기 어렵다(`.0` 접근이
+// 단위형 `()` 으로 추론됨). 선택 ID 를 i32 로 직접 받기 위해 user32 의
+// TrackPopupMenuEx 를 명시적으로 선언한다. HMENU/HWND 는 #[repr(transparent)]
+// FFI-safe 타입이라 windows-rs 정의를 그대로 사용. (unim-tsf 는 edition 2024 →
+// extern 블록은 반드시 `unsafe extern`.)
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn TrackPopupMenuEx(
+        hmenu: windows::Win32::UI::WindowsAndMessaging::HMENU,
+        uflags: u32,
+        x: i32,
+        y: i32,
+        hwnd: HWND,
+        lptpm: *const core::ffi::c_void,
+    ) -> i32;
+}
 
 use unim::config::{Config, InputCategory};
 use unim::input_engine::InputEngine;
@@ -123,10 +147,38 @@ fn create_status_icon(text: &str) -> Option<HICON> {
     }
 }
 
-// 메뉴 항목 ID
-const MENU_ID_TOGGLE: u32 = 0;
-const MENU_ID_SET_DEFAULT: u32 = 1;
-const MENU_ID_SETTINGS: u32 = 2;
+// 메뉴 항목 ID.
+//
+// 1 부터 시작한다. 우클릭 메뉴를 TrackPopupMenuEx(TPM_RETURNCMD) 로 직접 띄울 때
+// 반환값 0 은 "취소(선택 안 함)" 를 의미하므로, 항목 ID 가 0 이면 첫 항목 선택과
+// 취소를 구분할 수 없다. InitMenu/OnMenuSelect 경로도 동일 상수를 쓰므로 양쪽 일관.
+const MENU_ID_TOGGLE: u32 = 1;
+const MENU_ID_SET_DEFAULT: u32 = 2;
+const MENU_ID_SETTINGS: u32 = 3;
+const MENU_ID_ABOUT: u32 = 4;
+
+/// 정보(About) 다이얼로그를 띄운다.
+///
+/// settings_dialog 의 본문(커스텀 창)을 건드리지 않고, Win32 `MessageBoxW`
+/// 로 UNIM 이름·버전·간단한 설명을 표시한다. TSF STA 스레드(OnMenuSelect)
+/// 에서 호출되며, 모달이므로 추가 메시지 펌프가 필요 없다.
+fn show_about_dialog(hwnd: HWND) {
+    let caption: Vec<u16> = "UNIM 정보\0".encode_utf16().collect();
+    let body = format!(
+        "UNIM Korean IME\n버전 {}\n\n범용 차세대 입력기\nhttps://github.com/from104/unim",
+        env!("CARGO_PKG_VERSION")
+    );
+    let text: Vec<u16> = body.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let hwnd_opt = if hwnd.is_invalid() { None } else { Some(hwnd) };
+        MessageBoxW(
+            hwnd_opt,
+            PCWSTR(text.as_ptr()),
+            PCWSTR(caption.as_ptr()),
+            MB_OK | MB_ICONINFORMATION,
+        );
+    }
+}
 
 // ── 공유 상태 ──────────────────────────────────────────────────────────────────
 
@@ -246,10 +298,14 @@ impl ITfLangBarItem_Impl for UnimLangBarButton_Impl {
                     // ctfmon 이 본 항목을 입력 모드 인디케이터로 인식해 트레이에
                     // 현재 모드를 그린다 (MS IME·SampleIME 와 동일).
                     guidItem: GUID_LBI_INPUTMODE,
-                    // SampleIME 표준: BTN_BUTTON | SHOWNINTRAY.
-                    // SHOWNINTRAY 플래그는 Windows 10/11 트레이 IME 인디케이터에
-                    // 본 항목을 노출시킨다.
-                    dwStyle: TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY,
+                    // BTN_BUTTON: 좌클릭 → OnClick (한/영 토글).
+                    // BTN_MENU: 우클릭 → OS 가 InitMenu 를 호출해 컨텍스트 메뉴를
+                    //   띄운다. 이 플래그가 없으면 InitMenu 가 호출조차 안 돼
+                    //   우클릭 메뉴가 안 뜬다.
+                    // SHOWNINTRAY: Windows 10/11 트레이 IME 인디케이터에 노출.
+                    dwStyle: TF_LBI_STYLE_BTN_BUTTON
+                        | TF_LBI_STYLE_BTN_MENU
+                        | TF_LBI_STYLE_SHOWNINTRAY,
                     ulSort: 0,
                     szDescription: desc,
                 };
@@ -279,9 +335,20 @@ impl ITfLangBarItem_Impl for UnimLangBarButton_Impl {
 // ── ITfLangBarItemButton ──
 
 impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
-    fn OnClick(&self, _click: TfLBIClick, _pt: &POINT, _prcarea: *const RECT) -> Result<()> {
-        // 갭2: 좌클릭 → 엔진을 직접 토글 + 랭귀지바 아이콘/텍스트 갱신.
-        self.toggle_engine_mode();
+    fn OnClick(&self, click: TfLBIClick, pt: &POINT, _prcarea: *const RECT) -> Result<()> {
+        if click == TF_LBI_CLK_LEFT {
+            // 갭2: 좌클릭 → 엔진을 직접 토글 + 랭귀지바 아이콘/텍스트 갱신.
+            self.toggle_engine_mode();
+        } else if click == TF_LBI_CLK_RIGHT {
+            // 우클릭 → 컨텍스트 메뉴를 직접 띄운다.
+            //
+            // Win11 모던 작업표시줄의 트레이 IME 인디케이터는 우클릭을
+            // OnClick(TF_LBI_CLK_RIGHT) 로만 전달하고 ITfLangBarItemButton::InitMenu
+            // 를 호출하지 않는다. InitMenu 는 구형 플로팅 언어 바에서만 불린다.
+            // 따라서 Weasel 과 동일하게 여기서 TrackPopupMenuEx 로 직접 메뉴를
+            // 그려야 양쪽 환경(트레이/플로팅 바) 모두에서 우클릭 메뉴가 뜬다.
+            self.show_context_menu(*pt);
+        }
         Ok(())
     }
 
@@ -308,8 +375,8 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
                 &default_text,
                 std::ptr::null_mut(),
             );
-            // 메뉴 항목: 설정 열기
-            let settings_text: Vec<u16> = "설정 열기".encode_utf16().collect();
+            // 메뉴 항목: 설정 — 접근키 S ("설정(&S)" → Alt+S / 메뉴에서 S).
+            let settings_text: Vec<u16> = "설정(&S)".encode_utf16().collect();
             let _ = menu.AddMenuItem(
                 MENU_ID_SETTINGS,
                 0,
@@ -318,25 +385,24 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
                 &settings_text,
                 std::ptr::null_mut(),
             );
+            // 메뉴 항목: 정보 — 접근키 I ("정보(&I)").
+            let about_text: Vec<u16> = "정보(&I)".encode_utf16().collect();
+            let _ = menu.AddMenuItem(
+                MENU_ID_ABOUT,
+                0,
+                HBITMAP::default(),
+                HBITMAP::default(),
+                &about_text,
+                std::ptr::null_mut(),
+            );
         }
         Ok(())
     }
 
     fn OnMenuSelect(&self, wid: u32) -> Result<()> {
-        match wid {
-            MENU_ID_TOGGLE => {
-                // 갭2: 메뉴 한/영 전환 → 엔진 직접 토글.
-                self.toggle_engine_mode();
-            }
-            MENU_ID_SET_DEFAULT => {
-                let _ = crate::register::set_as_default();
-            }
-            MENU_ID_SETTINGS => {
-                let hwnd_parent = unsafe { GetForegroundWindow() };
-                crate::settings_dialog::show_settings_dialog(hwnd_parent);
-            }
-            _ => {}
-        }
+        // InitMenu(플로팅 언어 바) 경로. 트레이 우클릭은 show_context_menu 에서
+        // 직접 처리하지만, 둘 다 동일한 handle_menu_command 로 분기한다.
+        self.handle_menu_command(wid);
         Ok(())
     }
 
@@ -389,6 +455,74 @@ impl UnimLangBarButton_Impl {
             next == InputCategory::Korean
         };
         self.state.update(new_is_korean);
+    }
+
+    /// 메뉴 항목 선택을 처리한다. InitMenu/OnMenuSelect(플로팅 바) 경로와
+    /// show_context_menu(트레이 우클릭) 경로가 모두 이 한 곳으로 모인다.
+    fn handle_menu_command(&self, wid: u32) {
+        match wid {
+            MENU_ID_TOGGLE => {
+                // 갭2: 메뉴 한/영 전환 → 엔진 직접 토글.
+                self.toggle_engine_mode();
+            }
+            MENU_ID_SET_DEFAULT => {
+                let _ = crate::register::set_as_default();
+            }
+            MENU_ID_SETTINGS => {
+                let hwnd_parent = unsafe { GetForegroundWindow() };
+                crate::settings_dialog::show_settings_dialog(hwnd_parent);
+            }
+            MENU_ID_ABOUT => {
+                let hwnd_parent = unsafe { GetForegroundWindow() };
+                show_about_dialog(hwnd_parent);
+            }
+            _ => {}
+        }
+    }
+
+    /// 우클릭 컨텍스트 메뉴를 TrackPopupMenuEx 로 직접 띄운다 (Win11 트레이용).
+    ///
+    /// Win11 트레이는 InitMenu 를 호출하지 않으므로 OnClick(우클릭)에서 직접
+    /// HMENU 를 만들어 표시한다. TPM_RETURNCMD 로 선택 ID 를 동기 반환받아
+    /// handle_menu_command 로 분기한다. 메뉴 표시 전 SetForegroundWindow 를
+    /// 호출해야 클릭-아웃 시 메뉴가 정상적으로 닫힌다(Win32 규약).
+    fn show_context_menu(&self, pt: POINT) {
+        unsafe {
+            let Ok(hmenu) = CreatePopupMenu() else {
+                return;
+            };
+
+            let add = |id: u32, label: &str| {
+                let w: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
+                let _ = AppendMenuW(hmenu, MF_STRING, id as usize, PCWSTR(w.as_ptr()));
+            };
+            add(MENU_ID_TOGGLE, "한/영 전환");
+            add(MENU_ID_SET_DEFAULT, "기본 입력기로 설정");
+            add(MENU_ID_SETTINGS, "설정(&S)");
+            add(MENU_ID_ABOUT, "정보(&I)");
+
+            // 메뉴 소유 창. 포커스된 전경 창을 owner 로 삼고 전경으로 올려야
+            // 메뉴 밖 클릭 시 메뉴가 닫힌다.
+            let hwnd = GetForegroundWindow();
+            if !hwnd.is_invalid() {
+                let _ = SetForegroundWindow(hwnd);
+            }
+
+            // TPM_RETURNCMD: 선택된 항목 ID 를 i32 로 동기 반환. 0 이면 취소.
+            let cmd = TrackPopupMenuEx(
+                hmenu,
+                (TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN).0,
+                pt.x,
+                pt.y,
+                hwnd,
+                core::ptr::null(),
+            );
+            let _ = DestroyMenu(hmenu);
+
+            if cmd != 0 {
+                self.handle_menu_command(cmd as u32);
+            }
+        }
     }
 }
 
