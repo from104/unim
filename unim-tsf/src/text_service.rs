@@ -1,8 +1,8 @@
 //! UnimTextService — TSF 메인 구조체
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
@@ -51,6 +51,17 @@ pub struct UnimTextService {
     /// 갭1: 엔진→langbar 동기화용 공유 상태 (is_korean 캐시 + sink).
     /// OnKeyDown 후 엔진 모드 변화 시 update() 를 호출해 랭귀지바를 갱신한다.
     pub(crate) langbar_state: Mutex<Option<Arc<LangBarState>>>,
+    /// composition 미지원 앱(wezterm 등 CUAS/IMM32 브리지) 감지 플래그.
+    ///
+    /// `OnCompositionTerminated` 가 키 입력 직후 즉시 발생하면(=앱이 composition
+    /// 을 유지 못 함) set 된다. 이후 키 입력은 composition 없이 backspace+reinsert
+    /// 폴백 경로(key_handler)를 탄다.
+    pub(crate) composition_unsupported: AtomicBool,
+    /// 폴백 경로에서 문서에 떠있는 미확정(preedit) 글자 수.
+    pub(crate) fallback_pending: AtomicUsize,
+    /// 마지막 OnKeyDown 시각. OnCompositionTerminated 가 "키 직후 즉시 종료
+    /// (wezterm)" 인지 "한참 뒤 종료(포커스 이탈)" 인지 구분하는 데 쓴다.
+    pub(crate) last_key_instant: Mutex<Option<Instant>>,
 }
 
 impl UnimTextService {
@@ -77,6 +88,9 @@ impl UnimTextService {
             langbar_item: Mutex::new(None),
             langbar_btn: Mutex::new(None),
             langbar_state: Mutex::new(Some(LangBarState::new(is_korean))),
+            composition_unsupported: AtomicBool::new(false),
+            fallback_pending: AtomicUsize::new(0),
+            last_key_instant: Mutex::new(None),
         }
     }
 
@@ -275,6 +289,8 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
 
     fn OnKeyDown(&self, pic: Ref<'_, ITfContext>, wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
         let context = pic.as_ref().ok_or(E_INVALIDARG)?;
+        // OnCompositionTerminated 의 "즉시 종료" 판별용 타임스탬프.
+        *self.last_key_instant.lock().unwrap() = Some(Instant::now());
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
@@ -296,6 +312,8 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             tid,
             wparam,
             &comp_sink,
+            self.composition_unsupported.load(Ordering::SeqCst),
+            &self.fallback_pending,
         );
 
         // 갭1: 엔진→랭귀지바 동기화.
@@ -340,14 +358,40 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         _ecwrite: u32,
         _pcomposition: Ref<'_, ITfComposition>,
     ) -> Result<()> {
+        // OnCompositionTerminated 는 "우리 외의 주체(앱/CUAS)" 가 composition 을
+        // 강제 종료할 때만 호출된다. 두 경우를 시간으로 구분한다:
+        //
+        //  (1) 키 입력 직후(<200ms) 즉시 종료 → wezterm 등 CUAS/IMM32 브리지 앱.
+        //      composition 을 유지하지 못하므로 폴백(backspace+reinsert) 모드로
+        //      전환하고 엔진 preedit 버퍼는 보존한다(문서에 남은 글자 = pending).
+        //  (2) 한참 뒤 종료 → 포커스 이탈/Esc 등 정상 종료. 엔진을 reset 한다.
+        let immediate = self
+            .last_key_instant
+            .lock()
+            .unwrap()
+            .map(|t| t.elapsed() < std::time::Duration::from_millis(200))
+            .unwrap_or(false);
+
         self.composition_mgr.lock().unwrap().clear();
-        self.engine.lock().unwrap().reset();
-        // 팝업도 닫기 (포커스 이탈 등으로 composition 강제 종료 시)
-        if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
-            win.hide();
+
+        if immediate {
+            self.composition_unsupported.store(true, Ordering::SeqCst);
+            // 문서에 이미 떠있는 미확정 글자 수 = 현재 엔진 preedit 길이.
+            let pending = self.engine.lock().unwrap().preedit_str().chars().count();
+            self.fallback_pending.store(pending, Ordering::SeqCst);
+            crate::register::dbg_log(&format!(
+                "OnCompositionTerminated: IMMEDIATE -> fallback mode (pending={})",
+                pending
+            ));
+        } else {
+            // 정상 종료 — 엔진/팝업/ATF 정리.
+            crate::register::dbg_log("OnCompositionTerminated: normal -> reset");
+            self.engine.lock().unwrap().reset();
+            if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
+                win.hide();
+            }
+            self.atf_state.lock().unwrap().reset_on_focus();
         }
-        // AutoTypeFix 버퍼 초기화
-        self.atf_state.lock().unwrap().reset_on_focus();
         Ok(())
     }
 }

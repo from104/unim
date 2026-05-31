@@ -1,5 +1,7 @@
 //! 키 이벤트 처리 — VK → KeyCode → InputEngine
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use windows::core::BOOL;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
@@ -199,6 +201,10 @@ pub fn handle_key_down(
     tid: u32,
     wparam: WPARAM,
     comp_sink: &ITfCompositionSink,
+    // composition 미지원 앱(wezterm 등) 폴백 모드. text_service 가 전달.
+    composition_unsupported: bool,
+    // 폴백 모드에서 문서에 떠있는 미확정 글자 수 (다음 키에서 지울 양).
+    fallback_pending: &AtomicUsize,
 ) -> bool {
     let vk = wparam.0 as u16;
     let keycode = KeyCode::from_win32_vk(vk);
@@ -253,6 +259,11 @@ pub fn handle_key_down(
     let prev_mode = engine.input_category();
     let result = engine.press_key(keycode, modifiers, config);
 
+    crate::register::dbg_log(&format!(
+        "handle_key_down: vk=0x{:02X} consumed={} commit_changed={} preedit_changed={} was_composing={} comp_active={}",
+        vk, result.consumed, result.commit_changed, result.preedit_changed, was_composing, comp_mgr.is_active()
+    ));
+
     // 모드 전환 관찰 (사용자 수동 전환 — ATF 자체 전환과 구분은 process_after_key 내부에서)
     let current_mode = engine.input_category();
     if prev_mode != current_mode {
@@ -271,46 +282,85 @@ pub fn handle_key_down(
     // HidePopup → 팝업 숨김 (선택 확정 또는 Esc)
     drain_popup_actions(engine, popup_win, context, tid, result, comp_mgr);
 
-    // ── commit 처리 ──
+    // ── commit / preedit 처리 ──
     let commit_str_for_atf: Option<String>;
-    if result.commit_changed {
-        let commit = engine.commit_str().to_string();
-        engine.clear_commit();
-
-        commit_str_for_atf = if !commit.is_empty() {
-            Some(commit.clone())
-        } else {
-            None
-        };
-
-        if !commit.is_empty() {
-            if was_composing || comp_mgr.is_active() {
-                comp_mgr.end_composition_with_text(context, tid, &commit);
-            } else {
-                comp_mgr.insert_text(context, tid, &commit);
-            }
-        }
-    } else {
-        commit_str_for_atf = None;
-    }
-
-    // ── preedit 처리 ──
     let preedit_str_for_atf: Option<String>;
-    if result.preedit_changed {
-        let preedit = engine.preedit_str().to_string();
-        preedit_str_for_atf = Some(preedit.clone());
 
-        if preedit.is_empty() {
-            if comp_mgr.is_active() {
-                comp_mgr.end_composition(context, tid);
-            }
-        } else if comp_mgr.is_active() {
-            comp_mgr.update_composition(context, tid, &preedit);
+    if composition_unsupported {
+        // ── 폴백 경로 (wezterm 등 composition 미지원 앱) ──
+        //
+        // composition 을 만들면 앱/CUAS 가 즉시 OnCompositionTerminated 로
+        // 종료시켜 중간 글자가 문서에 잔류한다("ㅎ하한..."). 그래서 composition
+        // 대신 직접 문서를 조작한다: 매 키마다 이전에 떠있던 미확정 글자
+        // (fallback_pending 개)를 지우고, [확정문자 + 새 preedit] 를 삽입한다.
+        // 확정문자는 영구로 남고 새 preedit 가 다음 회차의 pending 이 된다.
+        let commit = if result.commit_changed {
+            let c = engine.commit_str().to_string();
+            engine.clear_commit();
+            c
         } else {
-            comp_mgr.start_composition(context, tid, &preedit, comp_sink);
+            String::new()
+        };
+        let preedit = engine.preedit_str().to_string();
+        commit_str_for_atf = if commit.is_empty() { None } else { Some(commit.clone()) };
+        preedit_str_for_atf = if result.preedit_changed { Some(preedit.clone()) } else { None };
+
+        if result.commit_changed || result.preedit_changed {
+            let pending = fallback_pending.load(Ordering::SeqCst);
+            let insert = format!("{}{}", commit, preedit);
+            crate::register::dbg_log(&format!(
+                "fallback: del={} insert='{}' (commit_len={} preedit_len={})",
+                pending,
+                insert,
+                commit.chars().count(),
+                preedit.chars().count()
+            ));
+            if pending > 0 || !insert.is_empty() {
+                // replace_surrounding(preedit_text="") = "delete N chars + insert text"
+                // (composition 시작 안 함). AutoTypeFix 와 동일한 검증된 경로.
+                comp_mgr.replace_surrounding(context, tid, pending as u32, &insert, "", comp_sink);
+            }
+            fallback_pending.store(preedit.chars().count(), Ordering::SeqCst);
         }
     } else {
-        preedit_str_for_atf = None;
+        // ── 정상 경로 (composition 지원 앱: 메모장 등) ──
+        if result.commit_changed {
+            let commit = engine.commit_str().to_string();
+            engine.clear_commit();
+
+            commit_str_for_atf = if !commit.is_empty() {
+                Some(commit.clone())
+            } else {
+                None
+            };
+
+            if !commit.is_empty() {
+                if was_composing || comp_mgr.is_active() {
+                    comp_mgr.end_composition_with_text(context, tid, &commit);
+                } else {
+                    comp_mgr.insert_text(context, tid, &commit);
+                }
+            }
+        } else {
+            commit_str_for_atf = None;
+        }
+
+        if result.preedit_changed {
+            let preedit = engine.preedit_str().to_string();
+            preedit_str_for_atf = Some(preedit.clone());
+
+            if preedit.is_empty() {
+                if comp_mgr.is_active() {
+                    comp_mgr.end_composition(context, tid);
+                }
+            } else if comp_mgr.is_active() {
+                comp_mgr.update_composition(context, tid, &preedit);
+            } else {
+                comp_mgr.start_composition(context, tid, &preedit, comp_sink);
+            }
+        } else {
+            preedit_str_for_atf = None;
+        }
     }
 
     // ── AutoTypeFix 오케스트레이션 ──

@@ -29,6 +29,30 @@ unsafe fn move_caret_to_end(context: &ITfContext, ec: u32, range: &ITfRange) -> 
     r
 }
 
+/// composition range 전체를 selection 으로 설정한다 (SampleIME `_SetComposition` 방식).
+///
+/// `move_caret_to_end` 는 selection 을 `Collapse(END)` 한 0폭 커서로 만든다. 이는
+/// 메모장 등 정식 TSF text store 에서는 문제없지만, **IMM32→TSF 브리지(cicero)**
+/// 로 동작하는 콘솔(wezterm 등)에서는 "커서가 composition 범위 밖으로 이동"으로
+/// 해석돼 `ITfCompositionSink::OnCompositionTerminated` 가 StartComposition 직후
+/// 즉시 호출된다(조합이 매 자모 초기화되는 근본 원인). SampleIME 처럼 collapse
+/// 하지 않고 range 전체를 `TF_AE_NONE` selection 으로 두면 브리지가 composition
+/// 을 유지한다.
+unsafe fn select_composition_range(context: &ITfContext, ec: u32, range: &ITfRange) -> Result<()> {
+    let r = range.Clone()?;
+    let mut sel = TF_SELECTION {
+        range: ManuallyDrop::new(Some(r)),
+        style: TF_SELECTIONSTYLE {
+            ase: TF_AE_NONE,
+            fInterimChar: BOOL(0),
+        },
+    };
+    let res = context.SetSelection(ec, std::slice::from_ref(&sel));
+    // 우리가 만든 ITfRange 참조 해제 (SetSelection 은 내부에서 AddRef)
+    ManuallyDrop::drop(&mut sel.range);
+    res
+}
+
 /// 텍스트를 삽입할 range 를 얻는다.
 ///
 /// 1순위로 `ITfInsertAtSelection::InsertTextAtSelection(QUERYONLY)` 를 시도하고,
@@ -38,21 +62,40 @@ unsafe fn move_caret_to_end(context: &ITfContext, ec: u32, range: &ITfRange) -> 
 /// 조용히 실패한다(= wezterm 에서 한글 입력 안 됨). GUI 클라이언트는 1순위
 /// 경로를 그대로 타므로 동작 변화 없음. (SampleIME `_InsertAtSelection` 패턴)
 unsafe fn acquire_insert_range(context: &ITfContext, ec: u32) -> Result<ITfRange> {
-    if let Ok(insert) = context.cast::<ITfInsertAtSelection>() {
-        if let Ok(range) = insert.InsertTextAtSelection(ec, TF_IAS_QUERYONLY, &[]) {
-            return Ok(range);
-        }
+    match context.cast::<ITfInsertAtSelection>() {
+        Ok(insert) => match insert.InsertTextAtSelection(ec, TF_IAS_QUERYONLY, &[]) {
+            Ok(range) => {
+                crate::register::dbg_log("acquire_insert_range: InsertAtSelection QUERYONLY ok");
+                return Ok(range);
+            }
+            Err(e) => crate::register::dbg_log(&format!(
+                "acquire_insert_range: InsertAtSelection FAILED hr=0x{:08X} -> GetSelection fallback",
+                e.code().0
+            )),
+        },
+        Err(e) => crate::register::dbg_log(&format!(
+            "acquire_insert_range: cast ITfInsertAtSelection FAILED hr=0x{:08X} -> GetSelection fallback",
+            e.code().0
+        )),
     }
     // 폴백: 현재 selection range 를 직접 사용
     let mut sel = TF_SELECTION::default();
     let mut fetched: u32 = 0;
-    context.GetSelection(ec, TF_DEFAULT_SELECTION, std::slice::from_mut(&mut sel), &mut fetched)?;
+    let gs = context.GetSelection(ec, TF_DEFAULT_SELECTION, std::slice::from_mut(&mut sel), &mut fetched);
+    if let Err(e) = &gs {
+        crate::register::dbg_log(&format!(
+            "acquire_insert_range: GetSelection FAILED hr=0x{:08X}",
+            e.code().0
+        ));
+    }
+    gs?;
     let result = if fetched != 0 {
         sel.range
             .as_ref()
             .map(|r| r.clone())
             .ok_or_else(|| Error::from(E_FAIL))
     } else {
+        crate::register::dbg_log("acquire_insert_range: GetSelection fetched=0 (no selection)");
         Err(Error::from(E_FAIL))
     };
     // GetSelection 이 채운 참조 해제 (위에서 clone 으로 새 참조 확보)
@@ -99,12 +142,19 @@ impl CompositionManager {
         };
         let session_intf: ITfEditSession = session.into();
         unsafe {
-            let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+            let hr = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+            crate::register::dbg_log(&format!(
+                "start_composition: RequestEditSession hr={:?}",
+                hr.map(|s| s.0)
+            ));
         }
 
         let result = self.composition_slot.lock().unwrap().take();
         if let Some(comp) = result {
             self.composition = Some(comp);
+            crate::register::dbg_log("start_composition: composition CREATED");
+        } else {
+            crate::register::dbg_log("start_composition: composition slot EMPTY (failed)");
         }
     }
 
@@ -225,12 +275,40 @@ impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
             let wide: Vec<u16> = self.text.encode_utf16().collect();
             // 콘솔(wezterm 등) 폴백 포함 삽입 range 획득
             let range = acquire_insert_range(&self.context, ec)?;
-            range.SetText(ec, 0, &wide)?;
+            if let Err(e) = range.SetText(ec, 0, &wide) {
+                crate::register::dbg_log(&format!(
+                    "StartComp.DoEditSession: SetText FAILED hr=0x{:08X}",
+                    e.code().0
+                ));
+                return Err(e);
+            }
 
-            let ctx_comp: ITfContextComposition = self.context.cast()?;
-            let composition = ctx_comp.StartComposition(ec, &range, &self.comp_sink)?;
-            // caret 을 조합 텍스트 끝으로 이동 (거꾸로 입력 방지)
-            let _ = move_caret_to_end(&self.context, ec, &range);
+            let ctx_comp: ITfContextComposition = match self.context.cast() {
+                Ok(c) => c,
+                Err(e) => {
+                    crate::register::dbg_log(&format!(
+                        "StartComp.DoEditSession: cast ITfContextComposition FAILED hr=0x{:08X}",
+                        e.code().0
+                    ));
+                    return Err(e);
+                }
+            };
+            let composition = match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
+                Ok(c) => c,
+                Err(e) => {
+                    crate::register::dbg_log(&format!(
+                        "StartComp.DoEditSession: StartComposition FAILED hr=0x{:08X}",
+                        e.code().0
+                    ));
+                    return Err(e);
+                }
+            };
+            crate::register::dbg_log("StartComp.DoEditSession: StartComposition ok");
+            // selection 을 composition range 전체로 설정 (SampleIME 방식).
+            // collapsed-end 커서는 IMM32 브리지(wezterm)에서 composition 을 즉시
+            // 종료시키므로 select_composition_range 를 쓴다. 거꾸로 입력 방지는
+            // range 전체가 composition 안에 있으므로 동일하게 보장된다.
+            let _ = select_composition_range(&self.context, ec, &range);
             *self.composition_slot.lock().unwrap() = Some(composition);
         }
         Ok(())
@@ -252,8 +330,8 @@ impl ITfEditSession_Impl for UpdateCompositionEditSession_Impl {
             let range = self.composition.GetRange()?;
             let wide: Vec<u16> = self.text.encode_utf16().collect();
             range.SetText(ec, 0, &wide)?;
-            // caret 을 조합 텍스트 끝으로 이동 (거꾸로 입력 방지)
-            let _ = move_caret_to_end(&self.context, ec, &range);
+            // selection 을 composition range 전체로 (SampleIME 방식, wezterm terminate 회피)
+            let _ = select_composition_range(&self.context, ec, &range);
         }
         Ok(())
     }
@@ -353,7 +431,8 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                 range.SetText(ec, 0, &wide)?;
                 let ctx_comp: ITfContextComposition = self.context.cast()?;
                 let composition = ctx_comp.StartComposition(ec, &range, &self.comp_sink)?;
-                let _ = move_caret_to_end(&self.context, ec, &range);
+                // composition 시작 — selection 전체 range (wezterm terminate 회피)
+                let _ = select_composition_range(&self.context, ec, &range);
                 *self.composition_slot.lock().unwrap() = Some(composition);
             }
         }
