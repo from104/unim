@@ -14,6 +14,10 @@ crate-type = ["cdylib"]
 [dependencies]
 unim = { path = ".." }
 
+# 시그니처 아이콘(unim.rc) 을 DLL 에 임베드 (IME 선택기/설치 목록 표시용).
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "2"
+
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.62"
 windows = { version = "0.62", features = [

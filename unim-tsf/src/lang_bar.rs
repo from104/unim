@@ -11,9 +11,12 @@ use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
     CreateBitmap, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, DeleteDC, DeleteObject,
-    GetDC, PatBlt, ReleaseDC, SelectObject, SetBkMode, SetTextColor, TextOutW, BLACKNESS,
-    CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE, FW_NORMAL,
-    HBITMAP, HGDIOBJ, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
+    GetDC, PatBlt, ReleaseDC, SelectObject, SetBkColor, SetBkMode, SetTextColor, TextOutW,
+    BLACKNESS, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE,
+    FW_SEMIBOLD, HBITMAP, HGDIOBJ, OPAQUE, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
+};
+use windows::Win32::System::Registry::{
+    RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
 };
 use windows::Win32::UI::TextServices::*;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -50,12 +53,44 @@ use unim::input_engine::InputEngine;
 
 use crate::globals;
 
-/// 한/영 상태 텍스트("한"/"A")를 GDI 로 그려 작은 트레이용 HICON 을 만든다.
+/// 작업표시줄/시스템이 다크 테마인지 조회한다.
 ///
-/// .ico 리소스를 DLL 에 임베드하지 않고 런타임에 그려, 현재 입력 상태를 반영한다.
-/// 어떤 단계든 실패하면 `None` 을 돌려주고 호출자(GetIcon)는 NULL HICON 으로
-/// 폴백한다 — 절대 패닉/크래시하지 않는다. 반환 HICON 의 소유권은 OS 에 있다
-/// (ITfLangBarItemButton::GetIcon 계약 — OS 가 DestroyIcon 호출).
+/// `HKCU\...\Themes\Personalize\SystemUsesLightTheme` (DWORD) 가 0 이면 다크,
+/// 1 이면 라이트. 키가 없으면(구버전 등) 라이트로 간주한다. 트레이 아이콘 글자색
+/// 결정에 쓴다 — 다크 배경엔 흰 글자, 라이트 배경엔 검은 글자.
+fn system_uses_dark_theme() -> bool {
+    let subkey: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0"
+        .encode_utf16()
+        .collect();
+    let value: Vec<u16> = "SystemUsesLightTheme\0".encode_utf16().collect();
+    let mut data: u32 = 1; // 기본=라이트
+    let mut size = std::mem::size_of::<u32>() as u32;
+    unsafe {
+        let r = RegGetValueW(
+            HKEY_CURRENT_USER,
+            PCWSTR(subkey.as_ptr()),
+            PCWSTR(value.as_ptr()),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut data as *mut u32 as *mut core::ffi::c_void),
+            Some(&mut size),
+        );
+        if r.is_err() {
+            return false; // 조회 실패 → 라이트로 폴백
+        }
+    }
+    data == 0
+}
+
+/// 한/영 상태 텍스트("가"/"A")를 GDI 로 그려 작은 트레이용 HICON 을 만든다.
+///
+/// **투명 배경 + 테마 적응 글자색**: 1bpp AND 마스크에 글자 모양만 불투명으로
+/// 새겨 배경을 투명하게 두고, 컬러 비트맵의 글자색을 다크 테마면 흰색,
+/// 라이트 테마면 검은색으로 칠한다. 작업표시줄 어느 테마에서도 글자가 또렷하다.
+///
+/// .ico 리소스를 DLL 에 임베드하지 않고 런타임에 그려, 현재 입력 상태와 테마를
+/// 함께 반영한다. 어떤 단계든 실패하면 `None` → 호출자(GetIcon)는 E_FAIL 폴백.
+/// 반환 HICON 의 소유권은 OS 에 있다(GetIcon 계약 — OS 가 DestroyIcon).
 fn create_status_icon(text: &str) -> Option<HICON> {
     unsafe {
         let cx = GetSystemMetrics(SM_CXSMICON);
@@ -71,7 +106,7 @@ fn create_status_icon(text: &str) -> Option<HICON> {
 
         let mem_dc = CreateCompatibleDC(Some(screen_dc));
         let color_bmp = CreateCompatibleBitmap(screen_dc, cx, cy);
-        // 1bpp AND 마스크. 전부 0 으로 채우면 아이콘 전체가 불투명.
+        // 1bpp AND 마스크. 1=투명, 0=불투명(컬러 표시).
         let mask_bmp: HBITMAP = CreateBitmap(cx, cy, 1, 1, None);
 
         if mem_dc.is_invalid() || color_bmp.is_invalid() || mask_bmp.is_invalid() {
@@ -84,27 +119,15 @@ fn create_status_icon(text: &str) -> Option<HICON> {
             return None;
         }
 
-        // ── 마스크를 전부 0(불투명) 으로 초기화 ──
-        let mask_dc = CreateCompatibleDC(Some(screen_dc));
-        if !mask_dc.is_invalid() {
-            let old = SelectObject(mask_dc, HGDIOBJ(mask_bmp.0));
-            let _ = PatBlt(mask_dc, 0, 0, cx, cy, BLACKNESS);
-            SelectObject(mask_dc, old);
-            let _ = DeleteDC(mask_dc);
-        }
-
-        // ── 컬러 비트맵에 배경(흰색) + 텍스트(검정) ──
-        let old_bmp = SelectObject(mem_dc, HGDIOBJ(color_bmp.0));
-        let _ = PatBlt(mem_dc, 0, 0, cx, cy, WHITENESS);
         // 한글 글리프가 있는 폰트(맑은 고딕)로 그린다. DEFAULT_GUI_FONT
-        // (Tahoma/MS Sans Serif)는 한글 글리프가 없어 "한" 이 .notdef
-        // 빈 박스로만 그려진다. 높이는 음수(문자 높이)여야 작은 아이콘에 맞다.
+        // (Tahoma/MS Sans Serif)는 한글 글리프가 없어 "가" 가 .notdef 빈 박스로만
+        // 그려진다. 높이는 음수(문자 높이)여야 작은 아이콘에 맞다.
         let hfont = CreateFontW(
             -(cy * 3 / 4),
             0,
             0,
             0,
-            FW_NORMAL.0 as i32,
+            FW_SEMIBOLD.0 as i32,
             0,
             0,
             0,
@@ -115,18 +138,46 @@ fn create_status_icon(text: &str) -> Option<HICON> {
             (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
             w!("Malgun Gothic"),
         );
-        let old_font = SelectObject(mem_dc, HGDIOBJ(hfont.0));
-        SetBkMode(mem_dc, TRANSPARENT);
-        SetTextColor(mem_dc, COLORREF(0x0000_0000));
         let wide: Vec<u16> = text.encode_utf16().collect();
         // 작은 아이콘이라 정밀 측정 없이 대략 가운데로 오프셋.
         let x = (cx / 2 - cx / 4).max(0);
         let y = (cy / 2 - cy / 3).max(0);
+
+        // ── (1) 1bpp 마스크: 글자=0(불투명), 배경=1(투명) ──
+        // 1bpp DC 에서 흰색→1, 검은색→0 으로 매핑된다. 배경을 흰색(1=투명)으로
+        // 채우고 글자를 검은색(0=불투명)으로 그리면, 글자 모양만 불투명해진다.
+        let mask_dc = CreateCompatibleDC(Some(screen_dc));
+        if !mask_dc.is_invalid() {
+            let old = SelectObject(mask_dc, HGDIOBJ(mask_bmp.0));
+            let _ = PatBlt(mask_dc, 0, 0, cx, cy, WHITENESS); // 전부 1(투명)
+            let old_f = SelectObject(mask_dc, HGDIOBJ(hfont.0));
+            SetBkMode(mask_dc, OPAQUE);
+            SetBkColor(mask_dc, COLORREF(0x00FF_FFFF)); // 배경=흰(1)
+            SetTextColor(mask_dc, COLORREF(0x0000_0000)); // 글자=검(0)
+            let _ = TextOutW(mask_dc, x, y, &wide);
+            SelectObject(mask_dc, old_f);
+            SelectObject(mask_dc, old);
+            let _ = DeleteDC(mask_dc);
+        }
+
+        // ── (2) 컬러 비트맵: 글자색 = 테마 적응(다크→흰, 라이트→검) ──
+        // 배경은 검정으로 채운다(마스크가 투명 처리하므로 안 보임). 글자만 칠한다.
+        let text_color = if system_uses_dark_theme() {
+            COLORREF(0x00FF_FFFF) // 흰 글자
+        } else {
+            COLORREF(0x0000_0000) // 검 글자
+        };
+        let old_bmp = SelectObject(mem_dc, HGDIOBJ(color_bmp.0));
+        let _ = PatBlt(mem_dc, 0, 0, cx, cy, BLACKNESS); // 배경 검정(마스크로 투명)
+        let old_font = SelectObject(mem_dc, HGDIOBJ(hfont.0));
+        SetBkMode(mem_dc, TRANSPARENT);
+        SetTextColor(mem_dc, text_color);
         let _ = TextOutW(mem_dc, x, y, &wide);
         SelectObject(mem_dc, old_font);
+        SelectObject(mem_dc, old_bmp);
+
         // CreateFontW 핸들은 스톡 오브젝트가 아니므로 반드시 DeleteObject.
         let _ = DeleteObject(HGDIOBJ(hfont.0));
-        SelectObject(mem_dc, old_bmp);
 
         let ii = ICONINFO {
             fIcon: TRUE,
