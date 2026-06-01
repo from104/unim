@@ -374,6 +374,11 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
 
         self.composition_mgr.lock().unwrap().clear();
 
+        // immediate(<200ms) 분기만 폴백 진입 처리. 엔진 preedit 버퍼는 보존해
+        // 다음 키에서 누적 텍스트로 자연 재진입(start_composition)한다.
+        // 정상 종료(포커스 이탈) 정리(engine.reset()/popup hide/atf reset)는
+        // ITfThreadMgrEventSink::OnSetFocus(아래)로 이전했다 — CUAS의 정당한
+        // 단발 종료를 "사용자 조합 취소"로 오인해 preedit 를 자폭시키지 않기 위함.
         if immediate {
             self.composition_unsupported.store(true, Ordering::SeqCst);
             // 문서에 이미 떠있는 미확정 글자 수 = 현재 엔진 preedit 길이.
@@ -383,14 +388,6 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
                 "OnCompositionTerminated: IMMEDIATE -> fallback mode (pending={})",
                 pending
             ));
-        } else {
-            // 정상 종료 — 엔진/팝업/ATF 정리.
-            crate::register::dbg_log("OnCompositionTerminated: normal -> reset");
-            self.engine.lock().unwrap().reset();
-            if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
-                win.hide();
-            }
-            self.atf_state.lock().unwrap().reset_on_focus();
         }
         Ok(())
     }
@@ -410,6 +407,18 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         _pdimfocus: Ref<'_, ITfDocumentMgr>,
         _pdimprevfocus: Ref<'_, ITfDocumentMgr>,
     ) -> Result<()> {
+        // (Phase 0) 포커스가 새 문서 컨텍스트로 이동 → 폴백 상태 낙관적 리셋.
+        //   wezterm 등이면 다음 키에서 다시 즉시-terminate 가 나서 자동 재감지된다.
+        //   sticky 하게 켜둔 채 두면 다른 앱(메모장 등)으로 옮겨도 폴백이 잔류한다.
+        self.composition_unsupported.store(false, Ordering::SeqCst);
+        self.fallback_pending.store(0, Ordering::SeqCst);
+        // (Phase 1) OnCompositionTerminated 의 "정상 종료" 정리를 이리로 이전.
+        //   포커스 이탈 = 사용자가 조합을 떠남 → 엔진 preedit 를 비우고 팝업/ATF 정리.
+        self.engine.lock().unwrap().reset();
+        if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
+            win.hide();
+        }
+        self.atf_state.lock().unwrap().reset_on_focus();
         Ok(())
     }
     fn OnPushContext(&self, _pic: Ref<'_, ITfContext>) -> Result<()> {

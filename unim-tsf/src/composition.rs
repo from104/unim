@@ -6,7 +6,38 @@ use std::sync::{Arc, Mutex};
 use windows::core::*;
 use windows::core::BOOL;
 use windows::Win32::Foundation::E_FAIL;
+use windows::Win32::System::Variant::{VARIANT, VT_I4};
 use windows::Win32::UI::TextServices::*;
+
+use crate::globals::UNIM_DISPLAY_ATTR_INPUT;
+
+/// composition range 에 `GUID_PROP_ATTRIBUTE` display-attribute 속성을 부여한다.
+///
+/// CUAS(Cicero Unaware Application Support — wezterm/텔레그램 등 IMM32 소비 앱)는
+/// 이 attribute property 를 읽어 `WM_IME_COMPOSITION` 의 "미확정(밑줄) 조합" attribute
+/// 바이트로 변환한다. 속성이 없으면 CUAS 가 range 를 "완료된 result string" 으로 오인해
+/// `OnCompositionTerminated` 를 StartComposition 직후 즉시 호출(매 자모 초기화)할 수 있다.
+/// 정식 TSF text store(메모장)에서는 밑줄 렌더링 신호로 동작한다.
+///
+/// `atom` 은 `ITfCategoryMgr::RegisterGUID(&UNIM_DISPLAY_ATTR_INPUT)` 로 얻은 `TfGuidAtom`.
+/// SetValue 실패는 치명적이지 않으므로 (`let _ =`) 무시한다 — 잘못된 VARIANT 로 정상 앱
+/// 조합까지 깨지면 안 되기 때문(리스크3 완화).
+unsafe fn set_composition_attribute(context: &ITfContext, ec: u32, range: &ITfRange, atom: u32) {
+    let prop = match context.GetProperty(&GUID_PROP_ATTRIBUTE) {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    // VARIANT 는 0.62 에 From<i32> 가 없어 VT_I4 를 union 필드로 직접 구성한다.
+    // 레이아웃: VARIANT.Anonymous(VARIANT_0) → .Anonymous(ManuallyDrop<VARIANT_0_0>)
+    //          → .vt(VARENUM) + .Anonymous(VARIANT_0_0_0).lVal(i32). union 이라 unsafe.
+    let mut var = VARIANT::default(); // zeroed (vt=VT_EMPTY) → 버릴 live 값 없음
+    // ManuallyDrop union 필드에 직접 쓰면 rustc 가 구 값 destructor 실행을 막아
+    // 자동 DerefMut 을 거부한다. 명시적으로 *ManuallyDrop 을 거쳐 inner 를 잡고 쓴다.
+    let inner = &mut *var.Anonymous.Anonymous; // &mut VARIANT_0_0 (zeroed)
+    inner.vt = VT_I4; // VARENUM(3)
+    inner.Anonymous.lVal = atom as i32; // TfGuidAtom
+    let _ = prop.SetValue(ec, range, &var);
+}
 
 /// SetText 후 문서 selection(caret) 을 range 끝으로 이동한다.
 ///
@@ -107,6 +138,9 @@ unsafe fn acquire_insert_range(context: &ITfContext, ec: u32) -> Result<ITfRange
 pub struct CompositionManager {
     composition: Option<ITfComposition>,
     composition_slot: Arc<Mutex<Option<ITfComposition>>>,
+    /// `GUID_PROP_ATTRIBUTE` SetValue 용 캐시된 `TfGuidAtom`.
+    /// 최초 1회 `ITfCategoryMgr::RegisterGUID` 로 획득해 재사용(매번 등록 금지).
+    attr_atom: Option<u32>,
 }
 
 impl CompositionManager {
@@ -114,6 +148,7 @@ impl CompositionManager {
         Self {
             composition: None,
             composition_slot: Arc::new(Mutex::new(None)),
+            attr_atom: None,
         }
     }
 
@@ -122,6 +157,29 @@ impl CompositionManager {
     }
     pub fn clear(&mut self) {
         self.composition = None;
+    }
+
+    /// composition display-attribute 의 `TfGuidAtom` 을 얻는다(최초 1회 등록·캐시).
+    ///
+    /// `ITfCategoryMgr` 는 `CoCreateInstance(CLSID_TF_CategoryMgr)` 로 획득(register.rs 가
+    /// `ITfInputProcessorProfiles` 를 얻는 것과 동일 패턴). `ITfCategoryMgr` 는 IUnknown
+    /// 파생일 뿐 `ITfThreadMgr` 계층이 아니라 cast 가 보장되지 않으므로 CoCreate 가 안전.
+    /// 실패 시 `None` — 호출자는 attribute set 을 조용히 skip 한다(조합은 계속).
+    fn attr_atom(&mut self) -> Option<u32> {
+        if let Some(atom) = self.attr_atom {
+            return Some(atom);
+        }
+        unsafe {
+            let cat_mgr: ITfCategoryMgr = windows::Win32::System::Com::CoCreateInstance(
+                &CLSID_TF_CategoryMgr,
+                None,
+                windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
+            )
+            .ok()?;
+            let atom = cat_mgr.RegisterGUID(&UNIM_DISPLAY_ATTR_INPUT).ok()?;
+            self.attr_atom = Some(atom);
+            Some(atom)
+        }
     }
 
     pub fn start_composition(
@@ -133,12 +191,14 @@ impl CompositionManager {
     ) {
         let slot = self.composition_slot.clone();
         *slot.lock().unwrap() = None;
+        let attr_atom = self.attr_atom();
 
         let session = StartCompositionEditSession {
             context: context.clone(),
             text: text.to_string(),
             comp_sink: comp_sink.clone(),
             composition_slot: slot.clone(),
+            attr_atom,
         };
         let session_intf: ITfEditSession = session.into();
         unsafe {
@@ -158,12 +218,14 @@ impl CompositionManager {
         }
     }
 
-    pub fn update_composition(&self, context: &ITfContext, tid: u32, text: &str) {
+    pub fn update_composition(&mut self, context: &ITfContext, tid: u32, text: &str) {
+        let attr_atom = self.attr_atom();
         if let Some(ref composition) = self.composition {
             let session = UpdateCompositionEditSession {
                 context: context.clone(),
                 text: text.to_string(),
                 composition: composition.clone(),
+                attr_atom,
             };
             let session_intf: ITfEditSession = session.into();
             unsafe {
@@ -231,6 +293,7 @@ impl CompositionManager {
     ) {
         let slot = self.composition_slot.clone();
         *slot.lock().unwrap() = None;
+        let attr_atom = self.attr_atom();
 
         let session = ReplaceSurroundingEditSession {
             context: context.clone(),
@@ -239,6 +302,7 @@ impl CompositionManager {
             preedit_text: preedit_text.to_string(),
             comp_sink: comp_sink.clone(),
             composition_slot: slot.clone(),
+            attr_atom,
         };
         let session_intf: ITfEditSession = session.into();
         unsafe {
@@ -267,6 +331,8 @@ struct StartCompositionEditSession {
     text: String,
     comp_sink: ITfCompositionSink,
     composition_slot: Arc<Mutex<Option<ITfComposition>>>,
+    /// composition range 에 부여할 display-attribute atom (None 이면 skip).
+    attr_atom: Option<u32>,
 }
 
 impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
@@ -309,6 +375,11 @@ impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
             // 종료시키므로 select_composition_range 를 쓴다. 거꾸로 입력 방지는
             // range 전체가 composition 안에 있으므로 동일하게 보장된다.
             let _ = select_composition_range(&self.context, ec, &range);
+            // composition range 에 미확정(밑줄) display-attribute 부여.
+            // CUAS 가 즉시-terminate 하지 않게 하는 신호(실패 무시).
+            if let Some(atom) = self.attr_atom {
+                set_composition_attribute(&self.context, ec, &range, atom);
+            }
             *self.composition_slot.lock().unwrap() = Some(composition);
         }
         Ok(())
@@ -322,6 +393,8 @@ struct UpdateCompositionEditSession {
     context: ITfContext,
     text: String,
     composition: ITfComposition,
+    /// composition range 에 부여할 display-attribute atom (None 이면 skip).
+    attr_atom: Option<u32>,
 }
 
 impl ITfEditSession_Impl for UpdateCompositionEditSession_Impl {
@@ -332,6 +405,10 @@ impl ITfEditSession_Impl for UpdateCompositionEditSession_Impl {
             range.SetText(ec, 0, &wide)?;
             // selection 을 composition range 전체로 (SampleIME 방식, wezterm terminate 회피)
             let _ = select_composition_range(&self.context, ec, &range);
+            // 매 update 마다 미확정(밑줄) display-attribute 재부여(실패 무시).
+            if let Some(atom) = self.attr_atom {
+                set_composition_attribute(&self.context, ec, &range, atom);
+            }
         }
         Ok(())
     }
@@ -390,6 +467,8 @@ pub struct ReplaceSurroundingEditSession {
     pub comp_sink: ITfCompositionSink,
     /// composition 결과를 돌려받는 슬롯 (preedit 있을 때만 사용)
     pub composition_slot: std::sync::Arc<std::sync::Mutex<Option<ITfComposition>>>,
+    /// composition range 에 부여할 display-attribute atom (None 이면 skip).
+    pub attr_atom: Option<u32>,
 }
 
 impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
@@ -433,6 +512,10 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                 let composition = ctx_comp.StartComposition(ec, &range, &self.comp_sink)?;
                 // composition 시작 — selection 전체 range (wezterm terminate 회피)
                 let _ = select_composition_range(&self.context, ec, &range);
+                // 순방향 replay preedit 에도 미확정(밑줄) display-attribute 부여(실패 무시).
+                if let Some(atom) = self.attr_atom {
+                    set_composition_attribute(&self.context, ec, &range, atom);
+                }
                 *self.composition_slot.lock().unwrap() = Some(composition);
             }
         }
