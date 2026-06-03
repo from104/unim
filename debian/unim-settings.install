@@ -1,9 +1,0 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# unim-settings — GTK4/libadwaita settings dialog
-# 한 책임, 한 프로세스: 설정 다이얼로그 전용. tray / popup 은 별도 패키지.
-# ─────────────────────────────────────────────────────────────────────────────
-
-debian/tmp/usr/bin/unim-settings
-debian/tmp/usr/share/applications/io.github.from104.unim.Settings.desktop
-debian/tmp/usr/share/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg
-debian/tmp/usr/share/man/man1/unim-settings.1

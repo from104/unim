@@ -109,57 +109,38 @@ Description: UNIM Korean IME — Wayland input-method frontend
  Hyprland, COSMIC, Labwc, Wayfire). GNOME Shell users should
  additionally install unim-gnome for native indicator integration.
 
-Package: unim-indicator
+Package: unim-desktop
 Architecture: any
 Depends: unim-common (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
-Recommends: unim-settings, unim-popup-service, unim-im-gtk
-Description: UNIM Korean IME — GTK4 system-tray indicator
- System-tray indicator (StatusNotifierItem) for the UNIM Korean Input
- Method Engine, built with GTK4. Provides the global mode-toggle
- indicator and a tray menu entry that launches the settings dialog.
+Recommends: unim-im-gtk
+Replaces: unim-gui-qt (<< 0.3.0~),
+          unim-indicator (<< 0.3.0-1.1~),
+          unim-settings (<< 0.3.0-1.1~),
+          unim-popup-service (<< 0.3.0-1.1~)
+Breaks: unim-gui-qt (<< 0.3.0~),
+        unim-indicator (<< 0.3.0-1.1~),
+        unim-settings (<< 0.3.0-1.1~),
+        unim-popup-service (<< 0.3.0-1.1~)
+Description: UNIM Korean IME — desktop UI (tray indicator, settings, popups)
+ GTK4 desktop user-interface bundle for the UNIM Korean Input Method
+ Engine on non-GNOME desktops (KDE Plasma, Xfce, Cinnamon, MATE).
+ Bundles the three UI processes that are always deployed together:
+  * tray indicator (StatusNotifierItem) — global mode toggle and menu
+  * settings dialog (Adw.PreferencesWindow) — hotkeys, layouts,
+    TypeFix, blacklist, popup behaviour
+  * popup & tray service — hanja/special-character/emoji popups,
+    D-Bus-activated, with X11 (override-redirect) and Wayland
+    (xdg-popup / input_popup_v2) backends
  .
- One responsibility, one process: this package contains the tray
- daemon only. The settings dialog ships as "unim-settings" and the
- hanja/special-character/emoji popups ship as "unim-popup-service".
  GNOME Shell users get the same functionality natively via the
- "unim-gnome" extension.
-
-Package: unim-settings
-Architecture: any
-Depends: unim-common (= ${binary:Version}),
-         ${shlibs:Depends},
-         ${misc:Depends}
-Description: UNIM Korean IME — GTK4 settings dialog
- Settings dialog for the UNIM Korean Input Method Engine, built with
- GTK4 and libadwaita. Provides hotkey, layout, TypeFix, blacklist,
- and popup-behaviour configuration through a unified single-window
- dialog (Adw.PreferencesWindow).
- .
- One responsibility, one process: this package contains only the
- settings GUI. Launch it via the menu entry, the tray indicator
- ("unim-indicator"), or directly with the `unim-settings` command.
-
-Package: unim-popup-service
-Architecture: any
-Depends: unim-common (= ${binary:Version}),
-         ${shlibs:Depends},
-         ${misc:Depends}
-Recommends: unim-indicator, unim-settings
-Replaces: unim-gui-qt (<< 0.3.0~)
-Breaks: unim-gui-qt (<< 0.3.0~)
-Description: UNIM Korean IME — popup & tray service (GTK4, X11/Wayland)
- Standalone GTK4 popup·tray service for hanja/special-character/emoji
- popups across non-GNOME desktops (KDE Plasma, Xfce, Cinnamon).
- .
- Runs as a separate process, receives DBus signals from unim-daemon,
- and renders popups via GTK4. Detects X11 vs Wayland session at
- runtime and applies the appropriate backend (X11 override-redirect +
- XCB outside-click polling, or Wayland xdg-popup / input_popup_v2).
+ "unim-gnome" extension and normally do not need this package.
  .
  Replaces the previous unim-gui-qt binary; the Qt6/QML GUI has been
- deprecated and removed in favour of a single GTK4 codebase.
+ deprecated and removed in favour of a single GTK4 codebase. This
+ package supersedes the earlier split unim-indicator, unim-settings
+ and unim-popup-service packages.
 
 Package: unim-keymap-studio
 Architecture: any
@@ -190,8 +171,7 @@ Description: UNIM Typing Practice — WPM/accuracy/heatmap on any Hangul keymap
 Package: unim-gnome
 Architecture: all
 Depends: unim-common (= ${source:Version}),
-         unim-settings (= ${source:Version}),
-         unim-popup-service (= ${source:Version}),
+         unim-desktop (= ${source:Version}),
          ${misc:Depends},
          gnome-shell
 Description: UNIM Korean IME — GNOME Shell extension
@@ -200,9 +180,10 @@ Description: UNIM Korean IME — GNOME Shell extension
  input-mode rules, and virtual keyboard / preedit overlay on
  Wayland (Mutter).
  .
- Hanja / special-character / emoji popups are rendered by the
- companion `unim-popup-service` (GTK4) so that all desktops share
- a single popup implementation. Settings UI is `unim-settings`.
+ Hanja / special-character / emoji popups and the settings dialog
+ come from the companion `unim-desktop` bundle (GTK4), shared across
+ all desktops. On GNOME its tray indicator stays dormant — this
+ extension provides the panel indicator natively.
 
 Package: unim
 Architecture: all
@@ -211,9 +192,9 @@ Depends: unim-common (= ${source:Version}),
          unim-im-qt (= ${source:Version}),
          unim-xim (= ${source:Version}),
          unim-wayland (= ${source:Version}),
-         unim-indicator (= ${source:Version}),
-         unim-settings (= ${source:Version}),
-         unim-popup-service (= ${source:Version}),
+         unim-desktop (= ${source:Version}),
+         unim-keymap-studio (= ${source:Version}),
+         unim-typing-practice (= ${source:Version}),
          unim-gnome (= ${source:Version}),
          ${misc:Depends}
 Description: Korean Input Method Engine — full stack (meta-package)

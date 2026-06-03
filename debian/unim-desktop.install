@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# unim-desktop — GTK4 desktop UI bundle (tray indicator + settings + popups)
+# 비-GNOME 데스크톱에서 항상 함께 배포되는 3개 UI 프로세스를 한 패키지로 묶는다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# tray indicator (StatusNotifierItem)
+debian/tmp/usr/bin/unim-indicator
+debian/tmp/etc/xdg/autostart/io.github.from104.unim.Indicator.desktop
+debian/tmp/usr/share/icons/hicolor/scalable/apps/io.github.from104.unim.Indicator.svg
+debian/tmp/usr/share/man/man1/unim-indicator.1
+
+# settings dialog (Adw.PreferencesWindow)
+debian/tmp/usr/bin/unim-settings
+debian/tmp/usr/share/applications/io.github.from104.unim.Settings.desktop
+debian/tmp/usr/share/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg
+debian/tmp/usr/share/man/man1/unim-settings.1
+
+# popup & tray service — D-Bus auto-activation (daemon 이 PopupService 호출 시 launching)
+debian/tmp/usr/bin/unim-popup-service
+debian/tmp/usr/share/dbus-1/services/org.atit.unim.PopupService.service
+debian/tmp/usr/share/man/man1/unim-popup-service.1

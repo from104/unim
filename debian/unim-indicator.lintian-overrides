@@ -1,6 +1,0 @@
-# unim-indicator — lintian overrides (justified)
-
-# embedded-library libyaml: see unim-common.lintian-overrides for rationale.
-unim-indicator: embedded-library libyaml [usr/bin/unim-indicator]
-
-unim-indicator: initial-upload-closes-no-bugs *

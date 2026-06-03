@@ -1,0 +1,8 @@
+# unim-desktop — lintian overrides (justified)
+
+# embedded-library libyaml: see unim-common.lintian-overrides for rationale.
+unim-desktop: embedded-library libyaml [usr/bin/unim-indicator]
+unim-desktop: embedded-library libyaml [usr/bin/unim-settings]
+unim-desktop: embedded-library libyaml [usr/bin/unim-popup-service]
+
+unim-desktop: initial-upload-closes-no-bugs *

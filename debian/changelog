@@ -26,6 +26,11 @@ unim (0.3.0-1) unstable; urgency=medium
     change.
   * Layout profile v0 schema is no longer supported (legacy JSON files
     without v1 markers are rejected with LoadError::UnsupportedSchema).
+  * Packaging: consolidate unim-indicator, unim-settings and
+    unim-popup-service into a single unim-desktop bundle (the three
+    GTK4 UI processes always ship together on non-GNOME desktops);
+    unim-gnome now depends on unim-desktop. Add unim-keymap-studio and
+    unim-typing-practice to the `unim` meta-package.
 
  -- Seo Kihyun <from104@gmail.com>  Tue, 05 May 2026 16:30:00 +0900
 
