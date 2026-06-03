@@ -153,8 +153,8 @@ class UnimIndicator extends PanelMenu.Button {
             iconName = this._isKorean ? 'unim-korean' : 'unim-english';
             styleClass += this._isKorean ? ' hangul-mode' : ' english-mode';
         } else {
-            // 연결 안됨 또는 입력 포커스 없음 → 비활성 상태
-            iconName = 'dialog-question-symbolic';
+            // 연결 안됨 또는 입력 포커스 없음 → 비활성(금지) 상태
+            iconName = 'unim-disabled';
             styleClass += ' disconnected-mode';
         }
         

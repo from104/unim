@@ -282,9 +282,9 @@ status-systemd:
 
 gnome-extension:
 	@mkdir -p unim-gnome-extension/icons
-	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/ 2>/dev/null \
+	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg data/icons/unim-disabled.svg unim-gnome-extension/icons/ 2>/dev/null \
 		|| (sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/icons/ && \
-		    cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/)
+		    cp -f data/icons/unim-korean.svg data/icons/unim-english.svg data/icons/unim-disabled.svg unim-gnome-extension/icons/)
 	@# schemas/ may be root-owned from a previous sudo install — reclaim before glib-compile.
 	@if [ -d unim-gnome-extension/schemas ] && [ ! -w unim-gnome-extension/schemas ]; then \
 		sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/schemas; \
@@ -617,7 +617,7 @@ dev-extension:
 		~/.local/share/gnome-shell/extensions/$(UUID)/
 	@cp -f unim-gnome-extension/schemas/*.xml \
 		~/.local/share/gnome-shell/extensions/$(UUID)/schemas/ 2>/dev/null || true
-	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg \
+	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg data/icons/unim-disabled.svg \
 		~/.local/share/gnome-shell/extensions/$(UUID)/icons/ 2>/dev/null || true
 	@glib-compile-schemas ~/.local/share/gnome-shell/extensions/$(UUID)/schemas 2>/dev/null || true
 	@echo "✅ Extension 배포 완료! GNOME Shell 재시작 필요 (로그아웃→로그인)."
