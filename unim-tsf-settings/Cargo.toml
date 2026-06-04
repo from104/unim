@@ -1,0 +1,19 @@
+[package]
+name = "unim-tsf-settings"
+version.workspace = true
+edition = "2021"
+description = "UNIM TSF settings GUI (Slint) for Windows"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "unim-tsf-settings"
+path = "src/main.rs"
+
+[dependencies]
+unim = { path = ".." }
+slint = "1"
+
+[build-dependencies]
+slint-build = "1"

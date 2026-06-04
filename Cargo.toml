@@ -49,6 +49,7 @@ members = [
     "unim-typing-practice",
     "unim-dbus",
     "unim-tsf",
+    "unim-tsf-settings",
     "tests/unim-test-wayland",
     "tests/unim-test-dbus",
 ]
