@@ -20,8 +20,9 @@ use crate::globals::UNIM_DISPLAY_ATTR_INPUT;
 /// 정식 TSF text store(메모장)에서는 밑줄 렌더링 신호로 동작한다.
 ///
 /// `atom` 은 `ITfCategoryMgr::RegisterGUID(&UNIM_DISPLAY_ATTR_INPUT)` 로 얻은 `TfGuidAtom`.
-/// SetValue 실패는 치명적이지 않으므로 (`let _ =`) 무시한다 — 잘못된 VARIANT 로 정상 앱
-/// 조합까지 깨지면 안 되기 때문(리스크3 완화).
+/// SetValue 실패는 치명적이지 않으므로 패닉/조기 return 하지 않되, HRESULT 와 직후
+/// GetValue 재확인 결과를 dbg_log 로 남긴다(지식베이스 P1 진단 — attribute 무음 실패 A vs
+/// lifecycle 종료 B 분리). 잘못된 VARIANT 로 정상 앱 조합까지 깨지면 안 되기 때문(리스크3 완화).
 unsafe fn set_composition_attribute(context: &ITfContext, ec: u32, range: &ITfRange, atom: u32) {
     let prop = match context.GetProperty(&GUID_PROP_ATTRIBUTE) {
         Ok(p) => p,
@@ -36,7 +37,33 @@ unsafe fn set_composition_attribute(context: &ITfContext, ec: u32, range: &ITfRa
     let inner = &mut *var.Anonymous.Anonymous; // &mut VARIANT_0_0 (zeroed)
     inner.vt = VT_I4; // VARENUM(3)
     inner.Anonymous.lVal = atom as i32; // TfGuidAtom
-    let _ = prop.SetValue(ec, range, &var);
+    match prop.SetValue(ec, range, &var) {
+        Ok(()) => {
+            // 런타임 검증(지식베이스 P1): attribute property 가 실제로 range 에 박혔는지
+            // 직후 GetValue 로 재확인한다. CUAS 가 range 를 result-string 으로 오인하는
+            // 'A(attribute 무음 실패)' 케이스를 'B(lifecycle 종료)' 와 분리하기 위함.
+            match prop.GetValue(ec, range) {
+                Ok(got) => {
+                    let g = &*got.Anonymous.Anonymous;
+                    let ok = g.vt == VT_I4 && g.Anonymous.lVal == atom as i32;
+                    if !ok {
+                        crate::register::dbg_log(&format!(
+                            "set_composition_attribute: GetValue MISMATCH vt={} lVal={} (expected VT_I4 atom={})",
+                            g.vt.0, g.Anonymous.lVal, atom
+                        ));
+                    }
+                }
+                Err(e) => crate::register::dbg_log(&format!(
+                    "set_composition_attribute: SetValue OK but GetValue failed hr={:?}",
+                    e
+                )),
+            }
+        }
+        Err(e) => crate::register::dbg_log(&format!(
+            "set_composition_attribute: SetValue FAILED hr={:?}",
+            e
+        )),
+    }
 }
 
 /// SetText 후 문서 selection(caret) 을 range 끝으로 이동한다.

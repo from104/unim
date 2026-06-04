@@ -1,11 +1,13 @@
 //! UnimTextService — TSF 메인 구조체
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::GetFocus;
 use windows::Win32::UI::TextServices::*;
 
 use unim::config::{Config, InputCategory};
@@ -66,6 +68,18 @@ pub struct UnimTextService {
     /// 마지막으로 config.yaml 변경을 확인한 시각. 키 입력 경로(OnKeyDown)에서
     /// 매 키마다 fs::metadata 를 때리지 않도록 스로틀링하는 데 쓴다.
     pub(crate) last_reload_check: Mutex<Option<Instant>>,
+
+    /// 즉시-terminate(CUAS 브리지)로 판명된 포커스 창(HWND) 집합.
+    ///
+    /// `OnCompositionTerminated` 가 키 직후(<200ms) 발생하는 창을 같은 HWND 로 **2회**
+    /// 관찰하면 학습해 저장한다. 이후 같은 창에서는 200ms 매직넘버에 의존하지 않고도
+    /// "이 앱은 composition 유지 불가"로 확정 판정한다 — 느린 머신/원격 데스크톱에서
+    /// 지연된 즉시-terminate(>200ms)를 놓쳐 조합이 다시 깨지는 것을 줄인다(지식베이스 P1).
+    pub(crate) cuas_windows: Mutex<HashSet<isize>>,
+    /// 직전에 by_time 즉시-종료가 관찰된 후보 창. 같은 창이 다시 관찰되면 cuas_windows
+    /// 로 승격한다 — 정상 앱의 단발성 빠른 정당한 종료(빠른 Enter/Esc) 1회로 영구
+    /// 오학습되는 것을 막는다.
+    pub(crate) cuas_candidate: Mutex<Option<isize>>,
 }
 
 impl UnimTextService {
@@ -96,6 +110,8 @@ impl UnimTextService {
             fallback_pending: AtomicUsize::new(0),
             last_key_instant: Mutex::new(None),
             last_reload_check: Mutex::new(None),
+            cuas_windows: Mutex::new(HashSet::new()),
+            cuas_candidate: Mutex::new(None),
         }
     }
 
@@ -404,12 +420,32 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         //      composition 을 유지하지 못하므로 폴백(backspace+reinsert) 모드로
         //      전환하고 엔진 preedit 버퍼는 보존한다(문서에 남은 글자 = pending).
         //  (2) 한참 뒤 종료 → 포커스 이탈/Esc 등 정상 종료. 엔진을 reset 한다.
-        let immediate = self
+        // 포커스 창(HWND) — 즉시-terminate 학습/조회 키.
+        let focus_hwnd = unsafe { GetFocus() }.0 as isize;
+
+        // 시간 기반 즉시-terminate 판정(<200ms). 이 200ms 는 느린 머신/원격 데스크톱
+        // 에서 흔들리므로, 한 번이라도 즉시-terminate 로 학습된 창은 타이밍과 무관하게
+        // 즉시로 확정한다(지연된 즉시-terminate 놓침 방지).
+        let by_time = self
             .last_key_instant
             .lock()
             .unwrap()
             .map(|t| t.elapsed() < std::time::Duration::from_millis(200))
             .unwrap_or(false);
+        let known_cuas = focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
+        let immediate = by_time || known_cuas;
+
+        // 학습: 같은 창에서 by_time 즉시-종료가 2회 관찰되면 CUAS 로 확정한다.
+        // 정상 앱의 단발성 빠른 정당한 종료(<200ms) 1회로 영구 오학습되는 것을 막는다.
+        // 진짜 CUAS 앱은 매 조합마다 즉시-종료하므로 둘째 키에서 곧바로 확정된다.
+        if by_time && focus_hwnd != 0 {
+            let mut cand = self.cuas_candidate.lock().unwrap();
+            if *cand == Some(focus_hwnd) {
+                self.cuas_windows.lock().unwrap().insert(focus_hwnd);
+            } else {
+                *cand = Some(focus_hwnd);
+            }
+        }
 
         self.composition_mgr.lock().unwrap().clear();
 
@@ -424,8 +460,8 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
             let pending = self.engine.lock().unwrap().preedit_str().chars().count();
             self.fallback_pending.store(pending, Ordering::SeqCst);
             crate::register::dbg_log(&format!(
-                "OnCompositionTerminated: IMMEDIATE -> fallback mode (pending={})",
-                pending
+                "OnCompositionTerminated: IMMEDIATE -> fallback (pending={}, hwnd={:#x}, by_time={}, known_cuas={})",
+                pending, focus_hwnd, by_time, known_cuas
             ));
         }
         Ok(())
