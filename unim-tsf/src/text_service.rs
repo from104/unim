@@ -62,6 +62,10 @@ pub struct UnimTextService {
     /// 마지막 OnKeyDown 시각. OnCompositionTerminated 가 "키 직후 즉시 종료
     /// (wezterm)" 인지 "한참 뒤 종료(포커스 이탈)" 인지 구분하는 데 쓴다.
     pub(crate) last_key_instant: Mutex<Option<Instant>>,
+
+    /// 마지막으로 config.yaml 변경을 확인한 시각. 키 입력 경로(OnKeyDown)에서
+    /// 매 키마다 fs::metadata 를 때리지 않도록 스로틀링하는 데 쓴다.
+    pub(crate) last_reload_check: Mutex<Option<Instant>>,
 }
 
 impl UnimTextService {
@@ -91,11 +95,80 @@ impl UnimTextService {
             composition_unsupported: AtomicBool::new(false),
             fallback_pending: AtomicUsize::new(0),
             last_key_instant: Mutex::new(None),
+            last_reload_check: Mutex::new(None),
         }
     }
 
     pub fn client_id(&self) -> u32 {
         self.client_id.load(Ordering::SeqCst)
+    }
+
+    /// config.yaml mtime 을 확인해 변경됐으면 엔진·설정을 조용히 reload 한다.
+    /// 설정 GUI 가 저장하면 포커스 전환 없이도 다음 키 입력 시 즉시 반영된다.
+    ///
+    /// - `throttle=true`(키 입력 경로): 최근 검사 후 300ms 이내면 디스크 접근 없이 건너뜀.
+    /// - 조합 중이거나 폴백(pending) 버퍼가 있으면 글자 깨짐 방지를 위해 reload 를 미룸
+    ///   (mtime 을 갱신하지 않으므로 다음 기회에 재시도).
+    ///
+    /// 어떤 락도 보유하지 않은 상태에서 호출해야 한다(내부에서 engine/config/
+    /// composition/popup/atf 락을 OnSetFocus·OnKeyDown 과 동일 순서로 취득).
+    pub(crate) fn maybe_reload_config(&self, throttle: bool) {
+        if throttle {
+            let mut last = self.last_reload_check.lock().unwrap();
+            if let Some(prev) = *last {
+                if prev.elapsed() < std::time::Duration::from_millis(300) {
+                    return;
+                }
+            }
+            *last = Some(Instant::now());
+        }
+
+        let Some(path) = Config::default_config_path() else {
+            return;
+        };
+        let Ok(meta) = std::fs::metadata(&path) else {
+            return;
+        };
+        let Ok(new_mtime) = meta.modified() else {
+            return;
+        };
+
+        // mtime 변화 여부만 먼저 싸게 확인.
+        {
+            let stored = self.config_mtime.lock().unwrap();
+            let changed = match *stored {
+                Some(prev) => new_mtime != prev,
+                None => true,
+            };
+            if !changed {
+                return;
+            }
+        }
+
+        // 조합/폴백 진행 중이면 미룬다 (확정 후 다음 키에서 반영).
+        if self.composition_mgr.lock().unwrap().is_active()
+            || self.fallback_pending.load(Ordering::SeqCst) != 0
+        {
+            return;
+        }
+
+        if let Ok(new_config) = Config::load_from_path(&path) {
+            let new_engine = InputEngine::new(&new_config);
+            // engine → config → composition → popup → atf 순(다른 경로와 동일).
+            let mut engine_guard = self.engine.lock().unwrap();
+            let mut config_guard = self.config.lock().unwrap();
+            let mut comp_guard = self.composition_mgr.lock().unwrap();
+            comp_guard.clear();
+            *engine_guard = new_engine;
+            *config_guard = new_config;
+            *self.config_mtime.lock().unwrap() = Some(new_mtime);
+            if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
+                win.hide();
+            }
+            let mut atf = self.atf_state.lock().unwrap();
+            atf.reset_on_focus();
+            atf.reload_external_data(&config_guard.engine.auto_typefix);
+        }
     }
 }
 
@@ -221,49 +294,11 @@ impl ITfTextInputProcessor_Impl for UnimTextService_Impl {
 
 impl ITfKeyEventSink_Impl for UnimTextService_Impl {
     fn OnSetFocus(&self, _fforeground: BOOL) -> Result<()> {
-        // config.yaml mtime을 비교해 변경됐으면 엔진·설정을 조용히 reload.
-        // 입력 비활성 시점(포커스 전환)이므로 race 없음.
-        let Some(path) = Config::default_config_path() else {
-            return Ok(());
-        };
-        let Ok(meta) = std::fs::metadata(&path) else {
-            return Ok(());
-        };
-        let Ok(new_mtime) = meta.modified() else {
-            return Ok(());
-        };
-
-        let mut stored = self.config_mtime.lock().unwrap();
-        let reload = match *stored {
-            Some(prev) => new_mtime != prev,
-            None => true,
-        };
-
-        if reload {
-            if let Ok(new_config) = Config::load_from_path(&path) {
-                let new_engine = InputEngine::new(&new_config);
-                // 진행 중인 composition 안전 종료: engine → config → composition 순
-                let mut engine_guard = self.engine.lock().unwrap();
-                let mut config_guard = self.config.lock().unwrap();
-                let mut comp_guard = self.composition_mgr.lock().unwrap();
-                comp_guard.clear();
-                *engine_guard = new_engine;
-                *config_guard = new_config;
-                *stored = Some(new_mtime);
-                // 팝업도 닫기 (재설정 시 남아있으면 안 됨)
-                if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
-                    win.hide();
-                }
-                // AutoTypeFix 상태 초기화 + 외부 데이터 리로드
-                let mut atf = self.atf_state.lock().unwrap();
-                atf.reset_on_focus();
-                atf.reload_external_data(&config_guard.engine.auto_typefix);
-            }
-        } else {
-            // 포커스 이동 시마다 AutoTypeFix 버퍼 초기화 (engine_worker handle_focus_in 대응)
-            self.atf_state.lock().unwrap().reset_on_focus();
-        }
-
+        // 포커스 전환(입력 비활성 시점)에 config 변경을 즉시 확인해 reload.
+        self.maybe_reload_config(false);
+        // 포커스 이동 시마다 AutoTypeFix 버퍼 초기화 (engine_worker handle_focus_in 대응).
+        // reload 시 maybe_reload_config 가 이미 reset 했더라도 idempotent 하므로 안전.
+        self.atf_state.lock().unwrap().reset_on_focus();
         Ok(())
     }
 
@@ -291,6 +326,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let context = pic.as_ref().ok_or(E_INVALIDARG)?;
         // OnCompositionTerminated 의 "즉시 종료" 판별용 타임스탬프.
         *self.last_key_instant.lock().unwrap() = Some(Instant::now());
+        // 설정 GUI 가 config.yaml 을 저장하면 포커스 전환 없이도 다음 키 입력 시
+        // 즉시 반영. 스로틀(300ms) + 조합 중 미룸으로 글자 깨짐·디스크 부담 방지.
+        // 반드시 아래 락 취득 전에 호출(내부에서 동일 락을 잡으므로 재진입 데드락 방지).
+        self.maybe_reload_config(true);
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
