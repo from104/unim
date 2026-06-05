@@ -110,6 +110,16 @@ fn refresh_userdict(ui: &SettingsWindow, ud: &UserDictionary) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 렌더러 명시 선택: 기본 FemtoVG 는 힌팅이 없어 작은 한글(14px) 획 굵기가
+    // 불균일하다. Skia 렌더러(Cargo.toml 의 renderer-skia feature 로 컴파일됨)는
+    // 네이티브 글리프 래스터화로 힌팅이 적용돼 균일한 획을 낸다.
+    // SLINT_BACKEND 형식은 "<backend>-<renderer>" → winit + skia.
+    // 사용자/개발자가 이미 지정했다면(예: 디버깅용 winit-software) 존중한다.
+    // SAFETY: SettingsWindow::new() 이전, 단일 스레드 진입부에서만 호출한다.
+    if std::env::var("SLINT_BACKEND").is_err() {
+        std::env::set_var("SLINT_BACKEND", "winit-skia");
+    }
+
     let ui = SettingsWindow::new()?;
 
     let config = Rc::new(RefCell::new(Config::load_from_default_path()));

@@ -13,7 +13,11 @@ path = "src/main.rs"
 
 [dependencies]
 unim = { path = ".." }
-slint = "1"
+# renderer-skia 를 명시 활성화: 기본 FemtoVG 렌더러는 자체 path 래스터라이저로
+# 힌팅 없이 글리프를 그려 작은 한글(14px Malgun Gothic)에서 획 굵기가 불균일.
+# Skia 렌더러는 OS/FreeType 네이티브 글리프 파이프라인을 타 힌팅이 적용된다.
+# (main.rs 진입부에서 SLINT_BACKEND=winit-skia 로 런타임 강제 선택)
+slint = { version = "1", features = ["renderer-skia"] }
 
 [build-dependencies]
 slint-build = "1"
