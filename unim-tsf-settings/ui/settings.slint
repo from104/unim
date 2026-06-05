@@ -1,7 +1,155 @@
+// UNIM TSF 설정 GUI — 사이드바 + 카드 기반 최신 트렌드 UI (Slint 1.12.1).
+//
+// 설계 원칙:
+//  - TabWidget 폐기 → 좌측 사이드바(NavItem) + 우측 ScrollView 콘텐츠의 마스터-디테일.
+//  - 모든 색은 Palette.* 참조 → OS 다크/라이트 자동 추종.
+//  - 불리언은 Switch(즉시 저장 정책에 정합), enum 소수선택은 ComboBox 유지.
+//  - 브랜드 그라디언트(#1e6ab5 → #6c40a6)는 헤더 워드마크 칩과 선택된 사이드바
+//    항목의 좌측 인디케이터에만 악센트로 사용.
+//  - 자동저장 배선: 위젯 콜백(selected/toggled/edited/accepted/clicked)에서만
+//    root.auto-save() 호출. 'changed' 핸들러 금지(초기 set_* 저장폭주 방지).
+//
+// main.rs 계약(절대 불변): 컴포넌트명 SettingsWindow, in-out property 28개,
+// callback 6개, default-font-family "Malgun Gothic".
+
 import {
-    TabWidget, ComboBox, CheckBox, SpinBox, LineEdit, Button, GroupBox,
-    ScrollView, StandardListView, VerticalBox, HorizontalBox
+    ComboBox, SpinBox, LineEdit, Button, Switch,
+    ScrollView, StandardListView, Palette
 } from "std-widgets.slint";
+
+// ── 디자인 토큰(global) — 4px 그리드 기반 간격·폰트·radius 중앙화 ──
+global Tokens {
+    // 간격 스케일
+    out property <length> space-xs: 2px;
+    out property <length> space-1: 4px;
+    out property <length> space-2: 8px;
+    out property <length> space-3: 12px;
+    out property <length> space-4: 16px;
+    out property <length> space-6: 24px;
+    // radius
+    out property <length> radius-card: 12px;
+    out property <length> radius-nav: 8px;
+    out property <length> radius-chip: 6px;
+    // 폰트 위계
+    out property <length> font-wordmark: 20px;
+    out property <length> font-title: 15px;
+    out property <length> font-body: 14px;
+    out property <length> font-caption: 12px;
+    // 다크/라이트 분기
+    out property <bool> is-dark: Palette.color-scheme == ColorScheme.dark;
+    // 브랜드 그라디언트(다크에서 시작색 1단 밝힘으로 대비 확보)
+    out property <brush> brand-gradient: root.is-dark
+        ? @linear-gradient(90deg, #2f86d8 0%, #8a5fc4 100%)
+        : @linear-gradient(90deg, #1e6ab5 0%, #6c40a6 100%);
+    // 캡션(dim) 색 — 대비를 위해 다크에서 알파 상향
+    out property <brush> caption-color: Palette.foreground.with-alpha(root.is-dark ? 0.7 : 0.6);
+}
+
+// ── 카드: 그룹 컨테이너. 라이트=그림자, 다크=테두리 ──
+component Card inherits Rectangle {
+    in property <string> title;
+    background: Palette.control-background;
+    border-radius: Tokens.radius-card;
+    border-width: Tokens.is-dark ? 1px : 0px;
+    border-color: Palette.border;
+    drop-shadow-blur: Tokens.is-dark ? 0px : 12px;
+    drop-shadow-color: #00000018;
+    drop-shadow-offset-y: 2px;
+    VerticalLayout {
+        padding: Tokens.space-4;
+        spacing: Tokens.space-1;
+        if root.title != "": Text {
+            text: root.title;
+            font-size: Tokens.font-title;
+            font-weight: 700;
+            color: Palette.foreground;
+        }
+        if root.title != "": Rectangle { height: Tokens.space-2; } // 헤더-첫행 간격
+        @children
+    }
+}
+
+// ── 사이드바 내비 항목 ──
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> focused;
+    callback clicked;
+    height: 40px;
+    border-radius: Tokens.radius-nav;
+    background: root.selected
+        ? Palette.accent-background
+        : (ta.has-hover ? Palette.alternate-background : transparent);
+    // 키보드 포커스 가시화: 사이드바가 포커스를 가지면 현재 항목에 포커스 링.
+    // 선택 항목은 accent-background 위라 accent-foreground 로, 비선택은 accent-background 로 대비.
+    border-width: root.focused ? 2px : 0px;
+    border-color: root.selected ? Palette.accent-foreground : Palette.accent-background;
+    animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: tab;
+    accessible-label: root.label;
+    accessible-checked: root.selected;
+    HorizontalLayout {
+        padding-left: Tokens.space-3;
+        padding-right: Tokens.space-3;
+        spacing: Tokens.space-2;
+        // 선택 시 좌측 그라디언트 인디케이터
+        Rectangle {
+            width: 3px;
+            y: (parent.height - self.height) / 2;
+            height: 18px;
+            border-radius: 2px;
+            background: root.selected ? Tokens.brand-gradient : transparent;
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            font-size: Tokens.font-body;
+            font-weight: root.selected ? 600 : 400;
+            color: root.selected ? Palette.accent-foreground : Palette.foreground;
+        }
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// ── 설정 행: 좌측(제목 + 설명) stretch, 우측 컨트롤(@children) ──
+component SettingRow {
+    in property <string> title;
+    in property <string> description;
+    in property <bool> row-enabled: true;
+    HorizontalLayout {
+        padding-top: Tokens.space-3;
+        padding-bottom: Tokens.space-3;
+        spacing: Tokens.space-3;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: Tokens.space-xs;
+            Text {
+                text: root.title;
+                font-size: Tokens.font-body;
+                font-weight: 500;
+                color: root.row-enabled
+                    ? Palette.foreground
+                    : Palette.foreground.with-alpha(0.4);
+            }
+            if root.description != "": Text {
+                text: root.description;
+                font-size: Tokens.font-caption;
+                wrap: word-wrap;
+                color: root.row-enabled
+                    ? Tokens.caption-color
+                    : Palette.foreground.with-alpha(0.3);
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            @children
+        }
+    }
+}
 
 export component SettingsWindow inherits Window {
     title: "UNIM 설정";
@@ -9,10 +157,11 @@ export component SettingsWindow inherits Window {
     // Windows 기본 한글 UI 폰트(맑은 고딕)를 지정한다.
     default-font-family: "Malgun Gothic";
     default-font-size: 14px;
-    preferred-width: 680px;
-    preferred-height: 620px;
-    min-width: 560px;
-    min-height: 520px;
+    preferred-width: 760px;
+    preferred-height: 640px;
+    min-width: 620px;
+    min-height: 540px;
+    background: Palette.background;
 
     // ── 일반 ──
     in-out property <[string]> korean-layouts;
@@ -63,199 +212,497 @@ export component SettingsWindow inherits Window {
     callback userdict-add();
     callback userdict-remove(int);
 
-    VerticalBox {
-        TabWidget {
-            Tab {
-                title: "일반";
-                ScrollView {
-                    VerticalBox {
+    // 현재 페이지(0=일반, 1=오타 교정, 2=억제 단어, 3=사용자 사전)
+    property <int> current-page: 0;
+
+    VerticalLayout {
+        // ── 헤더 ──
+        Rectangle {
+            height: 64px;
+            background: Palette.background;
+            HorizontalLayout {
+                padding-left: Tokens.space-6;
+                padding-right: Tokens.space-6;
+                spacing: Tokens.space-2;
+                // 브랜드 그라디언트 악센트 칩
+                Rectangle {
+                    width: 4px;
+                    y: (parent.height - self.height) / 2;
+                    height: 28px;
+                    border-radius: 2px;
+                    background: Tokens.brand-gradient;
+                }
+                Text {
+                    text: "unim";
+                    vertical-alignment: center;
+                    font-size: Tokens.font-wordmark;
+                    font-weight: 700;
+                    color: Palette.foreground;
+                }
+                Text {
+                    text: "설정";
+                    vertical-alignment: center;
+                    font-size: Tokens.font-body;
+                    color: Tokens.caption-color;
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            // 헤더 하단 경계선
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Palette.border;
+            }
+        }
+
+        // ── 본문: 사이드바 + 콘텐츠 ──
+        HorizontalLayout {
+            // 사이드바
+            Rectangle {
+                width: 220px;
+                background: Palette.alternate-background;
+                Rectangle {
+                    x: parent.width - 1px;
+                    width: 1px;
+                    // 키보드가 사이드바에 있을 때 경계선을 악센트로 → 현재 조작 영역 표시.
+                    background: nav-scope.has-focus ? Palette.accent-background : Palette.border;
+                }
+                nav-scope := FocusScope {
+                    key-pressed(event) => {
+                        if event.text == Key.UpArrow {
+                            root.current-page = Math.max(0, root.current-page - 1);
+                            accept
+                        } else if event.text == Key.DownArrow {
+                            root.current-page = Math.min(3, root.current-page + 1);
+                            accept
+                        } else {
+                            reject
+                        }
+                    }
+                    VerticalLayout {
+                        padding: Tokens.space-2;
+                        spacing: Tokens.space-1;
                         alignment: start;
-                        GroupBox {
-                            title: "입력기";
-                            VerticalBox {
-                                HorizontalBox {
-                                    Text { text: "한글 자판"; vertical-alignment: center; width: 150px; }
-                                    ComboBox {
-                                        model: root.korean-layouts;
-                                        current-index <=> root.korean-layout-index;
-                                        selected => { root.auto-save(); }
-                                    }
-                                }
-                                HorizontalBox {
-                                    Text { text: "영문 자판"; vertical-alignment: center; width: 150px; }
-                                    ComboBox {
-                                        model: root.english-layouts;
-                                        current-index <=> root.english-layout-index;
-                                        selected => { root.auto-save(); }
-                                    }
-                                }
-                                HorizontalBox {
-                                    Text { text: "시작 입력 모드"; vertical-alignment: center; width: 150px; }
-                                    ComboBox {
-                                        model: root.category-options;
-                                        current-index <=> root.category-index;
-                                        selected => { root.auto-save(); }
-                                    }
-                                }
-                                HorizontalBox {
-                                    Text { text: "모드 공유"; vertical-alignment: center; width: 150px; }
-                                    ComboBox {
-                                        model: root.mode-sharing-options;
-                                        current-index <=> root.mode-sharing-index;
-                                        selected => { root.auto-save(); }
-                                    }
-                                }
-                            }
+                        NavItem {
+                            label: "일반";
+                            selected: root.current-page == 0;
+                            focused: root.current-page == 0 && nav-scope.has-focus;
+                            clicked => { root.current-page = 0; nav-scope.focus(); }
                         }
-                        GroupBox {
-                            title: "키 설정";
-                            VerticalBox {
-                                HorizontalBox {
-                                    Text { text: "한/영 토글 키"; vertical-alignment: center; width: 150px; }
-                                    LineEdit {
-                                        text <=> root.toggle-keys;
-                                        placeholder-text: "예: Hangul, Shift+Space";
-                                        edited => { root.auto-save(); }
-                                    }
-                                }
-                                HorizontalBox {
-                                    Text { text: "한자 변환 키"; vertical-alignment: center; width: 150px; }
-                                    LineEdit {
-                                        text <=> root.hanja-keys;
-                                        placeholder-text: "예: Hanja, Control+Enter";
-                                        edited => { root.auto-save(); }
-                                    }
-                                }
-                            }
+                        NavItem {
+                            label: "오타 교정";
+                            selected: root.current-page == 1;
+                            focused: root.current-page == 1 && nav-scope.has-focus;
+                            clicked => { root.current-page = 1; nav-scope.focus(); }
                         }
-                        GroupBox {
-                            title: "자동 영문 전환";
-                            VerticalBox {
-                                CheckBox {
-                                    text: "자동 영문 전환 사용";
-                                    checked <=> root.auto-english-enabled;
-                                    toggled => { root.auto-save(); }
-                                }
-                                HorizontalBox {
-                                    Text { text: "트리거 키"; vertical-alignment: center; width: 150px; }
-                                    LineEdit {
-                                        text <=> root.auto-english-keys;
-                                        placeholder-text: "예: Escape";
-                                        edited => { root.auto-save(); }
-                                    }
-                                }
-                            }
+                        NavItem {
+                            label: "억제 단어";
+                            selected: root.current-page == 2;
+                            focused: root.current-page == 2 && nav-scope.has-focus;
+                            clicked => { root.current-page = 2; nav-scope.focus(); }
+                        }
+                        NavItem {
+                            label: "사용자 사전";
+                            selected: root.current-page == 3;
+                            focused: root.current-page == 3 && nav-scope.has-focus;
+                            clicked => { root.current-page = 3; nav-scope.focus(); }
                         }
                     }
                 }
             }
-            Tab {
-                title: "오타 교정";
-                ScrollView {
-                    VerticalBox {
-                        alignment: start;
-                        CheckBox {
-                            text: "자동 오타 교정(AutoTypeFix) 사용";
-                            checked <=> root.atf-enabled;
-                            toggled => { root.auto-save(); }
-                        }
-                        GroupBox {
-                            title: "교정 방향";
-                            VerticalBox {
-                                CheckBox {
-                                    text: "정방향 (영문 입력 → 한글로 교정)";
-                                    checked <=> root.atf-forward;
-                                    toggled => { root.auto-save(); }
-                                }
-                                CheckBox {
-                                    text: "역방향 (한글 입력 → 영문으로 교정)";
-                                    checked <=> root.atf-reverse;
-                                    toggled => { root.auto-save(); }
-                                }
+
+            // 콘텐츠
+            content-scroll := ScrollView {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding-left: Tokens.space-6;
+                    padding-right: Tokens.space-6;
+                    padding-top: Tokens.space-6;
+                    padding-bottom: Tokens.space-6;
+                    spacing: Tokens.space-4;
+                    alignment: start;
+
+                    // ── 페이지 0: 일반 ──
+                    if root.current-page == 0: Card {
+                        title: "입력기";
+                        SettingRow {
+                            title: "한글 자판";
+                            description: "한글 입력 시 사용할 자판 배열을 선택합니다.";
+                            ComboBox {
+                                min-width: 200px;
+                                model: root.korean-layouts;
+                                current-index <=> root.korean-layout-index;
+                                accessible-label: "한글 자판";
+                                selected => { root.auto-save(); }
                             }
                         }
-                        GroupBox {
-                            title: "임계값";
-                            VerticalBox {
-                                HorizontalBox {
-                                    Text { text: "한글 음절 임계값"; vertical-alignment: center; width: 190px; }
-                                    SpinBox { minimum: 2; maximum: 6; value <=> root.atf-kor-threshold; edited => { root.auto-save(); } }
-                                }
-                                HorizontalBox {
-                                    Text { text: "영문 단어 최소 길이"; vertical-alignment: center; width: 190px; }
-                                    SpinBox { minimum: 3; maximum: 8; value <=> root.atf-eng-min-length; edited => { root.auto-save(); } }
-                                }
-                                HorizontalBox {
-                                    Text { text: "정방향 감지창 (ms)"; vertical-alignment: center; width: 190px; }
-                                    SpinBox { minimum: 500; maximum: 5000; step-size: 100; value <=> root.atf-forward-window; edited => { root.auto-save(); } }
-                                }
-                                HorizontalBox {
-                                    Text { text: "역방향 감지창 (ms)"; vertical-alignment: center; width: 190px; }
-                                    SpinBox { minimum: 500; maximum: 5000; step-size: 100; value <=> root.atf-reverse-window; edited => { root.auto-save(); } }
-                                }
-                                HorizontalBox {
-                                    Text { text: "임시 항목 만료 (시간)"; vertical-alignment: center; width: 190px; }
-                                    SpinBox { minimum: 1; maximum: 12; value <=> root.atf-tentative-expiry; edited => { root.auto-save(); } }
-                                }
-                                HorizontalBox {
-                                    Text { text: "관찰 타임아웃 (초)"; vertical-alignment: center; width: 190px; }
-                                    SpinBox { minimum: 5; maximum: 15; value <=> root.atf-observation-timeout; edited => { root.auto-save(); } }
-                                }
+                        SettingRow {
+                            title: "영문 자판";
+                            description: "영문 입력 시 사용할 자판 배열을 선택합니다.";
+                            ComboBox {
+                                min-width: 200px;
+                                model: root.english-layouts;
+                                current-index <=> root.english-layout-index;
+                                accessible-label: "영문 자판";
+                                selected => { root.auto-save(); }
                             }
                         }
-                        GroupBox {
-                            title: "옵션";
-                            VerticalBox {
-                                CheckBox { text: "영어 단어는 교정 건너뛰기"; checked <=> root.atf-skip-english-word; toggled => { root.auto-save(); } }
-                                CheckBox { text: "완성된 음절은 교정 건너뛰기"; checked <=> root.atf-skip-complete-syllable; toggled => { root.auto-save(); } }
-                                CheckBox { text: "되돌리기(롤백) 감지"; checked <=> root.atf-rollback-detection; toggled => { root.auto-save(); } }
-                                CheckBox { text: "사용자 사전 사용"; checked <=> root.atf-user-dict-enabled; toggled => { root.auto-save(); } }
+                        SettingRow {
+                            title: "시작 입력 모드";
+                            description: "입력기가 켜질 때 기본으로 사용할 모드입니다.";
+                            ComboBox {
+                                min-width: 200px;
+                                model: root.category-options;
+                                current-index <=> root.category-index;
+                                accessible-label: "시작 입력 모드";
+                                selected => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "모드 공유";
+                            description: "한/영 모드를 모든 앱에서 공유할지, 앱별로 분리할지 선택합니다.";
+                            ComboBox {
+                                min-width: 200px;
+                                model: root.mode-sharing-options;
+                                current-index <=> root.mode-sharing-index;
+                                accessible-label: "모드 공유";
+                                selected => { root.auto-save(); }
                             }
                         }
                     }
-                }
-            }
-            Tab {
-                title: "억제 단어";
-                VerticalBox {
-                    Text { text: "자동 교정에서 제외할(억제) 단어 목록입니다. 변경 즉시 적용됩니다."; }
-                    StandardListView {
-                        model: root.blacklist-model;
-                        current-item <=> root.blacklist-selected;
-                        min-height: 300px;
+                    if root.current-page == 0: Card {
+                        title: "키 설정";
+                        SettingRow {
+                            title: "한/영 토글 키";
+                            description: "쉼표로 구분해 여러 키를 지정할 수 있습니다.";
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.toggle-keys;
+                                placeholder-text: "예: Hangul, Shift+Space";
+                                accessible-label: "한/영 토글 키";
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "한자 변환 키";
+                            description: "한글을 한자로 변환할 때 사용할 키입니다.";
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.hanja-keys;
+                                placeholder-text: "예: Hanja, Control+Enter";
+                                accessible-label: "한자 변환 키";
+                                edited => { root.auto-save(); }
+                            }
+                        }
                     }
-                    HorizontalBox {
-                        alignment: end;
-                        Button { text: "선택 삭제"; clicked => { root.blacklist-remove(root.blacklist-selected); } }
-                        Button { text: "모두 삭제"; clicked => { root.blacklist-clear(); } }
+                    if root.current-page == 0: Card {
+                        title: "자동 영문 전환";
+                        SettingRow {
+                            title: "자동 영문 전환 사용";
+                            description: "특정 키 입력 시 자동으로 영문 모드로 전환합니다.";
+                            Switch {
+                                checked <=> root.auto-english-enabled;
+                                accessible-label: "자동 영문 전환 사용";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "트리거 키";
+                            description: "자동 영문 전환을 발동할 키입니다.";
+                            row-enabled: root.auto-english-enabled;
+                            LineEdit {
+                                min-width: 220px;
+                                enabled: root.auto-english-enabled;
+                                text <=> root.auto-english-keys;
+                                placeholder-text: "예: Escape";
+                                accessible-label: "트리거 키";
+                                edited => { root.auto-save(); }
+                            }
+                        }
                     }
-                }
-            }
-            Tab {
-                title: "사용자 사전";
-                VerticalBox {
-                    Text { text: "역방향 교정에서 영문으로 보존할 단어입니다. 변경 즉시 적용됩니다."; }
-                    StandardListView {
-                        model: root.userdict-model;
-                        current-item <=> root.userdict-selected;
-                        min-height: 250px;
+
+                    // ── 페이지 1: 오타 교정 ──
+                    if root.current-page == 1: Card {
+                        SettingRow {
+                            title: "자동 오타 교정(AutoTypeFix) 사용";
+                            description: "한/영 전환을 깜빡한 오타를 자동으로 교정합니다.";
+                            Switch {
+                                checked <=> root.atf-enabled;
+                                accessible-label: "자동 오타 교정 사용";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
                     }
-                    HorizontalBox {
-                        LineEdit { placeholder-text: "단어"; text <=> root.userdict-new-word; accepted => { root.userdict-add(); } }
-                        LineEdit { placeholder-text: "메모(선택)"; text <=> root.userdict-new-note; }
-                        Button { text: "추가"; clicked => { root.userdict-add(); } }
+                    if root.current-page == 1: Card {
+                        title: "교정 방향";
+                        SettingRow {
+                            title: "정방향";
+                            description: "영문으로 잘못 입력한 글자를 한글로 교정합니다.";
+                            row-enabled: root.atf-enabled;
+                            Switch {
+                                enabled: root.atf-enabled;
+                                checked <=> root.atf-forward;
+                                accessible-label: "정방향 교정";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "역방향";
+                            description: "한글로 잘못 입력한 글자를 영문으로 교정합니다.";
+                            row-enabled: root.atf-enabled;
+                            Switch {
+                                enabled: root.atf-enabled;
+                                checked <=> root.atf-reverse;
+                                accessible-label: "역방향 교정";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
                     }
-                    HorizontalBox {
-                        alignment: end;
-                        Button { text: "선택 삭제"; clicked => { root.userdict-remove(root.userdict-selected); } }
+                    if root.current-page == 1: Card {
+                        title: "임계값";
+                        SettingRow {
+                            title: "한글 음절 임계값";
+                            description: "이 음절 수 이상 모이면 교정 후보로 판정합니다.";
+                            row-enabled: root.atf-enabled;
+                            SpinBox {
+                                min-width: 110px;
+                                enabled: root.atf-enabled;
+                                minimum: 2;
+                                maximum: 6;
+                                value <=> root.atf-kor-threshold;
+                                accessible-label: "한글 음절 임계값";
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "영문 단어 최소 길이";
+                            description: "이 길이 이상의 영문 단어만 교정 대상으로 봅니다.";
+                            row-enabled: root.atf-enabled;
+                            SpinBox {
+                                min-width: 110px;
+                                enabled: root.atf-enabled;
+                                minimum: 3;
+                                maximum: 8;
+                                value <=> root.atf-eng-min-length;
+                                accessible-label: "영문 단어 최소 길이";
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "정방향 감지창 (ms)";
+                            description: "입력 후 이 시간 안에 정방향 교정을 판정합니다.";
+                            row-enabled: root.atf-enabled;
+                            SpinBox {
+                                min-width: 110px;
+                                enabled: root.atf-enabled;
+                                minimum: 500;
+                                maximum: 5000;
+                                step-size: 100;
+                                value <=> root.atf-forward-window;
+                                accessible-label: "정방향 감지창";
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "역방향 감지창 (ms)";
+                            description: "입력 후 이 시간 안에 역방향 교정을 판정합니다.";
+                            row-enabled: root.atf-enabled;
+                            SpinBox {
+                                min-width: 110px;
+                                enabled: root.atf-enabled;
+                                minimum: 500;
+                                maximum: 5000;
+                                step-size: 100;
+                                value <=> root.atf-reverse-window;
+                                accessible-label: "역방향 감지창";
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "임시 항목 만료 (시간)";
+                            description: "임시 학습 항목을 이 시간 후 정리합니다.";
+                            row-enabled: root.atf-enabled;
+                            SpinBox {
+                                min-width: 110px;
+                                enabled: root.atf-enabled;
+                                minimum: 1;
+                                maximum: 12;
+                                value <=> root.atf-tentative-expiry;
+                                accessible-label: "임시 항목 만료";
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "관찰 타임아웃 (초)";
+                            description: "판정 전 입력을 관찰하는 최대 시간입니다.";
+                            row-enabled: root.atf-enabled;
+                            SpinBox {
+                                min-width: 110px;
+                                enabled: root.atf-enabled;
+                                minimum: 5;
+                                maximum: 15;
+                                value <=> root.atf-observation-timeout;
+                                accessible-label: "관찰 타임아웃";
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                    }
+                    if root.current-page == 1: Card {
+                        title: "옵션";
+                        SettingRow {
+                            title: "영어 단어는 교정 건너뛰기";
+                            description: "사전에 있는 영어 단어는 교정하지 않습니다.";
+                            row-enabled: root.atf-enabled;
+                            Switch {
+                                enabled: root.atf-enabled;
+                                checked <=> root.atf-skip-english-word;
+                                accessible-label: "영어 단어는 교정 건너뛰기";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "완성된 음절은 교정 건너뛰기";
+                            description: "이미 완성된 한글 음절은 교정 대상에서 제외합니다.";
+                            row-enabled: root.atf-enabled;
+                            Switch {
+                                enabled: root.atf-enabled;
+                                checked <=> root.atf-skip-complete-syllable;
+                                accessible-label: "완성된 음절은 교정 건너뛰기";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "되돌리기(롤백) 감지";
+                            description: "사용자가 교정을 되돌리면 학습해 재교정을 막습니다.";
+                            row-enabled: root.atf-enabled;
+                            Switch {
+                                enabled: root.atf-enabled;
+                                checked <=> root.atf-rollback-detection;
+                                accessible-label: "되돌리기 감지";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "사용자 사전 사용";
+                            description: "사용자 사전에 등록한 단어를 교정에 반영합니다.";
+                            row-enabled: root.atf-enabled;
+                            Switch {
+                                enabled: root.atf-enabled;
+                                checked <=> root.atf-user-dict-enabled;
+                                accessible-label: "사용자 사전 사용";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                    }
+
+                    // ── 페이지 2: 억제 단어 ──
+                    if root.current-page == 2: Text {
+                        text: "자동 교정에서 제외할(억제) 단어 목록입니다. 변경 즉시 적용됩니다.";
+                        font-size: Tokens.font-caption;
+                        wrap: word-wrap;
+                        color: Tokens.caption-color;
+                    }
+                    if root.current-page == 2: Card {
+                        StandardListView {
+                            min-height: 280px;
+                            model: root.blacklist-model;
+                            current-item <=> root.blacklist-selected;
+                        }
+                        Rectangle { height: Tokens.space-3; }
+                        HorizontalLayout {
+                            spacing: Tokens.space-2;
+                            alignment: end;
+                            Button {
+                                text: "선택 삭제";
+                                clicked => { root.blacklist-remove(root.blacklist-selected); }
+                            }
+                            Button {
+                                text: "모두 삭제";
+                                clicked => { root.blacklist-clear(); }
+                            }
+                        }
+                    }
+
+                    // ── 페이지 3: 사용자 사전 ──
+                    if root.current-page == 3: Text {
+                        text: "역방향 교정에서 영문으로 보존할 단어입니다. 변경 즉시 적용됩니다.";
+                        font-size: Tokens.font-caption;
+                        wrap: word-wrap;
+                        color: Tokens.caption-color;
+                    }
+                    if root.current-page == 3: Card {
+                        title: "단어 추가";
+                        SettingRow {
+                            title: "단어";
+                            description: "역방향 교정에서 영문으로 보존할 단어입니다.";
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.userdict-new-word;
+                                placeholder-text: "단어";
+                                accessible-label: "추가할 단어";
+                                accepted => { root.userdict-add(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "메모";
+                            description: "단어를 구분하기 위한 선택 사항입니다.";
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.userdict-new-note;
+                                placeholder-text: "메모(선택)";
+                                accessible-label: "메모";
+                            }
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            alignment: end;
+                            Button {
+                                text: "추가";
+                                primary: true;
+                                clicked => { root.userdict-add(); }
+                            }
+                        }
+                    }
+                    if root.current-page == 3: Card {
+                        StandardListView {
+                            min-height: 220px;
+                            model: root.userdict-model;
+                            current-item <=> root.userdict-selected;
+                        }
+                        Rectangle { height: Tokens.space-3; }
+                        HorizontalLayout {
+                            alignment: end;
+                            Button {
+                                text: "선택 삭제";
+                                clicked => { root.userdict-remove(root.userdict-selected); }
+                            }
+                        }
                     }
                 }
             }
         }
-        HorizontalBox {
-            Text { text <=> root.status-text; color: #2e7d32; vertical-alignment: center; }
-            Rectangle { horizontal-stretch: 1; }
-            Button { text: "닫기"; clicked => { root.close-clicked(); } }
+
+        // ── 상태바 ──
+        Rectangle {
+            height: 28px;
+            background: Palette.alternate-background;
+            Rectangle {
+                y: 0;
+                height: 1px;
+                background: Palette.border;
+            }
+            HorizontalLayout {
+                padding-left: Tokens.space-6;
+                padding-right: Tokens.space-6;
+                spacing: Tokens.space-2;
+                Text {
+                    text <=> root.status-text;
+                    vertical-alignment: center;
+                    font-size: Tokens.font-caption;
+                    color: Tokens.caption-color;
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
         }
     }
 }
