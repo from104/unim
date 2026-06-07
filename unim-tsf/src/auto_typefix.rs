@@ -381,8 +381,14 @@ pub fn process_after_key(
                     fix.commit_text
                 );
 
-                // 순방향 delete_chars 보정: commit 억제분 1 감소 (engine_worker:956-959)
-                let delete_chars = fix.delete_chars.saturating_sub(1);
+                // 순방향(영→한) delete_chars = 입력한 영문 전체 길이.
+                //
+                // 과거엔 engine_worker(Linux DBus)를 따라 -1 했으나, 그건 Linux 가 트리거
+                // 키의 commit 을 억제해 앱에 N-1 자만 있기 때문이다. TSF 경로는 영문 모드에서
+                // 각 키가 조합 없이 즉시 commit 되어 앱(메모장 등)에 N 자가 모두 있으므로,
+                // -1 하면 커서 앞 N-1 자만 지워져 첫 글자가 잔류한다("ntkd"→"n서기" 버그).
+                // (역방향(한→영)은 마지막 음절이 조합 중=미commit 이라 별도 -1 보정이 정당.)
+                let delete_chars = fix.delete_chars;
 
                 Some(AutoFixApply {
                     delete_chars,
