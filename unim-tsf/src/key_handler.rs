@@ -14,6 +14,7 @@ use unim::keycode::{KeyCode, ModifierState};
 use crate::auto_typefix::{self, AutoTypeFixState};
 use crate::composition::{self, CompositionManager};
 use crate::popup_window::PopupWindow;
+use crate::preedit_window::PreeditWindow;
 
 /// 현재 Win32 수정자 키 상태를 조회합니다.
 fn get_modifier_state() -> ModifierState {
@@ -109,6 +110,31 @@ pub fn test_key_down(
     }
 }
 
+/// 조합 중 "확정 후 앱으로 통과"시켜야 하는 네비게이션/기능 키.
+///
+/// OnTestKeyDown 에서 이 키들은 현재 composition 을 확정하고 pIsEaten=FALSE 로
+/// 흘려보낸다(NavilIME 패턴). 그래야 OnKeyDown 이 호출되지 않아 키가 IME 에
+/// 먹히지 않고, 앱이 Enter(개행)·화살표(커서 이동)·Tab·Esc 를 직접 처리한다.
+/// (commit 을 OnKeyDown 에서 한 뒤 false 를 반환하면 CUAS 가 이미 test 단계에서
+/// claim 된 키를 앱으로 흘려보내지 않아 동작하지 않는다.) 팝업 활성 시에는
+/// 이 키들이 후보 내비게이션용이므로 적용하지 않는다(호출부에서 가드).
+pub fn is_commit_passthrough_key(keycode: KeyCode) -> bool {
+    matches!(
+        keycode,
+        KeyCode::Enter
+            | KeyCode::Tab
+            | KeyCode::Escape
+            | KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+    )
+}
+
 /// 팝업 활성 시 소비해야 할 키인지 판단.
 ///
 /// 엔진의 `keycode_to_popup_key` 매핑과 동일한 범위를 소비한다.
@@ -196,6 +222,7 @@ pub fn handle_key_down(
     config: &Config,
     comp_mgr: &mut CompositionManager,
     popup_win: &mut Option<PopupWindow>,
+    preedit_win: &mut Option<PreeditWindow>,
     atf_state: &mut AutoTypeFixState,
     context: &ITfContext,
     tid: u32,
@@ -287,13 +314,16 @@ pub fn handle_key_down(
     let preedit_str_for_atf: Option<String>;
 
     if composition_unsupported {
-        // ── 폴백 경로 (wezterm 등 composition 미지원 앱) ──
+        // ── 폴백 경로: client-side preedit (wezterm 등 터미널·레거시 앱) ──
         //
-        // composition 을 만들면 앱/CUAS 가 즉시 OnCompositionTerminated 로
-        // 종료시켜 중간 글자가 문서에 잔류한다("ㅎ하한..."). 그래서 composition
-        // 대신 직접 문서를 조작한다: 매 키마다 이전에 떠있던 미확정 글자
-        // (fallback_pending 개)를 지우고, [확정문자 + 새 preedit] 를 삽입한다.
-        // 확정문자는 영구로 남고 새 preedit 가 다음 회차의 pending 이 된다.
+        // 과거 방식(매 키마다 문서를 del+재삽입)은 터미널에서 깨졌다: ShiftStart
+        // 역방향 삭제를 앱이 거부(shifted=0) → 삭제가 안 먹고 삽입만 누적되어
+        // "ㄱ기깋기혀현현"(실측)이 됐다. 삽입(SetText)만 정상 동작.
+        //
+        // 새 방식(리눅스 fcitx/ibus 의 client-side preedit): 조합 중 음절(preedit)은
+        // 문서가 아니라 UNIM 오버레이 창(preedit_win)에 그린다. 엔진 commit 은
+        // append-only 라 절대 되돌릴 필요가 없으므로, 확정된 글자만 insert_text 로
+        // 문서에 추가한다 → 삭제가 영원히 불필요.
         let commit = if result.commit_changed {
             let c = engine.commit_str().to_string();
             engine.clear_commit();
@@ -302,71 +332,87 @@ pub fn handle_key_down(
             String::new()
         };
         let preedit = engine.preedit_str().to_string();
-        commit_str_for_atf = if commit.is_empty() { None } else { Some(commit.clone()) };
-        preedit_str_for_atf = if result.preedit_changed { Some(preedit.clone()) } else { None };
+        // 폴백 경로에서는 ATF(주변 텍스트 교체)도 동일 삭제 한계로 깨지므로 비활성.
+        commit_str_for_atf = None;
+        preedit_str_for_atf = None;
 
         if result.commit_changed || result.preedit_changed {
-            let pending = fallback_pending.load(Ordering::SeqCst);
-            let insert = format!("{}{}", commit, preedit);
             crate::register::dbg_log(&format!(
-                "fallback: del={} insert='{}' (commit_len={} preedit_len={})",
-                pending,
-                insert,
-                commit.chars().count(),
-                preedit.chars().count()
+                "fallback(overlay): commit='{}' preedit='{}'",
+                commit, preedit
             ));
-            if pending > 0 || !insert.is_empty() {
-                // replace_surrounding(preedit_text="") = "delete N chars + insert text"
-                // (composition 시작 안 함). AutoTypeFix 와 동일한 검증된 경로.
-                comp_mgr.replace_surrounding(context, tid, pending as u32, &insert, "", comp_sink);
+            // 1) 확정 글자 → 문서에 영구 삽입 (삭제 없음, wezterm 정상 동작)
+            if !commit.is_empty() {
+                comp_mgr.insert_text(context, tid, &commit);
             }
+            // 2) 조합 중 음절 → 오버레이 창 (캐럿 위치는 selection 기준)
+            if preedit.is_empty() {
+                if let Some(win) = preedit_win.as_mut() {
+                    win.hide();
+                }
+            } else {
+                let pos = get_composition_screen_pos(context, tid);
+                let win = preedit_win
+                    .get_or_insert_with(|| PreeditWindow::create().expect("PreeditWindow 생성 실패"));
+                win.show(&preedit, pos);
+            }
+            // reload-guard / is_busy 가 참조하는 "활성 preedit" 표식.
             fallback_pending.store(preedit.chars().count(), Ordering::SeqCst);
         }
     } else {
         // ── 정상 경로 (composition 지원 앱: 메모장 등) ──
-        if result.commit_changed {
-            let commit = engine.commit_str().to_string();
+        let commit = if result.commit_changed {
+            let c = engine.commit_str().to_string();
             engine.clear_commit();
+            c
+        } else {
+            String::new()
+        };
+        let preedit = engine.preedit_str().to_string();
+        commit_str_for_atf = if !commit.is_empty() { Some(commit.clone()) } else { None };
+        preedit_str_for_atf = if result.preedit_changed { Some(preedit.clone()) } else { None };
 
-            commit_str_for_atf = if !commit.is_empty() {
-                Some(commit.clone())
-            } else {
-                None
-            };
+        let composing = was_composing || comp_mgr.is_active();
 
+        if !commit.is_empty() && result.preedit_changed && !preedit.is_empty() && composing {
+            // 음절 전환(확정 + 새 조합)을 단일 edit session 으로 처리한다.
+            // 과거엔 end_composition_with_text(commit) + start_composition(preedit) 를
+            // 두 개의 별도 sync 세션으로 호출했는데, CUAS(wezterm 등 IMM32 브리지)가
+            // "조합 종료 직후 새 조합 시작"을 거부해 새 composition 을 즉시
+            // OnCompositionTerminated 시켰다(매 음절 전환마다 오버레이로 떨어짐).
+            // 한 트랜잭션(EndComposition→StartComposition)으로 합치면 CUAS 가 연속
+            // 조합으로 인식할 여지가 생긴다.
+            comp_mgr.commit_and_restart(context, tid, &commit, &preedit, comp_sink);
+        } else {
+            // commit 처리
             if !commit.is_empty() {
-                if was_composing || comp_mgr.is_active() {
+                if composing {
                     comp_mgr.end_composition_with_text(context, tid, &commit);
                 } else {
                     comp_mgr.insert_text(context, tid, &commit);
                 }
             }
-        } else {
-            commit_str_for_atf = None;
-        }
-
-        if result.preedit_changed {
-            let preedit = engine.preedit_str().to_string();
-            preedit_str_for_atf = Some(preedit.clone());
-
-            if preedit.is_empty() {
-                if comp_mgr.is_active() {
-                    comp_mgr.end_composition(context, tid);
+            // preedit 처리
+            if result.preedit_changed {
+                if preedit.is_empty() {
+                    if comp_mgr.is_active() {
+                        comp_mgr.end_composition(context, tid);
+                    }
+                } else if comp_mgr.is_active() {
+                    comp_mgr.update_composition(context, tid, &preedit);
+                } else {
+                    comp_mgr.start_composition(context, tid, &preedit, comp_sink);
                 }
-            } else if comp_mgr.is_active() {
-                comp_mgr.update_composition(context, tid, &preedit);
-            } else {
-                comp_mgr.start_composition(context, tid, &preedit, comp_sink);
             }
-        } else {
-            preedit_str_for_atf = None;
         }
     }
 
     // ── AutoTypeFix 오케스트레이션 ──
-    // 팝업 활성 중에는 발동 금지 (엔진이 popup_key 처리 중)
+    // 팝업 활성 중에는 발동 금지 (엔진이 popup_key 처리 중).
+    // 폴백(터미널·레거시) 경로에서도 비활성: ATF 의 replace_surrounding 은 동일한
+    // 역방향 삭제 한계로 터미널에서 깨지므로(삭제 무효 → 텍스트 누적) 적용하지 않는다.
     let popup_active = popup_win.as_ref().map(|w| w.is_active()).unwrap_or(false);
-    if !popup_active {
+    if !popup_active && !composition_unsupported {
         if let Some(apply) = auto_typefix::process_after_key(
             atf_state,
             engine,

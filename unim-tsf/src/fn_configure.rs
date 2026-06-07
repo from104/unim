@@ -40,7 +40,10 @@ impl ITfFnConfigure_Impl for UnimFnConfigure_Impl {
         _langid: u16,
         _rguidprofile: *const GUID,
     ) -> Result<()> {
-        crate::settings_dialog::show_settings_dialog(hwndparent);
+        // 새 Slint 설정 GUI 실행. 실패 시에만 옛 내장 다이얼로그로 폴백.
+        if !crate::register::launch_settings_app() {
+            crate::settings_dialog::show_settings_dialog(hwndparent);
+        }
         Ok(())
     }
 }

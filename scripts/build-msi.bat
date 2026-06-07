@@ -30,6 +30,10 @@ REM 2. Build release DLL
 cargo build -p unim-tsf --target x86_64-pc-windows-msvc --release
 if errorlevel 1 exit /b 1
 
+REM 2b. Build release settings GUI (Slint). Same WIN_OUT_DIR as the DLL.
+cargo build -p unim-tsf-settings --target x86_64-pc-windows-msvc --release
+if errorlevel 1 exit /b 1
+
 REM 3. Extract workspace version
 for /f "tokens=2 delims==" %%V in ('findstr /B /C:"version = " Cargo.toml') do (
   set "VERSION=%%V"

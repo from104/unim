@@ -520,8 +520,12 @@ impl UnimLangBarButton_Impl {
                 let _ = crate::register::set_as_default();
             }
             MENU_ID_SETTINGS => {
-                let hwnd_parent = unsafe { GetForegroundWindow() };
-                crate::settings_dialog::show_settings_dialog(hwnd_parent);
+                // 새 Slint 설정 GUI(unim-tsf-settings.exe)를 실행. 실패(exe 부재 등)
+                // 시에만 옛 내장 Win32 다이얼로그로 폴백한다.
+                if !crate::register::launch_settings_app() {
+                    let hwnd_parent = unsafe { GetForegroundWindow() };
+                    crate::settings_dialog::show_settings_dialog(hwnd_parent);
+                }
             }
             MENU_ID_ABOUT => {
                 let hwnd_parent = unsafe { GetForegroundWindow() };

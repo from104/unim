@@ -18,6 +18,7 @@ use crate::composition::CompositionManager;
 use crate::key_handler;
 use crate::lang_bar::{LangBarState, UnimLangBarButton};
 use crate::popup_window::PopupWindow;
+use crate::preedit_window::PreeditWindow;
 
 #[implement(
     ITfTextInputProcessorEx,
@@ -43,6 +44,9 @@ pub struct UnimTextService {
     /// 한자/특수문자/이모지 팝업 윈도우 (TSF STA 스레드 전용).
     /// 팝업 비활성 시 None, 최초 Show* 액션 시 lazy 생성.
     pub(crate) popup_window: Mutex<Option<PopupWindow>>,
+    /// client-side preedit 오버레이 창 (터미널·레거시 앱 폴백 전용, lazy 생성).
+    /// composition 미지원 앱에서 조합 중 음절을 앱 버퍼 대신 이 창에 그린다.
+    pub(crate) preedit_window: Mutex<Option<PreeditWindow>>,
     /// AutoTypeFix 오케스트레이션 상태 (키스트로크 버퍼·undo·blacklist).
     pub(crate) atf_state: Mutex<AutoTypeFixState>,
     /// 랭귀지바 버튼 (ActivateEx 에서 AddItem, Deactivate 에서 RemoveItem).
@@ -76,10 +80,6 @@ pub struct UnimTextService {
     /// "이 앱은 composition 유지 불가"로 확정 판정한다 — 느린 머신/원격 데스크톱에서
     /// 지연된 즉시-terminate(>200ms)를 놓쳐 조합이 다시 깨지는 것을 줄인다(지식베이스 P1).
     pub(crate) cuas_windows: Mutex<HashSet<isize>>,
-    /// 직전에 by_time 즉시-종료가 관찰된 후보 창. 같은 창이 다시 관찰되면 cuas_windows
-    /// 로 승격한다 — 정상 앱의 단발성 빠른 정당한 종료(빠른 Enter/Esc) 1회로 영구
-    /// 오학습되는 것을 막는다.
-    pub(crate) cuas_candidate: Mutex<Option<isize>>,
 }
 
 impl UnimTextService {
@@ -102,6 +102,7 @@ impl UnimTextService {
             thread_mgr_sink_cookie: Mutex::new(None),
             config_mtime: Mutex::new(config_mtime),
             popup_window: Mutex::new(None),
+            preedit_window: Mutex::new(None),
             atf_state: Mutex::new(AutoTypeFixState::new()),
             langbar_item: Mutex::new(None),
             langbar_btn: Mutex::new(None),
@@ -111,7 +112,6 @@ impl UnimTextService {
             last_key_instant: Mutex::new(None),
             last_reload_check: Mutex::new(None),
             cuas_windows: Mutex::new(HashSet::new()),
-            cuas_candidate: Mutex::new(None),
         }
     }
 
@@ -179,6 +179,9 @@ impl UnimTextService {
             *config_guard = new_config;
             *self.config_mtime.lock().unwrap() = Some(new_mtime);
             if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
+                win.hide();
+            }
+            if let Some(ref mut win) = *self.preedit_window.lock().unwrap() {
                 win.hide();
             }
             let mut atf = self.atf_state.lock().unwrap();
@@ -324,7 +327,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         wparam: WPARAM,
         _lparam: LPARAM,
     ) -> Result<BOOL> {
-        let engine = self.engine.lock().unwrap();
+        let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let popup_active = self
             .popup_window
@@ -333,6 +336,47 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             .as_ref()
             .map(|w| w.is_active())
             .unwrap_or(false);
+
+        // NavilIME 패턴: 조합 중 Enter/화살표/Tab/Esc 등 네비게이션 키는 여기서
+        // 현재 조합을 확정하고 pIsEaten=FALSE 로 통과시킨다. 그래야 OnKeyDown 이
+        // 호출되지 않아(키가 IME 에 안 먹힘) 앱이 개행·커서이동 등을 직접 처리한다.
+        // (commit 을 OnKeyDown 에서 한 뒤 false 반환하면 CUAS 가 이미 claim 된 키를
+        // 앱으로 안 흘려보낸다 — Enter/화살표가 동작하지 않던 원인.)
+        // 팝업 활성 시에는 이 키들이 후보 내비게이션이므로 제외한다.
+        if !popup_active
+            && engine.is_composing()
+            && key_handler::is_commit_passthrough_key(unim::keycode::KeyCode::from_win32_vk(
+                wparam.0 as u16,
+            ))
+        {
+            if let Some(context) = pic.as_ref() {
+                let tid = self.client_id();
+                let preedit = engine.preedit_str().to_string();
+                {
+                    let mut comp_mgr = self.composition_mgr.lock().unwrap();
+                    if comp_mgr.is_active() {
+                        if preedit.is_empty() {
+                            comp_mgr.end_composition(context, tid);
+                        } else {
+                            comp_mgr.end_composition_with_text(context, tid, &preedit);
+                        }
+                    } else if !preedit.is_empty() {
+                        // 오버레이 폴백 모드: 조합 글자를 문서에 직접 확정.
+                        comp_mgr.insert_text(context, tid, &preedit);
+                    }
+                }
+                if let Some(w) = self.preedit_window.lock().unwrap().as_mut() {
+                    w.hide();
+                }
+                engine.remove_preedit();
+                crate::register::dbg_log(&format!(
+                    "OnTestKeyDown: commit+passthrough navkey vk=0x{:02X}",
+                    wparam.0 as u16
+                ));
+                return Ok(FALSE);
+            }
+        }
+
         let eaten =
             key_handler::test_key_down(&engine, &config, wparam, pic.as_ref(), popup_active);
         Ok(BOOL::from(eaten))
@@ -350,9 +394,21 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
         let mut popup_win = self.popup_window.lock().unwrap();
+        let mut preedit_win = self.preedit_window.lock().unwrap();
         let mut atf_state = self.atf_state.lock().unwrap();
         let tid = self.client_id();
         let comp_sink: ITfCompositionSink = self.to_interface();
+
+        // 연속 조합 복구(non-sticky 폴백): 새 조합이 시작되는 시점(엔진 미조합 &
+        // 활성 composition 없음 = 단어 경계)마다 폴백 플래그를 리셋해 composition 을
+        // 다시 시도한다. fInterimChar=TRUE 적용 후 wezterm 에서 composition 이 대부분
+        // 성공하므로, CUAS 가 간헐적으로 한 단어의 조합을 종료시켜도 그 단어만
+        // 오버레이로 처리되고 다음 단어부터 inline 조합이 복구된다(과거엔 1회 종료
+        // 시 composition_unsupported 가 영구 true 로 고착돼 이후 전부 오버레이였음).
+        if !engine.is_composing() && !comp_mgr.is_active() {
+            self.composition_unsupported.store(false, Ordering::SeqCst);
+            self.fallback_pending.store(0, Ordering::SeqCst);
+        }
 
         // 갭1: 키 처리 전후 모드 비교를 위해 이전 카테고리 저장.
         let prev_category = engine.input_category();
@@ -362,6 +418,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             &config,
             &mut comp_mgr,
             &mut popup_win,
+            &mut preedit_win,
             &mut atf_state,
             context,
             tid,
@@ -435,16 +492,16 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         let known_cuas = focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
         let immediate = by_time || known_cuas;
 
-        // 학습: 같은 창에서 by_time 즉시-종료가 2회 관찰되면 CUAS 로 확정한다.
-        // 정상 앱의 단발성 빠른 정당한 종료(<200ms) 1회로 영구 오학습되는 것을 막는다.
-        // 진짜 CUAS 앱은 매 조합마다 즉시-종료하므로 둘째 키에서 곧바로 확정된다.
+        // 학습(1-hit): by_time 즉시-종료가 관찰된 창을 즉시 CUAS 로 학습한다.
+        //
+        // 과거 2-hit 방식은 폴백 진입 후 composition 을 더는 만들지 않아 둘째 hit 가
+        // 영영 오지 않았다(실측 known_cuas=0). 1-hit 로 학습해 두면, 같은 창을 다시
+        // 포커스할 때 ITfThreadMgrEventSink::OnSetFocus 가 선제적으로 폴백을 켜서
+        // 첫 키부터 composition 을 만들지 않는다 → 문서에 stray 글자 0.
+        // 오탐 비용: 정상 앱이 잘못 학습돼도 client-side preedit(오버레이)로 동작하며
+        // 확정 텍스트는 정상 삽입되므로 파괴적이지 않다.
         if by_time && focus_hwnd != 0 {
-            let mut cand = self.cuas_candidate.lock().unwrap();
-            if *cand == Some(focus_hwnd) {
-                self.cuas_windows.lock().unwrap().insert(focus_hwnd);
-            } else {
-                *cand = Some(focus_hwnd);
-            }
+            self.cuas_windows.lock().unwrap().insert(focus_hwnd);
         }
 
         self.composition_mgr.lock().unwrap().clear();
@@ -482,15 +539,23 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         _pdimfocus: Ref<'_, ITfDocumentMgr>,
         _pdimprevfocus: Ref<'_, ITfDocumentMgr>,
     ) -> Result<()> {
-        // (Phase 0) 포커스가 새 문서 컨텍스트로 이동 → 폴백 상태 낙관적 리셋.
-        //   wezterm 등이면 다음 키에서 다시 즉시-terminate 가 나서 자동 재감지된다.
-        //   sticky 하게 켜둔 채 두면 다른 앱(메모장 등)으로 옮겨도 폴백이 잔류한다.
-        self.composition_unsupported.store(false, Ordering::SeqCst);
+        // (Phase 0) 포커스가 새 문서 컨텍스트로 이동 → 폴백 상태 리셋.
+        //   단, 이전에 즉시-terminate 로 학습된(cuas_windows) 창으로 포커스가
+        //   가는 경우엔 선제적으로 폴백을 켠다 → 첫 키부터 composition 을 만들지
+        //   않아 문서에 stray 글자가 남지 않는다(client-side preedit 오버레이 사용).
+        //   학습 안 된 창이면 false 로 두고, 즉시-terminate 발생 시 자동 재감지한다.
+        let focus_hwnd = unsafe { GetFocus() }.0 as isize;
+        let known_cuas =
+            focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
+        self.composition_unsupported.store(known_cuas, Ordering::SeqCst);
         self.fallback_pending.store(0, Ordering::SeqCst);
         // (Phase 1) OnCompositionTerminated 의 "정상 종료" 정리를 이리로 이전.
         //   포커스 이탈 = 사용자가 조합을 떠남 → 엔진 preedit 를 비우고 팝업/ATF 정리.
         self.engine.lock().unwrap().reset();
         if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
+            win.hide();
+        }
+        if let Some(ref mut win) = *self.preedit_window.lock().unwrap() {
             win.hide();
         }
         self.atf_state.lock().unwrap().reset_on_focus();

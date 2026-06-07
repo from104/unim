@@ -24,6 +24,8 @@ mod lang_bar;
 #[cfg(windows)]
 mod popup_window;
 #[cfg(windows)]
+mod preedit_window;
+#[cfg(windows)]
 pub mod register;
 #[cfg(windows)]
 pub mod settings_dialog;

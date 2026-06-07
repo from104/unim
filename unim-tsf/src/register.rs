@@ -31,6 +31,40 @@ fn get_dll_path() -> Result<String> {
     Ok(String::from_utf16_lossy(&buf[..len as usize]))
 }
 
+/// 설정 GUI(`unim-tsf-settings.exe`)를 DLL 과 같은 디렉터리에서 실행한다.
+///
+/// 트레이/랭귀지바 우클릭 메뉴의 "설정" 및 Windows 언어 옵션(ITfFnConfigure)에서
+/// 호출한다. 별도 프로세스(Slint GUI)로 띄우므로 TSF STA 스레드를 막지 않는다.
+/// 성공 시 `true`. exe 부재(개발 빌드 등)·spawn 실패 시 `false` → 호출자는
+/// 옛 내장 Win32 다이얼로그로 폴백한다.
+pub fn launch_settings_app() -> bool {
+    let dll_path = match get_dll_path() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let exe = match std::path::Path::new(&dll_path).parent() {
+        Some(dir) => dir.join("unim-tsf-settings.exe"),
+        None => return false,
+    };
+    if !exe.exists() {
+        dbg_log(&format!(
+            "launch_settings_app: exe not found ({})",
+            exe.display()
+        ));
+        return false;
+    }
+    match std::process::Command::new(&exe).spawn() {
+        Ok(_) => {
+            dbg_log("launch_settings_app: settings GUI spawned");
+            true
+        }
+        Err(e) => {
+            dbg_log(&format!("launch_settings_app: spawn failed: {e}"));
+            false
+        }
+    }
+}
+
 fn set_reg_value(hkey: HKEY, name: Option<&HSTRING>, value: &str) -> Result<()> {
     let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {

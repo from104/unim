@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use windows::core::*;
 use windows::core::BOOL;
 use windows::Win32::Foundation::E_FAIL;
-use windows::Win32::System::Variant::{VARIANT, VT_I4};
+use windows::Win32::System::Variant::{VARIANT, VT_BSTR, VT_I4};
 use windows::Win32::UI::TextServices::*;
 
 use crate::globals::UNIM_DISPLAY_ATTR_INPUT;
@@ -66,6 +66,53 @@ unsafe fn set_composition_attribute(context: &ITfContext, ec: u32, range: &ITfRa
     }
 }
 
+/// composition range 에 `GUID_PROP_READING` reading 속성(VT_BSTR)을 부여한다.
+///
+/// CUAS(IMM32 브리지)는 미확정→확정 변환 시 `GCS_RESULTCLAUSE`/`GCS_RESULTREADCLAUSE`
+/// 를 `GUID_PROP_READING` 속성의 세그먼트 구조로부터 생성한다(Mozc
+/// `tip_edit_session_impl.cc` 주석 근거). READING 속성이 없으면 CUAS 가 read clause
+/// 세그먼트를 만들지 못해 composition 을 미확정으로 유지하지 못하고 즉시
+/// `OnCompositionTerminated` 할 수 있다. ATTRIBUTE(밑줄 신호)와 같은 range 에 함께
+/// 부여해야 한다.
+///
+/// 한국어는 별도 음성 표기층이 없어 reading 값으로 조합 중 한글 문자열 자체를 넣는다
+/// (NFC 음절 사용). 값 내용보다 composition range 를 덮는 non-empty READING 세그먼트의
+/// 존재가 핵심이다.
+///
+/// `ITfProperty::SetValue` 는 VARIANT 를 `[in] const` 로 받아 값을 복사한다(소유권
+/// 미이전, MS Learn 확인). windows-rs 0.62 VARIANT 는 Drop 미구현이고 union 의
+/// `bstrVal` 은 `ManuallyDrop<BSTR>`(BSTR Drop=SysFreeString)이라, SetValue 직후
+/// `ManuallyDrop::drop` 으로 우리 BSTR 을 직접 해제해야 누수가 없다. SetValue 실패는
+/// 비치명(조합 계속, 정상 앱 무영향)이라 패닉/조기 return 없이 dbg_log 만 남긴다.
+unsafe fn set_composition_reading(context: &ITfContext, ec: u32, range: &ITfRange, reading: &str) {
+    if reading.is_empty() {
+        return;
+    }
+    let prop = match context.GetProperty(&GUID_PROP_READING) {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    // VT_BSTR VARIANT 를 union 필드로 직접 구성(set_composition_attribute 와 동일 패턴).
+    let mut var = VARIANT::default(); // zeroed (vt=VT_EMPTY) → 버릴 live 값 없음
+    {
+        // inner 의 mut borrow 를 블록으로 종료시킨 뒤 &var(immutable) 로 SetValue 한다
+        // (borrow checker: inner 가 살아있으면 &var 가 E0502).
+        let inner = &mut *var.Anonymous.Anonymous; // &mut VARIANT_0_0 (zeroed)
+        inner.vt = VT_BSTR; // VARENUM(8)
+        // BSTR::from(&str)=SysAllocString 래퍼(소유 BSTR). bstrVal 은 ManuallyDrop<BSTR>.
+        inner.Anonymous.bstrVal = ManuallyDrop::new(BSTR::from(reading));
+    }
+    let r = prop.SetValue(ec, range, &var);
+    // SetValue 는 값을 복사하므로 우리 BSTR 을 직접 해제(누수 방지). ManuallyDrop union
+    // 필드는 자동 DerefMut 이 안 되므로 set_composition_attribute 와 동일하게 *ManuallyDrop
+    // 을 거쳐 inner 를 다시 잡고 drop 한다(이 시점엔 &var borrow 가 끝나 충돌 없음).
+    let inner = &mut *var.Anonymous.Anonymous;
+    ManuallyDrop::drop(&mut inner.Anonymous.bstrVal);
+    if let Err(e) = r {
+        crate::register::dbg_log(&format!("set_composition_reading: SetValue FAILED hr={:?}", e));
+    }
+}
+
 /// SetText 후 문서 selection(caret) 을 range 끝으로 이동한다.
 ///
 /// TSF 는 `ITfRange::SetText` 만으로는 문서의 caret 을 옮기지 않는다. 옮기지 않으면
@@ -102,7 +149,12 @@ unsafe fn select_composition_range(context: &ITfContext, ec: u32, range: &ITfRan
         range: ManuallyDrop::new(Some(r)),
         style: TF_SELECTIONSTYLE {
             ase: TF_AE_NONE,
-            fInterimChar: BOOL(0),
+            // 조합 중 selection 은 interim character 로 표시한다(fInterimChar=TRUE).
+            // NavilIME(EditSession.cpp)·saenaru(tip/compose.cpp)·kolemak(SetInterimSelection)
+            // 등 한국어 TSF IME 가 공통으로 사용하는 패턴으로, IMM32 interim-char 의미론에
+            // 매핑돼 CUAS 브리지(wezterm 등)가 composition 을 미확정으로 인식하게 만든다.
+            // 커밋/종료 경로(move_caret_to_end)는 FALSE 로 둔다.
+            fInterimChar: BOOL(1),
         },
     };
     let res = context.SetSelection(ec, std::slice::from_ref(&sel));
@@ -218,13 +270,17 @@ impl CompositionManager {
     ) {
         let slot = self.composition_slot.clone();
         *slot.lock().unwrap() = None;
+        // attr_atom() 은 &mut self 이므로 session(불변 캡처) 구성 전에 먼저 호출한다.
         let attr_atom = self.attr_atom();
 
+        // 단일 세션: StartComposition(empty) → SetText(preedit) → select → ATTRIBUTE+READING
+        // 을 한 번에 처리한다(이전 2-phase 통합). READING(GUID_PROP_READING) 부여로 CUAS
+        // 즉시-terminate 를 회피하므로 빈-조합 선행 세션이 더 이상 필요 없다.
         let session = StartCompositionEditSession {
             context: context.clone(),
-            text: text.to_string(),
             comp_sink: comp_sink.clone(),
             composition_slot: slot.clone(),
+            text: text.to_string(),
             attr_atom,
         };
         let session_intf: ITfEditSession = session.into();
@@ -239,7 +295,7 @@ impl CompositionManager {
         let result = self.composition_slot.lock().unwrap().take();
         if let Some(comp) = result {
             self.composition = Some(comp);
-            crate::register::dbg_log("start_composition: composition CREATED");
+            crate::register::dbg_log("start_composition: composition CREATED (single-session)");
         } else {
             crate::register::dbg_log("start_composition: composition slot EMPTY (failed)");
         }
@@ -292,6 +348,48 @@ impl CompositionManager {
             }
         }
         self.composition = None;
+    }
+
+    /// 음절 전환: 기존 composition 을 commit_text 로 확정·종료하고, **같은 edit
+    /// session 안에서** 새 composition 을 preedit_text 로 시작한다.
+    ///
+    /// end_composition + start_composition 을 두 개의 별도 sync 세션으로 호출하면
+    /// CUAS-unaware(IMM32, wezterm 등) 앱에서 "조합 종료 직후 새 조합 시작"을
+    /// CUAS 가 거부해 새 composition 이 즉시 OnCompositionTerminated 된다(매 음절
+    /// 전환마다 오버레이로 떨어지는 원인). 한 트랜잭션으로 합쳐 churn 을 없앤다.
+    /// 활성 composition 이 없으면 insert_text + start_composition 으로 폴백.
+    pub fn commit_and_restart(
+        &mut self,
+        context: &ITfContext,
+        tid: u32,
+        commit_text: &str,
+        preedit_text: &str,
+        comp_sink: &ITfCompositionSink,
+    ) {
+        let Some(old) = self.composition.clone() else {
+            if !commit_text.is_empty() {
+                self.insert_text(context, tid, commit_text);
+            }
+            self.start_composition(context, tid, preedit_text, comp_sink);
+            return;
+        };
+        let slot = self.composition_slot.clone();
+        *slot.lock().unwrap() = None;
+        let attr_atom = self.attr_atom();
+        let session = CommitRestartEditSession {
+            context: context.clone(),
+            old_composition: old,
+            commit_text: commit_text.to_string(),
+            preedit_text: preedit_text.to_string(),
+            comp_sink: comp_sink.clone(),
+            composition_slot: slot.clone(),
+            attr_atom,
+        };
+        let session_intf: ITfEditSession = session.into();
+        unsafe {
+            let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+        }
+        self.composition = self.composition_slot.lock().unwrap().take();
     }
 
     pub fn insert_text(&self, context: &ITfContext, tid: u32, text: &str) {
@@ -355,9 +453,10 @@ impl CompositionManager {
 #[implement(ITfEditSession)]
 struct StartCompositionEditSession {
     context: ITfContext,
-    text: String,
     comp_sink: ITfCompositionSink,
     composition_slot: Arc<Mutex<Option<ITfComposition>>>,
+    /// 단일 세션에서 채울 초기 preedit 텍스트.
+    text: String,
     /// composition range 에 부여할 display-attribute atom (None 이면 skip).
     attr_atom: Option<u32>,
 }
@@ -365,16 +464,16 @@ struct StartCompositionEditSession {
 impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
     fn DoEditSession(&self, ec: u32) -> Result<()> {
         unsafe {
-            let wide: Vec<u16> = self.text.encode_utf16().collect();
-            // 콘솔(wezterm 등) 폴백 포함 삽입 range 획득
+            // 단일 세션: 빈 range 에 StartComposition → SetText(preedit) → select →
+            // ATTRIBUTE+READING 을 한 번에 처리한다(이전 2-phase 통합).
+            //
+            // StartComposition 을 SetText 보다 먼저 호출하는 순서는 유지한다
+            // (CUAS-unaware 앱에서 SetText→Start 순서는 즉시-terminate 유발). 한 세션에서
+            // 채워도 READING 세그먼트(GUID_PROP_READING)를 부여하면 CUAS 가 range 를
+            // 미확정(GCS_COMPSTR)으로 브리지하므로 즉시 종료되지 않는다
+            // (Mozc tip_edit_session_impl.cc 근거). 정상 TSF 앱(메모장)은 READING 을
+            // 표준 속성으로 무시/정상처리하므로 회귀 없음.
             let range = acquire_insert_range(&self.context, ec)?;
-            if let Err(e) = range.SetText(ec, 0, &wide) {
-                crate::register::dbg_log(&format!(
-                    "StartComp.DoEditSession: SetText FAILED hr=0x{:08X}",
-                    e.code().0
-                ));
-                return Err(e);
-            }
 
             let ctx_comp: ITfContextComposition = match self.context.cast() {
                 Ok(c) => c,
@@ -386,6 +485,7 @@ impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
                     return Err(e);
                 }
             };
+
             let composition = match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
                 Ok(c) => c,
                 Err(e) => {
@@ -396,17 +496,21 @@ impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
                     return Err(e);
                 }
             };
-            crate::register::dbg_log("StartComp.DoEditSession: StartComposition ok");
-            // selection 을 composition range 전체로 설정 (SampleIME 방식).
-            // collapsed-end 커서는 IMM32 브리지(wezterm)에서 composition 을 즉시
-            // 종료시키므로 select_composition_range 를 쓴다. 거꾸로 입력 방지는
-            // range 전체가 composition 안에 있으므로 동일하게 보장된다.
+
+            // preedit 텍스트 채우기.
+            let wide: Vec<u16> = self.text.encode_utf16().collect();
+            range.SetText(ec, 0, &wide)?;
+
+            // selection 을 composition range 전체로 (TF_AE_NONE, wezterm terminate 회피).
             let _ = select_composition_range(&self.context, ec, &range);
-            // composition range 에 미확정(밑줄) display-attribute 부여.
-            // CUAS 가 즉시-terminate 하지 않게 하는 신호(실패 무시).
+
+            // 미확정(밑줄) ATTRIBUTE + READING 부여(실패 무시).
             if let Some(atom) = self.attr_atom {
                 set_composition_attribute(&self.context, ec, &range, atom);
             }
+            set_composition_reading(&self.context, ec, &range, &self.text);
+
+            crate::register::dbg_log("StartComp.DoEditSession: single-session ok (text+attr+reading)");
             *self.composition_slot.lock().unwrap() = Some(composition);
         }
         Ok(())
@@ -432,10 +536,14 @@ impl ITfEditSession_Impl for UpdateCompositionEditSession_Impl {
             range.SetText(ec, 0, &wide)?;
             // selection 을 composition range 전체로 (SampleIME 방식, wezterm terminate 회피)
             let _ = select_composition_range(&self.context, ec, &range);
-            // 매 update 마다 미확정(밑줄) display-attribute 재부여(실패 무시).
+            // 매 update 마다 미확정(밑줄) ATTRIBUTE + READING 재부여(실패 무시).
+            // SetText 가 covered 텍스트를 바꾸면 기존 property 가 discard 되므로(MS Learn
+            // SetValue Remarks) 매 갱신마다 READING(GUID_PROP_READING)을 다시 부여해야
+            // CUAS 가 range 를 계속 미확정 조합(GCS_COMPSTR)으로 브리지한다.
             if let Some(atom) = self.attr_atom {
                 set_composition_attribute(&self.context, ec, &range, atom);
             }
+            set_composition_reading(&self.context, ec, &range, &self.text);
         }
         Ok(())
     }
@@ -472,6 +580,66 @@ impl ITfEditSession_Impl for EndCompositionEditSession_Impl {
                 }
             }
             self.composition.EndComposition(ec)?;
+        }
+        Ok(())
+    }
+}
+
+// ── EditSession: 확정 + 재시작 (음절 전환, end+start churn 회피) ──
+
+#[implement(ITfEditSession)]
+struct CommitRestartEditSession {
+    context: ITfContext,
+    old_composition: ITfComposition,
+    commit_text: String,
+    preedit_text: String,
+    comp_sink: ITfCompositionSink,
+    composition_slot: Arc<Mutex<Option<ITfComposition>>>,
+    attr_atom: Option<u32>,
+}
+
+impl ITfEditSession_Impl for CommitRestartEditSession_Impl {
+    fn DoEditSession(&self, ec: u32) -> Result<()> {
+        unsafe {
+            // 1. 기존 composition 을 commit_text 로 확정하고 종료(같은 세션).
+            let old_range = self.old_composition.GetRange()?;
+            let wide_c: Vec<u16> = self.commit_text.encode_utf16().collect();
+            old_range.SetText(ec, 0, &wide_c)?;
+            let _ = move_caret_to_end(&self.context, ec, &old_range);
+            self.old_composition.EndComposition(ec)?;
+
+            // 2. 같은 세션에서 새 composition 시작 — end+start 를 한 트랜잭션으로 합쳐
+            //    CUAS 즉시-terminate(매 음절 전환) 를 회피한다.
+            let new_range = acquire_insert_range(&self.context, ec)?;
+            let ctx_comp: ITfContextComposition = match self.context.cast() {
+                Ok(c) => c,
+                Err(e) => {
+                    crate::register::dbg_log(&format!(
+                        "CommitRestart: cast ITfContextComposition FAILED hr=0x{:08X}",
+                        e.code().0
+                    ));
+                    return Err(e);
+                }
+            };
+            let composition = match ctx_comp.StartComposition(ec, &new_range, &self.comp_sink) {
+                Ok(c) => c,
+                Err(e) => {
+                    crate::register::dbg_log(&format!(
+                        "CommitRestart: StartComposition FAILED hr=0x{:08X}",
+                        e.code().0
+                    ));
+                    return Err(e);
+                }
+            };
+            let wide_p: Vec<u16> = self.preedit_text.encode_utf16().collect();
+            new_range.SetText(ec, 0, &wide_p)?;
+            let _ = select_composition_range(&self.context, ec, &new_range);
+            if let Some(atom) = self.attr_atom {
+                set_composition_attribute(&self.context, ec, &new_range, atom);
+            }
+            set_composition_reading(&self.context, ec, &new_range, &self.preedit_text);
+            crate::register::dbg_log("CommitRestart: commit+restart in single session ok");
+            *self.composition_slot.lock().unwrap() = Some(composition);
         }
         Ok(())
     }
@@ -534,15 +702,18 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
             // 4. preedit 이 있으면 composition 시작 (순방향 replay)
             if !self.preedit_text.is_empty() {
                 let wide: Vec<u16> = self.preedit_text.encode_utf16().collect();
-                range.SetText(ec, 0, &wide)?;
+                // SampleIME 패턴: 빈 range 에 StartComposition 먼저, 그 뒤 SetText.
+                // (CUAS-unaware 앱에서 SetText→Start 순서는 즉시-terminate 유발.)
                 let ctx_comp: ITfContextComposition = self.context.cast()?;
                 let composition = ctx_comp.StartComposition(ec, &range, &self.comp_sink)?;
+                range.SetText(ec, 0, &wide)?;
                 // composition 시작 — selection 전체 range (wezterm terminate 회피)
                 let _ = select_composition_range(&self.context, ec, &range);
-                // 순방향 replay preedit 에도 미확정(밑줄) display-attribute 부여(실패 무시).
+                // 순방향 replay preedit 에도 미확정(밑줄) ATTRIBUTE + READING 부여(실패 무시).
                 if let Some(atom) = self.attr_atom {
                     set_composition_attribute(&self.context, ec, &range, atom);
                 }
+                set_composition_reading(&self.context, ec, &range, &self.preedit_text);
                 *self.composition_slot.lock().unwrap() = Some(composition);
             }
         }
