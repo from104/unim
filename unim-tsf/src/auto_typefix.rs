@@ -53,6 +53,10 @@ pub struct AutoFixApply {
     pub commit_text: String,
     /// 순방향(영→한) replay preedit. 역방향이면 빈 문자열.
     pub replay_preedit: String,
+    /// 역방향(한→영): replace_surrounding 전에 활성 composition 을 먼저 종료해야 함.
+    /// 역방향은 항상 조합 중 발동하므로, 조합 음절을 end_composition 으로 제거한 뒤
+    /// 확정된 committed 글자만 delete_chars 로 지운다. (순방향/undo 는 false.)
+    pub end_composition: bool,
 }
 
 // ── AutoTypeFixState 공개 구조체 ───────────────────────────────────────────────
@@ -154,6 +158,7 @@ pub fn try_undo(
         delete_chars,
         commit_text: obs.original,
         replay_preedit: String::new(),
+        end_composition: false,
     })
 }
 
@@ -193,17 +198,18 @@ pub fn process_after_key(
     keycode: KeyCode,
     modifier: ModifierState,
     prev_mode: InputCategory,
-    was_composing: bool,
+    _was_composing: bool,
     commit_str: Option<&str>,
     preedit_str: Option<&str>,
 ) -> Option<AutoFixApply> {
     let atf_config = &config.engine.auto_typefix;
 
-    // 조합 중 발동 금지 (engine_worker 의 "popup_action.is_none() && mode_changed.is_none()" 게이트에 대응)
-    if was_composing {
-        state.buf.clear();
-        return None;
-    }
+    // [주의] 과거엔 여기서 `if was_composing { buf.clear(); return None; }` 로 조합 중
+    // 발동을 막았으나, 이는 역방향(한→영)을 원천 봉쇄하는 버그였다: 한글은 둘째 키부터
+    // 항상 조합 중(was_composing=true)이라 버퍼가 1글자도 못 쌓여 check_reverse 에 도달
+    // 못 했다. 실제로 차단해야 하는 것은 popup 활성(key_handler 에서 !popup_active 로 가드)과
+    // 모드 변경(아래 prev_mode != current_mode)이며, Linux engine_worker 에도 was_composing
+    // 게이트는 없다. 순방향(영문 모드=비조합)은 이 게이트와 무관했다.
 
     // 만료된 undo 상태 정리
     if state.undo.as_ref().map(|u| u.is_expired()).unwrap_or(false) {
@@ -270,6 +276,18 @@ pub fn process_after_key(
                 Direction::Reverse,
             ),
         };
+
+        // [진단] 역방향 체크 상태 — 항상 켜진 dbg_log 로 출력(unim_log 는 UNIM_DEVELOP 전용이라
+        // 배포 DLL 에서 NO-OP). 역방향 미발동/조건 탈락 원인을 실측하기 위함.
+        if matches!(direction, Direction::Reverse) {
+            crate::register::dbg_log(&format!(
+                "ATF rev-check: buf='{}' has_preedit={} committed={} fix={}",
+                state.buf.to_ascii_string(&config.engine.english.layout),
+                state.buf.has_preedit,
+                state.buf.committed_chars,
+                fix_opt.is_some()
+            ));
+        }
 
         // 재트리거 감지 + blacklist tentative 등록 (engine_worker:727-777)
         let fix_opt = if let Some(fix) = fix_opt {
@@ -355,9 +373,6 @@ pub fn process_after_key(
                 new_mode
             );
 
-            // buf_ascii 캡처 (역방향 delete_chars 계산용) — buf.clear() 전에
-            let buf_ascii = state.buf.to_ascii_string(&config.engine.english.layout);
-
             // 버퍼 초기화
             state.buf.clear();
 
@@ -394,36 +409,37 @@ pub fn process_after_key(
                     delete_chars,
                     commit_text: fix.commit_text,
                     replay_preedit,
+                    end_composition: false,
                 })
             } else {
-                // 역방향 (한→영): delete_chars 재계산 (engine_worker:882-915)
+                // 역방향 (한→영): 활성 composition(조합 중 음절)을 먼저 종료해 제거하고,
+                // 확정된(committed) 한글만 delete 후 영어를 삽입한다.
+                //
+                // 과거엔 kor_sim.chars().count()-1 로 삭제 수를 재계산했는데, 이 -1 은
+                // 옛 composition 모델("트리거 키 응답이 마지막 음절 preedit 를 자동 제거")
+                // 가정이었다. 새 모델(commit_and_restart)에선 그 가정이 깨져 확정 한글이
+                // 잔류했다("hello"→"녀o"). 코어 check_reverse 가 계산한 fix.delete_chars
+                // (= committed + 조합중 1)에서 조합중 1(clear_preedit)을 빼면 committed 수다.
+                // 조합 음절은 end_composition(end_composition=true)으로 제거하므로 여기선
+                // committed 만 delete 한다.
                 let current_cat = engine.input_category();
                 *engine = InputEngine::new(config);
                 engine.set_input_category(current_cat);
 
-                // trigger 키 제외 시뮬: ascii_before_trigger 로 kor_sim 산출
-                let ascii_before_trigger =
-                    &buf_ascii[..buf_ascii.len().saturating_sub(1)];
-                let kor_sim = unim::typefix::eng_to_kor(
-                    ascii_before_trigger,
-                    &config.engine.korean.layout,
-                    &config.engine.english.layout,
-                );
-                // trigger 키의 ProcessKeyEvent 응답이 preedit clear → 화면에서 사라짐 → 1 차감
-                let real_delete = kor_sim.chars().count().saturating_sub(1) as u32;
+                let committed = fix
+                    .delete_chars
+                    .saturating_sub(if fix.clear_preedit { 1 } else { 0 });
 
-                unim_log!(
-                    "TSF_ATF",
-                    "[TSF AutoTypeFix] 역방향 real_delete: ascii='{}', kor_sim='{}', real_delete={}",
-                    buf_ascii,
-                    kor_sim,
-                    real_delete
-                );
+                crate::register::dbg_log(&format!(
+                    "ATF rev-apply: committed={} end_comp={} insert='{}'",
+                    committed, fix.clear_preedit, fix.commit_text
+                ));
 
                 Some(AutoFixApply {
-                    delete_chars: real_delete,
+                    delete_chars: committed,
                     commit_text: fix.commit_text,
                     replay_preedit: String::new(),
+                    end_composition: fix.clear_preedit,
                 })
             }
         } else {

@@ -424,6 +424,12 @@ pub fn handle_key_down(
             commit_str_for_atf.as_deref(),
             preedit_str_for_atf.as_deref(),
         ) {
+            // 역방향(한→영): replace_surrounding 전에 활성 composition 을 먼저 종료해
+            // 조합 중 음절을 문서에서 제거한다. 그래야 남은 committed 한글만 delete 하면
+            // 화면의 한글이 정확히 모두 사라진다(조합 음절 잔류 방지).
+            if apply.end_composition && comp_mgr.is_active() {
+                comp_mgr.end_composition(context, tid);
+            }
             comp_mgr.replace_surrounding(
                 context,
                 tid,
