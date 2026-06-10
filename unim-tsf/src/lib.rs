@@ -30,6 +30,8 @@ pub mod register;
 #[cfg(windows)]
 pub mod settings_dialog;
 #[cfg(windows)]
+mod sandbox_paths;
+#[cfg(windows)]
 mod text_service;
 
 #[cfg(windows)]

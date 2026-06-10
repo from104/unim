@@ -50,7 +50,7 @@ impl HanjaBookmarkStore {
 
     /// 기본 저장 경로.
     fn default_path() -> Option<PathBuf> {
-        dirs::data_dir().map(|p| p.join("unim").join("hanja-bookmarks.json"))
+        crate::paths::data_dir().map(|p| p.join("unim").join("hanja-bookmarks.json"))
     }
 
     /// 즐겨찾기 여부 조회.

@@ -84,6 +84,9 @@ pub struct UnimTextService {
 
 impl UnimTextService {
     pub fn new() -> Self {
+        // UWP(AppContainer) 경로 리다이렉트 우회: config 로드 전에 실제
+        // %APPDATA% 경로를 환경변수로 공개한다 (프로세스 1회, idempotent).
+        crate::sandbox_paths::init();
         let config = Config::load_from_default_path();
         // 현재 config 파일의 mtime 초기화
         let config_mtime = Config::default_config_path()

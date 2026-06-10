@@ -823,7 +823,7 @@ impl Config {
     /// - macOS: `~/Library/Application Support/unim/config.yaml`
     /// - Windows: `%APPDATA%\unim\config.yaml`
     pub fn default_config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("unim").join("config.yaml"))
+        crate::paths::config_dir().map(|p| p.join("unim").join("config.yaml"))
     }
 
     /// 기본 경로에서 설정을 로드합니다.

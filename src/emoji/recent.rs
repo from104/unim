@@ -21,7 +21,7 @@ use std::path::PathBuf;
 ///
 /// XDG config dir 식별 실패 시 None.
 pub fn recent_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("unim").join("emoji-recent.yaml"))
+    crate::paths::config_dir().map(|d| d.join("unim").join("emoji-recent.yaml"))
 }
 
 /// 최근 사용 최대 보관 개수 (9×9 그리드 첫 페이지 = 81).
