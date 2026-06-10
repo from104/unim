@@ -27,6 +27,7 @@ use unim::config::{
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
+use unim::keystroke::profile::{resolve_inherits, LayoutProfile, ProfileRegistry};
 use unim::typefix_blacklist::{Blacklist, BlacklistEntry, Direction, EntryStatus};
 use unim::typefix_userdict::{ReverseWord, UserDictionary};
 
@@ -69,6 +70,46 @@ fn build_layout_lists(
 
 fn string_model(items: Vec<SharedString>) -> ModelRc<SharedString> {
     ModelRc::new(VecModel::from(items))
+}
+
+/// 레지스트리에서 프로필을 찾아 inherits까지 해석한다. 실패 시 `None`.
+fn load_profile(name: &str) -> Option<LayoutProfile> {
+    let reg = ProfileRegistry::new();
+    let raw = reg.find_raw(name)?;
+    resolve_inherits(&raw, &reg).ok()
+}
+
+/// 선택된 자판 프로필의 규칙 세트 → UI 항목 목록.
+///
+/// active 판정 (GTK settings_dialog 와 동일):
+///   config.active_rule_sets Some(list) → 명시 override (빈 list = 모두 OFF)
+///   None → 프로필의 active_rule_sets 또는 각 rule_set.active
+fn rule_set_items_for(cfg: &Config, profile: &LayoutProfile) -> Vec<RuleSetItem> {
+    let config_active = &cfg.engine.korean.active_rule_sets;
+    let profile_default = profile.active_rule_sets.as_ref();
+    profile
+        .rule_sets
+        .iter()
+        .map(|(name, rs)| {
+            let label = rs
+                .description
+                .as_ref()
+                .map(|d| d.resolve("ko").to_string())
+                .unwrap_or_default();
+            let active = match config_active {
+                Some(list) => list.contains(name),
+                None => match profile_default {
+                    Some(list) => list.contains(name),
+                    None => rs.active,
+                },
+            };
+            RuleSetItem {
+                name: name.as_str().into(),
+                label: label.into(),
+                active,
+            }
+        })
+        .collect()
 }
 
 fn fmt_blacklist(e: &BlacklistEntry) -> String {
@@ -145,6 +186,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kor_canon = Rc::new(kor_canon);
     let eng_canon = Rc::new(eng_canon);
 
+    // 키맵별 규칙 세트(자판 옵션) 모델 — 자판 변경 시 재구성.
+    let rule_model: Rc<VecModel<RuleSetItem>> = Rc::new(VecModel::default());
+    ui.set_rule_set_items(ModelRc::from(rule_model.clone()));
+    {
+        let cfg = config.borrow();
+        if let Some(profile) = load_profile(&cfg.engine.korean.effective_layout_name()) {
+            rule_model.set_vec(rule_set_items_for(&cfg, &profile));
+        }
+    }
+
     // ── 초기값 주입 ──
     {
         let cfg = config.borrow();
@@ -204,13 +255,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = config.clone();
         let kor_canon = kor_canon.clone();
         let eng_canon = eng_canon.clone();
+        let rule_model = rule_model.clone();
         ui.on_auto_save(move || {
             let ui = ui_weak.unwrap();
             let mut cfg = config.borrow_mut();
             let e = &mut cfg.engine;
 
             let ki = (ui.get_korean_layout_index().max(0) as usize).min(kor_canon.len() - 1);
-            e.korean.layout = kor_canon[ki].clone();
+            // 자판 전환은 switch_layout 경유 — 이전 자판의 active_rule_sets 를
+            // layout_rule_sets 캐시에 보존하고 새 자판의 캐시를 복원한다.
+            let new_kor = &kor_canon[ki];
+            let kor_changed = e.korean.effective_layout_name()
+                != unim::config::normalize_korean_layout_name(new_kor);
+            let new_profile = if kor_changed { load_profile(new_kor) } else { None };
+            if kor_changed {
+                let valid: Option<Vec<String>> = new_profile
+                    .as_ref()
+                    .map(|p| p.rule_sets.keys().cloned().collect());
+                e.korean.switch_layout(new_kor, valid.as_deref());
+            }
             let ei = (ui.get_english_layout_index().max(0) as usize).min(eng_canon.len() - 1);
             e.english.layout = eng_canon[ei].clone();
 
@@ -253,10 +316,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             a.rollback_detection = ui.get_atf_rollback_detection();
             a.user_dict_enabled = ui.get_atf_user_dict_enabled();
 
+            // 자판이 바뀌었으면 규칙 세트 그룹을 새 프로필로 재구성.
+            if let Some(profile) = new_profile.as_ref() {
+                rule_model.set_vec(rule_set_items_for(&cfg, profile));
+            }
+
             match cfg.save_to_default_path() {
                 Ok(()) => ui.set_status_text("변경 사항이 적용되었습니다.".into()),
                 Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
             }
+        });
+    }
+
+    // ── 규칙 세트(자판 옵션) 토글 ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        let rule_model = rule_model.clone();
+        ui.on_rule_set_toggled(move |idx, on| {
+            use slint::Model;
+            let ui = ui_weak.unwrap();
+            let Some(mut item) = rule_model.row_data(idx as usize) else {
+                return;
+            };
+            let mut cfg = config.borrow_mut();
+            {
+                // 첫 토글 시 None → Some(현재 표시 중 활성 집합)으로 고정 —
+                // 이후 모든 토글이 명시 override 로 저장된다 (GTK 와 동일 의미).
+                let seed: Vec<String> = rule_model
+                    .iter()
+                    .filter(|it| it.active)
+                    .map(|it| it.name.to_string())
+                    .collect();
+                let list = cfg
+                    .engine
+                    .korean
+                    .active_rule_sets
+                    .get_or_insert_with(|| seed);
+                let name = item.name.to_string();
+                if on {
+                    if !list.contains(&name) {
+                        list.push(name);
+                    }
+                } else {
+                    list.retain(|x| x != &name);
+                }
+            }
+            // 현재 자판의 캐시도 동기화 — 자판 전환 시 본 상태가 보존된다.
+            cfg.engine.korean.cache_active_rule_sets();
+            match cfg.save_to_default_path() {
+                Ok(()) => ui.set_status_text("변경 사항이 적용되었습니다.".into()),
+                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+            }
+            item.active = on;
+            rule_model.set_row_data(idx as usize, item);
         });
     }
 

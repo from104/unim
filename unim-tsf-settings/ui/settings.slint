@@ -151,6 +151,13 @@ component SettingRow {
     }
 }
 
+// ── 키맵별 규칙 세트(자판 옵션) 항목 — Rust 가 프로필에서 동적 구성 ──
+export struct RuleSetItem {
+    name: string,
+    label: string,
+    active: bool,
+}
+
 export component SettingsWindow inherits Window {
     title: "UNIM 설정";
     // Slint 기본 폰트는 한글 글리프가 없어 □로 표시된다.
@@ -166,6 +173,8 @@ export component SettingsWindow inherits Window {
     // ── 일반 ──
     in-out property <[string]> korean-layouts;
     in-out property <int> korean-layout-index;
+    // 선택된 한글 자판 프로필이 선언한 규칙 세트(겹받침 확장 등) — 자판 변경 시 재구성.
+    in-out property <[RuleSetItem]> rule-set-items;
     in-out property <[string]> english-layouts;
     in-out property <int> english-layout-index;
     in-out property <[string]> category-options;
@@ -206,6 +215,7 @@ export component SettingsWindow inherits Window {
 
     // 변경 즉시 저장(실시간 적용). 별도 [저장] 버튼 없음.
     callback auto-save();
+    callback rule-set-toggled(int, bool);
     callback close-clicked();
     callback blacklist-remove(int);
     callback blacklist-clear();
@@ -367,6 +377,19 @@ export component SettingsWindow inherits Window {
                                 current-index <=> root.mode-sharing-index;
                                 accessible-label: "모드 공유";
                                 selected => { root.auto-save(); }
+                            }
+                        }
+                    }
+                    // ── 자판 옵션: 선택된 한글 자판 프로필의 규칙 세트 (동적) ──
+                    if root.current-page == 0 && root.rule-set-items.length > 0: Card {
+                        title: "자판 옵션";
+                        for item[i] in root.rule-set-items: SettingRow {
+                            title: item.name;
+                            description: item.label;
+                            Switch {
+                                checked: item.active;
+                                accessible-label: item.name;
+                                toggled => { root.rule-set-toggled(i, self.checked); }
                             }
                         }
                     }
