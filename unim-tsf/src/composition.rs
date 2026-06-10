@@ -673,9 +673,9 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
             let insert: ITfInsertAtSelection = self.context.cast()?;
             let range = insert.InsertTextAtSelection(ec, TF_IAS_QUERYONLY, &[])?;
 
-            // 2. 커서 앞으로 ShiftStart (-delete_chars)
+            // 2. 커서 앞으로 ShiftStart (-delete_chars) — 교체 대상 범위 확보
+            range.Collapse(ec, TF_ANCHOR_START)?;
             if self.delete_chars > 0 {
-                range.Collapse(ec, TF_ANCHOR_START)?;
                 let mut shifted: i32 = 0;
                 // ShiftStart 는 실제 이동량을 shifted 에 돌려줌. 경계 도달 시 부분 이동.
                 let _ = range.ShiftStart(
@@ -684,19 +684,40 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                     &mut shifted,
                     std::ptr::null(),
                 );
-                // 실제로 이동한 양이 요청보다 적으면 데이터 보호: 이동된 만큼만 삭제
-                // (shifted 는 음수 또는 0으로 반환될 수 있음)
-                // 삭제 — SetText(&[]) 로 범위를 비움
-                range.SetText(ec, 0, &[])?;
+                crate::register::dbg_log(&format!(
+                    "ReplaceSurrounding: delete_chars={} shifted={}",
+                    self.delete_chars, shifted
+                ));
             }
 
-            // 3. commit_text 삽입
-            if !self.commit_text.is_empty() {
+            // 3. 삭제+커밋을 reconversion 패턴으로 수행 — 교체 범위를 composition
+            //    으로 채택한 뒤 SetText 교체, EndComposition 으로 확정한다.
+            //    raw SetText 직접 편집은 Chrome/Electron(Blink)에서 무시되고(순방향
+            //    첫 글자 누락) CUAS(IMM32 브리지) 앱에는 아예 전달되지 않는다(역방향
+            //    한글 잔류). composition 으로 감싼 교체는 reconversion 과 동일 경로라
+            //    전 앱 계층에 전달된다. StartComposition 거부 시 구(raw) 경로 폴백.
+            if self.delete_chars > 0 || !self.commit_text.is_empty() {
                 let wide: Vec<u16> = self.commit_text.encode_utf16().collect();
-                range.SetText(ec, 0, &wide)?;
-                // 커서를 삽입된 텍스트 끝으로 이동
-                range.Collapse(ec, TF_ANCHOR_END)?;
-                let _ = move_caret_to_end(&self.context, ec, &range);
+                let ctx_comp: ITfContextComposition = self.context.cast()?;
+                match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
+                    Ok(composition) => {
+                        // 빈 commit_text 면 순수 삭제(범위가 빈 문자열로 교체).
+                        // 어떤 단계가 실패해도 composition 은 반드시 닫는다.
+                        let set_result = range.SetText(ec, 0, &wide);
+                        let _ = range.Collapse(ec, TF_ANCHOR_END);
+                        let _ = move_caret_to_end(&self.context, ec, &range);
+                        let _ = composition.EndComposition(ec);
+                        set_result?;
+                    }
+                    Err(e) => {
+                        crate::register::dbg_log(&format!(
+                            "ReplaceSurrounding: StartComposition 거부({e:?}) → raw 폴백"
+                        ));
+                        range.SetText(ec, 0, &wide)?;
+                        range.Collapse(ec, TF_ANCHOR_END)?;
+                        let _ = move_caret_to_end(&self.context, ec, &range);
+                    }
+                }
             }
 
             // 4. preedit 이 있으면 composition 시작 (순방향 replay)

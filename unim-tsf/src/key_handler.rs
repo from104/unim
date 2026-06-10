@@ -40,7 +40,7 @@ fn get_modifier_state() -> ModifierState {
 /// OnTestKeyDown: 이 키를 소비할지 판단합니다.
 pub fn test_key_down(
     engine: &InputEngine,
-    _config: &Config,
+    config: &Config,
     wparam: WPARAM,
     _context: Option<&ITfContext>,
     popup_active: bool,
@@ -89,6 +89,19 @@ pub fn test_key_down(
         if keycode.is_character_key() {
             return true;
         }
+    }
+
+    // 영문 모드 + ATF 순방향 ON: 문자 키를 소비해 IME 경로로 커밋한다.
+    // 소비하지 않으면(OnTestKeyDown=FALSE) 대부분의 앱이 OnKeyDown 을 아예
+    // 호출하지 않아 ATF 가 영문 키를 관찰할 수 없다 — IMM32 앱에서 순방향이
+    // 무반응이던 원인. 엔진은 영문 문자를 consumed=true/commit='x' 로 직접
+    // 커밋하므로(메모장 검증 경로) 일반 타이핑 결과는 동일하다.
+    if engine.input_category() == InputCategory::English
+        && keycode.is_character_key()
+        && config.engine.auto_typefix.enabled
+        && config.engine.auto_typefix.forward
+    {
+        return true;
     }
 
     // 조합 중: Backspace, Space, Enter 등 소비
@@ -389,7 +402,10 @@ pub fn handle_key_down(
                 if composing {
                     comp_mgr.end_composition_with_text(context, tid, &commit);
                 } else {
-                    comp_mgr.insert_text(context, tid, &commit);
+                    // 비조합 commit(영문 문자 등)도 composition 으로 감싼 삽입
+                    // (reconversion 패턴, delete=0) — raw SetText 삽입은
+                    // Chrome/Electron(Blink)에서 누락될 수 있다.
+                    comp_mgr.replace_surrounding(context, tid, 0, &commit, "", comp_sink);
                 }
             }
             // preedit 처리
