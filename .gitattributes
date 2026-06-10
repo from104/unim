@@ -1,0 +1,26 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 줄바꿈 정책 — 저장소가 강제 (개인 머신 core.autocrlf 설정 무관)
+#
+# 배경: 집(Linux)·회사(Windows) 혼용 개발에서 CRLF 왕복 오염이 반복됨.
+#  - index(저장소)에는 항상 LF로 저장 (text=auto)
+#  - 체크아웃 시 기본 LF — Rust/MSVC/WiX(candle)/rc.exe 모두 LF 정상 처리
+#  - cmd.exe 배치 파일만 CRLF (LF 시 GOTO/label 파싱 버그)
+# ─────────────────────────────────────────────────────────────────────────────
+
+* text=auto eol=lf
+
+# Windows 전용 스크립트 — 체크아웃 시 CRLF (index에는 LF로 저장됨)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 바이너리 (text=auto 가 오탐하지 않도록 명시)
+*.png binary
+*.ico binary
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.msi binary
