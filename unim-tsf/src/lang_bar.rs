@@ -11,9 +11,10 @@ use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
     CreateBitmap, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, DeleteDC, DeleteObject,
-    GetDC, PatBlt, ReleaseDC, SelectObject, SetBkColor, SetBkMode, SetTextColor, TextOutW,
-    BLACKNESS, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE,
-    FW_SEMIBOLD, HBITMAP, HGDIOBJ, OPAQUE, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
+    DrawTextW, GetDC, PatBlt, ReleaseDC, SelectObject, SetBkColor, SetBkMode, SetTextColor,
+    BLACKNESS, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
+    DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_SEMIBOLD, HBITMAP,
+    HGDIOBJ, OPAQUE, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
 };
 use windows::Win32::System::Registry::{
     RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
@@ -138,10 +139,11 @@ fn create_status_icon(text: &str) -> Option<HICON> {
             (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
             w!("Malgun Gothic"),
         );
-        let wide: Vec<u16> = text.encode_utf16().collect();
-        // 작은 아이콘이라 정밀 측정 없이 대략 가운데로 오프셋.
-        let x = (cx / 2 - cx / 4).max(0);
-        let y = (cy / 2 - cy / 3).max(0);
+        let mut wide: Vec<u16> = text.encode_utf16().collect();
+        // 아이콘 전체 사각형에 수평·수직 중앙 정렬. TextOutW 고정 오프셋은
+        // 폰트 셀 leading 때문에 글자가 아래로 처졌다.
+        let mut rect = RECT { left: 0, top: 0, right: cx, bottom: cy };
+        let dt_flags = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
 
         // ── (1) 1bpp 마스크: 글자=0(불투명), 배경=1(투명) ──
         // 1bpp DC 에서 흰색→1, 검은색→0 으로 매핑된다. 배경을 흰색(1=투명)으로
@@ -154,7 +156,7 @@ fn create_status_icon(text: &str) -> Option<HICON> {
             SetBkMode(mask_dc, OPAQUE);
             SetBkColor(mask_dc, COLORREF(0x00FF_FFFF)); // 배경=흰(1)
             SetTextColor(mask_dc, COLORREF(0x0000_0000)); // 글자=검(0)
-            let _ = TextOutW(mask_dc, x, y, &wide);
+            let _ = DrawTextW(mask_dc, &mut wide, &mut rect, dt_flags);
             SelectObject(mask_dc, old_f);
             SelectObject(mask_dc, old);
             let _ = DeleteDC(mask_dc);
@@ -172,7 +174,7 @@ fn create_status_icon(text: &str) -> Option<HICON> {
         let old_font = SelectObject(mem_dc, HGDIOBJ(hfont.0));
         SetBkMode(mem_dc, TRANSPARENT);
         SetTextColor(mem_dc, text_color);
-        let _ = TextOutW(mem_dc, x, y, &wide);
+        let _ = DrawTextW(mem_dc, &mut wide, &mut rect, dt_flags);
         SelectObject(mem_dc, old_font);
         SelectObject(mem_dc, old_bmp);
 
