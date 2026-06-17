@@ -39,6 +39,14 @@ pub const UNIM_IMM32_KLID: &str = "E0200412";
 pub const UNIM_IMM32_LANGID: u16 = 0x0412; // ko-KR
 pub const UNIM_IMM32_IME_FILE: &str = "unim_imm32.ime";
 pub const UNIM_IME_NAME: &str = "UNIM Korean IME (IMM32)";
+/// "Layout File" = 한국어 base keyboard scancode DLL.
+/// MS 표준 한국어 레이아웃(KLID 00000412)이 쓰는 것과 동일. 과거 KBDA1.DLL
+/// (아랍 자판) 오설정 → 잘못된 스캔코드 매핑. 한국어는 반드시 KBDKOR.DLL.
+pub const UNIM_IMM32_LAYOUT_FILE: &str = "KBDKOR.DLL";
+/// "Layout Id" — langid(0412)와 충돌하지 않는 free 4-hex 식별자.
+pub const UNIM_IMM32_LAYOUT_ID: &str = "00d2";
+/// IMM32 레이아웃의 사용자 표시명(TSF 항목과 구분되는 고유 표시명).
+/// WiX `installer/wix/unim.wxs` 의 Layout Text / Display Name 과 반드시 동일해야 함.
 pub const UNIM_LAYOUT_TEXT: &str = "UNIM Korean (IMM32)";
 /// UI window class registered by ui_window.rs and reported from ImeInquire.
 pub const UNIM_UI_CLASS_NAME: &str = "UnimImm32UiClass";

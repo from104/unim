@@ -264,10 +264,11 @@
                        ForceCreateOnInstall="yes"
                        ForceDeleteOnUninstall="yes">
             <RegistryValue Type="string" Name="Ime File"            Value="unim_imm32.ime" />
-            <RegistryValue Type="string" Name="Layout File"         Value="KBDA1.DLL" />
-            <RegistryValue Type="string" Name="Layout Text"         Value="Korean Input Method (UNIM)" />
-            <RegistryValue Type="string" Name="Layout Display Name" Value="@%SystemRoot%\system32\unim_imm32.ime,-1" />
-            <RegistryValue Type="string" Name="Layout Id"           Value="0412" />
+            <!-- 값은 unim-imm32/src/globals.rs 상수와 일치해야 함 -->
+            <RegistryValue Type="string" Name="Layout File"         Value="KBDKOR.DLL" />
+            <RegistryValue Type="string" Name="Layout Text"         Value="UNIM Korean (IMM32)" />
+            <RegistryValue Type="string" Name="Layout Display Name" Value="UNIM Korean (IMM32)" />
+            <RegistryValue Type="string" Name="Layout Id"           Value="00d2" />
           </RegistryKey>
         </Component>
       </Directory>
@@ -287,10 +288,11 @@
                        ForceCreateOnInstall="yes"
                        ForceDeleteOnUninstall="yes">
             <RegistryValue Type="string" Name="Ime File"            Value="unim_imm32.ime" />
-            <RegistryValue Type="string" Name="Layout File"         Value="KBDA1.DLL" />
-            <RegistryValue Type="string" Name="Layout Text"         Value="Korean Input Method (UNIM)" />
-            <RegistryValue Type="string" Name="Layout Display Name" Value="@%SystemRoot%\system32\unim_imm32.ime,-1" />
-            <RegistryValue Type="string" Name="Layout Id"           Value="0412" />
+            <!-- 값은 unim-imm32/src/globals.rs 상수와 일치해야 함 -->
+            <RegistryValue Type="string" Name="Layout File"         Value="KBDKOR.DLL" />
+            <RegistryValue Type="string" Name="Layout Text"         Value="UNIM Korean (IMM32)" />
+            <RegistryValue Type="string" Name="Layout Display Name" Value="UNIM Korean (IMM32)" />
+            <RegistryValue Type="string" Name="Layout Id"           Value="00d2" />
           </RegistryKey>
         </Component>
       </Directory>

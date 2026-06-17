@@ -12,6 +12,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [target.'cfg(windows)'.dependencies]
+# IMM32 IME 사용자 활성화(ensure_imm32_active) — 진단 보고서 §2-A 대응.
+unim-windows-common = { path = "../unim-windows-common" }
 windows-core = "0.62"
 windows = { version = "0.62", features = [
     "Win32_Foundation",

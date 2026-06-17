@@ -11,3 +11,6 @@
 pub mod registry;
 pub mod modifier;
 pub mod debug;
+pub mod activation;
+
+pub use activation::ensure_imm32_active;

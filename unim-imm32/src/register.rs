@@ -23,7 +23,10 @@ use windows::core::*;
 
 use unim_windows_common::registry::set_reg_value;
 
-use crate::globals::{UNIM_IMM32_IME_FILE, UNIM_IMM32_KLID, UNIM_LAYOUT_TEXT};
+use crate::globals::{
+    UNIM_IMM32_IME_FILE, UNIM_IMM32_KLID, UNIM_IMM32_LAYOUT_FILE, UNIM_IMM32_LAYOUT_ID,
+    UNIM_LAYOUT_TEXT,
+};
 
 // ── 내부 헬퍼 ──────────────────────────────────────────────────────────────
 
@@ -75,29 +78,26 @@ pub fn register_ime() -> windows::core::Result<()> {
     let name_ime_file: HSTRING = "Ime File".into();
     set_reg_value(hkey, Some(&name_ime_file), UNIM_IMM32_IME_FILE)?;
 
-    // "Layout File" = "KBDA1.DLL"  (Korean base layout)
+    // "Layout File" = "KBDKOR.DLL"  (Korean base keyboard scancode DLL,
+    //   MS 표준 한국어 레이아웃 00000412 와 동일. 과거 KBDA1.DLL=아랍 자판 오기였음.)
     let name_layout_file: HSTRING = "Layout File".into();
-    set_reg_value(hkey, Some(&name_layout_file), "KBDA1.DLL")?;
+    set_reg_value(hkey, Some(&name_layout_file), UNIM_IMM32_LAYOUT_FILE)?;
 
     // "Layout Text" = "UNIM Korean (IMM32)"
     let name_layout_text: HSTRING = "Layout Text".into();
     set_reg_value(hkey, Some(&name_layout_text), UNIM_LAYOUT_TEXT)?;
 
-    // "Layout Display Name" — MUI-capable string resource reference;
-    //   falls back gracefully to plain text on systems without the resource.
+    // "Layout Display Name" — 평문 REG_SZ 로 기록.
+    //   과거에는 인디렉트 문자열(@...unim_imm32.ime,-1000)을 썼으나 .ime 에 해당
+    //   STRINGTABLE 리소스가 없어 SHLoadIndirectString 이 빈 문자열을 반환 → 표시명이
+    //   비어 보이는 결함이 있었다. SHLoadIndirectString 은 '@' 없는 평문은 그대로
+    //   반환하므로, 평문 UNIM_LAYOUT_TEXT 로 기록해 표시명을 보장한다.
     let name_display: HSTRING = "Layout Display Name".into();
-    set_reg_value(
-        hkey,
-        Some(&name_display),
-        &format!(
-            "@%SystemRoot%\\System32\\{},-1000",
-            UNIM_IMM32_IME_FILE
-        ),
-    )?;
+    set_reg_value(hkey, Some(&name_display), UNIM_LAYOUT_TEXT)?;
 
-    // "Layout Id" — any free 4-hex identifier; 00d2 mirrors the spec §8 example.
+    // "Layout Id" — langid(0412)와 충돌하지 않는 free 4-hex 식별자.
     let name_layout_id: HSTRING = "Layout Id".into();
-    set_reg_value(hkey, Some(&name_layout_id), "00d2")?;
+    set_reg_value(hkey, Some(&name_layout_id), UNIM_IMM32_LAYOUT_ID)?;
 
     unsafe {
         let _ = RegCloseKey(hkey);

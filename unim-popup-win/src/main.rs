@@ -88,6 +88,15 @@ fn main() {
         std::process::exit(0);
     }
 
+    // IMM32 IME 사용자 활성화 (진단 보고서 §2-A BLOCKER 대응).
+    //
+    // 싱글턴 뮤텍스 검사보다 "앞"에서 호출한다. 이유: 설치 직후
+    // LaunchPopupRenderer CustomAction 이 이미 떠 있는 렌더러를 만나 본 프로세스가
+    // 싱글턴에서 조기 종료(exit 0)하더라도, KLID Preload 등록/HKL 로드만큼은
+    // 반드시 수행돼야 KakaoTalk·한컴(IMM32 폴백)에서 입력기가 노출/선택된다.
+    // idempotent — Preload 에 이미 있으면 기록을 스킵하므로 매 기동 호출이 무해하다.
+    unim_windows_common::ensure_imm32_active();
+
     // 싱글턴 — 세션별 네임스페이스. 중복 기동이면 즉시 exit 0.
     let _mutex = match acquire_singleton() {
         Some(h) => h,
