@@ -262,6 +262,16 @@ impl InputEngine {
         self.input_category
     }
 
+    /// 주어진 키코드가 설정된 한/영 전환키인지 여부.
+    ///
+    /// 프런트엔드의 소비 판정(TSF `test_key_down`, IMM32 `should_consume`)이
+    /// 엔진의 `press_key` 와 동일하게 토글키(RightAlt 같은 수정자 토글키 포함)를
+    /// 소비하도록 노출한다. 프런트엔드가 토글키를 소비하지 않으면 `press_key`
+    /// 자체가 호출되지 않아 토글이 죽는다.
+    pub fn is_toggle_key(&self, keycode: KeyCode) -> bool {
+        self.toggle_keys.contains(&keycode)
+    }
+
     /// 활성 영문 키맵의 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
     pub fn home_row_labels(&self) -> &str {
         &self.home_row_labels

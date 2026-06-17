@@ -297,25 +297,28 @@ export component SettingsWindow inherits Window {
                             label: "일반";
                             selected: root.current-page == 0;
                             focused: root.current-page == 0 && nav-scope.has-focus;
-                            clicked => { root.current-page = 0; nav-scope.focus(); }
+                            // nav-scope.focus() 제거: 페이지 전환 후 포커스를 사이드바로
+                            // 강제 이동하지 않는다. 이래야 콘텐츠 영역의 LineEdit에
+                            // 마우스 클릭 또는 Tab 으로 진입할 수 있다.
+                            clicked => { root.current-page = 0; }
                         }
                         NavItem {
                             label: "오타 교정";
                             selected: root.current-page == 1;
                             focused: root.current-page == 1 && nav-scope.has-focus;
-                            clicked => { root.current-page = 1; nav-scope.focus(); }
+                            clicked => { root.current-page = 1; }
                         }
                         NavItem {
                             label: "억제 단어";
                             selected: root.current-page == 2;
                             focused: root.current-page == 2 && nav-scope.has-focus;
-                            clicked => { root.current-page = 2; nav-scope.focus(); }
+                            clicked => { root.current-page = 2; }
                         }
                         NavItem {
                             label: "사용자 사전";
                             selected: root.current-page == 3;
                             focused: root.current-page == 3 && nav-scope.has-focus;
-                            clicked => { root.current-page = 3; nav-scope.focus(); }
+                            clicked => { root.current-page = 3; }
                         }
                     }
                 }

@@ -14,17 +14,19 @@ use windows::Win32::Graphics::Gdi::{
     DrawTextW, GetDC, PatBlt, ReleaseDC, SelectObject, SetBkColor, SetBkMode, SetTextColor,
     BLACKNESS, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH,
     DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_SEMIBOLD, HBITMAP,
-    HGDIOBJ, OPAQUE, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
+    HBRUSH, HGDIOBJ, OPAQUE, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
 };
 use windows::Win32::System::Registry::{
     RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
 };
 use windows::Win32::UI::TextServices::*;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreateIconIndirect, CreatePopupMenu, DestroyMenu, GetForegroundWindow,
-    GetSystemMetrics, MessageBoxW, SetForegroundWindow, HICON, ICONINFO, MB_ICONINFORMATION,
-    MB_OK, MENU_ITEM_FLAGS, SM_CXSMICON, SM_CYSMICON, TPM_LEFTALIGN, TPM_NONOTIFY, TPM_RETURNCMD,
-    TPM_TOPALIGN,
+    AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, CS_NOCLOSE,
+    DefWindowProcW, DestroyMenu, DestroyWindow, GetForegroundWindow, GetSystemMetrics,
+    MessageBoxW, PostMessageW, RegisterClassExW, SetForegroundWindow, HCURSOR, HICON, ICONINFO,
+    MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS, SM_CXSMICON, SM_CYSMICON, TPM_LEFTALIGN,
+    TPM_NONOTIFY, TPM_RETURNCMD, TPM_TOPALIGN, WINDOW_EX_STYLE, WNDCLASSEXW, WM_NULL,
+    WS_POPUP,
 };
 
 /// 문자열 메뉴 항목 플래그. Win32 `MF_STRING` == 0x0 이지만 windows-rs 0.62 가
@@ -233,6 +235,20 @@ fn show_about_dialog(hwnd: HWND) {
     }
 }
 
+// ── helper 창 WndProc ──────────────────────────────────────────────────────────
+
+/// TrackPopupMenuEx owner 용 helper 창의 메시지 처리기.
+///
+/// 최소 구현: DefWindowProcW 에 위임. 이 창은 화면 밖에 있어 사용자에게 보이지 않는다.
+unsafe extern "system" fn helper_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
 // ── 공유 상태 ──────────────────────────────────────────────────────────────────
 
 /// text_service 와 UnimLangBarButton 이 Arc 로 공유하는 랭귀지바 상태.
@@ -249,6 +265,14 @@ pub struct LangBarState {
     /// 키 입력 경로(OnKeyDown)와 랭귀지바 클릭 경로(toggle_engine_mode) 양쪽이
     /// 모두 `update()` 를 거치므로, compartment 동기화를 여기 한 곳에 모은다.
     tsf: Mutex<Option<(ITfThreadMgr, u32)>>,
+    /// TrackPopupMenuEx 의 owner HWND fallback 용 helper 창.
+    ///
+    /// GetForegroundWindow() 가 NULL(HWND(0))을 반환하는 경우(트레이 인디케이터
+    /// 우클릭 시 전경 창이 없는 상황) TrackPopupMenuEx 에 NULL owner 를 전달하면
+    /// 메뉴가 표시되지 않는다. 이를 막기 위해 화면 밖 1×1 WS_POPUP 창을 지연
+    /// 생성해 보관한다. message-only(HWND_MESSAGE) 는 TrackPopupMenuEx dismiss 가
+    /// 깨지므로 가시 창이어야 한다.
+    helper_hwnd: Mutex<HWND>,
 }
 
 // SAFETY: ITfLangBarItemSink / ITfThreadMgr 는 TSF STA 스레드에서만 접근하며,
@@ -262,6 +286,7 @@ impl LangBarState {
             is_korean: AtomicBool::new(is_korean),
             sink: Mutex::new(None),
             tsf: Mutex::new(None),
+            helper_hwnd: Mutex::new(HWND::default()),
         })
     }
 
@@ -269,6 +294,81 @@ impl LangBarState {
     /// 이후 `update()` 호출 시 compartment 동기화가 활성화된다.
     pub fn set_tsf(&self, thread_mgr: ITfThreadMgr, tid: u32) {
         *self.tsf.lock().unwrap() = Some((thread_mgr, tid));
+    }
+
+    /// TrackPopupMenuEx owner 용 helper HWND 를 지연 생성·반환한다.
+    ///
+    /// GetForegroundWindow() 가 NULL(HWND(0))일 때 TrackPopupMenuEx 에 NULL owner 를
+    /// 전달하면 메뉴가 표시되지 않는다. 이 함수는 화면 밖(-32000, -32000) 1×1
+    /// WS_POPUP 창을 한 번만 만들어 재사용한다.
+    ///
+    /// - message-only 창(HWND_MESSAGE)은 TrackPopupMenuEx 의 dismiss(클릭 아웃 닫기)가
+    ///   깨지므로 가시(visible) 창으로 만든다. 화면 밖 좌표라 사용자 눈에 보이지 않는다.
+    /// - DLL 수명 동안 유지되며 DeactivateEx 에서 명시적으로 파괴할 수도 있다.
+    ///
+    /// 실패 시 HWND(0) 반환 → 호출자가 적절히 처리.
+    pub fn get_or_create_helper_hwnd(&self) -> HWND {
+        let mut guard = self.helper_hwnd.lock().unwrap();
+        // 이미 유효한 HWND 가 있으면 재사용
+        if guard.0 as isize != 0 {
+            return *guard;
+        }
+        unsafe {
+            // 창 클래스 이름 (null 종결 UTF-16)
+            let class_name: Vec<u16> = "UNIM_HelperWnd\0".encode_utf16().collect();
+            // 창 클래스 최초 등록. RegisterClassExW 는 같은 클래스명이 이미 등록돼
+            // 있으면 ERROR_CLASS_ALREADY_EXISTS(1410) 을 반환하므로 결과 무시해도 안전.
+            let wc = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                style: CS_NOCLOSE,
+                lpfnWndProc: Some(helper_wnd_proc),
+                cbClsExtra: 0,
+                cbWndExtra: 0,
+                hInstance: crate::dll_instance().into(),
+                hIcon: HICON::default(),
+                hCursor: HCURSOR::default(),
+                hbrBackground: HBRUSH::default(),
+                lpszMenuName: PCWSTR::null(),
+                lpszClassName: PCWSTR(class_name.as_ptr()),
+                hIconSm: HICON::default(),
+            };
+            let _ = RegisterClassExW(&wc);
+
+            let title: Vec<u16> = "\0".encode_utf16().collect();
+            // 화면 밖(-32000, -32000) 1×1 WS_POPUP 창. WS_VISIBLE 이어야
+            // TrackPopupMenuEx 의 dismiss(click-outside) 가 올바로 동작한다.
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                PCWSTR(class_name.as_ptr()),
+                PCWSTR(title.as_ptr()),
+                WS_POPUP,
+                -32000,
+                -32000,
+                1,
+                1,
+                None,  // parent = NULL (데스크탑)
+                None,  // menu = NULL
+                Some(crate::dll_instance().into()),
+                None,
+            );
+            let hwnd = match hwnd {
+                Ok(h) if h.0 as isize != 0 => h,
+                _ => HWND::default(),
+            };
+            *guard = hwnd;
+            hwnd
+        }
+    }
+
+    /// helper HWND 를 파괴한다. DeactivateEx 또는 DLL_PROCESS_DETACH 에서 호출.
+    pub fn destroy_helper_hwnd(&self) {
+        let mut guard = self.helper_hwnd.lock().unwrap();
+        if guard.0 as isize != 0 {
+            unsafe {
+                let _ = DestroyWindow(*guard);
+            }
+            *guard = HWND::default();
+        }
     }
 
     /// is_korean 을 갱신하고, sink OnUpdate 발사 + OS compartment 동기화를 한다.
@@ -558,12 +658,27 @@ impl UnimLangBarButton_Impl {
             add(MENU_ID_SETTINGS, "설정(&S)");
             add(MENU_ID_ABOUT, "정보(&I)");
 
-            // 메뉴 소유 창. 포커스된 전경 창을 owner 로 삼고 전경으로 올려야
-            // 메뉴 밖 클릭 시 메뉴가 닫힌다.
-            let hwnd = GetForegroundWindow();
-            if !hwnd.is_invalid() {
-                let _ = SetForegroundWindow(hwnd);
-            }
+            // 메뉴 소유 창. TrackPopupMenuEx 는 NULL owner 로는 메뉴를 표시하지
+            // 않으므로 반드시 유효한 HWND 가 필요하다.
+            //
+            // GetForegroundWindow() 는 트레이 IME 인디케이터 우클릭 시점에 전경 창이
+            // 없으면 HWND(0)(NULL)을 반환한다. windows-rs 의 HWND::is_invalid() 는
+            // HWND(-1)(INVALID_HANDLE_VALUE)만 거르고 HWND(0)은 유효로 판단하므로,
+            // 명시적으로 .0 포인터가 null 인지 검사해야 한다.
+            let fg = GetForegroundWindow();
+            let owner = if fg.0 as isize != 0 {
+                // 유효한 전경 창이 있으면 그것을 owner 로 사용 + 전경으로 올림
+                let _ = SetForegroundWindow(fg);
+                fg
+            } else {
+                // 전경 창 없음(트레이 우클릭 시 흔한 상황) → helper 창을 owner 로 사용.
+                // helper 창 자체를 전경으로 올려야 dismiss(클릭 아웃 닫기)가 동작한다.
+                let h = self.state.get_or_create_helper_hwnd();
+                if h.0 as isize != 0 {
+                    let _ = SetForegroundWindow(h);
+                }
+                h
+            };
 
             // TPM_RETURNCMD: 선택된 항목 ID 를 i32 로 동기 반환. 0 이면 취소.
             let cmd = TrackPopupMenuEx(
@@ -571,9 +686,16 @@ impl UnimLangBarButton_Impl {
                 (TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN).0,
                 pt.x,
                 pt.y,
-                hwnd,
+                owner,
                 core::ptr::null(),
             );
+
+            // TrackPopupMenuEx 반환 직후 WM_NULL 을 owner 에 PostMessage 해
+            // dismiss 처리를 완료시킨다 (Win32 규약).
+            if owner.0 as isize != 0 {
+                let _ = PostMessageW(Some(owner), WM_NULL, WPARAM(0), LPARAM(0));
+            }
+
             let _ = DestroyMenu(hmenu);
 
             if cmd != 0 {

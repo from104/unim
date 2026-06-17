@@ -22,7 +22,7 @@ mod key_handler;
 #[cfg(windows)]
 mod lang_bar;
 #[cfg(windows)]
-mod popup_window;
+mod popup_ipc;
 #[cfg(windows)]
 mod preedit_window;
 #[cfg(windows)]
@@ -31,6 +31,8 @@ pub mod register;
 pub mod settings_dialog;
 #[cfg(windows)]
 mod sandbox_paths;
+#[cfg(windows)]
+mod synth_input;
 #[cfg(windows)]
 mod text_service;
 

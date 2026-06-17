@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#380b14" />
+      <stop offset="100%" stop-color="#140206" />
+    </linearGradient>
+
+    <linearGradient id="unGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff3b53" />
+      <stop offset="100%" stop-color="#90001a" />
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.75"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="115" fill="url(#bgGradient)" />
+
+  <g transform="translate(256, 256) scale(1) translate(-256, -256)">
+    <path d="M 106 117
+             V 320
+             A 75 75 0 0 0 256 320
+             M 256 117
+             V 395
+             M 256 192
+             A 75 75 0 0 1 406 192
+             V 395"
+          fill="none"
+          stroke="url(#unGradient)"
+          stroke-width="70"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          filter="url(#shadow)" />
+  </g>
+</svg>

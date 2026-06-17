@@ -39,6 +39,8 @@ mod tests_popup_change_page;
 mod tests_profile;
 #[cfg(test)]
 mod tests_chord_compose;
+#[cfg(test)]
+mod tests_toggle;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///

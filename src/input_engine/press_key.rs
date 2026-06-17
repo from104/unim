@@ -53,19 +53,63 @@ impl InputEngine {
         modifier: ModifierState,
         _config: &Config,
     ) -> InputResult {
-        // 수정자 키만 누른 경우 무시
-        if keycode.is_modifier() {
+        // 설정된 한/영 전환키 여부. RightAlt 처럼 그 자체가 수정자인 키도 토글키로
+        // 지정될 수 있으므로(기본값 ["Korean","RightAlt"]) is_modifier 가드보다
+        // 먼저 판정해 둔다.
+        let is_toggle_key = self.toggle_keys.contains(&keycode);
+
+        // 수정자 키만 누른 경우 무시 — 단, 토글키(RightAlt 등)는 아래에서 처리.
+        if keycode.is_modifier() && !is_toggle_key {
             return InputResult::not_consumed();
         }
 
         // 팝업(한자/특수문자/이모지) 활성 상태에서 키 인터셉트.
         // PR #1: Emoji 팝업도 이 분기로 들어오도록 popup_state 진입.
+        // (팝업 중에는 토글키도 다른 키와 동일하게 팝업이 우선 처리한다 —
+        //  기존 한/영 키 동작과 동일.)
         if self.hanja_mode || self.special_char_mode || self.is_emoji_popup_active() {
             return self.process_popup_key(keycode, modifier, _config);
         }
 
         // 이모지 팝업 진입은 한자 키 dual-purpose 가 단일 진입점이다 (preedit/조합 idle
         // 상태에서 한자 키가 start_emoji_popup() 호출). 별도 단축키 트리거는 제거됨.
+
+        // 한/영 전환 처리 (설정 기반) — RightAlt 같은 수정자 토글키도 처리하려면
+        // 아래 Ctrl/Alt/Super 단축키 가드보다 먼저 검사해야 한다. (RightAlt 는 자기
+        // 자신이 Alt 비트를 세우므로, 토글 분기가 단축키 가드 뒤에 있던 종전 코드에선
+        // 항상 단축키로 분류돼 토글이 죽어 있었다 — VK_HANGUL 만 동작.)
+        // 단, 토글키가 자신이 부여하는 수정자(RightAlt→Alt) 외의 단축키 수정자
+        // (Ctrl/Super, 또는 토글키가 수정자가 아닌데 Alt)와 함께 눌리면 단축키로 보고
+        // 토글하지 않는다(예: Ctrl+한/영, Ctrl+RightAlt 는 그대로 통과).
+        if is_toggle_key {
+            let self_is_modifier = keycode.is_modifier();
+            let shortcut_combo = modifier.control
+                || modifier.super_key
+                || (modifier.alt && !self_is_modifier);
+            if !shortcut_combo {
+                // 비밀번호 필드에서는 한/영 전환 차단
+                if self.content_purpose.should_block_hangul()
+                    && self.input_category == InputCategory::English
+                {
+                    unim_log!(
+                        "ENGINE",
+                        "한/영 전환 차단: content_purpose={:?}",
+                        self.content_purpose
+                    );
+                    return InputResult::consumed();
+                }
+
+                // 조합 중이면 먼저 커밋
+                let was_composing = self.korean_context.is_composing();
+                self.toggle_input_category();
+
+                // 조합 중이었으면 commit이 발생했으므로 committed() 반환
+                if was_composing {
+                    return InputResult::committed();
+                }
+                return InputResult::consumed();
+            }
+        }
 
         // Control/Alt가 눌린 경우 (단축키) 무시
         if modifier.control || modifier.alt || modifier.super_key {
@@ -75,31 +119,6 @@ impl InputEngine {
                 return InputResult::committed();
             }
             return InputResult::not_consumed();
-        }
-
-        // 한/영 전환 처리 (설정 기반)
-        if self.toggle_keys.contains(&keycode) {
-            // 비밀번호 필드에서는 한/영 전환 차단
-            if self.content_purpose.should_block_hangul()
-                && self.input_category == InputCategory::English
-            {
-                unim_log!(
-                    "ENGINE",
-                    "한/영 전환 차단: content_purpose={:?}",
-                    self.content_purpose
-                );
-                return InputResult::consumed();
-            }
-
-            // 조합 중이면 먼저 커밋
-            let was_composing = self.korean_context.is_composing();
-            self.toggle_input_category();
-
-            // 조합 중이었으면 commit이 발생했으므로 committed() 반환
-            if was_composing {
-                return InputResult::committed();
-            }
-            return InputResult::consumed();
         }
 
         // 비밀번호/PIN 필드에서는 한글 모드를 영어로 강제 전환
@@ -677,6 +696,12 @@ impl InputEngine {
                             None => true,
                             Some(required) => *required == modifier.shift,
                         }
+                        // 문자 키(`/`/`:` 등)는 한국어 모드에서 실제 char 가 산출될 때만
+                        // 트리거. `produces_char_in_korean` 이 None 이면 자모 경로(예:
+                        // 세벌식390 `slash_context_alt` 의 ㅗ) 가 활성이므로 Functional
+                        // 트리거를 양보하고 자모 흐름을 타게 한다. 제어 키(Escape/Tab 등
+                        // non-character)는 `is_character_key()=false` 라 이 가드를 우회.
+                        && (!keycode.is_character_key() || produced_char.is_some())
                 }
                 AutoEnglishTrigger::Character(ch) => produced_char == Some(*ch),
             })

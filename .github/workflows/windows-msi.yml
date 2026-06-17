@@ -47,7 +47,7 @@ jobs:
       - name: Install Rust toolchain (stable, MSVC)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: x86_64-pc-windows-msvc,i686-pc-windows-msvc
 
       - name: Cargo cache
         uses: Swatinem/rust-cache@v2
@@ -66,24 +66,56 @@ jobs:
             -p unim-capi `
             -p unim-tsf
 
-      - name: cargo build (release, unim-tsf)
+      - name: cargo build (release, MSI payloads)
+        # MSI 가 패키징하는 산출물 전부: TSF DLL + 설정 GUI + 팝업 렌더러 + IMM32 IME (x64).
         run: |
           cargo build --release --target ${{ env.WIN_TARGET }} `
             -p unim-tsf `
+            -p unim-tsf-settings `
+            -p unim-popup-win `
+            -p unim-imm32 `
             --locked
+
+      - name: cargo build (release, IMM32 IME x86 — SysWOW64)
+        # unim_imm32.ime 의 32-bit 사본 (i686-pc-windows-msvc).
+        # 32-bit 환경 없이 --target i686 을 넘기면 링크 오류가 나므로
+        # vcvarsamd64_x86 을 먼저 호출하는 별도 셸에서 실행한다.
+        shell: cmd
+        run: |
+          call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsamd64_x86.bat" >nul
+          cargo build --release --target i686-pc-windows-msvc -p unim-imm32 --locked
+          if errorlevel 1 exit /b 1
+
+      - name: Rename IMM32 DLL → IME (both bitnesses)
+        shell: bash
+        run: |
+          cp target/${WIN_TARGET}/release/unim_imm32.dll \
+             target/${WIN_TARGET}/release/unim_imm32.ime
+          cp target/i686-pc-windows-msvc/release/unim_imm32.dll \
+             target/i686-pc-windows-msvc/release/unim_imm32.ime
 
       - name: Verify build artifacts
         shell: bash
         run: |
-          out="target/${WIN_TARGET}/release"
+          out64="target/${WIN_TARGET}/release"
+          out32="target/i686-pc-windows-msvc/release"
           missing=0
-          for f in unim_tsf.dll; do
-            if [[ ! -f "$out/$f" ]]; then
-              echo "::error::missing $out/$f"
+          for f in unim_tsf.dll unim-tsf-settings.exe unim-popup-win.exe unim_imm32.ime; do
+            if [[ ! -f "$out64/$f" ]]; then
+              echo "::error::missing $out64/$f"
               missing=1
             else
-              size=$(stat -c%s "$out/$f")
-              echo "  ok  $out/$f ($size bytes)"
+              size=$(stat -c%s "$out64/$f")
+              echo "  ok  $out64/$f ($size bytes)"
+            fi
+          done
+          for f in unim_imm32.ime; do
+            if [[ ! -f "$out32/$f" ]]; then
+              echo "::error::missing $out32/$f"
+              missing=1
+            else
+              size=$(stat -c%s "$out32/$f")
+              echo "  ok  $out32/$f ($size bytes)"
             fi
           done
           [[ $missing -eq 0 ]]
@@ -122,9 +154,13 @@ jobs:
           $candle = "${{ steps.wix.outputs.wix_bin }}\candle.exe"
           $light  = "${{ steps.wix.outputs.wix_bin }}\light.exe"
 
+          $winOut32 = "target\i686-pc-windows-msvc\release"
+
           & $candle `
             -arch x64 `
+            -ext WixUtilExtension `
             -dWIN_OUT_DIR="$winOut" `
+            -dWIN_OUT_DIR32="$winOut32" `
             -out "installer\wix\unim.wixobj" `
             "installer\wix\unim.wxs"
 
@@ -133,6 +169,7 @@ jobs:
           $msi = "$dist\unim-${{ steps.version.outputs.version }}-x64.msi"
           & $light `
             -sval `
+            -ext WixUtilExtension `
             -out "$msi" `
             "installer\wix\unim.wixobj"
 
@@ -166,5 +203,7 @@ jobs:
           name: unim-${{ steps.version.outputs.version }}-x64-binaries
           path: |
             target/${{ env.WIN_TARGET }}/release/unim_tsf.dll
+            target/${{ env.WIN_TARGET }}/release/unim_imm32.ime
+            target/i686-pc-windows-msvc/release/unim_imm32.ime
           if-no-files-found: error
           retention-days: 7

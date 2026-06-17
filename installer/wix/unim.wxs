@@ -3,7 +3,9 @@
   UNIM Korean IME — Windows MSI installer (WiX Toolset 3.x).
 
   Build (Windows runner, GitHub Actions or local):
-    candle.exe -arch x64 -dWIN_OUT_DIR=path\to\release -out unim.wixobj installer\wix\unim.wxs
+    candle.exe -arch x64 -dWIN_OUT_DIR=target\x86_64-pc-windows-msvc\release ^
+               -dWIN_OUT_DIR32=target\i686-pc-windows-msvc\release ^
+               -out unim.wixobj installer\wix\unim.wxs
     light.exe   -ext WixUIExtension -out dist\unim-x64.msi unim.wixobj
 
   Or via cargo-wix (flags written without leading dashes to keep this XML
@@ -19,7 +21,8 @@
   `bash installer/wix/gen-guids.sh` whenever globals.rs changes.
 -->
 <?include generated/guids.wxi ?>
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
 
   <Product Id="*"
            Name="UNIM Korean IME"
@@ -200,7 +203,96 @@
                   Source="$(var.WIN_OUT_DIR)\unim-tsf-settings.exe"
                   KeyPath="yes" />
           </Component>
+
+          <!-- 팝업 렌더러 (out-of-process). 한자/특수문자/이모지 팝업을 별도
+               프로세스로 그린다(docs/dev/windows/popup-renderer-design.md §5·§7).
+               DLL 과 같은 INSTALLDIR 에 설치해 on-demand spawn 폴백이 모듈
+               디렉터리 기준으로 찾을 수 있게 한다(§6.4 ①). -->
+          <Component Id="UnimPopupWinExe"
+                     Guid="A1F2E3D4-5C6B-4A78-9E0F-1A2B3C4D5E6F"
+                     Win64="yes">
+            <File Id="unim_popup_win_exe"
+                  Name="unim-popup-win.exe"
+                  Source="$(var.WIN_OUT_DIR)\unim-popup-win.exe"
+                  KeyPath="yes" />
+
+            <!-- 로그인 자동시작 (모든 사용자). perMachine 설치이므로 HKCU 가 아닌
+                 HKLM Run 을 써야 설치 실행 사용자 외 계정에서도 기동된다(§7). -->
+            <RegistryValue Root="HKLM"
+                           Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+                           Name="UnimPopupRenderer"
+                           Type="string"
+                           Value="&quot;[INSTALLDIR]unim-popup-win.exe&quot;" />
+
+            <!-- on-demand spawn 폴백용 설치 경로 (§6.4 ②). DLL 이 모듈 디렉터리에서
+                 exe 를 못 찾을 때 이 키를 읽는다. -->
+            <RegistryValue Root="HKLM"
+                           Key="SOFTWARE\atit.org\UNIM"
+                           Name="InstallDir"
+                           Type="string"
+                           Value="[INSTALLDIR]" />
+          </Component>
         </Directory>
+      </Directory>
+
+      <!--
+        IMM32 IME — unim_imm32.ime.
+        KLID E0200412 (E0xx0412, 0412 = ko-KR, E020 = user-defined IME slot).
+        "Ime File" resolves relative to System32, so the x64 copy goes to
+        System64Folder and the x86 copy goes to SystemFolder (SysWOW64 on
+        64-bit Windows).  ForceDeleteOnUninstall removes the registry rows on
+        uninstall; the file is removed by its own component.
+
+        GUID NOTE: These two component GUIDs are fixed here and are NOT derived
+        from guids.wxi / gen-guids.sh (gen-guids.sh only covers unim-tsf GUIDs).
+        If you need to regenerate guids.wxi, these components are unaffected and
+        the drift gate will still pass.  The two GUIDs below must remain stable
+        across versions (MSI component identity rule).
+      -->
+      <Directory Id="System64Folder">
+        <Component Id="UnimImm32Ime64"
+                   Guid="B3C4D5E6-F7A8-4B9C-0D1E-2F3A4B5C6D7E"
+                   Win64="yes">
+          <File Id="unim_imm32_ime_64"
+                Name="unim_imm32.ime"
+                Source="$(var.WIN_OUT_DIR)\unim_imm32.ime"
+                KeyPath="yes" />
+
+          <!-- Keyboard Layout registration for x64 (64-bit view of the registry). -->
+          <RegistryKey Root="HKLM"
+                       Key="SYSTEM\CurrentControlSet\Control\Keyboard Layouts\E0200412"
+                       ForceCreateOnInstall="yes"
+                       ForceDeleteOnUninstall="yes">
+            <RegistryValue Type="string" Name="Ime File"            Value="unim_imm32.ime" />
+            <RegistryValue Type="string" Name="Layout File"         Value="KBDA1.DLL" />
+            <RegistryValue Type="string" Name="Layout Text"         Value="Korean Input Method (UNIM)" />
+            <RegistryValue Type="string" Name="Layout Display Name" Value="@%SystemRoot%\system32\unim_imm32.ime,-1" />
+            <RegistryValue Type="string" Name="Layout Id"           Value="0412" />
+          </RegistryKey>
+        </Component>
+      </Directory>
+
+      <Directory Id="SystemFolder">
+        <Component Id="UnimImm32Ime32"
+                   Guid="C4D5E6F7-A8B9-4C0D-1E2F-3A4B5C6D7E8F"
+                   Win64="no">
+          <File Id="unim_imm32_ime_32"
+                Name="unim_imm32.ime"
+                Source="$(var.WIN_OUT_DIR32)\unim_imm32.ime"
+                KeyPath="yes" />
+
+          <!-- Keyboard Layout registration for x86 (32-bit / WOW64 registry view). -->
+          <RegistryKey Root="HKLM"
+                       Key="SYSTEM\CurrentControlSet\Control\Keyboard Layouts\E0200412"
+                       ForceCreateOnInstall="yes"
+                       ForceDeleteOnUninstall="yes">
+            <RegistryValue Type="string" Name="Ime File"            Value="unim_imm32.ime" />
+            <RegistryValue Type="string" Name="Layout File"         Value="KBDA1.DLL" />
+            <RegistryValue Type="string" Name="Layout Text"         Value="Korean Input Method (UNIM)" />
+            <RegistryValue Type="string" Name="Layout Display Name" Value="@%SystemRoot%\system32\unim_imm32.ime,-1" />
+            <RegistryValue Type="string" Name="Layout Id"           Value="0412" />
+          </RegistryKey>
+        </Component>
       </Directory>
 
       <Directory Id="ProgramMenuFolder">
@@ -239,9 +331,43 @@
              Absent="disallow">
       <ComponentRef Id="UnimTsfDll" />
       <ComponentRef Id="UnimTsfSettingsExe" />
+      <ComponentRef Id="UnimPopupWinExe" />
       <ComponentRef Id="RegisterScripts" />
       <ComponentRef Id="StartMenuShortcuts" />
+      <ComponentRef Id="UnimImm32Ime64" />
+      <ComponentRef Id="UnimImm32Ime32" />
     </Feature>
+
+    <!--
+      업그레이드/제거 시 실행 중인 렌더러 exe 점유 해제. 렌더러는 창 메시지를
+      처리하지 않을 수 있으므로 CloseMessage 가 아니라 TerminateProcess 강제
+      종료가 정답(상태 없음 — 다음 render 가 전체 복원, §7). WiX 3.x 의
+      util:CloseApplication 은 InstallValidate 앞에 자체 스케줄된다.
+    -->
+    <util:CloseApplication Id="CloseUnimPopupWin"
+                           Target="unim-popup-win.exe"
+                           CloseMessage="no"
+                           TerminateProcess="0"
+                           RebootPrompt="no" />
+
+    <!--
+      설치/복구 직후 팝업 렌더러를 즉시 기동(재로그인 불필요).
+      asyncNoWait + impersonate 로 사용자 컨텍스트에서 비동기 실행한다.
+      렌더러 싱글턴 뮤텍스가 중복 기동을 자체 차단하므로 Run 키로 이미
+      떠 있어도 무해(ERROR_ALREADY_EXISTS → exit 0).
+    -->
+    <CustomAction Id="LaunchPopupRenderer"
+                  FileKey="unim_popup_win_exe"
+                  ExeCommand=""
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="LaunchPopupRenderer" After="InstallFinalize">
+        <![CDATA[NOT Installed OR REINSTALL]]>
+      </Custom>
+    </InstallExecuteSequence>
 
     <Property Id="ARPHELPLINK" Value="https://github.com/from104/unim" />
     <Property Id="ARPURLINFOABOUT" Value="https://atit.org" />

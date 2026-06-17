@@ -17,7 +17,7 @@ use crate::auto_typefix::AutoTypeFixState;
 use crate::composition::CompositionManager;
 use crate::key_handler;
 use crate::lang_bar::{LangBarState, UnimLangBarButton};
-use crate::popup_window::PopupWindow;
+use crate::popup_ipc::{PopupClient, RevChannel, WM_UNIM_REV};
 use crate::preedit_window::PreeditWindow;
 
 #[implement(
@@ -36,14 +36,22 @@ pub struct UnimTextService {
     pub(crate) engine: Arc<Mutex<InputEngine>>,
     /// Arc 로 보관해 UnimLangBarButton 과 공유 (set_input_category 시 Config 필요).
     pub(crate) config: Arc<Mutex<Config>>,
-    pub(crate) composition_mgr: Mutex<CompositionManager>,
+    /// Arc 로 보관해 역채널 wndproc(RevWndContext)과 공유.
+    pub(crate) composition_mgr: Arc<Mutex<CompositionManager>>,
     pub(crate) key_event_sink_installed: Mutex<bool>,
     pub(crate) thread_mgr_sink_cookie: Mutex<Option<u32>>,
     /// 마지막으로 로드한 config.yaml의 mtime. OnSetFocus 시 변경 감지에 사용.
     pub(crate) config_mtime: Mutex<Option<SystemTime>>,
-    /// 한자/특수문자/이모지 팝업 윈도우 (TSF STA 스레드 전용).
-    /// 팝업 비활성 시 None, 최초 Show* 액션 시 lazy 생성.
-    pub(crate) popup_window: Mutex<Option<PopupWindow>>,
+    /// 한자/특수문자/이모지 팝업 IPC 클라이언트 (out-of-process 렌더러로 송신).
+    /// 비차단 worker 스레드를 소유. 렌더러 부재 시에도 타이핑 무영향 (§6.2).
+    /// Arc 로 보관해 역채널 wndproc(RevWndContext)과 공유 (§11.G 마우스 클릭 적용).
+    pub(crate) popup_ipc: Arc<Mutex<PopupClient>>,
+    /// 마지막 활성 `ITfContext` (OnKeyDown 진입 시 clone). 역채널 마우스 확정 시
+    /// 이 컨텍스트로 비조합 문서 삽입한다 (§11.G). TSF STA 스레드 전용 접근.
+    pub(crate) last_context: Arc<Mutex<Option<ITfContext>>>,
+    /// 역채널 message-only 창 (HWND + 공유 컨텍스트). ActivateEx 에서 생성,
+    /// Deactivate 에서 파괴. 생성 실패해도 IME 무영향 (역채널만 비활성).
+    pub(crate) rev_window: Mutex<Option<RevWindow>>,
     /// client-side preedit 오버레이 창 (터미널·레거시 앱 폴백 전용, lazy 생성).
     /// composition 미지원 앱에서 조합 중 음절을 앱 버퍼 대신 이 창에 그린다.
     pub(crate) preedit_window: Mutex<Option<PreeditWindow>>,
@@ -100,11 +108,13 @@ impl UnimTextService {
             client_id: AtomicU32::new(0),
             engine: Arc::new(Mutex::new(engine)),
             config: Arc::new(Mutex::new(config)),
-            composition_mgr: Mutex::new(CompositionManager::new()),
+            composition_mgr: Arc::new(Mutex::new(CompositionManager::new())),
             key_event_sink_installed: Mutex::new(false),
             thread_mgr_sink_cookie: Mutex::new(None),
             config_mtime: Mutex::new(config_mtime),
-            popup_window: Mutex::new(None),
+            popup_ipc: Arc::new(Mutex::new(PopupClient::new())),
+            last_context: Arc::new(Mutex::new(None)),
+            rev_window: Mutex::new(None),
             preedit_window: Mutex::new(None),
             atf_state: Mutex::new(AutoTypeFixState::new()),
             langbar_item: Mutex::new(None),
@@ -120,6 +130,35 @@ impl UnimTextService {
 
     pub fn client_id(&self) -> u32 {
         self.client_id.load(Ordering::SeqCst)
+    }
+
+    /// 조합 중 패스쓰루 키(네비게이션/수정자 조합)를 만났을 때 현재 조합을
+    /// 확정하고 정리한다. OnTestKeyDown 의 두 패스쓰루 블록(navkey·modifier-combo)
+    /// 공통 로직 — 호출자가 이미 engine 락을 보유하므로 가드를 인자로 받는다.
+    ///
+    /// comp_mgr 가 활성이면 preedit 으로 확정 종료, 비활성이지만 preedit 이 남아
+    /// 있으면(오버레이 폴백 모드) 문서에 직접 insert 한다. 이후 오버레이 창 숨김 +
+    /// 엔진 preedit 제거.
+    fn commit_for_passthrough(&self, engine: &mut InputEngine, context: &ITfContext) {
+        let tid = self.client_id();
+        let preedit = engine.preedit_str().to_string();
+        {
+            let mut comp_mgr = self.composition_mgr.lock().unwrap();
+            if comp_mgr.is_active() {
+                if preedit.is_empty() {
+                    comp_mgr.end_composition(context, tid);
+                } else {
+                    comp_mgr.end_composition_with_text(context, tid, &preedit);
+                }
+            } else if !preedit.is_empty() {
+                // 오버레이 폴백 모드: 조합 글자를 문서에 직접 확정.
+                comp_mgr.insert_text(context, tid, &preedit);
+            }
+        }
+        if let Some(w) = self.preedit_window.lock().unwrap().as_mut() {
+            w.hide();
+        }
+        engine.remove_preedit();
     }
 
     /// config.yaml mtime 을 확인해 변경됐으면 엔진·설정을 조용히 reload 한다.
@@ -181,9 +220,7 @@ impl UnimTextService {
             *engine_guard = new_engine;
             *config_guard = new_config;
             *self.config_mtime.lock().unwrap() = Some(new_mtime);
-            if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
-                win.hide();
-            }
+            self.popup_ipc.lock().unwrap().hide();
             if let Some(ref mut win) = *self.preedit_window.lock().unwrap() {
                 win.hide();
             }
@@ -262,6 +299,34 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
             crate::compartment::sync_keyboard_mode(thread_mgr, tid, is_korean);
         }
 
+        // ── §11.G 역채널 message-only 창 생성 (마우스 클릭 적용 경로) ──────────
+        // 실패해도 IME 무영향 — 역채널(마우스)만 비활성, 키보드 입력은 정상.
+        {
+            let rev = self.popup_ipc.lock().unwrap().rev_channel();
+            let comp_sink: ITfCompositionSink = self.to_interface();
+            let ctx = Box::new(RevWndContext {
+                engine: Arc::clone(&self.engine),
+                config: Arc::clone(&self.config),
+                composition_mgr: Arc::clone(&self.composition_mgr),
+                popup_ipc: Arc::clone(&self.popup_ipc),
+                last_context: Arc::clone(&self.last_context),
+                rev,
+                comp_sink,
+                tid,
+            });
+            match RevWindow::create(ctx) {
+                Some(w) => {
+                    *self.rev_window.lock().unwrap() = Some(w);
+                    crate::register::dbg_log("popup_rev: reverse channel armed (message-only HWND)");
+                }
+                None => {
+                    crate::register::dbg_log(
+                        "popup_rev: reverse channel NOT armed (window create failed) — mouse disabled",
+                    );
+                }
+            }
+        }
+
         crate::dll_add_ref();
         Ok(())
     }
@@ -273,6 +338,16 @@ impl ITfTextInputProcessor_Impl for UnimTextService_Impl {
     }
 
     fn Deactivate(&self) -> Result<()> {
+        // 종료/IME 전환 경로 — 화면 중앙 팝업 잔존 방지 (설계서 §6.6).
+        // ITfThreadMgrEventSink::OnSetFocus 는 TIP 전환 시 보장되지 않으므로
+        // Deactivate 진입부에서 명시적으로 Hide 를 송신한다.
+        self.popup_ipc.lock().unwrap().hide();
+
+        // §11.G 역채널 창 파괴 (notify 해제 + DestroyWindow + 컨텍스트 회수).
+        // 반드시 해제 — 훅/창 누수 시 다음 활성화에서 stale wndproc 위험.
+        *self.rev_window.lock().unwrap() = None;
+        *self.last_context.lock().unwrap() = None;
+
         let thread_mgr_guard = self.thread_mgr.lock().unwrap();
         if let Some(ref thread_mgr) = *thread_mgr_guard {
             let tid = self.client_id();
@@ -330,15 +405,44 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         wparam: WPARAM,
         _lparam: LPARAM,
     ) -> Result<BOOL> {
+        // ATF SendInput 폴백(synth_input)이 주입한 합성 키는 엔진을 거치지 않고
+        // 식별: BS/유니코드는 통과(앱이 직접 처리), 센티널은 소비(OnKeyDown 에서
+        // replay preedit composition 시작). 어떤 락 취득보다 먼저 검사해야 한다.
+        if let Some(eaten) = crate::synth_input::observe_test_key_down(wparam.0 as u16) {
+            return Ok(BOOL::from(eaten));
+        }
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
-        let popup_active = self
-            .popup_window
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|w| w.is_active())
-            .unwrap_or(false);
+        let popup_active = self.popup_ipc.lock().unwrap().is_active();
+
+        let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
+
+        // ── 버그③: 조합 중 수정자 단축키(Ctrl+J, Shift+Del 등) 패스쓰루 ──
+        //
+        // is_commit_passthrough_key 목록(Enter/Tab/Esc/방향/Home/End/PgUp/PgDn)에
+        // 없는 수정자 조합은 OnTestKeyDown 커밋 블록을 못 타 조합이 잔류했다.
+        // modifier 우선으로 먼저 검사한다(아래 navkey 블록보다 앞).
+        //
+        // 조건(get_modifier_state 인라인 호출):
+        //   - Ctrl/Alt/Super + 비수정자  → 커밋+패스쓰루.
+        //   - Shift + !is_character_key()(Del/Insert/F-keys/방향 등) → 커밋+패스쓰루.
+        //   - Shift + is_character_key()(Shift+A 대문자, Shift+1=! 등) → 제외
+        //     (엔진이 Korean 모드에서 이미 소비·처리하는 조합/기호 입력).
+        //   - is_modifier() 단독(Ctrl/Shift 누름) → 제외.
+        let m = key_handler::get_modifier_state();
+        let is_combo = !kc.is_modifier()
+            && (m.control || m.alt || m.super_key || (m.shift && !kc.is_character_key()));
+        if !popup_active && engine.is_composing() && is_combo {
+            if let Some(context) = pic.as_ref() {
+                self.commit_for_passthrough(&mut engine, context);
+                crate::register::dbg_log(&format!(
+                    "OnTestKeyDown: commit+passthrough modifier-combo vk=0x{:02X}",
+                    wparam.0 as u16
+                ));
+                return Ok(FALSE);
+            }
+        }
+
 
         // NavilIME 패턴: 조합 중 Enter/화살표/Tab/Esc 등 네비게이션 키는 여기서
         // 현재 조합을 확정하고 pIsEaten=FALSE 로 통과시킨다. 그래야 OnKeyDown 이
@@ -346,32 +450,9 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // (commit 을 OnKeyDown 에서 한 뒤 false 반환하면 CUAS 가 이미 claim 된 키를
         // 앱으로 안 흘려보낸다 — Enter/화살표가 동작하지 않던 원인.)
         // 팝업 활성 시에는 이 키들이 후보 내비게이션이므로 제외한다.
-        if !popup_active
-            && engine.is_composing()
-            && key_handler::is_commit_passthrough_key(unim::keycode::KeyCode::from_win32_vk(
-                wparam.0 as u16,
-            ))
-        {
+        if !popup_active && engine.is_composing() && key_handler::is_commit_passthrough_key(kc) {
             if let Some(context) = pic.as_ref() {
-                let tid = self.client_id();
-                let preedit = engine.preedit_str().to_string();
-                {
-                    let mut comp_mgr = self.composition_mgr.lock().unwrap();
-                    if comp_mgr.is_active() {
-                        if preedit.is_empty() {
-                            comp_mgr.end_composition(context, tid);
-                        } else {
-                            comp_mgr.end_composition_with_text(context, tid, &preedit);
-                        }
-                    } else if !preedit.is_empty() {
-                        // 오버레이 폴백 모드: 조합 글자를 문서에 직접 확정.
-                        comp_mgr.insert_text(context, tid, &preedit);
-                    }
-                }
-                if let Some(w) = self.preedit_window.lock().unwrap().as_mut() {
-                    w.hide();
-                }
-                engine.remove_preedit();
+                self.commit_for_passthrough(&mut engine, context);
                 crate::register::dbg_log(&format!(
                     "OnTestKeyDown: commit+passthrough navkey vk=0x{:02X}",
                     wparam.0 as u16
@@ -386,7 +467,28 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
     }
 
     fn OnKeyDown(&self, pic: Ref<'_, ITfContext>, wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
+        // [imm32 진입 진단] OnKeyDown 무조건 진입 로그. OnTestKeyDown 은 찍히는데
+        // OnKeyDown 이 안 찍히면(=test 만 FALSE 반환) 키 라우팅 단절 지점 식별 가능.
+        crate::register::dbg_log(&format!("OnKeyDown ENTER vk=0x{:02X}", wparam.0 as u16));
         let context = pic.as_ref().ok_or(E_INVALIDARG)?;
+        // §11.G 역채널 마우스 확정용으로 최신 컨텍스트 보관 (clone, TSF STA 스레드).
+        *self.last_context.lock().unwrap() = Some(context.clone());
+        // ATF SendInput 폴백의 합성 키 처리. 센티널 도착 = 큐 순서상 앞의
+        // 백스페이스·유니코드 삽입이 모두 앱에 전달된 뒤이므로, 이 시점에
+        // replay preedit composition 을 시작한다.
+        match crate::synth_input::observe_key_down(wparam.0 as u16) {
+            Some(crate::synth_input::SynthKeyAction::PassThrough) => return Ok(FALSE),
+            Some(crate::synth_input::SynthKeyAction::StartPreedit(preedit)) => {
+                if !preedit.is_empty() {
+                    let tid = self.client_id();
+                    let comp_sink: ITfCompositionSink = self.to_interface();
+                    let mut comp_mgr = self.composition_mgr.lock().unwrap();
+                    comp_mgr.start_composition(context, tid, &preedit, &comp_sink);
+                }
+                return Ok(TRUE);
+            }
+            None => {}
+        }
         // OnCompositionTerminated 의 "즉시 종료" 판별용 타임스탬프.
         *self.last_key_instant.lock().unwrap() = Some(Instant::now());
         // 설정 GUI 가 config.yaml 을 저장하면 포커스 전환 없이도 다음 키 입력 시
@@ -396,7 +498,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
-        let mut popup_win = self.popup_window.lock().unwrap();
+        let mut popup_ipc = self.popup_ipc.lock().unwrap();
         let mut preedit_win = self.preedit_window.lock().unwrap();
         let mut atf_state = self.atf_state.lock().unwrap();
         let tid = self.client_id();
@@ -420,7 +522,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             &mut engine,
             &config,
             &mut comp_mgr,
-            &mut popup_win,
+            &mut popup_ipc,
             &mut preedit_win,
             &mut atf_state,
             context,
@@ -555,9 +657,10 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         // (Phase 1) OnCompositionTerminated 의 "정상 종료" 정리를 이리로 이전.
         //   포커스 이탈 = 사용자가 조합을 떠남 → 엔진 preedit 를 비우고 팝업/ATF 정리.
         self.engine.lock().unwrap().reset();
-        if let Some(ref mut win) = *self.popup_window.lock().unwrap() {
-            win.hide();
-        }
+        // 포커스 전환 → 팝업 Hide 송신 (렌더러 owner 규칙으로 stale hide 무시 처리).
+        self.popup_ipc.lock().unwrap().hide();
+        // 포커스 이동 → 보관 컨텍스트 무효화 (역채널 마우스 확정이 옛 창에 안 가도록).
+        *self.last_context.lock().unwrap() = None;
         if let Some(ref mut win) = *self.preedit_window.lock().unwrap() {
             win.hide();
         }
@@ -642,5 +745,180 @@ impl ITfDisplayAttributeProvider_Impl for UnimTextService_Impl {
                 Err(E_INVALIDARG.into())
             }
         }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// §11.G 역채널 message-only 창 — 렌더러 클릭 이벤트를 TSF(STA) 스레드로 마샬링.
+//
+// reader 서브스레드(popup_ipc)가 RevChannel 에 push + PostMessageW(WM_UNIM_REV).
+// 본 창의 wndproc 은 TSF 스레드 메시지 펌프가 호출하므로, 엔진 락을 짧게 잡고
+// edit session(insert_text)을 안전하게 수행할 수 있다. 어떤 실패도 panic 금지.
+// ════════════════════════════════════════════════════════════════════════════
+
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, RegisterClassExW,
+    SetWindowLongPtrW, GWLP_USERDATA, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW,
+};
+
+const REV_WND_CLASS_NAME: PCWSTR = w!("UNIM_PopupRevWnd");
+static REV_WND_CLASS_ATOM: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+/// 역채널 wndproc 이 보는 공유 상태 (Arc 클론 묶음). HWND userdata 로 포인터 보관.
+struct RevWndContext {
+    engine: Arc<Mutex<InputEngine>>,
+    config: Arc<Mutex<Config>>,
+    composition_mgr: Arc<Mutex<CompositionManager>>,
+    popup_ipc: Arc<Mutex<PopupClient>>,
+    last_context: Arc<Mutex<Option<ITfContext>>>,
+    rev: Arc<RevChannel>,
+    /// composition sink — insert_text 경로에서 comp_sink 서명 일관성용.
+    comp_sink: ITfCompositionSink,
+    tid: u32,
+}
+
+/// 역채널 message-only 창 핸들 래퍼. Drop 시 창 파괴 + Box 회수.
+pub(crate) struct RevWindow {
+    hwnd: HWND,
+    /// userdata 가 가리키는 Box 의 소유권 (Drop 시 회수).
+    _ctx: Box<RevWndContext>,
+    /// 큐 notify 해제용.
+    rev: Arc<RevChannel>,
+}
+
+impl RevWindow {
+    /// message-only 창을 생성하고 RevChannel 에 notify HWND 를 등록한다.
+    /// 실패 시 None (역채널만 비활성, IME 무영향).
+    fn create(ctx: Box<RevWndContext>) -> Option<Self> {
+        unsafe {
+            REV_WND_CLASS_ATOM.get_or_init(|| {
+                let wc = WNDCLASSEXW {
+                    cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                    lpfnWndProc: Some(rev_wnd_proc),
+                    hInstance: crate::dll_instance().into(),
+                    lpszClassName: REV_WND_CLASS_NAME,
+                    ..Default::default()
+                };
+                RegisterClassExW(&wc)
+            });
+
+            let rev = Arc::clone(&ctx.rev);
+            // Box → raw 포인터를 userdata 에 넣어 wndproc 에서 복구.
+            let ctx_ptr: *mut RevWndContext = Box::into_raw(ctx);
+
+            let hwnd = match CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                REV_WND_CLASS_NAME,
+                w!("UNIM_PopupRev"),
+                WINDOW_STYLE(0),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE),
+                None,
+                Some(crate::dll_instance().into()),
+                None,
+            ) {
+                Ok(h) => h,
+                Err(e) => {
+                    crate::register::dbg_log(&format!(
+                        "popup_rev: CreateWindowExW(message-only) failed: {e:?}"
+                    ));
+                    // Box 회수 (창 생성 실패).
+                    drop(Box::from_raw(ctx_ptr));
+                    return None;
+                }
+            };
+
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx_ptr as isize);
+            rev.set_notify_hwnd(hwnd.0 as isize);
+            crate::register::dbg_log(&format!(
+                "popup_rev: message-only HWND created {:#x}",
+                hwnd.0 as isize
+            ));
+
+            // Box 소유권 복구 (Drop 시 함께 해제). raw 포인터와 동일 메모리.
+            let owned = Box::from_raw(ctx_ptr);
+            Some(Self {
+                hwnd,
+                _ctx: owned,
+                rev,
+            })
+        }
+    }
+}
+
+impl Drop for RevWindow {
+    fn drop(&mut self) {
+        unsafe {
+            // notify 차단 먼저 (이후 도착 push 는 PostMessage 안 함).
+            self.rev.set_notify_hwnd(0);
+            // userdata 초기화 후 창 파괴 (wndproc 재진입 방지).
+            SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
+            let _ = DestroyWindow(self.hwnd);
+            crate::register::dbg_log("popup_rev: message-only HWND destroyed");
+        }
+        // _ctx Box 는 자동 Drop.
+    }
+}
+
+/// 역채널 message-only 창 프로시저 — `WM_UNIM_REV` 에서 큐를 drain 해 엔진 적용.
+extern "system" fn rev_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if msg == WM_UNIM_REV {
+        // panic 격리 — wndproc 에서 panic 이 COM/STA 경계를 넘지 않도록.
+        let _ = std::panic::catch_unwind(|| unsafe {
+            let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const RevWndContext;
+            if ptr.is_null() {
+                return;
+            }
+            let ctx = &*ptr;
+            rev_drain_and_apply(ctx);
+        });
+        return LRESULT(0);
+    }
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+/// 역채널 큐를 drain 해 각 이벤트를 엔진에 적용 (TSF 스레드, 엔진 락 짧게).
+fn rev_drain_and_apply(ctx: &RevWndContext) {
+    let events = ctx.rev.drain();
+    if events.is_empty() {
+        return;
+    }
+    // stale 판정용 식별자 (마지막 send_render).
+    let (last_owner, last_seq) = {
+        let p = ctx.popup_ipc.lock().unwrap();
+        p.last_render_ident()
+    };
+
+    for env in events {
+        // 락 순서: engine → config → composition → popup_ipc (다른 경로와 동일).
+        let mut engine = ctx.engine.lock().unwrap();
+        let config = ctx.config.lock().unwrap();
+        let mut comp_mgr = ctx.composition_mgr.lock().unwrap();
+        let mut popup = ctx.popup_ipc.lock().unwrap();
+        // last_context 는 별도 락(컨텍스트만) — 위 락 이후 취득.
+        let ctx_guard = ctx.last_context.lock().unwrap();
+        let context_ref = ctx_guard.as_ref();
+
+        key_handler::apply_reverse_event(
+            &mut engine,
+            &config,
+            &mut comp_mgr,
+            &mut popup,
+            context_ref,
+            ctx.tid,
+            &ctx.comp_sink,
+            &env,
+            last_owner,
+            last_seq,
+        );
+        // 락은 루프 끝에서 자동 해제 (다음 이벤트 위해 재취득 — 엔진 락 짧게 유지).
     }
 }

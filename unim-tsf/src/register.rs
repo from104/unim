@@ -18,17 +18,10 @@ use windows::Win32::UI::TextServices::*;
 
 use crate::globals::*;
 
+use unim_windows_common::registry::{set_reg_value, set_reg_dword};
+
 fn get_dll_path() -> Result<String> {
-    let hmodule = crate::dll_instance();
-    let mut buf = [0u16; 260];
-    let len =
-        unsafe {
-            windows::Win32::System::LibraryLoader::GetModuleFileNameW(Some(hmodule), &mut buf)
-        };
-    if len == 0 {
-        return Err(E_FAIL.into());
-    }
-    Ok(String::from_utf16_lossy(&buf[..len as usize]))
+    unim_windows_common::registry::get_module_path(crate::dll_instance())
 }
 
 /// 설정 GUI(`unim-tsf-settings.exe`)를 DLL 과 같은 디렉터리에서 실행한다.
@@ -65,43 +58,6 @@ pub fn launch_settings_app() -> bool {
     }
 }
 
-fn set_reg_value(hkey: HKEY, name: Option<&HSTRING>, value: &str) -> Result<()> {
-    let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
-    unsafe {
-        let err = RegSetValueExW(
-            hkey,
-            name.map(|h| PCWSTR(h.as_ptr())).unwrap_or(PCWSTR::null()),
-            Some(0),
-            REG_SZ,
-            Some(std::slice::from_raw_parts(
-                wide.as_ptr() as *const u8,
-                wide.len() * 2,
-            )),
-        );
-        if err.is_err() {
-            return Err(E_FAIL.into());
-        }
-    }
-    Ok(())
-}
-
-/// REG_DWORD 헬퍼 — LanguageProfile 의 Enable / SubstituteLayout / IconIndex 등 정수값 기록.
-fn set_reg_dword(hkey: HKEY, name: &HSTRING, value: u32) -> Result<()> {
-    let bytes = value.to_ne_bytes();
-    unsafe {
-        let err = RegSetValueExW(
-            hkey,
-            PCWSTR(name.as_ptr()),
-            Some(0),
-            REG_DWORD,
-            Some(&bytes),
-        );
-        if err.is_err() {
-            return Err(E_FAIL.into());
-        }
-    }
-    Ok(())
-}
 
 unsafe fn register_com_server() -> Result<()> {
     let dll_path = get_dll_path()?;
@@ -197,16 +153,7 @@ pub(crate) fn dbg_log(msg: &str) {
     if !UNIM_DEBUG_LOG {
         return;
     }
-    use std::io::Write;
-    let path = std::env::temp_dir().join("unim-tsf.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "[unim-tsf {}] {}", process_tag(), msg);
-    }
-}
-
-/// 로그 식별용 짧은 태그 (PID). 여러 앱에 DLL 이 로드되므로 구분에 쓴다.
-fn process_tag() -> u32 {
-    std::process::id()
+    unim_windows_common::debug::dbg_log("unim-tsf", "unim-tsf.log", msg, false);
 }
 
 // ── 기본 입력기(default profile) 설정 — 사용자 컨텍스트 전용 ──

@@ -8,33 +8,17 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::TextServices::*;
 
 use unim::config::{Config, InputCategory};
-use unim::input_engine::{InputEngine, InputResult};
+use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
 
 use crate::auto_typefix::{self, AutoTypeFixState};
 use crate::composition::{self, CompositionManager};
-use crate::popup_window::PopupWindow;
+use crate::popup_ipc::{to_render_state, PopupClient, RevEnvelope, RevEvent};
 use crate::preedit_window::PreeditWindow;
 
 /// 현재 Win32 수정자 키 상태를 조회합니다.
-fn get_modifier_state() -> ModifierState {
-    unsafe {
-        let shift = GetKeyState(VK_SHIFT.0 as i32) < 0;
-        let control = GetKeyState(VK_CONTROL.0 as i32) < 0;
-        let alt = GetKeyState(VK_MENU.0 as i32) < 0;
-        let super_key = GetKeyState(VK_LWIN.0 as i32) < 0 || GetKeyState(VK_RWIN.0 as i32) < 0;
-        let caps_lock = (GetKeyState(VK_CAPITAL.0 as i32) & 0x01) != 0;
-        let num_lock = (GetKeyState(VK_NUMLOCK.0 as i32) & 0x01) != 0;
-
-        ModifierState {
-            shift,
-            control,
-            alt,
-            super_key,
-            caps_lock,
-            num_lock,
-        }
-    }
+pub fn get_modifier_state() -> ModifierState {
+    unim_windows_common::modifier::modifier_state_live()
 }
 
 /// OnTestKeyDown: 이 키를 소비할지 판단합니다.
@@ -49,8 +33,19 @@ pub fn test_key_down(
     let keycode = KeyCode::from_win32_vk(vk);
     let modifiers = get_modifier_state();
 
-    // 수정자 키만 누른 경우 통과
-    if keycode.is_modifier() {
+    // [imm32 진입 진단] OnTestKeyDown 무조건 진입 로그. KakaoTalk/아래아한글에서
+    // 키가 sink 에 아예 도달하는지(=이 줄이 찍히는지) 재현 확인용.
+    crate::register::dbg_log(&format!(
+        "OnTestKeyDown ENTER vk=0x{:02X} ctrl={} alt={} shift={} super={}",
+        vk, modifiers.control, modifiers.alt, modifiers.shift, modifiers.super_key
+    ));
+
+    // 설정된 한/영 전환키 여부 (엔진과 동일 판정). RightAlt 같은 수정자 토글키도
+    // 포함되므로 is_modifier 가드보다 먼저 구한다.
+    let is_toggle = engine.is_toggle_key(keycode);
+
+    // 수정자 키만 누른 경우 통과 — 단, 토글키(RightAlt 등)는 아래에서 소비 판정.
+    if keycode.is_modifier() && !is_toggle {
         return false;
     }
 
@@ -62,21 +57,31 @@ pub fn test_key_down(
     // 팝업 활성 시: 팝업 내비게이션 키를 모두 소비
     // (엔진이 press_key 내부에서 process_popup_key 로 처리)
     if popup_active {
-        // Ctrl/Alt/Super 조합은 팝업 중에도 통과 (시스템 단축키 허용)
+        // Ctrl/Alt/Super 조합은 팝업 중에도 통과 (시스템 단축키 허용).
+        // RightAlt 토글키도 Alt 비트를 세우므로 팝업 중엔 여기서 통과된다(종전 동작).
         if modifiers.control || modifiers.alt || modifiers.super_key {
             return false;
         }
         return is_popup_key(keycode);
     }
 
+    // 한/영 전환 키는 소비 — RightAlt 같은 수정자 토글키도 포함하되, 단축키 조합
+    // (Ctrl/Super, 또는 토글키가 수정자가 아닌데 Alt)일 때는 제외한다.
+    // (엔진 press_key 의 토글 판정과 정확히 일치시켜, 소비 여부와 실제 토글 동작이
+    //  어긋나지 않게 한다 — 어긋나면 RightAlt 가 먹히기만 하고 토글은 안 되는 버그.)
+    if is_toggle {
+        let self_is_modifier = keycode.is_modifier();
+        let shortcut_combo = modifiers.control
+            || modifiers.super_key
+            || (modifiers.alt && !self_is_modifier);
+        if !shortcut_combo {
+            return true;
+        }
+    }
+
     // Ctrl/Alt/Super 조합은 통과 (단축키)
     if modifiers.control || modifiers.alt || modifiers.super_key {
         return false;
-    }
-
-    // 한/영 전환 키는 항상 소비
-    if keycode == KeyCode::Korean || keycode == KeyCode::RightAlt {
-        return true;
     }
 
     // 한자/F9 키
@@ -234,7 +239,7 @@ pub fn handle_key_down(
     engine: &mut InputEngine,
     config: &Config,
     comp_mgr: &mut CompositionManager,
-    popup_win: &mut Option<PopupWindow>,
+    popup: &mut PopupClient,
     preedit_win: &mut Option<PreeditWindow>,
     atf_state: &mut AutoTypeFixState,
     context: &ITfContext,
@@ -317,10 +322,10 @@ pub fn handle_key_down(
 
     // ── 팝업 액션 drain ──
     // press_key 가 내부적으로 process_popup_key 를 수행했으면 PopupAction 이 쌓임.
-    // ShowHanja/ShowSpecial/ShowEmoji → 팝업 표시
-    // PopupNavigate/PageJump/HanjaBookmarkChanged/HanjaCandidatesReordered → 팝업 갱신
-    // HidePopup → 팝업 숨김 (선택 확정 또는 Esc)
-    drain_popup_actions(engine, popup_win, context, tid, result, comp_mgr);
+    // 액션 루프는 first(Show*)/hide(HidePopup)/flash(★해제) 플래그만 수집하고,
+    // 렌더 데이터는 엔진 SoT view_model → to_render_state(§4) → send_render 로 보낸다.
+    // 이것이 H3/H4/H5/H9/H14 일괄 해소 지점 (첫 Show 부터 격자·헤더·뜻·★ 정확).
+    drain_popup_actions(engine, popup);
 
     // ── commit / preedit 처리 ──
     let commit_str_for_atf: Option<String>;
@@ -427,7 +432,7 @@ pub fn handle_key_down(
     // 팝업 활성 중에는 발동 금지 (엔진이 popup_key 처리 중).
     // 폴백(터미널·레거시) 경로에서도 비활성: ATF 의 replace_surrounding 은 동일한
     // 역방향 삭제 한계로 터미널에서 깨지므로(삭제 무효 → 텍스트 누적) 적용하지 않는다.
-    let popup_active = popup_win.as_ref().map(|w| w.is_active()).unwrap_or(false);
+    let popup_active = popup.is_active();
     if !popup_active && !composition_unsupported {
         if let Some(apply) = auto_typefix::process_after_key(
             atf_state,
@@ -460,49 +465,217 @@ pub fn handle_key_down(
     result.consumed
 }
 
-/// engine 의 pending PopupAction 을 모두 소비해 popup_win 에 반영한다.
+/// engine 의 pending PopupAction 을 모두 소비해 out-of-process 렌더러로 송신한다 (§6.5).
 ///
-/// Show* 액션(ShowHanja/ShowSpecial/ShowEmoji) → `popup_win` 초기화 후 표시.
-/// 이후 내비게이션 액션 → 기존 팝업 갱신.
-/// HidePopup → 팝업 숨김 (선택 확정 또는 Esc).
+/// 액션 루프는 **플래그만 수집**한다:
+/// - `first` = Show*(ShowHanja/ShowSpecial/ShowEmoji) 수신 (새 팝업).
+/// - `hide`  = HidePopup 수신 (선택 확정 또는 Esc).
+/// - `flash` = HanjaCandidatesReordered 에서 `was_bookmarked && !bookmarked` (★ 해제 신호).
 ///
-/// # 갭 1 수정
-/// 기존 구현은 `hanja_candidates_available || special_char_candidates_available` 플래그가
-/// 켜진 경우에만 첫 take_popup_action() 을 호출했다. 이로 인해 Super+. 단축키로 트리거되는
-/// ShowEmoji 는 이 플래그가 세워지지 않아 최초 show() 호출을 놓쳤다.
-/// 수정: 플래그 체크를 제거하고 단일 drain 루프에서 Show* / 내비게이션 / HidePopup 을 모두 처리.
-fn drain_popup_actions(
-    engine: &mut InputEngine,
-    popup_win: &mut Option<PopupWindow>,
-    context: &ITfContext,
-    tid: u32,
-    _result: InputResult,
-    _comp_mgr: &mut CompositionManager,
-) {
+/// 렌더 데이터는 액션이 아니라 **엔진 SoT** 에서 추출한다:
+/// `engine.popup_state().view_model(home_row)` → `to_render_state`(§4 column-major 평탄화)
+/// → `send_render`. rows/cols/total_pages·헤더·뜻·탭·초기★ 가 첫 Show 부터 정확하므로
+/// H3(전치)/H4(하이라이트)/H5(첫표시 격자)/H9(헤더·뜻)/H14(초기★)가 일괄 해소된다.
+///
+/// `selected`(=sel_row) 필드는 어디서도 사용하지 않는다 (좌표 SoT 만 신뢰).
+fn drain_popup_actions(engine: &mut InputEngine, popup: &mut PopupClient) {
     use unim::input_engine::PopupAction;
 
-    loop {
-        match engine.take_popup_action() {
-            Some(action) => match &action {
-                PopupAction::ShowHanja { .. }
-                | PopupAction::ShowSpecial { .. }
-                | PopupAction::ShowEmoji { .. } => {
-                    // Show* 계열: 팝업 창을 (재)초기화 후 표시
-                    let pos = get_composition_screen_pos(context, tid);
-                    let win = popup_win.get_or_insert_with(|| {
-                        PopupWindow::create().expect("PopupWindow 생성 실패")
-                    });
-                    win.show(action, pos);
+    let mut first = false; // Show* 수신
+    let mut hide = false; // HidePopup 수신
+    let mut flash = false; // ★ 해제 신호
+    let mut any = false;
+
+    while let Some(action) = engine.take_popup_action() {
+        any = true;
+        // PopupAction 의 모든 variant 를 명시 match (신규 variant 추가 시 컴파일 에러로 감지).
+        match &action {
+            PopupAction::ShowHanja { .. }
+            | PopupAction::ShowSpecial { .. }
+            | PopupAction::ShowEmoji { .. } => first = true,
+            PopupAction::HidePopup => hide = true,
+            PopupAction::HanjaCandidatesReordered {
+                bookmarked,
+                was_bookmarked,
+                ..
+            } => flash = *was_bookmarked && !*bookmarked,
+            // Navigate/PageJump/BookmarkChanged → view_model 이 전부 반영하므로 플래그 불필요.
+            PopupAction::PopupNavigate { .. }
+            | PopupAction::PageJump { .. }
+            | PopupAction::HanjaBookmarkChanged { .. } => {}
+        }
+        crate::register::dbg_log(&format!(
+            "popup_ipc: drain action variant first={first} hide={hide} flash={flash}"
+        ));
+    }
+
+    if hide {
+        popup.hide();
+        return;
+    }
+    if !any {
+        return;
+    }
+
+    // 엔진 SoT 에서 완성된 view model 추출 (H3/H4/H5/H9/H14 일괄 해소 지점).
+    let home_row = engine.home_row_labels().to_string();
+    if let Some(state) = engine.popup_state() {
+        let rs = to_render_state(&state.view_model(&home_row));
+        popup.send_render(rs, first, flash);
+    } else if popup.is_active() {
+        // 액션은 있었는데 상태가 없음 — 방어적 Hide.
+        crate::register::dbg_log("popup_ipc: actions present but popup_state()=None → defensive hide");
+        popup.hide();
+    }
+}
+
+/// 역채널 마우스 이벤트를 엔진에 적용한다 (§11.G — TSF 스레드 wndproc 에서만 호출).
+///
+/// **코어 무수정 제약**: `popup_select`/`popup_cancel` 은 `pub(super)` 라 직접 호출
+/// 불가하므로, 동등한 **공개 `press_key` 경로**로 라우팅한다:
+/// - cell 선택 → `handle_click` 으로 sel 이동 후 `press_key(Enter)` (Enter→Select→popup_select)
+/// - 외부 취소 → `press_key(Escape)` (Escape→Cancel→popup_cancel: 원본 한글 커밋+HidePopup)
+/// - 탭 전환 → `press_key(CatLetter 키)` (엔진 카테고리 점프 + ShowEmoji 재발행)
+/// 키보드 경로와 **완전 동일한 엔진 상태 전이**를 재사용하므로 SoT 일관성이 보장된다.
+///
+/// 적용 후 `drain_popup_actions` 로 view_model 재전송/hide 하고, `commit_buffer` 가
+/// 차 있으면 보관된 `ITfContext` 로 비조합 문서 삽입한다.
+///
+/// 어떤 실패도 panic 금지 — 전부 `dbg_log`. 엔진 락은 호출자(wndproc)가 짧게 보유.
+/// `last_owner`/`last_seq` 는 마지막 send_render 의 식별자 (stale 차단용).
+#[allow(clippy::too_many_arguments)]
+pub fn apply_reverse_event(
+    engine: &mut InputEngine,
+    config: &Config,
+    comp_mgr: &mut CompositionManager,
+    popup: &mut PopupClient,
+    context: Option<&ITfContext>,
+    tid: u32,
+    comp_sink: &ITfCompositionSink,
+    env: &RevEnvelope,
+    last_owner: u64,
+    last_seq: u64,
+) {
+    use unim::keycode::{KeyCode, ModifierState};
+
+    // ── stale 차단: 포커스 전환 race 로 옛 팝업에 보낸 이벤트는 무시 ──
+    // owner_hwnd 와 seq 가 모두 마지막 send_render 와 일치해야 적용한다.
+    if env.owner_hwnd != last_owner || env.seq != last_seq {
+        crate::register::dbg_log(&format!(
+            "popup_rev: stale evt owner={:#x}/cur={:#x} seq={}/cur={} → ignore",
+            env.owner_hwnd, last_owner, env.seq, last_seq
+        ));
+        return;
+    }
+    // 팝업이 이미 닫혔으면 무시.
+    if engine.popup_state().is_none() {
+        crate::register::dbg_log("popup_rev: popup_state()=None → ignore evt");
+        return;
+    }
+
+    let modifiers = ModifierState::default();
+    crate::register::dbg_log(&format!("popup_rev: apply {:?}", env.event));
+
+    match &env.event {
+        RevEvent::CellClick { row, col } => {
+            // 1) 클릭한 셀로 selection 이동 (column-major 좌표 그대로 엔진에 전달).
+            let result = match engine.popup_state_mut() {
+                Some(state) => state.handle_click(*row as usize, *col as usize),
+                None => return,
+            };
+            use unim::popup::PopupKeyResult;
+            match result {
+                PopupKeyResult::Select(_) => {
+                    // 키보드 Enter 와 동일 경로로 확정 (popup_select → commit_buffer+HidePopup).
+                    let _ = engine.press_key(KeyCode::Enter, modifiers, config);
                 }
                 _ => {
-                    // PopupNavigate / PageJump / HanjaBookmarkChanged /
-                    // HanjaCandidatesReordered / HidePopup 등 → 기존 팝업 갱신
-                    if let Some(win) = popup_win.as_mut() {
-                        win.update(action);
-                    }
+                    crate::register::dbg_log(
+                        "popup_rev: cell_click non-select (empty/consumed) → re-render only",
+                    );
                 }
-            },
-            None => break,
+            }
+        }
+        RevEvent::PageClick { dir } => {
+            let page_dir = if *dir == crate::popup_ipc::evt_kind::PAGE_DIR_PREV {
+                unim::input_engine::PageDirection::Prev
+            } else {
+                unim::input_engine::PageDirection::Next
+            };
+            let _ = engine.popup_change_page(page_dir);
+        }
+        RevEvent::TabClick { index } => {
+            // 이모지 카테고리 점프 — 키보드 CatLetter(홈행 ASDFGHJKL) 경로 재사용.
+            // 엔진이 refresh_emoji_category_items + ShowEmoji 재발행 + sel 리셋을 일괄 처리.
+            let key = cat_index_to_keycode(*index);
+            if let Some(kc) = key {
+                let _ = engine.press_key(kc, modifiers, config);
+            } else {
+                crate::register::dbg_log(&format!(
+                    "popup_rev: tab_click index={index} out of 0..8 → ignore"
+                ));
+            }
+        }
+        RevEvent::ExpandToggle => {
+            // 한자 확장/축소 — PopupState 의 공개 메서드 직접 호출 (키보드 Period 동치).
+            if let Some(state) = engine.popup_state_mut() {
+                state.toggle_hanja_expanded();
+            }
+        }
+        RevEvent::OutsideCancel => {
+            // 키보드 Escape 와 동일 경로 → popup_cancel (원본 한글 커밋 + HidePopup).
+            let _ = engine.press_key(KeyCode::Escape, modifiers, config);
         }
     }
+
+    // ── 적용 후 재렌더/확정 처리 ──
+    // pending PopupAction 을 소비해 view_model 재전송 또는 hide.
+    drain_popup_actions(engine, popup);
+
+    // 마우스 확정 텍스트(commit_buffer)가 있으면 보관 컨텍스트로 비조합 문서 삽입.
+    let commit = if !engine.commit_str().is_empty() {
+        let c = engine.commit_str().to_string();
+        engine.clear_commit();
+        c
+    } else {
+        String::new()
+    };
+    if !commit.is_empty() {
+        match context {
+            Some(ctx) => {
+                // 비조합 삽입 (키보드 Enter 와 달리 활성 composition 없음).
+                // 잔류 composition 이 있으면 먼저 종료해 잔상 방지.
+                if comp_mgr.is_active() {
+                    comp_mgr.end_composition(ctx, tid);
+                }
+                comp_mgr.insert_text(ctx, tid, &commit);
+                crate::register::dbg_log(&format!("popup_rev: commit inserted '{commit}'"));
+            }
+            None => {
+                crate::register::dbg_log(&format!(
+                    "popup_rev: no context — commit '{commit}' deferred (dropped)"
+                ));
+            }
+        }
+    }
+    let _ = comp_sink; // 비조합 삽입 경로는 comp_sink 불필요 (서명 일관성 위해 보유).
+}
+
+/// 이모지 카테고리 인덱스(0..8) → 홈행 물리 키 KeyCode (ASDFGHJKL).
+///
+/// 엔진 `keycode_to_popup_key` 의 `KeyCode::A..L → CatLetter(0..8)` 매핑과 동일.
+fn cat_index_to_keycode(index: u32) -> Option<unim::keycode::KeyCode> {
+    use unim::keycode::KeyCode;
+    Some(match index {
+        0 => KeyCode::A,
+        1 => KeyCode::S,
+        2 => KeyCode::D,
+        3 => KeyCode::F,
+        4 => KeyCode::G,
+        5 => KeyCode::H,
+        6 => KeyCode::J,
+        7 => KeyCode::K,
+        8 => KeyCode::L,
+        _ => return None,
+    })
 }
