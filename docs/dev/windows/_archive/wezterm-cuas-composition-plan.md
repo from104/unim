@@ -12,7 +12,7 @@ wezterm/텔레그램 등 IMM32 소비 앱은 Windows **CUAS(Cicero Unaware Appli
 
 ## 근본 원인 (실측 로그)
 
-`docs/windows-console-composition-bug.md` · `docs/wezterm-composition-research-3rd.md` 의 `%TEMP%\unim-tsf.log` 실측:
+`docs/dev/windows/windows-console-composition-bug.md` · `docs/dev/windows/wezterm-composition-research-3rd.md` 의 `%TEMP%\unim-tsf.log` 실측:
 
 ```
 handle_key_down: preedit_changed=true was_composing=false comp_active=false

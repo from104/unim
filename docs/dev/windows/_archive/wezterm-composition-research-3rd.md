@@ -1,6 +1,6 @@
 # wezterm 한글 조합 버그 — 3차 조사 (CUAS 브리지 모순)
 
-> 본 문서는 기존 `docs/wezterm-composition-research.md`(1·2차 조사, UTF-8)의 후속 3차 조사다.
+> 본 문서는 기존 `docs/dev/windows/wezterm-composition-research.md`(1·2차 조사, UTF-8)의 후속 3차 조사다.
 > **조사 환경 제약 (정직성 고지):** 이번 세션에서 MS Learn 일부 페이지가 auth-gate로 본문이 거의 비어 반환됐다. 단 **1·2차 조사 doc에 이미 검증·인용된 MS Learn / SampleIME 원문 quote**(StartComposition Remarks, Compositions, OnCompositionTerminated 주석)와 **UNIM 소스 전문(composition.rs 572줄, text_service.rs)** 및 **wezterm 실측 로그(지식베이스 `wezterm-log-caretfix`)** 는 직접 확인했다.
 > 라벨: **[확증]**(1차 자료/소스/로그로 뒷받침) / **[추론]**(확증 사실로부터의 논리적 귀결) / **[미확인-검증필요]**(추가 1차 확인 필요).
 

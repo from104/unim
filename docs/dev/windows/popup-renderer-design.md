@@ -1,7 +1,7 @@
 # UNIM Windows — 팝업 렌더러 프로세스 분리 설계서 (unim-popup-win)
 
 > 작성 2026-06-12, branch `feat/windows-msi-redesign`. 코드 변경 0건 — 설계 문서.
-> 선행 조사: `docs/dev/windows/popup-tsf-fix-plan.md` (가설 17건 중 16 confirmed).
+> 선행 조사: `docs/dev/windows/_archive/popup-tsf-fix-plan.md` (가설 17건 중 16 confirmed).
 > 기준 스펙: `docs/dev/specs/POPUP_SPEC.md` (Linux 공통 규격, v3.3).
 > 본 문서는 **렌더러 구현자(A)** 와 **TSF 클라이언트 구현자(B)** 가 서로의 파일을
 > 건드리지 않고 동시 작업할 수 있도록 인터페이스를 **동결(frozen)** 한다.

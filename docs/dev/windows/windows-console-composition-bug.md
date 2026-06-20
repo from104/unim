@@ -1,7 +1,7 @@
 # Windows 콘솔/IMM32 앱 한글 조합 버그 (wezterm·텔레그램 등)
 
 > 상태: **부분 해결(폴백 구현 중)** · 최종 업데이트 2026-06-01
-> 관련 조사: `docs/wezterm-composition-research.md`, `docs/wezterm-composition-research-3rd.md`
+> 관련 조사: `docs/dev/windows/_archive/wezterm-composition-research.md`, `docs/dev/windows/_archive/wezterm-composition-research-3rd.md`
 
 ## 1. 증상
 

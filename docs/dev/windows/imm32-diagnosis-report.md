@@ -2,7 +2,7 @@
 
 - 대상: UNIM v0.3.24 (`feat/windows-msi-redesign`)
 - 작성일: 2026-06-17
-- 증거 원본: `docs/dev/windows/imm32-diagnosis-evidence.md`
+- 증거 원본: `docs/dev/windows/_archive/imm32-diagnosis-evidence.md`
 - 검증: 본 보고서의 코드/레지스트리 주장은 `installer/wix/unim.wxs`, `unim-imm32/src/register.rs`, `scripts/build-msi.bat`를 직접 확인하여 교차검증함.
 
 ---
