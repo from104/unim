@@ -21,7 +21,9 @@ UNIM 프로젝트의 의미 있는 작업·결정·정책 변경·릴리스 마�
 ## 작성 규칙
 
 ### 위치
-`~/obsidian/생각 모음/2 Projects/ATIT/unim/일지/`
+`C:\Users\from1\OneDrive\Desktop\Obsidian\생각 모음\2 Projects\ATIT\unim\일지\`
+
+> 권위 출처: 등록된 옵시디언 볼트 "생각 모음" = `%APPDATA%\obsidian\obsidian.json` 의 `vaults[].path`. 머신/경로가 바뀌면 거기서 볼트 루트를 다시 확인하고 `\2 Projects\ATIT\unim\일지\` 를 이어붙일 것. (구 경로 `~/obsidian/생각 모음/...` 는 이전 머신 기준이라 무효.)
 
 ### 파일명
 `{YYYY-MM-DD} {주제}.md` — **날짜 prefix 필수**. 오늘 날짜를 절대 날짜로 박을 것 (상대 표현 금지).
