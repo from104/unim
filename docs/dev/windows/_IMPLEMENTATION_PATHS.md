@@ -1,5 +1,12 @@
 # UNIM Windows — 구현 경로 매트릭스 + 로드맵 + VM 잔여 (G1~G6 확정 후)
 
+> ## ✅ ⑤행(순수 IMM32) 정정 (2026-06-22 SOLVED)
+> 아래 §2 매트릭스 ⑤행은 카톡류 32-bit 앱을 "키 라우팅 차단 → 별도 `.ime` 우회(B)"로 봤으나
+> **실측 결과 (A)가 정답이었다**: 카톡은 TSF를 정상 로드하며, OnKeyDown 0회의 진짜 원인은
+> **`unim_tsf.dll`이 x64 단독이라 32-bit TIP DLL이 미설치·미등록**이었던 것. i686 `unim_tsf.dll`을
+> 빌드해 32-bit TSF로 등록하니 카톡 한글 입력이 됐다. **(B) IMM32 `.ime` 우회는 불필요 — 폐기.**
+> 최종 진실: **[imm32-win11-SOLUTION.md](imm32-win11-SOLUTION.md)**. (G1/②행·팝업·ATF 결론은 유효.)
+
 > 작성일 2026-06-19 · 입력: `_RESEARCH_FINDINGS.md`(G1~G6 확정) + `_KNOWLEDGE_STATE.md` 앱×기능 매트릭스 + 라이브 코드(unim-tsf/src, unim-imm32/src, installer/wix).
 > 목표: "모든 앱·경우를 커버하는 TSF+IMM32 한글 입력기(기본 + 한자/특수문자/이모지 3팝업 + 자동교정)".
 

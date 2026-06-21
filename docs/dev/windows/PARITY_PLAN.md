@@ -34,15 +34,21 @@ TSF DLL 이 읽는다. Linux 의 DBus `ConfigChanged` 전파가 없으므로 **T
 | 한글 조합/커밋 | ✅ | ✅ | ✅ |
 | 한/영 전환 | ✅ | ✅(엔진) | ✅ (preserved-key 버그 수정 완료) |
 | 자판 선택(두벌/세벌390·391·순아래, QWERTY/Dvorak/Colemak/Workman) | ✅ | ✅(메뉴) | ✅(엔진+config) |
-| 한자 변환 팝업 | ✅ | ✅(자체 창) | ❌ `candidate_ui.rs` 고아 |
-| 특수문자 팝업 | ✅ | ✅ | ❌ |
-| 이모지 팝업 (Super+.) | ✅ | 부분 | ❌ |
-| 한자 북마크(★) / 9x9 확장 격자 | ✅(일부 FE) | 부분 | ❌ |
-| AutoTypeFix 자동 (순/역방향) | ✅ | ✅(자체 창) | ❌ key_handler 미연결 |
-| AutoTypeFix 수동 (Ctrl+Shift+Space) | ✅ | ✅ | ❌ |
+| 한자 변환 팝업 | ✅ | ✅(자체 창) | ✅ 구현됨(런타임 검증 대기) — `popup_ipc.rs` 1323줄 |
+| 특수문자 팝업 | ✅ | ✅ | ✅ 구현됨(런타임 검증 대기) — `popup_ipc.rs` 1323줄 |
+| 이모지 팝업 (Super+.) | ✅ | 부분 | ✅ 구현됨(런타임 검증 대기) — `popup_ipc.rs` 1323줄 |
+| 한자 북마크(★) / 9x9 확장 격자 | ✅(일부 FE) | 부분 | ✅ 구현됨(런타임 검증 대기) — `popup_ipc.rs` 1323줄 |
+| AutoTypeFix 자동 (순/역방향) | ✅ | ✅(자체 창) | ✅ 구현됨(런타임 검증 대기) — `auto_typefix.rs` 464줄 |
+| AutoTypeFix 수동 (Ctrl+Shift+Space) | ✅ | ✅ | ✅ 구현됨(런타임 검증 대기) — `auto_typefix.rs` 464줄 |
 | 트레이/인디케이터 메뉴 | ✅ | ❌ 스텁 | n/a |
 | 설정 GUI (전체 config) | ✅(gtk/qt) | 부분(자판+기본입력기만) | n/a |
-| 설정 변경 전파/reload | ✅(DBus) | 저장만 | ❌ reload 없음 |
+| 설정 변경 전파/reload | ✅(DBus) | 저장만 | ✅ 구현됨(런타임 검증 대기) — `maybe_reload_config` 존재 |
+| **32-bit 앱 입력 (KakaoTalk 등)** | ✅ | n/a | ✅ **i686 `unim_tsf.dll` 32-bit TSF 등록으로 지원**(카톡 한글 입력 실증, SOLVED 2026-06-22) |
+
+> **앱 아키텍처 커버리지 (2026-06-22 SOLVED):** 64-bit 앱(Edge/Chrome/메모장/wezterm)은 x64
+> `unim_tsf.dll`로, **32-bit 앱(KakaoTalk·한컴 등)은 i686 `unim_tsf.dll`을 빌드해 32-bit COM/TSF로
+> 양면 등록**해 커버한다. IMM32 `.ime` 갈래는 헛다리로 폐기. 근거·구현: **[imm32-win11-SOLUTION.md](imm32-win11-SOLUTION.md)**.
+> (현재 32-bit 등록은 수동 regsvr32로 실증된 상태 — MSI 영구 배선은 잔여 작업.)
 
 엔진 API 는 공유다 (`press_key`→`InputResult`, `take_popup_action`→`PopupAction`,
 `popup_change_page`, `typefix_convert`, `commit_str`/`preedit_str`). unim-windows 가 이미

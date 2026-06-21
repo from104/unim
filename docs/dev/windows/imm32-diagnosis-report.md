@@ -1,3 +1,11 @@
+> ## ⛔ 결론 정정 (SUPERSEDED · 2026-06-22)
+> **이 문서의 IMM32 갈래 진단(Preload 미등록 = 1차 blocker 등)은 헛다리였다.**
+> 카톡 미동작의 **진짜 원인 = `unim_tsf.dll`이 x64 단독이라 32-bit 카톡의 msctf가 TSF TIP을
+> 못 찾던 것**(32-bit COM 등록 부재). 해결 = i686 `unim_tsf.dll` 빌드 + 32-bit TSF 등록
+> (`WOW6432Node\Classes\CLSID\InProcServer32`). **IMM32 `.ime` 갈래는 Win11에서 폐기.**
+> 최종 진실: **[imm32-win11-SOLUTION.md](imm32-win11-SOLUTION.md)**.
+> 아래 본문은 당시 진단 기록으로만 보존한다(레지스트리 실측·KBDA1.DLL 오류 발견 등 일부 관찰은 유효).
+
 # UNIM IMM32 미연결 종합 진단 보고서
 
 - 대상: UNIM v0.3.24 (`feat/windows-msi-redesign`)

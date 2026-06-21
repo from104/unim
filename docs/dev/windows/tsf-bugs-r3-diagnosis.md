@@ -1,3 +1,15 @@
+> **[SUPERSEDED]** 이 진단서는 구 미커밋 상태(LAST_EDIT_REFUSED/request_sync/take_edit_refused 기계장치, range.Collapse 삭제 등)를 기술함.
+> 현행 진실: 해당 미커밋 변경들은 정리됐으며, TSF 터미널 inline은 `composition.rs:157 fInterimChar=BOOL(1)` + non-sticky 리셋으로 확정 구현됨.
+> → [`_PATCH_DIRECTION_v2.md`](./_PATCH_DIRECTION_v2.md) §0·§2 참조.
+> 역사 보존 목적으로 본문은 그대로 둔다.
+>
+> **[추가 정정 · KakaoTalk/IMM32 · 2026-06-22 SOLVED]** 이 문서의 카톡/한컴 진단
+> ("OnKeyDown 0회 = 이 앱들이 IMM32 후킹으로 키를 가로채 msctf에 안 닿음 → IMM32 .ime 경로 필요/unsupported")은
+> **오진이었다**. 진짜 원인은 키 라우팅 차단이 아니라 **`unim_tsf.dll`이 x64 단독이라 32-bit 카톡에
+> TIP 자체가 등록·로드되지 않은 것**(그래서 sink는 다른 64-bit 앱에서만 무장됐고 32-bit 카톡에선 TIP 미존재).
+> i686 `unim_tsf.dll`을 32-bit TSF로 등록하니 카톡 OnKeyDown이 발화하고 한글 입력됨(실증). IMM32 경로 불필요.
+> 최종 진실: [`imm32-win11-SOLUTION.md`](./imm32-win11-SOLUTION.md).
+
 # UNIM TSF R3 버그 진단 (워크플로우 결과)
 
 ```

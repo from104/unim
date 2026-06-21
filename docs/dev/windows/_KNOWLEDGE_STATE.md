@@ -1,5 +1,12 @@
 # UNIM Windows 입력기 — 지식 상태 맵 (통합)
 
+> ## ✅ ⑤행(순수 IMM32/KakaoTalk) 정정 (2026-06-22 SOLVED)
+> 본문이 KakaoTalk/한컴을 "TSF TIP OnKeyDown 0회 → `.ime` 경로 필요 / 순방향 ATF 구조적 ❌"로
+> 본 것은 **틀렸다**. 진짜 원인은 `.ime` 부재가 아니라 **`unim_tsf.dll`이 x64 단독이라 32-bit
+> 카톡에 TIP DLL이 등록 안 된 것**. i686 `unim_tsf.dll`을 32-bit TSF로 등록하니 카톡에서 한글
+> 입력이 됐다(실증). 카톡도 TSF 위에서 동작하므로 ⑤행은 ①/②행과 본질적으로 동일 경로다.
+> → **IMM32 `.ime` 도메인 분석 및 "구조적 ❌" 판정은 폐기.** 최종 진실: **[imm32-win11-SOLUTION.md](imm32-win11-SOLUTION.md)**.
+
 > 작성일 2026-06-19 · 6개 도메인 분석(기본입력 / 3팝업 렌더러 / AutoTypeFix / IMM32 .ime / CUAS 터미널 inline / 입력표시기·언어바) 통합.
 > SoT(Single source of truth)는 라이브 코드. 본 문서는 분석 산출물의 합의·모순·잔여 미해결을 한 곳에 모은 횡단 지도다.
 > **라이브 코드 재검증(2026-06-19)으로 일부 도메인 스냅샷이 stale 함을 확인** — 본문 §5에 명시.

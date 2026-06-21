@@ -1,3 +1,10 @@
+> ## ✅ G2(카톡/IMM32) 정정 (2026-06-22 SOLVED)
+> G2의 "순수 IMM32 앱(카톡/한컴) OnKeyDown 0회 = 앱이 IMM32 후킹으로 키-라우팅 차단"은 **오진이었다**.
+> 카톡은 TSF를 정상 로드하며 키 라우팅을 막지 않는다. OnKeyDown 0회의 진짜 원인은 **`unim_tsf.dll`이
+> x64 단독이라 32-bit 카톡에 TIP 자체가 등록·로드되지 않은 것**. i686 `unim_tsf.dll`을 32-bit TSF로
+> 등록하니 카톡에서 한글 입력이 됐다(실증). → IMM32 `.ime` 갈래 폐기. 최종 진실: **[imm32-win11-SOLUTION.md](imm32-win11-SOLUTION.md)**.
+> (G1·G3~G6 결론은 유효.)
+
 # UNIM Windows — 웹조사 갭 확정 결론 (G1~G6)
 
 > 작성일 2026-06-19 · 입력: `_RESEARCH_GAPS.md`(G1~G6) + 6개 갭 deep-research + 적대적 검증(refutation/cross-check) 결과.

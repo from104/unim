@@ -1,3 +1,8 @@
+> **[SUPERSEDED]** 이 문서의 오버레이 창(`preedit_window.rs`) 방침은 폐기됨.
+> 현행 진실: `composition.rs:157 fInterimChar=BOOL(1)`(조합경로) inline preedit 방식으로 대체됨.
+> → [`_PATCH_DIRECTION_v2.md`](./_PATCH_DIRECTION_v2.md) §0·§2 참조.
+> 역사 보존 목적으로 본문은 그대로 둔다.
+
 # CUAS-unaware 앱(터미널·레거시) 대응: client-side preedit 전환 설계
 
 ## 배경 — 기존 폴백이 깨진 이유 (실측 확정)

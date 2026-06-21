@@ -1,3 +1,8 @@
+> **[SUPERSEDED]** 이 계획서는 구 설계(BUG 2 게이트, GetSelection fallback, 오버레이 degrade 등)를 기술함. BUG 2 wezterm 폴백 섹션(§BUG 2) 및 BUG 1 PATH 2 계획(EndCompositionEditSession context 필드 추가)은 stale.
+> 현행 진실: wezterm inline은 `composition.rs:157 fInterimChar=BOOL(1)` + non-sticky 단어경계 리셋(`text_service.rs:507-516`)으로 구현 완료. BUG 3 Track A(아이콘 임베드)는 별도 검토.
+> → [`_PATCH_DIRECTION_v2.md`](./_PATCH_DIRECTION_v2.md) §0·§2 참조.
+> 역사 보존 목적으로 본문은 그대로 둔다.
+
 # UNIM TSF — Unified Input Fix Plan
 
 Status: implementation-ready synthesis of 3 investigated + verifier-reviewed bugs, re-checked against live source this session.

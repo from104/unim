@@ -1,3 +1,8 @@
+> **[SUPERSEDED]** §3 폴백 섹션(backspace 재삽입 폴백, `composition_unsupported` 영구 고착 방식)은 stale.
+> 현행 진실: `composition.rs:157 fInterimChar=BOOL(1)` inline + `text_service.rs:507-516` non-sticky 단어경계 리셋으로 대체됨.
+> → [`_PATCH_DIRECTION_v2.md`](./_PATCH_DIRECTION_v2.md) §0·§2 참조.
+> 역사 보존 목적으로 본문은 그대로 둔다.
+
 # Windows 콘솔/IMM32 앱 한글 조합 버그 (wezterm·텔레그램 등)
 
 > 상태: **부분 해결(폴백 구현 중)** · 최종 업데이트 2026-06-01

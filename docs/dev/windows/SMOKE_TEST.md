@@ -46,6 +46,11 @@ reg query "HKLM\SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890
 # (5) Category 키 — Item 마지막 sub-key 가 CLSID 인지 확인 (이전 P1 버그)
 reg query "HKLM\SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Item\{34745C63-B2F0-4784-8B67-5E12C8701A31}" /s
 # 기대: …\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890} 가 sub-key 로 보임.
+
+# (6) 32-bit COM 등록 — 32-bit 앱(KakaoTalk 등) 지원의 필수 키 (SOLVED 2026-06-22)
+reg query "HKLM\SOFTWARE\WOW6432Node\Classes\CLSID\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\InProcServer32" /ve
+# 기대: REG_SZ = 32-bit unim_tsf.dll 경로 (i686 빌드). ThreadingModel=Apartment.
+# 이 키가 없으면 32-bit 앱(카톡)에서 UNIM 이 안 뜬다 — 근본원인. 참조: imm32-win11-SOLUTION.md.
 ```
 
 ## 3. TIP 발견 / 활성화
@@ -77,8 +82,14 @@ GUI 경로: `설정 → 시간 및 언어 → 한국어 → 키보드 → 키보
 | 4.4 | 한영 토글 (한/영 키) | `dkssud` → 한/영 → `hello` | `안녕hello` | ☐ |
 | 4.5 | 32 비트 앱 동작 | x86 메모장 (`%windir%\SysWOW64\notepad.exe`) | 4.1 과 동일 | ☐ |
 | 4.6 | UWP 앱 동작 (Microsoft Edge 주소창) | `dkssud` | `안녕` | ☐ |
+| 4.7 | **KakaoTalk (32-bit 실앱) 한글 입력** | 카톡 채팅 입력란에서 UNIM 전환 → `dkssudgktpdy` | `안녕하세요` 정상 inline 조합 (SOLVED — 32-bit TSF 등록 필수) | ☐ |
+| 4.8 | KakaoTalk 한영 토글 | 카톡 입력란 → `dkssud` → 한/영 → `hi` | `안녕hi` | ☐ |
 
 `☐` 를 `OK` / `FAIL: 사유` 로 갱신.
+
+> **4.7/4.8 실패 시 1순위 의심:** 2절 (6) 32-bit COM 키 부재 = i686 `unim_tsf.dll` 미빌드/미등록.
+> 카톡 미동작의 근본원인이며, 64-bit 앱(4.1~4.6)이 정상이어도 32-bit 등록이 없으면 카톡만 안 된다.
+> 진단·해결: **[imm32-win11-SOLUTION.md](imm32-win11-SOLUTION.md)**.
 
 ## 4b. 팝업 동작 (Phase 3 — 한자/특수문자/이모지)
 
