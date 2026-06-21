@@ -831,7 +831,7 @@ impl RevWindow {
                 }
             };
 
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx_ptr as isize);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, ctx_ptr as _);
             rev.set_notify_hwnd(hwnd.0 as isize);
             crate::register::dbg_log(&format!(
                 "popup_rev: message-only HWND created {:#x}",

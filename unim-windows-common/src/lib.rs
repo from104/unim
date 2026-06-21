@@ -13,4 +13,4 @@ pub mod modifier;
 pub mod debug;
 pub mod activation;
 
-pub use activation::ensure_imm32_active;
+pub use activation::remove_substitute_and_assembly;

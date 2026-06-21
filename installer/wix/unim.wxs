@@ -179,6 +179,45 @@
             </RegistryKey>
           </Component>
 
+          <!--
+            32-bit TSF IME DLL — for WOW64 (32-bit) host processes.
+            KakaoTalk (and other 32-bit apps) load the 32-bit msctf, which
+            looks up the TIP CLSID in the 32-bit registry view
+            (HKLM\SOFTWARE\WOW6432Node\Classes\CLSID). The 64-bit UnimTsfDll
+            component above only populates the 64-bit view, so 32-bit hosts
+            could not find the COM server. This component installs the i686
+            build of unim_tsf.dll (as unim_tsf32.dll) and registers it in the
+            32-bit CLSID view.
+
+            DO NOT use SelfRegCost here: the 64-bit msiexec cannot call
+            DllRegisterServer on a 32-bit DLL. We rely entirely on the static
+            RegistryKey rows below (Win64="no" routes them to WOW6432Node).
+
+            The CTF\TIP / LanguageProfile / Category keys are NOT duplicated
+            here: HKLM\SOFTWARE\Microsoft\CTF is a shared (non-redirected) hive
+            on x64 Windows — empirically verified that the 32-bit and 64-bit
+            views resolve to the same physical key — so the 64-bit component's
+            writes are already visible to 32-bit msctf. Only the redirected
+            HKCR\CLSID portion needs a 32-bit copy.
+          -->
+          <Component Id="UnimTsfDll32"
+                     Guid="2D3E4F5A-6B7C-4D8E-9F0A-1B2C3D4E5F6A"
+                     Win64="no">
+            <File Id="unim_tsf32.dll"
+                  Name="unim_tsf32.dll"
+                  Source="$(var.WIN_OUT_DIR32)\unim_tsf.dll"
+                  KeyPath="yes" />
+
+            <!-- COM CLSID — 32-bit view: HKLM\SOFTWARE\WOW6432Node\Classes\CLSID\{CLSID} -->
+            <RegistryKey Root="HKCR" Key="CLSID\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="UNIM Korean IME" />
+            </RegistryKey>
+            <RegistryKey Root="HKCR" Key="CLSID\$(var.UnimClsid)\InProcServer32" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="[#unim_tsf32.dll]" />
+              <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+            </RegistryKey>
+          </Component>
+
           <!-- Fallback batch scripts in case an end user needs manual (un)register. -->
           <Component Id="RegisterScripts"
                      Guid="8D9E0F1A-2B3C-4D5E-6F7A-8B9C0D1E2F30"
@@ -235,68 +274,6 @@
         </Directory>
       </Directory>
 
-      <!--
-        IMM32 IME — unim_imm32.ime.
-        KLID E0200412 (E0xx0412, 0412 = ko-KR, E020 = user-defined IME slot).
-        "Ime File" resolves relative to System32, so the x64 copy goes to
-        System64Folder and the x86 copy goes to SystemFolder (SysWOW64 on
-        64-bit Windows).  ForceDeleteOnUninstall removes the registry rows on
-        uninstall; the file is removed by its own component.
-
-        GUID NOTE: These two component GUIDs are fixed here and are NOT derived
-        from guids.wxi / gen-guids.sh (gen-guids.sh only covers unim-tsf GUIDs).
-        If you need to regenerate guids.wxi, these components are unaffected and
-        the drift gate will still pass.  The two GUIDs below must remain stable
-        across versions (MSI component identity rule).
-      -->
-      <Directory Id="System64Folder">
-        <Component Id="UnimImm32Ime64"
-                   Guid="B3C4D5E6-F7A8-4B9C-0D1E-2F3A4B5C6D7E"
-                   Win64="yes">
-          <File Id="unim_imm32_ime_64"
-                Name="unim_imm32.ime"
-                Source="$(var.WIN_OUT_DIR)\unim_imm32.ime"
-                KeyPath="yes" />
-
-          <!-- Keyboard Layout registration for x64 (64-bit view of the registry). -->
-          <RegistryKey Root="HKLM"
-                       Key="SYSTEM\CurrentControlSet\Control\Keyboard Layouts\E0200412"
-                       ForceCreateOnInstall="yes"
-                       ForceDeleteOnUninstall="yes">
-            <RegistryValue Type="string" Name="Ime File"            Value="unim_imm32.ime" />
-            <!-- 값은 unim-imm32/src/globals.rs 상수와 일치해야 함 -->
-            <RegistryValue Type="string" Name="Layout File"         Value="KBDKOR.DLL" />
-            <RegistryValue Type="string" Name="Layout Text"         Value="UNIM Korean (IMM32)" />
-            <RegistryValue Type="string" Name="Layout Display Name" Value="UNIM Korean (IMM32)" />
-            <RegistryValue Type="string" Name="Layout Id"           Value="00d2" />
-          </RegistryKey>
-        </Component>
-      </Directory>
-
-      <Directory Id="SystemFolder">
-        <Component Id="UnimImm32Ime32"
-                   Guid="C4D5E6F7-A8B9-4C0D-1E2F-3A4B5C6D7E8F"
-                   Win64="no">
-          <File Id="unim_imm32_ime_32"
-                Name="unim_imm32.ime"
-                Source="$(var.WIN_OUT_DIR32)\unim_imm32.ime"
-                KeyPath="yes" />
-
-          <!-- Keyboard Layout registration for x86 (32-bit / WOW64 registry view). -->
-          <RegistryKey Root="HKLM"
-                       Key="SYSTEM\CurrentControlSet\Control\Keyboard Layouts\E0200412"
-                       ForceCreateOnInstall="yes"
-                       ForceDeleteOnUninstall="yes">
-            <RegistryValue Type="string" Name="Ime File"            Value="unim_imm32.ime" />
-            <!-- 값은 unim-imm32/src/globals.rs 상수와 일치해야 함 -->
-            <RegistryValue Type="string" Name="Layout File"         Value="KBDKOR.DLL" />
-            <RegistryValue Type="string" Name="Layout Text"         Value="UNIM Korean (IMM32)" />
-            <RegistryValue Type="string" Name="Layout Display Name" Value="UNIM Korean (IMM32)" />
-            <RegistryValue Type="string" Name="Layout Id"           Value="00d2" />
-          </RegistryKey>
-        </Component>
-      </Directory>
-
       <Directory Id="ProgramMenuFolder">
         <Directory Id="ApplicationProgramsFolder" Name="UNIM">
           <Component Id="StartMenuShortcuts"
@@ -332,12 +309,11 @@
              AllowAdvertise="no"
              Absent="disallow">
       <ComponentRef Id="UnimTsfDll" />
+      <ComponentRef Id="UnimTsfDll32" />
       <ComponentRef Id="UnimTsfSettingsExe" />
       <ComponentRef Id="UnimPopupWinExe" />
       <ComponentRef Id="RegisterScripts" />
       <ComponentRef Id="StartMenuShortcuts" />
-      <ComponentRef Id="UnimImm32Ime64" />
-      <ComponentRef Id="UnimImm32Ime32" />
     </Feature>
 
     <!--

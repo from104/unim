@@ -1495,7 +1495,7 @@ unsafe extern "system" fn settings_wnd_proc(
         WM_CREATE => {
             let cs = &*(lparam.0 as *const CREATESTRUCTW);
             let state_ptr = cs.lpCreateParams as *mut DlgState;
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_ptr as isize);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_ptr as _);
 
             let state = &mut *state_ptr;
             build_all_controls(hwnd, state);

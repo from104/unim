@@ -38,25 +38,16 @@ REM 2c. Build release popup renderer (out-of-process). Same WIN_OUT_DIR.
 cargo build -p unim-popup-win --target x86_64-pc-windows-msvc --release
 if errorlevel 1 exit /b 1
 
-REM 2d. Build IMM32 IME DLL — x64 (for System32) and x86 (for SysWOW64).
-REM     Cargo emits unim_imm32.dll; we copy/rename to unim_imm32.ime in-place
-REM     so WiX can pick it up via WIN_OUT_DIR / WIN_OUT_DIR32.
-cargo build -p unim-imm32 --target x86_64-pc-windows-msvc --release
-if errorlevel 1 exit /b 1
-copy /Y "target\x86_64-pc-windows-msvc\release\unim_imm32.dll" ^
-        "target\x86_64-pc-windows-msvc\release\unim_imm32.ime" >nul
-if errorlevel 1 exit /b 1
-
-REM     32-bit build requires a 32-bit MSVC env (vcvarsamd64_x86 = cross from
-REM     the host x64 machine).  We re-initialise the environment in a child cmd
-REM     so that it doesn't pollute the outer x64 environment used by the candle
-REM     step below.
-cmd /c ^
-  "call ""C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsamd64_x86.bat"" >nul && ^
-   cargo build -p unim-imm32 --target i686-pc-windows-msvc --release"
-if errorlevel 1 exit /b 1
-copy /Y "target\i686-pc-windows-msvc\release\unim_imm32.dll" ^
-        "target\i686-pc-windows-msvc\release\unim_imm32.ime" >nul
+REM 2d. Build 32-bit (i686) TSF DLL — for WOW64 / 32-bit host processes
+REM     (e.g. KakaoTalk). 32-bit msctf resolves the TIP CLSID in the 32-bit
+REM     registry view, so a matching 32-bit unim_tsf.dll must be present and
+REM     registered (see UnimTsfDll32 in unim.wxs). WIN_OUT_DIR32 points at
+REM     target\i686-pc-windows-msvc\release\unim_tsf.dll.
+REM
+REM     The i686 build requires a 32-bit MSVC env (vcvarsamd64_x86 = cross from
+REM     the host x64 machine). We re-initialise the environment in a child cmd
+REM     so it doesn't pollute the outer x64 environment used by candle below.
+cmd /c "call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsamd64_x86.bat" >nul && cargo build -p unim-tsf --target i686-pc-windows-msvc --release"
 if errorlevel 1 exit /b 1
 
 REM 3. Extract workspace version

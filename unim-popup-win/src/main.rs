@@ -87,15 +87,21 @@ fn main() {
         logln!("--shutdown sent");
         std::process::exit(0);
     }
+    // 언인스톨 전용(WiX DeactivateImm32 CA): IMM32 단일항목 듀얼모드
+    // (Substitutes + CTF\Assemblies)를 MS 한국어 기본값으로 복원하고 즉시 종료.
+    // RemoveFiles 이전 사용자 컨텍스트로 실행돼 한국어 입력 brick 을 막는다.
+    if args.iter().any(|a| a == "--deactivate-imm32") {
+        unim_windows_common::remove_substitute_and_assembly();
+        logln!("--deactivate-imm32: reverted Substitutes/Assemblies to MS Korean");
+        std::process::exit(0);
+    }
 
-    // IMM32 IME 사용자 활성화 (진단 보고서 §2-A BLOCKER 대응).
-    //
-    // 싱글턴 뮤텍스 검사보다 "앞"에서 호출한다. 이유: 설치 직후
-    // LaunchPopupRenderer CustomAction 이 이미 떠 있는 렌더러를 만나 본 프로세스가
-    // 싱글턴에서 조기 종료(exit 0)하더라도, KLID Preload 등록/HKL 로드만큼은
-    // 반드시 수행돼야 KakaoTalk·한컴(IMM32 폴백)에서 입력기가 노출/선택된다.
-    // idempotent — Preload 에 이미 있으면 기록을 스킵하므로 매 기동 호출이 무해하다.
-    unim_windows_common::ensure_imm32_active();
+    // [폐기됨] IMM32 .ime 갈래는 헛다리로 폐기. 카톡 한글 입력의 진짜 원인은
+    // unim_tsf.dll 이 x64 단독이라 32비트 카톡의 msctf 가 TIP 를 못 찾던 것 →
+    // i686 unim_tsf.dll 32비트 COM 등록으로 해결. 따라서 popup-win 런타임은 더 이상
+    // IMM32/Preload/Substitutes/Assemblies 를 건드리지 않는다(매 로그인 MS 한국어
+    // 어셈블리를 덮어쓰던 harmful 코드 제거). 기존 설치본 잔재 정리는 언인스톨 경로의
+    // --deactivate-imm32 핸들러(remove_substitute_and_assembly)가 담당한다.
 
     // 싱글턴 — 세션별 네임스페이스. 중복 기동이면 즉시 exit 0.
     let _mutex = match acquire_singleton() {

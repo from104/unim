@@ -242,7 +242,7 @@ impl PreeditWindow {
             SetWindowLongPtrW(
                 hwnd,
                 GWLP_USERDATA,
-                state.as_mut() as *mut PreeditState as isize,
+                state.as_mut() as *mut PreeditState as _,
             );
 
             Ok(Self { hwnd, state })
