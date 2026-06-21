@@ -26,6 +26,31 @@ pub fn set_reg_value(hkey: HKEY, name: Option<&HSTRING>, value: &str) -> Result<
     Ok(())
 }
 
+/// REG_EXPAND_SZ 값을 `hkey` 아래에 기록한다. `name`이 `None`이면 기본값(unnamed).
+///
+/// `set_reg_value`(REG_SZ)와 동일하나 타입만 `REG_EXPAND_SZ`. IMM32 "Layout Display
+/// Name" 인디렉트 문자열(`@%SystemRoot%\System32\unim_imm32.ime,-1`)처럼 `%SystemRoot%`
+/// 등 환경변수를 포함한 값에 쓴다(MS 한국어 레이아웃과 동일 관례).
+pub fn set_reg_expand_value(hkey: HKEY, name: Option<&HSTRING>, value: &str) -> Result<()> {
+    let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let err = RegSetValueExW(
+            hkey,
+            name.map(|h| PCWSTR(h.as_ptr())).unwrap_or(PCWSTR::null()),
+            Some(0),
+            REG_EXPAND_SZ,
+            Some(std::slice::from_raw_parts(
+                wide.as_ptr() as *const u8,
+                wide.len() * 2,
+            )),
+        );
+        if err.is_err() {
+            return Err(E_FAIL.into());
+        }
+    }
+    Ok(())
+}
+
 /// REG_DWORD 값을 `hkey` 아래에 기록한다.
 /// (tsf register.rs:89-104 — as-is 이동. imm32는 향후 등록 확장 시 사용)
 pub fn set_reg_dword(hkey: HKEY, name: &HSTRING, value: u32) -> Result<()> {

@@ -21,11 +21,11 @@ use windows::Win32::System::Registry::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::core::*;
 
-use unim_windows_common::registry::set_reg_value;
+use unim_windows_common::registry::{set_reg_expand_value, set_reg_value};
 
 use crate::globals::{
     UNIM_IMM32_IME_FILE, UNIM_IMM32_KLID, UNIM_IMM32_LAYOUT_FILE, UNIM_IMM32_LAYOUT_ID,
-    UNIM_LAYOUT_TEXT,
+    UNIM_LAYOUT_DISPLAY_NAME_INDIRECT, UNIM_LAYOUT_TEXT,
 };
 
 // ── 내부 헬퍼 ──────────────────────────────────────────────────────────────
@@ -87,13 +87,14 @@ pub fn register_ime() -> windows::core::Result<()> {
     let name_layout_text: HSTRING = "Layout Text".into();
     set_reg_value(hkey, Some(&name_layout_text), UNIM_LAYOUT_TEXT)?;
 
-    // "Layout Display Name" — 평문 REG_SZ 로 기록.
-    //   과거에는 인디렉트 문자열(@...unim_imm32.ime,-1000)을 썼으나 .ime 에 해당
-    //   STRINGTABLE 리소스가 없어 SHLoadIndirectString 이 빈 문자열을 반환 → 표시명이
-    //   비어 보이는 결함이 있었다. SHLoadIndirectString 은 '@' 없는 평문은 그대로
-    //   반환하므로, 평문 UNIM_LAYOUT_TEXT 로 기록해 표시명을 보장한다.
+    // "Layout Display Name" — 인디렉트 문자열(정석)로 REG_EXPAND_SZ 기록.
+    //   `@%SystemRoot%\System32\unim_imm32.ime,-1` → SHLoadIndirectString 이
+    //   LoadString(unim_imm32.ime, 1) 로 STRINGTABLE id 1("UNIM Korean (IMM32)")을
+    //   로드한다. id 1 리소스는 `unim_imm32.rc`(build.rs embed-resource)로 .ime 에
+    //   임베드된다. 과거 평문 REG_SZ 폴백은 "Layout Text" 가 담당한다.
+    //   (과거 결함: ,-1000 인디렉트 + RC 부재 → 빈 문자열. RC 임베드로 해소.)
     let name_display: HSTRING = "Layout Display Name".into();
-    set_reg_value(hkey, Some(&name_display), UNIM_LAYOUT_TEXT)?;
+    set_reg_expand_value(hkey, Some(&name_display), UNIM_LAYOUT_DISPLAY_NAME_INDIRECT)?;
 
     // "Layout Id" — langid(0412)와 충돌하지 않는 free 4-hex 식별자.
     let name_layout_id: HSTRING = "Layout Id".into();

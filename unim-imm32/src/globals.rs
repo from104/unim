@@ -45,9 +45,18 @@ pub const UNIM_IME_NAME: &str = "UNIM Korean IME (IMM32)";
 pub const UNIM_IMM32_LAYOUT_FILE: &str = "KBDKOR.DLL";
 /// "Layout Id" — langid(0412)와 충돌하지 않는 free 4-hex 식별자.
 pub const UNIM_IMM32_LAYOUT_ID: &str = "00d2";
-/// IMM32 레이아웃의 사용자 표시명(TSF 항목과 구분되는 고유 표시명).
-/// WiX `installer/wix/unim.wxs` 의 Layout Text / Display Name 과 반드시 동일해야 함.
+/// IMM32 레이아웃의 사용자 표시명 폴백(평문 REG_SZ "Layout Text").
+/// 인디렉트 리소스 로드 실패 시 OS 가 이 평문을 쓴다. WiX 의 Layout Text 와 동일.
 pub const UNIM_LAYOUT_TEXT: &str = "UNIM Korean (IMM32)";
+/// IMM32 "Layout Display Name" 인디렉트 문자열(정석).
+///
+/// SHLoadIndirectString 규약: `@<module>,-<id>` → `LoadString(module, id)`.
+/// 음수 절댓값 = STRINGTABLE 리소스 id. `unim_imm32.rc` 의 id 1 → `,-1`.
+/// `%SystemRoot%` 를 쓰므로 레지스트리에는 REG_EXPAND_SZ 로 기록한다(MS 한국어
+/// 레이아웃과 동일 관례). 표시 문자열 자체는 `unim_imm32.rc` 의 id 1 = UNIM_LAYOUT_TEXT.
+/// WiX `installer/wix/unim.wxs`(x64·x86) 의 Layout Display Name 과 반드시 동일해야 함.
+pub const UNIM_LAYOUT_DISPLAY_NAME_INDIRECT: &str =
+    "@%SystemRoot%\\System32\\unim_imm32.ime,-1";
 /// UI window class registered by ui_window.rs and reported from ImeInquire.
 pub const UNIM_UI_CLASS_NAME: &str = "UnimImm32UiClass";
 /// Per-HIMC private-data size advertised in IMEINFO.dwPrivateDataSize (§4).

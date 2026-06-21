@@ -14,6 +14,12 @@ crate-type = ["cdylib"]
 [dependencies]
 unim = { path = ".." }
 
+[target.'cfg(windows)'.build-dependencies]
+# Embeds unim_imm32.rc (STRINGTABLE id 1 = "UNIM Korean (IMM32)") into the .ime so
+# the indirect "Layout Display Name" = "@...unim_imm32.ime,-1" resolves. Same crate
+# version as unim-tsf/Cargo.toml for workspace consistency.
+embed-resource = "2"
+
 [target.'cfg(windows)'.dependencies]
 unim-windows-common = { path = "../unim-windows-common" }
 windows-core = "0.62"
