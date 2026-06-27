@@ -41,6 +41,8 @@ mod tests_profile;
 mod tests_chord_compose;
 #[cfg(test)]
 mod tests_toggle;
+#[cfg(test)]
+mod tests_repro_jong;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///
