@@ -130,6 +130,11 @@ const WM_UNIM_FLUSH: u32 = 0x8000 + 0x22;
 /// 등록 경계를 만들어 세션B commit 이 크롬에서 정착하게 한다. WM_APP(0x8000)+0x23.
 const WM_UNIM_FLUSH2: u32 = 0x8000 + 0x23;
 
+/// R6b — PENDING==0 게이트 → 라이브 꼬리 조합. OnTestKeyDown(edit session 불가)이 PostMessage 로
+/// wndproc 에 위임한다(WM_UNIM_FLUSH 동일 패턴). WM_APP(0x8000)+0x24
+/// (REV=+0x21, FLUSH=+0x22, FLUSH2=+0x23).
+const WM_UNIM_TAIL: u32 = 0x8000 + 0x24;
+
 impl UnimTextService {
     pub fn new() -> Self {
         // UWP(AppContainer) 경로 리다이렉트 우회: config 로드 전에 실제
@@ -284,6 +289,34 @@ impl UnimTextService {
             tid,
             comp_sink,
         );
+        self.suppress_cuas_learn.store(false, Ordering::SeqCst);
+        did
+    }
+
+    /// R6b — 보류 꼬리를 동기 처리한다(race-flush·rev_window 부재 degrade 공용). 어떤 락도
+    /// 보유하지 않은 상태에서 호출(내부에서 engine→composition 락 짧게). SendInput(degrade)은
+    /// edit session 밖. 반환: degrade(확정)했으면 true, 라이브 유지면 false.
+    pub(crate) fn flush_pending_tail(&self, comp_sink: &ITfCompositionSink) -> bool {
+        if !crate::synth_input::has_pending_tail() {
+            return false;
+        }
+        let ctx_guard = self.last_context.lock().unwrap();
+        let Some(context) = ctx_guard.as_ref() else {
+            // 컨텍스트 부재(포커스 이탈) = 허용된 유일 손실 케이스 → 꼬리 폐기.
+            let _ = crate::synth_input::discard_pending_tail();
+            crate::register::dbg_log("synth tail: flush no context → 꼬리 폐기(포커스 이탈)");
+            return false;
+        };
+        let context = context.clone();
+        drop(ctx_guard);
+        let tid = self.client_id();
+        // 락 순서: engine → composition (다른 경로와 동일 접두).
+        let mut engine = self.engine.lock().unwrap();
+        let mut comp_mgr = self.composition_mgr.lock().unwrap();
+        // 라이브 꼬리 단발 terminate 를 학습에서 제외.
+        self.suppress_cuas_learn.store(true, Ordering::SeqCst);
+        let did =
+            key_handler::flush_pending_tail(&mut engine, &mut comp_mgr, &context, tid, comp_sink);
         self.suppress_cuas_learn.store(false, Ordering::SeqCst);
         did
     }
@@ -592,8 +625,19 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 식별: BS/유니코드는 통과(앱이 직접 처리), 센티널은 소비(OnKeyDown 에서
         // replay preedit composition 시작). 어떤 락 취득보다 먼저 검사해야 한다.
         if let Some(eaten) = crate::synth_input::observe_test_key_down(wparam.0 as u16) {
+            // R6b 게이트: 머리 배치 echo 전량 복귀(PENDING==0) + 보류 꼬리 존재 → 라이브 꼬리
+            // 트리거. OnTestKeyDown 은 edit session 불가 → wndproc(WM_UNIM_TAIL)에 위임
+            // (1회성 take 로 중복 무해).
+            if crate::synth_input::tail_gate_ready() {
+                if let Some(w) = self.rev_window.lock().unwrap().as_ref() {
+                    w.post_tail();
+                }
+            }
             return Ok(BOOL::from(eaten));
         }
+        // R6b: 합성 echo 가 아닌 실제 사용자 키 관찰 시점 → fragile 라이브 꼬리 가드
+        // 해제(M-3). 연장(update_composition)·passthrough-commit(navkey)·무관키 전부 공통 통과.
+        crate::synth_input::clear_tail_live();
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let popup_active = self.popup_ipc.lock().unwrap().is_active();
@@ -709,12 +753,15 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 어느 쪽이든, 다음 키 처리 전에 보류분을 완료한다. restart 만 남은 상태
         // (Phase2a 는 끝났고 WM_UNIM_FLUSH2 대기 중)에서 새 키가 stale 세션A 조합 위로
         // 떨어지거나 PENDING_RESTART 가 덮어써지는 fast-typing 레이스를 막는다.
-        if crate::synth_input::has_pending_insert() || crate::synth_input::has_pending_restart() {
+        if crate::synth_input::has_pending_insert()
+            || crate::synth_input::has_pending_restart()
+            || crate::synth_input::has_pending_tail()
+        {
             let raw_vk = wparam.0 as u16;
             let kc = unim::keycode::KeyCode::from_win32_vk(raw_vk);
             let is_bare_modifier = kc.is_modifier() || matches!(raw_vk, 0x10 | 0x11 | 0x12);
             if !is_bare_modifier {
-                // 타이머 선점: 먼저 끄고(없으면 무해) 보류 삽입·재시작을 완료한다.
+                // 타이머 선점: 먼저 끄고(없으면 무해) 보류 삽입·재시작·꼬리를 완료한다.
                 if let Some(w) = self.rev_window.lock().unwrap().as_ref() {
                     w.kill_flush_timer();
                 }
@@ -723,6 +770,9 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 // 세션B). 둘 다 1회성(take)이라 중복·이중 호출 무해.
                 self.flush_pending_insert(&comp_sink);
                 self.flush_restart_phase_b(&comp_sink);
+                // R6b: 보류 꼬리 선점 — PENDING==0 이면 라이브 조합 성립(이어지는
+                // handle_key_down 이 같은 키로 "다"→"단" 연장), PENDING>0 이면 FIFO degrade.
+                self.flush_pending_tail(&comp_sink);
                 crate::register::dbg_log(&format!(
                     "b1: race-flush (다음 키 선점) vk=0x{:02X}",
                     raw_vk
@@ -823,6 +873,9 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 );
                 self.flush_pending_insert(&comp_sink);
                 self.flush_restart_phase_b(&comp_sink);
+                // R6b: 머리 echo 미복귀(PENDING>0) → FIFO degrade(append). 라이브 게이트가
+                // 못 뜨므로 꼬리도 동기 확정한다(유실 0).
+                self.flush_pending_tail(&comp_sink);
             }
         }
 
@@ -866,6 +919,22 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         //  (2) 한참 뒤 종료 → 포커스 이탈/Esc 등 정상 종료. 엔진을 reset 한다.
         // 포커스 창(HWND) — 즉시-terminate 학습/조회 키.
         let focus_hwnd = unsafe { GetFocus() }.0 as isize;
+
+        // ── R6b 라이브 꼬리 terminate 가드 (M1 유사) ──
+        // CUAS 가 synth 순방향 라이브 꼬리("다") 조합을 강제 종료하면 그 조합문을
+        // result-string 으로 이미 확정(문서에 "다" 존재)했으므로 재삽입=중복이다. 엔진
+        // preedit 만 비워 중복을 차단하고, 보류 꼬리·플래그를 폐기한 뒤 폴백 플립/CUAS
+        // 학습을 건너뛰고 즉시 반환한다(머리는 synth 로 정상 확정됐으므로 컨텍스트 전체를
+        // 오버레이로 떨구지 않는다 — 회귀 방지).
+        if crate::synth_input::tail_live() {
+            self.composition_mgr.lock().unwrap().clear();
+            self.engine.lock().unwrap().remove_preedit();
+            let _ = crate::synth_input::discard_pending_tail(); // 슬롯 폐기 + tail_live 해제
+            crate::register::dbg_log(
+                "OnCompositionTerminated: live-tail terminate → preedit 제거, 폴백/학습 skip",
+            );
+            return Ok(());
+        }
 
         // 시간 기반 즉시-terminate 판정(<200ms). 이 200ms 는 느린 머신/원격 데스크톱
         // 에서 흔들리므로, 한 번이라도 즉시-terminate 로 학습된 창은 타이밍과 무관하게
@@ -959,6 +1028,13 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         if crate::synth_input::discard_pending_insert() {
             crate::register::dbg_log("b1: OnSetFocus → 보류 삽입 폐기(포커스 전환)");
         }
+        // R6b: 허용된 유일 손실(머리↔게이트 사이 포커스 전환) → 보류 꼬리 폐기.
+        if crate::synth_input::discard_pending_tail() {
+            crate::register::dbg_log("synth tail: OnSetFocus → 보류 꼬리 폐기(포커스 전환)");
+        }
+        // 방어적(라이브 중 포커스 전환; terminate 가드 미발화 대비 — discard 가 이미
+        // false 로 만들었으면 idempotent).
+        crate::synth_input::clear_tail_live();
         // (Phase 1) OnCompositionTerminated 의 "정상 종료" 정리를 이리로 이전.
         //   포커스 이탈 = 사용자가 조합을 떠남 → 엔진 preedit 를 비우고 팝업/ATF 정리.
         self.engine.lock().unwrap().reset();
@@ -1235,6 +1311,14 @@ impl RevWindow {
             let _ = PostMessageW(Some(self.hwnd), WM_UNIM_FLUSH, WPARAM(0), LPARAM(0));
         }
     }
+
+    /// R6b — PENDING==0 게이트 통과 시 wndproc 에 라이브 꼬리 조합을 위임한다
+    /// (OnTestKeyDown 은 RW edit session 불가).
+    fn post_tail(&self) {
+        unsafe {
+            let _ = PostMessageW(Some(self.hwnd), WM_UNIM_TAIL, WPARAM(0), LPARAM(0));
+        }
+    }
 }
 
 impl Drop for RevWindow {
@@ -1251,6 +1335,8 @@ impl Drop for RevWindow {
         }
         // _ctx Box 는 자동 Drop. b1 보류 삽입도 폐기(stale 방지).
         let _ = crate::synth_input::discard_pending_insert();
+        // R6b 보류 꼬리도 폐기(tail_live 도 false).
+        let _ = crate::synth_input::discard_pending_tail();
     }
 }
 
@@ -1309,6 +1395,20 @@ extern "system" fn rev_wnd_proc(
         });
         return LRESULT(0);
     }
+    if msg == WM_UNIM_TAIL {
+        // R6b — PENDING==0 게이트 통과 → 라이브 꼬리 조합(또는 PENDING>0 시 FIFO degrade).
+        let _ = std::panic::catch_unwind(|| unsafe {
+            let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const RevWndContext;
+            if ptr.is_null() {
+                let _ = crate::synth_input::discard_pending_tail();
+                return;
+            }
+            let ctx = &*ptr;
+            crate::register::dbg_log("synth: WM_UNIM_TAIL → 라이브 꼬리 조합");
+            tail_flush_pending(ctx);
+        });
+        return LRESULT(0);
+    }
     if msg == WM_TIMER && wparam.0 == FLUSH_TIMER_ID {
         // b1 Phase2 — BS×N 이 Blink 문서에 적용될 시간(FLUSH_DELAY_MS)이 지났다.
         // 보류 삽입을 TSF 로 삽입한다. panic=abort 환경 보호: catch_unwind 로 감싼다.
@@ -1327,6 +1427,12 @@ extern "system" fn rev_wnd_proc(
             // b1[D]: Phase2a 가 PENDING_RESTART 를 적재했으면 펌프 후 세션B 실행.
             if crate::synth_input::has_pending_restart() {
                 let _ = PostMessageW(Some(hwnd), WM_UNIM_FLUSH2, WPARAM(0), LPARAM(0));
+            }
+            // R6b: synth 라이브 꼬리 안전망 — 게이트(WM_UNIM_TAIL)가 60ms 내 못 떴거나
+            // echo 미복귀일 때. 정상 케이스는 게이트가 선행 take 해 has_pending_tail=false
+            // → no-op. 내부 PENDING 판정: ==0 라이브, >0 FIFO degrade.
+            if crate::synth_input::has_pending_tail() {
+                tail_flush_pending(ctx);
             }
         });
         return LRESULT(0);
@@ -1394,6 +1500,38 @@ fn timer_flush_restart_phase_b(ctx: &RevWndContext) {
     // 세션B 신규 tail 조합의 단발 terminate 를 학습에서 제외.
     ctx.suppress_cuas_learn.store(true, Ordering::SeqCst);
     key_handler::flush_restart_phase_b(
+        &mut engine,
+        &mut comp_mgr,
+        &context,
+        ctx.tid,
+        &ctx.comp_sink,
+    );
+    ctx.suppress_cuas_learn.store(false, Ordering::SeqCst);
+}
+
+/// R6b — WM_UNIM_TAIL/WM_TIMER 발화 시 보류 꼬리를 라이브/degrade 처리한다(TSF STA, 락
+/// 짧게). 라이브 조합의 단발 terminate 가 cuas_windows 를 오염시키지 않도록
+/// suppress_cuas_learn 으로 감싼다. SendInput(degrade)은 edit session 밖. 패닉 금지.
+fn tail_flush_pending(ctx: &RevWndContext) {
+    if !crate::synth_input::has_pending_tail() {
+        return;
+    }
+    let context = {
+        let g = ctx.last_context.lock().unwrap();
+        match g.as_ref() {
+            Some(c) => c.clone(),
+            None => {
+                let _ = crate::synth_input::discard_pending_tail();
+                crate::register::dbg_log("synth tail: wndproc no context → 폐기");
+                return;
+            }
+        }
+    };
+    // 락 순서: engine → composition (다른 경로와 동일 접두).
+    let mut engine = ctx.engine.lock().unwrap();
+    let mut comp_mgr = ctx.composition_mgr.lock().unwrap();
+    ctx.suppress_cuas_learn.store(true, Ordering::SeqCst);
+    key_handler::flush_pending_tail(
         &mut engine,
         &mut comp_mgr,
         &context,

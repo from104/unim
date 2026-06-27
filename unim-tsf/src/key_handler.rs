@@ -294,6 +294,11 @@ pub fn handle_key_down(
                 ReplaceOutcome::Normal => {}
                 ReplaceOutcome::PhaseSplit => schedule_flush = true, // native(형식상 안전망)
                 ReplaceOutcome::SynthBatch => engine.remove_preedit(),
+                ReplaceOutcome::SynthHeadTail => {
+                    // preedit="" 경로라 미발생(방어적). 엔진 preedit 클리어 + 슬롯 폐기.
+                    let _ = crate::synth_input::discard_pending_tail();
+                    engine.remove_preedit();
+                }
             }
         }
         return KeyDownOutcome { eaten: true, schedule_flush };
@@ -316,6 +321,11 @@ pub fn handle_key_down(
             ReplaceOutcome::Normal => {}
             ReplaceOutcome::PhaseSplit => schedule_flush = true,
             ReplaceOutcome::SynthBatch => engine.remove_preedit(),
+            ReplaceOutcome::SynthHeadTail => {
+                // replay_preedit="" 경로라 미발생(방어적). 엔진 preedit 클리어 + 슬롯 폐기.
+                let _ = crate::synth_input::discard_pending_tail();
+                engine.remove_preedit();
+            }
         }
         return KeyDownOutcome { eaten: true, schedule_flush };
     }
@@ -516,6 +526,17 @@ pub fn handle_key_down(
                     engine.remove_preedit();
                     crate::register::dbg_log("synth 단일배치 → 엔진 preedit 클리어(no flush)");
                 }
+                ReplaceOutcome::SynthHeadTail => {
+                    // R6b — 머리(commit "우간")만 단일배치 확정. 꼬리("다")는
+                    // store_pending_tail 에 적재돼 PENDING==0 게이트(WM_UNIM_TAIL) 후 라이브
+                    // 조합으로 띄운다. **엔진 preedit "다" 보존**(remove 금지) → 사용자가 다음
+                    // 자모를 치면 press_key 가 "다"→"단" 갱신, update_composition 라이브 연장.
+                    // 안전망 타이머 무장(게이트 누락·echo 미복귀·rev_window 부재 대비).
+                    schedule_flush = true;
+                    crate::register::dbg_log(
+                        "synth head-tail → 머리 확정 + 꼬리 라이브 예약(엔진 preedit 보존)",
+                    );
+                }
             }
         }
     }
@@ -597,6 +618,47 @@ pub fn flush_restart_phase_b(
         crate::register::dbg_log("b1[D]: Phase2b compose 폴백 → 엔진 preedit 리셋");
     }
     true
+}
+
+/// R6b — 보류 꼬리(PENDING_TAIL)를 라이브 조합 또는 degrade 확정한다. 1회성(take).
+///
+/// 진입점: text_service 의 WM_UNIM_TAIL(게이트)·WM_TIMER(안전망)·race-flush·rev_window
+/// 부재 동기 degrade. 호출자는 engine→composition 락 보유. PENDING 으로 라이브 가능
+/// 여부를 **내부 판정**한다:
+/// - PENDING>0(머리 echo 미복귀 → 캐럿 미정착): 라이브 불가 → append_tail_batch FIFO degrade.
+/// - PENDING==0: start_composition 시도. 성공=라이브(set_tail_live, 엔진 preedit 보존),
+///   거부=append_tail_batch degrade.
+/// degrade 시 엔진 preedit 클리어(문서=확정/엔진=빈조합 동기). SendInput 은 edit session
+/// 밖에서만 호출되므로(이 함수는 wndproc/OnKeyDown 비-세션 컨텍스트에서 호출) 안전.
+/// 반환: degrade(확정 폴백)했으면 true, 라이브 유지면 false.
+pub fn flush_pending_tail(
+    engine: &mut InputEngine,
+    comp_mgr: &mut CompositionManager,
+    context: &ITfContext,
+    tid: u32,
+    comp_sink: &ITfCompositionSink,
+) -> bool {
+    let Some(tail) = crate::synth_input::take_pending_tail() else {
+        return false;
+    };
+    if crate::synth_input::pending_echo_active() {
+        // PENDING>0: 머리 echo 미복귀 → 라이브 불가. 입력큐 FIFO degrade(누적).
+        crate::synth_input::append_tail_batch(&tail);
+        engine.remove_preedit();
+        crate::register::dbg_log("synth tail: PENDING>0 → FIFO degrade(append) + preedit 클리어");
+        return true;
+    }
+    comp_mgr.start_composition(context, tid, &tail, comp_sink);
+    if comp_mgr.is_active() {
+        crate::synth_input::set_tail_live();
+        crate::register::dbg_log("synth tail: 라이브 조합 성립(엔진 preedit 보존)");
+        false
+    } else {
+        crate::synth_input::append_tail_batch(&tail);
+        engine.remove_preedit();
+        crate::register::dbg_log("synth tail: start_composition 거부 → degrade(append) + preedit 클리어");
+        true
+    }
 }
 
 /// engine 의 pending PopupAction 을 모두 소비해 out-of-process 렌더러로 송신한다 (§6.5).

@@ -62,6 +62,14 @@ pub struct PendingInsert {
 /// b1 Phase2 보류 삽입 슬롯 (Phase1 store, Phase2/타이머/race-flush take).
 static PENDING_INSERT: Mutex<Option<PendingInsert>> = Mutex::new(None);
 
+/// R6b — 보류 꼬리(마지막 음절) 슬롯. 순방향 synth 분기가 머리를 단일배치로 확정한 뒤
+/// 꼬리를 여기 적재한다. PENDING==0 게이트(observe_test_key_down→OnTestKeyDown→WM_UNIM_TAIL)
+/// 또는 STALE 타이머/race-flush 가 take 해 라이브 조합 시도 또는 degrade 확정한다.
+static PENDING_TAIL: Mutex<Option<String>> = Mutex::new(None);
+/// R6b — 라이브 꼬리 조합이 살아있는지. start_composition 성공 시 set, 사용자 키 관찰 시
+/// (OnTestKeyDown) clear, terminate 가드/포커스 전환/Drop 에서 폐기.
+static TAIL_LIVE: AtomicBool = AtomicBool::new(false);
+
 /// D3 read-back 게이트 — OnEndEdit 가 BS 삭제 적용을 검증할지 여부.
 ///
 /// Phase1 직후(schedule_flush 무장 시) `arm_readback_gate` 로 set, flush(또는 폐기)
@@ -301,4 +309,84 @@ pub fn observe_key_down(vk: u16) -> Option<SynthKeyAction> {
         return Some(SynthKeyAction::PassThrough);
     }
     None
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// R6b — 브리지앱 synth 순방향 "마지막 음절 라이브 미확정 조합(preedit)" 슬롯/플래그
+// ════════════════════════════════════════════════════════════════════════════
+
+/// R6b — 순방향 synth 분기가 머리(commit)를 단일배치로 확정한 직후 꼬리를 적재한다.
+pub fn store_pending_tail(tail: &str) {
+    *PENDING_TAIL.lock().unwrap() = Some(tail.to_string());
+    crate::register::dbg_log(&format!("synth: store_pending_tail '{tail}'"));
+}
+
+/// R6b — 보류 꼬리를 1회성으로 꺼낸다(flush 진입점). 게이트/타이머/race/동기 degrade 공용.
+pub fn take_pending_tail() -> Option<String> {
+    PENDING_TAIL.lock().unwrap().take()
+}
+
+/// R6b — 보류 꼬리가 남아있는지(가볍게) 확인. 게이트·가드 진입 판정용.
+pub fn has_pending_tail() -> bool {
+    PENDING_TAIL.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+/// R6b — 보류 꼬리 슬롯을 폐기하고 TAIL_LIVE 도 false 로 만든다(포커스 전환·Drop·
+/// terminate 가드·no-context). 반환: 폐기된 꼬리가 있었으면 true. PENDING 카운터는
+/// 건드리지 않는다(머리 echo 추적과 분리 — 포커스 전환 PENDING 리셋은 함께 호출되는
+/// discard_pending_insert 가 수행).
+pub fn discard_pending_tail() -> bool {
+    let had = PENDING_TAIL.lock().unwrap().take().is_some();
+    TAIL_LIVE.store(false, Ordering::SeqCst);
+    had
+}
+
+/// R6b — 라이브 꼬리 조합이 성립했음(start_composition 성공).
+pub fn set_tail_live() {
+    TAIL_LIVE.store(true, Ordering::SeqCst);
+}
+
+/// R6b — 사용자 키 관찰로 꼬리 adopt/종료 시 플래그 해제(M-3 — OnTestKeyDown 실제 키).
+pub fn clear_tail_live() {
+    TAIL_LIVE.store(false, Ordering::SeqCst);
+}
+
+/// R6b — terminate 가드 판정용. 라이브 꼬리 조합이 살아있는가.
+pub fn tail_live() -> bool {
+    TAIL_LIVE.load(Ordering::SeqCst)
+}
+
+/// R6b — OnTestKeyDown 게이트: 머리 배치 echo 전량 복귀(PENDING<=0) + 보류 꼬리 존재.
+/// (echo 직후 호출이라 pending_active 의 stale 보정 불필요.)
+pub fn tail_gate_ready() -> bool {
+    PENDING.load(Ordering::SeqCst) <= 0 && has_pending_tail()
+}
+
+/// R6b — 머리 echo 가 아직 복귀 중인가(PENDING>0, stale 보정 포함)의 pub 래퍼.
+/// flush_pending_tail 이 라이브 가능 여부를 판정하는 데 쓴다.
+pub fn pending_echo_active() -> bool {
+    pending_active()
+}
+
+/// R6b degrade 전용 — 꼬리를 UNICODE 단일배치로 입력큐에 적재하되 PENDING 을 **덮어쓰지
+/// 않고 누적(fetch_add)** 한다(M-1). 머리 echo 미복귀(PENDING>0) 중 호출돼도 잔여 머리
+/// echo 수를 잃지 않아 echo 오분류가 없다. 입력큐 FIFO 로 꼬리는 머리 뒤에 적재돼
+/// 위치도 정확하다. SendInput 은 반드시 edit session(COM lock) 밖에서 호출(호출부 보장).
+pub fn append_tail_batch(text: &str) {
+    let mut inputs: Vec<INPUT> = Vec::new();
+    for cu in text.encode_utf16() {
+        inputs.push(key_event(0, cu, KEYEVENTF_UNICODE));
+        inputs.push(key_event(0, cu, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+    }
+    if inputs.is_empty() {
+        return;
+    }
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    PENDING.fetch_add((sent as usize).div_ceil(2) as i32, Ordering::SeqCst);
+    *SEND_INSTANT.lock().unwrap() = Some(Instant::now());
+    crate::register::dbg_log(&format!(
+        "synth: append_tail_batch '{text}' (+{} pending now={})",
+        (sent as usize).div_ceil(2),
+        PENDING.load(Ordering::SeqCst)
+    ));
 }

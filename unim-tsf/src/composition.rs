@@ -251,6 +251,11 @@ pub enum ReplaceOutcome {
     /// (BS+UNICODE)으로 즉시 확정했다. 후속 스케줄링 없음. 호출부는 엔진
     /// commit+preedit 을 모두 클리어(remove_preedit)하고 schedule_flush 를 걸지 않는다.
     SynthBatch,
+    /// **synth(full=false) 순방향 전용** (R6b) — 머리(commit)만 단일배치로 즉시 확정하고,
+    /// 꼬리(preedit)는 `store_pending_tail` 에 적재했다. PENDING==0 게이트 후 라이브 조합으로
+    /// 띄운다. 호출부는 **엔진 preedit("다")을 보존**(remove_preedit 금지)하고
+    /// `schedule_flush=true`(안전망 타이머)로 둔다. 머리는 v0.3.39 와 동일하게 항상 확정(유실 0).
+    SynthHeadTail,
 }
 
 /// 조합 상태 관리자
@@ -518,20 +523,30 @@ impl CompositionManager {
         // 안에서 호출하면 안 되므로(동기 락 보유 중) 반드시 이 시점에 호출.
         let synth_req = self.synth_slot.lock().unwrap().take();
         if let Some((d, c, p, _before_len)) = synth_req {
-            // synth 단일배치: 삭제+교정문 전체를 한 SendInput(BS+UNICODE)으로 확정.
-            // edit session 이 만든 composition 은 없다(슬롯 기록만) → 추적 비움.
-            //   - 순방향(p="기"): full = commit("서") + 마지막음절("기") 전체 확정.
-            //   - 역방향/undo(p=""): full = commit 만(영문 UNICODE).
-            // 입력큐 FIFO 로 [삭제 N → 삽입] 순서 보장 → 2채널 레이스 소멸. SendInput 은
-            // 반드시 edit session(COM lock) 밖인 이 시점에서 호출한다.
+            // synth 폴백: 삭제+삽입을 SendInput(BS+UNICODE)으로 처리. edit session 이 만든
+            // composition 은 없다(슬롯 기록만) → 추적 비움. SendInput 은 반드시 edit
+            // session(COM lock) 밖인 이 시점에서 호출한다.
             self.composition = None;
-            let full = format!("{c}{p}"); // commit + 마지막음절(역방향/undo 면 p="")
+            if p.is_empty() {
+                // 역방향/commit-only(preedit 없음): 종전 단일배치(전체=commit) 유지.
+                crate::register::dbg_log(&format!(
+                    "ReplaceSurrounding: synth 단일배치(역/commit-only) del={d} commit_len={}",
+                    c.chars().count()
+                ));
+                crate::synth_input::send_replacement_batch(d, &c);
+                return ReplaceOutcome::SynthBatch;
+            }
+            // 순방향(p="다"): R6b — 머리(commit)만 단일배치 확정 + 꼬리 라이브 예약.
+            // store_pending_tail 을 send_replacement_batch 보다 먼저 호출(동기 동일 틱이라
+            // 순서는 안전하나 has_pending_tail 선행 보장). 머리만 보내므로
+            // PENDING = del + commit_units(꼬리 제외).
+            crate::synth_input::store_pending_tail(&p);
             crate::register::dbg_log(&format!(
-                "ReplaceSurrounding: ShiftStart 부족 → synth 단일배치 (del={d} full_len={})",
-                full.chars().count()
+                "ReplaceSurrounding: synth head-tail del={d} head_len={} tail='{p}'",
+                c.chars().count()
             ));
-            crate::synth_input::send_replacement_batch(d, &full);
-            return ReplaceOutcome::SynthBatch;
+            crate::synth_input::send_replacement_batch(d, &c);
+            return ReplaceOutcome::SynthHeadTail;
         }
 
         // 정상 TSF 경로(ShiftStart full):
