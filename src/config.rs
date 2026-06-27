@@ -858,8 +858,10 @@ impl Config {
                         "[UNIM] 설정 파일이 없습니다. 기본 설정을 생성합니다: {:?}",
                         path
                     );
-                } else if msg.contains("Permission denied") || msg.contains("권한") {
-                    // 퍼미션 문제
+                } else if Self::is_permission_error(msg) {
+                    // 퍼미션 문제 (Linux "Permission denied" / Windows "Access is denied" /
+                    // "os error 5"). default 를 디스크에 덮어쓰려는 시도(아래)를 건너뛰어
+                    // AppContainer(스티커 메모 등)에서 무의미한 쓰기 실패 로그를 막는다.
                     Self::log_permission_error(path);
                     return default_config;
                 } else {
@@ -893,7 +895,7 @@ impl Config {
             }
             Err(save_err) => {
                 if let ConfigError::IoError(msg) = &save_err {
-                    if msg.contains("Permission denied") || msg.contains("권한") {
+                    if Self::is_permission_error(msg) {
                         Self::log_permission_error(path);
                     } else {
                         eprintln!("[UNIM] 설정 파일 저장 실패: {}", msg);
@@ -903,6 +905,20 @@ impl Config {
         }
 
         default_config
+    }
+
+    /// IO 오류 메시지가 권한 거부인지 판정합니다.
+    ///
+    /// OS/로캘별 문자열을 모두 커버:
+    /// - Linux/macOS: `Permission denied`
+    /// - Windows(영문): `Access is denied`
+    /// - Windows(raw): `os error 5`
+    /// - 한국어 로캘: `권한`
+    fn is_permission_error(msg: &str) -> bool {
+        msg.contains("Permission denied")
+            || msg.contains("Access is denied")
+            || msg.contains("os error 5")
+            || msg.contains("권한")
     }
 
     /// 퍼미션 오류 시 해결 방법을 로그로 안내합니다.
