@@ -124,6 +124,12 @@ const FLUSH_DELAY_MS: u32 = 60;
 /// (별도 RW edit session)에 위임한다. WM_APP(0x8000)+0x22 — WM_UNIM_REV(+0x21) 와 구분.
 const WM_UNIM_FLUSH: u32 = 0x8000 + 0x22;
 
+/// b1[D] Phase2b — 방식 D 펌프-분할 2단계 메시지. WM_UNIM_FLUSH(Phase2a)가 세션A 조합을
+/// 만든 뒤, 이 메시지를 PostMessage 해 **메시지 펌프를 한 번 돌린 뒤** 세션B
+/// (commit_and_restart)를 별도 RW edit session 으로 실행한다. 펌프가 세션A 조합의 문서
+/// 등록 경계를 만들어 세션B commit 이 크롬에서 정착하게 한다. WM_APP(0x8000)+0x23.
+const WM_UNIM_FLUSH2: u32 = 0x8000 + 0x23;
+
 impl UnimTextService {
     pub fn new() -> Self {
         // UWP(AppContainer) 경로 리다이렉트 우회: config 로드 전에 실제
@@ -230,6 +236,48 @@ impl UnimTextService {
         // Phase2 신규 조합의 단발 terminate 를 학습에서 제외.
         self.suppress_cuas_learn.store(true, Ordering::SeqCst);
         let did = key_handler::flush_pending_insert(
+            &mut engine,
+            &mut comp_mgr,
+            &context,
+            tid,
+            comp_sink,
+        );
+        // b1[D] Phase2b: race-flush(다음 키 선점)·degrade(rev_window 부재) 경로는 메시지
+        // 펌프를 끼울 수 없으므로 세션B 를 동기로(같은 틱) 실행한다 — 펌프-분할 효능은 못
+        // 받지만 현행과 동등(회귀 아님). 주(主) 경로(WM_UNIM_FLUSH→WM_UNIM_FLUSH2)는
+        // rev_wnd_proc 가 PostMessage 로 펌프를 끼워 정상 분할한다.
+        if crate::synth_input::has_pending_restart() {
+            key_handler::flush_restart_phase_b(&mut engine, &mut comp_mgr, &context, tid, comp_sink);
+        }
+        self.suppress_cuas_learn.store(false, Ordering::SeqCst);
+        did
+    }
+
+    /// b1[D] Phase2b — 보류 재시작(PENDING_RESTART)을 동기로 확정한다.
+    ///
+    /// race-flush 가 Phase2b 펌프(WM_UNIM_FLUSH2) 대기 중에 다음 키를 받았을 때, 새 키
+    /// 처리 **전에** 세션B 를 선행해 stale 세션A 조합 오염·PENDING_RESTART 덮어쓰기를
+    /// 막는다. 보류 재시작이 없으면 즉시 false(1회성, 중복 무해). 어떤 락도 보유하지
+    /// 않은 상태에서 호출(내부에서 engine→composition 락 짧게). SendInput 미사용.
+    pub(crate) fn flush_restart_phase_b(&self, comp_sink: &ITfCompositionSink) -> bool {
+        if !crate::synth_input::has_pending_restart() {
+            return false;
+        }
+        let ctx_guard = self.last_context.lock().unwrap();
+        let Some(context) = ctx_guard.as_ref() else {
+            let _ = crate::synth_input::discard_pending_restart();
+            crate::register::dbg_log("b1[D]: Phase2b flush no context → restart 폐기");
+            return false;
+        };
+        let context = context.clone();
+        drop(ctx_guard);
+
+        let tid = self.client_id();
+        // 락 순서: engine → composition (다른 경로와 동일 접두).
+        let mut engine = self.engine.lock().unwrap();
+        let mut comp_mgr = self.composition_mgr.lock().unwrap();
+        self.suppress_cuas_learn.store(true, Ordering::SeqCst);
+        let did = key_handler::flush_restart_phase_b(
             &mut engine,
             &mut comp_mgr,
             &context,
@@ -657,17 +705,24 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         //   따라서 이 가드는 maybe_reload_config·락 취득보다는 뒤, 그러나 실제
         //   엔진 처리(handle_key_down) 앞에 둔다. 여기서는 우선 수정자 판정만 하고
         //   비수정자일 때 flush 한다.
-        if crate::synth_input::has_pending_insert() {
+        // has_pending_insert(Phase2a 미완) 또는 has_pending_restart(Phase2b 펌프 대기)
+        // 어느 쪽이든, 다음 키 처리 전에 보류분을 완료한다. restart 만 남은 상태
+        // (Phase2a 는 끝났고 WM_UNIM_FLUSH2 대기 중)에서 새 키가 stale 세션A 조합 위로
+        // 떨어지거나 PENDING_RESTART 가 덮어써지는 fast-typing 레이스를 막는다.
+        if crate::synth_input::has_pending_insert() || crate::synth_input::has_pending_restart() {
             let raw_vk = wparam.0 as u16;
             let kc = unim::keycode::KeyCode::from_win32_vk(raw_vk);
             let is_bare_modifier = kc.is_modifier() || matches!(raw_vk, 0x10 | 0x11 | 0x12);
             if !is_bare_modifier {
-                // 타이머 선점: 먼저 끄고(없으면 무해) 보류 삽입을 완료한다.
+                // 타이머 선점: 먼저 끄고(없으면 무해) 보류 삽입·재시작을 완료한다.
                 if let Some(w) = self.rev_window.lock().unwrap().as_ref() {
                     w.kill_flush_timer();
                 }
                 let comp_sink: ITfCompositionSink = self.to_interface();
+                // Phase2a 보류분(있으면 A+동기 B) → 이어서 Phase2b 보류분(펌프 대기 중이던
+                // 세션B). 둘 다 1회성(take)이라 중복·이중 호출 무해.
                 self.flush_pending_insert(&comp_sink);
+                self.flush_restart_phase_b(&comp_sink);
                 crate::register::dbg_log(&format!(
                     "b1: race-flush (다음 키 선점) vk=0x{:02X}",
                     raw_vk
@@ -760,11 +815,14 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 ));
             } else {
                 // 타이머 호스트(message-only HWND) 부재 → degrade: 동기 즉시 삽입.
-                // 분리-플러시의 시간 지연은 못 벌지만 삽입 누락 0 을 보장한다.
+                // 분리-플러시의 시간 지연은 못 벌지만 삽입 누락 0 을 보장한다. synth 보류분
+                // (flush_pending_insert)과 네이티브 full-조합 보류분(flush_restart_phase_b)을
+                // 모두 동기 처리한다(펌프 불가라 commit 정착은 보장 못 함 — degrade 한정).
                 crate::register::dbg_log(
                     "b1: rev_window 부재 → degrade 동기 flush (no delay)",
                 );
                 self.flush_pending_insert(&comp_sink);
+                self.flush_restart_phase_b(&comp_sink);
             }
         }
 
@@ -839,6 +897,13 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         }
 
         self.composition_mgr.lock().unwrap().clear();
+
+        // b1[D] M1 가드: full 조합(Phase2a/native)이 Phase2b(commit_and_restart) 전에
+        // terminate 되면 composition=None 이 되는데 PENDING_RESTART 가 남아있으면
+        // commit_and_restart 의 else 분기(insert_text+start)가 **이미 문서에 있는** 조합
+        // 텍스트 위에 다시 삽입해 이중삽입("우간다우간다")이 된다. terminate 시 보류
+        // 재시작도 함께 폐기해 Phase2b 를 no-op 화한다(terminate 된 텍스트는 문서에 보존).
+        let _ = crate::synth_input::discard_pending_restart();
 
         // immediate(<200ms) 분기만 폴백 진입 처리. 엔진 preedit 버퍼는 보존해
         // 다음 키에서 누적 텍스트로 자연 재진입(start_composition)한다.
@@ -1222,6 +1287,25 @@ extern "system" fn rev_wnd_proc(
             let ctx = &*ptr;
             crate::register::dbg_log("D3: WM_UNIM_FLUSH → Phase2 insert (read-back path)");
             timer_flush_pending_insert(ctx);
+            // b1[D]: Phase2a 가 세션A 조합을 만들고 PENDING_RESTART 를 적재했으면, 펌프를
+            // 한 번 돌린 뒤 세션B(commit_and_restart)가 돌도록 WM_UNIM_FLUSH2 를 던진다.
+            if crate::synth_input::has_pending_restart() {
+                let _ = PostMessageW(Some(hwnd), WM_UNIM_FLUSH2, WPARAM(0), LPARAM(0));
+            }
+        });
+        return LRESULT(0);
+    }
+    if msg == WM_UNIM_FLUSH2 {
+        // b1[D] Phase2b — 펌프 경과 후 세션B(commit_and_restart) 실행(별도 RW edit session).
+        let _ = std::panic::catch_unwind(|| unsafe {
+            let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const RevWndContext;
+            if ptr.is_null() {
+                let _ = crate::synth_input::discard_pending_restart();
+                return;
+            }
+            let ctx = &*ptr;
+            crate::register::dbg_log("b1[D]: WM_UNIM_FLUSH2 → Phase2b (commit_and_restart)");
+            timer_flush_restart_phase_b(ctx);
         });
         return LRESULT(0);
     }
@@ -1240,6 +1324,10 @@ extern "system" fn rev_wnd_proc(
             let ctx = &*ptr;
             crate::register::dbg_log("b1: WM_TIMER fired → Phase2 insert");
             timer_flush_pending_insert(ctx);
+            // b1[D]: Phase2a 가 PENDING_RESTART 를 적재했으면 펌프 후 세션B 실행.
+            if crate::synth_input::has_pending_restart() {
+                let _ = PostMessageW(Some(hwnd), WM_UNIM_FLUSH2, WPARAM(0), LPARAM(0));
+            }
         });
         return LRESULT(0);
     }
@@ -1272,6 +1360,40 @@ fn timer_flush_pending_insert(ctx: &RevWndContext) {
     // Phase2 신규 조합의 단발 terminate 를 학습에서 제외.
     ctx.suppress_cuas_learn.store(true, Ordering::SeqCst);
     key_handler::flush_pending_insert(
+        &mut engine,
+        &mut comp_mgr,
+        &context,
+        ctx.tid,
+        &ctx.comp_sink,
+    );
+    ctx.suppress_cuas_learn.store(false, Ordering::SeqCst);
+}
+
+/// b1[D] Phase2b — WM_UNIM_FLUSH2 발화 시 보류 재시작을 commit_and_restart 로 확정한다
+/// (TSF STA 스레드, 락 짧게). 펌프 경과 후라 세션A 조합이 문서에 등록돼 있어 세션B
+/// commit 이 정착한다. SendInput 미사용 → edit session 안전. 패닉 금지. 보류 재시작이
+/// 이미 소비/폐기됐으면 take 가 None → no-op.
+fn timer_flush_restart_phase_b(ctx: &RevWndContext) {
+    if !crate::synth_input::has_pending_restart() {
+        return;
+    }
+    let context = {
+        let g = ctx.last_context.lock().unwrap();
+        match g.as_ref() {
+            Some(c) => c.clone(),
+            None => {
+                let _ = crate::synth_input::discard_pending_restart();
+                crate::register::dbg_log("b1[D]: Phase2b no context → restart 폐기");
+                return;
+            }
+        }
+    };
+    // 락 순서: engine → composition (다른 경로와 동일 접두).
+    let mut engine = ctx.engine.lock().unwrap();
+    let mut comp_mgr = ctx.composition_mgr.lock().unwrap();
+    // 세션B 신규 tail 조합의 단발 terminate 를 학습에서 제외.
+    ctx.suppress_cuas_learn.store(true, Ordering::SeqCst);
+    key_handler::flush_restart_phase_b(
         &mut engine,
         &mut comp_mgr,
         &context,

@@ -176,7 +176,41 @@ pub fn discard_pending_insert() -> bool {
     let had = PENDING_INSERT.lock().unwrap().take().is_some();
     PENDING.store(0, Ordering::SeqCst);
     disarm_readback_gate();
+    discard_pending_restart();
     had
+}
+
+/// b1[D] Phase2b 보류 재시작 슬롯 — (commit_text, last_syllable).
+///
+/// 방식 D 펌프-분할: Phase2a(세션A `start_composition(full)`)가 성공하면 이 슬롯에
+/// (commit, tail)을 적재하고 PostMessage(WM_UNIM_FLUSH2)로 **메시지 펌프를 한 번 돌린
+/// 뒤** Phase2b(세션B `commit_and_restart`)가 take 해 확정한다. 크롬(Blink)은 세션A↔
+/// 세션B 사이에 실제 펌프가 없으면(같은 틱 연속 lock) 세션A 조합을 등록하지 못해
+/// 세션B EndComposition 의 commit 이 정착하지 않는다(앞 확정문 유실) — 펌프가 그 정착
+/// 경계를 만든다.
+static PENDING_RESTART: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+/// b1[D] — Phase2b 재시작 슬롯 적재 (Phase2a 세션A 성공 직후).
+pub fn store_pending_restart(commit_text: &str, last_syllable: &str) {
+    *PENDING_RESTART.lock().unwrap() = Some((commit_text.to_string(), last_syllable.to_string()));
+}
+
+/// b1[D] — Phase2b 재시작 슬롯을 꺼낸다 (1회성, take).
+pub fn take_pending_restart() -> Option<(String, String)> {
+    PENDING_RESTART.lock().unwrap().take()
+}
+
+/// b1[D] — Phase2b 재시작이 보류 중인지 확인 (WM_UNIM_FLUSH2 포스팅 판정용).
+pub fn has_pending_restart() -> bool {
+    PENDING_RESTART
+        .lock()
+        .map(|g| g.is_some())
+        .unwrap_or(false)
+}
+
+/// b1[D] — 보류 재시작 폐기 (stale 방지; discard_pending_insert·Drop 에서 호출).
+pub fn discard_pending_restart() -> bool {
+    PENDING_RESTART.lock().unwrap().take().is_some()
 }
 
 /// D3 — read-back 게이트를 무장한다(Phase1 직후, expected 기준선과 함께).

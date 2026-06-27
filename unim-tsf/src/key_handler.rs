@@ -559,6 +559,37 @@ pub fn flush_pending_insert(
     true
 }
 
+/// b1[D] Phase2b — 메시지 펌프(WM_UNIM_FLUSH2) 후 보류 재시작을 commit_and_restart 로
+/// 확정한다. Phase2a(insert_pending case3)가 세션A 조합을 만들고 PENDING_RESTART 를
+/// 적재한 뒤 호출부가 펌프를 돌린 다음 진입한다. 보류 재시작이 없으면 no-op.
+///
+/// 호출자는 engine→composition 락을 보유한 상태로 호출한다(SendInput 미사용 →
+/// edit session 안전). 어떤 실패도 패닉 금지(dbg_log).
+/// 반환: 실제로 확정을 수행했으면 true.
+pub fn flush_restart_phase_b(
+    engine: &mut InputEngine,
+    comp_mgr: &mut CompositionManager,
+    context: &ITfContext,
+    tid: u32,
+    comp_sink: &ITfCompositionSink,
+) -> bool {
+    let Some((commit_text, last_syllable)) = crate::synth_input::take_pending_restart() else {
+        return false;
+    };
+    crate::register::dbg_log(&format!(
+        "b1[D]: Phase2b flush commit_len={} last_len={}",
+        commit_text.chars().count(),
+        last_syllable.chars().count()
+    ));
+    let composed_fallback =
+        comp_mgr.insert_restart_phase_b(context, tid, &commit_text, &last_syllable, comp_sink);
+    if composed_fallback {
+        engine.remove_preedit();
+        crate::register::dbg_log("b1[D]: Phase2b compose 폴백 → 엔진 preedit 리셋");
+    }
+    true
+}
+
 /// engine 의 pending PopupAction 을 모두 소비해 out-of-process 렌더러로 송신한다 (§6.5).
 ///
 /// 액션 루프는 **플래그만 수집**한다:

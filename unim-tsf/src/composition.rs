@@ -554,15 +554,29 @@ impl CompositionManager {
             };
         }
 
-        // 정상 TSF 경로(ShiftStart full): preedit 있으면 composition 슬롯에서
-        // 꺼내 보관, 없으면 종료됐으므로 clear.
+        // 정상 TSF 경로(ShiftStart full):
         if !preedit_text.is_empty() {
+            // 순방향: 세션1 이 full 조합(commit+preedit)을 만들었다(slot Some). self.composition
+            // 에 보관하고 (commit, preedit)을 PENDING_RESTART 에 적재 → 호출부가 펌프(타이머→
+            // WM_UNIM_FLUSH2) 후 Phase2b(commit_and_restart)로 commit 을 정착시킨다. commit+
+            // compose 를 한 ec 에 하면 Blink 가 commit 유실(실측: full=true 네이티브 경로도 동일
+            // 버그). slot 이 비면(StartComposition 거부) raw 로 full 텍스트가 들어갔으므로
+            // 조합 없이 Normal(rare degrade).
             let result = self.composition_slot.lock().unwrap().take();
             if let Some(comp) = result {
                 self.composition = Some(comp);
+                crate::synth_input::store_pending_restart(commit_text, preedit_text);
+                crate::register::dbg_log(
+                    "ReplaceSurrounding: native full-composition alive → Phase2b 예약(pump-split)",
+                );
+                return ReplaceOutcome::PhaseSplit;
             }
+            self.composition = None;
+            crate::register::dbg_log(
+                "ReplaceSurrounding: full-composition slot empty(raw 폴백) → Normal",
+            );
         } else {
-            // preedit 없음 — 기존 composition 이 있으면 종료됐으므로 clear
+            // preedit 없음(역방향/commit-only) — 단일 commit 확정 완료, 조합 없음.
             self.composition = None;
         }
         ReplaceOutcome::Normal
@@ -631,46 +645,68 @@ impl CompositionManager {
             };
         }
 
-        // case 3 (핵심): 전체 교정문으로 라이브 조합(세션A) → commit_and_restart(세션B).
+        // case 3 (핵심): 전체 교정문으로 라이브 조합(세션A) → [메시지 펌프] → 세션B(Phase2b).
+        // ⚠️ 세션A↔세션B 를 같은 틱에 연속 실행(같은-lock back-to-back)하면 크롬(Blink)이
+        // 세션A 조합을 문서에 등록하기 전이라 세션B EndComposition 의 commit 이 정착하지
+        // 못한다(앞 확정문 유실 — 실측 확인: sessionB alive=true 인데 화면엔 tail 만). 네이티브
+        // 타이핑은 키 사이에 메시지 펌프가 끼어 정착 경계가 생긴다. 그래서 세션A 만 여기서
+        // 만들고 (commit, tail)을 PENDING_RESTART 에 적재 → 호출부가 PostMessage(WM_UNIM_FLUSH2)
+        // 로 펌프를 한 번 돌린 뒤 insert_restart_phase_b 가 commit_and_restart 한다.
         let full = format!("{commit_text}{last_syllable}");
         self.start_composition(context, tid, &full, comp_sink); // 세션A
-        let session_a_alive = self.composition.is_some();
-        crate::register::dbg_log(&format!(
-            "b1[D]: sessionA start_composition(full) -> alive={session_a_alive}"
-        ));
-
-        if !session_a_alive {
-            // 세션A 실패: 구 동작 승계 — commit wrap 확정 + tail 조합 best-effort.
+        if self.is_active() {
+            crate::synth_input::store_pending_restart(commit_text, last_syllable);
+            crate::register::dbg_log(
+                "b1[D]: sessionA start_composition(full) alive → Phase2b 예약(pump-split)",
+            );
+            // 세션A 조합 생존 → 엔진 preedit 보존(false). 확정은 Phase2b 가 수행.
+            false
+        } else {
+            // 세션A 실패: 구 동작 승계 — commit wrap 확정 + tail 조합 best-effort(동기, 펌프 불요).
             crate::register::dbg_log("b1[D]: sessionA FAILED → insert_commit+start fallback");
             self.insert_commit(context, tid, commit_text, comp_sink);
             self.start_composition(context, tid, last_syllable, comp_sink);
-            return if self.is_active() {
+            if self.is_active() {
                 false
             } else {
                 self.insert_commit(context, tid, last_syllable, comp_sink);
                 true
-            };
+            }
         }
+    }
 
-        // 세션B: 검증된 commit_and_restart. self.composition=Some 이므로 :420 의
-        // insert_text 폴백을 회피하고 CommitRestartEditSession 분기를 탄다.
-        let commit_applied = self.commit_and_restart(context, tid, commit_text, last_syllable, comp_sink);
+    /// b1[D] Phase2b — 메시지 펌프(WM_UNIM_FLUSH2) 후 호출. Phase2a 세션A 가 만든 라이브
+    /// 조합(예 "느느늘")을 검증된 `commit_and_restart` 로 확정한다(앞부분 확정 + tail 재조합).
+    /// 펌프가 세션A 조합의 문서 등록을 보장하므로 commit 이 정착한다.
+    ///
+    /// self.composition 이 펌프 중 사라졌으면 commit_and_restart 의 else 폴백
+    /// (insert_text+start_composition)이 처리한다. 반환: tail 조합 유지 실패로 확정
+    /// 폴백했으면 true(호출부가 엔진 preedit 도 비움), 유지 성공이면 false(보존).
+    pub fn insert_restart_phase_b(
+        &mut self,
+        context: &ITfContext,
+        tid: u32,
+        commit_text: &str,
+        last_syllable: &str,
+        comp_sink: &ITfCompositionSink,
+    ) -> bool {
+        let commit_applied =
+            self.commit_and_restart(context, tid, commit_text, last_syllable, comp_sink);
         if self.is_active() {
-            // 세션B 성공: 앞부분 확정 + tail("늘")이 살아있는 조합. 엔진 preedit 보존.
-            crate::register::dbg_log("b1[D]: sessionB commit_and_restart done → last kept (alive)");
+            crate::register::dbg_log("b1[D]: Phase2b commit_and_restart done → last kept (alive)");
             false
         } else if commit_applied {
-            // mode2(드묾): step1 commit("느느")은 확정됐으나 step2 tail 조합이 실패.
-            // 문서는 "느느"뿐이므로 tail 을 확정 삽입해 "느느늘" 완성(유실 방지). 엔진 클리어.
-            crate::register::dbg_log("b1[D]: sessionB mode2 (commit ok, tail failed) → insert_commit(tail)");
+            // mode2(드묾): commit 은 확정됐으나 tail 조합 실패 → tail 확정 삽입(유실 방지).
+            crate::register::dbg_log(
+                "b1[D]: Phase2b mode2 (commit ok, tail failed) → insert_commit(tail)",
+            );
             self.insert_commit(context, tid, last_syllable, comp_sink);
             true
         } else {
-            // mode1(드묾): 세션B 전체 거부 — commit 미적용. 세션A 의 full 조합("느느늘")이
-            // 문서에 잔존(텍스트 보존)하므로 tail 재삽입하면 중복("느느늘늘"). 추가삽입 금지,
-            // true 로 엔진 preedit 만 비운다(문서=세션A 텍스트 유지).
+            // mode1(드묾): 세션B 거부·commit 미적용 → 세션A full 조합 잔존(텍스트 보존),
+            // tail 재삽입하면 중복이므로 금지.
             crate::register::dbg_log(
-                "b1[D]: sessionB mode1 (rejected) → keep sessionA full text (no double-insert)",
+                "b1[D]: Phase2b mode1 (rejected) → keep sessionA full text (no double-insert)",
             );
             true
         }
@@ -1118,23 +1154,62 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                 }
             }
 
-            // 3. 삭제+커밋을 reconversion 패턴으로 수행 — 교체 범위를 composition
-            //    으로 채택한 뒤 SetText 교체, EndComposition 으로 확정한다.
-            //    raw SetText 직접 편집은 Chrome/Electron(Blink)에서 무시되고(순방향
-            //    첫 글자 누락) CUAS(IMM32 브리지) 앱에는 아예 전달되지 않는다(역방향
-            //    한글 잔류). composition 으로 감싼 교체는 reconversion 과 동일 경로라
-            //    전 앱 계층에 전달된다. StartComposition 거부 시 구(raw) 경로 폴백.
-            if self.delete_chars > 0 || !self.commit_text.is_empty() {
+            // 3. 교체 — ⚠️ commit+compose 를 **한 ec** 에 하면 Blink 가 commit 정착 전에
+            //    후속 조합 SetText 로 덮어써 앞 확정문이 유실된다(실측: "ntkdmes"→"현"만,
+            //    "jbkfsuf"→"다"만 — full=true 네이티브 경로도 InsertCompose 와 동일 버그).
+            //    그래서 분기한다:
+            //    (A) 순방향(preedit 있음): 삭제된 range 에 **full 조합(commit+preedit)** 하나만
+            //        만들어(미확정) composition_slot 에 싣는다. 확정은 호출부가 펌프 후
+            //        Phase2b(commit_and_restart)로 수행 → commit 이 정착한다.
+            //    (B) 역방향/commit-only(preedit 없음): 후속 조합이 없어 덮어쓰기 문제가 없으므로
+            //        종전처럼 commit-wrap 으로 확정한다(단일 commit 은 같은 ec 에서도 정착).
+            //    raw SetText 직접 편집은 Blink 가 무시/CUAS 미전달이므로 둘 다 composition 으로
+            //    감싼다(reconversion 동일 경로). StartComposition 거부 시 raw 폴백.
+            if !self.preedit_text.is_empty() {
+                // (A) 순방향: full 조합 생성(삭제+commit+preedit 를 하나의 미확정 조합으로).
+                let full: String = format!("{}{}", self.commit_text, self.preedit_text);
+                let wide: Vec<u16> = full.encode_utf16().collect();
+                let ctx_comp: ITfContextComposition = self.context.cast()?;
+                match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
+                    Ok(composition) => {
+                        // 교체 대상 range 를 selection 으로 명시(Blink "selection 밖 편집" 무시 방지).
+                        let _ = select_replacement_range(&self.context, ec, &range);
+                        // SetText 실패해도 조합을 반드시 닫아 누수 방지(B 분기와 동일 패턴).
+                        let set_result = range.SetText(ec, 0, &wide);
+                        if set_result.is_ok() {
+                            // 미확정 조합 유지 — selection 전체 range(BOOL(1)) + READING(즉시-terminate 회피).
+                            let _ = select_composition_range(&self.context, ec, &range);
+                            if let Some(atom) = self.attr_atom {
+                                set_composition_attribute(&self.context, ec, &range, atom);
+                            }
+                            set_composition_reading(&self.context, ec, &range, &full);
+                            // slot 에 full 조합 보관 → 호출부가 store_pending_restart + Phase2b.
+                            *self.composition_slot.lock().unwrap() = Some(composition);
+                        } else {
+                            // SetText 거부: 시작한 조합을 닫는다(slot 미적재 → 호출부 Normal).
+                            let _ = composition.EndComposition(ec);
+                        }
+                        set_result?;
+                    }
+                    Err(e) => {
+                        // 거부(드묾): raw 로 full 텍스트를 써 둔다(텍스트 보존). slot 은 비어
+                        // 호출부가 Normal 처리(엔진 preedit 잔존 가능 — rare degrade).
+                        crate::register::dbg_log(&format!(
+                            "ReplaceSurrounding: full-composition StartComposition 거부({e:?}) → raw 폴백"
+                        ));
+                        let _ = select_replacement_range(&self.context, ec, &range);
+                        range.SetText(ec, 0, &wide)?;
+                        range.Collapse(ec, TF_ANCHOR_END)?;
+                        let _ = move_caret_to_end(&self.context, ec, &range);
+                    }
+                }
+            } else if self.delete_chars > 0 || !self.commit_text.is_empty() {
+                // (B) 역방향/commit-only: 종전 commit-wrap 확정(후속 조합 없음 → 유실 무관).
                 let wide: Vec<u16> = self.commit_text.encode_utf16().collect();
                 let ctx_comp: ITfContextComposition = self.context.cast()?;
                 match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
                     Ok(composition) => {
-                        // 교체 원자성 보장: SetText 전에 교체 대상 range 를 selection
-                        // 으로 명시해, Blink 가 "현재 selection 밖 편집"으로 무시하고
-                        // 첫 글자를 누락(B1)시키는 것을 막는다.
                         let _ = select_replacement_range(&self.context, ec, &range);
-                        // 빈 commit_text 면 순수 삭제(범위가 빈 문자열로 교체).
-                        // 어떤 단계가 실패해도 composition 은 반드시 닫는다.
                         let set_result = range.SetText(ec, 0, &wide);
                         let _ = range.Collapse(ec, TF_ANCHOR_END);
                         let _ = move_caret_to_end(&self.context, ec, &range);
@@ -1151,24 +1226,6 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                         let _ = move_caret_to_end(&self.context, ec, &range);
                     }
                 }
-            }
-
-            // 4. preedit 이 있으면 composition 시작 (순방향 replay)
-            if !self.preedit_text.is_empty() {
-                let wide: Vec<u16> = self.preedit_text.encode_utf16().collect();
-                // SampleIME 패턴: 빈 range 에 StartComposition 먼저, 그 뒤 SetText.
-                // (CUAS-unaware 앱에서 SetText→Start 순서는 즉시-terminate 유발.)
-                let ctx_comp: ITfContextComposition = self.context.cast()?;
-                let composition = ctx_comp.StartComposition(ec, &range, &self.comp_sink)?;
-                range.SetText(ec, 0, &wide)?;
-                // composition 시작 — selection 전체 range (wezterm terminate 회피)
-                let _ = select_composition_range(&self.context, ec, &range);
-                // 순방향 replay preedit 에도 미확정(밑줄) ATTRIBUTE + READING 부여(실패 무시).
-                if let Some(atom) = self.attr_atom {
-                    set_composition_attribute(&self.context, ec, &range, atom);
-                }
-                set_composition_reading(&self.context, ec, &range, &self.preedit_text);
-                *self.composition_slot.lock().unwrap() = Some(composition);
             }
         }
         Ok(())
