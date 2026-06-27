@@ -352,11 +352,9 @@
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="0" />
 
-    <!--
-      ARPPRODUCTICON: enable by placing installer/assets/unim.ico and uncommenting.
-      <Property Id="ARPPRODUCTICON" Value="unim.ico" />
-      <Icon Id="unim.ico" SourceFile="..\assets\unim.ico" />
-    -->
+    <!-- ARPPRODUCTICON: Add/Remove Programs 아이콘 (assets/unim-logo v2.svg → installer/assets/unim.ico). -->
+    <Icon Id="unim.ico" SourceFile="..\assets\unim.ico" />
+    <Property Id="ARPPRODUCTICON" Value="unim.ico" />
 
   </Product>
 </Wix>
