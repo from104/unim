@@ -489,6 +489,18 @@ impl ITfLangBarItem_Impl for UnimLangBarButton_Impl {
 
 impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
     fn OnClick(&self, click: TfLBIClick, pt: &POINT, _prcarea: *const RECT) -> Result<()> {
+        // [B3 진단] Win11 모던 작업표시줄 트레이 IME 인디케이터가 우클릭을
+        // OnClick(TF_LBI_CLK_RIGHT)로 실제 전달하는지 실증한다. 우클릭 시 본 줄이
+        // 로그에 안 찍히면 = OS 셸이 OnClick 을 호출조차 안 함(가설 확정).
+        // %TEMP%\unim-tsf.log 에서 "lang_bar OnClick" 항목으로 확인.
+        crate::register::dbg_log(&format!(
+            "lang_bar OnClick: click={} (LEFT={}, RIGHT={}) pt=({}, {})",
+            click.0,
+            TF_LBI_CLK_LEFT.0,
+            TF_LBI_CLK_RIGHT.0,
+            pt.x,
+            pt.y,
+        ));
         if click == TF_LBI_CLK_LEFT {
             // 갭2: 좌클릭 → 엔진을 직접 토글 + 랭귀지바 아이콘/텍스트 갱신.
             self.toggle_engine_mode();
@@ -506,6 +518,11 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
     }
 
     fn InitMenu(&self, pmenu: Ref<'_, ITfMenu>) -> Result<()> {
+        // [B3 진단] 레거시 플로팅 언어 바 경로. 이 줄이 로그에 찍히면 = OS 가
+        // InitMenu 를 호출(우클릭 메뉴를 OS 가 그림). 트레이 환경에서 안 찍히고
+        // OnClick(RIGHT)도 안 찍히면 = 우클릭이 OnClick/InitMenu 어느 쪽으로도
+        // 안 옴(셸이 자체 메뉴를 가로챔 — 가설 확정).
+        crate::register::dbg_log("lang_bar InitMenu: called (legacy floating langbar)");
         let Some(menu) = pmenu.as_ref() else { return Ok(()); };
         unsafe {
             // 메뉴 항목: 한/영 전환
@@ -644,8 +661,13 @@ impl UnimLangBarButton_Impl {
     /// handle_menu_command 로 분기한다. 메뉴 표시 전 SetForegroundWindow 를
     /// 호출해야 클릭-아웃 시 메뉴가 정상적으로 닫힌다(Win32 규약).
     fn show_context_menu(&self, pt: POINT) {
+        // [B3 진단] OnClick(RIGHT)에서 진입한 직접 메뉴 경로. 이 줄이 찍히는데
+        // 메뉴가 안 뜨면 = OnClick 은 불리지만 TrackPopupMenuEx 표시/dismiss 가
+        // 깨진 것(owner/foreground 문제). 아래 owner/cmd 로그로 추가 판별.
+        crate::register::dbg_log("lang_bar show_context_menu: enter (OnClick RIGHT path)");
         unsafe {
             let Ok(hmenu) = CreatePopupMenu() else {
+                crate::register::dbg_log("lang_bar show_context_menu: CreatePopupMenu FAILED");
                 return;
             };
 
@@ -680,6 +702,11 @@ impl UnimLangBarButton_Impl {
                 h
             };
 
+            crate::register::dbg_log(&format!(
+                "lang_bar show_context_menu: owner=0x{:X} (fg=0x{:X}) pt=({}, {})",
+                owner.0 as isize, fg.0 as isize, pt.x, pt.y,
+            ));
+
             // TPM_RETURNCMD: 선택된 항목 ID 를 i32 로 동기 반환. 0 이면 취소.
             let cmd = TrackPopupMenuEx(
                 hmenu,
@@ -697,6 +724,11 @@ impl UnimLangBarButton_Impl {
             }
 
             let _ = DestroyMenu(hmenu);
+
+            crate::register::dbg_log(&format!(
+                "lang_bar show_context_menu: TrackPopupMenuEx returned cmd={} (0=cancel/dismiss)",
+                cmd,
+            ));
 
             if cmd != 0 {
                 self.handle_menu_command(cmd as u32);
