@@ -11,9 +11,19 @@ use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
 
 use crate::auto_typefix::{self, AutoTypeFixState};
-use crate::composition::{self, CompositionManager};
+use crate::composition::{self, CompositionManager, ReplaceOutcome};
 use crate::popup_ipc::{to_render_state, PopupClient, RevEnvelope, RevEvent};
 use crate::preedit_window::PreeditWindow;
+
+/// `handle_key_down` 의 반환 — eaten + b1 Phase2 플러시 예약 신호.
+///
+/// `schedule_flush=true` 이면 순방향/역방향 synth 폴백이 Phase1(BS×N)만 수행하고
+/// PendingInsert 를 적재했으므로, 호출부(text_service)가 SetTimer 로 Phase2 삽입을
+/// 예약해야 한다.
+pub struct KeyDownOutcome {
+    pub eaten: bool,
+    pub schedule_flush: bool,
+}
 
 /// 현재 Win32 수정자 키 상태를 조회합니다.
 pub fn get_modifier_state() -> ModifierState {
@@ -249,7 +259,7 @@ pub fn handle_key_down(
     composition_unsupported: bool,
     // 폴백 모드에서 문서에 떠있는 미확정 글자 수 (다음 키에서 지울 양).
     fallback_pending: &AtomicUsize,
-) -> bool {
+) -> KeyDownOutcome {
     let vk = wparam.0 as u16;
     let keycode = KeyCode::from_win32_vk(vk);
     let modifiers = get_modifier_state();
@@ -268,8 +278,9 @@ pub fn handle_key_down(
             }
         }
         // surrounding 설정 여부에 무관하게 typefix_convert 호출
+        let mut schedule_flush = false;
         if let Some((_offset, delete_count, replacement)) = engine.typefix_convert(0) {
-            comp_mgr.replace_surrounding(
+            let outcome = comp_mgr.replace_surrounding(
                 context,
                 tid,
                 delete_count as u32,
@@ -277,13 +288,15 @@ pub fn handle_key_down(
                 "",
                 comp_sink,
             );
+            // 수동 typefix 는 preedit="" 라 PhaseSplitCommitOnly 만 나올 수 있다.
+            schedule_flush = outcome != ReplaceOutcome::Normal;
         }
-        return true;
+        return KeyDownOutcome { eaten: true, schedule_flush };
     }
 
     // ── Ctrl+Z AutoTypeFix 되돌리기 (press_key 전에 먼저 검사) ──
     if let Some(apply) = auto_typefix::try_undo(atf_state, keycode, modifiers) {
-        comp_mgr.replace_surrounding(
+        let outcome = comp_mgr.replace_surrounding(
             context,
             tid,
             apply.delete_chars,
@@ -291,7 +304,9 @@ pub fn handle_key_down(
             &apply.replay_preedit,
             comp_sink,
         );
-        return true;
+        // undo 는 replay_preedit="" 라 PhaseSplitCommitOnly 만 나올 수 있다.
+        let schedule_flush = outcome != ReplaceOutcome::Normal;
+        return KeyDownOutcome { eaten: true, schedule_flush };
     }
 
     // ── Backspace 관찰 (blacklist 재트리거 감지용) ──
@@ -316,7 +331,7 @@ pub fn handle_key_down(
 
     if !result.consumed && !result.commit_changed && !result.preedit_changed {
         // 팝업 중에도 소비하지 않은 키면 팝업 닫기 (Esc 등은 엔진이 HidePopup emit)
-        return false;
+        return KeyDownOutcome { eaten: false, schedule_flush: false };
     }
 
     // ── 팝업 액션 drain ──
@@ -406,10 +421,16 @@ pub fn handle_key_down(
                 if composing {
                     comp_mgr.end_composition_with_text(context, tid, &commit);
                 } else {
-                    // 비조합 commit(영문 문자 등)도 composition 으로 감싼 삽입
-                    // (reconversion 패턴, delete=0) — raw SetText 삽입은
-                    // Chrome/Electron(Blink)에서 누락될 수 있다.
-                    comp_mgr.replace_surrounding(context, tid, 0, &commit, "", comp_sink);
+                    // 비조합 commit(영문 문자 등)은 단순 삽입(InsertTextEditSession).
+                    //
+                    // 과거엔 replace_surrounding(delete=0) 으로 composition 으로 감싸
+                    // 삽입했으나, 영문 비조합 글자는 미확정 조합이 아닌데도 매 글자
+                    // StartComposition→EndComposition 을 돌려 CUAS(카톡 등 IMM32 브리지)
+                    // 가 즉시-terminate 학습(cuas_windows)하게 만들었다 → ATF 게이트가
+                    // 영구 폴백되어 교정이 아예 안 됨(B2 1차 원인). 단순 SetText 삽입은
+                    // composition 라이프사이클을 만들지 않아 오학습을 막는다. (delete=0
+                    // 삽입은 ShiftStart 역확장이 없어 Blink 첫 글자 누락과도 무관.)
+                    comp_mgr.insert_text(context, tid, &commit);
                 }
             }
             // preedit 처리
@@ -429,10 +450,15 @@ pub fn handle_key_down(
 
     // ── AutoTypeFix 오케스트레이션 ──
     // 팝업 활성 중에는 발동 금지 (엔진이 popup_key 처리 중).
-    // 폴백(터미널·레거시) 경로에서도 비활성: ATF 의 replace_surrounding 은 동일한
-    // 역방향 삭제 한계로 터미널에서 깨지므로(삭제 무효 → 텍스트 누적) 적용하지 않는다.
+    //
+    // CUAS/폴백(터미널·레거시·카톡 등 IMM32 브리지) 경로에서도 ATF 를 적용한다.
+    // 과거엔 `!composition_unsupported` 가드로 CUAS 앱에서 ATF 가 전면 봉쇄돼
+    // 원문이 잔류했다(B2 1차 원인). replace_surrounding 이 GetSelection 기반
+    // ShiftStart 역확장 + shifted 검증으로 확정 텍스트(result-string)까지 교체
+    // 하도록 보강(composition.rs)됐으므로, CUAS 에서도 동일 경로로 교정한다.
     let popup_active = popup.is_active();
-    if !popup_active && !composition_unsupported {
+    let mut schedule_flush = false;
+    if !popup_active {
         if let Some(apply) = auto_typefix::process_after_key(
             atf_state,
             engine,
@@ -450,7 +476,7 @@ pub fn handle_key_down(
             if apply.end_composition && comp_mgr.is_active() {
                 comp_mgr.end_composition(context, tid);
             }
-            comp_mgr.replace_surrounding(
+            let outcome = comp_mgr.replace_surrounding(
                 context,
                 tid,
                 apply.delete_chars,
@@ -458,10 +484,79 @@ pub fn handle_key_down(
                 &apply.replay_preedit,
                 comp_sink,
             );
+            match outcome {
+                ReplaceOutcome::Normal => {}
+                ReplaceOutcome::PhaseSplit => {
+                    // b1 순방향 synth 폴백: Phase1(BS×N)만 했고 Phase2(삽입)는 SetTimer
+                    // 로 예약한다. 마지막 음절("기")을 TSF 조합으로 유지하므로 엔진의
+                    // 잔여 preedit("기")을 **보존**한다(remove_preedit 금지). 그래야
+                    // 사용자가 이어서 받침을 쳐도 엔진 상태가 일치한다(replay 후
+                    // engine.clear_commit() 은 commit 만 비우고 preedit "기" 는 보존 —
+                    // auto_typefix.rs:389 확인).
+                    schedule_flush = true;
+                    crate::register::dbg_log(
+                        "b1: PhaseSplit → SetTimer 예약, 엔진 preedit 보존",
+                    );
+                }
+                ReplaceOutcome::PhaseSplitCommitOnly => {
+                    // b1 역방향/undo synth 폴백: commit-only(마지막 음절 없음). Phase2
+                    // 도 SetTimer 로 예약하되, 엔진엔 잔여 조합이 없으므로 보존/제거
+                    // 모두 무관하다. (역방향은 한글 조합 자체가 없어 무영향.)
+                    schedule_flush = true;
+                    crate::register::dbg_log(
+                        "b1: PhaseSplitCommitOnly → SetTimer 예약(조합 없음)",
+                    );
+                }
+            }
         }
     }
 
-    result.consumed
+    KeyDownOutcome { eaten: result.consumed, schedule_flush }
+}
+
+/// b1 Phase2 — 보류 삽입(PendingInsert)을 TSF 로 삽입한다 (타이머 발화 / race-flush
+/// 공용). 1회성: take_pending_insert() 가 None 이면 즉시 반환(중복 호출 무해).
+///
+/// - commit_text("서")는 composition 으로 감싸 확정 삽입.
+/// - last_syllable("기")은 start_composition 으로 미확정 조합 유지.
+/// - Blink 가 신규 조합을 즉시 terminate 하면 확정 폴백 + 엔진 preedit 제거(동기).
+///
+/// 호출자는 engine·comp_mgr 락을 보유한 상태로 호출한다(SendInput 미사용이라
+/// edit session 안전). 어떤 실패도 패닉 금지(dbg_log).
+///
+/// 반환: 실제로 삽입을 수행했으면 true(타이머가 KillTimer 판단에 사용).
+pub fn flush_pending_insert(
+    engine: &mut InputEngine,
+    comp_mgr: &mut CompositionManager,
+    context: &ITfContext,
+    tid: u32,
+    comp_sink: &ITfCompositionSink,
+) -> bool {
+    let Some(pending) = crate::synth_input::take_pending_insert() else {
+        return false;
+    };
+    // D3: 실제 삽입을 1회 수행하는 이 시점에 read-back 게이트도 함께 해제한다(타이머·
+    // race-flush·WM_UNIM_FLUSH·degrade 공용 진입점이라 stale 게이트 잔존을 원천 차단).
+    crate::synth_input::disarm_readback_gate();
+    crate::register::dbg_log(&format!(
+        "b1: flush commit_len={} last_len={}",
+        pending.commit_text.chars().count(),
+        pending.last_syllable.chars().count()
+    ));
+    let composed_fallback = comp_mgr.insert_pending(
+        context,
+        tid,
+        &pending.commit_text,
+        &pending.last_syllable,
+        comp_sink,
+    );
+    // 마지막 음절을 조합으로 유지하지 못하고 확정 폴백했으면(Blink 즉시 terminate)
+    // 엔진의 잔여 preedit("기")도 비워 "문서=확정, 엔진=빈 조합" 동기를 맞춘다.
+    if composed_fallback {
+        engine.remove_preedit();
+        crate::register::dbg_log("b1: flush compose 폴백 → 엔진 preedit 리셋");
+    }
+    true
 }
 
 /// engine 의 pending PopupAction 을 모두 소비해 out-of-process 렌더러로 송신한다 (§6.5).

@@ -163,6 +163,27 @@ unsafe fn select_composition_range(context: &ITfContext, ec: u32, range: &ITfRan
     res
 }
 
+/// 교체 대상 range 전체를 selection 으로 설정한다(확정 selection, fInterimChar=FALSE).
+///
+/// AutoTypeFix 교체에서 SetText 직전 호출. Blink(Chrome/Electron)는 "현재
+/// selection 밖" 편집을 무시해 첫 글자가 누락(B1)되거나 원문이 잔류(B2)할 수
+/// 있는데, 교체 range 를 selection 으로 명시하면 그 영역이 reconversion 대상으로
+/// 확정돼 result-string 까지 안전히 덮어쓴다. 조합용(interim-char) selection 과
+/// 달리 fInterimChar=FALSE 로 둔다(미확정 표시 불필요, 즉시 교체 확정).
+unsafe fn select_replacement_range(context: &ITfContext, ec: u32, range: &ITfRange) -> Result<()> {
+    let r = range.Clone()?;
+    let mut sel = TF_SELECTION {
+        range: ManuallyDrop::new(Some(r)),
+        style: TF_SELECTIONSTYLE {
+            ase: TF_AE_NONE,
+            fInterimChar: BOOL(0),
+        },
+    };
+    let res = context.SetSelection(ec, std::slice::from_ref(&sel));
+    ManuallyDrop::drop(&mut sel.range);
+    res
+}
+
 /// 텍스트를 삽입할 range 를 얻는다.
 ///
 /// 1순위로 `ITfInsertAtSelection::InsertTextAtSelection(QUERYONLY)` 를 시도하고,
@@ -213,6 +234,23 @@ unsafe fn acquire_insert_range(context: &ITfContext, ec: u32) -> Result<ITfRange
     result
 }
 
+/// `replace_surrounding` 의 결과 신호 (b1: bool → enum).
+///
+/// 호출부(key_handler→text_service)가 후속 동작을 분기하는 데 쓴다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplaceOutcome {
+    /// 정상 TSF 경로(메모장/Word 등) 또는 synth 미진입. 추가 동작 없음.
+    Normal,
+    /// 역방향/undo synth 폴백 — commit-only(마지막 음절 조합 없음)를 Phase2 에
+    /// 위임했다. 엔진에 잔여 조합 preedit 이 없으므로 호출부는 remove_preedit 불필요.
+    /// (Phase2 삽입은 SetTimer 가 트리거 — text_service 가 PhaseSplit 와 동일 경로로 처리.)
+    PhaseSplitCommitOnly,
+    /// 순방향 synth 폴백 — 삭제(Phase1)와 삽입(Phase2)을 분리했다. Phase2 에서
+    /// 마지막 음절을 TSF 조합으로 유지하므로 **엔진의 잔여 preedit 을 보존**해야 한다
+    /// (호출부는 remove_preedit 를 호출하면 안 됨). text_service 가 SetTimer 를 건다.
+    PhaseSplit,
+}
+
 /// 조합 상태 관리자
 pub struct CompositionManager {
     composition: Option<ITfComposition>,
@@ -220,6 +258,18 @@ pub struct CompositionManager {
     /// `GUID_PROP_ATTRIBUTE` SetValue 용 캐시된 `TfGuidAtom`.
     /// 최초 1회 `ITfCategoryMgr::RegisterGUID` 로 획득해 재사용(매번 등록 금지).
     attr_atom: Option<u32>,
+    /// AutoTypeFix synth 폴백 슬롯. ReplaceSurroundingEditSession(TF_ES_SYNC)이
+    /// ShiftStart 부족(CUAS/Blink — 확정 텍스트 뒤로 역확장 거부)을 감지하면,
+    /// 문서를 변형하지 않고 (delete_chars, commit_text, preedit_text)를 여기에
+    /// 기록한 뒤 즉시 반환한다. replace_surrounding 이 edit session 밖에서 슬롯을
+    /// 확인해 b1 2-phase 폴백(Phase1=send_replacement_delete BS×N + store_pending_insert,
+    /// Phase2=타이머 후 insert_pending)으로 처리한다.
+    ///
+    /// D3: 4번째 요소 `before_len`(=삭제 전 커서 앞 글자 수, edit session 내부에서
+    /// read-back 측정)을 함께 기록한다. replace_surrounding 이 이를 꺼내
+    /// `expected_after_delete = before_len - delete_chars` 를 산출해 OnEndEdit read-back
+    /// 게이트의 기준선으로 쓴다. `None` 이면 read-back 실패 → 게이트 비활성(타이머 단독).
+    synth_slot: Arc<Mutex<Option<(u32, String, String, Option<u32>)>>>,
 }
 
 impl CompositionManager {
@@ -228,6 +278,7 @@ impl CompositionManager {
             composition: None,
             composition_slot: Arc::new(Mutex::new(None)),
             attr_atom: None,
+            synth_slot: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -358,6 +409,11 @@ impl CompositionManager {
     /// CUAS 가 거부해 새 composition 이 즉시 OnCompositionTerminated 된다(매 음절
     /// 전환마다 오버레이로 떨어지는 원인). 한 트랜잭션으로 합쳐 churn 을 없앤다.
     /// 활성 composition 이 없으면 insert_text + start_composition 으로 폴백.
+    ///
+    /// 반환: commit_text 가 **실제로 문서에 확정 적용됐으면** `true`. b1[D] 폴백이
+    /// 세션B 거부 시 mode1(RequestEditSession 전체 거부=확정 안 됨)/mode2(step1 commit
+    /// 성공·tail StartComposition 실패)를 구분해 tail 의 이중삽입(mode1)·유실(mode2)을
+    /// 막는 데 쓴다. 네이티브 호출부(key_handler)는 반환값을 무시한다.
     pub fn commit_and_restart(
         &mut self,
         context: &ITfContext,
@@ -365,16 +421,19 @@ impl CompositionManager {
         commit_text: &str,
         preedit_text: &str,
         comp_sink: &ITfCompositionSink,
-    ) {
+    ) -> bool {
         let Some(old) = self.composition.clone() else {
             if !commit_text.is_empty() {
                 self.insert_text(context, tid, commit_text);
             }
             self.start_composition(context, tid, preedit_text, comp_sink);
-            return;
+            return !commit_text.is_empty();
         };
         let slot = self.composition_slot.clone();
         *slot.lock().unwrap() = None;
+        // step1(commit) 성공 시 CommitRestartEditSession 이 EndComposition 직후 true 로
+        // 세팅한다. 세션이 통째로 거부되거나 step1 전에 실패하면 false 로 남는다.
+        let applied = Arc::new(Mutex::new(false));
         let attr_atom = self.attr_atom();
         let session = CommitRestartEditSession {
             context: context.clone(),
@@ -383,6 +442,7 @@ impl CompositionManager {
             preedit_text: preedit_text.to_string(),
             comp_sink: comp_sink.clone(),
             composition_slot: slot.clone(),
+            commit_applied: applied.clone(),
             attr_atom,
         };
         let session_intf: ITfEditSession = session.into();
@@ -390,6 +450,8 @@ impl CompositionManager {
             let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
         }
         self.composition = self.composition_slot.lock().unwrap().take();
+        let was_applied = *applied.lock().unwrap();
+        was_applied
     }
 
     pub fn insert_text(&self, context: &ITfContext, tid: u32, text: &str) {
@@ -407,6 +469,15 @@ impl CompositionManager {
     /// preedit 이 있으면 삽입 후 composition 을 시작하고 self.composition 을 갱신.
     ///
     /// RequestEditSession 거부(TF_E_NOLOCK 등) 시 조용히 skip (패닉 없음).
+    ///
+    /// 반환(b1 ReplaceOutcome):
+    /// - `Normal`: 정상 TSF 경로(ShiftStart 충분) 또는 synth 미진입. 추가 동작 없음.
+    /// - `PhaseSplit`: 순방향 synth 폴백. Phase1(BS×N SendInput)만 수행하고
+    ///   (마지막 음절 제외 확정문 + 마지막 음절 조합문)을 PendingInsert 에 적재했다.
+    ///   호출부는 **엔진 preedit(마지막 음절)을 보존**하고 SetTimer 로 Phase2 삽입을
+    ///   예약해야 한다(text_service).
+    /// - `PhaseSplitCommitOnly`: 역방향/undo synth 폴백. Phase1(BS×N)만 수행하고
+    ///   확정문만 PendingInsert 에 적재(마지막 음절="")했다. 조합 없음.
     pub fn replace_surrounding(
         &mut self,
         context: &ITfContext,
@@ -415,9 +486,12 @@ impl CompositionManager {
         commit_text: &str,
         preedit_text: &str,
         comp_sink: &ITfCompositionSink,
-    ) {
+    ) -> ReplaceOutcome {
         let slot = self.composition_slot.clone();
         *slot.lock().unwrap() = None;
+        // synth 폴백 슬롯도 매 호출 전 비운다.
+        let synth = self.synth_slot.clone();
+        *synth.lock().unwrap() = None;
         let attr_atom = self.attr_atom();
 
         let session = ReplaceSurroundingEditSession {
@@ -427,6 +501,7 @@ impl CompositionManager {
             preedit_text: preedit_text.to_string(),
             comp_sink: comp_sink.clone(),
             composition_slot: slot.clone(),
+            synth_slot: synth.clone(),
             attr_atom,
         };
         let session_intf: ITfEditSession = session.into();
@@ -435,7 +510,52 @@ impl CompositionManager {
             let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
         }
 
-        // preedit 있으면 composition 슬롯에서 꺼내 보관
+        // synth 폴백 판정: edit session 안에서 ShiftStart 가 부족하면 문서를
+        // 변형하지 않고 슬롯에 기록만 했다. Some 이면 여기서(= edit session 밖)
+        // SendInput 합성 백스페이스+삽입으로 폴백한다. SendInput 은 edit session
+        // 안에서 호출하면 안 되므로(동기 락 보유 중) 반드시 이 시점에 호출.
+        let synth_req = self.synth_slot.lock().unwrap().take();
+        if let Some((d, c, p, before_len)) = synth_req {
+            // synth 경로는 b1 2-phase(삭제↔삽입 분리)로 처리하므로 edit session 이
+            // 만든 composition 은 존재하지 않는다. 활성 composition 추적은 비운다.
+            self.composition = None;
+
+            // ── b1 Phase1: 삭제만 SendInput, 삽입은 Phase2(타이머)로 분리 ──
+            // 같은 SendInput 배치에 BS 와 문자삽입을 섞지 않으므로(=UNICODE 미주입)
+            // Blink 의 비동기 재정렬(BS↔PACKET) 대상이 원천 소멸한다.
+            //   - 순방향(p="기"): commit="서"(마지막 음절 제외) 확정 + last="기" 조합 유지.
+            //   - 역방향/undo(p=""): commit-only(마지막 음절 없음).
+            // 삭제는 여기서(edit session 밖) 즉시 주입하고, 삽입 텍스트는 PendingInsert
+            // 슬롯에 적재한 뒤 호출부가 SetTimer 로 Phase2 를 예약한다.
+            crate::register::dbg_log(&format!(
+                "ReplaceSurrounding: ShiftStart 부족 → b1 BS phase \
+                 (del={d} commit_len={} last_syllable_len={})",
+                c.chars().count(),
+                p.chars().count()
+            ));
+            crate::synth_input::send_replacement_delete(d);
+            crate::synth_input::store_pending_insert(&c, &p);
+            // D3: read-back 게이트 기준선 산출. before_len(삭제 전 커서 앞 글자 수)을
+            // 읽었으면 expected = before_len - d. 음수 방지(클램프). 못 읽었으면 -1
+            // → 게이트 비활성(타이머 단독 폴백 = 현행 b1, 악화 없음).
+            let expected = match before_len {
+                Some(b) => (b as i32 - d as i32).max(0),
+                None => -1,
+            };
+            crate::synth_input::arm_readback_gate(expected);
+            crate::register::dbg_log(&format!(
+                "ReplaceSurrounding: D3 readback gate expected={} (before_len={:?} del={})",
+                expected, before_len, d
+            ));
+            return if p.is_empty() {
+                ReplaceOutcome::PhaseSplitCommitOnly
+            } else {
+                ReplaceOutcome::PhaseSplit
+            };
+        }
+
+        // 정상 TSF 경로(ShiftStart full): preedit 있으면 composition 슬롯에서
+        // 꺼내 보관, 없으면 종료됐으므로 clear.
         if !preedit_text.is_empty() {
             let result = self.composition_slot.lock().unwrap().take();
             if let Some(comp) = result {
@@ -444,6 +564,137 @@ impl CompositionManager {
         } else {
             // preedit 없음 — 기존 composition 이 있으면 종료됐으므로 clear
             self.composition = None;
+        }
+        ReplaceOutcome::Normal
+    }
+
+    /// b1 Phase2 — BS×N 이 Blink 문서에 적용된 뒤(SetTimer/race-flush) 호출.
+    ///
+    /// **방식 D(검증된 빌딩블록 재사용)**: 자작 단일세션 InsertCompose 가 같은 lock 안에서
+    /// commit 을 정착시키기 전에 tail SetText 로 그 자리를 덮어써 **앞 확정문을 유실**시키던
+    /// 문제(크롬에서 마지막 음절만 표시)를, 네이티브 타이핑이 1032회 성공한
+    /// commit_and_restart 경로로 우회한다.
+    ///   - case1 (last_syllable 빈): 역방향/undo — commit_text 만 wrap-commit(insert_commit).
+    ///   - case2 (commit_text 빈): tail 만 단일 start_composition.
+    ///   - case3 (둘 다 있음, 핵심): 세션A `start_composition(commit+tail 전체)` 로 라이브
+    ///     조합 1개를 만들고(= CommitRestart 의 "기존 조합 존재" 전제 충족), 세션B
+    ///     `commit_and_restart(commit, tail)` 로 앞부분을 확정·tail 을 재조합한다. 두 세션이
+    ///     별도 ec/lock 이라 commit 조합이 **lock 해제 경계를 건넌 뒤** 확정된다(구 단일세션의
+    ///     "같은 lock 내 born+commit+overwrite" 구조를 회피).
+    ///
+    /// 반환: 마지막 음절이 폴백 확정됐으면 `true` — 호출부가 엔진 preedit 도 비워야
+    /// 동기(문서=확정, 엔진=빈조합)가 맞는다. 조합 유지 성공 시 `false`(엔진 보존).
+    ///
+    /// SendInput 을 호출하지 않으므로 edit session 락 안에서 호출해도 안전하다.
+    /// 어떤 실패도 패닉 금지(dbg_log). 세션B 거부(드묾) 시 세션A 의 full 조합이 문서에
+    /// 잔존(텍스트 보존) → tail 재삽입 금지(이중삽입 회귀 방지).
+    pub fn insert_pending(
+        &mut self,
+        context: &ITfContext,
+        tid: u32,
+        commit_text: &str,
+        last_syllable: &str,
+        comp_sink: &ITfCompositionSink,
+    ) -> bool {
+        // 잔여 조합이 있으면 먼저 정리(보통 없음 — synth 경로는 composition=None).
+        self.composition = None;
+
+        // ── D: 검증된 빌딩블록 재사용(자작 단일세션 InsertCompose 폐기) ──
+        // 구 InsertComposeEditSession 은 step1(새 조합 생성→SetText→EndComposition)과
+        // step2(같은 range 재사용 조합)를 한 ec 에 수행했는데, Blink 가 같은 lock 안에서
+        // step1 commit 을 정착시키기 전에 step2 SetText 가 그 자리를 덮어써 **앞 확정문이
+        // 유실**됐다(마지막 음절만 표시). 반면 네이티브 commit_and_restart
+        // (CommitRestartEditSession)는 ①기존 라이브 조합을 commit 하고 ②EndComposition
+        // 직후 acquire_insert_range 로 range 를 재획득해 tail 을 쓴다 — 크롬 1032회 성공.
+        // D 는 이 성공 경로를 그대로 재사용한다(세션A 로 "기존 조합" 전제를 만들고,
+        // 세션B 로 검증된 commit_and_restart 호출).
+
+        // case 1: 역방향/undo — tail 없음 → 확정문만 wrap-commit(조합 없음).
+        if last_syllable.is_empty() {
+            if !commit_text.is_empty() {
+                self.insert_commit(context, tid, commit_text, comp_sink);
+            }
+            crate::register::dbg_log("b1[D]: commit-only (no tail)");
+            return false;
+        }
+
+        // case 2: 앞 확정문 없음 — tail 만 단일 라이브 조합.
+        if commit_text.is_empty() {
+            self.start_composition(context, tid, last_syllable, comp_sink);
+            return if self.is_active() {
+                crate::register::dbg_log("b1[D]: tail-only kept (composition alive)");
+                false
+            } else {
+                crate::register::dbg_log("b1[D]: tail-only REJECTED → commit fallback");
+                self.insert_commit(context, tid, last_syllable, comp_sink);
+                true
+            };
+        }
+
+        // case 3 (핵심): 전체 교정문으로 라이브 조합(세션A) → commit_and_restart(세션B).
+        let full = format!("{commit_text}{last_syllable}");
+        self.start_composition(context, tid, &full, comp_sink); // 세션A
+        let session_a_alive = self.composition.is_some();
+        crate::register::dbg_log(&format!(
+            "b1[D]: sessionA start_composition(full) -> alive={session_a_alive}"
+        ));
+
+        if !session_a_alive {
+            // 세션A 실패: 구 동작 승계 — commit wrap 확정 + tail 조합 best-effort.
+            crate::register::dbg_log("b1[D]: sessionA FAILED → insert_commit+start fallback");
+            self.insert_commit(context, tid, commit_text, comp_sink);
+            self.start_composition(context, tid, last_syllable, comp_sink);
+            return if self.is_active() {
+                false
+            } else {
+                self.insert_commit(context, tid, last_syllable, comp_sink);
+                true
+            };
+        }
+
+        // 세션B: 검증된 commit_and_restart. self.composition=Some 이므로 :420 의
+        // insert_text 폴백을 회피하고 CommitRestartEditSession 분기를 탄다.
+        let commit_applied = self.commit_and_restart(context, tid, commit_text, last_syllable, comp_sink);
+        if self.is_active() {
+            // 세션B 성공: 앞부분 확정 + tail("늘")이 살아있는 조합. 엔진 preedit 보존.
+            crate::register::dbg_log("b1[D]: sessionB commit_and_restart done → last kept (alive)");
+            false
+        } else if commit_applied {
+            // mode2(드묾): step1 commit("느느")은 확정됐으나 step2 tail 조합이 실패.
+            // 문서는 "느느"뿐이므로 tail 을 확정 삽입해 "느느늘" 완성(유실 방지). 엔진 클리어.
+            crate::register::dbg_log("b1[D]: sessionB mode2 (commit ok, tail failed) → insert_commit(tail)");
+            self.insert_commit(context, tid, last_syllable, comp_sink);
+            true
+        } else {
+            // mode1(드묾): 세션B 전체 거부 — commit 미적용. 세션A 의 full 조합("느느늘")이
+            // 문서에 잔존(텍스트 보존)하므로 tail 재삽입하면 중복("느느늘늘"). 추가삽입 금지,
+            // true 로 엔진 preedit 만 비운다(문서=세션A 텍스트 유지).
+            crate::register::dbg_log(
+                "b1[D]: sessionB mode1 (rejected) → keep sessionA full text (no double-insert)",
+            );
+            true
+        }
+    }
+
+    /// 확정 텍스트를 composition 으로 감싸 삽입한다(StartComposition→SetText→
+    /// EndComposition). raw SetText 직접 편집은 Blink 가 무시할 수 있어(첫 글자
+    /// 누락) reconversion 동일 경로로 감싼다. StartComposition 거부 시 insert_text
+    /// (raw SetText) 로 폴백한다. self.composition 은 갱신하지 않는다(즉시 확정).
+    fn insert_commit(
+        &self,
+        context: &ITfContext,
+        tid: u32,
+        text: &str,
+        comp_sink: &ITfCompositionSink,
+    ) {
+        let session = InsertCommitEditSession {
+            context: context.clone(),
+            text: text.to_string(),
+            comp_sink: comp_sink.clone(),
+        };
+        let session_intf: ITfEditSession = session.into();
+        unsafe {
+            let _ = context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
         }
     }
 }
@@ -595,6 +846,9 @@ struct CommitRestartEditSession {
     preedit_text: String,
     comp_sink: ITfCompositionSink,
     composition_slot: Arc<Mutex<Option<ITfComposition>>>,
+    /// step1(commit) EndComposition 성공 직후 true. 호출부(commit_and_restart)가
+    /// 세션 거부(false)와 step1-성공/step2-실패(true)를 구분하는 데 쓴다.
+    commit_applied: Arc<Mutex<bool>>,
     attr_atom: Option<u32>,
 }
 
@@ -607,6 +861,9 @@ impl ITfEditSession_Impl for CommitRestartEditSession_Impl {
             old_range.SetText(ec, 0, &wide_c)?;
             let _ = move_caret_to_end(&self.context, ec, &old_range);
             self.old_composition.EndComposition(ec)?;
+            // commit 이 문서에 확정됨 — 이후 step2 가 실패해도 호출부가 mode2(tail 만
+            // 재삽입)로 복구하도록 표식. (EndComposition 실패 시 ? 로 조기반환 → false 유지.)
+            *self.commit_applied.lock().unwrap() = true;
 
             // 2. 같은 세션에서 새 composition 시작 — end+start 를 한 트랜잭션으로 합쳐
             //    CUAS 즉시-terminate(매 음절 전환) 를 회피한다.
@@ -645,6 +902,104 @@ impl ITfEditSession_Impl for CommitRestartEditSession_Impl {
     }
 }
 
+// ── EditSession: 확정문 삽입 + 마지막 음절 미확정 조합 시작 (b1 폴백 Phase2, 단일세션) ──
+
+/// commit_text(마지막 음절 제외 확정문)를 composition-wrap 으로 확정하고, **같은 ec·
+/// 같은 range** 로 last_syllable(마지막 음절)을 미확정 조합으로 시작한다.
+///
+/// 네이티브 preedit 분기(ReplaceSurroundingEditSession step3+step4, composition.rs)를
+/// 그대로 모방한다 — delete_chars=0 이므로 ShiftStart/synth 로직만 빠지고, step3(commit-
+/// wrap)→step4(start composition)를 한 트랜잭션으로 묶는다. 과거 insert_commit +
+/// start_composition 2-세션 churn 으로 마지막 음절이 즉시-terminate 되던 것을 막는다.
+///
+/// **range 는 step1 에서 1회만 획득하고 step2 에서 재사용**한다(재획득 금지 — Blink
+/// async caret 미정착으로 오프셋이 어긋난다). step1 의 Collapse(TF_ANCHOR_END) 로 range
+/// 가 확정문 끝으로 이동하므로, step2 의 StartComposition 이 정확히 그 뒤에서 시작한다.
+///
+/// commit_text 가 비면 step1 스킵, last_syllable 이 비면(역방향/undo) step2 스킵.
+/// 어떤 실패도 패닉 금지(panic=abort) — ? 실패 경로는 RequestEditSession 거부로
+/// graceful degrade 된다.
+///
+/// ⚠️ **방식 D(insert_pending 재작성)로 대체돼 더는 발행되지 않는 dead code다.** 같은
+/// lock 내 commit→tail-overwrite 로 앞 확정문이 유실되는 결함(크롬)이 확인됐다. D 의
+/// 실측 검증이 끝나면 제거한다 — 그 전까지는 롤백 보험으로 보존(allow(dead_code)).
+#[implement(ITfEditSession)]
+#[allow(dead_code)]
+struct InsertComposeEditSession {
+    context: ITfContext,
+    /// 마지막 음절 제외 확정문(빈 문자열 가능 → step1 스킵).
+    commit_text: String,
+    /// 마지막 음절(빈 문자열이면 step2 스킵 = 역방향/undo).
+    last_syllable: String,
+    comp_sink: ITfCompositionSink,
+    /// 마지막 음절 조합을 돌려받는 슬롯(step2 성공 시 Some).
+    composition_slot: Arc<Mutex<Option<ITfComposition>>>,
+    /// composition range 에 부여할 display-attribute atom (None 이면 skip).
+    attr_atom: Option<u32>,
+}
+
+impl ITfEditSession_Impl for InsertComposeEditSession_Impl {
+    fn DoEditSession(&self, ec: u32) -> Result<()> {
+        unsafe {
+            crate::register::dbg_log(&format!(
+                "InsertCompose.DoEditSession: enter commit_len={} last_len={}",
+                self.commit_text.chars().count(),
+                self.last_syllable.chars().count()
+            ));
+
+            // range 1회 획득 — 커서 위치. step1/step2 모두 이 range 를 재사용한다.
+            let range = acquire_insert_range(&self.context, ec)?;
+
+            // ── step1: 확정문 commit_text — composition-wrap 확정(네이티브 step3 모방) ──
+            // raw SetText 직접 편집은 Blink 가 "selection 밖"으로 무시(첫 글자 누락)할 수
+            // 있어 reconversion 동일 경로로 감싼다. EndComposition 으로 확정(BOOL(0)).
+            if !self.commit_text.is_empty() {
+                let wide_c: Vec<u16> = self.commit_text.encode_utf16().collect();
+                let ctx_comp: ITfContextComposition = self.context.cast()?;
+                match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
+                    Ok(composition) => {
+                        let _ = select_replacement_range(&self.context, ec, &range);
+                        let set_result = range.SetText(ec, 0, &wide_c);
+                        // 커서(=range)를 확정문 끝으로 collapse → step2 가 그 뒤에서 시작.
+                        let _ = range.Collapse(ec, TF_ANCHOR_END);
+                        let _ = move_caret_to_end(&self.context, ec, &range);
+                        let _ = composition.EndComposition(ec);
+                        set_result?;
+                    }
+                    Err(e) => {
+                        crate::register::dbg_log(&format!(
+                            "InsertCompose: step1 StartComposition 거부({e:?}) → raw 폴백"
+                        ));
+                        let _ = select_replacement_range(&self.context, ec, &range);
+                        range.SetText(ec, 0, &wide_c)?;
+                        range.Collapse(ec, TF_ANCHOR_END)?;
+                        let _ = move_caret_to_end(&self.context, ec, &range);
+                    }
+                }
+            }
+
+            // ── step2: 마지막 음절 last_syllable — 미확정 조합 시작(네이티브 step4 모방) ──
+            // 같은 range(이미 끝으로 collapse 됨) 재사용. StartComposition→SetText 순서
+            // 유지(역순은 CUAS 즉시-terminate 유발). EndComposition 호출 안 함(미확정 유지).
+            if !self.last_syllable.is_empty() {
+                let wide_p: Vec<u16> = self.last_syllable.encode_utf16().collect();
+                let ctx_comp: ITfContextComposition = self.context.cast()?;
+                let composition = ctx_comp.StartComposition(ec, &range, &self.comp_sink)?;
+                range.SetText(ec, 0, &wide_p)?;
+                // 조합 selection = interim-char(BOOL(1)) inline 유지(fInterimChar 불변식).
+                let _ = select_composition_range(&self.context, ec, &range);
+                if let Some(atom) = self.attr_atom {
+                    set_composition_attribute(&self.context, ec, &range, atom);
+                }
+                set_composition_reading(&self.context, ec, &range, &self.last_syllable);
+                crate::register::dbg_log("InsertCompose: step2 composition slot filled (last alive)");
+                *self.composition_slot.lock().unwrap() = Some(composition);
+            }
+        }
+        Ok(())
+    }
+}
+
 // ── EditSession: 주변 텍스트 교체 (AutoTypeFix용) ──
 
 /// delete_chars 글자를 커서 앞에서 삭제하고 commit_text 를 삽입.
@@ -662,6 +1017,11 @@ pub struct ReplaceSurroundingEditSession {
     pub comp_sink: ITfCompositionSink,
     /// composition 결과를 돌려받는 슬롯 (preedit 있을 때만 사용)
     pub composition_slot: std::sync::Arc<std::sync::Mutex<Option<ITfComposition>>>,
+    /// synth 폴백 슬롯. ShiftStart 가 delete_chars 만큼 못 움직이면(CUAS/Blink)
+    /// 문서를 변형하지 않고 (delete_chars, commit_text, preedit_text, before_len)를
+    /// 여기에 기록한 뒤 즉시 반환한다 — edit session 밖에서 SendInput 으로 폴백한다.
+    /// before_len: D3 read-back 베이스라인(삭제 전 커서 앞 글자 수, None=읽기 실패).
+    pub synth_slot: std::sync::Arc<std::sync::Mutex<Option<(u32, String, String, Option<u32>)>>>,
     /// composition range 에 부여할 display-attribute atom (None 이면 skip).
     pub attr_atom: Option<u32>,
 }
@@ -669,11 +1029,38 @@ pub struct ReplaceSurroundingEditSession {
 impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
     fn DoEditSession(&self, ec: u32) -> windows::core::Result<()> {
         unsafe {
-            // 1. 커서 위치 범위 획득 (QUERYONLY 으로 삽입 위치 탐색)
-            let insert: ITfInsertAtSelection = self.context.cast()?;
-            let range = insert.InsertTextAtSelection(ec, TF_IAS_QUERYONLY, &[])?;
+            // 1. 실제 caret range 획득.
+            //    과거엔 InsertTextAtSelection(QUERYONLY) 로 삽입 위치를 얻었으나,
+            //    Blink/CUAS 에서는 그 range 가 확정 텍스트 뒤로 ShiftStart 역확장을
+            //    거부하는 경우가 많다. GetSelection 으로 얻은 실제 selection range 가
+            //    result-string 영역으로의 역확장(reconversion 의미)을 더 잘 받아들인다.
+            //    GetSelection 실패 시 구(InsertTextAtSelection) 경로로 폴백한다.
+            let range: ITfRange = {
+                let mut sel = [TF_SELECTION::default(); 1];
+                let mut fetched: u32 = 0;
+                let got = self
+                    .context
+                    .GetSelection(ec, TF_DEFAULT_SELECTION, &mut sel, &mut fetched);
+                let sel_range = if got.is_ok() && fetched > 0 {
+                    let r = ManuallyDrop::take(&mut sel[0].range);
+                    r
+                } else {
+                    None
+                };
+                match sel_range {
+                    Some(r) => r,
+                    None => {
+                        let insert: ITfInsertAtSelection = self.context.cast()?;
+                        insert.InsertTextAtSelection(ec, TF_IAS_QUERYONLY, &[])?
+                    }
+                }
+            };
 
-            // 2. 커서 앞으로 ShiftStart (-delete_chars) — 교체 대상 범위 확보
+            // 2. 커서 앞으로 ShiftStart (-delete_chars) — 교체 대상 범위 확보.
+            //    shifted(실제 이동량)를 반드시 검증한다. 경계/확정 텍스트 거부로
+            //    부족(shifted<delete_chars)하면 교체 대상이 비어 원문이 잔류하므로
+            //    (B2 잔류 버그), 부족분만큼 commit 위치를 보정하기 위해 로깅하고
+            //    이동된 범위만 교체한다(확보된 만큼은 정확히 덮어쓴다).
             range.Collapse(ec, TF_ANCHOR_START)?;
             if self.delete_chars > 0 {
                 let mut shifted: i32 = 0;
@@ -684,10 +1071,51 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                     &mut shifted,
                     std::ptr::null(),
                 );
+                let mut abs_shifted_total = shifted.unsigned_abs() as i32;
                 crate::register::dbg_log(&format!(
-                    "ReplaceSurrounding: delete_chars={} shifted={}",
-                    self.delete_chars, shifted
+                    "ReplaceSurrounding: delete_chars={} shifted={} (full={})",
+                    self.delete_chars,
+                    shifted,
+                    abs_shifted_total >= self.delete_chars
                 ));
+                // 부족분이 있으면(주로 Blink/CUAS) 추가 1회 재시도: Collapse 후 남은
+                // 만큼 다시 역확장. 일부 store 는 두 번에 나눠야 확정 텍스트를 넘어선다.
+                if abs_shifted_total < self.delete_chars {
+                    let remaining = self.delete_chars - abs_shifted_total;
+                    let mut shifted2: i32 = 0;
+                    let _ = range.ShiftStart(ec, -remaining, &mut shifted2, std::ptr::null());
+                    abs_shifted_total += shifted2.unsigned_abs() as i32;
+                    crate::register::dbg_log(&format!(
+                        "ReplaceSurrounding: retry shifted2={} (remaining={})",
+                        shifted2, remaining
+                    ));
+                }
+
+                // ── synth 폴백 판정(앱 이름 휴리스틱 금지, 동적 감지) ──
+                // ShiftStart + 재시도 누적 이동량이 delete_chars 에 미달하면 CUAS/Blink
+                // 처럼 확정 텍스트 뒤로 역확장이 거부된 것이다(shifted=-1, shifted2=0).
+                // 이 edit session(TF_ES_SYNC)은 문서를 절대 변형하지 않고(SetText/
+                // StartComposition 호출 금지 — 문서를 원본 그대로 유지해야 합성
+                // 백스페이스가 실제 확정 텍스트에 작용) synth 슬롯에 요청만 기록한 뒤
+                // 즉시 반환한다. 실제 SendInput 은 replace_surrounding 이 edit session
+                // 밖에서 수행한다.
+                if abs_shifted_total < self.delete_chars {
+                    // D3: 삭제 전 커서 앞 글자 수를 같은 ec 로 read-back 측정해 게이트
+                    // 베이스라인으로 슬롯에 싣는다. 문서는 변형하지 않는다(read-only 호출).
+                    // 읽기 실패면 None → 호출부가 expected=-1 로 게이트 비활성(degrade).
+                    let before_len = read_text_before_cursor_len(&self.context, ec);
+                    crate::register::dbg_log(&format!(
+                        "ReplaceSurrounding: ShiftStart 부족(got={} need={}) → synth_input 폴백 (before_len={:?})",
+                        abs_shifted_total, self.delete_chars, before_len
+                    ));
+                    *self.synth_slot.lock().unwrap() = Some((
+                        self.delete_chars as u32,
+                        self.commit_text.clone(),
+                        self.preedit_text.clone(),
+                        before_len,
+                    ));
+                    return Ok(());
+                }
             }
 
             // 3. 삭제+커밋을 reconversion 패턴으로 수행 — 교체 범위를 composition
@@ -701,6 +1129,10 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                 let ctx_comp: ITfContextComposition = self.context.cast()?;
                 match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
                     Ok(composition) => {
+                        // 교체 원자성 보장: SetText 전에 교체 대상 range 를 selection
+                        // 으로 명시해, Blink 가 "현재 selection 밖 편집"으로 무시하고
+                        // 첫 글자를 누락(B1)시키는 것을 막는다.
+                        let _ = select_replacement_range(&self.context, ec, &range);
                         // 빈 commit_text 면 순수 삭제(범위가 빈 문자열로 교체).
                         // 어떤 단계가 실패해도 composition 은 반드시 닫는다.
                         let set_result = range.SetText(ec, 0, &wide);
@@ -713,6 +1145,7 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
                         crate::register::dbg_log(&format!(
                             "ReplaceSurrounding: StartComposition 거부({e:?}) → raw 폴백"
                         ));
+                        let _ = select_replacement_range(&self.context, ec, &range);
                         range.SetText(ec, 0, &wide)?;
                         range.Collapse(ec, TF_ANCHOR_END)?;
                         let _ = move_caret_to_end(&self.context, ec, &range);
@@ -760,6 +1193,53 @@ impl ITfEditSession_Impl for InsertTextEditSession_Impl {
             let range = acquire_insert_range(&self.context, ec)?;
             range.SetText(ec, 0, &wide)?;
             let _ = move_caret_to_end(&self.context, ec, &range);
+        }
+        Ok(())
+    }
+}
+
+// ── EditSession: 확정 텍스트를 composition 으로 감싸 삽입 (b1 Phase2 확정문) ──
+
+/// commit_text 를 StartComposition→SetText→EndComposition 으로 감싸 삽입한다.
+///
+/// b1 Phase2 의 "서"(마지막 음절 제외 확정문) 삽입 전용. raw SetText 직접 편집은
+/// Blink 가 "현재 selection 밖"으로 무시할 수 있어(composition.rs:837 부정선례)
+/// 첫 글자가 누락될 위험이 있으므로, reconversion 과 동일한 composition 경로로
+/// 감싼다. StartComposition 거부 시 raw SetText 로 폴백한다.
+#[implement(ITfEditSession)]
+struct InsertCommitEditSession {
+    context: ITfContext,
+    text: String,
+    comp_sink: ITfCompositionSink,
+}
+
+impl ITfEditSession_Impl for InsertCommitEditSession_Impl {
+    fn DoEditSession(&self, ec: u32) -> Result<()> {
+        unsafe {
+            let wide: Vec<u16> = self.text.encode_utf16().collect();
+            let range = acquire_insert_range(&self.context, ec)?;
+            let ctx_comp: ITfContextComposition = self.context.cast()?;
+            match ctx_comp.StartComposition(ec, &range, &self.comp_sink) {
+                Ok(composition) => {
+                    // 교체 원자성: SetText 전에 삽입 range 를 selection 으로 명시해
+                    // Blink 가 selection 밖 편집으로 무시하는 것을 막는다.
+                    let _ = select_replacement_range(&self.context, ec, &range);
+                    let set_result = range.SetText(ec, 0, &wide);
+                    let _ = range.Collapse(ec, TF_ANCHOR_END);
+                    let _ = move_caret_to_end(&self.context, ec, &range);
+                    let _ = composition.EndComposition(ec);
+                    set_result?;
+                }
+                Err(e) => {
+                    crate::register::dbg_log(&format!(
+                        "InsertCommit: StartComposition 거부({e:?}) → raw SetText 폴백"
+                    ));
+                    let _ = select_replacement_range(&self.context, ec, &range);
+                    range.SetText(ec, 0, &wide)?;
+                    let _ = range.Collapse(ec, TF_ANCHOR_END);
+                    let _ = move_caret_to_end(&self.context, ec, &range);
+                }
+            }
         }
         Ok(())
     }
@@ -870,4 +1350,51 @@ pub fn read_selection_text(
 
     let result = slot.lock().unwrap().take();
     result
+}
+
+/// b1/D3 read-back — 이미 보유한 edit cookie(`ec`)로 커서 앞 텍스트의 글자 수를 잰다.
+///
+/// OnEndEdit(read-only ec) 와 ReplaceSurrounding DoEditSession(read-write ec) 양쪽에서
+/// 호출한다. **새 edit session 을 열지 않고** 호출자가 가진 ec 를 그대로 써서 중첩
+/// 세션 금지 제약을 지킨다(설계 D3 §c). GetSelection → Collapse(START) →
+/// ShiftStart(-margin) → GetText → chars().count() 순.
+///
+/// 반환: 커서 앞 글자 수(`Some`). selection 없음·GetText 실패 등 읽기 불가 시 `None`
+/// (호출자는 게이트 비활성=현행 타이머 단독 폴백으로 degrade). margin 은 BMP 1코드
+/// 유닛 가정(ATF 대상) 하에 충분한 윈도우(최대 4096)를 잡는다.
+///
+/// [shouldFix #2 한계 명시] 커서 앞 텍스트가 4096자를 초과하면 before_len·cur_len 둘 다
+/// 4096 에 캡되어 `cur_len(4096) <= expected(=4096-d)` 가 영원히 거짓 → D3 read-back
+/// 게이트가 열리지 않고 60ms 안전망 타이머 단독(=현행 b1)으로 안전 degrade 한다. 즉
+/// 초장문 필드에서는 D3 의 결정성 이득만 사라질 뿐 동작은 깨지지 않는다(악화 없음).
+///
+/// SetText/StartComposition 을 절대 호출하지 않으므로 read-only ec 에서도 안전하다.
+pub(crate) fn read_text_before_cursor_len(context: &ITfContext, ec: u32) -> Option<u32> {
+    unsafe {
+        let mut sel = TF_SELECTION::default();
+        let mut fetched: u32 = 0;
+        if context
+            .GetSelection(ec, TF_DEFAULT_SELECTION, std::slice::from_mut(&mut sel), &mut fetched)
+            .is_err()
+            || fetched == 0
+        {
+            return None;
+        }
+        let sel_range = sel.range.as_ref()?.clone();
+        // 커서(selection 끝) 앞 텍스트만 잰다.
+        let cursor_range = sel_range.Clone().ok()?;
+        cursor_range.Collapse(ec, TF_ANCHOR_END).ok()?;
+        let mut shifted: i32 = 0;
+        // 음수 ShiftStart 로 커서 앞으로 역확장(실패해도 GetText 로 읽히는 만큼 잰다).
+        cursor_range
+            .ShiftStart(ec, -4096, &mut shifted, std::ptr::null())
+            .unwrap_or(());
+        let mut buf = [0u16; 4096];
+        let mut got: u32 = 0;
+        if cursor_range.GetText(ec, 0, &mut buf, &mut got).is_err() {
+            return None;
+        }
+        let text = String::from_utf16_lossy(&buf[..got as usize]);
+        Some(text.chars().count() as u32)
+    }
 }

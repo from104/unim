@@ -40,6 +40,11 @@ pub struct UnimTextService {
     pub(crate) composition_mgr: Arc<Mutex<CompositionManager>>,
     pub(crate) key_event_sink_installed: Mutex<bool>,
     pub(crate) thread_mgr_sink_cookie: Mutex<Option<u32>>,
+    /// D3 — 활성 context 에 건 `ITfTextEditSink` advise cookie 와 그 context.
+    /// (cookie, context) 를 보관해 context 변경/Deactivate 시 같은 context 의
+    /// `ITfSource::UnadviseSink(cookie)` 로 정확히 해제한다. context 가 바뀌면
+    /// 먼저 옛 것을 Unadvise 후 새 것을 Advise(누수·이중 advise 방지).
+    pub(crate) text_edit_sink: Mutex<Option<(u32, ITfContext)>>,
     /// 마지막으로 로드한 config.yaml의 mtime. OnSetFocus 시 변경 감지에 사용.
     pub(crate) config_mtime: Mutex<Option<SystemTime>>,
     /// 한자/특수문자/이모지 팝업 IPC 클라이언트 (out-of-process 렌더러로 송신).
@@ -88,7 +93,36 @@ pub struct UnimTextService {
     /// "이 앱은 composition 유지 불가"로 확정 판정한다 — 느린 머신/원격 데스크톱에서
     /// 지연된 즉시-terminate(>200ms)를 놓쳐 조합이 다시 깨지는 것을 줄인다(지식베이스 P1).
     pub(crate) cuas_windows: Mutex<HashSet<isize>>,
+
+    /// b1 Phase2 — 신규 조합 즉시-terminate 학습 억제 플래그.
+    ///
+    /// b1 Phase2 가 시작한 신규 TSF 조합("기")을 Blink 가 즉시 terminate 할 수 있다.
+    /// 그 단발 terminate 를 OnCompositionTerminated 의 by_time(<200ms) 학습이 cuas_windows
+    /// 에 등록하면, 이후 같은 Blink 창에서 정상 한글 입력까지 영구 폴백(오버레이)으로
+    /// 오염된다(회귀). insert_pending 직전에 set, 직후 clear 해 그 사이의 terminate 만
+    /// 학습 대상에서 제외한다(by_time 자체는 폴백 진입에 그대로 사용). Arc 로 보관해
+    /// 타이머 wndproc(RevWndContext)과 공유한다.
+    pub(crate) suppress_cuas_learn: Arc<AtomicBool>,
 }
+
+/// b1 Phase2 — SetTimer one-shot 식별자.
+const FLUSH_TIMER_ID: usize = 0xB1;
+/// b1 Phase2 — BS×N 이 Blink 문서에 적용될 시간을 보수적으로 기다린다(ms).
+///
+/// BS 는 sink 로 echo 되지 않고 Blink 문서로 직행하므로 "적용 완료"를 직접 관찰할
+/// 수단이 없다(센티널 sink 왕복은 적용 전 도착 — v0.3.29 실패). 따라서 시간 하한으로
+/// 기다린다.
+///
+/// D3: 주 경로가 OnEndEdit + read-back 검증(이벤트 기반)으로 바뀌었으므로 이 타이머는
+/// **안전망**(OnEndEdit 미advise/미발사·read-back stale 시 폴백)으로 역할이 바뀐다.
+/// 주 경로가 즉시 발화하므로 값을 키워도 체감 지연이 없어, 느린 머신/RDP 안전을 위해
+/// 40 → 60ms 로 키운다(안전망 폴백 시점만 늦춰지고 정상 경로는 OnEndEdit 가 선행).
+const FLUSH_DELAY_MS: u32 = 60;
+
+/// D3 — OnEndEdit read-back 검증 통과 시 wndproc 에 보내는 "즉시 flush" 메시지.
+/// OnEndEdit ec 는 read-only 이므로 삽입(RW)을 직접 못 한다 → PostMessage 로 wndproc
+/// (별도 RW edit session)에 위임한다. WM_APP(0x8000)+0x22 — WM_UNIM_REV(+0x21) 와 구분.
+const WM_UNIM_FLUSH: u32 = 0x8000 + 0x22;
 
 impl UnimTextService {
     pub fn new() -> Self {
@@ -111,6 +145,7 @@ impl UnimTextService {
             composition_mgr: Arc::new(Mutex::new(CompositionManager::new())),
             key_event_sink_installed: Mutex::new(false),
             thread_mgr_sink_cookie: Mutex::new(None),
+            text_edit_sink: Mutex::new(None),
             config_mtime: Mutex::new(config_mtime),
             popup_ipc: Arc::new(Mutex::new(PopupClient::new())),
             last_context: Arc::new(Mutex::new(None)),
@@ -125,6 +160,7 @@ impl UnimTextService {
             last_key_instant: Mutex::new(None),
             last_reload_check: Mutex::new(None),
             cuas_windows: Mutex::new(HashSet::new()),
+            suppress_cuas_learn: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -159,6 +195,49 @@ impl UnimTextService {
             w.hide();
         }
         engine.remove_preedit();
+    }
+
+    /// b1 Phase2 — 보류 삽입(PendingInsert)을 TSF 로 삽입한다.
+    ///
+    /// 타이머 발화(WM_TIMER)·race-flush(다음 키)·degrade(타이머 호스트 부재) 공용
+    /// 진입점. 어떤 락도 보유하지 않은 상태에서 호출해야 한다(내부에서 engine→
+    /// composition 락을 OnKeyDown 과 동일 순서로 짧게 취득). SendInput 미사용이라
+    /// edit session 안전. 보류 삽입이 없으면 즉시 false(중복 호출 무해, 1회성).
+    ///
+    /// Phase2 가 시작하는 신규 조합의 즉시-terminate 가 cuas_windows 를 오염시키지
+    /// 않도록 insert 동안 suppress_cuas_learn 을 set 한다.
+    ///
+    /// comp_sink 는 호출자(_Impl 블록)가 `to_interface()` 로 만들어 전달한다
+    /// (to_interface 는 `_Impl` 타입에만 존재).
+    pub(crate) fn flush_pending_insert(&self, comp_sink: &ITfCompositionSink) -> bool {
+        if !crate::synth_input::has_pending_insert() {
+            return false;
+        }
+        let ctx_guard = self.last_context.lock().unwrap();
+        let Some(context) = ctx_guard.as_ref() else {
+            // 컨텍스트 부재(포커스 이탈 등) → stale 삽입 방지: 폐기.
+            let _ = crate::synth_input::discard_pending_insert();
+            crate::register::dbg_log("b1: flush no context → pending 폐기");
+            return false;
+        };
+        let context = context.clone();
+        drop(ctx_guard);
+
+        let tid = self.client_id();
+        // 락 순서: engine → composition (다른 경로와 동일 접두).
+        let mut engine = self.engine.lock().unwrap();
+        let mut comp_mgr = self.composition_mgr.lock().unwrap();
+        // Phase2 신규 조합의 단발 terminate 를 학습에서 제외.
+        self.suppress_cuas_learn.store(true, Ordering::SeqCst);
+        let did = key_handler::flush_pending_insert(
+            &mut engine,
+            &mut comp_mgr,
+            &context,
+            tid,
+            comp_sink,
+        );
+        self.suppress_cuas_learn.store(false, Ordering::SeqCst);
+        did
     }
 
     /// config.yaml mtime 을 확인해 변경됐으면 엔진·설정을 조용히 reload 한다.
@@ -227,6 +306,58 @@ impl UnimTextService {
             let mut atf = self.atf_state.lock().unwrap();
             atf.reset_on_focus();
             atf.reload_external_data(&config_guard.engine.auto_typefix);
+        }
+    }
+}
+
+// ── D3: ITfTextEditSink advise 헬퍼 (to_interface 가 _Impl 타입에만 존재) ──
+
+impl UnimTextService_Impl {
+    /// D3 — 주어진 context 에 `ITfTextEditSink` 를 advise 한다(이미 같은 context 면 무시).
+    ///
+    /// context 가 바뀌었으면 옛 것을 먼저 Unadvise 한 뒤 새 것을 Advise 해 이중 advise·
+    /// 누수를 막는다. 실패해도 IME 무영향(D3 게이트만 비활성 = 타이머 단독 폴백).
+    /// OnKeyDown 진입(매 키)에서 호출 — context 동일 시 atomic 비교 후 즉시 반환하므로 싸다.
+    fn advise_text_edit_sink(&self, context: &ITfContext) {
+        {
+            // 이미 같은 context 에 advise 돼 있으면 재advise 불필요.
+            let cur = self.text_edit_sink.lock().unwrap();
+            if let Some((_, ref c)) = *cur {
+                if c == context {
+                    return;
+                }
+            }
+        }
+        // 옛 advise 해제(context 변경).
+        self.unadvise_text_edit_sink();
+        unsafe {
+            let Ok(source) = context.cast::<ITfSource>() else {
+                return;
+            };
+            let sink: ITfTextEditSink = self.to_interface();
+            match source.AdviseSink(&ITfTextEditSink::IID, &sink) {
+                Ok(cookie) => {
+                    *self.text_edit_sink.lock().unwrap() = Some((cookie, context.clone()));
+                    crate::register::dbg_log("D3: ITfTextEditSink advised on active context");
+                }
+                Err(e) => {
+                    crate::register::dbg_log(&format!(
+                        "D3: AdviseSink(ITfTextEditSink) failed: {e:?}"
+                    ));
+                }
+            }
+        }
+    }
+
+    /// D3 — advise 된 `ITfTextEditSink` 를 (저장된 context 의 source 로) 해제한다.
+    fn unadvise_text_edit_sink(&self) {
+        if let Some((cookie, context)) = self.text_edit_sink.lock().unwrap().take() {
+            unsafe {
+                if let Ok(source) = context.cast::<ITfSource>() {
+                    let _ = source.UnadviseSink(cookie);
+                }
+            }
+            crate::register::dbg_log("D3: ITfTextEditSink unadvised");
         }
     }
 }
@@ -313,6 +444,7 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
                 rev,
                 comp_sink,
                 tid,
+                suppress_cuas_learn: Arc::clone(&self.suppress_cuas_learn),
             });
             match RevWindow::create(ctx) {
                 Some(w) => {
@@ -347,6 +479,9 @@ impl ITfTextInputProcessor_Impl for UnimTextService_Impl {
         // 반드시 해제 — 훅/창 누수 시 다음 활성화에서 stale wndproc 위험.
         *self.rev_window.lock().unwrap() = None;
         *self.last_context.lock().unwrap() = None;
+        // D3: ITfTextEditSink advise 해제(누수·stale sink 방지).
+        self.unadvise_text_edit_sink();
+        crate::synth_input::disarm_readback_gate();
 
         let thread_mgr_guard = self.thread_mgr.lock().unwrap();
         if let Some(ref thread_mgr) = *thread_mgr_guard {
@@ -428,10 +563,39 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         //   - Shift + !is_character_key()(Del/Insert/F-keys/방향 등) → 커밋+패스쓰루.
         //   - Shift + is_character_key()(Shift+A 대문자, Shift+1=! 등) → 제외
         //     (엔진이 Korean 모드에서 이미 소비·처리하는 조합/기호 입력).
-        //   - is_modifier() 단독(Ctrl/Shift 누름) → 제외.
+        //   - is_modifier() 단독(Ctrl/Shift/Alt/Win 누름 자체) → 제외.
+        //
+        // ⚠ 핵심 불변식: **수정자 키 자체의 키다운(Shift/Ctrl/Alt/Win down)에서는
+        // 절대 커밋하지 않는다.** Windows 는 키다운에서 좌/우 구분 없는 제네릭
+        // VK_SHIFT(0x10)/VK_CONTROL(0x11)/VK_MENU(0x12) 를 보내는데, 이를 KeyCode
+        // 로 매핑하지 않으면 Unknown 이 되어 is_modifier()=false → 아래 is_combo 가
+        // (m.shift && !Unknown.is_character_key()) 로 true 가 되어 조합 중 한글이
+        // 커밋됐다(세벌식 시프트-자모 분리: '가'+Shift+ㅌ → '가ㅌ'). from_win32_vk
+        // 에서 0x10/0x11/0x12 를 수정자로 매핑(conversion.rs)해 kc.is_modifier()=
+        // true 가 되므로 is_combo=false 가 되어 조합이 보존된다. 그래도 안전망으로
+        // 제네릭 VK 도 명시 차단한다(매핑 회귀 방어).
         let m = key_handler::get_modifier_state();
-        let is_combo = !kc.is_modifier()
+        let raw_vk = wparam.0 as u16;
+        // 한/영 토글키(우Alt 등 — 그 자체가 수정자인 키도 toggle_keys 에 지정 가능)는
+        // 수정자 단독 패스쓰루보다 먼저 판정해, 토글 동작이 죽지 않도록 한다.
+        // (선례: '오른쪽 Alt 한영 토글' 결함 — toggle 검사를 가드 앞으로.)
+        let is_toggle = engine.is_toggle_key(kc);
+        // 수정자 키 자체의 키다운(제네릭 0x10/0x11/0x12 포함)은 조합 경계가 아니다.
+        let is_bare_modifier =
+            (kc.is_modifier() || matches!(raw_vk, 0x10 | 0x11 | 0x12)) && !is_toggle;
+        let is_combo = !is_bare_modifier
+            && !is_toggle
             && (m.control || m.alt || m.super_key || (m.shift && !kc.is_character_key()));
+        if !popup_active && engine.is_composing() && is_bare_modifier {
+            // 조합 중 수정자 단독 키다운: 조합을 깨지 않고 투명 통과(시프트-자모가
+            // 같은 음절에 결합되도록 보존). 토글키(우Alt 등)는 is_toggle 로 제외돼
+            // 아래 test_key_down 의 is_toggle 분기가 소비/토글을 처리한다.
+            crate::register::dbg_log(&format!(
+                "OnTestKeyDown: modifier keydown 조합 보존(투과) vk=0x{:02X}",
+                raw_vk
+            ));
+            return Ok(FALSE);
+        }
         if !popup_active && engine.is_composing() && is_combo {
             if let Some(context) = pic.as_ref() {
                 self.commit_for_passthrough(&mut engine, context);
@@ -473,21 +637,42 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let context = pic.as_ref().ok_or(E_INVALIDARG)?;
         // §11.G 역채널 마우스 확정용으로 최신 컨텍스트 보관 (clone, TSF STA 스레드).
         *self.last_context.lock().unwrap() = Some(context.clone());
-        // ATF SendInput 폴백의 합성 키 처리. 센티널 도착 = 큐 순서상 앞의
-        // 백스페이스·유니코드 삽입이 모두 앱에 전달된 뒤이므로, 이 시점에
-        // replay preedit composition 을 시작한다.
+        // D3: 활성 context 에 ITfTextEditSink 를 advise(OnEndEdit read-back 게이트용).
+        // context 동일 시 즉시 반환하므로 매 키 호출 비용은 미미하다.
+        self.advise_text_edit_sink(context);
+        // ATF SendInput 폴백의 합성 BS 키 처리(b1 Phase1 BS×N 복귀분).
         match crate::synth_input::observe_key_down(wparam.0 as u16) {
             Some(crate::synth_input::SynthKeyAction::PassThrough) => return Ok(FALSE),
-            Some(crate::synth_input::SynthKeyAction::StartPreedit(preedit)) => {
-                if !preedit.is_empty() {
-                    let tid = self.client_id();
-                    let comp_sink: ITfCompositionSink = self.to_interface();
-                    let mut comp_mgr = self.composition_mgr.lock().unwrap();
-                    comp_mgr.start_composition(context, tid, &preedit, &comp_sink);
-                }
-                return Ok(TRUE);
-            }
             None => {}
+        }
+
+        // ── b1 race-flush 가드 ──────────────────────────────────────────────
+        // Phase2 타이머(FLUSH_DELAY_MS) 발화 전에 사용자가 다음 키를 누르면, 보류
+        // 삽입을 **먼저** 완료하고 타이머를 끈다 → 다음 글자가 "기" 앞에 삽입되는
+        // 순서 역전을 막는다. 1회성(take)이라 중복 무해. 이 키는 이 합성키가 아닌
+        // 사용자 키이므로(observe_key_down 통과) 정상 처리를 이어간다.
+        //
+        // ⚠ 수정자 단독 키다운(Shift/Ctrl/Alt/Win down)에서는 flush 하지 않는다
+        //   (v0.3.31 조합보존 불변식 보호 — 아래 is_bare_modifier 판정과 일관).
+        //   따라서 이 가드는 maybe_reload_config·락 취득보다는 뒤, 그러나 실제
+        //   엔진 처리(handle_key_down) 앞에 둔다. 여기서는 우선 수정자 판정만 하고
+        //   비수정자일 때 flush 한다.
+        if crate::synth_input::has_pending_insert() {
+            let raw_vk = wparam.0 as u16;
+            let kc = unim::keycode::KeyCode::from_win32_vk(raw_vk);
+            let is_bare_modifier = kc.is_modifier() || matches!(raw_vk, 0x10 | 0x11 | 0x12);
+            if !is_bare_modifier {
+                // 타이머 선점: 먼저 끄고(없으면 무해) 보류 삽입을 완료한다.
+                if let Some(w) = self.rev_window.lock().unwrap().as_ref() {
+                    w.kill_flush_timer();
+                }
+                let comp_sink: ITfCompositionSink = self.to_interface();
+                self.flush_pending_insert(&comp_sink);
+                crate::register::dbg_log(&format!(
+                    "b1: race-flush (다음 키 선점) vk=0x{:02X}",
+                    raw_vk
+                ));
+            }
         }
         // OnCompositionTerminated 의 "즉시 종료" 판별용 타임스탬프.
         *self.last_key_instant.lock().unwrap() = Some(Instant::now());
@@ -518,7 +703,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 갭1: 키 처리 전후 모드 비교를 위해 이전 카테고리 저장.
         let prev_category = engine.input_category();
 
-        let eaten = key_handler::handle_key_down(
+        let outcome = key_handler::handle_key_down(
             &mut engine,
             &config,
             &mut comp_mgr,
@@ -544,7 +729,46 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             }
         }
 
-        Ok(BOOL::from(eaten))
+        // ── b1 Phase2 예약 ──────────────────────────────────────────────────
+        // synth 폴백이 Phase1(BS×N)만 했고 삽입은 보류 중이다. 락을 모두 해제한 뒤
+        // SetTimer 로 Phase2(삽입)를 예약한다. SendInput·BS 가 Blink 문서에 적용될
+        // 시간(FLUSH_DELAY_MS)을 벌어 삭제↔삽입이 같은 배치에 안 섞이게 한다.
+        if outcome.schedule_flush {
+            // engine/comp/popup/preedit/atf 락 해제(SetTimer·degrade 시 flush 가
+            // 동일 락을 재취득하므로 데드락 방지).
+            drop(atf_state);
+            drop(preedit_win);
+            drop(popup_ipc);
+            drop(comp_mgr);
+            drop(config);
+            drop(engine);
+
+            let armed = {
+                let rev = self.rev_window.lock().unwrap();
+                match rev.as_ref() {
+                    Some(w) => {
+                        w.arm_flush_timer(FLUSH_TIMER_ID, FLUSH_DELAY_MS);
+                        true
+                    }
+                    None => false,
+                }
+            };
+            if armed {
+                crate::register::dbg_log(&format!(
+                    "b1: SetTimer armed ({}ms) for Phase2 insert",
+                    FLUSH_DELAY_MS
+                ));
+            } else {
+                // 타이머 호스트(message-only HWND) 부재 → degrade: 동기 즉시 삽입.
+                // 분리-플러시의 시간 지연은 못 벌지만 삽입 누락 0 을 보장한다.
+                crate::register::dbg_log(
+                    "b1: rev_window 부재 → degrade 동기 flush (no delay)",
+                );
+                self.flush_pending_insert(&comp_sink);
+            }
+        }
+
+        Ok(BOOL::from(outcome.eaten))
     }
 
     fn OnTestKeyUp(
@@ -605,7 +829,12 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         // 첫 키부터 composition 을 만들지 않는다 → 문서에 stray 글자 0.
         // 오탐 비용: 정상 앱이 잘못 학습돼도 client-side preedit(오버레이)로 동작하며
         // 확정 텍스트는 정상 삽입되므로 파괴적이지 않다.
-        if by_time && focus_hwnd != 0 {
+        //
+        // b1 회귀 차단: Phase2 가 시작한 신규 조합("기")의 즉시 terminate 는 학습에서
+        // 제외한다. 안 하면 Blink 창이 cuas_windows 에 오염돼 이후 정상 한글 입력까지
+        // 영구 오버레이 폴백으로 떨어진다(adversarial 검증 requiredRevision 2).
+        let suppress_learn = self.suppress_cuas_learn.load(Ordering::SeqCst);
+        if by_time && focus_hwnd != 0 && !suppress_learn {
             self.cuas_windows.lock().unwrap().insert(focus_hwnd);
         }
 
@@ -616,7 +845,11 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         // 정상 종료(포커스 이탈) 정리(engine.reset()/popup hide/atf reset)는
         // ITfThreadMgrEventSink::OnSetFocus(아래)로 이전했다 — CUAS의 정당한
         // 단발 종료를 "사용자 조합 취소"로 오인해 preedit 를 자폭시키지 않기 위함.
-        if immediate {
+        //
+        // b1: Phase2 신규 조합("기")의 즉시 terminate 면 폴백 플립도 억제한다. 안 하면
+        // composition_unsupported=true 로 컨텍스트 전체가 오버레이로 떨어진다(회귀).
+        // 글자 손실은 insert_pending 의 확정 폴백이 막으므로 폴백 플립이 불필요하다.
+        if immediate && !suppress_learn {
             self.composition_unsupported.store(true, Ordering::SeqCst);
             // 문서에 이미 떠있는 미확정 글자 수 = 현재 엔진 preedit 길이.
             let pending = self.engine.lock().unwrap().preedit_str().chars().count();
@@ -654,6 +887,13 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
         self.composition_unsupported.store(known_cuas, Ordering::SeqCst);
         self.fallback_pending.store(0, Ordering::SeqCst);
+        // b1: 포커스 전환 → 보류 삽입 폐기(이전 문서에 stale "서기" 삽입 방지) + 타이머 끄기.
+        if let Some(w) = self.rev_window.lock().unwrap().as_ref() {
+            w.kill_flush_timer();
+        }
+        if crate::synth_input::discard_pending_insert() {
+            crate::register::dbg_log("b1: OnSetFocus → 보류 삽입 폐기(포커스 전환)");
+        }
         // (Phase 1) OnCompositionTerminated 의 "정상 종료" 정리를 이리로 이전.
         //   포커스 이탈 = 사용자가 조합을 떠남 → 엔진 preedit 를 비우고 팝업/ATF 정리.
         self.engine.lock().unwrap().reset();
@@ -680,10 +920,63 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
 impl ITfTextEditSink_Impl for UnimTextService_Impl {
     fn OnEndEdit(
         &self,
-        _pic: Ref<'_, ITfContext>,
-        _ecreadonly: u32,
+        pic: Ref<'_, ITfContext>,
+        ecreadonly: u32,
         _peditrecord: Ref<'_, ITfEditRecord>,
     ) -> Result<()> {
+        // D3 — BS×N 삭제가 Blink 문서에 실제 적용됐는지 read-back 으로 검증해, 적용
+        // 확인 즉시 Phase2 삽입을 트리거한다(40~60ms 고정 대기 대신 이벤트 기반).
+        //
+        // panic=abort 보호: COM 콜백에서 panic 이 STA/COM 경계를 넘지 않도록
+        // catch_unwind 로 감싼다(rev_wnd_proc 패턴 모방). 어떤 실패도 graceful degrade
+        // (게이트 안 열림 → 60ms 안전망 타이머가 read-back 없이 폴백 = 현행 b1).
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // 이중 가드(설계 §회귀): 무관한 편집·BS 미주입 상태는 atomic load 2회로 즉시 무시.
+            if !crate::synth_input::has_pending_insert() {
+                return;
+            }
+            if !crate::synth_input::readback_gate_armed() {
+                return;
+            }
+            let Some(context) = pic.as_ref() else {
+                return;
+            };
+            // OnEndEdit 의 ec 는 read-only — read-back 만 수행(삽입 RW 금지). 보유한 ec
+            // 를 그대로 써 중첩 edit session 을 열지 않는다.
+            let Some(cur_len) =
+                crate::composition::read_text_before_cursor_len(context, ecreadonly)
+            else {
+                // read-back 실패 → 게이트 안 열림, 타이머 안전망에 위임(악화 없음).
+                return;
+            };
+            // 설계 약점 1 방어: 신호만 믿지 않고 cur_len<=expected 를 반드시 검증.
+            // 부분 삭제(BS 적용 전 조기 OnEndEdit)면 통과 못 하고 다음 OnEndEdit/타이머 대기.
+            if !crate::synth_input::readback_delete_applied(cur_len) {
+                return;
+            }
+            // 적용 확인.
+            if let Some(w) = self.rev_window.lock().unwrap().as_ref() {
+                // 게이트 해제 + 안전망 타이머 kill + flush 를 wndproc 에 위임(async post).
+                crate::synth_input::disarm_readback_gate();
+                w.kill_flush_timer();
+                w.post_flush();
+                crate::register::dbg_log(&format!(
+                    "D3: OnEndEdit read-back OK (cur_len={}) → WM_UNIM_FLUSH",
+                    cur_len
+                ));
+            } else {
+                // rev_window 부재(비활성/창생성 실패). OnEndEdit 의 ec 는 read-only 이고 이
+                // 콜백은 문서 lock 보유 중이라, 여기서 flush_pending_insert(동기 RW
+                // RequestEditSession)를 호출하면 TF_E_NOLOCK 으로 거부될 수 있고 그 경우
+                // 이미 take 된 보류삽입이 유실된다(shouldFix #1). 따라서 OnEndEdit 안에서는
+                // 절대 새 세션을 열지 않는다 — 게이트/슬롯을 그대로 보존해, schedule 시점의
+                // degrade 동기 flush(rev_window 부재 경로) 또는 다음 키 race-flush 에 위임한다
+                // (race-flush 는 게이트가 아니라 has_pending_insert 로 동작하므로 자가복구됨).
+                crate::register::dbg_log(
+                    "D3: OnEndEdit read-back OK but no rev_window → race-flush 위임(세션 미개설)",
+                );
+            }
+        }));
         Ok(())
     }
 }
@@ -757,8 +1050,9 @@ impl ITfDisplayAttributeProvider_Impl for UnimTextService_Impl {
 // ════════════════════════════════════════════════════════════════════════════
 
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, RegisterClassExW,
-    SetWindowLongPtrW, GWLP_USERDATA, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSEXW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, KillTimer, PostMessageW,
+    RegisterClassExW, SetTimer, SetWindowLongPtrW, GWLP_USERDATA, HWND_MESSAGE, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_TIMER, WNDCLASSEXW,
 };
 
 const REV_WND_CLASS_NAME: PCWSTR = w!("UNIM_PopupRevWnd");
@@ -775,6 +1069,8 @@ struct RevWndContext {
     /// composition sink — insert_text 경로에서 comp_sink 서명 일관성용.
     comp_sink: ITfCompositionSink,
     tid: u32,
+    /// b1 Phase2 — 신규 조합 즉시-terminate 학습 억제 플래그(text_service 와 공유).
+    suppress_cuas_learn: Arc<AtomicBool>,
 }
 
 /// 역채널 message-only 창 핸들 래퍼. Drop 시 창 파괴 + Box 회수.
@@ -847,11 +1143,40 @@ impl RevWindow {
             })
         }
     }
+
+    /// b1 Phase2 — one-shot SetTimer 를 건다(이 HWND 의 메시지 펌프 = TSF STA 스레드).
+    /// 같은 timer_id 로 재호출하면 기존 타이머를 재설정한다(중복 발화 없음).
+    fn arm_flush_timer(&self, timer_id: usize, delay_ms: u32) {
+        unsafe {
+            // SetTimer 는 0 반환 시 실패. lpTimerFunc=None → WM_TIMER 가 wndproc 로 옴.
+            let r = SetTimer(Some(self.hwnd), timer_id, delay_ms, None);
+            if r == 0 {
+                crate::register::dbg_log("b1: SetTimer FAILED (r=0)");
+            }
+        }
+    }
+
+    /// b1 Phase2 — 보류 중인 flush 타이머를 끈다(race-flush 선점·Drop·포커스 전환).
+    fn kill_flush_timer(&self) {
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), FLUSH_TIMER_ID);
+        }
+    }
+
+    /// D3 — OnEndEdit read-back 검증 통과 시 wndproc 에 즉시 flush 를 위임한다.
+    /// OnEndEdit ec(read-only)에서 RW 삽입을 못 하므로 PostMessage 로 STA 펌프에 던진다.
+    fn post_flush(&self) {
+        unsafe {
+            let _ = PostMessageW(Some(self.hwnd), WM_UNIM_FLUSH, WPARAM(0), LPARAM(0));
+        }
+    }
 }
 
 impl Drop for RevWindow {
     fn drop(&mut self) {
         unsafe {
+            // b1: 보류 중인 flush 타이머를 먼저 끈다(파괴 후 WM_TIMER 도착 방지).
+            let _ = KillTimer(Some(self.hwnd), FLUSH_TIMER_ID);
             // notify 차단 먼저 (이후 도착 push 는 PostMessage 안 함).
             self.rev.set_notify_hwnd(0);
             // userdata 초기화 후 창 파괴 (wndproc 재진입 방지).
@@ -859,7 +1184,8 @@ impl Drop for RevWindow {
             let _ = DestroyWindow(self.hwnd);
             crate::register::dbg_log("popup_rev: message-only HWND destroyed");
         }
-        // _ctx Box 는 자동 Drop.
+        // _ctx Box 는 자동 Drop. b1 보류 삽입도 폐기(stale 방지).
+        let _ = crate::synth_input::discard_pending_insert();
     }
 }
 
@@ -882,7 +1208,77 @@ extern "system" fn rev_wnd_proc(
         });
         return LRESULT(0);
     }
+    if msg == WM_UNIM_FLUSH {
+        // D3 — OnEndEdit read-back 검증 통과 → 즉시 Phase2 삽입(주 경로). WM_TIMER 분기와
+        // 동일 처리(catch_unwind + KillTimer + timer_flush_pending_insert). take 1회성이라
+        // 타이머/race-flush 와 다중 발화해도 1회만 삽입(중복 무해).
+        let _ = std::panic::catch_unwind(|| unsafe {
+            let _ = KillTimer(Some(hwnd), FLUSH_TIMER_ID);
+            let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const RevWndContext;
+            if ptr.is_null() {
+                let _ = crate::synth_input::discard_pending_insert();
+                return;
+            }
+            let ctx = &*ptr;
+            crate::register::dbg_log("D3: WM_UNIM_FLUSH → Phase2 insert (read-back path)");
+            timer_flush_pending_insert(ctx);
+        });
+        return LRESULT(0);
+    }
+    if msg == WM_TIMER && wparam.0 == FLUSH_TIMER_ID {
+        // b1 Phase2 — BS×N 이 Blink 문서에 적용될 시간(FLUSH_DELAY_MS)이 지났다.
+        // 보류 삽입을 TSF 로 삽입한다. panic=abort 환경 보호: catch_unwind 로 감싼다.
+        let _ = std::panic::catch_unwind(|| unsafe {
+            // 1회성 보장: 즉시 KillTimer (재진입·중복 WM_TIMER 무해).
+            let _ = KillTimer(Some(hwnd), FLUSH_TIMER_ID);
+            let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const RevWndContext;
+            if ptr.is_null() {
+                // 창 파괴 중(userdata=0) — 보류 삽입 폐기(stale 방지).
+                let _ = crate::synth_input::discard_pending_insert();
+                return;
+            }
+            let ctx = &*ptr;
+            crate::register::dbg_log("b1: WM_TIMER fired → Phase2 insert");
+            timer_flush_pending_insert(ctx);
+        });
+        return LRESULT(0);
+    }
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+/// b1 Phase2 — WM_TIMER 발화 시 보류 삽입을 TSF 로 삽입 (TSF STA 스레드, 락 짧게).
+///
+/// SendInput 미사용이라 edit session 안전. 어떤 실패도 패닉 금지. PendingInsert 가
+/// 이미 race-flush 로 소비됐으면 take 가 None → no-op.
+fn timer_flush_pending_insert(ctx: &RevWndContext) {
+    if !crate::synth_input::has_pending_insert() {
+        return;
+    }
+    // 컨텍스트(문서) 부재면 stale 삽입 방지: 폐기.
+    let context = {
+        let g = ctx.last_context.lock().unwrap();
+        match g.as_ref() {
+            Some(c) => c.clone(),
+            None => {
+                let _ = crate::synth_input::discard_pending_insert();
+                crate::register::dbg_log("b1: WM_TIMER no context → pending 폐기");
+                return;
+            }
+        }
+    };
+    // 락 순서: engine → composition (다른 경로와 동일 접두).
+    let mut engine = ctx.engine.lock().unwrap();
+    let mut comp_mgr = ctx.composition_mgr.lock().unwrap();
+    // Phase2 신규 조합의 단발 terminate 를 학습에서 제외.
+    ctx.suppress_cuas_learn.store(true, Ordering::SeqCst);
+    key_handler::flush_pending_insert(
+        &mut engine,
+        &mut comp_mgr,
+        &context,
+        ctx.tid,
+        &ctx.comp_sink,
+    );
+    ctx.suppress_cuas_learn.store(false, Ordering::SeqCst);
 }
 
 /// 역채널 큐를 drain 해 각 이벤트를 엔진에 적용 (TSF 스레드, 엔진 락 짧게).
