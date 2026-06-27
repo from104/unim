@@ -241,14 +241,16 @@ unsafe fn acquire_insert_range(context: &ITfContext, ec: u32) -> Result<ITfRange
 pub enum ReplaceOutcome {
     /// 정상 TSF 경로(메모장/Word 등) 또는 synth 미진입. 추가 동작 없음.
     Normal,
-    /// 역방향/undo synth 폴백 — commit-only(마지막 음절 조합 없음)를 Phase2 에
-    /// 위임했다. 엔진에 잔여 조합 preedit 이 없으므로 호출부는 remove_preedit 불필요.
-    /// (Phase2 삽입은 SetTimer 가 트리거 — text_service 가 PhaseSplit 와 동일 경로로 처리.)
-    PhaseSplitCommitOnly,
-    /// 순방향 synth 폴백 — 삭제(Phase1)와 삽입(Phase2)을 분리했다. Phase2 에서
+    /// **native(full=true) 전용** 펌프-분할 — 순방향에서 세션1 이 full 조합(commit+
+    /// preedit)을 만들어 미확정 유지하고 (commit, preedit)을 PENDING_RESTART 에 적재했다.
     /// 마지막 음절을 TSF 조합으로 유지하므로 **엔진의 잔여 preedit 을 보존**해야 한다
-    /// (호출부는 remove_preedit 를 호출하면 안 됨). text_service 가 SetTimer 를 건다.
+    /// (호출부는 remove_preedit 를 호출하면 안 됨). text_service 가 SetTimer →
+    /// WM_UNIM_FLUSH2 → Phase2b(commit_and_restart)로 commit 을 정착시킨다.
     PhaseSplit,
+    /// synth 단일배치 폴백 — 삭제+교정문 전체(commit+마지막음절)를 한 SendInput
+    /// (BS+UNICODE)으로 즉시 확정했다. 후속 스케줄링 없음. 호출부는 엔진
+    /// commit+preedit 을 모두 클리어(remove_preedit)하고 schedule_flush 를 걸지 않는다.
+    SynthBatch,
 }
 
 /// 조합 상태 관리자
@@ -262,13 +264,13 @@ pub struct CompositionManager {
     /// ShiftStart 부족(CUAS/Blink — 확정 텍스트 뒤로 역확장 거부)을 감지하면,
     /// 문서를 변형하지 않고 (delete_chars, commit_text, preedit_text)를 여기에
     /// 기록한 뒤 즉시 반환한다. replace_surrounding 이 edit session 밖에서 슬롯을
-    /// 확인해 b1 2-phase 폴백(Phase1=send_replacement_delete BS×N + store_pending_insert,
-    /// Phase2=타이머 후 insert_pending)으로 처리한다.
+    /// 확인해 synth 단일배치 폴백(send_replacement_batch = BS×N + UNICODE 교정문 전체를
+    /// 한 SendInput 으로)으로 처리한다.
     ///
-    /// D3: 4번째 요소 `before_len`(=삭제 전 커서 앞 글자 수, edit session 내부에서
-    /// read-back 측정)을 함께 기록한다. replace_surrounding 이 이를 꺼내
-    /// `expected_after_delete = before_len - delete_chars` 를 산출해 OnEndEdit read-back
-    /// 게이트의 기준선으로 쓴다. `None` 이면 read-back 실패 → 게이트 비활성(타이머 단독).
+    /// 4번째 요소 `before_len`(=삭제 전 커서 앞 글자 수, edit session 내부 read-back)은
+    /// 단일배치 전환 후 미사용(과거 D3 readback 게이트 기준선)이나, edit session 쪽
+    /// 기록 코드 회귀 면적을 줄이기 위해 슬롯 형태는 유지하고 replace_surrounding 이
+    /// `_before_len` 으로 무시한다.
     synth_slot: Arc<Mutex<Option<(u32, String, String, Option<u32>)>>>,
 }
 
@@ -470,14 +472,14 @@ impl CompositionManager {
     ///
     /// RequestEditSession 거부(TF_E_NOLOCK 등) 시 조용히 skip (패닉 없음).
     ///
-    /// 반환(b1 ReplaceOutcome):
-    /// - `Normal`: 정상 TSF 경로(ShiftStart 충분) 또는 synth 미진입. 추가 동작 없음.
-    /// - `PhaseSplit`: 순방향 synth 폴백. Phase1(BS×N SendInput)만 수행하고
-    ///   (마지막 음절 제외 확정문 + 마지막 음절 조합문)을 PendingInsert 에 적재했다.
-    ///   호출부는 **엔진 preedit(마지막 음절)을 보존**하고 SetTimer 로 Phase2 삽입을
-    ///   예약해야 한다(text_service).
-    /// - `PhaseSplitCommitOnly`: 역방향/undo synth 폴백. Phase1(BS×N)만 수행하고
-    ///   확정문만 PendingInsert 에 적재(마지막 음절="")했다. 조합 없음.
+    /// 반환(ReplaceOutcome):
+    /// - `Normal`: 정상 TSF 경로(ShiftStart 충분, 역방향/commit-only) 또는 synth 미진입.
+    /// - `PhaseSplit`: **native(full=true)** 순방향. 세션1 이 full 조합을 만들고
+    ///   PENDING_RESTART 에 적재했다. 호출부는 **엔진 preedit 보존** + SetTimer →
+    ///   Phase2b(commit_and_restart) 펌프-분할(text_service).
+    /// - `SynthBatch`: synth 단일배치 폴백(full=false). 삭제+교정문 전체를 한 SendInput
+    ///   (BS+UNICODE)으로 즉시 확정했다. 호출부는 엔진 preedit 을 클리어하고 후속
+    ///   스케줄링을 걸지 않는다.
     pub fn replace_surrounding(
         &mut self,
         context: &ITfContext,
@@ -515,43 +517,21 @@ impl CompositionManager {
         // SendInput 합성 백스페이스+삽입으로 폴백한다. SendInput 은 edit session
         // 안에서 호출하면 안 되므로(동기 락 보유 중) 반드시 이 시점에 호출.
         let synth_req = self.synth_slot.lock().unwrap().take();
-        if let Some((d, c, p, before_len)) = synth_req {
-            // synth 경로는 b1 2-phase(삭제↔삽입 분리)로 처리하므로 edit session 이
-            // 만든 composition 은 존재하지 않는다. 활성 composition 추적은 비운다.
+        if let Some((d, c, p, _before_len)) = synth_req {
+            // synth 단일배치: 삭제+교정문 전체를 한 SendInput(BS+UNICODE)으로 확정.
+            // edit session 이 만든 composition 은 없다(슬롯 기록만) → 추적 비움.
+            //   - 순방향(p="기"): full = commit("서") + 마지막음절("기") 전체 확정.
+            //   - 역방향/undo(p=""): full = commit 만(영문 UNICODE).
+            // 입력큐 FIFO 로 [삭제 N → 삽입] 순서 보장 → 2채널 레이스 소멸. SendInput 은
+            // 반드시 edit session(COM lock) 밖인 이 시점에서 호출한다.
             self.composition = None;
-
-            // ── b1 Phase1: 삭제만 SendInput, 삽입은 Phase2(타이머)로 분리 ──
-            // 같은 SendInput 배치에 BS 와 문자삽입을 섞지 않으므로(=UNICODE 미주입)
-            // Blink 의 비동기 재정렬(BS↔PACKET) 대상이 원천 소멸한다.
-            //   - 순방향(p="기"): commit="서"(마지막 음절 제외) 확정 + last="기" 조합 유지.
-            //   - 역방향/undo(p=""): commit-only(마지막 음절 없음).
-            // 삭제는 여기서(edit session 밖) 즉시 주입하고, 삽입 텍스트는 PendingInsert
-            // 슬롯에 적재한 뒤 호출부가 SetTimer 로 Phase2 를 예약한다.
+            let full = format!("{c}{p}"); // commit + 마지막음절(역방향/undo 면 p="")
             crate::register::dbg_log(&format!(
-                "ReplaceSurrounding: ShiftStart 부족 → b1 BS phase \
-                 (del={d} commit_len={} last_syllable_len={})",
-                c.chars().count(),
-                p.chars().count()
+                "ReplaceSurrounding: ShiftStart 부족 → synth 단일배치 (del={d} full_len={})",
+                full.chars().count()
             ));
-            crate::synth_input::send_replacement_delete(d);
-            crate::synth_input::store_pending_insert(&c, &p);
-            // D3: read-back 게이트 기준선 산출. before_len(삭제 전 커서 앞 글자 수)을
-            // 읽었으면 expected = before_len - d. 음수 방지(클램프). 못 읽었으면 -1
-            // → 게이트 비활성(타이머 단독 폴백 = 현행 b1, 악화 없음).
-            let expected = match before_len {
-                Some(b) => (b as i32 - d as i32).max(0),
-                None => -1,
-            };
-            crate::synth_input::arm_readback_gate(expected);
-            crate::register::dbg_log(&format!(
-                "ReplaceSurrounding: D3 readback gate expected={} (before_len={:?} del={})",
-                expected, before_len, d
-            ));
-            return if p.is_empty() {
-                ReplaceOutcome::PhaseSplitCommitOnly
-            } else {
-                ReplaceOutcome::PhaseSplit
-            };
+            crate::synth_input::send_replacement_batch(d, &full);
+            return ReplaceOutcome::SynthBatch;
         }
 
         // 정상 TSF 경로(ShiftStart full):

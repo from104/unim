@@ -288,8 +288,13 @@ pub fn handle_key_down(
                 "",
                 comp_sink,
             );
-            // 수동 typefix 는 preedit="" 라 PhaseSplitCommitOnly 만 나올 수 있다.
-            schedule_flush = outcome != ReplaceOutcome::Normal;
+            // 수동 typefix 는 preedit="" 라 Normal(native) 또는 SynthBatch(synth)만
+            // 발생한다(PhaseSplit 은 미발생 — exhaustive 위해 arm 만 존재).
+            match outcome {
+                ReplaceOutcome::Normal => {}
+                ReplaceOutcome::PhaseSplit => schedule_flush = true, // native(형식상 안전망)
+                ReplaceOutcome::SynthBatch => engine.remove_preedit(),
+            }
         }
         return KeyDownOutcome { eaten: true, schedule_flush };
     }
@@ -304,8 +309,14 @@ pub fn handle_key_down(
             &apply.replay_preedit,
             comp_sink,
         );
-        // undo 는 replay_preedit="" 라 PhaseSplitCommitOnly 만 나올 수 있다.
-        let schedule_flush = outcome != ReplaceOutcome::Normal;
+        // undo 는 replay_preedit="" 라 Normal(native) 또는 SynthBatch(synth)만 발생한다
+        // (PhaseSplit 은 미발생 — exhaustive 위해 arm 만 존재).
+        let mut schedule_flush = false;
+        match outcome {
+            ReplaceOutcome::Normal => {}
+            ReplaceOutcome::PhaseSplit => schedule_flush = true,
+            ReplaceOutcome::SynthBatch => engine.remove_preedit(),
+        }
         return KeyDownOutcome { eaten: true, schedule_flush };
     }
 
@@ -487,25 +498,23 @@ pub fn handle_key_down(
             match outcome {
                 ReplaceOutcome::Normal => {}
                 ReplaceOutcome::PhaseSplit => {
-                    // b1 순방향 synth 폴백: Phase1(BS×N)만 했고 Phase2(삽입)는 SetTimer
-                    // 로 예약한다. 마지막 음절("기")을 TSF 조합으로 유지하므로 엔진의
-                    // 잔여 preedit("기")을 **보존**한다(remove_preedit 금지). 그래야
-                    // 사용자가 이어서 받침을 쳐도 엔진 상태가 일치한다(replay 후
-                    // engine.clear_commit() 은 commit 만 비우고 preedit "기" 는 보존 —
-                    // auto_typefix.rs:389 확인).
+                    // native(full=true) 펌프-분할: 세션1 이 full 조합을 만들었고 commit
+                    // 정착은 SetTimer → WM_UNIM_FLUSH2 → Phase2b(commit_and_restart)로
+                    // 수행한다. 마지막 음절("기")을 TSF 조합으로 유지하므로 엔진의 잔여
+                    // preedit("기")을 **보존**한다(remove_preedit 금지). 그래야 사용자가
+                    // 이어서 받침을 쳐도 엔진 상태가 일치한다(replay 후 engine.clear_commit()
+                    // 은 commit 만 비우고 preedit "기" 는 보존 — auto_typefix.rs:389 확인).
                     schedule_flush = true;
                     crate::register::dbg_log(
-                        "b1: PhaseSplit → SetTimer 예약, 엔진 preedit 보존",
+                        "native: PhaseSplit → SetTimer→WM_UNIM_FLUSH2 Phase2b, 엔진 preedit 보존",
                     );
                 }
-                ReplaceOutcome::PhaseSplitCommitOnly => {
-                    // b1 역방향/undo synth 폴백: commit-only(마지막 음절 없음). Phase2
-                    // 도 SetTimer 로 예약하되, 엔진엔 잔여 조합이 없으므로 보존/제거
-                    // 모두 무관하다. (역방향은 한글 조합 자체가 없어 무영향.)
-                    schedule_flush = true;
-                    crate::register::dbg_log(
-                        "b1: PhaseSplitCommitOnly → SetTimer 예약(조합 없음)",
-                    );
+                ReplaceOutcome::SynthBatch => {
+                    // 단일배치가 교정문 전체(commit+마지막음절)를 확정했다 →
+                    // 보존돼 있던 마지막음절 preedit("기")까지 비워 문서=엔진 동기.
+                    // schedule_flush 는 false 유지(타이머/Phase2 미진입).
+                    engine.remove_preedit();
+                    crate::register::dbg_log("synth 단일배치 → 엔진 preedit 클리어(no flush)");
                 }
             }
         }

@@ -1,25 +1,31 @@
 //! AutoTypeFix CUAS 폴백 — 합성 키 주입 (SendInput).
 //!
 //! CUAS(IMM32 브리지)·Blink 앱의 가상 문서는 이미 확정(commit)된 텍스트를 ITfRange
-//! 로 노출하지 않아 ShiftStart 가 요청량만큼 이동하지 못한다(shifted 부족).
-//! 그 경우 범위 편집 대신 이 모듈이 VK_BACK × delete_chars 를 입력 큐에 주입한다
-//! (삭제만 SendInput). 삽입은 SendInput UNICODE 가 아니라 **TSF 조합/edit session**
-//! 으로 별도 단계에서 수행한다(b1 2-phase 설계).
+//! 로 노출하지 않아 ShiftStart 가 요청량만큼 이동하지 못한다(shifted 부족 = full=false,
+//! wezterm/telegram). 그 경우 범위 편집 대신 이 모듈이
+//! `[BS×N + KEYEVENTF_UNICODE(교정문 전체)]` 를 **한 SendInput 배치**로 입력 큐에
+//! 적재한다(`send_replacement_batch`).
 //!
-//! ## b1 (삭제↔삽입 분리)
-//! v0.3.31 까지는 `send_replacement` 가 [BS×N]+[UNICODE 교정문자] 를 **한 SendInput
-//! 배치**로 보냈다. Blink(Chrome/WebView2)는 같은 배치의 BS 와 UNICODE 를 비동기로
-//! 재정렬/병합해(실측: 주입 [BS BS BS BS 서 기]가 sink 로 [서 기 BS BS]로 뒤바뀜)
-//! 첫 한글 글자를 유실했다. b1 은 삭제(SendInput BS×N)와 삽입(TSF edit session)을
-//! **시간적으로 분리**해 같은 배치에 섞이지 않게 한다 → Blink 의 재정렬 대상 자체가
-//! 사라진다.  Phase1: send_replacement_delete(BS×N) + store_pending_insert(commit,last).
-//! Phase2(타이머): text_service 가 SetTimer 로 BS 문서 적용을 기다린 뒤 TSF 로 삽입.
+//! ## 단일배치 (삭제+삽입을 한 입력큐 FIFO)
+//! 삭제(BS×N)와 삽입(교정문 전체 UNICODE)을 같은 SendInput 배치에 순차 적재하면
+//! 입력큐 FIFO 로 [삭제 N → 삽입] 순서가 보장되어, 과거 b1(삭제=입력큐 BS /
+//! 삽입=TSF edit session)의 **2채널 레이스**(readback 거짓양성·뒤늦은 BS 가 삽입
+//! 글자를 먹음)가 구조적으로 소멸한다. 교정문 전체(commit+마지막음절)를 즉시 확정하므로
+//! 라이브 마지막음절 조합은 포기한다(브리지앱은 어차피 조합을 terminate — 수용).
 //!
-//! 재진입 차단: 주입한 BS 는 앱 메시지 루프를 거쳐 우리 자신의
-//! ITfKeyEventSink(OnTestKeyDown/OnKeyDown)로 되돌아올 수 있다. dwExtraInfo 는 TSF
-//! 콜백까지 전파가 보장되지 않으므로, 대신 "남은 합성 keydown 수"(BS 만) 카운터로
-//! 식별해 엔진을 거치지 않고 통과시킨다. UNICODE/센티널을 더는 보내지 않으므로
-//! "BS↔PACKET 재정렬" 문제가 구조적으로 소멸한다(VK_PACKET 분기는 방어적 유지).
+//! 재진입 차단: 주입한 BS·UNICODE(VK_PACKET 0xE7) keydown 은 앱 메시지 루프를 거쳐
+//! 우리 자신의 ITfKeyEventSink(OnTestKeyDown/OnKeyDown)로 echo 될 수 있다. dwExtraInfo
+//! 는 TSF 콜백까지 전파가 보장되지 않으므로, 대신 "남은 합성 keydown 수"(BS·PACKET
+//! 둘 다) 카운터(PENDING)로 식별해 엔진을 거치지 않고 통과시킨다.
+//!
+//! TSF 삽입/readback/펌프-분할(`store_pending_insert`/`arm_readback_gate`/`insert_pending`)
+//! 은 synth 경로에서 미사용 — native(full=true, chrome) 펌프-분할 전용으로 잔존한다.
+//!
+//! (참고) v0.3.31 의 `[BS+UNICODE]` 단일배치는 Blink(Chrome/WebView2)가 같은 배치의
+//! BS 와 UNICODE 를 비동기로 재정렬/병합해 첫 한글 글자를 유실했었다. 그러나 지금
+//! 크롬 주 입력면은 native(full=true)라 synth 를 타지 않으며, 주 타깃 wezterm
+//! (conhost)·telegram(Qt)은 WM_KEYDOWN/WM_CHAR 큐를 동기 FIFO 처리해 재정렬이
+//! 성립하지 않는다(잔여 노출면 = contenteditable 등 full=false 진입 표면 한정).
 
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Mutex;
@@ -27,7 +33,7 @@ use std::time::Instant;
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-    VIRTUAL_KEY, VK_BACK, VK_PACKET,
+    KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_PACKET,
 };
 
 /// 디버깅용 마커 (식별은 카운터로 하므로 필수 아님).
@@ -88,63 +94,61 @@ fn key_event(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
     }
 }
 
-/// b1 Phase1 — delete_chars 글자 삭제(VK_BACK)만 입력 큐에 주입한다.
+/// synth 단일배치 — delete_chars 글자 삭제(VK_BACK) + 교정문 전체(KEYEVENTF_UNICODE)를
+/// **한 SendInput 배치**로 입력큐에 적재한다. 입력큐 FIFO 로 [삭제 N → 삽입] 순서가
+/// 보장되어, 과거 b1(삭제=입력큐 BS / 삽입=TSF edit session)의 2채널 레이스가 소멸한다.
 ///
-/// **삽입(UNICODE)·센티널을 절대 함께 보내지 않는다.** 삽입은 Phase2 에서 TSF
-/// edit session 으로 별도 수행한다. 같은 SendInput 배치에 BS 와 문자삽입을 섞지
-/// 않으므로 Blink 의 비동기 재정렬(BS↔PACKET) 대상이 원천 소멸한다.
-///
-/// 주의: BS 1회 = 화면 글자 1개 삭제 가정 — ATF 대상(한글 음절·영문자)은
-/// 모두 BMP 1코드유닛이라 성립한다. 서로게이트 쌍에는 쓰지 말 것.
+/// 주의: BS 1회 = 화면 글자 1개 삭제 가정 — ATF 대상(한글 음절 AC00..D7A3·ASCII)은
+/// 모두 BMP 1 코드유닛이라 글자수=UTF-16 코드유닛수가 성립한다(서로게이트 미대상).
 ///
 /// 호출부: composition.rs replace_surrounding 이 ReplaceSurroundingEditSession
 /// 의 ShiftStart 누적 이동량이 delete_chars 에 미달(CUAS/Blink — 확정 텍스트 뒤로
 /// 역확장 거부)할 때 동적으로 폴백 호출한다. 앱 이름 휴리스틱이 아니라 실제
 /// 이동량 부족으로만 분기하므로 정식 TSF 앱(메모장/Word)은 절대 이 경로를 타지
-/// 않는다(회귀 0). SendInput 은 반드시 edit session 밖에서 호출해야 한다.
-pub fn send_replacement_delete(delete_chars: u32) {
-    if delete_chars == 0 {
-        // 삭제가 없으면 BS 주입도 PENDING 도 불필요. (commit-only 0-delete 케이스)
-        PENDING.store(0, Ordering::SeqCst);
-        crate::register::dbg_log("synth_input: b1 BS phase del=0 (skip)");
-        return;
-    }
+/// 않는다(회귀 0). SendInput 은 반드시 edit session(COM lock) 밖에서 호출한다
+/// (호출부가 보장).
+pub fn send_replacement_batch(delete_chars: u32, text: &str) {
     let mut inputs: Vec<INPUT> = Vec::new();
+    // (1) 삭제: BS down/up × delete_chars (입력큐 선두)
     for _ in 0..delete_chars {
         inputs.push(key_event(VK_BACK.0, 0, KEYBD_EVENT_FLAGS(0)));
         inputs.push(key_event(VK_BACK.0, 0, KEYEVENTF_KEYUP));
     }
-
-    // ── PENDING = sink 로 되돌아오는 합성 keydown 수(BS 만) ──
-    // UNICODE/센티널을 안 보내므로 PACKET(0xE7) 복귀 자체가 없고, "BS↔PACKET 재정렬"
-    // 문제가 구조적으로 소멸한다. 일부 필드는 BS 도 sink 로 echo 하지 않는데(직행),
-    // 그 경우 PENDING 은 STALE_MS 후 폐기되므로 사용자 BS 오인 창이 제한된다.
-    let pending_downs = delete_chars as i32;
-    PENDING.store(pending_downs, Ordering::SeqCst);
-    *SEND_INSTANT.lock().unwrap() = Some(Instant::now());
-
+    // (2) 삽입: 교정문 전체를 UTF-16 코드유닛 단위 UNICODE down/up (삭제 뒤에 적재)
+    for cu in text.encode_utf16() {
+        inputs.push(key_event(0, cu, KEYEVENTF_UNICODE));
+        inputs.push(key_event(0, cu, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+    }
+    if inputs.is_empty() {
+        // del=0 && text 빈 → no-op
+        PENDING.store(0, Ordering::SeqCst);
+        crate::register::dbg_log("synth_input: batch no-op (del=0, text empty)");
+        return;
+    }
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    // PENDING = 실제 전송된 합성 keydown 수.
+    //   모든 이벤트가 down/up 쌍 → 전송분 중 down 수 = ceil(sent/2).
+    //   전송(full)이면 inputs.len()/2 = delete_chars + utf16_units.
+    //   부분 전송(UIPI 등): SendInput 이 앞에서부터 채우므로 ceil(sent/2)가
+    //   "도착한 down(=앞으로 echo 될 수)"과 정확히 일치 → 과집계 0.
+    //   ※ STA 단일스레드: 우리가 handle_key_down 안에서 동기 실행 중이라
+    //     메시지펌프가 안 돌고, 따라서 어떤 echo 도 이 store 이전에 도착 불가.
+    PENDING.store((sent as usize).div_ceil(2) as i32, Ordering::SeqCst);
+    *SEND_INSTANT.lock().unwrap() = Some(Instant::now());
     crate::register::dbg_log(&format!(
-        "synth_input: b1 BS phase bs={} pending={} sent={}/{}",
+        "synth_input: batch del={} uni_units={} pending={} sent={}/{}",
         delete_chars,
-        pending_downs,
+        text.encode_utf16().count(),
+        (sent as usize).div_ceil(2),
         sent,
         inputs.len()
     ));
-    if (sent as usize) < inputs.len() {
-        // 부분 실패(UIPI 등): 주입이 앞에서부터 잘리므로 도착하지 않는 BS keydown 수를
-        // 보정한다. BS 는 입력열 맨 앞(2개/글자)이라 sent 로 도착한 BS down 수만 센다.
-        let bs_inputs = (delete_chars as usize) * 2;
-        let lost_bs_downs = if sent as usize >= bs_inputs {
-            0
-        } else {
-            ((bs_inputs - sent as usize).div_ceil(2)) as i32
-        };
-        PENDING.fetch_sub(lost_bs_downs, Ordering::SeqCst);
-    }
 }
 
 /// b1 Phase2 보류 삽입 슬롯에 (확정문, 마지막 음절)을 적재한다 (Phase1 호출).
+///
+/// synth 단일배치 전환으로 현재 호출부가 없다(롤백 보험 + native 잔존 인프라 일관성).
+#[allow(dead_code)]
 pub fn store_pending_insert(commit_text: &str, last_syllable: &str) {
     *PENDING_INSERT.lock().unwrap() = Some(PendingInsert {
         commit_text: commit_text.to_string(),
@@ -217,6 +221,9 @@ pub fn discard_pending_restart() -> bool {
 ///
 /// `expected`: `before_len - delete_chars`(읽기 실패면 `-1` → 게이트 비활성). 이후
 /// OnEndEdit 가 `cur_len <= expected` 를 검증해 통과하면 즉시 flush 를 트리거한다.
+///
+/// synth 단일배치 전환으로 현재 호출부가 없다(롤백 보험 + native 잔존 인프라 일관성).
+#[allow(dead_code)]
 pub fn arm_readback_gate(expected: i32) {
     EXPECTED_AFTER_DELETE.store(expected, Ordering::SeqCst);
     // expected<0 이면 게이트 자체를 켜지 않는다(타이머 단독 폴백).
@@ -269,9 +276,9 @@ pub fn observe_test_key_down(vk: u16) -> Option<bool> {
     if !pending_active() {
         return None;
     }
-    // b1: 합성 BS 만 카운트한다. UNICODE/센티널을 더는 보내지 않으므로 PACKET 복귀는
-    // 발생하지 않지만, 일부 환경이 UNICODE 를 sink 로 돌려보내도 음수로 떨어지지
-    // 않도록(PENDING>0 게이트 위) VK_PACKET 분기는 방어적으로 유지한다.
+    // 단일배치: UNICODE 주입분이 VK_PACKET(0xE7) keydown 으로 sink 에 echo 되므로
+    // BS·PACKET 둘 다 정상 카운트한다(PENDING = 한 배치의 합성 down 총수). PENDING>0
+    // 게이트 위에서만 fetch_sub 하므로 음수로 떨어지지 않는다.
     if vk == VK_BACK.0 || vk == VK_PACKET.0 {
         PENDING.fetch_sub(1, Ordering::SeqCst);
         LAST_WAS_SYNTH.store(true, Ordering::SeqCst);
