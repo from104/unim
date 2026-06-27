@@ -12,7 +12,7 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::logln;
-use crate::pipe_server::send_reverse;
+use crate::pipe_server::{try_send_reverse, RevSender};
 use crate::protocol::{RenderState, RevEvent, FLASH_MS};
 use crate::render;
 
@@ -36,10 +36,19 @@ struct UiState {
     owner_conn_handle: isize, // 현재 owner 연결 핸들 raw (0 = 없음). WriteFile 대상.
     last_render_seq: u64,     // 역이벤트 envelope 의 seq echo.
     mouse_hook: isize,        // WH_MOUSE_LL 훅 핸들 raw (0 = 미설치). 표시 중에만 설치.
+    // 역방향 비차단 송신 채널(§11.E / B4 freeze 수정). UI 스레드는 이 채널에
+    // try_send 만 하고 실제 블로킹 WriteFile 은 writer 스레드가 수행한다.
+    rev_tx: Option<RevSender>,
 }
 
 unsafe fn now_ms() -> u64 {
     windows::Win32::System::SystemInformation::GetTickCount64()
+}
+
+/// 역방향 비차단 송신 채널 핸들을 UI 스레드 상태에 등록한다 (UI 스레드에서 1회 호출).
+/// 이후 모든 역이벤트는 이 채널로 try_send 되어 UI 스레드가 절대 블록되지 않는다(B4).
+pub fn set_rev_sender(tx: RevSender) {
+    UI_STATE.with(|st| st.borrow_mut().rev_tx = Some(tx));
 }
 
 /// 윈도우 클래스 등록 + 숨김 팝업 HWND 1회 생성. UI 스레드에서 호출.
@@ -358,13 +367,25 @@ fn handle_left_click(hwnd: HWND, x: i32, y: i32) {
 }
 
 /// 현재 owner 연결로 역이벤트를 보낸다 (UI 스레드 전용 — UI_STATE 에서 핸들/seq/owner 읽음).
+///
+/// **비차단** — 채널에 try_send 만 한다(가득 차면 drop). 실제 블로킹 WriteFile 은
+/// writer 스레드가 수행하므로 클릭/훅 핸들러 안에서 호출해도 UI 펌프가 멎지 않는다(B4).
 fn send_rev(ev: &RevEvent) {
-    let (handle, owner_hwnd, seq) = UI_STATE.with(|st| {
+    let (handle, owner_hwnd, seq, tx) = UI_STATE.with(|st| {
         let st = st.borrow();
-        (st.owner_conn_handle, st.last_owner_hwnd, st.last_render_seq)
+        (
+            st.owner_conn_handle,
+            st.last_owner_hwnd,
+            st.last_render_seq,
+            st.rev_tx.clone(),
+        )
     });
+    let Some(tx) = tx else {
+        logln!("send_rev: rev sender not initialized — dropped evt={ev:?}");
+        return;
+    };
     let msg = ev.to_wire(owner_hwnd, seq);
-    send_reverse(handle, &msg);
+    try_send_reverse(&tx, handle, msg);
 }
 
 // ─── WH_MOUSE_LL 외부 클릭 훅 (§11.F) ───────────────────────────────────────

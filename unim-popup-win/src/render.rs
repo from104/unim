@@ -370,9 +370,13 @@ unsafe fn paint_grid(
             } else {
                 fill(hdc, &tab_rect, C_SURFACE0);
             }
+            // 카테고리 레이블 우측 정렬 (POPUP_SPEC §11 v3.2): 레이블 끝에 붙은
+            // 선택키 "(a)/(s)/..." 가 모든 행에서 같은 우측 기준선에 정렬되어
+            // 세로 열로 보이게 한다. 탭 영역폭(tab_w) 고정이므로 DT_RIGHT 만으로
+            // 충분 — 별도 폭 측정 불필요. 이모지 모드(tab_labels 비어있지 않음)에서만 그려진다.
             let mut tr = tab_rect;
-            tr.left += s(4, scale);
-            draw_text(hdc, label, &tr, if active { C_BLACK } else { C_TEXT }, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
+            tr.right -= s(6, scale);
+            draw_text(hdc, label, &tr, if active { C_BLACK } else { C_TEXT }, DT_VCENTER | DT_SINGLELINE | DT_RIGHT);
         }
         SelectObject(hdc, old);
         let _ = DeleteObject(font_tab.into());

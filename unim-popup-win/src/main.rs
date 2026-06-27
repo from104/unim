@@ -129,6 +129,12 @@ fn main() {
         }
     };
 
+    // 역방향 송신 writer 스레드 1회 기동 + 송신 채널을 UI 스레드 상태에 등록(B4).
+    // 클릭/외부클릭 역IPC 를 UI 스레드 블로킹 WriteFile → 비차단 try_send 로 전환해
+    // 팝업 freeze 를 차단한다.
+    let rev_tx = pipe_server::spawn_reverse_writer();
+    window::set_rev_sender(rev_tx);
+
     // 파이프 서버 (accept 스레드 + 연결당 reader 스레드).
     let queue: IncomingQueue = Arc::new(Mutex::new(VecDeque::new()));
     pipe_server::spawn_server(hwnd, Arc::clone(&queue));

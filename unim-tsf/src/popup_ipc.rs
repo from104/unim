@@ -497,14 +497,111 @@ mod worker {
 
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{
-        CloseHandle, GetLastError, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY, GENERIC_READ,
-        GENERIC_WRITE, HANDLE,
+        CloseHandle, GetLastError, ERROR_FILE_NOT_FOUND, ERROR_IO_PENDING, ERROR_PIPE_BUSY,
+        GENERIC_READ, GENERIC_WRITE, HANDLE,
     };
     use windows::Win32::Storage::FileSystem::{
-        CreateFileW, ReadFile, WriteFile, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_NONE, OPEN_EXISTING,
+        CreateFileW, ReadFile, WriteFile, FILE_FLAG_OVERLAPPED, FILE_SHARE_NONE, OPEN_EXISTING,
     };
     use windows::Win32::System::Pipes::WaitNamedPipeW;
     use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
+    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
+
+    // ════════════════════════════════════════════════════════════════════════
+    // B4-2 OVERLAPPED I/O 헬퍼 — 같은 DUPLEX 핸들에서 read/write 직렬화 데드락 회피.
+    //
+    // 동기 핸들은 OS 가 한 핸들의 모든 I/O 를 직렬화한다. reader 서브스레드의 블로킹
+    // ReadFile 진행 중이면 worker 의 WriteFile(render) 이 그 read 완료까지 막혀 팝업이
+    // 다시 뜨지 않는다. FILE_FLAG_OVERLAPPED 로 열고 각 I/O 를 자체 이벤트가 달린
+    // OVERLAPPED 로 수행하면 read 와 write 가 동시 진행되어 서로를 막지 않는다.
+    //
+    // panic=abort 이므로 어떤 실패도 Err 로 환원해 호출부가 dbg_log 후 graceful 처리.
+    // ════════════════════════════════════════════════════════════════════════
+
+    /// 자동 리셋 이벤트를 소유. Drop 시 이벤트 핸들을 닫는다. I/O 호출마다 1개 생성
+    /// (저빈도 IPC라 오버헤드 무시 가능).
+    struct OvlEvent {
+        event: HANDLE,
+    }
+
+    impl OvlEvent {
+        /// 자동 리셋·초기 비신호 이벤트 생성. 실패 시 None.
+        fn new() -> Option<Self> {
+            let event = unsafe { CreateEventW(None, false, false, PCWSTR::null()) };
+            match event {
+                Ok(h) if !h.is_invalid() => Some(Self { event: h }),
+                _ => {
+                    dbg_log(&format!(
+                        "popup_ipc: CreateEventW failed GetLastError={}",
+                        unsafe { GetLastError() }.0
+                    ));
+                    None
+                }
+            }
+        }
+    }
+
+    impl Drop for OvlEvent {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseHandle(self.event);
+            }
+        }
+    }
+
+    /// overlapped WriteFile 을 동기처럼 수행. 전송 바이트 수 반환. 실패 시 Err.
+    fn overlapped_write(handle: HANDLE, bytes: &[u8]) -> Result<u32, ()> {
+        let ovl_ev = OvlEvent::new().ok_or(())?;
+        let mut ovl = OVERLAPPED::default();
+        ovl.hEvent = ovl_ev.event;
+        let mut written: u32 = 0;
+        let r = unsafe { WriteFile(handle, Some(bytes), Some(&mut written), Some(&mut ovl)) };
+        if r.is_err() {
+            let e = unsafe { GetLastError() };
+            if e != ERROR_IO_PENDING {
+                return Err(());
+            }
+            unsafe {
+                WaitForSingleObject(ovl_ev.event, INFINITE);
+            }
+            let mut transferred: u32 = 0;
+            let gr = unsafe { GetOverlappedResult(handle, &ovl, &mut transferred, false) };
+            if gr.is_err() {
+                return Err(());
+            }
+            written = transferred;
+        }
+        Ok(written)
+    }
+
+    /// overlapped ReadFile 을 동기처럼 수행. 읽은 바이트 수 반환. 0 바이트/실패는 Err.
+    fn overlapped_read(handle: HANDLE, buf: &mut [u8]) -> Result<u32, ()> {
+        let ovl_ev = OvlEvent::new().ok_or(())?;
+        let mut ovl = OVERLAPPED::default();
+        ovl.hEvent = ovl_ev.event;
+        let mut read: u32 = 0;
+        let r = unsafe { ReadFile(handle, Some(buf), Some(&mut read), Some(&mut ovl)) };
+        if r.is_err() {
+            let e = unsafe { GetLastError() };
+            if e != ERROR_IO_PENDING {
+                return Err(());
+            }
+            unsafe {
+                WaitForSingleObject(ovl_ev.event, INFINITE);
+            }
+            let mut transferred: u32 = 0;
+            let gr = unsafe { GetOverlappedResult(handle, &ovl, &mut transferred, false) };
+            if gr.is_err() {
+                return Err(());
+            }
+            read = transferred;
+        }
+        if read == 0 {
+            return Err(());
+        }
+        Ok(read)
+    }
 
     /// worker 의 영속 연결 상태.
     struct PipeConn {
@@ -582,7 +679,11 @@ mod worker {
                     FILE_SHARE_NONE,
                     None,
                     OPEN_EXISTING,
-                    FILE_FLAGS_AND_ATTRIBUTES(0),
+                    // B4-2: FILE_FLAG_OVERLAPPED 필수 — 같은 DUPLEX 핸들에서 worker 의
+                    // WriteFile 과 reader 의 ReadFile 이 직렬화되어 데드락하는 것을 막는다.
+                    // 동기 핸들이면 reader 의 블로킹 ReadFile 진행 중 do_write 의 WriteFile
+                    // 이 read 완료까지 막혀 render 가 나가지 못해 팝업 재오픈 불가.
+                    FILE_FLAG_OVERLAPPED,
                     None,
                 ) {
                     Ok(h) => {
@@ -679,27 +780,25 @@ mod worker {
             }
         }
 
-        /// 단일 WriteFile. 성공 true. 실패 시 close 하고 false.
+        /// 단일 overlapped WriteFile. 성공 true. 실패 시 close 하고 false.
+        /// B4-2: overlapped 라 reader 의 ReadFile 진행 중에도 즉시 시작된다(직렬화 없음).
         fn do_write(&mut self, bytes: &[u8]) -> bool {
             let Some(h) = self.handle else {
                 return false;
             };
-            unsafe {
-                let mut written: u32 = 0;
-                match WriteFile(h, Some(bytes), Some(&mut written), None) {
-                    Ok(()) => {
-                        dbg_log(&format!("popup_ipc: wrote {written} bytes"));
-                        true
-                    }
-                    Err(_) => {
-                        let err = GetLastError();
-                        dbg_log(&format!(
-                            "popup_ipc: WriteFile failed GetLastError={}",
-                            err.0
-                        ));
-                        self.close();
-                        false
-                    }
+            match overlapped_write(h, bytes) {
+                Ok(written) => {
+                    dbg_log(&format!("popup_ipc: wrote {written} bytes"));
+                    true
+                }
+                Err(()) => {
+                    let err = unsafe { GetLastError() };
+                    dbg_log(&format!(
+                        "popup_ipc: WriteFile failed GetLastError={}",
+                        err.0
+                    ));
+                    self.close();
+                    false
                 }
             }
         }
@@ -741,16 +840,18 @@ mod worker {
                 dbg_log("popup_rev: reader gen changed → stop");
                 return;
             }
-            let mut read: u32 = 0;
-            let r = unsafe { ReadFile(handle, Some(&mut buf), Some(&mut read), None) };
-            if r.is_err() || read == 0 {
-                let err = unsafe { GetLastError() };
-                dbg_log(&format!(
-                    "popup_rev: ReadFile end/err GetLastError={} read={} → stop",
-                    err.0, read
-                ));
-                return;
-            }
+            // B4-2: overlapped read — worker 의 WriteFile(render) 을 막지 않는다.
+            let read = match overlapped_read(handle, &mut buf) {
+                Ok(n) => n,
+                Err(()) => {
+                    let err = unsafe { GetLastError() };
+                    dbg_log(&format!(
+                        "popup_rev: ReadFile end/err GetLastError={} → stop",
+                        err.0
+                    ));
+                    return;
+                }
+            };
             acc.extend_from_slice(&buf[..read as usize]);
             // 누적 버퍼 폭주 방지 (악성/깨진 스트림).
             if acc.len() > MAX_LINE_BYTES {

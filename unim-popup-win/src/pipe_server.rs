@@ -7,23 +7,25 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, WPARAM,
+    CloseHandle, GetLastError, ERROR_IO_PENDING, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, WPARAM,
 };
 use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::Storage::FileSystem::{
-    ReadFile, FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX,
+    ReadFile, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX,
 };
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, PIPE_READMODE_BYTE,
     PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
-use windows::Win32::System::Threading::GetCurrentProcessId;
+use windows::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
+use windows::Win32::System::Threading::{CreateEventW, GetCurrentProcessId, WaitForSingleObject, INFINITE};
 
 use crate::logln;
 use crate::protocol::{WireMsg, MAX_LINE_BYTES, PIPE_BASE_NAME, PIPE_SDDL, WIRE_VERSION};
@@ -97,6 +99,140 @@ fn build_security_attributes() -> Option<SECURITY_ATTRIBUTES> {
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// B4-2 OVERLAPPED I/O 헬퍼 — 같은 DUPLEX 핸들에서 read/write 직렬화 데드락 회피.
+//
+// 동기 핸들은 OS 가 한 핸들의 모든 I/O 를 직렬화한다. reader 의 블로킹 ReadFile 이
+// 진행 중이면 writer 의 WriteFile 이 그 read 완료까지 막혀 상호 데드락 → 팝업 재오픈
+// 불가. FILE_FLAG_OVERLAPPED 로 열고 각 I/O 를 자체 이벤트가 달린 OVERLAPPED 로
+// 수행하면 read 와 write 가 동시 진행되어 서로를 막지 않는다.
+//
+// 각 헬퍼는 "동기처럼" 동작한다: I/O 시작 → ERROR_IO_PENDING 이면 이벤트 대기 →
+// GetOverlappedResult 로 전송 바이트 수 회수. panic=abort 이므로 어떤 실패도 Err 로
+// 환원해 호출부가 로그 후 graceful 처리한다.
+// ════════════════════════════════════════════════════════════════════════════
+
+/// 자동 리셋 이벤트를 소유하는 OVERLAPPED 핸들. Drop 시 이벤트 핸들을 닫는다.
+/// I/O 호출마다 1개씩 생성(저빈도 IPC라 오버헤드 무시 가능).
+struct OvlEvent {
+    event: HANDLE,
+}
+
+impl OvlEvent {
+    /// 자동 리셋(수동 리셋 false)·초기 비신호 이벤트 생성. 실패 시 None.
+    fn new() -> Option<Self> {
+        let event = unsafe { CreateEventW(None, false, false, PCWSTR::null()) };
+        match event {
+            Ok(h) if !h.is_invalid() => Some(Self { event: h }),
+            _ => {
+                logln!("ovl: CreateEventW failed err={:?}", unsafe { GetLastError() });
+                None
+            }
+        }
+    }
+}
+
+impl Drop for OvlEvent {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.event);
+        }
+    }
+}
+
+/// 한 핸들에서 overlapped ReadFile 을 동기처럼 수행. 성공 시 읽은 바이트 수 반환.
+/// 0 바이트/실패는 Err — 호출부가 EOF/broken 으로 간주한다.
+fn overlapped_read(handle: HANDLE, buf: &mut [u8]) -> Result<u32, ()> {
+    let ovl_ev = OvlEvent::new().ok_or(())?;
+    let mut ovl = OVERLAPPED::default();
+    ovl.hEvent = ovl_ev.event;
+    let mut read: u32 = 0;
+    let r = unsafe { ReadFile(handle, Some(buf), Some(&mut read), Some(&mut ovl)) };
+    if r.is_err() {
+        let e = unsafe { GetLastError() };
+        if e != ERROR_IO_PENDING {
+            // 즉시 실패(broken pipe 등) — 로그는 호출부에서.
+            return Err(());
+        }
+        // 비동기 진행 중 — 완료 이벤트 대기 후 결과 회수.
+        unsafe {
+            WaitForSingleObject(ovl_ev.event, INFINITE);
+        }
+        let mut transferred: u32 = 0;
+        let gr = unsafe { GetOverlappedResult(handle, &ovl, &mut transferred, false) };
+        if gr.is_err() {
+            return Err(());
+        }
+        read = transferred;
+    }
+    if read == 0 {
+        return Err(());
+    }
+    Ok(read)
+}
+
+/// 한 핸들에서 overlapped WriteFile 을 동기처럼 수행. 전체 바이트 전송 시 Ok.
+fn overlapped_write(handle: HANDLE, bytes: &[u8]) -> Result<u32, ()> {
+    let ovl_ev = OvlEvent::new().ok_or(())?;
+    let mut ovl = OVERLAPPED::default();
+    ovl.hEvent = ovl_ev.event;
+    let mut written: u32 = 0;
+    let r = unsafe { WriteFile(handle, Some(bytes), Some(&mut written), Some(&mut ovl)) };
+    if r.is_err() {
+        let e = unsafe { GetLastError() };
+        if e != ERROR_IO_PENDING {
+            return Err(());
+        }
+        unsafe {
+            WaitForSingleObject(ovl_ev.event, INFINITE);
+        }
+        let mut transferred: u32 = 0;
+        let gr = unsafe { GetOverlappedResult(handle, &ovl, &mut transferred, false) };
+        if gr.is_err() {
+            return Err(());
+        }
+        written = transferred;
+    }
+    Ok(written)
+}
+
+/// overlapped ConnectNamedPipe 를 동기처럼 수행. ERROR_PIPE_CONNECTED(535)·정상 완료는
+/// Ok, 그 외 실패는 Err. (이벤트 시그널 후 GetOverlappedResult 로 완료 확인.)
+fn overlapped_connect(handle: HANDLE) -> Result<(), ()> {
+    let ovl_ev = OvlEvent::new().ok_or(())?;
+    let mut ovl = OVERLAPPED::default();
+    ovl.hEvent = ovl_ev.event;
+    let r = unsafe { ConnectNamedPipe(handle, Some(&mut ovl)) };
+    if r.is_ok() {
+        // overlapped 모드에서 즉시 성공은 드물지만 허용.
+        return Ok(());
+    }
+    let e = unsafe { GetLastError() };
+    // 535 = ERROR_PIPE_CONNECTED: ConnectNamedPipe 호출 전 이미 연결됨 → 정상.
+    if e.0 == 535 {
+        return Ok(());
+    }
+    if e != ERROR_IO_PENDING {
+        logln!("pipe: ConnectNamedPipe(overlapped) failed err={e:?}");
+        return Err(());
+    }
+    unsafe {
+        WaitForSingleObject(ovl_ev.event, INFINITE);
+    }
+    let mut transferred: u32 = 0;
+    let gr = unsafe { GetOverlappedResult(handle, &ovl, &mut transferred, false) };
+    if gr.is_err() {
+        let e = unsafe { GetLastError() };
+        // 대기 중 클라이언트가 이미 연결 완료한 경우도 535 로 나올 수 있다.
+        if e.0 == 535 {
+            return Ok(());
+        }
+        logln!("pipe: ConnectNamedPipe GetOverlappedResult failed err={e:?}");
+        return Err(());
+    }
+    Ok(())
+}
+
 /// accept 루프를 별도 스레드에서 돌린다. UI 스레드는 즉시 메시지 펌프로 복귀.
 pub fn spawn_server(msg_hwnd: HWND, queue: IncomingQueue) {
     let name = pipe_name();
@@ -108,10 +244,13 @@ pub fn spawn_server(msg_hwnd: HWND, queue: IncomingQueue) {
         let mut first_instance = true;
         let mut instance_count: u64 = 0;
         loop {
+            // B4-2: FILE_FLAG_OVERLAPPED 필수 — 같은 핸들의 read/write 직렬화(데드락)
+            // 방지. 동기 핸들이면 reader 의 블로킹 ReadFile 진행 중 reverse_writer 의
+            // WriteFile 이 read 완료까지 막혀 팝업 재오픈 불가. overlapped 로 양방향 동시 진행.
             let flags = if first_instance {
-                PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE
+                PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED
             } else {
-                PIPE_ACCESS_DUPLEX
+                PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
             };
             let sa_ptr: Option<*const SECURITY_ATTRIBUTES> =
                 sa.as_ref().map(|s| s as *const SECURITY_ATTRIBUTES);
@@ -136,20 +275,14 @@ pub fn spawn_server(msg_hwnd: HWND, queue: IncomingQueue) {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 continue;
             }
-            // 클라이언트 연결 대기 (블로킹).
-            let connected = unsafe { ConnectNamedPipe(handle, None) };
-            // ConnectNamedPipe 는 클라이언트가 CreateNamedPipe~ConnectNamedPipe 사이에
-            // 이미 연결됐으면 ERROR_PIPE_CONNECTED(=Err) 를 반환하나 정상 연결이다.
-            if connected.is_err() {
-                let e = unsafe { GetLastError() };
-                // ERROR_PIPE_CONNECTED = 535.
-                if e.0 != 535 {
-                    logln!("pipe: ConnectNamedPipe failed err={e:?}");
-                    unsafe {
-                        let _ = CloseHandle(handle);
-                    }
-                    continue;
+            // 클라이언트 연결 대기 — overlapped 핸들이므로 overlapped_connect 로 수행.
+            // (FILE_FLAG_OVERLAPPED 핸들에 동기 ConnectNamedPipe(None) 를 쓰면 즉시
+            //  ERROR_IO_PENDING 으로 돌아와 실제 연결을 기다리지 못한다.)
+            if overlapped_connect(handle).is_err() {
+                unsafe {
+                    let _ = CloseHandle(handle);
                 }
+                continue;
             }
             instance_count += 1;
             let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::SeqCst);
@@ -182,15 +315,17 @@ fn reader_loop(
     let mut acc: Vec<u8> = Vec::with_capacity(4096);
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        let mut read: u32 = 0;
-        let r = unsafe { ReadFile(handle, Some(&mut buf), Some(&mut read), None) };
-        if r.is_err() || read == 0 {
-            logln!(
-                "pipe: reader EOF/broken conn_id={conn_id} client_pid={client_pid} err={:?}",
-                unsafe { GetLastError() }
-            );
-            break;
-        }
+        // B4-2: overlapped read — 같은 핸들의 reverse WriteFile 을 막지 않는다.
+        let read = match overlapped_read(handle, &mut buf) {
+            Ok(n) => n,
+            Err(()) => {
+                logln!(
+                    "pipe: reader EOF/broken conn_id={conn_id} client_pid={client_pid} err={:?}",
+                    unsafe { GetLastError() }
+                );
+                break;
+            }
+        };
         acc.extend_from_slice(&buf[..read as usize]);
         // 누적 버퍼에서 \n 기준으로 라인 추출.
         while let Some(pos) = acc.iter().position(|&b| b == b'\n') {
@@ -259,9 +394,57 @@ fn handle_line(line: &[u8], conn_id: u64, conn_handle: isize, queue: &IncomingQu
     wake_ui(hwnd_raw);
 }
 
+/// 역방향 송신 채널 — UI 스레드가 `try_send` 하고 전용 writer 스레드가 실제
+/// `WriteFile` 을 수행한다. 튜플 = (owner 연결 핸들 raw, 직렬화할 메시지).
+///
+/// **B4 freeze 수정의 핵심**: 과거에는 WM_LBUTTONDOWN / WH_MOUSE_LL 콜백(둘 다 UI
+/// 스레드)이 클릭 핸들러 안에서 블로킹 `WriteFile`(PIPE_WAIT 바이트 파이프)을 직접
+/// 호출했다. TSF 측 reader 가 죽은 race window 에선 파이프 버퍼를 비워줄 주체가 없어
+/// `WriteFile` 이 무한 블록 → GetMessageW/DispatchMessageW 펌프가 영영 복귀하지 못해
+/// 팝업이 freeze 됐다. 이제 UI 스레드는 절대 블록되지 않는 `try_send`(큐 full 이면
+/// 이벤트 drop)만 하고, 블로킹 I/O 는 writer 스레드로 격리한다.
+pub type RevSender = SyncSender<(isize, WireMsg)>;
+
+/// 역방향 writer 스레드를 1회 기동하고 송신 핸들을 돌려준다. UI 스레드가 보관한다.
+/// 채널 용량은 유한(backpressure 시 drop) — UI 스레드가 절대 블록되지 않도록.
+pub fn spawn_reverse_writer() -> RevSender {
+    // 유한 용량. 가득 차면 try_send 가 Full 로 즉시 실패하여 UI 스레드가 drop 한다.
+    let (tx, rx): (RevSender, Receiver<(isize, WireMsg)>) = mpsc::sync_channel(64);
+    std::thread::spawn(move || {
+        // recv 는 모든 sender drop 시 Err → 루프 종료. 상주 프로세스라 사실상 무한.
+        while let Ok((conn_handle, msg)) = rx.recv() {
+            send_reverse(conn_handle, &msg);
+        }
+        logln!("reverse_writer: channel closed — thread exit");
+    });
+    logln!("reverse_writer: spawned");
+    tx
+}
+
+/// UI 스레드 전용 비차단 송신 헬퍼. 채널이 가득 차면 이벤트를 drop(로그만).
+/// 절대 블록되지 않으므로 클릭/훅 핸들러 안에서 안전하게 호출 가능.
+pub fn try_send_reverse(tx: &RevSender, conn_handle: isize, msg: WireMsg) {
+    if conn_handle == 0 {
+        logln!("try_send_reverse: no owner conn handle — dropped evt={:?}", msg.evt);
+        return;
+    }
+    match tx.try_send((conn_handle, msg)) {
+        Ok(()) => {}
+        Err(TrySendError::Full((_, m))) => {
+            logln!("try_send_reverse: channel full — dropped evt={:?} (freeze-safe)", m.evt);
+        }
+        Err(TrySendError::Disconnected((_, m))) => {
+            logln!("try_send_reverse: writer gone — dropped evt={:?}", m.evt);
+        }
+    }
+}
+
 /// 역방향 송신(렌더러→TSF, §11.C/E) — owner 연결 핸들로 JSON line+`\n` WriteFile.
 /// fire-and-forget. 실패는 로그만(타이핑·표시 무영향). `conn_handle` = `Incoming::Msg`
 /// 에서 받은 raw isize. `WriteFile` 은 reader 의 `ReadFile` 과 방향이 반대라 동시 안전.
+///
+/// **writer 스레드 전용** — UI 스레드에서 직접 호출 금지(블로킹 I/O). UI 는
+/// `try_send_reverse` 로 채널에 넣고, 이 함수는 writer 스레드가 호출한다.
 pub fn send_reverse(conn_handle: isize, msg: &WireMsg) {
     if conn_handle == 0 {
         logln!("send_reverse: no owner conn handle — dropped evt={:?}", msg.evt);
@@ -279,18 +462,17 @@ pub fn send_reverse(conn_handle: isize, msg: &WireMsg) {
     };
     let handle = HANDLE(conn_handle as *mut _);
     let bytes = line.as_bytes();
-    let mut written: u32 = 0;
-    let ok = unsafe {
-        windows::Win32::Storage::FileSystem::WriteFile(handle, Some(bytes), Some(&mut written), None)
-    }
-    .is_ok();
-    if ok {
-        logln!(
-            "send_reverse: wrote {written} bytes evt={:?} seq={} owner_hwnd={:?}",
-            msg.evt, msg.seq, msg.owner_hwnd
-        );
-    } else {
-        logln!("send_reverse: WriteFile failed err={:?} evt={:?}", unsafe { GetLastError() }, msg.evt);
+    // B4-2: overlapped write — reader 의 ReadFile 진행 중에도 즉시 시작된다(직렬화 없음).
+    match overlapped_write(handle, bytes) {
+        Ok(written) => {
+            logln!(
+                "send_reverse: wrote {written} bytes evt={:?} seq={} owner_hwnd={:?}",
+                msg.evt, msg.seq, msg.owner_hwnd
+            );
+        }
+        Err(()) => {
+            logln!("send_reverse: WriteFile failed err={:?} evt={:?}", unsafe { GetLastError() }, msg.evt);
+        }
     }
 }
 
