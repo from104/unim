@@ -1200,7 +1200,7 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
     }
     fn OnSetFocus(
         &self,
-        _pdimfocus: Ref<'_, ITfDocumentMgr>,
+        pdimfocus: Ref<'_, ITfDocumentMgr>,
         _pdimprevfocus: Ref<'_, ITfDocumentMgr>,
     ) -> Result<()> {
         // (Phase 0) 포커스가 새 문서 컨텍스트로 이동 → 폴백 상태 리셋.
@@ -1242,18 +1242,33 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             .as_deref()
             .map(|name| name == "winword.exe")
             .unwrap_or(false);
+        // 비밀번호 필드 임시 영문(버그2): 포커스 문서의 InputScope 를 조회해
+        // IS_PASSWORD(또는 PIN 계열)면 content_purpose=Password, 아니면 Normal 로 둔다.
+        // 코어 set_content_purpose 상태머신이 진입 시 직전 한/영 저장+영문 강제,
+        // 벗어남 시 직전 상태 복구를 수행한다. COM 조회(edit session)는 시스템콜이므로
+        // 엔진 락을 잡기 전에 먼저 수행한다(락 보유 중 시스템콜 금지). 실패 시 normal.
+        let is_password =
+            crate::input_scope::focus_is_password(pdimfocus.as_ref(), self.client_id());
+        let content_purpose = if is_password {
+            unim::config::ContentPurpose::Password
+        } else {
+            unim::config::ContentPurpose::Normal
+        };
         {
             let mut engine = self.engine.lock().unwrap();
             // 진단: ThreadMgr OnSetFocus 게이트 발화 여부 + 판정 확인용(매-키 게이트와 동일 포맷).
             crate::register::dbg_log(&format!(
-                "word-gate: ThreadMgr::OnSetFocus proc='{}' focus_hwnd=0x{:x} → word_mode={} (was={})",
+                "word-gate: ThreadMgr::OnSetFocus proc='{}' focus_hwnd=0x{:x} → word_mode={} (was={}) is_password={}",
                 fg_name.as_deref().unwrap_or("<취득실패>"),
                 focus_hwnd,
                 word_mode,
-                engine.is_word_mode()
+                engine.is_word_mode(),
+                is_password
             ));
             engine.reset();
             engine.set_word_mode(word_mode);
+            // 비밀번호 진입→임시 영문 / 벗어남→직전 한/영 복구 (코어 상태머신, 멱등).
+            engine.set_content_purpose(content_purpose);
         }
         // Phase 4 — 포커스 전환 시 보유 영문 누적 폐기(이전 문서 보유분이 새 컨텍스트로 새지
         // 않게). 조합 객체는 보통 OnCompositionTerminated 가 이미 정리하므로 누적만 비운다.

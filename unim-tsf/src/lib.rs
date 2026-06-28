@@ -18,6 +18,8 @@ mod composition;
 #[cfg(windows)]
 mod display_attr;
 #[cfg(windows)]
+mod input_scope;
+#[cfg(windows)]
 mod key_handler;
 #[cfg(windows)]
 mod lang_bar;

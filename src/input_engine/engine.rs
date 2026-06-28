@@ -94,6 +94,13 @@ pub struct InputEngine {
     /// `Word` 면 `korean_context.set_accumulate_word(true)` 로 단어 누적을 켠다.
     /// `set_word_mode` 토글·`rebuild`/`set_layout` 재구성 경로에서 일관되게 반영된다.
     pub(super) commit_unit: CommitUnit,
+    /// 비밀번호/PIN 필드 진입 시 저장한 직전 입력 카테고리 (자동 복구용).
+    ///
+    /// `set_content_purpose` 상태머신이 password/PIN 진입 시 현재 카테고리를
+    /// 저장하고 영문으로 강제 전환하며, 필드를 벗어나면(비-비밀번호 목적) 저장값을
+    /// 복구한 뒤 클리어한다. `None` = 저장 없음(평소 경로 — 바이트 동일 무회귀).
+    /// 멱등(이중 저장/복구 방지).
+    pub(super) saved_category: Option<InputCategory>,
 }
 
 impl Default for InputEngine {
@@ -182,6 +189,7 @@ impl InputEngine {
             surrounding_cursor: 0,
             surrounding_anchor: 0,
             commit_unit,
+            saved_category: None,
         };
 
         // Word 모드면 단어 누적을 초기 주입 (Smart/Syllable = 누적 off, 기존 동작).
