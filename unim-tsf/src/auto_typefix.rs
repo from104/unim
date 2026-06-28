@@ -96,6 +96,16 @@ impl AutoTypeFixState {
         self.undo = None;
         self.recent_corrections.clear();
     }
+
+    /// Phase 4(S1): 보유 영문 Backspace 시 키스트로크 버퍼를 1개 동기 축소한다.
+    ///
+    /// TSF 보유 영문(english_hold)에서 Backspace 가 들어오면 보유 문자열은 1자 줄지만
+    /// ATF 버퍼는 그대로라, 이후 순방향 교정의 delete_chars(버퍼 길이 기반)가 보유 영문
+    /// 길이와 어긋나 mismatch degrade 로 떨어진다. 버퍼도 함께 -1 해(둘 다 키당 1자)
+    /// `english_hold.len() == buf.len()` 불변식을 유지해 정상 교정 매칭을 지킨다.
+    pub fn pop_keystroke(&mut self) -> bool {
+        self.buf.pop_last()
+    }
 }
 
 // ── rollback 관찰 헬퍼 ────────────────────────────────────────────────────────
@@ -333,6 +343,16 @@ pub fn process_after_key(
         if let Some((fix, suppression_key)) = fix_opt {
             let fix_has_replay = !fix.replay_keys.is_empty();
 
+            // Phase 4(순방향 word 모드): 전체 단어를 word 라이브 조합으로 재구성하려면 전체
+            // 키스트로크가 필요하다(fix.replay_keys 는 마지막 음절만 담음). 아래 buf.clear()
+            // 전에 전체 시퀀스를 포착한다. 비-word/역방향에서는 사용하지 않으므로 무해.
+            let all_keys: Vec<(KeyCode, ModifierState)> = state
+                .buf
+                .entries_vec()
+                .iter()
+                .map(|e| (e.keycode, e.modifier))
+                .collect();
+
             // undo 상태 저장 (engine_worker:782-789)
             state.undo = Some(UndoState {
                 corrected: fix.corrected.clone(),
@@ -377,23 +397,42 @@ pub fn process_after_key(
             state.buf.clear();
 
             if fix_has_replay {
-                // 순방향 (영→한): 엔진 리셋 후 replay_keys 재생 (engine_worker:849-880)
+                // 순방향 (영→한): 엔진 리셋 후 replay 재생 (engine_worker:849-880).
+                //
+                // Phase 4(word 모드 분기): 코어 word 모드(winword 게이트)였으면, 리셋한 엔진을
+                // 다시 word 모드로 두고 **전체 키스트로크**(all_keys)를 재생한다. 그러면
+                // preedit_str()(=word_buffer+현재 음절)이 전체 한글 단어가 되어, 호출부가 보유
+                // 영문 라이브 조합을 그 단어로 SetText 치환하고 committed=0 word 라이브 조합으로
+                // 계속 보유할 수 있다(엔진 word_buffer 와 정합, 이어치기). commit_text 는 "" 로
+                // 둔다(전체가 단일 라이브 조합). 비-word 는 종전대로 마지막 음절만 replay.
+                let was_word = engine.is_word_mode();
                 let current_cat = engine.input_category();
                 *engine = InputEngine::new(config);
                 engine.set_input_category(current_cat);
 
-                for (k, m) in &fix.replay_keys {
-                    engine.press_key(*k, *m, config);
-                }
-
-                let replay_preedit = engine.preedit_str().to_string();
-                engine.clear_commit();
+                let (commit_text, replay_preedit) = if was_word {
+                    engine.set_word_mode(true);
+                    for (k, m) in &all_keys {
+                        engine.press_key(*k, *m, config);
+                    }
+                    let full_word = engine.preedit_str().to_string();
+                    engine.clear_commit();
+                    (String::new(), full_word)
+                } else {
+                    for (k, m) in &fix.replay_keys {
+                        engine.press_key(*k, *m, config);
+                    }
+                    let rp = engine.preedit_str().to_string();
+                    engine.clear_commit();
+                    (fix.commit_text.clone(), rp)
+                };
 
                 unim_log!(
                     "TSF_ATF",
-                    "[TSF AutoTypeFix] 순방향 replay: preedit='{}', commit='{}'",
+                    "[TSF AutoTypeFix] 순방향 replay(word={}): preedit='{}', commit='{}'",
+                    was_word,
                     replay_preedit,
-                    fix.commit_text
+                    commit_text
                 );
 
                 // 순방향(영→한) delete_chars = 입력한 영문 전체 길이.
@@ -403,11 +442,12 @@ pub fn process_after_key(
                 // 각 키가 조합 없이 즉시 commit 되어 앱(메모장 등)에 N 자가 모두 있으므로,
                 // -1 하면 커서 앞 N-1 자만 지워져 첫 글자가 잔류한다("ntkd"→"n서기" 버그).
                 // (역방향(한→영)은 마지막 음절이 조합 중=미commit 이라 별도 -1 보정이 정당.)
+                // word 모드(Phase 4)는 호출부가 delete_chars 를 SetText 치환 길이검증에만 쓴다.
                 let delete_chars = fix.delete_chars;
 
                 Some(AutoFixApply {
                     delete_chars,
-                    commit_text: fix.commit_text,
+                    commit_text,
                     replay_preedit,
                     end_composition: false,
                 })

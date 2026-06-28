@@ -202,7 +202,12 @@ impl UnimTextService {
         let preedit = engine.preedit_str().to_string();
         {
             let mut comp_mgr = self.composition_mgr.lock().unwrap();
-            if comp_mgr.is_active() {
+            if comp_mgr.english_hold_active() {
+                // Phase 4 — 보유 영문 라이브 조합(영문은 engine preedit 없음)을 영문 그대로 확정.
+                // end_composition(None)으로 종료하면 range 텍스트가 비워져 보유 영문이 사라지므로,
+                // 반드시 보유 문자열로 확정한다.
+                comp_mgr.confirm_english_hold(context, tid);
+            } else if comp_mgr.is_active() {
                 if preedit.is_empty() {
                     comp_mgr.end_composition(context, tid);
                 } else {
@@ -709,6 +714,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let popup_active = self.popup_ipc.lock().unwrap().is_active();
+        // Phase 4 — 보유 영문 라이브 조합이 떠 있으면(영문은 engine.is_composing()=false 이므로)
+        // 경계/네비게이션/조합단축 패스쓰루 게이트가 이를 조합처럼 취급해 먼저 영문 확정하게 한다.
+        // (lock 순서 engine→composition 준수 — OnKeyDown 과 동일 접두.)
+        let has_english_hold = self.composition_mgr.lock().unwrap().english_hold_active();
 
         let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
 
@@ -746,9 +755,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let is_combo = !is_bare_modifier
             && !is_toggle
             && (m.control || m.alt || m.super_key || (m.shift && !kc.is_character_key()));
-        if !popup_active && engine.is_composing() && is_bare_modifier {
+        if !popup_active && (engine.is_composing() || has_english_hold) && is_bare_modifier {
             // 조합 중 수정자 단독 키다운: 조합을 깨지 않고 투명 통과(시프트-자모가
-            // 같은 음절에 결합되도록 보존). 토글키(우Alt 등)는 is_toggle 로 제외돼
+            // 같은 음절에 결합되도록 보존). 보유 영문(Phase 4)도 동일 — Shift 단독 키다운
+            // (대문자 입력 등)에서 보유를 깨지 않는다. 토글키(우Alt 등)는 is_toggle 로 제외돼
             // 아래 test_key_down 의 is_toggle 분기가 소비/토글을 처리한다.
             crate::register::dbg_log(&format!(
                 "OnTestKeyDown: modifier keydown 조합 보존(투과) vk=0x{:02X}",
@@ -756,7 +766,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             ));
             return Ok(FALSE);
         }
-        if !popup_active && engine.is_composing() && is_combo {
+        if !popup_active && (engine.is_composing() || has_english_hold) && is_combo {
             if let Some(context) = pic.as_ref() {
                 self.commit_for_passthrough(&mut engine, context);
                 crate::register::dbg_log(&format!(
@@ -774,7 +784,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // (commit 을 OnKeyDown 에서 한 뒤 false 반환하면 CUAS 가 이미 claim 된 키를
         // 앱으로 안 흘려보낸다 — Enter/화살표가 동작하지 않던 원인.)
         // 팝업 활성 시에는 이 키들이 후보 내비게이션이므로 제외한다.
-        if !popup_active && engine.is_composing() && key_handler::is_commit_passthrough_key(kc) {
+        if !popup_active
+            && (engine.is_composing() || has_english_hold)
+            && key_handler::is_commit_passthrough_key(kc)
+        {
             if let Some(context) = pic.as_ref() {
                 self.commit_for_passthrough(&mut engine, context);
                 crate::register::dbg_log(&format!(
@@ -783,6 +796,22 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 ));
                 return Ok(FALSE);
             }
+        }
+
+        // ── Phase 4(S1): 보유 영문 라이브 조합 중 Backspace 소비 ──
+        //
+        // 보유 영문(committed=0 라이브 조합) 편집용 Backspace 는 위 패스쓰루 게이트(수정자/
+        // 조합/commit-passthrough)에 모두 해당하지 않아 아래 test_key_down 으로 떨어지는데,
+        // 영문은 engine.is_composing()=false 라 거기서도 미소비(eaten=FALSE)→앱 직행→OnKeyDown
+        // 미호출이 된다. 그러면 english_hold 가 불변이라 백스페이스가 무효화되고 desync 가 난다.
+        // 여기서 소비(eaten=TRUE)해 OnKeyDown(handle_key_down)이 호출되도록 보장한다(거기서
+        // english_hold pop + ATF 버퍼 동기 축소). Shift+Backspace 등 수정자 조합은 위 is_combo
+        // 분기가 이미 처리(영문 확정 + 패스쓰루)하므로 여기엔 순수 Backspace 만 도달한다.
+        if !popup_active && has_english_hold && kc == unim::keycode::KeyCode::Backspace {
+            crate::register::dbg_log(
+                "OnTestKeyDown: 보유 영문 Backspace 소비(eaten=TRUE → OnKeyDown 보장)",
+            );
+            return Ok(TRUE);
         }
 
         let eaten =
@@ -857,6 +886,13 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 재생성으로 word 모드 리셋 가능) 직후·엔진 키처리 직전에 word 모드를 재보장한다.
         // 내부에서 엔진 락을 짧게 잡으므로 아래 락 취득보다 반드시 앞에 둔다(재진입 방지).
         self.reapply_word_gate();
+        // Phase 4 — 포커스 창이 학습된 CUAS(즉시-terminate 브리지)인지 판정(영문 라이브 보유
+        // 게이트). cuas_windows 는 GetFocus().0 로 키잉되므로 동일 기준 사용. 시스템콜이라
+        // 엔진 락 밖에서 먼저 구한다(락 보유 중 시스템콜 금지). Word 는 미등록 불변식 → false.
+        let known_cuas = {
+            let focus_hwnd = unsafe { GetFocus() }.0 as isize;
+            focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd)
+        };
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
@@ -893,6 +929,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             &comp_sink,
             self.composition_unsupported.load(Ordering::SeqCst),
             &self.fallback_pending,
+            known_cuas,
         );
 
         // 갭1: 엔진→랭귀지바 동기화.
@@ -1193,6 +1230,9 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             engine.reset();
             engine.set_word_mode(word_mode);
         }
+        // Phase 4 — 포커스 전환 시 보유 영문 누적 폐기(이전 문서 보유분이 새 컨텍스트로 새지
+        // 않게). 조합 객체는 보통 OnCompositionTerminated 가 이미 정리하므로 누적만 비운다.
+        self.composition_mgr.lock().unwrap().clear_english_hold();
         // 포커스 전환 → 팝업 Hide 송신 (렌더러 owner 규칙으로 stale hide 무시 처리).
         self.popup_ipc.lock().unwrap().hide();
         // 포커스 이동 → 보관 컨텍스트 무효화 (역채널 마우스 확정이 옛 창에 안 가도록).

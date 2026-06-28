@@ -315,6 +315,15 @@ pub struct CompositionManager {
     /// selection 을 유지한다(CUAS 즉시-terminate 회피 불변식). word 모드는 winword.exe
     /// 에서만 켜지므로(text_service word-gate), false 경로는 종전과 바이트 동일하다.
     word_mode_hint: bool,
+    /// 단어별 preedit Phase 4 — Word 협조앱 영문 라이브 보유 버퍼.
+    ///
+    /// 영문 모드 + word 게이트(winword) + 협조앱(`!known_cuas`)에서, 코어가 즉시 확정한
+    /// 영문 알파벳을 문서에 바로 삽입하지 않고 committed=0 라이브 조합으로 누적한다. 그래야
+    /// ATF 순방향(영→한)이 이 조합을 교정 한글로 SetText 치환할 수 있다(Word 가 확정문 삭제는
+    /// 차단하지만 미확정 조합 SetText 는 허용 — D1). 누적 문자열 자체가 보유 영문의 source of
+    /// truth 이며, 비어 있으면 "보유 중 아님"을 뜻한다. CUAS/터미널/Blink/IMM32 경로에서는
+    /// **절대** 채우지 않는다(호출부 게이트가 보장 — 과거 B2 즉시-terminate 학습 재발 차단).
+    english_hold: String,
 }
 
 impl CompositionManager {
@@ -325,6 +334,7 @@ impl CompositionManager {
             attr_atom: None,
             synth_slot: Arc::new(Mutex::new(None)),
             word_mode_hint: false,
+            english_hold: String::new(),
         }
     }
 
@@ -333,6 +343,95 @@ impl CompositionManager {
     }
     pub fn clear(&mut self) {
         self.composition = None;
+        // Phase 4 — 조합 추적이 끊기면(외부 terminate/포커스 등) 보유 영문도 함께 폐기한다.
+        // 보유 영문 조합이 외부에서 terminate 되면 Word 가 interim 텍스트를 문서에 보존하므로
+        // (재삽입 불필요) 누적만 비워 "문서=확정, 보유=없음" 동기를 맞춘다.
+        self.english_hold.clear();
+    }
+
+    // ── Phase 4: Word 협조앱 영문 라이브 보유 ──
+
+    /// 보유 영문 조합이 현재 떠 있는지(누적 문자열이 비어있지 않은지) 반환한다.
+    pub fn english_hold_active(&self) -> bool {
+        !self.english_hold.is_empty()
+    }
+
+    /// 현재 보유 중인 영문 문자열 사본(길이 비교·진단용).
+    pub fn english_hold_text(&self) -> String {
+        self.english_hold.clone()
+    }
+
+    /// 새 영문 문자를 라이브 조합으로 누적한다(start 또는 update).
+    ///
+    /// 활성 조합이 없으면 `start_composition`, 있으면(=보유 영문 연장) `update_composition`
+    /// 으로 조합을 연장한다. 누적 문자열(`english_hold`)이 보유 영문의 source of truth 다.
+    /// `word_mode_hint`(끝-caret) 를 그대로 사용한다. 호출부(key_handler)는 Word + 협조앱 +
+    /// 영문 모드 + 단일 알파벳일 때만 호출한다(게이트). 코어 영문 commit 시맨틱은 불변.
+    pub fn hold_english(
+        &mut self,
+        context: &ITfContext,
+        tid: u32,
+        ch: &str,
+        comp_sink: &ITfCompositionSink,
+    ) {
+        self.english_hold.push_str(ch);
+        let text = self.english_hold.clone();
+        if self.composition.is_some() {
+            self.update_composition(context, tid, &text);
+        } else {
+            self.start_composition(context, tid, &text, comp_sink);
+        }
+    }
+
+    /// 보유 영문을 영문 그대로 확정하고 보유를 종료한다(경계/네비게이션 패스쓰루).
+    ///
+    /// 활성 조합이 있으면 `end_composition_with_text`(보유 영문), 없으면(드묾) `insert_text`
+    /// 로 확정한다. 어느 쪽이든 누적은 비운다. ATF 미발동(정상 영문) 단어가 space/구두점/
+    /// Enter/방향키 등에서 매끄럽게 확정되는 경로다.
+    pub fn confirm_english_hold(&mut self, context: &ITfContext, tid: u32) {
+        if self.english_hold.is_empty() {
+            return;
+        }
+        let text = std::mem::take(&mut self.english_hold);
+        if self.composition.is_some() {
+            self.end_composition_with_text(context, tid, &text);
+        } else {
+            self.insert_text(context, tid, &text);
+        }
+    }
+
+    /// 보유 영문 라이브 조합에서 마지막 문자 1개를 지운다(Phase 4 S1 Backspace).
+    ///
+    /// `english_hold` 의 마지막 char 를 pop 하고, 남으면 `update_composition` 으로 재렌더
+    /// (캐럿 끝), 비면 활성 조합을 `end_composition` 으로 종료하고 보유를 해제한다. 보유가
+    /// 없었으면 아무 동작도 하지 않는다. 반환값은 pop 이후에도 보유가 남아있는지
+    /// (true=조합 유지, false=종료/해제됨). **영문 모드 보유 영문 전용** — 한글 word 모드
+    /// Backspace(코어 키스트로크 재생)와는 호출부 게이트로 분리한다. ATF 키스트로크 버퍼
+    /// 동기 축소는 호출부(key_handler)가 별도로 담당한다(관심사 분리).
+    pub fn backspace_english_hold(&mut self, context: &ITfContext, tid: u32) -> bool {
+        if self.english_hold.is_empty() {
+            return false;
+        }
+        self.english_hold.pop();
+        if self.english_hold.is_empty() {
+            if self.composition.is_some() {
+                self.end_composition(context, tid);
+            }
+            false
+        } else {
+            let text = self.english_hold.clone();
+            self.update_composition(context, tid, &text);
+            true
+        }
+    }
+
+    /// 보유 영문 누적만 비운다(조합 객체는 보존 — 호출부가 한글 word 조합으로 전용).
+    ///
+    /// ATF 순방향 치환에서, 보유 영문 라이브 조합을 교정 한글로 `update_composition` 한 직후
+    /// 호출한다. 같은 `ITfComposition` 이 이제 한글 word 라이브 조합으로 계속 떠 있으므로
+    /// (committed=0, 이어치기 가능) 누적 영문만 폐기한다.
+    pub fn clear_english_hold(&mut self) {
+        self.english_hold.clear();
     }
 
     /// 단어별 preedit caret 정책 힌트를 설정한다(start/update/commit_and_restart 가 읽음).

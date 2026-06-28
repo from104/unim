@@ -259,6 +259,10 @@ pub fn handle_key_down(
     composition_unsupported: bool,
     // 폴백 모드에서 문서에 떠있는 미확정 글자 수 (다음 키에서 지울 양).
     fallback_pending: &AtomicUsize,
+    // Phase 4 — 포커스 창이 cuas_windows 에 학습된 즉시-terminate(CUAS/IMM32 브리지) 앱인지.
+    // true 면 영문 라이브 보유를 하지 않는다(B2 즉시-terminate 학습 재발 차단). Word 는
+    // 정식 TSF 앱이라 cuas_windows 미등록 불변식 → 항상 false(방어적 게이트).
+    known_cuas: bool,
 ) -> KeyDownOutcome {
     let vk = wparam.0 as u16;
     let keycode = KeyCode::from_win32_vk(vk);
@@ -328,6 +332,29 @@ pub fn handle_key_down(
             }
         }
         return KeyDownOutcome { eaten: true, schedule_flush };
+    }
+
+    // ── Phase 4(S1): 보유 영문 라이브 조합 중 Backspace ──
+    //
+    // 보유 영문(english_hold = committed=0 라이브 조합)은 코어 엔진이 추적하지 않는 TSF-측
+    // 조합이다. 이 상태의 Backspace 를 press_key 로 보내면(영문 모드라 엔진이 미소비) 앱으로
+    // 흘러가 english_hold 가 불변인 채 desync 가 나고, 다음 영문 키의 hold_english 가 전체를
+    // 덮어써 백스페이스가 무효화된다. 따라서 여기서 직접 처리한다(한글 word 모드 Backspace=
+    // 코어 키스트로크 재생과는 별개 — 보유 영문은 항상 영문 모드라 섞이지 않는다):
+    //  ① english_hold 마지막 문자 pop + 라이브 조합 재렌더(비면 조합 종료/보유 해제),
+    //  ② ATF 키스트로크 버퍼도 1개 동기 축소(둘 다 키당 1자 → 순방향 delete_chars 매칭 유지),
+    //  ③ 앱에는 전달하지 않고 소비(eaten=true).
+    // OnTestKeyDown 에서 이미 소비(eaten=TRUE)되어 OnKeyDown 호출이 보장된다.
+    if keycode == KeyCode::Backspace && comp_mgr.english_hold_active() && !popup.is_active() {
+        comp_mgr.backspace_english_hold(context, tid);
+        atf_state.pop_keystroke();
+        crate::register::dbg_log(
+            "handle_key_down: 보유 영문 Backspace → english_hold pop + ATF 버퍼 동기 축소(앱 미전달)",
+        );
+        return KeyDownOutcome {
+            eaten: true,
+            schedule_flush: false,
+        };
     }
 
     // ── Backspace 관찰 (blacklist 재트리거 감지용) ──
@@ -433,6 +460,29 @@ pub fn handle_key_down(
         commit_str_for_atf = if !commit.is_empty() { Some(commit.clone()) } else { None };
         preedit_str_for_atf = if result.preedit_changed { Some(preedit.clone()) } else { None };
 
+        // ── 단어별 preedit Phase 4: Word 협조앱 영문 라이브 보유 ──
+        // 영문 모드 + word 게이트(winword) + 협조앱(!known_cuas) + ATF 순방향 ON 이고,
+        // 코어가 막 확정한 출력이 단일 영문 알파벳이면, 문서에 즉시 삽입(insert_text)하지 않고
+        // committed=0 라이브 조합으로 누적한다(hold_english). 그래야 ATF 순방향이 이 조합을
+        // 교정 한글로 SetText 치환할 수 있다(아래 word_live_forward). 게이트 불충족(비-word/
+        // 비협조/한글/경계문자/forward off) → 종전 경로(보유분 있으면 먼저 영문 확정).
+        let hold_eligible = engine.is_word_mode()
+            && !known_cuas
+            && config.engine.auto_typefix.enabled
+            && config.engine.auto_typefix.forward
+            && engine.input_category() == InputCategory::English
+            && prev_mode == InputCategory::English
+            && preedit.is_empty()
+            && commit.chars().count() == 1
+            && commit.chars().all(|c| c.is_ascii_alphabetic());
+        if hold_eligible {
+            comp_mgr.hold_english(context, tid, &commit, comp_sink);
+        } else {
+        // 보유 중이던 영문 조합이 있는데 비-연장 키(경계/한글/모드전환)가 왔으면, 종전 경로
+        // 진입 전에 보유 영문을 영문 그대로 먼저 확정한다(미교정 영문 단어 경계 확정).
+        if comp_mgr.english_hold_active() {
+            comp_mgr.confirm_english_hold(context, tid);
+        }
         let composing = was_composing || comp_mgr.is_active();
 
         if !commit.is_empty() && result.preedit_changed && !preedit.is_empty() && composing {
@@ -475,6 +525,7 @@ pub fn handle_key_down(
                 }
             }
         }
+        } // ← Phase 4: hold_eligible else (보유 확정 + 종전 경로)
     }
 
     // ── AutoTypeFix 오케스트레이션 ──
@@ -488,6 +539,10 @@ pub fn handle_key_down(
     let popup_active = popup.is_active();
     let mut schedule_flush = false;
     if !popup_active {
+        // process_after_key 가 역방향 교정 시 엔진을 재생성(InputEngine::new)하며 word 모드를
+        // syllable 로 리셋하므로, Word 라이브 조합 치환 분기 판정에 쓸 word 모드 값을 호출 전에
+        // 포착한다(다음 키의 reapply_word_gate 가 word 모드를 재보장 — text_service.rs).
+        let was_word_mode = engine.is_word_mode();
         if let Some(apply) = auto_typefix::process_after_key(
             atf_state,
             engine,
@@ -499,6 +554,71 @@ pub fn handle_key_down(
             commit_str_for_atf.as_deref(),
             preedit_str_for_atf.as_deref(),
         ) {
+            // ── Word 모드 라이브 조합 영문 치환 (역방향 한→영) — Phase 3b ──
+            // Word(winword.exe 게이트)에서 한글 단어는 committed=0 인 단일 라이브 조합으로
+            // 떠 있다. 역방향 교정 시, 확정문 삭제(Word 가 차단)를 동반하는 replace_surrounding
+            // 대신 라이브 조합을 영문으로 SetText 치환·확정(end_composition_with_text)한다 —
+            // 미확정 조합 SetText 는 Word 가 허용(D1). 삭제·SendInput 0, 단일 edit session.
+            //
+            // 게이트(하나라도 불충족 → 기존 경로 바이트 동일): word 모드(호출 전 포착) + 활성
+            // 조합 + 역방향(replay 비어있음 + 영문 commit) + committed 삭제 0(순수 라이브 조합).
+            let word_live_reverse = was_word_mode
+                && comp_mgr.is_active()
+                && apply.replay_preedit.is_empty()
+                && apply.delete_chars == 0
+                && !apply.commit_text.is_empty();
+            if word_live_reverse {
+                // 엔진은 process_after_key 가 이미 리셋(InputEngine::new)·영문 모드 전환 완료 →
+                // 라이브 조합만 영문으로 치환·확정하면 문서=영문 확정/엔진=빈 조합 동기.
+                comp_mgr.end_composition_with_text(context, tid, &apply.commit_text);
+                // N1(방어): 역방향(한→영)은 영문 보유와 양립하지 않으므로 논리상 도달하지
+                // 않으나, 만에 하나 보유가 잔존하면 후속 confirm_english_hold 가 중복 삽입할
+                // 수 있어 방어적으로 비운다(보유 없으면 no-op).
+                comp_mgr.clear_english_hold();
+                crate::register::dbg_log(&format!(
+                    "ATF word-rev: 라이브 조합 → '{}' SetText 치환·확정(delete=0, no SendInput)",
+                    apply.commit_text
+                ));
+            } else if was_word_mode
+                && comp_mgr.english_hold_active()
+                && !apply.replay_preedit.is_empty()
+            {
+                // ── Phase 4 순방향(영→한) — 보유 영문 라이브 조합을 교정 한글로 SetText 치환 ──
+                // 보유 영문(committed=0 라이브 조합)을 교정 한글로 바꾼다. Word 가 차단하는 확정문
+                // 삭제(replace_surrounding) 대신 미확정 조합 SetText(update_composition)만 쓴다
+                // (삭제·SendInput 0, 단일 edit session). process_after_key 가 word 모드면 엔진을
+                // word 모드 + 전체 한글 누적으로 리셋하고 commit_text="" / replay_preedit=전체 한글
+                // (word_buffer+음절)을 돌려준다. 길이 일치(보유 영문 글자수 == delete_chars) +
+                // commit_text 비었음을 확인해 SetText 치환하고, 교정 한글은 word 모드 라이브 조합
+                // 으로 계속 보유한다(committed=0, 이어치기 → 다음 한글 키가 정상 word 경로로 연장).
+                if comp_mgr.is_active()
+                    && apply.commit_text.is_empty()
+                    && comp_mgr.english_hold_text().chars().count() == apply.delete_chars as usize
+                {
+                    comp_mgr.update_composition(context, tid, &apply.replay_preedit);
+                    comp_mgr.clear_english_hold();
+                    crate::register::dbg_log(&format!(
+                        "ATF word-fwd: 보유 영문 라이브 조합 → '{}' SetText 치환(삭제0, live 유지)",
+                        apply.replay_preedit
+                    ));
+                } else {
+                    // 길이/형태 불일치(주로 expiry desync — 희귀) → 손상 0 안전책: 보유 영문 그대로
+                    // 확정하고 교정 스킵(replace_surrounding 미진입 — committed 삭제 오작동 방지).
+                    comp_mgr.confirm_english_hold(context, tid);
+                    // S2: process_after_key 가 엔진을 이미 한글 word(전체 한글 word_buffer +
+                    // 음절 preedit)로 리셋해둔 상태다. 영문만 확정하고 떠나면 문서=영문/엔진=한글
+                    // word 가 어긋나, 다음 키가 엔진의 잔존 한글 word 를 연장해 "english한글"
+                    // 이중출력이 난다. 엔진을 reset(빈 조합)한 뒤 영문 모드로 복원해 문서(영문
+                    // 확정)와 동기화한다 → 손상 0 안전 degrade 실현. reset 이 korean_context·
+                    // commit·preedit 를 모두 비우므로, 이어지는 set_input_category 의 flush_preedit
+                    // 가 stale 한글을 commit 으로 흘리지 않는다(reset → set 순서 필수).
+                    engine.reset();
+                    engine.set_input_category(InputCategory::English);
+                    crate::register::dbg_log(
+                        "ATF word-fwd: 보유 영문 길이 불일치 → 영문 확정 + 엔진 reset·영문복원(이중출력 제거, 손상 0)",
+                    );
+                }
+            } else {
             // 역방향(한→영): replace_surrounding 전에 활성 composition 을 먼저 종료해
             // 조합 중 음절을 문서에서 제거한다. 그래야 남은 committed 한글만 delete 하면
             // 화면의 한글이 정확히 모두 사라진다(조합 음절 잔류 방지).
@@ -545,6 +665,7 @@ pub fn handle_key_down(
                         "synth head-tail → 머리 확정 + 꼬리 라이브 예약(엔진 preedit 보존)",
                     );
                 }
+            }
             }
         }
     }

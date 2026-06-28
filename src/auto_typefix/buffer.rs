@@ -67,6 +67,15 @@ impl KeystrokeBuffer {
         self.has_preedit = false;
     }
 
+    /// 마지막 키스트로크 엔트리를 1개 제거한다(Backspace 동기 축소용). 비어 있으면 false.
+    ///
+    /// TSF 보유 영문(english_hold) 라이브 조합에서 Backspace 가 들어오면, 보유 문자열과
+    /// 키스트로크 버퍼 길이를 키당 1자로 함께 줄여(둘 다 -1) 순방향 교정의 delete_chars
+    /// 매칭 불변식을 유지하기 위한 추가 API. 코어 조합/영문 처리 로직과는 무관.
+    pub fn pop_last(&mut self) -> bool {
+        self.entries.pop_back().is_some()
+    }
+
     /// 현재 키스트로크 수
     pub fn len(&self) -> usize {
         self.entries.len()

@@ -11,5 +11,5 @@
   <?define UnimDisplayAttrConverted = "{D4E5F6A7-B8C9-0123-DEF0-234567890123}" ?>
   <?define UnimLangIdHex = "0x0412" ?>
   <?define UnimLangIdHexPadded = "0x00000412" ?>
-  <?define UnimVersion = "0.3.43" ?>
+  <?define UnimVersion = "0.3.46" ?>
 </Include>
