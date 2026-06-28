@@ -162,6 +162,23 @@ pub fn is_commit_passthrough_key(keycode: KeyCode) -> bool {
     )
 }
 
+/// 넘패드(NumLock ON) 숫자/기호 키의 Win32 VK 인지 판단.
+///
+/// VK_NUMPAD0..9(0x60-0x69) + VK_MULTIPLY/ADD/SEPARATOR/SUBTRACT/DECIMAL/DIVIDE
+/// (0x6A-0x6F). 이 VK 들은 `from_win32_vk` 가 매핑하지 않아 `KeyCode::Unknown` 이
+/// 되고 `is_character_key()=false` 라, 조합 중 OnTestKeyDown 의 문자/네비/커밋
+/// 패스쓰루 게이트를 전부 통과하지 못한다. 그 결과 OnKeyDown 이 호출되지 않아
+/// 한글이 확정되지 않은 채 앱이 넘패드 문자를 먼저 받아 입력 순서가 역전된다.
+/// 이 헬퍼로 식별해 조합을 먼저 확정(commit_for_passthrough)한 뒤 FALSE 로
+/// 통과시켜 "한글 확정 → 넘패드 문자" 의 올바른 순서를 맞춘다.
+///
+/// NumLock OFF 면 같은 물리 키가 VK_HOME/VK_LEFT 등 다른 VK 로 오므로
+/// (0x60-0x6F 범위 밖) 별도 NumLock 검사가 필요 없다 — 그 경우는 기존
+/// navkey(`is_commit_passthrough_key`) 경로가 동일하게 확정·통과한다.
+pub fn is_numpad_vk(vk: u16) -> bool {
+    (0x60..=0x6F).contains(&vk)
+}
+
 /// 팝업 활성 시 소비해야 할 키인지 판단.
 ///
 /// 엔진의 `keycode_to_popup_key` 매핑과 동일한 범위를 소비한다.

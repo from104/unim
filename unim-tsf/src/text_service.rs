@@ -798,6 +798,31 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             }
         }
 
+        // ── 버그①: 조합 중 넘패드(NumLock ON) 숫자/기호 패스쓰루 ──
+        //
+        // VK_NUMPAD0..9·MULTIPLY·ADD·SEPARATOR·SUBTRACT·DECIMAL·DIVIDE(0x60-0x6F)는
+        // from_win32_vk 가 미매핑 → KeyCode::Unknown → is_character_key()=false 라,
+        // 위 문자/네비/커밋 패스쓰루 게이트를 전부 통과하지 못한다. 그러면 OnKeyDown 이
+        // 호출되지 않아 조합이 확정되지 않은 채 넘패드 문자가 앱에 먼저 들어가 순서가
+        // 역전된다(한글 잔류 + 숫자/기호 선입력). navkey 와 동일하게 현재 조합을 먼저
+        // 확정하고 pIsEaten=FALSE 로 통과시켜 "한글 확정 → 넘패드 문자" 순서를 맞춘다.
+        // (Ctrl/Alt/Shift+넘패드 등 수정자 조합은 위 is_combo 분기가 이미 동일하게
+        //  커밋+패스쓰루하므로 여기엔 수정자 없는 순수 넘패드만 도달한다. NumLock OFF
+        //  면 VK 가 0x60-0x6F 가 아니라 VK_HOME/VK_LEFT 등이라 위 navkey 가 처리한다.)
+        if !popup_active
+            && (engine.is_composing() || has_english_hold)
+            && key_handler::is_numpad_vk(raw_vk)
+        {
+            if let Some(context) = pic.as_ref() {
+                self.commit_for_passthrough(&mut engine, context);
+                crate::register::dbg_log(&format!(
+                    "OnTestKeyDown: commit+passthrough numpad vk=0x{:02X}",
+                    raw_vk
+                ));
+                return Ok(FALSE);
+            }
+        }
+
         // ── Phase 4(S1): 보유 영문 라이브 조합 중 Backspace 소비 ──
         //
         // 보유 영문(committed=0 라이브 조합) 편집용 Backspace 는 위 패스쓰루 게이트(수정자/
