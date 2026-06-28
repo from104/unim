@@ -318,6 +318,14 @@ impl InputEngine {
         self.korean_context.set_accumulate_word(on);
     }
 
+    /// 단어별 preedit 모드(단어 누적)가 현재 켜져 있는지 반환합니다.
+    ///
+    /// `commit_unit` 캐시가 아니라 `korean_context` 의 실제 누적 상태(런타임 권위)를
+    /// 반환한다 — `set_word_mode` 런타임 토글이 반영된다.
+    pub fn is_word_mode(&self) -> bool {
+        self.korean_context.is_accumulate_word()
+    }
+
     /// commit 문자열을 반환합니다.
     pub fn commit_str(&self) -> &str {
         &self.commit_buffer
@@ -657,6 +665,19 @@ mod tests {
         engine.set_word_mode(true);
         type_ganan(&mut engine, &config);
         assert_eq!(engine.preedit_str(), "가나");
+    }
+
+    /// is_word_mode() 는 commit_unit 캐시가 아니라 런타임 누적 상태를 반환한다
+    /// (Phase 3a Word 게이트가 매 포커스 토글하는 권위 = korean_context.accumulate_word).
+    #[test]
+    fn is_word_mode_reflects_runtime_toggle() {
+        let config = Config::default(); // 기본 Syllable
+        let mut engine = InputEngine::new(&config);
+        assert!(!engine.is_word_mode(), "기본(Syllable)은 단어 모드 off");
+        engine.set_word_mode(true);
+        assert!(engine.is_word_mode(), "set_word_mode(true) 후 on");
+        engine.set_word_mode(false);
+        assert!(!engine.is_word_mode(), "set_word_mode(false) 후 off");
     }
 
     /// set_word_mode(false) 는 끄기 전 진행 중 조합을 flush 한다 (잔여 단어 손실 없음).

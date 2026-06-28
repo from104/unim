@@ -465,6 +465,12 @@ impl HangulInputContext {
         self.accumulate_word = on;
     }
 
+    /// 단어별 preedit 모드(단어 누적)가 켜져 있는지 반환합니다.
+    #[inline]
+    pub fn is_accumulate_word(&self) -> bool {
+        self.accumulate_word
+    }
+
     /// 현재 조합 상태가 "초성만" 채워진 상태인지 반환합니다.
     /// 세벌식 `key_meta.context_alt.when == "choseong_only"` 분기에서 사용.
     #[inline]

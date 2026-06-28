@@ -997,6 +997,53 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
     }
 }
 
+// ── 단어별 preedit Phase 3a: Word 전용 게이트 헬퍼 ──
+
+/// 포그라운드 창의 프로세스 실행파일 basename(소문자)을 반환한다.
+///
+/// `GetForegroundWindow → GetWindowThreadProcessId → OpenProcess(QUERY_LIMITED)
+/// → QueryFullProcessImageNameW` 경로. 어느 단계든 실패하면 `None` 을 반환하고
+/// 호출부는 syllable 모드로 안전 폴백한다(무회귀). 핸들은 read-only 조회 직후
+/// CloseHandle 로 즉시 반납한다.
+fn foreground_process_basename() -> Option<String> {
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0 as isize == 0 {
+            return None;
+        }
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return None;
+        }
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 512];
+        let mut len = buf.len() as u32;
+        let res =
+            QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
+        // read-only 조회 끝 — 핸들 즉시 반납(이후 분기와 무관하게).
+        let _ = CloseHandle(handle);
+        res.ok()?;
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        let base = path
+            .rsplit(|c| c == '\\' || c == '/')
+            .next()
+            .unwrap_or(path.as_str())
+            .to_ascii_lowercase();
+        if base.is_empty() {
+            None
+        } else {
+            Some(base)
+        }
+    }
+}
+
 // ── ITfThreadMgrEventSink ──
 
 impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
@@ -1037,7 +1084,22 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         crate::synth_input::clear_tail_live();
         // (Phase 1) OnCompositionTerminated 의 "정상 종료" 정리를 이리로 이전.
         //   포커스 이탈 = 사용자가 조합을 떠남 → 엔진 preedit 를 비우고 팝업/ATF 정리.
-        self.engine.lock().unwrap().reset();
+        //
+        // (단어별 preedit Phase 3a) Word 전용 게이트.
+        //   포커스 앱이 winword.exe 면 단어 모드(set_word_mode(true)), 그 외엔
+        //   syllable(현행). 프로세스명 취득 실패 시 false(안전 폴백 = 무회귀).
+        //   매 포커스 재호출되므로 config hot-reload(maybe_reload_config)가 엔진을
+        //   재생성해도 다음 포커스에서 복구된다.
+        //   주의: 이 게이트는 set_word_mode 만 호출 — ATF/펌프-분할/synth 미접촉.
+        //   Win32 호출은 엔진 락 밖에서 먼저 수행(락 보유 중 시스템콜 금지).
+        let word_mode = foreground_process_basename()
+            .map(|name| name == "winword.exe")
+            .unwrap_or(false);
+        {
+            let mut engine = self.engine.lock().unwrap();
+            engine.reset();
+            engine.set_word_mode(word_mode);
+        }
         // 포커스 전환 → 팝업 Hide 송신 (렌더러 owner 규칙으로 stale hide 무시 처리).
         self.popup_ipc.lock().unwrap().hide();
         // 포커스 이동 → 보관 컨텍스트 무효화 (역채널 마우스 확정이 옛 창에 안 가도록).
