@@ -163,6 +163,35 @@ unsafe fn select_composition_range(context: &ITfContext, ec: u32, range: &ITfRan
     res
 }
 
+/// 조합 selection 을 환경(word 모드)에 맞게 설정한다.
+///
+/// - **word 모드(MS Word 단어 단위 조합)**: SetText 후 selection 을 range 끝으로 접힌
+///   0폭 caret(`move_caret_to_end`)으로 둔다. 다음절 word 조합에서
+///   `select_composition_range`(전체 range 선택)는 Word 가 caret/네모를 "선택 시작=첫
+///   글자"에 두어 caret 이 최신 입력을 따라가지 못한다(캐럿이 단어 끝으로 안 따라감).
+///   끝-caret 으로 두면 caret 이 마지막 글자 뒤를 따라간다. 미확정(밑줄) 표시는 호출부가
+///   `set_composition_attribute`/`set_composition_reading` 을 **range 전체**에 별도로
+///   부여하므로, caret 만 끝으로 접어도 underline 은 단어 전체에 남는다
+///   ("전체 underline + 끝 caret"). fInterimChar 는 `move_caret_to_end` 의 BOOL(0)
+///   (확정 caret 의미론)을 그대로 쓴다 — Word 는 정식 TSF text store 라 0폭 collapsed
+///   selection 으로도 조합을 종료하지 않으며, 미확정 표시는 attribute 가 담당하므로
+///   caret 의 interim 여부와 별개다.
+/// - **syllable 모드·비-Word(wezterm/CUAS 터미널 등)**: 기존 `select_composition_range`
+///   (전체 range, fInterimChar=BOOL(1)) 그대로 — CUAS 즉시-terminate 회피 불변식
+///   (`select_composition_range` 주석) 유지. 1음절 조합 caret 동작 불변.
+unsafe fn select_composition(
+    context: &ITfContext,
+    ec: u32,
+    range: &ITfRange,
+    word_mode: bool,
+) -> Result<()> {
+    if word_mode {
+        move_caret_to_end(context, ec, range)
+    } else {
+        select_composition_range(context, ec, range)
+    }
+}
+
 /// 교체 대상 range 전체를 selection 으로 설정한다(확정 selection, fInterimChar=FALSE).
 ///
 /// AutoTypeFix 교체에서 SetText 직전 호출. Blink(Chrome/Electron)는 "현재
@@ -277,6 +306,15 @@ pub struct CompositionManager {
     /// 기록 코드 회귀 면적을 줄이기 위해 슬롯 형태는 유지하고 replace_surrounding 이
     /// `_before_len` 으로 무시한다.
     synth_slot: Arc<Mutex<Option<(u32, String, String, Option<u32>)>>>,
+    /// 단어별 preedit caret 정책 힌트(`set_word_mode_hint` 로 키 처리 직전 갱신).
+    ///
+    /// `engine.is_word_mode()`(코어 — Windows TSF 에서는 winword.exe 포커스 게이트)를
+    /// 프론트(key_handler)가 읽어 전달한다. true(MS Word 단어 모드)면 start/update/
+    /// commit_and_restart 조합 edit session 이 조합 selection 을 끝-caret 으로 둔다
+    /// (caret 이 마지막 글자를 따라감). false(syllable/비-Word)면 기존 전체 range
+    /// selection 을 유지한다(CUAS 즉시-terminate 회피 불변식). word 모드는 winword.exe
+    /// 에서만 켜지므로(text_service word-gate), false 경로는 종전과 바이트 동일하다.
+    word_mode_hint: bool,
 }
 
 impl CompositionManager {
@@ -286,6 +324,7 @@ impl CompositionManager {
             composition_slot: Arc::new(Mutex::new(None)),
             attr_atom: None,
             synth_slot: Arc::new(Mutex::new(None)),
+            word_mode_hint: false,
         }
     }
 
@@ -294,6 +333,15 @@ impl CompositionManager {
     }
     pub fn clear(&mut self) {
         self.composition = None;
+    }
+
+    /// 단어별 preedit caret 정책 힌트를 설정한다(start/update/commit_and_restart 가 읽음).
+    ///
+    /// key_handler 가 조합 dispatch 직전 `engine.is_word_mode()` 값을 넘긴다. 자세한
+    /// 의미는 `word_mode_hint` 필드 주석 참조. 조합 표시(selection caret)만 바꾸며 코어
+    /// 한글 조합 로직·ATF·synth 와 무관하다.
+    pub fn set_word_mode_hint(&mut self, on: bool) {
+        self.word_mode_hint = on;
     }
 
     /// composition display-attribute 의 `TfGuidAtom` 을 얻는다(최초 1회 등록·캐시).
@@ -340,6 +388,7 @@ impl CompositionManager {
             composition_slot: slot.clone(),
             text: text.to_string(),
             attr_atom,
+            word_mode: self.word_mode_hint,
         };
         let session_intf: ITfEditSession = session.into();
         unsafe {
@@ -367,6 +416,7 @@ impl CompositionManager {
                 text: text.to_string(),
                 composition: composition.clone(),
                 attr_atom,
+                word_mode: self.word_mode_hint,
             };
             let session_intf: ITfEditSession = session.into();
             unsafe {
@@ -451,6 +501,7 @@ impl CompositionManager {
             composition_slot: slot.clone(),
             commit_applied: applied.clone(),
             attr_atom,
+            word_mode: self.word_mode_hint,
         };
         let session_intf: ITfEditSession = session.into();
         unsafe {
@@ -741,6 +792,8 @@ struct StartCompositionEditSession {
     text: String,
     /// composition range 에 부여할 display-attribute atom (None 이면 skip).
     attr_atom: Option<u32>,
+    /// word 모드(MS Word 단어 단위 조합)면 끝-caret, 아니면 전체 range selection.
+    word_mode: bool,
 }
 
 impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
@@ -783,8 +836,9 @@ impl ITfEditSession_Impl for StartCompositionEditSession_Impl {
             let wide: Vec<u16> = self.text.encode_utf16().collect();
             range.SetText(ec, 0, &wide)?;
 
-            // selection 을 composition range 전체로 (TF_AE_NONE, wezterm terminate 회피).
-            let _ = select_composition_range(&self.context, ec, &range);
+            // selection: word 모드면 끝-caret(caret 이 마지막 글자 따라감), 그 외엔
+            // composition range 전체(TF_AE_NONE, wezterm terminate 회피).
+            let _ = select_composition(&self.context, ec, &range, self.word_mode);
 
             // 미확정(밑줄) ATTRIBUTE + READING 부여(실패 무시).
             if let Some(atom) = self.attr_atom {
@@ -808,6 +862,8 @@ struct UpdateCompositionEditSession {
     composition: ITfComposition,
     /// composition range 에 부여할 display-attribute atom (None 이면 skip).
     attr_atom: Option<u32>,
+    /// word 모드(MS Word 단어 단위 조합)면 끝-caret, 아니면 전체 range selection.
+    word_mode: bool,
 }
 
 impl ITfEditSession_Impl for UpdateCompositionEditSession_Impl {
@@ -816,8 +872,9 @@ impl ITfEditSession_Impl for UpdateCompositionEditSession_Impl {
             let range = self.composition.GetRange()?;
             let wide: Vec<u16> = self.text.encode_utf16().collect();
             range.SetText(ec, 0, &wide)?;
-            // selection 을 composition range 전체로 (SampleIME 방식, wezterm terminate 회피)
-            let _ = select_composition_range(&self.context, ec, &range);
+            // selection: word 모드면 끝-caret(caret 이 마지막 글자 따라감), 그 외엔
+            // composition range 전체(SampleIME 방식, wezterm terminate 회피).
+            let _ = select_composition(&self.context, ec, &range, self.word_mode);
             // 매 update 마다 미확정(밑줄) ATTRIBUTE + READING 재부여(실패 무시).
             // SetText 가 covered 텍스트를 바꾸면 기존 property 가 discard 되므로(MS Learn
             // SetValue Remarks) 매 갱신마다 READING(GUID_PROP_READING)을 다시 부여해야
@@ -881,6 +938,8 @@ struct CommitRestartEditSession {
     /// 세션 거부(false)와 step1-성공/step2-실패(true)를 구분하는 데 쓴다.
     commit_applied: Arc<Mutex<bool>>,
     attr_atom: Option<u32>,
+    /// word 모드(MS Word 단어 단위 조합)면 새 조합 selection 을 끝-caret 으로 둔다.
+    word_mode: bool,
 }
 
 impl ITfEditSession_Impl for CommitRestartEditSession_Impl {
@@ -921,7 +980,8 @@ impl ITfEditSession_Impl for CommitRestartEditSession_Impl {
             };
             let wide_p: Vec<u16> = self.preedit_text.encode_utf16().collect();
             new_range.SetText(ec, 0, &wide_p)?;
-            let _ = select_composition_range(&self.context, ec, &new_range);
+            // selection: word 모드면 끝-caret, 그 외엔 전체 range(wezterm terminate 회피).
+            let _ = select_composition(&self.context, ec, &new_range, self.word_mode);
             if let Some(atom) = self.attr_atom {
                 set_composition_attribute(&self.context, ec, &new_range, atom);
             }

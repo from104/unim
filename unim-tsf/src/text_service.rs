@@ -1,7 +1,7 @@
 //! UnimTextService — TSF 메인 구조체
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
@@ -103,6 +103,15 @@ pub struct UnimTextService {
     /// 학습 대상에서 제외한다(by_time 자체는 폴백 진입에 그대로 사용). Arc 로 보관해
     /// 타이머 wndproc(RevWndContext)과 공유한다.
     pub(crate) suppress_cuas_learn: Arc<AtomicBool>,
+
+    /// 단어별 preedit Phase 3a — 매-키 Word 게이트 메모이즈 캐시(포그라운드 HWND).
+    ///
+    /// `OnKeyDown` 의 매-키 게이트 재적용(`reapply_word_gate`)에서, 직전 키와 같은
+    /// 포그라운드 창이면 OpenProcess 를 생략하고 캐시된 word 판정을 재사용한다(매 키
+    /// 시스템콜 비용 회피). HWND 가 바뀌면 프로세스명을 재취득해 갱신한다. 초기값 0.
+    pub(crate) last_fg_hwnd: AtomicIsize,
+    /// 위 `last_fg_hwnd` 에 대응하는 캐시된 word 모드 판정(=프로세스가 winword.exe).
+    pub(crate) last_fg_word: AtomicBool,
 }
 
 /// b1 Phase2 — SetTimer one-shot 식별자.
@@ -172,6 +181,8 @@ impl UnimTextService {
             last_reload_check: Mutex::new(None),
             cuas_windows: Mutex::new(HashSet::new()),
             suppress_cuas_learn: Arc::new(AtomicBool::new(false)),
+            last_fg_hwnd: AtomicIsize::new(0),
+            last_fg_word: AtomicBool::new(false),
         }
     }
 
@@ -387,6 +398,63 @@ impl UnimTextService {
             let mut atf = self.atf_state.lock().unwrap();
             atf.reset_on_focus();
             atf.reload_external_data(&config_guard.engine.auto_typefix);
+        }
+    }
+
+    /// 단어별 preedit Phase 3a — 매-키 Word 전용 게이트 재적용.
+    ///
+    /// `OnKeyDown` 에서 `maybe_reload_config` 직후·엔진 키처리 직전에 호출한다.
+    /// ThreadMgr `OnSetFocus` 게이트가 "이미 포커스된 채 TIP 활성 → OnSetFocus 미발화"
+    /// 또는 config hot-reload 의 엔진 재생성(word 모드 리셋)으로 무력화돼도, 매 키 직전
+    /// word 모드를 재보장한다.
+    ///
+    /// 비용 회피: 포그라운드 HWND 로 메모이즈한다. 직전 키와 같은 HWND 면 OpenProcess 를
+    /// 생략하고 캐시된 word 판정을 재사용한다(단어 중엔 같은 앱이므로 재호출 0). HWND 가
+    /// 바뀐 키(앱 전환)에서만 `process_basename_for_hwnd` 로 프로세스명을 재취득한다.
+    ///
+    /// 무회귀: winword.exe 가 아니면 desired=false(syllable) → 비-Word 경로 바이트 동일.
+    /// `set_word_mode` 는 desired 가 현재와 다를 때만 호출(불필요 토글·flush 회피).
+    ///
+    /// 동시성: Win32 호출(GetForegroundWindow/OpenProcess 등)은 **엔진 락 밖**에서 먼저
+    /// 수행하고, 짧게 엔진 락을 잡아 `set_word_mode` 만 호출한다(다른 락 미보유 상태에서
+    /// 호출되어야 함 — OnKeyDown 의 엔진 락 취득 전에 위치).
+    fn reapply_word_gate(&self) {
+        use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+        // 1) Win32: 포그라운드 HWND 취득(엔진 락 밖).
+        let hwnd = unsafe { GetForegroundWindow() };
+        let hwnd_isize = hwnd.0 as isize;
+        let prev_hwnd = self.last_fg_hwnd.load(Ordering::Relaxed);
+
+        // 2) word 판정: HWND 동일 → 캐시 재사용(OpenProcess 생략), 변경 → 재취득+로그.
+        let desired_word = if hwnd_isize == prev_hwnd {
+            self.last_fg_word.load(Ordering::Relaxed)
+        } else {
+            let name = process_basename_for_hwnd(hwnd);
+            let w = name
+                .as_deref()
+                .map(|n| n == "winword.exe")
+                .unwrap_or(false);
+            self.last_fg_hwnd.store(hwnd_isize, Ordering::Relaxed);
+            self.last_fg_word.store(w, Ordering::Relaxed);
+            crate::register::dbg_log(&format!(
+                "word-gate: proc='{}' hwnd=0x{:x} → word_mode={} (HWND 변경 → 캐시 갱신)",
+                name.as_deref().unwrap_or("<취득실패>"),
+                hwnd_isize,
+                w
+            ));
+            w
+        };
+
+        // 3) 엔진 락(짧게): desired 가 현재와 다를 때만 토글.
+        let mut engine = self.engine.lock().unwrap();
+        let was = engine.is_word_mode();
+        if was != desired_word {
+            crate::register::dbg_log(&format!(
+                "word-gate: set_word_mode({}) (was={})",
+                desired_word, was
+            ));
+            engine.set_word_mode(desired_word);
         }
     }
 }
@@ -785,6 +853,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 즉시 반영. 스로틀(300ms) + 조합 중 미룸으로 글자 깨짐·디스크 부담 방지.
         // 반드시 아래 락 취득 전에 호출(내부에서 동일 락을 잡으므로 재진입 데드락 방지).
         self.maybe_reload_config(true);
+        // 단어별 preedit Phase 3a — 매-키 Word 게이트 재적용. maybe_reload_config(엔진
+        // 재생성으로 word 모드 리셋 가능) 직후·엔진 키처리 직전에 word 모드를 재보장한다.
+        // 내부에서 엔진 락을 짧게 잡으므로 아래 락 취득보다 반드시 앞에 둔다(재진입 방지).
+        self.reapply_word_gate();
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
@@ -1006,14 +1078,25 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
 /// 호출부는 syllable 모드로 안전 폴백한다(무회귀). 핸들은 read-only 조회 직후
 /// CloseHandle 로 즉시 반납한다.
 fn foreground_process_basename() -> Option<String> {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let hwnd = unsafe { GetForegroundWindow() };
+    process_basename_for_hwnd(hwnd)
+}
+
+/// 주어진 창(HWND)의 프로세스 실행파일 basename(소문자)을 반환한다.
+///
+/// `foreground_process_basename` 의 본체. 매-키 Word 게이트가 미리 얻어둔 포그라운드
+/// HWND 를 그대로 넘겨 `GetForegroundWindow` 재호출을 피한다(메모이즈 일관성). HWND 가
+/// 0 이거나 어느 단계든 실패하면 `None` 을 반환해 호출부가 syllable 로 안전 폴백한다
+/// (무회귀). 핸들은 read-only 조회 직후 CloseHandle 로 즉시 반납한다.
+fn process_basename_for_hwnd(hwnd: HWND) -> Option<String> {
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
     unsafe {
-        let hwnd = GetForegroundWindow();
         if hwnd.0 as isize == 0 {
             return None;
         }
@@ -1092,11 +1175,21 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         //   재생성해도 다음 포커스에서 복구된다.
         //   주의: 이 게이트는 set_word_mode 만 호출 — ATF/펌프-분할/synth 미접촉.
         //   Win32 호출은 엔진 락 밖에서 먼저 수행(락 보유 중 시스템콜 금지).
-        let word_mode = foreground_process_basename()
+        let fg_name = foreground_process_basename();
+        let word_mode = fg_name
+            .as_deref()
             .map(|name| name == "winword.exe")
             .unwrap_or(false);
         {
             let mut engine = self.engine.lock().unwrap();
+            // 진단: ThreadMgr OnSetFocus 게이트 발화 여부 + 판정 확인용(매-키 게이트와 동일 포맷).
+            crate::register::dbg_log(&format!(
+                "word-gate: ThreadMgr::OnSetFocus proc='{}' focus_hwnd=0x{:x} → word_mode={} (was={})",
+                fg_name.as_deref().unwrap_or("<취득실패>"),
+                focus_hwnd,
+                word_mode,
+                engine.is_word_mode()
+            ));
             engine.reset();
             engine.set_word_mode(word_mode);
         }

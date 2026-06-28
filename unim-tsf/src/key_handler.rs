@@ -362,6 +362,14 @@ pub fn handle_key_down(
     // 이것이 H3/H4/H5/H9/H14 일괄 해소 지점 (첫 Show 부터 격자·헤더·뜻·★ 정확).
     drain_popup_actions(engine, popup);
 
+    // ── 단어별 preedit caret 정책 힌트 ──
+    // 코어 word 모드(winword.exe 포커스 게이트 = engine.is_word_mode())를 조합 dispatch
+    // 직전에 CompositionManager 로 넘긴다. word 모드면 start/update/commit_and_restart 가
+    // 조합 selection 을 끝-caret 으로 둬 caret 이 마지막 글자를 따라가고, 그 외에는 기존
+    // 전체 range selection(CUAS 즉시-terminate 회피 불변식)을 그대로 쓴다. 코어 한글
+    // 조합 로직·ATF·synth 와 무관한 TSF 표시(selection) 분기다.
+    comp_mgr.set_word_mode_hint(engine.is_word_mode());
+
     // ── commit / preedit 처리 ──
     let commit_str_for_atf: Option<String>;
     let preedit_str_for_atf: Option<String>;
