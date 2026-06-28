@@ -177,6 +177,9 @@ export component SettingsWindow inherits Window {
     in-out property <[RuleSetItem]> rule-set-items;
     in-out property <[string]> english-layouts;
     in-out property <int> english-layout-index;
+    // 한글 확정 단위 (음절/단어/스마트) — config korean.commit_unit.
+    in-out property <[string]> commit-unit-options;
+    in-out property <int> commit-unit-index;
     in-out property <[string]> category-options;
     in-out property <int> category-index;
     in-out property <[string]> mode-sharing-options;
@@ -357,6 +360,17 @@ export component SettingsWindow inherits Window {
                                 model: root.english-layouts;
                                 current-index <=> root.english-layout-index;
                                 accessible-label: "영문 자판";
+                                selected => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "한글 확정 단위";
+                            description: "한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위).";
+                            ComboBox {
+                                min-width: 200px;
+                                model: root.commit-unit-options;
+                                current-index <=> root.commit-unit-index;
+                                accessible-label: "한글 확정 단위";
                                 selected => { root.auto-save(); }
                             }
                         }

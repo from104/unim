@@ -57,12 +57,19 @@ impl ModeSharingMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[repr(C)]
 pub enum CommitUnit {
-    /// 음절 단위 확정 (기본). 한 음절이 완성되면 즉시 commit.
-    #[default]
+    /// 음절 단위 확정. 한 음절이 완성되면 즉시 commit.
     Syllable,
     /// 단어 단위 확정. 단어 경계까지 preedit 으로 누적.
     Word,
-    /// 스마트 — 문맥에 따라 음절/단어 단위를 자동 선택.
+    /// 스마트 (기본) — 문맥(앱)에 따라 음절/단어 단위를 자동 선택. 현재 보수적
+    /// 정책으로 MS Word(winword.exe) 등 협조 앱만 단어 단위, 그 외는 음절 단위.
+    ///
+    /// 기본값을 `Smart` 로 둔 이유: TSF 게이트가 설정을 무시하고 winword 만 단어
+    /// 모드로 하드코딩하던 종전 출고 동작과 바이트 동일하게 보존하기 위함이다
+    /// (`Syllable` 기본이면 실측 중이던 Word 자동교정이 기본 OFF 로 회귀).
+    /// `#[repr(C)]` 판별자 순서(Syllable=0/Word=1/Smart=2)는 불변 — 변형 재배치 없이
+    /// `#[default]` 위치만 이동.
+    #[default]
     Smart,
 }
 
@@ -567,11 +574,12 @@ pub struct KoreanConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chord_window_ms: Option<u16>,
 
-    /// 조합 확정 단위 — 음절/단어/스마트 (기본 `Syllable`, 무회귀).
+    /// 조합 확정 단위 — 음절/단어/스마트 (기본 `Smart`).
     ///
     /// `Word` 면 엔진이 `accumulate_word` 를 켜 단어 경계까지 preedit 을 누적한다
     /// (자동교정 substrate). 레거시 `word_commit: true` config 는 `KoreanConfigCompat`
-    /// 브리지에서 `commit_unit` 미지정 시 `Word` 로 승격된다.
+    /// 브리지에서 `commit_unit` 미지정 시 `Word` 로, 그 외 미지정은 기본값(`Smart`)으로
+    /// 승격된다. TSF 게이트가 이 값을 앱별 단어모드 desired 판정에 사용한다.
     #[serde(default)]
     pub commit_unit: CommitUnit,
 }
@@ -1278,11 +1286,11 @@ word_commit: false
     // commit_unit (단어별 preedit Phase 2) — 직렬화 + word_commit 브리지
     // ─────────────────────────────────────────────
 
-    /// 기본값은 Syllable (무회귀).
+    /// 기본값은 Smart (종전 출고 게이트 = winword 만 Word, 그 외 Syllable 과 동치).
     #[test]
-    fn commit_unit_default_is_syllable() {
-        assert_eq!(CommitUnit::default(), CommitUnit::Syllable);
-        assert_eq!(KoreanConfig::default().commit_unit, CommitUnit::Syllable);
+    fn commit_unit_default_is_smart() {
+        assert_eq!(CommitUnit::default(), CommitUnit::Smart);
+        assert_eq!(KoreanConfig::default().commit_unit, CommitUnit::Smart);
     }
 
     /// CommitUnit::Word 가 직렬화/역직렬화 라운드트립을 통과한다.
@@ -1316,15 +1324,20 @@ word_commit: true
         assert_eq!(kc.commit_unit, CommitUnit::Word);
     }
 
-    /// 레거시 `word_commit: false` + 미지정 → 기본 Syllable.
+    /// 레거시 `word_commit: false`(또는 부재) + commit_unit 미지정 → 기본값(Smart).
+    ///
+    /// `word_commit` 는 출고된 사용자 가시 설정이 아니라 내부 전환기 브리지 필드라
+    /// (CLI/GUI 어디에도 노출 안 됨) `false`/부재를 구분할 plain `bool` 이며, 둘 다
+    /// 기본값으로 떨어진다. 종전 게이트가 winword 를 무조건 Word 로 강제했으므로
+    /// 이 매핑(Smart)은 그 출고 동작과 정합한다(회귀 아님).
     #[test]
-    fn commit_unit_bridges_legacy_word_commit_false() {
+    fn commit_unit_bridges_legacy_word_commit_false_uses_default() {
         let yaml = r#"
 layout: ko_2bulstd
 word_commit: false
 "#;
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(kc.commit_unit, CommitUnit::Syllable);
+        assert_eq!(kc.commit_unit, CommitUnit::Smart);
     }
 
     /// 명시 commit_unit 은 레거시 word_commit 브리지보다 우선한다 (구 config 보존).
@@ -1343,12 +1356,12 @@ commit_unit: Syllable
         );
     }
 
-    /// 미지정(필드 부재) + word_commit 부재 → 기본 Syllable.
+    /// 미지정(필드 부재) + word_commit 부재 → 기본값(Smart).
     #[test]
-    fn commit_unit_legacy_missing_field_is_syllable() {
+    fn commit_unit_legacy_missing_field_uses_default_smart() {
         let yaml = "layout: ko_2bulstd\n";
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(kc.commit_unit, CommitUnit::Syllable);
+        assert_eq!(kc.commit_unit, CommitUnit::Smart);
     }
 
     /// all()/display_name() 미러 정합성.

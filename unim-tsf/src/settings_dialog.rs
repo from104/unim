@@ -22,7 +22,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use unim::config::{
-    Config, InputCategory, ModeSharingMode,
+    CommitUnit, Config, InputCategory, ModeSharingMode,
     ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -65,6 +65,7 @@ const ID_CMB_KOR_LAYOUT: u32 = 4001;
 const ID_CMB_ENG_LAYOUT: u32 = 4002;
 const ID_CMB_DEFAULT_CAT: u32 = 4003;
 const ID_CMB_MODE_SHARING: u32 = 4004;
+const ID_CMB_COMMIT_UNIT: u32 = 4005;
 
 const ID_CHK_BIDIR_COMBINE: u32 = 5001;
 const ID_TRK_CHORD_MS: u32 = 5002;
@@ -662,6 +663,16 @@ unsafe fn build_page_general(page: HWND, config: &Config) -> i32 {
         .unwrap_or(0);
     create_combobox(page, ID_CMB_ENG_LAYOUT, lm + lbl_w + 4, y, cmb_w, 200,
         ENGLISH_LAYOUT_BUILTINS, eng_sel);
+    y += row_h + gap;
+
+    // 한글 확정 단위 (음절/단어/스마트) — 자판 그룹 3번째 행(그룹박스 높이에 이미 예약됨).
+    create_static(page, "한글 확정 단위:", lm, y, lbl_w, row_h);
+    let cu_items: Vec<&str> = CommitUnit::all().iter().map(|u| u.display_name()).collect();
+    let cu_sel = CommitUnit::all().iter()
+        .position(|&u| u == config.engine.korean.commit_unit)
+        .unwrap_or(0);
+    create_combobox(page, ID_CMB_COMMIT_UNIT, lm + lbl_w + 4, y, cmb_w, 200,
+        &cu_items, cu_sel);
     y += row_h + gap * 2;
 
     // ── 규칙 세트 (동적 — 자판 콤보 변경 시 재구성) ───────────────────────────
@@ -1188,6 +1199,15 @@ unsafe fn collect_general(state: &mut DlgState) {
         let idx = combobox_get_sel(h);
         if idx < ENGLISH_LAYOUT_BUILTINS.len() {
             state.config.engine.english.layout = ENGLISH_LAYOUT_BUILTINS[idx].to_string();
+        }
+    }
+
+    // 한글 확정 단위 (음절/단어/스마트) — 콤보 인덱스 = CommitUnit::all() 순서.
+    if let Some(h) = get_ctrl(pg, ID_CMB_COMMIT_UNIT) {
+        let idx = combobox_get_sel(h);
+        let all = CommitUnit::all();
+        if idx < all.len() {
+            state.config.engine.korean.commit_unit = all[idx];
         }
     }
 

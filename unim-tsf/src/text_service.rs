@@ -10,7 +10,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetFocus;
 use windows::Win32::UI::TextServices::*;
 
-use unim::config::{Config, InputCategory};
+use unim::config::{CommitUnit, Config, InputCategory};
 use unim::input_engine::InputEngine;
 
 use crate::auto_typefix::AutoTypeFixState;
@@ -426,12 +426,18 @@ impl UnimTextService {
     /// 생략하고 캐시된 word 판정을 재사용한다(단어 중엔 같은 앱이므로 재호출 0). HWND 가
     /// 바뀐 키(앱 전환)에서만 `process_basename_for_hwnd` 로 프로세스명을 재취득한다.
     ///
-    /// 무회귀: winword.exe 가 아니면 desired=false(syllable) → 비-Word 경로 바이트 동일.
+    /// 단어모드 desired 는 **config `commit_unit`** 이 결정한다(설정 존중):
+    ///   - `Syllable` → 항상 false(단어모드 기능 비활성, 모든 앱 음절).
+    ///   - `Word` → true. 단 composition 미지원(CUAS/즉시-terminate 학습) 앱은 false
+    ///     강제(영문보유 B2·조합 미지원 회귀 차단) — 비협조앱은 Word 값이어도 syllable.
+    ///   - `Smart` → 보수적 앱 화이트리스트만 true(winword.exe), 그 외 false.
+    ///
+    /// 무회귀: 종전 winword 하드코딩과 동치인 `Smart` 가 기본값이라 출고 동작 보존.
     /// `set_word_mode` 는 desired 가 현재와 다를 때만 호출(불필요 토글·flush 회피).
     ///
-    /// 동시성: Win32 호출(GetForegroundWindow/OpenProcess 등)은 **엔진 락 밖**에서 먼저
-    /// 수행하고, 짧게 엔진 락을 잡아 `set_word_mode` 만 호출한다(다른 락 미보유 상태에서
-    /// 호출되어야 함 — OnKeyDown 의 엔진 락 취득 전에 위치).
+    /// 동시성: Win32 호출(GetForegroundWindow/OpenProcess 등)과 CUAS 판정(cuas_windows
+    /// 락)은 **엔진 락 밖**에서 먼저 수행하고, 짧게 엔진 락을 잡아 `commit_unit` 을 읽고
+    /// `set_word_mode` 만 호출한다(OnKeyDown 의 엔진 락 취득 전에 위치).
     fn reapply_word_gate(&self) {
         use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
@@ -440,8 +446,8 @@ impl UnimTextService {
         let hwnd_isize = hwnd.0 as isize;
         let prev_hwnd = self.last_fg_hwnd.load(Ordering::Relaxed);
 
-        // 2) word 판정: HWND 동일 → 캐시 재사용(OpenProcess 생략), 변경 → 재취득+로그.
-        let desired_word = if hwnd_isize == prev_hwnd {
+        // 2) winword 판정: HWND 동일 → 캐시 재사용(OpenProcess 생략), 변경 → 재취득+로그.
+        let is_winword = if hwnd_isize == prev_hwnd {
             self.last_fg_word.load(Ordering::Relaxed)
         } else {
             let name = process_basename_for_hwnd(hwnd);
@@ -452,7 +458,7 @@ impl UnimTextService {
             self.last_fg_hwnd.store(hwnd_isize, Ordering::Relaxed);
             self.last_fg_word.store(w, Ordering::Relaxed);
             crate::register::dbg_log(&format!(
-                "word-gate: proc='{}' hwnd=0x{:x} → word_mode={} (HWND 변경 → 캐시 갱신)",
+                "word-gate: proc='{}' hwnd=0x{:x} → winword={} (HWND 변경 → 캐시 갱신)",
                 name.as_deref().unwrap_or("<취득실패>"),
                 hwnd_isize,
                 w
@@ -463,13 +469,25 @@ impl UnimTextService {
             w
         };
 
-        // 3) 엔진 락(짧게): desired 가 현재와 다를 때만 토글.
+        // 3) composition 미지원(CUAS/즉시-terminate 학습) 판정 — 엔진 락 밖에서 먼저.
+        //    Word 설정이어도 비협조앱이면 syllable 로 강제한다. 현재 컨텍스트 폴백
+        //    플래그가 true 면 즉시 단정(cuas 락 생략), 아니면 학습 집합을 조회한다.
+        let comp_unsupported = self.composition_unsupported.load(Ordering::SeqCst)
+            || (hwnd_isize != 0 && self.cuas_windows.lock().unwrap().contains(&hwnd_isize));
+
+        // 4) 엔진 락(짧게): commit_unit 설정에 따라 desired 판정 → 다를 때만 토글.
         let mut engine = self.engine.lock().unwrap();
+        let commit_unit = engine.commit_unit();
+        let desired_word = match commit_unit {
+            CommitUnit::Syllable => false,
+            CommitUnit::Word => !comp_unsupported,
+            CommitUnit::Smart => is_winword,
+        };
         let was = engine.is_word_mode();
         if was != desired_word {
             crate::register::dbg_log(&format!(
-                "word-gate: set_word_mode({}) (was={})",
-                desired_word, was
+                "word-gate: set_word_mode({}) (commit_unit={:?} winword={} comp_unsupported={} was={})",
+                desired_word, commit_unit, is_winword, comp_unsupported, was
             ));
             engine.set_word_mode(desired_word);
         }
@@ -1294,15 +1312,16 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         // (Phase 1) OnCompositionTerminated 의 "정상 종료" 정리를 이리로 이전.
         //   포커스 이탈 = 사용자가 조합을 떠남 → 엔진 preedit 를 비우고 팝업/ATF 정리.
         //
-        // (단어별 preedit Phase 3a) Word 전용 게이트.
-        //   포커스 앱이 winword.exe 면 단어 모드(set_word_mode(true)), 그 외엔
-        //   syllable(현행). 프로세스명 취득 실패 시 false(안전 폴백 = 무회귀).
-        //   매 포커스 재호출되므로 config hot-reload(maybe_reload_config)가 엔진을
-        //   재생성해도 다음 포커스에서 복구된다.
+        // (단어별 preedit Phase 5) CommitUnit 존중 게이트.
+        //   desired 는 config commit_unit 이 결정한다(reapply_word_gate 와 동일 정책):
+        //   Syllable→off / Word→on(단 known_cuas 비협조앱은 off 강제) / Smart→winword 만.
+        //   프로세스명 취득 실패 시 winword=false(안전 폴백). 매 포커스 재호출되므로
+        //   config hot-reload(maybe_reload_config)가 엔진을 재생성해도 다음 포커스에서
+        //   복구된다. known_cuas 는 위에서 이미 산출됨(focus_hwnd 기준).
         //   주의: 이 게이트는 set_word_mode 만 호출 — ATF/펌프-분할/synth 미접촉.
         //   Win32 호출은 엔진 락 밖에서 먼저 수행(락 보유 중 시스템콜 금지).
         let fg_name = foreground_process_basename();
-        let word_mode = fg_name
+        let is_winword = fg_name
             .as_deref()
             .map(|name| name == "winword.exe")
             .unwrap_or(false);
@@ -1320,11 +1339,21 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         };
         {
             let mut engine = self.engine.lock().unwrap();
+            // commit_unit 설정 존중: Syllable→off / Word→on(known_cuas 비협조앱은 off) / Smart→winword.
+            let commit_unit = engine.commit_unit();
+            let word_mode = match commit_unit {
+                CommitUnit::Syllable => false,
+                CommitUnit::Word => !known_cuas,
+                CommitUnit::Smart => is_winword,
+            };
             // 진단: ThreadMgr OnSetFocus 게이트 발화 여부 + 판정 확인용(매-키 게이트와 동일 포맷).
             crate::register::dbg_log(&format!(
-                "word-gate: ThreadMgr::OnSetFocus proc='{}' focus_hwnd=0x{:x} → word_mode={} (was={}) is_password={}",
+                "word-gate: ThreadMgr::OnSetFocus proc='{}' focus_hwnd=0x{:x} commit_unit={:?} winword={} known_cuas={} → word_mode={} (was={}) is_password={}",
                 fg_name.as_deref().unwrap_or("<취득실패>"),
                 focus_hwnd,
+                commit_unit,
+                is_winword,
+                known_cuas,
                 word_mode,
                 engine.is_word_mode(),
                 is_password

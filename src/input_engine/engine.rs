@@ -334,6 +334,16 @@ impl InputEngine {
         self.korean_context.is_accumulate_word()
     }
 
+    /// 현재 조합 확정 단위(`CommitUnit`)를 반환합니다.
+    ///
+    /// `config.engine.korean.commit_unit` 의 캐시값으로 `new`/`rebuild_korean_context`
+    /// /`set_korean_layout` 재구성 경로에서 config 와 동기화된다. 런타임 누적 상태를
+    /// 반환하는 `is_word_mode` 와 달리 **설정상의 의도**를 나타낸다 — TSF 게이트가
+    /// 앱별 단어모드 desired 판정(Syllable→off / Word→on / Smart→앱판정)에 사용한다.
+    pub fn commit_unit(&self) -> CommitUnit {
+        self.commit_unit
+    }
+
     /// commit 문자열을 반환합니다.
     pub fn commit_str(&self) -> &str {
         &self.commit_buffer
@@ -620,11 +630,12 @@ mod tests {
         engine.press_key(KeyCode::K, m, config); // 나
     }
 
-    /// 기본(commit_unit=Syllable)은 음절 단위 — preedit 은 현재 음절만, 직전 음절은 commit.
-    /// 무회귀 검증.
+    /// commit_unit=Syllable 은 음절 단위 — preedit 은 현재 음절만, 직전 음절은 commit.
+    /// 무회귀 검증. (기본값은 Smart 로 바뀌었으나 Syllable 경로 자체는 불변.)
     #[test]
-    fn syllable_mode_default_no_word_accumulation() {
-        let config = Config::default();
+    fn syllable_mode_no_word_accumulation() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Syllable;
         assert_eq!(config.engine.korean.commit_unit, CommitUnit::Syllable);
         let mut engine = InputEngine::new(&config);
         engine.set_input_category(InputCategory::Korean);
@@ -679,9 +690,9 @@ mod tests {
     /// (Phase 3a Word 게이트가 매 포커스 토글하는 권위 = korean_context.accumulate_word).
     #[test]
     fn is_word_mode_reflects_runtime_toggle() {
-        let config = Config::default(); // 기본 Syllable
+        let config = Config::default(); // 기본 Smart — new() 가 누적을 초기 주입하지 않음
         let mut engine = InputEngine::new(&config);
-        assert!(!engine.is_word_mode(), "기본(Syllable)은 단어 모드 off");
+        assert!(!engine.is_word_mode(), "기본(Smart)은 누적 off → 단어 모드 off");
         engine.set_word_mode(true);
         assert!(engine.is_word_mode(), "set_word_mode(true) 후 on");
         engine.set_word_mode(false);

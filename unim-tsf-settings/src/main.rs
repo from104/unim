@@ -19,7 +19,7 @@ use std::rc::Rc;
 use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use unim::config::{
-    english_layout_display_name, korean_layout_display_name, Config, InputCategory,
+    english_layout_display_name, korean_layout_display_name, CommitUnit, Config, InputCategory,
     ModeSharingMode, ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -206,6 +206,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_english_layouts(string_model(eng_disp));
         ui.set_english_layout_index(eng_idx);
 
+        // 한글 확정 단위 (음절/단어/스마트) — CommitUnit::all() 순서 = 콤보 인덱스.
+        ui.set_commit_unit_options(string_model(
+            CommitUnit::all()
+                .iter()
+                .map(|u| SharedString::from(u.display_name()))
+                .collect(),
+        ));
+        ui.set_commit_unit_index(
+            CommitUnit::all()
+                .iter()
+                .position(|u| *u == e.korean.commit_unit)
+                .unwrap_or(0) as i32,
+        );
+
         // 시작 입력 모드: 0=영문, 1=한글 (DLL 다이얼로그와 동일 순서).
         ui.set_category_options(string_model(vec![
             "영문으로 시작".into(),
@@ -276,6 +290,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let ei = (ui.get_english_layout_index().max(0) as usize).min(eng_canon.len() - 1);
             e.english.layout = eng_canon[ei].clone();
+
+            // 한글 확정 단위 (음절/단어/스마트) — 콤보 인덱스 = CommitUnit::all() 순서.
+            let cu_all = CommitUnit::all();
+            let cu_idx = (ui.get_commit_unit_index().max(0) as usize).min(cu_all.len() - 1);
+            e.korean.commit_unit = cu_all[cu_idx];
 
             e.default_category = if ui.get_category_index() == 1 {
                 InputCategory::Korean
