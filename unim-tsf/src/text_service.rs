@@ -112,6 +112,14 @@ pub struct UnimTextService {
     pub(crate) last_fg_hwnd: AtomicIsize,
     /// 위 `last_fg_hwnd` 에 대응하는 캐시된 word 모드 판정(=프로세스가 winword.exe).
     pub(crate) last_fg_word: AtomicBool,
+
+    /// 직전 키 입력 시점의 포그라운드 프로세스 basename(소문자). Excel 셀 첫타 ATF
+    /// 유실 게이트(`atf_reset_should_skip`)의 `same_proc` 판정에 쓴다.
+    ///
+    /// `reapply_word_gate` 의 HWND 메모이즈와 동기로(=HWND 변경 시에만) 갱신한다. 키
+    /// 경로에서만 기록되고 OnSetFocus 두 곳은 읽기만 하므로, 두 OnSetFocus 가 서로의
+    /// 값을 덮어써 정상 앱 전환을 same_proc=true 로 오판하는 회귀가 원천 차단된다.
+    pub(crate) last_key_proc: Mutex<Option<String>>,
 }
 
 /// b1 Phase2 — SetTimer one-shot 식별자.
@@ -183,6 +191,7 @@ impl UnimTextService {
             suppress_cuas_learn: Arc::new(AtomicBool::new(false)),
             last_fg_hwnd: AtomicIsize::new(0),
             last_fg_word: AtomicBool::new(false),
+            last_key_proc: Mutex::new(None),
         }
     }
 
@@ -448,6 +457,9 @@ impl UnimTextService {
                 hwnd_isize,
                 w
             ));
+            // Excel 셀 첫타 ATF 게이트용: 직전 키의 포그라운드 프로세스명을 HWND 메모이즈와
+            // 동기로 기록한다(취득 실패 시 None → same_proc=false 로 보수적 폴백, 무회귀).
+            *self.last_key_proc.lock().unwrap() = name;
             w
         };
 
@@ -461,6 +473,51 @@ impl UnimTextService {
             ));
             engine.set_word_mode(desired_word);
         }
+    }
+
+    /// Excel 셀 첫타 ATF 유실 대응 — 스퓨리어스 OnSetFocus 의 ATF 버퍼 reset 을 스킵할지
+    /// 판정한다(+ 진단 로그). **확신 낮음(가설)** — 로그로 실측 확정하기 위함.
+    ///
+    /// 가설: Excel 은 셀 Ready→Enter(편집 진입) 전이 때 직전 키 직후 같은 프로세스로
+    /// 스퓨리어스 TSF OnSetFocus 를 발화한다. 그 reset_on_focus 가 ATF 키스트로크
+    /// 버퍼를 비우면 `forward.rs` 의 `len() < 2` 게이트가 미충족돼 첫 타 순방향(영→한)
+    /// 교정이 유실되거나 첫 글자가 빠진 오교정이 된다.
+    ///
+    /// 3중 AND 게이트(셋 다 충족 시에만 skip=true → ATF 버퍼 clear 만 보류):
+    ///   (a) `same_proc`: 현재 포커스 프로세스 == 직전 키의 포그라운드 프로세스
+    ///       (앱 전환이 아님). 기준값은 키 경로에서만 기록되므로 두 OnSetFocus 가
+    ///       서로를 덮어쓰는 회귀가 없다.
+    ///   (b) `dt_since_key_ms < 250`: 직전 키 직후 발생한 스퓨리어스 포커스.
+    ///   (c) `buf_len > 0`: 보존할 키스트로크가 실제로 있음.
+    ///
+    /// 셋 중 하나라도 어긋나면(다른 프로세스·오래된 키·빈 버퍼) false → 호출부가
+    /// 기존대로 reset 한다(정상 앱 전환·포커스 이탈 무회귀). 반환과 무관하게 항상
+    /// dbg_log 로 세 값과 판정을 남긴다(가설 검증용).
+    ///
+    /// 주의: skip 해도 `engine.reset()` 등 다른 정리는 호출부에서 그대로 수행된다.
+    /// 순방향(영문 모드)은 키가 조합 없이 즉시 commit 되어 엔진에 보존할 조합 상태가
+    /// 없으므로(문서에 이미 N 자 존재) ATF 버퍼만 살리면 정합한다.
+    fn atf_reset_should_skip(&self, cur_proc: Option<&str>) -> bool {
+        let same_proc = {
+            let last = self.last_key_proc.lock().unwrap();
+            match (last.as_deref(), cur_proc) {
+                (Some(prev), Some(cur)) if !prev.is_empty() => prev == cur,
+                _ => false,
+            }
+        };
+        let dt_since_key_ms = self
+            .last_key_instant
+            .lock()
+            .unwrap()
+            .map(|t| t.elapsed().as_millis())
+            .unwrap_or(u128::MAX);
+        let buf_len = self.atf_state.lock().unwrap().buf_len();
+        let skip = same_proc && dt_since_key_ms < 250 && buf_len > 0;
+        crate::register::dbg_log(&format!(
+            "atf reset_on_focus: same_proc={} dt_since_key_ms={} buf_len={} → skip={}",
+            same_proc, dt_since_key_ms, buf_len, skip
+        ));
+        skip
     }
 }
 
@@ -684,7 +741,14 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         self.maybe_reload_config(false);
         // 포커스 이동 시마다 AutoTypeFix 버퍼 초기화 (engine_worker handle_focus_in 대응).
         // reload 시 maybe_reload_config 가 이미 reset 했더라도 idempotent 하므로 안전.
-        self.atf_state.lock().unwrap().reset_on_focus();
+        //
+        // Excel 셀 첫타 ATF 유실 대응(가설·확신낮음): 직전 키 직후 같은 프로세스로 발생한
+        // 스퓨리어스 포커스(3중 게이트)면 ATF 버퍼 reset 을 스킵해 첫 타를 보존한다.
+        // 게이트 밖(정상 앱 전환·포커스 이탈)은 기존대로 reset(무회귀).
+        let cur_proc = foreground_process_basename();
+        if !self.atf_reset_should_skip(cur_proc.as_deref()) {
+            self.atf_state.lock().unwrap().reset_on_focus();
+        }
         Ok(())
     }
 
@@ -1280,7 +1344,14 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         if let Some(ref mut win) = *self.preedit_window.lock().unwrap() {
             win.hide();
         }
-        self.atf_state.lock().unwrap().reset_on_focus();
+        // Excel 셀 첫타 ATF 유실 대응(가설·확신낮음): 직전 키 직후 같은 프로세스로 발생한
+        // 스퓨리어스 포커스(3중 게이트)면 ATF 버퍼 reset 을 스킵(첫 타 보존). 위에서 이미
+        // 구한 fg_name 을 재사용한다. 게이트 밖(정상 앱 전환·포커스 이탈)은 기존대로
+        // reset(무회귀). 주의: engine.reset()/word·content_purpose/comp clear 등 다른 정리는
+        // 위에서 이미 수행됐고, 순방향(영문)은 보존할 엔진 조합 상태가 없어 정합.
+        if !self.atf_reset_should_skip(fg_name.as_deref()) {
+            self.atf_state.lock().unwrap().reset_on_focus();
+        }
         Ok(())
     }
     fn OnPushContext(&self, _pic: Ref<'_, ITfContext>) -> Result<()> {

@@ -97,6 +97,15 @@ impl AutoTypeFixState {
         self.recent_corrections.clear();
     }
 
+    /// Excel 셀 첫타 ATF 유실 게이트용 — 현재 키스트로크 버퍼 길이.
+    ///
+    /// 스퓨리어스 OnSetFocus 가 ATF 버퍼를 비우면 forward.rs 의 `len() < 2` 게이트가
+    /// 미충족돼 첫 타 순방향 교정이 유실된다(가설). OnSetFocus 의 3중 게이트가 "보존할
+    /// 버퍼가 있는지(`buf_len() > 0`)"를 판정하는 데 쓴다. 읽기 전용(부작용 없음).
+    pub fn buf_len(&self) -> usize {
+        self.buf.len()
+    }
+
     /// Phase 4(S1): 보유 영문 Backspace 시 키스트로크 버퍼를 1개 동기 축소한다.
     ///
     /// TSF 보유 영문(english_hold)에서 Backspace 가 들어오면 보유 문자열은 1자 줄지만
