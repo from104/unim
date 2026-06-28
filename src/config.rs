@@ -47,6 +47,41 @@ impl ModeSharingMode {
     }
 }
 
+/// 조합 확정 단위 — 음절/단어/스마트.
+///
+/// preedit 을 어느 경계까지 유지하다 commit 할지 결정한다.
+/// - `Syllable` (기본): 음절이 완성되면 즉시 확정 (기존 동작, 무회귀).
+/// - `Word`: 단어 경계(공백/문장부호)까지 preedit 으로 누적 — 자동교정이
+///   조합 전체를 SetText 로 치환할 수 있게 한다 (`accumulate_word` 코어 substrate).
+/// - `Smart`: 문맥에 따라 음절/단어 단위를 자동 선택 (Phase 3 로직, 현재는 Syllable 동작).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(C)]
+pub enum CommitUnit {
+    /// 음절 단위 확정 (기본). 한 음절이 완성되면 즉시 commit.
+    #[default]
+    Syllable,
+    /// 단어 단위 확정. 단어 경계까지 preedit 으로 누적.
+    Word,
+    /// 스마트 — 문맥에 따라 음절/단어 단위를 자동 선택.
+    Smart,
+}
+
+impl CommitUnit {
+    /// 표시용 레이블을 반환합니다.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            CommitUnit::Syllable => "음절 단위",
+            CommitUnit::Word => "단어 단위",
+            CommitUnit::Smart => "스마트",
+        }
+    }
+
+    /// 사용 가능한 모든 확정 단위를 반환합니다.
+    pub fn all() -> &'static [CommitUnit] {
+        &[CommitUnit::Syllable, CommitUnit::Word, CommitUnit::Smart]
+    }
+}
+
 /// 한국어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
 ///
 /// 레거시 시절 enum(`Dubeolsik` / `Sebeolsik390` / ...)이었던 필드를 Phase 8에서
@@ -531,6 +566,14 @@ pub struct KoreanConfig {
     /// InputEngine 레벨 ChordBuffer로 구현됨 (idle flush + force_flush 패턴).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chord_window_ms: Option<u16>,
+
+    /// 조합 확정 단위 — 음절/단어/스마트 (기본 `Syllable`, 무회귀).
+    ///
+    /// `Word` 면 엔진이 `accumulate_word` 를 켜 단어 경계까지 preedit 을 누적한다
+    /// (자동교정 substrate). 레거시 `word_commit: true` config 는 `KoreanConfigCompat`
+    /// 브리지에서 `commit_unit` 미지정 시 `Word` 로 승격된다.
+    #[serde(default)]
+    pub commit_unit: CommitUnit,
 }
 
 impl Default for KoreanConfig {
@@ -541,6 +584,7 @@ impl Default for KoreanConfig {
             layout_rule_sets: BTreeMap::new(),
             bidirectional_combine: None,
             chord_window_ms: None,
+            commit_unit: CommitUnit::default(),
         }
     }
 }
@@ -664,6 +708,10 @@ struct KoreanConfigCompat {
     /// 모아치기 — 동시 입력 시간 (ms). 0=OFF. N ms 이내 키를 한 음절로 묶음 처리.
     #[serde(default)]
     chord_window_ms: Option<u16>,
+    /// 조합 확정 단위. `None` = 미지정(레거시 `word_commit` 브리지 대상).
+    /// `Some(_)` = 명시 설정(브리지보다 우선).
+    #[serde(default)]
+    commit_unit: Option<CommitUnit>,
 }
 
 impl Default for KoreanConfigCompat {
@@ -677,6 +725,7 @@ impl Default for KoreanConfigCompat {
             custom_layout: None,
             bidirectional_combine: None,
             chord_window_ms: None,
+            commit_unit: None,
         }
     }
 }
@@ -687,12 +736,20 @@ impl From<KoreanConfigCompat> for KoreanConfig {
             Some(ref s) if !s.is_empty() => s.clone(),
             _ => c.layout,
         };
+        // 확정 단위 브리지: 명시 `commit_unit` 우선, 미지정이면 레거시
+        // `word_commit: true` 를 `Word` 로 승격(구 config 의도 보존), 그 외 기본값.
+        let commit_unit = match c.commit_unit {
+            Some(u) => u,
+            None if c.word_commit => CommitUnit::Word,
+            None => CommitUnit::default(),
+        };
         Self {
             layout: normalize_korean_layout_name(&layout),
             active_rule_sets: c.active_rule_sets,
             layout_rule_sets: c.layout_rule_sets,
             bidirectional_combine: c.bidirectional_combine,
             chord_window_ms: c.chord_window_ms,
+            commit_unit,
         }
     }
 }
@@ -1215,6 +1272,92 @@ word_commit: false
 "#;
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(kc.active_rule_sets, None);
+    }
+
+    // ─────────────────────────────────────────────
+    // commit_unit (단어별 preedit Phase 2) — 직렬화 + word_commit 브리지
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 Syllable (무회귀).
+    #[test]
+    fn commit_unit_default_is_syllable() {
+        assert_eq!(CommitUnit::default(), CommitUnit::Syllable);
+        assert_eq!(KoreanConfig::default().commit_unit, CommitUnit::Syllable);
+    }
+
+    /// CommitUnit::Word 가 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn commit_unit_serde_roundtrips_word() {
+        let mut kc = KoreanConfig::default();
+        kc.commit_unit = CommitUnit::Word;
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.commit_unit, CommitUnit::Word);
+    }
+
+    /// Smart 도 라운드트립 보존.
+    #[test]
+    fn commit_unit_serde_roundtrips_smart() {
+        let mut kc = KoreanConfig::default();
+        kc.commit_unit = CommitUnit::Smart;
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.commit_unit, CommitUnit::Smart);
+    }
+
+    /// 레거시 `word_commit: true` + commit_unit 미지정 → Word 로 승격.
+    #[test]
+    fn commit_unit_bridges_legacy_word_commit_true() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: true
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.commit_unit, CommitUnit::Word);
+    }
+
+    /// 레거시 `word_commit: false` + 미지정 → 기본 Syllable.
+    #[test]
+    fn commit_unit_bridges_legacy_word_commit_false() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.commit_unit, CommitUnit::Syllable);
+    }
+
+    /// 명시 commit_unit 은 레거시 word_commit 브리지보다 우선한다 (구 config 보존).
+    #[test]
+    fn commit_unit_explicit_overrides_legacy_word_commit() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: true
+commit_unit: Syllable
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.commit_unit,
+            CommitUnit::Syllable,
+            "명시 commit_unit 이 word_commit 브리지보다 우선해야 함"
+        );
+    }
+
+    /// 미지정(필드 부재) + word_commit 부재 → 기본 Syllable.
+    #[test]
+    fn commit_unit_legacy_missing_field_is_syllable() {
+        let yaml = "layout: ko_2bulstd\n";
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.commit_unit, CommitUnit::Syllable);
+    }
+
+    /// all()/display_name() 미러 정합성.
+    #[test]
+    fn commit_unit_all_and_display_name() {
+        assert_eq!(CommitUnit::all().len(), 3);
+        for u in CommitUnit::all() {
+            assert!(!u.display_name().is_empty());
+        }
     }
 
     // ─────────────────────────────────────────────

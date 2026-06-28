@@ -127,5 +127,6 @@ pub fn check_forward(
         original: ascii,
         clear_preedit: false,
         replay_keys,
+        replace_composition: false,
     })
 }

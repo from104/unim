@@ -760,8 +760,12 @@ impl InputEngine {
 
 
     /// preedit 캐시를 업데이트합니다.
+    ///
+    /// 단어 모드(`accumulate_word`)에서는 누적된 단어 전체(`word_buffer` + 현재 음절)를
+    /// 표시해야 하므로 `get_preedit_display()` 를 사용한다. syllable 모드는
+    /// `word_buffer` 가 항상 비어 있어 display == preedit 이라 동작 무변경.
     pub(super) fn update_preedit_cache(&mut self) {
-        self.preedit_cache = self.korean_context.get_preedit().to_string();
+        self.preedit_cache = self.korean_context.get_preedit_display();
     }
 
     /// preedit을 commit_buffer로 플러시합니다.

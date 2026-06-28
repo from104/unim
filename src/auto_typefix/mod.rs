@@ -52,4 +52,10 @@ pub struct AutoTypeFixResult {
     pub clear_preedit: bool,
     /// 마지막 음절을 replay할 키스트로크 (순방향: 엔진에 다시 입력하여 preedit 생성)
     pub replay_keys: Vec<(KeyCode, ModifierState)>,
+    /// 진행 중 조합(preedit) 자체를 교정 결과로 치환해야 하는지 (Phase3 역방향 게이트용).
+    ///
+    /// Phase 2: 항상 `false`. 단어 모드(`commit_unit == Word`)에서 조합이 살아있는
+    /// 동안 ATF 가 화면 삭제 대신 조합 SetText 치환을 선택할 때를 위한 준비 필드이며,
+    /// 실제 역/순방향 분기 로직은 Phase 3 에서 채운다.
+    pub replace_composition: bool,
 }

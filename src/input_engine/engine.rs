@@ -7,7 +7,7 @@
 use super::build_korean_context;
 use super::chord_buffer::ChordBuffer;
 use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
-use crate::config::{Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
+use crate::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::KeyCode;
@@ -89,6 +89,11 @@ pub struct InputEngine {
     pub(super) surrounding_cursor: u32,
     /// Surrounding text 앵커 위치 (문자 단위)
     pub(super) surrounding_anchor: u32,
+    /// 조합 확정 단위 (음절/단어/스마트) — `config.engine.korean.commit_unit` 캐시.
+    ///
+    /// `Word` 면 `korean_context.set_accumulate_word(true)` 로 단어 누적을 켠다.
+    /// `set_word_mode` 토글·`rebuild`/`set_layout` 재구성 경로에서 일관되게 반영된다.
+    pub(super) commit_unit: CommitUnit,
 }
 
 impl Default for InputEngine {
@@ -119,7 +124,9 @@ impl InputEngine {
         // 한자 사전 초기화 (한 번만 로드하여 Arc로 공유)
         let hanja_dict = std::sync::Arc::new(crate::hanja::HanjaDictionary::new());
 
-        Self {
+        let commit_unit = config.engine.korean.commit_unit;
+
+        let mut engine = Self {
             input_category: config.engine.default_category,
             korean_context: build_korean_context(config, composer_type),
             commit_buffer: String::new(),
@@ -174,7 +181,15 @@ impl InputEngine {
             surrounding_text: String::new(),
             surrounding_cursor: 0,
             surrounding_anchor: 0,
+            commit_unit,
+        };
+
+        // Word 모드면 단어 누적을 초기 주입 (Smart/Syllable = 누적 off, 기존 동작).
+        if commit_unit == CommitUnit::Word {
+            engine.korean_context.set_accumulate_word(true);
         }
+
+        engine
     }
 
     /// Config에서 유효 chord_window_ms를 계산.
@@ -290,6 +305,17 @@ impl InputEngine {
             // 상태 파일 업데이트
             self.update_status_file();
         }
+    }
+
+    /// 단어별 preedit 모드(단어 단위 누적)를 켜거나 끕니다.
+    ///
+    /// 켜기/끄기 전에 진행 중 조합을 `flush_preedit` 으로 비운 뒤
+    /// `korean_context.set_accumulate_word(on)` 를 호출한다. 이 setter 는
+    /// `commit_unit` 캐시 자체를 바꾸지는 않으며(런타임 토글), config 동기화는
+    /// `rebuild_korean_context` 경로가 담당한다.
+    pub fn set_word_mode(&mut self, on: bool) {
+        self.flush_preedit();
+        self.korean_context.set_accumulate_word(on);
     }
 
     /// commit 문자열을 반환합니다.
@@ -453,6 +479,10 @@ impl InputEngine {
             snapshot.engine.korean.layout = layout.clone();
             snapshot.engine.korean.active_rule_sets = None;
             self.korean_context = build_korean_context(&snapshot, composer_type);
+            // 새 컨텍스트는 accumulate_word 가 off 로 시작 → commit_unit 캐시와 일관성 유지.
+            if self.commit_unit == CommitUnit::Word {
+                self.korean_context.set_accumulate_word(true);
+            }
             // chord_buffer: 레이아웃 변경 시 윈도우 재계산 (새 자판이 supports_moachigi=false면 0으로)
             let new_window = Self::compute_chord_window_ms(&snapshot);
             self.chord_buffer.clear();
@@ -483,8 +513,15 @@ impl InputEngine {
         self.keyboard_map = Some(Self::create_keyboard_map(&new_layout, &self.english_layout));
         self.key_meta_map = Self::create_key_meta_map(&new_layout);
 
+        // commit_unit 도 config 에서 재동기화 (hot-reload 경로).
+        self.commit_unit = config.engine.korean.commit_unit;
+
         // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
         self.korean_context = build_korean_context(config, composer_type);
+        // 새 컨텍스트는 accumulate_word 가 off 로 시작 → commit_unit 캐시와 일관성 유지.
+        if self.commit_unit == CommitUnit::Word {
+            self.korean_context.set_accumulate_word(true);
+        }
         // chord_buffer: config 갱신 시 윈도우 재계산
         let new_window = Self::compute_chord_window_ms(config);
         self.chord_buffer.clear();
@@ -549,6 +586,135 @@ mod tests {
             InputEngine::compute_chord_window_ms(&config),
             80,
             "chord_window_ms=Some(80), bidir=Some(false) should return 80 (independent)"
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // 단어별 preedit (commit_unit / set_word_mode) — Phase 2 코어 배선
+    // ─────────────────────────────────────────────
+
+    use crate::keycode::ModifierState;
+
+    /// dubeolsik 기본 자판에서 "가나"를 입력하는 키 시퀀스(ㄱ ㅏ ㄴ ㅏ).
+    fn type_ganan(engine: &mut InputEngine, config: &Config) {
+        let m = ModifierState::default();
+        engine.press_key(KeyCode::R, m, config); // ㄱ
+        engine.press_key(KeyCode::K, m, config); // 가
+        engine.press_key(KeyCode::S, m, config); // ㄴ (도깨비불: 가 → 누적/commit)
+        engine.press_key(KeyCode::K, m, config); // 나
+    }
+
+    /// 기본(commit_unit=Syllable)은 음절 단위 — preedit 은 현재 음절만, 직전 음절은 commit.
+    /// 무회귀 검증.
+    #[test]
+    fn syllable_mode_default_no_word_accumulation() {
+        let config = Config::default();
+        assert_eq!(config.engine.korean.commit_unit, CommitUnit::Syllable);
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "나", "syllable 모드 preedit 은 현재 음절만");
+        assert!(
+            engine.commit_str().contains('가'),
+            "직전 음절 '가'는 commit 으로 흘러야 함: {}",
+            engine.commit_str()
+        );
+    }
+
+    /// commit_unit=Word 로 생성하면 new() 가 accumulate_word 를 초기 주입 →
+    /// set_word_mode 호출 없이도 preedit 이 단어 전체로 누적된다.
+    #[test]
+    fn new_with_word_commit_unit_accumulates() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Word;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        type_ganan(&mut engine, &config);
+        assert_eq!(
+            engine.preedit_str(),
+            "가나",
+            "Word 모드 preedit 은 누적된 단어 전체"
+        );
+    }
+
+    /// Smart/Syllable 은 누적 off (new 초기 주입 안 함).
+    #[test]
+    fn new_with_smart_commit_unit_does_not_accumulate() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Smart;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "나", "Smart 는 Phase2 에서 누적 off");
+    }
+
+    /// set_word_mode(true) 가 런타임에 단어 누적을 켠다.
+    #[test]
+    fn set_word_mode_on_enables_accumulation() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        engine.set_word_mode(true);
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "가나");
+    }
+
+    /// set_word_mode(false) 는 끄기 전 진행 중 조합을 flush 한다 (잔여 단어 손실 없음).
+    #[test]
+    fn set_word_mode_off_flushes_accumulated_word() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        engine.set_word_mode(true);
+        type_ganan(&mut engine, &config);
+        engine.clear_commit();
+        engine.set_word_mode(false);
+        assert_eq!(
+            engine.commit_str(),
+            "가나",
+            "끄기 전 누적 단어가 commit 으로 flush 되어야 함"
+        );
+        assert!(engine.preedit_str().is_empty(), "flush 후 preedit 비어야 함");
+    }
+
+    /// rebuild_korean_context 가 commit_unit 을 config 에서 재동기화하고
+    /// 새 컨텍스트에 accumulate_word 를 일관되게 반영한다.
+    #[test]
+    fn rebuild_reapplies_word_accumulation() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+
+        let mut word_config = Config::default();
+        word_config.engine.korean.commit_unit = CommitUnit::Word;
+        engine.rebuild_korean_context(&word_config);
+        assert_eq!(engine.commit_unit, CommitUnit::Word);
+
+        type_ganan(&mut engine, &word_config);
+        assert_eq!(engine.preedit_str(), "가나", "rebuild 후 단어 누적 일관");
+    }
+
+    /// set_korean_layout 재구성 경로도 기존 commit_unit 캐시를 유지·반영한다.
+    /// (3bul ↔ 2bul 전환을 거쳐도 누적 모드가 살아남는지 검증 — 키맵 비의존.)
+    #[test]
+    fn set_layout_preserves_word_accumulation() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Word;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+
+        // 자판 전환(2bul→3bul→2bul) 후에도 commit_unit 캐시·누적 상태 유지.
+        engine.set_korean_layout("ko_3bul390".to_string());
+        assert_eq!(engine.commit_unit, CommitUnit::Word);
+        engine.set_korean_layout("ko_2bulstd".to_string());
+        assert_eq!(engine.commit_unit, CommitUnit::Word);
+
+        // 알려진 dubeolsik 키맵으로 "가나" 입력 → 누적 preedit 확인.
+        type_ganan(&mut engine, &config);
+        assert_eq!(
+            engine.preedit_str(),
+            "가나",
+            "자판 전환 후에도 단어 누적이 유지되어야 함"
         );
     }
 }

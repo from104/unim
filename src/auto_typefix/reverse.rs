@@ -86,5 +86,6 @@ pub fn check_reverse(
         original: String::new(),
         clear_preedit: buffer.has_preedit,
         replay_keys: Vec::new(), // 역방향는 영어로 교정 → preedit 불필요
+        replace_composition: false,
     })
 }
