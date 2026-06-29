@@ -18,6 +18,15 @@
 //! 는 TSF 콜백까지 전파가 보장되지 않으므로, 대신 "남은 합성 keydown 수"(BS·PACKET
 //! 둘 다) 카운터(PENDING)로 식별해 엔진을 거치지 않고 통과시킨다.
 //!
+//! ⚠ 앱별 echo 비대칭: 대부분의 앱(wezterm/CUAS/메모장)은 합성 echo 를 OnTestKeyDown→
+//! OnKeyDown 양쪽으로 흘려 `observe_test_key_down` 이 PENDING 을 감산하지만, **wmux/xterm.js
+//! 등 Blink contenteditable 호스트는 OnTestKeyDown 을 아예 발화하지 않고 OnKeyDown 으로만**
+//! echo 한다(실측 wmux OnTestKeyDown=0). 그래서 `observe_key_down` 이 OnTestKeyDown 페어링
+//! (LAST_WAS_SYNTH) 없이도 합성 echo 를 직접 식별·감산하는 Case B 를 갖는다(없으면 race-flush
+//! 오발로 꼬리가 깨졌다). 또한 이들 앱에선 합성 UNICODE(head)가 WM_CHAR 로만 처리돼 keydown
+//! echo 가 없어 PENDING 이 head 길이만큼 0 에 못 미치므로, 라이브 꼬리(WM_UNIM_TAIL 게이트)
+//! 대신 60ms 안전망 타이머의 degrade 확정으로 수렴한다(출력 정합, 라이브 꼬리 UX 만 미적용).
+//!
 //! TSF 삽입/readback/펌프-분할(`store_pending_insert`/`arm_readback_gate`/`insert_pending`)
 //! 은 synth 경로에서 미사용 — native(full=true, chrome) 펌프-분할 전용으로 잔존한다.
 //!
@@ -299,13 +308,43 @@ pub fn observe_test_key_down(vk: u16) -> Option<bool> {
 
 /// OnKeyDown 최상단에서 호출했을 때의 처리 지시.
 pub enum SynthKeyAction {
-    /// 합성 BS 키가 OnKeyDown 까지 온 경우 (일부 앱) — 엔진 생략, eaten=false.
+    /// 합성 BS/UNICODE 키가 OnKeyDown 으로 도착한 경우 — 엔진 생략, eaten=false(앱 직접 삭제).
     PassThrough,
 }
 
 /// OnKeyDown 최상단에서 호출. None 이면 일반 키 처리 계속.
+///
+/// 두 경로로 합성 echo 를 식별한다:
+/// - **Case A (OnTestKeyDown 발화 앱: wezterm/CUAS/메모장 등)**: 직전 OnTestKeyDown
+///   (observe_test_key_down)이 이 합성 키를 이미 식별·카운트(PENDING 감산)하며
+///   LAST_WAS_SYNTH 를 set 했다 → 페어링으로 통과(여기선 재감산하지 않는다).
+/// - **Case B (OnTestKeyDown 미발화 앱: wmux/xterm.js 등 Blink contenteditable)**: 해당 TSF
+///   는 OnTestKeyDown 을 호출하지 않아(실측 wmux=0회) 합성 BS/UNICODE echo 가 OnKeyDown 으로만
+///   도착한다. LAST_WAS_SYNTH 가 set 되지 않으므로, 진행 중 합성 배치(pending_active)+합성
+///   vk(BS/PACKET)로 **직접** 식별해 PENDING 을 감산하고 통과시킨다. 이게 없으면 합성 BS echo
+///   가 아래 race-flush 가드(text_service OnKeyDown)로 흘러 "사용자 다음 키"로 오분류되어,
+///   머리 echo 미복귀(PENDING>0) 중 꼬리가 조기 degrade 되고 뒤이어 도착하는 나머지 합성 BS
+///   가 방금 삽입한 꼬리를 다시 지워 출력이 깨졌다(wmux 한글 자동교정 결함).
+///
+/// Case A 가 LAST_WAS_SYNTH 를 swap 으로 소비(true→false)하므로 OnTestKeyDown 발화 앱은
+/// Case B 에 진입하지 않는다 → PENDING 이중감산 없음. pending_active 는 STALE_MS 경과분을
+/// 폐기하므로, 합성 배치가 없을 때의 사용자 실제 BS 는 Case B 를 타지 않는다.
 pub fn observe_key_down(vk: u16) -> Option<SynthKeyAction> {
+    // Case A — OnTestKeyDown 페어링(재감산 금지).
     if LAST_WAS_SYNTH.swap(false, Ordering::SeqCst) && (vk == VK_BACK.0 || vk == VK_PACKET.0) {
+        return Some(SynthKeyAction::PassThrough);
+    }
+    // Case B — OnKeyDown 단독 echo (OnTestKeyDown 미발화 앱). pending_active 게이트 위에서만
+    // 감산하므로 음수로 떨어지지 않는다.
+    //
+    // ⚠ 트레이드오프(LOW): 합성 배치 진행 중(PENDING>0, STALE_MS 이내)에 사용자가 누른 진짜
+    // Backspace 는 여기서 식별돼 통과(소비)된다 — provenance 가 아니라 vk+카운터로 식별하기
+    // 때문. 노출은 synth/full=false 브리지 앱(wmux 등)에 한정되고(정식 TSF 앱은 PENDING 이
+    // 0 이라 미진입), 이들 앱에선 UNICODE head 가 keydown echo 가 없어 PENDING 이 최대 STALE_MS
+    // 까지 잔존할 수 있다. BS 는 eaten=FALSE 로 앱에 그대로 전달돼 삭제 자체는 일어나며, 잔여
+    // 카운터는 STALE 폴백으로 닫힌다(수용 가능 — 적대검증 #2).
+    if (vk == VK_BACK.0 || vk == VK_PACKET.0) && pending_active() {
+        PENDING.fetch_sub(1, Ordering::SeqCst);
         return Some(SynthKeyAction::PassThrough);
     }
     None
