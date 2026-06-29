@@ -374,6 +374,36 @@ pub fn handle_key_down(
         };
     }
 
+    // ── 단어모드 GAP2: 보유 영문 경계확정 (OnTestKeyDown 미발화 앱 = wmux 전용 보강) ──
+    //
+    // 보유 영문(english_hold)은 코어가 추적하지 않는 TSF-측 committed=0 라이브 조합이다.
+    // 경계/네비키(Enter/Tab/Esc/방향/Home/End/PgUp·Dn) 또는 넘패드(NumLock 숫자)가 오면
+    // 보유분을 먼저 영문 그대로 확정한 뒤 키를 앱에 통과시켜야 한다. 정상 TSF 앱
+    // (wezterm/Word)은 OnTestKeyDown 의 commit_for_passthrough(text_service.rs:869/894)가
+    // 이를 처리하지만, wmux(xterm.js/Blink)는 OnTestKeyDown 을 발화하지 않아 그 게이트가
+    // 죽는다. 그러면 press_key 가 이 키를 미소비 → 아래 397 early-return 으로 빠져
+    // confirm_english_hold(:501)에 도달하지 못해 보유 조합이 문서에 잔류한 채 키만 앱으로
+    // 통과 → desync. 여기서 press_key 전에 직접 확정한다.
+    //
+    // 한글 라이브 단어(word 모드)는 여기서 건드리지 않는다 — 엔진 press_key 의
+    // committed_passthrough(press_key.rs:238/507)가 확정하므로. 그래서 게이트는
+    // english_hold_active 전용. 이중확정 안전: OnTestKeyDown 발화 앱은 거기서 이미 확정해
+    // english_hold 가 비어 active=false → 이 블록 미진입(앱별 상호배타).
+    if comp_mgr.english_hold_active()
+        && !popup.is_active()
+        && (is_commit_passthrough_key(keycode) || is_numpad_vk(vk))
+    {
+        comp_mgr.confirm_english_hold(context, tid);
+        crate::register::dbg_log(&format!(
+            "handle_key_down: 보유 영문 경계확정(navkey/numpad vk=0x{:02X}) → 통과(eaten=false)",
+            vk
+        ));
+        return KeyDownOutcome {
+            eaten: false,
+            schedule_flush: false,
+        };
+    }
+
     // ── Backspace 관찰 (blacklist 재트리거 감지용) ──
     if keycode == KeyCode::Backspace {
         auto_typefix::observe_backspace(atf_state, &config.engine.auto_typefix);
