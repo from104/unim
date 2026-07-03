@@ -40,7 +40,13 @@ pub fn test_key_down(
 ) -> bool {
     let vk = wparam.0 as u16;
     let keycode = KeyCode::from_win32_vk(vk);
-    let modifiers = get_modifier_state();
+    // 고정키(Sticky Keys) 래치 잔류 마스킹 미리보기(비소비). 수정자 토글키(RightAlt
+    // 등)로 전환이 성사된 직후라면, 고정키가 다음 키에 세워둔 잔류 수정자 비트를 지운
+    // 사본으로 소비 판정을 한다. 이렇게 해야 전환 직후 첫 문자키가 아래 단축키 가드
+    // (control||alt||super)에 걸려 앱으로 새지 않고 IME 로 소비(→OnKeyDown 발화)된다.
+    // 실제 비트 제거·마스크 소비는 press_key(OnKeyDown)가 하며, 여기선 peek 만 한다.
+    // 마스크 미예약(평소 경로)이면 원본과 바이트 동일 — 무회귀.
+    let modifiers = engine.peek_sticky_masked_modifiers(get_modifier_state());
 
     // [imm32 진입 진단] OnTestKeyDown 무조건 진입 로그. KakaoTalk/아래아한글에서
     // 키가 sink 에 아예 도달하는지(=이 줄이 찍히는지) 재현 확인용.

@@ -53,6 +53,16 @@ impl InputEngine {
         modifier: ModifierState,
         _config: &Config,
     ) -> InputResult {
+        // 고정키(Sticky Keys) 래치 잔류 마스킹 — 직전에 수정자 토글키(RightAlt 등)로
+        // 전환이 성사됐다면, 이번 키의 잔류 수정자 비트 하나를 지운다(일회성 소비).
+        // 이 처리는 어떤 분기보다 먼저 와야 아래의 단축키 가드(control||alt||super)가
+        // 래치 잔류를 단축키로 오분류해 첫 자모를 버리는 것을 막는다. 마스크가 없는
+        // 평소 경로(None)는 modifier 를 건드리지 않아 바이트 동일 무회귀.
+        let mut modifier = modifier;
+        if let Some(latch) = self.sticky_toggle_mask.take() {
+            latch.clear_from(&mut modifier);
+        }
+
         // 설정된 한/영 전환키 여부. RightAlt 처럼 그 자체가 수정자인 키도 토글키로
         // 지정될 수 있으므로(기본값 ["Korean","RightAlt"]) is_modifier 가드보다
         // 먼저 판정해 둔다.
@@ -102,6 +112,13 @@ impl InputEngine {
                 // 조합 중이면 먼저 커밋
                 let was_composing = self.korean_context.is_composing();
                 self.toggle_input_category();
+
+                // 고정키 충돌 방어: 토글키가 그 자체로 수정자(RightAlt 등)라면, 고정키
+                // 래치가 다음 키에 그 수정자 비트를 잔류시킬 수 있다. 다음 키 1건에서
+                // 해당 비트를 지우도록 마스크를 예약한다(비-수정자 토글키 Korean/Hangul
+                // 은 래치가 없어 예약 안 함 → 평소 경로 무회귀).
+                self.sticky_toggle_mask =
+                    super::engine::LatchModifier::of_keycode(keycode);
 
                 // 조합 중이었으면 commit이 발생했으므로 committed() 반환
                 if was_composing {

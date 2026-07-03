@@ -15,6 +15,44 @@ use crate::keystroke::EnglishKeymap;
 use crate::popup::PopupState;
 use std::collections::HashMap;
 
+/// 고정키(Sticky Keys) 래치 잔류 마스킹 대상 수정자 종류.
+///
+/// 수정자 토글키(RightAlt 등)로 한/영 전환이 성사된 직후, Sticky Keys 가 켜져
+/// 있으면 그 토글키 눌림이 해당 수정자 비트를 **다음 한 키에** 래치시킨다. 전환
+/// 직후 첫 문자키가 이 잔류 비트 때문에 단축키(예: Alt+키)로 오분류되어 유실될
+/// 수 있으므로, 토글 성사 시 토글키가 대표하는 수정자 종류를 기억해 두었다가
+/// 다음 키 1건에서 그 비트만 지운다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LatchModifier {
+    Alt,
+    Control,
+    Super,
+    Shift,
+}
+
+impl LatchModifier {
+    /// 수정자 KeyCode 가 대표하는 래치 수정자 종류. 비-수정자 키는 `None`.
+    pub(super) fn of_keycode(keycode: KeyCode) -> Option<Self> {
+        match keycode {
+            KeyCode::LeftAlt | KeyCode::RightAlt => Some(Self::Alt),
+            KeyCode::LeftControl | KeyCode::RightControl => Some(Self::Control),
+            KeyCode::LeftSuper | KeyCode::RightSuper => Some(Self::Super),
+            KeyCode::LeftShift | KeyCode::RightShift => Some(Self::Shift),
+            _ => None,
+        }
+    }
+
+    /// `modifier` 에서 이 종류의 비트를 지운다 (고정키 래치 잔류 제거).
+    pub(super) fn clear_from(self, modifier: &mut crate::keycode::ModifierState) {
+        match self {
+            Self::Alt => modifier.alt = false,
+            Self::Control => modifier.control = false,
+            Self::Super => modifier.super_key = false,
+            Self::Shift => modifier.shift = false,
+        }
+    }
+}
+
 /// 입력 엔진
 ///
 /// 키 입력을 받아 한국어 조합을 처리하고 preedit/commit 문자열을 관리합니다.
@@ -107,6 +145,15 @@ pub struct InputEngine {
     /// 복구한 뒤 클리어한다. `None` = 저장 없음(평소 경로 — 바이트 동일 무회귀).
     /// 멱등(이중 저장/복구 방지).
     pub(super) saved_category: Option<InputCategory>,
+    /// 고정키(Sticky Keys) 래치 잔류 무시 — 수정자 토글키(RightAlt 등)로 한/영
+    /// 전환이 성사된 직후 **다음 키 1건**에서 마스킹할 수정자 종류.
+    ///
+    /// 지체장애 사용자가 고정키를 쓰면 RightAlt 눌림이 Alt 비트를 다음 키에
+    /// 래치시켜, 전환 직후 첫 문자키가 단축키(Alt+키)로 오분류돼 유실될 수 있다.
+    /// 토글 성사 시(그리고 토글키가 수정자일 때) 그 수정자 종류를 저장하고, 다음
+    /// `press_key` 진입에서 해당 비트를 지운 뒤 소비(`take`)한다. RightAlt 토글
+    /// 자체는 그대로 유지된다. `None` = 마스킹 없음(평소 경로 — 바이트 동일 무회귀).
+    pub(super) sticky_toggle_mask: Option<LatchModifier>,
 }
 
 impl Default for InputEngine {
@@ -198,6 +245,7 @@ impl InputEngine {
             commit_unit,
             word_mode_apps,
             saved_category: None,
+            sticky_toggle_mask: None,
         };
 
         // Word 모드면 단어 누적을 초기 주입 (Smart/Syllable = 누적 off, 기존 동작).
@@ -301,6 +349,26 @@ impl InputEngine {
     /// 자체가 호출되지 않아 토글이 죽는다.
     pub fn is_toggle_key(&self, keycode: KeyCode) -> bool {
         self.toggle_keys.contains(&keycode)
+    }
+
+    /// 고정키(Sticky Keys) 래치 잔류 마스킹 **미리보기(비소비)**.
+    ///
+    /// 수정자 토글키(RightAlt 등)로 전환이 성사된 직후 예약된 마스크가 있으면
+    /// 주어진 `modifier` 에서 그 수정자 비트를 지운 복사본을 돌려준다(원본 상태
+    /// 불변 — `take` 하지 않음). 프런트엔드 소비 판정(TSF `OnTestKeyDown`)이
+    /// 전환 직후 첫 키의 래치 잔류 비트를 무시하고 그 키를 IME 로 소비하도록
+    /// 게이트를 `press_key` 와 정렬시키는 용도다. 실제 비트 제거·마스크 소비는
+    /// `press_key`(OnKeyDown 경로)가 한 번만 수행한다. 마스크가 없으면(평소 경로)
+    /// 입력 그대로 반환 — 바이트 동일 무회귀.
+    pub fn peek_sticky_masked_modifiers(
+        &self,
+        modifier: crate::keycode::ModifierState,
+    ) -> crate::keycode::ModifierState {
+        let mut m = modifier;
+        if let Some(latch) = self.sticky_toggle_mask {
+            latch.clear_from(&mut m);
+        }
+        m
     }
 
     /// 활성 영문 키맵의 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
@@ -423,6 +491,10 @@ impl InputEngine {
         self.special_char_target.clear();
         self.popup_state = None;
         self.popup_pending_action = None;
+
+        // 고정키 래치 마스킹 잔류도 비운다 — 조합 리셋 시점의 미소비 마스크가
+        // 이후 무관한 첫 키의 수정자를 잘못 지우지 않게 한다.
+        self.sticky_toggle_mask = None;
     }
 
     // =========================================================================
@@ -916,5 +988,108 @@ mod tests {
             "가나",
             "reset 후 재타이핑은 stale 누적 없이 새 단어"
         );
+    }
+
+    // ─────────────────────────────────────────────
+    // 고정키(Sticky Keys) + 수정자 토글(RightAlt) 충돌 방어
+    // ─────────────────────────────────────────────
+
+    /// 고정키가 켜진 환경 재현: RightAlt 로 한/영 전환 성사 직후, OS 가 Alt 비트를
+    /// 다음 키에 래치시킨다. 방어가 없으면 전환 직후 첫 자모키가 단축키(Alt+키)로
+    /// 오분류돼 유실된다. 방어가 있으면 그 잔류 Alt 비트를 지우고 첫 자모를 정상 처리.
+    #[test]
+    fn sticky_keys_masks_latched_alt_on_first_jamo_after_rightalt_toggle() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::English);
+
+        // RightAlt 눌림 — 자신이 Alt 비트를 세운 채 들어와도 토글은 성사(self_is_modifier).
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        let r = engine.press_key(KeyCode::RightAlt, alt_down, &config);
+        assert!(r.consumed, "RightAlt 토글은 소비되어야");
+        assert_eq!(engine.input_category(), InputCategory::Korean, "한글로 전환");
+        // 토글 성사 → 다음 키 1건 Alt 마스크 예약.
+        assert_eq!(
+            engine.sticky_toggle_mask,
+            Some(LatchModifier::Alt),
+            "수정자 토글키 성사 후 Alt 마스크 예약"
+        );
+
+        // 고정키 래치로 Alt 가 남은 채 첫 자모키 R 입력.
+        let r2 = engine.press_key(KeyCode::R, alt_down, &config);
+        assert!(r2.consumed, "첫 자모키는 소비되어야(유실 금지)");
+        assert_eq!(engine.preedit_str(), "ㄱ", "래치 Alt 무시 후 첫 자모 정상 조합");
+        assert!(
+            engine.sticky_toggle_mask.is_none(),
+            "마스크는 일회성 소비되어 None"
+        );
+    }
+
+    /// 일회성: 마스크는 딱 한 키만 방어한다. 첫 키가 소비하면 그 다음 키의 래치
+    /// Alt 는 다시 단축키로 취급된다(마스크가 무한 지속되지 않음을 보장).
+    #[test]
+    fn sticky_mask_is_consumed_after_single_key() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::English);
+
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        engine.press_key(KeyCode::RightAlt, alt_down, &config); // 전환 + 마스크 예약
+        engine.press_key(KeyCode::R, alt_down, &config); // 마스크 소비 → ㄱ
+        assert_eq!(engine.preedit_str(), "ㄱ");
+
+        // 다음 키도 Alt 래치가 남아 있다고 가정 → 마스크는 이미 없으므로 단축키 처리.
+        // 조합(ㄱ) 중이므로 flush 후 committed, 자모는 추가되지 않는다.
+        let r3 = engine.press_key(KeyCode::K, alt_down, &config);
+        assert!(r3.commit_changed, "두 번째 Alt 키는 단축키 → 조합 flush/commit");
+        assert!(
+            !engine.preedit_str().contains('ㅏ') && !engine.preedit_str().contains('가'),
+            "두 번째 키는 자모로 처리되지 않아야(마스크 일회성): preedit='{}'",
+            engine.preedit_str()
+        );
+    }
+
+    /// 비-수정자 토글키(Korean/한영)는 고정키 래치가 없으므로 마스크를 예약하지 않는다.
+    /// 이후 진짜 Alt+키 단축키는 그대로 단축키로 유지(무회귀).
+    #[test]
+    fn non_modifier_toggle_key_does_not_reserve_mask() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::English);
+
+        let m = ModifierState::default();
+        let r = engine.press_key(KeyCode::Korean, m, &config);
+        assert!(r.consumed, "Korean 토글 소비");
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+        assert!(
+            engine.sticky_toggle_mask.is_none(),
+            "비-수정자 토글키는 마스크 예약 안 함"
+        );
+
+        // 진짜 Alt+키 단축키는 마스킹 없이 그대로 통과(not_consumed).
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        let r2 = engine.press_key(KeyCode::R, alt_down, &config);
+        assert!(!r2.consumed, "마스크 없으면 Alt+키는 단축키(not_consumed)");
+        assert!(engine.preedit_str().is_empty(), "자모 조합 없음");
+    }
+
+    /// 무회귀: 선행 토글 없이 들어온 진짜 Alt+키 단축키는 마스크가 없어(None)
+    /// 종전과 동일하게 단축키로 처리된다. 정상 경로 modifier 비변경.
+    #[test]
+    fn plain_alt_shortcut_without_prior_toggle_unaffected() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        assert!(engine.sticky_toggle_mask.is_none());
+
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        let r = engine.press_key(KeyCode::R, alt_down, &config);
+        assert!(!r.consumed, "선행 토글 없는 Alt+키는 단축키 그대로");
+        assert!(engine.preedit_str().is_empty());
+        assert!(engine.commit_str().is_empty());
     }
 }
