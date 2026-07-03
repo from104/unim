@@ -150,6 +150,13 @@ fn refresh_userdict(ui: &SettingsWindow, ud: &UserDictionary) {
     ui.set_userdict_model(ModelRc::new(VecModel::from(items)));
 }
 
+/// I6: 파괴적 삭제 직전 상태 스냅샷 1개. '되돌리기' 토스트에서 복원한다.
+/// 최근 삭제 하나만 되돌릴 수 있도록 항상 최신 스냅샷으로 덮어쓴다.
+enum DeleteSnapshot {
+    Blacklist(Blacklist),
+    Userdict(UserDictionary),
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 렌더러 명시 선택: 기본 FemtoVG 는 힌팅이 없어 작은 한글(14px) 획 굵기가
     // 불균일하다. Skia 렌더러(Cargo.toml 의 renderer-skia feature 로 컴파일됨)는
@@ -166,6 +173,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Rc::new(RefCell::new(Config::load_from_default_path()));
     let blacklist = Rc::new(RefCell::new(Blacklist::load_from_default_path()));
     let userdict = Rc::new(RefCell::new(UserDictionary::load_from_default_path()));
+    // I6: 되돌리기용 스냅샷 1개(마지막 삭제만 복원 가능).
+    let delete_snapshot: Rc<RefCell<Option<DeleteSnapshot>>> = Rc::new(RefCell::new(None));
 
     // 자판 목록 구성 (정규 이름은 저장 시 인덱스→이름 변환에 사용).
     let (kor_canon, kor_disp, kor_idx);
@@ -408,31 +417,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── 억제 단어 삭제 ──
+    // ── 억제 단어 삭제 (개별) — 삭제 직전 스냅샷 후 되돌리기 토스트 노출 ──
     {
         let ui_weak = ui.as_weak();
         let blacklist = blacklist.clone();
+        let delete_snapshot = delete_snapshot.clone();
         ui.on_blacklist_remove(move |idx| {
             let ui = ui_weak.unwrap();
             let mut bl = blacklist.borrow_mut();
             if idx >= 0 && (idx as usize) < bl.entries.len() {
+                // I6: 삭제 직전 전체 목록을 스냅샷(복원 시 그대로 되돌림).
+                *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Blacklist(bl.clone()));
                 bl.remove(idx as usize);
                 let _ = bl.save_to_default_path();
                 refresh_blacklist(&ui, &bl);
                 ui.set_status_text("억제 단어를 삭제했습니다.".into());
+                ui.set_toast_message("억제 단어를 삭제했습니다.".into());
+                ui.set_toast_visible(true);
             }
         });
     }
+    // ── 억제 단어 모두 삭제 (확인 다이얼로그 통과 후 호출) ──
     {
         let ui_weak = ui.as_weak();
         let blacklist = blacklist.clone();
+        let delete_snapshot = delete_snapshot.clone();
         ui.on_blacklist_clear(move || {
             let ui = ui_weak.unwrap();
             let mut bl = blacklist.borrow_mut();
+            if bl.entries.is_empty() {
+                return;
+            }
+            // I6: 삭제 직전 전체 목록을 스냅샷.
+            *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Blacklist(bl.clone()));
             bl.entries.clear();
             let _ = bl.save_to_default_path();
             refresh_blacklist(&ui, &bl);
             ui.set_status_text("억제 단어를 모두 삭제했습니다.".into());
+            ui.set_toast_message("억제 단어를 모두 삭제했습니다.".into());
+            ui.set_toast_visible(true);
         });
     }
 
@@ -467,18 +490,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── 사용자 사전 삭제 ──
+    // ── 사용자 사전 삭제 (개별) — 삭제 직전 스냅샷 후 되돌리기 토스트 노출 ──
     {
         let ui_weak = ui.as_weak();
         let userdict = userdict.clone();
+        let delete_snapshot = delete_snapshot.clone();
         ui.on_userdict_remove(move |idx| {
             let ui = ui_weak.unwrap();
             let mut ud = userdict.borrow_mut();
-            if idx >= 0 && ud.remove_at(idx as usize) {
+            if idx < 0 || (idx as usize) >= ud.reverse_words.len() {
+                return;
+            }
+            // I6: 삭제 직전 전체 목록을 스냅샷(제거 성공이 보장되는 시점).
+            *delete_snapshot.borrow_mut() = Some(DeleteSnapshot::Userdict(ud.clone()));
+            if ud.remove_at(idx as usize) {
                 let _ = ud.save_to_default_path();
                 refresh_userdict(&ui, &ud);
                 ui.set_status_text("사용자 사전에서 삭제했습니다.".into());
+                ui.set_toast_message("사용자 사전에서 삭제했습니다.".into());
+                ui.set_toast_visible(true);
             }
+        });
+    }
+
+    // ── I6: 되돌리기(undo) — 마지막 삭제 스냅샷 복원 ──
+    {
+        let ui_weak = ui.as_weak();
+        let blacklist = blacklist.clone();
+        let userdict = userdict.clone();
+        let delete_snapshot = delete_snapshot.clone();
+        ui.on_undo_restore(move || {
+            let ui = ui_weak.unwrap();
+            match delete_snapshot.borrow_mut().take() {
+                Some(DeleteSnapshot::Blacklist(snap)) => {
+                    let mut bl = blacklist.borrow_mut();
+                    *bl = snap;
+                    let _ = bl.save_to_default_path();
+                    refresh_blacklist(&ui, &bl);
+                    ui.set_status_text("삭제를 되돌렸습니다.".into());
+                }
+                Some(DeleteSnapshot::Userdict(snap)) => {
+                    let mut ud = userdict.borrow_mut();
+                    *ud = snap;
+                    let _ = ud.save_to_default_path();
+                    refresh_userdict(&ui, &ud);
+                    ui.set_status_text("삭제를 되돌렸습니다.".into());
+                }
+                None => {}
+            }
+            ui.set_toast_visible(false);
         });
     }
 
