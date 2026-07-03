@@ -74,6 +74,13 @@ pub struct RenderState {
     pub expand_text: String,
     pub tab_labels: Vec<String>,
     pub active_tab_index: u32,
+    /// TIP 가 채우는 캐럿(조합 range) 스크린 rect (left, top, right, bottom, 물리 픽셀).
+    /// 렌더러가 이 rect 하단에 팝업을 앵커링해 Windows 돋보기 확대 뷰포트를 따라간다.
+    /// `None`(GetTextExt 실패·미지원 앱)이면 렌더러가 모니터 중앙으로 폴백.
+    /// `skip_serializing_if=Option::is_none` → None 일 때 정방향 골든 라인 바이트 불변.
+    /// 필드 추가 시 반드시 unim-popup-win/src/protocol.rs 사본과 동일하게 유지.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caret_rect: Option<(i32, i32, i32, i32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,6 +312,8 @@ pub fn to_render_state(vm: &unim::popup::PopupViewModel) -> RenderState {
         expand_text: vm.expand_text.clone(),
         tab_labels: vm.tab_labels.clone(),
         active_tab_index: vm.active_tab_index as u32,
+        // 캐럿 rect 는 view model 에 없음 — 호출자(key_handler)가 GetTextExt 결과로 채운다.
+        caret_rect: None,
     }
 }
 

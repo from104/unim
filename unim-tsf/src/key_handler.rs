@@ -261,6 +261,33 @@ fn get_composition_screen_pos(context: &ITfContext, tid: u32) -> Option<(i32, i3
     }
 }
 
+/// composition range 의 스크린 rect 전체(left, top, right, bottom, 물리 픽셀)를 구한다.
+/// 후보 팝업 캐럿 앵커링(돋보기 추종)용 — RenderState.caret_rect 에 담아 렌더러로 보낸다.
+/// GetTextExt 미지원·실패 앱은 `None` → 렌더러가 모니터 중앙으로 폴백.
+/// 성공했으나 전(全) 0 rect(초기화 안 됨)면 무효로 보고 `None`.
+fn get_composition_screen_rect(context: &ITfContext, tid: u32) -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let view: ITfContextView = context.GetActiveView().ok()?;
+        let mut sel = TF_SELECTION::default();
+        let mut fetched: u32 = 0;
+        context
+            .GetSelection(u32::MAX, 1, std::slice::from_mut(&mut sel), &mut fetched)
+            .ok()?;
+        if fetched == 0 {
+            return None;
+        }
+        let range = sel.range.as_ref()?;
+        let mut rect = RECT::default();
+        let mut clipped = BOOL::default();
+        view.GetTextExt(tid, range, &mut rect, &mut clipped).ok()?;
+        // 전 0 rect = GetTextExt 성공했으나 좌표 미산출(일부 앱) → 무효 처리.
+        if rect.left == 0 && rect.top == 0 && rect.right == 0 && rect.bottom == 0 {
+            return None;
+        }
+        Some((rect.left, rect.top, rect.right, rect.bottom))
+    }
+}
+
 /// OnKeyDown: 실제 키 처리 + 조합 갱신 + 팝업 라우팅 + AutoTypeFix
 pub fn handle_key_down(
     engine: &mut InputEngine,
@@ -440,7 +467,9 @@ pub fn handle_key_down(
     // 액션 루프는 first(Show*)/hide(HidePopup)/flash(★해제) 플래그만 수집하고,
     // 렌더 데이터는 엔진 SoT view_model → to_render_state(§4) → send_render 로 보낸다.
     // 이것이 H3/H4/H5/H9/H14 일괄 해소 지점 (첫 Show 부터 격자·헤더·뜻·★ 정확).
-    drain_popup_actions(engine, popup);
+    // 캐럿 rect(조합 range 스크린 좌표)를 함께 넘겨 팝업을 캐럿 하단에 앵커링(돋보기 추종).
+    let caret_rect = get_composition_screen_rect(context, tid);
+    drain_popup_actions(engine, popup, caret_rect);
 
     // ── 단어별 preedit caret 정책 힌트 ──
     // 코어 word 모드(winword.exe 포커스 게이트 = engine.is_word_mode())를 조합 dispatch
@@ -873,7 +902,12 @@ pub fn flush_pending_tail(
 /// H3(전치)/H4(하이라이트)/H5(첫표시 격자)/H9(헤더·뜻)/H14(초기★)가 일괄 해소된다.
 ///
 /// `selected`(=sel_row) 필드는 어디서도 사용하지 않는다 (좌표 SoT 만 신뢰).
-fn drain_popup_actions(engine: &mut InputEngine, popup: &mut PopupClient) {
+fn drain_popup_actions(
+    engine: &mut InputEngine,
+    popup: &mut PopupClient,
+    // 조합 range 스크린 rect(left,top,right,bottom) — 렌더러 캐럿 앵커링용. None=중앙 폴백.
+    caret_rect: Option<(i32, i32, i32, i32)>,
+) {
     use unim::input_engine::PopupAction;
 
     let mut first = false; // Show* 수신
@@ -915,7 +949,9 @@ fn drain_popup_actions(engine: &mut InputEngine, popup: &mut PopupClient) {
     // 엔진 SoT 에서 완성된 view model 추출 (H3/H4/H5/H9/H14 일괄 해소 지점).
     let home_row = engine.home_row_labels().to_string();
     if let Some(state) = engine.popup_state() {
-        let rs = to_render_state(&state.view_model(&home_row));
+        let mut rs = to_render_state(&state.view_model(&home_row));
+        // 캐럿 앵커링(돋보기 추종) — 렌더러가 이 rect 하단에 팝업을 배치한다.
+        rs.caret_rect = caret_rect;
         popup.send_render(rs, first, flash);
     } else if popup.is_active() {
         // 액션은 있었는데 상태가 없음 — 방어적 Hide.
@@ -1025,7 +1061,9 @@ pub fn apply_reverse_event(
 
     // ── 적용 후 재렌더/확정 처리 ──
     // pending PopupAction 을 소비해 view_model 재전송 또는 hide.
-    drain_popup_actions(engine, popup);
+    // 재렌더 시에도 캐럿 앵커 유지(페이지/탭/확장 전환 후 위치 고정) — context 있으면 rect 계산.
+    let caret_rect = context.and_then(|ctx| get_composition_screen_rect(ctx, tid));
+    drain_popup_actions(engine, popup, caret_rect);
 
     // 마우스 확정 텍스트(commit_buffer)가 있으면 보관 컨텍스트로 비조합 문서 삽입.
     let commit = if !engine.commit_str().is_empty() {

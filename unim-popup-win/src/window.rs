@@ -260,12 +260,46 @@ unsafe fn compute_placement(
     let work_h = rc_work.bottom - rc_work.top;
     w = w.min(work_w);
     h = h.min(work_h);
-    // 6. 정중앙.
-    let x = rc_work.left + (work_w - w) / 2;
-    let y = rc_work.top + (work_h - h) / 2;
+    // 6. 배치 — 캐럿 앵커(있으면) 우선, 실패 시 정중앙 폴백.
+    //    caret_rect(left,top,right,bottom, 물리 픽셀) 하단에 팝업을 붙인다.
+    //    화면 아래로 넘치면 캐럿 위로 플립, 위·아래 모두 안 들어가면 중앙 폴백.
+    //    이로써 Windows 돋보기 확대 뷰포트가 캐럿을 따라갈 때 팝업도 함께 따라온다.
+    let center = |w: i32, h: i32| {
+        (
+            rc_work.left + (work_w - w) / 2,
+            rc_work.top + (work_h - h) / 2,
+        )
+    };
+    let (x, y, anchored) = match rs.caret_rect {
+        // 전(全) 0 rect 는 무효(초기화 안 됨) — 중앙 폴백. TSF 측에서도 걸러지나 이중 방어.
+        Some((cl, ct, _cr, cb)) if !(cl == 0 && ct == 0 && cb == 0) => {
+            // x: 캐럿 좌측 정렬 후 작업영역 안으로 클램프.
+            let mut px = cl;
+            if px + w > rc_work.right {
+                px = rc_work.right - w;
+            }
+            if px < rc_work.left {
+                px = rc_work.left;
+            }
+            // y: 캐럿 하단(cb) 우선, 넘치면 캐럿 위(ct - h)로 플립.
+            if cb + h <= rc_work.bottom {
+                (px, cb, true)
+            } else if ct - h >= rc_work.top {
+                (px, ct - h, true)
+            } else {
+                let (cx, cy) = center(w, h);
+                (cx, cy, false)
+            }
+        }
+        _ => {
+            let (cx, cy) = center(w, h);
+            (cx, cy, false)
+        }
+    };
     logln!(
-        "window: recenter owner_valid={} hmon rcWork=({},{},{},{}) dpi={dpi_x} scale={scale:.3} wh=({w},{h}) xy=({x},{y})",
+        "window: place anchored={anchored} owner_valid={} caret={:?} rcWork=({},{},{},{}) dpi={dpi_x} scale={scale:.3} wh=({w},{h}) xy=({x},{y})",
         !owner.0.is_null(),
+        rs.caret_rect,
         rc_work.left, rc_work.top, rc_work.right, rc_work.bottom
     );
     (x, y, w, h, scale)
