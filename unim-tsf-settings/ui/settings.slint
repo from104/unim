@@ -11,8 +11,9 @@
 //
 // main.rs 계약(절대 불변): 컴포넌트명 SettingsWindow, in-out property 31개
 // (word-mode-apps — I4 per-app 앱호환 config 외부화; toast-visible/toast-message
-// — I6 되돌리기 토스트), callback 7개(undo-restore — I6),
-// default-font-family "Malgun Gothic".
+// — I6 되돌리기 토스트), callback 9개(undo-restore — I6; atf-apply-preset·
+// atf-restore-defaults — 오타교정 프리셋/기본값복원), default-font-family
+// "Malgun Gothic". atf-advanced-expanded 는 Rust 미노출 UI 상태(내부 property).
 
 import {
     ComboBox, SpinBox, LineEdit, Button, Switch,
@@ -242,9 +243,15 @@ export component SettingsWindow inherits Window {
     callback userdict-remove(int);
     // I6: 토스트의 '되돌리기' 클릭 → 마지막 삭제 스냅샷 복원.
     callback undo-restore();
+    // 오타 교정 강도 프리셋(0=보수적, 1=표준, 2=적극적) 일괄 적용.
+    callback atf-apply-preset(int);
+    // 오타 교정 설정을 기본값으로 복원(+ 되돌리기 토스트).
+    callback atf-restore-defaults();
 
     // 현재 페이지(0=일반, 1=오타 교정, 2=억제 단어, 3=사용자 사전)
     property <int> current-page: 0;
+    // 오타 교정 '고급' 접이식 상태(progressive disclosure). Rust 미노출 UI 상태.
+    property <bool> atf-advanced-expanded: false;
 
     VerticalLayout {
         // ── 헤더 ──
@@ -523,6 +530,40 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
+                    // 교정 강도 프리셋 — 임계값·단어 길이·감지창을 한 번에 세팅해
+                    // 평면 노출로 인한 인지부하를 줄인다(progressive disclosure).
+                    if root.current-page == 1: Card {
+                        title: "교정 강도";
+                        Text {
+                            text: "미리 준비된 강도를 고르면 임계값·단어 길이·감지창이 한 번에 맞춰집니다. 세부 값은 아래 '고급 설정'에서 조정할 수 있습니다.";
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            spacing: Tokens.space-2;
+                            Button {
+                                text: "보수적";
+                                enabled: root.atf-enabled;
+                                accessible-label: "보수적 강도 적용";
+                                clicked => { root.atf-apply-preset(0); }
+                            }
+                            Button {
+                                text: "표준";
+                                enabled: root.atf-enabled;
+                                accessible-label: "표준 강도 적용";
+                                clicked => { root.atf-apply-preset(1); }
+                            }
+                            Button {
+                                text: "적극적";
+                                enabled: root.atf-enabled;
+                                accessible-label: "적극적 강도 적용";
+                                clicked => { root.atf-apply-preset(2); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
                     if root.current-page == 1: Card {
                         title: "교정 방향";
                         SettingRow {
@@ -548,7 +589,19 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
+                    // 고급 설정 접이식 토글 — 세부 임계값·옵션을 기본 숨김.
                     if root.current-page == 1: Card {
+                        SettingRow {
+                            title: "고급 설정";
+                            description: "임계값·감지창·세부 옵션을 직접 조정합니다. 대부분은 위 '교정 강도' 프리셋으로 충분합니다.";
+                            Button {
+                                text: root.atf-advanced-expanded ? "숨기기" : "펼치기";
+                                accessible-label: "고급 설정 펼치기 또는 숨기기";
+                                clicked => { root.atf-advanced-expanded = !root.atf-advanced-expanded; }
+                            }
+                        }
+                    }
+                    if root.current-page == 1 && root.atf-advanced-expanded: Card {
                         title: "임계값";
                         SettingRow {
                             title: "한글 음절 임계값";
@@ -637,7 +690,7 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
-                    if root.current-page == 1: Card {
+                    if root.current-page == 1 && root.atf-advanced-expanded: Card {
                         title: "옵션";
                         SettingRow {
                             title: "영어 단어는 교정 건너뛰기";
@@ -681,6 +734,19 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.atf-user-dict-enabled;
                                 accessible-label: "사용자 사전 사용";
                                 toggled => { root.auto-save(); }
+                            }
+                        }
+                    }
+                    // 기본값으로 복원 — Config::default() 로 되돌리고 5초 되돌리기 토스트
+                    // 노출(실수 복구 경로 보장, WCAG 3.3.4).
+                    if root.current-page == 1: Card {
+                        SettingRow {
+                            title: "기본값으로 복원";
+                            description: "오타 교정 관련 설정을 처음 상태로 되돌립니다. 되돌린 뒤 5초 안에 다시 취소할 수 있습니다.";
+                            Button {
+                                text: "기본값으로 복원";
+                                accessible-label: "오타 교정 기본값으로 복원";
+                                clicked => { root.atf-restore-defaults(); }
                             }
                         }
                     }

@@ -19,8 +19,8 @@ use std::rc::Rc;
 use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use unim::config::{
-    english_layout_display_name, korean_layout_display_name, CommitUnit, Config, InputCategory,
-    ModeSharingMode, ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
+    english_layout_display_name, korean_layout_display_name, AutoTypeFixConfig, CommitUnit, Config,
+    InputCategory, ModeSharingMode, ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -132,6 +132,41 @@ fn fmt_userdict(w: &ReverseWord) -> String {
     }
 }
 
+/// AutoTypeFix 설정 → UI 프로퍼티 일괄 반영. 초기 주입·프리셋 적용·기본값
+/// 복원·되돌리기 네 경로에서 공통 사용(중복 제거, 값 동기화 누락 방지).
+fn push_atf_to_ui(ui: &SettingsWindow, a: &AutoTypeFixConfig) {
+    ui.set_atf_enabled(a.enabled);
+    ui.set_atf_forward(a.forward);
+    ui.set_atf_reverse(a.reverse);
+    ui.set_atf_kor_threshold(a.kor_syllable_threshold as i32);
+    ui.set_atf_eng_min_length(a.eng_word_min_length as i32);
+    ui.set_atf_forward_window(a.forward_time_window_ms as i32);
+    ui.set_atf_reverse_window(a.reverse_time_window_ms as i32);
+    ui.set_atf_tentative_expiry(a.tentative_expiry_hours as i32);
+    ui.set_atf_observation_timeout(a.observation_timeout_secs as i32);
+    ui.set_atf_skip_english_word(a.skip_on_english_word);
+    ui.set_atf_skip_complete_syllable(a.skip_on_complete_syllable);
+    ui.set_atf_rollback_detection(a.rollback_detection);
+    ui.set_atf_user_dict_enabled(a.user_dict_enabled);
+}
+
+/// 오타 교정 강도 프리셋 (0=보수적, 1=표준, 2=적극적).
+/// 인지부하가 큰 임계값·단어 길이·감지창만 일괄 세팅하고, 만료/관찰 타임아웃과
+/// 불리언 옵션(사전·롤백 등)은 사용자가 고급에서 정한 값을 존중해 건드리지 않는다.
+/// 세 프리셋은 단조 증가(보수적→적극적)로 교정 적극성이 커진다. 모든 값은
+/// config clamp 허용 범위(kor 2~6, eng 3~8, window 500~5000) 안이다.
+fn apply_atf_preset(a: &mut AutoTypeFixConfig, preset: i32) {
+    let (kor, eng, window): (u8, u8, u32) = match preset {
+        0 => (4, 7, 2000), // 보수적: 더 많은 근거를 모은 뒤 교정 → 오탐 최소
+        2 => (2, 3, 5000), // 적극적: 짧은 입력·긴 감지창으로 더 자주 교정
+        _ => (3, 5, 3500), // 표준(1): 균형
+    };
+    a.kor_syllable_threshold = kor;
+    a.eng_word_min_length = eng;
+    a.forward_time_window_ms = window;
+    a.reverse_time_window_ms = window;
+}
+
 fn refresh_blacklist(ui: &SettingsWindow, bl: &Blacklist) {
     let items: Vec<StandardListViewItem> = bl
         .entries
@@ -155,6 +190,9 @@ fn refresh_userdict(ui: &SettingsWindow, ud: &UserDictionary) {
 enum DeleteSnapshot {
     Blacklist(Blacklist),
     Userdict(UserDictionary),
+    /// 오타 교정 '기본값으로 복원' 직전의 AutoTypeFix 설정. 되돌리기 시 그대로
+    /// 되돌려 사용자가 실수로 복원해도 이전 튜닝을 잃지 않게 한다(WCAG 3.3.4).
+    AtfDefaults(AutoTypeFixConfig),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -260,20 +298,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 조합키 자동반복 억제 (접근성, 지체장애).
         ui.set_ignore_key_repeat(e.ignore_key_repeat);
 
-        let a = &e.auto_typefix;
-        ui.set_atf_enabled(a.enabled);
-        ui.set_atf_forward(a.forward);
-        ui.set_atf_reverse(a.reverse);
-        ui.set_atf_kor_threshold(a.kor_syllable_threshold as i32);
-        ui.set_atf_eng_min_length(a.eng_word_min_length as i32);
-        ui.set_atf_forward_window(a.forward_time_window_ms as i32);
-        ui.set_atf_reverse_window(a.reverse_time_window_ms as i32);
-        ui.set_atf_tentative_expiry(a.tentative_expiry_hours as i32);
-        ui.set_atf_observation_timeout(a.observation_timeout_secs as i32);
-        ui.set_atf_skip_english_word(a.skip_on_english_word);
-        ui.set_atf_skip_complete_syllable(a.skip_on_complete_syllable);
-        ui.set_atf_rollback_detection(a.rollback_detection);
-        ui.set_atf_user_dict_enabled(a.user_dict_enabled);
+        push_atf_to_ui(&ui, &e.auto_typefix);
     }
     refresh_blacklist(&ui, &blacklist.borrow());
     refresh_userdict(&ui, &userdict.borrow());
@@ -413,6 +438,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── 오타 교정 강도 프리셋 (보수적/표준/적극적) 일괄 적용 ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        ui.on_atf_apply_preset(move |preset| {
+            let ui = ui_weak.unwrap();
+            let mut cfg = config.borrow_mut();
+            apply_atf_preset(&mut cfg.engine.auto_typefix, preset);
+            push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
+            let name = match preset {
+                0 => "보수적",
+                2 => "적극적",
+                _ => "표준",
+            };
+            match cfg.save_to_default_path() {
+                Ok(()) => ui.set_status_text(format!("{name} 강도를 적용했습니다.").into()),
+                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+            }
+        });
+    }
+
+    // ── 오타 교정 기본값으로 복원 (+ 5초 되돌리기 토스트, WCAG 3.3.4) ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        let delete_snapshot = delete_snapshot.clone();
+        ui.on_atf_restore_defaults(move || {
+            let ui = ui_weak.unwrap();
+            let mut cfg = config.borrow_mut();
+            // 복원 직전 값을 스냅샷 → 되돌리기로 원상 복구 가능.
+            *delete_snapshot.borrow_mut() =
+                Some(DeleteSnapshot::AtfDefaults(cfg.engine.auto_typefix.clone()));
+            cfg.engine.auto_typefix = AutoTypeFixConfig::default();
+            push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
+            match cfg.save_to_default_path() {
+                Ok(()) => ui.set_status_text("오타 교정 설정을 기본값으로 복원했습니다.".into()),
+                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+            }
+            ui.set_toast_message("오타 교정 설정을 기본값으로 복원했습니다.".into());
+            ui.set_toast_visible(true);
+        });
+    }
+
     // ── 닫기 ──
     {
         let ui_weak = ui.as_weak();
@@ -522,10 +590,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ui_weak = ui.as_weak();
         let blacklist = blacklist.clone();
         let userdict = userdict.clone();
+        let config = config.clone();
         let delete_snapshot = delete_snapshot.clone();
         ui.on_undo_restore(move || {
             let ui = ui_weak.unwrap();
             match delete_snapshot.borrow_mut().take() {
+                Some(DeleteSnapshot::AtfDefaults(snap)) => {
+                    let mut cfg = config.borrow_mut();
+                    cfg.engine.auto_typefix = snap;
+                    push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
+                    let _ = cfg.save_to_default_path();
+                    ui.set_status_text("기본값 복원을 되돌렸습니다.".into());
+                }
                 Some(DeleteSnapshot::Blacklist(snap)) => {
                     let mut bl = blacklist.borrow_mut();
                     *bl = snap;
