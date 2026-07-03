@@ -6,6 +6,8 @@
 pub mod globals;
 
 #[cfg(windows)]
+mod app_tiers;
+#[cfg(windows)]
 mod auto_typefix;
 #[cfg(windows)]
 mod class_factory;

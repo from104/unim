@@ -134,6 +134,13 @@ pub struct UnimTextService {
     /// OnKeyDown 후 조합/후보 상태를 미러링해 `ITfUIElementMgr` 로 show/update/hide 를
     /// 통지한다. NVDA/Narrator 가 이를 낭독한다. TSF STA 스레드 전용.
     pub(crate) ui_elements: Mutex<UiElements>,
+
+    /// 앱 능력 티어(현재 CUAS/composition 미지원) 영속 캐시. `cuas_windows`(HWND
+    /// 인메모리 학습)를 **프로세스명 기준**으로 `%APPDATA%\unim\app_tiers.json` 에
+    /// 영속화한다. 기동 시 로드, `OnCompositionTerminated` 학습 시 기록(2초 throttle),
+    /// `OnSetFocus` 에서 학습된 프로세스면 `cuas_windows` 를 선제 주입 → 재기동 후
+    /// 첫 단어가 실험 대상이 되지 않는다. 힌트일 뿐이라 오학습해도 비파괴적.
+    pub(crate) app_tiers: Mutex<crate::app_tiers::AppTierCache>,
 }
 
 /// b1 Phase2 — SetTimer one-shot 식별자.
@@ -208,6 +215,7 @@ impl UnimTextService {
             last_fg_word: AtomicBool::new(false),
             last_key_proc: Mutex::new(None),
             ui_elements: Mutex::new(UiElements::new()),
+            app_tiers: Mutex::new(crate::app_tiers::AppTierCache::load()),
         }
     }
 
@@ -1323,7 +1331,8 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         //      전환하고 엔진 preedit 버퍼는 보존한다(문서에 남은 글자 = pending).
         //  (2) 한참 뒤 종료 → 포커스 이탈/Esc 등 정상 종료. 엔진을 reset 한다.
         // 포커스 창(HWND) — 즉시-terminate 학습/조회 키.
-        let focus_hwnd = unsafe { GetFocus() }.0 as isize;
+        let focus_win = unsafe { GetFocus() };
+        let focus_hwnd = focus_win.0 as isize;
 
         // ── R6b 라이브 꼬리 terminate 가드 (M1 유사) ──
         // CUAS 가 synth 순방향 라이브 꼬리("다") 조합을 강제 종료하면 그 조합문을
@@ -1368,6 +1377,11 @@ impl ITfCompositionSink_Impl for UnimTextService_Impl {
         let suppress_learn = self.suppress_cuas_learn.load(Ordering::SeqCst);
         if by_time && focus_hwnd != 0 && !suppress_learn {
             self.cuas_windows.lock().unwrap().insert(focus_hwnd);
+            // 영속화: 이 창의 프로세스명을 CUAS 티어로 기록(2초 throttle 저장).
+            // HWND 는 세션마다 바뀌므로 프로세스명 기준으로 남겨 재기동 후 선제 주입한다.
+            if let Some(name) = process_basename_for_hwnd(focus_win) {
+                self.app_tiers.lock().unwrap().record_cuas(&name);
+            }
         }
 
         self.composition_mgr.lock().unwrap().clear();
@@ -1479,7 +1493,21 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         //   가는 경우엔 선제적으로 폴백을 켠다 → 첫 키부터 composition 을 만들지
         //   않아 문서에 stray 글자가 남지 않는다(client-side preedit 오버레이 사용).
         //   학습 안 된 창이면 false 로 두고, 즉시-terminate 발생 시 자동 재감지한다.
-        let focus_hwnd = unsafe { GetFocus() }.0 as isize;
+        let focus_win = unsafe { GetFocus() };
+        let focus_hwnd = focus_win.0 as isize;
+        // 영속 티어 캐시(선제 주입): 이전 세션에서 CUAS 로 학습된 프로세스면 이 세션의
+        // focus HWND 를 cuas_windows 에 미리 넣어 첫 키부터 known_cuas=true 로 만든다
+        // → 재기동 후 첫 단어가 실험 대상(composition 시도→즉시-terminate)이 되지 않는다.
+        // 프로세스명 취득은 포커스 전환당 1회 시스템콜(저빈도). 지연된 저장도 함께 flush.
+        if focus_hwnd != 0 {
+            if let Some(name) = process_basename_for_hwnd(focus_win) {
+                let mut tiers = self.app_tiers.lock().unwrap();
+                if tiers.is_cuas(&name) {
+                    self.cuas_windows.lock().unwrap().insert(focus_hwnd);
+                }
+                tiers.maybe_flush();
+            }
+        }
         let known_cuas =
             focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
         self.composition_unsupported.store(known_cuas, Ordering::SeqCst);
