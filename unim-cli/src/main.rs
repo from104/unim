@@ -460,6 +460,9 @@ enum ConfigKey {
     /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Windows 전용 — Smart 확정 단위에서 단어 조합할 앱.
     #[value(name = "word-mode-apps")]
     WordModeApps,
+    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음. Windows 전용.
+    #[value(name = "toggle-announce-beep")]
+    ToggleAnnounceBeep,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -785,6 +788,16 @@ fn config_show() {
             config.engine.auto_english.trigger_keys.join(", ")
         );
     }
+    let toggle_beep_status = if config.engine.toggle_announce_beep {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+    println!(
+        "{}: {}",
+        t!("toggle_announce_beep_label"),
+        toggle_beep_status
+    );
     println!(
         "{}: {}",
         t!("app_rules_label"),
@@ -1225,6 +1238,19 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 "{}: {}",
                 t!("word_mode_apps_label"),
                 config.engine.korean.word_mode_apps.join(", ")
+            );
+        }
+        ConfigKey::ToggleAnnounceBeep => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.toggle_announce_beep = enabled;
+            println!(
+                "{}: {}",
+                t!("toggle_announce_beep_label"),
+                if enabled { t!("enabled") } else { t!("disabled") }
             );
         }
     }

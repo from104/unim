@@ -246,6 +246,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_word_mode_apps(e.korean.word_mode_apps.join(", ").into());
         ui.set_auto_english_enabled(e.auto_english.enabled);
         ui.set_auto_english_keys(e.auto_english.trigger_keys.join(", ").into());
+        // I7: 한/영 전환 비프 통지 (접근성).
+        ui.set_toggle_announce_beep(e.toggle_announce_beep);
 
         let a = &e.auto_typefix;
         ui.set_atf_enabled(a.enabled);
@@ -315,6 +317,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             e.korean.word_mode_apps = split_keys(&ui.get_word_mode_apps());
             e.auto_english.enabled = ui.get_auto_english_enabled();
             e.auto_english.trigger_keys = split_keys(&ui.get_auto_english_keys());
+            // I7: 한/영 전환 비프 통지 (접근성).
+            e.toggle_announce_beep = ui.get_toggle_announce_beep();
 
             let a = &mut e.auto_typefix;
             a.enabled = ui.get_atf_enabled();

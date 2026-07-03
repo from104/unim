@@ -868,6 +868,14 @@ pub struct EngineConfig {
     pub auto_typefix: AutoTypeFixConfig,
     /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
     pub auto_english: AutoEnglishConfig,
+    /// 한/영 전환 시 짧은 비프음으로 현재 모드를 알린다 (접근성, 기본 false).
+    ///
+    /// 시각장애 사용자가 화면 없이도 토글 후 현재 모드(한글/영문)를 소리 높낮이로
+    /// 확인할 수 있게 한다. Windows TSF 전용 — 한글 모드는 높은 음, 영문 모드는
+    /// 낮은 음으로 차등한다. 기본 false 로 현행 무음 동작을 바이트동일 보존한다.
+    /// (능동 스크린리더 통지 NotifyWinEvent 는 본 옵션과 무관하게 항상 발생.)
+    #[serde(default)]
+    pub toggle_announce_beep: bool,
 }
 
 impl Default for EngineConfig {
@@ -882,6 +890,7 @@ impl Default for EngineConfig {
             app_rules: Vec::new(),
             auto_typefix: AutoTypeFixConfig::default(),
             auto_english: AutoEnglishConfig::default(),
+            toggle_announce_beep: false,
         }
     }
 }
@@ -1469,6 +1478,44 @@ word_mode_apps:
                 "wmux.exe".to_string(),
                 "kakaotalk.exe".to_string()
             ]
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // toggle_announce_beep (I7 한/영 전환 능동 통지) — 기본값 + 직렬화 라운드트립
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 false — 현행 무음 동작을 바이트동일 보존(무회귀).
+    #[test]
+    fn toggle_announce_beep_default_is_false() {
+        assert!(!EngineConfig::default().toggle_announce_beep);
+        assert!(!Config::default().engine.toggle_announce_beep);
+    }
+
+    /// true 설정이 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn toggle_announce_beep_serde_roundtrips() {
+        let mut config = Config::default();
+        config.engine.toggle_announce_beep = true;
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(back.engine.toggle_announce_beep);
+    }
+
+    /// 레거시 YAML(필드 부재) → false (기존 config.yaml 무회귀).
+    #[test]
+    fn toggle_announce_beep_legacy_missing_field_is_false() {
+        let yaml = r#"
+engine:
+  default_category: English
+  toggle_keys:
+    - Korean
+    - RightAlt
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(
+            !config.engine.toggle_announce_beep,
+            "필드 부재 시 false(현행 무음 동작)로 채워져야 함"
         );
     }
 

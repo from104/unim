@@ -190,6 +190,7 @@ export component SettingsWindow inherits Window {
     in-out property <string> word-mode-apps;
     in-out property <bool> auto-english-enabled;
     in-out property <string> auto-english-keys;
+    in-out property <bool> toggle-announce-beep;
 
     // ── 오타 교정 ──
     in-out property <bool> atf-enabled;
@@ -470,6 +471,18 @@ export component SettingsWindow inherits Window {
                                 placeholder-text: "예: Escape";
                                 accessible-label: "트리거 키";
                                 edited => { root.auto-save(); }
+                            }
+                        }
+                    }
+                    if root.current-page == 0: Card {
+                        title: "접근성";
+                        SettingRow {
+                            title: "한/영 전환 소리 알림";
+                            description: "한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다.";
+                            Switch {
+                                checked <=> root.toggle-announce-beep;
+                                accessible-label: "한/영 전환 소리 알림";
+                                toggled => { root.auto-save(); }
                             }
                         }
                     }

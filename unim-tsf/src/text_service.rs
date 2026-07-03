@@ -1071,9 +1071,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let current_category = engine.input_category();
         if prev_category != current_category {
             let is_korean = current_category == InputCategory::Korean;
-            // state.update() 가 랭귀지바 OnUpdate + OS compartment 동기화를 함께 처리.
+            // state.update() 가 랭귀지바 OnUpdate + OS compartment 동기화 +
+            // I7 스크린리더 능동 통지/비프를 함께 처리.
             if let Some(ref state) = *self.langbar_state.lock().unwrap() {
-                state.update(is_korean);
+                state.update(is_korean, config.engine.toggle_announce_beep);
             }
         }
 

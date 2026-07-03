@@ -16,15 +16,18 @@ use windows::Win32::Graphics::Gdi::{
     DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FF_DONTCARE, FW_SEMIBOLD, HBITMAP,
     HBRUSH, HGDIOBJ, OPAQUE, OUT_DEFAULT_PRECIS, TRANSPARENT, WHITENESS,
 };
+use windows::Win32::System::Diagnostics::Debug::Beep;
 use windows::Win32::System::Registry::{
     RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
 };
+use windows::Win32::UI::Accessibility::NotifyWinEvent;
 use windows::Win32::UI::TextServices::*;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, CS_NOCLOSE,
     DefWindowProcW, DestroyMenu, DestroyWindow, GetForegroundWindow, GetSystemMetrics,
     MessageBoxW, PostMessageW, RegisterClassExW, SetForegroundWindow, HCURSOR, HICON, ICONINFO,
-    MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS, SM_CXSMICON, SM_CYSMICON, TPM_LEFTALIGN,
+    EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_STATECHANGE, MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS,
+    OBJID_CLIENT, SM_CXSMICON, SM_CYSMICON, TPM_LEFTALIGN,
     TPM_NONOTIFY, TPM_RETURNCMD, TPM_TOPALIGN, WINDOW_EX_STYLE, WNDCLASSEXW, WM_NULL,
     WS_POPUP,
 };
@@ -371,11 +374,15 @@ impl LangBarState {
         }
     }
 
-    /// is_korean 을 갱신하고, sink OnUpdate 발사 + OS compartment 동기화를 한다.
+    /// is_korean 을 갱신하고, sink OnUpdate 발사 + OS compartment 동기화 +
+    /// 스크린리더 능동 통지(NotifyWinEvent) + (옵션) 비프를 한다.
     ///
     /// OnKeyDown(엔진 토글)·toggle_engine_mode(랭귀지바 클릭) 양쪽이 이 한 곳을
     /// 거치므로, 모드 변경 시 랭귀지바와 OS 입력 표시기가 항상 함께 갱신된다.
-    pub fn update(&self, is_korean: bool) {
+    ///
+    /// `announce_beep` = `config.engine.toggle_announce_beep`. true 면 한/영 차등
+    /// 비프음을 울려 무시각 사용자가 현재 모드를 확인할 수 있다.
+    pub fn update(&self, is_korean: bool, announce_beep: bool) {
         self.is_korean.store(is_korean, Ordering::SeqCst);
         if let Ok(guard) = self.sink.lock() {
             if let Some(ref sink) = *guard {
@@ -389,6 +396,39 @@ impl LangBarState {
             if let Some((ref tmgr, tid)) = *guard {
                 crate::compartment::sync_keyboard_mode(tmgr, tid, is_korean);
             }
+        }
+        // I7: 한/영 전환 능동 통지 — 스크린리더(NVDA/Narrator)가 토글 즉시 낭독하도록
+        // 이벤트를 발생시키고, 옵션이 켜져 있으면 차등 비프로 무시각 확인을 돕는다.
+        self.announce_mode_change(is_korean, announce_beep);
+    }
+
+    /// I7: 한/영 모드 전환을 스크린리더/무시각 사용자에게 능동 통지한다.
+    ///
+    /// (a) `NotifyWinEvent(EVENT_OBJECT_STATECHANGE)` + `EVENT_OBJECT_NAMECHANGE` 를
+    ///     전경 창의 클라이언트 영역에 발생시킨다. 랭바 인디케이터 항목의 접근성
+    ///     객체는 OS(ctfmon)가 소유해 우리가 직접 HWND 를 못 잡으므로, 입력 포커스가
+    ///     있는 전경 창을 대상으로 상태 변화를 알려 스크린리더가 즉시 갱신·낭독하게
+    ///     한다. (수동 통지인 랭바 szDescription/툴팁과 달리 능동적.)
+    /// (b) `announce_beep` 가 true 면 한/영 차등 비프음(한글=높은 음, 영문=낮은 음)
+    ///     으로 무시각 확인을 제공한다. Beep 은 동기 블로킹이므로 입력 스레드 지연을
+    ///     피하기 위해 별도 스레드에서 울린다.
+    fn announce_mode_change(&self, is_korean: bool, announce_beep: bool) {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.0 as isize != 0 {
+                // idChild = CHILDID_SELF(0). OBJID_CLIENT 로 포커스 창의 클라이언트
+                // 객체 상태/이름 변화를 통지.
+                NotifyWinEvent(EVENT_OBJECT_STATECHANGE, hwnd, OBJID_CLIENT.0, 0);
+                NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, hwnd, OBJID_CLIENT.0, 0);
+            }
+        }
+        if announce_beep {
+            // 한글=높은 음(880Hz), 영문=낮은 음(440Hz), 각 90ms. 별도 스레드에서
+            // 울려 TSF STA(키 입력) 스레드가 블로킹되지 않게 한다.
+            let (freq, dur) = if is_korean { (880u32, 90u32) } else { (440u32, 90u32) };
+            std::thread::spawn(move || unsafe {
+                let _ = Beep(freq, dur);
+            });
         }
     }
 }
@@ -611,7 +651,7 @@ impl UnimLangBarButton_Impl {
     /// 호출 컨텍스트: TSF STA 스레드 (OnClick · OnMenuSelect).
     /// text_service 의 OnKeyDown 과 동일 스레드이므로 재진입 없음.
     fn toggle_engine_mode(&self) {
-        let new_is_korean = {
+        let (new_is_korean, announce_beep) = {
             let mut eng = self.engine.lock().unwrap();
             let cfg = self.config.lock().unwrap();
             let current = eng.input_category();
@@ -621,10 +661,11 @@ impl UnimLangBarButton_Impl {
                 InputCategory::Korean
             };
             eng.set_input_category(next);
+            let announce_beep = cfg.engine.toggle_announce_beep;
             drop(cfg); // config 참조를 명시적으로 해제
-            next == InputCategory::Korean
+            (next == InputCategory::Korean, announce_beep)
         };
-        self.state.update(new_is_korean);
+        self.state.update(new_is_korean, announce_beep);
     }
 
     /// 메뉴 항목 선택을 처리한다. InitMenu/OnMenuSelect(플로팅 바) 경로와

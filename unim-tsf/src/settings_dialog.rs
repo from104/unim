@@ -78,6 +78,9 @@ const ID_EDT_WORD_MODE_APPS: u32 = 5012;
 const ID_CHK_AUTO_ENG: u32 = 5020;
 const ID_EDT_AUTO_ENG_TRIGGERS: u32 = 5021;
 
+// I7: 한/영 전환 소리 알림 (접근성)
+const ID_CHK_TOGGLE_BEEP: u32 = 5030;
+
 // 오타 교정 탭 (1xxx, 2xxx, 3xxx)
 
 const ID_CHK_ATF_ENABLED: u32 = 1001;
@@ -787,6 +790,14 @@ unsafe fn build_page_general_rest(page: HWND, config: &Config, mut y: i32) {
         lm + lbl_w + 4, y, edit_w, row_h);
     y += row_h + gap * 2;
 
+    // ── 접근성 (I7) ──────────────────────────────────────────────────────────
+    // 한/영 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음)으로 무시각 확인.
+    create_static(page, "[ 접근성 ]", lm, y, 200, row_h);
+    y += row_h + 2;
+    create_checkbox(page, "한/영 전환 소리 알림(비프)", ID_CHK_TOGGLE_BEEP,
+        lm + 10, y, full_w - 10, row_h, config.engine.toggle_announce_beep);
+    y += row_h + gap * 2;
+
     // ── 기본 입력기 ──────────────────────────────────────────────────────────
     create_static(page, "[ 기본 입력기 ]", lm, y, 200, row_h);
     y += row_h + 4;
@@ -1276,6 +1287,11 @@ unsafe fn collect_general(state: &mut DlgState) {
     }
     if let Some(h) = get_ctrl(pg, ID_EDT_AUTO_ENG_TRIGGERS) {
         state.config.engine.auto_english.trigger_keys = parse_key_list(&edit_get_text(h));
+    }
+
+    // I7: 한/영 전환 소리 알림
+    if let Some(h) = get_ctrl(pg, ID_CHK_TOGGLE_BEEP) {
+        state.config.engine.toggle_announce_beep = checkbox_checked(h);
     }
 }
 

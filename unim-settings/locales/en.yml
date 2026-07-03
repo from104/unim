@@ -39,6 +39,12 @@ row_auto_english_enable: "Enable Auto English Mode"
 row_auto_english_triggers: "Trigger Keys"
 row_auto_english_triggers_subtitle: "Comma separated. Use key:<Name> for keycode match or char:<chr> for layout-aware character match (e.g. key:Escape, char:/, char:,)"
 
+# Accessibility (I7 active toggle announcement)
+group_accessibility: "Accessibility"
+row_toggle_announce_beep: "Korean/English Toggle Beep"
+row_toggle_announce_beep_subtitle: "Play a short beep when switching Korean/English (Korean = higher pitch, English = lower pitch). (Windows only)"
+row_toggle_announce_beep_tooltip: "Confirm the input mode by sound without looking at the screen. Designed for visually impaired users."
+
 # Layout options page
 group_layout_options_empty: "This layout has no option rules."
 group_layout_options_title: "Option rules for selected layout"
