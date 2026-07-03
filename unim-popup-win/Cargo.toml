@@ -18,6 +18,10 @@ windows-core = "0.62"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    # Win11 라운드 코너 + DWM 드롭섀도(window.rs apply_modern_frame).
+    # DwmExtendFrameIntoClientArea 가 UI::Controls::MARGINS 를 참조하므로 두 feature 동반.
+    "Win32_Graphics_Dwm",
+    "Win32_UI_Controls",
     "Win32_Graphics_Direct2D",
     "Win32_Graphics_Direct2D_Common",
     "Win32_Graphics_DirectWrite",

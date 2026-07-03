@@ -9,7 +9,12 @@ use std::sync::{Arc, Mutex};
 use windows::core::Result as WinResult;
 use windows::core::{implement, Error, IUnknown, BSTR, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_ROUND, DWM_WINDOW_CORNER_PREFERENCE,
+};
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::System::Variant::{VARIANT, VT_BSTR, VT_I4};
 use windows::Win32::UI::Accessibility::{
     IRawElementProviderSimple, IRawElementProviderSimple_Impl, ProviderOptions,
@@ -105,6 +110,9 @@ pub fn create() -> windows::core::Result<HWND> {
         )?;
         // 불투명도 100% (추후 반투명 여지).
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+        // Win11 라운드 코너 + DWM 드롭섀도. 구버전 Windows 는 각 호출이 실패하면
+        // 무시되어 현행(WS_BORDER 사각 1px, 그림자 없음) 동작으로 폴백된다.
+        apply_modern_frame(hwnd);
         UI_STATE.with(|st| {
             let mut st = st.borrow_mut();
             st.hwnd = Some(hwnd);
@@ -112,6 +120,41 @@ pub fn create() -> windows::core::Result<HWND> {
         });
         logln!("window: created hwnd={:?}", hwnd.0);
         Ok(hwnd)
+    }
+}
+
+/// Win11 라운드 코너 + DWM 드롭섀도를 팝업 HWND 에 적용한다.
+///
+/// - **라운드 코너**: `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND`. 이 어트리뷰트는
+///   Windows 11(빌드 22000+)에서만 유효하며, 구버전에서는 `DwmSetWindowAttribute` 가
+///   `E_INVALIDARG` 를 돌려주므로 무시 → 현행 각진 코너로 폴백. WS_BORDER 1px 는 그대로
+///   두어(DWM 이 코너를 함께 둥글게 클립) Win11 에서는 둥근 1px 아웃라인이 된다.
+/// - **드롭섀도**: 팝업(WS_POPUP, 캡션/사이징보더 없음)은 자동 그림자가 붙지 않으므로
+///   `DwmExtendFrameIntoClientArea` 로 경계 프레임을 1px 확장해 DWM 그림자를 유도한다.
+///   레이어드(alpha 255) 불투명 도색이 확장 프레임 위를 덮으므로 유리 영역은 보이지 않고
+///   창 밖 그림자만 남는다. DWM 컴포지션 미가용(예: Aero 미사용 Win7) 시 실패 → 무시.
+///
+/// 어느 호출이 실패해도 창 자체는 정상 표시되며(성공 경로 무회귀), 저하만 발생한다.
+unsafe fn apply_modern_frame(hwnd: HWND) {
+    // 1) 라운드 코너 (Win11 전용, 그 외 폴백).
+    let pref = DWMWCP_ROUND;
+    if let Err(e) = DwmSetWindowAttribute(
+        hwnd,
+        DWMWA_WINDOW_CORNER_PREFERENCE,
+        &pref as *const DWM_WINDOW_CORNER_PREFERENCE as *const core::ffi::c_void,
+        std::mem::size_of::<DWM_WINDOW_CORNER_PREFERENCE>() as u32,
+    ) {
+        logln!("window: 라운드 코너 미지원(구버전 Windows) — 각진 코너 폴백 ({e})");
+    }
+    // 2) DWM 드롭섀도 (경계 프레임 1px 확장으로 유도).
+    let margins = MARGINS {
+        cxLeftWidth: 1,
+        cxRightWidth: 1,
+        cyTopHeight: 1,
+        cyBottomHeight: 1,
+    };
+    if let Err(e) = DwmExtendFrameIntoClientArea(hwnd, &margins) {
+        logln!("window: DWM 드롭섀도 미적용(컴포지션 미가용) — 그림자 없음 폴백 ({e})");
     }
 }
 
