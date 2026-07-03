@@ -86,6 +86,9 @@ pub fn check_reverse(
         original: String::new(),
         clear_preedit: buffer.has_preedit,
         replay_keys: Vec::new(), // 역방향는 영어로 교정 → preedit 불필요
-        replace_composition: false,
+        // word 모드에서 한글 단어는 committed=0 인 단일 라이브 조합으로 떠 있다. 이때만
+        // 프런트가 확정문 삭제(비협조앱 차단) 대신 조합 SetText 치환을 택한다. committed>0
+        // (음절 모드 또는 확정 섞임)이거나 word 모드가 아니면 false → 기존 삭제 경로 바이트 동일.
+        replace_composition: buffer.word_mode && buffer.committed_chars == 0,
     })
 }

@@ -636,10 +636,11 @@ pub fn handle_key_down(
     let popup_active = popup.is_active();
     let mut schedule_flush = false;
     if !popup_active {
-        // process_after_key 가 역방향 교정 시 엔진을 재생성(InputEngine::new)하며 word 모드를
-        // syllable 로 리셋하므로, Word 라이브 조합 치환 분기 판정에 쓸 word 모드 값을 호출 전에
-        // 포착한다(다음 키의 reapply_word_gate 가 word 모드를 재보장 — text_service.rs).
-        let was_word_mode = engine.is_word_mode();
+        // Word 라이브 조합 치환 분기는 코어가 계산한 `apply.replace_composition` 을 신호로 쓴다.
+        // 코어 check_forward/check_reverse 는 process_after_key 내부 engine.reset() **이전**의
+        // `engine.is_word_mode()`(= 현재 포커스 word 모드; 순방향은 word 모드, 역방향은
+        // word 모드 && committed=0)로 이 값을 판정하므로, 프런트가 호출 전에 word 모드를 따로
+        // 포착할 필요가 없다(다음 키 reapply_word_gate 가 word 모드를 재보장 — text_service.rs).
         if let Some(apply) = auto_typefix::process_after_key(
             atf_state,
             engine,
@@ -657,9 +658,11 @@ pub fn handle_key_down(
             // 대신 라이브 조합을 영문으로 SetText 치환·확정(end_composition_with_text)한다 —
             // 미확정 조합 SetText 는 Word 가 허용(D1). 삭제·SendInput 0, 단일 edit session.
             //
-            // 게이트(하나라도 불충족 → 기존 경로 바이트 동일): word 모드(호출 전 포착) + 활성
-            // 조합 + 역방향(replay 비어있음 + 영문 commit) + committed 삭제 0(순수 라이브 조합).
-            let word_live_reverse = was_word_mode
+            // 게이트(하나라도 불충족 → 기존 경로 바이트 동일): replace_composition(코어 word
+            // 모드 && committed=0) + 활성 조합 + 역방향(replay 비어있음 + 영문 commit) +
+            // committed 삭제 0(순수 라이브 조합). delete_chars==0 은 replace_composition 이
+            // 이미 함의하나 명시 유지(중복·무해).
+            let word_live_reverse = apply.replace_composition
                 && comp_mgr.is_active()
                 && apply.replay_preedit.is_empty()
                 && apply.delete_chars == 0
@@ -677,7 +680,7 @@ pub fn handle_key_down(
                     "ATF word-rev: 라이브 조합 → '{}' SetText 치환·확정(delete=0, no SendInput)",
                     apply.commit_text
                 );
-            } else if was_word_mode
+            } else if apply.replace_composition
                 && comp_mgr.english_hold_active()
                 && !apply.replay_preedit.is_empty()
             {

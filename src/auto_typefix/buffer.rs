@@ -23,6 +23,10 @@ pub struct KeystrokeBuffer {
     pub committed_chars: usize,
     /// 역방향: 현재 preedit이 있는지
     pub has_preedit: bool,
+    /// 라이브 조합(word 모드) 여부 — 호출자가 `engine.is_word_mode()`를 매 키 check 직전에
+    /// 반영한다. ATF 순/역방향이 결과의 `replace_composition`(조합 SetText 치환) 여부를
+    /// 판정할 때 읽는다. 기본 `false`(음절 모드) → 기존 surrounding-text 삭제 경로 바이트 동일.
+    pub word_mode: bool,
 }
 
 impl Default for KeystrokeBuffer {
@@ -31,6 +35,7 @@ impl Default for KeystrokeBuffer {
             entries: VecDeque::with_capacity(16),
             committed_chars: 0,
             has_preedit: false,
+            word_mode: false,
         }
     }
 }
@@ -65,6 +70,10 @@ impl KeystrokeBuffer {
         self.entries.clear();
         self.committed_chars = 0;
         self.has_preedit = false;
+        // word_mode 는 mode 상태(버퍼 내용 아님)지만, 호출자가 매 키 check 직전 재설정하므로
+        // 여기선 안전 기본값(false)으로 되돌린다 — clear 후 미설정 경로가 stale true 를 읽어
+        // replace_composition 을 잘못 켜는 일을 원천 차단(무회귀 방어).
+        self.word_mode = false;
     }
 
     /// 마지막 키스트로크 엔트리를 1개 제거한다(Backspace 동기 축소용). 비어 있으면 false.

@@ -57,6 +57,10 @@ pub struct AutoFixApply {
     /// 역방향은 항상 조합 중 발동하므로, 조합 음절을 end_composition 으로 제거한 뒤
     /// 확정된 committed 글자만 delete_chars 로 지운다. (순방향/undo 는 false.)
     pub end_composition: bool,
+    /// 코어 `AutoTypeFixResult::replace_composition` 전파 — `true` 면 라이브 조합(word
+    /// 모드)을 조합 SetText 로 치환하는 경로(key_handler)를 택한다. `false` 면 기존
+    /// replace_surrounding 삭제 경로(음절/비협조앱) — 바이트 동일 무회귀 경로.
+    pub replace_composition: bool,
 }
 
 // ── AutoTypeFixState 공개 구조체 ───────────────────────────────────────────────
@@ -178,6 +182,8 @@ pub fn try_undo(
         commit_text: obs.original,
         replay_preedit: String::new(),
         end_composition: false,
+        // undo 는 라이브 조합 치환이 아니라 확정 텍스트 되돌리기(surrounding) 경로.
+        replace_composition: false,
     })
 }
 
@@ -270,6 +276,11 @@ pub fn process_after_key(
         if let Some(p) = preedit_str {
             state.buf.update_on_preedit(p);
         }
+
+        // 라이브 조합(word 모드) 반영 — 코어 check_forward/check_reverse 가 이 값으로
+        // replace_composition(조합 SetText 치환) 여부를 판정한다. 여기(check 직전)는 아직
+        // 아래 교정 후 engine.reset()/set_word_mode 이전이라 현재 포커스의 word 모드가 그대로다.
+        state.buf.word_mode = engine.is_word_mode();
 
         // 방향별 check
         let (fix_opt, direction) = match current_mode {
@@ -474,6 +485,8 @@ pub fn process_after_key(
                     commit_text,
                     replay_preedit,
                     end_composition: false,
+                    // 코어: 순방향 word 모드 = 보유 영문 라이브 조합 → SetText 치환.
+                    replace_composition: fix.replace_composition,
                 })
             } else {
                 // 역방향 (한→영): 활성 composition(조합 중 음절)을 먼저 종료해 제거하고,
@@ -497,6 +510,8 @@ pub fn process_after_key(
                 let committed = fix
                     .delete_chars
                     .saturating_sub(if fix.clear_preedit { 1 } else { 0 });
+                // fix.commit_text 이동 전에 Copy 필드 포착.
+                let replace_composition = fix.replace_composition;
 
                 crate::register::dbg_log_ev!(
                     &format!(
@@ -512,6 +527,8 @@ pub fn process_after_key(
                     commit_text: fix.commit_text,
                     replay_preedit: String::new(),
                     end_composition: fix.clear_preedit,
+                    // 코어: 역방향 word 모드(committed=0) = 라이브 조합 → 영문 SetText 치환.
+                    replace_composition,
                 })
             }
         } else {
