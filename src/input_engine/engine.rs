@@ -371,11 +371,39 @@ impl InputEngine {
     }
 
     /// 엔진 상태를 리셋합니다.
+    ///
+    /// 조합(`korean_context`)·commit/preedit 버퍼·chord 버퍼에 더해 팝업(한자·특수문자
+    /// ·이모지) 라우팅 상태까지 초기화한다. 리셋 직후 이어지는 조합(예: AutoTypeFix
+    /// replay)이 `press_key` 의 팝업 인터셉트 분기(`hanja_mode || special_char_mode ||
+    /// is_emoji_popup_active`)로 오라우팅되지 않게 하기 위함이며, `InputEngine::new`
+    /// 가 기본값으로 두는 런타임 조합/팝업 상태를 **사전 재로딩 없이**(6.76MB 한자사전
+    /// 재파싱 + 북마크 디스크IO 회피) 동일하게 비운다.
+    ///
+    /// 보존(초기화하지 않음):
+    /// - config 파생 캐시(키맵·`key_meta`·영문 키맵·한자사전 Arc·레이아웃·toggle/hanja
+    ///   키·auto_english·라벨) — 재생성 없이 그대로 유효(동일 config 기준).
+    /// - `input_category` — 호출부가 필요 시 별도 `set_input_category` 로 지정.
+    /// - `content_purpose`/`surrounding_*`/`saved_category` — 앱·포커스 컨텍스트(조합
+    ///   상태 아님). 리셋이 필드 목적을 잊으면 안 되므로 보존.
+    /// - `accumulate_word`(단어 누적 플래그) — `korean_context.clear()` 가 버퍼만 비우고
+    ///   플래그는 유지. config 기반 재동기화가 필요한 호출부는 리셋 후 `set_word_mode`
+    ///   로 명시 지정한다(예: `auto_typefix`).
     pub fn reset(&mut self) {
         self.korean_context.clear();
         self.commit_buffer.clear();
         self.preedit_cache.clear();
         self.chord_buffer.clear();
+
+        // 팝업/한자/특수문자 모드 라우팅 상태 초기화 (new() 기본값과 동일).
+        // 이들이 남아 있으면 press_key 가 조합 대신 팝업 디스패치로 흘러간다.
+        self.hanja_mode = false;
+        self.hanja_candidates.clear();
+        self.hanja_target.clear();
+        self.special_char_mode = false;
+        self.special_char_candidates.clear();
+        self.special_char_target.clear();
+        self.popup_state = None;
+        self.popup_pending_action = None;
     }
 
     // =========================================================================
@@ -755,6 +783,77 @@ mod tests {
             engine.preedit_str(),
             "가나",
             "자판 전환 후에도 단어 누적이 유지되어야 함"
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // I3(ATF perf): reset() 확장 — new(config) 재생성 대체의 정확성 근거
+    // ─────────────────────────────────────────────
+
+    /// reset() 이 팝업/한자/특수문자 라우팅 상태를 비운다. 이 상태가 잔류하면
+    /// 리셋 직후의 press_key 가 조합 대신 팝업 디스패치(process_popup_key)로
+    /// 오라우팅된다 — ATF replay 가 새 조합을 만들 수 없게 된다.
+    #[test]
+    fn reset_clears_popup_and_hanja_routing_state() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+
+        // 팝업/한자/특수문자 라우팅 상태를 인위적으로 활성화.
+        engine.hanja_mode = true;
+        engine.hanja_target.push_str("한");
+        engine.special_char_mode = true;
+        engine.special_char_candidates.push('★');
+        engine.special_char_target.push_str("ㅁ");
+
+        engine.reset();
+
+        assert!(!engine.hanja_mode, "reset 후 hanja_mode off");
+        assert!(engine.hanja_target.is_empty(), "reset 후 hanja_target 비움");
+        assert!(!engine.special_char_mode, "reset 후 special_char_mode off");
+        assert!(
+            engine.special_char_candidates.is_empty(),
+            "reset 후 special_char_candidates 비움"
+        );
+        assert!(
+            engine.special_char_target.is_empty(),
+            "reset 후 special_char_target 비움"
+        );
+        assert!(engine.popup_state.is_none(), "reset 후 popup_state None");
+
+        // 라우팅 검증: hanja_mode 가 살아 있었다면 press_key 가 process_popup_key
+        // 로 흘러 'a' 를 커밋하지 못한다. reset 이 비웠으므로 영문 정상 커밋.
+        engine.set_input_category(InputCategory::English);
+        let m = ModifierState::default();
+        let r = engine.press_key(KeyCode::A, m, &config);
+        assert!(r.consumed, "영문 키는 소비되어야");
+        assert_eq!(engine.commit_str(), "a", "팝업 오라우팅 없이 정상 커밋");
+    }
+
+    /// reset() 이 진행 중 조합과 word_buffer(단어 누적)를 모두 비운다. ATF replay
+    /// 가 이전 조합을 끌고 오지 않게 하는 근거. accumulate_word 플래그는 보존되어
+    /// (Word 모드 유지) 이어지는 타이핑이 stale 누적 없이 새 단어로 누적된다.
+    #[test]
+    fn reset_clears_composition_and_word_buffer() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Word;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "가나", "리셋 전 단어 누적 확인");
+
+        engine.reset();
+        assert!(engine.preedit_str().is_empty(), "reset 후 preedit 비움");
+        assert!(engine.commit_str().is_empty(), "reset 후 commit 비움");
+        assert!(!engine.is_composing(), "reset 후 비조합");
+
+        // accumulate_word 플래그는 보존(Word 모드 유지) → 재타이핑은 새 단어만.
+        assert!(engine.is_word_mode(), "reset 은 accumulate_word 플래그 보존");
+        type_ganan(&mut engine, &config);
+        assert_eq!(
+            engine.preedit_str(),
+            "가나",
+            "reset 후 재타이핑은 stale 누적 없이 새 단어"
         );
     }
 }

@@ -423,8 +423,16 @@ pub fn process_after_key(
                 // 둔다(전체가 단일 라이브 조합). 비-word 는 종전대로 마지막 음절만 replay.
                 let was_word = engine.is_word_mode();
                 let current_cat = engine.input_category();
-                *engine = InputEngine::new(config);
+                // I3(perf): new(config) 재생성 대신 reset() — 6.76MB 한자사전 재파싱 +
+                // 북마크 디스크IO 를 매 교정마다 반복하지 않도록. reset() 이 조합·팝업·
+                // 버퍼 상태를 모두 비우고 config 파생 캐시(키맵/사전/레이아웃)는 동일
+                // config 이므로 그대로 유효하다.
+                engine.reset();
                 engine.set_input_category(current_cat);
+                // reset() 은 accumulate_word 플래그를 보존하므로, new(config) 와 동일하게
+                // commit_unit 기반으로 재동기화한다(비-word/Smart 분기에서 이전 word 상태가
+                // 잔류하지 않도록). 아래 was_word 분기가 필요 시 다시 true 로 덮는다.
+                engine.set_word_mode(config.engine.korean.commit_unit == unim::config::CommitUnit::Word);
 
                 let (commit_text, replay_preedit) = if was_word {
                     engine.set_word_mode(true);
@@ -479,8 +487,12 @@ pub fn process_after_key(
                 // 조합 음절은 end_composition(end_composition=true)으로 제거하므로 여기선
                 // committed 만 delete 한다.
                 let current_cat = engine.input_category();
-                *engine = InputEngine::new(config);
+                // I3(perf): new(config) 재생성 대신 reset() (순방향과 동일 이유 — 사전
+                // 재로딩 회피). 역방향은 replay 가 없어 조합이 뒤따르지 않지만, 후속
+                // 타이핑을 위해 new() 와 동일한 config 기반 accumulate_word 로 맞춘다.
+                engine.reset();
                 engine.set_input_category(current_cat);
+                engine.set_word_mode(config.engine.korean.commit_unit == unim::config::CommitUnit::Word);
 
                 let committed = fix
                     .delete_chars
