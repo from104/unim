@@ -691,10 +691,15 @@ impl CompositionManager {
             // 순서는 안전하나 has_pending_tail 선행 보장). 머리만 보내므로
             // PENDING = del + commit_units(꼬리 제외).
             crate::synth_input::store_pending_tail(&p);
-            crate::register::dbg_log(&format!(
+            crate::register::dbg_log_ev!(
+                &format!(
+                    "ReplaceSurrounding: synth head-tail del={d} head_len={} tail_len={}",
+                    c.chars().count(),
+                    p.chars().count()
+                ),
                 "ReplaceSurrounding: synth head-tail del={d} head_len={} tail='{p}'",
                 c.chars().count()
-            ));
+            );
             crate::synth_input::send_replacement_batch(d, &c);
             return ReplaceOutcome::SynthHeadTail;
         }

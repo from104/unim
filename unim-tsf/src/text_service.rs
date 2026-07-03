@@ -850,19 +850,21 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             // 같은 음절에 결합되도록 보존). 보유 영문(Phase 4)도 동일 — Shift 단독 키다운
             // (대문자 입력 등)에서 보유를 깨지 않는다. 토글키(우Alt 등)는 is_toggle 로 제외돼
             // 아래 test_key_down 의 is_toggle 분기가 소비/토글을 처리한다.
-            crate::register::dbg_log(&format!(
+            crate::register::dbg_log_ev!(
+                "OnTestKeyDown: modifier keydown 조합 보존(투과)",
                 "OnTestKeyDown: modifier keydown 조합 보존(투과) vk=0x{:02X}",
                 raw_vk
-            ));
+            );
             return Ok(FALSE);
         }
         if !popup_active && (engine.is_composing() || has_english_hold) && is_combo {
             if let Some(context) = pic.as_ref() {
                 self.commit_for_passthrough(&mut engine, context);
-                crate::register::dbg_log(&format!(
+                crate::register::dbg_log_ev!(
+                    "OnTestKeyDown: commit+passthrough modifier-combo",
                     "OnTestKeyDown: commit+passthrough modifier-combo vk=0x{:02X}",
                     wparam.0 as u16
-                ));
+                );
                 return Ok(FALSE);
             }
         }
@@ -880,10 +882,11 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         {
             if let Some(context) = pic.as_ref() {
                 self.commit_for_passthrough(&mut engine, context);
-                crate::register::dbg_log(&format!(
+                crate::register::dbg_log_ev!(
+                    "OnTestKeyDown: commit+passthrough navkey",
                     "OnTestKeyDown: commit+passthrough navkey vk=0x{:02X}",
                     wparam.0 as u16
-                ));
+                );
                 return Ok(FALSE);
             }
         }
@@ -905,10 +908,11 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         {
             if let Some(context) = pic.as_ref() {
                 self.commit_for_passthrough(&mut engine, context);
-                crate::register::dbg_log(&format!(
+                crate::register::dbg_log_ev!(
+                    "OnTestKeyDown: commit+passthrough numpad",
                     "OnTestKeyDown: commit+passthrough numpad vk=0x{:02X}",
                     raw_vk
-                ));
+                );
                 return Ok(FALSE);
             }
         }
@@ -937,7 +941,11 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
     fn OnKeyDown(&self, pic: Ref<'_, ITfContext>, wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
         // [imm32 진입 진단] OnKeyDown 무조건 진입 로그. OnTestKeyDown 은 찍히는데
         // OnKeyDown 이 안 찍히면(=test 만 FALSE 반환) 키 라우팅 단절 지점 식별 가능.
-        crate::register::dbg_log(&format!("OnKeyDown ENTER vk=0x{:02X}", wparam.0 as u16));
+        crate::register::dbg_log_ev!(
+            "OnKeyDown ENTER",
+            "OnKeyDown ENTER vk=0x{:02X}",
+            wparam.0 as u16
+        );
         let context = pic.as_ref().ok_or(E_INVALIDARG)?;
         // §11.G 역채널 마우스 확정용으로 최신 컨텍스트 보관 (clone, TSF STA 스레드).
         *self.last_context.lock().unwrap() = Some(context.clone());
@@ -985,10 +993,11 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 // R6b: 보류 꼬리 선점 — PENDING==0 이면 라이브 조합 성립(이어지는
                 // handle_key_down 이 같은 키로 "다"→"단" 연장), PENDING>0 이면 FIFO degrade.
                 self.flush_pending_tail(&comp_sink);
-                crate::register::dbg_log(&format!(
+                crate::register::dbg_log_ev!(
+                    "b1: race-flush (다음 키 선점)",
                     "b1: race-flush (다음 키 선점) vk=0x{:02X}",
                     raw_vk
-                ));
+                );
             }
         }
         // OnCompositionTerminated 의 "즉시 종료" 판별용 타임스탬프.

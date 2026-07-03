@@ -44,10 +44,11 @@ pub fn test_key_down(
 
     // [imm32 진입 진단] OnTestKeyDown 무조건 진입 로그. KakaoTalk/아래아한글에서
     // 키가 sink 에 아예 도달하는지(=이 줄이 찍히는지) 재현 확인용.
-    crate::register::dbg_log(&format!(
+    crate::register::dbg_log_ev!(
+        "OnTestKeyDown ENTER",
         "OnTestKeyDown ENTER vk=0x{:02X} ctrl={} alt={} shift={} super={}",
         vk, modifiers.control, modifiers.alt, modifiers.shift, modifiers.super_key
-    ));
+    );
 
     // 설정된 한/영 전환키 여부 (엔진과 동일 판정). RightAlt 같은 수정자 토글키도
     // 포함되므로 is_modifier 가드보다 먼저 구한다.
@@ -394,10 +395,11 @@ pub fn handle_key_down(
         && (is_commit_passthrough_key(keycode) || is_numpad_vk(vk))
     {
         comp_mgr.confirm_english_hold(context, tid);
-        crate::register::dbg_log(&format!(
+        crate::register::dbg_log_ev!(
+            "handle_key_down: 보유 영문 경계확정(navkey/numpad) → 통과(eaten=false)",
             "handle_key_down: 보유 영문 경계확정(navkey/numpad vk=0x{:02X}) → 통과(eaten=false)",
             vk
-        ));
+        );
         return KeyDownOutcome {
             eaten: false,
             schedule_flush: false,
@@ -413,10 +415,14 @@ pub fn handle_key_down(
     let prev_mode = engine.input_category();
     let result = engine.press_key(keycode, modifiers, config);
 
-    crate::register::dbg_log(&format!(
+    crate::register::dbg_log_ev!(
+        &format!(
+            "handle_key_down: consumed={} commit_changed={} preedit_changed={} was_composing={} comp_active={}",
+            result.consumed, result.commit_changed, result.preedit_changed, was_composing, comp_mgr.is_active()
+        ),
         "handle_key_down: vk=0x{:02X} consumed={} commit_changed={} preedit_changed={} was_composing={} comp_active={}",
         vk, result.consumed, result.commit_changed, result.preedit_changed, was_composing, comp_mgr.is_active()
-    ));
+    );
 
     // 모드 전환 관찰 (사용자 수동 전환 — ATF 자체 전환과 구분은 process_after_key 내부에서)
     let current_mode = engine.input_category();
@@ -472,10 +478,11 @@ pub fn handle_key_down(
         preedit_str_for_atf = None;
 
         if result.commit_changed || result.preedit_changed {
-            crate::register::dbg_log(&format!(
+            crate::register::dbg_log_ev!(
+                "fallback(overlay): commit/preedit changed",
                 "fallback(overlay): commit='{}' preedit='{}'",
                 commit, preedit
-            ));
+            );
             // 1) 확정 글자 → 문서에 영구 삽입 (삭제 없음, wezterm 정상 동작)
             if !commit.is_empty() {
                 comp_mgr.insert_text(context, tid, &commit);
@@ -622,10 +629,11 @@ pub fn handle_key_down(
                 // 않으나, 만에 하나 보유가 잔존하면 후속 confirm_english_hold 가 중복 삽입할
                 // 수 있어 방어적으로 비운다(보유 없으면 no-op).
                 comp_mgr.clear_english_hold();
-                crate::register::dbg_log(&format!(
+                crate::register::dbg_log_ev!(
+                    "ATF word-rev: 라이브 조합 → SetText 치환·확정(delete=0, no SendInput)",
                     "ATF word-rev: 라이브 조합 → '{}' SetText 치환·확정(delete=0, no SendInput)",
                     apply.commit_text
-                ));
+                );
             } else if was_word_mode
                 && comp_mgr.english_hold_active()
                 && !apply.replay_preedit.is_empty()
@@ -644,10 +652,11 @@ pub fn handle_key_down(
                 {
                     comp_mgr.update_composition(context, tid, &apply.replay_preedit);
                     comp_mgr.clear_english_hold();
-                    crate::register::dbg_log(&format!(
+                    crate::register::dbg_log_ev!(
+                        "ATF word-fwd: 보유 영문 라이브 조합 → SetText 치환(삭제0, live 유지)",
                         "ATF word-fwd: 보유 영문 라이브 조합 → '{}' SetText 치환(삭제0, live 유지)",
                         apply.replay_preedit
-                    ));
+                    );
                 } else {
                     // 길이/형태 불일치(주로 expiry desync — 희귀) → 손상 0 안전책: 보유 영문 그대로
                     // 확정하고 교정 스킵(replace_surrounding 미진입 — committed 삭제 오작동 방지).
@@ -1021,12 +1030,16 @@ pub fn apply_reverse_event(
                     comp_mgr.end_composition(ctx, tid);
                 }
                 comp_mgr.insert_text(ctx, tid, &commit);
-                crate::register::dbg_log(&format!("popup_rev: commit inserted '{commit}'"));
+                crate::register::dbg_log_ev!(
+                    "popup_rev: commit inserted",
+                    "popup_rev: commit inserted '{commit}'"
+                );
             }
             None => {
-                crate::register::dbg_log(&format!(
+                crate::register::dbg_log_ev!(
+                    "popup_rev: no context — commit deferred (dropped)",
                     "popup_rev: no context — commit '{commit}' deferred (dropped)"
-                ));
+                );
             }
         }
     }

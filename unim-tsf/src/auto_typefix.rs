@@ -299,13 +299,20 @@ pub fn process_after_key(
         // [진단] 역방향 체크 상태 — 항상 켜진 dbg_log 로 출력(unim_log 는 UNIM_DEVELOP 전용이라
         // 배포 DLL 에서 NO-OP). 역방향 미발동/조건 탈락 원인을 실측하기 위함.
         if matches!(direction, Direction::Reverse) {
-            crate::register::dbg_log(&format!(
+            crate::register::dbg_log_ev!(
+                &format!(
+                    "ATF rev-check: buf_len={} has_preedit={} committed={} fix={}",
+                    state.buf.committed_chars,
+                    state.buf.has_preedit,
+                    state.buf.committed_chars,
+                    fix_opt.is_some()
+                ),
                 "ATF rev-check: buf='{}' has_preedit={} committed={} fix={}",
                 state.buf.to_ascii_string(&config.engine.english.layout),
                 state.buf.has_preedit,
                 state.buf.committed_chars,
                 fix_opt.is_some()
-            ));
+            );
         }
 
         // 재트리거 감지 + blacklist tentative 등록 (engine_worker:727-777)
@@ -479,10 +486,14 @@ pub fn process_after_key(
                     .delete_chars
                     .saturating_sub(if fix.clear_preedit { 1 } else { 0 });
 
-                crate::register::dbg_log(&format!(
+                crate::register::dbg_log_ev!(
+                    &format!(
+                        "ATF rev-apply: committed={} end_comp={} insert_len={}",
+                        committed, fix.clear_preedit, fix.commit_text.chars().count()
+                    ),
                     "ATF rev-apply: committed={} end_comp={} insert='{}'",
                     committed, fix.clear_preedit, fix.commit_text
-                ));
+                );
 
                 Some(AutoFixApply {
                     delete_chars: committed,

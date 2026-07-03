@@ -139,22 +139,77 @@ pub fn register_server() -> Result<()> {
     Ok(())
 }
 
-/// 진단 로그 ON/OFF 컴파일 상수. `true`(=1) 면 `%TEMP%\unim-tsf.log` 에 남기고,
-/// `false`(=0) 면 완전 no-op (릴리스 기본값은 false 권장).
-///
-/// 리눅스 프런트엔드의 unim_log 처럼 파일에 무조건 남기되, 이 상수로 토글한다.
-/// DebugView 등 외부 도구 불필요 — 로그 파일을 직접 열어 본다.
-pub(crate) const UNIM_DEBUG_LOG: bool = true;
+// ── 진단 로그 런타임 게이트 (릴리스 기본 OFF, 환경변수 opt-in) ──
+//
+// 과거에는 `UNIM_DEBUG_LOG: bool = true` 컴파일 상수라 릴리스에서도 상시 ON 이었다.
+// 그 결과 매 키의 vk·preedit·commit 평문이 `%TEMP%\unim-tsf.log` 에 무회전 누적되어
+// 사실상 키로거가 됐고, 키당 동기 파일 IO 로 입력 지연을 유발했다.
+//
+// 이제 두 단계 게이트로 나눈다 (프로세스 최초 1회 env 읽어 캐시, hot-path 원자 read).
+//   • UNIM_DEBUG_LOG   : 구조적 진단 이벤트 파일 기록을 켠다 (opt-in). 미설정=완전 OFF.
+//   • UNIM_DEBUG_CONTENT: 위에 더해 민감 콘텐츠(vk 원값·preedit/commit/꼬리 텍스트)
+//                         까지 기록한다. 미설정 시엔 구조적 이벤트만 남는다.
+// "0"/빈 문자열은 OFF 로 본다. 로깅 비활성이면 format!·파일 open 이전에 조기 반환하여
+// hot-path 비용을 0 으로 만든다 (dbg_log 시그니처는 유지).
 
-/// 진단 로그 한 줄을 `%TEMP%\unim-tsf.log` 에 append 한다 (UNIM_DEBUG_LOG=true 일 때).
+fn env_flag_on(name: &str) -> bool {
+    match std::env::var_os(name) {
+        Some(v) => !v.is_empty() && v != "0",
+        None => false,
+    }
+}
+
+/// 구조 로그 게이트 (UNIM_DEBUG_LOG). 프로세스 최초 호출 시 env 를 읽어 캐시한다.
+pub(crate) fn logging_enabled() -> bool {
+    use std::sync::OnceLock;
+    static LOG_ON: OnceLock<bool> = OnceLock::new();
+    *LOG_ON.get_or_init(|| env_flag_on("UNIM_DEBUG_LOG"))
+}
+
+/// 콘텐츠 로그 게이트 (UNIM_DEBUG_LOG && UNIM_DEBUG_CONTENT). 캐시된다.
+/// 콘텐츠는 구조 로그가 켜져 있을 때에만 의미가 있으므로 두 게이트의 AND 이다.
+pub(crate) fn content_enabled() -> bool {
+    use std::sync::OnceLock;
+    static CONTENT_ON: OnceLock<bool> = OnceLock::new();
+    *CONTENT_ON.get_or_init(|| logging_enabled() && env_flag_on("UNIM_DEBUG_CONTENT"))
+}
+
+/// 진단 로그 한 줄을 `%TEMP%\unim-tsf.log` 에 append 한다.
 ///
-/// compartment / lang_bar / notify_tray 디버깅에서 공용. 실패해도 무시(크래시 없음).
+/// UNIM_DEBUG_LOG 미설정 시 format!·파일 open 이전에 조기 반환(비용 0). 호출자가 넘긴
+/// 문자열은 그대로 기록되므로, 민감 콘텐츠를 담는 호출은 반드시 `dbg_log_ev!` 매크로로
+/// content 게이트를 통과시켜야 한다. compartment / lang_bar 등 구조 진단에서 공용.
+/// 실패해도 무시(크래시 없음).
 pub(crate) fn dbg_log(msg: &str) {
-    if !UNIM_DEBUG_LOG {
+    if !logging_enabled() {
         return;
     }
     unim_windows_common::debug::dbg_log("unim-tsf", "unim-tsf.log", msg, false);
 }
+
+/// 구조 이벤트는 로그 ON 시 항상 남기고, 민감 콘텐츠(vk 원값·타이핑 텍스트)는
+/// UNIM_DEBUG_CONTENT=1 일 때만 덧붙이는 로깅 매크로.
+///
+/// - `dbg_log_ev!("구조 문자열")` : 구조 라인만 (`dbg_log` 와 동일).
+/// - `dbg_log_ev!("구조 폴백", "콘텐츠 포함 {} 포맷", 값…)` : content 게이트 ON 이면
+///   콘텐츠 포맷을, OFF 면 구조 폴백 문자열을 남긴다. content 게이트가 OFF 이면
+///   format! 자체를 수행하지 않으므로 콘텐츠가 메모리에도 구성되지 않는다.
+macro_rules! dbg_log_ev {
+    ($plain:expr $(,)?) => {
+        $crate::register::dbg_log($plain)
+    };
+    ($plain:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {{
+        // 로그 자체가 OFF 면 $plain·$fmt 어느 것도 format! 하지 않아 hot-path 비용 0.
+        if $crate::register::logging_enabled() {
+            if $crate::register::content_enabled() {
+                $crate::register::dbg_log(&format!($fmt $(, $arg)*));
+            } else {
+                $crate::register::dbg_log($plain);
+            }
+        }
+    }};
+}
+pub(crate) use dbg_log_ev;
 
 // ── 기본 입력기(default profile) 설정 — 사용자 컨텍스트 전용 ──
 //

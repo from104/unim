@@ -357,7 +357,10 @@ pub fn observe_key_down(vk: u16) -> Option<SynthKeyAction> {
 /// R6b — 순방향 synth 분기가 머리(commit)를 단일배치로 확정한 직후 꼬리를 적재한다.
 pub fn store_pending_tail(tail: &str) {
     *PENDING_TAIL.lock().unwrap() = Some(tail.to_string());
-    crate::register::dbg_log(&format!("synth: store_pending_tail '{tail}'"));
+    crate::register::dbg_log_ev!(
+        &format!("synth: store_pending_tail len={}", tail.chars().count()),
+        "synth: store_pending_tail '{tail}'"
+    );
 }
 
 /// R6b — 보류 꼬리를 1회성으로 꺼낸다(flush 진입점). 게이트/타이머/race/동기 degrade 공용.
@@ -423,9 +426,15 @@ pub fn append_tail_batch(text: &str) {
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
     PENDING.fetch_add((sent as usize).div_ceil(2) as i32, Ordering::SeqCst);
     *SEND_INSTANT.lock().unwrap() = Some(Instant::now());
-    crate::register::dbg_log(&format!(
+    crate::register::dbg_log_ev!(
+        &format!(
+            "synth: append_tail_batch len={} (+{} pending now={})",
+            text.chars().count(),
+            (sent as usize).div_ceil(2),
+            PENDING.load(Ordering::SeqCst)
+        ),
         "synth: append_tail_batch '{text}' (+{} pending now={})",
         (sent as usize).div_ceil(2),
         PENDING.load(Ordering::SeqCst)
-    ));
+    );
 }
