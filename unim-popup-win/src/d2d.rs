@@ -43,14 +43,18 @@ pub struct EmojiCell {
 }
 
 struct D2dState {
-    // factory/dwrite 는 RT·format 의 수명을 떠받치는 COM 루트라 직접 읽지 않아도
+    // factory 는 RT·format 의 수명을 떠받치는 COM 루트라 직접 읽지 않아도
     // 반드시 살려둔다(드롭 시 RT/format 무효화). 그래서 dead_code 허용.
     #[allow(dead_code)]
     factory: ID2D1Factory,
-    #[allow(dead_code)]
+    // dwrite 는 format 재생성(DPI 변경 시) 때 다시 쓰이므로 살려둔다.
     dwrite: IDWriteFactory,
     rt: ID2D1DCRenderTarget,
     format: IDWriteTextFormat,
+    /// format 을 만든 글리프 크기(px). 이 값이 요청 font_px 와 달라지면(혼합 DPI
+    /// 멀티모니터 이동/WM_DPICHANGED) format 을 재생성해 캐시를 무효화한다.
+    /// TextFormat 의 폰트 크기는 불변이라 크기를 캐시 키로 삼아야 한다(§11.A).
+    font_px: f32,
     brush_text: ID2D1SolidColorBrush,
     brush_black: ID2D1SolidColorBrush,
 }
@@ -65,9 +69,36 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }
 
-/// 글리프 크기(px) — 셀 높이에 맞춰 호출자가 지정. TextFormat 폰트 크기는 매 draw 시
-/// 재설정할 수 없으므로(불변) 셀보다 약간 작은 고정 px 로 만든다. scale 반영은 호출자가
-/// font_px 로 전달.
+/// 이모지 TextFormat 을 지정 글리프 크기(px)로 만든다. TextFormat 의 폰트 크기는
+/// 불변이므로 크기가 바뀌면(혼합 DPI) 이 함수로 새로 만들어 교체한다.
+unsafe fn create_text_format(dwrite: &IDWriteFactory, font_px: f32) -> Option<IDWriteTextFormat> {
+    // Segoe UI Emoji 1순위(폴백 체인이 비이모지 문자도 처리).
+    let family = to_wide("Segoe UI Emoji\0");
+    let locale = to_wide("\0");
+    let format = match unsafe {
+        dwrite.CreateTextFormat(
+            PCWSTR(family.as_ptr()),
+            None,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            font_px,
+            PCWSTR(locale.as_ptr()),
+        )
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            logln!("d2d: CreateTextFormat failed ({e}) — GDI fallback");
+            return None;
+        }
+    };
+    let _ = unsafe { format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER) };
+    let _ = unsafe { format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER) };
+    Some(format)
+}
+
+/// 글리프 크기(px) — 셀 높이에 맞춰 호출자가 지정. scale(DPI) 반영은 호출자가
+/// font_px 로 전달. 크기가 바뀌면 draw_emoji_cells 가 format 을 재생성한다.
 unsafe fn create_state(font_px: f32) -> Option<D2dState> {
     let factory: ID2D1Factory =
         match unsafe { D2D1CreateFactory::<ID2D1Factory>(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) } {
@@ -104,28 +135,11 @@ unsafe fn create_state(font_px: f32) -> Option<D2dState> {
             return None;
         }
     };
-    // TextFormat — Segoe UI Emoji 1순위(폴백 체인이 비이모지 문자도 처리).
-    let family = to_wide("Segoe UI Emoji\0");
-    let locale = to_wide("\0");
-    let format = match unsafe {
-        dwrite.CreateTextFormat(
-            PCWSTR(family.as_ptr()),
-            None,
-            DWRITE_FONT_WEIGHT_NORMAL,
-            DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL,
-            font_px,
-            PCWSTR(locale.as_ptr()),
-        )
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            logln!("d2d: CreateTextFormat failed ({e}) — GDI fallback");
-            return None;
-        }
+    // TextFormat — 현재 DPI 반영 글리프 크기로 생성(크기 변경 시 재생성됨).
+    let format = match unsafe { create_text_format(&dwrite, font_px) } {
+        Some(f) => f,
+        None => return None, // 로그는 create_text_format 내부에서.
     };
-    let _ = unsafe { format.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER) };
-    let _ = unsafe { format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER) };
     // 본문(흰)·대비(검정) 브러시.
     let white = D2D1_COLOR_F { r: 0.804, g: 0.839, b: 0.957, a: 1.0 }; // #cdd6f4
     let black = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
@@ -149,6 +163,7 @@ unsafe fn create_state(font_px: f32) -> Option<D2dState> {
         dwrite,
         rt,
         format,
+        font_px,
         brush_text,
         brush_black,
     })
@@ -166,6 +181,23 @@ pub fn draw_emoji_cells(hdc: HDC, full: &RECT, font_px: f32, cells: &[EmojiCell]
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
             *slot = Some(unsafe { create_state(font_px) });
+        }
+        // 혼합 DPI 멀티모니터: 최초 렌더 DPI 에 동결된 글리프 크기를 갱신한다.
+        // font_px 가 바뀌면(WM_DPICHANGED/모니터 이동으로 scale 재계산) TextFormat 을
+        // 재생성해 캐시 무효화. 실패 시 이번 프레임은 옛 크기 유지(공백/폴백 회피).
+        if let Some(Some(st)) = slot.as_mut() {
+            if (st.font_px - font_px).abs() > 0.5 {
+                match unsafe { create_text_format(&st.dwrite, font_px) } {
+                    Some(fmt) => {
+                        st.format = fmt;
+                        st.font_px = font_px;
+                        logln!("d2d: text format regenerated for DPI change font_px={font_px:.1}");
+                    }
+                    None => {
+                        logln!("d2d: text format regen failed — keeping old size this frame");
+                    }
+                }
+            }
         }
         let Some(Some(st)) = slot.as_ref() else {
             return false; // 생성 실패 캐시됨 → GDI 흑백 폴백.
