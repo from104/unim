@@ -16,6 +16,8 @@ mod compartment;
 #[cfg(windows)]
 mod composition;
 #[cfg(windows)]
+mod crash;
+#[cfg(windows)]
 mod display_attr;
 #[cfg(windows)]
 mod input_scope;
@@ -80,6 +82,12 @@ pub unsafe extern "system" fn DllMain(
     if fdw_reason == 1 {
         // DLL_PROCESS_ATTACH
         *DLL_INSTANCE.lock().unwrap() = hinst_dll.0 as usize;
+        // I9 — 크래시 리포팅: panic=abort 하에서 abort 직전에 호출되는 panic hook 을
+        // 1회 설치한다. 이로써 COM 경계 너머 패닉이 호스트 앱을 조용히 종료시키기
+        // 전에 %APPDATA%\unim\crash\ 에 크래시 마커를 남겨 장애를 UNIM 에 귀속·가시화한다.
+        // set_hook 은 경량(RwLock+Box 할당)이라 로더 락 하에서 안전하며, 실제 파일 I/O 는
+        // 패닉 시점에만 실행된다. (crate::crash 모듈 문서 참조)
+        crash::install_panic_hook();
     }
     BOOL(1)
 }

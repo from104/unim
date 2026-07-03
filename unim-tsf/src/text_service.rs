@@ -1435,9 +1435,11 @@ impl ITfTextEditSink_Impl for UnimTextService_Impl {
         // D3 — BS×N 삭제가 Blink 문서에 실제 적용됐는지 read-back 으로 검증해, 적용
         // 확인 즉시 Phase2 삽입을 트리거한다(40~60ms 고정 대기 대신 이벤트 기반).
         //
-        // panic=abort 보호: COM 콜백에서 panic 이 STA/COM 경계를 넘지 않도록
-        // catch_unwind 로 감싼다(rev_wnd_proc 패턴 모방). 어떤 실패도 graceful degrade
-        // (게이트 안 열림 → 60ms 안전망 타이머가 read-back 없이 폴백 = 현행 b1).
+        // 착시 주의(I9): 이 catch_unwind 는 panic=abort 하에서 **아무것도 잡지 못하는
+        // no-op** 이다(패닉이 랜딩 패드 도달 전에 abort). 남겨 둔 이유는 오직 조기
+        // `return` 으로 나머지 로직을 건너뛰는 제어 흐름 편의뿐이며, 패닉 격리 효과는
+        // 없다. 실제 크래시는 crate::crash 의 panic hook 이 abort 직전 마커로 캡처한다.
+        // 정상 실패(게이트 안 열림)는 60ms 안전망 타이머가 read-back 없이 폴백(현행 b1).
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // 이중 가드(설계 §회귀): 무관한 편집·BS 미주입 상태는 atomic load 2회로 즉시 무시.
             if !crate::synth_input::has_pending_insert() {
@@ -1715,7 +1717,8 @@ extern "system" fn rev_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if msg == WM_UNIM_REV {
-        // panic 격리 — wndproc 에서 panic 이 COM/STA 경계를 넘지 않도록.
+        // 착시 주의(I9): panic=abort 하에서 이 catch_unwind 는 no-op(패닉 격리 효과 없음).
+        // 조기 return 제어 흐름용으로만 유지. 실제 크래시는 crate::crash panic hook 이 캡처.
         let _ = std::panic::catch_unwind(|| unsafe {
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const RevWndContext;
             if ptr.is_null() {
@@ -1778,7 +1781,9 @@ extern "system" fn rev_wnd_proc(
     }
     if msg == WM_TIMER && wparam.0 == FLUSH_TIMER_ID {
         // b1 Phase2 — BS×N 이 Blink 문서에 적용될 시간(FLUSH_DELAY_MS)이 지났다.
-        // 보류 삽입을 TSF 로 삽입한다. panic=abort 환경 보호: catch_unwind 로 감싼다.
+        // 보류 삽입을 TSF 로 삽입한다. 착시 주의(I9): 아래 catch_unwind 는 panic=abort
+        // 하에서 no-op(패닉 격리 효과 없음) — 조기 return 제어 흐름용으로만 유지한다.
+        // 실제 크래시 캡처는 crate::crash 의 panic hook(abort 직전 마커) 담당이다.
         let _ = std::panic::catch_unwind(|| unsafe {
             // 1회성 보장: 즉시 KillTimer (재진입·중복 WM_TIMER 무해).
             let _ = KillTimer(Some(hwnd), FLUSH_TIMER_ID);
