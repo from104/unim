@@ -18,7 +18,7 @@
 // atf-advanced-expanded 는 Rust 미노출 UI 상태(내부 property).
 
 import {
-    ComboBox, SpinBox, LineEdit, Button, Switch, Slider,
+    ComboBox, LineEdit, Button, Switch, Slider,
     ScrollView, StandardListView, Palette
 } from "std-widgets.slint";
 
@@ -120,11 +120,20 @@ component NavItem inherits Rectangle {
 }
 
 // ── 설정 행: 좌측(제목 + 설명) stretch, 우측 컨트롤(@children) ──
-component SettingRow {
+component SettingRow inherits Rectangle {
     in property <string> title;
     in property <string> description;
     in property <bool> row-enabled: true;
-    HorizontalLayout {
+    // 검색 필터: 질의가 있고 제목·설명 어느 쪽에도 매칭되지 않으면 행을 접어 숨긴다.
+    // (@children 은 조건부 요소 안에 둘 수 없으므로 행 자체 높이를 0 으로 접고 clip.)
+    property <bool> match-hidden:
+        Search.query != "" && !Search.matches(Search.query, root.title, root.description);
+    clip: true;
+    visible: !root.match-hidden;
+    min-height: root.match-hidden ? 0px : row.preferred-height;
+    max-height: root.match-hidden ? 0px : row.preferred-height;
+    row := HorizontalLayout {
+        width: 100%;
         padding-top: Tokens.space-3;
         padding-bottom: Tokens.space-3;
         spacing: Tokens.space-3;
@@ -152,6 +161,47 @@ component SettingRow {
         VerticalLayout {
             alignment: center;
             @children
+        }
+    }
+}
+
+// ── 값 라벨을 오른쪽에 병기한 정수 슬라이더 (SpinBox 대체) ──
+// 하우스 '슬라이더 우선' 정책 정합. 모아치기 슬라이더와 동일하게 float 로 양방향
+// 바인딩하고 released 에서만 저장을 트리거한다(드래그 중 저장 폭주 방지).
+component NumSlider {
+    in property <int> minimum;
+    in property <int> maximum;
+    in property <int> step: 1;
+    in property <bool> enabled: true;
+    in property <string> suffix;
+    in property <string> a11y;
+    in-out property <float> value;
+    // 슬라이더 조작 완료(released) → 부모가 auto-save 로 저장.
+    callback released(float);
+    HorizontalLayout {
+        spacing: Tokens.space-3;
+        alignment: end;
+        Slider {
+            width: 160px;
+            enabled: root.enabled;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            value <=> root.value;
+            accessible-label: root.a11y;
+            released(v) => { root.released(v); }
+        }
+        Text {
+            text: root.suffix == ""
+                ? "\{Math.round(root.value)}"
+                : "\{Math.round(root.value)} \{root.suffix}";
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            min-width: 60px;
+            font-size: Tokens.font-body;
+            color: root.enabled
+                ? Palette.foreground
+                : Palette.foreground.with-alpha(0.4);
         }
     }
 }
@@ -206,8 +256,19 @@ export global Tr {
     }
 }
 
+// ── 설정 항목 검색 창구 ──
+// Slint 1.12 문자열엔 substring 검색이 없어(to-lowercase 만 존재) 실제 매칭은
+// Rust 가 설정하는 pure 콜백 `matches(query, title, description)` 에 위임한다.
+// SettingRow 가 자신의 제목·설명으로 이 콜백을 호출해 필터 표시 여부를 정한다.
+export global Search {
+    in-out property <string> query;
+    pure callback matches(string, string, string) -> bool;
+}
+
 export component SettingsWindow inherits Window {
     title: @tr("UNIM 설정");
+    // 창/작업표시줄 아이콘 — 제품 아이콘(installer/assets/unim.ico 에서 추출한 PNG).
+    icon: @image-url("app-icon.png");
     // Slint 기본 폰트는 한글 글리프가 없어 □로 표시된다.
     // Windows 기본 한글 UI 폰트(맑은 고딕)를 지정한다.
     default-font-family: "Malgun Gothic";
@@ -254,12 +315,13 @@ export component SettingsWindow inherits Window {
     in-out property <bool> atf-enabled;
     in-out property <bool> atf-forward;
     in-out property <bool> atf-reverse;
-    in-out property <int> atf-kor-threshold;
-    in-out property <int> atf-eng-min-length;
-    in-out property <int> atf-forward-window;
-    in-out property <int> atf-reverse-window;
-    in-out property <int> atf-tentative-expiry;
-    in-out property <int> atf-observation-timeout;
+    // 수치 항목은 값 라벨 병기 Slider 와 양방향 바인딩하므로 float (Rust 가 반올림 저장).
+    in-out property <float> atf-kor-threshold;
+    in-out property <float> atf-eng-min-length;
+    in-out property <float> atf-forward-window;
+    in-out property <float> atf-reverse-window;
+    in-out property <float> atf-tentative-expiry;
+    in-out property <float> atf-observation-timeout;
     in-out property <bool> atf-skip-english-word;
     in-out property <bool> atf-skip-complete-syllable;
     in-out property <bool> atf-rollback-detection;
@@ -345,6 +407,17 @@ export component SettingsWindow inherits Window {
                     color: Tokens.caption-color;
                 }
                 Rectangle { horizontal-stretch: 1; }
+                // 설정 항목 검색 — 현재 페이지에서 제목·설명이 일치하는 행만 남긴다.
+                VerticalLayout {
+                    alignment: center;
+                    LineEdit {
+                        width: 220px;
+                        height: 32px;
+                        placeholder-text: @tr("설정 검색");
+                        text <=> Search.query;
+                        accessible-label: @tr("설정 검색");
+                    }
+                }
             }
             // 헤더 하단 경계선
             Rectangle {
@@ -769,86 +842,84 @@ export component SettingsWindow inherits Window {
                             title: @tr("한글 음절 임계값");
                             description: @tr("이 음절 수 이상 모이면 교정 후보로 판정합니다.");
                             row-enabled: root.atf-enabled;
-                            SpinBox {
-                                min-width: 110px;
+                            NumSlider {
                                 enabled: root.atf-enabled;
                                 minimum: 2;
                                 maximum: 6;
                                 value <=> root.atf-kor-threshold;
-                                accessible-label: @tr("한글 음절 임계값");
-                                edited => { root.auto-save(); }
+                                a11y: @tr("한글 음절 임계값");
+                                released(v) => { root.auto-save(); }
                             }
                         }
                         SettingRow {
                             title: @tr("영문 단어 최소 길이");
                             description: @tr("이 길이 이상의 영문 단어만 교정 대상으로 봅니다.");
                             row-enabled: root.atf-enabled;
-                            SpinBox {
-                                min-width: 110px;
+                            NumSlider {
                                 enabled: root.atf-enabled;
                                 minimum: 3;
                                 maximum: 8;
                                 value <=> root.atf-eng-min-length;
-                                accessible-label: @tr("영문 단어 최소 길이");
-                                edited => { root.auto-save(); }
+                                a11y: @tr("영문 단어 최소 길이");
+                                released(v) => { root.auto-save(); }
                             }
                         }
                         SettingRow {
                             title: @tr("정방향 감지창 (ms)");
                             description: @tr("입력 후 이 시간 안에 정방향 교정을 판정합니다.");
                             row-enabled: root.atf-enabled;
-                            SpinBox {
-                                min-width: 110px;
+                            NumSlider {
                                 enabled: root.atf-enabled;
                                 minimum: 500;
                                 maximum: 5000;
-                                step-size: 100;
+                                step: 100;
+                                suffix: "ms";
                                 value <=> root.atf-forward-window;
-                                accessible-label: @tr("정방향 감지창");
-                                edited => { root.auto-save(); }
+                                a11y: @tr("정방향 감지창");
+                                released(v) => { root.auto-save(); }
                             }
                         }
                         SettingRow {
                             title: @tr("역방향 감지창 (ms)");
                             description: @tr("입력 후 이 시간 안에 역방향 교정을 판정합니다.");
                             row-enabled: root.atf-enabled;
-                            SpinBox {
-                                min-width: 110px;
+                            NumSlider {
                                 enabled: root.atf-enabled;
                                 minimum: 500;
                                 maximum: 5000;
-                                step-size: 100;
+                                step: 100;
+                                suffix: "ms";
                                 value <=> root.atf-reverse-window;
-                                accessible-label: @tr("역방향 감지창");
-                                edited => { root.auto-save(); }
+                                a11y: @tr("역방향 감지창");
+                                released(v) => { root.auto-save(); }
                             }
                         }
                         SettingRow {
                             title: @tr("임시 항목 만료 (시간)");
                             description: @tr("임시 학습 항목을 이 시간 후 정리합니다.");
                             row-enabled: root.atf-enabled;
-                            SpinBox {
-                                min-width: 110px;
+                            NumSlider {
                                 enabled: root.atf-enabled;
                                 minimum: 1;
                                 maximum: 12;
+                                suffix: @tr("시간");
                                 value <=> root.atf-tentative-expiry;
-                                accessible-label: @tr("임시 항목 만료");
-                                edited => { root.auto-save(); }
+                                a11y: @tr("임시 항목 만료");
+                                released(v) => { root.auto-save(); }
                             }
                         }
                         SettingRow {
                             title: @tr("관찰 타임아웃 (초)");
                             description: @tr("판정 전 입력을 관찰하는 최대 시간입니다.");
                             row-enabled: root.atf-enabled;
-                            SpinBox {
-                                min-width: 110px;
+                            NumSlider {
                                 enabled: root.atf-enabled;
                                 minimum: 5;
                                 maximum: 15;
+                                suffix: @tr("초");
                                 value <=> root.atf-observation-timeout;
-                                accessible-label: @tr("관찰 타임아웃");
-                                edited => { root.auto-save(); }
+                                a11y: @tr("관찰 타임아웃");
+                                released(v) => { root.auto-save(); }
                             }
                         }
                     }

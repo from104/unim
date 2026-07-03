@@ -51,6 +51,65 @@ fn ui_language_is_korean() -> bool {
     false
 }
 
+/// 단일 인스턴스 가드 (Windows). 이미 설정 창이 떠 있으면 그 창을 전면화하고
+/// `false` 를 돌려 호출자가 즉시 종료하도록 한다. 첫 인스턴스면 `true`.
+///
+/// 명명 뮤텍스(`Local\` = 세션 로컬)로 중복 실행을 감지하고, 기존 창은 제목으로
+/// `FindWindowW` 해서 최소화 상태면 복원 후 `SetForegroundWindow` 로 끌어올린다.
+/// 창 제목은 실행 중 인스턴스와 동일 규칙(OS UI 언어)으로 계산한다.
+/// 첫 인스턴스가 만든 뮤텍스 핸들은 프로세스 종료 시 OS 가 정리하므로 닫지 않는다
+/// (원시 포인터라 스코프 이탈만으로는 커널 핸들이 닫히지 않는다).
+#[cfg(windows)]
+fn acquire_singleton_or_foreground() -> bool {
+    use std::ffi::c_void;
+    extern "system" {
+        fn CreateMutexW(attrs: *const c_void, owner: i32, name: *const u16) -> *mut c_void;
+        fn GetLastError() -> u32;
+        fn FindWindowW(class: *const u16, window: *const u16) -> *mut c_void;
+        fn SetForegroundWindow(hwnd: *mut c_void) -> i32;
+        fn ShowWindow(hwnd: *mut c_void, cmd: i32) -> i32;
+        fn IsIconic(hwnd: *mut c_void) -> i32;
+    }
+    const ERROR_ALREADY_EXISTS: u32 = 183;
+    const SW_RESTORE: i32 = 9;
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    let name = wide("Local\\unim-tsf-settings-singleton");
+    // SAFETY: 명명 커널 오브젝트 생성. 인자는 널종단 UTF-16 이름 하나뿐.
+    let already_running = unsafe {
+        let _h = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+        GetLastError() == ERROR_ALREADY_EXISTS
+    };
+    if !already_running {
+        return true;
+    }
+
+    // 이미 실행 중 → 기존 창 전면화. 제목은 실행 중 인스턴스와 동일 규칙으로 계산.
+    let title = wide(if ui_language_is_korean() {
+        "UNIM 설정"
+    } else {
+        "UNIM Settings"
+    });
+    // SAFETY: 조회/포커스 이동 Win32 호출. HWND 는 널 검사 후에만 사용.
+    unsafe {
+        let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+        if !hwnd.is_null() {
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+            SetForegroundWindow(hwnd);
+        }
+    }
+    false
+}
+#[cfg(not(windows))]
+fn acquire_singleton_or_foreground() -> bool {
+    true
+}
+
 /// "a, b, c" → ["a","b","c"] (공백 trim, 빈 항목 제거).
 fn split_keys(s: &str) -> Vec<String> {
     s.split(',')
@@ -181,12 +240,14 @@ fn push_atf_to_ui(ui: &SettingsWindow, a: &AutoTypeFixConfig) {
     ui.set_atf_enabled(a.enabled);
     ui.set_atf_forward(a.forward);
     ui.set_atf_reverse(a.reverse);
-    ui.set_atf_kor_threshold(a.kor_syllable_threshold as i32);
-    ui.set_atf_eng_min_length(a.eng_word_min_length as i32);
-    ui.set_atf_forward_window(a.forward_time_window_ms as i32);
-    ui.set_atf_reverse_window(a.reverse_time_window_ms as i32);
-    ui.set_atf_tentative_expiry(a.tentative_expiry_hours as i32);
-    ui.set_atf_observation_timeout(a.observation_timeout_secs as i32);
+    // 수치 항목은 Slider(값 라벨 병기) 와 양방향 바인딩하므로 float 로 노출한다.
+    // Rust 는 저장 시 반올림해 정수 config 필드로 되돌린다(모아치기 슬라이더와 동일 패턴).
+    ui.set_atf_kor_threshold(a.kor_syllable_threshold as f32);
+    ui.set_atf_eng_min_length(a.eng_word_min_length as f32);
+    ui.set_atf_forward_window(a.forward_time_window_ms as f32);
+    ui.set_atf_reverse_window(a.reverse_time_window_ms as f32);
+    ui.set_atf_tentative_expiry(a.tentative_expiry_hours as f32);
+    ui.set_atf_observation_timeout(a.observation_timeout_secs as f32);
     ui.set_atf_skip_english_word(a.skip_on_english_word);
     ui.set_atf_skip_complete_syllable(a.skip_on_complete_syllable);
     ui.set_atf_rollback_detection(a.rollback_detection);
@@ -240,6 +301,12 @@ enum DeleteSnapshot {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 단일 인스턴스 가드: 이미 설정 창이 떠 있으면 그 창을 전면화하고 즉시 종료한다.
+    // (중복 창이 뜨면 각자 저장해 마지막 창이 이전 변경을 덮어쓰는 문제를 차단.)
+    if !acquire_singleton_or_foreground() {
+        return Ok(());
+    }
+
     // 렌더러 명시 선택: 기본 FemtoVG 는 힌팅이 없어 작은 한글(14px) 획 굵기가
     // 불균일하다. Skia 렌더러(Cargo.toml 의 renderer-skia feature 로 컴파일됨)는
     // 네이티브 글리프 래스터화로 힌팅이 적용돼 균일한 획을 낸다.
@@ -256,6 +323,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // select_bundled_translation 은 첫 컴포넌트 생성 이후에 호출해야 한다.
     // 빈 문자열("")은 index 0(=소스 한국어)로 특수 처리된다.
     let _ = slint::select_bundled_translation(if ui_language_is_korean() { "" } else { "en" });
+
+    // 설정 항목 검색: Slint 문자열엔 substring 매칭 내장이 없어(1.12: to-lowercase 만)
+    // 매칭을 Rust 순수 콜백으로 위임한다. 각 설정 행이 제목·설명을 넘겨 호출한다.
+    ui.global::<Search>().on_matches(|query, title, description| {
+        let q = query.as_str().trim().to_lowercase();
+        if q.is_empty() {
+            return true;
+        }
+        title.as_str().to_lowercase().contains(&q)
+            || description.as_str().to_lowercase().contains(&q)
+    });
 
     let config = Rc::new(RefCell::new(Config::load_from_default_path()));
     let blacklist = Rc::new(RefCell::new(Blacklist::load_from_default_path()));
@@ -421,17 +499,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             a.enabled = ui.get_atf_enabled();
             a.forward = ui.get_atf_forward();
             a.reverse = ui.get_atf_reverse();
-            a.kor_syllable_threshold = (ui.get_atf_kor_threshold() as u8)
+            // Slider 는 float 값을 주므로 반올림 후 정수 범위로 clamp 한다.
+            a.kor_syllable_threshold = (ui.get_atf_kor_threshold().round() as u8)
                 .clamp(AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX);
-            a.eng_word_min_length = (ui.get_atf_eng_min_length() as u8)
+            a.eng_word_min_length = (ui.get_atf_eng_min_length().round() as u8)
                 .clamp(AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX);
-            a.forward_time_window_ms = (ui.get_atf_forward_window() as u32)
+            a.forward_time_window_ms = (ui.get_atf_forward_window().round() as u32)
                 .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
-            a.reverse_time_window_ms = (ui.get_atf_reverse_window() as u32)
+            a.reverse_time_window_ms = (ui.get_atf_reverse_window().round() as u32)
                 .clamp(AUTO_TYPEFIX_TIME_WINDOW_MIN, AUTO_TYPEFIX_TIME_WINDOW_MAX);
-            a.tentative_expiry_hours = (ui.get_atf_tentative_expiry() as u16)
+            a.tentative_expiry_hours = (ui.get_atf_tentative_expiry().round() as u16)
                 .clamp(AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX);
-            a.observation_timeout_secs = (ui.get_atf_observation_timeout() as u8).clamp(
+            a.observation_timeout_secs = (ui.get_atf_observation_timeout().round() as u8).clamp(
                 AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
                 AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
             );

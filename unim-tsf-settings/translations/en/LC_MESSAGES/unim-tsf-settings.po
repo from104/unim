@@ -460,3 +460,12 @@ msgstr "Undo"
 
 msgid "삭제 되돌리기"
 msgstr "Undo deletion"
+
+msgid "설정 검색"
+msgstr "Search settings"
+
+msgid "시간"
+msgstr "h"
+
+msgid "초"
+msgstr "s"
