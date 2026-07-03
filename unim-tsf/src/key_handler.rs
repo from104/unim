@@ -23,6 +23,21 @@ use crate::preedit_window::PreeditWindow;
 pub struct KeyDownOutcome {
     pub eaten: bool,
     pub schedule_flush: bool,
+    /// 오버레이 폴백(composition 미지원 앱) 경로로 진입해 이 키에서 ATF(자동교정)가
+    /// 조용히 비활성화됐음을 호출부에 알리는 신호. text_service 가 이를 받아
+    /// **앱(HWND)당 1회** 로그 + 랭바 툴팁/스크린리더로 "이 앱은 자동교정 제한"을
+    /// 고지한다(과도 알림 방지=HWND 기억). 폴백 외 경로에서는 항상 false.
+    pub atf_fallback: bool,
+}
+
+impl Default for KeyDownOutcome {
+    fn default() -> Self {
+        Self {
+            eaten: false,
+            schedule_flush: false,
+            atf_fallback: false,
+        }
+    }
 }
 
 /// 현재 Win32 수정자 키 상태를 조회합니다.
@@ -356,7 +371,7 @@ pub fn handle_key_down(
                 }
             }
         }
-        return KeyDownOutcome { eaten: true, schedule_flush };
+        return KeyDownOutcome { eaten: true, schedule_flush, ..Default::default() };
     }
 
     // ── Ctrl+Z AutoTypeFix 되돌리기 (press_key 전에 먼저 검사) ──
@@ -382,7 +397,7 @@ pub fn handle_key_down(
                 engine.remove_preedit();
             }
         }
-        return KeyDownOutcome { eaten: true, schedule_flush };
+        return KeyDownOutcome { eaten: true, schedule_flush, ..Default::default() };
     }
 
     // ── Phase 4(S1): 보유 영문 라이브 조합 중 Backspace ──
@@ -405,6 +420,7 @@ pub fn handle_key_down(
         return KeyDownOutcome {
             eaten: true,
             schedule_flush: false,
+            ..Default::default()
         };
     }
 
@@ -436,6 +452,7 @@ pub fn handle_key_down(
         return KeyDownOutcome {
             eaten: false,
             schedule_flush: false,
+            ..Default::default()
         };
     }
 
@@ -465,7 +482,7 @@ pub fn handle_key_down(
 
     if !result.consumed && !result.commit_changed && !result.preedit_changed {
         // 팝업 중에도 소비하지 않은 키면 팝업 닫기 (Esc 등은 엔진이 HidePopup emit)
-        return KeyDownOutcome { eaten: false, schedule_flush: false };
+        return KeyDownOutcome { eaten: false, schedule_flush: false, ..Default::default() };
     }
 
     // ── 팝업 액션 drain ──
@@ -488,6 +505,8 @@ pub fn handle_key_down(
     // ── commit / preedit 처리 ──
     let commit_str_for_atf: Option<String>;
     let preedit_str_for_atf: Option<String>;
+    // 오버레이 폴백 경로에서 ATF 를 조용히 끈 순간을 호출부에 알리는 신호(앱당 1회 고지용).
+    let mut atf_fallback = false;
 
     if composition_unsupported {
         // ── 폴백 경로: client-side preedit (wezterm 등 터미널·레거시 앱) ──
@@ -511,6 +530,13 @@ pub fn handle_key_down(
         // 폴백 경로에서는 ATF(주변 텍스트 교체)도 동일 삭제 한계로 깨지므로 비활성.
         commit_str_for_atf = None;
         preedit_str_for_atf = None;
+        // 실제 조합 활동(commit/preedit 변화)이 있는 키에서만 "이 앱은 자동교정 제한"을
+        // 고지하도록 신호를 세운다. 순수 통과키(활동 없음)에는 노이즈를 내지 않는다.
+        // (순방향 부활 가능성: 오버레이가 append-only 삽입만 하므로, 향후 순방향 교정은
+        //  삭제 없이 SetText 치환으로 되살릴 여지가 있다 — 후속 과제.)
+        if result.commit_changed || result.preedit_changed {
+            atf_fallback = true;
+        }
 
         if result.commit_changed || result.preedit_changed {
             crate::register::dbg_log_ev!(
@@ -778,7 +804,7 @@ pub fn handle_key_down(
         }
     }
 
-    KeyDownOutcome { eaten: result.consumed, schedule_flush }
+    KeyDownOutcome { eaten: result.consumed, schedule_flush, atf_fallback }
 }
 
 /// b1 Phase2 — 보류 삽입(PendingInsert)을 TSF 로 삽입한다 (타이머 발화 / race-flush

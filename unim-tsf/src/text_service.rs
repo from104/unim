@@ -95,6 +95,13 @@ pub struct UnimTextService {
     /// 지연된 즉시-terminate(>200ms)를 놓쳐 조합이 다시 깨지는 것을 줄인다(지식베이스 P1).
     pub(crate) cuas_windows: Mutex<HashSet<isize>>,
 
+    /// 오버레이 폴백(자동교정 제한) 고지를 이미 낸 포커스 창(HWND) 집합.
+    ///
+    /// 폴백 경로에서 ATF 가 조용히 꺼질 때 사용자에게 "이 앱은 자동교정 제한"을
+    /// 앱당 **1회**만 로그로 남기기 위한 기억. 랭바 툴팁/스크린리더 통지는 값 전이
+    /// 시에만 발사되므로(LangBarState::set_atf_limited), 이 집합은 로그 스팸 방지용.
+    pub(crate) atf_fallback_notified: Mutex<HashSet<isize>>,
+
     /// b1 Phase2 — 신규 조합 즉시-terminate 학습 억제 플래그.
     ///
     /// b1 Phase2 가 시작한 신규 TSF 조합("기")을 Blink 가 즉시 terminate 할 수 있다.
@@ -195,6 +202,7 @@ impl UnimTextService {
             last_key_instant: Mutex::new(None),
             last_reload_check: Mutex::new(None),
             cuas_windows: Mutex::new(HashSet::new()),
+            atf_fallback_notified: Mutex::new(HashSet::new()),
             suppress_cuas_learn: Arc::new(AtomicBool::new(false)),
             last_fg_hwnd: AtomicIsize::new(0),
             last_fg_word: AtomicBool::new(false),
@@ -1181,6 +1189,26 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             }
         }
 
+        // ── 오버레이 폴백 ATF 무고지 해소 ──
+        // 폴백 경로에서 ATF(자동교정)가 조용히 꺼졌으면(outcome.atf_fallback), 포커스
+        // 앱(HWND)당 1회 로그 + 랭바 툴팁/스크린리더로 "이 앱은 자동교정 제한"을 고지한다.
+        // 랭바 통지(set_atf_limited)는 값 전이 시에만 발사돼 과도 알림이 없고, 로그는
+        // HWND 집합(atf_fallback_notified)으로 앱당 1회로 조인다.
+        if outcome.atf_fallback {
+            let hwnd = unsafe { GetFocus() }.0 as isize;
+            if hwnd != 0 {
+                if let Some(ref state) = *self.langbar_state.lock().unwrap() {
+                    state.set_atf_limited(true);
+                }
+                if self.atf_fallback_notified.lock().unwrap().insert(hwnd) {
+                    crate::register::dbg_log(&format!(
+                        "ATF 폴백 고지: 이 앱(hwnd={:#x})은 오버레이 폴백이라 자동교정 제한 — 앱당 1회 통지",
+                        hwnd
+                    ));
+                }
+            }
+        }
+
         // ── I8 접근성 UI element 스냅샷 수집 ────────────────────────────────
         // 키 처리 직후 엔진/팝업 상태(소유 복사본)를 뜬다. 실제 COM 통지는 아래에서
         // 락을 정리한 뒤 수행(재진입 최소화). 조합 중이면 preedit 을 reading 으로,
@@ -1456,6 +1484,12 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
         self.composition_unsupported.store(known_cuas, Ordering::SeqCst);
         self.fallback_pending.store(0, Ordering::SeqCst);
+        // ATF 폴백 고지 동기화: 학습된 CUAS 앱이면 랭바 툴팁에 "자동교정 제한"을 미리
+        // 켜고, 정상(composition 지원) 앱이면 해제한다. set_atf_limited 는 값 전이 시에만
+        // 통지하므로 반복 포커스에도 무해. (첫 폴백 감지는 OnKeyDown 에서 켠다.)
+        if let Some(ref state) = *self.langbar_state.lock().unwrap() {
+            state.set_atf_limited(known_cuas);
+        }
         // b1: 포커스 전환 → 보류 삽입 폐기(이전 문서에 stale "서기" 삽입 방지) + 타이머 끄기.
         if let Some(w) = self.rev_window.lock().unwrap().as_ref() {
             w.kill_flush_timer();

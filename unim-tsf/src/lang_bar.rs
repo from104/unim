@@ -262,6 +262,10 @@ unsafe extern "system" fn helper_wnd_proc(
 ///   갱신 시 OnUpdate() 를 발사해 랭귀지바에 변화를 알린다.
 pub struct LangBarState {
     pub is_korean: AtomicBool,
+    /// 현재 포커스 앱이 오버레이 폴백(composition 미지원 CUAS/IMM32 브리지)이라
+    /// 자동교정(ATF)이 제한됨을 나타내는 플래그. true 면 툴팁에 "이 앱은 자동교정 제한"을
+    /// 덧붙여 사용자에게 조용한 OFF 를 고지한다. OnSetFocus(정상 앱 복귀) 시 해제된다.
+    pub atf_limited: AtomicBool,
     pub sink: Mutex<Option<ITfLangBarItemSink>>,
     /// ActivateEx 에서 주입되는 thread_mgr + client id.
     /// `update()` 가 OS 입력 표시기 compartment 를 동기화할 때 사용한다.
@@ -287,6 +291,7 @@ impl LangBarState {
     pub fn new(is_korean: bool) -> Arc<Self> {
         Arc::new(Self {
             is_korean: AtomicBool::new(is_korean),
+            atf_limited: AtomicBool::new(false),
             sink: Mutex::new(None),
             tsf: Mutex::new(None),
             helper_hwnd: Mutex::new(HWND::default()),
@@ -400,6 +405,35 @@ impl LangBarState {
         // I7: 한/영 전환 능동 통지 — 스크린리더(NVDA/Narrator)가 토글 즉시 낭독하도록
         // 이벤트를 발생시키고, 옵션이 켜져 있으면 차등 비프로 무시각 확인을 돕는다.
         self.announce_mode_change(is_korean, announce_beep);
+    }
+
+    /// 오버레이 폴백(자동교정 제한) 상태를 설정하고, 전이 시에만 랭바 툴팁 갱신
+    /// (OnUpdate) + 스크린리더 능동 통지(NotifyWinEvent)를 발사한다.
+    ///
+    /// 매 폴백 키마다 호출돼도 값이 바뀔 때만 통지하므로(compare-and-swap) 과도
+    /// 알림이 없다. 호출부(text_service)는 HWND 집합으로 로그를 앱당 1회로 더 조인다.
+    pub fn set_atf_limited(&self, limited: bool) {
+        let prev = self.atf_limited.swap(limited, Ordering::SeqCst);
+        if prev == limited {
+            return;
+        }
+        // 툴팁/설명 텍스트가 바뀌므로 랭바에 갱신을 알린다.
+        if let Ok(guard) = self.sink.lock() {
+            if let Some(ref sink) = *guard {
+                unsafe {
+                    let _ = sink.OnUpdate(TF_LBI_TEXT);
+                }
+            }
+        }
+        // 제한 진입 시 전경 창에 이름 변경 이벤트를 발생시켜 스크린리더가 즉시 낭독하게 한다.
+        if limited {
+            unsafe {
+                let hwnd = GetForegroundWindow();
+                if hwnd.0 as isize != 0 {
+                    NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, hwnd, OBJID_CLIENT.0, 0);
+                }
+            }
+        }
     }
 
     /// I7: 한/영 모드 전환을 스크린리더/무시각 사용자에게 능동 통지한다.
@@ -521,6 +555,10 @@ impl ITfLangBarItem_Impl for UnimLangBarButton_Impl {
         } else {
             "UNIM English Input"
         };
+        // 오버레이 폴백 앱이면 자동교정이 조용히 꺼져 있음을 툴팁으로 고지한다.
+        if self.state.atf_limited.load(Ordering::SeqCst) {
+            return Ok(BSTR::from(format!("{text} — 이 앱은 자동교정 제한")));
+        }
         Ok(BSTR::from(text))
     }
 }
