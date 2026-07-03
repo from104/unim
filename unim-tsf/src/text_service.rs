@@ -19,6 +19,7 @@ use crate::key_handler;
 use crate::lang_bar::{LangBarState, UnimLangBarButton};
 use crate::popup_ipc::{PopupClient, RevChannel, WM_UNIM_REV};
 use crate::preedit_window::PreeditWindow;
+use crate::ui_element::{CandidateSnapshot, UiElements};
 
 #[implement(
     ITfTextInputProcessorEx,
@@ -121,6 +122,11 @@ pub struct UnimTextService {
     /// 경로에서만 기록되고 OnSetFocus 두 곳은 읽기만 하므로, 두 OnSetFocus 가 서로의
     /// 값을 덮어써 정상 앱 전환을 same_proc=true 로 오판하는 회귀가 원천 차단된다.
     pub(crate) last_key_proc: Mutex<Option<String>>,
+
+    /// I8 — UILess Mode 접근성 UI element(조합 reading + 후보 candidate) 구동 매니저.
+    /// OnKeyDown 후 조합/후보 상태를 미러링해 `ITfUIElementMgr` 로 show/update/hide 를
+    /// 통지한다. NVDA/Narrator 가 이를 낭독한다. TSF STA 스레드 전용.
+    pub(crate) ui_elements: Mutex<UiElements>,
 }
 
 /// b1 Phase2 — SetTimer one-shot 식별자.
@@ -193,11 +199,51 @@ impl UnimTextService {
             last_fg_hwnd: AtomicIsize::new(0),
             last_fg_word: AtomicBool::new(false),
             last_key_proc: Mutex::new(None),
+            ui_elements: Mutex::new(UiElements::new()),
         }
     }
 
     pub fn client_id(&self) -> u32 {
         self.client_id.load(Ordering::SeqCst)
+    }
+
+    /// I8 — ThreadMgr 에서 `ITfUIElementMgr` 취득(UILess UI element 구동용). 실패 시 None.
+    fn ui_element_mgr(&self) -> Option<ITfUIElementMgr> {
+        let guard = self.thread_mgr.lock().ok()?;
+        let tm = guard.as_ref()?;
+        tm.cast::<ITfUIElementMgr>().ok()
+    }
+
+    /// I8 — 조합/후보 접근성 UI element 를 현재 상태로 동기화한다(show/update/hide).
+    /// 소유 스냅샷만 넘겨받아 엔진 락과 독립적으로 COM 을 호출한다. 실패는 모두
+    /// 무시(입력 기능 무영향).
+    fn sync_ui_elements(
+        &self,
+        reading: Option<String>,
+        candidate: Option<CandidateSnapshot>,
+        ctx: Option<ITfContext>,
+    ) {
+        let mgr = match self.ui_element_mgr() {
+            Some(m) => m,
+            None => return,
+        };
+        let mut ui = match self.ui_elements.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        ui.sync_reading(&mgr, reading.as_deref(), ctx.as_ref());
+        ui.sync_candidate(&mgr, candidate.as_ref());
+    }
+
+    /// I8 — 모든 접근성 UI element 종료(비활성화·포커스 이탈·설정 리로드 시). 멱등.
+    fn end_ui_elements(&self) {
+        let mgr = match self.ui_element_mgr() {
+            Some(m) => m,
+            None => return,
+        };
+        if let Ok(mut ui) = self.ui_elements.lock() {
+            ui.end_all(&mgr);
+        }
     }
 
     /// 조합 중 패스쓰루 키(네비게이션/수정자 조합)를 만났을 때 현재 조합을
@@ -407,6 +453,8 @@ impl UnimTextService {
             *config_guard = new_config;
             *self.config_mtime.lock().unwrap() = Some(new_mtime);
             self.popup_ipc.lock().unwrap().hide();
+            // I8 — 엔진 재생성(조합 초기화) → 접근성 UI element 종료(stale 노출 방지).
+            self.end_ui_elements();
             if let Some(ref mut win) = *self.preedit_window.lock().unwrap() {
                 win.hide();
             }
@@ -721,6 +769,8 @@ impl ITfTextInputProcessor_Impl for UnimTextService_Impl {
         // ITfThreadMgrEventSink::OnSetFocus 는 TIP 전환 시 보장되지 않으므로
         // Deactivate 진입부에서 명시적으로 Hide 를 송신한다.
         self.popup_ipc.lock().unwrap().hide();
+        // I8 — 접근성 UI element 도 함께 종료(thread_mgr 아직 유효한 이 시점에).
+        self.end_ui_elements();
 
         // §11.G 역채널 창 파괴 (notify 해제 + DestroyWindow + 컨텍스트 회수).
         // 반드시 해제 — 훅/창 누수 시 다음 활성화에서 stale wndproc 위험.
@@ -1078,6 +1128,30 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             }
         }
 
+        // ── I8 접근성 UI element 스냅샷 수집 ────────────────────────────────
+        // 키 처리 직후 엔진/팝업 상태(소유 복사본)를 뜬다. 실제 COM 통지는 아래에서
+        // 락을 정리한 뒤 수행(재진입 최소화). 조합 중이면 preedit 을 reading 으로,
+        // 팝업 활성이면 현재 페이지 후보를 candidate 로 노출한다.
+        let ui_reading: Option<String> = if engine.is_composing() {
+            let p = engine.preedit_str();
+            if p.is_empty() {
+                None
+            } else {
+                Some(p.to_string())
+            }
+        } else {
+            None
+        };
+        let ui_candidate: Option<CandidateSnapshot> = if popup_ipc.is_active() {
+            let home = engine.home_row_labels().to_string();
+            engine.popup_state().map(|st| {
+                crate::ui_element::candidate_snapshot_from_view_model(&st.view_model(&home))
+            })
+        } else {
+            None
+        };
+        let ui_ctx: ITfContext = context.clone();
+
         // ── b1 Phase2 예약 ──────────────────────────────────────────────────
         // synth 폴백이 Phase1(BS×N)만 했고 삽입은 보류 중이다. 락을 모두 해제한 뒤
         // SetTimer 로 Phase2(삽입)를 예약한다. SendInput·BS 가 Blink 문서에 적용될
@@ -1122,6 +1196,12 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 self.flush_pending_tail(&comp_sink);
             }
         }
+
+        // ── I8 접근성 UI element 통지 ──────────────────────────────────────
+        // 위에서 뜬 소유 스냅샷으로 조합/후보 UI element 를 show/update/hide 한다.
+        // (schedule_flush=true 경로에서는 엔진 락이 이미 해제됐고, false 경로에서도
+        //  소유 복사본만 쓰므로 재진입/데드락이 없다.)
+        self.sync_ui_elements(ui_reading, ui_candidate, Some(ui_ctx));
 
         Ok(BOOL::from(outcome.eaten))
     }
@@ -1400,6 +1480,8 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         self.composition_mgr.lock().unwrap().clear_english_hold();
         // 포커스 전환 → 팝업 Hide 송신 (렌더러 owner 규칙으로 stale hide 무시 처리).
         self.popup_ipc.lock().unwrap().hide();
+        // I8 — 포커스 전환 → 접근성 UI element 종료(조합·후보 stale 노출 방지).
+        self.end_ui_elements();
         // 포커스 이동 → 보관 컨텍스트 무효화 (역채널 마우스 확정이 옛 창에 안 가도록).
         *self.last_context.lock().unwrap() = None;
         if let Some(ref mut win) = *self.preedit_window.lock().unwrap() {

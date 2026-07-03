@@ -39,6 +39,8 @@ mod sandbox_paths;
 mod synth_input;
 #[cfg(windows)]
 mod text_service;
+#[cfg(windows)]
+mod ui_element;
 
 #[cfg(windows)]
 use std::sync::atomic::{AtomicUsize, Ordering};
