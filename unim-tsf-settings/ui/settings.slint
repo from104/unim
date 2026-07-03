@@ -9,14 +9,16 @@
 //  - 자동저장 배선: 위젯 콜백(selected/toggled/edited/accepted/clicked)에서만
 //    root.auto-save() 호출. 'changed' 핸들러 금지(초기 set_* 저장폭주 방지).
 //
-// main.rs 계약(절대 불변): 컴포넌트명 SettingsWindow, in-out property 31개
-// (word-mode-apps — I4 per-app 앱호환 config 외부화; toast-visible/toast-message
-// — I6 되돌리기 토스트), callback 9개(undo-restore — I6; atf-apply-preset·
-// atf-restore-defaults — 오타교정 프리셋/기본값복원), default-font-family
-// "Malgun Gothic". atf-advanced-expanded 는 Rust 미노출 UI 상태(내부 property).
+// main.rs 계약(절대 불변): 컴포넌트명 SettingsWindow, in-out property (word-mode-apps
+// — I4 per-app 앱호환 config 외부화; toast-visible/toast-message — I6 되돌리기 토스트;
+// korean-noshift-selected·moachigi-supported/enabled/window — 접근성/모아치기 노출),
+// callback (undo-restore — I6; atf-apply-preset·atf-restore-defaults — 오타교정
+// 프리셋/기본값복원; moachigi-toggled·moachigi-window-released·apply-accessibility-preset
+// — 모아치기/접근성 프리셋), default-font-family "Malgun Gothic".
+// atf-advanced-expanded 는 Rust 미노출 UI 상태(내부 property).
 
 import {
-    ComboBox, SpinBox, LineEdit, Button, Switch,
+    ComboBox, SpinBox, LineEdit, Button, Switch, Slider,
     ScrollView, StandardListView, Palette
 } from "std-widgets.slint";
 
@@ -194,6 +196,16 @@ export component SettingsWindow inherits Window {
     in-out property <string> auto-english-keys;
     in-out property <bool> toggle-announce-beep;
     in-out property <bool> ignore-key-repeat;
+    // 선택된 한글 자판이 '세벌식 순아래'인지 — Rust 가 계산해 배지 노출을 결정.
+    in-out property <bool> korean-noshift-selected;
+
+    // ── 모아치기(chord) — config korean.chord_window_ms / bidirectional_combine ──
+    // supported: 선택된 자판 프로필이 moachigi capability 를 가지는가(안마태 등).
+    // enabled: chord_window_ms 가 유효 활성값(10~200ms). window: 슬라이더 표시값(ms).
+    in-out property <bool> moachigi-supported;
+    in-out property <bool> moachigi-enabled;
+    // 슬라이더(float) 와 양방향 바인딩하므로 float. Rust 는 반올림해 u16 로 저장.
+    in-out property <float> moachigi-window;
 
     // ── 오타 교정 ──
     in-out property <bool> atf-enabled;
@@ -247,6 +259,12 @@ export component SettingsWindow inherits Window {
     callback atf-apply-preset(int);
     // 오타 교정 설정을 기본값으로 복원(+ 되돌리기 토스트).
     callback atf-restore-defaults();
+    // 모아치기 사용 스위치 토글 → chord_window_ms Some(60)/None 전환.
+    callback moachigi-toggled(bool);
+    // 모아치기 조합창 슬라이더 조작 완료(released) → chord_window_ms 갱신(Rust 가 반올림).
+    callback moachigi-window-released(float);
+    // 접근성 프리셋(0='한 손 사용', 1='넉넉한 타이밍') 관련 config 일괄 적용.
+    callback apply-accessibility-preset(int);
 
     // 현재 페이지(0=일반, 1=오타 교정, 2=억제 단어, 3=사용자 사전)
     property <int> current-page: 0;
@@ -377,6 +395,37 @@ export component SettingsWindow inherits Window {
                                 selected => { root.auto-save(); }
                             }
                         }
+                        // 순아래 자판 선택 시 접근성 추천 배지 — Shift 를 거의 쓰지
+                        // 않아 한 손·고정키(sticky keys) 사용자에게 유리함을 안내.
+                        if root.korean-noshift-selected: Rectangle {
+                            background: Palette.accent-background.with-alpha(Tokens.is-dark ? 0.22 : 0.12);
+                            border-radius: Tokens.radius-chip;
+                            HorizontalLayout {
+                                padding: Tokens.space-3;
+                                spacing: Tokens.space-2;
+                                Rectangle {
+                                    width: 3px;
+                                    border-radius: 2px;
+                                    background: Tokens.brand-gradient;
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: Tokens.space-xs;
+                                    Text {
+                                        text: "한 손 · 고정키 추천";
+                                        font-size: Tokens.font-caption;
+                                        font-weight: 700;
+                                        color: Palette.accent-foreground;
+                                    }
+                                    Text {
+                                        text: "Shift 를 거의 누르지 않도록 배열돼 한 손 입력이나 고정키(sticky keys) 사용, 손목 부담이 큰 사용자에게 적합합니다.";
+                                        font-size: Tokens.font-caption;
+                                        wrap: word-wrap;
+                                        color: Tokens.caption-color;
+                                    }
+                                }
+                            }
+                        }
                         SettingRow {
                             title: "영문 자판";
                             description: "영문 입력 시 사용할 자판 배열을 선택합니다.";
@@ -446,6 +495,48 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
+                    // ── 모아치기(모아 입력) — 지원 자판에서만 조작 가능 ──
+                    if root.current-page == 0 && root.moachigi-supported: Card {
+                        title: "모아치기 (모아 입력)";
+                        SettingRow {
+                            title: "모아치기 사용";
+                            description: "여러 자모를 거의 동시에 눌러 한 음절로 모아 입력합니다. 조합창 시간 안에 들어온 키를 함께 처리합니다.";
+                            Switch {
+                                checked <=> root.moachigi-enabled;
+                                accessible-label: "모아치기 사용";
+                                toggled => { root.moachigi-toggled(self.checked); }
+                            }
+                        }
+                        SettingRow {
+                            title: "조합창 (ms)";
+                            description: "이 시간(밀리초) 안에 눌린 키를 한 음절로 모읍니다. 값이 클수록 천천히 눌러도 함께 인식되지만, 서로 다른 음절이 합쳐질 수 있습니다. 권장 60ms, 범위 10~200ms.";
+                            row-enabled: root.moachigi-enabled;
+                            HorizontalLayout {
+                                spacing: Tokens.space-3;
+                                alignment: center;
+                                Slider {
+                                    width: 180px;
+                                    enabled: root.moachigi-enabled;
+                                    minimum: 10;
+                                    maximum: 200;
+                                    step: 5;
+                                    value <=> root.moachigi-window;
+                                    accessible-label: "모아치기 조합창";
+                                    released(v) => { root.moachigi-window-released(v); }
+                                }
+                                Text {
+                                    text: "\{Math.round(root.moachigi-window)} ms";
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                    min-width: 52px;
+                                    font-size: Tokens.font-body;
+                                    color: root.moachigi-enabled
+                                        ? Palette.foreground
+                                        : Palette.foreground.with-alpha(0.4);
+                                }
+                            }
+                        }
+                    }
                     if root.current-page == 0: Card {
                         title: "키 설정";
                         SettingRow {
@@ -498,6 +589,34 @@ export component SettingsWindow inherits Window {
                     }
                     if root.current-page == 0: Card {
                         title: "접근성";
+                        Text {
+                            text: "원클릭 프리셋으로 접근성 관련 설정을 한 번에 맞출 수 있습니다. 적용 후 아래 개별 항목에서 세부 조정도 가능합니다.";
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            spacing: Tokens.space-2;
+                            Button {
+                                text: "한 손 사용";
+                                accessible-label: "한 손 사용 프리셋 적용";
+                                clicked => { root.apply-accessibility-preset(0); }
+                            }
+                            Button {
+                                text: "넉넉한 타이밍";
+                                accessible-label: "넉넉한 타이밍 프리셋 적용";
+                                clicked => { root.apply-accessibility-preset(1); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                        Text {
+                            text: "‘한 손 사용’: 세벌식 순아래 자판 + 비수정자 토글키 + 모아치기 끔 + 자동반복 억제.  ‘넉넉한 타이밍’: 자동반복 억제 + 오타 교정 판정 시간 확대 + 모아치기 조합창을 넉넉하게(지원 자판).";
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-2; }
                         SettingRow {
                             title: "한/영 전환 소리 알림";
                             description: "한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다.";

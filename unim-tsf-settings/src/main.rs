@@ -19,8 +19,9 @@ use std::rc::Rc;
 use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use unim::config::{
-    english_layout_display_name, korean_layout_display_name, AutoTypeFixConfig, CommitUnit, Config,
-    InputCategory, ModeSharingMode, ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS,
+    english_layout_display_name, korean_layout_display_name, normalize_korean_layout_name,
+    AutoTypeFixConfig, CommitUnit, Config, InputCategory, ModeSharingMode,
+    ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -110,6 +111,30 @@ fn rule_set_items_for(cfg: &Config, profile: &LayoutProfile) -> Vec<RuleSetItem>
             }
         })
         .collect()
+}
+
+/// 유효 활성 chord_window_ms 판정 — `Some(10..=200)` 만 "모아치기 켜짐".
+/// `None`(미설정)·`Some(0)`(명시 OFF)·`Some(1..=9)`(무효)은 모두 꺼짐으로 본다.
+fn moachigi_is_enabled(chord_window_ms: Option<u16>) -> bool {
+    matches!(chord_window_ms, Some(n) if (10..=200).contains(&n))
+}
+
+/// 현재 자판 프로필의 moachigi capability + config chord_window 상태를 UI 에 반영.
+/// - supported: 프로필이 `moachigi` capability 를 선언한 자판인가(안마태 등).
+/// - enabled: chord_window_ms 가 유효 활성값인가.
+/// - window: 슬라이더 표시값(비활성이면 권장 기본 60ms).
+fn push_moachigi_to_ui(ui: &SettingsWindow, cfg: &Config, profile: Option<&LayoutProfile>) {
+    let supported = profile.map(|p| p.moachigi.is_some()).unwrap_or(false);
+    let cw = cfg.engine.korean.chord_window_ms;
+    let enabled = moachigi_is_enabled(cw);
+    ui.set_moachigi_supported(supported);
+    ui.set_moachigi_enabled(enabled);
+    ui.set_moachigi_window(if enabled { cw.unwrap() as f32 } else { 60.0 });
+}
+
+/// 선택된 한글 자판이 '세벌식 순아래'인지 — 접근성 추천 배지 노출 판정.
+fn is_noshift_layout(cfg: &Config) -> bool {
+    cfg.engine.korean.effective_layout_name() == KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT
 }
 
 fn fmt_blacklist(e: &BlacklistEntry) -> String {
@@ -299,6 +324,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_ignore_key_repeat(e.ignore_key_repeat);
 
         push_atf_to_ui(&ui, &e.auto_typefix);
+
+        // 접근성 추천 배지 + 모아치기 카드 초기 상태.
+        ui.set_korean_noshift_selected(is_noshift_layout(&cfg));
+        push_moachigi_to_ui(
+            &ui,
+            &cfg,
+            load_profile(&cfg.engine.korean.effective_layout_name()).as_ref(),
+        );
     }
     refresh_blacklist(&ui, &blacklist.borrow());
     refresh_userdict(&ui, &userdict.borrow());
@@ -381,9 +414,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             a.rollback_detection = ui.get_atf_rollback_detection();
             a.user_dict_enabled = ui.get_atf_user_dict_enabled();
 
-            // 자판이 바뀌었으면 규칙 세트 그룹을 새 프로필로 재구성.
-            if let Some(profile) = new_profile.as_ref() {
-                rule_model.set_vec(rule_set_items_for(&cfg, profile));
+            // 자판이 바뀌었으면 규칙 세트 그룹 + 접근성 배지 + 모아치기 카드를
+            // 새 프로필 기준으로 재구성 (moachigi-supported 는 자판마다 다름).
+            if kor_changed {
+                if let Some(profile) = new_profile.as_ref() {
+                    rule_model.set_vec(rule_set_items_for(&cfg, profile));
+                }
+                ui.set_korean_noshift_selected(is_noshift_layout(&cfg));
+                push_moachigi_to_ui(&ui, &cfg, new_profile.as_ref());
             }
 
             match cfg.save_to_default_path() {
@@ -478,6 +516,120 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             ui.set_toast_message("오타 교정 설정을 기본값으로 복원했습니다.".into());
             ui.set_toast_visible(true);
+        });
+    }
+
+    // ── 모아치기 사용 스위치 → chord_window_ms Some(60)/None 전환 ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        ui.on_moachigi_toggled(move |on| {
+            let ui = ui_weak.unwrap();
+            let mut cfg = config.borrow_mut();
+            if on {
+                // 슬라이더 표시값(또는 권장 60ms)을 반올림·유효 범위로 clamp 해 활성화.
+                let w = (ui.get_moachigi_window().round() as u16).clamp(10, 200);
+                cfg.engine.korean.chord_window_ms = Some(w);
+            } else {
+                cfg.engine.korean.chord_window_ms = None;
+            }
+            let prof = load_profile(&cfg.engine.korean.effective_layout_name());
+            push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
+            let msg = if on { "모아치기를 켰습니다." } else { "모아치기를 껐습니다." };
+            match cfg.save_to_default_path() {
+                Ok(()) => ui.set_status_text(msg.into()),
+                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+            }
+        });
+    }
+
+    // ── 모아치기 조합창 슬라이더(released) → chord_window_ms 갱신 ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        ui.on_moachigi_window_released(move |v| {
+            let ui = ui_weak.unwrap();
+            let mut cfg = config.borrow_mut();
+            // 슬라이더는 활성 상태에서만 노출 — 켜져 있을 때만 값을 반영한다.
+            if moachigi_is_enabled(cfg.engine.korean.chord_window_ms) {
+                let w = (v.max(0.0).round() as u16).clamp(10, 200);
+                cfg.engine.korean.chord_window_ms = Some(w);
+                ui.set_moachigi_window(w as f32);
+                match cfg.save_to_default_path() {
+                    Ok(()) => {
+                        ui.set_status_text(format!("모아치기 조합창을 {w}ms 로 설정했습니다.").into())
+                    }
+                    Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                }
+            }
+        });
+    }
+
+    // ── 접근성 프리셋(0='한 손 사용', 1='넉넉한 타이밍') 일괄 적용 ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        let kor_canon = kor_canon.clone();
+        let rule_model = rule_model.clone();
+        ui.on_apply_accessibility_preset(move |preset| {
+            let ui = ui_weak.unwrap();
+            let mut cfg = config.borrow_mut();
+            let status: String;
+            if preset == 0 {
+                // 한 손 사용: 순아래 자판 + 비수정자 토글 + 모아치기 OFF + 자동반복 억제.
+                let new_kor = KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT;
+                let changed = cfg.engine.korean.effective_layout_name() != new_kor;
+                let new_profile = load_profile(new_kor);
+                if changed {
+                    let valid: Option<Vec<String>> = new_profile
+                        .as_ref()
+                        .map(|p| p.rule_sets.keys().cloned().collect());
+                    cfg.engine.korean.switch_layout(new_kor, valid.as_deref());
+                }
+                // 비수정자 토글(한글키·오른쪽 Alt) — 한 손으로 누를 수 있는 기본값.
+                cfg.engine.toggle_keys = vec!["Korean".to_string(), "RightAlt".to_string()];
+                cfg.engine.korean.chord_window_ms = None; // 모아치기 OFF
+                cfg.engine.ignore_key_repeat = true;
+
+                // UI 재동기화.
+                if let Some(pos) = kor_canon
+                    .iter()
+                    .position(|c| normalize_korean_layout_name(c) == new_kor)
+                {
+                    ui.set_korean_layout_index(pos as i32);
+                }
+                if let Some(profile) = new_profile.as_ref() {
+                    rule_model.set_vec(rule_set_items_for(&cfg, profile));
+                }
+                ui.set_toggle_keys(cfg.engine.toggle_keys.join(", ").into());
+                ui.set_ignore_key_repeat(true);
+                ui.set_korean_noshift_selected(is_noshift_layout(&cfg));
+                push_moachigi_to_ui(&ui, &cfg, new_profile.as_ref());
+                status = "‘한 손 사용’ 프리셋을 적용했습니다.".to_string();
+            } else {
+                // 넉넉한 타이밍: 자동반복 억제 + 오타 교정 판정 시간 확대 +
+                // (지원 자판) 모아치기 조합창을 넉넉하게.
+                cfg.engine.ignore_key_repeat = true;
+                let a = &mut cfg.engine.auto_typefix;
+                a.forward_time_window_ms = AUTO_TYPEFIX_TIME_WINDOW_MAX;
+                a.reverse_time_window_ms = AUTO_TYPEFIX_TIME_WINDOW_MAX;
+                a.observation_timeout_secs = AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX;
+
+                let prof = load_profile(&cfg.engine.korean.effective_layout_name());
+                if prof.as_ref().map(|p| p.moachigi.is_some()).unwrap_or(false) {
+                    // 지원 자판이면 조합창을 넉넉히(150ms) — 천천히 눌러도 모아짐.
+                    cfg.engine.korean.chord_window_ms = Some(150);
+                }
+
+                ui.set_ignore_key_repeat(true);
+                push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
+                push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
+                status = "‘넉넉한 타이밍’ 프리셋을 적용했습니다.".to_string();
+            }
+            match cfg.save_to_default_path() {
+                Ok(()) => ui.set_status_text(status.into()),
+                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+            }
         });
     }
 
