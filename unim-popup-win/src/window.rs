@@ -4,10 +4,19 @@
 //! WM_DESTROY 에서 PostQuitMessage 금지 (§8.2 — 호스트/프로세스 오염 방지).
 
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
-use windows::core::PCWSTR;
+use windows::core::Result as WinResult;
+use windows::core::{implement, Error, IUnknown, BSTR, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::Variant::{VARIANT, VT_BSTR, VT_I4};
+use windows::Win32::UI::Accessibility::{
+    IRawElementProviderSimple, IRawElementProviderSimple_Impl, ProviderOptions,
+    ProviderOptions_ServerSideProvider, UiaHostProviderFromHwnd, UiaReturnRawElementProvider,
+    UiaRootObjectId, UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId, UIA_ListControlTypeId,
+    UIA_NamePropertyId, UIA_PATTERN_ID, UIA_PROPERTY_ID,
+};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -39,6 +48,13 @@ struct UiState {
     // 역방향 비차단 송신 채널(§11.E / B4 freeze 수정). UI 스레드는 이 채널에
     // try_send 만 하고 실제 블로킹 WriteFile 은 writer 스레드가 수행한다.
     rev_tx: Option<RevSender>,
+    // ─── I11: UIA(UI Automation) 접근성 제공자 ───
+    /// UIA 코어가 읽는 접근성 스냅샷. UI 스레드가 show_render/hide 에서 갱신하고
+    /// provider 메서드(다른 스레드 가능)가 lock 해서 읽는다. thread_local 직접
+    /// 접근 대신 Arc<Mutex<_>> 로 복제해 크로스스레드 안전 확보(ui_element.rs 원칙).
+    a11y_snap: Arc<Mutex<A11ySnapshot>>,
+    /// WM_GETOBJECT 최초 처리 시 지연 생성되는 루트 제공자(이후 재사용).
+    a11y_provider: Option<IRawElementProviderSimple>,
 }
 
 unsafe fn now_ms() -> u64 {
@@ -120,6 +136,13 @@ pub fn show_render(rs: RenderState, owner_hwnd: u64, flash: bool, conn_handle: i
         }
         st.last = Some(rs);
         st.visible = true;
+        // I11: 접근성 스냅샷 갱신(루트 Name). rs 는 last 로 이동했으므로 last 에서 읽는다.
+        if let Some(rs_a) = st.last.as_ref() {
+            if let Ok(mut snap) = st.a11y_snap.lock() {
+                snap.name = a11y_name(rs_a);
+                snap.visible = true;
+            }
+        }
         // 위치·크기 계산 (메시지 디스패치 없는 쿼리만 — borrow 보유 중 안전).
         let rs_ref = st.last.as_ref().unwrap();
         let (x, y, w, h, scale) = unsafe { compute_placement(hwnd, owner_hwnd, rs_ref) };
@@ -167,6 +190,10 @@ pub fn hide() {
         st.visible = false;
         st.flash_until = 0;
         st.owner_conn_handle = 0; // 역송신 대상 무효화 (stale 송신 방지).
+        // I11: 접근성 스냅샷도 숨김 반영(followup 이벤트/트리 구현 시 사용).
+        if let Ok(mut snap) = st.a11y_snap.lock() {
+            snap.visible = false;
+        }
         Some(hwnd)
     });
     let Some(hwnd) = hwnd else {
@@ -274,6 +301,18 @@ extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM
                     let _ = EndPaint(hwnd, &ps);
                 }
                 LRESULT(0)
+            }
+            // I11: UIA 접근성 트리 진입점. UIA 루트 오브젝트(UiaRootObjectId) 요청만
+            // 자체 서버측 제공자로 응답하고, 그 외 MSAA OBJID(클라이언트/캐럿 등)는
+            // 기본 처리에 위임한다(오분류로 다른 접근성 경로를 막지 않기 위함).
+            WM_GETOBJECT if lparam.0 as i32 == UiaRootObjectId => {
+                match get_or_create_provider(hwnd) {
+                    Some(prov) => {
+                        logln!("window: WM_GETOBJECT(UiaRootObjectId) → provider 반환");
+                        UiaReturnRawElementProvider(hwnd, wparam, lparam, &prov)
+                    }
+                    None => DefWindowProcW(hwnd, msg, wparam, lparam),
+                }
             }
             WM_TIMER if wparam.0 == FLASH_TIMER_ID => {
                 let still = UI_STATE.with(|st| {
@@ -476,4 +515,145 @@ extern "system" fn low_level_mouse_proc(code: i32, wparam: WPARAM, lparam: LPARA
         // 항상 다음 훅으로 패스 (절대 소비 금지, 요구 (4)).
         CallNextHookEx(None, code, wparam, lparam)
     }
+}
+
+// ─── I11: 후보 팝업 UIA(UI Automation) 서버측 제공자 ─────────────────────────
+//
+// 후보 팝업은 WM_GETOBJECT 를 무시하던 GDI 창이라 Narrator/NVDA 접근성 트리에
+// 전혀 노출되지 않았다. TSF 측 I8(UILess ITfCandidateListUIElement)은 CUAS 경유
+// 앱만 커버하므로, 오버레이/GDI 렌더러 경로는 이 창이 직접 UIA 루트 제공자를
+// 노출해야 스크린리더가 "후보 창이 떴다"는 사실과 이름을 인지할 수 있다.
+//
+// ## 현 구현 범위(의도적 부분 구현 — 나머지는 followup)
+// - **루트 제공자만**: ControlType=List, AutomationId="UNIM_Candidate_Window", Name.
+// - HostRawElementProvider 는 `UiaHostProviderFromHwnd` 로 창 기본 접근성(바운딩
+//   렉트/포커스)을 합성해 준다.
+// - **미구현(followup)**: ListItem 자식 트리 + SelectionItem(IsSelected) 패턴 +
+//   SelectionItem_ElementSelected / MenuOpened·MenuClosed 이벤트. 이는
+//   IRawElementProviderFragment(Root) + 런타임 ID + GetBoundingRectangle +
+//   UiaRaiseAutomationEvent 를 요구해 분량이 크므로 별도 작업으로 분리한다.
+//   현재 스냅샷(A11ySnapshot)에 selection/items 를 담을 수 있게 뼈대를 남겨 둔다.
+//
+// ## 스레드 안전
+// UIA 코어는 서버측 제공자(ProviderOptions_ServerSideProvider)를 창 소유 스레드가
+// 아닌 스레드에서 호출할 수 있다. 따라서 provider 는 thread_local `UI_STATE` 를
+// 직접 만지지 않고, UI 스레드가 갱신하는 `Arc<Mutex<A11ySnapshot>>` 스냅샷과
+// HWND raw(isize)만 보유한다(ui_element.rs 와 동일 원칙). 모든 COM-facing 메서드는
+// 절대 패닉하지 않는다(`panic=abort` 하에서 호스트 앱을 조용히 죽이지 않기 위함).
+
+/// UIA 제공자가 읽는 접근성 스냅샷. UI 스레드가 show_render/hide 에서 갱신한다.
+#[derive(Default)]
+struct A11ySnapshot {
+    /// 루트 Name(스크린리더 낭독용). header_text 우선, 없으면 기본 라벨.
+    name: String,
+    /// 표시 여부(followup 이벤트/트리 구현 시 사용 — 현재는 미소비).
+    #[allow(dead_code)]
+    visible: bool,
+}
+
+/// RenderState → 루트 Name 문자열. 헤더가 있으면 그대로, 없으면 기본 라벨.
+fn a11y_name(rs: &RenderState) -> String {
+    if rs.header_text.trim().is_empty() {
+        "UNIM 후보 목록".to_string()
+    } else {
+        rs.header_text.clone()
+    }
+}
+
+/// VT_I4 VARIANT 생성(ControlType 등 정수 프로퍼티용).
+fn variant_i4(v: i32) -> VARIANT {
+    let mut var = VARIANT::default();
+    // SAFETY: VARIANT 는 union — vt 를 VT_I4 로 지정한 뒤 대응 필드(lVal)만 기록한다.
+    unsafe {
+        let inner = &mut var.Anonymous.Anonymous;
+        inner.vt = VT_I4;
+        inner.Anonymous.lVal = v;
+    }
+    var
+}
+
+/// VT_BSTR VARIANT 생성(Name/AutomationId 등 문자열 프로퍼티용).
+/// 반환된 VARIANT 의 BSTR 소유권은 호출자(UIA 코어)로 넘어가며 VariantClear 로 해제된다.
+fn variant_bstr(s: &str) -> VARIANT {
+    let mut var = VARIANT::default();
+    // SAFETY: VARIANT union — vt=VT_BSTR 후 bstrVal 에 새로 할당한 BSTR 을 넣는다.
+    // ManuallyDrop 로 감싸 Rust 가 조기 해제하지 않게 하고, 해제 책임은 UIA 코어에 있다.
+    unsafe {
+        let inner = &mut var.Anonymous.Anonymous;
+        inner.vt = VT_BSTR;
+        inner.Anonymous.bstrVal = std::mem::ManuallyDrop::new(BSTR::from(s));
+    }
+    var
+}
+
+/// 후보 팝업 UIA 루트 제공자. HWND raw + 접근성 스냅샷만 보유(크로스스레드 안전).
+#[implement(IRawElementProviderSimple)]
+struct CandidateProvider {
+    /// 대상 창 HWND raw(크로스스레드 호출 대비 isize 로 보관, 사용 시 HWND 재구성).
+    hwnd: isize,
+    /// UI 스레드가 갱신하는 접근성 스냅샷 공유 핸들.
+    snap: Arc<Mutex<A11ySnapshot>>,
+}
+
+impl IRawElementProviderSimple_Impl for CandidateProvider_Impl {
+    fn ProviderOptions(&self) -> WinResult<ProviderOptions> {
+        Ok(ProviderOptions_ServerSideProvider)
+    }
+
+    fn GetPatternProvider(&self, _patternid: UIA_PATTERN_ID) -> WinResult<IUnknown> {
+        // 루트 단계에서 지원하는 컨트롤 패턴 없음. windows-rs 관례상 `Error::empty()`
+        // 는 S_OK + null out-param 으로 매핑되어 "패턴 미지원"을 올바로 통지한다.
+        // Selection 패턴 및 셀 SelectionItem 은 followup(자식 트리와 함께).
+        Err(Error::empty())
+    }
+
+    fn GetPropertyValue(&self, propertyid: UIA_PROPERTY_ID) -> WinResult<VARIANT> {
+        // 혼합 대소문자 UIA 상수는 match 패턴으로 쓰면 non_upper_case_globals 경고가
+        // 나므로 `==` 비교 분기로 처리한다.
+        let v = if propertyid == UIA_ControlTypePropertyId {
+            variant_i4(UIA_ListControlTypeId.0)
+        } else if propertyid == UIA_AutomationIdPropertyId {
+            variant_bstr("UNIM_Candidate_Window")
+        } else if propertyid == UIA_NamePropertyId {
+            let name = self
+                .snap
+                .lock()
+                .map(|s| s.name.clone())
+                .unwrap_or_default();
+            let name = if name.is_empty() {
+                "UNIM 후보 목록".to_string()
+            } else {
+                name
+            };
+            variant_bstr(&name)
+        } else {
+            // 그 외 프로퍼티는 VT_EMPTY → UIA 가 기본값을 사용(요청 미지원 관례).
+            VARIANT::default()
+        };
+        Ok(v)
+    }
+
+    fn HostRawElementProvider(&self) -> WinResult<IRawElementProviderSimple> {
+        // 창 기본 접근성(바운딩 렉트/native window handle) 합성 제공자.
+        // SAFETY: 저장해 둔 HWND raw 로 창 핸들을 재구성한다(창 수명 내 유효).
+        unsafe { UiaHostProviderFromHwnd(HWND(self.hwnd as *mut _)) }
+    }
+}
+
+/// WM_GETOBJECT 처리용 — 루트 제공자를 지연 생성(최초 1회) 후 클론 반환.
+/// UI 스레드에서만 호출된다(wnd_proc). UI_STATE borrow 는 반환 전에 해제된다.
+fn get_or_create_provider(hwnd: HWND) -> Option<IRawElementProviderSimple> {
+    UI_STATE.with(|st| {
+        let mut st = st.borrow_mut();
+        if st.a11y_provider.is_none() {
+            let snap = Arc::clone(&st.a11y_snap);
+            let prov: IRawElementProviderSimple = CandidateProvider {
+                hwnd: hwnd.0 as isize,
+                snap,
+            }
+            .into();
+            st.a11y_provider = Some(prov);
+        }
+        st.a11y_provider.clone()
+    })
 }

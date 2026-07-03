@@ -25,6 +25,11 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",
+    # I11: 후보 팝업 UIA 제공자(IRawElementProviderSimple) — VARIANT 반환 메서드가
+    # Com+Ole+Variant 3종 feature 를 요구한다(windows 0.62 cfg 게이트).
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
     "Win32_System_Registry",
     "Win32_System_Pipes",
     "Win32_System_IO",
