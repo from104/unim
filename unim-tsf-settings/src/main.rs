@@ -34,6 +34,23 @@ use unim::typefix_userdict::{ReverseWord, UserDictionary};
 
 slint::include_modules!();
 
+/// OS 기본 UI 언어가 한국어(LANG_KOREAN=0x12)인지 판정.
+/// GetUserDefaultUILanguage 는 하위 10비트가 primary language id.
+/// 비Windows 빌드(테스트/린트)에서는 항상 false → 영어 기본.
+#[cfg(windows)]
+fn ui_language_is_korean() -> bool {
+    extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+    }
+    // SAFETY: 인자 없는 순수 조회 Win32 API.
+    let langid = unsafe { GetUserDefaultUILanguage() };
+    (langid & 0x3ff) == 0x12
+}
+#[cfg(not(windows))]
+fn ui_language_is_korean() -> bool {
+    false
+}
+
 /// "a, b, c" → ["a","b","c"] (공백 trim, 빈 항목 제거).
 fn split_keys(s: &str) -> Vec<String> {
     s.split(',')
@@ -137,17 +154,18 @@ fn is_noshift_layout(cfg: &Config) -> bool {
     cfg.engine.korean.effective_layout_name() == KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT
 }
 
-fn fmt_blacklist(e: &BlacklistEntry) -> String {
+fn fmt_blacklist(tr: &Tr, e: &BlacklistEntry) -> String {
     let dir = match e.direction {
-        Direction::Forward => "정방향",
-        Direction::Reverse => "역방향",
+        Direction::Forward => tr.get_dir_forward(),
+        Direction::Reverse => tr.get_dir_reverse(),
     };
     let st = match e.status {
-        EntryStatus::Tentative => "임시",
-        EntryStatus::Confirmed => "확정",
-        EntryStatus::Inactive => "비활성",
+        EntryStatus::Tentative => tr.get_st_tentative(),
+        EntryStatus::Confirmed => tr.get_st_confirmed(),
+        EntryStatus::Inactive => tr.get_st_inactive(),
     };
-    format!("{}    [{dir} · {st}]    감지 {}회", e.ascii, e.hit_count)
+    tr.invoke_blacklist_entry(e.ascii.as_str().into(), dir, st, e.hit_count as i32)
+        .to_string()
 }
 
 fn fmt_userdict(w: &ReverseWord) -> String {
@@ -193,10 +211,11 @@ fn apply_atf_preset(a: &mut AutoTypeFixConfig, preset: i32) {
 }
 
 fn refresh_blacklist(ui: &SettingsWindow, bl: &Blacklist) {
+    let tr = ui.global::<Tr>();
     let items: Vec<StandardListViewItem> = bl
         .entries
         .iter()
-        .map(|e| StandardListViewItem::from(SharedString::from(fmt_blacklist(e))))
+        .map(|e| StandardListViewItem::from(SharedString::from(fmt_blacklist(&tr, e))))
         .collect();
     ui.set_blacklist_model(ModelRc::new(VecModel::from(items)));
 }
@@ -232,6 +251,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let ui = SettingsWindow::new()?;
+
+    // OS UI 언어 추종: 한국어면 원문(index 0), 그 외에는 영어 번들 번역 선택.
+    // select_bundled_translation 은 첫 컴포넌트 생성 이후에 호출해야 한다.
+    // 빈 문자열("")은 index 0(=소스 한국어)로 특수 처리된다.
+    let _ = slint::select_bundled_translation(if ui_language_is_korean() { "" } else { "en" });
 
     let config = Rc::new(RefCell::new(Config::load_from_default_path()));
     let blacklist = Rc::new(RefCell::new(Blacklist::load_from_default_path()));
@@ -293,9 +317,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // 시작 입력 모드: 0=영문, 1=한글 (DLL 다이얼로그와 동일 순서).
+        let tr = ui.global::<Tr>();
         ui.set_category_options(string_model(vec![
-            "영문으로 시작".into(),
-            "한글로 시작".into(),
+            tr.get_cat_english(),
+            tr.get_cat_korean(),
         ]));
         ui.set_category_index(match e.default_category {
             InputCategory::English => 0,
@@ -304,8 +329,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 모드 공유: 0=전역, 1=앱별.
         ui.set_mode_sharing_options(string_model(vec![
-            "전역 공유".into(),
-            "앱별 분리".into(),
+            tr.get_share_global(),
+            tr.get_share_perapp(),
         ]));
         ui.set_mode_sharing_index(match e.mode_sharing {
             ModeSharingMode::Global => 0,
@@ -345,6 +370,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rule_model = rule_model.clone();
         ui.on_auto_save(move || {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut cfg = config.borrow_mut();
             let e = &mut cfg.engine;
 
@@ -425,8 +451,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             match cfg.save_to_default_path() {
-                Ok(()) => ui.set_status_text("변경 사항이 적용되었습니다.".into()),
-                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                Ok(()) => ui.set_status_text(tr.get_applied()),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
             }
         });
     }
@@ -439,6 +465,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.on_rule_set_toggled(move |idx, on| {
             use slint::Model;
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let Some(mut item) = rule_model.row_data(idx as usize) else {
                 return;
             };
@@ -468,8 +495,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // 현재 자판의 캐시도 동기화 — 자판 전환 시 본 상태가 보존된다.
             cfg.engine.korean.cache_active_rule_sets();
             match cfg.save_to_default_path() {
-                Ok(()) => ui.set_status_text("변경 사항이 적용되었습니다.".into()),
-                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                Ok(()) => ui.set_status_text(tr.get_applied()),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
             }
             item.active = on;
             rule_model.set_row_data(idx as usize, item);
@@ -482,17 +509,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = config.clone();
         ui.on_atf_apply_preset(move |preset| {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut cfg = config.borrow_mut();
             apply_atf_preset(&mut cfg.engine.auto_typefix, preset);
             push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
             let name = match preset {
-                0 => "보수적",
-                2 => "적극적",
-                _ => "표준",
+                0 => tr.get_strength_conservative(),
+                2 => tr.get_strength_aggressive(),
+                _ => tr.get_strength_standard(),
             };
             match cfg.save_to_default_path() {
-                Ok(()) => ui.set_status_text(format!("{name} 강도를 적용했습니다.").into()),
-                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                Ok(()) => ui.set_status_text(tr.invoke_strength_applied(name)),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
             }
         });
     }
@@ -504,6 +532,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let delete_snapshot = delete_snapshot.clone();
         ui.on_atf_restore_defaults(move || {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut cfg = config.borrow_mut();
             // 복원 직전 값을 스냅샷 → 되돌리기로 원상 복구 가능.
             *delete_snapshot.borrow_mut() =
@@ -511,10 +540,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cfg.engine.auto_typefix = AutoTypeFixConfig::default();
             push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
             match cfg.save_to_default_path() {
-                Ok(()) => ui.set_status_text("오타 교정 설정을 기본값으로 복원했습니다.".into()),
-                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                Ok(()) => ui.set_status_text(tr.get_atf_restored()),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
             }
-            ui.set_toast_message("오타 교정 설정을 기본값으로 복원했습니다.".into());
+            ui.set_toast_message(tr.get_atf_restored());
             ui.set_toast_visible(true);
         });
     }
@@ -525,6 +554,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = config.clone();
         ui.on_moachigi_toggled(move |on| {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut cfg = config.borrow_mut();
             if on {
                 // 슬라이더 표시값(또는 권장 60ms)을 반올림·유효 범위로 clamp 해 활성화.
@@ -535,10 +565,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let prof = load_profile(&cfg.engine.korean.effective_layout_name());
             push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
-            let msg = if on { "모아치기를 켰습니다." } else { "모아치기를 껐습니다." };
+            let msg = if on { tr.get_moachigi_on() } else { tr.get_moachigi_off() };
             match cfg.save_to_default_path() {
-                Ok(()) => ui.set_status_text(msg.into()),
-                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                Ok(()) => ui.set_status_text(msg),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
             }
         });
     }
@@ -549,6 +579,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = config.clone();
         ui.on_moachigi_window_released(move |v| {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut cfg = config.borrow_mut();
             // 슬라이더는 활성 상태에서만 노출 — 켜져 있을 때만 값을 반영한다.
             if moachigi_is_enabled(cfg.engine.korean.chord_window_ms) {
@@ -557,9 +588,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ui.set_moachigi_window(w as f32);
                 match cfg.save_to_default_path() {
                     Ok(()) => {
-                        ui.set_status_text(format!("모아치기 조합창을 {w}ms 로 설정했습니다.").into())
+                        ui.set_status_text(tr.invoke_moachigi_window_set(w as i32))
                     }
-                    Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                    Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
                 }
             }
         });
@@ -573,8 +604,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rule_model = rule_model.clone();
         ui.on_apply_accessibility_preset(move |preset| {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut cfg = config.borrow_mut();
-            let status: String;
+            let status: SharedString;
             if preset == 0 {
                 // 한 손 사용: 순아래 자판 + 비수정자 토글 + 모아치기 OFF + 자동반복 억제.
                 let new_kor = KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT;
@@ -605,7 +637,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ui.set_ignore_key_repeat(true);
                 ui.set_korean_noshift_selected(is_noshift_layout(&cfg));
                 push_moachigi_to_ui(&ui, &cfg, new_profile.as_ref());
-                status = "‘한 손 사용’ 프리셋을 적용했습니다.".to_string();
+                status = tr.get_preset_onehand();
             } else {
                 // 넉넉한 타이밍: 자동반복 억제 + 오타 교정 판정 시간 확대 +
                 // (지원 자판) 모아치기 조합창을 넉넉하게.
@@ -624,11 +656,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ui.set_ignore_key_repeat(true);
                 push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
                 push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
-                status = "‘넉넉한 타이밍’ 프리셋을 적용했습니다.".to_string();
+                status = tr.get_preset_relaxed();
             }
             match cfg.save_to_default_path() {
-                Ok(()) => ui.set_status_text(status.into()),
-                Err(err) => ui.set_status_text(format!("저장 실패: {err}").into()),
+                Ok(()) => ui.set_status_text(status),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
             }
         });
     }
@@ -648,6 +680,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let delete_snapshot = delete_snapshot.clone();
         ui.on_blacklist_remove(move |idx| {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut bl = blacklist.borrow_mut();
             if idx >= 0 && (idx as usize) < bl.entries.len() {
                 // I6: 삭제 직전 전체 목록을 스냅샷(복원 시 그대로 되돌림).
@@ -655,8 +688,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bl.remove(idx as usize);
                 let _ = bl.save_to_default_path();
                 refresh_blacklist(&ui, &bl);
-                ui.set_status_text("억제 단어를 삭제했습니다.".into());
-                ui.set_toast_message("억제 단어를 삭제했습니다.".into());
+                ui.set_status_text(tr.get_bl_removed());
+                ui.set_toast_message(tr.get_bl_removed());
                 ui.set_toast_visible(true);
             }
         });
@@ -668,6 +701,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let delete_snapshot = delete_snapshot.clone();
         ui.on_blacklist_clear(move || {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut bl = blacklist.borrow_mut();
             if bl.entries.is_empty() {
                 return;
@@ -677,8 +711,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bl.entries.clear();
             let _ = bl.save_to_default_path();
             refresh_blacklist(&ui, &bl);
-            ui.set_status_text("억제 단어를 모두 삭제했습니다.".into());
-            ui.set_toast_message("억제 단어를 모두 삭제했습니다.".into());
+            ui.set_status_text(tr.get_bl_cleared());
+            ui.set_toast_message(tr.get_bl_cleared());
             ui.set_toast_visible(true);
         });
     }
@@ -689,6 +723,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let userdict = userdict.clone();
         ui.on_userdict_add(move || {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let word = ui.get_userdict_new_word().to_string();
             let word = word.trim();
             if word.is_empty() {
@@ -707,9 +742,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 refresh_userdict(&ui, &ud);
                 ui.set_userdict_new_word("".into());
                 ui.set_userdict_new_note("".into());
-                ui.set_status_text("사용자 사전에 추가했습니다.".into());
+                ui.set_status_text(tr.get_ud_added());
             } else {
-                ui.set_status_text("이미 등록된 단어입니다.".into());
+                ui.set_status_text(tr.get_ud_dup());
             }
         });
     }
@@ -721,6 +756,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let delete_snapshot = delete_snapshot.clone();
         ui.on_userdict_remove(move |idx| {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             let mut ud = userdict.borrow_mut();
             if idx < 0 || (idx as usize) >= ud.reverse_words.len() {
                 return;
@@ -730,8 +766,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if ud.remove_at(idx as usize) {
                 let _ = ud.save_to_default_path();
                 refresh_userdict(&ui, &ud);
-                ui.set_status_text("사용자 사전에서 삭제했습니다.".into());
-                ui.set_toast_message("사용자 사전에서 삭제했습니다.".into());
+                ui.set_status_text(tr.get_ud_removed());
+                ui.set_toast_message(tr.get_ud_removed());
                 ui.set_toast_visible(true);
             }
         });
@@ -746,27 +782,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let delete_snapshot = delete_snapshot.clone();
         ui.on_undo_restore(move || {
             let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
             match delete_snapshot.borrow_mut().take() {
                 Some(DeleteSnapshot::AtfDefaults(snap)) => {
                     let mut cfg = config.borrow_mut();
                     cfg.engine.auto_typefix = snap;
                     push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
                     let _ = cfg.save_to_default_path();
-                    ui.set_status_text("기본값 복원을 되돌렸습니다.".into());
+                    ui.set_status_text(tr.get_atf_undone());
                 }
                 Some(DeleteSnapshot::Blacklist(snap)) => {
                     let mut bl = blacklist.borrow_mut();
                     *bl = snap;
                     let _ = bl.save_to_default_path();
                     refresh_blacklist(&ui, &bl);
-                    ui.set_status_text("삭제를 되돌렸습니다.".into());
+                    ui.set_status_text(tr.get_delete_undone());
                 }
                 Some(DeleteSnapshot::Userdict(snap)) => {
                     let mut ud = userdict.borrow_mut();
                     *ud = snap;
                     let _ = ud.save_to_default_path();
                     refresh_userdict(&ui, &ud);
-                    ui.set_status_text("삭제를 되돌렸습니다.".into());
+                    ui.set_status_text(tr.get_delete_undone());
                 }
                 None => {}
             }

@@ -163,8 +163,51 @@ export struct RuleSetItem {
     active: bool,
 }
 
+// ── Rust(main.rs)에서 설정하는 사용자 문자열의 번역 창구 ──
+// Slint 의 @tr 은 .slint 안에서만 동작하므로, Rust 가 상태바·콤보 옵션·목록
+// 포맷에 쓰는 문자열을 이 전역의 프로퍼티/함수로 노출해 같은 번들 번역
+// 카탈로그(ko/en)를 공유한다. Rust 는 ui.global::<Tr>() 로 접근한다.
+export global Tr {
+    // 상태바 메시지
+    out property <string> applied: @tr("변경 사항이 적용되었습니다.");
+    out property <string> atf-restored: @tr("오타 교정 설정을 기본값으로 복원했습니다.");
+    out property <string> moachigi-on: @tr("모아치기를 켰습니다.");
+    out property <string> moachigi-off: @tr("모아치기를 껐습니다.");
+    out property <string> bl-removed: @tr("억제 단어를 삭제했습니다.");
+    out property <string> bl-cleared: @tr("억제 단어를 모두 삭제했습니다.");
+    out property <string> ud-added: @tr("사용자 사전에 추가했습니다.");
+    out property <string> ud-dup: @tr("이미 등록된 단어입니다.");
+    out property <string> ud-removed: @tr("사용자 사전에서 삭제했습니다.");
+    out property <string> atf-undone: @tr("기본값 복원을 되돌렸습니다.");
+    out property <string> delete-undone: @tr("삭제를 되돌렸습니다.");
+    out property <string> preset-onehand: @tr("‘한 손 사용’ 프리셋을 적용했습니다.");
+    out property <string> preset-relaxed: @tr("‘넉넉한 타이밍’ 프리셋을 적용했습니다.");
+    // 콤보 옵션 (main.rs 가 모델로 주입)
+    out property <string> cat-english: @tr("영문으로 시작");
+    out property <string> cat-korean: @tr("한글로 시작");
+    out property <string> share-global: @tr("전역 공유");
+    out property <string> share-perapp: @tr("앱별 분리");
+    // 교정 강도 이름
+    out property <string> strength-conservative: @tr("보수적");
+    out property <string> strength-standard: @tr("표준");
+    out property <string> strength-aggressive: @tr("적극적");
+    // 억제 단어 목록 포맷 조각
+    out property <string> dir-forward: @tr("정방향");
+    out property <string> dir-reverse: @tr("역방향");
+    out property <string> st-tentative: @tr("임시");
+    out property <string> st-confirmed: @tr("확정");
+    out property <string> st-inactive: @tr("비활성");
+    // 인자를 받는 포맷 문자열
+    public pure function save-failed(err: string) -> string { @tr("저장 실패: {}", err) }
+    public pure function strength-applied(name: string) -> string { @tr("{} 강도를 적용했습니다.", name) }
+    public pure function moachigi-window-set(ms: int) -> string { @tr("모아치기 조합창을 {}ms 로 설정했습니다.", ms) }
+    public pure function blacklist-entry(ascii: string, dir: string, st: string, hits: int) -> string {
+        @tr("{}    [{} · {}]    감지 {}회", ascii, dir, st, hits)
+    }
+}
+
 export component SettingsWindow inherits Window {
-    title: "UNIM 설정";
+    title: @tr("UNIM 설정");
     // Slint 기본 폰트는 한글 글리프가 없어 □로 표시된다.
     // Windows 기본 한글 UI 폰트(맑은 고딕)를 지정한다.
     default-font-family: "Malgun Gothic";
@@ -296,7 +339,7 @@ export component SettingsWindow inherits Window {
                     color: Palette.foreground;
                 }
                 Text {
-                    text: "설정";
+                    text: @tr("설정");
                     vertical-alignment: center;
                     font-size: Tokens.font-body;
                     color: Tokens.caption-color;
@@ -340,7 +383,7 @@ export component SettingsWindow inherits Window {
                         spacing: Tokens.space-1;
                         alignment: start;
                         NavItem {
-                            label: "일반";
+                            label: @tr("일반");
                             selected: root.current-page == 0;
                             focused: root.current-page == 0 && nav-scope.has-focus;
                             // nav-scope.focus() 제거: 페이지 전환 후 포커스를 사이드바로
@@ -349,19 +392,19 @@ export component SettingsWindow inherits Window {
                             clicked => { root.current-page = 0; }
                         }
                         NavItem {
-                            label: "오타 교정";
+                            label: @tr("오타 교정");
                             selected: root.current-page == 1;
                             focused: root.current-page == 1 && nav-scope.has-focus;
                             clicked => { root.current-page = 1; }
                         }
                         NavItem {
-                            label: "억제 단어";
+                            label: @tr("억제 단어");
                             selected: root.current-page == 2;
                             focused: root.current-page == 2 && nav-scope.has-focus;
                             clicked => { root.current-page = 2; }
                         }
                         NavItem {
-                            label: "사용자 사전";
+                            label: @tr("사용자 사전");
                             selected: root.current-page == 3;
                             focused: root.current-page == 3 && nav-scope.has-focus;
                             clicked => { root.current-page = 3; }
@@ -383,15 +426,15 @@ export component SettingsWindow inherits Window {
 
                     // ── 페이지 0: 일반 ──
                     if root.current-page == 0: Card {
-                        title: "입력기";
+                        title: @tr("입력기");
                         SettingRow {
-                            title: "한글 자판";
-                            description: "한글 입력 시 사용할 자판 배열을 선택합니다.";
+                            title: @tr("한글 자판");
+                            description: @tr("한글 입력 시 사용할 자판 배열을 선택합니다.");
                             ComboBox {
                                 min-width: 200px;
                                 model: root.korean-layouts;
                                 current-index <=> root.korean-layout-index;
-                                accessible-label: "한글 자판";
+                                accessible-label: @tr("한글 자판");
                                 selected => { root.auto-save(); }
                             }
                         }
@@ -412,13 +455,13 @@ export component SettingsWindow inherits Window {
                                     horizontal-stretch: 1;
                                     spacing: Tokens.space-xs;
                                     Text {
-                                        text: "한 손 · 고정키 추천";
+                                        text: @tr("한 손 · 고정키 추천");
                                         font-size: Tokens.font-caption;
                                         font-weight: 700;
                                         color: Palette.accent-foreground;
                                     }
                                     Text {
-                                        text: "Shift 를 거의 누르지 않도록 배열돼 한 손 입력이나 고정키(sticky keys) 사용, 손목 부담이 큰 사용자에게 적합합니다.";
+                                        text: @tr("Shift 를 거의 누르지 않도록 배열돼 한 손 입력이나 고정키(sticky keys) 사용, 손목 부담이 큰 사용자에게 적합합니다.");
                                         font-size: Tokens.font-caption;
                                         wrap: word-wrap;
                                         color: Tokens.caption-color;
@@ -427,64 +470,64 @@ export component SettingsWindow inherits Window {
                             }
                         }
                         SettingRow {
-                            title: "영문 자판";
-                            description: "영문 입력 시 사용할 자판 배열을 선택합니다.";
+                            title: @tr("영문 자판");
+                            description: @tr("영문 입력 시 사용할 자판 배열을 선택합니다.");
                             ComboBox {
                                 min-width: 200px;
                                 model: root.english-layouts;
                                 current-index <=> root.english-layout-index;
-                                accessible-label: "영문 자판";
+                                accessible-label: @tr("영문 자판");
                                 selected => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "한글 확정 단위";
-                            description: "한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위).";
+                            title: @tr("한글 확정 단위");
+                            description: @tr("한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위).");
                             ComboBox {
                                 min-width: 200px;
                                 model: root.commit-unit-options;
                                 current-index <=> root.commit-unit-index;
-                                accessible-label: "한글 확정 단위";
+                                accessible-label: @tr("한글 확정 단위");
                                 selected => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "단어 모드 앱";
-                            description: "스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(실행 파일명 정확일치, 예: winword.exe). 기본값: winword.exe, wmux.exe. Windows 전용.";
+                            title: @tr("단어 모드 앱");
+                            description: @tr("스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(실행 파일명 정확일치, 예: winword.exe). 기본값: winword.exe, wmux.exe. Windows 전용.");
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.word-mode-apps;
-                                placeholder-text: "예: winword.exe, wmux.exe";
-                                accessible-label: "단어 모드 앱";
+                                placeholder-text: @tr("예: winword.exe, wmux.exe");
+                                accessible-label: @tr("단어 모드 앱");
                                 edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "시작 입력 모드";
-                            description: "입력기가 켜질 때 기본으로 사용할 모드입니다.";
+                            title: @tr("시작 입력 모드");
+                            description: @tr("입력기가 켜질 때 기본으로 사용할 모드입니다.");
                             ComboBox {
                                 min-width: 200px;
                                 model: root.category-options;
                                 current-index <=> root.category-index;
-                                accessible-label: "시작 입력 모드";
+                                accessible-label: @tr("시작 입력 모드");
                                 selected => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "모드 공유";
-                            description: "한/영 모드를 모든 앱에서 공유할지, 앱별로 분리할지 선택합니다.";
+                            title: @tr("모드 공유");
+                            description: @tr("한/영 모드를 모든 앱에서 공유할지, 앱별로 분리할지 선택합니다.");
                             ComboBox {
                                 min-width: 200px;
                                 model: root.mode-sharing-options;
                                 current-index <=> root.mode-sharing-index;
-                                accessible-label: "모드 공유";
+                                accessible-label: @tr("모드 공유");
                                 selected => { root.auto-save(); }
                             }
                         }
                     }
                     // ── 자판 옵션: 선택된 한글 자판 프로필의 규칙 세트 (동적) ──
                     if root.current-page == 0 && root.rule-set-items.length > 0: Card {
-                        title: "자판 옵션";
+                        title: @tr("자판 옵션");
                         for item[i] in root.rule-set-items: SettingRow {
                             title: item.name;
                             description: item.label;
@@ -497,19 +540,19 @@ export component SettingsWindow inherits Window {
                     }
                     // ── 모아치기(모아 입력) — 지원 자판에서만 조작 가능 ──
                     if root.current-page == 0 && root.moachigi-supported: Card {
-                        title: "모아치기 (모아 입력)";
+                        title: @tr("모아치기 (모아 입력)");
                         SettingRow {
-                            title: "모아치기 사용";
-                            description: "여러 자모를 거의 동시에 눌러 한 음절로 모아 입력합니다. 조합창 시간 안에 들어온 키를 함께 처리합니다.";
+                            title: @tr("모아치기 사용");
+                            description: @tr("여러 자모를 거의 동시에 눌러 한 음절로 모아 입력합니다. 조합창 시간 안에 들어온 키를 함께 처리합니다.");
                             Switch {
                                 checked <=> root.moachigi-enabled;
-                                accessible-label: "모아치기 사용";
+                                accessible-label: @tr("모아치기 사용");
                                 toggled => { root.moachigi-toggled(self.checked); }
                             }
                         }
                         SettingRow {
-                            title: "조합창 (ms)";
-                            description: "이 시간(밀리초) 안에 눌린 키를 한 음절로 모읍니다. 값이 클수록 천천히 눌러도 함께 인식되지만, 서로 다른 음절이 합쳐질 수 있습니다. 권장 60ms, 범위 10~200ms.";
+                            title: @tr("조합창 (ms)");
+                            description: @tr("이 시간(밀리초) 안에 눌린 키를 한 음절로 모읍니다. 값이 클수록 천천히 눌러도 함께 인식되지만, 서로 다른 음절이 합쳐질 수 있습니다. 권장 60ms, 범위 10~200ms.");
                             row-enabled: root.moachigi-enabled;
                             HorizontalLayout {
                                 spacing: Tokens.space-3;
@@ -521,7 +564,7 @@ export component SettingsWindow inherits Window {
                                     maximum: 200;
                                     step: 5;
                                     value <=> root.moachigi-window;
-                                    accessible-label: "모아치기 조합창";
+                                    accessible-label: @tr("모아치기 조합창");
                                     released(v) => { root.moachigi-window-released(v); }
                                 }
                                 Text {
@@ -538,59 +581,59 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     if root.current-page == 0: Card {
-                        title: "키 설정";
+                        title: @tr("키 설정");
                         SettingRow {
-                            title: "한/영 토글 키";
-                            description: "쉼표로 구분해 여러 키를 지정할 수 있습니다.";
+                            title: @tr("한/영 토글 키");
+                            description: @tr("쉼표로 구분해 여러 키를 지정할 수 있습니다.");
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.toggle-keys;
-                                placeholder-text: "예: Hangul, Shift+Space";
-                                accessible-label: "한/영 토글 키";
+                                placeholder-text: @tr("예: Hangul, Shift+Space");
+                                accessible-label: @tr("한/영 토글 키");
                                 edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "한자 변환 키";
-                            description: "한글을 한자로 변환할 때 사용할 키입니다.";
+                            title: @tr("한자 변환 키");
+                            description: @tr("한글을 한자로 변환할 때 사용할 키입니다.");
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.hanja-keys;
-                                placeholder-text: "예: Hanja, Control+Enter";
-                                accessible-label: "한자 변환 키";
+                                placeholder-text: @tr("예: Hanja, Control+Enter");
+                                accessible-label: @tr("한자 변환 키");
                                 edited => { root.auto-save(); }
                             }
                         }
                     }
                     if root.current-page == 0: Card {
-                        title: "자동 영문 전환";
+                        title: @tr("자동 영문 전환");
                         SettingRow {
-                            title: "자동 영문 전환 사용";
-                            description: "특정 키 입력 시 자동으로 영문 모드로 전환합니다.";
+                            title: @tr("자동 영문 전환 사용");
+                            description: @tr("특정 키 입력 시 자동으로 영문 모드로 전환합니다.");
                             Switch {
                                 checked <=> root.auto-english-enabled;
-                                accessible-label: "자동 영문 전환 사용";
+                                accessible-label: @tr("자동 영문 전환 사용");
                                 toggled => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "트리거 키";
-                            description: "자동 영문 전환을 발동할 키입니다.";
+                            title: @tr("트리거 키");
+                            description: @tr("자동 영문 전환을 발동할 키입니다.");
                             row-enabled: root.auto-english-enabled;
                             LineEdit {
                                 min-width: 220px;
                                 enabled: root.auto-english-enabled;
                                 text <=> root.auto-english-keys;
-                                placeholder-text: "예: Escape";
-                                accessible-label: "트리거 키";
+                                placeholder-text: @tr("예: Escape");
+                                accessible-label: @tr("트리거 키");
                                 edited => { root.auto-save(); }
                             }
                         }
                     }
                     if root.current-page == 0: Card {
-                        title: "접근성";
+                        title: @tr("접근성");
                         Text {
-                            text: "원클릭 프리셋으로 접근성 관련 설정을 한 번에 맞출 수 있습니다. 적용 후 아래 개별 항목에서 세부 조정도 가능합니다.";
+                            text: @tr("원클릭 프리셋으로 접근성 관련 설정을 한 번에 맞출 수 있습니다. 적용 후 아래 개별 항목에서 세부 조정도 가능합니다.");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
                             color: Tokens.caption-color;
@@ -599,39 +642,39 @@ export component SettingsWindow inherits Window {
                         HorizontalLayout {
                             spacing: Tokens.space-2;
                             Button {
-                                text: "한 손 사용";
-                                accessible-label: "한 손 사용 프리셋 적용";
+                                text: @tr("한 손 사용");
+                                accessible-label: @tr("한 손 사용 프리셋 적용");
                                 clicked => { root.apply-accessibility-preset(0); }
                             }
                             Button {
-                                text: "넉넉한 타이밍";
-                                accessible-label: "넉넉한 타이밍 프리셋 적용";
+                                text: @tr("넉넉한 타이밍");
+                                accessible-label: @tr("넉넉한 타이밍 프리셋 적용");
                                 clicked => { root.apply-accessibility-preset(1); }
                             }
                             Rectangle { horizontal-stretch: 1; }
                         }
                         Text {
-                            text: "‘한 손 사용’: 세벌식 순아래 자판 + 비수정자 토글키 + 모아치기 끔 + 자동반복 억제.  ‘넉넉한 타이밍’: 자동반복 억제 + 오타 교정 판정 시간 확대 + 모아치기 조합창을 넉넉하게(지원 자판).";
+                            text: @tr("‘한 손 사용’: 세벌식 순아래 자판 + 비수정자 토글키 + 모아치기 끔 + 자동반복 억제.  ‘넉넉한 타이밍’: 자동반복 억제 + 오타 교정 판정 시간 확대 + 모아치기 조합창을 넉넉하게(지원 자판).");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
                             color: Tokens.caption-color;
                         }
                         Rectangle { height: Tokens.space-2; }
                         SettingRow {
-                            title: "한/영 전환 소리 알림";
-                            description: "한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다.";
+                            title: @tr("한/영 전환 소리 알림");
+                            description: @tr("한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다.");
                             Switch {
                                 checked <=> root.toggle-announce-beep;
-                                accessible-label: "한/영 전환 소리 알림";
+                                accessible-label: @tr("한/영 전환 소리 알림");
                                 toggled => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "조합키 자동반복 억제";
-                            description: "키를 누르고 있을 때 발생하는 자동반복을 무시해 자모 연타·한/영 토글 진동을 막습니다. 편집키(백스페이스·방향키)와 영문 입력의 반복은 유지됩니다. 지체장애 사용자를 위한 기능입니다.";
+                            title: @tr("조합키 자동반복 억제");
+                            description: @tr("키를 누르고 있을 때 발생하는 자동반복을 무시해 자모 연타·한/영 토글 진동을 막습니다. 편집키(백스페이스·방향키)와 영문 입력의 반복은 유지됩니다. 지체장애 사용자를 위한 기능입니다.");
                             Switch {
                                 checked <=> root.ignore-key-repeat;
-                                accessible-label: "조합키 자동반복 억제";
+                                accessible-label: @tr("조합키 자동반복 억제");
                                 toggled => { root.auto-save(); }
                             }
                         }
@@ -640,11 +683,11 @@ export component SettingsWindow inherits Window {
                     // ── 페이지 1: 오타 교정 ──
                     if root.current-page == 1: Card {
                         SettingRow {
-                            title: "자동 오타 교정(AutoTypeFix) 사용";
-                            description: "한/영 전환을 깜빡한 오타를 자동으로 교정합니다.";
+                            title: @tr("자동 오타 교정(AutoTypeFix) 사용");
+                            description: @tr("한/영 전환을 깜빡한 오타를 자동으로 교정합니다.");
                             Switch {
                                 checked <=> root.atf-enabled;
-                                accessible-label: "자동 오타 교정 사용";
+                                accessible-label: @tr("자동 오타 교정 사용");
                                 toggled => { root.auto-save(); }
                             }
                         }
@@ -652,9 +695,9 @@ export component SettingsWindow inherits Window {
                     // 교정 강도 프리셋 — 임계값·단어 길이·감지창을 한 번에 세팅해
                     // 평면 노출로 인한 인지부하를 줄인다(progressive disclosure).
                     if root.current-page == 1: Card {
-                        title: "교정 강도";
+                        title: @tr("교정 강도");
                         Text {
-                            text: "미리 준비된 강도를 고르면 임계값·단어 길이·감지창이 한 번에 맞춰집니다. 세부 값은 아래 '고급 설정'에서 조정할 수 있습니다.";
+                            text: @tr("미리 준비된 강도를 고르면 임계값·단어 길이·감지창이 한 번에 맞춰집니다. 세부 값은 아래 '고급 설정'에서 조정할 수 있습니다.");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
                             color: Tokens.caption-color;
@@ -663,47 +706,47 @@ export component SettingsWindow inherits Window {
                         HorizontalLayout {
                             spacing: Tokens.space-2;
                             Button {
-                                text: "보수적";
+                                text: @tr("보수적");
                                 enabled: root.atf-enabled;
-                                accessible-label: "보수적 강도 적용";
+                                accessible-label: @tr("보수적 강도 적용");
                                 clicked => { root.atf-apply-preset(0); }
                             }
                             Button {
-                                text: "표준";
+                                text: @tr("표준");
                                 enabled: root.atf-enabled;
-                                accessible-label: "표준 강도 적용";
+                                accessible-label: @tr("표준 강도 적용");
                                 clicked => { root.atf-apply-preset(1); }
                             }
                             Button {
-                                text: "적극적";
+                                text: @tr("적극적");
                                 enabled: root.atf-enabled;
-                                accessible-label: "적극적 강도 적용";
+                                accessible-label: @tr("적극적 강도 적용");
                                 clicked => { root.atf-apply-preset(2); }
                             }
                             Rectangle { horizontal-stretch: 1; }
                         }
                     }
                     if root.current-page == 1: Card {
-                        title: "교정 방향";
+                        title: @tr("교정 방향");
                         SettingRow {
-                            title: "정방향";
-                            description: "영문으로 잘못 입력한 글자를 한글로 교정합니다.";
+                            title: @tr("정방향");
+                            description: @tr("영문으로 잘못 입력한 글자를 한글로 교정합니다.");
                             row-enabled: root.atf-enabled;
                             Switch {
                                 enabled: root.atf-enabled;
                                 checked <=> root.atf-forward;
-                                accessible-label: "정방향 교정";
+                                accessible-label: @tr("정방향 교정");
                                 toggled => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "역방향";
-                            description: "한글로 잘못 입력한 글자를 영문으로 교정합니다.";
+                            title: @tr("역방향");
+                            description: @tr("한글로 잘못 입력한 글자를 영문으로 교정합니다.");
                             row-enabled: root.atf-enabled;
                             Switch {
                                 enabled: root.atf-enabled;
                                 checked <=> root.atf-reverse;
-                                accessible-label: "역방향 교정";
+                                accessible-label: @tr("역방향 교정");
                                 toggled => { root.auto-save(); }
                             }
                         }
@@ -711,20 +754,20 @@ export component SettingsWindow inherits Window {
                     // 고급 설정 접이식 토글 — 세부 임계값·옵션을 기본 숨김.
                     if root.current-page == 1: Card {
                         SettingRow {
-                            title: "고급 설정";
-                            description: "임계값·감지창·세부 옵션을 직접 조정합니다. 대부분은 위 '교정 강도' 프리셋으로 충분합니다.";
+                            title: @tr("고급 설정");
+                            description: @tr("임계값·감지창·세부 옵션을 직접 조정합니다. 대부분은 위 '교정 강도' 프리셋으로 충분합니다.");
                             Button {
-                                text: root.atf-advanced-expanded ? "숨기기" : "펼치기";
-                                accessible-label: "고급 설정 펼치기 또는 숨기기";
+                                text: root.atf-advanced-expanded ? @tr("숨기기") : @tr("펼치기");
+                                accessible-label: @tr("고급 설정 펼치기 또는 숨기기");
                                 clicked => { root.atf-advanced-expanded = !root.atf-advanced-expanded; }
                             }
                         }
                     }
                     if root.current-page == 1 && root.atf-advanced-expanded: Card {
-                        title: "임계값";
+                        title: @tr("임계값");
                         SettingRow {
-                            title: "한글 음절 임계값";
-                            description: "이 음절 수 이상 모이면 교정 후보로 판정합니다.";
+                            title: @tr("한글 음절 임계값");
+                            description: @tr("이 음절 수 이상 모이면 교정 후보로 판정합니다.");
                             row-enabled: root.atf-enabled;
                             SpinBox {
                                 min-width: 110px;
@@ -732,13 +775,13 @@ export component SettingsWindow inherits Window {
                                 minimum: 2;
                                 maximum: 6;
                                 value <=> root.atf-kor-threshold;
-                                accessible-label: "한글 음절 임계값";
+                                accessible-label: @tr("한글 음절 임계값");
                                 edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "영문 단어 최소 길이";
-                            description: "이 길이 이상의 영문 단어만 교정 대상으로 봅니다.";
+                            title: @tr("영문 단어 최소 길이");
+                            description: @tr("이 길이 이상의 영문 단어만 교정 대상으로 봅니다.");
                             row-enabled: root.atf-enabled;
                             SpinBox {
                                 min-width: 110px;
@@ -746,13 +789,13 @@ export component SettingsWindow inherits Window {
                                 minimum: 3;
                                 maximum: 8;
                                 value <=> root.atf-eng-min-length;
-                                accessible-label: "영문 단어 최소 길이";
+                                accessible-label: @tr("영문 단어 최소 길이");
                                 edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "정방향 감지창 (ms)";
-                            description: "입력 후 이 시간 안에 정방향 교정을 판정합니다.";
+                            title: @tr("정방향 감지창 (ms)");
+                            description: @tr("입력 후 이 시간 안에 정방향 교정을 판정합니다.");
                             row-enabled: root.atf-enabled;
                             SpinBox {
                                 min-width: 110px;
@@ -761,13 +804,13 @@ export component SettingsWindow inherits Window {
                                 maximum: 5000;
                                 step-size: 100;
                                 value <=> root.atf-forward-window;
-                                accessible-label: "정방향 감지창";
+                                accessible-label: @tr("정방향 감지창");
                                 edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "역방향 감지창 (ms)";
-                            description: "입력 후 이 시간 안에 역방향 교정을 판정합니다.";
+                            title: @tr("역방향 감지창 (ms)");
+                            description: @tr("입력 후 이 시간 안에 역방향 교정을 판정합니다.");
                             row-enabled: root.atf-enabled;
                             SpinBox {
                                 min-width: 110px;
@@ -776,13 +819,13 @@ export component SettingsWindow inherits Window {
                                 maximum: 5000;
                                 step-size: 100;
                                 value <=> root.atf-reverse-window;
-                                accessible-label: "역방향 감지창";
+                                accessible-label: @tr("역방향 감지창");
                                 edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "임시 항목 만료 (시간)";
-                            description: "임시 학습 항목을 이 시간 후 정리합니다.";
+                            title: @tr("임시 항목 만료 (시간)");
+                            description: @tr("임시 학습 항목을 이 시간 후 정리합니다.");
                             row-enabled: root.atf-enabled;
                             SpinBox {
                                 min-width: 110px;
@@ -790,13 +833,13 @@ export component SettingsWindow inherits Window {
                                 minimum: 1;
                                 maximum: 12;
                                 value <=> root.atf-tentative-expiry;
-                                accessible-label: "임시 항목 만료";
+                                accessible-label: @tr("임시 항목 만료");
                                 edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "관찰 타임아웃 (초)";
-                            description: "판정 전 입력을 관찰하는 최대 시간입니다.";
+                            title: @tr("관찰 타임아웃 (초)");
+                            description: @tr("판정 전 입력을 관찰하는 최대 시간입니다.");
                             row-enabled: root.atf-enabled;
                             SpinBox {
                                 min-width: 110px;
@@ -804,54 +847,54 @@ export component SettingsWindow inherits Window {
                                 minimum: 5;
                                 maximum: 15;
                                 value <=> root.atf-observation-timeout;
-                                accessible-label: "관찰 타임아웃";
+                                accessible-label: @tr("관찰 타임아웃");
                                 edited => { root.auto-save(); }
                             }
                         }
                     }
                     if root.current-page == 1 && root.atf-advanced-expanded: Card {
-                        title: "옵션";
+                        title: @tr("옵션");
                         SettingRow {
-                            title: "영어 단어는 교정 건너뛰기";
-                            description: "사전에 있는 영어 단어는 교정하지 않습니다.";
+                            title: @tr("영어 단어는 교정 건너뛰기");
+                            description: @tr("사전에 있는 영어 단어는 교정하지 않습니다.");
                             row-enabled: root.atf-enabled;
                             Switch {
                                 enabled: root.atf-enabled;
                                 checked <=> root.atf-skip-english-word;
-                                accessible-label: "영어 단어는 교정 건너뛰기";
+                                accessible-label: @tr("영어 단어는 교정 건너뛰기");
                                 toggled => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "완성된 음절은 교정 건너뛰기";
-                            description: "이미 완성된 한글 음절은 교정 대상에서 제외합니다.";
+                            title: @tr("완성된 음절은 교정 건너뛰기");
+                            description: @tr("이미 완성된 한글 음절은 교정 대상에서 제외합니다.");
                             row-enabled: root.atf-enabled;
                             Switch {
                                 enabled: root.atf-enabled;
                                 checked <=> root.atf-skip-complete-syllable;
-                                accessible-label: "완성된 음절은 교정 건너뛰기";
+                                accessible-label: @tr("완성된 음절은 교정 건너뛰기");
                                 toggled => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "되돌리기(롤백) 감지";
-                            description: "사용자가 교정을 되돌리면 학습해 재교정을 막습니다.";
+                            title: @tr("되돌리기(롤백) 감지");
+                            description: @tr("사용자가 교정을 되돌리면 학습해 재교정을 막습니다.");
                             row-enabled: root.atf-enabled;
                             Switch {
                                 enabled: root.atf-enabled;
                                 checked <=> root.atf-rollback-detection;
-                                accessible-label: "되돌리기 감지";
+                                accessible-label: @tr("되돌리기 감지");
                                 toggled => { root.auto-save(); }
                             }
                         }
                         SettingRow {
-                            title: "사용자 사전 사용";
-                            description: "사용자 사전에 등록한 단어를 교정에 반영합니다.";
+                            title: @tr("사용자 사전 사용");
+                            description: @tr("사용자 사전에 등록한 단어를 교정에 반영합니다.");
                             row-enabled: root.atf-enabled;
                             Switch {
                                 enabled: root.atf-enabled;
                                 checked <=> root.atf-user-dict-enabled;
-                                accessible-label: "사용자 사전 사용";
+                                accessible-label: @tr("사용자 사전 사용");
                                 toggled => { root.auto-save(); }
                             }
                         }
@@ -860,11 +903,11 @@ export component SettingsWindow inherits Window {
                     // 노출(실수 복구 경로 보장, WCAG 3.3.4).
                     if root.current-page == 1: Card {
                         SettingRow {
-                            title: "기본값으로 복원";
-                            description: "오타 교정 관련 설정을 처음 상태로 되돌립니다. 되돌린 뒤 5초 안에 다시 취소할 수 있습니다.";
+                            title: @tr("기본값으로 복원");
+                            description: @tr("오타 교정 관련 설정을 처음 상태로 되돌립니다. 되돌린 뒤 5초 안에 다시 취소할 수 있습니다.");
                             Button {
-                                text: "기본값으로 복원";
-                                accessible-label: "오타 교정 기본값으로 복원";
+                                text: @tr("기본값으로 복원");
+                                accessible-label: @tr("오타 교정 기본값으로 복원");
                                 clicked => { root.atf-restore-defaults(); }
                             }
                         }
@@ -872,7 +915,7 @@ export component SettingsWindow inherits Window {
 
                     // ── 페이지 2: 억제 단어 ──
                     if root.current-page == 2: Text {
-                        text: "자동 교정에서 제외할(억제) 단어 목록입니다. 변경 즉시 적용됩니다.";
+                        text: @tr("자동 교정에서 제외할(억제) 단어 목록입니다. 변경 즉시 적용됩니다.");
                         font-size: Tokens.font-caption;
                         wrap: word-wrap;
                         color: Tokens.caption-color;
@@ -888,14 +931,14 @@ export component SettingsWindow inherits Window {
                             spacing: Tokens.space-2;
                             alignment: end;
                             Button {
-                                text: "선택 삭제";
+                                text: @tr("선택 삭제");
                                 clicked => { root.blacklist-remove(root.blacklist-selected); }
                             }
                             Button {
-                                text: "모두 삭제";
+                                text: @tr("모두 삭제");
                                 // I6: 대량 비가역 삭제 → 확인 다이얼로그 경유.
                                 clicked => {
-                                    root.confirm-message = "억제 단어를 모두 삭제합니다. 삭제 후 5초 안에 되돌릴 수 있습니다.";
+                                    root.confirm-message = @tr("억제 단어를 모두 삭제합니다. 삭제 후 5초 안에 되돌릴 수 있습니다.");
                                     root.confirm-visible = true;
                                 }
                             }
@@ -904,39 +947,39 @@ export component SettingsWindow inherits Window {
 
                     // ── 페이지 3: 사용자 사전 ──
                     if root.current-page == 3: Text {
-                        text: "역방향 교정에서 영문으로 보존할 단어입니다. 변경 즉시 적용됩니다.";
+                        text: @tr("역방향 교정에서 영문으로 보존할 단어입니다. 변경 즉시 적용됩니다.");
                         font-size: Tokens.font-caption;
                         wrap: word-wrap;
                         color: Tokens.caption-color;
                     }
                     if root.current-page == 3: Card {
-                        title: "단어 추가";
+                        title: @tr("단어 추가");
                         SettingRow {
-                            title: "단어";
-                            description: "역방향 교정에서 영문으로 보존할 단어입니다.";
+                            title: @tr("단어");
+                            description: @tr("역방향 교정에서 영문으로 보존할 단어입니다.");
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.userdict-new-word;
-                                placeholder-text: "단어";
-                                accessible-label: "추가할 단어";
+                                placeholder-text: @tr("단어");
+                                accessible-label: @tr("추가할 단어");
                                 accepted => { root.userdict-add(); }
                             }
                         }
                         SettingRow {
-                            title: "메모";
-                            description: "단어를 구분하기 위한 선택 사항입니다.";
+                            title: @tr("메모");
+                            description: @tr("단어를 구분하기 위한 선택 사항입니다.");
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.userdict-new-note;
-                                placeholder-text: "메모(선택)";
-                                accessible-label: "메모";
+                                placeholder-text: @tr("메모(선택)");
+                                accessible-label: @tr("메모");
                             }
                         }
                         Rectangle { height: Tokens.space-2; }
                         HorizontalLayout {
                             alignment: end;
                             Button {
-                                text: "추가";
+                                text: @tr("추가");
                                 primary: true;
                                 clicked => { root.userdict-add(); }
                             }
@@ -952,7 +995,7 @@ export component SettingsWindow inherits Window {
                         HorizontalLayout {
                             alignment: end;
                             Button {
-                                text: "선택 삭제";
+                                text: @tr("선택 삭제");
                                 clicked => { root.userdict-remove(root.userdict-selected); }
                             }
                         }
@@ -1028,7 +1071,7 @@ export component SettingsWindow inherits Window {
                     padding: Tokens.space-6;
                     spacing: Tokens.space-4;
                     Text {
-                        text: "삭제 확인";
+                        text: @tr("삭제 확인");
                         font-size: Tokens.font-title;
                         font-weight: 700;
                         color: Palette.foreground;
@@ -1043,14 +1086,14 @@ export component SettingsWindow inherits Window {
                         alignment: end;
                         spacing: Tokens.space-2;
                         Button {
-                            text: "취소";
-                            accessible-label: "삭제 취소";
+                            text: @tr("취소");
+                            accessible-label: @tr("삭제 취소");
                             clicked => { root.confirm-visible = false; }
                         }
                         Button {
-                            text: "삭제";
+                            text: @tr("삭제");
                             primary: true;
-                            accessible-label: "모두 삭제 확인";
+                            accessible-label: @tr("모두 삭제 확인");
                             clicked => {
                                 root.confirm-visible = false;
                                 root.blacklist-clear();
@@ -1098,8 +1141,8 @@ export component SettingsWindow inherits Window {
                     color: #ffffff;
                 }
                 Button {
-                    text: "되돌리기";
-                    accessible-label: "삭제 되돌리기";
+                    text: @tr("되돌리기");
+                    accessible-label: @tr("삭제 되돌리기");
                     clicked => {
                         root.toast-visible = false;
                         root.undo-restore();
