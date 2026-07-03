@@ -303,6 +303,18 @@ extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM
                 }
                 LRESULT(0)
             }
+            // OS 테마/고대비 변경 → 팔레트 재감지를 위해 재도색(표시 중일 때만).
+            // WM_SETTINGCHANGE(다크/라이트·고대비 토글), WM_THEMECHANGED(0x031A).
+            // render::paint 가 current_palette() 로 매 페인트 팔레트를 다시 고르므로
+            // InvalidateRect 만으로 새 테마가 반영된다.
+            WM_SETTINGCHANGE | 0x031A => {
+                let visible = UI_STATE.with(|st| st.borrow().visible);
+                if visible {
+                    logln!("window: theme/settings change (msg={msg:#x}) — repaint");
+                    let _ = InvalidateRect(Some(hwnd), None, true);
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
             // 좌클릭 내부 히트테스트 → 역IPC 송신 (§11.E). 외부 클릭은 여기로 안 옴
             // (창 밖이라 WM 미수신) — LL 훅이 담당. 포커스는 MA_NOACTIVATE 로 안 가져감.

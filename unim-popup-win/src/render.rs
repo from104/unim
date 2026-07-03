@@ -8,26 +8,187 @@
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
+use windows::Win32::UI::WindowsAndMessaging::{
+    SystemParametersInfoW, SPI_GETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+};
+// GetSysColor / COLOR_* (SYS_COLOR_INDEX) 는 Gdi 모듈 소속 — 위 `Gdi::*` glob 로 유입.
 
 use crate::logln;
 use crate::protocol::{cell_flags, RenderState, RevEvent};
 
-// ─── Catppuccin Mocha (COLORREF = 0x00BBGGRR — BGR 주의, 설계서 §5.4) ────────
-const C_BASE: COLORREF = COLORREF(0x002e1e1e); // #1e1e2e 배경
-const C_SURFACE0: COLORREF = COLORREF(0x00443231); // #313244 헤더/푸터 배경
-const C_TEXT: COLORREF = COLORREF(0x00f4d6cd); // #cdd6f4 본문
-const C_SUBTEXT0: COLORREF = COLORREF(0x00c8ada6); // #a6adc8 뜻풀이
-const C_OVERLAY1: COLORREF = COLORREF(0x009c847f); // #7f849c 행/열 레이블
-const C_SEL_HANJA: COLORREF = COLORREF(0x00fab489); // #89b4fa 한자 선택 배경 (blue)
-const C_SEL_GREEN: COLORREF = COLORREF(0x00a1e3a6); // #a6e3a1 특수/이모지 선택 배경
-const C_FLASH: COLORREF = COLORREF(0x00afe2f9); // #f9e2af flash / 비활성 열 헤더
-const C_HDR_ACTIVE: COLORREF = COLORREF(0x00a1e3a6); // #a6e3a1 활성 열 헤더 (green)
-const C_HDR_INACTIVE: COLORREF = COLORREF(0x00afe2f9); // #f9e2af 비활성 열 헤더 (yellow)
-const C_EMPTY: COLORREF = COLORREF(0x003a2a2a); // base 보다 약간 밝은 빈 셀
-const C_ROWHL: COLORREF = COLORREF(0x00403030); // 행 보조 강조 (연한 배경)
-const C_COLHL: COLORREF = COLORREF(0x00303a30); // 열 보조 강조
-const C_BLACK: COLORREF = COLORREF(0x00000000); // 선택 셀 위 텍스트 (대비)
-const C_STAR: COLORREF = COLORREF(0x00afe2f9); // 북마크 ★ (yellow)
+// ─── 테마 적응 팔레트 (I5) ──────────────────────────────────────────────────
+//
+// 팝업이 OS 데스크톱 테마(다크/라이트)와 고대비 모드를 따르도록 색을 런타임에
+// 고른다. 다크는 기존 Catppuccin Mocha 를 그대로 유지하고, 라이트(Latte)와
+// 고대비(GetSysColor 기반)를 새로 추가한다. 색만으로 상태를 구분하지 않도록
+// 선택 셀에는 2px 대비 링(sel_ring), 활성 헤더에는 밑줄/막대 형태 단서를 곁들인다
+// (WCAG 1.4.11). COLORREF = 0x00BBGGRR (BGR 주의).
+#[derive(Clone, Copy)]
+struct Palette {
+    base: COLORREF,        // 배경
+    surface0: COLORREF,    // 헤더/푸터/탭 배경
+    text: COLORREF,        // 본문
+    subtext0: COLORREF,    // 뜻풀이
+    overlay1: COLORREF,    // 행/열 레이블
+    sel_hanja: COLORREF,   // 한자 선택 배경
+    sel_green: COLORREF,   // 특수/이모지 선택 배경 + 활성 탭
+    flash: COLORREF,       // flash 선택 배경
+    hdr_active: COLORREF,  // 활성 열/행 헤더
+    hdr_inactive: COLORREF,// 비활성 열 헤더
+    empty: COLORREF,       // 빈 셀
+    rowhl: COLORREF,       // 행 보조 강조
+    colhl: COLORREF,       // 열 보조 강조
+    on_sel_text: COLORREF, // 선택 셀 위 텍스트(대비)
+    star: COLORREF,        // 북마크 ★
+    sel_ring: COLORREF,    // 선택 셀 2px 대비 링(형태 단서)
+}
+
+impl Palette {
+    #[inline]
+    fn sel_bg(&self, kind: u32) -> COLORREF {
+        // 0=Hanja → blue, 1=SpecialChar / 2=Emoji → green (POPUP_SPEC §5.1).
+        if kind == 0 {
+            self.sel_hanja
+        } else {
+            self.sel_green
+        }
+    }
+}
+
+// 다크(Catppuccin Mocha) — 현행 유지가 기본값(테마 조회 실패 시 폴백).
+const DARK: Palette = Palette {
+    base: COLORREF(0x002e1e1e),        // #1e1e2e
+    surface0: COLORREF(0x00443231),    // #313244
+    text: COLORREF(0x00f4d6cd),        // #cdd6f4
+    subtext0: COLORREF(0x00c8ada6),    // #a6adc8
+    overlay1: COLORREF(0x009c847f),    // #7f849c
+    sel_hanja: COLORREF(0x00fab489),   // #89b4fa
+    sel_green: COLORREF(0x00a1e3a6),   // #a6e3a1
+    flash: COLORREF(0x00afe2f9),       // #f9e2af
+    hdr_active: COLORREF(0x00a1e3a6),  // #a6e3a1
+    hdr_inactive: COLORREF(0x00afe2f9),// #f9e2af
+    empty: COLORREF(0x003a2a2a),
+    rowhl: COLORREF(0x00403030),
+    colhl: COLORREF(0x00303a30),
+    on_sel_text: COLORREF(0x00000000), // 검정 (파스텔 선택 배경 위 대비)
+    star: COLORREF(0x00afe2f9),        // #f9e2af
+    sel_ring: COLORREF(0x00000000),    // 검정 링 — 밝은 파스텔 선택을 또렷이 감쌈
+};
+
+// 라이트(Catppuccin Latte) — 라이트 데스크톱용 신규 팔레트.
+const LIGHT: Palette = Palette {
+    base: COLORREF(0x00f5f1ef),        // #eff1f5
+    surface0: COLORREF(0x00dad0cc),    // #ccd0da
+    text: COLORREF(0x00694f4c),        // #4c4f69
+    subtext0: COLORREF(0x00856f6c),    // #6c6f85
+    overlay1: COLORREF(0x00a18f8c),    // #8c8fa1
+    sel_hanja: COLORREF(0x00f5661e),   // #1e66f5 (blue)
+    sel_green: COLORREF(0x002ba040),   // #40a02b (green)
+    flash: COLORREF(0x001d8edf),       // #df8e1d (yellow)
+    hdr_active: COLORREF(0x002ba040),  // #40a02b
+    hdr_inactive: COLORREF(0x001d8edf),// #df8e1d
+    empty: COLORREF(0x00eae3e1),       // base 보다 약간 어두운 빈 셀
+    rowhl: COLORREF(0x00fbe6dc),       // 연한 파랑 틴트
+    colhl: COLORREF(0x00dcefdc),       // 연한 초록 틴트
+    on_sel_text: COLORREF(0x00ffffff), // 흰색 (채도 높은 선택 배경 위 대비)
+    star: COLORREF(0x001d8edf),        // #df8e1d
+    sel_ring: COLORREF(0x00ffffff),    // 흰 링 — 채도 높은 선택을 또렷이 감쌈
+};
+
+/// 데스크톱 앱 테마가 라이트인지 조회한다.
+///
+/// `HKCU\...\Themes\Personalize\AppsUseLightTheme`(DWORD) 가 1 이면 라이트,
+/// 0 이면 다크. 트레이 인디케이터(lang_bar.rs)는 트레이 배경 기준의
+/// `SystemUsesLightTheme` 을 쓰지만, 팝업은 일반 앱 창이므로 앱 테마 기준의
+/// `AppsUseLightTheme` 이 맞다. 키 부재/조회 실패 시 다크로 폴백(현행 유지).
+fn apps_use_light_theme() -> bool {
+    let subkey: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0"
+        .encode_utf16()
+        .collect();
+    let value: Vec<u16> = "AppsUseLightTheme\0".encode_utf16().collect();
+    let mut data: u32 = 0; // 기본=다크
+    let mut size = std::mem::size_of::<u32>() as u32;
+    unsafe {
+        let r = RegGetValueW(
+            HKEY_CURRENT_USER,
+            PCWSTR(subkey.as_ptr()),
+            PCWSTR(value.as_ptr()),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut data as *mut u32 as *mut core::ffi::c_void),
+            Some(&mut size),
+        );
+        if r.is_err() {
+            return false; // 조회 실패 → 다크 폴백
+        }
+    }
+    data != 0
+}
+
+/// 고대비(High Contrast) 모드가 켜져 있는지 조회한다.
+///
+/// `SystemParametersInfo(SPI_GETHIGHCONTRAST)` 의 `dwFlags & HCF_HIGHCONTRASTON`.
+/// 켜져 있으면 GetSysColor 기반 팔레트로 전환해 사용자가 지정한 고대비 배색을
+/// 그대로 따른다(임의 색으로 덮어쓰지 않는다).
+fn high_contrast_active() -> bool {
+    unsafe {
+        let mut hc = HIGHCONTRASTW {
+            cbSize: std::mem::size_of::<HIGHCONTRASTW>() as u32,
+            ..Default::default()
+        };
+        let ok = SystemParametersInfoW(
+            SPI_GETHIGHCONTRAST,
+            std::mem::size_of::<HIGHCONTRASTW>() as u32,
+            Some(&mut hc as *mut _ as *mut core::ffi::c_void),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+        ok.is_ok() && (hc.dwFlags.0 & HCF_HIGHCONTRASTON.0) != 0
+    }
+}
+
+/// 고대비 팔레트 — 사용자가 OS 에 지정한 시스템 색(GetSysColor)만 사용한다.
+///
+/// 활성/비활성 헤더를 색만으로 구분할 수 없으므로(고대비 팔레트는 색 수가 적다)
+/// 밑줄/막대 형태 단서(paint_grid)가 실질 구분을 담당한다.
+unsafe fn high_contrast_palette() -> Palette {
+    let win = COLORREF(GetSysColor(COLOR_WINDOW));
+    let txt = COLORREF(GetSysColor(COLOR_WINDOWTEXT));
+    let hl = COLORREF(GetSysColor(COLOR_HIGHLIGHT));
+    let hltext = COLORREF(GetSysColor(COLOR_HIGHLIGHTTEXT));
+    let face = COLORREF(GetSysColor(COLOR_BTNFACE));
+    let gray = COLORREF(GetSysColor(COLOR_GRAYTEXT));
+    Palette {
+        base: win,
+        surface0: face,
+        text: txt,
+        subtext0: gray,
+        overlay1: gray,
+        sel_hanja: hl,
+        sel_green: hl,
+        flash: hl,
+        hdr_active: txt,      // 활성 헤더 텍스트(밑줄 단서와 병행)
+        hdr_inactive: gray,   // 비활성 헤더 텍스트
+        empty: face,
+        rowhl: face,
+        colhl: face,
+        on_sel_text: hltext,
+        star: txt,
+        sel_ring: hltext,     // 선택 배경(COLOR_HIGHLIGHT) 위 대비 링
+    }
+}
+
+/// 현재 데스크톱 상태에 맞는 팔레트를 고른다: 고대비 우선 → 라이트 → 다크.
+fn current_palette() -> Palette {
+    if high_contrast_active() {
+        unsafe { high_contrast_palette() }
+    } else if apps_use_light_theme() {
+        LIGHT
+    } else {
+        DARK
+    }
+}
 
 // ─── 논리 레이아웃 상수 ─────────────────────────────────────────────────────
 const PAD: i32 = 8; // 외곽 여백
@@ -85,6 +246,27 @@ unsafe fn make_font(height_logical: i32, scale: f64, bold: bool) -> HFONT {
 unsafe fn fill(hdc: HDC, rect: &RECT, color: COLORREF) {
     let brush = CreateSolidBrush(color);
     let _ = FillRect(hdc, rect, brush);
+    let _ = DeleteObject(brush.into());
+}
+
+/// 선택 셀 위에 `thickness`px 두께의 대비 링을 그린다 (WCAG 1.4.11 형태 단서).
+///
+/// 셀 배경색과 별개로 셀 테두리를 또렷하게 감싸, 색을 구분하기 어려운
+/// 사용자(색약·고대비)도 선택 위치를 형태로 인지하게 한다. FrameRect(1px)를
+/// 안쪽으로 1px 씩 좁혀 가며 `thickness` 번 그려 두께를 만든다.
+unsafe fn draw_ring(hdc: HDC, rect: &RECT, color: COLORREF, thickness: i32) {
+    let brush = CreateSolidBrush(color);
+    let mut r = *rect;
+    for _ in 0..thickness.max(1) {
+        let _ = FrameRect(hdc, &r, brush);
+        r.left += 1;
+        r.top += 1;
+        r.right -= 1;
+        r.bottom -= 1;
+        if r.right <= r.left || r.bottom <= r.top {
+            break;
+        }
+    }
     let _ = DeleteObject(brush.into());
 }
 
@@ -168,9 +350,12 @@ fn measure_grid(rs: &RenderState, scale: f64) -> (i32, i32) {
 
 /// 전체 렌더. `flash_on` = 현재 flash 타이머 활성 여부 (선택 셀 노란 배경).
 pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flash_on: bool) {
+    // OS 테마/고대비에 맞는 팔레트를 매 페인트마다 감지(레지스트리+SPI 조회는
+    // 저렴하고, WM_SETTINGCHANGE/WM_THEMECHANGED 재도색이 이 값을 갱신한다).
+    let pal = current_palette();
     // 배경.
     let full = RECT { left: 0, top: 0, right: w, bottom: h };
-    fill(hdc, &full, C_BASE);
+    fill(hdc, &full, pal.base);
     SetBkMode(hdc, TRANSPARENT);
 
     // 헤더 바.
@@ -181,13 +366,13 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
         right: w,
         bottom: s(HEADER_H, scale),
     };
-    fill(hdc, &header_rect, C_SURFACE0);
+    fill(hdc, &header_rect, pal.surface0);
     let font_header = make_font(FONT_HEADER, scale, true);
     let old = SelectObject(hdc, font_header.into());
     let mut hr = header_rect;
     hr.left += pad;
     hr.right -= pad;
-    draw_text(hdc, &rs.header_text, &hr, C_TEXT, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
+    draw_text(hdc, &rs.header_text, &hr, pal.text, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
     SelectObject(hdc, old);
     let _ = DeleteObject(font_header.into());
 
@@ -195,9 +380,9 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
     // D2D 컬러 폰트로 덧그린다 (§11.A — GDI 전부 → D2D 이모지 텍스트 순서).
     let mut emoji_cells: Vec<crate::d2d::EmojiCell> = Vec::new();
     if rs.is_compact() {
-        paint_compact(hdc, rs, scale, w, h, flash_on);
+        paint_compact(hdc, rs, scale, w, h, flash_on, &pal);
     } else {
-        paint_grid(hdc, rs, scale, w, h, flash_on, &mut emoji_cells);
+        paint_grid(hdc, rs, scale, w, h, flash_on, &mut emoji_cells, &pal);
     }
 
     // 푸터 바.
@@ -208,13 +393,13 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
             right: w,
             bottom: h,
         };
-        fill(hdc, &footer_rect, C_SURFACE0);
+        fill(hdc, &footer_rect, pal.surface0);
         let font_f = make_font(FONT_MEANING, scale, false);
         let old = SelectObject(hdc, font_f.into());
         let mut fr = footer_rect;
         fr.left += pad;
         fr.right -= pad;
-        draw_text(hdc, &rs.footer_text, &fr, C_SUBTEXT0, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
+        draw_text(hdc, &rs.footer_text, &fr, pal.subtext0, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
         // 페이지 ◀/▶ 글리프 (§11.E — total_pages>1 일 때만, hit_test 와 동일 좌표).
         if rs.total_pages > 1 {
             // 좌측 ◀ (Prev).
@@ -224,7 +409,7 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
                 right: pad + s(PAGE_BTN_W, scale),
                 bottom: footer_rect.bottom,
             };
-            draw_text(hdc, "◀", &prev_rect, C_TEXT, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
+            draw_text(hdc, "◀", &prev_rect, pal.text, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
             // 우측 ▶ (Next) — expand 가 우측을 차지하지 않을 때만 (겹침 방지).
             if !rs.expand_visible {
                 let next_rect = RECT {
@@ -233,7 +418,7 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
                     right: w - pad,
                     bottom: footer_rect.bottom,
                 };
-                draw_text(hdc, "▶", &next_rect, C_TEXT, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
+                draw_text(hdc, "▶", &next_rect, pal.text, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
             }
         }
         // expand 아이콘 (⊞/⊟) — 우측 끝. (hit_test 의 expand 영역과 동일.)
@@ -244,7 +429,7 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
                 right: w - pad,
                 bottom: footer_rect.bottom,
             };
-            draw_text(hdc, &rs.expand_text, &exp_rect, C_TEXT, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
+            draw_text(hdc, &rs.expand_text, &exp_rect, pal.text, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
         }
         SelectObject(hdc, old);
         let _ = DeleteObject(font_f.into());
@@ -263,7 +448,7 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
             let font_cell = make_font(FONT_CELL, scale, false);
             let old = SelectObject(hdc, font_cell.into());
             for c in &emoji_cells {
-                let color = if c.on_selected { C_BLACK } else { C_TEXT };
+                let color = if c.on_selected { pal.on_sel_text } else { pal.text };
                 draw_text(hdc, &c.text, &c.rect, color, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
             }
             SelectObject(hdc, old);
@@ -273,7 +458,7 @@ pub unsafe fn paint(hdc: HDC, rs: &RenderState, scale: f64, w: i32, h: i32, flas
     }
 }
 
-unsafe fn paint_compact(hdc: HDC, rs: &RenderState, scale: f64, w: i32, _h: i32, flash_on: bool) {
+unsafe fn paint_compact(hdc: HDC, rs: &RenderState, scale: f64, w: i32, _h: i32, flash_on: bool, pal: &Palette) {
     let pad = s(PAD, scale);
     let row_h = s(COMPACT_ROW_H, scale);
     let top0 = s(HEADER_H, scale) + pad;
@@ -297,18 +482,20 @@ unsafe fn paint_compact(hdc: HDC, rs: &RenderState, scale: f64, w: i32, _h: i32,
         let selected = r == rs.sel_row && rs.sel_col == 0;
         log_parity(cell.f, selected, r, 0);
         if selected {
-            let bg = if flash_on { C_FLASH } else { sel_color(rs.kind) };
+            let bg = if flash_on { pal.flash } else { pal.sel_bg(rs.kind) };
             fill(hdc, &row_rect, bg);
+            // 2px 대비 링(형태 단서) — 색 구분이 어려운 사용자도 선택 위치 인지.
+            draw_ring(hdc, &row_rect, pal.sel_ring, s(2, scale));
         } else if cell.f & cell_flags::ROW_HIGHLIGHT != 0 {
-            fill(hdc, &row_rect, C_ROWHL);
+            fill(hdc, &row_rect, pal.rowhl);
         }
-        let text_color = if selected { C_BLACK } else { C_TEXT };
-        let mean_color = if selected { C_BLACK } else { C_SUBTEXT0 };
+        let text_color = if selected { pal.on_sel_text } else { pal.text };
+        let mean_color = if selected { pal.on_sel_text } else { pal.subtext0 };
         // 행 레이블 (1.~9.).
         let label = rs.row_headers.get(r as usize).map(|h| h.0.as_str()).unwrap_or("");
         let old = SelectObject(hdc, font_label.into());
         let label_rect = RECT { left: pad + s(4, scale), top: y, right: pad + s(ROW_LABEL_W, scale), bottom: y + row_h };
-        draw_text(hdc, label, &label_rect, if selected { C_BLACK } else { C_OVERLAY1 }, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
+        draw_text(hdc, label, &label_rect, if selected { pal.on_sel_text } else { pal.overlay1 }, DT_VCENTER | DT_SINGLELINE | DT_LEFT);
         SelectObject(hdc, old);
         // 한자 (+★).
         let old = SelectObject(hdc, font_main.into());
@@ -316,7 +503,7 @@ unsafe fn paint_compact(hdc: HDC, rs: &RenderState, scale: f64, w: i32, _h: i32,
         let main = format!("{}{star}", cell.t);
         let hanja_left = pad + s(ROW_LABEL_W, scale) + s(4, scale);
         let hanja_rect = RECT { left: hanja_left, top: y, right: hanja_left + s(90, scale), bottom: y + row_h };
-        let star_color = if selected { C_BLACK } else { C_STAR };
+        let star_color = if selected { pal.on_sel_text } else { pal.star };
         // 한자+★ 를 한 번에 그리되 ★ 색은 별도 처리가 어렵다 → 본문색으로 일괄,
         // 단 미선택 시 ★ 강조를 위해 별색 그리기.
         if star.is_empty() || selected {
@@ -348,6 +535,7 @@ unsafe fn paint_grid(
     _h: i32,
     flash_on: bool,
     emoji_cells: &mut Vec<crate::d2d::EmojiCell>,
+    pal: &Palette,
 ) {
     let pad = s(PAD, scale);
     let emoji = !rs.tab_labels.is_empty();
@@ -369,9 +557,11 @@ unsafe fn paint_grid(
             let tab_rect = RECT { left: pad, top: y, right: pad + tab_w - s(4, scale), bottom: y + s(CELL_H, scale) - s(2, scale) };
             let active = (i as u32) == rs.active_tab_index;
             if active {
-                fill(hdc, &tab_rect, C_SEL_GREEN);
+                fill(hdc, &tab_rect, pal.sel_green);
+                // 활성 탭에도 대비 링 — 색 단독 의존 완화(형태 단서).
+                draw_ring(hdc, &tab_rect, pal.sel_ring, s(2, scale));
             } else {
-                fill(hdc, &tab_rect, C_SURFACE0);
+                fill(hdc, &tab_rect, pal.surface0);
             }
             // 카테고리 레이블 우측 정렬 (POPUP_SPEC §11 v3.2): 레이블 끝에 붙은
             // 선택키 "(a)/(s)/..." 가 모든 행에서 같은 우측 기준선에 정렬되어
@@ -379,7 +569,7 @@ unsafe fn paint_grid(
             // 충분 — 별도 폭 측정 불필요. 이모지 모드(tab_labels 비어있지 않음)에서만 그려진다.
             let mut tr = tab_rect;
             tr.right -= s(6, scale);
-            draw_text(hdc, label, &tr, if active { C_BLACK } else { C_TEXT }, DT_VCENTER | DT_SINGLELINE | DT_RIGHT);
+            draw_text(hdc, label, &tr, if active { pal.on_sel_text } else { pal.text }, DT_VCENTER | DT_SINGLELINE | DT_RIGHT);
         }
         SelectObject(hdc, old);
         let _ = DeleteObject(font_tab.into());
@@ -397,8 +587,19 @@ unsafe fn paint_grid(
             .unwrap_or(("", false));
         let x = cells_left + c * s(CELL_W, scale);
         let lr = RECT { left: x, top: body_top, right: x + s(CELL_W, scale), bottom: body_top + s(COL_LABEL_H, scale) };
-        let col = if active { C_HDR_ACTIVE } else { C_HDR_INACTIVE };
+        let col = if active { pal.hdr_active } else { pal.hdr_inactive };
         draw_text(hdc, text, &lr, col, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
+        // 활성 열 헤더 형태 단서: 하단 2px 밑줄. 색(활성=녹/비활성=황) 단독 의존을
+        // 완화해 색약·고대비 사용자도 활성 열을 형태로 구분(WCAG 1.4.11).
+        if active && !text.is_empty() {
+            let ul = RECT {
+                left: x + s(6, scale),
+                top: lr.bottom - s(2, scale),
+                right: x + s(CELL_W, scale) - s(6, scale),
+                bottom: lr.bottom,
+            };
+            fill(hdc, &ul, pal.hdr_active);
+        }
     }
     // 좌측 행 레이블. (cells_top 은 위에서 정의)
     for r in 0..rs.rows {
@@ -409,8 +610,18 @@ unsafe fn paint_grid(
             .unwrap_or(("", false));
         let y = cells_top + (r as i32) * s(CELL_H, scale);
         let lr = RECT { left: grid_left, top: y, right: grid_left + s(ROW_LABEL_W, scale), bottom: y + s(CELL_H, scale) };
-        let col = if active { C_HDR_ACTIVE } else { C_OVERLAY1 };
+        let col = if active { pal.hdr_active } else { pal.overlay1 };
         draw_text(hdc, text, &lr, col, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
+        // 활성 행 헤더 형태 단서: 좌측 2px 세로 막대. 색 단독 의존 완화.
+        if active && !text.is_empty() {
+            let bar = RECT {
+                left: grid_left,
+                top: y + s(4, scale),
+                right: grid_left + s(2, scale),
+                bottom: y + s(CELL_H, scale) - s(4, scale),
+            };
+            fill(hdc, &bar, pal.hdr_active);
+        }
     }
     SelectObject(hdc, old);
     let _ = DeleteObject(font_label.into());
@@ -430,14 +641,16 @@ unsafe fn paint_grid(
                     let selected = r == rs.sel_row && c == rs.sel_col;
                     log_parity(cell.f, selected, r, c);
                     if selected {
-                        let bg = if flash_on { C_FLASH } else { sel_color(rs.kind) };
+                        let bg = if flash_on { pal.flash } else { pal.sel_bg(rs.kind) };
                         fill(hdc, &cr, bg);
+                        // 2px 대비 링(형태 단서, WCAG 1.4.11).
+                        draw_ring(hdc, &cr, pal.sel_ring, s(2, scale));
                     } else if cell.f & cell_flags::ROW_HIGHLIGHT != 0 {
-                        fill(hdc, &cr, C_ROWHL);
+                        fill(hdc, &cr, pal.rowhl);
                     } else if cell.f & cell_flags::COL_HIGHLIGHT != 0 {
-                        fill(hdc, &cr, C_COLHL);
+                        fill(hdc, &cr, pal.colhl);
                     }
-                    let text_color = if selected { C_BLACK } else { C_TEXT };
+                    let text_color = if selected { pal.on_sel_text } else { pal.text };
                     let main = if cell.f & cell_flags::BOOKMARKED != 0 {
                         format!("{} ★", cell.t)
                     } else {
@@ -456,7 +669,7 @@ unsafe fn paint_grid(
                 }
                 _ => {
                     // 빈 셀: 연한 배경, 텍스트 없음.
-                    fill(hdc, &cr, C_EMPTY);
+                    fill(hdc, &cr, pal.empty);
                 }
             }
         }
@@ -582,16 +795,6 @@ fn hit_test_compact(rs: &RenderState, scale: f64, x: i32, y: i32) -> Option<RevE
         }
     }
     None
-}
-
-#[inline]
-fn sel_color(kind: u32) -> COLORREF {
-    // 0=Hanja → blue, 1=SpecialChar / 2=Emoji → green (POPUP_SPEC §5.1).
-    if kind == 0 {
-        C_SEL_HANJA
-    } else {
-        C_SEL_GREEN
-    }
 }
 
 /// 좌표 기준 선택과 SELECTED 플래그가 어긋나면 경고 로그 (§5.4 디버그 신호).
