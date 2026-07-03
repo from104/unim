@@ -38,7 +38,6 @@ const CELL_H: i32 = 34; // 격자 셀 높이
 const ROW_LABEL_W: i32 = 22; // 좌측 행 레이블 열 폭
 const COL_LABEL_H: i32 = 22; // 상단 열 레이블 행 높이
 const TAB_W: i32 = 76; // 이모지 좌측 탭 컬럼 폭 (§11.B 88→76)
-const TAB_H: i32 = 30; // 이모지 탭 1개 높이
 const COMPACT_ROW_H: i32 = 30; // 한자 compact 행 높이
 const COMPACT_MIN_W: i32 = 280; // compact 최소 폭
 const COMPACT_MAX_W: i32 = 560; // compact 최대 폭
@@ -158,10 +157,11 @@ fn measure_grid(rs: &RenderState, scale: f64) -> (i32, i32) {
     let grid_w = s(ROW_LABEL_W, scale) + GRID_COLS_FIXED * s(CELL_W, scale);
     let w = s(PAD, scale) * 2 + tab_w + grid_w;
     let footer = if rs.show_footer { s(FOOTER_H, scale) } else { 0 };
-    let grid_h = s(COL_LABEL_H, scale) + (rs.rows as i32) * s(CELL_H, scale);
-    // 이모지 탭 9개 높이가 격자보다 크면 그쪽을 따른다.
-    let tab_h = if emoji { 9 * s(TAB_H, scale) } else { 0 };
-    let body_h = grid_h.max(tab_h);
+    // 이모지 탭은 격자 행과 같은 높이(CELL_H)로 열 레이블 아래에서 시작해 행과 1:1 정렬한다.
+    // 본문 행 수 = 격자 행과 탭 개수(이모지 9개) 중 큰 쪽.
+    let n_tabs = if emoji { rs.tab_labels.len() as i32 } else { 0 };
+    let body_rows = (rs.rows as i32).max(n_tabs);
+    let body_h = s(COL_LABEL_H, scale) + body_rows * s(CELL_H, scale);
     let h = s(HEADER_H, scale) + body_h + footer + s(PAD * 2, scale);
     (w, h)
 }
@@ -356,14 +356,17 @@ unsafe fn paint_grid(
     let tab_w = if emoji { s(TAB_W, scale) } else { 0 };
     let body_top = s(HEADER_H, scale) + pad;
     let grid_left = pad + tab_w;
+    // 격자 셀 시작 y(열 레이블 아래). 이모지 탭도 여기서 시작해 격자 행과 1:1 정렬한다.
+    let cells_top = body_top + s(COL_LABEL_H, scale);
 
     // 이모지 좌측 9 카테고리 탭.
     if emoji {
         let font_tab = make_font(FONT_LABEL, scale, true);
         let old = SelectObject(hdc, font_tab.into());
         for (i, label) in rs.tab_labels.iter().enumerate() {
-            let y = body_top + (i as i32) * s(TAB_H, scale);
-            let tab_rect = RECT { left: pad, top: y, right: pad + tab_w - s(4, scale), bottom: y + s(TAB_H, scale) - s(2, scale) };
+            // 탭을 격자 행과 1:1 정렬: 열 레이블 아래(cells_top)에서 CELL_H 간격·높이로.
+            let y = cells_top + (i as i32) * s(CELL_H, scale);
+            let tab_rect = RECT { left: pad, top: y, right: pad + tab_w - s(4, scale), bottom: y + s(CELL_H, scale) - s(2, scale) };
             let active = (i as u32) == rs.active_tab_index;
             if active {
                 fill(hdc, &tab_rect, C_SEL_GREEN);
@@ -397,8 +400,7 @@ unsafe fn paint_grid(
         let col = if active { C_HDR_ACTIVE } else { C_HDR_INACTIVE };
         draw_text(hdc, text, &lr, col, DT_VCENTER | DT_SINGLELINE | DT_CENTER);
     }
-    // 좌측 행 레이블.
-    let cells_top = body_top + s(COL_LABEL_H, scale);
+    // 좌측 행 레이블. (cells_top 은 위에서 정의)
     for r in 0..rs.rows {
         let (text, active) = rs
             .row_headers
@@ -527,22 +529,23 @@ fn hit_test_grid(rs: &RenderState, scale: f64, x: i32, y: i32) -> Option<RevEven
     let tab_w = if emoji { s(TAB_W, scale) } else { 0 };
     let body_top = s(HEADER_H, scale) + pad;
     let grid_left = pad + tab_w;
+    // 격자 셀 시작 y(열 레이블 아래). 탭도 여기서 시작해 행과 1:1 정렬(paint_grid 와 동일 공식).
+    let cells_top = body_top + s(COL_LABEL_H, scale);
 
-    // 이모지 좌측 탭 (paint_grid 의 tab_rect 와 동일: (pad, body_top + i*s(TAB_H))).
+    // 이모지 좌측 탭 (paint_grid 의 tab_rect 와 동일: (pad, cells_top + i*CELL_H)).
     if emoji {
-        let tab_h = s(TAB_H, scale);
+        let tab_h = s(CELL_H, scale);
         // 탭 가시 폭: paint 는 [pad, pad + tab_w - s(4)]. 적중 폭은 [pad, pad+tab_w) 로 둔다.
-        if x >= pad && x < pad + tab_w && y >= body_top {
-            let i = (y - body_top) / tab_h;
+        if x >= pad && x < pad + tab_w && y >= cells_top {
+            let i = (y - cells_top) / tab_h;
             if i >= 0 && (i as usize) < rs.tab_labels.len() {
                 return Some(RevEvent::TabClick { index: i as u32 });
             }
         }
     }
 
-    // 격자 셀 (paint_grid: cells_left = grid_left + ROW_LABEL_W, cells_top = body_top + COL_LABEL_H).
+    // 격자 셀 (paint_grid: cells_left = grid_left + ROW_LABEL_W).
     let cells_left = grid_left + s(ROW_LABEL_W, scale);
-    let cells_top = body_top + s(COL_LABEL_H, scale);
     if x >= cells_left && y >= cells_top {
         let col = (x - cells_left) / s(CELL_W, scale);
         let row = (y - cells_top) / s(CELL_H, scale);
