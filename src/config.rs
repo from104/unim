@@ -876,6 +876,17 @@ pub struct EngineConfig {
     /// (능동 스크린리더 통지 NotifyWinEvent 는 본 옵션과 무관하게 항상 발생.)
     #[serde(default)]
     pub toggle_announce_beep: bool,
+
+    /// 조합키 자동반복 억제 — 조합/토글 키를 홀드했을 때 OS 자동반복 이벤트를
+    /// 무시한다 (접근성, 지체장애, 기본 false).
+    ///
+    /// 켜지면 키를 누르고 있을 때 반복 발생하는 자모 연타·한/영 토글 진동을 막아
+    /// 한 번의 눌림만 처리한다. Windows TSF 는 OnKeyDown/OnTestKeyDown 의 lParam
+    /// bit30(이전 키 상태=반복)으로 반복을 식별한다. 편집키(백스페이스/방향)와
+    /// 영문 직접입력의 자동반복은 영향받지 않고 그대로 유지된다.
+    /// 기본 false 로 현행 동작을 바이트동일 보존한다.
+    #[serde(default)]
+    pub ignore_key_repeat: bool,
 }
 
 impl Default for EngineConfig {
@@ -891,6 +902,7 @@ impl Default for EngineConfig {
             auto_typefix: AutoTypeFixConfig::default(),
             auto_english: AutoEnglishConfig::default(),
             toggle_announce_beep: false,
+            ignore_key_repeat: false,
         }
     }
 }
@@ -1516,6 +1528,44 @@ engine:
         assert!(
             !config.engine.toggle_announce_beep,
             "필드 부재 시 false(현행 무음 동작)로 채워져야 함"
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // ignore_key_repeat (조합키 자동반복 억제, 접근성) — 기본값 + 라운드트립
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 false — 현행 자동반복 동작을 바이트동일 보존(무회귀).
+    #[test]
+    fn ignore_key_repeat_default_is_false() {
+        assert!(!EngineConfig::default().ignore_key_repeat);
+        assert!(!Config::default().engine.ignore_key_repeat);
+    }
+
+    /// true 설정이 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn ignore_key_repeat_serde_roundtrips() {
+        let mut config = Config::default();
+        config.engine.ignore_key_repeat = true;
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(back.engine.ignore_key_repeat);
+    }
+
+    /// 레거시 YAML(필드 부재) → false (기존 config.yaml 무회귀).
+    #[test]
+    fn ignore_key_repeat_legacy_missing_field_is_false() {
+        let yaml = r#"
+engine:
+  default_category: English
+  toggle_keys:
+    - Korean
+    - RightAlt
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(
+            !config.engine.ignore_key_repeat,
+            "필드 부재 시 false(현행 자동반복 동작)로 채워져야 함"
         );
     }
 

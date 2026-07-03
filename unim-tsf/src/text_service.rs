@@ -818,6 +818,14 @@ impl ITfTextInputProcessor_Impl for UnimTextService_Impl {
     }
 }
 
+/// WM_KEYDOWN/WM_SYSKEYDOWN lParam 의 bit30(이전 키 상태)이 1이면 OS 자동반복
+/// (키가 이미 눌려 있던 상태에서 재발생). 접근성 옵션 `ignore_key_repeat` 가
+/// 조합/토글 처리에서 이 이벤트를 식별·억제하는 데 쓴다.
+#[inline]
+fn is_key_repeat(lparam: LPARAM) -> bool {
+    (lparam.0 & 0x4000_0000) != 0
+}
+
 // ── ITfKeyEventSink ──
 // v0.58: 출력 파라미터(pfEaten)가 반환값으로 변경되지 않고 raw pointer로 유지
 
@@ -842,7 +850,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         &self,
         pic: Ref<'_, ITfContext>,
         wparam: WPARAM,
-        _lparam: LPARAM,
+        lparam: LPARAM,
     ) -> Result<BOOL> {
         // ATF SendInput 폴백(synth_input)이 주입한 합성 키는 엔진을 거치지 않고
         // 식별: BS/유니코드는 통과(앱이 직접 처리), 센티널은 소비(OnKeyDown 에서
@@ -870,6 +878,28 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         let has_english_hold = self.composition_mgr.lock().unwrap().english_hold_active();
 
         let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
+
+        // ── 접근성: 조합키 자동반복 억제 (ignore_key_repeat, 지체장애) ──
+        //
+        // 옵션이 켜졌고 이 이벤트가 OS 자동반복(lParam bit30)이며, 대상 키가
+        // 한/영 토글키이거나 한글 모드의 문자키면 소비(eaten=TRUE)만 하고 조합/
+        // 토글 처리를 건너뛴다. 키 홀드 시 자모 연타·한/영 토글 진동을 막아 한 번의
+        // 눌림만 처리하게 한다. OnKeyDown 도 동일 가드로 실제 엔진 처리를 차단한다.
+        // 편집키(백스페이스/방향)와 영문 직접입력의 자동반복은 조건에서 제외되어
+        // 통과(정상 반복 유지). 기본 OFF → 무회귀.
+        if config.engine.ignore_key_repeat
+            && is_key_repeat(lparam)
+            && (engine.is_toggle_key(kc)
+                || (kc.is_character_key()
+                    && engine.input_category() == InputCategory::Korean))
+        {
+            crate::register::dbg_log_ev!(
+                "OnTestKeyDown: 자동반복 억제(ignore_key_repeat)",
+                "OnTestKeyDown: 자동반복 억제 vk=0x{:02X}",
+                wparam.0 as u16
+            );
+            return Ok(TRUE);
+        }
 
         // ── 버그③: 조합 중 수정자 단축키(Ctrl+J, Shift+Del 등) 패스쓰루 ──
         //
@@ -998,7 +1028,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         Ok(BOOL::from(eaten))
     }
 
-    fn OnKeyDown(&self, pic: Ref<'_, ITfContext>, wparam: WPARAM, _lparam: LPARAM) -> Result<BOOL> {
+    fn OnKeyDown(&self, pic: Ref<'_, ITfContext>, wparam: WPARAM, lparam: LPARAM) -> Result<BOOL> {
         // [imm32 진입 진단] OnKeyDown 무조건 진입 로그. OnTestKeyDown 은 찍히는데
         // OnKeyDown 이 안 찍히면(=test 만 FALSE 반환) 키 라우팅 단절 지점 식별 가능.
         crate::register::dbg_log_ev!(
@@ -1079,6 +1109,29 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         };
         let mut engine = self.engine.lock().unwrap();
         let config = self.config.lock().unwrap();
+
+        // ── 접근성: 조합키 자동반복 억제 (ignore_key_repeat, 지체장애) ──
+        // OnTestKeyDown 가드와 동일 조건. OnTestKeyDown 이 미발화하는 앱
+        // (wmux/xterm.js 등)에서도 여기서 반복을 차단하도록 이중 가드.
+        // 반복 이벤트(lParam bit30)이고 옵션이 켜졌으며 토글키 또는 한글모드 문자키면
+        // 소비만 하고 엔진 처리를 건너뛴다 → 자모 연타·토글 진동 억제.
+        {
+            let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
+            if config.engine.ignore_key_repeat
+                && is_key_repeat(lparam)
+                && (engine.is_toggle_key(kc)
+                    || (kc.is_character_key()
+                        && engine.input_category() == InputCategory::Korean))
+            {
+                crate::register::dbg_log_ev!(
+                    "OnKeyDown: 자동반복 억제(ignore_key_repeat)",
+                    "OnKeyDown: 자동반복 억제 vk=0x{:02X}",
+                    wparam.0 as u16
+                );
+                return Ok(TRUE);
+            }
+        }
+
         let mut comp_mgr = self.composition_mgr.lock().unwrap();
         let mut popup_ipc = self.popup_ipc.lock().unwrap();
         let mut preedit_win = self.preedit_window.lock().unwrap();

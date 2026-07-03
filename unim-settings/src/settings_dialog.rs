@@ -751,6 +751,30 @@ fn build_accessibility_group(state: &State) -> adw::PreferencesGroup {
     }
     group.add(&sw);
 
+    // 조합키 자동반복 억제 (지체장애 접근성) — 키 홀드 시 연타·토글 진동 방지.
+    // Windows TSF 전용 동작이지만 config.yaml 을 공유하므로 노출.
+    let sw_repeat = adw::SwitchRow::builder()
+        .title(t!("row_ignore_key_repeat"))
+        .subtitle(t!("row_ignore_key_repeat_subtitle"))
+        .build();
+    sw_repeat.set_tooltip_text(Some(t!("row_ignore_key_repeat_tooltip").as_ref()));
+    {
+        let s = state.borrow();
+        sw_repeat.set_active(s.config.engine.ignore_key_repeat);
+    }
+    {
+        let state_c = state.clone();
+        sw_repeat.connect_active_notify(move |sw_repeat| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.ignore_key_repeat = sw_repeat.is_active();
+            save_and_notify(&s.config, "ignore_key_repeat");
+        });
+    }
+    group.add(&sw_repeat);
+
     group
 }
 

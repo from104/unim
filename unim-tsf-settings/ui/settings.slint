@@ -192,6 +192,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> auto-english-enabled;
     in-out property <string> auto-english-keys;
     in-out property <bool> toggle-announce-beep;
+    in-out property <bool> ignore-key-repeat;
 
     // ── 오타 교정 ──
     in-out property <bool> atf-enabled;
@@ -496,6 +497,15 @@ export component SettingsWindow inherits Window {
                             Switch {
                                 checked <=> root.toggle-announce-beep;
                                 accessible-label: "한/영 전환 소리 알림";
+                                toggled => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "조합키 자동반복 억제";
+                            description: "키를 누르고 있을 때 발생하는 자동반복을 무시해 자모 연타·한/영 토글 진동을 막습니다. 편집키(백스페이스·방향키)와 영문 입력의 반복은 유지됩니다. 지체장애 사용자를 위한 기능입니다.";
+                            Switch {
+                                checked <=> root.ignore-key-repeat;
+                                accessible-label: "조합키 자동반복 억제";
                                 toggled => { root.auto-save(); }
                             }
                         }

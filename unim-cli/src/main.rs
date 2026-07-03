@@ -463,6 +463,9 @@ enum ConfigKey {
     /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음. Windows 전용.
     #[value(name = "toggle-announce-beep")]
     ToggleAnnounceBeep,
+    /// 조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows 전용.
+    #[value(name = "ignore-key-repeat")]
+    IgnoreKeyRepeat,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -797,6 +800,16 @@ fn config_show() {
         "{}: {}",
         t!("toggle_announce_beep_label"),
         toggle_beep_status
+    );
+    let ignore_repeat_status = if config.engine.ignore_key_repeat {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+    println!(
+        "{}: {}",
+        t!("ignore_key_repeat_label"),
+        ignore_repeat_status
     );
     println!(
         "{}: {}",
@@ -1250,6 +1263,19 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             println!(
                 "{}: {}",
                 t!("toggle_announce_beep_label"),
+                if enabled { t!("enabled") } else { t!("disabled") }
+            );
+        }
+        ConfigKey::IgnoreKeyRepeat => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.ignore_key_repeat = enabled;
+            println!(
+                "{}: {}",
+                t!("ignore_key_repeat_label"),
                 if enabled { t!("enabled") } else { t!("disabled") }
             );
         }

@@ -44,6 +44,9 @@ group_accessibility: "접근성"
 row_toggle_announce_beep: "한/영 전환 소리 알림"
 row_toggle_announce_beep_subtitle: "한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. (Windows 전용)"
 row_toggle_announce_beep_tooltip: "화면을 보지 않고도 한/영 모드를 소리로 확인할 수 있습니다. 시각장애 사용자를 위한 기능입니다."
+row_ignore_key_repeat: "조합키 자동반복 억제"
+row_ignore_key_repeat_subtitle: "키를 누르고 있을 때 발생하는 자동반복을 무시해 자모 연타·한/영 토글 진동을 막습니다. 편집키(백스페이스·방향키)와 영문 입력의 반복은 그대로 유지됩니다. (Windows 전용)"
+row_ignore_key_repeat_tooltip: "손 떨림 등으로 키를 오래 누르게 되는 지체장애 사용자를 위한 기능입니다. 한 번의 눌림만 처리합니다."
 
 # 자판 옵션 페이지
 group_layout_options_empty: "이 자판은 옵션 규칙이 없습니다."

@@ -257,6 +257,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_auto_english_keys(e.auto_english.trigger_keys.join(", ").into());
         // I7: 한/영 전환 비프 통지 (접근성).
         ui.set_toggle_announce_beep(e.toggle_announce_beep);
+        // 조합키 자동반복 억제 (접근성, 지체장애).
+        ui.set_ignore_key_repeat(e.ignore_key_repeat);
 
         let a = &e.auto_typefix;
         ui.set_atf_enabled(a.enabled);
@@ -328,6 +330,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             e.auto_english.trigger_keys = split_keys(&ui.get_auto_english_keys());
             // I7: 한/영 전환 비프 통지 (접근성).
             e.toggle_announce_beep = ui.get_toggle_announce_beep();
+            // 조합키 자동반복 억제 (접근성, 지체장애).
+            e.ignore_key_repeat = ui.get_ignore_key_repeat();
 
             let a = &mut e.auto_typefix;
             a.enabled = ui.get_atf_enabled();

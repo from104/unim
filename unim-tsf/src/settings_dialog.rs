@@ -80,6 +80,8 @@ const ID_EDT_AUTO_ENG_TRIGGERS: u32 = 5021;
 
 // I7: 한/영 전환 소리 알림 (접근성)
 const ID_CHK_TOGGLE_BEEP: u32 = 5030;
+// 조합키 자동반복 억제 (접근성, 지체장애)
+const ID_CHK_IGNORE_REPEAT: u32 = 5031;
 
 // 오타 교정 탭 (1xxx, 2xxx, 3xxx)
 
@@ -796,6 +798,10 @@ unsafe fn build_page_general_rest(page: HWND, config: &Config, mut y: i32) {
     y += row_h + 2;
     create_checkbox(page, "한/영 전환 소리 알림(비프)", ID_CHK_TOGGLE_BEEP,
         lm + 10, y, full_w - 10, row_h, config.engine.toggle_announce_beep);
+    y += row_h + 2;
+    // 조합키 자동반복 억제 (지체장애) — 키 홀드 시 연타·토글 진동 방지.
+    create_checkbox(page, "조합키 자동반복 억제(키 홀드)", ID_CHK_IGNORE_REPEAT,
+        lm + 10, y, full_w - 10, row_h, config.engine.ignore_key_repeat);
     y += row_h + gap * 2;
 
     // ── 기본 입력기 ──────────────────────────────────────────────────────────
@@ -1292,6 +1298,10 @@ unsafe fn collect_general(state: &mut DlgState) {
     // I7: 한/영 전환 소리 알림
     if let Some(h) = get_ctrl(pg, ID_CHK_TOGGLE_BEEP) {
         state.config.engine.toggle_announce_beep = checkbox_checked(h);
+    }
+    // 조합키 자동반복 억제 (지체장애)
+    if let Some(h) = get_ctrl(pg, ID_CHK_IGNORE_REPEAT) {
+        state.config.engine.ignore_key_repeat = checkbox_checked(h);
     }
 }
 
