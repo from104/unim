@@ -494,9 +494,23 @@ pub fn handle_key_down(
                 }
             } else {
                 let pos = get_composition_screen_pos(context, tid);
-                let win = preedit_win
-                    .get_or_insert_with(|| PreeditWindow::create().expect("PreeditWindow 생성 실패"));
-                win.show(&preedit, pos);
+                // 오버레이 창 lazy 생성. panic=abort 하에서 이 경로는 COM 콜백(OnKeyDown)
+                // 내부이므로, 생성 실패(리소스 부족·세션0·핸들 고갈 등)에 .expect() 로
+                // 패닉하면 host(wezterm 등 터미널·레거시 앱)를 통째로 abort 시킨다.
+                // 로그 후 오버레이만 스킵한다 — 확정 글자 삽입·입력 기능은 정상 유지.
+                if preedit_win.is_none() {
+                    match PreeditWindow::create() {
+                        Ok(w) => *preedit_win = Some(w),
+                        Err(e) => {
+                            crate::register::dbg_log(&format!(
+                                "PreeditWindow 생성 실패 → preedit 오버레이 스킵(host abort 회피): {e:?}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(win) = preedit_win.as_mut() {
+                    win.show(&preedit, pos);
+                }
             }
             // reload-guard / is_busy 가 참조하는 "활성 preedit" 표식.
             fallback_pending.store(preedit.chars().count(), Ordering::SeqCst);

@@ -1516,7 +1516,11 @@ impl ITfEditSession_Impl for ReadSelectionEditSession_Impl {
             anchor_range
                 .GetText(ec, 0, &mut anchor_buf, &mut anchor_fetched)
                 .unwrap_or(());
-            let anchor_text = String::from_utf16_lossy(&anchor_buf[..anchor_fetched as usize]);
+            // fetched 는 GetText 계약상 버퍼 길이 이하지만, CUAS/IMM32 브리지 등
+            // 오작동 앱이 초과값을 돌려주면 슬라이스 인덱스 초과로 패닉→host abort 가
+            // 난다. 버퍼 길이로 clamp 해 방어(정상 경로는 min 이 no-op 라 동작 불변).
+            let anchor_n = (anchor_fetched as usize).min(anchor_buf.len());
+            let anchor_text = String::from_utf16_lossy(&anchor_buf[..anchor_n]);
             let anchor_pos = anchor_text.chars().count() as u32;
 
             // 3. cursor 위치 계산: sel_range 끝(TF_ANCHOR_END) 앞 텍스트 길이
@@ -1530,7 +1534,9 @@ impl ITfEditSession_Impl for ReadSelectionEditSession_Impl {
             cursor_range
                 .GetText(ec, 0, &mut cursor_buf, &mut cursor_fetched)
                 .unwrap_or(());
-            let cursor_text_before = String::from_utf16_lossy(&cursor_buf[..cursor_fetched as usize]);
+            // (위 anchor 와 동일) fetched 초과값 방어 — 인덱스 초과 패닉→host abort 차단.
+            let cursor_n = (cursor_fetched as usize).min(cursor_buf.len());
+            let cursor_text_before = String::from_utf16_lossy(&cursor_buf[..cursor_n]);
             let cursor_pos = cursor_text_before.chars().count() as u32;
 
             // surrounding_text 는 cursor 위치까지의 텍스트 (typefix_convert 가 사용하는 컨텍스트)
@@ -1610,7 +1616,10 @@ pub(crate) fn read_text_before_cursor_len(context: &ITfContext, ec: u32) -> Opti
         if cursor_range.GetText(ec, 0, &mut buf, &mut got).is_err() {
             return None;
         }
-        let text = String::from_utf16_lossy(&buf[..got as usize]);
+        // fetched(got) 초과값 방어 — 슬라이스 인덱스 초과 패닉→host abort 차단
+        // (정상 경로는 got<=buf.len() 라 min 이 no-op, 동작 불변).
+        let got_n = (got as usize).min(buf.len());
+        let text = String::from_utf16_lossy(&buf[..got_n]);
         Some(text.chars().count() as u32)
     }
 }

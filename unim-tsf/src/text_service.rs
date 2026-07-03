@@ -624,29 +624,34 @@ impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
         // ── 랭귀지바 버튼 등록 ──────────────────────────────────────────────
         unsafe {
             if let Ok(lbmgr) = thread_mgr.cast::<ITfLangBarItemMgr>() {
-                // 공유 상태 Arc (이미 new() 에서 생성됨)
-                let state_arc = {
-                    self.langbar_state.lock().unwrap()
-                        .clone()
-                        .expect("langbar_state must be initialized in new()")
-                };
-                // compartment 동기화용 thread_mgr + tid 주입. 이후 state.update()
-                // (OnKeyDown · 랭귀지바 클릭 양쪽)가 OS 입력 표시기를 갱신한다.
-                state_arc.set_tsf(thread_mgr.clone(), tid);
-                // 갭2: engine Arc · config Arc 를 버튼에 주입
-                let btn = UnimLangBarButton::new(
-                    state_arc,
-                    Arc::clone(&self.engine),
-                    Arc::clone(&self.config),
-                );
-                // ITfLangBarItemButton → ITfLangBarItem (계층 관계) 으로 캐스팅
-                let btn_button: ITfLangBarItemButton = btn.into();
-                let btn_item: ITfLangBarItem = btn_button.cast()?;
-                let _ = lbmgr.AddItem(&btn_item);
-                // COM 참조 보관 (Deactivate 시 RemoveItem 용)
-                let btn_button2: ITfLangBarItemButton = btn_item.cast()?;
-                *self.langbar_btn.lock().unwrap() = Some(btn_button2);
-                *self.langbar_item.lock().unwrap() = Some(btn_item);
+                // 공유 상태 Arc (이미 new() 에서 생성됨 — 불변식). None 은 논리상
+                // 도달 불가하나, Activate 는 COM 콜백이라 panic=abort 하에서
+                // .expect() 패닉이 host 를 abort 시킨다. expect 대신 로그 후
+                // 랭귀지바 버튼 등록만 스킵한다(입력 기능 자체엔 무영향).
+                let state_opt = self.langbar_state.lock().unwrap().clone();
+                if let Some(state_arc) = state_opt {
+                    // compartment 동기화용 thread_mgr + tid 주입. 이후 state.update()
+                    // (OnKeyDown · 랭귀지바 클릭 양쪽)가 OS 입력 표시기를 갱신한다.
+                    state_arc.set_tsf(thread_mgr.clone(), tid);
+                    // 갭2: engine Arc · config Arc 를 버튼에 주입
+                    let btn = UnimLangBarButton::new(
+                        state_arc,
+                        Arc::clone(&self.engine),
+                        Arc::clone(&self.config),
+                    );
+                    // ITfLangBarItemButton → ITfLangBarItem (계층 관계) 으로 캐스팅
+                    let btn_button: ITfLangBarItemButton = btn.into();
+                    let btn_item: ITfLangBarItem = btn_button.cast()?;
+                    let _ = lbmgr.AddItem(&btn_item);
+                    // COM 참조 보관 (Deactivate 시 RemoveItem 용)
+                    let btn_button2: ITfLangBarItemButton = btn_item.cast()?;
+                    *self.langbar_btn.lock().unwrap() = Some(btn_button2);
+                    *self.langbar_item.lock().unwrap() = Some(btn_item);
+                } else {
+                    crate::register::dbg_log(
+                        "langbar_state 미초기화(불변식 위반) → 랭귀지바 버튼 등록 스킵",
+                    );
+                }
             }
         }
 
