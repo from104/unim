@@ -66,6 +66,21 @@ jobs:
             -p unim-capi `
             -p unim-tsf
 
+      - name: cargo test (core + native Windows crates)
+        # 릴리스 출하 전 동작 검증 게이트. 코어(unim) + MSVC 타깃으로
+        # 이미 cargo check 되는 unim-capi/unim-tsf + 순수 유닛테스트만
+        # 있는 unim-windows-common/unim-popup-win 포함.
+        # unim-keymap-common 은 gtk4/libadwaita(Linux GUI) 의존이라 제외
+        # (MSVC 타깃 크로스컴파일 불가).
+        # (COM/GUI 인스턴스화·레지스트리 실기록 테스트 없음 — 헤드리스 러너 안전.)
+        run: |
+          cargo test --target ${{ env.WIN_TARGET }} --locked `
+            -p unim `
+            -p unim-capi `
+            -p unim-tsf `
+            -p unim-windows-common `
+            -p unim-popup-win
+
       - name: cargo build (release, MSI payloads)
         # MSI 가 패키징하는 산출물 전부: TSF DLL + 설정 GUI + 팝업 렌더러 + IMM32 IME (x64).
         run: |
