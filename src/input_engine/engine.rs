@@ -94,6 +94,12 @@ pub struct InputEngine {
     /// `Word` 면 `korean_context.set_accumulate_word(true)` 로 단어 누적을 켠다.
     /// `set_word_mode` 토글·`rebuild`/`set_layout` 재구성 경로에서 일관되게 반영된다.
     pub(super) commit_unit: CommitUnit,
+    /// 단어 모드 대상 앱 목록(정확일치) — `config.engine.korean.word_mode_apps` 캐시.
+    ///
+    /// TSF `Smart` 게이트가 `is_word_mode_app` 로 조회한다. `new`/`rebuild_korean_context`
+    /// 재구성 경로에서 config 와 동기화된다. 기본값 `["winword.exe","wmux.exe"]` 에서
+    /// 종전 하드코딩 화이트리스트와 바이트 동일. Windows TSF 전용(그 외 프런트엔드 미사용).
+    pub(super) word_mode_apps: Vec<String>,
     /// 비밀번호/PIN 필드 진입 시 저장한 직전 입력 카테고리 (자동 복구용).
     ///
     /// `set_content_purpose` 상태머신이 password/PIN 진입 시 현재 카테고리를
@@ -132,6 +138,7 @@ impl InputEngine {
         let hanja_dict = std::sync::Arc::new(crate::hanja::HanjaDictionary::new());
 
         let commit_unit = config.engine.korean.commit_unit;
+        let word_mode_apps = config.engine.korean.word_mode_apps.clone();
 
         let mut engine = Self {
             input_category: config.engine.default_category,
@@ -189,6 +196,7 @@ impl InputEngine {
             surrounding_cursor: 0,
             surrounding_anchor: 0,
             commit_unit,
+            word_mode_apps,
             saved_category: None,
         };
 
@@ -342,6 +350,17 @@ impl InputEngine {
     /// 앱별 단어모드 desired 판정(Syllable→off / Word→on / Smart→앱판정)에 사용한다.
     pub fn commit_unit(&self) -> CommitUnit {
         self.commit_unit
+    }
+
+    /// 프로세스 실행 파일명이 단어 모드 대상 앱 목록(정확일치)에 속하는지 판정한다.
+    ///
+    /// `config.engine.korean.word_mode_apps` 캐시를 정확일치(`==`)로 조회한다. 기본값
+    /// `["winword.exe","wmux.exe"]` 에서 종전 하드코딩(`n == "winword.exe" || n ==
+    /// "wmux.exe"`)과 바이트 동일 — 대소문자 구분·부분일치 없음. TSF `Smart` 확정 단위
+    /// 게이트(OnKeyDown 매-키 재적용 + OnSetFocus)가 앱별 단어 모드 desired 판정에 쓴다.
+    /// 앱 호환 목록이 코드 릴리스와 분리되어 config.yaml/CLI 로 확장 가능하다.
+    pub fn is_word_mode_app(&self, name: &str) -> bool {
+        self.word_mode_apps.iter().any(|app| app == name)
     }
 
     /// commit 문자열을 반환합니다.
@@ -569,6 +588,8 @@ impl InputEngine {
 
         // commit_unit 도 config 에서 재동기화 (hot-reload 경로).
         self.commit_unit = config.engine.korean.commit_unit;
+        // 단어 모드 앱 목록도 재동기화 (config.yaml/CLI 편집 → maybe_reload_config 반영).
+        self.word_mode_apps = config.engine.korean.word_mode_apps.clone();
 
         // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
         self.korean_context = build_korean_context(config, composer_type);
@@ -701,6 +722,46 @@ mod tests {
         engine.set_input_category(InputCategory::Korean);
         type_ganan(&mut engine, &config);
         assert_eq!(engine.preedit_str(), "나", "Smart 는 Phase2 에서 누적 off");
+    }
+
+    /// is_word_mode_app 기본값은 종전 하드코딩(winword.exe/wmux.exe, 정확일치)과 바이트 동일.
+    /// 대소문자 구분·부분일치 없음 — 비대상 앱(chrome/wezterm/대문자)은 false 유지.
+    #[test]
+    fn is_word_mode_app_default_matches_winword_wmux_exact() {
+        let engine = InputEngine::new(&Config::default());
+        assert!(engine.is_word_mode_app("winword.exe"));
+        assert!(engine.is_word_mode_app("wmux.exe"));
+        // 정확일치 — 대문자/부분일치/비대상 앱은 불일치(무회귀).
+        assert!(!engine.is_word_mode_app("WINWORD.EXE"));
+        assert!(!engine.is_word_mode_app("winword"));
+        assert!(!engine.is_word_mode_app("chrome.exe"));
+        assert!(!engine.is_word_mode_app("wezterm-gui.exe"));
+        assert!(!engine.is_word_mode_app(""));
+    }
+
+    /// config 목록을 확장하면 새 앱도 단어 모드 대상이 되고, 목록에서 빠지면 제외된다.
+    #[test]
+    fn is_word_mode_app_respects_config_override() {
+        let mut config = Config::default();
+        config.engine.korean.word_mode_apps =
+            vec!["kakaotalk.exe".to_string(), "winword.exe".to_string()];
+        let engine = InputEngine::new(&config);
+        assert!(engine.is_word_mode_app("kakaotalk.exe"), "확장된 앱은 대상");
+        assert!(engine.is_word_mode_app("winword.exe"));
+        assert!(
+            !engine.is_word_mode_app("wmux.exe"),
+            "목록에서 빠진 앱은 제외"
+        );
+    }
+
+    /// 빈 목록이면 어떤 앱도 단어 모드 대상이 아니다(Smart 게이트 항상 syllable).
+    #[test]
+    fn is_word_mode_app_empty_list_matches_nothing() {
+        let mut config = Config::default();
+        config.engine.korean.word_mode_apps = Vec::new();
+        let engine = InputEngine::new(&config);
+        assert!(!engine.is_word_mode_app("winword.exe"));
+        assert!(!engine.is_word_mode_app("wmux.exe"));
     }
 
     /// set_word_mode(true) 가 런타임에 단어 누적을 켠다.

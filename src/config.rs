@@ -516,6 +516,15 @@ impl Default for AutoEnglishConfig {
     }
 }
 
+/// `word_mode_apps` 기본값 — 종전 하드코딩 화이트리스트(정확일치)와 바이트 동일.
+///
+/// TSF `Smart` 확정 단위 게이트가 이 목록의 프로세스 실행 파일명(정확일치)만 단어
+/// 모드로 켠다. `winword.exe`(MS Word) + `wmux.exe`(xterm.js/Blink contenteditable,
+/// OnTestKeyDown 미발화 → 음절모드 synth 그리드 desync 회피) 2종을 seed 한다.
+fn default_word_mode_apps() -> Vec<String> {
+    vec!["winword.exe".to_string(), "wmux.exe".to_string()]
+}
+
 /// 한국어 엔진 설정
 ///
 /// Phase 8에서 `layout` 필드가 enum에서 문자열로 통합됨. 이전의 `custom_layout`
@@ -582,6 +591,15 @@ pub struct KoreanConfig {
     /// 승격된다. TSF 게이트가 이 값을 앱별 단어모드 desired 판정에 사용한다.
     #[serde(default)]
     pub commit_unit: CommitUnit,
+
+    /// 단어 모드(단어 단위 조합) 대상 앱 목록 — 프로세스 실행 파일명 정확일치.
+    ///
+    /// TSF `Smart` 확정 단위 게이트가 이 목록에 정확히 일치하는 포그라운드 프로세스명만
+    /// 단어 모드로 켠다(그 외는 음절 단위). Windows TSF 전용 — Linux 프런트엔드는 미사용.
+    /// 기본값 `["winword.exe","wmux.exe"]` 에서 종전 하드코딩 게이트와 **바이트 동일**.
+    /// 앱 호환을 코드 릴리스와 분리(config.yaml/CLI 로 편집, `maybe_reload_config` 핫리로드).
+    #[serde(default = "default_word_mode_apps")]
+    pub word_mode_apps: Vec<String>,
 }
 
 impl Default for KoreanConfig {
@@ -593,6 +611,7 @@ impl Default for KoreanConfig {
             bidirectional_combine: None,
             chord_window_ms: None,
             commit_unit: CommitUnit::default(),
+            word_mode_apps: default_word_mode_apps(),
         }
     }
 }
@@ -720,6 +739,9 @@ struct KoreanConfigCompat {
     /// `Some(_)` = 명시 설정(브리지보다 우선).
     #[serde(default)]
     commit_unit: Option<CommitUnit>,
+    /// 단어 모드 앱 목록 (정확일치). 미지정 → 기본값(winword.exe/wmux.exe).
+    #[serde(default = "default_word_mode_apps")]
+    word_mode_apps: Vec<String>,
 }
 
 impl Default for KoreanConfigCompat {
@@ -734,6 +756,7 @@ impl Default for KoreanConfigCompat {
             bidirectional_combine: None,
             chord_window_ms: None,
             commit_unit: None,
+            word_mode_apps: default_word_mode_apps(),
         }
     }
 }
@@ -758,6 +781,7 @@ impl From<KoreanConfigCompat> for KoreanConfig {
             bidirectional_combine: c.bidirectional_combine,
             chord_window_ms: c.chord_window_ms,
             commit_unit,
+            word_mode_apps: c.word_mode_apps,
         }
     }
 }
@@ -1371,6 +1395,81 @@ commit_unit: Syllable
         for u in CommitUnit::all() {
             assert!(!u.display_name().is_empty());
         }
+    }
+
+    // ─────────────────────────────────────────────
+    // word_mode_apps (I4 per-app 앱호환 외부화) — 기본값 보존 + 직렬화 라운드트립
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 종전 하드코딩 화이트리스트(winword.exe/wmux.exe, 순서·정확일치)와 바이트 동일.
+    #[test]
+    fn word_mode_apps_default_is_winword_wmux() {
+        assert_eq!(
+            KoreanConfig::default().word_mode_apps,
+            vec!["winword.exe".to_string(), "wmux.exe".to_string()],
+            "기본값이 종전 하드코딩 게이트와 바이트 동일해야 함(무회귀)"
+        );
+    }
+
+    /// 사용자 지정 목록이 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn word_mode_apps_serde_roundtrips() {
+        let mut kc = KoreanConfig::default();
+        kc.word_mode_apps = vec!["winword.exe".to_string(), "foo.exe".to_string()];
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(
+            back.word_mode_apps,
+            vec!["winword.exe".to_string(), "foo.exe".to_string()]
+        );
+    }
+
+    /// 레거시 YAML(필드 부재) → 기본값(winword.exe/wmux.exe). 기존 config.yaml 무회귀.
+    #[test]
+    fn word_mode_apps_legacy_missing_field_uses_default() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.word_mode_apps,
+            vec!["winword.exe".to_string(), "wmux.exe".to_string()],
+            "필드 부재 시 기본값(종전 하드코딩)으로 채워져야 함"
+        );
+    }
+
+    /// 명시적 빈 목록(`word_mode_apps: []`)은 빈 vec 로 보존된다
+    /// (= Smart 게이트가 어떤 앱도 단어 모드로 켜지 않음, 유효한 의도).
+    #[test]
+    fn word_mode_apps_explicit_empty_list_preserved() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_mode_apps: []
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.word_mode_apps, Vec::<String>::new());
+    }
+
+    /// 사용자 지정 목록이 KoreanConfigCompat 브리지를 통해 그대로 흡수된다.
+    #[test]
+    fn word_mode_apps_explicit_list_overrides_default() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_mode_apps:
+  - winword.exe
+  - wmux.exe
+  - kakaotalk.exe
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.word_mode_apps,
+            vec![
+                "winword.exe".to_string(),
+                "wmux.exe".to_string(),
+                "kakaotalk.exe".to_string()
+            ]
+        );
     }
 
     // ─────────────────────────────────────────────

@@ -96,6 +96,7 @@ unim-cli config [SUBCOMMAND] [ARGS...] # 설정 서브커맨드
 | `auto-typefix-tentative-expiry-hours` | 1 ~ 12 |
 | `auto-typefix-observation-timeout-secs` | 5 ~ 15 |
 | `app-rules` | JSON 배열 (`[{"app_pattern":"code","default_category":"english"}]`) |
+| `word-mode-apps` | 쉼표 구분, 실행 파일명 정확일치 (예: `winword.exe,wmux.exe`). Windows 전용 |
 
 값 범위는 `unim::config` SSoT 상수(`AUTO_TYPEFIX_*_MIN/MAX`)를 그대로 사용하며, 저장 전에 `AutoTypeFix::clamp_ranges()`로 방어합니다.
 

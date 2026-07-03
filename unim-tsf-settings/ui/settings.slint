@@ -9,8 +9,9 @@
 //  - 자동저장 배선: 위젯 콜백(selected/toggled/edited/accepted/clicked)에서만
 //    root.auto-save() 호출. 'changed' 핸들러 금지(초기 set_* 저장폭주 방지).
 //
-// main.rs 계약(절대 불변): 컴포넌트명 SettingsWindow, in-out property 28개,
-// callback 6개, default-font-family "Malgun Gothic".
+// main.rs 계약(절대 불변): 컴포넌트명 SettingsWindow, in-out property 29개
+// (word-mode-apps 추가 — I4 per-app 앱호환 config 외부화), callback 6개,
+// default-font-family "Malgun Gothic".
 
 import {
     ComboBox, SpinBox, LineEdit, Button, Switch,
@@ -186,6 +187,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> mode-sharing-index;
     in-out property <string> toggle-keys;
     in-out property <string> hanja-keys;
+    in-out property <string> word-mode-apps;
     in-out property <bool> auto-english-enabled;
     in-out property <string> auto-english-keys;
 
@@ -372,6 +374,17 @@ export component SettingsWindow inherits Window {
                                 current-index <=> root.commit-unit-index;
                                 accessible-label: "한글 확정 단위";
                                 selected => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: "단어 모드 앱";
+                            description: "스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(실행 파일명 정확일치, 예: winword.exe). 기본값: winword.exe, wmux.exe. Windows 전용.";
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.word-mode-apps;
+                                placeholder-text: "예: winword.exe, wmux.exe";
+                                accessible-label: "단어 모드 앱";
+                                edited => { root.auto-save(); }
                             }
                         }
                         SettingRow {

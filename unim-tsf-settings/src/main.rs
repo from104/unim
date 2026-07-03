@@ -242,6 +242,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         ui.set_toggle_keys(e.toggle_keys.join(", ").into());
         ui.set_hanja_keys(e.hanja_keys.join(", ").into());
+        // 단어 모드 앱 화이트리스트 (Smart 게이트 정확일치 대상, Windows 전용).
+        ui.set_word_mode_apps(e.korean.word_mode_apps.join(", ").into());
         ui.set_auto_english_enabled(e.auto_english.enabled);
         ui.set_auto_english_keys(e.auto_english.trigger_keys.join(", ").into());
 
@@ -309,6 +311,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             e.toggle_keys = split_keys(&ui.get_toggle_keys());
             e.hanja_keys = split_keys(&ui.get_hanja_keys());
+            // 단어 모드 앱 목록 (빈 목록도 유효 = Smart 게이트가 어떤 앱도 단어 모드 안 켬).
+            e.korean.word_mode_apps = split_keys(&ui.get_word_mode_apps());
             e.auto_english.enabled = ui.get_auto_english_enabled();
             e.auto_english.trigger_keys = split_keys(&ui.get_auto_english_keys());
 

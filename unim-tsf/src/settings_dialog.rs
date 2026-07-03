@@ -73,6 +73,7 @@ const ID_LBL_CHORD_MS: u32 = 5003;
 
 const ID_EDT_TOGGLE_KEYS: u32 = 5010;
 const ID_EDT_HANJA_KEYS: u32 = 5011;
+const ID_EDT_WORD_MODE_APPS: u32 = 5012;
 
 const ID_CHK_AUTO_ENG: u32 = 5020;
 const ID_EDT_AUTO_ENG_TRIGGERS: u32 = 5021;
@@ -775,6 +776,17 @@ unsafe fn build_page_general_rest(page: HWND, config: &Config, mut y: i32) {
         lm + lbl_w + 4, y, edit_w, row_h);
     y += row_h + gap * 2;
 
+    // ── 단어 모드 앱 ─────────────────────────────────────────────────────────
+    // Smart 확정 단위 게이트가 단어 단위로 조합할 앱(실행 파일명 정확일치, 쉼표 구분).
+    // 기본값 winword.exe/wmux.exe. 앱 호환을 코드 릴리스와 분리(config.yaml 핫리로드).
+    create_static(page, "[ 단어 모드 ]", lm, y, 200, row_h);
+    y += row_h + 2;
+    create_static(page, "단어 모드 앱:", lm, y, lbl_w, row_h);
+    create_edit(page, ID_EDT_WORD_MODE_APPS,
+        &config.engine.korean.word_mode_apps.join(", "),
+        lm + lbl_w + 4, y, edit_w, row_h);
+    y += row_h + gap * 2;
+
     // ── 기본 입력기 ──────────────────────────────────────────────────────────
     create_static(page, "[ 기본 입력기 ]", lm, y, 200, row_h);
     y += row_h + 4;
@@ -1251,6 +1263,11 @@ unsafe fn collect_general(state: &mut DlgState) {
     // 한자키
     if let Some(h) = get_ctrl(pg, ID_EDT_HANJA_KEYS) {
         state.config.engine.hanja_keys = parse_key_list(&edit_get_text(h));
+    }
+
+    // 단어 모드 앱 화이트리스트 (Smart 게이트 정확일치 대상). 빈 목록도 유효.
+    if let Some(h) = get_ctrl(pg, ID_EDT_WORD_MODE_APPS) {
+        state.config.engine.korean.word_mode_apps = parse_key_list(&edit_get_text(h));
     }
 
     // 자동 영문
