@@ -1574,8 +1574,33 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
                 CommitUnit::Smart => is_word_app && !known_cuas,
             };
             // 진단: ThreadMgr OnSetFocus 게이트 발화 여부 + 판정 확인용(매-키 게이트와 동일 포맷).
+            //
+            // Excel 첫 키 유실 조사(H1 확정 / H3 배제용) 스모킹건 필드 확장.
+            //   바로 아래 engine.reset()(preedit clear)이 실행되기 '직전' 상태를 캡처한다:
+            //     - is_composing / preedit_len / check_ready: 이 스퓨리어스 포커스 시점에
+            //       엔진 조합(첫 자모)이 실제 살아 있었는가 = reset 이 첫 타를 파괴하는가.
+            //     - same_proc / dt_since_key_ms: 직전 키와 같은 프로세스에서 그 직후(<250ms)
+            //       발생한 전이적 포커스인가 = Excel 셀 Ready→편집 전이 스퓨리어스 여부.
+            //   두 시간·프로세스 필드는 atf_reset_should_skip(595-616)과 동일한
+            //   last_key_instant/last_key_proc 를 fg_name 기준으로 읽는다(판정 일관).
+            //   순수 진단 문자열 — 입력 경로 바이트 불변(엔진 락만 잡은 read, 부작용 0).
+            //   'OnKeyDown ENTER'(1050)와 함께 보면 첫 키 OnKeyDown 발화(H3 배제) 직후
+            //   same_proc=true·dt<250·is_composing=true 스퓨리어스 포커스(H1 확정) 시퀀스가 드러난다.
+            let diag_dt_since_key_ms = self
+                .last_key_instant
+                .lock()
+                .unwrap()
+                .map(|t| t.elapsed().as_millis())
+                .unwrap_or(u128::MAX);
+            let diag_same_proc = {
+                let last = self.last_key_proc.lock().unwrap();
+                match (last.as_deref(), fg_name.as_deref()) {
+                    (Some(prev), Some(cur)) if !prev.is_empty() => prev == cur,
+                    _ => false,
+                }
+            };
             crate::register::dbg_log(&format!(
-                "word-gate: ThreadMgr::OnSetFocus proc='{}' focus_hwnd=0x{:x} commit_unit={:?} word_app={} known_cuas={} → word_mode={} (was={}) is_password={}",
+                "word-gate: ThreadMgr::OnSetFocus proc='{}' focus_hwnd=0x{:x} commit_unit={:?} word_app={} known_cuas={} → word_mode={} (was={}) is_password={} | is_composing={} preedit_len={} check_ready={} same_proc={} dt_since_key_ms={}",
                 fg_name.as_deref().unwrap_or("<취득실패>"),
                 focus_hwnd,
                 commit_unit,
@@ -1583,7 +1608,12 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
                 known_cuas,
                 word_mode,
                 engine.is_word_mode(),
-                is_password
+                is_password,
+                engine.is_composing(),
+                engine.preedit_str().chars().count(),
+                engine.check_ready(),
+                diag_same_proc,
+                diag_dt_since_key_ms
             ));
             engine.reset();
             engine.set_word_mode(word_mode);
