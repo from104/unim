@@ -1615,8 +1615,37 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
                 diag_same_proc,
                 diag_dt_since_key_ms
             ));
-            engine.reset();
-            engine.set_word_mode(word_mode);
+            // H1 수정 — 스퓨리어스 전이 포커스에서 라이브 조합(첫 자모) 보존.
+            //   Excel 은 셀 Ready→편집 전이 때 직전 키 직후(<250ms) 같은 프로세스로
+            //   스퓨리어스 OnSetFocus 를 발화한다(실측 PID752: is_composing=true preedit_len=1).
+            //   여기서 무조건 engine.reset() 하면 그 첫 자모가 파괴돼(다음 자모가 결합 못 함)
+            //   첫 글자가 유실된다. → atf_reset_should_skip(595-616)과 '동일 기준'
+            //   (same_proc && dt<250ms; 바로 위 diag 값 재사용)으로 전이 스퓨리어스 포커스를
+            //   판정하고, 그때 조합이 살아있으면(engine.is_composing()) engine.reset() 을
+            //   건너뛴다 — ATF 버퍼 가드(buf_len>0)의 preedit 판 = '반쪽 방어' 보완.
+            //   무회귀(불변식): 다른 프로세스·오래된 키(진짜 포커스 이탈)이거나 조합이 없으면
+            //   기존대로 engine.reset()(non-sticky 리셋 불변식). 정상앱(메모장/워드/크롬/터미널)
+            //   및 실제 포커스 이탈 시 조합 리셋 바이트 동일 — 좁은 전이 스퓨리어스 케이스만 스킵.
+            //   주의: set_word_mode 는 flush_preedit(press_key.rs:789 — is_composing 시 commit)
+            //   을 무조건 부르므로 보존 케이스에선 desired 가 현재와 다를 때만 호출한다
+            //   (reapply_word_gate 동일 정책). 스퓨리어스 포커스는 통상 desired==current →
+            //   호출 안 됨 → 첫 자모 온전 보존. content_purpose 는 멱등(동일 목적 early return)
+            //   이라 조합 살아있는(=비밀번호 아님, Normal→Normal) 케이스에서 flush 없음.
+            let preserve_live_compose =
+                diag_same_proc && diag_dt_since_key_ms < 250 && engine.is_composing();
+            if preserve_live_compose {
+                crate::register::dbg_log(
+                    "word-gate: 전이 포커스 engine.reset() 스킵(조합 보존)",
+                );
+                // 값이 실제로 바뀔 때만 — set_word_mode 의 무조건 flush_preedit 이 보존한
+                // 첫 자모를 commit 해버리지 않도록(전이 스퓨리어스는 통상 동일값).
+                if engine.is_word_mode() != word_mode {
+                    engine.set_word_mode(word_mode);
+                }
+            } else {
+                engine.reset();
+                engine.set_word_mode(word_mode);
+            }
             // 비밀번호 진입→임시 영문 / 벗어남→직전 한/영 복구 (코어 상태머신, 멱등).
             engine.set_content_purpose(content_purpose);
         }
