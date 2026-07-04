@@ -24,8 +24,10 @@
 //! echo 한다(실측 wmux OnTestKeyDown=0). 그래서 `observe_key_down` 이 OnTestKeyDown 페어링
 //! (LAST_WAS_SYNTH) 없이도 합성 echo 를 직접 식별·감산하는 Case B 를 갖는다(없으면 race-flush
 //! 오발로 꼬리가 깨졌다). 또한 이들 앱에선 합성 UNICODE(head)가 WM_CHAR 로만 처리돼 keydown
-//! echo 가 없어 PENDING 이 head 길이만큼 0 에 못 미치므로, 라이브 꼬리(WM_UNIM_TAIL 게이트)
-//! 대신 60ms 안전망 타이머의 degrade 확정으로 수렴한다(출력 정합, 라이브 꼬리 UX 만 미적용).
+//! echo 가 없어 PENDING 이 head 길이(SYNTH_HEAD_RESIDUAL)에서 멈춘다(0 도달 불가). 그래서
+//! "삭제 완료" 판정을 PENDING==0 이 아니라 PENDING<=head_units 로 하여, 60ms 안전망 타이머
+//! 시점(머리 WM_CHAR 가 문서에 정착한 뒤)에 라이브 꼬리 조합(start_composition)으로 수렴한다.
+//! start_composition 거부 시에만 degrade 확정으로 폴백한다(꼬리에 종성을 이어쳐도 결합 유지).
 //!
 //! TSF 삽입/readback/펌프-분할(`store_pending_insert`/`arm_readback_gate`/`insert_pending`)
 //! 은 synth 경로에서 미사용 — native(full=true, chrome) 펌프-분할 전용으로 잔존한다.
@@ -48,8 +50,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 /// 디버깅용 마커 (식별은 카운터로 하므로 필수 아님).
 const EXTRA_INFO_MARK: usize = 0x554E_494D; // "UNIM"
 
-/// 아직 sink 에 도착하지 않은 합성 keydown 수(BS 만).
+/// 아직 sink 에 도착하지 않은 합성 keydown 수(BS + 머리 UNICODE PACKET echo).
 static PENDING: AtomicI32 = AtomicI32::new(0);
+/// head-tail 순방향 배치의 머리 UNICODE 유닛 수. conhost/Blink 은 머리 UNICODE 의
+/// keydown(VK_PACKET) echo 를 흘리지 않아 BS echo 전량 복귀 후에도 PENDING 이 이 값에서
+/// 멈춘다(0 도달 불가). 그래서 "삭제(BS) 적용 완료" 판정을 PENDING==0 이 아니라
+/// PENDING<=이 값으로 해야 한다. 역방향(꼬리 없음) 배치에선 send_replacement_batch
+/// 최상단이 0 으로 기저 리셋하고 flush_pending_tail 이 이 값을 아예 참조하지 않는다.
+static SYNTH_HEAD_RESIDUAL: AtomicI32 = AtomicI32::new(0);
 /// 직전 OnTestKeyDown 이 합성 키였음 (OnKeyDown 까지 호출하는 앱 대비).
 static LAST_WAS_SYNTH: AtomicBool = AtomicBool::new(false);
 /// 주입 시각 — 일부 이벤트가 유실돼 카운터가 남는 경우의 부패(stale) 방지.
@@ -72,8 +80,9 @@ pub struct PendingInsert {
 static PENDING_INSERT: Mutex<Option<PendingInsert>> = Mutex::new(None);
 
 /// R6b — 보류 꼬리(마지막 음절) 슬롯. 순방향 synth 분기가 머리를 단일배치로 확정한 뒤
-/// 꼬리를 여기 적재한다. PENDING==0 게이트(observe_test_key_down→OnTestKeyDown→WM_UNIM_TAIL)
-/// 또는 STALE 타이머/race-flush 가 take 해 라이브 조합 시도 또는 degrade 확정한다.
+/// 꼬리를 여기 적재한다. WM_UNIM_TAIL 게이트(PENDING<=0, 머리 echo 있는 wezterm) 또는
+/// 60ms 타이머/race-flush 가 take 해, BS 삭제 완료(PENDING<=head_residual) 시 라이브 조합을
+/// 시도하고 미복귀(PENDING>residual) 시 degrade 확정한다.
 static PENDING_TAIL: Mutex<Option<String>> = Mutex::new(None);
 /// R6b — 라이브 꼬리 조합이 살아있는지. start_composition 성공 시 set, 사용자 키 관찰 시
 /// (OnTestKeyDown) clear, terminate 가드/포커스 전환/Drop 에서 폐기.
@@ -125,6 +134,9 @@ fn key_event(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 /// 않는다(회귀 0). SendInput 은 반드시 edit session(COM lock) 밖에서 호출한다
 /// (호출부가 보장).
 pub fn send_replacement_batch(delete_chars: u32, text: &str) {
+    // A5: 머리 residual 기저 리셋(역방향 SynthBatch=꼬리 없음 케이스 안전). head-tail 은
+    // 배치 뒤 composition.rs 가 set_head_residual 로 덮어쓴다. no-op 조기 return 보다 앞에 둔다.
+    SYNTH_HEAD_RESIDUAL.store(0, Ordering::SeqCst);
     let mut inputs: Vec<INPUT> = Vec::new();
     // (1) 삭제: BS down/up × delete_chars (입력큐 선두)
     for _ in 0..delete_chars {
@@ -196,6 +208,7 @@ pub fn has_pending_insert() -> bool {
 pub fn discard_pending_insert() -> bool {
     let had = PENDING_INSERT.lock().unwrap().take().is_some();
     PENDING.store(0, Ordering::SeqCst);
+    SYNTH_HEAD_RESIDUAL.store(0, Ordering::SeqCst); // 위생 — 다음 배치 리셋에만 의존 금지
     disarm_readback_gate();
     discard_pending_restart();
     had
@@ -405,9 +418,47 @@ pub fn tail_gate_ready() -> bool {
 }
 
 /// R6b — 머리 echo 가 아직 복귀 중인가(PENDING>0, stale 보정 포함)의 pub 래퍼.
-/// flush_pending_tail 이 라이브 가능 여부를 판정하는 데 쓴다.
+/// deletes_still_pending 으로 대체됨(head_residual 임계치 미반영이라 conhost/Blink 머리
+/// no-echo 케이스에서 영영 참) — 롤백 보험으로 잔존.
+#[allow(dead_code)]
 pub fn pending_echo_active() -> bool {
     pending_active()
+}
+
+/// R6b — head-tail 순방향 머리 UNICODE 유닛 수를 기록한다(composition.rs 가 배치 직후 호출).
+/// 이 값이 "삭제 완료" 판정 임계치가 된다(PENDING<=이 값 → BS 드레인 완료).
+pub fn set_head_residual(units: i32) {
+    SYNTH_HEAD_RESIDUAL.store(units, Ordering::SeqCst);
+}
+
+/// R6b — BS 삭제 echo 가 아직 복귀 중인가(라이브 불가) 판정. PENDING 이 머리 residual 보다
+/// 크면 아직 삭제 BS 가 큐/비행 중이라는 뜻 → degrade. 머리 residual 만 남았으면
+/// (PENDING<=residual, conhost/Blink 는 머리 no-echo 로 여기서 정체) 삭제 완료로 보고
+/// 라이브 조합을 시도한다. pending_active() 의 stale 폴백을 그대로 이용해, 합성 배치가
+/// 없으면 거짓 → 정식 TSF 앱(PENDING=0)은 미진입.
+pub fn deletes_still_pending() -> bool {
+    pending_active() && PENDING.load(Ordering::SeqCst) > SYNTH_HEAD_RESIDUAL.load(Ordering::SeqCst)
+}
+
+/// R6b — 라이브 성립 로그용 (PENDING, SYNTH_HEAD_RESIDUAL) 스냅샷. device-QA 에서
+/// conhost/Blink(pending==residual>0)와 wezterm(pending<=0) 경로를 로그만으로 구분한다.
+pub fn synth_echo_state() -> (i32, i32) {
+    (
+        PENDING.load(Ordering::SeqCst),
+        SYNTH_HEAD_RESIDUAL.load(Ordering::SeqCst),
+    )
+}
+
+/// R6b — 라이브 꼬리 조합 성립 시 호출 — 합성 echo 회계를 정리한다. 머리 UNICODE 는
+/// conhost/Blink 에서 keydown echo 가 없어 PENDING 이 residual 만큼 STALE_MS 까지 잔존하는데,
+/// 그 창의 사용자 실제 BS 오분류(observe_key_down Case B)와 뒤늦은 stray echo 를 막기 위해
+/// 카운터를 즉시 0 으로 닫는다. conhost/Blink 전용 경로라 안전하다(wezterm 은 머리 echo 로
+/// PENDING 이 0 에 도달해 WM_UNIM_TAIL 로 처리되므로 라이브 분기의 이 clear 에 도달하되
+/// PENDING 은 이미 0 이라 무해).
+pub fn clear_synth_echo() {
+    PENDING.store(0, Ordering::SeqCst);
+    SYNTH_HEAD_RESIDUAL.store(0, Ordering::SeqCst);
+    *SEND_INSTANT.lock().unwrap() = None;
 }
 
 /// R6b degrade 전용 — 꼬리를 UNICODE 단일배치로 입력큐에 적재하되 PENDING 을 **덮어쓰지

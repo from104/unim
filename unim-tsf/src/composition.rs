@@ -701,6 +701,10 @@ impl CompositionManager {
                 c.chars().count()
             );
             crate::synth_input::send_replacement_batch(d, &c);
+            // 머리 UNICODE 유닛 수 기록 — conhost/Blink 은 이 유닛의 keydown echo 가 없어
+            // BS echo 드레인 후 PENDING 이 여기서 멈춘다. flush_pending_tail 이 이 값으로
+            // "삭제 완료"(PENDING<=residual)를 판정해 라이브/degrade 를 가른다.
+            crate::synth_input::set_head_residual(c.encode_utf16().count() as i32);
             return ReplaceOutcome::SynthHeadTail;
         }
 

@@ -888,8 +888,10 @@ pub fn flush_restart_phase_b(
 /// 진입점: text_service 의 WM_UNIM_TAIL(게이트)·WM_TIMER(안전망)·race-flush·rev_window
 /// 부재 동기 degrade. 호출자는 engine→composition 락 보유. PENDING 으로 라이브 가능
 /// 여부를 **내부 판정**한다:
-/// - PENDING>0(머리 echo 미복귀 → 캐럿 미정착): 라이브 불가 → append_tail_batch FIFO degrade.
-/// - PENDING==0: start_composition 시도. 성공=라이브(set_tail_live, 엔진 preedit 보존),
+/// - deletes_still_pending(PENDING>head_residual: BS echo 미복귀 → 캐럿 미정착):
+///   라이브 불가 → append_tail_batch FIFO degrade.
+/// - PENDING<=head_residual(BS 드레인 완료, 머리 no-echo 잔류 포함): start_composition 시도.
+///   성공=라이브(set_tail_live + clear_synth_echo, 엔진 preedit 보존),
 ///   거부=append_tail_batch degrade.
 /// degrade 시 엔진 preedit 클리어(문서=확정/엔진=빈조합 동기). SendInput 은 edit session
 /// 밖에서만 호출되므로(이 함수는 wndproc/OnKeyDown 비-세션 컨텍스트에서 호출) 안전.
@@ -904,17 +906,26 @@ pub fn flush_pending_tail(
     let Some(tail) = crate::synth_input::take_pending_tail() else {
         return false;
     };
-    if crate::synth_input::pending_echo_active() {
-        // PENDING>0: 머리 echo 미복귀 → 라이브 불가. 입력큐 FIFO degrade(누적).
+    if crate::synth_input::deletes_still_pending() {
+        // BS 삭제 echo 미복귀(PENDING>head_residual) → 캐럿 미정착 → 라이브 불가.
+        // 입력큐 FIFO degrade(누적).
         crate::synth_input::append_tail_batch(&tail);
         engine.remove_preedit();
-        crate::register::dbg_log("synth tail: PENDING>0 → FIFO degrade(append) + preedit 클리어");
+        crate::register::dbg_log(
+            "synth tail: 삭제 미복귀(PENDING>residual) → FIFO degrade(append) + preedit 클리어",
+        );
         return true;
     }
     comp_mgr.start_composition(context, tid, &tail, comp_sink);
     if comp_mgr.is_active() {
         crate::synth_input::set_tail_live();
-        crate::register::dbg_log("synth tail: 라이브 조합 성립(엔진 preedit 보존)");
+        // 라이브 성립 확정 → 합성 echo 회계 정리. 로그에 pending/residual 값을 남겨 device-QA
+        // 에서 conhost/Blink(예 1/1)와 wezterm(0/N) 경로를 구분한다(clear 전에 스냅샷).
+        let (p, r) = crate::synth_input::synth_echo_state();
+        crate::synth_input::clear_synth_echo();
+        crate::register::dbg_log(&format!(
+            "synth tail: 삭제완료(머리 no-echo residual) → 라이브 조합 성립(conhost/Blink) pending={p} residual={r}"
+        ));
         false
     } else {
         crate::synth_input::append_tail_batch(&tail);

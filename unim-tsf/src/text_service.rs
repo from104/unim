@@ -1096,8 +1096,9 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 // 세션B). 둘 다 1회성(take)이라 중복·이중 호출 무해.
                 self.flush_pending_insert(&comp_sink);
                 self.flush_restart_phase_b(&comp_sink);
-                // R6b: 보류 꼬리 선점 — PENDING==0 이면 라이브 조합 성립(이어지는
-                // handle_key_down 이 같은 키로 "다"→"단" 연장), PENDING>0 이면 FIFO degrade.
+                // R6b: 보류 꼬리 선점 — BS 삭제 완료(PENDING<=head_residual)면 라이브 조합
+                // 성립(이어지는 handle_key_down 이 같은 키로 "다"→"단" 연장),
+                // BS 미복귀(PENDING>residual)면 FIFO degrade.
                 self.flush_pending_tail(&comp_sink);
                 crate::register::dbg_log_ev!(
                     "b1: race-flush (다음 키 선점)",
@@ -1280,8 +1281,9 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
                 );
                 self.flush_pending_insert(&comp_sink);
                 self.flush_restart_phase_b(&comp_sink);
-                // R6b: 머리 echo 미복귀(PENDING>0) → FIFO degrade(append). 라이브 게이트가
-                // 못 뜨므로 꼬리도 동기 확정한다(유실 0).
+                // R6b: 같은 틱 동기 flush — BS echo 미복귀(PENDING>head_residual)면 FIFO
+                // degrade(append), 드레인 완료면 라이브 시도. 라이브 게이트가 못 뜨는
+                // 케이스라도 꼬리를 동기 확정해 유실 0.
                 self.flush_pending_tail(&comp_sink);
             }
         }
