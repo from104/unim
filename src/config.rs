@@ -516,13 +516,14 @@ impl Default for AutoEnglishConfig {
     }
 }
 
-/// `word_mode_apps` 기본값 — 종전 하드코딩 화이트리스트(정확일치)와 바이트 동일.
+/// `word_mode_apps` 기본값 — Smart 확정 단위 게이트가 이 목록의 프로세스 실행 파일명
+/// (정확일치)만 단어 모드로 켠다. `winword.exe`(MS Word)만 seed 한다.
 ///
-/// TSF `Smart` 확정 단위 게이트가 이 목록의 프로세스 실행 파일명(정확일치)만 단어
-/// 모드로 켠다. `winword.exe`(MS Word) + `wmux.exe`(xterm.js/Blink contenteditable,
-/// OnTestKeyDown 미발화 → 음절모드 synth 그리드 desync 회피) 2종을 seed 한다.
+/// wmux(xterm.js/Blink)는 제외됨: 역방향 자동교정이 음절모드에서 synth 라우팅
+/// (sink_asymmetric, OnTestKeyDown 미발화 감지)으로 동작 확인돼(device-QA PASS) 더는
+/// 단어 모드가 필요 없다. 필요 시 사용자가 config `word_mode_apps` 로 재추가 가능.
 fn default_word_mode_apps() -> Vec<String> {
-    vec!["winword.exe".to_string(), "wmux.exe".to_string()]
+    vec!["winword.exe".to_string()]
 }
 
 /// 한국어 엔진 설정
@@ -596,7 +597,7 @@ pub struct KoreanConfig {
     ///
     /// TSF `Smart` 확정 단위 게이트가 이 목록에 정확히 일치하는 포그라운드 프로세스명만
     /// 단어 모드로 켠다(그 외는 음절 단위). Windows TSF 전용 — Linux 프런트엔드는 미사용.
-    /// 기본값 `["winword.exe","wmux.exe"]` 에서 종전 하드코딩 게이트와 **바이트 동일**.
+    /// 기본값 `["winword.exe"]`. wmux 는 역방향 음절모드 synth 라우팅 동작 확인 후 제외됨.
     /// 앱 호환을 코드 릴리스와 분리(config.yaml/CLI 로 편집, `maybe_reload_config` 핫리로드).
     #[serde(default = "default_word_mode_apps")]
     pub word_mode_apps: Vec<String>,
@@ -739,7 +740,7 @@ struct KoreanConfigCompat {
     /// `Some(_)` = 명시 설정(브리지보다 우선).
     #[serde(default)]
     commit_unit: Option<CommitUnit>,
-    /// 단어 모드 앱 목록 (정확일치). 미지정 → 기본값(winword.exe/wmux.exe).
+    /// 단어 모드 앱 목록 (정확일치). 미지정 → 기본값(winword.exe).
     #[serde(default = "default_word_mode_apps")]
     word_mode_apps: Vec<String>,
 }
@@ -1422,13 +1423,14 @@ commit_unit: Syllable
     // word_mode_apps (I4 per-app 앱호환 외부화) — 기본값 보존 + 직렬화 라운드트립
     // ─────────────────────────────────────────────
 
-    /// 기본값은 종전 하드코딩 화이트리스트(winword.exe/wmux.exe, 순서·정확일치)와 바이트 동일.
+    /// 기본 단어모드 화이트리스트는 winword.exe 만(wmux 는 음절모드 synth 라우팅
+    /// 동작 확인 후 제외 — device-QA PASS).
     #[test]
-    fn word_mode_apps_default_is_winword_wmux() {
+    fn word_mode_apps_default_is_winword_only() {
         assert_eq!(
             KoreanConfig::default().word_mode_apps,
-            vec!["winword.exe".to_string(), "wmux.exe".to_string()],
-            "기본값이 종전 하드코딩 게이트와 바이트 동일해야 함(무회귀)"
+            vec!["winword.exe".to_string()],
+            "기본 단어모드 화이트리스트는 winword.exe 만"
         );
     }
 
@@ -1445,7 +1447,7 @@ commit_unit: Syllable
         );
     }
 
-    /// 레거시 YAML(필드 부재) → 기본값(winword.exe/wmux.exe). 기존 config.yaml 무회귀.
+    /// 레거시 YAML(필드 부재) → 기본값(winword.exe). 기존 config.yaml 무회귀.
     #[test]
     fn word_mode_apps_legacy_missing_field_uses_default() {
         let yaml = r#"
@@ -1455,8 +1457,8 @@ word_commit: false
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             kc.word_mode_apps,
-            vec!["winword.exe".to_string(), "wmux.exe".to_string()],
-            "필드 부재 시 기본값(종전 하드코딩)으로 채워져야 함"
+            vec!["winword.exe".to_string()],
+            "필드 부재 시 기본값(winword.exe)으로 채워져야 함"
         );
     }
 

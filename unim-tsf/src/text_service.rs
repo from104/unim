@@ -119,7 +119,7 @@ pub struct UnimTextService {
     /// 시스템콜 비용 회피). HWND 가 바뀌면 프로세스명을 재취득해 갱신한다. 초기값 0.
     pub(crate) last_fg_hwnd: AtomicIsize,
     /// 위 `last_fg_hwnd` 에 대응하는 캐시된 word 모드 판정(=프로세스명이 config
-    /// `word_mode_apps` 목록에 정확일치, 기본 winword.exe/wmux.exe).
+    /// `word_mode_apps` 목록에 정확일치, 기본 winword.exe).
     pub(crate) last_fg_word: AtomicBool,
 
     /// 직전 키 입력 시점의 포그라운드 프로세스 basename(소문자). Excel 셀 첫타 ATF
@@ -495,10 +495,10 @@ impl UnimTextService {
     ///   - `Syllable` → 항상 false(단어모드 기능 비활성, 모든 앱 음절).
     ///   - `Word` → true. 단 composition 미지원(CUAS/즉시-terminate 학습) 앱은 false
     ///     강제(영문보유 B2·조합 미지원 회귀 차단) — 비협조앱은 Word 값이어도 syllable.
-    ///   - `Smart` → config `word_mode_apps` 화이트리스트(기본 winword.exe·wmux.exe,
-    ///     정확일치)만 true + `!comp_unsupported`, 그 외 false. wmux(xterm.js/Blink)는
-    ///     OnTestKeyDown 미발화로 음절모드 synth 가 그리드 desync 시키므로 word(=조합
-    ///     SetText)로 회피한다. 목록은 config.yaml/CLI 로 확장 가능(코드 릴리스와 분리).
+    ///   - `Smart` → config `word_mode_apps` 화이트리스트(기본 winword.exe 만, 정확일치)만
+    ///     true + `!comp_unsupported`, 그 외 false. wmux(xterm.js/Blink)는 역방향 음절모드
+    ///     synth 라우팅(sink_asymmetric)으로 동작 확인돼 제외됨 → 이제 syllable. 목록은
+    ///     config.yaml/CLI 로 확장 가능(코드 릴리스와 분리).
     ///
     /// 무회귀: 화이트리스트는 정확일치라 wezterm/chrome/notepad 등 비대상 앱은 syllable 유지.
     /// winword 는 보통 comp_unsupported=false 라 `&& !comp_unsupported` 추가에도 바이트 동일.
@@ -516,13 +516,13 @@ impl UnimTextService {
         let prev_hwnd = self.last_fg_hwnd.load(Ordering::Relaxed);
 
         // 2) word앱 판정: HWND 동일 → 캐시 재사용(OpenProcess 생략), 변경 → 재취득+로그.
-        //    화이트리스트 = winword.exe(Word) + wmux.exe(xterm.js/Blink contenteditable,
-        //    OnTestKeyDown 미발화 → 음절모드 synth 가 그리드 desync 시키므로 word=SetText 로 회피).
+        //    화이트리스트 = winword.exe(Word)만(기본). wmux 는 역방향 음절모드 synth 라우팅
+        //    동작 확인 후 제외 — 이제 syllable.
         let is_word_app = if hwnd_isize == prev_hwnd {
             self.last_fg_word.load(Ordering::Relaxed)
         } else {
             let name = process_basename_for_hwnd(hwnd);
-            // config `word_mode_apps` 정확일치 조회(기본 winword.exe/wmux.exe). 비대상 앱
+            // config `word_mode_apps` 정확일치 조회(기본 winword.exe). 비대상 앱
             // (wezterm-gui.exe/chrome.exe/notepad.exe 등)은 불일치 → syllable 유지.
             // Win32 syscall(process_basename)은 락 밖에서 이미 수행 — 여기선 짧게 엔진 락을
             // 잡아 캐시된 목록만 조회한다(멤버십 판정, 시스템콜 아님). step 4 엔진 락과 순차.
@@ -1563,7 +1563,7 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         //   주의: 이 게이트는 set_word_mode 만 호출 — ATF/펌프-분할/synth 미접촉.
         //   Win32 호출은 엔진 락 밖에서 먼저 수행(락 보유 중 시스템콜 금지).
         let fg_name = foreground_process_basename();
-        // word 모드 화이트리스트: config `word_mode_apps` 정확일치(기본 winword.exe/wmux.exe).
+        // word 모드 화이트리스트: config `word_mode_apps` 정확일치(기본 winword.exe).
         // 취득 실패 시 false 안전 폴백. 짧게 엔진 락을 잡아 캐시 목록만 조회(아래 엔진 블록과 순차).
         let is_word_app = fg_name
             .as_deref()

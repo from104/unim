@@ -135,8 +135,8 @@ pub struct InputEngine {
     /// 단어 모드 대상 앱 목록(정확일치) — `config.engine.korean.word_mode_apps` 캐시.
     ///
     /// TSF `Smart` 게이트가 `is_word_mode_app` 로 조회한다. `new`/`rebuild_korean_context`
-    /// 재구성 경로에서 config 와 동기화된다. 기본값 `["winword.exe","wmux.exe"]` 에서
-    /// 종전 하드코딩 화이트리스트와 바이트 동일. Windows TSF 전용(그 외 프런트엔드 미사용).
+    /// 재구성 경로에서 config 와 동기화된다. 기본값 `["winword.exe"]`(wmux 는 역방향
+    /// 음절모드 synth 라우팅 동작 확인 후 제외). Windows TSF 전용(그 외 프런트엔드 미사용).
     pub(super) word_mode_apps: Vec<String>,
     /// 비밀번호/PIN 필드 진입 시 저장한 직전 입력 카테고리 (자동 복구용).
     ///
@@ -423,8 +423,8 @@ impl InputEngine {
     /// 프로세스 실행 파일명이 단어 모드 대상 앱 목록(정확일치)에 속하는지 판정한다.
     ///
     /// `config.engine.korean.word_mode_apps` 캐시를 정확일치(`==`)로 조회한다. 기본값
-    /// `["winword.exe","wmux.exe"]` 에서 종전 하드코딩(`n == "winword.exe" || n ==
-    /// "wmux.exe"`)과 바이트 동일 — 대소문자 구분·부분일치 없음. TSF `Smart` 확정 단위
+    /// `["winword.exe"]`(wmux 는 역방향 음절모드 synth 라우팅 동작 확인 후 제외) —
+    /// 대소문자 구분·부분일치 없음. TSF `Smart` 확정 단위
     /// 게이트(OnKeyDown 매-키 재적용 + OnSetFocus)가 앱별 단어 모드 desired 판정에 쓴다.
     /// 앱 호환 목록이 코드 릴리스와 분리되어 config.yaml/CLI 로 확장 가능하다.
     pub fn is_word_mode_app(&self, name: &str) -> bool {
@@ -796,13 +796,14 @@ mod tests {
         assert_eq!(engine.preedit_str(), "나", "Smart 는 Phase2 에서 누적 off");
     }
 
-    /// is_word_mode_app 기본값은 종전 하드코딩(winword.exe/wmux.exe, 정확일치)과 바이트 동일.
-    /// 대소문자 구분·부분일치 없음 — 비대상 앱(chrome/wezterm/대문자)은 false 유지.
+    /// is_word_mode_app 기본값은 winword.exe 만(정확일치). wmux 는 역방향 음절모드 synth
+    /// 라우팅 동작 확인 후 제외됨 → 기본 syllable. 대소문자 구분·부분일치 없음.
     #[test]
-    fn is_word_mode_app_default_matches_winword_wmux_exact() {
+    fn is_word_mode_app_default_matches_winword_only() {
         let engine = InputEngine::new(&Config::default());
         assert!(engine.is_word_mode_app("winword.exe"));
-        assert!(engine.is_word_mode_app("wmux.exe"));
+        // wmux 는 기본 화이트리스트에서 제외(역방향 syllable synth 라우팅으로 동작).
+        assert!(!engine.is_word_mode_app("wmux.exe"));
         // 정확일치 — 대문자/부분일치/비대상 앱은 불일치(무회귀).
         assert!(!engine.is_word_mode_app("WINWORD.EXE"));
         assert!(!engine.is_word_mode_app("winword"));
