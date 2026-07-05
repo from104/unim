@@ -868,6 +868,10 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> Result<BOOL> {
+        // sink 비대칭 감지: 이 앱이 OnTestKeyDown 을 발화함을 기록(합성/사용자 무관).
+        // wmux/Blink 는 이 경로를 아예 안 타므로 test==0 로 남아 committed 삭제가 synth 로
+        // 라우팅된다(composition.rs ReplaceSurrounding sink_asymmetric 게이트).
+        crate::synth_input::note_test_key_down();
         // ATF SendInput 폴백(synth_input)이 주입한 합성 키는 엔진을 거치지 않고
         // 식별: BS/유니코드는 통과(앱이 직접 처리), 센티널은 소비(OnKeyDown 에서
         // replay preedit composition 시작). 어떤 락 취득보다 먼저 검사해야 한다.
@@ -1062,6 +1066,17 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         match crate::synth_input::observe_key_down(wparam.0 as u16) {
             Some(crate::synth_input::SynthKeyAction::PassThrough) => return Ok(FALSE),
             None => {}
+        }
+        // sink 비대칭 감지: 여기 도달 = 합성 echo 가 아닌 **실제 사용자 키다운**.
+        // OnTestKeyDown 발화 카운터(note_test_key_down)와 대비해, test==0 && kd>=2 면
+        // 이 앱(wmux/Blink)은 committed TSF 편집이 화면에 렌더 안 되므로 삭제를 synth 로 보낸다.
+        crate::synth_input::note_user_key_down();
+        // [진단] 앱의 OnTestKeyDown 발화 여부 판별용(device-QA). test>0 = Case A(네이티브
+        // 유지, 안전) / test==0 = Case B(committed 삭제 synth 라우팅). Chrome/Electron 이
+        // 어느 쪽인지 이 로그로 확정한다. UNIM_DEBUG_LOG 미설정 시 비용 0.
+        {
+            let (t, k) = crate::synth_input::sink_counters();
+            crate::register::dbg_log(&format!("sink: test={t} kd={k}"));
         }
 
         // ── b1 race-flush 가드 ──────────────────────────────────────────────
@@ -1514,6 +1529,8 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
             focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd);
         self.composition_unsupported.store(known_cuas, Ordering::SeqCst);
         self.fallback_pending.store(0, Ordering::SeqCst);
+        // sink 비대칭 카운터도 포커스 전환마다 리셋(앱마다 OnTestKeyDown 발화 여부 재감지).
+        crate::synth_input::reset_sink_counters();
         // ATF 폴백 고지 동기화: 학습된 CUAS 앱이면 랭바 툴팁에 "자동교정 제한"을 미리
         // 켜고, 정상(composition 지원) 앱이면 해제한다. set_atf_limited 는 값 전이 시에만
         // 통지하므로 반복 포커스에도 무해. (첫 폴백 감지는 OnKeyDown 에서 켠다.)

@@ -557,6 +557,31 @@ impl CompositionManager {
         self.composition = None;
     }
 
+    /// 활성 조합을 **range 텍스트를 지우지 않고**(SetText(empty) 미호출) EndComposition
+    /// 만으로 종료한다. TSF 규약상 EndComposition 은 조합만 끝낼 뿐 range 텍스트를 지우지
+    /// 않으므로(참고: EndCompositionEditSession text=None 주석), 조합 중이던 자모가 확정
+    /// 텍스트로 그대로 남는다(materialize).
+    ///
+    /// 용도 — 역방향(한→영) 교정: 조합 음절을 clear(=range.SetText(empty))로 제거하는 대신
+    /// 확정 텍스트로 materialize 한 뒤, 호출부가 replace_surrounding 의 delete_chars 를 1
+    /// 늘려 committed+조합 전체 span 을 통째 삭제한다. end_composition(clear)의 SetText(empty)
+    /// 가 xterm.js(wmux)/일부 CUAS 에서 시각적으로 무효라 조합 자모가 잔류 → 첫 자모가
+    /// 생존하던 버그("ㄹㅊㅊ"→"ㄹoo")를 앱-독립적으로 회피한다(정상앱은 결과 동일).
+    pub fn end_composition_keep_text(&mut self, context: &ITfContext, tid: u32) {
+        if let Some(ref composition) = self.composition {
+            let session = EndCompositionKeepEditSession {
+                context: context.clone(),
+                composition: composition.clone(),
+            };
+            let session_intf: ITfEditSession = session.into();
+            unsafe {
+                let _ =
+                    context.RequestEditSession(tid, &session_intf, TF_ES_READWRITE | TF_ES_SYNC);
+            }
+        }
+        self.composition = None;
+    }
+
     /// 음절 전환: 기존 composition 을 commit_text 로 확정·종료하고, **같은 edit
     /// session 안에서** 새 composition 을 preedit_text 로 시작한다.
     ///
@@ -1032,6 +1057,37 @@ impl ITfEditSession_Impl for EndCompositionEditSession_Impl {
     }
 }
 
+// ── EditSession: 조합 종료(텍스트 보존) — 자모 materialize ──
+
+#[implement(ITfEditSession)]
+struct EndCompositionKeepEditSession {
+    context: ITfContext,
+    composition: ITfComposition,
+}
+
+impl ITfEditSession_Impl for EndCompositionKeepEditSession_Impl {
+    fn DoEditSession(&self, ec: u32) -> Result<()> {
+        unsafe {
+            // range 텍스트를 건드리지 않는다 — 조합 자모가 확정 텍스트로 남는다.
+            // 이어지는 replace_surrounding 의 ShiftStart 삭제가 이 자모까지 균일하게
+            // 지운다(앱-독립).
+            //
+            // ⚠️ caret 을 조합 range 끝(자모 뒤)으로 **명시 collapse** 한다. keep 은 구
+            // end_composition 과 달리 SetText(empty)를 하지 않으므로, 그냥 EndComposition
+            // 만 하면 selection 이 조합 range 전체(자모 P 를 감싼 범위)로 남을 수 있다.
+            // 그러면 후속 ReplaceSurrounding 이 GetSelection→Collapse(ANCHOR_START)로 P
+            // **앞**에 앵커를 잡아 ShiftStart(-(committed+1))이 P 앞 글자를 침범(앞 확정문
+            // 삭제)하거나 P 를 남긴다. move_caret_to_end 로 caret 을 P 뒤로 정규화해
+            // 삭제 span 의 기준점을 앱 재량과 무관하게 결정론화한다(구 end_composition 의
+            // move_caret_to_end 승계). SetText 는 하지 않으므로 P 는 그대로 확정 텍스트.
+            let range = self.composition.GetRange()?;
+            let _ = move_caret_to_end(&self.context, ec, &range);
+            self.composition.EndComposition(ec)?;
+        }
+        Ok(())
+    }
+}
+
 // ── EditSession: 확정 + 재시작 (음절 전환, end+start churn 회피) ──
 
 #[implement(ITfEditSession)]
@@ -1262,6 +1318,27 @@ impl ITfEditSession_Impl for ReplaceSurroundingEditSession_Impl {
             //    이동된 범위만 교체한다(확보된 만큼은 정확히 덮어쓴다).
             range.Collapse(ec, TF_ANCHOR_START)?;
             if self.delete_chars > 0 {
+                // sink 비대칭 앱(wmux/Blink 터미널 — OnTestKeyDown 미발화)에서는 committed
+                // 텍스트의 ShiftStart 가 phantom-성공(shifted=-N)하지만 SetText 가 pty 화면에
+                // 렌더링되지 않는다(역방향 "ㄹㅊㅊ"→"ㄹㅊo" 깨짐). ShiftStart 를 아예 건너뛰고
+                // 곧장 synth 폴백(BS×N + UNICODE)으로 보낸다 — 순방향이 이미 쓰는, 실제 키
+                // 입력을 존중하는 경로. 정상 TSF 앱은 sink_asymmetric()=false 라 미진입(무변경).
+                // 순방향(preedit 有)은 어차피 ShiftStart 실패로 동일 synth 에 도달하므로 결과 동일.
+                if crate::synth_input::sink_asymmetric() {
+                    let before_len = read_text_before_cursor_len(&self.context, ec);
+                    let (t, k) = crate::synth_input::sink_counters();
+                    crate::register::dbg_log(&format!(
+                        "ReplaceSurrounding: sink-asymmetric(test={t} kd={k}) → synth 강제 라우팅 (delete_chars={} before_len={:?})",
+                        self.delete_chars, before_len
+                    ));
+                    *self.synth_slot.lock().unwrap() = Some((
+                        self.delete_chars as u32,
+                        self.commit_text.clone(),
+                        self.preedit_text.clone(),
+                        before_len,
+                    ));
+                    return Ok(());
+                }
                 let mut shifted: i32 = 0;
                 // ShiftStart 는 실제 이동량을 shifted 에 돌려줌. 경계 도달 시 부분 이동.
                 let _ = range.ShiftStart(

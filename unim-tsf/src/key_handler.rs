@@ -753,16 +753,27 @@ pub fn handle_key_down(
                     );
                 }
             } else {
-            // 역방향(한→영): replace_surrounding 전에 활성 composition 을 먼저 종료해
-            // 조합 중 음절을 문서에서 제거한다. 그래야 남은 committed 한글만 delete 하면
-            // 화면의 한글이 정확히 모두 사라진다(조합 음절 잔류 방지).
+            // 역방향(한→영): 활성 composition(조합 중 음절)을 **텍스트를 지우지 않고**
+            // (keep_text) 종료해 조합 자모를 확정 텍스트로 materialize 한 뒤, committed +
+            // 조합(1) 전체 span 을 replace_surrounding 으로 통째 삭제한다.
+            //
+            // 과거엔 end_composition(clear=range.SetText(empty))로 조합 자모를 제거하고
+            // committed(apply.delete_chars)만 삭제했다. 그러나 xterm.js(wmux)/일부 CUAS 는
+            // 이 clear SetText 가 시각적으로 무효라 조합 자모가 화면에 잔류 →
+            // ShiftStart(-committed)가 뒤 committed 글자만 덮어써 첫 자모가 생존했다
+            // ("ㄹㅊㅊ"→"ㄹoo"). materialize 후 전체 span 삭제는 clear 성공 여부와 무관해
+            // 앱-독립적으로 정확하다(정상앱은 materialize→삭제 결과가 clear→삭제와 동일).
+            let mut delete_span = apply.delete_chars;
             if apply.end_composition && comp_mgr.is_active() {
-                comp_mgr.end_composition(context, tid);
+                comp_mgr.end_composition_keep_text(context, tid);
+                // materialize 된 조합 음절(1자)을 삭제 span 에 포함. is_active 로 실제 종료를
+                // 확인한 경우에만 +1 하므로, 조합이 이미 없으면 committed 만 삭제(구 동작 동일).
+                delete_span += 1;
             }
             let outcome = comp_mgr.replace_surrounding(
                 context,
                 tid,
-                apply.delete_chars,
+                delete_span,
                 &apply.commit_text,
                 &apply.replay_preedit,
                 comp_sink,

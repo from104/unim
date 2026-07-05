@@ -38,7 +38,7 @@
 //! (conhost)·telegram(Qt)은 WM_KEYDOWN/WM_CHAR 큐를 동기 FIFO 처리해 재정렬이
 //! 성립하지 않는다(잔여 노출면 = contenteditable 등 full=false 진입 표면 한정).
 
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -127,12 +127,14 @@ fn key_event(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 /// 주의: BS 1회 = 화면 글자 1개 삭제 가정 — ATF 대상(한글 음절 AC00..D7A3·ASCII)은
 /// 모두 BMP 1 코드유닛이라 글자수=UTF-16 코드유닛수가 성립한다(서로게이트 미대상).
 ///
-/// 호출부: composition.rs replace_surrounding 이 ReplaceSurroundingEditSession
+/// 호출부: composition.rs replace_surrounding 이 (1) ReplaceSurroundingEditSession
 /// 의 ShiftStart 누적 이동량이 delete_chars 에 미달(CUAS/Blink — 확정 텍스트 뒤로
-/// 역확장 거부)할 때 동적으로 폴백 호출한다. 앱 이름 휴리스틱이 아니라 실제
-/// 이동량 부족으로만 분기하므로 정식 TSF 앱(메모장/Word)은 절대 이 경로를 타지
-/// 않는다(회귀 0). SendInput 은 반드시 edit session(COM lock) 밖에서 호출한다
-/// (호출부가 보장).
+/// 역확장 거부)하거나, (2) sink_asymmetric(OnTestKeyDown 미발화 앱 = wmux/xterm.js —
+/// ShiftStart 는 phantom-성공하나 committed SetText 가 pty 화면에 렌더 안 됨) 일 때
+/// 동적으로 폴백 호출한다. 둘 다 앱 이름 휴리스틱이 아니라 실측 신호(이동량 부족 /
+/// TSF sink 발화 패턴)로 분기한다. 정식 TSF 앱(메모장/Word — OnTestKeyDown 발화 +
+/// ShiftStart 성공)은 두 조건 모두 불충족이라 이 경로를 타지 않는다(회귀 0).
+/// SendInput 은 반드시 edit session(COM lock) 밖에서 호출한다(호출부가 보장).
 pub fn send_replacement_batch(delete_chars: u32, text: &str) {
     // A5: 머리 residual 기저 리셋(역방향 SynthBatch=꼬리 없음 케이스 안전). head-tail 은
     // 배치 뒤 composition.rs 가 set_head_residual 로 덮어쓴다. no-op 조기 return 보다 앞에 둔다.
@@ -459,6 +461,57 @@ pub fn clear_synth_echo() {
     PENDING.store(0, Ordering::SeqCst);
     SYNTH_HEAD_RESIDUAL.store(0, Ordering::SeqCst);
     *SEND_INSTANT.lock().unwrap() = None;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// sink 비대칭 감지 — OnTestKeyDown 미발화 앱(wmux/xterm.js 등 Blink 터미널)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// wmux(xterm.js)/일부 Blink 는 OnTestKeyDown 을 호출하지 않고 OnKeyDown 만 발화한다
+// (Case B — observe_key_down 주석 참조). 이런 앱은 committed(확정) 텍스트를 TSF 로
+// 편집(ReplaceSurrounding 의 ShiftStart+SetText)해도 pty 화면에 렌더링되지 않는다:
+// ShiftStart 는 TSF 가상문서에서 phantom-성공(shifted=-N)하지만 실제 화면은 안 바뀐다.
+// 그래서 역방향(한→영) 교정이 네이티브 경로로 빠져 화면이 비일관 깨진다
+// ("ㄹㅊㅊ"→"ㄹㅊo"). 순방향은 삭제 대상이 실제 타이핑된 pty 영문이라 ShiftStart 가
+// 진짜 실패→synth 로 우회돼 정상 동작한다. 이 신호로 그런 앱을 감지해 committed 삭제를
+// synth SendInput(순방향이 이미 쓰는 경로)으로 강제 라우팅한다.
+//
+// 신호: 현재 포커스에서 OnTestKeyDown 이 한 번도 안 불렸고(test==0) 실제 사용자 키다운이
+// 2회 이상(kd>=2). 정상 TSF 앱(메모장/Word/wezterm)은 매 키 OnTestKeyDown 을 발화하므로
+// test>0 → 영구 false → 네이티브 경로 무변경. cold-start 없음(교정 대상 한글 타이핑
+// 자체가 kd 를 채우므로 선행 순방향 교정 불필요). synth echo 는 kd 로 세지 않는다(회계
+// 오염 방지 — 호출부가 observe_key_down 통과분에서만 note_user_key_down).
+static SINK_TEST_KD: AtomicU32 = AtomicU32::new(0);
+static SINK_USER_KD: AtomicU32 = AtomicU32::new(0);
+
+/// OnTestKeyDown 진입 시(합성/사용자 무관) 호출 — 이 앱이 OnTestKeyDown 을 발화함을 기록.
+pub fn note_test_key_down() {
+    SINK_TEST_KD.fetch_add(1, Ordering::SeqCst);
+}
+
+/// OnKeyDown 에서 **실제 사용자 키**(observe_key_down 통과)일 때만 호출.
+pub fn note_user_key_down() {
+    SINK_USER_KD.fetch_add(1, Ordering::SeqCst);
+}
+
+/// 포커스 전환 시 카운터 리셋 — 앱마다 재감지(창 재생성·앱 전환 대응).
+pub fn reset_sink_counters() {
+    SINK_TEST_KD.store(0, Ordering::SeqCst);
+    SINK_USER_KD.store(0, Ordering::SeqCst);
+}
+
+/// OnTestKeyDown 미발화(test==0) + 사용자 키다운 2회 이상(kd>=2) → committed 삭제를
+/// synth 로 강제 라우팅해야 하는 앱(wmux/Blink 터미널). 로그용 (test, kd) 도 반환.
+pub fn sink_asymmetric() -> bool {
+    SINK_TEST_KD.load(Ordering::SeqCst) == 0 && SINK_USER_KD.load(Ordering::SeqCst) >= 2
+}
+
+/// 로그용 (test_kd, user_kd) 스냅샷.
+pub fn sink_counters() -> (u32, u32) {
+    (
+        SINK_TEST_KD.load(Ordering::SeqCst),
+        SINK_USER_KD.load(Ordering::SeqCst),
+    )
 }
 
 /// R6b degrade 전용 — 꼬리를 UNICODE 단일배치로 입력큐에 적재하되 PENDING 을 **덮어쓰지
