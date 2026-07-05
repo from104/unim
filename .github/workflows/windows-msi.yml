@@ -91,14 +91,15 @@ jobs:
             -p unim-imm32 `
             --locked
 
-      - name: cargo build (release, IMM32 IME x86 — SysWOW64)
-        # unim_imm32.ime 의 32-bit 사본 (i686-pc-windows-msvc).
+      - name: cargo build (release, 32-bit payloads — SysWOW64)
+        # unim_imm32.ime 의 32-bit 사본 + unim_tsf.dll 의 32-bit 사본
+        # (unim.wxs UnimTsfDll32 컴포넌트가 WOW6432Node CLSID 뷰용으로 패키징).
         # 32-bit 환경 없이 --target i686 을 넘기면 링크 오류가 나므로
         # vcvarsamd64_x86 을 먼저 호출하는 별도 셸에서 실행한다.
         shell: cmd
         run: |
           call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsamd64_x86.bat" >nul
-          cargo build --release --target i686-pc-windows-msvc -p unim-imm32 --locked
+          cargo build --release --target i686-pc-windows-msvc -p unim-imm32 -p unim-tsf --locked
           if errorlevel 1 exit /b 1
 
       - name: Rename IMM32 DLL → IME (both bitnesses)
@@ -124,7 +125,7 @@ jobs:
               echo "  ok  $out64/$f ($size bytes)"
             fi
           done
-          for f in unim_imm32.ime; do
+          for f in unim_imm32.ime unim_tsf.dll; do
             if [[ ! -f "$out32/$f" ]]; then
               echo "::error::missing $out32/$f"
               missing=1
