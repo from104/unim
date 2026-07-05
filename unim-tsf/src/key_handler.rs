@@ -45,6 +45,22 @@ pub fn get_modifier_state() -> ModifierState {
     unim_windows_common::modifier::modifier_state_live()
 }
 
+/// 호스트 프로세스가 UNIM 자체 설정 GUI(unim-tsf-settings.exe)인지 — 프로세스 상수라 1회
+/// 계산 캐시. DLL 은 자신이 로드된 프로세스에서 동작하므로 current_exe 가 곧 호스트 exe 다.
+/// winit/Slint 는 조합 이벤트·WM_CHAR 로만 텍스트를 받아 영문 ATF 소비(insert_text) 경로가
+/// 렌더 안 되므로, 자체 설정앱에선 영문 문자키를 소비하지 않고 passthrough 한다.
+fn is_own_gui_host() -> bool {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<bool> = OnceLock::new();
+    *CACHE.get_or_init(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_ascii_lowercase))
+            .map(|name| name == "unim-tsf-settings.exe")
+            .unwrap_or(false)
+    })
+}
+
 /// OnTestKeyDown: 이 키를 소비할지 판단합니다.
 pub fn test_key_down(
     engine: &InputEngine,
@@ -132,10 +148,17 @@ pub fn test_key_down(
     // 호출하지 않아 ATF 가 영문 키를 관찰할 수 없다 — IMM32 앱에서 순방향이
     // 무반응이던 원인. 엔진은 영문 문자를 consumed=true/commit='x' 로 직접
     // 커밋하므로(메모장 검증 경로) 일반 타이핑 결과는 동일하다.
+    //
+    // 예외: 호스트가 UNIM 자체 설정 GUI(unim-tsf-settings.exe, winit/Slint)면 소비하지
+    // 않는다. winit 은 조합 이벤트 or WM_CHAR 로만 텍스트를 받는데, 영문 소비 경로는
+    // 조합 없는 insert_text(SetText)라 IME 메시지가 안 나 winit 에서 영문이 소실된다
+    // (한글은 composition 경로라 렌더됨). passthrough(eaten=false) 하면 winit 이 WM_CHAR
+    // 로 직접 렌더한다. 설정 UI 라 순방향 자동교정 상실은 수용(한글 조합 입력은 불변).
     if engine.input_category() == InputCategory::English
         && keycode.is_character_key()
         && config.engine.auto_typefix.enabled
         && config.engine.auto_typefix.forward
+        && !is_own_gui_host()
     {
         return true;
     }
