@@ -469,3 +469,122 @@ msgstr "h"
 
 msgid "초"
 msgstr "s"
+
+# ── 설치 마법사(--first-run / --whats-new) ──
+
+msgid "새로운 기능"
+msgstr "What's New"
+
+msgid "설치 마법사"
+msgstr "Setup Wizard"
+
+msgid "UNIM 이 업데이트되었습니다"
+msgstr "UNIM has been updated"
+
+msgid "UNIM 을 시작합니다"
+msgstr "Getting started with UNIM"
+
+msgid "이번 업데이트로 달라진 점과 확인이 필요한 설정을 안내합니다. 몇 단계만 거치면 됩니다."
+msgstr "This will walk you through what changed in this update and any settings worth reviewing. Just a few steps."
+
+msgid "UNIM 은 가볍고 빠른 한국어 입력기입니다. 처음 사용을 위해 몇 가지만 함께 확인하겠습니다. 언제든 [이전]으로 돌아갈 수 있고, 설정은 [마침]을 눌러야 저장됩니다."
+msgstr "UNIM is a light, fast Korean input method. Let's set up a few things for first use. You can go [Back] anytime, and nothing is saved until you press [Finish]."
+
+msgid "라이선스"
+msgstr "License"
+
+msgid "UNIM 은 MIT 라이선스로 배포되는 자유·오픈소스 소프트웨어입니다. 누구나 자유롭게 사용·복사·수정·배포할 수 있으며, 별도의 동의 절차는 필요하지 않습니다."
+msgstr "UNIM is free and open-source software released under the MIT License. Anyone may freely use, copy, modify, and distribute it; no separate acceptance step is required."
+
+msgid "본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 설치 폴더의 LICENSE 파일에서 확인할 수 있습니다."
+msgstr "The software is provided 'as is', without warranty of any kind. The full license text is available in the LICENSE file in the install folder."
+
+msgid "한국어 언어팩"
+msgstr "Korean Language Pack"
+
+msgid "이 컴퓨터에 한국어 입력이 아직 준비되지 않은 것 같습니다. UNIM 이 목록에 표시되려면 Windows 에 한국어를 추가하는 것을 권장합니다."
+msgstr "Korean input does not appear to be set up on this PC yet. To make UNIM show up in the list, we recommend adding Korean to Windows."
+
+msgid "방법: 설정 → 시간 및 언어 → 언어 및 지역 → 언어 추가에서 '한국어'를 선택합니다."
+msgstr "How to: Settings -> Time & language -> Language & region -> Add a language, then choose 'Korean'."
+
+msgid "언어 설정 열기"
+msgstr "Open Language Settings"
+
+msgid "Windows 언어 설정 열기"
+msgstr "Open Windows language settings"
+
+msgid "기본 입력기"
+msgstr "Default Input Method"
+
+msgid "UNIM 을 한국어의 기본 입력기로 설정하면 로그인 후 바로 한국어 입력을 사용할 수 있습니다."
+msgstr "Setting UNIM as the default Korean input method lets you type Korean right after signing in."
+
+msgid "UNIM 을 기본 입력기로 설정"
+msgstr "Set UNIM as the default input method"
+
+msgid "마침을 누를 때 한국어 기본 입력기로 지정하고, 시작 시에도 유지합니다."
+msgstr "On Finish, sets UNIM as the default Korean input method and keeps it on startup."
+
+msgid "자동 오타 교정"
+msgstr "Auto Typo Correction"
+
+msgid "한/영 전환을 깜빡한 오타를 자동으로 교정하는 기능입니다. 사용할 방향을 선택하세요(나중에 설정에서 바꿀 수 있습니다)."
+msgstr "Automatically fixes typos caused by forgetting to switch Korean/English. Choose which directions to use (you can change this later in Settings)."
+
+msgid "정방향 교정 (영문→한글)"
+msgstr "Forward correction (English->Korean)"
+
+msgid "역방향 교정 (한글→영문)"
+msgstr "Reverse correction (Korean->English)"
+
+msgid "오교정이 생기면"
+msgstr "If a mis-correction happens"
+
+msgid "• 오타를 백스페이스로 지우고 다시 입력하면, 그 단어는 자동으로 교정에서 억제되도록 학습됩니다.\n• 설정의 '억제 단어' 탭에서 억제할 단어를 확정하거나 삭제할 수 있으며, 되돌리기를 지원합니다.\n• 역방향 교정에서 영문으로 보존할 단어는 '사용자 사전'에 등록할 수 있습니다."
+msgstr "• Delete the typo with Backspace and retype it: that word is learned and suppressed from correction.\n• In the 'Suppressed Words' tab you can confirm or remove suppressed words, with undo support.\n• Words to keep as English during reverse correction can be registered in the 'User Dictionary'."
+
+msgid "업데이트를 마쳤습니다"
+msgstr "Update complete"
+
+msgid "설정을 마쳤습니다"
+msgstr "Setup complete"
+
+msgid "이제 UNIM 을 사용할 준비가 되었습니다. 주요 기능을 요약합니다:"
+msgstr "UNIM is ready to use. Here's a quick summary of what it offers:"
+
+msgid "• 한/영 토글 키로 손쉽게 전환\n• 자동 오타 교정으로 한/영 전환 실수 자동 복구\n• 세벌식·모아치기 등 다양한 자판과 접근성 프리셋\n• 한자 변환과 사용자 사전\n• 변경 즉시 저장되는 설정 GUI"
+msgstr "• Easy Korean/English switching with the toggle key\n• Auto typo correction recovers switch mistakes\n• Many layouts (Sebeolsik, Moachigi) and accessibility presets\n• Hanja conversion and a user dictionary\n• A settings GUI that saves changes instantly"
+
+msgid "설정 열기"
+msgstr "Open Settings"
+
+msgid "마침 후 UNIM 설정 창을 이어서 엽니다."
+msgstr "Opens the UNIM settings window after finishing."
+
+msgid "마침 후 설정 열기"
+msgstr "Open settings after finishing"
+
+msgid "이전"
+msgstr "Back"
+
+msgid "이전 단계"
+msgstr "Previous step"
+
+msgid "마침"
+msgstr "Finish"
+
+msgid "다음"
+msgstr "Next"
+
+msgid "마법사 마침"
+msgstr "Finish the wizard"
+
+msgid "다음 단계"
+msgstr "Next step"
+
+msgid "선택 영구 활성"
+msgstr "Activate Permanently"
+
+msgid "억제 단어를 영구 활성했습니다."
+msgstr "Suppressed word permanently activated."

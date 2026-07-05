@@ -18,7 +18,7 @@
 // atf-advanced-expanded 는 Rust 미노출 UI 상태(내부 property).
 
 import {
-    ComboBox, LineEdit, Button, Switch, Slider,
+    ComboBox, LineEdit, Button, Switch, Slider, CheckBox,
     ScrollView, StandardListView, Palette
 } from "std-widgets.slint";
 
@@ -225,6 +225,7 @@ export global Tr {
     out property <string> moachigi-off: @tr("모아치기를 껐습니다.");
     out property <string> bl-removed: @tr("억제 단어를 삭제했습니다.");
     out property <string> bl-cleared: @tr("억제 단어를 모두 삭제했습니다.");
+    out property <string> bl-confirmed: @tr("억제 단어를 영구 활성했습니다.");
     out property <string> ud-added: @tr("사용자 사전에 추가했습니다.");
     out property <string> ud-dup: @tr("이미 등록된 단어입니다.");
     out property <string> ud-removed: @tr("사용자 사전에서 삭제했습니다.");
@@ -355,6 +356,7 @@ export component SettingsWindow inherits Window {
     callback rule-set-toggled(int, bool);
     callback close-clicked();
     callback blacklist-remove(int);
+    callback blacklist-confirm(int);
     callback blacklist-clear();
     callback userdict-add();
     callback userdict-remove(int);
@@ -376,7 +378,30 @@ export component SettingsWindow inherits Window {
     // 오타 교정 '고급' 접이식 상태(progressive disclosure). Rust 미노출 UI 상태.
     property <bool> atf-advanced-expanded: false;
 
-    VerticalLayout {
+    // ── 설치 마법사(첫 실행 --first-run / 업데이트 --whats-new) ──
+    // wizard-mode 가 참이면 일반 설정 UI 를 숨기고 아래 WizardView 를 전면 표시한다.
+    // Rust 가 표시할 페이지 목록을 계산해 wiz-current-kind / wiz-is-first / wiz-is-last 를
+    // 갱신하고, 마침 시 config 를 일괄 저장한다(진행 중엔 저장 안 함).
+    in-out property <bool> wizard-mode: false;
+    // --whats-new(업데이트) 모드면 환영/완료 문구를 '새로운 기능' 톤으로 바꾼다.
+    in-out property <bool> wiz-whats-new: false;
+    // 현재 표시 중인 마법사 페이지 종류: 0=환영,1=라이선스,2=언어팩,3=기본입력기,4=오타교정,5=완료.
+    in-out property <int> wiz-current-kind: 0;
+    in-out property <bool> wiz-is-first: true;
+    in-out property <bool> wiz-is-last: false;
+    // 기본 입력기 페이지 체크박스(기본 체크). 마침 시 ime::set_as_default() 여부 결정.
+    in-out property <bool> wiz-default-ime-checked: true;
+    // 완료 페이지 '설정 열기' 체크박스(기본 체크). 체크면 그 자리에서 설정 모드로 전환.
+    in-out property <bool> wiz-open-settings-checked: true;
+    // 마법사 네비게이션(다음/이전) 및 마침 — 인덱스 관리·저장은 Rust 가 수행.
+    callback wizard-next();
+    callback wizard-back();
+    // 한국어 언어팩 페이지 [언어 설정 열기] → ms-settings:regionlanguage.
+    callback wizard-open-langpack();
+    // 마침: config load→체크박스 반영→save + (선택)기본입력기 지정 + seen 버전 기록.
+    callback wizard-finish();
+
+    if !root.wizard-mode: VerticalLayout {
         // ── 헤더 ──
         Rectangle {
             height: 64px;
@@ -1002,6 +1027,10 @@ export component SettingsWindow inherits Window {
                             spacing: Tokens.space-2;
                             alignment: end;
                             Button {
+                                text: @tr("선택 영구 활성");
+                                clicked => { root.blacklist-confirm(root.blacklist-selected); }
+                            }
+                            Button {
                                 text: @tr("선택 삭제");
                                 clicked => { root.blacklist-remove(root.blacklist-selected); }
                             }
@@ -1095,6 +1124,242 @@ export component SettingsWindow inherits Window {
                     color: Tokens.caption-color;
                 }
                 Rectangle { horizontal-stretch: 1; }
+            }
+        }
+    }
+
+    // ── 설치 마법사 뷰(wizard-mode 일 때만) ──
+    // 헤더 + 스크롤 본문(페이지) + 푸터(이전/다음·마침). 페이지 전환·저장은 Rust.
+    if root.wizard-mode: Rectangle {
+        background: Palette.background;
+        VerticalLayout {
+            // ── 헤더 ──
+            Rectangle {
+                height: 72px;
+                background: Palette.background;
+                HorizontalLayout {
+                    padding-left: Tokens.space-6;
+                    padding-right: Tokens.space-6;
+                    spacing: Tokens.space-2;
+                    Rectangle {
+                        width: 4px;
+                        y: (parent.height - self.height) / 2;
+                        height: 32px;
+                        border-radius: 2px;
+                        background: Tokens.brand-gradient;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: Tokens.space-xs;
+                        Text {
+                            text: "unim";
+                            font-size: Tokens.font-wordmark;
+                            font-weight: 700;
+                            color: Palette.foreground;
+                        }
+                        Text {
+                            text: root.wiz-whats-new ? @tr("새로운 기능") : @tr("설치 마법사");
+                            font-size: Tokens.font-caption;
+                            color: Tokens.caption-color;
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Palette.border;
+                }
+            }
+
+            // ── 본문(페이지) ──
+            wiz-scroll := ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding: Tokens.space-6;
+                    spacing: Tokens.space-4;
+                    alignment: start;
+
+                    // 페이지 0: 환영
+                    if root.wiz-current-kind == 0: Card {
+                        title: root.wiz-whats-new ? @tr("UNIM 이 업데이트되었습니다") : @tr("UNIM 을 시작합니다");
+                        Text {
+                            text: root.wiz-whats-new
+                                ? @tr("이번 업데이트로 달라진 점과 확인이 필요한 설정을 안내합니다. 몇 단계만 거치면 됩니다.")
+                                : @tr("UNIM 은 가볍고 빠른 한국어 입력기입니다. 처음 사용을 위해 몇 가지만 함께 확인하겠습니다. 언제든 [이전]으로 돌아갈 수 있고, 설정은 [마침]을 눌러야 저장됩니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                    }
+
+                    // 페이지 1: 라이선스 (MIT 요약)
+                    if root.wiz-current-kind == 1: Card {
+                        title: @tr("라이선스");
+                        Text {
+                            text: @tr("UNIM 은 MIT 라이선스로 배포되는 자유·오픈소스 소프트웨어입니다. 누구나 자유롭게 사용·복사·수정·배포할 수 있으며, 별도의 동의 절차는 필요하지 않습니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        Text {
+                            text: @tr("본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 설치 폴더의 LICENSE 파일에서 확인할 수 있습니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                    }
+
+                    // 페이지 2: 한국어 언어팩(미설치 시에만 Rust 가 표시)
+                    if root.wiz-current-kind == 2: Card {
+                        title: @tr("한국어 언어팩");
+                        Text {
+                            text: @tr("이 컴퓨터에 한국어 입력이 아직 준비되지 않은 것 같습니다. UNIM 이 목록에 표시되려면 Windows 에 한국어를 추가하는 것을 권장합니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        Text {
+                            text: @tr("방법: 설정 → 시간 및 언어 → 언어 및 지역 → 언어 추가에서 '한국어'를 선택합니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            Button {
+                                text: @tr("언어 설정 열기");
+                                accessible-label: @tr("Windows 언어 설정 열기");
+                                clicked => { root.wizard-open-langpack(); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
+
+                    // 페이지 3: 기본 입력기(미지정 시에만 Rust 가 표시)
+                    if root.wiz-current-kind == 3: Card {
+                        title: @tr("기본 입력기");
+                        Text {
+                            text: @tr("UNIM 을 한국어의 기본 입력기로 설정하면 로그인 후 바로 한국어 입력을 사용할 수 있습니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        SettingRow {
+                            title: @tr("UNIM 을 기본 입력기로 설정");
+                            description: @tr("마침을 누를 때 한국어 기본 입력기로 지정하고, 시작 시에도 유지합니다.");
+                            CheckBox {
+                                checked <=> root.wiz-default-ime-checked;
+                                accessible-label: @tr("UNIM 을 기본 입력기로 설정");
+                            }
+                        }
+                    }
+
+                    // 페이지 4: 자동 오타 교정(정/역방향) — 초기값은 config 에서 로드됨
+                    if root.wiz-current-kind == 4: Card {
+                        title: @tr("자동 오타 교정");
+                        Text {
+                            text: @tr("한/영 전환을 깜빡한 오타를 자동으로 교정하는 기능입니다. 사용할 방향을 선택하세요(나중에 설정에서 바꿀 수 있습니다).");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        SettingRow {
+                            title: @tr("정방향 교정 (영문→한글)");
+                            description: @tr("영문으로 잘못 입력한 글자를 한글로 교정합니다.");
+                            CheckBox {
+                                checked <=> root.atf-forward;
+                                accessible-label: @tr("정방향 교정");
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("역방향 교정 (한글→영문)");
+                            description: @tr("한글로 잘못 입력한 글자를 영문으로 교정합니다.");
+                            CheckBox {
+                                checked <=> root.atf-reverse;
+                                accessible-label: @tr("역방향 교정");
+                            }
+                        }
+                    }
+                    if root.wiz-current-kind == 4: Card {
+                        title: @tr("오교정이 생기면");
+                        Text {
+                            text: @tr("• 오타를 백스페이스로 지우고 다시 입력하면, 그 단어는 자동으로 교정에서 억제되도록 학습됩니다.\n• 설정의 '억제 단어' 탭에서 억제할 단어를 확정하거나 삭제할 수 있으며, 되돌리기를 지원합니다.\n• 역방향 교정에서 영문으로 보존할 단어는 '사용자 사전'에 등록할 수 있습니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                    }
+
+                    // 페이지 5: 완료
+                    if root.wiz-current-kind == 5: Card {
+                        title: root.wiz-whats-new ? @tr("업데이트를 마쳤습니다") : @tr("설정을 마쳤습니다");
+                        Text {
+                            text: @tr("이제 UNIM 을 사용할 준비가 되었습니다. 주요 기능을 요약합니다:");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        Text {
+                            text: @tr("• 한/영 토글 키로 손쉽게 전환\n• 자동 오타 교정으로 한/영 전환 실수 자동 복구\n• 세벌식·모아치기 등 다양한 자판과 접근성 프리셋\n• 한자 변환과 사용자 사전\n• 변경 즉시 저장되는 설정 GUI");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                    }
+                    if root.wiz-current-kind == 5: Card {
+                        SettingRow {
+                            title: @tr("설정 열기");
+                            description: @tr("마침 후 UNIM 설정 창을 이어서 엽니다.");
+                            CheckBox {
+                                checked <=> root.wiz-open-settings-checked;
+                                accessible-label: @tr("마침 후 설정 열기");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 푸터(이전 / 다음·마침) ──
+            Rectangle {
+                height: 64px;
+                background: Palette.background;
+                Rectangle {
+                    y: 0;
+                    height: 1px;
+                    background: Palette.border;
+                }
+                HorizontalLayout {
+                    padding-left: Tokens.space-6;
+                    padding-right: Tokens.space-6;
+                    padding-top: Tokens.space-3;
+                    padding-bottom: Tokens.space-3;
+                    spacing: Tokens.space-2;
+                    Button {
+                        text: @tr("이전");
+                        enabled: !root.wiz-is-first;
+                        accessible-label: @tr("이전 단계");
+                        clicked => { root.wizard-back(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button {
+                        text: root.wiz-is-last ? @tr("마침") : @tr("다음");
+                        primary: true;
+                        accessible-label: root.wiz-is-last ? @tr("마법사 마침") : @tr("다음 단계");
+                        clicked => {
+                            if (root.wiz-is-last) {
+                                root.wizard-finish();
+                            } else {
+                                root.wizard-next();
+                            }
+                        }
+                    }
+                }
             }
         }
     }

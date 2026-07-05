@@ -271,6 +271,17 @@
                            Type="string"
                            Value="[INSTALLDIR]" />
           </Component>
+
+          <!-- 라이선스 전문 (MIT). 설정 마법사의 라이선스 페이지가 "설치 폴더의
+               LICENSE 파일" 을 안내하므로 실제로 INSTALLDIR 에 설치한다(리포 루트 LICENSE). -->
+          <Component Id="LicenseFile"
+                     Guid="7A8B9C0D-1E2F-4A3B-8C5D-6E7F8A9B0C1D"
+                     Win64="yes">
+            <File Id="unim_license_txt"
+                  Name="LICENSE.txt"
+                  Source="..\..\LICENSE"
+                  KeyPath="yes" />
+          </Component>
         </Directory>
       </Directory>
 
@@ -314,6 +325,7 @@
       <ComponentRef Id="UnimPopupWinExe" />
       <ComponentRef Id="RegisterScripts" />
       <ComponentRef Id="StartMenuShortcuts" />
+      <ComponentRef Id="LicenseFile" />
     </Feature>
 
     <!--
@@ -341,9 +353,37 @@
                   Impersonate="yes"
                   Return="asyncNoWait" />
 
+    <!--
+      설치 첫 실행 설정 마법사(unim-tsf-settings.exe). 설치 완료 후 사용자 컨텍스트에서
+      GUI 를 띄워 초기 세팅(언어팩 안내·기본입력기·자동교정·설정 열기)을 돕는다.
+      LaunchPopupRenderer 와 동일 패턴(immediate + Impersonate=yes + asyncNoWait).
+        - 신규 설치  : first-run 인자  (WIX_UPGRADE_DETECTED 미설정)
+        - 업그레이드 : whats-new 인자  (MajorUpgrade 가 WIX_UPGRADE_DETECTED 설정)
+      UILevel>=4 로 무인 설치(/qn=2, /qb=3)에서는 GUI 를 띄우지 않는다. 최종 "새 항목만"
+      판정은 앱이 HKCU WizardSeenVersion 으로 수행하므로 인자는 힌트일 뿐(중복 표시 방지).
+    -->
+    <CustomAction Id="LaunchSetupWizardFresh"
+                  FileKey="unim_tsf_settings_exe"
+                  ExeCommand="--first-run"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+    <CustomAction Id="LaunchSetupWizardUpgrade"
+                  FileKey="unim_tsf_settings_exe"
+                  ExeCommand="--whats-new"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
     <InstallExecuteSequence>
       <Custom Action="LaunchPopupRenderer" After="InstallFinalize">
         <![CDATA[NOT Installed OR REINSTALL]]>
+      </Custom>
+      <Custom Action="LaunchSetupWizardFresh" After="LaunchPopupRenderer">
+        <![CDATA[NOT Installed AND NOT WIX_UPGRADE_DETECTED AND UILevel>=4]]>
+      </Custom>
+      <Custom Action="LaunchSetupWizardUpgrade" After="LaunchPopupRenderer">
+        <![CDATA[WIX_UPGRADE_DETECTED AND UILevel>=4]]>
       </Custom>
     </InstallExecuteSequence>
 
