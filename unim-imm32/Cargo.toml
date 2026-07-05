@@ -1,0 +1,36 @@
+[package]
+name = "unim-imm32"
+version.workspace = true
+edition = "2021"
+description = "UNIM Korean IME - Windows IMM32 (.ime) DLL for legacy/IMM32 apps"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+# IMM32 keyboard-layout IME. cdylib -> unim_imm32.dll; build scripts copy to unim_imm32.ime.
+crate-type = ["cdylib"]
+
+[dependencies]
+unim = { path = ".." }
+
+[target.'cfg(windows)'.build-dependencies]
+# Embeds unim_imm32.rc (STRINGTABLE id 1 = "UNIM Korean (IMM32)") into the .ime so
+# the indirect "Layout Display Name" = "@...unim_imm32.ime,-1" resolves. Same crate
+# version as unim-tsf/Cargo.toml for workspace consistency.
+embed-resource = "2"
+
+[target.'cfg(windows)'.dependencies]
+unim-windows-common = { path = "../unim-windows-common" }
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemServices",
+    "Win32_System_Registry",
+    "Win32_Globalization",
+    "Win32_UI_Input_Ime",                # IMEINFO/COMPOSITIONSTRING/TRANSMSGLIST/CANDIDATELIST/HIMC/HIMCC + IME consts
+    "Win32_UI_Input_KeyboardAndMouse",   # GetKeyState, VK_*, HKL
+    "Win32_UI_WindowsAndMessaging",      # WM_IME_*, RegisterClass, DefWindowProc, HWND msgs
+    "Win32_Graphics_Gdi",                # UI window paint (candidate window scaffold)
+] }

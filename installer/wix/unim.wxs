@@ -3,11 +3,14 @@
   UNIM Korean IME — Windows MSI installer (WiX Toolset 3.x).
 
   Build (Windows runner, GitHub Actions or local):
-    candle.exe -arch x64 -dWIN_OUT_DIR=path\to\release -out unim.wixobj installer\wix\unim.wxs
+    candle.exe -arch x64 -dWIN_OUT_DIR=target\x86_64-pc-windows-msvc\release ^
+               -dWIN_OUT_DIR32=target\i686-pc-windows-msvc\release ^
+               -out unim.wixobj installer\wix\unim.wxs
     light.exe   -ext WixUIExtension -out dist\unim-x64.msi unim.wixobj
 
-  Or via cargo-wix:
-    cargo wix --target x86_64-pc-windows-msvc --no-build -p unim-tsf
+  Or via cargo-wix (flags written without leading dashes to keep this XML
+  comment valid; supply them literally on the command line):
+    cargo wix  [target x86_64-pc-windows-msvc]  [no-build]  [package unim-tsf]
 
   TSF registration: dual track.
     (1) Static registry keys below mirror what unim-tsf/src/register.rs writes.
@@ -18,7 +21,8 @@
   `bash installer/wix/gen-guids.sh` whenever globals.rs changes.
 -->
 <?include generated/guids.wxi ?>
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
 
   <Product Id="*"
            Name="UNIM Korean IME"
@@ -34,23 +38,14 @@
              Description="UNIM Korean Input Method (Hangul + Hanja)"
              Comments="https://github.com/from104/unim" />
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of UNIM is already installed." />
+    <MajorUpgrade Schedule="afterInstallValidate"
+                  DowngradeErrorMessage="A newer version of UNIM is already installed." />
 
     <Media Id="1" Cabinet="unim.cab" EmbedCab="yes" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLDIR" Name="UNIM">
-
-          <!-- Standalone GUI executable (egui tray + settings). -->
-          <Component Id="UnimWindowsExe"
-                     Guid="5A6B7C8D-9E0F-1A2B-3C4D-5E6F7A8B9C0D"
-                     Win64="yes">
-            <File Id="unim_windows.exe"
-                  Name="unim-windows.exe"
-                  Source="$(var.WIN_OUT_DIR)\unim-windows.exe"
-                  KeyPath="yes" />
-          </Component>
 
           <!--
             TSF IME DLL.
@@ -88,29 +83,42 @@
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- (3) Language profile — HKLM\...\CTF\TIP\{CLSID}\LanguageProfile\0x00000412\{PROFILE_GUID} -->
+            <!-- (3) Language profile — HKLM\...\CTF\TIP\{CLSID}\LanguageProfile\0x00000412\{PROFILE_GUID}
+                 6 values matching unim-tsf/src/register.rs writes (Enable + SubstituteLayout +
+                 IconFile + IconIndex + Display + Description). SubstituteLayout=1042=0x412=ko-KR. -->
             <RegistryKey Root="HKLM"
                          Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\LanguageProfile\$(var.UnimLangIdHexPadded)\$(var.UnimProfileGuid)"
                          ForceCreateOnInstall="yes"
                          ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Name="Description" Value="UNIM Korean IME" />
               <RegistryValue Type="integer" Name="Enable" Value="1" />
+              <RegistryValue Type="integer" Name="SubstituteLayout" Value="1042" />
+              <RegistryValue Type="string" Name="IconFile" Value="[#unim_tsf.dll]" />
+              <RegistryValue Type="integer" Name="IconIndex" Value="0" />
+              <RegistryValue Type="string" Name="Display" Value="UNIM Korean IME" />
             </RegistryKey>
 
             <!--
-              (4) TSF categories.
+              (4) TSF categories — SampleIME 표준 8종.
+              See: docs/dev/windows/TSF_RESEARCH_REDESIGN.md (researcher 보고서).
+              Mirrors TSF_CATEGORIES const in unim-tsf/src/register.rs.
               Format (Microsoft SampleIME pattern):
                 Category\Category\{CATEGORY_GUID}\{CLSID}     ← Category subkey is CLSID
                 Category\Item\{CATEGORY_GUID}\{CLSID}         ← Item subkey is CLSID
-              Previously this file used {CATEGORY_GUID}\{CATEGORY_GUID} (a
-              copy-paste bug); that prevented OS-side TIP category discovery.
+              UIELEMENTENABLED GUID was previously {78D0B53D-...} (ITfTextLayoutSink)
+              — corrected to {49D2F9CF-...} matching windows-rs / msctf.h.
             -->
+
+            <!-- Item\{TIP} root key — manual fix sets default to "UNIM" (required for OS catalog enumeration) -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="UNIM" />
+            </RegistryKey>
 
             <!-- TIP_KEYBOARD = {34745C63-B2F0-4784-8B67-5E12C8701A31} -->
             <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{34745C63-B2F0-4784-8B67-5E12C8701A31}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{34745C63-B2F0-4784-8B67-5E12C8701A31}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{34745C63-B2F0-4784-8B67-5E12C8701A31}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
@@ -118,15 +126,39 @@
             <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{046B8C80-1647-40F7-9B21-B93B81AABC1B}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{046B8C80-1647-40F7-9B21-B93B81AABC1B}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{046B8C80-1647-40F7-9B21-B93B81AABC1B}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
-            <!-- TIPCAP_UIELEMENTENABLED = {78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA} -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <!-- TIPCAP_UIELEMENTENABLED = {49D2F9CF-1F5E-11D7-A6D3-00065B84435C} -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{49D2F9CF-1F5E-11D7-A6D3-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{78D0B53D-BBB0-44D5-9489-2A6BC9CB73BA}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{49D2F9CF-1F5E-11D7-A6D3-00065B84435C}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+
+            <!-- TIPCAP_SECUREMODE = {49D2F9CE-1F5E-11D7-A6D3-00065B84435C} — UAC/password fields -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{49D2F9CE-1F5E-11D7-A6D3-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{49D2F9CE-1F5E-11D7-A6D3-00065B84435C}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+
+            <!-- TIPCAP_COMLESS = {364215D9-75BC-11D7-A6EF-00065B84435C} — conhost / console activation -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{364215D9-75BC-11D7-A6EF-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{364215D9-75BC-11D7-A6EF-00065B84435C}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+
+            <!-- TIPCAP_INPUTMODECOMPARTMENT = {CCF05DD7-4A87-11D7-A6E2-00065B84435C} — Windows Settings "Options" exposure -->
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{CCF05DD7-4A87-11D7-A6E2-00065B84435C}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{CCF05DD7-4A87-11D7-A6E2-00065B84435C}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
@@ -134,7 +166,7 @@
             <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{13A016DF-560B-46CD-947A-4C3AF1E0E35D}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
 
@@ -142,8 +174,47 @@
             <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Category\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
             </RegistryKey>
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\CTF\TIP\$(var.UnimClsid)\Category\Item\$(var.UnimClsid)\{25504FB4-7BAB-4BC1-9C69-CF81890F0EF5}" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
               <RegistryValue Type="string" Value="" />
+            </RegistryKey>
+          </Component>
+
+          <!--
+            32-bit TSF IME DLL — for WOW64 (32-bit) host processes.
+            KakaoTalk (and other 32-bit apps) load the 32-bit msctf, which
+            looks up the TIP CLSID in the 32-bit registry view
+            (HKLM\SOFTWARE\WOW6432Node\Classes\CLSID). The 64-bit UnimTsfDll
+            component above only populates the 64-bit view, so 32-bit hosts
+            could not find the COM server. This component installs the i686
+            build of unim_tsf.dll (as unim_tsf32.dll) and registers it in the
+            32-bit CLSID view.
+
+            DO NOT use SelfRegCost here: the 64-bit msiexec cannot call
+            DllRegisterServer on a 32-bit DLL. We rely entirely on the static
+            RegistryKey rows below (Win64="no" routes them to WOW6432Node).
+
+            The CTF\TIP / LanguageProfile / Category keys are NOT duplicated
+            here: HKLM\SOFTWARE\Microsoft\CTF is a shared (non-redirected) hive
+            on x64 Windows — empirically verified that the 32-bit and 64-bit
+            views resolve to the same physical key — so the 64-bit component's
+            writes are already visible to 32-bit msctf. Only the redirected
+            HKCR\CLSID portion needs a 32-bit copy.
+          -->
+          <Component Id="UnimTsfDll32"
+                     Guid="2D3E4F5A-6B7C-4D8E-9F0A-1B2C3D4E5F6A"
+                     Win64="no">
+            <File Id="unim_tsf32.dll"
+                  Name="unim_tsf32.dll"
+                  Source="$(var.WIN_OUT_DIR32)\unim_tsf.dll"
+                  KeyPath="yes" />
+
+            <!-- COM CLSID — 32-bit view: HKLM\SOFTWARE\WOW6432Node\Classes\CLSID\{CLSID} -->
+            <RegistryKey Root="HKCR" Key="CLSID\$(var.UnimClsid)" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="UNIM Korean IME" />
+            </RegistryKey>
+            <RegistryKey Root="HKCR" Key="CLSID\$(var.UnimClsid)\InProcServer32" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+              <RegistryValue Type="string" Value="[#unim_tsf32.dll]" />
+              <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
             </RegistryKey>
           </Component>
 
@@ -159,6 +230,58 @@
                   Name="unregister-tsf.bat"
                   Source="..\scripts\unregister-tsf.bat" />
           </Component>
+
+          <!-- 설정 GUI (Slint). 트레이/랭귀지바 우클릭 '설정'·Windows 언어 옵션·
+               시작 메뉴에서 실행한다. DLL 과 같은 폴더에 두어 런타임에 DLL 경로
+               기준으로 찾는다(register::launch_settings_app). -->
+          <Component Id="UnimTsfSettingsExe"
+                     Guid="9E0F1A2B-3C4D-5E6F-7A8B-9C0D1E2F3041"
+                     Win64="yes">
+            <File Id="unim_tsf_settings_exe"
+                  Name="unim-tsf-settings.exe"
+                  Source="$(var.WIN_OUT_DIR)\unim-tsf-settings.exe"
+                  KeyPath="yes" />
+          </Component>
+
+          <!-- 팝업 렌더러 (out-of-process). 한자/특수문자/이모지 팝업을 별도
+               프로세스로 그린다(docs/dev/windows/popup-renderer-design.md §5·§7).
+               DLL 과 같은 INSTALLDIR 에 설치해 on-demand spawn 폴백이 모듈
+               디렉터리 기준으로 찾을 수 있게 한다(§6.4 ①). -->
+          <Component Id="UnimPopupWinExe"
+                     Guid="A1F2E3D4-5C6B-4A78-9E0F-1A2B3C4D5E6F"
+                     Win64="yes">
+            <File Id="unim_popup_win_exe"
+                  Name="unim-popup-win.exe"
+                  Source="$(var.WIN_OUT_DIR)\unim-popup-win.exe"
+                  KeyPath="yes" />
+
+            <!-- 로그인 자동시작 (모든 사용자). perMachine 설치이므로 HKCU 가 아닌
+                 HKLM Run 을 써야 설치 실행 사용자 외 계정에서도 기동된다(§7). -->
+            <RegistryValue Root="HKLM"
+                           Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+                           Name="UnimPopupRenderer"
+                           Type="string"
+                           Value="&quot;[INSTALLDIR]unim-popup-win.exe&quot;" />
+
+            <!-- on-demand spawn 폴백용 설치 경로 (§6.4 ②). DLL 이 모듈 디렉터리에서
+                 exe 를 못 찾을 때 이 키를 읽는다. -->
+            <RegistryValue Root="HKLM"
+                           Key="SOFTWARE\atit.org\UNIM"
+                           Name="InstallDir"
+                           Type="string"
+                           Value="[INSTALLDIR]" />
+          </Component>
+
+          <!-- 라이선스 전문 (MIT). 설정 마법사의 라이선스 페이지가 "설치 폴더의
+               LICENSE 파일" 을 안내하므로 실제로 INSTALLDIR 에 설치한다(리포 루트 LICENSE). -->
+          <Component Id="LicenseFile"
+                     Guid="7A8B9C0D-1E2F-4A3B-8C5D-6E7F8A9B0C1D"
+                     Win64="yes">
+            <File Id="unim_license_txt"
+                  Name="LICENSE.txt"
+                  Source="..\..\LICENSE"
+                  KeyPath="yes" />
+          </Component>
         </Directory>
       </Directory>
 
@@ -166,10 +289,10 @@
         <Directory Id="ApplicationProgramsFolder" Name="UNIM">
           <Component Id="StartMenuShortcuts"
                      Guid="7C8D9E0F-1A2B-3C4D-5E6F-7A8B9C0D1E2F">
-            <Shortcut Id="UnimWindowsShortcut"
-                      Name="UNIM Korean IME"
-                      Description="UNIM Korean Input Method (standalone GUI)"
-                      Target="[INSTALLDIR]unim-windows.exe"
+            <Shortcut Id="UnimSettingsShortcut"
+                      Name="UNIM Settings"
+                      Description="UNIM Korean IME settings"
+                      Target="[INSTALLDIR]unim-tsf-settings.exe"
                       WorkingDirectory="INSTALLDIR" />
             <Shortcut Id="UnimUninstallShortcut"
                       Name="Uninstall UNIM"
@@ -190,28 +313,88 @@
 
     <Feature Id="Complete"
              Title="UNIM Korean IME"
-             Description="Hangul + Hanja Korean input method for Windows (TSF + standalone GUI)"
+             Description="Hangul + Hanja Korean input method for Windows (TSF)"
              Display="expand"
              Level="1"
              ConfigurableDirectory="INSTALLDIR"
              AllowAdvertise="no"
              Absent="disallow">
-      <ComponentRef Id="UnimWindowsExe" />
       <ComponentRef Id="UnimTsfDll" />
+      <ComponentRef Id="UnimTsfDll32" />
+      <ComponentRef Id="UnimTsfSettingsExe" />
+      <ComponentRef Id="UnimPopupWinExe" />
       <ComponentRef Id="RegisterScripts" />
       <ComponentRef Id="StartMenuShortcuts" />
+      <ComponentRef Id="LicenseFile" />
     </Feature>
+
+    <!--
+      업그레이드/제거 시 실행 중인 렌더러 exe 점유 해제. 렌더러는 창 메시지를
+      처리하지 않을 수 있으므로 CloseMessage 가 아니라 TerminateProcess 강제
+      종료가 정답(상태 없음 — 다음 render 가 전체 복원, §7). WiX 3.x 의
+      util:CloseApplication 은 InstallValidate 앞에 자체 스케줄된다.
+    -->
+    <util:CloseApplication Id="CloseUnimPopupWin"
+                           Target="unim-popup-win.exe"
+                           CloseMessage="no"
+                           TerminateProcess="0"
+                           RebootPrompt="no" />
+
+    <!--
+      설치/복구 직후 팝업 렌더러를 즉시 기동(재로그인 불필요).
+      asyncNoWait + impersonate 로 사용자 컨텍스트에서 비동기 실행한다.
+      렌더러 싱글턴 뮤텍스가 중복 기동을 자체 차단하므로 Run 키로 이미
+      떠 있어도 무해(ERROR_ALREADY_EXISTS → exit 0).
+    -->
+    <CustomAction Id="LaunchPopupRenderer"
+                  FileKey="unim_popup_win_exe"
+                  ExeCommand=""
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <!--
+      설치 첫 실행 설정 마법사(unim-tsf-settings.exe). 설치 완료 후 사용자 컨텍스트에서
+      GUI 를 띄워 초기 세팅(언어팩 안내·기본입력기·자동교정·설정 열기)을 돕는다.
+      LaunchPopupRenderer 와 동일 패턴(immediate + Impersonate=yes + asyncNoWait).
+        - 신규 설치  : first-run 인자  (WIX_UPGRADE_DETECTED 미설정)
+        - 업그레이드 : whats-new 인자  (MajorUpgrade 가 WIX_UPGRADE_DETECTED 설정)
+      UILevel>=4 로 무인 설치(/qn=2, /qb=3)에서는 GUI 를 띄우지 않는다. 최종 "새 항목만"
+      판정은 앱이 HKCU WizardSeenVersion 으로 수행하므로 인자는 힌트일 뿐(중복 표시 방지).
+    -->
+    <CustomAction Id="LaunchSetupWizardFresh"
+                  FileKey="unim_tsf_settings_exe"
+                  ExeCommand="--first-run"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+    <CustomAction Id="LaunchSetupWizardUpgrade"
+                  FileKey="unim_tsf_settings_exe"
+                  ExeCommand="--whats-new"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="LaunchPopupRenderer" After="InstallFinalize">
+        <![CDATA[NOT Installed OR REINSTALL]]>
+      </Custom>
+      <Custom Action="LaunchSetupWizardFresh" After="LaunchPopupRenderer">
+        <![CDATA[NOT Installed AND NOT WIX_UPGRADE_DETECTED AND UILevel>=4]]>
+      </Custom>
+      <Custom Action="LaunchSetupWizardUpgrade" After="LaunchPopupRenderer">
+        <![CDATA[WIX_UPGRADE_DETECTED AND UILevel>=4]]>
+      </Custom>
+    </InstallExecuteSequence>
 
     <Property Id="ARPHELPLINK" Value="https://github.com/from104/unim" />
     <Property Id="ARPURLINFOABOUT" Value="https://atit.org" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="0" />
 
-    <!--
-      ARPPRODUCTICON: enable by placing installer/assets/unim.ico and uncommenting.
-      <Property Id="ARPPRODUCTICON" Value="unim.ico" />
-      <Icon Id="unim.ico" SourceFile="..\assets\unim.ico" />
-    -->
+    <!-- ARPPRODUCTICON: Add/Remove Programs 아이콘 (assets/unim-logo v2.svg → installer/assets/unim.ico). -->
+    <Icon Id="unim.ico" SourceFile="..\assets\unim.ico" />
+    <Property Id="ARPPRODUCTICON" Value="unim.ico" />
 
   </Product>
 </Wix>

@@ -7,6 +7,7 @@ pub mod input_engine;
 pub mod keycode;
 pub mod keystroke;
 pub mod logging;
+pub mod paths;
 pub mod popup;
 pub mod special_chars;
 pub mod status;

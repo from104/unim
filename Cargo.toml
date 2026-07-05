@@ -24,7 +24,7 @@ name = "unim"
 path = "src/lib.rs"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.63"
 # Cargo.lock v4 (used by this workspace) requires Rust 1.78+.
 # Older toolchains will fail with "lock file version 4 requires a newer Cargo".
 rust-version = "1.78"
@@ -48,9 +48,23 @@ members = [
     "unim-keymap-studio",
     "unim-typing-practice",
     "unim-dbus",
-    "unim-windows",
     "unim-tsf",
+    "unim-imm32",
+    "unim-tsf-settings",
+    "unim-popup-win",
+    "unim-windows-common",
     "tests/unim-test-wayland",
     "tests/unim-test-dbus",
 ]
 resolver = "2"
+
+# UB on Windows TSF: Rust panic unwinding across the C ABI / COM boundary
+# (msctf.dll calls into unim_tsf.dll's DllRegisterServer / IUnknown vtable)
+# is undefined behavior and was crashing msctf with 0xC0000005. `abort` is the
+# only safe choice for cdylib targets exposed via COM. Applied to all release
+# binaries for consistency (Linux IM components also benefit from clean abort).
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

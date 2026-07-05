@@ -20,8 +20,30 @@ UNIM 프로젝트의 의미 있는 작업·결정·정책 변경·릴리스 마�
 
 ## 작성 규칙
 
-### 위치
-`~/obsidian/생각 모음/2 Projects/ATIT/unim/일지/`
+### 위치 (볼트는 머신마다 다를 수 있음 — 하드코딩 금지, 자동 탐색)
+
+일지 폴더는 머신·동기화 방식에 따라 여러 곳일 수 있다. **단일 경로를 박지 말고** 아래 순서로 해석하여 **실제 존재하는 첫 경로**를 쓴다. 볼트 루트가 무엇이든 공통 하위 경로는 `<볼트루트>/2 Projects/ATIT/unim/일지/` (볼트 루트 = "생각 모음" 폴더).
+
+**해석 순서**
+
+1. **권위 출처 — 등록된 옵시디언 볼트** (최우선): `%APPDATA%\obsidian\obsidian.json` 의 `vaults[].path` 중 경로가 `생각 모음` 으로 끝나는 항목을 볼트 루트로 삼아 `\2 Projects\ATIT\unim\일지\` 를 붙인다. (obsidian.json 이 곧 그 머신의 정답.)
+2. **후보 경로 목록** (1이 실패할 때, 존재하는 것 우선 채택):
+   - `%USERPROFILE%\OneDrive\Desktop\Obsidian\생각 모음\2 Projects\ATIT\unim\일지\`
+   - `%USERPROFILE%\Obsidian\생각 모음\2 Projects\ATIT\unim\일지\`
+   - `~/obsidian/생각 모음/2 Projects/ATIT/unim/일지/`  (구 머신/Unix 형태)
+   - `~/Documents/Obsidian/생각 모음/2 Projects/ATIT/unim/일지/`  (Linux/mac 대안)
+3. 위 어느 것도 없으면 **작성하지 말고** 호출자에게 "일지 볼트를 찾지 못함 — `obsidian.json` 의 볼트 경로를 확인해 달라"고 되묻는다. (없는 폴더를 새로 만들지 말 것.)
+
+**탐색 예 (bash)**
+
+```bash
+# 1) obsidian.json 에서 '생각 모음' 볼트 루트 추출
+root=$(python -c "import json,os;d=json.load(open(os.path.expandvars(r'%APPDATA%\\obsidian\\obsidian.json')));print(next(v['path'] for v in d['vaults'].values() if v['path'].rstrip('\\\\/').endswith('생각 모음')))" 2>/dev/null)
+dir="$root\\2 Projects\\ATIT\\unim\\일지"
+# 2) 없으면 후보들을 순회하며 [ -d ] 로 첫 존재 경로 선택
+```
+
+> 머신을 옮기면 경로가 또 바뀔 수 있다 — 항상 1번(obsidian.json)을 먼저 신뢰하고, 거기서 못 찾을 때만 후보 목록으로 폴백한다.
 
 ### 파일명
 `{YYYY-MM-DD} {주제}.md` — **날짜 prefix 필수**. 오늘 날짜를 절대 날짜로 박을 것 (상대 표현 금지).

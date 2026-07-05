@@ -221,7 +221,7 @@ pub struct ScanReport {
 }
 
 fn default_user_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|p| p.join("unim").join("layouts"))
+    crate::paths::config_dir().map(|p| p.join("unim").join("layouts"))
 }
 
 fn dir_mtime(dir: &Path) -> Option<SystemTime> {

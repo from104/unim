@@ -47,6 +47,48 @@ impl ModeSharingMode {
     }
 }
 
+/// 조합 확정 단위 — 음절/단어/스마트.
+///
+/// preedit 을 어느 경계까지 유지하다 commit 할지 결정한다.
+/// - `Syllable` (기본): 음절이 완성되면 즉시 확정 (기존 동작, 무회귀).
+/// - `Word`: 단어 경계(공백/문장부호)까지 preedit 으로 누적 — 자동교정이
+///   조합 전체를 SetText 로 치환할 수 있게 한다 (`accumulate_word` 코어 substrate).
+/// - `Smart`: 문맥에 따라 음절/단어 단위를 자동 선택 (Phase 3 로직, 현재는 Syllable 동작).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[repr(C)]
+pub enum CommitUnit {
+    /// 음절 단위 확정. 한 음절이 완성되면 즉시 commit.
+    Syllable,
+    /// 단어 단위 확정. 단어 경계까지 preedit 으로 누적.
+    Word,
+    /// 스마트 (기본) — 문맥(앱)에 따라 음절/단어 단위를 자동 선택. 현재 보수적
+    /// 정책으로 MS Word(winword.exe) 등 협조 앱만 단어 단위, 그 외는 음절 단위.
+    ///
+    /// 기본값을 `Smart` 로 둔 이유: TSF 게이트가 설정을 무시하고 winword 만 단어
+    /// 모드로 하드코딩하던 종전 출고 동작과 바이트 동일하게 보존하기 위함이다
+    /// (`Syllable` 기본이면 실측 중이던 Word 자동교정이 기본 OFF 로 회귀).
+    /// `#[repr(C)]` 판별자 순서(Syllable=0/Word=1/Smart=2)는 불변 — 변형 재배치 없이
+    /// `#[default]` 위치만 이동.
+    #[default]
+    Smart,
+}
+
+impl CommitUnit {
+    /// 표시용 레이블을 반환합니다.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            CommitUnit::Syllable => "음절 단위",
+            CommitUnit::Word => "단어 단위",
+            CommitUnit::Smart => "스마트",
+        }
+    }
+
+    /// 사용 가능한 모든 확정 단위를 반환합니다.
+    pub fn all() -> &'static [CommitUnit] {
+        &[CommitUnit::Syllable, CommitUnit::Word, CommitUnit::Smart]
+    }
+}
+
 /// 한국어 키보드 레이아웃 식별자 — 자판 프로필 이름을 담는 문자열 래퍼.
 ///
 /// 레거시 시절 enum(`Dubeolsik` / `Sebeolsik390` / ...)이었던 필드를 Phase 8에서
@@ -474,6 +516,16 @@ impl Default for AutoEnglishConfig {
     }
 }
 
+/// `word_mode_apps` 기본값 — Smart 확정 단위 게이트가 이 목록의 프로세스 실행 파일명
+/// (정확일치)만 단어 모드로 켠다. `winword.exe`(MS Word)만 seed 한다.
+///
+/// wmux(xterm.js/Blink)는 제외됨: 역방향 자동교정이 음절모드에서 synth 라우팅
+/// (sink_asymmetric, OnTestKeyDown 미발화 감지)으로 동작 확인돼(device-QA PASS) 더는
+/// 단어 모드가 필요 없다. 필요 시 사용자가 config `word_mode_apps` 로 재추가 가능.
+fn default_word_mode_apps() -> Vec<String> {
+    vec!["winword.exe".to_string()]
+}
+
 /// 한국어 엔진 설정
 ///
 /// Phase 8에서 `layout` 필드가 enum에서 문자열로 통합됨. 이전의 `custom_layout`
@@ -531,6 +583,24 @@ pub struct KoreanConfig {
     /// InputEngine 레벨 ChordBuffer로 구현됨 (idle flush + force_flush 패턴).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chord_window_ms: Option<u16>,
+
+    /// 조합 확정 단위 — 음절/단어/스마트 (기본 `Smart`).
+    ///
+    /// `Word` 면 엔진이 `accumulate_word` 를 켜 단어 경계까지 preedit 을 누적한다
+    /// (자동교정 substrate). 레거시 `word_commit: true` config 는 `KoreanConfigCompat`
+    /// 브리지에서 `commit_unit` 미지정 시 `Word` 로, 그 외 미지정은 기본값(`Smart`)으로
+    /// 승격된다. TSF 게이트가 이 값을 앱별 단어모드 desired 판정에 사용한다.
+    #[serde(default)]
+    pub commit_unit: CommitUnit,
+
+    /// 단어 모드(단어 단위 조합) 대상 앱 목록 — 프로세스 실행 파일명 정확일치.
+    ///
+    /// TSF `Smart` 확정 단위 게이트가 이 목록에 정확히 일치하는 포그라운드 프로세스명만
+    /// 단어 모드로 켠다(그 외는 음절 단위). Windows TSF 전용 — Linux 프런트엔드는 미사용.
+    /// 기본값 `["winword.exe"]`. wmux 는 역방향 음절모드 synth 라우팅 동작 확인 후 제외됨.
+    /// 앱 호환을 코드 릴리스와 분리(config.yaml/CLI 로 편집, `maybe_reload_config` 핫리로드).
+    #[serde(default = "default_word_mode_apps")]
+    pub word_mode_apps: Vec<String>,
 }
 
 impl Default for KoreanConfig {
@@ -541,6 +611,8 @@ impl Default for KoreanConfig {
             layout_rule_sets: BTreeMap::new(),
             bidirectional_combine: None,
             chord_window_ms: None,
+            commit_unit: CommitUnit::default(),
+            word_mode_apps: default_word_mode_apps(),
         }
     }
 }
@@ -664,6 +736,13 @@ struct KoreanConfigCompat {
     /// 모아치기 — 동시 입력 시간 (ms). 0=OFF. N ms 이내 키를 한 음절로 묶음 처리.
     #[serde(default)]
     chord_window_ms: Option<u16>,
+    /// 조합 확정 단위. `None` = 미지정(레거시 `word_commit` 브리지 대상).
+    /// `Some(_)` = 명시 설정(브리지보다 우선).
+    #[serde(default)]
+    commit_unit: Option<CommitUnit>,
+    /// 단어 모드 앱 목록 (정확일치). 미지정 → 기본값(winword.exe).
+    #[serde(default = "default_word_mode_apps")]
+    word_mode_apps: Vec<String>,
 }
 
 impl Default for KoreanConfigCompat {
@@ -677,6 +756,8 @@ impl Default for KoreanConfigCompat {
             custom_layout: None,
             bidirectional_combine: None,
             chord_window_ms: None,
+            commit_unit: None,
+            word_mode_apps: default_word_mode_apps(),
         }
     }
 }
@@ -687,12 +768,21 @@ impl From<KoreanConfigCompat> for KoreanConfig {
             Some(ref s) if !s.is_empty() => s.clone(),
             _ => c.layout,
         };
+        // 확정 단위 브리지: 명시 `commit_unit` 우선, 미지정이면 레거시
+        // `word_commit: true` 를 `Word` 로 승격(구 config 의도 보존), 그 외 기본값.
+        let commit_unit = match c.commit_unit {
+            Some(u) => u,
+            None if c.word_commit => CommitUnit::Word,
+            None => CommitUnit::default(),
+        };
         Self {
             layout: normalize_korean_layout_name(&layout),
             active_rule_sets: c.active_rule_sets,
             layout_rule_sets: c.layout_rule_sets,
             bidirectional_combine: c.bidirectional_combine,
             chord_window_ms: c.chord_window_ms,
+            commit_unit,
+            word_mode_apps: c.word_mode_apps,
         }
     }
 }
@@ -779,6 +869,25 @@ pub struct EngineConfig {
     pub auto_typefix: AutoTypeFixConfig,
     /// 특정 키 입력 시 자동으로 영문 모드로 전환하는 설정
     pub auto_english: AutoEnglishConfig,
+    /// 한/영 전환 시 짧은 비프음으로 현재 모드를 알린다 (접근성, 기본 false).
+    ///
+    /// 시각장애 사용자가 화면 없이도 토글 후 현재 모드(한글/영문)를 소리 높낮이로
+    /// 확인할 수 있게 한다. Windows TSF 전용 — 한글 모드는 높은 음, 영문 모드는
+    /// 낮은 음으로 차등한다. 기본 false 로 현행 무음 동작을 바이트동일 보존한다.
+    /// (능동 스크린리더 통지 NotifyWinEvent 는 본 옵션과 무관하게 항상 발생.)
+    #[serde(default)]
+    pub toggle_announce_beep: bool,
+
+    /// 조합키 자동반복 억제 — 조합/토글 키를 홀드했을 때 OS 자동반복 이벤트를
+    /// 무시한다 (접근성, 지체장애, 기본 false).
+    ///
+    /// 켜지면 키를 누르고 있을 때 반복 발생하는 자모 연타·한/영 토글 진동을 막아
+    /// 한 번의 눌림만 처리한다. Windows TSF 는 OnKeyDown/OnTestKeyDown 의 lParam
+    /// bit30(이전 키 상태=반복)으로 반복을 식별한다. 편집키(백스페이스/방향)와
+    /// 영문 직접입력의 자동반복은 영향받지 않고 그대로 유지된다.
+    /// 기본 false 로 현행 동작을 바이트동일 보존한다.
+    #[serde(default)]
+    pub ignore_key_repeat: bool,
 }
 
 impl Default for EngineConfig {
@@ -793,6 +902,8 @@ impl Default for EngineConfig {
             app_rules: Vec::new(),
             auto_typefix: AutoTypeFixConfig::default(),
             auto_english: AutoEnglishConfig::default(),
+            toggle_announce_beep: false,
+            ignore_key_repeat: false,
         }
     }
 }
@@ -823,7 +934,7 @@ impl Config {
     /// - macOS: `~/Library/Application Support/unim/config.yaml`
     /// - Windows: `%APPDATA%\unim\config.yaml`
     pub fn default_config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("unim").join("config.yaml"))
+        crate::paths::config_dir().map(|p| p.join("unim").join("config.yaml"))
     }
 
     /// 기본 경로에서 설정을 로드합니다.
@@ -858,8 +969,10 @@ impl Config {
                         "[UNIM] 설정 파일이 없습니다. 기본 설정을 생성합니다: {:?}",
                         path
                     );
-                } else if msg.contains("Permission denied") || msg.contains("권한") {
-                    // 퍼미션 문제
+                } else if Self::is_permission_error(msg) {
+                    // 퍼미션 문제 (Linux "Permission denied" / Windows "Access is denied" /
+                    // "os error 5"). default 를 디스크에 덮어쓰려는 시도(아래)를 건너뛰어
+                    // AppContainer(스티커 메모 등)에서 무의미한 쓰기 실패 로그를 막는다.
                     Self::log_permission_error(path);
                     return default_config;
                 } else {
@@ -893,7 +1006,7 @@ impl Config {
             }
             Err(save_err) => {
                 if let ConfigError::IoError(msg) = &save_err {
-                    if msg.contains("Permission denied") || msg.contains("권한") {
+                    if Self::is_permission_error(msg) {
                         Self::log_permission_error(path);
                     } else {
                         eprintln!("[UNIM] 설정 파일 저장 실패: {}", msg);
@@ -903,6 +1016,20 @@ impl Config {
         }
 
         default_config
+    }
+
+    /// IO 오류 메시지가 권한 거부인지 판정합니다.
+    ///
+    /// OS/로캘별 문자열을 모두 커버:
+    /// - Linux/macOS: `Permission denied`
+    /// - Windows(영문): `Access is denied`
+    /// - Windows(raw): `os error 5`
+    /// - 한국어 로캘: `권한`
+    fn is_permission_error(msg: &str) -> bool {
+        msg.contains("Permission denied")
+            || msg.contains("Access is denied")
+            || msg.contains("os error 5")
+            || msg.contains("권한")
     }
 
     /// 퍼미션 오류 시 해결 방법을 로그로 안내합니다.
@@ -1199,6 +1326,249 @@ word_commit: false
 "#;
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(kc.active_rule_sets, None);
+    }
+
+    // ─────────────────────────────────────────────
+    // commit_unit (단어별 preedit Phase 2) — 직렬화 + word_commit 브리지
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 Smart (종전 출고 게이트 = winword 만 Word, 그 외 Syllable 과 동치).
+    #[test]
+    fn commit_unit_default_is_smart() {
+        assert_eq!(CommitUnit::default(), CommitUnit::Smart);
+        assert_eq!(KoreanConfig::default().commit_unit, CommitUnit::Smart);
+    }
+
+    /// CommitUnit::Word 가 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn commit_unit_serde_roundtrips_word() {
+        let mut kc = KoreanConfig::default();
+        kc.commit_unit = CommitUnit::Word;
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.commit_unit, CommitUnit::Word);
+    }
+
+    /// Smart 도 라운드트립 보존.
+    #[test]
+    fn commit_unit_serde_roundtrips_smart() {
+        let mut kc = KoreanConfig::default();
+        kc.commit_unit = CommitUnit::Smart;
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.commit_unit, CommitUnit::Smart);
+    }
+
+    /// 레거시 `word_commit: true` + commit_unit 미지정 → Word 로 승격.
+    #[test]
+    fn commit_unit_bridges_legacy_word_commit_true() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: true
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.commit_unit, CommitUnit::Word);
+    }
+
+    /// 레거시 `word_commit: false`(또는 부재) + commit_unit 미지정 → 기본값(Smart).
+    ///
+    /// `word_commit` 는 출고된 사용자 가시 설정이 아니라 내부 전환기 브리지 필드라
+    /// (CLI/GUI 어디에도 노출 안 됨) `false`/부재를 구분할 plain `bool` 이며, 둘 다
+    /// 기본값으로 떨어진다. 종전 게이트가 winword 를 무조건 Word 로 강제했으므로
+    /// 이 매핑(Smart)은 그 출고 동작과 정합한다(회귀 아님).
+    #[test]
+    fn commit_unit_bridges_legacy_word_commit_false_uses_default() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.commit_unit, CommitUnit::Smart);
+    }
+
+    /// 명시 commit_unit 은 레거시 word_commit 브리지보다 우선한다 (구 config 보존).
+    #[test]
+    fn commit_unit_explicit_overrides_legacy_word_commit() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: true
+commit_unit: Syllable
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.commit_unit,
+            CommitUnit::Syllable,
+            "명시 commit_unit 이 word_commit 브리지보다 우선해야 함"
+        );
+    }
+
+    /// 미지정(필드 부재) + word_commit 부재 → 기본값(Smart).
+    #[test]
+    fn commit_unit_legacy_missing_field_uses_default_smart() {
+        let yaml = "layout: ko_2bulstd\n";
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.commit_unit, CommitUnit::Smart);
+    }
+
+    /// all()/display_name() 미러 정합성.
+    #[test]
+    fn commit_unit_all_and_display_name() {
+        assert_eq!(CommitUnit::all().len(), 3);
+        for u in CommitUnit::all() {
+            assert!(!u.display_name().is_empty());
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // word_mode_apps (I4 per-app 앱호환 외부화) — 기본값 보존 + 직렬화 라운드트립
+    // ─────────────────────────────────────────────
+
+    /// 기본 단어모드 화이트리스트는 winword.exe 만(wmux 는 음절모드 synth 라우팅
+    /// 동작 확인 후 제외 — device-QA PASS).
+    #[test]
+    fn word_mode_apps_default_is_winword_only() {
+        assert_eq!(
+            KoreanConfig::default().word_mode_apps,
+            vec!["winword.exe".to_string()],
+            "기본 단어모드 화이트리스트는 winword.exe 만"
+        );
+    }
+
+    /// 사용자 지정 목록이 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn word_mode_apps_serde_roundtrips() {
+        let mut kc = KoreanConfig::default();
+        kc.word_mode_apps = vec!["winword.exe".to_string(), "foo.exe".to_string()];
+        let yaml = serde_yaml::to_string(&kc).unwrap();
+        let back: KoreanConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(
+            back.word_mode_apps,
+            vec!["winword.exe".to_string(), "foo.exe".to_string()]
+        );
+    }
+
+    /// 레거시 YAML(필드 부재) → 기본값(winword.exe). 기존 config.yaml 무회귀.
+    #[test]
+    fn word_mode_apps_legacy_missing_field_uses_default() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_commit: false
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.word_mode_apps,
+            vec!["winword.exe".to_string()],
+            "필드 부재 시 기본값(winword.exe)으로 채워져야 함"
+        );
+    }
+
+    /// 명시적 빈 목록(`word_mode_apps: []`)은 빈 vec 로 보존된다
+    /// (= Smart 게이트가 어떤 앱도 단어 모드로 켜지 않음, 유효한 의도).
+    #[test]
+    fn word_mode_apps_explicit_empty_list_preserved() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_mode_apps: []
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(kc.word_mode_apps, Vec::<String>::new());
+    }
+
+    /// 사용자 지정 목록이 KoreanConfigCompat 브리지를 통해 그대로 흡수된다.
+    #[test]
+    fn word_mode_apps_explicit_list_overrides_default() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_mode_apps:
+  - winword.exe
+  - wmux.exe
+  - kakaotalk.exe
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            kc.word_mode_apps,
+            vec![
+                "winword.exe".to_string(),
+                "wmux.exe".to_string(),
+                "kakaotalk.exe".to_string()
+            ]
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // toggle_announce_beep (I7 한/영 전환 능동 통지) — 기본값 + 직렬화 라운드트립
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 false — 현행 무음 동작을 바이트동일 보존(무회귀).
+    #[test]
+    fn toggle_announce_beep_default_is_false() {
+        assert!(!EngineConfig::default().toggle_announce_beep);
+        assert!(!Config::default().engine.toggle_announce_beep);
+    }
+
+    /// true 설정이 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn toggle_announce_beep_serde_roundtrips() {
+        let mut config = Config::default();
+        config.engine.toggle_announce_beep = true;
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(back.engine.toggle_announce_beep);
+    }
+
+    /// 레거시 YAML(필드 부재) → false (기존 config.yaml 무회귀).
+    #[test]
+    fn toggle_announce_beep_legacy_missing_field_is_false() {
+        let yaml = r#"
+engine:
+  default_category: English
+  toggle_keys:
+    - Korean
+    - RightAlt
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(
+            !config.engine.toggle_announce_beep,
+            "필드 부재 시 false(현행 무음 동작)로 채워져야 함"
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // ignore_key_repeat (조합키 자동반복 억제, 접근성) — 기본값 + 라운드트립
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 false — 현행 자동반복 동작을 바이트동일 보존(무회귀).
+    #[test]
+    fn ignore_key_repeat_default_is_false() {
+        assert!(!EngineConfig::default().ignore_key_repeat);
+        assert!(!Config::default().engine.ignore_key_repeat);
+    }
+
+    /// true 설정이 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn ignore_key_repeat_serde_roundtrips() {
+        let mut config = Config::default();
+        config.engine.ignore_key_repeat = true;
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(back.engine.ignore_key_repeat);
+    }
+
+    /// 레거시 YAML(필드 부재) → false (기존 config.yaml 무회귀).
+    #[test]
+    fn ignore_key_repeat_legacy_missing_field_is_false() {
+        let yaml = r#"
+engine:
+  default_category: English
+  toggle_keys:
+    - Korean
+    - RightAlt
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(
+            !config.engine.ignore_key_repeat,
+            "필드 부재 시 false(현행 자동반복 동작)로 채워져야 함"
+        );
     }
 
     // ─────────────────────────────────────────────

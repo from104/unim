@@ -1,0 +1,25 @@
+# EditorConfig — 에디터가 새 파일 생성·저장 시 줄바꿈을 통일
+# (VS Code 네이티브 지원, Vim/JetBrains 플러그인. .gitattributes 와 짝)
+root = true
+
+[*]
+end_of_line = lf
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.rs]
+indent_style = space
+indent_size = 4
+
+[*.{js,json,yml,yaml,toml,css,slint}]
+indent_style = space
+indent_size = 4
+
+[*.md]
+# 마크다운은 줄끝 공백 2개가 <br> 의미라 트림 제외
+trim_trailing_whitespace = false
+
+# Windows 전용 스크립트 — CRLF (cmd.exe GOTO/label 버그 회피)
+[*.{bat,cmd,ps1}]
+end_of_line = crlf

@@ -98,7 +98,7 @@ fn normalize(word: &str) -> String {
 impl UserDictionary {
     /// 기본 경로: `~/.config/unim/typefix-userdict.yaml`
     pub fn default_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("unim").join("typefix-userdict.yaml"))
+        crate::paths::config_dir().map(|p| p.join("unim").join("typefix-userdict.yaml"))
     }
 
     pub fn load_from_path(path: &Path) -> Self {

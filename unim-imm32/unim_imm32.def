@@ -1,0 +1,21 @@
+LIBRARY unim_imm32
+EXPORTS
+    ImeInquire
+    ImeConfigure
+    ImeDestroy
+    ImeEscape
+    ImeSelect
+    ImeSetActiveContext
+    ImeProcessKey
+    ImeToAsciiEx
+    NotifyIME
+    ImeSetCompositionString
+    UIWndProc
+    ImeRegisterWord
+    ImeUnregisterWord
+    ImeGetRegisterWordStyle
+    ImeEnumRegisterWord
+    ImeGetImeMenuItems
+    ImeConversionList
+    DllRegisterServer
+    DllUnregisterServer

@@ -46,6 +46,11 @@ reg query "HKLM\SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890
 # (5) Category 키 — Item 마지막 sub-key 가 CLSID 인지 확인 (이전 P1 버그)
 reg query "HKLM\SOFTWARE\Microsoft\CTF\TIP\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\Category\Item\{34745C63-B2F0-4784-8B67-5E12C8701A31}" /s
 # 기대: …\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890} 가 sub-key 로 보임.
+
+# (6) 32-bit COM 등록 — 32-bit 앱(KakaoTalk 등) 지원의 필수 키 (SOLVED 2026-06-22)
+reg query "HKLM\SOFTWARE\WOW6432Node\Classes\CLSID\{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}\InProcServer32" /ve
+# 기대: REG_SZ = 32-bit unim_tsf.dll 경로 (i686 빌드). ThreadingModel=Apartment.
+# 이 키가 없으면 32-bit 앱(카톡)에서 UNIM 이 안 뜬다 — 근본원인. 참조: imm32-win11-SOLUTION.md.
 ```
 
 ## 3. TIP 발견 / 활성화
@@ -77,23 +82,62 @@ GUI 경로: `설정 → 시간 및 언어 → 한국어 → 키보드 → 키보
 | 4.4 | 한영 토글 (한/영 키) | `dkssud` → 한/영 → `hello` | `안녕hello` | ☐ |
 | 4.5 | 32 비트 앱 동작 | x86 메모장 (`%windir%\SysWOW64\notepad.exe`) | 4.1 과 동일 | ☐ |
 | 4.6 | UWP 앱 동작 (Microsoft Edge 주소창) | `dkssud` | `안녕` | ☐ |
+| 4.7 | **KakaoTalk (32-bit 실앱) 한글 입력** | 카톡 채팅 입력란에서 UNIM 전환 → `dkssudgktpdy` | `안녕하세요` 정상 inline 조합 (SOLVED — 32-bit TSF 등록 필수) | ☐ |
+| 4.8 | KakaoTalk 한영 토글 | 카톡 입력란 → `dkssud` → 한/영 → `hi` | `안녕hi` | ☐ |
 
 `☐` 를 `OK` / `FAIL: 사유` 로 갱신.
 
-## 5. 트레이 / 설정 UI
+> **4.7/4.8 실패 시 1순위 의심:** 2절 (6) 32-bit COM 키 부재 = i686 `unim_tsf.dll` 미빌드/미등록.
+> 카톡 미동작의 근본원인이며, 64-bit 앱(4.1~4.6)이 정상이어도 32-bit 등록이 없으면 카톡만 안 된다.
+> 진단·해결: **[imm32-win11-SOLUTION.md](imm32-win11-SOLUTION.md)**.
 
-```powershell
-# 시작 메뉴에 "UNIM Korean IME" 단축키
-Get-StartApps | Where-Object Name -like '*UNIM*'
+## 4b. 팝업 동작 (Phase 3 — 한자/특수문자/이모지)
 
-# 실행
-& "$env:ProgramFiles\UNIM\unim-windows.exe"
-```
+자체 layered popup 윈도우(WS_EX_NOACTIVATE)로 렌더된다. 팝업이 떠도 타깃 앱 포커스가 유지돼야 한다.
 
-기대:
+| # | 동작 | 입력 | 기대 결과 | 결과 |
+|---|------|------|-----------|------|
+| 4b.1 | 한자 후보 popup | `한자` → 한자키 | 후보 격자 표시, 행(숫자)+열(Q~O) 레이블 강조 | ☐ |
+| 4b.2 | 후보 페이지 이동 | popup 활성 → PageDown/PageUp | 페이지 전환, 선택 위치 보존 | ☐ |
+| 4b.3 | 9x9 확장 격자 토글 | popup 활성 → Period(.) | compact(9) ↔ expanded(81) 전환 | ☐ |
+| 4b.4 | 한자 북마크 토글 | popup 활성 → Space | ★ flash(노랑) 후 즐겨찾기 반영 | ☐ |
+| 4b.5 | 후보 선택/취소 | 숫자/방향+Enter / Esc | commit / 팝업 닫힘·composition 유지 | ☐ |
+| 4b.6 | 특수문자 popup | 특수문자 트리거 | 특수문자 격자 표시 | ☐ |
+| 4b.7 | 이모지 popup | `Super`+`.` | 이모지 카테고리 격자 최초 표시 | ☐ |
 
-- 트레이 아이콘 노출.
-- 우클릭 → 설정 → 일반/오타교정/한자 페이지 렌더.
+## 4c. AutoTypeFix (Phase 4 — 자동 한영 오타 교정)
+
+설정에서 AutoTypeFix `enabled`/`forward`/`reverse` 가 켜져 있어야 한다(5절 설정 또는 config.yaml).
+
+| # | 동작 | 입력 | 기대 결과 | 결과 |
+|---|------|------|-----------|------|
+| 4c.1 | 순방향 자동 교정 (영문오타→한글) | 한글모드 인식 실패 영문 입력 | 자동으로 한글 재조합 | ☐ |
+| 4c.2 | 역방향 자동 교정 (한글오타→영문) | 영문모드인데 한글식 입력 | 자동으로 영문 교정 | ☐ |
+| 4c.3 | 수동 변환 (선택 없음) | `dkssud` → `Ctrl+Shift+Space` | `안녕`으로 변환 | ☐ |
+| 4c.4 | 수동 변환 (선택 영역) | 텍스트 선택 → `Ctrl+Shift+Space` | 선택 영역만 변환 | ☐ |
+| 4c.5 | undo | 자동 교정 직후 `Ctrl+Z` | 교정 전으로 복원 | ☐ |
+| 4c.6 | blacklist 재트리거 억제 | 동일 단어 재입력 | 재교정 안 됨 | ☐ |
+
+## 5. 랭귀지바 / 설정 다이얼로그 / config reload (TSF 네이티브)
+
+별도 트레이 앱(unim-windows)은 제거됐다. 모든 UI 는 `unim_tsf.dll` 내부 네이티브 Win32.
+설정 저장소는 `%APPDATA%\unim\config.yaml`. UNIM TIP 가 활성(입력 가능)인 상태에서 검증.
+
+| # | 동작 | 기대 결과 | 결과 |
+|---|------|-----------|------|
+| 5.1 | 랭귀지바 버튼 노출 | 시스템 언어바에 UNIM 한/영 상태 버튼(아이콘/텍스트) | ☐ |
+| 5.2 | 한/영 전환 시 랭귀지바 동기 | 한/영 키로 모드 전환 시 버튼 아이콘·텍스트 즉시 갱신 | ☐ |
+| 5.3 | 랭귀지바 버튼 클릭 → 엔진 토글 | 버튼 클릭(또는 메뉴 `한/영 전환`)으로 입력 모드 전환 | ☐ |
+| 5.4 | 랭귀지바 메뉴 | `한/영 전환` / `기본 입력기로 설정` / `설정 열기` 항목 표시 | ☐ |
+| 5.5 | Windows 옵션 버튼 → 설정 다이얼로그 | `설정 → 시간 및 언어 → 한국어 → 키보드 → UNIM → 옵션/속성` 클릭 시 네이티브 설정창(`ITfFnConfigure::Show`) | ☐ |
+| 5.6 | 설정 다이얼로그 4탭 렌더 | 일반 / 오타 교정 / 억제 단어 / 사용자 사전 탭 전환 | ☐ |
+| 5.6a | 일반 탭 | 자판 콤보, 룰셋 체크(자판 변경 시 동적 재구성), 모아치기(bidirectional + chord_window 슬라이더), 시작모드·모드공유 콤보, 전환/한자키·트리거키 EDIT | ☐ |
+| 5.6b | 오타 교정 탭 | AutoTypeFix 체크박스 7 + 슬라이더 6 | ☐ |
+| 5.6c | 억제 단어 탭 | 블랙리스트 ListBox + 삭제/비활성화/확정 → typefix-blacklist.yaml 즉시 저장 | ☐ |
+| 5.6d | 사용자 사전 탭 | 단어/메모 추가·수정·삭제 → typefix-userdict.yaml 즉시 저장 | ☐ |
+| 5.7 | 설정 저장 | 확인/적용 시 config.yaml 갱신, 취소 시 미저장(블랙/사전은 즉시 저장) | ☐ |
+| 5.8 | "기본 입력기로 설정" 버튼/메뉴 | UNIM 이 한국어 기본 프로필로 지정(`SetDefaultLanguageProfile`) | ☐ |
+| 5.9 | config reload | 설정 다이얼로그에서 변경·저장 후 타깃 앱 포커스 이동 시 TSF 가 새 설정 반영(OnSetFocus mtime) | ☐ |
 
 ## 6. 제거
 

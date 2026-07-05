@@ -11,21 +11,45 @@ impl InputEngine {
 
     /// 입력 필드의 목적을 설정합니다.
     ///
-    /// 비밀번호/PIN 필드에서는 한글 모드가 자동으로 차단됩니다.
+    /// 비밀번호/PIN 필드에 진입하면 직전 입력 카테고리를 저장하고 영문으로 강제
+    /// 전환하며, 필드를 벗어나면(비-비밀번호 목적으로 전환) 저장한 직전 카테고리를
+    /// 복구한다. 이로써 "비밀번호 칸 임시 영문 → 벗어나면 직전 한/영 복구"가 양
+    /// 플랫폼(Linux immodule focus_in / Windows TSF InputScope)에서 동작한다.
+    ///
+    /// 상태머신(멱등 — 동일 목적 반복 호출은 무시):
+    /// - 비밀번호/PIN 진입(`should_block_hangul`) && 저장 없음: 현재 카테고리를
+    ///   저장한 뒤 영문 강제. 이미 저장돼 있으면(Password→Pin 연쇄) 재저장하지 않아
+    ///   최초 진입 직전 상태를 보존한다.
+    /// - 비-비밀번호 진입 && 저장 있음: 저장값을 복구한 뒤 클리어. 이미 영문이었으면
+    ///   복구도 영문이라 변화가 없다(자연).
     pub fn set_content_purpose(&mut self, purpose: ContentPurpose) {
-        if self.content_purpose != purpose {
-            unim_log!(
-                "ENGINE",
-                "content_purpose 변경: {:?} -> {:?}",
-                self.content_purpose,
-                purpose
-            );
-            self.content_purpose = purpose;
+        // 멱등: 동일 목적 반복 호출은 무시 (이중 저장/복구 방지, 평소 경로 무회귀).
+        if self.content_purpose == purpose {
+            return;
+        }
+        unim_log!(
+            "ENGINE",
+            "content_purpose 변경: {:?} -> {:?}",
+            self.content_purpose,
+            purpose
+        );
+        self.content_purpose = purpose;
 
-            // 비밀번호 필드로 전환 시 한글 모드면 즉시 영문 전환
-            if purpose.should_block_hangul() && self.input_category == InputCategory::Korean {
+        if purpose.should_block_hangul() {
+            // 비밀번호/PIN 진입: 직전 카테고리 저장(최초 1회) + 영문 강제.
+            if self.saved_category.is_none() {
+                self.saved_category = Some(self.input_category);
+            }
+            if self.input_category != InputCategory::English {
                 self.flush_preedit();
                 self.input_category = InputCategory::English;
+                self.update_status_file();
+            }
+        } else if let Some(saved) = self.saved_category.take() {
+            // 비-비밀번호 진입(필드 벗어남): 저장한 직전 카테고리 복구 + 클리어.
+            if self.input_category != saved {
+                self.flush_preedit();
+                self.input_category = saved;
                 self.update_status_file();
             }
         }

@@ -127,5 +127,10 @@ pub fn check_forward(
         original: ascii,
         clear_preedit: false,
         replay_keys,
+        // word 모드(라이브 조합)면 프런트가 surrounding 삭제 대신 조합 SetText 로 치환한다.
+        // 순방향의 라이브 조합은 보유 영문(english_hold, committed 한글 0)이므로 word 모드
+        // 자체가 신호다(영문 즉시 commit 로 buffer.committed_chars 는 오염되어 참조 불가).
+        // 음절 모드(word_mode=false)면 false → 기존 replace_surrounding 경로 바이트 동일.
+        replace_composition: buffer.word_mode,
     })
 }

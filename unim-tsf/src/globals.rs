@@ -16,8 +16,9 @@ pub const UNIM_DISPLAY_ATTR_INPUT: GUID = GUID::from_u128(0xC3D4E5F6_A7B8_9012_C
 pub const UNIM_DISPLAY_ATTR_CONVERTED: GUID =
     GUID::from_u128(0xD4E5F6A7_B8C9_0123_DEF0_234567890123);
 
-#[cfg(windows)]
-pub const UNIM_LANGBAR_ITEM_GUID: GUID = GUID::from_u128(0xE5F6A7B8_C9D0_1234_EF01_345678901234);
+// 입력 모드 인디케이터 langbar item 은 표준 GUID_LBI_INPUTMODE 를 쓴다
+// (lang_bar.rs 참조). 커스텀 GUID 는 OS 가 트레이 한/영 표시기를 그리지 않아
+// 더 이상 사용하지 않는다.
 
 pub const UNIM_LANGID_KOREAN: u16 = 0x0412;
 pub const UNIM_IME_NAME: &str = "UNIM Korean IME";

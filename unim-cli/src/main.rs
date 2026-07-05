@@ -457,6 +457,15 @@ enum ConfigKey {
     /// 모아치기 화음 윈도우 (ms, 0=OFF). supports_moachigi 자판 전용. Phase 4 예약.
     #[value(name = "korean-chord-window-ms")]
     KoreanChordWindowMs,
+    /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Windows 전용 — Smart 확정 단위에서 단어 조합할 앱.
+    #[value(name = "word-mode-apps")]
+    WordModeApps,
+    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음. Windows 전용.
+    #[value(name = "toggle-announce-beep")]
+    ToggleAnnounceBeep,
+    /// 조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows 전용.
+    #[value(name = "ignore-key-repeat")]
+    IgnoreKeyRepeat,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -713,6 +722,11 @@ fn config_show() {
         t!("hanja_keys_label"),
         config.engine.hanja_keys.join(", ")
     );
+    println!(
+        "{}: {}",
+        t!("word_mode_apps_label"),
+        config.engine.korean.word_mode_apps.join(", ")
+    );
     let auto_typefix_status = if config.engine.auto_typefix.enabled {
         t!("enabled")
     } else {
@@ -777,6 +791,26 @@ fn config_show() {
             config.engine.auto_english.trigger_keys.join(", ")
         );
     }
+    let toggle_beep_status = if config.engine.toggle_announce_beep {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+    println!(
+        "{}: {}",
+        t!("toggle_announce_beep_label"),
+        toggle_beep_status
+    );
+    let ignore_repeat_status = if config.engine.ignore_key_repeat {
+        t!("enabled")
+    } else {
+        t!("disabled")
+    };
+    println!(
+        "{}: {}",
+        t!("ignore_key_repeat_label"),
+        ignore_repeat_status
+    );
     println!(
         "{}: {}",
         t!("app_rules_label"),
@@ -1203,6 +1237,47 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 config.engine.korean.chord_window_ms = Some(ms);
                 println!("korean.chord_window_ms: {ms}ms (범위 10-200, 0=OFF)");
             }
+        }
+        ConfigKey::WordModeApps => {
+            // 실행 파일명 정확일치 목록. 빈 문자열/빈 목록도 유효(= Smart 게이트가 어떤
+            // 앱도 단어 모드로 켜지 않음). toggle-keys 와 달리 최소 1개 강제 없음.
+            let apps: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            config.engine.korean.word_mode_apps = apps;
+            println!(
+                "{}: {}",
+                t!("word_mode_apps_label"),
+                config.engine.korean.word_mode_apps.join(", ")
+            );
+        }
+        ConfigKey::ToggleAnnounceBeep => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.toggle_announce_beep = enabled;
+            println!(
+                "{}: {}",
+                t!("toggle_announce_beep_label"),
+                if enabled { t!("enabled") } else { t!("disabled") }
+            );
+        }
+        ConfigKey::IgnoreKeyRepeat => {
+            let enabled = match value.to_lowercase().as_str() {
+                "true" | "on" | "1" | "yes" => true,
+                "false" | "off" | "0" | "no" => false,
+                _ => return Err(format!("Invalid bool: {}", value)),
+            };
+            config.engine.ignore_key_repeat = enabled;
+            println!(
+                "{}: {}",
+                t!("ignore_key_repeat_label"),
+                if enabled { t!("enabled") } else { t!("disabled") }
+            );
         }
     }
 

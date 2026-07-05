@@ -148,20 +148,22 @@ fn test_scenario_content_purpose_password() {
 
 #[test]
 fn test_scenario_content_purpose_normal_after_password() {
-    // 비밀번호 → Normal 전환 시 한글 모드 복구 가능
+    // 비밀번호 필드 진입 시 직전 한/영 상태 저장 → 벗어나면 직전 상태 자동 복구.
     let mut engine = create_test_engine();
-    let config = Config::default();
-    let modifier = ModifierState::default();
 
+    // 직전 상태: 한글
     engine.set_input_category(InputCategory::Korean);
+
+    // 비밀번호 진입 → 임시 영문 (직전 한글 저장)
     engine.set_content_purpose(ContentPurpose::Password);
     assert_eq!(engine.input_category(), InputCategory::English);
 
-    // Normal로 복원
+    // 필드 벗어남(Normal) → 직전 한글 자동 복구 (토글 키 불필요)
     engine.set_content_purpose(ContentPurpose::Normal);
+    assert_eq!(engine.input_category(), InputCategory::Korean);
 
-    // 이제 한/영 전환 가능
-    engine.press_key(KeyCode::Korean, modifier, &config);
+    // 멱등: 다시 Normal 호출해도 한글 유지 (이중 복구 없음)
+    engine.set_content_purpose(ContentPurpose::Normal);
     assert_eq!(engine.input_category(), InputCategory::Korean);
 }
 

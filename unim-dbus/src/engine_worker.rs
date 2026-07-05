@@ -699,6 +699,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // (preedit이 이전 값 유지 — 변경 없으므로 건드리지 않음)
                             }
 
+                            // 라이브 조합(word 모드) 반영 — 코어가 이 값으로
+                            // replace_composition(조합 SetText 치환) 여부를 판정한다.
+                            buf.word_mode = engine.is_word_mode();
+
                             // 방향에 따라 감지 (blacklist 억제 게이트 포함)
                             let (fix, direction) = match current_mode {
                                 unim::config::InputCategory::English => (

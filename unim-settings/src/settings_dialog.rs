@@ -96,6 +96,7 @@ pub fn show_settings_dialog(app: &adw::Application) {
     page_general.add(&moachigi_handle.group);
     page_general.add(&build_input_mode_group(&state));
     page_general.add(&build_auto_english_group(&state));
+    page_general.add(&build_accessibility_group(&state));
     window.add(&page_general);
 
     // ── Page 2: 오타 교정 ─────────────────────────────────────
@@ -714,6 +715,65 @@ fn build_auto_english_group(state: &State) -> adw::PreferencesGroup {
         |cfg, v| cfg.engine.auto_english.trigger_keys = v,
         "auto_english_keys",
     ));
+
+    group
+}
+
+/// I7: 접근성 그룹 — 한/영 전환 소리 알림(비프) 토글.
+///
+/// 시각장애 사용자가 화면 없이도 한/영 토글 후 현재 모드를 소리 높낮이(한글=높은
+/// 음, 영문=낮은 음)로 확인할 수 있게 한다. Windows TSF 전용 기능이지만 설정은
+/// 단일 config.yaml 을 공유하므로 모든 프런트엔드에서 편집 가능하게 노출한다.
+fn build_accessibility_group(state: &State) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title(t!("group_accessibility"))
+        .build();
+
+    let sw = adw::SwitchRow::builder()
+        .title(t!("row_toggle_announce_beep"))
+        .subtitle(t!("row_toggle_announce_beep_subtitle"))
+        .build();
+    sw.set_tooltip_text(Some(t!("row_toggle_announce_beep_tooltip").as_ref()));
+    {
+        let s = state.borrow();
+        sw.set_active(s.config.engine.toggle_announce_beep);
+    }
+    {
+        let state_c = state.clone();
+        sw.connect_active_notify(move |sw| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.toggle_announce_beep = sw.is_active();
+            save_and_notify(&s.config, "toggle_announce_beep");
+        });
+    }
+    group.add(&sw);
+
+    // 조합키 자동반복 억제 (지체장애 접근성) — 키 홀드 시 연타·토글 진동 방지.
+    // Windows TSF 전용 동작이지만 config.yaml 을 공유하므로 노출.
+    let sw_repeat = adw::SwitchRow::builder()
+        .title(t!("row_ignore_key_repeat"))
+        .subtitle(t!("row_ignore_key_repeat_subtitle"))
+        .build();
+    sw_repeat.set_tooltip_text(Some(t!("row_ignore_key_repeat_tooltip").as_ref()));
+    {
+        let s = state.borrow();
+        sw_repeat.set_active(s.config.engine.ignore_key_repeat);
+    }
+    {
+        let state_c = state.clone();
+        sw_repeat.connect_active_notify(move |sw_repeat| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.ignore_key_repeat = sw_repeat.is_active();
+            save_and_notify(&s.config, "ignore_key_repeat");
+        });
+    }
+    group.add(&sw_repeat);
 
     group
 }

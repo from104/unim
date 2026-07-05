@@ -7,13 +7,51 @@
 use super::build_korean_context;
 use super::chord_buffer::ChordBuffer;
 use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
-use crate::config::{Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
+use crate::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::KeyCode;
 use crate::keystroke::EnglishKeymap;
 use crate::popup::PopupState;
 use std::collections::HashMap;
+
+/// 고정키(Sticky Keys) 래치 잔류 마스킹 대상 수정자 종류.
+///
+/// 수정자 토글키(RightAlt 등)로 한/영 전환이 성사된 직후, Sticky Keys 가 켜져
+/// 있으면 그 토글키 눌림이 해당 수정자 비트를 **다음 한 키에** 래치시킨다. 전환
+/// 직후 첫 문자키가 이 잔류 비트 때문에 단축키(예: Alt+키)로 오분류되어 유실될
+/// 수 있으므로, 토글 성사 시 토글키가 대표하는 수정자 종류를 기억해 두었다가
+/// 다음 키 1건에서 그 비트만 지운다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LatchModifier {
+    Alt,
+    Control,
+    Super,
+    Shift,
+}
+
+impl LatchModifier {
+    /// 수정자 KeyCode 가 대표하는 래치 수정자 종류. 비-수정자 키는 `None`.
+    pub(super) fn of_keycode(keycode: KeyCode) -> Option<Self> {
+        match keycode {
+            KeyCode::LeftAlt | KeyCode::RightAlt => Some(Self::Alt),
+            KeyCode::LeftControl | KeyCode::RightControl => Some(Self::Control),
+            KeyCode::LeftSuper | KeyCode::RightSuper => Some(Self::Super),
+            KeyCode::LeftShift | KeyCode::RightShift => Some(Self::Shift),
+            _ => None,
+        }
+    }
+
+    /// `modifier` 에서 이 종류의 비트를 지운다 (고정키 래치 잔류 제거).
+    pub(super) fn clear_from(self, modifier: &mut crate::keycode::ModifierState) {
+        match self {
+            Self::Alt => modifier.alt = false,
+            Self::Control => modifier.control = false,
+            Self::Super => modifier.super_key = false,
+            Self::Shift => modifier.shift = false,
+        }
+    }
+}
 
 /// 입력 엔진
 ///
@@ -89,6 +127,33 @@ pub struct InputEngine {
     pub(super) surrounding_cursor: u32,
     /// Surrounding text 앵커 위치 (문자 단위)
     pub(super) surrounding_anchor: u32,
+    /// 조합 확정 단위 (음절/단어/스마트) — `config.engine.korean.commit_unit` 캐시.
+    ///
+    /// `Word` 면 `korean_context.set_accumulate_word(true)` 로 단어 누적을 켠다.
+    /// `set_word_mode` 토글·`rebuild`/`set_layout` 재구성 경로에서 일관되게 반영된다.
+    pub(super) commit_unit: CommitUnit,
+    /// 단어 모드 대상 앱 목록(정확일치) — `config.engine.korean.word_mode_apps` 캐시.
+    ///
+    /// TSF `Smart` 게이트가 `is_word_mode_app` 로 조회한다. `new`/`rebuild_korean_context`
+    /// 재구성 경로에서 config 와 동기화된다. 기본값 `["winword.exe"]`(wmux 는 역방향
+    /// 음절모드 synth 라우팅 동작 확인 후 제외). Windows TSF 전용(그 외 프런트엔드 미사용).
+    pub(super) word_mode_apps: Vec<String>,
+    /// 비밀번호/PIN 필드 진입 시 저장한 직전 입력 카테고리 (자동 복구용).
+    ///
+    /// `set_content_purpose` 상태머신이 password/PIN 진입 시 현재 카테고리를
+    /// 저장하고 영문으로 강제 전환하며, 필드를 벗어나면(비-비밀번호 목적) 저장값을
+    /// 복구한 뒤 클리어한다. `None` = 저장 없음(평소 경로 — 바이트 동일 무회귀).
+    /// 멱등(이중 저장/복구 방지).
+    pub(super) saved_category: Option<InputCategory>,
+    /// 고정키(Sticky Keys) 래치 잔류 무시 — 수정자 토글키(RightAlt 등)로 한/영
+    /// 전환이 성사된 직후 **다음 키 1건**에서 마스킹할 수정자 종류.
+    ///
+    /// 지체장애 사용자가 고정키를 쓰면 RightAlt 눌림이 Alt 비트를 다음 키에
+    /// 래치시켜, 전환 직후 첫 문자키가 단축키(Alt+키)로 오분류돼 유실될 수 있다.
+    /// 토글 성사 시(그리고 토글키가 수정자일 때) 그 수정자 종류를 저장하고, 다음
+    /// `press_key` 진입에서 해당 비트를 지운 뒤 소비(`take`)한다. RightAlt 토글
+    /// 자체는 그대로 유지된다. `None` = 마스킹 없음(평소 경로 — 바이트 동일 무회귀).
+    pub(super) sticky_toggle_mask: Option<LatchModifier>,
 }
 
 impl Default for InputEngine {
@@ -119,7 +184,10 @@ impl InputEngine {
         // 한자 사전 초기화 (한 번만 로드하여 Arc로 공유)
         let hanja_dict = std::sync::Arc::new(crate::hanja::HanjaDictionary::new());
 
-        Self {
+        let commit_unit = config.engine.korean.commit_unit;
+        let word_mode_apps = config.engine.korean.word_mode_apps.clone();
+
+        let mut engine = Self {
             input_category: config.engine.default_category,
             korean_context: build_korean_context(config, composer_type),
             commit_buffer: String::new(),
@@ -174,7 +242,18 @@ impl InputEngine {
             surrounding_text: String::new(),
             surrounding_cursor: 0,
             surrounding_anchor: 0,
+            commit_unit,
+            word_mode_apps,
+            saved_category: None,
+            sticky_toggle_mask: None,
+        };
+
+        // Word 모드면 단어 누적을 초기 주입 (Smart/Syllable = 누적 off, 기존 동작).
+        if commit_unit == CommitUnit::Word {
+            engine.korean_context.set_accumulate_word(true);
         }
+
+        engine
     }
 
     /// Config에서 유효 chord_window_ms를 계산.
@@ -262,6 +341,36 @@ impl InputEngine {
         self.input_category
     }
 
+    /// 주어진 키코드가 설정된 한/영 전환키인지 여부.
+    ///
+    /// 프런트엔드의 소비 판정(TSF `test_key_down`, IMM32 `should_consume`)이
+    /// 엔진의 `press_key` 와 동일하게 토글키(RightAlt 같은 수정자 토글키 포함)를
+    /// 소비하도록 노출한다. 프런트엔드가 토글키를 소비하지 않으면 `press_key`
+    /// 자체가 호출되지 않아 토글이 죽는다.
+    pub fn is_toggle_key(&self, keycode: KeyCode) -> bool {
+        self.toggle_keys.contains(&keycode)
+    }
+
+    /// 고정키(Sticky Keys) 래치 잔류 마스킹 **미리보기(비소비)**.
+    ///
+    /// 수정자 토글키(RightAlt 등)로 전환이 성사된 직후 예약된 마스크가 있으면
+    /// 주어진 `modifier` 에서 그 수정자 비트를 지운 복사본을 돌려준다(원본 상태
+    /// 불변 — `take` 하지 않음). 프런트엔드 소비 판정(TSF `OnTestKeyDown`)이
+    /// 전환 직후 첫 키의 래치 잔류 비트를 무시하고 그 키를 IME 로 소비하도록
+    /// 게이트를 `press_key` 와 정렬시키는 용도다. 실제 비트 제거·마스크 소비는
+    /// `press_key`(OnKeyDown 경로)가 한 번만 수행한다. 마스크가 없으면(평소 경로)
+    /// 입력 그대로 반환 — 바이트 동일 무회귀.
+    pub fn peek_sticky_masked_modifiers(
+        &self,
+        modifier: crate::keycode::ModifierState,
+    ) -> crate::keycode::ModifierState {
+        let mut m = modifier;
+        if let Some(latch) = self.sticky_toggle_mask {
+            latch.clear_from(&mut m);
+        }
+        m
+    }
+
     /// 활성 영문 키맵의 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
     pub fn home_row_labels(&self) -> &str {
         &self.home_row_labels
@@ -280,6 +389,46 @@ impl InputEngine {
             // 상태 파일 업데이트
             self.update_status_file();
         }
+    }
+
+    /// 단어별 preedit 모드(단어 단위 누적)를 켜거나 끕니다.
+    ///
+    /// 켜기/끄기 전에 진행 중 조합을 `flush_preedit` 으로 비운 뒤
+    /// `korean_context.set_accumulate_word(on)` 를 호출한다. 이 setter 는
+    /// `commit_unit` 캐시 자체를 바꾸지는 않으며(런타임 토글), config 동기화는
+    /// `rebuild_korean_context` 경로가 담당한다.
+    pub fn set_word_mode(&mut self, on: bool) {
+        self.flush_preedit();
+        self.korean_context.set_accumulate_word(on);
+    }
+
+    /// 단어별 preedit 모드(단어 누적)가 현재 켜져 있는지 반환합니다.
+    ///
+    /// `commit_unit` 캐시가 아니라 `korean_context` 의 실제 누적 상태(런타임 권위)를
+    /// 반환한다 — `set_word_mode` 런타임 토글이 반영된다.
+    pub fn is_word_mode(&self) -> bool {
+        self.korean_context.is_accumulate_word()
+    }
+
+    /// 현재 조합 확정 단위(`CommitUnit`)를 반환합니다.
+    ///
+    /// `config.engine.korean.commit_unit` 의 캐시값으로 `new`/`rebuild_korean_context`
+    /// /`set_korean_layout` 재구성 경로에서 config 와 동기화된다. 런타임 누적 상태를
+    /// 반환하는 `is_word_mode` 와 달리 **설정상의 의도**를 나타낸다 — TSF 게이트가
+    /// 앱별 단어모드 desired 판정(Syllable→off / Word→on / Smart→앱판정)에 사용한다.
+    pub fn commit_unit(&self) -> CommitUnit {
+        self.commit_unit
+    }
+
+    /// 프로세스 실행 파일명이 단어 모드 대상 앱 목록(정확일치)에 속하는지 판정한다.
+    ///
+    /// `config.engine.korean.word_mode_apps` 캐시를 정확일치(`==`)로 조회한다. 기본값
+    /// `["winword.exe"]`(wmux 는 역방향 음절모드 synth 라우팅 동작 확인 후 제외) —
+    /// 대소문자 구분·부분일치 없음. TSF `Smart` 확정 단위
+    /// 게이트(OnKeyDown 매-키 재적용 + OnSetFocus)가 앱별 단어 모드 desired 판정에 쓴다.
+    /// 앱 호환 목록이 코드 릴리스와 분리되어 config.yaml/CLI 로 확장 가능하다.
+    pub fn is_word_mode_app(&self, name: &str) -> bool {
+        self.word_mode_apps.iter().any(|app| app == name)
     }
 
     /// commit 문자열을 반환합니다.
@@ -309,11 +458,43 @@ impl InputEngine {
     }
 
     /// 엔진 상태를 리셋합니다.
+    ///
+    /// 조합(`korean_context`)·commit/preedit 버퍼·chord 버퍼에 더해 팝업(한자·특수문자
+    /// ·이모지) 라우팅 상태까지 초기화한다. 리셋 직후 이어지는 조합(예: AutoTypeFix
+    /// replay)이 `press_key` 의 팝업 인터셉트 분기(`hanja_mode || special_char_mode ||
+    /// is_emoji_popup_active`)로 오라우팅되지 않게 하기 위함이며, `InputEngine::new`
+    /// 가 기본값으로 두는 런타임 조합/팝업 상태를 **사전 재로딩 없이**(6.76MB 한자사전
+    /// 재파싱 + 북마크 디스크IO 회피) 동일하게 비운다.
+    ///
+    /// 보존(초기화하지 않음):
+    /// - config 파생 캐시(키맵·`key_meta`·영문 키맵·한자사전 Arc·레이아웃·toggle/hanja
+    ///   키·auto_english·라벨) — 재생성 없이 그대로 유효(동일 config 기준).
+    /// - `input_category` — 호출부가 필요 시 별도 `set_input_category` 로 지정.
+    /// - `content_purpose`/`surrounding_*`/`saved_category` — 앱·포커스 컨텍스트(조합
+    ///   상태 아님). 리셋이 필드 목적을 잊으면 안 되므로 보존.
+    /// - `accumulate_word`(단어 누적 플래그) — `korean_context.clear()` 가 버퍼만 비우고
+    ///   플래그는 유지. config 기반 재동기화가 필요한 호출부는 리셋 후 `set_word_mode`
+    ///   로 명시 지정한다(예: `auto_typefix`).
     pub fn reset(&mut self) {
         self.korean_context.clear();
         self.commit_buffer.clear();
         self.preedit_cache.clear();
         self.chord_buffer.clear();
+
+        // 팝업/한자/특수문자 모드 라우팅 상태 초기화 (new() 기본값과 동일).
+        // 이들이 남아 있으면 press_key 가 조합 대신 팝업 디스패치로 흘러간다.
+        self.hanja_mode = false;
+        self.hanja_candidates.clear();
+        self.hanja_target.clear();
+        self.special_char_mode = false;
+        self.special_char_candidates.clear();
+        self.special_char_target.clear();
+        self.popup_state = None;
+        self.popup_pending_action = None;
+
+        // 고정키 래치 마스킹 잔류도 비운다 — 조합 리셋 시점의 미소비 마스크가
+        // 이후 무관한 첫 키의 수정자를 잘못 지우지 않게 한다.
+        self.sticky_toggle_mask = None;
     }
 
     // =========================================================================
@@ -443,6 +624,10 @@ impl InputEngine {
             snapshot.engine.korean.layout = layout.clone();
             snapshot.engine.korean.active_rule_sets = None;
             self.korean_context = build_korean_context(&snapshot, composer_type);
+            // 새 컨텍스트는 accumulate_word 가 off 로 시작 → commit_unit 캐시와 일관성 유지.
+            if self.commit_unit == CommitUnit::Word {
+                self.korean_context.set_accumulate_word(true);
+            }
             // chord_buffer: 레이아웃 변경 시 윈도우 재계산 (새 자판이 supports_moachigi=false면 0으로)
             let new_window = Self::compute_chord_window_ms(&snapshot);
             self.chord_buffer.clear();
@@ -473,8 +658,17 @@ impl InputEngine {
         self.keyboard_map = Some(Self::create_keyboard_map(&new_layout, &self.english_layout));
         self.key_meta_map = Self::create_key_meta_map(&new_layout);
 
+        // commit_unit 도 config 에서 재동기화 (hot-reload 경로).
+        self.commit_unit = config.engine.korean.commit_unit;
+        // 단어 모드 앱 목록도 재동기화 (config.yaml/CLI 편집 → maybe_reload_config 반영).
+        self.word_mode_apps = config.engine.korean.word_mode_apps.clone();
+
         // v1 builder 경로로 컨텍스트 재구성 (active_rule_sets override 포함)
         self.korean_context = build_korean_context(config, composer_type);
+        // 새 컨텍스트는 accumulate_word 가 off 로 시작 → commit_unit 캐시와 일관성 유지.
+        if self.commit_unit == CommitUnit::Word {
+            self.korean_context.set_accumulate_word(true);
+        }
         // chord_buffer: config 갱신 시 윈도우 재계산
         let new_window = Self::compute_chord_window_ms(config);
         self.chord_buffer.clear();
@@ -540,5 +734,363 @@ mod tests {
             80,
             "chord_window_ms=Some(80), bidir=Some(false) should return 80 (independent)"
         );
+    }
+
+    // ─────────────────────────────────────────────
+    // 단어별 preedit (commit_unit / set_word_mode) — Phase 2 코어 배선
+    // ─────────────────────────────────────────────
+
+    use crate::keycode::ModifierState;
+
+    /// dubeolsik 기본 자판에서 "가나"를 입력하는 키 시퀀스(ㄱ ㅏ ㄴ ㅏ).
+    fn type_ganan(engine: &mut InputEngine, config: &Config) {
+        let m = ModifierState::default();
+        engine.press_key(KeyCode::R, m, config); // ㄱ
+        engine.press_key(KeyCode::K, m, config); // 가
+        engine.press_key(KeyCode::S, m, config); // ㄴ (도깨비불: 가 → 누적/commit)
+        engine.press_key(KeyCode::K, m, config); // 나
+    }
+
+    /// commit_unit=Syllable 은 음절 단위 — preedit 은 현재 음절만, 직전 음절은 commit.
+    /// 무회귀 검증. (기본값은 Smart 로 바뀌었으나 Syllable 경로 자체는 불변.)
+    #[test]
+    fn syllable_mode_no_word_accumulation() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Syllable;
+        assert_eq!(config.engine.korean.commit_unit, CommitUnit::Syllable);
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "나", "syllable 모드 preedit 은 현재 음절만");
+        assert!(
+            engine.commit_str().contains('가'),
+            "직전 음절 '가'는 commit 으로 흘러야 함: {}",
+            engine.commit_str()
+        );
+    }
+
+    /// commit_unit=Word 로 생성하면 new() 가 accumulate_word 를 초기 주입 →
+    /// set_word_mode 호출 없이도 preedit 이 단어 전체로 누적된다.
+    #[test]
+    fn new_with_word_commit_unit_accumulates() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Word;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        type_ganan(&mut engine, &config);
+        assert_eq!(
+            engine.preedit_str(),
+            "가나",
+            "Word 모드 preedit 은 누적된 단어 전체"
+        );
+    }
+
+    /// Smart/Syllable 은 누적 off (new 초기 주입 안 함).
+    #[test]
+    fn new_with_smart_commit_unit_does_not_accumulate() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Smart;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "나", "Smart 는 Phase2 에서 누적 off");
+    }
+
+    /// is_word_mode_app 기본값은 winword.exe 만(정확일치). wmux 는 역방향 음절모드 synth
+    /// 라우팅 동작 확인 후 제외됨 → 기본 syllable. 대소문자 구분·부분일치 없음.
+    #[test]
+    fn is_word_mode_app_default_matches_winword_only() {
+        let engine = InputEngine::new(&Config::default());
+        assert!(engine.is_word_mode_app("winword.exe"));
+        // wmux 는 기본 화이트리스트에서 제외(역방향 syllable synth 라우팅으로 동작).
+        assert!(!engine.is_word_mode_app("wmux.exe"));
+        // 정확일치 — 대문자/부분일치/비대상 앱은 불일치(무회귀).
+        assert!(!engine.is_word_mode_app("WINWORD.EXE"));
+        assert!(!engine.is_word_mode_app("winword"));
+        assert!(!engine.is_word_mode_app("chrome.exe"));
+        assert!(!engine.is_word_mode_app("wezterm-gui.exe"));
+        assert!(!engine.is_word_mode_app(""));
+    }
+
+    /// config 목록을 확장하면 새 앱도 단어 모드 대상이 되고, 목록에서 빠지면 제외된다.
+    #[test]
+    fn is_word_mode_app_respects_config_override() {
+        let mut config = Config::default();
+        config.engine.korean.word_mode_apps =
+            vec!["kakaotalk.exe".to_string(), "winword.exe".to_string()];
+        let engine = InputEngine::new(&config);
+        assert!(engine.is_word_mode_app("kakaotalk.exe"), "확장된 앱은 대상");
+        assert!(engine.is_word_mode_app("winword.exe"));
+        assert!(
+            !engine.is_word_mode_app("wmux.exe"),
+            "목록에서 빠진 앱은 제외"
+        );
+    }
+
+    /// 빈 목록이면 어떤 앱도 단어 모드 대상이 아니다(Smart 게이트 항상 syllable).
+    #[test]
+    fn is_word_mode_app_empty_list_matches_nothing() {
+        let mut config = Config::default();
+        config.engine.korean.word_mode_apps = Vec::new();
+        let engine = InputEngine::new(&config);
+        assert!(!engine.is_word_mode_app("winword.exe"));
+        assert!(!engine.is_word_mode_app("wmux.exe"));
+    }
+
+    /// set_word_mode(true) 가 런타임에 단어 누적을 켠다.
+    #[test]
+    fn set_word_mode_on_enables_accumulation() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        engine.set_word_mode(true);
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "가나");
+    }
+
+    /// is_word_mode() 는 commit_unit 캐시가 아니라 런타임 누적 상태를 반환한다
+    /// (Phase 3a Word 게이트가 매 포커스 토글하는 권위 = korean_context.accumulate_word).
+    #[test]
+    fn is_word_mode_reflects_runtime_toggle() {
+        let config = Config::default(); // 기본 Smart — new() 가 누적을 초기 주입하지 않음
+        let mut engine = InputEngine::new(&config);
+        assert!(!engine.is_word_mode(), "기본(Smart)은 누적 off → 단어 모드 off");
+        engine.set_word_mode(true);
+        assert!(engine.is_word_mode(), "set_word_mode(true) 후 on");
+        engine.set_word_mode(false);
+        assert!(!engine.is_word_mode(), "set_word_mode(false) 후 off");
+    }
+
+    /// set_word_mode(false) 는 끄기 전 진행 중 조합을 flush 한다 (잔여 단어 손실 없음).
+    #[test]
+    fn set_word_mode_off_flushes_accumulated_word() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        engine.set_word_mode(true);
+        type_ganan(&mut engine, &config);
+        engine.clear_commit();
+        engine.set_word_mode(false);
+        assert_eq!(
+            engine.commit_str(),
+            "가나",
+            "끄기 전 누적 단어가 commit 으로 flush 되어야 함"
+        );
+        assert!(engine.preedit_str().is_empty(), "flush 후 preedit 비어야 함");
+    }
+
+    /// rebuild_korean_context 가 commit_unit 을 config 에서 재동기화하고
+    /// 새 컨텍스트에 accumulate_word 를 일관되게 반영한다.
+    #[test]
+    fn rebuild_reapplies_word_accumulation() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+
+        let mut word_config = Config::default();
+        word_config.engine.korean.commit_unit = CommitUnit::Word;
+        engine.rebuild_korean_context(&word_config);
+        assert_eq!(engine.commit_unit, CommitUnit::Word);
+
+        type_ganan(&mut engine, &word_config);
+        assert_eq!(engine.preedit_str(), "가나", "rebuild 후 단어 누적 일관");
+    }
+
+    /// set_korean_layout 재구성 경로도 기존 commit_unit 캐시를 유지·반영한다.
+    /// (3bul ↔ 2bul 전환을 거쳐도 누적 모드가 살아남는지 검증 — 키맵 비의존.)
+    #[test]
+    fn set_layout_preserves_word_accumulation() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Word;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+
+        // 자판 전환(2bul→3bul→2bul) 후에도 commit_unit 캐시·누적 상태 유지.
+        engine.set_korean_layout("ko_3bul390".to_string());
+        assert_eq!(engine.commit_unit, CommitUnit::Word);
+        engine.set_korean_layout("ko_2bulstd".to_string());
+        assert_eq!(engine.commit_unit, CommitUnit::Word);
+
+        // 알려진 dubeolsik 키맵으로 "가나" 입력 → 누적 preedit 확인.
+        type_ganan(&mut engine, &config);
+        assert_eq!(
+            engine.preedit_str(),
+            "가나",
+            "자판 전환 후에도 단어 누적이 유지되어야 함"
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // I3(ATF perf): reset() 확장 — new(config) 재생성 대체의 정확성 근거
+    // ─────────────────────────────────────────────
+
+    /// reset() 이 팝업/한자/특수문자 라우팅 상태를 비운다. 이 상태가 잔류하면
+    /// 리셋 직후의 press_key 가 조합 대신 팝업 디스패치(process_popup_key)로
+    /// 오라우팅된다 — ATF replay 가 새 조합을 만들 수 없게 된다.
+    #[test]
+    fn reset_clears_popup_and_hanja_routing_state() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+
+        // 팝업/한자/특수문자 라우팅 상태를 인위적으로 활성화.
+        engine.hanja_mode = true;
+        engine.hanja_target.push_str("한");
+        engine.special_char_mode = true;
+        engine.special_char_candidates.push('★');
+        engine.special_char_target.push_str("ㅁ");
+
+        engine.reset();
+
+        assert!(!engine.hanja_mode, "reset 후 hanja_mode off");
+        assert!(engine.hanja_target.is_empty(), "reset 후 hanja_target 비움");
+        assert!(!engine.special_char_mode, "reset 후 special_char_mode off");
+        assert!(
+            engine.special_char_candidates.is_empty(),
+            "reset 후 special_char_candidates 비움"
+        );
+        assert!(
+            engine.special_char_target.is_empty(),
+            "reset 후 special_char_target 비움"
+        );
+        assert!(engine.popup_state.is_none(), "reset 후 popup_state None");
+
+        // 라우팅 검증: hanja_mode 가 살아 있었다면 press_key 가 process_popup_key
+        // 로 흘러 'a' 를 커밋하지 못한다. reset 이 비웠으므로 영문 정상 커밋.
+        engine.set_input_category(InputCategory::English);
+        let m = ModifierState::default();
+        let r = engine.press_key(KeyCode::A, m, &config);
+        assert!(r.consumed, "영문 키는 소비되어야");
+        assert_eq!(engine.commit_str(), "a", "팝업 오라우팅 없이 정상 커밋");
+    }
+
+    /// reset() 이 진행 중 조합과 word_buffer(단어 누적)를 모두 비운다. ATF replay
+    /// 가 이전 조합을 끌고 오지 않게 하는 근거. accumulate_word 플래그는 보존되어
+    /// (Word 모드 유지) 이어지는 타이핑이 stale 누적 없이 새 단어로 누적된다.
+    #[test]
+    fn reset_clears_composition_and_word_buffer() {
+        let mut config = Config::default();
+        config.engine.korean.commit_unit = CommitUnit::Word;
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+
+        type_ganan(&mut engine, &config);
+        assert_eq!(engine.preedit_str(), "가나", "리셋 전 단어 누적 확인");
+
+        engine.reset();
+        assert!(engine.preedit_str().is_empty(), "reset 후 preedit 비움");
+        assert!(engine.commit_str().is_empty(), "reset 후 commit 비움");
+        assert!(!engine.is_composing(), "reset 후 비조합");
+
+        // accumulate_word 플래그는 보존(Word 모드 유지) → 재타이핑은 새 단어만.
+        assert!(engine.is_word_mode(), "reset 은 accumulate_word 플래그 보존");
+        type_ganan(&mut engine, &config);
+        assert_eq!(
+            engine.preedit_str(),
+            "가나",
+            "reset 후 재타이핑은 stale 누적 없이 새 단어"
+        );
+    }
+
+    // ─────────────────────────────────────────────
+    // 고정키(Sticky Keys) + 수정자 토글(RightAlt) 충돌 방어
+    // ─────────────────────────────────────────────
+
+    /// 고정키가 켜진 환경 재현: RightAlt 로 한/영 전환 성사 직후, OS 가 Alt 비트를
+    /// 다음 키에 래치시킨다. 방어가 없으면 전환 직후 첫 자모키가 단축키(Alt+키)로
+    /// 오분류돼 유실된다. 방어가 있으면 그 잔류 Alt 비트를 지우고 첫 자모를 정상 처리.
+    #[test]
+    fn sticky_keys_masks_latched_alt_on_first_jamo_after_rightalt_toggle() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::English);
+
+        // RightAlt 눌림 — 자신이 Alt 비트를 세운 채 들어와도 토글은 성사(self_is_modifier).
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        let r = engine.press_key(KeyCode::RightAlt, alt_down, &config);
+        assert!(r.consumed, "RightAlt 토글은 소비되어야");
+        assert_eq!(engine.input_category(), InputCategory::Korean, "한글로 전환");
+        // 토글 성사 → 다음 키 1건 Alt 마스크 예약.
+        assert_eq!(
+            engine.sticky_toggle_mask,
+            Some(LatchModifier::Alt),
+            "수정자 토글키 성사 후 Alt 마스크 예약"
+        );
+
+        // 고정키 래치로 Alt 가 남은 채 첫 자모키 R 입력.
+        let r2 = engine.press_key(KeyCode::R, alt_down, &config);
+        assert!(r2.consumed, "첫 자모키는 소비되어야(유실 금지)");
+        assert_eq!(engine.preedit_str(), "ㄱ", "래치 Alt 무시 후 첫 자모 정상 조합");
+        assert!(
+            engine.sticky_toggle_mask.is_none(),
+            "마스크는 일회성 소비되어 None"
+        );
+    }
+
+    /// 일회성: 마스크는 딱 한 키만 방어한다. 첫 키가 소비하면 그 다음 키의 래치
+    /// Alt 는 다시 단축키로 취급된다(마스크가 무한 지속되지 않음을 보장).
+    #[test]
+    fn sticky_mask_is_consumed_after_single_key() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::English);
+
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        engine.press_key(KeyCode::RightAlt, alt_down, &config); // 전환 + 마스크 예약
+        engine.press_key(KeyCode::R, alt_down, &config); // 마스크 소비 → ㄱ
+        assert_eq!(engine.preedit_str(), "ㄱ");
+
+        // 다음 키도 Alt 래치가 남아 있다고 가정 → 마스크는 이미 없으므로 단축키 처리.
+        // 조합(ㄱ) 중이므로 flush 후 committed, 자모는 추가되지 않는다.
+        let r3 = engine.press_key(KeyCode::K, alt_down, &config);
+        assert!(r3.commit_changed, "두 번째 Alt 키는 단축키 → 조합 flush/commit");
+        assert!(
+            !engine.preedit_str().contains('ㅏ') && !engine.preedit_str().contains('가'),
+            "두 번째 키는 자모로 처리되지 않아야(마스크 일회성): preedit='{}'",
+            engine.preedit_str()
+        );
+    }
+
+    /// 비-수정자 토글키(Korean/한영)는 고정키 래치가 없으므로 마스크를 예약하지 않는다.
+    /// 이후 진짜 Alt+키 단축키는 그대로 단축키로 유지(무회귀).
+    #[test]
+    fn non_modifier_toggle_key_does_not_reserve_mask() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::English);
+
+        let m = ModifierState::default();
+        let r = engine.press_key(KeyCode::Korean, m, &config);
+        assert!(r.consumed, "Korean 토글 소비");
+        assert_eq!(engine.input_category(), InputCategory::Korean);
+        assert!(
+            engine.sticky_toggle_mask.is_none(),
+            "비-수정자 토글키는 마스크 예약 안 함"
+        );
+
+        // 진짜 Alt+키 단축키는 마스킹 없이 그대로 통과(not_consumed).
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        let r2 = engine.press_key(KeyCode::R, alt_down, &config);
+        assert!(!r2.consumed, "마스크 없으면 Alt+키는 단축키(not_consumed)");
+        assert!(engine.preedit_str().is_empty(), "자모 조합 없음");
+    }
+
+    /// 무회귀: 선행 토글 없이 들어온 진짜 Alt+키 단축키는 마스크가 없어(None)
+    /// 종전과 동일하게 단축키로 처리된다. 정상 경로 modifier 비변경.
+    #[test]
+    fn plain_alt_shortcut_without_prior_toggle_unaffected() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        engine.set_input_category(InputCategory::Korean);
+        assert!(engine.sticky_toggle_mask.is_none());
+
+        let mut alt_down = ModifierState::default();
+        alt_down.alt = true;
+        let r = engine.press_key(KeyCode::R, alt_down, &config);
+        assert!(!r.consumed, "선행 토글 없는 Alt+키는 단축키 그대로");
+        assert!(engine.preedit_str().is_empty());
+        assert!(engine.commit_str().is_empty());
     }
 }

@@ -1,0 +1,29 @@
+[package]
+name = "unim-tsf-settings"
+version.workspace = true
+edition = "2021"
+description = "UNIM TSF settings GUI (Slint) for Windows"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "unim-tsf-settings"
+path = "src/main.rs"
+
+[dependencies]
+unim = { path = ".." }
+# renderer-skia 를 명시 활성화: 기본 FemtoVG 렌더러는 자체 path 래스터라이저로
+# 힌팅 없이 글리프를 그려 작은 한글(14px Malgun Gothic)에서 획 굵기가 불균일.
+# Skia 렌더러는 OS/FreeType 네이티브 글리프 파이프라인을 타 힌팅이 적용된다.
+# (main.rs 진입부에서 SLINT_BACKEND=winit-skia 로 런타임 강제 선택)
+slint = { version = "1", features = ["renderer-skia"] }
+
+# 설치 마법사(--first-run/--whats-new) 의 기본 입력기/언어팩 감지·설정 헬퍼.
+# 크레이트 전체가 #![cfg(windows)] 라 비Windows 빌드엔 심볼이 없어 windows 타깃에만 링크한다
+# (main.rs 는 cfg(not(windows)) 폴백으로 크로스 체크 가능).
+[target.'cfg(windows)'.dependencies]
+unim-windows-common = { path = "../unim-windows-common" }
+
+[build-dependencies]
+slint-build = "1"

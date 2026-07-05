@@ -1,0 +1,47 @@
+[package]
+name = "unim-popup-win"
+version.workspace = true
+edition = "2021"
+description = "UNIM Korean IME - out-of-process popup renderer (Windows)"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[target.'cfg(windows)'.dependencies]
+# IMM32 IME 사용자 활성화(ensure_imm32_active) — 진단 보고서 §2-A 대응.
+unim-windows-common = { path = "../unim-windows-common" }
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    # Win11 라운드 코너 + DWM 드롭섀도(window.rs apply_modern_frame).
+    # DwmExtendFrameIntoClientArea 가 UI::Controls::MARGINS 를 참조하므로 두 feature 동반.
+    "Win32_Graphics_Dwm",
+    "Win32_UI_Controls",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    # I11: 후보 팝업 UIA 제공자(IRawElementProviderSimple) — VARIANT 반환 메서드가
+    # Com+Ole+Variant 3종 feature 를 요구한다(windows 0.62 cfg 게이트).
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    "Win32_System_Registry",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+    "Win32_System_SystemInformation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
+    "Win32_System_RemoteDesktop",
+] }

@@ -183,7 +183,7 @@ fn get_mtime(path: &Path) -> Option<SystemTime> {
 impl Blacklist {
     /// 기본 경로: `~/.config/unim/typefix-blacklist.yaml`
     pub fn default_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("unim").join("typefix-blacklist.yaml"))
+        crate::paths::config_dir().map(|p| p.join("unim").join("typefix-blacklist.yaml"))
     }
 
     /// 지정된 경로에서 로드. 파일이 없거나 파싱 실패 시 빈 Blacklist.

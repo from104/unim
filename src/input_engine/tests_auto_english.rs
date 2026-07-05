@@ -327,6 +327,109 @@ fn test_auto_english_3bul390_slash_key_choseong_only_no_trigger() {
     assert_eq!(engine.input_category(), InputCategory::Korean);
 }
 
+// === Functional 트리거 + slash_context_alt 가드 회귀 (UNIM-TSF-AUTO-ENGLISH-SLASH-CONTEXT-ALT-CONFLICT) ===
+//
+// legacy 무접두사 `trigger_keys: [Slash]` 는 `Functional { Slash, Some(false) }` 로 파싱된다.
+// Functional 분기에 `produced_char` 가드가 없으면 세벌식390 초성-only 컨텍스트에서 '/' 키가
+// slash_context_alt(ㅗ 자모 경로) 보다 먼저 트리거를 선점해 '되' 가 'ㄷ/d' 로 깨졌다.
+
+/// **회귀 핵심**: 세벌식390 + Functional `Slash` 트리거 + 'u','/','d' → '되'.
+/// 초성-only(ㄷ) 컨텍스트에서 '/' 키는 Functional Slash 트리거를 양보하고 ㅗ 자모 경로를 타야 한다.
+#[test]
+fn test_auto_english_functional_slash_3bul390_does_not_preempt_doe() {
+    let (mut engine, config) =
+        make_engine_with_layout_and_triggers("ko_3bul390", vec!["Slash"]);
+    let modifier = ModifierState::default();
+
+    engine.set_input_category(InputCategory::Korean);
+
+    // 세벌식390: u → ㄷ(초성), / → ㅗ(slash_context_alt, ㅗ+ㅣ=ㅚ), d → ㅣ(중성)
+    engine.press_key(KeyCode::U, modifier, &config);
+    let slash_result = engine.press_key(KeyCode::Slash, modifier, &config);
+    // '/' 는 자모(ㅗ) 경로 → IME 소비, commit 없음, 한글 모드 유지.
+    assert!(slash_result.consumed, "'/'는 자모 경로로 소비되어야 함");
+    assert!(
+        engine.commit_str().is_empty(),
+        "Functional Slash 트리거가 선점하면 안 됨, commit='{}'",
+        engine.commit_str()
+    );
+    assert_eq!(
+        engine.input_category(),
+        InputCategory::Korean,
+        "자모 경로이므로 한글 모드 유지"
+    );
+
+    engine.press_key(KeyCode::D, modifier, &config);
+
+    assert_eq!(engine.preedit_str(), "되");
+    assert!(
+        engine.commit_str().is_empty(),
+        "조합 중 commit 없어야 함, commit='{}'",
+        engine.commit_str()
+    );
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+}
+
+/// 세벌식390 + Functional `Slash` 트리거 + 빈 preedit + '/' → fallback '/' 산출 →
+/// Functional 트리거 정상 발동(영문 전환 + '/' commit). 가드가 평문 컨텍스트를 막지 않음을 검증.
+#[test]
+fn test_auto_english_functional_slash_3bul390_empty_preedit_triggers() {
+    let (mut engine, config) =
+        make_engine_with_layout_and_triggers("ko_3bul390", vec!["Slash"]);
+    let modifier = ModifierState::default();
+
+    engine.set_input_category(InputCategory::Korean);
+
+    // 빈 preedit → slash_context_alt 조건 불충족 → fallback '/' 산출 → 트리거 발동.
+    let result = engine.press_key(KeyCode::Slash, modifier, &config);
+    assert!(result.consumed, "fallback '/' 산출 → 트리거 소비");
+    assert!(result.commit_changed);
+    assert!(
+        engine.commit_str().ends_with('/'),
+        "committed='{}'",
+        engine.commit_str()
+    );
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
+/// 평문(QWERTY) + Functional `Slash` 트리거 + '/' → 영문 전환 + '/' commit.
+/// 평문 자판에는 context_alt 가 없으므로 '/' 는 항상 char 를 산출 → 가드 통과 정상 발동.
+#[test]
+fn test_auto_english_functional_slash_qwerty_triggers() {
+    let (mut engine, config) =
+        make_engine_with_layout_and_triggers("ko_2bulstd", vec!["Slash"]);
+    let modifier = ModifierState::default();
+
+    engine.set_input_category(InputCategory::Korean);
+    engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+    engine.press_key(KeyCode::K, modifier, &config); // 가
+
+    let result = engine.press_key(KeyCode::Slash, modifier, &config);
+    assert!(result.consumed);
+    assert!(result.commit_changed);
+    assert_eq!(engine.commit_str(), "가/");
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
+/// 비문자 제어키(Escape) Functional 트리거는 `is_character_key()=false` 라 가드를 우회 →
+/// 세벌식390 조합 중에도 정상 발동. produced_char.is_some() 만 요구하면 깨지는 케이스 보호.
+#[test]
+fn test_auto_english_functional_escape_bypasses_char_guard() {
+    let (mut engine, config) =
+        make_engine_with_layout_and_triggers("ko_3bul390", vec!["Escape"]);
+    let modifier = ModifierState::default();
+
+    engine.set_input_category(InputCategory::Korean);
+    engine.press_key(KeyCode::U, modifier, &config); // ㄷ(초성)
+
+    // Escape 는 english_keymap.get_char 가 None → produced_char=None 이지만
+    // is_character_key()=false 라 가드 우회 → 트리거 정상 발동.
+    let result = engine.press_key(KeyCode::Escape, modifier, &config);
+    assert!(result.commit_changed, "조합이 커밋되어야 함");
+    assert!(!result.consumed, "Escape 는 passthrough");
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
 /// QWERTY + `char:?` + Shift+Slash → '?' commit + 영문 전환
 #[test]
 fn test_auto_english_character_question_mark() {

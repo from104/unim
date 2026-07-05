@@ -1094,3 +1094,173 @@ fn reverse_user_dict_still_respects_complete_syllable_skip() {
         "user dict도 skip_on_complete_syllable 검사 통과해야 함"
     );
 }
+
+// ── replace_composition 배선 (word 모드 라이브 조합 SetText 치환 신호) ──────────────
+//
+// 코어 계약: `buffer.word_mode`(호출자가 engine.is_word_mode() 로 설정)가 켜진 라이브
+// 조합에서만 replace_composition=true. 순방향은 word 모드, 역방향은 word 모드 &&
+// committed_chars==0. false 경로(음절/committed 섞임)는 기존 삭제 경로와 바이트 동일.
+
+/// 순방향 word 모드: 보유 영문 라이브 조합 → replace_composition=true.
+#[test]
+fn test_forward_word_mode_sets_replace_composition() {
+    let mut buf = KeystrokeBuffer::new();
+    for key in [
+        KeyCode::G,
+        KeyCode::K,
+        KeyCode::S,
+        KeyCode::R,
+        KeyCode::M,
+        KeyCode::F,
+    ] {
+        buf.push(key, ModifierState::default());
+    }
+    buf.word_mode = true;
+
+    let config = AutoTypeFixConfig {
+        enabled: true,
+        kor_syllable_threshold: 2,
+        eng_word_min_length: 5,
+        forward_time_window_ms: 2000,
+        reverse_time_window_ms: 2000,
+        forward: true,
+        reverse: true,
+        ..AutoTypeFixConfig::default()
+    };
+
+    let r = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl()).unwrap();
+    assert_eq!(r.corrected, "한글");
+    assert!(
+        r.replace_composition,
+        "순방향 word 모드는 조합 SetText 치환 신호"
+    );
+}
+
+/// 순방향 음절 모드(word_mode=false 기본): replace_composition=false — 무회귀 삭제 경로.
+#[test]
+fn test_forward_syllable_mode_no_replace_composition() {
+    let mut buf = KeystrokeBuffer::new();
+    for key in [
+        KeyCode::G,
+        KeyCode::K,
+        KeyCode::S,
+        KeyCode::R,
+        KeyCode::M,
+        KeyCode::F,
+    ] {
+        buf.push(key, ModifierState::default());
+    }
+    // word_mode 기본 false 유지.
+
+    let config = AutoTypeFixConfig {
+        enabled: true,
+        kor_syllable_threshold: 2,
+        eng_word_min_length: 5,
+        forward_time_window_ms: 2000,
+        reverse_time_window_ms: 2000,
+        forward: true,
+        reverse: true,
+        ..AutoTypeFixConfig::default()
+    };
+
+    let r = check_forward(&buf, &config, "ko_2bulstd", "qwerty", &empty_bl()).unwrap();
+    assert!(
+        !r.replace_composition,
+        "음절 모드는 기존 surrounding 삭제 경로(무회귀)"
+    );
+}
+
+/// 역방향 word 모드 committed=0 단일 라이브 조합 → replace_composition=true.
+#[test]
+fn test_reverse_word_mode_live_sets_replace_composition() {
+    let mut buf = KeystrokeBuffer::new();
+    for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
+        buf.push(key, ModifierState::default());
+    }
+    buf.committed_chars = 0;
+    buf.has_preedit = true;
+    buf.word_mode = true;
+
+    let config = AutoTypeFixConfig {
+        eng_word_min_length: 5,
+        ..AutoTypeFixConfig::default()
+    };
+
+    let r = check_reverse(
+        &buf,
+        &config,
+        "ko_2bulstd",
+        "qwerty",
+        &empty_bl(),
+        &EmptyUserDict,
+    )
+    .unwrap();
+    assert_eq!(r.corrected, "hello");
+    assert_eq!(r.delete_chars, 1); // committed 0 + preedit 1
+    assert!(
+        r.replace_composition,
+        "역방향 word 모드(committed=0)는 조합 SetText 치환 신호"
+    );
+}
+
+/// 역방향 word 모드지만 committed>0(확정 섞임) → replace_composition=false(방어).
+#[test]
+fn test_reverse_word_mode_committed_nonzero_no_replace_composition() {
+    let mut buf = KeystrokeBuffer::new();
+    for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
+        buf.push(key, ModifierState::default());
+    }
+    buf.committed_chars = 3;
+    buf.has_preedit = true;
+    buf.word_mode = true;
+
+    let config = AutoTypeFixConfig {
+        eng_word_min_length: 5,
+        ..AutoTypeFixConfig::default()
+    };
+
+    let r = check_reverse(
+        &buf,
+        &config,
+        "ko_2bulstd",
+        "qwerty",
+        &empty_bl(),
+        &EmptyUserDict,
+    )
+    .unwrap();
+    assert!(
+        !r.replace_composition,
+        "committed>0(확정 섞임)이면 조합 치환 금지 → 삭제 경로"
+    );
+}
+
+/// 역방향 음절 모드(word_mode=false): replace_composition=false — 무회귀 삭제 경로.
+#[test]
+fn test_reverse_syllable_mode_no_replace_composition() {
+    let mut buf = KeystrokeBuffer::new();
+    for key in [KeyCode::H, KeyCode::E, KeyCode::L, KeyCode::L, KeyCode::O] {
+        buf.push(key, ModifierState::default());
+    }
+    buf.committed_chars = 3;
+    buf.has_preedit = true;
+    // word_mode 기본 false.
+
+    let config = AutoTypeFixConfig {
+        eng_word_min_length: 5,
+        ..AutoTypeFixConfig::default()
+    };
+
+    let r = check_reverse(
+        &buf,
+        &config,
+        "ko_2bulstd",
+        "qwerty",
+        &empty_bl(),
+        &EmptyUserDict,
+    )
+    .unwrap();
+    assert!(
+        !r.replace_composition,
+        "음절 모드는 기존 surrounding 삭제 경로(무회귀)"
+    );
+}
