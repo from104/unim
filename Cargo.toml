@@ -24,7 +24,7 @@ name = "unim"
 path = "src/lib.rs"
 
 [workspace.package]
-version = "0.3.60"
+version = "0.3.63"
 # Cargo.lock v4 (used by this workspace) requires Rust 1.78+.
 # Older toolchains will fail with "lock file version 4 requires a newer Cargo".
 rust-version = "1.78"
