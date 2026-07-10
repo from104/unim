@@ -184,10 +184,10 @@ VERIFIER_CORRECTION:
 BUG UNIM-WIN-SETTINGS-KEYCAPTURE-001 | regression=True conf=high verifierOK=False
 TITLE: 설정 앱 단축키 입력 필드(LineEdit) 키 캡처 불가 — nav-scope FocusScope 이벤트 가로채기
 REG_SRC: commit ba6212b — feat(windows-tsf): 설정 앱 사이드바+카드 최신 디자인 재설계. nav-scope := FocusScope와 NavItem.clicked => nav-scope.focus() 패턴을 도입한 커밋.
-FILES: unim-tsf-settings/ui/settings.slint, unim-tsf-settings/src/main.rs
+FILES: unim-settings/ui/settings.slint, unim-settings/src/main.rs
 RELATED: 
 ROOT_CAUSE:
-unim-tsf-settings/ui/settings.slint의 사이드바 전체가 `nav-scope := FocusScope`로 감싸여 있으며, 이 FocusScope의 `key-pressed` 핸들러가 UpArrow/DownArrow를 `accept`로 소비한다. Slint 이벤트 모델에서 FocusScope는 자신이 포커스를 보유할 때 자식 위젯보다 먼저 키 이벤트를 수신하고, `accept` 반환 시 자식(LineEdit 등)으로 이벤트가 전달되지 않는다. 더 심각한 문제는 NavItem.clicked 핸들러가 `nav-scope.focus()`를 명시 호출하여 포커스를 사이드바 FocusScope로 당기는데, 이후 우측 콘텐츠의 LineEdit를 클릭해도 nav-scope가 포커스를 포기하지 않거나(forward-focus 미설정), 포커스 상태와 무관하게 nav-scope의 key-pressed가 콘텐츠 영역 키 입력을 가로채는 구조다. 결과적으로 LineEdit(한/영 토글 키, 한자 변환 키, 트리거 키 필드)는 포커스를 받지 못하거나 키 이벤트를 수신하지 못해 편집이 불가능하다.
+unim-settings/ui/settings.slint의 사이드바 전체가 `nav-scope := FocusScope`로 감싸여 있으며, 이 FocusScope의 `key-pressed` 핸들러가 UpArrow/DownArrow를 `accept`로 소비한다. Slint 이벤트 모델에서 FocusScope는 자신이 포커스를 보유할 때 자식 위젯보다 먼저 키 이벤트를 수신하고, `accept` 반환 시 자식(LineEdit 등)으로 이벤트가 전달되지 않는다. 더 심각한 문제는 NavItem.clicked 핸들러가 `nav-scope.focus()`를 명시 호출하여 포커스를 사이드바 FocusScope로 당기는데, 이후 우측 콘텐츠의 LineEdit를 클릭해도 nav-scope가 포커스를 포기하지 않거나(forward-focus 미설정), 포커스 상태와 무관하게 nav-scope의 key-pressed가 콘텐츠 영역 키 입력을 가로채는 구조다. 결과적으로 LineEdit(한/영 토글 키, 한자 변환 키, 트리거 키 필드)는 포커스를 받지 못하거나 키 이벤트를 수신하지 못해 편집이 불가능하다.
 FIX_DIRECTION:
 세 가지 선택지 중 하나를 택해야 한다.
 
@@ -197,7 +197,7 @@ FIX_DIRECTION:
 
 (3) 완전 대안: 사이드바 키보드 내비게이션 기능을 제거하고 마우스 클릭 전용으로 단순화한다(UpArrow/DownArrow key-pressed 핸들러 삭제, nav-scope.focus() 삭제).
 
-파일: unim-tsf-settings/ui/settings.slint, lines 280-321 (nav-scope FocusScope 블록) 및 NavItem.clicked 핸들러들.
+파일: unim-settings/ui/settings.slint, lines 280-321 (nav-scope FocusScope 블록) 및 NavItem.clicked 핸들러들.
 VERIFIER_CRITIQUE:
 진단이 증상과 원인 커밋(ba6212b)은 올바르게 짚었으나 메커니즘 설명이 틀렸다. "nav-scope가 포커스를 포기하지 않거나 key-pressed가 콘텐츠 영역 키 입력을 가로채는 구조"라는 핵심 주장이 Slint의 실제 포커스 모델과 일치하지 않는다.
 
@@ -211,7 +211,7 @@ VERIFIER_CORRECTION: 실제 원인: NavItem.clicked 핸들러(lines 300,306,312,
 
 즉 "완전 편집 불가"가 아니라 "키보드 포커스 진입 경로 차단"이 정확한 진단이다. 마우스 클릭으로는 LineEdit가 동작하지만, 키보드 전용 워크플로우(Tab, 방향키 후 입력)에서는 nav-scope가 포커스를 독점한 채 UpArrow/DownArrow만 처리하고 나머지는 reject하므로 LineEdit에 타이핑할 수 없다. Windows TSF 설정 앱에서 키보드로 단축키 필드를 편집하려는 사용자에게 이 패턴이 치명적으로 작용한다.
 
-근본 원인 코드: unim-tsf-settings/ui/settings.slint lines 280-321 (nav-scope FocusScope 선언) 및 lines 300,306,312,318 (nav-scope.focus() 호출). 도입 커밋: ba6212b.
+근본 원인 코드: unim-settings/ui/settings.slint lines 280-321 (nav-scope FocusScope 선언) 및 lines 300,306,312,318 (nav-scope.focus() 호출). 도입 커밋: ba6212b.
 
 수정 방향은 원본 진단의 (1)~(3) 모두 유효하다. 다만 (2)의 "FocusScope.has-focus가 false가 되어야 한다" 설명은 LineEdit 클릭 시 이미 자동으로 false가 되므로 조건 로직 추가가 아니라 단순히 NavItem.clicked에서 nav-scope.focus() 호출을 제거하는 것으로 충분하다.
 ########################################################################
@@ -255,7 +255,7 @@ root_cause_clusters:
   "bug_ids": [
    "UNIM-WIN-SETTINGS-KEYCAPTURE-001"
   ],
-  "shared_cause": "unim-tsf-settings/ui/settings.slint NavItem.clicked(300,306,312,318)가 nav-scope.focus() 호출로 페이지 전환마다 포커스를 사이드바 FocusScope에 강제 이동→키보드 전용 워크플로우에서 LineEdit가 포커스 진입 못 함(마우스 클릭은 정상). 커밋 ba6212b 도입. 독립 버그."
+  "shared_cause": "unim-settings/ui/settings.slint NavItem.clicked(300,306,312,318)가 nav-scope.focus() 호출로 페이지 전환마다 포커스를 사이드바 FocusScope에 강제 이동→키보드 전용 워크플로우에서 LineEdit가 포커스 진입 못 함(마우스 클릭은 정상). 커밋 ba6212b 도입. 독립 버그."
  }
 ]
 
@@ -300,12 +300,12 @@ fix_groups:
  {
   "owner": "settings",
   "files": [
-   "C:\\Users\\USER\\Desktop\\work\\unim\\unim-tsf-settings\\ui\\settings.slint"
+   "C:\\Users\\USER\\Desktop\\work\\unim\\unim-settings\\ui\\settings.slint"
   ],
   "bug_ids": [
    "UNIM-WIN-SETTINGS-KEYCAPTURE-001"
   ],
-  "plan": "unim-tsf-settings/ui/settings.slint NavItem.clicked 핸들러 4곳(L300,306,312,318)에서 nav-scope.focus() 호출 제거(권장·최소수정). 이것만으로 LineEdit 클릭/Tab 진입 시 nav-scope가 포커스 독점하지 않아 단축키 필드 편집 가능. current-page 전환 로직(root.current-page=N)은 유지. 키보드 사이드바 탐색이 꼭 필요하면 nav-scope FocusScope의 key-pressed에서 LineEdit 미포커스 시에만 Up/Down accept하도록 조건화하거나 각 NavItem 개별 FocusScope로 재설계. 회귀 검증: 앱 열고 마우스/Tab으로 한영토글키·한자키·트리거키 LineEdit에 타이핑 가능 확인. 커밋 ba6212b 패턴 수정. 파일 비중복 병렬 가능."
+  "plan": "unim-settings/ui/settings.slint NavItem.clicked 핸들러 4곳(L300,306,312,318)에서 nav-scope.focus() 호출 제거(권장·최소수정). 이것만으로 LineEdit 클릭/Tab 진입 시 nav-scope가 포커스 독점하지 않아 단축키 필드 편집 가능. current-page 전환 로직(root.current-page=N)은 유지. 키보드 사이드바 탐색이 꼭 필요하면 nav-scope FocusScope의 key-pressed에서 LineEdit 미포커스 시에만 Up/Down accept하도록 조건화하거나 각 NavItem 개별 FocusScope로 재설계. 회귀 검증: 앱 열고 마우스/Tab으로 한영토글키·한자키·트리거키 LineEdit에 타이핑 가능 확인. 커밋 ba6212b 패턴 수정. 파일 비중복 병렬 가능."
  }
 ]
 

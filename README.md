@@ -81,7 +81,7 @@ UNIM은 트레이·설정 외에 키맵 관리·타자 연습을 위한 GTK4 보
 | 앱 | 경로 | 앱 ID | 역할 |
 |----|------|-------|------|
 | **인디케이터** | `unim-indicator/` | `io.github.from104.unim.Indicator` | 시스템 트레이 아이콘 (한/영 상태 표시) |
-| **설정** | `unim-settings/` | `io.github.from104.unim.Settings` | GTK4/libadwaita 통합 설정 창 |
+| **설정** | `unim-settings-gtk/` | `io.github.from104.unim.Settings` | GTK4/libadwaita 통합 설정 창 |
 | **키맵 스튜디오** | `unim-keymap-studio/` | `io.github.from104.unim.KeymapStudio` | 자판 보기·편집 도구 (헤더 3단 드롭다운 + 4탭) |
 | **타자 연습** | `unim-typing-practice/` | `io.github.from104.unim.TypingPractice` | 자판별 타자 연습 (키스트로크 통계) |
 
@@ -89,10 +89,10 @@ UNIM은 트레이·설정 외에 키맵 관리·타자 연습을 위한 GTK4 보
 
 | 환경 | autostart 패키지 | 한자/특수/이모지 popup | 설정 다이얼로그 |
 |------|------------------|------------------------|-----------------|
-| GNOME Wayland | unim-gnome (extension) | GNOME Shell extension popup_view.js (St 위젯) | unim-settings (Adwaita) |
-| GNOME X11 | unim-gnome (extension) | unim-popup-service (GTK4) | unim-settings (Adwaita) |
-| KDE Plasma (X11) / Xfce / MATE / Cinnamon / LXDE | unim-indicator | unim-popup-service (GTK4) | unim-settings (GTK4) |
-| KDE Plasma 6 Wayland / Sway / Hyprland 등 WM ⚠️ 실험적 | unim-indicator | unim-popup-service (GTK4, wayland-backend) | unim-settings (GTK4) |
+| GNOME Wayland | unim-gnome (extension) | GNOME Shell extension popup_view.js (St 위젯) | unim-settings-gtk (Adwaita) |
+| GNOME X11 | unim-gnome (extension) | unim-popup-service (GTK4) | unim-settings-gtk (Adwaita) |
+| KDE Plasma (X11) / Xfce / MATE / Cinnamon / LXDE | unim-indicator | unim-popup-service (GTK4) | unim-settings-gtk (GTK4) |
+| KDE Plasma 6 Wayland / Sway / Hyprland 등 WM ⚠️ 실험적 | unim-indicator | unim-popup-service (GTK4, wayland-backend) | unim-settings-gtk (GTK4) |
 
 > ⚠️ **환경 지원 상태 — v0.3.0 릴리스 시점**
 >

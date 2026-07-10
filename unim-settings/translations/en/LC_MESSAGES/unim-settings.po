@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: unim-tsf-settings\n"
+"Project-Id-Version: unim-settings\n"
 "POT-Creation-Date: 2026-07-04 00:00+0900\n"
 "PO-Revision-Date: 2026-07-04 00:00+0900\n"
 "Last-Translator: UNIM\n"
@@ -146,11 +146,11 @@ msgstr "Choose whether to commit Korean composition per syllable or gather it pe
 msgid "단어 모드 앱"
 msgstr "Word-mode Apps"
 
-msgid "스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(실행 파일명 정확일치, 예: winword.exe). 기본값: winword.exe, wmux.exe. Windows 전용."
-msgstr "Comma-separated apps that compose per word under the Smart commit unit (exact executable-name match, e.g. winword.exe). Default: winword.exe, wmux.exe. Windows only."
+msgid "스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(정확일치 — Windows: 실행 파일명 예 winword.exe, Linux: 앱 ID 예 soffice). 기본값: winword.exe. Linux에서는 터미널·XIM에는 적용되지 않습니다."
+msgstr "Comma-separated apps that compose per word under the Smart commit unit (exact match — Windows: executable name, e.g. winword.exe; Linux: app ID, e.g. soffice). Default: winword.exe. On Linux this does not apply to terminals or XIM."
 
-msgid "예: winword.exe, wmux.exe"
-msgstr "e.g. winword.exe, wmux.exe"
+msgid "예: winword.exe, soffice"
+msgstr "e.g. winword.exe, soffice"
 
 msgid "시작 입력 모드"
 msgstr "Startup Input Mode"
@@ -175,6 +175,12 @@ msgstr "Use Moachigi"
 
 msgid "여러 자모를 거의 동시에 눌러 한 음절로 모아 입력합니다. 조합창 시간 안에 들어온 키를 함께 처리합니다."
 msgstr "Press several jamo almost simultaneously to gather them into one syllable. Keys arriving within the combine window are processed together."
+
+msgid "양방향 자모 결합"
+msgstr "Bidirectional jamo combine"
+
+msgid "ㅎ→ㄱ을 ㅋ로 결합 (풀어쓰기·모아쓰기 모두 적용). 모아치기 없이 순차 입력만 써도 적용됩니다."
+msgstr "Combines ㅎ→ㄱ into ㅋ (both sequential and chord input). Applies even without moachigi, using sequential typing alone."
 
 msgid "조합창 (ms)"
 msgstr "Combine Window (ms)"

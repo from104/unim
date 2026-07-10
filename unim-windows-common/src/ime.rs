@@ -1,6 +1,6 @@
-//! 설치 마법사(unim-tsf-settings `--first-run`)용 감지/액션 헬퍼.
+//! 설치 마법사(unim-settings `--first-run`)용 감지/액션 헬퍼.
 //!
-//! unim-tsf(cdylib)와 unim-tsf-settings(exe)가 둘 다 쓸 수 있도록 여기(rlib)에 둔다.
+//! unim-tsf(cdylib)와 unim-settings(exe)가 둘 다 쓸 수 있도록 여기(rlib)에 둔다.
 //! TSF GUID 는 `unim-tsf/src/globals.rs` 가 `installer/wix/gen-guids.sh` 의 파싱 원본
 //! (single source of truth)이라 그쪽에 리터럴로 남겨야 하므로, 마법사 exe 가 쓸 수
 //! 있게 여기에 **동일 값을 복제**한다. 값이 절대 바뀌지 않는 상수라 드리프트 위험은

@@ -23,7 +23,7 @@
 - [x] **XIM 프론트엔드**: Rust `xim` crate 기반 X11 XIM 서버 구현 (Over-The-Spot Preedit, 프로토콜 적합성 검증 완료).
 - [x] **Wayland 프론트엔드**: `input-method-v2` + `virtual-keyboard-v1` 프로토콜 기반 구현 (KDE Plasma 지원).
 - [x] **한자/특수문자 입력**: 모든 팝업이 `unim-popup-service` 단일 서비스로 중앙화 완료. GNOME Wayland만 Shell extension `popup_view.js`(St 위젯)로 자체 렌더, 그 외 환경(X11·기타 Wayland)은 popup-service(GTK4)가 전담. GTK/Qt IM 모듈의 임베디드 팝업 위젯은 제거됨.
-- [x] **설정 도구**: GTK4 통합 설정 창 (`unim-settings`) + CLI (`unim-cli config`).
+- [x] **설정 도구**: GTK4 통합 설정 창 (`unim-settings-gtk`) + CLI (`unim-cli config`).
 - [x] **시스템 트레이**: 트레이 인디케이터(`unim-indicator`) 별도 프로세스로 분리.
 
 ### 3단계: 문서화 및 안정화 (진행 중)

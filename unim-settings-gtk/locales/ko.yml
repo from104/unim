@@ -32,6 +32,10 @@ mode_korean: "한글"
 row_mode_sharing: "모드 공유 방식"
 mode_share_global: "전역 공유 (Global)"
 mode_share_perapp: "창별 독립 (PerApp)"
+row_commit_unit: "조합 확정 단위"
+commit_unit_syllable: "음절 단위"
+commit_unit_word: "단어 단위"
+commit_unit_smart: "스마트"
 
 # 일반 > 자동 영문 전환
 group_auto_english: "자동 영문 전환"
@@ -148,6 +152,7 @@ row_english_layout_subtitle: "QWERTY가 기본. Dvorak/Colemak/Colemak-DH/Workma
 # 일반 > 입력 모드 (NEW subtitle)
 row_initial_mode_subtitle: "데몬을 시작했을 때 한글/영문 중 어느 쪽으로 둘지."
 row_mode_sharing_subtitle: "「창별 독립」: 창마다 한/영 모드 따로 유지. 「전역 공유」: 한 번 바꾸면 모든 창 동기화."
+row_commit_unit_subtitle: "음절/단어/스마트. 단어 단위는 터미널·XIM에는 적용되지 않습니다."
 
 # 일반 > 자동 영문 전환 (NEW subtitle)
 row_auto_english_enable_subtitle: "트리거 키를 만나면 한글 모드여도 강제로 영문 모드로 전환합니다."
@@ -177,6 +182,7 @@ row_hanja_keys_tooltip: "한자/특수문자 팝업을 띄울 키를 쉼표로 �
 # 일반 > 입력 모드
 row_initial_mode_tooltip: "데몬 시작 직후 모드. 「영문」이 안전한 기본값 — 로그인 시 비밀번호 필드 등에서 한글 입력 방지. 한글 작업이 주된 경우 「한글」로 변경 가능."
 row_mode_sharing_tooltip: "창별 독립(PerApp) 권장: 터미널은 영문 유지, 에디터·메신저는 한글 유지. 전역 공유(Global)는 모든 창이 한 번에 같이 전환 — 모드 혼란이 잦으면 PerApp으로."
+row_commit_unit_tooltip: "「단어」는 단어 경계까지 preedit(밑줄)로 누적했다가 한 번에 확정합니다. 「스마트」(기본)는 word-mode-apps 목록에 등록된 앱에서만 단어 단위로 동작하고 그 외에는 음절 단위입니다. 터미널·XIM에는 적용되지 않으며, 모아치기(동시치기)를 사용 중이면 항상 음절 단위로 동작합니다."
 
 # 일반 > 자동 영문 전환
 row_auto_english_enable_tooltip: "vim/Emacs/터미널에서 Esc나 '/'를 눌렀을 때 한글 모드가 자동으로 영문으로 전환됩니다. 한글 입력 중 명령어를 치다 실수하는 패턴을 방지. 비밀번호 필드는 이미 강제 영문이라 영향 없음."

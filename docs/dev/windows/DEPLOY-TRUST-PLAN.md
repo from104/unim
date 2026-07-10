@@ -20,7 +20,7 @@ CI(`.github/workflows/windows-msi.yml`)가 생산하는 산출물 전부:
 |---|---|---|
 | `unim_tsf.dll` (x64) | `target/x86_64-pc-windows-msvc/release/` | TSF TIP — 모든 프로세스에 로드되므로 서명 필수 1순위 |
 | `unim_tsf.dll` (x86) | `target/i686-pc-windows-msvc/release/` | WOW64 프로세스용 |
-| `unim-tsf-settings.exe` | x64 release | Slint 설정 GUI |
+| `unim-settings.exe` | x64 release | Slint 설정 GUI |
 | `unim-popup-win.exe` | x64 release | HKLM Run 상주 렌더러 — SmartScreen/AV 오탐 최다 예상 지점 |
 | `unim_imm32.ime` (x64/x86) | rename 스텝 산출 | `.ime`도 PE — signtool 정상 서명 가능 |
 | `unim-<ver>-x64.msi` | `dist/` | **바이너리 서명 후 MSI 패키징 후 MSI 자체 서명** (2단 서명) |
@@ -161,10 +161,10 @@ per-machine MSI는 SYSTEM 컨텍스트라 HKCU/세션에 작용하는
   HKCU 접근 가능. **silent 설치(/qn)에서는 ExitDialog가 없어 실행되지 않음** — 의도된 동작
   (배포 관리자는 정책으로 처리), 문서화만 한다.
 
-### b-2. `--firstrun` 헬퍼 (호스트: `unim-tsf-settings.exe`)
+### b-2. `--firstrun` 헬퍼 (호스트: `unim-settings.exe`)
 
-타깃: `unim-tsf-settings/src/main.rs:fn main()`(현재 160행) 초입에 인자 분기 추가.
-신규 모듈 `unim-tsf-settings/src/firstrun.rs`.
+타깃: `unim-settings/src/main.rs:fn main()`(현재 160행) 초입에 인자 분기 추가.
+신규 모듈 `unim-settings/src/firstrun.rs`.
 
 동작 시퀀스 (`firstrun::run()`):
 
@@ -193,7 +193,7 @@ per-machine MSI는 SYSTEM 컨텍스트라 HKCU/세션에 작용하는
       메모장에서 즉시 UNIM으로 한글 입력 가능(Win+Space 목록에 UNIM 표시 + 기본 선택).
 - [ ] 체크 해제 시 아무 HKCU 변경 없음(설치 전후 `reg export HKCU\...\CTF` diff 0).
 - [ ] `/qn` silent 설치가 기존과 동일하게 성공(ExitDialog 부재로 firstrun 미실행).
-- [ ] `unim-tsf-settings.exe --firstrun` 단독 재실행 시 멱등(중복 등록 없음, 에러 없음).
+- [ ] `unim-settings.exe --firstrun` 단독 재실행 시 멱등(중복 등록 없음, 에러 없음).
 - [ ] 관리자 아닌 표준 사용자 설치 흐름(UAC 승격 후)에서도 HKCU 기록이 **승격 전 사용자**
       hive에 남는다 — Impersonate 검증 항목.
 - [ ] 환영 창 3단계 텍스트 ko 우선, 스크린리더로 버튼 도달 가능.
@@ -220,7 +220,7 @@ per-machine MSI는 SYSTEM 컨텍스트라 HKCU/세션에 작용하는
 - 신규 크레이트 모듈 `unim-popup-win/src/updater.rs` — 폴러 스레드.
   `unim-popup-win/src/main.rs`의 초기화부(싱글턴 뮤텍스 획득 직후)에서 spawn.
 - 공용 로직(버전 비교·서명 검증)은 `unim-windows-common/src/update.rs`에 두어 향후 설정
-  GUI "지금 확인" 버튼(`unim-tsf-settings`)과 공유.
+  GUI "지금 확인" 버튼(`unim-settings`)과 공유.
 
 ### c-3. 동작 사양
 

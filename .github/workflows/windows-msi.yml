@@ -86,7 +86,7 @@ jobs:
         run: |
           cargo build --release --target ${{ env.WIN_TARGET }} `
             -p unim-tsf `
-            -p unim-tsf-settings `
+            -p unim-settings `
             -p unim-popup-win `
             -p unim-imm32 `
             --locked
@@ -116,7 +116,7 @@ jobs:
           out64="target/${WIN_TARGET}/release"
           out32="target/i686-pc-windows-msvc/release"
           missing=0
-          for f in unim_tsf.dll unim-tsf-settings.exe unim-popup-win.exe unim_imm32.ime; do
+          for f in unim_tsf.dll unim-settings.exe unim-popup-win.exe unim_imm32.ime; do
             if [[ ! -f "$out64/$f" ]]; then
               echo "::error::missing $out64/$f"
               missing=1

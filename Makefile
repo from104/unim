@@ -158,7 +158,7 @@ install-core:
 	install -m 644 unim-daemon/data/unim-daemon.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
 	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 \
-	               docs/man/unim-indicator.1 docs/man/unim-settings.1 docs/man/unim-popup-service.1 \
+	               docs/man/unim-indicator.1 docs/man/unim-settings-gtk.1 docs/man/unim-popup-service.1 \
 	               $(DESTDIR)$(PREFIX)/share/man/man1/
 
 install-frontends:
@@ -182,8 +182,8 @@ install-indicator:
 
 install-settings:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
-	install -m 755 target/release/unim-settings $(DESTDIR)$(BINDIR)/
-	install -m 644 unim-settings/data/io.github.from104.unim.Settings.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 755 target/release/unim-settings-gtk $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-settings-gtk/data/io.github.from104.unim.Settings.desktop $(DESTDIR)$(DATADIR)/applications/
 
 install-popup-service:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
@@ -220,7 +220,7 @@ uninstall-core:
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1 \
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-cli.1 \
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-indicator.1 \
-	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings-gtk.1 \
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-popup-service.1
 
 uninstall-frontends:
@@ -238,7 +238,7 @@ uninstall-indicator:
 	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/io.github.from104.unim.Indicator.desktop
 
 uninstall-settings:
-	rm -f $(DESTDIR)$(BINDIR)/unim-settings \
+	rm -f $(DESTDIR)$(BINDIR)/unim-settings-gtk \
 	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.Settings.desktop
 
 uninstall-popup-service:
@@ -459,7 +459,7 @@ test:
 	          $(QT5_PLUGIN_DIR)/libunim.so $(QT6_PLUGIN_DIR)/libunim.so; do \
 		printf "  %-55s %s\n" "$$f" "$$([ -f $(DESTDIR)$$f ] && echo '✓' || echo '✗')"; \
 	done
-	@for cmd in unim-cli unim-indicator unim-settings unim-popup-service; do \
+	@for cmd in unim-cli unim-indicator unim-settings-gtk unim-popup-service; do \
 		printf "  %-55s %s\n" "$(BINDIR)/$$cmd" "$$([ -f $(DESTDIR)$(BINDIR)/$$cmd ] && echo '✓' || echo '✗')"; \
 	done
 	@for cmd in unim-daemon unim-xim unim-wayland; do \
@@ -584,11 +584,11 @@ dev-indicator:
 	@echo "✅ unim-indicator 배포 완료!"
 
 dev-settings:
-	@$(CARGO) build --release -p unim-settings
-	@pkill -9 -x unim-settings 2>/dev/null || true
+	@$(CARGO) build --release -p unim-settings-gtk
+	@pkill -9 -f unim-settings-gtk 2>/dev/null || true
 	@sleep 0.5
-	@sudo cp target/release/unim-settings $(DEV_BINDIR)/
-	@echo "✅ unim-settings 배포 완료!"
+	@sudo cp target/release/unim-settings-gtk $(DEV_BINDIR)/
+	@echo "✅ unim-settings-gtk 배포 완료!"
 
 dev-popup-service:
 	@$(CARGO) build --release -p unim-popup-service
@@ -625,7 +625,7 @@ dev-extension:
 dev-restart:
 	@pkill -9 -x unim-daemon 2>/dev/null; pkill -9 -x unim-xim 2>/dev/null; \
 	 pkill -9 -x unim-wayland 2>/dev/null; pkill -9 -x unim-indicator 2>/dev/null; \
-	 pkill -9 -x unim-settings 2>/dev/null; pkill -9 -x unim-popup-service 2>/dev/null; sleep 1
+	 pkill -9 -f unim-settings-gtk 2>/dev/null; pkill -9 -x unim-popup-service 2>/dev/null; sleep 1
 	@UNIM_DEVELOP=1 $(DEV_LIBEXECDIR)unim-daemon -n --replace &
 	@sleep 1
 	@echo "✅ 모든 UNIM 프로세스 재시작 완료!"

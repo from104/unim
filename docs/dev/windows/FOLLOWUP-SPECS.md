@@ -111,7 +111,7 @@ pub enum DictEntry {
 
 ### A-5. GUI — 결정 필요(사용자 게이트) 포함
 
-현행: `unim-tsf-settings`(Slint) "사용자 사전" 탭 = typefix-userdict 전용
+현행: `unim-settings`(Slint) "사용자 사전" 탭 = typefix-userdict 전용
 (word+note 2필드 리스트, 즉시 저장, 삭제 되돌리기 토스트).
 
 **제안: 신규 탭 추가** ("낱말/상용구" 탭). 기존 탭은 "교정 예외(영문)"로
@@ -119,7 +119,7 @@ pub enum DictEntry {
 3필드 vs 약어+본문+트리거 3필드) 한 리스트에 섞으면 편집 폼이 모달 분기
 지옥이 된다. Slint StandardListView 재사용 + kind 콤보로 입력 폼 전환.
 
-Linux 쪽(unim-settings GTK)도 동일 구조로 추가하되 별도 PR (검증 환경 분리).
+Linux 쪽(unim-settings-gtk GTK)도 동일 구조로 추가하되 별도 PR (검증 환경 분리).
 
 ### A-6. CLI
 
@@ -140,9 +140,9 @@ unim config dict clear [--kind ...]
 |---|------|------|
 | 1 | `src/config.rs` | 사전 자체는 별도 yaml 이므로 Config 필드는 **스위치만**: `engine.user_dictionary.enabled`(bool, 기본 true), `snippet_boundary_trigger`(bool, 기본 false), `snippet_manual_key`(Option<String>) |
 | 2 | `unim-cli` | A-6 서브커맨드 + `config get/set` 신규 키 |
-| 3 | locales (`unim-cli`/`unim-settings`/`unim-tsf-settings` ko·en) | 신규 키 전부 양언어 |
+| 3 | locales (`unim-cli`/`unim-settings-gtk`/`unim-settings` ko·en) | 신규 키 전부 양언어 |
 | 4 | `unim-dbus` | GetConfig/SetConfig 에 신규 키 노출 + 사전 파일 변경 시 ConfigChanged 시그널(Linux) |
-| 5 | GTK UI (`unim-settings`) + Slint (`unim-tsf-settings`) | A-5 탭 |
+| 5 | GTK UI (`unim-settings-gtk`) + Slint (`unim-settings`) | A-5 탭 |
 | 6 | GNOME gschema (`unim-gnome-extension`) | 스위치 3키 미러링 |
 
 Windows(TSF)는 DBus 미경유 — 핫리로드(mtime)가 반영 경로이므로 4번은

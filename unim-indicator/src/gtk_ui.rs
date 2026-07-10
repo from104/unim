@@ -1,7 +1,7 @@
 //! GTK4 메인 루프 호스트 — 트레이 백그라운드를 살아있게 한다.
 //!
 //! 트레이 메뉴 "설정" 클릭 시 `GuiAction::OpenSettings` 가 수신되며,
-//! 별도 `unim-settings` 프로세스를 spawn 한다. (한 책임, 한 프로세스 원칙)
+//! 별도 `unim-settings-gtk` 프로세스를 spawn 한다. (한 책임, 한 프로세스 원칙)
 
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
@@ -13,7 +13,7 @@ use libadwaita as adw;
 use unim::unim_log;
 use unim_gui_common::types::GuiAction;
 
-/// 트레이 host — GTK 메인 루프 유지 + OpenSettings → unim-settings spawn.
+/// 트레이 host — GTK 메인 루프 유지 + OpenSettings → unim-settings-gtk spawn.
 pub fn run_tray_host(popup_rx: Receiver<GuiAction>) {
     let app = adw::Application::builder()
         .application_id("io.github.from104.unim.Indicator")
@@ -49,8 +49,8 @@ pub fn run_tray_host(popup_rx: Receiver<GuiAction>) {
 }
 
 fn spawn_settings() {
-    match std::process::Command::new("unim-settings").spawn() {
-        Ok(_) => unim_log!("INDICATOR", "unim-settings spawn"),
-        Err(e) => unim_log!("INDICATOR", "unim-settings spawn 실패: {}", e),
+    match std::process::Command::new("unim-settings-gtk").spawn() {
+        Ok(_) => unim_log!("INDICATOR", "unim-settings-gtk spawn"),
+        Err(e) => unim_log!("INDICATOR", "unim-settings-gtk spawn 실패: {}", e),
     }
 }

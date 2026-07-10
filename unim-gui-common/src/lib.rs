@@ -7,12 +7,15 @@
 // `locales/{ko,en}.yml` 파일이 컴파일 시점에 임베드된다.
 rust_i18n::i18n!("locales", fallback = "en");
 
+// dbus_client 는 tray::TrayController 를 소비하므로 tray 와 함께 게이트된다.
+#[cfg(feature = "tray")]
 pub mod dbus_client;
 pub mod popup_dbus;
 pub mod popup_position;
 pub mod popup_state;
 pub mod settings_dbus;
 pub mod settings_helpers;
+#[cfg(feature = "tray")]
 pub mod tray;
 pub mod types;
 

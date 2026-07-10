@@ -24,7 +24,7 @@ fn get_dll_path() -> Result<String> {
     unim_windows_common::registry::get_module_path(crate::dll_instance())
 }
 
-/// 설정 GUI(`unim-tsf-settings.exe`)를 DLL 과 같은 디렉터리에서 실행한다.
+/// 설정 GUI(`unim-settings.exe`)를 DLL 과 같은 디렉터리에서 실행한다.
 ///
 /// 트레이/랭귀지바 우클릭 메뉴의 "설정" 및 Windows 언어 옵션(ITfFnConfigure)에서
 /// 호출한다. 별도 프로세스(Slint GUI)로 띄우므로 TSF STA 스레드를 막지 않는다.
@@ -36,7 +36,7 @@ pub fn launch_settings_app() -> bool {
         Err(_) => return false,
     };
     let exe = match std::path::Path::new(&dll_path).parent() {
-        Some(dir) => dir.join("unim-tsf-settings.exe"),
+        Some(dir) => dir.join("unim-settings.exe"),
         None => return false,
     };
     if !exe.exists() {

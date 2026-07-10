@@ -52,7 +52,7 @@
 ### 1.4 서명 대상 (순서 중요)
 1. `unim_tsf.dll` (x64) — `target\x86_64-pc-windows-msvc\release\`
 2. `unim_tsf.dll` (x86/i686) — `target\i686-pc-windows-msvc\release\` (WOW64/카톡 등 32비트 호스트)
-3. `unim-tsf-settings.exe`
+3. `unim-settings.exe`
 4. `unim-popup-win.exe`
 5. **MSI** (`dist\unim-<ver>-x64.msi`) — 위 4개를 먼저 서명 후 패키징하고, 마지막에 MSI 서명
 

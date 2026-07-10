@@ -139,7 +139,7 @@ pub fn build(toast: adw::ToastOverlay, header: &adw::HeaderBar) -> gtk::Widget {
         .build();
     btn_settings.connect_clicked(|_| {
         // 비차단 spawn — 실패해도 typing-practice 동작에 영향 없음.
-        let _ = std::process::Command::new("unim-settings").spawn();
+        let _ = std::process::Command::new("unim-settings-gtk").spawn();
     });
     header.pack_end(&btn_settings);
 

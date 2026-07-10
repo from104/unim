@@ -348,7 +348,7 @@ grep -H NotShowIn /etc/xdg/autostart/unim-popup-service.desktop 2>&1
 grep -H NotShowIn /usr/local/etc/xdg/autostart/unim-popup-service.desktop 2>&1
 
 # 3. 바이너리 경로 + 빌드 신구 일치
-which unim-popup-service unim-indicator unim-settings unim-daemon
+which unim-popup-service unim-indicator unim-settings-gtk unim-daemon
 stat -c '%n: %y' (which unim-popup-service) target/release/unim-popup-service 2>&1
 
 # 4. DBus 표면 (daemon 이 popup signal 발행 가능?)

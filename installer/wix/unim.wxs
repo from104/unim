@@ -238,8 +238,8 @@
                      Guid="9E0F1A2B-3C4D-5E6F-7A8B-9C0D1E2F3041"
                      Win64="yes">
             <File Id="unim_tsf_settings_exe"
-                  Name="unim-tsf-settings.exe"
-                  Source="$(var.WIN_OUT_DIR)\unim-tsf-settings.exe"
+                  Name="unim-settings.exe"
+                  Source="$(var.WIN_OUT_DIR)\unim-settings.exe"
                   KeyPath="yes" />
           </Component>
 
@@ -292,7 +292,7 @@
             <Shortcut Id="UnimSettingsShortcut"
                       Name="UNIM Settings"
                       Description="UNIM Korean IME settings"
-                      Target="[INSTALLDIR]unim-tsf-settings.exe"
+                      Target="[INSTALLDIR]unim-settings.exe"
                       WorkingDirectory="INSTALLDIR" />
             <Shortcut Id="UnimUninstallShortcut"
                       Name="Uninstall UNIM"
@@ -354,7 +354,7 @@
                   Return="asyncNoWait" />
 
     <!--
-      설치 첫 실행 설정 마법사(unim-tsf-settings.exe). 설치 완료 후 사용자 컨텍스트에서
+      설치 첫 실행 설정 마법사(unim-settings.exe). 설치 완료 후 사용자 컨텍스트에서
       GUI 를 띄워 초기 세팅(언어팩 안내·기본입력기·자동교정·설정 열기)을 돕는다.
       LaunchPopupRenderer 와 동일 패턴(immediate + Impersonate=yes + asyncNoWait).
         - 신규 설치  : first-run 인자  (WIX_UPGRADE_DETECTED 미설정)

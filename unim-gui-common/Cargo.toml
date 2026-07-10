@@ -7,13 +7,27 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# tray = ksni 트레이 + 그것을 소비하는 dbus_client 모듈.
+# ksni 0.3 은 zbus 5 의 tokio feature 를 켜는데, cargo feature 통일로 같은
+# 바이너리의 AccessKit(AT-SPI, zbus 5)까지 tokio 실행기를 요구하게 돼 트레이가
+# 필요 없는 소비자(unim-settings)에서 시작 패닉을 유발했다. 트레이 소비자
+# (unim-indicator, unim-popup-service)는 default 그대로 무변경.
+default = ["tray"]
+tray = ["dep:ksni"]
+
 [dependencies]
 # Core
 unim = { path = ".." }
 unim-dbus = { path = "../unim-dbus" }
 
-# System tray (StatusNotifierItem)
-ksni = { version = "0.3", features = ["blocking"] }
+# System tray (StatusNotifierItem) — feature "tray" 로 게이트.
+# default-features = false 필수: ksni 의 default 는 tokio 백엔드(zbus/tokio)인데,
+# 워크스페이스 일괄 빌드의 feature 통일로 zbus 5 가 tokio 모드가 되면 AccessKit
+# (AT-SPI, unim-settings)의 zbus 가 내부 스레드에서 앰비언트 tokio 런타임을 요구해
+# 시작 패닉이 난다. async-io 백엔드는 자체 실행기라 이 요구가 없다.
+# 규칙: 어떤 워크스페이스 멤버도 zbus 5 의 tokio feature 를 켜지 말 것.
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"], optional = true }
 
 # Async runtime for DBus
 tokio = { version = "1", features = ["rt", "sync"] }

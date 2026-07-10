@@ -2,7 +2,7 @@
 name = "unim-settings"
 version.workspace = true
 edition = "2021"
-description = "UNIM settings dialog (GTK4/libadwaita). 설정 다이얼로그 전용 프로세스 — 트레이는 unim-indicator, popup은 unim-popup-service가 담당."
+description = "UNIM settings GUI (Slint) for Windows/Linux"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -12,22 +12,37 @@ name = "unim-settings"
 path = "src/main.rs"
 
 [dependencies]
-# Core
 unim = { path = ".." }
-unim-gui-common = { path = "../unim-gui-common" }
-unim-dbus = { path = "../unim-dbus" }
-dirs = "5.0"
+# default-features 해제 + winit/skia 명시: 기본 feature 는 Qt 백엔드를 포함하는데,
+# Slint 의 Qt 의존은 dlopen 이 아닌 하드 링크라 빌드 머신에 Qt 가 있으면 바이너리가
+# libQt6 에 묶인다 → GTK 데스크톱 사용자에게 Qt 런타임을 강제하게 돼 UNIM 컨셉과
+# 상충(Linux 실기동으로 Qt 폴백 확인 후 결정). winit-skia 전용으로 고정한다.
+# - renderer-skia: 기본 FemtoVG 는 힌팅이 없어 작은 한글(14px) 획 굵기가 불균일.
+#   Skia 는 OS/FreeType 네이티브 글리프 파이프라인을 타 힌팅이 적용된다.
+# - 설정앱 내 한글 입력은 X11=XIM / Wayland=text-input-v3 경로를 탄다(Qt IM 미사용).
+# - accessibility(AccessKit)는 스크린리더 노출용으로 유지한다.
+slint = { version = "1", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-skia",
+    "accessibility",
+    "compat-1-2",
+] }
 
-# Modern GTK4 UI (settings dialog)
-gtk4 = "0.9"
-libadwaita = { version = "0.7", features = ["v1_4"] }
+# 설치 마법사(--first-run/--whats-new) 의 기본 입력기/언어팩 감지·설정 헬퍼.
+# 크레이트 전체가 #![cfg(windows)] 라 비Windows 빌드엔 심볼이 없어 windows 타깃에만 링크한다
+# (main.rs 는 cfg(not(windows)) 폴백으로 크로스 체크 가능).
+[target.'cfg(windows)'.dependencies]
+unim-windows-common = { path = "../unim-windows-common" }
 
-# Async runtime for DBus (set_config_yaml client call)
-tokio = { version = "1", features = ["rt", "sync"] }
-zbus = { version = "4", default-features = false, features = ["tokio"] }
+# Linux 실동작: 저장 후 데몬 통지(settings_dbus::save_config_via_dbus — GTK 앱과 동일
+# 메커니즘)와 flock 단일 인스턴스 가드. unim-gui-common 은 워크스페이스에서 이미
+# 빌드 중이라 신규 시스템 deps 가 없고, rustix 0.38 은 락파일 트리에 이미 존재한다.
+# default-features = false: tray(ksni) 제외 — ksni 가 zbus 5 의 tokio feature 를
+# 켜면 AccessKit(AT-SPI) 의 zbus 까지 tokio 실행기를 요구해 시작 패닉이 난다.
+[target.'cfg(target_os = "linux")'.dependencies]
+unim-gui-common = { path = "../unim-gui-common", default-features = false }
+rustix = { version = "0.38", features = ["fs"] }
 
-# Config serialization (for DBus set_config_yaml client call)
-serde_yaml = "0.9"
-
-# i18n (locales/{ko,en}.yml)
-rust-i18n = "3"
+[build-dependencies]
+slint-build = "1"

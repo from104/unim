@@ -11,9 +11,9 @@
 //
 // main.rs 계약(절대 불변): 컴포넌트명 SettingsWindow, in-out property (word-mode-apps
 // — I4 per-app 앱호환 config 외부화; toast-visible/toast-message — I6 되돌리기 토스트;
-// korean-noshift-selected·moachigi-supported/enabled/window — 접근성/모아치기 노출),
+// korean-noshift-selected·moachigi-supported/enabled/window/bidirectional — 접근성/모아치기 노출),
 // callback (undo-restore — I6; atf-apply-preset·atf-restore-defaults — 오타교정
-// 프리셋/기본값복원; moachigi-toggled·moachigi-window-released·apply-accessibility-preset
+// 프리셋/기본값복원; moachigi-toggled·moachigi-window-released·moachigi-bidirectional-toggled·apply-accessibility-preset
 // — 모아치기/접근성 프리셋), default-font-family "Malgun Gothic".
 // atf-advanced-expanded 는 Rust 미노출 UI 상태(내부 property).
 
@@ -270,9 +270,11 @@ export component SettingsWindow inherits Window {
     title: @tr("UNIM 설정");
     // 창/작업표시줄 아이콘 — 제품 아이콘(installer/assets/unim.ico 에서 추출한 PNG).
     icon: @image-url("app-icon.png");
-    // Slint 기본 폰트는 한글 글리프가 없어 □로 표시된다.
-    // Windows 기본 한글 UI 폰트(맑은 고딕)를 지정한다.
-    default-font-family: "Malgun Gothic";
+    // Slint 기본 폰트는 한글 글리프가 없어 □로 표시된다. Windows 는 기본값(맑은
+    // 고딕)을 그대로 쓰고, Linux 는 Rust(main)가 창 생성 직후 시스템 한글 폰트로
+    // set-ui-font-family 로 덮어쓴다(property 라 Windows 코드젠·동작 불변).
+    in property <string> ui-font-family: "Malgun Gothic";
+    default-font-family: root.ui-font-family;
     default-font-size: 14px;
     preferred-width: 760px;
     preferred-height: 640px;
@@ -311,6 +313,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> moachigi-enabled;
     // 슬라이더(float) 와 양방향 바인딩하므로 float. Rust 는 반올림해 u16 로 저장.
     in-out property <float> moachigi-window;
+    // bidirectional_combine: 자모 결합 시 역순(ㅎ,ㄱ→ㅋ)도 시도. chord 와 독립 — OPT-IN(None→OFF).
+    in-out property <bool> moachigi-bidirectional;
 
     // ── 오타 교정 ──
     in-out property <bool> atf-enabled;
@@ -370,6 +374,8 @@ export component SettingsWindow inherits Window {
     callback moachigi-toggled(bool);
     // 모아치기 조합창 슬라이더 조작 완료(released) → chord_window_ms 갱신(Rust 가 반올림).
     callback moachigi-window-released(float);
+    // 양방향 자모 결합 스위치 토글 → bidirectional_combine Some(v) 전환(chord 와 독립).
+    callback moachigi-bidirectional-toggled(bool);
     // 접근성 프리셋(0='한 손 사용', 1='넉넉한 타이밍') 관련 config 일괄 적용.
     callback apply-accessibility-preset(int);
 
@@ -591,11 +597,11 @@ export component SettingsWindow inherits Window {
                         }
                         SettingRow {
                             title: @tr("단어 모드 앱");
-                            description: @tr("스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(실행 파일명 정확일치, 예: winword.exe). 기본값: winword.exe, wmux.exe. Windows 전용.");
+                            description: @tr("스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(정확일치 — Windows: 실행 파일명 예 winword.exe, Linux: 앱 ID 예 soffice). 기본값: winword.exe. Linux에서는 터미널·XIM에는 적용되지 않습니다.");
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.word-mode-apps;
-                                placeholder-text: @tr("예: winword.exe, wmux.exe");
+                                placeholder-text: @tr("예: winword.exe, soffice");
                                 accessible-label: @tr("단어 모드 앱");
                                 edited => { root.auto-save(); }
                             }
@@ -646,6 +652,15 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.moachigi-enabled;
                                 accessible-label: @tr("모아치기 사용");
                                 toggled => { root.moachigi-toggled(self.checked); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("양방향 자모 결합");
+                            description: @tr("ㅎ→ㄱ을 ㅋ로 결합 (풀어쓰기·모아쓰기 모두 적용). 모아치기 없이 순차 입력만 써도 적용됩니다.");
+                            Switch {
+                                checked <=> root.moachigi-bidirectional;
+                                accessible-label: @tr("양방향 자모 결합");
+                                toggled => { root.moachigi-bidirectional-toggled(self.checked); }
                             }
                         }
                         SettingRow {

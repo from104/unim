@@ -61,8 +61,8 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                         // DBus watcher 스레드가 처리 — UI 루프에서는 무시
                         GuiAction::SetGlobalMode(_) => {}
                         GuiAction::OpenSettings => {
-                            // settings GUI는 unim-settings 별도 프로세스가 담당. popup-service는 spawn만.
-                            let _ = std::process::Command::new("unim-settings").spawn();
+                            // settings GUI는 unim-settings-gtk 별도 프로세스가 담당. popup-service는 spawn만.
+                            let _ = std::process::Command::new("unim-settings-gtk").spawn();
                             let _ = &app_clone; // unused 경고 회피
                         }
                         GuiAction::ShowHanjaPopup {
@@ -281,7 +281,7 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
     app.run_with_args::<String>(&[]);
 }
 
-// settings 다이얼로그는 unim-settings 별도 프로세스가 담당하므로 popup-service에서는 run_settings_only 제거.
+// settings 다이얼로그는 unim-settings-gtk 별도 프로세스가 담당하므로 popup-service에서는 run_settings_only 제거.
 
 /// CSS 스타일 로드
 fn load_css() {

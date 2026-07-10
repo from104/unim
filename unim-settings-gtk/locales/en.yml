@@ -32,6 +32,10 @@ mode_korean: "Korean"
 row_mode_sharing: "Mode Sharing"
 mode_share_global: "Global (shared)"
 mode_share_perapp: "Per-window (independent)"
+row_commit_unit: "Commit Unit"
+commit_unit_syllable: "Syllable"
+commit_unit_word: "Word"
+commit_unit_smart: "Smart"
 
 # General > Auto English mode
 group_auto_english: "Auto English Mode"
@@ -148,6 +152,7 @@ row_english_layout_subtitle: "QWERTY is the default. Change only if you use Dvor
 # General > Input mode (NEW subtitle)
 row_initial_mode_subtitle: "Whether the daemon starts in Korean or English mode."
 row_mode_sharing_subtitle: "Per-window: each window keeps its own mode. Global: switching once syncs everywhere."
+row_commit_unit_subtitle: "Syllable / Word / Smart. Word unit does not apply to terminals or XIM."
 
 # General > Auto English (NEW subtitle)
 row_auto_english_enable_subtitle: "Forces English mode when a trigger key is pressed in Korean mode."
@@ -177,6 +182,7 @@ row_hanja_keys_tooltip: "Comma-separated keys that open the Hanja/special-char p
 # General > Input mode
 row_initial_mode_tooltip: "Mode right after daemon starts. English is the safe default — prevents Hangul in password fields at login. Switch to Korean if that's your primary typing mode."
 row_mode_sharing_tooltip: "Per-window (recommended): each window keeps its own mode — terminal stays English, editor stays Korean. Global: one toggle switches all windows simultaneously."
+row_commit_unit_tooltip: "Word accumulates the composition as preedit (underline) up to a word boundary, then commits it all at once. Smart (default) uses word unit only in apps listed in word-mode-apps and syllable unit everywhere else. It never applies to terminals or XIM, and always falls back to syllable unit while moachigi (chord input) is active."
 
 # General > Auto English
 row_auto_english_enable_tooltip: "Pressing Esc or '/' in Korean mode auto-switches to English — prevents accidental Hangul in vim normal mode or terminal commands. Recommended for vim/Emacs/terminal users. Password fields are unaffected."

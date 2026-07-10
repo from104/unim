@@ -14,7 +14,7 @@ use libadwaita::prelude::*;
 use rust_i18n::t;
 
 use unim::config::{
-    Config, InputCategory, ModeSharingMode, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
+    CommitUnit, Config, InputCategory, ModeSharingMode, AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN, AUTO_TYPEFIX_KOR_THRESHOLD_MAX,
     AUTO_TYPEFIX_KOR_THRESHOLD_MIN, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX,
@@ -668,6 +668,43 @@ fn build_input_mode_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&share_row);
+
+    // 조합 확정 단위 (음절/단어/스마트) — 수치 아님이라 ComboRow (초기모드·모드공유와 동일 관례)
+    let commit_row = adw::ComboRow::builder()
+        .title(t!("row_commit_unit"))
+        .subtitle(t!("row_commit_unit_subtitle"))
+        .build();
+    commit_row.set_tooltip_text(Some(t!("row_commit_unit_tooltip").as_ref()));
+    let commit_list = gtk4::StringList::new(&[
+        t!("commit_unit_syllable").as_ref(),
+        t!("commit_unit_word").as_ref(),
+        t!("commit_unit_smart").as_ref(),
+    ]);
+    commit_row.set_model(Some(&commit_list));
+    {
+        let s = state.borrow();
+        commit_row.set_selected(match s.config.engine.korean.commit_unit {
+            CommitUnit::Syllable => 0,
+            CommitUnit::Word => 1,
+            CommitUnit::Smart => 2,
+        });
+    }
+    {
+        let state_c = state.clone();
+        commit_row.connect_selected_notify(move |row| {
+            let mut s = state_c.borrow_mut();
+            if s.updating {
+                return;
+            }
+            s.config.engine.korean.commit_unit = match row.selected() {
+                0 => CommitUnit::Syllable,
+                1 => CommitUnit::Word,
+                _ => CommitUnit::Smart,
+            };
+            save_and_notify(&s.config, "commit_unit");
+        });
+    }
+    group.add(&commit_row);
 
     group
 }
