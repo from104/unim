@@ -55,7 +55,11 @@ struct _UnimIMContext {
     gchar *surrounding_text;
     gint cursor_index;    /* 바이트 오프셋 */
     gint selection_index; /* 바이트 오프셋 */
-    
+
+    /* 현재 입력 필드 목적 (focus 시 갱신). 1=Password, 2=Pin 이면 dev 로그의
+     * 내용 필드(keyval·commit·preedit·surrounding)를 "***"로 마스킹해 평문 잔류 방지. */
+    guint content_purpose;
+
     GdkRectangle cursor_area;           /* 커서 위치 */
 
     /* 한자/특수문자 키 설정 캐시 */
@@ -235,6 +239,24 @@ unim_log_message(const char *module, const char *format, ...)
 #define UNIM_DEBUG(fmt, ...) \
     unim_log_message("GTK3_IM", fmt, ##__VA_ARGS__)
 
+/* 민감 필드(비밀번호/PIN) 여부 — content_purpose 1=Password, 2=Pin(ContentPurpose). */
+static inline gboolean
+unim_is_sensitive(UnimIMContext *unim)
+{
+    return unim && (unim->content_purpose == 1 || unim->content_purpose == 2);
+}
+
+/* 민감 필드에서 dev 로그의 내용 문자열을 "***"로 마스킹(평문 잔류 방지).
+ * 평상시(Normal)엔 원문 그대로 — 무회귀. NULL 은 빈 문자열로. */
+static inline const char *
+unim_mask(UnimIMContext *unim, const char *text)
+{
+    if (unim_is_sensitive(unim)) {
+        return "***";
+    }
+    return text ? text : "";
+}
+
 static void
 unim_check_debug_env(void)
 {
@@ -318,8 +340,8 @@ autofix_deferred_commit_cb(gpointer user_data)
     GtkIMContext *context = GTK_IM_CONTEXT(unim);
 
     UNIM_DEBUG("AutoTypeFix 지연 commit: '%s', preedit='%s'",
-               unim->autofix_commit_text ? unim->autofix_commit_text : "",
-               unim->autofix_preedit_text ? unim->autofix_preedit_text : "");
+               unim_mask(unim, unim->autofix_commit_text),
+               unim_mask(unim, unim->autofix_preedit_text));
 
     if (unim->autofix_commit_text && unim->autofix_commit_text[0] != '\0') {
         g_signal_emit_by_name(context, "commit", unim->autofix_commit_text);
@@ -342,9 +364,10 @@ autofix_deferred_commit_cb(gpointer user_data)
 static void
 on_commit_text(const gchar *text, gpointer user_data)
 {
+    UnimIMContext *unim = (UnimIMContext *)user_data;
     GtkIMContext *context = GTK_IM_CONTEXT(user_data);
     if (text && text[0] != '\0') {
-        UNIM_DEBUG("CommitText 시그널 수신: '%s'", text);
+        UNIM_DEBUG("CommitText 시그널 수신: '%s'", unim_mask(unim, text));
         g_signal_emit_by_name(context, "commit", text);
     }
 }
@@ -358,7 +381,7 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
     GtkIMContext *context = GTK_IM_CONTEXT(unim);
 
     UNIM_DEBUG("AutoTypeFix 적용: delete=%u, commit='%s', preedit='%s'",
-               delete_chars, commit_text, preedit_text);
+               delete_chars, unim_mask(unim, commit_text), unim_mask(unim, preedit_text));
 
     /* 포커스가 없으면 무시 (다른 프론트엔드가 처리 중) */
     if (!unim->is_focused) {
@@ -747,8 +770,14 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     /* GDK hardware_keycode = X11 keycode = evdev + 8 */
     guint evdev_code = (event->hardware_keycode > 8) ? (event->hardware_keycode - 8) : 0;
     
-    UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, state=0x%x",
-               event->keyval, event->hardware_keycode, evdev_code, mod_state);
+    /* 민감 필드에선 keyval(해석된 키심) 마스킹으로 평문 잔류 방지. */
+    if (unim_is_sensitive(unim)) {
+        UNIM_DEBUG("키 입력: keyval=***, keycode=%u, evdev=%u, state=0x%x",
+                   event->hardware_keycode, evdev_code, mod_state);
+    } else {
+        UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, state=0x%x",
+                   event->keyval, event->hardware_keycode, evdev_code, mod_state);
+    }
 
     /* DBus를 통해 키 처리 */
     UnimDbusKeyResult result;
@@ -758,8 +787,9 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     }
 
     UNIM_DEBUG("엔진 결과: consumed=%d, preedit=\"%s\", commit=\"%s\"",
-               result.consumed, result.preedit ? result.preedit : "(null)",
-               result.commit ? result.commit : "(null)");
+               result.consumed,
+               unim_is_sensitive(unim) ? "***" : (result.preedit ? result.preedit : "(null)"),
+               unim_is_sensitive(unim) ? "***" : (result.commit ? result.commit : "(null)"));
 
     /* 선택 영역 삭제 처리 */
     if (result.consumed) {
@@ -791,7 +821,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
 
     /* 커밋 처리 */
     if (result.commit && strlen(result.commit) > 0) {
-        UNIM_DEBUG("커밋: \"%s\"", result.commit);
+        UNIM_DEBUG("커밋: \"%s\"", unim_mask(unim, result.commit));
         g_signal_emit_by_name(context, "commit", result.commit);
     }
 
@@ -842,6 +872,7 @@ unim_im_context_focus_in(GtkIMContext *context)
                     g_object_get(widget, "input-purpose", &purpose, NULL);
                 }
                 guint unim_purpose = gtk3_input_purpose_to_unim(purpose);
+                unim->content_purpose = unim_purpose;  /* 로그 마스킹 판정용 캐시 */
                 unim_dbus_set_content_type(unim->dbus_ctx, unim_purpose);
                 UNIM_DEBUG("content_type 전달: gtk_purpose=%d, unim_purpose=%u",
                            (int)purpose, unim_purpose);
@@ -866,7 +897,7 @@ unim_im_context_focus_out(GtkIMContext *context)
         
         /* 조합 중이던 문자 커밋 */
         if (commit && strlen(commit) > 0) {
-            UNIM_DEBUG("focus_out 커밋: \"%s\"", commit);
+            UNIM_DEBUG("focus_out 커밋: \"%s\"", unim_mask(unim, commit));
             g_signal_emit_by_name(context, "commit", commit);
         }
         g_free(commit);
@@ -891,7 +922,7 @@ unim_im_context_reset(GtkIMContext *context)
         unim_dbus_reset(unim->dbus_ctx, &commit);
         
         if (commit && strlen(commit) > 0) {
-            UNIM_DEBUG("reset 커밋: \"%s\"", commit);
+            UNIM_DEBUG("reset 커밋: \"%s\"", unim_mask(unim, commit));
             g_signal_emit_by_name(context, "commit", commit);
         }
         g_free(commit);
@@ -994,7 +1025,7 @@ unim_im_context_set_surrounding(GtkIMContext *context, const gchar *text,
     unim->selection_index = cursor_index;
 
     UNIM_DEBUG("surrounding 업데이트: cursor=%d, text=\"%s\"",
-               cursor_index, unim->surrounding_text);
+               cursor_index, unim_mask(unim, unim->surrounding_text));
 
     /* Surrounding text를 DBus로 전달 */
     if (unim->dbus_ctx && unim->surrounding_text) {

@@ -189,6 +189,10 @@ fn push_atf_to_ui(ui: &SettingsWindow, a: &AutoTypeFixConfig) {
     ui.set_atf_skip_complete_syllable(a.skip_on_complete_syllable);
     ui.set_atf_rollback_detection(a.rollback_detection);
     ui.set_atf_user_dict_enabled(a.user_dict_enabled);
+    // 토글 단축키 3종 (옵트인) — 빈 목록이면 빈 문자열로 노출.
+    ui.set_atf_toggle_enabled_keys(a.toggle_enabled_keys.join(", ").into());
+    ui.set_atf_toggle_forward_keys(a.toggle_forward_keys.join(", ").into());
+    ui.set_atf_toggle_reverse_keys(a.toggle_reverse_keys.join(", ").into());
 }
 
 /// 오타 교정 강도 프리셋 (0=보수적, 1=표준, 2=적극적).
@@ -515,6 +519,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             a.skip_on_complete_syllable = ui.get_atf_skip_complete_syllable();
             a.rollback_detection = ui.get_atf_rollback_detection();
             a.user_dict_enabled = ui.get_atf_user_dict_enabled();
+            // 토글 단축키 3종 — 빈 목록 허용(옵트인, 비우면 사용 안 함).
+            a.toggle_enabled_keys = split_keys(&ui.get_atf_toggle_enabled_keys());
+            a.toggle_forward_keys = split_keys(&ui.get_atf_toggle_forward_keys());
+            a.toggle_reverse_keys = split_keys(&ui.get_atf_toggle_reverse_keys());
 
             // 자판이 바뀌었으면 규칙 세트 그룹 + 접근성 배지 + 모아치기 카드를
             // 새 프로필 기준으로 재구성 (moachigi-supported 는 자판마다 다름).

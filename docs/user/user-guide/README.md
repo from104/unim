@@ -241,6 +241,47 @@ When a particular word keeps getting corrected against your wishes:
 
 > **User dictionary (reverse whitelist)** — new in 0.2.0. Select text and use a shortcut to call the `RegisterUserDictFromSelection` DBus method, registering an English-side entry. Manage entries in the GUI's "User Dictionary" page.
 
+#### Toggle hotkeys — turn correction on/off with a single key
+
+A single key can turn AutoTypeFix on or off instantly (**opt-in** — no key is assigned by default). Three of them, set separately:
+
+- **Master toggle**: turns all of AutoTypeFix (the master switch) on/off.
+- **Forward toggle** (a.k.a. "정방향" in some Korean labels): turns only forward (English→Korean) correction on/off.
+- **Reverse toggle**: turns only reverse (Korean→English) correction on/off.
+
+Set them from the CLI:
+
+```bash
+# Toggle all correction with the ScrollLock key
+unim-cli config set auto-typefix-toggle-keys ScrollLock
+
+# Forward / reverse on F10 and F11 respectively
+unim-cli config set auto-typefix-forward-toggle-keys F10
+unim-cli config set auto-typefix-reverse-toggle-keys F11
+
+# Multiple keys, comma-separated (any of them toggles)
+unim-cli config set auto-typefix-toggle-keys "ScrollLock,Pause"
+
+# Clear — an empty value consumes no key
+unim-cli config set auto-typefix-toggle-keys ""
+```
+
+In the GTK settings GUI the three fields are not grouped together but distributed across each feature group — the **Master toggle** sits in the "Type Correction" master group (next to the overall on/off switch), the **Forward toggle** in the "Forward" group, and the **Reverse toggle** in the "Reverse" group. Type a key name into each field; leave one empty to disable it.
+
+In the Slint settings app (`unim-settings`, including Windows) the three fields are gathered side by side in the **"Toggle hotkeys"** group on the **Type Correction** page (5.2).
+
+> - **Single keys only.** Modifier combinations like `Ctrl+X` are not supported — enter one key such as `ScrollLock`, `Pause`, or `F10` (a combination is ignored).
+> - The default is empty, so no key is intercepted until you assign one. Existing behavior is unchanged.
+> - Toggling only forward on while the master switch is off flips the flag but produces no correction until the master switch is on again (the master gates everything). The forward/reverse toggles change only each direction's flag.
+> - Accessibility note: on Windows a distinct beep (like the Korean/English switch sound) announces the toggle state (honoring the `toggle-announce-beep` setting). On Linux the setting changes silently.
+
+#### Password-field auto-protection
+
+In password and PIN fields, AutoTypeFix **turns off automatically.** When the app reports "this field is a password" (`content_purpose`), UNIM stops both forward and reverse correction while you are in that field, and also clears any keystroke-observation buffer and undo history already accumulated. This keeps a password typed like `dkssud` from being auto-corrected into Korean and corrupted.
+
+- It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.
+- This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, the Windows IMM32 fallback, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see [FAQ](../faq/README.md) Q9.
+
 ### 4.5 Auto-English-Mode
 
 Opt-in feature for vim command mode (`Esc`), CLI slash commands (`/`), etc. Off by default.
@@ -283,17 +324,24 @@ Five pages (GTK):
 
 <!-- screenshot: settings-typefix -->
 
+GTK settings app (the three toggle-hotkey fields are distributed across their feature groups):
+
 | Group | Widget | Meaning |
 |------|------|------|
-| **Common** | Enabled (Switch) | Master toggle |
+| **Common (master)** | Enabled (Switch) | Master toggle |
+|  | Master toggle hotkey (LineEdit) | Turn all correction on/off with the given key. Empty = disabled, single keys only — see 4.4 |
 |  | Rollback detection (Switch) | Auto-learn on BS+mode-switch. ON by default |
 |  | Observation window (sec) (Slider) | Default 10, range 5–15 |
 |  | Tentative expiry (h) (Slider) | Default 1, range 1–12 |
 | **Forward (en→ko)** | Enable (Switch) | `gksrmf`→`한글` |
+|  | Forward toggle hotkey (LineEdit) | Toggle only forward correction — see 4.4 |
 |  | Skip in English mode (Switch) | ON recommended |
 | **Reverse (ko→en)** | Enable (Switch) | `ㅈㅐㅍㅁ`→`wave` |
+|  | Reverse toggle hotkey (LineEdit) | Toggle only reverse correction — see 4.4 |
 |  | Skip incomplete syllables (Switch) | ON recommended |
 |  | User-dictionary only (Switch) | OFF: also use built-in mappings |
+
+> The Slint settings app (`unim-settings`, including Windows) gathers the three toggle-hotkey fields into a single **"Toggle hotkeys"** group (LineEdit ×3).
 
 ### 5.3 Page 3 — Suppression Words
 
@@ -432,6 +480,11 @@ unim-cli config list
 unim-cli config get auto_typefix.enabled
 unim-cli config set auto_typefix.tentative_expiry_hours 6
 unim-cli config set engine.auto_english.enabled true
+
+# AutoTypeFix toggle hotkeys (opt-in, single key, comma-separated) — see 4.4
+unim-cli config set auto-typefix-toggle-keys ScrollLock
+unim-cli config set auto-typefix-forward-toggle-keys F10
+unim-cli config set auto-typefix-reverse-toggle-keys F11
 
 unim-cli config layout list
 unim-cli config layout describe ko_3bul390

@@ -124,6 +124,30 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
     자동 전환으로 발생한 모드 변경은 `engine_worker`가 `is_mode_switch=true`로 관측하므로
     pending Blacklist 엔트리가 있으면 §9.2의 규칙대로 관측된다. 실무상 영향은 미미.
 
+### 3.12 AutoTypeFix 토글 단축키 (opt-in)
+
+지정한 단일 키로 자동 오타 교정을 즉시 켜고 끄는 **opt-in** 기능. 설정
+`engine.auto_typefix.{toggle_enabled_keys, toggle_forward_keys, toggle_reverse_keys}`
+(각각 `Vec<String>`, 기본 빈 목록). `toggle_keys`와 동일하게 **수정자 조합 없는
+단일 비수정자 키 이름**만 지원한다.
+
+- **매칭 위치**: `press_key`의 toggle 분기 직후, 한자 분기 이전. toggle 분기와
+  동일한 shortcut_combo 가드(Ctrl/Super/비자기 Alt 동반 시 미소비)를 적용한다.
+- **드레인 패턴 (ABI 보존)**: `InputResult`는 `#[repr(C)]`로 C-API에 노출되므로
+  필드를 추가하면 ABI가 깨진다. 대신 매칭 시 엔진 내부 `pending_atf_toggle`에
+  `AtfToggleKind`를 세팅하고 `consumed()`만 반환한다. 호스트(Linux=`engine_worker`,
+  Windows=`text_service`)가 `press_key` 직후 `take_atf_toggle()`로 1회 드레인하여
+  config 플래그를 반전하고 `save_to_default_path()` 한다. 팝업 통지의
+  `popup_pending_action` 드레인 패턴과 동형이다.
+- **소비 정렬 (Windows 필수)**: TSF `OnTestKeyDown`/IMM32 `should_consume`는
+  `is_toggle_key` 선례대로 `is_atf_hotkey()`도 소비로 판정해야 한다. 누락하면 프런트가
+  키를 소비하지 않아 `press_key`가 호출조차 되지 않고 핫키가 죽는다.
+- **통지**: Linux는 `EngineResponse`에 실은 토글 결과로 `service`가 `config_changed`
+  시그널을 방출(GUI/확장 동기). Windows는 mtime 폴링(`maybe_reload_config`)으로 타 앱
+  전파 + `lang_bar` 차등 비프(`toggle_announce_beep` 존중).
+- **의미론**: `enabled`가 마스터 게이트. forward/reverse 토글은 각 방향 플래그만
+  반전하며, 실제 교정은 `enabled`가 켜졌을 때만 발동한다(현행 시멘틱 유지).
+
 ---
 
 ## 4. 팝업 동작
@@ -456,3 +480,25 @@ Blacklist에 Tentative로 추가되며 **그 재시도도 함께 억제**된다.
 - 설정 필드 범위: `src/SPEC.md §3.1.1 AutoTypeFixConfig`
 - CLI 설정 키: `unim-cli/SPEC.md §2.3` (`unim-cli config` 서브커맨드)
 - DBus 설정 키 매핑: `unim-dbus/SPEC.md §5.4`
+
+### 9.4 비밀번호 필드 AND-게이트
+
+비밀번호·PIN 필드(`ContentPurpose::{Password, Pin}`, `should_block_hangul() == true`)
+에서는 AutoTypeFix 전 경로가 런타임에서 차단된다. config를 건드리지 않는
+**AND-게이트** — 관측/롤백/undo/재트리거 학습의 진입 조건에
+`&& !content_purpose().should_block_hangul()`를 더한 것뿐이다.
+
+- **런타임 게이트**: 실효 조건은 `atf_config.enabled && !password`. `enabled`나 토글
+  상태를 저장·복원하지 않으므로 사용자의 수동 토글 상태(§3.12)는 구조적으로 보존된다.
+  필드 이탈 시 프런트가 보내는 `SetContentType(Normal)`로 즉시 자동 복원된다(별도
+  복원 코드 없음, `set_content_purpose` 멱등 상태머신 재사용).
+- **잔류 제거**: 비번 진입(`SetContentType(Password|Pin)`) 시 해당 컨텍스트의
+  `keystroke_buffers`/`undo_states`(원문 보관)/`recent_corrections`를 클리어한다
+  (FocusIn 초기화 선례). 코어 `set_surrounding_text`도 `should_block_hangul()`이면
+  빈 값 저장 → GlobalTypeFix/SmartBackspace가 자연 무력화된다. blacklist/userdict 학습은
+  버퍼 게이트의 다운스트림이라 원천 차단된다.
+- **fail-closed**: 이탈 신호가 유실되는 엣지(포커스 소실 등)에서는 password가 잔존해
+  교정이 계속 억제된다 — 안전 측 실패.
+- **감지 매트릭스**: GTK3/4·Qt5/6·GNOME 확장·Windows TSF(InputScope IS_PASSWORD)는 전달.
+  XIM(프로토콜 신호 없음)·IMM32 폴백(InputScope 조회 경로 없음)·content-purpose 미전달
+  Wayland는 미감지 → 사용자 문서(troubleshooting §8-1)에 한계를 명시.

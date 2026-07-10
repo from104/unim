@@ -61,7 +61,19 @@ impl InputEngine {
     }
 
     /// Surrounding text를 설정합니다.
+    ///
+    /// 비밀번호/PIN 필드(`should_block_hangul`)에서는 surrounding text(평문일 수
+    /// 있음)를 엔진 메모리에 보관하지 않는다. 빈 값으로 덮어 **기존 잔류까지 제거**하며,
+    /// 이로써 이를 소비하는 `GlobalTypeFix`/`smart_backspace`/`typefix_convert` 경로가
+    /// 자연히 무력화된다. 필드를 벗어나면(비-비밀번호 목적) 이후 호출부터 정상 저장이
+    /// 재개된다(fail-closed — 이탈 신호가 늦어도 비번 평문은 잔류하지 않는다).
     pub fn set_surrounding_text(&mut self, text: String, cursor_pos: u32, anchor_pos: u32) {
+        if self.content_purpose.should_block_hangul() {
+            self.surrounding_text.clear();
+            self.surrounding_cursor = 0;
+            self.surrounding_anchor = 0;
+            return;
+        }
         self.surrounding_text = text;
         self.surrounding_cursor = cursor_pos;
         self.surrounding_anchor = anchor_pos;
@@ -255,5 +267,57 @@ impl InputEngine {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_helpers::create_test_engine;
+    use crate::config::ContentPurpose;
+
+    /// 비밀번호 필드에서는 surrounding text 를 저장하지 않고(빈 값), 기존 잔류도 즉시
+    /// 제거한다 — 비번 평문이 엔진 메모리에 남아 GlobalTypeFix/SmartBackspace 로 새어
+    /// 나가지 않게 한다.
+    #[test]
+    fn password_field_ignores_and_clears_surrounding_text() {
+        let mut engine = create_test_engine();
+
+        // 일반 필드에서 저장된 기존 surrounding.
+        engine.set_surrounding_text("secret".to_string(), 6, 0);
+        assert_eq!(engine.surrounding_text().0, "secret");
+
+        // 비밀번호 진입: 저장 시도 무시 + 기존 잔류 제거.
+        engine.set_content_purpose(ContentPurpose::Password);
+        engine.set_surrounding_text("dkssud".to_string(), 6, 0);
+        let (text, cursor, anchor) = engine.surrounding_text();
+        assert!(text.is_empty(), "비번 필드 surrounding text 는 저장되지 않아야 함");
+        assert_eq!(cursor, 0);
+        assert_eq!(anchor, 0);
+    }
+
+    /// PIN 필드도 동일하게 차단한다(`should_block_hangul` 계열 전체).
+    #[test]
+    fn pin_field_ignores_surrounding_text() {
+        let mut engine = create_test_engine();
+        engine.set_content_purpose(ContentPurpose::Pin);
+        engine.set_surrounding_text("1234".to_string(), 4, 0);
+        assert!(engine.surrounding_text().0.is_empty());
+    }
+
+    /// 필드를 벗어나면(Normal) 이후 호출부터 정상 저장이 재개된다.
+    #[test]
+    fn normal_field_after_password_stores_surrounding_text() {
+        let mut engine = create_test_engine();
+        engine.set_content_purpose(ContentPurpose::Password);
+        engine.set_surrounding_text("dkssud".to_string(), 6, 0);
+        assert!(engine.surrounding_text().0.is_empty());
+
+        // 필드 벗어남 → 정상 저장 재개.
+        engine.set_content_purpose(ContentPurpose::Normal);
+        engine.set_surrounding_text("hello".to_string(), 5, 0);
+        let (text, cursor, anchor) = engine.surrounding_text();
+        assert_eq!(text, "hello");
+        assert_eq!(cursor, 5);
+        assert_eq!(anchor, 0);
     }
 }

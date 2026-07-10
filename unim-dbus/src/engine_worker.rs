@@ -14,8 +14,8 @@ use crate::service::{
     popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupRenderPayload,
 };
 use unim::auto_typefix::{self, KeystrokeBuffer};
-use unim::config::{Config, EnglishLayout, KoreanLayout};
-use unim::input_engine::{InputEngine, PageDirection};
+use unim::config::{Config, ContentPurpose, EnglishLayout, KoreanLayout};
+use unim::input_engine::{AtfToggleKind, InputEngine, PageDirection};
 use unim::keycode::{KeyCode, ModifierState};
 use unim::popup::PopupKind;
 use unim::typefix_blacklist::{Blacklist, Direction};
@@ -341,6 +341,17 @@ fn undo_delete_chars(corrected_is_live: bool, corrected: &str) -> u32 {
     }
 }
 
+/// 이 키 이벤트에서 AutoTypeFix 관찰(순방향/역방향 교정)이 활성이어야 하는지.
+///
+/// 비밀번호/PIN 필드에서는 `enabled` 설정과 무관하게 항상 `false` — config 를 건드리지
+/// 않는 **런타임 AND-게이트**라 사용자의 수동 토글 상태가 구조적으로 보존된다(별도 저장/
+/// 복원 없음). 이 게이트로 비번 키스트로크가 keystroke_buffer 에 push 되는 지점 자체가
+/// 차단되어 undo_states/recent_corrections/blacklist 학습·dev 로그로 새어 나갈 경로가
+/// 원천 봉쇄된다. 필드를 벗어나면(SetContentType Normal) 즉시 정상 관찰이 재개된다.
+fn atf_active_for_field(atf_enabled: bool, purpose: ContentPurpose) -> bool {
+    atf_enabled && !purpose.should_block_hangul()
+}
+
 /// Ctrl+Z AutoTypeFix 되돌리기 시도.
 /// 해당 컨텍스트에 활성 UndoState가 있고 키가 Ctrl+Z이면 되돌리기 응답을 반환한다.
 /// 그렇지 않으면 None (일반 키 처리 계속).
@@ -394,6 +405,8 @@ fn try_autotypefix_undo(
         auto_typefix: Some((delete_chars, obs.original, String::new())),
         render_state: None,
         chord_pending: None,
+        atf_toggled: None,
+        atf_config_json: None,
     })
 }
 
@@ -668,6 +681,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             for (id, engine) in contexts.iter_mut() {
                 engine.rebuild_korean_context(&config);
                 engine.set_english_layout(config.engine.english.layout.clone());
+                // ATF 토글 핫키 재적용: GUI/CLI 로 키를 편집한 뒤 재로그인 없이 살아있는
+                // 컨텍스트에 즉시 반영한다(toggle_keys/hanja_keys 의 live-reload 갭과 달리
+                // ATF 핫키는 재적용을 보장 — 계획 §2 Stage 2).
+                engine.set_atf_hotkeys(&config);
                 // word 모드 게이트 재적용: rebuild_korean_context 가 Word 면 전 컨텍스트
                 // accumulate 를 켜므로, 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기
                 // 강등)로 재판정한다.
@@ -778,6 +795,8 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         auto_typefix: None,
                         render_state: None,
                         chord_pending: None,
+                        atf_toggled: None,
+                        atf_config_json: None,
                     });
                     continue;
                 }
@@ -785,12 +804,20 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // Global 모드 변경 시 다른 context 들에 전파할 새 mode (engine 빌림이
                 // 끝난 후 blocking 없이 iter_mut 으로 적용).
                 let mut global_mode_propagate: Option<unim::config::InputCategory> = None;
+                // ATF 토글 단축키: press_key 가 매칭해 pending 에 적재한 대상 플래그를
+                // engine 빌림 안에서 드레인해 여기 보관하고, config.auto_typefix 불변 대여가
+                // 끝난 뒤(borrow 해제 후) 반전·persist·통지한다(Risk 4 — 대여 충돌 회피).
+                let mut atf_toggle_pending: Option<AtfToggleKind> = None;
 
-                let resp = if let Some(engine) = contexts.get_mut(&context_id) {
+                let mut resp = if let Some(engine) = contexts.get_mut(&context_id) {
                     // keycode를 KeyCode로 변환
                     let key = KeyCode::from_evdev_keycode(keycode as u16);
                     let modifier = ModifierState::from_x11_mask(state);
                     let atf_config = &config.engine.auto_typefix;
+                    // 비밀번호/PIN 필드 여부(런타임 AND-게이트) — press_key 는 content_purpose
+                    // 를 바꾸지 않으므로 이 키 이벤트 동안 안정. 관찰·rollback·undo 세 지점을
+                    // 이 값 하나로 차단해 비번 키스트로크가 버퍼·학습·로그에 닿지 않게 한다.
+                    let atf_password_block = engine.content_purpose().should_block_hangul();
 
                     // 만료된 undo 상태 정리 (10초 타임아웃)
                     if let Some(obs) = undo_states.get(&context_id) {
@@ -811,24 +838,31 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     // Backspace: 지우는 행위 감지 (preedit BS도 키 레벨에서는 동일).
                     // 여기선 플래그만 세팅. 실제 blacklist 등록은 동일 ASCII 재트리거 시.
-                    if key == KeyCode::Backspace && atf_config.rollback_detection {
+                    // 비번 필드에서는 관찰하지 않는다(recent_corrections 잔류 차단).
+                    if key == KeyCode::Backspace
+                        && atf_config.rollback_detection
+                        && !atf_password_block
+                    {
                         observe_rollback_event(&mut recent_corrections, context_id, true, false);
                     }
 
                     // Ctrl+Z: AutoTypeFix 되돌리기 (헬퍼에 위임). 순방향 word 되돌리기는
                     // 엔진 라이브 조합 폐기가 필요하므로 engine·config·context_windows 를 넘긴다.
-                    if let Some(undo_resp) = try_autotypefix_undo(
-                        &mut undo_states,
-                        &mut keystroke_buffers,
-                        engine,
-                        &config,
-                        &context_windows,
-                        context_id,
-                        key,
-                        modifier,
-                    ) {
-                        let _ = response.send(undo_resp);
-                        continue;
+                    // 비번 필드에서는 undo 경로 자체를 우회(undo_states 는 진입 시 이미 클리어됨).
+                    if !atf_password_block {
+                        if let Some(undo_resp) = try_autotypefix_undo(
+                            &mut undo_states,
+                            &mut keystroke_buffers,
+                            engine,
+                            &config,
+                            &context_windows,
+                            context_id,
+                            key,
+                            modifier,
+                        ) {
+                            let _ = response.send(undo_resp);
+                            continue;
+                        }
                     }
 
                     // 처리 전 상태 저장
@@ -836,6 +870,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     // 키 처리
                     let result = engine.press_key(key, modifier, &config);
+
+                    // ATF 토글 단축키 드레인: press_key 가 매칭 시 pending 에 적재한다.
+                    // 매칭이 없으면 None. config 반전은 atf_config 불변 대여 종료 후 수행.
+                    atf_toggle_pending = engine.take_atf_toggle();
 
                     // 모드 변경 감지
                     let current_mode = engine.input_category();
@@ -909,7 +947,10 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                     // === AutoTypeFix: 키스트로크 버퍼 기반 감지 ===
                     let mut fix_has_replay = false;
-                    let mut auto_typefix_result = if atf_config.enabled
+                    let mut auto_typefix_result = if atf_active_for_field(
+                        atf_config.enabled,
+                        engine.content_purpose(),
+                    )
                         && mode_changed.is_none()
                         && popup_action.is_none()
                     {
@@ -1292,6 +1333,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         auto_typefix: auto_typefix_result,
                         render_state,
                         chord_pending,
+                        // atf_config 불변 대여 종료 후 아래 블록에서 실측값으로 채운다.
+                        atf_toggled: None,
+                        atf_config_json: None,
                     }
                 } else {
                     EngineResponse {
@@ -1303,8 +1347,57 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         auto_typefix: None,
                         render_state: None,
                         chord_pending: None,
+                        atf_toggled: None,
+                        atf_config_json: None,
                     }
                 };
+
+                // ATF 토글 단축키 처리: config.auto_typefix 불변 대여(atf_config)가 위
+                // 블록에서 끝난 뒤에만 반전할 수 있다(Risk 4). enabled 는 마스터 게이트,
+                // forward/reverse 는 독립 플래그(현행 시멘틱 유지). 반전 결과를 응답에 실어
+                // service.rs 가 config_changed 시그널로 GUI/확장에 통지한다.
+                if let Some(kind) = atf_toggle_pending {
+                    let new_value = match kind {
+                        AtfToggleKind::Enabled => {
+                            config.engine.auto_typefix.enabled = !config.engine.auto_typefix.enabled;
+                            config.engine.auto_typefix.enabled
+                        }
+                        AtfToggleKind::Forward => {
+                            config.engine.auto_typefix.forward = !config.engine.auto_typefix.forward;
+                            config.engine.auto_typefix.forward
+                        }
+                        AtfToggleKind::Reverse => {
+                            config.engine.auto_typefix.reverse = !config.engine.auto_typefix.reverse;
+                            config.engine.auto_typefix.reverse
+                        }
+                    };
+                    // persist. 저장 성공 시 mtime 스냅샷을 방금 쓴 파일 시간으로 갱신해,
+                    // 다음 reload_if_changed 가 '자기 저장'을 외부 변경으로 오인해 전 컨텍스트를
+                    // rebuild(조합 flush)하는 것을 막는다(Risk 2 — save_to_path 는
+                    // last_modified 를 갱신하지 않으므로 여기서 수동 동기화).
+                    if let Err(e) = config.save_to_default_path() {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] ATF 토글 config 저장 실패: {:?}",
+                            e
+                        );
+                    } else if let Some(path) = Config::default_config_path() {
+                        if let Ok(mtime) = std::fs::metadata(&path).and_then(|m| m.modified()) {
+                            config.last_modified = Some(mtime);
+                        }
+                    }
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] ATF 토글 단축키: {:?} → {}",
+                        kind,
+                        new_value
+                    );
+                    resp.atf_toggled = Some((kind, new_value));
+                    // 전체 config JSON 동반 — service 가 config_changed_json 으로 방출해
+                    // GNOME 확장(ConfigChangedJson 구독)까지 토글 피드백을 전달한다.
+                    // 여기서 소유·persist 한 config 를 직렬화하므로 stale 위험이 없다.
+                    resp.atf_config_json = serde_json::to_string(&config).ok();
+                }
 
                 // AutoTypeFix 모드 전환 시 Global 동기화 (contexts borrow 해제 후)
                 if resp.auto_typefix.is_some()
@@ -1709,6 +1802,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 if let Some(engine) = contexts.get_mut(&context_id) {
                     let content_purpose = unim::config::ContentPurpose::from_u32(purpose);
                     engine.set_content_purpose(content_purpose);
+                    // 비밀번호/PIN 진입: 직전 타이핑이 남긴 per-context ATF 상태를 즉시
+                    // 폐기한다(FocusIn 초기화 선례). 관찰 게이트와 함께 이중 방어 —
+                    // 비번 진입 직전의 버퍼·되돌리기 원문·최근 교정이 잔류하지 않게 한다.
+                    if content_purpose.should_block_hangul() {
+                        keystroke_buffers.remove(&context_id);
+                        undo_states.remove(&context_id);
+                        recent_corrections.remove(&context_id);
+                    }
                     unim_log!(
                         "ENGINE_WORKER",
                         "[Engine Worker] SetContentType: context_id={}, purpose={:?}",
@@ -2124,6 +2225,23 @@ mod tests {
             erasure_observed: erasure,
             mode_switch_observed: switch,
         }
+    }
+
+    /// ATF 게이트: 비밀번호/PIN 필드에서는 `enabled` 와 무관하게 항상 비활성,
+    /// 그 외 목적에서는 `enabled` 를 그대로 따른다(런타임 AND-게이트, config 불변).
+    #[test]
+    fn atf_gate_blocks_password_and_pin_only() {
+        // 비번/PIN: enabled 든 아니든 차단.
+        assert!(!atf_active_for_field(true, ContentPurpose::Password));
+        assert!(!atf_active_for_field(false, ContentPurpose::Password));
+        assert!(!atf_active_for_field(true, ContentPurpose::Pin));
+        // 일반 필드(및 비-비밀번호 목적): enabled 를 그대로 따름.
+        assert!(atf_active_for_field(true, ContentPurpose::Normal));
+        assert!(!atf_active_for_field(false, ContentPurpose::Normal));
+        assert!(atf_active_for_field(true, ContentPurpose::Email));
+        assert!(atf_active_for_field(true, ContentPurpose::Number));
+        assert!(atf_active_for_field(true, ContentPurpose::Url));
+        assert!(atf_active_for_field(true, ContentPurpose::Terminal));
     }
 
     #[test]

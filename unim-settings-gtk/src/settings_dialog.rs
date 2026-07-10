@@ -1007,6 +1007,17 @@ fn build_forward_group(state: &State) -> adw::PreferencesGroup {
     }
     group.add(&fwd_sw);
 
+    // 순방향 토글 단축키 (옵트인, 비우면 사용 안 함)
+    group.add(&build_string_list_row(
+        state,
+        &t!("row_atf_forward_toggle_keys"),
+        Some(t!("row_atf_forward_toggle_keys_subtitle").as_ref()),
+        Some(t!("row_atf_forward_toggle_keys_tooltip").as_ref()),
+        |cfg| cfg.engine.auto_typefix.toggle_forward_keys.join(", "),
+        |cfg, v| cfg.engine.auto_typefix.toggle_forward_keys = v,
+        "auto_typefix_toggle_forward_keys",
+    ));
+
     // 임계 음절 수
     let init_kor = state
         .borrow()
@@ -1092,6 +1103,17 @@ fn build_reverse_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&rev_sw);
+
+    // 역방향 토글 단축키 (옵트인, 비우면 사용 안 함)
+    group.add(&build_string_list_row(
+        state,
+        &t!("row_atf_reverse_toggle_keys"),
+        Some(t!("row_atf_reverse_toggle_keys_subtitle").as_ref()),
+        Some(t!("row_atf_reverse_toggle_keys_tooltip").as_ref()),
+        |cfg| cfg.engine.auto_typefix.toggle_reverse_keys.join(", "),
+        |cfg, v| cfg.engine.auto_typefix.toggle_reverse_keys = v,
+        "auto_typefix_toggle_reverse_keys",
+    ));
 
     // 임계 글자 수
     let init_eng = state
@@ -1201,6 +1223,17 @@ fn build_master_group(state: &State) -> adw::PreferencesGroup {
         });
     }
     group.add(&master);
+
+    // 전체 토글 단축키 (옵트인, 비우면 사용 안 함) — 오타 교정이 꺼져 있어도 켜는 용도라 여기 배치.
+    group.add(&build_string_list_row(
+        state,
+        &t!("row_atf_toggle_keys"),
+        Some(t!("row_atf_toggle_keys_subtitle").as_ref()),
+        Some(t!("row_atf_toggle_keys_tooltip").as_ref()),
+        |cfg| cfg.engine.auto_typefix.toggle_enabled_keys.join(", "),
+        |cfg, v| cfg.engine.auto_typefix.toggle_enabled_keys = v,
+        "auto_typefix_toggle_enabled_keys",
+    ));
 
     // 재트리거 자동 감지
     let rollback_sw = adw::SwitchRow::builder()

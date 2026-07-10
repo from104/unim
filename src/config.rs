@@ -357,6 +357,15 @@ fn default_auto_typefix_observation_timeout_secs() -> u8 {
 fn default_auto_typefix_user_dict_enabled() -> bool {
     true
 }
+fn default_auto_typefix_toggle_enabled_keys() -> Vec<String> {
+    Vec::new()
+}
+fn default_auto_typefix_toggle_forward_keys() -> Vec<String> {
+    Vec::new()
+}
+fn default_auto_typefix_toggle_reverse_keys() -> Vec<String> {
+    Vec::new()
+}
 
 /// 자동 오타 교정 (AutoTypeFix) 설정
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -408,6 +417,18 @@ pub struct AutoTypeFixConfig {
     /// 활성 시 사전 등록 단어는 `eng_word_min_length` 및 내장 영어 사전 검사를 우회하여 즉시 교정.
     #[serde(default = "default_auto_typefix_user_dict_enabled")]
     pub user_dict_enabled: bool,
+    /// AutoTypeFix 전체(`enabled`) 토글 단축키 목록 (KeyCode 이름, 옵트인 — 기본 빈 목록).
+    ///
+    /// 비어 있으면 어떤 키도 소비하지 않아 기존 동작을 바이트 동일 보존한다. `toggle_keys`
+    /// 문법과 동일하게 **수정자 조합 없는 단일 비수정자 키 이름**만 지원한다(예: `F10`).
+    #[serde(default = "default_auto_typefix_toggle_enabled_keys")]
+    pub toggle_enabled_keys: Vec<String>,
+    /// 순방향(영→한) 교정 토글 단축키 목록 (KeyCode 이름, 옵트인 — 기본 빈 목록).
+    #[serde(default = "default_auto_typefix_toggle_forward_keys")]
+    pub toggle_forward_keys: Vec<String>,
+    /// 역방향(한→영) 교정 토글 단축키 목록 (KeyCode 이름, 옵트인 — 기본 빈 목록).
+    #[serde(default = "default_auto_typefix_toggle_reverse_keys")]
+    pub toggle_reverse_keys: Vec<String>,
 }
 
 impl Default for AutoTypeFixConfig {
@@ -427,6 +448,9 @@ impl Default for AutoTypeFixConfig {
             tentative_expiry_hours: default_auto_typefix_tentative_expiry_hours(),
             observation_timeout_secs: default_auto_typefix_observation_timeout_secs(),
             user_dict_enabled: default_auto_typefix_user_dict_enabled(),
+            toggle_enabled_keys: default_auto_typefix_toggle_enabled_keys(),
+            toggle_forward_keys: default_auto_typefix_toggle_forward_keys(),
+            toggle_reverse_keys: default_auto_typefix_toggle_reverse_keys(),
         }
     }
 }
@@ -1570,6 +1594,57 @@ engine:
             !config.engine.ignore_key_repeat,
             "필드 부재 시 false(현행 자동반복 동작)로 채워져야 함"
         );
+    }
+
+    // ─────────────────────────────────────────────
+    // AutoTypeFix 토글 단축키 3종 (옵트인) — 기본 빈 목록 + 라운드트립 + 레거시 호환
+    // ─────────────────────────────────────────────
+
+    /// 기본값은 세 목록 모두 빈 목록 — 아무 키도 소비하지 않아 현행 동작 무회귀(옵트인).
+    #[test]
+    fn atf_toggle_keys_default_is_empty() {
+        let atf = AutoTypeFixConfig::default();
+        assert!(atf.toggle_enabled_keys.is_empty());
+        assert!(atf.toggle_forward_keys.is_empty());
+        assert!(atf.toggle_reverse_keys.is_empty());
+        // Config → EngineConfig 경유 기본값도 동일.
+        assert!(Config::default()
+            .engine
+            .auto_typefix
+            .toggle_enabled_keys
+            .is_empty());
+    }
+
+    /// 값 설정이 직렬화/역직렬화 라운드트립을 통과한다.
+    #[test]
+    fn atf_toggle_keys_serde_roundtrips() {
+        let mut config = Config::default();
+        config.engine.auto_typefix.toggle_enabled_keys = vec!["F10".to_string()];
+        config.engine.auto_typefix.toggle_forward_keys = vec!["F11".to_string()];
+        config.engine.auto_typefix.toggle_reverse_keys = vec!["F12".to_string()];
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.engine.auto_typefix.toggle_enabled_keys, vec!["F10"]);
+        assert_eq!(back.engine.auto_typefix.toggle_forward_keys, vec!["F11"]);
+        assert_eq!(back.engine.auto_typefix.toggle_reverse_keys, vec!["F12"]);
+    }
+
+    /// 레거시 YAML(필드 부재) → 빈 목록 (기존 config.yaml 무회귀).
+    #[test]
+    fn atf_toggle_keys_legacy_missing_field_is_empty() {
+        let yaml = r#"
+engine:
+  auto_typefix:
+    enabled: true
+    forward: true
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(
+            config.engine.auto_typefix.toggle_enabled_keys.is_empty(),
+            "필드 부재 시 빈 목록(옵트인 미사용)으로 채워져야 함"
+        );
+        assert!(config.engine.auto_typefix.toggle_forward_keys.is_empty());
+        assert!(config.engine.auto_typefix.toggle_reverse_keys.is_empty());
     }
 
     // ─────────────────────────────────────────────

@@ -184,9 +184,17 @@ In normal operation, `unim-daemon` RSS sits in 30–80 MB. UNIM 0.2.0 hardens th
 
 ## Q9. Does UNIM intercept passwords?
 
-**No.** Password fields are detected via `content_purpose` and forced to English. AutoTypeFix, hanja conversion, and special-char popup are all disabled. The input is not retained in daemon memory.
+**No.** Password fields are detected via `content_purpose` and forced to English. AutoTypeFix (both forward and reverse), hanja conversion, and the special-char popup are all disabled. Any keystroke-observation buffer and undo history already accumulated are cleared too, so a password typed like `dkssud` is never auto-corrected into Korean and corrupted. The input is not retained in daemon memory.
 
-> Caveat: this works only when the app accurately reports `content_purpose=password`. Some web forms do not — for those, manually verify English mode via the Hangul key.
+> Caveat: this works only when the app accurately reports `content_purpose=password`. Environments that do not report it — **legacy XIM apps, the Windows IMM32 fallback, and some Wayland compositors/web forms that do not send content-purpose** — may fail to auto-detect; verify English mode manually via the Hangul key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF.)
+
+---
+
+## Q9-1. Why doesn't AutoTypeFix work in password fields?
+
+**This is intended.** AutoTypeFix is deliberately disabled in password and PIN fields (see Q9), because otherwise a password typed like `dkssud` would flip to Korean at a word boundary and break your login. It returns to normal the moment you leave the field, and any on/off toggle state you set manually is preserved.
+
+> Conversely, if correction fails in a **non-password field**, the cause is different → [Troubleshooting](../troubleshooting/README.md) §8. In the undetectable environments above (XIM, IMM32, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.
 
 ---
 

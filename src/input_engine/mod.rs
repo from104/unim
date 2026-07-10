@@ -18,7 +18,7 @@ mod types;
 
 pub use chord_compose::{compose_chord, ChordEntry, ChordEntryKind, ChordResult};
 pub use engine::InputEngine;
-pub use types::{InputResult, PageDirection, PopupAction};
+pub use types::{AtfToggleKind, InputResult, PageDirection, PopupAction};
 
 use crate::config::Config;
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
@@ -41,6 +41,8 @@ mod tests_profile;
 mod tests_chord_compose;
 #[cfg(test)]
 mod tests_toggle;
+#[cfg(test)]
+mod tests_atf_hotkey;
 #[cfg(test)]
 mod tests_repro_jong;
 

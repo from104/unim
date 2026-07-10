@@ -331,6 +331,10 @@ export component SettingsWindow inherits Window {
     in-out property <bool> atf-skip-complete-syllable;
     in-out property <bool> atf-rollback-detection;
     in-out property <bool> atf-user-dict-enabled;
+    // 토글 단축키 3종 (옵트인, 비우면 사용 안 함) — 오타 교정이 꺼져 있어도 켜는 용도라 gate 하지 않는다.
+    in-out property <string> atf-toggle-enabled-keys;
+    in-out property <string> atf-toggle-forward-keys;
+    in-out property <string> atf-toggle-reverse-keys;
 
     // ── 억제 단어 ──
     in-out property <[StandardListViewItem]> blacklist-model;
@@ -861,6 +865,50 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.atf-reverse;
                                 accessible-label: @tr("역방향 교정");
                                 toggled => { root.auto-save(); }
+                            }
+                        }
+                    }
+                    // 토글 단축키 — 지정 키로 오타 교정을 즉시 켜고 끈다. 오타 교정이
+                    // 꺼져 있어도 다시 켜는 용도이므로 atf-enabled 로 비활성화하지 않는다.
+                    if root.current-page == 1: Card {
+                        title: @tr("토글 단축키");
+                        Text {
+                            text: @tr("지정한 키를 누르면 오타 교정을 즉시 켜거나 끕니다. 비워 두면 사용하지 않습니다. 수정자 조합(Ctrl+X 등)은 지원하지 않고 단일 키만 됩니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        SettingRow {
+                            title: @tr("전체 켜기·끄기");
+                            description: @tr("자동 오타 교정 전체를 토글합니다.");
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.atf-toggle-enabled-keys;
+                                placeholder-text: @tr("예: ScrollLock, F10 — 비워두면 사용 안 함");
+                                accessible-label: @tr("전체 토글 단축키");
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("정방향 켜기·끄기");
+                            description: @tr("정방향(영→한) 교정만 토글합니다.");
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.atf-toggle-forward-keys;
+                                placeholder-text: @tr("예: ScrollLock, F10 — 비워두면 사용 안 함");
+                                accessible-label: @tr("정방향 토글 단축키");
+                                edited => { root.auto-save(); }
+                            }
+                        }
+                        SettingRow {
+                            title: @tr("역방향 켜기·끄기");
+                            description: @tr("역방향(한→영) 교정만 토글합니다.");
+                            LineEdit {
+                                min-width: 220px;
+                                text <=> root.atf-toggle-reverse-keys;
+                                placeholder-text: @tr("예: ScrollLock, F10 — 비워두면 사용 안 함");
+                                accessible-label: @tr("역방향 토글 단축키");
+                                edited => { root.auto-save(); }
                             }
                         }
                     }

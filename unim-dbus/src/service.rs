@@ -16,7 +16,7 @@ use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
 use unim::config::{Config, InputCategory, KoreanConfig};
-use unim::input_engine::PopupAction;
+use unim::input_engine::{AtfToggleKind, PopupAction};
 use unim::unim_log;
 
 // PopupAction은 unim::input_engine에서 정의됨 (re-export)
@@ -274,6 +274,22 @@ pub struct EngineResponse {
     /// epoch 는 취소 판별용 (reset/layout-change 등이 epoch 를 증가시켜 타이머 무효화).
     /// None 이면 chord 진행 중 아님 — 타이머 불필요.
     pub chord_pending: Option<(u64, u16)>,
+    /// AutoTypeFix 토글 단축키가 매칭된 경우 `Some((대상 플래그, 새 값))`.
+    ///
+    /// `engine_worker` 가 `press_key` 후 `take_atf_toggle()` 로 드레인하고 config 를
+    /// 반전·persist 한 뒤 새 값을 실어 보낸다. service.rs 가 이를 받아 GUI/확장 동기화용
+    /// `config_changed(key, value)` 시그널을 방출한다(`auto_typefix_apply` 선례).
+    /// None 이면 이 키 이벤트에서 토글이 발생하지 않았음.
+    pub atf_toggled: Option<(AtfToggleKind, bool)>,
+    /// ATF 토글 발생 시 반전·persist 직후의 **전체 config JSON** 직렬화.
+    ///
+    /// `config_changed(key,value)` 만으로는 GNOME 확장에 피드백이 닿지 않는다 — 확장은
+    /// `ConfigChangedJson`(전체 config 페이로드)만 구독하고 수신 시 캐시를 통째로 교체한다.
+    /// 그래서 SetConfigYaml 선례처럼 전체 config JSON 을 동반 방출해야 확장 메뉴 체크가
+    /// 즉시 갱신된다. InputContextHandler 는 공유 config 에 접근하지 못하므로, 그 config 를
+    /// 소유하고 토글을 실측한 `engine_worker` 가 직렬화해 실어 보낸다(stale 위험 0).
+    /// `atf_toggled` 가 Some 일 때만 Some.
+    pub atf_config_json: Option<String>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -758,6 +774,16 @@ impl InputMethodService {
             "auto_typefix_user_dict_enabled" => {
                 config.engine.auto_typefix.user_dict_enabled.to_string()
             }
+            // ATF 토글 단축키 3종 (옵트인, 쉼표 구분 KeyCode 이름 — toggle_keys 규약).
+            "auto_typefix_toggle_enabled_keys" => {
+                config.engine.auto_typefix.toggle_enabled_keys.join(",")
+            }
+            "auto_typefix_toggle_forward_keys" => {
+                config.engine.auto_typefix.toggle_forward_keys.join(",")
+            }
+            "auto_typefix_toggle_reverse_keys" => {
+                config.engine.auto_typefix.toggle_reverse_keys.join(",")
+            }
             "auto_english" => config.engine.auto_english.enabled.to_string(),
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
             "toggle_announce_beep" => config.engine.toggle_announce_beep.to_string(),
@@ -975,6 +1001,29 @@ impl InputMethodService {
                     config.engine.auto_typefix.user_dict_enabled = value
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                // ATF 토글 단축키 3종: 빈 값이 유효하다(옵트인 해제 = 아무 키도 소비 안 함).
+                // toggle_keys 와 달리 "최소 1개" 검증을 두지 않아 사용자가 키를 비울 수 있다.
+                "auto_typefix_toggle_enabled_keys" => {
+                    config.engine.auto_typefix.toggle_enabled_keys = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                "auto_typefix_toggle_forward_keys" => {
+                    config.engine.auto_typefix.toggle_forward_keys = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                "auto_typefix_toggle_reverse_keys" => {
+                    config.engine.auto_typefix.toggle_reverse_keys = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
                 }
                 "auto_english" => {
                     config.engine.auto_english.enabled = value
@@ -1988,6 +2037,44 @@ impl InputContextHandler {
             Self::auto_typefix_apply(&signal_ctx, *delete_chars, commit_text, preedit_text)
                 .await
                 .ok();
+        }
+
+        // AutoTypeFix 토글 단축키: engine_worker 가 config 를 반전·persist 한 뒤 새 값을
+        // 실어 보냈으면, GUI/GNOME 확장이 토글 상태를 즉시 반영하도록 config_changed 를
+        // 방출한다. 이 시그널은 팩토리(InputMethodService) 인터페이스 소속이라 per-context
+        // signal_ctx 로는 못 보낸다 — global_mode_changed 선례대로 INPUT_METHOD_PATH 에
+        // 바인딩한 SignalContext 로 방출해 set_config 경로와 같은 오브젝트 경로로 도달시킨다.
+        // 키명은 config_get/set 규약과 일치(auto_typefix[_forward|_reverse])시켜 리스너가
+        // 별도 매핑 없이 인식한다.
+        if let Some((kind, new_value)) = response.atf_toggled {
+            let key = match kind {
+                AtfToggleKind::Enabled => "auto_typefix",
+                AtfToggleKind::Forward => "auto_typefix_forward",
+                AtfToggleKind::Reverse => "auto_typefix_reverse",
+            };
+            let value = new_value.to_string();
+            unim_log!(
+                "DBUS",
+                "[DBus] AutoTypeFix 토글 단축키: {} = {}",
+                key,
+                value
+            );
+            let im_signal_ctx =
+                zbus::SignalContext::new(&self.connection, crate::INPUT_METHOD_PATH).map_err(
+                    |e| zbus::fdo::Error::Failed(format!("Signal context error: {}", e)),
+                )?;
+            InputMethodService::config_changed(&im_signal_ctx, key, &value)
+                .await
+                .ok();
+            // config_changed 는 (key,value) 구독자(인디케이터 등)용. GNOME 확장은
+            // ConfigChangedJson(전체 config) 만 구독하므로 동반 방출해야 메뉴 체크가
+            // 즉시 갱신된다(SetConfigYaml 선례). 페이로드는 engine_worker 가 토글·persist
+            // 직후 직렬화해 실어 보낸 전체 config JSON.
+            if let Some(ref json) = response.atf_config_json {
+                InputMethodService::config_changed_json(&im_signal_ctx, json)
+                    .await
+                    .ok();
+            }
         }
 
         // chord idle flush 타이머: chord 진행 중이면 window_ms 후 자동 flush.

@@ -6,7 +6,7 @@
 
 use super::build_korean_context;
 use super::chord_buffer::ChordBuffer;
-use super::types::{AutoEnglishTrigger, InputResult, PopupAction};
+use super::types::{AtfToggleKind, AutoEnglishTrigger, InputResult, PopupAction};
 use crate::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
@@ -97,6 +97,25 @@ pub struct InputEngine {
     /// 한자 변환 트리거 키 목록 (설정 기반 — 기본 `["Hanja", "F9"]`).
     /// preedit 비었을 때는 dual-purpose 로 emoji 팝업 트리거로 동작.
     pub(super) hanja_keys: Vec<KeyCode>,
+    /// AutoTypeFix 전체(`enabled`) 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록).
+    pub(super) atf_hotkeys_enabled: Vec<KeyCode>,
+    /// AutoTypeFix 순방향(영→한) 교정 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록).
+    pub(super) atf_hotkeys_forward: Vec<KeyCode>,
+    /// AutoTypeFix 역방향(한→영) 교정 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록).
+    pub(super) atf_hotkeys_reverse: Vec<KeyCode>,
+    /// `press_key` 에서 매칭된 ATF 토글을 호스트가 드레인하기 전까지 보관.
+    ///
+    /// `InputResult`(`repr(C)` ABI)를 건드리지 않는 out-of-band 채널
+    /// (`popup_pending_action` 선례). 호스트가 `take_atf_toggle()` 로 소비한다.
+    pub(super) pending_atf_toggle: Option<AtfToggleKind>,
+    /// 마지막으로 매칭된 ATF 핫키(키코드, 시각) — 오토리핏 디바운스용.
+    ///
+    /// 키 홀드 시 프런트가 자동반복 키다운을 흘려보내면 press_key 가 연속 호출돼
+    /// 토글이 수십 번 뒤집힌다. 동일 키코드가 `ATF_HOTKEY_DEBOUNCE` 이내에 다시
+    /// 매칭되면 **소비는 유지하되(홀드 중 키가 앱으로 새면 안 됨) 토글은 생략**하고,
+    /// 시각을 갱신해 홀드가 지속되는 내내 rolling window 로 차단한다. 다른 키코드가
+    /// 오거나 창을 넘겨 눌러야 다음 토글이 성립한다. `None` = 직전 매칭 없음.
+    pub(super) last_atf_hotkey: Option<(KeyCode, std::time::Instant)>,
     /// 자동 영문 전환 활성화 여부 (설정 캐시)
     pub(super) auto_english_enabled: bool,
     /// 자동 영문 전환 트리거 (파싱된 카테고리별 캐시)
@@ -219,6 +238,17 @@ impl InputEngine {
                 .map(|name| KeyCode::from_name(name))
                 .filter(|k| *k != KeyCode::Unknown)
                 .collect(),
+            atf_hotkeys_enabled: Self::parse_keycode_names(
+                &config.engine.auto_typefix.toggle_enabled_keys,
+            ),
+            atf_hotkeys_forward: Self::parse_keycode_names(
+                &config.engine.auto_typefix.toggle_forward_keys,
+            ),
+            atf_hotkeys_reverse: Self::parse_keycode_names(
+                &config.engine.auto_typefix.toggle_reverse_keys,
+            ),
+            pending_atf_toggle: None,
+            last_atf_hotkey: None,
             auto_english_enabled: config.engine.auto_english.enabled,
             auto_english_triggers: config
                 .engine
@@ -330,6 +360,23 @@ impl InputEngine {
         let json = crate::keystroke::get_keymap_json(&keymap_file);
         EnglishKeymap::from_json(json)
     }
+
+    /// 키 이름 목록을 `KeyCode` 벡터로 파싱한다 (`Unknown`·수정자 키는 제외).
+    ///
+    /// ATF 토글 핫키 3목록 파싱을 생성자와 `set_atf_hotkeys` 재적용에서 공유한다
+    /// (toggle_keys/hanja_keys 인라인 파싱과 동일 규약). 단 toggle_keys 와 달리
+    /// 수정자 키(Ctrl/Shift/Alt/Super)는 제외한다 — ATF 핫키 매칭 분기는
+    /// `press_key` 의 `is_modifier()` 조기 반환(수정자 단독키 무시) 뒤에 있어
+    /// 수정자 키코드는 애초에 도달하지 않는다. 목록 단계에서 배제해 소비 판정
+    /// (`is_atf_hotkey`)까지 일관되게 dead key 를 제거한다. 툴팁/문서도 "수정자
+    /// 미지원"을 명시한다.
+    pub(super) fn parse_keycode_names(names: &[String]) -> Vec<KeyCode> {
+        names
+            .iter()
+            .map(|name| KeyCode::from_name(name))
+            .filter(|k| *k != KeyCode::Unknown && !k.is_modifier())
+            .collect()
+    }
 }
 
 // ==========================================
@@ -349,6 +396,56 @@ impl InputEngine {
     /// 자체가 호출되지 않아 토글이 죽는다.
     pub fn is_toggle_key(&self, keycode: KeyCode) -> bool {
         self.toggle_keys.contains(&keycode)
+    }
+
+    /// 주어진 키코드가 설정된 AutoTypeFix 토글 단축키(전체/순방향/역방향 중 하나)인지.
+    ///
+    /// `is_toggle_key` 와 동일한 목적 — 프런트엔드의 소비 판정(TSF `OnTestKeyDown`,
+    /// IMM32 `should_consume`)을 엔진의 `press_key` 와 정렬시킨다. 프런트엔드가 핫키를
+    /// 소비하지 않으면 `press_key` 자체가 호출되지 않아 핫키가 죽는다. 세 목록을 합산
+    /// 조회한다(옵트인 — 기본 빈 목록이면 항상 false 로 무회귀).
+    pub fn is_atf_hotkey(&self, keycode: KeyCode) -> bool {
+        self.atf_hotkey_kind(keycode).is_some()
+    }
+
+    /// ATF 토글 핫키 매칭 — 매칭된 대상 플래그를 돌려준다(비매칭 시 `None`).
+    ///
+    /// 한 키가 여러 목록에 중복 지정되면 전체(`Enabled`) → 순방향 → 역방향 순으로
+    /// 우선한다. `press_key` 의 매칭 분기와 `is_atf_hotkey` 소비 판정이 공유한다.
+    pub(super) fn atf_hotkey_kind(&self, keycode: KeyCode) -> Option<AtfToggleKind> {
+        if self.atf_hotkeys_enabled.contains(&keycode) {
+            Some(AtfToggleKind::Enabled)
+        } else if self.atf_hotkeys_forward.contains(&keycode) {
+            Some(AtfToggleKind::Forward)
+        } else if self.atf_hotkeys_reverse.contains(&keycode) {
+            Some(AtfToggleKind::Reverse)
+        } else {
+            None
+        }
+    }
+
+    /// `press_key` 에서 매칭된 ATF 토글을 드레인한다(1회성 — `take`).
+    ///
+    /// 호스트(Linux `engine_worker` / Windows `text_service`)가 `press_key` 직후
+    /// 호출해 `config.engine.auto_typefix.{enabled,forward,reverse}` 반전·persist·통지를
+    /// 수행한다. `InputResult`(`repr(C)` ABI)를 건드리지 않는 out-of-band 드레인 채널
+    /// (`popup_pending_action` 선례). 대기 중 토글이 없으면 `None`.
+    pub fn take_atf_toggle(&mut self) -> Option<AtfToggleKind> {
+        self.pending_atf_toggle.take()
+    }
+
+    /// ATF 토글 핫키 3목록을 config 에서 재파싱해 반영한다 (hot-reload 재적용).
+    ///
+    /// GUI/CLI 로 핫키를 편집한 뒤 `engine_worker` 의 reload 루프가 살아있는 컨텍스트에
+    /// 즉시 반영하도록 호출한다(toggle_keys/hanja_keys 의 live-reload 갭과 달리 ATF
+    /// 핫키는 재적용을 보장한다). 파싱 실패(`Unknown`)한 이름은 제외한다.
+    pub fn set_atf_hotkeys(&mut self, config: &Config) {
+        self.atf_hotkeys_enabled =
+            Self::parse_keycode_names(&config.engine.auto_typefix.toggle_enabled_keys);
+        self.atf_hotkeys_forward =
+            Self::parse_keycode_names(&config.engine.auto_typefix.toggle_forward_keys);
+        self.atf_hotkeys_reverse =
+            Self::parse_keycode_names(&config.engine.auto_typefix.toggle_reverse_keys);
     }
 
     /// 고정키(Sticky Keys) 래치 잔류 마스킹 **미리보기(비소비)**.

@@ -25,6 +25,23 @@ pub(crate) enum AutoEnglishTrigger {
     Character(char),
 }
 
+/// AutoTypeFix 토글 단축키가 가리키는 대상 플래그.
+///
+/// `press_key` 가 ATF 핫키 매칭 시 엔진의 `pending_atf_toggle` 에 적재하고, 호스트
+/// (Linux `engine_worker` / Windows `text_service`)가 `take_atf_toggle()` 로 드레인해
+/// `config.engine.auto_typefix.{enabled,forward,reverse}` 를 반전·persist 한다.
+/// `InputResult`(`repr(C)` + unim-capi ABI)에는 필드를 추가하지 않으며,
+/// `popup_pending_action` 선례와 동일한 out-of-band 드레인 패턴으로 ABI 를 보존한다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtfToggleKind {
+    /// AutoTypeFix 마스터 게이트(`enabled`) 토글.
+    Enabled,
+    /// 순방향(영→한) 교정(`forward`) 토글.
+    Forward,
+    /// 역방향(한→영) 교정(`reverse`) 토글.
+    Reverse,
+}
+
 /// 팝업 페이지 이동 방향 (마우스 ◀/▶ 버튼 등에서 사용).
 ///
 /// 한자/특수문자/이모지 팝업의 wrap-around 페이지 이동에 공통으로 쓰인다.

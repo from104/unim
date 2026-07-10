@@ -11,7 +11,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::GetFocus;
 use windows::Win32::UI::TextServices::*;
 
 use unim::config::{CommitUnit, Config, InputCategory};
-use unim::input_engine::InputEngine;
+use unim::input_engine::{AtfToggleKind, InputEngine};
 
 use crate::auto_typefix::AutoTypeFixState;
 use crate::composition::CompositionManager;
@@ -907,11 +907,16 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 눌림만 처리하게 한다. OnKeyDown 도 동일 가드로 실제 엔진 처리를 차단한다.
         // 편집키(백스페이스/방향)와 영문 직접입력의 자동반복은 조건에서 제외되어
         // 통과(정상 반복 유지). 기본 OFF → 무회귀.
-        if config.engine.ignore_key_repeat
-            && is_key_repeat(lparam)
-            && (engine.is_toggle_key(kc)
-                || (kc.is_character_key()
-                    && engine.input_category() == InputCategory::Korean))
+        //
+        // 단 ATF 토글 핫키의 자동반복은 ignore_key_repeat 설정과 무관하게 항상
+        // 억제한다 — 홀드 시 ATF 전체/순방향/역방향이 수십 번 뒤집히는 것을 KF_REPEAT
+        // 비트로 차단한다(코어 디바운스와 이중 방어). 소비는 유지해 키가 앱으로 새지 않는다.
+        if is_key_repeat(lparam)
+            && (engine.is_atf_hotkey(kc)
+                || (config.engine.ignore_key_repeat
+                    && (engine.is_toggle_key(kc)
+                        || (kc.is_character_key()
+                            && engine.input_category() == InputCategory::Korean))))
         {
             crate::register::dbg_log_ev!(
                 "OnTestKeyDown: 자동반복 억제(ignore_key_repeat)",
@@ -1140,20 +1145,23 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             focus_hwnd != 0 && self.cuas_windows.lock().unwrap().contains(&focus_hwnd)
         };
         let mut engine = self.engine.lock().unwrap();
-        let config = self.config.lock().unwrap();
+        // ATF 토글 핫키 드레인 시 config.engine.auto_typefix 플래그를 반전하므로 mut.
+        let mut config = self.config.lock().unwrap();
 
         // ── 접근성: 조합키 자동반복 억제 (ignore_key_repeat, 지체장애) ──
         // OnTestKeyDown 가드와 동일 조건. OnTestKeyDown 이 미발화하는 앱
         // (wmux/xterm.js 등)에서도 여기서 반복을 차단하도록 이중 가드.
         // 반복 이벤트(lParam bit30)이고 옵션이 켜졌으며 토글키 또는 한글모드 문자키면
         // 소비만 하고 엔진 처리를 건너뛴다 → 자모 연타·토글 진동 억제.
+        // ATF 토글 핫키의 반복은 ignore_key_repeat 무관하게 항상 억제(OnTestKeyDown 동일).
         {
             let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
-            if config.engine.ignore_key_repeat
-                && is_key_repeat(lparam)
-                && (engine.is_toggle_key(kc)
-                    || (kc.is_character_key()
-                        && engine.input_category() == InputCategory::Korean))
+            if is_key_repeat(lparam)
+                && (engine.is_atf_hotkey(kc)
+                    || (config.engine.ignore_key_repeat
+                        && (engine.is_toggle_key(kc)
+                            || (kc.is_character_key()
+                                && engine.input_category() == InputCategory::Korean))))
             {
                 crate::register::dbg_log_ev!(
                     "OnKeyDown: 자동반복 억제(ignore_key_repeat)",
@@ -1200,6 +1208,50 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
             &self.fallback_pending,
             known_cuas,
         );
+
+        // ── ATF 토글 핫키 드레인 (press_key 매칭분 소비) ──
+        // press_key 가 매칭한 ATF 토글을 여기서 소비해 config 반전·persist·비프한다.
+        // InputResult(repr(C) ABI)를 건드리지 않는 out-of-band 채널(take_atf_toggle).
+        // enabled/forward/reverse 플래그는 key_handler 가 매 키 config 에서 직접 읽으므로
+        // (엔진 캐시 아님) in-memory 반전만으로 즉시 효력이 난다. save_to_default_path 는
+        // 영속화 + 타 앱(maybe_reload_config mtime 폴링) 자동 전파용이며, 저장 직후
+        // config_mtime 스냅샷을 갱신해 다음 키에서 '자기 저장'이 스퓨리어스 엔진 재생성
+        // (조합 flush + 6.76MB 한자사전 재파싱)을 유발하지 않게 한다(리스크 2 대응).
+        if let Some(kind) = engine.take_atf_toggle() {
+            let now_on = {
+                let atf = &mut config.engine.auto_typefix;
+                let flag = match kind {
+                    AtfToggleKind::Enabled => &mut atf.enabled,
+                    AtfToggleKind::Forward => &mut atf.forward,
+                    AtfToggleKind::Reverse => &mut atf.reverse,
+                };
+                *flag = !*flag;
+                *flag
+            };
+            match config.save_to_default_path() {
+                Ok(()) => {
+                    // 자기 저장 mtime 재감지 차단 → 다음 키 spurious rebuild 방지.
+                    if let Some(path) = Config::default_config_path() {
+                        if let Ok(mtime) = std::fs::metadata(&path).and_then(|m| m.modified()) {
+                            *self.config_mtime.lock().unwrap() = Some(mtime);
+                        }
+                    }
+                }
+                Err(e) => {
+                    crate::register::dbg_log(&format!("ATF 토글 config 저장 실패: {e:?}"));
+                }
+            }
+            // 차등 비프 + 스크린리더 능동 통지 (toggle_announce_beep 설정 존중).
+            if let Some(ref state) = *self.langbar_state.lock().unwrap() {
+                state.announce_atf_toggle(now_on, config.engine.toggle_announce_beep);
+            }
+            crate::register::dbg_log_ev!(
+                "OnKeyDown: ATF 토글 핫키",
+                "OnKeyDown: ATF 토글 핫키 {:?} → on={}",
+                kind,
+                now_on
+            );
+        }
 
         // 갭1: 엔진→랭귀지바 동기화.
         // 키 처리로 모드가 바뀌었으면 langbar_state 를 갱신 → OnUpdate 발사.
@@ -1685,7 +1737,13 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         // 구한 fg_name 을 재사용한다. 게이트 밖(정상 앱 전환·포커스 이탈)은 기존대로
         // reset(무회귀). 주의: engine.reset()/word·content_purpose/comp clear 등 다른 정리는
         // 위에서 이미 수행됐고, 순방향(영문)은 보존할 엔진 조합 상태가 없어 정합.
-        if !self.atf_reset_should_skip(fg_name.as_deref()) {
+        if is_password {
+            // 비밀번호/PIN 진입 → ATF 잔류(키스트로크 버퍼·undo 원문·최근교정)를 무조건
+            // 클리어한다. atf_reset_should_skip(전이 스퓨리어스 포커스 첫타 보존 최적화)보다
+            // 우선한다 — 비번 보안이 Excel 첫타 보존을 앞선다(fail-closed). 비번 필드 직전에
+            // 친 키스트로크(예: 아이디)까지 제거해 어떤 버퍼에도 잔류하지 않게 한다.
+            self.atf_state.lock().unwrap().clear_sensitive();
+        } else if !self.atf_reset_should_skip(fg_name.as_deref()) {
             self.atf_state.lock().unwrap().reset_on_focus();
         }
         Ok(())

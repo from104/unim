@@ -594,3 +594,39 @@ msgstr "Activate Permanently"
 
 msgid "억제 단어를 영구 활성했습니다."
 msgstr "Suppressed word permanently activated."
+
+msgid "토글 단축키"
+msgstr "Toggle Shortcuts"
+
+msgid "지정한 키를 누르면 오타 교정을 즉시 켜거나 끕니다. 비워 두면 사용하지 않습니다. 수정자 조합(Ctrl+X 등)은 지원하지 않고 단일 키만 됩니다."
+msgstr "Pressing the assigned key toggles typo correction on or off. Leave empty to disable. Modifier combinations (like Ctrl+X) are not supported — single keys only."
+
+msgid "전체 켜기·끄기"
+msgstr "Overall on/off"
+
+msgid "자동 오타 교정 전체를 토글합니다."
+msgstr "Toggles Auto TypeFix as a whole."
+
+msgid "예: ScrollLock, F10 — 비워두면 사용 안 함"
+msgstr "e.g. ScrollLock, F10 — leave empty to disable"
+
+msgid "전체 토글 단축키"
+msgstr "Overall toggle shortcut"
+
+msgid "정방향 켜기·끄기"
+msgstr "Forward on/off"
+
+msgid "정방향(영→한) 교정만 토글합니다."
+msgstr "Toggles forward (EN→KO) correction only."
+
+msgid "정방향 토글 단축키"
+msgstr "Forward toggle shortcut"
+
+msgid "역방향 켜기·끄기"
+msgstr "Reverse on/off"
+
+msgid "역방향(한→영) 교정만 토글합니다."
+msgstr "Toggles reverse (KO→EN) correction only."
+
+msgid "역방향 토글 단축키"
+msgstr "Reverse toggle shortcut"
