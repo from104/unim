@@ -532,6 +532,52 @@ msgstr "Set UNIM as the default input method"
 msgid "마침을 누를 때 한국어 기본 입력기로 지정하고, 시작 시에도 유지합니다."
 msgstr "On Finish, sets UNIM as the default Korean input method and keeps it on startup."
 
+# (S6) Linux 전용 문구(wiz-platform-linux ternary / 적용 시점 카드)
+msgid "본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 /usr/share/doc/unim-common/copyright 파일에서 확인할 수 있습니다."
+msgstr "The software is provided 'as is', without warranty of any kind. The full license text is available at /usr/share/doc/unim-common/copyright."
+
+msgid "마침을 누르면 im-config 로 한국어 기본 입력기로 지정됩니다. 다음 로그인부터 적용됩니다."
+msgstr "On Finish, im-config sets UNIM as the default Korean input method. It takes effect from your next login."
+
+msgid "적용 시점"
+msgstr "When it takes effect"
+
+msgid "지금 바로"
+msgstr "Right now"
+
+msgid "마침을 누르면 설정과 오타 교정 규칙이 저장됩니다."
+msgstr "Your settings and typo-correction rules are saved when you press Finish."
+
+msgid "UNIM 데몬: 실행 중 ✓"
+msgstr "UNIM daemon: running ✓"
+
+msgid "UNIM 데몬: 자동 시작 대기 중 — 재로그인 시 시작됩니다."
+msgstr "UNIM daemon: waiting to auto-start — it will start when you sign in again."
+
+msgid "UNIM 데몬: 확인 중…"
+msgstr "UNIM daemon: checking…"
+
+msgid "기본 입력기 지정 실패"
+msgstr "Could not set the default input method"
+
+msgid "기본 입력기를 자동으로 지정하지 못했습니다. [마침]을 다시 눌러 재시도하거나, 나중에 터미널에서 'im-config -n unim' 으로 직접 지정할 수 있습니다. 지정 전까지는 다음 로그인에도 이 마법사가 다시 안내합니다."
+msgstr "UNIM could not set itself as the default input method automatically. Press Finish again to retry, or set it manually later in a terminal with 'im-config -n unim'. Until it is set, this wizard will guide you again on your next login."
+
+msgid "UNIM 데몬 실행 중"
+msgstr "UNIM daemon running"
+
+msgid "UNIM 데몬 자동 시작 대기 중, 재로그인 시 시작됩니다"
+msgstr "UNIM daemon waiting to auto-start, will start when you sign in again"
+
+msgid "UNIM 데몬 상태 확인 중"
+msgstr "Checking UNIM daemon status"
+
+msgid "재로그인 후"
+msgstr "After signing in again"
+
+msgid "앱 입력창에서 한글 입력이 켜지고(입력기 환경변수 적용), 기본 입력기 지정이 반영됩니다."
+msgstr "Korean input turns on in app text fields (input-method environment variables apply), and the default input method takes effect."
+
 msgid "자동 오타 교정"
 msgstr "Auto Typo Correction"
 

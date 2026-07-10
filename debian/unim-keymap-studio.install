@@ -1,0 +1,4 @@
+debian/tmp/usr/bin/unim-keymap-studio
+debian/tmp/usr/share/applications/io.github.from104.unim.KeymapStudio.desktop
+debian/tmp/usr/share/icons/hicolor/scalable/apps/io.github.from104.unim.KeymapStudio.svg
+debian/tmp/usr/share/man/man1/unim-keymap-studio.1

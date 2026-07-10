@@ -5,7 +5,7 @@ case "$1" in
     remove|upgrade|deconfigure)
         _user="$(logname 2>/dev/null || echo root)"
         pkill -u "$_user" -x unim-indicator 2>/dev/null || true
-        pkill -u "$_user" -x unim-settings 2>/dev/null || true
+        pkill -u "$_user" -f '(^|/)unim-settings-gtk( |$)' 2>/dev/null || true
         ;;
 esac
 

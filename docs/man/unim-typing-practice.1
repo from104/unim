@@ -1,0 +1,25 @@
+.TH UNIM-TYPING-PRACTICE 1 "July 2026" "UNIM 0.3.63" "User Commands"
+.SH NAME
+unim\-typing\-practice \- typing practice with WPM, accuracy and heatmap
+.SH SYNOPSIS
+.B unim\-typing\-practice
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+\fBunim\-typing\-practice\fR is a GTK4 + libadwaita tool for the UNIM
+(Universal Next\-generation Input Method) engine. It runs a
+typing\-practice session on the currently selected UNIM Hangul keymap.
+.PP
+It captures raw ASCII keys (bypassing any active system IME), feeds them
+through the keymap's composer, and reports live WPM, CPM, accuracy and
+error rate. After each session the per\-key error heatmap is painted on
+top of the keyboard.
+.SH OPTIONS
+.TP
+.B \-\-help
+Print usage and exit.
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-keymap\-studio (1),
+.BR unim\-settings (1)
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>

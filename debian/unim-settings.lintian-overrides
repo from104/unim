@@ -1,0 +1,14 @@
+# unim-settings — lintian overrides (justified)
+
+# embedded-library libyaml: see unim-common.lintian-overrides for rationale
+# (Rust libyaml-safer 정적 링크 — 시스템 libyaml 과 별개).
+unim-settings: embedded-library libyaml [usr/bin/unim-settings]
+
+# embedded-library libpng / libjpeg: Slint 의 winit+Skia 렌더러가 이미지 디코딩용으로
+# 자체 libpng·libjpeg-turbo 를 정적 링크한다(SkPng*/libjpeg-turbo 심볼). 시스템
+# 라이브러리와 별개의 Skia 번들 사본이라 동적 링크로 대체 불가 — 정적 임베드 불가피.
+unim-settings: embedded-library libpng [usr/bin/unim-settings]
+unim-settings: embedded-library libjpeg [usr/bin/unim-settings]
+
+# 초기 업로드라 닫을 버그가 없음 (기존 패키지 관례).
+unim-settings: initial-upload-closes-no-bugs *

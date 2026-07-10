@@ -84,8 +84,8 @@ pub fn notify_config_saved(_cfg: &Config, _label: &str) {}
 pub fn wizard_is_default_ime() -> bool {
     ime::is_default_ime()
 }
-pub fn wizard_set_as_default() {
-    let _ = ime::set_as_default();
+pub fn wizard_set_as_default() -> bool {
+    ime::set_as_default().is_ok()
 }
 pub fn wizard_set_default_on_startup(v: bool) {
     let _ = ime::set_default_on_startup(v);

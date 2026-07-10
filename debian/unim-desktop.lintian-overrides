@@ -1,8 +1,9 @@
 # unim-desktop — lintian overrides (justified)
 
 # embedded-library libyaml: see unim-common.lintian-overrides for rationale.
-unim-desktop: embedded-library libyaml [usr/bin/unim-indicator]
+# Only unim-settings-gtk still triggers the tag on the built deb; the
+# unim-indicator / unim-popup-service overrides were pruned as stale
+# (they emitted W: mismatched-override — no matching embedded-library tag).
 unim-desktop: embedded-library libyaml [usr/bin/unim-settings-gtk]
-unim-desktop: embedded-library libyaml [usr/bin/unim-popup-service]
 
 unim-desktop: initial-upload-closes-no-bugs *

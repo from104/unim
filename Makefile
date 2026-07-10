@@ -59,11 +59,11 @@ endef
         gen-popup-css gen-popup-css-check \
         _check-build \
         install install-core install-frontends install-icons \
-        install-indicator install-settings install-popup-service \
+        install-indicator install-settings-gtk install-settings install-popup-service \
         install-keymap-studio install-typing-practice \
         install-gnome-extension install-extension install-systemd \
         uninstall uninstall-core uninstall-frontends uninstall-icons \
-        uninstall-indicator uninstall-settings uninstall-popup-service \
+        uninstall-indicator uninstall-settings-gtk uninstall-settings uninstall-popup-service \
         uninstall-keymap-studio uninstall-typing-practice \
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
@@ -128,7 +128,7 @@ build-frontends: build-rust
 
 # ─── Install ─────────────────────────────────────────────────────────────────
 
-install: _check-build install-core install-indicator install-settings install-popup-service install-frontends install-icons install-gnome-extension
+install: _check-build install-core install-indicator install-settings-gtk install-settings install-popup-service install-keymap-studio install-typing-practice install-frontends install-icons install-gnome-extension
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 
 # 빌드 산출물 존재 여부 확인 (sudo make install 시 빌드를 root로 실행하는 것을 방지)
@@ -158,7 +158,7 @@ install-core:
 	install -m 644 unim-daemon/data/unim-daemon.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
 	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 \
-	               docs/man/unim-indicator.1 docs/man/unim-settings-gtk.1 docs/man/unim-popup-service.1 \
+	               docs/man/unim-indicator.1 docs/man/unim-settings-gtk.1 docs/man/unim-settings.1 docs/man/unim-popup-service.1 \
 	               $(DESTDIR)$(PREFIX)/share/man/man1/
 
 install-frontends:
@@ -180,10 +180,21 @@ install-indicator:
 	install -m 755 target/release/unim-indicator $(DESTDIR)$(BINDIR)/
 	install -m 644 unim-indicator/data/io.github.from104.unim.Indicator.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 
-install-settings:
+install-settings-gtk:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
 	install -m 755 target/release/unim-settings-gtk $(DESTDIR)$(BINDIR)/
 	install -m 644 unim-settings-gtk/data/io.github.from104.unim.Settings.desktop $(DESTDIR)$(DATADIR)/applications/
+
+# Slint 크로스플랫폼 설정앱 + 첫 실행 마법사 autostart (unim-settings 패키지).
+# 아이콘은 동일 아트웍(Settings.svg)을 SettingsSlint app-id 로 복제.
+install-settings:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications \
+	           $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps \
+	           $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
+	install -m 755 target/release/unim-settings $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-settings/data/io.github.from104.unim.SettingsSlint.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 unim-settings/data/io.github.from104.unim.FirstRun.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	install -m 644 data/icons/io.github.from104.unim.Settings.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.SettingsSlint.svg
 
 install-popup-service:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
@@ -194,20 +205,22 @@ install-popup-service:
 	sed "s|@BINDIR@|$(BINDIR)|g" scripts/org.atit.unim.PopupService.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service
 
 install-keymap-studio:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps $(DESTDIR)$(PREFIX)/share/man/man1
 	install -m 755 target/release/unim-keymap-studio $(DESTDIR)$(BINDIR)/
 	install -m 644 unim-keymap-studio/data/io.github.from104.unim.KeymapStudio.desktop $(DESTDIR)$(DATADIR)/applications/
 	install -m 644 data/icons/io.github.from104.unim.KeymapStudio.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 docs/man/unim-keymap-studio.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
 install-typing-practice:
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps $(DESTDIR)$(PREFIX)/share/man/man1
 	install -m 755 target/release/unim-typing-practice $(DESTDIR)$(BINDIR)/
 	install -m 644 unim-typing-practice/data/io.github.from104.unim.TypingPractice.desktop $(DESTDIR)$(DATADIR)/applications/
 	install -m 644 data/icons/io.github.from104.unim.TypingPractice.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 docs/man/unim-typing-practice.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
-uninstall: uninstall-core uninstall-indicator uninstall-settings uninstall-popup-service uninstall-frontends uninstall-icons uninstall-gnome-extension
+uninstall: uninstall-core uninstall-indicator uninstall-settings-gtk uninstall-settings uninstall-popup-service uninstall-keymap-studio uninstall-typing-practice uninstall-frontends uninstall-icons uninstall-gnome-extension
 	@echo "✅ UNIM 제거 완료!"
 
 uninstall-core:
@@ -237,9 +250,16 @@ uninstall-indicator:
 	rm -f $(DESTDIR)$(BINDIR)/unim-indicator \
 	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/io.github.from104.unim.Indicator.desktop
 
-uninstall-settings:
+uninstall-settings-gtk:
 	rm -f $(DESTDIR)$(BINDIR)/unim-settings-gtk \
 	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.Settings.desktop
+
+uninstall-settings:
+	rm -f $(DESTDIR)$(BINDIR)/unim-settings \
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.SettingsSlint.desktop \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/io.github.from104.unim.FirstRun.desktop \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.SettingsSlint.svg \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings.1
 
 uninstall-popup-service:
 	rm -f $(DESTDIR)$(BINDIR)/unim-popup-service \
@@ -249,12 +269,14 @@ uninstall-popup-service:
 uninstall-keymap-studio:
 	rm -f $(DESTDIR)$(BINDIR)/unim-keymap-studio \
 	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.KeymapStudio.desktop \
-	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.KeymapStudio.svg
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.KeymapStudio.svg \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-keymap-studio.1
 
 uninstall-typing-practice:
 	rm -f $(DESTDIR)$(BINDIR)/unim-typing-practice \
 	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.TypingPractice.desktop \
-	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.TypingPractice.svg
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.TypingPractice.svg \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-typing-practice.1
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────
 

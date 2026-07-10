@@ -43,6 +43,13 @@ unim-windows-common = { path = "../unim-windows-common" }
 [target.'cfg(target_os = "linux")'.dependencies]
 unim-gui-common = { path = "../unim-gui-common", default-features = false }
 rustix = { version = "0.38", features = ["fs"] }
+# (S6) 마법사 완료 페이지의 UNIM 데몬 감지: NameHasOwner(비활성 조회) + Peer.Ping(자동활성).
+# zbus 4 는 이미 unim-gui-common 을 통해 그래프에 존재(동일 버전). tokio feature 를 여기서
+# 새로 켜지 않는다(default-features = false) — feature 통일은 gui-common 이 이미 한 상태라
+# AccessKit 의 zbus 5(async-io)에는 영향이 없다(main.rs 의 zbus 5 tokio 금지 주석 근거).
+# 런타임 생성용 tokio 는 settings_dbus 의 current-thread 패턴을 그대로 복제한다.
+zbus = { version = "4", default-features = false }
+tokio = { version = "1", features = ["rt"] }
 
 [build-dependencies]
 slint-build = "1"

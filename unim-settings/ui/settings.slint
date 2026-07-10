@@ -399,6 +399,14 @@ export component SettingsWindow inherits Window {
     in-out property <bool> wiz-default-ime-checked: true;
     // 완료 페이지 '설정 열기' 체크박스(기본 체크). 체크면 그 자리에서 설정 모드로 전환.
     in-out property <bool> wiz-open-settings-checked: true;
+    // (S6) 플랫폼 분기 플래그: Linux 빌드에서만 Rust 가 true 로 설정한다.
+    // Windows 는 기본 false 유지 → 아래 마법사 문구(ternary)·적용시점 카드가 렌더 트리 불변.
+    in property <bool> wiz-platform-linux: false;
+    // (S6) 완료 페이지 UNIM 데몬 감지 상태: 0=확인 중, 1=실행 중, 2=자동 시작 대기(재로그인 시 시작).
+    in-out property <int> wiz-daemon-state: 0;
+    // 기본 입력기 지정 실패 시 Rust 가 true 로 설정 → 완료 페이지에 실패 카드 노출(Linux).
+    // 기본 false 라 Windows 는 렌더 트리 불변(회귀 0). 실패 시 seen 미기록으로 마법사 유지.
+    in-out property <bool> wiz-default-ime-failed: false;
     // 마법사 네비게이션(다음/이전) 및 마침 — 인덱스 관리·저장은 Rust 가 수행.
     callback wizard-next();
     callback wizard-back();
@@ -1219,7 +1227,11 @@ export component SettingsWindow inherits Window {
                         }
                         Rectangle { height: Tokens.space-2; }
                         Text {
-                            text: @tr("본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 설치 폴더의 LICENSE 파일에서 확인할 수 있습니다.");
+                            // Linux 는 라이선스 전문이 dh_installdocs 로 설치되는 copyright 파일에 있다.
+                            // Windows 문구는 그대로 보존(기본값 false → Windows 렌더 불변).
+                            text: root.wiz-platform-linux
+                                ? @tr("본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 /usr/share/doc/unim-common/copyright 파일에서 확인할 수 있습니다.")
+                                : @tr("본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 설치 폴더의 LICENSE 파일에서 확인할 수 있습니다.");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
                             color: Tokens.caption-color;
@@ -1227,6 +1239,8 @@ export component SettingsWindow inherits Window {
                     }
 
                     // 페이지 2: 한국어 언어팩(미설치 시에만 Rust 가 표시)
+                    // Windows 전용 페이지 — Linux 는 wizard_is_korean_language_installed()==true 로
+                    // 항상 스킵되므로(unim-common Recommends: fonts-noto-cjk 로 대체) 문구 분기 없음.
                     if root.wiz-current-kind == 2: Card {
                         title: @tr("한국어 언어팩");
                         Text {
@@ -1265,7 +1279,10 @@ export component SettingsWindow inherits Window {
                         Rectangle { height: Tokens.space-2; }
                         SettingRow {
                             title: @tr("UNIM 을 기본 입력기로 설정");
-                            description: @tr("마침을 누를 때 한국어 기본 입력기로 지정하고, 시작 시에도 유지합니다.");
+                            // Linux 는 im-config 로 영속 지정(재로그인 후 적용). Windows 문구 보존.
+                            description: root.wiz-platform-linux
+                                ? @tr("마침을 누르면 im-config 로 한국어 기본 입력기로 지정됩니다. 다음 로그인부터 적용됩니다.")
+                                : @tr("마침을 누를 때 한국어 기본 입력기로 지정하고, 시작 시에도 유지합니다.");
                             CheckBox {
                                 checked <=> root.wiz-default-ime-checked;
                                 accessible-label: @tr("UNIM 을 기본 입력기로 설정");
@@ -1337,12 +1354,69 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
+                    // (S6) Linux 전용: 적용 시점 안내 — '지금 바로'(데몬 감지 결과) / '재로그인 후'.
+                    if root.wiz-current-kind == 5 && root.wiz-platform-linux: Card {
+                        title: @tr("적용 시점");
+                        Text {
+                            text: @tr("지금 바로");
+                            font-size: Tokens.font-body;
+                            font-weight: 700;
+                            color: Palette.foreground;
+                        }
+                        Text {
+                            text: @tr("마침을 누르면 설정과 오타 교정 규칙이 저장됩니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Text {
+                            text: root.wiz-daemon-state == 1
+                                ? @tr("UNIM 데몬: 실행 중 ✓")
+                                : (root.wiz-daemon-state == 2
+                                    ? @tr("UNIM 데몬: 자동 시작 대기 중 — 재로그인 시 시작됩니다.")
+                                    : @tr("UNIM 데몬: 확인 중…"));
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                            accessible-label: root.wiz-daemon-state == 1
+                                ? @tr("UNIM 데몬 실행 중")
+                                : (root.wiz-daemon-state == 2
+                                    ? @tr("UNIM 데몬 자동 시작 대기 중, 재로그인 시 시작됩니다")
+                                    : @tr("UNIM 데몬 상태 확인 중"));
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        Text {
+                            text: @tr("재로그인 후");
+                            font-size: Tokens.font-body;
+                            font-weight: 700;
+                            color: Palette.foreground;
+                        }
+                        Text {
+                            text: @tr("앱 입력창에서 한글 입력이 켜지고(입력기 환경변수 적용), 기본 입력기 지정이 반영됩니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                    }
+                    // 기본 입력기 지정 실패 안내(Linux). 마침 시 지정이 실패하면 Rust 가
+                    // seen 을 기록하지 않고 이 카드를 띄운 뒤 흐름을 멈춘다 — 다시 [마침]을
+                    // 누르거나 설정에서 수동 지정할 수 있고, 다음 로그인에도 마법사가 다시 뜬다.
+                    if root.wiz-current-kind == 5 && root.wiz-platform-linux && root.wiz-default-ime-failed: Card {
+                        title: @tr("기본 입력기 지정 실패");
+                        Text {
+                            text: @tr("기본 입력기를 자동으로 지정하지 못했습니다. [마침]을 다시 눌러 재시도하거나, 나중에 터미널에서 'im-config -n unim' 으로 직접 지정할 수 있습니다. 지정 전까지는 다음 로그인에도 이 마법사가 다시 안내합니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                    }
                 }
             }
 
             // ── 푸터(이전 / 다음·마침) ──
+            // 높이 72px = 큰 타깃(버튼 min-height 44px) + 상하 패딩 수용(기현 접근성).
             Rectangle {
-                height: 64px;
+                height: 72px;
                 background: Palette.background;
                 Rectangle {
                     y: 0;
@@ -1355,22 +1429,33 @@ export component SettingsWindow inherits Window {
                     padding-top: Tokens.space-3;
                     padding-bottom: Tokens.space-3;
                     spacing: Tokens.space-2;
-                    Button {
+                    wiz-back-btn := Button {
                         text: @tr("이전");
+                        min-height: 44px;
+                        min-width: 96px;
                         enabled: !root.wiz-is-first;
                         accessible-label: @tr("이전 단계");
-                        clicked => { root.wizard-back(); }
+                        clicked => {
+                            root.wizard-back();
+                            // 위치 보존: 페이지 전환 시 스크롤 잔존 방지(긴 페이지 대비).
+                            wiz-scroll.viewport-y = 0;
+                        }
                     }
                     Rectangle { horizontal-stretch: 1; }
-                    Button {
+                    wiz-next-btn := Button {
                         text: root.wiz-is-last ? @tr("마침") : @tr("다음");
                         primary: true;
+                        min-height: 44px;
+                        min-width: 96px;
                         accessible-label: root.wiz-is-last ? @tr("마법사 마침") : @tr("다음 단계");
+                        // 마법사 진입 시 [다음]에 초기 포커스 → Enter 연타로 완주(기현 접근성).
+                        init => { wiz-next-btn.focus(); }
                         clicked => {
                             if (root.wiz-is-last) {
                                 root.wizard-finish();
                             } else {
                                 root.wizard-next();
+                                wiz-scroll.viewport-y = 0;
                             }
                         }
                     }
