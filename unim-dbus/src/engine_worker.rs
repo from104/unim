@@ -30,6 +30,11 @@ struct UndoState {
     corrected: String,
     original: String,
     observed_at: Instant,
+    /// `corrected` 가 문서에 확정되지 않고 프런트에 **라이브 조합(preedit)** 으로만
+    /// 존재하는지 여부. 순방향 word 교정(`replace_composition && Forward`)일 때만 `true`.
+    /// `true` 면 되돌리기 시 `delete_surrounding` 대신 엔진 라이브 조합을 폐기해야 한다
+    /// (그러지 않으면 조합 이전의 무관한 문서 텍스트를 삭제 — P0 데이터 손실).
+    corrected_is_live: bool,
 }
 
 impl UndoState {
@@ -59,6 +64,157 @@ struct RecentCorrection {
 /// ':' 가 없으면 window_id 전체를 app_id로 사용합니다.
 fn extract_app_id(window_id: &str) -> &str {
     window_id.split(':').next().unwrap_or(window_id)
+}
+
+/// 단어 단위(라이브 조합) 모드를 강제로 제외하는 터미널·멀티플렉서 app_id 목록
+/// (소문자 정확일치 비교 대상).
+///
+/// config 가 아니라 **데몬 상수**인 이유: 터미널 preedit 은 미검증/취약하고(보고서 §4.2),
+/// 안전장치를 사용자 실수로 풀 수 없게 하기 위함이다. `app_id` 는 window_id 의 ':' 앞부분
+/// (prgname 또는 wm_class)이며, [`desired_word_mode`] 가 `eq_ignore_ascii_case` 로 비교한다.
+const TERMINAL_DENY: &[&str] = &[
+    "ghostty",
+    "com.mitchellh.ghostty",
+    "kitty",
+    "wezterm",
+    "org.wezfurlong.wezterm",
+    "alacritty",
+    "foot",
+    "gnome-terminal-server",
+    "konsole",
+    "xterm",
+    "urxvt",
+    "rxvt",
+    "tilix",
+    "terminator",
+    "st",
+    "kgx",
+    "org.gnome.console",
+    "ptyxis",
+    "org.gnome.ptyxis",
+    "wmux",
+];
+
+/// 해당 컨텍스트에서 단어 단위(라이브 조합) 모드를 켜야 하는지 판정하는 **순수 함수**.
+///
+/// 설계: `plan-word-input.md` Q3·Q4 / `MASTER_PLAN` §3-A 결정 3(모아치기 강등).
+///
+/// - `Syllable` → 항상 음절(`false`).
+/// - `chord_active`(모아치기 사용 중) → 코어가 word 를 sequential 전용으로 두므로
+///   (`hangul/input_context.rs`) 미정의 동작 차단을 위해 `false` 로 강등.
+/// - **프런트 제외**: XIM(`unim-xim`)·순수 Wayland(`unim-wayland`)·ibus(`ibus-` 접두)는
+///   preedit 미검증 또는 앱 식별 불가라 word 비대상.
+/// - **앱 제외**: `app_id` 가 [`TERMINAL_DENY`] 에 있으면 `false`(터미널 preedit 취약).
+/// - `Word` → 위 제외를 모두 통과하면 `true`.
+/// - `Smart` → 위 제외 + `word_mode_apps` 정확일치(대소문자 무시) 앱만 `true`.
+///
+/// `client_name` 은 프런트 종류 식별자다. 데몬 경로에서는 공유
+/// `EngineRequest::CreateContext` variant 에 필드를 추가할 수 없어(비소유 `ibus_compat`
+/// 호출부가 깨짐 — MASTER_PLAN §1 파일 소유권), 컨텍스트별 `context_windows`(window_id)를
+/// 프런트 식별에 그대로 사용한다. XIM/Wayland 프런트는 window_id 를 각 client 상수와 동일하게
+/// 보내므로(`unim-frontends/{xim,wayland}`) 배제 결과가 실 client_name 사용과 동치다.
+/// 순수 함수라 진리표 단위테스트로 검증한다.
+fn desired_word_mode(
+    commit_unit: unim::config::CommitUnit,
+    client_name: &str,
+    window_id: &str,
+    app_id: &str,
+    word_mode_apps: &[String],
+    chord_active: bool,
+) -> bool {
+    use unim::config::CommitUnit;
+
+    // 모아치기 활성 시 Word/Smart 모두 음절로 강등(결정 3).
+    if chord_active {
+        return false;
+    }
+
+    let frontend_ok = client_name != "unim-xim"
+        && client_name != "unim-wayland"
+        && !window_id.starts_with("ibus-")
+        // XIM 프런트는 CreateContext 에서만 "unim-xim" 을 보내고 FocusIn 에서는
+        // "xim-win-0x{ic}" 를 보낸다(unim-frontends/xim/src/handler.rs). handle_focus_in
+        // 이 context_windows 를 이 값으로 덮어쓰므로, 접두 배제까지 해야 첫 FocusIn 이후에도
+        // XIM 이 word 모드로 켜지지 않는다('XIM 항상 음절' 안전 약속 유지).
+        && !window_id.starts_with("xim-win-");
+    let app_ok = !TERMINAL_DENY
+        .iter()
+        .any(|deny| deny.eq_ignore_ascii_case(app_id));
+
+    match commit_unit {
+        CommitUnit::Syllable => false,
+        CommitUnit::Word => frontend_ok && app_ok,
+        CommitUnit::Smart => {
+            frontend_ok
+                && app_ok
+                && word_mode_apps
+                    .iter()
+                    .any(|app| app.eq_ignore_ascii_case(app_id))
+        }
+    }
+}
+
+/// 현재 자판이 모아치기(chord)를 실제 지원하는지 — 프로필 `moachigi` capability.
+///
+/// 코어 `InputEngine::compute_chord_window_ms`(crate-private)의 capability 게이트를
+/// 미러한다: `supports_moachigi=false` 자판(두벌식 등)은 config `chord_window_ms`
+/// 설정값이 남아 있어도 chord 가 강제 OFF 다. 따라서 [`context_desired_word_mode`] 의
+/// 모아치기 강등 판정은 이 capability 까지 반영해야, 안마태에서 값을 켜 둔 채 두벌식으로
+/// 자판만 바꾼 경우 Word/Smart 가 잘못 음절로 강등되지 않는다. 프로필 조회/해석 실패는
+/// 보수적으로 미지원(`false`)으로 본다.
+fn layout_supports_moachigi(config: &Config) -> bool {
+    use unim::keystroke::profile::{resolve_inherits, ProfileRegistry};
+
+    let name = config.engine.korean.effective_layout_name();
+    let registry = ProfileRegistry::new();
+    let Some(raw) = registry.find_raw(&name) else {
+        return false;
+    };
+    resolve_inherits(&raw, &registry)
+        .map(|p| p.moachigi.is_some())
+        .unwrap_or(false)
+}
+
+/// 컨텍스트의 window_id(및 config)로부터 word 모드 게이트 `desired` 를 계산한다.
+///
+/// window_id 미등록 컨텍스트면 보수적으로 `false`(음절). `client_name` 은 위 설계대로
+/// window_id 를 그대로 전달한다.
+fn context_desired_word_mode(
+    config: &Config,
+    context_windows: &HashMap<u32, String>,
+    context_id: u32,
+) -> bool {
+    let Some(window_id) = context_windows.get(&context_id) else {
+        return false;
+    };
+    let app_id = extract_app_id(window_id);
+    // 모아치기 강등은 config 설정값(chord_window_ms>0)과 자판 capability 를 **모두** 만족해야
+    // 성립한다. 자판이 supports_moachigi=false 면 코어가 chord 를 강제 OFF 하므로, 잔존 설정값만
+    // 보고 음절로 강등하면 안 된다(툴팁·계획 결정 3 과 정합).
+    let chord_active = config
+        .engine
+        .korean
+        .chord_window_ms
+        .is_some_and(|ms| ms > 0)
+        && layout_supports_moachigi(config);
+    desired_word_mode(
+        config.engine.korean.commit_unit,
+        window_id,
+        window_id,
+        app_id,
+        &config.engine.korean.word_mode_apps,
+        chord_active,
+    )
+}
+
+/// word 모드 게이트를 엔진에 적용한다 — **desired ≠ 현재일 때만** `set_word_mode` 호출.
+///
+/// `set_word_mode` 는 `flush_preedit` 를 동반하므로(engine.rs), 불필요한 확정 유발을 막기
+/// 위해 상태가 실제로 바뀔 때만 호출한다(TSF `reapply_word_gate` 정책 미러).
+fn apply_word_gate(engine: &mut InputEngine, desired: bool) {
+    if engine.is_word_mode() != desired {
+        engine.set_word_mode(desired);
+    }
 }
 
 /// 활성 popup 의 view_model 을 DBus payload 로 변환. popup 비활성이면 None.
@@ -171,12 +327,36 @@ fn resolve_popup_owner(contexts: &HashMap<u32, InputEngine>, caller: u32) -> u32
         .unwrap_or(caller)
 }
 
+/// Ctrl+Z 되돌리기의 삭제 글자 수 — **P0 데이터 손실 가드**([`effective_reverse_delete`] 와 동형).
+///
+/// 순방향 word(라이브 조합) 교정은 `corrected` 한글 전체가 프런트 preedit 이고 문서
+/// 확정분이 0자다(A2). 이때 `corrected` 글자수만큼 `delete_surrounding` 하면 조합 이전의
+/// 무관한 문서 텍스트가 삭제된다. 그 외(음절 순방향·역방향)에서는 `corrected` 가 실제
+/// 확정문이므로 그 글자 수를 그대로 삭제한다 — 기존 경로와 동일.
+fn undo_delete_chars(corrected_is_live: bool, corrected: &str) -> u32 {
+    if corrected_is_live {
+        0
+    } else {
+        corrected.chars().count() as u32
+    }
+}
+
 /// Ctrl+Z AutoTypeFix 되돌리기 시도.
 /// 해당 컨텍스트에 활성 UndoState가 있고 키가 Ctrl+Z이면 되돌리기 응답을 반환한다.
 /// 그렇지 않으면 None (일반 키 처리 계속).
+///
+/// 순방향 word 교정의 되돌리기(`corrected_is_live`)는 삭제를 0으로 두고, 데몬 엔진의
+/// 라이브 word 조합을 폐기(reset)한다 — 그러지 않으면 (1) `delete_surrounding` 이 조합
+/// 이전 문서 텍스트를 삭제하고(P0), (2) 엔진이 word_buffer 를 계속 보유해 다음 키 입력에서
+/// '유령' preedit 이 되살아난다. auto_typefix 페이로드의 3번째 인자 `""` 가 프런트 preedit
+/// 표시를 클리어하므로(immodule `on_auto_typefix`) 별도 preedit 시그널은 불필요하다.
+#[allow(clippy::too_many_arguments)]
 fn try_autotypefix_undo(
     undo_states: &mut HashMap<u32, UndoState>,
     keystroke_buffers: &mut HashMap<u32, KeystrokeBuffer>,
+    engine: &mut InputEngine,
+    config: &Config,
+    context_windows: &HashMap<u32, String>,
     context_id: u32,
     key: KeyCode,
     modifier: ModifierState,
@@ -185,13 +365,25 @@ fn try_autotypefix_undo(
         return None;
     }
     let obs = undo_states.remove(&context_id)?;
-    let delete_chars = obs.corrected.chars().count() as u32;
     keystroke_buffers.remove(&context_id);
+
+    let delete_chars = undo_delete_chars(obs.corrected_is_live, &obs.corrected);
+    if obs.corrected_is_live {
+        // 라이브 word 조합 폐기(유령 preedit 부활 방지). reset 은 accumulate_word 를
+        // 보존하므로 카테고리·word 게이트를 명시 재동기한다.
+        let current_category = engine.input_category();
+        engine.reset();
+        engine.set_input_category(current_category);
+        let desired = context_desired_word_mode(config, context_windows, context_id);
+        engine.set_word_mode(desired);
+    }
     unim_log!(
         "ENGINE_WORKER",
-        "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}'",
+        "[Engine Worker] AutoTypeFix 되돌리기: '{}' → '{}' (delete={}, live_composition={})",
         obs.corrected,
-        obs.original
+        obs.original,
+        delete_chars,
+        obs.corrected_is_live
     );
     Some(EngineResponse {
         consumed: true,
@@ -269,6 +461,13 @@ fn handle_focus_in(
         }
     }
 
+    // word 모드 게이트 재적용 (앱 전환 시 재판정 — TSF OnSetFocus 등가).
+    // preedit 은 FocusIn 시점에 비어 있어 set_word_mode 의 flush 무해.
+    let desired = context_desired_word_mode(config, context_windows, context_id);
+    if let Some(engine) = contexts.get_mut(&context_id) {
+        apply_word_gate(engine, desired);
+    }
+
     contexts
         .get(&context_id)
         .map(|e| e.input_category() == unim::config::InputCategory::Korean)
@@ -279,11 +478,17 @@ fn handle_focus_in(
 ///
 /// `preserve_mode=true` (FocusOut / Reset의 PerApp·Context-local 모드 유지) 시
 /// 초기화 후에도 이전 입력 카테고리를 복원한다.
+///
+/// `desired_word` 는 재생성 직후 재적용할 word 모드 게이트(호출부에서
+/// [`context_desired_word_mode`] 로 산출). `InputEngine::new` 는 commit_unit=Word/Smart 면
+/// accumulate_word 를 무조건 켜므로(engine.rs), 여기서 재판정하지 않으면 터미널·XIM·모아치기
+/// 강등이 다음 FocusIn 까지 무력화된다(마우스 클릭 유발 Reset 등).
 /// 반환값: 커밋할 텍스트(preedit/팝업 타겟) 또는 None.
 fn reset_engine_and_capture_commit(
     engine: &mut InputEngine,
     config: &Config,
     preserve_mode: bool,
+    desired_word: bool,
 ) -> Option<String> {
     let mut commit_text = String::new();
 
@@ -317,6 +522,8 @@ fn reset_engine_and_capture_commit(
     if preserve_mode {
         engine.set_input_category(current_mode);
     }
+    // 엔진 재생성 직후 word 모드 게이트 재적용 (컨텍스트별 터미널/XIM/Smart·모아치기 강등).
+    apply_word_gate(engine, desired_word);
 
     if commit_text.is_empty() {
         None
@@ -340,6 +547,26 @@ fn rollback_threshold_met(r: &RecentCorrection) -> bool {
     match r.direction {
         Direction::Forward => r.erasure_observed && r.mode_switch_observed,
         Direction::Reverse => r.erasure_observed || r.mode_switch_observed,
+    }
+}
+
+/// 역방향 AutoTypeFix의 최종 삭제 글자 수를 결정한다 — **P0 데이터 손실 가드**.
+///
+/// word(라이브 조합) 모드에서는 한글 전체가 preedit(문서에 확정된 글자 0자)이므로
+/// 코어 `check_reverse`가 `replace_composition = true` 를 산출한다
+/// ([`unim::auto_typefix`] reverse.rs). 이때 `real_delete`(트리거 전 키스트로크의
+/// 한글 글자 수)를 그대로 프런트에 넘기면 `delete_surrounding(-real_delete)` 가
+/// **조합 이전부터 있던 무관한 문서 텍스트를 삭제**해 비가역 데이터 손실을 낸다.
+/// word 라이브 조합 치환은 응답 preedit 클리어 + 시그널 `commit_text` 만으로
+/// 완결되므로 삭제는 0이어야 한다.
+///
+/// 음절 모드(`replace_composition = false`)에서는 확정 텍스트가 실존하므로
+/// `real_delete` 를 그대로 반환한다 — 기존 경로와 바이트 동일.
+fn effective_reverse_delete(replace_composition: bool, real_delete: u32) -> u32 {
+    if replace_composition {
+        0
+    } else {
+        real_delete
     }
 }
 
@@ -438,9 +665,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
             // v1 builder 경로로 한국어 컨텍스트를 다시 만든다. 이전 코드는
             // `set_korean_layout`만 호출해 layout 동일이면 no-op이라 GUI/CLI에서
             // active_rule_sets 토글이 즉시 반영되지 않는 회귀가 있었음.
-            for engine in contexts.values_mut() {
+            for (id, engine) in contexts.iter_mut() {
                 engine.rebuild_korean_context(&config);
                 engine.set_english_layout(config.engine.english.layout.clone());
+                // word 모드 게이트 재적용: rebuild_korean_context 가 Word 면 전 컨텍스트
+                // accumulate 를 켜므로, 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기
+                // 강등)로 재판정한다.
+                let desired = context_desired_word_mode(&config, &context_windows, *id);
+                apply_word_gate(engine, desired);
             }
         }
 
@@ -486,6 +718,12 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                 context_windows.insert(id, window_id);
                 contexts.insert(id, engine);
+                // word 모드 게이트: InputEngine::new 가 Word 면 accumulate 를 선주입하므로,
+                // 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기 강등)로 재판정한다.
+                let desired = context_desired_word_mode(&config, &context_windows, id);
+                if let Some(engine) = contexts.get_mut(&id) {
+                    apply_word_gate(engine, desired);
+                }
                 unim_log!("ENGINE_WORKER", "[Engine Worker] 컨텍스트 생성: id={}", id);
                 let _ = response.send(());
             }
@@ -520,7 +758,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     .get(&context_id)
                     .map(|wid| {
                         wid.starts_with("unim-indicator")
-                            || wid.starts_with("unim-settings")
+                            || wid.starts_with("unim-settings-gtk")
                             || wid.starts_with("unim-popup-service")
                     })
                     .unwrap_or(false);
@@ -577,10 +815,14 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         observe_rollback_event(&mut recent_corrections, context_id, true, false);
                     }
 
-                    // Ctrl+Z: AutoTypeFix 되돌리기 (헬퍼에 위임)
+                    // Ctrl+Z: AutoTypeFix 되돌리기 (헬퍼에 위임). 순방향 word 되돌리기는
+                    // 엔진 라이브 조합 폐기가 필요하므로 engine·config·context_windows 를 넘긴다.
                     if let Some(undo_resp) = try_autotypefix_undo(
                         &mut undo_states,
                         &mut keystroke_buffers,
+                        engine,
+                        &config,
+                        &context_windows,
                         context_id,
                         key,
                         modifier,
@@ -782,13 +1024,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 
                             if let Some(ref fix) = fix {
                                 fix_has_replay = !fix.replay_keys.is_empty();
-                                // Ctrl+Z 되돌리기용 상태 저장
+                                // Ctrl+Z 되돌리기용 상태 저장.
+                                // 순방향 word 교정만 corrected 가 라이브 조합(문서 미확정)이다.
+                                // 역방향 word 는 corrected(영문)가 실제 커밋되므로 라이브가 아니다.
+                                let corrected_is_live =
+                                    fix.replace_composition && direction == Direction::Forward;
                                 undo_states.insert(
                                     context_id,
                                     UndoState {
                                         corrected: fix.corrected.clone(),
                                         original: fix.original.clone(),
                                         observed_at: Instant::now(),
+                                        corrected_is_live,
                                     },
                                 );
                                 // 재트리거 감지용 최근 교정 기록.
@@ -846,47 +1093,102 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                 // (역방향의 delete_chars 계산에 사용)
                                 let buf_ascii = buf.to_ascii_string(&config.engine.english.layout);
 
+                                // Phase A2(순방향 word 라이브 조합 유지): word 모드일 때 전체 단어를
+                                // 하나의 라이브 조합으로 재구성하려면 전체 키스트로크가 필요하다
+                                // (fix.replay_keys 는 마지막 음절만 담는다). buf.clear() 전에 전체
+                                // 시퀀스를 포착해 둔다. 비-word/역방향에선 사용하지 않으므로 무해.
+                                // (Windows 미러: unim-tsf/src/auto_typefix.rs:376-381)
+                                let all_keys: Vec<(KeyCode, ModifierState)> = buf
+                                    .entries_vec()
+                                    .iter()
+                                    .map(|e| (e.keycode, e.modifier))
+                                    .collect();
+
                                 // 교정 후 버퍼 초기화
                                 buf.clear();
 
-                                // 순방향: 마지막 음절을 엔진에 replay하여 preedit 상태 생성
+                                // 순방향: 엔진에 replay하여 preedit 상태 생성
                                 if !fix.replay_keys.is_empty() {
-                                    // 엔진 리셋 (조합 상태 초기화)
+                                    // 엔진 리셋 (조합 상태 초기화). InputEngine::new 재생성
+                                    // (≈6.45MB 한자사전 재파싱) 대신 reset()+카테고리·word 재동기.
+                                    // reset 은 accumulate_word 를 보존하므로(engine.rs) word
+                                    // 게이트 desired 로 명시 재동기가 필수다.
                                     let current_category = engine.input_category();
-                                    *engine = InputEngine::new(&config);
+                                    engine.reset();
                                     engine.set_input_category(current_category);
+                                    let desired = context_desired_word_mode(
+                                        &config,
+                                        &context_windows,
+                                        context_id,
+                                    );
+                                    engine.set_word_mode(desired);
 
-                                    // replay 키를 엔진에 밀어넣기
-                                    for (key, modifier) in &fix.replay_keys {
-                                        engine.press_key(*key, *modifier, &config);
-                                    }
-
-                                    // replay 결과: preedit이 마지막 음절
-                                    let replay_preedit = engine.preedit_str().to_string();
-                                    // replay에서 발생한 commit은 무시 (시그널의 commit_text에 이미 포함)
-                                    engine.clear_commit();
+                                    // Phase A2(순방향 word 라이브 조합 유지): word 모드
+                                    // (fix.replace_composition==true)면 전체 단어를 하나의 라이브
+                                    // 조합으로 재구성한다. fix.replay_keys 는 마지막 음절만 담으므로,
+                                    // buf.clear() 전에 포착해 둔 all_keys(전체 키스트로크)를 재생하면
+                                    // preedit_str()(=word_buffer+현재 음절)이 전체 한글 단어가 되어,
+                                    // 프런트가 보유 영문 라이브 조합을 그 단어로 치환(조합 SetText)하고
+                                    // committed=0 라이브 조합으로 계속 보유한다(이어치기). commit_text
+                                    // 는 ""(전체가 단일 라이브 조합). 비-word 는 종전대로 마지막 음절만
+                                    // replay 하여 바이트 동일. (Windows 미러: auto_typefix.rs:448-463)
+                                    let (replay_commit, replay_preedit) = if fix.replace_composition
+                                    {
+                                        engine.set_word_mode(true);
+                                        for (key, modifier) in &all_keys {
+                                            engine.press_key(*key, *modifier, &config);
+                                        }
+                                        // replay 결과: preedit이 전체 한글 단어
+                                        let full_word = engine.preedit_str().to_string();
+                                        // replay에서 발생한 commit은 무시 (전체가 라이브 조합 preedit)
+                                        engine.clear_commit();
+                                        (String::new(), full_word)
+                                    } else {
+                                        // replay 키(마지막 음절)를 엔진에 밀어넣기
+                                        for (key, modifier) in &fix.replay_keys {
+                                            engine.press_key(*key, *modifier, &config);
+                                        }
+                                        // replay 결과: preedit이 마지막 음절
+                                        let last_syllable = engine.preedit_str().to_string();
+                                        // replay에서 발생한 commit은 무시 (시그널의 commit_text에 이미 포함)
+                                        engine.clear_commit();
+                                        (fix.commit_text.clone(), last_syllable)
+                                    };
 
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] AutoTypeFix replay: preedit='{}', commit_text='{}'",
+                                        "[Engine Worker] AutoTypeFix replay(word={}): preedit='{}', commit_text='{}'",
+                                        fix.replace_composition,
                                         replay_preedit,
-                                        fix.commit_text
+                                        replay_commit
                                     );
 
                                     // preedit은 시그널 경유로 프론트엔드가 처리
                                     // EngineResponse.preedit은 비워둠 (타이밍 문제 방지)
                                     preedit = Some(String::new());
 
+                                    // delete_chars 는 그대로 fix.delete_chars(=입력한 영문 전체 길이).
+                                    // 하류(:1146-1149)에서 순방향 공통으로 -1 되어 최종 시그널은
+                                    // (delete_chars-1, commit, preedit)이 된다 — 트리거 키 commit 이
+                                    // 억제되어 앱에 N-1 자만 확정되어 있기 때문. word/비-word 동일.
                                     Some((
                                         fix.delete_chars,
-                                        fix.commit_text.clone(),
+                                        replay_commit,
                                         replay_preedit,
                                     ))
                                 } else {
-                                    // 역방향: 엔진 리셋 (한글 조합 상태 제거)
+                                    // 역방향: 엔진 리셋 (한글 조합 상태 제거).
+                                    // InputEngine::new 재생성 대신 reset()+카테고리·word 재동기
+                                    // (reset 은 accumulate_word 를 보존하므로 명시 재동기 필수).
                                     let current_category = engine.input_category();
-                                    *engine = InputEngine::new(&config);
+                                    engine.reset();
                                     engine.set_input_category(current_category);
+                                    let desired = context_desired_word_mode(
+                                        &config,
+                                        &context_windows,
+                                        context_id,
+                                    );
+                                    engine.set_word_mode(desired);
 
                                     // delete_chars = trigger 키 제외한 키스트로크의 eng_to_kor 글자 수.
                                     // trigger 키의 commit은 억제(final_commit=None)되고
@@ -906,17 +1208,28 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                                     let real_delete =
                                         kor_sim.chars().count().saturating_sub(1) as u32;
 
+                                    // P0 가드: word(라이브 조합) 모드면 확정문이 없으므로
+                                    // 삭제를 0으로 강제한다. 그렇지 않으면 조합 이전의
+                                    // 무관한 문서 텍스트가 삭제되어 데이터가 유실된다.
+                                    // (fix.replace_composition == false 이면 real_delete 그대로)
+                                    let effective_delete = effective_reverse_delete(
+                                        fix.replace_composition,
+                                        real_delete,
+                                    );
+
                                     unim_log!(
                                         "ENGINE_WORKER",
-                                        "[Engine Worker] 역방향 real_delete: ascii='{}', trigger='{}', kor_sim='{}', real_delete={}, layout={:?}",
+                                        "[Engine Worker] 역방향 real_delete: ascii='{}', trigger='{}', kor_sim='{}', real_delete={}, word_guard={}, effective_delete={}, layout={:?}",
                                         buf_ascii,
                                         buf_ascii.chars().last().unwrap_or(' '),
                                         kor_sim,
                                         real_delete,
+                                        fix.replace_composition,
+                                        effective_delete,
                                         config.engine.korean.layout
                                     );
 
-                                    Some((real_delete, fix.commit_text.clone(), String::new()))
+                                    Some((effective_delete, fix.commit_text.clone(), String::new()))
                                 }
                             } else {
                                 // 교정 안 됨 → 사용자가 다른 알파벳 키를 계속 입력한 상황.
@@ -1061,8 +1374,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // Global 모드에서는 전역 default_category가 다시 적용되도록 preserve=false.
                 let preserve_mode =
                     config.engine.mode_sharing != unim::config::ModeSharingMode::Global;
+                // 재생성 후 재적용할 word 게이트 (engine 빌림 전에 산출 — 이중 빌림 회피).
+                let desired_word =
+                    context_desired_word_mode(&config, &context_windows, context_id);
                 let commit = contexts.get_mut(&context_id).and_then(|engine| {
-                    reset_engine_and_capture_commit(engine, &config, preserve_mode)
+                    reset_engine_and_capture_commit(engine, &config, preserve_mode, desired_word)
                 });
                 unim_log!(
                     "ENGINE_WORKER",
@@ -1078,9 +1394,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 response,
             } => {
                 // Reset은 사용자가 명시적으로 요청한 리셋 — 현재 입력 모드는 항상 유지.
-                let commit = contexts
-                    .get_mut(&context_id)
-                    .and_then(|engine| reset_engine_and_capture_commit(engine, &config, true));
+                // 재생성 후 word 게이트 재적용(마우스 클릭 유발 GTK im reset 등에서 터미널/XIM/
+                // 모아치기 강등이 무력화되지 않도록 — engine 빌림 전에 desired 산출).
+                let desired_word =
+                    context_desired_word_mode(&config, &context_windows, context_id);
+                let commit = contexts.get_mut(&context_id).and_then(|engine| {
+                    reset_engine_and_capture_commit(engine, &config, true, desired_word)
+                });
                 let _ = response.send(commit);
             }
 
@@ -1786,6 +2106,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unim::config::CommitUnit;
+
+    /// 데몬 런타임과 동일하게 `client_name` 에 window_id 를 그대로 전달하는 테스트 헬퍼.
+    fn dwm(cu: CommitUnit, window_id: &str, app_id: &str, apps: &[&str], chord: bool) -> bool {
+        let apps: Vec<String> = apps.iter().map(|s| s.to_string()).collect();
+        desired_word_mode(cu, window_id, window_id, app_id, &apps, chord)
+    }
 
     fn mk_rc(direction: Direction, erasure: bool, switch: bool) -> RecentCorrection {
         RecentCorrection {
@@ -1847,6 +2174,127 @@ mod tests {
             true,
             true
         )));
+    }
+
+    #[test]
+    fn reverse_delete_guarded_in_word_mode() {
+        // word 라이브 조합(replace_composition=true): 문서에 확정문이 없으므로
+        // 삭제를 0으로 강제해 조합 이전 텍스트의 오삭제(P0 데이터 손실)를 막는다.
+        assert_eq!(effective_reverse_delete(true, 5), 0);
+        assert_eq!(effective_reverse_delete(true, 1), 0);
+        assert_eq!(effective_reverse_delete(true, 0), 0);
+    }
+
+    #[test]
+    fn reverse_delete_passthrough_in_syllable_mode() {
+        // 음절 모드(replace_composition=false): 확정 텍스트가 실존하므로
+        // real_delete 를 그대로 통과 — 기존 경로와 바이트 동일.
+        assert_eq!(effective_reverse_delete(false, 5), 5);
+        assert_eq!(effective_reverse_delete(false, 1), 1);
+        assert_eq!(effective_reverse_delete(false, 0), 0);
+    }
+
+    #[test]
+    fn undo_delete_guarded_for_live_word_composition() {
+        // 순방향 word(corrected 가 라이브 조합): 문서 확정분이 없으므로 삭제 0으로
+        // 강제 — Ctrl+Z 가 조합 이전 문서 텍스트를 오삭제(P0)하지 않는다.
+        assert_eq!(undo_delete_chars(true, "안녕"), 0);
+        assert_eq!(undo_delete_chars(true, ""), 0);
+        // 음절 순방향·역방향(corrected 가 실제 확정문): corrected 글자 수 그대로 삭제.
+        assert_eq!(undo_delete_chars(false, "안녕"), 2);
+        assert_eq!(undo_delete_chars(false, "hello"), 5);
+        assert_eq!(undo_delete_chars(false, ""), 0);
+    }
+
+    #[test]
+    fn desired_word_mode_truth_table() {
+        let none: &[&str] = &[];
+
+        // Syllable → 화이트리스트 포함이어도 항상 음절.
+        assert!(!dwm(CommitUnit::Syllable, "gedit:gtk3-ctx-1", "gedit", none, false));
+        assert!(!dwm(
+            CommitUnit::Syllable,
+            "soffice:gtk3-ctx-2",
+            "soffice",
+            &["soffice"],
+            false
+        ));
+
+        // Word → 제외를 통과하는 일반 앱은 true.
+        assert!(dwm(CommitUnit::Word, "gedit:gtk3-ctx-1", "gedit", none, false));
+        // Word + 터미널(ghostty) → 앱 제외로 false.
+        assert!(!dwm(CommitUnit::Word, "ghostty:gtk3-ctx-1", "ghostty", none, false));
+        // Word + XIM CreateContext(unim-xim) → 프런트 제외로 false.
+        assert!(!dwm(CommitUnit::Word, "unim-xim", "unim-xim", none, false));
+        // Word + XIM FocusIn(xim-win-0x…) → 접두 제외로 false (첫 FocusIn 이후에도 음절 유지).
+        assert!(!dwm(
+            CommitUnit::Word,
+            "xim-win-0x1a3",
+            "xim-win-0x1a3",
+            none,
+            false
+        ));
+        // Smart + XIM FocusIn 이 화이트리스트에 있어도 프런트 제외가 우선 → false.
+        assert!(!dwm(
+            CommitUnit::Smart,
+            "xim-win-0x1a3",
+            "xim-win-0x1a3",
+            &["xim-win-0x1a3"],
+            false
+        ));
+        // Word + 순수 Wayland → 프런트 제외로 false.
+        assert!(!dwm(CommitUnit::Word, "unim-wayland", "unim-wayland", none, false));
+        // Word + ibus 접두 → 프런트 제외로 false.
+        assert!(!dwm(
+            CommitUnit::Word,
+            "ibus-firefox-3",
+            "ibus-firefox-3",
+            none,
+            false
+        ));
+
+        // Smart + 화이트리스트 미포함 → false (기본값 무회귀).
+        assert!(!dwm(CommitUnit::Smart, "gedit:gtk3-ctx-1", "gedit", none, false));
+        // Smart + 화이트리스트 포함 → true.
+        assert!(dwm(
+            CommitUnit::Smart,
+            "soffice:gtk3-ctx-2",
+            "soffice",
+            &["soffice"],
+            false
+        ));
+        // Smart + 대소문자 무시(wm_class 변형 흡수) → true.
+        assert!(dwm(
+            CommitUnit::Smart,
+            "Soffice:gtk3-ctx-2",
+            "Soffice",
+            &["soffice"],
+            false
+        ));
+        // Smart 라도 터미널은 화이트리스트에 있어도 앱 제외가 우선 → false.
+        assert!(!dwm(CommitUnit::Smart, "konsole:qt", "konsole", &["konsole"], false));
+    }
+
+    #[test]
+    fn desired_word_mode_chord_demotes_to_syllable() {
+        // 모아치기 활성 시 Word/Smart 모두 음절로 강등(MASTER_PLAN §3-A 결정 3).
+        assert!(!dwm(CommitUnit::Word, "gedit:gtk3-ctx-1", "gedit", &[], true));
+        assert!(!dwm(
+            CommitUnit::Smart,
+            "soffice:gtk3-ctx-2",
+            "soffice",
+            &["soffice"],
+            true
+        ));
+        // 대조: 동일 케이스가 chord 비활성이면 true.
+        assert!(dwm(CommitUnit::Word, "gedit:gtk3-ctx-1", "gedit", &[], false));
+        assert!(dwm(
+            CommitUnit::Smart,
+            "soffice:gtk3-ctx-2",
+            "soffice",
+            &["soffice"],
+            false
+        ));
     }
 
     #[test]

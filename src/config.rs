@@ -595,8 +595,9 @@ pub struct KoreanConfig {
 
     /// 단어 모드(단어 단위 조합) 대상 앱 목록 — 프로세스 실행 파일명 정확일치.
     ///
-    /// TSF `Smart` 확정 단위 게이트가 이 목록에 정확히 일치하는 포그라운드 프로세스명만
-    /// 단어 모드로 켠다(그 외는 음절 단위). Windows TSF 전용 — Linux 프런트엔드는 미사용.
+    /// `Smart` 확정 단위 게이트가 이 목록에 정확히 일치하는 포그라운드 앱만 단어 모드로
+    /// 켠다(그 외는 음절 단위). Windows TSF 는 프로세스 실행 파일명, Linux `unim-daemon`
+    /// 은 `desired_word_mode` 게이트가 app_id(대소문자 무시)로 비교하며 터미널·XIM 은 제외.
     /// 기본값 `["winword.exe"]`. wmux 는 역방향 음절모드 synth 라우팅 동작 확인 후 제외됨.
     /// 앱 호환을 코드 릴리스와 분리(config.yaml/CLI 로 편집, `maybe_reload_config` 핫리로드).
     #[serde(default = "default_word_mode_apps")]

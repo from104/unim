@@ -251,11 +251,43 @@ vim 명령 모드(`Esc`), CLI 슬래시 명령(`/`) 같은 비한글 컨텍스�
 
 > 한/영 토글 키와 트리거 키가 겹치면 토글 분기가 우선이라 자동 전환이 발동하지 않는다. 비밀번호 필드는 이미 강제 영문이라 영향 없음.
 
+### 4.6 단어 단위 입력 (조합 확정 단위)
+
+기본은 **음절 단위** 확정 — 한 글자가 완성되면 바로 확정된다. **단어 단위**로 두면 스페이스·구두점 같은 단어 경계까지 조합을 밑줄(preedit) 로 누적했다가 한 번에 확정한다. 조합 도중 `BackSpace` 는 자모 단위로 되돌아가고, 자동 오타 교정(4.4)의 역방향 교정과도 더 자연스럽게 맞물린다.
+
+세 가지 값이 있다.
+
+- **음절 (syllable)**: 항상 음절 단위 확정. 가장 예측 가능.
+- **단어 (word)**: 모든 대상 앱에서 단어 단위 누적.
+- **스마트 (smart, 기본)**: `word-mode-apps` 목록에 등록된 앱에서만 단어 단위, 그 외에는 음절 단위. 기본 목록은 `winword.exe`(Windows) 뿐이라 리눅스에서는 **아무것도 등록하지 않으면 사실상 음절 단위**로 동작한다(무회귀).
+
+**켜는 법**
+
+```bash
+# 전역 단어 단위
+unim-cli config set commit-unit word
+
+# 스마트 + 특정 앱만 단어 단위 (예: LibreOffice)
+unim-cli config set commit-unit smart
+unim-cli config set word-mode-apps "winword.exe,soffice"
+```
+
+설정 GUI 에서는 「일반」 → 「입력 모드」 그룹의 **조합 확정 단위** 콤보에서 고른다. `word-mode-apps` 는 CLI/`config.yaml` 로 편집한다(정확일치, 대소문자 무시). 리눅스 앱 ID 예시: LibreOffice `soffice`, 앱 ID 는 창별 독립 모드에서 로그로 확인할 수 있다.
+
+**적용되지 않는 경우 (안전장치)**
+
+- **터미널** (ghostty·kitty·wezterm·alacritty·foot·gnome-terminal·konsole·xterm 등): preedit 이 취약해 항상 음절 단위.
+- **XIM** (xterm 계열 레거시 앱): 구조적으로 단어 단위 불가 — 항상 음절 단위.
+- **순수 Wayland·Flatpak/Snap(ibus)**: 앱 식별이 안 돼 현재는 제외(음절 단위).
+- **모아치기(동시치기)** 를 켠 상태: 단어 단위와 양립하지 않아 항상 음절 단위로 동작한다.
+
+> 단어 단위에서 자동 오타 교정 역방향(한→영)은 조합만 교체하고 앞선 확정 텍스트는 건드리지 않는다. 위 비대상 경우에는 자동으로 음절 단위로 내려가므로 데이터 손실 걱정 없이 켜 두어도 된다.
+
 ---
 
 ## 5. 설정 GUI 투어
 
-`unim-settings`(GTK4 + libadwaita 다이얼로그) 를 띄워 설정을 만진다. v0.3.0 부터 단일 GUI 정책 — Qt 다이얼로그(`unim-gui-qt`) 는 폐기, 트레이/팝업은 각각 `unim-indicator`·`unim-popup-service` 가 별도 책임.
+`unim-settings-gtk`(GTK4 + libadwaita 다이얼로그) 를 띄워 설정을 만진다. v0.3.0 부터 단일 GUI 정책 — Qt 다이얼로그(`unim-gui-qt`) 는 폐기, 트레이/팝업은 각각 `unim-indicator`·`unim-popup-service` 가 별도 책임.
 
 ```bash
 unim-gtk-settings &     # GTK4/libadwaita
@@ -276,6 +308,7 @@ unim-qt-settings &      # Qt6 (대안)
 | **한국어 자판 옵션** | 동적 SwitchRow (자판마다 다름) | 자판 변경 시 옵션도 재구성. 예: `ko_3bul390` 선택 시 `sun_arae_batchim`(순아래받침) 토글 표시 |
 | **입력 모드** | 초기 입력 모드 (ComboRow) | `한글`/`영문` — 데몬 시작 시 어느 쪽? |
 |  | 모드 공유 방식 (ComboRow) | `창별 독립`(권장) / `전역 공유` |
+|  | 조합 확정 단위 (ComboRow) | `음절 단위`(기본 동작) / `단어 단위` / `스마트` — [4.6](#46-단어-단위-입력-조합-확정-단위) 참고 |
 |  | 팝업 모드 (ComboRow) | `Standalone`(기본, 모든 환경) / `Embedded`(X11 한정, IM 모듈이 직접 그림) |
 | **자동 영문 전환** | 자동 영문 전환 사용 (Switch) | OFF(기본). vim 사용자라면 ON 추천 |
 
@@ -443,6 +476,9 @@ unim-cli config get auto_typefix.enabled
 # 값 설정
 unim-cli config set auto_typefix.tentative_expiry_hours 6
 unim-cli config set engine.auto_english.enabled true
+
+# 조합 확정 단위 (음절/단어/스마트) — 4.6 참고
+unim-cli config set commit-unit word
 
 # 자판 프로필 관리
 unim-cli config layout list                    # 내장 + 사용자 프로필 목록

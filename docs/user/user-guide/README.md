@@ -255,7 +255,7 @@ Opt-in feature for vim command mode (`Esc`), CLI slash commands (`/`), etc. Off 
 
 ## 5. Settings GUI Tour
 
-Launch `unim-settings` (GTK4 + libadwaita) to tweak settings. As of v0.3.0 UNIM ships a single GUI — the Qt dialog (`unim-gui-qt`) was retired, while the tray and popup are now owned by `unim-indicator` and `unim-popup-service` respectively.
+Launch `unim-settings-gtk` (GTK4 + libadwaita) to tweak settings. As of v0.3.0 UNIM ships a single GUI — the Qt dialog (`unim-gui-qt`) was retired, while the tray and popup are now owned by `unim-indicator` and `unim-popup-service` respectively.
 
 ```bash
 unim-gtk-settings &

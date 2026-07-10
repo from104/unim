@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use unim::config::{
     english_layout_display_name, korean_layout_display_name, normalize_english_layout_name,
-    normalize_korean_layout_name, Config as UnimConfig, InputCategory, KoreanConfig,
+    normalize_korean_layout_name, CommitUnit, Config as UnimConfig, InputCategory, KoreanConfig,
     ModeSharingMode,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
@@ -457,7 +457,10 @@ enum ConfigKey {
     /// 모아치기 화음 윈도우 (ms, 0=OFF). supports_moachigi 자판 전용. Phase 4 예약.
     #[value(name = "korean-chord-window-ms")]
     KoreanChordWindowMs,
-    /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Windows 전용 — Smart 확정 단위에서 단어 조합할 앱.
+    /// 조합 확정 단위 (syllable, word, smart). 단어 단위는 터미널·XIM 비대상, 스마트는 word-mode-apps 목록 앱만 단어 조합.
+    #[value(name = "commit-unit")]
+    CommitUnit,
+    /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Smart 확정 단위에서 단어 조합할 앱 (Windows: winword.exe, Linux: soffice 등).
     #[value(name = "word-mode-apps")]
     WordModeApps,
     /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음. Windows 전용.
@@ -721,6 +724,11 @@ fn config_show() {
         "{}: {}",
         t!("hanja_keys_label"),
         config.engine.hanja_keys.join(", ")
+    );
+    println!(
+        "{}: {}",
+        t!("commit_unit_label"),
+        config.engine.korean.commit_unit.display_name()
     );
     println!(
         "{}: {}",
@@ -1237,6 +1245,27 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 config.engine.korean.chord_window_ms = Some(ms);
                 println!("korean.chord_window_ms: {ms}ms (범위 10-200, 0=OFF)");
             }
+        }
+        ConfigKey::CommitUnit => {
+            // ModeSharing 패턴 미러 — 영문 키워드 + 한국어 별칭 수용.
+            let unit = match value.to_lowercase().as_str() {
+                "syllable" | "음절" => CommitUnit::Syllable,
+                "word" | "단어" => CommitUnit::Word,
+                "smart" | "스마트" => CommitUnit::Smart,
+                _ => {
+                    return Err(t!(
+                        "error_invalid_commit_unit",
+                        value = value,
+                        allowed = "syllable, word, smart"
+                    )
+                    .to_string());
+                }
+            };
+            config.engine.korean.commit_unit = unit;
+            println!(
+                "{}",
+                t!("commit_unit_changed", unit = unit.display_name())
+            );
         }
         ConfigKey::WordModeApps => {
             // 실행 파일명 정확일치 목록. 빈 문자열/빈 목록도 유효(= Smart 게이트가 어떤
