@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=UNIM Settings
+Name[ko]=UNIM 설정
+Comment=UNIM Korean IME settings and first-run wizard
+Comment[ko]=UNIM 한국어 입력기 설정 및 설치 마법사
+Exec=unim-settings
+Icon=io.github.from104.unim.SettingsSlint
+Terminal=false
+Categories=Settings;
+StartupWMClass=unim-settings
+NoDisplay=true

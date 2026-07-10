@@ -1,19 +1,21 @@
-.TH UNIM-SETTINGS 1 "May 2026" "UNIM 0.3.0" "User Commands"
+.TH UNIM-SETTINGS-GTK 1 "July 2026" "UNIM 0.3.63" "User Commands"
 .SH NAME
-unim\-settings \- UNIM settings dialog (GTK4 + libadwaita)
+unim\-settings\-gtk \- UNIM GTK4 settings dialog (GTK4 + libadwaita)
 .SH SYNOPSIS
-.B unim\-settings
+.B unim\-settings\-gtk
 [\fIOPTIONS\fR]
 .SH DESCRIPTION
-\fBunim\-settings\fR is the dedicated settings dialog for UNIM (Universal
-Next\-generation Input Method). It is a GTK4 + libadwaita window that
-edits the same configuration file the daemon reads
-(\fI~/.config/unim/config.yaml\fR), with every change synced live to the
-running daemon over D\-Bus.
+\fBunim\-settings\-gtk\fR is the GTK4 settings dialog for UNIM (Universal
+Next\-generation Input Method). It is a GTK4 + libadwaita window
+(\fBAdw.PreferencesWindow\fR) that edits the same configuration file the
+daemon reads (\fI~/.config/unim/config.yaml\fR), with every change synced
+live to the running daemon over D\-Bus.
 .PP
-In UNIM 0.3.0 this dialog replaces the previous \fBunim\-gui\-gtk\fR and
-\fBunim\-gui\-qt\fR binaries. The Qt6 dialog (\fBunim\-gui\-qt\fR) has been
-retired \(em \fBunim\-settings\fR is now the single GUI for all desktops.
+This binary was previously named \fBunim\-settings\fR. That name now belongs
+to the cross\-platform Slint settings application and first\-run wizard
+(see \fBunim\-settings\fR(1)); the GTK4 dialog described here is
+\fBunim\-settings\-gtk\fR. Both edit the same configuration and either may be
+used on desktops where GTK4 + libadwaita are available.
 .PP
 The dialog is normally launched from the tray indicator (\fBunim\-indicator\fR)
 or by typing its name in a launcher.
@@ -59,6 +61,7 @@ User configuration file (single source of truth).
 User\-defined layout profiles (loaded automatically by the daemon).
 .SH SEE ALSO
 .BR unim (1),
+.BR unim\-settings (1),
 .BR unim\-daemon (1),
 .BR unim\-cli (1),
 .BR unim\-indicator (1),

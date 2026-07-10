@@ -13,7 +13,7 @@
 //! - `notify_config_saved(cfg: &Config, label: &str)` — 저장 후 데몬 통지
 //!   (Linux = DBus fire-and-forget, Windows·fallback = no-op)
 //! - `wizard_is_default_ime() -> bool`
-//! - `wizard_set_as_default()`
+//! - `wizard_set_as_default() -> bool` — 기본 입력기 지정 성공 여부
 //! - `wizard_set_default_on_startup(v: bool)`
 //! - `wizard_is_korean_language_installed() -> bool`
 //! - `wizard_open_language_settings()`
@@ -46,7 +46,9 @@ mod fallback {
     pub fn wizard_is_default_ime() -> bool {
         true
     }
-    pub fn wizard_set_as_default() {}
+    pub fn wizard_set_as_default() -> bool {
+        true
+    }
     pub fn wizard_set_default_on_startup(_v: bool) {}
     pub fn wizard_is_korean_language_installed() -> bool {
         true

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=UNIM First-Run Wizard
+Name[ko]=UNIM 첫 실행 마법사
+Exec=unim-settings --first-run-if-needed
+Icon=io.github.from104.unim.SettingsSlint
+Terminal=false
+NoDisplay=true
+StartupNotify=false

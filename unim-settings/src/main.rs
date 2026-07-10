@@ -276,6 +276,13 @@ fn linux_korean_font_family() -> Option<String> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // autostart(--first-run-if-needed): 마법사 완료 기록(seen)이 있으면 창·싱글턴 락·
+    // 알림 전부 없이 즉시 종료한다. acquire_singleton_or_foreground() 이전에 검사해
+    // flock·notify 비용까지 없앤다 (매 로그인 마법사 재출현 방지). 비용 = 파일 read 1회.
+    if wizard::autostart_should_exit_quietly() {
+        return Ok(());
+    }
+
     // 단일 인스턴스 가드: 이미 설정 창이 떠 있으면 그 창을 전면화하고 즉시 종료한다.
     // (중복 창이 뜨면 각자 저장해 마지막 창이 이전 변경을 덮어쓰는 문제를 차단.)
     if !platform::acquire_singleton_or_foreground() {

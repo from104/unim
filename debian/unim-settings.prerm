@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        _user="$(logname 2>/dev/null || echo root)"
+        # comm "unim-settings" 는 13자라 procps 15자 절단에 안전 → -x 정확 매치.
+        # GTK 앱 comm "unim-settings-g"(절단)와 겹치지 않으므로 오살 없음.
+        pkill -u "$_user" -x unim-settings 2>/dev/null || true
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

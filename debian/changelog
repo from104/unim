@@ -1,3 +1,16 @@
+unim (0.3.63-1) unstable; urgency=medium
+
+  * GTK4 settings dialog renamed: unim-settings -> unim-settings-gtk.
+  * New package unim-settings: cross-platform Slint settings app with
+    first-run wizard; per-login autostart gate (--first-run-if-needed)
+    via /etc/xdg/autostart. Re-run manually: unim-settings --first-run.
+  * unim-keymap-studio / unim-typing-practice now actually ship their
+    binaries, desktop entries, icons and man pages.
+  * unim-common now recommends fonts-noto-cjk.
+  * Wizard sets the default input method in-process via im-config -n.
+
+ -- Seo Kihyun <from104@gmail.com>  Sat, 11 Jul 2026 00:17:53 +0900
+
 unim (0.3.0-1) unstable; urgency=medium
 
   * Release 0.3.0.
