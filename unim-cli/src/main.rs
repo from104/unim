@@ -442,6 +442,15 @@ enum ConfigKey {
     /// 자동 오타 교정: 역방향 사용자 사전 활성화 (true, false)
     #[value(name = "auto-typefix-user-dict")]
     AutoTypeFixUserDictEnabled,
+    /// 자동 오타 교정: 전체 토글 단축키 (쉼표 구분 단일 키, 비우면 사용 안 함. 예: ScrollLock, F10)
+    #[value(name = "auto-typefix-toggle-keys")]
+    AutoTypeFixToggleKeys,
+    /// 자동 오타 교정: 순방향(영→한) 토글 단축키 (쉼표 구분 단일 키, 비우면 사용 안 함)
+    #[value(name = "auto-typefix-forward-toggle-keys")]
+    AutoTypeFixForwardToggleKeys,
+    /// 자동 오타 교정: 역방향(한→영) 토글 단축키 (쉼표 구분 단일 키, 비우면 사용 안 함)
+    #[value(name = "auto-typefix-reverse-toggle-keys")]
+    AutoTypeFixReverseToggleKeys,
     /// 자동 영문 모드 전환 활성화 (true, false)
     #[value(name = "auto-english")]
     AutoEnglish,
@@ -741,6 +750,19 @@ fn config_show() {
         t!("disabled")
     };
     println!("{}: {}", t!("auto_typefix_label"), auto_typefix_status);
+    {
+        // 토글 단축키 3종 — ATF off 상태에서도 전체 켜기용으로 쓰이므로 항상 표시.
+        let atf = &config.engine.auto_typefix;
+        println!(
+            "{}",
+            t!(
+                "config_atfix_toggle_keys_line",
+                all = display_keys(&atf.toggle_enabled_keys),
+                fwd = display_keys(&atf.toggle_forward_keys),
+                rev = display_keys(&atf.toggle_reverse_keys)
+            )
+        );
+    }
     if config.engine.auto_typefix.enabled {
         let atf = &config.engine.auto_typefix;
         println!(
@@ -846,6 +868,54 @@ fn config_show() {
     if let Some(path) = UnimConfig::default_config_path() {
         println!("{}: {}", t!("config_file_label"), path.display());
     }
+}
+
+/// 단축키 목록 표시용 — 비어 있으면 "(사용 안 함)" 라벨로 노출한다(옵트인 키 3종 공통).
+fn display_keys(keys: &[String]) -> String {
+    if keys.is_empty() {
+        t!("keys_unset").to_string()
+    } else {
+        keys.join(", ")
+    }
+}
+
+/// ATF 토글 핫키 값(키 이름 목록)을 검증해 경고 목록과 `Unknown` 포함 여부를 돌려준다.
+///
+/// 차단하지 않고 경고만 낸다(toggle_keys 규약과 정합 — 저장은 호출부에서 그대로 수행).
+/// * `Unknown` 키 → 오타/미지원 경고. 호출부는 이 경우 성공 에코를 억제한다.
+/// * 문자·편집키(A~Z, Space/Enter/Backspace/Tab/Delete) → 그 키로 입력이 불가능해지는
+///   풋건 경고(수정자 조합 미지원이라 회피 불가).
+/// * 기존 한/영(`toggle_keys`)·한자(`hanja_keys`) 키와 중복 → 역할 충돌 경고.
+fn atf_hotkey_warnings(keys: &[String], config: &UnimConfig) -> (Vec<String>, bool) {
+    use unim::keycode::KeyCode;
+    let mut warnings = Vec::new();
+    let mut any_unknown = false;
+    for name in keys {
+        let kc = KeyCode::from_name(name);
+        if kc == KeyCode::Unknown {
+            any_unknown = true;
+            warnings.push(t!("atf_hotkey_warn_unknown", key = name.clone()).to_string());
+            continue;
+        }
+        let is_input_key = kc.is_character_key()
+            || matches!(
+                kc,
+                KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab | KeyCode::Delete
+            );
+        if is_input_key {
+            warnings.push(t!("atf_hotkey_warn_input_key", key = name.clone()).to_string());
+        }
+        let dup = config
+            .engine
+            .toggle_keys
+            .iter()
+            .chain(config.engine.hanja_keys.iter())
+            .any(|k| KeyCode::from_name(k) == kc);
+        if dup {
+            warnings.push(t!("atf_hotkey_warn_duplicate", key = name.clone()).to_string());
+        }
+    }
+    (warnings, any_unknown)
 }
 
 fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
@@ -1179,6 +1249,65 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 t!("auto_typefix_user_dict_enabled_label"),
                 if enabled { "ON" } else { "OFF" }
             );
+        }
+        // 오타 교정 토글 단축키 3종 — toggle-keys 와 달리 빈 목록 허용(옵트인, 비우면 사용 안 함).
+        ConfigKey::AutoTypeFixToggleKeys => {
+            let keys: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let (warnings, any_unknown) = atf_hotkey_warnings(&keys, &config);
+            config.engine.auto_typefix.toggle_enabled_keys = keys;
+            for w in &warnings {
+                eprintln!("{}", w);
+            }
+            // Unknown 키가 있으면 성공 에코를 억제(오타/미지원을 성공으로 오인 방지).
+            if !any_unknown {
+                println!(
+                    "{}: {}",
+                    t!("auto_typefix_toggle_keys_label"),
+                    display_keys(&config.engine.auto_typefix.toggle_enabled_keys)
+                );
+            }
+        }
+        ConfigKey::AutoTypeFixForwardToggleKeys => {
+            let keys: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let (warnings, any_unknown) = atf_hotkey_warnings(&keys, &config);
+            config.engine.auto_typefix.toggle_forward_keys = keys;
+            for w in &warnings {
+                eprintln!("{}", w);
+            }
+            if !any_unknown {
+                println!(
+                    "{}: {}",
+                    t!("auto_typefix_forward_toggle_keys_label"),
+                    display_keys(&config.engine.auto_typefix.toggle_forward_keys)
+                );
+            }
+        }
+        ConfigKey::AutoTypeFixReverseToggleKeys => {
+            let keys: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let (warnings, any_unknown) = atf_hotkey_warnings(&keys, &config);
+            config.engine.auto_typefix.toggle_reverse_keys = keys;
+            for w in &warnings {
+                eprintln!("{}", w);
+            }
+            if !any_unknown {
+                println!(
+                    "{}: {}",
+                    t!("auto_typefix_reverse_toggle_keys_label"),
+                    display_keys(&config.engine.auto_typefix.toggle_reverse_keys)
+                );
+            }
         }
         ConfigKey::AutoEnglish => {
             let enabled = match value.to_lowercase().as_str() {

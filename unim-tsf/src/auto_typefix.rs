@@ -101,6 +101,20 @@ impl AutoTypeFixState {
         self.recent_corrections.clear();
     }
 
+    /// 비밀번호/PIN 필드 진입 시 민감 잔류 제거.
+    ///
+    /// 키스트로크 버퍼·undo 원문·최근 교정 이력을 모두 비운다(비번 직전 타이핑까지
+    /// 제거). `reset_on_focus` 와 동일한 3필드 클리어지만, 호출 의도(비번 게이트)를
+    /// 명시하는 별도 진입점이다 — OnSetFocus 의 스퓨리어스-포커스 보존 최적화
+    /// (`atf_reset_should_skip`)를 우회해 **무조건** 클리어할 때 쓴다(fail-closed).
+    /// blacklist/user_dict(디스크 학습본)는 건드리지 않는다 — ATF 관찰 게이트가 비번
+    /// 중 학습 자체를 차단하므로 잔류 원천이 없다.
+    pub fn clear_sensitive(&mut self) {
+        self.buf.clear();
+        self.undo = None;
+        self.recent_corrections.clear();
+    }
+
     /// Excel 셀 첫타 ATF 유실 게이트용 — 현재 키스트로크 버퍼 길이.
     ///
     /// 스퓨리어스 OnSetFocus 가 ATF 버퍼를 비우면 forward.rs 의 `len() < 2` 게이트가

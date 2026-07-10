@@ -49,6 +49,9 @@ private:
     bool m_composing;
     bool m_popupActive;  /* Standalone popup 활성 여부 (nav 키 우회 차단용) */
     QRect m_cursorRect;
+    /* 현재 입력 필드 목적 (focus 시 갱신). 1=Password, 2=Pin 이면 dev 로그의
+     * 내용 필드(key·commit·preedit)를 "***"로 마스킹해 평문 잔류 방지. */
+    quint32 m_contentPurpose = 0;
 };
 
 #endif // UNIM_INPUT_CONTEXT_HPP

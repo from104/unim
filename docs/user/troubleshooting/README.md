@@ -228,6 +228,30 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50
 
 ---
 
+## 8-1. "AutoTypeFix fires in a password field"
+
+### Cause
+
+Password protection ([FAQ](../faq/README.md) Q9) works only when the app reports "this field is a password" (`content_purpose`). The environments below cannot deliver that signal to UNIM, so the password field is treated as a normal field.
+
+| Environment | Status | Reason |
+|------|------|------|
+| GTK3/4, Qt5/6, GNOME extension, Windows TSF | Detected | content_purpose / InputScope delivered correctly |
+| Legacy XIM apps | Not detected | XIM protocol has no such signal |
+| Windows IMM32 fallback | Not detected | No InputScope query path |
+| Some Wayland compositors / web forms | Not detected | content-purpose not sent (app/compositor's discretion) |
+| GTK apps that change purpose after focus | Not detected | The GTK IM reads input-purpose only at focus time and does not subscribe to `notify::input-purpose` (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus |
+
+### Fix
+
+- In undetectable environments, verify **English mode** with the Hangul key before typing your password. In English mode, forward (English→Korean) correction is suppressed by default, so it is effectively safe.
+- If a specific app hits this often, temporarily turn AutoTypeFix off with a toggle hotkey ([User Guide](../user-guide/README.md) 4.4).
+- When assigning toggle hotkeys, **do not reuse the Hangul/English or Hanja keys** — the roles conflict and language switching or Hanja conversion may be shadowed by the toggle (the CLI `unim-cli config set` warns on such duplicates).
+
+> **preedit-exposure — tracked separately**: In a password field, Korean composition itself is blocked, so a character briefly showing as preedit (underline) during composition is essentially absent in the correctly-detected environments. In the undetectable Wayland environments above, exposure could occur in theory; this is **tracked as a separate issue**, and the current recommended workaround is "verify English mode manually" above.
+
+---
+
 ## 9. "AutoTypeFix corrects too aggressively / wrongly"
 
 ### Fix

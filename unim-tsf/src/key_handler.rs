@@ -126,6 +126,21 @@ pub fn test_key_down(
         }
     }
 
+    // AutoTypeFix 토글 단축키(옵트인)도 소비 — press_key 의 atf_hotkey_kind 매칭과
+    // 동일한 shortcut_combo 가드로 정렬한다. 소비하지 않으면(OnTestKeyDown=FALSE)
+    // 대부분의 앱이 OnKeyDown 을 호출하지 않아 press_key 자체가 불리지 않고 핫키가
+    // 죽는다(is_toggle 선례 — engine.rs is_atf_hotkey 주석 명시). 기본 빈 목록이면
+    // is_atf_hotkey=false 라 항상 통과 → 무회귀.
+    if engine.is_atf_hotkey(keycode) {
+        let self_is_modifier = keycode.is_modifier();
+        let shortcut_combo = modifiers.control
+            || modifiers.super_key
+            || (modifiers.alt && !self_is_modifier);
+        if !shortcut_combo {
+            return true;
+        }
+    }
+
     // Ctrl/Alt/Super 조합은 통과 (단축키)
     if modifiers.control || modifiers.alt || modifiers.super_key {
         return false;
@@ -158,6 +173,10 @@ pub fn test_key_down(
         && keycode.is_character_key()
         && config.engine.auto_typefix.enabled
         && config.engine.auto_typefix.forward
+        // 비밀번호/PIN 필드에서는 순방향(영→한) 관찰용 소비를 하지 않는다 — 소비하면
+        // OnKeyDown 경로로 영문 키가 ATF 버퍼에 관찰돼 비번 키스트로크가 잔류한다.
+        // 미소비 시 앱이 문자를 직접 받아(영문 강제 상태) 정상 입력되며 IME 무접촉.
+        && !engine.content_purpose().should_block_hangul()
         && !is_own_gui_host()
     {
         return true;
@@ -357,6 +376,12 @@ pub fn handle_key_down(
     let keycode = KeyCode::from_win32_vk(vk);
     let modifiers = get_modifier_state();
 
+    // 비밀번호/PIN 필드 여부 — AutoTypeFix 전 경로 런타임 AND-게이트. content_purpose 는
+    // OnSetFocus 에서 세팅되어 키 처리 중 불변이므로 진입 시 1회 산출한다. false 면 ATF
+    // 관찰·교정·undo 를 모두 차단해 비번 키스트로크가 어떤 버퍼·학습에도 잔류하지 않게
+    // 한다(수동 토글 상태는 config 무접촉이라 구조적으로 보존 — 이탈 시 자동 복원).
+    let atf_active = !engine.content_purpose().should_block_hangul();
+
     // ── Ctrl+Shift+Space: 수동 AutoTypeFix (typefix_convert) ──
     //
     // 갭 2 수정: TSF ReadOnly EditSession 으로 선택 영역 텍스트를 읽어
@@ -398,7 +423,15 @@ pub fn handle_key_down(
     }
 
     // ── Ctrl+Z AutoTypeFix 되돌리기 (press_key 전에 먼저 검사) ──
-    if let Some(apply) = auto_typefix::try_undo(atf_state, keycode, modifiers) {
+    // 비번 필드(atf_active=false)에서는 진입 자체를 차단한다 — undo_states 는 이미
+    // 클리어됐고 관찰도 게이트돼 새 undo 가 형성되지 않으나, 방어적으로 try_undo 호출
+    // (내부 undo.take)까지 막아 일반 Ctrl+Z 로 자연 폴백시킨다.
+    let atf_undo = if atf_active {
+        auto_typefix::try_undo(atf_state, keycode, modifiers)
+    } else {
+        None
+    };
+    if let Some(apply) = atf_undo {
         let outcome = comp_mgr.replace_surrounding(
             context,
             tid,
@@ -480,7 +513,8 @@ pub fn handle_key_down(
     }
 
     // ── Backspace 관찰 (blacklist 재트리거 감지용) ──
-    if keycode == KeyCode::Backspace {
+    // 비번 필드(atf_active=false)에서는 관찰 금지 — recent_corrections 에 잔류 방지.
+    if atf_active && keycode == KeyCode::Backspace {
         auto_typefix::observe_backspace(atf_state, &config.engine.auto_typefix);
     }
 
@@ -498,8 +532,9 @@ pub fn handle_key_down(
     );
 
     // 모드 전환 관찰 (사용자 수동 전환 — ATF 자체 전환과 구분은 process_after_key 내부에서)
+    // 비번 필드(atf_active=false)에서는 관찰 금지.
     let current_mode = engine.input_category();
-    if prev_mode != current_mode {
+    if atf_active && prev_mode != current_mode {
         auto_typefix::observe_mode_switch(atf_state, &config.engine.auto_typefix);
     }
 
@@ -620,6 +655,7 @@ pub fn handle_key_down(
         // 비협조/한글/경계문자/forward off) → 종전 경로(보유분 있으면 먼저 영문 확정).
         let hold_eligible = engine.is_word_mode()
             && !known_cuas
+            && atf_active // 비번 필드에서는 순방향 교정용 영문 라이브 보유 금지
             && config.engine.auto_typefix.enabled
             && config.engine.auto_typefix.forward
             && engine.input_category() == InputCategory::English
@@ -690,7 +726,9 @@ pub fn handle_key_down(
     // 하도록 보강(composition.rs)됐으므로, CUAS 에서도 동일 경로로 교정한다.
     let popup_active = popup.is_active();
     let mut schedule_flush = false;
-    if !popup_active {
+    // 비번 필드(atf_active=false)에서는 ATF 오케스트레이션 전체를 건너뛴다 — 관찰·교정·
+    // 학습(blacklist/userdict) 원천 차단. 조합/commit 표시는 위에서 이미 처리됐다.
+    if !popup_active && atf_active {
         // Word 라이브 조합 치환 분기는 코어가 계산한 `apply.replace_composition` 을 신호로 쓴다.
         // 코어 check_forward/check_reverse 는 process_after_key 내부 engine.reset() **이전**의
         // `engine.is_word_mode()`(= 현재 포커스 word 모드; 순방향은 word 모드, 역방향은

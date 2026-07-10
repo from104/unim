@@ -465,6 +465,30 @@ impl LangBarState {
             });
         }
     }
+
+    /// AutoTypeFix 토글 단축키(전체/순방향/역방향)를 무시각 사용자에게 능동 통지한다.
+    ///
+    /// `announce_mode_change`(한/영)와 동일 패턴이나 비프 음역을 달리해(한/영 880/440Hz
+    /// 와 구별) ATF 토글임을 청각적으로 구별하게 한다: 켜짐=고음(1318Hz)/꺼짐=저음
+    /// (659Hz), 각 70ms. 세 종류(enabled/forward/reverse)는 on/off 차등만 두고 kind 별
+    /// 구별은 하지 않는다(과도 신호 방지). `announce_beep` 는 `toggle_announce_beep`
+    /// 설정을 존중한다(한/영 비프와 동일 게이트). Beep 은 별도 스레드에서 울려 TSF STA
+    /// (키 입력) 스레드를 블로킹하지 않는다.
+    pub fn announce_atf_toggle(&self, on: bool, announce_beep: bool) {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.0 as isize != 0 {
+                NotifyWinEvent(EVENT_OBJECT_STATECHANGE, hwnd, OBJID_CLIENT.0, 0);
+                NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, hwnd, OBJID_CLIENT.0, 0);
+            }
+        }
+        if announce_beep {
+            let (freq, dur) = if on { (1318u32, 70u32) } else { (659u32, 70u32) };
+            std::thread::spawn(move || unsafe {
+                let _ = Beep(freq, dur);
+            });
+        }
+    }
 }
 
 // ── UnimLangBarButton ──────────────────────────────────────────────────────────

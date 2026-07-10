@@ -36,6 +36,9 @@ pub enum DbusRequest {
         context_path: String,
         window_id: String,
     },
+    /// 입력 필드 목적(ContentType) 송신 — Password/Pin 시 엔진이 한글·ATF 차단.
+    /// gtk-common `unim_dbus_set_content_type` 와 동일 계약 `(u)`.
+    SetContentType { context_path: String, purpose: u32 },
     /// 포커스 아웃
     FocusOut {
         context_path: String,
@@ -337,6 +340,16 @@ async fn run_dbus_client(
                 if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
                     let _ = proxy.focus_in(&window_id).await;
                     unim_log!("WAYLAND_DBUS", "FocusIn: {}", context_path);
+                }
+            }
+
+            DbusRequest::SetContentType {
+                context_path,
+                purpose,
+            } => {
+                if let Ok(proxy) = build_ctx_proxy(&connection, &context_path).await {
+                    let _ = proxy.set_content_type(purpose).await;
+                    unim_log!("WAYLAND_DBUS", "SetContentType: purpose={}", purpose);
                 }
             }
 

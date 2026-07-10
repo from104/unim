@@ -14,6 +14,14 @@ use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::unim_log;
 
+/// ATF 토글 핫키 오토리핏 디바운스 창.
+///
+/// 동일 키코드가 이 시간 이내에 다시 매칭되면(키 홀드에 의한 자동반복) 토글을
+/// 생략하고 소비만 한다. 홀드가 지속되는 한 매 반복마다 시각이 갱신돼 rolling
+/// window 로 차단이 유지된다. 일반적인 키보드 자동반복 주기(약 30~40ms)보다
+/// 넉넉히 크되, 의도적 재토글을 방해하지 않을 만큼 짧게 잡는다.
+const ATF_HOTKEY_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
+
 impl InputEngine {
     /// 키 코드를 처리합니다.
     ///
@@ -123,6 +131,37 @@ impl InputEngine {
                 // 조합 중이었으면 commit이 발생했으므로 committed() 반환
                 if was_composing {
                     return InputResult::committed();
+                }
+                return InputResult::consumed();
+            }
+        }
+
+        // AutoTypeFix 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록이면 무동작).
+        // 토글키 분기와 동일하게 Ctrl/Super/(비자기)Alt 동반 시엔 단축키로 보고 소비하지
+        // 않는다(아래 단축키 가드가 통과 처리). 매칭 시 config·상태는 건드리지 않고
+        // pending_atf_toggle 에 대상 플래그만 적재(InputResult ABI 보존) — 호스트가
+        // take_atf_toggle() 로 드레인해 반전·persist·통지한다. 팝업 활성 중에는 위
+        // 팝업 분기가 선행 처리하므로 여기 도달하지 않는다.
+        if let Some(kind) = self.atf_hotkey_kind(keycode) {
+            // 수정자 동반 시 단축키로 보고 소비하지 않는다. Shift 동반도 배제해
+            // Shift+F10(컨텍스트 메뉴) 같은 앱 단축키를 보호한다. ATF 핫키 목록은
+            // 파싱 단계에서 수정자 키를 배제하므로 keycode 자체는 수정자가 아니다.
+            let shortcut_combo =
+                modifier.control || modifier.super_key || modifier.alt || modifier.shift;
+            if !shortcut_combo {
+                // 오토리핏 디바운스: 동일 키 홀드로 press_key 가 연속 호출될 때 토글이
+                // 반복 반전되는 것을 막는다. 소비는 항상 유지(홀드 중 키가 앱으로 새면
+                // 안 됨)하되, ATF_HOTKEY_DEBOUNCE 이내 동일 키코드 재매칭이면 토글만
+                // 생략하고 시각을 갱신해 홀드 내내 rolling window 로 차단한다.
+                let now = std::time::Instant::now();
+                let is_repeat = matches!(
+                    self.last_atf_hotkey,
+                    Some((last_key, last_at))
+                        if last_key == keycode && now.duration_since(last_at) < ATF_HOTKEY_DEBOUNCE
+                );
+                self.last_atf_hotkey = Some((keycode, now));
+                if !is_repeat {
+                    self.pending_atf_toggle = Some(kind);
                 }
                 return InputResult::consumed();
             }

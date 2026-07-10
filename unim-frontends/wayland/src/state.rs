@@ -23,6 +23,7 @@ use wayland_client::{
     },
     Connection, Dispatch, QueueHandle, WEnum,
 };
+use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::ContentPurpose as WlContentPurpose;
 use wayland_protocols_misc::zwp_input_method_v2::client::{
     zwp_input_method_keyboard_grab_v2::{self, ZwpInputMethodKeyboardGrabV2},
     zwp_input_method_manager_v2::ZwpInputMethodManagerV2,
@@ -56,6 +57,14 @@ pub struct AppState {
     current_active: bool,
     grab_active: bool,
     keymap_init: bool,
+    /// 이번 더블버퍼 사이클에 수신한 ContentType 목적(UNIM ContentPurpose u32).
+    ///
+    /// text-input-v3 는 content_type 을 필드 목적이 기본이 아닐 때만 보낸다. 즉시
+    /// 송신하면 (a) FocusIn 보다 먼저 도달할 수 있고, (b) 비번 필드→목적 미송신 앱으로
+    /// 이동 시 Password 가 잔존한다. 그래서 이벤트는 여기 보관하고 Done(활성화 커밋)에서
+    /// FocusIn 뒤에 송신하되, 사이클에 ContentType 이 없었으면 Normal 을 명시 송신해
+    /// 잔존을 차단한다(fail-safe). 각 Done 에서 `take` 로 소비된다.
+    pending_content_purpose: Option<u32>,
 
     // 키 처리
     keymap_handler: KeymapHandler,
@@ -92,6 +101,7 @@ impl AppState {
             current_active: false,
             grab_active: false,
             keymap_init: false,
+            pending_content_purpose: None,
             keymap_handler: KeymapHandler::new(),
             last_preedit: String::new(),
             repeat_timer: RepeatTimer::new(),
@@ -540,16 +550,44 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                     state.grab_active = true;
                     state.current_active = true;
 
-                    // DBus FocusIn
+                    // DBus FocusIn — SetContentType 보다 먼저 보내 순서를 고정한다.
                     let _ = state.dbus_tx.blocking_send(DbusRequest::FocusIn {
                         context_path: state.context_path.clone(),
                         window_id: "unim-wayland".to_string(),
+                    });
+
+                    // 활성화 커밋: 이번 사이클에 ContentType 을 받았으면 그 목적을,
+                    // 못 받았으면 Normal 을 명시 송신한다. 후자가 비번 필드 → 목적
+                    // 미송신 앱 이동 시 Password 잔존을 차단하는 fail-safe.
+                    let purpose = state
+                        .pending_content_purpose
+                        .take()
+                        .unwrap_or(unim::config::ContentPurpose::Normal as u32);
+                    unim_log!("WAYLAND", "활성화 → SetContentType(purpose={})", purpose);
+                    let _ = state.dbus_tx.blocking_send(DbusRequest::SetContentType {
+                        context_path: state.context_path.clone(),
+                        purpose,
                     });
                 } else if should_deactivate {
                     unim_log!("WAYLAND", "Done → 비활성화 (serial={})", state.serial);
                     state.handle_deactivate();
                     state.grab_active = false;
                     state.current_active = false;
+                    // 비활성 사이클의 잔여 목적은 폐기(다음 활성화에서 새로 판정).
+                    state.pending_content_purpose = None;
+                } else if state.current_active {
+                    // 포커스 유지 중 목적 변경(mid-focus content_type 갱신) 반영.
+                    if let Some(purpose) = state.pending_content_purpose.take() {
+                        unim_log!(
+                            "WAYLAND",
+                            "목적 변경 → SetContentType(purpose={})",
+                            purpose
+                        );
+                        let _ = state.dbus_tx.blocking_send(DbusRequest::SetContentType {
+                            context_path: state.context_path.clone(),
+                            purpose,
+                        });
+                    }
                 }
 
                 // pending 상태 리셋
@@ -565,8 +603,25 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                 // text change cause (현재 미사용)
             }
 
-            zwp_input_method_v2::Event::ContentType { .. } => {
-                // content type hint (현재 미사용)
+            zwp_input_method_v2::Event::ContentType { purpose, .. } => {
+                // 프로토콜 생성 enum(password/pin)만 매칭 → UNIM ContentPurpose 로 변환.
+                // 그 외 목적은 Normal 로 매핑한다. 즉시 송신하지 않고 pending 에 보관해
+                // Done(활성화 커밋)에서 FocusIn 뒤에 송신한다(순서 보장 + 미수신 시 잔존 차단).
+                let unim_purpose = match purpose {
+                    WEnum::Value(WlContentPurpose::Password) => {
+                        unim::config::ContentPurpose::Password as u32
+                    }
+                    WEnum::Value(WlContentPurpose::Pin) => {
+                        unim::config::ContentPurpose::Pin as u32
+                    }
+                    _ => unim::config::ContentPurpose::Normal as u32,
+                };
+                unim_log!(
+                    "WAYLAND",
+                    "ContentType 수신 → pending(purpose={})",
+                    unim_purpose
+                );
+                state.pending_content_purpose = Some(unim_purpose);
             }
 
             zwp_input_method_v2::Event::Unavailable => {

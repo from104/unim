@@ -241,6 +241,47 @@ Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건�
 
 > **사용자 사전 (역방향 화이트리스트)**: 0.2.0 신규. 텍스트 선택 후 단축키로 `RegisterUserDictFromSelection` DBus 메서드 호출 → 영어 사전 항목으로 등록. 설정 GUI 「사용자 사전」 페이지에서 추가/제거/수정.
 
+#### 토글 단축키 — 지정한 키로 즉시 켜고 끄기
+
+키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다(**옵트인** — 기본은 아무 키도 지정돼 있지 않다). 세 가지를 각각 따로 둔다.
+
+- **전체 토글**: 자동 오타 교정 전체(마스터 스위치)를 켜고 끈다.
+- **순방향(=정방향) 토글**: 순방향(영→한) 교정만 켜고 끈다. (일부 GUI 라벨은 "정방향"으로 표기하지만 같은 뜻이다.)
+- **역방향 토글**: 역방향(한→영) 교정만 켜고 끈다.
+
+CLI로 지정한다.
+
+```bash
+# 전체 오타 교정을 ScrollLock 키로 토글
+unim-cli config set auto-typefix-toggle-keys ScrollLock
+
+# 순방향/역방향을 각각 F10, F11 로
+unim-cli config set auto-typefix-forward-toggle-keys F10
+unim-cli config set auto-typefix-reverse-toggle-keys F11
+
+# 여러 키를 쉼표로 (그중 아무거나 누르면 토글)
+unim-cli config set auto-typefix-toggle-keys "ScrollLock,Pause"
+
+# 해제 — 빈 값을 주면 어떤 키도 가로채지 않는다
+unim-cli config set auto-typefix-toggle-keys ""
+```
+
+설정 GUI(GTK)에서는 세 칸이 한 그룹에 모여 있지 않고 각 기능 그룹에 나뉘어 배치돼 있다 — **전체 토글**은 「오타 교정」 마스터 그룹(전체 켜기·끄기 스위치 옆), **순방향(정방향) 토글**은 「순방향」 그룹, **역방향 토글**은 「역방향」 그룹에 각각 놓인다. 각 칸에 키 이름을 직접 적고, 비워 두면 사용하지 않는다.
+
+Slint 설정 앱(unim-settings, Windows 포함)에서는 세 칸이 **오타 교정** 페이지(5.2)의 **「토글 단축키」** 그룹에 나란히 모여 있다.
+
+> - **단일 키만 지원한다.** `Ctrl+X` 같은 수정자 조합은 쓸 수 없다 — `ScrollLock`, `Pause`, `F10` 처럼 키 하나만 적는다(조합을 적으면 무시된다).
+> - 기본값이 비어 있어, 키를 지정하기 전에는 아무 키도 소비하지 않는다. 기존 사용자 동작에 영향이 없다.
+> - 전체가 꺼진 상태에서 순방향만 토글로 켜도 실제 교정은 전체를 다시 켜야 발동한다(전체가 마스터 스위치). 순방향/역방향 토글은 각 방향의 플래그만 바꾼다.
+> - 접근성 참고: Windows 에서는 토글 시 한/영 알림음과 같은 차등 비프로 상태를 알려 준다(`toggle-announce-beep` 설정 존중). 리눅스에서는 소리 없이 설정만 바뀐다.
+
+#### 비밀번호 필드 자동 보호
+
+비밀번호·PIN 입력 칸에서는 자동 오타 교정이 **자동으로 꺼진다.** 앱이 "이 칸은 비밀번호"라고 알려 주면(`content_purpose`) UNIM 은 그 칸에 머무는 동안 순방향·역방향 교정을 모두 멈추고, 이미 쌓인 키 관측 버퍼·되돌리기 기록도 지운다. 덕분에 `dkssud`처럼 친 비밀번호가 한글로 자동 교정돼 값이 깨지는 일이 없다.
+
+- 칸을 벗어나면 즉시 원래대로 돌아온다. 수동으로 토글해 둔 켜짐/꺼짐 상태는 그대로 유지된다 — 비밀번호 보호는 그 위에 잠깐 덮이는 안전장치일 뿐이다.
+- 이 보호는 앱이 비밀번호 칸임을 알려 줄 때 동작한다. 알려 주지 않는 일부 환경(XIM 레거시 앱, Windows IMM32 폴백, content-purpose 를 보내지 않는 일부 Wayland 컴포지터·웹폼)에서는 자동 감지가 안 될 수 있다 → [FAQ](../faq/README-ko.md) Q9 참고.
+
 ### 4.5 자동 영문 모드 전환 (Auto-English-Mode)
 
 vim 명령 모드(`Esc`), CLI 슬래시 명령(`/`) 같은 비한글 컨텍스트에 들어갈 때 자동으로 영문으로 전환되게 하는 **opt-in** 기능. 기본 비활성.
@@ -316,17 +357,24 @@ unim-qt-settings &      # Qt6 (대안)
 
 <!-- screenshot: settings-typefix -->
 
+GTK 설정 앱 기준(세 토글 단축키 칸은 각 기능 그룹에 나뉘어 있다):
+
 | 그룹 | 위젯 | 의미 |
 |------|------|------|
-| **공통** | 활성화 (Switch) | 마스터 토글. OFF면 forward/reverse 둘 다 정지 |
+| **공통(마스터)** | 활성화 (Switch) | 마스터 토글. OFF면 forward/reverse 둘 다 정지 |
+|  | 전체 토글 단축키 (LineEdit) | 지정 키로 전체를 즉시 켜고 끈다. 비우면 사용 안 함, 단일 키만 — 4.4 참고 |
 |  | 롤백 감지 (Switch) | BS+모드전환 관측 자동 학습. 기본 ON |
 |  | 관찰 시간(초) (Slider) | 기본 10초, 5~15. 길수록 학습 민감 |
 |  | 임시 만료(시간) (Slider) | 기본 1시간, 1~12. Tentative → Inactive 전환 시간 |
 | **순방향(영→한)** | 사용 (Switch) | `gksrmf`→`한글` |
+|  | 순방향(정방향) 토글 단축키 (LineEdit) | 지정 키로 순방향만 토글 — 4.4 참고 |
 |  | 영문 모드 시 무시 (Switch) | ON 권장. 영문 모드일 땐 교정 안 함 |
 | **역방향(한→영)** | 사용 (Switch) | `ㅈㅐㅍㅁ`→`wave` |
+|  | 역방향 토글 단축키 (LineEdit) | 지정 키로 역방향만 토글 — 4.4 참고 |
 |  | 음절 미완 시 무시 (Switch) | ON 권장. 조합 중인 글자는 건드리지 않음 |
 |  | 사용자 사전만 사용 (Switch) | OFF면 자동 매핑까지 사용. ON이면 등록한 단어만 |
+
+> Slint 설정 앱(unim-settings, Windows 포함)은 세 토글 단축키 칸을 하나의 **「토글 단축키」** 그룹(LineEdit ×3)에 모아 둔다.
 
 ### 5.3 페이지 3 — 교정 억제 단어
 
@@ -479,6 +527,11 @@ unim-cli config set engine.auto_english.enabled true
 
 # 조합 확정 단위 (음절/단어/스마트) — 4.6 참고
 unim-cli config set commit-unit word
+
+# 자동 오타 교정 토글 단축키 (옵트인, 단일 키, 쉼표 구분) — 4.4 참고
+unim-cli config set auto-typefix-toggle-keys ScrollLock
+unim-cli config set auto-typefix-forward-toggle-keys F10
+unim-cli config set auto-typefix-reverse-toggle-keys F11
 
 # 자판 프로필 관리
 unim-cli config layout list                    # 내장 + 사용자 프로필 목록

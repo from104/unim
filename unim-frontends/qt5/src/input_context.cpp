@@ -110,6 +110,19 @@ static void unim_log_message(const char *module, const QString &message)
 #define UNIM_DEBUG(...) \
     unim_log_message("QT5_IM", QString(__VA_ARGS__))
 
+/* 민감 필드(비밀번호/PIN) 여부 — purpose 1=Password, 2=Pin(ContentPurpose). */
+static inline bool unim_is_sensitive(quint32 purpose)
+{
+    return purpose == 1 || purpose == 2;
+}
+
+/* 민감 필드에서 dev 로그의 내용 문자열을 "***"로 마스킹(평문 잔류 방지).
+ * QString 을 돌려줘 호출부의 qPrintable() 임시 수명 문제를 피한다. 평상시엔 원문 그대로. */
+static inline QString unim_mask(quint32 purpose, const QString &text)
+{
+    return unim_is_sensitive(purpose) ? QStringLiteral("***") : text;
+}
+
 static void unim_check_debug_env()
 {
     if (!unim_debug_checked) {
@@ -142,7 +155,9 @@ UnimInputContext::UnimInputContext()
         // AutoTypeFix 시그널 콜백 등록
         m_dbus->setAutoTypeFixCallback([this](quint32 deleteChars, const QString &commitText, const QString &preeditText) {
             UNIM_DEBUG(QString::asprintf("AutoTypeFix: delete=%u, commit='%s', preedit='%s'",
-                       deleteChars, qPrintable(commitText), qPrintable(preeditText)));
+                       deleteChars,
+                       qPrintable(unim_mask(m_contentPurpose, commitText)),
+                       qPrintable(unim_mask(m_contentPurpose, preeditText))));
             QObject *focusObj = QGuiApplication::focusObject();
             if (!focusObj) return;
 
@@ -163,7 +178,7 @@ UnimInputContext::UnimInputContext()
                     ev.setCommitString(prefixed);
                     UNIM_DEBUG(QString::asprintf(
                         "AutoTypeFix konsole-mode: \\b*%u + '%s'",
-                        deleteChars, qPrintable(commitText)));
+                        deleteChars, qPrintable(unim_mask(m_contentPurpose, commitText))));
                 } else {
                     ev.setCommitString(commitText, -(int)deleteChars, (int)deleteChars);
                 }
@@ -186,7 +201,7 @@ UnimInputContext::UnimInputContext()
         });
         // CommitText 시그널 콜백 등록 (Standalone 팝업 마우스 클릭 커밋)
         m_dbus->setCommitTextCallback([this](const QString &text) {
-            UNIM_DEBUG(QString::asprintf("CommitText: '%s'", qPrintable(text)));
+            UNIM_DEBUG(QString::asprintf("CommitText: '%s'", qPrintable(unim_mask(m_contentPurpose, text))));
             QObject *focusObj = QGuiApplication::focusObject();
             if (!focusObj) return;
             QInputMethodEvent ev;
@@ -355,14 +370,22 @@ bool UnimInputContext::filterEvent(const QEvent *event)
     quint32 scanCode = keyEvent->nativeScanCode();
     quint32 evdev_code = (scanCode > 8) ? (scanCode - 8) : 0;
     
-    UNIM_DEBUG(QString::asprintf("키 입력: key=%d, scanCode=%u, evdev=%u, state=%u",
-               keyEvent->key(), scanCode, evdev_code, mod_state));
+    /* 민감 필드에선 key(해석된 키값) 마스킹으로 평문 잔류 방지. */
+    if (unim_is_sensitive(m_contentPurpose)) {
+        UNIM_DEBUG(QString::asprintf("키 입력: key=***, scanCode=%u, evdev=%u, state=%u",
+                   scanCode, evdev_code, mod_state));
+    } else {
+        UNIM_DEBUG(QString::asprintf("키 입력: key=%d, scanCode=%u, evdev=%u, state=%u",
+                   keyEvent->key(), scanCode, evdev_code, mod_state));
+    }
 
     /* DBus를 통해 키 처리 */
     UnimDbusKeyResult result = m_dbus->processKey(keyEvent->key(), evdev_code, mod_state);
-    
+
     UNIM_DEBUG(QString::asprintf("엔진 결과: consumed=%d, preedit=%s, commit=%s",
-               result.consumed, qPrintable(result.preedit), qPrintable(result.commit)));
+               result.consumed,
+               qPrintable(unim_mask(m_contentPurpose, result.preedit)),
+               qPrintable(unim_mask(m_contentPurpose, result.commit))));
 
     if (result.consumed) {
         /* 선택 영역 삭제 처리 */
@@ -460,7 +483,10 @@ void UnimInputContext::setFocusObject(QObject *object)
     if (m_dbus && object) {
         m_dbus->focusIn(m_windowId);
 
-        /* 입력 필드 목적 감지: Qt::ImhHiddenText → Password */
+        /* 입력 필드 목적 감지: Qt::ImhHiddenText → Password.
+         * ImhSensitiveData 는 제외한다 — 카드번호 등 '보이는' 민감 필드에도 설정되며,
+         * Password purpose 는 한글 조합 차단 + 영문 강제까지 걸어 이런 필드에서
+         * "한글이 안 쳐짐" 회귀를 만든다. 실제 은폐(ImhHiddenText) 필드만 차단한다. */
         QInputMethodQueryEvent query(Qt::ImHints);
         QCoreApplication::sendEvent(object, &query);
         Qt::InputMethodHints hints = static_cast<Qt::InputMethodHints>(
@@ -475,6 +501,7 @@ void UnimInputContext::setFocusObject(QObject *object)
         } else if (hints & Qt::ImhEmailCharactersOnly) {
             purpose = 3; /* Email */
         }
+        m_contentPurpose = purpose;  /* 로그 마스킹 판정용 캐시 */
         m_dbus->setContentType(purpose);
         UNIM_DEBUG(QString::asprintf("content_type 전달: hints=0x%x, purpose=%u",
                    static_cast<int>(hints), purpose));
