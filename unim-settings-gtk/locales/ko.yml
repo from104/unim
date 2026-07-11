@@ -161,7 +161,7 @@ row_english_layout_subtitle: "QWERTY가 기본. Dvorak/Colemak/Colemak-DH/Workma
 # 일반 > 입력 모드 (NEW subtitle)
 row_initial_mode_subtitle: "데몬을 시작했을 때 한글/영문 중 어느 쪽으로 둘지."
 row_mode_sharing_subtitle: "「창별 독립」: 창마다 한/영 모드 따로 유지. 「전역 공유」: 한 번 바꾸면 모든 창 동기화."
-row_commit_unit_subtitle: "음절/단어/스마트. 단어 단위는 터미널·XIM에는 적용되지 않습니다."
+row_commit_unit_subtitle: "음절/단어/스마트. 단어 단위는 터미널(ghostty·GNOME Terminal 등)·XIM·ibus 호환 경로에는 적용되지 않습니다."
 
 # 일반 > 자동 영문 전환 (NEW subtitle)
 row_auto_english_enable_subtitle: "트리거 키를 만나면 한글 모드여도 강제로 영문 모드로 전환합니다."

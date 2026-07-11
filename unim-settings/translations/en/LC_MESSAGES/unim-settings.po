@@ -140,8 +140,8 @@ msgstr "Choose the keyboard layout to use for English input."
 msgid "한글 확정 단위"
 msgstr "Korean Commit Unit"
 
-msgid "한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위)."
-msgstr "Choose whether to commit Korean composition per syllable or gather it per word. Smart selects automatically per app (MS Word and similar use word units)."
+msgid "한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위). 터미널(ghostty·GNOME Terminal 등)·XIM·ibus 호환 경로에서는 안전을 위해 항상 음절 단위로 동작합니다."
+msgstr "Choose whether to commit Korean composition per syllable or gather it per word. Smart selects automatically per app (MS Word and similar use word units). In terminals (ghostty, GNOME Terminal, etc.), XIM, and ibus-compatible paths, it always commits per syllable for safety."
 
 msgid "단어 모드 앱"
 msgstr "Word-mode Apps"

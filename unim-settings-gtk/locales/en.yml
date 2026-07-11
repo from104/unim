@@ -161,7 +161,7 @@ row_english_layout_subtitle: "QWERTY is the default. Change only if you use Dvor
 # General > Input mode (NEW subtitle)
 row_initial_mode_subtitle: "Whether the daemon starts in Korean or English mode."
 row_mode_sharing_subtitle: "Per-window: each window keeps its own mode. Global: switching once syncs everywhere."
-row_commit_unit_subtitle: "Syllable / Word / Smart. Word unit does not apply to terminals or XIM."
+row_commit_unit_subtitle: "Syllable / Word / Smart. Word unit does not apply to terminals (ghostty, GNOME Terminal, etc.), XIM, or ibus-compatible paths."
 
 # General > Auto English (NEW subtitle)
 row_auto_english_enable_subtitle: "Forces English mode when a trigger key is pressed in Korean mode."

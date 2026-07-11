@@ -735,9 +735,10 @@ fn config_show() {
         config.engine.hanja_keys.join(", ")
     );
     println!(
-        "{}: {}",
+        "{}: {} {}",
         t!("commit_unit_label"),
-        config.engine.korean.commit_unit.display_name()
+        config.engine.korean.commit_unit.display_name(),
+        t!("commit_unit_note")
     );
     println!(
         "{}: {}",

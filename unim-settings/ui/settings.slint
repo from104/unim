@@ -598,7 +598,7 @@ export component SettingsWindow inherits Window {
                         }
                         SettingRow {
                             title: @tr("한글 확정 단위");
-                            description: @tr("한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위).");
+                            description: @tr("한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위). 터미널(ghostty·GNOME Terminal 등)·XIM·ibus 호환 경로에서는 안전을 위해 항상 음절 단위로 동작합니다.");
                             ComboBox {
                                 min-width: 200px;
                                 model: root.commit-unit-options;

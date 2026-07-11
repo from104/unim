@@ -14,7 +14,7 @@ use crate::service::{
     popup_render_flags, EmojiShowPayload, EngineRequest, EngineResponse, PopupRenderPayload,
 };
 use unim::auto_typefix::{self, KeystrokeBuffer};
-use unim::config::{Config, ContentPurpose, EnglishLayout, KoreanLayout};
+use unim::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, KoreanLayout};
 use unim::input_engine::{AtfToggleKind, InputEngine, PageDirection};
 use unim::keycode::{KeyCode, ModifierState};
 use unim::popup::PopupKind;
@@ -71,7 +71,7 @@ fn extract_app_id(window_id: &str) -> &str {
 ///
 /// config 가 아니라 **데몬 상수**인 이유: 터미널 preedit 은 미검증/취약하고(보고서 §4.2),
 /// 안전장치를 사용자 실수로 풀 수 없게 하기 위함이다. `app_id` 는 window_id 의 ':' 앞부분
-/// (prgname 또는 wm_class)이며, [`desired_word_mode`] 가 `eq_ignore_ascii_case` 로 비교한다.
+/// (prgname 또는 wm_class)이며, [`word_gate_verdict`] 가 `eq_ignore_ascii_case` 로 비교한다.
 const TERMINAL_DENY: &[&str] = &[
     "ghostty",
     "com.mitchellh.ghostty",
@@ -95,18 +95,46 @@ const TERMINAL_DENY: &[&str] = &[
     "wmux",
 ];
 
-/// 해당 컨텍스트에서 단어 단위(라이브 조합) 모드를 켜야 하는지 판정하는 **순수 함수**.
+/// word 모드 게이트의 **판정 사유**. `Allowed` 만이 라이브 조합(preedit 누적) 대상이고,
+/// 나머지는 모두 음절 강등이며 서로 다른 강등 이유를 구분한다.
+///
+/// 존재 이유: 단순 `bool` 게이트는 "왜 음절로 강등됐는지"를 로그에
+/// 남길 수 없다. 이 열거형으로 사유를 표기하면 FocusIn·CreateContext·리로드 재게이트에서
+/// `[WordGate]` 로그 한 줄로 강등 원인(터미널/프런트/모아치기 등)을 즉시 확인할 수 있다
+/// (사용자가 "단어 단위가 안 된다"고 재신고할 때 journalctl 한 줄이면 원인 확정).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WordGateVerdict {
+    /// 라이브 조합 대상 — word 모드 활성.
+    Allowed,
+    /// `commit_unit=Syllable` — 사용자가 음절 단위로 명시 설정.
+    SyllableConfigured,
+    /// 모아치기(chord) 활성 — 코어가 word 를 sequential 전용으로 두므로 강등.
+    ChordActive,
+    /// 프런트 제외 — XIM(`unim-xim`/`xim-win-`)·순수 Wayland(`unim-wayland`)·ibus(`ibus-` 접두).
+    FrontendExcluded,
+    /// 터미널·멀티플렉서([`TERMINAL_DENY`]) — preedit 취약으로 안전 강등.
+    TerminalDenied,
+    /// `Smart` 인데 `word_mode_apps` 화이트리스트 미포함 — word 비대상 앱.
+    NotInWordModeApps,
+}
+
+/// 해당 컨텍스트에서 단어 단위(라이브 조합) 모드를 켜야 하는지 판정하고 **사유까지** 돌려주는
+/// **순수 함수**. [`desired_word_mode`] 는 이 함수의 `== Allowed` 위임이다.
 ///
 /// 설계: `plan-word-input.md` Q3·Q4 / `MASTER_PLAN` §3-A 결정 3(모아치기 강등).
 ///
-/// - `Syllable` → 항상 음절(`false`).
-/// - `chord_active`(모아치기 사용 중) → 코어가 word 를 sequential 전용으로 두므로
-///   (`hangul/input_context.rs`) 미정의 동작 차단을 위해 `false` 로 강등.
-/// - **프런트 제외**: XIM(`unim-xim`)·순수 Wayland(`unim-wayland`)·ibus(`ibus-` 접두)는
-///   preedit 미검증 또는 앱 식별 불가라 word 비대상.
-/// - **앱 제외**: `app_id` 가 [`TERMINAL_DENY`] 에 있으면 `false`(터미널 preedit 취약).
-/// - `Word` → 위 제외를 모두 통과하면 `true`.
-/// - `Smart` → 위 제외 + `word_mode_apps` 정확일치(대소문자 무시) 앱만 `true`.
+/// 판정 순서(먼저 걸리는 사유를 반환):
+/// - `Syllable` → [`WordGateVerdict::SyllableConfigured`](사용자 설정 자체가 사유).
+/// - `chord_active`(모아치기 사용 중) → [`WordGateVerdict::ChordActive`]. 코어가 word 를
+///   sequential 전용으로 두므로(`hangul/input_context.rs`) 미정의 동작 차단을 위해 강등.
+/// - **프런트 제외**: XIM(`unim-xim`)·순수 Wayland(`unim-wayland`)·ibus(`ibus-` 접두)·
+///   XIM FocusIn(`xim-win-` 접두)는 preedit 미검증/앱 식별 불가라
+///   [`WordGateVerdict::FrontendExcluded`].
+/// - **앱 제외**: `app_id` 가 [`TERMINAL_DENY`] 에 있으면
+///   [`WordGateVerdict::TerminalDenied`](터미널 preedit 취약).
+/// - `Smart` 인데 `word_mode_apps` 정확일치(대소문자 무시) 미포함 →
+///   [`WordGateVerdict::NotInWordModeApps`].
+/// - 위 제외를 모두 통과하면 [`WordGateVerdict::Allowed`].
 ///
 /// `client_name` 은 프런트 종류 식별자다. 데몬 경로에서는 공유
 /// `EngineRequest::CreateContext` variant 에 필드를 추가할 수 없어(비소유 `ibus_compat`
@@ -114,44 +142,77 @@ const TERMINAL_DENY: &[&str] = &[
 /// 프런트 식별에 그대로 사용한다. XIM/Wayland 프런트는 window_id 를 각 client 상수와 동일하게
 /// 보내므로(`unim-frontends/{xim,wayland}`) 배제 결과가 실 client_name 사용과 동치다.
 /// 순수 함수라 진리표 단위테스트로 검증한다.
+fn word_gate_verdict(
+    commit_unit: CommitUnit,
+    client_name: &str,
+    window_id: &str,
+    app_id: &str,
+    word_mode_apps: &[String],
+    chord_active: bool,
+) -> WordGateVerdict {
+    // 사용자가 음절로 명시 설정 — 그 자체가 확정 사유(다른 강등 판정보다 우선 표기).
+    if commit_unit == CommitUnit::Syllable {
+        return WordGateVerdict::SyllableConfigured;
+    }
+
+    // 모아치기 활성 시 Word/Smart 모두 음절로 강등(결정 3).
+    if chord_active {
+        return WordGateVerdict::ChordActive;
+    }
+
+    // 프런트 제외: XIM/순수 Wayland/ibus 호환. XIM 프런트는 CreateContext 에서만 "unim-xim"
+    // 을 보내고 FocusIn 에서는 "xim-win-0x{ic}" 를 보낸다(unim-frontends/xim/src/handler.rs).
+    // handle_focus_in 이 context_windows 를 이 값으로 덮어쓰므로, 접두 배제까지 해야 첫
+    // FocusIn 이후에도 XIM 이 word 모드로 켜지지 않는다('XIM 항상 음절' 안전 약속 유지).
+    if client_name == "unim-xim"
+        || client_name == "unim-wayland"
+        || window_id.starts_with("ibus-")
+        || window_id.starts_with("xim-win-")
+    {
+        return WordGateVerdict::FrontendExcluded;
+    }
+
+    // 앱 제외: 터미널·멀티플렉서(preedit 취약).
+    if TERMINAL_DENY
+        .iter()
+        .any(|deny| deny.eq_ignore_ascii_case(app_id))
+    {
+        return WordGateVerdict::TerminalDenied;
+    }
+
+    // Smart 는 화이트리스트 정확일치(대소문자 무시) 앱만 word 대상.
+    if commit_unit == CommitUnit::Smart
+        && !word_mode_apps
+            .iter()
+            .any(|app| app.eq_ignore_ascii_case(app_id))
+    {
+        return WordGateVerdict::NotInWordModeApps;
+    }
+
+    WordGateVerdict::Allowed
+}
+
+/// [`word_gate_verdict`] 의 `== Allowed` 를 돌려주는 bool 위임 — **진리표 테스트 전용
+/// 동치 앵커**다. 프로덕션 경로는 [`context_word_gate_verdict`] 로 verdict 를 직접 쓰므로
+/// 이 얇은 래퍼의 유일한 호출부는 테스트 헬퍼 `dwm` 이다(그래서 `#[cfg(test)]`). 기존 진리표
+/// 시그니처를 그대로 유지해, verdict 이관이 bool 동작을 바꾸지 않았음을 회귀로 가드한다.
+#[cfg(test)]
 fn desired_word_mode(
-    commit_unit: unim::config::CommitUnit,
+    commit_unit: CommitUnit,
     client_name: &str,
     window_id: &str,
     app_id: &str,
     word_mode_apps: &[String],
     chord_active: bool,
 ) -> bool {
-    use unim::config::CommitUnit;
-
-    // 모아치기 활성 시 Word/Smart 모두 음절로 강등(결정 3).
-    if chord_active {
-        return false;
-    }
-
-    let frontend_ok = client_name != "unim-xim"
-        && client_name != "unim-wayland"
-        && !window_id.starts_with("ibus-")
-        // XIM 프런트는 CreateContext 에서만 "unim-xim" 을 보내고 FocusIn 에서는
-        // "xim-win-0x{ic}" 를 보낸다(unim-frontends/xim/src/handler.rs). handle_focus_in
-        // 이 context_windows 를 이 값으로 덮어쓰므로, 접두 배제까지 해야 첫 FocusIn 이후에도
-        // XIM 이 word 모드로 켜지지 않는다('XIM 항상 음절' 안전 약속 유지).
-        && !window_id.starts_with("xim-win-");
-    let app_ok = !TERMINAL_DENY
-        .iter()
-        .any(|deny| deny.eq_ignore_ascii_case(app_id));
-
-    match commit_unit {
-        CommitUnit::Syllable => false,
-        CommitUnit::Word => frontend_ok && app_ok,
-        CommitUnit::Smart => {
-            frontend_ok
-                && app_ok
-                && word_mode_apps
-                    .iter()
-                    .any(|app| app.eq_ignore_ascii_case(app_id))
-        }
-    }
+    word_gate_verdict(
+        commit_unit,
+        client_name,
+        window_id,
+        app_id,
+        word_mode_apps,
+        chord_active,
+    ) == WordGateVerdict::Allowed
 }
 
 /// 현재 자판이 모아치기(chord)를 실제 지원하는지 — 프로필 `moachigi` capability.
@@ -175,18 +236,17 @@ fn layout_supports_moachigi(config: &Config) -> bool {
         .unwrap_or(false)
 }
 
-/// 컨텍스트의 window_id(및 config)로부터 word 모드 게이트 `desired` 를 계산한다.
+/// 컨텍스트의 window_id·config 로부터 word 게이트 **판정 사유**를 계산한다.
 ///
-/// window_id 미등록 컨텍스트면 보수적으로 `false`(음절). `client_name` 은 위 설계대로
-/// window_id 를 그대로 전달한다.
-fn context_desired_word_mode(
+/// window_id 미등록 컨텍스트면 `None`(보수적으로 음절 — 로그도 생략).
+/// [`context_desired_word_mode`] 와 `[WordGate]` 로깅이 공유하는 단일 판정 지점이다.
+/// `client_name` 은 위 설계대로 window_id 를 그대로 전달한다.
+fn context_word_gate_verdict(
     config: &Config,
     context_windows: &HashMap<u32, String>,
     context_id: u32,
-) -> bool {
-    let Some(window_id) = context_windows.get(&context_id) else {
-        return false;
-    };
+) -> Option<WordGateVerdict> {
+    let window_id = context_windows.get(&context_id)?;
     let app_id = extract_app_id(window_id);
     // 모아치기 강등은 config 설정값(chord_window_ms>0)과 자판 capability 를 **모두** 만족해야
     // 성립한다. 자판이 supports_moachigi=false 면 코어가 chord 를 강제 OFF 하므로, 잔존 설정값만
@@ -197,14 +257,52 @@ fn context_desired_word_mode(
         .chord_window_ms
         .is_some_and(|ms| ms > 0)
         && layout_supports_moachigi(config);
-    desired_word_mode(
+    Some(word_gate_verdict(
         config.engine.korean.commit_unit,
         window_id,
         window_id,
         app_id,
         &config.engine.korean.word_mode_apps,
         chord_active,
+    ))
+}
+
+/// 컨텍스트의 window_id(및 config)로부터 word 모드 게이트 `desired` 를 계산한다.
+///
+/// window_id 미등록 컨텍스트면 보수적으로 `false`(음절).
+/// [`context_word_gate_verdict`] 의 `== Allowed` 위임(시그니처·호출부 불변).
+fn context_desired_word_mode(
+    config: &Config,
+    context_windows: &HashMap<u32, String>,
+    context_id: u32,
+) -> bool {
+    matches!(
+        context_word_gate_verdict(config, context_windows, context_id),
+        Some(WordGateVerdict::Allowed)
     )
+}
+
+/// word 게이트 판정을 develop 로그(`UNIM_DEVELOP=1`)에 1줄 남긴다 — 재발 시 journalctl
+/// 한 줄로 강등 사유를 즉시 확인하기 위한 관측 지점. `phase` 는 판정 시점 식별자
+/// (`focus`/`create`/`reload`). 미등록 컨텍스트(verdict `None`)면 로그를 생략한다.
+fn log_word_gate(
+    phase: &str,
+    context_id: u32,
+    context_windows: &HashMap<u32, String>,
+    commit_unit: CommitUnit,
+    verdict: Option<WordGateVerdict>,
+) {
+    if let (Some(verdict), Some(window_id)) = (verdict, context_windows.get(&context_id)) {
+        unim_log!(
+            "ENGINE_WORKER",
+            "[WordGate] ({}) ctx={} window={} unit={:?} verdict={:?}",
+            phase,
+            context_id,
+            window_id,
+            commit_unit,
+            verdict
+        );
+    }
 }
 
 /// word 모드 게이트를 엔진에 적용한다 — **desired ≠ 현재일 때만** `set_word_mode` 호출.
@@ -476,9 +574,18 @@ fn handle_focus_in(
 
     // word 모드 게이트 재적용 (앱 전환 시 재판정 — TSF OnSetFocus 등가).
     // preedit 은 FocusIn 시점에 비어 있어 set_word_mode 의 flush 무해.
-    let desired = context_desired_word_mode(config, context_windows, context_id);
+    // FocusIn 은 저빈도(포커스 변경 시에만)라 매 판정을 로깅해도 스팸 없음 —
+    // 터미널 등에서 verdict=TerminalDenied 를 남겨 강등 사유를 즉시 확인 가능.
+    let verdict = context_word_gate_verdict(config, context_windows, context_id);
+    log_word_gate(
+        "focus",
+        context_id,
+        context_windows,
+        config.engine.korean.commit_unit,
+        verdict,
+    );
     if let Some(engine) = contexts.get_mut(&context_id) {
-        apply_word_gate(engine, desired);
+        apply_word_gate(engine, matches!(verdict, Some(WordGateVerdict::Allowed)));
     }
 
     contexts
@@ -688,7 +795,20 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // word 모드 게이트 재적용: rebuild_korean_context 가 Word 면 전 컨텍스트
                 // accumulate 를 켜므로, 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기
                 // 강등)로 재판정한다.
-                let desired = context_desired_word_mode(&config, &context_windows, *id);
+                let verdict = context_word_gate_verdict(&config, &context_windows, *id);
+                let desired = matches!(verdict, Some(WordGateVerdict::Allowed));
+                // 게이트가 실제로 뒤집힐 때만 로깅 — 리로드는 열려 있는 모든 컨텍스트를 순회하므로
+                // 무조건 로깅하면 다중 컨텍스트 스팸이 된다. word 모드 flip(=사용자가 체감하는
+                // 변화) 시점만 남긴다.
+                if engine.is_word_mode() != desired {
+                    log_word_gate(
+                        "reload",
+                        *id,
+                        &context_windows,
+                        config.engine.korean.commit_unit,
+                        verdict,
+                    );
+                }
                 apply_word_gate(engine, desired);
             }
         }
@@ -737,9 +857,16 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 contexts.insert(id, engine);
                 // word 모드 게이트: InputEngine::new 가 Word 면 accumulate 를 선주입하므로,
                 // 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기 강등)로 재판정한다.
-                let desired = context_desired_word_mode(&config, &context_windows, id);
+                let verdict = context_word_gate_verdict(&config, &context_windows, id);
+                log_word_gate(
+                    "create",
+                    id,
+                    &context_windows,
+                    config.engine.korean.commit_unit,
+                    verdict,
+                );
                 if let Some(engine) = contexts.get_mut(&id) {
-                    apply_word_gate(engine, desired);
+                    apply_word_gate(engine, matches!(verdict, Some(WordGateVerdict::Allowed)));
                 }
                 unim_log!("ENGINE_WORKER", "[Engine Worker] 컨텍스트 생성: id={}", id);
                 let _ = response.send(());
@@ -2215,6 +2342,19 @@ mod tests {
         desired_word_mode(cu, window_id, window_id, app_id, &apps, chord)
     }
 
+    /// `dwm` 의 verdict 판(강등 **사유**까지 검증). `dwm` 과 동일하게 window_id 를
+    /// client_name 에 그대로 전달한다.
+    fn wgv(
+        cu: CommitUnit,
+        window_id: &str,
+        app_id: &str,
+        apps: &[&str],
+        chord: bool,
+    ) -> WordGateVerdict {
+        let apps: Vec<String> = apps.iter().map(|s| s.to_string()).collect();
+        word_gate_verdict(cu, window_id, window_id, app_id, &apps, chord)
+    }
+
     fn mk_rc(direction: Direction, erasure: bool, switch: bool) -> RecentCorrection {
         RecentCorrection {
             ascii: "speed".to_string(),
@@ -2340,8 +2480,20 @@ mod tests {
 
         // Word → 제외를 통과하는 일반 앱은 true.
         assert!(dwm(CommitUnit::Word, "gedit:gtk3-ctx-1", "gedit", none, false));
+        // 실운영 관측: GNOME 확장이 보내는 wmClass:seq 형태(gedit:19 / google-chrome:15) → 통과.
+        assert!(dwm(CommitUnit::Word, "gedit:19", "gedit", none, false));
+        assert!(dwm(CommitUnit::Word, "google-chrome:15", "google-chrome", none, false));
         // Word + 터미널(ghostty) → 앱 제외로 false.
         assert!(!dwm(CommitUnit::Word, "ghostty:gtk3-ctx-1", "ghostty", none, false));
+        // Word + 터미널(flatpak/reverse-DNS app_id 변형: com.mitchellh.ghostty:1) → 앱 제외로 false.
+        // 사용자 실패 재현 케이스(09:44~09:46 journalctl): ghostty 의 실 window_id 형태 가드.
+        assert!(!dwm(
+            CommitUnit::Word,
+            "com.mitchellh.ghostty:1",
+            "com.mitchellh.ghostty",
+            none,
+            false
+        ));
         // Word + XIM CreateContext(unim-xim) → 프런트 제외로 false.
         assert!(!dwm(CommitUnit::Word, "unim-xim", "unim-xim", none, false));
         // Word + XIM FocusIn(xim-win-0x…) → 접두 제외로 false (첫 FocusIn 이후에도 음절 유지).
@@ -2413,6 +2565,51 @@ mod tests {
             &["soffice"],
             false
         ));
+    }
+
+    #[test]
+    fn word_gate_verdict_maps_each_reason() {
+        use WordGateVerdict::*;
+        // 음절 설정 — 사유는 SyllableConfigured(다른 강등보다 우선 표기).
+        assert_eq!(wgv(CommitUnit::Syllable, "gedit:1", "gedit", &[], false), SyllableConfigured);
+        // 모아치기 활성(Word) — ChordActive.
+        assert_eq!(wgv(CommitUnit::Word, "gedit:1", "gedit", &[], true), ChordActive);
+        // 프런트 제외: XIM FocusIn 접두.
+        assert_eq!(wgv(CommitUnit::Word, "xim-win-0x1a3", "xim-win-0x1a3", &[], false), FrontendExcluded);
+        // 프런트 제외: ibus 접두.
+        assert_eq!(wgv(CommitUnit::Word, "ibus-firefox-3", "ibus-firefox-3", &[], false), FrontendExcluded);
+        // 터미널(reverse-DNS 변형) — TerminalDenied.
+        assert_eq!(
+            wgv(CommitUnit::Word, "com.mitchellh.ghostty:1", "com.mitchellh.ghostty", &[], false),
+            TerminalDenied
+        );
+        // Smart + 화이트리스트 미포함 — NotInWordModeApps.
+        assert_eq!(wgv(CommitUnit::Smart, "gedit:1", "gedit", &[], false), NotInWordModeApps);
+        // 일반 앱 Word — Allowed.
+        assert_eq!(wgv(CommitUnit::Word, "gedit:19", "gedit", &[], false), Allowed);
+        // Smart + 화이트리스트 포함 — Allowed.
+        assert_eq!(wgv(CommitUnit::Smart, "soffice:2", "soffice", &["soffice"], false), Allowed);
+        // desired_word_mode 는 verdict==Allowed 위임임을 교차 검증(진리표 동치).
+        assert_eq!(
+            wgv(CommitUnit::Word, "gedit:19", "gedit", &[], false) == Allowed,
+            dwm(CommitUnit::Word, "gedit:19", "gedit", &[], false)
+        );
+        assert_eq!(
+            wgv(CommitUnit::Word, "com.mitchellh.ghostty:1", "com.mitchellh.ghostty", &[], false)
+                == Allowed,
+            dwm(CommitUnit::Word, "com.mitchellh.ghostty:1", "com.mitchellh.ghostty", &[], false)
+        );
+    }
+
+    #[test]
+    fn extract_app_id_splits_on_first_colon() {
+        // reverse-DNS app_id 도 첫 콜론 앞부분만 취해 TERMINAL_DENY 정확일치가 가능.
+        assert_eq!(extract_app_id("com.mitchellh.ghostty:1"), "com.mitchellh.ghostty");
+        assert_eq!(extract_app_id("gedit:19"), "gedit");
+        // 콜론 없음 → window_id 전체를 app_id 로.
+        assert_eq!(extract_app_id("gedit"), "gedit");
+        // 콜론 여러 개 → 첫 콜론 앞부분.
+        assert_eq!(extract_app_id("a:b:c"), "a");
     }
 
     #[test]
