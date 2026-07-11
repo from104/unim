@@ -20,15 +20,39 @@
 
 ### 2.1 Install
 
-#### Debian/Ubuntu
+> Supported: **Ubuntu 24.04 (noble) or newer / equivalent Debian, amd64.** The release `.deb`s are built on noble.
+
+#### Method 1 — automatic install script (recommended)
+
+A single line downloads every UNIM `.deb` from GitHub Releases and installs them via `apt`. Every `.deb` is **SHA256-verified**, isolated in a `mktemp` working directory, and external runtime dependencies are resolved automatically. On any checksum mismatch it aborts without installing anything (no partial install).
 
 ```bash
-# Install the .deb packages built for UNIM 0.3.0
-sudo apt install ./unim_0.3.0_amd64.deb \
-                 ./unim-common_0.3.0_amd64.deb \
-                 ./unim-im-gtk_0.3.0_amd64.deb \
-                 ./unim-im-qt_0.3.0_amd64.deb \
-                 ./unim-gui-gtk_0.3.0_amd64.deb
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+```
+
+To pin a specific version:
+
+```bash
+UNIM_VERSION=v0.3.63 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+```
+
+If you don't trust `curl | bash`, download the script first, read it, then run it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh -o install.sh
+less install.sh && bash install.sh
+```
+
+#### Method 2 — manual download from Releases
+
+Grab every `unim*_<version>-1_{amd64,all}.deb` plus `SHA256SUMS` from [Releases](https://github.com/from104/unim/releases) into the same directory, verify, and install.
+
+```bash
+# Verify checksums (e.g. 0.3.63-1 — 11 packages)
+sha256sum -c SHA256SUMS
+
+# Install (apt resolves dependencies automatically)
+sudo apt install ./unim*.deb
 
 # Remove IBus (avoids conflict on GNOME)
 sudo apt remove ibus
@@ -39,7 +63,7 @@ im-config -n unim
 
 Log out and back in once so the new environment variables propagate to your shell.
 
-#### From source (Arch/Fedora/others)
+#### Method 3 — from source (Arch/Fedora/others)
 
 ```bash
 git clone https://github.com/from104/unim.git

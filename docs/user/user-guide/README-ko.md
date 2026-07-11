@@ -20,15 +20,39 @@
 
 ### 2.1 설치
 
-#### Debian/Ubuntu
+> 지원 환경: **Ubuntu 24.04 (noble) 이상 / 동급 Debian, amd64.** 릴리스 `.deb` 는 noble 기준으로 빌드된다.
+
+#### 방법 1 — 자동 설치 스크립트 (권장)
+
+한 줄이면 GitHub Releases 의 `.deb` 전체를 내려받아 `apt` 로 설치한다. 모든 `.deb` 를 **SHA256 체크섬으로 검증**하고, `mktemp` 임시 디렉토리에 격리하며, 외부 런타임 의존성을 자동 해결한다. 검증 실패 시 아무것도 설치하지 않고 중단한다(부분 설치 없음).
 
 ```bash
-# 패키지 설치 (UNIM 0.3.0 .deb 패키지가 이미 빌드돼 있다고 가정)
-sudo apt install ./unim_0.3.0_amd64.deb \
-                 ./unim-common_0.3.0_amd64.deb \
-                 ./unim-im-gtk_0.3.0_amd64.deb \
-                 ./unim-im-qt_0.3.0_amd64.deb \
-                 ./unim-gui-gtk_0.3.0_amd64.deb
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+```
+
+특정 버전을 고정하려면:
+
+```bash
+UNIM_VERSION=v0.3.63 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+```
+
+`curl | bash` 를 신뢰하지 않는다면 스크립트를 먼저 받아 읽고 실행할 수 있다:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh -o install.sh
+less install.sh && bash install.sh
+```
+
+#### 방법 2 — Releases 수동 다운로드
+
+[Releases](https://github.com/from104/unim/releases) 에서 `unim*_<버전>-1_{amd64,all}.deb` 전부와 `SHA256SUMS` 를 같은 디렉토리에 받아 검증 후 설치한다.
+
+```bash
+# 체크섬 검증 (예: 0.3.63-1 — 11개 패키지)
+sha256sum -c SHA256SUMS
+
+# 패키지 설치 (apt 가 의존성을 자동 해결)
+sudo apt install ./unim*.deb
 
 # IBus 제거 (GNOME 환경에서 충돌 방지)
 sudo apt remove ibus
@@ -39,7 +63,7 @@ im-config -n unim
 
 설치 직후 한 번 **로그아웃하고 다시 로그인**하면 환경변수가 새 셸에 적용된다. 재로그인한 첫 세션에서 **첫 실행 마법사(unim-settings)가 자동으로 뜨며**, 기본 입력기 지정까지 GUI로 안내한다. 마법사를 도중에 닫으면 다음 로그인에 다시 나타나고, 수동으로 다시 열려면 `unim-settings --first-run` 을 실행한다.
 
-#### 소스 빌드 (Arch/Fedora/그 외)
+#### 방법 3 — 소스 빌드 (Arch/Fedora/그 외)
 
 ```bash
 git clone https://github.com/from104/unim.git

@@ -102,6 +102,45 @@ UNIM은 트레이·설정 외에 키맵 관리·타자 연습을 위한 GTK4 보
 >
 > **실험적 — KDE Plasma 6 Wayland / Sway / Hyprland / river 등 단독 Wayland 컴포지터**: 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 **이론상** 동작하지만, **본 0.3.0 릴리스 시점에 충분히 테스트되지 않았습니다.** popup 위치 정렬, IME 포커스 전환, layer-shell 좌표 변환 등에서 미세 회귀가 있을 수 있습니다. 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
 
+## 📦 설치 (Ubuntu/Debian)
+
+**지원 환경**: Ubuntu 24.04 (noble) 이상 / 동급 Debian, **amd64**. (릴리스 .deb 는 noble 기준으로 빌드된다.)
+
+### 한 줄 설치 (권장)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+```
+
+특정 버전 고정:
+
+```bash
+UNIM_VERSION=v0.3.63 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+```
+
+스크립트는 GitHub Releases 에서 UNIM `.deb` 전체를 내려받아 `apt` 로 설치한다(외부 런타임 의존성 자동 해결).
+**안전장치**: 모든 `.deb` 를 **SHA256 체크섬으로 검증**하고, `mktemp` 임시 디렉토리에 격리하며, 검증 실패 시 **아무것도 설치하지 않고 중단**한다(부분 설치 없음). 시스템은 apt 트랜잭션과 임시 디렉토리 외에는 건드리지 않는다.
+
+`curl | bash` 를 신뢰하지 않는다면 스크립트를 먼저 받아 읽고 실행할 수 있다:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh -o install.sh
+less install.sh && bash install.sh
+```
+
+### 수동 설치 (Releases)
+
+[Releases](https://github.com/from104/unim/releases) 에서 `unim*_<버전>-1_{amd64,all}.deb` 전부와 `SHA256SUMS` 를 받아 검증 후 설치:
+
+```bash
+sha256sum -c SHA256SUMS
+sudo apt install ./unim*.deb
+```
+
+### 설치 후
+
+한 번 **로그아웃 후 재로그인**하면 재로그인한 첫 세션에서 **첫 실행 마법사(unim-settings)** 가 자동으로 떠서 기본 입력기 지정까지 안내한다. 자세한 사용법은 [사용자 매뉴얼](docs/user/user-guide/README-ko.md) 참고. 소스 빌드는 아래 SPEC/사용자 매뉴얼의 소스 빌드 절을 참고한다.
+
 ## 📖 컴포넌트별 명세(SPEC) 인덱스
 
 컴포넌트마다 세부 명세는 코드 옆 `SPEC.md`에 두었다. 아래가 전체 조감도:

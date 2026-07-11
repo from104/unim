@@ -198,6 +198,19 @@ In normal operation, `unim-daemon` RSS sits in 30–80 MB. UNIM 0.2.0 hardens th
 
 ---
 
+## Q9-2. Is the one-line `install.sh` safe?
+
+`curl -fsSL .../install.sh | bash` is convenient, but it does mean "run an entire unseen script," which can be unnerving. The UNIM installer has four safety guards:
+
+1. **SHA256 checksum verification** — the `SHA256SUMS` shipped in the release acts as the manifest; every downloaded `.deb` is verified against it. On any mismatch it **aborts before the install step** (no partial install).
+2. **Temp-directory isolation** — all downloads land in a `mktemp` working directory that a `trap` removes automatically on success, failure, or interrupt. Nothing is left on your system.
+3. **apt transaction** — installation uses `apt install`, not `dpkg -i`, so even external runtime dependencies are resolved inside apt's atomic transaction; a failure leaves no partial install.
+4. **Fully public script** — the script is published verbatim on the [main branch](https://github.com/from104/unim/blob/main/install.sh). You can download it first with `curl ... -o install.sh` and read it before running.
+
+> Limitation: because `SHA256SUMS` lives at the **same origin (GitHub Releases)** as the `.deb`s, transfer integrity is guaranteed but origin authenticity relies on trusting GitHub's TLS. GPG/minisign signing is future work. For minimal trust, use Method 2 (manual download) and verify each file yourself.
+
+---
+
 ## Q10. Migration notes from 0.1.x to 0.2.0?
 
 Mostly automatic. Two normalizations:
