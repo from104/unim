@@ -91,6 +91,35 @@ fn ctrl_right_alt_is_shortcut_not_toggle() {
 }
 
 #[test]
+fn set_switch_keys_live_reloads_toggle_keys() {
+    // F4 live-reload 갭 회귀: config.toggle_keys 를 바꾸고 set_switch_keys 를 호출하면
+    // 살아있는 엔진이 새 키로 토글하고, 옛 키(RightAlt)는 더 이상 토글하지 않아야 한다.
+    let mut config = Config::default();
+    let mut engine = InputEngine::new(&config);
+    engine.set_input_category(InputCategory::Korean);
+
+    // toggle_keys 를 F8 하나로 교체 후 live 재적용.
+    config.engine.toggle_keys = vec!["F8".to_string()];
+    engine.set_switch_keys(&config);
+
+    // 새 키(F8) 는 토글 + 소비.
+    assert!(engine.is_toggle_key(KeyCode::F8), "새 토글키(F8) 인식");
+    let r = engine.press_key(KeyCode::F8, ModifierState::default(), &config);
+    assert!(r.consumed, "새 토글키(F8) 는 소비되어야 함");
+    assert_eq!(engine.input_category(), InputCategory::English);
+
+    // 옛 키(RightAlt) 는 더 이상 토글하지 않는다(무동작·비소비, 모드 불변).
+    assert!(!engine.is_toggle_key(KeyCode::RightAlt), "옛 토글키 해제됨");
+    let r2 = engine.press_key(KeyCode::RightAlt, alt_down(), &config);
+    assert!(!r2.consumed, "옛 토글키(RightAlt) 는 무동작 — 통과");
+    assert_eq!(
+        engine.input_category(),
+        InputCategory::English,
+        "모드 불변"
+    );
+}
+
+#[test]
 fn right_alt_commits_composition_before_toggle() {
     // 조합 중 RightAlt → 커밋 발생 + 영문 전환.
     let config = Config::default();

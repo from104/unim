@@ -8,6 +8,7 @@
 //! - `service`: DBus 서비스 구현체 (서버 측)
 //! - `client`: DBus 클라이언트 구현체 (프론트엔드 측)
 
+pub mod beep;
 pub mod client;
 pub mod engine_worker;
 pub mod ibus_compat;

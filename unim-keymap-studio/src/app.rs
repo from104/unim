@@ -68,7 +68,7 @@ pub fn build_window(app: &adw::Application) {
         .tooltip_text(rust_i18n::t!("header_settings_tooltip"))
         .build();
     btn_settings.connect_clicked(|_| {
-        let _ = std::process::Command::new("unim-settings-gtk").spawn();
+        let _ = std::process::Command::new("unim-settings").spawn();
     });
     header.pack_end(&btn_settings);
 

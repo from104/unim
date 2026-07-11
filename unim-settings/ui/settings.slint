@@ -213,6 +213,13 @@ export struct RuleSetItem {
     active: bool,
 }
 
+// ── 앱별 강제 모드 규칙 항목 — Rust(config.engine.app_rules)와 양방향 ──
+// category-index: 0=영문, 1=한글 (app-rule-category-options 순서).
+export struct AppRuleItem {
+    pattern: string,
+    category-index: int,
+}
+
 // ── Rust(main.rs)에서 설정하는 사용자 문자열의 번역 창구 ──
 // Slint 의 @tr 은 .slint 안에서만 동작하므로, Rust 가 상태바·콤보 옵션·목록
 // 포맷에 쓰는 문자열을 이 전역의 프로퍼티/함수로 노출해 같은 번들 번역
@@ -238,6 +245,9 @@ export global Tr {
     out property <string> cat-korean: @tr("한글로 시작");
     out property <string> share-global: @tr("전역 공유");
     out property <string> share-perapp: @tr("앱별 분리");
+    // 앱별 강제 모드 콤보(짧은 라벨) — main.rs 가 app-rule-category-options 모델로 주입.
+    out property <string> mode-english: @tr("영문");
+    out property <string> mode-korean: @tr("한글");
     // 교정 강도 이름
     out property <string> strength-conservative: @tr("보수적");
     out property <string> strength-standard: @tr("표준");
@@ -303,6 +313,12 @@ export component SettingsWindow inherits Window {
     in-out property <string> auto-english-keys;
     in-out property <bool> toggle-announce-beep;
     in-out property <bool> ignore-key-repeat;
+    // 플랫폼 게이트 — Windows 빌드에서만 Rust 가 true 로 설정(F2: 자동반복 억제는
+    // Windows 전용 기능이라 Linux 에서는 관련 행을 숨긴다). 기본 false 라 Rust 미설정 시 숨김.
+    in property <bool> is-windows: false;
+    // 앱별 강제 모드 규칙(config.engine.app_rules) — 행 리스트 + 모드 콤보 옵션(영문/한글).
+    in-out property <[AppRuleItem]> app-rule-items;
+    in-out property <[string]> app-rule-category-options;
     // 선택된 한글 자판이 '세벌식 순아래'인지 — Rust 가 계산해 배지 노출을 결정.
     in-out property <bool> korean-noshift-selected;
 
@@ -362,6 +378,11 @@ export component SettingsWindow inherits Window {
     // 변경 즉시 저장(실시간 적용). 별도 [저장] 버튼 없음.
     callback auto-save();
     callback rule-set-toggled(int, bool);
+    // 앱별 강제 모드 규칙 편집 — 추가/삭제/패턴 편집/모드 변경(각기 즉시 저장).
+    callback app-rule-add();
+    callback app-rule-remove(int);
+    callback app-rule-pattern-edited(int, string);
+    callback app-rule-category-changed(int, int);
     callback close-clicked();
     callback blacklist-remove(int);
     callback blacklist-confirm(int);
@@ -755,6 +776,56 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
+                    // ── 앱별 강제 모드 — 특정 앱에서 항상 지정 모드로 시작 ──
+                    if root.current-page == 0: Card {
+                        title: @tr("앱별 강제 모드");
+                        Text {
+                            text: @tr("특정 앱에서 항상 지정한 모드로 시작하도록 규칙을 정합니다. 앱 패턴은 창 식별자(window_id)나 클라이언트 이름에 대한 부분 일치입니다. 예: firefox, org.gnome. '모드 공유'가 '앱별 분리'일 때 효과가 큽니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        // 각 규칙 = 한 행(앱 패턴 + 모드 콤보 + 삭제). 행마다 교차 배경·라운드로
+                        // 시각 분리(행/열 구분, UX 원칙). 삭제 시 스크롤 위치는 ScrollView 가 보존.
+                        for item[i] in root.app-rule-items: Rectangle {
+                            background: Palette.alternate-background;
+                            border-radius: Tokens.radius-chip;
+                            HorizontalLayout {
+                                padding: Tokens.space-2;
+                                spacing: Tokens.space-2;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    min-width: 150px;
+                                    text: item.pattern;
+                                    placeholder-text: @tr("앱 패턴 (예: firefox)");
+                                    accessible-label: @tr("앱 패턴");
+                                    edited => { root.app-rule-pattern-edited(i, self.text); }
+                                }
+                                ComboBox {
+                                    min-width: 96px;
+                                    model: root.app-rule-category-options;
+                                    current-index: item.category-index;
+                                    accessible-label: @tr("강제 모드");
+                                    selected => { root.app-rule-category-changed(i, self.current-index); }
+                                }
+                                Button {
+                                    text: @tr("삭제");
+                                    accessible-label: @tr("이 규칙 삭제");
+                                    clicked => { root.app-rule-remove(i); }
+                                }
+                            }
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        HorizontalLayout {
+                            Button {
+                                text: @tr("규칙 추가");
+                                accessible-label: @tr("앱별 강제 모드 규칙 추가");
+                                clicked => { root.app-rule-add(); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
                     if root.current-page == 0: Card {
                         title: @tr("접근성");
                         Text {
@@ -794,7 +865,9 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.auto-save(); }
                             }
                         }
-                        SettingRow {
+                        // F2: 조합키 자동반복 억제는 Windows 전용 기능(TSF lParam bit30
+                        // 기반)이라 Linux 에서는 노출하지 않는다(is-windows 게이트).
+                        if root.is-windows: SettingRow {
                             title: @tr("조합키 자동반복 억제");
                             description: @tr("키를 누르고 있을 때 발생하는 자동반복을 무시해 자모 연타·한/영 토글 진동을 막습니다. 편집키(백스페이스·방향키)와 영문 입력의 반복은 유지됩니다. 지체장애 사용자를 위한 기능입니다.");
                             Switch {

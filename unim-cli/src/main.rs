@@ -472,7 +472,7 @@ enum ConfigKey {
     /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Smart 확정 단위에서 단어 조합할 앱 (Windows: winword.exe, Linux: soffice 등).
     #[value(name = "word-mode-apps")]
     WordModeApps,
-    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음. Windows 전용.
+    /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음).
     #[value(name = "toggle-announce-beep")]
     ToggleAnnounceBeep,
     /// 조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows 전용.
@@ -925,13 +925,28 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
     match key {
         ConfigKey::KoreanLayout => {
             let normalized = normalize_korean_layout_name(value);
-            if !KOREAN_LAYOUT_BUILTINS.contains(&normalized.as_str()) {
+            // ProfileRegistry 기반 검증 — `unim layout list`(동일 registry)와 통일.
+            // 내장 한글 자판(ko_3bul_anmatae 등)뿐 아니라 사용자 한글 프로필까지 수용하고,
+            // 정적 KOREAN_LAYOUT_BUILTINS 화이트리스트의 자기모순(list엔 보이나 set은 거부)을
+            // 해소한다. 프로필 language 메타데이터가 "korean"이면 허용.
+            let reg = ProfileRegistry::new();
+            let is_korean = |name: &str| {
+                reg.find_raw(name)
+                    .map(|p| p.language == "korean")
+                    .unwrap_or(false)
+            };
+            if !is_korean(&normalized) {
+                let allowed: Vec<String> = reg
+                    .list_names()
+                    .into_iter()
+                    .filter(|n| is_korean(n))
+                    .collect();
                 let kind = t!("korean_layout_label").to_string();
                 return Err(t!(
                     "error_invalid_layout",
                     kind = kind,
                     value = value,
-                    allowed = KOREAN_LAYOUT_BUILTINS.join(", ")
+                    allowed = allowed.join(", ")
                 )
                 .to_string());
             }

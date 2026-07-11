@@ -46,7 +46,7 @@ row_auto_english_triggers_subtitle: "Comma separated. Use key:<Name> for keycode
 # Accessibility (I7 active toggle announcement)
 group_accessibility: "Accessibility"
 row_toggle_announce_beep: "Korean/English Toggle Beep"
-row_toggle_announce_beep_subtitle: "Play a short beep when switching Korean/English (Korean = higher pitch, English = lower pitch). (Windows only)"
+row_toggle_announce_beep_subtitle: "Play a short beep when switching Korean/English (Korean = higher pitch, English = lower pitch)."
 row_toggle_announce_beep_tooltip: "Confirm the input mode by sound without looking at the screen. Designed for visually impaired users."
 row_ignore_key_repeat: "Suppress Composition Key Auto-repeat"
 row_ignore_key_repeat_subtitle: "Ignore OS auto-repeat while a key is held down to prevent repeated jamo and Korean/English toggle flicker. Repeats of editing keys (Backspace, arrows) and English typing are kept. (Windows only)"

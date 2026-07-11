@@ -789,9 +789,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 engine.rebuild_korean_context(&config);
                 engine.set_english_layout(config.engine.english.layout.clone());
                 // ATF 토글 핫키 재적용: GUI/CLI 로 키를 편집한 뒤 재로그인 없이 살아있는
-                // 컨텍스트에 즉시 반영한다(toggle_keys/hanja_keys 의 live-reload 갭과 달리
-                // ATF 핫키는 재적용을 보장 — 계획 §2 Stage 2).
+                // 컨텍스트에 즉시 반영한다.
                 engine.set_atf_hotkeys(&config);
+                // 한/영 전환키·한자키 재적용: 종전엔 toggle_keys/hanja_keys 가 이 리로드
+                // 루프에서 재파싱되지 않아, GUI/CLI 로 전환·한자 키를 편집해도 재로그인
+                // 전까지 옛 키가 살아있는 live-reload 갭이 있었다(F4). set_switch_keys 로
+                // ATF 핫키와 동일하게 즉시 재적용해 갭을 해소한다.
+                engine.set_switch_keys(&config);
                 // word 모드 게이트 재적용: rebuild_korean_context 가 Word 면 전 컨텍스트
                 // accumulate 를 켜므로, 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기
                 // 강등)로 재판정한다.
@@ -901,8 +905,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 }) && context_windows
                     .get(&context_id)
                     .map(|wid| {
+                        // 'unim-settings' 프리픽스는 GTK 판(unim-settings-gtk)과 Slint 판
+                        // (unim-settings) 양쪽을 함께 커버한다. (크레이트 개명 f9aabd8 이후
+                        // /usr/bin/unim-settings 가 Slint 앱이 됨.)
                         wid.starts_with("unim-indicator")
-                            || wid.starts_with("unim-settings-gtk")
+                            || wid.starts_with("unim-settings")
                             || wid.starts_with("unim-popup-service")
                     })
                     .unwrap_or(false);
@@ -1451,6 +1458,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // chord 진행 중이면 idle flush 타이머 정보를 응답에 포함.
                     // service.rs 가 tokio::spawn 으로 타이머를 시작한다.
                     let chord_pending = engine.chord_pending_info();
+
+                    // [비프 ①ProcessKey — mode_changed 최종 소비 지점] 사용자 토글과 ATF
+                    // 자동 한/영 전환을 모두 이 지점에서 확정된 mode_changed 로 통지한다.
+                    // (:1052 계산 직후가 아님 — ATF 자동 전환 블록이 mode_changed 를 mut
+                    // 재설정하므로 최종 소비 지점 훅이어야 두 경로 모두 통지된다. Windows
+                    // text_service.rs 의 트리거 무관 통지와 패리티.) 접근성 옵션(기본 false).
+                    if config.engine.toggle_announce_beep {
+                        if let Some(is_korean) = mode_changed {
+                            crate::beep::announce_mode(is_korean);
+                        }
+                    }
+
                     EngineResponse {
                         consumed: result.consumed,
                         preedit: final_preedit,
@@ -1524,6 +1543,11 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // GNOME 확장(ConfigChangedJson 구독)까지 토글 피드백을 전달한다.
                     // 여기서 소유·persist 한 config 를 직렬화하므로 stale 위험이 없다.
                     resp.atf_config_json = serde_json::to_string(&config).ok();
+
+                    // [ATF 토글 비프] 켜짐(상승음)/꺼짐(하강음)을 청각으로 통지한다(접근성).
+                    if config.engine.toggle_announce_beep {
+                        crate::beep::announce_atf_toggle(new_value);
+                    }
                 }
 
                 // AutoTypeFix 모드 전환 시 Global 동기화 (contexts borrow 해제 후)
@@ -1644,7 +1668,17 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         "[Engine Worker] 전역 모드 변경: {:?}",
                         category
                     );
+                    // [비프 ②SetGlobalMode — Global 분기] 라이브 컨텍스트가 실제로 전환되는
+                    // 경로다(GNOME 확장 트레이 토글 indicator.js·unim-indicator 가 실사용).
+                    // 접근성 옵션(기본 false).
+                    if config.engine.toggle_announce_beep {
+                        crate::beep::announce_mode(is_korean);
+                    }
                 } else {
+                    // [비프 ②SetGlobalMode — PerApp 분기 무음] PerApp 에서는 default_category
+                    // 만 갱신되고 현재 포커스 컨텍스트의 입력 모드는 불변이다. 여기서 비프를
+                    // 울리면 "현재 창의 모드가 바뀌었다"는 잘못된 신호를 주므로(상태 오보 방지)
+                    // 의도적으로 무음으로 둔다.
                     unim_log!(
                         "ENGINE_WORKER",
                         "[Engine Worker] PerApp 모드 - 전역 동기화 생략"

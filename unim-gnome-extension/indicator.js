@@ -104,7 +104,7 @@ class UnimIndicator extends PanelMenu.Button {
         
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         
-        // === UNIM 설정 앱 (unim-settings-gtk) ===
+        // === UNIM 설정 앱 (unim-settings) ===
         const unimSettingsItem = new PopupMenu.PopupMenuItem('UNIM 설정 (Settings)...');
         unimSettingsItem.connect('activate', () => this._openUnimSettings());
         this.menu.addMenuItem(unimSettingsItem);
@@ -352,20 +352,20 @@ class UnimIndicator extends PanelMenu.Button {
     }
 
     /**
-     * UNIM 메인 설정 앱(unim-settings-gtk) 실행.
+     * UNIM 메인 설정 앱(unim-settings) 실행.
      * GNOME 확장 설정창과는 별도로, config.yaml을 편집하는 단일 창구.
      */
     _openUnimSettings() {
         try {
             GLib.spawn_async(
                 null,
-                ['unim-settings-gtk'],
+                ['unim-settings'],
                 null,
                 GLib.SpawnFlags.SEARCH_PATH,
                 null
             );
         } catch (e) {
-            unimError('INDICATOR', ` Failed to launch unim-settings-gtk: ${e.message}`);
+            unimError('INDICATOR', ` Failed to launch unim-settings: ${e.message}`);
         }
     }
     

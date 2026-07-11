@@ -2,7 +2,7 @@
 //!
 //! 한 책임, 한 프로세스 원칙:
 //!   - 트레이 indicator + DBus watcher 만 담당.
-//!   - 설정 다이얼로그는 `unim-settings-gtk` 프로세스 spawn.
+//!   - 설정 다이얼로그는 `unim-settings` 프로세스 spawn.
 //!   - popup(한자/특수문자/이모지)은 `unim-popup-service` 별도 프로세스.
 
 mod gtk_ui;
@@ -37,7 +37,7 @@ fn main() {
 
     let state = Arc::new(RwLock::new(IndicatorState::default()));
 
-    // GuiAction 채널 — 트레이 메뉴 "설정" → GTK 이벤트 루프 → unim-settings-gtk spawn
+    // GuiAction 채널 — 트레이 메뉴 "설정" → GTK 이벤트 루프 → unim-settings spawn
     let (popup_tx, popup_rx) = mpsc::channel::<GuiAction>();
     if let Ok(mut tx) = SETTINGS_TX.lock() {
         *tx = Some(popup_tx.clone());

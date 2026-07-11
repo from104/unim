@@ -20,9 +20,9 @@ use std::rc::Rc;
 use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use unim::config::{
-    english_layout_display_name, korean_layout_display_name, normalize_korean_layout_name,
-    AutoTypeFixConfig, CommitUnit, Config, InputCategory, ModeSharingMode,
-    ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_BUILTINS, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
+    english_layout_display_name, normalize_korean_layout_name,
+    AppRule, AutoTypeFixConfig, CommitUnit, Config, InputCategory, ModeSharingMode,
+    ENGLISH_LAYOUT_BUILTINS, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
     AUTO_TYPEFIX_ENG_MIN_LENGTH_MAX, AUTO_TYPEFIX_ENG_MIN_LENGTH_MIN,
     AUTO_TYPEFIX_KOR_THRESHOLD_MAX, AUTO_TYPEFIX_KOR_THRESHOLD_MIN,
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
@@ -69,6 +69,61 @@ fn build_layout_lists(
             }
         })
         .collect();
+    let index = canon.iter().position(|c| c == current).unwrap_or(0) as i32;
+    (canon, display, index)
+}
+
+/// 한국어 자판 프로필 선택지 — `(정규 이름, 친화명)` 목록.
+///
+/// 코어 `ProfileRegistry` 를 열거해 `language == "korean"` 프로필만 수집한다
+/// (내장 + 사용자 프로필, 친화명 포함). GTK 설정앱의
+/// `unim-gui-common::settings_helpers::collect_korean_profile_choices` 와 동일
+/// 의미론이지만, 그 크레이트는 이 크레이트에 **Linux 전용** 의존(Cargo.toml)이라
+/// 직접 호출하면 Windows 빌드가 깨진다. 크로스플랫폼(Windows/Linux 동일 목록)을
+/// 위해 코어(`unim::keystroke::profile`)만 사용해 여기에 인라인 복제한다.
+fn collect_korean_profile_choices() -> Vec<(String, String)> {
+    let reg = ProfileRegistry::new();
+    let mut out: Vec<(String, String)> = Vec::new();
+    for name in reg.list_names() {
+        if let Some(p) = reg.find_raw(&name) {
+            if p.language != "korean" {
+                continue;
+            }
+            let disp = p
+                .metadata
+                .display_name
+                .as_ref()
+                .map(|d| d.resolve("ko").to_string())
+                .unwrap_or_else(|| name.clone());
+            out.push((name, disp));
+        }
+    }
+    out
+}
+
+/// `(정규 이름, 친화명)` 쌍 목록 + 현재값 → (정규 이름 Vec, 표시용 Vec, 선택 인덱스).
+///
+/// `build_layout_lists` 의 (name, display) 쌍 변형. 표시는 친화명이 비었거나 이름과
+/// 같으면 이름만, 아니면 `친화명 (정규이름)`. 현재값이 목록에 없으면(정규화 실패·
+/// 스테일 이름 등) 맨 앞에 보존한다(기존 동작 유지).
+fn build_layout_lists_from_pairs(
+    current: &str,
+    pairs: &[(String, String)],
+) -> (Vec<String>, Vec<SharedString>, i32) {
+    let mut canon: Vec<String> = Vec::with_capacity(pairs.len() + 1);
+    let mut display: Vec<SharedString> = Vec::with_capacity(pairs.len() + 1);
+    if !current.is_empty() && !pairs.iter().any(|(n, _)| n == current) {
+        canon.push(current.to_string());
+        display.push(SharedString::from(current));
+    }
+    for (name, disp) in pairs {
+        canon.push(name.clone());
+        display.push(if disp.is_empty() || disp == name {
+            SharedString::from(name.as_str())
+        } else {
+            SharedString::from(format!("{disp} ({name})"))
+        });
+    }
     let index = canon.iter().position(|c| c == current).unwrap_or(0) as i32;
     (canon, display, index)
 }
@@ -223,9 +278,63 @@ fn apply_atf_preset(a: &mut AutoTypeFixConfig, preset: i32) {
 /// 모든 config 저장 사이트를 이 헬퍼로 수렴해 통지 누락을 구조적으로 막는다
 /// (blacklist/userdict 저장은 데몬 mtime 감지로 충분하므로 이 헬퍼를 쓰지 않는다).
 pub(crate) fn persist_config(cfg: &Config, label: &str) -> Result<(), unim::config::ConfigError> {
-    cfg.save_to_default_path()?;
-    platform::notify_config_saved(cfg, label);
+    // F7: 저장 직전 디스크 상태를 재로드해 UI 가 소유하지 않은 필드(데몬/CLI 가
+    // 설정 창이 뜬 사이 라이브로 바꿨을 수 있는 값)를 보존한다. UI-소유 필드만
+    // in-memory 값으로 덮어써 저장하고, 실제 저장된 config 로 데몬에 통지한다.
+    let mut disk = Config::load_from_default_path();
+    merge_ui_owned(&mut disk, cfg);
+    disk.save_to_default_path()?;
+    platform::notify_config_saved(&disk, label);
     Ok(())
+}
+
+/// F7: 디스크에서 재로드한 `disk` 에 UI 가 소유·편집하는 필드만 in-memory(`ui`)
+/// 값으로 덮어쓴다. UI 가 노출하지 않는 필드는 `disk` 값을 그대로 보존해, 설정
+/// 창이 열려 있는 동안 외부(데몬/CLI)에서 바뀐 값을 저장 시 되돌리지 않게 한다.
+///
+/// UI-소유 필드(이 설정앱이 실제 편집하는 것):
+///   engine.{default_category, mode_sharing, toggle_keys, hanja_keys, app_rules,
+///           toggle_announce_beep, auto_typefix, auto_english},
+///   engine.korean.{layout, active_rule_sets, layout_rule_sets, bidirectional_combine,
+///                  chord_window_ms, commit_unit, word_mode_apps},
+///   engine.english.layout.
+/// 플랫폼 분기: `ignore_key_repeat` 는 Windows 에서만 UI-소유(설정에 노출). Linux 는
+///   설정에서 숨기므로(F2) disk 값을 보존한다 — CLI 로 지정한 값을 클로버하지 않는다.
+fn merge_ui_owned(disk: &mut Config, ui: &Config) {
+    let d = &mut disk.engine;
+    let u = &ui.engine;
+    d.default_category = u.default_category;
+    d.mode_sharing = u.mode_sharing;
+    d.toggle_keys = u.toggle_keys.clone();
+    d.hanja_keys = u.hanja_keys.clone();
+    d.app_rules = u.app_rules.clone();
+    d.toggle_announce_beep = u.toggle_announce_beep;
+    d.auto_typefix = u.auto_typefix.clone();
+    d.auto_english = u.auto_english.clone();
+    d.korean.layout = u.korean.layout.clone();
+    d.korean.active_rule_sets = u.korean.active_rule_sets.clone();
+    d.korean.layout_rule_sets = u.korean.layout_rule_sets.clone();
+    d.korean.bidirectional_combine = u.korean.bidirectional_combine;
+    d.korean.chord_window_ms = u.korean.chord_window_ms;
+    d.korean.commit_unit = u.korean.commit_unit;
+    d.korean.word_mode_apps = u.korean.word_mode_apps.clone();
+    d.english.layout = u.english.layout.clone();
+    // ignore_key_repeat: Windows 만 UI-소유. Linux 는 disk 값 보존(F2 숨김과 정합).
+    #[cfg(target_os = "windows")]
+    {
+        d.ignore_key_repeat = u.ignore_key_repeat;
+    }
+}
+
+/// config `AppRule` → Slint `AppRuleItem` (category-index: 0=영문, 1=한글).
+fn app_rule_to_item(r: &AppRule) -> AppRuleItem {
+    AppRuleItem {
+        pattern: r.app_pattern.as_str().into(),
+        category_index: match r.default_category {
+            InputCategory::Korean => 1,
+            InputCategory::English => 0,
+        },
+    }
 }
 
 fn refresh_blacklist(ui: &SettingsWindow, bl: &Blacklist) {
@@ -354,11 +463,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (eng_canon, eng_disp, eng_idx);
     {
         let cfg = config.borrow();
-        (kor_canon, kor_disp, kor_idx) = build_layout_lists(
-            &cfg.engine.korean.layout,
-            KOREAN_LAYOUT_BUILTINS,
-            korean_layout_display_name,
-        );
+        // 한글 자판 목록 — 정적 4종 대신 ProfileRegistry 열거(내장 5종+사용자 프로필,
+        // 안마태 등 모아치기 자판 포함). GTK 설정앱과 동일 소스. 현재값은 정규화된
+        // effective_layout_name 으로 매칭한다(별칭 처리 포함).
+        let kor_pairs = collect_korean_profile_choices();
+        (kor_canon, kor_disp, kor_idx) =
+            build_layout_lists_from_pairs(&cfg.engine.korean.effective_layout_name(), &kor_pairs);
         (eng_canon, eng_disp, eng_idx) = build_layout_lists(
             &cfg.engine.english.layout,
             ENGLISH_LAYOUT_BUILTINS,
@@ -376,6 +486,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(profile) = load_profile(&cfg.engine.korean.effective_layout_name()) {
             rule_model.set_vec(rule_set_items_for(&cfg, &profile));
         }
+    }
+
+    // 앱별 강제 모드 규칙 모델 — config.engine.app_rules 와 양방향(추가/삭제/편집).
+    let app_rule_model: Rc<VecModel<AppRuleItem>> = Rc::new(VecModel::default());
+    ui.set_app_rule_items(ModelRc::from(app_rule_model.clone()));
+    {
+        let cfg = config.borrow();
+        app_rule_model.set_vec(
+            cfg.engine
+                .app_rules
+                .iter()
+                .map(app_rule_to_item)
+                .collect::<Vec<_>>(),
+        );
     }
 
     // ── 초기값 주입 ──
@@ -431,8 +555,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_auto_english_keys(e.auto_english.trigger_keys.join(", ").into());
         // I7: 한/영 전환 비프 통지 (접근성).
         ui.set_toggle_announce_beep(e.toggle_announce_beep);
-        // 조합키 자동반복 억제 (접근성, 지체장애).
+        // 조합키 자동반복 억제 (접근성, 지체장애) — Linux 는 UI 에서 숨김(F2).
         ui.set_ignore_key_repeat(e.ignore_key_repeat);
+        // 플랫폼 게이트: Windows 전용 행(ignore_key_repeat 등) 노출 판정.
+        ui.set_is_windows(cfg!(target_os = "windows"));
+        // 앱별 강제 모드 콤보 옵션(0=영문, 1=한글).
+        ui.set_app_rule_category_options(string_model(vec![
+            tr.get_mode_english(),
+            tr.get_mode_korean(),
+        ]));
 
         push_atf_to_ui(&ui, &e.auto_typefix);
 
@@ -594,6 +725,111 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── 앱별 강제 모드 규칙: 추가 ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        let app_rule_model = app_rule_model.clone();
+        ui.on_app_rule_add(move || {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            let mut cfg = config.borrow_mut();
+            cfg.engine.app_rules.push(AppRule {
+                app_pattern: String::new(),
+                default_category: InputCategory::English,
+            });
+            // 모델을 config 기준으로 재구성(config 가 항상 진실원). 편집 중 패턴은
+            // config 에 이미 반영돼 있으므로 재구성해도 표시가 어긋나지 않는다.
+            app_rule_model.set_vec(
+                cfg.engine.app_rules.iter().map(app_rule_to_item).collect::<Vec<_>>(),
+            );
+            match persist_config(&cfg, "app_rule_add") {
+                Ok(()) => ui.set_status_text(tr.get_applied()),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
+            }
+        });
+    }
+    // ── 앱별 강제 모드 규칙: 삭제 (스크롤 위치는 ScrollView 가 보존) ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        let app_rule_model = app_rule_model.clone();
+        ui.on_app_rule_remove(move |idx| {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            if idx < 0 {
+                return;
+            }
+            let i = idx as usize;
+            let mut cfg = config.borrow_mut();
+            if i >= cfg.engine.app_rules.len() {
+                return;
+            }
+            cfg.engine.app_rules.remove(i);
+            // config 기준 재구성 — 삭제로 인덱스가 밀려도 각 행이 올바른 패턴/모드를
+            // 표시한다. 스크롤 위치는 ScrollView 가 보존(viewport-y 미변경).
+            app_rule_model.set_vec(
+                cfg.engine.app_rules.iter().map(app_rule_to_item).collect::<Vec<_>>(),
+            );
+            match persist_config(&cfg, "app_rule_remove") {
+                Ok(()) => ui.set_status_text(tr.get_applied()),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
+            }
+        });
+    }
+    // ── 앱별 강제 모드 규칙: 패턴 편집 (저장만 — 모델 재기록 없이 커서 점프 방지) ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        ui.on_app_rule_pattern_edited(move |idx, text| {
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            if idx < 0 {
+                return;
+            }
+            let i = idx as usize;
+            let mut cfg = config.borrow_mut();
+            if i >= cfg.engine.app_rules.len() {
+                return;
+            }
+            cfg.engine.app_rules[i].app_pattern = text.trim().to_string();
+            match persist_config(&cfg, "app_rule_pattern") {
+                Ok(()) => ui.set_status_text(tr.get_applied()),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
+            }
+        });
+    }
+    // ── 앱별 강제 모드 규칙: 모드(영문/한글) 변경 ──
+    {
+        let ui_weak = ui.as_weak();
+        let config = config.clone();
+        let app_rule_model = app_rule_model.clone();
+        ui.on_app_rule_category_changed(move |idx, cat_idx| {
+            use slint::Model;
+            let ui = ui_weak.unwrap();
+            let tr = ui.global::<Tr>();
+            if idx < 0 {
+                return;
+            }
+            let i = idx as usize;
+            let mut cfg = config.borrow_mut();
+            if i >= cfg.engine.app_rules.len() {
+                return;
+            }
+            cfg.engine.app_rules[i].default_category = if cat_idx == 1 {
+                InputCategory::Korean
+            } else {
+                InputCategory::English
+            };
+            // 해당 행만 config 기준으로 갱신(패턴도 config 값 — 편집 중 패턴 되돌림 방지).
+            app_rule_model.set_row_data(i, app_rule_to_item(&cfg.engine.app_rules[i]));
+            match persist_config(&cfg, "app_rule_category") {
+                Ok(()) => ui.set_status_text(tr.get_applied()),
+                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
+            }
+        });
+    }
+
     // ── 오타 교정 강도 프리셋 (보수적/표준/적극적) 일괄 적용 ──
     {
         let ui_weak = ui.as_weak();
@@ -729,7 +965,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 비수정자 토글(한글키·오른쪽 Alt) — 한 손으로 누를 수 있는 기본값.
                 cfg.engine.toggle_keys = vec!["Korean".to_string(), "RightAlt".to_string()];
                 cfg.engine.korean.chord_window_ms = None; // 모아치기 OFF
-                cfg.engine.ignore_key_repeat = true;
+                // 자동반복 억제는 Windows 전용 기능/UI(F2) — Linux 프리셋은 손대지 않음.
+                #[cfg(target_os = "windows")]
+                {
+                    cfg.engine.ignore_key_repeat = true;
+                }
 
                 // UI 재동기화.
                 if let Some(pos) = kor_canon
@@ -742,14 +982,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rule_model.set_vec(rule_set_items_for(&cfg, profile));
                 }
                 ui.set_toggle_keys(cfg.engine.toggle_keys.join(", ").into());
+                #[cfg(target_os = "windows")]
                 ui.set_ignore_key_repeat(true);
                 ui.set_korean_noshift_selected(is_noshift_layout(&cfg));
                 push_moachigi_to_ui(&ui, &cfg, new_profile.as_ref());
                 status = tr.get_preset_onehand();
             } else {
-                // 넉넉한 타이밍: 자동반복 억제 + 오타 교정 판정 시간 확대 +
-                // (지원 자판) 모아치기 조합창을 넉넉하게.
-                cfg.engine.ignore_key_repeat = true;
+                // 넉넉한 타이밍: (Windows) 자동반복 억제 + 오타 교정 판정 시간 확대 +
+                // (지원 자판) 모아치기 조합창을 넉넉하게. 자동반복 억제는 Windows 전용(F2).
+                #[cfg(target_os = "windows")]
+                {
+                    cfg.engine.ignore_key_repeat = true;
+                }
                 let a = &mut cfg.engine.auto_typefix;
                 a.forward_time_window_ms = AUTO_TYPEFIX_TIME_WINDOW_MAX;
                 a.reverse_time_window_ms = AUTO_TYPEFIX_TIME_WINDOW_MAX;
@@ -761,6 +1005,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     cfg.engine.korean.chord_window_ms = Some(150);
                 }
 
+                #[cfg(target_os = "windows")]
                 ui.set_ignore_key_repeat(true);
                 push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
                 push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
@@ -954,5 +1199,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ui.run()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// S3-1/S3-3: 한글 자판 목록에 안마태(모아치기) 자판이 포함되고 친화명이 비어있지 않다.
+    #[test]
+    fn korean_choices_include_anmatae_with_display() {
+        let choices = collect_korean_profile_choices();
+        let anmatae = choices
+            .iter()
+            .find(|(n, _)| n.as_str() == "ko_3bul_anmatae")
+            .expect("ko_3bul_anmatae 가 한글 자판 목록에 있어야 함");
+        assert!(
+            !anmatae.1.trim().is_empty(),
+            "안마태 자판 친화명이 비어있지 않아야 함"
+        );
+        // 영문 프로필은 한글 목록에 섞이지 않는다.
+        assert!(
+            choices.iter().all(|(n, _)| !n.starts_with("en_")),
+            "한글 목록에 영문 프로필이 섞이면 안 됨"
+        );
+    }
+
+    /// S3-4 회귀 가드: 안마태 프로필이 moachigi capability 를 유지한다.
+    #[test]
+    fn anmatae_profile_has_moachigi() {
+        let p = load_profile("ko_3bul_anmatae").expect("안마태 프로필 로드");
+        assert!(
+            p.moachigi.is_some(),
+            "안마태는 moachigi capability 를 가져야 함"
+        );
+    }
+
+    /// F7: 저장 병합이 UI-소유 필드는 in-memory 값으로 덮어쓰고, 비-UI 필드는
+    /// disk 값을 보존한다(Linux 의 ignore_key_repeat 는 비-UI).
+    #[test]
+    fn merge_ui_owned_overwrites_ui_and_preserves_non_ui() {
+        let mut disk = Config::default();
+        // UI-소유 필드 — disk 값은 in-memory 값으로 덮어써져야 함.
+        disk.engine.toggle_keys = vec!["OldToggle".to_string()];
+        disk.engine.app_rules = vec![AppRule {
+            app_pattern: "old".to_string(),
+            default_category: InputCategory::English,
+        }];
+        // 비-UI 필드(Linux 에서 UI 미노출) — disk 값이 보존돼야 함.
+        disk.engine.ignore_key_repeat = true;
+
+        let mut ui = Config::default();
+        ui.engine.toggle_keys = vec!["NewToggle".to_string()];
+        ui.engine.app_rules = vec![AppRule {
+            app_pattern: "new".to_string(),
+            default_category: InputCategory::Korean,
+        }];
+        ui.engine.ignore_key_repeat = false;
+
+        merge_ui_owned(&mut disk, &ui);
+
+        // UI-소유 필드는 덮어써짐.
+        assert_eq!(disk.engine.toggle_keys, vec!["NewToggle".to_string()]);
+        assert_eq!(disk.engine.app_rules.len(), 1);
+        assert_eq!(disk.engine.app_rules[0].app_pattern, "new");
+        assert_eq!(
+            disk.engine.app_rules[0].default_category,
+            InputCategory::Korean
+        );
+
+        // 비-UI 필드는 플랫폼별. Linux 는 disk 값(true) 보존, Windows 는 ui 값(false) 반영.
+        #[cfg(not(target_os = "windows"))]
+        assert!(
+            disk.engine.ignore_key_repeat,
+            "Linux 에서 ignore_key_repeat(비-UI)는 disk 값이 보존돼야 함"
+        );
+        #[cfg(target_os = "windows")]
+        assert!(
+            !disk.engine.ignore_key_repeat,
+            "Windows 에서 ignore_key_repeat 는 UI-소유이므로 ui 값이 반영돼야 함"
+        );
+    }
 }
 

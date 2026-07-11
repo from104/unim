@@ -33,7 +33,8 @@ Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          dbus
-Recommends: im-config, fonts-noto-cjk
+Recommends: im-config, fonts-noto-cjk,
+            pulseaudio-utils | pipewire-bin | alsa-utils
 Description: UNIM Korean IME — core engine, daemon, CLI, shared library
  UNIM is a modular Korean Input Method Engine written in Rust with
  2-bul and 3-bul Hangul layouts and automatic Korean/English typo

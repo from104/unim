@@ -676,3 +676,35 @@ msgstr "Toggles reverse (KO→EN) correction only."
 
 msgid "역방향 토글 단축키"
 msgstr "Reverse toggle shortcut"
+
+# ── 앱별 강제 모드 (F1) ──
+
+msgid "영문"
+msgstr "English"
+
+msgid "한글"
+msgstr "Korean"
+
+msgid "앱별 강제 모드"
+msgstr "Per-app Forced Mode"
+
+msgid "특정 앱에서 항상 지정한 모드로 시작하도록 규칙을 정합니다. 앱 패턴은 창 식별자(window_id)나 클라이언트 이름에 대한 부분 일치입니다. 예: firefox, org.gnome. '모드 공유'가 '앱별 분리'일 때 효과가 큽니다."
+msgstr "Define rules so certain apps always start in the mode you choose. The app pattern is a substring match against the window ID (window_id) or client name — e.g. firefox, org.gnome. It has the most effect when 'Mode Sharing' is set to 'Separate per app'."
+
+msgid "앱 패턴 (예: firefox)"
+msgstr "App pattern (e.g. firefox)"
+
+msgid "앱 패턴"
+msgstr "App pattern"
+
+msgid "강제 모드"
+msgstr "Forced mode"
+
+msgid "이 규칙 삭제"
+msgstr "Delete this rule"
+
+msgid "규칙 추가"
+msgstr "Add rule"
+
+msgid "앱별 강제 모드 규칙 추가"
+msgstr "Add a per-app forced mode rule"

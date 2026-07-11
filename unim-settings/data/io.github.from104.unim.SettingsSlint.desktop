@@ -9,4 +9,4 @@ Icon=io.github.from104.unim.SettingsSlint
 Terminal=false
 Categories=Settings;
 StartupWMClass=unim-settings
-NoDisplay=true
+Keywords=korean;hangul;input;ime;keyboard;unim;

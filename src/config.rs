@@ -541,13 +541,24 @@ impl Default for AutoEnglishConfig {
 }
 
 /// `word_mode_apps` 기본값 — Smart 확정 단위 게이트가 이 목록의 프로세스 실행 파일명
-/// (정확일치)만 단어 모드로 켠다. `winword.exe`(MS Word)만 seed 한다.
+/// (정확일치)만 단어 모드로 켠다. 플랫폼 분기: Windows 는 `winword.exe`(MS Word)만
+/// seed, 그 외(리눅스 등)는 빈 목록이다.
 ///
-/// wmux(xterm.js/Blink)는 제외됨: 역방향 자동교정이 음절모드에서 synth 라우팅
-/// (sink_asymmetric, OnTestKeyDown 미발화 감지)으로 동작 확인돼(device-QA PASS) 더는
-/// 단어 모드가 필요 없다. 필요 시 사용자가 config `word_mode_apps` 로 재추가 가능.
+/// `winword.exe` 는 리눅스에서 실행될 수 없어 seed 해봐야 죽은 항목이고, Smart 게이트가
+/// 매 앱마다 무의미하게 비교하게 만든다. 따라서 리눅스 기본값은 빈 목록으로 두고,
+/// 필요한 사용자만 config `word_mode_apps` 로 명시 추가한다(빈 목록이어도 Smart 는
+/// Syllable 과 동일 동작). wmux(xterm.js/Blink)는 양 플랫폼 모두 제외됨: 역방향 자동교정이
+/// 음절모드에서 synth 라우팅(sink_asymmetric, OnTestKeyDown 미발화 감지)으로 동작
+/// 확인돼(device-QA PASS) 더는 단어 모드가 필요 없다.
 fn default_word_mode_apps() -> Vec<String> {
-    vec!["winword.exe".to_string()]
+    #[cfg(target_os = "windows")]
+    {
+        vec!["winword.exe".to_string()]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
 }
 
 /// 한국어 엔진 설정
@@ -800,6 +811,20 @@ impl From<KoreanConfigCompat> for KoreanConfig {
             None if c.word_commit => CommitUnit::Word,
             None => CommitUnit::default(),
         };
+        // 리눅스 마이그레이션: 구 버전은 전 플랫폼에서 word_mode_apps 를 ["winword.exe"]
+        // 로 seed 했다. 리눅스에선 winword.exe 가 실행될 수 없어 무의미하므로, 값이 정확히
+        // ["winword.exe"] 단일 원소면 사용자 의도가 아닌 구 기본값 잔재로 보고 빈 목록으로
+        // 치환한다. Windows 는 winword.exe 가 실제 대상이므로 보존한다. 사용자가 명시한
+        // 다른 목록(빈 목록 [] 이나 winword.exe 를 포함한 복수 항목)은 그대로 둔다.
+        #[cfg(not(target_os = "windows"))]
+        let word_mode_apps = if c.word_mode_apps.len() == 1 && c.word_mode_apps[0] == "winword.exe"
+        {
+            Vec::new()
+        } else {
+            c.word_mode_apps
+        };
+        #[cfg(target_os = "windows")]
+        let word_mode_apps = c.word_mode_apps;
         Self {
             layout: normalize_korean_layout_name(&layout),
             active_rule_sets: c.active_rule_sets,
@@ -807,7 +832,7 @@ impl From<KoreanConfigCompat> for KoreanConfig {
             bidirectional_combine: c.bidirectional_combine,
             chord_window_ms: c.chord_window_ms,
             commit_unit,
-            word_mode_apps: c.word_mode_apps,
+            word_mode_apps,
         }
     }
 }
@@ -897,8 +922,10 @@ pub struct EngineConfig {
     /// 한/영 전환 시 짧은 비프음으로 현재 모드를 알린다 (접근성, 기본 false).
     ///
     /// 시각장애 사용자가 화면 없이도 토글 후 현재 모드(한글/영문)를 소리 높낮이로
-    /// 확인할 수 있게 한다. Windows TSF 전용 — 한글 모드는 높은 음, 영문 모드는
-    /// 낮은 음으로 차등한다. 기본 false 로 현행 무음 동작을 바이트동일 보존한다.
+    /// 확인할 수 있게 한다. 한글 모드는 높은 음(880Hz), 영문 모드는 낮은 음(440Hz)으로
+    /// 차등한다. Windows·Linux 모두 지원 — Windows 는 TSF lang_bar, Linux 는
+    /// unim-daemon 이 paplay/pw-cat/aplay 로 합성 WAV 를 재생한다. 기본 false 로 현행
+    /// 무음 동작을 바이트동일 보존한다.
     /// (능동 스크린리더 통지 NotifyWinEvent 는 본 옵션과 무관하게 항상 발생.)
     #[serde(default)]
     pub toggle_announce_beep: bool,
@@ -1448,14 +1475,22 @@ commit_unit: Syllable
     // word_mode_apps (I4 per-app 앱호환 외부화) — 기본값 보존 + 직렬화 라운드트립
     // ─────────────────────────────────────────────
 
-    /// 기본 단어모드 화이트리스트는 winword.exe 만(wmux 는 음절모드 synth 라우팅
-    /// 동작 확인 후 제외 — device-QA PASS).
+    /// 기본 단어모드 화이트리스트는 플랫폼 분기 — Windows=winword.exe 만, 리눅스=빈 목록
+    /// (winword.exe 는 리눅스에서 실행 불가 → 죽은 항목 seed 회피). wmux 는 양 플랫폼
+    /// 모두 음절모드 synth 라우팅 동작 확인 후 제외(device-QA PASS).
     #[test]
-    fn word_mode_apps_default_is_winword_only() {
+    fn word_mode_apps_default_is_platform_branched() {
+        #[cfg(target_os = "windows")]
         assert_eq!(
             KoreanConfig::default().word_mode_apps,
             vec!["winword.exe".to_string()],
-            "기본 단어모드 화이트리스트는 winword.exe 만"
+            "Windows 기본 단어모드 화이트리스트는 winword.exe 만"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            KoreanConfig::default().word_mode_apps,
+            Vec::<String>::new(),
+            "리눅스 기본 단어모드 화이트리스트는 빈 목록"
         );
     }
 
@@ -1472,7 +1507,8 @@ commit_unit: Syllable
         );
     }
 
-    /// 레거시 YAML(필드 부재) → 기본값(winword.exe). 기존 config.yaml 무회귀.
+    /// 레거시 YAML(필드 부재) → 플랫폼 기본값. Windows=winword.exe, 리눅스=빈 목록.
+    /// 기존 config.yaml 무회귀.
     #[test]
     fn word_mode_apps_legacy_missing_field_uses_default() {
         let yaml = r#"
@@ -1480,10 +1516,37 @@ layout: ko_2bulstd
 word_commit: false
 "#;
         let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        #[cfg(target_os = "windows")]
         assert_eq!(
             kc.word_mode_apps,
             vec!["winword.exe".to_string()],
-            "필드 부재 시 기본값(winword.exe)으로 채워져야 함"
+            "Windows: 필드 부재 시 기본값(winword.exe)"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            kc.word_mode_apps,
+            Vec::<String>::new(),
+            "리눅스: 필드 부재 시 빈 목록"
+        );
+    }
+
+    /// 리눅스 마이그레이션: 구 기본값 잔재 `word_mode_apps: [winword.exe]`(단일 원소)는
+    /// 리눅스에서 빈 목록으로 치환되고, Windows 에서는 실제 대상이므로 보존된다.
+    #[test]
+    fn word_mode_apps_winword_singleton_migrates_on_linux() {
+        let yaml = r#"
+layout: ko_2bulstd
+word_mode_apps:
+  - winword.exe
+"#;
+        let kc: KoreanConfig = serde_yaml::from_str(yaml).unwrap();
+        #[cfg(target_os = "windows")]
+        assert_eq!(kc.word_mode_apps, vec!["winword.exe".to_string()]);
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            kc.word_mode_apps,
+            Vec::<String>::new(),
+            "리눅스: winword.exe 단일 잔재는 빈 목록으로 마이그레이션"
         );
     }
 

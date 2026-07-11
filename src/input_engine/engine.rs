@@ -153,9 +153,10 @@ pub struct InputEngine {
     pub(super) commit_unit: CommitUnit,
     /// 단어 모드 대상 앱 목록(정확일치) — `config.engine.korean.word_mode_apps` 캐시.
     ///
-    /// TSF `Smart` 게이트가 `is_word_mode_app` 로 조회한다. `new`/`rebuild_korean_context`
-    /// 재구성 경로에서 config 와 동기화된다. 기본값 `["winword.exe"]`(wmux 는 역방향
-    /// 음절모드 synth 라우팅 동작 확인 후 제외). Windows TSF 전용(그 외 프런트엔드 미사용).
+    /// `Smart` 게이트가 `is_word_mode_app` 로 조회한다(Windows TSF·Linux 데몬 공통).
+    /// `new`/`rebuild_korean_context` 재구성 경로에서 config 와 동기화된다. 기본값은
+    /// 플랫폼 분기 — Windows=`["winword.exe"]`, 리눅스=빈 목록(wmux 는 양 플랫폼 모두
+    /// 역방향 음절모드 synth 라우팅 동작 확인 후 제외).
     pub(super) word_mode_apps: Vec<String>,
     /// 비밀번호/PIN 필드 진입 시 저장한 직전 입력 카테고리 (자동 복구용).
     ///
@@ -448,6 +449,30 @@ impl InputEngine {
             Self::parse_keycode_names(&config.engine.auto_typefix.toggle_reverse_keys);
     }
 
+    /// 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 캐시를 config 에서 재파싱해
+    /// 반영한다 (hot-reload 재적용).
+    ///
+    /// GUI/CLI 로 전환·한자 키를 편집한 뒤 `engine_worker` 의 reload 루프가 살아있는
+    /// 컨텍스트에 재로그인 없이 즉시 반영하도록 호출한다(종전의 live-reload 갭 해소 —
+    /// `set_atf_hotkeys` 와 동일 패턴, `::new` 의 파싱 로직 재사용). 파싱 실패
+    /// (`Unknown`)한 이름은 제외한다.
+    pub fn set_switch_keys(&mut self, config: &Config) {
+        self.toggle_keys = config
+            .engine
+            .toggle_keys
+            .iter()
+            .map(|name| KeyCode::from_name(name))
+            .filter(|k| *k != KeyCode::Unknown)
+            .collect();
+        self.hanja_keys = config
+            .engine
+            .hanja_keys
+            .iter()
+            .map(|name| KeyCode::from_name(name))
+            .filter(|k| *k != KeyCode::Unknown)
+            .collect();
+    }
+
     /// 고정키(Sticky Keys) 래치 잔류 마스킹 **미리보기(비소비)**.
     ///
     /// 수정자 토글키(RightAlt 등)로 전환이 성사된 직후 예약된 마스크가 있으면
@@ -519,9 +544,9 @@ impl InputEngine {
 
     /// 프로세스 실행 파일명이 단어 모드 대상 앱 목록(정확일치)에 속하는지 판정한다.
     ///
-    /// `config.engine.korean.word_mode_apps` 캐시를 정확일치(`==`)로 조회한다. 기본값
-    /// `["winword.exe"]`(wmux 는 역방향 음절모드 synth 라우팅 동작 확인 후 제외) —
-    /// 대소문자 구분·부분일치 없음. TSF `Smart` 확정 단위
+    /// `config.engine.korean.word_mode_apps` 캐시를 정확일치(`==`)로 조회한다. 기본값은
+    /// 플랫폼 분기 — Windows=`["winword.exe"]`, 리눅스=빈 목록(wmux 는 양 플랫폼 모두
+    /// 역방향 음절모드 synth 라우팅 동작 확인 후 제외) — 대소문자 구분·부분일치 없음. `Smart` 확정 단위
     /// 게이트(OnKeyDown 매-키 재적용 + OnSetFocus)가 앱별 단어 모드 desired 판정에 쓴다.
     /// 앱 호환 목록이 코드 릴리스와 분리되어 config.yaml/CLI 로 확장 가능하다.
     pub fn is_word_mode_app(&self, name: &str) -> bool {
@@ -893,12 +918,17 @@ mod tests {
         assert_eq!(engine.preedit_str(), "나", "Smart 는 Phase2 에서 누적 off");
     }
 
-    /// is_word_mode_app 기본값은 winword.exe 만(정확일치). wmux 는 역방향 음절모드 synth
-    /// 라우팅 동작 확인 후 제외됨 → 기본 syllable. 대소문자 구분·부분일치 없음.
+    /// is_word_mode_app 기본값은 플랫폼 분기 — Windows=winword.exe(정확일치), 리눅스=빈
+    /// 목록(어떤 앱도 불일치). wmux 는 양 플랫폼 모두 역방향 음절모드 synth 라우팅 동작
+    /// 확인 후 제외됨 → 기본 syllable. 대소문자 구분·부분일치 없음.
     #[test]
     fn is_word_mode_app_default_matches_winword_only() {
         let engine = InputEngine::new(&Config::default());
+        #[cfg(target_os = "windows")]
         assert!(engine.is_word_mode_app("winword.exe"));
+        // 리눅스 기본값은 빈 목록 → winword.exe 도 불일치.
+        #[cfg(not(target_os = "windows"))]
+        assert!(!engine.is_word_mode_app("winword.exe"));
         // wmux 는 기본 화이트리스트에서 제외(역방향 syllable synth 라우팅으로 동작).
         assert!(!engine.is_word_mode_app("wmux.exe"));
         // 정확일치 — 대문자/부분일치/비대상 앱은 불일치(무회귀).
