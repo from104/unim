@@ -30,6 +30,101 @@ const BYPASS_MODIFIER_MASK =
     Clutter.ModifierType.MOD1_MASK |  // Alt
     Clutter.ModifierType.SUPER_MASK;
 
+// ── 자동 영문(auto_english) 조합 트리거 selective divert ─────────────────────
+// 기본적으로 Ctrl/Alt/Super 조합은 위 blanket 경로로 앱에 통과시킨다. 다만
+// 사용자가 설정한 조합 트리거(예: `key:Ctrl+B` — tmux prefix)만은 engine 으로
+// divert 해서 한→영 모드 전환을 일으켜야 한다(키 자체는 여전히 앱으로 통과).
+//
+// **핵심 제약**: divert 여부 판정은 engine(src/keycode/modifiers.rs::
+// from_x11_mask, src/keycode/conversion.rs::from_evdev_keycode,
+// src/input_engine/press_key.rs::match_auto_english_trigger)과 비트 단위로
+// 동일해야 한다. 어긋나면 비트리거 조합(Ctrl+C 등)이 engine 으로 새고, 조합 중
+// engine 이 committed()(consumed=true)로 키를 소비해 Ctrl+C 가 앱에 안 가는
+// 회귀가 난다. 그래서 false-negative(트리거를 놓쳐 blanket 폴백=기능만 불발)는
+// 허용하되 false-positive(비트리거를 divert)는 절대 만들지 않도록 보수적으로 짠다.
+
+/** engine from_x11_mask 와 동일한 수정자 비트 (Clutter state 는 XKB real-mod 비트를 실음). */
+const X11_SHIFT_MASK = 1 << 0;
+const X11_CONTROL_MASK = 1 << 2;
+const X11_MOD1_MASK = 1 << 3;   // Alt
+const X11_MOD4_MASK = 1 << 6;   // Super
+
+/** evdev keycode → KeyCode 이름 (KeyCode::from_evdev_keycode 의 비-수정자 항목 미러). */
+const EVDEV_TO_KEYNAME = new Map([
+    [30, 'A'], [48, 'B'], [46, 'C'], [32, 'D'], [18, 'E'], [33, 'F'], [34, 'G'],
+    [35, 'H'], [23, 'I'], [36, 'J'], [37, 'K'], [38, 'L'], [50, 'M'], [49, 'N'],
+    [24, 'O'], [25, 'P'], [16, 'Q'], [19, 'R'], [31, 'S'], [20, 'T'], [22, 'U'],
+    [47, 'V'], [17, 'W'], [45, 'X'], [21, 'Y'], [44, 'Z'],
+    [2, 'Num1'], [3, 'Num2'], [4, 'Num3'], [5, 'Num4'], [6, 'Num5'],
+    [7, 'Num6'], [8, 'Num7'], [9, 'Num8'], [10, 'Num9'], [11, 'Num0'],
+    [28, 'Enter'], [1, 'Escape'], [14, 'Backspace'], [15, 'Tab'], [57, 'Space'],
+    [12, 'Minus'], [13, 'Equal'], [26, 'BracketLeft'], [27, 'BracketRight'],
+    [43, 'Backslash'], [39, 'Semicolon'], [40, 'Quote'], [41, 'Backquote'],
+    [51, 'Comma'], [52, 'Period'], [53, 'Slash'],
+    [58, 'CapsLock'],
+    [59, 'F1'], [60, 'F2'], [61, 'F3'], [62, 'F4'], [63, 'F5'], [64, 'F6'],
+    [65, 'F7'], [66, 'F8'], [67, 'F9'], [68, 'F10'], [87, 'F11'], [88, 'F12'],
+    [110, 'Insert'], [102, 'Home'], [104, 'PageUp'], [111, 'Delete'],
+    [107, 'End'], [109, 'PageDown'],
+    [106, 'Right'], [105, 'Left'], [108, 'Down'], [103, 'Up'],
+    [122, 'Korean'], [123, 'Hanja'],
+]);
+
+/** runtime 도달 가능한 KeyCode 이름 집합 (base 유효성 검증용). */
+const VALID_KEY_NAMES = new Set(EVDEV_TO_KEYNAME.values());
+
+/** parse_functional_name 의 shift_sensitive 목록 미러 (등장 시 shift 없어야 매칭). */
+const SHIFT_SENSITIVE_NAMES = new Set([
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+    'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+    'Num0', 'Num1', 'Num2', 'Num3', 'Num4', 'Num5', 'Num6', 'Num7', 'Num8', 'Num9',
+    'Minus', 'Equal', 'BracketLeft', 'BracketRight', 'Backslash', 'Semicolon',
+    'Quote', 'Backquote', 'Comma', 'Period', 'Slash', 'Space',
+]);
+
+/**
+ * auto_english 조합 트리거 표기 1건을 파싱한다 (press_key.rs::parse_keyspec 미러).
+ *
+ * Ctrl/Alt/Super 중 최소 1개를 요구하는 **조합** 트리거만 반환한다. `char:`·legacy·
+ * 단일 `key:` 표기는 조합이 아니므로(수정자 없이 입력돼 GNOME 이 이미 정상 경로로
+ * 처리) null 을 돌려준다 — divert 대상이 아니다.
+ *
+ * @param {string} spec - 예: "key:Ctrl+B", "key:Ctrl+Shift+B", "key:Alt+F1"
+ * @returns {{name:string, ctrl:boolean, alt:boolean, superKey:boolean, shift:(boolean|null)}|null}
+ */
+function parseComboTrigger(spec) {
+    if (typeof spec !== 'string') return null;
+    if (!spec.startsWith('key:')) return null;   // char:/legacy 는 조합 문법 아님
+    const body = spec.slice(4);
+    if (!body.includes('+')) return null;        // 단일 base — 비조합 (engine 정상 경로)
+    const tokens = body.split('+').map((t) => t.trim());
+    let base = tokens.pop();                      // 마지막 토큰 = base
+    let ctrl = false;
+    let alt = false;
+    let superKey = false;
+    let shiftForced = false;
+    for (const tok of tokens) {
+        const t = tok.toLowerCase();
+        if (t === 'ctrl' || t === 'control') ctrl = true;
+        else if (t === 'alt') alt = true;
+        else if (t === 'super' || t === 'win' || t === 'meta') superKey = true;
+        else if (t === 'shift') shiftForced = true;
+        else return null;                        // 미지 modifier 토큰 → 침묵 무시
+    }
+    if (!ctrl && !alt && !superKey) return null; // 순수 shift 조합은 bypass 대상 아님
+    // base 는 대소문자 구분(KeyCode::from_name). "Shift<Name>" 융합형 지원.
+    let baseShiftForced = false;
+    if (base.startsWith('Shift')) {
+        base = base.slice(5);
+        baseShiftForced = true;
+    }
+    if (!VALID_KEY_NAMES.has(base)) return null; // 빈/미지 base → 침묵 무시
+    let shift;
+    if (shiftForced || baseShiftForced) shift = true;               // shift 필수
+    else shift = SHIFT_SENSITIVE_NAMES.has(base) ? false : null;    // 문자키=없어야, 제어키=무관
+    return { name: base, ctrl, alt, superKey, shift };
+}
+
 
 
 
@@ -185,6 +280,15 @@ export class KeyHandler {
         // 3. Ctrl/Alt/Super 조합 → 키를 먼저 전달한 후 조합 flush
         //    (고정키 사용 시 _flushCompose의 call_sync 중 modifier가 해제되는 것을 방지)
         if (state & BYPASS_MODIFIER_MASK) {
+            // 3a. auto_english 조합 트리거(예: `key:Ctrl+B`)면 키를 먼저 앱으로 전달
+            //     (고정키 순서 보존)한 뒤 engine 으로 divert 해 한→영 전환.
+            if (this._matchesAutoEnglishCombo(keycode, state)) {
+                this._inputMethod.notify_key_event(event, false);
+                this._divertComboToEngine(keyval, keycode, state);
+                this._drainKeyQueue();
+                return;
+            }
+            // 3b. 비트리거 조합 → 기존 동작(전달 후 조합 flush).
             this._inputMethod.notify_key_event(event, false);
             this._flushCompose();
             return;
@@ -278,6 +382,12 @@ export class KeyHandler {
             }
 
             if (entry.state & BYPASS_MODIFIER_MASK) {
+                // auto_english 조합 트리거면 divert (키는 앱으로 통과).
+                if (this._matchesAutoEnglishCombo(entry.keycode, entry.state)) {
+                    this._inputMethod.notify_key_event(entry.event, false);
+                    this._divertComboToEngine(entry.keyval, entry.keycode, entry.state);
+                    continue;
+                }
                 this._flushCompose();
                 this._inputMethod.notify_key_event(entry.event, false);
                 continue;
@@ -326,6 +436,91 @@ export class KeyHandler {
         // 엔진 상태 초기화 (포커스 변경 없이)
         if (this._dbusIME?.isConnected) {
             this._dbusIME.reset();
+        }
+    }
+
+    /**
+     * 현재 (evdevKeycode, state) 가 설정된 auto_english **조합** 트리거와 정확히
+     * 일치하는지 판정한다 — engine match_auto_english_trigger 의 조합 분기 미러.
+     *
+     * true → 이 조합 키를 blanket flush 대신 engine 으로 divert(모드 전환) 해야 함.
+     * false → 기존 blanket 동작 유지(Ctrl+C 등 회귀 없음).
+     *
+     * 캐시된 Config(dbus_ime GetConfigJson/ConfigChangedJson 스냅샷)를 매 조합 키마다
+     * 읽어 파싱한다. trigger_keys 는 소수 항목이고 조합 키는 드물어 비용은 무시 가능,
+     * 대신 캐시 무효화 버그가 원천 차단된다. 파싱/접근 오류는 false 로 흡수해 키 hot
+     * path 안정성을 지킨다(예외 시 호출부가 blanket 폴백 실행).
+     *
+     * @param {number} evdevKeycode
+     * @param {number} state - Clutter modifier 비트필드
+     * @returns {boolean}
+     * @private
+     */
+    _matchesAutoEnglishCombo(evdevKeycode, state) {
+        try {
+            const cfg = this._dbusIME ? this._dbusIME.getCachedConfig() : null;
+            const ae = cfg && cfg.engine ? cfg.engine.auto_english : null;
+            if (!ae || ae.enabled !== true || !Array.isArray(ae.trigger_keys)) {
+                return false;
+            }
+            const name = EVDEV_TO_KEYNAME.get(evdevKeycode);
+            if (!name) return false;
+            const ctrl = (state & X11_CONTROL_MASK) !== 0;
+            const alt = (state & X11_MOD1_MASK) !== 0;
+            const superKey = (state & X11_MOD4_MASK) !== 0;
+            const shift = (state & X11_SHIFT_MASK) !== 0;
+            // 엔진 관점(from_x11_mask)의 ctrl/alt/super 가 하나도 없으면 조합 트리거
+            // 매칭 자체가 불가(engine 가드 `control||alt||super` 미진입) → divert 불요.
+            if (!ctrl && !alt && !superKey) return false;
+            for (const spec of ae.trigger_keys) {
+                const t = parseComboTrigger(spec);
+                if (!t) continue;
+                if (t.name === name
+                    && t.ctrl === ctrl
+                    && t.alt === alt
+                    && t.superKey === superKey
+                    && (t.shift === null || t.shift === shift)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (e) {
+            unimError('KEY', `auto_english 조합 매칭 오류(무시): ${e.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 조합 트리거를 engine 으로 divert 해 한→영 모드 전환을 수행하고 결과(commit/
+     * preedit)를 반영한다. 키는 **소비하지 않는다** — 호출부가 이미 notify_key_event
+     * (false)/EVENT_PROPAGATE 로 앱에 전달했다(tmux prefix Ctrl+B 등이 앱행이어야 함).
+     * ProcessKeyEvent 는 조합 트리거에 대해 consumed=false(idle=not_consumed,
+     * 조합중=committed_passthrough)만 돌려주므로 consumed 는 무시한다. D-Bus 실패
+     * 시 기존 로컬 flush 로 폴백.
+     *
+     * @param {number} keyval
+     * @param {number} evdevKeycode
+     * @param {number} state
+     * @private
+     */
+    _divertComboToEngine(keyval, evdevKeycode, state) {
+        if (!this._dbusIME.isConnected) {
+            this._flushCompose();
+            return;
+        }
+        this._processingKey = true;
+        let result;
+        try {
+            result = this._dbusIME.processKey(keyval, evdevKeycode, state);
+        } finally {
+            this._processingKey = false;
+        }
+        if (result) {
+            // commit(직전 조합 flush)/preedit(빈 문자열) 만 반영 — 일반 키 경로와 동일.
+            this._commitAndPreedit(result.commit, result.preedit);
+        } else {
+            // D-Bus 실패 → 로컬 preedit flush + engine reset (기존 blanket 폴백).
+            this._flushCompose();
         }
     }
 
@@ -427,7 +622,13 @@ export class KeyHandler {
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
         if (state & BYPASS_MODIFIER_MASK) {
-            // captured-event 폴백이므로 forward_key 불필요, PROPAGATE로 키 전달
+            // 3a. auto_english 조합 트리거면 engine 으로 divert(모드 전환). 키는
+            //     PROPAGATE 로 앱에 전달되므로 별도 forward 불필요.
+            if (this._matchesAutoEnglishCombo(evdevKeycode, state)) {
+                this._divertComboToEngine(keyval, evdevKeycode, state);
+                return Clutter.EVENT_PROPAGATE;
+            }
+            // 3b. captured-event 폴백이므로 forward_key 불필요, PROPAGATE로 키 전달
             const preedit = this._inputMethod._preeditText || '';
             if (preedit.length > 0) {
                 this._inputMethod.clearPreedit();

@@ -764,7 +764,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     if (event->state & GDK_SHIFT_MASK) mod_state |= (1 << 0);
     if (event->state & GDK_CONTROL_MASK) mod_state |= (1 << 2);
     if (event->state & GDK_MOD1_MASK) mod_state |= (1 << 3);  /* Alt */
-    if (event->state & GDK_SUPER_MASK) mod_state |= (1 << 26);
+    if (event->state & GDK_SUPER_MASK) mod_state |= (1 << 6);  /* Super = Mod4 — 엔진 from_x11_mask 비트 정렬 */
     if (event->state & GDK_LOCK_MASK) mod_state |= (1 << 1);  /* CapsLock */
 
     /* GDK hardware_keycode = X11 keycode = evdev + 8 */

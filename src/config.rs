@@ -513,12 +513,29 @@ fn default_auto_english_trigger_keys() -> Vec<String> {
 /// 트리거 키 표기 문법(접두사 기반):
 /// - `"key:<KeyCode>"`  — Functional 매칭. KeyCode 이름 직접 비교.
 ///   예: `"key:Escape"`, `"key:Tab"`, `"key:F1"`, `"key:ShiftSemicolon"` (Shift 조합).
+/// - `"key:<mod>+…+<KeyCode>"` — Ctrl/Alt/Super 조합 트리거. modifier 토큰은
+///   `ctrl`(=`control`) / `alt` / `super`(=`win`/`meta`) / `shift`, `'+'` 로 구분.
+///   예: `"key:Ctrl+B"`, `"key:Ctrl+Shift+B"`, `"key:Alt+F1"`, `"key:Super+Space"`.
+///   - modifier(ctrl/alt/super)는 **정확 일치** — 표기에 쓴 것만 필수, 나머지는
+///     눌리지 않아야 발동. `"key:Ctrl+B"` 는 `Ctrl+Alt+B` 에는 발동하지 않는다.
+///   - modifier 이름은 대소문자·순서 무관(`"key:shift+ctrl+B"` == `"key:Ctrl+Shift+B"`),
+///     base KeyCode 이름은 대소문자 구분(`"key:Ctrl+B"` OK, `"key:Ctrl+b"` 는 무시).
+///   - 조합 트리거 발동 시 키는 **항상 앱으로 통과**한다(소비하지 않음) — tmux/wmux
+///     prefix `Ctrl+B` 처럼 앱이 그 키를 그대로 받아야 하는 워크플로우용이다.
+///   - **프런트엔드 제약(현재)**: 문자키 base(`"key:Ctrl+B"`·`"key:Super+Space"`
+///     등)는 XIM·GTK/Qt immodule·GNOME 확장 모든 리눅스 경로에서 동작한다. 반면
+///     (1) F1~F12·화살표·편집키 base(`"key:Alt+F1"` 등)는 GTK3/4 immodule 이
+///     idle 시 해당 keyval 을 엔진에 넘기지 않아 그 경로에선 미발동한다
+///     (Qt·XIM·GNOME 은 동작). (2) Windows 는 TSF/IMM32 가 Ctrl/Alt/Super 조합을
+///     test 단계에서 미소비 통과시켜 엔진에 도달하지 않으므로 조합 트리거가
+///     발동하지 않는다(추후 별도 작업). 전 리눅스 프런트엔드에서 확실히 동작하는
+///     조합은 **문자키 base** 다.
 /// - `"char:<문자>"`    — Character 매칭. 키맵을 거쳐 산출된 char 와 비교.
 ///   비-QWERTY 한국어 레이아웃(예: 세벌식390) 에서도 산출 문자가 같으면 발동.
 ///   예: `"char:/"`, `"char:,"`, `"char:?"`. shift 무관 — `'/'` 와 `'?'` 를
-///   구분하려면 둘 다 등록.
+///   구분하려면 둘 다 등록. (Ctrl/Alt/Super 조합 중에는 매칭하지 않음.)
 /// - 무접두사(legacy)   — 종전 표기 유지. `"Escape"` / `"Slash"` / `"ShiftSemicolon"`
-///   등은 자동으로 Functional 로 흡수되어 100% 호환.
+///   등은 자동으로 Functional 로 흡수되어 100% 호환. ('+' 조합 문법은 `key:` 전용.)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AutoEnglishConfig {

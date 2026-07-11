@@ -452,89 +452,73 @@ fn test_auto_english_character_question_mark() {
     assert_eq!(engine.input_category(), InputCategory::English);
 }
 
-/// parse_trigger_key — legacy 무접두사 호환 (Functional 로 흡수)
+/// 비조합(legacy·`key:` 단일·`char:`) 트리거의 기대 Functional 리터럴 헬퍼.
+/// modifier(ctrl/alt/super)는 전부 false — "이 트리거는 조합이 아님" 을 명시한다.
+fn func_plain(code: KeyCode, shift: Option<bool>) -> AutoEnglishTrigger {
+    AutoEnglishTrigger::Functional {
+        code,
+        shift,
+        ctrl: false,
+        alt: false,
+        super_key: false,
+    }
+}
+
+/// parse_trigger_key — legacy 무접두사 호환 (Functional 로 흡수, modifier 전부 false)
 #[test]
 fn test_parse_trigger_key_legacy_compat() {
     // 제어 키: shift 무관
     assert_eq!(
         InputEngine::parse_trigger_key("Escape"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Escape,
-            shift: None
-        })
+        Some(func_plain(KeyCode::Escape, None))
     );
     assert_eq!(
         InputEngine::parse_trigger_key("Tab"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Tab,
-            shift: None
-        })
+        Some(func_plain(KeyCode::Tab, None))
     );
     // 문자 키: shift 없어야 함
     assert_eq!(
         InputEngine::parse_trigger_key("Slash"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Slash,
-            shift: Some(false)
-        })
+        Some(func_plain(KeyCode::Slash, Some(false)))
     );
     assert_eq!(
         InputEngine::parse_trigger_key("Semicolon"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Semicolon,
-            shift: Some(false)
-        })
+        Some(func_plain(KeyCode::Semicolon, Some(false)))
     );
     // Shift 조합: shift 필수
     assert_eq!(
         InputEngine::parse_trigger_key("ShiftSemicolon"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Semicolon,
-            shift: Some(true)
-        })
+        Some(func_plain(KeyCode::Semicolon, Some(true)))
     );
     assert_eq!(
         InputEngine::parse_trigger_key("ShiftSlash"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Slash,
-            shift: Some(true)
-        })
+        Some(func_plain(KeyCode::Slash, Some(true)))
     );
     // 알 수 없는 이름
     assert_eq!(InputEngine::parse_trigger_key("Nonsense"), None);
     assert_eq!(InputEngine::parse_trigger_key("ShiftNonsense"), None);
+    // legacy 문법에는 '+' 조합이 없다 — 무접두사 "Ctrl+B" 는 KeyCode 이름이 아니므로 None.
+    assert_eq!(InputEngine::parse_trigger_key("Ctrl+B"), None);
 }
 
-/// parse_trigger_key — `key:` 접두사 (Functional 명시)
+/// parse_trigger_key — `key:` 접두사 단일 표기 (modifier 전부 false, 종전 파싱 보존)
 #[test]
 fn test_parse_trigger_key_functional_prefix() {
     assert_eq!(
         InputEngine::parse_trigger_key("key:Escape"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Escape,
-            shift: None
-        })
+        Some(func_plain(KeyCode::Escape, None))
     );
     assert_eq!(
         InputEngine::parse_trigger_key("key:Tab"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Tab,
-            shift: None
-        })
+        Some(func_plain(KeyCode::Tab, None))
     );
     assert_eq!(
         InputEngine::parse_trigger_key("key:F1"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::F1,
-            shift: None
-        })
+        Some(func_plain(KeyCode::F1, None))
     );
     assert_eq!(
         InputEngine::parse_trigger_key("key:ShiftSemicolon"),
-        Some(AutoEnglishTrigger::Functional {
-            code: KeyCode::Semicolon,
-            shift: Some(true)
-        })
+        Some(func_plain(KeyCode::Semicolon, Some(true)))
     );
     // 알 수 없는 이름은 None (접두사가 있어도)
     assert_eq!(InputEngine::parse_trigger_key("key:Nonsense"), None);
@@ -561,4 +545,395 @@ fn test_parse_trigger_key_character_prefix() {
     );
     // 빈 char: 는 None
     assert_eq!(InputEngine::parse_trigger_key("char:"), None);
+}
+
+// === Ctrl/Alt/Super 조합 트리거 (key:Ctrl+B 류) 파서 ===
+
+/// parse_trigger_key — `key:` modifier 조합 파싱. 기대값은 표기 문자열과 독립적으로 단언.
+#[test]
+fn test_parse_trigger_key_modifier_combo() {
+    // key:Ctrl+B → Functional{B, Some(false)(문자키), ctrl}
+    assert_eq!(
+        InputEngine::parse_trigger_key("key:Ctrl+B"),
+        Some(AutoEnglishTrigger::Functional {
+            code: KeyCode::B,
+            shift: Some(false),
+            ctrl: true,
+            alt: false,
+            super_key: false,
+        })
+    );
+    // key:Alt+F1 → Functional{F1, None(제어키), alt}
+    assert_eq!(
+        InputEngine::parse_trigger_key("key:Alt+F1"),
+        Some(AutoEnglishTrigger::Functional {
+            code: KeyCode::F1,
+            shift: None,
+            ctrl: false,
+            alt: true,
+            super_key: false,
+        })
+    );
+    // key:Super+Space → Functional{Space, Some(false), super}
+    assert_eq!(
+        InputEngine::parse_trigger_key("key:Super+Space"),
+        Some(AutoEnglishTrigger::Functional {
+            code: KeyCode::Space,
+            shift: Some(false),
+            ctrl: false,
+            alt: false,
+            super_key: true,
+        })
+    );
+    // key:Ctrl+Shift+B → Functional{B, Some(true)(shift 강제), ctrl}
+    assert_eq!(
+        InputEngine::parse_trigger_key("key:Ctrl+Shift+B"),
+        Some(AutoEnglishTrigger::Functional {
+            code: KeyCode::B,
+            shift: Some(true),
+            ctrl: true,
+            alt: false,
+            super_key: false,
+        })
+    );
+}
+
+/// parse_trigger_key — modifier 관용: 대소문자·순서·별칭·공백·중복.
+#[test]
+fn test_parse_trigger_key_modifier_lenient() {
+    let ctrl_b = AutoEnglishTrigger::Functional {
+        code: KeyCode::B,
+        shift: Some(false),
+        ctrl: true,
+        alt: false,
+        super_key: false,
+    };
+    // modifier 대소문자 무관 (base 'B' 는 대문자 유지).
+    assert_eq!(InputEngine::parse_trigger_key("key:ctrl+B"), Some(ctrl_b));
+    assert_eq!(InputEngine::parse_trigger_key("key:CTRL+B"), Some(ctrl_b));
+    // 별칭: control == ctrl.
+    assert_eq!(InputEngine::parse_trigger_key("key:control+B"), Some(ctrl_b));
+    // 토큰 공백 trim.
+    assert_eq!(InputEngine::parse_trigger_key("key: Ctrl + B"), Some(ctrl_b));
+    // 중복 토큰 멱등.
+    assert_eq!(InputEngine::parse_trigger_key("key:Ctrl+Ctrl+B"), Some(ctrl_b));
+
+    // super 별칭: win / meta / super 모두 super_key.
+    let super_b = AutoEnglishTrigger::Functional {
+        code: KeyCode::B,
+        shift: Some(false),
+        ctrl: false,
+        alt: false,
+        super_key: true,
+    };
+    assert_eq!(InputEngine::parse_trigger_key("key:super+B"), Some(super_b));
+    assert_eq!(InputEngine::parse_trigger_key("key:win+B"), Some(super_b));
+    assert_eq!(InputEngine::parse_trigger_key("key:meta+B"), Some(super_b));
+
+    // 순서 무관: Shift+Ctrl+B == Ctrl+Shift+B (둘 다 명시 기대값과 일치).
+    let ctrl_shift_b = AutoEnglishTrigger::Functional {
+        code: KeyCode::B,
+        shift: Some(true),
+        ctrl: true,
+        alt: false,
+        super_key: false,
+    };
+    assert_eq!(
+        InputEngine::parse_trigger_key("key:Shift+Ctrl+B"),
+        Some(ctrl_shift_b)
+    );
+    assert_eq!(
+        InputEngine::parse_trigger_key("key:Ctrl+Shift+B"),
+        Some(ctrl_shift_b)
+    );
+
+    // base 는 대소문자 구분 — 소문자 base 'b' 는 KeyCode 미지 → None (관용 비대칭 방지).
+    assert_eq!(InputEngine::parse_trigger_key("key:CTRL+b"), None);
+}
+
+/// parse_trigger_key — 비정상 조합은 현행 정책대로 침묵 무시(None).
+#[test]
+fn test_parse_trigger_key_modifier_invalid() {
+    assert_eq!(InputEngine::parse_trigger_key("key:Foo+B"), None); // 미지 modifier
+    assert_eq!(InputEngine::parse_trigger_key("key:Ctrl+Nonsense"), None); // 미지 base
+    assert_eq!(InputEngine::parse_trigger_key("key:Ctrl+"), None); // 빈 base
+    assert_eq!(InputEngine::parse_trigger_key("key:Ctrl"), None); // 'Ctrl' 자체는 from_name 미지
+}
+
+/// parse_trigger_key — 단일 base(비조합)는 trim 하지 않아 내부 공백 표기가 종전대로
+/// 침묵 무시된다(하위호환). 공백 관용은 `'+'` 조합 표기 전용.
+#[test]
+fn test_parse_trigger_key_single_base_no_trim() {
+    let escape = AutoEnglishTrigger::Functional {
+        code: KeyCode::Escape,
+        shift: None,
+        ctrl: false,
+        alt: false,
+        super_key: false,
+    };
+    // 정상 단일 표기는 종전대로 파싱.
+    assert_eq!(InputEngine::parse_trigger_key("key:Escape"), Some(escape));
+    // 내부/후행 공백은 종전(피처 이전)과 동일하게 None — trim 되살아나지 않음.
+    assert_eq!(InputEngine::parse_trigger_key("key: Escape"), None);
+    assert_eq!(InputEngine::parse_trigger_key("key:Escape "), None);
+    // 반면 '+' 조합 표기는 토큰 공백을 trim 한다(관용 — 별도 정책).
+    assert_eq!(
+        InputEngine::parse_trigger_key("key: Ctrl + Escape"),
+        Some(AutoEnglishTrigger::Functional {
+            code: KeyCode::Escape,
+            shift: None,
+            ctrl: true,
+            alt: false,
+            super_key: false,
+        })
+    );
+}
+
+// === Ctrl/Alt/Super 조합 트리거 발동/정확일치/하위호환 (엔진 press flow) ===
+
+/// idle 한글 모드 + `key:Ctrl+B` → 영문 전환 + 키 passthrough + 'b' commit 없음.
+#[test]
+fn test_auto_english_ctrl_b_idle_passthrough() {
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+
+    let ctrl = ModifierState {
+        control: true,
+        ..Default::default()
+    };
+    let result = engine.press_key(KeyCode::B, ctrl, &config);
+    assert!(!result.consumed, "Ctrl+B 는 앱으로 통과해야 함 (tmux prefix)");
+    assert!(!result.commit_changed, "idle 이므로 commit 없음");
+    assert!(
+        engine.commit_str().is_empty(),
+        "'b' 가 commit 되면 안 됨: '{}'",
+        engine.commit_str()
+    );
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
+/// 조합 중 + `key:Ctrl+B` → 직전 조합만 flush + 영문 전환 + passthrough ('b' 미유입).
+#[test]
+fn test_auto_english_ctrl_b_composing_flush_passthrough() {
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+
+    let none = ModifierState::default();
+    engine.press_key(KeyCode::R, none, &config); // ㄱ
+    engine.press_key(KeyCode::K, none, &config); // 가
+
+    let ctrl = ModifierState {
+        control: true,
+        ..Default::default()
+    };
+    let result = engine.press_key(KeyCode::B, ctrl, &config);
+    assert!(!result.consumed, "Ctrl+B passthrough (tmux prefix)");
+    assert!(result.commit_changed, "조합 '가' 가 flush 되어야 함");
+    assert_eq!(engine.commit_str(), "가", "flush 는 '가' 만 — 'b' 유입 금지");
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
+/// 정확 일치: `key:Ctrl+B` 등록 시 plain B 는 자모 조합, Ctrl+Alt+B/Ctrl+Shift+B 는 미발동.
+#[test]
+fn test_auto_english_ctrl_b_exact_match_only() {
+    // plain B → 자모(ㅠ) 조합, 전환 없음.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(KeyCode::B, ModifierState::default(), &config);
+    assert!(r.consumed, "plain B 는 자모로 소비");
+    assert_eq!(engine.preedit_str(), "ㅠ");
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+
+    // Ctrl+Alt+B → alt 불일치 → 미발동 (기존 가드 통과).
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::B,
+        ModifierState {
+            control: true,
+            alt: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed);
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+
+    // Ctrl+Shift+B → shift 불일치 → 미발동.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::B,
+        ModifierState {
+            control: true,
+            shift: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed);
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+}
+
+/// char 가드 우회: 두벌식 B=ㅠ(자모, produces_char None)여도 Ctrl+B 는 발동한다.
+#[test]
+fn test_auto_english_ctrl_b_char_guard_bypass() {
+    // 먼저 plain B 가 자모 ㅠ 를 산출함을 확인 → produces_char None 케이스임을 고정.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    engine.press_key(KeyCode::B, ModifierState::default(), &config);
+    assert_eq!(engine.preedit_str(), "ㅠ", "두벌식 B 는 자모 ㅠ");
+
+    // 새 엔진에서 Ctrl+B → 자모 산출과 무관하게 트리거 발동.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::B,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed);
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
+/// `key:Ctrl+Shift+B` 등록: Ctrl+Shift+B 만 발동, Ctrl+B 는 미발동(shift 정확 일치).
+#[test]
+fn test_auto_english_ctrl_shift_b_registered_exact() {
+    // Ctrl+Shift+B → 발동.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+Shift+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::B,
+        ModifierState {
+            control: true,
+            shift: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed);
+    assert_eq!(engine.input_category(), InputCategory::English);
+
+    // Ctrl+B (shift 없음) → 미발동.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+Shift+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::B,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed);
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+}
+
+/// 하위호환 pin: legacy `key:Escape` 는 Ctrl+Escape 에 발동하지 않고, 기존 가드
+/// 반환값(idle=not_consumed, 조합 중=consumed committed)이 비트 그대로 유지된다.
+#[test]
+fn test_auto_english_legacy_escape_no_trigger_on_ctrl_escape() {
+    // idle: Ctrl+Escape → 전환 없음, 기존 가드 not_consumed.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Escape"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::Escape,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed);
+    assert!(!r.commit_changed);
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+
+    // 조합 중: Ctrl+Escape → 기존 가드대로 소비(committed), 전환 없음.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Escape"]);
+    engine.set_input_category(InputCategory::Korean);
+    engine.press_key(KeyCode::R, ModifierState::default(), &config); // ㄱ
+    let r = engine.press_key(
+        KeyCode::Escape,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(r.consumed, "조합 중 Ctrl+Escape 는 기존 가드대로 소비");
+    assert!(r.commit_changed);
+    assert_eq!(
+        engine.input_category(),
+        InputCategory::Korean,
+        "legacy Escape 는 조합 modifier 에서 발동하지 않음"
+    );
+}
+
+/// 하위호환 pin: `char:/` 는 Ctrl+Slash 에 발동하지 않는다(Character 는 비조합 전용).
+#[test]
+fn test_auto_english_char_slash_no_trigger_on_ctrl_slash() {
+    let (mut engine, config) = make_engine_with_auto_english(vec!["char:/"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::Slash,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed, "Ctrl+/ 는 char:/ 를 발동시키지 않음");
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+}
+
+/// 영문 모드에서는 조합 트리거도 no-op (매처가 한글 모드에서만 평가).
+#[test]
+fn test_auto_english_ctrl_b_noop_in_english_mode() {
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    assert_eq!(engine.input_category(), InputCategory::English);
+    let r = engine.press_key(
+        KeyCode::B,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed);
+    assert_eq!(engine.input_category(), InputCategory::English);
+}
+
+/// Super+Space, Alt+F1 조합 트리거도 발동 + passthrough (XIM/코어 경로 기준).
+#[test]
+fn test_auto_english_super_space_and_alt_f1() {
+    // Super+Space → 발동.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Super+Space"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::Space,
+        ModifierState {
+            super_key: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed, "Super+Space passthrough");
+    assert_eq!(engine.input_category(), InputCategory::English);
+
+    // Alt+F1 → 발동.
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Alt+F1"]);
+    engine.set_input_category(InputCategory::Korean);
+    let r = engine.press_key(
+        KeyCode::F1,
+        ModifierState {
+            alt: true,
+            ..Default::default()
+        },
+        &config,
+    );
+    assert!(!r.consumed, "Alt+F1 passthrough");
+    assert_eq!(engine.input_category(), InputCategory::English);
 }

@@ -41,7 +41,7 @@ commit_unit_smart: "스마트"
 group_auto_english: "자동 영문 전환"
 row_auto_english_enable: "자동 영문 전환 사용"
 row_auto_english_triggers: "트리거 키"
-row_auto_english_triggers_subtitle: "쉼표 구분. key:<이름> 은 KeyCode 비교, char:<문자> 는 키맵 산출 문자 비교 (비-QWERTY 안전). 예: key:Escape, char:/, char:,"
+row_auto_english_triggers_subtitle: "쉼표 구분. key:<이름> 은 KeyCode 비교, char:<문자> 는 키맵 산출 문자 비교 (비-QWERTY 안전). key:Ctrl+B 처럼 Ctrl/Alt/Super 조합도 가능(키는 앱으로 통과). 예: key:Escape, char:/, key:Ctrl+B"
 
 # 접근성 (I7 한/영 전환 능동 통지)
 group_accessibility: "접근성"
@@ -195,7 +195,7 @@ row_commit_unit_tooltip: "「단어」는 단어 경계까지 preedit(밑줄)로
 
 # 일반 > 자동 영문 전환
 row_auto_english_enable_tooltip: "vim/Emacs/터미널에서 Esc나 '/'를 눌렀을 때 한글 모드가 자동으로 영문으로 전환됩니다. 한글 입력 중 명령어를 치다 실수하는 패턴을 방지. 비밀번호 필드는 이미 강제 영문이라 영향 없음."
-row_auto_english_triggers_tooltip: "key:<이름>: XKB keysym 코드 비교 (예: key:Escape, key:F1). char:<문자>: 실제 산출 문자 비교 — 세벌식390 등 비-QWERTY 자판에서도 '/'가 정상 발동. Shift 무관이므로 '/'와 '?'를 구분하려면 둘 다 등록. 한/영 토글 키와 겹치면 토글이 우선."
+row_auto_english_triggers_tooltip: "key:<이름>: XKB keysym 코드 비교 (예: key:Escape, key:F1). char:<문자>: 실제 산출 문자 비교 — 세벌식390 등 비-QWERTY 자판에서도 '/'가 정상 발동. Shift 무관이므로 '/'와 '?'를 구분하려면 둘 다 등록. Ctrl/Alt/Super 조합은 key:Ctrl+B 형식(대소문자·순서 무관, base 이름은 대소문자 구분) — 표기한 modifier 만 정확히 일치할 때 발동하고, 그 키는 앱으로 그대로 전달됩니다(tmux prefix 등). 한/영 토글 키와 겹치면 토글이 우선."
 
 # 오타 교정 > 순방향
 row_typefix_forward_enable_tooltip: "영문 모드에서 한글 자모가 누적되면 단어 경계 시점에 한글로 자동 교체. 영문 코드 작성 중 노이즈가 많으면 OFF 권장. 일상 글쓰기·채팅은 ON이 편합니다."

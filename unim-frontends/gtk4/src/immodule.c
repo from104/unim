@@ -837,7 +837,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     if (state & GDK_SHIFT_MASK) mod_state |= (1 << 0);
     if (state & GDK_CONTROL_MASK) mod_state |= (1 << 2);
     if (state & GDK_ALT_MASK) mod_state |= (1 << 3);
-    if (state & GDK_SUPER_MASK) mod_state |= (1 << 26);
+    if (state & GDK_SUPER_MASK) mod_state |= (1 << 6);  /* Super = Mod4 — 엔진 from_x11_mask 비트 정렬 */
     if (state & GDK_LOCK_MASK) mod_state |= (1 << 1);
 
 

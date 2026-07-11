@@ -152,7 +152,7 @@ user_dict_clear_confirm: "사전 %{count}개 항목을 모두 삭제하시겠습
 
 # 자동 영문 모드 전환 (PR #5)
 auto_english_label: "자동 영문 전환"
-auto_english_keys_label: "자동 영문 전환 트리거 키 (예: key:Escape, char:/)"
+auto_english_keys_label: "자동 영문 전환 트리거 키 (예: key:Escape, char:/, key:Ctrl+B)"
 auto_english_changed: "자동 영문 전환을 %{status}했습니다."
 
 # Phase 1 i18n: config show / typefix subcmd / layout validate
@@ -227,7 +227,7 @@ help_cfg_show_long: "데몬이 사용하는 현재 설정을 사람이 읽기 �
 help_cfg_set_about: "설정 항목 한 개 변경 후 저장"
 help_cfg_set_long: "지정한 키의 값을 즉시 변경하고 설정 파일에 저장합니다.\n데몬은 파일 변경을 감지해 자동으로 재로드합니다 (재시작 불필요).\n\n예시:\n  unim-cli config set korean-layout 3bul390\n  unim-cli config set toggle-keys 'Korean,RightAlt'\n  unim-cli config set auto-typefix true\n  unim-cli config set auto-typefix-forward-time-window-ms 1500\n\n사용 가능한 키 목록과 값 형식은 'unim-cli help config set' 또는\n'unim-cli config set --help' 로 확인하세요."
 help_cfg_set_key_short: "변경할 설정 항목 이름"
-help_cfg_set_key_long: "변경할 설정 항목 이름.\n주요 항목:\n  korean-layout                    한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift, ko_3bul_anmatae)\n  english-layout                   영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)\n  default-category                 초기 입력 모드 (korean, english)\n  mode-sharing                     모드 공유 (global, per-app)\n  toggle-keys                      한/영 전환 키 (쉼표 구분, 예: Korean,RightAlt)\n  hanja-keys                       한자/특수문자 키 (예: Hanja,F9)\n  auto-typefix                     자동 오타 교정 (true/false)\n  auto-typefix-forward             순방향 (영→한) 활성화 (true/false)\n  auto-typefix-reverse             역방향 (한→영) 활성화 (true/false)\n  auto-english                     자동 영문 모드 전환 (true/false)\n  auto-english-keys                자동 영문 트리거 — key:<이름> 또는 char:<문자>, 쉼표 구분 (예: key:Escape,char:/)\n  emoji-popup                      이모지 팝업 활성화 (true/false). 트리거는 한자 키 idle 상태\n전체 목록은 'unim-cli config set --help' 로 확인하세요."
+help_cfg_set_key_long: "변경할 설정 항목 이름.\n주요 항목:\n  korean-layout                    한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift, ko_3bul_anmatae)\n  english-layout                   영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)\n  default-category                 초기 입력 모드 (korean, english)\n  mode-sharing                     모드 공유 (global, per-app)\n  toggle-keys                      한/영 전환 키 (쉼표 구분, 예: Korean,RightAlt)\n  hanja-keys                       한자/특수문자 키 (예: Hanja,F9)\n  auto-typefix                     자동 오타 교정 (true/false)\n  auto-typefix-forward             순방향 (영→한) 활성화 (true/false)\n  auto-typefix-reverse             역방향 (한→영) 활성화 (true/false)\n  auto-english                     자동 영문 모드 전환 (true/false)\n  auto-english-keys                자동 영문 트리거 — key:<이름>/char:<문자>/key:<mod>+<이름>, 쉼표 구분 (예: key:Escape,char:/,key:Ctrl+B). 조합키는 앱으로 통과\n  emoji-popup                      이모지 팝업 활성화 (true/false). 트리거는 한자 키 idle 상태\n전체 목록은 'unim-cli config set --help' 로 확인하세요."
 help_cfg_set_value_short: "새 설정 값"
 help_cfg_set_value_long: "키에 따라 형식이 달라집니다.\n  • bool 항목: true / false\n  • 키 목록: 쉼표 구분 (예: 'Korean,RightAlt')\n  • 정수: 범위 안의 숫자 (예: auto-typefix-kor-threshold 는 2~6)\n  • 열거형: 허용된 식별자 중 하나\n잘못된 값은 거부되고 가능한 값 목록이 안내됩니다."
 

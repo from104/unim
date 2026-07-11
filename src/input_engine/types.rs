@@ -8,20 +8,47 @@ use crate::keycode::KeyCode;
 
 /// 자동 영문 전환 트리거 — 두 카테고리.
 ///
-/// - `Functional`: 제어 키(Escape/Tab/F*/Arrow* …) 또는 Shift 명시된 문자 키.
-///   `keycode == code && shift 조건` 으로 비교한다 (현 로직 유지).
+/// - `Functional`: 제어 키(Escape/Tab/F*/Arrow* …), Shift 명시된 문자 키,
+///   그리고 Ctrl/Alt/Super 조합 키(`key:Ctrl+B` 등). `keycode == code`
+///   + `ctrl/alt/super 정확 일치` + `shift 조건` 으로 비교한다.
 /// - `Character`: 키맵을 거쳐 산출된 char 와 비교한다. 비-QWERTY 한국어
 ///   레이아웃(예: 세벌식390) 에서도 사용자가 의도한 문자(`'/'` 등) 가 어떤
 ///   keycode 로 매핑되든 정확히 잡아낸다. shift 조건은 별도로 비교하지 않으며,
-///   사용자가 `'/'` 와 `'?'` 를 구분하려면 둘 다 등록해야 한다.
+///   사용자가 `'/'` 와 `'?'` 를 구분하려면 둘 다 등록해야 한다. Ctrl/Alt/Super
+///   조합 중에는 매칭하지 않는다(문자 카테고리는 비조합 전용).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AutoEnglishTrigger {
     /// KeyCode 기반 매칭.
     /// - `shift = None`: shift 무관 매칭
     /// - `shift = Some(true)`: shift 필수
     /// - `shift = Some(false)`: shift 없을 때만
-    Functional { code: KeyCode, shift: Option<bool> },
+    ///
+    /// `ctrl`/`alt`/`super_key` 는 **정확 일치**(평 bool)다 — 표기에 등장한
+    /// modifier 는 필수, 등장하지 않은 것은 눌리지 않아야 매칭한다. 예를 들어
+    /// `key:Ctrl+B` 는 `Ctrl+Alt+B` 에는 발동하지 않는다. 세 값이 모두 `false`
+    /// 이면 legacy(`Escape`)·`key:`/`char:` 비조합 트리거로, 종전 의미와 바이트
+    /// 동일하게 동작한다.
+    ///
+    /// `Option<bool>`(무관) 이 아니라 평 bool(정확 일치)을 채택한 근거: press
+    /// flow 의 단축키 가드(`press_key` 의 `control||alt||super` 분기)가 조합 키를
+    /// 매처(`match_auto_english_trigger`)보다 먼저 조기 return 한다. 따라서 legacy
+    /// 트리거(`key:Escape`)는 원래 어떤 조합(`Ctrl+Escape` 등)에서도 절대 발동한
+    /// 적이 없다. modifier 를 "무관" 으로 두면, 가드 경로에 매처를 새로 추가하는
+    /// 순간 legacy 트리거가 `Ctrl+Escape` 에 갑자기 발동해 하위호환이 깨진다.
+    /// 정확 일치(false 필수)면 legacy 는 조합에서 구조적으로 불일치하므로 종전의
+    /// '불발' 이 비트 단위로 보존된다.
+    Functional {
+        code: KeyCode,
+        shift: Option<bool>,
+        /// Ctrl 필수 여부 (정확 일치 — false 면 Ctrl 이 눌리지 않아야 매칭).
+        ctrl: bool,
+        /// Alt 필수 여부 (정확 일치).
+        alt: bool,
+        /// Super 필수 여부 (정확 일치).
+        super_key: bool,
+    },
     /// 키맵 산출 char 매칭. shift 무관 — 산출된 글자가 `ch` 와 같으면 발동.
+    /// Ctrl/Alt/Super 가 하나라도 눌린 조합에서는 매칭하지 않는다.
     Character(char),
 }
 

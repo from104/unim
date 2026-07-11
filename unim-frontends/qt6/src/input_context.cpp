@@ -333,7 +333,7 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                     if (keyEvent->modifiers() & Qt::ShiftModifier)   mod_state_emoji |= (1 << 0);
                     if (keyEvent->modifiers() & Qt::ControlModifier) mod_state_emoji |= (1 << 2);
                     if (keyEvent->modifiers() & Qt::AltModifier)     mod_state_emoji |= (1 << 3);
-                    if (keyEvent->modifiers() & Qt::MetaModifier)    mod_state_emoji |= (1 << 26);
+                    if (keyEvent->modifiers() & Qt::MetaModifier)    mod_state_emoji |= (1 << 6); /* Super=Mod4 (from_x11_mask) */
                     quint32 scanCode_emoji = keyEvent->nativeScanCode();
                     quint32 evdev_emoji = (scanCode_emoji > 8) ? (scanCode_emoji - 8) : 0;
                     (void)m_dbus->processKey(keyEvent->key(), evdev_emoji, mod_state_emoji);
@@ -348,7 +348,7 @@ bool UnimInputContext::filterEvent(const QEvent *event)
     if (keyEvent->modifiers() & Qt::ShiftModifier) mod_state |= (1 << 0);
     if (keyEvent->modifiers() & Qt::ControlModifier) mod_state |= (1 << 2);
     if (keyEvent->modifiers() & Qt::AltModifier) mod_state |= (1 << 3);
-    if (keyEvent->modifiers() & Qt::MetaModifier) mod_state |= (1 << 26);
+    if (keyEvent->modifiers() & Qt::MetaModifier) mod_state |= (1 << 6); /* Super=Mod4 (from_x11_mask) */
 
     /* X11에서 nativeScanCode() = X11 keycode = evdev + 8 */
     quint32 scanCode = keyEvent->nativeScanCode();

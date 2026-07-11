@@ -224,11 +224,11 @@ msgstr "Automatically switch to English mode when a specific key is pressed."
 msgid "트리거 키"
 msgstr "Trigger Key"
 
-msgid "자동 영문 전환을 발동할 키입니다."
-msgstr "The key that triggers the auto English switch."
+msgid "자동 영문 전환을 발동할 키입니다. key:Ctrl+B 같은 조합도 지원합니다."
+msgstr "The key that triggers the auto English switch. Combinations like key:Ctrl+B are also supported."
 
-msgid "예: Escape"
-msgstr "e.g. Escape"
+msgid "예: key:Escape, char:/, key:Ctrl+B"
+msgstr "e.g. key:Escape, char:/, key:Ctrl+B"
 
 msgid "접근성"
 msgstr "Accessibility"

@@ -764,13 +764,13 @@ export component SettingsWindow inherits Window {
                         }
                         SettingRow {
                             title: @tr("트리거 키");
-                            description: @tr("자동 영문 전환을 발동할 키입니다.");
+                            description: @tr("자동 영문 전환을 발동할 키입니다. key:Ctrl+B 같은 조합도 지원합니다.");
                             row-enabled: root.auto-english-enabled;
                             LineEdit {
                                 min-width: 220px;
                                 enabled: root.auto-english-enabled;
                                 text <=> root.auto-english-keys;
-                                placeholder-text: @tr("예: Escape");
+                                placeholder-text: @tr("예: key:Escape, char:/, key:Ctrl+B");
                                 accessible-label: @tr("트리거 키");
                                 edited => { root.auto-save(); }
                             }

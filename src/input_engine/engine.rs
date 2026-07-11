@@ -121,11 +121,14 @@ pub struct InputEngine {
     /// 자동 영문 전환 트리거 (파싱된 카테고리별 캐시)
     ///
     /// 두 카테고리:
-    /// - `Functional { code, shift }`: KeyCode 비교 (Escape/Tab/F*/Shift 명시 문자)
-    /// - `Character(ch)`: keymap 산출 char 비교 (비-QWERTY 한국어 레이아웃 안전)
+    /// - `Functional { code, shift, ctrl, alt, super_key }`: KeyCode + modifier
+    ///   비교 (Escape/Tab/F*/Shift 명시 문자, 그리고 Ctrl/Alt/Super 조합).
+    /// - `Character(ch)`: keymap 산출 char 비교 (비-QWERTY 한국어 레이아웃 안전).
     ///
-    /// 표기 문법: `key:Escape` / `char:/` (접두사). 무접두사는 legacy 호환으로
-    /// `Functional` 로 흡수한다.
+    /// 표기 문법: `key:Escape` / `char:/` / `key:Ctrl+B` (접두사). `key:` 뒤에는
+    /// `(ctrl|alt|super|shift +)* <KeyName>` 조합을 쓸 수 있다(대소문자·순서 무관,
+    /// base KeyName 은 대소문자 구분). 무접두사는 legacy 호환으로 `Functional`
+    /// (modifier 전부 false)로 흡수한다.
     pub(super) auto_english_triggers: Vec<AutoEnglishTrigger>,
     /// 통합 팝업 상태 (한자/특수문자 공용)
     pub(super) popup_state: Option<PopupState>,

@@ -169,6 +169,35 @@ impl InputEngine {
 
         // Control/Alt가 눌린 경우 (단축키) 무시
         if modifier.control || modifier.alt || modifier.super_key {
+            // 자동 영문 전환 — modifier 조합 트리거 (opt-in, 예: `key:Ctrl+B`).
+            // 이 가드 블록은 Ctrl/Alt/Super 조합을 process_korean_key(:235)의
+            // 비조합 매처보다 먼저 조기 return 하므로, 조합 트리거는 여기서 평가해야
+            // press flow 에 도달한다. 매처의 정확-일치(ctrl/alt/super 평 bool) 덕에
+            // legacy·비조합 트리거(전부 false)는 조합 modifier 와 구조적으로 불일치 →
+            // 종전 '조합 시 불발' 이 그대로 보존된다.
+            //
+            // 발동 시 계약: 키는 **절대 소비하지 않는다**(tmux prefix Ctrl+B 등이
+            // 앱으로 반드시 전달돼야 함). char 커밋도 하지 않는다 — 조합 중이면
+            // 직전 preedit 만 flush(committed_passthrough), idle 이면 not_consumed.
+            if self.match_auto_english_trigger(keycode, modifier).is_some() {
+                let was_composing = self.korean_context.is_composing();
+                if was_composing {
+                    self.flush_preedit();
+                }
+                self.set_input_category(InputCategory::English);
+                unim_log!(
+                    "ENGINE",
+                    "auto-english(combo): '{:?}' -> 영문 전환 + passthrough (composing={})",
+                    keycode,
+                    was_composing
+                );
+                return if was_composing {
+                    InputResult::committed_passthrough()
+                } else {
+                    InputResult::not_consumed()
+                };
+            }
+
             // 조합 중이면 먼저 커밋
             if self.korean_context.is_composing() {
                 self.flush_preedit();
@@ -232,6 +261,9 @@ impl InputEngine {
 
         // 자동 영문 전환 (opt-in): 지정 트리거 키 입력 시 조합 커밋 + 영문 모드로 영구 전환.
         // 제어 키(Escape/Tab/Enter 등)는 passthrough, 문자 키(`/`/`:` 등)는 해당 문자 commit.
+        // 이 경로는 **비조합** 트리거 전용이다 — Ctrl/Alt/Super 조합 트리거(`key:Ctrl+B`)는
+        // press_key() 상위의 단축키 가드에서 이미 처리돼 여기 도달하지 않는다(정확-일치로
+        // 조합 트리거는 modifier 전부 false 인 이 지점의 매처와 절대 일치하지 않음).
         if let Some(trigger) = self.match_auto_english_trigger(keycode, modifier) {
             let was_composing = self.korean_context.is_composing();
             if was_composing {
@@ -618,17 +650,23 @@ impl InputEngine {
     /// Config 의 자동 영문 전환 트리거 이름을 `AutoEnglishTrigger` 로 파싱합니다.
     ///
     /// 표기 문법(접두사 기반):
-    /// - `"key:<Name>"` — `Functional`. `<Name>` 은 `KeyCode::from_name` 호환,
-    ///   `"Shift<Name>"` 가상 이름 허용 (예: `key:ShiftSemicolon`).
+    /// - `"key:<keyspec>"` — `Functional`. `<keyspec>` 은 `(mod+)* <Name>` 형태.
+    ///   - `<Name>` 은 `KeyCode::from_name` 호환(대소문자 구분: `B`/`Escape`/`F1`),
+    ///     `"Shift<Name>"` 융합형 허용 (예: `key:ShiftSemicolon`).
+    ///   - modifier 토큰(`+` 구분): `ctrl`/`control`, `alt`, `super`/`win`/`meta`,
+    ///     `shift`. ASCII 대소문자 무관, 순서 무관, 중복 멱등. 예: `key:Ctrl+B`,
+    ///     `key:Ctrl+Shift+B`, `key:Alt+F1`, `key:Super+Space`, `key:shift+ctrl+B`.
+    ///   - modifier(ctrl/alt/super)는 **정확 일치** 의미로 저장된다(등장 = 필수).
     /// - `"char:<문자>"` — `Character`. `<문자>` 의 첫 char 만 사용 (예: `char:/`).
     /// - 무접두사 (legacy) — 종전 규칙대로 `Functional` 로 흡수
-    ///   (`Escape` / `Slash` / `ShiftSemicolon` 등 호환).
+    ///   (`Escape` / `Slash` / `ShiftSemicolon` 등 호환). '+' 조합 문법은 `key:`
+    ///   접두사 전용이며, 무접두사 `"Ctrl+B"` 는 legacy KeyCode 이름이 아니므로 `None`.
     ///
     /// # Returns
     ///
     /// - `Some(AutoEnglishTrigger::Functional { … })`
     /// - `Some(AutoEnglishTrigger::Character(ch))`
-    /// - `None` — 알 수 없는 이름 / 빈 char
+    /// - `None` — 알 수 없는 이름 / 미지 modifier 토큰 / 빈 base / 빈 char
     pub(super) fn parse_trigger_key(name: &str) -> Option<AutoEnglishTrigger> {
         if let Some(rest) = name.strip_prefix("char:") {
             let ch = rest.chars().next()?;
@@ -636,20 +674,93 @@ impl InputEngine {
         }
 
         if let Some(rest) = name.strip_prefix("key:") {
-            let (code, shift) = Self::parse_functional_name(rest)?;
-            return Some(AutoEnglishTrigger::Functional { code, shift });
+            return Self::parse_keyspec(rest);
         }
 
         // legacy: 접두사 없이 KeyCode 이름 또는 "Shift<Name>" 만 들어온 경우
-        // → Functional 로 흡수해 100% 호환성 유지.
+        // → Functional 로 흡수해 100% 호환성 유지. modifier 전부 false.
         let (code, shift) = Self::parse_functional_name(name)?;
-        Some(AutoEnglishTrigger::Functional { code, shift })
+        Some(AutoEnglishTrigger::Functional {
+            code,
+            shift,
+            ctrl: false,
+            alt: false,
+            super_key: false,
+        })
     }
 
-    /// `key:` 접두사 분기와 legacy 분기에서 공유하는 KeyCode 파서.
+    /// `key:` 접두사 뒤 keyspec(`(mod+)* <Name>`) 을 `Functional` 로 파싱한다.
+    ///
+    /// - `'+'` 가 없으면 단일 base 표기(legacy 와 동일 문법) — `parse_functional_name`
+    ///   결과에 modifier 전부 false 를 붙여 반환한다. `key:Escape`/`key:ShiftSemicolon`
+    ///   등 종전 `key:` 단일 표기의 파싱 결과가 바이트 동일하게 보존된다.
+    ///   **trim 하지 않는다**: `key: Escape`(내부 공백) 같은 비정상 표기는 종전처럼
+    ///   침묵 무시(`None`)된다 — 공백 관용은 `'+'` 조합 표기(아래) 전용이라, 단일
+    ///   base 의 하위호환(비정상=무시)이 1비트도 변하지 않도록 유지한다.
+    /// - `'+'` 가 있으면 마지막 토큰을 base(`parse_functional_name`)로, 앞 토큰들을
+    ///   modifier 로 해석한다. 토큰별 공백은 trim(`key: Ctrl + B` 허용), modifier
+    ///   이름은 ASCII 대소문자 무관·순서 무관·중복 멱등. `shift` 토큰이 있으면
+    ///   base 의 shift 규칙을 덮어써 `Some(true)`(필수)로 만든다.
+    /// - 미지 modifier 토큰, 빈 base(`key:Ctrl+`), 미지 base 는 `None`(침묵 무시).
+    fn parse_keyspec(spec: &str) -> Option<AutoEnglishTrigger> {
+        // '+' 없음 → 단일 base. legacy·종전 key: 단일 표기와 완전 동일 파싱.
+        // trim 하지 않는다(하위호환): `key: Escape` 등 내부 공백 표기는 종전대로 None.
+        if !spec.contains('+') {
+            let (code, shift) = Self::parse_functional_name(spec)?;
+            return Some(AutoEnglishTrigger::Functional {
+                code,
+                shift,
+                ctrl: false,
+                alt: false,
+                super_key: false,
+            });
+        }
+
+        let mut ctrl = false;
+        let mut alt = false;
+        let mut super_key = false;
+        let mut shift_forced = false;
+
+        // '+' 로 분할, 마지막 토큰 = base, 앞 토큰 = modifier.
+        let mut tokens: Vec<&str> = spec.split('+').map(str::trim).collect();
+        let base = tokens.pop()?; // split 결과는 항상 1개 이상 → pop 안전
+        for tok in tokens {
+            if tok.eq_ignore_ascii_case("ctrl") || tok.eq_ignore_ascii_case("control") {
+                ctrl = true;
+            } else if tok.eq_ignore_ascii_case("alt") {
+                alt = true;
+            } else if tok.eq_ignore_ascii_case("super")
+                || tok.eq_ignore_ascii_case("win")
+                || tok.eq_ignore_ascii_case("meta")
+            {
+                super_key = true;
+            } else if tok.eq_ignore_ascii_case("shift") {
+                shift_forced = true;
+            } else {
+                // 미지 modifier 토큰 → 현행 침묵 무시 정책.
+                return None;
+            }
+        }
+
+        // base 는 대소문자 구분(KeyCode::from_name) — `key:Ctrl+B` OK, `key:Ctrl+b` None.
+        let (code, base_shift) = Self::parse_functional_name(base)?;
+        let shift = if shift_forced { Some(true) } else { base_shift };
+
+        Some(AutoEnglishTrigger::Functional {
+            code,
+            shift,
+            ctrl,
+            alt,
+            super_key,
+        })
+    }
+
+    /// `key:` keyspec 의 base 토큰과 legacy 무접두사 분기가 공유하는 KeyCode 파서.
     ///
     /// `"Shift<Name>"` 는 Shift 필수, 문자 키(알파벳/숫자/기호)는 Shift 없을 때만,
     /// 제어 키(Escape/Tab/Enter/F*/Arrows …)는 Shift 무관으로 매핑한다.
+    /// (Ctrl/Alt/Super 조합 해석은 상위 `parse_keyspec` 이 담당하며, 이 함수는
+    /// base key 이름만 다룬다.)
     fn parse_functional_name(name: &str) -> Option<(KeyCode, Option<bool>)> {
         if let Some(stripped) = name.strip_prefix("Shift") {
             let code = KeyCode::from_name(stripped);
@@ -723,10 +834,14 @@ impl InputEngine {
 
     /// 이 키 입력에 매칭되는 자동 영문 트리거가 있으면 그 트리거를 반환.
     ///
-    /// 활성화 + 한글 모드에서만 평가.
+    /// 활성화 + 한글 모드에서만 평가. 두 호출 지점에서 재사용된다: (1) press_key()
+    /// 상위 단축키 가드 — Ctrl/Alt/Super 조합 트리거용, (2) process_korean_key() —
+    /// 비조합 트리거용. modifier 정확-일치 덕에 각 트리거는 자기 지점에서만 매칭한다.
     ///
-    /// - `Functional { code, shift }` — `(keycode, shift)` 직접 비교.
-    /// - `Character(ch)` — 키맵 거친 산출 char 비교. 한국어 자판이 비-QWERTY
+    /// - `Functional { code, shift, ctrl, alt, super_key }` — `code == keycode`
+    ///   + Ctrl/Alt/Super 정확 일치 + shift 조건. 조합 트리거는 char 가드를 우회.
+    /// - `Character(ch)` — 키맵 거친 산출 char 비교(Ctrl/Alt/Super 조합 시 미매칭).
+    ///   한국어 자판이 비-QWERTY
     ///   (예: 세벌식390) 인 경우엔 KeyboardMap 의 `Special(ch)` 매핑까지 확인하여
     ///   해당 자판에서 산출되는 실제 문자(`'/'` 등) 와 비교한다.
     pub(super) fn match_auto_english_trigger(
@@ -746,20 +861,48 @@ impl InputEngine {
         self.auto_english_triggers
             .iter()
             .find(|t| match t {
-                AutoEnglishTrigger::Functional { code, shift } => {
+                AutoEnglishTrigger::Functional {
+                    code,
+                    shift,
+                    ctrl,
+                    alt,
+                    super_key,
+                } => {
                     *code == keycode
+                        // Ctrl/Alt/Super 정확 일치. legacy·비조합 트리거는 세 값이 전부
+                        // false 이므로, modifier 가 전부 false 인 비조합 press flow 지점
+                        // (process_korean_key)에서 종전 비교와 완전 동치다. 조합 트리거
+                        // (`key:Ctrl+B`)는 press_key 상위 가드 경로에서만 여기 도달한다.
+                        && *ctrl == modifier.control
+                        && *alt == modifier.alt
+                        && *super_key == modifier.super_key
                         && match shift {
                             None => true,
                             Some(required) => *required == modifier.shift,
                         }
-                        // 문자 키(`/`/`:` 등)는 한국어 모드에서 실제 char 가 산출될 때만
-                        // 트리거. `produces_char_in_korean` 이 None 이면 자모 경로(예:
-                        // 세벌식390 `slash_context_alt` 의 ㅗ) 가 활성이므로 Functional
-                        // 트리거를 양보하고 자모 흐름을 타게 한다. 제어 키(Escape/Tab 등
-                        // non-character)는 `is_character_key()=false` 라 이 가드를 우회.
-                        && (!keycode.is_character_key() || produced_char.is_some())
+                        // 문자 키 char 가드 — 단, modifier 조합 트리거는 우회한다.
+                        // 비조합 문자 키(`/`/`:` 등)는 한국어 모드에서 실제 char 가
+                        // 산출될 때만 트리거한다. `produces_char_in_korean` 이 None 이면
+                        // 자모 경로(예: 세벌식390 `slash_context_alt` 의 ㅗ) 가 활성이므로
+                        // Functional 트리거를 양보하고 자모 흐름을 타게 한다. 제어 키
+                        // (Escape/Tab 등)는 `is_character_key()=false` 라 우회한다.
+                        // Ctrl/Alt/Super 조합 트리거(`key:Ctrl+B`)는 base 가 한글 자모
+                        // (두벌식 B=ㅠ 등)여도 발동해야 하므로 char 가드를 건너뛴다.
+                        && (*ctrl
+                            || *alt
+                            || *super_key
+                            || !keycode.is_character_key()
+                            || produced_char.is_some())
                 }
-                AutoEnglishTrigger::Character(ch) => produced_char == Some(*ch),
+                // Character 는 비조합 전용. Ctrl/Alt/Super 가 눌린 조합에서는 매칭하지
+                // 않아, 가드 경로에서 `char:/` 가 `Ctrl+/` 에 새로 발동하는 오동작을
+                // 차단한다. 비조합 press flow 지점에선 세 값이 항상 false 라 무변화.
+                AutoEnglishTrigger::Character(ch) => {
+                    !modifier.control
+                        && !modifier.alt
+                        && !modifier.super_key
+                        && produced_char == Some(*ch)
+                }
             })
             .copied()
     }

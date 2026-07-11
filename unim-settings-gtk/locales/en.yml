@@ -41,7 +41,7 @@ commit_unit_smart: "Smart"
 group_auto_english: "Auto English Mode"
 row_auto_english_enable: "Enable Auto English Mode"
 row_auto_english_triggers: "Trigger Keys"
-row_auto_english_triggers_subtitle: "Comma separated. Use key:<Name> for keycode match or char:<chr> for layout-aware character match (e.g. key:Escape, char:/, char:,)"
+row_auto_english_triggers_subtitle: "Comma separated. Use key:<Name> for keycode match or char:<chr> for layout-aware character match. Ctrl/Alt/Super combos like key:Ctrl+B also work (the key still passes through to the app). e.g. key:Escape, char:/, key:Ctrl+B"
 
 # Accessibility (I7 active toggle announcement)
 group_accessibility: "Accessibility"
@@ -195,7 +195,7 @@ row_commit_unit_tooltip: "Word accumulates the composition as preedit (underline
 
 # General > Auto English
 row_auto_english_enable_tooltip: "Pressing Esc or '/' in Korean mode auto-switches to English — prevents accidental Hangul in vim normal mode or terminal commands. Recommended for vim/Emacs/terminal users. Password fields are unaffected."
-row_auto_english_triggers_tooltip: "key:<Name>: matches XKB keysym code (e.g. key:Escape, key:F1). char:<chr>: matches the produced character — fires correctly on non-QWERTY layouts like Sebeolsik 390. Shift is ignored for char: — register both '/' and '?' separately if needed. Toggle key collision: toggle wins."
+row_auto_english_triggers_tooltip: "key:<Name>: matches XKB keysym code (e.g. key:Escape, key:F1). char:<chr>: matches the produced character — fires correctly on non-QWERTY layouts like Sebeolsik 390. Shift is ignored for char: — register both '/' and '?' separately if needed. Ctrl/Alt/Super combos use the key:Ctrl+B form (modifier names case/order-insensitive, base name case-sensitive) — they fire only when exactly those modifiers are held, and the key still passes through to the app (e.g. tmux prefix). Toggle key collision: toggle wins."
 
 # TypeFix > Forward
 row_typefix_forward_enable_tooltip: "Auto-replaces Korean-track Hangul with the intended Korean word at word boundaries while in English mode. Turn OFF for heavy English code writing (noisy). Keep ON for everyday writing and chat."
