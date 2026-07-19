@@ -13,6 +13,7 @@
 use std::os::fd::AsFd;
 use std::sync::mpsc as std_mpsc;
 use tokio::sync::mpsc;
+use unim::keycode::{UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
 use unim::unim_log;
 use wayland_client::{
     globals::GlobalListContents,
@@ -151,7 +152,18 @@ impl AppState {
     }
 
     /// 키 이벤트를 DBus로 전송하고 결과 처리
-    fn process_key_via_dbus(&mut self, evdev_keycode: u32, time: u32, key_state_raw: u32) -> bool {
+    ///
+    /// `is_repeat`: 이 press 가 자체 합성한 키 반복(timerfd)인지 여부. Wayland 는
+    /// repeat 를 스스로 구분하므로 aware 프런트로서 `state` 상위 비트에
+    /// `UNIM_REPEAT_AWARE_MASK`(항상) + `UNIM_KEY_REPEAT_MASK`(반복 시)를 태깅한다.
+    /// 데몬은 `ignore_key_repeat` on 일 때만 이 비트로 억제를 판정한다(off 면 무손상).
+    fn process_key_via_dbus(
+        &mut self,
+        evdev_keycode: u32,
+        time: u32,
+        key_state_raw: u32,
+        is_repeat: bool,
+    ) -> bool {
         let keysym = self.keymap_handler.get_keysym(evdev_keycode);
         let mod_state = self.keymap_handler.mod_state;
         // evdev keycode → hardware code (XKB 호환: +8)
@@ -169,7 +181,11 @@ impl AppState {
                 context_path: self.context_path.clone(),
                 keyval: keysym,
                 keycode,
-                state: mod_state,
+                // aware 태깅: AWARE 비트는 항상, REPEAT 비트는 자체 합성 반복일 때만.
+                // (모디파이어 파싱은 하위 비트만 소비하므로 상위 비트는 무손상)
+                state: mod_state
+                    | UNIM_REPEAT_AWARE_MASK
+                    | if is_repeat { UNIM_KEY_REPEAT_MASK } else { 0 },
                 response: Some(response_tx),
             })
             .is_err()
@@ -397,9 +413,9 @@ impl AppState {
             let key = *key;
             let _time = *wayland_time;
 
-            // 활성 상태에서만 키 반복 처리
+            // 활성 상태에서만 키 반복 처리 (자체 합성 반복 → is_repeat=true 태깅)
             if self.grab_active {
-                self.process_key_via_dbus(key, 0, KeyState::Pressed as u32);
+                self.process_key_via_dbus(key, 0, KeyState::Pressed as u32, true);
             }
         }
     }
@@ -682,8 +698,9 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for AppState {
                 let is_pressed = matches!(key_state, WEnum::Value(KeyState::Pressed));
 
                 if is_pressed && state.grab_active {
-                    // 활성 상태에서 키 눌림 → DBus 엔진에 전달
-                    let consumed = state.process_key_via_dbus(key, time, KeyState::Pressed as u32);
+                    // 활성 상태에서 키 눌림 → DBus 엔진에 전달 (실제 press → is_repeat=false)
+                    let consumed =
+                        state.process_key_via_dbus(key, time, KeyState::Pressed as u32, false);
 
                     if consumed {
                         // 소비된 키 → 키 반복 시작
