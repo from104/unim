@@ -12,7 +12,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 #
 #   # 특정 버전 고정 / pin a specific version:
-#   UNIM_VERSION=v0.3.63 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+#   UNIM_VERSION=v0.4.0 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 #
 #   # 스크립트를 먼저 읽고 실행 (curl|bash 를 신뢰하지 않는 경우):
 #   # inspect first, then run (if you don't trust curl|bash):
@@ -20,8 +20,8 @@
 #   less install.sh && bash install.sh
 #
 # 환경변수 / Environment variables:
-#   UNIM_VERSION   설치할 태그 (예: v0.3.63 또는 0.3.63). 미설정 시 최신 릴리스.
-#                  Tag to install (e.g. v0.3.63 or 0.3.63). Defaults to latest release.
+#   UNIM_VERSION   설치할 태그 (예: v0.4.0 또는 0.4.0). 미설정 시 최신 릴리스.
+#                  Tag to install (e.g. v0.4.0 or 0.4.0). Defaults to latest release.
 #   UNIM_BASE_URL  릴리스 자산 베이스 URL 오버라이드 (테스트/미러 전용).
 #                  Override for the release-asset base URL (testing / mirrors only).
 #
@@ -134,8 +134,8 @@ resolve_version() {
 		local v="$UNIM_VERSION"
 		[[ $v == v* ]] || v="v$v"
 		if [[ ! $v =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-			err "UNIM_VERSION 형식이 올바르지 않습니다: '${UNIM_VERSION}' (예: v0.3.63)" \
-			    "Invalid UNIM_VERSION format: '${UNIM_VERSION}' (expected e.g. v0.3.63)"
+			err "UNIM_VERSION 형식이 올바르지 않습니다: '${UNIM_VERSION}' (예: v0.4.0)" \
+			    "Invalid UNIM_VERSION format: '${UNIM_VERSION}' (expected e.g. v0.4.0)"
 		fi
 		TAG="$v"
 		return

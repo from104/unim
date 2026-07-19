@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 To pin a specific version:
 
 ```bash
-UNIM_VERSION=v0.3.63 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+UNIM_VERSION=v0.4.0 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 ```
 
 If you don't trust `curl | bash`, download the script first, read it, then run it:
@@ -48,7 +48,7 @@ less install.sh && bash install.sh
 Grab every `unim*_<version>-1_{amd64,all}.deb` plus `SHA256SUMS` from [Releases](https://github.com/from104/unim/releases) into the same directory, verify, and install.
 
 ```bash
-# Verify checksums (e.g. 0.3.63-1 — 11 packages)
+# Verify checksums (e.g. 0.4.0-1 — 11 packages)
 sha256sum -c SHA256SUMS
 
 # Install (apt resolves dependencies automatically)

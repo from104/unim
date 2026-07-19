@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 특정 버전을 고정하려면:
 
 ```bash
-UNIM_VERSION=v0.3.63 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+UNIM_VERSION=v0.4.0 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 ```
 
 `curl | bash` 를 신뢰하지 않는다면 스크립트를 먼저 받아 읽고 실행할 수 있다:
@@ -48,7 +48,7 @@ less install.sh && bash install.sh
 [Releases](https://github.com/from104/unim/releases) 에서 `unim*_<버전>-1_{amd64,all}.deb` 전부와 `SHA256SUMS` 를 같은 디렉토리에 받아 검증 후 설치한다.
 
 ```bash
-# 체크섬 검증 (예: 0.3.63-1 — 11개 패키지)
+# 체크섬 검증 (예: 0.4.0-1 — 11개 패키지)
 sha256sum -c SHA256SUMS
 
 # 패키지 설치 (apt 가 의존성을 자동 해결)

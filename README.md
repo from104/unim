@@ -115,7 +115,7 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 특정 버전 고정:
 
 ```bash
-UNIM_VERSION=v0.3.63 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+UNIM_VERSION=v0.4.0 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 ```
 
 스크립트는 GitHub Releases 에서 UNIM `.deb` 전체를 내려받아 `apt` 로 설치한다(외부 런타임 의존성 자동 해결).

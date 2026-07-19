@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '릴리스할 태그 (예: v0.3.63). 비우면 현재 ref 를 빌드+검증만 하고 릴리스는 만들지 않습니다.'
+        description: '릴리스할 태그 (예: v0.4.0). 비우면 현재 ref 를 빌드+검증만 하고 릴리스는 만들지 않습니다.'
         required: false
         type: string
 
@@ -77,7 +77,7 @@ jobs:
 
           if [[ -n "$TAG" ]]; then
             if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::태그 형식이 올바르지 않습니다: '$TAG' (예: v0.3.63)"
+              echo "::error::태그 형식이 올바르지 않습니다: '$TAG' (예: v0.4.0)"
               exit 1
             fi
             if [[ "${TAG#v}" != "$CARGO_VER" ]]; then

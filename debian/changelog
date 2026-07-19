@@ -1,3 +1,18 @@
+unim (0.4.0-1) unstable; urgency=medium
+
+  * First public GitHub release: one-liner installer (install.sh) and
+    release CI publishing 11 .deb packages + SHA256SUMS.
+  * Auto-English triggers accept Ctrl/Alt/Super combos (e.g. key:Ctrl+B);
+    matched keys still pass through to the app (tmux prefix safe).
+  * Korean/English toggle beep on Linux (880/440 Hz).
+  * Slint settings app (unim-settings) is now the default settings UI on
+    Linux; all launchers unified; layouts enumerated from ProfileRegistry.
+  * Word-unit input gate: terminals and non-word frontends auto-demote,
+    with [WordGate] verdict logging.
+  * Super/Meta modifier bit alignment fixed in GTK3/4 and Qt5/6 IMs.
+
+ -- Seo Kihyun <from104@gmail.com>  Sun, 19 Jul 2026 18:27:25 +0900
+
 unim (0.3.63-1) unstable; urgency=medium
 
   * GTK4 settings dialog renamed: unim-settings -> unim-settings-gtk.

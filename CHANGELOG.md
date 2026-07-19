@@ -6,19 +6,82 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ## [Unreleased]
 
+---
+
+## [0.4.0] 2026-07-19
+
+This release brings one-line installation (`curl … | bash`), a first-run setup wizard, a Slint-based cross-platform settings app, Keymap Studio and Typing Practice tools, word-unit input, and a large (experimental) Windows port.
+
 ### ✨ Added
 
-- **App icons for the four GTK apps**: The indicator, settings, Keymap Studio, and Typing Practice apps each ship a distinct icon. App IDs now follow reverse-DNS naming consistently (app ID == `.desktop` file name == icon name, e.g. `io.github.from104.unim.Settings`), so the icon shows up correctly in the GNOME Wayland taskbar and Overview. The tray Korean/English status icon is unchanged.
+- **One-click install (`curl … | bash`)**: You can now install UNIM with a single command.
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
+  ```
+
+  The script verifies a Linux / amd64 / apt environment, downloads the 11 deb packages from the latest GitHub release, verifies their integrity against the `SHA256SUMS` manifest, and installs them with `apt-get`. It finishes with re-login and first-run wizard guidance. Environment variables (`UNIM_VERSION`, `UNIM_BASE_URL`) let you pin a specific version or point at a mirror.
+
+- **First-run setup wizard**: The first time you log in after installation, the wizard runs automatically and sets UNIM as your default input method (via im-config, falling back to xinputrc). If setting the default fails, it shows an error card and blocks completion. Once completed, it does not appear again (recorded in XDG state).
+
+- **Slint settings app (`unim-settings`)**: The settings app has been rewritten from GTK4 into a Slint-based cross-platform app, so Linux and Windows share the same settings screen. On Linux it saves to `config.yaml` and notifies the daemon over DBus exactly like the old GTK app, and it raises the existing window instead of launching a duplicate. It queries system fonts so Hangul does not render as tofu on distributions without a Korean font.
+
+- **Korean/English switch beep**: A short beep signals when the mode changes (880 Hz for Korean, 440 Hz for English). It works with no external library or sound file and does not delay input. It sounds for the toggle key, AutoTypeFix auto-switching, and switches from the tray/extension. It can be turned off in settings.
+
+- **Keymap Studio and Typing Practice (new GTK4 tools)**: Two standalone apps let you view, edit, and practice Korean layouts in one place.
+  - **Keymap Studio (`unim-keymap-studio`)**: View the key placement and cho/jung/jong combinations of built-in and user layouts in a table, click a key to edit it, and save to a user layout (`~/.config/unim/layouts/*.json`).
+  - **Typing Practice (`unim-typing-practice`)**: Pick a sample text by length and practice while live WPM, CPM, accuracy, and error rate are shown; a per-key error heatmap appears when you finish. It decomposes Hangul syllables into jamo to count keystrokes, and WPM is computed the Korean-standard way (CPM ÷ 5).
+
+- **Auto-English switching — Ctrl/Alt/Super combination triggers**: Auto-English triggers now accept modifier combinations (e.g. `key:Ctrl+B`, `key:Ctrl+Shift+B`, `key:Alt+F1`, `key:Super+Space`). For workflows that need a combo key, such as the tmux/wmux prefix (`Ctrl+B`), pressing the combination in Korean mode switches to English and passes the key straight through to the application. It fires only when exactly the specified modifiers are held. Works on GTK, Qt, XIM, and GNOME; Windows support is planned.
+
+- **AutoTypeFix toggle shortcuts (three)**: You can toggle automatic typo correction with a shortcut — separately for all / forward only (English → Korean) / reverse only (Korean → English). The defaults are empty (opt-in), so only users who configure them are affected. It does not fire when only a modifier is held, and holding the key (auto-repeat) toggles once without flicker.
+
+- **Automatic password-field protection**: When you enter a password or other sensitive field, UNIM automatically switches to English mode and restores the previous state when you leave. Keys typed there are not retained anywhere — not in buffers, undo, recent corrections, the learning dictionary, or surrounding context. It works on Wayland, GTK, and Qt; XIM and IMM32 fallback environments are not detected, which is noted in the FAQ and troubleshooting docs.
+
+- **Word-unit input (`commit_unit`)**: You can set the commit unit to word instead of syllable. In word mode the whole word stays in composition even after a correction. To avoid misbehavior, terminals, XIM/ibus-family frontends, and chord layouts are automatically downgraded to syllable units (WordGate). Selectable from the CLI (`unim-cli config`) and the settings app.
+
+- **Distinct icons for four apps + reverse-DNS naming**: The indicator, settings, Keymap Studio, and Typing Practice apps each ship a distinct icon. App IDs now follow reverse-DNS naming consistently (app ID == `.desktop` file name == icon name, e.g. `io.github.from104.unim.Settings`), so the icon shows up correctly in the GNOME Wayland taskbar and Overview. The tray Korean/English status icon is unchanged.
 
 ### 🔄 Changed
 
+- **Two settings apps — Slint primary, GTK legacy**: The new Slint settings app takes over the `unim-settings` name, and the previous GTK4 app is renamed `unim-settings-gtk` and shipped alongside for now (to be retired later). Only the Slint app appears in the desktop menu (the GTK one is hidden), and every component's "Open settings" (tray, GNOME extension, Typing Practice, etc.) now points at the new app.
+
+- **Reorganized into 11 deb packages**: The packaging layout was tidied up. The settings app is split into `unim-settings` (Slint) and `unim-settings-gtk` (legacy), `unim-keymap-studio` and `unim-typing-practice` are added as new packages, and the indicator/settings/popup-service are bundled into `unim-desktop`.
+
 - **Keymap Studio redesigned**: The old left-sidebar + two-tab layout is replaced by a three-step header dropdown (Language › Source › Layout) plus four tabs (Basics / Layout / Combinations / Extensions). Built-in layouts are protected (only "Save As" is allowed); your own layouts save in place. See `unim-keymap-studio/README.md`.
+
+- **Layout list enumerated dynamically**: The settings app's layout list changed from a fixed set of four to an enumeration of actually registered profiles (`ProfileRegistry`), so Ahnmatae and user layouts appear with friendly names and the chord-related UI is enabled accordingly. The CLI layout validator uses the same source.
+
+- **GNOME extension icons refreshed**: The tray/panel icons were replaced with a monochrome SVG set, and the input-method-disabled (`unim-disabled`) state is shown with its own icon.
+
+### 🐛 Fixed
+
+- **Right Alt as Korean/English toggle restored**: The modifier-key check ran before the toggle-key check, so assigning Right Alt as the toggle did nothing. Fixed, with an added regression test for jongseong combinations.
+
+- **Super/Meta combination keys recognized (GTK/Qt immodules)**: The Super/Meta modifier mask bit was misaligned in the GTK3/4 and Qt5/6 input modules, so combination triggers like `key:Super+X` did not work through that path. Corrected to match the engine's X11 mask interpretation.
+
+- **Word-mode syllable-downgrade guidance (WordGate)**: So the automatic downgrade to syllable units (in terminals, etc.) is not mistaken for "settings broke," the verdict is now logged (`[WordGate]`) and the always-syllable exception is spelled out in the settings app and CLI descriptions.
+
+### 🪟 Windows support (experimental)
+
+The Windows port advanced substantially this cycle. It is experimental support with on-device verification still in progress; the following is the scope of what was implemented.
+
+- **Fully native TSF architecture**: All UI is consolidated into a single `unim_tsf.dll` and the separate helper executable (`unim-windows`) was removed. It includes the hanja/special-character/emoji popups (9×9 grid, bookmarks, paging), AutoTypeFix (forward, reverse, manual, suppression list, undo), settings, and the language bar. The shared core and Linux frontends were not touched.
+
+- **Hangul composition in console/IMM32 apps (CUAS-compliant)**: Hangul composition is restored in console/IMM32 apps that use inline composition, such as WezTerm and Telegram.
+
+- **32-bit app support (KakaoTalk, Hancom, etc.)**: To fix 32-bit apps not finding the 64-bit-only TIP, a 32-bit TSF TIP (`unim_tsf32.dll`) is now registered alongside. The pointless IMM32 `.ime` registration on Win11 was dropped.
+
+- **Accessibility**: The composition and candidate windows are exposed via TSF UIA/UILess, and an option to suppress combination-key auto-repeat (`ignore_key_repeat`, for users with motor disabilities) plus screen-reader notification of Korean/English switches (NotifyWinEvent, optional beep) were added.
+
+- **MSI distribution**: Upgraded to windows-rs 0.62.2 and tidied up the WiX 3.x MSI build chain.
 
 ### 🧹 Internal
 
 - **unim-capi header sync**: The public C header (`unim.h`) is kept in sync with the Rust surface (added two `UnimInputResult` fields and the `POPUP_KEY_PERIOD` constant), and a build-time guard (`build.rs` + cbindgen) now warns automatically if the header drifts out of sync.
 - **Keymap tools share one keyboard widget**: Keymap Studio and Typing Practice now share a single 5-row keyboard widget (three duplicate copies merged into one), and dead code (the old `KeyboardWidget`, `ProfileSidebar`, etc.) was removed.
 - **Frontend cleanup**: Unused embedded popup widgets were removed from the GTK/Qt IM modules — all popups are now drawn solely by the popup-service — and the frontends no longer link against unim-capi.
+- **Line-ending normalization**: A `.gitattributes` (eol=lf) and `.editorconfig` were added so line endings stay consistent across mixed Linux/Windows development.
 
 ---
 
