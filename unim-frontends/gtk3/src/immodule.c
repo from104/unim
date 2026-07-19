@@ -616,9 +616,10 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     }
 
     /* 수정자 키만 눌린 경우 바이패스 (preedit에 영향 없이 앱으로 전달) */
+    /* bare Alt_R 은 스킵하지 않는다 — 토글 여부는 데몬 toggle_keys 가 판정(§3.4). ISO_Level3_Shift(AltGr)는 유지. */
     if (event->keyval == GDK_KEY_Shift_L || event->keyval == GDK_KEY_Shift_R ||
         event->keyval == GDK_KEY_Control_L || event->keyval == GDK_KEY_Control_R ||
-        event->keyval == GDK_KEY_Alt_L || event->keyval == GDK_KEY_Alt_R ||
+        event->keyval == GDK_KEY_Alt_L ||
         event->keyval == GDK_KEY_Super_L || event->keyval == GDK_KEY_Super_R ||
         event->keyval == GDK_KEY_Meta_L || event->keyval == GDK_KEY_Meta_R ||
         event->keyval == GDK_KEY_Hyper_L || event->keyval == GDK_KEY_Hyper_R ||
