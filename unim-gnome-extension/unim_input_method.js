@@ -46,6 +46,8 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._focusOutHandler = null;
         /** @type {Function|null} 리셋 콜백 (팝업 정리 등) */
         this._resetHandler = null;
+        /** @type {Function|null} bare 토글 후보 수정자(Alt_R) 비소비 통지 콜백 */
+        this._toggleKeyNotifier = null;
         /** @type {{x: number, y: number, width: number, height: number}} 커서 위치 */
         this._cursorRect = { x: 0, y: 0, width: 0, height: 0 };
         /**
@@ -114,6 +116,14 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._resetHandler = handler;
     }
 
+    /**
+     * bare 토글 후보 수정자(Alt_R) 비소비 통지 콜백 등록
+     * @param {Function|null} cb - (keyval, evdevKeycode, state) => void
+     */
+    setToggleKeyNotifier(cb) {
+        this._toggleKeyNotifier = cb;
+    }
+
     // ===========================================
     // GObject vfunc 오버라이드 — Mutter C vtable에 등록됨
     // ===========================================
@@ -159,6 +169,15 @@ class UnimInputMethod extends Clutter.InputMethod {
         // (return true + notify_key_event(false) 패턴은 FLAG_INPUT_METHOD 플래그를
         //  부착하여 고정키 핸들러가 이벤트를 무시하는 원인이 됨)
         if (MODIFIER_KEYSYMS.has(keyval)) {
+            // bare Alt_R PRESS 는 데몬에 비소비 통지(fire-and-forget) — 토글 여부는 데몬
+            // toggle_keys 가 판정(§3.4). return false 는 유지해 Mutter 네이티브 처리
+            // (위 고정키/Sticky Keys 보호)를 보존한다. 앱에도 Alt press+release 가
+            // 전달되는 부작용은 계획서 R1 (QA A-4b, 옵트아웃: toggle_keys 에서 RightAlt 제거).
+            if (keyval === Clutter.KEY_Alt_R &&
+                eventType === Clutter.EventType.KEY_PRESS &&
+                this._toggleKeyNotifier) {
+                this._toggleKeyNotifier(keyval, keycode > 8 ? keycode - 8 : 0, state);
+            }
             return false;
         }
 

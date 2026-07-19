@@ -459,6 +459,34 @@ export class UnimDbusIME {
         }
     }
 
+    /**
+     * 키 이벤트를 엔진으로 fire-and-forget 통지 (결과 무시)
+     *
+     * bare 토글 후보 수정자(Alt_R)용. 결과 무시(모드 변경은 GlobalModeChanged
+     * 시그널로 인디케이터에 반영됨). vfunc 경로 블로킹/재진입 방지 — call_sync 금지.
+     *
+     * @param {number} keyval - 키 심볼 (GDK keyval)
+     * @param {number} keycode - evdev 키코드
+     * @param {number} state - 수정자 비트필드
+     */
+    processKeyAsync(keyval, keycode, state) {
+        if (!this._icProxy) return;
+        this._icProxy.call(
+            'ProcessKeyEvent',
+            new GLib.Variant('(uuu)', [keyval >>> 0, keycode >>> 0, state >>> 0]),
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (proxy, res) => {
+                try {
+                    proxy.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `ProcessKeyAsync 실패: ${e.message}`);
+                }
+            }
+        );
+    }
+
     // ===========================================
     // 포커스 관리
     // ===========================================

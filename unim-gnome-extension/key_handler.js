@@ -30,6 +30,12 @@ const BYPASS_MODIFIER_MASK =
     Clutter.ModifierType.MOD1_MASK |  // Alt
     Clutter.ModifierType.SUPER_MASK;
 
+/* repeat 태깅 — src/keycode/modifiers.rs 의 UNIM_* 상수와 값 동기.
+ * JS 비트연산은 32bit signed — (1<<31) 금지, 리터럴 + >>>0 을 사용한다. */
+const UNIM_KEY_REPEAT_MASK = 0x20000000;
+const UNIM_REPEAT_AWARE_MASK = 0x80000000;
+const CLUTTER_FLAG_REPEATED = Clutter.EventFlags?.REPEATED ?? (1 << 2);
+
 // ── 자동 영문(auto_english) 조합 트리거 selective divert ─────────────────────
 // 기본적으로 Ctrl/Alt/Super 조합은 위 blanket 경로로 앱에 통과시킨다. 다만
 // 사용자가 설정한 조합 트리거(예: `key:Ctrl+B` — tmux prefix)만은 engine 으로
@@ -229,6 +235,13 @@ export class KeyHandler {
                 this._handleVfuncKey(keyval, keycode, state, event);
             });
 
+            // bare Alt_R(토글 후보) 비소비 통지 — vfunc 경로에서 return false 로
+            // Mutter 네이티브 처리를 보존하되 데몬에 fire-and-forget 으로 통지한다.
+            this._inputMethod.setToggleKeyNotifier((keyval, keycode, state) => {
+                if (this._dbusIME?.isConnected)
+                    this._dbusIME.processKeyAsync(keyval, keycode, state >>> 0);
+            });
+
             // 현재 IM 저장 (disable 시 복원용)
             this._savedInputMethod = Main.inputMethod;
 
@@ -284,7 +297,7 @@ export class KeyHandler {
             //     (고정키 순서 보존)한 뒤 engine 으로 divert 해 한→영 전환.
             if (this._matchesAutoEnglishCombo(keycode, state)) {
                 this._inputMethod.notify_key_event(event, false);
-                this._divertComboToEngine(keyval, keycode, state);
+                this._divertComboToEngine(keyval, keycode, this._tagRepeatBits(state, event));
                 this._drainKeyQueue();
                 return;
             }
@@ -306,7 +319,7 @@ export class KeyHandler {
         this._processingKey = true;
         let result;
         try {
-            result = this._dbusIME.processKey(keyval, keycode, state);
+            result = this._dbusIME.processKey(keyval, keycode, this._tagRepeatBits(state, event));
         } finally {
             this._processingKey = false;
         }
@@ -385,7 +398,7 @@ export class KeyHandler {
                 // auto_english 조합 트리거면 divert (키는 앱으로 통과).
                 if (this._matchesAutoEnglishCombo(entry.keycode, entry.state)) {
                     this._inputMethod.notify_key_event(entry.event, false);
-                    this._divertComboToEngine(entry.keyval, entry.keycode, entry.state);
+                    this._divertComboToEngine(entry.keyval, entry.keycode, this._tagRepeatBits(entry.state, entry.event));
                     continue;
                 }
                 this._flushCompose();
@@ -401,7 +414,7 @@ export class KeyHandler {
             this._processingKey = true;
             let result;
             try {
-                result = this._dbusIME.processKey(entry.keyval, entry.keycode, entry.state);
+                result = this._dbusIME.processKey(entry.keyval, entry.keycode, this._tagRepeatBits(entry.state, entry.event));
             } finally {
                 this._processingKey = false;
             }
@@ -437,6 +450,26 @@ export class KeyHandler {
         if (this._dbusIME?.isConnected) {
             this._dbusIME.reset();
         }
+    }
+
+    /**
+     * DBus 로 나가는 state 에 repeat 태깅 비트를 부착한다.
+     *
+     * AWARE 비트는 항상 세워 데몬이 이 프런트를 "반복 정확 구분" 프런트로 인식하게 하고,
+     * Clutter event flags 에 REPEATED 가 있으면 REPEAT 비트를 추가한다. 데몬은
+     * ignore_key_repeat on 일 때만 이 비트로 자동반복을 억제(off 면 from_x11_mask 가 무시).
+     * JS 32bit signed 함정 회피를 위해 `>>> 0` 로 unsigned 정규화 후 반환.
+     *
+     * @param {number} state - raw modifier 비트필드
+     * @param {Clutter.Event} [event] - 원본 키 이벤트 (flags 판정용)
+     * @returns {number} 태깅된 state (unsigned)
+     * @private
+     */
+    _tagRepeatBits(state, event) {
+        let s = state | UNIM_REPEAT_AWARE_MASK;
+        if (event?.get_flags && (event.get_flags() & CLUTTER_FLAG_REPEATED))
+            s |= UNIM_KEY_REPEAT_MASK;
+        return s >>> 0;
     }
 
     /**
@@ -539,6 +572,7 @@ export class KeyHandler {
                     backend.set_input_method(null);
                 }
                 this._inputMethod.setKeyHandler(null);
+                this._inputMethod.setToggleKeyNotifier(null);
             } catch (e) {
                 unimError('KEY', `Backend 해제 중 오류: ${e.message}`);
             }
@@ -615,6 +649,12 @@ export class KeyHandler {
 
         // 1. 수정자 키 단독 입력 → 바이패스
         if (MODIFIER_KEYSYMS.has(keyval)) {
+            // bare Alt_R 은 데몬에 비소비 통지 후 그대로 전파 (Wayland vfunc 경로와 동일 설계).
+            // captured-event 는 KEY_PRESS 만 이 경로로 진입(enable() 의 type 가드)하므로
+            // PRESS 전용 통지 — 이중 토글 없음.
+            if (keyval === Clutter.KEY_Alt_R && this._dbusIME?.isConnected) {
+                this._dbusIME.processKeyAsync(keyval, evdevKeycode, state >>> 0);
+            }
             return Clutter.EVENT_PROPAGATE;
         }
 
@@ -625,7 +665,7 @@ export class KeyHandler {
             // 3a. auto_english 조합 트리거면 engine 으로 divert(모드 전환). 키는
             //     PROPAGATE 로 앱에 전달되므로 별도 forward 불필요.
             if (this._matchesAutoEnglishCombo(evdevKeycode, state)) {
-                this._divertComboToEngine(keyval, evdevKeycode, state);
+                this._divertComboToEngine(keyval, evdevKeycode, this._tagRepeatBits(state, event));
                 return Clutter.EVENT_PROPAGATE;
             }
             // 3b. captured-event 폴백이므로 forward_key 불필요, PROPAGATE로 키 전달
@@ -650,7 +690,7 @@ export class KeyHandler {
         this._processingKey = true;
         let result;
         try {
-            result = this._dbusIME.processKey(keyval, evdevKeycode, state);
+            result = this._dbusIME.processKey(keyval, evdevKeycode, this._tagRepeatBits(state, event));
         } finally {
             this._processingKey = false;
         }
