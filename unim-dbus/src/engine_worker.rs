@@ -16,7 +16,7 @@ use crate::service::{
 use unim::auto_typefix::{self, KeystrokeBuffer};
 use unim::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, KoreanLayout};
 use unim::input_engine::{AtfToggleKind, InputEngine, PageDirection};
-use unim::keycode::{KeyCode, ModifierState};
+use unim::keycode::{KeyCode, ModifierState, UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
 use unim::popup::PopupKind;
 use unim::typefix_blacklist::{Blacklist, Direction};
 use unim::typefix_userdict::UserDictionary;
@@ -734,6 +734,43 @@ fn observe_rollback_event(
     }
 }
 
+/// ignore_key_repeat 폴백 판정 창. X/GNOME 기본 반복 interval(30-40ms) < 80ms <
+/// 인간 최속 동일키 의도 연타(~100-150ms) 사이에 놓아 오탐을 최소화한다.
+const REPEAT_INFER_WINDOW: Duration = Duration::from_millis(80);
+
+/// unaware 프런트용 시간창 폴백: 직전 press 가 동일 keycode 이고 창(`REPEAT_INFER_WINDOW`)
+/// 안이면 자동반복으로 추정한다. release 미전달 한계로 "눌린 키 집합"은 못 쓰므로
+/// per-context `(keycode, Instant)` 만 본다. 실패 모드는 항상 미억제(현행 유지) 방향(fail-safe).
+fn infer_repeat_fallback(last: Option<&(u32, Instant)>, keycode: u32, now: Instant) -> bool {
+    matches!(last, Some(&(k, at)) if k == keycode && now.duration_since(at) < REPEAT_INFER_WINDOW)
+}
+
+/// ignore_key_repeat 억제 여부 판정 — 순수 함수(단위테스트 대상). Windows
+/// `text_service.rs:914-927` 이식.
+///
+/// aware 프런트(Qt/GNOME/Wayland)는 무누출 — GNOME 은 vfunc·드레인 큐·X11 captured 세
+/// 경로 모두 태깅(T5). unaware(GTK3/4·XIM·ibus_compat)는 `inferred` 폴백을 쓰며 첫 반복
+/// 1회 누출·80ms 초과 interval 미검출 한계가 있다(fail-safe: 누출은 항상 "반복 통과" 방향).
+/// 억제 대상은 토글키 또는 (한글모드 문자키)뿐 — 편집키/영문 직접입력 반복은 통과시킨다.
+fn should_suppress_repeat(
+    ignore_on: bool,
+    state: u32,
+    inferred: bool,
+    is_toggle: bool,
+    is_char: bool,
+    korean: bool,
+) -> bool {
+    if !ignore_on {
+        return false;
+    }
+    let is_repeat = if state & UNIM_REPEAT_AWARE_MASK != 0 {
+        state & UNIM_KEY_REPEAT_MASK != 0
+    } else {
+        inferred
+    };
+    is_repeat && (is_toggle || (is_char && korean))
+}
+
 /// 엔진 워커를 시작하고 요청 수신 채널을 반환합니다.
 ///
 /// # Returns
@@ -764,6 +801,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     let mut undo_states: HashMap<u32, UndoState> = HashMap::new();
     // AutoTypeFix: 재트리거 감지용 최근 교정 기록 (컨텍스트별)
     let mut recent_corrections: HashMap<u32, Vec<RecentCorrection>> = HashMap::new();
+    // ignore_key_repeat 폴백: unaware 프런트(GTK3/4·XIM·ibus_compat)용 per-context (keycode, 시각).
+    // 설정 off 시 미갱신(오버헤드 0). AWARE 비트가 있으면 판정에 미사용.
+    let mut last_key_presses: HashMap<u32, (u32, std::time::Instant)> = HashMap::new();
     // AutoTypeFix: 학습형 억제 단어 목록 (파일 기반, mtime 감지 reload)
     let mut blacklist = Blacklist::load_from_default_path();
     // AutoTypeFix: 역방향 사용자 사전 (파일 기반, mtime 감지 reload)
@@ -884,6 +924,7 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 keystroke_buffers.remove(&id);
                 undo_states.remove(&id);
                 recent_corrections.remove(&id);
+                last_key_presses.remove(&id);
                 if last_focused_context_id == Some(id) {
                     last_focused_context_id = None;
                 }
@@ -947,6 +988,52 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                     // keycode를 KeyCode로 변환
                     let key = KeyCode::from_evdev_keycode(keycode as u16);
                     let modifier = ModifierState::from_x11_mask(state);
+
+                    // [P0] ignore_key_repeat 집행 — Windows text_service.rs:914-927 이식.
+                    // (ATF 갈래는 press_key 의 ATF_HOTKEY_DEBOUNCE 가 기존 커버 → 제외해
+                    //  off 시 변화 0 보장. off 면 첫 조건 탈락 + 트래커 미갱신으로 오버헤드 0.)
+                    if config.engine.ignore_key_repeat {
+                        let now = std::time::Instant::now();
+                        let inferred =
+                            infer_repeat_fallback(last_key_presses.get(&context_id), keycode, now);
+                        let suppress = should_suppress_repeat(
+                            true,
+                            state,
+                            inferred,
+                            engine.is_toggle_key(key),
+                            key.is_character_key(),
+                            engine.input_category() == unim::config::InputCategory::Korean,
+                        );
+                        // 억제 여부 무관 갱신 — 연속 반복이 계속 창 안에 머물러 계속 억제되도록.
+                        last_key_presses.insert(context_id, (keycode, now));
+                        if suppress {
+                            unim_log!(
+                                "ENGINE_WORKER",
+                                "[Engine Worker] key repeat 억제: ctx={}, keycode={}",
+                                context_id,
+                                keycode
+                            );
+                            // 억제 중에도 현재 조합(preedit)을 그대로 에코한다. None → DBus
+                            // 계층(service.rs)이 "" 로 평탄화 → 4개 프런트 전부 'preedit
+                            // 클리어'로 오해석해 조합 중 preedit-end 발사/조합 증발(ghostty
+                            // 잠금 계열). 동일 문자열 에코는 GTK last_preedit dedup(무발사),
+                            // Qt m_composing 유지, GNOME/Wayland 무해한 동일값 갱신이 된다.
+                            let _ = response.send(EngineResponse {
+                                consumed: true,
+                                preedit: Some(engine.preedit_str().to_string()),
+                                commit: None,
+                                mode_changed: None,
+                                popup_action: None,
+                                auto_typefix: None,
+                                render_state: None,
+                                chord_pending: None,
+                                atf_toggled: None,
+                                atf_config_json: None,
+                            });
+                            continue;
+                        }
+                    }
+
                     let atf_config = &config.engine.auto_typefix;
                     // 비밀번호/PIN 필드 여부(런타임 AND-게이트) — press_key 는 content_purpose
                     // 를 바꾸지 않으므로 이 키 이벤트 동안 안정. 관찰·rollback·undo 세 지점을
@@ -2416,6 +2503,91 @@ mod tests {
         assert!(atf_active_for_field(true, ContentPurpose::Number));
         assert!(atf_active_for_field(true, ContentPurpose::Url));
         assert!(atf_active_for_field(true, ContentPurpose::Terminal));
+    }
+
+    /// ignore_key_repeat 억제 판정: aware 비트 우선(REPEAT 유무로 결정),
+    /// unaware 는 inferred 폴백, 대상은 토글키 또는 (한글모드 문자키)뿐, off 면 항상 통과.
+    #[test]
+    fn should_suppress_repeat_matrix() {
+        const AWARE: u32 = UNIM_REPEAT_AWARE_MASK;
+        const REPEAT: u32 = UNIM_KEY_REPEAT_MASK;
+
+        // ① config off → 무엇이든 억제 안 함.
+        assert!(!should_suppress_repeat(
+            false,
+            AWARE | REPEAT,
+            true,
+            true,
+            true,
+            true
+        ));
+        // ② aware + repeat + 토글키 → 억제.
+        assert!(should_suppress_repeat(
+            true,
+            AWARE | REPEAT,
+            false,
+            true,
+            false,
+            false
+        ));
+        // ③ aware + repeat + 한글모드 문자키 → 억제.
+        assert!(should_suppress_repeat(
+            true,
+            AWARE | REPEAT,
+            false,
+            false,
+            true,
+            true
+        ));
+        // ④ aware + repeat + 영문모드 문자키 → 통과.
+        assert!(!should_suppress_repeat(
+            true,
+            AWARE | REPEAT,
+            false,
+            false,
+            true,
+            false
+        ));
+        // ⑤ aware 만(REPEAT 비트 없음) → 폴백 무시, is_repeat=false 로 통과.
+        assert!(!should_suppress_repeat(true, AWARE, true, true, true, true));
+        // ⑥ unaware(AWARE 비트 없음) + inferred + 한글 문자키 → 폴백 억제.
+        assert!(should_suppress_repeat(true, 0, true, false, true, true));
+        // ⑦ 편집키(비문자·비토글) 반복 → 통과.
+        assert!(!should_suppress_repeat(
+            true,
+            AWARE | REPEAT,
+            true,
+            false,
+            false,
+            false
+        ));
+    }
+
+    /// ignore_key_repeat 시간창 폴백: 동일 keycode 가 80ms 미만이면 반복 추정,
+    /// 이상이거나 다른 키·이력 없음이면 통과.
+    #[test]
+    fn infer_repeat_fallback_window() {
+        let now = Instant::now();
+        // 동일 키 79ms → 창 안 → true.
+        assert!(infer_repeat_fallback(
+            Some(&(65, now - Duration::from_millis(79))),
+            65,
+            now
+        ));
+        // 동일 키 81ms → 창 밖 → false.
+        assert!(!infer_repeat_fallback(
+            Some(&(65, now - Duration::from_millis(81))),
+            65,
+            now
+        ));
+        // 다른 키 → false.
+        assert!(!infer_repeat_fallback(
+            Some(&(66, now - Duration::from_millis(10))),
+            65,
+            now
+        ));
+        // 이력 없음 → false.
+        assert!(!infer_repeat_fallback(None, 65, now));
     }
 
     #[test]
