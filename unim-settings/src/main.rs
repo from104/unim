@@ -298,8 +298,8 @@ pub(crate) fn persist_config(cfg: &Config, label: &str) -> Result<(), unim::conf
 ///   engine.korean.{layout, active_rule_sets, layout_rule_sets, bidirectional_combine,
 ///                  chord_window_ms, commit_unit, word_mode_apps},
 ///   engine.english.layout.
-/// 플랫폼 분기: `ignore_key_repeat` 는 Windows 에서만 UI-소유(설정에 노출). Linux 는
-///   설정에서 숨기므로(F2) disk 값을 보존한다 — CLI 로 지정한 값을 클로버하지 않는다.
+/// `ignore_key_repeat` 는 양 플랫폼 UI-소유(Windows·Linux 모두 설정에 노출)라 UI 값으로
+///   덮어쓴다 — Linux 는 데몬 repeat 게이트가 이 값을 집행한다.
 fn merge_ui_owned(disk: &mut Config, ui: &Config) {
     let d = &mut disk.engine;
     let u = &ui.engine;
@@ -319,11 +319,8 @@ fn merge_ui_owned(disk: &mut Config, ui: &Config) {
     d.korean.commit_unit = u.korean.commit_unit;
     d.korean.word_mode_apps = u.korean.word_mode_apps.clone();
     d.english.layout = u.english.layout.clone();
-    // ignore_key_repeat: Windows 만 UI-소유. Linux 는 disk 값 보존(F2 숨김과 정합).
-    #[cfg(target_os = "windows")]
-    {
-        d.ignore_key_repeat = u.ignore_key_repeat;
-    }
+    // ignore_key_repeat: 양 플랫폼 UI-소유 (Linux 데몬 집행 + UI 노출과 정합).
+    d.ignore_key_repeat = u.ignore_key_repeat;
 }
 
 /// config `AppRule` → Slint `AppRuleItem` (category-index: 0=영문, 1=한글).
@@ -555,7 +552,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_auto_english_keys(e.auto_english.trigger_keys.join(", ").into());
         // I7: 한/영 전환 비프 통지 (접근성).
         ui.set_toggle_announce_beep(e.toggle_announce_beep);
-        // 조합키 자동반복 억제 (접근성, 지체장애) — Linux 는 UI 에서 숨김(F2).
+        // 조합키 자동반복 억제 (접근성, 지체장애) — Windows·Linux 양 플랫폼 노출.
         ui.set_ignore_key_repeat(e.ignore_key_repeat);
         // 플랫폼 게이트: Windows 전용 행(ignore_key_repeat 등) 노출 판정.
         ui.set_is_windows(cfg!(target_os = "windows"));
@@ -1235,7 +1232,7 @@ mod tests {
     }
 
     /// F7: 저장 병합이 UI-소유 필드는 in-memory 값으로 덮어쓰고, 비-UI 필드는
-    /// disk 값을 보존한다(Linux 의 ignore_key_repeat 는 비-UI).
+    /// disk 값을 보존한다(ignore_key_repeat 는 양 플랫폼 UI-소유).
     #[test]
     fn merge_ui_owned_overwrites_ui_and_preserves_non_ui() {
         let mut disk = Config::default();
@@ -1245,8 +1242,10 @@ mod tests {
             app_pattern: "old".to_string(),
             default_category: InputCategory::English,
         }];
-        // 비-UI 필드(Linux 에서 UI 미노출) — disk 값이 보존돼야 함.
+        // ignore_key_repeat 도 UI-소유(양 플랫폼) — disk 값(true)이 ui 값(false)으로 덮어써져야 함.
         disk.engine.ignore_key_repeat = true;
+        // 비-UI 필드(merge_ui_owned 가 복사하지 않음) — disk 값이 보존돼야 함.
+        disk.engine.english.preferred_direct = true;
 
         let mut ui = Config::default();
         ui.engine.toggle_keys = vec!["NewToggle".to_string()];
@@ -1255,6 +1254,7 @@ mod tests {
             default_category: InputCategory::Korean,
         }];
         ui.engine.ignore_key_repeat = false;
+        ui.engine.english.preferred_direct = false;
 
         merge_ui_owned(&mut disk, &ui);
 
@@ -1267,16 +1267,16 @@ mod tests {
             InputCategory::Korean
         );
 
-        // 비-UI 필드는 플랫폼별. Linux 는 disk 값(true) 보존, Windows 는 ui 값(false) 반영.
-        #[cfg(not(target_os = "windows"))]
-        assert!(
-            disk.engine.ignore_key_repeat,
-            "Linux 에서 ignore_key_repeat(비-UI)는 disk 값이 보존돼야 함"
-        );
-        #[cfg(target_os = "windows")]
+        // ignore_key_repeat 는 양 플랫폼 UI-소유이므로 ui 값(false)이 반영됨.
         assert!(
             !disk.engine.ignore_key_repeat,
-            "Windows 에서 ignore_key_repeat 는 UI-소유이므로 ui 값이 반영돼야 함"
+            "ignore_key_repeat 는 UI-소유이므로 ui 값(false)이 반영돼야 함"
+        );
+
+        // 비-UI 필드(preferred_direct)는 merge 대상이 아니므로 disk 값(true)이 보존됨.
+        assert!(
+            disk.engine.english.preferred_direct,
+            "preferred_direct(비-UI)는 disk 값이 보존돼야 함"
         );
     }
 }

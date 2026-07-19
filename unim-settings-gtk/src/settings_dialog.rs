@@ -791,7 +791,7 @@ fn build_accessibility_group(state: &State) -> adw::PreferencesGroup {
     group.add(&sw);
 
     // 조합키 자동반복 억제 (지체장애 접근성) — 키 홀드 시 연타·토글 진동 방지.
-    // Windows TSF 전용 동작이지만 config.yaml 을 공유하므로 노출.
+    // Windows(TSF)·Linux(데몬 repeat 게이트) 공통 집행 — 양 플랫폼 노출.
     let sw_repeat = adw::SwitchRow::builder()
         .title(t!("row_ignore_key_repeat"))
         .subtitle(t!("row_ignore_key_repeat_subtitle"))

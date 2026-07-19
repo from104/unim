@@ -865,9 +865,8 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.auto-save(); }
                             }
                         }
-                        // F2: 조합키 자동반복 억제는 Windows 전용 기능(TSF lParam bit30
-                        // 기반)이라 Linux 에서는 노출하지 않는다(is-windows 게이트).
-                        if root.is-windows: SettingRow {
+                        // 조합키 자동반복 억제 — Windows(TSF lParam bit30)·Linux(데몬 repeat 게이트) 양쪽 집행.
+                        SettingRow {
                             title: @tr("조합키 자동반복 억제");
                             description: @tr("키를 누르고 있을 때 발생하는 자동반복을 무시해 자모 연타·한/영 토글 진동을 막습니다. 편집키(백스페이스·방향키)와 영문 입력의 반복은 유지됩니다. 지체장애 사용자를 위한 기능입니다.");
                             Switch {
