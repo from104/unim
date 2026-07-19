@@ -301,13 +301,20 @@ bool UnimInputContext::filterEvent(const QEvent *event)
 
     /* 수정자 키만 눌린 경우 바이패스 (preedit에 영향 없이 앱으로 전달) */
     int key = keyEvent->key();
-    if (key == Qt::Key_Shift || key == Qt::Key_Control ||
-        key == Qt::Key_Alt || key == Qt::Key_Meta ||
-        key == Qt::Key_Super_L || key == Qt::Key_Super_R ||
-        key == Qt::Key_Hyper_L || key == Qt::Key_Hyper_R ||
-        key == Qt::Key_CapsLock || key == Qt::Key_NumLock ||
-        key == Qt::Key_ScrollLock ||
-        key == Qt::Key_AltGr) {
+    /* bare Alt_R(evdev 100)은 스킵하지 않는다 — 토글 여부는 데몬 toggle_keys 가 판정(§3.4).
+     * 기존 코드(nativeScanCode() 사용부)와 동일하게 X11/Wayland 공통 nativeScanCode = evdev+8 가정.
+     * AltGr 레이아웃은 Key_AltGr 로 별도 보고되어 아래 스킵에 그대로 걸린다(ISO_Level3 보호).
+     * nativeScanCode 미제공(<=8)이면 기존 스킵 유지 — fail-safe. */
+    const quint32 nsc = keyEvent->nativeScanCode();
+    const bool bareRightAlt = (key == Qt::Key_Alt) && nsc > 8 && (nsc - 8) == 100 /* KEY_RIGHTALT */;
+    if (!bareRightAlt &&
+        (key == Qt::Key_Shift || key == Qt::Key_Control ||
+         key == Qt::Key_Alt || key == Qt::Key_Meta ||
+         key == Qt::Key_Super_L || key == Qt::Key_Super_R ||
+         key == Qt::Key_Hyper_L || key == Qt::Key_Hyper_R ||
+         key == Qt::Key_CapsLock || key == Qt::Key_NumLock ||
+         key == Qt::Key_ScrollLock ||
+         key == Qt::Key_AltGr)) {
         return false;
     }
 
@@ -334,6 +341,9 @@ bool UnimInputContext::filterEvent(const QEvent *event)
                     if (keyEvent->modifiers() & Qt::ControlModifier) mod_state_emoji |= (1 << 2);
                     if (keyEvent->modifiers() & Qt::AltModifier)     mod_state_emoji |= (1 << 3);
                     if (keyEvent->modifiers() & Qt::MetaModifier)    mod_state_emoji |= (1 << 6); /* Super=Mod4 (from_x11_mask) */
+                    /* repeat 태깅 — src/keycode/modifiers.rs 의 UNIM_KEY_REPEAT_MASK(1<<29)/UNIM_REPEAT_AWARE_MASK(1<<31)와 값 동기 */
+                    mod_state_emoji |= 0x80000000u;                              /* UNIM_REPEAT_AWARE_MASK */
+                    if (keyEvent->isAutoRepeat()) mod_state_emoji |= 0x20000000u; /* UNIM_KEY_REPEAT_MASK */
                     quint32 scanCode_emoji = keyEvent->nativeScanCode();
                     quint32 evdev_emoji = (scanCode_emoji > 8) ? (scanCode_emoji - 8) : 0;
                     (void)m_dbus->processKey(keyEvent->key(), evdev_emoji, mod_state_emoji);
@@ -349,6 +359,9 @@ bool UnimInputContext::filterEvent(const QEvent *event)
     if (keyEvent->modifiers() & Qt::ControlModifier) mod_state |= (1 << 2);
     if (keyEvent->modifiers() & Qt::AltModifier) mod_state |= (1 << 3);
     if (keyEvent->modifiers() & Qt::MetaModifier) mod_state |= (1 << 6); /* Super=Mod4 (from_x11_mask) */
+    /* repeat 태깅 — src/keycode/modifiers.rs 의 UNIM_KEY_REPEAT_MASK(1<<29)/UNIM_REPEAT_AWARE_MASK(1<<31)와 값 동기 */
+    mod_state |= 0x80000000u;                              /* UNIM_REPEAT_AWARE_MASK */
+    if (keyEvent->isAutoRepeat()) mod_state |= 0x20000000u; /* UNIM_KEY_REPEAT_MASK */
 
     /* X11에서 nativeScanCode() = X11 keycode = evdev + 8 */
     quint32 scanCode = keyEvent->nativeScanCode();
