@@ -883,35 +883,44 @@ fn display_keys(keys: &[String]) -> String {
 /// ATF 토글 핫키 값(키 이름 목록)을 검증해 경고 목록과 `Unknown` 포함 여부를 돌려준다.
 ///
 /// 차단하지 않고 경고만 낸다(toggle_keys 규약과 정합 — 저장은 호출부에서 그대로 수행).
-/// * `Unknown` 키 → 오타/미지원 경고. 호출부는 이 경우 성공 에코를 억제한다.
-/// * 문자·편집키(A~Z, Space/Enter/Backspace/Tab/Delete) → 그 키로 입력이 불가능해지는
-///   풋건 경고(수정자 조합 미지원이라 회피 불가).
+/// * 파싱 불가 표기 → 오타/미지원 경고. 호출부는 이 경우 성공 에코를 억제한다.
+/// * 수정자 없는 문자·편집키(A~Z, Space/Enter/Backspace/Tab/Delete) → 그 키로 입력이
+///   불가능해지는 풋건 경고. 수정자 조합(`Ctrl+A` 등)은 맨 키 입력을 막지 않으므로 제외.
 /// * 기존 한/영(`toggle_keys`)·한자(`hanja_keys`) 키와 중복 → 역할 충돌 경고.
+///   수정자가 붙으면 맨 키와 갈리므로(`Shift+F9` vs `F9`) 충돌이 아니다.
+///
+/// 표기 해석은 엔진의 `parse_atf_hotkey` 를 그대로 쓴다 — CLI 가 자체 파싱하면
+/// 엔진이 받아들이는 표기를 CLI 가 오탐하는 어긋남이 생긴다(실제로 `Shift+F9` 가
+/// Unknown 으로 보고되던 버그의 원인).
 fn atf_hotkey_warnings(keys: &[String], config: &UnimConfig) -> (Vec<String>, bool) {
+    use unim::input_engine::InputEngine;
     use unim::keycode::KeyCode;
     let mut warnings = Vec::new();
     let mut any_unknown = false;
     for name in keys {
-        let kc = KeyCode::from_name(name);
-        if kc == KeyCode::Unknown {
+        let Some(hotkey) = InputEngine::parse_atf_hotkey(name) else {
             any_unknown = true;
             warnings.push(t!("atf_hotkey_warn_unknown", key = name.clone()).to_string());
             continue;
-        }
+        };
+        let has_modifier = hotkey.ctrl || hotkey.alt || hotkey.super_key || hotkey.shift;
+        let kc = hotkey.code;
         let is_input_key = kc.is_character_key()
             || matches!(
                 kc,
                 KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab | KeyCode::Delete
             );
-        if is_input_key {
+        if is_input_key && !has_modifier {
             warnings.push(t!("atf_hotkey_warn_input_key", key = name.clone()).to_string());
         }
-        let dup = config
-            .engine
-            .toggle_keys
-            .iter()
-            .chain(config.engine.hanja_keys.iter())
-            .any(|k| KeyCode::from_name(k) == kc);
+        // 중복 판정도 수정자까지 본다 — 기본값 `Shift+F9` 는 한자키 `F9` 와 공존한다.
+        let dup = !has_modifier
+            && config
+                .engine
+                .toggle_keys
+                .iter()
+                .chain(config.engine.hanja_keys.iter())
+                .any(|k| KeyCode::from_name(k) == kc);
         if dup {
             warnings.push(t!("atf_hotkey_warn_duplicate", key = name.clone()).to_string());
         }

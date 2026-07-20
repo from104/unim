@@ -69,6 +69,43 @@ pub enum AtfToggleKind {
     Reverse,
 }
 
+/// ATF 토글 단축키 1건 — base 키코드 + 수정자 **정확-일치** 요구 사항.
+///
+/// `AutoEnglishTrigger::Functional` 의 정확-일치 규약을 그대로 따른다: 네 수정자는
+/// 모두 평 `bool` 이며 "지정한 수정자는 눌려 있어야 하고, 지정하지 않은 수정자는
+/// 눌리면 안 된다". 덕분에 종전의 `shortcut_combo` 배제 가드가 없어도 앱 단축키가
+/// 구조적으로 보호된다 — 사용자가 `F10` 만 등록했다면 `Shift+F10`(컨텍스트 메뉴)는
+/// `shift` 불일치로 매칭 실패해 그대로 앱에 통과한다.
+///
+/// 수정자 없는 표기(`F10`)는 네 필드가 전부 `false` 로 파싱되어, 모든 수정자가
+/// 떼어져 있을 때만 매칭한다 — 종전 동작과 비트 단위로 동일하다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AtfHotkey {
+    /// 매칭 대상 base 키코드 (수정자 키는 파싱 단계에서 배제된다).
+    pub code: KeyCode,
+    /// Ctrl 필요 여부 (정확 일치).
+    pub ctrl: bool,
+    /// Alt 필요 여부 (정확 일치).
+    pub alt: bool,
+    /// Super/Win/Meta 필요 여부 (정확 일치).
+    pub super_key: bool,
+    /// Shift 필요 여부 (정확 일치).
+    pub shift: bool,
+}
+
+impl AtfHotkey {
+    /// 수정자를 하나도 요구하지 않는 표기(`F10`)인지 — 즉 모든 수정자가 떼어져
+    /// 있을 때만 매칭하는 핫키인지.
+    ///
+    /// 프런트엔드 소비 판정(`InputEngine::is_atf_hotkey`)이 사용한다: 수정자 상태가
+    /// 엔진까지 도달하지 않는 Windows TSF/IMM32 에서는 조합 표기 핫키가 `press_key`
+    /// 에서 결코 매칭될 수 없으므로, 그 base 키코드를 미리 소비해 버리면 원래 기능
+    /// (예: 맨 `F9` 한자)만 죽는다.
+    pub fn is_bare(&self) -> bool {
+        !self.ctrl && !self.alt && !self.super_key && !self.shift
+    }
+}
+
 /// 팝업 페이지 이동 방향 (마우스 ◀/▶ 버튼 등에서 사용).
 ///
 /// 한자/특수문자/이모지 팝업의 wrap-around 페이지 이동에 공통으로 쓰인다.

@@ -36,6 +36,14 @@
 #define UNIM_TYPE_IM_CONTEXT (unim_im_context_get_type())
 G_DECLARE_FINAL_TYPE(UnimIMContext, unim_im_context, UNIM, IM_CONTEXT, GtkIMContext)
 
+/* AutoTypeFix 토글 핫키 1개 — keysym 과 요구 수정자 마스크 쌍.
+ * 엔진의 `[수정자+]*KeyName` 정확-일치 문법과 판정을 맞춘다 (지정하지 않은
+ * 수정자가 눌리면 불일치). mods 는 UNIM_HOTKEY_MOD_* 비트. */
+typedef struct {
+    guint keyval;
+    guint mods;
+} UnimAtfHotkey;
+
 struct _UnimIMContext {
     GtkIMContext parent;
     UnimDbusContext *dbus_ctx;  /* DBus 클라이언트 컨텍스트 */
@@ -57,6 +65,12 @@ struct _UnimIMContext {
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
     gsize n_hanja_keysyms;             /* 배열 크기 */
+
+    /* AutoTypeFix 토글 핫키 캐시 (enabled/forward/reverse 3목록 합집합).
+     * 프런트는 "데몬으로 보낼지" 만 판정하고 실제 토글은 데몬이 수행하므로
+     * 종류별로 나눌 필요가 없다. */
+    UnimAtfHotkey *atf_hotkeys;
+    gsize n_atf_hotkeys;
 
     /* 마지막으로 emit한 preedit (ghostty 등 IM-state 잠금 방지용).
      * 실제로 변경됐을 때만 preedit-changed 시그널 emit */
@@ -468,6 +482,70 @@ on_hide_popup(gpointer user_data)
     unim->popup_active = FALSE;
 }
 
+/* AutoTypeFix 토글 핫키 3목록을 DBus 설정에서 읽어 캐시에 채운다.
+ *
+ * 프런트가 이 목록을 아는 이유는 오직 하나 — idle 상태의 F키 바이패스에
+ * 걸려 데몬까지 가지 못하는 것을 막기 위해서다. 실제 토글 처리는 데몬이 한다.
+ *
+ * 한계: 한자키 캐시와 마찬가지로 컨텍스트 생성 시 1회만 로드한다. 설정 변경은
+ * 새 IM 컨텍스트(=새 입력 위젯/앱)부터 반영된다. 엔진 쪽은 set_atf_hotkeys()
+ * 로 hot-reload 되지만 GTK IM 모듈에는 설정 변경 시그널 구독 경로가 없다. */
+static void
+unim_load_atf_hotkeys(UnimIMContext *context)
+{
+    static const gchar * const keys[] = {
+        "auto_typefix_toggle_enabled_keys",
+        "auto_typefix_toggle_forward_keys",
+        "auto_typefix_toggle_reverse_keys",
+    };
+
+    context->atf_hotkeys = NULL;
+    context->n_atf_hotkeys = 0;
+    if (!context->dbus_ctx) return;
+
+    GArray *acc = g_array_new(FALSE, FALSE, sizeof(UnimAtfHotkey));
+
+    for (gsize k = 0; k < G_N_ELEMENTS(keys); k++) {
+        gchar *value = unim_dbus_get_config(context->dbus_ctx, keys[k]);
+        if (value && value[0]) {
+            gchar **specs = g_strsplit(value, ",", -1);
+            for (gsize i = 0; specs[i] != NULL; i++) {
+                g_strstrip(specs[i]);
+                if (specs[i][0] == '\0') continue;
+
+                UnimAtfHotkey hk;
+                if (unim_parse_hotkey_spec(specs[i], &hk.keyval, &hk.mods)) {
+                    g_array_append_val(acc, hk);
+                } else {
+                    UNIM_DEBUG("ATF 핫키 파싱 실패 (무시): '%s'", specs[i]);
+                }
+            }
+            g_strfreev(specs);
+        }
+        g_free(value);
+    }
+
+    /* 항목이 있으면 segment 를 그대로 넘겨받고, 비었으면 해제하고 NULL 을 받는다 */
+    context->n_atf_hotkeys = acc->len;
+    context->atf_hotkeys = (UnimAtfHotkey *)g_array_free(acc, acc->len == 0);
+
+    UNIM_DEBUG("ATF 토글 핫키 %zu개 로드", context->n_atf_hotkeys);
+}
+
+/* 현재 키 이벤트가 캐시된 ATF 토글 핫키와 일치하는가 (정확-일치).
+ * mod_bits 는 UNIM_HOTKEY_MOD_* 레이아웃이며 Lock 류는 이미 제외돼 있어야 한다. */
+static gboolean
+unim_is_atf_hotkey(UnimIMContext *context, guint keyval, guint mod_bits)
+{
+    for (gsize i = 0; i < context->n_atf_hotkeys; i++) {
+        if (context->atf_hotkeys[i].keyval == keyval &&
+            context->atf_hotkeys[i].mods == mod_bits) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 static void
 unim_im_context_init(UnimIMContext *context)
 {
@@ -530,6 +608,9 @@ unim_im_context_init(UnimIMContext *context)
         context->hanja_keysyms[1] = GDK_KEY_F9;
         context->n_hanja_keysyms = 2;
     }
+
+    /* AutoTypeFix 토글 핫키 로드 */
+    unim_load_atf_hotkeys(context);
     
     if (context->dbus_ctx) {
         UNIM_DEBUG("IMContext 초기화 완료 (window_id: %s)", context->window_id);
@@ -554,6 +635,10 @@ unim_im_context_dispose(GObject *obj)
     g_free(context->hanja_keysyms);
     context->hanja_keysyms = NULL;
     context->n_hanja_keysyms = 0;
+
+    g_free(context->atf_hotkeys);
+    context->atf_hotkeys = NULL;
+    context->n_atf_hotkeys = 0;
 
     g_free(context->surrounding_text);
     context->surrounding_text = NULL;
@@ -709,9 +794,34 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         return FALSE;
     }
 
+    /* 수정자 상태 변환 - DBus 호출용 비트필드.
+     * ATF 핫키 판정에서도 쓰므로 한자/바이패스 분기보다 앞에서 계산한다. */
+    guint mod_state = 0;
+    if (state & GDK_SHIFT_MASK) mod_state |= (1 << 0);
+    if (state & GDK_CONTROL_MASK) mod_state |= (1 << 2);
+    if (state & GDK_ALT_MASK) mod_state |= (1 << 3);
+    if (state & GDK_SUPER_MASK) mod_state |= (1 << 6);  /* Super = Mod4 — 엔진 from_x11_mask 비트 정렬 */
+    if (state & GDK_LOCK_MASK) mod_state |= (1 << 1);
+
+    /* AutoTypeFix 토글 핫키 — 데몬으로 반드시 전달한다.
+     *
+     * 한자 키 검사와 아래 F키 바이패스보다 **앞**에 있어야 한다:
+     *   - 한자 검사는 keyval 만 보고 수정자를 무시하므로, 기본 hanja_keys 에
+     *     F9 가 있으면 Shift+F9 를 한자 분기가 가로챈다.
+     *   - ATF 토글은 idle(비조합) 상태에서 누르는 것이 정상 사용이라, F키
+     *     바이패스에 걸리면 영영 데몬에 도달하지 못한다.
+     * 엔진 press_key 도 ATF 핫키를 한자키보다 먼저 검사하므로 순서가 일치한다.
+     *
+     * 여기서는 매칭 판정만 하고 실제 토글은 데몬이 수행한다 (프런트는 전달만). */
+    gboolean is_atf_hotkey =
+        unim_is_atf_hotkey(unim, keyval, mod_state & UNIM_HOTKEY_MOD_MASK);
+    if (is_atf_hotkey) {
+        UNIM_DEBUG("ATF 토글 핫키 일치 — 바이패스 없이 데몬 전달");
+    }
+
     /* 한자 키 처리 (설정 기반) */
     gboolean is_hanja = FALSE;
-    for (gsize i = 0; i < unim->n_hanja_keysyms; i++) {
+    for (gsize i = 0; !is_atf_hotkey && i < unim->n_hanja_keysyms; i++) {
         if (keyval == unim->hanja_keysyms[i]) {
             is_hanja = TRUE;
             break;
@@ -799,8 +909,10 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     /* 조합 중이 아닌 경우, 특수키는 IM에서 처리하지 않고 앱으로 직접 전달 */
     /* (블랙리스트 방식: GTK3과 동일)
      * 단 emoji popup 등 idle 트리거 popup 가시 중엔 우회 차단 — 그렇지 않으면
-     * 화살표/Esc/Home/End/PgUp/PgDn 이 popup 으로 가지 않고 앱에 전달된다. */
-    if (!unim_dbus_is_composing(unim->dbus_ctx) && !unim->popup_active) {
+     * 화살표/Esc/Home/End/PgUp/PgDn 이 popup 으로 가지 않고 앱에 전달된다.
+     * ATF 토글 핫키(Shift+F9 등)도 우회 대상에서 제외 — idle 에서 누르는 것이
+     * 정상 사용이라 여기서 걸리면 데몬에 영영 도달하지 못한다. */
+    if (!is_atf_hotkey && !unim_dbus_is_composing(unim->dbus_ctx) && !unim->popup_active) {
         /* 기능키 (F1~F12, 단 F9은 한자키로 위에서 처리됨) */
         if (keyval >= GDK_KEY_F1 && keyval <= GDK_KEY_F12) {
             return FALSE;
@@ -833,13 +945,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
         }
     }
 
-    /* 수정자 상태 변환 - DBus 호출용 비트필드 */
-    guint mod_state = 0;
-    if (state & GDK_SHIFT_MASK) mod_state |= (1 << 0);
-    if (state & GDK_CONTROL_MASK) mod_state |= (1 << 2);
-    if (state & GDK_ALT_MASK) mod_state |= (1 << 3);
-    if (state & GDK_SUPER_MASK) mod_state |= (1 << 6);  /* Super = Mod4 — 엔진 from_x11_mask 비트 정렬 */
-    if (state & GDK_LOCK_MASK) mod_state |= (1 << 1);
+    /* mod_state 는 ATF 핫키 판정 때문에 위(한자 분기 앞)에서 이미 계산했다 */
 
 
     /* DBus를 통해 키 처리 */

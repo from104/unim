@@ -1038,6 +1038,99 @@ unim_keycode_name_to_gdk_keyval(const gchar *name)
     return 0;
 }
 
+/* keyval 이 수정자 키인가 (Left/Right 의 Control·Shift·Alt·Super).
+ * 엔진 KeyCode::is_modifier() 와 동일 범위. gtk-common 은 gdk 에 의존하지
+ * 않으므로 keysym 값을 직접 쓴다 (unim_keycode_name_to_gdk_keyval 과 같은 규약). */
+static gboolean
+unim_keyval_is_modifier(guint keyval)
+{
+    switch (keyval) {
+    case 0xffe1: /* Shift_L */
+    case 0xffe2: /* Shift_R */
+    case 0xffe3: /* Control_L */
+    case 0xffe4: /* Control_R */
+    case 0xffe9: /* Alt_L */
+    case 0xffea: /* Alt_R */
+    case 0xffeb: /* Super_L */
+    case 0xffec: /* Super_R */
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+/* 수정자 토큰 1개를 UNIM_HOTKEY_MOD_* 비트로. 미지 토큰이면 0 */
+static guint
+unim_hotkey_mod_token_to_bit(const gchar *token)
+{
+    static const struct { const char *name; guint bit; } map[] = {
+        { "ctrl",    UNIM_HOTKEY_MOD_CTRL },
+        { "control", UNIM_HOTKEY_MOD_CTRL },
+        { "alt",     UNIM_HOTKEY_MOD_ALT },
+        { "super",   UNIM_HOTKEY_MOD_SUPER },
+        { "win",     UNIM_HOTKEY_MOD_SUPER },
+        { "meta",    UNIM_HOTKEY_MOD_SUPER },
+        { "shift",   UNIM_HOTKEY_MOD_SHIFT },
+        { NULL, 0 }
+    };
+
+    gchar *lower = g_ascii_strdown(token, -1);
+    guint bit = 0;
+    for (int i = 0; map[i].name != NULL; i++) {
+        if (g_strcmp0(lower, map[i].name) == 0) {
+            bit = map[i].bit;
+            break;
+        }
+    }
+    g_free(lower);
+    return bit;
+}
+
+gboolean
+unim_parse_hotkey_spec(const gchar *spec, guint *out_keyval, guint *out_mods)
+{
+    if (!spec || !out_keyval || !out_mods) return FALSE;
+
+    gchar **tokens = g_strsplit(spec, "+", -1);
+    gsize n = g_strv_length(tokens);
+    if (n == 0) {
+        g_strfreev(tokens);
+        return FALSE;
+    }
+
+    /* 마지막 토큰이 KeyName, 그 앞은 전부 수정자 */
+    guint mods = 0;
+    gboolean ok = TRUE;
+    for (gsize i = 0; i + 1 < n; i++) {
+        g_strstrip(tokens[i]);
+        guint bit = unim_hotkey_mod_token_to_bit(tokens[i]);
+        if (bit == 0) {          /* 미지 수정자 → 전체 실패 (침묵 무시) */
+            ok = FALSE;
+            break;
+        }
+        mods |= bit;             /* 중복 지정은 멱등 */
+    }
+
+    guint keyval = 0;
+    if (ok) {
+        g_strstrip(tokens[n - 1]);
+        /* KeyName 은 대소문자 구분 — 엔진 KeyCode::from_name 과 동일 */
+        keyval = unim_keycode_name_to_gdk_keyval(tokens[n - 1]);
+        if (keyval == 0) ok = FALSE;   /* 빈 base("Ctrl+") 도 여기서 걸린다 */
+
+        /* base 가 수정자 키면 거부 — 엔진 parse_atf_hotkey 의 KeyCode::is_modifier()
+         * 배제와 동일하게 맞춘다 (Left/Right 의 Control·Shift·Alt·Super). */
+        if (ok && unim_keyval_is_modifier(keyval)) ok = FALSE;
+    }
+
+    g_strfreev(tokens);
+    if (!ok) return FALSE;
+
+    *out_keyval = keyval;
+    *out_mods = mods;
+    return TRUE;
+}
+
 /* =========================================
  * AutoTypeFix 시그널 구독
  * ========================================= */

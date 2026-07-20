@@ -18,7 +18,7 @@ mod types;
 
 pub use chord_compose::{compose_chord, ChordEntry, ChordEntryKind, ChordResult};
 pub use engine::InputEngine;
-pub use types::{AtfToggleKind, InputResult, PageDirection, PopupAction};
+pub use types::{AtfHotkey, AtfToggleKind, InputResult, PageDirection, PopupAction};
 
 use crate::config::Config;
 use crate::hangul::input_context::{ComposerType, HangulInputContext};

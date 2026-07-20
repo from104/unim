@@ -8,7 +8,7 @@ use super::engine::InputEngine;
 use crate::input_engine::chord_buffer::ChordFlushResult;
 use crate::input_engine::chord_compose::{ChordEntryKind, ChordResult};
 use crate::input_engine::chord_compose::compose_chord;
-use super::types::{AutoEnglishTrigger, InputResult};
+use super::types::{AtfHotkey, AutoEnglishTrigger, InputResult};
 use crate::config::{Config, InputCategory};
 use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
@@ -136,35 +136,37 @@ impl InputEngine {
             }
         }
 
-        // AutoTypeFix 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록이면 무동작).
-        // 토글키 분기와 동일하게 Ctrl/Super/(비자기)Alt 동반 시엔 단축키로 보고 소비하지
-        // 않는다(아래 단축키 가드가 통과 처리). 매칭 시 config·상태는 건드리지 않고
-        // pending_atf_toggle 에 대상 플래그만 적재(InputResult ABI 보존) — 호스트가
-        // take_atf_toggle() 로 드레인해 반전·persist·통지한다. 팝업 활성 중에는 위
-        // 팝업 분기가 선행 처리하므로 여기 도달하지 않는다.
-        if let Some(kind) = self.atf_hotkey_kind(keycode) {
-            // 수정자 동반 시 단축키로 보고 소비하지 않는다. Shift 동반도 배제해
-            // Shift+F10(컨텍스트 메뉴) 같은 앱 단축키를 보호한다. ATF 핫키 목록은
-            // 파싱 단계에서 수정자 키를 배제하므로 keycode 자체는 수정자가 아니다.
-            let shortcut_combo =
-                modifier.control || modifier.super_key || modifier.alt || modifier.shift;
-            if !shortcut_combo {
-                // 오토리핏 디바운스: 동일 키 홀드로 press_key 가 연속 호출될 때 토글이
-                // 반복 반전되는 것을 막는다. 소비는 항상 유지(홀드 중 키가 앱으로 새면
-                // 안 됨)하되, ATF_HOTKEY_DEBOUNCE 이내 동일 키코드 재매칭이면 토글만
-                // 생략하고 시각을 갱신해 홀드 내내 rolling window 로 차단한다.
-                let now = std::time::Instant::now();
-                let is_repeat = matches!(
-                    self.last_atf_hotkey,
-                    Some((last_key, last_at))
-                        if last_key == keycode && now.duration_since(last_at) < ATF_HOTKEY_DEBOUNCE
-                );
-                self.last_atf_hotkey = Some((keycode, now));
-                if !is_repeat {
-                    self.pending_atf_toggle = Some(kind);
-                }
-                return InputResult::consumed();
+        // AutoTypeFix 토글 단축키 (설정 기반 — 기본 `Shift+F9` 가 전체 토글).
+        //
+        // 매칭은 수정자 **정확 일치**(`AtfHotkey`)다: 표기에 등장한 수정자는 눌려
+        // 있어야 하고, 등장하지 않은 수정자는 눌리면 안 된다. 그래서 종전의
+        // `shortcut_combo` 일괄 배제 가드가 필요 없다 — 설정에 없는 조합(사용자가
+        // `F10` 만 등록했을 때의 Shift+F10 컨텍스트 메뉴, Ctrl+F10 등)은 매칭 자체가
+        // 실패해 소비되지 않고 그대로 앱에 통과하므로, 앱 단축키 보호를 정확-일치가
+        // 구조적으로 대신한다. 수정자 없는 기존 표기(`F10`)는 네 수정자가 전부 false 로
+        // 파싱되어 종전 가드 시절과 동작이 동일하다(하위 호환).
+        //
+        // 이 분기는 한자 분기(아래)보다 앞서므로 `Shift+F9`=ATF, 맨 `F9`=한자/이모지 로
+        // 자연히 갈린다. 매칭 시 config·상태는 건드리지 않고 pending_atf_toggle 에 대상
+        // 플래그만 적재(InputResult ABI 보존) — 호스트가 take_atf_toggle() 로 드레인해
+        // 반전·persist·통지한다. 팝업 활성 중에는 위 팝업 분기가 선행 처리하므로 여기
+        // 도달하지 않는다.
+        if let Some(kind) = self.atf_hotkey_kind(keycode, modifier) {
+            // 오토리핏 디바운스: 동일 키 홀드로 press_key 가 연속 호출될 때 토글이
+            // 반복 반전되는 것을 막는다. 소비는 항상 유지(홀드 중 키가 앱으로 새면
+            // 안 됨)하되, ATF_HOTKEY_DEBOUNCE 이내 동일 키코드 재매칭이면 토글만
+            // 생략하고 시각을 갱신해 홀드 내내 rolling window 로 차단한다.
+            let now = std::time::Instant::now();
+            let is_repeat = matches!(
+                self.last_atf_hotkey,
+                Some((last_key, last_at))
+                    if last_key == keycode && now.duration_since(last_at) < ATF_HOTKEY_DEBOUNCE
+            );
+            self.last_atf_hotkey = Some((keycode, now));
+            if !is_repeat {
+                self.pending_atf_toggle = Some(kind);
             }
+            return InputResult::consumed();
         }
 
         // Control/Alt가 눌린 경우 (단축키) 무시
@@ -752,6 +754,88 @@ impl InputEngine {
             ctrl,
             alt,
             super_key,
+        })
+    }
+
+    /// Config 의 ATF 토글 단축키 표기를 `AtfHotkey` 로 파싱합니다.
+    ///
+    /// 표기 문법: `[수정자+]* <KeyName>` — `parse_keyspec`(자동 영문 전환의 `key:`
+    /// 조합 문법)과 토큰 규칙을 일부러 일치시켰다.
+    /// - modifier 토큰(`+` 구분): `ctrl`/`control`, `alt`, `super`/`win`/`meta`,
+    ///   `shift`. ASCII 대소문자 무관, 순서 무관, 중복 멱등.
+    ///   예: `Shift+F9`, `F10`, `Ctrl+Shift+F8`, `shift+ctrl+F8`.
+    /// - `<KeyName>` 은 `KeyCode::from_name` 호환(대소문자 구분: `F9`/`Escape`).
+    ///   `auto_english` 와 달리 `"Shift<Name>"` 융합형은 **지원하지 않는다** —
+    ///   ATF 핫키는 shift 를 `Shift+` 토큰으로만 표현해 문법을 하나로 유지한다.
+    /// - modifier 는 네 개 모두 **정확 일치**(등장 = 필수, 미등장 = 금지)로 저장된다.
+    ///   따라서 수정자 없는 기존 표기(`F10`)는 모든 수정자가 떼어진 경우에만 매칭 —
+    ///   종전 `shortcut_combo` 가드 시절과 동작이 동일하다.
+    /// - 수정자 키 자체(`RightAlt`/`LeftShift` 등)를 base 로 지정하면 `None` 이다.
+    ///   `press_key` 의 `is_modifier()` 조기 반환 때문에 애초에 도달하지 않는
+    ///   dead key 라, 목록 단계에서 배제해 소비 판정까지 일관되게 만든다.
+    ///
+    /// # 환경 제약
+    ///
+    /// - **Windows TSF/IMM32**: 수정자 상태가 엔진의 `press_key` 까지 전달되지 않아
+    ///   조합 표기(`Shift+F9`)는 사실상 무효다. 이 플랫폼에서 ATF 토글을 쓰려면
+    ///   수정자 없는 단일 키(`F10` 등)로 지정해야 한다. `is_atf_hotkey` 도 조합
+    ///   표기의 base 키코드는 소비 대상으로 보고하지 않는다(원 기능 보존).
+    /// - **GTK3/4**: idle(조합 없음) 상태의 F 키는 IM 모듈을 거치지 않고 앱으로
+    ///   직행하는 경로가 있어, 조합 여부와 무관하게 F 키 핫키가 불발할 수 있다.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(AtfHotkey)`
+    /// - `None` — 미지 modifier 토큰 / 미지·빈 base / 수정자 키 base
+    /// CLI(`unim-cli config set`)·설정앱이 사용자 입력 표기를 저장 전에 검증하는
+    /// 단일 진실 공급원이기도 하다. 반환값이 `None` 이면 그 표기는 엔진에서 조용히
+    /// 버려지므로(핫키가 죽음) 호출부는 경고를 띄워야 한다.
+    pub fn parse_atf_hotkey(spec: &str) -> Option<AtfHotkey> {
+        let mut ctrl = false;
+        let mut alt = false;
+        let mut super_key = false;
+        let mut shift = false;
+
+        // '+' 로 분할, 마지막 토큰 = base, 앞 토큰 = modifier.
+        // '+' 가 없으면 tokens 는 비고 base 만 남는다 → 수정자 전부 false (legacy 동치).
+        //
+        // `parse_keyspec` 과 달리 단일 base 도 trim 한다. ATF 핫키는 `key:` 같은
+        // 접두사 문법을 거치지 않는 raw 설정 문자열이고, 종전 파서
+        // (`KeyCode::from_name`) 역시 공백을 허용하지 않아 `" F10"` 은 어차피
+        // Unknown → 배제였다. trim 은 그 실패를 성공으로 바꿀 뿐 기존에 성공하던
+        // 표기의 결과를 바꾸지 않으므로 하위호환에 영향이 없다.
+        let mut tokens: Vec<&str> = spec.split('+').map(str::trim).collect();
+        let base = tokens.pop()?; // split 결과는 항상 1개 이상 → pop 안전
+        for tok in tokens {
+            if tok.eq_ignore_ascii_case("ctrl") || tok.eq_ignore_ascii_case("control") {
+                ctrl = true;
+            } else if tok.eq_ignore_ascii_case("alt") {
+                alt = true;
+            } else if tok.eq_ignore_ascii_case("super")
+                || tok.eq_ignore_ascii_case("win")
+                || tok.eq_ignore_ascii_case("meta")
+            {
+                super_key = true;
+            } else if tok.eq_ignore_ascii_case("shift") {
+                shift = true;
+            } else {
+                // 미지 modifier 토큰 → 현행 침묵 무시 정책.
+                return None;
+            }
+        }
+
+        // base 는 대소문자 구분(KeyCode::from_name) — `Shift+F9` OK, `Shift+f9` None.
+        let code = KeyCode::from_name(base);
+        if code == KeyCode::Unknown || code.is_modifier() {
+            return None;
+        }
+
+        Some(AtfHotkey {
+            code,
+            ctrl,
+            alt,
+            super_key,
+            shift,
         })
     }
 

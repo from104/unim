@@ -358,7 +358,10 @@ fn default_auto_typefix_user_dict_enabled() -> bool {
     true
 }
 fn default_auto_typefix_toggle_enabled_keys() -> Vec<String> {
-    Vec::new()
+    // 맨 `F9` 는 한자/이모지 트리거이므로 Shift 조합으로 갈라 충돌을 피한다.
+    // (엔진의 ATF 검사가 한자 분기보다 앞서지만, 수정자 정확-일치라 맨 F9 는
+    // ATF 에 매칭되지 않고 한자 분기로 그대로 내려간다.)
+    vec!["Shift+F9".to_string()]
 }
 fn default_auto_typefix_toggle_forward_keys() -> Vec<String> {
     Vec::new()
@@ -417,16 +420,27 @@ pub struct AutoTypeFixConfig {
     /// 활성 시 사전 등록 단어는 `eng_word_min_length` 및 내장 영어 사전 검사를 우회하여 즉시 교정.
     #[serde(default = "default_auto_typefix_user_dict_enabled")]
     pub user_dict_enabled: bool,
-    /// AutoTypeFix 전체(`enabled`) 토글 단축키 목록 (KeyCode 이름, 옵트인 — 기본 빈 목록).
+    /// AutoTypeFix 전체(`enabled`) 토글 단축키 목록 (기본 `["Shift+F9"]`).
     ///
-    /// 비어 있으면 어떤 키도 소비하지 않아 기존 동작을 바이트 동일 보존한다. `toggle_keys`
-    /// 문법과 동일하게 **수정자 조합 없는 단일 비수정자 키 이름**만 지원한다(예: `F10`).
+    /// 표기 문법은 `[수정자+]* <KeyName>` — 수정자 토큰은 `Ctrl`/`Control`, `Alt`,
+    /// `Super`/`Win`/`Meta`, `Shift` 이며 대소문자·순서 무관이다(예: `Shift+F9`,
+    /// `F10`, `Ctrl+Shift+F8`). `<KeyName>` 은 기존 KeyCode 이름(대소문자 구분).
+    ///
+    /// 매칭은 **정확 일치**다: 표기에 등장한 수정자는 눌려 있어야 하고, 등장하지
+    /// 않은 수정자는 눌리면 안 된다. 따라서 수정자 없는 기존 표기(`F10`)는 종전과
+    /// 100% 동일하게 동작하며, 설정에 없는 조합(`Shift+F10` 컨텍스트 메뉴 등)은
+    /// 소비되지 않고 앱으로 통과한다. 비어 있으면 아무 키도 소비하지 않는다.
+    ///
+    /// 파싱·환경별 제약(Windows TSF/IMM32 조합 무효, GTK3/4 idle F 키 우회)은
+    /// `InputEngine::parse_atf_hotkey` rustdoc 참조.
     #[serde(default = "default_auto_typefix_toggle_enabled_keys")]
     pub toggle_enabled_keys: Vec<String>,
-    /// 순방향(영→한) 교정 토글 단축키 목록 (KeyCode 이름, 옵트인 — 기본 빈 목록).
+    /// 순방향(영→한) 교정 토글 단축키 목록 (옵트인 — 기본 빈 목록).
+    /// 문법·매칭 규칙은 [`Self::toggle_enabled_keys`] 와 동일.
     #[serde(default = "default_auto_typefix_toggle_forward_keys")]
     pub toggle_forward_keys: Vec<String>,
-    /// 역방향(한→영) 교정 토글 단축키 목록 (KeyCode 이름, 옵트인 — 기본 빈 목록).
+    /// 역방향(한→영) 교정 토글 단축키 목록 (옵트인 — 기본 빈 목록).
+    /// 문법·매칭 규칙은 [`Self::toggle_enabled_keys`] 와 동일.
     #[serde(default = "default_auto_typefix_toggle_reverse_keys")]
     pub toggle_reverse_keys: Vec<String>,
 }
@@ -588,7 +602,7 @@ fn default_word_mode_apps() -> Vec<String> {
 pub struct KoreanConfig {
     /// 한국어 자판 프로필 이름(레지스트리 키). 기본값 `ko_2bulstd`.
     pub layout: KoreanLayout,
-    /// 활성 규칙 세트 이름 목록 (자판 프로필 v1 — `docs/plans/LAYOUT_PROFILE_V1.md` §3.5).
+    /// 활성 규칙 세트 이름 목록 (자판 프로필 v1 — `docs/archive/plans/LAYOUT_PROFILE_V1.md` §3.5).
     ///
     /// engine 측 `LayoutProfile.active_rule_sets`(Option<Vec<String>>) 의미와 일치:
     /// - `None` = 미설정. 프로필 기본값 사용(각 `rule_sets.<name>.active` 그대로).
@@ -1677,22 +1691,23 @@ engine:
     }
 
     // ─────────────────────────────────────────────
-    // AutoTypeFix 토글 단축키 3종 (옵트인) — 기본 빈 목록 + 라운드트립 + 레거시 호환
+    // AutoTypeFix 토글 단축키 3종 — 기본값 + 라운드트립 + 레거시 호환
     // ─────────────────────────────────────────────
 
-    /// 기본값은 세 목록 모두 빈 목록 — 아무 키도 소비하지 않아 현행 동작 무회귀(옵트인).
+    /// 전체 토글 기본값은 `Shift+F9`, 순방향/역방향은 빈 목록(옵트인).
+    ///
+    /// 맨 `F9` 는 한자/이모지 트리거이므로 Shift 조합으로 갈라 충돌을 피한다.
     #[test]
-    fn atf_toggle_keys_default_is_empty() {
+    fn atf_toggle_keys_default_is_shift_f9() {
         let atf = AutoTypeFixConfig::default();
-        assert!(atf.toggle_enabled_keys.is_empty());
+        assert_eq!(atf.toggle_enabled_keys, vec!["Shift+F9"]);
         assert!(atf.toggle_forward_keys.is_empty());
         assert!(atf.toggle_reverse_keys.is_empty());
         // Config → EngineConfig 경유 기본값도 동일.
-        assert!(Config::default()
-            .engine
-            .auto_typefix
-            .toggle_enabled_keys
-            .is_empty());
+        assert_eq!(
+            Config::default().engine.auto_typefix.toggle_enabled_keys,
+            vec!["Shift+F9"]
+        );
     }
 
     /// 값 설정이 직렬화/역직렬화 라운드트립을 통과한다.
@@ -1709,9 +1724,12 @@ engine:
         assert_eq!(back.engine.auto_typefix.toggle_reverse_keys, vec!["F12"]);
     }
 
-    /// 레거시 YAML(필드 부재) → 빈 목록 (기존 config.yaml 무회귀).
+    /// 레거시 YAML(필드 부재) → serde default 로 기본값이 채워진다.
+    ///
+    /// 기존 config.yaml 에 이 필드가 없던 사용자도 전체 토글 `Shift+F9` 를 얻는다
+    /// (기본값 제공이 의도 — 필드가 명시돼 있으면 그 값이 그대로 존중된다).
     #[test]
-    fn atf_toggle_keys_legacy_missing_field_is_empty() {
+    fn atf_toggle_keys_legacy_missing_field_uses_default() {
         let yaml = r#"
 engine:
   auto_typefix:
@@ -1719,12 +1737,28 @@ engine:
     forward: true
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        assert!(
-            config.engine.auto_typefix.toggle_enabled_keys.is_empty(),
-            "필드 부재 시 빈 목록(옵트인 미사용)으로 채워져야 함"
+        assert_eq!(
+            config.engine.auto_typefix.toggle_enabled_keys,
+            vec!["Shift+F9"],
+            "필드 부재 시 기본값(Shift+F9)으로 채워져야 함"
         );
         assert!(config.engine.auto_typefix.toggle_forward_keys.is_empty());
         assert!(config.engine.auto_typefix.toggle_reverse_keys.is_empty());
+    }
+
+    /// 명시적 빈 목록은 존중된다 — 핫키를 완전히 끄는 opt-out 경로.
+    #[test]
+    fn atf_toggle_keys_explicit_empty_is_respected() {
+        let yaml = r#"
+engine:
+  auto_typefix:
+    toggle_enabled_keys: []
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(
+            config.engine.auto_typefix.toggle_enabled_keys.is_empty(),
+            "명시적 빈 목록은 기본값으로 덮이면 안 됨"
+        );
     }
 
     // ─────────────────────────────────────────────

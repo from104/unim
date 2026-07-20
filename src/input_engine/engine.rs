@@ -6,11 +6,11 @@
 
 use super::build_korean_context;
 use super::chord_buffer::ChordBuffer;
-use super::types::{AtfToggleKind, AutoEnglishTrigger, InputResult, PopupAction};
+use super::types::{AtfHotkey, AtfToggleKind, AutoEnglishTrigger, InputResult, PopupAction};
 use crate::config::{CommitUnit, Config, ContentPurpose, EnglishLayout, InputCategory, KoreanLayout};
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 use crate::hangul::jamo::JamoEnum;
-use crate::keycode::KeyCode;
+use crate::keycode::{KeyCode, ModifierState};
 use crate::keystroke::EnglishKeymap;
 use crate::popup::PopupState;
 use std::collections::HashMap;
@@ -97,12 +97,12 @@ pub struct InputEngine {
     /// 한자 변환 트리거 키 목록 (설정 기반 — 기본 `["Hanja", "F9"]`).
     /// preedit 비었을 때는 dual-purpose 로 emoji 팝업 트리거로 동작.
     pub(super) hanja_keys: Vec<KeyCode>,
-    /// AutoTypeFix 전체(`enabled`) 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록).
-    pub(super) atf_hotkeys_enabled: Vec<KeyCode>,
+    /// AutoTypeFix 전체(`enabled`) 토글 단축키 (설정 기반 — 기본 `Shift+F9`).
+    pub(super) atf_hotkeys_enabled: Vec<AtfHotkey>,
     /// AutoTypeFix 순방향(영→한) 교정 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록).
-    pub(super) atf_hotkeys_forward: Vec<KeyCode>,
+    pub(super) atf_hotkeys_forward: Vec<AtfHotkey>,
     /// AutoTypeFix 역방향(한→영) 교정 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록).
-    pub(super) atf_hotkeys_reverse: Vec<KeyCode>,
+    pub(super) atf_hotkeys_reverse: Vec<AtfHotkey>,
     /// `press_key` 에서 매칭된 ATF 토글을 호스트가 드레인하기 전까지 보관.
     ///
     /// `InputResult`(`repr(C)` ABI)를 건드리지 않는 out-of-band 채널
@@ -242,13 +242,13 @@ impl InputEngine {
                 .map(|name| KeyCode::from_name(name))
                 .filter(|k| *k != KeyCode::Unknown)
                 .collect(),
-            atf_hotkeys_enabled: Self::parse_keycode_names(
+            atf_hotkeys_enabled: Self::parse_atf_hotkeys(
                 &config.engine.auto_typefix.toggle_enabled_keys,
             ),
-            atf_hotkeys_forward: Self::parse_keycode_names(
+            atf_hotkeys_forward: Self::parse_atf_hotkeys(
                 &config.engine.auto_typefix.toggle_forward_keys,
             ),
-            atf_hotkeys_reverse: Self::parse_keycode_names(
+            atf_hotkeys_reverse: Self::parse_atf_hotkeys(
                 &config.engine.auto_typefix.toggle_reverse_keys,
             ),
             pending_atf_toggle: None,
@@ -365,20 +365,15 @@ impl InputEngine {
         EnglishKeymap::from_json(json)
     }
 
-    /// 키 이름 목록을 `KeyCode` 벡터로 파싱한다 (`Unknown`·수정자 키는 제외).
+    /// ATF 핫키 표기 목록을 `AtfHotkey` 벡터로 파싱한다 (파싱 실패분은 침묵 제외).
     ///
-    /// ATF 토글 핫키 3목록 파싱을 생성자와 `set_atf_hotkeys` 재적용에서 공유한다
-    /// (toggle_keys/hanja_keys 인라인 파싱과 동일 규약). 단 toggle_keys 와 달리
-    /// 수정자 키(Ctrl/Shift/Alt/Super)는 제외한다 — ATF 핫키 매칭 분기는
-    /// `press_key` 의 `is_modifier()` 조기 반환(수정자 단독키 무시) 뒤에 있어
-    /// 수정자 키코드는 애초에 도달하지 않는다. 목록 단계에서 배제해 소비 판정
-    /// (`is_atf_hotkey`)까지 일관되게 dead key 를 제거한다. 툴팁/문서도 "수정자
-    /// 미지원"을 명시한다.
-    pub(super) fn parse_keycode_names(names: &[String]) -> Vec<KeyCode> {
+    /// ATF 토글 핫키 3목록 파싱을 생성자와 `set_atf_hotkeys` 재적용에서 공유한다.
+    /// 표기 문법(`[수정자+]* <KeyName>`)과 정확-일치 규약, 수정자 키 base 배제 사유는
+    /// `InputEngine::parse_atf_hotkey` rustdoc 참조.
+    pub(super) fn parse_atf_hotkeys(names: &[String]) -> Vec<AtfHotkey> {
         names
             .iter()
-            .map(|name| KeyCode::from_name(name))
-            .filter(|k| *k != KeyCode::Unknown && !k.is_modifier())
+            .filter_map(|name| Self::parse_atf_hotkey(name))
             .collect()
     }
 }
@@ -407,21 +402,52 @@ impl InputEngine {
     /// `is_toggle_key` 와 동일한 목적 — 프런트엔드의 소비 판정(TSF `OnTestKeyDown`,
     /// IMM32 `should_consume`)을 엔진의 `press_key` 와 정렬시킨다. 프런트엔드가 핫키를
     /// 소비하지 않으면 `press_key` 자체가 호출되지 않아 핫키가 죽는다. 세 목록을 합산
-    /// 조회한다(옵트인 — 기본 빈 목록이면 항상 false 로 무회귀).
+    /// 조회한다.
+    ///
+    /// **수정자 없는(`is_bare`) 핫키만 보고한다.** 이 판정을 쓰는 Windows TSF/IMM32
+    /// 는 수정자 상태를 엔진까지 전달하지 않아 조합 표기(`Shift+F9`)가 `press_key`
+    /// 에서 결코 매칭되지 않는다. 그런데도 base 키코드(`F9`)를 소비 대상으로 보고하면
+    /// ATF 토글은 여전히 안 되면서 원래 기능(맨 `F9` 한자 변환)만 죽는다. 그래서 조합
+    /// 표기는 소비 판정에서 제외하고, 그 결과 기본값(`Shift+F9`)에서도 Windows 는
+    /// 무회귀다 — 해당 플랫폼에서는 수정자 없는 키를 지정해야 핫키가 동작한다.
     pub fn is_atf_hotkey(&self, keycode: KeyCode) -> bool {
-        self.atf_hotkey_kind(keycode).is_some()
+        [
+            &self.atf_hotkeys_enabled,
+            &self.atf_hotkeys_forward,
+            &self.atf_hotkeys_reverse,
+        ]
+        .iter()
+        .any(|list| list.iter().any(|h| h.code == keycode && h.is_bare()))
     }
 
     /// ATF 토글 핫키 매칭 — 매칭된 대상 플래그를 돌려준다(비매칭 시 `None`).
     ///
-    /// 한 키가 여러 목록에 중복 지정되면 전체(`Enabled`) → 순방향 → 역방향 순으로
-    /// 우선한다. `press_key` 의 매칭 분기와 `is_atf_hotkey` 소비 판정이 공유한다.
-    pub(super) fn atf_hotkey_kind(&self, keycode: KeyCode) -> Option<AtfToggleKind> {
-        if self.atf_hotkeys_enabled.contains(&keycode) {
+    /// keycode 와 **네 수정자 전부**를 정확 일치로 비교한다(`AtfHotkey` 규약): 표기에
+    /// 등장한 수정자는 눌려 있어야 하고, 등장하지 않은 수정자는 눌리면 안 된다.
+    /// 덕분에 설정에 없는 조합은 매칭 실패로 통과해 앱 단축키가 보호된다.
+    ///
+    /// 한 조합이 여러 목록에 중복 지정되면 전체(`Enabled`) → 순방향 → 역방향 순으로
+    /// 우선한다.
+    pub(super) fn atf_hotkey_kind(
+        &self,
+        keycode: KeyCode,
+        modifier: ModifierState,
+    ) -> Option<AtfToggleKind> {
+        let matches = |list: &[AtfHotkey]| {
+            list.iter().any(|h| {
+                h.code == keycode
+                    && h.ctrl == modifier.control
+                    && h.alt == modifier.alt
+                    && h.super_key == modifier.super_key
+                    && h.shift == modifier.shift
+            })
+        };
+
+        if matches(&self.atf_hotkeys_enabled) {
             Some(AtfToggleKind::Enabled)
-        } else if self.atf_hotkeys_forward.contains(&keycode) {
+        } else if matches(&self.atf_hotkeys_forward) {
             Some(AtfToggleKind::Forward)
-        } else if self.atf_hotkeys_reverse.contains(&keycode) {
+        } else if matches(&self.atf_hotkeys_reverse) {
             Some(AtfToggleKind::Reverse)
         } else {
             None
@@ -445,11 +471,11 @@ impl InputEngine {
     /// 핫키는 재적용을 보장한다). 파싱 실패(`Unknown`)한 이름은 제외한다.
     pub fn set_atf_hotkeys(&mut self, config: &Config) {
         self.atf_hotkeys_enabled =
-            Self::parse_keycode_names(&config.engine.auto_typefix.toggle_enabled_keys);
+            Self::parse_atf_hotkeys(&config.engine.auto_typefix.toggle_enabled_keys);
         self.atf_hotkeys_forward =
-            Self::parse_keycode_names(&config.engine.auto_typefix.toggle_forward_keys);
+            Self::parse_atf_hotkeys(&config.engine.auto_typefix.toggle_forward_keys);
         self.atf_hotkeys_reverse =
-            Self::parse_keycode_names(&config.engine.auto_typefix.toggle_reverse_keys);
+            Self::parse_atf_hotkeys(&config.engine.auto_typefix.toggle_reverse_keys);
     }
 
     /// 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 캐시를 config 에서 재파싱해
