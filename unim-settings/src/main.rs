@@ -554,8 +554,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui.set_toggle_announce_beep(e.toggle_announce_beep);
         // 조합키 자동반복 억제 (접근성, 지체장애) — Windows·Linux 양 플랫폼 노출.
         ui.set_ignore_key_repeat(e.ignore_key_repeat);
-        // 플랫폼 게이트: Windows 전용 행(ignore_key_repeat 등) 노출 판정.
-        ui.set_is_windows(cfg!(target_os = "windows"));
         // 앱별 강제 모드 콤보 옵션(0=영문, 1=한글).
         ui.set_app_rule_category_options(string_model(vec![
             tr.get_mode_english(),

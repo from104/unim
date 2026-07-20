@@ -313,9 +313,6 @@ export component SettingsWindow inherits Window {
     in-out property <string> auto-english-keys;
     in-out property <bool> toggle-announce-beep;
     in-out property <bool> ignore-key-repeat;
-    // 플랫폼 게이트 — Windows 빌드에서만 Rust 가 true 로 설정(F2: 자동반복 억제는
-    // Windows 전용 기능이라 Linux 에서는 관련 행을 숨긴다). 기본 false 라 Rust 미설정 시 숨김.
-    in property <bool> is-windows: false;
     // 앱별 강제 모드 규칙(config.engine.app_rules) — 행 리스트 + 모드 콤보 옵션(영문/한글).
     in-out property <[AppRuleItem]> app-rule-items;
     in-out property <[string]> app-rule-category-options;
