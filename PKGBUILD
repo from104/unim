@@ -41,11 +41,11 @@ package() {
     cd "$srcdir/$pkgname-$pkgver"
     make install DESTDIR="$pkgdir" PREFIX=/usr
 
-    # Man pages
-    install -Dm644 docs/man/unim.1 "$pkgdir/usr/share/man/man1/unim.1"
-    install -Dm644 docs/man/unim-cli.1 "$pkgdir/usr/share/man/man1/unim-cli.1"
-    install -Dm644 docs/man/unim-gui-gtk.1 "$pkgdir/usr/share/man/man1/unim-gui-gtk.1"
-    install -Dm644 docs/man/unim-gui-qt.1 "$pkgdir/usr/share/man/man1/unim-gui-qt.1"
+    # Man pages — docs/man/ 에 실제로 존재하는 것만. 목록이 어긋나면 install 이
+    # 실패해 package() 가 통째로 죽으므로, man page 추가·제거 시 함께 갱신할 것.
+    for _page in docs/man/*.1; do
+        install -Dm644 "$_page" "$pkgdir/usr/share/man/man1/$(basename "$_page")"
+    done
 
     # License
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
