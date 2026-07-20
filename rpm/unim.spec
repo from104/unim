@@ -1,5 +1,5 @@
 Name:           unim
-Version:        0.3.0
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Universal Next-generation Input Method Engine (Korean IME)
 Summary(ko):    범용 차세대 한글 입력기 엔진
@@ -8,12 +8,27 @@ License:        MIT
 URL:            https://github.com/from104/unim
 Source0:        https://github.com/from104/unim/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 
+# deb 릴리스가 ddeb(디버그 심볼)를 게시하지 않는 정책을 미러 — debuginfo/
+# debugsource 서브패키지를 생성하지 않는다 (rpm 11개 카운트 게이트 유지).
+%global debug_package %{nil}
+
 # ─── BuildRequires ────────────────────────────────────────────────────────────
-BuildRequires:  cargo >= 1.75
-BuildRequires:  rust
+# debian/control:5-23 Build-Depends 의 Fedora 미러.
+# qt6-declarative-dev 는 저장소 내 사용처가 없는 잔존 의존(unim-gui-qt 제거
+# 이후)이라 도입하지 않는다. libqt6dbus6 은 qt6-qtbase 본체가 번들.
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
+BuildRequires:  make
 BuildRequires:  cmake
-BuildRequires:  pkg-config
+BuildRequires:  pkgconf-pkg-config
+BuildRequires:  chrpath
 BuildRequires:  python3
+# msgfmt — make gnome-extension 의 .po → .mo 컴파일. 부재 시 Makefile 가드가
+# 무음 스킵하여 unim-gnome 이 번역 없이 포장되므로 반드시 명시한다.
+BuildRequires:  gettext
+# Cargo.lock v4 → Rust 1.78+ (Cargo.toml rust-version). Fedora 43 stable 충족.
+BuildRequires:  rust >= 1.78
+BuildRequires:  cargo >= 1.78
 BuildRequires:  glib2-devel
 BuildRequires:  dbus-devel
 BuildRequires:  gtk3-devel
@@ -23,24 +38,25 @@ BuildRequires:  qt5-qtbase-devel
 BuildRequires:  qt5-qtbase-private-devel
 BuildRequires:  qt6-qtbase-devel
 BuildRequires:  qt6-qtbase-private-devel
+BuildRequires:  wayland-devel
 BuildRequires:  libxkbcommon-devel
 BuildRequires:  libX11-devel
 BuildRequires:  libxcb-devel
-BuildRequires:  wayland-devel
-BuildRequires:  wayland-protocols-devel
 
 # ─── Meta-package Requires (main `unim` rpm is the meta) ─────────────────────
+# debian/control:210-219 미러 (indicator/popup-service → desktop 통합,
+# settings/keymap-studio/typing-practice 추가).
 Requires:       %{name}-common = %{version}-%{release}
 Requires:       %{name}-im-gtk = %{version}-%{release}
 Requires:       %{name}-im-qt = %{version}-%{release}
 Requires:       %{name}-xim = %{version}-%{release}
 Requires:       %{name}-wayland = %{version}-%{release}
-Requires:       %{name}-indicator = %{version}-%{release}
+Requires:       %{name}-desktop = %{version}-%{release}
 Requires:       %{name}-settings = %{version}-%{release}
-Requires:       %{name}-popup-service = %{version}-%{release}
+Requires:       %{name}-keymap-studio = %{version}-%{release}
+Requires:       %{name}-typing-practice = %{version}-%{release}
 Requires:       %{name}-gnome = %{version}-%{release}
 
-# ─── Description ─────────────────────────────────────────────────────────────
 %description
 UNIM (Universal Next-generation Input Method) is a modular Korean Input Method
 Engine written in Rust. It supports the Dubeolsik (2-bul) and Sebeolsik (3-bul
@@ -65,29 +81,32 @@ Wayland input-method-v2 + virtual-keyboard-v1, GNOME Shell 확장.
 Summary:        UNIM Korean IME — core engine, daemon, CLI, shared library
 Summary(ko):    UNIM 한글 입력기 — 핵심 엔진, 데몬, CLI, 공유 라이브러리
 Requires:       dbus
-Recommends:     im-config
+# debian/control:36-37 미러. im-config 는 Debian 전용이라 Fedora 미선언
+# (imsettings 런타임 통합은 미구현 — 알려진 갭). 비프 도구는 rich dep.
+# [요검증 → linux-rpm.yml 리허설의 repoquery 게이트가 확정]
+Recommends:     google-noto-sans-cjk-fonts
+Recommends:     (pulseaudio-utils or alsa-utils)
 
 %description common
 Core components required by every UNIM installation:
   * libunim_capi shared library (stable C-API consumed by IM modules)
   * unim-daemon — central engine, D-Bus session-activated
   * unim-cli — unified command-line interface (incl. config subcommand)
-  * D-Bus service file, icons, im-config integration, man pages
+  * D-Bus service file, icons, im-config integration data, man pages
 
 %description common -l ko
 모든 UNIM 설치에 필요한 핵심 구성요소:
   * libunim_capi 공유 라이브러리
   * unim-daemon — 중앙 엔진 (D-Bus 세션 활성화)
   * unim-cli — 통합 커맨드라인 인터페이스
-  * D-Bus 서비스 파일, 아이콘, im-config 통합, man 페이지
-
-# ─────────────────────────────────────────────────────────────────────────────
+  * D-Bus 서비스 파일, 아이콘, im-config 데이터, man 페이지
 
 %package im-gtk
 Summary:        UNIM Korean IME — GTK3/GTK4 input method modules
 Summary(ko):    UNIM 한글 입력기 — GTK3/GTK4 입력 메서드 모듈
 Requires:       %{name}-common = %{version}-%{release}
-Recommends:     %{name}-xim
+# debian/control:60 'unim-xim | unim-wayland' 미러 (rpm rich dependency).
+Recommends:     (%{name}-xim or %{name}-wayland)
 
 %description im-gtk
 GTK3 and GTK4 input method modules. Enables Korean typing in every GTK-based
@@ -96,13 +115,11 @@ application (GNOME, Xfce, MATE, Cinnamon, GIMP, Inkscape, etc.).
 %description im-gtk -l ko
 GTK3/GTK4 입력 메서드 모듈. GTK 기반 애플리케이션에서 한글 입력을 활성화합니다.
 
-# ─────────────────────────────────────────────────────────────────────────────
-
 %package im-qt
 Summary:        UNIM Korean IME — Qt5/Qt6 platform input context plugins
 Summary(ko):    UNIM 한글 입력기 — Qt5/Qt6 플랫폼 입력 컨텍스트 플러그인
 Requires:       %{name}-common = %{version}-%{release}
-Recommends:     %{name}-xim
+Recommends:     (%{name}-xim or %{name}-wayland)
 
 %description im-qt
 Qt5 and Qt6 platform input context plugins. Enables Korean typing in every
@@ -110,8 +127,6 @@ Qt-based application (KDE Plasma, Telegram Desktop, Qt Creator, etc.).
 
 %description im-qt -l ko
 Qt5/Qt6 플랫폼 입력 컨텍스트 플러그인. Qt 기반 애플리케이션에서 한글 입력을 활성화합니다.
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 %package xim
 Summary:        UNIM Korean IME — XIM protocol frontend (X11)
@@ -124,8 +139,6 @@ that only speak XIM (xterm, emacs -nw, Java/AWT apps, etc.).
 
 %description xim -l ko
 X11 XIM 프로토콜 서버. X11 세션 및 XIM만 지원하는 레거시 애플리케이션용.
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 %package wayland
 Summary:        UNIM Korean IME — Wayland input-method frontend
@@ -141,65 +154,75 @@ Required in pure Wayland sessions (KDE Plasma Wayland, Sway, Hyprland, etc.).
 Wayland input-method-v2 + virtual-keyboard-v1 프로토콜 서버.
 순수 Wayland 세션(KDE Plasma Wayland, Sway, Hyprland 등)에 필요합니다.
 
-# ─────────────────────────────────────────────────────────────────────────────
-
-%package indicator
-Summary:        UNIM Korean IME — GTK4 system-tray indicator
-Summary(ko):    UNIM 한글 입력기 — GTK4 시스템 트레이 인디케이터
+%package desktop
+Summary:        UNIM Korean IME — desktop UI (tray indicator, settings, popups)
+Summary(ko):    UNIM 한글 입력기 — 데스크톱 UI (트레이, 설정, 팝업)
 Requires:       %{name}-common = %{version}-%{release}
-Recommends:     %{name}-settings
-Recommends:     %{name}-popup-service
 Recommends:     %{name}-im-gtk
+# 구 rpm 3분할(0.3.0 spec 의 indicator / settings(GTK) / popup-service) 승계.
+# debian/control:119-126 Replaces/Breaks 의 rpm 등가. 구 GTK 'settings' 는
+# 동명의 신규 Slint 패키지가 정상 업그레이드로 승계하므로 여기 미기재.
+Obsoletes:      %{name}-indicator < 0.4.0
+Obsoletes:      %{name}-popup-service < 0.4.0
+Obsoletes:      unim-gui-qt < 0.3.0
 
-%description indicator
-System-tray indicator (StatusNotifierItem) built with GTK4. Provides the global
-mode-toggle indicator and a tray menu that launches the settings dialog.
+%description desktop
+GTK4 desktop user-interface bundle for non-GNOME desktops (KDE Plasma, Xfce,
+Cinnamon, MATE). Bundles the tray indicator (StatusNotifierItem), the
+unim-settings-gtk settings dialog (Adw.PreferencesWindow) and the D-Bus
+activated popup service for hanja/special-character/emoji popups.
 
-%description indicator -l ko
-GTK4로 빌드된 시스템 트레이 인디케이터. 전역 모드 전환 및 설정 대화상자 실행 메뉴 제공.
-
-# ─────────────────────────────────────────────────────────────────────────────
+%description desktop -l ko
+비-GNOME 데스크톱용 GTK4 UI 번들: 트레이 인디케이터, unim-settings-gtk 설정
+대화상자, D-Bus 활성화 팝업 서비스(한자/특수문자/이모지).
 
 %package settings
-Summary:        UNIM Korean IME — GTK4 settings dialog
-Summary(ko):    UNIM 한글 입력기 — GTK4 설정 대화상자
+Summary:        UNIM Korean IME — settings app & first-run wizard (Slint)
+Summary(ko):    UNIM 한글 입력기 — 설정 앱·첫 실행 마법사 (Slint)
 Requires:       %{name}-common = %{version}-%{release}
+Recommends:     fontconfig
 
 %description settings
-Settings dialog built with GTK4 and libadwaita. Provides hotkey, layout,
-TypeFix, blacklist, and popup-behaviour configuration.
+Cross-platform settings application (Slint, winit + Skia) sharing one codebase
+with the Windows build. Includes the first-run wizard (--first-run,
+--whats-new) and its per-login autostart gate (--first-run-if-needed).
 
 %description settings -l ko
-GTK4 + libadwaita로 빌드된 설정 대화상자. 단축키, 배열, TypeFix, 블랙리스트, 팝업 설정 제공.
+Windows 빌드와 코드베이스를 공유하는 크로스플랫폼 설정 앱(Slint, winit+Skia).
+첫 실행 마법사(--first-run/--whats-new)와 로그인당 autostart 게이트 포함.
 
-# ─────────────────────────────────────────────────────────────────────────────
-
-%package popup-service
-Summary:        UNIM Korean IME — popup service (GTK4, X11/Wayland)
-Summary(ko):    UNIM 한글 입력기 — 팝업 서비스 (GTK4, X11/Wayland)
+%package keymap-studio
+Summary:        UNIM Keymap Studio — view and edit Hangul keymaps
+Summary(ko):    UNIM 키맵 스튜디오 — 한글 키맵 열람·편집
 Requires:       %{name}-common = %{version}-%{release}
-Recommends:     %{name}-indicator
-Recommends:     %{name}-settings
-Obsoletes:      unim-gui-qt < 0.3.0~
 
-%description popup-service
-Standalone GTK4 popup service for hanja/special-character/emoji popups across
-non-GNOME desktops (KDE Plasma, Xfce, Cinnamon). Detects X11 vs Wayland at
-runtime. Replaces the deprecated unim-gui-qt Qt6/QML GUI.
+%description keymap-studio
+GTK4/libadwaita tool that opens any v1/v2/v3 Hangul keymap profile, shows the
+4xN key layout with per-key metadata, and edits keys, jamo combinations, rule
+sets and the moachigi marker. Saves to ~/.config/unim/layouts/.
 
-%description popup-service -l ko
-비-GNOME 데스크톱용 GTK4 팝업 서비스. X11/Wayland를 런타임에 자동 감지.
-기존 unim-gui-qt Qt6/QML GUI를 대체합니다.
+%description keymap-studio -l ko
+GTK4/libadwaita 한글 키맵 열람·편집 도구. ~/.config/unim/layouts/ 에 저장.
 
-# ─────────────────────────────────────────────────────────────────────────────
+%package typing-practice
+Summary:        UNIM Typing Practice — WPM/accuracy/heatmap on any Hangul keymap
+Summary(ko):    UNIM 타자 연습 — WPM/정확도/히트맵
+Requires:       %{name}-common = %{version}-%{release}
+
+%description typing-practice
+GTK4/libadwaita typing-practice tool for the currently selected UNIM Hangul
+keymap: live WPM, CPM, accuracy, error rate and a per-key error heatmap.
+
+%description typing-practice -l ko
+현재 선택된 UNIM 한글 키맵으로 타자 연습: WPM/CPM/정확도/오타율/히트맵.
 
 %package gnome
 Summary:        UNIM Korean IME — GNOME Shell extension
 Summary(ko):    UNIM 한글 입력기 — GNOME Shell 확장
 BuildArch:      noarch
+# debian/control:193-196 미러: common + desktop + gnome-shell.
 Requires:       %{name}-common = %{version}-%{release}
-Requires:       %{name}-settings = %{version}-%{release}
-Requires:       %{name}-popup-service = %{version}-%{release}
+Requires:       %{name}-desktop = %{version}-%{release}
 Requires:       gnome-shell
 
 %description gnome
@@ -215,29 +238,72 @@ per-app input-mode rules, and virtual keyboard / preedit overlay on Wayland.
 %autosetup -n %{name}-%{version}
 
 %build
-%make_build PREFIX=%{_prefix} \
+# debian/rules:62-63 미러: make build + make gnome-extension.
+# MULTIARCH= 강제: Fedora 에는 dpkg-architecture 가 없고 gcc -print-multiarch 도
+# 빈 값이지만(Makefile:16-25 → REAL_LIBDIR=LIBDIR), 환경 편차에 흔들리지 않게
+# 명시적으로 비워 REAL_LIBDIR == %%{_libdir}(/usr/lib64) 를 결정론화한다.
+%make_build MULTIARCH= \
+            PREFIX=%{_prefix} \
             LIBDIR=%{_libdir} \
             LIBEXECDIR=%{_libexecdir} \
             BINDIR=%{_bindir} \
             DATADIR=%{_datadir} \
             SYSCONFDIR=%{_sysconfdir} \
-            INCLUDEDIR=%{_includedir}
+            INCLUDEDIR=%{_includedir} \
+            build gnome-extension
 
 %install
-%make_install PREFIX=%{_prefix} \
+%make_install MULTIARCH= \
+              PREFIX=%{_prefix} \
               LIBDIR=%{_libdir} \
               LIBEXECDIR=%{_libexecdir} \
               BINDIR=%{_bindir} \
               DATADIR=%{_datadir} \
               SYSCONFDIR=%{_sysconfdir} \
               INCLUDEDIR=%{_includedir}
+# debian/rules:71-76 미러 — 잔존 RUNPATH 제거 (check-rpaths 방어).
+find %{buildroot} -type f \( -name '*.so' -o -name '*.so.*' \) \
+     -exec chrpath -d {} + 2>/dev/null || :
+
+# ─── Scriptlets ──────────────────────────────────────────────────────────────
+# GTK3 immodule 캐시: Fedora gtk3 는 %%{_libdir}/gtk-3.0/3.0.0/immodules 파일
+# 트리거로 gtk-query-immodules-3.0-64 를 자동 실행하므로 deb 의
+# unim-im-gtk.postinst/postrm 대응 %%post/%%postun 이 불필요하다.
+# [요검증 → 리허설: rpm -q --filetriggers gtk3] 아이콘/desktop 파일도 Fedora
+# 파일트리거가 처리. 아래는 deb *.prerm 의 pkill 미러 — rpm %%preun 은
+# erase($1=0)와 upgrade 시 구패키지 측($1=1) 모두 실행되므로 deb 의
+# remove|upgrade 시맨틱과 일치한다. pkill(procps-ng) 부재는 || : 로 무해.
+
+%preun common
+_user="$(logname 2>/dev/null || echo root)"
+pkill -u "$_user" -x unim-daemon 2>/dev/null || :
+
+%preun desktop
+_user="$(logname 2>/dev/null || echo root)"
+pkill -u "$_user" -x unim-indicator 2>/dev/null || :
+pkill -u "$_user" -f '(^|/)unim-settings-gtk( |$)' 2>/dev/null || :
+
+%preun settings
+_user="$(logname 2>/dev/null || echo root)"
+# comm "unim-settings"(13자)는 procps 15자 절단에 안전 → -x 정확 매치.
+pkill -u "$_user" -x unim-settings 2>/dev/null || :
+
+%preun wayland
+_user="$(logname 2>/dev/null || echo root)"
+pkill -u "$_user" -x unim-wayland 2>/dev/null || :
+
+%preun xim
+_user="$(logname 2>/dev/null || echo root)"
+pkill -u "$_user" -x unim-xim 2>/dev/null || :
 
 # ─── %files ──────────────────────────────────────────────────────────────────
 
 %files common
 %license LICENSE
 %doc README.md
-%{_libdir}/libunim_capi.so*
+%{_libdir}/libunim_capi.so
+%{_libdir}/libunim_capi.so.0
+%{_libdir}/libunim_capi.so.0.1.0
 %{_includedir}/unim.h
 %{_bindir}/unim-cli
 %{_libexecdir}/unim-daemon
@@ -264,19 +330,37 @@ per-app input-mode rules, and virtual keyboard / preedit overlay on Wayland.
 %files wayland
 %{_libexecdir}/unim-wayland
 
-%files indicator
+%files desktop
 %{_bindir}/unim-indicator
 %{_sysconfdir}/xdg/autostart/io.github.from104.unim.Indicator.desktop
 %{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.Indicator.svg
+%{_mandir}/man1/unim-indicator.1*
+%{_bindir}/unim-settings-gtk
+%{_datadir}/applications/io.github.from104.unim.Settings.desktop
+%{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg
+%{_mandir}/man1/unim-settings-gtk.1*
+%{_bindir}/unim-popup-service
+%{_datadir}/dbus-1/services/org.atit.unim.PopupService.service
+%{_mandir}/man1/unim-popup-service.1*
 
 %files settings
 %{_bindir}/unim-settings
-%{_datadir}/applications/io.github.from104.unim.Settings.desktop
-%{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg
+%{_datadir}/applications/io.github.from104.unim.SettingsSlint.desktop
+%{_sysconfdir}/xdg/autostart/io.github.from104.unim.FirstRun.desktop
+%{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.SettingsSlint.svg
+%{_mandir}/man1/unim-settings.1*
 
-%files popup-service
-%{_bindir}/unim-popup-service
-%{_datadir}/dbus-1/services/org.atit.unim.PopupService.service
+%files keymap-studio
+%{_bindir}/unim-keymap-studio
+%{_datadir}/applications/io.github.from104.unim.KeymapStudio.desktop
+%{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.KeymapStudio.svg
+%{_mandir}/man1/unim-keymap-studio.1*
+
+%files typing-practice
+%{_bindir}/unim-typing-practice
+%{_datadir}/applications/io.github.from104.unim.TypingPractice.desktop
+%{_datadir}/icons/hicolor/scalable/apps/io.github.from104.unim.TypingPractice.svg
+%{_mandir}/man1/unim-typing-practice.1*
 
 %files gnome
 %{_datadir}/gnome-shell/extensions/unim-gnome@from104.github.io/
@@ -288,6 +372,15 @@ per-app input-mode rules, and virtual keyboard / preedit overlay on Wayland.
 # ─── Changelog ───────────────────────────────────────────────────────────────
 
 %changelog
+* Mon Jul 20 2026 from104 <from104@gmail.com> - 0.4.0-1
+- Restructure to mirror the Debian 11-package layout: new unim-desktop bundle
+  (replaces the indicator/settings-gtk/popup-service split), new Slint
+  unim-settings (settings app + first-run wizard), new unim-keymap-studio and
+  unim-typing-practice packages
+- Add gettext BuildRequires so GNOME extension translations (.mo) are built
+- Disable debuginfo subpackages to mirror the deb release asset policy
+- Force MULTIARCH= so REAL_LIBDIR resolves to %%{_libdir} deterministically
+
 * Tue May 19 2026 from104 <from104@gmail.com> - 0.3.0-1
 - Initial RPM packaging for UNIM 0.3.0
 - Moachigi v4 Atomic Window Principle chord engine
