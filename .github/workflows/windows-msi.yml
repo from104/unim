@@ -5,6 +5,11 @@ on:
     branches: [main, develop]
     paths:
       - 'unim-tsf/**'
+      - 'unim-imm32/**'
+      - 'unim-windows-common/**'
+      - 'unim-popup-win/**'
+      - 'unim-settings/**'
+      - 'unim-capi/**'
       - 'installer/**'
       - 'src/**'
       - 'Cargo.toml'
@@ -13,6 +18,11 @@ on:
   pull_request:
     paths:
       - 'unim-tsf/**'
+      - 'unim-imm32/**'
+      - 'unim-windows-common/**'
+      - 'unim-popup-win/**'
+      - 'unim-settings/**'
+      - 'unim-capi/**'
       - 'installer/**'
       - 'src/**'
       - 'Cargo.toml'
@@ -64,7 +74,9 @@ jobs:
           cargo check --target ${{ env.WIN_TARGET }} --locked `
             -p unim `
             -p unim-capi `
-            -p unim-tsf
+            -p unim-tsf `
+            -p unim-imm32 `
+            -p unim-settings
 
       - name: cargo test (core + native Windows crates)
         # 릴리스 출하 전 동작 검증 게이트. 코어(unim) + MSVC 타깃으로
