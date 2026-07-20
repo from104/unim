@@ -201,6 +201,8 @@ F9 또는 Hangul_Hanja 입력
 | `Qt::AltModifier` | bit 3 | Alt |
 | `Qt::MetaModifier` | bit 26 | Super/Meta |
 
+> **자동 반복·Alt_R 태깅(접근성)**: `state` 상위 비트에 반복 정보를 함께 실어 보낸다 — `QKeyEvent::isAutoRepeat()` 이 참이면 `UNIM_KEY_REPEAT_MASK`(1<<29), 그리고 항상 `UNIM_REPEAT_AWARE_MASK`(1<<31)를 세운다(메인·이모지 두 경로). 데몬은 `ignore_key_repeat` on 일 때 이 비트로 반복을 정확 판정한다. 또한 bare **Alt_R** 은 스킵하지 않고 데몬에 전달해 `toggle_keys` 로 토글 여부를 판정한다 — `Qt::Key_Alt` 는 좌우를 구분하지 못하므로 `nativeScanCode`(evdev 100) 기준으로 오른쪽 Alt만 골라낸다. `Key_AltGr`·`ISO_Level3_Shift` 는 계속 스킵하므로 AltGr 레이아웃에는 영향이 없다.
+
 #### 4.4.2 결과 처리
 
 ```

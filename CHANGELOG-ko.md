@@ -30,13 +30,15 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 - **한/영 전환 소리(비프)**: 한/영 모드가 바뀔 때 짧은 소리로 알려줍니다(한글 880Hz, 영문 440Hz). 외부 라이브러리나 사운드 파일 없이 동작하며 입력을 지연시키지 않습니다. 키 토글, AutoTypeFix 자동 전환, 트레이·확장에서의 전환 모두에 울립니다. 설정에서 끌 수 있습니다.
 
+- **키 자동 반복 무시(접근성)**: 키를 오래 누르고 있어서 생기는 자동 반복(연타)을 데몬이 무시하도록 켤 수 있습니다. 억제 대상은 한/영 토글 키와 한글 모드의 문자 키이고, 백스페이스·방향키 같은 편집키와 영문 직접 입력의 반복은 그대로 둡니다. 손 떨림 등으로 키를 오래 누르게 되는 지체장애 사용자를 위한 기능입니다. **기본값은 꺼짐**이라 켜기 전에는 동작이 전혀 바뀌지 않습니다. 설정 앱의 「조합키 자동반복 억제」 스위치나 `unim-cli config set ignore-key-repeat true` 로 켭니다. Wayland·Qt5/6·GNOME 확장에서는 반복 여부를 정확히 가려내고, GTK3/4·XIM·ibus 호환 경로에서는 80ms 시간창으로 근사 판정합니다(첫 반복 1회는 통과될 수 있고, 시스템 키 반복 간격을 80ms보다 길게 잡았다면 걸러지지 않을 수 있음 — 어느 경우든 "덜 막는" 쪽으로 안전하게 동작).
+
 - **자판 스튜디오 · 타자 연습 (신규 GTK4 도구)**: 한글 자판을 한 자리에서 보고·수정·연습할 수 있는 두 개의 독립 앱이 추가되었습니다.
   - **자판 스튜디오(`unim-keymap-studio`)**: 빌트인·사용자 자판의 키 배치와 초·중·종성 조합을 표로 보고, 키를 클릭해 편집한 뒤 사용자 자판(`~/.config/unim/layouts/*.json`)으로 저장합니다.
   - **타자 연습(`unim-typing-practice`)**: 길이별 예문을 골라 연습하며 실시간 WPM·CPM·정확도·오타율을 보여주고, 끝나면 키별 오타 히트맵을 표시합니다. 한글 음절을 자모로 분해해 키 입력 수를 세며, WPM은 한국 표준 방식(CPM÷5)으로 계산합니다.
 
 - **자동 영문 전환 — Ctrl/Alt/Super 조합 트리거**: 자동 영문 트리거에 수정자 조합을 쓸 수 있습니다(예: `key:Ctrl+B`, `key:Ctrl+Shift+B`, `key:Alt+F1`, `key:Super+Space`). tmux/wmux의 prefix(`Ctrl+B`)처럼 조합키가 필요한 환경에 맞춰, 한글 모드에서 해당 조합을 누르면 영문 모드로 전환하고 그 키는 앱에 그대로 전달합니다. 표기한 수정자가 정확히 눌렸을 때만 발동합니다. GTK·Qt·XIM·GNOME에서 동작하며, Windows 지원은 후속 작업입니다.
 
-- **AutoTypeFix 토글 단축키 3종**: 자동 오타 교정을 단축키로 켜고 끌 수 있습니다 — 전체 / 순방향(영문→한글)만 / 역방향(한글→영문)만 각각 지정 가능. 기본값은 비어 있어(옵트인) 설정한 사용자만 쓰게 됩니다. 수정자 키만 눌렸을 때는 발동하지 않고, 키를 누르고 있어도(오토리핏) 떨림 없이 한 번만 토글됩니다.
+- **AutoTypeFix 토글 단축키 3종**: 자동 오타 교정을 단축키로 켜고 끌 수 있습니다 — 전체 / 순방향(영문→한글)만 / 역방향(한글→영문)만 각각 지정 가능. **전체 토글의 기본값은 `Shift+F9`** 이고, 순방향·역방향 전용은 비어 있습니다(필요한 사람만 지정). 단축키에는 수정자 조합을 쓸 수 있으며(`Shift+F9`, `Ctrl+F8` 등) 표기한 수정자가 정확히 눌렸을 때만 발동하므로, 설정하지 않은 조합(예: `Shift+F10` 컨텍스트 메뉴)은 앱으로 그대로 전달됩니다. 맨 `F9`는 종전대로 한자/이모지 팝업입니다. 키를 누르고 있어도(오토리핏) 떨림 없이 한 번만 토글됩니다. 쓰지 않으려면 목록을 비우면 됩니다. Windows에서는 조합 표기가 아직 동작하지 않아 수정자 없는 키를 지정해야 합니다.
 
 - **비밀번호 필드 자동 보호**: 비밀번호 등 민감 입력란에 들어가면 UNIM이 자동으로 영문 모드로 전환하고, 벗어나면 이전 상태로 되돌립니다. 이때 눌린 키는 버퍼·실행취소·최근 교정·학습 사전·surrounding 문맥 어디에도 남지 않습니다. Wayland·GTK·Qt에서 동작하며, XIM·IMM32 폴백 환경은 감지되지 않으므로 FAQ·트러블슈팅에 명시했습니다.
 
@@ -58,7 +60,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 ### 🐛 버그 수정
 
-- **오른쪽 Alt 한영 토글 부활**: 수정자 키 판정이 토글 키 검사보다 먼저 처리되는 바람에 오른쪽 Alt를 한영 토글로 지정해도 동작하지 않던 문제를 고쳤습니다. 종성 조합 관련 회귀 테스트도 추가했습니다.
+- **오른쪽 Alt(RightAlt) 한/영 토글이 모든 환경에서 동작**: 두 겹의 문제로 오른쪽 Alt를 한/영 토글로 지정해도 동작하지 않았습니다 — 엔진에서는 수정자 키 판정이 토글 키 검사보다 먼저 처리됐고(종성 조합 회귀 테스트와 함께 수정), 프런트엔드에서는 GTK3/4·Qt5/6·GNOME 확장이 오른쪽 Alt를 자체적으로 걸러내 아예 데몬까지 오지 않았습니다(XIM·순수 Wayland는 원래 동작). 이제 프런트엔드의 자체 스킵을 없애고 토글 판정을 데몬으로 일원화해 어디서든 동일하게 동작합니다. AltGr(`ISO_Level3_Shift`)은 계속 통과시키므로 AltGr 레이아웃에는 영향이 없고, GNOME은 이벤트를 소비하지 않고 알리기만 하므로 Sticky Keys 등 접근성 기능도 그대로입니다. 다만 토글하는 순간 앱도 Alt 눌림/뗌을 함께 받을 수 있어(예: 일부 앱의 메뉴바 포커스), 원치 않으면 `toggle_keys`에서 RightAlt를 빼 옵트아웃할 수 있습니다.
 
 - **Super/Meta 조합 키 인식 (GTK/Qt immodule)**: GTK3/4·Qt5/6 입력 모듈의 Super/Meta 수정자 마스크 비트가 어긋나 있어, `key:Super+X` 같은 조합 트리거가 이 경로에서 동작하지 않던 문제를 바로잡았습니다(엔진의 X11 마스크 해석과 정합).
 
@@ -147,7 +149,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 - **0.2.0에서 올리는 경우**: 설정 파일(`~/.config/unim/config.yaml`)과 사용자 자판(`~/.config/unim/layouts/*.json`)은 그대로 유지됩니다. 별도 마이그레이션이 필요 없습니다.
 - **`unim-gui-qt` 사용자**: `apt remove unim-gui-qt && apt install unim-settings unim-popup-service` 로 전환하세요.
 - **`ko_3bul_qwerty` 사용자**: 자판 선택이 자동으로 이전되지 않습니다. 업그레이드 후 설정 → 자판에서 다시 선택하거나, 위 제거 항목의 우회 방법을 따라 사용자 자판으로 등록하세요.
-- **UNIM 0.1.x에서 만든 사용자 자판 JSON(v0 형식)**: `~/.config/unim/layouts/`에 직접 작성한 자판 파일이 있다면 v1 형식으로 변환해야 합니다(`"schema_version": 1`과 `combinations` 블록 추가). 변환 방법은 `docs/dev/plans/LAYOUT_PROFILE_V1.md`를 참고하세요.
+- **UNIM 0.1.x에서 만든 사용자 자판 JSON(v0 형식)**: `~/.config/unim/layouts/`에 직접 작성한 자판 파일이 있다면 v1 형식으로 변환해야 합니다(`"schema_version": 1`과 `combinations` 블록 추가). 변환 방법은 `docs/archive/plans/LAYOUT_PROFILE_V1.md`를 참고하세요.
 
 ### 🚧 알려진 이슈
 
@@ -169,7 +171,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
   - **`unim-cli config layout` 서브커맨드**: `list` / `describe <name>` / `validate <file.json>` (종료 코드 0=통과, 1=경고, 2=오류).
   - **GUI — Adw.ComboRow + 동적 SwitchRow**: 설정 다이얼로그가 모든 한글 프로필(빌트인 10개 + 사용자)을 표시하고, 선택한 프로필의 룰셋을 즉시 토글 가능한 SwitchRow로 노출.
   - **빌트인 프로필 추가 — `ko_3bul_qwerty`** (쿼티형 세벌식): Shift 없는 26자리 알파벳 포화 레이아웃 (14 초성 / 15 중성 / 19 종성). 빌트인 9개 → 10개.
-  - 사양: [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md).
+  - 사양: [`docs/archive/plans/LAYOUT_PROFILE_V1.md`](docs/archive/plans/LAYOUT_PROFILE_V1.md).
 - **AutoTypeFix 롤백 학습 억제 사전**(`src/typefix_blacklist.rs`, `~/.config/unim/typefix-blacklist.yaml`): 마지막 교정 위에서 일어나는 자연스러운 롤백 패턴(백스페이스 + 입력 모드 전환)을 관찰. 동일 ASCII로 두 번째 AutoTypeFix 시도(retrigger)가 발생하면 한 번에 tentative 억제 항목 등록 + 해당 시도 억제. GUI "확정" 버튼으로 Tentative → Confirmed 수동 승격, `tentative_expiry_hours`(기본 1시간, 1..=12) 후 Inactive로 자동 만료. 데몬이 mtime 변경을 감지해 자동 리로드.
 - **AutoTypeFix 신규 설정 3종**: `auto_typefix.*` 하위에 `rollback_detection`(bool, 기본 true), `tentative_expiry_hours`(u16, 기본 1, 1..=12), `observation_timeout_secs`(u8, 기본 10, 5..=15). 3지점 동기화 적용.
 - **설정 GUI "억제 단어" 페이지**(`unim-gui-gtk`): 신규 `Adw.PreferencesPage`, 세 그룹(Tentative / Confirmed / Inactive) 구성, 각 행에 확정 / 비활성화 / 제거 / 재활성화 액션.

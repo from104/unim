@@ -172,9 +172,12 @@ Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건�
 |----|------|------|
 | 한/영 키 (Hangul) | 모드 토글 | 키보드에 따라 키 코드가 다름 |
 | `Shift+Space` | 모드 토글 (대체) | 모든 키보드에서 동작 |
+| 오른쪽 Alt (RightAlt) | 모드 토글 (`toggle_keys`에 추가한 경우) | 이제 GTK·Qt·GNOME 포함 모든 환경에서 동작 |
 | 트레이 아이콘 클릭 | 모드 토글 (마우스) | unim-gui-gtk가 트레이에 |
 
 > **모드 공유 방식**(`mode_share_mode` 설정): 「창별 독립」/「전역 공유」 중 선택. 창별 독립이 기본 — 터미널은 영어, 텍스트 에디터는 한글로 따로 유지된다. 한 모드를 모든 창에 동기화하고 싶으면 「전역 공유」로 바꾼다.
+
+> **오른쪽 Alt로 토글**: `toggle_keys` 설정에 `RightAlt`를 넣으면 오른쪽 Alt 키로 한/영을 전환할 수 있다. 예전에는 GTK·Qt·GNOME 확장이 오른쪽 Alt를 자체적으로 걸러내 이 환경들에서는 동작하지 않았지만(XIM·순수 Wayland는 원래 동작), 이제 토글 판정이 데몬으로 일원화되어 어디서나 똑같이 동작한다. AltGr(오른쪽 Alt를 AltGr로 쓰는 레이아웃)에는 영향이 없다. 단, 토글하는 순간 앱도 Alt 입력을 함께 받을 수 있어(예: 일부 앱의 메뉴바 포커스) 이 부작용이 싫으면 `toggle_keys`에서 `RightAlt`를 빼면 된다.
 
 ### 4.2 한자 변환 (Hanja)
 
@@ -267,7 +270,7 @@ Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건�
 
 #### 토글 단축키 — 지정한 키로 즉시 켜고 끄기
 
-키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다(**옵트인** — 기본은 아무 키도 지정돼 있지 않다). 세 가지를 각각 따로 둔다.
+키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다. **전체 토글의 기본값은 `Shift+F9`** 이고, 순방향·역방향 전용 단축키는 비어 있다(필요한 사람만 지정). 세 가지를 각각 따로 둔다.
 
 - **전체 토글**: 자동 오타 교정 전체(마스터 스위치)를 켜고 끈다.
 - **순방향(=정방향) 토글**: 순방향(영→한) 교정만 켜고 끈다. (일부 GUI 라벨은 "정방향"으로 표기하지만 같은 뜻이다.)
@@ -276,15 +279,15 @@ Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건�
 CLI로 지정한다.
 
 ```bash
-# 전체 오타 교정을 ScrollLock 키로 토글
-unim-cli config set auto-typefix-toggle-keys ScrollLock
+# 기본값 (전체 토글 = Shift+F9)
+unim-cli config set auto-typefix-toggle-keys "Shift+F9"
 
 # 순방향/역방향을 각각 F10, F11 로
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 
 # 여러 키를 쉼표로 (그중 아무거나 누르면 토글)
-unim-cli config set auto-typefix-toggle-keys "ScrollLock,Pause"
+unim-cli config set auto-typefix-toggle-keys "Shift+F9,Ctrl+F8"
 
 # 해제 — 빈 값을 주면 어떤 키도 가로채지 않는다
 unim-cli config set auto-typefix-toggle-keys ""
@@ -294,8 +297,12 @@ unim-cli config set auto-typefix-toggle-keys ""
 
 Slint 설정 앱(unim-settings, Windows 포함)에서는 세 칸이 **오타 교정** 페이지(5.2)의 **「토글 단축키」** 그룹에 나란히 모여 있다.
 
-> - **단일 키만 지원한다.** `Ctrl+X` 같은 수정자 조합은 쓸 수 없다 — `ScrollLock`, `Pause`, `F10` 처럼 키 하나만 적는다(조합을 적으면 무시된다).
-> - 기본값이 비어 있어, 키를 지정하기 전에는 아무 키도 소비하지 않는다. 기존 사용자 동작에 영향이 없다.
+> - **수정자 조합을 쓸 수 있다** — `Shift+F9`, `Ctrl+F8`, `Ctrl+Shift+F7` 처럼 적는다(`Ctrl`/`Control`, `Alt`, `Super`/`Win`/`Meta`, `Shift`. 대소문자·순서 무관). 수정자 없이 `F10` 처럼 적으면 종전대로 그 키 단독으로만 발동한다.
+> - **표기한 수정자가 정확히 눌렸을 때만** 발동한다. 그래서 지정하지 않은 조합(예: `Shift+F10` 컨텍스트 메뉴)은 UNIM 이 가로채지 않고 앱으로 그대로 간다.
+> - 기본값 `Shift+F9` 는 한자/이모지 키(맨 `F9`)와 갈린다 — 맨 `F9` 는 종전대로 한자·이모지 팝업이다.
+> - 키 이름은 `F1`~`F12` 처럼 UNIM 이 아는 이름이어야 한다(`ScrollLock`·`Pause`·`PrintScreen`·`Menu` 는 인식하지 않는다). 잘못 적으면 CLI 가 경고를 띄운다.
+> - 쓰지 않으려면 목록을 비운다(`""`). 그러면 그 단축키는 아무 키도 소비하지 않는다.
+> - Windows 에서는 조합 표기가 아직 동작하지 않는다 — 수정자 없는 키를 지정해야 한다.
 > - 전체가 꺼진 상태에서 순방향만 토글로 켜도 실제 교정은 전체를 다시 켜야 발동한다(전체가 마스터 스위치). 순방향/역방향 토글은 각 방향의 플래그만 바꾼다.
 > - 접근성 참고: Windows 에서는 토글 시 한/영 알림음과 같은 차등 비프로 상태를 알려 준다(`toggle-announce-beep` 설정 존중). 리눅스에서는 소리 없이 설정만 바뀐다.
 
@@ -376,6 +383,9 @@ unim-qt-settings &      # Qt6 (대안)
 |  | 조합 확정 단위 (ComboRow) | `음절 단위`(기본 동작) / `단어 단위` / `스마트` — [4.6](#46-단어-단위-입력-조합-확정-단위) 참고 |
 |  | 팝업 모드 (ComboRow) | `Standalone`(기본, 모든 환경) / `Embedded`(X11 한정, IM 모듈이 직접 그림) |
 | **자동 영문 전환** | 자동 영문 전환 사용 (Switch) | OFF(기본). vim 사용자라면 ON 추천 |
+| **접근성** | 조합키 자동반복 억제 (Switch) | OFF(기본). 키를 오래 누를 때 생기는 자동 반복 무시 — 아래 설명 참고 |
+
+> **조합키 자동반복 억제(접근성)**: 키를 계속 누르고 있으면 운영체제가 같은 키를 빠르게 반복 입력하는데(자동 반복), 이 옵션을 켜면 데몬이 그 반복을 무시한다. 손 떨림 등으로 키를 오래 누르게 되는 지체장애 사용자를 위한 기능이다. 억제 대상은 **한/영 토글 키와 한글 모드의 문자 키**이며, 백스페이스·방향키 같은 편집키와 영문 직접 입력의 반복은 그대로 둔다. Wayland·Qt5/6·GNOME 확장에서는 반복 여부를 정확히 가려내고, GTK3/4·XIM·ibus 호환 경로에서는 80ms 시간창으로 근사 판정하므로 첫 반복 1회는 통과될 수 있고 시스템 키 반복 간격을 80ms보다 길게 잡았다면 걸러지지 않을 수 있다(어느 경우든 "덜 막는" 쪽으로 안전하게 동작). 기본값은 꺼짐이며, `unim-cli config set ignore-key-repeat true` 로도 켤 수 있다. GNOME 확장 사용자는 재로그인 후 적용된다.
 
 ### 5.2 페이지 2 — 오타 교정
 
@@ -552,8 +562,8 @@ unim-cli config set engine.auto_english.enabled true
 # 조합 확정 단위 (음절/단어/스마트) — 4.6 참고
 unim-cli config set commit-unit word
 
-# 자동 오타 교정 토글 단축키 (옵트인, 단일 키, 쉼표 구분) — 4.4 참고
-unim-cli config set auto-typefix-toggle-keys ScrollLock
+# 자동 오타 교정 토글 단축키 (쉼표 구분, 수정자 조합 가능) — 4.4 참고
+unim-cli config set auto-typefix-toggle-keys "Shift+F9"
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 

@@ -172,9 +172,12 @@ Snap has no global override mechanism. Add a conditional snippet to `~/.profile`
 |----|------|------|
 | Hangul key | Toggle mode | Key code varies by keyboard |
 | `Shift+Space` | Toggle (fallback) | Works on any keyboard |
+| Right Alt (RightAlt) | Toggle mode (when added to `toggle_keys`) | Now works on every environment, including GTK/Qt/GNOME |
 | Tray icon click | Toggle (mouse) | unim-gui-gtk lives in the tray |
 
 > **Mode share** (`mode_share_mode` setting): "per-window" or "global". Per-window is the default — your terminal stays in English while your text editor stays in Korean. Switch to "global" if you want a single mode across every window.
+
+> **Toggling with Right Alt**: Add `RightAlt` to the `toggle_keys` setting to switch Korean/English with the right Alt key. GTK, Qt, and the GNOME extension used to filter Right Alt themselves, so it did nothing there (XIM and pure Wayland already worked); the toggle decision is now unified in the daemon, so it behaves the same everywhere. AltGr layouts (right Alt used as AltGr) are unaffected. Note that at the moment of toggling the application may also receive the Alt input (e.g. menu-bar focus in some apps); if you don't want that side effect, remove `RightAlt` from `toggle_keys`.
 
 ### 4.2 Hanja conversion
 
@@ -267,7 +270,7 @@ When a particular word keeps getting corrected against your wishes:
 
 #### Toggle hotkeys — turn correction on/off with a single key
 
-A single key can turn AutoTypeFix on or off instantly (**opt-in** — no key is assigned by default). Three of them, set separately:
+A shortcut can turn AutoTypeFix on or off instantly. **The master toggle defaults to `Shift+F9`**; the forward- and reverse-only shortcuts are empty (assign them only if you want them). Three of them, set separately:
 
 - **Master toggle**: turns all of AutoTypeFix (the master switch) on/off.
 - **Forward toggle** (a.k.a. "정방향" in some Korean labels): turns only forward (English→Korean) correction on/off.
@@ -276,15 +279,15 @@ A single key can turn AutoTypeFix on or off instantly (**opt-in** — no key is 
 Set them from the CLI:
 
 ```bash
-# Toggle all correction with the ScrollLock key
-unim-cli config set auto-typefix-toggle-keys ScrollLock
+# The default (master toggle = Shift+F9)
+unim-cli config set auto-typefix-toggle-keys "Shift+F9"
 
 # Forward / reverse on F10 and F11 respectively
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 
 # Multiple keys, comma-separated (any of them toggles)
-unim-cli config set auto-typefix-toggle-keys "ScrollLock,Pause"
+unim-cli config set auto-typefix-toggle-keys "Shift+F9,Ctrl+F8"
 
 # Clear — an empty value consumes no key
 unim-cli config set auto-typefix-toggle-keys ""
@@ -294,8 +297,12 @@ In the GTK settings GUI the three fields are not grouped together but distribute
 
 In the Slint settings app (`unim-settings`, including Windows) the three fields are gathered side by side in the **"Toggle hotkeys"** group on the **Type Correction** page (5.2).
 
-> - **Single keys only.** Modifier combinations like `Ctrl+X` are not supported — enter one key such as `ScrollLock`, `Pause`, or `F10` (a combination is ignored).
-> - The default is empty, so no key is intercepted until you assign one. Existing behavior is unchanged.
+> - **Modifier combinations are supported** — write them as `Shift+F9`, `Ctrl+F8`, `Ctrl+Shift+F7` (`Ctrl`/`Control`, `Alt`, `Super`/`Win`/`Meta`, `Shift`; case- and order-insensitive). A bare name like `F10` fires on that key alone, as before.
+> - **It fires only on an exact modifier match.** Combinations you did not configure (e.g. `Shift+F10` for the context menu) are not intercepted and reach the application unchanged.
+> - The default `Shift+F9` is distinct from the hanja/emoji key: bare `F9` still opens the hanja/emoji popup.
+> - Key names must be ones UNIM knows, such as `F1`–`F12` (`ScrollLock`, `Pause`, `PrintScreen`, and `Menu` are not recognized). The CLI warns about names it cannot parse.
+> - Clear the list (`""`) to disable a shortcut; it then consumes no key.
+> - On Windows, combination specs do not work yet — assign a key without modifiers there.
 > - Toggling only forward on while the master switch is off flips the flag but produces no correction until the master switch is on again (the master gates everything). The forward/reverse toggles change only each direction's flag.
 > - Accessibility note: on Windows a distinct beep (like the Korean/English switch sound) announces the toggle state (honoring the `toggle-announce-beep` setting). On Linux the setting changes silently.
 
@@ -343,6 +350,9 @@ Five pages (GTK):
 |  | Mode share (ComboRow) | `per-window` (recommended) / `global` |
 |  | Popup mode (ComboRow) | `Standalone` (default) / `Embedded` (X11 only) |
 | **Auto-English-Mode** | Enable (Switch) | OFF (default). Vim users may want ON |
+| **Accessibility** | Suppress Composition Key Auto-repeat (Switch) | OFF (default). Ignores the auto-repeat you get from holding a key — see the note below |
+
+> **Suppress Composition Key Auto-repeat (accessibility)**: When you hold a key down, the OS re-fires it rapidly (auto-repeat); enabling this option makes the daemon ignore those repeats. It is meant for users with motor disabilities who tend to hold keys too long (e.g. tremor). Suppression applies to the **Korean/English toggle key and character keys in Korean mode**; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. Wayland, Qt5/6, and the GNOME extension detect repeats precisely; the GTK3/4, XIM, and ibus-compatible paths approximate with an 80 ms time window, so the first repeat may slip through and, if your system key-repeat interval is set longer than 80 ms, repeats may not be filtered (in either case it errs toward suppressing less, fail-safe). The default is off; you can also enable it with `unim-cli config set ignore-key-repeat true`. GNOME extension users: applies after re-login.
 
 ### 5.2 Page 2 — Type Correction
 
@@ -505,8 +515,8 @@ unim-cli config get auto_typefix.enabled
 unim-cli config set auto_typefix.tentative_expiry_hours 6
 unim-cli config set engine.auto_english.enabled true
 
-# AutoTypeFix toggle hotkeys (opt-in, single key, comma-separated) — see 4.4
-unim-cli config set auto-typefix-toggle-keys ScrollLock
+# AutoTypeFix toggle hotkeys (comma-separated; modifier combos allowed) — see 4.4
+unim-cli config set auto-typefix-toggle-keys "Shift+F9"
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 

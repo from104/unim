@@ -69,6 +69,7 @@ libinput → Mutter
 |---------|------|
 | 문자 키 | DBus `ProcessKeyEvent` → commit/preedit 처리 |
 | 수정자 키 (Shift, Ctrl 등) | `vfunc`에서 `false` 반환 → Mutter가 직접 처리 (고정키 접근성 유지) |
+| 오른쪽 Alt (bare Alt_R) | 절대 비소비(`EVENT_PROPAGATE` 유지 → Sticky Keys 불변) + `processKey` fire-and-forget 통지 → 데몬 `toggle_keys` 판정 |
 | Ctrl/Alt/Super 조합 | 조합 flush → 바이패스 (시스템 단축키) |
 | 네비게이션 (←→↑↓, Home, End, PgUp/Dn) | 조합 flush → 바이패스 |
 | Enter / KP_Enter, Escape, Tab | 조합 flush → 바이패스 |
@@ -79,6 +80,7 @@ libinput → Mutter
 - **`_flushCompose()`**: DBus `FocusOut` 호출 → 조합 중 텍스트 커밋 + preedit 클리어
 - **Key Queue 패턴**: `ProcessKeyEvent`가 `call_sync()`이므로 GLib 메인 루프 재진입이 발생할 수 있음. `_processingKey` 플래그로 재진입을 감지하여 후속 키를 `_keyQueue`에 저장하고, 현재 호출 완료 후 `_drainKeyQueue()`가 FIFO 순서로 처리하여 키 누락을 방지.
 - **이중 처리 방지**: Backend IM 등록 시 `captured-event` 핸들러에서 `EVENT_PROPAGATE` 반환
+- **repeat 태깅(접근성)**: Clutter `REPEATED` 플래그를 `state` 상위 비트의 `UNIM_KEY_REPEAT_MASK`(1<<29)로, 그리고 항상 `UNIM_REPEAT_AWARE_MASK`(1<<31)로 실어 보낸다(vfunc·드레인·X11 divert 경로 공통, `>>>0` unsigned 정규화). 데몬은 `ignore_key_repeat` on 일 때 이 비트로 반복을 정확 판정한다. 확장 비활성화 시 통지 콜백(`setToggleKeyNotifier`)은 해제되며, GNOME 확장 변경분은 재로그인 후 적용된다.
 
 ### 2.3 포커스 처리
 

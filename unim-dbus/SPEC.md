@@ -255,6 +255,8 @@ ProcessKeyEvent(keyval, keycode, state)
   → 5. (consumed, preedit.unwrap_or_default(), commit.unwrap_or_default()) 반환
 ```
 
+> **키 자동 반복 억제 게이트(접근성, `ignore_key_repeat`)**: 설정이 켜져 있으면 엔진 워커가 `press_key` 앞단에서 반복 press 를 소비-드롭한다. 반복 판정은 `state` 의 `UNIM_REPEAT_AWARE_MASK`(1<<31)/`UNIM_KEY_REPEAT_MASK`(1<<29) 비트를 우선하고(aware 프런트: Wayland·Qt5/6·GNOME), aware 비트가 없는 프런트(GTK3/4·XIM·ibus)는 per-context 80ms 시간창(`REPEAT_INFER_WINDOW`)으로 근사한다 — 첫 반복 1회 누출·80ms 초과 interval 미검출 한계는 항상 "미억제(현행 유지)" 방향의 fail-safe. 억제 대상은 토글 키·한글 모드 문자 키뿐이며, 드롭 응답은 현재 preedit 를 에코해 조합 증발·preedit-end 오발사를 막는다. off 면 게이트 첫 조건에서 탈락(오버헤드 0·동작 무손상).
+
 ### 6.4 FocusIn 상세
 
 ```

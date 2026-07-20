@@ -337,6 +337,18 @@ Set to `0` to disable moachigi entirely. Adjust via the settings dialog slider o
 unim-cli config set chord-window-ms 80
 ```
 
+## Q20. When I hold a key too long, the same letter is typed several times.
+
+If you hold a key down (e.g. because of a tremor), the OS re-fires the same key rapidly (auto-repeat). UNIM has a **Suppress Composition Key Auto-repeat (accessibility)** option that makes the daemon ignore those repeats. Suppression applies to the **Korean/English toggle key and character keys in Korean mode**; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. The default is off, so nothing changes until you enable it.
+
+To enable it — the **Accessibility → Suppress Composition Key Auto-repeat** switch in the settings app, or the CLI:
+
+```bash
+unim-cli config set ignore-key-repeat true
+```
+
+**Fallback limits**: Wayland, Qt5/6, and the GNOME extension detect repeats precisely. The GTK3/4, XIM, and ibus-compatible paths approximate with an 80 ms time window, so (1) the first repeat may slip through, and (2) if your system key-repeat interval is set longer than 80 ms, repeats may not be filtered. In either case, when in doubt it errs toward suppressing less (fail-safe). GNOME extension users: applies after re-login.
+
 ---
 
 ## Read more

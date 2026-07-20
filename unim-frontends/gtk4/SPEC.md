@@ -197,8 +197,10 @@ GdkEventType event_type = gdk_event_get_event_type(event);
 
 **바이패스 대상 수정자 키:**
 
-- Shift_L/R, Control_L/R, Alt_L/R
+- Shift_L/R, Control_L/R, Alt_L
 - Super_L/R, Meta_L/R, ISO_Level3_Shift
+
+> **Alt_R(오른쪽 Alt)은 바이패스하지 않습니다** — bare Alt_R 은 데몬으로 전달해 토글 여부를 `toggle_keys` 가 판정한다(T3, 프런트 자체 스킵 제거·토글 판정 데몬 일원화). AltGr(`ISO_Level3_Shift`)은 계속 바이패스하므로 AltGr 레이아웃에는 영향이 없다.
 
 ### 4.3 한자 키 처리 (`F9` / `Hangul_Hanja`) — 팝업 트리거
 
