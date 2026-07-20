@@ -1,6 +1,6 @@
 # UNIM 자판 프로필 v3 스키마 (모아치기 + 옛한글 거부)
 
-> **v2 베이스**: [`docs/dev/plans/LAYOUT_PROFILE_V2.md`](../plans/LAYOUT_PROFILE_V2.md). 본 문서는 v2 위에 v3가 추가한 분만 다룬다. v1/v2의 `combinations`/`rule_sets`/`active_rule_sets`/`inherits`/`key_meta` 의미는 그 두 문서 그대로.
+> **v2 베이스**: [`docs/archive/plans/LAYOUT_PROFILE_V2.md`](../../archive/plans/LAYOUT_PROFILE_V2.md). 본 문서는 v2 위에 v3가 추가한 분만 다룬다. v1/v2의 `combinations`/`rule_sets`/`active_rule_sets`/`inherits`/`key_meta` 의미는 그 두 문서 그대로.
 
 Date: 2026-05-05 (UNIM 0.3.0 릴리즈)
 구현 범위: schema · loader · composer(3bul 통합) · input_engine(chord_buffer) · unim-dbus(ChordIdleFlush) · 사용자 config(`korean.bidirectional_combine` / `korean.chord_window_ms`) · GTK Moachigi group · ko_3bul_anmatae 빌트인
@@ -436,8 +436,8 @@ v2 trait `HangulComposer::add_jamo_with_meta(&mut self, jamo, meta)` 그대로. 
 
 ## 13. 참고
 
-- v1 베이스: [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](../plans/LAYOUT_PROFILE_V1.md)
-- v2 베이스: [`docs/dev/plans/LAYOUT_PROFILE_V2.md`](../plans/LAYOUT_PROFILE_V2.md)
+- v1 베이스: [`docs/archive/plans/LAYOUT_PROFILE_V1.md`](../../archive/plans/LAYOUT_PROFILE_V1.md)
+- v2 베이스: [`docs/archive/plans/LAYOUT_PROFILE_V2.md`](../../archive/plans/LAYOUT_PROFILE_V2.md)
 - 사용자 가이드: [`docs/user/keymaps/anmatae.md`](../../user/keymaps/anmatae.md) · [`anmatae.en.md`](../../user/keymaps/anmatae.en.md)
 - 자판 JSON: [`src/keystroke/keymap/ko_3bul_anmatae.json`](../../../src/keystroke/keymap/ko_3bul_anmatae.json)
 - 사전 조사: `docs/references/research/안마태 자판 조사.md`, `쿼티형 세벌식 초안.md` (옵시디언 vault)

@@ -1,6 +1,6 @@
 //! v1/v2/v3 자판 프로필 JSON 스키마 — serde 역직렬화 타입.
 //!
-//! 스펙: `docs/dev/plans/LAYOUT_PROFILE_V1.md`, `_workspace/anmatae/00_user_decisions.md`
+//! 스펙: `docs/archive/plans/LAYOUT_PROFILE_V1.md`, `_workspace/anmatae/00_user_decisions.md`
 //!
 //! # 구조
 //! - `RawProfile` — JSON에서 직접 역직렬화되는 평면 구조. v1/v3 필드가 optional.

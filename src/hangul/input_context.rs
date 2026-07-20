@@ -93,7 +93,7 @@ impl HangulInputContext {
     /// `new_with_profile`로 만들고, combinations + 활성 rule_sets 병합을 적용합니다.
     /// `layout_type`이 이 중 어느 것도 아니면 `TwoBul`로 안전 폴백(영문 계열).
     ///
-    /// 스펙: `docs/plans/LAYOUT_PROFILE_V1.md` §5.2, IMPL §2.4.
+    /// 스펙: `docs/archive/plans/LAYOUT_PROFILE_V1.md` §5.2, IMPL §2.4.
     pub fn new_with_profile(
         profile: &crate::keystroke::profile::LayoutProfile,
     ) -> Result<Self, crate::keystroke::profile::BuildError> {

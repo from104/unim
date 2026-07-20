@@ -46,7 +46,7 @@ impl fmt::Display for LoadError {
             LoadError::UnsupportedSchema { profile_name } => write!(
                 f,
                 "layout profile '{profile_name}' uses the legacy v0 schema, which is no longer \
-                 supported in 0.2.0+. Convert to v1 schema (see docs/dev/plans/LAYOUT_PROFILE_V1.md)."
+                 supported in 0.2.0+. Convert to v1 schema (see docs/archive/plans/LAYOUT_PROFILE_V1.md)."
             ),
             LoadError::ArchaicJamoNotSupported { codepoint, location } => write!(
                 f,
@@ -172,7 +172,7 @@ pub fn parse_profile_str(json: &str) -> Result<LayoutProfile, LoadError> {
         unim_log!(
             "LOADER",
             "WARNING: layout profile '{}' uses the legacy v0 schema and will be rejected. \
-             Convert to v1 (see docs/dev/plans/LAYOUT_PROFILE_V1.md).",
+             Convert to v1 (see docs/archive/plans/LAYOUT_PROFILE_V1.md).",
             profile_name
         );
         return Err(LoadError::UnsupportedSchema { profile_name });

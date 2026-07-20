@@ -1,7 +1,7 @@
 //! 자판 프로필 v1 스키마 — 로더·해석·병합.
 //!
-//! 전체 기획: `docs/dev/plans/LAYOUT_PROFILE_V1.md`
-//! 구현 하네스: `docs/dev/plans/LAYOUT_PROFILE_V1_IMPL.md`
+//! 전체 기획: `docs/archive/plans/LAYOUT_PROFILE_V1.md`
+//! 구현 하네스: `docs/archive/plans/LAYOUT_PROFILE_V1_IMPL.md`
 //!
 //! # 스키마 정책 (0.2.0+)
 //! v0 (legacy) 스키마는 더 이상 지원하지 않는다. JSON에 v1 마커

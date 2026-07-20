@@ -1,6 +1,6 @@
 # UNIM 자판 만들기 — 사용자 가이드
 
-> 이 문서는 자판을 직접 만들거나 기존 자판의 옵션을 켜고 끄려는 사용자를 위한 안내입니다. 코드 내부 동작이 궁금하면 [LAYOUT_PROFILE_V2.md](../../dev/plans/LAYOUT_PROFILE_V2.md)를 참고하세요.
+> 이 문서는 자판을 직접 만들거나 기존 자판의 옵션을 켜고 끄려는 사용자를 위한 안내입니다. 코드 내부 동작이 궁금하면 [LAYOUT_PROFILE_V2.md](../../archive/plans/LAYOUT_PROFILE_V2.md)를 참고하세요.
 
 대상 UNIM 버전: 0.2.0 이후
 지원 스키마: `schema_version: 1` (간단), `schema_version: 2` (키별 메타데이터 사용)
@@ -550,8 +550,8 @@ JSON 파싱 에러나 v0 스키마 거부 메시지가 보이면 메시지 내�
 
 ## 12. 더 알고 싶다면
 
-- 개발자 문서 (코드 진입점, 큐 메타 추적 흐름): [LAYOUT_PROFILE_V2.md](../../dev/plans/LAYOUT_PROFILE_V2.md)
-- v1 베이스 (자판 JSON 구조 전반): [LAYOUT_PROFILE_V1.md](../../dev/plans/LAYOUT_PROFILE_V1.md)
+- 개발자 문서 (코드 진입점, 큐 메타 추적 흐름): [LAYOUT_PROFILE_V2.md](../../archive/plans/LAYOUT_PROFILE_V2.md)
+- v1 베이스 (자판 JSON 구조 전반): [LAYOUT_PROFILE_V1.md](../../archive/plans/LAYOUT_PROFILE_V1.md)
 - 빌트인 자판 JSON 샘플:
   - 두벌식: `keymaps/ko_2bulstd.json`
   - 세벌식 390: `keymaps/ko_3bul390.json` (룰 A·B 활용 사례)
