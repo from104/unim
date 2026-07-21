@@ -127,7 +127,7 @@ Since UNIM 0.3.0, hanja, special-character, and emoji popups are rendered by a s
 
 **Single source of truth**: regardless of environment, the daemon's `PopupRender` payload (cells, header, footer, tabs, highlight) is the single view-model delivered to all renderers. Only the rendering implementation differs.
 
-**Outside-click dismiss**: clicking outside the popup closes it, and the click event is passed through to the window below. If a popup closes unexpectedly, this is intended behavior — see [troubleshooting](../troubleshooting/README.md#popup-dismiss).
+**Outside-click dismiss**: clicking outside the popup closes it, and the click event is passed through to the window below. If a popup closes unexpectedly, this is intended behavior — see [troubleshooting](../troubleshooting/README.md).
 
 **KDE Plasma 5.x Wayland — unsupported**: `gtk4-layer-shell` is not available in the Ubuntu 24.04 standard repository, so popups do not appear. Workaround: use an X11 session or switch to GNOME.
 

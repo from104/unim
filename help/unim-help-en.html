@@ -375,7 +375,7 @@ export XMODIFIERS="@im=unim"
 </tbody></table>
 </div>
 <p><strong>Single source of truth</strong>: regardless of environment, the daemon's <code>PopupRender</code> payload (cells, header, footer, tabs, highlight) is the single view-model delivered to all renderers. Only the rendering implementation differs.</p>
-<p><strong>Outside-click dismiss</strong>: clicking outside the popup closes it, and the click event is passed through to the window below. If a popup closes unexpectedly, this is intended behavior — see <a href="https://github.com/from104/unim/blob/main/docs/user/troubleshooting/README.md#popup-dismiss">troubleshooting</a>.</p>
+<p><strong>Outside-click dismiss</strong>: clicking outside the popup closes it, and the click event is passed through to the window below. If a popup closes unexpectedly, this is intended behavior — see <a href="#troubleshooting">troubleshooting</a>.</p>
 <p><strong>KDE Plasma 5.x Wayland — unsupported</strong>: <code>gtk4-layer-shell</code> is not available in the Ubuntu 24.04 standard repository, so popups do not appear. Workaround: use an X11 session or switch to GNOME.</p>
 <p><strong>KDE Plasma 6 Wayland / Sway / Hyprland / river — experimental, undertested</strong>: builds with the <code>wayland-backend</code> cargo feature and <code>libgtk4-layer-shell</code> installed are theoretically functional but were <strong>not exercised in the 0.3.0 QA cycle</strong>. Expect possible regressions in popup placement, IME focus handover, and layer-shell coordinate translation.</p>
 <hr />
