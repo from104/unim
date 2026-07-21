@@ -214,6 +214,49 @@ const MENU_ID_TOGGLE: u32 = 1;
 const MENU_ID_SET_DEFAULT: u32 = 2;
 const MENU_ID_SETTINGS: u32 = 3;
 const MENU_ID_ABOUT: u32 = 4;
+const MENU_ID_HELP: u32 = 5;
+
+/// OS 기본 UI 언어가 한국어(LANG_KOREAN=0x12)인지 판정 — 매뉴얼 언어 선택용.
+///
+/// `unim-settings/src/platform/windows.rs::ui_language_is_korean()` 와 동일 규칙.
+/// 그 크레이트를 링크하지 않으므로(별도 exe) 여기서 최소 중복으로 둔다.
+/// windows-rs 의 `Win32_Globalization` 피처를 추가하지 않으려고 extern 선언 사용.
+fn ui_language_is_korean() -> bool {
+    extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+    }
+    // SAFETY: 인자 없는 순수 조회 Win32 API.
+    let langid = unsafe { GetUserDefaultUILanguage() };
+    (langid & 0x3ff) == 0x12
+}
+
+/// 오프라인 매뉴얼을 연다. 실패하면 무결성 수준 폴백을 태운다.
+///
+/// 언어바 DLL 은 msctf 가 로드하는 **임의의 호스트 프로세스** 안에서 돈다.
+/// 스토어 앱·브라우저 렌더러 같은 AppContainer/저 무결성 프로세스에서는
+/// `ShellExecuteW` 가 실패할 수 있으므로(`popup_ipc.rs` 의 AppContainer 판별과
+/// 같은 사유), 그때는 정상 무결성 프로세스인 `unim-settings.exe` 를 띄워
+/// 사용자가 그쪽 도움말 버튼으로 매뉴얼을 열 수 있게 한다.
+///
+/// 폴백에 인자를 넘기지 않는 이유: 현재 `unim-settings` 는 `--first-run` /
+/// `--whats-new` 계열만 파싱하고 도움말 전용 인자를 처리하지 않는다
+/// (`unim-settings/src/wizard.rs::parse_wizard_mode_from`). 없는 인자를 넘기면
+/// 조용히 무시될 뿐이라 "설정앱을 띄운다" 로 폴백 수준을 낮춘다.
+fn open_help_or_fallback() {
+    if unim_windows_common::help::open_help(ui_language_is_korean()) {
+        return;
+    }
+    crate::register::dbg_log(
+        "lang_bar help: open_help failed (file missing or low-integrity ShellExecute) \
+         → falling back to unim-settings.exe",
+    );
+    if !crate::register::launch_settings_app() {
+        // 조용한 실패 금지 — 두 경로 모두 막힌 상태를 로그로 남긴다.
+        crate::register::dbg_log(
+            "lang_bar help: FALLBACK FAILED — settings app not launched; manual unavailable",
+        );
+    }
+}
 
 /// 정보(About) 다이얼로그를 띄운다.
 ///
@@ -657,6 +700,16 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
                 &settings_text,
                 std::ptr::null_mut(),
             );
+            // 메뉴 항목: 도움말 — 접근키 H ("도움말(&H)"). 오프라인 매뉴얼 HTML.
+            let help_text: Vec<u16> = "도움말(&H)".encode_utf16().collect();
+            let _ = menu.AddMenuItem(
+                MENU_ID_HELP,
+                0,
+                HBITMAP::default(),
+                HBITMAP::default(),
+                &help_text,
+                std::ptr::null_mut(),
+            );
             // 메뉴 항목: 정보 — 접근키 I ("정보(&I)").
             let about_text: Vec<u16> = "정보(&I)".encode_utf16().collect();
             let _ = menu.AddMenuItem(
@@ -749,6 +802,11 @@ impl UnimLangBarButton_Impl {
                     crate::settings_dialog::show_settings_dialog(hwnd_parent);
                 }
             }
+            MENU_ID_HELP => {
+                // 오프라인 매뉴얼. 저 무결성 호스트에서 ShellExecute 가 막히면
+                // 설정앱(정상 무결성)으로 폴백한다.
+                open_help_or_fallback();
+            }
             MENU_ID_ABOUT => {
                 let hwnd_parent = unsafe { GetForegroundWindow() };
                 show_about_dialog(hwnd_parent);
@@ -781,6 +839,7 @@ impl UnimLangBarButton_Impl {
             add(MENU_ID_TOGGLE, "한/영 전환");
             add(MENU_ID_SET_DEFAULT, "기본 입력기로 설정");
             add(MENU_ID_SETTINGS, "설정(&S)");
+            add(MENU_ID_HELP, "도움말(&H)");
             add(MENU_ID_ABOUT, "정보(&I)");
 
             // 메뉴 소유 창. TrackPopupMenuEx 는 NULL owner 로는 메뉴를 표시하지
