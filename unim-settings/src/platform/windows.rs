@@ -12,12 +12,9 @@ use unim_windows_common::ime;
 /// OS 기본 UI 언어가 한국어(LANG_KOREAN=0x12)인지 판정.
 /// GetUserDefaultUILanguage 는 하위 10비트가 primary language id.
 pub fn ui_language_is_korean() -> bool {
-    extern "system" {
-        fn GetUserDefaultUILanguage() -> u16;
-    }
-    // SAFETY: 인자 없는 순수 조회 Win32 API.
-    let langid = unsafe { GetUserDefaultUILanguage() };
-    (langid & 0x3ff) == 0x12
+    // 판정은 unim-windows-common 한 곳에 둔다 — 언어바(unim-tsf)와 판정이 갈리면
+    // 같은 PC 에서 앱마다 다른 언어의 매뉴얼이 열린다.
+    unim_windows_common::help::ui_language_is_korean()
 }
 
 /// 단일 인스턴스 가드 (Windows). 이미 설정 창이 떠 있으면 그 창을 전면화하고

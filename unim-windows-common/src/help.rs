@@ -85,6 +85,9 @@ pub fn find_help_file(korean: bool) -> Option<std::path::PathBuf> {
 ///
 /// `lpFile` 은 단일 인자라 `C:\Program Files\...` 같은 공백 경로를 **따옴표 없이**
 /// 그대로 넘겨야 한다(따옴표를 붙이면 경로의 일부로 해석돼 실패).
+///
+/// 언어는 보통 [`ui_language_is_korean`] 으로 정한다 — 호출자마다 다른 판정을 쓰면
+/// 같은 PC 에서 언어바와 설정앱이 서로 다른 언어의 매뉴얼을 여는 사고가 난다.
 pub fn open_help(korean: bool) -> bool {
     let Some(path) = find_help_file(korean) else {
         return false;
@@ -105,6 +108,22 @@ pub fn open_help(korean: bool) -> bool {
         hinst.0 as usize > 32
     };
     ok
+}
+
+/// OS UI 언어가 한국어인지 — `GetUserDefaultUILanguage()` 하위 10비트(primary
+/// language ID)가 `0x12`(LANG_KOREAN)인지로 판정한다.
+///
+/// 언어바(`unim-tsf`)와 설정앱(`unim-settings`)이 **같은 판정**을 쓰도록 여기 한
+/// 곳에 둔다. 갈라지면 같은 PC 에서 앱마다 다른 언어의 매뉴얼이 열린다.
+/// windows-rs 의 `Win32_Globalization` 피처를 새로 켜지 않으려고 `extern` 선언을
+/// 쓴다(인자 없는 순수 조회라 바인딩 이득이 없다).
+pub fn ui_language_is_korean() -> bool {
+    extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+    }
+    // SAFETY: 인자 없는 순수 조회 Win32 API.
+    let langid = unsafe { GetUserDefaultUILanguage() };
+    (langid & 0x3ff) == 0x12
 }
 
 #[cfg(test)]

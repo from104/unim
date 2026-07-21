@@ -216,18 +216,12 @@ const MENU_ID_SETTINGS: u32 = 3;
 const MENU_ID_ABOUT: u32 = 4;
 const MENU_ID_HELP: u32 = 5;
 
-/// OS 기본 UI 언어가 한국어(LANG_KOREAN=0x12)인지 판정 — 매뉴얼 언어 선택용.
+/// OS 기본 UI 언어가 한국어인지 — 매뉴얼 언어 선택용.
 ///
-/// `unim-settings/src/platform/windows.rs::ui_language_is_korean()` 와 동일 규칙.
-/// 그 크레이트를 링크하지 않으므로(별도 exe) 여기서 최소 중복으로 둔다.
-/// windows-rs 의 `Win32_Globalization` 피처를 추가하지 않으려고 extern 선언 사용.
+/// 판정은 `unim_windows_common::help` 한 곳에 둔다. 언어바와 설정앱이 각자
+/// 판정하면 갈라질 수 있고, 그러면 같은 PC 에서 앱마다 다른 언어의 매뉴얼이 열린다.
 fn ui_language_is_korean() -> bool {
-    extern "system" {
-        fn GetUserDefaultUILanguage() -> u16;
-    }
-    // SAFETY: 인자 없는 순수 조회 Win32 API.
-    let langid = unsafe { GetUserDefaultUILanguage() };
-    (langid & 0x3ff) == 0x12
+    unim_windows_common::help::ui_language_is_korean()
 }
 
 /// 오프라인 매뉴얼을 연다. 실패하면 무결성 수준 폴백을 태운다.
