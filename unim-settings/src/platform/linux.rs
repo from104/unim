@@ -148,12 +148,12 @@ fn notify_help_unavailable(korean: bool) {
     let (summary, body) = if korean {
         (
             "UNIM 설정",
-            "도움말 파일을 찾지 못했습니다. unim-doc 패키지가 설치되어 있는지 확인해 주세요.",
+            "도움말 파일을 찾지 못했습니다. unim-common 패키지가 설치되어 있는지 확인해 주세요.",
         )
     } else {
         (
             "UNIM Settings",
-            "Could not find the help file. Check that the unim-doc package is installed.",
+            "Could not find the help file. Check that the unim-common package is installed.",
         )
     };
     eprintln!("unim-settings: {body}");
