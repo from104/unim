@@ -1,8 +1,8 @@
 # UNIM: 차세대 범용 입력기 (Universal Next-generation Input Method)
 
-![release](https://img.shields.io/badge/release-0.3.0-blue)
-![status](https://img.shields.io/badge/status-popup--unify%20%2B%20moachigi-green)
-![rust](https://img.shields.io/badge/rust-1.95%2B-orange)
+![release](https://img.shields.io/badge/release-0.4.0-blue)
+![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20(experimental)-green)
+![rust](https://img.shields.io/badge/rust-1.78%2B-orange)
 ![license](https://img.shields.io/badge/license-see%20LICENSE-lightgrey)
 
 **UNIM**은 Rust로 작성된 오픈 소스 한국어 입력기 엔진(IME)입니다. 모든 주요 플랫폼에서 한국어와 영어 사용자에게 원활하고 고성능이며 확장이 가능한 타이핑 경험을 제공하는 것을 목표로 합니다.
@@ -12,19 +12,26 @@
 > - [사용자 매뉴얼 (한국어)](docs/user/user-guide/README-ko.md) · [User Manual (English)](docs/user/user-guide/README.md)
 > - [트러블슈팅 (한국어)](docs/user/troubleshooting/README-ko.md) · [Troubleshooting](docs/user/troubleshooting/README.md)
 > - [FAQ (한국어)](docs/user/faq/README-ko.md) · [FAQ (English)](docs/user/faq/README.md)
+> - [변경 이력 (한국어)](CHANGELOG-ko.md) · [Changelog (English)](CHANGELOG.md)
 > - [0.3.0 릴리즈 노트 (한국어)](docs/user/release-notes/0.3.0/README.md) · [Release Notes (English)](docs/user/release-notes/0.3.0/README.en.md)
 >
-> 🚀 **5분 빠른 시작**: 아래 [§5. 환경 변수 설정](#5-환경-변수-설정-범용-데스크톱-환경) 또는 [사용자 매뉴얼 §2](docs/user/user-guide/README-ko.md#2-빠른-시작-5분).
+> 🚀 **5분 빠른 시작**: 아래 [설치](#-설치) 또는 [사용자 매뉴얼 §2](docs/user/user-guide/README-ko.md#2-빠른-시작-5분).
 
-## v0.3.0 주요 신기능
+## ✨ 무엇을 할 수 있나
 
 | 기능 | 요약 |
 |------|------|
-| **Popup 단일 SoT 아키텍처** | daemon → `unim-popup-service` 이관. 8개 시그널 forward, `org.atit.unim.Popup` 인터페이스. D-Bus auto-activation |
-| **GNOME extension popup_view 통합** | Wayland에서 St 위젯(`popup_view.js`)으로 자체 렌더. 팝업 외부 좌클릭 dismiss(클릭 이벤트는 아래 창에 전달) |
-| **안마태 + Moachigi v4 Atomic Window** | chord_window_ms 슬라이더 10–200ms (기본 60ms). 윈도우 만료 시 단일 결정, 중간 commit 아티팩트 없음 |
-| **AutoTypeFix 학습 blacklist** | retrigger 시점에 tentative 억제 항목 등록 + 즉시 억제. GUI "억제 단어" 페이지 |
-| **Hanja 마우스 페이지네이션 + 9×9** | ◀/▶ 버튼 전 프런트엔드 통일. Period 키로 compact ↔ expanded 81칸 전환 |
+| **한/영 전환** | 한/영 키, `Shift+Space`, 오른쪽 Alt(설정 시) — GTK·Qt·XIM·Wayland·GNOME 전 환경에서 동일하게 동작 |
+| **전환 소리 알림** | 모드가 바뀔 때 짧은 비프로 알려준다(한글 880Hz·영문 440Hz). **리눅스·Windows 모두 지원**하며 화면을 보지 않고도 현재 모드를 안다. 설정에서 끌 수 있다 |
+| **자동 오타 교정 (AutoTypeFix)** | 한/영을 깜빡하고 친 글자를 자동 복구(`dkssud` → `안녕`, 역방향도). 단축키로 즉시 켜고 끄기(**기본 `Shift+F9`**), 오교정 단어는 학습해 자동 제외 |
+| **자동 영문 전환** | 지정한 키·문자에서 영문으로 자동 전환. `Ctrl+B` 같은 **수정자 조합**도 지정 가능하며, 그 키는 앱에 그대로 전달돼 tmux prefix 등과 공존한다 |
+| **비밀번호 필드 보호** | 비밀번호 칸에 들어가면 자동으로 영문 모드가 되고, 그동안의 키는 어떤 기록에도 남지 않는다 |
+| **한자·특수문자·이모지** | 한자 키(F9)로 9칸/81칸 격자 팝업, 즐겨찾기(★), 마우스 페이지 이동. 조합 없이 누르면 이모지 팝업 |
+| **모아치기 (동시 입력)** | 안마태 등 여러 자모를 동시에 눌러 한 음절을 만드는 자판 지원. 동시 입력 시간 조절 가능 |
+| **단어 단위 입력** | 조합 확정을 음절 대신 단어 단위로. 터미널 등 위험한 곳에서는 자동으로 음절 단위로 되돌린다 |
+| **접근성** | 키를 오래 눌러 생기는 자동 반복 무시(지체장애 사용자용), 전환 소리 알림, 화면 낭독기 통지(Windows) |
+| **자판 도구** | 자판 스튜디오로 자판을 보고 편집, 타자 연습으로 속도·정확도 측정 |
+| **첫 실행 마법사** | 설치 후 첫 로그인에 자동으로 떠서 기본 입력기 지정까지 안내 |
 
 ## 🚀 최종 비전
 
@@ -43,7 +50,7 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 |----------|------|------|
 | **Core Engine** | `src/` | Rust 한글 조합/분해 로직 (2벌식, 3벌식 390/391/순아래) |
 | **AutoTypeFix** | `src/auto_typefix.rs` | 한↔영 자동 오타 교정 (forward/reverse) |
-| **억제 사전** | `src/typefix_blacklist.rs` | 롤백·재시도 관측으로 오타 교정 제외 단어 자동 학습 (`~/.config/unim/typefix-blacklist.yaml`). GTK 설정창의 "억제 단어" 페이지에서 Tentative/Confirmed/Inactive 관리 |
+| **억제 사전** | `src/typefix_blacklist.rs` | 롤백·재시도 관측으로 오타 교정 제외 단어 자동 학습 (`~/.config/unim/typefix-blacklist.yaml`). 설정 창의 "억제 단어" 페이지에서 Tentative/Confirmed/Inactive 관리 |
 | **C-API** | `unim-capi/` | Core를 C/C++에서 사용하기 위한 FFI 래퍼 |
 | **CLI** | `unim-cli/` | 한↔영 변환 + `config` 서브커맨드로 설정 관리까지 통합한 독립형 명령줄 도구 |
 
@@ -70,18 +77,27 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | 컴포넌트 | 경로 | 설명 |
 |----------|------|------|
 | **GUI Common** | `unim-gui-common/` | DBus 통신·트레이·popup 모델·설정 헬퍼 등 toolkit 무관 공통 로직 |
-| **GUI GTK** | `unim-gui-gtk/` | GTK4/libadwaita 트레이·설정 UI (GNOME·Xfce·Cinnamon 등 GTK 데스크톱) |
 | **Popup Service** | `unim-popup-service/` | 한자·특수문자·이모지 팝업 단일 렌더러 (GTK4, D-Bus auto-activation) |
 | **GNOME Extension** | `unim-gnome-extension/` | GNOME Shell 확장 (인디케이터, 오타 변환, popup_view, 설정) |
 
-#### 보조 GUI 앱 (4종)
+### Windows (실험적)
 
-UNIM은 트레이·설정 외에 키맵 관리·타자 연습을 위한 GTK4 보조 앱을 함께 제공합니다. 네 앱 모두 **고유 아이콘**과 역DNS 명명(`app_id` == `.desktop` 파일명 == 아이콘 이름)을 가져, GNOME Wayland 작업표시줄·오버뷰에서 각자의 아이콘으로 표시됩니다.
+| 컴포넌트 | 경로 | 설명 |
+|----------|------|------|
+| **TSF TIP** | `unim-tsf/` | Windows 네이티브 입력기. 조합·팝업·AutoTypeFix·설정·언어바를 단일 DLL 에 통합 (32/64비트) |
+| **IMM32 폴백** | `unim-imm32/` | 구형 IMM32 앱용 폴백 |
+
+리눅스 프런트엔드와 **같은 코어(`src/`)를 공유**한다. 실기기 검증이 진행 중인 실험적 지원이다.
+
+#### 데스크톱 앱
+
+UNIM은 입력 엔진 외에 트레이·설정·자판 관리·타자 연습 앱을 함께 제공합니다. 모두 **고유 아이콘**과 역DNS 명명(`app_id` == `.desktop` 파일명 == 아이콘 이름)을 가져, GNOME Wayland 작업표시줄·오버뷰에서 각자의 아이콘으로 표시됩니다.
 
 | 앱 | 경로 | 앱 ID | 역할 |
 |----|------|-------|------|
 | **인디케이터** | `unim-indicator/` | `io.github.from104.unim.Indicator` | 시스템 트레이 아이콘 (한/영 상태 표시) |
-| **설정** | `unim-settings-gtk/` | `io.github.from104.unim.Settings` | GTK4/libadwaita 통합 설정 창 |
+| **설정 (정식)** | `unim-settings/` | `io.github.from104.unim.SettingsSlint` | Slint 기반 통합 설정 창 + 첫 실행 마법사. 리눅스·Windows 공용 |
+| **설정 (레거시)** | `unim-settings-gtk/` | `io.github.from104.unim.Settings` | 종전 GTK4/libadwaita 설정 창. 당분간 함께 배포되나 데스크톱 메뉴에는 숨겨져 있고 추후 퇴역 예정 |
 | **키맵 스튜디오** | `unim-keymap-studio/` | `io.github.from104.unim.KeymapStudio` | 자판 보기·편집 도구 (헤더 3단 드롭다운 + 4탭) |
 | **타자 연습** | `unim-typing-practice/` | `io.github.from104.unim.TypingPractice` | 자판별 타자 연습 (키스트로크 통계) |
 
@@ -89,22 +105,30 @@ UNIM은 트레이·설정 외에 키맵 관리·타자 연습을 위한 GTK4 보
 
 | 환경 | autostart 패키지 | 한자/특수/이모지 popup | 설정 다이얼로그 |
 |------|------------------|------------------------|-----------------|
-| GNOME Wayland | unim-gnome (extension) | GNOME Shell extension popup_view.js (St 위젯) | unim-settings-gtk (Adwaita) |
-| GNOME X11 | unim-gnome (extension) | unim-popup-service (GTK4) | unim-settings-gtk (Adwaita) |
-| KDE Plasma (X11) / Xfce / MATE / Cinnamon / LXDE | unim-indicator | unim-popup-service (GTK4) | unim-settings-gtk (GTK4) |
-| KDE Plasma 6 Wayland / Sway / Hyprland 등 WM ⚠️ 실험적 | unim-indicator | unim-popup-service (GTK4, wayland-backend) | unim-settings-gtk (GTK4) |
+| GNOME Wayland | unim-gnome (extension) | GNOME Shell extension popup_view.js (St 위젯) | unim-settings (Slint) |
+| GNOME X11 | unim-gnome (extension) | unim-popup-service (GTK4) | unim-settings (Slint) |
+| KDE Plasma (X11) / Xfce / MATE / Cinnamon / LXDE | unim-indicator | unim-popup-service (GTK4) | unim-settings (Slint) |
+| KDE Plasma 6 Wayland / Sway / Hyprland 등 WM ⚠️ 실험적 | unim-indicator | unim-popup-service (GTK4, wayland-backend) | unim-settings (Slint) |
 
-> ⚠️ **환경 지원 상태 — v0.3.0 릴리스 시점**
+> ⚠️ **환경 지원 상태 — v0.4.0 릴리스 시점**
 >
 > **검증된 환경**: GNOME Shell (X11 / Wayland), 일반 X11 데스크톱 (KDE Plasma 5.x, XFCE, MATE, Cinnamon, LXDE).
 >
 > **미지원 — KDE Plasma 5.x Wayland**: 한자/특수문자/이모지 popup 은 Wayland 환경에서 `gtk4-layer-shell` 라이브러리로 위치를 지정합니다. Ubuntu 24.04 (noble) 표준 저장소에는 해당 패키지가 없어, **KDE Plasma 5.x Wayland 세션에서는 popup 이 표시되지 않습니다.** X11 세션을 사용하거나 GNOME 으로 우회해 주세요.
 >
-> **실험적 — KDE Plasma 6 Wayland / Sway / Hyprland / river 등 단독 Wayland 컴포지터**: 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 **이론상** 동작하지만, **본 0.3.0 릴리스 시점에 충분히 테스트되지 않았습니다.** popup 위치 정렬, IME 포커스 전환, layer-shell 좌표 변환 등에서 미세 회귀가 있을 수 있습니다. 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
+> **실험적 — KDE Plasma 6 Wayland / Sway / Hyprland / river 등 단독 Wayland 컴포지터**: 시스템에 `libgtk4-layer-shell` 가 설치된 상태에서 `wayland-backend` cargo feature 를 켜고 빌드하면 **이론상** 동작하지만, **아직 충분히 테스트되지 않았습니다.** popup 위치 정렬, IME 포커스 전환, layer-shell 좌표 변환 등에서 미세 회귀가 있을 수 있습니다. 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
 
-## 📦 설치 (Ubuntu/Debian)
+## 📦 설치
 
-**지원 환경**: Ubuntu 24.04 (noble) 이상 / 동급 Debian, **amd64**. (릴리스 .deb 는 noble 기준으로 빌드된다.)
+**바이너리 제공 대상** (amd64 / x86_64):
+
+| 배포판 | 최소 버전 | 패키지 |
+|--------|----------|--------|
+| Ubuntu | 24.04 (noble) | `.deb` |
+| Debian | 13 (trixie) | `.deb` |
+| Fedora | 43 | `.rpm` |
+
+> Debian 12(bookworm)는 시스템 라이브러리가 오래되어(glibc·GTK·Qt) 배포 패키지를 쓸 수 없다. 그 외 배포판(openSUSE·Arch·RHEL 계열 등)은 아래 소스 빌드를 사용한다. 설치 스크립트가 환경을 감지해 맞지 않으면 이유와 함께 안내한다.
 
 ### 한 줄 설치 (권장)
 
@@ -112,16 +136,22 @@ UNIM은 트레이·설정 외에 키맵 관리·타자 연습을 위한 GTK4 보
 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 ```
 
-특정 버전 고정:
+배포판을 감지해 apt(`.deb`) 또는 dnf(`.rpm`)로 알아서 설치한다. 불변(atomic) 시스템(Fedora Silverblue·Kinoite·Bazzite)에서는 `rpm-ostree` 레이어링으로 처리한다.
+
+**안전장치**: 모든 패키지를 **SHA256 체크섬으로 검증**하고, `mktemp` 임시 디렉토리에 격리하며, 검증 실패 시 **아무것도 설치하지 않고 중단**한다(부분 설치 없음). 시스템은 패키지 매니저 트랜잭션과 임시 디렉토리 외에는 건드리지 않는다.
 
 ```bash
+# 업데이트 (이미 최신이면 내려받지도 않는다)
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash -s -- --update
+
+# 설치 여부·최신 버전만 확인 (아무것도 바꾸지 않는다)
+curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash -s -- --check
+
+# 특정 버전 고정
 UNIM_VERSION=v0.4.0 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 ```
 
-스크립트는 GitHub Releases 에서 UNIM `.deb` 전체를 내려받아 `apt` 로 설치한다(외부 런타임 의존성 자동 해결).
-**안전장치**: 모든 `.deb` 를 **SHA256 체크섬으로 검증**하고, `mktemp` 임시 디렉토리에 격리하며, 검증 실패 시 **아무것도 설치하지 않고 중단**한다(부분 설치 없음). 시스템은 apt 트랜잭션과 임시 디렉토리 외에는 건드리지 않는다.
-
-`curl | bash` 를 신뢰하지 않는다면 스크립트를 먼저 받아 읽고 실행할 수 있다:
+`curl | bash` 를 신뢰하지 않는다면 스크립트를 먼저 받아 읽고 실행할 수 있다(전체 옵션은 `bash install.sh --help`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh -o install.sh
@@ -130,11 +160,16 @@ less install.sh && bash install.sh
 
 ### 수동 설치 (Releases)
 
-[Releases](https://github.com/from104/unim/releases) 에서 `unim*_<버전>-1_{amd64,all}.deb` 전부와 `SHA256SUMS` 를 받아 검증 후 설치:
+[Releases](https://github.com/from104/unim/releases) 에서 패키지 전체와 체크섬 매니페스트를 받아 검증 후 설치:
 
 ```bash
+# Ubuntu / Debian — unim*_<버전>-1_{amd64,all}.deb + SHA256SUMS
 sha256sum -c SHA256SUMS
 sudo apt install ./unim*.deb
+
+# Fedora — unim*-<버전>-1.fc43.{x86_64,noarch}.rpm + SHA256SUMS-rpm
+sha256sum -c SHA256SUMS-rpm
+sudo dnf install ./unim*.rpm
 ```
 
 ### 설치 후
@@ -312,8 +347,9 @@ export XMODIFIERS="@im=unim"
 ## 🗺️ 장기 로드맵
 
 1. **1~2단계 (완료)**: Rust 코어 안정화, GNOME Shell 확장, 3계층 아키텍처 + 전체 프론트엔드 (GTK3/4, Qt5/6, XIM, Wayland).
-2. **3단계 (진행 중)**: 문서화 및 안정화, Debian 패키지 개선.
-3. **4단계 (예정)**: 문맥 인식 기반의 **자동 한/영 전환 알고리즘** 구현.
+2. **3단계 (완료)**: 배포 채널 구축 — deb·rpm 패키지, 한 줄 설치 스크립트, 릴리스 CI.
+3. **4단계 (진행 중)**: Windows(TSF) 지원 안정화, 접근성 기능 확장, 문서 정비.
+4. **5단계 (예정)**: 문맥 인식 기반의 **자동 한/영 전환 알고리즘** 구현.
 
 ## 📚 예제
 
