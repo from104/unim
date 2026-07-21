@@ -1,20 +1,17 @@
 name: Windows MSI
 
+# 태그(v*) 푸시는 MSI 를 같은 GitHub Release 에 첨부한다 (linux-deb / linux-rpm
+# 과 같은 릴리스 페이지).
+#
+# push 에는 paths 필터를 두지 않는다 — paths 는 푸시에 포함된 커밋의 변경 파일로
+# 판정되는데, 기존 커밋을 가리키는 태그 푸시에는 변경 파일이 없어 릴리스 빌드가
+# 통째로 스킵될 수 있다. 릴리스 경로에 그런 모호함을 남기지 않으려고 브랜치
+# 푸시도 항상 빌드한다(공개 저장소라 러너 비용 없음). PR 에는 그대로 paths 를
+# 적용해 무관한 PR 에서 45분 잡이 도는 것만 막는다.
 on:
   push:
+    tags: ['v*']
     branches: [main, develop]
-    paths:
-      - 'unim-tsf/**'
-      - 'unim-imm32/**'
-      - 'unim-windows-common/**'
-      - 'unim-popup-win/**'
-      - 'unim-settings/**'
-      - 'unim-capi/**'
-      - 'installer/**'
-      - 'src/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/windows-msi.yml'
   pull_request:
     paths:
       - 'unim-tsf/**'
@@ -32,14 +29,25 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -Dwarnings
+  # 상시 게이트(브랜치·PR)에서는 경고를 오류로 승격하지만, 태그 빌드는 이미
+  # 태그된 코드를 '그대로' 내보내야 하므로 승격하지 않는다 — 경고 하나로 릴리스가
+  # 막히는 사고 방지 (linux-deb.yml 이 같은 이유로 -Dwarnings 를 뺀 것과 동일 정책).
+  RUSTFLAGS: ${{ startsWith(github.ref, 'refs/tags/v') && '' || '-Dwarnings' }}
   WIN_TARGET: x86_64-pc-windows-msvc
+
+# 브랜치 push·PR 은 새 커밋이 오면 이전 실행을 취소한다(최신 커밋만 의미 있음).
+# 태그(릴리스)는 취소하지 않고 끝까지 완주시킨다.
+concurrency:
+  group: windows-msi-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   build-msi:
     name: Build MSVC + WiX MSI
     runs-on: windows-2022
     timeout-minutes: 45
+    permissions:
+      contents: write  # 태그 빌드에서 softprops/action-gh-release 가 자산 첨부에 사용
 
     steps:
       - uses: actions/checkout@v4
@@ -235,3 +243,29 @@ jobs:
             target/i686-pc-windows-msvc/release/unim_imm32.ime
           if-no-files-found: error
           retention-days: 7
+
+      # ── 릴리스 첨부 (태그 빌드 전용) ──────────────────────────────────────
+      # 아티팩트는 로그인해야 받을 수 있고 보관 기간도 짧다. 일반 사용자가 받을 수
+      # 있도록 태그 빌드에서는 MSI 를 릴리스 페이지에 올린다.
+      - name: Verify tag matches workspace version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${{ steps.version.outputs.version }}"
+          if [[ "${TAG#v}" != "$VER" ]]; then
+            echo "::error::태그($TAG) 와 워크스페이스 버전($VER) 불일치."
+            exit 1
+          fi
+          echo "Release tag $TAG matches version $VER"
+
+      - name: Attach MSI to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          # body / name / make_latest 미지정 — 릴리스 본문·이름의 단일 작성자는
+          # linux-deb.yml 이다. 여기서 지정하면 먼저 만들어진 본문을 덮어쓴다.
+          # 자산은 파일명 단위로 덧붙는다.
+          files: dist/unim-${{ steps.version.outputs.version }}-x64.msi
