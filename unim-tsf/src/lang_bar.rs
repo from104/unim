@@ -235,13 +235,17 @@ fn ui_language_is_korean() -> bool {
 /// 언어바 DLL 은 msctf 가 로드하는 **임의의 호스트 프로세스** 안에서 돈다.
 /// 스토어 앱·브라우저 렌더러 같은 AppContainer/저 무결성 프로세스에서는
 /// `ShellExecuteW` 가 실패할 수 있으므로(`popup_ipc.rs` 의 AppContainer 판별과
-/// 같은 사유), 그때는 정상 무결성 프로세스인 `unim-settings.exe` 를 띄워
-/// 사용자가 그쪽 도움말 버튼으로 매뉴얼을 열 수 있게 한다.
+/// 같은 사유), 그때는 정상 무결성 프로세스인 `unim-settings.exe` 를 띄운다.
 ///
-/// 폴백에 인자를 넘기지 않는 이유: 현재 `unim-settings` 는 `--first-run` /
-/// `--whats-new` 계열만 파싱하고 도움말 전용 인자를 처리하지 않는다
-/// (`unim-settings/src/wizard.rs::parse_wizard_mode_from`). 없는 인자를 넘기면
-/// 조용히 무시될 뿐이라 "설정앱을 띄운다" 로 폴백 수준을 낮춘다.
+/// **폴백은 2단계다**: 설정 창이 열릴 뿐이고, 사용자가 사이드바 하단의
+/// [도움말] 버튼(`unim-settings/ui/settings.slint` 의 `open-help`)을 한 번 더
+/// 눌러야 매뉴얼에 도달한다. 1단계로 줄이려면 `unim-settings` 가 도움말을
+/// 곧바로 여는 CLI 인자를 지원해야 하는데, 현재 인자 파싱은
+/// `--first-run` / `--first-run-if-needed` / `--whats-new` 세 가지뿐이고
+/// (`unim-settings/src/wizard.rs::parse_wizard_mode_from`) 그 외는 무시된다.
+/// 그래서 여기서 미지원 인자를 넘기지 않는다 — 무시될 뿐인 인자가 남아 있으면
+/// "처리되는 척" 하는 코드로 오해를 낳는다. 향후 `unim-settings` 가 해당 인자를
+/// 지원하면 여기에 인자를 붙여 2단계 → 1단계로 줄일 수 있다.
 fn open_help_or_fallback() {
     if unim_windows_common::help::open_help(ui_language_is_korean()) {
         return;
