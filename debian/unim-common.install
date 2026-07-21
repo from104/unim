@@ -34,3 +34,7 @@ debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-english.svg
 # Manual pages
 debian/tmp/usr/share/man/man1/unim.1
 debian/tmp/usr/share/man/man1/unim-cli.1
+
+# 오프라인 도움말 HTML — 트레이·GNOME 확장 양쪽이 참조하며 둘 다 unim-common 에 의존
+debian/tmp/usr/share/unim/help/unim-help-ko.html
+debian/tmp/usr/share/unim/help/unim-help-en.html

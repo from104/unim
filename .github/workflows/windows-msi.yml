@@ -21,6 +21,7 @@ on:
       - 'unim-settings/**'
       - 'unim-capi/**'
       - 'installer/**'
+      - 'help/**'
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'

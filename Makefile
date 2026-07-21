@@ -137,7 +137,13 @@ check-help-html: help-html
 
 build-rust:
 	@echo "🔨 Building Rust workspace..."
-	@$(CARGO) build --release --workspace
+	# UNIM_DATADIR: unim-settings/build.rs 와 unim-gui-common/build.rs 가 이 값을
+	# 읽어 도움말 HTML 설치 경로를 컴파일 타임에 주입한다(전자는 설정앱, 후자는
+	# 트레이·인디케이터의 경로 해석기). 미전달이어도 런타임 후보(③ /usr/share →
+	# ④ /usr/local/share → ⑤ 실행 파일 조상의 help/)가 받아내지만, 비표준
+	# PREFIX(/opt/unim 등)에서는 주입이 없으면 도움말을 찾지 못한다. 두 크레이트가
+	# 모두 읽으므로 워크스페이스 빌드 전체에 넘긴다.
+	@UNIM_DATADIR=$(DATADIR) $(CARGO) build --release --workspace
 
 build-frontends: build-rust
 	@echo "🔨 Building IM Frontends..."
@@ -180,6 +186,11 @@ install-core:
 	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 \
 	               docs/man/unim-indicator.1 docs/man/unim-settings-gtk.1 docs/man/unim-settings.1 docs/man/unim-popup-service.1 \
 	               $(DESTDIR)$(PREFIX)/share/man/man1/
+	# 오프라인 도움말 HTML(ko/en). 저장소에 사전 생성·커밋된 산출물을 그대로 설치한다
+	# (생성기 tools/gen-help 는 개발 도구라 어떤 패키지의 빌드 의존성도 아니다).
+	# 트레이·GNOME 확장 양쪽이 이 경로를 참조하므로 unim-common 에 담는다.
+	install -d $(DESTDIR)$(DATADIR)/unim/help
+	install -m 644 help/unim-help-ko.html help/unim-help-en.html $(DESTDIR)$(DATADIR)/unim/help/
 
 install-frontends:
 	@echo "Installing IM modules..."
@@ -254,7 +265,11 @@ uninstall-core:
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-cli.1 \
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-indicator.1 \
 	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings-gtk.1 \
-	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-popup-service.1
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-popup-service.1 \
+	      $(DESTDIR)$(DATADIR)/unim/help/unim-help-ko.html \
+	      $(DESTDIR)$(DATADIR)/unim/help/unim-help-en.html
+	# 도움말 전용 디렉터리는 비었을 때만 정리 (rmdir 은 비어있지 않으면 실패 → 무해).
+	rmdir $(DESTDIR)$(DATADIR)/unim/help $(DESTDIR)$(DATADIR)/unim 2>/dev/null || true
 
 uninstall-frontends:
 	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/im-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so \

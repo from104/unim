@@ -315,6 +315,13 @@ pkill -u "$_user" -x unim-xim 2>/dev/null || :
 %{_mandir}/man1/unim-cli.1*
 %{_datadir}/icons/hicolor/scalable/apps/unim-korean.svg
 %{_datadir}/icons/hicolor/scalable/apps/unim-english.svg
+# 오프라인 도움말 HTML — %%install 의 %%make_install 이 install-core 에서 함께 설치하므로
+# 별도 install 지시가 불필요하다. 디렉터리도 이 패키지 소유(다른 서브패키지가
+# %%{_datadir}/unim 을 쓰지 않는다).
+%dir %{_datadir}/unim
+%dir %{_datadir}/unim/help
+%{_datadir}/unim/help/unim-help-ko.html
+%{_datadir}/unim/help/unim-help-en.html
 
 %files im-gtk
 %{_libdir}/gtk-3.0/3.0.0/immodules/im-unim.so
