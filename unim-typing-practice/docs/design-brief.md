@@ -2,7 +2,7 @@
 
 > **claude.ai Design 입력용 brief**
 > 대상 앱: `unim-typing-practice` (v0.3.0)
-> 시각 SoT: [../../DESIGN.md](../../DESIGN.md), [../../design/app.jsx](../../design/app.jsx), [../../design/template.html](../../design/template.html)
+> 시각 SoT: [DESIGN.md](../DESIGN.md), [design/app.jsx](../design/app.jsx), [design/template.html](../design/template.html)
 > 실 코드: [../src/](../src/) (GTK4 + libadwaita, Rust)
 >
 > 본 문서는 DESIGN.md(텍스트 SoT)와 design/app.jsx(라이브 React mockup SoT)의 모든 디자인 결정을 단일 문서로 모은 것이다. 새 시안/변형을 만들 때는 본 문서의 모든 토큰·치수·라벨 규칙을 우선 충족해야 한다.
@@ -573,8 +573,9 @@ entry.typing-input {
 
 ## 17. 코드 / 시안 진입점
 
-- 실 코드 (Rust): [src/main.rs](../src/main.rs) · [src/app.rs](../src/app.rs) · [src/practice_page.rs](../src/practice_page.rs) · [src/practice_engine.rs](../src/practice_engine.rs) · [src/keyboard_view.rs](../src/keyboard_view.rs) · [src/daemon_check.rs](../src/daemon_check.rs) · [src/active_layout.rs](../src/active_layout.rs) · [src/corpus.rs](../src/corpus.rs)
+- 실 코드 (Rust): [src/main.rs](../src/main.rs) · [src/app.rs](../src/app.rs) · [src/practice_page.rs](../src/practice_page.rs) · [src/practice_engine.rs](../src/practice_engine.rs) · [src/daemon_check.rs](../src/daemon_check.rs) · [src/active_layout.rs](../src/active_layout.rs) · [src/corpus.rs](../src/corpus.rs)
+- 키보드 위젯: [unim-keymap-common/src/keyboard_view.rs](../../unim-keymap-common/src/keyboard_view.rs) — 040eb8b 에서 공유 위젯으로 이관
 - i18n: [locales/ko.yml](../locales/ko.yml) · [locales/en.yml](../locales/en.yml)
 - 지문 데이터: [data/corpus_ko.txt](../data/corpus_ko.txt)
-- 시안 SoT (텍스트): [../../DESIGN.md](../../DESIGN.md)
-- 시안 SoT (라이브 React): [../../design/template.html](../../design/template.html) · [../../design/design-canvas.jsx](../../design/design-canvas.jsx) · [../../design/app.jsx](../../design/app.jsx)
+- 시안 SoT (텍스트): [DESIGN.md](../DESIGN.md)
+- 시안 SoT (라이브 React): [design/template.html](../design/template.html) · [design/design-canvas.jsx](../design/design-canvas.jsx) · [design/app.jsx](../design/app.jsx)

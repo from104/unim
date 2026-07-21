@@ -134,8 +134,8 @@ config 키 추가 표준 5지점 모두 반영:
 | 엔진 코어 | [`src/config.rs:516-540`](../../../src/config.rs#L516-L540) | `KoreanConfig.bidirectional_combine` / `.chord_window_ms` |
 | CLI | [`unim-cli/src/main.rs:443-450`](../../../unim-cli/src/main.rs#L443-L450), [1190-1212](../../../unim-cli/src/main.rs#L1190-L1212) | `ConfigKey::KoreanBidirectionalCombine` / `KoreanChordWindowMs` show/set |
 | DBus | [`unim-dbus/src/service.rs:755-763`](../../../unim-dbus/src/service.rs#L755-L763), [999-1010](../../../unim-dbus/src/service.rs#L999-L1010) | get/set 라우팅 |
-| GTK GUI | [`unim-gui-gtk/src/settings_dialog.rs:406-518`](../../../unim-gui-gtk/src/settings_dialog.rs#L406-L518) | `MoachigiHandle` 그룹 |
-| Locales (ko/en) | `unim-gui-gtk/locales/{ko,en}.yml` | `row_moachigi_*` 키 |
+| GTK GUI | [`unim-settings-gtk/src/settings_dialog.rs`](../../../unim-settings-gtk/src/settings_dialog.rs) | `MoachigiHandle` 그룹 |
+| Locales (ko/en) | `unim-settings-gtk/locales/{ko,en}.yml` | `row_moachigi_*` 키 |
 
 GNOME extension은 이 옵션을 노출하지 않는다 (extension은 Push Mode 전용 — chord는 unim-daemon에서 처리되므로 별도 UI 불필요).
 
@@ -359,7 +359,7 @@ v2 trait `HangulComposer::add_jamo_with_meta(&mut self, jamo, meta)` 그대로. 
 | `chord_idle_flush_commit` | [engine.rs](../../../src/input_engine/engine.rs), [engine_worker.rs:283](../../../unim-dbus/src/engine_worker.rs#L283) |
 | `EngineRequest::ChordIdleFlush` | [unim-dbus/src/service.rs:203, 334](../../../unim-dbus/src/service.rs), [engine_worker.rs:1639](../../../unim-dbus/src/engine_worker.rs#L1639) |
 | tokio::spawn idle 타이머 | [unim-dbus/src/service.rs:1881-1920](../../../unim-dbus/src/service.rs#L1881-L1920) |
-| GTK Moachigi group | [unim-gui-gtk/src/settings_dialog.rs:406-518](../../../unim-gui-gtk/src/settings_dialog.rs#L406-L518) |
+| GTK Moachigi group | [unim-settings-gtk/src/settings_dialog.rs](../../../unim-settings-gtk/src/settings_dialog.rs) (`MoachigiHandle`) |
 | CLI ConfigKey (set/show) | [unim-cli/src/main.rs:443, 1190-1212](../../../unim-cli/src/main.rs) |
 | DBus get/set 라우팅 | [unim-dbus/src/service.rs:755, 999](../../../unim-dbus/src/service.rs) |
 | 빌트인 안마태 자판 | [src/keystroke/keymap/ko_3bul_anmatae.json](../../../src/keystroke/keymap/ko_3bul_anmatae.json) |

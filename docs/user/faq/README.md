@@ -164,7 +164,7 @@ unim-cli config layout validate ~/.config/unim/layouts/my.json
 unim-cli config set korean.layout my
 ```
 
-Schema details: [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](../../dev/plans/LAYOUT_PROFILE_V1.md).
+Schema details: [`docs/archive/plans/LAYOUT_PROFILE_V1.md`](../../archive/plans/LAYOUT_PROFILE_V1.md).
 
 > Use `rule_sets` to bundle optional toggles with a layout. E.g. `ko_3bul390`'s `sun_arae_batchim`. The settings GUI dynamically renders a SwitchRow.
 
