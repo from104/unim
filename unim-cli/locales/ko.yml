@@ -215,7 +215,7 @@ help_cmd_blacklist_about: "AutoTypeFix 학습형 억제 목록 (블랙리스트)
 help_cmd_blacklist_long: "AutoTypeFix 블랙리스트 파일(~/.config/unim/typefix-blacklist.yaml)을 조회·관리합니다.\n\n블랙리스트는 자동 교정 후 사용자가 롤백한 단어를 기록해\n반복 오교정을 억제합니다.\n\n자식 서브커맨드:\n  list             모든 항목 표시 (상태·방향·ASCII·레이아웃)\n  remove <index>   1-based 인덱스로 항목 제거\n  clear            전체 삭제 (확인 필요)\n  path             블랙리스트 파일 경로 출력"
 
 help_cmd_trigger_about: "데몬에 액션 트리거 (외부 단축키 도구용 universal entry point)"
-help_cmd_trigger_long: "OS 단축키 도구(KDE 글로벌 단축키, Hyprland binds, Sway, xbindkeys, AutoHotkey 등)에서\n호출하기 위한 진입점입니다. 데몬의 org.atit.unim.InputMethod.TriggerAction RPC를\n호출해 현재 활성 InputContext에 액션을 발사시킵니다.\n\n지원 액션:\n  emoji_popup    이모지 팝업 표시 (현재 커서 위치)\n  (향후 hanja_popup, special_char_popup 등 확장 예정)\n\n예시:\n  unim-cli trigger emoji_popup\n\n환경별 설정 예시는 docs/user/keyboard-shortcuts.md 참고\n(KDE/Hyprland/Sway/X11 xbindkeys 모두 정리되어 있음)."
+help_cmd_trigger_long: "OS 단축키 도구(KDE 글로벌 단축키, Hyprland binds, Sway, xbindkeys, AutoHotkey 등)에서\n호출하기 위한 진입점입니다. 데몬의 org.atit.unim.InputMethod.TriggerAction RPC를\n호출해 현재 활성 InputContext에 액션을 발사시킵니다.\n\n지원 액션:\n  emoji_popup    이모지 팝업 표시 (현재 커서 위치)\n  (향후 hanja_popup, special_char_popup 등 확장 예정)\n\n예시:\n  unim-cli trigger emoji_popup\n\n환경별 설정 예시는 docs/user/keyboard-shortcuts/README-ko.md 참고\n(KDE/Hyprland/Sway/X11 xbindkeys 모두 정리되어 있음)."
 
 help_arg_trigger_action_short: "트리거할 액션 이름 (예: emoji_popup)"
 help_arg_trigger_action_long: "데몬에 전달할 액션 식별자.\n현재 지원: emoji_popup\n향후 hanja_popup, special_char_popup 등이 추가될 예정입니다.\n알 수 없는 액션을 보내면 데몬이 거부하고 비-0 종료 코드를 반환합니다."

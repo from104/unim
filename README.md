@@ -202,7 +202,7 @@ sudo dnf install ./unim*.rpm
 - 에이전트·기여자 진입점: [`AGENTS.md`](docs/dev/architecture/AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - 아키텍처 리서치: [`docs/references/research/`](docs/references/research/)
 - 실행 가능 예제: [`examples/README.md`](examples/README.md)
-- 사용자 가이드: [`docs/user/keyboard-shortcuts.md`](docs/user/keyboard-shortcuts.md) (한국어) · [`docs/user/en/keyboard-shortcuts.md`](docs/user/en/keyboard-shortcuts.md) (English) — 환경별 단축키 등록 (이모지 팝업 등)
+- 사용자 가이드: [`docs/user/keyboard-shortcuts/README-ko.md`](docs/user/keyboard-shortcuts/README-ko.md) (한국어) · [`docs/user/keyboard-shortcuts/README.md`](docs/user/keyboard-shortcuts/README.md) (English) — 환경별 단축키 등록 (이모지 팝업 등)
 
 ## 🏗️ 시스템 아키텍처 및 동작 원리
 

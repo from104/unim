@@ -2,7 +2,7 @@
 
 UNIM의 단축키는 환경(데스크톱/컴포지터)에 따라 캡처 주체가 달라집니다. 이 문서는 사용자가 환경별로 어떻게 단축키를 활성화해야 하는지 설명합니다.
 
-> 영문 버전: [`en/keyboard-shortcuts.md`](en/keyboard-shortcuts.md)
+> 영문 버전: [`README.md`](README.md)
 
 ---
 
@@ -150,7 +150,7 @@ journalctl --user -u unim-daemon -f
 
 위 `Super+.` 는 데스크톱 전역 단축키지만, 함께 설치되는 두 GTK4 자판 도구는 **앱 창 안에서만**
 동작하는 자체 단축키를 가집니다(컴포지터 등록 불필요). 자세한 사용법은
-[사용자 매뉴얼 §5.6](user-guide/README-ko.md#56-자판-도구-keymap-studio--typing-practice).
+[사용자 매뉴얼 §5.6](../user-guide/README-ko.md#56-자판-도구-keymap-studio--typing-practice).
 
 ### unim-keymap-studio (자판 보기·편집)
 
@@ -186,6 +186,6 @@ journalctl --user -u unim-daemon -f
 - 향후 추가될 액션은 `unim-cli trigger <action>` 형태로 동일하게 등록할 수 있습니다.
 
 관련 문서:
-- [`unim-cli/SPEC.md`](../../unim-cli/SPEC.md) — CLI 명세
-- [`unim-daemon/SPEC.md`](../../unim-daemon/SPEC.md) — 데몬 DBus 인터페이스
-- [`unim-gnome-extension/SPEC.md`](../../unim-gnome-extension/SPEC.md) — GNOME 확장 단축키 처리
+- [`unim-cli/SPEC.md`](../../../unim-cli/SPEC.md) — CLI 명세
+- [`unim-daemon/SPEC.md`](../../../unim-daemon/SPEC.md) — 데몬 DBus 인터페이스
+- [`unim-gnome-extension/SPEC.md`](../../../unim-gnome-extension/SPEC.md) — GNOME 확장 단축키 처리

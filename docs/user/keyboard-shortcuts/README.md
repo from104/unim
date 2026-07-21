@@ -2,7 +2,7 @@
 
 UNIM shortcuts are captured by different actors depending on your desktop / compositor environment. This document explains how to enable them on each environment.
 
-> Korean original: [`../keyboard-shortcuts.md`](../keyboard-shortcuts.md)
+> Korean original: [`README-ko.md`](README-ko.md)
 
 ---
 
