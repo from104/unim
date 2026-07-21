@@ -57,6 +57,7 @@ endef
 
 .PHONY: all help build build-rust build-frontends build-tests clean clean-all \
         gen-popup-css gen-popup-css-check \
+        help-html check-help-html \
         _check-build \
         install install-core install-frontends install-icons \
         install-indicator install-settings-gtk install-settings install-popup-service \
@@ -96,6 +97,7 @@ help:
 	@echo "  check-windows / build-windows / clean-windows  (WIN_TARGET=...)"
 	@echo "  install-gnome-extension / uninstall-gnome-extension / pack"
 	@echo "  install-systemd / enable-systemd / disable-systemd / status-systemd"
+	@echo "  help-html          Regenerate help/unim-help-{ko,en}.html from docs/user/"
 	@echo "  deb / clean / clean-all"
 
 # ─── Build ───────────────────────────────────────────────────────────────────
@@ -114,6 +116,24 @@ gen-popup-css:
 # CI guard — 토큰/template 변경 후 commit 안 한 drift 검출.
 gen-popup-css-check:
 	@python3 tools/popup-styles/gen.py --check
+
+# 오프라인 도움말 — docs/user/{user-guide,keyboard-shortcuts,faq,troubleshooting}/
+# 의 마크다운 8종을 언어별 자족 HTML 2장으로 병합한다.
+# 산출물(help/*.html)은 저장소에 커밋한다: 패키징은 파일 복사만 하므로
+# deb/rpm/MSI 에 이 생성기 의존성이 들어가지 않는다.
+help-html:
+	@echo "📖 Generating offline help HTML from docs/user/..."
+	@$(CARGO) run --release -q -p unim-gen-help -- --root . --out help
+
+# CI guard — docs/user/**.md 를 고치고 재생성을 잊은 커밋을 잡는다.
+check-help-html: help-html
+	@if ! git diff --exit-code -- help/; then \
+		echo ""; \
+		echo "❌ help/ 산출물이 docs/user/ 와 어긋났다."; \
+		echo "   → make help-html 실행 후 help/ 변경분을 함께 커밋할 것."; \
+		exit 1; \
+	fi
+	@echo "✅ help/ 산출물이 docs/user/ 와 일치한다."
 
 build-rust:
 	@echo "🔨 Building Rust workspace..."

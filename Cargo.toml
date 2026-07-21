@@ -55,6 +55,8 @@ members = [
     "unim-windows-common",
     "tests/unim-test-wayland",
     "tests/unim-test-dbus",
+    # 개발 도구 — 배포 바이너리가 아니다 (install/deb/rpm/MSI 어디에도 담기지 않는다).
+    "tools/gen-help",
 ]
 resolver = "2"
 
