@@ -198,6 +198,7 @@ sudo dnf install ./unim*.rpm
 | 공용 | IME 동작(프론트엔드 공통) | [`docs/dev/architecture/IME_BEHAVIOR.md`](docs/dev/architecture/IME_BEHAVIOR.md) |
 
 관련 리소스:
+- **문서 전체 색인**: [`docs/README.md`](docs/README.md) — 어떤 문서가 어디 있는지
 - 개발 규약 / 로깅 / 설정 동기화: [`docs/dev/architecture/GEMINI.md`](docs/dev/architecture/GEMINI.md)
 - 에이전트·기여자 진입점: [`AGENTS.md`](docs/dev/architecture/AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - 아키텍처 리서치: [`docs/references/research/`](docs/references/research/)
