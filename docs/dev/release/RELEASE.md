@@ -22,13 +22,30 @@ UNIM 정식 릴리스(`develop` → `main` 머지 + 태그 생성) 시 수행해
 
 ## 1. 버전 범프
 
+버전이 박히는 곳이 여러 군데다. **하나라도 빠지면 CI 가 막는다** — 아래를 한 번에 처리한다.
+
 ```bash
 # workspace Cargo.toml
 version = "X.Y.Z"
 
 # CHANGELOG.md: [Unreleased] → [X.Y.Z] - YYYY-MM-DD
 # CHANGELOG-ko.md: 동일 처리
+
+# debian/changelog 새 엔트리 (X.Y.Z-1)
+
+# WiX GUID/버전 재생성 — 빠뜨리면 windows-msi 의 check-wxi-guids 가 실패한다
+make wxi-guids
+
+# 도움말 HTML 재생성 — 상단 배지에 버전이 박히므로 범프 즉시 stale 이 된다.
+# 빠뜨리면 linux-ci 의 check-help-html 이 실패한다
+make help-html
+
+# 문서 안의 버전 예시(install.sh·README·유저 가이드)도 함께 확인
+grep -rn "X\.Y\.Z" README.md install.sh docs/user/ .github/workflows/
 ```
+
+> 위 두 `make` 산출물(`installer/wix/generated/guids.wxi`, `help/unim-help-*.html`)은
+> **생성물이지만 저장소에 커밋한다.** 재생성 후 커밋에 포함시킬 것.
 
 ---
 
