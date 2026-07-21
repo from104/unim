@@ -65,6 +65,9 @@ pub fn run_gtk_app(state: Arc<RwLock<IndicatorState>>, popup_rx: Arc<Mutex<Recei
                             let _ = std::process::Command::new("unim-settings").spawn();
                             let _ = &app_clone; // unused 경고 회피
                         }
+                        // 도움말은 트레이(unim-indicator)와 GNOME 확장이 연다.
+                        // popup-service 는 팝업 렌더 전용이라 이 이벤트를 받지 않는다.
+                        GuiAction::OpenHelp => {}
                         GuiAction::ShowHanjaPopup {
                             context_path,
                             target,
