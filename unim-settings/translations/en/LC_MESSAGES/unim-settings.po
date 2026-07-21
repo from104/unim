@@ -708,3 +708,9 @@ msgstr "Add rule"
 
 msgid "앱별 강제 모드 규칙 추가"
 msgstr "Add a per-app forced mode rule"
+
+msgid "도움말"
+msgstr "Help"
+
+msgid "사용 설명서 열기"
+msgstr "Open the user manual"

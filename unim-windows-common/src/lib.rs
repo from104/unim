@@ -13,5 +13,6 @@ pub mod modifier;
 pub mod debug;
 pub mod activation;
 pub mod ime;
+pub mod help;
 
 pub use activation::remove_substitute_and_assembly;

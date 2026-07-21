@@ -400,6 +400,9 @@ export component SettingsWindow inherits Window {
     callback moachigi-bidirectional-toggled(bool);
     // 접근성 프리셋(0='한 손 사용', 1='넉넉한 타이밍') 관련 config 일괄 적용.
     callback apply-accessibility-preset(int);
+    // 사이드바 하단 [도움말] → 동봉된 오프라인 매뉴얼 HTML 을 기본 브라우저로 연다.
+    // 경로 해석·언어 선택·실패 안내는 전부 Rust(platform::open_help) 책임.
+    callback open-help();
 
     // 현재 페이지(0=일반, 1=오타 교정, 2=억제 단어, 3=사용자 사전)
     property <int> current-page: 0;
@@ -515,33 +518,50 @@ export component SettingsWindow inherits Window {
                     VerticalLayout {
                         padding: Tokens.space-2;
                         spacing: Tokens.space-1;
-                        alignment: start;
-                        NavItem {
-                            label: @tr("일반");
-                            selected: root.current-page == 0;
-                            focused: root.current-page == 0 && nav-scope.has-focus;
-                            // nav-scope.focus() 제거: 페이지 전환 후 포커스를 사이드바로
-                            // 강제 이동하지 않는다. 이래야 콘텐츠 영역의 LineEdit에
-                            // 마우스 클릭 또는 Tab 으로 진입할 수 있다.
-                            clicked => { root.current-page = 0; }
+                        // 페이지 전환용 NavItem 묶음(위)과 사이드바 하단 고정 [도움말]
+                        // 사이를 스페이서로 벌린다. NavItem 은 "현재 페이지" 의미론이라
+                        // 외부 브라우저를 여는 도움말을 여기 섞으면 안 된다(위 nav-scope
+                        // 의 Math.min(3, ...) 상한도 함께 깨진다).
+                        VerticalLayout {
+                            vertical-stretch: 0;
+                            spacing: Tokens.space-1;
+                            alignment: start;
+                            NavItem {
+                                label: @tr("일반");
+                                selected: root.current-page == 0;
+                                focused: root.current-page == 0 && nav-scope.has-focus;
+                                // nav-scope.focus() 제거: 페이지 전환 후 포커스를 사이드바로
+                                // 강제 이동하지 않는다. 이래야 콘텐츠 영역의 LineEdit에
+                                // 마우스 클릭 또는 Tab 으로 진입할 수 있다.
+                                clicked => { root.current-page = 0; }
+                            }
+                            NavItem {
+                                label: @tr("오타 교정");
+                                selected: root.current-page == 1;
+                                focused: root.current-page == 1 && nav-scope.has-focus;
+                                clicked => { root.current-page = 1; }
+                            }
+                            NavItem {
+                                label: @tr("억제 단어");
+                                selected: root.current-page == 2;
+                                focused: root.current-page == 2 && nav-scope.has-focus;
+                                clicked => { root.current-page = 2; }
+                            }
+                            NavItem {
+                                label: @tr("사용자 사전");
+                                selected: root.current-page == 3;
+                                focused: root.current-page == 3 && nav-scope.has-focus;
+                                clicked => { root.current-page = 3; }
+                            }
                         }
-                        NavItem {
-                            label: @tr("오타 교정");
-                            selected: root.current-page == 1;
-                            focused: root.current-page == 1 && nav-scope.has-focus;
-                            clicked => { root.current-page = 1; }
-                        }
-                        NavItem {
-                            label: @tr("억제 단어");
-                            selected: root.current-page == 2;
-                            focused: root.current-page == 2 && nav-scope.has-focus;
-                            clicked => { root.current-page = 2; }
-                        }
-                        NavItem {
-                            label: @tr("사용자 사전");
-                            selected: root.current-page == 3;
-                            focused: root.current-page == 3 && nav-scope.has-focus;
-                            clicked => { root.current-page = 3; }
+                        // 스페이서 — 아래 [도움말] 을 사이드바 바닥에 고정한다.
+                        // 어느 페이지에 있든 버튼 위치가 고정이라 클릭 목표가 흔들리지 않는다.
+                        Rectangle { vertical-stretch: 1; }
+                        Button {
+                            vertical-stretch: 0;
+                            text: @tr("도움말");
+                            accessible-label: @tr("사용 설명서 열기");
+                            clicked => { root.open-help(); }
                         }
                     }
                 }

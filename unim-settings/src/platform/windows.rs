@@ -6,6 +6,7 @@
 //! GHA windows-msi.yml(MSVC) — skia 가 windows-gnu 프리빌트 부재라 로컬 cross 불가.
 
 use unim::config::Config;
+use unim_windows_common::help;
 use unim_windows_common::ime;
 
 /// OS 기본 UI 언어가 한국어(LANG_KOREAN=0x12)인지 판정.
@@ -77,6 +78,20 @@ pub fn acquire_singleton_or_foreground() -> bool {
 /// 스스로 reload 하므로(text_service.rs::maybe_reload_config) 별도 IPC 가 없다.
 /// Linux 백엔드와 함수 표면을 맞추기 위한 대칭 no-op.
 pub fn notify_config_saved(_cfg: &Config, _label: &str) {}
+
+/// 오프라인 매뉴얼을 기본 브라우저로 연다 (`unim-windows-common::help` 래퍼).
+/// 도움말 언어는 `ui_language_is_korean()` 을 재사용해 UI 언어와 자동 일치시킨다.
+/// 실패(파일 부재·셸 실행 실패)는 조용히 삼키지 않고 진단 로그로 남긴다.
+pub fn open_help() {
+    if !help::open_help(ui_language_is_korean()) {
+        unim_windows_common::debug::dbg_log(
+            "unim-settings",
+            "unim-settings.log",
+            "open_help: help file not found (module dir / HKLM InstallDir)",
+            true,
+        );
+    }
+}
 
 // ── 설치 마법사: 기본 입력기/언어팩 감지·설정 (unim-windows-common::ime 래퍼) ──
 // 감지/설정 헬퍼는 windows 전용 크레이트(#![cfg(windows)])에 있으므로 이 모듈은

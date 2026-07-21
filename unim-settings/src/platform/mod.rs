@@ -12,6 +12,9 @@
 //! - `acquire_singleton_or_foreground() -> bool`
 //! - `notify_config_saved(cfg: &Config, label: &str)` — 저장 후 데몬 통지
 //!   (Linux = DBus fire-and-forget, Windows·fallback = no-op)
+//! - `open_help()` — 오프라인 매뉴얼 HTML 을 기본 브라우저로 연다
+//!   (Linux = `xdg-open` + `$(DATADIR)/unim/help`, Windows = `ShellExecuteW` +
+//!    모듈 디렉터리 `help\`. 언어는 각 백엔드가 `ui_language_is_korean()` 으로 결정)
 //! - `wizard_is_default_ime() -> bool`
 //! - `wizard_set_as_default() -> bool` — 기본 입력기 지정 성공 여부
 //! - `wizard_set_default_on_startup(v: bool)`
@@ -43,6 +46,9 @@ mod fallback {
     // main.rs `persist_config` 가 저장 성공 시 무조건 호출하므로, 이 표면이 없으면
     // 제3 플랫폼 빌드가 컴파일되지 않는다. windows.rs·linux.rs 와 동일 no-op 대칭.
     pub fn notify_config_saved(_cfg: &unim::config::Config, _label: &str) {}
+    // 도움말 진입점 — 제3 플랫폼에는 동봉 매뉴얼 설치 경로 계약이 없으므로 no-op.
+    // (UI 의 [도움말] 버튼은 렌더되지만 아무 동작도 하지 않는다. 빌드 유지가 목적.)
+    pub fn open_help() {}
     pub fn wizard_is_default_ime() -> bool {
         true
     }

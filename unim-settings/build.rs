@@ -8,6 +8,15 @@ fn main() {
     slint_build::compile_with_config("ui/settings.slint", config)
         .expect("slint compile failed");
 
+    // 도움말 HTML 설치 경로(Linux). Makefile 의 PREFIX 가 가변(deb/rpm=/usr, 소스
+    // 빌드=/usr/local)이라 컴파일 타임에 실제 $(DATADIR) 를 주입받는다. 미설정이면
+    // option_env! 가 None 이 되고 런타임 후보 순회(/usr → /usr/local → 개발 폴백)가
+    // 대신 처리한다 — 즉 이 주입은 "정답을 앞에 세우는" 최적화지 필수 조건이 아니다.
+    println!("cargo:rerun-if-env-changed=UNIM_DATADIR");
+    if let Ok(datadir) = std::env::var("UNIM_DATADIR") {
+        println!("cargo:rustc-env=UNIM_DATADIR={datadir}");
+    }
+
     // Slint(winit/렌더러) 초기화가 Windows 기본 1MB 메인 스레드 스택을 초과해
     // "main has overflowed its stack"으로 죽는 알려진 이슈가 있다(특히 디버그 빌드).
     // MSVC 링커에 16MB 스택을 요청한다.

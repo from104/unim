@@ -79,6 +79,89 @@ pub fn notify_config_saved(cfg: &Config, label: &str) {
     unim_gui_common::settings_dbus::save_config_via_dbus(cfg, label);
 }
 
+// ── 오프라인 사용자 매뉴얼(HTML) ──
+
+/// 매뉴얼 파일명 — Makefile·MSI·도움말 생성기와 공유하는 고정 계약.
+const HELP_FILE_KO: &str = "unim-help-ko.html";
+const HELP_FILE_EN: &str = "unim-help-en.html";
+
+/// 매뉴얼 HTML 의 실제 경로. 후보를 순서대로 훑어 **파일이 존재하는 첫 항목**을 채택한다.
+///
+/// ① `UNIM_DATADIR`(build.rs 컴파일 타임 주입) → ② `/usr/share` → ③ `/usr/local/share`
+/// → ④ 개발 폴백(실행 파일의 조상 디렉터리에서 `help/` 탐색 — `target/debug` 든
+/// `target/release` 든 저장소 루트에 닿는다).
+///
+/// 경로를 하드코딩하지 않는 이유: Makefile 의 `PREFIX ?= /usr/local` 때문에 설치
+/// 위치가 갈린다(deb/rpm 은 `PREFIX=/usr`, 소스 빌드는 `/usr/local`). 주입값은
+/// "정답을 후보 맨 앞에 세우는" 최적화이지 필수 조건이 아니다 — 미주입이어도
+/// ②③④ 가 받아낸다.
+fn find_help_file(korean: bool) -> Option<std::path::PathBuf> {
+    let name = if korean { HELP_FILE_KO } else { HELP_FILE_EN };
+    let exe = std::env::current_exe().ok();
+    help_dir_candidates(exe.as_deref())
+        .into_iter()
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
+}
+
+/// 위 순서대로의 후보 디렉터리 목록. `exe` 는 `current_exe()`(테스트에서는 주입).
+fn help_dir_candidates(exe: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(datadir) = option_env!("UNIM_DATADIR") {
+        dirs.push(PathBuf::from(datadir).join("unim").join("help"));
+    }
+    dirs.push(PathBuf::from("/usr/share/unim/help"));
+    dirs.push(PathBuf::from("/usr/local/share/unim/help"));
+    if let Some(exe) = exe {
+        for ancestor in exe.ancestors() {
+            dirs.push(ancestor.join("help"));
+        }
+    }
+    dirs
+}
+
+/// 매뉴얼을 기본 브라우저(`xdg-open`)로 연다. 도움말 언어는 UI 언어 판정
+/// (`ui_language_is_korean`)을 그대로 재사용해 자동 일치시킨다.
+///
+/// 실패(파일 부재·`xdg-open` 미설치)를 조용히 삼키지 않는다 — 버튼을 눌렀는데
+/// 아무 일도 안 일어나는 것이 사용자에게 가장 나쁜 결과다.
+pub fn open_help() {
+    let korean = ui_language_is_korean();
+    let Some(path) = find_help_file(korean) else {
+        notify_help_unavailable(korean);
+        return;
+    };
+    if std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .is_err()
+    {
+        notify_help_unavailable(korean);
+    }
+}
+
+/// 도움말을 열지 못했을 때의 사용자 안내. stderr(터미널 실행 시)와 데스크톱 알림
+/// 양쪽에 남긴다. `notify-send` 미설치·실패는 무시(stderr 는 이미 남았다).
+fn notify_help_unavailable(korean: bool) {
+    let (summary, body) = if korean {
+        (
+            "UNIM 설정",
+            "도움말 파일을 찾지 못했습니다. unim-doc 패키지가 설치되어 있는지 확인해 주세요.",
+        )
+    } else {
+        (
+            "UNIM Settings",
+            "Could not find the help file. Check that the unim-doc package is installed.",
+        )
+    };
+    eprintln!("unim-settings: {body}");
+    let _ = std::process::Command::new("notify-send")
+        .args(["--app-name=UNIM", "--icon=unim", summary, body])
+        .spawn();
+}
+
 // ── 설치 마법사 플랫폼 훅 (Linux) ──
 // seen 버전은 XDG state 파일로(아래), 기본 입력기 판정·지정은 im-config 의 진실
 // 원본인 xinputrc(`run_im <name>`)로 실구현한다. 언어팩 감지는 Linux 에서 무의미해
@@ -253,6 +336,38 @@ pub fn set_wizard_seen_version(v: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 도움말 후보 경로의 **순서 계약**: 설치 경로(`/usr` → `/usr/local`)가 개발
+    /// 폴백보다 먼저 오고, 개발 폴백은 실행 파일에서 위로 올라가며 `help/` 를 찾는다
+    /// (`target/debug/unim-settings` → 저장소 루트). PREFIX 하드코딩 회귀 방지.
+    #[test]
+    fn help_dir_candidates_prefer_install_then_dev_fallback() {
+        let exe = std::path::Path::new("/repo/target/debug/unim-settings");
+        let dirs = help_dir_candidates(Some(exe));
+
+        let usr = dirs.iter().position(|d| d.as_os_str() == "/usr/share/unim/help");
+        let usr_local = dirs
+            .iter()
+            .position(|d| d.as_os_str() == "/usr/local/share/unim/help");
+        let repo_root = dirs.iter().position(|d| d.as_os_str() == "/repo/help");
+
+        assert!(usr.is_some() && usr_local.is_some() && repo_root.is_some());
+        assert!(usr < usr_local, "/usr 가 /usr/local 보다 먼저여야 한다");
+        assert!(usr_local < repo_root, "설치 경로가 개발 폴백보다 먼저여야 한다");
+    }
+
+    /// 도움말 HTML 이 아직 없어도(생성 전 상태) 탐색은 패닉 없이 `None` 로 흐른다 —
+    /// `open_help()` 는 그 `None` 을 받아 사용자 안내로 이어진다. `current_exe()` 를
+    /// 못 얻는 상황(`None`)도 후보 생성이 견디는지 함께 확인한다.
+    #[test]
+    fn missing_help_file_resolves_to_none_without_panic() {
+        let never_exists = "unim-help-does-not-exist.html";
+        let hit = help_dir_candidates(None)
+            .into_iter()
+            .map(|d| d.join(never_exists))
+            .find(|p| p.is_file());
+        assert!(hit.is_none());
+    }
 
     /// XDG_STATE_HOME 을 유니크 임시 디렉터리로 지정하면(절대경로) 경로 해석이
     /// 그 하위 `unim/wizard-seen-version` 로 고정된다 — HOME 폴백을 타지 않아 헐메틱.
