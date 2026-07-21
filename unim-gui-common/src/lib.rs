@@ -10,6 +10,7 @@ rust_i18n::i18n!("locales", fallback = "en");
 // dbus_client 는 tray::TrayController 를 소비하므로 tray 와 함께 게이트된다.
 #[cfg(feature = "tray")]
 pub mod dbus_client;
+pub mod help;
 pub mod popup_dbus;
 pub mod popup_position;
 pub mod popup_state;

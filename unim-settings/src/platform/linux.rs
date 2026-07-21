@@ -12,18 +12,10 @@
 use unim::config::Config;
 
 /// OS UI 언어가 한국어인지 — 로케일 환경변수로 판정.
-/// `LC_ALL` → `LC_MESSAGES` → `LANG` 순서로 **첫 비어있지 않은 값**을 채택하고,
-/// 그 값이 `ko` 프리픽스(ko / ko_KR / ko_KR.UTF-8 …)면 한국어로 본다.
+/// 트레이(`unim-indicator`)와 판정이 갈리면 같은 데스크톱에서 앱마다 다른 언어의
+/// 매뉴얼이 열리므로, 구현은 `unim_gui_common::help` 한 곳에 둔다.
 pub fn ui_language_is_korean() -> bool {
-    for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-        if let Some(val) = std::env::var_os(key) {
-            let s = val.to_string_lossy();
-            if !s.is_empty() {
-                return s.starts_with("ko");
-            }
-        }
-    }
-    false
+    unim_gui_common::help::ui_language_is_korean()
 }
 
 /// 단일 인스턴스 가드 (Linux). `$XDG_RUNTIME_DIR/unim-settings.lock` 에 대해
@@ -81,85 +73,16 @@ pub fn notify_config_saved(cfg: &Config, label: &str) {
 
 // ── 오프라인 사용자 매뉴얼(HTML) ──
 
-/// 매뉴얼 파일명 — Makefile·MSI·도움말 생성기와 공유하는 고정 계약.
-const HELP_FILE_KO: &str = "unim-help-ko.html";
-const HELP_FILE_EN: &str = "unim-help-en.html";
-
-/// 매뉴얼 HTML 의 실제 경로. 후보를 순서대로 훑어 **파일이 존재하는 첫 항목**을 채택한다.
+/// 매뉴얼을 기본 브라우저(`xdg-open`)로 연다. 경로 해석·언어 판정·실패 안내는
+/// 트레이와 공유하는 `unim_gui_common::help` 가 담당한다.
 ///
-/// ① `UNIM_DATADIR`(build.rs 컴파일 타임 주입) → ② `/usr/share` → ③ `/usr/local/share`
-/// → ④ 개발 폴백(실행 파일의 조상 디렉터리에서 `help/` 탐색 — `target/debug` 든
-/// `target/release` 든 저장소 루트에 닿는다).
-///
-/// 경로를 하드코딩하지 않는 이유: Makefile 의 `PREFIX ?= /usr/local` 때문에 설치
-/// 위치가 갈린다(deb/rpm 은 `PREFIX=/usr`, 소스 빌드는 `/usr/local`). 주입값은
-/// "정답을 후보 맨 앞에 세우는" 최적화이지 필수 조건이 아니다 — 미주입이어도
-/// ②③④ 가 받아낸다.
-fn find_help_file(korean: bool) -> Option<std::path::PathBuf> {
-    let name = if korean { HELP_FILE_KO } else { HELP_FILE_EN };
-    let exe = std::env::current_exe().ok();
-    help_dir_candidates(exe.as_deref())
-        .into_iter()
-        .map(|d| d.join(name))
-        .find(|p| p.is_file())
-}
-
-/// 위 순서대로의 후보 디렉터리 목록. `exe` 는 `current_exe()`(테스트에서는 주입).
-fn help_dir_candidates(exe: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
-    use std::path::PathBuf;
-
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(datadir) = option_env!("UNIM_DATADIR") {
-        dirs.push(PathBuf::from(datadir).join("unim").join("help"));
-    }
-    dirs.push(PathBuf::from("/usr/share/unim/help"));
-    dirs.push(PathBuf::from("/usr/local/share/unim/help"));
-    if let Some(exe) = exe {
-        for ancestor in exe.ancestors() {
-            dirs.push(ancestor.join("help"));
-        }
-    }
-    dirs
-}
-
-/// 매뉴얼을 기본 브라우저(`xdg-open`)로 연다. 도움말 언어는 UI 언어 판정
-/// (`ui_language_is_korean`)을 그대로 재사용해 자동 일치시킨다.
-///
-/// 실패(파일 부재·`xdg-open` 미설치)를 조용히 삼키지 않는다 — 버튼을 눌렀는데
-/// 아무 일도 안 일어나는 것이 사용자에게 가장 나쁜 결과다.
+/// `option_env!("UNIM_DATADIR")` 을 **여기서** 전개해 넘기는 이유: 이 매크로는
+/// 전개된 크레이트의 컴파일 환경만 읽으므로, 이 크레이트의 `build.rs` 가 주입한
+/// 값은 이 크레이트 안에서만 보인다. gui-common 도 자체 build.rs 로 같은 값을
+/// 받지만(트레이용), 둘 중 하나만 주입된 빌드에서도 비표준 PREFIX 를 놓치지
+/// 않도록 양쪽을 모두 후보에 넣는다.
 pub fn open_help() {
-    let korean = ui_language_is_korean();
-    let Some(path) = find_help_file(korean) else {
-        notify_help_unavailable(korean);
-        return;
-    };
-    if std::process::Command::new("xdg-open")
-        .arg(&path)
-        .spawn()
-        .is_err()
-    {
-        notify_help_unavailable(korean);
-    }
-}
-
-/// 도움말을 열지 못했을 때의 사용자 안내. stderr(터미널 실행 시)와 데스크톱 알림
-/// 양쪽에 남긴다. `notify-send` 미설치·실패는 무시(stderr 는 이미 남았다).
-fn notify_help_unavailable(korean: bool) {
-    let (summary, body) = if korean {
-        (
-            "UNIM 설정",
-            "도움말 파일을 찾지 못했습니다. unim-common 패키지가 설치되어 있는지 확인해 주세요.",
-        )
-    } else {
-        (
-            "UNIM Settings",
-            "Could not find the help file. Check that the unim-common package is installed.",
-        )
-    };
-    eprintln!("unim-settings: {body}");
-    let _ = std::process::Command::new("notify-send")
-        .args(["--app-name=UNIM", "--icon=unim", summary, body])
-        .spawn();
+    unim_gui_common::help::open_help(option_env!("UNIM_DATADIR"));
 }
 
 // ── 설치 마법사 플랫폼 훅 (Linux) ──
@@ -337,37 +260,8 @@ pub fn set_wizard_seen_version(v: &str) {
 mod tests {
     use super::*;
 
-    /// 도움말 후보 경로의 **순서 계약**: 설치 경로(`/usr` → `/usr/local`)가 개발
-    /// 폴백보다 먼저 오고, 개발 폴백은 실행 파일에서 위로 올라가며 `help/` 를 찾는다
-    /// (`target/debug/unim-settings` → 저장소 루트). PREFIX 하드코딩 회귀 방지.
-    #[test]
-    fn help_dir_candidates_prefer_install_then_dev_fallback() {
-        let exe = std::path::Path::new("/repo/target/debug/unim-settings");
-        let dirs = help_dir_candidates(Some(exe));
-
-        let usr = dirs.iter().position(|d| d.as_os_str() == "/usr/share/unim/help");
-        let usr_local = dirs
-            .iter()
-            .position(|d| d.as_os_str() == "/usr/local/share/unim/help");
-        let repo_root = dirs.iter().position(|d| d.as_os_str() == "/repo/help");
-
-        assert!(usr.is_some() && usr_local.is_some() && repo_root.is_some());
-        assert!(usr < usr_local, "/usr 가 /usr/local 보다 먼저여야 한다");
-        assert!(usr_local < repo_root, "설치 경로가 개발 폴백보다 먼저여야 한다");
-    }
-
-    /// 도움말 HTML 이 아직 없어도(생성 전 상태) 탐색은 패닉 없이 `None` 로 흐른다 —
-    /// `open_help()` 는 그 `None` 을 받아 사용자 안내로 이어진다. `current_exe()` 를
-    /// 못 얻는 상황(`None`)도 후보 생성이 견디는지 함께 확인한다.
-    #[test]
-    fn missing_help_file_resolves_to_none_without_panic() {
-        let never_exists = "unim-help-does-not-exist.html";
-        let hit = help_dir_candidates(None)
-            .into_iter()
-            .map(|d| d.join(never_exists))
-            .find(|p| p.is_file());
-        assert!(hit.is_none());
-    }
+    // 도움말 경로 후보의 순서 계약 테스트는 해석기와 함께
+    // `unim-gui-common/src/help.rs` 로 이동했다 (트레이·설정앱 공용).
 
     /// XDG_STATE_HOME 을 유니크 임시 디렉터리로 지정하면(절대경로) 경로 해석이
     /// 그 하위 `unim/wizard-seen-version` 로 고정된다 — HOME 폴백을 타지 않아 헐메틱.

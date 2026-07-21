@@ -266,6 +266,15 @@ impl ksni::Tray for UnimTray {
                 ..Default::default()
             }
             .into(),
+            StandardItem {
+                label: t!("tray_menu_help").into(),
+                icon_name: "help-browser".into(),
+                activate: Box::new(|_: &mut Self| {
+                    open_help();
+                }),
+                ..Default::default()
+            }
+            .into(),
             ksni::MenuItem::Separator,
             StandardItem {
                 label: t!("tray_menu_quit").into(),
@@ -286,6 +295,19 @@ fn open_settings() {
     if let Ok(tx) = SETTINGS_TX.lock() {
         if let Some(tx) = tx.as_ref() {
             let _ = tx.send(GuiAction::OpenSettings);
+        }
+    }
+}
+
+/// 오프라인 매뉴얼 열기를 호스트 이벤트 루프에 GuiAction으로 요청.
+///
+/// 이 크레이트는 툴킷 무관이라 여기서 직접 열지 않는다 — `open_settings` 와 동일한
+/// 채널을 타며, 실제 `xdg-open` 은 `unim-indicator` 의 GTK 루프가 수행한다.
+fn open_help() {
+    unim_log!("INDICATOR", "메뉴 → 도움말 열기 요청");
+    if let Ok(tx) = SETTINGS_TX.lock() {
+        if let Some(tx) = tx.as_ref() {
+            let _ = tx.send(GuiAction::OpenHelp);
         }
     }
 }

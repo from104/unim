@@ -2,6 +2,7 @@
 //!
 //! 트레이 메뉴 "설정" 클릭 시 `GuiAction::OpenSettings` 가 수신되며,
 //! 별도 `unim-settings` 프로세스를 spawn 한다. (한 책임, 한 프로세스 원칙)
+//! "도움말" 은 `GuiAction::OpenHelp` 로 와서 오프라인 매뉴얼을 기본 브라우저로 연다.
 
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
@@ -36,10 +37,16 @@ pub fn run_tray_host(popup_rx: Receiver<GuiAction>) {
     glib::timeout_add_local(Duration::from_millis(100), move || {
         if let Some(rx) = rx_cell.borrow().as_ref() {
             while let Ok(action) = rx.try_recv() {
-                if let GuiAction::OpenSettings = action {
-                    spawn_settings();
+                match action {
+                    GuiAction::OpenSettings => spawn_settings(),
+                    // 트레이는 툴킷 무관이라 여는 일만 여기서 한다. 이 크레이트에는
+                    // build.rs 가 없어 UNIM_DATADIR 주입이 없으므로 `None` 을 넘기고,
+                    // gui-common 이 자체 build.rs 로 받은 값 + /usr → /usr/local →
+                    // 개발 폴백 순회에 맡긴다.
+                    GuiAction::OpenHelp => unim_gui_common::help::open_help(None),
+                    // 그 외 액션은 트레이/DBus watcher가 별도 처리.
+                    _ => {}
                 }
-                // 그 외 액션은 트레이/DBus watcher가 별도 처리.
             }
         }
         glib::ControlFlow::Continue

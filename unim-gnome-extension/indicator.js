@@ -113,7 +113,12 @@ class UnimIndicator extends PanelMenu.Button {
         const extSettingsItem = new PopupMenu.PopupMenuItem('GNOME 확장 설정 (Extension)...');
         extSettingsItem.connect('activate', () => this._openExtensionSettings());
         this.menu.addMenuItem(extSettingsItem);
-        
+
+        // === 오프라인 사용자 매뉴얼 ===
+        const helpItem = new PopupMenu.PopupMenuItem('도움말 (Help)');
+        helpItem.connect('activate', () => this._openHelp());
+        this.menu.addMenuItem(helpItem);
+
         // 초기 메뉴 상태 업데이트
         this._updateMenuItems();
     }
@@ -369,6 +374,83 @@ class UnimIndicator extends PanelMenu.Button {
         }
     }
     
+    /**
+     * OS UI 언어가 한국어인지 — 로케일 환경변수로 판정.
+     * `LC_ALL` → `LC_MESSAGES` → `LANG` 순서로 첫 비어있지 않은 값을 채택하고,
+     * `ko` 프리픽스면 한국어로 본다.
+     *
+     * ⚠️ Rust `unim_gui_common::help::ui_language_is_korean()` 과 **동일 계약**이다.
+     * 한쪽만 고치면 같은 데스크톱에서 트레이와 확장이 서로 다른 언어의 매뉴얼을 연다.
+     */
+    _uiLanguageIsKorean() {
+        for (const key of ['LC_ALL', 'LC_MESSAGES', 'LANG']) {
+            const val = GLib.getenv(key);
+            if (val) return val.startsWith('ko');
+        }
+        return false;
+    }
+
+    /**
+     * 매뉴얼 HTML 후보 디렉터리 (우선순위 순).
+     *
+     * ⚠️ Rust `unim_gui_common::help::help_dir_candidates()` 의 순서를 복제한다.
+     * 확장은 JS 라 해석기를 공유할 수 없으므로 **순서가 계약**이며, 한쪽만 바뀌면
+     * 조용히 다른 파일(예: /usr 에 남은 구버전)이 열린다. 대응:
+     *   Rust ①② `UNIM_DATADIR`(컴파일 타임 주입) — JS 에는 대응 항목 없음(생략)
+     *   Rust ③   /usr/share/unim/help
+     *   Rust ④   /usr/local/share/unim/help
+     *   Rust ⑤   개발 폴백 — Rust 는 실행 파일, 여기서는 확장 디렉터리의 조상에서 help/
+     */
+    _helpDirCandidates() {
+        const dirs = ['/usr/share/unim/help', '/usr/local/share/unim/help'];
+        let dir = this._extension?.path ?? null;
+        while (dir && dir !== '/') {
+            dirs.push(GLib.build_filenamev([dir, 'help']));
+            dir = GLib.path_get_dirname(dir);
+        }
+        return dirs;
+    }
+
+    /**
+     * 오프라인 사용자 매뉴얼을 기본 브라우저로 연다.
+     * 파일이 존재하는 첫 후보를 채택하고, 실패는 조용히 삼키지 않는다 —
+     * 눌렀는데 아무 일도 안 일어나는 것이 사용자에게 가장 나쁜 결과다.
+     */
+    _openHelp() {
+        const korean = this._uiLanguageIsKorean();
+        // 파일명은 Makefile·MSI·도움말 생성기와 공유하는 고정 계약.
+        const name = korean ? 'unim-help-ko.html' : 'unim-help-en.html';
+        const path = this._helpDirCandidates()
+            .map(d => GLib.build_filenamev([d, name]))
+            .find(p => GLib.file_test(p, GLib.FileTest.IS_REGULAR));
+
+        if (!path) {
+            unimError('INDICATOR', ` Help file not found: ${name}`);
+            Main.notify('UNIM', korean
+                ? '도움말 파일을 찾지 못했습니다. unim-common 패키지가 설치되어 있는지 확인해 주세요.'
+                : 'Could not find the help file. Check that the unim-common package is installed.');
+            return;
+        }
+
+        const uri = Gio.File.new_for_path(path).get_uri();
+        try {
+            if (Gio.AppInfo.launch_default_for_uri(uri, null)) return;
+            unimError('INDICATOR', ' launch_default_for_uri returned false; falling back to xdg-open');
+        } catch (e) {
+            unimError('INDICATOR', ` launch_default_for_uri failed: ${e.message}`);
+        }
+
+        // 기본 핸들러가 없거나 실패한 환경(포터블·최소 설치)을 위한 폴백.
+        try {
+            GLib.spawn_async(null, ['xdg-open', path], null, GLib.SpawnFlags.SEARCH_PATH, null);
+        } catch (e) {
+            unimError('INDICATOR', ` Failed to open help: ${e.message}`);
+            Main.notify('UNIM', korean
+                ? '도움말을 열지 못했습니다.'
+                : 'Could not open the help file.');
+        }
+    }
+
     destroy() {
         // DBus 이름 감시 정리
         if (this._nameWatcherId > 0) {
