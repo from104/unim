@@ -395,20 +395,48 @@ class UnimIndicator extends PanelMenu.Button {
      *
      * ⚠️ Rust `unim_gui_common::help::help_dir_candidates()` 의 순서를 복제한다.
      * 확장은 JS 라 해석기를 공유할 수 없으므로 **순서가 계약**이며, 한쪽만 바뀌면
-     * 조용히 다른 파일(예: /usr 에 남은 구버전)이 열린다. 대응:
-     *   Rust ①② `UNIM_DATADIR`(컴파일 타임 주입) — JS 에는 대응 항목 없음(생략)
+     * 세 진입점(설정앱·트레이·확장)이 서로 다른 매뉴얼을 연다. 대응:
+     *   Rust ①② `UNIM_DATADIR`(컴파일 타임 주입) → 아래 _installDataDir() (런타임 역산)
      *   Rust ③   /usr/share/unim/help
      *   Rust ④   /usr/local/share/unim/help
      *   Rust ⑤   개발 폴백 — Rust 는 실행 파일, 여기서는 확장 디렉터리의 조상에서 help/
+     *
+     * Rust 와 동일하게 첫 등장 위치만 남긴다(우선순위 보존 + 중복 stat 제거).
      */
     _helpDirCandidates() {
-        const dirs = ['/usr/share/unim/help', '/usr/local/share/unim/help'];
+        const dirs = [];
+        const push = d => { if (!dirs.includes(d)) dirs.push(d); };
+
+        const datadir = this._installDataDir();
+        if (datadir) push(GLib.build_filenamev([datadir, 'unim', 'help']));
+        push('/usr/share/unim/help');
+        push('/usr/local/share/unim/help');
+
         let dir = this._extension?.path ?? null;
         while (dir && dir !== '/') {
-            dirs.push(GLib.build_filenamev([dir, 'help']));
+            push(GLib.build_filenamev([dir, 'help']));
             dir = GLib.path_get_dirname(dir);
         }
         return dirs;
+    }
+
+    /**
+     * 이 확장이 설치된 위치에서 $(DATADIR) 를 역산한다.
+     *
+     * Rust 쪽은 build.rs 가 `UNIM_DATADIR` 을 컴파일 타임에 주입받지만 JS 에는 그런
+     * 통로가 없다. 대신 Makefile 이 확장을
+     * `$(DATADIR)/gnome-shell/extensions/$(UUID)` 에 설치하므로, 확장 경로에서 세 단계
+     * 위가 곧 $(DATADIR) 다 — 비표준 PREFIX(`PREFIX=/opt`)에서도, 사용자 로컬 설치
+     * (`~/.local/share/gnome-shell/extensions/...`)에서도 성립한다. 이게 없으면
+     * Rust 진입점은 `/opt/share/unim/help` 를 여는데 확장만 매뉴얼을 못 찾는다.
+     */
+    _installDataDir() {
+        let dir = this._extension?.path ?? null;
+        // uuid → extensions → gnome-shell → DATADIR
+        for (let i = 0; i < 3 && dir && dir !== '/'; i++) {
+            dir = GLib.path_get_dirname(dir);
+        }
+        return dir && dir !== '/' ? dir : null;
     }
 
     /**
