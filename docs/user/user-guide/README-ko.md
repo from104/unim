@@ -77,6 +77,29 @@ systemctl --user enable --now unim-daemon.service
 
 소스 빌드는 `cargo` 1.95 이상, GTK4/libadwaita 헤더, Qt5/Qt6 개발 패키지가 필요하다. 패키지명은 배포판마다 다르니 빌드 실패 시 [`docs/user/troubleshooting/README-ko.md`](../troubleshooting/README-ko.md#빌드-실패) 참고.
 
+#### 방법 4 — Windows (실험적)
+
+> Windows 10/11 (64비트). PowerShell(또는 Windows Terminal)에서 실행한다. 설치 시점에 관리자 권한(UAC) 승인이 한 번 필요하다.
+
+```powershell
+irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+GitHub Releases 의 최신 MSI(`unim-<버전>-x64.msi`)를 내려받아 **`SHA256SUMS-msi` 로 SHA256 검증**(승격된 프로세스 안에서 한 번 더 재검증해 검증↔설치 사이 변조 차단)하고 `msiexec` 로 설치한다. 체크섬이 어긋나면 아무것도 설치하지 않고 중단한다. MSI 는 아직 코드 서명이 없어 SmartScreen 경고가 뜰 수 있다 — "추가 정보 → 실행"으로 진행한다.
+
+```powershell
+# 업데이트 (이미 최신이면 내려받지도 않는다)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Update
+
+# 설치 여부·최신 버전만 확인 (아무것도 바꾸지 않는다)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Check
+
+# 특정 버전 고정 (해당 버전 릴리스에 SHA256SUMS-msi 가 첨부돼 있어야 한다)
+$env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+Windows 지원은 실험적이다. 자세한 내용은 [README 설치 절](../../../README.md#-설치) 참고.
+
 ### 2.2 환경 변수 (GNOME 확장을 안 쓰는 모든 데스크톱)
 
 KDE Plasma·XFCE·Sway·Hyprland 등에서는 `~/.xprofile` 혹은 `/etc/environment`에 다음 세 줄을 직접 추가한다.

@@ -158,6 +158,37 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh -o ins
 less install.sh && bash install.sh
 ```
 
+### Windows 한 줄 설치 (실험적)
+
+> Windows 10/11 (64비트). PowerShell(또는 Windows Terminal)에서 실행한다. 설치 시점에 관리자 권한(UAC) 승인이 한 번 필요하다.
+
+```powershell
+irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+GitHub Releases 에서 최신 MSI(`unim-<버전>-x64.msi`)를 내려받아 `msiexec` 로 설치한다. 미설치면 설치, 이미 설치돼 있으면 최신 버전과 비교해 필요할 때만 갱신한다.
+
+**안전장치**: MSI 를 **SHA256 체크섬(`SHA256SUMS-msi`)으로 검증**하고, 관리자로 승격된 프로세스가 설치 직전 **해시를 한 번 더 확인**한 뒤(검증과 설치 사이 변조 차단) 통과한 파일만 설치한다. 검증 실패 시 **아무것도 설치하지 않고 중단**한다. MSI 는 아직 코드 서명이 없어 SmartScreen 경고가 뜰 수 있다 — "추가 정보 → 실행"으로 진행한다.
+
+```powershell
+# 업데이트 (이미 최신이면 내려받지도 않는다)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Update
+
+# 설치 여부·최신 버전만 확인 (아무것도 바꾸지 않는다)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Check
+
+# 특정 버전 고정 (해당 버전 릴리스에 SHA256SUMS-msi 가 첨부돼 있어야 한다)
+$env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+`irm | iex` 를 신뢰하지 않는다면 스크립트를 먼저 받아 읽고 실행할 수 있다:
+
+```powershell
+irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
 ### 수동 설치 (Releases)
 
 [Releases](https://github.com/from104/unim/releases) 에서 패키지 전체와 체크섬 매니페스트를 받아 검증 후 설치:
@@ -170,6 +201,14 @@ sudo apt install ./unim*.deb
 # Fedora — unim*-<버전>-1.fc43.{x86_64,noarch}.rpm + SHA256SUMS-rpm
 sha256sum -c SHA256SUMS-rpm
 sudo dnf install ./unim*.rpm
+```
+
+Windows(PowerShell) — `unim-<버전>-x64.msi` + `SHA256SUMS-msi` 를 같은 폴더에 받아 검증 후 설치:
+
+```powershell
+Get-Content SHA256SUMS-msi                         # 기대 해시 확인
+Get-FileHash unim-*-x64.msi -Algorithm SHA256      # 실제 해시와 대조 (대소문자 무시)
+msiexec /i unim-<버전>-x64.msi
 ```
 
 ### 설치 후

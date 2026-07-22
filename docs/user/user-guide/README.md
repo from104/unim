@@ -77,6 +77,29 @@ systemctl --user enable --now unim-daemon.service
 
 Source builds need `cargo` 1.95+, GTK4/libadwaita headers, and Qt5/Qt6 dev packages. Package names vary by distro; see [troubleshooting/build-failure](../troubleshooting/README.md#build-failure).
 
+#### Method 4 — Windows (experimental)
+
+> Windows 10/11 (64-bit). Run in PowerShell (or Windows Terminal). A single administrator (UAC) approval is needed at install time.
+
+```powershell
+irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+Downloads the latest MSI (`unim-<version>-x64.msi`) from GitHub Releases, **SHA256-verifies it against `SHA256SUMS-msi`** (re-checked once more inside the elevated process, which substantially narrows the verify→install tamper window), and installs it via `msiexec`. On any checksum mismatch it aborts without installing anything. The MSI is not code-signed yet, so SmartScreen may warn — choose "More info → Run anyway".
+
+```powershell
+# Update (skips the download if already up to date)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Update
+
+# Check install state / latest version only (changes nothing)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Check
+
+# Pin a specific version (that release must ship SHA256SUMS-msi)
+$env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+Windows support is experimental; see the [README install section](../../../README.md#-설치) for details.
+
 ### 2.2 Environment variables (any desktop without GNOME extension)
 
 For KDE Plasma, XFCE, Sway, Hyprland, etc., add three lines to `~/.xprofile` or `/etc/environment`:
