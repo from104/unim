@@ -342,6 +342,23 @@ systemctl --user daemon-reload
 systemctl --user enable --now unim-daemon.service
 </code></pre>
 <p>Source builds need <code>cargo</code> 1.95+, GTK4/libadwaita headers, and Qt5/Qt6 dev packages. Package names vary by distro; see <a href="#troubleshooting--build-failure">troubleshooting/build-failure</a>.</p>
+<h5 id="user-guide--method-4--windows-experimental">Method 4 — Windows (experimental)</h5>
+<blockquote>
+<p>Windows 10/11 (64-bit). Run in PowerShell (or Windows Terminal). A single administrator (UAC) approval is needed at install time.</p>
+</blockquote>
+<pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+</code></pre>
+<p>Downloads the latest MSI (<code>unim-&lt;version&gt;-x64.msi</code>) from GitHub Releases, <strong>SHA256-verifies it against <code>SHA256SUMS-msi</code></strong> (re-checked once more inside the elevated process, which substantially narrows the verify→install tamper window), and installs it via <code>msiexec</code>. On any checksum mismatch it aborts without installing anything. The MSI is not code-signed yet, so SmartScreen may warn — choose "More info → Run anyway".</p>
+<pre><code class="language-powershell"># Update (skips the download if already up to date)
+&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Update
+
+# Check install state / latest version only (changes nothing)
+&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Check
+
+# Pin a specific version (that release must ship SHA256SUMS-msi)
+$env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+</code></pre>
+<p>Windows support is experimental; see the <a href="https://github.com/from104/unim/blob/main/README.md#-%EC%84%A4%EC%B9%98">README install section</a> for details.</p>
 <h4 id="user-guide--22-environment-variables-any-desktop-without-gnome-extension">2.2 Environment variables (any desktop without GNOME extension)</h4>
 <p>For KDE Plasma, XFCE, Sway, Hyprland, etc., add three lines to <code>~/.xprofile</code> or <code>/etc/environment</code>:</p>
 <pre><code class="language-bash">export GTK_IM_MODULE=unim
