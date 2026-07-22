@@ -368,15 +368,17 @@ resolve_version() {
 	info "최신 릴리스 조회 중..." "Looking up the latest release..."
 	local json
 	if ! json="$(curl -fsSL --retry 3 --connect-timeout 15 "$API_LATEST")"; then
-		err "릴리스 조회 실패 — 네트워크/레이트리밋 확인. UNIM_VERSION=vX.Y.Z 로 버전 고정 가능." \
-		    "Failed to query the latest release — check your network / rate limit. You can pin a version with UNIM_VERSION=vX.Y.Z."
+		err "릴리스 조회 실패 — 네트워크/레이트리밋 확인 (아직 공개된 릴리스가 없을 수도 있습니다). UNIM_VERSION=vX.Y.Z 로 버전 고정 가능." \
+		    "Failed to query the latest release — check your network / rate limit (there may be no published release yet). You can pin a version with UNIM_VERSION=vX.Y.Z."
 	fi
 
 	local tag
 	if command -v jq >/dev/null 2>&1; then
 		tag="$(printf '%s' "$json" | jq -r '.tag_name // empty')"
 	else
-		tag="$(printf '%s' "$json" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)"
+		# no-jq 경로: grep 무매칭 시 pipefail+set -e 로 무메시지 조기종료되지 않도록
+		# 파이프라인 말미에 `|| true` — 빈 tag 로 아래 empty-tag 가드까지 정상 도달한다.
+		tag="$(printf '%s' "$json" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4 || true)"
 	fi
 
 	if [[ -z $tag || $tag == "null" ]]; then
