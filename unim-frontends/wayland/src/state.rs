@@ -166,8 +166,13 @@ impl AppState {
     ) -> bool {
         let keysym = self.keymap_handler.get_keysym(evdev_keycode);
         let mod_state = self.keymap_handler.mod_state;
-        // evdev keycode → hardware code (XKB 호환: +8)
-        let keycode = evdev_keycode + 8;
+        // 데몬 ProcessKey 의 keycode 는 **raw evdev** 다 (엔진 from_evdev_keycode
+        // 계약: 예 F9=67, A=30). wl_keyboard 는 이미 evdev 스캔코드를 주므로 그대로
+        // 보낸다. 종전에 XKB 호환이라며 +8(X11 하드웨어 코드)을 더했으나, 그러면
+        // from_evdev_keycode 가 엉뚱한 키로 해석해 **모든 키가 어긋났다**(GTK 는
+        // hardware_keycode-8 로 이미 raw evdev 를 보낸다). keysym 조회에만 raw
+        // evdev 가 쓰이고(위), +8 은 이 DBus 필드 외엔 미사용이라 안전한 정정.
+        let keycode = evdev_keycode;
 
         /* 팝업 키 처리는 엔진이 담당 (process_popup_key) */
 
