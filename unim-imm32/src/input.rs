@@ -11,6 +11,7 @@
 //!     returns this; `press_key` is NEVER called here.
 
 use unim::config::{Config, InputCategory};
+use unim::input_engine::AtfToggleKind;
 use unim::keycode::{KeyCode, ModifierState};
 
 use crate::ime_state::ImeContext;
@@ -158,11 +159,38 @@ pub struct KeyFeed {
 /// Mirrors the non-fallback branch of `handle_key_down`:
 ///   `press_key` → if `commit_changed` take+clear `commit_str` → read `preedit_str`.
 /// MUTATES the engine — call only from `ImeToAsciiEx`, never from the probe.
-pub fn feed_key(ctx: &mut ImeContext, cfg: &Config, vkey: u32, key_state: *const u8) -> KeyFeed {
+pub fn feed_key(ctx: &mut ImeContext, cfg: &mut Config, vkey: u32, key_state: *const u8) -> KeyFeed {
     let keycode = KeyCode::from_win32_vk(vkey as u16);
     let modifiers = get_modifier_state(key_state);
 
     let result = ctx.engine.press_key(keycode, modifiers, cfg);
+
+    // ── ATF 토글 핫키 드레인 (press_key 매칭분 소비) ──
+    // press_key 가 매칭한 ATF 토글을 여기서 소비해 config 플래그를 제자리 반전하고
+    // 영속화한다. enabled/forward/reverse 는 press_key/should_consume 이 매 키 config
+    // 에서 직접 읽으므로(엔진 캐시 아님) in-memory 반전만으로 다음 키부터 즉시 효력이
+    // 난다. save_to_default_path 는 영속화 + 타 앱 전파용.
+    //
+    // TSF(text_service.rs)와 달리 IMM32 에는 config mtime 폴링·langbar·비프 인프라가
+    // 없으므로 mtime 스냅샷 갱신과 차등 비프는 이식하지 않는다(자기 저장을 재감지하는
+    // 폴링 자체가 없어 스퓨리어스 엔진 재생성 문제도 발생하지 않는다). 저장 실패는
+    // IMM32 로깅 관례대로 로그만 남기고 삼킨다.
+    if let Some(kind) = ctx.engine.take_atf_toggle() {
+        let now_on = {
+            let atf = &mut cfg.engine.auto_typefix;
+            let flag = match kind {
+                AtfToggleKind::Enabled => &mut atf.enabled,
+                AtfToggleKind::Forward => &mut atf.forward,
+                AtfToggleKind::Reverse => &mut atf.reverse,
+            };
+            *flag = !*flag;
+            *flag
+        };
+        if let Err(e) = cfg.save_to_default_path() {
+            crate::register::dbg_log(&format!("ATF 토글 config 저장 실패: {e:?}"));
+        }
+        crate::register::dbg_log(&format!("feed_key: ATF 토글 핫키 {kind:?} → on={now_on}"));
+    }
 
     let commit = if result.commit_changed {
         let c = ctx.engine.commit_str().to_string();

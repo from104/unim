@@ -200,9 +200,9 @@ pub unsafe extern "system" fn ImeProcessKey(
     _l_key_data: LPARAM,
     lpb_key_state: *const u8,
 ) -> BOOL {
-    let cfg = ime_state::config();
+    // 락 순서 registry → config: with_context(registry) 바깥, with_config 안.
     let consume = ime_state::with_context(h_imc, |ctx| {
-        input::should_consume(ctx, cfg, v_key, lpb_key_state)
+        ime_state::with_config(|cfg| input::should_consume(ctx, cfg, v_key, lpb_key_state))
     })
     .unwrap_or(false);
 
@@ -224,10 +224,11 @@ pub unsafe extern "system" fn ImeToAsciiEx(
     _fu_state: u32,
     h_imc: HIMC,
 ) -> u32 {
-    let cfg = ime_state::config();
-
     ime_state::with_context(h_imc, |ctx| {
-        let feed = input::feed_key(ctx, cfg, u_v_key, lpb_key_state);
+        // 락 순서 registry → config: config 락은 엔진 키 처리 + ATF 토글 드레인
+        // 구간(feed_key)으로만 한정하고, 아래 build_and_emit(IMM32 메시지 방출)에는
+        // 걸치지 않는다 — 재진입 교착 배제.
+        let feed = ime_state::with_config(|cfg| input::feed_key(ctx, cfg, u_v_key, lpb_key_state));
 
         // Nothing happened at all → no messages (key falls through to the app).
         // NOTE: if the host already has a composition open (comp_open) we must

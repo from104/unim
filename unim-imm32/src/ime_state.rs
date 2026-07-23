@@ -77,8 +77,13 @@ unsafe impl Sync for SyncRegistry {}
 unsafe impl Send for SyncRegistry {}
 
 static REGISTRY: OnceLock<SyncRegistry> = OnceLock::new();
-/// Config is immutable after load; share one copy. (Reload on demand later.)
-static CONFIG: OnceLock<Config> = OnceLock::new();
+/// Process-wide config behind a `Mutex` for interior mutability. Reads (layout,
+/// 자동 한영, ATF 게이트) dominate, but the ATF 토글 핫키(Shift+F9 등) 드레인이
+/// `auto_typefix.{enabled,forward,reverse}` 를 **제자리 반전**해야 하므로 불변
+/// `OnceLock<Config>` 로는 부족하다. 접근은 [`with_config`] 를 통해서만 하고,
+/// 락 순서는 항상 **registry → config** 로 통일해 교착을 배제한다(자세히는
+/// [`with_config`] 문서).
+static CONFIG: OnceLock<Mutex<Config>> = OnceLock::new();
 /// `DllMain` stores the module handle here.
 static HINST: OnceLock<isize> = OnceLock::new();
 
@@ -99,11 +104,33 @@ fn key(himc: HIMC) -> usize {
 // public API used by lib.rs
 // ---------------------------------------------------------------------------
 
-/// Lazily-loaded, process-wide [`Config`]. Loaded from the default path on first
-/// access. Layout (두벌식/세벌식) and 자동 한영 전환 live inside this Config and are
-/// consumed entirely by the engine — IMM32 needs zero layout code.
-pub fn config() -> &'static Config {
-    CONFIG.get_or_init(Config::load_from_default_path)
+/// Lazily-loaded, process-wide [`Config`] cell. Loaded from the default path on
+/// first access. Layout (두벌식/세벌식) and 자동 한영 전환 live inside this Config
+/// and are consumed entirely by the engine — IMM32 needs zero layout code.
+#[inline]
+fn config_cell() -> &'static Mutex<Config> {
+    CONFIG.get_or_init(|| Mutex::new(Config::load_from_default_path()))
+}
+
+/// Run a closure with exclusive access to the process-wide [`Config`].
+///
+/// Config is interior-mutable so the ATF 토글 핫키 드레인(`input::feed_key`)이
+/// 플래그를 제자리 반전·persist 할 수 있다. `press_key`/`should_consume` 은 매 키
+/// config 에서 플래그를 직접 읽으므로 in-memory 반전만으로 다음 키부터 즉시 효력이
+/// 난다.
+///
+/// **락 순서 규약 — registry → config.** 두 락을 모두 잡는 경로(`on_select`,
+/// `ImeProcessKey`, `ImeToAsciiEx`)는 반드시 [`with_context`]/`registry().lock()`
+/// 을 **바깥에**, `with_config` 를 **안에** 둔다. config 락 구간은 엔진 키 처리와
+/// 플래그 반전으로만 한정하고, IMM32 메시지 방출(`composition::build_and_emit`)에는
+/// 절대 걸치지 않는다 — 그래서 재진입 교착이 성립하지 않는다. registry-only 경로는
+/// config 를 잡지 않으므로 역순도 없다.
+pub fn with_config<R>(f: impl FnOnce(&mut Config) -> R) -> R {
+    let mut guard = match config_cell().lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    f(&mut guard)
 }
 
 /// Store the module handle (called from `DllMain` on `DLL_PROCESS_ATTACH`).
@@ -125,7 +152,6 @@ pub fn on_select(himc: HIMC) {
     if himc.is_invalid() {
         return;
     }
-    let cfg = config();
     let mut reg = match registry().lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
@@ -136,7 +162,11 @@ pub fn on_select(himc: HIMC) {
             ctx.comp_open = false;
         }
         None => {
-            reg.contexts.insert(key(himc), ImeContext::new(cfg));
+            // 락 순서 registry → config: 새 엔진 생성에 필요한 config 를 registry
+            // 락 안에서 잠깐만 잡는다(`with_config` 는 `&mut Config` 를 주지만 생성은
+            // 읽기만 하므로 그대로 `&Config` 로 코어스된다).
+            let ctx = with_config(|cfg| ImeContext::new(cfg));
+            reg.contexts.insert(key(himc), ctx);
         }
     }
 }

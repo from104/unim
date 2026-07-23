@@ -436,7 +436,7 @@ clean-rpm:
 #   # 또는
 #   rustup target add x86_64-pc-windows-msvc      # msvc (lld 필요, sanity 한정)
 
-WIN_CRATES := -p unim -p unim-capi -p unim-tsf
+WIN_CRATES := -p unim -p unim-capi -p unim-tsf -p unim-imm32
 
 ifeq ($(OS),Windows_NT)
     WIN_NATIVE  := 1
