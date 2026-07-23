@@ -404,12 +404,18 @@ impl InputEngine {
     /// 소비하지 않으면 `press_key` 자체가 호출되지 않아 핫키가 죽는다. 세 목록을 합산
     /// 조회한다.
     ///
-    /// **수정자 없는(`is_bare`) 핫키만 보고한다.** 이 판정을 쓰는 Windows TSF/IMM32
-    /// 는 수정자 상태를 엔진까지 전달하지 않아 조합 표기(`Shift+F9`)가 `press_key`
-    /// 에서 결코 매칭되지 않는다. 그런데도 base 키코드(`F9`)를 소비 대상으로 보고하면
-    /// ATF 토글은 여전히 안 되면서 원래 기능(맨 `F9` 한자 변환)만 죽는다. 그래서 조합
-    /// 표기는 소비 판정에서 제외하고, 그 결과 기본값(`Shift+F9`)에서도 Windows 는
-    /// 무회귀다 — 해당 플랫폼에서는 수정자 없는 키를 지정해야 핫키가 동작한다.
+    /// **수정자 없는(`is_bare`) 핫키만 보고한다.** 이 판정은 프런트의 **소비(test)
+    /// 단계** 결정에만 쓰인다(GTK idle F키 우회 예외, Windows TSF/IMM32 OnTestKeyDown).
+    /// 여기서 조합 핫키까지 보고하면, 조합이 아닌 맥락의 맨 base 키(예 맨 `F9`)가 ATF
+    /// 로 소비돼 원래 기능(한자 변환)이 죽는다. 그래서 조합은 이 판정에서 제외한다.
+    ///
+    /// 주의(오해 방지): Windows TSF/IMM32 도 수정자 상태를 `press_key` 까지 **전달한다**
+    /// (`get_modifier_state`). 따라서 조합 핫키의 매칭 자체는 press_key 에서 가능하다 —
+    /// 단, **base 키가 다른 규칙으로 test 단계에서 독립 소비되어 OnKeyDown 이 발화될
+    /// 때에 한해서다.** 기본값 `Shift+F9` 가 TSF 에서 동작하는 것은 `F9` 가 한자키를
+    /// 겸해 test 단계에서 독립 소비되기 때문이고, 예컨대 `Shift+F8` 은 base `F8` 이
+    /// 독립 소비되지 않아 press_key 에 닿지 못해 토글되지 않는다. (IMM32 는 press_key
+    /// 매칭까지는 되나 토글 드레인이 있어야 실제 반영된다 — `input.rs` 참조.)
     pub fn is_atf_hotkey(&self, keycode: KeyCode) -> bool {
         [
             &self.atf_hotkeys_enabled,
