@@ -97,7 +97,7 @@ pub struct InputEngine {
     /// 한자 변환 트리거 키 목록 (설정 기반 — 기본 `["Hanja", "F9"]`).
     /// preedit 비었을 때는 dual-purpose 로 emoji 팝업 트리거로 동작.
     pub(super) hanja_keys: Vec<KeyCode>,
-    /// AutoTypeFix 전체(`enabled`) 토글 단축키 (설정 기반 — 기본 `Shift+F9`).
+    /// AutoTypeFix 전체(`enabled`) 토글 단축키 (설정 기반 — 기본 `Shift+F8`).
     pub(super) atf_hotkeys_enabled: Vec<AtfHotkey>,
     /// AutoTypeFix 순방향(영→한) 교정 토글 단축키 (설정 기반, 옵트인 — 기본 빈 목록).
     pub(super) atf_hotkeys_forward: Vec<AtfHotkey>,
@@ -365,15 +365,27 @@ impl InputEngine {
         EnglishKeymap::from_json(json)
     }
 
-    /// ATF 핫키 표기 목록을 `AtfHotkey` 벡터로 파싱한다 (파싱 실패분은 침묵 제외).
+    /// ATF 핫키 표기 목록을 `AtfHotkey` 벡터로 파싱한다 (파싱 실패분은 경고 로그 후 제외).
     ///
     /// ATF 토글 핫키 3목록 파싱을 생성자와 `set_atf_hotkeys` 재적용에서 공유한다.
     /// 표기 문법(`[수정자+]* <KeyName>`)과 정확-일치 규약, 수정자 키 base 배제 사유는
-    /// `InputEngine::parse_atf_hotkey` rustdoc 참조.
+    /// `InputEngine::parse_atf_hotkey` rustdoc 참조. config 적용 시점에만 불리는
+    /// cold path 라 실패 표기를 데몬 로그에 남긴다 — 오타로 핫키가 조용히 죽는 것을
+    /// 사용자가 로그로 확인할 수 있게 한다.
     pub(super) fn parse_atf_hotkeys(names: &[String]) -> Vec<AtfHotkey> {
         names
             .iter()
-            .filter_map(|name| Self::parse_atf_hotkey(name))
+            .filter_map(|name| {
+                let parsed = Self::parse_atf_hotkey(name);
+                if parsed.is_none() {
+                    crate::unim_log!(
+                        "ENGINE",
+                        "ATF 토글 단축키 '{}' 파싱 실패 — 무시됨 (문법: [Ctrl+][Alt+][Super+][Shift+]키이름, 예: Shift+F8)",
+                        name
+                    );
+                }
+                parsed
+            })
             .collect()
     }
 }
@@ -397,33 +409,22 @@ impl InputEngine {
         self.toggle_keys.contains(&keycode)
     }
 
-    /// 주어진 키코드가 설정된 AutoTypeFix 토글 단축키(전체/순방향/역방향 중 하나)인지.
+    /// 주어진 키코드+수정자 조합이 설정된 AutoTypeFix 토글 단축키(전체/순방향/역방향
+    /// 중 하나)와 **정확 일치**하는지.
     ///
     /// `is_toggle_key` 와 동일한 목적 — 프런트엔드의 소비 판정(TSF `OnTestKeyDown`,
     /// IMM32 `should_consume`)을 엔진의 `press_key` 와 정렬시킨다. 프런트엔드가 핫키를
-    /// 소비하지 않으면 `press_key` 자체가 호출되지 않아 핫키가 죽는다. 세 목록을 합산
-    /// 조회한다.
+    /// 소비하지 않으면 `press_key` 자체가 호출되지 않아 핫키가 죽는다.
     ///
-    /// **수정자 없는(`is_bare`) 핫키만 보고한다.** 이 판정은 프런트의 **소비(test)
-    /// 단계** 결정에만 쓰인다(GTK idle F키 우회 예외, Windows TSF/IMM32 OnTestKeyDown).
-    /// 여기서 조합 핫키까지 보고하면, 조합이 아닌 맥락의 맨 base 키(예 맨 `F9`)가 ATF
-    /// 로 소비돼 원래 기능(한자 변환)이 죽는다. 그래서 조합은 이 판정에서 제외한다.
-    ///
-    /// 주의(오해 방지): Windows TSF/IMM32 도 수정자 상태를 `press_key` 까지 **전달한다**
-    /// (`get_modifier_state`). 따라서 조합 핫키의 매칭 자체는 press_key 에서 가능하다 —
-    /// 단, **base 키가 다른 규칙으로 test 단계에서 독립 소비되어 OnKeyDown 이 발화될
-    /// 때에 한해서다.** 기본값 `Shift+F9` 가 TSF 에서 동작하는 것은 `F9` 가 한자키를
-    /// 겸해 test 단계에서 독립 소비되기 때문이고, 예컨대 `Shift+F8` 은 base `F8` 이
-    /// 독립 소비되지 않아 press_key 에 닿지 못해 토글되지 않는다. (IMM32 는 press_key
-    /// 매칭까지는 되나 토글 드레인이 있어야 실제 반영된다 — `input.rs` 참조.)
-    pub fn is_atf_hotkey(&self, keycode: KeyCode) -> bool {
-        [
-            &self.atf_hotkeys_enabled,
-            &self.atf_hotkeys_forward,
-            &self.atf_hotkeys_reverse,
-        ]
-        .iter()
-        .any(|list| list.iter().any(|h| h.code == keycode && h.is_bare()))
+    /// 판정은 `atf_hotkey_kind` 와 동일한 **수정자 정확 일치**다(`AtfHotkey` 규약):
+    /// 조합 표기(`Shift+F8`)는 수정자가 함께 눌린 때만, bare 표기(`F10`)는 수정자가
+    /// 전부 떼어진 때만 참이다. 그래서 조합 핫키의 맨 base 키(예 맨 `F8`, 한자키 맨
+    /// `F9`)는 소비되지 않아 원래 기능이 보존되고, 반대로 조합 자체는 test 단계에서
+    /// 소비돼 press_key 까지 도달한다 — **Linux(GNOME divert·DBus 경로)와 Windows
+    /// TSF/IMM32 가 동일하게 동작한다.** 호출부는 press/test 시점의 실제 수정자
+    /// 상태(TSF `get_modifier_state()`, IMM32 `lpbKeyState`)를 넘겨야 한다.
+    pub fn is_atf_hotkey(&self, keycode: KeyCode, modifier: ModifierState) -> bool {
+        self.atf_hotkey_kind(keycode, modifier).is_some()
     }
 
     /// ATF 토글 핫키 매칭 — 매칭된 대상 플래그를 돌려준다(비매칭 시 `None`).

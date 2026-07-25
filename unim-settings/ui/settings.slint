@@ -262,6 +262,7 @@ export global Tr {
     public pure function save-failed(err: string) -> string { @tr("저장 실패: {}", err) }
     public pure function strength-applied(name: string) -> string { @tr("{} 강도를 적용했습니다.", name) }
     public pure function moachigi-window-set(ms: int) -> string { @tr("모아치기 조합창을 {}ms 로 설정했습니다.", ms) }
+    public pure function atf-hotkey-invalid(keys: string) -> string { @tr("잘못된 오타 교정 토글 키(무시됨): {} — 예: Shift+F8, Ctrl+Left", keys) }
     public pure function blacklist-entry(ascii: string, dir: string, st: string, hits: int) -> string {
         @tr("{}    [{} · {}]    감지 {}회", ascii, dir, st, hits)
     }

@@ -126,19 +126,15 @@ pub fn test_key_down(
         }
     }
 
-    // AutoTypeFix 토글 단축키(옵트인)도 소비 — press_key 의 atf_hotkey_kind 매칭과
-    // 동일한 shortcut_combo 가드로 정렬한다. 소비하지 않으면(OnTestKeyDown=FALSE)
-    // 대부분의 앱이 OnKeyDown 을 호출하지 않아 press_key 자체가 불리지 않고 핫키가
-    // 죽는다(is_toggle 선례 — engine.rs is_atf_hotkey 주석 명시). 기본 빈 목록이면
-    // is_atf_hotkey=false 라 항상 통과 → 무회귀.
-    if engine.is_atf_hotkey(keycode) {
-        let self_is_modifier = keycode.is_modifier();
-        let shortcut_combo = modifiers.control
-            || modifiers.super_key
-            || (modifiers.alt && !self_is_modifier);
-        if !shortcut_combo {
-            return true;
-        }
+    // AutoTypeFix 토글 단축키도 소비 — press_key 의 atf_hotkey_kind 와 동일한
+    // **수정자 정확-일치** 판정이라 Linux 와 같은 조합(기본 `Shift+F8`, `Ctrl+F7`
+    // 등)이 그대로 동작한다. 소비하지 않으면(OnTestKeyDown=FALSE) 대부분의 앱이
+    // OnKeyDown 을 호출하지 않아 press_key 자체가 불리지 않고 핫키가 죽는다
+    // (is_toggle 선례 — engine.rs is_atf_hotkey 주석 명시). 정확-일치라 조합의 맨
+    // base 키(맨 F8)나 미설정 조합은 소비되지 않고, 목록이 비면 항상 false → 무회귀.
+    // 이 분기는 아래 Ctrl/Alt/Super 통과보다 앞서야 조합 핫키가 살아남는다.
+    if engine.is_atf_hotkey(keycode, modifiers) {
+        return true;
     }
 
     // Ctrl/Alt/Super 조합은 통과 (단축키)

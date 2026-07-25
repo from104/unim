@@ -913,7 +913,7 @@ fn atf_hotkey_warnings(keys: &[String], config: &UnimConfig) -> (Vec<String>, bo
         if is_input_key && !has_modifier {
             warnings.push(t!("atf_hotkey_warn_input_key", key = name.clone()).to_string());
         }
-        // 중복 판정도 수정자까지 본다 — 기본값 `Shift+F9` 는 한자키 `F9` 와 공존한다.
+        // 중복 판정도 수정자까지 본다 — `Shift+F9` 같은 조합은 한자키 `F9` 와 공존한다.
         let dup = !has_modifier
             && config
                 .engine

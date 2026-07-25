@@ -41,8 +41,9 @@ pub fn get_modifier_state(key_state: *const u8) -> ModifierState {
 /// Decision order (identical to TSF, minus popup which IMM32 wires later):
 ///  - modifier-only key → false
 ///  - Ctrl+Shift+Space (manual AutoTypeFix) → true
-///  - Ctrl/Alt/Super combo → false (system shortcut)
 ///  - 한/영 (VK_HANGUL) → true
+///  - ATF 토글 핫키 (수정자 정확 일치 — 조합 포함) → true
+///  - Ctrl/Alt/Super combo → false (system shortcut)
 ///  - Hanja / F9 → true
 ///  - Korean mode + character key → true
 ///  - English mode + character key + AutoTypeFix forward → true
@@ -88,6 +89,16 @@ pub fn should_consume(ctx: &ImeContext, cfg: &Config, vkey: u32, key_state: *con
         if !shortcut_combo {
             return true;
         }
+    }
+
+    // AutoTypeFix 토글 단축키 — press_key 의 atf_hotkey_kind 와 동일한 **수정자
+    // 정확-일치** 판정(test_key_down 과 동일)이라 조합 표기(기본 `Shift+F8` 등)가
+    // Linux 와 그대로 동작한다. 소비하지 않으면 앱이 ImeToAsciiEx 를 호출하지 않아
+    // press_key 매칭 자체가 불가능하다. 정확-일치라 조합의 맨 base 키·미설정 조합은
+    // 소비되지 않고, 목록이 비면 항상 false → 무회귀. 아래 Ctrl/Alt/Super 통과보다
+    // 앞서야 조합 핫키가 살아남는다.
+    if engine.is_atf_hotkey(keycode, modifiers) {
+        return true;
     }
 
     // Ctrl/Alt/Super 조합은 통과 (단축키)

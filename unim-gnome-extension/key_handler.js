@@ -131,6 +131,43 @@ function parseComboTrigger(spec) {
     return { name: base, ctrl, alt, superKey, shift };
 }
 
+/**
+ * ATF 토글 단축키 표기 1건을 파싱한다 (press_key.rs::parse_atf_hotkey 미러).
+ *
+ * parseComboTrigger(auto_english)와 문법이 다르다:
+ * - `key:` 접두사 없음 (raw 설정 문자열)
+ * - `"Shift<Name>"` 융합형 미지원 — shift 는 `Shift+` 토큰으로만
+ * - 네 수정자 전부 정확 일치(등장=필수, 미등장=금지) — shift 3태 없음
+ * - 구분자 `+` 우선, `+` 가 전혀 없으면 `-` 폴백 (engine 과 동일)
+ *
+ * Ctrl/Alt/Super 를 포함한 조합만 반환한다 — bare·Shift 단독 조합은 blanket
+ * bypass 대상이 아니어서 divert 가 필요 없다(정상 경로가 이미 engine 에 전달).
+ *
+ * @param {string} spec - 예: "Ctrl+Left", "Ctrl-Left", "Alt+F5"
+ * @returns {{name:string, ctrl:boolean, alt:boolean, superKey:boolean, shift:boolean}|null}
+ */
+function parseAtfComboHotkey(spec) {
+    if (typeof spec !== 'string') return null;
+    const sep = spec.includes('+') ? '+' : '-';
+    const tokens = spec.split(sep).map((t) => t.trim());
+    const base = tokens.pop();
+    let ctrl = false;
+    let alt = false;
+    let superKey = false;
+    let shift = false;
+    for (const tok of tokens) {
+        const t = tok.toLowerCase();
+        if (t === 'ctrl' || t === 'control') ctrl = true;
+        else if (t === 'alt') alt = true;
+        else if (t === 'super' || t === 'win' || t === 'meta') superKey = true;
+        else if (t === 'shift') shift = true;
+        else return null;                        // 미지 modifier 토큰
+    }
+    if (!ctrl && !alt && !superKey) return null; // bypass 비대상 — divert 불요
+    if (!VALID_KEY_NAMES.has(base)) return null; // 빈/미지/수정자 base
+    return { name: base, ctrl, alt, superKey, shift };
+}
+
 
 
 
@@ -292,7 +329,10 @@ export class KeyHandler {
 
         // 3. Ctrl/Alt/Super 조합 → 키를 먼저 전달한 후 조합 flush
         //    (고정키 사용 시 _flushCompose의 call_sync 중 modifier가 해제되는 것을 방지)
-        if (state & BYPASS_MODIFIER_MASK) {
+        //    예외: ATF 토글 조합(예: Ctrl+Left)은 bypass 를 건너뛰고 6번 일반
+        //    ProcessKeyEvent 경로로 — engine 정확-일치(atf_hotkey_kind)가 소비를
+        //    판정하고, 불일치면 consumed=false 로 종전처럼 앱에 전달된다.
+        if ((state & BYPASS_MODIFIER_MASK) && !this._matchesAtfHotkey(keycode, state)) {
             // 3a. auto_english 조합 트리거(예: `key:Ctrl+B`)면 키를 먼저 앱으로 전달
             //     (고정키 순서 보존)한 뒤 engine 으로 divert 해 한→영 전환.
             if (this._matchesAutoEnglishCombo(keycode, state)) {
@@ -394,7 +434,8 @@ export class KeyHandler {
                 continue;
             }
 
-            if (entry.state & BYPASS_MODIFIER_MASK) {
+            if ((entry.state & BYPASS_MODIFIER_MASK)
+                && !this._matchesAtfHotkey(entry.keycode, entry.state)) {
                 // auto_english 조합 트리거면 divert (키는 앱으로 통과).
                 if (this._matchesAutoEnglishCombo(entry.keycode, entry.state)) {
                     this._inputMethod.notify_key_event(entry.event, false);
@@ -558,6 +599,62 @@ export class KeyHandler {
     }
 
     /**
+     * ATF 토글 단축키(Ctrl/Alt/Super 조합)인지 판정한다 — auto_english divert 와
+     * 같은 selective-bypass 예외. true 면 호출부가 blanket bypass 를 건너뛰어 키가
+     * 일반 ProcessKeyEvent 경로로 가고, 최종 판정은 engine 의 정확-일치
+     * (`atf_hotkey_kind`)가 내린다: engine 매칭 시 consumed=true 로 키 소비(앱
+     * 미전달 — auto_english 와 달리 토글키는 앱에 가면 안 된다), 불일치 시
+     * consumed=false 로 종전처럼 앱 전달. 그래서 mirror 의 드문 false-positive 도
+     * 앱 단축키를 죽이지 않는다.
+     *
+     * `auto_typefix.enabled` 는 보지 않는다 — 꺼진 ATF 를 켜는 것이 토글키의
+     * 존재 이유다. Shift 단독 조합·bare 키는 bypass 대상이 아니므로 검사하지
+     * 않는다(이미 정상 경로).
+     *
+     * @param {number} evdevKeycode
+     * @param {number} state - Clutter modifier 비트필드
+     * @returns {boolean}
+     * @private
+     */
+    _matchesAtfHotkey(evdevKeycode, state) {
+        try {
+            const cfg = this._dbusIME ? this._dbusIME.getCachedConfig() : null;
+            const atf = cfg && cfg.engine ? cfg.engine.auto_typefix : null;
+            if (!atf) return false;
+            const name = EVDEV_TO_KEYNAME.get(evdevKeycode);
+            if (!name) return false;
+            const ctrl = (state & X11_CONTROL_MASK) !== 0;
+            const alt = (state & X11_MOD1_MASK) !== 0;
+            const superKey = (state & X11_MOD4_MASK) !== 0;
+            const shift = (state & X11_SHIFT_MASK) !== 0;
+            // Ctrl/Alt/Super 전무 → bypass 분기 자체에 안 들어오지만 방어적으로.
+            if (!ctrl && !alt && !superKey) return false;
+            const lists = [
+                atf.toggle_enabled_keys,
+                atf.toggle_forward_keys,
+                atf.toggle_reverse_keys,
+            ];
+            for (const list of lists) {
+                if (!Array.isArray(list)) continue;
+                for (const spec of list) {
+                    const h = parseAtfComboHotkey(spec);
+                    if (h && h.name === name
+                        && h.ctrl === ctrl
+                        && h.alt === alt
+                        && h.superKey === superKey
+                        && h.shift === shift) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } catch (e) {
+            unimError('KEY', `ATF 조합 매칭 오류(무시): ${e.message}`);
+            return false;
+        }
+    }
+
+    /**
      * Backend에서 원래 IM 복원
      * @private
      */
@@ -661,7 +758,9 @@ export class KeyHandler {
         // 2. 팝업 활성 시에도 ProcessKeyEvent로 fall-through (이중 처리 방지)
 
         // 3. Ctrl/Alt/Super 조합 → 조합 중이면 커밋 후 바이패스
-        if (state & BYPASS_MODIFIER_MASK) {
+        //    예외: ATF 토글 조합은 bypass 를 건너뛰고 6번 ProcessKeyEvent 경로로
+        //    (engine 정확-일치가 소비 판정 — consumed 면 EVENT_STOP).
+        if ((state & BYPASS_MODIFIER_MASK) && !this._matchesAtfHotkey(evdevKeycode, state)) {
             // 3a. auto_english 조합 트리거면 engine 으로 divert(모드 전환). 키는
             //     PROPAGATE 로 앱에 전달되므로 별도 forward 불필요.
             if (this._matchesAutoEnglishCombo(evdevKeycode, state)) {

@@ -912,7 +912,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         // 억제한다 — 홀드 시 ATF 전체/순방향/역방향이 수십 번 뒤집히는 것을 KF_REPEAT
         // 비트로 차단한다(코어 디바운스와 이중 방어). 소비는 유지해 키가 앱으로 새지 않는다.
         if is_key_repeat(lparam)
-            && (engine.is_atf_hotkey(kc)
+            && (engine.is_atf_hotkey(kc, crate::key_handler::get_modifier_state())
                 || (config.engine.ignore_key_repeat
                     && (engine.is_toggle_key(kc)
                         || (kc.is_character_key()
@@ -1157,7 +1157,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         {
             let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
             if is_key_repeat(lparam)
-                && (engine.is_atf_hotkey(kc)
+                && (engine.is_atf_hotkey(kc, crate::key_handler::get_modifier_state())
                     || (config.engine.ignore_key_repeat
                         && (engine.is_toggle_key(kc)
                             || (kc.is_character_key()

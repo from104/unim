@@ -6,8 +6,8 @@
 //! 적재한다(호스트가 `take_atf_toggle()` 로 드레인). 이 모듈은 ① 각 kind 매칭→소비+
 //! 드레인 1회성, ② 설정에 없는 수정자 조합의 통과(미소비 — 앱 단축키 보호), ③ 조합
 //! 표기(`Shift+F9`)의 매칭과 base 키(맨 `F9`) 미매칭, ④ 파서 규칙(대소문자·순서
-//! 무관, 잘못된 표기 거부), ⑤ 기본값 `Shift+F9`, ⑥ 오토리핏 디바운스,
-//! ⑦ `set_atf_hotkeys` 재적용을 고정한다.
+//! 무관, `-` 폴백 구분자, 잘못된 표기 거부), ⑤ 기본값 `Shift+F8`, ⑥ 오토리핏
+//! 디바운스, ⑦ `set_atf_hotkeys` 재적용을 고정한다.
 
 use super::types::AtfToggleKind;
 use super::InputEngine;
@@ -41,30 +41,39 @@ fn mods_shift() -> ModifierState {
 fn is_atf_hotkey_reports_configured_keys() {
     let config = config_with_atf_hotkeys(&["F10"], &["F11"], &["F12"]);
     let engine = InputEngine::new(&config);
-    assert!(engine.is_atf_hotkey(KeyCode::F10));
-    assert!(engine.is_atf_hotkey(KeyCode::F11));
-    assert!(engine.is_atf_hotkey(KeyCode::F12));
-    assert!(!engine.is_atf_hotkey(KeyCode::A));
+    let bare = ModifierState::default();
+    assert!(engine.is_atf_hotkey(KeyCode::F10, bare));
+    assert!(engine.is_atf_hotkey(KeyCode::F11, bare));
+    assert!(engine.is_atf_hotkey(KeyCode::F12, bare));
+    assert!(!engine.is_atf_hotkey(KeyCode::A, bare));
     // 빈 목록 엔진은 어떤 키도 ATF 핫키가 아니다.
     let plain = InputEngine::new(&config_without_atf_hotkeys());
-    assert!(!plain.is_atf_hotkey(KeyCode::F10));
+    assert!(!plain.is_atf_hotkey(KeyCode::F10, bare));
 }
 
 #[test]
-fn is_atf_hotkey_excludes_modifier_combos() {
-    // 조합 표기의 base 키코드는 소비 판정에서 제외된다. 이 판정을 쓰는 Windows
-    // TSF/IMM32 는 수정자를 엔진에 전달하지 않아 조합이 press_key 에서 매칭될 수
-    // 없는데, base(F9)를 소비해 버리면 ATF 는 여전히 안 되면서 맨 F9 한자만 죽는다.
+fn is_atf_hotkey_matches_exact_modifiers() {
+    // 소비(test) 판정도 press_key 와 같은 **수정자 정확 일치**다. 이 판정을 쓰는
+    // Windows TSF/IMM32 가 조합 표기를 test 단계에서 소비해야 press_key 에 도달해
+    // Linux 와 동일하게 동작한다. 반대로 조합의 맨 base 키(맨 F8, 한자키 맨 F9)는
+    // 소비되지 않아야 원래 기능(한자 변환 등)이 보존된다.
     let config = config_with_atf_hotkeys(&["Shift+F9"], &[], &[]);
     let engine = InputEngine::new(&config);
     assert!(
-        !engine.is_atf_hotkey(KeyCode::F9),
-        "조합 표기의 base 키는 프런트엔드 소비 대상이 아니어야 함(맨 F9 한자 보존)"
+        engine.is_atf_hotkey(KeyCode::F9, mods_shift()),
+        "조합 표기는 수정자가 함께 눌린 때 소비 대상이어야 함"
+    );
+    assert!(
+        !engine.is_atf_hotkey(KeyCode::F9, ModifierState::default()),
+        "조합 표기의 맨 base 키는 소비 대상이 아니어야 함(맨 F9 한자 보존)"
     );
 
-    // 기본값(Shift+F9)에서도 동일 — Windows 무회귀.
+    // 기본값(Shift+F8): 조합만 소비, 맨 F8·맨 F9 는 비소비 — Windows 무회귀.
     let default_engine = InputEngine::new(&Config::default());
-    assert!(!default_engine.is_atf_hotkey(KeyCode::F9));
+    assert!(default_engine.is_atf_hotkey(KeyCode::F8, mods_shift()));
+    assert!(!default_engine.is_atf_hotkey(KeyCode::F8, ModifierState::default()));
+    assert!(!default_engine.is_atf_hotkey(KeyCode::F9, mods_shift()));
+    assert!(!default_engine.is_atf_hotkey(KeyCode::F9, ModifierState::default()));
 }
 
 #[test]
@@ -270,6 +279,53 @@ fn parser_accepts_super_aliases() {
 }
 
 #[test]
+fn parser_accepts_hyphen_separator_fallback() {
+    // '+' 가 전혀 없는 표기는 '-' 를 대체 구분자로 허용한다("Ctrl-Left" 관용 표기).
+    let mods_ctrl = ModifierState {
+        control: true,
+        ..ModifierState::default()
+    };
+    for (spec, key, mods) in [
+        ("Ctrl-Left", KeyCode::Left, mods_ctrl),
+        ("Shift-F8", KeyCode::F8, mods_shift()),
+    ] {
+        let config = config_with_atf_hotkeys(&[spec], &[], &[]);
+        let mut engine = InputEngine::new(&config);
+        let r = engine.press_key(key, mods, &config);
+        assert!(r.consumed, "'{spec}' 하이픈 표기가 매칭되어야 함");
+        assert_eq!(
+            engine.take_atf_toggle(),
+            Some(AtfToggleKind::Enabled),
+            "'{spec}' 하이픈 표기가 Enabled 토글을 적재해야 함"
+        );
+    }
+
+    // 다중 수정자 + 대소문자 무관도 '+' 경로와 동일하게 동작.
+    let config = config_with_atf_hotkeys(&["ctrl-shift-F8"], &[], &[]);
+    let mut engine = InputEngine::new(&config);
+    engine.press_key(
+        KeyCode::F8,
+        ModifierState {
+            control: true,
+            shift: true,
+            ..ModifierState::default()
+        },
+        &config,
+    );
+    assert_eq!(engine.take_atf_toggle(), Some(AtfToggleKind::Enabled));
+
+    // 혼용 표기는 '+' 분할이 우선이라 base "Shift-F8" 이 미지 이름 → 종전대로 배제.
+    let config = config_with_atf_hotkeys(&["Ctrl+Shift-F8"], &[], &[]);
+    let engine = InputEngine::new(&config);
+    assert!(engine.atf_hotkeys_enabled.is_empty());
+
+    // bare 표기는 '-' 폴백 경로에서도 무연산(분할 결과 1토큰) — 하위 호환.
+    let config = config_with_atf_hotkeys(&["F10"], &[], &[]);
+    let engine = InputEngine::new(&config);
+    assert!(engine.is_atf_hotkey(KeyCode::F10, ModifierState::default()));
+}
+
+#[test]
 fn parser_rejects_malformed_specs() {
     // 미지 modifier 토큰 / 빈 base / 미지 base / 대소문자 틀린 base / 수정자 base.
     for spec in [
@@ -295,9 +351,10 @@ fn modifier_key_is_excluded_from_atf_hotkeys() {
     // press_key 의 is_modifier() 조기 반환과 정합(dead key 방지).
     let config = config_with_atf_hotkeys(&["RightAlt"], &["LeftControl"], &["Ctrl+LeftShift"]);
     let engine = InputEngine::new(&config);
-    assert!(!engine.is_atf_hotkey(KeyCode::RightAlt));
-    assert!(!engine.is_atf_hotkey(KeyCode::LeftControl));
-    assert!(!engine.is_atf_hotkey(KeyCode::LeftShift));
+    let bare = ModifierState::default();
+    assert!(!engine.is_atf_hotkey(KeyCode::RightAlt, bare));
+    assert!(!engine.is_atf_hotkey(KeyCode::LeftControl, bare));
+    assert!(!engine.is_atf_hotkey(KeyCode::LeftShift, bare));
     assert!(engine.atf_hotkeys_enabled.is_empty());
     assert!(engine.atf_hotkeys_forward.is_empty());
     assert!(engine.atf_hotkeys_reverse.is_empty());
@@ -396,28 +453,31 @@ fn re_toggle_after_debounce_window() {
 // ─────────────────────────────────────────────
 
 #[test]
-fn default_config_toggles_on_shift_f9() {
-    // (e) 기본값은 전체 토글 `Shift+F9`.
+fn default_config_toggles_on_shift_f8() {
+    // (e) 기본값은 전체 토글 `Shift+F8` (F9~F11 리매핑 소실 회피 — config.rs 참조).
     let config = Config::default();
     let mut engine = InputEngine::new(&config);
 
-    let r = engine.press_key(KeyCode::F9, mods_shift(), &config);
-    assert!(r.consumed, "기본값 Shift+F9 는 소비되어야 함");
+    let r = engine.press_key(KeyCode::F8, mods_shift(), &config);
+    assert!(r.consumed, "기본값 Shift+F8 는 소비되어야 함");
     assert_eq!(engine.take_atf_toggle(), Some(AtfToggleKind::Enabled));
 }
 
 #[test]
-fn default_config_bare_f9_is_not_atf() {
-    // 기본값에서 맨 F9 는 ATF 가 아니라 한자/이모지 트리거로 남는다.
+fn default_config_bare_f8_is_not_atf() {
+    // 기본값(Shift+F8)에서 맨 F8 은 정확-일치 불발로 ATF 가 아니다.
+    // 맨 F9 도 종전대로 한자/이모지 트리거로 남는다.
     let config = Config::default();
     let mut engine = InputEngine::new(&config);
 
-    engine.press_key(KeyCode::F9, ModifierState::default(), &config);
-    assert_eq!(
-        engine.take_atf_toggle(),
-        None,
-        "기본값에서 맨 F9 는 ATF 토글이 아니어야 함"
-    );
+    for key in [KeyCode::F8, KeyCode::F9] {
+        engine.press_key(key, ModifierState::default(), &config);
+        assert_eq!(
+            engine.take_atf_toggle(),
+            None,
+            "기본값에서 맨 {key:?} 는 ATF 토글이 아니어야 함"
+        );
+    }
 }
 
 #[test]
@@ -451,7 +511,7 @@ fn set_atf_hotkeys_reapplies_from_config() {
 
     let reloaded = config_with_atf_hotkeys(&["F10"], &[], &[]);
     engine.set_atf_hotkeys(&reloaded);
-    assert!(engine.is_atf_hotkey(KeyCode::F10));
+    assert!(engine.is_atf_hotkey(KeyCode::F10, ModifierState::default()));
 
     let r = engine.press_key(KeyCode::F10, ModifierState::default(), &reloaded);
     assert!(r.consumed);

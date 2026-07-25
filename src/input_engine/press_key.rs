@@ -136,7 +136,7 @@ impl InputEngine {
             }
         }
 
-        // AutoTypeFix 토글 단축키 (설정 기반 — 기본 `Shift+F9` 가 전체 토글).
+        // AutoTypeFix 토글 단축키 (설정 기반 — 기본 `Shift+F8` 가 전체 토글).
         //
         // 매칭은 수정자 **정확 일치**(`AtfHotkey`)다: 표기에 등장한 수정자는 눌려
         // 있어야 하고, 등장하지 않은 수정자는 눌리면 안 된다. 그래서 종전의
@@ -764,6 +764,9 @@ impl InputEngine {
     /// - modifier 토큰(`+` 구분): `ctrl`/`control`, `alt`, `super`/`win`/`meta`,
     ///   `shift`. ASCII 대소문자 무관, 순서 무관, 중복 멱등.
     ///   예: `Shift+F9`, `F10`, `Ctrl+Shift+F8`, `shift+ctrl+F8`.
+    /// - 구분자는 `+` 가 정식이되, `+` 가 전혀 없는 표기에서는 `-` 를 대체
+    ///   구분자로 허용한다(`Ctrl-Left` 관용 표기 수용). 혼용(`Ctrl+Shift-F8`)은
+    ///   `+` 분할의 base(`Shift-F8`)가 미지 이름이 되어 종전대로 배제된다.
     /// - `<KeyName>` 은 `KeyCode::from_name` 호환(대소문자 구분: `F9`/`Escape`).
     ///   `auto_english` 와 달리 `"Shift<Name>"` 융합형은 **지원하지 않는다** —
     ///   ATF 핫키는 shift 를 `Shift+` 토큰으로만 표현해 문법을 하나로 유지한다.
@@ -776,10 +779,10 @@ impl InputEngine {
     ///
     /// # 환경 제약
     ///
-    /// - **Windows TSF/IMM32**: 수정자 상태가 엔진의 `press_key` 까지 전달되지 않아
-    ///   조합 표기(`Shift+F9`)는 사실상 무효다. 이 플랫폼에서 ATF 토글을 쓰려면
-    ///   수정자 없는 단일 키(`F10` 등)로 지정해야 한다. `is_atf_hotkey` 도 조합
-    ///   표기의 base 키코드는 소비 대상으로 보고하지 않는다(원 기능 보존).
+    /// - **Windows TSF/IMM32**: 조합 표기가 Linux 와 동일하게 동작한다 — test 단계
+    ///   (`OnTestKeyDown`/`should_consume`)가 `is_atf_hotkey` 의 수정자 정확-일치로
+    ///   조합을 소비해 press_key 매칭까지 도달시킨다. 조합의 맨 base 키는 소비되지
+    ///   않아 원 기능(한자 등)이 보존된다.
     /// - **GTK3/4**: idle(조합 없음) 상태의 F 키는 IM 모듈을 거치지 않고 앱으로
     ///   직행하는 경로가 있어, 조합 여부와 무관하게 F 키 핫키가 불발할 수 있다.
     ///
@@ -796,15 +799,20 @@ impl InputEngine {
         let mut super_key = false;
         let mut shift = false;
 
-        // '+' 로 분할, 마지막 토큰 = base, 앞 토큰 = modifier.
-        // '+' 가 없으면 tokens 는 비고 base 만 남는다 → 수정자 전부 false (legacy 동치).
+        // 구분자로 분할, 마지막 토큰 = base, 앞 토큰 = modifier.
+        // 구분자가 없으면 tokens 는 비고 base 만 남는다 → 수정자 전부 false (legacy 동치).
+        //
+        // 구분자는 '+' 우선, '+' 가 전혀 없으면 '-' 폴백("Ctrl-Left" 관용 표기).
+        // KeyCode 이름에는 '-' 가 없어(from_name 전수 확인) bare 이름("F8")의
+        // '-' 분할은 무연산이고, 종전에 성공하던 표기는 전부 '+' 경로 그대로다.
         //
         // `parse_keyspec` 과 달리 단일 base 도 trim 한다. ATF 핫키는 `key:` 같은
         // 접두사 문법을 거치지 않는 raw 설정 문자열이고, 종전 파서
         // (`KeyCode::from_name`) 역시 공백을 허용하지 않아 `" F10"` 은 어차피
         // Unknown → 배제였다. trim 은 그 실패를 성공으로 바꿀 뿐 기존에 성공하던
         // 표기의 결과를 바꾸지 않으므로 하위호환에 영향이 없다.
-        let mut tokens: Vec<&str> = spec.split('+').map(str::trim).collect();
+        let sep = if spec.contains('+') { '+' } else { '-' };
+        let mut tokens: Vec<&str> = spec.split(sep).map(str::trim).collect();
         let base = tokens.pop()?; // split 결과는 항상 1개 이상 → pop 안전
         for tok in tokens {
             if tok.eq_ignore_ascii_case("ctrl") || tok.eq_ignore_ascii_case("control") {

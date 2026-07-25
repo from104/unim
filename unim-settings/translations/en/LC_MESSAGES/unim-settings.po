@@ -95,6 +95,9 @@ msgstr "Applied {} strength."
 msgid "모아치기 조합창을 {}ms 로 설정했습니다."
 msgstr "Set the moachigi combine window to {}ms."
 
+msgid "잘못된 오타 교정 토글 키(무시됨): {} — 예: Shift+F8, Ctrl+Left"
+msgstr "Invalid AutoTypeFix toggle key(s) (ignored): {} — e.g. Shift+F8, Ctrl+Left"
+
 msgid "{}    [{} · {}]    감지 {}회"
 msgstr "{}    [{} · {}]    {} hits"
 

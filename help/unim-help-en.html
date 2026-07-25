@@ -513,22 +513,22 @@ export XMODIFIERS="@im=unim"
 <p><strong>User dictionary (reverse whitelist)</strong> — new in 0.2.0. Select text and use a shortcut to call the <code>RegisterUserDictFromSelection</code> DBus method, registering an English-side entry. Manage entries in the GUI's "User Dictionary" page.</p>
 </blockquote>
 <h5 id="user-guide--toggle-hotkeys--turn-correction-onoff-with-a-single-key">Toggle hotkeys — turn correction on/off with a single key</h5>
-<p>A shortcut can turn AutoTypeFix on or off instantly. <strong>The master toggle defaults to <code>Shift+F9</code></strong>; the forward- and reverse-only shortcuts are empty (assign them only if you want them). Three of them, set separately:</p>
+<p>A shortcut can turn AutoTypeFix on or off instantly. <strong>The master toggle defaults to <code>Shift+F8</code></strong>; the forward- and reverse-only shortcuts are empty (assign them only if you want them). Three of them, set separately:</p>
 <ul>
 <li><strong>Master toggle</strong>: turns all of AutoTypeFix (the master switch) on/off.</li>
 <li><strong>Forward toggle</strong> (a.k.a. "정방향" in some Korean labels): turns only forward (English→Korean) correction on/off.</li>
 <li><strong>Reverse toggle</strong>: turns only reverse (Korean→English) correction on/off.</li>
 </ul>
 <p>Set them from the CLI:</p>
-<pre><code class="language-bash"># The default (master toggle = Shift+F9)
-unim-cli config set auto-typefix-toggle-keys "Shift+F9"
+<pre><code class="language-bash"># The default (master toggle = Shift+F8)
+unim-cli config set auto-typefix-toggle-keys "Shift+F8"
 
 # Forward / reverse on F10 and F11 respectively
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 
 # Multiple keys, comma-separated (any of them toggles)
-unim-cli config set auto-typefix-toggle-keys "Shift+F9,Ctrl+F8"
+unim-cli config set auto-typefix-toggle-keys "Shift+F8,Ctrl+Left"
 
 # Clear — an empty value consumes no key
 unim-cli config set auto-typefix-toggle-keys ""
@@ -537,12 +537,13 @@ unim-cli config set auto-typefix-toggle-keys ""
 <p>In the Slint settings app (<code>unim-settings</code>, including Windows) the three fields are gathered side by side in the <strong>"Toggle hotkeys"</strong> group on the <strong>Type Correction</strong> page (5.2).</p>
 <blockquote>
 <ul>
-<li><strong>Modifier combinations are supported</strong> — write them as <code>Shift+F9</code>, <code>Ctrl+F8</code>, <code>Ctrl+Shift+F7</code> (<code>Ctrl</code>/<code>Control</code>, <code>Alt</code>, <code>Super</code>/<code>Win</code>/<code>Meta</code>, <code>Shift</code>; case- and order-insensitive). A bare name like <code>F10</code> fires on that key alone, as before.</li>
+<li><strong>Modifier combinations are supported</strong> — write them as <code>Shift+F8</code>, <code>Ctrl+Left</code>, <code>Ctrl+Shift+F7</code> (<code>Ctrl</code>/<code>Control</code>, <code>Alt</code>, <code>Super</code>/<code>Win</code>/<code>Meta</code>, <code>Shift</code>; case- and order-insensitive). A bare name like <code>F10</code> fires on that key alone, as before. <code>+</code> is the canonical separator; when a spec contains no <code>+</code> at all, <code>-</code> is accepted too (<code>Ctrl-F8</code> = <code>Ctrl+F8</code>). Mixing them (<code>Ctrl+Shift-F8</code>) is invalid.</li>
 <li><strong>It fires only on an exact modifier match.</strong> Combinations you did not configure (e.g. <code>Shift+F10</code> for the context menu) are not intercepted and reach the application unchanged.</li>
-<li>The default <code>Shift+F9</code> is distinct from the hanja/emoji key: bare <code>F9</code> still opens the hanja/emoji popup.</li>
-<li>Key names must be ones UNIM knows, such as <code>F1</code>–<code>F12</code> (<code>ScrollLock</code>, <code>Pause</code>, <code>PrintScreen</code>, and <code>Menu</code> are not recognized). The CLI warns about names it cannot parse.</li>
+<li>The default is <code>Shift+F8</code> — F9–F11 are avoided because some keyboards lose them to media functions or remapping (cut/copy/paste) before they reach the OS. It does not clash with the hanja/emoji key (bare <code>F9</code>), and an F9 combo like <code>Shift+F9</code> leaves the bare-<code>F9</code> popup intact.</li>
+<li>Key names must be ones UNIM knows, such as <code>F1</code>–<code>F12</code> (<code>ScrollLock</code>, <code>Pause</code>, <code>PrintScreen</code>, and <code>Menu</code> are not recognized). The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure — nothing is dropped silently.</li>
 <li>Clear the list (<code>""</code>) to disable a shortcut; it then consumes no key.</li>
-<li>On Windows, combination specs do not work yet — assign a key without modifiers there.</li>
+<li>On GNOME (Wayland), Ctrl/Alt/Super combinations such as <code>Ctrl+Left</code> work too — the UNIM extension forwards toggle combos to the engine (re-login after updating the extension).</li>
+<li>On Windows (TSF/IMM32), combination specs behave exactly as on Linux — the default <code>Shift+F8</code> works as-is.</li>
 <li>Toggling only forward on while the master switch is off flips the flag but produces no correction until the master switch is on again (the master gates everything). The forward/reverse toggles change only each direction's flag.</li>
 <li>Accessibility note: on Windows a distinct beep (like the Korean/English switch sound) announces the toggle state (honoring the <code>toggle-announce-beep</code> setting). On Linux the setting changes silently.</li>
 </ul>
@@ -718,7 +719,7 @@ unim-cli config set auto_typefix.tentative_expiry_hours 6
 unim-cli config set engine.auto_english.enabled true
 
 # AutoTypeFix toggle hotkeys (comma-separated; modifier combos allowed) — see 4.4
-unim-cli config set auto-typefix-toggle-keys "Shift+F9"
+unim-cli config set auto-typefix-toggle-keys "Shift+F8"
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 

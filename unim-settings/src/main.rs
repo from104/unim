@@ -29,6 +29,7 @@ use unim::config::{
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN,
 };
+use unim::input_engine::InputEngine;
 use unim::keystroke::profile::{resolve_inherits, LayoutProfile, ProfileRegistry};
 use unim::typefix_blacklist::{Blacklist, BlacklistEntry, Direction, EntryStatus};
 use unim::typefix_userdict::{ReverseWord, UserDictionary};
@@ -656,6 +657,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             a.toggle_enabled_keys = split_keys(&ui.get_atf_toggle_enabled_keys());
             a.toggle_forward_keys = split_keys(&ui.get_atf_toggle_forward_keys());
             a.toggle_reverse_keys = split_keys(&ui.get_atf_toggle_reverse_keys());
+            // 무효 표기 검증 — 엔진 파서(단일 진실 공급원)가 None 을 주는 표기는
+            // 데몬에서 조용히 버려진다(핫키 죽음). CLI atf_hotkey_warnings 와 같은
+            // 정책으로 저장은 하되 상태줄로 경고한다 (owned 수집 — cfg 재대여 회피).
+            let invalid_atf_keys: Vec<String> = a
+                .toggle_enabled_keys
+                .iter()
+                .chain(&a.toggle_forward_keys)
+                .chain(&a.toggle_reverse_keys)
+                .filter(|k| InputEngine::parse_atf_hotkey(k).is_none())
+                .cloned()
+                .collect();
 
             // 자판이 바뀌었으면 규칙 세트 그룹 + 접근성 배지 + 모아치기 카드를
             // 새 프로필 기준으로 재구성 (moachigi-supported 는 자판마다 다름).
@@ -668,6 +680,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             match persist_config(&cfg, "auto_save") {
+                Ok(()) if !invalid_atf_keys.is_empty() => ui.set_status_text(
+                    tr.invoke_atf_hotkey_invalid(invalid_atf_keys.join(", ").into()),
+                ),
                 Ok(()) => ui.set_status_text(tr.get_applied()),
                 Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
             }

@@ -293,7 +293,7 @@ Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건�
 
 #### 토글 단축키 — 지정한 키로 즉시 켜고 끄기
 
-키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다. **전체 토글의 기본값은 `Shift+F9`** 이고, 순방향·역방향 전용 단축키는 비어 있다(필요한 사람만 지정). 세 가지를 각각 따로 둔다.
+키 하나로 자동 오타 교정을 바로 켜고 끌 수 있다. **전체 토글의 기본값은 `Shift+F8`** 이고, 순방향·역방향 전용 단축키는 비어 있다(필요한 사람만 지정). 세 가지를 각각 따로 둔다.
 
 - **전체 토글**: 자동 오타 교정 전체(마스터 스위치)를 켜고 끈다.
 - **순방향(=정방향) 토글**: 순방향(영→한) 교정만 켜고 끈다. (일부 GUI 라벨은 "정방향"으로 표기하지만 같은 뜻이다.)
@@ -302,15 +302,15 @@ Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건�
 CLI로 지정한다.
 
 ```bash
-# 기본값 (전체 토글 = Shift+F9)
-unim-cli config set auto-typefix-toggle-keys "Shift+F9"
+# 기본값 (전체 토글 = Shift+F8)
+unim-cli config set auto-typefix-toggle-keys "Shift+F8"
 
 # 순방향/역방향을 각각 F10, F11 로
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 
 # 여러 키를 쉼표로 (그중 아무거나 누르면 토글)
-unim-cli config set auto-typefix-toggle-keys "Shift+F9,Ctrl+F8"
+unim-cli config set auto-typefix-toggle-keys "Shift+F8,Ctrl+Left"
 
 # 해제 — 빈 값을 주면 어떤 키도 가로채지 않는다
 unim-cli config set auto-typefix-toggle-keys ""
@@ -320,12 +320,13 @@ unim-cli config set auto-typefix-toggle-keys ""
 
 Slint 설정 앱(unim-settings, Windows 포함)에서는 세 칸이 **오타 교정** 페이지(5.2)의 **「토글 단축키」** 그룹에 나란히 모여 있다.
 
-> - **수정자 조합을 쓸 수 있다** — `Shift+F9`, `Ctrl+F8`, `Ctrl+Shift+F7` 처럼 적는다(`Ctrl`/`Control`, `Alt`, `Super`/`Win`/`Meta`, `Shift`. 대소문자·순서 무관). 수정자 없이 `F10` 처럼 적으면 종전대로 그 키 단독으로만 발동한다.
+> - **수정자 조합을 쓸 수 있다** — `Shift+F8`, `Ctrl+Left`, `Ctrl+Shift+F7` 처럼 적는다(`Ctrl`/`Control`, `Alt`, `Super`/`Win`/`Meta`, `Shift`. 대소문자·순서 무관). 수정자 없이 `F10` 처럼 적으면 종전대로 그 키 단독으로만 발동한다. 구분자는 `+` 가 정식이고, `+` 가 하나도 없는 표기에서는 `-` 도 허용한다(`Ctrl-F8` = `Ctrl+F8`). 단, `Ctrl+Shift-F8` 처럼 혼용하면 무효다.
 > - **표기한 수정자가 정확히 눌렸을 때만** 발동한다. 그래서 지정하지 않은 조합(예: `Shift+F10` 컨텍스트 메뉴)은 UNIM 이 가로채지 않고 앱으로 그대로 간다.
-> - 기본값 `Shift+F9` 는 한자/이모지 키(맨 `F9`)와 갈린다 — 맨 `F9` 는 종전대로 한자·이모지 팝업이다.
-> - 키 이름은 `F1`~`F12` 처럼 UNIM 이 아는 이름이어야 한다(`ScrollLock`·`Pause`·`PrintScreen`·`Menu` 는 인식하지 않는다). 잘못 적으면 CLI 가 경고를 띄운다.
+> - 기본값은 `Shift+F8` 이다 — F9~F11 은 미디어 키나 리매핑(잘라내기/복사/붙여넣기 등)으로 OS 에 도달하지 못하는 키보드가 있어 피했다. 한자/이모지 키(맨 `F9`)와는 키가 달라 충돌이 없고, `Shift+F9` 처럼 F9 조합을 지정해도 맨 `F9` 팝업은 그대로다.
+> - 키 이름은 `F1`~`F12` 처럼 UNIM 이 아는 이름이어야 한다(`ScrollLock`·`Pause`·`PrintScreen`·`Menu` 는 인식하지 않는다). 잘못 적으면 CLI 와 설정 앱이 저장 시 경고를 띄우고, 데몬 로그에도 파싱 실패가 기록된다 — 조용히 무시되지 않는다.
 > - 쓰지 않으려면 목록을 비운다(`""`). 그러면 그 단축키는 아무 키도 소비하지 않는다.
-> - Windows 에서는 조합 표기가 아직 동작하지 않는다 — 수정자 없는 키를 지정해야 한다.
+> - GNOME(Wayland)에서는 `Ctrl+Left` 같은 Ctrl/Alt/Super 조합도 동작한다 — UNIM 확장이 토글 조합을 엔진으로 전달한다(확장 업데이트 후 재로그인 필요).
+> - Windows(TSF/IMM32)에서도 조합 표기가 리눅스와 동일하게 동작한다 — 기본값 `Shift+F8` 그대로 쓰면 된다.
 > - 전체가 꺼진 상태에서 순방향만 토글로 켜도 실제 교정은 전체를 다시 켜야 발동한다(전체가 마스터 스위치). 순방향/역방향 토글은 각 방향의 플래그만 바꾼다.
 > - 접근성 참고: Windows 에서는 토글 시 한/영 알림음과 같은 차등 비프로 상태를 알려 준다(`toggle-announce-beep` 설정 존중). 리눅스에서는 소리 없이 설정만 바뀐다.
 
@@ -586,7 +587,7 @@ unim-cli config set engine.auto_english.enabled true
 unim-cli config set commit-unit word
 
 # 자동 오타 교정 토글 단축키 (쉼표 구분, 수정자 조합 가능) — 4.4 참고
-unim-cli config set auto-typefix-toggle-keys "Shift+F9"
+unim-cli config set auto-typefix-toggle-keys "Shift+F8"
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 
