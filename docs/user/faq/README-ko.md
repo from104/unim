@@ -189,7 +189,7 @@ unim-cli config set korean.layout my
 
 **아니다.** 비밀번호 필드는 `content_purpose`로 식별되어 자동으로 영문 강제 전환된다. AutoTypeFix(순방향·역방향)·한자 변환·특수문자 팝업 모두 비활성화된다. 이미 쌓인 키 관측 버퍼·되돌리기 기록도 함께 지워져, `dkssud` 같은 비밀번호가 한글로 자동 교정돼 값이 깨지지 않는다. 입력값은 데몬 메모리에도 남기지 않는다.
 
-> 단, 자동 검출은 앱이 `content_purpose=password`를 정확히 보고할 때만 동작한다. 보고하지 않는 환경 — **XIM 레거시 앱, Windows IMM32 폴백, content-purpose 를 보내지 않는 일부 Wayland 컴포지터·웹폼** — 에서는 자동 감지가 안 될 수 있으니, 그런 곳에서는 직접 한/영 키로 영문 모드를 확인하길 권장한다. (정상 감지 환경: GTK3/4·Qt5/6·GNOME 확장·Windows TSF)
+> 단, 자동 검출은 앱이 `content_purpose=password`를 정확히 보고할 때만 동작한다. 보고하지 않는 환경 — **XIM 레거시 앱, Windows IMM32 앱의 커스텀 비밀번호 칸(표준 Edit/RichEdit + ES_PASSWORD 만 감지됨), content-purpose 를 보내지 않는 일부 Wayland 컴포지터·웹폼** — 에서는 자동 감지가 안 될 수 있으니, 그런 곳에서는 직접 한/영 키로 영문 모드를 확인하길 권장한다. (정상 감지 환경: GTK3/4·Qt5/6·GNOME 확장·Windows TSF. Windows IMM32 는 표준 ES_PASSWORD 컨트롤만 최선노력 감지)
 
 ---
 
@@ -197,7 +197,7 @@ unim-cli config set korean.layout my
 
 **의도된 동작이다.** 비밀번호·PIN 칸에서는 자동 오타 교정을 일부러 끈다(Q9 참고). 켜 두면 `dkssud`처럼 친 비밀번호가 단어 경계에서 한글로 바뀌어 로그인이 깨지기 때문이다. 칸을 벗어나면 즉시 원래대로 돌아오고, 수동으로 켜고 꺼 둔 토글 상태도 그대로 유지된다.
 
-> 반대로 **비밀번호가 아닌 일반 칸인데도 교정이 안 되는** 경우는 다른 원인이다 → [트러블슈팅](../troubleshooting/README-ko.md) §8. 위에 적은 미감지 환경(XIM·IMM32·일부 Wayland)에서는 비밀번호 칸이 일반 칸으로 취급돼 오히려 교정이 발동할 수 있는데, 이 한계도 트러블슈팅 §8-1 에 정리돼 있다.
+> 반대로 **비밀번호가 아닌 일반 칸인데도 교정이 안 되는** 경우는 다른 원인이다 → [트러블슈팅](../troubleshooting/README-ko.md) §8. 위에 적은 미감지 환경(XIM·IMM32 커스텀 컨트롤·일부 Wayland)에서는 비밀번호 칸이 일반 칸으로 취급돼 오히려 교정이 발동할 수 있는데, 이 한계도 트러블슈팅 §8-1 에 정리돼 있다.
 
 ---
 
@@ -345,6 +345,58 @@ unim-cli config set ignore-key-repeat true
 ```
 
 **폴백의 한계**: Wayland·Qt5/6·GNOME 확장은 반복 여부를 정확히 가려낸다. 반면 GTK3/4·XIM·ibus 호환 경로는 80ms 시간창으로 근사 판정하므로 (1) 첫 반복 1회는 통과될 수 있고, (2) 시스템의 키 반복 간격을 80ms보다 길게 설정했다면 걸러지지 않을 수 있다. 어느 경우든 오판 시 항상 "덜 막는" 쪽으로 안전하게 동작한다. GNOME 확장 사용자는 재로그인 후 적용된다.
+
+---
+
+## Q21. Chrome/Chromium의 비밀번호 필드에서 한/영 차단이 안 될 때는?
+
+**Chrome은 입력기를 보고하지 않으므로 UNIM이 자동 감지할 수 없습니다.**
+
+### 원인별 진단
+
+#### 1. Wayland Chrome (네이티브, `--enable-wayland-ime` 미활성화)
+
+기본 상태에서는 Wayland 입력 메서드 프로토콜(`input-method-v2`)을 사용하지 않습니다. 플래그를 명시적으로 켜야 합니다.
+
+**해결 방법:**
+
+- **옵션 1 — 명령줄 플래그**
+  ```bash
+  google-chrome --enable-wayland-ime
+  chromium --enable-wayland-ime
+  ```
+
+- **옵션 2 — 플래그 파일** (`~/.config/chrome-flags.conf`)
+  ```
+  --enable-wayland-ime
+  ```
+
+- **옵션 3 — .desktop 항목 (모든 사용자, 패키지 재설치해도 유지)**
+  ```bash
+  # /usr/share/applications/google-chrome.desktop 또는 ~/.local/share/applications/google-chrome.desktop
+  # Exec= 라인을 찾아 끝에 --enable-wayland-ime 추가
+  Exec=/opt/google/chrome/google-chrome --enable-wayland-ime %U
+  ```
+
+플래그를 켠 후 Chrome을 재시작하면 UNIM이 비밀번호 필드를 감지합니다.
+
+#### 2. X11 Chrome / Chromium
+
+Chromium 엔진은 **X11에서도 입력 필드 종류를 DBus 입력기에 보고하지 않습니다.** 이는 Chromium의 설계 선택이므로 UNIM 쪽에서 해결할 수 없습니다. 직접 한/영 토글(예: 한영 키)으로 영문 모드를 확인하시기 바랍니다.
+
+> 대안: Firefox는 입력기에 필드 정보를 보고하므로 필드 감지가 정상 동작합니다.
+
+---
+
+## Q22. XIM 환경에서 비밀번호 필드 자동 감지가 안 될 때는?
+
+**XIM 프로토콜 자체에 입력 필드 종류를 전달할 방법이 없습니다.**
+
+XIM(X Input Method)은 1994년 설계된 레거시 프로토콜로, 비밀번호 같은 필드의 의미를 전달할 기능이 없습니다. 대신 다음 중 선택하시기 바랍니다:
+
+1. **직접 영문 모드 확인** — 비밀번호 칸에 진입하기 전에 한/영 키를 눌러 영문 모드인지 확인.
+2. **앱을 GTK/Qt 기반으로 전환** — XIM만 쓰는 레거시 앱을 최신 GTK/Qt 앱으로 바꾸기 (예: gvim → vim-gtk / nvim-qt).
+3. **다른 입력 방식 시도** — 커맨드라인이라면 ibus 호환 경로도 함께 켜서 시도.
 
 ---
 

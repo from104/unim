@@ -596,6 +596,13 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                     state.current_active = false;
                     // 비활성 사이클의 잔여 목적은 폐기(다음 활성화에서 새로 판정).
                     state.pending_content_purpose = None;
+                    // Normal 명시 복귀 — 다른 5개 프런트엔드의 "필드 이탈 시
+                    // SetContentType(Normal)" 규약(SPEC §13.4)과 동일. 다음 활성화의
+                    // fail-safe 에만 의존하면 그 사이 엔진에 Password 가 잔존한다.
+                    let _ = state.dbus_tx.blocking_send(DbusRequest::SetContentType {
+                        context_path: state.context_path.clone(),
+                        purpose: unim::config::ContentPurpose::Normal as u32,
+                    });
                 } else if state.current_active {
                     // 포커스 유지 중 목적 변경(mid-focus content_type 갱신) 반영.
                     if let Some(purpose) = state.pending_content_purpose.take() {

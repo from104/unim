@@ -249,6 +249,8 @@ li { margin: 0.35rem 0; }
 <li><a href="#faq--q19-is-there-a-tool-to-view-edit-or-practice-keyboard-layouts">Q19. Is there a tool to view, edit, or practice keyboard layouts?</a></li>
 <li><a href="#faq--q18-what-is-the-right-chord_window_ms-value">Q18. What is the right chord_window_ms value?</a></li>
 <li><a href="#faq--q20-when-i-hold-a-key-too-long-the-same-letter-is-typed-several-times">Q20. When I hold a key too long, the same letter is typed several times.</a></li>
+<li><a href="#faq--q21-password-fields-in-chromechromium-are-not-being-auto-protected-why">Q21. Password fields in Chrome/Chromium are not being auto-protected. Why?</a></li>
+<li><a href="#faq--q22-xim-environments-why-doesnt-password-field-auto-detection-work">Q22. XIM environments: why doesn't password-field auto-detection work?</a></li>
 <li><a href="#faq--read-more">Read more</a></li>
 </ol>
 </li>
@@ -432,6 +434,9 @@ export XMODIFIERS="@im=unim"
 <blockquote>
 <p><strong>Toggling with Right Alt</strong>: Add <code>RightAlt</code> to the <code>toggle_keys</code> setting to switch Korean/English with the right Alt key. GTK, Qt, and the GNOME extension used to filter Right Alt themselves, so it did nothing there (XIM and pure Wayland already worked); the toggle decision is now unified in the daemon, so it behaves the same everywhere. AltGr layouts (right Alt used as AltGr) are unaffected. Note that at the moment of toggling the application may also receive the Alt input (e.g. menu-bar focus in some apps); if you don't want that side effect, remove <code>RightAlt</code> from <code>toggle_keys</code>.</p>
 </blockquote>
+<blockquote>
+<p><strong>Key-name spelling</strong>: <code>toggle_keys</code> takes key names UNIM knows, <strong>one name per entry</strong> (defaults: <code>Korean</code>, <code>RightAlt</code>). Unlike the AutoTypeFix hotkeys (§4.4), the toggle key does not accept modifier combinations (<code>Ctrl+X</code>). The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure — the value is still stored, but the dead key no longer disappears silently.</p>
+</blockquote>
 <h4 id="user-guide--42-hanja-conversion">4.2 Hanja conversion</h4>
 <ol>
 <li>Type the Korean to convert (e.g. <code>한국</code>).</li>
@@ -440,6 +445,9 @@ export XMODIFIERS="@im=unim"
 <li>Pick with digits 1–9, navigate with arrow keys, Enter to commit, ESC to cancel.</li>
 <li>With more than nine candidates, press <strong><code>.</code> (period)</strong> to toggle to a 9×9=81-cell expanded grid. The ⊞/⊟ icon in the corner reflects the current mode.</li>
 </ol>
+<blockquote>
+<p><strong>Choosing the Hanja key</strong>: <code>hanja_keys</code> defaults to <code>Hanja</code>, <code>F9</code>. Like the toggle key (§4.1) it takes single key names only — no modifier combinations. The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure.</p>
+</blockquote>
 <h5 id="user-guide--page-navigation-mouse--keyboard">Page navigation (mouse / keyboard)</h5>
 <p>When candidates exceed one page (9 cells or 81 cells), the footer shows <strong>◀ / ▶</strong> buttons.</p>
 <pre><code class="language-text">[◀]  page 2 / 5  [▶]  ⊞
@@ -552,7 +560,7 @@ unim-cli config set auto-typefix-toggle-keys ""
 <p>In password and PIN fields, AutoTypeFix <strong>turns off automatically.</strong> When the app reports "this field is a password" (<code>content_purpose</code>), UNIM stops both forward and reverse correction while you are in that field, and also clears any keystroke-observation buffer and undo history already accumulated. This keeps a password typed like <code>dkssud</code> from being auto-corrected into Korean and corrupted.</p>
 <ul>
 <li>It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.</li>
-<li>This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, the Windows IMM32 fallback, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see <a href="#faq">FAQ</a> Q9.</li>
+<li>This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, custom-drawn password boxes in Windows IMM32 apps, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see <a href="#faq">FAQ</a> Q9.</li>
 </ul>
 <h4 id="user-guide--45-auto-english-mode">4.5 Auto-English-Mode</h4>
 <p>Opt-in feature for vim command mode (<code>Esc</code>), CLI slash commands (<code>/</code>), etc. Off by default.</p>
@@ -563,6 +571,9 @@ unim-cli config set auto-typefix-toggle-keys ""
 </ul>
 <blockquote>
 <p>If your toggle key collides with a trigger key, the toggle wins (its branch comes first in <code>press_key</code>). Password fields are unaffected (they force English already).</p>
+</blockquote>
+<blockquote>
+<p><strong>Trigger spelling</strong>: write triggers as <code>key:&lt;key name&gt;</code> or <code>char:&lt;character&gt;</code> (e.g. <code>key:Escape</code>, <code>char:/</code>). The older prefix-less form (<code>Escape</code>) is still recognized, and modifier combinations such as <code>key:Ctrl+B</code> are allowed. The CLI and the settings app warn about specs they cannot parse when saving, and the daemon logs the parse failure — nothing is dropped silently.</p>
 </blockquote>
 <hr />
 <h3 id="user-guide--5-settings-gui-tour">5. Settings GUI Tour</h3>
@@ -1047,13 +1058,13 @@ unim-cli config set korean.layout my
 <h3 id="faq--q9-does-unim-intercept-passwords">Q9. Does UNIM intercept passwords?</h3>
 <p><strong>No.</strong> Password fields are detected via <code>content_purpose</code> and forced to English. AutoTypeFix (both forward and reverse), hanja conversion, and the special-char popup are all disabled. Any keystroke-observation buffer and undo history already accumulated are cleared too, so a password typed like <code>dkssud</code> is never auto-corrected into Korean and corrupted. The input is not retained in daemon memory.</p>
 <blockquote>
-<p>Caveat: this works only when the app accurately reports <code>content_purpose=password</code>. Environments that do not report it — <strong>legacy XIM apps, the Windows IMM32 fallback, and some Wayland compositors/web forms that do not send content-purpose</strong> — may fail to auto-detect; verify English mode manually via the Hangul key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF.)</p>
+<p>Caveat: this works only when the app accurately reports <code>content_purpose=password</code>. Environments that do not report it — <strong>legacy XIM apps, custom-drawn password boxes in Windows IMM32 apps (only standard Edit/RichEdit controls with ES_PASSWORD are detected there), and some Wayland compositors/web forms that do not send content-purpose</strong> — may fail to auto-detect; verify English mode manually via the Hangul key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF; Windows IMM32 detects standard ES_PASSWORD controls on a best-effort basis.)</p>
 </blockquote>
 <hr />
 <h3 id="faq--q9-1-why-doesnt-autotypefix-work-in-password-fields">Q9-1. Why doesn't AutoTypeFix work in password fields?</h3>
 <p><strong>This is intended.</strong> AutoTypeFix is deliberately disabled in password and PIN fields (see Q9), because otherwise a password typed like <code>dkssud</code> would flip to Korean at a word boundary and break your login. It returns to normal the moment you leave the field, and any on/off toggle state you set manually is preserved.</p>
 <blockquote>
-<p>Conversely, if correction fails in a <strong>non-password field</strong>, the cause is different → <a href="#troubleshooting">Troubleshooting</a> §8. In the undetectable environments above (XIM, IMM32, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.</p>
+<p>Conversely, if correction fails in a <strong>non-password field</strong>, the cause is different → <a href="#troubleshooting">Troubleshooting</a> §8. In the undetectable environments above (XIM, custom IMM32 controls, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.</p>
 </blockquote>
 <hr />
 <h3 id="faq--q9-2-is-the-one-line-installsh-safe">Q9-2. Is the one-line <code>install.sh</code> safe?</h3>
@@ -1162,6 +1173,48 @@ For shortcuts see <a href="#user-guide--56-keyboard-layout-tools-keymap-studio--
 <pre><code class="language-bash">unim-cli config set ignore-key-repeat true
 </code></pre>
 <p><strong>Fallback limits</strong>: Wayland, Qt5/6, and the GNOME extension detect repeats precisely. The GTK3/4, XIM, and ibus-compatible paths approximate with an 80 ms time window, so (1) the first repeat may slip through, and (2) if your system key-repeat interval is set longer than 80 ms, repeats may not be filtered. In either case, when in doubt it errs toward suppressing less (fail-safe). GNOME extension users: applies after re-login.</p>
+<hr />
+<h3 id="faq--q21-password-fields-in-chromechromium-are-not-being-auto-protected-why">Q21. Password fields in Chrome/Chromium are not being auto-protected. Why?</h3>
+<p><strong>Chrome does not report input field types to the input method, so UNIM cannot auto-detect them.</strong></p>
+<h4 id="faq--diagnosis-by-cause">Diagnosis by cause</h4>
+<h5 id="faq--1-wayland-chrome-native---enable-wayland-ime-not-enabled">1. Wayland Chrome (native, <code>--enable-wayland-ime</code> not enabled)</h5>
+<p>By default, Chrome does not use the Wayland input method protocol (<code>input-method-v2</code>). You must enable the flag explicitly.</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+<li>
+<p><strong>Option 1 — Command-line flag</strong></p>
+<pre><code class="language-bash">google-chrome --enable-wayland-ime
+chromium --enable-wayland-ime
+</code></pre>
+</li>
+<li>
+<p><strong>Option 2 — Flag file</strong> (<code>~/.config/chrome-flags.conf</code>)</p>
+<pre><code>--enable-wayland-ime
+</code></pre>
+</li>
+<li>
+<p><strong>Option 3 — .desktop entry</strong> (all users, persists across package upgrades)</p>
+<pre><code class="language-bash"># Find /usr/share/applications/google-chrome.desktop or ~/.local/share/applications/google-chrome.desktop
+# Locate the Exec= line and append --enable-wayland-ime
+Exec=/opt/google/chrome/google-chrome --enable-wayland-ime %U
+</code></pre>
+</li>
+</ul>
+<p>After enabling the flag and restarting Chrome, UNIM will detect password fields.</p>
+<h5 id="faq--2-x11-chrome--chromium">2. X11 Chrome / Chromium</h5>
+<p>The Chromium engine <strong>does not report input field types to the input method even on X11.</strong> This is a design choice in Chromium that UNIM cannot override. Manually verify English mode by pressing the Hangul/Korean toggle key before entering the password.</p>
+<blockquote>
+<p>Alternative: Firefox reports field info to the input method, so detection works correctly.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q22-xim-environments-why-doesnt-password-field-auto-detection-work">Q22. XIM environments: why doesn't password-field auto-detection work?</h3>
+<p><strong>The XIM protocol itself has no way to convey input field semantics.</strong></p>
+<p>XIM (X Input Method) is a legacy protocol from 1994 with no facility to signal field types like "password". Your options:</p>
+<ol>
+<li><strong>Manual English mode check</strong> — before entering a password field, press Hangul/Korean to verify English mode.</li>
+<li><strong>Switch to GTK/Qt apps</strong> — migrate from XIM-only legacy apps to modern GTK/Qt equivalents (e.g., gvim → vim-gtk / nvim-qt).</li>
+<li><strong>Try an alternative input path</strong> — for command-line use, also enable the ibus-compat path and test.</li>
+</ol>
 <hr />
 <h3 id="faq--read-more">Read more</h3>
 <ul>
@@ -1360,7 +1413,7 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50
 <div class="tablewrap"><table><thead><tr><th>Environment</th><th>Status</th><th>Reason</th></tr></thead><tbody>
 <tr><td>GTK3/4, Qt5/6, GNOME extension, Windows TSF</td><td>Detected</td><td>content_purpose / InputScope delivered correctly</td></tr>
 <tr><td>Legacy XIM apps</td><td>Not detected</td><td>XIM protocol has no such signal</td></tr>
-<tr><td>Windows IMM32 fallback</td><td>Not detected</td><td>No InputScope query path</td></tr>
+<tr><td>Windows IMM32 fallback</td><td>Partial (best-effort)</td><td>Standard Edit/RichEdit + ES_PASSWORD style only; custom-drawn controls undetectable</td></tr>
 <tr><td>Some Wayland compositors / web forms</td><td>Not detected</td><td>content-purpose not sent (app/compositor's discretion)</td></tr>
 <tr><td>GTK apps that change purpose after focus</td><td>Not detected</td><td>The GTK IM reads input-purpose only at focus time and does not subscribe to <code>notify::input-purpose</code> (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus</td></tr>
 </tbody></table>

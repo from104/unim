@@ -58,6 +58,10 @@ Thumbs.db
 tests/capi_test
 tests/capi_test.dSYM/
 
+# Python bytecode (tests/test_ibus_compat.py 등 통합 테스트 실행 시 생성)
+__pycache__/
+*.py[cod]
+
 # Debian packaging
 debian/.debhelper/
 debian/*.debhelper.log

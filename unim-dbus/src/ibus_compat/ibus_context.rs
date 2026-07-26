@@ -12,6 +12,34 @@ use unim::unim_log;
 use super::ibus_types;
 use crate::service::{EngineRequest, EngineResponse};
 
+/// IBusInputPurpose(값 체계는 GtkInputPurpose 와 완전 동일 — 로컬
+/// gir1.2-ibus-1.0 1.5.29 실측: FREE_FORM 0, ALPHA 1, DIGITS 2, NUMBER 3,
+/// PHONE 4, URL 5, EMAIL 6, NAME 7, PASSWORD 8, PIN 9, TERMINAL 10)
+/// → UNIM `ContentPurpose` 원시값(u32) 변환.
+///
+/// 2026-07-26 감사 CONFIRMED: 개선 전에는 이 값이 무변환으로 넘어가
+/// `ContentPurpose::from_u32`(0..=6 만 유효, 그 외는 Normal)에 들어가면서
+/// PASSWORD(8)/PIN(9)이 Normal 로 소실(차단 완전 실패)되고 ALPHA(1)/DIGITS(2)가
+/// 각각 Password/Pin 으로 오탐(평범한 필드에서 한글 차단)했다.
+///
+/// gtk3/src/immodule.c 의 `gtk3_input_purpose_to_unim`, gtk4/src/immodule.c 의
+/// `gtk_input_purpose_to_unim` 과 반드시 1:1 동일해야 한다 — 같은 enum
+/// (GtkInputPurpose == IBusInputPurpose)이므로 이 표가 갈리면 프런트별로 같은
+/// 필드가 다르게 판정되는 회귀가 생긴다. DIGITS(2)·ALPHA(1)·PHONE(4)·NAME(7)이
+/// Normal 로 떨어지는 것은 GTK 표와의 의도적 일치이지 누락이 아니다.
+fn ibus_purpose_to_unim(purpose: u32) -> u32 {
+    use unim::config::ContentPurpose as CP;
+    match purpose {
+        8 => CP::Password as u32,  // PASSWORD
+        9 => CP::Pin as u32,       // PIN
+        6 => CP::Email as u32,     // EMAIL
+        3 => CP::Number as u32,    // NUMBER
+        5 => CP::Url as u32,       // URL
+        10 => CP::Terminal as u32, // TERMINAL
+        _ => CP::Normal as u32,    // FREE_FORM(0)/ALPHA(1)/DIGITS(2)/PHONE(4)/NAME(7)/미래값
+    }
+}
+
 /// IBus InputContext 핸들러
 pub struct IBusInputContextHandler {
     /// UNIM 엔진 컨텍스트 ID
@@ -170,6 +198,20 @@ impl IBusInputContextHandler {
                 let _ = Self::hide_preedit_text(&signal_ctx).await;
             }
         }
+
+        // 이탈 시 Normal 복귀(fail-safe): IBus 클라이언트가 필드를 옮기며
+        // SetContentType(0)을 별도로 보내지 않는 경우에도 Password/Pin 이 이
+        // 컨텍스트에 잔존해 다음 필드의 한글 입력을 계속 차단하는 사고를 막는다.
+        // engine.set_content_purpose 는 멱등(surrounding.rs:26-29)이라 이미
+        // Normal 이면 로그도 안 남기고 no-op — 매 FocusOut 마다 보내도 무해하다.
+        let _ = self
+            .engine_tx
+            .send(EngineRequest::SetContentType {
+                context_id: self.context_id,
+                purpose: unim::config::ContentPurpose::Normal as u32,
+            })
+            .await;
+
         Ok(())
     }
 
@@ -301,13 +343,31 @@ impl IBusInputContextHandler {
     }
 
     /// 콘텐츠 타입 설정
+    ///
+    /// `purpose` 는 IBus 번호 체계(IBusInputPurpose) → `ibus_purpose_to_unim`으로
+    /// UNIM 번호 체계로 변환 후 엔진에 전달한다. `_hints`(IBusInputHints)는
+    /// 무시한다 — 로컬 gir1.2-ibus-1.0 1.5.29 실측값(NONE 0, SPELLCHECK 1,
+    /// NO_SPELLCHECK 2, WORD_COMPLETION 4, LOWERCASE 8, UPPERCASE_CHARS 16,
+    /// UPPERCASE_WORDS 32, UPPERCASE_SENTENCES 64, INHIBIT_OSK 128,
+    /// VERTICAL_WRITING 256, EMOJI 512, NO_EMOJI 1024, PRIVATE 2048)에는
+    /// hidden-text 계열이 없고, PRIVATE 는 Qt 의 `ImhSensitiveData` 와 같은
+    /// '보이는 민감필드' 계열이라 차단 근거로 부적합하다
+    /// (선례: qt5/src/input_context.cpp:499-502).
     #[zbus(name = "SetContentType")]
     async fn set_content_type(&self, purpose: u32, _hints: u32) -> zbus::fdo::Result<()> {
+        let unim_purpose = ibus_purpose_to_unim(purpose);
+        // 로그 태그는 이 파일의 기존 관례("DAEMON" + "[IBus Compat]" 접두사)를 따른다.
+        unim_log!(
+            "DAEMON",
+            "[IBus Compat] SetContentType: ibus_purpose={} → unim_purpose={}",
+            purpose,
+            unim_purpose
+        );
         let _ = self
             .engine_tx
             .send(EngineRequest::SetContentType {
                 context_id: self.context_id,
-                purpose,
+                purpose: unim_purpose,
             })
             .await;
         Ok(())
@@ -406,5 +466,45 @@ fn extract_ibus_text_string(value: &Value<'_>) -> Option<String> {
         }
         Value::Value(inner) => extract_ibus_text_string(inner),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use unim::config::ContentPurpose as CP;
+
+    /// IBus/GTK 공유 InputPurpose enum 전 값(0..=10) + 미래값(999) 검증.
+    /// gtk3_input_purpose_to_unim(gtk3/src/immodule.c) / gtk_input_purpose_to_unim
+    /// (gtk4/src/immodule.c) 과 반드시 1:1 동일해야 한다 — 같은 enum 이므로 표가
+    /// 갈리면 프런트별 동작 차이가 생긴다(회귀 방지 주석).
+    #[test]
+    fn test_ibus_purpose_to_unim_matches_gtk_table() {
+        assert_eq!(ibus_purpose_to_unim(0), CP::Normal as u32); // FREE_FORM
+        assert_eq!(ibus_purpose_to_unim(1), CP::Normal as u32); // ALPHA — GTK 표와 동일하게 Normal
+        assert_eq!(ibus_purpose_to_unim(2), CP::Normal as u32); // DIGITS
+        assert_eq!(ibus_purpose_to_unim(3), CP::Number as u32); // NUMBER
+        assert_eq!(ibus_purpose_to_unim(4), CP::Normal as u32); // PHONE
+        assert_eq!(ibus_purpose_to_unim(5), CP::Url as u32); // URL
+        assert_eq!(ibus_purpose_to_unim(6), CP::Email as u32); // EMAIL
+        assert_eq!(ibus_purpose_to_unim(7), CP::Normal as u32); // NAME
+        assert_eq!(ibus_purpose_to_unim(8), CP::Password as u32); // PASSWORD — 핵심 회귀 방지
+        assert_eq!(ibus_purpose_to_unim(9), CP::Pin as u32); // PIN — 핵심 회귀 방지
+        assert_eq!(ibus_purpose_to_unim(10), CP::Terminal as u32); // TERMINAL
+        assert_eq!(ibus_purpose_to_unim(999), CP::Normal as u32); // 미래/미지값 → Normal
+    }
+
+    /// 결함4(raw passthrough) 회귀 방지: 변환 없이 `ContentPurpose::from_u32(8)`을
+    /// 그대로 넘기면 8은 정의역(0..=6) 밖이라 Normal 로 접혀 비번 차단이 완전히
+    /// 실패했다. `ibus_purpose_to_unim`을 거치면 8 → Password, 9 → Pin 으로
+    /// 정확히 떨어져야 한다.
+    #[test]
+    fn test_password_and_pin_no_longer_lost() {
+        assert_eq!(CP::from_u32(ibus_purpose_to_unim(8)), CP::Password);
+        assert_eq!(CP::from_u32(ibus_purpose_to_unim(9)), CP::Pin);
+        // 변환 없이 raw 8/9를 그대로 from_u32에 넣으면(구 결함) Normal 로 소실됨을
+        // 함께 남겨 이 테스트가 "무엇을 회귀 방지하는지" 대조 가능하게 한다.
+        assert_eq!(CP::from_u32(8), CP::Normal);
+        assert_eq!(CP::from_u32(9), CP::Normal);
     }
 }

@@ -135,6 +135,27 @@ static void unim_check_debug_env()
     }
 }
 
+/* 입력 필드 목적(purpose) 판정: Qt::InputMethodHints → UNIM ContentPurpose.
+ * setFocusObject()(포커스 진입 시)와 update(Qt::ImHints)(포커스 유지 중 힌트 변경 시)
+ * 양쪽이 이 함수를 공유해야 판정 로직이 갈리지 않는다.
+ * ImhHiddenText → Password 만 차단한다. ImhSensitiveData 는 제외 —
+ * 카드번호 등 "보이는" 민감 필드에도 설정되며, Password purpose 는 한글 조합 차단 +
+ * 영문 강제까지 걸어 이런 필드에서 "한글이 안 쳐짐" 회귀를 만든다. */
+static quint32 purposeFromHints(Qt::InputMethodHints hints)
+{
+    quint32 purpose = 0; /* Normal */
+    if (hints & Qt::ImhHiddenText) {
+        purpose = 1; /* Password */
+    } else if (hints & Qt::ImhDigitsOnly) {
+        purpose = 4; /* Number */
+    } else if (hints & Qt::ImhUrlCharactersOnly) {
+        purpose = 5; /* Url */
+    } else if (hints & Qt::ImhEmailCharactersOnly) {
+        purpose = 3; /* Email */
+    }
+    return purpose;
+}
+
 
 UnimInputContext::UnimInputContext()
     : m_dbus(nullptr)
@@ -291,6 +312,28 @@ void UnimInputContext::update(Qt::InputMethodQueries queries)
                         m_cursorRect.x(), m_cursorRect.y(),
                         m_cursorRect.width(), m_cursorRect.height());
                 }
+            }
+        }
+    }
+
+    if (queries & Qt::ImHints) {
+        /* mid-focus 힌트 변경 반영 (예: QLineEdit::setEchoMode 런타임 전환).
+         * setFocusObject() 는 새 포커스 진입 시 1회만 불리므로, 같은 위젯에 포커스가
+         * 유지된 채 힌트만 바뀌는 경우(비번 표시 토글 등)는 여기서 따로 잡아야 한다.
+         * update() 는 커서 이동 등으로도 자주 호출되므로 m_contentPurpose 캐시와
+         * 비교해 값이 실제로 바뀐 경우에만 송신한다(risk: 미대응 시 필드 전환당
+         * 수십 회 SetContentType 스팸). */
+        if (m_focusObject && m_dbus) {
+            QInputMethodQueryEvent hintsQuery(Qt::ImHints);
+            QCoreApplication::sendEvent(m_focusObject, &hintsQuery);
+            Qt::InputMethodHints hints = static_cast<Qt::InputMethodHints>(
+                hintsQuery.value(Qt::ImHints).toInt());
+            quint32 purpose = purposeFromHints(hints);
+            if (purpose != m_contentPurpose) {
+                m_contentPurpose = purpose;
+                m_dbus->setContentType(purpose);
+                UNIM_DEBUG(QString::asprintf("content_type 갱신(mid-focus): hints=0x%x, purpose=%u",
+                           static_cast<int>(hints), purpose));
             }
         }
     }
@@ -496,25 +539,14 @@ void UnimInputContext::setFocusObject(QObject *object)
     if (m_dbus && object) {
         m_dbus->focusIn(m_windowId);
 
-        /* 입력 필드 목적 감지: Qt::ImhHiddenText → Password.
-         * ImhSensitiveData 는 제외한다 — 카드번호 등 '보이는' 민감 필드에도 설정되며,
-         * Password purpose 는 한글 조합 차단 + 영문 강제까지 걸어 이런 필드에서
-         * "한글이 안 쳐짐" 회귀를 만든다. 실제 은폐(ImhHiddenText) 필드만 차단한다. */
+        /* 입력 필드 목적 감지: purposeFromHints() 참고 (ImhHiddenText 만 차단하는
+         * 정책 근거를 그쪽 주석에 정리). update(Qt::ImHints) 와 판정 로직을 공유한다. */
         QInputMethodQueryEvent query(Qt::ImHints);
         QCoreApplication::sendEvent(object, &query);
         Qt::InputMethodHints hints = static_cast<Qt::InputMethodHints>(
             query.value(Qt::ImHints).toInt());
-        quint32 purpose = 0; /* Normal */
-        if (hints & Qt::ImhHiddenText) {
-            purpose = 1; /* Password */
-        } else if (hints & Qt::ImhDigitsOnly) {
-            purpose = 4; /* Number */
-        } else if (hints & Qt::ImhUrlCharactersOnly) {
-            purpose = 5; /* Url */
-        } else if (hints & Qt::ImhEmailCharactersOnly) {
-            purpose = 3; /* Email */
-        }
-        m_contentPurpose = purpose;  /* 로그 마스킹 판정용 캐시 */
+        quint32 purpose = purposeFromHints(hints);
+        m_contentPurpose = purpose;  /* 로그 마스킹 판정용 캐시 겸 update() dedupe 기준 */
         m_dbus->setContentType(purpose);
         UNIM_DEBUG(QString::asprintf("content_type 전달: hints=0x%x, purpose=%u",
                    static_cast<int>(hints), purpose));
@@ -529,6 +561,17 @@ void UnimInputContext::setFocusObject(QObject *object)
             m_dbus->setSurroundingText(surroundingText,
                                         static_cast<quint32>(cursorPos),
                                         static_cast<quint32>(anchorPos));
+        }
+    } else if (m_dbus) {
+        /* 포커스 객체 소실(창 비활성화 등) — Normal 복귀.
+         * 다음 포커스 필드의 purpose 는 위 분기에서 다시 명시 송신되므로, 여기서
+         * 0 을 보내도 후속 조합을 막지 않는다 — 오히려 안 보내면 이전 필드가
+         * Password 였을 때 그 상태가 다음 앱/필드로 새어나간다(크로스앱 누출).
+         * m_contentPurpose 캐시도 함께 리셋해 update() 의 다음 비교 기준을 맞춘다. */
+        if (m_contentPurpose != 0) {
+            m_contentPurpose = 0;
+            m_dbus->setContentType(0);
+            UNIM_DEBUG("content_type 리셋: 포커스 소실 -> purpose=0");
         }
     }
 }

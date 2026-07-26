@@ -666,6 +666,61 @@ impl UnimTextService_Impl {
             crate::register::dbg_log("D3: ITfTextEditSink unadvised");
         }
     }
+
+    /// 비밀번호/PIN 필드 mid-focus 목적 변경 추적(Windows 동등성 체크리스트 —
+    /// 리눅스 프런트엔드의 `notify::input-purpose`(GTK)/`update(Qt::ImHints)`(Qt)
+    /// mid-focus 갱신에 대응).
+    ///
+    /// TSF 에는 프로퍼티 변경 시그널이 없으므로, `ITfEditRecord::
+    /// GetTextAndPropertyUpdates(TF_GTP_NONE, [GUID_PROP_INPUTSCOPE])` 로 "이번
+    /// 편집에서 InputScope 프로퍼티가 실제로 바뀐 범위가 있는가"를 먼저 저비용
+    /// 확인한다 — 순수 타이핑 등 이 프로퍼티를 건드리지 않는 대다수 편집은
+    /// 열거자가 즉시 비어 반환되어, 매 키 InputScope 재조회(GetSelection·
+    /// GetProperty·GetValue 등 수 차례 COM 호출) 비용이 사실상 0이 된다
+    /// (GTK notify 시그널과 동급 — change-driven 이지 폴링이 아님).
+    ///
+    /// 변경이 실제 감지된 edit 에서만 `input_scope::context_is_password`(새
+    /// edit session 을 열지 않고 이미 유효한 `ecreadonly` 재사용 — 방금 끝난
+    /// 편집의 컨텍스트에 또 세션을 요청하면 TF_E_NOLOCK 위험도 있다)로 재판정해
+    /// `engine.set_content_purpose` 를 호출한다. 코어가 멱등(동일 목적 재호출은
+    /// early return)이라 별도의 프런트엔드측 dedupe 캐시가 불필요하다 — GTK/Qt
+    /// 는 DBus 왕복 비용 때문에 캐시가 필요했지만, TSF 는 in-process 직접 호출
+    /// 이라 코어 자체 dedupe 만으로 충분하다(포커스 진입 시 매번 무조건 재전송하는
+    /// `OnSetFocus` 의 force 정책과도 동일한 결).
+    fn track_content_purpose_mid_focus(
+        &self,
+        context: &ITfContext,
+        ecreadonly: u32,
+        edit_record: &ITfEditRecord,
+    ) {
+        let prop_guid: *const GUID = &GUID_PROP_INPUTSCOPE;
+        let changed = unsafe {
+            match edit_record.GetTextAndPropertyUpdates(TF_GTP_NONE, &[prop_guid]) {
+                Ok(enum_ranges) => {
+                    let mut buf: [Option<ITfRange>; 1] = [None];
+                    let mut fetched: u32 = 0;
+                    enum_ranges.Next(&mut buf, &mut fetched).is_ok() && fetched > 0
+                }
+                // 열거자 취득 실패(비표준 컨텍스트 등) → 변경 없음 취급(graceful, normal 유지).
+                Err(_) => false,
+            }
+        };
+        if !changed {
+            return;
+        }
+
+        let is_password = crate::input_scope::context_is_password(context, ecreadonly);
+        let purpose = if is_password {
+            unim::config::ContentPurpose::Password
+        } else {
+            unim::config::ContentPurpose::Normal
+        };
+        let mut engine = self.engine.lock().unwrap();
+        engine.set_content_purpose(purpose);
+        crate::register::dbg_log(&format!(
+            "content_purpose mid-focus 갱신(OnEndEdit): is_password={is_password}"
+        ));
+    }
 }
 
 // ── ITfTextInputProcessorEx ──
@@ -1626,6 +1681,22 @@ impl ITfThreadMgrEventSink_Impl for UnimTextService_Impl {
         // 코어 set_content_purpose 상태머신이 진입 시 직전 한/영 저장+영문 강제,
         // 벗어남 시 직전 상태 복구를 수행한다. COM 조회(edit session)는 시스템콜이므로
         // 엔진 락을 잡기 전에 먼저 수행한다(락 보유 중 시스템콜 금지). 실패 시 normal.
+        //
+        // Windows 동등성 체크리스트(리눅스 프런트엔드 기준) 커버리지:
+        // - 초기 감지: 이 블록(매 OnSetFocus 마다 재판정).
+        // - focus_out Normal 복귀: `pdimfocus` 가 None(포커스 완전 소실)이면
+        //   `focus_is_password` 가 false 를 반환해 아래 계산이 자연히 Normal 이
+        //   되고, 그 값이 바로 아래에서 무조건 `set_content_purpose` 되므로
+        //   별도 분기 없이 이 한 경로로 충족된다(GTK/Qt 의 "focus_out 시 명시
+        //   Normal 송신"과 동일 효과).
+        // - dedupe/force 재전송: 아래 `engine.set_content_purpose(content_purpose)`
+        //   호출은 이전 값과 무관하게 매 OnSetFocus 마다 무조건 실행된다(=focus_in
+        //   force 재전송과 동급). 코어가 자체 멱등이라 값이 같으면 조용히 no-op.
+        // - reset 불변: `engine.reset()`(바로 아래/여러 호출부)은 core 계약상
+        //   `content_purpose`/`saved_category` 를 건드리지 않는다(surrounding.rs
+        //   문서화) — 필드 내 Escape 로 이 차단이 풀리지 않는다.
+        // - mid-focus 변경 추적: `OnEndEdit` → `track_content_purpose_mid_focus`
+        //   (재포커스 없는 InputScope 변경, 예: 비밀번호 표시/숨김 토글 반영).
         let is_password =
             crate::input_scope::focus_is_password(pdimfocus.as_ref(), self.client_id());
         let content_purpose = if is_password {
@@ -1763,7 +1834,7 @@ impl ITfTextEditSink_Impl for UnimTextService_Impl {
         &self,
         pic: Ref<'_, ITfContext>,
         ecreadonly: u32,
-        _peditrecord: Ref<'_, ITfEditRecord>,
+        peditrecord: Ref<'_, ITfEditRecord>,
     ) -> Result<()> {
         // D3 — BS×N 삭제가 Blink 문서에 실제 적용됐는지 read-back 으로 검증해, 적용
         // 확인 즉시 Phase2 삽입을 트리거한다(40~60ms 고정 대기 대신 이벤트 기반).
@@ -1818,6 +1889,20 @@ impl ITfTextEditSink_Impl for UnimTextService_Impl {
                 crate::register::dbg_log(
                     "D3: OnEndEdit read-back OK but no rev_window → race-flush 위임(세션 미개설)",
                 );
+            }
+        }));
+
+        // 비밀번호/PIN 필드 mid-focus 목적 변경 추적. 위 D3 read-back 게이트와
+        // 독립 관심사라 별도 catch_unwind 로 둔다 — D3 가 조기 return 하는
+        // 경로(has_pending_insert 없음 등, 즉 대다수 평범한 편집)에서도 이
+        // 추적은 건너뛰지 않아야 한다.
+        // 주의: 워크스페이스가 panic = "abort" 라 unwinding 자체가 없어 이
+        // catch_unwind 는 현재 no-op 이다(위 D3 블록과 동일) — 실제 보호가 아니라
+        // D3 와의 구조 대칭 + 프로파일 변경 대비용. abort 프로파일에선 뮤텍스
+        // poison 도 생기지 않으므로 내부 lock().unwrap() 은 안전하다.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let (Some(context), Some(edit_record)) = (pic.as_ref(), peditrecord.as_ref()) {
+                self.track_content_purpose_mid_focus(context, ecreadonly, edit_record);
             }
         }));
         Ok(())

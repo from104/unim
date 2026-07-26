@@ -238,7 +238,7 @@ Password protection ([FAQ](../faq/README.md) Q9) works only when the app reports
 |------|------|------|
 | GTK3/4, Qt5/6, GNOME extension, Windows TSF | Detected | content_purpose / InputScope delivered correctly |
 | Legacy XIM apps | Not detected | XIM protocol has no such signal |
-| Windows IMM32 fallback | Not detected | No InputScope query path |
+| Windows IMM32 fallback | Partial (best-effort) | Standard Edit/RichEdit + ES_PASSWORD style only; custom-drawn controls undetectable |
 | Some Wayland compositors / web forms | Not detected | content-purpose not sent (app/compositor's discretion) |
 | GTK apps that change purpose after focus | Not detected | The GTK IM reads input-purpose only at focus time and does not subscribe to `notify::input-purpose` (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus |
 

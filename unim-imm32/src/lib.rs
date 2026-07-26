@@ -6,6 +6,7 @@
 //!   - [`ime_state`]   — per-HIMC engine state (§4)
 //!   - [`input`]       — VK→KeyCode, modifier state, should-consume probe (§5.1)
 //!   - [`composition`] — COMPOSITIONSTRING IMCC build + transmsg emit (§5)
+//!   - [`content_purpose`] — 포커스 필드 비밀번호 여부 최선노력 감지 (owner: core)
 //!   - [`ui_window`]   — UI window class + `UIWndProc` body (owner: ui)
 //!   - [`register`]    — dev install/uninstall + `dbg_log` (owner: register)
 //!   - [`globals`]     — identity consts, IMEINFO flags, imm32 FFI (owner: scaffold)
@@ -17,6 +18,7 @@
 #![cfg(windows)]
 
 mod composition;
+mod content_purpose;
 mod globals;
 mod ime_state;
 mod input;
@@ -178,11 +180,17 @@ pub unsafe extern "system" fn ImeSelect(h_imc: HIMC, f_select: BOOL) -> BOOL {
     TRUE
 }
 
-/// Focus change. On deactivate, flush/hide; keep the binding.
+/// Focus change. On deactivate, flush/hide + revert content_purpose to Normal
+/// (keep the binding). On (re)activate, re-detect the focused field's
+/// content_purpose (password heuristic — see `content_purpose.rs`) so a
+/// same-process focus transition between fields is caught even when the HIMC
+/// itself doesn't change (§Windows ContentPurpose 동등성 체크리스트).
 #[no_mangle]
 pub unsafe extern "system" fn ImeSetActiveContext(h_imc: HIMC, f_activate: BOOL) -> BOOL {
     if f_activate.0 == 0 {
         ime_state::on_deactivate(h_imc);
+    } else {
+        ime_state::on_activate(h_imc);
     }
     TRUE
 }
@@ -266,6 +274,10 @@ pub unsafe extern "system" fn NotifyIME(
     if dw_action == NI_COMPOSITIONSTR.0 {
         match dw_index {
             // CPS_CANCEL: discard the in-flight composition.
+            // 주의: `engine.reset()` 은 content_purpose 를 건드리지 않는다(불변) —
+            // 필드 안에서 Escape 로 조합을 취소해도 비밀번호 필드의 한글 차단이
+            // 풀리면 안 되기 때문이다. 차단 해제는 오직 `on_deactivate`(포커스
+            // 이탈)만 한다(content_purpose.rs 모듈 문서 참고).
             x if x == CPS_CANCEL.0 => {
                 let was_open = ime_state::with_context(h_imc, |ctx| {
                     ctx.engine.reset();

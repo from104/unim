@@ -217,6 +217,7 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `GetHanjaCandidates` | — | `(s, a(ss))` | 한자 후보 조회 → (target, [(한자, 뜻풀이)]) |
 | `SelectHanja` | `index: u` | `s` | 한자 선택 → 선택된 한자 반환 |
 | `CancelHanja` | — | — | 한자 모드 취소 |
+| `SetContentType` | `purpose: u` | — | 입력 필드 목적 설정(비밀번호/PIN 등). `purpose` 는 **UNIM `ContentPurpose` 번호 체계**(0 Normal, 1 Password, 2 Pin, 3 Email, 4 Number, 5 Url, 6 Terminal)이며 **호출자(프런트엔드)가 변환 책임을 진다** — §13.1 참조. ※2인자 `(purpose, hints)` 형태는 IBus 호환 인터페이스(`org.freedesktop.IBus.InputContext`) 전용 — 그쪽은 IBus 번호 체계를 받아 데몬이 변환한다 |
 | `GetSpecialCharCandidates` | — | `(s, a(s), s)` | 특수문자 후보 조회 → (target, [문자열], top_row) |
 | `SelectSpecialChar` | `char_str: s` | — | 특수문자 선택 → preedit 교체 + 커밋 |
 | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
@@ -497,3 +498,62 @@ cargo build --workspace
 로그 매크로: `unim_log!("DBUS", "...")` / `unim_log!("ENGINE_WORKER", "...")`
 
 활성화: `UNIM_DEVELOP=1`
+
+---
+
+## 13. ContentPurpose 지원 매트릭스 (프런트엔드별)
+
+### 13.1 SetContentType 인자 체계
+
+DBus 메서드 `SetContentType(purpose: u32)` 의 인자는 항상 **UNIM ContentPurpose 번호 체계**를 따릅니다:
+
+| 값 | 상수명 | 의미 |
+|----|--------|------|
+| 0 | `Normal` | 일반 텍스트 필드 (기본값) |
+| 1 | `Password` | 비밀번호·PIN 필드 — 자동 영문 강제 |
+| 2 | `Pin` | PIN 전용 필드 — 자동 영문 강제 |
+| 3 | `Email` | 이메일 필드 |
+| 4 | `Number` | 숫자 입력 필드 |
+| 5 | `Url` | URL·URI 입력 필드 |
+| 6 | `Terminal` | 터미널 환경 |
+
+### 13.2 프런트엔드별 지원 범위
+
+| 프런트엔드 | 필드 감지 | SetContentType 송신 | 한글 자동 차단 | 비고 |
+|-----------|----------|------------------|-------------|------|
+| **GNOME 확장** (Wayland, `unim-gnome-extension`) | ✅ 자동 | ✅ DBus 송신 | ✅ | 기본값 Clutter InputContentPurpose → UNIM 매핑 |
+| **GTK3** (X11·Wayland, `unim-frontends/gtk3/src/immodule.c`) | ✅ 자동 | ✅ DBus 송신 | ✅ | GtkIMContext 자신의 `input-purpose` 프로퍼티 구독 |
+| **GTK4** (X11·Wayland, `unim-frontends/gtk4/src/immodule.c`) | ✅ 자동 | ✅ DBus 송신 | ✅ | GtkIMContext 자신의 `input-purpose` 프로퍼티 구독 |
+| **Qt5** (X11·Wayland, `unim-frontends/qt5/src/input_context.cpp`) | ✅ 자동 | ✅ DBus 송신 | ✅ | `Qt::ImHints` 프로퍼티 구독, 런타임 변경 추적 |
+| **Qt6** (X11·Wayland) | ✅ 자동 | ✅ DBus 송신 | ✅ | Qt5와 동일 구조 |
+| **순수 Wayland** (unim-frontends/wayland, Rust) | ✅ 자동 | ✅ DBus 송신 | ✅ | wayland-protocols `text-input-v3` ContentPurpose 구독 |
+| **IBus 호환 경로** (`unim-dbus/src/ibus_compat/ibus_context.rs`) | ✅ 자동 | ✅ DBus 송신 (변환) | ✅ | IBus enum → UNIM enum 변환 필수 |
+| **XIM** (X11, `unim-frontends/xim/src/main.rs`) | ❌ 불가 | ❌ 미지원 | ❌ | XIM 프로토콜에 필드 종류 전달 방법 없음 |
+| **Chrome Wayland** (기본값, `--enable-wayland-ime` 미활성화) | ❌ 불가 | ❌ 미송신 | ❌ | Chrome 기본 설정에서는 입력기에 purpose 미전달; 플래그 활성화 필요 |
+| **Chrome X11** | ❌ 불가 | ❌ 미송신 | ❌ | Chromium 엔진 설계: 입력기에 필드 정보 미보고 |
+| **Windows (legacy IMM32)** | ⚠️ 부분(최선노력) | — in-process (DBus 미경유) | ⚠️ 부분 | `content_purpose.rs` — 표준 Edit/RichEdit + `ES_PASSWORD` 스타일만 감지(Password 단일). 커스텀/오너드로우 컨트롤·Pin/Email 등 세분 purpose 는 프로토콜상 감지 불가(fail-normal: 실패 시 Normal). VM 런타임 실측 대기 |
+| **Windows (TSF)** | ✅ 자동 | — in-process (DBus 미경유) | ✅ | `unim-tsf` 가 InputScope 로 감지해 `engine.set_content_purpose` 직접 호출 — 초기 감지 + mid-focus InputScope 변경 추적(OnEndEdit) 포함. VM 런타임 실측 대기 |
+
+### 13.3 자동 감지 불가 환경 (XIM·Chrome 미플래그)
+
+다음 조합에서는 UNIM이 필드 종류를 알 수 없으므로 **수동 영문 모드 확인** 필수:
+
+1. **XIM 레거시 앱** — 터미널, Emacs, Gvim 등
+   - **대안**: GTK/Qt 기반 앱으로 전환 (gvim → vim-gtk, Emacs → Emacs(GTK) 등)
+
+2. **Chrome Wayland (플래그 미활성화)**
+   - **해결법**:
+     ```bash
+     google-chrome --enable-wayland-ime
+     ```
+   - 또는 `~/.config/chrome-flags.conf` 에 `--enable-wayland-ime` 추가
+
+3. **Chrome X11**
+   - **해결법**: 직접 한/영 토글로 영문 모드 확인
+   - **대안**: Firefox 사용 (필드 감지 정상 동작)
+
+### 13.4 설계 원칙
+
+- **프런트엔드 책임**: 각 프런트엔드는 자신의 toolkit API(GTK 프로퍼티, Qt hints, Wayland protocol)에서 필드 정보를 읽어 **UNIM ContentPurpose 번호로 변환**한 뒤 DBus SetContentType으로 송신한다.
+- **엔진 책임**: 수신한 `purpose: u32` 값을 ContentPurpose enum으로 해석하고, `should_block_hangul()` 판정에 따라 한영 전환·ATF·팝업 억제를 적용한다.
+- **동작 보장**: Linux(GTK/Qt/GNOME/Wayland), Windows(TSF)에서 비밀번호 필드는 **자동 영문 모드 전환**되고, **이탈 시 종전 모드 복구**된다.

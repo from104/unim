@@ -537,6 +537,36 @@ export class UnimDbusIME {
     }
 
     /**
+     * 필드의 content purpose(UNIM ContentPurpose 번호 체계)를 데몬에 통지.
+     *
+     * 인자는 UNIM 번호 체계(0 Normal,1 Password,2 Pin,3 Email,4 Number,5 Url,
+     * 6 Terminal)이며, Clutter→UNIM 변환은 unim_input_method.js
+     * CLUTTER_PURPOSE_TO_UNIM 이 이미 마쳤다 — 여기서는 raw 전달만 한다.
+     * 시그니처 (u)는 unim-dbus/src/service.rs:2625 set_content_type(purpose: u32)
+     * 계약과 일치. call_sync 사용은 FocusIn/FocusOut/Reset 과 동일 패턴 — 핵심 이유는
+     * **호출 순서 보장**이다: 비동기로 보내면 FocusIn/FocusOut 과 SetContentType 의
+     * 데몬 도착 순서가 뒤집혀 purpose 가 엉뚱한 포커스 구간에 적용될 수 있다.
+     * (실패 로그는 unimError 라 UNIM_DEVELOP 세션에서만 남는다 — 일반 세션에서
+     * 실패를 관찰하려면 개발 모드 필요.)
+     * @param {number} purpose - UNIM ContentPurpose 원시값
+     */
+    setContentType(purpose) {
+        if (!this._icProxy) return;
+
+        try {
+            this._icProxy.call_sync(
+                'SetContentType',
+                new GLib.Variant('(u)', [purpose >>> 0]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+        } catch (e) {
+            unimError('DBUS_IME', `SetContentType 실패: ${e.message}`);
+        }
+    }
+
+    /**
      * 입력 상태 초기화
      */
     reset() {

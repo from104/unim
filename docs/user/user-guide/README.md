@@ -202,6 +202,8 @@ Snap has no global override mechanism. Add a conditional snippet to `~/.profile`
 
 > **Toggling with Right Alt**: Add `RightAlt` to the `toggle_keys` setting to switch Korean/English with the right Alt key. GTK, Qt, and the GNOME extension used to filter Right Alt themselves, so it did nothing there (XIM and pure Wayland already worked); the toggle decision is now unified in the daemon, so it behaves the same everywhere. AltGr layouts (right Alt used as AltGr) are unaffected. Note that at the moment of toggling the application may also receive the Alt input (e.g. menu-bar focus in some apps); if you don't want that side effect, remove `RightAlt` from `toggle_keys`.
 
+> **Key-name spelling**: `toggle_keys` takes key names UNIM knows, **one name per entry** (defaults: `Korean`, `RightAlt`). Unlike the AutoTypeFix hotkeys (§4.4), the toggle key does not accept modifier combinations (`Ctrl+X`). The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure — the value is still stored, but the dead key no longer disappears silently.
+
 ### 4.2 Hanja conversion
 
 1. Type the Korean to convert (e.g. `한국`).
@@ -209,6 +211,8 @@ Snap has no global override mechanism. Add a conditional snippet to `~/.profile`
 3. A 9-cell grid popup appears: `韓國`, `漢國`, …
 4. Pick with digits 1–9, navigate with arrow keys, Enter to commit, ESC to cancel.
 5. With more than nine candidates, press **`.` (period)** to toggle to a 9×9=81-cell expanded grid. The ⊞/⊟ icon in the corner reflects the current mode.
+
+> **Choosing the Hanja key**: `hanja_keys` defaults to `Hanja`, `F9`. Like the toggle key (§4.1) it takes single key names only — no modifier combinations. The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure.
 
 #### Page navigation (mouse / keyboard)
 
@@ -335,7 +339,7 @@ In the Slint settings app (`unim-settings`, including Windows) the three fields 
 In password and PIN fields, AutoTypeFix **turns off automatically.** When the app reports "this field is a password" (`content_purpose`), UNIM stops both forward and reverse correction while you are in that field, and also clears any keystroke-observation buffer and undo history already accumulated. This keeps a password typed like `dkssud` from being auto-corrected into Korean and corrupted.
 
 - It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.
-- This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, the Windows IMM32 fallback, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see [FAQ](../faq/README.md) Q9.
+- This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, custom-drawn password boxes in Windows IMM32 apps, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see [FAQ](../faq/README.md) Q9.
 
 ### 4.5 Auto-English-Mode
 
@@ -346,6 +350,8 @@ Opt-in feature for vim command mode (`Esc`), CLI slash commands (`/`), etc. Off 
 - Behavior: in Korean mode, pressing a trigger key (1) commits the current preedit, (2) permanently switches to English mode, (3) forwards the trigger key itself to the application.
 
 > If your toggle key collides with a trigger key, the toggle wins (its branch comes first in `press_key`). Password fields are unaffected (they force English already).
+
+> **Trigger spelling**: write triggers as `key:<key name>` or `char:<character>` (e.g. `key:Escape`, `char:/`). The older prefix-less form (`Escape`) is still recognized, and modifier combinations such as `key:Ctrl+B` are allowed. The CLI and the settings app warn about specs they cannot parse when saving, and the daemon logs the parse failure — nothing is dropped silently.
 
 ---
 

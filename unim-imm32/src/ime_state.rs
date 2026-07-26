@@ -13,8 +13,10 @@ use std::sync::{Mutex, OnceLock};
 
 use windows::Win32::UI::Input::Ime::HIMC;
 
-use unim::config::Config;
+use unim::config::{Config, ContentPurpose};
 use unim::input_engine::InputEngine;
+
+use crate::content_purpose;
 
 /// One IMM32 input context's engine state.
 ///
@@ -148,10 +150,17 @@ pub fn hinst() -> isize {
 ///
 /// Idempotent: if the HIMC is already bound, the existing engine is reset so the
 /// context starts clean (mirrors a re-select). Binding happens ONLY here.
+///
+/// content_purpose 초기 감지(Linux 체크리스트의 "초기 감지"): 이 HIMC 가 처음
+/// 선택되는 시점의 포커스 필드를 최선노력으로 판정해 엔진에 반영한다
+/// (`content_purpose.rs` 참고 — Password/Pin 은 IMM32 상 사실상 Password 휴리스틱
+/// 하나뿐이다). Win32 포커스 조회는 레지스트리 락 **밖**에서 먼저 수행한다(락 보유
+/// 중 시스템콜 금지 관례 — `unim-tsf/src/text_service.rs::OnSetFocus` 와 동일 원칙).
 pub fn on_select(himc: HIMC) {
     if himc.is_invalid() {
         return;
     }
+    let purpose = content_purpose::detect_focus_purpose();
     let mut reg = match registry().lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
@@ -169,6 +178,9 @@ pub fn on_select(himc: HIMC) {
             reg.contexts.insert(key(himc), ctx);
         }
     }
+    if let Some(ctx) = reg.contexts.get_mut(&key(himc)) {
+        ctx.engine.set_content_purpose(purpose);
+    }
 }
 
 /// `ImeSelect(FALSE)` / `ImeDestroy`: reset the engine then drop the binding.
@@ -183,15 +195,42 @@ pub fn on_unselect(himc: HIMC) {
     }
 }
 
+/// `ImeSetActiveContext(TRUE)`: 포커스 복귀 — content_purpose 를 재판정한다.
+///
+/// 같은 HIMC 를 공유하는 다른 컨트롤로 포커스가 옮겨가도(레거시 Win32 다이얼로그의
+/// 형제 Edit 컨트롤 등) IMM32 는 컨트롤 단위 포커스 전환마다 이 콜백을 호출하므로,
+/// 여기서 매번 재감지하는 것이 IMM32 에서 가능한 "mid-focus 변경 추적"의 최선노력
+/// 근사다(포커스 전환 없이 같은 컨트롤이 런타임에 목적을 바꾸는 GTK
+/// `notify::input-purpose` 류는 IMM32 에 대응 알림이 없어 감지 불가 — 문서화된
+/// 한계). `set_content_purpose` 자체가 멱등이라 매번 호출해도 무해(dedupe 는
+/// 엔진이 내부에서 수행 — Linux 프런트엔드의 캐시 dedupe 는 dbus IPC 비용을 피하기
+/// 위한 것으로, in-process 인 IMM32 엔 해당 비용이 없어 불필요).
+pub fn on_activate(himc: HIMC) {
+    let purpose = content_purpose::detect_focus_purpose();
+    let mut reg = match registry().lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    if let Some(ctx) = reg.contexts.get_mut(&key(himc)) {
+        ctx.engine.set_content_purpose(purpose);
+    }
+}
+
 /// `ImeSetActiveContext(FALSE)`: flush/hide UI but keep the binding so the
 /// composition can resume on re-focus. We conservatively reset the engine's
 /// transient composition so no stale preedit lingers across focus loss.
+///
+/// content_purpose 를 먼저 `Normal` 로 명시 복귀시킨다(Linux 체크리스트의
+/// "focus_out 시 Normal 명시 복귀(sticky 차단)") — 그래야 비밀번호 필드 진입 전
+/// 저장해 둔 한/영 상태(`saved_category`)가 이 시점에 복구된다. 이후 `reset()`은
+/// content_purpose/saved_category 를 건드리지 않으므로 순서가 안전하다.
 pub fn on_deactivate(himc: HIMC) {
     let mut reg = match registry().lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
     };
     if let Some(ctx) = reg.contexts.get_mut(&key(himc)) {
+        ctx.engine.set_content_purpose(ContentPurpose::Normal);
         ctx.engine.reset();
         ctx.comp_open = false;
     }

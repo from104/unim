@@ -186,7 +186,7 @@ In normal operation, `unim-daemon` RSS sits in 30–80 MB. UNIM 0.2.0 hardens th
 
 **No.** Password fields are detected via `content_purpose` and forced to English. AutoTypeFix (both forward and reverse), hanja conversion, and the special-char popup are all disabled. Any keystroke-observation buffer and undo history already accumulated are cleared too, so a password typed like `dkssud` is never auto-corrected into Korean and corrupted. The input is not retained in daemon memory.
 
-> Caveat: this works only when the app accurately reports `content_purpose=password`. Environments that do not report it — **legacy XIM apps, the Windows IMM32 fallback, and some Wayland compositors/web forms that do not send content-purpose** — may fail to auto-detect; verify English mode manually via the Hangul key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF.)
+> Caveat: this works only when the app accurately reports `content_purpose=password`. Environments that do not report it — **legacy XIM apps, custom-drawn password boxes in Windows IMM32 apps (only standard Edit/RichEdit controls with ES_PASSWORD are detected there), and some Wayland compositors/web forms that do not send content-purpose** — may fail to auto-detect; verify English mode manually via the Hangul key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF; Windows IMM32 detects standard ES_PASSWORD controls on a best-effort basis.)
 
 ---
 
@@ -194,7 +194,7 @@ In normal operation, `unim-daemon` RSS sits in 30–80 MB. UNIM 0.2.0 hardens th
 
 **This is intended.** AutoTypeFix is deliberately disabled in password and PIN fields (see Q9), because otherwise a password typed like `dkssud` would flip to Korean at a word boundary and break your login. It returns to normal the moment you leave the field, and any on/off toggle state you set manually is preserved.
 
-> Conversely, if correction fails in a **non-password field**, the cause is different → [Troubleshooting](../troubleshooting/README.md) §8. In the undetectable environments above (XIM, IMM32, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.
+> Conversely, if correction fails in a **non-password field**, the cause is different → [Troubleshooting](../troubleshooting/README.md) §8. In the undetectable environments above (XIM, custom IMM32 controls, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.
 
 ---
 
@@ -348,6 +348,58 @@ unim-cli config set ignore-key-repeat true
 ```
 
 **Fallback limits**: Wayland, Qt5/6, and the GNOME extension detect repeats precisely. The GTK3/4, XIM, and ibus-compatible paths approximate with an 80 ms time window, so (1) the first repeat may slip through, and (2) if your system key-repeat interval is set longer than 80 ms, repeats may not be filtered. In either case, when in doubt it errs toward suppressing less (fail-safe). GNOME extension users: applies after re-login.
+
+---
+
+## Q21. Password fields in Chrome/Chromium are not being auto-protected. Why?
+
+**Chrome does not report input field types to the input method, so UNIM cannot auto-detect them.**
+
+### Diagnosis by cause
+
+#### 1. Wayland Chrome (native, `--enable-wayland-ime` not enabled)
+
+By default, Chrome does not use the Wayland input method protocol (`input-method-v2`). You must enable the flag explicitly.
+
+**Solutions:**
+
+- **Option 1 — Command-line flag**
+  ```bash
+  google-chrome --enable-wayland-ime
+  chromium --enable-wayland-ime
+  ```
+
+- **Option 2 — Flag file** (`~/.config/chrome-flags.conf`)
+  ```
+  --enable-wayland-ime
+  ```
+
+- **Option 3 — .desktop entry** (all users, persists across package upgrades)
+  ```bash
+  # Find /usr/share/applications/google-chrome.desktop or ~/.local/share/applications/google-chrome.desktop
+  # Locate the Exec= line and append --enable-wayland-ime
+  Exec=/opt/google/chrome/google-chrome --enable-wayland-ime %U
+  ```
+
+After enabling the flag and restarting Chrome, UNIM will detect password fields.
+
+#### 2. X11 Chrome / Chromium
+
+The Chromium engine **does not report input field types to the input method even on X11.** This is a design choice in Chromium that UNIM cannot override. Manually verify English mode by pressing the Hangul/Korean toggle key before entering the password.
+
+> Alternative: Firefox reports field info to the input method, so detection works correctly.
+
+---
+
+## Q22. XIM environments: why doesn't password-field auto-detection work?
+
+**The XIM protocol itself has no way to convey input field semantics.**
+
+XIM (X Input Method) is a legacy protocol from 1994 with no facility to signal field types like "password". Your options:
+
+1. **Manual English mode check** — before entering a password field, press Hangul/Korean to verify English mode.
+2. **Switch to GTK/Qt apps** — migrate from XIM-only legacy apps to modern GTK/Qt equivalents (e.g., gvim → vim-gtk / nvim-qt).
+3. **Try an alternative input path** — for command-line use, also enable the ibus-compat path and test.
 
 ---
 

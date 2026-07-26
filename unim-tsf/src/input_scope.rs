@@ -2,11 +2,17 @@
 //!
 //! 포커스 문서의 selection range 에 부여된 `GUID_PROP_INPUTSCOPE` 프로퍼티를
 //! 읽어 `ITfInputScope::GetInputScopes` 에 비밀번호/PIN 계열 스코프가 있는지
-//! 확인한다. ThreadMgr `OnSetFocus` 에서 호출하며, 어떤 실패도 패닉 금지
+//! 확인한다. ThreadMgr `OnSetFocus`(초기 감지) 와 `ITfTextEditSink::OnEndEdit`
+//! (mid-focus 변경 추적, 리눅스 프런트엔드의 `notify::input-purpose`/
+//! `Qt::ImHints` 갱신과 동급) 양쪽에서 호출하며, 어떤 실패도 패닉 금지
 //! (panic=abort) 이고 조회 실패/미지정 시 `false`(=normal) 로 graceful 처리한다.
 //!
-//! 읽기 전용 동기 edit session(`TF_ES_READ | TF_ES_SYNC`)으로 락 안에서 조회하며
-//! 문서를 절대 변형하지 않는다(read-only). 시스템콜이므로 엔진 락 밖에서 호출한다.
+//! 문서를 절대 변형하지 않는다(read-only). `focus_is_password` 는 자체 동기
+//! edit session(`TF_ES_READ | TF_ES_SYNC`)을 열어 조회하므로 시스템콜이자
+//! 엔진 락 밖에서 호출해야 한다. `context_is_password` 는 호출부가 이미 보유한
+//! 유효 `ec`(예: `OnEndEdit` 의 `ecreadonly`)를 재사용해 새 세션을 열지 않는다
+//! — 편집이 막 끝난 시점에 같은 컨텍스트에 또 세션을 요청하면 불필요한 비용은
+//! 물론, 일부 호스트에서 락 경합(TF_E_NOLOCK)까지 유발할 수 있다.
 
 use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
@@ -68,38 +74,45 @@ struct InputScopeQuerySession {
 
 impl ITfEditSession_Impl for InputScopeQuerySession_Impl {
     fn DoEditSession(&self, ec: u32) -> Result<()> {
-        unsafe {
-            // 1. 현재 selection range 획득 (읽기 전용).
-            let mut sel = [TF_SELECTION::default(); 1];
-            let mut fetched: u32 = 0;
-            let got =
-                self.context
-                    .GetSelection(ec, TF_DEFAULT_SELECTION, &mut sel, &mut fetched);
-            if got.is_err() || fetched == 0 {
-                return Ok(());
-            }
-            let Some(range) = ManuallyDrop::take(&mut sel[0].range) else {
-                return Ok(());
-            };
-
-            // 2. GUID_PROP_INPUTSCOPE 프로퍼티 값(VT_UNKNOWN = ITfInputScope) 조회.
-            let Ok(prop) = self.context.GetProperty(&GUID_PROP_INPUTSCOPE) else {
-                return Ok(());
-            };
-            let Ok(mut var) = prop.GetValue(ec, &range) else {
-                return Ok(());
-            };
-
-            // 3. ITfInputScope::GetInputScopes 에 비밀번호/PIN 계열이 있는지 검사.
-            let is_pw = variant_has_password_scope(&var);
-            // 받은 VARIANT 소유권 해제 (windows 0.62 VARIANT 는 Drop 미구현 → 수동 해제).
-            let _ = VariantClear(&mut var);
-
-            if is_pw {
-                *self.result.lock().unwrap() = true;
-            }
+        if context_is_password(&self.context, ec) {
+            *self.result.lock().unwrap() = true;
         }
         Ok(())
+    }
+}
+
+/// 이미 유효한 edit session(`ec`) 위에서 컨텍스트가 비밀번호/PIN 계열
+/// InputScope 인지 판정한다. `focus_is_password`(새 세션을 여는 초기 감지 경로)
+/// 와 `text_service::OnEndEdit`(이미 열려 있던 `ecreadonly` 재사용, mid-focus
+/// 경로)가 이 함수를 공유해 판정 로직이 두 곳으로 갈리지 않는다.
+///
+/// selection/프로퍼티 조회가 실패하면 `false`(normal 취급).
+pub fn context_is_password(context: &ITfContext, ec: u32) -> bool {
+    unsafe {
+        // 1. 현재 selection range 획득 (읽기 전용).
+        let mut sel = [TF_SELECTION::default(); 1];
+        let mut fetched: u32 = 0;
+        let got = context.GetSelection(ec, TF_DEFAULT_SELECTION, &mut sel, &mut fetched);
+        if got.is_err() || fetched == 0 {
+            return false;
+        }
+        let Some(range) = ManuallyDrop::take(&mut sel[0].range) else {
+            return false;
+        };
+
+        // 2. GUID_PROP_INPUTSCOPE 프로퍼티 값(VT_UNKNOWN = ITfInputScope) 조회.
+        let Ok(prop) = context.GetProperty(&GUID_PROP_INPUTSCOPE) else {
+            return false;
+        };
+        let Ok(mut var) = prop.GetValue(ec, &range) else {
+            return false;
+        };
+
+        // 3. ITfInputScope::GetInputScopes 에 비밀번호/PIN 계열이 있는지 검사.
+        let is_pw = variant_has_password_scope(&var);
+        // 받은 VARIANT 소유권 해제 (windows 0.62 VARIANT 는 Drop 미구현 → 수동 해제).
+        let _ = VariantClear(&mut var);
+        is_pw
     }
 }
 

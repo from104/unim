@@ -243,7 +243,7 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 |------|------|------|
 | GTK3/4, Qt5/6, GNOME 확장, Windows TSF | 감지됨 | content_purpose / InputScope 정상 전달 |
 | XIM 레거시 앱 | 미감지 | XIM 프로토콜에 해당 신호가 없음 |
-| Windows IMM32 폴백 | 미감지 | InputScope 조회 경로 없음 |
+| Windows IMM32 폴백 | 부분(최선노력) | 표준 Edit/RichEdit + ES_PASSWORD 스타일만 감지 — 커스텀 컨트롤은 감지 불가 |
 | 일부 Wayland 컴포지터·웹폼 | 미감지 | content-purpose 를 보내지 않음(앱/컴포지터 재량) |
 | 포커스 후 목적이 바뀌는 GTK 앱 | 미감지 | GTK IM 은 포커스 시점에만 input-purpose 를 읽고 `notify::input-purpose` 변경은 구독하지 않는다(기존 한계) — 같은 칸이 나중에 비밀번호로 바뀌면 재포커스 전까지 반영 안 됨 |
 

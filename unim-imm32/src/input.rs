@@ -118,10 +118,14 @@ pub fn should_consume(ctx: &ImeContext, cfg: &Config, vkey: u32, key_state: *con
 
     // 영문 모드 + ATF 순방향 ON: 문자 키를 소비해 IME 경로로 커밋한다.
     // (test_key_down 과 동일 — IMM32 앱에서 순방향 ATF 가 키를 관찰하려면 필요.)
+    // 비밀번호/PIN 필드(content_purpose 감지 시)에서는 소비하지 않는다 — IMM32 에는
+    // ATF 버퍼가 없어 소비 이득이 0 인데, 비번 문자를 WM_CHAR 대신 IME 결과 문자열
+    // 경로로 우회시키는 호환성 리스크만 남기 때문. 통과시키면 앱이 문자를 직접 받는다.
     if engine.input_category() == InputCategory::English
         && keycode.is_character_key()
         && cfg.engine.auto_typefix.enabled
         && cfg.engine.auto_typefix.forward
+        && !engine.content_purpose().should_block_hangul()
     {
         return true;
     }

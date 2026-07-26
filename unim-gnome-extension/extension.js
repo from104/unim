@@ -295,6 +295,10 @@ export default class UnimExtension extends Extension {
                 return false;
             });
 
+            // content purpose 변경 핸들러 (password/pin 등 필드 진입 시 데몬에 통지 →
+            // ATF·한영전환 억제, unim-dbus/src/service.rs:2625 SetContentType 계약).
+            this._inputMethod.setContentTypeHandler(p => this._dbusIME.setContentType(p));
+
             // 8. 리셋 핸들러 (입력 필드 내 리셋 시 팝업 정리)
             this._inputMethod.setResetHandler(() => {
                 this._cleanupPopups();

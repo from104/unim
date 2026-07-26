@@ -8,6 +8,7 @@
  */
 
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import { unimLog, unimError } from './logging.js';
 
@@ -22,6 +23,51 @@ const MODIFIER_KEYSYMS = new Set([
     Clutter.KEY_Caps_Lock, Clutter.KEY_Num_Lock,
     Clutter.KEY_Scroll_Lock,
 ]);
+
+/**
+ * Clutter.InputContentPurpose → UNIM ContentPurpose 매핑.
+ *
+ * 로컬 /usr/lib/x86_64-linux-gnu/mutter-14/Clutter-14.gir 실측 값:
+ *   normal0, alpha1, digits2, number3, phone4, url5, email6, name7,
+ *   password8, date9, time10, datetime11, terminal12.
+ * UNIM ContentPurpose(src/config.rs:267-298): Normal0, Password1, Pin2,
+ * Email3, Number4, Url5, Terminal6.
+ *
+ * GTK(GtkInputPurpose)·IBus(IBusInputPurpose)와 9·10 의 의미가 다르다
+ * (GTK 9=PIN,10=TERMINAL / Clutter 9=date,10=time) — 두 표를 절대 재사용하지
+ * 말고 이 명시 switch(Map)만 사용한다. Clutter enum 에는 PIN 이 없어
+ * password(8) 만 UNIM Password(1)로 매핑되고, PIN 커버리지는
+ * CLUTTER_HINT_HIDDEN_TEXT 폴백(_effectivePurpose)이 담당한다.
+ */
+const CLUTTER_PURPOSE_TO_UNIM = new Map([
+    [0, 0],  // normal      → Normal
+    [1, 0],  // alpha       → Normal (GTK 표와 의도적 일치 — 오차단 방지)
+    [2, 0],  // digits      → Normal
+    [3, 4],  // number      → Number
+    [4, 0],  // phone       → Normal
+    [5, 5],  // url         → Url
+    [6, 3],  // email       → Email
+    [7, 0],  // name        → Normal
+    [8, 1],  // password    → Password
+    [9, 0],  // date        → Normal (GTK/IBus 의 9=PIN 과 무관 — passthrough 금지)
+    [10, 0], // time        → Normal (GTK/IBus 의 10=TERMINAL 과 무관)
+    [11, 0], // datetime    → Normal
+    [12, 6], // terminal    → Terminal
+]);
+
+/**
+ * Clutter.InputContentHintFlags 중 HIDDEN_TEXT 비트.
+ *
+ * SENSITIVE_DATA(128)는 의도적으로 미사용 — Qt 선례(unim-frontends/qt5/
+ * src/input_context.cpp:499-509)와 동일하게 "카드번호 등 화면에 보이는
+ * 민감 필드"까지 차단하면 오차단이 되므로 hidden_text 만 폴백 판정에 쓴다.
+ */
+const CLUTTER_HINT_HIDDEN_TEXT = 64;
+
+// 포커스 없는 동안 버퍼된 purpose 의 유효 시간(µs). 정상 시나리오(purpose 도착 직후
+// focus_in)는 ms 단위이므로 넉넉한 2초로 잡는다 — 이보다 오래 남은 pending 은 대상
+// 필드가 사라진 stale 값으로 보고 폐기한다(과차단 방지, SPEC §2.7).
+const PENDING_PURPOSE_TTL_US = 2_000_000;
 
 /**
  * UnimInputMethod
@@ -58,6 +104,22 @@ class UnimInputMethod extends Clutter.InputMethod {
         this._lastKeyEventTimeMs = 0;
         /** @type {Object|null} DBus IME 클라이언트 연동 */
         this._dbusIME = null;
+        /** @type {number} 최근 vfunc_update_content_purpose 로 받은 Clutter 원시값 */
+        this._contentPurposeRaw = 0;
+        /** @type {number} 최근 vfunc_update_content_hints 로 받은 Clutter 힌트 비트필드 */
+        this._contentHints = 0;
+        /**
+         * 포커스 없는 동안 도착한 purpose — focus_in 시 flush.
+         * null 이면 대기 중인 값 없음(포커스 중 도착분은 즉시 송신하므로 버퍼 불필요).
+         * @type {number|null}
+         */
+        this._pendingPurpose = null;
+        /** @type {number} pending 기록 시각(µs, monotonic) — TTL 판정용 */
+        this._pendingPurposeTime = 0;
+        /** @type {number} 마지막으로 데몬에 실제 송신한 purpose (dedupe 기준) */
+        this._sentPurpose = 0;
+        /** @type {Function|null} content purpose 변경 콜백 (dbus_ime.setContentType 배선) */
+        this._contentTypeHandler = null;
         /**
          * AutoTypeFix가 vkbd로 보낸 BackSpace의 self-feedback 방지 카운터.
          * vkbd 이벤트가 mutter→IM filter로 재진입할 때, 한글 엔진이 새 preedit을
@@ -122,6 +184,23 @@ class UnimInputMethod extends Clutter.InputMethod {
      */
     setToggleKeyNotifier(cb) {
         this._toggleKeyNotifier = cb;
+    }
+
+    /**
+     * content purpose 변경 콜백 등록 (dbus_ime.js setContentType 배선)
+     * @param {Function|null} handler - (unimPurpose: number) => void
+     */
+    setContentTypeHandler(handler) {
+        this._contentTypeHandler = handler;
+    }
+
+    /**
+     * 현재 Clutter 포커스 보유 여부 — extension.js 창 전환 fail-safe 게이트용
+     * (Clutter 포커스가 살아있는 동안에는 별도 경로로 Normal 을 강제하지 않기 위함).
+     * @returns {boolean}
+     */
+    hasFocus() {
+        return this._hasFocus;
     }
 
     // ===========================================
@@ -208,6 +287,29 @@ class UnimInputMethod extends Clutter.InputMethod {
     vfunc_focus_in(_focus) {
         this._hasFocus = true;
         unimLog('IME', `vfunc_focus_in: _hasFocus=true`);
+
+        // 포커스 없는 동안 도착해 대기 중이던 purpose 만 flush.
+        // 무조건 Normal 송신은 하지 않는다 — Mutter 가 vfunc_update_content_purpose
+        // 를 vfunc_focus_in 보다 먼저 호출하는 순서라면(호출 순서 미확정, gnome_reset_design
+        // 근거 1) 방금 받은 Password 를 여기서 즉시 Normal 로 덮어써 비번 차단을
+        // 영구 무력화하게 된다. Normal 복귀는 vfunc_focus_out 에서만 담당(하단).
+        if (this._pendingPurpose !== null) {
+            const p = this._pendingPurpose;
+            const age = GLib.get_monotonic_time() - (this._pendingPurposeTime ?? 0);
+            this._pendingPurpose = null;
+            // TTL 2초 — 대상 필드가 포커스를 끝내 못 받고 사라진 뒤(창 닫힘 등)
+            // 남은 stale pending 이 무관한 다음 필드에 재적용되는 over-block 을
+            // 막는다(SPEC §2.7 알려진 단방향 한계). 정상 순서(purpose 직후 focus_in)
+            // 는 ms 단위라 TTL 에 걸리지 않는다.
+            if (age > PENDING_PURPOSE_TTL_US) {
+                unimLog('IME', `pending purpose ${p} 폐기 (age=${Math.round(age / 1000)}ms > TTL)`);
+                return;
+            }
+            if (p !== this._sentPurpose) {
+                this._contentTypeHandler?.(p);
+                this._sentPurpose = p;
+            }
+        }
     }
 
     vfunc_focus_out() {
@@ -239,9 +341,27 @@ class UnimInputMethod extends Clutter.InputMethod {
         } else if (this._preeditText.length > 0) {
             this.clearPreedit();
         }
+
+        // 4. content purpose Normal 복귀 — 단일 영속 InputContext(dbus_ime.js) 구조라
+        // 이 리셋이 빠지면 비번 필드에서 세운 차단이 세션 전체에 잔존(크로스앱 누출)한다.
+        // focus_out 은 실측(wl-wayland-0 로그, IN/OUT 엄격 교대 221/221)상 빠짐없이
+        // 호출되므로 리셋 지점으로 채택(gnome_reset_design 근거 2). 이미 Normal 이면
+        // 재전송 생략(dedupe).
+        if (this._sentPurpose !== 0) {
+            this._contentTypeHandler?.(0);
+            this._sentPurpose = 0;
+        }
+        this._contentPurposeRaw = 0;
+        this._contentHints = 0;
+        // _pendingPurpose 는 지우지 않는다 — 포커스 없는 동안 이미 도착한 다음 필드의
+        // purpose 일 수 있으며, 그 몫은 다음 vfunc_focus_in 이 flush 한다.
     }
 
     vfunc_reset() {
+        // content purpose 는 건드리지 않는다 — reset 은 필드 "내부" 조합 취소(예:
+        // Escape) 이벤트라, 여기서 Normal 로 되돌리면 비밀번호 필드 안에서 Escape
+        // 한 번에 차단이 풀리는 회귀가 된다(GTK3 감사관의 "reset 에서도 Normal" 권고는
+        // 이 이유로 불채택 — gnome_reset_design 부수 규칙).
         // 1. 리셋 핸들러 호출 (팝업 열려있으면 커밋+닫기)
         if (this._resetHandler) {
             try {
@@ -345,11 +465,53 @@ class UnimInputMethod extends Clutter.InputMethod {
     }
 
     vfunc_update_content_hints(hints) {
-        // 콘텐츠 힌트
+        this._contentHints = hints;
+        unimLog('IME', `update_content_hints: clutter_hints=0x${(hints >>> 0).toString(16)}`);
+        this._applyContentPurpose();
     }
 
     vfunc_update_content_purpose(purpose) {
-        // 콘텐츠 목적
+        this._contentPurposeRaw = purpose;
+        unimLog('IME', `update_content_purpose: clutter=${purpose}`);
+        this._applyContentPurpose();
+    }
+
+    /**
+     * CLUTTER_PURPOSE_TO_UNIM 매핑 + hidden_text 힌트 폴백을 적용한 최종
+     * UNIM ContentPurpose 원시값을 계산한다.
+     *
+     * Clutter enum 에는 PIN 값이 없어(_effectivePurpose 매핑표 주석 참조)
+     * password 로 접히지 않는 PIN 필드는 text-input-v3 의 hidden_text 힌트로만
+     * 구분 가능한 경우가 있다 — purpose 가 Normal 로 떨어졌더라도 hidden_text 면
+     * Password(1)로 승격한다(PIN 전용 값이 없으므로 Password 로 흡수 — 미차단보다
+     * 과차단이 안전).
+     * @returns {number} UNIM ContentPurpose 원시값
+     * @private
+     */
+    _effectivePurpose() {
+        const p = CLUTTER_PURPOSE_TO_UNIM.get(this._contentPurposeRaw) ?? 0;
+        return (p === 0 && (this._contentHints & CLUTTER_HINT_HIDDEN_TEXT)) ? 1 : p;
+    }
+
+    /**
+     * 계산된 effective purpose 를 포커스 상태에 따라 즉시 송신하거나 대기시킨다.
+     *
+     * 포커스 없음: 다음 vfunc_focus_in 이 flush 할 수 있도록 _pendingPurpose 에 버퍼.
+     * 포커스 있음: 직전 송신값과 다를 때만 handler 호출(dedupe) — mutter 가 커밋마다
+     * update_content_purpose 를 반복 호출할 수 있어 call_sync 폭주를 막는다.
+     * @private
+     */
+    _applyContentPurpose() {
+        const eff = this._effectivePurpose();
+        if (!this._hasFocus) {
+            this._pendingPurpose = eff;
+            this._pendingPurposeTime = GLib.get_monotonic_time();
+            return;
+        }
+        if (eff !== this._sentPurpose) {
+            this._contentTypeHandler?.(eff);
+            this._sentPurpose = eff;
+        }
     }
 
     // ===========================================

@@ -273,6 +273,94 @@ unim_check_debug_env(void)
     }
 }
 
+/* GtkInputPurpose → UNIM ContentPurpose 변환.
+ * GTK InputPurpose 값 체계는 IBus.InputPurpose/Qt::ImHints 와는 별개 열거형이며,
+ * Clutter(GNOME_EXT 트랙)와 달리 GTK 자체 enum 에 PIN 값이 이미 있어 hints 기반
+ * 폴백이 불필요하다. */
+static guint
+gtk_input_purpose_to_unim(GtkInputPurpose purpose)
+{
+    switch (purpose) {
+        case GTK_INPUT_PURPOSE_PASSWORD: return 1; /* Password */
+        case GTK_INPUT_PURPOSE_PIN:      return 2; /* Pin */
+        case GTK_INPUT_PURPOSE_EMAIL:    return 3; /* Email */
+        case GTK_INPUT_PURPOSE_NUMBER:   return 4; /* Number */
+        case GTK_INPUT_PURPOSE_URL:      return 5; /* Url */
+        case GTK_INPUT_PURPOSE_TERMINAL: return 6; /* Terminal */
+        default:                         return 0; /* Normal */
+    }
+}
+
+/* 입력 필드 목적(purpose) 판정.
+ * 1차: GtkIMContext 자신의 input-purpose 프로퍼티(GTK 코어 GtkIMContext 기반
+ * 클래스가 자체 저장 — 업스트림 im-ibus.so 와 동일 패턴, strings 로 확인됨:
+ * im-ibus.so 에 "input-purpose"/"input-hints" 문자열 존재). WebKitGTK(Epiphany)
+ * 등은 client_widget 이 GTK_IS_TEXT/GTK_IS_EDITABLE 이 아니라 위젯 역질의로는
+ * 절대 못 잡지만, 자신의 GtkIMContext 프로퍼티는 직접 세팅하므로 이 경로로
+ * password 필드가 잡힌다(구 결함2: client_widget 게이트 안에서만 판정하던 버그).
+ *
+ * 2차 폴백: 1차가 FREE_FORM(미설정/기본값)일 때만 client_widget 역질의 —
+ * 컨텍스트 프로퍼티를 세팅하지 않는 구형/커스텀 위젯 대비, 무회귀 유지. */
+static GtkInputPurpose
+unim_get_effective_purpose(UnimIMContext *unim)
+{
+    GtkIMContext *context = GTK_IM_CONTEXT(unim);
+    GtkInputPurpose purpose = GTK_INPUT_PURPOSE_FREE_FORM;
+
+    g_object_get(context, "input-purpose", &purpose, NULL);
+
+    if (purpose == GTK_INPUT_PURPOSE_FREE_FORM && unim->client_widget) {
+        if (GTK_IS_TEXT(unim->client_widget)) {
+            g_object_get(unim->client_widget, "input-purpose", &purpose, NULL);
+        } else if (GTK_IS_EDITABLE(unim->client_widget)) {
+            GParamSpec *pspec = g_object_class_find_property(
+                G_OBJECT_GET_CLASS(unim->client_widget), "input-purpose");
+            if (pspec) {
+                g_object_get(unim->client_widget, "input-purpose", &purpose, NULL);
+            }
+        }
+    }
+
+    return purpose;
+}
+
+/* 판정 결과를 데몬에 전송. unim->content_purpose 를 "마지막으로 전송한 값"
+ * 캐시로 겸용해 dedupe 한다(로그 마스킹 판정에도 동일 필드를 이미 사용 중 —
+ * unim_is_sensitive/unim_mask 참조).
+ *   force=TRUE  : focus_in 전용 — client_widget 유무와 무관하게 무조건 재확인
+ *                 전송해 이전 컨텍스트의 stale purpose 잔존을 차단
+ *                 (fail-safe, GNOME_EXT 트랙과 동일 규약).
+ *   force=FALSE : mid-focus notify 핸들러 전용 — 값이 실제로 바뀔 때만 전송
+ *                 (호출 빈도가 높을 수 있어 스팸 방지 필수). */
+static void
+unim_update_content_purpose(UnimIMContext *unim, gboolean force)
+{
+    if (!unim->dbus_ctx) return;
+
+    GtkInputPurpose purpose = unim_get_effective_purpose(unim);
+    guint unim_purpose = gtk_input_purpose_to_unim(purpose);
+
+    if (!force && unim_purpose == unim->content_purpose) return;
+
+    unim->content_purpose = unim_purpose;  /* 로그 마스킹 판정 + 다음 dedupe 기준 */
+    unim_dbus_set_content_type(unim->dbus_ctx, unim_purpose);
+    UNIM_DEBUG("content_type 전송: gtk_purpose=%d, unim_purpose=%u",
+               (int)purpose, unim_purpose);
+}
+
+/* mid-focus 갱신 — 포커스 유지 중 앱이 input-purpose/input-hints 를 바꾸는
+ * 경우(예: 비밀번호 표시/숨김 토글 버튼)를 재포커스 없이 즉시 반영한다.
+ * input-hints 구독은 현재 gtk_input_purpose_to_unim() 판정에 영향을 주지
+ * 않는다(GTK InputHints 에는 hidden-text 계열이 없고, GTK InputPurpose 는
+ * Clutter 와 달리 PIN 을 이미 자체 값으로 가져 힌트 폴백이 불필요하다) — 다만
+ * 향후 힌트 기반 판정을 추가할 때 갱신 누락이 없도록 함께 구독해 둔다. */
+static void
+unim_on_notify_content_purpose(GObject *object, GParamSpec *pspec, gpointer user_data)
+{
+    (void)pspec;
+    (void)user_data;
+    unim_update_content_purpose(UNIM_IM_CONTEXT(object), FALSE);
+}
 
 static void
 unim_im_context_class_init(UnimIMContextClass *klass)
@@ -564,6 +652,15 @@ unim_im_context_init(UnimIMContext *context)
         unim_dbus_set_auto_typefix_callback(context->dbus_ctx, on_auto_typefix, context);
         unim_dbus_set_commit_text_callback(context->dbus_ctx, on_commit_text, context);
     }
+
+    /* 입력 필드 목적(purpose) mid-focus 갱신 구독 — 재포커스 없이 앱이
+     * input-purpose/input-hints 를 바꾸는 경우를 즉시 반영한다. 이 컨텍스트
+     * 자신에게 건 시그널이라 dispose 시 GObject 가 자동 해제(별도 해제 불요). */
+    g_signal_connect(context, "notify::input-purpose",
+                      G_CALLBACK(unim_on_notify_content_purpose), NULL);
+    g_signal_connect(context, "notify::input-hints",
+                      G_CALLBACK(unim_on_notify_content_purpose), NULL);
+
     context->is_focused = FALSE;
     context->surrounding_text = NULL;
     context->cursor_index = 0;
@@ -1004,21 +1101,6 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEvent *event)
     return result.consumed;
 }
 
-/* GtkInputPurpose → UNIM ContentPurpose 변환 */
-static guint
-gtk_input_purpose_to_unim(GtkInputPurpose purpose)
-{
-    switch (purpose) {
-        case GTK_INPUT_PURPOSE_PASSWORD: return 1; /* Password */
-        case GTK_INPUT_PURPOSE_PIN:      return 2; /* Pin */
-        case GTK_INPUT_PURPOSE_EMAIL:    return 3; /* Email */
-        case GTK_INPUT_PURPOSE_NUMBER:   return 4; /* Number */
-        case GTK_INPUT_PURPOSE_URL:      return 5; /* Url */
-        case GTK_INPUT_PURPOSE_TERMINAL: return 6; /* Terminal */
-        default:                         return 0; /* Normal */
-    }
-}
-
 static void
 unim_im_context_focus_in(GtkIMContext *context)
 {
@@ -1029,26 +1111,10 @@ unim_im_context_focus_in(GtkIMContext *context)
     if (unim->dbus_ctx) {
         unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
 
-        /* 입력 필드 목적 감지 및 전달 */
-        if (unim->client_widget) {
-            GtkInputPurpose purpose = GTK_INPUT_PURPOSE_FREE_FORM;
-            if (GTK_IS_TEXT(unim->client_widget)) {
-                g_object_get(unim->client_widget, "input-purpose", &purpose, NULL);
-            } else if (GTK_IS_EDITABLE(unim->client_widget)) {
-                GtkWidget *delegate = unim->client_widget;
-                /* GtkEditable에서 input-purpose 속성 확인 */
-                GParamSpec *pspec = g_object_class_find_property(
-                    G_OBJECT_GET_CLASS(delegate), "input-purpose");
-                if (pspec) {
-                    g_object_get(delegate, "input-purpose", &purpose, NULL);
-                }
-            }
-            guint unim_purpose = gtk_input_purpose_to_unim(purpose);
-            unim->content_purpose = unim_purpose;  /* 로그 마스킹 판정용 캐시 */
-            unim_dbus_set_content_type(unim->dbus_ctx, unim_purpose);
-            UNIM_DEBUG("content_type 전달: gtk_purpose=%d, unim_purpose=%u",
-                       (int)purpose, unim_purpose);
-        }
+        /* 입력 필드 목적 감지 및 전송 — client_widget 유무와 무관하게 항상
+         * 재확인·전송(구 결함: client_widget==NULL 시 스킵 → 이전 컨텍스트의
+         * purpose 가 stale 로 잔존). */
+        unim_update_content_purpose(unim, TRUE);
     }
 
     unim->is_focused = TRUE;
@@ -1075,6 +1141,17 @@ unim_im_context_focus_out(GtkIMContext *context)
 
         /* preedit 클리어 (focus_out 후 엔진 캐시 비움 → empty 전이) */
         unim_emit_preedit(unim, "");
+
+        /* 필드 이탈 시 Normal 복귀 명시 전송 — 크로스앱/필드 간 purpose 누출
+         * 차단(GNOME_EXT 트랙과 동일 규약). 이미 Normal 이면 생략(dedupe).
+         * reset() 에서는 보내지 않는다 — reset 은 필드 내부 조합 취소라, 여기서
+         * 도 Normal 로 되돌리면 비밀번호 필드 안에서 Escape 한 번에 차단이
+         * 풀리는 회귀가 된다. */
+        if (unim->content_purpose != 0) {
+            unim->content_purpose = 0;
+            unim_dbus_set_content_type(unim->dbus_ctx, 0);
+            UNIM_DEBUG("content_type 전송: focus_out Normal 복귀");
+        }
     }
 
     unim->is_focused = FALSE;
