@@ -86,6 +86,18 @@ msgstr "Confirmed"
 msgid "비활성"
 msgstr "Inactive"
 
+msgid "한/영 토글"
+msgstr "Han/Eng toggle"
+
+msgid "한자 변환"
+msgstr "Hanja"
+
+msgid "자동 영문 트리거"
+msgstr "Auto-English trigger"
+
+msgid "오타 교정 토글"
+msgstr "AutoTypeFix toggle"
+
 msgid "저장 실패: {}"
 msgstr "Save failed: {}"
 
@@ -97,6 +109,26 @@ msgstr "Set the moachigi combine window to {}ms."
 
 msgid "잘못된 오타 교정 토글 키(무시됨): {} — 예: Shift+F8, Ctrl+Left"
 msgstr "Invalid AutoTypeFix toggle key(s) (ignored): {} — e.g. Shift+F8, Ctrl+Left"
+
+msgid "잘못된 한/영 토글 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Korean, RightAlt"
+msgstr ""
+"Invalid Han/Eng toggle key(s) (ignored): {} — combos are not supported. e.g. "
+"Korean, RightAlt"
+
+msgid "잘못된 한자 변환 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Hanja, F9"
+msgstr ""
+"Invalid Hanja key(s) (ignored): {} — combos are not supported. e.g. Hanja, F9"
+
+msgid "잘못된 자동 영문 트리거 키(무시됨): {} — 예: key:Escape, char:/, key:Ctrl+B"
+msgstr ""
+"Invalid auto-English trigger key(s) (ignored): {} — e.g. key:Escape, char:/, "
+"key:Ctrl+B"
+
+msgid "무시된 키 표기가 있습니다 — {}"
+msgstr "Some key specs will be ignored — {}"
+
+msgid "{}: 유효한 키가 하나도 없어 저장하지 않았습니다 — 마지막 저장값이 유지됩니다"
+msgstr "{}: no valid key in the list, so nothing was saved — the last saved value is kept"
 
 msgid "{}    [{} · {}]    감지 {}회"
 msgstr "{}    [{} · {}]    {} hits"
@@ -203,8 +235,8 @@ msgstr "Korean/English Toggle Key"
 msgid "쉼표로 구분해 여러 키를 지정할 수 있습니다."
 msgstr "You can specify multiple keys separated by commas."
 
-msgid "예: Hangul, Shift+Space"
-msgstr "e.g. Hangul, Shift+Space"
+msgid "예: Korean, RightAlt"
+msgstr "e.g. Korean, RightAlt"
 
 msgid "한자 변환 키"
 msgstr "Hanja Conversion Key"
@@ -212,8 +244,8 @@ msgstr "Hanja Conversion Key"
 msgid "한글을 한자로 변환할 때 사용할 키입니다."
 msgstr "The key used to convert Hangul to Hanja."
 
-msgid "예: Hanja, Control+Enter"
-msgstr "e.g. Hanja, Control+Enter"
+msgid "예: Hanja, F9"
+msgstr "e.g. Hanja, F9"
 
 msgid "자동 영문 전환"
 msgstr "Auto English Switch"
@@ -647,8 +679,8 @@ msgstr "Suppressed word permanently activated."
 msgid "토글 단축키"
 msgstr "Toggle Shortcuts"
 
-msgid "지정한 키를 누르면 오타 교정을 즉시 켜거나 끕니다. 비워 두면 사용하지 않습니다. 수정자 조합(Ctrl+X 등)은 지원하지 않고 단일 키만 됩니다."
-msgstr "Pressing the assigned key toggles typo correction on or off. Leave empty to disable. Modifier combinations (like Ctrl+X) are not supported — single keys only."
+msgid "지정한 키를 누르면 오타 교정을 즉시 켜거나 끕니다. 비워 두면 사용하지 않습니다. Shift+F9 처럼 수정자 조합도 쓸 수 있습니다."
+msgstr "Pressing the assigned key toggles typo correction on or off. Leave empty to disable. Modifier combos such as Shift+F9 are supported."
 
 msgid "전체 켜기·끄기"
 msgstr "Overall on/off"
@@ -656,8 +688,8 @@ msgstr "Overall on/off"
 msgid "자동 오타 교정 전체를 토글합니다."
 msgstr "Toggles Auto TypeFix as a whole."
 
-msgid "예: ScrollLock, F10 — 비워두면 사용 안 함"
-msgstr "e.g. ScrollLock, F10 — leave empty to disable"
+msgid "예: F10, Shift+F9 — 비워두면 사용 안 함"
+msgstr "e.g. F10, Shift+F9 — leave empty to disable"
 
 msgid "전체 토글 단축키"
 msgstr "Overall toggle shortcut"

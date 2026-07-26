@@ -436,6 +436,17 @@ clean-rpm:
 #   # 또는
 #   rustup target add x86_64-pc-windows-msvc      # msvc (lld 필요, sanity 한정)
 
+# WIN_CRATES — 로컬(Linux 호스트) sanity 검증 대상 크레이트.
+#
+# unim-settings 는 일부러 제외한다: Slint 를 renderer-skia 로 고정(unim-settings/Cargo.toml)
+# 했고 skia-bindings 는 Windows 타깃 빌드에 MSVC 툴체인을 요구해서, mingw GNU cross 로는
+# 구조적으로 빌드되지 않는다(로컬 실측 확인 — 억지 우회 금지).
+# 대신 CI 가 MSVC 러너에서 검증한다:
+#   .github/workflows/windows-msi.yml
+#     · "cargo check (Windows crates, MSVC target)" → -p unim-settings 포함
+#     · "cargo build (release, MSI payloads)"       → unim-settings.exe 산출
+#   PR paths 필터에도 unim-settings/** 가 있어 설정앱 변경은 반드시 이 워크플로를 탄다.
+# ⇒ `make check-windows` 통과는 "설정앱까지 검증됨" 을 뜻하지 않는다.
 WIN_CRATES := -p unim -p unim-capi -p unim-tsf -p unim-imm32
 
 ifeq ($(OS),Windows_NT)
@@ -469,12 +480,14 @@ check-windows:
 	@echo "🔍 Windows 컴파일 검증 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
 	$(_check_windows_env)
 	@$(CARGO) check $(WIN_CARGO_FLAGS) $(WIN_CRATES)
-	@echo "✅ Windows check 통과 (sanity)"
+	@echo "✅ Windows check 통과 (sanity: $(WIN_CRATES))"
+	@echo "ℹ️  unim-settings(Slint/skia)는 로컬 cross 검증 불가 — MSVC CI(windows-msi.yml)가 담당."
 
 build-windows:
 	@echo "🔨 Windows sanity 빌드 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
 	@if [ -z "$(WIN_NATIVE)" ]; then \
 		echo "⚠️  로컬 (Linux) 빌드는 sanity 전용. 배포용 MSI 는 GitHub Actions windows-msi.yml 에서만 빌드한다."; \
+		echo "ℹ️  unim-settings 는 이 목록에 없다 — MSVC CI 가 빌드·검증한다."; \
 	fi
 	$(_check_windows_env)
 	@$(CARGO) build --release $(WIN_CARGO_FLAGS) $(WIN_CRATES)

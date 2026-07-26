@@ -13,7 +13,42 @@ use crate::hangul::jamo::JamoEnum;
 use crate::keycode::{KeyCode, ModifierState};
 use crate::keystroke::EnglishKeymap;
 use crate::popup::PopupState;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+/// "무효 키 집합이 바뀔 때만 로그" 게이트의 메모 — 필드 라벨별 마지막 서명(B2).
+///
+/// `parse_switch_keys`/`parse_auto_english_triggers`/`parse_atf_hotkeys` 는 config
+/// 적용 시점마다(`InputEngine::new`, `set_switch_keys`, `set_atf_hotkeys`) 다시 불리고,
+/// `engine_worker` 의 리로드 루프는 열려 있는 모든 컨텍스트를 순회하며 이들을 재호출한다.
+/// 무조건 로깅하면 (컨텍스트 수 × 무효 키 수) 만큼 같은 줄이 쌓이므로(word_gate 선례와
+/// 같은 문제), 필드별 무효 집합이 실제로 바뀐 때만 로그를 남긴다. 프로세스 전역 상태이며
+/// 로깅 모듈이 아니라 이 파일에 국한한다 — 이 세 파서만 쓰는 전용 게이트.
+///
+/// 알려진 한계: 개발 로그 파일(`UNIM_DEVELOP`)은 프로세스 × **날짜**로 갈리는데 메모는
+/// 프로세스 수명 전체를 덮으므로, 데몬이 자정을 넘기면 새 날짜 파일에는 직전 경고가
+/// 없을 수 있다(설정이 다시 바뀌면 재발화). 진단 로그 한정이라 수용한다.
+static LOG_STATE_MEMO: Lazy<Mutex<HashMap<&'static str, String>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// `field` 그룹의 무효 키 서명(`signature`)이 직전에 로그로 남긴 것과 **다를 때만** `true`.
+///
+/// `signature` 가 비면(무효 키 0건) 메모에서 지우고 `false` — 문제가 해소된 뒤 같은
+/// 필드에서 다시 무효 키가 생기면 한 번 더 알린다. lock 오염 시에도 로깅을 죽이지
+/// 않는다(`into_inner`).
+fn log_state_changed(field: &'static str, signature: &str) -> bool {
+    let mut memo = LOG_STATE_MEMO.lock().unwrap_or_else(|e| e.into_inner());
+    if signature.is_empty() {
+        memo.remove(field);
+        return false;
+    }
+    if memo.get(field).map(String::as_str) == Some(signature) {
+        return false;
+    }
+    memo.insert(field, signature.to_string());
+    true
+}
 
 /// 고정키(Sticky Keys) 래치 잔류 마스킹 대상 수정자 종류.
 ///
@@ -228,39 +263,26 @@ impl InputEngine {
             special_char_mode: false,
             special_char_candidates: Vec::new(),
             special_char_target: String::new(),
-            toggle_keys: config
-                .engine
-                .toggle_keys
-                .iter()
-                .map(|name| KeyCode::from_name(name))
-                .filter(|k| *k != KeyCode::Unknown)
-                .collect(),
-            hanja_keys: config
-                .engine
-                .hanja_keys
-                .iter()
-                .map(|name| KeyCode::from_name(name))
-                .filter(|k| *k != KeyCode::Unknown)
-                .collect(),
+            toggle_keys: Self::parse_switch_keys(&config.engine.toggle_keys, "한/영 전환키"),
+            hanja_keys: Self::parse_switch_keys(&config.engine.hanja_keys, "한자 키"),
             atf_hotkeys_enabled: Self::parse_atf_hotkeys(
                 &config.engine.auto_typefix.toggle_enabled_keys,
+                "ATF 토글 단축키(전체)",
             ),
             atf_hotkeys_forward: Self::parse_atf_hotkeys(
                 &config.engine.auto_typefix.toggle_forward_keys,
+                "ATF 토글 단축키(정방향)",
             ),
             atf_hotkeys_reverse: Self::parse_atf_hotkeys(
                 &config.engine.auto_typefix.toggle_reverse_keys,
+                "ATF 토글 단축키(역방향)",
             ),
             pending_atf_toggle: None,
             last_atf_hotkey: None,
             auto_english_enabled: config.engine.auto_english.enabled,
-            auto_english_triggers: config
-                .engine
-                .auto_english
-                .trigger_keys
-                .iter()
-                .filter_map(|n| Self::parse_trigger_key(n))
-                .collect(),
+            auto_english_triggers: Self::parse_auto_english_triggers(
+                &config.engine.auto_english.trigger_keys,
+            ),
             popup_state: None,
             popup_pending_action: None,
             top_row_labels: crate::config::english_layout_top_row_labels(
@@ -372,21 +394,102 @@ impl InputEngine {
     /// `InputEngine::parse_atf_hotkey` rustdoc 참조. config 적용 시점에만 불리는
     /// cold path 라 실패 표기를 데몬 로그에 남긴다 — 오타로 핫키가 조용히 죽는 것을
     /// 사용자가 로그로 확인할 수 있게 한다.
-    pub(super) fn parse_atf_hotkeys(names: &[String]) -> Vec<AtfHotkey> {
-        names
+    ///
+    /// `field` 는 로그용 라벨이자 `log_state_changed`(B2) 의 dedupe 메모 키를 겸한다 —
+    /// ATF 3목록(전체/정방향/역방향)은 서로 다른 라벨을 써야 한다(메모 키가 같으면
+    /// 서로의 무효 집합 변화를 가려 경고가 누락된다). 리로드 루프는 열려 있는 모든
+    /// 컨텍스트를 순회하므로, 무효 집합이 직전과 동일하면 로그를 생략해 (컨텍스트 수 ×
+    /// 무효 키 수) 스팸을 필드당 1줄로 줄인다 — `engine_worker` word_gate flip 로깅과
+    /// 같은 결.
+    pub(super) fn parse_atf_hotkeys(names: &[String], field: &'static str) -> Vec<AtfHotkey> {
+        let mut invalid: Vec<&str> = Vec::new();
+        let parsed: Vec<AtfHotkey> = names
             .iter()
             .filter_map(|name| {
-                let parsed = Self::parse_atf_hotkey(name);
-                if parsed.is_none() {
-                    crate::unim_log!(
-                        "ENGINE",
-                        "ATF 토글 단축키 '{}' 파싱 실패 — 무시됨 (문법: [Ctrl+][Alt+][Super+][Shift+]키이름, 예: Shift+F8)",
-                        name
-                    );
+                let p = Self::parse_atf_hotkey(name);
+                if p.is_none() {
+                    invalid.push(name.as_str());
                 }
-                parsed
+                p
             })
-            .collect()
+            .collect();
+        let joined = invalid.join(", ");
+        if log_state_changed(field, &joined) {
+            crate::unim_log!(
+                "ENGINE",
+                "{} 파싱 실패 — 무시됨: {} (문법: [Ctrl+][Alt+][Super+][Shift+]키이름, 예: Shift+F8)",
+                field,
+                joined
+            );
+        }
+        parsed
+    }
+
+    /// 한/영 전환키·한자키 이름 목록을 `KeyCode` 벡터로 파싱한다 (실패분은 경고 로그 후 제외).
+    ///
+    /// 한/영 전환키·한자키 목록 파싱을 생성자와 `set_switch_keys` 재적용에서 공유한다.
+    /// 표기 규약(조합 표기 미지원, 수정자 키 자체 허용)은 `InputEngine::parse_switch_key`
+    /// rustdoc 참조. config 적용 시점에만 불리는 cold path 라 `parse_atf_hotkeys` 와 같은
+    /// 형식으로 실패 표기를 데몬 로그에 남긴다 — 오타로 키가 조용히 죽는 것을 사용자가
+    /// 로그로 확인할 수 있게 한다.
+    ///
+    /// `field` 는 로그용 필드 이름(`"한/영 전환키"` / `"한자 키"`)이자 `log_state_changed`
+    /// (B2) 의 dedupe 메모 키를 겸한다 — 리로드는 열려 있는 모든 컨텍스트를 순회하고
+    /// 설정앱은 LineEdit 편집마다 저장하므로, 무효 집합이 직전과 동일하면 로그를 생략해
+    /// (컨텍스트 수 × 무효 키 수) 스팸을 필드당 1줄로 줄인다.
+    pub(super) fn parse_switch_keys(names: &[String], field: &'static str) -> Vec<KeyCode> {
+        let mut invalid: Vec<&str> = Vec::new();
+        let parsed: Vec<KeyCode> = names
+            .iter()
+            .filter_map(|name| {
+                let p = Self::parse_switch_key(name);
+                if p.is_none() {
+                    invalid.push(name.as_str());
+                }
+                p
+            })
+            .collect();
+        let joined = invalid.join(", ");
+        if log_state_changed(field, &joined) {
+            crate::unim_log!(
+                "ENGINE",
+                "{} 파싱 실패 — 무시됨: {} (조합 표기 미지원, 키 이름 정확 일치: 예 Korean, RightAlt, Hanja, F9)",
+                field,
+                joined
+            );
+        }
+        parsed
+    }
+
+    /// 자동 영문 전환 트리거 표기 목록을 파싱한다 (실패분은 경고 로그 후 제외).
+    ///
+    /// 문법(`key:` / `char:` / legacy 무접두사)은 `InputEngine::parse_trigger_key`
+    /// rustdoc 참조. `parse_atf_hotkeys`·`parse_switch_keys` 와 같은 cold path 규약으로
+    /// 실패 표기를 데몬 로그에 남긴다. 목록이 하나뿐이라 dedupe 메모 키(B2)는 고정
+    /// 리터럴 `"자동 영문 트리거"`.
+    pub(super) fn parse_auto_english_triggers(names: &[String]) -> Vec<AutoEnglishTrigger> {
+        const FIELD: &str = "자동 영문 트리거";
+        let mut invalid: Vec<&str> = Vec::new();
+        let parsed: Vec<AutoEnglishTrigger> = names
+            .iter()
+            .filter_map(|name| {
+                let p = Self::parse_trigger_key(name);
+                if p.is_none() {
+                    invalid.push(name.as_str());
+                }
+                p
+            })
+            .collect();
+        let joined = invalid.join(", ");
+        if log_state_changed(FIELD, &joined) {
+            crate::unim_log!(
+                "ENGINE",
+                "{} 파싱 실패 — 무시됨: {} (문법: key:<키> / char:<문자>, 예: key:Escape, char:/, key:Ctrl+B)",
+                FIELD,
+                joined
+            );
+        }
+        parsed
     }
 }
 
@@ -477,12 +580,18 @@ impl InputEngine {
     /// 즉시 반영하도록 호출한다(toggle_keys/hanja_keys 의 live-reload 갭과 달리 ATF
     /// 핫키는 재적용을 보장한다). 파싱 실패(`Unknown`)한 이름은 제외한다.
     pub fn set_atf_hotkeys(&mut self, config: &Config) {
-        self.atf_hotkeys_enabled =
-            Self::parse_atf_hotkeys(&config.engine.auto_typefix.toggle_enabled_keys);
-        self.atf_hotkeys_forward =
-            Self::parse_atf_hotkeys(&config.engine.auto_typefix.toggle_forward_keys);
-        self.atf_hotkeys_reverse =
-            Self::parse_atf_hotkeys(&config.engine.auto_typefix.toggle_reverse_keys);
+        self.atf_hotkeys_enabled = Self::parse_atf_hotkeys(
+            &config.engine.auto_typefix.toggle_enabled_keys,
+            "ATF 토글 단축키(전체)",
+        );
+        self.atf_hotkeys_forward = Self::parse_atf_hotkeys(
+            &config.engine.auto_typefix.toggle_forward_keys,
+            "ATF 토글 단축키(정방향)",
+        );
+        self.atf_hotkeys_reverse = Self::parse_atf_hotkeys(
+            &config.engine.auto_typefix.toggle_reverse_keys,
+            "ATF 토글 단축키(역방향)",
+        );
     }
 
     /// 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 캐시를 config 에서 재파싱해
@@ -493,20 +602,8 @@ impl InputEngine {
     /// `set_atf_hotkeys` 와 동일 패턴, `::new` 의 파싱 로직 재사용). 파싱 실패
     /// (`Unknown`)한 이름은 제외한다.
     pub fn set_switch_keys(&mut self, config: &Config) {
-        self.toggle_keys = config
-            .engine
-            .toggle_keys
-            .iter()
-            .map(|name| KeyCode::from_name(name))
-            .filter(|k| *k != KeyCode::Unknown)
-            .collect();
-        self.hanja_keys = config
-            .engine
-            .hanja_keys
-            .iter()
-            .map(|name| KeyCode::from_name(name))
-            .filter(|k| *k != KeyCode::Unknown)
-            .collect();
+        self.toggle_keys = Self::parse_switch_keys(&config.engine.toggle_keys, "한/영 전환키");
+        self.hanja_keys = Self::parse_switch_keys(&config.engine.hanja_keys, "한자 키");
     }
 
     /// 고정키(Sticky Keys) 래치 잔류 마스킹 **미리보기(비소비)**.
@@ -892,6 +989,25 @@ mod tests {
             80,
             "chord_window_ms=Some(80), bidir=Some(false) should return 80 (independent)"
         );
+    }
+
+    // B2: 무효 키 로그 dedupe 게이트(`log_state_changed`) 단위 테스트.
+    // 정적 메모(`LOG_STATE_MEMO`)를 프로세스 전체 테스트가 공유하므로, 병렬 실행 간
+    // 간섭을 피하려면 테스트마다 고유 필드 키를 쓴다.
+
+    #[test]
+    fn log_state_changed_suppresses_identical_signature() {
+        assert!(log_state_changed("test-b2-a", "X"));
+        assert!(!log_state_changed("test-b2-a", "X"));
+        assert!(log_state_changed("test-b2-a", "X, Y"));
+    }
+
+    #[test]
+    fn log_state_changed_clears_on_empty() {
+        assert!(log_state_changed("test-b2-b", "X"));
+        assert!(!log_state_changed("test-b2-b", ""));
+        // 문제가 해소된 뒤 재발하면 다시 알려야 한다.
+        assert!(log_state_changed("test-b2-b", "X"));
     }
 
     // ─────────────────────────────────────────────

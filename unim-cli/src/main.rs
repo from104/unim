@@ -928,6 +928,113 @@ fn atf_hotkey_warnings(keys: &[String], config: &UnimConfig) -> (Vec<String>, bo
     (warnings, any_unknown)
 }
 
+/// 한/영 전환키·한자키가 지정될 역할 — 경고 문구 선택과 중복 판정 대상 결정에 쓴다.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SwitchKeyRole {
+    Toggle,
+    Hanja,
+}
+
+/// 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 목록을 검증해 경고 목록과
+/// `Unknown` 포함 여부를 돌려준다.
+///
+/// 정책은 `atf_hotkey_warnings` 와 동일 — 차단하지 않고 경고만 내며, 호출부는
+/// `any_unknown` 이면 성공 에코를 억제한다. 표기 해석은 엔진 `parse_switch_key` 를
+/// 그대로 쓴다(CLI 자체 파싱 금지 — 엔진과 어긋나면 오탐이 난다).
+///
+/// * 파싱 불가 → `switch_key_warn_unknown`. 이 두 필드는 ATF 핫키와 달리 조합 표기
+///   (`Ctrl+X`)를 지원하지 않으므로 문구도 전용이다.
+/// * **다른 역할**(반대편 전환키 + 수정자 없는 ATF 토글 키)과 중복 →
+///   `switch_key_warn_duplicate`. 같은 역할의 기존 목록은 지금 교체되는 값이므로
+///   비교 대상에서 뺀다(호출부는 대입 **전**에 이 함수를 부른다).
+fn switch_key_warnings(
+    keys: &[String],
+    role: SwitchKeyRole,
+    config: &UnimConfig,
+) -> (Vec<String>, bool) {
+    use unim::input_engine::InputEngine;
+    use unim::keycode::KeyCode;
+    let mut warnings = Vec::new();
+    let mut any_unknown = false;
+
+    // 반대편 역할의 전환키 목록 (같은 역할은 지금 교체되므로 제외).
+    let other_switch: &[String] = match role {
+        SwitchKeyRole::Toggle => &config.engine.hanja_keys,
+        SwitchKeyRole::Hanja => &config.engine.toggle_keys,
+    };
+
+    for name in keys {
+        let Some(code) = InputEngine::parse_switch_key(name) else {
+            any_unknown = true;
+            warnings.push(t!("switch_key_warn_unknown", key = name.clone()).to_string());
+            continue;
+        };
+        // 문자·편집 키 풋건 — ATF 의 `is_input_key` 와 동일 판정식.
+        // ATF 와 달리 `has_modifier` 항이 없다: 전환키/한자키는 조합 표기를 지원하지 않아
+        // (`parse_switch_key`) 애초에 수정자가 붙은 표기는 위에서 unknown 으로 걸러진다.
+        // 수정자 키 자체(RightAlt/LeftShift 등)는 `is_character_key()` 가 false 이고
+        // 편집 키 목록에도 없어 오탐되지 않는다 — 출하 기본값 `["Korean", "RightAlt"]`,
+        // `["Hanja", "F9"]` 는 경고 0 (기존 회귀 가드 테스트가 고정).
+        let is_input_key = code.is_character_key()
+            || matches!(
+                code,
+                KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab | KeyCode::Delete
+            );
+        if is_input_key {
+            warnings.push(t!("switch_key_warn_input_key", key = name.clone()).to_string());
+        }
+        // 반대편 전환키와의 중복.
+        let dup_switch = other_switch
+            .iter()
+            .any(|k| InputEngine::parse_switch_key(k) == Some(code));
+        // ATF 토글 핫키와의 중복 — 수정자가 붙은 조합(`Shift+F9`)은 맨 키와 갈리므로 제외.
+        let dup_atf = config
+            .engine
+            .auto_typefix
+            .toggle_enabled_keys
+            .iter()
+            .chain(config.engine.auto_typefix.toggle_forward_keys.iter())
+            .chain(config.engine.auto_typefix.toggle_reverse_keys.iter())
+            .filter_map(|k| InputEngine::parse_atf_hotkey(k))
+            .any(|h| {
+                h.code == code && !(h.ctrl || h.alt || h.super_key || h.shift)
+            });
+        if dup_switch || dup_atf {
+            warnings.push(t!("switch_key_warn_duplicate", key = name.clone()).to_string());
+        }
+    }
+    (warnings, any_unknown)
+}
+
+/// 자동 영문 전환 트리거 표기를 검증해 경고 목록과 무효 표기 포함 여부를 돌려준다.
+///
+/// 표기 체계(`key:`/`char:`/legacy)가 달라 전용 문구를 쓴다 — ATF 문구를 재활용하면
+/// 사용자를 오도한다. 판정은 엔진 `is_valid_auto_english_key` 단일 진실 공급원.
+/// 중복·풋건 판정은 하지 않는다(문자 트리거 `char:/` 가 정상 용법이므로 풋건 개념이
+/// 성립하지 않는다).
+fn auto_english_key_warnings(keys: &[String]) -> (Vec<String>, bool) {
+    use unim::input_engine::InputEngine;
+    let mut warnings = Vec::new();
+    let mut any_unknown = false;
+    for name in keys {
+        if !InputEngine::is_valid_auto_english_key(name) {
+            any_unknown = true;
+            warnings.push(t!("auto_english_key_warn_unknown", key = name.clone()).to_string());
+        }
+    }
+    (warnings, any_unknown)
+}
+
+/// 목록의 **모든** 항목이 파서에서 거부되는지 — 필수 키 목록이 통째로 비는 저장을 차단.
+///
+/// 부분 무효는 경고 후 저장(warn-not-block)하지만, 전 항목 무효는 엔진 파서가 전부
+/// 걸러 빈 목록 저장과 결과가 같아진다(예: toggle_keys 전무효 → 한/영 전환 불능).
+/// 명시적 빈 목록이 "At least one key required" 하드 에러인 것과 동일하게 반려한다.
+/// ATF 토글 3종은 빈 목록이 정상 옵트아웃이므로 이 검사를 적용하지 않는다.
+fn all_keys_invalid(keys: &[String], is_valid: impl Fn(&str) -> bool) -> bool {
+    !keys.is_empty() && keys.iter().all(|k| !is_valid(k))
+}
+
 fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
     let mut config = UnimConfig::load_from_default_path();
 
@@ -1064,12 +1171,26 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             if keys.is_empty() {
                 return Err("At least one key required".to_string());
             }
+            if all_keys_invalid(&keys, |k| {
+                unim::input_engine::InputEngine::parse_switch_key(k).is_some()
+            }) {
+                return Err("At least one valid key required".to_string());
+            }
+            // 경고 계산은 대입 **전** — 반대편 역할(한자키) 비교가 구값 기준으로 성립한다.
+            let (warnings, any_unknown) =
+                switch_key_warnings(&keys, SwitchKeyRole::Toggle, &config);
             config.engine.toggle_keys = keys;
-            println!(
-                "{}: {}",
-                t!("toggle_keys_label"),
-                config.engine.toggle_keys.join(", ")
-            );
+            for w in &warnings {
+                eprintln!("{}", w);
+            }
+            // 미지 키가 있으면 성공 에코를 억제(오타를 성공으로 오인 방지 — ATF 3키와 동일 정책).
+            if !any_unknown {
+                println!(
+                    "{}: {}",
+                    t!("toggle_keys_label"),
+                    config.engine.toggle_keys.join(", ")
+                );
+            }
         }
         ConfigKey::HanjaKeys => {
             let keys: Vec<String> = value
@@ -1080,12 +1201,23 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             if keys.is_empty() {
                 return Err("At least one key required".to_string());
             }
+            if all_keys_invalid(&keys, |k| {
+                unim::input_engine::InputEngine::parse_switch_key(k).is_some()
+            }) {
+                return Err("At least one valid key required".to_string());
+            }
+            let (warnings, any_unknown) = switch_key_warnings(&keys, SwitchKeyRole::Hanja, &config);
             config.engine.hanja_keys = keys;
-            println!(
-                "{}: {}",
-                t!("hanja_keys_label"),
-                config.engine.hanja_keys.join(", ")
-            );
+            for w in &warnings {
+                eprintln!("{}", w);
+            }
+            if !any_unknown {
+                println!(
+                    "{}: {}",
+                    t!("hanja_keys_label"),
+                    config.engine.hanja_keys.join(", ")
+                );
+            }
         }
         ConfigKey::AutoTypeFix => {
             let enabled = match value.to_lowercase().as_str() {
@@ -1357,12 +1489,23 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             if keys.is_empty() {
                 return Err("At least one key required".to_string());
             }
+            if all_keys_invalid(&keys, |k| {
+                unim::input_engine::InputEngine::is_valid_auto_english_key(k)
+            }) {
+                return Err("At least one valid key required".to_string());
+            }
+            let (warnings, any_unknown) = auto_english_key_warnings(&keys);
             config.engine.auto_english.trigger_keys = keys;
-            println!(
-                "{}: {}",
-                t!("auto_english_keys_label"),
-                config.engine.auto_english.trigger_keys.join(", ")
-            );
+            for w in &warnings {
+                eprintln!("{}", w);
+            }
+            if !any_unknown {
+                println!(
+                    "{}: {}",
+                    t!("auto_english_keys_label"),
+                    config.engine.auto_english.trigger_keys.join(", ")
+                );
+            }
         }
         ConfigKey::AppRules => {
             let rules: Vec<unim::config::AppRule> =
@@ -2244,5 +2387,175 @@ fn main() -> io::Result<()> {
 
             Ok(())
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 단축키 성격 필드 검증 헬퍼 단위 테스트.
+//
+// 판정은 전부 엔진 파서(단일 진실 공급원)에 위임하므로, 여기서 고정하는 것은
+// **CLI 정책**이다: 차단하지 않고 경고만 내되 미지 표기가 있으면 성공 에코를
+// 억제한다(`any_unknown`), 중복 판정은 "다른 역할"만 본다.
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn switch_key_warnings_clean_for_defaults() {
+        // 출하 기본값은 경고 0 — 신규 설치가 경고를 뱉으면 안 된다.
+        // `RightAlt`(수정자 키 자체)가 유효해야 성립한다(ATF 파서 재사용 금지 회귀 가드).
+        let config = UnimConfig::default();
+        let (w, unknown) = switch_key_warnings(
+            &keys(&["Korean", "RightAlt"]),
+            SwitchKeyRole::Toggle,
+            &config,
+        );
+        assert!(w.is_empty(), "기본 toggle_keys 경고 없음: {w:?}");
+        assert!(!unknown);
+
+        let (w, unknown) =
+            switch_key_warnings(&keys(&["Hanja", "F9"]), SwitchKeyRole::Hanja, &config);
+        assert!(w.is_empty(), "기본 hanja_keys 경고 없음: {w:?}");
+        assert!(!unknown);
+    }
+
+    #[test]
+    fn switch_key_warnings_flags_unknown_and_suppresses_echo() {
+        let config = UnimConfig::default();
+        let (w, unknown) =
+            switch_key_warnings(&keys(&["RigthAlt"]), SwitchKeyRole::Toggle, &config);
+        assert_eq!(w.len(), 1, "오타 키 1건 경고: {w:?}");
+        assert!(unknown, "성공 에코 억제 플래그");
+    }
+
+    #[test]
+    fn switch_key_warnings_flags_combo_notation() {
+        // 전환키/한자키는 조합 표기를 지원하지 않는다 — ATF 핫키와 다른 문법.
+        let config = UnimConfig::default();
+        let (w, unknown) =
+            switch_key_warnings(&keys(&["Shift+F9"]), SwitchKeyRole::Hanja, &config);
+        assert_eq!(w.len(), 1, "조합 표기는 미지 이름: {w:?}");
+        assert!(unknown);
+    }
+
+    #[test]
+    fn switch_key_warnings_detects_cross_role_duplicate() {
+        // 기본 hanja_keys 에 F9 가 있으므로 toggle 로 F9 를 주면 역할 충돌 경고.
+        let config = UnimConfig::default();
+        let (w, unknown) = switch_key_warnings(&keys(&["F9"]), SwitchKeyRole::Toggle, &config);
+        assert_eq!(w.len(), 1, "중복 경고 1건: {w:?}");
+        assert!(!unknown, "중복은 유효 표기 — 에코 억제 대상 아님");
+    }
+
+    #[test]
+    fn switch_key_warnings_ignores_same_role_list() {
+        // 같은 역할의 기존 목록은 지금 교체되는 값이므로 중복 판정에서 뺀다.
+        let mut config = UnimConfig::default();
+        config.engine.toggle_keys = keys(&["Korean"]);
+        config.engine.hanja_keys = keys(&["Hanja"]);
+        let (w, unknown) = switch_key_warnings(&keys(&["Korean"]), SwitchKeyRole::Toggle, &config);
+        assert!(w.is_empty(), "자기 역할 중복은 경고 아님: {w:?}");
+        assert!(!unknown);
+    }
+
+    #[test]
+    fn switch_key_warnings_detects_bare_atf_duplicate() {
+        // 수정자 없는 ATF 토글 키와 겹치면 충돌 경고, 조합 표기(Shift+F8)는 아니다.
+        let mut config = UnimConfig::default();
+        config.engine.auto_typefix.toggle_enabled_keys = keys(&["F10"]);
+        config.engine.auto_typefix.toggle_forward_keys = keys(&["Shift+F11"]);
+        config.engine.auto_typefix.toggle_reverse_keys = Vec::new();
+
+        let (w, _) = switch_key_warnings(&keys(&["F10"]), SwitchKeyRole::Toggle, &config);
+        assert_eq!(w.len(), 1, "맨 F10 은 ATF 토글과 충돌: {w:?}");
+
+        let (w, _) = switch_key_warnings(&keys(&["F11"]), SwitchKeyRole::Toggle, &config);
+        assert!(w.is_empty(), "Shift+F11 조합은 맨 F11 과 갈린다: {w:?}");
+    }
+
+    #[test]
+    fn switch_key_warnings_flags_character_key_footgun() {
+        let config = UnimConfig::default();
+        let (w, unknown) = switch_key_warnings(&keys(&["A"]), SwitchKeyRole::Toggle, &config);
+        assert_eq!(w.len(), 1, "문자 키는 풋건 경고: {w:?}");
+        assert!(!unknown, "유효 표기 — 성공 에코 억제 대상 아님");
+    }
+
+    #[test]
+    fn switch_key_warnings_flags_space_and_edit_keys() {
+        let config = UnimConfig::default();
+        for k in ["Space", "Enter", "Backspace", "Tab", "Delete"] {
+            let (w, _) = switch_key_warnings(&keys(&[k]), SwitchKeyRole::Toggle, &config);
+            assert_eq!(w.len(), 1, "{k} 는 풋건 경고 대상: {w:?}");
+        }
+    }
+
+    #[test]
+    fn switch_key_warnings_no_footgun_for_modifier_or_function_keys() {
+        // 수정자 키·기능 키·전용 키는 오탐 금지 (기본값 회귀 가드의 확장판).
+        let mut config = UnimConfig::default();
+        config.engine.hanja_keys.clear(); // 반대 역할 중복 잡음 제거
+        config.engine.auto_typefix.toggle_enabled_keys.clear();
+        config.engine.auto_typefix.toggle_forward_keys.clear();
+        config.engine.auto_typefix.toggle_reverse_keys.clear();
+        let (w, unknown) = switch_key_warnings(
+            &keys(&["Korean", "Hanja", "RightAlt", "LeftShift", "F1", "F12"]),
+            SwitchKeyRole::Toggle,
+            &config,
+        );
+        assert!(w.is_empty(), "수정자·기능 키 오탐 금지: {w:?}");
+        assert!(!unknown);
+    }
+
+    #[test]
+    fn switch_key_warnings_footgun_and_duplicate_stack() {
+        let mut config = UnimConfig::default();
+        config.engine.hanja_keys = keys(&["A"]);
+        let (w, _) = switch_key_warnings(&keys(&["A"]), SwitchKeyRole::Toggle, &config);
+        assert_eq!(w.len(), 2, "풋건 + 역할 충돌 2건: {w:?}");
+    }
+
+    #[test]
+    fn auto_english_key_warnings_flags_unknown() {
+        let (w, unknown) = auto_english_key_warnings(&keys(&["key:Ctrl+"]));
+        assert_eq!(w.len(), 1, "무효 트리거 1건: {w:?}");
+        assert!(unknown);
+
+        // 출하 기본값은 경고 0.
+        let (w, unknown) = auto_english_key_warnings(&keys(&["key:Escape", "char:/"]));
+        assert!(w.is_empty(), "기본 트리거 경고 없음: {w:?}");
+        assert!(!unknown);
+    }
+
+    #[test]
+    fn all_keys_invalid_blocks_only_full_invalid_list() {
+        use unim::input_engine::InputEngine;
+        let valid = |k: &str| InputEngine::parse_switch_key(k).is_some();
+        // 전 항목 무효 → 차단 (엔진 파서가 전부 걸러 빈 목록 저장과 동일해지는 케이스).
+        assert!(all_keys_invalid(&keys(&["NoSuchKey", "AlsoBad"]), valid));
+        // 부분 무효 → warn-not-block 유지.
+        assert!(!all_keys_invalid(&keys(&["NoSuchKey", "Korean"]), valid));
+        // 전 항목 유효(출하 기본값) → 통과.
+        assert!(!all_keys_invalid(&keys(&["Korean", "RightAlt"]), valid));
+        // 빈 목록은 별도의 "At least one key required" 경로 담당 — 여기선 false.
+        assert!(!all_keys_invalid(&keys(&[]), valid));
+    }
+
+    #[test]
+    fn atf_hotkey_warnings_unchanged_for_valid_combo() {
+        // 기존 계약 회귀 가드 — 수정자 조합은 미지 표기가 아니고 풋건도 아니다.
+        let config = UnimConfig::default();
+        let (w, unknown) = atf_hotkey_warnings(&keys(&["Shift+F9"]), &config);
+        assert!(w.is_empty(), "Shift+F9 는 무경고: {w:?}");
+        assert!(!unknown);
+
+        let (w, unknown) = atf_hotkey_warnings(&keys(&["ScrollLock"]), &config);
+        assert_eq!(w.len(), 1, "존재하지 않는 키 이름은 미지 경고: {w:?}");
+        assert!(unknown);
     }
 }

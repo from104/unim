@@ -937,3 +937,80 @@ fn test_auto_english_super_space_and_alt_f1() {
     assert!(!r.consumed, "Alt+F1 passthrough");
     assert_eq!(engine.input_category(), InputCategory::English);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `is_valid_auto_english_key` — 트리거 표기 검증 술어 (CLI·설정앱·D-Bus 공용 SoT)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 검증 술어가 인정해야 하는 표기 (출하 기본값 + 대표 문법).
+const VALID_AUTO_ENGLISH_SPECS: &[&str] = &[
+    "key:Escape",
+    "char:/",
+    "Escape",
+    "key:Ctrl+B",
+    "key:ShiftSemicolon",
+    "key:shift+ctrl+B",
+    "key:Super+Space",
+];
+
+/// 검증 술어가 거부해야 하는 표기.
+const INVALID_AUTO_ENGLISH_SPECS: &[&str] = &[
+    "key:Ctrl+",
+    "char:",
+    "key: Escape",
+    "Ctrl+B",
+    "key:Ctrl-Left",
+    "key:escape",
+    "",
+];
+
+#[test]
+fn is_valid_auto_english_key_accepts_defaults() {
+    for spec in VALID_AUTO_ENGLISH_SPECS {
+        assert!(
+            InputEngine::is_valid_auto_english_key(spec),
+            "'{spec}' 는 유효한 자동 영문 트리거 표기여야 함"
+        );
+    }
+}
+
+#[test]
+fn is_valid_auto_english_key_rejects() {
+    for spec in INVALID_AUTO_ENGLISH_SPECS {
+        assert!(
+            !InputEngine::is_valid_auto_english_key(spec),
+            "'{spec}' 는 거부되어야 함"
+        );
+    }
+}
+
+#[test]
+fn is_valid_auto_english_key_agrees_with_parser() {
+    // 얇은 래퍼가 파서와 어긋나지 않음을 고정 — 어긋나면 GUI/CLI 가 오탐한다.
+    for spec in VALID_AUTO_ENGLISH_SPECS
+        .iter()
+        .chain(INVALID_AUTO_ENGLISH_SPECS)
+    {
+        assert_eq!(
+            InputEngine::is_valid_auto_english_key(spec),
+            InputEngine::parse_trigger_key(spec).is_some(),
+            "'{spec}' 판정이 파서와 어긋남"
+        );
+    }
+}
+
+#[test]
+fn parse_auto_english_triggers_drops_invalid_preserving_order() {
+    // 로그 부수효과가 붙어도 결과 Vec 은 종전 `filter_map` 과 동일해야 한다(I5).
+    let names: Vec<String> = ["key:Escape", "key:Ctrl+", "char:/", "Ctrl+B"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let legacy: Vec<AutoEnglishTrigger> = names
+        .iter()
+        .filter_map(|n| InputEngine::parse_trigger_key(n))
+        .collect();
+    assert_eq!(InputEngine::parse_auto_english_triggers(&names), legacy);
+    assert_eq!(legacy.len(), 2);
+    assert_eq!(legacy[1], AutoEnglishTrigger::Character('/'));
+}

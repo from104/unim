@@ -830,11 +830,13 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 engine.set_english_layout(config.engine.english.layout.clone());
                 // ATF 토글 핫키 재적용: GUI/CLI 로 키를 편집한 뒤 재로그인 없이 살아있는
                 // 컨텍스트에 즉시 반영한다.
+                // (로그 중복 억제는 엔진 파서 쪽 `log_state_changed` 게이트가 담당 — 아래 word_gate 와 같은 결.)
                 engine.set_atf_hotkeys(&config);
                 // 한/영 전환키·한자키 재적용: 종전엔 toggle_keys/hanja_keys 가 이 리로드
                 // 루프에서 재파싱되지 않아, GUI/CLI 로 전환·한자 키를 편집해도 재로그인
                 // 전까지 옛 키가 살아있는 live-reload 갭이 있었다(F4). set_switch_keys 로
                 // ATF 핫키와 동일하게 즉시 재적용해 갭을 해소한다.
+                // (로그 중복 억제는 엔진 파서 쪽 `log_state_changed` 게이트가 담당 — 아래 word_gate 와 같은 결.)
                 engine.set_switch_keys(&config);
                 // word 모드 게이트 재적용: rebuild_korean_context 가 Word 면 전 컨텍스트
                 // accumulate 를 켜므로, 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기

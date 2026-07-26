@@ -20,7 +20,7 @@ row_korean_layout: "Korean Layout"
 row_korean_layout_subtitle: "10 built-in layouts + user layouts (~/.config/unim/layouts/*.json)"
 row_english_layout: "English Layout"
 row_toggle_keys: "Korean/English Toggle Keys"
-row_toggle_keys_subtitle: "Comma separated (e.g. Korean, RightAlt, ShiftSpace)"
+row_toggle_keys_subtitle: "Comma separated (e.g. Korean, RightAlt)"
 row_hanja_keys: "Hanja Keys"
 row_hanja_keys_subtitle: "Comma separated (e.g. Hanja, F9) — also opens emoji popup when idle"
 
@@ -75,8 +75,8 @@ row_typefix_forward_window_subtitle: "Recent input window considered valid for f
 row_typefix_skip_engword: "Skip when matching English word"
 row_typefix_skip_engword_subtitle: "Do not correct if input matches a known English word"
 row_atf_forward_toggle_keys: "Forward toggle shortcut"
-row_atf_forward_toggle_keys_subtitle: "Comma-separated (e.g. ScrollLock, F10 — leave empty to disable)"
-row_atf_forward_toggle_keys_tooltip: "Pressing the assigned key toggles forward (EN→KO) correction only. You may list several keys separated by commas, but each entry must be a single key without modifiers (combinations like Ctrl+X are not supported). Leave empty to disable this shortcut."
+row_atf_forward_toggle_keys_subtitle: "Comma-separated (e.g. F10, Shift+F9 — leave empty to disable)"
+row_atf_forward_toggle_keys_tooltip: "Pressing the assigned key toggles forward (EN→KO) correction only. You may list several keys separated by commas, but each entry may be a single key or a modifier combination such as Shift+F8. Leave empty to disable this shortcut."
 
 # TypeFix > Reverse
 group_typefix_reverse: "Auto Reverse Correction (KO→EN)"
@@ -89,16 +89,16 @@ row_typefix_skip_complete_subtitle: "Do not correct if buffered Hangul are all c
 row_typefix_userdict: "Use user dictionary"
 row_typefix_userdict_subtitle: "Registered CLI commands etc. bypass length/dictionary checks for instant correction — manage on the 'User Dictionary' page"
 row_atf_reverse_toggle_keys: "Reverse toggle shortcut"
-row_atf_reverse_toggle_keys_subtitle: "Comma-separated (e.g. ScrollLock, F10 — leave empty to disable)"
-row_atf_reverse_toggle_keys_tooltip: "Pressing the assigned key toggles reverse (KO→EN) correction only. You may list several keys separated by commas, but each entry must be a single key without modifiers (combinations like Ctrl+X are not supported). Leave empty to disable this shortcut."
+row_atf_reverse_toggle_keys_subtitle: "Comma-separated (e.g. F10, Shift+F9 — leave empty to disable)"
+row_atf_reverse_toggle_keys_tooltip: "Pressing the assigned key toggles reverse (KO→EN) correction only. You may list several keys separated by commas, but each entry may be a single key or a modifier combination such as Shift+F8. Leave empty to disable this shortcut."
 
 # TypeFix > Master
 group_typefix_master: "Master Toggle"
 row_typefix_master: "Enable Auto TypeFix"
 row_typefix_master_subtitle: "AutoTypeFix master switch — OFF stops both forward and reverse"
 row_atf_toggle_keys: "Overall toggle shortcut"
-row_atf_toggle_keys_subtitle: "Comma-separated (e.g. ScrollLock, F10 — leave empty to disable)"
-row_atf_toggle_keys_tooltip: "Pressing the assigned key toggles Auto TypeFix as a whole (you can turn it back on with this key even while correction is off). You may list several keys separated by commas, but each entry must be a single key without modifiers (combinations like Ctrl+X are not supported). Leave empty to disable this shortcut."
+row_atf_toggle_keys_subtitle: "Comma-separated (e.g. F10, Shift+F9 — leave empty to disable)"
+row_atf_toggle_keys_tooltip: "Pressing the assigned key toggles Auto TypeFix as a whole (you can turn it back on with this key even while correction is off). You may list several keys separated by commas, but each entry may be a single key or a modifier combination such as Shift+F8. Leave empty to disable this shortcut."
 
 # TypeFix > Retrigger
 group_typefix_retrigger: "Retrigger Detection"
@@ -185,7 +185,7 @@ row_ime_enable_subtitle: "Wayland only: GNOME extension intercepts keys and forw
 # General > Layouts and keymap
 row_korean_layout_tooltip: "Lists 10 built-in layouts plus any v1 JSON profile under ~/.config/unim/layouts/. Selecting a layout rebuilds the option group below. AutoTypeFix forward correction also uses this layout as reference."
 row_english_layout_tooltip: "AutoTypeFix uses this layout to infer English words from key sequences. Mismatched layout causes forward corrections to misfire. Default: QWERTY."
-row_toggle_keys_tooltip: "Comma-separated XKB keysym names for Korean/English toggle. Examples: Korean, RightAlt, ShiftSpace. First key wins on collision."
+row_toggle_keys_tooltip: "Comma-separated XKB keysym names for Korean/English toggle. Examples: Korean, RightAlt. First key wins on collision."
 row_hanja_keys_tooltip: "Comma-separated keys that open the Hanja/special-char popup. Examples: Hanja, F9. While composing Hangul: Hanja picker. When idle: emoji or special-char popup."
 
 # General > Input mode

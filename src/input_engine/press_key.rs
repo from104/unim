@@ -691,6 +691,23 @@ impl InputEngine {
         })
     }
 
+    /// 자동 영문 전환 트리거 표기(`auto_english.trigger_keys`)가 엔진에서 살아남는지 검증한다.
+    ///
+    /// 문법·수용 범위는 [`Self::parse_trigger_key`] 와 완전히 동일하다(단일 진실 공급원).
+    /// 반환형 `AutoEnglishTrigger` 는 crate 내부 표현이라 노출하지 않고 bool 만 돌려준다 —
+    /// 호출부(CLI·설정앱)가 필요로 하는 것은 "엔진이 이 표기를 받아들이는가" 뿐이다.
+    ///
+    /// ATF 핫키·전환키와 문법이 다르다: `key:` / `char:` 접두사 체계, `-` 대체 구분자
+    /// 없음, `"Shift<Name>"` 융합형 허용, 단일 base 는 trim 하지 않음
+    /// (`"key: Escape"` 는 `false`).
+    ///
+    /// `false` 면 `InputEngine::new` 의 `filter_map`(= `parse_auto_english_triggers`)이
+    /// 그 표기를 버려 트리거가 죽으므로, 호출부(CLI `unim config set auto-english-keys`·
+    /// 설정앱)는 저장 전에 이 함수로 검증해 경고를 띄워야 한다.
+    pub fn is_valid_auto_english_key(spec: &str) -> bool {
+        Self::parse_trigger_key(spec).is_some()
+    }
+
     /// `key:` 접두사 뒤 keyspec(`(mod+)* <Name>`) 을 `Functional` 로 파싱한다.
     ///
     /// - `'+'` 가 없으면 단일 base 표기(legacy 와 동일 문법) — `parse_functional_name`
@@ -755,6 +772,27 @@ impl InputEngine {
             alt,
             super_key,
         })
+    }
+
+    /// Config 의 한/영 전환키(`toggle_keys`)·한자키(`hanja_keys`) 이름을 `KeyCode` 로 파싱한다.
+    ///
+    /// 판정은 `KeyCode::from_name` 정확 일치 하나뿐이다 — 엔진이 이 두 필드에 적용하는
+    /// 규칙(`InputEngine::new` / `set_switch_keys` 의 `filter(|k| *k != KeyCode::Unknown)`)과
+    /// 비트 단위로 동치다.
+    ///
+    /// # ATF 핫키(`parse_atf_hotkey`) 와의 차이 — 서로 바꿔 쓰면 안 된다
+    ///
+    /// - **조합 표기를 지원하지 않는다.** `"Shift+F9"`/`"Ctrl-Left"` 는 통째로 미지 이름
+    ///   → `None`.
+    /// - **수정자 키 자체가 유효하다.** 출하 기본값 `toggle_keys = ["Korean", "RightAlt"]`
+    ///   이므로 `is_modifier()` 배제를 추가하면 기본 설정이 무효로 오탐된다.
+    /// - **공백·별칭 불허, 대소문자 구분.** `" F9"`/`"hanja"`/`"Hangul"` 은 전부 `None`.
+    ///
+    /// `None` 이면 엔진이 그 이름을 조용히 버려 키가 죽으므로, CLI(`unim config set`)·
+    /// 설정앱은 저장 전에 이 함수로 검증해 경고를 띄워야 한다(단일 진실 공급원).
+    pub fn parse_switch_key(name: &str) -> Option<KeyCode> {
+        let code = KeyCode::from_name(name);
+        (code != KeyCode::Unknown).then_some(code)
     }
 
     /// Config 의 ATF 토글 단축키 표기를 `AtfHotkey` 로 파싱합니다.

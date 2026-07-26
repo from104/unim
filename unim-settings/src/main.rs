@@ -48,6 +48,194 @@ fn split_keys(s: &str) -> Vec<String> {
         .collect()
 }
 
+/// 키 성격 설정 필드 4군의 무효 표기 수집 결과.
+///
+/// 판정은 전부 엔진 파서(단일 진실 공급원)에 위임한다 — 설정앱은 파서 사본을 두지
+/// 않는다. 필드마다 **엔진이 실제로 그 필드를 파싱하는 함수**와 1:1 로 맞춰야 한다.
+/// 예컨대 toggle/hanja 에 `parse_atf_hotkey` 를 쓰면 수정자 base 배제 규칙 때문에
+/// 출하 기본값 `RightAlt` 가 무효로 오탐된다.
+///
+/// 플랫폼 중립 — 이 판정에 `#[cfg]` 가 끼어들면 Linux/Windows 경고가 갈라진다.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InvalidKeys {
+    toggle: Vec<String>,
+    hanja: Vec<String>,
+    auto_english: Vec<String>,
+    /// ATF 토글 3필드(전체·정방향·역방향) 합산 — 종전 단일 경고 문구를 유지한다.
+    atf: Vec<String>,
+}
+
+impl InvalidKeys {
+    fn is_empty(&self) -> bool {
+        self.toggle.is_empty()
+            && self.hanja.is_empty()
+            && self.auto_english.is_empty()
+            && self.atf.is_empty()
+    }
+
+    /// 비어 있지 않은 그룹 수 — 상태줄 단일/복수 문구 분기에 쓴다.
+    fn group_count(&self) -> usize {
+        [&self.toggle, &self.hanja, &self.auto_english, &self.atf]
+            .iter()
+            .filter(|g| !g.is_empty())
+            .count()
+    }
+}
+
+/// Config 의 키 성격 필드를 엔진 파서로 검증한다. 저장 경로(auto_save·접근성 프리셋)가
+/// 공유하는 단일 진입점 — 어느 경로로 저장하든 같은 판정이 나오게 한다.
+///
+/// 정책은 "저장은 하되 경고" — 여기서 무효를 찾아도 저장은 그대로 진행한다.
+/// 무효 표기는 엔진이 조용히 버리므로(키가 죽음) 사용자에게 알리는 것이 목적이다.
+pub(crate) fn collect_invalid_keys(cfg: &Config) -> InvalidKeys {
+    let e = &cfg.engine;
+    InvalidKeys {
+        toggle: e
+            .toggle_keys
+            .iter()
+            .filter(|k| InputEngine::parse_switch_key(k).is_none())
+            .cloned()
+            .collect(),
+        hanja: e
+            .hanja_keys
+            .iter()
+            .filter(|k| InputEngine::parse_switch_key(k).is_none())
+            .cloned()
+            .collect(),
+        auto_english: e
+            .auto_english
+            .trigger_keys
+            .iter()
+            .filter(|k| !InputEngine::is_valid_auto_english_key(k))
+            .cloned()
+            .collect(),
+        atf: e
+            .auto_typefix
+            .toggle_enabled_keys
+            .iter()
+            .chain(&e.auto_typefix.toggle_forward_keys)
+            .chain(&e.auto_typefix.toggle_reverse_keys)
+            .filter(|k| InputEngine::parse_atf_hotkey(k).is_none())
+            .cloned()
+            .collect(),
+    }
+}
+
+/// 2그룹 이상 동시 무효일 때 상태줄에 넣을 `필드명: 키들 / 필드명: 키들` 조각.
+///
+/// `labels` 순서는 `InvalidKeys` 필드 순서(토글·한자·자동 영문·오타 교정)와 같다.
+/// Slint 를 타지 않는 순수 함수 — 단위 테스트 대상.
+fn invalid_keys_detail(inv: &InvalidKeys, labels: [&str; 4]) -> String {
+    [
+        (labels[0], &inv.toggle),
+        (labels[1], &inv.hanja),
+        (labels[2], &inv.auto_english),
+        (labels[3], &inv.atf),
+    ]
+    .iter()
+    .filter(|(_, keys)| !keys.is_empty())
+    .map(|(label, keys)| format!("{label}: {}", keys.join(", ")))
+    .collect::<Vec<_>>()
+    .join(" / ")
+}
+
+/// 저장 직후 상태줄 문구. 전부 유효하면 `None`(호출부가 자기 기본 문구를 쓴다).
+///
+/// 상태줄은 1줄짜리 단일 슬롯이라 4군 문구를 그대로 이으면 잘린다. 그래서
+/// 단일 그룹이면 그룹 전용 문구(문법 힌트 + 유효 예시 포함)를, 2그룹 이상이면
+/// `필드명: 키들` 축약 문구를 쓴다 — 어느 칸이 문제인지가 최우선 정보다.
+pub(crate) fn invalid_keys_status(ui: &SettingsWindow, inv: &InvalidKeys) -> Option<SharedString> {
+    if inv.is_empty() {
+        return None;
+    }
+    let tr = ui.global::<Tr>();
+    if inv.group_count() == 1 {
+        // 99% 케이스 — 기존 ATF 경고 스타일(예시 포함)을 그대로 유지한다.
+        return Some(if !inv.toggle.is_empty() {
+            tr.invoke_toggle_keys_invalid(inv.toggle.join(", ").into())
+        } else if !inv.hanja.is_empty() {
+            tr.invoke_hanja_keys_invalid(inv.hanja.join(", ").into())
+        } else if !inv.auto_english.is_empty() {
+            tr.invoke_auto_english_keys_invalid(inv.auto_english.join(", ").into())
+        } else {
+            tr.invoke_atf_hotkey_invalid(inv.atf.join(", ").into())
+        });
+    }
+    let (lt, lh, la, lf) = (
+        tr.get_key_field_toggle(),
+        tr.get_key_field_hanja(),
+        tr.get_key_field_auto_english(),
+        tr.get_key_field_atf(),
+    );
+    let detail = invalid_keys_detail(inv, [lt.as_str(), lh.as_str(), la.as_str(), lf.as_str()]);
+    Some(tr.invoke_keys_invalid_multi(detail.into()))
+}
+
+/// 필수 키 필드 중 "비어 있지 않은데 전 항목 무효"인 첫 필드의 인덱스.
+///
+/// 0=한/영 토글, 1=한자, 2=자동 영문 트리거. CLI(`all_keys_invalid`)·DBus(SetConfig/
+/// SetConfigYaml)와 동일 정책 — 전 항목 무효는 엔진 파서가 전부 걸러 빈 목록 저장과
+/// 결과가 같아지므로(한/영 전환 불능 등) 저장 자체를 반려한다. 부분 무효는 경고 후
+/// 저장(warn-not-block) 유지. ATF 토글 3종은 빈 목록이 정상 옵트아웃이라 제외.
+pub(crate) fn fully_invalid_required_field(cfg: &Config) -> Option<usize> {
+    let e = &cfg.engine;
+    let all_bad = |keys: &[String], valid: &dyn Fn(&str) -> bool| {
+        !keys.is_empty() && keys.iter().all(|k| !valid(k))
+    };
+    if all_bad(&e.toggle_keys, &|k| InputEngine::parse_switch_key(k).is_some()) {
+        return Some(0);
+    }
+    if all_bad(&e.hanja_keys, &|k| InputEngine::parse_switch_key(k).is_some()) {
+        return Some(1);
+    }
+    if all_bad(&e.auto_english.trigger_keys, &|k| {
+        InputEngine::is_valid_auto_english_key(k)
+    }) {
+        return Some(2);
+    }
+    None
+}
+
+/// config 저장 + 저장 후 상태줄 문구 결정을 한 곳으로 수렴하는 헬퍼.
+///
+/// 상태줄은 "이 저장의 결과" 를 말하는 1줄 슬롯이다. 무효 표기가 남아 있으면 그 키는
+/// 엔진에서 조용히 죽으므로, **어떤 config 저장 경로(`persist_config` 경유)든** 그
+/// 사실이 자기 문구(적용됨/강도 적용/모아치기 켬 …)보다 우선한다 — 경로마다 자기
+/// 문구로 덮으면 경고가 점멸한다(B1). blacklist/userdict 처럼 자체 파일로 저장하는
+/// 비-config 경로는 이 헬퍼를 타지 않아 자기 문구가 그대로 나온다(현행 유지).
+///
+/// * 필수 필드 전 항목 무효  → `keys_all_invalid` 반려 — 저장하지 않는다(최우선)
+/// * 저장 성공 + 무효 키 있음 → `invalid_keys_status` 경고
+/// * 저장 성공 + 전부 유효   → 호출부의 `own`
+/// * 저장 실패               → `save_failed` (경고보다 우선 — 저장 자체가 안 됐다)
+///
+/// 병기(자기 문구 + 경고)는 채택하지 않는다: 상태줄이 1줄이라 4군 문구가 잘리고,
+/// 새 Slint 조합 문자열(+ .po 항목)이 필요해진다. 자기 문구가 정보성인 경로
+/// (강도 적용·모아치기 창 ms·기본값 복원)는 슬라이더/스위치/토스트가 이미 시각
+/// 피드백을 주므로 문구를 양보해도 정보 손실이 없다.
+fn persist_and_report(ui: &SettingsWindow, cfg: &Config, label: &str, own: SharedString) {
+    let tr = ui.global::<Tr>();
+    // 전 항목 무효인 필수 키 필드가 있으면 저장 자체를 반려 — config 는 통째로
+    // 저장되므로 무관한 항목의 저장이라도 그 파일 쓰기가 죽은 키 목록을 함께
+    // 영속화한다. UI 값은 남겨 두어 사용자가 바로 고칠 수 있게 한다.
+    if let Some(idx) = fully_invalid_required_field(cfg) {
+        let field = match idx {
+            0 => tr.get_key_field_toggle(),
+            1 => tr.get_key_field_hanja(),
+            _ => tr.get_key_field_auto_english(),
+        };
+        ui.set_status_text(tr.invoke_keys_all_invalid(field));
+        return;
+    }
+    match persist_config(cfg, label) {
+        Ok(()) => {
+            let invalid = collect_invalid_keys(cfg);
+            ui.set_status_text(invalid_keys_status(ui, &invalid).unwrap_or(own));
+        }
+        Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
+    }
+}
+
 /// 내장 자판 목록 + 현재값 → (정규 이름 Vec, 표시용 Vec, 선택 인덱스).
 /// 현재값이 내장이 아니면(사용자 프로필) 목록 맨 앞에 보존한다.
 fn build_layout_lists(
@@ -657,17 +845,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             a.toggle_enabled_keys = split_keys(&ui.get_atf_toggle_enabled_keys());
             a.toggle_forward_keys = split_keys(&ui.get_atf_toggle_forward_keys());
             a.toggle_reverse_keys = split_keys(&ui.get_atf_toggle_reverse_keys());
-            // 무효 표기 검증 — 엔진 파서(단일 진실 공급원)가 None 을 주는 표기는
-            // 데몬에서 조용히 버려진다(핫키 죽음). CLI atf_hotkey_warnings 와 같은
-            // 정책으로 저장은 하되 상태줄로 경고한다 (owned 수집 — cfg 재대여 회피).
-            let invalid_atf_keys: Vec<String> = a
-                .toggle_enabled_keys
-                .iter()
-                .chain(&a.toggle_forward_keys)
-                .chain(&a.toggle_reverse_keys)
-                .filter(|k| InputEngine::parse_atf_hotkey(k).is_none())
-                .cloned()
-                .collect();
 
             // 자판이 바뀌었으면 규칙 세트 그룹 + 접근성 배지 + 모아치기 카드를
             // 새 프로필 기준으로 재구성 (moachigi-supported 는 자판마다 다름).
@@ -679,13 +856,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 push_moachigi_to_ui(&ui, &cfg, new_profile.as_ref());
             }
 
-            match persist_config(&cfg, "auto_save") {
-                Ok(()) if !invalid_atf_keys.is_empty() => ui.set_status_text(
-                    tr.invoke_atf_hotkey_invalid(invalid_atf_keys.join(", ").into()),
-                ),
-                Ok(()) => ui.set_status_text(tr.get_applied()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            // 무효 표기 검증 — 엔진 파서(단일 진실 공급원)가 버리는 표기는 데몬에서
+            // 조용히 사라진다(키가 죽음). CLI·D-Bus 와 같은 "저장은 하되 경고" 정책으로
+            // 저장은 그대로 하고 상태줄로 알린다. `a` 대여가 끝난 뒤라 `&cfg` 재대여 성립.
+            persist_and_report(&ui, &cfg, "auto_save", tr.get_applied());
         });
     }
 
@@ -726,10 +900,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             // 현재 자판의 캐시도 동기화 — 자판 전환 시 본 상태가 보존된다.
             cfg.engine.korean.cache_active_rule_sets();
-            match persist_config(&cfg, "rule_set_toggled") {
-                Ok(()) => ui.set_status_text(tr.get_applied()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "rule_set_toggled", tr.get_applied());
             item.active = on;
             rule_model.set_row_data(idx as usize, item);
         });
@@ -753,10 +924,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_rule_model.set_vec(
                 cfg.engine.app_rules.iter().map(app_rule_to_item).collect::<Vec<_>>(),
             );
-            match persist_config(&cfg, "app_rule_add") {
-                Ok(()) => ui.set_status_text(tr.get_applied()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "app_rule_add", tr.get_applied());
         });
     }
     // ── 앱별 강제 모드 규칙: 삭제 (스크롤 위치는 ScrollView 가 보존) ──
@@ -781,10 +949,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_rule_model.set_vec(
                 cfg.engine.app_rules.iter().map(app_rule_to_item).collect::<Vec<_>>(),
             );
-            match persist_config(&cfg, "app_rule_remove") {
-                Ok(()) => ui.set_status_text(tr.get_applied()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "app_rule_remove", tr.get_applied());
         });
     }
     // ── 앱별 강제 모드 규칙: 패턴 편집 (저장만 — 모델 재기록 없이 커서 점프 방지) ──
@@ -803,10 +968,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             cfg.engine.app_rules[i].app_pattern = text.trim().to_string();
-            match persist_config(&cfg, "app_rule_pattern") {
-                Ok(()) => ui.set_status_text(tr.get_applied()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "app_rule_pattern", tr.get_applied());
         });
     }
     // ── 앱별 강제 모드 규칙: 모드(영문/한글) 변경 ──
@@ -833,10 +995,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             // 해당 행만 config 기준으로 갱신(패턴도 config 값 — 편집 중 패턴 되돌림 방지).
             app_rule_model.set_row_data(i, app_rule_to_item(&cfg.engine.app_rules[i]));
-            match persist_config(&cfg, "app_rule_category") {
-                Ok(()) => ui.set_status_text(tr.get_applied()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "app_rule_category", tr.get_applied());
         });
     }
 
@@ -855,10 +1014,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 2 => tr.get_strength_aggressive(),
                 _ => tr.get_strength_standard(),
             };
-            match persist_config(&cfg, "atf_preset") {
-                Ok(()) => ui.set_status_text(tr.invoke_strength_applied(name)),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "atf_preset", tr.invoke_strength_applied(name));
         });
     }
 
@@ -876,10 +1032,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(DeleteSnapshot::AtfDefaults(cfg.engine.auto_typefix.clone()));
             cfg.engine.auto_typefix = AutoTypeFixConfig::default();
             push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
-            match persist_config(&cfg, "atf_restore_defaults") {
-                Ok(()) => ui.set_status_text(tr.get_atf_restored()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "atf_restore_defaults", tr.get_atf_restored());
             ui.set_toast_message(tr.get_atf_restored());
             ui.set_toast_visible(true);
         });
@@ -903,10 +1056,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let prof = load_profile(&cfg.engine.korean.effective_layout_name());
             push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
             let msg = if on { tr.get_moachigi_on() } else { tr.get_moachigi_off() };
-            match persist_config(&cfg, "moachigi_toggled") {
-                Ok(()) => ui.set_status_text(msg),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "moachigi_toggled", msg);
         });
     }
 
@@ -923,12 +1073,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let w = (v.max(0.0).round() as u16).clamp(10, 200);
                 cfg.engine.korean.chord_window_ms = Some(w);
                 ui.set_moachigi_window(w as f32);
-                match persist_config(&cfg, "moachigi_window") {
-                    Ok(()) => {
-                        ui.set_status_text(tr.invoke_moachigi_window_set(w as i32))
-                    }
-                    Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-                }
+                persist_and_report(
+                    &ui,
+                    &cfg,
+                    "moachigi_window",
+                    tr.invoke_moachigi_window_set(w as i32),
+                );
             }
         });
     }
@@ -943,10 +1093,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut cfg = config.borrow_mut();
             // OPT-IN 명시 활성화. None 복귀는 CLI 전용 의미론 유지(GTK settings_dialog.rs:399 와 동일).
             cfg.engine.korean.bidirectional_combine = Some(v);
-            match persist_config(&cfg, "korean_bidirectional_combine") {
-                Ok(()) => ui.set_status_text(tr.get_applied()),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            persist_and_report(&ui, &cfg, "korean_bidirectional_combine", tr.get_applied());
         });
     }
 
@@ -1021,10 +1168,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
                 status = tr.get_preset_relaxed();
             }
-            match persist_config(&cfg, "accessibility_preset") {
-                Ok(()) => ui.set_status_text(status),
-                Err(err) => ui.set_status_text(tr.invoke_save_failed(err.to_string().into())),
-            }
+            // 프리셋도 config 를 통째로 저장하므로 같은 검증을 태운다 — 죽은 키가
+            // 남아 있다는 정보가 프리셋 적용 안내보다 우선한다(상태줄은 "이 저장의 결과").
+            persist_and_report(&ui, &cfg, "accessibility_preset", status);
         });
     }
 
@@ -1185,8 +1331,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut cfg = config.borrow_mut();
                     cfg.engine.auto_typefix = snap;
                     push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
-                    let _ = persist_config(&cfg, "undo_atf_defaults");
-                    ui.set_status_text(tr.get_atf_undone());
+                    persist_and_report(&ui, &cfg, "undo_atf_defaults", tr.get_atf_undone());
                 }
                 Some(DeleteSnapshot::Blacklist(snap)) => {
                     let mut bl = blacklist.borrow_mut();
@@ -1237,6 +1382,134 @@ mod tests {
             choices.iter().all(|(n, _)| !n.starts_with("en_")),
             "한글 목록에 영문 프로필이 섞이면 안 됨"
         );
+    }
+
+    /// 최우선 가드: 신규 설치(출하 기본값)는 어떤 키 경고도 내지 않아야 한다.
+    #[test]
+    fn collect_invalid_keys_empty_for_defaults() {
+        let inv = collect_invalid_keys(&Config::default());
+        assert_eq!(inv, InvalidKeys::default(), "기본 설정에 경고가 있으면 안 됨");
+        assert!(inv.is_empty());
+        assert_eq!(inv.group_count(), 0);
+    }
+
+    /// D3/R7 회귀 가드: 전환키는 수정자 키 자체가 유효하다. 여기에 ATF 파서를
+    /// 쓰면 출하 기본값 RightAlt 가 무효로 오탐된다.
+    #[test]
+    fn collect_invalid_keys_accepts_modifier_toggle_key() {
+        let mut cfg = Config::default();
+        cfg.engine.toggle_keys = vec!["Korean".to_string(), "RightAlt".to_string()];
+        cfg.engine.hanja_keys = vec!["Hanja".to_string(), "F9".to_string()];
+        let inv = collect_invalid_keys(&cfg);
+        assert!(inv.toggle.is_empty(), "RightAlt 는 유효한 전환키");
+        assert!(inv.hanja.is_empty(), "F9 는 유효한 한자키");
+    }
+
+    /// 전 항목 무효 반려 — CLI/DBus `all_keys_invalid` 와 동일 정책 3지점 싱크.
+    #[test]
+    fn fully_invalid_required_field_matches_cli_policy() {
+        // 기본값은 반려 없음.
+        assert_eq!(fully_invalid_required_field(&Config::default()), None);
+        // 부분 무효는 warn-not-block 유지(반려 아님).
+        let mut cfg = Config::default();
+        cfg.engine.toggle_keys = vec!["NoSuchKey".to_string(), "Korean".to_string()];
+        assert_eq!(fully_invalid_required_field(&cfg), None);
+        // 전 항목 무효 → 필드 인덱스 반환.
+        cfg.engine.toggle_keys = vec!["NoSuchKey".to_string(), "Shift+Space".to_string()];
+        assert_eq!(fully_invalid_required_field(&cfg), Some(0));
+        let mut cfg = Config::default();
+        cfg.engine.hanja_keys = vec!["Hangul".to_string()];
+        assert_eq!(fully_invalid_required_field(&cfg), Some(1));
+        let mut cfg = Config::default();
+        cfg.engine.auto_english.trigger_keys = vec!["key:Ctrl+".to_string()];
+        assert_eq!(fully_invalid_required_field(&cfg), Some(2));
+        // ATF 3종 전 항목 무효는 반려 대상이 아니다(옵트아웃 필드).
+        let mut cfg = Config::default();
+        cfg.engine.auto_typefix.toggle_enabled_keys = vec!["ScrollLock".to_string()];
+        assert_eq!(fully_invalid_required_field(&cfg), None);
+    }
+
+    /// ATF 는 전환키와 달리 수정자 조합을 지원한다(`+`·`-` 구분자 모두).
+    #[test]
+    fn collect_invalid_keys_atf_accepts_combo() {
+        let mut cfg = Config::default();
+        let a = &mut cfg.engine.auto_typefix;
+        a.toggle_enabled_keys = vec!["Shift+F8".to_string()];
+        a.toggle_forward_keys = vec!["Ctrl-Left".to_string()];
+        a.toggle_reverse_keys = vec!["F10".to_string()];
+        assert!(collect_invalid_keys(&cfg).atf.is_empty());
+    }
+
+    /// I7: ATF 3필드는 빈 목록이 정상(옵트인) — 경고 대상이 아니다.
+    #[test]
+    fn collect_invalid_keys_atf_allows_empty_lists() {
+        let mut cfg = Config::default();
+        let a = &mut cfg.engine.auto_typefix;
+        a.toggle_enabled_keys.clear();
+        a.toggle_forward_keys.clear();
+        a.toggle_reverse_keys.clear();
+        assert!(collect_invalid_keys(&cfg).is_empty());
+    }
+
+    /// 4군이 각각 자기 파서로 판정되고, 무효값이 자기 그룹에만 담긴다.
+    #[test]
+    fn collect_invalid_keys_flags_each_group() {
+        let mut cfg = Config::default();
+        cfg.engine.toggle_keys = vec!["Korean".to_string(), "Shift+Space".to_string()];
+        cfg.engine.hanja_keys = vec!["Hanja".to_string(), "Control+Enter".to_string()];
+        cfg.engine.auto_english.trigger_keys =
+            vec!["key:Escape".to_string(), "key:Ctrl+".to_string()];
+        cfg.engine.auto_typefix.toggle_enabled_keys =
+            vec!["F10".to_string(), "ScrollLock".to_string()];
+        cfg.engine.auto_typefix.toggle_forward_keys.clear();
+        cfg.engine.auto_typefix.toggle_reverse_keys.clear();
+
+        let inv = collect_invalid_keys(&cfg);
+        assert_eq!(inv.toggle, vec!["Shift+Space".to_string()]);
+        assert_eq!(inv.hanja, vec!["Control+Enter".to_string()]);
+        assert_eq!(inv.auto_english, vec!["key:Ctrl+".to_string()]);
+        // ScrollLock 은 KeyCode 에 없는 이름이다(옛 placeholder 가 권장하던 값).
+        assert_eq!(inv.atf, vec!["ScrollLock".to_string()]);
+        assert_eq!(inv.group_count(), 4);
+    }
+
+    /// ATF 3필드는 하나의 그룹으로 합산되며 순서는 전체→정방향→역방향.
+    #[test]
+    fn collect_invalid_keys_atf_merges_three_fields() {
+        let mut cfg = Config::default();
+        let a = &mut cfg.engine.auto_typefix;
+        a.toggle_enabled_keys = vec!["Bogus1".to_string()];
+        a.toggle_forward_keys = vec!["Bogus2".to_string()];
+        a.toggle_reverse_keys = vec!["Bogus3".to_string()];
+        let inv = collect_invalid_keys(&cfg);
+        assert_eq!(
+            inv.atf,
+            vec![
+                "Bogus1".to_string(),
+                "Bogus2".to_string(),
+                "Bogus3".to_string()
+            ]
+        );
+        assert_eq!(inv.group_count(), 1, "ATF 3필드는 단일 그룹으로 센다");
+    }
+
+    /// 복수 그룹 축약 문구 조각 — 무효한 그룹만 라벨과 함께 이어 붙인다.
+    #[test]
+    fn invalid_keys_detail_joins_groups_with_labels() {
+        let inv = InvalidKeys {
+            toggle: vec!["X".to_string()],
+            hanja: vec!["Y".to_string(), "Z".to_string()],
+            ..InvalidKeys::default()
+        };
+        let detail = invalid_keys_detail(&inv, ["한/영 토글", "한자 변환", "자동 영문", "오타 교정"]);
+        assert_eq!(detail, "한/영 토글: X / 한자 변환: Y, Z");
+    }
+
+    /// 무효가 없으면 조각도 비어야 한다(호출부가 기본 문구를 쓴다).
+    #[test]
+    fn invalid_keys_detail_empty_when_valid() {
+        let detail = invalid_keys_detail(&InvalidKeys::default(), ["a", "b", "c", "d"]);
+        assert_eq!(detail, "");
     }
 
     /// S3-4 회귀 가드: 안마태 프로필이 moachigi capability 를 유지한다.
@@ -1295,6 +1568,30 @@ mod tests {
         assert!(
             disk.engine.english.preferred_direct,
             "preferred_direct(비-UI)는 disk 값이 보존돼야 함"
+        );
+    }
+
+    /// B1 가드: config 저장 사이트는 전부 `persist_and_report` 를 거친다.
+    /// 자기 문구가 무효 키 경고를 덮어 경고가 점멸하던 회귀를 구조로 막는다.
+    /// (wizard.rs 는 상태줄이 없어 예외 — 설정 모드 전환 지점에서만 경고를 싣는다.)
+    ///
+    /// `include_str!` 로 이 파일 자신을 읽으므로, 찾는 패턴을 리터럴 그대로 적으면
+    /// 이 assert 문 자신의 문자열 리터럴이 검색 대상에 다시 걸려 카운트가 어긋난다
+    /// (자기 매치). 조각을 나눠 런타임에 이어붙여 그 문제를 피한다.
+    #[test]
+    fn no_direct_persist_config_call_site_in_settings_main() {
+        let src = include_str!("main.rs");
+        let direct_call = ["persist_config(&cf", "g"].concat();
+        assert_eq!(
+            src.matches(direct_call.as_str()).count(),
+            0,
+            "persist_config 직접 호출 금지 — persist_and_report 로 수렴할 것"
+        );
+        let helper_call = ["persist_config(cfg", ", label)"].concat();
+        assert_eq!(
+            src.matches(helper_call.as_str()).count(),
+            1,
+            "persist_config 호출은 persist_and_report 안 1곳뿐이어야 함"
         );
     }
 }

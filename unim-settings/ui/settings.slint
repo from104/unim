@@ -258,11 +258,26 @@ export global Tr {
     out property <string> st-tentative: @tr("임시");
     out property <string> st-confirmed: @tr("확정");
     out property <string> st-inactive: @tr("비활성");
+    // 키 필드 이름 — 2개 이상 필드가 동시에 무효일 때 상태줄 축약 문구에 쓴다.
+    out property <string> key-field-toggle: @tr("한/영 토글");
+    out property <string> key-field-hanja: @tr("한자 변환");
+    out property <string> key-field-auto-english: @tr("자동 영문 트리거");
+    out property <string> key-field-atf: @tr("오타 교정 토글");
     // 인자를 받는 포맷 문자열
     public pure function save-failed(err: string) -> string { @tr("저장 실패: {}", err) }
     public pure function strength-applied(name: string) -> string { @tr("{} 강도를 적용했습니다.", name) }
     public pure function moachigi-window-set(ms: int) -> string { @tr("모아치기 조합창을 {}ms 로 설정했습니다.", ms) }
+    // 무효 키 표기 경고 — 문구 규칙: `잘못된 …(무시됨): {키들} — {문법 힌트 + 유효 예시}`.
+    // 필드마다 문법이 다르므로(전환키는 조합 불가, 자동 영문은 key:/char: 접두사,
+    // ATF 는 조합 가능) 예시도 필드별로 다르다. 플랫폼 조건부 문구는 넣지 않는다.
     public pure function atf-hotkey-invalid(keys: string) -> string { @tr("잘못된 오타 교정 토글 키(무시됨): {} — 예: Shift+F8, Ctrl+Left", keys) }
+    public pure function toggle-keys-invalid(keys: string) -> string { @tr("잘못된 한/영 토글 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Korean, RightAlt", keys) }
+    public pure function hanja-keys-invalid(keys: string) -> string { @tr("잘못된 한자 변환 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Hanja, F9", keys) }
+    public pure function auto-english-keys-invalid(keys: string) -> string { @tr("잘못된 자동 영문 트리거 키(무시됨): {} — 예: key:Escape, char:/, key:Ctrl+B", keys) }
+    public pure function keys-invalid-multi(detail: string) -> string { @tr("무시된 키 표기가 있습니다 — {}", detail) }
+    // 전 항목 무효 반려 — CLI/DBus 의 "At least one valid key required" 와 동일 정책.
+    // 저장하면 엔진 파서가 전부 걸러 해당 기능이 통째로 죽으므로 저장 자체를 막는다.
+    public pure function keys-all-invalid(field: string) -> string { @tr("{}: 유효한 키가 하나도 없어 저장하지 않았습니다 — 마지막 저장값이 유지됩니다", field) }
     public pure function blacklist-entry(ascii: string, dir: string, st: string, hits: int) -> string {
         @tr("{}    [{} · {}]    감지 {}회", ascii, dir, st, hits)
     }
@@ -752,7 +767,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.toggle-keys;
-                                placeholder-text: @tr("예: Hangul, Shift+Space");
+                                placeholder-text: @tr("예: Korean, RightAlt");
                                 accessible-label: @tr("한/영 토글 키");
                                 edited => { root.auto-save(); }
                             }
@@ -763,7 +778,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.hanja-keys;
-                                placeholder-text: @tr("예: Hanja, Control+Enter");
+                                placeholder-text: @tr("예: Hanja, F9");
                                 accessible-label: @tr("한자 변환 키");
                                 edited => { root.auto-save(); }
                             }
@@ -971,7 +986,7 @@ export component SettingsWindow inherits Window {
                     if root.current-page == 1: Card {
                         title: @tr("토글 단축키");
                         Text {
-                            text: @tr("지정한 키를 누르면 오타 교정을 즉시 켜거나 끕니다. 비워 두면 사용하지 않습니다. 수정자 조합(Ctrl+X 등)은 지원하지 않고 단일 키만 됩니다.");
+                            text: @tr("지정한 키를 누르면 오타 교정을 즉시 켜거나 끕니다. 비워 두면 사용하지 않습니다. Shift+F9 처럼 수정자 조합도 쓸 수 있습니다.");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
                             color: Tokens.caption-color;
@@ -982,7 +997,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.atf-toggle-enabled-keys;
-                                placeholder-text: @tr("예: ScrollLock, F10 — 비워두면 사용 안 함");
+                                placeholder-text: @tr("예: F10, Shift+F9 — 비워두면 사용 안 함");
                                 accessible-label: @tr("전체 토글 단축키");
                                 edited => { root.auto-save(); }
                             }
@@ -993,7 +1008,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.atf-toggle-forward-keys;
-                                placeholder-text: @tr("예: ScrollLock, F10 — 비워두면 사용 안 함");
+                                placeholder-text: @tr("예: F10, Shift+F9 — 비워두면 사용 안 함");
                                 accessible-label: @tr("정방향 토글 단축키");
                                 edited => { root.auto-save(); }
                             }
@@ -1004,7 +1019,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.atf-toggle-reverse-keys;
-                                placeholder-text: @tr("예: ScrollLock, F10 — 비워두면 사용 안 함");
+                                placeholder-text: @tr("예: F10, Shift+F9 — 비워두면 사용 안 함");
                                 accessible-label: @tr("역방향 토글 단축키");
                                 edited => { root.auto-save(); }
                             }
@@ -1278,13 +1293,16 @@ export component SettingsWindow inherits Window {
                 padding-left: Tokens.space-6;
                 padding-right: Tokens.space-6;
                 spacing: Tokens.space-2;
+                // 키 경고 문구는 길어질 수 있다 — 남는 폭을 이 Text 가 차지하고
+                // 넘치면 말줄임한다(스페이서로 밀면 문구가 창 밖으로 잘려 나간다).
                 Text {
                     text <=> root.status-text;
                     vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
                     font-size: Tokens.font-caption;
                     color: Tokens.caption-color;
                 }
-                Rectangle { horizontal-stretch: 1; }
             }
         }
     }

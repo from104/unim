@@ -20,7 +20,7 @@ row_korean_layout: "Korean Layout"
 row_korean_layout_subtitle: "10 built-in layouts + user layouts (~/.config/unim/layouts/*.json)"
 row_english_layout: "English Layout"
 row_toggle_keys: "Korean/English Toggle Keys"
-row_toggle_keys_subtitle: "Comma separated (e.g. Korean, RightAlt, ShiftSpace)"
+row_toggle_keys_subtitle: "Comma separated (e.g. Korean, RightAlt)"
 row_hanja_keys: "Hanja Keys"
 row_hanja_keys_subtitle: "Comma separated (e.g. Hanja, F9) — also opens emoji popup when idle"
 
@@ -162,7 +162,7 @@ row_ime_enable_subtitle: "Wayland only: GNOME extension intercepts keys and forw
 # General > Layouts and keymap
 row_korean_layout_tooltip: "Lists 10 built-in layouts plus any v1 JSON profile under ~/.config/unim/layouts/. Selecting a layout rebuilds the option group below. AutoTypeFix forward correction also uses this layout as reference."
 row_english_layout_tooltip: "AutoTypeFix uses this layout to infer English words from key sequences. Mismatched layout causes forward corrections to misfire. Default: QWERTY."
-row_toggle_keys_tooltip: "Comma-separated XKB keysym names for Korean/English toggle. Examples: Korean, RightAlt, ShiftSpace. First key wins on collision."
+row_toggle_keys_tooltip: "Comma-separated XKB keysym names for Korean/English toggle. Examples: Korean, RightAlt. First key wins on collision."
 row_hanja_keys_tooltip: "Comma-separated keys that open the Hanja/special-char popup. Examples: Hanja, F9. While composing Hangul: Hanja picker. When idle: emoji or special-char popup."
 
 # General > Input mode

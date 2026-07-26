@@ -230,6 +230,15 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
                 }
                 platform::set_wizard_seen_version(env!("CARGO_PKG_VERSION"));
                 if ui.get_wiz_open_settings_checked() {
+                    // 마법사도 config 저장 사이트다 — 설정 모드로 넘어가는 순간 상태줄이
+                    // 생기므로, 죽어 있는 키가 있으면 그 첫 화면에서 알린다(B1 단일
+                    // 규칙의 마법사 판). 창을 닫는 분기(마침 후 종료)는 상태줄이 없으므로
+                    // 대상이 아니다.
+                    if let Some(warn) =
+                        crate::invalid_keys_status(&ui, &crate::collect_invalid_keys(&config.borrow()))
+                    {
+                        ui.set_status_text(warn);
+                    }
                     // 재실행(뮤텍스 충돌) 대신 같은 창을 일반 설정 모드로 전환.
                     ui.set_wizard_mode(false);
                 } else {

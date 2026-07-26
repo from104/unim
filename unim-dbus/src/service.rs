@@ -16,7 +16,7 @@ use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
 use unim::config::{Config, InputCategory, KoreanConfig};
-use unim::input_engine::{AtfToggleKind, PopupAction};
+use unim::input_engine::{AtfToggleKind, InputEngine, PopupAction};
 use unim::unim_log;
 
 // PopupAction은 unim::input_engine에서 정의됨 (re-export)
@@ -878,6 +878,14 @@ impl InputMethodService {
                             "At least one key required".to_string(),
                         ));
                     }
+                    if all_keys_invalid(&keys, |k| InputEngine::parse_switch_key(k).is_some()) {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one valid key required".to_string(),
+                        ));
+                    }
+                    warn_invalid_keys("toggle_keys", &keys, |k| {
+                        InputEngine::parse_switch_key(k).is_some()
+                    });
                     config.engine.toggle_keys = keys;
                 }
                 "hanja_keys" => {
@@ -891,6 +899,14 @@ impl InputMethodService {
                             "At least one key required".to_string(),
                         ));
                     }
+                    if all_keys_invalid(&keys, |k| InputEngine::parse_switch_key(k).is_some()) {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one valid key required".to_string(),
+                        ));
+                    }
+                    warn_invalid_keys("hanja_keys", &keys, |k| {
+                        InputEngine::parse_switch_key(k).is_some()
+                    });
                     config.engine.hanja_keys = keys;
                 }
                 "korean_active_rule_sets" => {
@@ -1005,25 +1021,37 @@ impl InputMethodService {
                 // ATF 토글 단축키 3종: 빈 값이 유효하다(옵트인 해제 = 아무 키도 소비 안 함).
                 // toggle_keys 와 달리 "최소 1개" 검증을 두지 않아 사용자가 키를 비울 수 있다.
                 "auto_typefix_toggle_enabled_keys" => {
-                    config.engine.auto_typefix.toggle_enabled_keys = value
+                    let keys: Vec<String> = value
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
+                    warn_invalid_keys("auto_typefix_toggle_enabled_keys", &keys, |k| {
+                        InputEngine::parse_atf_hotkey(k).is_some()
+                    });
+                    config.engine.auto_typefix.toggle_enabled_keys = keys;
                 }
                 "auto_typefix_toggle_forward_keys" => {
-                    config.engine.auto_typefix.toggle_forward_keys = value
+                    let keys: Vec<String> = value
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
+                    warn_invalid_keys("auto_typefix_toggle_forward_keys", &keys, |k| {
+                        InputEngine::parse_atf_hotkey(k).is_some()
+                    });
+                    config.engine.auto_typefix.toggle_forward_keys = keys;
                 }
                 "auto_typefix_toggle_reverse_keys" => {
-                    config.engine.auto_typefix.toggle_reverse_keys = value
+                    let keys: Vec<String> = value
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
+                    warn_invalid_keys("auto_typefix_toggle_reverse_keys", &keys, |k| {
+                        InputEngine::parse_atf_hotkey(k).is_some()
+                    });
+                    config.engine.auto_typefix.toggle_reverse_keys = keys;
                 }
                 "auto_english" => {
                     config.engine.auto_english.enabled = value
@@ -1041,6 +1069,14 @@ impl InputMethodService {
                             "At least one key required".to_string(),
                         ));
                     }
+                    if all_keys_invalid(&keys, InputEngine::is_valid_auto_english_key) {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one valid key required".to_string(),
+                        ));
+                    }
+                    warn_invalid_keys("auto_english_keys", &keys, |k| {
+                        InputEngine::is_valid_auto_english_key(k)
+                    });
                     config.engine.auto_english.trigger_keys = keys;
                 }
                 "toggle_announce_beep" => {
@@ -1143,6 +1179,43 @@ impl InputMethodService {
 
         // 2. 범위 방어
         new_config.engine.auto_typefix.clamp_ranges();
+
+        // 2.5. 키 목록 진단 — 설정앱(GTK 레거시·Slint 공통)의 실제 쓰기 경로는 legacy
+        // SetConfig 가 아니라 이 메서드다. 전 항목 무효인 필수 키 목록은 SetConfig 와
+        // 동일 정책으로 반려하고(엔진 파서가 전부 걸러 빈 목록 저장과 동일해짐),
+        // 부분 무효는 경고 로그만 남기고 저장한다(warn-not-block).
+        {
+            use unim::input_engine::InputEngine;
+            let eng = &new_config.engine;
+            let required: [(&str, &[String], fn(&str) -> bool); 3] = [
+                ("toggle_keys", &eng.toggle_keys, |k| {
+                    InputEngine::parse_switch_key(k).is_some()
+                }),
+                ("hanja_keys", &eng.hanja_keys, |k| {
+                    InputEngine::parse_switch_key(k).is_some()
+                }),
+                (
+                    "auto_english_keys",
+                    &eng.auto_english.trigger_keys,
+                    InputEngine::is_valid_auto_english_key,
+                ),
+            ];
+            for (field, keys, is_valid) in required {
+                if all_keys_invalid(keys, is_valid) {
+                    return Err(zbus::fdo::Error::InvalidArgs(format!(
+                        "At least one valid key required ({})",
+                        field
+                    )));
+                }
+                warn_invalid_keys(field, keys, is_valid);
+            }
+            // ATF 토글 3종은 빈 목록이 정상 옵트아웃 — 경고만.
+            let atf = &eng.auto_typefix;
+            let is_atf = |k: &str| InputEngine::parse_atf_hotkey(k).is_some();
+            warn_invalid_keys("auto_typefix_toggle_enabled_keys", &atf.toggle_enabled_keys, is_atf);
+            warn_invalid_keys("auto_typefix_toggle_forward_keys", &atf.toggle_forward_keys, is_atf);
+            warn_invalid_keys("auto_typefix_toggle_reverse_keys", &atf.toggle_reverse_keys, is_atf);
+        }
 
         // 3. 파일 저장
         if let Err(e) = new_config.save_to_default_path() {
@@ -1594,6 +1667,40 @@ pub struct InputContextHandler {
     /// `focus_in` 시 frontend가 GNOME(extension 자체 컨텍스트)이 아니면 본 path를 저장.
     /// `destroy` 시 본 path가 캐시 값과 같으면 None으로 비워준다.
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
+}
+
+/// `SetConfig` 로 들어온 키 목록 중 엔진이 버릴 표기를 데몬 로그에 남긴다.
+///
+/// 반환값을 바꾸지 않는다(D-Bus API 호환 유지) — 차단이 아니라 진단이 목적이며,
+/// 정책은 CLI·설정앱과 동일한 "저장은 하되 경고" 다. 엔진 쪽 파싱 로그
+/// (`InputEngine::parse_switch_keys` 등)는 살아있는 컨텍스트가 리로드될 때만 찍히므로
+/// (컨텍스트 0개면 로그가 전혀 안 남는다) 이 지점이 유일한 즉시 진단 창구가 되는
+/// 경우가 있다. GNOME 확장·레거시 GTK 설정앱의 유일한 쓰기 창구이기도 하다.
+///
+/// 판정 술어(`is_valid`)는 반드시 **엔진이 그 필드를 실제로 파싱하는 함수**를 넘긴다 —
+/// 전환키/한자키는 `InputEngine::parse_switch_key`, ATF 3종은
+/// `InputEngine::parse_atf_hotkey`, 자동 영문은 `InputEngine::is_valid_auto_english_key`.
+fn warn_invalid_keys(field: &str, keys: &[String], is_valid: impl Fn(&str) -> bool) {
+    for name in keys {
+        if !is_valid(name) {
+            unim_log!(
+                "DBUS",
+                "[DBus] SetConfig {}: '{}' 은 엔진이 버리는 표기 — 무시됨",
+                field,
+                name
+            );
+        }
+    }
+}
+
+/// 목록의 **모든** 항목이 파서에서 거부되는지 — 필수 키 목록이 통째로 비는 저장을 차단.
+///
+/// CLI `all_keys_invalid` 와 동일 정책: 부분 무효는 `warn_invalid_keys` 경고 후 저장,
+/// 전 항목 무효는 엔진 파서가 전부 걸러 빈 목록 저장과 결과가 같아지므로(예:
+/// toggle_keys 전무효 → 한/영 전환 불능) 명시적 빈 목록과 동일하게 `InvalidArgs` 반려.
+/// ATF 토글 3종은 빈 목록이 정상 옵트아웃이므로 적용하지 않는다.
+fn all_keys_invalid(keys: &[String], is_valid: impl Fn(&str) -> bool) -> bool {
+    !keys.is_empty() && keys.iter().all(|k| !is_valid(k))
 }
 
 /// client_name으로부터 프론트엔드 종류를 식별

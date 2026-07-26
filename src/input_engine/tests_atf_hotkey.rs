@@ -530,3 +530,22 @@ fn set_atf_hotkeys_reapplies_modifier_combo() {
     engine.press_key(KeyCode::F9, mods_shift(), &reloaded);
     assert_eq!(engine.take_atf_toggle(), Some(AtfToggleKind::Enabled));
 }
+
+#[test]
+fn atf_hotkey_rejects_nonexistent_scrolllock() {
+    // `ScrollLock`·`Pause` 는 `KeyCode::from_name` 에 아예 없는 이름이다(85개 전수 확인).
+    // 종전 placeholder·CLI 경고 문구가 이 둘을 "권장 비입력 키"로 안내하고 있어,
+    // 그대로 입력하면 검증이 무효로 판정한다. 문구 정정이 되돌아가지 않도록 코드로 고정.
+    assert_eq!(InputEngine::parse_atf_hotkey("ScrollLock"), None);
+    assert_eq!(InputEngine::parse_atf_hotkey("Pause"), None);
+    // 대안으로 안내하는 비입력 키들은 실제로 유효해야 한다.
+    for name in ["F1", "F12", "CapsLock", "Insert", "Home", "End", "PageUp", "PageDown"] {
+        assert!(
+            InputEngine::parse_atf_hotkey(name).is_some(),
+            "'{name}' 는 유효한 ATF 핫키 base 여야 함"
+        );
+    }
+    // 수정자 조합도 유효(커밋 7b7b751 — 양 플랫폼 지원 확인).
+    assert!(InputEngine::parse_atf_hotkey("Shift+F9").is_some());
+    assert!(InputEngine::parse_atf_hotkey("Ctrl-Left").is_some());
+}

@@ -20,7 +20,7 @@ row_korean_layout: "한국어 자판"
 row_korean_layout_subtitle: "내장 자판 10종 + 사용자 자판 (~/.config/unim/layouts/*.json)"
 row_english_layout: "영어 자판"
 row_toggle_keys: "한/영 전환 키"
-row_toggle_keys_subtitle: "쉼표로 구분 (예: Korean, RightAlt, ShiftSpace)"
+row_toggle_keys_subtitle: "쉼표로 구분 (예: Korean, RightAlt)"
 row_hanja_keys: "한자 키"
 row_hanja_keys_subtitle: "쉼표로 구분 (예: Hanja, F9) — 조합 없을 때는 이모지 팝업으로 동작"
 
@@ -162,7 +162,7 @@ row_ime_enable_subtitle: "Wayland 전용: GNOME 확장이 키를 가로채 unim-
 # 일반 > 자판 및 키맵
 row_korean_layout_tooltip: "내장 자판 10종 + ~/.config/unim/layouts/*.json 의 사용자 자판이 표시됩니다. 선택 시 아래 옵션 그룹이 해당 자판 규칙으로 재구성됩니다. AutoTypeFix 순방향 교정도 이 자판 기준."
 row_english_layout_tooltip: "AutoTypeFix가 영문 단어를 추론할 때 기준이 되는 자판. 실제 사용 중인 영어 자판과 다르면 순방향 교정이 오작동합니다. 기본값: QWERTY."
-row_toggle_keys_tooltip: "한/영 전환 키를 쉼표로 구분해 입력합니다. 예: Korean, RightAlt, ShiftSpace. 키 이름은 xkb 키심(keysym) 기준. 충돌 시 첫 번째 키 우선."
+row_toggle_keys_tooltip: "한/영 전환 키를 쉼표로 구분해 입력합니다. 예: Korean, RightAlt. 키 이름은 xkb 키심(keysym) 기준. 충돌 시 첫 번째 키 우선."
 row_hanja_keys_tooltip: "한자/특수문자 팝업을 띄울 키를 쉼표로 구분해 입력합니다. 예: Hanja, F9. 한글 조합 중이면 한자 변환, 조합이 없으면 이모지 팝업 또는 특수문자 팝업."
 
 # 일반 > 입력 모드
