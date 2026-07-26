@@ -461,6 +461,21 @@ class UnimIndicator extends PanelMenu.Button {
         }
 
         const uri = Gio.File.new_for_path(path).get_uri();
+
+        // 1순위: 사용자의 기본 웹 브라우저(x-scheme-handler/https 핸들러).
+        // launch_default_for_uri/xdg-open 은 file URI 를 text/html MIME 기본
+        // 핸들러로 라우팅하는데, VS Code 계열 IDE(antigravity 등)가 text/html 을
+        // 등록해 도움말이 IDE 로 열리는 사례가 실재한다(실사용 보고). 도움말은
+        // "브라우저에서 보는 문서"이므로 기본 브라우저를 명시적으로 우선한다.
+        // (Rust 공용 로직 unim_gui_common::help::open_in_default_browser 와 동일 계약)
+        try {
+            const browser = Gio.AppInfo.get_default_for_uri_scheme('https');
+            if (browser && browser.launch_uris([uri], null)) return;
+        } catch (e) {
+            unimError('INDICATOR', ` default browser launch failed: ${e.message}`);
+        }
+
+        // 2순위: 종전 경로 — MIME 기본 핸들러 (브라우저 미설정 환경에서도 열리게).
         try {
             if (Gio.AppInfo.launch_default_for_uri(uri, null)) return;
             unimError('INDICATOR', ' launch_default_for_uri returned false; falling back to xdg-open');

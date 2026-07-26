@@ -82,10 +82,16 @@ pub fn help_dir_candidates(
     dirs
 }
 
-/// 매뉴얼을 기본 브라우저(`xdg-open`)로 연다. 도움말 언어는 UI 언어 판정
+/// 매뉴얼을 사용자의 **기본 웹 브라우저**로 연다. 도움말 언어는 UI 언어 판정
 /// (`ui_language_is_korean`)을 그대로 재사용해 자동 일치시킨다.
 ///
-/// 실패(파일 부재·`xdg-open` 미설치)를 조용히 삼키지 않는다 — 버튼을 눌렀는데
+/// `xdg-open` 은 file 경로를 **text/html MIME 기본 핸들러**로 라우팅하는데,
+/// VS Code 계열 IDE(antigravity 등)가 text/html 을 자기 앱으로 등록해 도움말이
+/// 브라우저 대신 IDE 로 열리는 사례가 실재한다(실사용 보고). 도움말의 의도는
+/// "브라우저에서 보는 문서"이므로 기본 브라우저를 명시적으로 우선하고,
+/// 실패 시에만 종전 `xdg-open`(MIME 핸들러)으로 폴백한다.
+///
+/// 실패(파일 부재·양쪽 런처 부재)를 조용히 삼키지 않는다 — 버튼을 눌렀는데
 /// 아무 일도 안 일어나는 것이 사용자에게 가장 나쁜 결과다.
 pub fn open_help(caller_datadir: Option<&str>) {
     let korean = ui_language_is_korean();
@@ -93,6 +99,9 @@ pub fn open_help(caller_datadir: Option<&str>) {
         notify_help_unavailable(korean);
         return;
     };
+    if open_in_default_browser(&path) {
+        return;
+    }
     if std::process::Command::new("xdg-open")
         .arg(&path)
         .spawn()
@@ -100,6 +109,36 @@ pub fn open_help(caller_datadir: Option<&str>) {
     {
         notify_help_unavailable(korean);
     }
+}
+
+/// 기본 웹 브라우저(`x-scheme-handler/http` 핸들러)로 파일을 연다. 성공 시 true.
+///
+/// `xdg-settings get default-web-browser` 로 데스크톱 ID 를 얻어 `gtk-launch` 로
+/// 실행한다 — 모듈 계약(std 전용, GIO 의존 없음)을 지키는 방법이다. `gtk-launch`
+/// 는 앱을 띄우고 즉시 종료하므로 `status()` 대기는 짧고, 종료 코드가 실제
+/// 실행 성공을 알려 준다(spawn 성공만으로는 미지 데스크톱 ID 실패를 놓친다).
+/// 조회 실패·빈 값·비정상 종료는 전부 false → 호출부의 `xdg-open` 폴백.
+fn open_in_default_browser(path: &std::path::Path) -> bool {
+    let Ok(out) = std::process::Command::new("xdg-settings")
+        .args(["get", "default-web-browser"])
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let desktop_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if desktop_id.is_empty() {
+        return false;
+    }
+    // gtk-launch 는 .desktop 접미사 유무를 모두 허용하지만 관례대로 떼어 준다.
+    let app = desktop_id.strip_suffix(".desktop").unwrap_or(&desktop_id);
+    std::process::Command::new("gtk-launch")
+        .arg(app)
+        .arg(path)
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// 도움말을 열지 못했을 때의 사용자 안내. stderr(터미널 실행 시)와 데스크톱 알림
