@@ -4,10 +4,11 @@
 //! - 전역 key_meta: 키별 ActionRow (vowel_combine_head / context_alt 요약 + 편집/삭제).
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{self as gtk};
+use gtk4::{self as gtk, glib};
 use libadwaita::prelude::*;
 use libadwaita::{self as adw};
 
@@ -59,6 +60,25 @@ pub fn build(state: SharedAppState) -> gtk::Widget {
         let rebuild_holder = rebuild_holder.clone();
         Rc::new(move || {
             let trigger = rebuild_holder.borrow().clone().expect("trigger set");
+
+            // 재구성 전 상태 스냅샷 — 펼친 규칙 세트 이름 + 스크롤 위치.
+            // 매번 ExpanderRow 를 새로 만들기 때문에 복원하지 않으면 토글·삭제할
+            // 때마다 목록이 접히고 스크롤이 튀어 반복 조작 비용이 큰 사용자에게
+            // 직격이다(UX 원칙: 토글·삭제 시 위치 보존).
+            let expanded_before: HashSet<String> = rs_rows
+                .borrow()
+                .iter()
+                .filter_map(|w| w.downcast_ref::<adw::ExpanderRow>())
+                .filter(|e| e.is_expanded())
+                .map(|e| e.title().to_string())
+                .collect();
+            let scroll_before: Option<(gtk::ScrolledWindow, f64)> = rs_group
+                .ancestor(gtk::ScrolledWindow::static_type())
+                .and_then(|w| w.downcast::<gtk::ScrolledWindow>().ok())
+                .map(|sw| {
+                    let v = sw.vadjustment().value();
+                    (sw, v)
+                });
 
             // ── 규칙 세트 ──
             for w in rs_rows.borrow_mut().drain(..) {
@@ -274,6 +294,10 @@ pub fn build(state: SharedAppState) -> gtk::Widget {
                 }
                 expander.add_row(&add_km_row);
 
+                if expanded_before.contains(&name) {
+                    expander.set_expanded(true);
+                }
+
                 rs_group.add(&expander);
                 rs_rows.borrow_mut().push(expander.upcast());
             }
@@ -334,6 +358,13 @@ pub fn build(state: SharedAppState) -> gtk::Widget {
                 row.add_suffix(&del_b);
                 km_group.add(&row);
                 km_rows.borrow_mut().push(row.upcast());
+            }
+
+            // 스크롤 위치 복원 — 재배치가 다음 레이아웃 pass 에서 끝나므로 idle 에서 적용.
+            if let Some((sw, value)) = scroll_before {
+                glib::idle_add_local_once(move || {
+                    sw.vadjustment().set_value(value);
+                });
             }
         })
     };

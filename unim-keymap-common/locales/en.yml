@@ -19,3 +19,5 @@ meta_type: Type
 meta_license: License
 meta_tags: Tags
 no_profile_selected: Select a profile
+heatmap_cell_a11y: "%{errors} errors out of %{attempts} attempts"
+key_cell_a11y_with_han: "%{eng} — %{han}"
