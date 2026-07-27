@@ -13,6 +13,7 @@ import Clutter from 'gi://Clutter';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { unimLog, unimError } from './logging.js';
 
 /** DBus 서비스 정보 */
@@ -94,28 +95,28 @@ class UnimIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         
         // === 입력 모드 선택 ===
-        this._koreanItem = new PopupMenu.PopupMenuItem('한국어 모드 (Korean)');
+        this._koreanItem = new PopupMenu.PopupMenuItem(_('한국어 모드 (Korean)'));
         this._koreanItem.connect('activate', () => this._setMode(true));
         this.menu.addMenuItem(this._koreanItem);
-        
-        this._englishItem = new PopupMenu.PopupMenuItem('영어 모드 (English)');
+
+        this._englishItem = new PopupMenu.PopupMenuItem(_('영어 모드 (English)'));
         this._englishItem.connect('activate', () => this._setMode(false));
         this.menu.addMenuItem(this._englishItem);
-        
+
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        
+
         // === UNIM 설정 앱 (unim-settings) ===
-        const unimSettingsItem = new PopupMenu.PopupMenuItem('UNIM 설정 (Settings)...');
+        const unimSettingsItem = new PopupMenu.PopupMenuItem(_('UNIM 설정 (Settings)...'));
         unimSettingsItem.connect('activate', () => this._openUnimSettings());
         this.menu.addMenuItem(unimSettingsItem);
 
         // === GNOME 확장 설정 ===
-        const extSettingsItem = new PopupMenu.PopupMenuItem('GNOME 확장 설정 (Extension)...');
+        const extSettingsItem = new PopupMenu.PopupMenuItem(_('GNOME 확장 설정 (Extension)...'));
         extSettingsItem.connect('activate', () => this._openExtensionSettings());
         this.menu.addMenuItem(extSettingsItem);
 
         // === 오프라인 사용자 매뉴얼 ===
-        const helpItem = new PopupMenu.PopupMenuItem('도움말 (Help)');
+        const helpItem = new PopupMenu.PopupMenuItem(_('도움말 (Help)'));
         helpItem.connect('activate', () => this._openHelp());
         this.menu.addMenuItem(helpItem);
 
@@ -126,11 +127,11 @@ class UnimIndicator extends PanelMenu.Button {
     _updateMenuItems() {
         // 헤더 업데이트
         if (!this._connected) {
-            this._headerItem.label.set_text('⚠️ UNIM 데몬 연결 안됨');
+            this._headerItem.label.set_text(_('⚠️ UNIM 데몬 연결 안됨'));
         } else if (!this._inputActive) {
-            this._headerItem.label.set_text('💤 입력 대기 중');
+            this._headerItem.label.set_text(_('💤 입력 대기 중'));
         } else {
-            this._headerItem.label.set_text(this._isKorean ? '🇰🇷 한국어 입력 중' : '🔤 영어 입력 중');
+            this._headerItem.label.set_text(this._isKorean ? _('🇰🇷 한국어 입력 중') : _('🔤 영어 입력 중'));
         }
         
         // 체크마크 표시
@@ -328,7 +329,7 @@ class UnimIndicator extends PanelMenu.Button {
     
     _setMode(isKorean) {
         if (!this._dbusProxy || !this._connected) {
-            Main.notify('UNIM', 'UNIM 데몬이 실행 중이지 않습니다.');
+            Main.notify('UNIM', _('UNIM 데몬이 실행 중이지 않습니다.'));
             return;
         }
         
