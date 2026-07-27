@@ -7,6 +7,25 @@
 > UNIM Korean engine (`unim` crate) so legacy/IMM32-only apps (KakaoTalk, 아래아한글)
 > that opt out of TSF still get Korean input.
 
+> ### ⚠ SUPERSEDED — packaging contract only (2026-07-27, v0.4.0)
+>
+> **The packaging half of this contract no longer describes what ships.** The `.ime`
+> keyboard-layout registration was deliberately dropped on Windows 11 (see
+> `CHANGELOG.md`, "The pointless IMM32 `.ime` registration on Win11 was dropped"),
+> and `installer/wix/unim.wxs` contains **zero** IMM32 rows — no `.ime` File
+> component, no `E0200412` KLID registry rows. 32-bit apps are served by the 32-bit
+> TSF TIP (`unim_tsf32.dll`) instead, via CUAS.
+>
+> Superseded sections: §1 packaging rows (`scripts/build-msi.bat`,
+> `.github/workflows/windows-msi.yml`, `installer/wix/unim.wxs`), §0.3, the `.def`
+> note on the `.dll → .ime` rename, and §10 `register_ime()` / `unregister_ime()`.
+> Those describe a **dev/diagnostic-only** path: the crate still builds and can be
+> hand-registered for IMM32 protocol debugging, but it is not a shipped component.
+>
+> **Everything else in this document remains CONTRACT** — the export set, IMEINFO
+> fields, `ImeToAsciiEx` TRANSMSGLIST protocol, and `COMPOSITIONSTRING` offsets are
+> unchanged and still authoritative for the code that exists.
+
 ---
 
 ## 0. Verified ground facts (do not relitigate)
@@ -54,12 +73,13 @@ Every file under `unim-imm32/`, with OWNER ∈ {scaffold, core, register, ui, pa
 | `unim-imm32/src/ime_state.rs` | core | per-HIMC engine state (`ImeContext`), global registry, `Config` storage, thread-safety (§4). |
 | `unim-imm32/src/composition.rs` | core | `COMPOSITIONSTRING` IMCC build + offsets + transmsg generation (§5). |
 | `unim-imm32/src/input.rs` | core | `get_modifier_state` (lifted), should-consume probe, key→engine feed; bridges `ImeProcessKey`/`ImeToAsciiEx`. |
+| `unim-imm32/src/content_purpose.rs` | core | best-effort password-field detection (focused window class `Edit`/`RichEdit*` + `ES_PASSWORD` style); fail-normal, no `SendMessage` (WndProc re-entrancy). Feeds `engine.set_content_purpose` so ATF and 한/영 전환이 억제된다. |
 | `unim-imm32/src/register.rs` | register | dev `register_ime()` / `unregister_ime()` via `ImmInstallIMEW` + registry; `dbg_log`. |
 | `unim-imm32/src/ui_window.rs` | ui | `UIWndProc`, UI window class registration helper, IMN_* handling (candidate window = stub). |
-| `scripts/build-msi.bat` | packaging | add `cargo build -p unim-imm32`; copy `unim_imm32.dll` → `unim_imm32.ime`. (NOT under unim-imm32/) |
+| `scripts/build-msi.bat` | packaging | ~~copy `unim_imm32.dll` → `unim_imm32.ime`~~ — **SUPERSEDED**, dev/diagnostic only. |
 | `scripts/cargo-msvc.bat` | packaging | no change required (forwards args); listed for completeness. |
-| `.github/workflows/windows-msi.yml` | packaging | add `-p unim-imm32` build + artifact verify of `unim_imm32.ime`. |
-| `installer/wix/unim.wxs` | packaging | KLID `E0200412` keyboard-layout registry rows + `.ime` File component into System32. |
+| `.github/workflows/windows-msi.yml` | packaging | ~~artifact verify of `unim_imm32.ime`~~ — **SUPERSEDED**. The `.ime` is not in the MSI, so its absence is a warning, not a release gate. |
+| `installer/wix/unim.wxs` | packaging | ~~KLID `E0200412` rows + `.ime` File component~~ — **SUPERSEDED**, zero IMM32 rows ship. 32-bit apps use `unim_tsf32.dll`. |
 | **root `Cargo.toml`** | scaffold | add `"unim-imm32"` to `[workspace].members`. |
 
 `core` owns `lib.rs + composition.rs + ime_state.rs + input.rs`. `scaffold` owns `Cargo.toml + build.rs + unim_imm32.def + globals.rs` (+ root member). `register` owns `register.rs`. `ui` owns `ui_window.rs`. `packaging` owns the four files NOT under `unim-imm32/`.
@@ -487,6 +507,8 @@ Notes:
   keeps both bitnesses identical and authoritative.
 - **.dll → .ime rename happens in build scripts, NOT build.rs** — `scripts/build-msi.bat`
   copies `target/<triple>/release/unim_imm32.dll` to `unim_imm32.ime` (packaging owner).
+  **SUPERSEDED (see banner at top):** the `.ime` is no longer packaged; this rename
+  exists for hand-registration during IMM32 protocol debugging only.
 - `unim_imm32.def` body:
   ```
   LIBRARY unim_imm32
@@ -516,7 +538,8 @@ Notes:
 
 ```rust
 /// Dev-only: install the .ime and write the KLID keyboard-layout rows.
-/// Primary install path is the MSI; this mirrors it for `cargo`-driven dev loops.
+/// SUPERSEDED (see banner at top): the MSI ships no IMM32 rows, so this is now the
+/// ONLY registration path and it is for IMM32 protocol debugging, not for users.
 pub fn register_ime() -> windows::core::Result<()>;
 //   1. ImmInstallIMEW(L"unim_imm32.ime", L"UNIM Korean (IMM32)") -> HKL (allocates an E0xx0412 KLID)
 //   2. OR write static rows under
@@ -529,8 +552,9 @@ pub fn register_ime() -> windows::core::Result<()>;
 pub fn unregister_ime() -> windows::core::Result<()>;  // UnloadKeyboardLayout + delete the KLID key
 pub fn dbg_log(msg: &str);                              // OutputDebugStringW + optional %TEMP% file
 ```
-> Keep KLID `E0200412` consistent with `installer/wix/unim.wxs` (packaging) and
-> `globals.rs::UNIM_IMM32_KLID`.
+> ~~Keep KLID `E0200412` consistent with `installer/wix/unim.wxs` (packaging) and
+> `globals.rs::UNIM_IMM32_KLID`.~~ **SUPERSEDED** — `unim.wxs` carries no KLID rows.
+> `globals.rs::UNIM_IMM32_KLID` remains the single source for the dev path.
 
 ---
 
