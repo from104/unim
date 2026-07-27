@@ -2225,7 +2225,9 @@ word_commit: false
             let backup = path.with_extension(format!("yaml.corrupt-{}", i));
             fs::write(&backup, format!("backup-{i}")).unwrap();
             let mtime = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000 + i);
-            let file = std::fs::File::open(&backup).unwrap();
+            // Windows 는 `SetFileTime` 에 쓰기 권한 핸들을 요구한다 — 읽기 전용
+            // `File::open` 으로는 ERROR_ACCESS_DENIED(5) 가 난다.
+            let file = std::fs::OpenOptions::new().write(true).open(&backup).unwrap();
             file.set_modified(mtime).unwrap();
             backup_paths.push(backup);
         }
