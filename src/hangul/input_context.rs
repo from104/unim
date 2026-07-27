@@ -188,7 +188,7 @@ impl HangulInputContext {
     /// 자모를 composer 큐에 넣고, 음절이 완성되면
     /// - 단어 모드(`accumulate_word`)면 `word_buffer` 로 누적,
     /// - 아니면 기존대로 `committed` 로 push
-    /// 한 뒤 `update_preedit()` 으로 현재 음절 preedit 을 갱신한다.
+    ///   한 뒤 `update_preedit()` 으로 현재 음절 preedit 을 갱신한다.
     ///
     /// **`word_keys` 는 절대 건드리지 않는다** — backspace 재생 시 동일 키 시퀀스를
     /// 재적용하기 위함. 키 기록은 호출자(`process_jamo_with_meta`)가 담당한다.

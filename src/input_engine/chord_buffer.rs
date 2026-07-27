@@ -101,7 +101,6 @@ impl ChordBuffer {
     }
 
     /// 현재 버퍼에 항목이 있는지.
-    #[allow(dead_code)]
     #[inline]
     pub fn has_pending(&self) -> bool {
         !self.buffer.is_empty()

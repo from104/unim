@@ -1187,7 +1187,8 @@ impl InputMethodService {
         {
             use unim::input_engine::InputEngine;
             let eng = &new_config.engine;
-            let required: [(&str, &[String], fn(&str) -> bool); 3] = [
+            type KeyCheckEntry<'a> = (&'a str, &'a [String], fn(&str) -> bool);
+            let required: [KeyCheckEntry; 3] = [
                 ("toggle_keys", &eng.toggle_keys, |k| {
                     InputEngine::parse_switch_key(k).is_some()
                 }),
@@ -2730,6 +2731,8 @@ impl InputContextHandler {
 
     /// Smart Backspace (자모 단위 삭제)
     /// 반환값: (삭제할 문자 수, 대체 텍스트) 또는 (0, "")
+    ///
+    /// **미배선(실험적)** — 현재 호출자는 테스트뿐. 전 배선은 v0.4.x 이후 (FUNC-LINUX-05).
     async fn smart_backspace(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,

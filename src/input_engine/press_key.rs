@@ -828,6 +828,7 @@ impl InputEngine {
     ///
     /// - `Some(AtfHotkey)`
     /// - `None` — 미지 modifier 토큰 / 미지·빈 base / 수정자 키 base
+    ///
     /// CLI(`unim-cli config set`)·설정앱이 사용자 입력 표기를 저장 전에 검증하는
     /// 단일 진실 공급원이기도 하다. 반환값이 `None` 이면 그 표기는 엔진에서 조용히
     /// 버려지므로(핫키가 죽음) 호출부는 경고를 띄워야 한다.

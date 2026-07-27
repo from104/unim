@@ -1213,10 +1213,10 @@ mod tests {
 
         // 팝업/한자/특수문자 라우팅 상태를 인위적으로 활성화.
         engine.hanja_mode = true;
-        engine.hanja_target.push_str("한");
+        engine.hanja_target.push('한');
         engine.special_char_mode = true;
         engine.special_char_candidates.push('★');
-        engine.special_char_target.push_str("ㅁ");
+        engine.special_char_target.push('ㅁ');
 
         engine.reset();
 
@@ -1284,8 +1284,10 @@ mod tests {
         engine.set_input_category(InputCategory::English);
 
         // RightAlt 눌림 — 자신이 Alt 비트를 세운 채 들어와도 토글은 성사(self_is_modifier).
-        let mut alt_down = ModifierState::default();
-        alt_down.alt = true;
+        let alt_down = ModifierState {
+            alt: true,
+            ..Default::default()
+        };
         let r = engine.press_key(KeyCode::RightAlt, alt_down, &config);
         assert!(r.consumed, "RightAlt 토글은 소비되어야");
         assert_eq!(engine.input_category(), InputCategory::Korean, "한글로 전환");
@@ -1314,8 +1316,10 @@ mod tests {
         let mut engine = InputEngine::new(&config);
         engine.set_input_category(InputCategory::English);
 
-        let mut alt_down = ModifierState::default();
-        alt_down.alt = true;
+        let alt_down = ModifierState {
+            alt: true,
+            ..Default::default()
+        };
         engine.press_key(KeyCode::RightAlt, alt_down, &config); // 전환 + 마스크 예약
         engine.press_key(KeyCode::R, alt_down, &config); // 마스크 소비 → ㄱ
         assert_eq!(engine.preedit_str(), "ㄱ");
@@ -1349,8 +1353,10 @@ mod tests {
         );
 
         // 진짜 Alt+키 단축키는 마스킹 없이 그대로 통과(not_consumed).
-        let mut alt_down = ModifierState::default();
-        alt_down.alt = true;
+        let alt_down = ModifierState {
+            alt: true,
+            ..Default::default()
+        };
         let r2 = engine.press_key(KeyCode::R, alt_down, &config);
         assert!(!r2.consumed, "마스크 없으면 Alt+키는 단축키(not_consumed)");
         assert!(engine.preedit_str().is_empty(), "자모 조합 없음");
@@ -1365,8 +1371,10 @@ mod tests {
         engine.set_input_category(InputCategory::Korean);
         assert!(engine.sticky_toggle_mask.is_none());
 
-        let mut alt_down = ModifierState::default();
-        alt_down.alt = true;
+        let alt_down = ModifierState {
+            alt: true,
+            ..Default::default()
+        };
         let r = engine.press_key(KeyCode::R, alt_down, &config);
         assert!(!r.consumed, "선행 토글 없는 Alt+키는 단축키 그대로");
         assert!(engine.preedit_str().is_empty());

@@ -100,6 +100,8 @@ impl InputEngine {
     /// # Returns
     /// * `Some((1, replacement))` - 1글자 삭제 후 대체 텍스트
     /// * `None` - surrounding text가 없거나 한글이 아님
+    ///
+    /// **미배선(실험적)** — 현재 호출자는 테스트뿐. 전 배선은 v0.4.x 이후 (FUNC-LINUX-05).
     pub fn smart_backspace(&self) -> Option<(u32, String)> {
         if self.surrounding_text.is_empty() || self.surrounding_cursor == 0 {
             return None;

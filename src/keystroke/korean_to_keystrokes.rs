@@ -67,9 +67,28 @@ pub fn korean_to_keystrokes(
     result
 }
 
+/// 동일 자모(또는 동일 기타 문자)에 두 개 이상의 영어 키가 매핑돼 있을 때
+/// 완전히 결정적으로 승자를 고릅니다.
+///
+/// 규칙: ① 소문자 키 우선, ② 대소문자가 같으면 코드포인트 오름차순.
+/// `HashMap`의 반복 순서는 프로세스마다(해시 시드가) 달라지므로, 입력 순서에
+/// 의존하지 않도록 후보를 모두 모은 뒤 정렬해서 고른다 — `build_reverse_jamo_map`과
+/// `build_reverse_char_map`이 동일한 규칙을 공유한다(VERIF-CORE-01/FUNC-CORE-01).
+fn pick_deterministic_key(mut keys: Vec<char>) -> char {
+    keys.sort_by(|a, b| match (a.is_ascii_lowercase(), b.is_ascii_lowercase()) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.cmp(b),
+    });
+    keys[0]
+}
+
 /// `keyboard_map` (영어 키 -> 자모)을 기반으로 역방향 맵 (자모 -> 영어 키)을 생성합니다.
 /// JamoEnum::Cho, JamoEnum::Jung, JamoEnum::Jong 만 포함합니다.
-/// 동일한 자모에 대해 대문자와 소문자 키가 모두 매핑된 경우, 소문자 키를 우선합니다.
+///
+/// 동일한 자모에 여러 영어 키가 매핑된 경우(예: 세벌식 390/391의 ㅗ·ㅜ가 소문자
+/// 키 두 개에 동시 매핑) `pick_deterministic_key`로 완전히 결정적으로 하나를
+/// 고른다 — `HashMap` 반복 순서에 좌우되지 않는다.
 ///
 /// # Arguments
 /// * `keyboard_map` - 원본 영어 키 -> 자모 매핑.
@@ -77,7 +96,7 @@ pub fn korean_to_keystrokes(
 /// # Returns
 /// 자모(`JamoEnum`)에서 영어 키(`char`)로의 역방향 `HashMap`.
 fn build_reverse_jamo_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<JamoEnum, char> {
-    let mut reverse_map = HashMap::<JamoEnum, char>::new();
+    let mut candidates = HashMap::<JamoEnum, Vec<char>>::new();
 
     for (&key, &jamo) in keyboard_map {
         // 자모 타입인 경우에만 처리
@@ -85,25 +104,21 @@ fn build_reverse_jamo_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<Jam
             jamo,
             JamoEnum::Cho(_) | JamoEnum::Jung(_) | JamoEnum::Jong(_)
         ) {
-            match reverse_map.get(&jamo) {
-                Some(&existing_key) => {
-                    if key.is_ascii_lowercase() && existing_key.is_ascii_uppercase() {
-                        reverse_map.insert(jamo, key);
-                    }
-                }
-                None => {
-                    reverse_map.insert(jamo, key);
-                }
-            }
+            candidates.entry(jamo).or_default().push(key);
         }
     }
-    reverse_map
+
+    candidates
+        .into_iter()
+        .map(|(jamo, keys)| (jamo, pick_deterministic_key(keys)))
+        .collect()
 }
 
 /// `keyboard_map` (영어 키 -> 자모)을 기반으로 기타 문자 역방향 맵 (문자 -> 영어 키)을 생성합니다.
-/// JamoEnum::Other 및 JamoEnum::Special 을 포함합니다.
-/// 동일한 문자에 대해 대문자와 소문자 키가 모두 매핑된 경우, 어떤 키가 선택될지는 HashMap 구현에 따라 다름.
-/// (필요하다면 소문자 우선 로직 추가)
+/// JamoEnum::Special 을 포함합니다.
+///
+/// `build_reverse_jamo_map`과 동일하게 `pick_deterministic_key`로 완전히
+/// 결정적으로 승자를 고른다(FUNC-CORE-01).
 ///
 /// # Arguments
 /// * `keyboard_map` - 원본 영어 키 -> 자모 매핑.
@@ -111,14 +126,17 @@ fn build_reverse_jamo_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<Jam
 /// # Returns
 /// 문자(`char`)에서 영어 키(`char`)로의 역방향 `HashMap`.
 fn build_reverse_char_map(keyboard_map: &HashMap<char, JamoEnum>) -> HashMap<char, char> {
-    let mut reverse_map = HashMap::<char, char>::new();
+    let mut candidates = HashMap::<char, Vec<char>>::new();
     for (&key, &jamo) in keyboard_map {
         if let JamoEnum::Special(c) = jamo {
-            // TODO: 소문자 우선 로직 필요시 추가
-            reverse_map.insert(c, key);
+            candidates.entry(c).or_default().push(key);
         }
     }
-    reverse_map
+
+    candidates
+        .into_iter()
+        .map(|(c, keys)| (c, pick_deterministic_key(keys)))
+        .collect()
 }
 
 /// 복합 자모(이중모음, 쌍자음, 겹받침)의 분해 규칙을 정의하는 `HashMap`들을 생성합니다.
@@ -307,5 +325,88 @@ fn append_jamo_keystrokes(
         }
         // JamoEnum::Special은 이 함수에서 직접 처리하지 않음 (keyboard_map 정의에 따름)
         _ => { /* Do nothing for Special or potential future variants */ }
+    }
+}
+
+#[cfg(test)]
+mod reverse_map_determinism_tests {
+    use super::*;
+    use crate::hangul::jamo::{Cho, Jung};
+
+    /// VERIF-CORE-01: 동일 자모에 소문자 키 두 개 이상이 매핑돼도(세벌식 390/391의
+    /// ㅗ/ㅜ 실제 상황) 삽입 순서와 무관하게 항상 같은 키가 선택돼야 한다.
+    #[test]
+    fn reverse_jamo_map_tie_break_is_order_independent() {
+        let entries: Vec<(char, JamoEnum)> = vec![
+            ('a', JamoEnum::Jung(Jung::O)),
+            ('z', JamoEnum::Jung(Jung::O)),
+            ('m', JamoEnum::Jung(Jung::O)),
+        ];
+
+        let forward: HashMap<char, JamoEnum> = entries.iter().cloned().collect();
+        let backward: HashMap<char, JamoEnum> = entries.iter().rev().cloned().collect();
+
+        let forward_result = build_reverse_jamo_map(&forward);
+        let backward_result = build_reverse_jamo_map(&backward);
+
+        assert_eq!(forward_result, backward_result);
+        // 완전 결정적 규칙: 소문자 중 코드포인트가 가장 작은 'a'가 선택돼야 한다.
+        assert_eq!(forward_result.get(&JamoEnum::Jung(Jung::O)), Some(&'a'));
+    }
+
+    #[test]
+    fn reverse_jamo_map_prefers_lowercase_over_uppercase() {
+        let entries: Vec<(char, JamoEnum)> =
+            vec![('A', JamoEnum::Cho(Cho::G)), ('g', JamoEnum::Cho(Cho::G))];
+        let map: HashMap<char, JamoEnum> = entries.into_iter().collect();
+        let reverse = build_reverse_jamo_map(&map);
+        assert_eq!(reverse.get(&JamoEnum::Cho(Cho::G)), Some(&'g'));
+    }
+
+    /// FUNC-CORE-01: `build_reverse_char_map`도 동일한 규칙을 공유해야 한다.
+    #[test]
+    fn reverse_char_map_tie_break_matches_jamo_map_rule() {
+        let entries: Vec<(char, JamoEnum)> =
+            vec![('z', JamoEnum::Special('!')), ('a', JamoEnum::Special('!'))];
+        let forward: HashMap<char, JamoEnum> = entries.iter().cloned().collect();
+        let backward: HashMap<char, JamoEnum> = entries.iter().rev().cloned().collect();
+
+        let forward_result = build_reverse_char_map(&forward);
+        let backward_result = build_reverse_char_map(&backward);
+
+        assert_eq!(forward_result, backward_result);
+        assert_eq!(forward_result.get(&'!'), Some(&'a'));
+    }
+
+    /// 전 내장 레이아웃 결정성 회귀 테스트 — 재빌드해도 역매핑이 흔들리지 않는지 확인.
+    #[test]
+    fn all_builtin_korean_layouts_produce_deterministic_reverse_maps() {
+        use crate::keystroke::keyboard_map::KeyboardMap;
+        use crate::keystroke::profile::builtin::{get_builtin_json, BUILTIN_NAMES};
+
+        let en_json = get_builtin_json("en_qwerty").expect("en_qwerty builtin 존재해야 함");
+
+        for &name in BUILTIN_NAMES.iter().filter(|n| n.starts_with("ko_")) {
+            let ko_json = get_builtin_json(name).expect("등록된 builtin 이름은 항상 조회돼야 함");
+            let is_3bul = name.starts_with("ko_3bul");
+
+            let first_map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_3bul);
+            let first_jamo_reverse = build_reverse_jamo_map(&first_map);
+            let first_char_reverse = build_reverse_char_map(&first_map);
+
+            for _ in 0..5 {
+                let map = KeyboardMap::create_keyboard_map_from_str(en_json, ko_json, is_3bul);
+                assert_eq!(
+                    build_reverse_jamo_map(&map),
+                    first_jamo_reverse,
+                    "layout {name} 의 자모 역매핑이 재빌드마다 달라짐"
+                );
+                assert_eq!(
+                    build_reverse_char_map(&map),
+                    first_char_reverse,
+                    "layout {name} 의 기타 문자 역매핑이 재빌드마다 달라짐"
+                );
+            }
+        }
     }
 }

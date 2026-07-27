@@ -152,6 +152,19 @@ pub struct EngineResponse {
 | `GetConfigYaml` | — | `s` | 전체 Config를 YAML 문자열로 반환 (파일 포맷과 동일) |
 | `GetConfigJson` | — | `s` | 전체 Config를 JSON 문자열로 반환 (JS 친화) |
 | `SetConfigYaml` | `yaml: s` | — | YAML 파싱 → `clamp_ranges()` → 저장 → `ConfigChangedJson` 방출 |
+| `RegisterFrontend` | `name: s` | — | **등록형 서비스 목록**에 이름 추가 (멱등). §5.5 참조 — IM 프런트엔드 레지스트리가 아님 |
+| `UnregisterFrontend` | `name: s` | — | 등록형 서비스 목록에서 이름 제거 (없으면 no-op) |
+| `GetActiveFrontends` | — | `as` | 현재 등록된 이름 목록 조회 (정렬됨) |
+| `TypeFix` | `direction: u` | `(i, u, s)` | 글로벌(InputContext 비보유) 수동 TypeFix. direction: 0=자동,1=영→한,2=한→영. 반환 (offset_from_cursor, delete_chars, replacement) — 호출자(현재 GNOME extension)가 직접 삭제/커밋 수행 |
+| `AddReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 AutoTypeFix 억제 사전에 단어 추가 (영문 알파벳만) |
+| `RemoveReverseUserDictWord` | `word: s` | `b` | 역방향 사전 단어 제거 |
+| `ListReverseUserDictWords` | — | `a(ssu)` (단어, 메모, 등록시각) | 역방향 사전 전체 조회 |
+| `UpdateReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 사전 단어의 메모 갱신 |
+| `RegisterUserDictFromSelection` | — | `s` | 마지막 selection surrounding text를 역방향 사전에 등록 |
+| `GetEmojiRecent` | — | `as` | 최근 사용 이모지 목록 조회 |
+| `TriggerAction` | `action: s` | — | 글로벌 트리거(InputContext 비보유, KDE/Hyprland 단축키 도구·`unim-cli trigger` 등). 지원: `"emoji_popup"`뿐 — §5.6 참조 |
+| `SetEmojiCategory` | `idx: u` | — | **internal-only** — popup-service forward 전용. 외부 frontend는 `org.atit.unim.Popup::SetEmojiCategory` 사용 |
+| `CommitEmoji` | `emoji: s` | — | 글로벌 이모지 커밋 (InputContext 비보유 경로) |
 
 ### 5.2 시그널
 
@@ -160,6 +173,7 @@ pub struct EngineResponse {
 | `GlobalModeChanged` | `is_korean: b` | 모드 변경, FocusIn, ProcessKey 모드 변경 |
 | `ConfigChanged` | `key: s, value: s` | (legacy) SetConfig 호출 시 |
 | `ConfigChangedJson` | `json: s` | SetConfigYaml 호출 시 전체 Config JSON payload |
+| `ActiveFrontendsChanged` | `names: as` | RegisterFrontend/UnregisterFrontend 로 등록형 서비스 목록이 실제로 바뀔 때만 (no-op 재호출은 미발행) |
 
 ### 5.3 CreateInputContext 상세
 
@@ -199,6 +213,29 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `auto-typefix-tentative-expiry-hours` | u16 | `engine.auto_typefix.tentative_expiry_hours` (1..=12) |
 | `auto-typefix-observation-timeout-secs` | u8 | `engine.auto_typefix.observation_timeout_secs` (5..=15) |
 
+### 5.5 RegisterFrontend / UnregisterFrontend / GetActiveFrontends — 의미 명시 (FUNC-LINUX-04)
+
+이 세 메서드 + `ActiveFrontendsChanged` 시그널은 **"현재 어떤 IM 입력 경로(GTK/Qt/XIM/Wayland)가
+쓰이는지 진단하는 레지스트리"가 아니다.** GTK/Qt/XIM/Wayland IM 모듈은 이 메서드를 호출하지 않는다.
+
+실제 호출자는 `unim-indicator`(`src/main.rs:76`)와 `unim-popup-service`(`src/main.rs:139`) 뿐이며,
+목적은 **트레이 조정용 등록형 서비스 목록**이다 — `unim-gui-common/src/dbus_client.rs`의
+`has_gnome` 판정이 이 목록을 읽어 GNOME 세션 여부에 따라 트레이 아이콘의 start/stop을 결정한다.
+
+따라서 `unim-cli daemon frontends`(활성 목록 조회)의 결과에는 GTK3/GTK4/Qt5/Qt6/XIM/Wayland IM
+경로가 **원래부터** 나타나지 않으며, 이는 결함이 아니라 설계된 범위다. IM 입력 경로 자체의 활성
+여부를 진단하려면 (본 API가 아니라) 각 프런트엔드 프로세스의 실행 여부를 확인해야 한다.
+
+### 5.6 TriggerAction — 지원 액션 범위
+
+`TriggerAction`(InputMethod, 글로벌)과 `InputContext.TriggerAction`(컨텍스트-scoped, §6.1)은
+현재 **`"emoji_popup"` 한 가지만** 처리하고 그 외 문자열은 경고 로그만 남기고 무시한다(호환성
+유지 목적의 fail-open). `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
+에 전 데스크톱으로 노출하는 것은 v0.4.0 범위 밖이다(FUNC-LINUX-05) — 실제 텍스트 치환에는
+GNOME extension이 갖는 IM vfunc(`delete_surrounding`/`commitText`) 수준의 앱 조작 권한이 필요하고,
+이 권한이 없는 환경(CLI 단독 호출 등)에서는 `TypeFix`/`SmartBackspace`가 반환하는 (offset, delete,
+replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후 별도 검토.
+
 ---
 
 ## 6. InputContext 인터페이스 (`org.atit.unim.InputContext`)
@@ -224,6 +261,11 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `ToggleHanjaBookmark` | `index: u` | `(u, b)` | 한자 즐겨찾기 토글 → (new_index, bookmarked). HanjaCandidatesReordered + PopupRender 시그널 동반 발행. |
 | `popup_change_page` | `direction: i` | — | 마우스 ◀/▶ 페이지 이동. 0/음수=Prev, 양수=Next. wrap-around. PopupNavigate + PopupRender 시그널 발행. popup-owner 라우팅 (caller context 와 popup_state 활성 context 가 다를 수 있음). |
 | `TogglePopupExpand` | — | — | (v3.2) 한자 popup compact↔expanded 토글 (마우스 ⊞/⊟ 클릭). popup-owner 라우팅. 활성 한자 popup 없으면 no-op. |
+| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건) |
+| `SmartBackspace` | — | `(u, s)` | **미배선(실험적)** — 자모 단위 삭제. 반환 (delete_chars, replacement) 을 받아 `DeleteSurroundingText` 시그널로 자동 발행까지 하지만, 현재 호출자는 테스트뿐(§5.6·FUNC-LINUX-05) |
+| `ReportCursorRect` | `x: i, y: i, width: i, height: i` | — | 커서 위치 보고 (popup 포지셔닝용). 컨텍스트-scoped + 전역 캐시 동시 갱신 |
+| `TriggerAction` | `action: s` | — | 컨텍스트-scoped 트리거. GNOME extension처럼 자체 InputContext를 가진 클라이언트용 — §5.6 참조 |
+| `CommitEmoji` | `emoji: s` | — | 이모지 커밋 (GUI 팝업에서 선택한 이모지를 현재 컨텍스트로). `HidePopup` 동반 발행 |
 
 ### 6.2 시그널
 
@@ -239,6 +281,8 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `HanjaBookmarkChanged` | `index: u, bookmarked: b` | 즐겨찾기 단일 갱신 (구버전 호환) |
 | `HanjaCandidatesReordered` | `target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, bookmarked, was_bookmarked` | 즐겨찾기 토글 후 재정렬·커서 점프. `was_bookmarked && !bookmarked` 시 frontend 가 cursor flash. |
 | `PopupRender` (v3.2) | `kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages), (showFooter,expandVisible), cells:a(ssu), col_headers:a(sb), row_headers:a(sb), tab_labels:as, active_tab_index:u` | **통합 view_model** — daemon SoT. 헤더·푸터·탭 라벨·확장 아이콘 모두 미리 포맷. frontend 가 본 시그널만으로 즉시 렌더. cells flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_hl, 0x08=row_hl, 0x10=bookmarked. 자세한 사양은 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
+| `DeleteSurroundingText` | `offset: i, n_chars: u` | 커서 기준 삭제 요청 (SmartBackspace 결과 반영용) |
+| `AutoTypefixApply` | `delete_chars: u, commit_text: s, preedit_text: s` | AutoTypeFix 교정 적용: delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로 |
 
 ### 6.3 ProcessKeyEvent 상세
 
