@@ -160,8 +160,11 @@ function Resolve-Version {
 }
 
 # ── 3. 설치된 UNIM 조회 (Uninstall 키, DisplayName 정확 일치 + Publisher) ─────
-#   반환: [pscustomobject] @{ Present = $bool; Version = 'x.y.z' 또는 $null(불명) }
+#   반환: [pscustomobject] @{ Present = $bool; Version = 'x.y.z' 또는 $null(불명);
+#                             InstallLocation = 설치 경로 또는 $null }
 #   Win32_Product(자기수리 트리거)·느슨 매칭·미검증 캐스팅을 모두 회피한다.
+#   InstallLocation 은 unim.wxs 의 ARPINSTALLLOCATION 프로퍼티([INSTALLDIR])로
+#   기록되며, M-31(첫 실행 마법사 실행)의 unim-settings.exe 탐색에 쓰인다.
 function Get-InstalledUnim {
     $roots = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
@@ -173,15 +176,62 @@ function Get-InstalledUnim {
         foreach ($e in $entries) {
             if ($e.DisplayName -eq $InstallName -and $e.Publisher -eq $InstallPub) {
                 $dv = [string]$e.DisplayVersion
+                $loc = [string]$e.InstallLocation
+                if ([string]::IsNullOrWhiteSpace($loc)) { $loc = $null }
                 # DisplayVersion 은 미검증 레지스트리 값 → [version] 캐스팅 전 형식 검증.
                 if ($dv -match '^\d+\.\d+\.\d+$') {
-                    return [pscustomobject]@{ Present = $true; Version = $dv }
+                    return [pscustomobject]@{ Present = $true; Version = $dv; InstallLocation = $loc }
                 }
-                return [pscustomobject]@{ Present = $true; Version = $null }
+                return [pscustomobject]@{ Present = $true; Version = $null; InstallLocation = $loc }
             }
         }
     }
-    return [pscustomobject]@{ Present = $false; Version = $null }
+    return [pscustomobject]@{ Present = $false; Version = $null; InstallLocation = $null }
+}
+
+# ── 3b. 첫 실행/업데이트 마법사 실행 (M-31) ───────────────────────────────────
+#   irm|iex 홍보 경로는 msiexec /qn(UILevel=2) 고정이라 unim.wxs 의
+#   LaunchSetupWizardFresh/Upgrade CA(UILevel>=4 게이트)가 절대 돌지 않는다 →
+#   마법사·라이선스 화면을 영구히 못 본다. msiexec 성공 후 이 스크립트(비승격
+#   컨텍스트로 복귀한 상태)가 직접, 승격 없이 unim-settings.exe 를 실행해 이를
+#   메운다. 실행 실패는 설치 자체의 성패에 영향을 주지 않는다(안내만, 계속 진행).
+function Invoke-PostInstallWizard {
+    param([bool]$IsUpdate)
+
+    # ARP 등록이 막 끝난 직후이므로 InstallLocation 을 다시 조회한다.
+    $inst = Get-InstalledUnim
+    $loc = $inst.InstallLocation
+    # 방어적 폴백: unim.wxs 의 ARPINSTALLLOCATION 이 (과거 재발했던 것처럼) 치환되지
+    # 않은 채 리터럴 "[INSTALLDIR]" 로 기록되거나 값 자체가 비어 있는 경우를 대비해,
+    # WiX 기본 설치 경로($env:ProgramFiles\UNIM, 64비트 전용 패키지)를 한 번 더 확인한다.
+    if ([string]::IsNullOrWhiteSpace($loc) -or $loc.StartsWith('[')) {
+        $fallback = Join-Path $env:ProgramFiles 'UNIM'
+        if (Test-Path -LiteralPath (Join-Path $fallback 'unim-settings.exe')) {
+            $loc = $fallback
+        }
+    }
+    if (-not $inst.Present -or [string]::IsNullOrWhiteSpace($loc) -or $loc.StartsWith('[')) {
+        Write-Host (Msg "[unim-install] 설치 경로를 확인할 수 없어 설정 마법사를 자동으로 열지 못했습니다. 시작 메뉴에서 'UNIM Settings' 를 실행하세요." `
+                        "[unim-install] Could not determine the install location, so the setup wizard was not opened automatically. Launch 'UNIM Settings' from the Start menu.")
+        return
+    }
+
+    $exe = Join-Path $loc 'unim-settings.exe'
+    if (-not (Test-Path -LiteralPath $exe)) {
+        Write-Host (Msg "[unim-install] unim-settings.exe 를 찾을 수 없습니다 ($exe). 시작 메뉴에서 'UNIM Settings' 를 실행하세요." `
+                        "[unim-install] unim-settings.exe was not found ($exe). Launch 'UNIM Settings' from the Start menu.")
+        return
+    }
+
+    $flag = if ($IsUpdate) { '--whats-new' } else { '--first-run' }
+    try {
+        # 비승격 실행 — 이 함수는 Invoke-ElevatedInstall(별도 프로세스) 반환 후,
+        # 원래의 비관리자 세션에서 호출되므로 -Verb RunAs 를 쓰지 않는다.
+        Start-Process -FilePath $exe -ArgumentList $flag -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Host (Msg "[unim-install] 설정 마법사를 자동으로 열지 못했습니다: $($_.Exception.Message). 시작 메뉴에서 'UNIM Settings' 를 실행하세요." `
+                        "[unim-install] Failed to open the setup wizard automatically: $($_.Exception.Message). Launch 'UNIM Settings' from the Start menu.")
+    }
 }
 
 # ── 4. 다운로드 (매니페스트 + MSI). 반환: 자산 엔트리 배열 ────────────────────
@@ -424,8 +474,12 @@ function Main {
                  "Already up to date ($($inst.Version)). Use -Force to reinstall anyway."
             return
         } elseif ((Test-VersionLt $latest $inst.Version) -and -not $Force) {
-            Die "설치된 버전($($inst.Version))이 대상($latest)보다 새롭습니다. 다운그레이드하려면 -Force 를 쓰세요." `
-                "The installed version ($($inst.Version)) is newer than the target ($latest). Use -Force to downgrade."
+            # PKG-WIN-05: -Force 는 이 가드만 건너뛸 뿐 msiexec /i 를 그대로 부른다.
+            # unim.wxs 의 DowngradeErrorMessage(MajorUpgrade LaunchCondition)가 다운
+            # 그레이드 자체를 거부하므로 -Force 로도 설치는 실패한다(msiexec 1603).
+            # 다운그레이드하려면 먼저 제거해야 한다 — 문구를 그렇게 안내한다.
+            Die "설치된 버전($($inst.Version))이 대상($latest)보다 새롭습니다. 다운그레이드는 지원되지 않습니다 — 제어판 또는 'msiexec /x' 로 먼저 제거한 뒤 다시 설치하세요." `
+                "The installed version ($($inst.Version)) is newer than the target ($latest). Downgrading is not supported — remove the existing install first (Control Panel or 'msiexec /x'), then reinstall."
         } else {
             Info "업데이트: $($inst.Version) → $latest" "Updating: $($inst.Version) → $latest"
         }
@@ -449,14 +503,20 @@ function Main {
             0 {
                 if ($isUpdate) { Show-UpdateSuccess $inst.Version $latest $false }
                 else           { Show-Success $tag $false }
+                Invoke-PostInstallWizard $isUpdate
             }
             3010 {   # 성공 + 재부팅 필요 (실패 아님)
                 if ($isUpdate) { Show-UpdateSuccess $inst.Version $latest $true }
                 else           { Show-Success $tag $true }
+                Invoke-PostInstallWizard $isUpdate
             }
             100 {
                 Die "무결성 재검증 실패 — 파일 변조가 의심됩니다. 아무것도 설치되지 않았습니다." `
                     "Integrity re-verification failed — tampering suspected. Nothing was installed."
+            }
+            1603 {
+                Die "설치에 실패했습니다 (msiexec 코드 1603 — 일반 실패). 대상 버전이 설치된 버전보다 낮으면(다운그레이드) MSI 정책상 거부됩니다: 제어판 또는 'msiexec /x' 로 먼저 제거한 뒤 다시 설치하세요. 로그: $LogPath" `
+                    "Installation failed (msiexec code 1603 — generic failure). If the target version is older than what's installed (a downgrade), MSI policy rejects it: remove the existing install first (Control Panel or 'msiexec /x'), then reinstall. Log: $LogPath"
             }
             default {
                 Die "설치에 실패했습니다 (msiexec 코드 $code). 로그: $LogPath" `

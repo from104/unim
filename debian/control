@@ -115,12 +115,14 @@ Architecture: any
 Depends: unim-common (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
-Recommends: unim-im-gtk
-Replaces: unim-gui-qt (<< 0.3.0~),
+Recommends: unim-im-gtk, unim-settings
+Replaces: unim-gui-gtk (<< 0.3.0~),
+          unim-gui-qt (<< 0.3.0~),
           unim-indicator (<< 0.3.0-1.1~),
           unim-settings (<< 0.3.0-1.1~),
           unim-popup-service (<< 0.3.0-1.1~)
-Breaks: unim-gui-qt (<< 0.3.0~),
+Breaks: unim-gui-gtk (<< 0.3.0~),
+        unim-gui-qt (<< 0.3.0~),
         unim-indicator (<< 0.3.0-1.1~),
         unim-settings (<< 0.3.0-1.1~),
         unim-popup-service (<< 0.3.0-1.1~)
@@ -188,12 +190,18 @@ Description: UNIM Typing Practice — WPM/accuracy/heatmap on any Hangul keymap
  error rate. After each session the per-key error heatmap is
  painted on top of the keyboard.
 
+# GAP-dpkg-02: unim-gnome·unim(메타) 는 Architecture: all 이라 ${source:Version}
+# 를 쓴다 — Debian 정책상 arch:all 패키지가 같은 소스에서 나온 arch:any 패키지에
+# 의존할 때는 ${binary:Version}(빌드 아키텍처별로 값이 달라질 수 있음) 대신
+# ${source:Version} 을 써야 한다. 나머지 9개 arch:any 패키지가 서로 참조할 때
+# ${binary:Version} 을 쓰는 것과 대비되는, 의도된 차이다 — 통일 대상 아님.
 Package: unim-gnome
 Architecture: all
 Depends: unim-common (= ${source:Version}),
          unim-desktop (= ${source:Version}),
          ${misc:Depends},
          gnome-shell
+Recommends: unim-settings
 Description: UNIM Korean IME — GNOME Shell extension
  Native GNOME Shell extension for the UNIM Korean Input Method
  Engine. Adds a top-panel indicator, hotkey management, per-app

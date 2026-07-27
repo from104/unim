@@ -1,6 +1,6 @@
 # Maintainer: Seo Gihyeon <from104@gmail.com>
 pkgname=unim
-pkgver=0.3.0
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="Universal Next-generation Input Method for Korean"
 arch=('x86_64')
@@ -29,8 +29,14 @@ makedepends=(
 optdepends=(
     'gnome-shell: GNOME Shell extension support'
 )
-source=()
-sha256sums=()
+# DOCS-V4: source=() 이던 채로 build()/package() 가 "$srcdir/$pkgname-$pkgver"
+# 로 cd 하면 makepkg 가 그 디렉터리를 채운 적이 없어 즉시 실패한다. rpm/unim.spec
+# Source0 과 동일하게 GitHub 릴리스 태그 tarball 을 받는다(태그 v$pkgver → 압축
+# 해제 디렉터리는 $pkgname-$pkgver 로 rpm 쪽에서 이미 확인된 규칙과 동일).
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+# 태깅 전에는 실제 릴리스 tarball 이 없어 해시를 미리 계산할 수 없다 —
+# 태깅 직후 `updpkgsums` 로 실값을 채울 것.
+sha256sums=('SKIP')
 
 build() {
     cd "$srcdir/$pkgname-$pkgver"

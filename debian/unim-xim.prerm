@@ -1,8 +1,9 @@
 #!/bin/sh
 set -e
 
+# remove 로만 한정 (M-30) — upgrade|deconfigure 시엔 죽이지 않는다.
 case "$1" in
-    remove|upgrade|deconfigure)
+    remove)
         _user="$(logname 2>/dev/null || echo root)"
         pkill -u "$_user" -x unim-xim 2>/dev/null || true
         ;;

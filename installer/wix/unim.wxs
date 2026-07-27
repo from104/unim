@@ -38,7 +38,13 @@
              Description="UNIM Korean Input Method (Hangul + Hanja)"
              Comments="https://github.com/from104/unim" />
 
+    <!-- AllowSameVersionUpgrades: v0.4.0 이전엔 노출 경로가 없었으나(git tag 로 확인,
+         v0.4.0 이 최초 MSI 릴리스), 재설치/재실행 시나리오에서 동일 버전 중복 설치를
+         막기 위한 1줄 방어. Schedule 은 WiX 기본값 그대로 유지한다 — 손대지 말 것
+         (afterInstallExecute 로 바꾸면 RemoveExistingProducts 가 신버전 파일을 지우는
+         고전적 함정이 있다). -->
     <MajorUpgrade Schedule="afterInstallValidate"
+                  AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of UNIM is already installed." />
 
     <Media Id="1" Cabinet="unim.cab" EmbedCab="yes" />
@@ -218,7 +224,11 @@
             </RegistryKey>
           </Component>
 
-          <!-- Fallback batch scripts in case an end user needs manual (un)register. -->
+          <!-- Fallback batch scripts in case an end user needs manual (un)register.
+               Scope: COM/TSF registration only (regsvr32, both 64/32-bit CLSID views).
+               They do not remove files, Run-key entries, or other MSI-owned state —
+               full removal is `msiexec /x` (ForceDeleteOnUninstall keys above), which
+               these scripts intentionally do not attempt (PKG-WIN-07). -->
           <Component Id="RegisterScripts"
                      Guid="8D9E0F1A-2B3C-4D5E-6F7A-8B9C0D1E2F30"
                      Win64="yes">
@@ -272,8 +282,11 @@
                            Value="[INSTALLDIR]" />
           </Component>
 
-          <!-- 라이선스 전문 (MIT). 설정 마법사의 라이선스 페이지가 "설치 폴더의
-               LICENSE 파일" 을 안내하므로 실제로 INSTALLDIR 에 설치한다(리포 루트 LICENSE). -->
+          <!-- 라이선스 전문 (MIT) + 서드파티 고지(NOTICE). 설정 마법사의 라이선스
+               페이지가 "설치 폴더의 LICENSE 파일" 을 안내하므로 실제로 INSTALLDIR 에
+               설치한다(리포 루트 LICENSE). NOTICE 는 libhangul hanja(BSD-3)·Unicode
+               CLDR(Unicode v3) 재배포 고지 — 두 라이선스 모두 바이너리 재배포 시 고지
+               재현을 요구한다(M-28). 전문은 LICENSESDIR 컴포넌트로 별도 동봉. -->
           <Component Id="LicenseFile"
                      Guid="7A8B9C0D-1E2F-4A3B-8C5D-6E7F8A9B0C1D"
                      Win64="yes">
@@ -281,7 +294,29 @@
                   Name="LICENSE.txt"
                   Source="..\..\LICENSE"
                   KeyPath="yes" />
+            <File Id="unim_notice_txt"
+                  Name="NOTICE.txt"
+                  Source="..\..\NOTICE" />
           </Component>
+
+          <!-- 서드파티 라이선스 전문(libhangul hanja BSD-3, Unicode CLDR v3). NOTICE
+               가 요약·경로를 안내하는 원문 그대로다(M-28). HelpFiles 컴포넌트와 동일
+               패턴 — GUID 고정 규칙도 동일하게 적용: 아래 Guid 는 영구 식별자이므로
+               이후 릴리스에서 절대 바꾸지 말 것(바꾸면 업그레이드 시 파일 중복 설치
+               또는 제거 잔존). guids.wxi 는 TSF COM GUID 전용이라 이 값과 무관하다. -->
+          <Directory Id="LICENSESDIR" Name="LICENSES">
+            <Component Id="ThirdPartyLicenses"
+                       Guid="B8E869C6-8042-436E-9678-8D5552E74686"
+                       Win64="yes">
+              <File Id="license_libhangul_hanja"
+                    Name="libhangul-hanja.LICENSE"
+                    Source="..\..\LICENSES\libhangul-hanja.LICENSE"
+                    KeyPath="yes" />
+              <File Id="license_unicode_cldr"
+                    Name="unicode-cldr.LICENSE"
+                    Source="..\..\LICENSES\unicode-cldr.LICENSE" />
+            </Component>
+          </Directory>
 
           <!-- 오프라인 도움말 HTML (ko/en). 저장소에 사전 생성·커밋된 산출물을
                그대로 담는다; 생성기(tools\gen-help)는 개발 도구라 MSI 빌드에
@@ -349,6 +384,7 @@
       <ComponentRef Id="RegisterScripts" />
       <ComponentRef Id="StartMenuShortcuts" />
       <ComponentRef Id="LicenseFile" />
+      <ComponentRef Id="ThirdPartyLicenses" />
       <ComponentRef Id="HelpFiles" />
     </Feature>
 
@@ -415,6 +451,19 @@
     <Property Id="ARPURLINFOABOUT" Value="https://atit.org" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="0" />
+
+    <!-- ARPINSTALLLOCATION: 표준 예약 프로퍼티. RegisterProduct 표준 액션이 이 값을
+         Uninstall 레지스트리 키의 InstallLocation 값으로 그대로 기록한다.
+         install.ps1(M-31)이 msiexec 성공 후 unim-settings.exe 를 마법사 모드
+         (신규는 first-run, 업데이트는 whats-new)로 실행할 설치 경로를 이 값으로
+         조회한다(Get-InstalledUnim).
+
+         주의(M-31 재발 방지): <Property> 의 Value 는 Formatted 필드가 아니므로
+         "[INSTALLDIR]" 처럼 정적으로 선언하면 [ ] 치환이 전혀 일어나지 않고
+         레지스트리에 리터럴 문자열 "[INSTALLDIR]" 이 그대로 기록된다(과거
+         재발 사례). 반드시 <SetProperty> (type 51 커스텀 액션)로 CostFinalize
+         이후 실행 시점에 채워야 [INSTALLDIR] 이 실제 설치 경로로 치환된다. -->
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLDIR]" After="CostFinalize" Sequence="execute" />
 
     <!-- ARPPRODUCTICON: Add/Remove Programs 아이콘 (assets/unim-logo v2.svg → installer/assets/unim.ico). -->
     <Icon Id="unim.ico" SourceFile="..\assets\unim.ico" />

@@ -102,8 +102,11 @@ jobs:
             -p unim-windows-common `
             -p unim-popup-win
 
-      - name: cargo build (release, MSI payloads)
-        # MSI 가 패키징하는 산출물 전부: TSF DLL + 설정 GUI + 팝업 렌더러 + IMM32 IME (x64).
+      - name: cargo build (release, MSI payloads + IMM32 diagnostic build)
+        # MSI 가 실제로 패키징하는 산출물: TSF DLL + 설정 GUI + 팝업 렌더러 (x64).
+        # unim-imm32 는 MSI 미탑재(진단·연구용 빌드) — 여기서는 unim_imm32 크레이트가
+        # 계속 컴파일되는지만 확인한다. `.ime` 부재는 아래 검증 스텝에서 경고일 뿐
+        # 릴리스 게이트를 막지 않는다(M-18 — README.md:88 등 문서와 서술 일치).
         run: |
           cargo build --release --target ${{ env.WIN_TARGET }} `
             -p unim-tsf `
@@ -113,8 +116,9 @@ jobs:
             --locked
 
       - name: cargo build (release, 32-bit payloads — SysWOW64)
-        # unim_imm32.ime 의 32-bit 사본 + unim_tsf.dll 의 32-bit 사본
-        # (unim.wxs UnimTsfDll32 컴포넌트가 WOW6432Node CLSID 뷰용으로 패키징).
+        # unim_tsf.dll 의 32-bit 사본만 MSI 에 실제 패키징된다
+        # (unim.wxs UnimTsfDll32 컴포넌트가 WOW6432Node CLSID 뷰용으로 담는다).
+        # unim_imm32 의 32-bit 빌드는 MSI 미탑재 — 컴파일 확인용 진단 빌드다.
         # 32-bit 환경 없이 --target i686 을 넘기면 링크 오류가 나므로
         # vcvarsamd64_x86 을 먼저 호출하는 별도 셸에서 실행한다.
         shell: cmd
@@ -132,12 +136,17 @@ jobs:
              target/i686-pc-windows-msvc/release/unim_imm32.ime
 
       - name: Verify build artifacts
+        # M-18: unim.wxs 에는 unim_imm32/.ime 문자열이 0건이다 — IMM32 는 MSI 에
+        # 들어가지 않는 진단·연구용 빌드일 뿐이다. 이 스텝은 실제로 MSI 에
+        # 패키징되는 산출물(TSF DLL x64/x86, 설정 GUI, 팝업 렌더러)만 부재 시
+        # 릴리스 잡을 실패시키고, IMM32 `.ime` 부재는 경고로만 남긴다.
         shell: bash
         run: |
           out64="target/${WIN_TARGET}/release"
           out32="target/i686-pc-windows-msvc/release"
           missing=0
-          for f in unim_tsf.dll unim-settings.exe unim-popup-win.exe unim_imm32.ime; do
+
+          for f in unim_tsf.dll unim-settings.exe unim-popup-win.exe; do
             if [[ ! -f "$out64/$f" ]]; then
               echo "::error::missing $out64/$f"
               missing=1
@@ -146,15 +155,25 @@ jobs:
               echo "  ok  $out64/$f ($size bytes)"
             fi
           done
-          for f in unim_imm32.ime unim_tsf.dll; do
-            if [[ ! -f "$out32/$f" ]]; then
-              echo "::error::missing $out32/$f"
-              missing=1
+
+          if [[ ! -f "$out32/unim_tsf.dll" ]]; then
+            echo "::error::missing $out32/unim_tsf.dll"
+            missing=1
+          else
+            size=$(stat -c%s "$out32/unim_tsf.dll")
+            echo "  ok  $out32/unim_tsf.dll ($size bytes)"
+          fi
+
+          # IMM32 는 진단·연구용 빌드일 뿐 MSI 에 담기지 않는다 — 부재는 경고만.
+          for f in "$out64/unim_imm32.ime" "$out32/unim_imm32.ime"; do
+            if [[ ! -f "$f" ]]; then
+              echo "::warning::missing $f (unim-imm32 is a diagnostic-only build, not packaged in the MSI)"
             else
-              size=$(stat -c%s "$out32/$f")
-              echo "  ok  $out32/$f ($size bytes)"
+              size=$(stat -c%s "$f")
+              echo "  ok  $f ($size bytes, diagnostic-only)"
             fi
           done
+
           [[ $missing -eq 0 ]]
 
       - name: Read workspace version
@@ -215,7 +234,12 @@ jobs:
           Write-Host "Built: $msi"
           Get-Item $msi | Select-Object Name, Length, LastWriteTime
 
-      - name: MSI integrity check (msiinfo via WiX dark/heat? skip — light -sval covers ICE)
+      # PKG-WIN-V3: 이름이 예전엔 "light -sval covers ICE" 라 했으나 사실과 반대다 —
+      # `light -sval` 은 ICE 검증을 끈다(위 Build MSI 스텝). 이 스텝은 ICE 를 전혀
+      # 확인하지 않고, 산출물 존재·최소 크기만 본다. `-sval` 제거는 보류한다 — CI
+      # 왕복 검증이 불가한 상태에서 실패하는 ICE 를 모른 채 건드리면 태깅 당일 MSI
+      # 빌드가 처음 실패할 위험이 있다(2026-07-27 사전 리스크 분석 §5-4 결정).
+      - name: MSI sanity check (file exists + min size — NOT an ICE/structural validation; light -sval disables ICE)
         shell: pwsh
         run: |
           $msi = "dist\unim-${{ steps.version.outputs.version }}-x64.msi"

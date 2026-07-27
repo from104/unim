@@ -216,6 +216,30 @@ const MENU_ID_SETTINGS: u32 = 3;
 const MENU_ID_ABOUT: u32 = 4;
 const MENU_ID_HELP: u32 = 5;
 
+/// UX-WIN-V04: 언어바/트레이 메뉴 5항목 라벨 — ko/en 분기.
+///
+/// InitMenu(레거시 플로팅 바)와 show_context_menu(Win11 트레이 우클릭) 두 경로가
+/// 같은 5항목을 각자 그리므로, 라벨을 한 곳에 모아 두 경로가 갈라지지 않게 한다.
+fn menu_labels() -> [(&'static str, u32); 5] {
+    if ui_language_is_korean() {
+        [
+            ("한/영 전환", MENU_ID_TOGGLE),
+            ("기본 입력기로 설정", MENU_ID_SET_DEFAULT),
+            ("설정(&S)", MENU_ID_SETTINGS),
+            ("도움말(&H)", MENU_ID_HELP),
+            ("정보(&I)", MENU_ID_ABOUT),
+        ]
+    } else {
+        [
+            ("Switch Korean/English", MENU_ID_TOGGLE),
+            ("Set as Default Input Method", MENU_ID_SET_DEFAULT),
+            ("&Settings", MENU_ID_SETTINGS),
+            ("&Help", MENU_ID_HELP),
+            ("&About", MENU_ID_ABOUT),
+        ]
+    }
+}
+
 /// OS 기본 UI 언어가 한국어인지 — 매뉴얼 언어 선택용.
 ///
 /// 판정은 `unim_windows_common::help` 한 곳에 둔다. 언어바와 설정앱이 각자
@@ -261,12 +285,25 @@ fn open_help_or_fallback() {
 /// settings_dialog 의 본문(커스텀 창)을 건드리지 않고, Win32 `MessageBoxW`
 /// 로 UNIM 이름·버전·간단한 설명을 표시한다. TSF STA 스레드(OnMenuSelect)
 /// 에서 호출되며, 모달이므로 추가 메시지 펌프가 필요 없다.
+///
+/// UX-WIN-V04: 캡션·본문이 한국어로 고정돼 있었다. `ui_language_is_korean()` 로
+/// OS UI 언어를 따라 ko/en 을 분기한다(매뉴얼 언어 선택과 같은 판정 기준).
 fn show_about_dialog(hwnd: HWND) {
-    let caption: Vec<u16> = "UNIM 정보\0".encode_utf16().collect();
-    let body = format!(
-        "UNIM Korean IME\n버전 {}\n\n범용 차세대 입력기\nhttps://github.com/from104/unim",
-        env!("CARGO_PKG_VERSION")
-    );
+    let is_ko = ui_language_is_korean();
+    let caption: Vec<u16> = if is_ko { "UNIM 정보\0" } else { "About UNIM\0" }
+        .encode_utf16()
+        .collect();
+    let body = if is_ko {
+        format!(
+            "UNIM Korean IME\n버전 {}\n\n범용 차세대 입력기\nhttps://github.com/from104/unim",
+            env!("CARGO_PKG_VERSION")
+        )
+    } else {
+        format!(
+            "UNIM Korean IME\nVersion {}\n\nUniversal next-generation input method\nhttps://github.com/from104/unim",
+            env!("CARGO_PKG_VERSION")
+        )
+    };
     let text: Vec<u16> = body.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let hwnd_opt = if hwnd.is_invalid() { None } else { Some(hwnd) };
@@ -668,56 +705,18 @@ impl ITfLangBarItemButton_Impl for UnimLangBarButton_Impl {
         crate::register::dbg_log("lang_bar InitMenu: called (legacy floating langbar)");
         let Some(menu) = pmenu.as_ref() else { return Ok(()); };
         unsafe {
-            // 메뉴 항목: 한/영 전환
-            let toggle_text: Vec<u16> = "한/영 전환".encode_utf16().collect();
-            let _ = menu.AddMenuItem(
-                MENU_ID_TOGGLE,
-                0,
-                HBITMAP::default(),
-                HBITMAP::default(),
-                &toggle_text,
-                std::ptr::null_mut(),
-            );
-            // 메뉴 항목: 기본 입력기로 설정
-            let default_text: Vec<u16> = "기본 입력기로 설정".encode_utf16().collect();
-            let _ = menu.AddMenuItem(
-                MENU_ID_SET_DEFAULT,
-                0,
-                HBITMAP::default(),
-                HBITMAP::default(),
-                &default_text,
-                std::ptr::null_mut(),
-            );
-            // 메뉴 항목: 설정 — 접근키 S ("설정(&S)" → Alt+S / 메뉴에서 S).
-            let settings_text: Vec<u16> = "설정(&S)".encode_utf16().collect();
-            let _ = menu.AddMenuItem(
-                MENU_ID_SETTINGS,
-                0,
-                HBITMAP::default(),
-                HBITMAP::default(),
-                &settings_text,
-                std::ptr::null_mut(),
-            );
-            // 메뉴 항목: 도움말 — 접근키 H ("도움말(&H)"). 오프라인 매뉴얼 HTML.
-            let help_text: Vec<u16> = "도움말(&H)".encode_utf16().collect();
-            let _ = menu.AddMenuItem(
-                MENU_ID_HELP,
-                0,
-                HBITMAP::default(),
-                HBITMAP::default(),
-                &help_text,
-                std::ptr::null_mut(),
-            );
-            // 메뉴 항목: 정보 — 접근키 I ("정보(&I)").
-            let about_text: Vec<u16> = "정보(&I)".encode_utf16().collect();
-            let _ = menu.AddMenuItem(
-                MENU_ID_ABOUT,
-                0,
-                HBITMAP::default(),
-                HBITMAP::default(),
-                &about_text,
-                std::ptr::null_mut(),
-            );
+            // UX-WIN-V04: 라벨은 menu_labels() 에서 ko/en 분기해 가져온다.
+            for (label, id) in menu_labels() {
+                let text: Vec<u16> = label.encode_utf16().collect();
+                let _ = menu.AddMenuItem(
+                    id,
+                    0,
+                    HBITMAP::default(),
+                    HBITMAP::default(),
+                    &text,
+                    std::ptr::null_mut(),
+                );
+            }
         }
         Ok(())
     }
@@ -834,11 +833,10 @@ impl UnimLangBarButton_Impl {
                 let w: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
                 let _ = AppendMenuW(hmenu, MF_STRING, id as usize, PCWSTR(w.as_ptr()));
             };
-            add(MENU_ID_TOGGLE, "한/영 전환");
-            add(MENU_ID_SET_DEFAULT, "기본 입력기로 설정");
-            add(MENU_ID_SETTINGS, "설정(&S)");
-            add(MENU_ID_HELP, "도움말(&H)");
-            add(MENU_ID_ABOUT, "정보(&I)");
+            // UX-WIN-V04: 라벨은 menu_labels() 에서 ko/en 분기해 가져온다.
+            for (label, id) in menu_labels() {
+                add(id, label);
+            }
 
             // 메뉴 소유 창. TrackPopupMenuEx 는 NULL owner 로는 메뉴를 표시하지
             // 않으므로 반드시 유효한 HWND 가 필요하다.

@@ -7,7 +7,11 @@
 # Slint settings binary
 debian/tmp/usr/bin/unim-settings
 
-# Application launcher entry (NoDisplay — 메뉴 중복 차단, StartupWMClass 로 창 연계)
+# Application launcher entry — 앱 메뉴/Activities 에 노출되는 주 진입점
+# (NoDisplay 없음). 레거시 GTK 다이얼로그의 항목
+# (unim-desktop:io.github.from104.unim.Settings.desktop) 이 오히려
+# NoDisplay=true 로 숨겨져 있다(unim-settings-gtk(1) 참조). StartupWMClass 로
+# 창을 연계한다.
 debian/tmp/usr/share/applications/io.github.from104.unim.SettingsSlint.desktop
 
 # Per-login autostart — 첫 로그인 시 마법사 1회 기동(--first-run-if-needed 게이트)

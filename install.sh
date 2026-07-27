@@ -531,8 +531,10 @@ print_success() {
 	    "     (unim-settings) launches automatically and guides you through setting the default IME."
 	msg "     수동 실행: unim-settings --first-run" \
 	    "     Run it manually with: unim-settings --first-run"
-	msg "  · GNOME 사용자는 'unim-gnome' 확장이 함께 설치됩니다 — 재로그인 후 활성화되어 상단 패널 인디케이터가 나타납니다." \
-	    "  · GNOME users: the 'unim-gnome' extension is installed too — it activates after re-login and adds a top-panel indicator."
+	msg "  · GNOME 사용자는 'unim-gnome' 확장이 함께 설치됩니다. 재로그인 후 한 번만 실행하세요: gnome-extensions enable unim-gnome@from104.github.io" \
+	    "  · GNOME users: the 'unim-gnome' extension is installed too. After logging back in, run once: gnome-extensions enable unim-gnome@from104.github.io"
+	msg "    (지원하는 GNOME Shell 버전 범위 밖이면 위 명령이 통해도 확장이 비활성으로 남습니다 — 'gnome-extensions show unim-gnome@from104.github.io' 로 지원 범위를 확인하세요.)" \
+	    "    (Outside the supported GNOME Shell version range, the extension stays disabled even after the command above — check the supported range with 'gnome-extensions show unim-gnome@from104.github.io'.)"
 	if [[ $INSTALL_MODE == "rpm-ostree" ]]; then
 		msg "  · 불변 시스템에서는 재부팅해야 새 배포가 적용됩니다: systemctl reboot" \
 		    "  · On atomic systems the new deployment applies after a reboot: systemctl reboot"

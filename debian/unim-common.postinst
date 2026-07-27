@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+# M-30: unim-common.prerm 은 remove 전용으로 축소돼(구 데몬을 upgrade 중 죽이지
+# 않음) apt upgrade 후에도 재로그인 전까지는 구 버전 unim-daemon 이 계속 떠 있고,
+# 새로 뜨는 앱만 새 버전 IM 모듈(.so)을 로드하는 혼합 버전 상태가 된다. 지금은
+# D-Bus 계약이 0.3.x↔0.4.0 호환이라 즉시 문제는 아니지만, 안내 없이 넘어가면
+# 다음 릴리스에서 메서드가 하나라도 추가될 때 조용한 오작동이 된다. configure 의
+# $2(가장 최근에 구성됐던 버전)가 비어 있지 않으면 신규 설치가 아니라 업그레이드다.
+case "$1" in
+    configure)
+        if [ -n "$2" ]; then
+            echo "unim-common: UNIM 이(가) 업데이트되었습니다. 새 버전을 적용하려면 재로그인하거나 'unim-daemon --replace' 를 실행하세요." >&2
+            echo "unim-common: UNIM has been updated. Log out and back in, or run 'unim-daemon --replace', to switch to the new version." >&2
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

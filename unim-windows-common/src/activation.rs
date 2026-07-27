@@ -6,10 +6,12 @@
 //! (Preload 기록·HKL 로드·매 로그인 MS 한국어 어셈블리 덮어쓰기)는 **제거**됐다.
 //!
 //! 이 모듈에 남은 것은 기존 설치본 잔재 정리용 [`remove_substitute_and_assembly`]
-//! 뿐이다. WiX `DeactivateImm32` CA 가 RemoveFiles 이전 `unim-popup-win.exe
-//! --deactivate-imm32` 로 호출해, 과거 버전이 박았을 수 있는
-//! `HKCU\Keyboard Layout\Substitutes` 항목과 `CTF\Assemblies` 단일항목을 MS 한국어
-//! 기본값으로 복원한다(한국어 입력 brick 방지). fail-soft — 실패는 로깅만.
+//! 뿐이다. **WiX 에 배선된 CustomAction 이 아니다** — `unim-popup-win.exe
+//! --deactivate-imm32` 플래그(`unim-popup-win/src/main.rs`)로 수동 호출하는
+//! 레거시 개발 빌드 정리용 명령이다. MSI 설치·제거 시퀀스(`installer/wix/unim.wxs`)
+//! 에는 걸려 있지 않다. 과거 버전이 박았을 수 있는 `HKCU\Keyboard Layout\Substitutes`
+//! 항목과 `CTF\Assemblies` 단일항목을 MS 한국어 기본값으로 복원한다(한국어 입력
+//! brick 방지). fail-soft — 실패는 로깅만.
 
 use crate::debug::dbg_log;
 use windows::core::PCWSTR;

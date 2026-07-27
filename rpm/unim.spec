@@ -271,35 +271,76 @@ find %{buildroot} -type f \( -name '*.so' -o -name '*.so.*' \) \
 # unim-im-gtk.postinst/postrm 대응 %%post/%%postun 이 불필요하다.
 # [요검증 → 리허설: rpm -q --filetriggers gtk3] 아이콘/desktop 파일도 Fedora
 # 파일트리거가 처리. 아래는 deb *.prerm 의 pkill 미러 — rpm %%preun 은
-# erase($1=0)와 upgrade 시 구패키지 측($1=1) 모두 실행되므로 deb 의
-# remove|upgrade 시맨틱과 일치한다. pkill(procps-ng) 부재는 || : 로 무해.
+# erase($1=0)와 upgrade 시 구패키지 측($1=1) 모두 실행된다. **M-30**: upgrade
+# 시($1=1)에도 죽이면 재연결 수단이 없는 프런트엔드가 그대로 남아 dnf upgrade
+# 마다 입력이 정지한다 — deb 쪽도 remove 전용으로 축소했으므로(M-30) 여기서도
+# erase($1=0) 로만 한정한다. pkill(procps-ng) 부재는 || : 로 무해.
+
+# M-30: %%preun 이 erase($1=0) 전용으로 축소돼 dnf upgrade 중에는 구 버전
+# unim-daemon 을 죽이지 않으므로, 새 버전 IM 모듈(.so)이 새로 뜨는 앱에 로드되는
+# 동안 구 데몬이 재로그인 전까지 계속 떠 있는 혼합 버전 상태가 된다. 지금은 D-Bus
+# 계약이 0.3.x↔0.4.0 호환이라 즉시 문제는 아니지만, 안내 없이 넘어가면 다음
+# 릴리스에서 메서드가 하나라도 추가될 때 조용한 오작동이 된다. $1 >= 2 는 업그레이드
+# (신규 설치 후 구버전이 이미 하나 이상 존재)를 뜻한다.
+%post common
+if [ "$1" -ge 2 ]; then
+    echo "unim-common: UNIM 이(가) 업데이트되었습니다. 새 버전을 적용하려면 재로그인하거나 'unim-daemon --replace' 를 실행하세요." >&2
+    echo "unim-common: UNIM has been updated. Log out and back in, or run 'unim-daemon --replace', to switch to the new version." >&2
+fi
 
 %preun common
-_user="$(logname 2>/dev/null || echo root)"
-pkill -u "$_user" -x unim-daemon 2>/dev/null || :
+if [ "$1" -eq 0 ]; then
+    _user="$(logname 2>/dev/null || echo root)"
+    pkill -u "$_user" -x unim-daemon 2>/dev/null || :
+fi
 
 %preun desktop
-_user="$(logname 2>/dev/null || echo root)"
-pkill -u "$_user" -x unim-indicator 2>/dev/null || :
-pkill -u "$_user" -f '(^|/)unim-settings-gtk( |$)' 2>/dev/null || :
+if [ "$1" -eq 0 ]; then
+    _user="$(logname 2>/dev/null || echo root)"
+    pkill -u "$_user" -x unim-indicator 2>/dev/null || :
+    pkill -u "$_user" -f '(^|/)unim-settings-gtk( |$)' 2>/dev/null || :
+fi
 
 %preun settings
-_user="$(logname 2>/dev/null || echo root)"
-# comm "unim-settings"(13자)는 procps 15자 절단에 안전 → -x 정확 매치.
-pkill -u "$_user" -x unim-settings 2>/dev/null || :
+if [ "$1" -eq 0 ]; then
+    _user="$(logname 2>/dev/null || echo root)"
+    # comm "unim-settings"(13자)는 procps 15자 절단에 안전 → -x 정확 매치.
+    pkill -u "$_user" -x unim-settings 2>/dev/null || :
+fi
 
 %preun wayland
-_user="$(logname 2>/dev/null || echo root)"
-pkill -u "$_user" -x unim-wayland 2>/dev/null || :
+if [ "$1" -eq 0 ]; then
+    _user="$(logname 2>/dev/null || echo root)"
+    pkill -u "$_user" -x unim-wayland 2>/dev/null || :
+fi
 
 %preun xim
-_user="$(logname 2>/dev/null || echo root)"
-pkill -u "$_user" -x unim-xim 2>/dev/null || :
+if [ "$1" -eq 0 ]; then
+    _user="$(logname 2>/dev/null || echo root)"
+    pkill -u "$_user" -x unim-xim 2>/dev/null || :
+fi
+
+# M-05: 제거 시 im-config/xinputrc 롤백 안내(경고만) — deb 의
+# debian/unim-common.postrm 과 동일 근거. %%postun 은 root 권한으로 로그인
+# 세션 밖에서 실행되어 사용자 세션 상태를 알 수 없고 다른 IME 설정을 잘못
+# 건드릴 위험이 있어 `im-config -n auto` 를 여기서 자동 실행하지 않는다.
+%postun common
+if [ "$1" -eq 0 ]; then
+    if command -v im-config >/dev/null 2>&1; then
+        echo "unim-common: UNIM 제거됨 — 기본 입력기가 여전히 unim 으로 지정돼 있다면" >&2
+        echo "  다음 로그인 세션에서 'im-config -n auto' 를 실행해 되돌리세요." >&2
+    else
+        echo "unim-common: UNIM 제거됨 — ~/.xinputrc 에 'run_im unim' 이 남아있다면" >&2
+        echo "  직접 편집하거나 삭제해 다른 입력기가 다시 뜨도록 하세요." >&2
+    fi
+fi
 
 # ─── %files ──────────────────────────────────────────────────────────────────
 
 %files common
-%license LICENSE
+# M-28: deb 는 unim-common.docs 로 NOTICE·LICENSES/*(BSD-3 hanja 사전·Unicode
+# CLDR 서드파티 고지)를 이미 동봉한다 — rpm 도 동일하게 맞춘다.
+%license LICENSE NOTICE LICENSES/*
 %doc README.md
 %{_libdir}/libunim_capi.so
 %{_libdir}/libunim_capi.so.0

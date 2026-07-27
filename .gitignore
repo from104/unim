@@ -1,7 +1,10 @@
 # Rust build artifacts
 /target/
 **/target/
-Cargo.lock
+# Cargo.lock 은 실제로 추적·커밋 중이다(바이너리 워크스페이스 재현성 목적) —
+# SRC-06: 여기 무시 선언은 죽은 줄이라 혼동만 준다. 목적대로 두려면 Cargo.lock
+# 을 git rm 해야 하나 그건 별도 승인 사항이라 이 배치에서는 하지 않는다.
+# Cargo.lock
 *.pdb
 
 # Rust backup files

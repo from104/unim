@@ -269,6 +269,13 @@ struct DlgState {
     blacklist: Blacklist,
     /// 사용자 사전 데이터 (별도 yaml, config 와 독립)
     userdict: UserDictionary,
+    /// M-09: 다이얼로그가 마지막으로 열리거나 저장했을 때의 ATF 3플래그.
+    /// 이 값과 체크박스 현재 상태가 같으면 "사용자가 이 다이얼로그에서 건드리지
+    /// 않았다"는 뜻이므로, 저장 시 재로드한 디스크 값(ATF 토글 핫키가 남겼을 수
+    /// 있는 값)을 그대로 살린다. 다르면 사용자가 명시적으로 바꾼 것이므로 그 값을 쓴다.
+    atf_baseline_enabled: bool,
+    atf_baseline_forward: bool,
+    atf_baseline_reverse: bool,
 }
 
 // ─── 헬퍼: 와이드 문자열 ─────────────────────────────────────────────────────
@@ -463,6 +470,12 @@ unsafe fn trackbar_get_pos(hwnd: HWND) -> i32 {
 
 unsafe fn checkbox_checked(hwnd: HWND) -> bool {
     SendMessageW(hwnd, BM_GETCHECK, Some(WPARAM(0)), Some(LPARAM(0))).0 == BST_CHECKED.0 as isize
+}
+
+/// M-09: 저장 시 외부(ATF 토글 핫키)에서 갱신된 값으로 체크박스를 재동기화할 때 사용.
+unsafe fn set_checkbox_checked(hwnd: HWND, checked: bool) {
+    let state = if checked { BST_CHECKED.0 } else { BST_UNCHECKED.0 };
+    SendMessageW(hwnd, BM_SETCHECK, Some(WPARAM(state as usize)), Some(LPARAM(0)));
 }
 
 unsafe fn combobox_get_sel(hwnd: HWND) -> usize {
@@ -1338,8 +1351,28 @@ unsafe fn collect_all(state: &mut DlgState) {
 
 // ─── 저장 시도 ───────────────────────────────────────────────────────────────
 
-unsafe fn try_save(hwnd: HWND, config: &Config) {
-    if let Err(e) = config.save_to_default_path() {
+// M-09: 다이얼로그는 열릴 때 config 스냅샷 하나를 들고 있다가 [확인]/[적용] 시
+// 그 스냅샷을 통째로 되쓴다. 그런데 다이얼로그가 열려 있는 동안 ATF 토글 핫키
+// (text_service.rs OnKeyDown)가 config.yaml 에 enabled/forward/reverse 를 직접
+// 저장할 수 있다 — 스냅샷을 그대로 되쓰면 그 변경이 사라진다.
+// 해법: 저장 직전 디스크를 재로드하고, 다이얼로그를 연 뒤 사용자가 실제로 건드리지
+// 않은 플래그(체크박스 값 == 베이스라인)만 재로드한 디스크 값으로 되살린다.
+// 사용자가 이 다이얼로그에서 직접 바꾼 플래그는 사용자 입력이 우선한다.
+unsafe fn try_save(hwnd: HWND, state: &mut DlgState) {
+    let fresh = Config::load_from_default_path();
+
+    let atf = &mut state.config.engine.auto_typefix;
+    if atf.enabled == state.atf_baseline_enabled {
+        atf.enabled = fresh.engine.auto_typefix.enabled;
+    }
+    if atf.forward == state.atf_baseline_forward {
+        atf.forward = fresh.engine.auto_typefix.forward;
+    }
+    if atf.reverse == state.atf_baseline_reverse {
+        atf.reverse = fresh.engine.auto_typefix.reverse;
+    }
+
+    if let Err(e) = state.config.save_to_default_path() {
         let msg = format!("설정 저장 실패:\n{}", e);
         let msg_w = to_wide_nul(&msg);
         let title_w = to_wide_nul("UNIM 설정");
@@ -1349,6 +1382,26 @@ unsafe fn try_save(hwnd: HWND, config: &Config) {
             PCWSTR(title_w.as_ptr()),
             MB_OK | MB_ICONERROR,
         );
+        return;
+    }
+
+    // 새 베이스라인 확정 + 체크박스를 병합 결과와 동기화(핫키가 값을 바꿨다면
+    // 사용자에게도 보여야 다음 [적용]에서 다시 "미변경"으로 정확히 인식된다).
+    let enabled = state.config.engine.auto_typefix.enabled;
+    let forward = state.config.engine.auto_typefix.forward;
+    let reverse = state.config.engine.auto_typefix.reverse;
+    state.atf_baseline_enabled = enabled;
+    state.atf_baseline_forward = forward;
+    state.atf_baseline_reverse = reverse;
+    let pg = state.hwnd_page_typefix;
+    if let Some(h) = get_ctrl(pg, ID_CHK_ATF_ENABLED) {
+        set_checkbox_checked(h, enabled);
+    }
+    if let Some(h) = get_ctrl(pg, ID_CHK_ATF_FORWARD) {
+        set_checkbox_checked(h, forward);
+    }
+    if let Some(h) = get_ctrl(pg, ID_CHK_ATF_REVERSE) {
+        set_checkbox_checked(h, reverse);
     }
 }
 
@@ -1390,7 +1443,7 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
     match ctrl_id {
         ID_BTN_OK => {
             collect_all(state);
-            try_save(hwnd, &state.config);
+            try_save(hwnd, state);
             let parent = state.parent;
             restore_parent(parent);
             let _ = DestroyWindow(hwnd);
@@ -1402,7 +1455,7 @@ unsafe fn handle_command(hwnd: HWND, state: &mut DlgState, ctrl_id: u32, notify_
         }
         ID_BTN_APPLY => {
             collect_all(state);
-            try_save(hwnd, &state.config);
+            try_save(hwnd, state);
         }
         ID_BTN_SET_DEFAULT => {
             match crate::register::set_as_default() {
@@ -1623,6 +1676,9 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
         let config = Config::load_from_default_path();
         let blacklist = Blacklist::load_from_default_path();
         let userdict = UserDictionary::load_from_default_path();
+        let atf_baseline_enabled = config.engine.auto_typefix.enabled;
+        let atf_baseline_forward = config.engine.auto_typefix.forward;
+        let atf_baseline_reverse = config.engine.auto_typefix.reverse;
 
         let state = Box::new(DlgState {
             config,
@@ -1637,6 +1693,9 @@ pub fn show_settings_dialog(hwnd_parent: HWND) {
             chord_slider_y: 0,
             blacklist,
             userdict,
+            atf_baseline_enabled,
+            atf_baseline_forward,
+            atf_baseline_reverse,
         });
         let state_ptr = Box::into_raw(state);
 
