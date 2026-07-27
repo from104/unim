@@ -110,7 +110,10 @@ mod tests {
         let _ = fs::remove_file(&path);
     }
 
+    // 이하 3건은 Unix 전용 API(퍼미션 비트·symlink)를 쓴다. Windows 타깃에서는
+    // 컴파일되지 않으므로 cfg 로 제외한다 — 검증 대상 동작 자체가 Unix 고유다.
     #[test]
+    #[cfg(unix)]
     fn preserves_permissions_across_rewrite() {
         use std::os::unix::fs::PermissionsExt;
         let path = unique_temp_path("perms");
@@ -123,6 +126,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn follows_symlink_to_real_target() {
         let real = unique_temp_path("real");
         let link = unique_temp_path("link");
@@ -152,6 +156,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn cleans_up_tmp_on_broken_symlink_fallback() {
         // 깨진 심링크(대상 없음)에 쓰면 canonicalize가 실패해 원본 경로로
         // 폴백하고, 최종적으로 일반 파일로 교체되어야 한다.
