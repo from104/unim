@@ -1,6 +1,6 @@
 # UNIM Troubleshooting (English)
 
-> UNIM 0.3.0 — organized as Symptom → first diagnosis → second-level command → fix.
+> UNIM 0.4.0 — organized as Symptom → first diagnosis → second-level command → fix.
 > Covers 14 commonly seen symptoms, from "Korean never types" to "broken in one specific app".
 
 Every diagnosis starts with two questions: **is the daemon alive?** and **what does the log say?**
@@ -108,9 +108,12 @@ journalctl --user -u gnome-shell -b | grep -i unim
 ### Diagnosis
 
 ```bash
-unim-cli config get popup_mode
+# Is the popup renderer alive? (X11/KDE/Xfce — if not, see §16)
+pgrep -a unim-popup
+# On GNOME Wayland, is the extension enabled?
+gnome-extensions list --enabled | grep unim
 
-# Are DBus signals being emitted?
+# Are DBus signals being emitted? (in a separate terminal)
 busctl --user monitor org.atit.unim.InputMethod
 # Then type Korean and press Hanja → ShowHanjaPopup signal should appear
 ```
@@ -127,13 +130,6 @@ busctl --user monitor org.atit.unim.InputMethod
 > special-char / emoji popups is centralized in `unim-popup-service` (or the GNOME
 > extension). Diagnosis therefore checks whether the renderer process is alive, not `popup_mode`.
 
-```bash
-# X11/KDE/Xfce: is popup-service running? (if not, see §16)
-pgrep -a unim-popup
-# GNOME Wayland: is the extension enabled?
-gnome-extensions list --enabled | grep unim
-```
-
 > **DBus dead?**: `busctl --user list | grep atit` — if empty, the daemon failed to register. Check `journalctl --user -u unim-daemon -n 100`.
 
 ---
@@ -142,11 +138,9 @@ gnome-extensions list --enabled | grep unim
 
 Same code path as Hanja popup, so the cause is similar.
 
-```bash
-unim-cli config get current_mode    # must be Korean
-```
+There is no CLI key to query the current input mode (Korean/English) — check via the tray icon or the GNOME extension indicator instead. Type one consonant (ㄱ–ㅎ) while in Korean mode, then press Hanja.
 
-Type one consonant (ㄱ–ㅎ), then Hanja. Works cleanly on Dubeolsik; on Sebeolsik the consonant entry is different.
+Works cleanly on Dubeolsik; on Sebeolsik the consonant entry is different.
 
 ---
 
@@ -213,9 +207,7 @@ In XIM (`unim-frontends/xim`) the emoji popup shows category tabs (smileys, anim
 ### Diagnosis
 
 ```bash
-unim-cli config get auto_typefix.enabled
-unim-cli config get auto_typefix.forward.enabled
-unim-cli config get auto_typefix.reverse.enabled
+unim-cli config show | grep -i typefix         # master/forward/reverse enabled state
 cat ~/.config/unim/typefix-blacklist.yaml | head -50
 ```
 
@@ -236,9 +228,8 @@ Password protection ([FAQ](../faq/README.md) Q9) works only when the app reports
 
 | Environment | Status | Reason |
 |------|------|------|
-| GTK3/4, Qt5/6, GNOME extension, Windows TSF | Detected | content_purpose / InputScope delivered correctly |
+| GTK3/4, Qt5/6, GNOME extension, Windows TSF (both 64-bit and 32-bit `unim_tsf32.dll`) | Detected | content_purpose / InputScope delivered correctly |
 | Legacy XIM apps | Not detected | XIM protocol has no such signal |
-| Windows IMM32 fallback | Partial (best-effort) | Standard Edit/RichEdit + ES_PASSWORD style only; custom-drawn controls undetectable |
 | Some Wayland compositors / web forms | Not detected | content-purpose not sent (app/compositor's discretion) |
 | GTK apps that change purpose after focus | Not detected | The GTK IM reads input-purpose only at focus time and does not subscribe to `notify::input-purpose` (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus |
 
@@ -272,7 +263,7 @@ Password protection ([FAQ](../faq/README.md) Q9) works only when the app reports
 ```bash
 ls -la ~/.config/unim/
 test -w ~/.config/unim/config.yaml && echo writable || echo BLOCKED
-unim-cli config list 2>&1 | head -5
+unim-cli config show 2>&1 | head -5
 journalctl --user -u unim-daemon -n 50
 ```
 
@@ -327,6 +318,11 @@ flatpak kill org.telegram.desktop
 ```
 
 On X11 or non-GNOME you actually need to keep the env vars — auto-handling fires only on GNOME+Wayland.
+
+> ⚠️ **Persists after uninstalling UNIM**: this override is written permanently to your per-user `~/.local/share/flatpak/overrides/global` file and is not reverted automatically when the `unim` package is removed. If you switch to another input method and Flatpak apps start misbehaving, unset it yourself:
+> ```bash
+> flatpak override --user --unset-env=QT_IM_MODULE --unset-env=GTK_IM_MODULE
+> ```
 
 ---
 
@@ -404,13 +400,13 @@ The recommended default for `chord_window_ms` is **60 ms**. If you are new to mo
 
 ```bash
 # Check current setting
-unim-cli config get korean.chord_window_ms
+unim-cli config show | grep chord-window
 
 # Set to 80 ms
-unim-cli config set korean.chord_window_ms 80
+unim-cli config set korean-chord-window-ms 80
 ```
 
-Alternatively, use the GTK settings dialog → Keyboard → **Chord Window (ms)** slider.
+Alternatively, use the settings app (`unim-settings`) → General page → layout options (shown only for chord-capable layouts) → slider.
 
 ### 15-3. bidirectional_combine is off
 
@@ -418,13 +414,13 @@ If reverse-order jamo combinations do not work (e.g., ᆯ+ᆨ → ᆰ, or ㅎ+�
 
 ```bash
 # Check current state
-unim-cli config get korean.bidirectional_combine
+unim-cli config show | grep bidirectional-combine
 
 # Enable
-unim-cli config set korean.bidirectional_combine true
+unim-cli config set korean-bidirectional-combine true
 ```
 
-Or use the GTK settings dialog → Keyboard → **Bidirectional Jamo Combine** toggle → ON.
+Or in the settings app (`unim-settings`) → General page → layout options → **Bidirectional Jamo Combine** toggle → ON.
 
 ### 15-4. Keyboard does not support NKRO (ghosting)
 
@@ -486,7 +482,7 @@ make build 2>&1 | tee /tmp/unim-build.log
   echo "=== daemon ==="
   systemctl --user status unim-daemon --no-pager
   echo "=== config ==="
-  unim-cli config list
+  unim-cli config show
   echo "=== logs (last 200) ==="
   tail -n 200 ~/.unim-errors.log 2>/dev/null
 } > unim-report.txt
@@ -527,14 +523,12 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 
 #### Fixes
 
-- If the service file is absent, `unim-popup-service` is not installed.
+- If the service file is absent, the **`unim-desktop`** package (which bundles `unim-popup-service` together with the indicator and the legacy settings dialog) is not installed — `unim-popup-service` is not a standalone package.
 
   ```bash
-  # deb
-  sudo apt install ./unim-popup-service_0.3.0_amd64.deb
-  # rpm
-  sudo dnf install ./unim-popup-service-0.3.0.x86_64.rpm
-  # from source
+  # deb (match the version to whatever you actually downloaded)
+  sudo apt install ./unim-desktop_<version>_amd64.deb
+  # or, from source
   sudo make install PREFIX=/usr
   ```
 
@@ -598,7 +592,17 @@ A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT cl
 - 9-cell ↔ 81-cell toggle blocked → period (`.`) key intercepted elsewhere; check keymap.
 - Bookmark (★) sync: `HanjaBookmarkChanged` signal not reaching listeners → `busctl --user monitor org.atit.unim.InputMethod`.
 
-### E. Environment matrix as of 0.3.0
+### E. CLI Korean text renders garbled
+
+- Locale not installed: `sudo locale-gen ko_KR.UTF-8`
+- gettext `.mo` file missing: `ls /usr/share/locale/ko/LC_MESSAGES/unim*.mo`
+
+### F. `unim-cli config set` doesn't show up in the GUI
+
+- The daemon failed to hot-reload on mtime change → `pkill -SIGHUP unim-daemon`
+- Possible 5-point sync breakage → verify the CLI/engine/GUI/locale/DBus all got updated together
+
+### G. Environment matrix (reconfirmed for 0.4.0 — originally written for 0.3.0)
 
 | Environment | Support | Notes |
 | --- | --- | --- |
@@ -607,8 +611,18 @@ A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT cl
 | X11 + KDE Plasma 5.x | ✅ Validated | popup-service GTK4 |
 | X11 + XFCE / MATE / Cinnamon / LXDE | ✅ Validated | popup-service GTK4 |
 | Wayland + KDE Plasma 5.x | ❌ Unsupported | `gtk4-layer-shell` missing in Ubuntu 24.04 (noble) standard repos → use X11 session or GNOME |
-| Wayland + KDE Plasma 6 | ⚠️ Experimental | Requires `wayland-backend` feature + `libgtk4-layer-shell`. Not exercised in 0.3.0 QA |
+| Wayland + KDE Plasma 6 | ⚠️ Experimental | Requires `wayland-backend` feature + `libgtk4-layer-shell`. Not exercised in 0.4.0 QA either (unchanged since 0.3.0) |
 | Sway / Hyprland / river (standalone Wayland) | ⚠️ Experimental | Same as above. Possible regressions in popup placement and IME focus handover |
 | Weston etc. reference Wayland | ⚠️ Experimental | Same as above |
 
+> **0.4.0 reconfirmation**: the table above still holds as of the v0.4.0 release — **pure (non-GNOME) Wayland still does not support the hanja/special-character popup** in this release (a deliberate design constraint, unchanged), and Wayland compositors that don't go through GNOME remain "experimental". Windows (TSF, both 64-bit and 32-bit via `unim_tsf32.dll`) is a newly added **experimental** platform in v0.4.0 and is not included in this table — see [FAQ Q11](../faq/README.md#q11-does-unim-run-on-macos--windows) instead.
+
 ⚠️ For issues on experimental environments, please file a bug at [GitHub Issues](https://github.com/from104/unim/issues).
+
+### H. Log-analysis slash command
+
+```bash
+# If you're using Claude Code
+/unim-log
+```
+→ automatically classifies, summarizes, and diagnoses `~/.unim-errors.log`.

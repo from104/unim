@@ -26,7 +26,7 @@
 
 그 밖에:
 
-- [`user/release-notes/`](user/release-notes/) — 버전별 릴리스 노트 (0.2.0, 0.3.0)
+- [`user/release-notes/`](user/release-notes/) — 버전별 릴리스 노트 (0.2.0, 0.3.0, 0.4.0)
 - [`user/keymaps/`](user/keymaps/) — 자판별 사용 안내 (안마태)
 - [`user/UNIM-Windows-사용안내.md`](user/UNIM-Windows-사용안내.md) — Windows 판 안내 (한국어)
 

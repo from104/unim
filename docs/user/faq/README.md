@@ -1,6 +1,6 @@
 # UNIM FAQ (English)
 
-> The questions people actually ask about UNIM 0.3.0.
+> The questions people actually ask about UNIM 0.4.0.
 > Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.
 
 ---
@@ -186,7 +186,7 @@ In normal operation, `unim-daemon` RSS sits in 30–80 MB. UNIM 0.2.0 hardens th
 
 **No.** Password fields are detected via `content_purpose` and forced to English. AutoTypeFix (both forward and reverse), hanja conversion, and the special-char popup are all disabled. Any keystroke-observation buffer and undo history already accumulated are cleared too, so a password typed like `dkssud` is never auto-corrected into Korean and corrupted. The input is not retained in daemon memory.
 
-> Caveat: this works only when the app accurately reports `content_purpose=password`. Environments that do not report it — **legacy XIM apps, custom-drawn password boxes in Windows IMM32 apps (only standard Edit/RichEdit controls with ES_PASSWORD are detected there), and some Wayland compositors/web forms that do not send content-purpose** — may fail to auto-detect; verify English mode manually via the Hangul key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF; Windows IMM32 detects standard ES_PASSWORD controls on a best-effort basis.)
+> Caveat: automatic detection only works when the app accurately reports `content_purpose=password` (Linux) or `InputScope` (Windows). Environments that do not report it — **legacy XIM apps, and some Wayland compositors/web forms that do not send content-purpose** — may fail to auto-detect; verify English mode manually via the toggle key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF — both 64-bit and 32-bit apps are detected the same way, via the `unim_tsf32.dll` TSF TIP's `InputScope`. If you've seen a claim that "Windows IMM32 apps are detected on a best-effort basis for standard ES_PASSWORD controls only," that describes the IMM32 fallback, which is not actually shipped in the release — see Q11.)
 
 ---
 
@@ -194,7 +194,7 @@ In normal operation, `unim-daemon` RSS sits in 30–80 MB. UNIM 0.2.0 hardens th
 
 **This is intended.** AutoTypeFix is deliberately disabled in password and PIN fields (see Q9), because otherwise a password typed like `dkssud` would flip to Korean at a word boundary and break your login. It returns to normal the moment you leave the field, and any on/off toggle state you set manually is preserved.
 
-> Conversely, if correction fails in a **non-password field**, the cause is different → [Troubleshooting](../troubleshooting/README.md) §8. In the undetectable environments above (XIM, custom IMM32 controls, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.
+> Conversely, if correction fails in a **non-password field**, the cause is different → [Troubleshooting](../troubleshooting/README.md) §8. In the undetectable environments above (XIM, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.
 
 ---
 
@@ -227,7 +227,19 @@ Full migration: [release notes](../release-notes/0.2.0/RELEASE_NOTES.md).
 
 ## Q11. Does UNIM run on macOS / Windows?
 
-**Linux only for now.** Roadmap stage 5 lists cross-platform but it has not started. Because the Rust core and C-API are separated, in principle adapters to macOS IMKit / Windows TSF are feasible. Volunteers welcome.
+**Windows: yes — experimental. macOS: not yet.**
+
+As of v0.4.0, Windows 10/11 (64-bit) is supported via `unim-tsf`, built on the Text Services Framework (TSF).
+
+```powershell
+irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+downloads and installs the MSI (see [user manual §2.1 Method 4](../user-guide/README.md#method-4--windows-experimental)). 32-bit apps are handled by a separate 32-bit TSF TIP (`unim_tsf32.dll`) rather than the 64-bit TSF path. The IMM32 fallback explored earlier (the `unim-imm32` crate) remains only as diagnostic/research source that is **not included in the shipped MSI** — if you've seen documentation advertising an "IMM32 fallback" as a shipped feature, it's out of date.
+
+That said, Windows support as of v0.4.0 is **experimental — real-device QA has not been completed yet**. Basic use works, but if you hit a problem, please report it on [GitHub Issues](https://github.com/from104/unim/issues) with your compositor/version info.
+
+macOS is still not started (roadmap stage 5). Because the Rust core and C-API are separated, in principle an adapter for macOS's IMKit is feasible, but nobody has started it yet. Volunteers welcome.
 
 ---
 
@@ -297,7 +309,7 @@ Yes. All user data lives under `~/.config/unim/` and is independent of the packa
 - `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix suppression dictionary
 - `~/.config/unim/userdict.yaml` — user dictionary
 
-Uninstalling one package format and installing the other leaves these files untouched. Note that `unim-gui-qt` was removed in 0.3.0; replace it with `unim-gui-gtk` and `unim-popup-service`.
+Uninstalling one package format and installing the other leaves these files untouched. Note that the `unim-gui-qt` package was removed in 0.3.0 — the tray icon, settings window, and popup renderer are now split between `unim-desktop` (indicator + legacy settings dialog + `unim-popup-service`, bundled together) and `unim-settings` (the Slint settings app). For the current full list of 11 packages, check `debian/control` or `dpkg -l 'unim*'`.
 
 ---
 
@@ -403,10 +415,42 @@ XIM (X Input Method) is a legacy protocol from 1994 with no facility to signal f
 
 ---
 
+## Q23. I removed UNIM and now Korean/English toggling doesn't work at all — how do I go back to another IME?
+
+**Removing UNIM does not automatically restore the system IME setting.** If you removed IBus with `sudo apt remove ibus` while installing UNIM (as Q2 recommends), the "current IME = unim" setting made by `im-config -n unim` (or by enabling the GNOME+Wayland extension) survives even after you remove the UNIM package. Log back in after that and you're left with `run_im unim` pointing at a binary that no longer exists — **no IME starts at all, and Korean/English toggling stops working entirely.**
+
+### Before removing UNIM (recommended)
+
+Switch back to another IME **before** removing UNIM.
+
+```bash
+# Example: install ibus-hangul first if you want to go back to it
+sudo apt install ibus ibus-hangul
+
+# Point im-config back
+im-config -n ibus
+# Or let it auto-pick from what's installed
+im-config -n auto
+
+# Now remove UNIM (all packages at once — shell glob)
+sudo apt remove 'unim*'
+```
+
+### If you already removed it and Korean input is completely broken
+
+1. Run `im-config -n auto` to auto-reassign to whatever IME is installed. If nothing is installed, `sudo apt install ibus ibus-hangul` first, then rerun it.
+2. Check `~/.xinputrc` directly — if `run_im unim` is still there, delete it or replace it with another IME's name (on a GNOME+Wayland session this file may not be used at all — see [user manual §2.2](../user-guide/README.md#22-environment-variables-any-desktop-without-gnome-extension)).
+3. Log out and back in.
+
+> This removal/rollback path is managed by Debian/Ubuntu's `im-config` framework, not by UNIM's package scripts, so UNIM cannot automatically revert it. The manual steps above are currently the only recovery path.
+
+---
+
 ## Read more
 
 - [User manual](../user-guide/README.md)
 - [Troubleshooting](../troubleshooting/README.md)
+- [Release notes 0.4.0](../release-notes/0.4.0/README.en.md)
 - [Release notes 0.3.0](../release-notes/0.3.0/README.en.md)
 - [Release notes 0.2.0](../release-notes/0.2.0/RELEASE_NOTES.md)
 - [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)

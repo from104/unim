@@ -6,6 +6,26 @@ UNIM shortcuts are captured by different actors depending on your desktop / comp
 
 ---
 
+## GNOME only — manual conversion shortcuts (on by default)
+
+On GNOME Shell (`unim-gnome-extension`), the three shortcuts below are **on by default with no setup required.** No other desktop/compositor (KDE, Sway, Hyprland, etc.) has them — this is a GNOME-only feature, registered directly with the Shell via `Main.wm.addKeybinding` by the GNOME extension.
+
+| Shortcut | Action | Example |
+|--------|------|------|
+| `Super+K` | Convert the focused word **English → Korean** and replace it | `gksrmf` → `한글` |
+| `Shift+Super+K` | Convert the focused word **Korean → English** and replace it | `ㅗ디ㅣㅐ` → `hello` |
+| `Super+E` | Read the selection and register it in the reverse (Korean→English) AutoTypeFix user dictionary | select `ㅎㅑㅅ` → registered as `git` |
+
+These three are distinct from the automatic correction in [4.4 AutoTypeFix](../user-guide/README.md#44-autotypefix) — they are **manual conversions the user triggers directly**. If you use `Super` combos for something else, or hit a conflict, open the extension's preferences to rebind or disable them:
+
+```bash
+gnome-extensions prefs unim-gnome@from104.github.io
+```
+
+Rebind or clear `Super+K` / `Shift+Super+K` in the "Conversion shortcuts" group, and `Super+E` in the "Register user dictionary" group.
+
+---
+
 ## Emoji popup shortcut (`Super+.`)
 
 UNIM can pop up an emoji picker at the last active input location. The default shortcut is `Super+.` (Meta+`.`). However, **who captures the shortcut differs per environment**, so on some setups you must register it yourself.

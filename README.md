@@ -85,7 +85,7 @@ UNIM의 최종 목표는 다음과 같은 기능을 갖춘 한국어/영어 텍�
 | 컴포넌트 | 경로 | 설명 |
 |----------|------|------|
 | **TSF TIP** | `unim-tsf/` | Windows 네이티브 입력기. 조합·팝업·AutoTypeFix·설정·언어바를 단일 DLL 에 통합 (32/64비트) |
-| **IMM32 폴백** | `unim-imm32/` | 구형 IMM32 앱용 폴백 |
+| **IMM32 폴백** | `unim-imm32/` | 진단·연구용 소스 (MSI 미탑재). 32비트 앱은 `unim_tsf32.dll` TSF TIP 이 담당 |
 
 리눅스 프런트엔드와 **같은 코어(`src/`)를 공유**한다. 실기기 검증이 진행 중인 실험적 지원이다.
 
@@ -112,7 +112,7 @@ UNIM은 입력 엔진 외에 트레이·설정·자판 관리·타자 연습 앱
 
 > ⚠️ **환경 지원 상태 — v0.4.0 릴리스 시점**
 >
-> **검증된 환경**: GNOME Shell (X11 / Wayland), 일반 X11 데스크톱 (KDE Plasma 5.x, XFCE, MATE, Cinnamon, LXDE).
+> **검증된 환경**: GNOME Shell 45–49 (X11 / Wayland), 일반 X11 데스크톱 (KDE Plasma 5.x, XFCE, MATE, Cinnamon, LXDE). GNOME Shell 지원 범위는 `unim-gnome-extension/metadata.json`의 `shell-version`을 따르며, 그 밖 버전에서는 확장이 자동 비활성화될 수 있다.
 >
 > **미지원 — KDE Plasma 5.x Wayland**: 한자/특수문자/이모지 popup 은 Wayland 환경에서 `gtk4-layer-shell` 라이브러리로 위치를 지정합니다. Ubuntu 24.04 (noble) 표준 저장소에는 해당 패키지가 없어, **KDE Plasma 5.x Wayland 세션에서는 popup 이 표시되지 않습니다.** X11 세션을 사용하거나 GNOME 으로 우회해 주세요.
 >
@@ -166,7 +166,7 @@ less install.sh && bash install.sh
 irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 ```
 
-GitHub Releases 에서 최신 MSI(`unim-<버전>-x64.msi`)를 내려받아 `msiexec` 로 설치한다. 미설치면 설치, 이미 설치돼 있으면 최신 버전과 비교해 필요할 때만 갱신한다.
+GitHub Releases 에서 최신 MSI(`unim-<버전>-x64.msi`)를 내려받아 `msiexec` 로 설치한다. **기본 경로는 버전 비교 없이 항상 최신 MSI 를 내려받아 설치**한다(이미 최신이어도 재다운로드·재설치한다). 이미 설치된 버전과 비교해 필요할 때만 내려받아 갱신하려면 `-Update` 를 쓴다.
 
 **안전장치**: MSI 를 **SHA256 체크섬(`SHA256SUMS-msi`)으로 검증**하고, 관리자로 승격된 프로세스가 설치 직전 **해시를 한 번 더 확인**한 뒤(검증과 설치 사이 변조 차단) 통과한 파일만 설치한다. 검증 실패 시 **아무것도 설치하지 않고 중단**한다. MSI 는 아직 코드 서명이 없어 SmartScreen 경고가 뜰 수 있다 — "추가 정보 → 실행"으로 진행한다.
 
@@ -338,6 +338,8 @@ sudo apt remove ibus
 GNOME+Wayland 환경에서 Flatpak/Snap 앱(예: Telegram, VS Code 등)은 **샌드박스 내부에 UNIM IM 모듈이 없으므로** 호스트의 `QT_IM_MODULE=unim`/`GTK_IM_MODULE=unim` 설정이 오히려 입력을 방해합니다.
 
 **자동 처리**: `unim-daemon`이 GNOME+Wayland 환경을 감지하면, 시작 시 자동으로 Flatpak 전역 override를 설정하여 IM 환경변수를 비웁니다. 이를 통해 Flatpak 앱들이 Wayland text-input-v3 → GNOME extension 경로로 정상 동작합니다.
+
+> ⚠️ **주의**: 이 override는 사용자 전역 `~/.local/share/flatpak/overrides/global` 파일에 기록되며, UNIM을 제거해도 자동으로 되돌아가지 않습니다. 다른 입력기로 전환할 때 Flatpak 앱 입력이 안 되면 `flatpak override --user --unset-env=QT_IM_MODULE --unset-env=GTK_IM_MODULE`로 직접 해제하세요.
 
 로그에서 다음 메시지를 확인할 수 있습니다:
 ```

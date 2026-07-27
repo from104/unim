@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ---
 
-## [0.4.0] 2026-07-19
+## [0.4.0] 2026-07-27
+
+> The v0.4.0 tag and GitHub Release originally published on 2026-07-19 were withdrawn — right after tagging, the windows-msi release gate was found broken due to a `guids.wxi` version mismatch (fixed in `65c66f8`), so the release had to be pulled and redone. This entry is the valid v0.4.0.
 
 This release brings one-line installation (`curl … | bash`), a first-run setup wizard, a Slint-based cross-platform settings app, Keymap Studio and Typing Practice tools, word-unit input, and a large (experimental) Windows port.
 
@@ -69,19 +71,25 @@ This release brings one-line installation (`curl … | bash`), a first-run setup
 
 - **Shortcut fields suggested key names that do not exist**: The settings app's placeholder for the AutoTypeFix hotkeys (`e.g. ScrollLock, F10`) and a CLI warning recommended `ScrollLock` and `Pause`, which UNIM does not recognize — following the hint left the shortcut silently dead. The examples now use specs that actually work (`F10`, `Shift+F9`). For the same reason the toggle-key and Hanja-key placeholders (`Hangul`, `Control+Enter`) were unrecognized too, and were replaced with `Korean`, `RightAlt` / `Hanja`, `F9`. The stale note claiming "modifier combinations are not supported" in the AutoTypeFix hotkey description was corrected as well — combinations such as `Shift+F8` are officially supported as of this release.
 
+- **Wayland frontend: every key was misread on native Wayland compositors (Sway, standalone Hyprland, etc.)**: The pure-Wayland frontend sent an X11-style keycode (raw evdev + 8) to the daemon, which expects raw evdev — so key lookups were off by 8 for literally every key, not only `Shift+F9`. Corrected to send raw evdev, matching what the GTK frontends already do. GNOME sessions are unaffected (they use the extension path); `unim-wayland` previously exited immediately under Mutter, so this path had gone unexercised there.
+
+- **Password-field suppression fixed on GNOME Wayland (Chrome, GTK3/4, native-Wayland apps) and for mid-focus field-type changes**: The GNOME extension's content-purpose handling was an empty stub, so on GNOME Wayland — where GTK3/4 and native-Wayland Chrome all funnel through this path — sensitive-field suppression silently did nothing. It is now wired up (with a hidden-text-hint fallback for apps that don't report a password purpose), GTK3/4 now also make their own purpose check so apps like Epiphany/WebKitGTK are covered, and both paths track a field's purpose changing while it stays focused (e.g. a "show password" toggle) and restore Korean mode correctly on focus-out.
+
 ### 🪟 Windows support (experimental)
 
 The Windows port advanced substantially this cycle. It is experimental support with on-device verification still in progress; the following is the scope of what was implemented.
 
-- **Fully native TSF architecture**: All UI is consolidated into a single `unim_tsf.dll` and the separate helper executable (`unim-windows`) was removed. It includes the hanja/special-character/emoji popups (9×9 grid, bookmarks, paging), AutoTypeFix (forward, reverse, manual, suppression list, undo), settings, and the language bar. The shared core and Linux frontends were not touched.
+- **Fully native TSF architecture**: The language bar, composition/candidate popups (hanja/special-character/emoji — 9×9 grid, bookmarks, paging), and AutoTypeFix UI (forward, reverse, manual, suppression list, undo) are now consolidated into a single `unim_tsf.dll`, replacing the previous separate helper executable (`unim-windows`). The MSI still ships two small standalone executables for other purposes — `unim-settings.exe` (the cross-platform Slint settings app / first-run wizard) and `unim-popup-win.exe` (the out-of-process hanja/special-character/emoji popup renderer) — but day-to-day TSF operation no longer depends on a separate helper the way `unim-windows` did. The shared core and Linux frontends were not touched.
 
 - **Hangul composition in console/IMM32 apps (CUAS-compliant)**: Hangul composition is restored in console/IMM32 apps that use inline composition, such as WezTerm and Telegram.
 
-- **32-bit app support (KakaoTalk, Hancom, etc.)**: To fix 32-bit apps not finding the 64-bit-only TIP, a 32-bit TSF TIP (`unim_tsf32.dll`) is now registered alongside. The pointless IMM32 `.ime` registration on Win11 was dropped.
+- **32-bit app support (KakaoTalk, Hancom, etc.)**: To fix 32-bit apps not finding the 64-bit-only TIP, a 32-bit TSF TIP (`unim_tsf32.dll`) is now registered alongside. The pointless IMM32 `.ime` registration on Win11 was dropped. (The `unim-imm32` crate remains in the source tree as a diagnostic/research build; it is not part of the MSI.)
+
+- **AutoTypeFix toggle hotkey now works in IMM32 apps (KakaoTalk, Hancom, etc.)**: IMM32 was missing the toggle drain that TSF already had, so pressing the toggle hotkey matched the key but never actually flipped the saved `auto_typefix` setting — a silent no-op. Fixed. (The beep, live config-file watching, and language-bar reflection that TSF has are not ported to IMM32, which has no such infrastructure.)
 
 - **Accessibility**: The composition and candidate windows are exposed via TSF UIA/UILess, and an option to suppress combination-key auto-repeat (`ignore_key_repeat`, for users with motor disabilities) plus screen-reader notification of Korean/English switches (NotifyWinEvent, optional beep) were added.
 
-- **MSI distribution**: Upgraded to windows-rs 0.62.2 and tidied up the WiX 3.x MSI build chain.
+- **MSI distribution**: Upgraded to windows-rs 0.62.2 and tidied up the WiX 3.x MSI build chain. Note: the Windows MSI is built by a separate, longer-running CI workflow, so it may be attached to a GitHub Release a few minutes after the Linux `.deb`/`.rpm` packages appear — if the one-line installer reports the checksum manifest as missing, wait a bit and retry.
 
 ### 🧹 Internal
 

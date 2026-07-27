@@ -217,6 +217,7 @@ li { margin: 0.35rem 0; }
 </li>
 <li><a href="#keyboard-shortcuts">Keyboard Shortcuts Guide</a>
 <ol>
+<li><a href="#keyboard-shortcuts--gnome-only--manual-conversion-shortcuts-on-by-default">GNOME only — manual conversion shortcuts (on by default)</a></li>
 <li><a href="#keyboard-shortcuts--emoji-popup-shortcut-super">Emoji popup shortcut (Super+.)</a></li>
 <li><a href="#keyboard-shortcuts--per-environment-registration">Per-environment registration</a></li>
 <li><a href="#keyboard-shortcuts--verifying-it-works">Verifying it works</a></li>
@@ -251,6 +252,7 @@ li { margin: 0.35rem 0; }
 <li><a href="#faq--q20-when-i-hold-a-key-too-long-the-same-letter-is-typed-several-times">Q20. When I hold a key too long, the same letter is typed several times.</a></li>
 <li><a href="#faq--q21-password-fields-in-chromechromium-are-not-being-auto-protected-why">Q21. Password fields in Chrome/Chromium are not being auto-protected. Why?</a></li>
 <li><a href="#faq--q22-xim-environments-why-doesnt-password-field-auto-detection-work">Q22. XIM environments: why doesn't password-field auto-detection work?</a></li>
+<li><a href="#faq--q23-i-removed-unim-and-now-koreanenglish-toggling-doesnt-work-at-all--how-do-i-go-back-to-another-ime">Q23. I removed UNIM and now Korean/English toggling doesn't work at all — how do I go back to another IME?</a></li>
 <li><a href="#faq--read-more">Read more</a></li>
 </ol>
 </li>
@@ -288,7 +290,7 @@ li { margin: 0.35rem 0; }
 <section class="doc" id="user-guide">
 <h2 id="user-guide--unim-user-manual-english">UNIM User Manual (English)</h2>
 <blockquote>
-<p>UNIM 0.3.0 — Universal Next-generation Input Method
+<p>UNIM 0.4.0 — Universal Next-generation Input Method
 A Rust-based input method engine for fluid Korean/English typing.
 Goal of this document: get a first-time user to type one Korean syllable within five minutes.</p>
 </blockquote>
@@ -396,16 +398,16 @@ export XMODIFIERS="@im=unim"
 <p><strong>Single source of truth</strong>: regardless of environment, the daemon's <code>PopupRender</code> payload (cells, header, footer, tabs, highlight) is the single view-model delivered to all renderers. Only the rendering implementation differs.</p>
 <p><strong>Outside-click dismiss</strong>: clicking outside the popup closes it, and the click event is passed through to the window below. If a popup closes unexpectedly, this is intended behavior — see <a href="#troubleshooting">troubleshooting</a>.</p>
 <p><strong>KDE Plasma 5.x Wayland — unsupported</strong>: <code>gtk4-layer-shell</code> is not available in the Ubuntu 24.04 standard repository, so popups do not appear. Workaround: use an X11 session or switch to GNOME.</p>
-<p><strong>KDE Plasma 6 Wayland / Sway / Hyprland / river — experimental, undertested</strong>: builds with the <code>wayland-backend</code> cargo feature and <code>libgtk4-layer-shell</code> installed are theoretically functional but were <strong>not exercised in the 0.3.0 QA cycle</strong>. Expect possible regressions in popup placement, IME focus handover, and layer-shell coordinate translation.</p>
+<p><strong>KDE Plasma 6 Wayland / Sway / Hyprland / river — experimental, undertested</strong>: builds with the <code>wayland-backend</code> cargo feature and <code>libgtk4-layer-shell</code> installed are theoretically functional, but this experimental status has <strong>not changed since the 0.3.0 QA cycle</strong> — no additional verification was done for v0.4.0. Expect possible regressions in popup placement, IME focus handover, and layer-shell coordinate translation. For the full per-environment support matrix, see <a href="#troubleshooting--g-environment-matrix-reconfirmed-for-040--originally-written-for-030">troubleshooting §G environment matrix</a>.</p>
 <hr />
 <h3 id="user-guide--3-per-environment-setup">3. Per-environment setup</h3>
 <div class="tablewrap"><table><thead><tr><th>Environment</th><th>Install method</th><th>IM module</th><th>Popup owner</th><th>Watch out for</th></tr></thead><tbody>
-<tr><td><strong>X11 + GTK apps</strong></td><td><code>GTK_IM_MODULE=unim</code></td><td>gtk3/gtk4 IM module</td><td>IM module itself (Embedded) or unim-gui-gtk (Standalone)</td><td>Pick via <code>popup_mode</code> setting</td></tr>
+<tr><td><strong>X11 + GTK apps</strong></td><td><code>GTK_IM_MODULE=unim</code></td><td>gtk3/gtk4 IM module</td><td><code>unim-popup-service</code> (GTK4, D-Bus auto-activation)</td><td>—</td></tr>
 <tr><td><strong>X11 + Qt apps</strong></td><td><code>QT_IM_MODULE=unim</code></td><td>qt5/qt6 IM plugin</td><td>Same</td><td>On Plasma, prefer Qt mode</td></tr>
 <tr><td><strong>X11 + legacy (Emacs, xterm)</strong></td><td><code>XMODIFIERS=@im=unim</code></td><td>xim frontend</td><td>XIM's own Xft popup</td><td>over-the-spot mode</td></tr>
 <tr><td><strong>GNOME + Wayland</strong></td><td>Enable GNOME extension</td><td>(apps speak text-input-v3 directly)</td><td>GNOME Extension</td><td>IBus removal mandatory</td></tr>
-<tr><td><strong>KDE + Wayland</strong></td><td><code>QT_IM_MODULE=unim</code> + Wayland frontend</td><td>wayland</td><td>unim-gui-gtk Standalone</td><td>input-method-v2</td></tr>
-<tr><td><strong>Sway/Hyprland (Wayland)</strong></td><td>env vars + Wayland frontend</td><td>wayland</td><td>unim-gui-gtk Standalone</td><td>Compositor must support input-method-v2</td></tr>
+<tr><td><strong>KDE + Wayland</strong></td><td><code>QT_IM_MODULE=unim</code> + Wayland frontend</td><td>wayland</td><td><code>unim-popup-service</code> (wayland-backend)</td><td>input-method-v2</td></tr>
+<tr><td><strong>Sway/Hyprland (Wayland)</strong></td><td>env vars + Wayland frontend</td><td>wayland</td><td><code>unim-popup-service</code> (wayland-backend)</td><td>Compositor must support input-method-v2</td></tr>
 </tbody></table>
 </div>
 <blockquote>
@@ -425,11 +427,16 @@ export XMODIFIERS="@im=unim"
 <tr><td>Hangul key</td><td>Toggle mode</td><td>Key code varies by keyboard</td></tr>
 <tr><td><code>Shift+Space</code></td><td>Toggle (fallback)</td><td>Works on any keyboard</td></tr>
 <tr><td>Right Alt (RightAlt)</td><td>Toggle mode (when added to <code>toggle_keys</code>)</td><td>Now works on every environment, including GTK/Qt/GNOME</td></tr>
-<tr><td>Tray icon click</td><td>Toggle (mouse)</td><td>unim-gui-gtk lives in the tray</td></tr>
+<tr><td>Tray icon click</td><td>Toggle (mouse)</td><td><code>unim-indicator</code> lives in the tray</td></tr>
 </tbody></table>
 </div>
 <blockquote>
-<p><strong>Mode share</strong> (<code>mode_share_mode</code> setting): "per-window" or "global". Per-window is the default — your terminal stays in English while your text editor stays in Korean. Switch to "global" if you want a single mode across every window.</p>
+<p><strong>Mode share</strong> (<code>mode_sharing</code> setting, CLI key <code>mode-sharing</code>): "Global" or "Per-app". <strong>Global is the default</strong> — switching mode in one window instantly syncs every window. Switch to "Per-app" if you want your terminal to stay in English while your text editor stays in Korean.</p>
+<p><strong>Accessibility — turn on the toggle beep if you type without watching the screen</strong>: Linux has no screen-reader announcement for mode switches, and the toggle beep itself <strong>defaults to off</strong> (a deliberate choice to avoid false positives). If you type without watching the screen, we recommend turning it on:</p>
+<pre><code class="language-bash">unim-cli config set toggle-announce-beep true
+</code></pre>
+<p>On and off are announced with different pitches.</p>
+<p><strong>Note: this beep can go silent depending on the mode-share setting.</strong> The beep that fires from a tray-icon or GNOME-extension mode change only plays in "Global" mode (<code>unim-dbus/src/engine_worker.rs:1766-1772</code>). Switch to "Per-app" and a tray toggle no longer actually changes the focused window's mode (by design — it avoids sending a false signal), so this beep path goes silent. If you rely on the beep to confirm a language switch, be aware that switching to "Per-app" costs you this signal from tray/extension interactions.</p>
 </blockquote>
 <blockquote>
 <p><strong>Toggling with Right Alt</strong>: Add <code>RightAlt</code> to the <code>toggle_keys</code> setting to switch Korean/English with the right Alt key. GTK, Qt, and the GNOME extension used to filter Right Alt themselves, so it did nothing there (XIM and pure Wayland already worked); the toggle decision is now unified in the daemon, so it behaves the same everywhere. AltGr layouts (right Alt used as AltGr) are unaffected. Note that at the moment of toggling the application may also receive the Alt input (e.g. menu-bar focus in some apps); if you don't want that side effect, remove <code>RightAlt</code> from <code>toggle_keys</code>.</p>
@@ -468,7 +475,7 @@ export XMODIFIERS="@im=unim"
 <li><strong>GTK IM modules</strong> (gtk3 / gtk4): <strong>next page</strong> (wrap-around) — equivalent to <code>→</code> / Page Down.</li>
 <li><strong>Qt IM modules</strong> (qt5 / qt6): <strong>next page</strong> (wrap-around).</li>
 <li><strong>XIM</strong> (hanja / special-character / emoji popups alike): <strong>next page</strong> (wrap-around).</li>
-<li><strong>Other frontends</strong> (GTK Standalone <code>unim-gui-gtk</code>, raw Wayland, Windows egui): no action (undefined).</li>
+<li><strong>Other frontends</strong> (<code>unim-popup-service</code> Standalone, raw Wayland, Windows egui): no action (undefined).</li>
 </ul>
 <blockquote>
 <p><strong>Why is GNOME different?</strong> GNOME Shell exposes each candidate cell as a <code>Clutter.Actor</code>, so per-cell right-click hit-testing is natural — mapping right-click to the bookmark toggle saves a hand move. GTK/Qt IM modules and XIM run in X11/Wayland override-redirect windows where per-cell hit-testing is more limited, so they keep the classical IME convention of right-click = next page.</p>
@@ -551,16 +558,16 @@ unim-cli config set auto-typefix-toggle-keys ""
 <li>Key names must be ones UNIM knows, such as <code>F1</code>–<code>F12</code> (<code>ScrollLock</code>, <code>Pause</code>, <code>PrintScreen</code>, and <code>Menu</code> are not recognized). The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure — nothing is dropped silently.</li>
 <li>Clear the list (<code>""</code>) to disable a shortcut; it then consumes no key.</li>
 <li>On GNOME (Wayland), Ctrl/Alt/Super combinations such as <code>Ctrl+Left</code> work too — the UNIM extension forwards toggle combos to the engine (re-login after updating the extension).</li>
-<li>On Windows (TSF/IMM32), combination specs behave exactly as on Linux — the default <code>Shift+F8</code> works as-is.</li>
+<li>On Windows (TSF), combination specs behave exactly as on Linux — the default <code>Shift+F8</code> works as-is.</li>
 <li>Toggling only forward on while the master switch is off flips the flag but produces no correction until the master switch is on again (the master gates everything). The forward/reverse toggles change only each direction's flag.</li>
-<li>Accessibility note: on Windows a distinct beep (like the Korean/English switch sound) announces the toggle state (honoring the <code>toggle-announce-beep</code> setting). On Linux the setting changes silently.</li>
+<li>Accessibility note: with <code>toggle-announce-beep</code> enabled, this toggle also announces its state with a differential beep (rising pitch = on / falling pitch = off), just like the Korean/English switch sound — <strong>on both Windows and Linux</strong> (on Linux the daemon plays the tone via whichever of <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> it finds on PATH; if none exist, it's a silent no-op). Default is off — see the accessibility note in <a href="#user-guide--41-koreanenglish-mode-toggle">4.1</a>.</li>
 </ul>
 </blockquote>
 <h5 id="user-guide--password-field-auto-protection">Password-field auto-protection</h5>
 <p>In password and PIN fields, AutoTypeFix <strong>turns off automatically.</strong> When the app reports "this field is a password" (<code>content_purpose</code>), UNIM stops both forward and reverse correction while you are in that field, and also clears any keystroke-observation buffer and undo history already accumulated. This keeps a password typed like <code>dkssud</code> from being auto-corrected into Korean and corrupted.</p>
 <ul>
 <li>It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.</li>
-<li>This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, custom-drawn password boxes in Windows IMM32 apps, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see <a href="#faq">FAQ</a> Q9.</li>
+<li>This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see <a href="#faq">FAQ</a> Q9.</li>
 </ul>
 <h4 id="user-guide--45-auto-english-mode">4.5 Auto-English-Mode</h4>
 <p>Opt-in feature for vim command mode (<code>Esc</code>), CLI slash commands (<code>/</code>), etc. Off by default.</p>
@@ -575,63 +582,80 @@ unim-cli config set auto-typefix-toggle-keys ""
 <blockquote>
 <p><strong>Trigger spelling</strong>: write triggers as <code>key:&lt;key name&gt;</code> or <code>char:&lt;character&gt;</code> (e.g. <code>key:Escape</code>, <code>char:/</code>). The older prefix-less form (<code>Escape</code>) is still recognized, and modifier combinations such as <code>key:Ctrl+B</code> are allowed. The CLI and the settings app warn about specs they cannot parse when saving, and the daemon logs the parse failure — nothing is dropped silently.</p>
 </blockquote>
+<h4 id="user-guide--46-word-unit-commit-composition-commit-granularity">4.6 Word-unit commit (composition-commit granularity)</h4>
+<p>By default, UNIM commits <strong>per syllable</strong> — a syllable is finalized as soon as it is complete. Set this to <strong>word unit</strong> instead and composition accumulates as underlined preedit through a word boundary (space, punctuation) before committing all at once. <code>BackSpace</code> during composition still steps back one jamo at a time, and this meshes more naturally with AutoTypeFix's reverse correction (4.4).</p>
+<p>There are three values.</p>
+<ul>
+<li><strong>Syllable</strong>: always commit per syllable. Most predictable.</li>
+<li><strong>Word</strong>: accumulate per word in every target app.</li>
+<li><strong>Smart (default)</strong>: word-unit only in apps listed in <code>word-mode-apps</code>, syllable-unit everywhere else. The default list is just <code>winword.exe</code> (Windows), so on Linux, with nothing added, this is effectively <strong>syllable-unit with no regression</strong>.</li>
+</ul>
+<p><strong>Turning it on</strong></p>
+<pre><code class="language-bash"># Global word-unit
+unim-cli config set commit-unit word
+
+# Smart + specific apps only (e.g. LibreOffice)
+unim-cli config set commit-unit smart
+unim-cli config set word-mode-apps "winword.exe,soffice"
+</code></pre>
+<p>In the settings GUI, pick it from the <strong>Korean commit unit</strong> combo under General → Layout options. <code>word-mode-apps</code> is edited via CLI/<code>config.yaml</code> (exact match, case-insensitive). Example Linux app ID: LibreOffice is <code>soffice</code> — app IDs can be checked in the log when Mode share is set to Per-app.</p>
+<p><strong>When it doesn't apply (safety net)</strong></p>
+<ul>
+<li><strong>Terminals</strong> (ghostty, kitty, wezterm, alacritty, foot, gnome-terminal, konsole, xterm, etc.): preedit is fragile there, so it's always syllable-unit.</li>
+<li><strong>XIM</strong> (legacy xterm-family apps): structurally cannot support word-unit — always syllable-unit.</li>
+<li><strong>Pure Wayland / Flatpak/Snap (ibus)</strong>: app identification isn't available yet, so these are currently excluded (syllable-unit).</li>
+<li><strong>With moachigi (chord input) enabled</strong>: incompatible with word-unit, so it always falls back to syllable-unit.</li>
+</ul>
+<blockquote>
+<p>In word-unit mode, AutoTypeFix's reverse correction (Korean→English) only replaces the composition — it never touches already-committed text. In all of the excluded cases above, UNIM automatically falls back to syllable-unit, so it's safe to leave word-unit turned on without worrying about data loss.</p>
+</blockquote>
 <hr />
 <h3 id="user-guide--5-settings-gui-tour">5. Settings GUI Tour</h3>
-<p>Launch <code>unim-settings-gtk</code> (GTK4 + libadwaita) to tweak settings. As of v0.3.0 UNIM ships a single GUI — the Qt dialog (<code>unim-gui-qt</code>) was retired, while the tray and popup are now owned by <code>unim-indicator</code> and <code>unim-popup-service</code> respectively.</p>
-<pre><code class="language-bash">unim-gtk-settings &amp;
-unim-qt-settings &amp;     # alternative
+<p><strong><code>unim-settings</code></strong> (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. The "UNIM Settings" app-menu item, the first-run wizard, and the tray menu all launch this same executable.</p>
+<pre><code class="language-bash">unim-settings &amp;
 </code></pre>
-<p>Five pages (GTK):</p>
+<blockquote>
+<p><strong>About the legacy GTK dialog (<code>unim-settings-gtk</code>)</strong>: the old GTK4+libadwaita settings window is still shipped in the package, but it is <strong>no longer exposed in the app menu</strong> (<code>NoDisplay=true</code> in its <code>.desktop</code> file). You can still launch it directly with <code>unim-settings-gtk &amp;</code>, but new settings may not be reflected there — treat <code>unim-settings</code> above as the source of truth. The Qt dialog (<code>unim-gui-qt</code>) has already been retired; the tray icon is now owned by <code>unim-indicator</code>, and the hanja/special-char/emoji popups are owned by <code>unim-popup-service</code>, each running as its own process (see §2.5).</p>
+</blockquote>
+<p>Four pages (left-hand navigation):</p>
 <h4 id="user-guide--51-page-1--general">5.1 Page 1 — General</h4>
 <!-- screenshot: settings-general -->
-<div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Recommended</th></tr></thead><tbody>
-<tr><td><strong>Layouts &amp; keymaps</strong></td><td>Korean layout (ComboRow)</td><td><code>ko_2bulstd</code> (Dubeolsik standard)</td></tr>
-<tr><td></td><td>English layout (ComboRow)</td><td><code>qwerty</code></td></tr>
-<tr><td></td><td>Emoji input (Switch)</td><td>ON — type aliases like <code>:smile:</code></td></tr>
-<tr><td><strong>Korean layout options</strong></td><td>Dynamic SwitchRows</td><td>Reconfigured when layout changes. E.g. <code>ko_3bul390</code> exposes the <code>sun_arae_batchim</code> toggle</td></tr>
-<tr><td><strong>Input mode</strong></td><td>Initial mode (ComboRow)</td><td>Korean / English on daemon start</td></tr>
-<tr><td></td><td>Mode share (ComboRow)</td><td><code>per-window</code> (recommended) / <code>global</code></td></tr>
-<tr><td></td><td>Popup mode (ComboRow)</td><td><code>Standalone</code> (default) / <code>Embedded</code> (X11 only)</td></tr>
-<tr><td><strong>Auto-English-Mode</strong></td><td>Enable (Switch)</td><td>OFF (default). Vim users may want ON</td></tr>
-<tr><td><strong>Accessibility</strong></td><td>Suppress Composition Key Auto-repeat (Switch)</td><td>OFF (default). Ignores the auto-repeat you get from holding a key — see the note below</td></tr>
+<div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Note</th></tr></thead><tbody>
+<tr><td><strong>Layout options</strong></td><td>Korean layout / English layout</td><td>e.g. <code>ko_2bulstd</code> (Dubeolsik standard) — see §7.1. Layout-specific dynamic options (e.g. Sebeolsik 390's "sun-arae batchim") also appear here</td></tr>
+<tr><td></td><td>Korean commit unit</td><td><code>Syllable</code> / <code>Word</code> / <code>Smart</code> — see <a href="#user-guide--46-word-unit-commit-composition-commit-granularity">4.6</a></td></tr>
+<tr><td><strong>Input mode</strong></td><td>Initial mode</td><td>Korean or English when the daemon starts</td></tr>
+<tr><td></td><td>Mode share</td><td><code>Global</code> (default) / <code>Per-app</code> — see <a href="#user-guide--41-koreanenglish-mode-toggle">4.1</a></td></tr>
+<tr><td></td><td>Per-app rules</td><td>Add rules so specific apps (matched by window/client-name substring) always start in a given mode. Most useful when Mode share = Per-app</td></tr>
+<tr><td><strong>Auto-English-Mode</strong></td><td>Enable switch + trigger keys</td><td>Off by default — see <a href="#user-guide--45-auto-english-mode">4.5</a></td></tr>
+<tr><td><strong>Accessibility</strong></td><td>One-click presets ("One-hand use" / "Relaxed timing") + individual switches</td><td>See below</td></tr>
 </tbody></table>
 </div>
 <blockquote>
-<p><strong>Suppress Composition Key Auto-repeat (accessibility)</strong>: When you hold a key down, the OS re-fires it rapidly (auto-repeat); enabling this option makes the daemon ignore those repeats. It is meant for users with motor disabilities who tend to hold keys too long (e.g. tremor). Suppression applies to the <strong>Korean/English toggle key and character keys in Korean mode</strong>; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. Wayland, Qt5/6, and the GNOME extension detect repeats precisely; the GTK3/4, XIM, and ibus-compatible paths approximate with an 80 ms time window, so the first repeat may slip through and, if your system key-repeat interval is set longer than 80 ms, repeats may not be filtered (in either case it errs toward suppressing less, fail-safe). The default is off; you can also enable it with <code>unim-cli config set ignore-key-repeat true</code>. GNOME extension users: applies after re-login.</p>
+<p><strong>Accessibility presets</strong>: "One-hand use" applies the Sebeolsik-noshift layout + a non-modifier toggle key + moachigi off + auto-repeat suppression, all at once. "Relaxed timing" applies auto-repeat suppression + a wider typo-correction detection window + (on layouts that support it) a wider moachigi chord window. Either preset can still be fine-tuned afterward with the individual switches.</p>
+<p><strong>Suppress Composition Key Auto-repeat (accessibility)</strong>: When you hold a key down, the OS re-fires it rapidly (auto-repeat); enabling this option makes the daemon ignore those repeats. It is meant for users with motor disabilities who tend to hold keys too long (e.g. tremor), and it is <strong>now enforced by the daemon on both Windows and Linux</strong> (Linux enforcement was previously missing; fixed in v0.4.0). Suppression applies to the <strong>Korean/English toggle key and character keys in Korean mode</strong>; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. Wayland, Qt5/6, and the GNOME extension detect repeats precisely; the GTK3/4, XIM, and ibus-compatible paths approximate with an 80 ms time window, so the first repeat may slip through and, if your system key-repeat interval is set longer than 80 ms, repeats may not be filtered (in either case it errs toward suppressing less, fail-safe). The default is off; you can also enable it with <code>unim-cli config set ignore-key-repeat true</code>. GNOME extension users: applies after re-login.</p>
+<p><strong>Emoji input</strong> has no separate switch — it shares the hanja-popup path and is always on; call it with <code>Super+.</code> (or whatever shortcut you registered) — see the <a href="#keyboard-shortcuts--emoji-popup-shortcut-super">keyboard shortcuts guide</a>.</p>
+<p><strong>GNOME-extension-only settings</strong> (whether the panel indicator is shown, the manual conversion shortcuts, etc.) live in <code>gnome-extensions prefs unim-gnome@from104.github.io</code>, not in this app — see the <a href="#keyboard-shortcuts">keyboard shortcuts guide's GNOME section</a>.</p>
 </blockquote>
 <h4 id="user-guide--52-page-2--type-correction">5.2 Page 2 — Type Correction</h4>
 <!-- screenshot: settings-typefix -->
-<p>GTK settings app (the three toggle-hotkey fields are distributed across their feature groups):</p>
-<div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Meaning</th></tr></thead><tbody>
-<tr><td><strong>Common (master)</strong></td><td>Enabled (Switch)</td><td>Master toggle</td></tr>
-<tr><td></td><td>Master toggle hotkey (LineEdit)</td><td>Turn all correction on/off with the given key. Empty = disabled, single keys only — see 4.4</td></tr>
-<tr><td></td><td>Rollback detection (Switch)</td><td>Auto-learn on BS+mode-switch. ON by default</td></tr>
-<tr><td></td><td>Observation window (sec) (Slider)</td><td>Default 10, range 5–15</td></tr>
-<tr><td></td><td>Tentative expiry (h) (Slider)</td><td>Default 1, range 1–12</td></tr>
-<tr><td><strong>Forward (en→ko)</strong></td><td>Enable (Switch)</td><td><code>gksrmf</code>→<code>한글</code></td></tr>
-<tr><td></td><td>Forward toggle hotkey (LineEdit)</td><td>Toggle only forward correction — see 4.4</td></tr>
-<tr><td></td><td>Skip in English mode (Switch)</td><td>ON recommended</td></tr>
-<tr><td><strong>Reverse (ko→en)</strong></td><td>Enable (Switch)</td><td><code>ㅈㅐㅍㅁ</code>→<code>wave</code></td></tr>
-<tr><td></td><td>Reverse toggle hotkey (LineEdit)</td><td>Toggle only reverse correction — see 4.4</td></tr>
-<tr><td></td><td>Skip incomplete syllables (Switch)</td><td>ON recommended</td></tr>
-<tr><td></td><td>User-dictionary only (Switch)</td><td>OFF: also use built-in mappings</td></tr>
+<div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Note</th></tr></thead><tbody>
+<tr><td><strong>Enable</strong></td><td>Enable AutoTypeFix</td><td>Master switch. OFF stops both forward and reverse</td></tr>
+<tr><td><strong>Correction strength</strong></td><td>Conservative / Standard / Aggressive presets</td><td>Tunes thresholds, minimum word length, and detection window all at once. The "Advanced settings" section below still lets you fine-tune individual values</td></tr>
+<tr><td><strong>Direction</strong></td><td>Enable forward / Enable reverse</td><td>Each can be toggled independently — see 4.4</td></tr>
+<tr><td><strong>Toggle hotkeys</strong></td><td>Master on/off, Forward on/off, Reverse on/off (three fields, one group)</td><td>Toggle instantly with the assigned key. Leave empty to disable. Modifier combos like <code>Shift+F9</code> are allowed — see 4.4</td></tr>
+<tr><td><strong>Advanced settings</strong> (collapsible)</td><td>Korean-syllable threshold / English minimum word length / forward &amp; reverse detection windows (ms) / Tentative expiry (hours) / Observation timeout (sec) — all sliders</td><td>The "Correction strength" presets above cover most cases</td></tr>
+<tr><td><strong>Options</strong> (inside Advanced)</td><td>Skip English words / Skip complete syllables / Rollback detection / User-dictionary only</td><td>—</td></tr>
+<tr><td>—</td><td>Restore defaults</td><td>Resets AutoTypeFix settings to their initial values (undo within 5 seconds)</td></tr>
 </tbody></table>
-</div>
-<blockquote>
-<p>The Slint settings app (<code>unim-settings</code>, including Windows) gathers the three toggle-hotkey fields into a single <strong>"Toggle hotkeys"</strong> group (LineEdit ×3).</p>
-</blockquote>
-<h4 id="user-guide--53-page-3--suppression-words">5.3 Page 3 — Suppression Words</h4>
+</div><h4 id="user-guide--53-page-3--suppression-words">5.3 Page 3 — Suppression Words</h4>
 <!-- screenshot: settings-blacklist -->
-<p>Three sections: <strong>Tentative</strong> / <strong>Confirmed</strong> / <strong>Inactive</strong>, each with [Confirm]/[Deactivate]/[Remove]/[Reactivate] row buttons.</p>
+<p>A single list shows <strong>Tentative</strong>, <strong>Confirmed</strong>, and <strong>Inactive</strong> suppressions together (distinguished by a status badge, unlike the old GTK dialog's three separate sections). Select an entry and choose <strong>Confirm</strong> (promotes to Confirmed) or <strong>Delete</strong>; <strong>Clear all</strong> empties the whole list (undo within 5 seconds).</p>
 <blockquote>
-<p>Even if the daemon updates the file, the GUI polls mtime every 2 s and refreshes automatically. No manual reload.</p>
+<p>Even if the daemon updates the file, the GUI refreshes immediately. No manual reload needed.</p>
 </blockquote>
 <h4 id="user-guide--54-page-4--user-dictionary-reverse-whitelist">5.4 Page 4 — User Dictionary (reverse whitelist)</h4>
 <!-- screenshot: settings-userdict -->
-<p>Map English ↔ Korean jamo sequences directly. E.g. <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. Reverse correction prefers user-dict entries.</p>
-<h4 id="user-guide--55-page-5--gnome-shell">5.5 Page 5 — GNOME Shell</h4>
-<!-- screenshot: settings-gnome -->
-<p>Visible only in a GNOME session. Indicator and key-interception options for the extension.</p>
+<p>Enter a <strong>word</strong> and an optional <strong>note</strong>, then <strong>Add</strong>, to register an English ↔ Korean-jamo-sequence mapping. E.g. <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. Select an entry below and <strong>Delete</strong> to remove it. Reverse correction prefers user-dict entries.</p>
 <hr />
 <h3 id="user-guide--56-keyboard-layout-tools-keymap-studio--typing-practice">5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)</h3>
 <p>Separate from the settings GUI, two GTK4 companion tools ship with UNIM for viewing, editing,
@@ -724,22 +748,29 @@ unim-cli -o out.txt input.txt                 # File I/O
 <li>English: <code>qwerty</code>, <code>dvorak</code>, <code>colemak</code>, <code>colemak_dh</code>, <code>workman</code></li>
 </ul>
 <h4 id="user-guide--72-settings-management">7.2 Settings management</h4>
-<pre><code class="language-bash">unim-cli config list
-unim-cli config get auto_typefix.enabled
-unim-cli config set auto_typefix.tentative_expiry_hours 6
-unim-cli config set engine.auto_english.enabled true
+<pre><code class="language-bash"># Show the full current config (or grep for a specific key)
+unim-cli config show
+
+# Set a value — key names take kebab-case (hyphens) only
+unim-cli config set auto-typefix true
+unim-cli config set auto-typefix-tentative-expiry-hours 6
+unim-cli config set auto-english true
+
+# Korean commit unit (syllable/word/smart) — see 4.6
+unim-cli config set commit-unit word
 
 # AutoTypeFix toggle hotkeys (comma-separated; modifier combos allowed) — see 4.4
 unim-cli config set auto-typefix-toggle-keys "Shift+F8"
 unim-cli config set auto-typefix-forward-toggle-keys F10
 unim-cli config set auto-typefix-reverse-toggle-keys F11
 
-unim-cli config layout list
-unim-cli config layout describe ko_3bul390
-unim-cli config layout validate my.json
+# Layout profile management
+unim-cli config layout list                    # built-in + user profiles
+unim-cli config layout describe ko_3bul390     # profile details
+unim-cli config layout validate my.json        # validate a custom layout
 </code></pre>
 <blockquote>
-<p>Setting changes apply to the daemon immediately. config.yaml ↔ <code>unim-cli</code> ↔ GTK GUI are synchronized at three points by design.</p>
+<p>Setting changes apply to the daemon immediately. config.yaml ↔ <code>unim-cli</code> ↔ the settings GUI (<code>unim-settings</code>) are kept in sync at all three points by design.</p>
 </blockquote>
 <hr />
 <h3 id="user-guide--8-config-files--backup">8. Config files / backup</h3>
@@ -760,12 +791,13 @@ systemctl --user restart unim-daemon
 <ul>
 <li>Something off → <a href="#troubleshooting">troubleshooting</a></li>
 <li>Compare with other IMEs / migration → <a href="#faq">FAQ</a></li>
-<li>0.2.0 changes / migration → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">release notes</a></li>
+<li>0.4.0 changes → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.en.md">release notes 0.4.0</a></li>
+<li>Older release notes → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.en.md">0.3.0</a> / <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">0.2.0</a></li>
 <li>Want to contribute → <a href="https://github.com/from104/unim/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a></li>
 <li>Behavior spec → <a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a>, <a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>POPUP_SPEC.md</code></a></li>
 </ul>
 <hr />
-<p>Doc version: 0.3.0 / 2026-05-05 / License: same as the project.</p>
+<p>Doc version: 0.4.0 / 2026-07-27 / License: same as the project.</p>
 
 <a class="backtotop" href="#toc">▲ Back to contents</a>
 </section>
@@ -775,6 +807,19 @@ systemctl --user restart unim-daemon
 <blockquote>
 <p>Korean original: <a href="unim-help-ko.html#keyboard-shortcuts"><code>README-ko.md</code></a></p>
 </blockquote>
+<hr />
+<h3 id="keyboard-shortcuts--gnome-only--manual-conversion-shortcuts-on-by-default">GNOME only — manual conversion shortcuts (on by default)</h3>
+<p>On GNOME Shell (<code>unim-gnome-extension</code>), the three shortcuts below are <strong>on by default with no setup required.</strong> No other desktop/compositor (KDE, Sway, Hyprland, etc.) has them — this is a GNOME-only feature, registered directly with the Shell via <code>Main.wm.addKeybinding</code> by the GNOME extension.</p>
+<div class="tablewrap"><table><thead><tr><th>Shortcut</th><th>Action</th><th>Example</th></tr></thead><tbody>
+<tr><td><code>Super+K</code></td><td>Convert the focused word <strong>English → Korean</strong> and replace it</td><td><code>gksrmf</code> → <code>한글</code></td></tr>
+<tr><td><code>Shift+Super+K</code></td><td>Convert the focused word <strong>Korean → English</strong> and replace it</td><td><code>ㅗ디ㅣㅐ</code> → <code>hello</code></td></tr>
+<tr><td><code>Super+E</code></td><td>Read the selection and register it in the reverse (Korean→English) AutoTypeFix user dictionary</td><td>select <code>ㅎㅑㅅ</code> → registered as <code>git</code></td></tr>
+</tbody></table>
+</div>
+<p>These three are distinct from the automatic correction in <a href="#user-guide--44-autotypefix">4.4 AutoTypeFix</a> — they are <strong>manual conversions the user triggers directly</strong>. If you use <code>Super</code> combos for something else, or hit a conflict, open the extension's preferences to rebind or disable them:</p>
+<pre><code class="language-bash">gnome-extensions prefs unim-gnome@from104.github.io
+</code></pre>
+<p>Rebind or clear <code>Super+K</code> / <code>Shift+Super+K</code> in the "Conversion shortcuts" group, and <code>Super+E</code> in the "Register user dictionary" group.</p>
 <hr />
 <h3 id="keyboard-shortcuts--emoji-popup-shortcut-super">Emoji popup shortcut (<code>Super+.</code>)</h3>
 <p>UNIM can pop up an emoji picker at the last active input location. The default shortcut is <code>Super+.</code> (Meta+<code>.</code>). However, <strong>who captures the shortcut differs per environment</strong>, so on some setups you must register it yourself.</p>
@@ -914,7 +959,7 @@ needed). For usage details see
 <section class="doc" id="faq">
 <h2 id="faq--unim-faq-english">UNIM FAQ (English)</h2>
 <blockquote>
-<p>The questions people actually ask about UNIM 0.3.0.
+<p>The questions people actually ask about UNIM 0.4.0.
 Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.</p>
 </blockquote>
 <hr />
@@ -1058,13 +1103,13 @@ unim-cli config set korean.layout my
 <h3 id="faq--q9-does-unim-intercept-passwords">Q9. Does UNIM intercept passwords?</h3>
 <p><strong>No.</strong> Password fields are detected via <code>content_purpose</code> and forced to English. AutoTypeFix (both forward and reverse), hanja conversion, and the special-char popup are all disabled. Any keystroke-observation buffer and undo history already accumulated are cleared too, so a password typed like <code>dkssud</code> is never auto-corrected into Korean and corrupted. The input is not retained in daemon memory.</p>
 <blockquote>
-<p>Caveat: this works only when the app accurately reports <code>content_purpose=password</code>. Environments that do not report it — <strong>legacy XIM apps, custom-drawn password boxes in Windows IMM32 apps (only standard Edit/RichEdit controls with ES_PASSWORD are detected there), and some Wayland compositors/web forms that do not send content-purpose</strong> — may fail to auto-detect; verify English mode manually via the Hangul key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF; Windows IMM32 detects standard ES_PASSWORD controls on a best-effort basis.)</p>
+<p>Caveat: automatic detection only works when the app accurately reports <code>content_purpose=password</code> (Linux) or <code>InputScope</code> (Windows). Environments that do not report it — <strong>legacy XIM apps, and some Wayland compositors/web forms that do not send content-purpose</strong> — may fail to auto-detect; verify English mode manually via the toggle key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF — both 64-bit and 32-bit apps are detected the same way, via the <code>unim_tsf32.dll</code> TSF TIP's <code>InputScope</code>. If you've seen a claim that "Windows IMM32 apps are detected on a best-effort basis for standard ES_PASSWORD controls only," that describes the IMM32 fallback, which is not actually shipped in the release — see Q11.)</p>
 </blockquote>
 <hr />
 <h3 id="faq--q9-1-why-doesnt-autotypefix-work-in-password-fields">Q9-1. Why doesn't AutoTypeFix work in password fields?</h3>
 <p><strong>This is intended.</strong> AutoTypeFix is deliberately disabled in password and PIN fields (see Q9), because otherwise a password typed like <code>dkssud</code> would flip to Korean at a word boundary and break your login. It returns to normal the moment you leave the field, and any on/off toggle state you set manually is preserved.</p>
 <blockquote>
-<p>Conversely, if correction fails in a <strong>non-password field</strong>, the cause is different → <a href="#troubleshooting">Troubleshooting</a> §8. In the undetectable environments above (XIM, custom IMM32 controls, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.</p>
+<p>Conversely, if correction fails in a <strong>non-password field</strong>, the cause is different → <a href="#troubleshooting">Troubleshooting</a> §8. In the undetectable environments above (XIM, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.</p>
 </blockquote>
 <hr />
 <h3 id="faq--q9-2-is-the-one-line-installsh-safe">Q9-2. Is the one-line <code>install.sh</code> safe?</h3>
@@ -1090,7 +1135,13 @@ unim-cli config set korean.layout my
 <p>Full migration: <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">release notes</a>.</p>
 <hr />
 <h3 id="faq--q11-does-unim-run-on-macos--windows">Q11. Does UNIM run on macOS / Windows?</h3>
-<p><strong>Linux only for now.</strong> Roadmap stage 5 lists cross-platform but it has not started. Because the Rust core and C-API are separated, in principle adapters to macOS IMKit / Windows TSF are feasible. Volunteers welcome.</p>
+<p><strong>Windows: yes — experimental. macOS: not yet.</strong></p>
+<p>As of v0.4.0, Windows 10/11 (64-bit) is supported via <code>unim-tsf</code>, built on the Text Services Framework (TSF).</p>
+<pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+</code></pre>
+<p>downloads and installs the MSI (see <a href="#user-guide--method-4--windows-experimental">user manual §2.1 Method 4</a>). 32-bit apps are handled by a separate 32-bit TSF TIP (<code>unim_tsf32.dll</code>) rather than the 64-bit TSF path. The IMM32 fallback explored earlier (the <code>unim-imm32</code> crate) remains only as diagnostic/research source that is <strong>not included in the shipped MSI</strong> — if you've seen documentation advertising an "IMM32 fallback" as a shipped feature, it's out of date.</p>
+<p>That said, Windows support as of v0.4.0 is <strong>experimental — real-device QA has not been completed yet</strong>. Basic use works, but if you hit a problem, please report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with your compositor/version info.</p>
+<p>macOS is still not started (roadmap stage 5). Because the Rust core and C-API are separated, in principle an adapter for macOS's IMKit is feasible, but nobody has started it yet. Volunteers welcome.</p>
 <hr />
 <h3 id="faq--q12-why-does-the-build-need-cargo-195">Q12. Why does the build need cargo 1.95?</h3>
 <p><code>Cargo.lock</code> is in v4 format. cargo 1.83+ handles it safely (1.95 is the version we verify). Some distros ship <code>/usr/bin/cargo</code> as 1.75; explicitly use rustup:</p>
@@ -1134,7 +1185,7 @@ cargo --version              # 1.95.0+
 <li><code>~/.config/unim/typefix-blacklist.yaml</code> — AutoTypeFix suppression dictionary</li>
 <li><code>~/.config/unim/userdict.yaml</code> — user dictionary</li>
 </ul>
-<p>Uninstalling one package format and installing the other leaves these files untouched. Note that <code>unim-gui-qt</code> was removed in 0.3.0; replace it with <code>unim-gui-gtk</code> and <code>unim-popup-service</code>.</p>
+<p>Uninstalling one package format and installing the other leaves these files untouched. Note that the <code>unim-gui-qt</code> package was removed in 0.3.0 — the tray icon, settings window, and popup renderer are now split between <code>unim-desktop</code> (indicator + legacy settings dialog + <code>unim-popup-service</code>, bundled together) and <code>unim-settings</code> (the Slint settings app). For the current full list of 11 packages, check <code>debian/control</code> or <code>dpkg -l 'unim*'</code>.</p>
 <hr />
 <h3 id="faq--q19-is-there-a-tool-to-view-edit-or-practice-keyboard-layouts">Q19. Is there a tool to view, edit, or practice keyboard layouts?</h3>
 <p>Two GTK4 companion tools ship alongside UNIM.</p>
@@ -1216,10 +1267,36 @@ Exec=/opt/google/chrome/google-chrome --enable-wayland-ime %U
 <li><strong>Try an alternative input path</strong> — for command-line use, also enable the ibus-compat path and test.</li>
 </ol>
 <hr />
+<h3 id="faq--q23-i-removed-unim-and-now-koreanenglish-toggling-doesnt-work-at-all--how-do-i-go-back-to-another-ime">Q23. I removed UNIM and now Korean/English toggling doesn't work at all — how do I go back to another IME?</h3>
+<p><strong>Removing UNIM does not automatically restore the system IME setting.</strong> If you removed IBus with <code>sudo apt remove ibus</code> while installing UNIM (as Q2 recommends), the "current IME = unim" setting made by <code>im-config -n unim</code> (or by enabling the GNOME+Wayland extension) survives even after you remove the UNIM package. Log back in after that and you're left with <code>run_im unim</code> pointing at a binary that no longer exists — <strong>no IME starts at all, and Korean/English toggling stops working entirely.</strong></p>
+<h4 id="faq--before-removing-unim-recommended">Before removing UNIM (recommended)</h4>
+<p>Switch back to another IME <strong>before</strong> removing UNIM.</p>
+<pre><code class="language-bash"># Example: install ibus-hangul first if you want to go back to it
+sudo apt install ibus ibus-hangul
+
+# Point im-config back
+im-config -n ibus
+# Or let it auto-pick from what's installed
+im-config -n auto
+
+# Now remove UNIM (all packages at once — shell glob)
+sudo apt remove 'unim*'
+</code></pre>
+<h4 id="faq--if-you-already-removed-it-and-korean-input-is-completely-broken">If you already removed it and Korean input is completely broken</h4>
+<ol>
+<li>Run <code>im-config -n auto</code> to auto-reassign to whatever IME is installed. If nothing is installed, <code>sudo apt install ibus ibus-hangul</code> first, then rerun it.</li>
+<li>Check <code>~/.xinputrc</code> directly — if <code>run_im unim</code> is still there, delete it or replace it with another IME's name (on a GNOME+Wayland session this file may not be used at all — see <a href="#user-guide--22-environment-variables-any-desktop-without-gnome-extension">user manual §2.2</a>).</li>
+<li>Log out and back in.</li>
+</ol>
+<blockquote>
+<p>This removal/rollback path is managed by Debian/Ubuntu's <code>im-config</code> framework, not by UNIM's package scripts, so UNIM cannot automatically revert it. The manual steps above are currently the only recovery path.</p>
+</blockquote>
+<hr />
 <h3 id="faq--read-more">Read more</h3>
 <ul>
 <li><a href="#user-guide">User manual</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.en.md">Release notes 0.4.0</a></li>
 <li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.en.md">Release notes 0.3.0</a></li>
 <li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">Release notes 0.2.0</a></li>
 <li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a></li>
@@ -1231,7 +1308,7 @@ Exec=/opt/google/chrome/google-chrome --enable-wayland-ime %U
 <section class="doc" id="troubleshooting">
 <h2 id="troubleshooting--unim-troubleshooting-english">UNIM Troubleshooting (English)</h2>
 <blockquote>
-<p>UNIM 0.3.0 — organized as Symptom → first diagnosis → second-level command → fix.
+<p>UNIM 0.4.0 — organized as Symptom → first diagnosis → second-level command → fix.
 Covers 14 commonly seen symptoms, from "Korean never types" to "broken in one specific app".</p>
 </blockquote>
 <p>Every diagnosis starts with two questions: <strong>is the daemon alive?</strong> and <strong>what does the log say?</strong></p>
@@ -1313,9 +1390,12 @@ journalctl --user -u gnome-shell -b | grep -i unim
 <hr />
 <h3 id="troubleshooting--5-hanja-popup-never-appears">5. "Hanja popup never appears"</h3>
 <h4 id="troubleshooting--diagnosis-3">Diagnosis</h4>
-<pre><code class="language-bash">unim-cli config get popup_mode
+<pre><code class="language-bash"># Is the popup renderer alive? (X11/KDE/Xfce — if not, see §16)
+pgrep -a unim-popup
+# On GNOME Wayland, is the extension enabled?
+gnome-extensions list --enabled | grep unim
 
-# Are DBus signals being emitted?
+# Are DBus signals being emitted? (in a separate terminal)
 busctl --user monitor org.atit.unim.InputMethod
 # Then type Korean and press Hanja → ShowHanjaPopup signal should appear
 </code></pre>
@@ -1331,20 +1411,14 @@ busctl --user monitor org.atit.unim.InputMethod
 special-char / emoji popups is centralized in <code>unim-popup-service</code> (or the GNOME
 extension). Diagnosis therefore checks whether the renderer process is alive, not <code>popup_mode</code>.</p>
 </blockquote>
-<pre><code class="language-bash"># X11/KDE/Xfce: is popup-service running? (if not, see §16)
-pgrep -a unim-popup
-# GNOME Wayland: is the extension enabled?
-gnome-extensions list --enabled | grep unim
-</code></pre>
 <blockquote>
 <p><strong>DBus dead?</strong>: <code>busctl --user list | grep atit</code> — if empty, the daemon failed to register. Check <code>journalctl --user -u unim-daemon -n 100</code>.</p>
 </blockquote>
 <hr />
 <h3 id="troubleshooting--6-special-character-popup-never-appears">6. "Special-character popup never appears"</h3>
 <p>Same code path as Hanja popup, so the cause is similar.</p>
-<pre><code class="language-bash">unim-cli config get current_mode    # must be Korean
-</code></pre>
-<p>Type one consonant (ㄱ–ㅎ), then Hanja. Works cleanly on Dubeolsik; on Sebeolsik the consonant entry is different.</p>
+<p>There is no CLI key to query the current input mode (Korean/English) — check via the tray icon or the GNOME extension indicator instead. Type one consonant (ㄱ–ㅎ) while in Korean mode, then press Hanja.</p>
+<p>Works cleanly on Dubeolsik; on Sebeolsik the consonant entry is different.</p>
 <hr />
 <h3 id="troubleshooting--7-hanja-popup-shows-only-9-cells-period-toggle-does-nothing">7. "Hanja popup shows only 9 cells, period toggle does nothing"</h3>
 <h4 id="troubleshooting--diagnosis-4">Diagnosis</h4>
@@ -1394,9 +1468,7 @@ grep -i 'ToggleExpanded\|9x9\|expanded' ~/.unim-errors.log
 <hr />
 <h3 id="troubleshooting--8-autotypefix-not-firing">8. "AutoTypeFix not firing"</h3>
 <h4 id="troubleshooting--diagnosis-5">Diagnosis</h4>
-<pre><code class="language-bash">unim-cli config get auto_typefix.enabled
-unim-cli config get auto_typefix.forward.enabled
-unim-cli config get auto_typefix.reverse.enabled
+<pre><code class="language-bash">unim-cli config show | grep -i typefix         # master/forward/reverse enabled state
 cat ~/.config/unim/typefix-blacklist.yaml | head -50
 </code></pre>
 <h4 id="troubleshooting--fix-7">Fix</h4>
@@ -1411,9 +1483,8 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50
 <h4 id="troubleshooting--cause-1">Cause</h4>
 <p>Password protection (<a href="#faq">FAQ</a> Q9) works only when the app reports "this field is a password" (<code>content_purpose</code>). The environments below cannot deliver that signal to UNIM, so the password field is treated as a normal field.</p>
 <div class="tablewrap"><table><thead><tr><th>Environment</th><th>Status</th><th>Reason</th></tr></thead><tbody>
-<tr><td>GTK3/4, Qt5/6, GNOME extension, Windows TSF</td><td>Detected</td><td>content_purpose / InputScope delivered correctly</td></tr>
+<tr><td>GTK3/4, Qt5/6, GNOME extension, Windows TSF (both 64-bit and 32-bit <code>unim_tsf32.dll</code>)</td><td>Detected</td><td>content_purpose / InputScope delivered correctly</td></tr>
 <tr><td>Legacy XIM apps</td><td>Not detected</td><td>XIM protocol has no such signal</td></tr>
-<tr><td>Windows IMM32 fallback</td><td>Partial (best-effort)</td><td>Standard Edit/RichEdit + ES_PASSWORD style only; custom-drawn controls undetectable</td></tr>
 <tr><td>Some Wayland compositors / web forms</td><td>Not detected</td><td>content-purpose not sent (app/compositor's discretion)</td></tr>
 <tr><td>GTK apps that change purpose after focus</td><td>Not detected</td><td>The GTK IM reads input-purpose only at focus time and does not subscribe to <code>notify::input-purpose</code> (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus</td></tr>
 </tbody></table>
@@ -1441,7 +1512,7 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50
 <h4 id="troubleshooting--diagnosis-6">Diagnosis</h4>
 <pre><code class="language-bash">ls -la ~/.config/unim/
 test -w ~/.config/unim/config.yaml &amp;&amp; echo writable || echo BLOCKED
-unim-cli config list 2&gt;&amp;1 | head -5
+unim-cli config show 2&gt;&amp;1 | head -5
 journalctl --user -u unim-daemon -n 50
 </code></pre>
 <h4 id="troubleshooting--fix-10">Fix</h4>
@@ -1477,6 +1548,11 @@ flatpak override --user --env=QT_IM_MODULE= --env=GTK_IM_MODULE=
 flatpak kill org.telegram.desktop
 </code></pre>
 <p>On X11 or non-GNOME you actually need to keep the env vars — auto-handling fires only on GNOME+Wayland.</p>
+<blockquote>
+<p>⚠️ <strong>Persists after uninstalling UNIM</strong>: this override is written permanently to your per-user <code>~/.local/share/flatpak/overrides/global</code> file and is not reverted automatically when the <code>unim</code> package is removed. If you switch to another input method and Flatpak apps start misbehaving, unset it yourself:</p>
+<pre><code class="language-bash">flatpak override --user --unset-env=QT_IM_MODULE --unset-env=GTK_IM_MODULE
+</code></pre>
+</blockquote>
 <hr />
 <h3 id="troubleshooting--13-korean-broken-in-snap-apps">13. "Korean broken in Snap apps"</h3>
 <p>Snap inherits host env vars but offers no global-override mechanism.</p>
@@ -1522,21 +1598,21 @@ unim-cli config show | grep -E 'layout|keymap'
 <h4 id="troubleshooting--15-2-chord_window_ms-is-too-short">15-2. chord_window_ms is too short</h4>
 <p>The recommended default for <code>chord_window_ms</code> is <strong>60 ms</strong>. If you are new to moachigi or type at a moderate pace, start at <strong>80–100 ms</strong> and lower the value as you become comfortable.</p>
 <pre><code class="language-bash"># Check current setting
-unim-cli config get korean.chord_window_ms
+unim-cli config show | grep chord-window
 
 # Set to 80 ms
-unim-cli config set korean.chord_window_ms 80
+unim-cli config set korean-chord-window-ms 80
 </code></pre>
-<p>Alternatively, use the GTK settings dialog → Keyboard → <strong>Chord Window (ms)</strong> slider.</p>
+<p>Alternatively, use the settings app (<code>unim-settings</code>) → General page → layout options (shown only for chord-capable layouts) → slider.</p>
 <h4 id="troubleshooting--15-3-bidirectional_combine-is-off">15-3. bidirectional_combine is off</h4>
 <p>If reverse-order jamo combinations do not work (e.g., ᆯ+ᆨ → ᆰ, or ㅎ+ㄱ → ㅋ), the <strong>Bidirectional Jamo Combine</strong> option is disabled.</p>
 <pre><code class="language-bash"># Check current state
-unim-cli config get korean.bidirectional_combine
+unim-cli config show | grep bidirectional-combine
 
 # Enable
-unim-cli config set korean.bidirectional_combine true
+unim-cli config set korean-bidirectional-combine true
 </code></pre>
-<p>Or use the GTK settings dialog → Keyboard → <strong>Bidirectional Jamo Combine</strong> toggle → ON.</p>
+<p>Or in the settings app (<code>unim-settings</code>) → General page → layout options → <strong>Bidirectional Jamo Combine</strong> toggle → ON.</p>
 <h4 id="troubleshooting--15-4-keyboard-does-not-support-nkro-ghosting">15-4. Keyboard does not support NKRO (ghosting)</h4>
 <p>Standard membrane keyboards are limited to 2–3 KRO (Key Rollover). When more keys are pressed simultaneously than the keyboard can report, the extras are silently dropped — this is called <strong>ghosting</strong>. Symptoms include chords that are consistently incomplete or produce the wrong jamo.</p>
 <p>Self-diagnosis:</p>
@@ -1581,7 +1657,7 @@ make build 2&gt;&amp;1 | tee /tmp/unim-build.log
   echo "=== daemon ==="
   systemctl --user status unim-daemon --no-pager
   echo "=== config ==="
-  unim-cli config list
+  unim-cli config show
   echo "=== logs (last 200) ==="
   tail -n 200 ~/.unim-errors.log 2&gt;/dev/null
 } &gt; unim-report.txt
@@ -1613,12 +1689,10 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 <h5 id="troubleshooting--fixes">Fixes</h5>
 <ul>
 <li>
-<p>If the service file is absent, <code>unim-popup-service</code> is not installed.</p>
-<pre><code class="language-bash"># deb
-sudo apt install ./unim-popup-service_0.3.0_amd64.deb
-# rpm
-sudo dnf install ./unim-popup-service-0.3.0.x86_64.rpm
-# from source
+<p>If the service file is absent, the <strong><code>unim-desktop</code></strong> package (which bundles <code>unim-popup-service</code> together with the indicator and the legacy settings dialog) is not installed — <code>unim-popup-service</code> is not a standalone package.</p>
+<pre><code class="language-bash"># deb (match the version to whatever you actually downloaded)
+sudo apt install ./unim-desktop_&lt;version&gt;_amd64.deb
+# or, from source
 sudo make install PREFIX=/usr
 </code></pre>
 </li>
@@ -1672,19 +1746,37 @@ journalctl --user -t unim-popup-service -b --no-pager
 <li>9-cell ↔ 81-cell toggle blocked → period (<code>.</code>) key intercepted elsewhere; check keymap.</li>
 <li>Bookmark (★) sync: <code>HanjaBookmarkChanged</code> signal not reaching listeners → <code>busctl --user monitor org.atit.unim.InputMethod</code>.</li>
 </ul>
-<h4 id="troubleshooting--e-environment-matrix-as-of-030">E. Environment matrix as of 0.3.0</h4>
+<h4 id="troubleshooting--e-cli-korean-text-renders-garbled">E. CLI Korean text renders garbled</h4>
+<ul>
+<li>Locale not installed: <code>sudo locale-gen ko_KR.UTF-8</code></li>
+<li>gettext <code>.mo</code> file missing: <code>ls /usr/share/locale/ko/LC_MESSAGES/unim*.mo</code></li>
+</ul>
+<h4 id="troubleshooting--f-unim-cli-config-set-doesnt-show-up-in-the-gui">F. <code>unim-cli config set</code> doesn't show up in the GUI</h4>
+<ul>
+<li>The daemon failed to hot-reload on mtime change → <code>pkill -SIGHUP unim-daemon</code></li>
+<li>Possible 5-point sync breakage → verify the CLI/engine/GUI/locale/DBus all got updated together</li>
+</ul>
+<h4 id="troubleshooting--g-environment-matrix-reconfirmed-for-040--originally-written-for-030">G. Environment matrix (reconfirmed for 0.4.0 — originally written for 0.3.0)</h4>
 <div class="tablewrap"><table><thead><tr><th>Environment</th><th>Support</th><th>Notes</th></tr></thead><tbody>
 <tr><td>GNOME Wayland</td><td>✅ Validated</td><td>GNOME extension <code>popup_view.js</code> (St widgets) renders popups directly</td></tr>
 <tr><td>GNOME X11</td><td>✅ Validated</td><td>popup-service GTK4 + GNOME extension assist</td></tr>
 <tr><td>X11 + KDE Plasma 5.x</td><td>✅ Validated</td><td>popup-service GTK4</td></tr>
 <tr><td>X11 + XFCE / MATE / Cinnamon / LXDE</td><td>✅ Validated</td><td>popup-service GTK4</td></tr>
 <tr><td>Wayland + KDE Plasma 5.x</td><td>❌ Unsupported</td><td><code>gtk4-layer-shell</code> missing in Ubuntu 24.04 (noble) standard repos → use X11 session or GNOME</td></tr>
-<tr><td>Wayland + KDE Plasma 6</td><td>⚠️ Experimental</td><td>Requires <code>wayland-backend</code> feature + <code>libgtk4-layer-shell</code>. Not exercised in 0.3.0 QA</td></tr>
+<tr><td>Wayland + KDE Plasma 6</td><td>⚠️ Experimental</td><td>Requires <code>wayland-backend</code> feature + <code>libgtk4-layer-shell</code>. Not exercised in 0.4.0 QA either (unchanged since 0.3.0)</td></tr>
 <tr><td>Sway / Hyprland / river (standalone Wayland)</td><td>⚠️ Experimental</td><td>Same as above. Possible regressions in popup placement and IME focus handover</td></tr>
 <tr><td>Weston etc. reference Wayland</td><td>⚠️ Experimental</td><td>Same as above</td></tr>
 </tbody></table>
 </div>
+<blockquote>
+<p><strong>0.4.0 reconfirmation</strong>: the table above still holds as of the v0.4.0 release — <strong>pure (non-GNOME) Wayland still does not support the hanja/special-character popup</strong> in this release (a deliberate design constraint, unchanged), and Wayland compositors that don't go through GNOME remain "experimental". Windows (TSF, both 64-bit and 32-bit via <code>unim_tsf32.dll</code>) is a newly added <strong>experimental</strong> platform in v0.4.0 and is not included in this table — see <a href="#faq--q11-does-unim-run-on-macos--windows">FAQ Q11</a> instead.</p>
+</blockquote>
 <p>⚠️ For issues on experimental environments, please file a bug at <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
+<h4 id="troubleshooting--h-log-analysis-slash-command">H. Log-analysis slash command</h4>
+<pre><code class="language-bash"># If you're using Claude Code
+/unim-log
+</code></pre>
+<p>→ automatically classifies, summarizes, and diagnoses <code>~/.unim-errors.log</code>.</p>
 
 <a class="backtotop" href="#toc">▲ Back to contents</a>
 </section>

@@ -1,7 +1,7 @@
 # UNIM 트러블슈팅 (한국어)
 
-> UNIM 0.3.0 — 증상 → 1차 진단 → 2차 명령 → 해결 순서로 정리.
-> "한 번도 한글이 안 나간다"부터 "특정 앱에서만 깨진다"까지 자주 마주치는 14개 증상을 다룬다.
+> UNIM 0.4.0 — 증상 → 1차 진단 → 2차 명령 → 해결 순서로 정리.
+> "한 번도 한글이 안 나간다"부터 "특정 앱에서만 깨진다"까지 자주 마주치는 증상들을 다룬다.
 
 전체 진단의 출발점은 두 가지다. 하나는 **데몬이 살아 있는가**, 다른 하나는 **로그가 무엇이라고 말하는가**.
 
@@ -110,8 +110,10 @@ journalctl --user -u gnome-shell -b | grep -i unim
 ### 진단
 
 ```bash
-# 현재 팝업 모드 확인
-unim-cli config get popup_mode
+# 팝업 렌더러가 떠 있나? (X11/KDE/Xfce, 없으면 §16 참고)
+pgrep -a unim-popup
+# GNOME Wayland라면 확장이 활성 상태인가?
+gnome-extensions list --enabled | grep unim
 
 # DBus 시그널이 발행되고 있나? (별도 터미널에서 monitor)
 busctl --user monitor org.atit.unim.InputMethod
@@ -127,15 +129,8 @@ busctl --user monitor org.atit.unim.InputMethod
 | Wayland (KDE Plasma 6 / Sway 등) | `unim-popup-service` (GTK4, wayland-backend) | `libgtk4-layer-shell` 필요, 실험적 — [팝업 명세](../../dev/specs/POPUP_SPEC.md) §12 참고 |
 
 > 0.3.0부터 IM 모듈은 더 이상 자체 팝업을 그리지 않는다. 한자·특수문자·이모지 팝업 렌더링은
-> 전부 `unim-popup-service`(또는 GNOME extension)로 중앙화됐다. 따라서 진단도 popup_mode가
-> 아니라 렌더러 프로세스가 살아 있는지를 본다.
-
-```bash
-# X11/KDE/Xfce: popup-service 가 떠 있나? (없으면 §16 참고)
-pgrep -a unim-popup
-# GNOME Wayland: extension 이 활성인가?
-gnome-extensions list --enabled | grep unim
-```
+> 전부 `unim-popup-service`(또는 GNOME extension)로 중앙화됐다. 진단은 (이제는 존재하지 않는
+> `popup_mode` 설정이 아니라) 위처럼 렌더러 프로세스가 살아 있는지를 본다.
 
 > **DBus가 죽었을 때**: `busctl --user list | grep atit` → 비어 있으면 데몬이 서비스 등록을 못 한 것. `journalctl --user -u unim-daemon -n 100` 로그 확인.
 
@@ -145,10 +140,7 @@ gnome-extensions list --enabled | grep unim
 
 원인 거의 동일 (한자 팝업과 같은 코드 경로).
 
-```bash
-# 한글 모드인지, 자음 1글자만 입력한 상태인지 확인
-unim-cli config get current_mode    # Korean 이어야 함
-```
+현재 입력 모드(한글/영문)는 CLI 로 조회하는 키가 따로 없다 — 트레이 아이콘 또는 GNOME 확장 인디케이터 표시로 확인한다. 한글 모드에서 자음(초성) 1글자만 입력한 상태로 한자 키를 눌러야 특수문자 팝업이 뜬다.
 
 ㄱ~ㅎ 입력 후 한자 키. 한국어 자판이 두벌식이면 잘 동작, 세벌식이면 자음 입력 자체가 다를 수 있음.
 
@@ -218,9 +210,7 @@ XIM(`unim-frontends/xim`)에서 이모지 popup을 띄우면 카테고리 탭(�
 ### 진단
 
 ```bash
-unim-cli config get auto_typefix.enabled              # true 인가
-unim-cli config get auto_typefix.forward.enabled      # 방향별
-unim-cli config get auto_typefix.reverse.enabled
+unim-cli config show | grep -i typefix         # 전체/순방향/역방향 사용 여부 확인
 cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 ```
 
@@ -241,9 +231,8 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 
 | 환경 | 상태 | 이유 |
 |------|------|------|
-| GTK3/4, Qt5/6, GNOME 확장, Windows TSF | 감지됨 | content_purpose / InputScope 정상 전달 |
+| GTK3/4, Qt5/6, GNOME 확장, Windows TSF(64비트·32비트 `unim_tsf32.dll` 모두) | 감지됨 | content_purpose / InputScope 정상 전달 |
 | XIM 레거시 앱 | 미감지 | XIM 프로토콜에 해당 신호가 없음 |
-| Windows IMM32 폴백 | 부분(최선노력) | 표준 Edit/RichEdit + ES_PASSWORD 스타일만 감지 — 커스텀 컨트롤은 감지 불가 |
 | 일부 Wayland 컴포지터·웹폼 | 미감지 | content-purpose 를 보내지 않음(앱/컴포지터 재량) |
 | 포커스 후 목적이 바뀌는 GTK 앱 | 미감지 | GTK IM 은 포커스 시점에만 input-purpose 를 읽고 `notify::input-purpose` 변경은 구독하지 않는다(기존 한계) — 같은 칸이 나중에 비밀번호로 바뀌면 재포커스 전까지 반영 안 됨 |
 
@@ -277,7 +266,7 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 ```bash
 ls -la ~/.config/unim/
 test -w ~/.config/unim/config.yaml && echo writable || echo BLOCKED
-unim-cli config list 2>&1 | head -5
+unim-cli config show 2>&1 | head -5
 journalctl --user -u unim-daemon -n 50
 ```
 
@@ -334,6 +323,11 @@ flatpak kill org.telegram.desktop
 ```
 
 X11이거나 GNOME이 아닌 경우는 반대로 환경변수를 **유지**해야 한다 — 자동 처리는 GNOME+Wayland에서만 발동한다.
+
+> ⚠️ **UNIM 제거 후에도 남는다**: 이 override는 사용자 전역 `~/.local/share/flatpak/overrides/global`에 영구히 기록되며, `unim` 패키지를 삭제해도 자동으로 원복되지 않는다. 다른 입력기로 옮긴 뒤 Flatpak 앱 입력이 이상하면 아래 명령으로 직접 해제해야 한다.
+> ```bash
+> flatpak override --user --unset-env=QT_IM_MODULE --unset-env=GTK_IM_MODULE
+> ```
 
 ---
 
@@ -403,7 +397,7 @@ journalctl --user -u unim-daemon -n 500 > unim-mem.log
 unim-cli config show | grep -E 'layout|keymap'
 ```
 
-출력이 모아치기 지원 자판이 아니라면 GTK 설정에서 자판을 변경해야 한다. 모아치기 지원 자판으로 바꾸면 설정 다이얼로그에 **모아치기** 그룹이 자동으로 나타난다.
+출력이 모아치기 지원 자판이 아니라면 설정 앱(`unim-settings`)에서 자판을 변경해야 한다. 모아치기 지원 자판으로 바꾸면 **모아치기** 그룹이 자동으로 나타난다.
 
 ### 15-2. chord_window_ms가 너무 짧음
 
@@ -411,13 +405,13 @@ unim-cli config show | grep -E 'layout|keymap'
 
 ```bash
 # 현재 설정값 확인
-unim-cli config get korean.chord_window_ms
+unim-cli config show | grep chord-window
 
 # 80ms로 변경
-unim-cli config set korean.chord_window_ms 80
+unim-cli config set korean-chord-window-ms 80
 ```
 
-또는 GTK 설정 다이얼로그 > 자판 > **동시 입력 시간 (ms)** 슬라이더로 조정한다.
+또는 설정 앱(`unim-settings`) 「일반」 페이지의 자판 옵션(모아치기 지원 자판에서만 표시)에서 슬라이더로 조정한다.
 
 ### 15-3. bidirectional_combine이 비활성 상태
 
@@ -425,13 +419,13 @@ unim-cli config set korean.chord_window_ms 80
 
 ```bash
 # 현재 상태 확인
-unim-cli config get korean.bidirectional_combine
+unim-cli config show | grep bidirectional-combine
 
 # 활성화
-unim-cli config set korean.bidirectional_combine true
+unim-cli config set korean-bidirectional-combine true
 ```
 
-또는 GTK 설정 다이얼로그 > 자판 > **양방향 자모 결합** 토글을 ON.
+또는 설정 앱(`unim-settings`) 「일반」 페이지 > 자판 옵션 > **양방향 자모 결합** 토글을 ON.
 
 ### 15-4. 키보드가 NKRO를 지원하지 않음 (ghosting)
 
@@ -495,7 +489,7 @@ make build 2>&1 | tee /tmp/unim-build.log
   echo "=== daemon ==="
   systemctl --user status unim-daemon --no-pager
   echo "=== config ==="
-  unim-cli config list
+  unim-cli config show
   echo "=== logs (last 200) ==="
   tail -n 200 ~/.unim-errors.log 2>/dev/null
 } > unim-report.txt
@@ -536,11 +530,11 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 
 #### 해결 방법
 
-- 서비스 파일이 없으면 `unim-popup-service` 패키지가 설치되지 않은 것이다.
+- 서비스 파일이 없으면 `unim-popup-service` 실행 파일을 담고 있는 **`unim-desktop`** 패키지(인디케이터·레거시 설정창과 한 묶음)가 설치되지 않은 것이다. `unim-popup-service` 는 독립 패키지가 아니다.
 
   ```bash
-  # deb 설치
-  sudo apt install ./unim-popup-service_0.3.0_amd64.deb
+  # deb 설치 (버전은 실제 다운로드한 파일명에 맞게)
+  sudo apt install ./unim-desktop_<버전>_amd64.deb
   # 또는 소스 빌드 후
   sudo make install PREFIX=/usr
   ```
@@ -610,7 +604,7 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 - 데몬이 mtime 핫리로드 못함 → `pkill -SIGHUP unim-daemon`
 - 5지점 sync 깨짐 가능성 → CLI/엔진/GUI/locale/dbus 5점 모두 갱신됐는지 점검.
 
-### G. 환경 매트릭스 (0.3.0 시점)
+### G. 환경 매트릭스 (0.4.0 재확인 — 최초 작성은 0.3.0)
 
 | 환경 | 지원 상태 | 비고 |
 |------|----------|------|
@@ -619,9 +613,11 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 | X11 + KDE Plasma 5.x | ✅ 검증 | popup-service GTK4 |
 | X11 + XFCE / MATE / Cinnamon / LXDE | ✅ 검증 | popup-service GTK4 |
 | Wayland + KDE Plasma 5.x | ❌ 미지원 | `gtk4-layer-shell` 미배포 (Ubuntu 24.04 noble 표준 저장소) → X11 세션 / GNOME 우회 |
-| Wayland + KDE Plasma 6 | ⚠️ 실험적 | `wayland-backend` feature + `libgtk4-layer-shell` 필요. 0.3.0 QA 미검증 |
+| Wayland + KDE Plasma 6 | ⚠️ 실험적 | `wayland-backend` feature + `libgtk4-layer-shell` 필요. 0.4.0 QA 미검증(0.3.0 이후 변경 없음) |
 | Sway / Hyprland / river (단독 Wayland) | ⚠️ 실험적 | 동상. popup 위치·IME 포커스 회귀 가능 |
 | Weston 등 reference Wayland | ⚠️ 실험적 | 동상 |
+
+> **0.4.0 재확인 결과**: 위 표는 0.4.0 릴리스 시점에도 여전히 유효하다 — **순수 Wayland(비-GNOME) 환경의 한자/특수문자 팝업은 이 릴리스에서도 미지원**이며(설계 제약, 유지), GNOME 을 거치지 않는 Wayland 컴포지터는 여전히 「실험적」 지위다. Windows(TSF, 64비트·32비트 `unim_tsf32.dll`)는 v0.4.0에서 새로 추가된 **실험적** 플랫폼이며 이 표에는 포함하지 않는다 — 별도로 [FAQ Q11](../faq/README-ko.md#q11-unim은-macoswindows에서도-되나) 참고.
 
 ⚠️ 실험적 환경에서 문제 발견 시 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보 부탁드립니다.
 

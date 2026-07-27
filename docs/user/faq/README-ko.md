@@ -1,6 +1,6 @@
 # UNIM FAQ (한국어)
 
-> UNIM 0.3.0에 대해 사람들이 정말 자주 묻는 질문 모음.
+> UNIM 0.4.0에 대해 사람들이 정말 자주 묻는 질문 모음.
 > 답에는 항상 「왜 그렇게 동작하는지」를 한 줄 이상 곁들여, 단순 사실 전달이 아니라 다음 결정에 도움이 되도록 했다.
 
 ---
@@ -164,7 +164,7 @@ systemctl --user start unim-daemon
 # 검증
 unim-cli config layout validate ~/.config/unim/layouts/my.json
 # 활성화
-unim-cli config set korean.layout my
+unim-cli config set korean-layout my
 ```
 
 스키마 상세는 [`docs/archive/plans/LAYOUT_PROFILE_V1.md`](../../archive/plans/LAYOUT_PROFILE_V1.md).
@@ -189,7 +189,7 @@ unim-cli config set korean.layout my
 
 **아니다.** 비밀번호 필드는 `content_purpose`로 식별되어 자동으로 영문 강제 전환된다. AutoTypeFix(순방향·역방향)·한자 변환·특수문자 팝업 모두 비활성화된다. 이미 쌓인 키 관측 버퍼·되돌리기 기록도 함께 지워져, `dkssud` 같은 비밀번호가 한글로 자동 교정돼 값이 깨지지 않는다. 입력값은 데몬 메모리에도 남기지 않는다.
 
-> 단, 자동 검출은 앱이 `content_purpose=password`를 정확히 보고할 때만 동작한다. 보고하지 않는 환경 — **XIM 레거시 앱, Windows IMM32 앱의 커스텀 비밀번호 칸(표준 Edit/RichEdit + ES_PASSWORD 만 감지됨), content-purpose 를 보내지 않는 일부 Wayland 컴포지터·웹폼** — 에서는 자동 감지가 안 될 수 있으니, 그런 곳에서는 직접 한/영 키로 영문 모드를 확인하길 권장한다. (정상 감지 환경: GTK3/4·Qt5/6·GNOME 확장·Windows TSF. Windows IMM32 는 표준 ES_PASSWORD 컨트롤만 최선노력 감지)
+> 단, 자동 검출은 앱이 `content_purpose=password`(리눅스) 또는 `InputScope`(Windows)를 정확히 보고할 때만 동작한다. 보고하지 않는 환경 — **XIM 레거시 앱, content-purpose 를 보내지 않는 일부 Wayland 컴포지터·웹폼** — 에서는 자동 감지가 안 될 수 있으니, 그런 곳에서는 직접 한/영 키로 영문 모드를 확인하길 권장한다. (정상 감지 환경: GTK3/4·Qt5/6·GNOME 확장·Windows TSF — 64비트·32비트 앱 모두 `unim_tsf32.dll` TSF TIP 이 동일한 `InputScope` 방식으로 감지한다. "Windows IMM32 앱은 ES_PASSWORD 표준 컨트롤만 최선노력 감지"라는 서술을 봤다면 실제 배포되지 않는 IMM32 폴백 이야기이니 무시해도 된다 — Q11 참고)
 
 ---
 
@@ -197,7 +197,7 @@ unim-cli config set korean.layout my
 
 **의도된 동작이다.** 비밀번호·PIN 칸에서는 자동 오타 교정을 일부러 끈다(Q9 참고). 켜 두면 `dkssud`처럼 친 비밀번호가 단어 경계에서 한글로 바뀌어 로그인이 깨지기 때문이다. 칸을 벗어나면 즉시 원래대로 돌아오고, 수동으로 켜고 꺼 둔 토글 상태도 그대로 유지된다.
 
-> 반대로 **비밀번호가 아닌 일반 칸인데도 교정이 안 되는** 경우는 다른 원인이다 → [트러블슈팅](../troubleshooting/README-ko.md) §8. 위에 적은 미감지 환경(XIM·IMM32 커스텀 컨트롤·일부 Wayland)에서는 비밀번호 칸이 일반 칸으로 취급돼 오히려 교정이 발동할 수 있는데, 이 한계도 트러블슈팅 §8-1 에 정리돼 있다.
+> 반대로 **비밀번호가 아닌 일반 칸인데도 교정이 안 되는** 경우는 다른 원인이다 → [트러블슈팅](../troubleshooting/README-ko.md) §8. 위에 적은 미감지 환경(XIM·일부 Wayland)에서는 비밀번호 칸이 일반 칸으로 취급돼 오히려 교정이 발동할 수 있는데, 이 한계도 트러블슈팅 §8-1 에 정리돼 있다.
 
 ---
 
@@ -230,7 +230,19 @@ C-API: `UnimEnglishLayout`/`UnimKoreanLayout` enum 제거 → C 문자열 setter
 
 ## Q11. UNIM은 macOS/Windows에서도 되나?
 
-**현재는 리눅스 전용.** 로드맵 5단계에 크로스 플랫폼이 적혀 있지만 미착수. Rust 코어와 C-API가 분리돼 있어 이론적으론 각 플랫폼의 IME 인터페이스(macOS의 IMKit, Windows의 TSF)에 어댑터를 붙이면 된다. 자원자가 있다면 환영.
+**Windows는 된다 — 단 실험적 지위다. macOS는 아직 안 된다.**
+
+v0.4.0부터 Windows 10/11(64비트)을 TSF(Text Services Framework) 기반 `unim-tsf`로 지원한다.
+
+```powershell
+irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+```
+
+로 MSI를 내려받아 설치한다([사용자 매뉴얼 §2.1 방법 4](../user-guide/README-ko.md#방법-4--windows-실험적) 참고). 32비트 앱은 64비트 TSF 대신 별도의 32비트 TSF TIP(`unim_tsf32.dll`)이 처리한다. 예전에 검토됐던 IMM32 폴백(`unim-imm32` 크레이트)은 실제 배포 MSI에는 포함되지 않는 진단·연구용 소스로만 남아 있다 — "IMM32 폴백"을 배포 기능으로 안내하는 문서를 봤다면 오래된 것이다.
+
+다만 Windows 지원은 v0.4.0 시점 **실기 QA가 완료되지 않은 실험적 지위**다 — 최소 사용은 가능하나 문제를 만나면 [GitHub Issues](https://github.com/from104/unim/issues)로 컴포지터/버전 정보와 함께 보고해 주길 권한다.
+
+macOS는 여전히 미착수다(로드맵 5단계). Rust 코어와 C-API가 분리돼 있어 이론적으론 macOS의 IMKit에 어댑터를 붙이면 되지만, 착수한 사람이 아직 없다. 자원자가 있다면 환영.
 
 ---
 
@@ -275,7 +287,7 @@ cargo --version              # 1.95.0 이상
 
 **Moachigi**(모아치기, "모아서 치기")는 입력 방식이다. 여러 자모를 동시에 또는 짧은 시간 안에 연달아 누르면 하나의 음절로 묶어서 처리한다. 일반 두벌식·세벌식이 한 키씩 순서대로 처리하는 것과 달리, 모아치기는 chord 윈도우(기본 60ms) 안에 들어온 키를 한꺼번에 처리한다.
 
-즉, 안마태 자판으로 모아치기를 하는 것이 UNIM 0.3.0의 첫 모아치기 지원이다. `supports_moachigi=true` 자판에서만 모아치기 설정 그룹이 GTK 설정창에 나타난다.
+즉, 안마태 자판으로 모아치기를 하는 것이 UNIM 0.3.0의 첫 모아치기 지원이다. `supports_moachigi=true` 자판에서만 모아치기 설정 그룹이 설정 앱(`unim-settings`)에 나타난다.
 
 ---
 
@@ -300,7 +312,7 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
 - `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix 억제 사전
 - `~/.config/unim/userdict.yaml` — 사용자 사전
 
-패키지를 제거하고 다른 형식으로 재설치해도 위 파일들은 건드리지 않는다. 단, `unim-gui-qt` 패키지는 0.3.0에서 제거됐으니 `unim-gui-gtk`와 `unim-popup-service`로 대체한다.
+패키지를 제거하고 다른 형식으로 재설치해도 위 파일들은 건드리지 않는다. 단, `unim-gui-qt` 패키지는 0.3.0에서 제거됐다 — 트레이 아이콘·설정창·팝업 렌더러는 지금 `unim-desktop`(인디케이터+레거시 설정창+`unim-popup-service` 묶음) 과 `unim-settings`(Slint 설정 앱) 두 패키지가 나눠 담당한다. 현재 배포되는 11개 패키지 전체 목록은 `debian/control` 또는 `dpkg -l 'unim*'` 로 확인.
 
 ---
 
@@ -332,7 +344,7 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
 | 일반 | 60–100ms | 대부분의 사용자에게 편안한 범위 |
 | 숙련자 | 10–60ms | 오입력 최소화, 반응 속도 우선 |
 
-`chord_window_ms`를 0으로 설정하면 모아치기가 완전히 꺼진다. 설정창의 슬라이더로 조정하거나 `unim-cli config set chord-window-ms 80` 명령을 쓴다.
+`chord_window_ms`를 0으로 설정하면 모아치기가 완전히 꺼진다. 설정창의 슬라이더로 조정하거나 `unim-cli config set korean-chord-window-ms 80` 명령을 쓴다.
 
 ## Q20. 키를 오래 누르면 글자가 여러 번 입력돼요.
 
@@ -400,10 +412,42 @@ XIM(X Input Method)은 1994년 설계된 레거시 프로토콜로, 비밀번호
 
 ---
 
+## Q23. UNIM을 제거했더니 한/영 전환이 아예 안 된다 — 다른 IME로 되돌리려면?
+
+**UNIM 제거는 시스템 입력기 지정을 자동으로 원래대로 되돌리지 않는다.** Q2 에서 안내한 대로 UNIM 을 설치하며 `sudo apt remove ibus` 로 IBus 를 지운 경우, `im-config -n unim` (또는 GNOME+Wayland 확장 활성화)으로 지정해 둔 "현재 입력기 = unim" 설정이 UNIM 패키지를 제거해도 그대로 남는다. 그 상태에서 재로그인하면 `run_im unim` 만 남고 정작 UNIM 은 없으므로 **어떤 IME 도 뜨지 않아 한/영 전환 자체가 안 되는 상태**가 된다.
+
+### 제거 전에 할 일 (권장)
+
+UNIM 을 제거하기 **전에** 다른 IME 로 먼저 되돌려 둔다.
+
+```bash
+# 예: ibus-hangul 로 되돌아가려면 먼저 설치
+sudo apt install ibus ibus-hangul
+
+# 입력기 지정을 되돌린다
+im-config -n ibus
+# 또는 사용 가능한 프로파일 중 자동 선택
+im-config -n auto
+
+# 그 다음에 UNIM 제거 (전 패키지 일괄 — 셸 glob 확장 사용)
+sudo apt remove 'unim*'
+```
+
+### 이미 제거해서 한글 입력이 전혀 안 되는 경우
+
+1. `im-config -n auto` 를 실행해 설치된 IME 중 하나로 자동 재지정한다. 아무 IME 도 안 깔려 있으면 `sudo apt install ibus ibus-hangul` 로 최소 하나를 설치한 뒤 다시 실행한다.
+2. `~/.xinputrc` 를 직접 확인해 `run_im unim` 이 남아 있다면 지우거나 다른 IME 이름으로 바꾼다(GNOME+Wayland 세션에서는 이 파일이 아예 안 쓰일 수도 있다 — [사용자 매뉴얼 §2.2](../user-guide/README-ko.md#22-환경-변수-gnome-확장을-안-쓰는-모든-데스크톱) 참고).
+3. 로그아웃 후 다시 로그인.
+
+> 이 제거·롤백 경로는 UNIM 패키지 스크립트가 아니라 데비안/우분투의 `im-config` 프레임워크가 관리하는 영역이라, UNIM 쪽에서 자동으로 원복해 주지 않는다. 위 수동 절차가 현재의 유일한 복구 방법이다.
+
+---
+
 ## 더 읽을 거리
 
 - [사용자 매뉴얼](../user-guide/README-ko.md)
 - [트러블슈팅](../troubleshooting/README-ko.md)
+- [릴리즈 노트 0.4.0](../release-notes/0.4.0/README.md)
 - [릴리즈 노트 0.3.0](../release-notes/0.3.0/README.md)
 - [릴리즈 노트 0.2.0](../release-notes/0.2.0/RELEASE_NOTES-ko.md)
 - [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)

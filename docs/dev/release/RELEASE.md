@@ -33,6 +33,11 @@ version = "X.Y.Z"
 
 # debian/changelog 새 엔트리 (X.Y.Z-1)
 
+# rpm/unim.spec — Version: X.Y.Z + %changelog 새 항목(날짜 요일 일치 확인)
+# PKGBUILD — pkgver=X.Y.Z (source=()/sha256sums=() 도 버전에 맞춰 확인)
+# unim-imm32/unim_imm32.rc — FILEVERSION/PRODUCTVERSION(콤마 표기) + 문자열 버전 4곳
+# unim-gnome-extension/metadata.json — version(정수 아님, 문자열)
+
 # WiX GUID/버전 재생성 — 빠뜨리면 windows-msi 의 check-wxi-guids 가 실패한다
 make wxi-guids
 
@@ -40,11 +45,14 @@ make wxi-guids
 # 빠뜨리면 linux-ci 의 check-help-html 이 실패한다
 make help-html
 
+# man 8종 .TH 버전 — Makefile/PKGBUILD/debian/ 이 경로를 그대로 참조하므로 이동 금지
+grep -l "^\.TH" docs/man/*.1
+
 # 문서 안의 버전 예시(install.sh·README·유저 가이드)도 함께 확인
-grep -rn "X\.Y\.Z" README.md install.sh docs/user/ .github/workflows/
+grep -rn "X\.Y\.Z" README.md install.sh install.ps1 docs/user/ .github/workflows/
 ```
 
-> 위 두 `make` 산출물(`installer/wix/generated/guids.wxi`, `help/unim-help-*.html`)은
+> 위 산출물들(`installer/wix/generated/guids.wxi`, `help/unim-help-*.html`)은
 > **생성물이지만 저장소에 커밋한다.** 재생성 후 커밋에 포함시킬 것.
 
 ---
@@ -59,15 +67,18 @@ make deb
 # dpkg --contents 로 설치 경로 확인
 ```
 
-주요 패키지:
-- `unim-daemon` — 데몬 바이너리 + DBus 서비스 파일
-- `unim-popup-service` — popup-service 바이너리 + D-Bus activation 파일
-- `unim-gui-gtk` — GTK4 indicator + 설정 다이얼로그
-- `unim-cli` — CLI 도구
-- `unim-frontend-gtk3`, `unim-frontend-gtk4` — IM 모듈
-- `unim-frontend-qt5`, `unim-frontend-qt6` — Qt IM 플러그인
-- `unim-common` — 공통 데이터 (자판 프로필, 한자 데이터)
-- `unim-gnome-extension` — GNOME Shell 확장
+현재 11개 deb 패키지(`debian/control` 기준):
+- `unim-common` — 데몬 + 공통 데이터(자판 프로필, 한자 데이터)
+- `unim-im-gtk` — GTK3/4 IM 모듈
+- `unim-im-qt` — Qt5/6 IM 플러그인
+- `unim-xim` — XIM 프런트엔드
+- `unim-wayland` — 순수 Wayland 프런트엔드
+- `unim-desktop` — 트레이 인디케이터 + popup-service + 레거시 GTK 설정 창(`unim-settings-gtk`)
+- `unim-settings` — Slint 기반 정식 설정 앱
+- `unim-keymap-studio` — 자판 스튜디오
+- `unim-typing-practice` — 타자 연습
+- `unim-gnome` — GNOME Shell 확장(`unim-gnome-extension`)
+- `unim` — 메타패키지(전체 의존)
 
 ### 2.2 RPM 패키지
 
@@ -83,6 +94,12 @@ make rpm
 busctl --user introspect org.atit.unim.PopupService /org/atit/unim/Popup
 ```
 
+### 2.4 Windows MSI (VM QA — 실기/VM 필요, 에이전트 수행 불가)
+
+전체 절차는 [`docs/dev/windows/SMOKE_TEST.md`](../windows/SMOKE_TEST.md).
+
+- [ ] 4.9 NVDA/내레이터로 한/영 전환 통지가 실제로 읽히는지 1회 확인 (A11Y-03)
+
 ---
 
 ## 3. 문서 최종 확인
@@ -91,7 +108,7 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/Popup
 - [ ] `docs/user/user-guide/` — 신기능 반영 완료
 - [ ] `docs/user/troubleshooting/` — 신규 Known Issue 반영
 - [ ] `docs/user/faq/` — 버전별 신규 Q&A 추가
-- [ ] `docs/man/unim.1` / `unim-popup-service.1` — 버전 업데이트
+- [ ] `docs/man/` man 8종 전부 `.TH` 버전 업데이트 — `unim.1`, `unim-cli.1`, `unim-indicator.1`, `unim-settings.1`, `unim-settings-gtk.1`, `unim-keymap-studio.1`, `unim-typing-practice.1`, `unim-popup-service.1`
 - [ ] 깨진 링크 0: `grep -rEn '\]\(\.[^)]*\.md\)' docs/` 후 경로 존재 확인
 - [ ] 한/영 짝 누락 0 (README.md + README-ko.md / README.en.md + README.md)
 
@@ -128,9 +145,12 @@ git push origin main --tags
 
 ## 6. GitHub Release 생성
 
-- 제목: `UNIM vX.Y.Z — <한 줄 요약>`
-- 본문: `docs/user/release-notes/<version>/README.en.md` 내용 붙여넣기
-- 에셋: deb/rpm 패키지 파일 업로드
+**GitHub Release 자체는 태그 push 시 `linux-deb.yml`(`Create GitHub Release` 스텝)이 자동 생성한다.** 제목·설치 안내·CHANGELOG 링크가 포함된 고정 템플릿 본문과 deb 11종 + `SHA256SUMS`를 자동 첨부하므로, **이 단계에서 수동으로 릴리스를 만들거나 본문을 붙여넣지 않는다.**
+
+`docs/user/release-notes/<version>/README.md` + `README.en.md`는 GitHub Release 본문과는 별개의, 저장소에 커밋되는 사용자용 상세 릴리스 노트다(마이그레이션 안내·알려진 문제 등 CI 템플릿보다 상세한 내용). CHANGELOG와 함께 이 문서가 존재하는지가 §사전 조건에서 확인된다.
+
+- [ ] 태그 push 후 Actions에서 `linux-deb.yml`의 릴리스 생성 성공 확인
+- [ ] (Windows MSI가 별도 워크플로에서 첨부되는 동안 시간차가 있을 수 있음 — `docs/user/release-notes/<version>/`에 고지)
 
 ---
 

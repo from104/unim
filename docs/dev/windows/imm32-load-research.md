@@ -195,8 +195,7 @@ mozc 가 하는 일 = *"copying IME files into the system, writing settings in t
 - **추가:** 설치 CA 에서 `unim-popup-win.exe --install-imm32`(가칭) 를 **deferred,
   no-impersonate, 관리자** 로 실행해 `ImmInstallIMEW`(x64) 호출. x86 .ime 등록은
   별도 32비트 헬퍼 또는 OS WOW64 미러에 의존(검증 필요).
-- 언인스톨: `UnloadKeyboardLayout` + (ImmInstallIME 가 만든)KLID 키 정리. 현
-  `DeactivateImm32` CA(unim.wxs:381) 와 통합.
+- 언인스톨: `UnloadKeyboardLayout` + (ImmInstallIME 가 만든)KLID 키 정리.
 
 ### C-4. 서명 — **불필요(미확인은 아님)**
 

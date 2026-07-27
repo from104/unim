@@ -164,7 +164,7 @@ Win11에서 서드파티 IMM32 `.ime`는 1급 시민이 아니다(`ImmInstallIME
 
 - **빼는 것:** wxs `UnimImm32Ime64`/`UnimImm32Ime32` 컴포넌트(line 252-304) + Feature ref(345-346),
   `unim-windows-common/src/activation.rs`의 Preload/Substitutes/Assemblies 수작업,
-  `unim-popup-win` `ensure_imm32_active()` 호출(main.rs:106) + `--deactivate-imm32` CA(wxs 381-394).
+  `unim-popup-win` `ensure_imm32_active()` 호출(main.rs:106).
 - **단, 단계적으로:** 32-bit TSF 경로가 카톡에서 실측 검증되기 전까지 IMM32 잔재를 즉시 삭제하지 말 것.
   먼저 32-bit TSF를 추가→검증→그다음 IMM32 컴포넌트 제거(롤백 안전망 유지).
 - `unim-imm32` 크레이트 자체는 남겨도 빌드만 안 하면 무해.

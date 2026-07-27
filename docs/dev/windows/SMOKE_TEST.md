@@ -84,6 +84,7 @@ GUI 경로: `설정 → 시간 및 언어 → 한국어 → 키보드 → 키보
 | 4.6 | UWP 앱 동작 (Microsoft Edge 주소창) | `dkssud` | `안녕` | ☐ |
 | 4.7 | **KakaoTalk (32-bit 실앱) 한글 입력** | 카톡 채팅 입력란에서 UNIM 전환 → `dkssudgktpdy` | `안녕하세요` 정상 inline 조합 (SOLVED — 32-bit TSF 등록 필수) | ☐ |
 | 4.8 | KakaoTalk 한영 토글 | 카톡 입력란 → `dkssud` → 한/영 → `hi` | `안녕hi` | ☐ |
+| 4.9 | **접근성: 낭독기 모드 전환 통지 (A11Y-03)** | NVDA 또는 내레이터 실행 중, 메모장에서 한/영 키로 전환 | 낭독기가 "한글"/"영어" 등 모드 전환을 음성으로 통지 (`NotifyWinEvent` 대상 객체 실효 확인) | ☐ |
 
 `☐` 를 `OK` / `FAIL: 사유` 로 갱신.
 
