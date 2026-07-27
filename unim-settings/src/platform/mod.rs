@@ -42,6 +42,11 @@ pub enum DefaultImeOutcome {
     /// 있으나 이번 실행만 실패).
     Failed,
     /// 이 환경엔 자동 지정 수단이 아예 없음 — 폴백을 시도하지 않았고 수동 설정 안내가 필요.
+    ///
+    /// Windows·제3 플랫폼 백엔드는 이 variant 를 **생성하지 않는다**(레지스트리 API 는
+    /// 항상 존재하므로 im-config 부재에 해당하는 개념이 없다). 그러나 `wizard.rs` 의
+    /// match 는 전 플랫폼 공통 코드라 variant 자체는 유지해야 한다.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     ManualSetupRequired,
 }
 
@@ -90,6 +95,8 @@ mod fallback {
     pub fn is_gnome_wayland_session() -> bool {
         false
     }
+    // 호출부가 Linux 전용 cfg 라 여기서도 미사용 — 표면 대칭 유지 목적.
+    #[allow(dead_code)]
     pub fn detect_conflicting_ime() -> bool {
         false
     }
