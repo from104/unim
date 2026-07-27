@@ -212,18 +212,12 @@ impl Blacklist {
         }
     }
 
-    /// 지정된 경로에 원자적으로 저장 (tmp + rename).
+    /// 지정된 경로에 원자적으로 저장 (프로세스 고유 tmp + rename, 심볼릭 링크
+    /// 대상 추적). 자세한 근거는 `crate::atomic_io` 참고.
     pub fn save_to_path(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
         let content = serde_yaml::to_string(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        let tmp_path = path.with_extension("yaml.tmp");
-        fs::write(&tmp_path, content)?;
-        fs::rename(&tmp_path, path)?;
-        Ok(())
+        crate::atomic_io::atomic_write(path, content)
     }
 
     /// 기본 경로에 저장.

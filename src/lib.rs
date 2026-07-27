@@ -1,3 +1,4 @@
+pub mod atomic_io;
 pub mod auto_typefix;
 pub mod config;
 pub mod emoji;

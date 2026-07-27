@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 /// 입력 카테고리 (한국어/영어)
@@ -882,6 +882,10 @@ pub struct EnglishConfig {
     /// 영어 키보드 레이아웃 프로필 이름(레지스트리 키). 기본값 `qwerty`.
     pub layout: EnglishLayout,
     /// 다이렉트 입력 선호
+    ///
+    /// 예약 필드 — 현재 소비처 없음(v0.4.x, UX-SHARED-04). 제거는 config
+    /// 스키마 변경(엔진·GUI·CLI 3지점 동시 수정 필요)이므로 마이너 릴리스에서
+    /// 처리한다.
     pub preferred_direct: bool,
 }
 
@@ -1029,18 +1033,58 @@ impl Config {
     /// 설정 파일이 없거나 파싱 실패 시:
     /// - 기본 설정을 생성하고 파일로 저장을 시도합니다.
     /// - 저장 실패 시 (퍼미션 등) 로그로 해결 방법을 안내합니다.
+    ///
+    /// 손상 복구가 일어났는지 여부까지 알아야 하는 호출자(마이그레이션 등)는
+    /// [`Self::load_from_default_path_with_status`]를 대신 쓸 것 — 이 함수의
+    /// 시그니처는 기존 호출자를 위해 그대로 유지한다.
     pub fn load_from_default_path() -> Self {
+        Self::load_from_default_path_with_status().0
+    }
+
+    /// [`Self::load_from_default_path`]와 동일하게 로드하되, 손상 복구가
+    /// 발생했는지 상태로 함께 반환합니다.
+    ///
+    /// GAP-config-06/M-11: v2 마이그레이션 등이 `Config::load_from_default_path()`의
+    /// 결과만 보고 "정상 마이그레이션"으로 로그를 남기면, config.yaml이 손상돼
+    /// 기본값으로 초기화됐다는 사실 자체가 영구히 사라진다. 기존 함수의 시그니처를
+    /// 바꾸지 않기 위해(다른 배치가 동시에 수정하는 호출부 파손 방지) 새 함수를
+    /// 추가하는 방식으로 노출한다.
+    pub fn load_from_default_path_with_status() -> (Self, ConfigLoadStatus) {
         let Some(path) = Self::default_config_path() else {
             eprintln!("[UNIM] 설정 디렉터리 경로를 찾을 수 없습니다.");
-            return Self::default();
+            return (Self::default(), ConfigLoadStatus::Fresh);
         };
 
         match Self::load_from_path(&path) {
-            Ok(config) => config,
+            Ok(config) => (config, ConfigLoadStatus::Fresh),
             Err(e) => {
+                let status = Self::classify_load_error(&e);
                 // 오류 원인에 따라 복구 시도
-                Self::handle_load_error(&path, e)
+                let config = Self::handle_load_error(&path, e);
+                (config, status)
             }
+        }
+    }
+
+    /// 로드 오류가 "손상 복구"인지 "정상적인 최초 실행"인지 분류합니다.
+    ///
+    /// 파일 부재(최초 실행)나 퍼미션 문제는 손상이 아니다 — 실제로 있던 설정이
+    /// 깨져 기본값으로 대체된 경우에만 `Recovered`로 분류한다.
+    fn classify_load_error(error: &ConfigError) -> ConfigLoadStatus {
+        match error {
+            ConfigError::ParseError(msg) => ConfigLoadStatus::Recovered {
+                reason: msg.clone(),
+            },
+            ConfigError::IoError(msg)
+                if !msg.contains("No such file")
+                    && !msg.contains("찾을 수 없")
+                    && !Self::is_permission_error(msg) =>
+            {
+                ConfigLoadStatus::Recovered {
+                    reason: msg.clone(),
+                }
+            }
+            _ => ConfigLoadStatus::Fresh,
         }
     }
 
@@ -1070,11 +1114,14 @@ impl Config {
                 }
             }
             ConfigError::ParseError(msg) => {
-                // 파싱 오류 - 기본 설정으로 덮어쓰기
+                // 파싱 오류 - 기본 설정으로 덮어쓰기 전에 손상 파일을 백업해
+                // 자판·토글키·앱별 규칙 등 사용자 커스터마이징이 영구 소실되지
+                // 않게 한다(GAP-config-durability-and-write-races-01).
                 eprintln!(
                     "[UNIM] 설정 파일 형식 오류: {}. 기본 설정으로 복구합니다.",
                     msg
                 );
+                Self::backup_corrupt_config(path);
             }
             _ => {
                 eprintln!(
@@ -1131,6 +1178,81 @@ impl Config {
         eprintln!("[UNIM]   unim-cli config");
     }
 
+    /// 손상 백업을 몇 개까지 남길지. 이 개수를 넘으면 오래된 것부터 정리한다
+    /// (검증자 지적 MINOR — 백업 후 기본값 저장이 계속 실패하는 환경에서 기동할
+    /// 때마다 `.corrupt-*` 가 무한히 쌓이는 문제).
+    const MAX_CORRUPT_BACKUPS: usize = 3;
+
+    /// 파싱에 실패한 설정 파일을 `<path>.corrupt-<unix epoch 나노초>` 로 백업합니다.
+    ///
+    /// `rename`이 아니라 `copy`를 쓴다 — 원본이 사라져도 다음 로직(기본값 저장)이
+    /// 그대로 진행되게 하기 위함. 백업 자체가 실패해도(디스크풀 등) 로그만 남기고
+    /// 복구 절차를 막지 않는다 — 백업 실패로 기동을 막으면 새 BLOCKER가 된다.
+    ///
+    /// 타임스탬프는 초가 아니라 나노초 단위 — 같은 초에 재기동(핸들러가 반복
+    /// 실패하는 읽기전용 설정 디렉터리 등)해도 직전 백업을 덮어써 잃지 않는다.
+    /// 백업 성공 시 `prune_corrupt_backups`로 오래된 백업을 정리해 무한 누적을 막는다.
+    fn backup_corrupt_config(path: &PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let backup_path = path.with_extension(format!("yaml.corrupt-{}", ts));
+        match fs::copy(path, &backup_path) {
+            Ok(_) => {
+                eprintln!("[UNIM] 손상된 설정 파일을 백업했습니다: {:?}", backup_path);
+                Self::prune_corrupt_backups(path);
+            }
+            Err(e) => {
+                eprintln!("[UNIM] 손상된 설정 파일 백업 실패(계속 진행): {}", e);
+            }
+        }
+    }
+
+    /// `<path>.corrupt-*` 백업이 `MAX_CORRUPT_BACKUPS` 개를 넘으면 오래된 것부터
+    /// (mtime 기준) 지운다. 정리 자체가 실패해도(권한 등) 로그만 남기고 기동을
+    /// 막지 않는다 — 이 함수는 어떤 경우에도 에러를 전파하지 않는다.
+    fn prune_corrupt_backups(path: &Path) {
+        let Some(parent) = path.parent() else {
+            return;
+        };
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+            return;
+        };
+        let prefix = format!("{file_name}.corrupt-");
+
+        let Ok(entries) = fs::read_dir(parent) else {
+            return;
+        };
+        let mut backups: Vec<(PathBuf, SystemTime)> = entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name();
+                let name = name.to_str()?;
+                if !name.starts_with(&prefix) {
+                    return None;
+                }
+                let modified = e.metadata().ok()?.modified().ok()?;
+                Some((e.path(), modified))
+            })
+            .collect();
+
+        if backups.len() <= Self::MAX_CORRUPT_BACKUPS {
+            return;
+        }
+
+        backups.sort_by_key(|(_, modified)| *modified);
+        let excess = backups.len() - Self::MAX_CORRUPT_BACKUPS;
+        for (old_path, _) in backups.into_iter().take(excess) {
+            if let Err(e) = fs::remove_file(&old_path) {
+                eprintln!(
+                    "[UNIM] 오래된 손상 백업 정리 실패(계속 진행): {:?} ({})",
+                    old_path, e
+                );
+            }
+        }
+    }
+
     /// 지정된 경로에서 설정을 로드합니다.
     ///
     /// # Arguments
@@ -1163,18 +1285,27 @@ impl Config {
 
     /// 설정을 지정된 경로에 저장합니다.
     ///
+    /// `crate::atomic_io::atomic_write`로 같은 디렉터리에 프로세스 고유 tmp
+    /// 파일을 쓴 뒤 `rename`으로 교체하는 원자적 저장을 사용한다
+    /// (`typefix_userdict.rs`/`typefix_blacklist.rs`/`unim-keymap-common`의
+    /// 사용자 키맵 저장과 동일한 공유 헬퍼). `fs::write`를 대상 경로에 직접
+    /// 쓰면 O_TRUNC로 먼저 파일을 비우므로, 저장 도중 전원 단절·OOM-kill
+    /// 등이 발생하면 config.yaml이 빈 파일/잘린 YAML로 남아 다음 기동 시
+    /// 전체 설정이 소실된다. tmp 파일명이 고정이면 두 프로세스(데몬 + 설정
+    /// GUI 등)가 동시에 저장할 때 서로의 tmp/rename과 경합할 수 있어, tmp
+    /// 이름에 PID+나노초를 넣어 프로세스별로 고유하게 만든다
+    /// (GAP-config-durability-and-write-races-01). 대상이 심볼릭 링크(dotfile
+    /// 매니저 등)면 링크를 따라가 실제 파일 위치에 써서 링크 자체가
+    /// 일반 파일로 대체되지 않게 한다.
+    ///
     /// # Arguments
     ///
     /// * `path` - 저장할 경로
-    pub fn save_to_path(&self, path: &PathBuf) -> Result<(), ConfigError> {
-        // 디렉터리 생성
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| ConfigError::IoError(e.to_string()))?;
-        }
-
+    pub fn save_to_path(&self, path: &Path) -> Result<(), ConfigError> {
         let content =
             serde_yaml::to_string(self).map_err(|e| ConfigError::SerializeError(e.to_string()))?;
-        fs::write(path, content).map_err(|e| ConfigError::IoError(e.to_string()))
+
+        crate::atomic_io::atomic_write(path, content).map_err(|e| ConfigError::IoError(e.to_string()))
     }
 
     /// 설정 파일이 변경되어 다시 로드가 필요한지 확인합니다.
@@ -1267,6 +1398,21 @@ impl Config {
     fn get_config_mtime(path: &PathBuf) -> Option<SystemTime> {
         fs::metadata(path).ok()?.modified().ok()
     }
+}
+
+/// `Config::load_from_default_path_with_status`의 로드 결과 상태.
+///
+/// 마이그레이션 등 "로드 이후 무조건 재저장"하는 로직이 손상 복구 사실을
+/// 삼키지 않도록 노출한다(GAP-config-06/M-11).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConfigLoadStatus {
+    /// 정상 로드(또는 최초 생성 — 손상이 아님)
+    Fresh,
+    /// 손상/파싱 실패 등으로 기본값 복구가 발생함
+    Recovered {
+        /// 복구를 유발한 원본 오류 메시지
+        reason: String,
+    },
 }
 
 /// 설정 관련 오류
@@ -2020,6 +2166,122 @@ word_commit: false
         assert!(result.is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GAP-config-durability-and-write-races-01: 파싱 실패 시 기본값으로 덮어쓰기
+    /// 전에 손상 파일을 `<path>.corrupt-<ts>` 로 백업해야 한다.
+    #[test]
+    fn test_handle_load_error_backs_up_corrupt_file_before_overwrite() {
+        let dir = std::env::temp_dir().join("unim_test_corrupt_backup");
+        let path = dir.join("bad_config.yaml");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&path, "{{{{invalid yaml").unwrap();
+
+        let error = Config::load_from_path(&path).unwrap_err();
+        assert!(matches!(error, ConfigError::ParseError(_)));
+
+        // 손상 복구 경로를 그대로 태운다 (load_from_default_path와 동일 로직).
+        let _recovered = Config::handle_load_error(&path, error);
+
+        // 원본은 기본값으로 덮어써졌어야 하고, 손상 시점 원본은 백업으로 남아야 한다.
+        let backup_exists = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("bad_config.yaml.corrupt-")
+            });
+        assert!(backup_exists, "손상된 설정 파일 백업이 생성되지 않음");
+
+        let backed_up_content = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .find(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("bad_config.yaml.corrupt-")
+            })
+            .map(|e| fs::read_to_string(e.path()).unwrap())
+            .unwrap();
+        assert_eq!(backed_up_content, "{{{{invalid yaml");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// MINOR(검증자 지적): 손상 백업 후 기본값 저장이 계속 실패하는 환경에서는
+    /// 기동할 때마다 `.corrupt-*` 가 하나씩 늘어날 수 있다. `MAX_CORRUPT_BACKUPS`
+    /// 를 넘으면 오래된 것부터(mtime 기준) 정리해 무한 누적을 막는다.
+    #[test]
+    fn test_prune_corrupt_backups_caps_count_and_keeps_newest() {
+        let dir = std::env::temp_dir().join("unim_test_corrupt_prune");
+        let _ = std::fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.yaml");
+
+        // MAX_CORRUPT_BACKUPS(3)보다 많은 5개를 mtime 순서를 명확히 두고 생성.
+        let mut backup_paths = Vec::new();
+        for i in 0..5u64 {
+            let backup = path.with_extension(format!("yaml.corrupt-{}", i));
+            fs::write(&backup, format!("backup-{i}")).unwrap();
+            let mtime = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000 + i);
+            let file = std::fs::File::open(&backup).unwrap();
+            file.set_modified(mtime).unwrap();
+            backup_paths.push(backup);
+        }
+
+        Config::prune_corrupt_backups(&path);
+
+        let remaining: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("config.yaml.corrupt-"))
+            .collect();
+
+        assert_eq!(
+            remaining.len(),
+            Config::MAX_CORRUPT_BACKUPS,
+            "MAX_CORRUPT_BACKUPS 개까지만 남아야 함: {:?}",
+            remaining
+        );
+        // 가장 오래된 2개(인덱스 0, 1)는 지워지고 최신 3개(2, 3, 4)만 남아야 함.
+        assert!(!remaining.contains(&"config.yaml.corrupt-0".to_string()));
+        assert!(!remaining.contains(&"config.yaml.corrupt-1".to_string()));
+        assert!(remaining.contains(&"config.yaml.corrupt-4".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GAP-config-06/M-11: 파싱 실패(손상)는 `Recovered`, 파일 부재(최초 실행)와
+    /// 퍼미션 오류는 `Fresh`로 분류돼야 마이그레이션 등이 손상 이력을 삼키지 않는다.
+    #[test]
+    fn test_classify_load_error_distinguishes_recovery_from_fresh_start() {
+        let parse_err = ConfigError::ParseError("invalid mapping".to_string());
+        assert!(matches!(
+            Config::classify_load_error(&parse_err),
+            ConfigLoadStatus::Recovered { .. }
+        ));
+
+        let not_found_err = ConfigError::IoError(
+            "No such file or directory (os error 2)".to_string(),
+        );
+        assert_eq!(
+            Config::classify_load_error(&not_found_err),
+            ConfigLoadStatus::Fresh
+        );
+
+        let permission_err = ConfigError::IoError("Permission denied (os error 13)".to_string());
+        assert_eq!(
+            Config::classify_load_error(&permission_err),
+            ConfigLoadStatus::Fresh
+        );
+
+        let other_io_err = ConfigError::IoError("Too many open files (os error 24)".to_string());
+        assert!(matches!(
+            Config::classify_load_error(&other_io_err),
+            ConfigLoadStatus::Recovered { .. }
+        ));
     }
 
     // === Config needs_reload 테스트 ===

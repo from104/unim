@@ -11,7 +11,6 @@
 //!   `#[serde(skip_serializing)]`로 본체에서 제외됨.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::io;
 use std::path::PathBuf;
 
@@ -64,13 +63,16 @@ pub fn to_pretty_json(profile: &LayoutProfile) -> Result<String, serde_json::Err
 }
 
 /// 사용자 디렉토리에 키맵을 저장. 디렉토리가 없으면 생성.
+///
+/// `unim::atomic_io::atomic_write`로 같은 디렉터리에 프로세스 고유 tmp 파일을
+/// 쓴 뒤 `rename`으로 교체하는 원자적 저장을 사용한다(`config.rs`/
+/// `typefix_userdict.rs`/`typefix_blacklist.rs`와 동일한 공유 헬퍼). 저장
+/// 도중 전원 단절·OOM-kill이 발생해도 잘린 JSON이 남지 않는다
+/// (GAP-config-durability-and-write-races-01).
 pub fn save_profile_json(profile: &LayoutProfile) -> Result<PathBuf, SaveError> {
     let path = layout_user_path(&profile.name).ok_or(SaveError::NoConfigDir)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(SaveError::Io)?;
-    }
     let json = to_pretty_json(profile).map_err(SaveError::Encode)?;
-    fs::write(&path, json).map_err(SaveError::Io)?;
+    unim::atomic_io::atomic_write(&path, json).map_err(SaveError::Io)?;
     Ok(path)
 }
 
