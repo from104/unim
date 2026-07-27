@@ -44,7 +44,7 @@ commit_unit_label: "Commit Unit"
 commit_unit_note: "(terminals, XIM, and ibus-compatible paths always use syllable)"
 word_mode_apps_label: "Word-mode Apps"
 toggle_announce_beep_label: "Korean/English Toggle Beep"
-ignore_key_repeat_label: "Suppress Composition Key Auto-repeat (Windows)"
+ignore_key_repeat_label: "Suppress Composition Key Auto-repeat"
 auto_typefix_label: "Auto TypeFix"
 auto_typefix_skip_english_word_label: "Skip on English word match"
 auto_typefix_skip_complete_syllable_label: "Skip on complete syllable match"
@@ -106,6 +106,17 @@ commit_unit_changed: "Changed commit unit to '%{unit}'."
 korean_active_rule_sets_label: "Active Rule Sets"
 profile_default: "(profile default)"
 korean_active_rule_sets_all_off: "(all off)"
+
+# Display-value locale mapping (M-16 — localize config show/set values, not just labels)
+layout_ko_2bulstd: "Dubeolsik Standard"
+layout_ko_3bul390: "Sebeolsik 390"
+layout_ko_3bul391: "Sebeolsik Final (391)"
+layout_ko_3bul_noshift: "Sebeolsik No-shift"
+mode_sharing_global: "Global"
+mode_sharing_perapp: "Per-app"
+commit_unit_syllable: "Syllable"
+commit_unit_word: "Word"
+commit_unit_smart: "Smart"
 
 # Common
 error_label: "Error"
@@ -223,6 +234,10 @@ help_cmd_trigger_long: "Entry point for OS shortcut tools (KDE global shortcuts,
 help_arg_trigger_action_short: "Action identifier to trigger (e.g. emoji_popup)"
 help_arg_trigger_action_long: "Action identifier sent to the daemon.\nCurrently supported: emoji_popup\nFuture: hanja_popup, special_char_popup, etc.\nUnknown actions are rejected by the daemon and a non-zero exit code is returned."
 
+# ── daemon subcommand ───────────────────────────────────────────────────────
+help_cmd_daemon_about: "Query daemon runtime state"
+help_daemon_frontends_about: "List currently registered frontends"
+
 # ── config children ─────────────────────────────────────────────────────────
 help_cfg_show_about: "Show a summary of current settings"
 help_cfg_show_long: "Pretty-print the daemon's current settings: layouts, toggle/hanja keys,\nmode-sharing strategy, AutoTypeFix details, auto English mode, emoji popup,\nper-app rules, and config file path."
@@ -309,4 +324,44 @@ help_bl_clear_long: "Delete all entries. A confirmation prompt is shown first. C
 
 help_bl_path_about: "Print the blacklist file path"
 help_bl_path_long: "Print the absolute path of the blacklist file.\nDefault: $XDG_CONFIG_HOME/unim/typefix-blacklist.yaml (typically ~/.config/unim/typefix-blacklist.yaml)."
+
+# ── config set key help (ConfigKey ValueEnum, `config set --help`) ─────────
+help_ck_korean_layout: "Korean keyboard layout (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)"
+help_ck_english_layout: "English keyboard layout (qwerty, dvorak, colemak, colemak_dh, workman)"
+help_ck_korean_active_rule_sets: "Active Korean layout rule sets (comma-separated; empty = use the profile default)"
+help_ck_default_category: "Initial input mode (korean, english)"
+help_ck_mode_sharing: "Mode sharing strategy (global, per-app)"
+help_ck_toggle_keys: "Korean/English toggle key (e.g. Korean,RightAlt)"
+help_ck_hanja_keys: "Hanja/special character key (e.g. Hanja,F9)"
+help_ck_auto_typefix: "Enable AutoTypeFix (true, false)"
+help_ck_auto_typefix_kor_threshold: "AutoTypeFix: Korean syllable threshold (2-6)"
+help_ck_auto_typefix_eng_min_length: "AutoTypeFix: English word minimum length (3-8)"
+help_ck_auto_typefix_forward_time_window_ms: "AutoTypeFix: forward time window (500-5000 ms)"
+help_ck_auto_typefix_reverse_time_window_ms: "AutoTypeFix: reverse time window (500-5000 ms)"
+help_ck_auto_typefix_forward: "AutoTypeFix: forward (EN->KO) correction (true, false)"
+help_ck_auto_typefix_reverse: "AutoTypeFix: reverse (KO->EN) correction (true, false)"
+help_ck_auto_typefix_skip_english_word: "AutoTypeFix: suppress on English word match (true, false)"
+help_ck_auto_typefix_skip_complete_syllable: "AutoTypeFix: suppress on complete syllable match (true, false)"
+help_ck_auto_typefix_rollback_detection: "AutoTypeFix: learned re-trigger suppression (true, false)"
+help_ck_auto_typefix_tentative_expiry_hours: "AutoTypeFix: tentative suppression expiry (1-12 hours)"
+help_ck_auto_typefix_observation_timeout_secs: "AutoTypeFix: re-trigger observation window (5-15 seconds)"
+help_ck_auto_typefix_user_dict: "AutoTypeFix: enable reverse user dictionary (true, false)"
+help_ck_auto_typefix_toggle_keys: "AutoTypeFix: overall toggle shortcut (comma-separated single key, empty = disabled. e.g. F10, Shift+F9)"
+help_ck_auto_typefix_forward_toggle_keys: "AutoTypeFix: forward (EN->KO) toggle shortcut (comma-separated single key, empty = disabled)"
+help_ck_auto_typefix_reverse_toggle_keys: "AutoTypeFix: reverse (KO->EN) toggle shortcut (comma-separated single key, empty = disabled)"
+help_ck_auto_english: "Enable auto English mode (true, false)"
+help_ck_auto_english_keys: "Auto English trigger keys (e.g. key:Escape,char:/,char:,)"
+help_ck_app_rules: "Per-app mode rules (JSON format)"
+help_ck_korean_bidirectional_combine: "Moachigi bidirectional jamo combination (true, false). supports_moachigi layouts only."
+help_ck_korean_chord_window_ms: "Moachigi chord window (ms, 0=OFF). supports_moachigi layouts only. Reserved for Phase 4."
+help_ck_commit_unit: "Commit unit (syllable, word, smart). Word unit does not apply to terminals/XIM; smart composes by word only for apps listed in word-mode-apps."
+help_ck_word_mode_apps: "Word-mode app list (comma-separated, exact executable name match). Apps that get word-unit composition under the Smart commit unit (Windows: winword.exe, Linux: soffice, etc.)."
+help_ck_toggle_announce_beep: "Korean/English toggle sound notification (true, false). Accessibility — a differentiated beep on toggle (Korean=high tone, English=low tone)."
+help_ck_ignore_key_repeat: "Suppress composition key auto-repeat (true, false). Accessibility (mobility impairment) — prevents repeat-fire/toggle jitter when a key is held. Enforced on both Windows and Linux."
+
+# ── interactive mode (config interactive) ───────────────────────────────────
+interactive_external_change_warning: "Warning: the config file was changed externally since this interactive session started. Saving now will overwrite those external changes."
+
+# Key validation error (toggle/hanja/auto-English keys — all-invalid rejection)
+error_no_valid_key: "At least one valid key required."
 

@@ -14,7 +14,8 @@ use unim::config::{
     AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MAX, AUTO_TYPEFIX_OBSERVATION_TIMEOUT_MIN,
     AUTO_TYPEFIX_TENTATIVE_EXPIRY_MAX, AUTO_TYPEFIX_TENTATIVE_EXPIRY_MIN,
     AUTO_TYPEFIX_TIME_WINDOW_MAX, AUTO_TYPEFIX_TIME_WINDOW_MIN, ENGLISH_LAYOUT_BUILTINS,
-    KOREAN_LAYOUT_BUILTINS,
+    KOREAN_LAYOUT_BUILTINS, KOREAN_LAYOUT_DUBEOLSIK, KOREAN_LAYOUT_SEBEOLSIK_390,
+    KOREAN_LAYOUT_SEBEOLSIK_391, KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT,
 };
 use unim::hangul::composer_with_2bul::HangulComposer2Bul;
 use unim::hangul::composer_with_3bul::HangulComposer3Bul;
@@ -40,6 +41,42 @@ rust_i18n::i18n!("locales");
 // ─────────────────────────────────────────────────────────────────────────────
 fn h(key: &str) -> String {
     t!(key).to_string()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 표시값 로케일 어댑터 (M-16 / UX-LINUX-V01)
+//
+// `config.rs`의 `*_display_name()` / `display_name()` 계열은 라벨이 아니라
+// "값"인데도 한국어 &'static str 리터럴을 반환한다(core 는 로케일 개념이
+// 없다). core pub 시그니처는 그대로 두고, 여기서 로케일 키로 다시 매핑해
+// `config show`/대화형 선택기에 노출되는 값 자체도 LANG 을 따르게 한다.
+// 영어 자판 이름(QWERTY/Dvorak/...)은 고유명사라 번역 대상이 아니므로 제외.
+// ─────────────────────────────────────────────────────────────────────────────
+fn korean_layout_display_name_localized(name: &str) -> String {
+    match normalize_korean_layout_name(name).as_str() {
+        KOREAN_LAYOUT_DUBEOLSIK => t!("layout_ko_2bulstd").to_string(),
+        KOREAN_LAYOUT_SEBEOLSIK_390 => t!("layout_ko_3bul390").to_string(),
+        KOREAN_LAYOUT_SEBEOLSIK_391 => t!("layout_ko_3bul391").to_string(),
+        KOREAN_LAYOUT_SEBEOLSIK_NOSHIFT => t!("layout_ko_3bul_noshift").to_string(),
+        // 사용자 정의 프로필 — core 와 동일하게 빈 문자열(GUI/CLI 가 프로필
+        // metadata 의 display_name 을 별도 resolve).
+        _ => korean_layout_display_name(name).to_string(),
+    }
+}
+
+fn mode_sharing_display_name_localized(mode: ModeSharingMode) -> String {
+    match mode {
+        ModeSharingMode::Global => t!("mode_sharing_global").to_string(),
+        ModeSharingMode::PerApp => t!("mode_sharing_perapp").to_string(),
+    }
+}
+
+fn commit_unit_display_name_localized(unit: CommitUnit) -> String {
+    match unit {
+        CommitUnit::Syllable => t!("commit_unit_syllable").to_string(),
+        CommitUnit::Word => t!("commit_unit_word").to_string(),
+        CommitUnit::Smart => t!("commit_unit_smart").to_string(),
+    }
 }
 
 /// UNIM-cli: Korean/English keyboard converter + settings manager
@@ -124,7 +161,7 @@ enum Commands {
         action: String,
     },
     /// Query daemon runtime state
-    #[command(about = "Query daemon runtime state")]
+    #[command(about = h("help_cmd_daemon_about"))]
     Daemon {
         #[command(subcommand)]
         command: DaemonCommands,
@@ -134,7 +171,7 @@ enum Commands {
 #[derive(Subcommand, Debug)]
 enum DaemonCommands {
     /// List currently registered frontends
-    #[command(about = "List currently registered frontends")]
+    #[command(about = h("help_daemon_frontends_about"))]
     Frontends,
 }
 
@@ -383,100 +420,157 @@ enum ConversionMode {
 #[derive(Clone, Debug, ValueEnum)]
 enum ConfigKey {
     /// 한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)
-    #[value(name = "korean-layout")]
+    #[value(name = "korean-layout", help = h("help_ck_korean_layout"))]
     KoreanLayout,
     /// 영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)
-    #[value(name = "english-layout")]
+    #[value(name = "english-layout", help = h("help_ck_english_layout"))]
     EnglishLayout,
     /// 한국어 자판 활성 규칙 세트 (쉼표 구분, 빈 문자열 = 프로필 기본값 사용)
-    #[value(name = "korean-active-rule-sets")]
+    #[value(
+        name = "korean-active-rule-sets",
+        help = h("help_ck_korean_active_rule_sets")
+    )]
     KoreanActiveRuleSets,
     /// 초기 입력 모드 (korean, english)
-    #[value(name = "default-category")]
+    #[value(name = "default-category", help = h("help_ck_default_category"))]
     DefaultCategory,
     /// 모드 공유 방식 (global, per-app)
-    #[value(name = "mode-sharing")]
+    #[value(name = "mode-sharing", help = h("help_ck_mode_sharing"))]
     ModeSharing,
     /// 한/영 전환 키 (예: Korean,RightAlt)
-    #[value(name = "toggle-keys")]
+    #[value(name = "toggle-keys", help = h("help_ck_toggle_keys"))]
     ToggleKeys,
     /// 한자/특수문자 키 (예: Hanja,F9)
-    #[value(name = "hanja-keys")]
+    #[value(name = "hanja-keys", help = h("help_ck_hanja_keys"))]
     HanjaKeys,
     /// 자동 오타 교정 활성화 (true, false)
-    #[value(name = "auto-typefix")]
+    #[value(name = "auto-typefix", help = h("help_ck_auto_typefix"))]
     AutoTypeFix,
     /// 자동 오타 교정: 한글 음절 임계값 (2~6)
-    #[value(name = "auto-typefix-kor-threshold")]
+    #[value(
+        name = "auto-typefix-kor-threshold",
+        help = h("help_ck_auto_typefix_kor_threshold")
+    )]
     AutoTypeFixKorThreshold,
     /// 자동 오타 교정: 영문 단어 최소 길이 (3~8)
-    #[value(name = "auto-typefix-eng-min-length")]
+    #[value(
+        name = "auto-typefix-eng-min-length",
+        help = h("help_ck_auto_typefix_eng_min_length")
+    )]
     AutoTypeFixEngMinLength,
     /// 자동 오타 교정: 순방향 시간 윈도우 (500~5000 ms)
-    #[value(name = "auto-typefix-forward-time-window-ms")]
+    #[value(
+        name = "auto-typefix-forward-time-window-ms",
+        help = h("help_ck_auto_typefix_forward_time_window_ms")
+    )]
     AutoTypeFixForwardTimeWindow,
     /// 자동 오타 교정: 역방향 시간 윈도우 (500~5000 ms)
-    #[value(name = "auto-typefix-reverse-time-window-ms")]
+    #[value(
+        name = "auto-typefix-reverse-time-window-ms",
+        help = h("help_ck_auto_typefix_reverse_time_window_ms")
+    )]
     AutoTypeFixReverseTimeWindow,
     /// 자동 오타 교정: 순방향 (영→한) 교정 (true, false)
-    #[value(name = "auto-typefix-forward")]
+    #[value(
+        name = "auto-typefix-forward",
+        help = h("help_ck_auto_typefix_forward")
+    )]
     AutoTypeFixForward,
     /// 자동 오타 교정: 역방향 (한→영) 교정 (true, false)
-    #[value(name = "auto-typefix-reverse")]
+    #[value(
+        name = "auto-typefix-reverse",
+        help = h("help_ck_auto_typefix_reverse")
+    )]
     AutoTypeFixReverse,
     /// 자동 오타 교정: 영단어 매칭 시 억제 (true, false)
-    #[value(name = "auto-typefix-skip-english-word")]
+    #[value(
+        name = "auto-typefix-skip-english-word",
+        help = h("help_ck_auto_typefix_skip_english_word")
+    )]
     AutoTypeFixSkipEnglishWord,
     /// 자동 오타 교정: 온전한 음절 매칭 시 억제 (true, false)
-    #[value(name = "auto-typefix-skip-complete-syllable")]
+    #[value(
+        name = "auto-typefix-skip-complete-syllable",
+        help = h("help_ck_auto_typefix_skip_complete_syllable")
+    )]
     AutoTypeFixSkipCompleteSyllable,
     /// 자동 오타 교정: 재트리거 기반 학습형 억제 (true, false)
-    #[value(name = "auto-typefix-rollback-detection")]
+    #[value(
+        name = "auto-typefix-rollback-detection",
+        help = h("help_ck_auto_typefix_rollback_detection")
+    )]
     AutoTypeFixRollbackDetection,
     /// 자동 오타 교정: 임시 억제 단어 만료 기간 (1~12 시간)
-    #[value(name = "auto-typefix-tentative-expiry-hours")]
+    #[value(
+        name = "auto-typefix-tentative-expiry-hours",
+        help = h("help_ck_auto_typefix_tentative_expiry_hours")
+    )]
     AutoTypeFixTentativeExpiryHours,
     /// 자동 오타 교정: 재트리거 관찰 창 (5~15 초)
-    #[value(name = "auto-typefix-observation-timeout-secs")]
+    #[value(
+        name = "auto-typefix-observation-timeout-secs",
+        help = h("help_ck_auto_typefix_observation_timeout_secs")
+    )]
     AutoTypeFixObservationTimeoutSecs,
     /// 자동 오타 교정: 역방향 사용자 사전 활성화 (true, false)
-    #[value(name = "auto-typefix-user-dict")]
+    #[value(
+        name = "auto-typefix-user-dict",
+        help = h("help_ck_auto_typefix_user_dict")
+    )]
     AutoTypeFixUserDictEnabled,
-    /// 자동 오타 교정: 전체 토글 단축키 (쉼표 구분 단일 키, 비우면 사용 안 함. 예: ScrollLock, F10)
-    #[value(name = "auto-typefix-toggle-keys")]
+    /// 자동 오타 교정: 전체 토글 단축키 (쉼표 구분 단일 키, 비우면 사용 안 함. 예: F10, Shift+F9)
+    #[value(
+        name = "auto-typefix-toggle-keys",
+        help = h("help_ck_auto_typefix_toggle_keys")
+    )]
     AutoTypeFixToggleKeys,
     /// 자동 오타 교정: 순방향(영→한) 토글 단축키 (쉼표 구분 단일 키, 비우면 사용 안 함)
-    #[value(name = "auto-typefix-forward-toggle-keys")]
+    #[value(
+        name = "auto-typefix-forward-toggle-keys",
+        help = h("help_ck_auto_typefix_forward_toggle_keys")
+    )]
     AutoTypeFixForwardToggleKeys,
     /// 자동 오타 교정: 역방향(한→영) 토글 단축키 (쉼표 구분 단일 키, 비우면 사용 안 함)
-    #[value(name = "auto-typefix-reverse-toggle-keys")]
+    #[value(
+        name = "auto-typefix-reverse-toggle-keys",
+        help = h("help_ck_auto_typefix_reverse_toggle_keys")
+    )]
     AutoTypeFixReverseToggleKeys,
     /// 자동 영문 모드 전환 활성화 (true, false)
-    #[value(name = "auto-english")]
+    #[value(name = "auto-english", help = h("help_ck_auto_english"))]
     AutoEnglish,
     /// 자동 영문 전환 트리거 키 (예: key:Escape,char:/,char:,)
-    #[value(name = "auto-english-keys")]
+    #[value(name = "auto-english-keys", help = h("help_ck_auto_english_keys"))]
     AutoEnglishKeys,
     /// 앱별 모드 규칙 (JSON 형식)
-    #[value(name = "app-rules")]
+    #[value(name = "app-rules", help = h("help_ck_app_rules"))]
     AppRules,
     /// 모아치기 양방향 자모 결합 (true, false). supports_moachigi 자판 전용.
-    #[value(name = "korean-bidirectional-combine")]
+    #[value(
+        name = "korean-bidirectional-combine",
+        help = h("help_ck_korean_bidirectional_combine")
+    )]
     KoreanBidirectionalCombine,
     /// 모아치기 화음 윈도우 (ms, 0=OFF). supports_moachigi 자판 전용. Phase 4 예약.
-    #[value(name = "korean-chord-window-ms")]
+    #[value(
+        name = "korean-chord-window-ms",
+        help = h("help_ck_korean_chord_window_ms")
+    )]
     KoreanChordWindowMs,
     /// 조합 확정 단위 (syllable, word, smart). 단어 단위는 터미널·XIM 비대상, 스마트는 word-mode-apps 목록 앱만 단어 조합.
-    #[value(name = "commit-unit")]
+    #[value(name = "commit-unit", help = h("help_ck_commit_unit"))]
     CommitUnit,
     /// 단어 모드 앱 목록 (쉼표 구분, 실행 파일명 정확일치). Smart 확정 단위에서 단어 조합할 앱 (Windows: winword.exe, Linux: soffice 등).
-    #[value(name = "word-mode-apps")]
+    #[value(name = "word-mode-apps", help = h("help_ck_word_mode_apps"))]
     WordModeApps,
     /// 한/영 전환 소리 알림 (true, false). 접근성 — 전환 시 차등 비프음(한글=높은 음, 영문=낮은 음).
-    #[value(name = "toggle-announce-beep")]
+    #[value(
+        name = "toggle-announce-beep",
+        help = h("help_ck_toggle_announce_beep")
+    )]
     ToggleAnnounceBeep,
-    /// 조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows 전용.
-    #[value(name = "ignore-key-repeat")]
+    /// 조합키 자동반복 억제 (true, false). 접근성(지체장애) — 키 홀드 시 연타·토글 진동 방지. Windows·Linux 공통 집행.
+    #[value(name = "ignore-key-repeat", help = h("help_ck_ignore_key_repeat"))]
     IgnoreKeyRepeat,
 }
 
@@ -683,7 +777,7 @@ fn process_korean_to_english(
 fn config_show() {
     let config = UnimConfig::load_from_default_path();
 
-    let korean_name = korean_layout_display_name(&config.engine.korean.layout);
+    let korean_name = korean_layout_display_name_localized(&config.engine.korean.layout);
     let english_name = english_layout_display_name(&config.engine.english.layout);
 
     let default_category_name = match config.engine.default_category {
@@ -691,7 +785,7 @@ fn config_show() {
         InputCategory::English => t!("english_mode"),
     };
 
-    let mode_sharing_name = config.engine.mode_sharing.display_name();
+    let mode_sharing_name = mode_sharing_display_name_localized(config.engine.mode_sharing);
 
     println!("{}", t!("settings_title"));
     println!("================");
@@ -737,7 +831,7 @@ fn config_show() {
     println!(
         "{}: {} {}",
         t!("commit_unit_label"),
-        config.engine.korean.commit_unit.display_name(),
+        commit_unit_display_name_localized(config.engine.korean.commit_unit),
         t!("commit_unit_note")
     );
     println!(
@@ -1160,7 +1254,13 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
                 }
             };
             config.engine.mode_sharing = mode;
-            println!("{}", t!("mode_sharing_changed", mode = mode.display_name()));
+            println!(
+                "{}",
+                t!(
+                    "mode_sharing_changed",
+                    mode = mode_sharing_display_name_localized(mode)
+                )
+            );
         }
         ConfigKey::ToggleKeys => {
             let keys: Vec<String> = value
@@ -1174,7 +1274,7 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             if all_keys_invalid(&keys, |k| {
                 unim::input_engine::InputEngine::parse_switch_key(k).is_some()
             }) {
-                return Err("At least one valid key required".to_string());
+                return Err(t!("error_no_valid_key").to_string());
             }
             // 경고 계산은 대입 **전** — 반대편 역할(한자키) 비교가 구값 기준으로 성립한다.
             let (warnings, any_unknown) =
@@ -1204,7 +1304,7 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             if all_keys_invalid(&keys, |k| {
                 unim::input_engine::InputEngine::parse_switch_key(k).is_some()
             }) {
-                return Err("At least one valid key required".to_string());
+                return Err(t!("error_no_valid_key").to_string());
             }
             let (warnings, any_unknown) = switch_key_warnings(&keys, SwitchKeyRole::Hanja, &config);
             config.engine.hanja_keys = keys;
@@ -1492,7 +1592,7 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             if all_keys_invalid(&keys, |k| {
                 unim::input_engine::InputEngine::is_valid_auto_english_key(k)
             }) {
-                return Err("At least one valid key required".to_string());
+                return Err(t!("error_no_valid_key").to_string());
             }
             let (warnings, any_unknown) = auto_english_key_warnings(&keys);
             config.engine.auto_english.trigger_keys = keys;
@@ -1561,7 +1661,10 @@ fn config_set(key: ConfigKey, value: &str) -> Result<(), String> {
             config.engine.korean.commit_unit = unit;
             println!(
                 "{}",
-                t!("commit_unit_changed", unit = unit.display_name())
+                t!(
+                    "commit_unit_changed",
+                    unit = commit_unit_display_name_localized(unit)
+                )
             );
         }
         ConfigKey::WordModeApps => {
@@ -1636,6 +1739,9 @@ fn config_reset() -> Result<(), String> {
 
 fn config_interactive() {
     let mut config = UnimConfig::load_from_default_path();
+    // 저장 직전 재로드 비교용 스냅샷(GAP-config-05) — 세션 시작 이후 외부에서 파일이
+    // 바뀌었는지 판정한다. Config 는 PartialEq 를 파생하지 않으므로 Debug 문자열로 비교.
+    let session_start_snapshot = format!("{:?}", config.engine);
     let theme = ColorfulTheme::default();
 
     loop {
@@ -1664,9 +1770,9 @@ fn config_interactive() {
         match selection {
             0 => {
                 let layouts = KOREAN_LAYOUT_BUILTINS;
-                let layout_names: Vec<&str> = layouts
+                let layout_names: Vec<String> = layouts
                     .iter()
-                    .map(|n| korean_layout_display_name(n))
+                    .map(|n| korean_layout_display_name_localized(n))
                     .collect();
                 let current_idx = layouts
                     .iter()
@@ -1724,7 +1830,10 @@ fn config_interactive() {
             }
             3 => {
                 let modes = ModeSharingMode::all();
-                let mode_names: Vec<&str> = modes.iter().map(|m| m.display_name()).collect();
+                let mode_names: Vec<String> = modes
+                    .iter()
+                    .map(|m| mode_sharing_display_name_localized(*m))
+                    .collect();
                 let current_idx = modes
                     .iter()
                     .position(|m| *m == config.engine.mode_sharing)
@@ -1782,6 +1891,13 @@ fn config_interactive() {
                 }
             }
             7 => {
+                // 저장 직전 재로드 + diff 경고(GAP-config-05) — 대화형 세션이 열려 있는
+                // 동안 외부(다른 unim-cli 인스턴스, 데몬, 설정 GUI 등)에서 파일이 바뀌면
+                // 이 세션의 저장이 그 변경을 그대로 덮어쓴다. 병합은 하지 않고 경고만 한다.
+                let latest_on_disk = UnimConfig::load_from_default_path();
+                if format!("{:?}", latest_on_disk.engine) != session_start_snapshot {
+                    eprintln!("{}", t!("interactive_external_change_warning"));
+                }
                 if let Err(e) = config.save_to_default_path() {
                     eprintln!("{}", t!("execution_error", error = e.to_string()));
                 } else {
