@@ -28,7 +28,8 @@ use unim::unim_log;
 use unim_gui_common::settings_dbus::save_config_via_dbus;
 use unim_gui_common::settings_helpers::{
     apply_korean_profile_choice, collect_korean_profile_choices, direction_label, is_gnome_session,
-    is_wayland_session, load_and_resolve, ms_to_seconds, seconds_to_ms,
+    is_wayland_session, load_and_resolve, merge_gtk_ui_owned, ms_to_seconds, seconds_to_ms,
+    set_gtk_config_baseline,
 };
 
 use std::cell::RefCell;
@@ -71,6 +72,11 @@ pub fn show_settings_dialog(app: &adw::Application) {
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
 
     let config = Config::load_from_default_path();
+    // M-08/GAP-config-03(검증 보완): 다이얼로그 시작 시점 스냅샷을 세션 baseline 으로
+    // 고정한다. save_and_notify 의 merge_gtk_ui_owned 가 이 baseline 대비 "이 세션에서
+    // 실제로 건드린 필드" 만 확정하고, 안 건드린 필드는 저장 시 외부 변경(핫키 토글 등)을
+    // 보존한다.
+    set_gtk_config_baseline(&config);
     let state: State = Rc::new(RefCell::new(SettingsState {
         config,
         updating: true, // 초기 바인딩 동안은 콜백 억제
@@ -163,12 +169,20 @@ fn attach_toast_sink(window: &adw::PreferencesWindow) {
 
 /// 저장 + DBus 전파 + 토스트 알림.
 ///
-/// - 파일: `Config::save_to_default_path()`
+/// - M-08/GAP-config-03: 저장 직전 디스크를 재로드해 GTK가 편집하지 않는
+///   필드(데몬/CLI/Slint가 다이얼로그가 열린 사이 바꿨을 수 있는 값)를
+///   보존한다. GTK-소유 필드만 in-memory(`config`) 값으로 덮어써 저장한다.
+///   (`unim_gui_common::settings_helpers::merge_gtk_ui_owned`)
+/// - 파일: `Config::save_to_default_path()` (병합된 디스크 스냅샷)
 /// - DBus: `SetConfigYaml` (fire-and-forget, 실패해도 UI는 막히지 않음)
 /// - 토스트: "저장됨 ✓" (2초 자동 소멸)
 fn save_and_notify(config: &Config, label: &str) {
-    // 1. 파일 저장
-    if let Err(e) = config.save_to_default_path() {
+    // 1. 저장 직전 재로드 + GTK-소유 필드만 병합
+    let mut disk = Config::load_from_default_path();
+    merge_gtk_ui_owned(&mut disk, config);
+
+    // 2. 파일 저장 (병합된 스냅샷)
+    if let Err(e) = disk.save_to_default_path() {
         unim_log!(
             "INDICATOR",
             "[Settings] config 저장 실패 ({}): {}",
@@ -178,11 +192,16 @@ fn save_and_notify(config: &Config, label: &str) {
         show_toast(&t!("settings_toast_save_failed", err = e.to_string()));
         return;
     }
+    // M-08/GAP-config-03(검증 보완): baseline 을 "마지막으로 저장한 값" 으로 갱신 —
+    // 세션 baseline 을 시작값에 고정한 채로 두면, 어떤 필드를 껐다가 다시 켜서(=세션
+    // 시작값으로 복귀) 저장할 때 merge_field 가 "미변경" 으로 오판해 방금 한 저장을
+    // 무시해 버린다(`unim-settings/src/main.rs` 의 동일 계약 참고, M-07 재발 방지).
+    set_gtk_config_baseline(&disk);
 
-    // 2. DBus 전파 (fire-and-forget)
-    save_config_via_dbus(config, label);
+    // 3. DBus 전파 (fire-and-forget) — 실제 저장된 병합 결과로 통지
+    save_config_via_dbus(&disk, label);
 
-    // 3. 토스트
+    // 4. 토스트
     show_toast(&t!("settings_toast_saved"));
 }
 

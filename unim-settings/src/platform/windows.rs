@@ -96,8 +96,14 @@ pub fn open_help() {
 pub fn wizard_is_default_ime() -> bool {
     ime::is_default_ime()
 }
-pub fn wizard_set_as_default() -> bool {
-    ime::set_as_default().is_ok()
+pub fn wizard_set_as_default() -> super::DefaultImeOutcome {
+    // Windows 에는 im-config 부재 개념이 없다(레지스트리 API 는 항상 존재) — 실패는
+    // 전부 재시도 가능한 `Failed` 로 본다. `ManualSetupRequired` 는 Linux(Fedora 등
+    // im-config 자체가 없는 배포판) 전용 분기다.
+    match ime::set_as_default() {
+        Ok(()) => super::DefaultImeOutcome::Success,
+        Err(_) => super::DefaultImeOutcome::Failed,
+    }
 }
 pub fn wizard_set_default_on_startup(v: bool) {
     let _ = ime::set_default_on_startup(v);
@@ -113,4 +119,24 @@ pub fn wizard_seen_version() -> Option<String> {
 }
 pub fn set_wizard_seen_version(v: &str) {
     let _ = ime::set_wizard_seen_version(v);
+}
+
+// BLOCKER-2(GAP-first-run-lifecycle-02)·GAP-first-06: GNOME Shell/Wayland 세션 감지와
+// ibus/fcitx 공존 감지는 Linux 전용 개념이라 Windows 는 항상 무해(false)를 반환한다.
+pub fn is_gnome_wayland_session() -> bool {
+    false
+}
+pub fn detect_conflicting_ime() -> bool {
+    false
+}
+
+/// GAP-first-05: 마법사 창 생성 실패를 진단 로그에 남긴다. `unim-settings.log`(%TEMP%)
+/// 는 `help::open_help` 실패 로깅과 동일 경로·컴포넌트 라벨을 쓴다(도구 하나로 추적).
+pub fn log_wizard_render_failure(msg: &str) {
+    unim_windows_common::debug::dbg_log(
+        "unim-settings",
+        "unim-settings.log",
+        &format!("wizard render failure: {msg}"),
+        true,
+    );
 }

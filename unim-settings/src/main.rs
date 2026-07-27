@@ -473,8 +473,47 @@ pub(crate) fn persist_config(cfg: &Config, label: &str) -> Result<(), unim::conf
     let mut disk = Config::load_from_default_path();
     merge_ui_owned(&mut disk, cfg);
     disk.save_to_default_path()?;
+    // 검증자 지적(BLOCKER, M-07 재발): baseline 을 "세션 시작값" 으로 고정해 두면
+    // 세션 중 어떤 필드를 껐다가 다시 켜서(=세션 시작값으로 복귀) 저장하면
+    // `merge_field` 가 "미변경" 으로 오판해 disk(이전 저장값)를 그대로 보존해버려
+    // 방금 한 저장이 무시된다. baseline 을 "마지막으로 저장한 값" 으로 갱신해
+    // `unim-tsf/src/settings_dialog.rs` 의 저장 후 baseline 갱신 계약과 맞춘다.
+    set_config_baseline(&disk);
     platform::notify_config_saved(&disk, label);
     Ok(())
+}
+
+thread_local! {
+    /// M-07(GAP-config-02) 세션 baseline — 설정 창 시작 시 로드된 config 의 스냅샷(세션
+    /// 동안 불변, `set_config_baseline` 로 1회 고정). `merge_ui_owned` 가 "이 세션에서
+    /// 사용자가 실제로 이 필드를 건드렸는가" 를 판별하는 데만 쓴다. Slint 이벤트 루프는
+    /// 메인 스레드 단일 실행이라 스레드 간 공유가 필요 없어 `Mutex` 대신 `thread_local`.
+    static CONFIG_BASELINE: RefCell<Option<Config>> = const { RefCell::new(None) };
+}
+
+/// main() 시작 시 1회 호출 — 이후 세션 동안 `merge_ui_owned` 의 lost-update 판별
+/// 기준선을 고정한다. 테스트 등 호출하지 않는 경로는 baseline 이 `None` 으로 남아
+/// 종전과 동일하게 "UI 값 무조건 우선" 으로 동작한다(회귀 0).
+fn set_config_baseline(cfg: &Config) {
+    CONFIG_BASELINE.with(|b| *b.borrow_mut() = Some(cfg.clone()));
+}
+
+/// `Debug` 포맷 비교로 값 동치를 판정한다. `merge_field` 가 다루는 타입 다수
+/// (`AutoTypeFixConfig` 등)가 `PartialEq` 를 구현하지 않아(코어 `src/config.rs` 소유,
+/// 이 크레이트에서 손댈 수 없음) 이미 파생돼 있는 `Debug` 로 근사 동치를 본다 —
+/// "세션 중 안 바뀜" 판정에만 쓰이므로 정확한 구조적 동치가 아니어도 충분하다.
+fn debug_eq<T: std::fmt::Debug>(a: &T, b: &T) -> bool {
+    format!("{a:?}") == format!("{b:?}")
+}
+
+/// M-07(GAP-config-02): baseline 대비 세션 중 미변경이면 disk(외부 변경, 예: CLI) 값을
+/// 보존하고, 변경됐으면 ui(이 세션에서 사용자가 실제로 바꾼 값)를 확정한다. baseline
+/// 미확보(`None`)면 종전과 동일하게 무조건 ui 를 채택한다.
+fn merge_field<T: Clone + std::fmt::Debug>(dst: &mut T, baseline: Option<&T>, ui: &T) {
+    match baseline {
+        Some(b) if debug_eq(b, ui) => {} // 세션 중 미변경 — disk(외부 변경) 보존.
+        _ => *dst = ui.clone(),
+    }
 }
 
 /// F7: 디스크에서 재로드한 `disk` 에 UI 가 소유·편집하는 필드만 in-memory(`ui`)
@@ -489,27 +528,62 @@ pub(crate) fn persist_config(cfg: &Config, label: &str) -> Result<(), unim::conf
 ///   engine.english.layout.
 /// `ignore_key_repeat` 는 양 플랫폼 UI-소유(Windows·Linux 모두 설정에 노출)라 UI 값으로
 ///   덮어쓴다 — Linux 는 데몬 repeat 게이트가 이 값을 집행한다.
+///
+/// M-07(GAP-config-02): 위 목록은 "UI-소유 필드는 disk 값을 무조건 덮어쓴다" 는 뜻이라,
+/// 설정 창이 떠 있는 동안 CLI/DBus 가 UI-소유 필드를 바꿔도 저장 시 그 변경이 사라졌다
+/// (창 시작 시점 in-memory 값이 항상 이김). 이제 각 필드는 세션 baseline 대비 "이 세션
+/// 에서 사용자가 실제로 건드렸는가" 로 한 번 더 걸러, 안 건드린 필드는 disk(외부 변경)
+/// 값을 보존한다. baseline 부재(테스트 등)는 종전 동작(ui 우선)과 바이트 동일하다.
 fn merge_ui_owned(disk: &mut Config, ui: &Config) {
+    let baseline = CONFIG_BASELINE.with(|b| b.borrow().clone());
+    let be = baseline.as_ref().map(|c| &c.engine);
+    let bk = be.map(|e| &e.korean);
+
     let d = &mut disk.engine;
     let u = &ui.engine;
-    d.default_category = u.default_category;
-    d.mode_sharing = u.mode_sharing;
-    d.toggle_keys = u.toggle_keys.clone();
-    d.hanja_keys = u.hanja_keys.clone();
-    d.app_rules = u.app_rules.clone();
-    d.toggle_announce_beep = u.toggle_announce_beep;
-    d.auto_typefix = u.auto_typefix.clone();
-    d.auto_english = u.auto_english.clone();
-    d.korean.layout = u.korean.layout.clone();
-    d.korean.active_rule_sets = u.korean.active_rule_sets.clone();
-    d.korean.layout_rule_sets = u.korean.layout_rule_sets.clone();
-    d.korean.bidirectional_combine = u.korean.bidirectional_combine;
-    d.korean.chord_window_ms = u.korean.chord_window_ms;
-    d.korean.commit_unit = u.korean.commit_unit;
-    d.korean.word_mode_apps = u.korean.word_mode_apps.clone();
-    d.english.layout = u.english.layout.clone();
+
+    merge_field(&mut d.default_category, be.map(|e| &e.default_category), &u.default_category);
+    merge_field(&mut d.mode_sharing, be.map(|e| &e.mode_sharing), &u.mode_sharing);
+    merge_field(&mut d.toggle_keys, be.map(|e| &e.toggle_keys), &u.toggle_keys);
+    merge_field(&mut d.hanja_keys, be.map(|e| &e.hanja_keys), &u.hanja_keys);
+    merge_field(&mut d.app_rules, be.map(|e| &e.app_rules), &u.app_rules);
+    merge_field(
+        &mut d.toggle_announce_beep,
+        be.map(|e| &e.toggle_announce_beep),
+        &u.toggle_announce_beep,
+    );
+    merge_field(&mut d.auto_typefix, be.map(|e| &e.auto_typefix), &u.auto_typefix);
+    merge_field(&mut d.auto_english, be.map(|e| &e.auto_english), &u.auto_english);
+    merge_field(&mut d.korean.layout, bk.map(|k| &k.layout), &u.korean.layout);
+    merge_field(
+        &mut d.korean.active_rule_sets,
+        bk.map(|k| &k.active_rule_sets),
+        &u.korean.active_rule_sets,
+    );
+    merge_field(
+        &mut d.korean.layout_rule_sets,
+        bk.map(|k| &k.layout_rule_sets),
+        &u.korean.layout_rule_sets,
+    );
+    merge_field(
+        &mut d.korean.bidirectional_combine,
+        bk.map(|k| &k.bidirectional_combine),
+        &u.korean.bidirectional_combine,
+    );
+    merge_field(
+        &mut d.korean.chord_window_ms,
+        bk.map(|k| &k.chord_window_ms),
+        &u.korean.chord_window_ms,
+    );
+    merge_field(&mut d.korean.commit_unit, bk.map(|k| &k.commit_unit), &u.korean.commit_unit);
+    merge_field(
+        &mut d.korean.word_mode_apps,
+        bk.map(|k| &k.word_mode_apps),
+        &u.korean.word_mode_apps,
+    );
+    merge_field(&mut d.english.layout, be.map(|e| &e.english.layout), &u.english.layout);
     // ignore_key_repeat: 양 플랫폼 UI-소유 (Linux 데몬 집행 + UI 노출과 정합).
-    d.ignore_key_repeat = u.ignore_key_repeat;
+    merge_field(&mut d.ignore_key_repeat, be.map(|e| &e.ignore_key_repeat), &u.ignore_key_repeat);
 }
 
 /// config `AppRule` → Slint `AppRuleItem` (category-index: 0=영문, 1=한글).
@@ -608,7 +682,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::set_var("SLINT_BACKEND", "winit-skia");
     }
 
-    let ui = SettingsWindow::new()?;
+    // GAP-first-05: 창 생성 실패(예: 렌더러/디스플레이 초기화 불가)를 그냥 `?` 로
+    // 전파하면 autostart(`--first-run-if-needed`) 경로에서 "매 로그인마다 조용히 재시도
+    // 실패" 가 되어 사용자가 원인을 알 방법이 없다. 실패 시 로그 위치를 남기고(가능하면
+    // 데스크톱 알림) 계속 실패를 전파한다 — 성공 처리로 seen 을 찍지는 않는다(원인이
+    // 고쳐질 수도 있으므로 재시도 자체는 막지 않음).
+    let ui = match SettingsWindow::new() {
+        Ok(ui) => ui,
+        Err(e) => {
+            platform::log_wizard_render_failure(&e.to_string());
+            return Err(e.into());
+        }
+    };
 
     // Linux: 기본 폰트 property(맑은 고딕 = Windows 기본값)를 시스템에 실제 설치된
     // 한글 폰트로 교체한다. skia fontmgr 의 부재 패밀리 폴백이 fontconfig 치환과 다를 수
@@ -627,6 +712,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 빈 문자열("")은 index 0(=소스 한국어)로 특수 처리된다.
     let _ = slint::select_bundled_translation(if platform::ui_language_is_korean() { "" } else { "en" });
 
+    // UX-SHARED-V02: 조합 트리거(`key:Ctrl+B` 등)는 Windows TSF 가 다중 키 조합을
+    // 인식하지 못해 미지원(단일 키만 유효)이다. 안 되는 예시를 광고하지 않도록 Windows
+    // 만 false — Linux 는 기본값(true)을 그대로 둔다(회귀 0).
+    ui.global::<Tr>().set_combo_trigger_supported(!cfg!(target_os = "windows"));
+
     // 설정 항목 검색: Slint 문자열엔 substring 매칭 내장이 없어(1.12: to-lowercase 만)
     // 매칭을 Rust 순수 콜백으로 위임한다. 각 설정 행이 제목·설명을 넘겨 호출한다.
     ui.global::<Search>().on_matches(|query, title, description| {
@@ -639,6 +729,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let config = Rc::new(RefCell::new(Config::load_from_default_path()));
+    // M-07(GAP-config-02): 세션 시작 시점 스냅샷을 고정 — persist_config 의
+    // merge_ui_owned 가 "이 세션에서 사용자가 실제로 건드린 UI-소유 필드" 만 확정
+    // 저장하고, 안 건드린 필드는 외부(CLI/DBus) 변경을 되돌리지 않게 한다.
+    set_config_baseline(&config.borrow());
     let blacklist = Rc::new(RefCell::new(Blacklist::load_from_default_path()));
     let userdict = Rc::new(RefCell::new(UserDictionary::load_from_default_path()));
     // I6: 되돌리기용 스냅샷 1개(마지막 삭제만 복원 가능).
@@ -884,11 +978,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .filter(|it| it.active)
                     .map(|it| it.name.to_string())
                     .collect();
-                let list = cfg
-                    .engine
-                    .korean
-                    .active_rule_sets
-                    .get_or_insert_with(|| seed);
+                let list = cfg.engine.korean.active_rule_sets.get_or_insert(seed);
                 let name = item.name.to_string();
                 if on {
                     if !list.contains(&name) {
@@ -1122,11 +1212,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 비수정자 토글(한글키·오른쪽 Alt) — 한 손으로 누를 수 있는 기본값.
                 cfg.engine.toggle_keys = vec!["Korean".to_string(), "RightAlt".to_string()];
                 cfg.engine.korean.chord_window_ms = None; // 모아치기 OFF
-                // 자동반복 억제는 Windows 전용 기능/UI(F2) — Linux 프리셋은 손대지 않음.
-                #[cfg(target_os = "windows")]
-                {
-                    cfg.engine.ignore_key_repeat = true;
-                }
+                // M-12(A11Y-02/UX-SHARED-01): 자동반복 억제는 Windows·Linux 양 플랫폼
+                // UI-소유 기능이다 — Linux 는 데몬 게이트(`unim-dbus/src/engine_worker.rs`
+                // 의 `should_suppress_repeat`)가 이미 집행하므로 여기서 cfg 로 걸러선 안 된다.
+                cfg.engine.ignore_key_repeat = true;
 
                 // UI 재동기화.
                 if let Some(pos) = kor_canon
@@ -1139,18 +1228,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rule_model.set_vec(rule_set_items_for(&cfg, profile));
                 }
                 ui.set_toggle_keys(cfg.engine.toggle_keys.join(", ").into());
-                #[cfg(target_os = "windows")]
                 ui.set_ignore_key_repeat(true);
                 ui.set_korean_noshift_selected(is_noshift_layout(&cfg));
                 push_moachigi_to_ui(&ui, &cfg, new_profile.as_ref());
                 status = tr.get_preset_onehand();
             } else {
-                // 넉넉한 타이밍: (Windows) 자동반복 억제 + 오타 교정 판정 시간 확대 +
-                // (지원 자판) 모아치기 조합창을 넉넉하게. 자동반복 억제는 Windows 전용(F2).
-                #[cfg(target_os = "windows")]
-                {
-                    cfg.engine.ignore_key_repeat = true;
-                }
+                // 넉넉한 타이밍: 자동반복 억제(양 플랫폼) + 오타 교정 판정 시간 확대 +
+                // (지원 자판) 모아치기 조합창을 넉넉하게.
+                cfg.engine.ignore_key_repeat = true;
                 let a = &mut cfg.engine.auto_typefix;
                 a.forward_time_window_ms = AUTO_TYPEFIX_TIME_WINDOW_MAX;
                 a.reverse_time_window_ms = AUTO_TYPEFIX_TIME_WINDOW_MAX;
@@ -1162,7 +1247,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     cfg.engine.korean.chord_window_ms = Some(150);
                 }
 
-                #[cfg(target_os = "windows")]
                 ui.set_ignore_key_repeat(true);
                 push_atf_to_ui(&ui, &cfg.engine.auto_typefix);
                 push_moachigi_to_ui(&ui, &cfg, prof.as_ref());
@@ -1185,7 +1269,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 도움말 — 동봉된 오프라인 매뉴얼을 기본 브라우저로 연다 ──
     // 경로 해석(플랫폼별 설치 위치)·언어 선택(UI 언어 추종)·실패 안내는 백엔드 몫이라
     // 여기는 위임만 한다. UI 는 플랫폼을 모른다.
-    ui.on_open_help(|| platform::open_help());
+    ui.on_open_help(platform::open_help);
 
     // ── 억제 단어 삭제 (개별) — 삭제 직전 스냅샷 후 되돌리기 토스트 노출 ──
     {
@@ -1571,6 +1655,82 @@ mod tests {
         );
     }
 
+    /// M-07(GAP-config-02) 회귀 가드: baseline 대비 세션 중 안 건드린 UI-소유 필드는
+    /// disk(외부 변경, 예: CLI) 값을 보존하고, 실제로 건드린 필드는 ui 값을 확정한다.
+    /// 테스트 종료 시 baseline 을 반드시 리셋해 스레드 재사용 시 다른 테스트로
+    /// 누수되지 않게 한다(cargo test 는 테스트마다 스레드를 새로 만들지 않는다).
+    #[test]
+    fn merge_ui_owned_preserves_untouched_field_but_keeps_user_edit() {
+        let baseline = Config::default(); // 세션 시작 시 로드된 값(양쪽 필드 모두 기본).
+        set_config_baseline(&baseline);
+
+        let mut disk = Config::default();
+        // 외부(CLI)가 세션 도중 toggle_keys 를 바꿔 놓음 — UI 는 이 필드를 안 건드림.
+        disk.engine.toggle_keys = vec!["ExternalCli".to_string()];
+        // 외부가 hanja_keys 도 바꿔 놓음 — 이번엔 UI 도 이 필드를 건드릴 것(경합).
+        disk.engine.hanja_keys = vec!["ExternalHanja".to_string()];
+
+        let mut ui = baseline.clone();
+        // UI 는 hanja_keys 만 이 세션에서 실제로 편집(baseline 과 다름).
+        ui.engine.hanja_keys = vec!["UserEdited".to_string()];
+        // toggle_keys 는 UI 상 baseline 그대로(세션 중 안 건드림).
+
+        merge_ui_owned(&mut disk, &ui);
+
+        // 안 건드린 필드(toggle_keys) — 외부(CLI) 변경이 보존됨.
+        assert_eq!(
+            disk.engine.toggle_keys,
+            vec!["ExternalCli".to_string()],
+            "세션 중 UI 가 안 건드린 필드는 외부 변경을 잃으면 안 됨(M-07)"
+        );
+        // 건드린 필드(hanja_keys) — 사용자의 이번 세션 편집이 확정됨(외부 변경보다 우선).
+        assert_eq!(
+            disk.engine.hanja_keys,
+            vec!["UserEdited".to_string()],
+            "세션 중 UI 가 실제로 편집한 필드는 그 값이 확정돼야 함"
+        );
+
+        CONFIG_BASELINE.with(|b| *b.borrow_mut() = None); // 다른 테스트로 누수 방지.
+    }
+
+    /// BLOCKER(M-07 재발) 회귀 가드: baseline 을 "세션 시작값"으로 고정한 채 갱신하지
+    /// 않으면, 한 세션 안에서 어떤 필드를 껐다가(1차 저장) 다시 켜서(=세션 시작값으로
+    /// 복귀, 2차 저장) 저장할 때 `merge_field` 가 "미변경"으로 오판해 2차 저장이
+    /// 무시된다. `persist_config` 가 저장 성공 직후 `set_config_baseline` 을 호출해
+    /// baseline 을 "마지막으로 저장한 값"으로 갱신하는 계약을 이 테스트로 고정한다
+    /// (`unim-tsf/src/settings_dialog.rs` 와 동일 계약).
+    #[test]
+    fn toggle_off_then_on_in_same_session_is_saved() {
+        let mut session_start = Config::default();
+        session_start.engine.toggle_announce_beep = true;
+        set_config_baseline(&session_start);
+
+        // 1차 저장: 사용자가 끔.
+        let mut disk = session_start.clone(); // 디스크는 세션 시작 시점과 동일하다고 가정.
+        let mut ui = session_start.clone();
+        ui.engine.toggle_announce_beep = false;
+        merge_ui_owned(&mut disk, &ui);
+        assert!(
+            !disk.engine.toggle_announce_beep,
+            "1차 저장(끔)은 항상 반영돼야 함"
+        );
+        // persist_config 계약: 저장 성공 직후 baseline 을 방금 저장한 값으로 갱신.
+        set_config_baseline(&disk);
+
+        // 2차 저장: 사용자가 다시 켬(=세션 시작값과 동일하게 복귀).
+        let mut disk2 = disk.clone(); // 디스크 재로드 시뮬레이션(1차 저장 결과 그대로).
+        let mut ui2 = disk.clone();
+        ui2.engine.toggle_announce_beep = true;
+        merge_ui_owned(&mut disk2, &ui2);
+
+        assert!(
+            disk2.engine.toggle_announce_beep,
+            "off→on 왕복 후 2차 저장이 무시되면 안 됨 (BLOCKER M-07 재발)"
+        );
+
+        CONFIG_BASELINE.with(|b| *b.borrow_mut() = None); // 다른 테스트로 누수 방지.
+    }
+
     /// B1 가드: config 저장 사이트는 전부 `persist_and_report` 를 거친다.
     /// 자기 문구가 무효 키 경고를 덮어 경고가 점멸하던 회귀를 구조로 막는다.
     /// (wizard.rs 는 상태줄이 없어 예외 — 설정 모드 전환 지점에서만 경고를 싣는다.)
@@ -1592,6 +1752,41 @@ mod tests {
             src.matches(helper_call.as_str()).count(),
             1,
             "persist_config 호출은 persist_and_report 안 1곳뿐이어야 함"
+        );
+    }
+
+    /// M-12(A11Y-02/UX-SHARED-01) 회귀 가드: 접근성 프리셋의 자동반복 억제 적용이
+    /// 다시 Windows 전용 cfg 게이트로 회귀하지 않도록 감시한다. 집행은
+    /// `unim-dbus/src/engine_worker.rs` 데몬 게이트가 이미 플랫폼 무관으로 수행하므로,
+    /// `on_apply_accessibility_preset` 클로저 본문은 어떤 target_os 게이트도 없이
+    /// 무조건 켜야 한다.
+    ///
+    /// 검사 범위는 해당 클로저 본문으로 한정한다 — 파일 전체를 대상으로 하면
+    /// 이 프리셋과 무관한 정당한 `cfg(target_os = "windows")` 분기(예: 대칭되는
+    /// `cfg(target_os = "linux")` 분기의 반대편)를 추가하는 순간 이 테스트가
+    /// 원인 불명으로 깨진다.
+    ///
+    /// `include_str!` 자기 매치 회피를 위해 찾는 리터럴을 조각내 이어붙인다(위 가드와 동일 기법).
+    #[test]
+    fn no_windows_only_cfg_gate_in_settings_main() {
+        let src = include_str!("main.rs");
+        let start_marker = ["on_apply_accessibility_preset(move |pre", "set| {"].concat();
+        let end_marker = ["persist_and_report(&ui, &cfg, \"accessibility_pre", "set\", status);"].concat();
+
+        let start = src
+            .find(start_marker.as_str())
+            .expect("on_apply_accessibility_preset 클로저를 찾을 수 없음 — 가드 대상 이동/개명 여부 확인 필요");
+        let end = src[start..]
+            .find(end_marker.as_str())
+            .map(|rel| start + rel + end_marker.len())
+            .expect("접근성 프리셋 클로저 종료 지점(persist_and_report 호출)을 찾을 수 없음");
+        let body = &src[start..end];
+
+        let needle = ["cfg(target_os = \"win", "dows\")"].concat();
+        assert_eq!(
+            body.matches(needle.as_str()).count(),
+            0,
+            "접근성 프리셋 클로저에 Windows 전용 cfg 게이트가 있으면 안 됨(M-12 회귀 — 리눅스 접근성 프리셋 무력화)"
         );
     }
 }

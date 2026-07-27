@@ -136,6 +136,10 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
         // Slint 문구·카드 분기용 플랫폼 플래그. cfg! 라 Windows 바이너리에선 상수 false →
         // ternary/적용시점 카드가 전부 Windows 경로로 렌더(렌더 트리 불변).
         ui.set_wiz_platform_linux(cfg!(target_os = "linux"));
+        // BLOCKER-2(GAP-first-run-lifecycle-02): GNOME Shell(Wayland) 세션(우분투 기본
+        // 세션)이면 완료 페이지에 확장 활성화 안내 카드를 띄운다. Windows/fallback 은
+        // 항상 false 라 렌더 트리 불변(회귀 0).
+        ui.set_wiz_gnome_wayland(platform::is_gnome_wayland_session());
 
         // FINISH 페이지 최초 진입 시 데몬 감지를 딱 1회 트리거하기 위한 가드(Linux 전용).
         #[cfg(target_os = "linux")]
@@ -155,8 +159,11 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
                     ui.set_wiz_is_first(i == 0);
                     ui.set_wiz_is_last(i + 1 >= pages.len());
                     // 완료 페이지 진입 시 UNIM 데몬 상태를 백그라운드로 감지(1회).
+                    // GAP-first-06: 같은 1회 진입에 ibus/fcitx 공존도 동기 감지한다
+                    // (pgrep 조회 1~2회라 데몬 감지처럼 스레드로 뺄 만큼 무겁지 않음).
                     #[cfg(target_os = "linux")]
                     if pages[i] == WIZ_FINISH && !daemon_probed.replace(true) {
+                        ui.set_wiz_conflicting_ime(platform::detect_conflicting_ime());
                         spawn_daemon_probe(ui.as_weak());
                     }
                 }
@@ -194,7 +201,7 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
             });
         }
         // 한국어 언어팩: [언어 설정 열기] → ms-settings:regionlanguage.
-        ui.on_wizard_open_langpack(|| platform::wizard_open_language_settings());
+        ui.on_wizard_open_langpack(platform::wizard_open_language_settings);
 
         // 마침: config load(공유본)→체크박스값 반영→save. 그 후 기본입력기 지정(체크 시)
         // + seen 버전 기록. '설정 열기' 체크면 그 자리에서 설정 모드로 전환, 아니면 닫기.
@@ -217,15 +224,37 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
                     let _ = crate::persist_config(&cfg, "wizard_finish");
                 }
                 if showed_default_ime && ui.get_wiz_default_ime_checked() {
-                    let ok = platform::wizard_set_as_default();
+                    let outcome = platform::wizard_set_as_default();
                     platform::wizard_set_default_on_startup(true);
-                    // Linux: 지정 실패 시 seen 을 기록하지 않고(다음 로그인 재안내) FINISH 에
-                    // 실패 카드를 띄운 뒤 흐름을 중단한다 — 사용자가 [마침]을 다시 누르거나
-                    // 설정에서 수동 지정할 수 있다. Windows 는 cfg! 상수 false 라 이 분기를
-                    // 타지 않아 종전 동작(실패 무시·완료)을 그대로 유지한다(회귀 0).
-                    if cfg!(target_os = "linux") && !ok {
-                        ui.set_wiz_default_ime_failed(true);
-                        return;
+                    // Linux: 재시도 가능한 실행 실패(Failed)와 자동 지정 수단 자체가 없는
+                    // 경우(ManualSetupRequired, BLOCKER-1/Fedora 등)를 분리해 각각 다른
+                    // FINISH 카드를 띄우고 seen 기록을 보류(다음 로그인 재안내)한 뒤 흐름을
+                    // 중단한다. Windows 는 cfg! 상수 false 라 이 분기를 타지 않아 종전 동작
+                    // (실패 무시·완료)을 그대로 유지한다(회귀 0).
+                    if cfg!(target_os = "linux") {
+                        match outcome {
+                            platform::DefaultImeOutcome::Success => {}
+                            platform::DefaultImeOutcome::Failed => {
+                                ui.set_wiz_default_ime_failed(true);
+                                return;
+                            }
+                            platform::DefaultImeOutcome::ManualSetupRequired => {
+                                // im-config 자체가 없는 배포판(Fedora 등)은 재시도가 원리상
+                                // 무의미한 조건이다 — 그 배포판에 im-config 가 생기지 않는 한
+                                // 몇 번을 다시 눌러도 같은 결과다. seen 을 보류하면 "재시도
+                                // 불가"인데 "매 로그인 영구 재출현"이라는 별개의 UX 회귀가
+                                // 생긴다(검증 지적). 그래서 카드는 그대로 띄우되(거짓 성공
+                                // 금지·수동 지정 안내는 유지) seen 은 이 자리에서 즉시
+                                // 기록해 이 안내가 평생 한 번만 뜨게 한다. 체크박스도 꺼서
+                                // 다음 [마침] 클릭이 이 분기를 다시 타지 않고 그대로 창을
+                                // 닫게 한다 — 발 마우스 사용자가 반복 조작 없이 한 번의
+                                // 추가 클릭으로 마법사를 끝낼 수 있도록.
+                                ui.set_wiz_default_ime_checked(false);
+                                ui.set_wiz_default_ime_manual_setup(true);
+                                platform::set_wizard_seen_version(env!("CARGO_PKG_VERSION"));
+                                return;
+                            }
+                        }
                     }
                 }
                 platform::set_wizard_seen_version(env!("CARGO_PKG_VERSION"));

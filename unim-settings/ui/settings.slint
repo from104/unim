@@ -240,6 +240,7 @@ export global Tr {
     out property <string> delete-undone: @tr("삭제를 되돌렸습니다.");
     out property <string> preset-onehand: @tr("‘한 손 사용’ 프리셋을 적용했습니다.");
     out property <string> preset-relaxed: @tr("‘넉넉한 타이밍’ 프리셋을 적용했습니다.");
+    out property <string> cmd-copied: @tr("명령을 클립보드에 복사했습니다.");
     // 콤보 옵션 (main.rs 가 모델로 주입)
     out property <string> cat-english: @tr("영문으로 시작");
     out property <string> cat-korean: @tr("한글로 시작");
@@ -263,17 +264,27 @@ export global Tr {
     out property <string> key-field-hanja: @tr("한자 변환");
     out property <string> key-field-auto-english: @tr("자동 영문 트리거");
     out property <string> key-field-atf: @tr("오타 교정 토글");
+    // UX-SHARED-V02: 조합 트리거(`key:Ctrl+B` 등)는 Windows TSF 가 다중 키 조합을
+    // 인식하지 못해 미지원(단일 키만 유효)이다. main.rs 가 시작 시 플랫폼에 따라
+    // 설정한다 — Windows 는 예시·문구에서 조합 표기를 뺀다(기본 true = Linux 기준).
+    in property <bool> combo-trigger-supported: true;
     // 인자를 받는 포맷 문자열
     public pure function save-failed(err: string) -> string { @tr("저장 실패: {}", err) }
     public pure function strength-applied(name: string) -> string { @tr("{} 강도를 적용했습니다.", name) }
     public pure function moachigi-window-set(ms: int) -> string { @tr("모아치기 조합창을 {}ms 로 설정했습니다.", ms) }
     // 무효 키 표기 경고 — 문구 규칙: `잘못된 …(무시됨): {키들} — {문법 힌트 + 유효 예시}`.
     // 필드마다 문법이 다르므로(전환키는 조합 불가, 자동 영문은 key:/char: 접두사,
-    // ATF 는 조합 가능) 예시도 필드별로 다르다. 플랫폼 조건부 문구는 넣지 않는다.
+    // ATF 는 조합 가능) 예시도 필드별로 다르다. 원칙적으로 플랫폼 조건부 문구는 넣지
+    // 않되, 자동 영문의 `key:Ctrl+B` 조합 예시만 예외다(UX-SHARED-V02) — Windows TSF 는
+    // 실제로 다중 키 조합을 인식하지 못해, 예시 그대로 입력해도 동작하지 않는다.
     public pure function atf-hotkey-invalid(keys: string) -> string { @tr("잘못된 오타 교정 토글 키(무시됨): {} — 예: Shift+F8, Ctrl+Left", keys) }
     public pure function toggle-keys-invalid(keys: string) -> string { @tr("잘못된 한/영 토글 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Korean, RightAlt", keys) }
     public pure function hanja-keys-invalid(keys: string) -> string { @tr("잘못된 한자 변환 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Hanja, F9", keys) }
-    public pure function auto-english-keys-invalid(keys: string) -> string { @tr("잘못된 자동 영문 트리거 키(무시됨): {} — 예: key:Escape, char:/, key:Ctrl+B", keys) }
+    public pure function auto-english-keys-invalid(keys: string) -> string {
+        root.combo-trigger-supported
+            ? @tr("잘못된 자동 영문 트리거 키(무시됨): {} — 예: key:Escape, char:/, key:Ctrl+B", keys)
+            : @tr("잘못된 자동 영문 트리거 키(무시됨): {} — 예: key:Escape, char:/", keys)
+    }
     public pure function keys-invalid-multi(detail: string) -> string { @tr("무시된 키 표기가 있습니다 — {}", detail) }
     // 전 항목 무효 반려 — CLI/DBus 의 "At least one valid key required" 와 동일 정책.
     // 저장하면 엔진 파서가 전부 걸러 해당 기능이 통째로 죽으므로 저장 자체를 막는다.
@@ -448,6 +459,17 @@ export component SettingsWindow inherits Window {
     // 기본 입력기 지정 실패 시 Rust 가 true 로 설정 → 완료 페이지에 실패 카드 노출(Linux).
     // 기본 false 라 Windows 는 렌더 트리 불변(회귀 0). 실패 시 seen 미기록으로 마법사 유지.
     in-out property <bool> wiz-default-ime-failed: false;
+    // BLOCKER-1(GAP-first-run-lifecycle-01): im-config 자체가 없는 배포판(Fedora 등)이면
+    // Rust 가 true 로 설정 → 완료 페이지에 "수동 설정 필요" 카드 노출(Linux). 실패 카드와
+    // 마찬가지로 seen 미기록 — 다음 로그인에도 마법사가 다시 안내한다.
+    in-out property <bool> wiz-default-ime-manual-setup: false;
+    // BLOCKER-2(GAP-first-run-lifecycle-02): GNOME Shell(Wayland) 세션이면 Rust 가 true 로
+    // 설정 → 완료 페이지에 확장 활성화 안내 카드 노출(Linux). 기본 false 라 Windows·
+    // 비GNOME 은 렌더 트리 불변(회귀 0). 자동 실행은 하지 않는다(안내만).
+    in-out property <bool> wiz-gnome-wayland: false;
+    // GAP-first-06: ibus/fcitx 데몬 공존 감지 시 Rust 가 true 로 설정(완료 페이지 1회
+    // 진입 시 감지) → 경고 카드 노출(Linux). 자동 종료·비활성화는 하지 않는다.
+    in-out property <bool> wiz-conflicting-ime: false;
     // 마법사 네비게이션(다음/이전) 및 마침 — 인덱스 관리·저장은 Rust 가 수행.
     callback wizard-next();
     callback wizard-back();
@@ -797,13 +819,19 @@ export component SettingsWindow inherits Window {
                         }
                         SettingRow {
                             title: @tr("트리거 키");
-                            description: @tr("자동 영문 전환을 발동할 키입니다. key:Ctrl+B 같은 조합도 지원합니다.");
+                            // UX-SHARED-V02: Windows 는 조합 트리거 미작동 — 되지 않는
+                            // 기능을 광고하지 않도록 예시에서 조합 표기를 뺀다.
+                            description: Tr.combo-trigger-supported
+                                ? @tr("자동 영문 전환을 발동할 키입니다. key:Ctrl+B 같은 조합도 지원합니다.")
+                                : @tr("자동 영문 전환을 발동할 키입니다.");
                             row-enabled: root.auto-english-enabled;
                             LineEdit {
                                 min-width: 220px;
                                 enabled: root.auto-english-enabled;
                                 text <=> root.auto-english-keys;
-                                placeholder-text: @tr("예: key:Escape, char:/, key:Ctrl+B");
+                                placeholder-text: Tr.combo-trigger-supported
+                                    ? @tr("예: key:Escape, char:/, key:Ctrl+B")
+                                    : @tr("예: key:Escape, char:/");
                                 accessible-label: @tr("트리거 키");
                                 edited => { root.auto-save(); }
                             }
@@ -1561,6 +1589,86 @@ export component SettingsWindow inherits Window {
                         title: @tr("기본 입력기 지정 실패");
                         Text {
                             text: @tr("기본 입력기를 자동으로 지정하지 못했습니다. [마침]을 다시 눌러 재시도하거나, 나중에 터미널에서 'im-config -n unim' 으로 직접 지정할 수 있습니다. 지정 전까지는 다음 로그인에도 이 마법사가 다시 안내합니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                    }
+                    // BLOCKER-1(GAP-first-run-lifecycle-01): im-config 자체가 없는 배포판
+                    // (Fedora 등) — 자동 지정 수단이 없어 폴백을 시도하지 않았음을 그대로
+                    // 알린다(거짓 성공 금지). 이 안내는 1회만 표시된다(wizard.rs 가 이
+                    // 카드를 띄우는 시점에 곧바로 seen 을 기록해 다음 로그인부터는 재출현
+                    // 하지 않는다 — 재시도 불가 조건을 영구 반복 안내로 만들지 않기 위함).
+                    if root.wiz-current-kind == 5 && root.wiz-platform-linux && root.wiz-default-ime-manual-setup: Card {
+                        title: @tr("수동 설정 필요");
+                        Text {
+                            text: @tr("이 배포판에는 im-config 가 없어 기본 입력기를 자동으로 지정할 수 없습니다. 데스크톱 환경의 입력기 설정에서 UNIM 을 직접 선택하세요. 이 안내는 이번 1회만 표시됩니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        Text {
+                            text: @tr("[마침]을 다시 누르면 이 단계를 건너뛰고 마칩니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                    }
+                    // BLOCKER-2(GAP-first-run-lifecycle-02): GNOME Shell(Wayland) 세션
+                    // (우분투 기본 세션)은 확장 활성화가 별도 필요하다. 자동 실행은 하지
+                    // 않고 안내만 한다 — 사용자 승인 없이 명령을 대신 실행하지 않기 위함.
+                    if root.wiz-current-kind == 5 && root.wiz-platform-linux && root.wiz-gnome-wayland: Card {
+                        title: @tr("GNOME 확장 활성화 필요");
+                        Text {
+                            text: @tr("GNOME(Wayland) 세션에서는 한/영 조합과 한자 팝업을 위해 확장을 한 번 활성화해야 합니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        Text {
+                            text: @tr("재로그인 후 한 번만 실행하세요:");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-1; }
+                        // GAP-first-run-and-uninstall-lifecycle-02: 51자 명령을 사용자가
+                        // 직접 타이핑하지 않도록 읽기 전용 LineEdit(드래그 선택 가능) +
+                        // [복사] 버튼 제공. 입에 문 젓가락 입력은 오타 비용이 크다.
+                        HorizontalLayout {
+                            spacing: Tokens.space-2;
+                            gnome_enable_cmd := LineEdit {
+                                text: "gnome-extensions enable unim-gnome@from104.github.io";
+                                read-only: true;
+                                font-size: Tokens.font-caption;
+                                accessible-label: @tr("GNOME 확장 활성화 명령");
+                            }
+                            Button {
+                                text: @tr("명령 복사");
+                                accessible-label: @tr("GNOME 확장 활성화 명령 클립보드에 복사");
+                                clicked => {
+                                    gnome_enable_cmd.select-all();
+                                    gnome_enable_cmd.copy();
+                                    gnome_enable_cmd.clear-selection();
+                                    root.toast-message = Tr.cmd-copied;
+                                    root.toast-visible = true;
+                                }
+                            }
+                        }
+                    }
+                    // GAP-first-06: ibus/fcitx 공존 감지 — 자동 종료·비활성화는 하지 않는다.
+                    // 마법사가 이 카드를 띄우는 시점은 아직 UNIM 이 기본 입력기가 아니라서
+                    // (=ibus/fcitx 가 현역) pgrep 이 사실상 항상 참인 시점이다. 그래서
+                    // "둘 중 하나만 남기라"(=ibus 제거)를 1차 조치처럼 안내하면 방향이
+                    // 반대다 — 실제로 필요한 건 마법사 완료(im-config -n unim) 후 재로그인
+                    // 뿐이며, 그러면 ibus 는 대개 자연히 물러난다. 문구는 재로그인을 1차
+                    // 조치로 앞세우고, '하나만 남기라'는 재로그인 후에도 남는 경우로 한정한다.
+                    if root.wiz-current-kind == 5 && root.wiz-platform-linux && root.wiz-conflicting-ime: Card {
+                        title: @tr("다른 입력기 프레임워크 감지됨");
+                        Text {
+                            text: @tr("ibus 또는 fcitx 가 현재 실행 중입니다. 재로그인하면 UNIM 이 기본 입력기가 되며, 대개 자동으로 정리됩니다. 재로그인 후에도 한/영 전환이 되지 않으면 두 프레임워크 중 하나만 남기고 다시 재로그인하세요.");
                             font-size: Tokens.font-body;
                             wrap: word-wrap;
                             color: Palette.foreground;
