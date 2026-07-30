@@ -688,8 +688,8 @@ msgstr "Overall on/off"
 msgid "자동 오타 교정 전체를 토글합니다."
 msgstr "Toggles Auto TypeFix as a whole."
 
-msgid "예: F10, Shift+F9 — 비워두면 사용 안 함"
-msgstr "e.g. F10, Shift+F9 — leave empty to disable"
+msgid "예: F10, Shift+F9"
+msgstr "e.g. F10, Shift+F9"
 
 msgid "전체 토글 단축키"
 msgstr "Overall toggle shortcut"

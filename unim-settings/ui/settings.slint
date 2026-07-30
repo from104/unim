@@ -1025,7 +1025,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.atf-toggle-enabled-keys;
-                                placeholder-text: @tr("예: F10, Shift+F9 — 비워두면 사용 안 함");
+                                placeholder-text: @tr("예: F10, Shift+F9");
                                 accessible-label: @tr("전체 토글 단축키");
                                 edited => { root.auto-save(); }
                             }
@@ -1036,7 +1036,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.atf-toggle-forward-keys;
-                                placeholder-text: @tr("예: F10, Shift+F9 — 비워두면 사용 안 함");
+                                placeholder-text: @tr("예: F10, Shift+F9");
                                 accessible-label: @tr("정방향 토글 단축키");
                                 edited => { root.auto-save(); }
                             }
@@ -1047,7 +1047,7 @@ export component SettingsWindow inherits Window {
                             LineEdit {
                                 min-width: 220px;
                                 text <=> root.atf-toggle-reverse-keys;
-                                placeholder-text: @tr("예: F10, Shift+F9 — 비워두면 사용 안 함");
+                                placeholder-text: @tr("예: F10, Shift+F9");
                                 accessible-label: @tr("역방향 토글 단축키");
                                 edited => { root.auto-save(); }
                             }
