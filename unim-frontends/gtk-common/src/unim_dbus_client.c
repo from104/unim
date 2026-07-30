@@ -1153,10 +1153,23 @@ on_auto_typefix_signal(GDBusConnection *connection G_GNUC_UNUSED,
 
     g_variant_get(parameters, "(u&s&s)", &delete_chars, &commit_text, &preedit_text);
 
-    if (delete_chars > 0 && commit_text) {
+    /* delete_chars == 0 은 버려야 할 페이로드가 아니라 **정상 경로**다.
+     * word(라이브 조합) 모드의 역방향 교정은 한글 전체가 preedit 이라 문서에
+     * 확정된 글자가 0 자다. 코어가 삭제를 0 으로 강제하고(engine_worker.rs
+     * `effective_reverse_delete` — 조합 이전 텍스트를 지우는 P0 데이터 손실 가드)
+     * commit_text 만으로 교정을 완결한다.
+     * 예전 `delete_chars > 0` 조건은 이 경우 시그널을 통째로 버렸고, 응답이 이미
+     * preedit 을 비운 뒤라 한글은 사라지고 영문은 확정되지 않는 입력 유실이 났다.
+     * Qt·XIM·Wayland·GNOME 은 이 게이트가 없어 GTK 계열에서만 재현됐다.
+     * 세 슬롯이 전부 비었을 때(=할 일 없음)만 무시한다. */
+    if (delete_chars > 0
+        || (commit_text && commit_text[0] != '\0')
+        || (preedit_text && preedit_text[0] != '\0')) {
         UNIM_DBUS_DEBUG("AutoTypeFix 시그널 수신: delete=%u, commit='%s', preedit='%s'",
-                         delete_chars, commit_text, preedit_text ? preedit_text : "");
-        ctx->auto_typefix_callback(delete_chars, commit_text,
+                         delete_chars, commit_text ? commit_text : "",
+                         preedit_text ? preedit_text : "");
+        ctx->auto_typefix_callback(delete_chars,
+                                    commit_text ? commit_text : "",
                                     preedit_text ? preedit_text : "",
                                     ctx->auto_typefix_user_data);
     }
