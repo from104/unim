@@ -139,7 +139,12 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
         // BLOCKER-2(GAP-first-run-lifecycle-02): GNOME Shell(Wayland) 세션(우분투 기본
         // 세션)이면 완료 페이지에 확장 활성화 안내 카드를 띄운다. Windows/fallback 은
         // 항상 false 라 렌더 트리 불변(회귀 0).
-        ui.set_wiz_gnome_wayland(platform::is_gnome_wayland_session());
+        //
+        // 단 **이미 확장을 켠 사용자에게는 띄우지 않는다** — 세션 종류만 보고 띄우면
+        // 할 필요 없는 명령을 실행하라고 지시하게 된다(실기 확인 2026-07-28).
+        ui.set_wiz_gnome_wayland(
+            platform::is_gnome_wayland_session() && platform::gnome_extension_needs_enable(),
+        );
 
         // FINISH 페이지 최초 진입 시 데몬 감지를 딱 1회 트리거하기 위한 가드(Linux 전용).
         #[cfg(target_os = "linux")]

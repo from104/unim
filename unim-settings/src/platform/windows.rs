@@ -126,6 +126,9 @@ pub fn set_wizard_seen_version(v: &str) {
 pub fn is_gnome_wayland_session() -> bool {
     false
 }
+pub fn gnome_extension_needs_enable() -> bool {
+    false
+}
 // 유일한 호출부(`wizard.rs` 완료 페이지)가 `#[cfg(target_os = "linux")]` 라 Windows 에선
 // 호출되지 않는다. 그래도 플랫폼 백엔드 표면 대칭을 위해 stub 은 남긴다.
 #[allow(dead_code)]

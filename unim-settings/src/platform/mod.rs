@@ -95,6 +95,9 @@ mod fallback {
     pub fn is_gnome_wayland_session() -> bool {
         false
     }
+    pub fn gnome_extension_needs_enable() -> bool {
+        false
+    }
     // 호출부가 Linux 전용 cfg 라 여기서도 미사용 — 표면 대칭 유지 목적.
     #[allow(dead_code)]
     pub fn detect_conflicting_ime() -> bool {

@@ -264,6 +264,33 @@ pub fn detect_conflicting_ime() -> bool {
     })
 }
 
+/// GNOME 확장이 아직 활성화되지 않아 안내 카드가 필요한지 판정한다.
+///
+/// `is_gnome_wayland_session()` 만으로 카드를 띄우면 **이미 확장을 켠 사용자에게도**
+/// `gnome-extensions enable ...` 을 실행하라고 지시하게 된다. 타이핑 비용이 큰
+/// 사용자에게 불필요한 지시는 그 자체가 비용이므로, 활성 목록을 확인해 이미 켜져
+/// 있으면 카드를 숨긴다.
+///
+/// `gnome-extensions list --enabled` 는 UUID 만 한 줄씩 출력해 로케일 영향을 받지
+/// 않는다(`info` 의 `State:` 는 번역될 수 있어 파싱에 부적합). 조회에 실패하면
+/// **카드를 띄우는 쪽(true)으로 폴백**한다 — 필요한 안내를 놓치는 것보다 불필요한
+/// 안내가 덜 해롭다.
+pub fn gnome_extension_needs_enable() -> bool {
+    let Ok(out) = std::process::Command::new("gnome-extensions")
+        .args(["list", "--enabled"])
+        .output()
+    else {
+        return true; // 명령 부재 등 — 안전측
+    };
+    if !out.status.success() {
+        return true;
+    }
+    let enabled = String::from_utf8_lossy(&out.stdout);
+    !enabled
+        .lines()
+        .any(|l| l.trim() == "unim-gnome@from104.github.io")
+}
+
 /// im-config 지정은 영속적이라 로그인마다 재고정할 필요가 없다(Windows 의 startup
 /// 재고정 개념 없음). 함수 표면 대칭을 위한 no-op.
 pub fn wizard_set_default_on_startup(_v: bool) {}
