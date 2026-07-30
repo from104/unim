@@ -11,6 +11,36 @@
 //! 산출물은 저장소에 커밋한다(사전 생성). 패키징은 파일 복사만 하므로 deb/rpm/MSI 에
 //! 이 생성기 의존성이 들어가지 않는다.
 //!
+//! # 플랫폼 분기
+//!
+//! 같은 원본에서 **플랫폼별 판**을 뽑는다. 리눅스 사용자에게 MSI 안내를, 윈도우
+//! 사용자에게 `apt`·GNOME 확장 안내를 보여주지 않기 위해서다.
+//!
+//! ```text
+//! help/unim-help-{ko,en}.html          ← 리눅스 판 (deb/rpm)
+//! help/windows/unim-help-{ko,en}.html  ← 윈도우 판 (MSI)
+//! ```
+//!
+//! 본문에 HTML 주석 마커를 둔다. 마커는 **마크다운 파싱 전에 줄 단위로** 처리하므로,
+//! 걸러진 본문 위에서 앵커 색인·목차·링크 재작성이 전부 자동으로 정합해진다.
+//!
+//! ```text
+//! <!-- @platform:linux -->
+//! sudo apt install unim
+//! <!-- @endplatform -->
+//!
+//! <!-- @platform:windows -->
+//! 내려받은 `UNIM-0.4.0-x64.msi` 를 실행한다.
+//! <!-- @endplatform -->
+//! ```
+//!
+//! `<!-- @platform:linux,windows -->` 처럼 쉼표로 여러 플랫폼을 지정할 수 있다.
+//! 마커가 없는 본문은 **모든 플랫폼에 공통**이다 — 기본이 공유이고 분기가 예외다.
+//!
+//! GitHub 에서 원본을 볼 때는 주석이 보이지 않으므로 양쪽 분기가 나란히 보인다.
+//! 따라서 분기 안에는 어느 플랫폼 이야기인지 알 수 있는 눈에 보이는 표시(소제목,
+//! 굵은 라벨 등)를 함께 둔다 — 온라인 문서도 읽히게 하기 위한 집필 규약이다.
+//!
 //! 핵심 작업은 **링크 재작성**이다. 원본 4종은 서로를 상대경로로 링크하는데
 //! (`../faq/README-ko.md#q3-...`), 병합 후에는 그게 문서 내 앵커여야 한다.
 //! 문서 밖(`docs/dev/**`, 루트 `README.md` 등)이나 앵커를 못 찾은 링크는
@@ -33,6 +63,11 @@ use template::Page;
 const REPO_BLOB: &str = "https://github.com/from104/unim/blob/main";
 const ONLINE_DOCS: &str = "https://github.com/from104/unim/tree/main/docs/user";
 const DOC_ROOT: &str = "docs/user";
+
+/// 플랫폼 분기 마커 여는 줄. 뒤에 `linux`·`windows` 를 쉼표로 나열한다.
+const MARK_OPEN: &str = "@platform:";
+/// 플랫폼 분기 마커 닫는 줄.
+const MARK_CLOSE: &str = "@endplatform";
 
 /// 병합 대상 4종. 순서가 곧 목차·본문 순서다.
 struct DocDef {
@@ -105,6 +140,118 @@ impl Lang {
     }
 }
 
+/// 산출 대상 플랫폼. 같은 원본에서 마커로 걸러 판을 나눈다.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Platform {
+    Linux,
+    Windows,
+}
+
+impl Platform {
+    const ALL: [Platform; 2] = [Platform::Linux, Platform::Windows];
+
+    /// 마커에 쓰는 이름(`<!-- @platform:linux -->`).
+    fn tag(self) -> &'static str {
+        match self {
+            Platform::Linux => "linux",
+            Platform::Windows => "windows",
+        }
+    }
+
+    /// 출력 하위 디렉터리. 리눅스 판은 `help/` 루트를 그대로 쓴다 — deb/rpm 패키징과
+    /// `check-help-html` 가드가 기존 경로에 묶여 있어 옮기면 무관한 회귀가 난다.
+    fn out_subdir(self) -> Option<&'static str> {
+        match self {
+            Platform::Linux => None,
+            Platform::Windows => Some("windows"),
+        }
+    }
+
+    fn parse(s: &str) -> Option<Platform> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "linux" => Some(Platform::Linux),
+            "windows" | "win" => Some(Platform::Windows),
+            _ => None,
+        }
+    }
+}
+
+/// 플랫폼 분기 마커를 적용해 `platform` 에 해당하는 본문만 남긴다.
+///
+/// 마크다운 파서를 태우기 **전에** 줄 단위로 돈다. 걸러진 결과가 곧 색인·렌더링의
+/// 입력이므로 목차·앵커·링크 재작성이 자동으로 그 플랫폼 판에 맞춰진다.
+///
+/// 마커 오류(닫히지 않은 블록, 짝 없는 `@endplatform`, 모르는 플랫폼 이름)는
+/// 빌드를 깨뜨리지 않고 경고로 남긴다 — 문서 한 곳의 실수로 오프라인 도움말이
+/// 통째로 사라지는 편이 더 나쁘다. 다만 모르는 플랫폼 블록은 **버린다**(보수적 기본값).
+fn filter_platform(md: &str, platform: Platform, origin: &str, stats: &mut Stats) -> String {
+    let mut out = String::with_capacity(md.len());
+    // 현재 열린 블록의 대상 플랫폼 목록. `None` 이면 블록 밖(=공통 본문).
+    let mut open: Option<(Vec<Platform>, usize)> = None;
+
+    for (lineno, line) in md.lines().enumerate() {
+        let t = line.trim();
+        // 마커는 한 줄을 통째로 차지하는 HTML 주석만 인정한다. 본문 중간에 낀
+        // `<!-- @platform:... -->` 를 잘못 잡아 문장을 삼키는 사고를 막는다.
+        let marker = t
+            .strip_prefix("<!--")
+            .and_then(|s| s.strip_suffix("-->"))
+            .map(str::trim);
+
+        if let Some(m) = marker {
+            if let Some(list) = m.strip_prefix(MARK_OPEN) {
+                if let Some((_, prev)) = &open {
+                    stats.warnings.push(format!(
+                        "{origin}:{}: @platform 블록이 닫히기 전에 다시 열렸다(이전 시작 {}행) — 중첩은 지원하지 않는다",
+                        lineno + 1,
+                        prev + 1
+                    ));
+                }
+                let mut targets = Vec::new();
+                for name in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    match Platform::parse(name) {
+                        Some(p) => targets.push(p),
+                        None => stats.warnings.push(format!(
+                            "{origin}:{}: 알 수 없는 플랫폼 이름 '{name}' — 이 블록은 어느 판에도 실리지 않는다",
+                            lineno + 1
+                        )),
+                    }
+                }
+                open = Some((targets, lineno));
+                continue;
+            }
+            if m == MARK_CLOSE {
+                if open.is_none() {
+                    stats.warnings.push(format!(
+                        "{origin}:{}: 짝 없는 @endplatform — 무시한다",
+                        lineno + 1
+                    ));
+                }
+                open = None;
+                continue;
+            }
+        }
+
+        let keep = match &open {
+            None => true,
+            Some((targets, _)) => targets.contains(&platform),
+        };
+        if keep {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+
+    if let Some((_, start)) = open {
+        stats.warnings.push(format!(
+            "{origin}:{}: @platform 블록이 닫히지 않은 채 파일이 끝났다 — 파일 끝에서 닫힌 것으로 처리한다",
+            start + 1
+        ));
+    }
+
+    out
+}
+
 /// 문서 하나를 훑어 얻은 색인 — 링크 검증에 필요한 앵커 집합과 제목.
 struct DocIndex {
     ids: Vec<String>,
@@ -170,22 +317,21 @@ fn main() -> ExitCode {
 }
 
 fn run(root: &Path, out_dir: &Path) -> Result<Stats, String> {
-    // 1단계 — 8개 문서를 모두 읽고 앵커 색인을 만든다.
-    //         교차 링크를 검증하려면 렌더링 전에 전체 id 집합이 필요하다.
-    let mut sources: HashMap<(usize, Lang), String> = HashMap::new();
-    let mut indexes: HashMap<(usize, Lang), DocIndex> = HashMap::new();
+    let mut stats = Stats::default();
 
+    // 1단계 — 원본 8종을 읽는다. 플랫폼 필터는 사본에서 하므로 디스크 읽기는 한 번뿐.
+    let mut raw: HashMap<(usize, Lang), String> = HashMap::new();
     for (di, doc) in DOCS.iter().enumerate() {
         for lang in Lang::ALL {
             let path = root.join(DOC_ROOT).join(doc.dir).join(lang.file_name());
             let md = std::fs::read_to_string(&path)
                 .map_err(|e| format!("{}: 읽기 실패 — {e}", path.display()))?;
-            indexes.insert((di, lang), index_doc(&md, doc, lang));
-            sources.insert((di, lang), md);
+            raw.insert((di, lang), md);
         }
     }
 
     // 상대경로 → (문서, 언어) 역인덱스. 링크 대상이 병합 범위 안인지 판별한다.
+    // 플랫폼과 무관한 경로 매핑이라 한 번만 만든다.
     let mut known: HashMap<String, (usize, Lang)> = HashMap::new();
     for (di, doc) in DOCS.iter().enumerate() {
         for lang in Lang::ALL {
@@ -196,11 +342,46 @@ fn run(root: &Path, out_dir: &Path) -> Result<Stats, String> {
         }
     }
 
-    // 2단계 — 언어별로 렌더링.
-    std::fs::create_dir_all(out_dir)
+    for platform in Platform::ALL {
+        run_platform(out_dir, platform, &raw, &known, &mut stats)?;
+    }
+
+    Ok(stats)
+}
+
+/// 한 플랫폼 판을 통째로 생성한다 — 필터 → 앵커 색인 → 언어별 렌더링 → 쓰기.
+///
+/// 색인을 플랫폼마다 새로 만드는 것이 핵심이다. 걸러낸 뒤의 본문에만 존재하는
+/// 제목으로 목차·앵커가 구성되어야, 윈도우 판 목차에 리눅스 전용 절이 남아
+/// 클릭하면 아무 데도 안 가는 죽은 링크가 되는 사고를 막는다.
+fn run_platform(
+    out_dir: &Path,
+    platform: Platform,
+    raw: &HashMap<(usize, Lang), String>,
+    known: &HashMap<String, (usize, Lang)>,
+    stats: &mut Stats,
+) -> Result<(), String> {
+    let mut sources: HashMap<(usize, Lang), String> = HashMap::new();
+    let mut indexes: HashMap<(usize, Lang), DocIndex> = HashMap::new();
+
+    for (di, doc) in DOCS.iter().enumerate() {
+        for lang in Lang::ALL {
+            let origin = format!("{DOC_ROOT}/{}/{}", doc.dir, lang.file_name());
+            let md = filter_platform(&raw[&(di, lang)], platform, &origin, stats);
+            indexes.insert((di, lang), index_doc(&md, doc, lang));
+            sources.insert((di, lang), md);
+        }
+    }
+
+    let out_dir = match platform.out_subdir() {
+        Some(sub) => out_dir.join(sub),
+        None => out_dir.to_path_buf(),
+    };
+    std::fs::create_dir_all(&out_dir)
         .map_err(|e| format!("{}: 디렉토리 생성 실패 — {e}", out_dir.display()))?;
 
-    let mut stats = Stats::default();
+    let indexes = &indexes;
+    let out_dir = &out_dir;
     for lang in Lang::ALL {
         let mut body = String::new();
         let mut toc = String::from("<ol>\n");
@@ -210,7 +391,7 @@ fn run(root: &Path, out_dir: &Path) -> Result<Stats, String> {
             let index = &indexes[&(di, lang)];
 
             let (fragment, entries) =
-                render_doc(md, di, lang, &known, &indexes, &mut stats);
+                render_doc(md, di, lang, known, indexes, stats);
 
             let _ = write!(
                 body,
@@ -240,12 +421,18 @@ fn run(root: &Path, out_dir: &Path) -> Result<Stats, String> {
         }
         toc.push_str("</ol>\n");
 
+        // 플랫폼 판을 제목에 박아 둔다 — 사용자가 잘못된 판을 열었을 때(예: 리눅스에서
+        // MSI 안내가 보일 때) 스스로 알아챌 수 있어야 한다.
+        let (os_ko, os_en) = match platform {
+            Platform::Linux => ("리눅스", "Linux"),
+            Platform::Windows => ("윈도우", "Windows"),
+        };
         let (title, brand, notice, switch_label, toc_title) = match lang {
             Lang::Ko => (
                 "UNIM 도움말",
                 "UNIM 도움말",
                 format!(
-                    "이 문서는 <code>docs/user/</code> 의 마크다운에서 <b>자동 생성</b>된 오프라인 사본이다. \
+                    "<b>{os_ko}판</b> — 이 문서는 <code>docs/user/</code> 의 마크다운에서 <b>자동 생성</b>된 오프라인 사본이다. \
                      내용이 오래됐거나 링크가 깨졌다면 최신판을 <a href=\"{ONLINE_DOCS}\">GitHub 문서</a>에서 확인한다."
                 ),
                 "English",
@@ -255,7 +442,7 @@ fn run(root: &Path, out_dir: &Path) -> Result<Stats, String> {
                 "UNIM Help",
                 "UNIM Help",
                 format!(
-                    "This page is an offline copy <b>generated automatically</b> from the Markdown in <code>docs/user/</code>. \
+                    "<b>{os_en} edition</b> — this page is an offline copy <b>generated automatically</b> from the Markdown in <code>docs/user/</code>. \
                      If anything looks out of date or a link is broken, see the latest version in the <a href=\"{ONLINE_DOCS}\">GitHub docs</a>."
                 ),
                 "한국어",
@@ -279,10 +466,10 @@ fn run(root: &Path, out_dir: &Path) -> Result<Stats, String> {
         let out_path = out_dir.join(lang.out_file());
         std::fs::write(&out_path, page.render())
             .map_err(|e| format!("{}: 쓰기 실패 — {e}", out_path.display()))?;
-        println!("생성: {}", out_path.display());
+        println!("생성: {} ({})", out_path.display(), platform.tag());
     }
 
-    Ok(stats)
+    Ok(())
 }
 
 // ─── 1단계: 앵커 색인 ────────────────────────────────────────────────────────
@@ -645,5 +832,100 @@ mod tests {
             github_url("README.md", None),
             "https://github.com/from104/unim/blob/main/README.md"
         );
+    }
+
+    // ─── 플랫폼 분기 필터 ────────────────────────────────────────────────────
+
+    fn filt(md: &str, p: Platform) -> (String, usize) {
+        let mut s = Stats::default();
+        let out = filter_platform(md, p, "t.md", &mut s);
+        (out, s.warnings.len())
+    }
+
+    /// 마커 없는 본문은 두 판 모두에 그대로 실린다 — 기본이 공유다.
+    #[test]
+    fn unmarked_body_is_shared() {
+        let md = "# 제목\n\n본문 한 줄\n";
+        assert_eq!(filt(md, Platform::Linux).0, md);
+        assert_eq!(filt(md, Platform::Windows).0, md);
+    }
+
+    /// 분기 블록은 대상 플랫폼에만 남고, 마커 줄 자체는 어느 판에도 남지 않는다.
+    #[test]
+    fn branches_select_by_platform() {
+        let md = "\
+공통\n\
+<!-- @platform:linux -->\n\
+apt install\n\
+<!-- @endplatform -->\n\
+<!-- @platform:windows -->\n\
+MSI 실행\n\
+<!-- @endplatform -->\n\
+꼬리\n";
+        let (lin, w1) = filt(md, Platform::Linux);
+        let (win, w2) = filt(md, Platform::Windows);
+        assert_eq!(lin, "공통\napt install\n꼬리\n");
+        assert_eq!(win, "공통\nMSI 실행\n꼬리\n");
+        assert_eq!((w1, w2), (0, 0), "정상 마크업에서 경고가 나면 안 된다");
+    }
+
+    /// 쉼표 목록은 나열한 플랫폼 모두에 실린다.
+    #[test]
+    fn comma_list_targets_multiple_platforms() {
+        let md = "<!-- @platform:linux,windows -->\n둘 다\n<!-- @endplatform -->\n";
+        assert_eq!(filt(md, Platform::Linux).0, "둘 다\n");
+        assert_eq!(filt(md, Platform::Windows).0, "둘 다\n");
+    }
+
+    /// 문장 중간의 `@platform` 문자열은 마커가 아니다 — 본문을 삼키면 안 된다.
+    #[test]
+    fn inline_comment_is_not_a_marker() {
+        let md = "앞 <!-- @platform:linux --> 뒤\n다음 줄\n";
+        let (out, warns) = filt(md, Platform::Windows);
+        assert_eq!(out, md, "한 줄을 통째로 차지하지 않으면 마커가 아니다");
+        assert_eq!(warns, 0);
+    }
+
+    /// 닫지 않은 블록은 파일 끝에서 닫힌 것으로 처리하되 경고를 남긴다.
+    #[test]
+    fn unclosed_block_warns_but_still_filters() {
+        let md = "<!-- @platform:linux -->\n리눅스만\n";
+        let (win, warns) = filt(md, Platform::Windows);
+        assert_eq!(win, "", "닫히지 않아도 대상이 아니면 실리지 않는다");
+        assert_eq!(warns, 1);
+    }
+
+    /// 짝 없는 `@endplatform` 은 무시하고 경고만 남긴다 — 빌드를 깨지 않는다.
+    #[test]
+    fn stray_close_warns_but_keeps_body() {
+        let md = "본문\n<!-- @endplatform -->\n뒤\n";
+        let (out, warns) = filt(md, Platform::Linux);
+        assert_eq!(out, "본문\n뒤\n");
+        assert_eq!(warns, 1);
+    }
+
+    /// 모르는 플랫폼 이름은 경고 + 어느 판에도 싣지 않는다(보수적 기본값).
+    #[test]
+    fn unknown_platform_name_is_dropped_with_warning() {
+        let md = "<!-- @platform:macos -->\n맥\n<!-- @endplatform -->\n남는 줄\n";
+        let (lin, warns) = filt(md, Platform::Linux);
+        assert_eq!(lin, "남는 줄\n");
+        assert_eq!(warns, 1);
+        assert_eq!(filt(md, Platform::Windows).0, "남는 줄\n");
+    }
+
+    /// 중첩은 지원하지 않는다 — 경고로 알린다.
+    #[test]
+    fn nested_open_warns() {
+        let md = "<!-- @platform:linux -->\na\n<!-- @platform:windows -->\nb\n<!-- @endplatform -->\n";
+        let (_, warns) = filt(md, Platform::Linux);
+        assert_eq!(warns, 1);
+    }
+
+    /// 리눅스 판 출력 경로는 종전과 같아야 한다 — deb/rpm 패키징이 여기 묶여 있다.
+    #[test]
+    fn linux_edition_keeps_root_output_dir() {
+        assert_eq!(Platform::Linux.out_subdir(), None);
+        assert_eq!(Platform::Windows.out_subdir(), Some("windows"));
     }
 }

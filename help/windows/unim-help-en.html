@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="unim-gen-help">
+<meta name="color-scheme" content="light dark">
+<title>UNIM Help</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #16181d;
+  --fg-muted: #4a5060;
+  --accent: #0b5ed7;
+  --accent-soft: #e8f0fe;
+  --border: #d3d7e0;
+  --code-bg: #f2f4f8;
+  --note-bg: #fff8e1;
+  --note-border: #d9a400;
+  --table-head: #eef1f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --fg: #e9ecf1;
+    --fg-muted: #a8b0c0;
+    --accent: #7db3ff;
+    --accent-soft: #1d2a3f;
+    --border: #363b45;
+    --code-bg: #1d2026;
+    --note-bg: #2b2413;
+    --note-border: #c9a227;
+    --table-head: #1d2026;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 6rem;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo",
+               system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.85;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.wrap { max-width: 62rem; margin: 0 auto; }
+
+/* ── 상단 바 ─────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  border-bottom: 2px solid var(--border);
+  padding: 0.9rem 0;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.topbar .brand { font-size: 1.35rem; font-weight: 700; }
+.topbar .brand .ver { font-size: 0.85rem; font-weight: 400; color: var(--fg-muted); }
+.langswitch {
+  display: inline-block;
+  padding: 0.5rem 1.1rem;
+  border: 2px solid var(--accent);
+  border-radius: 0.5rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--accent);
+}
+.langswitch:hover, .langswitch:focus { background: var(--accent-soft); }
+
+/* ── 생성물 안내 ─────────────────────────────────────────── */
+.gennotice {
+  background: var(--note-bg);
+  border-left: 6px solid var(--note-border);
+  border-radius: 0.35rem;
+  padding: 0.85rem 1.1rem;
+  margin: 0 0 2rem;
+  color: var(--fg);
+}
+
+/* ── 목차 ───────────────────────────────────────────────── */
+.toc {
+  border: 2px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 3rem;
+}
+.toc > h2 { margin-top: 0; border: 0; padding: 0; font-size: 1.5rem; }
+.toc ol { list-style: none; padding-left: 0; margin: 0; }
+.toc > ol > li { margin-bottom: 1.25rem; }
+.toc > ol > li > a { font-size: 1.15rem; font-weight: 700; }
+.toc ol ol { padding-left: 1.25rem; margin-top: 0.35rem; }
+/* 발 마우스 조작 — 클릭 표적을 넉넉히 잡는다. */
+.toc a { display: inline-block; padding: 0.3rem 0.2rem; }
+
+/* ── 본문 ───────────────────────────────────────────────── */
+section.doc { margin-bottom: 5rem; scroll-margin-top: 5rem; }
+
+h1, h2, h3, h4, h5, h6 { line-height: 1.35; scroll-margin-top: 5rem; }
+h1 { font-size: 2.1rem; margin: 0 0 0.5rem; }
+h2 {
+  font-size: 1.85rem;
+  margin-top: 3.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 3px solid var(--border);
+}
+h3 { font-size: 1.45rem; margin-top: 2.75rem; }
+h4 { font-size: 1.2rem; margin-top: 2rem; }
+h5, h6 { font-size: 1.05rem; margin-top: 1.5rem; }
+
+a { color: var(--accent); }
+a:hover, a:focus { text-decoration-thickness: 2px; }
+
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+code, kbd, pre, samp {
+  font-family: "JetBrains Mono", "D2Coding", ui-monospace, SFMono-Regular,
+               Menlo, Consolas, monospace;
+}
+code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 0.3em; font-size: 0.9em; }
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;          /* 긴 코드는 자기 상자 안에서만 가로 스크롤 */
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+blockquote {
+  margin: 1.5rem 0;
+  padding: 0.4rem 1.25rem;
+  border-left: 6px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 0.35rem 0.35rem 0;
+  color: var(--fg);
+}
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+
+/* 표는 본문을 밀어내지 않고 자기 래퍼 안에서 스크롤한다. */
+.tablewrap { overflow-x: auto; margin: 1.5rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { border: 1px solid var(--border); padding: 0.6rem 0.85rem; text-align: left; vertical-align: top; }
+th { background: var(--table-head); font-weight: 700; }
+
+hr { border: 0; border-top: 2px solid var(--border); margin: 3rem 0; }
+
+ul, ol { padding-left: 1.6rem; }
+li { margin: 0.35rem 0; }
+
+.backtotop {
+  display: inline-block;
+  margin-top: 2.5rem;
+  padding: 0.45rem 1rem;
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.backtotop:hover, .backtotop:focus { background: var(--accent-soft); }
+
+@media (max-width: 40rem) {
+  body { font-size: 17px; padding: 0 0.9rem 4rem; }
+  h1 { font-size: 1.7rem; }
+  h2 { font-size: 1.45rem; }
+  h3 { font-size: 1.25rem; }
+}
+
+@media print {
+  .topbar, .backtotop { display: none; }
+  body { font-size: 11pt; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="topbar">
+  <span class="brand">UNIM Help <span class="ver">v0.4.0</span></span>
+  <a class="langswitch" href="unim-help-ko.html">한국어</a>
+</header>
+
+<p class="gennotice"><b>Windows edition</b> — this page is an offline copy <b>generated automatically</b> from the Markdown in <code>docs/user/</code>. If anything looks out of date or a link is broken, see the latest version in the <a href="https://github.com/from104/unim/tree/main/docs/user">GitHub docs</a>.</p>
+
+<nav class="toc" aria-label="Contents">
+<h2 id="toc">Contents</h2>
+<ol>
+<li><a href="#user-guide">UNIM User Manual (English)</a>
+<ol>
+<li><a href="#user-guide--1-what-is-unim-30-second-pitch">1. What is UNIM (30-second pitch)</a></li>
+<li><a href="#user-guide--2-quick-start-5-minutes">2. Quick Start (5 minutes)</a></li>
+<li><a href="#user-guide--25-popup-behavior-overview">2.5 Popup behavior overview</a></li>
+<li><a href="#user-guide--3-per-environment-setup">3. Per-environment setup</a></li>
+<li><a href="#user-guide--4-daily-use">4. Daily use</a></li>
+<li><a href="#user-guide--5-settings-gui-tour">5. Settings GUI Tour</a></li>
+<li><a href="#user-guide--56-keyboard-layout-tools-keymap-studio--typing-practice">5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)</a></li>
+<li><a href="#user-guide--6-key-cheat-sheet">6. Key cheat sheet</a></li>
+<li><a href="#user-guide--7-changing-settings-by-hand">7. Changing settings by hand</a></li>
+<li><a href="#user-guide--8-config-files--backup">8. Config files / backup</a></li>
+<li><a href="#user-guide--9-next-steps">9. Next steps</a></li>
+</ol>
+</li>
+<li><a href="#keyboard-shortcuts">Keyboard Shortcuts Guide</a>
+<ol>
+<li><a href="#keyboard-shortcuts--windows--shortcuts-unim-intercepts-directly">Windows — shortcuts UNIM intercepts directly</a></li>
+<li><a href="#keyboard-shortcuts--windows--using-the-language-bar-tray-indicator">Windows — using the language bar (tray indicator)</a></li>
+<li><a href="#keyboard-shortcuts--windows--opening-the-settings-window">Windows — opening the settings window</a></li>
+<li><a href="#keyboard-shortcuts--windows--there-is-no-global-emoji-popup-shortcut">Windows — there is no global emoji popup shortcut</a></li>
+<li><a href="#keyboard-shortcuts--windows--shortcut-conflicts">Windows — shortcut conflicts</a></li>
+<li><a href="#keyboard-shortcuts--windows--notes">Windows — notes</a></li>
+</ol>
+</li>
+<li><a href="#faq">UNIM FAQ (English)</a>
+<ol>
+<li><a href="#faq--q2-can-unim-coexist-with-another-ime-on-the-same-desktop">Q2. Can UNIM coexist with another IME on the same desktop?</a></li>
+<li><a href="#faq--q3-which-environments-are-most-stable">Q3. Which environments are most stable?</a></li>
+<li><a href="#faq--q4-how-does-autotypefix-actually-work">Q4. How does AutoTypeFix actually work?</a></li>
+<li><a href="#faq--q5-1-when-i-un-bookmark-a-hanja-the-popup-jumps-to-a-different-page--is-that-intended">Q5-1. When I un-bookmark a hanja, the popup jumps to a different page — is that intended?</a></li>
+<li><a href="#faq--q5-whats-the-difference-between-the-9-cell-and-81-cell-hanja-popup">Q5. What's the difference between the 9-cell and 81-cell Hanja popup?</a></li>
+<li><a href="#faq--q6-where-are-the-config-files-backup-and-restore">Q6. Where are the config files? Backup and restore?</a></li>
+<li><a href="#faq--q7-what-layouts-exist-and-can-i-add-my-own">Q7. What layouts exist, and can I add my own?</a></li>
+<li><a href="#faq--q9-does-unim-intercept-passwords">Q9. Does UNIM intercept passwords?</a></li>
+<li><a href="#faq--q9-1-why-doesnt-autotypefix-work-in-password-fields">Q9-1. Why doesn't AutoTypeFix work in password fields?</a></li>
+<li><a href="#faq--q11-does-unim-run-on-macos--windows">Q11. Does UNIM run on macOS / Windows?</a></li>
+<li><a href="#faq--q12-why-does-the-build-need-cargo-195">Q12. Why does the build need cargo 1.95?</a></li>
+<li><a href="#faq--q13-id-like-to-contribute--where-to-start">Q13. I'd like to contribute — where to start?</a></li>
+<li><a href="#faq--q14-why-universal-in-the-name">Q14. Why &quot;Universal&quot; in the name?</a></li>
+<li><a href="#faq--q15-what-is-the-difference-between-ahnmatae-and-moachigi">Q15. What is the difference between Ahnmatae and Moachigi?</a></li>
+<li><a href="#faq--q18-what-is-the-right-chord_window_ms-value">Q18. What is the right chord_window_ms value?</a></li>
+<li><a href="#faq--q20-when-i-hold-a-key-too-long-the-same-letter-is-typed-several-times">Q20. When I hold a key too long, the same letter is typed several times.</a></li>
+<li><a href="#faq--q24-i-installed-unim-but-it-does-not-appear-in-the-input-method-list">Q24. I installed UNIM but it does not appear in the input method list.</a></li>
+<li><a href="#faq--q25-windows-shows-a-windows-protected-your-pc-warning-during-install">Q25. Windows shows a &quot;Windows protected your PC&quot; warning during install.</a></li>
+<li><a href="#faq--q26-is-the-one-line-installps1-safe">Q26. Is the one-line install.ps1 safe?</a></li>
+<li><a href="#faq--q27-how-do-i-completely-uninstall-unim-on-windows">Q27. How do I completely uninstall UNIM on Windows?</a></li>
+<li><a href="#faq--q28-the-hanja--special-character--emoji-popup-does-not-appear">Q28. The Hanja / special character / emoji popup does not appear.</a></li>
+<li><a href="#faq--q29-in-ms-word-text-commits-by-word-instead-of-by-character">Q29. In MS Word, text commits by word instead of by character.</a></li>
+<li><a href="#faq--q30-does-it-work-in-32-bit-apps-like-kakaotalk-and-hancom-or-in-wezterm-and-telegram">Q30. Does it work in 32-bit apps like KakaoTalk and Hancom, or in WezTerm and Telegram?</a></li>
+<li><a href="#faq--q31-does-the-windows-build-have-the-same-features-as-the-linux-build">Q31. Does the Windows build have the same features as the Linux build?</a></li>
+<li><a href="#faq--read-more">Read more</a></li>
+</ol>
+</li>
+<li><a href="#troubleshooting">UNIM Troubleshooting (English)</a>
+<ol>
+<li><a href="#troubleshooting--1-korean-never-types--fresh-install">1. &quot;Korean never types&quot; — fresh install</a></li>
+<li><a href="#troubleshooting--2-w-unim-missing-only-in-32-bit-apps-kakaotalk-hancom-">2-W. &quot;UNIM missing only in 32-bit apps (KakaoTalk, Hancom, …)&quot;</a></li>
+<li><a href="#troubleshooting--3-w-composition-breaks-up-or-the-previous-character-disappears-in-a-specific-app">3-W. &quot;Composition breaks up or the previous character disappears in a specific app&quot;</a></li>
+<li><a href="#troubleshooting--5-hanja-popup-never-appears">5. &quot;Hanja popup never appears&quot;</a></li>
+<li><a href="#troubleshooting--6-special-character-popup-never-appears">6. &quot;Special-character popup never appears&quot;</a></li>
+<li><a href="#troubleshooting--7-hanja-popup-shows-only-9-cells-period-toggle-does-nothing">7. &quot;Hanja popup shows only 9 cells, period toggle does nothing&quot;</a></li>
+<li><a href="#troubleshooting--8-autotypefix-not-firing">8. &quot;AutoTypeFix not firing&quot;</a></li>
+<li><a href="#troubleshooting--8-1-autotypefix-fires-in-a-password-field">8-1. &quot;AutoTypeFix fires in a password field&quot;</a></li>
+<li><a href="#troubleshooting--9-autotypefix-corrects-too-aggressively--wrongly">9. &quot;AutoTypeFix corrects too aggressively / wrongly&quot;</a></li>
+<li><a href="#troubleshooting--10-settings-wont-save--changes-dont-take-effect">10. &quot;Settings won't save / changes don't take effect&quot;</a></li>
+<li><a href="#troubleshooting--14-w-reinstall--repair--uninstall">14-W. Reinstall · Repair · Uninstall</a></li>
+<li><a href="#troubleshooting--15-moachigi-chord-not-recognized-correctly">15. &quot;Moachigi (chord) not recognized correctly&quot;</a></li>
+<li><a href="#troubleshooting--build-failure">Build failure</a></li>
+<li><a href="#troubleshooting--diagnostic-bundle-for-issue-reports">Diagnostic bundle (for issue reports)</a></li>
+<li><a href="#troubleshooting--read-more">Read more</a></li>
+<li><a href="#troubleshooting--16-w-known-windows-limitations-v040">16-W. Known Windows limitations (v0.4.0)</a></li>
+</ol>
+</li>
+</ol>
+
+</nav>
+
+<section class="doc" id="user-guide">
+<h2 id="user-guide--unim-user-manual-english">UNIM User Manual (English)</h2>
+<blockquote>
+<p>UNIM 0.4.0 — Universal Next-generation Input Method
+A Rust-based input method engine for fluid Korean/English typing.
+Goal of this document: get a first-time user to type one Korean syllable within five minutes.</p>
+</blockquote>
+<hr />
+<h3 id="user-guide--1-what-is-unim-30-second-pitch">1. What is UNIM (30-second pitch)</h3>
+<ul>
+<li><strong>IME</strong> (Input Method Editor): the system component that translates alphabet keystrokes into Korean syllables and shows them in your application. The Microsoft IME bundled with Windows is the obvious example; UNIM is an alternative you can use in its place.</li>
+<li><strong>🪟 What sets UNIM apart on Windows</strong>: the very same Rust core, plugged into Windows through <strong>TSF</strong>. Notepad, Chrome, Word, your terminal — the same composition rules, the same hanja popup, the same AutoTypeFix, and the same <code>config.yaml</code> format as the Linux build. Two copies of the input method are installed, one for 64-bit apps and one for 32-bit apps, so 32-bit-only programs such as KakaoTalk and Hancom Office work too.</li>
+<li><strong>30-second summary</strong>: "Toggle Korean mode → type Korean → Hanja key for Chinese characters → ㄱㄴㄷ for special characters → automatic recovery when you accidentally typed in the wrong mode." That is the entire user-facing value proposition.</li>
+</ul>
+<blockquote>
+<p>Acronyms expanded: <strong>TSF</strong> (Text Services Framework) — the standard input-method framework on Windows since XP. An input method is built as a COM component called a <strong>TIP</strong> (Text Input Processor) and registered with the OS; UNIM ships two of them, <code>unim_tsf.dll</code> for 64-bit apps and <code>unim_tsf32.dll</code> for 32-bit apps. <strong>IMM32</strong> (Input Method Manager 32) — the older, pre-TSF input API. Console-style apps (WezTerm, for instance) and apps that do their own input handling still go through it. <strong>CUAS</strong> (Cicero Unaware Application Support) — the Windows compatibility layer that relays those IMM32 calls to TSF. UNIM honors that contract, which is why Korean composition stays intact in apps like WezTerm and Telegram.</p>
+</blockquote>
+<hr />
+<h3 id="user-guide--2-quick-start-5-minutes">2. Quick Start (5 minutes)</h3>
+<h4 id="user-guide--21-install">2.1 Install</h4>
+<blockquote>
+<p><strong>🪟 Windows</strong> — supported: <strong>Windows 10 / 11 (64-bit).</strong> A single administrator (UAC) approval is needed at install time.</p>
+<p>⚠️ <strong>Experimental</strong>: Windows support grew substantially in 0.4.0 on top of TSF, but it is still <strong>experimental</strong> and hardware QA is ongoing. Please report anything you run into on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
+</blockquote>
+<h5 id="user-guide--method-a--install-script-recommended">Method A — install script (recommended)</h5>
+<p>One line in PowerShell (or Windows Terminal):</p>
+<pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+</code></pre>
+<p>This downloads the latest MSI (<code>unim-&lt;version&gt;-x64.msi</code>) from GitHub Releases, <strong>SHA256-verifies it against <code>SHA256SUMS-msi</code></strong> (re-checked once more inside the elevated process, which substantially narrows the verify→install tamper window), and installs it via <code>msiexec</code>. On any checksum mismatch it aborts without installing anything.</p>
+<pre><code class="language-powershell"># Update (skips the download if already up to date)
+&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Update
+
+# Check install state / latest version only (changes nothing)
+&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Check
+
+# Pin a specific version (that release must ship SHA256SUMS-msi)
+$env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+</code></pre>
+<h5 id="user-guide--method-b--run-the-msi-yourself">Method B — run the MSI yourself</h5>
+<p>Download <code>unim-&lt;version&gt;-x64.msi</code> from <a href="https://github.com/from104/unim/releases">Releases</a> and double-click it. To check the download by hand, compare it against <code>SHA256SUMS-msi</code> from the same release.</p>
+<pre><code class="language-powershell"># Hash the downloaded MSI (must match the value in SHA256SUMS-msi)
+Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
+</code></pre>
+<blockquote>
+<p><strong>SmartScreen warning</strong>: the MSI is not code-signed yet, so you may see "Windows protected your PC". Choose <strong>More info → Run anyway</strong>.</p>
+</blockquote>
+<h5 id="user-guide--what-gets-installed-and-what-to-do-next">What gets installed, and what to do next</h5>
+<p>Everything lands in <code>C:\Program Files\UNIM\</code>:</p>
+<div class="tablewrap"><table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody>
+<tr><td><code>unim_tsf.dll</code></td><td>The input method itself, for 64-bit apps (TSF TIP)</td></tr>
+<tr><td><code>unim_tsf32.dll</code></td><td>The same, for 32-bit apps — KakaoTalk, Hancom Office, etc.</td></tr>
+<tr><td><code>unim-settings.exe</code></td><td>The settings window (see §5)</td></tr>
+<tr><td><code>unim-popup-win.exe</code></td><td>Renderer for the hanja / special-character / emoji popups (starts at login)</td></tr>
+<tr><td><code>help\unim-help-en.html</code>, <code>help\unim-help-ko.html</code></td><td>This offline manual</td></tr>
+<tr><td><code>register-tsf.bat</code>, <code>unregister-tsf.bat</code></td><td>Helpers for re-registering the input method by hand</td></tr>
+<tr><td><code>LICENSE.txt</code>, <code>NOTICE.txt</code>, <code>LICENSES\</code></td><td>License notices</td></tr>
+</tbody></table>
+</div>
+<p><strong>Reboot (or log out and back in)</strong> once the install finishes — apps that were already running need it to pick up the new input method. On that first login the <strong>first-run wizard (<code>unim-settings</code>) opens automatically</strong> and walks you through setting UNIM as your default input method. If you close it early it reappears at the next login; to reopen it by hand, launch <strong>UNIM → UNIM Settings</strong> from the Start menu, or run <code>"C:\Program Files\UNIM\unim-settings.exe" --first-run</code>.</p>
+<p>The Start menu gains a <strong>UNIM</strong> folder with two entries:</p>
+<ul>
+<li><strong>UNIM Settings</strong> — the settings window</li>
+<li><strong>Uninstall UNIM</strong> — removal</li>
+</ul>
+<h5 id="user-guide--updating">Updating</h5>
+<p>The <code>-Update</code> one-liner above is the easiest route. Running a newer MSI directly works too — it is the same product, so <strong>you do not need to uninstall the old version first</strong> (it upgrades in place).</p>
+<h5 id="user-guide--uninstalling">Uninstalling</h5>
+<p>Any of these three works; each removes the files, the Start-menu entries, and the input-method registration together.</p>
+<ul>
+<li><strong>Settings → Apps → Installed apps</strong>, then remove UNIM</li>
+<li>Start menu → <strong>UNIM → Uninstall UNIM</strong></li>
+<li><code>msiexec /x</code> from an elevated PowerShell (rarely needed — the two options above figure out the product code for you)</li>
+</ul>
+<blockquote>
+<p><code>unregister-tsf.bat</code> is <strong>not an uninstaller.</strong> It only unregisters the input method's COM entries; your files and settings stay put. For full removal, use one of the three methods above.</p>
+</blockquote>
+<h4 id="user-guide--22-windows--picking-unim-from-the-input-method-list">2.2 Windows — picking UNIM from the input-method list</h4>
+<p>Unlike Linux, Windows needs no environment variables. The MSI registers the input method with the OS, so after a reboot <strong>UNIM shows up in your Korean input-method list.</strong></p>
+<ol>
+<li>Click the language indicator near the clock (<code>한</code> / <code>A</code>, or <code>KOR</code>), or press <strong><code>Windows</code> + <code>Space</code></strong>.</li>
+<li>Pick <strong>UNIM</strong> from the list.</li>
+<li>If UNIM is not listed, open <strong>Settings → Time &amp; language → Language &amp; region</strong> and confirm <strong>Korean</strong> is installed. Add it if it is missing, then log out and back in.</li>
+</ol>
+<blockquote>
+<p><strong>Making UNIM your default</strong>: if picking it every time gets old, use <strong>Set as Default Input Method</strong> — either in the first-run wizard (§5) or from the language-bar right-click menu.</p>
+</blockquote>
+<h4 id="user-guide--23-windows--the-language-bar-tray-indicator">2.3 Windows — the language bar (tray indicator)</h4>
+<p>Your current mode is shown as a letter near the clock — <strong><code>한</code></strong> in Korean mode, <strong><code>A</code></strong> in English mode.</p>
+<ul>
+<li><strong>Left-click</strong> → toggle Korean/English</li>
+<li><strong>Right-click</strong> → menu: <strong>Switch Korean/English</strong> · <strong>Set as Default Input Method</strong> · <strong>Settings</strong> · <strong>Help</strong> · <strong>About</strong></li>
+</ul>
+<blockquote>
+<p>⚠️ Easy to trip over: the settings window is on <strong>right-click → Settings</strong>. Left-click toggles the mode, it does not open settings.</p>
+</blockquote>
+<blockquote>
+<p>On Windows 11 the language bar appears as a tray icon, which may be tucked into the overflow area (the <code>^</code> button). To keep it visible, turn it on under <strong>Settings → Personalization → Taskbar → Other system tray icons</strong>.</p>
+</blockquote>
+<h4 id="user-guide--24-first-korean-keystroke-60-seconds">2.4 First Korean keystroke (60 seconds)</h4>
+<ol>
+<li>Open Notepad.</li>
+<li>Press <strong>Hangul</strong> (or <strong>right Alt</strong>) — the language bar switches from <code>A</code> to "한".</li>
+<li>Type <code>dkssud</code> → "안녕" appears.</li>
+<li>Press <strong>Hanja</strong> (or F9) — a popup with <code>安寧</code> candidates appears. Pick with digits 1–9.</li>
+<li>Press Hangul again to switch back to English mode.</li>
+</ol>
+<p>If all five steps work, you are done. If not, head to <a href="#troubleshooting">troubleshooting</a>.</p>
+<hr />
+<h3 id="user-guide--25-popup-behavior-overview">2.5 Popup behavior overview</h3>
+<p><strong>🪟 Windows</strong> — the input method itself (<code>unim_tsf.dll</code>) does not draw the hanja, special-character, or emoji popups. A <strong>separate process, <code>unim-popup-win.exe</code></strong>, does. The input method only says <em>what</em> to show (candidates, header, footer, tabs, highlight) and the renderer draws it, which is why the popup looks and behaves the same no matter which app you summon it from.</p>
+<ul>
+<li>The renderer <strong>starts automatically when you log in</strong> (an autostart entry named <code>UnimPopupRenderer</code> is registered at install time). Seeing <code>unim-popup-win.exe</code> resident in Task Manager is normal.</li>
+<li>If it is not running for any reason, the input method relaunches it the moment a popup is first needed. So killing the process is recoverable — the next Hanja keypress brings it back.</li>
+<li>Stopping it only removes the popups; <strong>Korean composition itself keeps working.</strong></li>
+</ul>
+<blockquote>
+<p><strong>Can I disable it in Task Manager?</strong> Removing it from startup does no harm to typing, but the first Hanja keypress then has a short delay while the renderer launches. Leaving it alone is recommended.</p>
+</blockquote>
+<hr />
+<h3 id="user-guide--3-per-environment-setup">3. Per-environment setup</h3>
+<p><strong>🪟 Windows</strong> — there are no environment variables and no per-desktop setup. What varies is <strong>which input API the app uses</strong>, and that decides which part of UNIM handles it. All three cases are automatic; there is nothing for you to choose.</p>
+<div class="tablewrap"><table><thead><tr><th>App type</th><th>Examples</th><th>Handled by</th></tr></thead><tbody>
+<tr><td><strong>64-bit apps</strong> (most of them)</td><td>Notepad, Chrome, Word, Windows Terminal</td><td><code>unim_tsf.dll</code> (TSF)</td></tr>
+<tr><td><strong>32-bit apps</strong></td><td>KakaoTalk, Hancom Office</td><td><code>unim_tsf32.dll</code> (32-bit TSF)</td></tr>
+<tr><td><strong>Console / IMM32-style apps</strong></td><td>WezTerm, Telegram</td><td>TSF via the CUAS compatibility layer</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p><strong>Why two copies?</strong> Windows loads a different input-method component for 64-bit and 32-bit applications. Getting Korean to work in 32-bit-only programs (KakaoTalk, Hancom, …) therefore requires registering a separate 32-bit input method. UNIM registers both at install time, so this is invisible to you.</p>
+</blockquote>
+<blockquote>
+<p><strong>The IMM32 <code>.ime</code> route is not used</strong>: registering an input method the very old way (as an <code>.ime</code> file) became meaningless on Windows 11, so it was dropped in 0.4.0. Apps that still call the old IMM32 API reach UNIM through the third row above — the compatibility layer (CUAS) that Windows provides.</p>
+</blockquote>
+<h4 id="user-guide--31-when-korean-fails-in-one-particular-app">3.1 When Korean fails in one particular app</h4>
+<p>Apps handle input differently, so a problem can show up in just one of them. Narrow it down in this order.</p>
+<ol>
+<li><strong>Does it work in Notepad?</strong> If it does, UNIM itself is fine and the issue is with that specific app.</li>
+<li><strong>Is the app 32-bit?</strong> Open Task Manager → <strong>Details</strong> tab and look for a <code>(32 bit)</code> suffix on the process name. If it is 32-bit and not working, the 32-bit registration may have come undone — run <code>C:\Program Files\UNIM\register-tsf.bat</code> from an elevated command prompt, then log out and back in.</li>
+<li><strong>Still stuck?</strong> Check <a href="#troubleshooting">troubleshooting</a>, and if that does not help, report the app name and version on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. Windows support is still experimental, so per-app reports are especially useful.</li>
+</ol>
+<hr />
+<h3 id="user-guide--4-daily-use">4. Daily use</h3>
+<h4 id="user-guide--41-koreanenglish-mode-toggle">4.1 Korean/English mode toggle</h4>
+<div class="tablewrap"><table><thead><tr><th>Key</th><th>Action</th><th>Note</th></tr></thead><tbody>
+<tr><td>Hangul key</td><td>Toggle mode</td><td>Key code varies by keyboard</td></tr>
+<tr><td>Right Alt (RightAlt)</td><td>Toggle mode</td><td>On by default; handy on keyboards with no Hangul key</td></tr>
+<tr><td>Language-bar left-click</td><td>Toggle (mouse)</td><td>The <code>한</code> / <code>A</code> indicator near the clock</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p><strong>Mode share</strong> (<code>mode_sharing</code> setting, CLI key <code>mode-sharing</code>): "Global" or "Per-app". <strong>Global is the default</strong> — switching mode in one window instantly syncs every window. Switch to "Per-app" if you want your terminal to stay in English while your text editor stays in Korean.</p>
+</blockquote>
+<blockquote>
+<p><strong>Accessibility — screen readers and the toggle sound</strong>: on Windows, a Korean/English switch <strong>is announced to screen readers (NVDA, Narrator)</strong>, and the text you are composing along with the candidate window are exposed so a screen reader can read them.</p>
+<p>On top of that you can enable a <strong>mode-switch sound</strong> — a higher pitch for Korean, a lower one for English. It <strong>defaults to off</strong> (a deliberate choice to avoid false positives); turn it on under <strong>General → Accessibility</strong> in the settings window (§5). If you type without watching the screen, turning it on is recommended.</p>
+</blockquote>
+<blockquote>
+<p><strong>Toggling with Right Alt</strong>: on keyboards without a Hangul key (many US-layout laptops), <strong>right Alt</strong> switches Korean/English. AltGr layouts (right Alt used as AltGr) are unaffected. Note that at the moment of toggling the application may also receive the Alt input (e.g. menu-bar focus in some apps); if you don't want that side effect, remove <code>RightAlt</code> from the <code>toggle_keys</code> list in your settings.</p>
+</blockquote>
+<blockquote>
+<p><strong>Key-name spelling</strong>: <code>toggle_keys</code> takes key names UNIM knows, <strong>one name per entry</strong> (defaults: <code>Korean</code>, <code>RightAlt</code>). Unlike the AutoTypeFix hotkeys (§4.4), the toggle key does not accept modifier combinations (<code>Ctrl+X</code>). The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure — the value is still stored, but the dead key no longer disappears silently.</p>
+</blockquote>
+<h4 id="user-guide--42-hanja-conversion">4.2 Hanja conversion</h4>
+<ol>
+<li>Type the Korean to convert (e.g. <code>한국</code>).</li>
+<li>Press <strong>Hanja</strong> (or F9).</li>
+<li>A 9-cell grid popup appears: <code>韓國</code>, <code>漢國</code>, …</li>
+<li>Pick with digits 1–9, navigate with arrow keys, Enter to commit, ESC to cancel.</li>
+<li>With more than nine candidates, press <strong><code>.</code> (period)</strong> to toggle to a 9×9=81-cell expanded grid. The ⊞/⊟ icon in the corner reflects the current mode.</li>
+</ol>
+<blockquote>
+<p><strong>Choosing the Hanja key</strong>: <code>hanja_keys</code> defaults to <code>Hanja</code>, <code>F9</code>. Like the toggle key (§4.1) it takes single key names only — no modifier combinations. The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure.</p>
+</blockquote>
+<h5 id="user-guide--page-navigation-mouse--keyboard">Page navigation (mouse / keyboard)</h5>
+<p>When candidates exceed one page (9 cells or 81 cells), the footer shows <strong>◀ / ▶</strong> buttons.</p>
+<pre><code class="language-text">[◀]  page 2 / 5  [▶]  ⊞
+</code></pre>
+<ul>
+<li><strong>Mouse left-click</strong> ◀ : previous page, ▶ : next page. Pressing ▶ on the last page wraps to the first; ◀ on the first page wraps to the last.</li>
+<li><strong>Keyboard</strong> <code>←</code> / <code>Page Up</code> : previous page, <code>→</code> / <code>Page Down</code> : next page. Same wrap-around.</li>
+<li>If all candidates fit on a single page, the ◀/▶ buttons are <strong>hidden</strong> (avoids the "controls visible but inactive" confusion).</li>
+<li>The cursor's row/column is preserved across page changes — e.g. with the 81-cell grid, focusing cell (3, 4) and pressing ▶ lands you at cell (3, 4) of the next page.</li>
+</ul>
+<blockquote>
+<p><strong>Acronym</strong>: <em>cursor</em> here means the highlighted cell currently holding keyboard focus (rendered as a background highlight).</p>
+</blockquote>
+<h6 id="user-guide--right-click-semantics--frontend-differences">Right-click semantics — frontend differences</h6>
+<p>Here is everything the mouse can do in the popup.</p>
+<p>On Windows a single process draws every popup (§2.5), so nothing varies from app to app.</p>
+<ul>
+<li><strong>Left-click</strong>: clicking a cell commits that candidate. Clicking ◀ / ▶ in the footer changes page.</li>
+<li><strong>Right-click</strong>: <strong>does nothing at all</strong> — deliberately. Clicking it by accident will not close the popup or commit a candidate.</li>
+</ul>
+<blockquote>
+<p>On Linux, right-clicking the grid means either "toggle bookmark" or "next page" depending on the desktop environment. Windows has no such split. Use <strong>Space</strong> to bookmark and <strong><code>←</code> / <code>→</code></strong> (or the ◀ / ▶ buttons) to change page.</p>
+</blockquote>
+<h5 id="user-guide--bookmarks-">Bookmarks ☆/★</h5>
+<p>You can star frequently used Hanja. With a candidate focused, <strong>Space</strong> toggles ☆ (unbookmarked) ↔ ★ (bookmarked).</p>
+<p>Every open popup refreshes instantly.</p>
+<p>When you toggle, the candidate list reorders and the cursor follows the affected hanja:</p>
+<ul>
+<li><strong>★ on</strong>: the hanja is <em>promoted</em> to the top of page 1 (the ★-group), and the cursor moves to that position (page 1, row 1).</li>
+<li><strong>☆ off</strong>: the hanja is <em>demoted</em> back to its lexicographic home and the cursor jumps to that home position (often on a different page). The destination cell <strong>flashes Catppuccin yellow <code>#f9e2af</code> for 140 ms</strong> so you immediately notice "I unstarred this and it landed here".</li>
+</ul>
+<blockquote>
+<p><strong>Why is there flash on un-bookmark but not on bookmark?</strong> Bookmarking always lands on page 1 row 1, which is a predictable, eye-catching location — no extra hint needed. Un-bookmarking can jump to <em>any</em> page, so the flash is what tells you where the candidate went.</p>
+</blockquote>
+<h4 id="user-guide--43-special-characters">4.3 Special characters</h4>
+<p>In Korean mode, type a single jamo (consonant) and then press the Hanja key. The category depends on the consonant.</p>
+<div class="tablewrap"><table><thead><tr><th>Jamo</th><th>Category</th><th>Examples</th></tr></thead><tbody>
+<tr><td>ㄱ</td><td>Symbols</td><td><code>!</code>, <code>@</code>, <code>÷</code>, <code>≠</code>, <code>∞</code></td></tr>
+<tr><td>ㄴ</td><td>Brackets</td><td><code>「」</code>, <code>『』</code>, <code>≪≫</code></td></tr>
+<tr><td>ㄷ</td><td>Math</td><td><code>∂</code>, <code>∇</code>, <code>√</code>, <code>∫</code></td></tr>
+<tr><td>ㄹ</td><td>Units</td><td><code>＄</code>, <code>％</code>, <code>℃</code>, <code>Å</code></td></tr>
+<tr><td>ㅁ</td><td>Shapes</td><td><code>■</code>, <code>□</code>, <code>●</code>, <code>○</code></td></tr>
+<tr><td>ㅂ</td><td>Lines</td><td><code>─</code>, <code>│</code>, <code>┌</code>, <code>┐</code></td></tr>
+<tr><td>ㅅ</td><td>Hangul jamo</td><td><code>ㄱ</code>, <code>ㄴ</code>, <code>ㅏ</code></td></tr>
+<tr><td>ㅇ</td><td>Circled</td><td><code>①</code>, <code>ⓐ</code></td></tr>
+<tr><td>ㅈ</td><td>Parenthesized Hangul</td><td><code>㈀</code>, <code>㈁</code></td></tr>
+<tr><td>ㅊ/ㅋ</td><td>Parenthesized digits</td><td><code>⑴</code>, <code>⑵</code></td></tr>
+<tr><td>ㅌ</td><td>Parenthesized letters</td><td><code>⒜</code>, <code>⒝</code></td></tr>
+<tr><td>ㅍ</td><td>Greek</td><td><code>Α</code>, <code>β</code>, <code>γ</code></td></tr>
+<tr><td>ㅎ</td><td>Misc</td><td><code>●</code>, <code>♨</code>, <code>☏</code></td></tr>
+</tbody></table>
+</div>
+<p>Example: type <code>ㅁ</code>, press Hanja, pick <code>2</code> from the shapes grid → <code>□</code> is committed.</p>
+<h4 id="user-guide--44-autotypefix">4.4 AutoTypeFix</h4>
+<p>Auto-recovers text typed in the wrong mode. Two directions:</p>
+<ul>
+<li><strong>Forward (English→Korean)</strong>: you thought you were in Korean mode but were actually in English, so <code>gksrmf</code> came out — replaced with <code>한글</code> at word boundaries (space/punctuation).</li>
+<li><strong>Reverse (Korean→English)</strong>: opposite — <code>ㅈㅐㅍㅁ</code> becomes <code>wave</code>.</li>
+</ul>
+<h5 id="user-guide--suppression-dictionary-blacklist--user-learning">Suppression dictionary (Blacklist) — user learning</h5>
+<p>When a particular word keeps getting corrected against your wishes:</p>
+<ol>
+<li>Press <code>BackSpace</code> to undo the correction and switch modes — UNIM marks the word as "Pending".</li>
+<li>The next time the same word triggers AutoTypeFix, the attempt is suppressed and the word is registered as <strong>Tentative</strong>.</li>
+<li>In the GUI's "Suppression Words" page, <strong>Confirm</strong> promotes Tentative → <strong>Confirmed</strong> (permanent). After 1 hour without a retrigger, Tentative auto-flips to <strong>Inactive</strong>.</li>
+</ol>
+<p><strong>Storage</strong>: <code>%APPDATA%\unim\typefix-blacklist.yaml</code>. Changes to the file are picked up automatically a moment later.</p>
+<blockquote>
+<p><strong>User dictionary (reverse whitelist)</strong> — new in 0.2.0. Select text and use a shortcut to call the <code>RegisterUserDictFromSelection</code> DBus method, registering an English-side entry. Manage entries in the GUI's "User Dictionary" page.</p>
+</blockquote>
+<h5 id="user-guide--toggle-hotkeys--turn-correction-onoff-with-a-single-key">Toggle hotkeys — turn correction on/off with a single key</h5>
+<p>A shortcut can turn AutoTypeFix on or off instantly. <strong>The master toggle defaults to <code>Shift+F8</code></strong>; the forward- and reverse-only shortcuts are empty (assign them only if you want them). Three of them, set separately:</p>
+<ul>
+<li><strong>Master toggle</strong>: turns all of AutoTypeFix (the master switch) on/off.</li>
+<li><strong>Forward toggle</strong> (a.k.a. "정방향" in some Korean labels): turns only forward (English→Korean) correction on/off.</li>
+<li><strong>Reverse toggle</strong>: turns only reverse (Korean→English) correction on/off.</li>
+</ul>
+<p>Set them in the settings window — <strong>Settings (§5) → Type Correction → "Toggle hotkeys"</strong>, which holds all three fields. Separate multiple keys with commas (<code>Shift+F8,Ctrl+Left</code>); leave a field empty to disable that shortcut.</p>
+<p>In the Slint settings app (<code>unim-settings</code>, including Windows) the three fields are gathered side by side in the <strong>"Toggle hotkeys"</strong> group on the <strong>Type Correction</strong> page (5.2).</p>
+<blockquote>
+<ul>
+<li><strong>Modifier combinations are supported</strong> — write them as <code>Shift+F8</code>, <code>Ctrl+Left</code>, <code>Ctrl+Shift+F7</code> (<code>Ctrl</code>/<code>Control</code>, <code>Alt</code>, <code>Super</code>/<code>Win</code>/<code>Meta</code>, <code>Shift</code>; case- and order-insensitive). A bare name like <code>F10</code> fires on that key alone, as before. <code>+</code> is the canonical separator; when a spec contains no <code>+</code> at all, <code>-</code> is accepted too (<code>Ctrl-F8</code> = <code>Ctrl+F8</code>). Mixing them (<code>Ctrl+Shift-F8</code>) is invalid.</li>
+<li><strong>It fires only on an exact modifier match.</strong> Combinations you did not configure (e.g. <code>Shift+F10</code> for the context menu) are not intercepted and reach the application unchanged.</li>
+<li>The default is <code>Shift+F8</code> — F9–F11 are avoided because some keyboards lose them to media functions or remapping (cut/copy/paste) before they reach the OS. It does not clash with the hanja/emoji key (bare <code>F9</code>), and an F9 combo like <code>Shift+F9</code> leaves the bare-<code>F9</code> popup intact.</li>
+<li>Key names must be ones UNIM knows, such as <code>F1</code>–<code>F12</code> (<code>ScrollLock</code>, <code>Pause</code>, <code>PrintScreen</code>, and <code>Menu</code> are not recognized). The CLI and the settings app warn about names they cannot parse when saving, and the daemon logs the parse failure — nothing is dropped silently.</li>
+<li>Clear the list (<code>""</code>) to disable a shortcut; it then consumes no key.</li>
+<li>On GNOME (Wayland), Ctrl/Alt/Super combinations such as <code>Ctrl+Left</code> work too — the UNIM extension forwards toggle combos to the engine (re-login after updating the extension).</li>
+<li>On Windows (TSF), combination specs behave exactly as on Linux — the default <code>Shift+F8</code> works as-is.</li>
+<li>Toggling only forward on while the master switch is off flips the flag but produces no correction until the master switch is on again (the master gates everything). The forward/reverse toggles change only each direction's flag.</li>
+<li>Accessibility note: with <code>toggle-announce-beep</code> enabled, this toggle also announces its state with a differential beep (rising pitch = on / falling pitch = off), just like the Korean/English switch sound — <strong>on both Windows and Linux</strong> (on Linux the daemon plays the tone via whichever of <code>paplay</code>/<code>pw-cat</code>/<code>aplay</code> it finds on PATH; if none exist, it's a silent no-op). Default is off — see the accessibility note in <a href="#user-guide--41-koreanenglish-mode-toggle">4.1</a>.</li>
+</ul>
+</blockquote>
+<h5 id="user-guide--password-field-auto-protection">Password-field auto-protection</h5>
+<p>In password and PIN fields, AutoTypeFix <strong>turns off automatically.</strong> When the app reports "this field is a password" (<code>content_purpose</code>), UNIM stops both forward and reverse correction while you are in that field, and also clears any keystroke-observation buffer and undo history already accumulated. This keeps a password typed like <code>dkssud</code> from being auto-corrected into Korean and corrupted.</p>
+<ul>
+<li>It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.</li>
+<li>This protection works when the app reports the field as a password. Some apps do not report it (programs that handle input themselves, and some web forms that do not mark the field as a password), so auto-detection may fail there → see <a href="#faq">FAQ</a> Q9.</li>
+</ul>
+<h4 id="user-guide--45-auto-english-mode">4.5 Auto-English-Mode</h4>
+<p>Opt-in feature for vim command mode (<code>Esc</code>), CLI slash commands (<code>/</code>), etc. Off by default.</p>
+<ul>
+<li>Enable: GUI → "General" → "Auto-English-Mode" group → toggle ON.</li>
+<li>Trigger keys: defaults to <code>Escape</code>, <code>Slash</code>. Add virtual names like <code>ShiftSemicolon</code> (:) or <code>ShiftSlash</code> (?) if you need them.</li>
+<li>Behavior: in Korean mode, pressing a trigger key (1) commits the current preedit, (2) permanently switches to English mode, (3) forwards the trigger key itself to the application.</li>
+</ul>
+<blockquote>
+<p>If your toggle key collides with a trigger key, the toggle wins (its branch comes first in <code>press_key</code>). Password fields are unaffected (they force English already).</p>
+</blockquote>
+<blockquote>
+<p><strong>Trigger spelling</strong>: write triggers as <code>key:&lt;key name&gt;</code> or <code>char:&lt;character&gt;</code> (e.g. <code>key:Escape</code>, <code>char:/</code>). The older prefix-less form (<code>Escape</code>) is still recognized, and modifier combinations such as <code>key:Ctrl+B</code> are allowed. The CLI and the settings app warn about specs they cannot parse when saving, and the daemon logs the parse failure — nothing is dropped silently.</p>
+</blockquote>
+<h4 id="user-guide--46-word-unit-commit-composition-commit-granularity">4.6 Word-unit commit (composition-commit granularity)</h4>
+<p>By default, UNIM commits <strong>per syllable</strong> — a syllable is finalized as soon as it is complete. Set this to <strong>word unit</strong> instead and composition accumulates as underlined preedit through a word boundary (space, punctuation) before committing all at once. <code>BackSpace</code> during composition still steps back one jamo at a time, and this meshes more naturally with AutoTypeFix's reverse correction (4.4).</p>
+<p>There are three values.</p>
+<ul>
+<li><strong>Syllable</strong>: always commit per syllable. Most predictable.</li>
+<li><strong>Word</strong>: accumulate per word in every target app.</li>
+<li><strong>Smart (default)</strong>: word-unit only in apps listed in <code>word-mode-apps</code>, syllable-unit everywhere else. The default list is just <code>winword.exe</code> (Windows), so on Linux, with nothing added, this is effectively <strong>syllable-unit with no regression</strong>.</li>
+</ul>
+<p><strong>Turning it on</strong></p>
+<p>Pick it from the <strong>Korean commit unit</strong> combo under <strong>General → Input mode</strong> in the settings window (§5).</p>
+<p>With <strong>Smart</strong> (the default), word-unit applies <strong>only in MS Word (<code>winword.exe</code>)</strong> and every other app stays syllable-unit. To add another app, put its <strong>executable name</strong> in the "Word-mode apps" list (exact match, case-insensitive). You can find the executable name in Task Manager → <strong>Details</strong> tab.</p>
+<pre><code class="language-yaml"># %APPDATA%\unim\config.yaml — safe to edit by hand; it is picked up shortly after saving
+korean:
+  commit_unit: Smart          # Syllable / Word / Smart — capitalized
+  word_mode_apps:
+    - winword.exe
+</code></pre>
+<p><strong>When it doesn't apply (safety net)</strong></p>
+<ul>
+<li><strong>Apps not in the "Word-mode apps" list</strong> (while on Smart): syllable-unit. In other words, out of the box nothing but MS Word is affected.</li>
+<li><strong>With moachigi (chord input) enabled</strong>: incompatible with word-unit, so it always falls back to syllable-unit.</li>
+</ul>
+<blockquote>
+<p>In word-unit mode, AutoTypeFix's reverse correction (Korean→English) only replaces the composition — it never touches already-committed text. In all of the excluded cases above, UNIM automatically falls back to syllable-unit, so it's safe to leave word-unit turned on without worrying about data loss.</p>
+</blockquote>
+<hr />
+<h3 id="user-guide--5-settings-gui-tour">5. Settings GUI Tour</h3>
+<p><strong><code>unim-settings</code></strong> (Slint, a single codebase shared by Linux and Windows) is the one entry point for settings. That means the four pages below are <strong>identical on both operating systems</strong> — only the way you open the window differs.</p>
+<p><strong>🪟 Opening it on Windows</strong> — three ways, whichever suits you.</p>
+<div class="tablewrap"><table><thead><tr><th>Route</th><th>Steps</th></tr></thead><tbody>
+<tr><td><strong>A. Language bar</strong> (recommended)</td><td><strong>Right-click</strong> the <code>한</code> / <code>A</code> indicator near the clock → <strong>Settings</strong></td></tr>
+<tr><td><strong>B. Start menu</strong></td><td>Start menu → <strong>UNIM</strong> folder → <strong>UNIM Settings</strong></td></tr>
+<tr><td><strong>C. Windows language settings</strong></td><td>Settings → Time &amp; language → Language &amp; region → Korean → keyboard options → UNIM</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>⚠️ Left-clicking the language bar <strong>toggles Korean/English</strong>. Settings is on <strong>right-click → Settings</strong>.</p>
+<p>To launch it directly: <code>C:\Program Files\UNIM\unim-settings.exe</code>.</p>
+</blockquote>
+<blockquote>
+<p><strong>There is no Save button</strong>: changes apply and are written to disk immediately. Just close the window when you're done.</p>
+<p>The <strong>[Help]</strong> button at the bottom of the sidebar opens this manual in your default browser.</p>
+</blockquote>
+<p>Four pages (left-hand navigation):</p>
+<h4 id="user-guide--51-page-1--general">5.1 Page 1 — General</h4>
+<!-- screenshot: settings-general -->
+<div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Note</th></tr></thead><tbody>
+<tr><td><strong>Layout options</strong></td><td>Korean layout / English layout</td><td>e.g. <code>ko_2bulstd</code> (Dubeolsik standard) — see §7.1. Layout-specific dynamic options (e.g. Sebeolsik 390's "sun-arae batchim") also appear here</td></tr>
+<tr><td></td><td>Korean commit unit</td><td><code>Syllable</code> / <code>Word</code> / <code>Smart</code> — see <a href="#user-guide--46-word-unit-commit-composition-commit-granularity">4.6</a></td></tr>
+<tr><td><strong>Input mode</strong></td><td>Initial mode</td><td>Korean or English when the daemon starts</td></tr>
+<tr><td></td><td>Mode share</td><td><code>Global</code> (default) / <code>Per-app</code> — see <a href="#user-guide--41-koreanenglish-mode-toggle">4.1</a></td></tr>
+<tr><td></td><td>Per-app rules</td><td>Add rules so specific apps (matched by window/client-name substring) always start in a given mode. Most useful when Mode share = Per-app</td></tr>
+<tr><td><strong>Auto-English-Mode</strong></td><td>Enable switch + trigger keys</td><td>Off by default — see <a href="#user-guide--45-auto-english-mode">4.5</a></td></tr>
+<tr><td><strong>Accessibility</strong></td><td>One-click presets ("One-hand use" / "Relaxed timing") + individual switches</td><td>See below</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p><strong>Accessibility presets</strong>: "One-hand use" applies the Sebeolsik-noshift layout + a non-modifier toggle key + moachigi off + auto-repeat suppression, all at once. "Relaxed timing" applies auto-repeat suppression + a wider typo-correction detection window + (on layouts that support it) a wider moachigi chord window. Either preset can still be fine-tuned afterward with the individual switches.</p>
+</blockquote>
+<blockquote>
+<p><strong>Suppress Composition Key Auto-repeat (accessibility)</strong>: When you hold a key down, the OS re-fires it rapidly (auto-repeat); enabling this option makes the input method ignore those repeats. It is meant for users with motor disabilities who tend to hold keys too long (e.g. tremor), and it works <strong>the same way as on Linux</strong>. Suppression applies to the <strong>Korean/English toggle key and character keys in Korean mode</strong>; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. The default is off.</p>
+<p><strong>Emoji input</strong> has no separate switch — it shares the hanja-popup path and is always on. Press the <strong>Hanja key (or F9)</strong> while <em>not</em> composing and the emoji popup appears. The same key thus serves three purposes depending on context: <strong>hanja, special characters, and emoji</strong>.</p>
+</blockquote>
+<h4 id="user-guide--52-page-2--type-correction">5.2 Page 2 — Type Correction</h4>
+<!-- screenshot: settings-typefix -->
+<div class="tablewrap"><table><thead><tr><th>Group</th><th>Widget</th><th>Note</th></tr></thead><tbody>
+<tr><td><strong>Enable</strong></td><td>Enable AutoTypeFix</td><td>Master switch. OFF stops both forward and reverse</td></tr>
+<tr><td><strong>Correction strength</strong></td><td>Conservative / Standard / Aggressive presets</td><td>Tunes thresholds, minimum word length, and detection window all at once. The "Advanced settings" section below still lets you fine-tune individual values</td></tr>
+<tr><td><strong>Direction</strong></td><td>Enable forward / Enable reverse</td><td>Each can be toggled independently — see 4.4</td></tr>
+<tr><td><strong>Toggle hotkeys</strong></td><td>Master on/off, Forward on/off, Reverse on/off (three fields, one group)</td><td>Toggle instantly with the assigned key. Leave empty to disable. Modifier combos like <code>Shift+F9</code> are allowed — see 4.4</td></tr>
+<tr><td><strong>Advanced settings</strong> (collapsible)</td><td>Korean-syllable threshold / English minimum word length / forward &amp; reverse detection windows (ms) / Tentative expiry (hours) / Observation timeout (sec) — all sliders</td><td>The "Correction strength" presets above cover most cases</td></tr>
+<tr><td><strong>Options</strong> (inside Advanced)</td><td>Skip English words / Skip complete syllables / Rollback detection / User-dictionary only</td><td>—</td></tr>
+<tr><td>—</td><td>Restore defaults</td><td>Resets AutoTypeFix settings to their initial values (undo within 5 seconds)</td></tr>
+</tbody></table>
+</div><h4 id="user-guide--53-page-3--suppression-words">5.3 Page 3 — Suppression Words</h4>
+<!-- screenshot: settings-blacklist -->
+<p>A single list shows <strong>Tentative</strong>, <strong>Confirmed</strong>, and <strong>Inactive</strong> suppressions together (distinguished by a status badge, unlike the old GTK dialog's three separate sections). Select an entry and choose <strong>Confirm</strong> (promotes to Confirmed) or <strong>Delete</strong>; <strong>Clear all</strong> empties the whole list (undo within 5 seconds).</p>
+<blockquote>
+<p>Even if the daemon updates the file, the GUI refreshes immediately. No manual reload needed.</p>
+</blockquote>
+<h4 id="user-guide--54-page-4--user-dictionary-reverse-whitelist">5.4 Page 4 — User Dictionary (reverse whitelist)</h4>
+<!-- screenshot: settings-userdict -->
+<p>Enter a <strong>word</strong> and an optional <strong>note</strong>, then <strong>Add</strong>, to register an English ↔ Korean-jamo-sequence mapping. E.g. <code>wave</code> ↔ <code>ㅈㅐㅍㅁ</code>. Select an entry below and <strong>Delete</strong> to remove it. Reverse correction prefers user-dict entries.</p>
+<hr />
+<h3 id="user-guide--56-keyboard-layout-tools-keymap-studio--typing-practice">5.6 Keyboard-layout tools (Keymap Studio / Typing Practice)</h3>
+<p><strong>🪟 Not included on Windows yet.</strong> The layout viewer/editor (Keymap Studio) and the typing-practice tool ship only with the Linux packages for now. The Windows installer (MSI) contains just the input method, the settings window, and the popup renderer.</p>
+<p><strong>Choosing</strong> a layout works the same on Windows — it's under General → Layout options in the settings window. What is missing is only the tooling for authoring new layouts and for typing practice.</p>
+<hr />
+<h3 id="user-guide--6-key-cheat-sheet">6. Key cheat sheet</h3>
+<p><strong>🪟 Windows</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Situation</th><th>Key</th><th>Result</th></tr></thead><tbody>
+<tr><td>Anywhere</td><td>Hangul (or right Alt)</td><td>Toggle mode</td></tr>
+<tr><td>Korean mode, after typed jamos</td><td>Hanja (F9)</td><td>Hanja popup</td></tr>
+<tr><td>Korean mode, lone consonant</td><td>Hanja (F9)</td><td>Special-char popup</td></tr>
+<tr><td>Not composing</td><td>Hanja (F9)</td><td>Emoji popup</td></tr>
+<tr><td>Hanja popup</td><td>1–9</td><td>Direct select</td></tr>
+<tr><td>Hanja popup</td><td>Arrows</td><td>Move focus</td></tr>
+<tr><td>Hanja popup</td><td><code>←</code>/<code>→</code> or PageUp/PageDown</td><td>Page navigation (wrap-around)</td></tr>
+<tr><td>Hanja popup</td><td>Mouse ◀ / ▶</td><td>Page navigation (wrap-around, hidden on single page)</td></tr>
+<tr><td>Hanja popup</td><td>Mouse left-click (a candidate cell)</td><td>Select that candidate</td></tr>
+<tr><td>Hanja popup</td><td>Mouse left-click (outside the popup)</td><td>Dismiss — the click passes through to the window below</td></tr>
+<tr><td>Hanja popup</td><td><strong>Mouse right-click</strong></td><td><strong>No action</strong> (deliberate — it neither dismisses the popup nor commits a candidate)</td></tr>
+<tr><td>Hanja popup</td><td>Enter</td><td>Commit focused</td></tr>
+<tr><td>Hanja popup</td><td>ESC</td><td>Cancel</td></tr>
+<tr><td>Hanja popup</td><td><code>.</code></td><td>9 ↔ 81 grid toggle</td></tr>
+<tr><td>Hanja popup</td><td>Space</td><td>Bookmark ☆/★ (un-bookmark flashes destination cell 140 ms)</td></tr>
+<tr><td>Composing</td><td>BackSpace</td><td>Delete last jamo</td></tr>
+<tr><td>After unwanted forward correction</td><td>BS + Hangul</td><td>Trigger Tentative learning</td></tr>
+<tr><td>With Auto-English on</td><td><code>Esc</code> or <code>/</code></td><td>Force English + pass key</td></tr>
+</tbody></table>
+</div>
+<hr />
+<h3 id="user-guide--7-changing-settings-by-hand">7. Changing settings by hand</h3>
+<p>The Windows build does not ship a command-line tool (<code>unim-cli</code>). The <strong>settings window (§5)</strong> is the supported way to change settings; edit the config file directly only for the few things the window does not expose.</p>
+<h4 id="user-guide--71-supported-layouts">7.1 Supported layouts</h4>
+<p>Pick one under <strong>General → Layout options</strong> in the settings window.</p>
+<ul>
+<li>Korean: Dubeolsik standard (<code>ko_2bulstd</code>), Sebeolsik 390, Sebeolsik 391, Sebeolsik no-shift</li>
+<li>English: QWERTY, Dvorak, Colemak, Colemak-DH, Workman</li>
+</ul>
+<h4 id="user-guide--72-editing-the-config-file">7.2 Editing the config file</h4>
+<p>Open <code>%APPDATA%\unim\config.yaml</code> in Notepad or any text editor. Pasting <code>%APPDATA%\unim</code> into the Explorer address bar takes you straight to the folder.</p>
+<pre><code class="language-powershell"># Open the settings folder in Explorer
+explorer "$env:APPDATA\unim"
+
+# Or open the file directly in Notepad
+notepad "$env:APPDATA\unim\config.yaml"
+</code></pre>
+<p>Saving is enough — the change <strong>is picked up shortly afterwards</strong>, with no reboot and no restarting the input method.</p>
+<blockquote>
+<p>⚠️ In YAML, indentation is syntax. Use <strong>spaces, never tabs</strong>, and keep a copy of the file before you edit it. If the file becomes unparseable, UNIM falls back to its default settings.</p>
+</blockquote>
+<hr />
+<h3 id="user-guide--8-config-files--backup">8. Config files / backup</h3>
+<p>Everything lives under <strong><code>%APPDATA%\unim\</code></strong> — usually <code>C:\Users\&lt;you&gt;\AppData\Roaming\unim\</code>. <code>AppData</code> is a hidden folder, so pasting <code>%APPDATA%\unim</code> into the Explorer address bar is the quickest way there.</p>
+<div class="tablewrap"><table><thead><tr><th>File</th><th>Purpose</th><th>Back up?</th></tr></thead><tbody>
+<tr><td><code>config.yaml</code></td><td>General settings (layout, mode, type correction, …)</td><td>YES</td></tr>
+<tr><td><code>typefix-blacklist.yaml</code></td><td>Learned suppressions</td><td>YES</td></tr>
+<tr><td><code>typefix-userdict.yaml</code></td><td>Reverse user dictionary</td><td>YES</td></tr>
+</tbody></table>
+</div>
+<pre><code class="language-powershell"># Back up everything to a dated zip on your Desktop
+Compress-Archive -Path "$env:APPDATA\unim" `
+  -DestinationPath "$env:USERPROFILE\Desktop\unim-backup-$(Get-Date -Format yyyy-MM-dd).zip"
+
+# Restore — overwrites the existing files
+Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
+  -DestinationPath $env:APPDATA -Force
+</code></pre>
+<blockquote>
+<p><strong>Log out and back in</strong> after a restore to be certain everything took effect. Individual file edits are picked up automatically, but a bulk restore is safer with a fresh login.</p>
+</blockquote>
+<blockquote>
+<p><strong>Uninstalling UNIM leaves this folder behind.</strong> To wipe your settings completely, delete <code>%APPDATA%\unim</code> after uninstalling. Conversely, leaving it in place means a reinstall picks your settings right back up.</p>
+</blockquote>
+<hr />
+<h3 id="user-guide--9-next-steps">9. Next steps</h3>
+<ul>
+<li>Something off → <a href="#troubleshooting">troubleshooting</a></li>
+<li>Compare with other IMEs / migration → <a href="#faq">FAQ</a></li>
+<li>0.4.0 changes → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.en.md">release notes 0.4.0</a></li>
+<li>Older release notes → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.en.md">0.3.0</a> / <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">0.2.0</a></li>
+<li>Want to contribute → <a href="https://github.com/from104/unim/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a></li>
+<li>Behavior spec → <a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a>, <a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>POPUP_SPEC.md</code></a></li>
+</ul>
+<hr />
+<p>Doc version: 0.4.0 / 2026-07-27 / License: same as the project.</p>
+
+<a class="backtotop" href="#toc">▲ Back to contents</a>
+</section>
+<section class="doc" id="keyboard-shortcuts">
+<h2 id="keyboard-shortcuts--keyboard-shortcuts-guide">Keyboard Shortcuts Guide</h2>
+<p><strong>🪟 Windows</strong></p>
+<p>On Windows, UNIM runs as a <strong>TSF</strong> (Text Services Framework — the standard Windows mechanism for plugging an input method into applications) input method. There is no step for registering a desktop-wide shortcut the way Linux compositors require. Instead UNIM intercepts keys <strong>inside the application you are typing in</strong>, or you drive it from the language bar in the taskbar. This document covers only the parts that <strong>differ on Windows</strong>.</p>
+<p>Keys handled by the input engine itself — popup navigation, commit, cancel, backspace during composition — are <strong>identical to Linux</strong>. See <a href="#user-guide--6-key-cheat-sheet">user manual §6 Key cheat sheet</a> for that list.</p>
+<blockquote>
+<p>Korean original: <a href="unim-help-ko.html#keyboard-shortcuts"><code>README-ko.md</code></a></p>
+</blockquote>
+<hr />
+<h3 id="keyboard-shortcuts--windows--shortcuts-unim-intercepts-directly">Windows — shortcuts UNIM intercepts directly</h3>
+<p>The Windows build of UNIM runs without a background daemon: it is a single <strong>TSF TIP</strong> (Text Input Processor — an input method module built to the TSF spec). There is nothing to register with a desktop shortcut system; UNIM intercepts the key below <strong>inside the application you are typing in</strong>. No setup on your part.</p>
+<div class="tablewrap"><table><thead><tr><th>Shortcut</th><th>Action</th><th>Example</th></tr></thead><tbody>
+<tr><td><code>Ctrl + Shift + Space</code></td><td>Convert the word before the cursor (or the selection) to <strong>the opposite of Korean/English</strong> and replace it</td><td><code>gksrmf</code> → <code>한글</code></td></tr>
+</tbody></table>
+</div>
+<p>If you have a selection, that selection is the target; otherwise the word before the cursor is. UNIM <strong>decides the direction</strong> (English→Korean or Korean→English) on its own, so there is no separate key per direction. Think of it as the two GNOME keys <code>Super+K</code> / <code>Shift+Super+K</code> merged into one.</p>
+<p>This is separate from the <strong>automatic</strong> correction in <a href="#user-guide--44-autotypefix">4.4 AutoTypeFix</a> — it is a <strong>manual conversion you trigger yourself</strong>. Use it to fix a word that automatic correction left alone.</p>
+<blockquote>
+<p>This key only works inside an app where UNIM is the active input method. If another input method is selected, the key goes to that one first.</p>
+</blockquote>
+<hr />
+<h3 id="keyboard-shortcuts--windows--using-the-language-bar-tray-indicator">Windows — using the language bar (tray indicator)</h3>
+<p>The Korean/English indicator next to the taskbar clock (<code>한</code> / <code>A</code>) is UNIM's language bar. It is not a keyboard shortcut, but it is the always-available route to settings and help, so it belongs here.</p>
+<div class="tablewrap"><table><thead><tr><th>Action</th><th>Result</th></tr></thead><tbody>
+<tr><td><strong>Left click</strong></td><td>Toggle Korean/English</td></tr>
+<tr><td><strong>Right click</strong></td><td>5-item menu: <code>Switch Korean/English</code> · <code>Set as Default Input Method</code> · <code>Settings</code> · <code>Help</code> · <code>About</code></td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>⚠️ Left click <strong>toggles Korean/English — it does not open settings</strong>. To open the settings window you must <strong>right click → <code>Settings</code></strong>.</p>
+</blockquote>
+<p>The menu's <strong><code>Help</code></strong> entry opens this very manual (<code>unim-help-ko.html</code> / <code>unim-help-en.html</code>) in your default browser. If you press it from a low-integrity app and nothing opens, the settings window appears instead; press its <strong>[Help]</strong> button once more to reach the manual.</p>
+<hr />
+<h3 id="keyboard-shortcuts--windows--opening-the-settings-window">Windows — opening the settings window</h3>
+<div class="tablewrap"><table><thead><tr><th>Method</th><th>Steps</th></tr></thead><tbody>
+<tr><td><strong>A. Language bar</strong> (recommended)</td><td>Right click <code>한</code> / <code>A</code> next to the clock → <strong><code>Settings</code></strong></td></tr>
+<tr><td><strong>B. Start menu</strong></td><td>Start menu → <strong>UNIM</strong> folder → <strong><code>UNIM Settings</code></strong></td></tr>
+<tr><td><strong>C. Run directly</strong></td><td><code>C:\Program Files\UNIM\unim-settings.exe</code></td></tr>
+</tbody></table>
+</div>
+<p><code>unim-cli</code>, the command-line tool used to rebind keys on Linux, is <strong>not included in the Windows build.</strong> Every setting, shortcut changes included, is made in the settings window above.</p>
+<hr />
+<h3 id="keyboard-shortcuts--windows--there-is-no-global-emoji-popup-shortcut">Windows — there is no global emoji popup shortcut</h3>
+<p>The Linux build has a desktop-wide shortcut (<code>Super+.</code>) that summons the emoji popup from anywhere. <strong>The Windows build has no such route.</strong> That feature is built from three pieces working together — the daemon, DBus (the Linux inter-process communication standard), and <code>unim-cli</code> — and the Windows installer ships none of them.</p>
+<p>The keys that open the emoji, Hanja and special-character popups on Windows are <strong>handled by the engine, so they are exactly the same as on Linux.</strong> For those keys, and for navigating / committing / cancelling inside a popup, see <a href="#user-guide--6-key-cheat-sheet">user manual §6 Key cheat sheet</a>.</p>
+<hr />
+<h3 id="keyboard-shortcuts--windows--shortcut-conflicts">Windows — shortcut conflicts</h3>
+<p>On Windows, both the OS itself and other input methods can claim a key before UNIM sees it.</p>
+<div class="tablewrap"><table><thead><tr><th>Situation</th><th>Symptom</th><th>What to do</th></tr></thead><tbody>
+<tr><td>You press <code>Win</code> + <code>.</code></td><td>The <strong>built-in Windows emoji panel</strong> appears, not UNIM's</td><td>This is expected. Use the popup keys from the cheat sheet above</td></tr>
+<tr><td>You press <code>Alt</code> + <code>Shift</code> or <code>Win</code> + <code>Space</code></td><td>The <strong>OS switches input language</strong> (UNIM ↔ another input method)</td><td>This is a different thing from toggling Korean/English inside UNIM. Don't confuse the two</td></tr>
+<tr><td>Another Korean input method is also installed</td><td>The Korean/English and Hanja keys go to that input method instead of UNIM</td><td>Right click the language bar → <strong><code>Set as Default Input Method</code></strong></td></tr>
+</tbody></table>
+</div>
+<p>Apart from the keys it uses itself, UNIM passes <code>Ctrl</code> / <code>Alt</code> / <code>Win</code> combos straight through to the application. So it does not conflict with an app's own shortcuts (<code>Ctrl+C</code>, <code>Ctrl+S</code>, and so on).</p>
+<hr />
+<h3 id="keyboard-shortcuts--windows--notes">Windows — notes</h3>
+<ul>
+<li>The Windows installer does <strong>not</strong> include the <strong>layout tools</strong> (<code>unim-keymap-studio</code> · <code>unim-typing-practice</code>). Those are Linux-only.</li>
+<li>32-bit applications such as KakaoTalk and Hancom are served by the 32-bit module (<code>unim_tsf32.dll</code>) installed alongside; key behavior is the same as the 64-bit one.</li>
+<li>If no shortcut responds at all, UNIM may simply not be active in that application. Check the <a href="#troubleshooting">troubleshooting guide</a> first.</li>
+</ul>
+<p>Related docs:</p>
+<ul>
+<li><a href="#user-guide">User manual</a> — base key table and popup usage</li>
+<li><a href="#troubleshooting">Troubleshooting</a> — when keys don't respond</li>
+</ul>
+
+<a class="backtotop" href="#toc">▲ Back to contents</a>
+</section>
+<section class="doc" id="faq">
+<h2 id="faq--unim-faq-english">UNIM FAQ (English)</h2>
+<blockquote>
+<p>The questions people actually ask about UNIM 0.4.0.
+Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q2-can-unim-coexist-with-another-ime-on-the-same-desktop">Q2. Can UNIM coexist with another IME on the same desktop?</h3>
+<p><strong>🪟 Windows</strong></p>
+<p><strong>Coexistence is fine here.</strong> Windows is built to keep <strong>several input methods registered side by side</strong> — TSF (Text Services Framework) is the architecture UNIM plugs into — and let you pick one, so there is no "remove everything else first" step like on Linux. The UNIM installer only <strong>adds</strong> UNIM to that list; it never removes an existing input method.</p>
+<ul>
+<li>See the registered list under <strong>Settings → Time &amp; language → Language &amp; region → Korean → Keyboards</strong>.</li>
+<li>Which one comes up first is decided by the <strong>default input method</strong>. Right-click the input indicator in the taskbar and choose <strong><code>Set as default IME</code></strong> to make UNIM the default.</li>
+<li>That said, when you are <strong>diagnosing a problem</strong>, temporarily disabling other Korean IMEs (Saenaru, Nalgaeset, etc.) and reproducing with UNIM alone makes the cause much easier to isolate.</li>
+</ul>
+<hr />
+<h3 id="faq--q3-which-environments-are-most-stable">Q3. Which environments are most stable?</h3>
+<p><strong>🪟 Windows</strong></p>
+<p>Windows support landed in v0.4.0 with <strong>experimental status</strong>, so there is not enough measured data to grade environments into tiers the way the Linux side does. Here is the support surface that is confirmed today.</p>
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>Detail</th></tr></thead><tbody>
+<tr><td>OS</td><td>Windows 10 / 11 (64-bit)</td></tr>
+<tr><td>Input path</td><td>TSF (Text Services Framework)</td></tr>
+<tr><td>64-bit apps</td><td><code>unim_tsf.dll</code> — Notepad, Edge, Chrome, Word, …</td></tr>
+<tr><td>32-bit apps</td><td>a separate 32-bit TIP, <code>unim_tsf32.dll</code> — KakaoTalk, Hancom, …</td></tr>
+<tr><td>Console / IMM32-style apps</td><td>Hangul composition works in WezTerm, Telegram, and similar</td></tr>
+</tbody></table>
+</div>
+<ul>
+<li><strong>Real-device QA is not complete.</strong> Basic use works, but documented behavior may differ from what you actually see.</li>
+<li>On a fresh install, confirm Korean/English toggling and the Hanja popup <strong>in Notepad first</strong>, then widen to other apps. That ordering isolates causes fastest.</li>
+<li>If something misbehaves, report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with the <strong>app name, your Windows version (<code>winver</code>), and whether the app is 32- or 64-bit</strong>.</li>
+</ul>
+<hr />
+<h3 id="faq--q4-how-does-autotypefix-actually-work">Q4. How does AutoTypeFix actually work?</h3>
+<p>Two stages.</p>
+<h4 id="faq--stage-1--observation">Stage 1 — observation</h4>
+<p>The engine simulates two virtual tracks (Korean track, English track) for every keystroke regardless of mode. So in English mode, while <code>gksrmf</code> arrives, the Korean track is also producing <code>한글</code> in parallel.</p>
+<h4 id="faq--stage-2--trigger">Stage 2 — trigger</h4>
+<p>At a word boundary (space, punctuation, Enter), if the <em>other</em> track has produced a meaningful word, propose a correction.</p>
+<ul>
+<li>forward: in English mode, Korean track formed letters → <code>gksrmf</code> → <code>한글</code>.</li>
+<li>reverse: in Korean mode, English track formed a word → <code>ㅈㅐㅍㅁ</code> → <code>wave</code>.</li>
+</ul>
+<h4 id="faq--learning-suppression-dictionary">Learning (suppression dictionary)</h4>
+<p>If the user rejects a correction with BS+mode-switch → marked Pending. The <em>next</em> time the same word triggers, the engine suppresses that attempt <strong>and</strong> registers it as Tentative. Pressing Confirm in the GUI promotes it to Confirmed (permanent).</p>
+<blockquote>
+<p>Key insight: registration happens at retrigger time, not rollback time. This keeps a one-off mode mistake from becoming a permanent suppression.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q5-1-when-i-un-bookmark-a-hanja-the-popup-jumps-to-a-different-page--is-that-intended">Q5-1. When I un-bookmark a hanja, the popup jumps to a different page — is that intended?</h3>
+<p><strong>Yes, that is the designed behavior.</strong> Bookmarking (★) promotes a hanja to the top of page 1; un-bookmarking (☆) demotes it back to its lexicographic home. If that home is on a different page, the popup follows.</p>
+<p>To make sure you do not miss that jump, the destination cell <strong>flashes Catppuccin yellow (<code>#f9e2af</code>) for 140 ms</strong>. The flash answers "I just unstarred it — where did it go?" with a single visual signal.</p>
+<ul>
+<li>Bookmarking (★ on) does not flash: the cursor predictably lands at page 1 row 1, which is hard to miss.</li>
+<li>Un-bookmarking (☆ off) flashes: the destination is unpredictable, so the flash spotlights it.</li>
+</ul>
+<p>For mechanics see <a href="#user-guide--42-hanja-conversion">user manual §4.2</a> and <a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md">popup spec §3.6/§3.7</a>.</p>
+<hr />
+<h3 id="faq--q5-whats-the-difference-between-the-9-cell-and-81-cell-hanja-popup">Q5. What's the difference between the 9-cell and 81-cell Hanja popup?</h3>
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>9-cell (compact)</th><th>81-cell (expanded)</th></tr></thead><tbody>
+<tr><td>Screen footprint</td><td>small</td><td>large</td></tr>
+<tr><td>Visible candidates</td><td>9</td><td>81 (9×9)</td></tr>
+<tr><td>Best for</td><td>top candidate is the right one</td><td>rare hanja, many homophones</td></tr>
+<tr><td>Toggle key</td><td>—</td><td><code>.</code> (period)</td></tr>
+<tr><td>Indicator</td><td>⊟ icon</td><td>⊞ icon</td></tr>
+<tr><td>Bindings</td><td>1–9 direct, arrows</td><td>1–9 + row jump, arrows</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>With more than 9 candidates, 9-cell paginates with arrow keys; 81-cell unfolds nine pages at once for visual comparison.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q6-where-are-the-config-files-backup-and-restore">Q6. Where are the config files? Backup and restore?</h3>
+<p><strong>🪟 Windows</strong></p>
+<h4 id="faq--location">Location</h4>
+<pre><code>%APPDATA%\unim\
+├── config.yaml                # General settings (source of truth)
+├── typefix-blacklist.yaml     # Learned suppressions (Suppressed Words tab)
+├── typefix-userdict.yaml      # Reverse user dictionary (User Dictionary tab)
+└── layouts\                   # Custom v1 layouts
+    └── my_3bul_variant.json
+</code></pre>
+<p>Paste <code>%APPDATA%\unim</code> into the Explorer address bar to open it. (Usually <code>C:\Users\&lt;you&gt;\AppData\Roaming\unim</code>.)</p>
+<h4 id="faq--backup">Backup</h4>
+<pre><code class="language-powershell">Compress-Archive -Path "$env:APPDATA\unim" -DestinationPath "$env:USERPROFILE\Desktop\unim-backup.zip"
+</code></pre>
+<h4 id="faq--restore">Restore</h4>
+<pre><code class="language-powershell">Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup.zip" -DestinationPath "$env:APPDATA" -Force
+</code></pre>
+<blockquote>
+<p>Unlike Linux, <strong>there is no daemon to stop and start.</strong> Input is handled by the TSF module loaded inside each application, and those all read the same files in this folder. So editing a file directly takes effect <strong>after about 2 seconds</strong>, and anything you change in the settings window applies immediately. If a change does not seem to land, click away to another window and come back.</p>
+<p>Uninstalling (Q27) does not delete this folder, so a reinstall picks your settings back up.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q7-what-layouts-exist-and-can-i-add-my-own">Q7. What layouts exist, and can I add my own?</h3>
+<h4 id="faq--built-in-korean-layouts">Built-in Korean layouts</h4>
+<p><code>ko_2bulstd</code> (Dubeolsik standard), <code>ko_3bul390</code> (Sebeolsik 390), <code>ko_3bul391</code>, <code>ko_3bul_noshift</code>, <code>ko_3bul_anmatae</code> (Ahnmatae, chord/moachigi).</p>
+<blockquote>
+<p>Note: Qwerty Sebeolsik (<code>ko_3bul_qwerty</code>) is preserved as a research reference, not as a built-in.
+Copy <code>docs/references/keymaps/ko_3bul_qwerty_v2.json</code> to <code>~/.config/unim/layouts/ko_3bul_qwerty.json</code> to activate it as a user profile.</p>
+</blockquote>
+<h4 id="faq--english">English</h4>
+<p><code>qwerty</code>, <code>dvorak</code>, <code>colemak</code>, <code>colemak_dh</code>, <code>workman</code>.</p>
+<h4 id="faq--user-defined">User-defined</h4>
+<p><strong>🪟 Windows</strong></p>
+<p>Drop a v1 schema JSON into <code>%APPDATA%\unim\layouts\&lt;name&gt;.json</code> and the engine scans it automatically. The schema, <code>inherits</code>, and <code>rule_sets</code> are the exact same file format as on Linux, so a layout JSON written on Linux can be copied over as-is.</p>
+<pre><code class="language-powershell"># Create the folder if it does not exist
+New-Item -ItemType Directory -Force -Path "$env:APPDATA\unim\layouts"
+# Open it in Explorer and drop your JSON in
+explorer "$env:APPDATA\unim\layouts"
+</code></pre>
+<ul>
+<li>The <code>unim-cli</code> command-line tool is <strong>not included in the Windows installer</strong>, so the <code>validate</code> / <code>set</code> commands above are not available on Windows.</li>
+<li>Pick a layout in <strong>Settings window → General tab → Layout</strong>.</li>
+<li>Custom layouts on Windows are <strong>not yet verified on real hardware</strong> in v0.4.0. If your layout does not appear in the list, a JSON syntax error is the likeliest cause — validating the file on Linux first with <code>unim-cli config layout validate</code> is the surest route.</li>
+</ul>
+<p>Schema details: <a href="https://github.com/from104/unim/blob/main/docs/archive/plans/LAYOUT_PROFILE_V1.md"><code>docs/archive/plans/LAYOUT_PROFILE_V1.md</code></a>.</p>
+<blockquote>
+<p>Use <code>rule_sets</code> to bundle optional toggles with a layout. E.g. <code>ko_3bul390</code>'s <code>sun_arae_batchim</code>. The settings GUI dynamically renders a SwitchRow.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q9-does-unim-intercept-passwords">Q9. Does UNIM intercept passwords?</h3>
+<p><strong>No.</strong> Password fields are detected via <code>content_purpose</code> and forced to English. AutoTypeFix (both forward and reverse), hanja conversion, and the special-char popup are all disabled. Any keystroke-observation buffer and undo history already accumulated are cleared too, so a password typed like <code>dkssud</code> is never auto-corrected into Korean and corrupted. The input is not retained in daemon memory.</p>
+<blockquote>
+<p>Caveat: automatic detection only works when the app accurately reports <code>content_purpose=password</code> (Linux) or <code>InputScope</code> (Windows). Environments that do not report it — <strong>legacy XIM apps, and some Wayland compositors/web forms that do not send content-purpose</strong> — may fail to auto-detect; verify English mode manually via the toggle key there. (Environments that detect correctly: GTK3/4, Qt5/6, GNOME extension, Windows TSF — both 64-bit and 32-bit apps are detected the same way, via the <code>unim_tsf32.dll</code> TSF TIP's <code>InputScope</code>. If you've seen a claim that "Windows IMM32 apps are detected on a best-effort basis for standard ES_PASSWORD controls only," that describes the IMM32 fallback, which is not actually shipped in the release — see Q11.)</p>
+</blockquote>
+<hr />
+<h3 id="faq--q9-1-why-doesnt-autotypefix-work-in-password-fields">Q9-1. Why doesn't AutoTypeFix work in password fields?</h3>
+<p><strong>This is intended.</strong> AutoTypeFix is deliberately disabled in password and PIN fields (see Q9), because otherwise a password typed like <code>dkssud</code> would flip to Korean at a word boundary and break your login. It returns to normal the moment you leave the field, and any on/off toggle state you set manually is preserved.</p>
+<blockquote>
+<p>Conversely, if correction fails in a <strong>non-password field</strong>, the cause is different → <a href="#troubleshooting">Troubleshooting</a> §8. In the undetectable environments above (XIM, some Wayland), a password field is treated as a normal field and correction may in fact fire — that limitation is documented in Troubleshooting §8-1.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q11-does-unim-run-on-macos--windows">Q11. Does UNIM run on macOS / Windows?</h3>
+<p><strong>Windows: yes — experimental. macOS: not yet.</strong></p>
+<p>As of v0.4.0, Windows 10/11 (64-bit) is supported via <code>unim-tsf</code>, built on the Text Services Framework (TSF).</p>
+<pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+</code></pre>
+<p>downloads and installs the MSI (see <a href="#user-guide--21-install">user manual §2.1 Install</a>). 32-bit apps are handled by a separate 32-bit TSF TIP (<code>unim_tsf32.dll</code>) rather than the 64-bit TSF path. The IMM32 fallback explored earlier (the <code>unim-imm32</code> crate) remains only as diagnostic/research source that is <strong>not included in the shipped MSI</strong> — if you've seen documentation advertising an "IMM32 fallback" as a shipped feature, it's out of date.</p>
+<p>That said, Windows support as of v0.4.0 is <strong>experimental — real-device QA has not been completed yet</strong>. Basic use works, but if you hit a problem, please report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with your compositor/version info.</p>
+<p>macOS is still not started (roadmap stage 5). Because the Rust core and C-API are separated, in principle an adapter for macOS's IMKit is feasible, but nobody has started it yet. Volunteers welcome.</p>
+<hr />
+<h3 id="faq--q12-why-does-the-build-need-cargo-195">Q12. Why does the build need cargo 1.95?</h3>
+<p><code>Cargo.lock</code> is in v4 format. cargo 1.83+ handles it safely (1.95 is the version we verify). Some distros ship <code>/usr/bin/cargo</code> as 1.75; explicitly use rustup:</p>
+<pre><code class="language-bash">rustup update stable
+which cargo                  # should be ~/.cargo/bin/cargo
+cargo --version              # 1.95.0+
+</code></pre>
+<p>The error <code>lock file version 4 requires '-Znext-lockfile-bump'</code> is always this issue.</p>
+<hr />
+<h3 id="faq--q13-id-like-to-contribute--where-to-start">Q13. I'd like to contribute — where to start?</h3>
+<ol>
+<li><a href="https://github.com/from104/unim/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a> — branch/PR workflow.</li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/AGENTS.md"><code>AGENTS.md</code></a> — architecture and component map.</li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a> — behavior spec.</li>
+<li>Per-crate <code>SPEC.md</code>.</li>
+<li>Verify: <code>make build</code> warning-free + <code>cargo test --workspace</code> all pass.</li>
+<li>Convention: commit messages in English, docs in Korean.</li>
+</ol>
+<p><code>good-first-issue</code> labels are the best entry point.</p>
+<hr />
+<h3 id="faq--q14-why-universal-in-the-name">Q14. Why "Universal" in the name?</h3>
+<p><strong>Universal Next-generation Input Method.</strong> Although it is a Korean IME, "universal" stands for (a) bidirectional Korean ↔ English handling and (b) one core plugged into every toolkit. In the long term, also macOS/Windows (roadmap stage 5).</p>
+<hr />
+<hr />
+<h3 id="faq--q15-what-is-the-difference-between-ahnmatae-and-moachigi">Q15. What is the difference between Ahnmatae and Moachigi?</h3>
+<p><strong>Ahnmatae</strong> (안마태) is a specific keyboard layout. Finalized in 2003, it is a three-beol (sebeolsik) style layout with fixed cho/jung/jong regions mapped to distinct keyboard zones. In UNIM it ships as the <code>ko_3bul_anmatae</code> built-in profile.</p>
+<p><strong>Moachigi</strong> (모아치기, "gather-and-strike") is an input method. Multiple jamo pressed simultaneously or within a short window are combined into a single syllable. Unlike ordinary dubeolsik/sebeolsik which process one key at a time, moachigi collects all keys within the chord window (default 60 ms) and resolves them at expiry.</p>
+<p>In UNIM 0.3.0, Ahnmatae is the first built-in layout that supports moachigi. The moachigi settings group in the GTK settings dialog appears only when the selected layout has <code>supports_moachigi=true</code>.</p>
+<hr />
+<h3 id="faq--q18-what-is-the-right-chord_window_ms-value">Q18. What is the right chord_window_ms value?</h3>
+<p>Valid range: <strong>10–200 ms</strong>. Default: <strong>60 ms</strong> (tuned for experienced typists).</p>
+<div class="tablewrap"><table><thead><tr><th>Profile</th><th>Recommended range</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Beginner</td><td>100–150 ms</td><td>Chord timing still inconsistent; extra window prevents missed chords</td></tr>
+<tr><td>General</td><td>60–100 ms</td><td>Comfortable for most users</td></tr>
+<tr><td>Expert</td><td>10–60 ms</td><td>Minimize false positives, maximize responsiveness</td></tr>
+</tbody></table>
+</div>
+<p>Set to <code>0</code> to disable moachigi entirely.</p>
+<p><strong>🪟 Windows</strong> — adjust with the slider under <strong>Settings window → General tab → Moachigi</strong>. The <code>unim-cli</code> command-line tool is not included in the Windows installer, so there is no CLI route; editing <code>%APPDATA%\unim\config.yaml</code> directly works too (takes effect after about 2 seconds).</p>
+<h3 id="faq--q20-when-i-hold-a-key-too-long-the-same-letter-is-typed-several-times">Q20. When I hold a key too long, the same letter is typed several times.</h3>
+<p>If you hold a key down (e.g. because of a tremor), the OS re-fires the same key rapidly (auto-repeat). UNIM has a <strong>Suppress Composition Key Auto-repeat (accessibility)</strong> option that makes the daemon ignore those repeats. Suppression applies to the <strong>Korean/English toggle key and character keys in Korean mode</strong>; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. The default is off, so nothing changes until you enable it.</p>
+<p><strong>🪟 Windows</strong></p>
+<p>To enable it — turn on Suppress Composition Key Auto-repeat in the <strong>settings window</strong>. If opening the settings window is awkward, editing <code>%APPDATA%\unim\config.yaml</code> works just as well (takes effect after about 2 seconds).</p>
+<pre><code class="language-yaml">engine:
+  ignore_key_repeat: true
+</code></pre>
+<p>It behaves <strong>the same way as on Linux</strong> — only the Korean/English toggle key and character keys in Korean mode are covered; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. The default is off.</p>
+<blockquote>
+<p>If repeats still get through with this on, also slow down Windows' own key repeat settings (<strong>Control Panel → Keyboard → Repeat delay / Repeat rate</strong>). The two settings are independent, so using both together is fine.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q24-i-installed-unim-but-it-does-not-appear-in-the-input-method-list">Q24. I installed UNIM but it does not appear in the input method list.</h3>
+<p><strong>🪟 Windows</strong> — <strong>Not appearing right after install is normal.</strong> A TSF (Text Services Framework — Windows' input method architecture) input method is loaded by the OS when a session starts, so you have to <strong>reboot, or sign out and sign back in</strong>, before UNIM shows up in the list.</p>
+<p>If it is still missing after signing back in, work down this list.</p>
+<ol>
+<li><strong>Check that Korean is installed</strong> — UNIM attaches underneath <strong>Korean</strong> in Settings → Time &amp; language → Language &amp; region. If Korean is not there, add it first.</li>
+<li><strong>Add the keyboard manually</strong> — Settings → Time &amp; language → Language &amp; region → <strong>Korean → Keyboards → Add a keyboard</strong> → <code>UNIM Korean IME</code>.</li>
+<li><strong>Re-register the input method</strong> — in the install folder (<code>C:\Program Files\UNIM\</code>), right-click <code>register-tsf.bat</code> and choose <strong>Run as administrator</strong>. To undo, use <code>unregister-tsf.bat</code> in the same folder. Both scripts touch input method registration only; they never delete files or settings.</li>
+</ol>
+<blockquote>
+<p>Once it is attached, the taskbar shows your current mode next to the clock — <code>한</code> for Korean, <code>A</code> for English. <strong>Left-click toggles Korean/English</strong>; <strong>right-click opens the menu</strong> (toggle Korean/English · Set as default IME · Open settings).</p>
+</blockquote>
+<hr />
+<h3 id="faq--q25-windows-shows-a-windows-protected-your-pc-warning-during-install">Q25. Windows shows a "Windows protected your PC" warning during install.</h3>
+<p><strong>🪟 Windows</strong> — The MSI we ship right now is <strong>not code-signed</strong>, so SmartScreen treats it as coming from an unknown publisher and warns you. To continue, click <strong>More info → Run anyway</strong>.</p>
+<ul>
+<li>
+<p>Code signing is planned, but no certificate has been obtained yet. And note that signing does <strong>not</strong> make the warning disappear immediately — SmartScreen reputation accrues as downloads accumulate, so a new publisher keeps seeing the warning for an initial period.</p>
+</li>
+<li>
+<p>Until then, verify integrity by <strong>comparing the SHA256 hash</strong> against <code>SHA256SUMS-msi</code>, which is published alongside the MSI in the release.</p>
+<pre><code class="language-powershell">Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
+</code></pre>
+</li>
+<li>
+<p>If you install with <code>install.ps1</code>, the script does this comparison for you — twice (Q26).</p>
+</li>
+</ul>
+<hr />
+<h3 id="faq--q26-is-the-one-line-installps1-safe">Q26. Is the one-line <code>install.ps1</code> safe?</h3>
+<p><strong>🪟 Windows</strong> — <code>irm ... | iex</code> raises exactly the same concern as <code>curl | bash</code> on Linux. The Windows installer script has these guards:</p>
+<ol>
+<li>
+<p><strong>SHA256 verified twice</strong> — once right after download, against the release's <code>SHA256SUMS-msi</code>, and again <strong>immediately before running the installer</strong> after elevating to administrator. A mismatch at either point <strong>aborts without installing anything</strong>.</p>
+</li>
+<li>
+<p><strong>Least privilege</strong> — the script <strong>starts non-elevated</strong>, does the download and verification there, and elevates via UAC (the administrator consent prompt) only for the MSI execution step. You get exactly one UAC prompt.</p>
+</li>
+<li>
+<p><strong>Unblocking happens after verification</strong> — the mark-of-the-web (the "downloaded from the internet" block Windows attaches to files) is removed only from a file that already passed the first check.</p>
+</li>
+<li>
+<p><strong>The script is fully public</strong> — it lives verbatim on the <a href="https://github.com/from104/unim/blob/main/install.ps1">main branch</a>. You can download and read it before running, and you can pin the exact version you want.</p>
+<pre><code class="language-powershell"># Inspect first, then run
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Check
+# Pin a specific version
+$env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+</code></pre>
+</li>
+</ol>
+<p><code>-Check</code> (report installed vs latest version, change nothing), <code>-Update</code>, and <code>-Force</code> are available.</p>
+<blockquote>
+<p>Limitations: the MSI itself is unsigned, so the SmartScreen warning still appears (Q25). And because <code>SHA256SUMS-msi</code> lives at the <strong>same origin (GitHub Releases)</strong> as the MSI, transfer integrity is guaranteed but origin authenticity relies on trusting GitHub's TLS — the same limitation as on Linux.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q27-how-do-i-completely-uninstall-unim-on-windows">Q27. How do I completely uninstall UNIM on Windows?</h3>
+<p><strong>🪟 Windows</strong> —</p>
+<ol>
+<li><strong>Close every app you have been typing in first.</strong> The input module is loaded inside any app where you typed Korean, and if those are open, file removal can get deferred to the next reboot.</li>
+<li><strong>Settings → Apps → Installed apps</strong> → remove <code>UNIM</code>. The Start menu shortcut <strong>UNIM → Uninstall UNIM</strong> does the same thing.</li>
+<li>When it finishes, <strong>sign out and back in, or reboot</strong>.</li>
+</ol>
+<p>Uninstalling removes the install folder (<code>C:\Program Files\UNIM\</code>), the input method registration, and the Start menu shortcuts. However, <strong>your settings (<code>%APPDATA%\unim\</code>) stay</strong> — reinstall and your config, suppression dictionary, and user dictionary carry over. Delete that folder by hand if you want a clean slate.</p>
+<blockquote>
+<p>There is no separate "restore the system IME assignment" step like on Linux (Q23), because on Windows UNIM was only <strong>added</strong> to the input method list and never displaced anything. If Korean input behaves oddly after removal, check the remaining entries under <strong>Settings → Time &amp; language → Korean → Keyboards</strong>.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q28-the-hanja--special-character--emoji-popup-does-not-appear">Q28. The Hanja / special character / emoji popup does not appear.</h3>
+<p><strong>🪟 Windows</strong> — On Windows the popup is drawn by a <strong>separate program</strong>, <code>unim-popup-win.exe</code>. If that is not running you get exactly this symptom: typing Korean works fine, only the popup is missing.</p>
+<ol>
+<li><strong>Check the key first</strong> — the <code>Hanja</code> key (or <code>F9</code>) branches three ways depending on state:
+<ul>
+<li>while composing a syllable → <strong>Hanja</strong> candidates</li>
+<li>after composing a single consonant (e.g. <code>ㅁ</code>) → <strong>special characters</strong></li>
+<li>while not composing anything → <strong>emoji</strong></li>
+</ul>
+</li>
+<li><strong>Check the program is running</strong> — look for <code>unim-popup-win.exe</code> in Task Manager. If it is missing, run <code>unim-popup-win.exe</code> from the install folder (<code>C:\Program Files\UNIM\</code>) directly. Launching it twice by accident is harmless — the second copy exits on its own.</li>
+<li><strong>Sign out and back in once</strong> — the program is registered to start automatically at login, so a re-login is the surest fix right after installing.</li>
+</ol>
+<blockquote>
+<p>The popup key bindings (9×9 grid toggle <code>.</code>, bookmark <code>Space</code>, column jump <code>Q</code>–<code>O</code>, category <code>A</code>–<code>L</code>) are matched to the Linux behavior, but <strong>real-device verification is still in progress</strong>. If something behaves differently, please tell us on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
+</blockquote>
+<hr />
+<h3 id="faq--q29-in-ms-word-text-commits-by-word-instead-of-by-character">Q29. In MS Word, text commits by word instead of by character.</h3>
+<p><strong>🪟 Windows</strong> — <strong>This is intended.</strong> Apps differ in how they handle in-progress composition, so in some apps UNIM commits <strong>per word</strong> rather than per character (smart commit unit). The default targets are <code>winword.exe</code> (MS Word) and <code>wmux.exe</code>.</p>
+<ul>
+<li>To use the same behavior in another app, add its executable name under <strong>"Word mode apps"</strong> in the settings window. This setting exists only on Windows.</li>
+<li>Conversely, remove <code>winword.exe</code> from that list if you prefer per-character composition in Word.</li>
+</ul>
+<hr />
+<h3 id="faq--q30-does-it-work-in-32-bit-apps-like-kakaotalk-and-hancom-or-in-wezterm-and-telegram">Q30. Does it work in 32-bit apps like KakaoTalk and Hancom, or in WezTerm and Telegram?</h3>
+<p><strong>🪟 Windows</strong> — Yes.</p>
+<ul>
+<li><strong>32-bit apps</strong>: 64-bit apps are served by <code>unim_tsf.dll</code>, and 32-bit apps by a separate 32-bit input method, <code>unim_tsf32.dll</code>. The installer registers both, so Korean input works in 32-bit-only apps such as KakaoTalk and Hancom.</li>
+<li><strong>Console / IMM32-style apps</strong>: apps where Hangul composition used to break — WezTerm, Telegram — were fixed in v0.4.0 to follow the CUAS (Windows' legacy input compatibility layer) contract, and now compose correctly.</li>
+<li>The <strong>IMM32 <code>.ime</code> registration route explored earlier has been dropped.</strong> If you have seen documentation advertising an "IMM32 fallback" as a shipped feature, it is out of date (see Q11).</li>
+</ul>
+<p>If it fails in one specific app, include the <strong>app name and whether it is 32- or 64-bit</strong> in a <a href="https://github.com/from104/unim/issues">GitHub Issues</a> report — that makes diagnosis far faster.</p>
+<hr />
+<h3 id="faq--q31-does-the-windows-build-have-the-same-features-as-the-linux-build">Q31. Does the Windows build have the same features as the Linux build?</h3>
+<p><strong>🪟 Windows</strong> — <strong>The input core is identical; the surrounding tooling differs.</strong> Hangul composition, layout selection, the Hanja / special character / emoji popups, AutoTypeFix (forward, reverse, and learning), suppressed words, and the user dictionary all run on the <strong>same Rust core</strong>. This table is the complete list of differences.</p>
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>Linux</th><th>Windows</th></tr></thead><tbody>
+<tr><td>Settings window</td><td>settings app (<code>unim-settings</code>)</td><td>settings app (<code>unim-settings.exe</code>) — General / Typo Correction / Suppressed Words / User Dictionary, 4 tabs</td></tr>
+<tr><td>Applying settings</td><td>daemon propagates immediately</td><td>immediate from the settings window; ~2 seconds when you edit the file directly</td></tr>
+<tr><td><code>unim-cli</code> command-line tool</td><td>yes</td><td><strong>no</strong> (not included in the installer)</td></tr>
+<tr><td>Keymap Studio · Typing Practice</td><td>yes</td><td><strong>no</strong></td></tr>
+<tr><td>GNOME extension</td><td>yes</td><td>not applicable</td></tr>
+<tr><td>Current mode indicator</td><td>tray indicator</td><td>taskbar input indicator (<code>한</code> / <code>A</code>)</td></tr>
+</tbody></table>
+</div>
+<ul>
+<li><strong>Windows support is experimental as of v0.4.0.</strong> Real-device QA is not complete, so documented behavior may differ from what you observe.</li>
+<li>The offline manual (this document) ships with the installer — open it any time from the <strong>Help button in the settings window</strong>.</li>
+<li>To carry settings over from Linux, copy the files in <code>~/.config/unim/</code> to <code>%APPDATA%\unim\</code>. The file formats are identical on both platforms (Q6 · Q7).</li>
+</ul>
+<hr />
+<h3 id="faq--read-more">Read more</h3>
+<ul>
+<li><a href="#user-guide">User manual</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.en.md">Release notes 0.4.0</a></li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.en.md">Release notes 0.3.0</a></li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">Release notes 0.2.0</a></li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a></li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>POPUP_SPEC.md</code></a></li>
+</ul>
+
+<a class="backtotop" href="#toc">▲ Back to contents</a>
+</section>
+<section class="doc" id="troubleshooting">
+<h2 id="troubleshooting--unim-troubleshooting-english">UNIM Troubleshooting (English)</h2>
+<blockquote>
+<p>UNIM 0.4.0 — organized as Symptom → first diagnosis → second-level command → fix.
+Covers 14 commonly seen symptoms, from "Korean never types" to "broken in one specific app".</p>
+</blockquote>
+<p><strong>🪟 Windows</strong></p>
+<blockquote>
+<p>⚠️ Windows support is <strong>experimental</strong>, newly added in v0.4.0. Everything below reflects behavior confirmed in the source; symptoms not listed here have not been verified yet — please report them at <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
+</blockquote>
+<p>Windows has <strong>no daemon and no DBus.</strong> UNIM is a <strong>TSF</strong> (Text Services Framework — the standard Windows mechanism for attaching an input method to an application) text service, <code>unim_tsf.dll</code>, and the OS loads it <strong>directly inside the process of the app you are typing into</strong>. So there is no "is the daemon dead?" check. Instead, look at two things:</p>
+<ol>
+<li><strong>Is UNIM selected as the input method?</strong> — Check the language bar (input indicator) at the right end of the taskbar for UNIM. Press <code>Win</code>+<code>Space</code> to cycle input methods and pick UNIM.</li>
+<li><strong>What does the diagnostic log say?</strong> — Logging is <strong>OFF by default</strong>. Turn it on with an environment variable:</li>
+</ol>
+<pre><code class="language-bat">:: No administrator rights needed — this writes a per-user environment variable
+setx UNIM_DEBUG_LOG 1
+</code></pre>
+<ul>
+<li>Environment variables are read <strong>once, when a process starts</strong>. Apps that are already running will not see the new value — fully close and reopen the app you are diagnosing. To be sure it applies to everything launched from the Start menu or Explorer, <strong>sign out and back in</strong>.</li>
+<li>Log file: <code>%TEMP%\unim-tsf.log</code>. Several apps append to the same file; each line is tagged <code>[unim-tsf &lt;PID&gt;]</code> so you can tell them apart. Paste <code>%TEMP%</code> into the Explorer address bar to open the folder.</li>
+<li>Clear the log before reproducing so it is easier to read: <code>del "%TEMP%\unim-tsf.log"</code></li>
+<li>Other components write their own files in <code>%TEMP%</code> — <code>unim-popup-win.log</code> for the popup renderer, <code>unim-settings.log</code> for the settings app.</li>
+</ul>
+<blockquote>
+<p>⚠️ <strong>Do not turn on <code>UNIM_DEBUG_CONTENT</code> unless you were asked to.</strong> With that variable also set, the actual keys you press and the text being composed and committed are written to the log verbatim. Passwords can end up in plain text. When you are done, turn both off with <code>setx UNIM_DEBUG_LOG ""</code> / <code>setx UNIM_DEBUG_CONTENT ""</code> and delete <code>%TEMP%\unim-tsf.log</code>.</p>
+</blockquote>
+<blockquote>
+<p>With logging off (the default), the logging code costs nothing — there is no reason to leave it on.</p>
+</blockquote>
+<hr />
+<h3 id="troubleshooting--1-korean-never-types--fresh-install">1. "Korean never types" — fresh install</h3>
+<p><strong>🪟 Windows</strong></p>
+<p>Windows has no input-method environment variables like <code>GTK_IM_MODULE</code>. Check two things instead: whether UNIM is <strong>registered</strong> in the input-method list, and whether it is <strong>selected</strong>.</p>
+<h4 id="troubleshooting--first-diagnosis">First diagnosis</h4>
+<ol>
+<li>Open <code>Settings</code> → <code>Time &amp; language</code> → <code>Language &amp; region</code> and confirm <strong>Korean</strong> is installed. If it is not, add it — UNIM attaches to the Korean language profile and will not appear at all without it.</li>
+<li>On the Korean entry, <code>⋯</code> → <code>Language options</code> → check that <strong><code>UNIM Korean IME</code></strong> is listed under <strong>Keyboards</strong>.</li>
+<li>Open Notepad, press <code>Win</code>+<code>Space</code> to select UNIM, and type <code>dkssudgktpdy</code>. You should get <code>안녕하세요</code>.</li>
+</ol>
+<h4 id="troubleshooting--cause-by-cause-fix">Cause-by-cause fix</h4>
+<div class="tablewrap"><table><thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead><tbody>
+<tr><td>Korean is not in the language list</td><td>Korean profile not installed</td><td><code>Settings</code> → <code>Time &amp; language</code> → <code>Language &amp; region</code> → <strong>Add a language</strong> → Korean</td></tr>
+<tr><td><code>UNIM Korean IME</code> not under Keyboards</td><td>TSF registration missing or broken</td><td>Run <code>register-tsf.bat</code> from the install folder <strong>as Administrator</strong> (see the reinstall section below)</td></tr>
+<tr><td>Missing right after installing</td><td>Registration not picked up yet</td><td>Sign out and back in (or reboot)</td></tr>
+<tr><td>Missing only in 32-bit apps (KakaoTalk, Hancom, …)</td><td>32-bit COM registration missing</td><td>See "UNIM missing only in 32-bit apps" below</td></tr>
+<tr><td>Listed, but nothing types</td><td>A different input method is selected</td><td>Press <code>Win</code>+<code>Space</code> and pick UNIM</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>The default install folder is <code>C:\Program Files\UNIM\</code>. If you installed elsewhere, the real path is recorded in the registry at <code>HKLM\SOFTWARE\atit.org\UNIM</code>, value <code>InstallDir</code>.</p>
+</blockquote>
+<hr />
+<p><strong>🪟 Windows</strong></p>
+<h3 id="troubleshooting--2-w-unim-missing-only-in-32-bit-apps-kakaotalk-hancom-">2-W. "UNIM missing only in 32-bit apps (KakaoTalk, Hancom, …)"</h3>
+<h4 id="troubleshooting--cause">Cause</h4>
+<p>On Windows, 64-bit and 32-bit applications look up input methods (COM/TSF) in <strong>two separate registry views</strong>. 64-bit apps resolve <code>unim_tsf.dll</code>; 32-bit apps resolve <code>unim_tsf32.dll</code>, each in its own view. If only the 32-bit side is missing, you get exactly this shape: <strong>works fine in Notepad and Edge, but UNIM never shows up in KakaoTalk.</strong></p>
+<p>The MSI performs both registrations. If UNIM is still missing, the registration is broken.</p>
+<h4 id="troubleshooting--fix">Fix</h4>
+<p>Run <code>register-tsf.bat</code> from the install folder (<code>C:\Program Files\UNIM\</code>) <strong>as Administrator</strong>. That script re-registers <strong>both</strong> the 64-bit and the 32-bit DLL.</p>
+<ol>
+<li>Search the Start menu for <code>cmd</code> → <strong>Run as administrator</strong></li>
+<li>Paste:</li>
+</ol>
+<pre><code class="language-bat">"C:\Program Files\UNIM\register-tsf.bat"
+</code></pre>
+<ol start="3">
+<li>Sign out and back in.</li>
+</ol>
+<blockquote>
+<p><code>register-tsf.bat</code> only redoes the <strong>COM/TSF registration</strong>. It does not reinstall files or restore any other installer-owned state — for that, use the MSI repair described in the reinstall section below.</p>
+</blockquote>
+<blockquote>
+<p>To undo it, run <code>unregister-tsf.bat</code> from the same folder, also as Administrator.</p>
+</blockquote>
+<h3 id="troubleshooting--3-w-composition-breaks-up-or-the-previous-character-disappears-in-a-specific-app">3-W. "Composition breaks up or the previous character disappears in a specific app"</h3>
+<h4 id="troubleshooting--symptom">Symptom</h4>
+<p>In some apps (terminal emulators, some chat clients) the syllable you are composing gets committed mid-way, or the character before it vanishes. Standard text apps such as Notepad and Edge behave correctly.</p>
+<h4 id="troubleshooting--cause-1">Cause</h4>
+<p>Windows has a compatibility layer (CUAS) that draws the composition string on behalf of apps that do not draw it themselves. That layer maintains composition differently from a proper text store, and it can <strong>mistake the syllable still being composed for already-committed text</strong>. UNIM detects such windows and switches to a fallback mode, but behavior varies per app, so <strong>composition is not preserved perfectly everywhere.</strong></p>
+<h4 id="troubleshooting--fix-1">Fix</h4>
+<ul>
+<li><strong>There is no general fix yet — this is a known limitation.</strong> Work on the underlying cause is in progress; it cannot be described as solved for all apps in this release.</li>
+<li>As a workaround, use a different input method in that specific app, or type in another window (Notepad) and paste.</li>
+<li>Reports genuinely help. File the <strong>app name and version</strong> together with the logs from "Diagnostic bundle" below at <a href="https://github.com/from104/unim/issues">GitHub Issues</a> so the app can be added to the handled list.</li>
+</ul>
+<blockquote>
+<p>Observed so far in some terminal emulators and chat clients. This symptom has <strong>not been confirmed</strong> in KakaoTalk or Hancom Office — if you hit it there, that is worth reporting too.</p>
+</blockquote>
+<hr />
+<h3 id="troubleshooting--5-hanja-popup-never-appears">5. "Hanja popup never appears"</h3>
+<p><strong>🪟 Windows</strong></p>
+<h4 id="troubleshooting--diagnosis">Diagnosis</h4>
+<p>On Windows too, the input method does not draw popups itself. A <strong>separate process, <code>unim-popup-win.exe</code></strong>, draws them, and <code>unim_tsf.dll</code> tells it what to draw over a named pipe. If that executable cannot be found, no popup appears.</p>
+<ol>
+<li><strong>First check that the Hanja key gets through</strong> — in Notepad, type <code>한자</code> and press the <code>Hanja</code> key (or right <code>Ctrl</code>). See whether the popup appears.</li>
+<li><strong>Check the renderer process</strong> — while the popup should be up, press <code>Ctrl</code>+<code>Shift</code>+<code>Esc</code> for Task Manager and look for <code>unim-popup-win.exe</code> on the <strong>Details</strong> tab.</li>
+<li><strong>Check the executable is in place</strong> — <code>unim-popup-win.exe</code> should exist in the install folder (<code>C:\Program Files\UNIM\</code>).</li>
+</ol>
+<h4 id="troubleshooting--fix-2">Fix</h4>
+<div class="tablewrap"><table><thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead><tbody>
+<tr><td><code>unim-popup-win.exe</code> missing from the install folder</td><td>Partially broken installation</td><td>MSI repair — see the reinstall section below</td></tr>
+<tr><td>File is there but the process never starts</td><td>Renderer lookup failed</td><td>Check that <code>InstallDir</code> / <code>UnimPopupRenderer</code> under <code>HKLM\SOFTWARE\atit.org\UNIM</code> point at the real path</td></tr>
+<tr><td>No popup at all (Hanja key does nothing)</td><td>Hanja key intercepted elsewhere</td><td>Try right <code>Ctrl</code>. If that also fails, check the Hanja key assignment in the settings app</td></tr>
+</tbody></table>
+</div>
+<p>The renderer keeps its own log. Turn on <code>UNIM_DEBUG_LOG</code> as described at the top of this document, then read <code>%TEMP%\unim-popup-win.log</code>.</p>
+<blockquote>
+<p>You can inspect registry values with <code>Win</code>+<code>R</code> → <code>regedit</code>. <strong>Read them, do not edit them</strong> — if a path is wrong, an MSI repair is the correct fix.</p>
+</blockquote>
+<hr />
+<h3 id="troubleshooting--6-special-character-popup-never-appears">6. "Special-character popup never appears"</h3>
+<p>Same code path as Hanja popup, so the cause is similar.</p>
+<p><strong>🪟 Windows</strong> — The current input mode (Korean/English) is shown by the <strong>UNIM button in the language bar (input indicator)</strong> at the right end of the taskbar. Clicking the button toggles Korean/English. If the indicator disagrees with what you are actually typing, press the <code>Hangul</code> key once to resynchronize.</p>
+<p>Type one consonant (ㄱ–ㅎ) while in Korean mode, then press Hanja.</p>
+<p>Works cleanly on Dubeolsik; on Sebeolsik the consonant entry is different.</p>
+<hr />
+<h3 id="troubleshooting--7-hanja-popup-shows-only-9-cells-period-toggle-does-nothing">7. "Hanja popup shows only 9 cells, period toggle does nothing"</h3>
+<p><strong>🪟 Windows</strong></p>
+<h4 id="troubleshooting--diagnosis-1">Diagnosis</h4>
+<p>The period (<code>.</code>) key has to reach the popup while it is open for the 9 ↔ 81 toggle to fire.</p>
+<ol>
+<li>Open the Hanja popup.</li>
+<li>Press <code>.</code>. The grid should expand from 9 cells to 81.</li>
+<li>If it does not, turn on <code>UNIM_DEBUG_LOG</code> as described at the top of this document, reproduce, and look for period-handling lines in <code>%TEMP%\unim-tsf.log</code>.</li>
+</ol>
+<h4 id="troubleshooting--fix-3">Fix</h4>
+<ul>
+<li>Check whether your keyboard layout maps <code>.</code> to something else (<code>Settings</code> → <code>Time &amp; language</code> → <code>Language &amp; region</code> → Korean → Keyboards).</li>
+<li>Try the <code>.</code> on the On-Screen Keyboard (<code>Win</code>+<code>Ctrl</code>+<code>O</code>). If it works there but not on the physical keyboard, the problem is the keyboard or the layout.</li>
+<li>Popup paging is <code>Page Down</code> / <code>Page Up</code>, bookmark (★) toggle is <code>Space</code>, cancel is <code>Esc</code>. If those work and only <code>.</code> does not, the period key alone is being intercepted.</li>
+</ul>
+<hr />
+<hr />
+<h3 id="troubleshooting--8-autotypefix-not-firing">8. "AutoTypeFix not firing"</h3>
+<h4 id="troubleshooting--diagnosis-2">Diagnosis</h4>
+<p><strong>🪟 Windows</strong></p>
+<p>There is no <code>unim-cli</code> on Windows. Use the settings app.</p>
+<ol>
+<li>Start menu → <strong>UNIM</strong> → <strong>UNIM Settings</strong> (or the UNIM language-bar button → menu → <code>Settings</code>)</li>
+<li>On the <strong>Type Correction</strong> page, check the master toggle and the forward/reverse enabled state.</li>
+<li>On the <strong>Suppression Words</strong> page, review the registered words.</li>
+</ol>
+<p>To look at the configuration files directly, paste this into the Explorer address bar:</p>
+<pre><code>%APPDATA%\unim
+</code></pre>
+<p><code>config.yaml</code> (all settings) and <code>typefix-blacklist.yaml</code> (suppression words) live there.</p>
+<h4 id="troubleshooting--fix-4">Fix</h4>
+<ul>
+<li>Master toggle off → flip ON in the GUI.</li>
+<li>Particular word always blacklisted → "Suppression Words" page, mark as Inactive or remove.</li>
+<li>No word boundary yet → the correction only fires after a space/punctuation. Type one more char then space — corrects immediately.</li>
+<li>"Skip in English mode" is ON by intent (default).</li>
+</ul>
+<hr />
+<h3 id="troubleshooting--8-1-autotypefix-fires-in-a-password-field">8-1. "AutoTypeFix fires in a password field"</h3>
+<h4 id="troubleshooting--cause-2">Cause</h4>
+<p>Password protection (<a href="#faq">FAQ</a> Q9) works only when the app reports "this field is a password" (<code>content_purpose</code>). The environments below cannot deliver that signal to UNIM, so the password field is treated as a normal field.</p>
+<div class="tablewrap"><table><thead><tr><th>Environment</th><th>Status</th><th>Reason</th></tr></thead><tbody>
+<tr><td>GTK3/4, Qt5/6, GNOME extension, Windows TSF (both 64-bit and 32-bit <code>unim_tsf32.dll</code>)</td><td>Detected</td><td>content_purpose / InputScope delivered correctly</td></tr>
+<tr><td>Legacy XIM apps</td><td>Not detected</td><td>XIM protocol has no such signal</td></tr>
+<tr><td>Some Wayland compositors / web forms</td><td>Not detected</td><td>content-purpose not sent (app/compositor's discretion)</td></tr>
+<tr><td>GTK apps that change purpose after focus</td><td>Not detected</td><td>The GTK IM reads input-purpose only at focus time and does not subscribe to <code>notify::input-purpose</code> (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus</td></tr>
+</tbody></table>
+</div><h4 id="troubleshooting--fix-5">Fix</h4>
+<ul>
+<li>In undetectable environments, verify <strong>English mode</strong> with the Hangul key before typing your password. In English mode, forward (English→Korean) correction is suppressed by default, so it is effectively safe.</li>
+<li>If a specific app hits this often, temporarily turn AutoTypeFix off with a toggle hotkey (<a href="#user-guide">User Guide</a> 4.4).</li>
+<li>When assigning toggle hotkeys, <strong>do not reuse the Hangul/English or Hanja keys</strong> — the roles conflict and language switching or Hanja conversion may be shadowed by the toggle.</li>
+</ul>
+<blockquote>
+<p><strong>preedit-exposure — tracked separately</strong>: In a password field, Korean composition itself is blocked, so a character briefly showing as preedit (underline) during composition is essentially absent in the correctly-detected environments. In the undetectable Wayland environments above, exposure could occur in theory; this is <strong>tracked as a separate issue</strong>, and the current recommended workaround is "verify English mode manually" above.</p>
+</blockquote>
+<hr />
+<h3 id="troubleshooting--9-autotypefix-corrects-too-aggressively--wrongly">9. "AutoTypeFix corrects too aggressively / wrongly"</h3>
+<h4 id="troubleshooting--fix-6">Fix</h4>
+<p><strong>🪟 Windows</strong></p>
+<div class="tablewrap"><table><thead><tr><th>Case</th><th>Fix</th></tr></thead><tbody>
+<tr><td>One specific word</td><td>BS + Hangul to roll back → next time the same word triggers, it auto-registers as Tentative</td></tr>
+<tr><td>Frequent regrets</td><td>Settings app → "Type Correction" → bump tentative-expiry hours</td></tr>
+<tr><td>Reverse fires in English mode</td><td>Check the reverse-correction options on the settings app's "Type Correction" page</td></tr>
+<tr><td>Hand-edit</td><td>Open <code>%APPDATA%\unim\typefix-blacklist.yaml</code> in Notepad</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p>After hand-editing a configuration file, <strong>click away from the app you are typing in and back again</strong>. Windows has no daemon pushing settings out, so UNIM checks whether the file changed <strong>when input focus returns</strong> to the app, and reloads then. Changes are therefore not always instant.</p>
+</blockquote>
+<hr />
+<h3 id="troubleshooting--10-settings-wont-save--changes-dont-take-effect">10. "Settings won't save / changes don't take effect"</h3>
+<p><strong>🪟 Windows</strong></p>
+<h4 id="troubleshooting--diagnosis-3">Diagnosis</h4>
+<p>All settings live in one file, <code>%APPDATA%\unim\config.yaml</code>. Paste <code>%APPDATA%\unim</code> into the Explorer address bar to open the folder.</p>
+<ol>
+<li>Check that <code>config.yaml</code> exists and that its <strong>Date modified</strong> matches when you last saved.</li>
+<li>If the timestamp did not change, the save itself failed — close the settings app, reopen it, and save again.</li>
+<li>If the timestamp did change but typing does not reflect it, go to the fixes below.</li>
+</ol>
+<h4 id="troubleshooting--fix-7">Fix</h4>
+<ul>
+<li><strong>Most common cause — when the change takes effect.</strong> Windows has no daemon pushing settings out. UNIM checks whether <code>config.yaml</code> changed <strong>when input focus returns to the app</strong>, and reloads then. After changing a setting, <strong>click away from the app you are typing in and back again</strong> and it will apply.</li>
+<li>If that does not work, fully close and reopen the app.</li>
+<li>If it stays wrong across several apps, sign out and back in.</li>
+<li>A <strong>read-only</strong> <code>%APPDATA%\unim</code> folder or <code>config.yaml</code> blocks saving. Right-click the file → <code>Properties</code> → clear <strong>Read-only</strong>.</li>
+<li>On a managed PC, <code>%APPDATA%</code> may be locked down by policy, which prevents saving — that one is a question for your administrator.</li>
+</ul>
+<hr />
+<p><strong>🪟 Windows</strong></p>
+<h3 id="troubleshooting--14-w-reinstall--repair--uninstall">14-W. Reinstall · Repair · Uninstall</h3>
+<p>UNIM for Windows ships as <strong>a single MSI installer</strong>. When files are damaged or registration has drifted, do not delete things by hand — use the steps below.</p>
+<h4 id="troubleshooting--repair-restore-files-and-registration">Repair (restore files and registration)</h4>
+<p>Run the MSI file you downloaded again; the installer offers a <strong>Repair</strong> option. If you no longer have the file, download the same version from <a href="https://github.com/from104/unim/releases">GitHub Releases</a>.</p>
+<h4 id="troubleshooting--reinstall-including-upgrades">Reinstall (including upgrades)</h4>
+<p>Just run the new MSI. It replaces the previous version — there is no need to uninstall first.</p>
+<h4 id="troubleshooting--uninstall">Uninstall</h4>
+<p><code>Settings</code> → <code>Apps</code> → <code>Installed apps</code> → <strong>UNIM Korean IME</strong> → <code>Uninstall</code>. The <strong>Uninstall UNIM</strong> shortcut in the <strong>UNIM</strong> Start-menu folder does the same thing.</p>
+<h4 id="troubleshooting--re-register-only">Re-register only</h4>
+<p>Use this when the files are fine but UNIM has disappeared from the input-method list. Run <code>register-tsf.bat</code> from the install folder <strong>as Administrator</strong> (see §2-W). To undo, run <code>unregister-tsf.bat</code>.</p>
+<h4 id="troubleshooting--what-is-in-the-install-folder">What is in the install folder</h4>
+<p>The default path is <code>C:\Program Files\UNIM\</code>.</p>
+<div class="tablewrap"><table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody>
+<tr><td><code>unim_tsf.dll</code></td><td>The input method itself, for 64-bit apps</td></tr>
+<tr><td><code>unim_tsf32.dll</code></td><td>The input method itself, for 32-bit apps (KakaoTalk, Hancom, …)</td></tr>
+<tr><td><code>unim-settings.exe</code></td><td>Settings app</td></tr>
+<tr><td><code>unim-popup-win.exe</code></td><td>Renderer for the Hanja / special-character / emoji popups</td></tr>
+<tr><td><code>register-tsf.bat</code> / <code>unregister-tsf.bat</code></td><td>Register / unregister the input method (Administrator)</td></tr>
+<tr><td><code>help\unim-help-ko.html</code>, <code>help\unim-help-en.html</code></td><td>The offline manual you are reading now</td></tr>
+<tr><td><code>LICENSE.txt</code>, <code>NOTICE.txt</code>, <code>LICENSES\</code></td><td>License notices</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p><strong>Your settings are not in this folder.</strong> They are stored per user in <code>%APPDATA%\unim\</code> and are <strong>not</strong> removed when you uninstall UNIM. To wipe them too, delete that folder yourself after uninstalling.</p>
+</blockquote>
+<hr />
+<h3 id="troubleshooting--15-moachigi-chord-not-recognized-correctly">15. "Moachigi (chord) not recognized correctly"</h3>
+<p>Chord input failures have several possible causes. Work through the items below in order.</p>
+<h4 id="troubleshooting--15-1-the-active-layout-does-not-support-moachigi">15-1. The active layout does not support moachigi</h4>
+<p>Chord input is only available for layouts that carry <code>supports_moachigi: true</code>. Among the built-ins, only the <strong>Ahnmatae layout (ko_3bul_anmatae)</strong> qualifies. <strong>Qwerty Sebeolsik v2</strong> is preserved as a research reference (<code>docs/references/keymaps/ko_3bul_qwerty_v2.json</code>); copy it into your user layout folder to enable it as a moachigi-capable user profile.</p>
+<p>The user layout folder is <code>%APPDATA%\unim\layouts\</code> — copy the file to <code>%APPDATA%\unim\layouts\ko_3bul_qwerty.json</code>. Create the folder if it does not exist.</p>
+<p>Check the active layout in the layout list on the <strong>General</strong> page of the settings app (<code>unim-settings.exe</code>).</p>
+<p>If the active layout is not moachigi-capable, switch to one in the settings app (<code>unim-settings.exe</code>). The <strong>Moachigi</strong> option group appears automatically once a compatible layout is selected.</p>
+<h4 id="troubleshooting--15-2-chord_window_ms-is-too-short">15-2. chord_window_ms is too short</h4>
+<p>The recommended default for <code>chord_window_ms</code> is <strong>60 ms</strong>. If you are new to moachigi or type at a moderate pace, start at <strong>80–100 ms</strong> and lower the value as you become comfortable.</p>
+<p>Use the settings app (<code>unim-settings.exe</code>) → General page → layout options (shown only for chord-capable layouts) → slider.</p>
+<h4 id="troubleshooting--15-3-bidirectional_combine-is-off">15-3. bidirectional_combine is off</h4>
+<p>If reverse-order jamo combinations do not work (e.g., ᆯ+ᆨ → ᆰ, or ㅎ+ㄱ → ㅋ), the <strong>Bidirectional Jamo Combine</strong> option is disabled.</p>
+<p>In the settings app (<code>unim-settings.exe</code>) → General page → layout options → <strong>Bidirectional Jamo Combine</strong> toggle → ON.</p>
+<h4 id="troubleshooting--15-4-keyboard-does-not-support-nkro-ghosting">15-4. Keyboard does not support NKRO (ghosting)</h4>
+<p>Standard membrane keyboards are limited to 2–3 KRO (Key Rollover). When more keys are pressed simultaneously than the keyboard can report, the extras are silently dropped — this is called <strong>ghosting</strong>. Symptoms include chords that are consistently incomplete or produce the wrong jamo.</p>
+<p>Self-diagnosis:</p>
+<p>Open an online key tester such as <a href="https://keyboardchecker.com">keyboardchecker.com</a> in your browser, then press all keys in your chord at once. <strong>Every</strong> key you pressed must register. If any are dropped, that is the keyboard's own simultaneous-key limit (ghosting) — no UNIM setting can work around it.</p>
+<p>Fix: use a gaming keyboard or a mechanical keyboard in NKRO mode. See <a href="https://github.com/from104/unim/blob/main/docs/user/keymaps/anmatae.en.md#keyboard-compatibility-nkro-recommended">Ahnmatae keyboard guide — Keyboard Compatibility</a> for details.</p>
+<h4 id="troubleshooting--15-5-low-usb-polling-rate-125-hz--8-ms-resolution">15-5. Low USB polling rate (125 Hz = 8 ms resolution)</h4>
+<p>The default USB polling rate is 125 Hz (one report every 8 ms). If <code>chord_window_ms</code> is set to 10–30 ms, the polling interval itself occupies most of the window, causing some chord keys to be missed.</p>
+<p>Fix:</p>
+<ul>
+<li>Raise <code>chord_window_ms</code> to <strong>60 ms or higher</strong> to accommodate polling latency.</li>
+<li>Switch to a 1000 Hz gaming keyboard, or try a different USB port.</li>
+</ul>
+<hr />
+<h3 id="troubleshooting--build-failure">Build failure</h3>
+<p><strong>🪟 Windows</strong> — UNIM for Windows is distributed <strong>only as an MSI installer</strong>; there is no reason for an end user to build from source. If the installation itself failed, see "Reinstall · Repair · Uninstall" above. Developers building from source should refer to the <code>docs/dev/windows/</code> documents in the repository.</p>
+<hr />
+<h3 id="troubleshooting--diagnostic-bundle-for-issue-reports">Diagnostic bundle (for issue reports)</h3>
+<p><strong>🪟 Windows</strong></p>
+<p>Including these five things with your issue makes diagnosis far faster.</p>
+<ol>
+<li><strong>Windows version</strong> — <code>Win</code>+<code>R</code> → <code>winver</code>. Report the version and build number from the dialog.</li>
+<li><strong>UNIM version</strong> — from the settings app (<code>unim-settings.exe</code>), or the <code>About</code> item in the UNIM language-bar button menu.</li>
+<li><strong>Name and version of the app where it happens</strong> — this matters most, since behavior varies per app. Whether the app is 32-bit or 64-bit also helps (Task Manager → Details → right-click the process → <code>Properties</code>).</li>
+<li><strong>Configuration file</strong> — <code>%APPDATA%\unim\config.yaml</code>.</li>
+<li><strong>Diagnostic log</strong> — turn on <code>UNIM_DEBUG_LOG</code> as described at the top of this document, reproduce the symptom, then collect <code>%TEMP%\unim-tsf.log</code>. For popup problems, include <code>%TEMP%\unim-popup-win.log</code> as well.</li>
+</ol>
+<p>Pasting this into a Command Prompt gathers the logs onto your Desktop:</p>
+<pre><code class="language-bat">copy "%TEMP%\unim-tsf.log" "%USERPROFILE%\Desktop\unim-report-tsf.log"
+copy "%TEMP%\unim-popup-win.log" "%USERPROFILE%\Desktop\unim-report-popup.log"
+copy "%APPDATA%\unim\config.yaml" "%USERPROFILE%\Desktop\unim-report-config.yaml"
+</code></pre>
+<blockquote>
+<p>⚠️ <strong>Open and skim the files before attaching them.</strong> If you also had <code>UNIM_DEBUG_CONTENT</code> on, the text you actually typed is in the log. Remove anything with passwords or personal information before uploading.</p>
+</blockquote>
+<hr />
+<h3 id="troubleshooting--read-more">Read more</h3>
+<ul>
+<li><a href="#faq">FAQ</a> — comparison with other IMEs, coexistence, backup</li>
+<li><a href="#user-guide">User manual</a> — settings GUI page-by-page</li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a> — behavior spec (developer-oriented)</li>
+<li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/AGENTS.md"><code>AGENTS.md</code></a> — architecture and memory rules</li>
+</ul>
+<hr />
+<p><strong>🪟 Windows</strong></p>
+<h3 id="troubleshooting--16-w-known-windows-limitations-v040">16-W. Known Windows limitations (v0.4.0)</h3>
+<p>Windows support is <strong>experimental</strong>, newly added in v0.4.0. Below are the limitations known at release time. <strong>Anything not listed here has simply not been verified yet</strong> — if you run into it, please report it.</p>
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>Status</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Composition breaks / previous character lost in some apps</td><td>⚠️ Known limitation</td><td>Behavioral differences in the Windows compatibility layer (CUAS) used when an app does not draw the composition string itself. UNIM falls back, but not perfectly in every app. See §3-W</td></tr>
+<tr><td>Console / terminal-style apps</td><td>⚠️ Varies by app</td><td>Depends on which input mechanism the app uses. Standard text apps (Notepad, Edge) are the reference behavior</td></tr>
+<tr><td>32-bit apps such as KakaoTalk and Hancom Office</td><td>✅ Supported (limited verification)</td><td>Covered by also installing the 32-bit input method (<code>unim_tsf32.dll</code>). If it does not appear, see §2-W</td></tr>
+<tr><td>Individual symptoms inside 32-bit apps</td><td>❓ Unverified</td><td>Hangul input itself is confirmed, but per-app details are outside what has been tested</td></tr>
+<tr><td>Tray icon / resident indicator</td><td>❌ Not present</td><td>On Windows the <strong>UNIM button in the language bar (input indicator)</strong> fills that role</td></tr>
+<tr><td><code>unim-cli</code> command-line tool</td><td>❌ Not present</td><td>Configure via the settings app, or by editing <code>%APPDATA%\unim\config.yaml</code> directly</td></tr>
+<tr><td>Settings applying instantly</td><td>⚠️ Focus-driven</td><td>With no daemon to push settings out, you must leave and re-enter the app you are typing in. See §10</td></tr>
+<tr><td>Diagnostic commands from the Linux docs</td><td>❌ Not applicable</td><td><code>systemctl</code>, <code>journalctl</code>, <code>busctl</code>, <code>gsettings</code>, <code>im-config</code> and the <code>GTK_IM_MODULE</code> / <code>QT_IM_MODULE</code> / <code>XMODIFIERS</code> environment variables do not exist on Windows</td></tr>
+</tbody></table>
+</div><h4 id="troubleshooting--reporting">Reporting</h4>
+<p>File the <strong>app name and version</strong> together with the logs from "Diagnostic bundle" above at <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. Given the experimental status, real-world reports are the single most useful contribution.</p>
+
+<a class="backtotop" href="#toc">▲ Back to contents</a>
+</section>
+
+</div>
+</body>
+</html>

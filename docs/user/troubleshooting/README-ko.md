@@ -3,6 +3,9 @@
 > UNIM 0.4.0 — 증상 → 1차 진단 → 2차 명령 → 해결 순서로 정리.
 > "한 번도 한글이 안 나간다"부터 "특정 앱에서만 깨진다"까지 자주 마주치는 증상들을 다룬다.
 
+<!-- @platform:linux -->
+**🐧 리눅스**
+
 전체 진단의 출발점은 두 가지다. 하나는 **데몬이 살아 있는가**, 다른 하나는 **로그가 무엇이라고 말하는가**.
 
 ```bash
@@ -19,10 +22,39 @@ tail -f ~/.unim-errors.log
 ```
 
 > `UNIM_DEVELOP=1`은 Engine·DBus·Frontend·Extension 전 컴포넌트의 로그를 한 파일(`~/.unim-errors.log`)로 모은다. 일반 사용 시에는 OFF가 기본 — 로그 파일이 무한히 커지지 않게 하기 위함.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+> ⚠️ Windows 지원은 v0.4.0에서 추가된 **실험적** 기능이다. 아래 절차는 소스에서 확인된 동작만 담았고, 여기 없는 증상은 [GitHub Issues](https://github.com/from104/unim/issues)로 제보 부탁드린다.
+
+Windows에는 **데몬도 DBus도 없다.** UNIM은 **TSF**(Text Services Framework — Windows가 입력기를 앱에 연결하는 표준 방식) 텍스트 서비스 `unim_tsf.dll`이며, 글자를 입력하는 **앱 프로세스 안에 OS가 직접 로드**한다. 그래서 "데몬이 죽었나"에 해당하는 확인이 없고, 대신 두 가지를 본다.
+
+1. **UNIM이 입력기로 선택돼 있는가** — 작업 표시줄 오른쪽 언어바(입력 표시기)에 UNIM이 보이는지. `Win`+`Space`로 입력기를 순환해 UNIM을 고른다.
+2. **진단 로그가 무엇이라고 말하는가** — 로그는 **기본 OFF**다. 켜려면 환경 변수를 설정한다.
+
+```bat
+:: 관리자 권한 불필요 — 사용자 환경 변수로 기록된다
+setx UNIM_DEBUG_LOG 1
+```
+
+- 환경 변수는 **프로세스가 시작될 때 한 번만** 읽힌다. 이미 떠 있는 앱은 이 값을 못 본다 — 진단할 앱을 완전히 종료했다가 다시 연다. 시작 메뉴·탐색기에서 여는 앱까지 확실히 적용하려면 **로그아웃 후 재로그인**한다.
+- 로그 파일: `%TEMP%\unim-tsf.log`. 여러 앱이 같은 파일에 이어 쓰며 `[unim-tsf <PID>]` 태그로 구분된다. 탐색기 주소창에 `%TEMP%`를 붙여넣으면 폴더가 열린다.
+- 재현 전에 로그를 비우면 읽기 쉽다: `del "%TEMP%\unim-tsf.log"`
+- 다른 구성 요소도 각자 `%TEMP%`에 남긴다 — 팝업 렌더러는 `unim-popup-win.log`, 설정 앱은 `unim-settings.log`.
+
+> ⚠️ **`UNIM_DEBUG_CONTENT`는 켜지 마라 (진단 요청을 받은 경우 제외).** 이 변수를 함께 켜면 실제로 누른 키와 조합·확정된 문자열까지 로그에 그대로 남는다. 비밀번호가 평문으로 기록될 수 있다. 진단이 끝나면 `setx UNIM_DEBUG_LOG ""` / `setx UNIM_DEBUG_CONTENT ""`로 끄고 `%TEMP%\unim-tsf.log`를 지운다.
+
+> 진단 로그를 끈 상태(기본값)에서는 로그 관련 비용이 0이다 — 평소에 켜 둘 필요 없다.
+<!-- @endplatform -->
 
 ---
 
 ## 1. "한글이 아예 안 나옴" — 새로 설치한 직후
+
+<!-- @platform:linux -->
+**🐧 리눅스**
 
 ### 1차 진단
 
@@ -41,8 +73,36 @@ unim-daemon --check && echo OK || echo MISSING
 | `unim-daemon --check` → MISSING | systemd unit 미등록 | `systemctl --user enable --now unim-daemon` |
 | 셸에는 보이는데 GUI 앱엔 적용 안 됨 | DM이 환경변수를 안 가져감 | `~/.xprofile` 또는 `/etc/environment`에 export |
 | GNOME+Wayland | 환경변수 경로가 막힘 | 대신 `gnome-extensions enable unim-gnome@from104.github.io` |
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+Windows에는 `GTK_IM_MODULE` 같은 입력기 환경 변수가 없다. UNIM이 **입력기 목록에 등록됐는지**, 그리고 **선택돼 있는지** 두 단계로 본다.
+
+### 1차 진단
+
+1. `설정` → `시간 및 언어` → `언어 및 지역`에 **한국어**가 있는지 확인한다. 없으면 추가한다 — UNIM은 한국어 프로필에 붙는 입력기라 한국어가 없으면 목록에 나타나지 않는다.
+2. 한국어 항목의 `⋯` → `언어 옵션` → **키보드** 목록에 `UNIM Korean IME`가 있는지 확인한다.
+3. 메모장을 열고 `Win`+`Space`로 UNIM을 고른 뒤 `dkssudgktpdy`를 쳐 본다. `안녕하세요`가 나오면 정상이다.
+
+### 원인별 처방
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| 언어 목록에 한국어가 없음 | 한국어 프로필 미설치 | `설정` → `시간 및 언어` → `언어 및 지역` → **언어 추가** → 한국어 |
+| 키보드 목록에 `UNIM Korean IME`가 없음 | TSF 등록이 안 됐거나 깨짐 | 설치 폴더의 `register-tsf.bat`을 **관리자 권한**으로 실행 (아래 재설치 절 참고) |
+| 설치 직후부터 안 보임 | 등록 반영 전 | 로그아웃 후 재로그인 (또는 재부팅) |
+| 32비트 앱(카카오톡·한컴 등)에서만 안 보임 | 32비트 COM 등록 누락 | 아래 「32비트 앱에서만 UNIM이 안 보임」 절 |
+| 목록엔 있는데 글자가 안 나감 | 다른 입력기가 선택돼 있음 | `Win`+`Space`로 UNIM 선택 |
+
+> 설치 폴더 기본값은 `C:\Program Files\UNIM\`이다. 옮겨 설치했다면 레지스트리 `HKLM\SOFTWARE\atit.org\UNIM` 의 `InstallDir` 값에 실제 경로가 적혀 있다.
+<!-- @endplatform -->
 
 ---
+
+<!-- @platform:linux -->
+**🐧 리눅스** — §2~§4는 리눅스 프런트엔드(GTK / Qt / GNOME 확장) 전용이다.
 
 ## 2. "GTK 앱(GNOME Text Editor 등)에서만 안 됨"
 
@@ -102,10 +162,61 @@ journalctl --user -u gnome-shell -b | grep -i unim
 - 없으면 `make dev-extension`(소스 빌드) 또는 `unim-gnome` 패키지 설치.
 - 활성화: `gnome-extensions enable unim-gnome@from104.github.io` → Alt+F2 → `r` (X11) 또는 로그아웃/로그인 (Wayland).
 - GNOME Shell 버전 호환: `metadata.json`의 `shell-version` 배열에 현재 버전이 들어 있는지 확인.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+## 2-W. "32비트 앱(카카오톡·한컴 등)에서만 UNIM이 안 보임"
+
+### 원인
+
+Windows는 64비트 앱과 32비트 앱이 **서로 다른 레지스트리 뷰**에서 입력기(COM/TSF)를 찾는다. 64비트 앱은 `unim_tsf.dll`을, 32비트 앱은 `unim_tsf32.dll`을 각각 자기 뷰에서 찾는다. 둘 중 32비트 쪽 등록만 빠지면 **메모장·Edge에서는 잘 되는데 카카오톡에서만 UNIM이 목록에 안 뜨는** 모양이 된다.
+
+MSI는 두 등록을 모두 수행한다. 그래도 안 보이면 등록이 깨진 것이다.
+
+### 처방
+
+설치 폴더(`C:\Program Files\UNIM\`)의 `register-tsf.bat`을 **관리자 권한**으로 실행한다. 이 스크립트는 64비트와 32비트 DLL을 **둘 다** 다시 등록한다.
+
+1. 시작 메뉴에서 `cmd` 검색 → **관리자 권한으로 실행**
+2. 아래를 붙여넣는다.
+
+```bat
+"C:\Program Files\UNIM\register-tsf.bat"
+```
+
+3. 로그아웃 후 재로그인한다.
+
+> `register-tsf.bat`은 **COM/TSF 등록만** 다시 한다. 파일을 다시 깔거나 다른 설치 상태를 되돌리지는 않는다. 그쪽이 필요하면 아래 「재설치·복구·제거」 절의 MSI 복구를 쓴다.
+
+> 되돌리려면 같은 폴더의 `unregister-tsf.bat`을 역시 관리자 권한으로 실행한다.
+
+## 3-W. "특정 앱에서 조합 중인 글자가 끊기거나 앞 글자가 지워짐"
+
+### 증상
+
+일부 앱(터미널 에뮬레이터·일부 채팅 앱)에서 한글을 치면 조합 중인 글자가 중간에 확정돼 버리거나, 직전 글자가 사라진다. 메모장·Edge 같은 표준 텍스트 앱에서는 정상이다.
+
+### 원인
+
+Windows에는 앱이 조합 문자열을 직접 그리지 않을 때 OS가 대신 그려 주는 호환 계층(CUAS)이 있다. 이 계층은 조합을 유지하는 방식이 표준 텍스트 앱과 달라, 조합 중인 글자를 **먼저 확정된 글자로 오해**할 수 있다. UNIM은 이런 창을 감지해 폴백 모드로 넘어가지만, 앱마다 동작이 달라 **모든 조합이 완전히 보전되지는 않는다.**
+
+### 처방
+
+- **아직 일반 해법이 없는 알려진 제한이다.** 근본 대응은 진행 중이며, 이 릴리스에서 모든 앱에 대해 해결됐다고 말할 수 없다.
+- 급하면 해당 앱에서만 다른 입력기를 쓰거나, 다른 창(메모장 등)에서 입력해 붙여넣는다.
+- 제보해 주면 도움이 된다 — 아래 「진단 데이터 수집」의 로그와 함께 **앱 이름·버전**을 [GitHub Issues](https://github.com/from104/unim/issues)에 적어 주면 해당 앱을 대응 목록에 넣을 수 있다.
+
+> 관찰된 사례: 일부 터미널 에뮬레이터와 채팅 앱. 카카오톡·한글(한컴)에서의 이 증상은 **아직 확인되지 않았다** — 겪는다면 그것도 제보 대상이다.
+<!-- @endplatform -->
 
 ---
 
 ## 5. "한자 팝업이 안 뜸"
+
+<!-- @platform:linux -->
+**🐧 리눅스**
 
 ### 진단
 
@@ -133,6 +244,31 @@ busctl --user monitor org.atit.unim.InputMethod
 > `popup_mode` 설정이 아니라) 위처럼 렌더러 프로세스가 살아 있는지를 본다.
 
 > **DBus가 죽었을 때**: `busctl --user list | grep atit` → 비어 있으면 데몬이 서비스 등록을 못 한 것. `journalctl --user -u unim-daemon -n 100` 로그 확인.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+### 진단
+
+Windows에서도 팝업은 입력기가 직접 그리지 않는다. **별도 프로세스 `unim-popup-win.exe`**가 그리고, `unim_tsf.dll`이 명명 파이프로 그리라고 시킨다. 즉 이 실행 파일을 못 찾으면 팝업이 안 뜬다.
+
+1. **먼저 한자 키가 도달하는지 확인** — 메모장에서 `한자`를 친 뒤 `한자` 키(또는 오른쪽 `Ctrl`)를 누른다. 팝업이 뜨는지 본다.
+2. **렌더러 프로세스 확인** — 팝업이 떠야 할 때 `Ctrl`+`Shift`+`Esc`로 작업 관리자를 열고 **세부 정보** 탭에서 `unim-popup-win.exe`를 찾는다.
+3. **실행 파일이 제자리에 있는지 확인** — 설치 폴더(`C:\Program Files\UNIM\`)에 `unim-popup-win.exe`가 있어야 한다.
+
+### 처방
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| 설치 폴더에 `unim-popup-win.exe`가 없음 | 설치가 부분적으로 깨짐 | 아래 「재설치·복구·제거」의 MSI 복구 |
+| 파일은 있는데 프로세스가 안 뜸 | 실행 파일 탐색 실패 | 레지스트리 `HKLM\SOFTWARE\atit.org\UNIM` 의 `InstallDir`·`UnimPopupRenderer` 값이 실제 경로를 가리키는지 확인 |
+| 팝업 자체가 안 뜸 (한자 키 무반응) | 한자 키가 다른 곳에서 가로채짐 | 오른쪽 `Ctrl`로 시도. 그래도 안 되면 설정 앱에서 한자 키 지정 확인 |
+
+렌더러는 자기 로그를 따로 남긴다. 문서 맨 위 절차대로 `UNIM_DEBUG_LOG`를 켠 뒤 `%TEMP%\unim-popup-win.log`를 본다.
+
+> 레지스트리 값은 `Win`+`R` → `regedit`으로 확인할 수 있다. **값을 고치지 말고 읽기만 한다** — 경로가 틀렸다면 MSI 복구가 올바른 해결이다.
+<!-- @endplatform -->
 
 ---
 
@@ -140,13 +276,24 @@ busctl --user monitor org.atit.unim.InputMethod
 
 원인 거의 동일 (한자 팝업과 같은 코드 경로).
 
-현재 입력 모드(한글/영문)는 CLI 로 조회하는 키가 따로 없다 — 트레이 아이콘 또는 GNOME 확장 인디케이터 표시로 확인한다. 한글 모드에서 자음(초성) 1글자만 입력한 상태로 한자 키를 눌러야 특수문자 팝업이 뜬다.
+<!-- @platform:linux -->
+**🐧 리눅스** — 현재 입력 모드(한글/영문)는 CLI 로 조회하는 키가 따로 없다 — 트레이 아이콘 또는 GNOME 확장 인디케이터 표시로 확인한다.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows** — 현재 입력 모드(한글/영문)는 작업 표시줄 오른쪽 **언어바(입력 표시기)의 UNIM 버튼**이 보여 준다. 버튼을 클릭하면 한/영이 전환된다. 상태가 실제 입력과 어긋나 보이면 `한/영` 키를 한 번 눌러 다시 맞춘다.
+<!-- @endplatform -->
+
+한글 모드에서 자음(초성) 1글자만 입력한 상태로 한자 키를 눌러야 특수문자 팝업이 뜬다.
 
 ㄱ~ㅎ 입력 후 한자 키. 한국어 자판이 두벌식이면 잘 동작, 세벌식이면 자음 입력 자체가 다를 수 있음.
 
 ---
 
 ## 7. "한자 팝업이 9칸까지만 보이고 81칸 토글이 안 됨"
+
+<!-- @platform:linux -->
+**🐧 리눅스**
 
 ### 진단
 
@@ -161,8 +308,30 @@ grep -i 'ToggleExpanded\|9x9\|expanded' ~/.unim-errors.log
 
 - 0.1.x 시절에 빌드된 IM 모듈이 잔류해 있을 가능성 — `make build && sudo make install` 재실행.
 - 키보드 레이아웃에서 `.`이 다른 키로 매핑돼 있는지 확인.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+### 진단
+
+한자 팝업이 떠 있는 상태에서 마침표(`.`) 키가 팝업까지 도달해야 9칸 ↔ 81칸이 전환된다.
+
+1. 한자 팝업을 띄운다.
+2. `.`을 누른다. 격자가 9칸에서 81칸으로 바뀌어야 한다.
+3. 바뀌지 않으면 문서 맨 위 절차대로 `UNIM_DEBUG_LOG`를 켜고 재현한 뒤 `%TEMP%\unim-tsf.log`에서 마침표 처리 관련 줄을 찾는다.
+
+### 처방
+
+- 키보드 레이아웃에서 `.`이 다른 키로 매핑돼 있는지 확인한다 (`설정` → `시간 및 언어` → `언어 및 지역` → 한국어 → 키보드).
+- 화면 키보드(`Win`+`Ctrl`+`O`)의 `.`로도 눌러 본다. 화면 키보드에서는 되는데 물리 키보드에서 안 되면 키보드/레이아웃 문제다.
+- 팝업 페이지 이동은 `Page Down` / `Page Up`, 즐겨찾기(★) 토글은 `Space`, 취소는 `Esc`다. 이 키들은 되는데 `.`만 안 되면 마침표 키만 가로채진 것이다.
+<!-- @endplatform -->
 
 ---
+
+<!-- @platform:linux -->
+**🐧 리눅스** — §7-1·§7-2는 리눅스 전용(Wayland 컴포지터 / XIM) 증상이다.
 
 ## 7-1. "Wayland에서 ◀/▶ 페이지 버튼이 보이는데 마우스 클릭이 안 먹음"
 
@@ -202,6 +371,7 @@ XIM(`unim-frontends/xim`)에서 이모지 popup을 띄우면 카테고리 탭(�
   - **페이지 이동**: `←` / `→` (또는 `Page Up`/`Page Down`).
 
 > 정상 동작이지만 시각적 분리가 부족하다는 피드백은 받고 있다 — 향후 footer 색 분리 예정.
+<!-- @endplatform -->
 
 ---
 
@@ -209,10 +379,32 @@ XIM(`unim-frontends/xim`)에서 이모지 popup을 띄우면 카테고리 탭(�
 
 ### 진단
 
+<!-- @platform:linux -->
+**🐧 리눅스**
+
 ```bash
 unim-cli config show | grep -i typefix         # 전체/순방향/역방향 사용 여부 확인
 cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 ```
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+Windows에는 `unim-cli`가 없다. 설정 앱으로 확인한다.
+
+1. 시작 메뉴 → **UNIM** → **UNIM Settings** (또는 언어바 UNIM 버튼 → 메뉴 → `설정`)
+2. **오타 교정** 페이지에서 마스터 토글과 순방향/역방향 사용 여부를 본다.
+3. **억제 단어** 페이지에서 등록된 단어 목록을 본다.
+
+설정 파일을 직접 보고 싶으면 탐색기 주소창에 아래를 붙여넣는다.
+
+```
+%APPDATA%\unim
+```
+
+`config.yaml`(전체 설정)과 `typefix-blacklist.yaml`(억제 단어)이 여기에 있다.
+<!-- @endplatform -->
 
 ### 처방
 
@@ -240,7 +432,12 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 
 - 미감지 환경에서는 비밀번호를 치기 전에 한/영 키로 **영문 모드**를 직접 확인한다. 영문 모드에서는 순방향(영→한) 교정이 기본으로 억제되므로 사실상 안전하다.
 - 특정 앱에서 자주 겪는다면 자동 오타 교정 자체를 토글 단축키([사용자 매뉴얼](../user-guide/README-ko.md) 4.4)로 잠깐 꺼 두는 것도 방법이다.
+<!-- @platform:linux -->
 - 토글 단축키를 지정할 때는 **한/영 키·한자 키와 같은 키를 쓰지 않는다** — 역할이 충돌해 한/영 전환이나 한자 변환이 토글에 가려질 수 있다(CLI `unim-cli config set` 은 중복 지정 시 경고를 낸다).
+<!-- @endplatform -->
+<!-- @platform:windows -->
+- 토글 단축키를 지정할 때는 **한/영 키·한자 키와 같은 키를 쓰지 않는다** — 역할이 충돌해 한/영 전환이나 한자 변환이 토글에 가려질 수 있다.
+<!-- @endplatform -->
 
 > **preedit 노출 관련 별도 이슈**: 비밀번호 칸에서는 한글 조합 자체가 차단되므로, 조합 중 글자가 preedit(밑줄)로 화면에 잠깐 비치는 문제는 정상 감지 환경에선 거의 없다. 다만 위 미감지 Wayland 환경에서는 이론상 노출이 성립할 수 있어 **별도 이슈로 추적 중**이며, 현재 권장 우회는 위 「영문 모드 직접 확인」이다.
 
@@ -250,16 +447,36 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 
 ### 처방
 
+<!-- @platform:linux -->
+**🐧 리눅스**
+
 | 케이스 | 해법 |
 |--------|-----|
 | 특정 단어 한 개만 문제 | BS + 한/영로 롤백 → 다음에 같은 단어 칠 때 자동으로 Tentative 등록됨 |
 | 자주 후회한다 | 설정 → 「오타 교정」 → 임시 만료 시간을 늘려 학습 기회 확보 |
 | 영문 모드에서도 reverse가 동작 | `auto_typefix.reverse.skip_incomplete_syllable` ON |
 | 직접 단어 추가 | `~/.config/unim/typefix-blacklist.yaml`을 텍스트 에디터로 편집 → 데몬이 mtime 자동 리로드 |
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+| 케이스 | 해법 |
+|--------|-----|
+| 특정 단어 한 개만 문제 | BS + 한/영로 롤백 → 다음에 같은 단어 칠 때 자동으로 Tentative 등록됨 |
+| 자주 후회한다 | 설정 앱 → 「오타 교정」 → 임시 만료 시간을 늘려 학습 기회 확보 |
+| 영문 모드에서도 reverse가 동작 | 설정 앱 「오타 교정」 페이지에서 역방향 관련 항목을 확인 |
+| 직접 단어 추가 | `%APPDATA%\unim\typefix-blacklist.yaml`을 메모장으로 편집 |
+
+> 설정 파일을 손으로 고쳤다면 **입력할 앱을 한 번 벗어났다 돌아온다**(다른 창 클릭 후 복귀). Windows에는 설정을 밀어 주는 데몬이 없어서, UNIM은 파일이 바뀌었는지를 **포커스가 돌아올 때** 확인해 다시 읽는다. 그래서 반영이 즉시가 아닐 수 있다.
+<!-- @endplatform -->
 
 ---
 
 ## 10. "설정이 저장 안 됨 / 변경이 안 먹힘"
+
+<!-- @platform:linux -->
+**🐧 리눅스**
 
 ### 진단
 
@@ -275,8 +492,32 @@ journalctl --user -u unim-daemon -n 50
 - 권한 문제 → `chmod 644 ~/.config/unim/*.yaml`, `chmod 755 ~/.config/unim`.
 - `~/.config/unim`을 root가 만든 흔적이 있으면 `sudo chown -R $USER:$USER ~/.config/unim`.
 - GUI에서 변경했는데 데몬에 반영 안 됨 → 데몬 재시작: `systemctl --user restart unim-daemon`.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+### 진단
+
+설정은 `%APPDATA%\unim\config.yaml` 한 파일에 저장된다. 탐색기 주소창에 `%APPDATA%\unim`을 붙여넣어 연다.
+
+1. `config.yaml`이 있는지, **수정한 날짜**가 방금 저장한 시각인지 본다.
+2. 날짜가 안 바뀌었으면 저장 자체가 실패한 것 — 설정 앱을 닫고 다시 열어 저장해 본다.
+3. 날짜는 바뀌었는데 입력에 반영이 안 되면 아래 처방으로 간다.
+
+### 처방
+
+- **가장 흔한 원인 — 반영 시점.** Windows에는 설정을 밀어 주는 데몬이 없다. UNIM은 `config.yaml`이 바뀌었는지를 **입력 포커스가 그 앱으로 돌아올 때** 확인해 다시 읽는다. 설정을 바꾼 뒤 **입력할 앱을 한 번 벗어났다 돌아오면** 적용된다(다른 창 클릭 → 원래 창 클릭).
+- 그래도 안 되면 해당 앱을 완전히 종료했다가 다시 연다.
+- 여러 앱에 걸쳐 계속 안 맞으면 로그아웃 후 재로그인한다.
+- `%APPDATA%\unim` 폴더나 `config.yaml`이 **읽기 전용**이면 저장이 막힌다. 파일 우클릭 → `속성` → **읽기 전용** 체크 해제.
+- 회사 PC 등에서 `%APPDATA%`가 정책으로 잠겨 있으면 저장이 안 될 수 있다 — 이 경우는 관리자 문의가 맞다.
+<!-- @endplatform -->
 
 ---
+
+<!-- @platform:linux -->
+**🐧 리눅스** — §11~§14는 리눅스 전용이다. Windows에는 GTK IM 모듈·Flatpak·Snap·상주 데몬이 모두 없다.
 
 ## 11. "키 입력 자체가 잠겼다 (ghostty/터미널)"
 
@@ -381,6 +622,47 @@ journalctl --user -u unim-daemon -n 500 > unim-mem.log
 ```
 
 [`AGENTS.md` §메모리 관리 규칙](../../dev/architecture/AGENTS.md)이 회귀 금지 항목과 진단 명령을 모두 정리해 둔다. 이슈로 보고하면 도움이 된다.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+## 14-W. 재설치 · 복구 · 제거
+
+Windows용 UNIM은 **MSI 설치 관리자 하나**로 배포된다. 파일이 깨졌거나 등록이 어긋났을 때 손으로 지우지 말고 아래 순서를 쓴다.
+
+### 복구 (파일·등록을 원래대로)
+
+받아 둔 MSI 파일을 다시 실행하면 설치 관리자가 **복구(Repair)** 옵션을 제공한다. MSI 파일이 없으면 [GitHub Releases](https://github.com/from104/unim/releases)에서 같은 버전을 다시 받는다.
+
+### 재설치 (버전 올리기 포함)
+
+새 MSI를 그냥 실행하면 이전 버전을 덮어쓴다. 먼저 지울 필요 없다.
+
+### 제거
+
+`설정` → `앱` → `설치된 앱` → **UNIM Korean IME** → `제거`. 시작 메뉴 **UNIM** 폴더의 **Uninstall UNIM** 바로 가기도 같은 일을 한다.
+
+### 등록만 다시 하기
+
+파일은 멀쩡한데 입력기 목록에서만 사라진 경우다. 설치 폴더의 `register-tsf.bat`을 **관리자 권한**으로 실행한다(§2-W 참고). 되돌리려면 `unregister-tsf.bat`.
+
+### 설치 폴더에 들어 있는 것
+
+기본 경로는 `C:\Program Files\UNIM\`이다.
+
+| 파일 | 역할 |
+|------|------|
+| `unim_tsf.dll` | 64비트 앱용 입력기 본체 |
+| `unim_tsf32.dll` | 32비트 앱(카카오톡·한컴 등)용 입력기 본체 |
+| `unim-settings.exe` | 설정 앱 |
+| `unim-popup-win.exe` | 한자·특수문자·이모지 팝업 렌더러 |
+| `register-tsf.bat` / `unregister-tsf.bat` | 입력기 등록 / 등록 해제 (관리자 권한) |
+| `help\unim-help-ko.html`, `help\unim-help-en.html` | 지금 보고 있는 오프라인 도움말 |
+| `LICENSE.txt`, `NOTICE.txt`, `LICENSES\` | 라이선스 고지 |
+
+> **설정 파일은 여기 없다.** 설정은 `%APPDATA%\unim\`에 사용자별로 저장되며, UNIM을 제거해도 지워지지 않는다. 완전히 지우고 싶으면 제거 후 이 폴더를 직접 삭제한다.
+<!-- @endplatform -->
 
 ---
 
@@ -390,12 +672,26 @@ journalctl --user -u unim-daemon -n 500 > unim-mem.log
 
 ### 15-1. 현재 자판이 모아치기를 지원하지 않음
 
-모아치기는 `supports_moachigi: true`인 자판에서만 동작한다. 빌트인 중에는 **안마태 자판 (ko_3bul_anmatae)** 만 해당된다. **쿼티형 세벌식 v2** 는 빌트인이 아닌 연구 자료(`docs/references/keymaps/ko_3bul_qwerty_v2.json`)로 보존되며, `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사한 사용자 프로필에서 모아치기 지원을 켤 수 있다.
+모아치기는 `supports_moachigi: true`인 자판에서만 동작한다. 빌트인 중에는 **안마태 자판 (ko_3bul_anmatae)** 만 해당된다. **쿼티형 세벌식 v2** 는 빌트인이 아닌 연구 자료(`docs/references/keymaps/ko_3bul_qwerty_v2.json`)로 보존되며, 사용자 자판 폴더로 복사한 사용자 프로필에서 모아치기 지원을 켤 수 있다.
 
+<!-- @platform:linux -->
+사용자 자판 폴더는 `~/.config/unim/layouts/` 다 — 위 파일을 `~/.config/unim/layouts/ko_3bul_qwerty.json`으로 복사한다.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+사용자 자판 폴더는 `%APPDATA%\unim\layouts\` 다 — 위 파일을 `%APPDATA%\unim\layouts\ko_3bul_qwerty.json`으로 복사한다. 폴더가 없으면 직접 만든다.
+<!-- @endplatform -->
+
+<!-- @platform:linux -->
 ```bash
 # 현재 자판 확인
 unim-cli config show | grep -E 'layout|keymap'
 ```
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+현재 자판은 설정 앱(`unim-settings.exe`) 「일반」 페이지의 자판 목록에서 확인한다.
+<!-- @endplatform -->
 
 출력이 모아치기 지원 자판이 아니라면 설정 앱(`unim-settings`)에서 자판을 변경해야 한다. 모아치기 지원 자판으로 바꾸면 **모아치기** 그룹이 자동으로 나타난다.
 
@@ -403,6 +699,7 @@ unim-cli config show | grep -E 'layout|keymap'
 
 `chord_window_ms` 기본 권장값은 **60ms**다. 처음 모아치기를 시작하거나 입력 속도가 빠르지 않다면 **80~100ms** 부터 시작해 익숙해지면 줄여 나가는 것이 좋다.
 
+<!-- @platform:linux -->
 ```bash
 # 현재 설정값 확인
 unim-cli config show | grep chord-window
@@ -412,11 +709,17 @@ unim-cli config set korean-chord-window-ms 80
 ```
 
 또는 설정 앱(`unim-settings`) 「일반」 페이지의 자판 옵션(모아치기 지원 자판에서만 표시)에서 슬라이더로 조정한다.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+설정 앱(`unim-settings.exe`) 「일반」 페이지의 자판 옵션(모아치기 지원 자판에서만 표시)에서 슬라이더로 조정한다.
+<!-- @endplatform -->
 
 ### 15-3. bidirectional_combine이 비활성 상태
 
 자모 역순 결합(예: ᆯ+ᆨ → ᆰ, ㅎ+ㄱ → ㅋ)이 안 된다면 **양방향 자모 결합** 옵션이 꺼져 있는 것이다.
 
+<!-- @platform:linux -->
 ```bash
 # 현재 상태 확인
 unim-cli config show | grep bidirectional-combine
@@ -426,6 +729,11 @@ unim-cli config set korean-bidirectional-combine true
 ```
 
 또는 설정 앱(`unim-settings`) 「일반」 페이지 > 자판 옵션 > **양방향 자모 결합** 토글을 ON.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+설정 앱(`unim-settings.exe`) 「일반」 페이지 > 자판 옵션 > **양방향 자모 결합** 토글을 ON.
+<!-- @endplatform -->
 
 ### 15-4. 키보드가 NKRO를 지원하지 않음 (ghosting)
 
@@ -433,6 +741,7 @@ unim-cli config set korean-bidirectional-combine true
 
 자가 진단:
 
+<!-- @platform:linux -->
 ```sh
 # X11 환경에서 동시 키 이벤트 확인
 xev -event keyboard
@@ -441,6 +750,11 @@ xev -event keyboard
 Wayland 환경에서는 `xev` 대신 `wev` 사용 (`apt install wev` 또는 동등).
 
 나타나는 창에 포커스를 두고 chord에서 사용하는 키를 모두 동시에 누른다. 터미널에 `KeyPress event`가 키 수만큼 모두 찍혀야 한다. 또는 브라우저에서 [keyboardchecker.com](https://keyboardchecker.com) 등 온라인 키 테스터를 사용한다.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+브라우저에서 [keyboardchecker.com](https://keyboardchecker.com) 등 온라인 키 테스터를 연 뒤, chord에서 사용하는 키를 모두 동시에 누른다. 누른 키가 **전부** 눌린 것으로 표시돼야 한다. 하나라도 빠지면 키보드 자체의 동시 입력 한계(ghosting)다 — UNIM 설정으로는 해결되지 않는다.
+<!-- @endplatform -->
 
 해결: 게이밍 키보드 또는 메커니컬 키보드의 NKRO 모드 사용 권장. 자세한 내용은 [안마태 자판 가이드 — 키보드 호환성](../keymaps/anmatae.md#키보드-호환성-nkro-권장) 참고.
 
@@ -456,6 +770,13 @@ USB 키보드의 기본 폴링 레이트는 125Hz(= 8ms 간격)다. `chord_windo
 ---
 
 ## 빌드 실패
+
+<!-- @platform:windows -->
+**🪟 Windows** — Windows용 UNIM은 **MSI 설치 관리자로만** 배포된다. 일반 사용자가 소스를 빌드할 일은 없다. 설치 자체가 실패했다면 위 「재설치 · 복구 · 제거」 절을 본다. 소스에서 빌드하려는 개발자는 저장소의 `docs/dev/windows/` 문서를 참고한다.
+<!-- @endplatform -->
+
+<!-- @platform:linux -->
+**🐧 리눅스**
 
 ### 일반 빌드 실패
 
@@ -473,10 +794,14 @@ make build 2>&1 | tee /tmp/unim-build.log
 | 경고 발생 | UNIM은 zero-warning 정책 | 경고 메시지 그대로 이슈로 보고 |
 
 > 빌드 명령은 `make build`가 정본. `cargo build --workspace`만으로는 C/C++ 프론트엔드가 빠진다.
+<!-- @endplatform -->
 
 ---
 
 ## 진단 데이터 수집 (이슈 보고 시 필수)
+
+<!-- @platform:linux -->
+**🐧 리눅스**
 
 ```bash
 {
@@ -496,6 +821,29 @@ make build 2>&1 | tee /tmp/unim-build.log
 ```
 
 이 `unim-report.txt`를 이슈에 첨부하면 진단이 빨라진다. 비밀번호·토큰이 로그에 들어갔을 가능성은 낮지만, 첨부 전에 한 번 훑어보길 권장.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+이슈를 올릴 때 아래 다섯 가지를 함께 적어 주면 진단이 훨씬 빨라진다.
+
+1. **Windows 버전** — `Win`+`R` → `winver` 입력. 나오는 창의 버전·빌드 번호.
+2. **UNIM 버전** — 설정 앱(`unim-settings.exe`) 또는 언어바 UNIM 버튼 메뉴의 `정보`.
+3. **증상이 나는 앱의 이름과 버전** — 앱마다 동작이 다르므로 이게 가장 중요하다. 32비트 앱인지 64비트 앱인지도 알면 좋다(작업 관리자 → 세부 정보 → 프로세스 우클릭 → `속성`).
+4. **설정 파일** — `%APPDATA%\unim\config.yaml`.
+5. **진단 로그** — 문서 맨 위 절차대로 `UNIM_DEBUG_LOG`를 켜고 증상을 재현한 뒤 `%TEMP%\unim-tsf.log`. 팝업 문제면 `%TEMP%\unim-popup-win.log`도 함께.
+
+아래를 명령 프롬프트에 붙여넣으면 바탕 화면에 로그가 모인다.
+
+```bat
+copy "%TEMP%\unim-tsf.log" "%USERPROFILE%\Desktop\unim-report-tsf.log"
+copy "%TEMP%\unim-popup-win.log" "%USERPROFILE%\Desktop\unim-report-popup.log"
+copy "%APPDATA%\unim\config.yaml" "%USERPROFILE%\Desktop\unim-report-config.yaml"
+```
+
+> ⚠️ **첨부 전에 반드시 열어서 훑어본다.** `UNIM_DEBUG_CONTENT`를 함께 켰다면 실제로 입력한 문자열이 로그에 남아 있다. 비밀번호·개인 정보가 보이면 지우고 올린다.
+<!-- @endplatform -->
 
 ---
 
@@ -507,6 +855,9 @@ make build 2>&1 | tee /tmp/unim-build.log
 - [`AGENTS.md`](../../dev/architecture/AGENTS.md) — 아키텍처와 메모리 관리 규칙
 
 ---
+
+<!-- @platform:linux -->
+**🐧 리눅스** — 이하 §16과 0.2.0 릴리스 특이 진단은 리눅스 전용이다.
 
 ## 16. popup-service 디버깅 (0.3.0+)
 
@@ -628,3 +979,27 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 /unim-log
 ```
 → `~/.unim-errors.log` 자동 분류·요약·진단.
+<!-- @endplatform -->
+
+<!-- @platform:windows -->
+**🪟 Windows**
+
+## 16-W. Windows 알려진 제한 (v0.4.0)
+
+Windows 지원은 v0.4.0에서 새로 추가된 **실험적** 기능이다. 아래는 릴리스 시점에 알려진 제한이며, **여기에 없는 증상은 아직 확인되지 않은 것**이다 — 겪는다면 제보 대상이다.
+
+| 항목 | 상태 | 설명 |
+|------|------|------|
+| 일부 앱에서 조합 끊김·직전 글자 삭제 | ⚠️ 알려진 제한 | 앱이 조합 문자열을 직접 그리지 않을 때 쓰이는 Windows 호환 계층(CUAS)의 동작 차이. UNIM이 폴백으로 대응하지만 모든 앱에서 완전하지는 않다. §3-W 참고 |
+| 콘솔·터미널 계열 앱 | ⚠️ 앱마다 다름 | 앱이 어떤 입력 방식을 쓰느냐에 따라 동작이 갈린다. 표준 텍스트 앱(메모장·Edge)이 기준 동작이다 |
+| 카카오톡·한글(한컴) 등 32비트 앱 | ✅ 지원 (제한적 검증) | 32비트 입력기(`unim_tsf32.dll`)를 함께 설치해 대응한다. 안 보이면 §2-W |
+| 32비트 앱에서의 개별 증상 | ❓ 미확인 | 한글 입력 자체는 확인됐으나, 앱별 세부 증상은 검증 범위 밖이다 |
+| 트레이 아이콘 / 상주 인디케이터 | ❌ 없음 | Windows에서는 **언어바(입력 표시기)의 UNIM 버튼**이 그 역할을 한다 |
+| `unim-cli` 명령줄 도구 | ❌ 없음 | 설정은 설정 앱 또는 `%APPDATA%\unim\config.yaml` 직접 편집으로 한다 |
+| 설정 변경의 즉시 반영 | ⚠️ 포커스 기준 | 데몬이 없어 설정을 밀어 주지 못한다. 입력할 앱을 한 번 벗어났다 돌아와야 반영된다. §10 참고 |
+| 리눅스 문서의 진단 명령 | ❌ 해당 없음 | `systemctl` · `journalctl` · `busctl` · `gsettings` · `im-config` 같은 명령과 `GTK_IM_MODULE` · `QT_IM_MODULE` · `XMODIFIERS` 환경 변수는 Windows에 존재하지 않는다 |
+
+### 제보할 때
+
+[GitHub Issues](https://github.com/from104/unim/issues)에 **앱 이름·버전**과 위 「진단 데이터 수집」의 로그를 함께 올려 주면 대응 목록에 넣을 수 있다. 실험적 지위인 만큼 실제 사용 보고가 가장 큰 도움이 된다.
+<!-- @endplatform -->

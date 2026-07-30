@@ -118,19 +118,32 @@ gen-popup-css-check:
 	@python3 tools/popup-styles/gen.py --check
 
 # 오프라인 도움말 — docs/user/{user-guide,keyboard-shortcuts,faq,troubleshooting}/
-# 의 마크다운 8종을 언어별 자족 HTML 2장으로 병합한다.
-# 산출물(help/*.html)은 저장소에 커밋한다: 패키징은 파일 복사만 하므로
-# deb/rpm/MSI 에 이 생성기 의존성이 들어가지 않는다.
+# 의 마크다운 8종을 **플랫폼 × 언어** 4장의 자족 HTML 로 병합한다.
+#   help/unim-help-{ko,en}.html          ← 리눅스 판 (deb/rpm)
+#   help/windows/unim-help-{ko,en}.html  ← 윈도우 판 (MSI)
+# 판 갈림은 본문의 `<!-- @platform:... -->` 마커가 결정한다(tools/gen-help 모듈 문서).
+# 산출물은 저장소에 커밋한다: 패키징은 파일 복사만 하므로 deb/rpm/MSI 에 이
+# 생성기 의존성이 들어가지 않는다.
 help-html:
 	@echo "📖 Generating offline help HTML from docs/user/..."
 	@$(CARGO) run --release -q -p unim-gen-help -- --root . --out help
 
 # CI guard — docs/user/**.md 를 고치고 재생성을 잊은 커밋을 잡는다.
+# 추적 중인 파일의 변경(git diff)과 **새로 생긴 파일**(untracked)을 둘 다 본다.
+# git diff 는 untracked 를 보고하지 않아, 판이 하나 늘었을 때 그 파일이 커밋에서
+# 통째로 빠져도 가드가 조용히 통과하는 구멍이 있었다.
 check-help-html: help-html
 	@if ! git diff --exit-code -- help/; then \
 		echo ""; \
 		echo "❌ help/ 산출물이 docs/user/ 와 어긋났다."; \
 		echo "   → make help-html 실행 후 help/ 변경분을 함께 커밋할 것."; \
+		exit 1; \
+	fi
+	@untracked=$$(git ls-files --others --exclude-standard -- help/); \
+	if [ -n "$$untracked" ]; then \
+		echo "❌ help/ 에 커밋되지 않은 신규 산출물이 있다:"; \
+		echo "$$untracked" | sed 's/^/     /'; \
+		echo "   → git add 로 함께 커밋할 것."; \
 		exit 1; \
 	fi
 	@echo "✅ help/ 산출물이 docs/user/ 와 일치한다."

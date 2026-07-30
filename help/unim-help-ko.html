@@ -195,7 +195,7 @@ li { margin: 0.35rem 0; }
   <a class="langswitch" href="unim-help-en.html">English</a>
 </header>
 
-<p class="gennotice">이 문서는 <code>docs/user/</code> 의 마크다운에서 <b>자동 생성</b>된 오프라인 사본이다. 내용이 오래됐거나 링크가 깨졌다면 최신판을 <a href="https://github.com/from104/unim/tree/main/docs/user">GitHub 문서</a>에서 확인한다.</p>
+<p class="gennotice"><b>리눅스판</b> — 이 문서는 <code>docs/user/</code> 의 마크다운에서 <b>자동 생성</b>된 오프라인 사본이다. 내용이 오래됐거나 링크가 깨졌다면 최신판을 <a href="https://github.com/from104/unim/tree/main/docs/user">GitHub 문서</a>에서 확인한다.</p>
 
 <nav class="toc" aria-label="목차">
 <h2 id="toc">목차</h2>
@@ -298,7 +298,7 @@ li { margin: 0.35rem 0; }
 <h3 id="user-guide--1-unim이-무엇인가-30초-설명">1. UNIM이 무엇인가 (30초 설명)</h3>
 <ul>
 <li><strong>IME</strong> (Input Method Editor, 입력기): 키보드의 알파벳 키 두드림을 한글 음절로 바꿔서 앱 화면에 보여주는 시스템 컴포넌트. 다른 IME 예시: ibus-hangul, fcitx-hangul, kime, nimf.</li>
-<li><strong>UNIM의 차별점</strong>: Rust로 작성된 단일 코어를 GTK·Qt·XIM·Wayland·GNOME Shell 다섯 환경 모두에 그대로 꽂는다. 즉 어떤 앱(터미널, 브라우저, 메모장, IDE)에서 한글을 쳐도 같은 조합 규칙·같은 한자 팝업·같은 자동 오타 교정이 동작한다.</li>
+<li><strong>🐧 리눅스에서의 차별점</strong>: Rust로 작성된 단일 코어를 GTK·Qt·XIM·Wayland·GNOME Shell 다섯 환경 모두에 그대로 꽂는다. 즉 어떤 앱(터미널, 브라우저, 메모장, IDE)에서 한글을 쳐도 같은 조합 규칙·같은 한자 팝업·같은 자동 오타 교정이 동작한다.</li>
 <li><strong>30초 요약</strong>: "한/영 키로 모드 전환 → 한글 입력 → 한자키로 한자 변환 → ㄱㄴㄷ로 특수문자 변환 → 영타가 한글로 잘못 나가도 자동 복구". 이게 UNIM이 사용자에게 제공하는 가치 전부다.</li>
 </ul>
 <blockquote>
@@ -308,7 +308,7 @@ li { margin: 0.35rem 0; }
 <h3 id="user-guide--2-빠른-시작-5분">2. 빠른 시작 (5분)</h3>
 <h4 id="user-guide--21-설치">2.1 설치</h4>
 <blockquote>
-<p>지원 환경: <strong>Ubuntu 24.04 (noble) 이상 / 동급 Debian, amd64.</strong> 릴리스 <code>.deb</code> 는 noble 기준으로 빌드된다.</p>
+<p><strong>🐧 리눅스</strong> 지원 환경: <strong>Ubuntu 24.04 (noble) 이상 / 동급 Debian, amd64.</strong> 릴리스 <code>.deb</code> 는 noble 기준으로 빌드된다.</p>
 </blockquote>
 <h5 id="user-guide--방법-1--자동-설치-스크립트-권장">방법 1 — 자동 설치 스크립트 (권장)</h5>
 <p>한 줄이면 GitHub Releases 의 <code>.deb</code> 전체를 내려받아 <code>apt</code> 로 설치한다. 모든 <code>.deb</code> 를 <strong>SHA256 체크섬으로 검증</strong>하고, <code>mktemp</code> 임시 디렉토리에 격리하며, 외부 런타임 의존성을 자동 해결한다. 검증 실패 시 아무것도 설치하지 않고 중단한다(부분 설치 없음).</p>
@@ -346,23 +346,6 @@ systemctl --user daemon-reload
 systemctl --user enable --now unim-daemon.service
 </code></pre>
 <p>소스 빌드는 <code>cargo</code> 1.95 이상, GTK4/libadwaita 헤더, Qt5/Qt6 개발 패키지가 필요하다. 패키지명은 배포판마다 다르니 빌드 실패 시 <a href="#troubleshooting--빌드-실패"><code>docs/user/troubleshooting/README-ko.md</code></a> 참고.</p>
-<h5 id="user-guide--방법-4--windows-실험적">방법 4 — Windows (실험적)</h5>
-<blockquote>
-<p>Windows 10/11 (64비트). PowerShell(또는 Windows Terminal)에서 실행한다. 설치 시점에 관리자 권한(UAC) 승인이 한 번 필요하다.</p>
-</blockquote>
-<pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
-</code></pre>
-<p>GitHub Releases 의 최신 MSI(<code>unim-&lt;버전&gt;-x64.msi</code>)를 내려받아 <strong><code>SHA256SUMS-msi</code> 로 SHA256 검증</strong>(승격된 프로세스 안에서 한 번 더 재검증해 검증↔설치 사이 변조 차단)하고 <code>msiexec</code> 로 설치한다. 체크섬이 어긋나면 아무것도 설치하지 않고 중단한다. MSI 는 아직 코드 서명이 없어 SmartScreen 경고가 뜰 수 있다 — "추가 정보 → 실행"으로 진행한다.</p>
-<pre><code class="language-powershell"># 업데이트 (이미 최신이면 내려받지도 않는다)
-&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Update
-
-# 설치 여부·최신 버전만 확인 (아무것도 바꾸지 않는다)
-&amp; ([scriptblock]::Create((irm https://raw.githubusercontent.com/from104/unim/main/install.ps1))) -Check
-
-# 특정 버전 고정 (해당 버전 릴리스에 SHA256SUMS-msi 가 첨부돼 있어야 한다)
-$env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
-</code></pre>
-<p>Windows 지원은 실험적이다. 자세한 내용은 <a href="https://github.com/from104/unim/blob/main/README.md#-%EC%84%A4%EC%B9%98">README 설치 절</a> 참고.</p>
 <h4 id="user-guide--22-환경-변수-gnome-확장을-안-쓰는-모든-데스크톱">2.2 환경 변수 (GNOME 확장을 안 쓰는 모든 데스크톱)</h4>
 <p>KDE Plasma·XFCE·Sway·Hyprland 등에서는 <code>~/.xprofile</code> 혹은 <code>/etc/environment</code>에 다음 세 줄을 직접 추가한다.</p>
 <pre><code class="language-bash">export GTK_IM_MODULE=unim
@@ -388,7 +371,7 @@ export XMODIFIERS="@im=unim"
 <p>여기까지 동작하면 설치는 끝났다. 동작이 안 되면 <a href="#troubleshooting">트러블슈팅</a>으로.</p>
 <hr />
 <h3 id="user-guide--25-팝업-동작-개요">2.5 팝업 동작 개요</h3>
-<p>UNIM 0.3.0부터 한자·특수문자·이모지 팝업은 <strong><code>unim-popup-service</code></strong> 가 단일 렌더러로 처리한다.</p>
+<p><strong>🐧 리눅스</strong> — UNIM 0.3.0부터 한자·특수문자·이모지 팝업은 <strong><code>unim-popup-service</code></strong> 가 단일 렌더러로 처리한다.</p>
 <div class="tablewrap"><table><thead><tr><th>환경</th><th>팝업 렌더 주체</th><th>비고</th></tr></thead><tbody>
 <tr><td>GNOME Wayland</td><td>GNOME Extension <code>popup_view.js</code> (St 위젯)</td><td>Mutter가 wlr-layer-shell 미지원이므로 extension 자체 렌더</td></tr>
 <tr><td>GNOME X11 / KDE / Xfce / WM (X11)</td><td><code>unim-popup-service</code> GTK4 윈도우</td><td>D-Bus auto-activation으로 자동 기동</td></tr>
@@ -401,6 +384,7 @@ export XMODIFIERS="@im=unim"
 <p><strong>KDE Plasma 6 Wayland / Sway / Hyprland / river — 실험적, 검증 미흡</strong>: <code>wayland-backend</code> cargo feature + <code>libgtk4-layer-shell</code> 조합으로 빌드 시 이론상 동작하나, 0.3.0 QA 사이클 이후 v0.4.0까지 이 실험적 지위는 변하지 않았다(추가 검증 없음). popup 위치, IME 포커스 전환, layer-shell 좌표 변환에서 미세 회귀가 있을 수 있다. 자세한 환경별 지원 현황은 <a href="#troubleshooting--g-환경-매트릭스-040-재확인--최초-작성은-030">트러블슈팅 §G 환경 매트릭스</a> 참고.</p>
 <hr />
 <h3 id="user-guide--3-환경별-설정-가이드">3. 환경별 설정 가이드</h3>
+<p><strong>🐧 리눅스</strong> — 데스크톱 환경과 앱 툴킷 조합에 따라 진입 경로가 갈린다.</p>
 <div class="tablewrap"><table><thead><tr><th>환경</th><th>설치 방법</th><th>IM 모듈</th><th>팝업 주체</th><th>주의점</th></tr></thead><tbody>
 <tr><td><strong>X11 + GTK 앱</strong></td><td><code>GTK_IM_MODULE=unim</code></td><td>gtk3/gtk4 IM 모듈</td><td><code>unim-popup-service</code>(GTK4, D-Bus auto-activation)</td><td>—</td></tr>
 <tr><td><strong>X11 + Qt 앱</strong></td><td><code>QT_IM_MODULE=unim</code></td><td>qt5/qt6 IM 플러그인</td><td>동상</td><td>Plasma는 Qt 모드로 통일 권장</td></tr>
@@ -432,6 +416,8 @@ export XMODIFIERS="@im=unim"
 </div>
 <blockquote>
 <p><strong>모드 공유 방식</strong>(<code>mode_sharing</code> 설정, CLI 키 <code>mode-sharing</code>): 「전역 공유」/「앱별 독립」 중 선택. <strong>「전역 공유」가 기본값</strong>이다 — 한 모드를 바꾸면 모든 창에 즉시 동기화된다. 터미널은 영어, 텍스트 에디터는 한글처럼 창마다 모드를 따로 유지하고 싶으면 「앱별 독립」으로 바꾼다.</p>
+</blockquote>
+<blockquote>
 <p><strong>접근성 — 비시각 사용 시 한/영 전환 비프를 켜라</strong>: 리눅스에는 화면 낭독기로 모드 전환을 능동 통지하는 기능이 없고, 전환 비프도 <strong>기본은 꺼짐</strong>이다(오탐지 방지를 위한 의도된 기본값). 화면을 보지 않고 입력한다면 다음 명령으로 켜 두는 것을 권장한다.</p>
 <pre><code class="language-bash">unim-cli config set toggle-announce-beep true
 </code></pre>
@@ -475,14 +461,15 @@ export XMODIFIERS="@im=unim"
 <li><strong>GTK IM 모듈</strong> (gtk3 / gtk4): <strong>다음 페이지</strong> (wrap-around) — <code>→</code> / Page Down과 동일.</li>
 <li><strong>Qt IM 모듈</strong> (qt5 / qt6): <strong>다음 페이지</strong> (wrap-around).</li>
 <li><strong>XIM</strong> (한자 / 특수문자 / 이모지 팝업 공통): <strong>다음 페이지</strong> (wrap-around).</li>
-<li><strong>그 외</strong> (<code>unim-popup-service</code> Standalone, 순수 Wayland, Windows egui): 동작 없음 (정의되지 않음).</li>
+<li><strong>그 외</strong> (<code>unim-popup-service</code> Standalone, 순수 Wayland): 동작 없음 (정의되지 않음).</li>
 </ul>
 <blockquote>
 <p><strong>왜 GNOME만 다른가?</strong> GNOME Shell 확장은 후보 셀이 곧 <code>Clutter.Actor</code>라 셀 단위 우클릭 hit-test가 자연스럽다. 그래서 우클릭에 즐겨찾기를 매핑한 게 손이 덜 가는 단축이 된다. 반면 GTK/Qt IM 모듈과 XIM은 X11/Wayland override-redirect 윈도우라 셀 hit-test가 제한적이고, 우클릭으로 페이지를 넘기는 기존 관습(고전 IME 패턴)을 따른다.</p>
 <p><strong>정리</strong>: 어느 환경이든 ◀/▶ 마우스 버튼·키보드 <code>←</code>/<code>→</code>·Space는 의미가 같다. 환경에 따라 달라지는 건 오직 <strong>그리드 본문에서의 우클릭</strong>뿐이다. 헷갈리면 키보드 단축키만 써도 모든 동작을 할 수 있다.</p>
 </blockquote>
 <h5 id="user-guide--즐겨찾기-">즐겨찾기 ☆/★</h5>
-<p>자주 쓰는 한자를 즐겨찾기에 등록할 수 있다. 후보에 포커스를 둔 상태에서 <strong>Space</strong> 키 → ☆(미등록) ↔ ★(등록) 토글. 등록된 한자는 <code>HanjaCandidatesReordered</code> DBus 시그널로 모든 열린 팝업이 즉시 갱신된다.</p>
+<p>자주 쓰는 한자를 즐겨찾기에 등록할 수 있다. 후보에 포커스를 둔 상태에서 <strong>Space</strong> 키 → ☆(미등록) ↔ ★(등록) 토글.</p>
+<p>등록된 한자는 <code>HanjaCandidatesReordered</code> DBus 시그널로 모든 열린 팝업이 즉시 갱신된다.</p>
 <p>토글하면 한자가 자동으로 재정렬되며 cursor가 그 한자를 따라간다.</p>
 <ul>
 <li><strong>★ 등록 시</strong>: 그 한자가 1페이지 상단(★ 그룹)으로 promote되고 cursor가 그 위치(page 1, row 1)로 이동.</li>
@@ -613,7 +600,8 @@ unim-cli config set word-mode-apps "winword.exe,soffice"
 </blockquote>
 <hr />
 <h3 id="user-guide--5-설정-gui-투어">5. 설정 GUI 투어</h3>
-<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 앱 메뉴의 「UNIM 설정」 항목, 첫 실행 마법사, 트레이 메뉴가 모두 이 실행 파일을 띄운다.</p>
+<p><strong><code>unim-settings</code></strong>(Slint, 리눅스·Windows 공통 단일 코드베이스)가 유일한 설정 진입점이다. 즉 아래 4개 페이지의 구성과 항목은 <strong>양쪽 운영체제가 동일</strong>하다 — 다른 것은 창을 여는 방법뿐이다.</p>
+<p><strong>🐧 리눅스에서 여는 법</strong> — 앱 메뉴의 「UNIM 설정」 항목, 첫 실행 마법사, 트레이 메뉴가 모두 이 실행 파일을 띄운다. 터미널에서 직접 띄워도 된다.</p>
 <pre><code class="language-bash">unim-settings &amp;
 </code></pre>
 <blockquote>
@@ -634,6 +622,8 @@ unim-cli config set word-mode-apps "winword.exe,soffice"
 </div>
 <blockquote>
 <p><strong>접근성 프리셋</strong>: 「한 손 사용」은 세벌식 순아래 자판 + 비수정자 토글키 + 모아치기 끔 + 자동반복 억제를 한 번에 적용한다. 「넉넉한 타이밍」은 자동반복 억제 + 오타 교정 판정 시간 확대 + (지원 자판이면) 모아치기 조합창을 넉넉하게 잡는다. 프리셋 적용 후에도 개별 스위치로 세부 조정할 수 있다.</p>
+</blockquote>
+<blockquote>
 <p><strong>조합키 자동반복 억제(접근성)</strong>: 키를 계속 누르고 있으면 운영체제가 같은 키를 빠르게 반복 입력하는데(자동 반복), 이 옵션을 켜면 데몬이 그 반복을 무시한다. 손 떨림 등으로 키를 오래 누르게 되는 지체장애 사용자를 위한 기능이며, <strong>Windows·Linux 공통으로 데몬이 집행</strong>한다(과거 리눅스에서는 미집행이었으나 v0.4.0에서 정정). 억제 대상은 <strong>한/영 토글 키와 한글 모드의 문자 키</strong>이며, 백스페이스·방향키 같은 편집키와 영문 직접 입력의 반복은 그대로 둔다. Wayland·Qt5/6·GNOME 확장에서는 반복 여부를 정확히 가려내고, GTK3/4·XIM·ibus 호환 경로에서는 80ms 시간창으로 근사 판정하므로 첫 반복 1회는 통과될 수 있고 시스템 키 반복 간격을 80ms보다 길게 잡았다면 걸러지지 않을 수 있다(어느 경우든 "덜 막는" 쪽으로 안전하게 동작). 기본값은 꺼짐이며, <code>unim-cli config set ignore-key-repeat true</code> 로도 켤 수 있다. GNOME 확장 사용자는 재로그인 후 적용된다.</p>
 <p><strong>이모지 입력</strong>은 별도 스위치가 없다 — 한자 팝업과 같은 경로로 항상 켜져 있으며, <a href="#keyboard-shortcuts--이모지-팝업-단축키-super">키보드 단축키 가이드</a> 의 <code>Super+.</code>(또는 등록한 단축키)로 호출한다.</p>
 <p><strong>GNOME 확장 전용 설정</strong>(패널 인디케이터 표시 여부, 수동 변환 단축키 등)은 이 앱이 아니라 <code>gnome-extensions prefs unim-gnome@from104.github.io</code> 로 별도로 연다 — <a href="#keyboard-shortcuts">키보드 단축키 가이드 GNOME 절</a> 참고.</p>
@@ -713,6 +703,7 @@ unim-typing-practice &amp;    # 타자 연습
 </div>
 <hr />
 <h3 id="user-guide--6-키-매핑-치트시트">6. 키 매핑 치트시트</h3>
+<p><strong>🐧 리눅스</strong></p>
 <div class="tablewrap"><table><thead><tr><th>상황</th><th>키</th><th>결과</th></tr></thead><tbody>
 <tr><td>어디서나</td><td>한/영 (또는 Shift+Space)</td><td>모드 토글</td></tr>
 <tr><td>한글 모드, 글자 입력 후</td><td>한자 (F9)</td><td>한자 팝업</td></tr>
@@ -813,6 +804,7 @@ systemctl --user restart unim-daemon
 </section>
 <section class="doc" id="keyboard-shortcuts">
 <h2 id="keyboard-shortcuts--키보드-단축키-가이드">키보드 단축키 가이드</h2>
+<p><strong>🐧 리눅스</strong></p>
 <p>UNIM의 단축키는 환경(데스크톱/컴포지터)에 따라 캡처 주체가 달라집니다. 이 문서는 사용자가 환경별로 어떻게 단축키를 활성화해야 하는지 설명합니다.</p>
 <blockquote>
 <p>영문 버전: <a href="unim-help-en.html#keyboard-shortcuts"><code>README.md</code></a></p>
@@ -991,6 +983,7 @@ xbindkeys      # 다시 시작
 <p><strong>한 줄 요약</strong>: UNIM은 "Rust 코어 한 개를 모든 환경에 그대로 꽂는다"는 설계 + AutoTypeFix와 학습형 억제 사전 같은 사용자 경험 기능을 다른 IME가 안 가진 영역으로 차별화한다.</p>
 <hr />
 <h3 id="faq--q2-시스템-ime와-동시에-설치해도-되나">Q2. 시스템 IME와 동시에 설치해도 되나?</h3>
+<p><strong>🐧 리눅스</strong></p>
 <p><strong>가능하긴 하지만 권장하지 않는다.</strong> 한 데스크톱에 두 IME가 살아있으면 키 이벤트가 어디로 갈지 OS와 툴킷이 헷갈린다.</p>
 <ul>
 <li><strong>GNOME</strong>: IBus와 UNIM 동시 사용 시 키 이벤트 유실 빈발 → IBus 제거 필수.
@@ -1005,6 +998,7 @@ xbindkeys      # 다시 시작
 </blockquote>
 <hr />
 <h3 id="faq--q3-어떤-환경이-가장-안정적인가">Q3. 어떤 환경이 가장 안정적인가?</h3>
+<p><strong>🐧 리눅스</strong></p>
 <p>UNIM 0.2.0 시점의 안정성 등급:</p>
 <div class="tablewrap"><table><thead><tr><th>환경</th><th>등급</th><th>비고</th></tr></thead><tbody>
 <tr><td>Ubuntu 24.04 + GNOME(Wayland) + GNOME Extension</td><td>🟢 A</td><td>권장. 메인 개발/테스트 환경</td></tr>
@@ -1059,6 +1053,7 @@ xbindkeys      # 다시 시작
 </blockquote>
 <hr />
 <h3 id="faq--q6-설정-파일-위치-백업과-복원은">Q6. 설정 파일 위치, 백업과 복원은?</h3>
+<p><strong>🐧 리눅스</strong></p>
 <h4 id="faq--위치">위치</h4>
 <pre><code>~/.config/unim/
 ├── config.yaml              # 일반 설정 (소스 오브 트루스)
@@ -1090,6 +1085,7 @@ systemctl --user start unim-daemon
 <h4 id="faq--영어">영어</h4>
 <p><code>qwerty</code>, <code>dvorak</code>, <code>colemak</code>, <code>colemak_dh</code>, <code>workman</code>.</p>
 <h4 id="faq--사용자-정의">사용자 정의</h4>
+<p><strong>🐧 리눅스</strong></p>
 <p><code>~/.config/unim/layouts/&lt;name&gt;.json</code>에 v1 스키마 JSON을 넣으면 데몬이 자동 스캔. <code>inherits: "ko_3bul390"</code> 같이 상속해 일부만 덮어쓸 수도 있음.</p>
 <pre><code class="language-bash"># 검증
 unim-cli config layout validate ~/.config/unim/layouts/my.json
@@ -1151,7 +1147,7 @@ unim-cli config set korean-layout my
 <p>v0.4.0부터 Windows 10/11(64비트)을 TSF(Text Services Framework) 기반 <code>unim-tsf</code>로 지원한다.</p>
 <pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 </code></pre>
-<p>로 MSI를 내려받아 설치한다(<a href="#user-guide--방법-4--windows-실험적">사용자 매뉴얼 §2.1 방법 4</a> 참고). 32비트 앱은 64비트 TSF 대신 별도의 32비트 TSF TIP(<code>unim_tsf32.dll</code>)이 처리한다. 예전에 검토됐던 IMM32 폴백(<code>unim-imm32</code> 크레이트)은 실제 배포 MSI에는 포함되지 않는 진단·연구용 소스로만 남아 있다 — "IMM32 폴백"을 배포 기능으로 안내하는 문서를 봤다면 오래된 것이다.</p>
+<p>로 MSI를 내려받아 설치한다(<a href="#user-guide--21-설치">사용자 매뉴얼 §2.1 설치</a> 참고). 32비트 앱은 64비트 TSF 대신 별도의 32비트 TSF TIP(<code>unim_tsf32.dll</code>)이 처리한다. 예전에 검토됐던 IMM32 폴백(<code>unim-imm32</code> 크레이트)은 실제 배포 MSI에는 포함되지 않는 진단·연구용 소스로만 남아 있다 — "IMM32 폴백"을 배포 기능으로 안내하는 문서를 봤다면 오래된 것이다.</p>
 <p>다만 Windows 지원은 v0.4.0 시점 <strong>실기 QA가 완료되지 않은 실험적 지위</strong>다 — 최소 사용은 가능하나 문제를 만나면 <a href="https://github.com/from104/unim/issues">GitHub Issues</a>로 컴포지터/버전 정보와 함께 보고해 주길 권한다.</p>
 <p>macOS는 여전히 미착수다(로드맵 5단계). Rust 코어와 C-API가 분리돼 있어 이론적으론 macOS의 IMKit에 어댑터를 붙이면 되지만, 착수한 사람이 아직 없다. 자원자가 있다면 환영.</p>
 <hr />
@@ -1225,9 +1221,11 @@ cargo --version              # 1.95.0 이상
 <tr><td>숙련자</td><td>10–60ms</td><td>오입력 최소화, 반응 속도 우선</td></tr>
 </tbody></table>
 </div>
-<p><code>chord_window_ms</code>를 0으로 설정하면 모아치기가 완전히 꺼진다. 설정창의 슬라이더로 조정하거나 <code>unim-cli config set korean-chord-window-ms 80</code> 명령을 쓴다.</p>
+<p><code>chord_window_ms</code>를 0으로 설정하면 모아치기가 완전히 꺼진다.</p>
+<p><strong>🐧 리눅스</strong> — 설정창의 슬라이더로 조정하거나 <code>unim-cli config set korean-chord-window-ms 80</code> 명령을 쓴다.</p>
 <h3 id="faq--q20-키를-오래-누르면-글자가-여러-번-입력돼요">Q20. 키를 오래 누르면 글자가 여러 번 입력돼요.</h3>
 <p>손 떨림 등으로 키를 오래 누르고 있으면 운영체제가 같은 키를 빠르게 반복 입력한다(자동 반복). UNIM에는 이 반복을 데몬이 무시하는 <strong>조합키 자동반복 억제(접근성)</strong> 옵션이 있다. 억제 대상은 <strong>한/영 토글 키와 한글 모드의 문자 키</strong>이며, 백스페이스·방향키 같은 편집키와 영문 직접 입력의 반복은 그대로 둔다. 기본값은 꺼짐이라 켜기 전에는 동작이 바뀌지 않는다.</p>
+<p><strong>🐧 리눅스</strong></p>
 <p>켜는 법 — 설정 앱의 <strong>접근성 → 조합키 자동반복 억제</strong> 스위치, 또는 CLI:</p>
 <pre><code class="language-bash">unim-cli config set ignore-key-repeat true
 </code></pre>
@@ -1319,6 +1317,7 @@ sudo apt remove 'unim*'
 <p>UNIM 0.4.0 — 증상 → 1차 진단 → 2차 명령 → 해결 순서로 정리.
 "한 번도 한글이 안 나간다"부터 "특정 앱에서만 깨진다"까지 자주 마주치는 증상들을 다룬다.</p>
 </blockquote>
+<p><strong>🐧 리눅스</strong></p>
 <p>전체 진단의 출발점은 두 가지다. 하나는 <strong>데몬이 살아 있는가</strong>, 다른 하나는 <strong>로그가 무엇이라고 말하는가</strong>.</p>
 <pre><code class="language-bash"># (1) 데몬 살아있나?
 systemctl --user status unim-daemon
@@ -1336,6 +1335,7 @@ tail -f ~/.unim-errors.log
 </blockquote>
 <hr />
 <h3 id="troubleshooting--1-한글이-아예-안-나옴--새로-설치한-직후">1. "한글이 아예 안 나옴" — 새로 설치한 직후</h3>
+<p><strong>🐧 리눅스</strong></p>
 <h4 id="troubleshooting--1차-진단">1차 진단</h4>
 <pre><code class="language-bash">echo $GTK_IM_MODULE      # unim 이어야 함
 echo $QT_IM_MODULE       # unim 이어야 함
@@ -1351,6 +1351,7 @@ unim-daemon --check &amp;&amp; echo OK || echo MISSING
 </tbody></table>
 </div>
 <hr />
+<p><strong>🐧 리눅스</strong> — §2~§4는 리눅스 프런트엔드(GTK / Qt / GNOME 확장) 전용이다.</p>
 <h3 id="troubleshooting--2-gtk-앱gnome-text-editor-등에서만-안-됨">2. "GTK 앱(GNOME Text Editor 등)에서만 안 됨"</h3>
 <h4 id="troubleshooting--진단">진단</h4>
 <pre><code class="language-bash"># IM 모듈이 설치돼 있나?
@@ -1399,6 +1400,7 @@ journalctl --user -u gnome-shell -b | grep -i unim
 </ul>
 <hr />
 <h3 id="troubleshooting--5-한자-팝업이-안-뜸">5. "한자 팝업이 안 뜸"</h3>
+<p><strong>🐧 리눅스</strong></p>
 <h4 id="troubleshooting--진단-3">진단</h4>
 <pre><code class="language-bash"># 팝업 렌더러가 떠 있나? (X11/KDE/Xfce, 없으면 §16 참고)
 pgrep -a unim-popup
@@ -1427,10 +1429,12 @@ busctl --user monitor org.atit.unim.InputMethod
 <hr />
 <h3 id="troubleshooting--6-특수문자-팝업이-안-뜸">6. "특수문자 팝업이 안 뜸"</h3>
 <p>원인 거의 동일 (한자 팝업과 같은 코드 경로).</p>
-<p>현재 입력 모드(한글/영문)는 CLI 로 조회하는 키가 따로 없다 — 트레이 아이콘 또는 GNOME 확장 인디케이터 표시로 확인한다. 한글 모드에서 자음(초성) 1글자만 입력한 상태로 한자 키를 눌러야 특수문자 팝업이 뜬다.</p>
+<p><strong>🐧 리눅스</strong> — 현재 입력 모드(한글/영문)는 CLI 로 조회하는 키가 따로 없다 — 트레이 아이콘 또는 GNOME 확장 인디케이터 표시로 확인한다.</p>
+<p>한글 모드에서 자음(초성) 1글자만 입력한 상태로 한자 키를 눌러야 특수문자 팝업이 뜬다.</p>
 <p>ㄱ~ㅎ 입력 후 한자 키. 한국어 자판이 두벌식이면 잘 동작, 세벌식이면 자음 입력 자체가 다를 수 있음.</p>
 <hr />
 <h3 id="troubleshooting--7-한자-팝업이-9칸까지만-보이고-81칸-토글이-안-됨">7. "한자 팝업이 9칸까지만 보이고 81칸 토글이 안 됨"</h3>
+<p><strong>🐧 리눅스</strong></p>
 <h4 id="troubleshooting--진단-4">진단</h4>
 <pre><code class="language-bash"># 마침표 키가 한자 팝업에 도달하는지 확인
 UNIM_DEVELOP=1 systemctl --user restart unim-daemon
@@ -1443,6 +1447,7 @@ grep -i 'ToggleExpanded\|9x9\|expanded' ~/.unim-errors.log
 <li>키보드 레이아웃에서 <code>.</code>이 다른 키로 매핑돼 있는지 확인.</li>
 </ul>
 <hr />
+<p><strong>🐧 리눅스</strong> — §7-1·§7-2는 리눅스 전용(Wayland 컴포지터 / XIM) 증상이다.</p>
 <h3 id="troubleshooting--7-1-wayland에서--페이지-버튼이-보이는데-마우스-클릭이-안-먹음">7-1. "Wayland에서 ◀/▶ 페이지 버튼이 보이는데 마우스 클릭이 안 먹음"</h3>
 <h4 id="troubleshooting--증상">증상</h4>
 <p><code>unim-frontends/wayland</code>로 동작하는 popup(컴포지터: GNOME mutter, KWin, Sway 등)에서 ◀/▶ 버튼이 시각적으로 분명히 그려지는데 마우스 좌클릭에 반응이 없다.</p>
@@ -1479,6 +1484,7 @@ grep -i 'ToggleExpanded\|9x9\|expanded' ~/.unim-errors.log
 <hr />
 <h3 id="troubleshooting--8-autotypefix가-작동-안-함">8. "AutoTypeFix가 작동 안 함"</h3>
 <h4 id="troubleshooting--진단-5">진단</h4>
+<p><strong>🐧 리눅스</strong></p>
 <pre><code class="language-bash">unim-cli config show | grep -i typefix         # 전체/순방향/역방향 사용 여부 확인
 cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 </code></pre>
@@ -1511,6 +1517,7 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 <hr />
 <h3 id="troubleshooting--9-autotypefix가-너무-자주-잘못-교정">9. "AutoTypeFix가 너무 자주 잘못 교정"</h3>
 <h4 id="troubleshooting--처방-9">처방</h4>
+<p><strong>🐧 리눅스</strong></p>
 <div class="tablewrap"><table><thead><tr><th>케이스</th><th>해법</th></tr></thead><tbody>
 <tr><td>특정 단어 한 개만 문제</td><td>BS + 한/영로 롤백 → 다음에 같은 단어 칠 때 자동으로 Tentative 등록됨</td></tr>
 <tr><td>자주 후회한다</td><td>설정 → 「오타 교정」 → 임시 만료 시간을 늘려 학습 기회 확보</td></tr>
@@ -1520,6 +1527,7 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50  # 등록된 억제 단어
 </div>
 <hr />
 <h3 id="troubleshooting--10-설정이-저장-안-됨--변경이-안-먹힘">10. "설정이 저장 안 됨 / 변경이 안 먹힘"</h3>
+<p><strong>🐧 리눅스</strong></p>
 <h4 id="troubleshooting--진단-6">진단</h4>
 <pre><code class="language-bash">ls -la ~/.config/unim/
 test -w ~/.config/unim/config.yaml &amp;&amp; echo writable || echo BLOCKED
@@ -1533,6 +1541,7 @@ journalctl --user -u unim-daemon -n 50
 <li>GUI에서 변경했는데 데몬에 반영 안 됨 → 데몬 재시작: <code>systemctl --user restart unim-daemon</code>.</li>
 </ul>
 <hr />
+<p><strong>🐧 리눅스</strong> — §11~§14는 리눅스 전용이다. Windows에는 GTK IM 모듈·Flatpak·Snap·상주 데몬이 모두 없다.</p>
 <h3 id="troubleshooting--11-키-입력-자체가-잠겼다-ghostty터미널">11. "키 입력 자체가 잠겼다 (ghostty/터미널)"</h3>
 <p>증상: 한 키만 친 뒤 화면이 멈춘 듯 키가 안 먹힘.</p>
 <h4 id="troubleshooting--원인-2">원인</h4>
@@ -1603,7 +1612,8 @@ journalctl --user -u unim-daemon -n 500 &gt; unim-mem.log
 <h3 id="troubleshooting--15-모아치기chord가-제대로-인식-안-됨">15. "모아치기(chord)가 제대로 인식 안 됨"</h3>
 <p>모아치기 관련 문제는 원인이 다양하다. 아래 항목을 순서대로 확인한다.</p>
 <h4 id="troubleshooting--15-1-현재-자판이-모아치기를-지원하지-않음">15-1. 현재 자판이 모아치기를 지원하지 않음</h4>
-<p>모아치기는 <code>supports_moachigi: true</code>인 자판에서만 동작한다. 빌트인 중에는 <strong>안마태 자판 (ko_3bul_anmatae)</strong> 만 해당된다. <strong>쿼티형 세벌식 v2</strong> 는 빌트인이 아닌 연구 자료(<code>docs/references/keymaps/ko_3bul_qwerty_v2.json</code>)로 보존되며, <code>~/.config/unim/layouts/ko_3bul_qwerty.json</code>으로 복사한 사용자 프로필에서 모아치기 지원을 켤 수 있다.</p>
+<p>모아치기는 <code>supports_moachigi: true</code>인 자판에서만 동작한다. 빌트인 중에는 <strong>안마태 자판 (ko_3bul_anmatae)</strong> 만 해당된다. <strong>쿼티형 세벌식 v2</strong> 는 빌트인이 아닌 연구 자료(<code>docs/references/keymaps/ko_3bul_qwerty_v2.json</code>)로 보존되며, 사용자 자판 폴더로 복사한 사용자 프로필에서 모아치기 지원을 켤 수 있다.</p>
+<p>사용자 자판 폴더는 <code>~/.config/unim/layouts/</code> 다 — 위 파일을 <code>~/.config/unim/layouts/ko_3bul_qwerty.json</code>으로 복사한다.</p>
 <pre><code class="language-bash"># 현재 자판 확인
 unim-cli config show | grep -E 'layout|keymap'
 </code></pre>
@@ -1644,6 +1654,7 @@ xev -event keyboard
 </ul>
 <hr />
 <h3 id="troubleshooting--빌드-실패">빌드 실패</h3>
+<p><strong>🐧 리눅스</strong></p>
 <h4 id="troubleshooting--일반-빌드-실패">일반 빌드 실패</h4>
 <pre><code class="language-bash">make clean
 make build 2&gt;&amp;1 | tee /tmp/unim-build.log
@@ -1661,6 +1672,7 @@ make build 2&gt;&amp;1 | tee /tmp/unim-build.log
 </blockquote>
 <hr />
 <h3 id="troubleshooting--진단-데이터-수집-이슈-보고-시-필수">진단 데이터 수집 (이슈 보고 시 필수)</h3>
+<p><strong>🐧 리눅스</strong></p>
 <pre><code class="language-bash">{
   echo "=== version ==="
   unim-cli --version
@@ -1686,6 +1698,7 @@ make build 2&gt;&amp;1 | tee /tmp/unim-build.log
 <li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/AGENTS.md"><code>AGENTS.md</code></a> — 아키텍처와 메모리 관리 규칙</li>
 </ul>
 <hr />
+<p><strong>🐧 리눅스</strong> — 이하 §16과 0.2.0 릴리스 특이 진단은 리눅스 전용이다.</p>
 <h3 id="troubleshooting--16-popup-service-디버깅-030">16. popup-service 디버깅 (0.3.0+)</h3>
 <h4 id="troubleshooting--증상-한자특수문자이모지-팝업이-전혀-안-뜸-gnome-x11-또는-kdexfce">증상: 한자·특수문자·이모지 팝업이 전혀 안 뜸 (GNOME X11 또는 KDE/Xfce)</h4>
 <p>0.3.0부터 팝업은 <code>unim-popup-service</code>가 단독으로 렌더한다. 데몬은 살아 있어도 popup-service가 없으면 팝업이 나타나지 않는다.</p>

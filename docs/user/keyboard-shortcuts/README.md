@@ -1,11 +1,23 @@
 # Keyboard Shortcuts Guide
 
+<!-- @platform:linux -->
+**🐧 Linux**
+
 UNIM shortcuts are captured by different actors depending on your desktop / compositor environment. This document explains how to enable them on each environment.
+<!-- @endplatform -->
+<!-- @platform:windows -->
+**🪟 Windows**
+
+On Windows, UNIM runs as a **TSF** (Text Services Framework — the standard Windows mechanism for plugging an input method into applications) input method. There is no step for registering a desktop-wide shortcut the way Linux compositors require. Instead UNIM intercepts keys **inside the application you are typing in**, or you drive it from the language bar in the taskbar. This document covers only the parts that **differ on Windows**.
+
+Keys handled by the input engine itself — popup navigation, commit, cancel, backspace during composition — are **identical to Linux**. See [user manual §6 Key cheat sheet](../user-guide/README.md#6-key-cheat-sheet) for that list.
+<!-- @endplatform -->
 
 > Korean original: [`README-ko.md`](README-ko.md)
 
 ---
 
+<!-- @platform:linux -->
 ## GNOME only — manual conversion shortcuts (on by default)
 
 On GNOME Shell (`unim-gnome-extension`), the three shortcuts below are **on by default with no setup required.** No other desktop/compositor (KDE, Sway, Hyprland, etc.) has them — this is a GNOME-only feature, registered directly with the Shell via `Main.wm.addKeybinding` by the GNOME extension.
@@ -210,3 +222,80 @@ Related docs:
 - [`unim-cli/SPEC.md`](../../../unim-cli/SPEC.md) — CLI specification
 - [`unim-daemon/SPEC.md`](../../../unim-daemon/SPEC.md) — daemon DBus interface
 - [`unim-gnome-extension/SPEC.md`](../../../unim-gnome-extension/SPEC.md) — GNOME extension shortcut handling
+<!-- @endplatform -->
+<!-- @platform:windows -->
+## Windows — shortcuts UNIM intercepts directly
+
+The Windows build of UNIM runs without a background daemon: it is a single **TSF TIP** (Text Input Processor — an input method module built to the TSF spec). There is nothing to register with a desktop shortcut system; UNIM intercepts the key below **inside the application you are typing in**. No setup on your part.
+
+| Shortcut | Action | Example |
+| -------- | ------ | ------- |
+| `Ctrl + Shift + Space` | Convert the word before the cursor (or the selection) to **the opposite of Korean/English** and replace it | `gksrmf` → `한글` |
+
+If you have a selection, that selection is the target; otherwise the word before the cursor is. UNIM **decides the direction** (English→Korean or Korean→English) on its own, so there is no separate key per direction. Think of it as the two GNOME keys `Super+K` / `Shift+Super+K` merged into one.
+
+This is separate from the **automatic** correction in [4.4 AutoTypeFix](../user-guide/README.md#44-autotypefix) — it is a **manual conversion you trigger yourself**. Use it to fix a word that automatic correction left alone.
+
+> This key only works inside an app where UNIM is the active input method. If another input method is selected, the key goes to that one first.
+
+---
+
+## Windows — using the language bar (tray indicator)
+
+The Korean/English indicator next to the taskbar clock (`한` / `A`) is UNIM's language bar. It is not a keyboard shortcut, but it is the always-available route to settings and help, so it belongs here.
+
+| Action | Result |
+| ------ | ------ |
+| **Left click** | Toggle Korean/English |
+| **Right click** | 5-item menu: `Switch Korean/English` · `Set as Default Input Method` · `Settings` · `Help` · `About` |
+
+> ⚠️ Left click **toggles Korean/English — it does not open settings**. To open the settings window you must **right click → `Settings`**.
+
+The menu's **`Help`** entry opens this very manual (`unim-help-ko.html` / `unim-help-en.html`) in your default browser. If you press it from a low-integrity app and nothing opens, the settings window appears instead; press its **[Help]** button once more to reach the manual.
+
+---
+
+## Windows — opening the settings window
+
+| Method | Steps |
+| ------ | ----- |
+| **A. Language bar** (recommended) | Right click `한` / `A` next to the clock → **`Settings`** |
+| **B. Start menu** | Start menu → **UNIM** folder → **`UNIM Settings`** |
+| **C. Run directly** | `C:\Program Files\UNIM\unim-settings.exe` |
+
+`unim-cli`, the command-line tool used to rebind keys on Linux, is **not included in the Windows build.** Every setting, shortcut changes included, is made in the settings window above.
+
+---
+
+## Windows — there is no global emoji popup shortcut
+
+The Linux build has a desktop-wide shortcut (`Super+.`) that summons the emoji popup from anywhere. **The Windows build has no such route.** That feature is built from three pieces working together — the daemon, DBus (the Linux inter-process communication standard), and `unim-cli` — and the Windows installer ships none of them.
+
+The keys that open the emoji, Hanja and special-character popups on Windows are **handled by the engine, so they are exactly the same as on Linux.** For those keys, and for navigating / committing / cancelling inside a popup, see [user manual §6 Key cheat sheet](../user-guide/README.md#6-key-cheat-sheet).
+
+---
+
+## Windows — shortcut conflicts
+
+On Windows, both the OS itself and other input methods can claim a key before UNIM sees it.
+
+| Situation | Symptom | What to do |
+| --------- | ------- | ---------- |
+| You press `Win` + `.` | The **built-in Windows emoji panel** appears, not UNIM's | This is expected. Use the popup keys from the cheat sheet above |
+| You press `Alt` + `Shift` or `Win` + `Space` | The **OS switches input language** (UNIM ↔ another input method) | This is a different thing from toggling Korean/English inside UNIM. Don't confuse the two |
+| Another Korean input method is also installed | The Korean/English and Hanja keys go to that input method instead of UNIM | Right click the language bar → **`Set as Default Input Method`** |
+
+Apart from the keys it uses itself, UNIM passes `Ctrl` / `Alt` / `Win` combos straight through to the application. So it does not conflict with an app's own shortcuts (`Ctrl+C`, `Ctrl+S`, and so on).
+
+---
+
+## Windows — notes
+
+- The Windows installer does **not** include the **layout tools** (`unim-keymap-studio` · `unim-typing-practice`). Those are Linux-only.
+- 32-bit applications such as KakaoTalk and Hancom are served by the 32-bit module (`unim_tsf32.dll`) installed alongside; key behavior is the same as the 64-bit one.
+- If no shortcut responds at all, UNIM may simply not be active in that application. Check the [troubleshooting guide](../troubleshooting/README.md) first.
+
+Related docs:
+- [User manual](../user-guide/README.md) — base key table and popup usage
+- [Troubleshooting](../troubleshooting/README.md) — when keys don't respond
+<!-- @endplatform -->
