@@ -1,9 +1,9 @@
 # UNIM 0.4.0 Release Notes (English)
 
-**Release date**: 2026-07-27
+**Release date**: 2026-08-01
 **Branch**: develop → main
 
-> One-line summary: one-click install (`curl … | bash`), a first-run setup wizard, a Slint-based cross-platform settings app, new Keymap Studio and Typing Practice tools, word-unit input, and a large (experimental) Windows (TSF) port.
+> One-line summary: one-click install (`curl … | bash`), a first-run setup wizard, a Slint-based cross-platform settings app, new Keymap Studio and Typing Practice tools, word-unit input, and a large Windows (TSF) port.
 
 > ⚠️ The previous v0.4.0 tag/release published on 2026-07-19 was retracted. This release notes document describes the valid v0.4.0.
 
@@ -74,9 +74,9 @@ The indicator, settings, Keymap Studio, and Typing Practice apps each ship a dis
 
 ---
 
-## Windows support (experimental)
+## Windows support
 
-The Windows port advanced substantially this cycle. It remains **experimental support with on-device verification still in progress**.
+The Windows port advanced substantially this cycle. It has been refined through continuous day-to-day use on the maintainer's own machine, though it has not been through the same breadth of machines and applications as Linux.
 
 - **Fully native TSF architecture**: composition, popups (hanja/special-character/emoji), AutoTypeFix, settings, and the language bar are consolidated into a single `unim_tsf.dll`.
 - **Console/IMM32 app Hangul composition restored**: works correctly in WezTerm, Telegram, etc. under the CUAS contract.
@@ -99,7 +99,7 @@ The Windows port advanced substantially this cycle. It remains **experimental su
 
 ## Known issues
 
-- **Windows support is still experimental** and on-device QA is in progress. If you run into problems, please report them via [Troubleshooting](../../troubleshooting/README.md) or [GitHub Issues](https://github.com/from104/unim/issues).
+- **The Windows edition has been exercised against a narrower range of applications than the Linux one.** If you run into problems with an uncommon app, please report them via [Troubleshooting](../../troubleshooting/README.md) or [GitHub Issues](https://github.com/from104/unim/issues).
 - **GNOME Shell 49 has only been added to the supported range (45–49) in code**; a session smoke test on real hardware (e.g. Fedora 43) has not yet been performed.
 - **If the daemon is restarted manually or crashes**, GTK/Qt/XIM/Wayland frontends do not automatically reconnect, so open apps may need to be restarted to recover Korean input. Routine `apt`/`dnf` upgrades no longer stop the daemon in this release.
 - **On Plasma 6 (Qt6) Konsole, AutoTypeFix corrections may duplicate text.** This has not been verified on real hardware — if you see it, turn off AutoTypeFix for now.

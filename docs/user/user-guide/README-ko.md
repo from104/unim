@@ -97,7 +97,7 @@ systemctl --user enable --now unim-daemon.service
 <!-- @platform:windows -->
 > **🪟 Windows** 지원 환경: **Windows 10 / 11 (64비트).** 설치 시 관리자 권한(UAC) 승인이 한 번 필요하다.
 >
-> ⚠️ **실험적 지위**: Windows 지원은 0.4.0에서 TSF 기반으로 크게 확장됐지만 아직 실기기 검증(QA)이 진행 중인 **실험적 기능**이다. 문제를 겪으면 [GitHub Issues](https://github.com/from104/unim/issues)로 제보해 주기 바란다.
+> Windows 지원은 0.4.0에서 TSF 기반으로 크게 확장됐고, 개발자 상용 환경에서 매일 쓰이며 다듬어지고 있다. 다만 리눅스만큼 다양한 하드웨어·앱 조합을 거치지는 못했다. 문제를 겪으면 [GitHub Issues](https://github.com/from104/unim/issues)로 제보해 주기 바란다.
 
 #### 방법 A — 설치 스크립트 (권장)
 
@@ -321,7 +321,7 @@ Snap 앱에는 전역 override 메커니즘이 없으니 `~/.profile`에 조건�
 
 1. **메모장에서는 되는가?** 메모장에서 정상이면 UNIM 자체는 살아 있는 것이고, 문제는 그 앱과의 궁합이다.
 2. **그 앱이 32비트인가?** 작업 관리자 → 세부 정보 탭에서 프로세스 이름 끝에 `(32비트)` 표시가 있는지 본다. 32비트인데 안 된다면 32비트 입력기 등록이 풀린 경우일 수 있다 — 관리자 권한 명령 프롬프트에서 `C:\Program Files\UNIM\register-tsf.bat` 을 한 번 실행한 뒤 재로그인한다.
-3. **그래도 안 되면** 앱 이름·버전과 함께 [트러블슈팅](../troubleshooting/README-ko.md) 을 확인하고, 해결되지 않으면 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보한다. Windows 지원은 실험적 단계라 앱별 제보가 특히 도움이 된다.
+3. **그래도 안 되면** 앱 이름·버전과 함께 [트러블슈팅](../troubleshooting/README-ko.md) 을 확인하고, 해결되지 않으면 [GitHub Issues](https://github.com/from104/unim/issues) 로 제보한다. Windows 쪽은 앱별로 궁합이 갈리는 경우가 있어 앱 단위 제보가 특히 도움이 된다.
 <!-- @endplatform -->
 
 ---
@@ -479,7 +479,7 @@ Windows 에서는 팝업을 그리는 프로세스가 하나뿐이라(§2.5) 앱
 
 1. 교정 결과가 마음에 안 들어 `BackSpace`로 지우고 모드를 전환한다 → UNIM이 「의심 단어」로 표시(Pending).
 2. 같은 단어가 또 교정 시도되면 → **그 시도를 억제하고 동시에** 「승인 대기(Tentative)」로 등록.
-3. 설정 GUI 「교정 억제 단어」 페이지에서 [확정] 누르면 **Confirmed**(영구 억제), 1시간 동안 재트리거가 없으면 **Inactive**(만료).
+3. 설정 GUI 「억제 단어」 페이지에서 단어를 고르고 [선택 영구 활성] 을 누르면 **Confirmed**(영구 억제), 기본 4시간 동안 재트리거가 없으면 **Inactive**(만료). 만료 시간은 1~12시간 사이로 조절할 수 있다.
 
 <!-- @platform:linux -->
 **저장 위치**: `~/.config/unim/typefix-blacklist.yaml`. 데몬은 mtime 감시로 자동 리로드한다.
@@ -543,9 +543,11 @@ unim-cli config set auto-typefix-toggle-keys ""
 - 칸을 벗어나면 즉시 원래대로 돌아온다. 수동으로 토글해 둔 켜짐/꺼짐 상태는 그대로 유지된다 — 비밀번호 보호는 그 위에 잠깐 덮이는 안전장치일 뿐이다.
 <!-- @platform:linux -->
 - 이 보호는 앱이 비밀번호 칸임을 알려 줄 때 동작한다. 알려 주지 않는 일부 환경(XIM 레거시 앱, content-purpose 를 보내지 않는 일부 Wayland 컴포지터·웹폼)에서는 자동 감지가 안 될 수 있다 → [FAQ](../faq/README-ko.md) Q9 참고.
+- **제보 바란다.** 어떤 앱이 비밀번호 칸을 제대로 알려 주고 어떤 앱이 안 알려 주는지, 아직 사례가 충분히 모이지 않았다. 리눅스·Windows 양쪽 다 마찬가지라 앱별 대응이 다 들어가 있지 못하다. 비밀번호 칸에서 교정이 발동하는 앱을 만나면 **앱 이름·버전**과 함께 [GitHub Issues](https://github.com/from104/unim/issues) 로 알려 주면 그 앱을 대응 목록에 넣을 수 있다.
 <!-- @endplatform -->
 <!-- @platform:windows -->
 - 이 보호는 앱이 비밀번호 칸임을 알려 줄 때 동작한다. 알려 주지 않는 앱(자체 입력 처리를 하는 일부 프로그램, 비밀번호임을 표시하지 않는 일부 웹 폼)에서는 자동 감지가 안 될 수 있다 → [FAQ](../faq/README-ko.md) Q9 참고.
+- **제보 바란다.** 어떤 앱이 비밀번호 칸을 제대로 알려 주고 어떤 앱이 안 알려 주는지, 아직 사례가 충분히 모이지 않았다. 리눅스·Windows 양쪽 다 마찬가지라 앱별 대응이 다 들어가 있지 못하다. 비밀번호 칸에서 교정이 발동하는 앱을 만나면 **앱 이름·버전**과 함께 [GitHub Issues](https://github.com/from104/unim/issues) 로 알려 주면 그 앱을 대응 목록에 넣을 수 있다.
 <!-- @endplatform -->
 
 ### 4.5 자동 영문 모드 전환 (Auto-English-Mode)
@@ -569,6 +571,16 @@ vim 명령 모드(`Esc`), CLI 슬래시 명령(`/`) 같은 비한글 컨텍스�
 - **음절 (syllable)**: 항상 음절 단위 확정. 가장 예측 가능.
 - **단어 (word)**: 모든 대상 앱에서 단어 단위 누적.
 - **스마트 (smart, 기본)**: `word-mode-apps` 목록에 등록된 앱에서만 단어 단위, 그 외에는 음절 단위. 기본 목록은 `winword.exe`(Windows) 뿐이라 리눅스에서는 **아무것도 등록하지 않으면 사실상 음절 단위**로 동작한다(무회귀).
+
+> **영문 입력에는 적용되지 않는다 — 의도된 동작이다.** 확정 단위는 **한글 조합**에만 걸린다.
+> 그래서 한영을 섞어 쓰면 한글 부분에만 밑줄이 생기고 영문은 친 즉시 확정된다. 밑줄이
+> 들쭉날쭉해 보이는 건 그 때문이지 설정이 잘못된 게 아니다.
+>
+> 한글의 밑줄은 `ㅎ+ㅏ+ㄴ` 이 모여 `한` 이 되는 **조합 과정**을 보여주는 표시다. 영문은
+> 키 하나가 곧 글자 하나라 조합할 것이 없어 표시할 것도 없다. 영문까지 밑줄로 묶으면
+> 앱이 그 글자를 "아직 확정되지 않은 것"으로 취급해 **자동완성·맞춤법 검사·실시간 검색이
+> 멈추고, 한 글자짜리 단축키(브라우저·편집기의 `j`·`t` 같은 키)가 먹히지 않는다.** 얻는 것
+> 없이 잃는 것만 커서 적용하지 않는다.
 
 **켜는 법**
 
@@ -928,7 +940,7 @@ unim-cli config layout validate my.json        # 사용자 정의 자판 검증
 |------|------|----------|
 | `~/.config/unim/config.yaml` | 일반 설정 (자판·모드·자동 영문 등) | YES |
 | `~/.config/unim/typefix-blacklist.yaml` | 학습된 교정 억제 사전 | YES |
-| `~/.config/unim/userdict.yaml` | reverse 사용자 사전 | YES |
+| `~/.config/unim/typefix-userdict.yaml` | reverse 사용자 사전 | YES |
 | `~/.config/unim/layouts/*.json` | 사용자 정의 자판 v1 프로필 | YES |
 | `~/.unim-errors.log` | 디버그 로그 (`UNIM_DEVELOP=1` 시) | NO (휘발) |
 
@@ -978,4 +990,4 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 
 ---
 
-문서 버전: 0.4.0 / 작성일: 2026-07-27 / 라이선스: 본문 라이선스는 프로젝트와 동일.
+문서 버전: 0.4.0 / 작성일: 2026-08-01 / 라이선스: 본문 라이선스는 프로젝트와 동일.

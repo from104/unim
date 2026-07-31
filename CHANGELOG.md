@@ -8,95 +8,84 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ---
 
-## [0.4.0] 2026-07-27
+## [0.4.0] 2026-08-01
 
-> The v0.4.0 tag and GitHub Release originally published on 2026-07-19 were withdrawn — right after tagging, the windows-msi release gate was found broken due to a `guids.wxi` version mismatch (fixed in `65c66f8`), so the release had to be pulled and redone. This entry is the valid v0.4.0.
+The release where an input method that only ran on Linux started running on Windows off the same core, installation became a single line, and both platforms got the same settings window.
 
-This release brings one-line installation (`curl … | bash`), a first-run setup wizard, a Slint-based cross-platform settings app, Keymap Studio and Typing Practice tools, word-unit input, and a large (experimental) Windows port.
+> The v0.4.0 tag published on 2026-07-19 was withdrawn — the MSI release gate was broken by a `guids.wxi` version mismatch (fixed in `65c66f8`). This entry is the valid v0.4.0.
 
-### ✨ Added
+### Added
 
-- **One-click install (`curl … | bash`)**: You can now install UNIM with a single command.
+- **One-line install**: `curl … | bash` on Linux, `irm … | iex` on Windows. The script detects your distribution, downloads the deb or rpm packages, verifies them against SHA256, and installs — and if verification fails it installs nothing and stops. `UNIM_VERSION` pins a specific version.
 
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
-  ```
+- **First-run wizard**: Runs automatically the first time you log in after installing and walks you through setting UNIM as the default input method. It does not come back once finished.
 
-  The script verifies a Linux / amd64 / apt environment, downloads the 11 deb packages from the latest GitHub release, verifies their integrity against the `SHA256SUMS` manifest, and installs them with `apt-get`. It finishes with re-login and first-run wizard guidance. Environment variables (`UNIM_VERSION`, `UNIM_BASE_URL`) let you pin a specific version or point at a mirror.
+- **Settings app rewritten (`unim-settings`)**: Moved from GTK4 to Slint, so Linux and Windows share one settings window.
 
-- **First-run setup wizard**: The first time you log in after installation, the wizard runs automatically and sets UNIM as your default input method (via im-config, falling back to xinputrc). If setting the default fails, it shows an error card and blocks completion. Once completed, it does not appear again (recorded in XDG state).
+- **Word-unit input**: The commit unit can be a word instead of a syllable. Terminals, XIM, and chord layouts fall back to syllable units automatically to avoid misbehavior.
 
-- **Slint settings app (`unim-settings`)**: The settings app has been rewritten from GTK4 into a Slint-based cross-platform app, so Linux and Windows share the same settings screen. On Linux it saves to `config.yaml` and notifies the daemon over DBus exactly like the old GTK app, and it raises the existing window instead of launching a duplicate. It queries system fonts so Hangul does not render as tofu on distributions without a Korean font.
+- **AutoTypeFix toggle shortcuts**: Toggle all / forward / reverse independently. The all-toggle defaults to `Shift+F8`; the per-direction toggles are left empty for those who want them. Modifier combinations such as `Shift+F8` and `Ctrl+Left` work, and combinations you did not configure pass straight through to the application.
 
-- **Korean/English switch beep**: A short beep signals when the mode changes (880 Hz for Korean, 440 Hz for English). It works with no external library or sound file and does not delay input. It sounds for the toggle key, AutoTypeFix auto-switching, and switches from the tray/extension. It can be turned off in settings.
+- **Automatic password-field protection**: Entering a password field switches to English mode and keeps the keys you type out of buffers, undo, and the learning dictionary. Leaving the field restores the previous state. It relies on the app reporting "this field is a password", so apps that do not report it are not detected (see user manual 4.4).
 
-- **Key auto-repeat suppression (accessibility)**: You can enable having the daemon ignore the OS auto-repeat (rapid re-fire) that happens when a key is held down. It applies to the Korean/English toggle key and to character keys in Korean mode; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. It is meant for users with motor disabilities who tend to hold keys too long (e.g. tremor). **The default is off**, so nothing changes until you enable it. Turn it on with the "Suppress Composition Key Auto-repeat" switch in the settings app's accessibility section, or `unim-cli config set ignore-key-repeat true`. Wayland, Qt5/6, and the GNOME extension detect repeats precisely; the GTK3/4, XIM, and ibus-compatible paths approximate it with an 80 ms time window (the first repeat may slip through, and if your system key-repeat interval is set longer than 80 ms it may not be filtered — in either case it errs toward suppressing less, fail-safe).
+- **Modifier combinations for auto-English switching**: Triggers like `key:Ctrl+B` are now accepted. For environments that need a combo key, such as the tmux prefix, the key is passed through to the application as the mode switches.
 
-- **Keymap Studio and Typing Practice (new GTK4 tools)**: Two standalone apps let you view, edit, and practice Korean layouts in one place.
-  - **Keymap Studio (`unim-keymap-studio`)**: View the key placement and cho/jung/jong combinations of built-in and user layouts in a table, click a key to edit it, and save to a user layout (`~/.config/unim/layouts/*.json`).
-  - **Typing Practice (`unim-typing-practice`)**: Pick a sample text by length and practice while live WPM, CPM, accuracy, and error rate are shown; a per-key error heatmap appears when you finish. It decomposes Hangul syllables into jamo to count keystrokes, and WPM is computed the Korean-standard way (CPM ÷ 5).
+- **Mode-switch beep**: A short beep when the Korean/English mode changes (880 Hz Korean, 440 Hz English). No external library, no added input latency. Can be turned off in settings.
 
-- **Auto-English switching — Ctrl/Alt/Super combination triggers**: Auto-English triggers now accept modifier combinations (e.g. `key:Ctrl+B`, `key:Ctrl+Shift+B`, `key:Alt+F1`, `key:Super+Space`). For workflows that need a combo key, such as the tmux/wmux prefix (`Ctrl+B`), pressing the combination in Korean mode switches to English and passes the key straight through to the application. It fires only when exactly the specified modifiers are held. Works on GTK, Qt, XIM, and GNOME; Windows support is planned.
+- **Key auto-repeat suppression**: Ignores the auto-repeat from holding a key down. It covers the Korean/English toggle key and character keys in Korean mode, leaving Backspace and arrow keys alone. Meant for users who cannot release keys quickly; **off by default**.
 
-- **AutoTypeFix toggle shortcuts (three)**: You can toggle automatic typo correction with a shortcut — separately for all / forward only (English → Korean) / reverse only (Korean → English). **The all-toggle defaults to `Shift+F8`** (F9–F11 are avoided — some keyboards lose them to media functions or remapping); the forward- and reverse-only shortcuts are empty (set them only if you want them). Shortcuts accept modifier combinations (`Shift+F8`, `Ctrl+Left`, …) and fire only on an exact modifier match, so combinations you did not configure (e.g. `Shift+F10` for the context menu) pass through to the application. Bare `F9` still opens the hanja/emoji popup as before. Holding the key (auto-repeat) toggles once without flicker. Clear the list to disable. `+` is the canonical separator; `-` is accepted when a spec contains no `+` (`Ctrl-F8` = `Ctrl+F8`). Invalid specs trigger a warning in the CLI and the settings app on save and are logged by the daemon — nothing is dropped silently. On GNOME (Wayland), Ctrl/Alt/Super combinations such as `Ctrl+Left` work as well (the extension forwards toggle combos to the engine). On Windows (TSF/IMM32), combination specs behave exactly as on Linux — the default `Shift+F8` works as-is on every platform.
+- **Keymap Studio and Typing Practice**: A tool for viewing and editing layouts, and one for measuring speed and accuracy per layout (Linux).
 
-- **Automatic password-field protection**: When you enter a password or other sensitive field, UNIM automatically switches to English mode and restores the previous state when you leave. Keys typed there are not retained anywhere — not in buffers, undo, recent corrections, the learning dictionary, or surrounding context. It works on Wayland, GTK, Qt, and Windows (TSF, including tracking scope changes while the field stays focused); on Windows IMM32 detection is best-effort (standard Edit/RichEdit controls with the `ES_PASSWORD` style only — custom-drawn password boxes are not detectable), and legacy XIM apps are not detected at all, which is noted in the FAQ and troubleshooting docs.
+- **Distinct app icons**: The indicator, settings, Keymap Studio, and Typing Practice each have their own icon, and app IDs follow reverse-DNS naming so they display correctly in the GNOME taskbar and Overview. The settings app is Slint-based and has no equivalent of GTK's `application_id`, so its window carried no app_id; it is now set explicitly on the winit backend. On Windows the executable embeds an icon resource, so the taskbar, Explorer, and Start menu show the real icon too.
 
-- **Word-unit input (`commit_unit`)**: You can set the commit unit to word instead of syllable. In word mode the whole word stays in composition even after a correction. To avoid misbehavior, terminals, XIM/ibus-family frontends, and chord layouts are automatically downgraded to syllable units (WordGate). Selectable from the CLI (`unim-cli config`) and the settings app.
+### Changed
 
-- **Distinct icons for four apps + reverse-DNS naming**: The indicator, settings, Keymap Studio, and Typing Practice apps each ship a distinct icon. App IDs now follow reverse-DNS naming consistently (app ID == `.desktop` file name == icon name, e.g. `io.github.from104.unim.Settings`), so the icon shows up correctly in the GNOME Wayland taskbar and Overview. The tray Korean/English status icon is unchanged.
+- **The settings app is now two apps**: The new Slint app takes over the `unim-settings` name and the previous GTK4 app is renamed `unim-settings-gtk`, shipped alongside for now (to be retired later). Only the Slint app appears in the desktop menu, and every component's "Open settings" points at it.
 
-### 🔄 Changed
+- **Reorganized into 11 deb packages**: The Slint settings app becomes its own `unim-settings` package, and Keymap Studio and Typing Practice are added as new packages. The indicator, popup service, and legacy GTK dialog are bundled into `unim-desktop`.
 
-- **Two settings apps — Slint primary, GTK legacy**: The new Slint settings app takes over the `unim-settings` name, and the previous GTK4 app is renamed `unim-settings-gtk` and shipped alongside for now (to be retired later). Only the Slint app appears in the desktop menu (the GTK one is hidden), and every component's "Open settings" (tray, GNOME extension, Typing Practice, etc.) now points at the new app.
+- **Keymap Studio redesigned**: The left sidebar + two tabs became a three-step header dropdown (Language › Source › Layout) plus four tabs. Built-in layouts allow only "Save As"; your own layouts save in place.
 
-- **Reorganized into 11 deb packages**: The packaging layout was tidied up. The settings app is split into `unim-settings` (Slint) and `unim-settings-gtk` (legacy), `unim-keymap-studio` and `unim-typing-practice` are added as new packages, and the indicator/settings/popup-service are bundled into `unim-desktop`.
+- **Layout list enumerated from registered profiles**: Instead of a fixed set of four, the actually registered profiles are enumerated — so Ahnmatae and user layouts appear by name and the chord-related UI turns on with them.
 
-- **Keymap Studio redesigned**: The old left-sidebar + two-tab layout is replaced by a three-step header dropdown (Language › Source › Layout) plus four tabs (Basics / Layout / Combinations / Extensions). Built-in layouts are protected (only "Save As" is allowed); your own layouts save in place. See `unim-keymap-studio/README.md`.
+- **GNOME extension icons refreshed**: Tray and panel icons replaced with a monochrome SVG set, with a separate icon for the disabled state.
 
-- **Layout list enumerated dynamically**: The settings app's layout list changed from a fixed set of four to an enumeration of actually registered profiles (`ProfileRegistry`), so Ahnmatae and user layouts appear with friendly names and the chord-related UI is enabled accordingly. The CLI layout validator uses the same source.
+- **Invalid-shortcut warnings extended to every key field**: The save-time validation that only covered AutoTypeFix toggles now also covers the Korean/English toggle key, the Hanja key, and auto-English triggers. Specs the engine cannot parse are reported in the settings app, the CLI, and the daemon log. Partially invalid lists save with a warning; **a list where every entry is invalid is rejected** — otherwise the engine would drop them all and leave no way to switch languages. Verdicts come from one place in the engine, so Linux and Windows apply the same rules.
 
-- **GNOME extension icons refreshed**: The tray/panel icons were replaced with a monochrome SVG set, and the input-method-disabled (`unim-disabled`) state is shown with its own icon.
+### Fixed
 
-- **Invalid-shortcut warnings extended to every key field**: The "validate on save and warn" behaviour that previously existed only for the three AutoTypeFix toggle hotkeys now also covers the **Korean/English toggle key, the Hanja key, and the Auto-English trigger keys**. Enter a spec the engine cannot parse (a typo, an unsupported combination, …) and you are told about it in three places: ① the settings app's status line (shown in place of the save confirmation on every save path, so it is never hidden), ② a warning from `unim-cli config set` (including checks for invalid key types such as character and editing keys), and ③ the daemon log. The same diagnostic is logged on the D-Bus `SetConfig` path used by the GNOME extension and the legacy settings app, so you see it immediately even when no window is focused and the engine has not re-read the config yet. The policy is **save, but warn** for partially invalid lists; the one exception is a list whose entries are **all** invalid — the engine would drop every key and the feature would silently die (e.g. no way left to toggle Korean/English), so that case is rejected just like an empty list, consistently in the CLI, over D-Bus, and in the settings app. All verdicts come from a single engine parser, so Linux and Windows warn on exactly the same inputs. For reference, the toggle and Hanja keys take a single key name and do not support modifier combinations (`Ctrl+X`) — e.g. `Korean`, `RightAlt`, `Hanja`, `F9` — while Auto-English triggers use the `key:Escape` / `char:/` / `key:Ctrl+B` form.
+- **Help opened in an IDE instead of the browser**: The Help entries followed the text/html default handler, so on systems where a VS Code-family editor had claimed text/html the manual opened there. It now prefers your default web browser.
 
-### 🐛 Fixed
+- **Right Alt Korean/English toggle did not work**: In the engine the modifier check ran before the toggle check, and GTK, Qt, and the GNOME extension filtered Right Alt themselves so it never reached the daemon. The toggle decision is now made solely by the daemon and behaves the same everywhere. AltGr layouts are unaffected. Note that the application may also receive the Alt press at the moment of toggling; remove it from `toggle_keys` if you don't want that.
 
-- **Help opened in the wrong application instead of the browser**: The Help entries in the tray, the settings app, and the GNOME extension followed the text/html default handler, so on systems where a VS Code-family IDE had registered itself for text/html the manual opened in the IDE instead of a browser. Help now explicitly prefers the user's **default web browser** and falls back to the previous behaviour (MIME handler) only when no browser is configured.
-- **Right Alt (RightAlt) Korean/English toggle now works everywhere**: Two separate problems kept Right Alt from toggling. In the engine the modifier-key check ran before the toggle-key check (fixed, with an added regression test for jongseong combinations); in the frontends, GTK3/4, Qt5/6, and the GNOME extension filtered bare Right Alt themselves, so it never reached the daemon at all (XIM and pure Wayland already worked). The frontends' own skip has been removed and the toggle decision is now made solely by the daemon, so it behaves the same everywhere. AltGr (`ISO_Level3_Shift`) is still passed through, so AltGr layouts are unaffected, and GNOME only notifies without consuming the event, so accessibility features like Sticky Keys are unchanged. Note that at the moment of toggling the application may also receive the Alt press/release (e.g. menu-bar focus in some apps); if you don't want that, opt out by removing RightAlt from `toggle_keys`.
+- **Super/Meta combinations unrecognized in the GTK/Qt input modules**: A misaligned modifier mask bit left triggers like `key:Super+X` dead on that path.
 
-- **Super/Meta combination keys recognized (GTK/Qt immodules)**: The Super/Meta modifier mask bit was misaligned in the GTK3/4 and Qt5/6 input modules, so combination triggers like `key:Super+X` did not work through that path. Corrected to match the engine's X11 mask interpretation.
+- **Every key misread on pure Wayland**: On Sway, standalone Hyprland, and similar, the frontend sent X11-style keycodes (raw evdev + 8) while the daemon expected raw evdev, so every key lookup was off by 8. GNOME sessions were unaffected, as they use the extension path.
 
-- **Word-mode syllable-downgrade guidance (WordGate)**: So the automatic downgrade to syllable units (in terminals, etc.) is not mistaken for "settings broke," the verdict is now logged (`[WordGate]`) and the always-syllable exception is spelled out in the settings app and CLI descriptions.
+- **Password-field suppression did nothing on GNOME Wayland**: The GNOME extension's content-purpose handling was an empty stub, so suppression was silently inert on GNOME Wayland — where GTK3/4 and Chrome all funnel through that path. It is now wired up and tracks a field's purpose changing while it stays focused (a "show password" toggle, for instance).
 
-- **Shortcut fields suggested key names that do not exist**: The settings app's placeholder for the AutoTypeFix hotkeys (`e.g. ScrollLock, F10`) and a CLI warning recommended `ScrollLock` and `Pause`, which UNIM does not recognize — following the hint left the shortcut silently dead. The examples now use specs that actually work (`F10`, `Shift+F9`). For the same reason the toggle-key and Hanja-key placeholders (`Hangul`, `Control+Enter`) were unrecognized too, and were replaced with `Korean`, `RightAlt` / `Hanja`, `F9`. The stale note claiming "modifier combinations are not supported" in the AutoTypeFix hotkey description was corrected as well — combinations such as `Shift+F8` are officially supported as of this release.
+- **Shortcut fields suggested keys that do not exist**: Following the hints and entering `ScrollLock` or `Hangul` left the shortcut silently dead. The examples now use specs that actually work (`F10`, `Korean`, `Hanja`), and the stale "modifier combinations are not supported" note was corrected.
 
-- **Wayland frontend: every key was misread on native Wayland compositors (Sway, standalone Hyprland, etc.)**: The pure-Wayland frontend sent an X11-style keycode (raw evdev + 8) to the daemon, which expects raw evdev — so key lookups were off by 8 for literally every key, not only `Shift+F9`. Corrected to send raw evdev, matching what the GTK frontends already do. GNOME sessions are unaffected (they use the extension path); `unim-wayland` previously exited immediately under Mutter, so this path had gone unexercised there.
+- **Word-mode syllable-downgrade guidance**: So the automatic fallback to syllable units in terminals is not mistaken for broken settings, it is now logged (`[WordGate]`) and spelled out in the settings descriptions.
 
-- **Password-field suppression fixed on GNOME Wayland (Chrome, GTK3/4, native-Wayland apps) and for mid-focus field-type changes**: The GNOME extension's content-purpose handling was an empty stub, so on GNOME Wayland — where GTK3/4 and native-Wayland Chrome all funnel through this path — sensitive-field suppression silently did nothing. It is now wired up (with a hidden-text-hint fallback for apps that don't report a password purpose), GTK3/4 now also make their own purpose check so apps like Epiphany/WebKitGTK are covered, and both paths track a field's purpose changing while it stays focused (e.g. a "show password" toggle) and restore Korean mode correctly on focus-out.
+### Windows
 
-### 🪟 Windows support (experimental)
+- **A single TSF DLL**: The language bar, composition and candidate popups (hanja, special characters, emoji), and the AutoTypeFix UI are consolidated into `unim_tsf.dll`, replacing the previous separate helper executable. The shared core and the Linux frontends were not touched.
 
-The Windows port advanced substantially this cycle. It is experimental support with on-device verification still in progress; the following is the scope of what was implemented.
+- **Hangul composition in console/IMM32 apps**: Restored for apps that use inline composition, such as WezTerm and Telegram (CUAS-compliant).
 
-- **Fully native TSF architecture**: The language bar, composition/candidate popups (hanja/special-character/emoji — 9×9 grid, bookmarks, paging), and AutoTypeFix UI (forward, reverse, manual, suppression list, undo) are now consolidated into a single `unim_tsf.dll`, replacing the previous separate helper executable (`unim-windows`). The MSI still ships two small standalone executables for other purposes — `unim-settings.exe` (the cross-platform Slint settings app / first-run wizard) and `unim-popup-win.exe` (the out-of-process hanja/special-character/emoji popup renderer) — but day-to-day TSF operation no longer depends on a separate helper the way `unim-windows` did. The shared core and Linux frontends were not touched.
+- **32-bit apps**: A 32-bit TSF TIP (`unim_tsf32.dll`) is registered alongside, so KakaoTalk, Hancom, and similar work. The pointless IMM32 `.ime` registration on Win11 was dropped.
 
-- **Hangul composition in console/IMM32 apps (CUAS-compliant)**: Hangul composition is restored in console/IMM32 apps that use inline composition, such as WezTerm and Telegram.
+- **Accessibility**: Composition and candidate windows are exposed via TSF UIA/UILess, and auto-repeat suppression plus screen-reader notification of mode switches were added.
 
-- **32-bit app support (KakaoTalk, Hancom, etc.)**: To fix 32-bit apps not finding the 64-bit-only TIP, a 32-bit TSF TIP (`unim_tsf32.dll`) is now registered alongside. The pointless IMM32 `.ime` registration on Win11 was dropped. (The `unim-imm32` crate remains in the source tree as a diagnostic/research build; it is not part of the MSI.)
+- **MSI distribution**: The WiX 3.x build chain was tidied up. The MSI is built by a separate CI workflow, so it may reach the release a few minutes after the deb and rpm packages — if the installer reports a missing checksum, wait a moment and retry.
 
-- **AutoTypeFix toggle hotkey now works in IMM32 apps (KakaoTalk, Hancom, etc.)**: IMM32 was missing the toggle drain that TSF already had, so pressing the toggle hotkey matched the key but never actually flipped the saved `auto_typefix` setting — a silent no-op. Fixed. (The beep, live config-file watching, and language-bar reflection that TSF has are not ported to IMM32, which has no such infrastructure.)
+### Internal
 
-- **Accessibility**: The composition and candidate windows are exposed via TSF UIA/UILess, and an option to suppress combination-key auto-repeat (`ignore_key_repeat`, for users with motor disabilities) plus screen-reader notification of Korean/English switches (NotifyWinEvent, optional beep) were added.
-
-- **MSI distribution**: Upgraded to windows-rs 0.62.2 and tidied up the WiX 3.x MSI build chain. Note: the Windows MSI is built by a separate, longer-running CI workflow, so it may be attached to a GitHub Release a few minutes after the Linux `.deb`/`.rpm` packages appear — if the one-line installer reports the checksum manifest as missing, wait a bit and retry.
-
-### 🧹 Internal
-
-- **unim-capi header sync**: The public C header (`unim.h`) is kept in sync with the Rust surface (added two `UnimInputResult` fields and the `POPUP_KEY_PERIOD` constant), and a build-time guard (`build.rs` + cbindgen) now warns automatically if the header drifts out of sync.
-- **Keymap tools share one keyboard widget**: Keymap Studio and Typing Practice now share a single 5-row keyboard widget (three duplicate copies merged into one), and dead code (the old `KeyboardWidget`, `ProfileSidebar`, etc.) was removed.
-- **Frontend cleanup**: Unused embedded popup widgets were removed from the GTK/Qt IM modules — all popups are now drawn solely by the popup-service — and the frontends no longer link against unim-capi.
-- **Line-ending normalization**: A `.gitattributes` (eol=lf) and `.editorconfig` were added so line endings stay consistent across mixed Linux/Windows development.
+- The public C header (`unim.h`) is kept in sync with the Rust surface, with a build-time guard that warns on drift.
+- Keymap Studio and Typing Practice now share a single keyboard widget (three duplicate copies merged into one).
+- Unused embedded popup widgets were removed from the GTK/Qt IM modules; popups are drawn solely by the popup service.
+- `.gitattributes` (eol=lf) and `.editorconfig` normalize line endings.
 
 ---
 

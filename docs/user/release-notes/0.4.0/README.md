@@ -1,9 +1,9 @@
 # UNIM 0.4.0 릴리즈 노트 (한국어)
 
-**릴리즈 날짜**: 2026-07-27
+**릴리즈 날짜**: 2026-08-01
 **브랜치**: develop → main
 
-> 한 줄 요약: 원클릭 설치(`curl … | bash`), 첫 실행 설정 마법사, Slint 기반 크로스플랫폼 설정 앱, 자판 스튜디오·타자 연습 신규 도구, 단어 단위 입력, 그리고 대규모 Windows(TSF) 실험적 포팅.
+> 한 줄 요약: 원클릭 설치(`curl … | bash`), 첫 실행 설정 마법사, Slint 기반 크로스플랫폼 설정 앱, 자판 스튜디오·타자 연습 신규 도구, 단어 단위 입력, 그리고 대규모 Windows(TSF) 포팅.
 
 > ⚠️ 2026-07-19에 한 번 태깅됐던 이전 v0.4.0 태그·릴리스는 회수되었습니다. 이 릴리즈 노트가 유효한 v0.4.0입니다.
 
@@ -74,9 +74,9 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 
 ---
 
-## Windows 지원 (실험적)
+## Windows 지원
 
-이번 개발 주기에 Windows 포팅이 크게 진행되었습니다. **실기기 검증이 진행 중인 실험적 지원**입니다.
+이번 개발 주기에 Windows 포팅이 크게 진행되었습니다. 개발 환경에서 상시 사용하며 다듬어 왔으나, 리눅스만큼 다양한 머신·앱 조합을 거치지는 못했습니다.
 
 - **TSF 완전 네이티브 아키텍처**: 조합·팝업(한자·특수문자·이모지)·AutoTypeFix·설정·언어바가 단일 `unim_tsf.dll`에 통합.
 - **콘솔·IMM32 앱 한글 조합 복구**: WezTerm·텔레그램 등에서 CUAS 계약을 따라 정상 조합.
@@ -99,7 +99,7 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
 
 ## 알려진 문제
 
-- **Windows는 아직 실험적 지위**이며 실기기 QA가 진행 중입니다. 문제를 겪으면 [트러블슈팅](../../troubleshooting/README-ko.md) 또는 [GitHub Issues](https://github.com/from104/unim/issues)에 제보해 주세요.
+- **Windows 판은 검증된 앱의 폭이 리눅스보다 좁습니다.** 드문 앱에서 문제를 겪으면 [트러블슈팅](../../troubleshooting/README-ko.md) 또는 [GitHub Issues](https://github.com/from104/unim/issues)에 제보해 주세요.
 - **GNOME Shell 49 세션은 코드상으로만 지원 범위(45–49)에 추가**되었고, 아직 실기기(Fedora 43 등)로 세션 스모크 테스트를 하지 못했습니다.
 - **데몬이 수동으로 재시작되거나 크래시하면** GTK/Qt/XIM/Wayland 프런트엔드가 자동으로 재연결하지 않아, 열려 있던 앱을 재시작해야 한글 입력이 복구될 수 있습니다. 일반적인 `apt`/`dnf` 업그레이드 경로는 이번 릴리스에서 데몬을 더 이상 중단시키지 않도록 완화했습니다.
 - **Plasma 6(Qt6) Konsole에서 자동 오타 교정 시 텍스트가 중복될 수 있습니다.** 실기 검증 전이므로 문제가 보이면 자동 오타 교정을 끄고 사용하세요.

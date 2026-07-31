@@ -1,6 +1,6 @@
-# UNIM (Windows) 사용 안내 — v0.4.0 (실험적 지원)
+# UNIM (Windows) 사용 안내 — v0.4.0
 
-> ⚠️ **실험적 지위**: Windows 지원은 0.4.0에서 TSF 기반으로 크게 확장됐지만, 아직 실기기 검증(QA)이 진행 중인 **실험적 기능**입니다. 문제를 겪으면 [트러블슈팅](troubleshooting/README-ko.md)이나 [GitHub Issues](https://github.com/from104/unim/issues)에 제보해 주세요.
+> Windows 지원은 0.4.0에서 TSF 기반으로 크게 확장됐고, 개발 환경에서 상시 사용하며 다듬어 왔습니다. 다만 리눅스만큼 다양한 머신·앱 조합을 거치지는 못했습니다. 문제를 겪으면 [트러블슈팅](troubleshooting/README-ko.md)이나 [GitHub Issues](https://github.com/from104/unim/issues)에 제보해 주세요.
 
 ## 1. UNIM이란?
 

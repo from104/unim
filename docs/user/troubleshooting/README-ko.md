@@ -27,7 +27,7 @@ tail -f ~/.unim-errors.log
 <!-- @platform:windows -->
 **🪟 Windows**
 
-> ⚠️ Windows 지원은 v0.4.0에서 추가된 **실험적** 기능이다. 아래 절차는 소스에서 확인된 동작만 담았고, 여기 없는 증상은 [GitHub Issues](https://github.com/from104/unim/issues)로 제보 부탁드린다.
+> Windows 지원은 v0.4.0에서 추가됐다. 아래 절차는 확인된 동작만 담았고, 여기 없는 증상은 [GitHub Issues](https://github.com/from104/unim/issues)로 제보 부탁드린다.
 
 Windows에는 **데몬도 DBus도 없다.** UNIM은 **TSF**(Text Services Framework — Windows가 입력기를 앱에 연결하는 표준 방식) 텍스트 서비스 `unim_tsf.dll`이며, 글자를 입력하는 **앱 프로세스 안에 OS가 직접 로드**한다. 그래서 "데몬이 죽었나"에 해당하는 확인이 없고, 대신 두 가지를 본다.
 
@@ -427,6 +427,8 @@ Windows에는 `unim-cli`가 없다. 설정 앱으로 확인한다.
 | XIM 레거시 앱 | 미감지 | XIM 프로토콜에 해당 신호가 없음 |
 | 일부 Wayland 컴포지터·웹폼 | 미감지 | content-purpose 를 보내지 않음(앱/컴포지터 재량) |
 | 포커스 후 목적이 바뀌는 GTK 앱 | 미감지 | GTK IM 은 포커스 시점에만 input-purpose 를 읽고 `notify::input-purpose` 변경은 구독하지 않는다(기존 한계) — 같은 칸이 나중에 비밀번호로 바뀌면 재포커스 전까지 반영 안 됨 |
+
+> **이 표는 아직 성긴 편이다 — 제보 바란다.** 어떤 앱이 비밀번호 칸을 제대로 알려 주고 어떤 앱이 안 알려 주는지는 실사용 사례가 쌓여야 채워진다. 리눅스·Windows 양쪽 다 사례가 충분치 않아 앱별 대응이 다 들어가 있지 못하다. 비밀번호 칸에서 교정이 발동하는 앱을 만나면 **앱 이름·버전**을 [GitHub Issues](https://github.com/from104/unim/issues) 로 알려 주기 바란다. 그게 이 표를 채우는 유일한 경로다.
 
 ### 처방
 
@@ -986,7 +988,7 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 
 ## 16-W. Windows 알려진 제한 (v0.4.0)
 
-Windows 지원은 v0.4.0에서 새로 추가된 **실험적** 기능이다. 아래는 릴리스 시점에 알려진 제한이며, **여기에 없는 증상은 아직 확인되지 않은 것**이다 — 겪는다면 제보 대상이다.
+Windows 지원은 v0.4.0에서 새로 추가됐다. 아래는 릴리스 시점에 알려진 제한이며, **여기에 없는 증상은 아직 확인되지 않은 것**이다 — 겪는다면 제보 대상이다.
 
 | 항목 | 상태 | 설명 |
 |------|------|------|
@@ -1001,5 +1003,5 @@ Windows 지원은 v0.4.0에서 새로 추가된 **실험적** 기능이다. 아�
 
 ### 제보할 때
 
-[GitHub Issues](https://github.com/from104/unim/issues)에 **앱 이름·버전**과 위 「진단 데이터 수집」의 로그를 함께 올려 주면 대응 목록에 넣을 수 있다. 실험적 지위인 만큼 실제 사용 보고가 가장 큰 도움이 된다.
+[GitHub Issues](https://github.com/from104/unim/issues)에 **앱 이름·버전**과 위 「진단 데이터 수집」의 로그를 함께 올려 주면 대응 목록에 넣을 수 있다. Windows 쪽은 앱마다 궁합이 갈려서, 실제 사용 보고가 가장 큰 도움이 된다.
 <!-- @endplatform -->

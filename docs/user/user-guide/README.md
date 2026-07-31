@@ -97,7 +97,7 @@ Source builds need `cargo` 1.95+, GTK4/libadwaita headers, and Qt5/Qt6 dev packa
 <!-- @platform:windows -->
 > **🪟 Windows** — supported: **Windows 10 / 11 (64-bit).** A single administrator (UAC) approval is needed at install time.
 >
-> ⚠️ **Experimental**: Windows support grew substantially in 0.4.0 on top of TSF, but it is still **experimental** and hardware QA is ongoing. Please report anything you run into on [GitHub Issues](https://github.com/from104/unim/issues).
+> Windows support grew substantially in 0.4.0 on top of TSF, and it is used daily on the maintainer's own machine. It has not, however, been through the same breadth of hardware and application combinations as the Linux side. Please report anything you run into on [GitHub Issues](https://github.com/from104/unim/issues).
 
 #### Method A — install script (recommended)
 
@@ -321,7 +321,7 @@ Apps handle input differently, so a problem can show up in just one of them. Nar
 
 1. **Does it work in Notepad?** If it does, UNIM itself is fine and the issue is with that specific app.
 2. **Is the app 32-bit?** Open Task Manager → **Details** tab and look for a `(32 bit)` suffix on the process name. If it is 32-bit and not working, the 32-bit registration may have come undone — run `C:\Program Files\UNIM\register-tsf.bat` from an elevated command prompt, then log out and back in.
-3. **Still stuck?** Check [troubleshooting](../troubleshooting/README.md), and if that does not help, report the app name and version on [GitHub Issues](https://github.com/from104/unim/issues). Windows support is still experimental, so per-app reports are especially useful.
+3. **Still stuck?** Check [troubleshooting](../troubleshooting/README.md), and if that does not help, report the app name and version on [GitHub Issues](https://github.com/from104/unim/issues). On Windows, compatibility varies from app to app, so per-app reports are especially useful.
 <!-- @endplatform -->
 
 ---
@@ -479,7 +479,7 @@ When a particular word keeps getting corrected against your wishes:
 
 1. Press `BackSpace` to undo the correction and switch modes — UNIM marks the word as "Pending".
 2. The next time the same word triggers AutoTypeFix, the attempt is suppressed and the word is registered as **Tentative**.
-3. In the GUI's "Suppression Words" page, **Confirm** promotes Tentative → **Confirmed** (permanent). After 1 hour without a retrigger, Tentative auto-flips to **Inactive**.
+3. In the GUI's "Suppression Words" page, select an entry and press **Activate Permanently** to promote Tentative → **Confirmed**. After 4 hours without a retrigger (the default; adjustable between 1 and 12), Tentative auto-flips to **Inactive**.
 
 <!-- @platform:linux -->
 **Storage**: `~/.config/unim/typefix-blacklist.yaml`. The daemon hot-reloads on mtime change.
@@ -541,9 +541,11 @@ In password and PIN fields, AutoTypeFix **turns off automatically.** When the ap
 - It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.
 <!-- @platform:linux -->
 - This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see [FAQ](../faq/README.md) Q9.
+- **Reports are wanted.** Which applications report password fields correctly, and which do not, is not yet well mapped — on Linux and Windows alike — so per-application handling is incomplete. If you find an app where correction fires inside a password field, report it with the **app name and version** on [GitHub Issues](https://github.com/from104/unim/issues) and it can be added to the handled list.
 <!-- @endplatform -->
 <!-- @platform:windows -->
 - This protection works when the app reports the field as a password. Some apps do not report it (programs that handle input themselves, and some web forms that do not mark the field as a password), so auto-detection may fail there → see [FAQ](../faq/README.md) Q9.
+- **Reports are wanted.** Which applications report password fields correctly, and which do not, is not yet well mapped — on Windows and Linux alike — so per-application handling is incomplete. If you find an app where correction fires inside a password field, report it with the **app name and version** on [GitHub Issues](https://github.com/from104/unim/issues) and it can be added to the handled list.
 <!-- @endplatform -->
 
 ### 4.5 Auto-English-Mode
@@ -567,6 +569,16 @@ There are three values.
 - **Syllable**: always commit per syllable. Most predictable.
 - **Word**: accumulate per word in every target app.
 - **Smart (default)**: word-unit only in apps listed in `word-mode-apps`, syllable-unit everywhere else. The default list is just `winword.exe` (Windows), so on Linux, with nothing added, this is effectively **syllable-unit with no regression**.
+
+> **This does not apply to English input — by design.** The commit unit governs **Hangul
+> composition** only. So when you mix the two, only the Hangul stretches are underlined and
+> English commits the moment you type it. Uneven underlining is that, not a broken setting.
+>
+> The underline under Hangul shows a **composition in progress** — `ㅎ+ㅏ+ㄴ` becoming `한`.
+> English has nothing to compose, since one key is already one letter, and so nothing to show.
+> Underlining English too would make the application treat those letters as "not yet committed",
+> which **stops autocomplete, spell check, and live search, and breaks single-letter shortcuts**
+> (keys like `j` or `t` in browsers and editors). It costs a lot and gains nothing, so it is not done.
 
 **Turning it on**
 
@@ -921,7 +933,7 @@ unim-cli config layout validate my.json        # validate a custom layout
 |------|------|----------|
 | `~/.config/unim/config.yaml` | General settings | YES |
 | `~/.config/unim/typefix-blacklist.yaml` | Learned suppressions | YES |
-| `~/.config/unim/userdict.yaml` | Reverse user dict | YES |
+| `~/.config/unim/typefix-userdict.yaml` | Reverse user dict | YES |
 | `~/.config/unim/layouts/*.json` | Custom v1 layouts | YES |
 | `~/.unim-errors.log` | Debug log (`UNIM_DEVELOP=1`) | NO |
 
@@ -969,4 +981,4 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 
 ---
 
-Doc version: 0.4.0 / 2026-07-27 / License: same as the project.
+Doc version: 0.4.0 / 2026-08-01 / License: same as the project.

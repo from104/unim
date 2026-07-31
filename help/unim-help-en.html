@@ -508,7 +508,7 @@ export XMODIFIERS="@im=unim"
 <ol>
 <li>Press <code>BackSpace</code> to undo the correction and switch modes — UNIM marks the word as "Pending".</li>
 <li>The next time the same word triggers AutoTypeFix, the attempt is suppressed and the word is registered as <strong>Tentative</strong>.</li>
-<li>In the GUI's "Suppression Words" page, <strong>Confirm</strong> promotes Tentative → <strong>Confirmed</strong> (permanent). After 1 hour without a retrigger, Tentative auto-flips to <strong>Inactive</strong>.</li>
+<li>In the GUI's "Suppression Words" page, select an entry and press <strong>Activate Permanently</strong> to promote Tentative → <strong>Confirmed</strong>. After 4 hours without a retrigger (the default; adjustable between 1 and 12), Tentative auto-flips to <strong>Inactive</strong>.</li>
 </ol>
 <p><strong>Storage</strong>: <code>~/.config/unim/typefix-blacklist.yaml</code>. The daemon hot-reloads on mtime change.</p>
 <blockquote>
@@ -555,6 +555,7 @@ unim-cli config set auto-typefix-toggle-keys ""
 <ul>
 <li>It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.</li>
 <li>This protection works when the app reports the field as a password. Some environments do not report it (legacy XIM apps, and some Wayland compositors/web forms that do not send content-purpose), so auto-detection may fail there → see <a href="#faq">FAQ</a> Q9.</li>
+<li><strong>Reports are wanted.</strong> Which applications report password fields correctly, and which do not, is not yet well mapped — on Linux and Windows alike — so per-application handling is incomplete. If you find an app where correction fires inside a password field, report it with the <strong>app name and version</strong> on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> and it can be added to the handled list.</li>
 </ul>
 <h4 id="user-guide--45-auto-english-mode">4.5 Auto-English-Mode</h4>
 <p>Opt-in feature for vim command mode (<code>Esc</code>), CLI slash commands (<code>/</code>), etc. Off by default.</p>
@@ -577,6 +578,16 @@ unim-cli config set auto-typefix-toggle-keys ""
 <li><strong>Word</strong>: accumulate per word in every target app.</li>
 <li><strong>Smart (default)</strong>: word-unit only in apps listed in <code>word-mode-apps</code>, syllable-unit everywhere else. The default list is just <code>winword.exe</code> (Windows), so on Linux, with nothing added, this is effectively <strong>syllable-unit with no regression</strong>.</li>
 </ul>
+<blockquote>
+<p><strong>This does not apply to English input — by design.</strong> The commit unit governs <strong>Hangul
+composition</strong> only. So when you mix the two, only the Hangul stretches are underlined and
+English commits the moment you type it. Uneven underlining is that, not a broken setting.</p>
+<p>The underline under Hangul shows a <strong>composition in progress</strong> — <code>ㅎ+ㅏ+ㄴ</code> becoming <code>한</code>.
+English has nothing to compose, since one key is already one letter, and so nothing to show.
+Underlining English too would make the application treat those letters as "not yet committed",
+which <strong>stops autocomplete, spell check, and live search, and breaks single-letter shortcuts</strong>
+(keys like <code>j</code> or <code>t</code> in browsers and editors). It costs a lot and gains nothing, so it is not done.</p>
+</blockquote>
 <p><strong>Turning it on</strong></p>
 <pre><code class="language-bash"># Global word-unit
 unim-cli config set commit-unit word
@@ -768,7 +779,7 @@ unim-cli config layout validate my.json        # validate a custom layout
 <div class="tablewrap"><table><thead><tr><th>File</th><th>Purpose</th><th>Back up?</th></tr></thead><tbody>
 <tr><td><code>~/.config/unim/config.yaml</code></td><td>General settings</td><td>YES</td></tr>
 <tr><td><code>~/.config/unim/typefix-blacklist.yaml</code></td><td>Learned suppressions</td><td>YES</td></tr>
-<tr><td><code>~/.config/unim/userdict.yaml</code></td><td>Reverse user dict</td><td>YES</td></tr>
+<tr><td><code>~/.config/unim/typefix-userdict.yaml</code></td><td>Reverse user dict</td><td>YES</td></tr>
 <tr><td><code>~/.config/unim/layouts/*.json</code></td><td>Custom v1 layouts</td><td>YES</td></tr>
 <tr><td><code>~/.unim-errors.log</code></td><td>Debug log (<code>UNIM_DEVELOP=1</code>)</td><td>NO</td></tr>
 </tbody></table>
@@ -788,7 +799,7 @@ systemctl --user restart unim-daemon
 <li>Behavior spec → <a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a>, <a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>POPUP_SPEC.md</code></a></li>
 </ul>
 <hr />
-<p>Doc version: 0.4.0 / 2026-07-27 / License: same as the project.</p>
+<p>Doc version: 0.4.0 / 2026-08-01 / License: same as the project.</p>
 
 <a class="backtotop" href="#toc">▲ Back to contents</a>
 </section>
@@ -1078,7 +1089,8 @@ Copy <code>docs/references/keymaps/ko_3bul_qwerty_v2.json</code> to <code>~/.con
 <p><strong>🐧 Linux</strong></p>
 <p>Drop a v1 schema JSON into <code>~/.config/unim/layouts/&lt;name&gt;.json</code> — daemon scans automatically. Use <code>inherits: "ko_3bul390"</code> to override only what you need.</p>
 <pre><code class="language-bash">unim-cli config layout validate ~/.config/unim/layouts/my.json
-unim-cli config set korean.layout my
+# activate
+unim-cli config set korean-layout my
 </code></pre>
 <p>Schema details: <a href="https://github.com/from104/unim/blob/main/docs/archive/plans/LAYOUT_PROFILE_V1.md"><code>docs/archive/plans/LAYOUT_PROFILE_V1.md</code></a>.</p>
 <blockquote>
@@ -1131,12 +1143,12 @@ unim-cli config set korean.layout my
 <p>Full migration: <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">release notes</a>.</p>
 <hr />
 <h3 id="faq--q11-does-unim-run-on-macos--windows">Q11. Does UNIM run on macOS / Windows?</h3>
-<p><strong>Windows: yes — experimental. macOS: not yet.</strong></p>
+<p><strong>Windows: yes. macOS: not yet.</strong></p>
 <p>As of v0.4.0, Windows 10/11 (64-bit) is supported via <code>unim-tsf</code>, built on the Text Services Framework (TSF).</p>
 <pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 </code></pre>
 <p>downloads and installs the MSI (see <a href="#user-guide--21-install">user manual §2.1 Install</a>). 32-bit apps are handled by a separate 32-bit TSF TIP (<code>unim_tsf32.dll</code>) rather than the 64-bit TSF path. The IMM32 fallback explored earlier (the <code>unim-imm32</code> crate) remains only as diagnostic/research source that is <strong>not included in the shipped MSI</strong> — if you've seen documentation advertising an "IMM32 fallback" as a shipped feature, it's out of date.</p>
-<p>That said, Windows support as of v0.4.0 is <strong>experimental — real-device QA has not been completed yet</strong>. Basic use works, but if you hit a problem, please report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with your compositor/version info.</p>
+<p>The Windows side is in daily production use on the maintainer's machine and is refined from that use, but it has not been through the same breadth of machines and applications as Linux. If you hit a problem, please report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with the app name and your Windows version (<code>winver</code>).</p>
 <p>macOS is still not started (roadmap stage 5). Because the Rust core and C-API are separated, in principle an adapter for macOS's IMKit is feasible, but nobody has started it yet. Volunteers welcome.</p>
 <hr />
 <h3 id="faq--q12-why-does-the-build-need-cargo-195">Q12. Why does the build need cargo 1.95?</h3>
@@ -1179,7 +1191,7 @@ cargo --version              # 1.95.0+
 <li><code>~/.config/unim/config.yaml</code> — main settings</li>
 <li><code>~/.config/unim/layouts/*.json</code> — custom keyboard profiles</li>
 <li><code>~/.config/unim/typefix-blacklist.yaml</code> — AutoTypeFix suppression dictionary</li>
-<li><code>~/.config/unim/userdict.yaml</code> — user dictionary</li>
+<li><code>~/.config/unim/typefix-userdict.yaml</code> — user dictionary</li>
 </ul>
 <p>Uninstalling one package format and installing the other leaves these files untouched. Note that the <code>unim-gui-qt</code> package was removed in 0.3.0 — the tray icon, settings window, and popup renderer are now split between <code>unim-desktop</code> (indicator + legacy settings dialog + <code>unim-popup-service</code>, bundled together) and <code>unim-settings</code> (the Slint settings app). For the current full list of 11 packages, check <code>debian/control</code> or <code>dpkg -l 'unim*'</code>.</p>
 <hr />
@@ -1213,7 +1225,7 @@ For shortcuts see <a href="#user-guide--56-keyboard-layout-tools-keymap-studio--
 </div>
 <p>Set to <code>0</code> to disable moachigi entirely.</p>
 <p><strong>🐧 Linux</strong> — adjust via the settings dialog slider or:</p>
-<pre><code class="language-bash">unim-cli config set chord-window-ms 80
+<pre><code class="language-bash">unim-cli config set korean-chord-window-ms 80
 </code></pre>
 <h3 id="faq--q20-when-i-hold-a-key-too-long-the-same-letter-is-typed-several-times">Q20. When I hold a key too long, the same letter is typed several times.</h3>
 <p>If you hold a key down (e.g. because of a tremor), the OS re-fires the same key rapidly (auto-repeat). UNIM has a <strong>Suppress Composition Key Auto-repeat (accessibility)</strong> option that makes the daemon ignore those repeats. Suppression applies to the <strong>Korean/English toggle key and character keys in Korean mode</strong>; repeats of editing keys (Backspace, arrows) and direct English typing are left alone. The default is off, so nothing changes until you enable it.</p>
@@ -1494,7 +1506,11 @@ cat ~/.config/unim/typefix-blacklist.yaml | head -50
 <tr><td>Some Wayland compositors / web forms</td><td>Not detected</td><td>content-purpose not sent (app/compositor's discretion)</td></tr>
 <tr><td>GTK apps that change purpose after focus</td><td>Not detected</td><td>The GTK IM reads input-purpose only at focus time and does not subscribe to <code>notify::input-purpose</code> (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus</td></tr>
 </tbody></table>
-</div><h4 id="troubleshooting--fix-8">Fix</h4>
+</div>
+<blockquote>
+<p><strong>This table is still sparse — reports are wanted.</strong> Which applications report password fields correctly and which do not can only be filled in from real-world use. On Linux and Windows alike there are not enough cases yet, so per-application handling is incomplete. If you find an app where correction fires inside a password field, please report the <strong>app name and version</strong> on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. That is the only way this table gets filled in.</p>
+</blockquote>
+<h4 id="troubleshooting--fix-8">Fix</h4>
 <ul>
 <li>In undetectable environments, verify <strong>English mode</strong> with the Hangul key before typing your password. In English mode, forward (English→Korean) correction is suppressed by default, so it is effectively safe.</li>
 <li>If a specific app hits this often, temporarily turn AutoTypeFix off with a toggle hotkey (<a href="#user-guide">User Guide</a> 4.4).</li>

@@ -81,7 +81,7 @@ UNIM 0.2.0 시점의 안정성 등급:
 <!-- @platform:windows -->
 **🪟 Windows**
 
-Windows 지원은 v0.4.0에서 들어간 **실험적 지위**라, 리눅스처럼 환경별 등급을 매길 만큼 실측이 쌓이지 않았다. 현재 확인된 지원 범위는 이렇다.
+Windows 지원은 v0.4.0에서 들어갔다. 리눅스처럼 환경별 등급을 매길 만큼 여러 머신의 실측이 쌓이지는 않았다. 현재 확인된 지원 범위는 이렇다.
 
 | 항목 | 내용 |
 |------|------|
@@ -91,7 +91,7 @@ Windows 지원은 v0.4.0에서 들어간 **실험적 지위**라, 리눅스처�
 | 32비트 앱 | 별도의 32비트 TIP `unim_tsf32.dll` — 카카오톡·한컴 등 |
 | 콘솔·IMM32 계열 앱 | WezTerm·텔레그램 등에서 한글 조합 지원 |
 
-- **실기 QA가 완료되지 않았다.** 최소 사용은 되지만, 문서에 적힌 동작과 실제가 다를 수 있다.
+- **앱 조합의 폭은 리눅스보다 좁게 검증됐다.** 개발자 상용 환경에서 매일 쓰이지만, 드문 앱에서는 문서와 실제가 다를 수 있다.
 - 처음 설치했다면 **메모장에서 먼저** 한/영 전환·한자 팝업이 되는지 확인한 뒤 다른 앱으로 넓혀 가는 편이 원인 격리에 좋다.
 - 이상 동작을 만나면 [GitHub Issues](https://github.com/from104/unim/issues)에 **앱 이름 · Windows 버전(winver) · 32/64비트 여부**를 함께 적어 알려 주면 도움이 된다.
 <!-- @endplatform -->
@@ -260,7 +260,7 @@ explorer "$env:APPDATA\unim\layouts"
 
 - 명령줄 도구 `unim-cli` 는 **Windows 설치본에 들어 있지 않다.** 그래서 위의 `validate` / `set` 같은 CLI 검증·활성화 명령은 Windows에서 쓸 수 없다.
 - 자판 선택은 **설정 창 → 일반 탭 → 자판** 에서 한다.
-- 사용자 자판은 v0.4.0 Windows에서 **실기 검증 전**이다. 자판이 목록에 안 보이면 JSON 문법 오류일 가능성이 높으니, 리눅스 쪽에서 먼저 `unim-cli config layout validate` 로 검증한 파일을 가져오는 편이 확실하다.
+- 사용자 자판은 Windows 쪽에서 아직 손이 덜 탄 영역이다. 자판이 목록에 안 보이면 JSON 문법 오류일 가능성이 높으니, 리눅스 쪽에서 먼저 `unim-cli config layout validate` 로 검증한 파일을 가져오는 편이 확실하다.
 <!-- @endplatform -->
 
 스키마 상세는 [`docs/archive/plans/LAYOUT_PROFILE_V1.md`](../../archive/plans/LAYOUT_PROFILE_V1.md).
@@ -332,7 +332,7 @@ C-API: `UnimEnglishLayout`/`UnimKoreanLayout` enum 제거 → C 문자열 setter
 
 ## Q11. UNIM은 macOS/Windows에서도 되나?
 
-**Windows는 된다 — 단 실험적 지위다. macOS는 아직 안 된다.**
+**Windows는 된다. macOS는 아직 안 된다.**
 
 v0.4.0부터 Windows 10/11(64비트)을 TSF(Text Services Framework) 기반 `unim-tsf`로 지원한다.
 
@@ -342,7 +342,7 @@ irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 
 로 MSI를 내려받아 설치한다([사용자 매뉴얼 §2.1 설치](../user-guide/README-ko.md#21-설치) 참고). 32비트 앱은 64비트 TSF 대신 별도의 32비트 TSF TIP(`unim_tsf32.dll`)이 처리한다. 예전에 검토됐던 IMM32 폴백(`unim-imm32` 크레이트)은 실제 배포 MSI에는 포함되지 않는 진단·연구용 소스로만 남아 있다 — "IMM32 폴백"을 배포 기능으로 안내하는 문서를 봤다면 오래된 것이다.
 
-다만 Windows 지원은 v0.4.0 시점 **실기 QA가 완료되지 않은 실험적 지위**다 — 최소 사용은 가능하나 문제를 만나면 [GitHub Issues](https://github.com/from104/unim/issues)로 컴포지터/버전 정보와 함께 보고해 주길 권한다.
+Windows 쪽은 개발자 상용 환경에서 매일 쓰이며 다듬어지고 있지만, 리눅스만큼 여러 머신·앱 조합을 거치지는 못했다. 문제를 만나면 [GitHub Issues](https://github.com/from104/unim/issues)로 앱 이름과 Windows 버전(`winver`)을 함께 보고해 주길 권한다.
 
 macOS는 여전히 미착수다(로드맵 5단계). Rust 코어와 C-API가 분리돼 있어 이론적으론 macOS의 IMKit에 어댑터를 붙이면 되지만, 착수한 사람이 아직 없다. 자원자가 있다면 환영.
 
@@ -415,7 +415,7 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/popup
 - `~/.config/unim/config.yaml` — 주 설정 파일
 - `~/.config/unim/layouts/*.json` — 사용자 자판 프로필
 - `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix 억제 사전
-- `~/.config/unim/userdict.yaml` — 사용자 사전
+- `~/.config/unim/typefix-userdict.yaml` — 사용자 사전
 
 패키지를 제거하고 다른 형식으로 재설치해도 위 파일들은 건드리지 않는다. 단, `unim-gui-qt` 패키지는 0.3.0에서 제거됐다 — 트레이 아이콘·설정창·팝업 렌더러는 지금 `unim-desktop`(인디케이터+레거시 설정창+`unim-popup-service` 묶음) 과 `unim-settings`(Slint 설정 앱) 두 패키지가 나눠 담당한다. 현재 배포되는 11개 패키지 전체 목록은 `debian/control` 또는 `dpkg -l 'unim*'` 로 확인.
 
@@ -659,7 +659,7 @@ sudo apt remove 'unim*'
 2. **프로그램이 떠 있는지 확인** — 작업 관리자에 `unim-popup-win.exe` 가 있는지 본다. 없으면 설치 폴더(`C:\Program Files\UNIM\`)의 `unim-popup-win.exe` 를 직접 실행한다. 실수로 두 번 실행해도 중복으로 뜨지 않는다(스스로 종료한다).
 3. **한 번 재로그인** — 이 프로그램은 로그인할 때 자동으로 시작하도록 등록돼 있다. 방금 설치했다면 재로그인이 가장 확실하다.
 
-> 팝업 조작키(9×9 격자 토글 `.`, 북마크 `Space`, 열 점프 `Q`~`O`, 카테고리 `A`~`L`)는 리눅스와 같게 맞춰 뒀지만 **실기 검증은 아직 진행 중**이다. 다르게 동작하면 [GitHub Issues](https://github.com/from104/unim/issues)로 알려 주면 된다.
+> 팝업 조작키(9×9 격자 토글 `.`, 북마크 `Space`, 열 점프 `Q`~`O`, 카테고리 `A`~`L`)는 리눅스와 같게 맞춰 뒀다. 다르게 동작하면 [GitHub Issues](https://github.com/from104/unim/issues)로 알려 주면 된다.
 
 ---
 
@@ -697,7 +697,7 @@ sudo apt remove 'unim*'
 | GNOME 확장 | 있음 | 해당 없음 |
 | 현재 모드 표시 | 트레이 인디케이터 | 작업표시줄 입력 표시 (`한` / `A`) |
 
-- **v0.4.0 시점 Windows 지원은 실험적 지위다.** 실기 QA가 완료되지 않아, 문서에 적힌 동작과 실제가 다를 수 있다.
+- **Windows 판은 리눅스보다 이력이 짧다.** 검증을 거친 앱의 폭이 좁아, 드문 앱에서는 문서와 실제가 다를 수 있다.
 - 오프라인 도움말(지금 읽고 있는 이 문서)은 설치본에 함께 들어 있다 — **설정 창의 도움말 버튼**으로 언제든 열 수 있다.
 - 리눅스에서 쓰던 설정을 옮기고 싶다면 `~/.config/unim/` 의 파일을 `%APPDATA%\unim\` 로 복사하면 된다. 파일 형식은 양쪽이 같다(Q6 · Q7).
 

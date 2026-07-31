@@ -81,7 +81,7 @@ Stability tier as of UNIM 0.2.0:
 <!-- @platform:windows -->
 **🪟 Windows**
 
-Windows support landed in v0.4.0 with **experimental status**, so there is not enough measured data to grade environments into tiers the way the Linux side does. Here is the support surface that is confirmed today.
+Windows support landed in v0.4.0. There is not yet enough measured data across machines to grade environments into tiers the way the Linux side does. Here is the support surface that is confirmed today.
 
 | Item | Detail |
 |------|--------|
@@ -91,7 +91,7 @@ Windows support landed in v0.4.0 with **experimental status**, so there is not e
 | 32-bit apps | a separate 32-bit TIP, `unim_tsf32.dll` — KakaoTalk, Hancom, … |
 | Console / IMM32-style apps | Hangul composition works in WezTerm, Telegram, and similar |
 
-- **Real-device QA is not complete.** Basic use works, but documented behavior may differ from what you actually see.
+- **The range of applications tested is narrower than on Linux.** It is in daily production use on the maintainer's machine, but with uncommon apps the documented behavior may differ from what you see.
 - On a fresh install, confirm Korean/English toggling and the Hanja popup **in Notepad first**, then widen to other apps. That ordering isolates causes fastest.
 - If something misbehaves, report it on [GitHub Issues](https://github.com/from104/unim/issues) with the **app name, your Windows version (`winver`), and whether the app is 32- or 64-bit**.
 <!-- @endplatform -->
@@ -239,7 +239,8 @@ Drop a v1 schema JSON into `~/.config/unim/layouts/<name>.json` — daemon scans
 
 ```bash
 unim-cli config layout validate ~/.config/unim/layouts/my.json
-unim-cli config set korean.layout my
+# activate
+unim-cli config set korean-layout my
 ```
 <!-- @endplatform -->
 
@@ -257,7 +258,7 @@ explorer "$env:APPDATA\unim\layouts"
 
 - The `unim-cli` command-line tool is **not included in the Windows installer**, so the `validate` / `set` commands above are not available on Windows.
 - Pick a layout in **Settings window → General tab → Layout**.
-- Custom layouts on Windows are **not yet verified on real hardware** in v0.4.0. If your layout does not appear in the list, a JSON syntax error is the likeliest cause — validating the file on Linux first with `unim-cli config layout validate` is the surest route.
+- Custom layouts are one of the less-exercised areas on the Windows side. If your layout does not appear in the list, a JSON syntax error is the likeliest cause — validating the file on Linux first with `unim-cli config layout validate` is the surest route.
 <!-- @endplatform -->
 
 Schema details: [`docs/archive/plans/LAYOUT_PROFILE_V1.md`](../../archive/plans/LAYOUT_PROFILE_V1.md).
@@ -329,7 +330,7 @@ Full migration: [release notes](../release-notes/0.2.0/RELEASE_NOTES.md).
 
 ## Q11. Does UNIM run on macOS / Windows?
 
-**Windows: yes — experimental. macOS: not yet.**
+**Windows: yes. macOS: not yet.**
 
 As of v0.4.0, Windows 10/11 (64-bit) is supported via `unim-tsf`, built on the Text Services Framework (TSF).
 
@@ -339,7 +340,7 @@ irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 
 downloads and installs the MSI (see [user manual §2.1 Install](../user-guide/README.md#21-install)). 32-bit apps are handled by a separate 32-bit TSF TIP (`unim_tsf32.dll`) rather than the 64-bit TSF path. The IMM32 fallback explored earlier (the `unim-imm32` crate) remains only as diagnostic/research source that is **not included in the shipped MSI** — if you've seen documentation advertising an "IMM32 fallback" as a shipped feature, it's out of date.
 
-That said, Windows support as of v0.4.0 is **experimental — real-device QA has not been completed yet**. Basic use works, but if you hit a problem, please report it on [GitHub Issues](https://github.com/from104/unim/issues) with your compositor/version info.
+The Windows side is in daily production use on the maintainer's machine and is refined from that use, but it has not been through the same breadth of machines and applications as Linux. If you hit a problem, please report it on [GitHub Issues](https://github.com/from104/unim/issues) with the app name and your Windows version (`winver`).
 
 macOS is still not started (roadmap stage 5). Because the Rust core and C-API are separated, in principle an adapter for macOS's IMKit is feasible, but nobody has started it yet. Volunteers welcome.
 
@@ -412,7 +413,7 @@ Yes. All user data lives under `~/.config/unim/` and is independent of the packa
 - `~/.config/unim/config.yaml` — main settings
 - `~/.config/unim/layouts/*.json` — custom keyboard profiles
 - `~/.config/unim/typefix-blacklist.yaml` — AutoTypeFix suppression dictionary
-- `~/.config/unim/userdict.yaml` — user dictionary
+- `~/.config/unim/typefix-userdict.yaml` — user dictionary
 
 Uninstalling one package format and installing the other leaves these files untouched. Note that the `unim-gui-qt` package was removed in 0.3.0 — the tray icon, settings window, and popup renderer are now split between `unim-desktop` (indicator + legacy settings dialog + `unim-popup-service`, bundled together) and `unim-settings` (the Slint settings app). For the current full list of 11 packages, check `debian/control` or `dpkg -l 'unim*'`.
 
@@ -457,7 +458,7 @@ Set to `0` to disable moachigi entirely.
 **🐧 Linux** — adjust via the settings dialog slider or:
 
 ```bash
-unim-cli config set chord-window-ms 80
+unim-cli config set korean-chord-window-ms 80
 ```
 <!-- @endplatform -->
 
@@ -662,7 +663,7 @@ Uninstalling removes the install folder (`C:\Program Files\UNIM\`), the input me
 2. **Check the program is running** — look for `unim-popup-win.exe` in Task Manager. If it is missing, run `unim-popup-win.exe` from the install folder (`C:\Program Files\UNIM\`) directly. Launching it twice by accident is harmless — the second copy exits on its own.
 3. **Sign out and back in once** — the program is registered to start automatically at login, so a re-login is the surest fix right after installing.
 
-> The popup key bindings (9×9 grid toggle `.`, bookmark `Space`, column jump `Q`–`O`, category `A`–`L`) are matched to the Linux behavior, but **real-device verification is still in progress**. If something behaves differently, please tell us on [GitHub Issues](https://github.com/from104/unim/issues).
+> The popup key bindings (9×9 grid toggle `.`, bookmark `Space`, column jump `Q`–`O`, category `A`–`L`) are matched to the Linux behavior. If something behaves differently, please tell us on [GitHub Issues](https://github.com/from104/unim/issues).
 
 ---
 
@@ -700,7 +701,7 @@ If it fails in one specific app, include the **app name and whether it is 32- or
 | GNOME extension | yes | not applicable |
 | Current mode indicator | tray indicator | taskbar input indicator (`한` / `A`) |
 
-- **Windows support is experimental as of v0.4.0.** Real-device QA is not complete, so documented behavior may differ from what you observe.
+- **The Windows edition has a shorter track record than the Linux one.** Fewer applications have been exercised, so with uncommon apps the documented behavior may differ from what you observe.
 - The offline manual (this document) ships with the installer — open it any time from the **Help button in the settings window**.
 - To carry settings over from Linux, copy the files in `~/.config/unim/` to `%APPDATA%\unim\`. The file formats are identical on both platforms (Q6 · Q7).
 

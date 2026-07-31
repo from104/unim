@@ -27,7 +27,7 @@ tail -f ~/.unim-errors.log
 <!-- @platform:windows -->
 **🪟 Windows**
 
-> ⚠️ Windows support is **experimental**, newly added in v0.4.0. Everything below reflects behavior confirmed in the source; symptoms not listed here have not been verified yet — please report them at [GitHub Issues](https://github.com/from104/unim/issues).
+> Windows support was newly added in v0.4.0. Everything below reflects confirmed behavior; symptoms not listed here have not been verified yet — please report them at [GitHub Issues](https://github.com/from104/unim/issues).
 
 Windows has **no daemon and no DBus.** UNIM is a **TSF** (Text Services Framework — the standard Windows mechanism for attaching an input method to an application) text service, `unim_tsf.dll`, and the OS loads it **directly inside the process of the app you are typing into**. So there is no "is the daemon dead?" check. Instead, look at two things:
 
@@ -424,6 +424,8 @@ Password protection ([FAQ](../faq/README.md) Q9) works only when the app reports
 | Legacy XIM apps | Not detected | XIM protocol has no such signal |
 | Some Wayland compositors / web forms | Not detected | content-purpose not sent (app/compositor's discretion) |
 | GTK apps that change purpose after focus | Not detected | The GTK IM reads input-purpose only at focus time and does not subscribe to `notify::input-purpose` (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus |
+
+> **This table is still sparse — reports are wanted.** Which applications report password fields correctly and which do not can only be filled in from real-world use. On Linux and Windows alike there are not enough cases yet, so per-application handling is incomplete. If you find an app where correction fires inside a password field, please report the **app name and version** on [GitHub Issues](https://github.com/from104/unim/issues). That is the only way this table gets filled in.
 
 ### Fix
 
@@ -989,7 +991,7 @@ A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT cl
 
 ## 16-W. Known Windows limitations (v0.4.0)
 
-Windows support is **experimental**, newly added in v0.4.0. Below are the limitations known at release time. **Anything not listed here has simply not been verified yet** — if you run into it, please report it.
+Windows support was newly added in v0.4.0. Below are the limitations known at release time. **Anything not listed here has simply not been verified yet** — if you run into it, please report it.
 
 | Item | Status | Notes |
 |------|--------|-------|
@@ -1004,5 +1006,5 @@ Windows support is **experimental**, newly added in v0.4.0. Below are the limita
 
 ### Reporting
 
-File the **app name and version** together with the logs from "Diagnostic bundle" above at [GitHub Issues](https://github.com/from104/unim/issues). Given the experimental status, real-world reports are the single most useful contribution.
+File the **app name and version** together with the logs from "Diagnostic bundle" above at [GitHub Issues](https://github.com/from104/unim/issues). Compatibility on Windows varies from app to app, so real-world reports are the single most useful contribution.
 <!-- @endplatform -->

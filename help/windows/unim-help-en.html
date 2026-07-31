@@ -300,7 +300,7 @@ Goal of this document: get a first-time user to type one Korean syllable within 
 <h4 id="user-guide--21-install">2.1 Install</h4>
 <blockquote>
 <p><strong>🪟 Windows</strong> — supported: <strong>Windows 10 / 11 (64-bit).</strong> A single administrator (UAC) approval is needed at install time.</p>
-<p>⚠️ <strong>Experimental</strong>: Windows support grew substantially in 0.4.0 on top of TSF, but it is still <strong>experimental</strong> and hardware QA is ongoing. Please report anything you run into on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
+<p>Windows support grew substantially in 0.4.0 on top of TSF, and it is used daily on the maintainer's own machine. It has not, however, been through the same breadth of hardware and application combinations as the Linux side. Please report anything you run into on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
 </blockquote>
 <h5 id="user-guide--method-a--install-script-recommended">Method A — install script (recommended)</h5>
 <p>One line in PowerShell (or Windows Terminal):</p>
@@ -416,7 +416,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <ol>
 <li><strong>Does it work in Notepad?</strong> If it does, UNIM itself is fine and the issue is with that specific app.</li>
 <li><strong>Is the app 32-bit?</strong> Open Task Manager → <strong>Details</strong> tab and look for a <code>(32 bit)</code> suffix on the process name. If it is 32-bit and not working, the 32-bit registration may have come undone — run <code>C:\Program Files\UNIM\register-tsf.bat</code> from an elevated command prompt, then log out and back in.</li>
-<li><strong>Still stuck?</strong> Check <a href="#troubleshooting">troubleshooting</a>, and if that does not help, report the app name and version on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. Windows support is still experimental, so per-app reports are especially useful.</li>
+<li><strong>Still stuck?</strong> Check <a href="#troubleshooting">troubleshooting</a>, and if that does not help, report the app name and version on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. On Windows, compatibility varies from app to app, so per-app reports are especially useful.</li>
 </ol>
 <hr />
 <h3 id="user-guide--4-daily-use">4. Daily use</h3>
@@ -515,7 +515,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <ol>
 <li>Press <code>BackSpace</code> to undo the correction and switch modes — UNIM marks the word as "Pending".</li>
 <li>The next time the same word triggers AutoTypeFix, the attempt is suppressed and the word is registered as <strong>Tentative</strong>.</li>
-<li>In the GUI's "Suppression Words" page, <strong>Confirm</strong> promotes Tentative → <strong>Confirmed</strong> (permanent). After 1 hour without a retrigger, Tentative auto-flips to <strong>Inactive</strong>.</li>
+<li>In the GUI's "Suppression Words" page, select an entry and press <strong>Activate Permanently</strong> to promote Tentative → <strong>Confirmed</strong>. After 4 hours without a retrigger (the default; adjustable between 1 and 12), Tentative auto-flips to <strong>Inactive</strong>.</li>
 </ol>
 <p><strong>Storage</strong>: <code>%APPDATA%\unim\typefix-blacklist.yaml</code>. Changes to the file are picked up automatically a moment later.</p>
 <blockquote>
@@ -548,6 +548,7 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <ul>
 <li>It returns to normal the moment you leave the field. Any on/off state you set manually is preserved — password protection is only a temporary safety layer laid on top of it.</li>
 <li>This protection works when the app reports the field as a password. Some apps do not report it (programs that handle input themselves, and some web forms that do not mark the field as a password), so auto-detection may fail there → see <a href="#faq">FAQ</a> Q9.</li>
+<li><strong>Reports are wanted.</strong> Which applications report password fields correctly, and which do not, is not yet well mapped — on Windows and Linux alike — so per-application handling is incomplete. If you find an app where correction fires inside a password field, report it with the <strong>app name and version</strong> on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> and it can be added to the handled list.</li>
 </ul>
 <h4 id="user-guide--45-auto-english-mode">4.5 Auto-English-Mode</h4>
 <p>Opt-in feature for vim command mode (<code>Esc</code>), CLI slash commands (<code>/</code>), etc. Off by default.</p>
@@ -570,6 +571,16 @@ Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
 <li><strong>Word</strong>: accumulate per word in every target app.</li>
 <li><strong>Smart (default)</strong>: word-unit only in apps listed in <code>word-mode-apps</code>, syllable-unit everywhere else. The default list is just <code>winword.exe</code> (Windows), so on Linux, with nothing added, this is effectively <strong>syllable-unit with no regression</strong>.</li>
 </ul>
+<blockquote>
+<p><strong>This does not apply to English input — by design.</strong> The commit unit governs <strong>Hangul
+composition</strong> only. So when you mix the two, only the Hangul stretches are underlined and
+English commits the moment you type it. Uneven underlining is that, not a broken setting.</p>
+<p>The underline under Hangul shows a <strong>composition in progress</strong> — <code>ㅎ+ㅏ+ㄴ</code> becoming <code>한</code>.
+English has nothing to compose, since one key is already one letter, and so nothing to show.
+Underlining English too would make the application treat those letters as "not yet committed",
+which <strong>stops autocomplete, spell check, and live search, and breaks single-letter shortcuts</strong>
+(keys like <code>j</code> or <code>t</code> in browsers and editors). It costs a lot and gains nothing, so it is not done.</p>
+</blockquote>
 <p><strong>Turning it on</strong></p>
 <p>Pick it from the <strong>Korean commit unit</strong> combo under <strong>General → Input mode</strong> in the settings window (§5).</p>
 <p>With <strong>Smart</strong> (the default), word-unit applies <strong>only in MS Word (<code>winword.exe</code>)</strong> and every other app stays syllable-unit. To add another app, put its <strong>executable name</strong> in the "Word-mode apps" list (exact match, case-insensitive). You can find the executable name in Task Manager → <strong>Details</strong> tab.</p>
@@ -728,7 +739,7 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 <li>Behavior spec → <a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a>, <a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>POPUP_SPEC.md</code></a></li>
 </ul>
 <hr />
-<p>Doc version: 0.4.0 / 2026-07-27 / License: same as the project.</p>
+<p>Doc version: 0.4.0 / 2026-08-01 / License: same as the project.</p>
 
 <a class="backtotop" href="#toc">▲ Back to contents</a>
 </section>
@@ -820,7 +831,7 @@ Each answer carries at least one line of "why it works that way" so you can use 
 <hr />
 <h3 id="faq--q3-which-environments-are-most-stable">Q3. Which environments are most stable?</h3>
 <p><strong>🪟 Windows</strong></p>
-<p>Windows support landed in v0.4.0 with <strong>experimental status</strong>, so there is not enough measured data to grade environments into tiers the way the Linux side does. Here is the support surface that is confirmed today.</p>
+<p>Windows support landed in v0.4.0. There is not yet enough measured data across machines to grade environments into tiers the way the Linux side does. Here is the support surface that is confirmed today.</p>
 <div class="tablewrap"><table><thead><tr><th>Item</th><th>Detail</th></tr></thead><tbody>
 <tr><td>OS</td><td>Windows 10 / 11 (64-bit)</td></tr>
 <tr><td>Input path</td><td>TSF (Text Services Framework)</td></tr>
@@ -830,7 +841,7 @@ Each answer carries at least one line of "why it works that way" so you can use 
 </tbody></table>
 </div>
 <ul>
-<li><strong>Real-device QA is not complete.</strong> Basic use works, but documented behavior may differ from what you actually see.</li>
+<li><strong>The range of applications tested is narrower than on Linux.</strong> It is in daily production use on the maintainer's machine, but with uncommon apps the documented behavior may differ from what you see.</li>
 <li>On a fresh install, confirm Korean/English toggling and the Hanja popup <strong>in Notepad first</strong>, then widen to other apps. That ordering isolates causes fastest.</li>
 <li>If something misbehaves, report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with the <strong>app name, your Windows version (<code>winver</code>), and whether the app is 32- or 64-bit</strong>.</li>
 </ul>
@@ -916,7 +927,7 @@ explorer "$env:APPDATA\unim\layouts"
 <ul>
 <li>The <code>unim-cli</code> command-line tool is <strong>not included in the Windows installer</strong>, so the <code>validate</code> / <code>set</code> commands above are not available on Windows.</li>
 <li>Pick a layout in <strong>Settings window → General tab → Layout</strong>.</li>
-<li>Custom layouts on Windows are <strong>not yet verified on real hardware</strong> in v0.4.0. If your layout does not appear in the list, a JSON syntax error is the likeliest cause — validating the file on Linux first with <code>unim-cli config layout validate</code> is the surest route.</li>
+<li>Custom layouts are one of the less-exercised areas on the Windows side. If your layout does not appear in the list, a JSON syntax error is the likeliest cause — validating the file on Linux first with <code>unim-cli config layout validate</code> is the surest route.</li>
 </ul>
 <p>Schema details: <a href="https://github.com/from104/unim/blob/main/docs/archive/plans/LAYOUT_PROFILE_V1.md"><code>docs/archive/plans/LAYOUT_PROFILE_V1.md</code></a>.</p>
 <blockquote>
@@ -936,12 +947,12 @@ explorer "$env:APPDATA\unim\layouts"
 </blockquote>
 <hr />
 <h3 id="faq--q11-does-unim-run-on-macos--windows">Q11. Does UNIM run on macOS / Windows?</h3>
-<p><strong>Windows: yes — experimental. macOS: not yet.</strong></p>
+<p><strong>Windows: yes. macOS: not yet.</strong></p>
 <p>As of v0.4.0, Windows 10/11 (64-bit) is supported via <code>unim-tsf</code>, built on the Text Services Framework (TSF).</p>
 <pre><code class="language-powershell">irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 </code></pre>
 <p>downloads and installs the MSI (see <a href="#user-guide--21-install">user manual §2.1 Install</a>). 32-bit apps are handled by a separate 32-bit TSF TIP (<code>unim_tsf32.dll</code>) rather than the 64-bit TSF path. The IMM32 fallback explored earlier (the <code>unim-imm32</code> crate) remains only as diagnostic/research source that is <strong>not included in the shipped MSI</strong> — if you've seen documentation advertising an "IMM32 fallback" as a shipped feature, it's out of date.</p>
-<p>That said, Windows support as of v0.4.0 is <strong>experimental — real-device QA has not been completed yet</strong>. Basic use works, but if you hit a problem, please report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with your compositor/version info.</p>
+<p>The Windows side is in daily production use on the maintainer's machine and is refined from that use, but it has not been through the same breadth of machines and applications as Linux. If you hit a problem, please report it on <a href="https://github.com/from104/unim/issues">GitHub Issues</a> with the app name and your Windows version (<code>winver</code>).</p>
 <p>macOS is still not started (roadmap stage 5). Because the Rust core and C-API are separated, in principle an adapter for macOS's IMKit is feasible, but nobody has started it yet. Volunteers welcome.</p>
 <hr />
 <h3 id="faq--q12-why-does-the-build-need-cargo-195">Q12. Why does the build need cargo 1.95?</h3>
@@ -1074,7 +1085,7 @@ $env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/m
 <li><strong>Sign out and back in once</strong> — the program is registered to start automatically at login, so a re-login is the surest fix right after installing.</li>
 </ol>
 <blockquote>
-<p>The popup key bindings (9×9 grid toggle <code>.</code>, bookmark <code>Space</code>, column jump <code>Q</code>–<code>O</code>, category <code>A</code>–<code>L</code>) are matched to the Linux behavior, but <strong>real-device verification is still in progress</strong>. If something behaves differently, please tell us on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
+<p>The popup key bindings (9×9 grid toggle <code>.</code>, bookmark <code>Space</code>, column jump <code>Q</code>–<code>O</code>, category <code>A</code>–<code>L</code>) are matched to the Linux behavior. If something behaves differently, please tell us on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
 </blockquote>
 <hr />
 <h3 id="faq--q29-in-ms-word-text-commits-by-word-instead-of-by-character">Q29. In MS Word, text commits by word instead of by character.</h3>
@@ -1105,7 +1116,7 @@ $env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/m
 </tbody></table>
 </div>
 <ul>
-<li><strong>Windows support is experimental as of v0.4.0.</strong> Real-device QA is not complete, so documented behavior may differ from what you observe.</li>
+<li><strong>The Windows edition has a shorter track record than the Linux one.</strong> Fewer applications have been exercised, so with uncommon apps the documented behavior may differ from what you observe.</li>
 <li>The offline manual (this document) ships with the installer — open it any time from the <strong>Help button in the settings window</strong>.</li>
 <li>To carry settings over from Linux, copy the files in <code>~/.config/unim/</code> to <code>%APPDATA%\unim\</code>. The file formats are identical on both platforms (Q6 · Q7).</li>
 </ul>
@@ -1131,7 +1142,7 @@ Covers 14 commonly seen symptoms, from "Korean never types" to "broken in one sp
 </blockquote>
 <p><strong>🪟 Windows</strong></p>
 <blockquote>
-<p>⚠️ Windows support is <strong>experimental</strong>, newly added in v0.4.0. Everything below reflects behavior confirmed in the source; symptoms not listed here have not been verified yet — please report them at <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
+<p>Windows support was newly added in v0.4.0. Everything below reflects confirmed behavior; symptoms not listed here have not been verified yet — please report them at <a href="https://github.com/from104/unim/issues">GitHub Issues</a>.</p>
 </blockquote>
 <p>Windows has <strong>no daemon and no DBus.</strong> UNIM is a <strong>TSF</strong> (Text Services Framework — the standard Windows mechanism for attaching an input method to an application) text service, <code>unim_tsf.dll</code>, and the OS loads it <strong>directly inside the process of the app you are typing into</strong>. So there is no "is the daemon dead?" check. Instead, look at two things:</p>
 <ol>
@@ -1287,7 +1298,11 @@ setx UNIM_DEBUG_LOG 1
 <tr><td>Some Wayland compositors / web forms</td><td>Not detected</td><td>content-purpose not sent (app/compositor's discretion)</td></tr>
 <tr><td>GTK apps that change purpose after focus</td><td>Not detected</td><td>The GTK IM reads input-purpose only at focus time and does not subscribe to <code>notify::input-purpose</code> (existing limitation) — if the same field later becomes a password, it is not reflected until re-focus</td></tr>
 </tbody></table>
-</div><h4 id="troubleshooting--fix-5">Fix</h4>
+</div>
+<blockquote>
+<p><strong>This table is still sparse — reports are wanted.</strong> Which applications report password fields correctly and which do not can only be filled in from real-world use. On Linux and Windows alike there are not enough cases yet, so per-application handling is incomplete. If you find an app where correction fires inside a password field, please report the <strong>app name and version</strong> on <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. That is the only way this table gets filled in.</p>
+</blockquote>
+<h4 id="troubleshooting--fix-5">Fix</h4>
 <ul>
 <li>In undetectable environments, verify <strong>English mode</strong> with the Hangul key before typing your password. In English mode, forward (English→Korean) correction is suppressed by default, so it is effectively safe.</li>
 <li>If a specific app hits this often, temporarily turn AutoTypeFix off with a toggle hotkey (<a href="#user-guide">User Guide</a> 4.4).</li>
@@ -1414,7 +1429,7 @@ copy "%APPDATA%\unim\config.yaml" "%USERPROFILE%\Desktop\unim-report-config.yaml
 <hr />
 <p><strong>🪟 Windows</strong></p>
 <h3 id="troubleshooting--16-w-known-windows-limitations-v040">16-W. Known Windows limitations (v0.4.0)</h3>
-<p>Windows support is <strong>experimental</strong>, newly added in v0.4.0. Below are the limitations known at release time. <strong>Anything not listed here has simply not been verified yet</strong> — if you run into it, please report it.</p>
+<p>Windows support was newly added in v0.4.0. Below are the limitations known at release time. <strong>Anything not listed here has simply not been verified yet</strong> — if you run into it, please report it.</p>
 <div class="tablewrap"><table><thead><tr><th>Item</th><th>Status</th><th>Notes</th></tr></thead><tbody>
 <tr><td>Composition breaks / previous character lost in some apps</td><td>⚠️ Known limitation</td><td>Behavioral differences in the Windows compatibility layer (CUAS) used when an app does not draw the composition string itself. UNIM falls back, but not perfectly in every app. See §3-W</td></tr>
 <tr><td>Console / terminal-style apps</td><td>⚠️ Varies by app</td><td>Depends on which input mechanism the app uses. Standard text apps (Notepad, Edge) are the reference behavior</td></tr>
@@ -1426,7 +1441,7 @@ copy "%APPDATA%\unim\config.yaml" "%USERPROFILE%\Desktop\unim-report-config.yaml
 <tr><td>Diagnostic commands from the Linux docs</td><td>❌ Not applicable</td><td><code>systemctl</code>, <code>journalctl</code>, <code>busctl</code>, <code>gsettings</code>, <code>im-config</code> and the <code>GTK_IM_MODULE</code> / <code>QT_IM_MODULE</code> / <code>XMODIFIERS</code> environment variables do not exist on Windows</td></tr>
 </tbody></table>
 </div><h4 id="troubleshooting--reporting">Reporting</h4>
-<p>File the <strong>app name and version</strong> together with the logs from "Diagnostic bundle" above at <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. Given the experimental status, real-world reports are the single most useful contribution.</p>
+<p>File the <strong>app name and version</strong> together with the logs from "Diagnostic bundle" above at <a href="https://github.com/from104/unim/issues">GitHub Issues</a>. Compatibility on Windows varies from app to app, so real-world reports are the single most useful contribution.</p>
 
 <a class="backtotop" href="#toc">▲ Back to contents</a>
 </section>
