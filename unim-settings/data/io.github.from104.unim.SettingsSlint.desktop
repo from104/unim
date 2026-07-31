@@ -8,5 +8,7 @@ Exec=unim-settings
 Icon=io.github.from104.unim.SettingsSlint
 Terminal=false
 Categories=Settings;
-StartupWMClass=unim-settings
+# app_id(Wayland)·WM_CLASS(X11) 와 같은 값이어야 셸이 이 파일을 찾아 Icon= 을 쓴다.
+# 값은 main.rs 의 APP_ID 상수와 짝이다 — 한쪽만 바꾸면 아이콘이 조용히 기본값이 된다.
+StartupWMClass=io.github.from104.unim.SettingsSlint
 Keywords=korean;hangul;input;ime;keyboard;unim;

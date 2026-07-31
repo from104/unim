@@ -23,4 +23,14 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         println!("cargo:rustc-link-arg-bins=/STACK:16777216");
     }
+
+    // Windows 셸 아이콘(작업표시줄·탐색기·바로가기)은 exe 의 아이콘 리소스에서 온다.
+    // Slint 의 `Window { icon: ... }` 은 창 좌상단만 바꾸므로 이것 없이는 기본 아이콘이
+    // 뜬다. unim-tsf 가 언어바 아이콘에 쓰는 것과 같은 방식이다.
+    #[cfg(windows)]
+    {
+        println!("cargo:rerun-if-changed=unim.rc");
+        println!("cargo:rerun-if-changed=../installer/assets/unim.ico");
+        embed_resource::compile("unim.rc", embed_resource::NONE);
+    }
 }

@@ -354,11 +354,17 @@
         <Directory Id="ApplicationProgramsFolder" Name="UNIM">
           <Component Id="StartMenuShortcuts"
                      Guid="7C8D9E0F-1A2B-3C4D-5E6F-7A8B9C0D1E2F">
+            <!-- Icon/IconIndex 를 명시하지 않으면 바로가기가 대상 exe 의 아이콘 리소스를
+                 따라간다. unim-settings.exe 는 unim-settings/unim.rc 로 같은 unim.ico 를
+                 임베드하므로 결과는 같지만, 명시해 두면 리소스 임베드가 빠지는 회귀가
+                 나도 시작 메뉴 아이콘은 유지된다. ARPPRODUCTICON 과 같은 파일이다. -->
             <Shortcut Id="UnimSettingsShortcut"
                       Name="UNIM Settings"
                       Description="UNIM Korean IME settings"
                       Target="[INSTALLDIR]unim-settings.exe"
-                      WorkingDirectory="INSTALLDIR" />
+                      WorkingDirectory="INSTALLDIR"
+                      Icon="unim.ico"
+                      IconIndex="0" />
             <Shortcut Id="UnimUninstallShortcut"
                       Name="Uninstall UNIM"
                       Description="Remove UNIM Korean IME"

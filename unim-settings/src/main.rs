@@ -648,6 +648,46 @@ fn linux_korean_font_family() -> Option<String> {
     }
 }
 
+/// 창의 app_id — **설치되는 `.desktop` 파일명(확장자 제외)과 반드시 같아야 한다.**
+///
+/// 데스크톱 셸은 창의 app_id 로 `applications/<app_id>.desktop` 을 찾아 그 파일의
+/// `Icon=` 으로 작업표시줄·오버뷰 아이콘을 정한다. 한 글자만 어긋나도 매칭이 실패해
+/// 조용히 기본 아이콘이 뜬다(설치 파일: `unim-settings/data/…SettingsSlint.desktop`,
+/// Makefile `install-settings`, `debian/unim-settings.install`).
+#[cfg(target_os = "linux")]
+const APP_ID: &str = "io.github.from104.unim.SettingsSlint";
+
+/// winit 백엔드를 직접 만들어 창의 app_id 를 지정한다.
+///
+/// GTK 앱(`unim-indicator`·`unim-keymap-studio`)은 `application_id()` 한 줄로 끝나지만
+/// Slint 에는 대응 API 가 없어, winit 의 `WindowAttributes` 훅으로 직접 넣어야 한다.
+/// Wayland·X11 확장의 `with_name()` 은 둘 다 같은 필드(`platform_specific.name`)를
+/// 쓰므로 한 번만 호출하면 두 세션 모두 커버된다.
+///
+/// 실패해도 진행한다 — 아이콘이 기본값으로 뜰 뿐 설정 창 자체는 멀쩡히 동작하므로,
+/// 여기서 종료하면 "아이콘 때문에 설정을 못 여는" 더 나쁜 상태가 된다.
+#[cfg(target_os = "linux")]
+fn install_backend_with_app_id() {
+    use i_slint_backend_winit::winit::platform::wayland::WindowAttributesExtWayland;
+
+    // 렌더러 이름은 **feature 이름이 아니라 백엔드가 매칭하는 짧은 이름**이다
+    // ("renderer-skia" 는 인식되지 않아 경고를 내고 폴백한다 — lib.rs 의 `Some("skia")` 갈래).
+    let backend = match i_slint_backend_winit::Backend::builder()
+        .with_renderer_name("skia")
+        .with_window_attributes_hook(|attrs| attrs.with_name(APP_ID, ""))
+        .build()
+    {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[unim-settings] winit 백엔드 생성 실패 — 기본 백엔드로 진행한다: {e}");
+            return;
+        }
+    };
+    if let Err(e) = slint::platform::set_platform(Box::new(backend)) {
+        eprintln!("[unim-settings] 백엔드 등록 실패 — 기본 백엔드로 진행한다: {e}");
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // autostart(--first-run-if-needed): 마법사 완료 기록(seen)이 있으면 창·싱글턴 락·
     // 알림 전부 없이 즉시 종료한다. acquire_singleton_or_foreground() 이전에 검사해
@@ -680,6 +720,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: SettingsWindow::new() 이전, 단일 스레드 진입부에서만 호출한다.
     if std::env::var("SLINT_BACKEND").is_err() {
         std::env::set_var("SLINT_BACKEND", "winit-skia");
+
+        // Linux 한정: 같은 조건에서 백엔드를 직접 만들어 창의 app_id 를 박는다.
+        // 환경변수 경로와 결과(winit + skia)는 동일하고, app_id 지정만 추가된다.
+        // 사용자가 SLINT_BACKEND 를 직접 지정한 경우에는 그 선택을 존중해 건드리지
+        // 않는다(디버깅용 winit-software 등이 이 블록에 막히면 안 된다).
+        #[cfg(target_os = "linux")]
+        install_backend_with_app_id();
     }
 
     // GAP-first-05: 창 생성 실패(예: 렌더러/디스플레이 초기화 불가)를 그냥 `?` 로
