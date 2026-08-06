@@ -39,6 +39,7 @@ static void preedit_draw_cb(XIC ic, XPointer client,
         log_add("[%s] Preedit: \"%s\"", f->label, f->preedit);
     } else {
         f->preedit[0] = '\0';
+        log_add("[%s] Preedit: (비움)", f->label);
     }
 
     fields_update_spot();

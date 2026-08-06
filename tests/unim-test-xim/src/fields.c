@@ -139,7 +139,14 @@ void fields_handle_key(XKeyEvent *event) {
                     log_add("[%s] 입력: \"%s\"", f->label, buf);
                 }
             }
-            f->preedit[0] = '\0';
+            /* preedit 은 여기서 지우지 않는다.
+             *
+             * ON-THE-SPOT(PREEDIT_CALLBACKS) 에서 preedit 의 소유자는 IM 이다.
+             * 앱은 IM 이 PreeditDraw(빈 문자열) 이나 PreeditDone 을 보냈을 때만
+             * 지워야 하고, 그건 preedit_draw_cb / preedit_done_cb 가 이미 한다.
+             * 커밋을 받았다고 앱이 임의로 비우면, 같은 키에서 IM 이 방금 그린
+             * **새 조합**까지 지워져 화면에서 사라진다(커밋과 새 preedit 이 한
+             * 키에 함께 오는 경우 — 예: ㄹ 연타). */
         }
     } else {
         /* XIC 없이 fallback */
