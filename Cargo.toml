@@ -60,6 +60,19 @@ members = [
 ]
 resolver = "2"
 
+# ── xim 크레이트 포크 (일시적) ────────────────────────────────────────────
+# xim 0.5.0 은 XIM_PREEDIT_START 를 동기 요청으로 다루지 않는다 — 응답
+# (XIM_PREEDIT_START_REPLY)을 `// Ignore start reply` 로 버리고 곧바로
+# PreeditDraw 를 보내서, ON-THE-SPOT(PREEDIT_CALLBACKS) 클라이언트가 그
+# PreeditDraw 를 유실한다. 상류에 그대로 낼 수 있는 최소 패치를
+# third_party/xim 에 적용해 두었다.
+#
+# **상류 복귀 방법: 이 [patch.crates-io] 블록 3줄을 지우면 끝난다.**
+# 배경·델타·검증 절차는 third_party/xim/UNIM-FORK.md 참조.
+# 포크와 원본의 차이 확인: `make xim-fork-diff`
+[patch.crates-io]
+xim = { path = "third_party/xim" }
+
 # UB on Windows TSF: Rust panic unwinding across the C ABI / COM boundary
 # (msctf.dll calls into unim_tsf.dll's DllRegisterServer / IUnknown vtable)
 # is undefined behavior and was crashing msctf with 0xC0000005. `abort` is the

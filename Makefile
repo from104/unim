@@ -55,7 +55,7 @@ endef
 
 # ─── Phony ───────────────────────────────────────────────────────────────────
 
-.PHONY: all help build build-rust build-frontends build-tests clean clean-all \
+.PHONY: all help build build-rust build-frontends build-tests clean clean-all xim-fork-diff \
         gen-popup-css gen-popup-css-check \
         help-html check-help-html \
         _check-build \
@@ -116,6 +116,20 @@ gen-popup-css:
 # CI guard — 토큰/template 변경 후 commit 안 한 drift 검출.
 gen-popup-css-check:
 	@python3 tools/popup-styles/gen.py --check
+
+# xim 크레이트 포크가 원본에서 얼마나 벌어져 있는지 확인한다.
+# 배경·상류 복귀 절차는 third_party/xim/UNIM-FORK.md 참조.
+xim-fork-diff:
+	@if [ ! -d third_party/.xim-pristine ]; then \
+		echo "third_party/.xim-pristine 가 없다 — 원본 사본이 있어야 비교할 수 있다."; exit 1; \
+	fi
+	@diff -ruN --exclude=unim-patches --exclude=UNIM-FORK.md \
+		third_party/.xim-pristine third_party/xim \
+		| grep -E "^(diff|Only in)" || echo "원본과 동일 — 포크할 이유가 없다면 지워도 된다."
+	@echo "── 변경 줄수: $$(diff -ruN --exclude=unim-patches --exclude=UNIM-FORK.md \
+		third_party/.xim-pristine third_party/xim | grep -c '^[+-][^+-]')"
+	@echo "── 포크 적용 여부: $$(grep -A2 '^name = \"xim\"$$' Cargo.lock | grep -q '^source' \
+		&& echo '꺼짐 (crates.io 원본 사용)' || echo '켜짐 (third_party/xim 사용)')"
 
 # 오프라인 도움말 — docs/user/{user-guide,keyboard-shortcuts,faq,troubleshooting}/
 # 의 마크다운 8종을 **플랫폼 × 언어** 4장의 자족 HTML 로 병합한다.

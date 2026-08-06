@@ -914,6 +914,10 @@ Clicking **outside** the popup is intentional dismiss behavior — the popup clo
 
 ### "XIM ON-THE-SPOT preedit missing after commit"
 
+**Fixed 2026-08-07**, after being open through 0.3.0–0.4.0. The symptom: right after a syllable was committed, the next jamo did not appear on screen until one more jamo completed a syllable.
+
+The cause was **not** what this page previously claimed (the xim crate's `commit()` not updating `preedit_started`) — removing that workaround entirely left the symptom unchanged. The real cause is that **ON-THE-SPOT clients stop processing messages once they hit `Commit` while handling a key**, so a new preedit sent after the commit was discarded. XIM now sends the preedit **before** the commit; see the exception in `docs/dev/architecture/IME_BEHAVIOR.md` §8.1. OVER-THE-SPOT clients (XTerm, WezTerm) were already fine and were re-verified for regressions.
+
 A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT clients (XTerm, WezTerm) now work correctly. Some ON-THE-SPOT (PREEDIT_CALLBACKS) clients still exhibit the regression — this is a known unresolved issue caused by xim-0.5.0's `commit()` not updating `preedit_started`. Workaround: use an OVER-THE-SPOT client (XTerm) or switch to the GTK/Qt IM modules.
 
 ---
@@ -937,7 +941,7 @@ A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT cl
 - English-mode space drop (gedit): fixed via `consumed=true commit=" "` path.
 - AutoTypeFix residual BS (XIM): fixed via N+1 BS model. Chrome preedit edge case is a known SKIP.
 - `tentative_expiry_hours` unit changed days → hours (1..=12) since 0.2.0; existing config auto-migrates.
-- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (UNRESOLVED)**: After committing a Hangul syllable, the next jamo's preedit is invisible for one frame and only renders once an additional jamo arrives to form a syllable. Affects custom XIM clients (e.g. `unim-test-xim`) and some ON-THE-SPOT XIM apps. **Unaffected**: XTerm, WezTerm, other OVER-THE-SPOT (PreeditPosition) clients, GTK3/4, Qt5/6, Wayland, GNOME extension. Best-effort mitigation forces `clear_preedit()` before `commit()` in `commit_then_preedit()` to make xim-0.5.0 emit PreeditDone automatically, but the regression persists on some ON-THE-SPOT clients. Root cause is xim-0.5.0/src/server.rs:236-248 `commit()` not updating `preedit_started`; needs an upstream fix or a redesigned protocol sequence. Trace: `unim-frontends/xim/src/handler.rs:378-`.
+- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (FIXED 2026-08-07)**: After committing a syllable the next jamo stayed invisible until another jamo arrived. The cause was that ON-THE-SPOT clients stop processing messages once they hit `Commit` while handling a key (the long-standing claim that xim's `commit()` fails to update `preedit_started` was a misdiagnosis). Fixed by having XIM — and only XIM — send the preedit before the commit; see `IME_BEHAVIOR.md` §8.1. Regression watch: `tests/unim-test-xim` and `tests/unim-test-gtk3` (ON-THE-SPOT), `xterm` (OVER-THE-SPOT).
 
 ### C. Multiple daemon instances
 

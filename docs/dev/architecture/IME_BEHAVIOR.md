@@ -303,9 +303,34 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
    - false → 키 통과 (앱에 전달)
 ```
 
-**주의 (XIM)**: commit 전에 `clear_preedit()`를 호출하면 안 됨. PreeditDone이 먼저 전송되어 일부 클라이언트에서 세션이 닫힘.
-
 **순서가 중요한 이유**: commit → preedit 순서를 지키지 않으면 조합 중 문자가 이중 커밋되거나 누락됨.
+
+#### 예외 — XIM 은 preedit 을 먼저 보낸다 (2026-08-07)
+
+XIM 프런트엔드만 2·3단계가 **뒤바뀐다**: `preedit 갱신 → commit`.
+
+ON-THE-SPOT(`PREEDIT_CALLBACKS`) 클라이언트는 한 키에 대한 응답을 처리하다가
+**`Commit` 을 만나면 그 뒤에 온 메시지를 더 이상 처리하지 않는다.** 실측에서
+서버가 한 배치로 내보낸
+`PreeditDraw(empty) → PreeditDone → Commit → PreeditStart → PreeditDraw` 중
+클라이언트가 소화한 것은 앞의 `PreeditDraw(empty)` 와 `Commit` 뿐이었고,
+뒤따르는 `PreeditStart`/`PreeditDraw` 는 `PreeditStartReply` 조차 오지 않은 채
+사라졌다(자체 Xlib 클라이언트·GTK3 XIM 모듈 양쪽 동일). 그래서 커밋 직후의 첫
+자모가 안 보이고 다음 자모가 들어와야 나타나던 것이다 — 0.3.0 부터 미해결로
+적혀 있던 증상의 정체.
+
+- 조합이 계속되면: 새 preedit `PreeditDraw` → `Commit`
+- 조합이 끝나면: **내용만 비우는** `PreeditDraw(empty)` → `Commit`.
+  이때 `PreeditDone` 은 보내지 않는다 — commit 보다 먼저 나가면 일부
+  클라이언트가 세션을 닫는다(그래서 **commit 전 `clear_preedit()` 호출 금지**는
+  여전히 유효하다). 사이클은 focus-out / reset 에서 닫는다.
+
+구현: `unim-frontends/xim/src/handler.rs` 의 `commit_then_preedit()` 와,
+`third_party/xim` 포크가 추가한 `preedit_clear_keep_session()`.
+검증: `tests/unim-test-xim`(ON-THE-SPOT) · `tests/unim-test-gtk3`(GTK XIM,
+Obsidian 과 같은 경로) · `xterm`(OVER-THE-SPOT 회귀 없음).
+
+다른 프런트엔드(GTK/Qt/Wayland/GNOME)는 위 8.1 순서를 그대로 따른다.
 
 ### 8.2 포커스 획득 (Focus In) 시퀀스
 

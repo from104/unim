@@ -60,6 +60,8 @@ The release where an input method that only ran on Linux started running on Wind
 
 - **Password-field suppression did nothing on GNOME Wayland**: The GNOME extension's content-purpose handling was an empty stub, so suppression was silently inert on GNOME Wayland — where GTK3/4 and Chrome all funnel through that path. It is now wired up and tracks a field's purpose changing while it stays focused (a "show password" toggle, for instance).
 
+- **In XIM apps, the character after a commit showed up one keystroke late**: In apps that go through XIM (Obsidian and others), once a syllable was committed the next jamo you typed did not appear until you typed another one. Open since 0.3.0; it now appears as you type. (Terminals and other OVER-THE-SPOT clients were already correct and stay that way.)
+
 - **Clicking elsewhere while composing committed the text at the click position**: In Chrome, Obsidian, and other apps, clicking elsewhere in the same input field mid-composition placed the in-progress syllable at the click position instead of where it was being typed. Fixed on the GNOME Wayland, XIM, and Qt paths.
 
 - **Shortcut fields suggested keys that do not exist**: Following the hints and entering `ScrollLock` or `Hangul` left the shortcut silently dead. The examples now use specs that actually work (`F10`, `Korean`, `Hanja`), and the stale "modifier combinations are not supported" note was corrected.

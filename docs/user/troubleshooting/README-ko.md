@@ -911,7 +911,11 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 
 ### 증상: XIM ON-THE-SPOT commit 직후 preedit 누락
 
-0.3.0에서 `commit_then_preedit` best-effort 적용이 완료됐다. XTerm·WezTerm 등 OVER-THE-SPOT 환경에서는 정상 복귀됐다. 일부 ON-THE-SPOT(PREEDIT_CALLBACKS) 클라이언트에서는 회귀가 잔존한다. 이는 xim-0.5.0 crate 내부 `commit()`이 `preedit_started` 상태머신을 갱신하지 않는 근본 원인 때문이며, 현재 알려진 미해결 이슈다. OVER-THE-SPOT 환경(XTerm 등)으로 우회하거나 GTK/Qt IM 모듈을 사용한다.
+**2026-08-07 해결됨.** 0.3.0~0.4.0 동안 미해결로 남아 있던 증상이다. 조합 중이던 음절이 확정된 직후 새로 누른 자모가 화면에 안 나타나고, 자모를 하나 더 눌러 음절이 만들어져야 보이기 시작했다.
+
+원인은 그동안 이 문서가 지목하던 "xim crate의 `commit()`이 `preedit_started`를 갱신하지 않음"이 **아니었다**(그 우회책을 통째로 제거해도 증상이 그대로였다). 실제로는 **ON-THE-SPOT 클라이언트가 한 키를 처리하다 `Commit`을 만나면 그 뒤에 온 메시지를 버리기 때문**이었다 — 새 preedit이 `Commit` 뒤에 실려 나가서 사라진 것이다. 그래서 XIM만 preedit을 commit보다 **먼저** 보내도록 바꿨다. 자세한 계약은 `docs/dev/architecture/IME_BEHAVIOR.md` §8.1 예외 항목.
+
+XTerm·WezTerm 등 OVER-THE-SPOT 환경은 이전에도 정상이었고 이번 변경으로도 회귀가 없음을 확인했다.
 
 ---
 
@@ -934,7 +938,7 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 - **영문 모드 Space 누락 (gedit)**: 0.2.0에서 `consumed=true commit=" "` 경로로 수정. 회귀 시 `engine_worker.rs` Space 처리 분기 점검.
 - **AutoTypeFix 잔존 BS (XIM)**: 0.2.0 N+1 BS 모델로 수정됨. Chrome preedit edge case는 알려진 SKIP.
 - **`tentative_expiry_hours` 단위**: 0.2.0부터 days→hours로 변경 (1..=12). 기존 config는 자동 마이그레이션.
-- **XIM ON-THE-SPOT(PREEDIT_CALLBACKS) 모드 commit 직후 preedit 누락 (미해결)**: 한글 음절 commit 직후 새 자모를 입력해도 preedit가 한 프레임 가시화되지 않다가 추가 자모가 들어와 음절이 형성되어야 보이기 시작. 영향 범위 — 자체 XIM client(예: `unim-test-xim`)·일부 ON-THE-SPOT XIM 앱. **무영향** — XTerm·WezTerm·기타 OVER-THE-SPOT(PreeditPosition) 클라이언트, GTK3/4·Qt5/6·Wayland·GNOME extension 모두 정상. `commit_then_preedit()` 에서 commit 직전 `clear_preedit()` 강제(xim-0.5.0의 PreeditDone 자동 발사) best-effort 적용했으나 일부 ON-THE-SPOT 클라이언트에서 회귀 잔존. xim crate 의 `commit()` 이 `preedit_started` 상태를 갱신하지 않는 점이 근본 원인 — crate 측 fix 또는 별도 protocol 시퀀스 재설계 필요. 추적: `unim-frontends/xim/src/handler.rs:378-`, `xim-0.5.0/src/server.rs:236-248`.
+- **XIM ON-THE-SPOT(PREEDIT_CALLBACKS) 모드 commit 직후 preedit 누락 (2026-08-07 해결)**: 한글 음절 commit 직후 새 자모가 화면에 안 나타나고 자모가 하나 더 들어와야 보이던 문제. 원인은 ON-THE-SPOT 클라이언트가 한 키를 처리하다 `Commit` 을 만나면 그 뒤 메시지를 버리는 것이었다 (오래 적혀 있던 "xim crate 의 `commit()` 이 `preedit_started` 를 갱신하지 않음" 은 오진). XIM 만 preedit 을 commit 보다 먼저 보내도록 바꿔 해결했다 — `IME_BEHAVIOR.md` §8.1 예외 항목. 회귀 감시: `tests/unim-test-xim`·`tests/unim-test-gtk3`(ON-THE-SPOT)와 `xterm`(OVER-THE-SPOT).
 
 ### C. 데몬 다중 인스턴스
 

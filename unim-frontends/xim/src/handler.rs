@@ -367,6 +367,16 @@ impl UnimHandler {
         Ok(())
     }
 
+    /// Over-The-Spot preedit 윈도우 정리 (PREEDIT_CALLBACKS 에서는 없으므로 noop).
+    fn drop_pe_window(&mut self, user_ic: &mut UserInputContext<UnimInputContext>) {
+        if let Some(pe_id) = user_ic.user_data.pe_window.take() {
+            if let Some(pe) = self.preedit_windows.remove(&pe_id) {
+                unim_log!("XIM_HANDLER", "PeWindow 삭제: id={}", pe_id);
+                pe.clean(self.display, self.screen);
+            }
+        }
+    }
+
     fn clear_preedit<C: Connection + xim::x11rb::HasConnection>(
         &mut self,
         server: &mut X11rbServer<C>,
@@ -390,27 +400,30 @@ impl UnimHandler {
 
     /// commit + preedit 송출 SSOT 헬퍼.
     ///
-    /// 동일 frame에 commit과 preedit_draw를 함께 발사하면 일부 XIM 클라이언트
-    /// (Chrome, ibus 호환 GTK 등)가 commit 처리 도중 preedit을 초기화하면서
-    /// 새 preedit을 놓치는 race가 발생한다. (예: 두벌식 ㄹㄹㄹ 5연타 시
-    /// 두 번째 ㄹ 입력에서 daemon이 commit='ㄹ', preedit='ㄹ' 둘 다 반환 →
-    /// 클라이언트가 commit 처리하며 preedit을 비워버림.)
+    /// **XIM 은 다른 프런트엔드와 순서가 반대다** — 새 preedit 을 commit **보다
+    /// 먼저** 보낸다. IME_BEHAVIOR.md §8.1 의 commit→preedit 순서에 대한 XIM
+    /// 전용 예외이며, 근거는 아래 실측이다.
     ///
-    /// 회피책: commit 직전에 `clear_preedit()` 을 강제 호출해 현재 preedit
-    /// 사이클을 종료(PreeditDraw(empty)+PreeditDone)시켜 xim crate 내부의
-    /// `ic.preedit_started=false` 로 reset한 다음 commit → 새 preedit_draw.
-    /// 그러면 새 preedit_draw 호출 시 xim crate 가 자동으로 PreeditStart 를
-    /// 재발사(server.rs:205-214)해 PREEDIT_CALLBACKS(ON-THE-SPOT) 모드
-    /// 클라이언트가 PreeditStart 없이 도착한 PreeditDraw 를 무시하던
-    /// 누락 버그를 차단한다.
+    /// ON-THE-SPOT(`PREEDIT_CALLBACKS`) 클라이언트는 하나의 키에 대한 응답을
+    /// 처리하다가 **`Commit` 을 만나면 그 뒤에 온 메시지를 더 이상 처리하지
+    /// 않는다.** 서버가 한 배치로 내보낸
+    /// `PreeditDraw(empty) → PreeditDone → Commit → PreeditStart → PreeditDraw`
+    /// 중 클라이언트가 실제로 소화한 것은 앞의 `PreeditDraw(empty)` 와 `Commit`
+    /// 뿐이었고, 뒤따르는 `PreeditStart`/`PreeditDraw` 는 `PreeditStartReply`
+    /// 조차 오지 않은 채 사라졌다(자체 Xlib 클라이언트·GTK3 XIM 모듈 양쪽에서
+    /// 동일). 그래서 커밋 직후의 첫 자모가 화면에 안 나타나고 다음 자모가
+    /// 들어와야 보이던 것이다 — 0.3.0 부터 "미해결" 로 적혀 있던 그 증상이다.
     ///
-    /// 배경: xim-0.5.0/src/server.rs:236-248 의 `commit()` 은 단순히 Commit
-    /// 메시지만 보내고 `preedit_started` 를 그대로 둔다. 그러나 일부 ON-THE-SPOT
-    /// 클라이언트(unim-test-xim 등)는 commit 후 PreeditDone 을 자체 가정 →
-    /// 다음 PreeditDraw 가 PreeditStart 없이 도착하면 무시. XTerm/WezTerm 은
-    /// PreeditPosition(OVER-THE-SPOT) 모드라 이 사이클 영향이 없어 무관.
+    /// 이 순서로 바꾸면 preedit 이 `Commit` 앞에 있으므로 반드시 처리된다.
+    /// 실측: 키마다 `Preedit "ㄹ"` → `입력 "ㄹ"` 이 같은 키 안에서 순서대로
+    /// 찍히고, 커밋 수도 정확하다(4타 → 커밋 3 + preedit 1).
     ///
-    /// AutoTypeFix N+1 BS 분기(handle_xevent 내 deferred_autofix 처리)는
+    /// 이전 구현은 commit 직전에 `clear_preedit()` 을 강제 호출했는데,
+    /// IME_BEHAVIOR.md §8.1 의 주의사항("commit 전에 `clear_preedit()` 를
+    /// 호출하면 안 됨 — PreeditDone 이 먼저 전송되어 일부 클라이언트에서
+    /// 세션이 닫힘")을 정면으로 어기는 코드였다. 함께 제거했다.
+    ///
+    /// AutoTypeFix N+1 BS 분기(handle_forward_event 내 deferred_autofix 처리)는
     /// XTest 가짜 이벤트 주입 + per-key sleep 컨텍스트라 별개 동작 — 본
     /// 함수 변경의 영향 범위 밖.
     fn commit_then_preedit<C: Connection + xim::x11rb::HasConnection>(
@@ -423,26 +436,23 @@ impl UnimHandler {
         let has_commit = !commit_text.is_empty();
         let has_preedit = !preedit_text.is_empty();
 
-        if has_commit {
-            // [1단계] 현재 preedit 사이클 종료 — xim crate 가 PreeditDraw(empty)
-            // + PreeditDone 을 발사하고 preedit_started=false 로 reset.
-            // 이 호출이 noop 인 경우(이미 preedit 비어있음)도 무해.
-            self.clear_preedit(server, user_ic)?;
-
-            // [2단계] commit 전송
-            server.commit(&user_ic.ic, commit_text)?;
-            server.conn().flush().ok();
-        }
-
-        // [3단계] 새 preedit 전송 — preedit_started=false 인 상태에서
-        // preedit_draw 가 호출되면 xim crate 가 PreeditStart 를 자동 재발사.
+        // [1단계] preedit 갱신을 먼저. Commit 뒤로 밀면 클라이언트가 버린다.
         if has_preedit {
             self.preedit(server, user_ic, preedit_text)?;
-            server.conn().flush().ok();
-        } else if !has_commit {
-            // commit 도 없고 preedit 도 비어있는 케이스만 별도 clear.
-            // commit 분기는 이미 [1단계] 에서 clear 처리됨.
-            self.clear_preedit(server, user_ic)?;
+        } else {
+            // 조합 종료 — 내용만 비우고 PreeditStart/Done 사이클은 유지한다.
+            // 여기서 PreeditDone 까지 보내면 commit 보다 먼저 나가게 되어 일부
+            // 클라이언트가 세션을 닫는다(IME_BEHAVIOR.md §8.1 주의사항).
+            // 사이클은 focus-out / reset 에서 정상적으로 닫힌다.
+            user_ic.user_data.preedit_cache.clear();
+            server.preedit_clear_keep_session(&mut user_ic.ic)?;
+            self.drop_pe_window(user_ic);
+        }
+        server.conn().flush().ok();
+
+        // [2단계] commit
+        if has_commit {
+            server.commit(&user_ic.ic, commit_text)?;
             server.conn().flush().ok();
         }
 
