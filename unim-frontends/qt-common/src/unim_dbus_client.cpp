@@ -282,8 +282,12 @@ QString UnimDbusClient::reset()
     if (m_isComposing && !m_preeditCache.isEmpty()) {
         commitStr = m_preeditCache;
         UNIM_DBUS_DEBUG(QString::asprintf("Reset 커밋: %s", qPrintable(commitStr)));
+        // dedupe: 데몬이 곧 같은 값을 CommitText 시그널로 보내므로 1회 skip 표시.
+        // 호출자는 이 반환값을 조합이 시작된 자리에 커밋한다. 시그널은 비동기라
+        // 앱이 캐럿을 옮긴 뒤에 도착하므로, 통과시키면 클릭한 자리에 또 박힌다.
+        m_pendingSkipCommit = commitStr;
     }
-    
+
     QDBusMessage msg = QDBusMessage::createMethodCall(
         UNIM_DBUS_SERVICE,
         m_contextPath,
@@ -600,6 +604,13 @@ void UnimDbusClient::setCommitTextCallback(CommitTextCallback callback) {
 
 void UnimCommitTextReceiver::onCommitText(const QString &text) {
     if (m_client && m_client->m_commitTextCallback && !text.isEmpty()) {
+        // dedupe: reset() 이 동기 반환한 커밋의 메아리는 1회 skip.
+        // (m_pendingSkipCommit 선언부 주석 참조)
+        if (m_client->m_pendingSkipCommit == text) {
+            UNIM_DBUS_DEBUG(QString::asprintf("CommitText dedupe skip: '%s'", qPrintable(text)));
+            m_client->m_pendingSkipCommit.clear();
+            return;
+        }
         UNIM_DBUS_DEBUG(QString::asprintf("CommitText received: '%s'", qPrintable(text)));
         m_client->m_commitTextCallback(text);
     }

@@ -60,7 +60,7 @@ The release where an input method that only ran on Linux started running on Wind
 
 - **Password-field suppression did nothing on GNOME Wayland**: The GNOME extension's content-purpose handling was an empty stub, so suppression was silently inert on GNOME Wayland — where GTK3/4 and Chrome all funnel through that path. It is now wired up and tracks a field's purpose changing while it stays focused (a "show password" toggle, for instance).
 
-- **Clicking while composing committed the text at the click position**: In Chrome, Electron apps, and other web views on GNOME Wayland, clicking elsewhere in the same input field mid-composition placed the in-progress syllable at the click position instead of where it was being typed. It now commits where composition started.
+- **Clicking elsewhere while composing committed the text at the click position**: In Chrome, Obsidian, and other apps, clicking elsewhere in the same input field mid-composition placed the in-progress syllable at the click position instead of where it was being typed. Fixed on the GNOME Wayland, XIM, and Qt paths.
 
 - **Shortcut fields suggested keys that do not exist**: Following the hints and entering `ScrollLock` or `Hangul` left the shortcut silently dead. The examples now use specs that actually work (`F10`, `Korean`, `Hanja`), and the stale "modifier combinations are not supported" note was corrected.
 

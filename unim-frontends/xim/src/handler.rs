@@ -118,6 +118,24 @@ pub struct UnimHandler {
     /// XIM crate가 server.commit()/preedit_draw() 시 keycode=0 가상 이벤트를
     /// handle_forward_event로 재진입시키므로, 이를 무시하기 위한 가드.
     autofix_commit_guard: bool,
+    /// dedupe: `handle_reset_ic` 가 `ResetIcReply` 로 커밋 문자열을 동기 반환한
+    /// 직후 데몬이 같은 값을 `CommitText` 시그널로 또 발행하므로, 그 값을
+    /// 기억해 두었다가 1회만 skip 한다.
+    ///
+    /// 배경: `handle_reset_ic` 는 XIM 계약대로 preedit 을 동기 반환하고,
+    /// 클라이언트는 그 문자열을 **조합이 시작된 자리**에 커밋한다. 그런데 같은
+    /// 경로에서 보낸 `DbusRequest::Reset` 때문에 데몬이
+    /// (`unim-dbus/src/service.rs` 의 `reset()`) 비운 조합을 `CommitText`
+    /// 시그널로도 발행하고, 이게 팝업 커밋용 구독을 타고 들어와
+    /// `server.commit()` 으로 한 번 더 들어간다. 시그널은 비동기라 앱이 이미
+    /// 캐럿을 옮긴 뒤에 도착하므로 두 번째 글자가 클릭한 자리에 박힌다.
+    ///
+    /// GTK 모듈의 `pending_skip_commit`
+    /// (`unim-frontends/gtk-common/src/unim_dbus_client.c`) 과 같은 방식이다.
+    /// 만료 시각을 두지 않는 것도 의도적이다 — XIM 은 `dbus_tx` 채널 →
+    /// `proxy.reset().await` → 데몬 → 시그널로 돌아오느라 왕복이 길어서
+    /// (실측 로그에서 1초 가까이) 시한을 두면 늦은 메아리를 놓친다.
+    pending_skip_commit: Option<String>,
 }
 
 impl UnimHandler {
@@ -158,7 +176,17 @@ impl UnimHandler {
             deferred_autofix: None,
             autofix_context_path: None,
             autofix_commit_guard: false,
+            pending_skip_commit: None,
         })
+    }
+
+    /// `CommitText` 시그널이 방금 동기 반환한 커밋의 메아리인지 판정하고 소비한다.
+    fn take_pending_skip_commit(&mut self, text: &str) -> bool {
+        if self.pending_skip_commit.as_deref() == Some(text) {
+            self.pending_skip_commit = None; // 1회용
+            return true;
+        }
+        false
     }
 
     /// DBus 요청 전송 (동기적 - 블로킹)
@@ -504,6 +532,13 @@ impl UnimHandler {
                 }
             }
             PopupEvent::CommitText { text } => {
+                // 우리가 보낸 Reset 이 되쏘는 메아리는 여기서 걸러낸다. 이미
+                // ResetIcReply 로 같은 글자를 제자리에 커밋했으므로, 이걸 통과시키면
+                // 캐럿이 옮겨간 자리에 한 번 더 박힌다. (pending_skip_commit 주석 참조)
+                if self.take_pending_skip_commit(&text) {
+                    unim_log!("XIM_HANDLER", "CommitText 시그널 dedupe skip: '{}'", text);
+                    return Ok(());
+                }
                 // Standalone popup 마우스 클릭 시 커밋. last_focused_ic_info에 캐시된
                 // (client_win, im_id, ic_id)로 InputContext를 재구성해서 server.commit
                 // 호출. server.commit 내부는 client_win + im_id + ic_id만 사용하므로
@@ -709,6 +744,13 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         unim_log!("XIM_HANDLER", "reset 호출");
 
         let preedit = user_ic.user_data.preedit_cache.clone();
+
+        // 이 문자열은 아래에서 ResetIcReply 로 동기 반환되고, 클라이언트가 조합이
+        // 시작된 자리에 커밋한다. 곧이어 보내는 Reset 때문에 데몬이 같은 글자를
+        // CommitText 시그널로 되쏘므로, 그 메아리를 1회 skip 하도록 표시해 둔다.
+        if !preedit.is_empty() {
+            self.pending_skip_commit = Some(preedit.clone());
+        }
 
         // DBus Reset 호출
         let _ = self.dbus_tx.blocking_send(DbusRequest::Reset {
