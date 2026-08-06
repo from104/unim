@@ -486,6 +486,9 @@ export class KeyHandler {
         if (preedit.length > 0) {
             this._inputMethod.clearPreedit();
             this._inputMethod.commitText(preedit);
+            // 아래 reset() 이 같은 글자를 CommitText 로 되쏘므로 미리 막는다
+            // (unim_input_method.js vfunc_reset 주석 참조).
+            this._inputMethod._armCommitEchoGuard(preedit);
         }
         // 엔진 상태 초기화 (포커스 변경 없이)
         if (this._dbusIME?.isConnected) {
@@ -772,6 +775,8 @@ export class KeyHandler {
             if (preedit.length > 0) {
                 this._inputMethod.clearPreedit();
                 this._inputMethod.commitText(preedit);
+                // reset() 의 CommitText 메아리 차단 (_flushCompose 와 동일 사유).
+                this._inputMethod._armCommitEchoGuard(preedit);
                 if (this._dbusIME?.isConnected) this._dbusIME.reset();
             }
             return Clutter.EVENT_PROPAGATE;

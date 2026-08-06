@@ -6,10 +6,6 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 형식은 [Keep a Changelog (korean)]를 기반으로 하며 이 프로젝트는 [Semantic Versioning (korean)]을 따릅니다.
 
-## [Unreleased]
-
----
-
 ## [0.4.0] 2026-08-01
 
 리눅스에서만 돌던 입력기가 Windows에서도 같은 코어로 동작하고, 설치가 한 줄로 끝나며, 설정 창이 두 플랫폼에서 같아진 릴리스입니다.
@@ -65,6 +61,8 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 - **순수 Wayland 에서 모든 키가 오독되던 문제**: Sway·단독 Hyprland 등에서 프런트엔드가 X11 방식 키코드(raw evdev + 8)를 보내고 데몬은 raw evdev 를 기대해, 사실상 모든 키 조회가 8 만큼 어긋나 있었습니다. GNOME 세션은 확장 경로를 쓰므로 영향이 없었습니다.
 
 - **GNOME Wayland 에서 비밀번호 필드 억제가 동작하지 않던 문제**: GNOME 확장의 content-purpose 처리가 빈 껍데기여서, GTK3/4·Chrome 이 전부 이 경로로 수렴하는 GNOME Wayland 에서는 억제가 조용히 무효였습니다. 이제 배선됐고, 포커스를 유지한 채 필드 성격이 바뀌는 경우("비밀번호 표시" 토글 등)까지 추적합니다.
+
+- **웹뷰에서 조합 중 클릭하면 글자가 클릭한 자리에 확정되던 문제**: GNOME Wayland 의 Chrome·Electron 등에서 한글을 조합하다 같은 입력란의 다른 곳을 클릭하면, 조합 중이던 글자가 원래 자리가 아니라 클릭한 자리에 들어갔습니다. 이제 원래 자리에 확정됩니다.
 
 - **단축키 칸이 존재하지 않는 키를 예시로 안내하던 문제**: 안내대로 `ScrollLock`·`Hangul` 을 적으면 그 단축키가 조용히 죽었습니다. 실제로 유효한 표기(`F10`, `Korean`, `Hanja`)로 바로잡고, "수정자 조합은 지원하지 않습니다" 라는 옛 설명도 정정했습니다.
 

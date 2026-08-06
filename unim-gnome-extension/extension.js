@@ -238,7 +238,16 @@ export default class UnimExtension extends Extension {
                 onCommitText: (text) => {
                     // chord idle flush 등 비동기 commit 경로. daemon 이 InputContext path 로
                     // emit 한 CommitText 시그널을 받아 _inputMethod 로 직접 commit.
+                    //
+                    // 단 Reset 이 되쏘는 메아리는 걸러야 한다 — daemon 의 reset() 은 비운
+                    // 조합을 CommitText 로도 발행하는데(unim-dbus/src/service.rs), 그 시점엔
+                    // mutter 가 이미 제자리에 커밋한 뒤다. 메아리를 그대로 커밋하면 비동기
+                    // 도착 시점의 캐럿(=클릭한 자리)에 같은 글자가 한 번 더 들어간다.
                     if (text && this._inputMethod) {
+                        if (this._inputMethod.shouldSuppressCommitEcho(text)) {
+                            unimLog('EXT', `CommitText 메아리 무시: '${text}'`);
+                            return;
+                        }
                         this._inputMethod.commitText(text);
                     }
                 },

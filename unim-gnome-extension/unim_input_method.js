@@ -69,6 +69,12 @@ const CLUTTER_HINT_HIDDEN_TEXT = 64;
 // 필드가 사라진 stale 값으로 보고 폐기한다(과차단 방지, SPEC §2.7).
 const PENDING_PURPOSE_TTL_US = 2_000_000;
 
+// 데몬 Reset 이 되쏘는 CommitText 메아리를 무시하는 창(ms). 같은 main loop 의
+// 다음 몇 dispatch 안에 도착하므로 실측 0.2ms 수준이지만, 데몬이 바쁠 때를 감안해
+// 넉넉히 잡는다. 사람이 같은 글자를 다시 확정하기까지는 이보다 훨씬 오래 걸리고,
+// 가드는 1회 소비되면 즉시 해제되므로 과차단 위험은 없다.
+const COMMIT_ECHO_GUARD_MS = 300;
+
 /**
  * UnimInputMethod
  *
@@ -330,11 +336,18 @@ class UnimInputMethod extends Clutter.InputMethod {
         }
 
         // 3. DBus 커밋 실패 시 로컬 preedit 폴백
+        //
+        // 보통은 여기 도달하기 전에 localPreedit 이 이미 비어 있다 — mutter 의
+        // focus 이동 경로(meta_wayland_text_input_set_focus)가
+        // clutter_input_focus_reset() → (COMMIT 모드 커밋) → vfunc_reset →
+        // flush_done → focus_out 순서라, vfunc_reset 이 먼저 preedit 을 비우기 때문.
+        // 그 순서가 깨지는 경로에 대비한 폴백으로만 남긴다.
         if (!committed && localPreedit && localPreedit.length > 0) {
             this._preeditText = '';
             try {
-                this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
+                // commit 이 먼저 (_flushPreedit 과 같은 이유 — 조합 자리 앵커 유지)
                 this.commit(localPreedit);
+                this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
             } catch (e) {
                 unimError('IME', `focusOut 로컬 커밋 실패: ${e.message}`);
             }
@@ -371,20 +384,81 @@ class UnimInputMethod extends Clutter.InputMethod {
             }
         }
 
-        // 2. preedit 커밋
-        const preedit = this._preeditText;
-        if (preedit && preedit.length > 0) {
+        // 2. preedit 커밋은 **여기서 하지 않는다** — mutter 가 이미 했다.
+        // clutter_input_focus_reset() 은 priv->mode == COMMIT 이면
+        // clutter_input_focus_commit() 을 호출한 **뒤에야**
+        // clutter_input_method_reset() → 이 vfunc 을 부른다(updatePreedit 주석 참조).
+        // 여기서 또 commit() 하면 같은 글자가 두 번 들어간다.
+        //
+        // 주의: mutter 를 거치지 않고 이 vfunc 을 직접 호출하는 경로
+        // (vfunc_set_cursor_location 의 cursor-jump 감지)는 스스로 flushPreedit() 로
+        // 커밋한 뒤 들어와야 한다 — 그 경로엔 mutter 의 commit 이 없다.
+        if (this._preeditText.length > 0) {
+            const flushed = this._preeditText;
             this._preeditText = '';
-            try {
-                this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
-                this.commit(preedit);
-            } catch (e) {
-                unimError('IME', `vfunc_reset 커밋 실패: ${e.message}`);
-            }
-            // 엔진 상태 초기화
+            // 엔진 상태 초기화. 단 데몬의 Reset 은 비운 조합을 **CommitText 시그널로
+            // 되쏜다**(unim-dbus/src/service.rs 의 reset(): `Self::commit_text(...)`).
+            // 그 메아리는 비동기라 **캐럿이 이미 이동한 뒤에** 도착하고, 그대로 커밋하면
+            // 클릭한 자리에 같은 글자가 한 번 더 들어간다. 이미 mutter 가 제자리에
+            // 커밋했으므로 짧은 창 동안 같은 문자열의 메아리를 무시한다.
+            this._armCommitEchoGuard(flushed);
             if (this._dbusIME) {
                 this._dbusIME.reset();
             }
+        }
+    }
+
+    /**
+     * 방금 커밋된 문자열과 같은 CommitText 메아리를 짧은 창 동안 무시하도록 무장한다.
+     * @param {string} text
+     * @private
+     */
+    _armCommitEchoGuard(text) {
+        if (!text) return;
+        this._commitEchoGuard = { text, until: Date.now() + COMMIT_ECHO_GUARD_MS };
+    }
+
+    /**
+     * CommitText 시그널이 방금 처리한 커밋의 메아리인지 판정한다.
+     * 한 번 소비되면 해제되어, 사용자가 같은 글자를 곧바로 다시 쳐도 막히지 않는다.
+     * @param {string} text
+     * @returns {boolean} true 면 무시해야 한다
+     */
+    shouldSuppressCommitEcho(text) {
+        const g = this._commitEchoGuard;
+        if (!g) return false;
+        if (Date.now() > g.until) {
+            this._commitEchoGuard = null;
+            return false;
+        }
+        if (g.text !== text) return false;
+        this._commitEchoGuard = null;   // 1회용
+        return true;
+    }
+
+    /**
+     * mutter 의 reset 경로를 거치지 않고 조합을 확정해야 할 때 쓰는 로컬 flush.
+     *
+     * commit 을 **먼저**, preedit 클리어를 **나중에** 하는 순서가 핵심이다
+     * (IME_BEHAVIOR.md §"commit 처리(먼저) → preedit 처리(commit 후)").
+     * commit() 은 wayland 상에서 preedit_string(NULL)+commit_string 을 한 done
+     * 배치로 보내므로 조합 중이던 자리에 앵커된다. 그 뒤 set_preedit_text(null) 로
+     * mutter 쪽 preedit 사본(priv->preedit)을 비워, 뒤늦게 진짜 reset 이 와도
+     * COMMIT 모드가 같은 글자를 한 번 더 커밋하지 않게 한다.
+     * @private
+     */
+    _flushPreedit() {
+        const preedit = this._preeditText;
+        if (!preedit || preedit.length === 0) return;
+        this._preeditText = '';
+        // 호출자가 곧이어 데몬 reset() 을 부르면 같은 글자가 CommitText 로 되돌아온다.
+        // 미리 가드를 무장해 그 메아리를 흘린다(vfunc_reset 주석 참조).
+        this._armCommitEchoGuard(preedit);
+        try {
+            this.commit(preedit);
+            this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
+        } catch (e) {
+            unimError('IME', `_flushPreedit 커밋 실패: ${e.message}`);
         }
     }
 
@@ -420,12 +494,17 @@ class UnimInputMethod extends Clutter.InputMethod {
             if (dx * dx + dy * dy > JUMP_THRESHOLD_PX2) {
                 unimLog('IME',
                     `외부 cursor 점프 감지: prev=(${prev.x},${prev.y}) → new=(${newRect.x},${newRect.y}) ` +
-                    `elapsed=${elapsedMs}ms — vfunc_reset 트리거`);
-                this._cursorRect = newRect;   // reset 전 갱신 (재귀 방지)
+                    `elapsed=${elapsedMs}ms — 로컬 flush 트리거`);
+                this._cursorRect = newRect;   // flush 전 갱신 (재귀 방지)
                 try {
-                    this.vfunc_reset();
+                    // 이 경로는 mutter 의 clutter_input_focus_reset() 을 거치지 않는다
+                    // — 즉 COMMIT 모드가 발동하지 않으므로 vfunc_reset 에 맡길 수 없다.
+                    // vfunc_reset 을 호출하지 않고 같은 일을 명시적으로 수행한다.
+                    this._resetHandler?.();      // 팝업 정리
+                    this._flushPreedit();        // 커밋 + preedit 클리어 (가드 무장 포함)
+                    this._dbusIME?.reset();      // 엔진 상태 초기화
                 } catch (e) {
-                    unimError('IME', `cursor-jump reset 실패: ${e.message}`);
+                    unimError('IME', `cursor-jump flush 실패: ${e.message}`);
                 }
                 // reset 후 cursor 좌표는 새 위치로. daemon 통보도 새 좌표로.
                 if (this._dbusIME) {
@@ -549,11 +628,31 @@ class UnimInputMethod extends Clutter.InputMethod {
 
         try {
             if (this._preeditText.length > 0) {
+                // reset 모드는 COMMIT — "리셋이 오면 이 preedit 을 커밋하라"고 mutter 에
+                // 미리 선언해 두는 것이다(mutter clutter-input-focus.c):
+                //
+                //   clutter_input_focus_reset():
+                //     if (priv->mode == COMMIT) clutter_input_focus_commit(focus, priv->preedit);
+                //     clutter_input_focus_set_preedit_text(focus, NULL, 0, 0);
+                //     clutter_input_method_reset(priv->im);   // ← 그제서야 vfunc_reset
+                //
+                // CLEAR 로 두면 mutter 가 preedit 을 먼저 파기하고, 그 뒤 vfunc_reset 에서
+                // 우리가 commit 해봐야 **앵커가 사라진 뒤**라 앱의 현재 캐럿에 들어간다.
+                // 웹뷰(Chrome 등)는 클릭 시 조합을 스스로 확정하지 않고 버린 채 reset 만
+                // 보내므로, 조합 중 같은 필드 다른 위치를 클릭하면 글자가 클릭한 자리로
+                // 옮겨가 버렸다. COMMIT 이면 mutter 가 clutter_input_focus_commit() 을
+                // 먼저 호출하고, 이는 wayland 상에서 preedit_string(NULL)+commit_string 을
+                // **한 done 배치**로 보낸다. text-input-v3 의 done 처리 순서가
+                // "기존 preedit 을 커서로 치환 → commit 문자열 삽입" 이라 조합 중이던
+                // 자리에 정확히 앵커된다.
+                //
+                // priv->mode 는 reset 때마다 CLEAR 로 되돌아가므로 preedit 을 세울 때마다
+                // 매번 다시 선언해야 한다 — 이 호출이 그 역할이다.
                 this.set_preedit_text(
                     this._preeditText,
                     this._preeditText.length,
                     this._preeditText.length,
-                    Clutter.PreeditResetMode.CLEAR
+                    Clutter.PreeditResetMode.COMMIT
                 );
             } else {
                 this.set_preedit_text(null, 0, 0, Clutter.PreeditResetMode.CLEAR);
