@@ -53,6 +53,7 @@ members = [
     "unim-settings",
     "unim-popup-win",
     "unim-windows-common",
+    "tests/common-rs",
     "tests/unim-test-wayland",
     "tests/unim-test-dbus",
     # 개발 도구 — 배포 바이너리가 아니다 (install/deb/rpm/MSI 어디에도 담기지 않는다).

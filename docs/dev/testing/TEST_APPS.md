@@ -236,10 +236,29 @@ tests/
   unim-test-dbus/    헤드리스 DBus 스모크
 ```
 
-**아직 옮기지 않은 것**: `unim-test-wayland` 는 Rust 라 공용 C 코드를 그대로
-못 쓴다. `tests/common-rs/`(spec·log·field 미러)를 만들어야 하고, 미러가
-어긋나지 않게 `make check-test-spec` 로 대조할 계획이다. 그때까지 이 앱만
-옛 구조로 남는다.
+### Rust 앱은 미러가 아니라 같은 코드를 쓴다
+
+`tests/common-rs/` 는 스펙·로거·필드 엔진을 Rust 로 **다시 구현하지 않는다.**
+`build.rs` 가 `tests/common` 의 C 파일 세 개를 그대로 컴파일해 링크한다.
+
+```
+tests/common-rs/
+  build.rs           cc 로 unim_test_{spec,log,field}.c 컴파일
+  src/lib.rs         extern 선언 + 안전한 껍데기
+  examples/smoke.rs  C 판과 결과가 같은지 확인 (cargo run --example smoke)
+```
+
+미러를 두면 언젠가 어긋나지만 같은 오브젝트를 링크하면 어긋날 수가 없다.
+매크로와 static 배열은 FFI 로 안 보이므로 `unim_test_spec.c` 가 접근자를
+노출한다(`unim_spec_metrics()` 등). 가변인자 로그 함수도 FFI 로 부르기
+까다로워 `unim_log_note_str()` 같은 비-가변인자 판을 함께 둔다.
+
+`unim_test_dbus.c` 와 `unim_test.c` 는 gio 의존이라 링크하지 않는다 — Rust
+앱은 데몬 통신을 자기 방식으로 한다.
+
+**아직 옮기지 않은 것**: `unim-test-wayland` 본체. 기반(`common-rs`)은
+준비됐고 앱의 화면·필드 처리를 그 위로 옮기는 일이 남았다. 어차피 XTEST 가
+닿지 않아 자동시험 대상이 아니므로 급하지 않다.
 
 **삭제**: `unim-test-qt5/`, `unim-test-qt6/` — `unim-test-qt/` 가 두 바이너리를
 모두 만든다(이미 CMakeLists 에 구현되어 있음). Makefile 만 옛 경로를 보고 있었다.

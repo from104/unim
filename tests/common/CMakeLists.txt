@@ -8,6 +8,7 @@ add_library(unim-test-common STATIC
     unim_test_log.c
     unim_test_field.c
     unim_test_dbus.c
+    unim_test_spec.c
 )
 set_target_properties(unim-test-common PROPERTIES LINKER_LANGUAGE C)
 target_compile_options(unim-test-common PRIVATE -Wall -Wextra)

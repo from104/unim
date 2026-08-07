@@ -514,3 +514,16 @@ void unim_log_error(const char *fmt, ...) {
 void unim_log_raw(const char *ev, const char *json_kv) {
     emit(nn(ev), json_kv, nn(json_kv));
 }
+
+/* FFI 용 비-가변인자 판 — Rust 앱이 쓴다. */
+static void note_str(const char *ev, const char *msg) {
+    static char esc[LOG_ESC_MAX];
+    unim_log_json_escape(nn(msg), esc, sizeof esc);
+    static char kv[LOG_KV_MAX];
+    snprintf(kv, sizeof kv, "\"msg\":\"%s\"", esc);
+    emit(ev, kv, nn(msg));
+}
+
+void unim_log_note_str(const char *msg)  { note_str("note",  msg); }
+void unim_log_warn_str(const char *msg)  { note_str("warn",  msg); }
+void unim_log_error_str(const char *msg) { note_str("error", msg); }

@@ -1,0 +1,13 @@
+[package]
+name = "unim-test-common"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "테스트 앱 공용 C 코드(tests/common)를 Rust 에서 그대로 쓰기 위한 FFI 껍데기"
+
+[dependencies]
+
+[build-dependencies]
+cc = "1"

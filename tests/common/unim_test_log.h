@@ -133,6 +133,14 @@ void unim_log_warn(const char *fmt, ...);
 void unim_log_error(const char *fmt, ...);
 
 /**
+ * 위 셋의 비-가변인자 판. 가변인자 함수는 FFI 로 부르기 까다로워서
+ * Rust 앱(`tests/common-rs`)은 이쪽을 쓴다. 포맷은 호출자가 미리 한다.
+ */
+void unim_log_note_str(const char *msg);
+void unim_log_warn_str(const char *msg);
+void unim_log_error_str(const char *msg);
+
+/**
  * 위 함수로 표현 못 하는 사건. `json_kv` 는 JSON 오브젝트 본문 조각이며
  * **이스케이프는 호출자 책임**이다. 문자열 값은 `unim_log_json_escape` 로.
  * 예: unim_log_raw("popup.open", "\"kind\":\"hanja\",\"n\":12");

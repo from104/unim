@@ -146,6 +146,32 @@ static const char *const UNIM_SPEC_STATUS_LABELS[UNIM_STATUS_N] = {
     "DBus", "프런트엔드", "엔진 모드", "포커스", "preedit", "최근 commit",
 };
 
+/* ─── 다른 언어에서 읽기 (FFI) ────────────────────────────────────────── */
+
+/**
+ * Rust 앱(`unim-test-wayland`)이 이 스펙을 **복사하지 않고 그대로** 쓰기
+ * 위한 창구다. 매크로와 static 배열은 FFI 로 안 보이므로 접근자를 둔다.
+ * 미러를 만들면 언젠가 어긋나지만, 이 길은 어긋날 수가 없다.
+ */
+typedef struct {
+    int win_width, win_height, margin, section_gap, row_gap;
+    int label_col_w, field_h, field_h_multi, field_pad_x;
+    int log_h, log_lines;
+    int font_size_ui, font_size_field, font_size_log, font_size_title;
+    unsigned col_bg, col_panel, col_field_bg, col_field_focus;
+    unsigned col_border, col_border_focus, col_text, col_label;
+    unsigned col_preedit, col_caret, col_ok, col_warn, col_err;
+} UnimSpecMetrics;
+
+const UnimSpecMetrics *unim_spec_metrics(void);
+const UnimSpecField   *unim_spec_core_field(int i);
+int                    unim_spec_n_core_fields(void);
+const char            *unim_spec_status_label(int i);
+int                    unim_spec_n_status(void);
+const char            *unim_spec_font_ui(void);
+const char            *unim_spec_font_mono(void);
+const char            *unim_spec_win_title_fmt(void);
+
 /* ─── HiDPI ───────────────────────────────────────────────────────────── */
 
 /**
