@@ -565,10 +565,17 @@ test:
 	done
 
 # CMake-based test apps (static pattern rule) — 빌드 후 바로 실행
-test-gtk3 test-gtk4 test-qt5 test-qt6 test-xim test-gnome: test-%:
+test-gtk3 test-gtk4 test-xim test-gnome: test-%:
 	$(call cmake_build,tests/unim-test-$*,$* test app)
 	@echo "🚀 Launching unim-test-$* ..."
 	@./tests/unim-test-$*/build/unim-test-$* &
+
+# Qt5·Qt6 는 소스 한 벌(tests/unim-test-qt)에서 바이너리 두 개가 나온다.
+# 디렉토리 이름과 바이너리 이름이 다르므로 위 패턴에 넣을 수 없다.
+test-qt5 test-qt6: test-%:
+	$(call cmake_build,tests/unim-test-qt,Qt5/Qt6 test app)
+	@echo "🚀 Launching unim-test-$* ..."
+	@./tests/unim-test-qt/build/unim-test-$* &
 
 test-wayland: build-rust
 	@$(CARGO) build --release -p unim-test-wayland
@@ -626,7 +633,7 @@ clean:
 	@rm -rf unim-frontends/gtk3/build unim-frontends/gtk4/build \
 	        unim-frontends/qt5/build unim-frontends/qt6/build
 	@rm -rf tests/unim-test-gtk3/build tests/unim-test-gtk4/build \
-	        tests/unim-test-qt5/build tests/unim-test-qt6/build \
+	        tests/unim-test-qt/build \
 	        tests/unim-test-xim/build tests/unim-test-gnome/build
 
 clean-all: clean clean-deb

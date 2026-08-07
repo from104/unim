@@ -19,8 +19,9 @@ SANDBOX_DIR="$PROJECT_ROOT/build/sandbox"
 # 테스트 앱 경로 (각각의 build 디렉토리)
 TEST_GTK3="$PROJECT_ROOT/unim-test-gtk3/build/unim-test-gtk3"
 TEST_GTK4="$PROJECT_ROOT/unim-test-gtk4/build/unim-test-gtk4"
-TEST_QT5="$PROJECT_ROOT/unim-test-qt5/build/unim-test-qt5"
-TEST_QT6="$PROJECT_ROOT/unim-test-qt6/build/unim-test-qt6"
+# Qt5·Qt6 는 소스 한 벌(unim-test-qt)에서 바이너리 두 개가 나온다
+TEST_QT5="$PROJECT_ROOT/unim-test-qt/build/unim-test-qt5"
+TEST_QT6="$PROJECT_ROOT/unim-test-qt/build/unim-test-qt6"
 TEST_XIM="$PROJECT_ROOT/unim-test-xim/build/unim-test-xim"
 
 # 색상 출력
