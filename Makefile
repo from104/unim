@@ -56,6 +56,7 @@ endef
 # ─── Phony ───────────────────────────────────────────────────────────────────
 
 .PHONY: all help build build-rust build-frontends build-tests clean clean-all xim-fork-diff \
+        test-apps test-app test-apps-list \
         gen-popup-css gen-popup-css-check \
         help-html check-help-html \
         _check-build \
@@ -584,12 +585,26 @@ test-dbus: build-rust
 build-tests: build-frontends
 	$(call cmake_build,tests/unim-test-gtk3,GTK3 Test App)
 	$(call cmake_build,tests/unim-test-gtk4,GTK4 Test App)
-	$(call cmake_build,tests/unim-test-qt5,Qt5 Test App)
-	$(call cmake_build,tests/unim-test-qt6,Qt6 Test App)
+	$(call cmake_build,tests/unim-test-qt,Qt5/Qt6 Test App)
 	$(call cmake_build,tests/unim-test-xim,XIM Test App)
 	$(call cmake_build,tests/unim-test-gnome,GNOME Test App)
 	@$(CARGO) build --release -p unim-test-wayland
 	@echo "✅ 모든 테스트 앱 빌드 완료!"
+
+# ─── 테스트 앱 자동시험 (XTEST 로 실제 키를 넣는다) ─────────────────────────
+#
+# 판정 기준은 앱이 남긴 `field.render` — 화면에 실제로 나타나는 문자열이다.
+# 데몬 스모크(`--auto`, `smoke-test`)와 달리 툴킷·IM 모듈 경로를 전부 탄다.
+# 설계: docs/dev/testing/TEST_APPS.md
+
+test-apps: build-tests
+	@./tests/harness/run.py --all
+
+test-app: build-tests
+	@./tests/harness/run.py --app $(APP)
+
+test-apps-list:
+	@./tests/harness/run.py --list
 
 # ─── Sandbox (Xephyr) ────────────────────────────────────────────────────────
 

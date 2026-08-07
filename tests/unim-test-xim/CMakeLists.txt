@@ -16,13 +16,10 @@ pkg_check_modules(GIO REQUIRED gio-2.0)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../common ${CMAKE_CURRENT_BINARY_DIR}/common)
 
 # ─── Sources ─────────────────────────────────────────────────────────────
+# 화면·필드·로그·DBus 는 전부 tests/common 이 담당한다.
+# 이 앱이 직접 가진 것은 Xlib 창 · XIM 결합 · Xft 렌더뿐이다.
 set(SOURCES
     src/main.c
-    src/ui.c
-    src/xim.c
-    src/dbus.c
-    src/fields.c
-    src/log.c
 )
 
 # ─── Executable ──────────────────────────────────────────────────────────
