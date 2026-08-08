@@ -579,9 +579,20 @@ static void main_loop(void) {
             XEvent ev;
             XNextEvent(A.dpy, &ev);
 
+            /* XFilterEvent 앞에서 원본 키를 먼저 남긴다 — 앱이 그 키를
+             * "받기는 했는지" 와 "IM 이 삼켰는지" 를 구분해야 XTest 재주입
+             * 같은 문제를 추적할 수 있다. */
+            if (ev.type == KeyPress || ev.type == KeyRelease)
+                unim_log_note("X 수신: type=%d keycode=%u state=0x%x",
+                              ev.type, ev.xkey.keycode, ev.xkey.state);
+
             /* IM 이 먼저 볼 기회를 준다. 삼키면 여기서 끝. */
             if (XFilterEvent(&ev, None)) {
-                unim_log_note("XFilterEvent 가 이벤트 type=%d 를 삼킴", ev.type);
+                if (ev.type == KeyPress || ev.type == KeyRelease)
+                    unim_log_note("XFilterEvent 삼킴: type=%d keycode=%u",
+                                  ev.type, ev.xkey.keycode);
+                else
+                    unim_log_note("XFilterEvent 삼킴: type=%d", ev.type);
                 continue;
             }
 

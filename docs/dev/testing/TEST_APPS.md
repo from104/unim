@@ -329,7 +329,7 @@ const char *unim_field_rendered(const UnimTestField *f, char *out, size_t n);
 |---|---|---|---|
 | ① | Qt5·Qt6 `click-commit` 실패. `commit core.plain "한"` 직후 `commit core.plain2 "한"` — 같은 글자가 클릭한 필드에 또 박힌다 | **설치 문제.** 코드는 맞는데 설치된 플러그인이 07-19 빌드본이었다 | ✅ `make install-frontends PREFIX=/usr` 로 해결 |
 | ② | Qt5·Qt6 `focus-switch` 실패 | **테스트 앱 결함.** Qt 는 Tab 을 위젯 포커스 이동으로 먼저 처리해 `keyPressEvent` 에 오지 않는다. GTK 판은 가로채고 있었다 | ✅ `event()` 에서 Tab 가로채기 |
-| ③ | XIM `multiline-compose` 실패. 조합 중 `Return` → `"한\n"` 이 아니라 `"\n한"` | **동작 결함** | ⏳ 미해결 (아래) |
+| ③ | XIM `multiline-compose` 실패. 조합 중 `Return` → `"한\n"` 이 아니라 `"\n한"` | **동작 결함** | ✅ 해결 (아래) |
 
 ### ①에서 배운 것 — 설치 경로
 
@@ -361,21 +361,36 @@ sudo make install-frontends PREFIX=/usr
 | (a) 키를 `consumed` 로 삼키고 commit 뒤 XTest 로 재주입 | 순서는 고쳐졌다(`"\n한"` → `"한"`). 다만 재주입한 Return 이 서버로 되돌아오지 않아 줄바꿈이 빠졌다 |
 | (b) commit 뒤 forward 앞에 20 ms 지연 | 효과 없음. **도착 순서가 아니라 처리 순서 문제**라 지연으로는 못 이긴다 — 클라이언트가 두 메시지를 모두 받아 둔 채 큐를 재배치한다 |
 
-**(a) 는 방향이 맞다.** 실측으로 확인한 것:
+**(a) 를 채택했다.** 막힌 곳은 딱 한 지점이었다.
 
-- `XTestFakeKeyEvent` 반환값 1(성공), XTest 확장 v2.2 존재
-- XTest 발사 시점의 입력 포커스는 **테스트 앱이 맞다**
-  (포커스창 `0x1400001`, `client_win 0x1400003` — 같은 클라이언트)
-- **고정 keycode 38(`a`)로 쏘면 서버에 `keycode=38, evdev=30` 이 그대로
-  도착하고 "ㅇ" 으로 조합된다** — 즉 XTest 재주입 경로 자체는 온전히 동작한다
+진단은 테스트 앱이 `XFilterEvent` **앞에서** 원본 키를 먼저 로그하게 만들자
+바로 풀렸다. "앱이 받기는 했는가" 와 "IM 이 삼켰는가" 를 구분하지 못하면
+이런 문제는 추적할 수 없다.
 
-남은 것은 **Return(keycode 36)만 서버로 되돌아오지 않는 이유** 하나다.
-글자 키는 왕복하는데 Return 만 사라진다. 다음에 볼 곳:
+```
+X 수신: type=2 keycode=36     ← 원본 Return
+XFilterEvent 삼킴: keycode=36  ← 서버로 (여기서 삼켜 확정)
+… commit "한" …
+X 수신: type=3 keycode=36     ← 재주입 KeyRelease만 도착!
+```
 
-1. 앱이 재주입된 Return 을 받는지 (`xev` 로 앱 창을 직접 감시)
-2. 받았다면 Xlib XIM 이 그것을 서버로 보내지 않는지 — 서버가 알려준
-   `XIM_SET_EVENT_MASK` 와의 관계
-3. `KP_Enter`(keycode 104) 로 바꿔 쏘면 오는지
+**재주입한 KeyPress 가 사라지고 KeyRelease 만 도착했다.** 원본 키가 아직
+물리적으로 눌려 있어서 X 서버가 중복 `KeyPress` 를 버린 것이다. 그래서
+재주입 순서를 `release → press → release` 로 바꿨다 — 먼저 눌림 상태를
+정리한 뒤 새로 누른다.
 
-효과 없는 코드를 남기지 않으려고 (a)·(b) 모두 되돌렸다. `known_fail` 로
-표시되어 있어 신규 회귀와는 구분된다.
+```rust
+XTestFakeKeyEvent(dpy, keycode, 0, 0);  // 눌림 상태 정리
+XTestFakeKeyEvent(dpy, keycode, 1, 0);
+XTestFakeKeyEvent(dpy, keycode, 0, 0);
+```
+
+이걸로 `multiline-compose` 가 통과하고 XIM 이 **10/10** 이 됐다.
+
+중간에 잘못 짚은 것도 남겨 둔다 — 서버 로그만 보고 "XTest 가 배달되지
+않는다" 고 결론지었는데, 실제로는 재주입된 키가 Xlib XIM 을 그대로 통과해
+**서버를 거치지 않고** 앱이 직접 처리하기 때문에 서버 로그에 안 보였던
+것이다. 한쪽 로그만으로 배달 여부를 판정하면 안 된다.
+
+한계: modifier 는 재현하지 않는다. Shift+Enter 처럼 수식키가 붙은 채
+확정하는 조합은 수식키 없이 전달된다.

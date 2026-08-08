@@ -114,6 +114,10 @@ pub struct UnimHandler {
     deferred_autofix: Option<(String, String)>,
     /// AutoTypeFix 시그널 수신 시점의 DBus 컨텍스트 경로
     autofix_context_path: Option<String>,
+    /// 확정과 함께 앱으로도 가야 하는 키(대표적으로 조합 중 Enter)를 XTest 로
+    /// 재주입할 때, 되돌아온 그 키를 알아보기 위한 1회용 표시.
+    /// 없으면 재주입 → 또 확정 판정 → 재주입 … 으로 돌 수 있다.
+    replayed_key: Option<u8>,
     /// AutoTypeFix commit/preedit 처리 중 재진입 방지 플래그.
     /// XIM crate가 server.commit()/preedit_draw() 시 keycode=0 가상 이벤트를
     /// handle_forward_event로 재진입시키므로, 이를 무시하기 위한 가드.
@@ -175,6 +179,7 @@ impl UnimHandler {
             self_backspace_pending: 0,
             deferred_autofix: None,
             autofix_context_path: None,
+            replayed_key: None,
             autofix_commit_guard: false,
             pending_skip_commit: None,
         })
@@ -1158,6 +1163,45 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         }
 
         self.commit_then_preedit(server, user_ic, &commit_text, &preedit_text)?;
+
+        // ── 확정과 키 전달이 한 키에서 겹칠 때 ──
+        //
+        // 조합 중 Enter 처럼 "조합을 확정하면서 그 키는 앱으로도 가야 하는"
+        // 경우, crate 에 forward 를 맡기면 클라이언트가 그 키를 commit 보다
+        // **먼저** 처리한다. Xlib XIM 이 forward 받은 이벤트를 자기 이벤트 큐
+        // 앞으로 되돌리기 때문이라, 서버가 commit 을 먼저 보내도 순서로는
+        // 이길 수 없다(2026-08-08 실측: 조합 중 Enter → "한\n" 이 아니라
+        // "\n한"). 지연을 넣어도 소용없다 — 도착 순서가 아니라 처리 순서다.
+        //
+        // 그래서 키를 여기서 삼키고(Ok(true)), commit 이 나간 뒤 XTest 로 같은
+        // 키를 다시 쏜다. 재주입된 키는 Xlib XIM 을 그대로 통과해 앱이 직접
+        // 처리하므로(실측: 앱이 `X 수신 keycode=36` 을 받는다) 확정 뒤에
+        // 놓인다.
+        //
+        // 한계: modifier 는 재현하지 않는다. Shift+Enter 처럼 수식키가 붙은
+        // 채 확정하는 조합은 수식키 없이 전달된다 — 빈도가 낮아 단순함을 택했다.
+        let keycode = xev.detail;
+        if !commit_text.is_empty() && !consumed && self.replayed_key != Some(keycode) {
+            server.conn().flush().ok();
+            self.replayed_key = Some(keycode);
+            unsafe {
+                // release 를 먼저 쏴서 눌림 상태를 정리한다. 원본 키가 아직
+                // 물리적으로 눌려 있으면 X 서버가 중복 KeyPress 를 버려서
+                // 재주입한 press 가 사라지고 release 만 앱에 도착한다
+                // (2026-08-09 실측: 앱 로그에 type=3 만 찍혔다).
+                x11::xtest::XTestFakeKeyEvent(self.display, keycode as u32, 0, 0);
+                x11::xtest::XTestFakeKeyEvent(self.display, keycode as u32, 1, 0);
+                x11::xtest::XTestFakeKeyEvent(self.display, keycode as u32, 0, 0);
+                x11::xlib::XSync(self.display, 0);
+            }
+            unim_log!(
+                "XIM_HANDLER",
+                "확정과 키 전달이 겹침 → 키를 삼키고 XTest 로 재주입 (keycode={})",
+                keycode
+            );
+            return Ok(true);
+        }
+        self.replayed_key = None;
 
         Ok(consumed)
     }
