@@ -253,15 +253,57 @@ tests/common-rs/
 노출한다(`unim_spec_metrics()` 등). 가변인자 로그 함수도 FFI 로 부르기
 까다로워 `unim_log_note_str()` 같은 비-가변인자 판을 함께 둔다.
 
-`unim_test_dbus.c` 와 `unim_test.c` 는 gio 의존이라 링크하지 않는다 — Rust
-앱은 데몬 통신을 자기 방식으로 한다.
+`unim_test_dbus.c` 는 gio 의존이라 **`dbus` 기능으로만** 붙인다. 켜면 데몬
+연결과 상태 패널 6줄 문구까지 C 앱과 같은 함수에서 나온다 — 상태 문구를
+Rust 로 옮겨 적으면 6개 앱 화면이 어긋나므로, 쓰는 앱은 반드시 켠다
+(`unim-test-wayland` 가 그렇다). `unim_test.c`(DBus 스모크 러너)는 안 쓴다.
 
-**아직 옮기지 않은 것**: `unim-test-wayland` 본체. 기반(`common-rs`)은
-준비됐고 앱의 화면·필드 처리를 그 위로 옮기는 일이 남았다. 어차피 XTEST 가
-닿지 않아 자동시험 대상이 아니므로 급하지 않다.
+GDBus 는 GMainContext 위에서 돈다. calloop 은 그걸 돌리지 않으므로 앱이
+루프마다 `daemon::pump()` 를 불러야 데몬 신호가 도착한다 — Qt 앱이 `QTimer`
+로 `g_main_context_iteration` 을 도는 것과 같은 이유다.
 
 **삭제**: `unim-test-qt5/`, `unim-test-qt6/` — `unim-test-qt/` 가 두 바이너리를
 모두 만든다(이미 CMakeLists 에 구현되어 있음). Makefile 만 옛 경로를 보고 있었다.
+
+### Wayland 앱 (2026-08-09 재작성)
+
+`unim-test-wayland` 는 `common-rs` 위에 다시 썼다. 화면·필드·로그가 다른 5개
+앱과 같아졌고, `wl_shm` 버퍼에 바이트를 직접 쓴다(`Canvas`).
+
+**이전 판이 먹통이던 이유 셋** — 새로 쓸 때 같은 함정을 다시 밟지 않도록:
+
+1. **IME 가 아예 붙지 않았다.** `zwp_text_input_manager_v3` 를
+   `Dispatch<WlRegistry, GlobalList>` 로 받으려 했는데, `registry_queue_init`
+   이 만든 레지스트리의 user-data 는 `GlobalListContents` 라 그 impl 이 **한
+   번도 불리지 않았다.** 매니저가 영영 `None` → text-input 객체 없음 → 조합
+   없음. 지금은 시작할 때 `GlobalList::bind` 로 직접 잡는다.
+2. **키 처리가 Escape 하나뿐이었다.** 영문·편집키가 전부 무시됐다.
+3. **색 바이트 순서가 뒤집혀 있었다.** `wl_shm::Format::Argb8888` 은 32비트
+   값 `0xAARRGGBB` 를 리틀엔디언으로 담으므로 메모리 배열은 **B,G,R,A** 다.
+   tiny-skia 의 `PixmapMut` 은 R,G,B,A 로 읽는다. 라이브러리를 끼우면 이
+   순서를 착각하기 쉬워서 지금은 `Canvas` 가 바이트를 명시적으로 쓴다.
+
+**text-input-v3 를 다룰 때의 함정 둘**:
+
+- **`done` 에 조건 없이 `commit` 으로 답하면 무한 왕복이 된다.** IM 은 클라
+  이언트 `commit` 마다 `done` 을 보낸다. 첫 실행에서 6초에 6000번을 돌았다.
+  → 앱 상태가 **실제로 바뀐 경우에만** 되쏜다.
+- **preedit·commit·delete 는 `done` 에서 원자적으로 적용한다.** 이벤트마다
+  바로 적용하면 화면이 중간 상태를 보인다. 순서는 프로토콜이 정한 대로
+  삭제 → 확정 → 새 preedit.
+
+**HiDPI** — `Canvas` 는 좌표를 **논리 픽셀**로 받고 안에서 배율을 곱한다.
+버퍼는 장치 픽셀로 만들고 `set_buffer_scale` 로 컴포지터에 알려 주므로 배율 2
+화면에서도 확대 흐림이 없다(스펙 수치는 앱 코드 어디에도 배율이 섞이지
+않는다). 폰트도 `px × scale` 로 그려 또렷하다.
+
+**`--dump-frame PATH`** — 합성한 화면을 PPM 으로 저장한다(매 프레임 덮어써서
+파일에는 늘 마지막 화면이 남는다). GNOME 은 포털 밖 스크린샷을 거부하므로
+(`org.gnome.Shell.Screenshot` → `AccessDenied`) Wayland 앱의 "화면의 진실"을
+눈으로 확인하는 유일한 길이다. `convert frame.ppm frame.png` 로 본다.
+
+**`--auto` 는 없앴다.** 데몬을 직접 부르는 시험은 프런트엔드 경로를 타지
+않아 회귀를 놓친다(§1). 창을 띄워 눈으로 본다.
 
 ## 7. 툴킷 무관 필드 엔진 — `unim_test_field.{h,c}`
 
@@ -305,9 +347,9 @@ const char *unim_field_rendered(const UnimTestField *f, char *out, size_t n);
 
 - **Wayland 네이티브 앱에는 XTEST 가 안 먹는다.** `unim-test-wayland` 와 GNOME
   경로는 하네스가 키를 주입할 수 없다(`APPS` 표의 `xtest: False` — 자동으로
-  건너뛴다). 이 둘은 (a) 앱 자체의 재생 모드로 내부에서 키 이벤트를 합성하거나
-  (b) 수동 검증 체크리스트로 남긴다. XWayland 로 띄우는 GTK3/GTK4/Qt5/Qt6/XIM
-  5종은 완전 무인이다.
+  건너뛴다). 이 둘은 수동 검증으로 남기되, Wayland 앱은 `--dump-frame` 으로
+  화면을 파일에 뱉으므로 눈으로 대조할 근거는 남는다. XWayland 로 띄우는
+  GTK3/GTK4/Qt5/Qt6/XIM 5종은 완전 무인이다.
 - **창 원점은 `xwininfo` 로 구한다.** `xdotool getwindowgeometry` 의 X/Y 는 CSD
   창에서 콘텐츠 원점과 어긋난다(GTK3 실측 (114,115) vs 실제 (100,66)).
   `xwininfo` 의 `Absolute upper-left` 가 정확하다. 앱이 화면 절대 좌표를

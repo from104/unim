@@ -4,8 +4,8 @@
  * GTK3 · GTK4 · Qt5 · Qt6 · XIM · GNOME 이 모두 이 헤더를 읽어 같은 화면을
  * 만든다. 여기를 고치면 6개 앱이 함께 바뀐다. 앱 쪽에 수치를 적지 말 것.
  *
- * Rust 앱(unim-test-wayland)은 tests/common-rs/src/spec.rs 가 이 파일의
- * 미러다. 둘의 동기는 `make check-test-spec` 이 검사한다.
+ * Rust 앱(unim-test-wayland)에는 미러가 없다 — tests/common-rs 가 이 파일을
+ * 컴파일해 **같은 오브젝트를 링크**하고, 아래 FFI 창구로 읽어 간다.
  *
  * 설계 근거: docs/dev/testing/TEST_APPS.md §3
  */

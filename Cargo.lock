@@ -6050,6 +6050,7 @@ name = "unim-test-common"
 version = "0.4.0"
 dependencies = [
  "cc",
+ "pkg-config",
 ]
 
 [[package]]
@@ -6068,10 +6069,7 @@ dependencies = [
  "calloop-wayland-source 0.3.0",
  "cosmic-text",
  "smithay-client-toolkit 0.19.2",
- "tiny-skia",
- "tokio",
- "unim",
- "unim-dbus",
+ "unim-test-common",
  "wayland-client",
  "wayland-protocols 0.32.10",
  "xkbcommon 0.7.0",

@@ -100,6 +100,7 @@ extern "C" {
     fn unim_spec_n_status() -> c_int;
     fn unim_spec_font_ui() -> *const c_char;
     fn unim_spec_font_mono() -> *const c_char;
+    fn unim_spec_win_title_fmt() -> *const c_char;
 
     /* 로거 */
     fn unim_log_init(app: *const c_char, argc: c_int, argv: *const *const c_char);
@@ -119,6 +120,15 @@ extern "C" {
     fn unim_log_note_str(msg: *const c_char);
     fn unim_log_warn_str(msg: *const c_char);
     fn unim_log_error_str(msg: *const c_char);
+    fn unim_log_preedit(phase: *const c_char, field: *const c_char,
+                        text: *const c_char, cursor: c_int, attrs: *const c_char);
+    fn unim_log_commit(field: *const c_char, text: *const c_char);
+    fn unim_log_focus(phase: *const c_char, field: *const c_char, prev: *const c_char);
+    fn unim_log_dbus(kind: *const c_char, iface: *const c_char, member: *const c_char,
+                     detail: *const c_char, elapsed_ms: f64);
+    fn unim_log_surrounding(kind: *const c_char, text: *const c_char, cursor: c_int,
+                            offset: c_int, n_chars: c_int);
+    fn unim_log_set_sink(sink: Option<LogSinkFn>, user: *mut std::ffi::c_void);
 
     /* 필드 엔진 */
     fn unim_field_init(f: *mut Field, spec: *const SpecField);
@@ -176,6 +186,11 @@ pub fn status_labels() -> Vec<&'static str> {
 pub fn font_ui() -> &'static str { unsafe { to_str(unim_spec_font_ui()) } }
 pub fn font_mono() -> &'static str { unsafe { to_str(unim_spec_font_mono()) } }
 
+/// 창 제목. 하네스가 이 문자열로 창을 찾으므로 스펙의 서식을 그대로 쓴다.
+pub fn win_title(frontend: &str) -> String {
+    unsafe { to_str(unim_spec_win_title_fmt()) }.replace("%s", frontend)
+}
+
 /* ── 로거 ── */
 
 pub fn log_init(app: &str) {
@@ -221,6 +236,62 @@ pub fn log_reset(field: &str, reason: &str) {
 
 pub fn log_raw(ev: &str, json_kv: &str) {
     unsafe { unim_log_raw(cstr(ev).as_ptr(), cstr(json_kv).as_ptr()) }
+}
+
+pub fn log_preedit(phase: &str, field: &str, text: &str, cursor: i32, attrs: Option<&str>) {
+    let a = attrs.map(cstr);
+    unsafe {
+        unim_log_preedit(cstr(phase).as_ptr(), cstr(field).as_ptr(), cstr(text).as_ptr(),
+                         cursor, a.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()))
+    }
+}
+
+pub fn log_commit(field: &str, text: &str) {
+    unsafe { unim_log_commit(cstr(field).as_ptr(), cstr(text).as_ptr()) }
+}
+
+pub fn log_focus(phase: &str, field: &str, prev: Option<&str>) {
+    let p = prev.map(cstr);
+    unsafe {
+        unim_log_focus(cstr(phase).as_ptr(), cstr(field).as_ptr(),
+                       p.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()))
+    }
+}
+
+pub fn log_dbus(kind: &str, iface: &str, member: &str, detail: &str, elapsed_ms: f64) {
+    unsafe {
+        unim_log_dbus(cstr(kind).as_ptr(), cstr(iface).as_ptr(), cstr(member).as_ptr(),
+                      cstr(detail).as_ptr(), elapsed_ms)
+    }
+}
+
+pub fn log_surrounding(kind: &str, text: &str, cursor: i32, offset: i32, n_chars: i32) {
+    unsafe {
+        unim_log_surrounding(cstr(kind).as_ptr(), cstr(text).as_ptr(), cursor, offset, n_chars)
+    }
+}
+
+/* ── 로그 패널 연결 ── */
+
+type LogSinkFn = extern "C" fn(line: *const c_char, user: *mut std::ffi::c_void);
+
+thread_local! {
+    static SINK: std::cell::RefCell<Option<fn(&str)>> = const { std::cell::RefCell::new(None) };
+}
+
+extern "C" fn sink_trampoline(line: *const c_char, _user: *mut std::ffi::c_void) {
+    let s = unsafe { to_str(line) }.to_string();
+    // 콜백 안에서 다시 로그를 남길 수 있으므로 borrow 를 먼저 풀고 부른다.
+    let cb = SINK.with(|c| *c.borrow());
+    if let Some(cb) = cb {
+        cb(&s);
+    }
+}
+
+/// 사건이 생길 때마다 사람이 읽는 한 줄을 받는다 — 앱 로그 패널용.
+pub fn set_log_sink(cb: fn(&str)) {
+    SINK.with(|c| *c.borrow_mut() = Some(cb));
+    unsafe { unim_log_set_sink(Some(sink_trampoline), std::ptr::null_mut()) }
 }
 
 /* ── 필드 ── */
@@ -317,4 +388,126 @@ pub fn hit(fields: &[Box<Field>], x: i32, y: i32) -> Option<usize> {
 pub fn caret_from_x(f: &Field, x: i32, m: TextWidthFn,
                     user: *mut std::ffi::c_void) -> i32 {
     unsafe { unim_field_caret_from_x(f, x, m, user) }
+}
+
+/* ─── 데몬 연결·상태 패널 (`dbus` 기능) ───────────────────────────────── */
+
+/// `unim_test_dbus.c` 를 그대로 부른다. 상태 패널 문구를 Rust 로 옮겨 적지
+/// 않는 것이 요점 — 6개 앱이 같은 함수에서 같은 문자열을 얻는다.
+#[cfg(feature = "dbus")]
+pub mod daemon {
+    use super::{cstr, to_str};
+    use std::ffi::{c_char, c_int, c_void};
+
+    pub const STATUS_VALUE_MAX: usize = 256;
+
+    #[repr(C)]
+    struct CDaemon {
+        _opaque: [u8; 0],
+    }
+
+    #[repr(C)]
+    struct StatusInput {
+        frontend: *const c_char,
+        im_path: *const c_char,
+        focus_field: *const c_char,
+        preedit: *const c_char,
+        preedit_caret: c_int,
+        last_commit: *const c_char,
+    }
+
+    type ChangedFn = extern "C" fn(user: *mut c_void);
+
+    extern "C" {
+        fn unim_daemon_connect(cb: Option<ChangedFn>, user: *mut c_void) -> *mut CDaemon;
+        fn unim_daemon_free(d: *mut CDaemon);
+        fn unim_daemon_connected(d: *const CDaemon) -> c_int;
+        fn unim_daemon_korean(d: *const CDaemon) -> c_int;
+        fn unim_daemon_layout(d: *const CDaemon) -> *const c_char;
+        fn unim_daemon_error(d: *const CDaemon) -> *const c_char;
+        fn unim_daemon_toggle(d: *mut CDaemon);
+        fn unim_daemon_refresh(d: *mut CDaemon);
+        fn unim_status_render(d: *const CDaemon, input: *const StatusInput, out: *mut c_char);
+        fn unim_status_im_path(frontend: *const c_char) -> *const c_char;
+
+        fn g_main_context_iteration(ctx: *mut c_void, may_block: c_int) -> c_int;
+        fn g_main_context_pending(ctx: *mut c_void) -> c_int;
+    }
+
+    thread_local! {
+        /// 데몬이 모드 변경을 알려왔다는 표시. 콜백 안에서 앱 상태를 만지면
+        /// 재진입이 생기므로 깃발만 세우고 앱이 다음 차례에 읽어간다.
+        static DIRTY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    extern "C" fn on_changed(_user: *mut c_void) {
+        DIRTY.with(|d| d.set(true));
+    }
+
+    /// 데몬이 상태 변화를 알려왔는가 (읽으면 깃발이 내려간다).
+    pub fn take_dirty() -> bool {
+        DIRTY.with(|d| d.replace(false))
+    }
+
+    pub struct Daemon(*mut CDaemon);
+
+    impl Daemon {
+        /// 데몬이 없어도 성공한다 — 연결 실패 상태의 객체가 온다.
+        pub fn connect() -> Self {
+            Daemon(unsafe { unim_daemon_connect(Some(on_changed), std::ptr::null_mut()) })
+        }
+
+        pub fn connected(&self) -> bool { unsafe { unim_daemon_connected(self.0) != 0 } }
+        pub fn korean(&self) -> bool { unsafe { unim_daemon_korean(self.0) != 0 } }
+        pub fn layout(&self) -> &str { unsafe { to_str(unim_daemon_layout(self.0)) } }
+        pub fn error(&self) -> &str { unsafe { to_str(unim_daemon_error(self.0)) } }
+        pub fn toggle(&mut self) { unsafe { unim_daemon_toggle(self.0) } }
+        pub fn refresh(&mut self) { unsafe { unim_daemon_refresh(self.0) } }
+
+        /// 상태 패널 6줄의 **값** 문자열 (라벨은 `status_labels()`).
+        #[allow(clippy::too_many_arguments)]
+        pub fn status(&self, frontend: &str, focus_field: &str, preedit: &str,
+                      preedit_caret: i32, last_commit: &str) -> Vec<String> {
+            let (f, ff, p, lc) = (cstr(frontend), cstr(focus_field),
+                                  cstr(preedit), cstr(last_commit));
+            let input = StatusInput {
+                frontend: f.as_ptr(),
+                im_path: std::ptr::null(),
+                focus_field: ff.as_ptr(),
+                preedit: p.as_ptr(),
+                preedit_caret,
+                last_commit: lc.as_ptr(),
+            };
+            let n = super::status_labels().len();
+            let mut buf = vec![0i8; n * STATUS_VALUE_MAX];
+            unsafe { unim_status_render(self.0, &input, buf.as_mut_ptr()) };
+            (0..n)
+                .map(|i| unsafe { to_str(buf.as_ptr().add(i * STATUS_VALUE_MAX)).to_string() })
+                .collect()
+        }
+    }
+
+    impl Drop for Daemon {
+        fn drop(&mut self) {
+            unsafe { unim_daemon_free(self.0) }
+        }
+    }
+
+    /// 이 프로세스에서 결정된 IM 경로 요약.
+    pub fn im_path(frontend: &str) -> &'static str {
+        unsafe { to_str(unim_status_im_path(cstr(frontend).as_ptr())) }
+    }
+
+    /// GDBus 시그널을 받아 처리한다. Wayland/calloop 는 GMainContext 를 돌리지
+    /// 않으므로 앱이 주기적으로 이걸 불러야 데몬 신호가 도착한다 (Qt 앱의
+    /// QTimer 펌프와 같은 이유).
+    pub fn pump() {
+        unsafe {
+            let mut guard = 0;
+            while g_main_context_pending(std::ptr::null_mut()) != 0 && guard < 64 {
+                g_main_context_iteration(std::ptr::null_mut(), 0);
+                guard += 1;
+            }
+        }
+    }
 }
