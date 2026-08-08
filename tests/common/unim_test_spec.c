@@ -15,6 +15,7 @@ static const UnimSpecMetrics M = {
     .section_gap      = UNIM_SPEC_SECTION_GAP,
     .row_gap          = UNIM_SPEC_ROW_GAP,
     .label_col_w      = UNIM_SPEC_LABEL_COL_W,
+    .status_label_w   = UNIM_SPEC_STATUS_LABEL_W,
     .field_h          = UNIM_SPEC_FIELD_H,
     .field_h_multi    = UNIM_SPEC_FIELD_H_MULTI,
     .field_pad_x      = UNIM_SPEC_FIELD_PAD_X,

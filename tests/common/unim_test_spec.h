@@ -56,7 +56,10 @@ extern "C" {
 
 /* ─── 치수 ────────────────────────────────────────────────────────────── */
 
-#define UNIM_SPEC_LABEL_COL_W     110   /* 라벨 열 너비 */
+#define UNIM_SPEC_LABEL_COL_W     110   /* 필드 라벨 열 너비 */
+/* 상태 패널 라벨 열 너비. "최근 commit" 이 가장 길어서 이보다 좁으면
+ * 값과 겹친다 — 앱마다 다른 수를 쓰면 정렬이 어긋난다. */
+#define UNIM_SPEC_STATUS_LABEL_W  125
 #define UNIM_SPEC_FIELD_H         38    /* 한 줄 필드 높이 */
 #define UNIM_SPEC_FIELD_H_MULTI   84    /* 여러 줄 필드 높이 */
 #define UNIM_SPEC_FIELD_PAD_X     10    /* 필드 안쪽 좌우 여백 */
@@ -155,7 +158,7 @@ static const char *const UNIM_SPEC_STATUS_LABELS[UNIM_STATUS_N] = {
  */
 typedef struct {
     int win_width, win_height, margin, section_gap, row_gap;
-    int label_col_w, field_h, field_h_multi, field_pad_x;
+    int label_col_w, status_label_w, field_h, field_h_multi, field_pad_x;
     int log_h, log_lines;
     int font_size_ui, font_size_field, font_size_log, font_size_title;
     unsigned col_bg, col_panel, col_field_bg, col_field_focus;

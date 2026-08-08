@@ -543,7 +543,7 @@ static GtkWidget *build_status_panel(void) {
     for (int i = 0; i < UNIM_STATUS_N; i++) {
         GtkWidget *key = gtk_label_new(UNIM_SPEC_STATUS_LABELS[i]);
         gtk_label_set_xalign(GTK_LABEL(key), 0);
-        gtk_widget_set_size_request(key, S(90), -1);
+        gtk_widget_set_size_request(key, S(UNIM_SPEC_STATUS_LABEL_W), -1);
         gtk_grid_attach(GTK_GRID(grid), key, 0, i, 1, 1);
 
         A.status_val[i] = gtk_label_new("…");

@@ -208,13 +208,23 @@ const char *unim_status_im_path(const char *frontend) {
 
 void unim_status_render(const UnimTestDaemon *d, const UnimStatusInput *in,
                         char out[UNIM_STATUS_N][UNIM_STATUS_VALUE_MAX]) {
+    /*
+     * 상태 표시에 이모지를 쓰지 않는다.
+     *
+     * XIM 앱은 Xft 로 **단일 폰트**를 지정해 직접 그리므로 폰트 fallback 이
+     * 없다. 이모지는 CJK 폰트에 글리프가 없어 XIM 화면에서만 빈칸이 되고,
+     * 그러면 앱 간 화면이 어긋난다(TEST_APPS.md §3 의 전제가 깨진다).
+     * 여기 쓰는 ●/○ 는 CJK 폰트에 있는 기하 기호라 6개 앱 전부에서 같게
+     * 보인다.
+     */
+
     /* ① DBus */
     if (unim_daemon_connected(d))
         snprintf(out[UNIM_STATUS_DBUS], UNIM_STATUS_VALUE_MAX,
-                 "✅ 연결됨 (%s)", DBUS_NAME);
+                 "● 연결됨 (%s)", DBUS_NAME);
     else
         snprintf(out[UNIM_STATUS_DBUS], UNIM_STATUS_VALUE_MAX,
-                 "❌ 연결 안 됨 — %.180s", unim_daemon_error(d));
+                 "○ 연결 안 됨 — %.180s", unim_daemon_error(d));
 
     /* ② 프런트엔드 + 결정된 IM 경로 */
     snprintf(out[UNIM_STATUS_FRONTEND], UNIM_STATUS_VALUE_MAX, "%s   %s",
@@ -224,7 +234,7 @@ void unim_status_render(const UnimTestDaemon *d, const UnimStatusInput *in,
     /* ③ 엔진 모드 + 레이아웃 */
     snprintf(out[UNIM_STATUS_MODE], UNIM_STATUS_VALUE_MAX, "%s   레이아웃 %s",
              unim_daemon_connected(d)
-                 ? (unim_daemon_korean(d) ? "🇰🇷 한글" : "🔤 영문")
+                 ? (unim_daemon_korean(d) ? "● 한글" : "○ 영문")
                  : "(알 수 없음)",
              unim_daemon_layout(d));
 

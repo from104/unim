@@ -465,7 +465,7 @@ private:
         grid->setVerticalSpacing(4);
         for (int i = 0; i < UNIM_STATUS_N; i++) {
             auto *key = new QLabel(QString::fromUtf8(UNIM_SPEC_STATUS_LABELS[i]));
-            key->setMinimumWidth(90);
+            key->setMinimumWidth(UNIM_SPEC_STATUS_LABEL_W);
             grid->addWidget(key, i, 0);
             statusVal[i] = new QLabel("…");
             statusVal[i]->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -546,6 +546,36 @@ int main(int argc, char *argv[]) {
     }
 
     QApplication app(argc, argv);
+
+    /*
+     * 창 전체를 스펙 색으로 칠한다.
+     *
+     * 코어 필드 캔버스는 우리가 직접 그려서 이미 스펙 색이지만, 창 배경·상태
+     * 패널·네이티브 위젯·로그 패널은 Qt 기본 팔레트(대개 밝은색)를 따라가
+     * GTK 판과 화면이 어긋났다. GTK 는 시스템 다크 테마를 따라가는 반면 Qt 는
+     * 그러지 않기 때문이다. 팔레트를 스펙에서 직접 만들어 6개 앱을 맞춘다.
+     */
+    QPalette pal;
+    pal.setColor(QPalette::Window,          col(UNIM_SPEC_COL_BG));
+    pal.setColor(QPalette::WindowText,      col(UNIM_SPEC_COL_TEXT));
+    pal.setColor(QPalette::Base,            col(UNIM_SPEC_COL_FIELD_BG));
+    pal.setColor(QPalette::AlternateBase,   col(UNIM_SPEC_COL_PANEL));
+    pal.setColor(QPalette::Text,            col(UNIM_SPEC_COL_TEXT));
+    pal.setColor(QPalette::Button,          col(UNIM_SPEC_COL_PANEL));
+    pal.setColor(QPalette::ButtonText,      col(UNIM_SPEC_COL_TEXT));
+    pal.setColor(QPalette::ToolTipBase,     col(UNIM_SPEC_COL_PANEL));
+    pal.setColor(QPalette::ToolTipText,     col(UNIM_SPEC_COL_TEXT));
+    pal.setColor(QPalette::Highlight,       col(UNIM_SPEC_COL_BORDER_FOCUS));
+    pal.setColor(QPalette::HighlightedText, col(UNIM_SPEC_COL_BG));
+    pal.setColor(QPalette::PlaceholderText, col(UNIM_SPEC_COL_LABEL));
+    pal.setColor(QPalette::Disabled, QPalette::Text, col(UNIM_SPEC_COL_LABEL));
+    pal.setColor(QPalette::Disabled, QPalette::WindowText, col(UNIM_SPEC_COL_LABEL));
+    app.setPalette(pal);
+
+    /* Fusion 은 팔레트를 그대로 따르는 스타일이다. 플랫폼 기본 스타일 중에는
+     * 팔레트를 무시하고 자기 색을 쓰는 것이 있어 명시적으로 고정한다. */
+    app.setStyle("Fusion");
+
     Window w;
     g_win = &w;
     unim_log_set_sink(log_sink, nullptr);

@@ -21,6 +21,7 @@ pub struct SpecMetrics {
     pub section_gap: c_int,
     pub row_gap: c_int,
     pub label_col_w: c_int,
+    pub status_label_w: c_int,
     pub field_h: c_int,
     pub field_h_multi: c_int,
     pub field_pad_x: c_int,

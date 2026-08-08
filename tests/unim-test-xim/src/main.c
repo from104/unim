@@ -313,7 +313,7 @@ static void draw_status(void) {
         draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, UNIM_SPEC_MARGIN, y,
                   UNIM_SPEC_STATUS_LABELS[i]);
         draw_text(A.font_ui, UNIM_SPEC_COL_TEXT,
-                  UNIM_SPEC_MARGIN + 100, y, vals[i]);
+                  UNIM_SPEC_MARGIN + UNIM_SPEC_STATUS_LABEL_W, y, vals[i]);
         y += rowh;
     }
 }
