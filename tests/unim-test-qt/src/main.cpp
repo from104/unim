@@ -129,6 +129,25 @@ public:
     }
 
 protected:
+    /**
+     * Tab 을 가로챈다.
+     *
+     * Qt 는 Tab 을 **위젯 간 포커스 이동**으로 먼저 처리해서 `keyPressEvent`
+     * 까지 오지 않는다. 그대로 두면 캔버스가 포커스를 잃어 코어 필드 순환이
+     * 동작하지 않는다(2026-08-08 하네스가 focus-switch 실패로 잡았다).
+     * GTK 판은 key-pressed 에서 먼저 가로채므로 같은 문제가 없다.
+     */
+    bool event(QEvent *e) override {
+        if (e->type() == QEvent::KeyPress) {
+            auto *ke = static_cast<QKeyEvent *>(e);
+            if (ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Backtab) {
+                keyPressEvent(ke);
+                return true;
+            }
+        }
+        return QWidget::event(e);
+    }
+
     /* ── IM ── */
 
     void inputMethodEvent(QInputMethodEvent *e) override {

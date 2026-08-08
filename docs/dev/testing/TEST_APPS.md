@@ -325,10 +325,42 @@ const char *unim_field_rendered(const UnimTestField *f, char *out, size_t n);
 
 인프라가 제 몫을 했다는 기록이자, 각각의 후속 작업 목록이다.
 
-| # | 증상 | 판정 |
-|---|---|---|
-| ① | Qt5·Qt6 만 `click-commit`·`focus-switch` 실패. 로그에 `commit core.plain "한"` 직후 `commit core.plain2 "한"` — 같은 글자가 클릭한 필드에 또 박힌다 | **설치 문제.** 코드는 맞는데 이 기기의 `/usr/lib/x86_64-linux-gnu/qt{5,6}/plugins/platforminputcontexts/libunim.so` 가 07-19 빌드본이다. dedupe 를 넣은 08-07 판이 설치되지 않았다 |
-| ② | XIM 만 `multiline-compose` 실패. 조합 중 `Return` → `"한\n"` 이 아니라 `"\n한"` | **동작 결함.** XIM 이 forward(`\n`)를 확정 문자보다 먼저 보낸다. GTK·Qt 경로는 정상. `known_fail` 로 표시해 뒀다 |
+| # | 증상 | 판정 | 상태 |
+|---|---|---|---|
+| ① | Qt5·Qt6 `click-commit` 실패. `commit core.plain "한"` 직후 `commit core.plain2 "한"` — 같은 글자가 클릭한 필드에 또 박힌다 | **설치 문제.** 코드는 맞는데 설치된 플러그인이 07-19 빌드본이었다 | ✅ `make install-frontends PREFIX=/usr` 로 해결 |
+| ② | Qt5·Qt6 `focus-switch` 실패 | **테스트 앱 결함.** Qt 는 Tab 을 위젯 포커스 이동으로 먼저 처리해 `keyPressEvent` 에 오지 않는다. GTK 판은 가로채고 있었다 | ✅ `event()` 에서 Tab 가로채기 |
+| ③ | XIM `multiline-compose` 실패. 조합 중 `Return` → `"한\n"` 이 아니라 `"\n한"` | **동작 결함** | ⏳ 미해결 (아래) |
 
-②는 2026-08-07 에 고친 "preedit 을 commit 보다 먼저" 와 같은 계열의 순서
-문제다. 실제 앱에서 한글 조합 중 Enter 를 누르면 줄바꿈이 글자보다 앞에 간다.
+### ①에서 배운 것 — 설치 경로
+
+`make install-frontends` 를 그냥 돌리면 `PREFIX ?= /usr/local` 이라
+`/usr/local/lib/qt6/plugins/…` 로 간다. **Qt·GTK 는 그 경로를 보지 않는다.**
+deb 가 쓰는 자리는 multiarch 경로이므로 `PREFIX=/usr` 를 반드시 준다.
+
+```sh
+sudo make install-frontends PREFIX=/usr
+# → /usr/lib/x86_64-linux-gnu/{qt5,qt6}/plugins/platforminputcontexts/libunim.so
+```
+
+파일명뿐 아니라 **경로도** 기존 설치본과 대조할 것.
+
+### ③ XIM Enter 순서 — 시도한 것과 실패 이유
+
+서버는 순서를 지키는데 클라이언트가 뒤집는다. 실측:
+
+```
+서버     : 키 입력(Return) → 커밋 "한" → forward      (정상)
+클라이언트: preedit 비움 → forward(\n) → commit "한"   (뒤집힘)
+```
+
+**Xlib XIM 이 forward 받은 이벤트를 자기 이벤트 큐 앞으로 되돌리기** 때문으로
+보인다. 두 가지를 시도했고 둘 다 막혔다.
+
+| 방식 | 결과 |
+|---|---|
+| (a) 키를 `consumed` 로 삼키고 commit 뒤 XTest 로 재주입 | 순서는 고쳐졌으나(`"\n한"` → `"한"`) **재주입한 키가 클라이언트까지 배달되지 않았다.** XTest 확장은 v2.2 로 존재하고 서버 로그에 호출도 찍히는데 클라이언트 이벤트 큐에 나타나지 않는다. 원인 미규명 |
+| (b) commit 뒤 forward 앞에 20 ms 지연 | 효과 없음. **도착 순서가 아니라 처리 순서 문제**라 지연으로는 못 이긴다 — 클라이언트가 두 메시지를 모두 받아 둔 채 큐를 재배치한다 |
+
+효과 없는 지연을 남기지 않으려고 둘 다 되돌렸다. `known_fail` 로 표시해 두었고
+남은 후보는 ⓐ XTest 미배달 원인 규명 ⓑ 조합 중 Enter 를 확정 전용으로
+삼키기(일본어 IME 관례 — 다만 GTK·Qt 경로와 동작이 갈린다) 두 가지다.
