@@ -10,7 +10,6 @@
 //! 재생기 부재/실패 시 조용한 no-op 이다(오디오 장치 불필요).
 
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
@@ -54,9 +53,28 @@ fn program_in_path(program: &str) -> bool {
     std::env::split_paths(&path).any(|dir| {
         let full = dir.join(program);
         full.metadata()
-            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .map(|m| m.is_file() && is_executable(&m))
             .unwrap_or(false)
     })
+}
+
+/// 실행 권한 비트 확인 (unix).
+#[cfg(unix)]
+fn is_executable(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o111 != 0
+}
+
+/// unix 외 플랫폼에는 실행 권한 비트가 없다.
+///
+/// 이 모듈의 재생기 후보(`paplay`·`pw-cat`·`aplay`)는 전부 리눅스 오디오 스택
+/// 전용이라 Windows 에서는 어차피 탐지에 실패해 무음 no-op 이 된다. 여기서 파일
+/// 존재만으로 판정하는 것은 `unim-dbus` 를 Windows 타깃으로 컴파일 가능하게
+/// 하려는 것이며(이 크레이트를 링크하는 `unim-cli` 의 Windows 포팅에 필요),
+/// 실제 비프는 Windows 에서 TSF 의 `lang_bar.rs` 가 자체 구현한다.
+#[cfg(not(unix))]
+fn is_executable(_meta: &std::fs::Metadata) -> bool {
+    true
 }
 
 /// 재생기 1회 탐지 캐시 — 매 비프마다 PATH 를 훑지 않도록 한다.

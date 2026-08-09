@@ -329,7 +329,7 @@ help_bl_path_long: "블랙리스트 파일의 절대 경로를 출력합니다.\
 # ── config set 키 도움말 (ConfigKey ValueEnum, `config set --help`) ─────────
 help_ck_korean_layout: "한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)"
 help_ck_english_layout: "영어 레이아웃 (qwerty, dvorak, colemak, colemak_dh, workman)"
-help_ck_korean_active_rule_sets: "한국어 자판 활성 규칙 세트 (쉼표 구분, 빈 문자열 = 프로필 기본값 사용)"
+help_ck_korean_active_rule_sets: "한국어 자판 활성 규칙 세트 (쉼표 구분. 빈 문자열 = 전부 끔, default = 프로필 기본값)"
 help_ck_default_category: "초기 입력 모드 (korean, english)"
 help_ck_mode_sharing: "모드 공유 방식 (global, per-app)"
 help_ck_toggle_keys: "한/영 전환 키 (예: Korean,RightAlt)"

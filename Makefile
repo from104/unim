@@ -475,7 +475,11 @@ clean-rpm:
 #     · "cargo build (release, MSI payloads)"       → unim-settings.exe 산출
 #   PR paths 필터에도 unim-settings/** 가 있어 설정앱 변경은 반드시 이 워크플로를 탄다.
 # ⇒ `make check-windows` 통과는 "설정앱까지 검증됨" 을 뜻하지 않는다.
-WIN_CRATES := -p unim -p unim-capi -p unim-tsf -p unim-imm32
+# unim-cli·unim-dbus 도 포함한다. CLI 는 cfg 게이트 없이 플랫폼 중립이고 config
+# 경로도 코어가 %APPDATA% 로 분기하므로, Windows 에서 변환·config 서브커맨드가
+# 그대로 동작한다(trigger·daemon 은 데몬이 없어 런타임 미지원). 여기에 넣어 두면
+# 리눅스 전용 API 가 새로 섞여 들어올 때 즉시 잡힌다.
+WIN_CRATES := -p unim -p unim-capi -p unim-tsf -p unim-imm32 -p unim-dbus -p unim-cli
 
 ifeq ($(OS),Windows_NT)
     WIN_NATIVE  := 1

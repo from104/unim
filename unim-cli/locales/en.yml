@@ -328,7 +328,7 @@ help_bl_path_long: "Print the absolute path of the blacklist file.\nDefault: $XD
 # ── config set key help (ConfigKey ValueEnum, `config set --help`) ─────────
 help_ck_korean_layout: "Korean keyboard layout (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)"
 help_ck_english_layout: "English keyboard layout (qwerty, dvorak, colemak, colemak_dh, workman)"
-help_ck_korean_active_rule_sets: "Active Korean layout rule sets (comma-separated; empty = use the profile default)"
+help_ck_korean_active_rule_sets: "Active Korean layout rule sets (comma-separated; empty = all off, 'default' = profile default)"
 help_ck_default_category: "Initial input mode (korean, english)"
 help_ck_mode_sharing: "Mode sharing strategy (global, per-app)"
 help_ck_toggle_keys: "Korean/English toggle key (e.g. Korean,RightAlt)"
