@@ -133,8 +133,12 @@ impl IBusInputContextHandler {
             return Ok(false);
         }
 
-        // IBus keycode = X11 keycode = evdev + 8 → evdev로 변환
-        let evdev_keycode = keycode.saturating_sub(8);
+        // IBus 계약상 keycode 는 **이미 evdev 코드**다 — 클라이언트가 보내기 전에
+        // 빼 준다(GTK `im-ibus` 의 `ibus_im_context_filter_keypress` 는
+        // `event->hardware_keycode - 8` 을 넘긴다). 여기서 또 8 을 빼면 이중
+        // 차감이 되어 다른 키로 바뀐다 — 2026-08-09 실측: `y`(X11 29 → evdev 21)
+        // 가 13(`=`)으로 처리돼 한글 대신 "=" 이 찍혔다.
+        let evdev_keycode = keycode;
 
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.engine_tx

@@ -56,8 +56,12 @@ pub mod caps {
 }
 
 /// 빈 attachments dict `a{sv}` 생성
-fn empty_attachments<'a>() -> Value<'a> {
-    Value::new(std::collections::HashMap::<String, Value>::new())
+///
+/// ⚠️ `Value::new(..)` 로 감싸지 **않는다**. 구조체 필드를 `Value` 로 넣으면
+/// zvariant 가 그 자리를 `v`(variant) 로 만들어 버려 시그니처가 IBus 계약과
+/// 어긋난다. IBus 클라이언트는 `a{sv}` 를 기대하므로 맵을 그대로 넣어야 한다.
+fn empty_attachments() -> std::collections::HashMap<String, Value<'static>> {
+    std::collections::HashMap::new()
 }
 
 /// IBusAttribute를 GVariant `v`로 직렬화
@@ -71,12 +75,12 @@ pub fn serialize_ibus_attribute(
     end: u32,
 ) -> Value<'static> {
     Value::new(zvariant::Structure::from((
-        Value::new("IBusAttribute".to_string()),
+        "IBusAttribute".to_string(),
         empty_attachments(),
-        Value::new(attr_type as u32),
-        Value::new(value),
-        Value::new(start),
-        Value::new(end),
+        attr_type as u32,
+        value,
+        start,
+        end,
     )))
 }
 
@@ -86,9 +90,9 @@ pub fn serialize_ibus_attribute(
 /// - "IBusAttrList", {}, [IBusAttribute, ...]
 pub fn serialize_ibus_attr_list(attrs: Vec<Value<'static>>) -> Value<'static> {
     Value::new(zvariant::Structure::from((
-        Value::new("IBusAttrList".to_string()),
+        "IBusAttrList".to_string(),
         empty_attachments(),
-        Value::new(attrs),
+        attrs,
     )))
 }
 
@@ -110,10 +114,10 @@ pub fn serialize_ibus_text(text: &str) -> Value<'static> {
 /// 속성 포함 IBusText 직렬화
 pub fn serialize_ibus_text_with_attrs(text: &str, attr_list: Value<'static>) -> Value<'static> {
     Value::new(zvariant::Structure::from((
-        Value::new("IBusText".to_string()),
+        "IBusText".to_string(),
         empty_attachments(),
-        Value::new(text.to_string()),
-        attr_list,
+        text.to_string(),
+        attr_list, // 여기는 IBus 계약도 `v` 다 — Value 를 유지한다
     )))
 }
 
@@ -125,12 +129,15 @@ pub fn serialize_preedit_text(text: &str) -> Value<'static> {
         return serialize_ibus_text("");
     }
 
-    let byte_len = text.len() as u32;
+    // IBus attribute 의 start/end 는 **문자 인덱스**다(바이트 아님).
+    // 바이트 길이를 넣으면 한글에서 범위를 벗어나 클라이언트가 텍스트를 버린다
+    // — 2026-08-09 실측: preedit "한" 이 화면에 빈 문자열로 도착했다.
+    let char_len = text.chars().count() as u32;
     let underline_attr = serialize_ibus_attribute(
         IBusAttrType::Underline,
         IBusAttrUnderline::Single as u32,
         0,
-        byte_len,
+        char_len,
     );
     let attr_list = serialize_ibus_attr_list(vec![underline_attr]);
     serialize_ibus_text_with_attrs(text, attr_list)
@@ -141,22 +148,22 @@ pub fn serialize_preedit_text(text: &str) -> Value<'static> {
 /// 형식: `(sa{sv}ssssssssssssss)`
 pub fn serialize_engine_desc() -> Value<'static> {
     Value::new(zvariant::Structure::from((
-        Value::new("IBusEngineDesc".to_string()),
+        "IBusEngineDesc".to_string(),
         empty_attachments(),
-        Value::new("unim".to_string()),                // name
-        Value::new("UNIM".to_string()),                // longname
-        Value::new("Korean Input Method".to_string()), // description
-        Value::new("ko".to_string()),                  // language
-        Value::new("MIT".to_string()),                 // license
-        Value::new("from104".to_string()),             // author
-        Value::new("".to_string()),                    // icon
-        Value::new("default".to_string()),             // layout
-        Value::new("".to_string()),                    // layout_variant
-        Value::new("".to_string()),                    // layout_option
-        Value::new("0".to_string()),                   // rank
-        Value::new("".to_string()),                    // hotkeys
-        Value::new("unim".to_string()),                // symbol
-        Value::new("".to_string()),                    // setup
+        "unim".to_string(),                // name
+        "UNIM".to_string(),                // longname
+        "Korean Input Method".to_string(), // description
+        "ko".to_string(),                  // language
+        "MIT".to_string(),                 // license
+        "from104".to_string(),             // author
+        "".to_string(),                    // icon
+        "default".to_string(),             // layout
+        "".to_string(),                    // layout_variant
+        "".to_string(),                    // layout_option
+        "0".to_string(),                   // rank
+        "".to_string(),                    // hotkeys
+        "unim".to_string(),                // symbol
+        "".to_string(),                    // setup
     )))
 }
 
@@ -185,6 +192,41 @@ mod tests {
             Value::Value(inner) => as_struct_fields(inner),
             _ => panic!("Expected Structure, got {:?}", v),
         }
+    }
+
+    /// wire 시그니처 검증 — **이것이 진짜 판정 기준이다.**
+    ///
+    /// 값만 보는 단언(`extract_str`)은 `Value::Value(inner)` 를 벗겨 내므로
+    /// 필드가 variant 로 잘못 감싸져 있어도 통과한다. 실제로 2026-08-09 까지
+    /// 모든 필드가 `v` 로 나가 IBus 클라이언트가
+    /// `format string '&s' has a type of 's' but the given value has a type of 'v'`
+    /// 로 거부했는데도 이 파일의 테스트는 전부 초록이었다.
+    fn sig_of(v: &Value<'_>) -> String {
+        match v {
+            Value::Value(inner) => inner.value_signature().to_string(),
+            other => other.value_signature().to_string(),
+        }
+    }
+
+    #[test]
+    fn test_ibus_text_wire_signature() {
+        // IBusText = (sa{sv}sv) — IBus 의 ibus_text_serialize 계약
+        assert_eq!(sig_of(&serialize_ibus_text("한글")), "(sa{sv}sv)");
+        assert_eq!(sig_of(&serialize_ibus_text("")), "(sa{sv}sv)");
+        assert_eq!(sig_of(&serialize_preedit_text("한")), "(sa{sv}sv)");
+    }
+
+    #[test]
+    fn test_ibus_attr_list_wire_signature() {
+        // IBusAttrList = (sa{sv}av)
+        assert_eq!(sig_of(&empty_attr_list()), "(sa{sv}av)");
+    }
+
+    #[test]
+    fn test_ibus_attribute_wire_signature() {
+        // IBusAttribute = (sa{sv}uuuu)
+        let attr = serialize_ibus_attribute(IBusAttrType::Underline, 1, 0, 3);
+        assert_eq!(sig_of(&attr), "(sa{sv}uuuu)");
     }
 
     #[test]
