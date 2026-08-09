@@ -220,9 +220,9 @@
 
 ## 8. 다음 단계 — 아키텍처 설계 문서로 이동
 
-다음 문서: `docs/architecture/popup-process.md` — 새 `unim-popup-service` 프로세스의 모듈 구조·DBus 인터페이스·X11/Wayland 분기 점·시작/종료 라이프사이클 명세.
+다음 문서: `docs/archive/plans/popup-process.md` — 새 `unim-popup-service` 프로세스의 모듈 구조·DBus 인터페이스·X11/Wayland 분기 점·시작/종료 라이프사이클 명세.
 
-이후: `docs/architecture/popup-redesign-plan.md` — Phase별 작업 분해.
+이후: `docs/archive/plans/popup-redesign-plan.md` — Phase별 작업 분해.
 
 ---
 
@@ -284,6 +284,6 @@ forward만 담당한다. 이로써 렌더러 교체/추가가 daemon 코드 변�
 
 ### 관련 문서
 
-- [POPUP_SPEC.md](../dev/specs/POPUP_SPEC.md)
-- [IME_BEHAVIOR.md §4](../dev/architecture/IME_BEHAVIOR.md)
-- [0.3.0 릴리즈 노트](../user/release-notes/0.3.0/README.md)
+- [POPUP_SPEC.md](../../dev/specs/POPUP_SPEC.md)
+- [IME_BEHAVIOR.md §4](../../dev/architecture/IME_BEHAVIOR.md)
+- [0.3.0 릴리즈 노트](../../user/release-notes/0.3.0/README.md)

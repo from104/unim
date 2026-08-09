@@ -5,7 +5,7 @@
 - 대상: UNIM (Rust 한글 IME) — Linux 스택: 공유 코어 `src/`(31,300줄) + `unim-dbus`/`unim-daemon`(중추) + 프런트엔드 7종(GTK3/4·Qt5/6·XIM·Wayland·GNOME 확장) + IBus 호환 레이어 + GUI 군(`unim-settings`·`unim-indicator`·`unim-popup-service`)
 - 범위: 소스·아키텍처 / 입력 품질·앱 호환성 / 경쟁 IME 기능 격차 / UI·UX 미려함 / 접근성(장애인) / 안정성·배포·신뢰
 - 방법: 13개 축의 파일:라인 대조 검증 분석을 종합. 본 보고서 작성 시 핵심 근거(`.github/workflows/` = `windows-msi.yml` 단 1개, `unim-cli/src/main.rs` commit_unit grep=0, `ignore_key_repeat` 집행이 `unim-tsf/src/text_service.rs`에만 존재하고 `unim-frontends/` grep=0, `gtk3/src/immodule.c:598`·`gtk4/src/immodule.c:678` bare `Alt_R` 스킵, `unim-settings/src/settings_dialog.rs:84 .search_enabled(false)`, `PKGBUILD:3 pkgver=0.3.0`, `popup_styles.generated.css:145 #1e1e2e` Mocha 하드코딩, workspace 0.3.63)를 실코드로 재확인함.
-- 참고: 본 보고서는 자매편 `docs/analysis/2026-07-03-windows-major-ime-analysis.md`(Windows판)와 동일 골격을 미러하며, Windows판에 없는 §10 "Windows→Linux 포팅 백로그"를 신설했다. "새 코드"는 커밋 범위 `09269e0..HEAD`(84커밋, 2026-06-19~07-05)를 가리키며, 이 범위는 대부분 Windows 작업이고 Linux 프런트에 닿은 커밋은 실질 1건(`19aa31c` GNOME 아이콘)뿐이다.
+- 참고: 본 보고서는 자매편 `docs/references/research/2026-07-03-windows-major-ime-analysis.md`(Windows판)와 동일 골격을 미러하며, Windows판에 없는 §10 "Windows→Linux 포팅 백로그"를 신설했다. "새 코드"는 커밋 범위 `09269e0..HEAD`(84커밋, 2026-06-19~07-05)를 가리키며, 이 범위는 대부분 Windows 작업이고 Linux 프런트에 닿은 커밋은 실질 1건(`19aa31c` GNOME 아이콘)뿐이다.
 
 ---
 

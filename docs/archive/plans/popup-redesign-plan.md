@@ -1,7 +1,7 @@
 # UNIM popup 재설계 — Phase별 실행 계획
 
 **브랜치**: `arch/popup-unify`
-**기준 문서**: [`popup-process.md`](popup-process.md), [`../research/popup-redesign.md`](../research/popup-redesign.md)
+**기준 문서**: [`popup-process.md`](popup-process.md), [`popup-redesign.md`](popup-redesign.md)
 **진행 정책**: 단일 세션 단계별 빌드 검증, 최종 한 번에 사용자 회귀 테스트
 
 ---

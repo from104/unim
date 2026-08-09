@@ -38,7 +38,7 @@
 
 | 하위 | 내용 |
 |---|---|
-| [`dev/architecture/`](dev/architecture/) | [AGENTS.md](dev/architecture/AGENTS.md) (작업 규칙) · [IME_BEHAVIOR.md](dev/architecture/IME_BEHAVIOR.md) · [LAYOUT_PROFILE_V3.md](dev/architecture/LAYOUT_PROFILE_V3.md) (현행 자판 스키마) |
+| [`dev/architecture/`](dev/architecture/) | [AGENTS.md](dev/architecture/AGENTS.md) (작업 규칙) · [IME_BEHAVIOR.md](dev/architecture/IME_BEHAVIOR.md) · [LAYOUT_PROFILE_V3.md](dev/architecture/LAYOUT_PROFILE_V3.md) (현행 자판 스키마) · [dbus-popup-migration-plan.md](dev/architecture/dbus-popup-migration-plan.md) (popup DBus 책임 이관 — **미착수**, 10항목) |
 | [`dev/specs/`](dev/specs/) | [POPUP_SPEC.md](dev/specs/POPUP_SPEC.md) — 팝업 동작 명세. **변경 시 사용자 승인 필수** |
 | [`dev/windows/`](dev/windows/) | Windows TSF/IMM32 포팅. 활성 31 + [`_archive/`](dev/windows/_archive/) 31. 현재 지식 상태는 [_KNOWLEDGE_STATE.md](dev/windows/_KNOWLEDGE_STATE.md) 부터 |
 | [`dev/linux/`](dev/linux/) | Linux 프런트엔드 개별 이슈 |
@@ -48,23 +48,21 @@
 
 - [`references/keymaps/`](references/keymaps/) — 자판 정의 JSON 11종 + [USER_GUIDE.md](references/keymaps/USER_GUIDE.md). **이동 금지** (`Makefile`·`PKGBUILD` 참조)
 - [`references/java/`](references/java/) — 한글 조합 규칙의 Java 원본 구현. Rust 포팅의 대조군
-- [`references/research/`](references/research/) — 자판·입력기 조사 (안마태, 복벌식·갈마들이, 순아래받침, Wayland IM, Windows TSF, 샌드박스)
+- [`references/research/`](references/research/) — 자판·입력기 조사 (안마태, 복벌식·갈마들이, 순아래받침, Wayland IM, Windows TSF, 샌드박스) + **메이저 IME 갭 분석** 2건 ([Windows](references/research/2026-07-03-windows-major-ime-analysis.md) · [Linux](references/research/2026-07-06-linux-major-ime-analysis.md)) — 제품화 관점 미비점과 백로그의 근거
 
 ## `archive/` — 보존
 
 현행이 아니지만 결정의 근거로 남겨둔 문서.
 
-- [`archive/plans/`](archive/plans/) — LAYOUT_PROFILE V1 / V1_IMPL / V2. 현행 스키마는 [dev/architecture/LAYOUT_PROFILE_V3.md](dev/architecture/LAYOUT_PROFILE_V3.md)
+- [`archive/plans/`](archive/plans/) — 완결된 계획.
+  - LAYOUT_PROFILE V1 / V1_IMPL / V2 — 현행 스키마는 [dev/architecture/LAYOUT_PROFILE_V3.md](dev/architecture/LAYOUT_PROFILE_V3.md)
+  - 팝업 재설계 3종 (사전 리서치 → Phase 계획 → 프로세스 아키텍처) — **Phase 7(팝업 중앙화)로 완결**. 현행 명세는 [dev/specs/POPUP_SPEC.md](dev/specs/POPUP_SPEC.md)
+- [`archive/reports/`](archive/reports/) — 특정 시점의 세션 작업 보고. Windows 구현 검증(2026-07-03) · 나머지 개선점 구현(2026-07-04)
 
 ---
 
 ## 정리 대기
 
-아래 최상위 디렉토리는 `dev/`·`references/`·`archive/` 와 주제가 겹친다. 아직 통합되지 않았다.
-
 | 경로 | 겹치는 곳 |
 |---|---|
-| [`analysis/`](analysis/) | 입력기 분석 4건 — 성격상 `references/research/` 또는 `archive/` |
-| [`architecture/`](architecture/) | 팝업 설계 3건 — `dev/architecture/` 와 중복 |
-| [`research/`](research/) | 팝업 재설계 1건 — `references/research/` 와 중복 |
 | [`branding/`](branding/) | 로고 인상 기록 1건 |

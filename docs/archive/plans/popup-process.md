@@ -1,6 +1,6 @@
 # UNIM `unim-popup-service` 프로세스 아키텍처
 
-**참조 리서치**: [`docs/research/popup-redesign.md`](../research/popup-redesign.md)
+**참조 리서치**: [`docs/archive/plans/popup-redesign.md`](popup-redesign.md)
 **브랜치**: `arch/popup-unify`
 **범위**: popup 전용 standalone 프로세스, GTK4-rs 단일 toolkit, X11/Wayland 둘 다 1차 지원
 
@@ -11,7 +11,7 @@
 >   프로세스)가 렌더한다. GTK/Qt IM 모듈은 자체 팝업 위젯을 더 이상 갖지 않고 DBus 위임만
 >   하며, 과거의 임베디드/로컬 팝업 위젯 코드는 제거됐다.
 > - **DBus 인터페이스**: 실제 bus name·object path·시그널 이름은 §4가 아니라
->   [`docs/dev/specs/POPUP_SPEC.md`](../dev/specs/POPUP_SPEC.md)(`org.atit.unim.Popup`
+>   [`docs/dev/specs/POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)(`org.atit.unim.Popup`
 >   인터페이스, `PopupRender` 통합 view-model SoT)와 코드가 정본이다.
 > - **트레이 분리**: 트레이는 `unim-gui-gtk`가 아니라 별도 `unim-indicator` 프로세스가
 >   책임진다(§7·§8의 "popup-service가 트레이도 담당"·"unim-gui-gtk 트레이 이관" 서술은 폐기).

@@ -307,7 +307,7 @@ daemon engine state 변경 → popup_event → 위와 같이 popup-service signa
 | `unim-gui-common/src/popup_dbus.rs` | 4 | 변경 | RPC target 상수 4종 변경 |
 | `unim-gnome-extension/dbus_ime.js` | 5 | 변경 | popup-service Proxy 추가 + signal target 전환 |
 | `unim-dbus/src/service.rs` | 6 | doc-only | popup method/signal 에 internal-only 주석 |
-| `docs/architecture/dbus-popup-migration-plan.md` | — | 신규 | 본 문서 |
+| `docs/dev/architecture/dbus-popup-migration-plan.md` | — | 신규 | 본 문서 |
 
 ## 위험 + 완화책
 
