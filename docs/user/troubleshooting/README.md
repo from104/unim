@@ -912,13 +912,19 @@ Clicking **outside** the popup is intentional dismiss behavior — the popup clo
 
 `Meta.is_wayland_compositor()` detection has failed, causing both the extension `PopupView` and the popup-service GTK4 window to render simultaneously. Check your GNOME Shell version, then disable and re-enable the `unim-gnome@from104.github.io` extension.
 
-### "XIM ON-THE-SPOT preedit missing after commit"
+### "The character after a commit does not show up (XIM)"
 
-**Fixed 2026-08-07**, after being open through 0.3.0–0.4.0. The symptom: right after a syllable was committed, the next jamo did not appear on screen until one more jamo completed a syllable.
+Right after a syllable is committed, the next jamo you type does not appear on screen. Open since 0.3.0, and **the status now differs by path.**
 
-The cause was **not** what this page previously claimed (the xim crate's `commit()` not updating `preedit_started`) — removing that workaround entirely left the symptom unchanged. The real cause is that **ON-THE-SPOT clients stop processing messages once they hit `Commit` while handling a key**, so a new preedit sent after the commit was discarded. XIM now sends the preedit **before** the commit; see the exception in `docs/dev/architecture/IME_BEHAVIOR.md` §8.1. OVER-THE-SPOT clients (XTerm, WezTerm) were already fine and were re-verified for regressions.
+**Fixed (2026-08-07)** — for self-hosted XIM clients and OVER-THE-SPOT clients (XTerm, WezTerm). The cause was **not** what this page previously claimed (the xim crate's `commit()` not updating `preedit_started`) — removing that workaround entirely left the symptom unchanged. The real cause is that **ON-THE-SPOT clients stop processing messages once they hit `Commit` while handling a key**, so a new preedit sent after the commit was discarded. XIM now sends the preedit **before** the commit; see the exception in `docs/dev/architecture/IME_BEHAVIOR.md` §8.1.
 
-A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT clients (XTerm, WezTerm) now work correctly. Some ON-THE-SPOT (PREEDIT_CALLBACKS) clients still exhibit the regression — this is a known unresolved issue caused by xim-0.5.0's `commit()` not updating `preedit_started`. Workaround: use an OVER-THE-SPOT client (XTerm) or switch to the GTK/Qt IM modules.
+**Still open (confirmed 2026-08-10)** — when GTK attaches through its XIM module (`im-xim`), the symptom remains and the cause is different. There the input method stalls right after the commit, so **the next character is swallowed for several seconds** (libX11 recovers on its own after a timeout). Sending `PreeditDraw` is what wedges that input context: it stops receiving further keys. Reproduces 3/3.
+
+- **Who hits this**: mostly **Flatpak and Snap apps**. The host's `im-unim.so` is not visible inside the sandbox, so GTK falls back to XIM. Obsidian (Electron) is the common case.
+- **Unaffected**: normally installed GTK/Qt apps (they use the native IM modules), and OVER-THE-SPOT clients such as XTerm and WezTerm.
+- **Workaround today**: none within the sandbox. Installing the same app from a **non-sandboxed package** (deb, AppImage) makes it use the native IM module and the symptom disappears. The IBus compatibility path was substantially repaired in 0.4.0 but does not yet display preedit text, so it is not a usable alternative.
+
+Progress is tracked in ROADMAP phase 3, "Sandboxed apps (Flatpak/Snap) input path".
 
 ---
 
@@ -941,7 +947,7 @@ A best-effort fix (`commit_then_preedit`) was applied in 0.3.0. OVER-THE-SPOT cl
 - English-mode space drop (gedit): fixed via `consumed=true commit=" "` path.
 - AutoTypeFix residual BS (XIM): fixed via N+1 BS model. Chrome preedit edge case is a known SKIP.
 - `tentative_expiry_hours` unit changed days → hours (1..=12) since 0.2.0; existing config auto-migrates.
-- **XIM ON-THE-SPOT (PREEDIT_CALLBACKS) preedit drop after commit (FIXED 2026-08-07)**: After committing a syllable the next jamo stayed invisible until another jamo arrived. The cause was that ON-THE-SPOT clients stop processing messages once they hit `Commit` while handling a key (the long-standing claim that xim's `commit()` fails to update `preedit_started` was a misdiagnosis). Fixed by having XIM — and only XIM — send the preedit before the commit; see `IME_BEHAVIOR.md` §8.1. Regression watch: `tests/unim-test-xim` and `tests/unim-test-gtk3` (ON-THE-SPOT), `xterm` (OVER-THE-SPOT).
+- **XIM preedit drop after commit (PARTIALLY FIXED)**: Self-hosted XIM clients and OVER-THE-SPOT were fixed on 2026-08-07 — ON-THE-SPOT clients stop processing messages once they hit `Commit` while handling a key (the long-standing claim that xim's `commit()` fails to update `preedit_started` was a misdiagnosis), so XIM — and only XIM — now sends the preedit before the commit (`IME_BEHAVIOR.md` §8.1). **However, the path where GTK attaches via `im-xim` is still broken as of 2026-08-10, with a different cause**: sending `PreeditDraw` wedges that input context so it receives no further keys (reproduces 3/3). Flatpak and Snap apps are the main victims. Regression watch: `tests/unim-test-xim` and `tests/unim-test-gtk3` (ON-THE-SPOT), `xterm` (OVER-THE-SPOT), plus `tests/unim-test-gtk3` launched with `GTK_IM_MODULE=xim`.
 
 ### C. Multiple daemon instances
 
