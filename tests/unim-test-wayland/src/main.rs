@@ -156,11 +156,7 @@ impl Canvas<'_> {
         if alpha == 0 || w <= 0 || h <= 0 {
             return;
         }
-        let (sr, sg, sb) = (
-            ((rgb >> 16) & 0xff) as u32,
-            ((rgb >> 8) & 0xff) as u32,
-            (rgb & 0xff) as u32,
-        );
+        let (sr, sg, sb) = ((rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff);
         let a = alpha as u32;
         let inv = 255 - a;
         let x1 = (x + w).min(self.w);
@@ -768,7 +764,9 @@ impl App {
 
         let before = self.cur().caret;
         let tp: *mut Text = &mut self.text;
-        let caret = tc::caret_from_x(self.cur(), x, measure_cb, tp as *mut c_void);
+        // `tp` 는 바로 아래에서만 쓰이고 `measure_cb` 는 필드 엔진을 다시
+        // 부르지 않으므로 재진입이 없다.
+        let caret = unsafe { tc::caret_from_x(self.cur(), x, measure_cb, tp as *mut c_void) };
         self.cur_mut().caret = caret;
         let id = self.cur().id().to_string();
         tc::log_click(x, y, &id, before, caret);

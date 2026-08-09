@@ -385,9 +385,14 @@ pub fn hit(fields: &[Box<Field>], x: i32, y: i32) -> Option<usize> {
     })
 }
 
-pub fn caret_from_x(f: &Field, x: i32, m: TextWidthFn,
-                    user: *mut std::ffi::c_void) -> i32 {
-    unsafe { unim_field_caret_from_x(f, x, m, user) }
+/// 클릭 x 좌표 → 캐럿 바이트 오프셋. 폭 측정은 앱이 콜백으로 준다.
+///
+/// # Safety
+/// `user` 는 `m` 이 해석할 수 있는 유효한 포인터여야 하고, `m` 이 실행되는
+/// 동안 살아 있어야 한다. `m` 안에서 이 함수를 다시 부르면 안 된다.
+pub unsafe fn caret_from_x(f: &Field, x: i32, m: TextWidthFn,
+                           user: *mut std::ffi::c_void) -> i32 {
+    unim_field_caret_from_x(f, x, m, user)
 }
 
 /* ─── 데몬 연결·상태 패널 (`dbus` 기능) ───────────────────────────────── */
