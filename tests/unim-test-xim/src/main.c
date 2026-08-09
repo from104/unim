@@ -668,6 +668,17 @@ static void main_loop(void) {
                     unim_log_ready();
                 }
                 break;
+            case ConfigureNotify:
+                /*
+                 * 창 관리자가 창을 옮기거나 크기를 바꾸면 절대 좌표가 달라진다.
+                 * MapNotify 시점의 좌표는 WM 이 최종 배치를 하기 **전** 값이라
+                 * 그대로 두면 하네스가 창 밖을 클릭한다(2026-08-09 실측:
+                 * click 사건이 아예 안 오고 window-focus-out 만 났다).
+                 * GTK 판이 `map-event` 를 connect_after 로 받아 피한 함정을,
+                 * 여기서는 배치가 통보될 때마다 다시 내서 따라잡는다.
+                 */
+                if (A.ready) emit_geometry();
+                break;
             default:
                 break;
             }

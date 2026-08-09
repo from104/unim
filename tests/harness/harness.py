@@ -196,9 +196,16 @@ class RunningApp:
                 if not line:
                     continue
                 try:
-                    out.append(json.loads(line))
+                    ev = json.loads(line)
                 except json.JSONDecodeError:
-                    pass          # 아직 다 안 쓰인 마지막 줄
+                    continue      # 아직 다 안 쓰인 마지막 줄
+                # 좌표는 여기서 항상 최신으로 유지한다. 창 관리자가 창을 옮기면
+                # 앱이 geometry 를 다시 내는데(XIM 은 ConfigureNotify 마다),
+                # 예전에는 wait_ready() 안에서만 반영해 app.ready 이후의 갱신을
+                # 통째로 버렸다 — 그래서 옛 좌표로 창 밖을 클릭했다(2026-08-09).
+                if ev.get("ev") == "geometry" and "field" in ev:
+                    self.geometry[ev["field"]] = ev
+                out.append(ev)
             self._pos = f.tell()
         return out
 

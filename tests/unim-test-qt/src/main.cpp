@@ -91,10 +91,22 @@ public:
         return fm.horizontalAdvance(QString::fromUtf8(utf8, int(n)));
     }
 
-    /** 창 내부 좌표계의 필드 기하를 로그로 낸다. */
+    /**
+     * 창 내부 좌표계의 필드 기하를 로그로 낸다.
+     *
+     * 상대(`x`,`y`,`cx`,`cy`)는 논리 단위 그대로 두고, 절대
+     * (`screen_cx`,`screen_cy`)는 **물리 픽셀**로 낸다 — 하네스가 이 값을
+     * `xdotool` 에 넘기는데 XTEST 는 물리 픽셀을 받기 때문이다.
+     *
+     * `mapToGlobal()` 은 논리 좌표를 돌려주므로 devicePixelRatio 를 곱한다.
+     * 이걸 빼먹어 HiDPI(배율 2)에서 클릭이 정확히 절반 지점에 떨어졌고,
+     * 필드를 옮기는 시나리오(click-commit·password·multiline)만 실패했다
+     * — 2026-08-09 실측. GTK 판도 같은 함정을 밟았다.
+     */
     void emitGeometry() {
         QPoint o = mapTo(window(), QPoint(0, 0));
         QPoint g = mapToGlobal(QPoint(0, 0));
+        const double dpr = devicePixelRatioF();
         for (int i = 0; i < UNIM_SPEC_N_CORE_FIELDS; i++) {
             const UnimTestField *f = &fields[i];
             char kv[640];
@@ -103,7 +115,8 @@ public:
                        "\"cx\":%d,\"cy\":%d,\"screen_cx\":%d,\"screen_cy\":%d",
                        f->id, o.x() + f->x, o.y() + f->y, f->w, f->h,
                        o.x() + f->x + f->w / 2, o.y() + f->y + f->h / 2,
-                       g.x() + f->x + f->w / 2, g.y() + f->y + f->h / 2);
+                       int((g.x() + f->x + f->w / 2) * dpr),
+                       int((g.y() + f->y + f->h / 2) * dpr));
             unim_log_raw("geometry", kv);
         }
     }
