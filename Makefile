@@ -171,7 +171,15 @@ build-rust:
 	# ④ /usr/local/share → ⑤ 실행 파일 조상의 help/)가 받아내지만, 비표준
 	# PREFIX(/opt/unim 등)에서는 주입이 없으면 도움말을 찾지 못한다. 두 크레이트가
 	# 모두 읽으므로 워크스페이스 빌드 전체에 넘긴다.
-	@UNIM_DATADIR=$(DATADIR) $(CARGO) build --release --workspace
+	#
+	# MAKEFLAGS= : cargo 로 내려가는 make 플래그를 끊는다. rpmbuild 의
+	# `%make_build` 는 MAKEFLAGS 에 `-Otarget --jobserver-auth=… -- VAR=…` 형태로
+	# `--` 구분자를 넣는데, 이 값이 tikv-jemalloc-sys 의 build.rs 까지 전달되면
+	# build.rs 가 뒤에 덧붙이는 `-j` 가 `--` 뒤에 놓여 make 가 그것을 **타겟
+	# 이름으로** 해석한다(`No rule to make target '-j'`). 2026-08-10 v0.4.0 에서
+	# linux-rpm 잡이 이것으로 깨져 릴리스에 rpm 이 빠졌다. deb 는 `%make_build` 를
+	# 안 거쳐 무사했다. cargo 는 자체 병렬성을 쓰므로 잃는 것이 없다.
+	@UNIM_DATADIR=$(DATADIR) MAKEFLAGS= $(CARGO) build --release --workspace
 
 build-frontends: build-rust
 	@echo "🔨 Building IM Frontends..."
