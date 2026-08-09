@@ -6105,12 +6105,9 @@ dependencies = [
 name = "unim-wayland"
 version = "0.4.0"
 dependencies = [
- "cosmic-text",
  "futures-util",
- "memmap2 0.9.10",
  "mio",
  "nix 0.29.0",
- "tiny-skia",
  "tokio",
  "unim",
  "unim-dbus",
