@@ -1,0 +1,10 @@
+[package]
+name = "unim-popup-types"
+version.workspace = true
+edition = "2021"
+description = "UNIM popup DBus payload types — daemon·popup-service·frontends 공유 SoT."
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]

@@ -13,10 +13,14 @@
 | `immodule.c` | `gtk3/src/` | GTK3 IM 모듈 메인 (GtkIMContext 구현) |
 | `unim_dbus_client.c` | `gtk-common/src/` | GDBus 기반 unim-daemon 통신 (GTK3/4 공용) |
 | `unim_dbus_client.h` | `gtk-common/include/` | DBus 클라이언트 API 헤더 |
-| `unim_hanja_popup.c` | `gtk-common/src/` | GTK 기반 한자 후보 팝업 윈도우 (GTK3/4 공용) |
-| `unim_hanja_popup.h` | `gtk-common/include/` | 한자 팝업 API 헤더 |
-| `unim_special_popup.c` | `gtk-common/src/` | GTK 기반 특수문자 그리드 팝업 윈도우 (GTK3/4 공용) |
-| `unim_special_popup.h` | `gtk-common/include/` | 특수문자 팝업 API 헤더 |
+
+> [!NOTE]
+> 한자/특수문자/이모지 팝업은 IM 모듈이 **직접 그리지 않습니다**.
+> 모든 팝업 렌더링은 독립 GTK4 프로세스인 **unim-popup-service**가 담당합니다.
+> IM 모듈은 데몬의 팝업 DBus 신호(`ShowEmojiPopupV2`/`HidePopup` 등)를 받아
+> `popup_active` 플래그만 관리합니다 (§9 참고).
+> 과거 `gtk-common`에 있던 `unim_hanja_popup`·`unim_special_popup`·`unim_emoji_popup`
+> 임베디드 위젯은 제거되었고, 현재 `gtk-common`에 남은 소스는 `unim_dbus_client`뿐입니다.
 
 ### 1.2 통신 구조
 
@@ -33,7 +37,7 @@
 |-----------|------|
 | `gtk+-3.0` | GTK3 IM 프레임워크 (GtkIMContext) |
 | `gio-2.0` | GDBus 비동기 통신 |
-| `x11` (선택) | X11 환경에서 한자 팝업 위치 계산 |
+| `x11` (선택) | X11 환경에서 커서 절대 좌표 계산 (데몬에 보고) |
 
 ---
 
@@ -65,22 +69,18 @@ default_locales = "ko:*"
 3. `unim_dbus_context_new("gtk3-unim", window_id)` → DBus 클라이언트 생성
 4. `unim_dbus_set_auto_typefix_callback()` → `AutoTypefixApply` 시그널 구독
 5. `unim_dbus_set_commit_text_callback()` → `CommitText` 시그널 구독 (Standalone 팝업 클릭 커밋용)
-6. `unim_hanja_popup_new()` → 한자 팝업 인스턴스 생성
-7. `unim_special_popup_new()` → 특수문자 팝업 인스턴스 생성
+6. `unim_dbus_set_show_emoji_popup_callback()` → `ShowEmojiPopupV2` 시그널 구독 (`popup_active` 마킹)
+7. `unim_dbus_set_hide_popup_callback()` → `HidePopup` 시그널 구독 (`popup_active` 해제)
 8. `last_preedit = ""` 초기화 (preedit 전이 추적용)
 9. 한자키 설정 로드 (`GetConfig("hanja_keys")` → `hanja_keysyms` 배열)
-10. 상태 필드 초기화 (focused, surrounding_text, cursor_area, autofix_* 등)
+10. 상태 필드 초기화 (focused, surrounding_text, cursor_area, popup_active, autofix_* 등)
 
 ### 2.3 컨텍스트 소멸 (`unim_im_context_finalize`)
 
-1. 한자 팝업 해제 (`unim_hanja_popup_free`)
-2. 한자 후보 배열 해제 (`unim_hanja_candidates_free`)
-3. 특수문자 팝업 해제 (`unim_special_popup_free`)
-4. 특수문자 후보 배열 해제 (`unim_special_chars_free`)
-5. DBus 클라이언트 해제 (`unim_dbus_context_free`)
-6. `window_id`, `surrounding_text`, `hanja_keysyms` 해제
-7. `last_preedit`, `autofix_commit_text`, `autofix_preedit_text` 해제
-8. 부모 클래스 `finalize` 호출
+1. DBus 클라이언트 해제 (`unim_dbus_context_free`)
+2. `window_id`, `surrounding_text`, `hanja_keysyms` 해제
+3. `last_preedit`, `autofix_commit_text`, `autofix_preedit_text` 해제
+4. 부모 클래스 `finalize` 호출
 
 ---
 
@@ -99,16 +99,8 @@ struct _UnimIMContext {
     gint cursor_index;             /* 바이트 오프셋 */
     gint selection_index;          /* 바이트 오프셋 */
 
-    /* 한자 변환 */
-    UnimHanjaPopup *hanja_popup;
-    UnimHanjaCandidate *hanja_candidates;
-    gsize hanja_count;
-    GdkRectangle cursor_area;      /* 커서 위치 (팝업 좌표 계산용) */
-
-    /* 특수문자 입력 */
-    UnimSpecialPopup *special_popup;   /* 특수문자 후보 팝업 */
-    gchar **special_characters;        /* 현재 특수문자 목록 */
-    gsize special_count;               /* 특수문자 개수 */
+    /* 커서 위치 (데몬에 보고 → popup-service 좌표 계산용) */
+    GdkRectangle cursor_area;
 
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
@@ -117,12 +109,20 @@ struct _UnimIMContext {
     /* preedit 전이 추적 (preedit-start/end 자동 발사용) */
     gchar *last_preedit;               /* 마지막으로 emit한 preedit */
 
+    /* 팝업 세션 상태 (Show*Popup 시그널 → TRUE, HidePopup → FALSE) */
+    gboolean popup_active;             /* popup-service 팝업 가시 여부 */
+
     /* AutoTypeFix XTest 폴백용 (delete_surrounding 미지원 앱 대응) */
     guint  autofix_bs_pending;         /* 자가 주입 BackSpace 잔여 수 */
     gchar *autofix_commit_text;        /* 지연 commit 텍스트 */
     gchar *autofix_preedit_text;       /* 지연 preedit 텍스트 */
 };
 ```
+
+> [!NOTE]
+> IM 모듈은 한자/특수문자 후보 배열이나 팝업 위젯 포인터를 보관하지 않습니다.
+> 후보 데이터·렌더링·키 네비게이션은 전부 unim-daemon + unim-popup-service가 처리하며,
+> IM 모듈은 팝업이 떠 있는 동안 `popup_active` 플래그만 유지합니다.
 
 > [!IMPORTANT]
 > `last_preedit`는 `unim_emit_preedit()` 헬퍼가 preedit 전이를 판정하여
@@ -151,125 +151,57 @@ struct _UnimIMContext {
 
 **바이패스 대상 수정자 키:**
 
-- Shift_L/R, Control_L/R, Alt_L/R
+- Shift_L/R, Control_L/R, Alt_L
 - Super_L/R, Meta_L/R, ISO_Level3_Shift
 
-### 4.2 한자 팝업 키 처리 (팝업 활성 시)
+> **Alt_R(오른쪽 Alt)은 바이패스하지 않습니다** — bare Alt_R 은 데몬으로 전달해 토글 여부를 `toggle_keys` 가 판정한다(T3, 프런트 자체 스킵 제거·토글 판정 데몬 일원화). AltGr(`ISO_Level3_Shift`)은 계속 바이패스하므로 AltGr 레이아웃에는 영향이 없다.
 
-한자 팝업이 활성 상태(`unim_hanja_popup_is_visible`)일 때, **모든 키 입력은 먼저 팝업에 전달**됩니다.
+### 4.2 한자 키 처리 (`F9` / `Hangul_Hanja`) — 팝업 트리거
 
-#### 4.2.1 Escape → 조합 복원 + 팝업 닫기
-
-```
-Escape 키 입력
-  → 1. ProcessKey(0,0,0) — 엔진 리셋 (더미키)
-       → 커밋 텍스트가 있으면 커밋
-  → 2. CancelHanja — 한자 모드 해제
-  → 3. preedit-changed 시그널 (preedit 복원)
-  → 4. 팝업 닫기
-  → return TRUE (키 소비)
-```
-
-#### 4.2.2 팝업 내부 처리 (`unim_hanja_popup_handle_key`)
-
-| 동작 | 트리거 키 | 결과 |
-|------|-----------|------|
-| **숫자 선택** | `1`-`9` | 해당 인덱스 한자 선택 → 콜백 호출 |
-| **Enter 선택** | `Return`, `KP_Enter` | 현재 선택된 한자 확정 → 콜백 호출 |
-| **이전 페이지** | `←`, `PageUp`, `BackSpace` | 페이지 이동 + 리스트 갱신 |
-| **다음 페이지** | `→`, `PageDown`, `Space` | 페이지 이동 + 리스트 갱신 |
-| **선택 이동** | `↑`, `↓` | 선택 인덱스 변경 + 리스트 갱신 |
-| **모디파이어** | Shift, Ctrl, Alt 등 | 소비 (팝업 유지) |
-
-#### 4.2.3 한자 선택 콜백 (`on_hanja_selected`)
-
-```
-숫자/Enter 선택 → 콜백 호출
-  → 1. 팝업 숨기기
-  → 2. CancelHanja (preedit 클리어)
-  → 3. preedit-changed 시그널
-  → 4. commit 시그널 (선택된 한자)
-```
-
-#### 4.2.4 미지원 키 → fall-through 방식
-
-```
-문자 키 등 → handle_key() returns FALSE
-  → 1. FocusOut → 조합 중 한글 커밋 (예: "한" 커밋)
-  → 2. preedit-changed (preedit 클리어)
-  → 3. CancelHanja + 팝업 닫기
-  → 4. FocusIn (컨텍스트 복원)
-  → 5. fall-through → 아래 ProcessKey 경로에서 엔진이 새 키 처리
-         (한글 모드면 한글 조합, 영문 모드면 영문 입력)
-```
-
-> [!IMPORTANT]
-> `return FALSE`가 아닌 **fall-through** 사용.
-> `return FALSE`는 raw keysym을 앱에 직접 전달하여 엔진을 우회합니다.
-> fall-through는 키를 정상적인 `ProcessKey` DBus 경로로 전달하여 언어 상태에 따른 올바른 입력을 보장합니다.
-
-### 4.3 한자 키 처리 (`F9` / `Hangul_Hanja`)
-
-한자/특수문자 팝업이 모두 **닫혀있을 때** F9 키 입력 시:
+한자키 입력 시 IM 모듈은 **팝업을 직접 그리지 않고** 데몬에 후보 존재 여부를 질의한 뒤
+실제 표시는 unim-popup-service에 위임합니다.
 
 ```
 F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
-  → 화면 좌표 계산 (cursor_area + X11 절대 좌표 변환)
-  → DBus GetHanjaCandidates
-  → 한자 후보가 있으면:
-    1. 이전 후보 배열 정리
-    2. unim_hanja_popup_show(popup, target, candidates, count, x, y, h, callback, unim)
-  → 한자 후보가 없으면:
-    **특수문자 폴백 →** DBus GetSpecialCharCandidates
-    → 특수문자 후보가 있으면:
-      1. 이전 특수문자 배열 정리
-      2. 특수문자/개수 저장
-      3. unim_special_popup_show(popup, target, chars, count, top_row, x, y, h, callback, unim)
-    → 특수문자 후보도 없으면:
-      로그 출력, 아무 동작 없음
+  → Wayland: ProcessKey 로 전달 → GNOME extension 이 팝업 처리, return TRUE
+  → X11 (Standalone): cursor_area 절대 좌표를 데몬에 보고
+    → DBus GetHanjaCandidates
+      → 한자 후보 있으면: 후보 배열 즉시 해제, "Standalone popup 위임" 로그
+         (popup-service 가 ShowHanja 경로로 렌더)
+      → 한자 후보 없으면: DBus GetSpecialCharCandidates
+        → 특수문자 후보 있으면: 후보 배열 즉시 해제, popup-service 위임
+        → 둘 다 없으면(idle): ProcessKey 로 dual-purpose Hanja 분기 →
+           엔진이 ShowEmojiPopupV2 시그널 발행 → 핸들러가 popup_active 마킹
   → return TRUE (키 소비)
 ```
 
-### 4.4 특수문자 팝업 표시 중 키 처리
+> [!IMPORTANT]
+> IM 모듈은 후보 데이터를 받더라도 **즉시 해제**합니다. 후보 렌더링·페이지·선택은
+> unim-popup-service가 전담하며, 모듈은 후보 존재 여부만 확인해 트리거 역할을 합니다.
 
-특수문자 팝업이 **보이는 동안** 모든 키는 먼저 팝업에서 처리됩니다:
+### 4.3 팝업 활성 중 키 처리 (`popup_active`)
+
+데몬이 `Show*Popup` 시그널을 보내면 `popup_active = TRUE`가 됩니다.
+이 동안 들어오는 키는 IM 모듈이 직접 해석하지 않고 **그대로 `ProcessKey`로 전달**되며,
+데몬이 그 키를 받아 popup-service의 선택/페이지 이동·확정·취소를 구동합니다.
 
 ```
-특수문자 팝업 표시 중 키 입력
-  → Escape 키:
-    1. ProcessKey(0,0,0) → 조합 중 자모 커밋 (commit 시그널)
-    2. CancelSpecialChar (DBus)
-    3. preedit-changed 시그널
-    4. 팝업 숨김
-    5. return TRUE
-  → 팝업 내부 키 (열 점프/숫자/방향키/Enter/Tab/클릭):
-    unim_special_popup_handle_key() → return TRUE
-  → 미지원 키 (F1~F12, Home, End 등):
-    1. CancelSpecialChar (DBus)
-    2. 팝업 숨김
-    3. preedit-changed 시그널
-    4. fall-through → ProcessKey 경로로 전달
+popup_active == TRUE 인 동안 키 입력
+  → §4.6의 비조합 특수키 바이패스 가드가 popup_active 일 때 우회를 차단
+     (그렇지 않으면 방향키/Esc/Home/End/PageUp/PageDown 이 popup 대신 앱으로 샘)
+  → 키는 ProcessKey DBus 경로(§4.7)로 전달
+  → 데몬이 popup-service 네비게이션/선택/커밋을 수행하고
+     필요한 commit/preedit/HidePopup 결과를 모듈에 전달
 ```
 
 > [!NOTE]
-> 미지원 키 처리 시 `return FALSE`가 아닌 **fall-through**를 사용합니다.
-> 특수문자 모드를 취소한 후, 해당 키를 엔진의 `ProcessKey` 경로로 정상 전달합니다.
-
-### 4.5 특수문자 선택 콜백 (`on_special_char_selected`)
-
-팝업에서 문자 선택 (숫자 키, Enter, 클릭) 시 호출:
-
-```
-특수문자 선택 (e.g. '☃')
-  → 1. unim_special_popup_hide() → 팝업 닫기
-  → 2. unim_dbus_cancel_special_char() → 엔진 특수문자 모드 취소 (preedit 클리어)
-  → 3. preedit-changed 시그널 (빈 preedit)
-  → 4. commit 시그널 (선택된 특수문자)
-```
+> 선택 확정 시 커밋 문자열은 `CommitText` 시그널(마우스 클릭 경로) 또는 `ProcessKey`
+> 응답(키보드 경로)을 통해 도달하며, 팝업 종료 시 `HidePopup` 시그널로 `popup_active`가 해제됩니다.
 
 ### 4.6 비조합 시 특수키 바이패스
 
-조합 상태가 아닐 때(`!unim_dbus_is_composing`), 다음 키들은 엔진을 거치지 않고 앱에 직접 전달:
+조합 상태가 아니고(`!unim_dbus_is_composing`) **팝업도 비활성(`!popup_active`)** 일 때,
+다음 키들은 엔진을 거치지 않고 앱에 직접 전달:
 
 | 키 그룹 | 키 범위 | 비고 |
 |---------|---------|------|
@@ -279,8 +211,8 @@ F9 (0xffc6) 또는 Hangul_Hanja (0xff34) 입력
 | Escape | 조합 중이 아니면 앱으로 | |
 
 > [!NOTE]
-> 조합 **중**일 때는 이 키들도 엔진(`ProcessKey`)으로 전달됩니다.
-> 예: 조합 중 방향키 → 엔진이 조합 확정 후 키 바이패스.
+> 조합 **중**이거나 **팝업 활성 중**일 때는 이 키들도 엔진(`ProcessKey`)으로 전달됩니다.
+> 예: 조합 중 방향키 → 엔진이 조합 확정 후 키 바이패스 / 팝업 활성 중 방향키 → 팝업 네비게이션.
 
 ### 4.7 일반 키 처리 (ProcessKey)
 
@@ -348,13 +280,15 @@ GTK focus_in 호출
 
 ```
 GTK focus_out 호출
-  → 1. 한자 팝업 열려있으면 닫기 + CancelHanja (트리거 문자 있으면 커밋)
-  → 2. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar (트리거 문자 있으면 커밋)
-  → 3. DBus FocusOut → 조합 중 텍스트 커밋 (RPC 반환값 사용)
+  → 1. DBus FocusOut → 조합 중 텍스트 커밋 (RPC 반환값 사용)
        → commit 시그널 (커밋할 텍스트가 있으면)
        → unim_emit_preedit(unim, "") — preedit-end까지 발사
   → is_focused = FALSE
 ```
+
+> [!NOTE]
+> 팝업 정리는 IM 모듈이 직접 하지 않습니다. 팝업 종료는 데몬이 결정하고
+> `HidePopup` 시그널로 통지하면 `popup_active`가 해제됩니다.
 
 > [!IMPORTANT]
 > 엔진의 `CommitText` 시그널은 Standalone 팝업 마우스 클릭 경로 전용이며,
@@ -365,12 +299,13 @@ GTK focus_out 호출
 
 ```
 GTK reset 호출
-  → 1. DBus ResetContext → 조합 중 텍스트 커밋
+  → DBus ResetContext → 조합 중 텍스트 커밋
        → commit 시그널 (커밋할 텍스트가 있으면)
        → unim_emit_preedit(unim, "") — preedit-end까지 발사
-  → 2. 한자 팝업 열려있으면 닫기 + CancelHanja (트리거 문자 있으면 커밋)
-  → 3. 특수문자 팝업 열려있으면 닫기 + CancelSpecialChar (트리거 문자 있으면 커밋)
 ```
+
+> [!NOTE]
+> 팝업 정리는 데몬/popup-service 측에서 처리됩니다 (§5.2 참고).
 
 ---
 
@@ -394,7 +329,7 @@ GTK get_preedit_string 호출
 
 ```
 GTK set_cursor_location(GdkRectangle *area) 호출
-  → cursor_area에 저장 (한자 팝업 위치 계산에 사용)
+  → cursor_area에 저장 (데몬에 보고 → popup-service 팝업 위치 계산에 사용)
 ```
 
 ---
@@ -453,8 +388,10 @@ GTK set_surrounding(text, len, cursor_index) 호출
 
 | 시그널 | 인터페이스 | 핸들러 | 용도 |
 |--------|-----------|--------|------|
-| `AutoTypefixApply` | `org.atit.unim.InputContext` | `on_auto_typefix_signal` | 자동 한영 교정 적용 — `{delete_chars, commit_text, preedit_text}` |
-| `CommitText` | `org.atit.unim.InputContext` | `on_commit_text_signal` | Standalone 팝업 마우스 클릭 커밋 |
+| `AutoTypefixApply` | `org.atit.unim.InputContext` | `on_auto_typefix` | 자동 한영 교정 적용 — `{delete_chars, commit_text, preedit_text}` |
+| `CommitText` | `org.atit.unim.InputContext` | `on_commit_text` | Standalone 팝업 마우스 클릭 커밋 |
+| `ShowEmojiPopupV2` | `org.atit.unim.InputContext` | `on_show_emoji_popup` | popup-service 팝업 표시 통지 → `popup_active = TRUE` |
+| `HidePopup` | `org.atit.unim.InputContext` | `on_hide_popup` | 팝업 종료 통지 → `popup_active = FALSE` |
 
 > [!NOTE]
 > GTK3/4 IM 모듈은 **legacy `GetConfig`만** 사용한다 (`hanja_keys` 로드용).
@@ -464,145 +401,32 @@ GTK set_surrounding(text, len, cursor_index) 호출
 
 ---
 
-## 9. 한자 팝업 윈도우 (`unim_hanja_popup`)
+## 9. 팝업 렌더링 (unim-popup-service 위임)
 
-### 9.1 윈도우 속성
+한자·특수문자·이모지 팝업은 **IM 모듈이 직접 그리지 않습니다**. 모든 팝업 UI는 독립
+GTK4 프로세스인 **unim-popup-service**(코어 `unim` 크레이트의 popup 모듈 사용)가 렌더링하며,
+IM 모듈은 트리거와 `popup_active` 플래그 관리만 담당합니다.
 
-- GTK Window (`GTK_WINDOW_POPUP` 타입)
-- `override_redirect = True` (X11에서 WM 데코레이션 제거)
-- GtkListBox 기반 후보 목록
-- 페이지 네비게이션 라벨
+### 9.1 역할 분담
 
-### 9.2 레이아웃
-
-```
-┌─────────────────────────────┐
-│ 1. 韓  [한]                 │  ← 후보 항목 (번호. 한자  [원래 한글])
-│ 2. 漢  [한]                 │
-│ 3. 限  [한]                 │
-│ ...                         │
-│ 9. 翰  [한]                 │
-│ ← 1/3 →                    │  ← 페이지 라벨
-└─────────────────────────────┘
-```
-
-### 9.3 페이지네이션
-
-- 페이지당 최대 9개 후보 (`MAX_VISIBLE_CANDIDATES = 9`)
-- `→`/`Space`/`PageDown`: 다음 페이지
-- `←`/`BackSpace`/`PageUp`: 이전 페이지
-- `↑`/`↓`: 현재 페이지 내 선택 이동
-
-### 9.4 한자 팝업 위치 계산
-
-```
-popup_x = cursor_area.x
-popup_y = cursor_area.y + cursor_area.height  (커서 아래)
-
-X11 환경:
-  + gdk_window_get_origin(client_window) → 절대 좌표 변환
-```
-
----
-
-## 10. 특수문자 팝업 윈도우 (`unim_special_popup`)
-
-### 10.1 개요
-
-한자 후보가 없을 때, 조합 중인 자모에 매핑된 특수문자를 **9×9 그리드 팝업**으로 표시합니다.
-한자 키(F9)로 트리거되며, 한자 후보가 없으면 자동으로 특수문자 모드로 전환됩니다.
+| 책임 | 담당 |
+|------|------|
+| 한자키 입력 감지 → 후보 존재 질의 | IM 모듈 (`filter_keypress`, §4.2) |
+| 커서 절대 좌표 보고 | IM 모듈 (`ReportCursorRect` / `cursor_area`) |
+| 후보 데이터·페이지·선택 상태 | unim-daemon |
+| 팝업 윈도우 생성·그리드 렌더·하이라이트·위치 보정 | unim-popup-service (GTK4) |
+| 선택 결과 커밋 전달 | `ProcessKey` 응답(키보드) 또는 `CommitText` 시그널(마우스 클릭) |
+| 팝업 종료 통지 | `HidePopup` 시그널 → `popup_active = FALSE` |
 
 > [!NOTE]
-> 구현은 `gtk-common/src/unim_special_popup.c`에 위치하며, GTK3/GTK4 공통 코드입니다.
-> `#if GTK_CHECK_VERSION(4, 0, 0)` 전처리기로 GTK 버전별 차이를 처리합니다.
-
-### 10.2 윈도우 속성
-
-- GTK Window (`GTK_WINDOW_POPUP` 타입)
-- `override_redirect = True` (X11에서 WM 데코레이션 제거)
-- `can_focus = FALSE` (부모 앱의 포커스 유지)
-- GtkGrid 기반 문자 배치 (최대 9열 × 9행)
-- CSS 커스텀 스타일링 (`unim-special-popup` 클래스)
-
-### 10.3 레이아웃
-
-```text
-┌──────────────────────────────────────┐
-│      Q    W    E    R    T    ...    │  ← top_row 열 헤더
-│ 1    $    %    ₩    °F   ‰    ...    │  ← 행 1
-│ 2    ...                             │  ← 행 2
-│ ...                                  │
-│ 9    ...                             │  ← 행 9
-│               ← 1/3 →               │  ← 페이지 라벨 (2페이지 이상 시만 표시)
-└──────────────────────────────────────┘
-```
-
-### 10.4 키 처리
-
-immodule.c에서 팝업이 보이는 동안 모든 키를 먼저 팝업에게 전달합니다.
-
-| 동작 | 트리거 키 | 결과 |
-|------|-----------|------|
-| 열 점프 | `Q`~`O` (물리 키) | 해당 열로 이동 |
-| 숫자 선택 (행) | `1`-`9` | 선택된 열의 해당 행 문자 커밋 |
-| 방향키 이동 | `↑`/`↓`/`←`/`→` | 셀 선택 이동 (경계에서 순환) |
-| Enter 확정 | `Return`/`KP_Enter` | 현재 선택 셀의 문자 커밋 |
-| 다음 페이지 | `Page_Down`/`Space` | 다음 페이지 |
-| 이전 페이지 | `Page_Up` | 이전 페이지 |
-| Escape | `Escape` | 조합 중 자모 커밋 + 특수문자 모드 취소 + 팝업 닫기 |
-| 마우스 클릭 | 좌클릭 | 클릭한 셀의 문자 커밋 |
-
-> [!IMPORTANT]
-> **열 점프는 물리 키 위치(QWERTY) 기준으로 매칭합니다.**
-> OS keyval은 항상 QWERTY 기반이고, UNIM 영문 키맵 변환은 엔진 내부에서 일어납니다.
-> `top_row` 문자열은 **표시 전용** (드보락: `',.PYFGCR`, 콜맥: `QWFPGJLUY`)이고,
-> 키 매칭은 항상 `"qwertyuio"` 물리 키로 수행합니다.
-
-### 10.5 팝업 위치 계산 (모니터별 경계 보정)
-
-```text
-1. 기본 위치: popup_x = cursor_area.x, popup_y = cursor_area.y + cursor_area.height
-2. X11: gdk_window_get_origin(client_window) → 절대 좌표 변환
-3. show_all → 정확한 크기 측정 (GTK3에서는 show_all 후에만 크기 정확)
-4. 커서가 위치한 모니터 기준 경계 보정:
-   - gdk_display_get_monitor_at_point(display, x, y)
-   - gdk_monitor_get_geometry(monitor, &mon_geom)
-   - 오른쪽 넘침: popup_x = mon_geom.x + mon_geom.width - width
-   - 아래쪽 넘침: popup_y = y - cursor_height - height (커서 위로)
-```
-
-> [!IMPORTANT]
-> `gdk_screen_width()` / `gdk_screen_height()` 대신 **모니터별 geometry**를 사용합니다.
-> 다중 모니터 환경에서 전체 가상 화면이 아닌 실제 모니터 영역 기준으로 보정합니다.
-
-### 10.6 포커스 보존 패턴
-
-X11에서 팝업이 부모 앱의 포커스를 빼앗지 않도록 하는 핵심 순서:
-
-```text
-1. gtk_window_new(GTK_WINDOW_POPUP) — 포커스 불가 윈도우
-2. gtk_widget_set_can_focus(window, FALSE)
-3. show_all 후 위치 재조정 (경계 보정)
-```
-
-> [!IMPORTANT]
-> GTK3에서는 `GTK_WINDOW_POPUP` 타입이 자동으로 `override_redirect`를 설정하므로,
-> GTK4처럼 별도의 X11 `XChangeWindowAttributes` 호출이 불필요합니다.
-
-### 10.7 시각적 피드백
-
-| CSS 클래스 | 용도 |
-|---|---|
-| `cell-selected` | 현재 선택된 셀 하이라이트 |
-| `cell-col-highlight` | 선택된 열의 모든 셀 배경 |
-| `cell-row-highlight` | 선택된 행의 모든 셀 배경 |
-| `header-active` | 선택된 열/행의 헤더 강조 |
-| `row-header` | 행 번호 헤더 (1-9) |
-| `cell-flash` | 문자 선택 시 120ms 플래시 효과 |
+> 팝업 UI/조작 규격(그리드 레이아웃, 열 점프, 페이지네이션, 시각적 피드백 등)은
+> `docs/dev/specs/POPUP_SPEC.md`(GTK/Qt 공통)에 정의되어 있으며 popup-service가 구현합니다.
+> 과거 이 SPEC에 있던 `unim_hanja_popup`/`unim_special_popup` GTK 위젯 구현 절은
+> 해당 코드가 제거됨에 따라 삭제되었습니다.
 
 ---
 
-## 11. AutoTypeFix 통합
+## 10. AutoTypeFix 통합
 
 엔진이 한영 오타(예: `dkssud` → `안녕`)를 감지하면 `AutoTypefixApply` 시그널을
 해당 컨텍스트 경로로 발송한다. IM 모듈은 이를 구독해 기존 타이핑을 교정 문자열로 치환한다.
@@ -635,21 +459,21 @@ AutoTypefixApply(delete_chars: u, commit_text: s, preedit_text: s)
 
 ---
 
-## 12. GTK3 vs XIM 비교
+## 11. GTK3 vs XIM 비교
 
 | 관점 | GTK3 | XIM |
 |------|------|-----|
 | **통신** | GDBus 동기 호출 | tokio mpsc + DBus 비동기 |
 | **preedit** | GTK inline (앱이 렌더링) | 별도 PeWindow / Callbacks |
-| **한자 팝업** | GTK ListBox 기반 | Xlib/Xft 직접 렌더링 |
-| **외부 클릭** | (GTK 윈도우 시스템 처리) | grab_pointer + 합성 Escape |
+| **한자 팝업** | unim-popup-service 위임 (모듈은 트리거만) | Xlib/Xft 직접 렌더링 (인프로세스) |
+| **외부 클릭** | popup-service 처리 | grab_pointer + 합성 Escape |
 | **키 릴리스** | GDK_KEY_PRESS만 처리 | response_type == 3 필터링 |
 | **모듈 형태** | .so 공유 라이브러리 | 독립 실행 파일 |
 | **언어** | C | Rust |
 
 ---
 
-## 13. 빌드 및 배포
+## 12. 빌드 및 배포
 
 ### 13.1 빌드
 
@@ -687,16 +511,17 @@ $(GTK3_LIBDIR)/gtk-3.0/3.0.0/immodules/libim-unim.so
 
 ---
 
-## 14. 로깅
+## 13. 로깅
 
 `UNIM_DEVELOP=1` 환경변수 설정 시 활성화.
 
 | 모듈명 | 컴포넌트 |
 |--------|---------|
-| `GTK3_IM` | `immodule.c` (키 처리, 포커스, preedit) |
+| `GTK3_IM` | `immodule.c` (키 처리, 포커스, preedit, popup_active) |
 | `GTK_DBUS` | `unim_dbus_client.c` (DBus 통신, GTK3/4 공용) |
-| `HANJA_POPUP` | `unim_hanja_popup.c` (한자 팝업) |
-| `SPECIAL_POPUP` | `unim_special_popup.c` (특수문자 팝업) |
+
+> [!NOTE]
+> 팝업 렌더링 로그는 unim-popup-service 측에 있습니다 (IM 모듈은 팝업을 직접 그리지 않음).
 
 로그 포맷:
 

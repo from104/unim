@@ -98,7 +98,7 @@ fn normalize(word: &str) -> String {
 impl UserDictionary {
     /// 기본 경로: `~/.config/unim/typefix-userdict.yaml`
     pub fn default_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("unim").join("typefix-userdict.yaml"))
+        crate::paths::config_dir().map(|p| p.join("unim").join("typefix-userdict.yaml"))
     }
 
     pub fn load_from_path(path: &Path) -> Self {
@@ -125,16 +125,12 @@ impl UserDictionary {
         }
     }
 
+    /// 원자적 저장 (프로세스 고유 tmp + rename, 심볼릭 링크 대상 추적).
+    /// 자세한 근거는 `crate::atomic_io` 참고.
     pub fn save_to_path(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
         let content = serde_yaml::to_string(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        let tmp_path = path.with_extension("yaml.tmp");
-        fs::write(&tmp_path, content)?;
-        fs::rename(&tmp_path, path)?;
-        Ok(())
+        crate::atomic_io::atomic_write(path, content)
     }
 
     pub fn save_to_default_path(&mut self) -> std::io::Result<()> {

@@ -1,25 +1,35 @@
-.TH UNIM 1 "April 2026" "UNIM 0.1.0" "User Commands"
+.TH UNIM 1 "August 2026" "UNIM 0.4.0" "User Commands"
 .SH NAME
 unim \- Universal Next-generation Input Method for Korean
 .SH DESCRIPTION
 UNIM is a Korean Input Method Engine (IME) written in Rust with a 3-layer
 architecture: Core Engine \(-> DBus Daemon \(-> Frontend IM Modules.
 .PP
-It supports GTK3/4, Qt5/6, XIM, Wayland, and GNOME Shell, providing
-hangul composition, hanja conversion, special character input, TypeFix
-(typo correction), smart backspace, and emoji search.
+It supports GTK3/4, Qt5/6, XIM (X Input Method), Wayland, and GNOME Shell,
+providing hangul composition, hanja conversion, special character input,
+TypeFix (typo correction), smart backspace, and emoji search.
+.PP
+Since 0.3.0, hanja/special-character/emoji popups are rendered by a
+dedicated sidecar process \fBunim-popup-service\fR(1) via the
+\fBorg.atit.unim.Popup\fR D\-Bus interface. On GNOME Wayland the GNOME Shell
+extension renders popups directly using St widgets.
 .SH COMPONENTS
 .TP
 .B unim-daemon
-The DBus daemon that runs the input engine. Communicates with frontends
+The D\-Bus daemon that runs the input engine. Communicates with frontends
 via \fBorg.atit.unim.InputMethod\fR on the session bus.
+.TP
+.B unim-popup-service
+Popup rendering sidecar. Subscribes to \fBorg.atit.unim.Popup\fR and renders
+GTK4 popup windows for hanja, special-character, and emoji candidates.
+Started automatically via D\-Bus session activation.
 .TP
 .B unim-cli
 Unified command-line tool for text conversion (eng\(<->kor) and settings
 management (via the \fBconfig\fR subcommand).
 .TP
 .B unim-gui-gtk
-System tray indicator and settings dialog (GTK4).
+System tray indicator and settings dialog (GTK4/libadwaita).
 .SH CONFIGURATION
 Settings are stored in \fB~/.config/unim/config.yaml\fR.
 .PP
@@ -32,25 +42,41 @@ Default input mode: Korean or English (default: English)
 Mode sharing: Global or PerApp (default: Global)
 .TP
 .B engine.korean.layout
-Korean layout: Dubeolsik, Sebeolsik390, Sebeolsik391, SebeolsikNoShift
+Korean layout profile name: ko_2bulstd, ko_3bul390, ko_3bul391,
+ko_3bul_noshift, ko_3bul_anmatae, or any user profile in
+~/.config/unim/layouts/
+.TP
+.B engine.korean.chord_window_ms
+Moachigi chord window duration in milliseconds. 0 = disabled.
+Valid range: 10\(en200 ms. Default: unset (disabled).
+.TP
+.B engine.korean.bidirectional_combine
+When true, jamo combinations are tried in both (a,b) and (b,a) order.
+Default: unset (disabled).
 .TP
 .B engine.english.layout
-English layout: Qwerty, Dvorak, Colemak, ColemakDh, Workman
+English layout: qwerty, dvorak, colemak, colemak_dh, workman
 .TP
 .B engine.toggle_keys
 Han/Eng toggle keys (default: Korean, RightAlt)
 .TP
 .B engine.hanja_keys
-Hanja/special char keys (default: Hanja, F9)
+Hanja/special char keys (default: Hanja, F9). Idle press opens emoji popup.
 .TP
 .B engine.app_rules
 Per-app default mode rules (JSON array of {app_pattern, default_category})
 .SH FEATURES
 .TP
-.B TypeFix
+.B TypeFix (AutoTypeFix)
 Auto-detect and convert mistyped text between Korean and English.
+Forward: English typed in Korean mode. Reverse: Korean typed in English mode.
 Triggered by double-tap of the toggle key (inline) or Super+K (selection).
-Converted text's language mode is automatically applied.
+A learning blacklist suppresses repeated false corrections.
+.TP
+.B Moachigi (chord input)
+Chord-based simultaneous jamo input for supported layouts (e.g.
+ko_3bul_anmatae). Multiple jamo pressed within chord_window_ms are combined
+into a single syllable using Atomic Window Principle.
 .TP
 .B Smart Backspace
 Decompose committed hangul syllables by jamo unit when backspacing.
@@ -59,14 +85,20 @@ Decompose committed hangul syllables by jamo unit when backspacing.
 Automatically blocks hangul mode in password/PIN input fields.
 .TP
 .B Emoji Search
-Keyword-based emoji search via DBus SearchEmoji method.
+Keyword-based emoji popup via Hanja key when no composition is active.
 .SH FILES
 .TP
 .B ~/.config/unim/config.yaml
 User configuration file
 .TP
-.B ~/.local/share/unim/user_dict.json
-User dictionary (hanja frequency learning)
+.B ~/.config/unim/layouts/*.json
+User keyboard layout profiles (v1 schema)
+.TP
+.B ~/.config/unim/typefix-blacklist.yaml
+AutoTypeFix suppression dictionary (auto-managed)
+.TP
+.B ~/.config/unim/userdict.yaml
+User dictionary for reverse AutoTypeFix
 .TP
 .B ~/.unim-errors.log
 Debug log (active when UNIM_DEVELOP=1)
@@ -77,5 +109,8 @@ Set to "1" to enable debug logging across all components.
 .SH AUTHOR
 서기현 (Seo Gihyeon) <from104@gmail.com>
 .SH SEE ALSO
+.BR unim\-popup\-service (1),
+.BR unim\-cli (1),
+.BR unim\-gui\-gtk (1),
 .BR ibus (1),
 .BR fcitx5 (1)

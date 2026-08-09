@@ -27,18 +27,21 @@
 
 ### 1.2 프론트엔드별 렌더링 방식
 
-| 프론트엔드 | 렌더링 방식 | 팝업 위치 | 비고 |
+Phase 7(팝업 중앙화) 이후 **렌더 주체는 두 곳뿐**이다 — `unim-popup-service`(GTK4)와
+GNOME Shell 확장(St 위젯). 프런트엔드는 커서 좌표를 올려 보내기만 한다.
+
+| 프론트엔드 | 렌더 주체 | 팝업 위치 전달 | 비고 |
 |-----------|-----------|----------|------|
-| **GTK3/GTK4** | GtkWindow (override-redirect) | `set_cursor_location` 절대좌표 | C 코드, gtk-common 공유 |
-| **Qt5/Qt6** | QWidget (frameless, popup) | `cursorRectangle` 절대좌표 | C++ 코드, qt-common 공유 |
-| **XIM** | Xlib Window (override-redirect) | XIC spot location | Rust, Xft 렌더링 |
-| **Wayland** | wl_subsurface + tiny-skia | 팝업 서피스 위치 | Rust, 소프트웨어 렌더링 |
-| **GNOME Shell** | St.BoxLayout + Clutter.Actor | `set_position(x, y)` | JavaScript |
+| **GTK3/GTK4** | popup-service | `set_cursor_location` 절대좌표 | 자체 팝업 위젯 없음 (gtk-common 은 DBus 클라이언트만) |
+| **Qt5/Qt6** | popup-service | `cursorRectangle` 절대좌표 | 자체 팝업 클래스 없음 (qt-common 은 DBus 클라이언트만) |
+| **XIM** | popup-service | XIC spot location | `pe_window.rs` 는 preedit 전용 |
+| **Wayland** | popup-service | 커서 좌표 (DBus) | 백엔드 3종 자동 검출 (§8.4) |
+| **GNOME Shell** | **확장 자체** (St.BoxLayout + Clutter.Actor) | `set_position(x, y)` | Mutter 가 layer-shell·input_popup 모두 미지원이라 유일한 예외 (§8.5) |
 
 ### 1.3 데이터 소스 (코어 공유)
 
 - **한자 데이터**: `src/hangul/hanja.rs` — `include_str!("../data/hanja.txt")` 빌드 시 임베드
-- **특수문자 데이터**: `src/hangul/special_chars.rs` — 초성(ㄱ~ㅎ) → 특수문자 정적 매핑
+- **특수문자 데이터**: `src/special_chars/` (`mod.rs` + `data.rs`) — 초성(ㄱ~ㅎ) → 특수문자 정적 매핑
 
 ---
 
@@ -476,81 +479,86 @@ if (popup_x + popup_width > screen_width):
 
 ## 8. 프론트엔드 통합 가이드
 
+> **⚠️ 전제 — 프런트엔드는 팝업을 그리지 않는다.** Phase 7(팝업 중앙화) 이후
+> GTK·Qt·XIM·Wayland 프런트엔드에서 자체 팝업 렌더 코드는 **전부 제거**되었다.
+> 이들은 키를 엔진으로 보내고 DBus 팝업 시그널을 수신할 뿐이며, 실제 렌더는
+> `unim-popup-service` 가 전담한다(GNOME Wayland 만 예외 — §8.5).
+> 따라서 아래 §8.1–8.4 는 "팝업을 어떻게 그리나"가 아니라 "시그널을 어떻게
+> 받아 넘기나"의 기술이다.
+
 ### 8.1 GTK (C, gtk-common 공유)
 
 **파일 구조:**
 ```
 unim-frontends/gtk-common/
-├── include/
-│   ├── unim_dbus_client.h       (DBus API)
-│   ├── unim_hanja_popup.h       (한자 팝업)
-│   └── unim_special_popup.h     (특수문자 팝업)
-└── src/
-    ├── unim_dbus_client.c       (DBus API 구현)
-    ├── unim_hanja_popup.c       (한자 팝업 구현)
-    └── unim_special_popup.c     (특수문자 팝업 구현)
+├── include/unim_dbus_client.h    (DBus API)
+└── src/unim_dbus_client.c        (DBus API 구현)
 ```
 
-**immodule 통합 패턴:**
-```c
-// 1. 구조체에 팝업 멤버 추가
-struct _UnimIMContext {
-    // ...
-    UnimHanjaPopup *hanja_popup;
-    UnimSpecialPopup *special_popup;
-};
-
-// 2. filter_keypress에서 팝업 우선 처리
-if (unim_hanja_popup_is_visible(ctx->hanja_popup)) {
-    return unim_hanja_popup_handle_key(ctx->hanja_popup, keyval);
-}
-
-// 3. ProcessKey 결과 확인 후 팝업 표시
-if (result.hanja_candidates_available) {
-    // GetHanjaCandidates → popup_show
-}
-
-// 4. 선택 콜백에서 커밋
-static void on_hanja_select(const gchar *hanja, gpointer data) {
-    // SelectHanja → commit → emit "commit" signal
-}
-```
+팝업 위젯 헤더·구현은 없다. immodule 은 키를 `ProcessKeyEvent` 로 넘기고,
+엔진이 팝업 상태를 판단해 popup-service 에 렌더를 지시한다. 팝업이 떠 있는
+동안의 키(숫자 선택·화살표·Enter·Esc)도 프런트엔드가 가로채지 않고 그대로
+엔진으로 보낸다 — 판정이 엔진 한 곳에 모여야 프런트엔드 간 동작이 갈리지 않는다.
 
 ### 8.2 Qt (C++, qt-common 공유)
 
-**통합 패턴:**
-```cpp
-// 1. InputContext 멤버
-UnimHanjaPopup *m_hanjaPopup;
-UnimSpecialPopup *m_specialPopup;
-
-// 2. filterEvent에서 팝업 우선
-if (m_hanjaPopup->isVisible()) {
-    return m_hanjaPopup->handleKey(keyval);
-}
-
-// 3. 선택 시그널 연결
-connect(m_hanjaPopup, &UnimHanjaPopup::selected,
-        this, &InputContext::onHanjaSelected);
+```
+unim-frontends/qt-common/
+├── include/unim_dbus_client.hpp
+└── src/unim_dbus_client.cpp
 ```
 
-### 8.3 XIM (Rust, 자체 X11 렌더링)
+GTK 와 동일한 원칙이다. `QPlatformInputContext` 구현은 DBus 클라이언트만 들고
+있으며 팝업 클래스는 존재하지 않는다.
 
-- `hanja_window.rs` / `special_window.rs`
-- Xlib override-redirect 윈도우 + Xft 텍스트 렌더링
-- 이벤트 루프에서 팝업 X 이벤트 직접 처리
+### 8.3 XIM (Rust)
 
-### 8.4 Wayland (Rust, 소프트웨어 렌더링)
+- `pe_window.rs` — **preedit 전용** Over-The-Spot 윈도우(Xlib + Xft). 팝업용이 아니다
+- 팝업은 `dbus_client.rs` 의 `PopupEvent` 로 수신만 하고 렌더는 popup-service 담당
+- XIM 은 팝업 키를 로컬 처리하지 않고 모든 키를 엔진으로 전달한다
 
-- `popup_renderer.rs` + `popup_surface.rs`
-- tiny-skia + cosmic-text로 RGBA 버퍼 렌더링
-- wl_subsurface로 팝업 표시
+### 8.4 Wayland (Rust)
+
+- 팝업 렌더 코드 없음. `dbus_client.rs` 가 `PopupEvent` 를 수신해 중계할 뿐이다
+- 렌더는 popup-service 가 환경에 따라 세 백엔드 중 하나로 수행한다
+  (`backend::detect()`):
+
+  | 조건 | 백엔드 | 방식 |
+  |------|--------|------|
+  | `WAYLAND_DISPLAY` + `zwp_input_popup_surface_v2` 지원 | `wayland_input_popup` | IME 팝업 서피스 (Phase 5) |
+  | `WAYLAND_DISPLAY` (그 외) | `wayland_standalone` | GTK4 + gtk4-layer-shell |
+  | `DISPLAY` | `x11` | GTK4 |
 
 ### 8.5 GNOME Shell (JavaScript, St 위젯)
 
-- `hanja_popup.js` / `special_popup.js`
-- St.BoxLayout + St.Label 위젯 기반
-- KeyHandler에서 팝업 키 이벤트 가로채기
+GNOME Wayland 환경에서 Mutter 가 wlr-layer-shell·zwp_input_popup_v2 모두 미지원하여
+popup-service GTK4 popup 이 표시되지 않는다. 따라서 extension 이 직접 St 위젯으로
+popup 을 렌더한다.
+
+- **단일 통합 view** — `popup_view.js` 의 `PopupView` 클래스 하나가 한자/특수문자/
+  이모지 popup 을 모두 처리. kind 별 분기는 루트 클래스 toggle 만
+  (`.unim-{hanja,special,emoji}-popup`).
+- **PopupRender signal 단일 SoT** — `Show*Popup` signal 은 cursor 좌표 트리거 용도만,
+  실제 셀·헤더·푸터·탭은 `PopupRender` payload 로만 그린다. PopupNavigate /
+  HanjaBookmarkChanged 등은 PopupRender 가 동반 발행되므로 무시.
+- **이모지 카테고리 탭은 통합 GridLayout col 0 에 attach** — 별도 BoxLayout 폐기.
+  같은 Clutter.GridLayout 안에 있어야 탭 9개와 row 헤더(1~9) 가 자연 vertical
+  정렬됨 (GTK popup-service emoji.rs 와 동일 패턴).
+- **활성 조건** — `Meta.is_wayland_compositor()` 가 true 일 때만 `PopupView`
+  인스턴스화. X11 에서는 popup-service GTK4 popup 이 정상 표시되므로 PopupView
+  미생성(이중 렌더 방지).
+- **dismiss 정책** — `extension.js` 의 `_cleanupPopups()` 가 단일 진입점.
+  trigger 는 `vfunc_focus_out` / `vfunc_reset` 두 경로. 같은 윈도우 내 다른 위치
+  클릭에는 IBus 가 `vfunc_reset` 을 자동 트리거하지 않는 GNOME Shell 한계 →
+  `unim_input_method.js` 의 `vfunc_set_cursor_location` 안 cursor-jump 감지 로직으로
+  보완 (preedit 활성 + 최근 100ms 키 입력 없음 + 좌표 50px+ 점프 시 vfunc_reset
+  명시 호출).
+- **KeyHandler 가 팝업 키 이벤트 가로채기** — 방향키·Enter·Space·Period 등은
+  daemon 이 처리, extension 은 단지 결과 PopupRender 만 받아 갱신.
+
+상세 위젯 트리·CSS 토큰은 `unim-gnome-extension/popup_view.js` 와 `stylesheet.css`
+의 `.unim-{hanja,special,emoji}-popup` 섹션을 참조 (popup-service GTK CSS 와
+선택자·토큰 1:1 동기).
 
 ---
 
@@ -725,3 +733,54 @@ impl PopupState {
 | 2026-03-02 | **v3** | **모듈별 개별 팝업으로 복귀, 문서 전면 개편** |
 | 2026-05-03 | **v3.1** | **마우스 페이지 이동 ◀/▶ 버튼 (한자/특수문자/이모지), 페이지 이동 wrap-around 정책 명시, 한자 즐겨찾기 해제 시 cursor flash(140ms #f9e2af) 추가, `popup_change_page` RPC + `was_bookmarked` 시그널 필드 추가** |
 | 2026-05-04 | **v3.2** | **Phase B 통합 SoT — `PopupViewModel` 확장 + `PopupRender` DBus 시그널 추가 (헤더/푸터/탭/확장 아이콘 daemon 산출). `TogglePopupExpand` RPC (마우스 ⊞/⊟ 클릭). 키 바인딩 추가: `Home`/`End` (3개 popup), `.` Period (한자 expand 토글). 엔진 `update_page_layout` rows=9 고정 정책 (시각·엔진 column-major 인덱싱 일치). idle Hanja 키가 영문 모드에서도 emoji popup 트리거. 디자인 토큰 SoT (`tools/popup-styles/popup_tokens.toml` + 양 frontend 자동 생성 CSS). 우클릭 즐겨찾기 토글 gui-gtk parity. 이모지 popup nav/edit 키 stage 캡처 (Wayland idle text-input 우회). 이모지 카테고리 라벨 우측 정렬.** |
+| 2026-05-17 | **v3.3** | **GNOME Wayland 분기 — extension PopupView (St 위젯) 도입. popup-service 와 동일 클래스명·CSS 토큰·위젯 트리 (`.unim-{hanja,special,emoji}-popup`, `.grid-cell`, `.hanja-num`, `.popup-page-btn` 등) 1:1 동기. 활성 조건 `Meta.is_wayland_compositor()` — X11 에선 미생성(이중 popup 방지). 이모지 카테고리 탭을 통합 GridLayout col 0 에 attach → 우측 row 헤더와 vertical 자연 정렬. 한자 cell 별(★/☆) 우측 고정 (뜻 없어도 hexpand spacer). 푸터 페이저 가로 폭 꽉 채움 (◀ 좌 / 페이지 중앙 / ▶ 우 / ⊞ 우끝). 페이저 항상 표시 + 페이지 1개면 ◀▶ 비활성화·dim — popup 크기 점프 방지. col_headers 항상 9개 — page item 수와 무관하게 popup 폭 일정. popup 위치 화면 정중앙 고정 (모든 frontend 공통). dismiss 정책 — focus_out/reset 단일 경로 + cursor-jump 감지(IBus 자동 reset 미동작 보완). popup-service D-Bus auto-activation 도입 (`org.atit.unim.PopupService.service`) + autostart .desktop 폐기. main.rs 시작 순서 재배치 — PopupServer 등록 먼저, register_frontend fire-and-forget. SetEmojiCategory 가 ShowEmojiPopupV2 + PopupRender 동반 emit (카테고리 탭 갱신 정상 동작). `call_popup_service` RPC signature mismatch 수정(`call_method` 사용).** |
+
+---
+
+## 12. popup-service lifecycle + 환경별 분기 (v3.3)
+
+### 12.1 popup-service 활성화 — D-Bus auto-activation
+
+popup-service 는 더 이상 `/etc/xdg/autostart/unim-popup-service.desktop` 으로
+세션 시작 시 자동 launching 되지 않는다. 대신 D-Bus session bus 의 auto-activation
+으로 lazy launching:
+
+- `/usr/share/dbus-1/services/org.atit.unim.PopupService.service`
+  → `Exec=/usr/bin/unim-popup-service`
+- daemon 이 popup signal 첫 발행 시 D-Bus 가 popup-service 를 자동 launching.
+- 장점: autostart 타이밍 race(daemon 미준비 시 `register_frontend` NoReply 로 stuck) 자동 회피.
+- 단점: 첫 popup 표시 시 launching latency 1~2초. 이후엔 cache 됨.
+
+### 12.2 popup-service main.rs 시작 순서 정책
+
+`tokio::block_on` 블록 내부 순서:
+1. PopupServer 객체 등록 (`/org/atit/unim/popup`)
+2. bus name 획득 (`org.atit.unim.PopupService`)
+3. `forward_daemon_popup_signals` task spawn (daemon signal subscribe)
+4. **위 3단계 모두 완료 후** `register_frontend("popup-service")` 를 별도 task 로
+   fire-and-forget. 응답 timeout 이든 NoReply 든 PopupService 본업에 영향 없음.
+
+### 12.3 환경별 popup display 분기 — 단일 SoT, 다중 렌더러
+
+| 환경 | popup 렌더러 | 비고 |
+|---|---|---|
+| X11 (GNOME / KWin / etc) | popup-service GTK4 popup (override-redirect + XCB outside-click polling) | autostart 폐기 후 D-Bus activation. ext PopupView 는 `Meta.is_wayland_compositor()=false` 라 미생성. |
+| Wayland — KWin / wlroots | popup-service GTK4 popup (gtk4-layer-shell, feature `wayland-backend` 빌드 시) | 미검증 — 향후 |
+| **Wayland — GNOME (Mutter)** | **extension PopupView (St 위젯)** | popup-service GTK4 popup 은 Mutter 의 wlr-layer-shell·input_popup_v2 미지원으로 표시 불가. ext 가 PopupRender signal 받아 직접 렌더. |
+
+**공통 SoT**: 모든 환경에서 daemon `PopupRender` payload 가 단일 view-model. 렌더러
+구현이 다를 뿐 셀·헤더·푸터·탭·하이라이트 모두 daemon 산출 그대로.
+
+### 12.4 dismiss / cleanup 정책 (ext + GTK 공통)
+
+| trigger | GTK popup-service | extension PopupView |
+|---|---|---|
+| 사용자 cell 클릭 commit | `SelectHanja/SelectSpecial/CommitEmoji` RPC | 동일 |
+| popup 영역 밖 클릭 | X11 XCB polling → `window.hide()` → `connect_hide` → `cancel_*_via_dbus` | (X11에선 popup-service 가 처리) |
+| **다른 윈도우 클릭** (focus loss) | GTK `focus-out-event` | `vfunc_focus_out` → `_cleanupPopups` |
+| **같은 윈도우 다른 위치 클릭** | toolkit (GTK/Qt) `gtk_im_context_reset()` 자동 호출 | IBus 자동 트리거 없음 → `vfunc_set_cursor_location` 안 cursor-jump 감지 (preedit 활성 + 100ms+ 키 입력 없음 + 50px+ 점프) → `vfunc_reset()` 명시 호출 |
+| ESC 키 | daemon `cancel_*` RPC | 동일 |
+
+`_cleanupPopups()` (ext) 는 단일 진입점 — `popup_view.hide()` + `popupCancel*` RPC +
+ZWSP preedit (emoji) 정리. dismiss 흐름은 항상 vfunc_focus_out / vfunc_reset 두
+경로로 수렴.

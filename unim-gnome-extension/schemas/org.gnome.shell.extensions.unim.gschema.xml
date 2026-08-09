@@ -24,10 +24,13 @@
       <description>Whether to show a notification when text is converted (Main.notify)</description>
     </key>
 
+    <!-- DEPRECATED: show-panel-indicator is preserved for dconf compatibility.
+         The key is no longer read by the extension — the indicator is always shown.
+         Will be controlled by RegisterFrontend RPC in a future phase. -->
     <key type="b" name="show-panel-indicator">
       <default>true</default>
-      <summary>Show Panel Indicator</summary>
-      <description>Whether to show the Korean/English status indicator in the panel (Panel.statusArea)</description>
+      <summary>Show Panel Indicator (deprecated, ignored)</summary>
+      <description>DEPRECATED as of v0.9: ignored — indicator is now always shown and will be controlled by RegisterFrontend RPC. Key retained for dconf schema compatibility.</description>
     </key>
 
     <key type="s" name="panel-click-action">

@@ -107,6 +107,12 @@ fn test_keycode_from_win32_vk() {
     assert_eq!(KeyCode::from_win32_vk(0xA5), KeyCode::RightAlt);
     assert_eq!(KeyCode::from_win32_vk(0x5B), KeyCode::LeftSuper);
 
+    // 제네릭 수정자 VK (TSF/IMM32 키다운에서 실제 전달되는 값) — 좌측으로 매핑돼야
+    // is_modifier()=true 가 되어 조합 중 수정자 키다운이 음절을 깨지 않는다.
+    assert_eq!(KeyCode::from_win32_vk(0x10), KeyCode::LeftShift); // VK_SHIFT
+    assert_eq!(KeyCode::from_win32_vk(0x11), KeyCode::LeftControl); // VK_CONTROL
+    assert_eq!(KeyCode::from_win32_vk(0x12), KeyCode::LeftAlt); // VK_MENU
+
     // 알 수 없는 키
     assert_eq!(KeyCode::from_win32_vk(0xFFFF), KeyCode::Unknown);
 }
@@ -157,6 +163,21 @@ fn test_keycode_is_modifier() {
     assert!(KeyCode::RightAlt.is_modifier());
     assert!(!KeyCode::A.is_modifier());
     assert!(!KeyCode::Space.is_modifier());
+}
+
+/// 제네릭 수정자 VK 키다운(Windows TSF/IMM32 가 실제 전달)은 is_modifier()=true 여야
+/// 한다. 안 그러면 TSF modifier-combo 가드가 조합 중 한글을 잘못 커밋한다(세벌식
+/// 시프트-자모 분리 버그의 근본). 또 character_key 가 아니어야 한다.
+#[test]
+fn test_generic_modifier_vk_is_modifier() {
+    for vk in [0x10u16, 0x11, 0x12] {
+        let kc = KeyCode::from_win32_vk(vk);
+        assert!(kc.is_modifier(), "generic VK 0x{vk:02X} must be modifier");
+        assert!(
+            !kc.is_character_key(),
+            "generic VK 0x{vk:02X} must not be a character key"
+        );
+    }
 }
 
 // ── to_char_for_layout 테스트 ──

@@ -1,0 +1,7 @@
+# unim-typing-practice — lintian overrides (justified)
+
+# embedded-library libyaml: see unim-common.lintian-overrides for rationale
+# (pure-Rust `unsafe-libyaml` rewrite, no system libyaml.so dependency).
+unim-typing-practice: embedded-library libyaml [usr/bin/unim-typing-practice]
+
+unim-typing-practice: initial-upload-closes-no-bugs *

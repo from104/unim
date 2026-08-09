@@ -152,6 +152,19 @@ pub struct EngineResponse {
 | `GetConfigYaml` | — | `s` | 전체 Config를 YAML 문자열로 반환 (파일 포맷과 동일) |
 | `GetConfigJson` | — | `s` | 전체 Config를 JSON 문자열로 반환 (JS 친화) |
 | `SetConfigYaml` | `yaml: s` | — | YAML 파싱 → `clamp_ranges()` → 저장 → `ConfigChangedJson` 방출 |
+| `RegisterFrontend` | `name: s` | — | **등록형 서비스 목록**에 이름 추가 (멱등). §5.5 참조 — IM 프런트엔드 레지스트리가 아님 |
+| `UnregisterFrontend` | `name: s` | — | 등록형 서비스 목록에서 이름 제거 (없으면 no-op) |
+| `GetActiveFrontends` | — | `as` | 현재 등록된 이름 목록 조회 (정렬됨) |
+| `TypeFix` | `direction: u` | `(i, u, s)` | 글로벌(InputContext 비보유) 수동 TypeFix. direction: 0=자동,1=영→한,2=한→영. 반환 (offset_from_cursor, delete_chars, replacement) — 호출자(현재 GNOME extension)가 직접 삭제/커밋 수행 |
+| `AddReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 AutoTypeFix 억제 사전에 단어 추가 (영문 알파벳만) |
+| `RemoveReverseUserDictWord` | `word: s` | `b` | 역방향 사전 단어 제거 |
+| `ListReverseUserDictWords` | — | `a(ssu)` (단어, 메모, 등록시각) | 역방향 사전 전체 조회 |
+| `UpdateReverseUserDictWord` | `word: s, note: s` | `b` | 역방향 사전 단어의 메모 갱신 |
+| `RegisterUserDictFromSelection` | — | `s` | 마지막 selection surrounding text를 역방향 사전에 등록 |
+| `GetEmojiRecent` | — | `as` | 최근 사용 이모지 목록 조회 |
+| `TriggerAction` | `action: s` | — | 글로벌 트리거(InputContext 비보유, KDE/Hyprland 단축키 도구·`unim-cli trigger` 등). 지원: `"emoji_popup"`뿐 — §5.6 참조 |
+| `SetEmojiCategory` | `idx: u` | — | **internal-only** — popup-service forward 전용. 외부 frontend는 `org.atit.unim.Popup::SetEmojiCategory` 사용 |
+| `CommitEmoji` | `emoji: s` | — | 글로벌 이모지 커밋 (InputContext 비보유 경로) |
 
 ### 5.2 시그널
 
@@ -160,6 +173,7 @@ pub struct EngineResponse {
 | `GlobalModeChanged` | `is_korean: b` | 모드 변경, FocusIn, ProcessKey 모드 변경 |
 | `ConfigChanged` | `key: s, value: s` | (legacy) SetConfig 호출 시 |
 | `ConfigChangedJson` | `json: s` | SetConfigYaml 호출 시 전체 Config JSON payload |
+| `ActiveFrontendsChanged` | `names: as` | RegisterFrontend/UnregisterFrontend 로 등록형 서비스 목록이 실제로 바뀔 때만 (no-op 재호출은 미발행) |
 
 ### 5.3 CreateInputContext 상세
 
@@ -199,6 +213,29 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `auto-typefix-tentative-expiry-hours` | u16 | `engine.auto_typefix.tentative_expiry_hours` (1..=12) |
 | `auto-typefix-observation-timeout-secs` | u8 | `engine.auto_typefix.observation_timeout_secs` (5..=15) |
 
+### 5.5 RegisterFrontend / UnregisterFrontend / GetActiveFrontends — 의미 명시 (FUNC-LINUX-04)
+
+이 세 메서드 + `ActiveFrontendsChanged` 시그널은 **"현재 어떤 IM 입력 경로(GTK/Qt/XIM/Wayland)가
+쓰이는지 진단하는 레지스트리"가 아니다.** GTK/Qt/XIM/Wayland IM 모듈은 이 메서드를 호출하지 않는다.
+
+실제 호출자는 `unim-indicator`(`src/main.rs:76`)와 `unim-popup-service`(`src/main.rs:139`) 뿐이며,
+목적은 **트레이 조정용 등록형 서비스 목록**이다 — `unim-gui-common/src/dbus_client.rs`의
+`has_gnome` 판정이 이 목록을 읽어 GNOME 세션 여부에 따라 트레이 아이콘의 start/stop을 결정한다.
+
+따라서 `unim-cli daemon frontends`(활성 목록 조회)의 결과에는 GTK3/GTK4/Qt5/Qt6/XIM/Wayland IM
+경로가 **원래부터** 나타나지 않으며, 이는 결함이 아니라 설계된 범위다. IM 입력 경로 자체의 활성
+여부를 진단하려면 (본 API가 아니라) 각 프런트엔드 프로세스의 실행 여부를 확인해야 한다.
+
+### 5.6 TriggerAction — 지원 액션 범위
+
+`TriggerAction`(InputMethod, 글로벌)과 `InputContext.TriggerAction`(컨텍스트-scoped, §6.1)은
+현재 **`"emoji_popup"` 한 가지만** 처리하고 그 외 문자열은 경고 로그만 남기고 무시한다(호환성
+유지 목적의 fail-open). `SmartBackspace`/수동 `TypeFix` 를 이 액션 목록에 편입해 CLI/KDE/Hyprland
+에 전 데스크톱으로 노출하는 것은 v0.4.0 범위 밖이다(FUNC-LINUX-05) — 실제 텍스트 치환에는
+GNOME extension이 갖는 IM vfunc(`delete_surrounding`/`commitText`) 수준의 앱 조작 권한이 필요하고,
+이 권한이 없는 환경(CLI 단독 호출 등)에서는 `TypeFix`/`SmartBackspace`가 반환하는 (offset, delete,
+replacement)를 적용할 주체가 없기 때문이다. 확장은 v0.4.x 이후 별도 검토.
+
 ---
 
 ## 6. InputContext 인터페이스 (`org.atit.unim.InputContext`)
@@ -217,12 +254,18 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `GetHanjaCandidates` | — | `(s, a(ss))` | 한자 후보 조회 → (target, [(한자, 뜻풀이)]) |
 | `SelectHanja` | `index: u` | `s` | 한자 선택 → 선택된 한자 반환 |
 | `CancelHanja` | — | — | 한자 모드 취소 |
+| `SetContentType` | `purpose: u` | — | 입력 필드 목적 설정(비밀번호/PIN 등). `purpose` 는 **UNIM `ContentPurpose` 번호 체계**(0 Normal, 1 Password, 2 Pin, 3 Email, 4 Number, 5 Url, 6 Terminal)이며 **호출자(프런트엔드)가 변환 책임을 진다** — §13.1 참조. ※2인자 `(purpose, hints)` 형태는 IBus 호환 인터페이스(`org.freedesktop.IBus.InputContext`) 전용 — 그쪽은 IBus 번호 체계를 받아 데몬이 변환한다 |
 | `GetSpecialCharCandidates` | — | `(s, a(s), s)` | 특수문자 후보 조회 → (target, [문자열], top_row) |
 | `SelectSpecialChar` | `char_str: s` | — | 특수문자 선택 → preedit 교체 + 커밋 |
 | `CancelSpecialChar` | — | — | 특수문자 모드 취소 |
 | `ToggleHanjaBookmark` | `index: u` | `(u, b)` | 한자 즐겨찾기 토글 → (new_index, bookmarked). HanjaCandidatesReordered + PopupRender 시그널 동반 발행. |
 | `popup_change_page` | `direction: i` | — | 마우스 ◀/▶ 페이지 이동. 0/음수=Prev, 양수=Next. wrap-around. PopupNavigate + PopupRender 시그널 발행. popup-owner 라우팅 (caller context 와 popup_state 활성 context 가 다를 수 있음). |
 | `TogglePopupExpand` | — | — | (v3.2) 한자 popup compact↔expanded 토글 (마우스 ⊞/⊟ 클릭). popup-owner 라우팅. 활성 한자 popup 없으면 no-op. |
+| `SetSurroundingText` | `text: s, cursor_pos: u, anchor_pos: u` | — | 커서 주변 텍스트 전달 (SmartBackspace/수동 TypeFix 선행 조건) |
+| `SmartBackspace` | — | `(u, s)` | **미배선(실험적)** — 자모 단위 삭제. 반환 (delete_chars, replacement) 을 받아 `DeleteSurroundingText` 시그널로 자동 발행까지 하지만, 현재 호출자는 테스트뿐(§5.6·FUNC-LINUX-05) |
+| `ReportCursorRect` | `x: i, y: i, width: i, height: i` | — | 커서 위치 보고 (popup 포지셔닝용). 컨텍스트-scoped + 전역 캐시 동시 갱신 |
+| `TriggerAction` | `action: s` | — | 컨텍스트-scoped 트리거. GNOME extension처럼 자체 InputContext를 가진 클라이언트용 — §5.6 참조 |
+| `CommitEmoji` | `emoji: s` | — | 이모지 커밋 (GUI 팝업에서 선택한 이모지를 현재 컨텍스트로). `HidePopup` 동반 발행 |
 
 ### 6.2 시그널
 
@@ -238,6 +281,8 @@ legacy `GetConfig`/`SetConfig` 디스패치에서 인식하는 키. YAML/JSON �
 | `HanjaBookmarkChanged` | `index: u, bookmarked: b` | 즐겨찾기 단일 갱신 (구버전 호환) |
 | `HanjaCandidatesReordered` | `target, hanjas, meanings, bookmarks, new_cursor, page, sel_row, sel_col, bookmarked, was_bookmarked` | 즐겨찾기 토글 후 재정렬·커서 점프. `was_bookmarked && !bookmarked` 시 frontend 가 cursor flash. |
 | `PopupRender` (v3.2) | `kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages), (showFooter,expandVisible), cells:a(ssu), col_headers:a(sb), row_headers:a(sb), tab_labels:as, active_tab_index:u` | **통합 view_model** — daemon SoT. 헤더·푸터·탭 라벨·확장 아이콘 모두 미리 포맷. frontend 가 본 시그널만으로 즉시 렌더. cells flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_hl, 0x08=row_hl, 0x10=bookmarked. 자세한 사양은 [`docs/dev/specs/POPUP_SPEC.md`](../docs/dev/specs/POPUP_SPEC.md) §10 참조. |
+| `DeleteSurroundingText` | `offset: i, n_chars: u` | 커서 기준 삭제 요청 (SmartBackspace 결과 반영용) |
+| `AutoTypefixApply` | `delete_chars: u, commit_text: s, preedit_text: s` | AutoTypeFix 교정 적용: delete_chars 삭제 → commit_text 커밋 → preedit_text를 preedit으로 |
 
 ### 6.3 ProcessKeyEvent 상세
 
@@ -254,6 +299,8 @@ ProcessKeyEvent(keyval, keycode, state)
   → 4. mode_changed가 있으면 GlobalModeChanged 시그널 발송
   → 5. (consumed, preedit.unwrap_or_default(), commit.unwrap_or_default()) 반환
 ```
+
+> **키 자동 반복 억제 게이트(접근성, `ignore_key_repeat`)**: 설정이 켜져 있으면 엔진 워커가 `press_key` 앞단에서 반복 press 를 소비-드롭한다. 반복 판정은 `state` 의 `UNIM_REPEAT_AWARE_MASK`(1<<31)/`UNIM_KEY_REPEAT_MASK`(1<<29) 비트를 우선하고(aware 프런트: Wayland·Qt5/6·GNOME), aware 비트가 없는 프런트(GTK3/4·XIM·ibus)는 per-context 80ms 시간창(`REPEAT_INFER_WINDOW`)으로 근사한다 — 첫 반복 1회 누출·80ms 초과 interval 미검출 한계는 항상 "미억제(현행 유지)" 방향의 fail-safe. 억제 대상은 토글 키·한글 모드 문자 키뿐이며, 드롭 응답은 현재 preedit 를 에코해 조합 증발·preedit-end 오발사를 막는다. off 면 게이트 첫 조건에서 탈락(오버헤드 0·동작 무손상).
 
 ### 6.4 FocusIn 상세
 
@@ -495,3 +542,62 @@ cargo build --workspace
 로그 매크로: `unim_log!("DBUS", "...")` / `unim_log!("ENGINE_WORKER", "...")`
 
 활성화: `UNIM_DEVELOP=1`
+
+---
+
+## 13. ContentPurpose 지원 매트릭스 (프런트엔드별)
+
+### 13.1 SetContentType 인자 체계
+
+DBus 메서드 `SetContentType(purpose: u32)` 의 인자는 항상 **UNIM ContentPurpose 번호 체계**를 따릅니다:
+
+| 값 | 상수명 | 의미 |
+|----|--------|------|
+| 0 | `Normal` | 일반 텍스트 필드 (기본값) |
+| 1 | `Password` | 비밀번호·PIN 필드 — 자동 영문 강제 |
+| 2 | `Pin` | PIN 전용 필드 — 자동 영문 강제 |
+| 3 | `Email` | 이메일 필드 |
+| 4 | `Number` | 숫자 입력 필드 |
+| 5 | `Url` | URL·URI 입력 필드 |
+| 6 | `Terminal` | 터미널 환경 |
+
+### 13.2 프런트엔드별 지원 범위
+
+| 프런트엔드 | 필드 감지 | SetContentType 송신 | 한글 자동 차단 | 비고 |
+|-----------|----------|------------------|-------------|------|
+| **GNOME 확장** (Wayland, `unim-gnome-extension`) | ✅ 자동 | ✅ DBus 송신 | ✅ | 기본값 Clutter InputContentPurpose → UNIM 매핑 |
+| **GTK3** (X11·Wayland, `unim-frontends/gtk3/src/immodule.c`) | ✅ 자동 | ✅ DBus 송신 | ✅ | GtkIMContext 자신의 `input-purpose` 프로퍼티 구독 |
+| **GTK4** (X11·Wayland, `unim-frontends/gtk4/src/immodule.c`) | ✅ 자동 | ✅ DBus 송신 | ✅ | GtkIMContext 자신의 `input-purpose` 프로퍼티 구독 |
+| **Qt5** (X11·Wayland, `unim-frontends/qt5/src/input_context.cpp`) | ✅ 자동 | ✅ DBus 송신 | ✅ | `Qt::ImHints` 프로퍼티 구독, 런타임 변경 추적 |
+| **Qt6** (X11·Wayland) | ✅ 자동 | ✅ DBus 송신 | ✅ | Qt5와 동일 구조 |
+| **순수 Wayland** (unim-frontends/wayland, Rust) | ✅ 자동 | ✅ DBus 송신 | ✅ | wayland-protocols `text-input-v3` ContentPurpose 구독 |
+| **IBus 호환 경로** (`unim-dbus/src/ibus_compat/ibus_context.rs`) | ✅ 자동 | ✅ DBus 송신 (변환) | ✅ | IBus enum → UNIM enum 변환 필수 |
+| **XIM** (X11, `unim-frontends/xim/src/main.rs`) | ❌ 불가 | ❌ 미지원 | ❌ | XIM 프로토콜에 필드 종류 전달 방법 없음 |
+| **Chrome Wayland** (기본값, `--enable-wayland-ime` 미활성화) | ❌ 불가 | ❌ 미송신 | ❌ | Chrome 기본 설정에서는 입력기에 purpose 미전달; 플래그 활성화 필요 |
+| **Chrome X11** | ❌ 불가 | ❌ 미송신 | ❌ | Chromium 엔진 설계: 입력기에 필드 정보 미보고 |
+| **Windows (legacy IMM32)** | ⚠️ 부분(최선노력) | — in-process (DBus 미경유) | ⚠️ 부분 | `content_purpose.rs` — 표준 Edit/RichEdit + `ES_PASSWORD` 스타일만 감지(Password 단일). 커스텀/오너드로우 컨트롤·Pin/Email 등 세분 purpose 는 프로토콜상 감지 불가(fail-normal: 실패 시 Normal). VM 런타임 실측 대기 |
+| **Windows (TSF)** | ✅ 자동 | — in-process (DBus 미경유) | ✅ | `unim-tsf` 가 InputScope 로 감지해 `engine.set_content_purpose` 직접 호출 — 초기 감지 + mid-focus InputScope 변경 추적(OnEndEdit) 포함. VM 런타임 실측 대기 |
+
+### 13.3 자동 감지 불가 환경 (XIM·Chrome 미플래그)
+
+다음 조합에서는 UNIM이 필드 종류를 알 수 없으므로 **수동 영문 모드 확인** 필수:
+
+1. **XIM 레거시 앱** — 터미널, Emacs, Gvim 등
+   - **대안**: GTK/Qt 기반 앱으로 전환 (gvim → vim-gtk, Emacs → Emacs(GTK) 등)
+
+2. **Chrome Wayland (플래그 미활성화)**
+   - **해결법**:
+     ```bash
+     google-chrome --enable-wayland-ime
+     ```
+   - 또는 `~/.config/chrome-flags.conf` 에 `--enable-wayland-ime` 추가
+
+3. **Chrome X11**
+   - **해결법**: 직접 한/영 토글로 영문 모드 확인
+   - **대안**: Firefox 사용 (필드 감지 정상 동작)
+
+### 13.4 설계 원칙
+
+- **프런트엔드 책임**: 각 프런트엔드는 자신의 toolkit API(GTK 프로퍼티, Qt hints, Wayland protocol)에서 필드 정보를 읽어 **UNIM ContentPurpose 번호로 변환**한 뒤 DBus SetContentType으로 송신한다.
+- **엔진 책임**: 수신한 `purpose: u32` 값을 ContentPurpose enum으로 해석하고, `should_block_hangul()` 판정에 따라 한영 전환·ATF·팝업 억제를 적용한다.
+- **동작 보장**: Linux(GTK/Qt/GNOME/Wayland), Windows(TSF)에서 비밀번호 필드는 **자동 영문 모드 전환**되고, **이탈 시 종전 모드 복구**된다.

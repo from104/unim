@@ -8,21 +8,102 @@ use crate::keycode::KeyCode;
 
 /// 자동 영문 전환 트리거 — 두 카테고리.
 ///
-/// - `Functional`: 제어 키(Escape/Tab/F*/Arrow* …) 또는 Shift 명시된 문자 키.
-///   `keycode == code && shift 조건` 으로 비교한다 (현 로직 유지).
+/// - `Functional`: 제어 키(Escape/Tab/F*/Arrow* …), Shift 명시된 문자 키,
+///   그리고 Ctrl/Alt/Super 조합 키(`key:Ctrl+B` 등). `keycode == code`
+///   + `ctrl/alt/super 정확 일치` + `shift 조건` 으로 비교한다.
 /// - `Character`: 키맵을 거쳐 산출된 char 와 비교한다. 비-QWERTY 한국어
 ///   레이아웃(예: 세벌식390) 에서도 사용자가 의도한 문자(`'/'` 등) 가 어떤
 ///   keycode 로 매핑되든 정확히 잡아낸다. shift 조건은 별도로 비교하지 않으며,
-///   사용자가 `'/'` 와 `'?'` 를 구분하려면 둘 다 등록해야 한다.
+///   사용자가 `'/'` 와 `'?'` 를 구분하려면 둘 다 등록해야 한다. Ctrl/Alt/Super
+///   조합 중에는 매칭하지 않는다(문자 카테고리는 비조합 전용).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AutoEnglishTrigger {
     /// KeyCode 기반 매칭.
     /// - `shift = None`: shift 무관 매칭
     /// - `shift = Some(true)`: shift 필수
     /// - `shift = Some(false)`: shift 없을 때만
-    Functional { code: KeyCode, shift: Option<bool> },
+    ///
+    /// `ctrl`/`alt`/`super_key` 는 **정확 일치**(평 bool)다 — 표기에 등장한
+    /// modifier 는 필수, 등장하지 않은 것은 눌리지 않아야 매칭한다. 예를 들어
+    /// `key:Ctrl+B` 는 `Ctrl+Alt+B` 에는 발동하지 않는다. 세 값이 모두 `false`
+    /// 이면 legacy(`Escape`)·`key:`/`char:` 비조합 트리거로, 종전 의미와 바이트
+    /// 동일하게 동작한다.
+    ///
+    /// `Option<bool>`(무관) 이 아니라 평 bool(정확 일치)을 채택한 근거: press
+    /// flow 의 단축키 가드(`press_key` 의 `control||alt||super` 분기)가 조합 키를
+    /// 매처(`match_auto_english_trigger`)보다 먼저 조기 return 한다. 따라서 legacy
+    /// 트리거(`key:Escape`)는 원래 어떤 조합(`Ctrl+Escape` 등)에서도 절대 발동한
+    /// 적이 없다. modifier 를 "무관" 으로 두면, 가드 경로에 매처를 새로 추가하는
+    /// 순간 legacy 트리거가 `Ctrl+Escape` 에 갑자기 발동해 하위호환이 깨진다.
+    /// 정확 일치(false 필수)면 legacy 는 조합에서 구조적으로 불일치하므로 종전의
+    /// '불발' 이 비트 단위로 보존된다.
+    Functional {
+        code: KeyCode,
+        shift: Option<bool>,
+        /// Ctrl 필수 여부 (정확 일치 — false 면 Ctrl 이 눌리지 않아야 매칭).
+        ctrl: bool,
+        /// Alt 필수 여부 (정확 일치).
+        alt: bool,
+        /// Super 필수 여부 (정확 일치).
+        super_key: bool,
+    },
     /// 키맵 산출 char 매칭. shift 무관 — 산출된 글자가 `ch` 와 같으면 발동.
+    /// Ctrl/Alt/Super 가 하나라도 눌린 조합에서는 매칭하지 않는다.
     Character(char),
+}
+
+/// AutoTypeFix 토글 단축키가 가리키는 대상 플래그.
+///
+/// `press_key` 가 ATF 핫키 매칭 시 엔진의 `pending_atf_toggle` 에 적재하고, 호스트
+/// (Linux `engine_worker` / Windows `text_service`)가 `take_atf_toggle()` 로 드레인해
+/// `config.engine.auto_typefix.{enabled,forward,reverse}` 를 반전·persist 한다.
+/// `InputResult`(`repr(C)` + unim-capi ABI)에는 필드를 추가하지 않으며,
+/// `popup_pending_action` 선례와 동일한 out-of-band 드레인 패턴으로 ABI 를 보존한다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtfToggleKind {
+    /// AutoTypeFix 마스터 게이트(`enabled`) 토글.
+    Enabled,
+    /// 순방향(영→한) 교정(`forward`) 토글.
+    Forward,
+    /// 역방향(한→영) 교정(`reverse`) 토글.
+    Reverse,
+}
+
+/// ATF 토글 단축키 1건 — base 키코드 + 수정자 **정확-일치** 요구 사항.
+///
+/// `AutoEnglishTrigger::Functional` 의 정확-일치 규약을 그대로 따른다: 네 수정자는
+/// 모두 평 `bool` 이며 "지정한 수정자는 눌려 있어야 하고, 지정하지 않은 수정자는
+/// 눌리면 안 된다". 덕분에 종전의 `shortcut_combo` 배제 가드가 없어도 앱 단축키가
+/// 구조적으로 보호된다 — 사용자가 `F10` 만 등록했다면 `Shift+F10`(컨텍스트 메뉴)는
+/// `shift` 불일치로 매칭 실패해 그대로 앱에 통과한다.
+///
+/// 수정자 없는 표기(`F10`)는 네 필드가 전부 `false` 로 파싱되어, 모든 수정자가
+/// 떼어져 있을 때만 매칭한다 — 종전 동작과 비트 단위로 동일하다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AtfHotkey {
+    /// 매칭 대상 base 키코드 (수정자 키는 파싱 단계에서 배제된다).
+    pub code: KeyCode,
+    /// Ctrl 필요 여부 (정확 일치).
+    pub ctrl: bool,
+    /// Alt 필요 여부 (정확 일치).
+    pub alt: bool,
+    /// Super/Win/Meta 필요 여부 (정확 일치).
+    pub super_key: bool,
+    /// Shift 필요 여부 (정확 일치).
+    pub shift: bool,
+}
+
+impl AtfHotkey {
+    /// 수정자를 하나도 요구하지 않는 표기(`F10`)인지 — 즉 모든 수정자가 떼어져
+    /// 있을 때만 매칭하는 핫키인지.
+    ///
+    /// 프런트엔드 소비 판정(`InputEngine::is_atf_hotkey`)이 사용한다: 수정자 상태가
+    /// 엔진까지 도달하지 않는 Windows TSF/IMM32 에서는 조합 표기 핫키가 `press_key`
+    /// 에서 결코 매칭될 수 없으므로, 그 base 키코드를 미리 소비해 버리면 원래 기능
+    /// (예: 맨 `F9` 한자)만 죽는다.
+    pub fn is_bare(&self) -> bool {
+        !self.ctrl && !self.alt && !self.super_key && !self.shift
+    }
 }
 
 /// 팝업 페이지 이동 방향 (마우스 ◀/▶ 버튼 등에서 사용).

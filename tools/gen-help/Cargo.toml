@@ -1,0 +1,18 @@
+[package]
+name = "unim-gen-help"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+# 개발 도구 — 배포 대상이 아니다. install/deb/rpm/MSI 어느 타깃도 이 바이너리를 담지 않는다.
+publish = false
+
+[dependencies]
+# getopts(기본 features)는 필요 없다 — html 렌더러만 쓴다.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+
+[[bin]]
+name = "unim-gen-help"
+path = "src/main.rs"

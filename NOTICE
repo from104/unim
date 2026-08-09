@@ -1,0 +1,53 @@
+UNIM — Unified Korean Input Method
+Copyright (c) 2024-2026 from104
+
+This project is licensed under the MIT License (see LICENSE).
+
+The following third-party data and code are bundled in this repository under
+their own licenses. The full license texts are kept in the LICENSES/ directory.
+
+────────────────────────────────────────────────────────────────────────────
+1. libhangul Hanja Dictionary
+   Path:        src/data/hanja.txt
+   Source:      libhangul project — https://github.com/libhangul/libhangul
+   Copyright:   Copyright (c) 2005, 2006 Choe Hwanjin
+   License:     BSD 3-Clause License
+   Full text:   LICENSES/libhangul-hanja.LICENSE
+   Notes:       The original BSD 3-Clause header is preserved verbatim at
+                the top of src/data/hanja.txt. Per Clause 3 of the license,
+                the name of the author may not be used to endorse or promote
+                products derived from this software without specific prior
+                written permission.
+
+────────────────────────────────────────────────────────────────────────────
+2. Unicode CLDR Emoji Data
+   Path:        src/emoji/data.rs (auto-generated)
+   Source:      Unicode CLDR — https://cldr.unicode.org/
+                (derived from /usr/share/unicode/emoji/emoji-test.txt,
+                 Unicode 15.0, 2023-06-05)
+   Copyright:   Copyright © 1991-2023 Unicode, Inc.
+   License:     Unicode License v3
+   Full text:   LICENSES/unicode-cldr.LICENSE
+   Notes:       Generated via tools/gen_emoji.py. Categories and code points
+                follow the official Unicode emoji-test.txt classification.
+
+────────────────────────────────────────────────────────────────────────────
+3. Keymap Standards
+   Path:        docs/references/keymaps/*.json
+   Source:      National and de facto standards (KS X 5002, Sebeolsik 390,
+                Sebeolsik 391, QWERTY/Dvorak/Colemak/Workman layouts).
+   License:     Standards bodies do not assert copyright over keymap layouts.
+   Notes:       Each JSON file declares its standards body in the
+                metadata.author field. The JSON encoding itself is original
+                to this project (MIT).
+
+────────────────────────────────────────────────────────────────────────────
+
+Rust crate dependencies are tracked in Cargo.lock. All transitive dependencies
+are MIT, Apache-2.0, BSD, or Unicode-license compatible. Run
+`cargo metadata --format-version 1` for the full machine-readable list.
+
+System libraries (GTK3/4, Qt5/6, libwayland, libX11, libxkbcommon, glib, etc.)
+are linked dynamically and remain under their respective upstream licenses
+(LGPL-2.1 / LGPL-3.0 / MIT / X11). UNIM does not statically link or vendor
+any of these libraries.

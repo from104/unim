@@ -44,6 +44,21 @@ DESTDIR ?= $(CURDIR)/debian/tmp
 # ─────────────────────────────────────────────────────────────────────────────
 
 override_dh_auto_build:
+	# `cargo`/`rustc` are intentionally NOT in Build-Depends: this project
+	# expects a rustup-managed toolchain (~/.cargo/bin or any PATH cargo),
+	# which dpkg-checkbuilddeps cannot see (apt-only). Cargo.lock v4 still
+	# requires Rust 1.78+ — verified at runtime here.
+	@cargo_ver=$$(cargo --version 2>/dev/null | awk '{print $$2}'); \
+	 if [ -z "$$cargo_ver" ]; then \
+	   echo "❌ cargo not found on PATH ($$PATH)"; exit 1; \
+	 fi; \
+	 major=$$(echo $$cargo_ver | cut -d. -f1); \
+	 minor=$$(echo $$cargo_ver | cut -d. -f2); \
+	 if [ $$major -lt 1 ] || { [ $$major -eq 1 ] && [ $$minor -lt 78 ]; }; then \
+	   echo "❌ cargo $$cargo_ver < 1.78 (Cargo.lock v4 requires 1.78+)"; \
+	   echo "   Install rustup stable: rustup default stable"; exit 1; \
+	 fi; \
+	 echo "✅ cargo $$cargo_ver"
 	$(MAKE) build
 	$(MAKE) gnome-extension
 
@@ -72,4 +87,6 @@ override_dh_auto_test:
 # ─────────────────────────────────────────────────────────────────────────────
 
 override_dh_auto_clean:
-	$(MAKE) clean-all || true
+	# `make clean` only — `clean-all` chains `clean-deb` which rm's ../*.deb in
+	# the parent directory, an unsafe blast radius for dpkg-buildpackage.
+	$(MAKE) clean || true

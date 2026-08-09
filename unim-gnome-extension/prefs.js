@@ -3,7 +3,7 @@
  *
  * 단일 창구화(SSoT = config.yaml) 정책에 따라 GNOME Shell API에 직접
  * 의존하는 5개 설정만 노출한다. 자판·입력 모드·오타 교정 등 일반 설정은
- * `unim-gui-gtk --settings`로 리다이렉트한다.
+ * `unim-settings`로 리다이렉트한다.
  */
 
 import Gio from 'gi://Gio';
@@ -28,7 +28,7 @@ export default class UnimPreferences extends ExtensionPreferences {
         // ============================================
         const generalGroup = new Adw.PreferencesGroup({
             title: _('일반 설정'),
-            description: _('자판·입력 모드·오타 교정 등 일반 설정은 UNIM 설정 앱(unim-gui-gtk --settings)에서 관리합니다.')
+            description: _('자판·입력 모드·오타 교정 등 일반 설정은 UNIM 설정 앱(unim-settings)에서 관리합니다.')
         });
         page.add(generalGroup);
 
@@ -41,16 +41,16 @@ export default class UnimPreferences extends ExtensionPreferences {
         launchRow.connect('activated', () => {
             try {
                 Gio.Subprocess.new(
-                    ['unim-gui-gtk', '--settings'],
+                    ['unim-settings'],
                     Gio.SubprocessFlags.NONE
                 );
-                unimLog('PREFS', 'unim-gui-gtk --settings 실행');
+                unimLog('PREFS', 'unim-settings 실행');
                 window.close();
             } catch (e) {
-                unimError('PREFS', `unim-gui-gtk 실행 실패: ${e.message}`);
+                unimError('PREFS', `unim-settings 실행 실패: ${e.message}`);
                 try {
                     const toast = new Adw.Toast({
-                        title: _('UNIM 설정 앱 실행 실패. 터미널에서 `unim-gui-gtk --settings`를 직접 실행하세요.'),
+                        title: _('UNIM 설정 앱 실행 실패. 터미널에서 `unim-settings`를 직접 실행하세요.'),
                         timeout: 5
                     });
                     if (typeof window.add_toast === 'function') {
@@ -70,10 +70,6 @@ export default class UnimPreferences extends ExtensionPreferences {
             title: _('표시')
         });
         page.add(displayGroup);
-
-        this._addSwitch(displayGroup, settings, 'show-panel-indicator',
-            _('상단 패널 인디케이터'),
-            _('한/영 상태 아이콘을 GNOME 상단 패널에 표시'));
 
         // 패널 클릭 동작 (왼쪽 클릭 한/영 전환 vs 메뉴)
         const clickOptions = new Gtk.StringList();

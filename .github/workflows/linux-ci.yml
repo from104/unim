@@ -1,0 +1,80 @@
+name: Linux CI
+
+# develop/main push + PR 상시 게이트 — 빠른 회귀 검출이 목적.
+# 릴리스 빌드(11 deb + SHA256SUMS)는 linux-deb.yml 담당 (태그 전용).
+#
+# paths-ignore 주의: 이전에는 'docs/**' 와 '**.md' 를 통째로 무시했다. 그 상태로는
+# 도움말 드리프트 게이트(check-help-html)가 무의미하다 — docs/user/**.md 만 고친
+# 푸시는 CI 자체가 안 돌아서, 재생성을 잊은 커밋이 그대로 통과한다.
+# 그래서 도움말 산출물에 영향을 주는 경로(docs/user/**, help/**, tools/gen-help/**)는
+# 무시 목록에서 뺐다. 도움말과 무관한 문서만 계속 무시한다.
+# (GitHub Actions 는 YAML 앵커를 지원하지 않아 push/pull_request 에 목록을 중복 기재한다.)
+on:
+  push:
+    branches: [develop, main]
+    paths-ignore:
+      - 'docs/dev/**'
+      - 'docs/archive/**'
+      - 'docs/user/release-notes/**'
+      - 'docs/user/keymaps/**'
+      - '*.md'
+  pull_request:
+    branches: [develop, main]
+    paths-ignore:
+      - 'docs/dev/**'
+      - 'docs/archive/**'
+      - 'docs/user/release-notes/**'
+      - 'docs/user/keymaps/**'
+      - '*.md'
+
+# 같은 ref 에 새 push 가 오면 이전 실행은 취소 (게이트는 최신 커밋만 의미 있음).
+concurrency:
+  group: linux-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # 프로젝트 표준은 make build zero-warning (AGENTS.md 게이트와 동일 기준).
+  # 릴리스 워크플로(linux-deb.yml)는 이미 태그된 코드를 그대로 빌드해야 하므로
+  # 경고를 승격하지 않지만, 여기는 push/PR 게이트이므로 경고 = 실패다.
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  build-test:
+    name: Build (release + C frontends) & test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (debian/control Build-Depends)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get build-dep -y .
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-ci   # linux-deb(릴리스)·windows-msvc 캐시와 분리
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Popup CSS drift guard
+        # popup_tokens.toml 수정 후 make gen-popup-css 미실행 커밋을 잡는다.
+        run: make gen-popup-css-check
+
+      - name: Offline help HTML drift guard
+        # docs/user/**.md 수정 후 make help-html 미실행 커밋을 잡는다.
+        run: make check-help-html
+
+      - name: Build (make build — Rust release + GTK3/4·Qt5/6 IM modules)
+        run: make build
+
+      - name: Unit tests (cargo test --workspace)
+        run: cargo test --workspace

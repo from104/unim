@@ -1,15 +1,24 @@
-//! v1 자판 프로필 JSON 스키마 — serde 역직렬화 타입.
+//! v1/v2/v3 자판 프로필 JSON 스키마 — serde 역직렬화 타입.
 //!
-//! 스펙: `docs/dev/plans/LAYOUT_PROFILE_V1.md`
+//! 스펙: `docs/archive/plans/LAYOUT_PROFILE_V1.md`, `_workspace/anmatae/00_user_decisions.md`
 //!
 //! # 구조
-//! - `RawProfile` — JSON에서 직접 역직렬화되는 평면 구조. v1 필드가 optional.
-//! - `LayoutProfile` — 정규화 후의 런타임 표현.
+//! - `RawProfile` — JSON에서 직접 역직렬화되는 평면 구조. v1/v3 필드가 optional.
+//! - `LayoutProfile` — 정규화 후의 런타임 표현 (v1/v2/v3 공통).
 //!
 //! 0.2.0부터 v0(legacy) 스키마는 더 이상 지원되지 않는다. 로더는 v1 마커
 //! (`schema_version`, `metadata`, `inherits`, `combinations`, `rule_sets`,
 //! `active_rule_sets`) 중 하나라도 존재해야 v1으로 인식하고, 모두 없는 JSON은
 //! `LoadError::UnsupportedSchema`로 거부한다.
+//!
+//! v3 마커(`supports_moachigi`)가 존재하거나 `schema_version == 3`이면 v3 경로로 파싱된다.
+//! v3는 v1/v2를 완전히 포함한다(후방 호환 보장).
+//!
+//! # v3 모아치기 (Phase 7 options-cleanup)
+//! - `supports_moachigi: bool` — 자판이 모아치기를 지원하는지. GUI 활성화 게이트.
+//!   자판은 capability만 선언. 실제 동작 옵션은 사용자 config(~/.config/unim/config.yaml)에서만 읽힘.
+//! - `bidirectional_combine` / `chord_window_ms` 키맵 필드는 Phase 7에서 deprecated:
+//!   JSON에 남아 있어도 파싱 후 무시됨. 두 값의 진실 공급원은 사용자 config.
 //!
 //! combinations 해석·inherits 병합·자모 enum 변환은 builder에서 수행한다.
 //! 본 모듈은 순수 스키마(문자열 수준)만 다룬다.
@@ -20,6 +29,24 @@ use std::collections::{BTreeMap, HashMap};
 use super::localized::LocalizedText;
 
 // ============================================================================
+// v3 — 모아치기 런타임 표현 (Phase 3-rework2 단순화)
+// ============================================================================
+
+/// v3 — 모아치기 capability 마커 (정규화된 런타임 표현).
+///
+/// Phase 7 options-cleanup: 두 동작 옵션(bidirectional_combine/chord_window_ms)은
+/// 키맵에서 제거되어 사용자 config(~/.config/unim/config.yaml)가 진실 공급원이 됨.
+/// `MoachigiSpec`은 "이 자판이 모아치기를 지원함"의 capability 마커 역할만 보유.
+/// 두 필드는 하위 호환용으로 남기되 항상 false/0 (사용자 config에서 주입됨).
+#[derive(Debug, Clone, Default)]
+pub struct MoachigiSpec {
+    /// deprecated — 항상 false. 실제 값은 사용자 config `korean.bidirectional_combine`.
+    pub bidirectional_combine: bool,
+    /// deprecated — 항상 0. 실제 값은 사용자 config `korean.chord_window_ms`.
+    pub chord_window_ms: u16,
+}
+
+// ============================================================================
 // JSON Raw 구조 (파일에서 바로 역직렬화)
 // ============================================================================
 
@@ -27,7 +54,11 @@ use super::localized::LocalizedText;
 ///
 /// 모든 v1 필드는 optional이지만, 로더(`parse_profile_str`)는 v1 마커 중
 /// 하나라도 존재해야 수용한다(v0 거부).
-#[derive(Debug, Clone, Deserialize)]
+///
+/// `Serialize`는 사용자 디렉토리(`~/.config/unim/layouts/`)에 키맵을 저장하는
+/// 도구(`unim-keymap-studio`)를 위해 derive된다. optional 필드는 None일 때
+/// JSON에 노출하지 않아 round-trip 시 원본 형태를 보존한다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawProfile {
     // ── 공통 필수 ──────────────────────────────────────
@@ -38,23 +69,39 @@ pub struct RawProfile {
     pub layout: KeyLayout,
 
     // ── v1 필드 (optional, 단 하나 이상 존재해야 v1 인정) ──
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_version: Option<u8>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<LayoutMetadata>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherits: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub combinations: Option<CombinationsBlock>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule_sets: Option<BTreeMap<String, RuleSet>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_rule_sets: Option<Vec<String>>,
     /// schema_version 2 신규 — 키별 메타데이터.
     /// 키는 layout 셀과 동일한 컨벤션의 리터럴 문자열(예: `"/"`, `"ᆮ"`).
     /// PR-A는 schema·파싱만. 동작 적용은 PR-B.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_meta: Option<HashMap<String, KeyMeta>>,
+
+    // ── v3 신규 필드 (optional, v3 게이트용 implicit 마커) ──────────────
+    /// v3 — 이 자판이 모아치기를 지원하는지. GUI 옵션 활성화 게이트.
+    /// true인 자판에서만 모아치기 GUI 위젯 활성.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub supports_moachigi: bool,
+    /// Phase 7 deprecated — JSON에 있어도 파싱 후 무시. 사용자 config가 진실 공급원.
+    /// 하위 호환(레거시 JSON 파싱 오류 방지)을 위해 필드만 유지.
+    /// 직렬화 시에는 제외(deprecated 필드를 새로 저장하지 않음).
+    #[serde(default, skip_serializing)]
+    pub bidirectional_combine: bool,
+    /// Phase 7 deprecated — JSON에 있어도 파싱 후 무시. 사용자 config가 진실 공급원.
+    /// 하위 호환(레거시 JSON 파싱 오류 방지)을 위해 필드만 유지.
+    /// 직렬화 시에는 제외(deprecated 필드를 새로 저장하지 않음).
+    #[serde(default, skip_serializing)]
+    pub chord_window_ms: u16,
 }
 
 // ============================================================================
@@ -133,13 +180,13 @@ pub enum ContextCondition {
 // Layout 구조 (v0/v1 공통)
 // ============================================================================
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KeyLayout {
     pub upper: LayoutRows,
     pub lower: LayoutRows,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LayoutRows {
     /// 숫자열. 3벌식은 14키, 2벌식/영문 계열은 14키.
     #[serde(rename = "1st", default)]
@@ -159,22 +206,22 @@ pub struct LayoutRows {
 // v1 메타데이터
 // ============================================================================
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct LayoutMetadata {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<LocalizedText>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<LocalizedText>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 }
 
@@ -183,21 +230,21 @@ pub struct LayoutMetadata {
 // ============================================================================
 
 /// 자판 기본 조합 규칙. 존재하면 자기 완결 — Rust const 미참조.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CombinationsBlock {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cho: Vec<RawTriple>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jung: Vec<RawTriple>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jong: Vec<RawTriple>,
 }
 
 /// `(first, second) → result` 조합 엔트리 (해석 전 문자열).
 ///
 /// 자모 enum으로의 변환은 Phase 2 `builder`에서. 여기서는 순수 문자열.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RawTriple {
     pub first: String,
@@ -208,7 +255,7 @@ pub struct RawTriple {
 /// `reinterpret` 엔트리 — 기획 초안에서는 별도 타입으로 분리되었으나 v1 최종안에선
 /// 일반 `RawTriple`로 통합되었다. 이 타입은 **레거시 드래프트 JSON 호환용**으로 유지.
 /// 로더가 감지하면 `combinations`에 등가로 흡수 후 무시한다.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ReinterpretTriple {
     pub from: String,
@@ -220,28 +267,30 @@ pub struct ReinterpretTriple {
 // v1 규칙 세트
 // ============================================================================
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct RuleSet {
     /// 기본 활성 여부.
     #[serde(default)]
     pub active: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<LocalizedText>,
     /// 세트에 속하는 pair combinations. scope는 first 자모 코드포인트로 자동 판별.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub combinations: Vec<RawTriple>,
     /// 초안 시기 `reinterpret` 필드. v1 최종 스키마에서는 `combinations`로 통합되었으나
     /// 기존 드래프트 JSON 호환을 위해 필드를 남겨 둠. 로더가 `combinations`로 흡수.
-    #[serde(default)]
+    /// 직렬화 시에는 제외(deprecated; 새 파일은 `combinations`로만 저장).
+    #[serde(default, skip_serializing)]
     pub reinterpret: Vec<ReinterpretTriple>,
     /// 초안 시기 `scope` 필드. 자동 판별로 대체되어 무시되지만 파싱 에러 방지용으로 수용.
-    #[serde(default)]
+    /// 직렬화 시에는 제외(deprecated).
+    #[serde(default, skip_serializing)]
     pub scope: Option<String>,
     /// schema_version 2 — rule_set이 토글하는 키 메타데이터.
     /// active=true일 때 base `key_meta`에 병합 (rule_set 우선). active=false면 무시.
     /// 룰 A(vowel_combine_head)·룰 B(context_alt)를 자판 단위로 켜고 끌 수 있게 하는 표현.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_meta: Option<HashMap<String, KeyMeta>>,
 }
 
@@ -261,6 +310,18 @@ impl RawProfile {
             || self.rule_sets.is_some()
             || self.active_rule_sets.is_some()
             || self.key_meta.is_some()
+            // v3 마커도 v1 마커로 인정 (v3는 v1 상위 집합).
+            || self.supports_moachigi
+    }
+
+    /// v3 경로로 파싱해야 하는지 판정.
+    /// - `schema_version == 3` 명시
+    /// - 또는 `supports_moachigi` implicit 마커 존재
+    ///
+    /// Phase 7: bidirectional_combine/chord_window_ms는 더 이상 v3 마커로 쓰지 않음
+    /// (두 필드는 사용자 config 소관).
+    pub fn is_v3(&self) -> bool {
+        self.schema_version == Some(3) || self.supports_moachigi
     }
 }
 
@@ -268,23 +329,23 @@ impl RawProfile {
 // 정규화된 런타임 표현
 // ============================================================================
 
-/// 정규화된 런타임 프로필 (v1·v2).
+/// 정규화된 런타임 프로필 (v1·v2·v3).
 ///
 /// JSON 구조를 1:1로 매핑하되, `rule_sets`의 legacy `reinterpret`만
 /// `combinations`로 흡수한다. combinations 해석, inherits 병합,
 /// active_rule_sets 적용은 builder에서.
 #[derive(Debug, Clone)]
 pub struct LayoutProfile {
-    /// 1 또는 2. 0.2.0부터 v0(=0)는 거부됨. PR-A에서 v2 신설(`key_meta` 도입).
+    /// 1, 2, 또는 3. 0.2.0부터 v0(=0)는 거부됨.
     pub schema_version: u8,
     pub language: String,
     pub name: String,
-    /// `"2bul"` / `"3bul"` / `"qwerty"` / `"dvorak"` 등.
+    /// `"2bul"` / `"3bul"` / `"anmatae"` / `"moachigi_3bul"` / `"qwerty"` 등.
     pub layout_type: String,
     pub metadata: LayoutMetadata,
     pub inherits: Option<String>,
     pub layout: KeyLayout,
-    /// v1 프로필은 자기 완결 — 항상 명시되어야 하지만, 영문 계열처럼
+    /// v1/v3 프로필은 자기 완결 — 항상 명시되어야 하지만, 영문 계열처럼
     /// 자모 조합이 의미 없는 경우 비어 있을 수 있다(빈 블록 또는 None).
     /// 한글 계열은 builder가 None을 거부.
     pub combinations: Option<CombinationsBlock>,
@@ -295,18 +356,86 @@ pub struct LayoutProfile {
     /// schema_version 2 신규 — 키별 메타데이터. PR-A에서는 dangling(미사용).
     /// 키는 layout 셀과 동일한 컨벤션의 리터럴 문자열(예: `"/"`, `"ᆮ"`).
     pub key_meta: Option<HashMap<String, KeyMeta>>,
+
+    // ── v3 신규 필드 (Phase 3-rework2, Phase 7 capability-only) ─────────
+    /// v3 — 모아치기 capability 마커. v1/v2면 `None`.
+    /// supports_moachigi=true이면 Some(MoachigiSpec::default()). 두 필드값은 항상 false/0.
+    /// 실제 동작 옵션은 사용자 config에서 주입됨 (InputEngine::compute_chord_window_ms).
+    pub moachigi: Option<MoachigiSpec>,
 }
 
 impl LayoutProfile {
-    /// `RawProfile`을 정규화해 `LayoutProfile`로 변환.
+    /// `RawProfile`을 정규화해 `LayoutProfile`로 변환 (v1/v2 경로).
     ///
     /// 호출자(`parse_profile_str`)가 사전에 `has_v1_markers()`로 v0를 거부했음을 가정.
     pub fn from_raw(raw: RawProfile) -> Self {
         let schema_version = raw.schema_version.unwrap_or(1);
+        let layout_type_str = raw.r#type.clone();
 
         // rule_sets의 legacy `reinterpret` 필드를 combinations로 흡수.
-        let rule_sets = raw
-            .rule_sets
+        let rule_sets = Self::normalize_rule_sets(raw.rule_sets);
+
+        LayoutProfile {
+            schema_version,
+            language: raw.language,
+            name: raw.name,
+            layout_type: layout_type_str,
+            metadata: raw.metadata.unwrap_or_default(),
+            inherits: raw.inherits,
+            layout: raw.layout,
+            combinations: raw.combinations,
+            rule_sets,
+            active_rule_sets: raw.active_rule_sets,
+            key_meta: raw.key_meta,
+            // v3 필드는 v1/v2에서 없음
+            moachigi: None,
+        }
+    }
+
+    /// `RawProfile`을 정규화해 `LayoutProfile`로 변환 (v3 경로).
+    ///
+    /// 호출자(`parse_profile_str`)가 `validate_v3`를 먼저 호출했음을 가정.
+    pub fn from_raw_v3(raw: RawProfile) -> Self {
+        let schema_version = raw.schema_version.unwrap_or(3);
+        let layout_type_str = raw.r#type.clone();
+
+        let rule_sets = Self::normalize_rule_sets(raw.rule_sets);
+
+        // supports_moachigi=true인 경우에만 MoachigiSpec 생성.
+        // Phase 7: 두 옵션(bidirectional_combine/chord_window_ms)은 사용자 config 소관.
+        // 키맵 JSON에 해당 필드가 있어도 무시 — MoachigiSpec은 capability 마커만 표현.
+        let moachigi = if raw.supports_moachigi {
+            Some(MoachigiSpec::default())
+        } else {
+            None
+        };
+
+        LayoutProfile {
+            schema_version,
+            language: raw.language,
+            name: raw.name,
+            layout_type: layout_type_str,
+            metadata: raw.metadata.unwrap_or_default(),
+            inherits: raw.inherits,
+            layout: raw.layout,
+            combinations: raw.combinations,
+            rule_sets,
+            active_rule_sets: raw.active_rule_sets,
+            key_meta: raw.key_meta,
+            moachigi,
+        }
+    }
+
+    /// 모아치기 파라미터 참조. v1/v2 또는 supports_moachigi=false면 None.
+    pub fn merged_moachigi(&self) -> Option<MoachigiSpec> {
+        self.moachigi.clone()
+    }
+
+    /// rule_sets의 legacy `reinterpret`를 combinations로 흡수하는 공통 헬퍼.
+    fn normalize_rule_sets(
+        raw_rule_sets: Option<BTreeMap<String, RuleSet>>,
+    ) -> BTreeMap<String, RuleSet> {
+        raw_rule_sets
             .unwrap_or_default()
             .into_iter()
             .map(|(name, mut rs)| {
@@ -322,21 +451,7 @@ impl LayoutProfile {
                 rs.scope = None;
                 (name, rs)
             })
-            .collect();
-
-        LayoutProfile {
-            schema_version,
-            language: raw.language,
-            name: raw.name,
-            layout_type: raw.r#type,
-            metadata: raw.metadata.unwrap_or_default(),
-            inherits: raw.inherits,
-            layout: raw.layout,
-            combinations: raw.combinations,
-            rule_sets,
-            active_rule_sets: raw.active_rule_sets,
-            key_meta: raw.key_meta,
-        }
+            .collect()
     }
 }
 
@@ -655,5 +770,161 @@ mod tests {
             result.is_err(),
             "unknown `when` 값 'foo'는 파싱 에러여야 함"
         );
+    }
+
+    // ========================================================================
+    // v3 — 모아치기 3 필드 (Phase 3-rework2)
+    // ========================================================================
+
+    /// sv3-supports-moachigi: supports_moachigi=true → moachigi=Some, capability 마커만.
+    ///
+    /// Phase 7: 키맵의 bidirectional_combine/chord_window_ms는 MoachigiSpec에 반영 안 됨.
+    /// 두 값은 사용자 config 소관. MoachigiSpec은 capability 마커(Some/None)만 표현.
+    #[test]
+    fn sv3_supports_moachigi_parses_correctly() {
+        let json = r#"{
+            "schema_version": 3,
+            "language": "korean",
+            "name": "anmatae_test",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "supports_moachigi": true,
+            "bidirectional_combine": true,
+            "chord_window_ms": 0
+        }"#;
+        let raw: RawProfile = serde_json::from_str(json).unwrap();
+        assert!(raw.supports_moachigi);
+        // raw 필드 파싱은 유지 (deny_unknown_fields 호환)
+        assert!(raw.bidirectional_combine);
+        assert_eq!(raw.chord_window_ms, 0);
+        assert!(raw.is_v3());
+        let profile = LayoutProfile::from_raw_v3(raw);
+        // Phase 7: MoachigiSpec은 capability 마커. 두 필드값은 항상 default(false/0).
+        let m = profile.moachigi.as_ref().expect("moachigi Some");
+        assert!(!m.bidirectional_combine, "Phase7: 키맵 값 무시 → false");
+        assert_eq!(m.chord_window_ms, 0, "Phase7: 키맵 값 무시 → 0");
+    }
+
+    /// sv3-no-supports-moachigi: supports_moachigi=false → moachigi None.
+    #[test]
+    fn sv3_no_supports_moachigi_gives_none() {
+        let json = r#"{
+            "schema_version": 3,
+            "language": "korean",
+            "name": "3bul_test",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]}
+        }"#;
+        let raw: RawProfile = serde_json::from_str(json).unwrap();
+        assert!(!raw.supports_moachigi);
+        // schema_version=3이므로 is_v3()는 true
+        assert!(raw.is_v3());
+        let profile = LayoutProfile::from_raw_v3(raw);
+        assert!(profile.moachigi.is_none(), "supports_moachigi=false → moachigi None");
+    }
+
+    /// sv3-v1-profile-unchanged: v1 프로필 → moachigi None, 기존 동작 유지.
+    #[test]
+    fn sv3_v1_profile_moachigi_is_none() {
+        let raw: RawProfile = serde_json::from_str(v1_json()).unwrap();
+        assert!(!raw.is_v3());
+        let profile = LayoutProfile::from_raw(raw);
+        assert!(profile.moachigi.is_none(), "v1 프로필 → moachigi None");
+    }
+
+    /// sv3-chord-window (Phase 7): 키맵 JSON에 chord_window_ms=50 있어도 MoachigiSpec에 반영 안 됨.
+    ///
+    /// raw 파싱은 OK (레거시 JSON 호환). 하지만 MoachigiSpec.chord_window_ms는 항상 0.
+    /// 실제 chord 활성은 사용자 config `korean.chord_window_ms`에서 주입됨.
+    #[test]
+    fn sv3_chord_window_ms_parses() {
+        let json = r#"{
+            "schema_version": 3,
+            "language": "korean",
+            "name": "anmatae_chord",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "supports_moachigi": true,
+            "bidirectional_combine": true,
+            "chord_window_ms": 50
+        }"#;
+        let raw: RawProfile = serde_json::from_str(json).unwrap();
+        // raw 파싱: JSON 필드 읽힘 (deny_unknown_fields 호환)
+        assert_eq!(raw.chord_window_ms, 50);
+        let profile = LayoutProfile::from_raw_v3(raw);
+        let m = profile.moachigi.as_ref().unwrap();
+        // Phase 7: 키맵 값 무시 → 항상 0. 사용자 config가 진실 공급원.
+        assert_eq!(m.chord_window_ms, 0, "Phase7: 키맵 chord_window_ms 무시");
+        assert!(!m.bidirectional_combine, "Phase7: 키맵 bidirectional_combine 무시");
+    }
+
+    // ========================================================================
+    // Phase 7 신규: opt-keymap-no-fields / opt-keymap-stale-fields
+    // (InputEngine 접근 필요한 opt-config-* 테스트는 tests_chord.rs에 위치)
+    // ========================================================================
+
+    /// opt-keymap-no-fields: supports_moachigi=true, 두 옵션 필드 없음 → 정상 파싱 + moachigi Some.
+    #[test]
+    fn opt_keymap_no_fields() {
+        let json = r#"{
+            "schema_version": 3,
+            "language": "korean",
+            "name": "anmatae_no_opts",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "supports_moachigi": true
+        }"#;
+        let raw: RawProfile = serde_json::from_str(json).expect("두 옵션 없이도 파싱 OK");
+        assert!(raw.supports_moachigi);
+        assert!(!raw.bidirectional_combine, "default false");
+        assert_eq!(raw.chord_window_ms, 0, "default 0");
+        assert!(raw.is_v3());
+        let profile = LayoutProfile::from_raw_v3(raw);
+        assert!(profile.moachigi.is_some(), "supports_moachigi=true → capability 마커 Some");
+    }
+
+    /// opt-keymap-stale-fields: 레거시 JSON에 두 필드 잔존해도 파싱 OK + MoachigiSpec 무시.
+    #[test]
+    fn opt_keymap_stale_fields() {
+        // 이전 포맷: bidirectional_combine + chord_window_ms 모두 있음
+        let json = r#"{
+            "schema_version": 3,
+            "language": "korean",
+            "name": "anmatae_legacy",
+            "type": "3bul",
+            "layout": {
+                "upper": {"1st":[],"2nd":[],"3rd":[],"4th":[]},
+                "lower": {"1st":[],"2nd":[],"3rd":[],"4th":[]}
+            },
+            "combinations": {"cho":[],"jung":[],"jong":[]},
+            "supports_moachigi": true,
+            "bidirectional_combine": true,
+            "chord_window_ms": 50
+        }"#;
+        // 파싱 OK (deny_unknown_fields 우회 — 필드 남겨둠)
+        let raw: RawProfile = serde_json::from_str(json).expect("레거시 JSON 파싱 OK");
+        let profile = LayoutProfile::from_raw_v3(raw);
+        // capability 마커: Some
+        assert!(profile.moachigi.is_some(), "supports_moachigi=true → Some");
+        let m = profile.moachigi.as_ref().unwrap();
+        // 두 값 무시됨 → 항상 default
+        assert!(!m.bidirectional_combine, "키맵 bidirectional_combine 무시");
+        assert_eq!(m.chord_window_ms, 0, "키맵 chord_window_ms 무시");
     }
 }

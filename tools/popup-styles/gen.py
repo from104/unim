@@ -41,7 +41,7 @@ TOKENS_PATH = ROOT / "popup_tokens.toml"
 TMPL_GTK = ROOT / "templates" / "gtk_hanja_popup.css.tmpl"
 TMPL_ST = ROOT / "templates" / "st_hanja_popup.css.tmpl"
 
-OUT_GUI_GTK = REPO / "unim-gui-gtk" / "src" / "popup_styles.generated.css"
+OUT_GUI_GTK = REPO / "unim-popup-service" / "src" / "popup" / "popup_styles.generated.css"
 OUT_EXTENSION = REPO / "unim-gnome-extension" / "stylesheet.css"
 
 MARKER_BEGIN = "/* GENERATED-POPUP-CSS BEGIN — DO NOT EDIT (run `make gen-popup-css`) */"

@@ -19,13 +19,17 @@ UNIM은 커널 수준의 안정성을 지향하는 핵심 시스템 소프트웨
 
 ## 🏗️ 아키텍처 규칙
 
-UNIM은 고성능과 확장을 위해 **3계층 구조**를 사용합니다. 코드를 수정할 때는 다음 설계 철학을 준수해야 합니다.
+UNIM은 고성능과 확장을 위해 **3계층 구조 + popup-service 사이드카**를 사용합니다. 코드를 수정할 때는 다음 설계 철학을 준수해야 합니다.
 
 1. **엔진의 완전한 고립 (src/)**
    - 한글의 조합, 분해 로직 및 엔진 핵심 데이터는 모두 `src/` (Rust 라이브러리) 내부에 위치합니다. UI 종속성, 플랫폼 전용 API 등은 절대로 여기에 위치할 수 없습니다.
 2. **DBus 중앙 집중형 통신**
    - 애플리케이션 프론트엔드(GTK, Qt, Wayland, XIM)와 엔진은 직접적인 메모리 공유 없이 `unim-daemon` 프로세스를 거쳐 DBus(`org.atit.unim.InputMethod`)로 통신합니다.
-3. **안전한 C-API 래핑 (unim-capi/)**
+3. **팝업 단일 SoT — popup-service (0.3.0+)**
+   - 한자·특수문자·이모지 팝업의 view-model 생성은 daemon이, 렌더링은 `unim-popup-service`(GTK4) 또는 GNOME extension(`popup_view.js`)이 담당합니다.
+   - 팝업 관련 시그널/메서드를 daemon에 직접 추가하지 마세요. `org.atit.unim.Popup` 인터페이스를 통해 forward합니다.
+   - `PopupRender` payload가 단일 view-model SoT입니다. 렌더러는 이 payload만 소비합니다.
+4. **안전한 C-API 래핑 (unim-capi/)**
    - Rust 코어를 C/C++ 모듈 등 외부에서 직접 가져와야 할 경우에는 FFI 기반의 `unim-capi` 래퍼 계층만을 이용해야 합니다.
 
 ## ⚙️ 설정 항목 추가/변경 가이드라인
@@ -37,10 +41,12 @@ UNIM은 고성능과 확장을 위해 **3계층 구조**를 사용합니다. 코
 | **설정 코어** | `src/config.rs` | 설정 구조체 추가 및 직렬화 정의 (Source of Truth) |
 | **CLI 설정 도구** | `unim-cli/src/main.rs` (`config` 서브커맨드) | `ConfigKey` enum, setter dispatch, `locales/*.yml` 반영 |
 | **DBus 서비스** | `unim-dbus/src/service.rs` | `get_config`/`set_config` 등 메서드 업데이트 |
-| **GUI 설정 창** | `unim-gui/src/settings_dialog.rs` | UI 체크박스, 스피너 등 위젯 바인딩 |
-| **GNOME Extension** | `unim-gnome-extension/prefs.js` | GNOME 기본 Preferences 페이지에 반영 |
+| **GUI 설정 창** | `unim-gui-gtk/src/settings_dialog.rs` | UI 슬라이더·스위치 위젯 바인딩 |
+| **GNOME Extension** | `unim-gnome-extension/prefs.js` | GNOME Shell 전용 설정 항목에만 추가 |
 
-새로운 설정 항목을 추가할 때는 `.agent/skills/add-setting/SKILL.md`를 참고하거나 위 목록을 체크리스트로 활용하세요.
+새로운 설정 항목을 추가할 때는 위 체크리스트를 활용하세요. **5지점 중 하나라도 누락되면 설정이 동기화되지 않습니다.**
+
+> GNOME Shell 의존 키(예: indicator 토글)만 `prefs.js` + `*.gschema.xml`도 함께 업데이트합니다. 그 외 일반 설정은 gschema에 추가하지 마세요.
 
 ## 🌿 브랜치 및 PR 워크플로
 
@@ -65,6 +71,30 @@ UNIM은 고성능과 확장을 위해 **3계층 구조**를 사용합니다. 코
    - 개발 계획(Implementation Plan), 작업 목록, Walkthrough 등의 기여 문서는 **한글** 작성을 기본으로 합니다.
    - 단, `git commit` 메시지는 `git-sync` 관례에 따라 **영문**으로 작성하는 것을 권장합니다 (예: `feat: Add Wayland popup support`).
 
+## 🤖 6매니저 하네스 (Claude Code 에이전트)
+
+이 프로젝트는 Claude Code 에이전트 6인 팀으로 작업을 분담합니다. `.claude/agents/` 디렉토리에 각 에이전트 정의가 있습니다.
+
+| 에이전트 | 역할 | 파일 |
+|---------|------|------|
+| **pm** | 작업 라우팅·계획·종합 | `pm.md` |
+| **source-manager** | 파일 구조·git·패키징·CHANGELOG | `source-manager.md` |
+| **engine-frontend-manager** | Rust 엔진·프론트엔드 구현 | `engine-frontend-manager.md` |
+| **ui-manager** | GTK/Qt UI·설정 다이얼로그 | `ui-manager.md` |
+| **doc-promo-manager** | 문서·릴리즈 노트·홍보 | `doc-promo-manager.md` |
+| **user-rep-reviewer** | 사용자 관점 리뷰·UX 검증 | `user-rep-reviewer.md` |
+
+**6지점 sync 체크리스트** (신기능·팝업 관련 변경 시):
+
+- [ ] `src/config.rs` — 설정 구조체
+- [ ] `unim-cli/src/main.rs` — ConfigKey enum
+- [ ] `unim-cli/locales/{ko,en}.yml` — CLI 라벨
+- [ ] `unim-dbus/src/service.rs` — DBus 디스패치
+- [ ] `unim-gui-gtk/src/settings_dialog.rs` — GUI 위젯
+- [ ] `docs/dev/specs/POPUP_SPEC.md` — 팝업 명세 (팝업 변경 시)
+- [ ] `unim-gnome-extension/popup_view.js` — GNOME 렌더러 (GNOME 팝업 변경 시)
+- [ ] `unim-popup-service/src/` — popup-service 렌더러 (팝업 변경 시)
+
 ## 🛠️ 개발 환경 설정 및 빌드
 
 소스 코드를 클론한 후 다음 명령어로 프로젝트를 빌드하고 테스트할 수 있습니다.
@@ -76,11 +106,26 @@ make build
 # Rust 유닛 테스트
 cargo test --workspace
 
+# Debian 패키지 빌드
+make deb
+
+# RPM 패키지 빌드
+make rpm
+
 # 포그라운드 데몬 테스트 실행
 UNIM_DEVELOP=1 target/debug/unim-daemon -n
+
+# popup-service 디버그 실행
+UNIM_DEVELOP=1 target/debug/unim-popup-service
 ```
 
 > **버그 디버깅 팁:**
-> 환경변수 `UNIM_DEVELOP=1`을 설정하면, 시스템 내 모든 모듈(프론트엔드, 데몬, CLI)에서 발생하는 상세 에러 로그가 `~/.unim-errors.log`에 통합 기록되어 쉽게 원인을 추적할 수 있습니다.
+> 환경변수 `UNIM_DEVELOP=1`을 설정하면, 시스템 내 모든 모듈(프론트엔드, 데몬, CLI, popup-service)에서 발생하는 상세 에러 로그가 `~/.unim-errors.log`에 통합 기록됩니다.
+>
+> popup-service DBus 연결 확인:
+>
+> ```bash
+> busctl --user introspect org.atit.unim.PopupService /org/atit/unim/Popup
+> ```
 
 저희의 목표와 철학에 공감해주셔서 감사합니다. 여러분의 멋진 PR(Pull Request)을 기다립니다!

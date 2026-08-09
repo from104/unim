@@ -520,6 +520,39 @@ gchar* unim_dbus_get_config(UnimDbusContext *ctx, const gchar *key);
  */
 guint unim_keycode_name_to_gdk_keyval(const gchar *name);
 
+/* 핫키 수정자 비트 — 엔진 `from_x11_mask` 비트 정렬과 동일하게 맞춘다.
+ * (immodule 의 DBus mod_state 변환과 같은 레이아웃이라 상호 비교가 가능하다) */
+#define UNIM_HOTKEY_MOD_SHIFT (1u << 0)
+#define UNIM_HOTKEY_MOD_CTRL  (1u << 2)
+#define UNIM_HOTKEY_MOD_ALT   (1u << 3)
+#define UNIM_HOTKEY_MOD_SUPER (1u << 6)
+
+/** 핫키 판정에 쓰는 수정자 비트 전체. CapsLock/NumLock 등 Lock 류는 제외한다 */
+#define UNIM_HOTKEY_MOD_MASK                                       \
+    (UNIM_HOTKEY_MOD_SHIFT | UNIM_HOTKEY_MOD_CTRL |                \
+     UNIM_HOTKEY_MOD_ALT | UNIM_HOTKEY_MOD_SUPER)
+
+/**
+ * 핫키 표기 문자열을 keyval + 요구 수정자 마스크로 파싱
+ *
+ * 문법은 엔진(src/input_engine)의 ATF 토글 핫키 문법 `[수정자+]*KeyName` 과
+ * 맞춘다. 수정자는 Ctrl/Control, Alt, Super/Win/Meta, Shift 이며 대소문자·순서
+ * 무관, 중복은 멱등. 마지막 토큰이 KeyName 으로
+ * unim_keycode_name_to_gdk_keyval() 로 변환된다 (예: "Shift+F9", "F9").
+ *
+ * 판정은 **정확-일치**다 — 여기서 지정하지 않은 수정자가 눌리면 불일치로 봐야
+ * 한다. 호출자는 UNIM_HOTKEY_MOD_MASK 로 마스킹한 현재 수정자 비트와
+ * *out_mods 를 == 비교하라.
+ *
+ * @param spec     핫키 표기 (예: "Shift+F9"). 앞뒤 공백 허용
+ * @param out_keyval 파싱된 GDK keyval 출력 (필수)
+ * @param out_mods   요구 수정자 비트(UNIM_HOTKEY_MOD_*) 출력 (필수)
+ * @return 성공 시 TRUE. 미지 수정자·미지/빈 KeyName 이면 FALSE (출력 미변경)
+ */
+gboolean unim_parse_hotkey_spec(const gchar *spec,
+                                guint *out_keyval,
+                                guint *out_mods);
+
 G_END_DECLS
 
 #endif /* UNIM_DBUS_CLIENT_H */

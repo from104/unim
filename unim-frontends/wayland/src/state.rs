@@ -13,6 +13,7 @@
 use std::os::fd::AsFd;
 use std::sync::mpsc as std_mpsc;
 use tokio::sync::mpsc;
+use unim::keycode::{UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
 use unim::unim_log;
 use wayland_client::{
     globals::GlobalListContents,
@@ -23,6 +24,7 @@ use wayland_client::{
     },
     Connection, Dispatch, QueueHandle, WEnum,
 };
+use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::ContentPurpose as WlContentPurpose;
 use wayland_protocols_misc::zwp_input_method_v2::client::{
     zwp_input_method_keyboard_grab_v2::{self, ZwpInputMethodKeyboardGrabV2},
     zwp_input_method_manager_v2::ZwpInputMethodManagerV2,
@@ -56,6 +58,14 @@ pub struct AppState {
     current_active: bool,
     grab_active: bool,
     keymap_init: bool,
+    /// 이번 더블버퍼 사이클에 수신한 ContentType 목적(UNIM ContentPurpose u32).
+    ///
+    /// text-input-v3 는 content_type 을 필드 목적이 기본이 아닐 때만 보낸다. 즉시
+    /// 송신하면 (a) FocusIn 보다 먼저 도달할 수 있고, (b) 비번 필드→목적 미송신 앱으로
+    /// 이동 시 Password 가 잔존한다. 그래서 이벤트는 여기 보관하고 Done(활성화 커밋)에서
+    /// FocusIn 뒤에 송신하되, 사이클에 ContentType 이 없었으면 Normal 을 명시 송신해
+    /// 잔존을 차단한다(fail-safe). 각 Done 에서 `take` 로 소비된다.
+    pending_content_purpose: Option<u32>,
 
     // 키 처리
     keymap_handler: KeymapHandler,
@@ -92,6 +102,7 @@ impl AppState {
             current_active: false,
             grab_active: false,
             keymap_init: false,
+            pending_content_purpose: None,
             keymap_handler: KeymapHandler::new(),
             last_preedit: String::new(),
             repeat_timer: RepeatTimer::new(),
@@ -141,11 +152,27 @@ impl AppState {
     }
 
     /// 키 이벤트를 DBus로 전송하고 결과 처리
-    fn process_key_via_dbus(&mut self, evdev_keycode: u32, time: u32, key_state_raw: u32) -> bool {
+    ///
+    /// `is_repeat`: 이 press 가 자체 합성한 키 반복(timerfd)인지 여부. Wayland 는
+    /// repeat 를 스스로 구분하므로 aware 프런트로서 `state` 상위 비트에
+    /// `UNIM_REPEAT_AWARE_MASK`(항상) + `UNIM_KEY_REPEAT_MASK`(반복 시)를 태깅한다.
+    /// 데몬은 `ignore_key_repeat` on 일 때만 이 비트로 억제를 판정한다(off 면 무손상).
+    fn process_key_via_dbus(
+        &mut self,
+        evdev_keycode: u32,
+        time: u32,
+        key_state_raw: u32,
+        is_repeat: bool,
+    ) -> bool {
         let keysym = self.keymap_handler.get_keysym(evdev_keycode);
         let mod_state = self.keymap_handler.mod_state;
-        // evdev keycode → hardware code (XKB 호환: +8)
-        let keycode = evdev_keycode + 8;
+        // 데몬 ProcessKey 의 keycode 는 **raw evdev** 다 (엔진 from_evdev_keycode
+        // 계약: 예 F9=67, A=30). wl_keyboard 는 이미 evdev 스캔코드를 주므로 그대로
+        // 보낸다. 종전에 XKB 호환이라며 +8(X11 하드웨어 코드)을 더했으나, 그러면
+        // from_evdev_keycode 가 엉뚱한 키로 해석해 **모든 키가 어긋났다**(GTK 는
+        // hardware_keycode-8 로 이미 raw evdev 를 보낸다). keysym 조회에만 raw
+        // evdev 가 쓰이고(위), +8 은 이 DBus 필드 외엔 미사용이라 안전한 정정.
+        let keycode = evdev_keycode;
 
         /* 팝업 키 처리는 엔진이 담당 (process_popup_key) */
 
@@ -159,7 +186,11 @@ impl AppState {
                 context_path: self.context_path.clone(),
                 keyval: keysym,
                 keycode,
-                state: mod_state,
+                // aware 태깅: AWARE 비트는 항상, REPEAT 비트는 자체 합성 반복일 때만.
+                // (모디파이어 파싱은 하위 비트만 소비하므로 상위 비트는 무손상)
+                state: mod_state
+                    | UNIM_REPEAT_AWARE_MASK
+                    | if is_repeat { UNIM_KEY_REPEAT_MASK } else { 0 },
                 response: Some(response_tx),
             })
             .is_err()
@@ -387,9 +418,9 @@ impl AppState {
             let key = *key;
             let _time = *wayland_time;
 
-            // 활성 상태에서만 키 반복 처리
+            // 활성 상태에서만 키 반복 처리 (자체 합성 반복 → is_repeat=true 태깅)
             if self.grab_active {
-                self.process_key_via_dbus(key, 0, KeyState::Pressed as u32);
+                self.process_key_via_dbus(key, 0, KeyState::Pressed as u32, true);
             }
         }
     }
@@ -540,16 +571,51 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                     state.grab_active = true;
                     state.current_active = true;
 
-                    // DBus FocusIn
+                    // DBus FocusIn — SetContentType 보다 먼저 보내 순서를 고정한다.
                     let _ = state.dbus_tx.blocking_send(DbusRequest::FocusIn {
                         context_path: state.context_path.clone(),
                         window_id: "unim-wayland".to_string(),
+                    });
+
+                    // 활성화 커밋: 이번 사이클에 ContentType 을 받았으면 그 목적을,
+                    // 못 받았으면 Normal 을 명시 송신한다. 후자가 비번 필드 → 목적
+                    // 미송신 앱 이동 시 Password 잔존을 차단하는 fail-safe.
+                    let purpose = state
+                        .pending_content_purpose
+                        .take()
+                        .unwrap_or(unim::config::ContentPurpose::Normal as u32);
+                    unim_log!("WAYLAND", "활성화 → SetContentType(purpose={})", purpose);
+                    let _ = state.dbus_tx.blocking_send(DbusRequest::SetContentType {
+                        context_path: state.context_path.clone(),
+                        purpose,
                     });
                 } else if should_deactivate {
                     unim_log!("WAYLAND", "Done → 비활성화 (serial={})", state.serial);
                     state.handle_deactivate();
                     state.grab_active = false;
                     state.current_active = false;
+                    // 비활성 사이클의 잔여 목적은 폐기(다음 활성화에서 새로 판정).
+                    state.pending_content_purpose = None;
+                    // Normal 명시 복귀 — 다른 5개 프런트엔드의 "필드 이탈 시
+                    // SetContentType(Normal)" 규약(SPEC §13.4)과 동일. 다음 활성화의
+                    // fail-safe 에만 의존하면 그 사이 엔진에 Password 가 잔존한다.
+                    let _ = state.dbus_tx.blocking_send(DbusRequest::SetContentType {
+                        context_path: state.context_path.clone(),
+                        purpose: unim::config::ContentPurpose::Normal as u32,
+                    });
+                } else if state.current_active {
+                    // 포커스 유지 중 목적 변경(mid-focus content_type 갱신) 반영.
+                    if let Some(purpose) = state.pending_content_purpose.take() {
+                        unim_log!(
+                            "WAYLAND",
+                            "목적 변경 → SetContentType(purpose={})",
+                            purpose
+                        );
+                        let _ = state.dbus_tx.blocking_send(DbusRequest::SetContentType {
+                            context_path: state.context_path.clone(),
+                            purpose,
+                        });
+                    }
                 }
 
                 // pending 상태 리셋
@@ -565,8 +631,25 @@ impl Dispatch<ZwpInputMethodV2, ()> for AppState {
                 // text change cause (현재 미사용)
             }
 
-            zwp_input_method_v2::Event::ContentType { .. } => {
-                // content type hint (현재 미사용)
+            zwp_input_method_v2::Event::ContentType { purpose, .. } => {
+                // 프로토콜 생성 enum(password/pin)만 매칭 → UNIM ContentPurpose 로 변환.
+                // 그 외 목적은 Normal 로 매핑한다. 즉시 송신하지 않고 pending 에 보관해
+                // Done(활성화 커밋)에서 FocusIn 뒤에 송신한다(순서 보장 + 미수신 시 잔존 차단).
+                let unim_purpose = match purpose {
+                    WEnum::Value(WlContentPurpose::Password) => {
+                        unim::config::ContentPurpose::Password as u32
+                    }
+                    WEnum::Value(WlContentPurpose::Pin) => {
+                        unim::config::ContentPurpose::Pin as u32
+                    }
+                    _ => unim::config::ContentPurpose::Normal as u32,
+                };
+                unim_log!(
+                    "WAYLAND",
+                    "ContentType 수신 → pending(purpose={})",
+                    unim_purpose
+                );
+                state.pending_content_purpose = Some(unim_purpose);
             }
 
             zwp_input_method_v2::Event::Unavailable => {
@@ -627,8 +710,9 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for AppState {
                 let is_pressed = matches!(key_state, WEnum::Value(KeyState::Pressed));
 
                 if is_pressed && state.grab_active {
-                    // 활성 상태에서 키 눌림 → DBus 엔진에 전달
-                    let consumed = state.process_key_via_dbus(key, time, KeyState::Pressed as u32);
+                    // 활성 상태에서 키 눌림 → DBus 엔진에 전달 (실제 press → is_repeat=false)
+                    let consumed =
+                        state.process_key_via_dbus(key, time, KeyState::Pressed as u32, false);
 
                     if consumed {
                         // 소비된 키 → 키 반복 시작

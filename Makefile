@@ -55,16 +55,26 @@ endef
 
 # ─── Phony ───────────────────────────────────────────────────────────────────
 
-.PHONY: all help build build-rust build-frontends build-tests clean clean-all \
+.PHONY: all help build build-rust build-frontends build-tests clean clean-all xim-fork-diff \
+        test-apps test-app test-apps-list \
         gen-popup-css gen-popup-css-check \
+        help-html check-help-html \
         _check-build \
-        install install-core install-frontends install-icons install-gui-gtk install-gui-qt \
+        install install-core install-frontends install-icons \
+        install-indicator install-settings-gtk install-settings install-popup-service \
+        install-keymap-studio install-typing-practice \
         install-gnome-extension install-extension install-systemd \
-        uninstall uninstall-core uninstall-frontends uninstall-icons uninstall-gui-gtk uninstall-gui-qt \
+        uninstall uninstall-core uninstall-frontends uninstall-icons \
+        uninstall-indicator uninstall-settings-gtk uninstall-settings uninstall-popup-service \
+        uninstall-keymap-studio uninstall-typing-practice \
         uninstall-gnome-extension uninstall-extension uninstall-systemd \
         enable-systemd disable-systemd status-systemd \
         gnome-extension pack enable-gnome-extension disable-gnome-extension log-gnome-extension \
-        deb clean-deb test test-dbus dev-restart \
+        deb clean-deb rpm clean-rpm test test-dbus dev-restart \
+        dev-gtk3 dev-gtk4 dev-qt5 dev-qt6 dev-core dev-daemon dev-xim dev-wayland \
+        dev-indicator dev-settings dev-popup-service dev-extension \
+        dev-keymap-studio dev-typing-practice \
+        build-keymap-studio build-typing-practice \
         check-windows build-windows clean-windows
 
 # ─── Help ────────────────────────────────────────────────────────────────────
@@ -83,11 +93,12 @@ help:
 	@echo "  test-{gtk3,gtk4,qt5,qt6,xim,gnome,wayland,dbus}"
 	@echo "  sandbox-{gtk3,gtk4,qt5,qt6,xim,indicator}"
 	@echo ""
-	@echo "  dev-{gtk3,gtk4,qt5,qt6,core,daemon,xim,wayland,gui-gtk,gui-qt,extension,restart}"
+	@echo "  dev-{gtk3,gtk4,qt5,qt6,core,daemon,xim,wayland,indicator,settings,popup-service,extension,restart}"
 	@echo ""
 	@echo "  check-windows / build-windows / clean-windows  (WIN_TARGET=...)"
 	@echo "  install-gnome-extension / uninstall-gnome-extension / pack"
 	@echo "  install-systemd / enable-systemd / disable-systemd / status-systemd"
+	@echo "  help-html          Regenerate help/unim-help-{ko,en}.html from docs/user/"
 	@echo "  deb / clean / clean-all"
 
 # ─── Build ───────────────────────────────────────────────────────────────────
@@ -107,9 +118,60 @@ gen-popup-css:
 gen-popup-css-check:
 	@python3 tools/popup-styles/gen.py --check
 
+# xim 크레이트 포크가 원본에서 얼마나 벌어져 있는지 확인한다.
+# 배경·상류 복귀 절차는 third_party/xim/UNIM-FORK.md 참조.
+xim-fork-diff:
+	@if [ ! -d third_party/.xim-pristine ]; then \
+		echo "third_party/.xim-pristine 가 없다 — 원본 사본이 있어야 비교할 수 있다."; exit 1; \
+	fi
+	@diff -ruN --exclude=unim-patches --exclude=UNIM-FORK.md \
+		third_party/.xim-pristine third_party/xim \
+		| grep -E "^(diff|Only in)" || echo "원본과 동일 — 포크할 이유가 없다면 지워도 된다."
+	@echo "── 변경 줄수: $$(diff -ruN --exclude=unim-patches --exclude=UNIM-FORK.md \
+		third_party/.xim-pristine third_party/xim | grep -c '^[+-][^+-]')"
+	@echo "── 포크 적용 여부: $$(grep -A2 '^name = \"xim\"$$' Cargo.lock | grep -q '^source' \
+		&& echo '꺼짐 (crates.io 원본 사용)' || echo '켜짐 (third_party/xim 사용)')"
+
+# 오프라인 도움말 — docs/user/{user-guide,keyboard-shortcuts,faq,troubleshooting}/
+# 의 마크다운 8종을 **플랫폼 × 언어** 4장의 자족 HTML 로 병합한다.
+#   help/unim-help-{ko,en}.html          ← 리눅스 판 (deb/rpm)
+#   help/windows/unim-help-{ko,en}.html  ← 윈도우 판 (MSI)
+# 판 갈림은 본문의 `<!-- @platform:... -->` 마커가 결정한다(tools/gen-help 모듈 문서).
+# 산출물은 저장소에 커밋한다: 패키징은 파일 복사만 하므로 deb/rpm/MSI 에 이
+# 생성기 의존성이 들어가지 않는다.
+help-html:
+	@echo "📖 Generating offline help HTML from docs/user/..."
+	@$(CARGO) run --release -q -p unim-gen-help -- --root . --out help
+
+# CI guard — docs/user/**.md 를 고치고 재생성을 잊은 커밋을 잡는다.
+# 추적 중인 파일의 변경(git diff)과 **새로 생긴 파일**(untracked)을 둘 다 본다.
+# git diff 는 untracked 를 보고하지 않아, 판이 하나 늘었을 때 그 파일이 커밋에서
+# 통째로 빠져도 가드가 조용히 통과하는 구멍이 있었다.
+check-help-html: help-html
+	@if ! git diff --exit-code -- help/; then \
+		echo ""; \
+		echo "❌ help/ 산출물이 docs/user/ 와 어긋났다."; \
+		echo "   → make help-html 실행 후 help/ 변경분을 함께 커밋할 것."; \
+		exit 1; \
+	fi
+	@untracked=$$(git ls-files --others --exclude-standard -- help/); \
+	if [ -n "$$untracked" ]; then \
+		echo "❌ help/ 에 커밋되지 않은 신규 산출물이 있다:"; \
+		echo "$$untracked" | sed 's/^/     /'; \
+		echo "   → git add 로 함께 커밋할 것."; \
+		exit 1; \
+	fi
+	@echo "✅ help/ 산출물이 docs/user/ 와 일치한다."
+
 build-rust:
 	@echo "🔨 Building Rust workspace..."
-	@$(CARGO) build --release --workspace
+	# UNIM_DATADIR: unim-settings/build.rs 와 unim-gui-common/build.rs 가 이 값을
+	# 읽어 도움말 HTML 설치 경로를 컴파일 타임에 주입한다(전자는 설정앱, 후자는
+	# 트레이·인디케이터의 경로 해석기). 미전달이어도 런타임 후보(③ /usr/share →
+	# ④ /usr/local/share → ⑤ 실행 파일 조상의 help/)가 받아내지만, 비표준
+	# PREFIX(/opt/unim 등)에서는 주입이 없으면 도움말을 찾지 못한다. 두 크레이트가
+	# 모두 읽으므로 워크스페이스 빌드 전체에 넘긴다.
+	@UNIM_DATADIR=$(DATADIR) $(CARGO) build --release --workspace
 
 build-frontends: build-rust
 	@echo "🔨 Building IM Frontends..."
@@ -120,7 +182,7 @@ build-frontends: build-rust
 
 # ─── Install ─────────────────────────────────────────────────────────────────
 
-install: _check-build install-core install-gui-gtk install-gui-qt install-frontends install-icons install-gnome-extension
+install: _check-build install-core install-indicator install-settings-gtk install-settings install-popup-service install-keymap-studio install-typing-practice install-frontends install-icons install-gnome-extension
 	@echo "✅ UNIM 설치 완료! (PREFIX=$(PREFIX))"
 
 # 빌드 산출물 존재 여부 확인 (sudo make install 시 빌드를 root로 실행하는 것을 방지)
@@ -133,7 +195,8 @@ _check-build:
 install-core:
 	@echo "Installing core components..."
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(REAL_LIBDIR) $(DESTDIR)$(LIBEXECDIR) \
-	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
+	           $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(IM_CONFIG_DATA_DIR) $(DESTDIR)$(DBUS_SERVICES_DIR) \
+	           $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
 	install -m 755 target/release/libunim_capi.so $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0.1.0
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so.0
 	ln -sf libunim_capi.so.0.1.0 $(DESTDIR)$(REAL_LIBDIR)/libunim_capi.so
@@ -143,8 +206,19 @@ install-core:
 	install -m 644 im-config/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" im-config/25_unim.rc > $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc && chmod 644 $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc
 	sed "s|@LIBEXECDIR@|$(LIBEXECDIR)|g" scripts/org.atit.unim.InputMethod.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service
+	# 비-GNOME 데스크톱(KDE/XFCE/LXDE) 부팅 시 daemon 자동 시작.
+	# GNOME 은 gnome-shell 이 직접 daemon 을 DBus 자동활성하므로 NotShowIn=GNOME 으로 제외.
+	# daemon 이 살아있어야 popup-service kickstart 도 동작.
+	install -m 644 unim-daemon/data/unim-daemon.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
-	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 docs/man/unim-gui-gtk.1 docs/man/unim-gui-qt.1 $(DESTDIR)$(PREFIX)/share/man/man1/
+	install -m 644 docs/man/unim.1 docs/man/unim-cli.1 \
+	               docs/man/unim-indicator.1 docs/man/unim-settings-gtk.1 docs/man/unim-settings.1 docs/man/unim-popup-service.1 \
+	               $(DESTDIR)$(PREFIX)/share/man/man1/
+	# 오프라인 도움말 HTML(ko/en). 저장소에 사전 생성·커밋된 산출물을 그대로 설치한다
+	# (생성기 tools/gen-help 는 개발 도구라 어떤 패키지의 빌드 의존성도 아니다).
+	# 트레이·GNOME 확장 양쪽이 이 경로를 참조하므로 unim-common 에 담는다.
+	install -d $(DESTDIR)$(DATADIR)/unim/help
+	install -m 644 help/unim-help-ko.html help/unim-help-en.html $(DESTDIR)$(DATADIR)/unim/help/
 
 install-frontends:
 	@echo "Installing IM modules..."
@@ -158,19 +232,54 @@ install-frontends:
 install-icons:
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -m 644 data/icons/unim-korean.svg data/icons/unim-english.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 data/icons/io.github.from104.unim.Settings.svg data/icons/io.github.from104.unim.Indicator.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
 
-install-gui-gtk:
+install-indicator:
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
-	-install -m 755 target/release/unim-gui-gtk $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
-	-install -m 644 unim-gui-gtk/data/unim-gui-gtk.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/ 2>/dev/null || true
+	install -m 755 target/release/unim-indicator $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-indicator/data/io.github.from104.unim.Indicator.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
 
-install-gui-qt:
-	install -d $(DESTDIR)$(BINDIR)
-	-install -m 755 target/release/unim-gui-qt $(DESTDIR)$(BINDIR)/ 2>/dev/null || true
+install-settings-gtk:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications
+	install -m 755 target/release/unim-settings-gtk $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-settings-gtk/data/io.github.from104.unim.Settings.desktop $(DESTDIR)$(DATADIR)/applications/
+
+# Slint 크로스플랫폼 설정앱 + 첫 실행 마법사 autostart (unim-settings 패키지).
+# 아이콘은 동일 아트웍(Settings.svg)을 SettingsSlint app-id 로 복제.
+install-settings:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications \
+	           $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps \
+	           $(DESTDIR)$(SYSCONFDIR)/xdg/autostart
+	install -m 755 target/release/unim-settings $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-settings/data/io.github.from104.unim.SettingsSlint.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 unim-settings/data/io.github.from104.unim.FirstRun.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/
+	install -m 644 data/icons/io.github.from104.unim.Settings.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.SettingsSlint.svg
+
+install-popup-service:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DBUS_SERVICES_DIR)
+	install -m 755 target/release/unim-popup-service $(DESTDIR)$(BINDIR)/
+	# D-Bus auto-activation — daemon 이 PopupService 호출 시 자동 launching.
+	# .xdg/autostart 의존 race(daemon 미준비 시 register_frontend NoReply 에서 stuck)
+	# 를 회피한다. unim-daemon InputMethod.service 와 동일 패턴.
+	sed "s|@BINDIR@|$(BINDIR)|g" scripts/org.atit.unim.PopupService.service > $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service && chmod 644 $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service
+
+install-keymap-studio:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps $(DESTDIR)$(PREFIX)/share/man/man1
+	install -m 755 target/release/unim-keymap-studio $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-keymap-studio/data/io.github.from104.unim.KeymapStudio.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 data/icons/io.github.from104.unim.KeymapStudio.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 docs/man/unim-keymap-studio.1 $(DESTDIR)$(PREFIX)/share/man/man1/
+
+install-typing-practice:
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(DATADIR)/applications $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps $(DESTDIR)$(PREFIX)/share/man/man1
+	install -m 755 target/release/unim-typing-practice $(DESTDIR)$(BINDIR)/
+	install -m 644 unim-typing-practice/data/io.github.from104.unim.TypingPractice.desktop $(DESTDIR)$(DATADIR)/applications/
+	install -m 644 data/icons/io.github.from104.unim.TypingPractice.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/
+	install -m 644 docs/man/unim-typing-practice.1 $(DESTDIR)$(PREFIX)/share/man/man1/
 
 # ─── Uninstall ───────────────────────────────────────────────────────────────
 
-uninstall: uninstall-core uninstall-gui-gtk uninstall-gui-qt uninstall-frontends uninstall-icons uninstall-gnome-extension
+uninstall: uninstall-core uninstall-indicator uninstall-settings-gtk uninstall-settings uninstall-popup-service uninstall-keymap-studio uninstall-typing-practice uninstall-frontends uninstall-icons uninstall-gnome-extension
 	@echo "✅ UNIM 제거 완료!"
 
 uninstall-core:
@@ -179,7 +288,16 @@ uninstall-core:
 	      $(DESTDIR)$(LIBEXECDIR)/unim-daemon $(DESTDIR)$(LIBEXECDIR)/unim-xim $(DESTDIR)$(LIBEXECDIR)/unim-wayland \
 	      $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.conf $(DESTDIR)$(IM_CONFIG_DATA_DIR)/25_unim.rc \
 	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.InputMethod.service \
-	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-daemon.desktop \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-cli.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-indicator.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings-gtk.1 \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-popup-service.1 \
+	      $(DESTDIR)$(DATADIR)/unim/help/unim-help-ko.html \
+	      $(DESTDIR)$(DATADIR)/unim/help/unim-help-en.html
+	# 도움말 전용 디렉터리는 비었을 때만 정리 (rmdir 은 비어있지 않으면 실패 → 무해).
+	rmdir $(DESTDIR)$(DATADIR)/unim/help $(DESTDIR)$(DATADIR)/unim 2>/dev/null || true
 
 uninstall-frontends:
 	rm -f $(DESTDIR)$(GTK3_IMMODULE_DIR)/im-unim.so $(DESTDIR)$(GTK4_IMMODULE_DIR)/libim-unim.so \
@@ -187,13 +305,41 @@ uninstall-frontends:
 
 uninstall-icons:
 	rm -f $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-korean.svg \
-	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/unim-english.svg \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.Settings.svg \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.Indicator.svg
 
-uninstall-gui-gtk:
-	rm -f $(DESTDIR)$(BINDIR)/unim-gui-gtk $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-gui-gtk.desktop
+uninstall-indicator:
+	rm -f $(DESTDIR)$(BINDIR)/unim-indicator \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/io.github.from104.unim.Indicator.desktop
 
-uninstall-gui-qt:
-	rm -f $(DESTDIR)$(BINDIR)/unim-gui-qt
+uninstall-settings-gtk:
+	rm -f $(DESTDIR)$(BINDIR)/unim-settings-gtk \
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.Settings.desktop
+
+uninstall-settings:
+	rm -f $(DESTDIR)$(BINDIR)/unim-settings \
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.SettingsSlint.desktop \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/io.github.from104.unim.FirstRun.desktop \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.SettingsSlint.svg \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-settings.1
+
+uninstall-popup-service:
+	rm -f $(DESTDIR)$(BINDIR)/unim-popup-service \
+	      $(DESTDIR)$(DBUS_SERVICES_DIR)/org.atit.unim.PopupService.service \
+	      $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/unim-popup-service.desktop
+
+uninstall-keymap-studio:
+	rm -f $(DESTDIR)$(BINDIR)/unim-keymap-studio \
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.KeymapStudio.desktop \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.KeymapStudio.svg \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-keymap-studio.1
+
+uninstall-typing-practice:
+	rm -f $(DESTDIR)$(BINDIR)/unim-typing-practice \
+	      $(DESTDIR)$(DATADIR)/applications/io.github.from104.unim.TypingPractice.desktop \
+	      $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps/io.github.from104.unim.TypingPractice.svg \
+	      $(DESTDIR)$(PREFIX)/share/man/man1/unim-typing-practice.1
 
 # ─── Systemd ─────────────────────────────────────────────────────────────────
 
@@ -221,14 +367,26 @@ status-systemd:
 
 gnome-extension:
 	@mkdir -p unim-gnome-extension/icons
-	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/ 2>/dev/null \
+	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg data/icons/unim-disabled.svg unim-gnome-extension/icons/ 2>/dev/null \
 		|| (sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/icons/ && \
-		    cp -f data/icons/unim-korean.svg data/icons/unim-english.svg unim-gnome-extension/icons/)
+		    cp -f data/icons/unim-korean.svg data/icons/unim-english.svg data/icons/unim-disabled.svg unim-gnome-extension/icons/)
+	@# schemas/ may be root-owned from a previous sudo install — reclaim before glib-compile.
+	@if [ -d unim-gnome-extension/schemas ] && [ ! -w unim-gnome-extension/schemas ]; then \
+		sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/schemas; \
+	fi
 	@glib-compile-schemas unim-gnome-extension/schemas 2>/dev/null || true
+	@# locale/ likewise — reclaim ownership before msgfmt writes .mo files.
+	@if [ -d unim-gnome-extension/locale ] && [ ! -w unim-gnome-extension/locale ]; then \
+		sudo chown -R $(shell id -u):$(shell id -g) unim-gnome-extension/locale; \
+	fi
 	@if command -v msgfmt >/dev/null 2>&1; then \
 		for po in unim-gnome-extension/po/*.po; do \
 			lang=$$(basename $$po .po); \
 			mkdir -p unim-gnome-extension/locale/$$lang/LC_MESSAGES; \
+			if [ -e unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo ] && \
+			   [ ! -w unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo ]; then \
+				sudo chown $(shell id -u):$(shell id -g) unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo; \
+			fi; \
 			msgfmt $$po -o unim-gnome-extension/locale/$$lang/LC_MESSAGES/$(UUID).mo; \
 		done; \
 	fi
@@ -272,18 +430,56 @@ clean-deb:
 	@rm -rf $(DEB_DIR)
 	@rm -f ../*.deb ../*.ddeb ../unim*.changes ../unim*.buildinfo ../unim*.tar.gz ../unim*.dsc
 
-# ─── Windows (native / cross-compile) ────────────────────────────────────────
-# 호스트가 Windows면 네이티브 빌드, Linux/mac이면 cross-compile.
-# WIN_TARGET 을 명시하면 해당 트리플 사용. 미지정 시 rustup 설치된 windows
-# 트리플 중 첫 번째(알파벳순으로 gnu 우선)를 자동 선택.
+# ─── RPM ─────────────────────────────────────────────────────────────────────
+
+RPM_VERSION := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+RPM_TOPDIR  := $(CURDIR)/rpm/build
+
+rpm: _check-build
+	@echo "  → Preparing RPM source tarball..."
+	@mkdir -p $(RPM_TOPDIR)/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+	@git archive --format=tar.gz --prefix=unim-$(RPM_VERSION)/ HEAD \
+	    -o $(RPM_TOPDIR)/SOURCES/unim-$(RPM_VERSION).tar.gz
+	@cp rpm/unim.spec $(RPM_TOPDIR)/SPECS/unim.spec
+	@echo "  → Running rpmbuild..."
+	@rpmbuild --define "_topdir $(RPM_TOPDIR)" -ba $(RPM_TOPDIR)/SPECS/unim.spec
+	@echo "✅ RPM packages: $(RPM_TOPDIR)/RPMS/" && find $(RPM_TOPDIR)/RPMS -name '*.rpm' | sort
+
+clean-rpm:
+	@rm -rf $(RPM_TOPDIR)
+	@echo "✅ RPM build directory cleaned"
+
+# ─── Windows (native / cross-compile + MSI 가이드) ───────────────────────────
+# 정도(正道) 빌드 경로:
+#   1) 실제 배포용 MSI 는 GitHub Actions (windows-2022 + MSVC + WiX 3.x) 산출물.
+#      Workflow:  .github/workflows/windows-msi.yml
+#      Artifact:  unim-<version>-x64-msi
+#   2) 로컬 (Linux 호스트) 타깃은 sanity check 전용 — cargo check / cargo build
+#      로 cross-compile 가능 여부만 검증한다. Linux 산출물은 MSI 로 패키징하지
+#      말 것. mingw GNU ABI 의 windows-rs COM vtable 정합성을 보장할 수 없다.
 #
-# 사전 준비 (Linux cross-compile):
-#   rustup target add x86_64-pc-windows-gnu       # mingw (권장)
+# Sanity 사전 준비 (Linux cross-compile):
+#   rustup target add x86_64-pc-windows-gnu       # mingw (sanity 권장)
 #   sudo apt install mingw-w64                    # gnu 타겟용 linker
 #   # 또는
-#   rustup target add x86_64-pc-windows-msvc      # msvc (lld linker 필요)
+#   rustup target add x86_64-pc-windows-msvc      # msvc (lld 필요, sanity 한정)
 
-WIN_CRATES := -p unim -p unim-capi -p unim-windows -p unim-tsf
+# WIN_CRATES — 로컬(Linux 호스트) sanity 검증 대상 크레이트.
+#
+# unim-settings 는 일부러 제외한다: Slint 를 renderer-skia 로 고정(unim-settings/Cargo.toml)
+# 했고 skia-bindings 는 Windows 타깃 빌드에 MSVC 툴체인을 요구해서, mingw GNU cross 로는
+# 구조적으로 빌드되지 않는다(로컬 실측 확인 — 억지 우회 금지).
+# 대신 CI 가 MSVC 러너에서 검증한다:
+#   .github/workflows/windows-msi.yml
+#     · "cargo check (Windows crates, MSVC target)" → -p unim-settings 포함
+#     · "cargo build (release, MSI payloads)"       → unim-settings.exe 산출
+#   PR paths 필터에도 unim-settings/** 가 있어 설정앱 변경은 반드시 이 워크플로를 탄다.
+# ⇒ `make check-windows` 통과는 "설정앱까지 검증됨" 을 뜻하지 않는다.
+# unim-cli·unim-dbus 도 포함한다. CLI 는 cfg 게이트 없이 플랫폼 중립이고 config
+# 경로도 코어가 %APPDATA% 로 분기하므로, Windows 에서 변환·config 서브커맨드가
+# 그대로 동작한다(trigger·daemon 은 데몬이 없어 런타임 미지원). 여기에 넣어 두면
+# 리눅스 전용 API 가 새로 섞여 들어올 때 즉시 잡힌다.
+WIN_CRATES := -p unim -p unim-capi -p unim-tsf -p unim-imm32 -p unim-dbus -p unim-cli
 
 ifeq ($(OS),Windows_NT)
     WIN_NATIVE  := 1
@@ -316,10 +512,15 @@ check-windows:
 	@echo "🔍 Windows 컴파일 검증 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
 	$(_check_windows_env)
 	@$(CARGO) check $(WIN_CARGO_FLAGS) $(WIN_CRATES)
-	@echo "✅ Windows check 통과"
+	@echo "✅ Windows check 통과 (sanity: $(WIN_CRATES))"
+	@echo "ℹ️  unim-settings(Slint/skia)는 로컬 cross 검증 불가 — MSVC CI(windows-msi.yml)가 담당."
 
 build-windows:
-	@echo "🔨 Windows 빌드 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
+	@echo "🔨 Windows sanity 빌드 ($(if $(WIN_NATIVE),native,$(if $(WIN_TARGET),cross: $(WIN_TARGET),no-target)))..."
+	@if [ -z "$(WIN_NATIVE)" ]; then \
+		echo "⚠️  로컬 (Linux) 빌드는 sanity 전용. 배포용 MSI 는 GitHub Actions windows-msi.yml 에서만 빌드한다."; \
+		echo "ℹ️  unim-settings 는 이 목록에 없다 — MSVC CI 가 빌드·검증한다."; \
+	fi
 	$(_check_windows_env)
 	@$(CARGO) build --release $(WIN_CARGO_FLAGS) $(WIN_CRATES)
 	@echo "✅ Windows 빌드 완료: $(WIN_OUT_DIR)/"
@@ -327,7 +528,29 @@ build-windows:
 
 clean-windows:
 	@rm -rf target/x86_64-pc-windows-gnu target/x86_64-pc-windows-msvc
+	@rm -rf dist
 	@echo "✅ Windows target 디렉토리 정리 완료"
+
+# globals.rs → installer/wix/generated/guids.wxi 단일 진실원 동기화
+wxi-guids:
+	@bash installer/wix/gen-guids.sh
+
+# wxi 가 globals.rs 와 동기화돼 있는지 검사 (CI 와 동일)
+check-wxi-guids:
+	@bash installer/wix/gen-guids.sh >/dev/null
+	@if ! git diff --exit-code installer/wix/generated/guids.wxi >/dev/null 2>&1; then \
+		echo "❌ installer/wix/generated/guids.wxi 가 unim-tsf/src/globals.rs 와 어긋남."; \
+		echo "   make wxi-guids 실행 후 커밋."; \
+		exit 1; \
+	fi
+	@echo "✅ wxi GUID/version 동기화"
+
+msi:
+	@echo "ℹ️  배포용 MSI 는 GitHub Actions (.github/workflows/windows-msi.yml) 에서 빌드."
+	@echo "   - 로컬 Linux 호스트의 wixl 빌드는 폐기되었다 (P0: 토큰 치환 미흡, mingw ABI 불일치)."
+	@echo "   - PR 트리거 또는 workflow_dispatch 로 실행 → Artifact 'unim-<version>-x64-msi' 다운로드."
+	@echo "   - 로컬 sanity 만 필요하면: make wxi-guids && make check-windows"
+	@exit 0
 
 # ─── Test & Verification ─────────────────────────────────────────────────────
 
@@ -338,7 +561,7 @@ test:
 	          $(QT5_PLUGIN_DIR)/libunim.so $(QT6_PLUGIN_DIR)/libunim.so; do \
 		printf "  %-55s %s\n" "$$f" "$$([ -f $(DESTDIR)$$f ] && echo '✓' || echo '✗')"; \
 	done
-	@for cmd in unim-cli unim-gui-gtk; do \
+	@for cmd in unim-cli unim-indicator unim-settings-gtk unim-popup-service; do \
 		printf "  %-55s %s\n" "$(BINDIR)/$$cmd" "$$([ -f $(DESTDIR)$(BINDIR)/$$cmd ] && echo '✓' || echo '✗')"; \
 	done
 	@for cmd in unim-daemon unim-xim unim-wayland; do \
@@ -346,10 +569,17 @@ test:
 	done
 
 # CMake-based test apps (static pattern rule) — 빌드 후 바로 실행
-test-gtk3 test-gtk4 test-qt5 test-qt6 test-xim test-gnome: test-%:
+test-gtk3 test-gtk4 test-xim test-gnome: test-%:
 	$(call cmake_build,tests/unim-test-$*,$* test app)
 	@echo "🚀 Launching unim-test-$* ..."
 	@./tests/unim-test-$*/build/unim-test-$* &
+
+# Qt5·Qt6 는 소스 한 벌(tests/unim-test-qt)에서 바이너리 두 개가 나온다.
+# 디렉토리 이름과 바이너리 이름이 다르므로 위 패턴에 넣을 수 없다.
+test-qt5 test-qt6: test-%:
+	$(call cmake_build,tests/unim-test-qt,Qt5/Qt6 test app)
+	@echo "🚀 Launching unim-test-$* ..."
+	@./tests/unim-test-qt/build/unim-test-$* &
 
 test-wayland: build-rust
 	@$(CARGO) build --release -p unim-test-wayland
@@ -366,12 +596,26 @@ test-dbus: build-rust
 build-tests: build-frontends
 	$(call cmake_build,tests/unim-test-gtk3,GTK3 Test App)
 	$(call cmake_build,tests/unim-test-gtk4,GTK4 Test App)
-	$(call cmake_build,tests/unim-test-qt5,Qt5 Test App)
-	$(call cmake_build,tests/unim-test-qt6,Qt6 Test App)
+	$(call cmake_build,tests/unim-test-qt,Qt5/Qt6 Test App)
 	$(call cmake_build,tests/unim-test-xim,XIM Test App)
 	$(call cmake_build,tests/unim-test-gnome,GNOME Test App)
 	@$(CARGO) build --release -p unim-test-wayland
 	@echo "✅ 모든 테스트 앱 빌드 완료!"
+
+# ─── 테스트 앱 자동시험 (XTEST 로 실제 키를 넣는다) ─────────────────────────
+#
+# 판정 기준은 앱이 남긴 `field.render` — 화면에 실제로 나타나는 문자열이다.
+# 데몬 스모크(`--auto`, `smoke-test`)와 달리 툴킷·IM 모듈 경로를 전부 탄다.
+# 설계: docs/dev/testing/TEST_APPS.md
+
+test-apps: build-tests
+	@./tests/harness/run.py --all
+
+test-app: build-tests
+	@./tests/harness/run.py --app $(APP)
+
+test-apps-list:
+	@./tests/harness/run.py --list
 
 # ─── Sandbox (Xephyr) ────────────────────────────────────────────────────────
 
@@ -393,7 +637,7 @@ clean:
 	@rm -rf unim-frontends/gtk3/build unim-frontends/gtk4/build \
 	        unim-frontends/qt5/build unim-frontends/qt6/build
 	@rm -rf tests/unim-test-gtk3/build tests/unim-test-gtk4/build \
-	        tests/unim-test-qt5/build tests/unim-test-qt6/build \
+	        tests/unim-test-qt/build \
 	        tests/unim-test-xim/build tests/unim-test-gnome/build
 
 clean-all: clean clean-deb
@@ -455,19 +699,38 @@ dev-wayland:
 	@sudo cp target/release/unim-wayland $(DEV_LIBEXECDIR)
 	@echo "✅ Wayland IM 배포 완료!"
 
-dev-gui-gtk:
-	@$(CARGO) build --release -p unim-gui-gtk
-	@pkill -9 -x unim-gui-gtk 2>/dev/null || true
+dev-indicator:
+	@$(CARGO) build --release -p unim-indicator
+	@pkill -9 -x unim-indicator 2>/dev/null || true
 	@sleep 0.5
-	@sudo cp target/release/unim-gui-gtk $(DEV_BINDIR)/
-	@echo "✅ unim-gui-gtk 배포 완료!"
+	@sudo cp target/release/unim-indicator $(DEV_BINDIR)/
+	@echo "✅ unim-indicator 배포 완료!"
 
-dev-gui-qt:
-	@$(CARGO) build --release -p unim-gui-qt
-	@pkill -9 -x unim-gui-qt 2>/dev/null || true
+dev-settings:
+	@$(CARGO) build --release -p unim-settings-gtk
+	@pkill -9 -f unim-settings-gtk 2>/dev/null || true
 	@sleep 0.5
-	@sudo cp target/release/unim-gui-qt $(DEV_BINDIR)/
-	@echo "✅ unim-gui-qt 배포 완료!"
+	@sudo cp target/release/unim-settings-gtk $(DEV_BINDIR)/
+	@echo "✅ unim-settings-gtk 배포 완료!"
+
+dev-popup-service:
+	@$(CARGO) build --release -p unim-popup-service
+	@pkill -9 -x unim-popup-service 2>/dev/null || true
+	@sleep 0.5
+	@sudo cp target/release/unim-popup-service $(DEV_BINDIR)/
+	@echo "✅ unim-popup-service 배포 완료!"
+
+dev-keymap-studio:
+	@$(CARGO) run -p unim-keymap-studio
+
+dev-typing-practice:
+	@$(CARGO) run -p unim-typing-practice
+
+build-keymap-studio:
+	@$(CARGO) build --release -p unim-keymap-studio
+
+build-typing-practice:
+	@$(CARGO) build --release -p unim-typing-practice
 
 dev-extension:
 	@mkdir -p ~/.local/share/gnome-shell/extensions/$(UUID)/schemas
@@ -477,15 +740,15 @@ dev-extension:
 		~/.local/share/gnome-shell/extensions/$(UUID)/
 	@cp -f unim-gnome-extension/schemas/*.xml \
 		~/.local/share/gnome-shell/extensions/$(UUID)/schemas/ 2>/dev/null || true
-	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg \
+	@cp -f data/icons/unim-korean.svg data/icons/unim-english.svg data/icons/unim-disabled.svg \
 		~/.local/share/gnome-shell/extensions/$(UUID)/icons/ 2>/dev/null || true
 	@glib-compile-schemas ~/.local/share/gnome-shell/extensions/$(UUID)/schemas 2>/dev/null || true
 	@echo "✅ Extension 배포 완료! GNOME Shell 재시작 필요 (로그아웃→로그인)."
 
 dev-restart:
 	@pkill -9 -x unim-daemon 2>/dev/null; pkill -9 -x unim-xim 2>/dev/null; \
-	 pkill -9 -x unim-wayland 2>/dev/null; pkill -9 -x unim-gui-gtk 2>/dev/null; \
-	 pkill -9 -x unim-gui-qt 2>/dev/null; sleep 1
+	 pkill -9 -x unim-wayland 2>/dev/null; pkill -9 -x unim-indicator 2>/dev/null; \
+	 pkill -9 -f unim-settings-gtk 2>/dev/null; pkill -9 -x unim-popup-service 2>/dev/null; sleep 1
 	@UNIM_DEVELOP=1 $(DEV_LIBEXECDIR)unim-daemon -n --replace &
 	@sleep 1
 	@echo "✅ 모든 UNIM 프로세스 재시작 완료!"

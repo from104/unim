@@ -6,12 +6,75 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <glob.h>
+#include <glib/gstdio.h>
 
 #define DBUS_NAME    "org.atit.unim.InputMethod"
 #define DBUS_IM_PATH "/org/atit/unim/InputMethod"
 #define DBUS_IM_IFACE "org.atit.unim.InputMethod"
 #define DBUS_IC_IFACE "org.atit.unim.InputContext"
 #define DBUS_TIMEOUT  3000
+
+/* 현재 세션·날짜에 해당하는 모든 프로세스 로그 파일을 매칭하는 glob 패턴.
+ *   ~/.unim-log/{session-tag}_{YYYY-MM-DD}_*.log
+ * 반환값은 g_free 로 해제. 실패 시 NULL.
+ */
+static gchar *unim_test_log_glob_pattern(void) {
+    const gchar *home = g_get_home_dir();
+    if (!home) return NULL;
+
+    gchar *log_dir = g_build_filename(home, ".unim-log", NULL);
+    g_mkdir_with_parents(log_dir, 0700);
+
+    const gchar *xdg = g_getenv("XDG_SESSION_ID");
+    const gchar *wl = g_getenv("WAYLAND_DISPLAY");
+    const gchar *x11 = g_getenv("DISPLAY");
+    gchar *raw_tag = NULL;
+    if (xdg && *xdg) {
+        raw_tag = g_strdup_printf("xdg-%s", xdg);
+    } else if (wl && *wl) {
+        raw_tag = g_strdup_printf("wl-%s", wl);
+    } else if (x11 && *x11) {
+        raw_tag = g_strdup_printf("x11-%s", x11);
+    } else {
+        raw_tag = g_strdup("unknown");
+    }
+    for (gchar *p = raw_tag; *p; p++) {
+        if (!(g_ascii_isalnum(*p) || *p == '-' || *p == '_')) *p = '-';
+    }
+
+    time_t now;
+    time(&now);
+    struct tm *tm_info = localtime(&now);
+    char date[16];
+    strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
+
+    gchar *pattern = g_strdup_printf("%s/%s_%s_*.log", log_dir, raw_tag, date);
+
+    g_free(raw_tag);
+    g_free(log_dir);
+    return pattern;
+}
+
+/* 로그 라인 선두의 "[YYYY/MM/DD HH:MM:SS]" 를 time_t 로 파싱. 실패 시 0 반환. */
+static time_t unim_test_log_parse_ts(const char *line) {
+    int year, mon, day, hour, min, sec;
+    if (sscanf(line, "[%d/%d/%d %d:%d:%d]",
+               &year, &mon, &day, &hour, &min, &sec) != 6) {
+        return 0;
+    }
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = year - 1900;
+    tm.tm_mon  = mon - 1;
+    tm.tm_mday = day;
+    tm.tm_hour = hour;
+    tm.tm_min  = min;
+    tm.tm_sec  = sec;
+    tm.tm_isdst = -1;
+    return mktime(&tm);
+}
 
 /* ─── DBus 헬퍼 구현 ─────────────────────────────────────────── */
 
@@ -374,57 +437,62 @@ void unim_test_print_summary(UnimTestRunner *runner) {
 
 /* ─── 로그 검사 ───────────────────────────────────────────────── */
 
+/* 마크는 wall-clock epoch 초. check 단계에서 모든 세션 로그 파일을 스캔하면서
+ * 라인 타임스탬프가 mark 이상인 항목만 검사한다. (per-PID 로그가 다중 파일에
+ * 분산되므로 byte offset 방식은 사용 불가.) */
 long unim_test_log_mark(void) {
-    const char *home = g_get_home_dir();
-    char *path = g_build_filename(home, ".unim-errors.log", NULL);
-    FILE *f = fopen(path, "r");
-    g_free(path);
-    if (!f) return 0;
-    fseek(f, 0, SEEK_END);
-    long pos = ftell(f);
-    fclose(f);
-    return pos;
+    return (long)time(NULL);
 }
 
 void unim_test_log_check(UnimTestRunner *runner, long mark) {
-    const char *home = g_get_home_dir();
-    char *path = g_build_filename(home, ".unim-errors.log", NULL);
-    FILE *f = fopen(path, "r");
-    g_free(path);
-    if (!f) {
-        printf("\n" UNIM_BOLD "── 로그 검증 ──" UNIM_RESET "\n");
-        printf("  " UNIM_GREEN "PASS" UNIM_RESET " 로그 파일 없음 (정상)\n");
-        runner->passed++;
-        return;
-    }
-
-    fseek(f, mark, SEEK_SET);
+    gchar *pattern = unim_test_log_glob_pattern();
+    glob_t gres;
+    int rc = pattern ? glob(pattern, 0, NULL, &gres) : -1;
 
     int panics = 0, errors = 0, lines = 0;
-    char line[4096];
+    int files_scanned = 0;
     char first_error[512] = "";
 
-    while (fgets(line, sizeof(line), f)) {
-        lines++;
-        if (strstr(line, "panic") || strstr(line, "PANIC")) {
-            panics++;
-        }
-        if (strstr(line, "ERROR") || strstr(line, "error:")) {
-            if (first_error[0] == '\0') {
-                g_strlcpy(first_error, line, sizeof(first_error));
-                /* 줄바꿈 제거 */
-                char *nl = strchr(first_error, '\n');
-                if (nl) *nl = '\0';
+    if (rc == 0) {
+        for (size_t i = 0; i < gres.gl_pathc; i++) {
+            FILE *f = fopen(gres.gl_pathv[i], "r");
+            if (!f) continue;
+            files_scanned++;
+            char line[4096];
+            while (fgets(line, sizeof(line), f)) {
+                time_t ts = unim_test_log_parse_ts(line);
+                if (ts != 0 && (long)ts < mark) continue;
+                lines++;
+                if (strstr(line, "panic") || strstr(line, "PANIC")) {
+                    panics++;
+                }
+                if (strstr(line, "ERROR") || strstr(line, "error:")) {
+                    if (first_error[0] == '\0') {
+                        g_strlcpy(first_error, line, sizeof(first_error));
+                        char *nl = strchr(first_error, '\n');
+                        if (nl) *nl = '\0';
+                    }
+                    errors++;
+                }
             }
-            errors++;
+            fclose(f);
         }
+        globfree(&gres);
     }
-    fclose(f);
+    g_free(pattern);
 
     printf("\n" UNIM_BOLD "── 로그 검증 ──" UNIM_RESET "\n");
 
+    if (files_scanned == 0) {
+        printf("  " UNIM_GREEN "PASS" UNIM_RESET " 로그 파일 없음 (정상)\n");
+        runner->passed++;
+        runner->passed++;  /* panic + error 두 항목 모두 PASS 처리 */
+        return;
+    }
+
     if (panics == 0) {
-        printf("  " UNIM_GREEN "PASS" UNIM_RESET " panic 없음 (%d줄 검사)\n", lines);
+        printf("  " UNIM_GREEN "PASS" UNIM_RESET " panic 없음 (%d줄 검사 / %d파일)\n",
+               lines, files_scanned);
         runner->passed++;
     } else {
         printf("  " UNIM_RED "FAIL" UNIM_RESET " panic %d건 발견\n", panics);

@@ -19,6 +19,10 @@ debian/tmp/usr/libexec/unim-daemon
 # DBus session-bus auto-activation service
 debian/tmp/usr/share/dbus-1/services/org.atit.unim.InputMethod.service
 
+# XDG autostart — non-GNOME 데스크톱(KDE/XFCE/LXDE) 부팅 시 daemon 자동 시작.
+# GNOME 은 gnome-shell 이 자체적으로 daemon 을 활성화하므로 NotShowIn=GNOME 으로 제외.
+debian/tmp/etc/xdg/autostart/unim-daemon.desktop
+
 # im-config integration
 debian/tmp/usr/share/im-config/data/25_unim.conf
 debian/tmp/usr/share/im-config/data/25_unim.rc
@@ -30,3 +34,7 @@ debian/tmp/usr/share/icons/hicolor/scalable/apps/unim-english.svg
 # Manual pages
 debian/tmp/usr/share/man/man1/unim.1
 debian/tmp/usr/share/man/man1/unim-cli.1
+
+# 오프라인 도움말 HTML — 트레이·GNOME 확장 양쪽이 참조하며 둘 다 unim-common 에 의존
+debian/tmp/usr/share/unim/help/unim-help-ko.html
+debian/tmp/usr/share/unim/help/unim-help-en.html

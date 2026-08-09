@@ -40,6 +40,11 @@ korean_layout_label: "Korean Layout"
 english_layout_label: "English Layout"
 toggle_keys_label: "Toggle Keys"
 hanja_keys_label: "Hanja/Special Keys"
+commit_unit_label: "Commit Unit"
+commit_unit_note: "(terminals, XIM, and ibus-compatible paths always use syllable)"
+word_mode_apps_label: "Word-mode Apps"
+toggle_announce_beep_label: "Korean/English Toggle Beep"
+ignore_key_repeat_label: "Suppress Composition Key Auto-repeat"
 auto_typefix_label: "Auto TypeFix"
 auto_typefix_skip_english_word_label: "Skip on English word match"
 auto_typefix_skip_complete_syllable_label: "Skip on complete syllable match"
@@ -48,9 +53,19 @@ auto_typefix_tentative_expiry_hours_label: "Tentative blacklist expiry"
 auto_typefix_observation_timeout_secs_label: "Re-trigger observation window"
 auto_typefix_forward_time_window_ms_label: "Forward time window (ms)"
 auto_typefix_reverse_time_window_ms_label: "Reverse time window (ms)"
+auto_typefix_toggle_keys_label: "Typo-fix overall toggle shortcut"
+auto_typefix_forward_toggle_keys_label: "Typo-fix forward toggle shortcut"
+auto_typefix_reverse_toggle_keys_label: "Typo-fix reverse toggle shortcut"
+atf_hotkey_warn_unknown: "Warning: '%{key}' is an unknown key name — it will be ignored. Check the list of valid key names."
+atf_hotkey_warn_input_key: "Warning: '%{key}' is a character/editing key — assigning it as a shortcut makes that key unusable for input. Prefer function keys (F1–F12) or a modifier combo such as Shift+F8."
+atf_hotkey_warn_duplicate: "Warning: '%{key}' is also assigned to the Han/Eng or Hanja key — the roles may conflict."
+switch_key_warn_unknown: "Warning: '%{key}' is an unknown key name — it will be ignored. Han/Eng and Hanja keys do not support modifier combos (Ctrl+X). e.g. Korean, RightAlt, Hanja, F9"
+switch_key_warn_input_key: "Warning: '%{key}' is a character/editing key — assigning it as a Han/Eng or Hanja key makes that key unusable for input. Prefer Korean, Hanja, RightAlt, or a function key (F1–F12) that is not already assigned to another role."
+switch_key_warn_duplicate: "Warning: '%{key}' is also assigned to another role (Han/Eng, Hanja, or AutoTypeFix toggle) — the roles may conflict."
+auto_english_key_warn_unknown: "Warning: '%{key}' is an unknown auto-English trigger spec — it will be ignored. e.g. key:Escape, char:/, key:Ctrl+B"
+keys_unset: "(disabled)"
 unit_hours: "hours"
 unit_secs: "seconds"
-emoji_popup_label: "Emoji Popup"
 app_rules_label: "App Mode Rules"
 not_set: "(not set)"
 default_category_label: "Initial Input Mode"
@@ -69,6 +84,7 @@ auto_typefix_changed: "%{status} auto typefix."
 error_invalid_layout: "Invalid %{kind} layout: %{value}. Allowed: %{allowed}"
 error_invalid_category: "Invalid input mode: %{value}. Allowed: %{allowed}"
 error_invalid_mode_sharing: "Invalid mode sharing: %{value}. Allowed: %{allowed}"
+error_invalid_commit_unit: "Invalid commit unit: %{value}. Allowed: %{allowed}"
 error_save_failed: "Failed to save settings: %{error}"
 error_path_not_found: "Config file path not found."
 
@@ -84,11 +100,23 @@ exit_canceled: "Settings canceled."
 help_hint: "(Use --help for more information)"
 default_category_changed: "Changed initial input mode to %{category}."
 mode_sharing_changed: "Changed mode sharing to '%{mode}'."
+commit_unit_changed: "Changed commit unit to '%{unit}'."
 
 # Korean active rule sets (Phase 4a)
 korean_active_rule_sets_label: "Active Rule Sets"
 profile_default: "(profile default)"
 korean_active_rule_sets_all_off: "(all off)"
+
+# Display-value locale mapping (M-16 — localize config show/set values, not just labels)
+layout_ko_2bulstd: "Dubeolsik Standard"
+layout_ko_3bul390: "Sebeolsik 390"
+layout_ko_3bul391: "Sebeolsik Final (391)"
+layout_ko_3bul_noshift: "Sebeolsik No-shift"
+mode_sharing_global: "Global"
+mode_sharing_perapp: "Per-app"
+commit_unit_syllable: "Syllable"
+commit_unit_word: "Word"
+commit_unit_smart: "Smart"
 
 # Common
 error_label: "Error"
@@ -138,10 +166,11 @@ user_dict_clear_confirm: "Delete all %{count} dictionary entries?"
 
 # Auto English mode (PR #5)
 auto_english_label: "Auto English Mode"
-auto_english_keys_label: "Auto English trigger keys (e.g. key:Escape, char:/)"
+auto_english_keys_label: "Auto English trigger keys (e.g. key:Escape, char:/, key:Ctrl+B)"
 auto_english_changed: "%{status} auto English mode."
 
 # Phase 1 i18n: config show / typefix subcmd / layout validate
+config_atfix_toggle_keys_line: "  - Toggle shortcuts: overall %{all} / forward %{fwd} / reverse %{rev}"
 config_atfix_status_line: "  - Forward (EN->KO): %{fwd}, Reverse (KO->EN): %{rev}"
 config_atfix_threshold_line: "  - Korean syllable threshold: %{kor}, English min length: %{eng}"
 config_atfix_window_line: "  - Time window: forward %{fwd_ms}ms / reverse %{rev_ms}ms"
@@ -187,7 +216,7 @@ help_cli_decompose_short: "Decompose Korean text into an English keystroke strea
 help_cli_decompose_long: "Decompose Korean text into the keystrokes that would produce it on the chosen layout.\nExample: '안녕' -> 'dkssud'.\nMutually exclusive with --compose."
 
 help_cli_korean_keyboard_short: "Korean keyboard layout (default: 2bul)"
-help_cli_korean_keyboard_long: "Korean keyboard variant used during conversion.\n  2bul        : Dubeolsik standard (default)\n  390         : Sebeolsik 390\n  391         : Sebeolsik 391\n  noshift     : Sebeolsik no-shift\n  3bul_qwerty : Qwerty Sebeolsik\n* Conversion-only — independent from the daemon's korean-layout config."
+help_cli_korean_keyboard_long: "Korean keyboard variant used during conversion.\n  2bul        : Dubeolsik standard (default)\n  390         : Sebeolsik 390\n  391         : Sebeolsik 391\n  noshift     : Sebeolsik no-shift\n  anmatae     : Ahnmatae (chord/moachigi)\n* Conversion-only — independent from the daemon's korean-layout config."
 
 help_cli_english_keyboard_short: "English keyboard layout (default: qwerty)"
 help_cli_english_keyboard_long: "English keyboard variant used during conversion.\n  qwerty     : QWERTY (default)\n  dvorak     : Dvorak\n  colemak    : Colemak\n  colemak_dh : Colemak-DH\n  workman    : Workman\n* Conversion-only — independent from the daemon's english-layout config."
@@ -200,10 +229,14 @@ help_cmd_blacklist_about: "Manage AutoTypeFix learned suppression list (blacklis
 help_cmd_blacklist_long: "View and manage the AutoTypeFix blacklist file\n(~/.config/unim/typefix-blacklist.yaml).\n\nThe blacklist records words that AutoTypeFix has auto-corrected and the user\nthen rolled back — preventing repeated unwanted corrections.\n\nChild subcommands:\n  list             Show all entries (status, direction, ascii)\n  remove <index>   Remove entry by 1-based index shown in list\n  clear            Delete all entries (with confirmation)\n  path             Print blacklist file path"
 
 help_cmd_trigger_about: "Trigger an action on the daemon (universal entry point for hotkey tools)"
-help_cmd_trigger_long: "Entry point for OS shortcut tools (KDE global shortcuts, Hyprland binds, Sway,\nxbindkeys, AutoHotkey, etc.). It calls the daemon's\norg.atit.unim.InputMethod.TriggerAction RPC, which dispatches the action to the\ncurrently active InputContext.\n\nSupported actions:\n  emoji_popup    Show the emoji popup at the cursor\n  (planned: hanja_popup, special_char_popup, ...)\n\nExample:\n  unim-cli trigger emoji_popup\n\nSee docs/user/keyboard-shortcuts.md for per-environment setup\n(KDE / Hyprland / Sway / X11 xbindkeys all covered)."
+help_cmd_trigger_long: "Entry point for OS shortcut tools (KDE global shortcuts, Hyprland binds, Sway,\nxbindkeys, AutoHotkey, etc.). It calls the daemon's\norg.atit.unim.InputMethod.TriggerAction RPC, which dispatches the action to the\ncurrently active InputContext.\n\nSupported actions:\n  emoji_popup    Show the emoji popup at the cursor\n  (planned: hanja_popup, special_char_popup, ...)\n\nExample:\n  unim-cli trigger emoji_popup\n\nSee docs/user/keyboard-shortcuts/README.md for per-environment setup\n(KDE / Hyprland / Sway / X11 xbindkeys all covered)."
 
 help_arg_trigger_action_short: "Action identifier to trigger (e.g. emoji_popup)"
 help_arg_trigger_action_long: "Action identifier sent to the daemon.\nCurrently supported: emoji_popup\nFuture: hanja_popup, special_char_popup, etc.\nUnknown actions are rejected by the daemon and a non-zero exit code is returned."
+
+# ── daemon subcommand ───────────────────────────────────────────────────────
+help_cmd_daemon_about: "Query daemon runtime state"
+help_daemon_frontends_about: "List currently registered frontends"
 
 # ── config children ─────────────────────────────────────────────────────────
 help_cfg_show_about: "Show a summary of current settings"
@@ -212,7 +245,7 @@ help_cfg_show_long: "Pretty-print the daemon's current settings: layouts, toggle
 help_cfg_set_about: "Change a single setting and save"
 help_cfg_set_long: "Sets the given key and writes the result to the config file.\nThe daemon watches the file and reloads automatically — no restart required.\n\nExamples:\n  unim-cli config set korean-layout 3bul390\n  unim-cli config set toggle-keys 'Korean,RightAlt'\n  unim-cli config set auto-typefix true\n  unim-cli config set auto-typefix-forward-time-window-ms 1500\n\nFor the full key list and value formats use\n'unim-cli help config set' or 'unim-cli config set --help'."
 help_cfg_set_key_short: "Setting key to change"
-help_cfg_set_key_long: "Setting key to change. Common keys:\n  korean-layout                    Korean layout (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)\n  english-layout                   English layout (qwerty, dvorak, colemak, colemak_dh, workman)\n  default-category                 Initial input mode (korean, english)\n  mode-sharing                     Mode sharing (global, per-app)\n  toggle-keys                      Korean/English toggle (comma-separated, e.g. Korean,RightAlt)\n  hanja-keys                       Hanja/special char keys (e.g. Hanja,F9)\n  auto-typefix                     Auto typo correction (true/false)\n  auto-typefix-forward             Forward (EN->KO) enable (true/false)\n  auto-typefix-reverse             Reverse (KO->EN) enable (true/false)\n  auto-english                     Auto English mode (true/false)\n  auto-english-keys                Auto English triggers — key:<Name> or char:<chr>, comma-separated (e.g. key:Escape,char:/)\n  emoji-popup                      Enable emoji popup (true/false). Trigger is the Hanja key when idle\nFull list: 'unim-cli config set --help'."
+help_cfg_set_key_long: "Setting key to change. Common keys:\n  korean-layout                    Korean layout (2bul, 3bul390, 3bul391, 3bul_noshift, ko_3bul_anmatae)\n  english-layout                   English layout (qwerty, dvorak, colemak, colemak_dh, workman)\n  default-category                 Initial input mode (korean, english)\n  mode-sharing                     Mode sharing (global, per-app)\n  toggle-keys                      Korean/English toggle (comma-separated, e.g. Korean,RightAlt)\n  hanja-keys                       Hanja/special char keys (e.g. Hanja,F9)\n  auto-typefix                     Auto typo correction (true/false)\n  auto-typefix-forward             Forward (EN->KO) enable (true/false)\n  auto-typefix-reverse             Reverse (KO->EN) enable (true/false)\n  auto-english                     Auto English mode (true/false)\n  auto-english-keys                Auto English triggers — key:<Name>/char:<chr>/key:<mod>+<Name>, comma-separated (e.g. key:Escape,char:/,key:Ctrl+B). Combo keys pass through to the app\n  emoji-popup                      Enable emoji popup (true/false). Trigger is the Hanja key when idle\nFull list: 'unim-cli config set --help'."
 help_cfg_set_value_short: "New value for the key"
 help_cfg_set_value_long: "Format depends on the key:\n  • bool keys: true / false\n  • key lists: comma-separated (e.g. 'Korean,RightAlt')\n  • integers: number within the documented range (e.g. auto-typefix-kor-threshold is 2..6)\n  • enums: one of the allowed identifiers\nInvalid values are rejected with a list of allowed values."
 
@@ -291,4 +324,44 @@ help_bl_clear_long: "Delete all entries. A confirmation prompt is shown first. C
 
 help_bl_path_about: "Print the blacklist file path"
 help_bl_path_long: "Print the absolute path of the blacklist file.\nDefault: $XDG_CONFIG_HOME/unim/typefix-blacklist.yaml (typically ~/.config/unim/typefix-blacklist.yaml)."
+
+# ── config set key help (ConfigKey ValueEnum, `config set --help`) ─────────
+help_ck_korean_layout: "Korean keyboard layout (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)"
+help_ck_english_layout: "English keyboard layout (qwerty, dvorak, colemak, colemak_dh, workman)"
+help_ck_korean_active_rule_sets: "Active Korean layout rule sets (comma-separated; empty = all off, 'default' = profile default)"
+help_ck_default_category: "Initial input mode (korean, english)"
+help_ck_mode_sharing: "Mode sharing strategy (global, per-app)"
+help_ck_toggle_keys: "Korean/English toggle key (e.g. Korean,RightAlt)"
+help_ck_hanja_keys: "Hanja/special character key (e.g. Hanja,F9)"
+help_ck_auto_typefix: "Enable AutoTypeFix (true, false)"
+help_ck_auto_typefix_kor_threshold: "AutoTypeFix: Korean syllable threshold (2-6)"
+help_ck_auto_typefix_eng_min_length: "AutoTypeFix: English word minimum length (3-8)"
+help_ck_auto_typefix_forward_time_window_ms: "AutoTypeFix: forward time window (500-5000 ms)"
+help_ck_auto_typefix_reverse_time_window_ms: "AutoTypeFix: reverse time window (500-5000 ms)"
+help_ck_auto_typefix_forward: "AutoTypeFix: forward (EN->KO) correction (true, false)"
+help_ck_auto_typefix_reverse: "AutoTypeFix: reverse (KO->EN) correction (true, false)"
+help_ck_auto_typefix_skip_english_word: "AutoTypeFix: suppress on English word match (true, false)"
+help_ck_auto_typefix_skip_complete_syllable: "AutoTypeFix: suppress on complete syllable match (true, false)"
+help_ck_auto_typefix_rollback_detection: "AutoTypeFix: learned re-trigger suppression (true, false)"
+help_ck_auto_typefix_tentative_expiry_hours: "AutoTypeFix: tentative suppression expiry (1-12 hours)"
+help_ck_auto_typefix_observation_timeout_secs: "AutoTypeFix: re-trigger observation window (5-15 seconds)"
+help_ck_auto_typefix_user_dict: "AutoTypeFix: enable reverse user dictionary (true, false)"
+help_ck_auto_typefix_toggle_keys: "AutoTypeFix: overall toggle shortcut (comma-separated single key, empty = disabled. e.g. F10, Shift+F9)"
+help_ck_auto_typefix_forward_toggle_keys: "AutoTypeFix: forward (EN->KO) toggle shortcut (comma-separated single key, empty = disabled)"
+help_ck_auto_typefix_reverse_toggle_keys: "AutoTypeFix: reverse (KO->EN) toggle shortcut (comma-separated single key, empty = disabled)"
+help_ck_auto_english: "Enable auto English mode (true, false)"
+help_ck_auto_english_keys: "Auto English trigger keys (e.g. key:Escape,char:/,char:,)"
+help_ck_app_rules: "Per-app mode rules (JSON format)"
+help_ck_korean_bidirectional_combine: "Moachigi bidirectional jamo combination (true, false). supports_moachigi layouts only."
+help_ck_korean_chord_window_ms: "Moachigi chord window (ms, 0=OFF). supports_moachigi layouts only. Reserved for Phase 4."
+help_ck_commit_unit: "Commit unit (syllable, word, smart). Word unit does not apply to terminals/XIM; smart composes by word only for apps listed in word-mode-apps."
+help_ck_word_mode_apps: "Word-mode app list (comma-separated, exact executable name match). Apps that get word-unit composition under the Smart commit unit (Windows: winword.exe, Linux: soffice, etc.)."
+help_ck_toggle_announce_beep: "Korean/English toggle sound notification (true, false). Accessibility — a differentiated beep on toggle (Korean=high tone, English=low tone)."
+help_ck_ignore_key_repeat: "Suppress composition key auto-repeat (true, false). Accessibility (mobility impairment) — prevents repeat-fire/toggle jitter when a key is held. Enforced on both Windows and Linux."
+
+# ── interactive mode (config interactive) ───────────────────────────────────
+interactive_external_change_warning: "Warning: the config file was changed externally since this interactive session started. Saving now will overwrite those external changes."
+
+# Key validation error (toggle/hanja/auto-English keys — all-invalid rejection)
+error_no_valid_key: "At least one valid key required."
 

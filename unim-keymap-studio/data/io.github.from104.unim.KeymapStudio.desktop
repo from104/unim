@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=UNIM Keymap Studio
+Name[ko]=UNIM 키맵 스튜디오
+Comment=View and edit Hangul keymaps (v1·v2·v3)
+Comment[ko]=한글 자판 (v1·v2·v3) 보기·편집
+Exec=unim-keymap-studio
+Icon=io.github.from104.unim.KeymapStudio
+Categories=Utility;
+Keywords=keymap;hangul;layout;profile;
+StartupWMClass=io.github.from104.unim.KeymapStudio
+NoDisplay=false

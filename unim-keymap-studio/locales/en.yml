@@ -1,0 +1,194 @@
+# UNIM Keymap Studio (English)
+app_title: UNIM Keymap Studio
+
+# Header — left ProfileDropdown
+header_profile_dropdown_label: Layout
+header_profile_dropdown_tooltip: Pick a layout (Language > Source > Name)
+dropdown_lang_korean: Korean
+dropdown_lang_english: English
+dropdown_source_builtin: Built-in
+dropdown_source_user: User
+dropdown_empty: (none)
+
+# Header — right icons
+header_help_tooltip: Help and shortcuts (F1)
+header_settings_tooltip: Open UNIM settings
+header_menu_tooltip: Menu
+
+# Tabs
+tab_basic: Basic
+tab_keymap: Keymap
+tab_combos: Combos
+tab_extended: Extended
+
+# Badges
+badge_builtin: built-in
+badge_v3: v3
+badge_moachigi: moachigi
+badge_override: overrides
+sidebar_builtin: Built-in
+sidebar_user: User
+
+# Basic tab
+basic_builtin_banner: Built-in layout — use 'Save As' to keep your changes
+basic_lang_group: Language and type
+basic_lang_label: Language
+basic_layout_type_label: Layout type (e.g. 2bul, 3bul, qwerty)
+basic_name_group: Name and display
+basic_name_label: Identifier (name)
+basic_display_name_ko: Display name (Korean)
+basic_display_name_en: Display name (English)
+basic_inherits_label: Inherits layout
+basic_meta_group: Metadata
+basic_desc_ko: Description (Korean)
+basic_desc_en: Description (English)
+basic_tags_label: Tags (comma separated)
+basic_advanced_group: Advanced
+basic_moachigi_switch: Supports moachigi (v3)
+basic_moachigi_hint: Turning this on saves as schema_version=3
+
+# Keymap tab
+keymap_click_hint: Click a key to edit its upper (Shift) and lower (plain) characters
+key_edit_title: Edit key — row %{row}, col %{col}
+key_edit_upper_label: Upper (Shift)
+key_edit_lower_label: Lower (plain)
+key_edit_jamo_helper: Hangul jamo quick pick
+key_edit_scope_label: Scope
+key_edit_scope_cho: Choseong (Cho)
+key_edit_scope_jung: Jungseong (Jung)
+key_edit_scope_jong: Jongseong (Jong)
+key_edit_jamo_label: Jamo
+key_edit_fill_upper: Fill upper
+key_edit_fill_lower: Fill lower
+key_edit_validation_one_char: Enter a single character only
+
+# Combos tab
+combos_cho: Choseong combinations (Cho)
+combos_jung: Jungseong combinations (Jung)
+combos_jong: Jongseong combinations (Jong)
+combo_section_empty: No combinations registered
+combo_dialog_add_title: Add combination
+combo_dialog_edit_title: Edit combination
+combo_dialog_first: First jamo
+combo_dialog_second: Second jamo
+combo_dialog_result: Result jamo
+combo_dialog_scope_hint: Only jamo of the same scope are allowed
+
+# Extended tab — rule sets
+extended_rule_sets_title: Rule sets
+extended_rule_sets_add: New rule set
+extended_rule_sets_empty: No rule sets registered
+badge_active: active
+badge_inactive: inactive
+rule_set_active: Active
+rule_set_add_combo: Add combination…
+extended_rule_set_key_meta: Key metadata (this set only)
+rule_set_add_key_meta: Add key meta…
+rule_set_add_title: Add rule set
+rule_set_edit_title: Edit rule set
+rule_set_name_label: Name
+rule_set_desc_ko: Description (Korean)
+rule_set_desc_en: Description (English)
+rule_set_name_required: Enter a name
+rule_set_name_exists: A rule set with this name already exists
+
+# Extended tab — global key_meta
+extended_key_meta_title: Global key metadata
+extended_key_meta_desc: An active rule set's key metadata takes precedence over global
+extended_key_meta_add: New key meta
+extended_key_meta_empty: No key metadata registered
+key_meta_row_title: "Key: '%{key}'"
+key_meta_dialog_title: Key metadata
+key_meta_key_label: Key identifier
+key_meta_key_required: Enter a key identifier
+key_meta_unset: Unset
+key_meta_vowel_combine_head: vowel_combine_head (rule A)
+key_meta_context_alt_use: Use context_alt (rule B)
+key_meta_context_when: Condition (when)
+key_meta_context_to: Transform (to)
+key_meta_context_fallback: Fallback
+key_meta_when_empty: empty
+key_meta_when_composing: composing
+key_meta_when_choseong_only: choseong_only
+key_meta_when_jungseong_only: jungseong_only
+key_meta_when_cho_jung_filled: cho_jung_filled
+key_meta_when_jongseong_filled: jongseong_filled
+key_meta_when_last_is_cho: last_is_cho
+key_meta_when_last_is_jung: last_is_jung
+key_meta_when_last_is_jong: last_is_jong
+
+# Save As
+save_as_title: Save As
+save_as_name_label: New identifier (name)
+save_as_hint_ok: Available
+save_as_hint_builtin: This name collides with a built-in layout
+save_as_hint_user_exists: A user layout with this name already exists
+save_as_hint_invalid: Only letters, digits, _ and - are allowed
+save_as_hint_empty: Enter a name
+save_as_path_preview: Saves to — %{path}
+
+# Unsaved-changes guard
+discard_changes_title: You have unsaved changes
+discard_changes_body: Discard your changes and switch to another layout?
+discard_btn_keep: Keep editing
+discard_btn_discard: Discard and switch
+
+# Header menu
+menu_new_profile: New layout
+menu_duplicate_profile: Duplicate current layout
+menu_export_json: Export to JSON…
+menu_import_json: Import JSON…
+menu_open_user_folder: Open user layouts folder
+menu_help: Help and shortcuts
+
+# New / duplicate dialogs
+new_profile_title: New layout
+new_profile_name: Name
+new_profile_language: Language
+duplicate_profile_title: Duplicate current layout
+duplicate_profile_name: New name
+
+# Help
+help_dialog_title: Help and shortcuts
+help_dialog_intro: Pick a layout from the header dropdown, then edit it across the four tabs (Basic, Keymap, Combos, Extended). Built-in layouts can only be kept via 'Save As'.
+help_shortcut_help: This help
+help_shortcut_new: New layout
+help_shortcut_duplicate: Duplicate current layout
+help_shortcut_save: Save
+help_shortcut_save_as: Save As
+help_shortcut_export: Export JSON
+help_shortcut_import: Import JSON
+help_shortcut_tabs: Switch tabs (Basic/Keymap/Combos/Extended)
+
+# Toasts
+toast_saved: Saved — %{path}
+toast_save_failed: Save failed — %{err}
+toast_reverted: Reverted to original
+toast_builtin_save_blocked: Built-in layout — use 'Save As' to keep your changes
+toast_exported: Exported — %{path}
+toast_imported: "Imported layout %{name}"
+toast_import_invalid: Import failed — not a valid layout JSON (%{err})
+toast_open_folder_failed: Could not open the user layouts folder
+
+# Common buttons
+btn_save: Save
+btn_save_as: Save As
+btn_revert: Revert
+btn_add: Add
+btn_remove: Remove
+btn_edit: Edit
+btn_cancel: Cancel
+btn_apply: Apply
+btn_ok: OK
+
+# Metadata labels
+meta_author: Author
+meta_version: Version
+meta_description: Description
+meta_license: License
+meta_schema_version: Schema version
+meta_language: Language
+meta_type: Type
+
+case_upper: Shift
+case_lower: Plain

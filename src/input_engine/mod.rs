@@ -8,20 +8,25 @@
 //! 사용한다.
 
 mod candidates;
+mod chord_buffer;
+pub mod chord_compose;
 mod engine;
 mod popup_dispatch;
 mod press_key;
 mod surrounding;
 mod types;
 
+pub use chord_compose::{compose_chord, ChordEntry, ChordEntryKind, ChordResult};
 pub use engine::InputEngine;
-pub use types::{InputResult, PageDirection, PopupAction};
+pub use types::{AtfHotkey, AtfToggleKind, InputResult, PageDirection, PopupAction};
 
 use crate::config::Config;
 use crate::hangul::input_context::{ComposerType, HangulInputContext};
 
 #[cfg(test)]
 mod test_helpers;
+#[cfg(test)]
+mod tests_chord;
 #[cfg(test)]
 mod tests_composition;
 #[cfg(test)]
@@ -32,6 +37,14 @@ mod tests_auto_english;
 mod tests_popup_change_page;
 #[cfg(test)]
 mod tests_profile;
+#[cfg(test)]
+mod tests_chord_compose;
+#[cfg(test)]
+mod tests_toggle;
+#[cfg(test)]
+mod tests_atf_hotkey;
+#[cfg(test)]
+mod tests_repro_jong;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///
@@ -71,6 +84,23 @@ fn build_korean_context(config: &Config, fallback_type: ComposerType) -> HangulI
     //   Some(list)   → 명시적 활성 목록 (빈 list 포함, 빈 list = 모두 OFF)
     if let Some(list) = config.engine.korean.active_rule_sets.as_ref() {
         resolved.active_rule_sets = Some(list.clone());
+    }
+
+    // Phase 7 와이어링: 사용자 config 의 moachigi 값을 profile.moachigi 에 주입.
+    // profile 자체의 bidirectional_combine/chord_window_ms 는 deprecated(항상 false/0)
+    // 이므로, supports_moachigi 자판이면 사용자 config 값으로 덮어쓴다.
+    // composer 의 is_bidirectional_combine() 는 이 필드를 읽으므로, 주입 누락 시
+    // (a,b) 실패 → (b,a) 역순 재시도 경로가 영영 발화하지 않는다.
+    if resolved.moachigi.is_some() {
+        use crate::keystroke::profile::MoachigiSpec;
+        resolved.moachigi = Some(MoachigiSpec {
+            bidirectional_combine: config
+                .engine
+                .korean
+                .bidirectional_combine
+                .unwrap_or(false),
+            chord_window_ms: config.engine.korean.chord_window_ms.unwrap_or(0),
+        });
     }
 
     match HangulInputContext::new_with_profile(&resolved) {

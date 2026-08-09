@@ -9,10 +9,85 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
+#include <unistd.h>
+#include <glib/gstdio.h>
 
 /* 디버그 로깅 */
 static gboolean unim_dbus_debug_enabled = FALSE;
 static gboolean unim_dbus_debug_checked = FALSE;
+
+/* 호스트 프로세스 이름을 sanitize 한 형태로 반환. 실패 시 "unknown".
+ * 반환값은 g_free 로 해제. */
+static gchar *
+unim_log_process_name(void)
+{
+    gchar *contents = NULL;
+    gchar *name = NULL;
+    if (g_file_get_contents("/proc/self/comm", &contents, NULL, NULL) && contents) {
+        name = g_strstrip(contents);
+    }
+    if (!name || !*name) {
+        g_free(contents);
+        return g_strdup("unknown");
+    }
+    gchar *out = g_strdup(name);
+    g_free(contents);
+    for (gchar *p = out; *p; p++) {
+        if (!(g_ascii_isalnum(*p) || *p == '-' || *p == '_')) *p = '-';
+    }
+    return out;
+}
+
+/* 윈도우 세션·앱(프로세스)별 로그 파일 경로 계산.
+ *   ~/.unim-log/{session-tag}_{YYYY-MM-DD}_{progname}-{pid}.log
+ *   session-tag 우선순위: XDG_SESSION_ID > WAYLAND_DISPLAY > DISPLAY.
+ *   progname/pid 는 호스트 프로세스 (GTK IM 모듈은 호스트 앱 안에서 동작).
+ * 반환값은 g_free 로 해제해야 한다. 실패 시 NULL.
+ */
+static gchar *
+unim_log_resolve_path(void)
+{
+    const gchar *home = g_get_home_dir();
+    if (!home) return NULL;
+
+    gchar *log_dir = g_build_filename(home, ".unim-log", NULL);
+    g_mkdir_with_parents(log_dir, 0700);
+
+    const gchar *xdg = g_getenv("XDG_SESSION_ID");
+    const gchar *wl = g_getenv("WAYLAND_DISPLAY");
+    const gchar *x11 = g_getenv("DISPLAY");
+    gchar *raw_tag = NULL;
+    if (xdg && *xdg) {
+        raw_tag = g_strdup_printf("xdg-%s", xdg);
+    } else if (wl && *wl) {
+        raw_tag = g_strdup_printf("wl-%s", wl);
+    } else if (x11 && *x11) {
+        raw_tag = g_strdup_printf("x11-%s", x11);
+    } else {
+        raw_tag = g_strdup("unknown");
+    }
+    for (gchar *p = raw_tag; *p; p++) {
+        if (!(g_ascii_isalnum(*p) || *p == '-' || *p == '_')) *p = '-';
+    }
+
+    time_t now;
+    time(&now);
+    struct tm *tm_info = localtime(&now);
+    char date[16];
+    strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
+
+    gchar *progname = unim_log_process_name();
+    pid_t pid = getpid();
+
+    gchar *fname = g_strdup_printf("%s_%s_%s-%d.log", raw_tag, date, progname, (int)pid);
+    gchar *path = g_build_filename(log_dir, fname, NULL);
+
+    g_free(raw_tag);
+    g_free(progname);
+    g_free(fname);
+    g_free(log_dir);
+    return path;
+}
 
 /* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
 static void
@@ -44,9 +119,8 @@ unim_log_message(const char *module, const char *format, ...)
     g_print("%s\n", log_line);
 
     /* 파일 출력 */
-    const gchar *home = g_get_home_dir();
-    if (home) {
-        gchar *log_path = g_build_filename(home, ".unim-errors.log", NULL);
+    gchar *log_path = unim_log_resolve_path();
+    if (log_path) {
         FILE *f = fopen(log_path, "a");
         if (f) {
             fprintf(f, "%s\n", log_line);
@@ -964,6 +1038,99 @@ unim_keycode_name_to_gdk_keyval(const gchar *name)
     return 0;
 }
 
+/* keyval 이 수정자 키인가 (Left/Right 의 Control·Shift·Alt·Super).
+ * 엔진 KeyCode::is_modifier() 와 동일 범위. gtk-common 은 gdk 에 의존하지
+ * 않으므로 keysym 값을 직접 쓴다 (unim_keycode_name_to_gdk_keyval 과 같은 규약). */
+static gboolean
+unim_keyval_is_modifier(guint keyval)
+{
+    switch (keyval) {
+    case 0xffe1: /* Shift_L */
+    case 0xffe2: /* Shift_R */
+    case 0xffe3: /* Control_L */
+    case 0xffe4: /* Control_R */
+    case 0xffe9: /* Alt_L */
+    case 0xffea: /* Alt_R */
+    case 0xffeb: /* Super_L */
+    case 0xffec: /* Super_R */
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+/* 수정자 토큰 1개를 UNIM_HOTKEY_MOD_* 비트로. 미지 토큰이면 0 */
+static guint
+unim_hotkey_mod_token_to_bit(const gchar *token)
+{
+    static const struct { const char *name; guint bit; } map[] = {
+        { "ctrl",    UNIM_HOTKEY_MOD_CTRL },
+        { "control", UNIM_HOTKEY_MOD_CTRL },
+        { "alt",     UNIM_HOTKEY_MOD_ALT },
+        { "super",   UNIM_HOTKEY_MOD_SUPER },
+        { "win",     UNIM_HOTKEY_MOD_SUPER },
+        { "meta",    UNIM_HOTKEY_MOD_SUPER },
+        { "shift",   UNIM_HOTKEY_MOD_SHIFT },
+        { NULL, 0 }
+    };
+
+    gchar *lower = g_ascii_strdown(token, -1);
+    guint bit = 0;
+    for (int i = 0; map[i].name != NULL; i++) {
+        if (g_strcmp0(lower, map[i].name) == 0) {
+            bit = map[i].bit;
+            break;
+        }
+    }
+    g_free(lower);
+    return bit;
+}
+
+gboolean
+unim_parse_hotkey_spec(const gchar *spec, guint *out_keyval, guint *out_mods)
+{
+    if (!spec || !out_keyval || !out_mods) return FALSE;
+
+    gchar **tokens = g_strsplit(spec, "+", -1);
+    gsize n = g_strv_length(tokens);
+    if (n == 0) {
+        g_strfreev(tokens);
+        return FALSE;
+    }
+
+    /* 마지막 토큰이 KeyName, 그 앞은 전부 수정자 */
+    guint mods = 0;
+    gboolean ok = TRUE;
+    for (gsize i = 0; i + 1 < n; i++) {
+        g_strstrip(tokens[i]);
+        guint bit = unim_hotkey_mod_token_to_bit(tokens[i]);
+        if (bit == 0) {          /* 미지 수정자 → 전체 실패 (침묵 무시) */
+            ok = FALSE;
+            break;
+        }
+        mods |= bit;             /* 중복 지정은 멱등 */
+    }
+
+    guint keyval = 0;
+    if (ok) {
+        g_strstrip(tokens[n - 1]);
+        /* KeyName 은 대소문자 구분 — 엔진 KeyCode::from_name 과 동일 */
+        keyval = unim_keycode_name_to_gdk_keyval(tokens[n - 1]);
+        if (keyval == 0) ok = FALSE;   /* 빈 base("Ctrl+") 도 여기서 걸린다 */
+
+        /* base 가 수정자 키면 거부 — 엔진 parse_atf_hotkey 의 KeyCode::is_modifier()
+         * 배제와 동일하게 맞춘다 (Left/Right 의 Control·Shift·Alt·Super). */
+        if (ok && unim_keyval_is_modifier(keyval)) ok = FALSE;
+    }
+
+    g_strfreev(tokens);
+    if (!ok) return FALSE;
+
+    *out_keyval = keyval;
+    *out_mods = mods;
+    return TRUE;
+}
+
 /* =========================================
  * AutoTypeFix 시그널 구독
  * ========================================= */
@@ -986,10 +1153,23 @@ on_auto_typefix_signal(GDBusConnection *connection G_GNUC_UNUSED,
 
     g_variant_get(parameters, "(u&s&s)", &delete_chars, &commit_text, &preedit_text);
 
-    if (delete_chars > 0 && commit_text) {
+    /* delete_chars == 0 은 버려야 할 페이로드가 아니라 **정상 경로**다.
+     * word(라이브 조합) 모드의 역방향 교정은 한글 전체가 preedit 이라 문서에
+     * 확정된 글자가 0 자다. 코어가 삭제를 0 으로 강제하고(engine_worker.rs
+     * `effective_reverse_delete` — 조합 이전 텍스트를 지우는 P0 데이터 손실 가드)
+     * commit_text 만으로 교정을 완결한다.
+     * 예전 `delete_chars > 0` 조건은 이 경우 시그널을 통째로 버렸고, 응답이 이미
+     * preedit 을 비운 뒤라 한글은 사라지고 영문은 확정되지 않는 입력 유실이 났다.
+     * Qt·XIM·Wayland·GNOME 은 이 게이트가 없어 GTK 계열에서만 재현됐다.
+     * 세 슬롯이 전부 비었을 때(=할 일 없음)만 무시한다. */
+    if (delete_chars > 0
+        || (commit_text && commit_text[0] != '\0')
+        || (preedit_text && preedit_text[0] != '\0')) {
         UNIM_DBUS_DEBUG("AutoTypeFix 시그널 수신: delete=%u, commit='%s', preedit='%s'",
-                         delete_chars, commit_text, preedit_text ? preedit_text : "");
-        ctx->auto_typefix_callback(delete_chars, commit_text,
+                         delete_chars, commit_text ? commit_text : "",
+                         preedit_text ? preedit_text : "");
+        ctx->auto_typefix_callback(delete_chars,
+                                    commit_text ? commit_text : "",
                                     preedit_text ? preedit_text : "",
                                     ctx->auto_typefix_user_data);
     }

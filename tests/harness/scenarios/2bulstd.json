@@ -1,0 +1,41 @@
+[
+  {
+    "name": "basic-compose-2bul",
+    "desc": "두벌식 초성·중성·종성 조합과 space 확정",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.plain",
+    "steps": [
+      { "key": "g",     "expect": { "preedit": "ㅎ", "committed": "" } },
+      { "key": "k",     "expect": { "preedit": "하", "committed": "" } },
+      { "key": "s",     "expect": { "preedit": "한", "committed": "" } },
+      { "key": "space", "expect": { "preedit": "", "committed": "한 " } }
+    ]
+  },
+  {
+    "name": "commit-then-preedit-2bul",
+    "desc": "두벌식에서도 확정 직후 다음 글자가 즉시 보이는가",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["g", "k", "s"], "expect": { "preedit": "한" } },
+      { "key": "r", "expect": { "preedit": "ㄱ", "committed": "한",
+                                "rendered": "한ㄱ" } },
+      { "key": "space", "expect": { "preedit": "", "committed": "한ㄱ " } }
+    ]
+  },
+  {
+    "name": "click-commit-2bul",
+    "desc": "두벌식 조합 중 다른 필드 클릭 시 원래 자리에 확정되는가",
+    "layout": "ko_2bulstd",
+    "korean": true,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["g", "k", "s"], "expect": { "preedit": "한" } },
+      { "click": "core.plain2", "field": "core.plain",
+        "expect": { "preedit": "", "committed": "한" } },
+      { "wait": 300, "field": "core.plain2", "expect": { "rendered": "" } }
+    ]
+  }
+]

@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.atit.unim.PopupService
+Exec=@BINDIR@/unim-popup-service

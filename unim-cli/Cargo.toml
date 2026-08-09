@@ -3,7 +3,9 @@ name = "unim-cli"
 version.workspace = true
 edition = "2021"
 description = "UNIM Korean/English keyboard converter and settings manager"
-authors = ["from104"]
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-cli"

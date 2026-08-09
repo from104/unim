@@ -36,8 +36,15 @@ impl Default for IndicatorState {
 pub enum GuiAction {
     ShowModePopup,
     UpdateCategory(InputCategory),
+    /// 트레이 → DBus watcher: 엔진 모드 변경 요청 (true=한국어, false=영어)
+    SetGlobalMode(bool),
     /// 설정 다이얼로그 열기
     OpenSettings,
+    /// 오프라인 사용자 매뉴얼(HTML) 열기.
+    ///
+    /// 트레이는 툴킷 무관이라 직접 열지 않고 이 액션만 보낸다 — 실제 열기는
+    /// 호스트 이벤트 루프(`unim-indicator/src/gtk_ui.rs`)가 `help::open_help` 로 수행.
+    OpenHelp,
     /// 한자 팝업 표시
     ShowHanjaPopup {
         context_path: String,

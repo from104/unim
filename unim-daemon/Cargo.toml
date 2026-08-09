@@ -3,6 +3,9 @@ name = "unim-daemon"
 version.workspace = true
 edition = "2021"
 description = "UNIM Input Method Daemon"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "unim-daemon"

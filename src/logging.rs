@@ -2,9 +2,16 @@
 //!
 //! `UNIM_DEVELOP=1` 환경 변수가 설정되면 모든 로그를 콘솔과 파일에 기록합니다.
 //! 로그 형식: [YYYY/MM/DD HH:MM:SS] - [모듈] - 메세지
+//!
+//! 로그 파일은 `~/.unim-log/{session-tag}_{YYYY-MM-DD}_{progname}-{pid}.log` 로
+//! 윈도우 세션·날짜·프로세스(앱) 단위로 분리 저장됩니다.
+//! session-tag 우선순위: XDG_SESSION_ID > WAYLAND_DISPLAY > DISPLAY.
+//! progname 은 `/proc/self/comm` 의 호스트 프로세스 이름 (GTK/Qt IM 모듈은
+//! 호스트 앱 프로세스 안에서 동작하므로 자연스럽게 앱별 분리됨).
 
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// 개발 모드 상태 (한번만 체크)
@@ -22,9 +29,72 @@ pub fn is_develop_mode() -> bool {
     })
 }
 
+fn sanitize_tag(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// 윈도우 세션 식별자 (파일명에 안전한 형태)
+fn session_tag() -> String {
+    fn nonempty(key: &str) -> Option<String> {
+        std::env::var(key).ok().filter(|v| !v.is_empty())
+    }
+
+    if let Some(v) = nonempty("XDG_SESSION_ID") {
+        return format!("xdg-{}", sanitize_tag(&v));
+    }
+    if let Some(v) = nonempty("WAYLAND_DISPLAY") {
+        return format!("wl-{}", sanitize_tag(&v));
+    }
+    if let Some(v) = nonempty("DISPLAY") {
+        return format!("x11-{}", sanitize_tag(&v));
+    }
+    "unknown".to_string()
+}
+
+/// 호스트 프로세스 이름 (GTK/Qt IM 모듈은 호스트 앱 안에서 동작).
+/// `/proc/self/comm` → 실패 시 `current_exe()` basename → 실패 시 "unknown".
+fn process_name() -> String {
+    if let Ok(s) = std::fs::read_to_string("/proc/self/comm") {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return sanitize_tag(trimmed);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(name) = exe.file_name().and_then(|n| n.to_str()) {
+            return sanitize_tag(name);
+        }
+    }
+    "unknown".to_string()
+}
+
+/// 현재 세션·날짜·프로세스에 해당하는 로그 파일 경로.
+pub fn log_file_path() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let log_dir = home.join(".unim-log");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let date = chrono::Local::now().format("%Y-%m-%d");
+    let pid = std::process::id();
+    Some(log_dir.join(format!(
+        "{}_{}_{}-{}.log",
+        session_tag(),
+        date,
+        process_name(),
+        pid
+    )))
+}
+
 /// 로그 출력 함수
 ///
-/// 개발 모드가 활성화되면 로그를 콘솔(stderr)과 `~/.unim-errors.log` 파일에 기록합니다.
+/// 개발 모드가 활성화되면 로그를 콘솔(stderr)과 세션별 로그 파일에 기록합니다.
 ///
 /// # Arguments
 ///
@@ -42,8 +112,7 @@ pub fn log_message(module: &str, message: &str) {
     eprintln!("{}", log_line);
 
     // 파일 출력
-    if let Some(home) = dirs::home_dir() {
-        let log_path = home.join(".unim-errors.log");
+    if let Some(log_path) = log_file_path() {
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&log_path) {
             let _ = writeln!(file, "{}", log_line);
         }

@@ -196,7 +196,7 @@ keyboard_grab → Modifiers { mods_depressed, mods_latched, mods_locked, group }
 ```
 keyboard_grab → Key { time, key(evdev), state }
   ├── Pressed + grab_active:
-  │   → process_key_via_dbus(evdev_keycode, time, state)
+  │   → process_key_via_dbus(evdev_keycode, time, state, is_repeat)
   │     1. keymap_handler.get_keysym(evdev_keycode) → keysym
   │     2. keycode = evdev_keycode + 8  (XKB 호환)
   │     3. DBus ProcessKey(keysym, keycode, mod_state)  [동기, 500ms 타임아웃]
@@ -213,6 +213,8 @@ keyboard_grab → Key { time, key(evdev), state }
   └── Pressed + !grab_active:
       → virtual_keyboard.key(time, key, state)  [바이패스]
 ```
+
+> **repeat aware 태깅(접근성)**: `process_key_via_dbus` 는 `state` 상위 비트에 `UNIM_REPEAT_AWARE_MASK`(1<<31, 항상)와 `UNIM_KEY_REPEAT_MASK`(1<<29, 자체 합성한 timerfd 반복일 때만)를 실어, 데몬 게이트가 시간창 폴백 없이 `ignore_key_repeat` 억제를 정확 판정하게 한다(off면 무손상; 상위 비트는 모디파이어 파싱에 무영향).
 
 ### 4.4 evdev keycode → keysym 변환 (`keymap.rs`)
 

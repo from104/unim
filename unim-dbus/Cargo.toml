@@ -3,6 +3,9 @@ name = "unim-dbus"
 version.workspace = true
 edition = "2021"
 description = "UNIM DBus IPC Library"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [lib]
 name = "unim_dbus"
@@ -11,12 +14,14 @@ path = "src/lib.rs"
 [dependencies]
 # Core UNIM library
 unim = { path = ".." }
+# Popup DBus payload 공유 타입 (popup-service / GNOME ext 도 동일하게 의존)
+unim-popup-types = { path = "../unim-popup-types" }
 
 # DBus with async support
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 
 # Async runtime
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

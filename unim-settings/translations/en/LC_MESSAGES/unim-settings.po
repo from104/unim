@@ -1,0 +1,802 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: unim-settings\n"
+"POT-Creation-Date: 2026-07-04 00:00+0900\n"
+"PO-Revision-Date: 2026-07-04 00:00+0900\n"
+"Last-Translator: UNIM\n"
+"Language-Team: English\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "변경 사항이 적용되었습니다."
+msgstr "Changes applied."
+
+msgid "오타 교정 설정을 기본값으로 복원했습니다."
+msgstr "Typo-correction settings restored to defaults."
+
+msgid "모아치기를 켰습니다."
+msgstr "Moachigi turned on."
+
+msgid "모아치기를 껐습니다."
+msgstr "Moachigi turned off."
+
+msgid "억제 단어를 삭제했습니다."
+msgstr "Suppressed word removed."
+
+msgid "억제 단어를 모두 삭제했습니다."
+msgstr "All suppressed words removed."
+
+msgid "사용자 사전에 추가했습니다."
+msgstr "Added to the user dictionary."
+
+msgid "이미 등록된 단어입니다."
+msgstr "Already registered."
+
+msgid "사용자 사전에서 삭제했습니다."
+msgstr "Removed from the user dictionary."
+
+msgid "기본값 복원을 되돌렸습니다."
+msgstr "Default restore undone."
+
+msgid "삭제를 되돌렸습니다."
+msgstr "Deletion undone."
+
+msgid "‘한 손 사용’ 프리셋을 적용했습니다."
+msgstr "Applied the 'One-handed' preset."
+
+msgid "‘넉넉한 타이밍’ 프리셋을 적용했습니다."
+msgstr "Applied the 'Relaxed timing' preset."
+
+msgid "영문으로 시작"
+msgstr "Start in English"
+
+msgid "한글로 시작"
+msgstr "Start in Korean"
+
+msgid "전역 공유"
+msgstr "Share globally"
+
+msgid "앱별 분리"
+msgstr "Separate per app"
+
+msgid "보수적"
+msgstr "Conservative"
+
+msgid "표준"
+msgstr "Standard"
+
+msgid "적극적"
+msgstr "Aggressive"
+
+msgid "정방향"
+msgstr "Forward"
+
+msgid "역방향"
+msgstr "Reverse"
+
+msgid "임시"
+msgstr "Tentative"
+
+msgid "확정"
+msgstr "Confirmed"
+
+msgid "비활성"
+msgstr "Inactive"
+
+msgid "한/영 토글"
+msgstr "Han/Eng toggle"
+
+msgid "한자 변환"
+msgstr "Hanja"
+
+msgid "자동 영문 트리거"
+msgstr "Auto-English trigger"
+
+msgid "오타 교정 토글"
+msgstr "AutoTypeFix toggle"
+
+msgid "저장 실패: {}"
+msgstr "Save failed: {}"
+
+msgid "{} 강도를 적용했습니다."
+msgstr "Applied {} strength."
+
+msgid "모아치기 조합창을 {}ms 로 설정했습니다."
+msgstr "Set the moachigi combine window to {}ms."
+
+msgid "잘못된 오타 교정 토글 키(무시됨): {} — 예: Shift+F8, Ctrl+Left"
+msgstr "Invalid AutoTypeFix toggle key(s) (ignored): {} — e.g. Shift+F8, Ctrl+Left"
+
+msgid "잘못된 한/영 토글 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Korean, RightAlt"
+msgstr ""
+"Invalid Han/Eng toggle key(s) (ignored): {} — combos are not supported. e.g. "
+"Korean, RightAlt"
+
+msgid "잘못된 한자 변환 키(무시됨): {} — 조합 키는 쓸 수 없습니다. 예: Hanja, F9"
+msgstr ""
+"Invalid Hanja key(s) (ignored): {} — combos are not supported. e.g. Hanja, F9"
+
+msgid "잘못된 자동 영문 트리거 키(무시됨): {} — 예: key:Escape, char:/, key:Ctrl+B"
+msgstr ""
+"Invalid auto-English trigger key(s) (ignored): {} — e.g. key:Escape, char:/, "
+"key:Ctrl+B"
+
+msgid "무시된 키 표기가 있습니다 — {}"
+msgstr "Some key specs will be ignored — {}"
+
+msgid "{}: 유효한 키가 하나도 없어 저장하지 않았습니다 — 마지막 저장값이 유지됩니다"
+msgstr "{}: no valid key in the list, so nothing was saved — the last saved value is kept"
+
+msgid "{}    [{} · {}]    감지 {}회"
+msgstr "{}    [{} · {}]    {} hits"
+
+msgid "UNIM 설정"
+msgstr "UNIM Settings"
+
+msgid "설정"
+msgstr "Settings"
+
+msgid "일반"
+msgstr "General"
+
+msgid "오타 교정"
+msgstr "Typo Correction"
+
+msgid "억제 단어"
+msgstr "Suppressed Words"
+
+msgid "사용자 사전"
+msgstr "User Dictionary"
+
+msgid "입력기"
+msgstr "Input Method"
+
+msgid "한글 자판"
+msgstr "Korean Layout"
+
+msgid "한글 입력 시 사용할 자판 배열을 선택합니다."
+msgstr "Choose the keyboard layout to use for Korean input."
+
+msgid "한 손 · 고정키 추천"
+msgstr "One-handed / sticky-keys friendly"
+
+msgid "Shift 를 거의 누르지 않도록 배열돼 한 손 입력이나 고정키(sticky keys) 사용, 손목 부담이 큰 사용자에게 적합합니다."
+msgstr "Arranged so Shift is rarely needed, making it suitable for one-handed input, sticky keys, or users with wrist strain."
+
+msgid "영문 자판"
+msgstr "English Layout"
+
+msgid "영문 입력 시 사용할 자판 배열을 선택합니다."
+msgstr "Choose the keyboard layout to use for English input."
+
+msgid "한글 확정 단위"
+msgstr "Korean Commit Unit"
+
+msgid "한글 조합을 음절마다 확정할지, 단어 단위로 모아 확정할지 선택합니다. 스마트는 앱에 따라 자동 선택합니다(MS Word 등은 단어 단위). 터미널(ghostty·GNOME Terminal 등)·XIM·ibus 호환 경로에서는 안전을 위해 항상 음절 단위로 동작합니다."
+msgstr "Choose whether to commit Korean composition per syllable or gather it per word. Smart selects automatically per app (MS Word and similar use word units). In terminals (ghostty, GNOME Terminal, etc.), XIM, and ibus-compatible paths, it always commits per syllable for safety."
+
+msgid "단어 모드 앱"
+msgstr "Word-mode Apps"
+
+msgid "스마트 확정 단위에서 단어 단위로 조합할 앱을 쉼표로 구분해 지정합니다(정확일치 — Windows: 실행 파일명 예 winword.exe, Linux: 앱 ID 예 soffice). 기본값: winword.exe. Linux에서는 터미널·XIM에는 적용되지 않습니다."
+msgstr "Comma-separated apps that compose per word under the Smart commit unit (exact match — Windows: executable name, e.g. winword.exe; Linux: app ID, e.g. soffice). Default: winword.exe. On Linux this does not apply to terminals or XIM."
+
+msgid "예: winword.exe, soffice"
+msgstr "e.g. winword.exe, soffice"
+
+msgid "시작 입력 모드"
+msgstr "Startup Input Mode"
+
+msgid "입력기가 켜질 때 기본으로 사용할 모드입니다."
+msgstr "The mode used by default when the input method turns on."
+
+msgid "모드 공유"
+msgstr "Mode Sharing"
+
+msgid "한/영 모드를 모든 앱에서 공유할지, 앱별로 분리할지 선택합니다."
+msgstr "Choose whether the Korean/English mode is shared across all apps or kept separate per app."
+
+msgid "자판 옵션"
+msgstr "Layout Options"
+
+msgid "모아치기 (모아 입력)"
+msgstr "Moachigi (Combined Input)"
+
+msgid "모아치기 사용"
+msgstr "Use Moachigi"
+
+msgid "여러 자모를 거의 동시에 눌러 한 음절로 모아 입력합니다. 조합창 시간 안에 들어온 키를 함께 처리합니다."
+msgstr "Press several jamo almost simultaneously to gather them into one syllable. Keys arriving within the combine window are processed together."
+
+msgid "양방향 자모 결합"
+msgstr "Bidirectional jamo combine"
+
+msgid "ㅎ→ㄱ을 ㅋ로 결합 (풀어쓰기·모아쓰기 모두 적용). 모아치기 없이 순차 입력만 써도 적용됩니다."
+msgstr "Combines ㅎ→ㄱ into ㅋ (both sequential and chord input). Applies even without moachigi, using sequential typing alone."
+
+msgid "조합창 (ms)"
+msgstr "Combine Window (ms)"
+
+msgid "이 시간(밀리초) 안에 눌린 키를 한 음절로 모읍니다. 값이 클수록 천천히 눌러도 함께 인식되지만, 서로 다른 음절이 합쳐질 수 있습니다. 권장 60ms, 범위 10~200ms."
+msgstr "Keys pressed within this time (milliseconds) are gathered into one syllable. Higher values recognize slower presses together but may merge separate syllables. Recommended 60ms, range 10-200ms."
+
+msgid "모아치기 조합창"
+msgstr "Moachigi combine window"
+
+msgid "키 설정"
+msgstr "Key Settings"
+
+msgid "한/영 토글 키"
+msgstr "Korean/English Toggle Key"
+
+msgid "쉼표로 구분해 여러 키를 지정할 수 있습니다."
+msgstr "You can specify multiple keys separated by commas."
+
+msgid "예: Korean, RightAlt"
+msgstr "e.g. Korean, RightAlt"
+
+msgid "한자 변환 키"
+msgstr "Hanja Conversion Key"
+
+msgid "한글을 한자로 변환할 때 사용할 키입니다."
+msgstr "The key used to convert Hangul to Hanja."
+
+msgid "예: Hanja, F9"
+msgstr "e.g. Hanja, F9"
+
+msgid "자동 영문 전환"
+msgstr "Auto English Switch"
+
+msgid "자동 영문 전환 사용"
+msgstr "Use Auto English Switch"
+
+msgid "특정 키 입력 시 자동으로 영문 모드로 전환합니다."
+msgstr "Automatically switch to English mode when a specific key is pressed."
+
+msgid "트리거 키"
+msgstr "Trigger Key"
+
+msgid "자동 영문 전환을 발동할 키입니다. key:Ctrl+B 같은 조합도 지원합니다."
+msgstr "The key that triggers the auto English switch. Combinations like key:Ctrl+B are also supported."
+
+msgid "예: key:Escape, char:/, key:Ctrl+B"
+msgstr "e.g. key:Escape, char:/, key:Ctrl+B"
+
+msgid "접근성"
+msgstr "Accessibility"
+
+msgid "원클릭 프리셋으로 접근성 관련 설정을 한 번에 맞출 수 있습니다. 적용 후 아래 개별 항목에서 세부 조정도 가능합니다."
+msgstr "One-click presets configure accessibility-related settings at once. After applying, you can fine-tune the individual items below."
+
+msgid "한 손 사용"
+msgstr "One-handed"
+
+msgid "한 손 사용 프리셋 적용"
+msgstr "Apply the one-handed preset"
+
+msgid "넉넉한 타이밍"
+msgstr "Relaxed timing"
+
+msgid "넉넉한 타이밍 프리셋 적용"
+msgstr "Apply the relaxed-timing preset"
+
+msgid "‘한 손 사용’: 세벌식 순아래 자판 + 비수정자 토글키 + 모아치기 끔 + 자동반복 억제.  ‘넉넉한 타이밍’: 자동반복 억제 + 오타 교정 판정 시간 확대 + 모아치기 조합창을 넉넉하게(지원 자판)."
+msgstr "'One-handed': Sebeolsik Sun-arae layout + non-modifier toggle key + moachigi off + key-repeat suppression.  'Relaxed timing': key-repeat suppression + a longer typo-correction decision window + a wider moachigi combine window (on supported layouts)."
+
+msgid "한/영 전환 소리 알림"
+msgstr "Korean/English Switch Sound"
+
+msgid "한/영을 전환할 때 짧은 비프음(한글=높은 음, 영문=낮은 음)으로 현재 모드를 알립니다. 화면을 보지 않고도 모드를 확인할 수 있습니다."
+msgstr "Announces the current mode with a short beep when switching Korean/English (Korean = high tone, English = low tone). Lets you confirm the mode without looking at the screen."
+
+msgid "조합키 자동반복 억제"
+msgstr "Suppress Composition-key Auto-repeat"
+
+msgid "키를 누르고 있을 때 발생하는 자동반복을 무시해 자모 연타·한/영 토글 진동을 막습니다. 편집키(백스페이스·방향키)와 영문 입력의 반복은 유지됩니다. 지체장애 사용자를 위한 기능입니다."
+msgstr "Ignores auto-repeat while a key is held to prevent jamo repetition and Korean/English toggle flicker. Repeat for editing keys (Backspace, arrows) and English input is preserved. A feature for users with motor disabilities."
+
+msgid "자동 오타 교정(AutoTypeFix) 사용"
+msgstr "Use Auto Typo Correction (AutoTypeFix)"
+
+msgid "한/영 전환을 깜빡한 오타를 자동으로 교정합니다."
+msgstr "Automatically corrects typos caused by forgetting to switch Korean/English."
+
+msgid "자동 오타 교정 사용"
+msgstr "Use auto typo correction"
+
+msgid "교정 강도"
+msgstr "Correction Strength"
+
+msgid "미리 준비된 강도를 고르면 임계값·단어 길이·감지창이 한 번에 맞춰집니다. 세부 값은 아래 '고급 설정'에서 조정할 수 있습니다."
+msgstr "Choosing a preset strength sets the threshold, word length, and detection window at once. You can adjust the details under 'Advanced Settings' below."
+
+msgid "보수적 강도 적용"
+msgstr "Apply conservative strength"
+
+msgid "표준 강도 적용"
+msgstr "Apply standard strength"
+
+msgid "적극적 강도 적용"
+msgstr "Apply aggressive strength"
+
+msgid "교정 방향"
+msgstr "Correction Direction"
+
+msgid "영문으로 잘못 입력한 글자를 한글로 교정합니다."
+msgstr "Corrects characters mistyped in English back into Korean."
+
+msgid "정방향 교정"
+msgstr "Forward correction"
+
+msgid "한글로 잘못 입력한 글자를 영문으로 교정합니다."
+msgstr "Corrects characters mistyped in Korean back into English."
+
+msgid "역방향 교정"
+msgstr "Reverse correction"
+
+msgid "고급 설정"
+msgstr "Advanced Settings"
+
+msgid "임계값·감지창·세부 옵션을 직접 조정합니다. 대부분은 위 '교정 강도' 프리셋으로 충분합니다."
+msgstr "Adjust thresholds, detection windows, and detailed options directly. For most users the 'Correction Strength' presets above are enough."
+
+msgid "숨기기"
+msgstr "Collapse"
+
+msgid "펼치기"
+msgstr "Expand"
+
+msgid "고급 설정 펼치기 또는 숨기기"
+msgstr "Expand or collapse advanced settings"
+
+msgid "임계값"
+msgstr "Thresholds"
+
+msgid "한글 음절 임계값"
+msgstr "Korean Syllable Threshold"
+
+msgid "이 음절 수 이상 모이면 교정 후보로 판정합니다."
+msgstr "Treated as a correction candidate once at least this many syllables accumulate."
+
+msgid "영문 단어 최소 길이"
+msgstr "English Word Minimum Length"
+
+msgid "이 길이 이상의 영문 단어만 교정 대상으로 봅니다."
+msgstr "Only English words at least this long are considered for correction."
+
+msgid "정방향 감지창 (ms)"
+msgstr "Forward Detection Window (ms)"
+
+msgid "입력 후 이 시간 안에 정방향 교정을 판정합니다."
+msgstr "Forward correction is decided within this time after input."
+
+msgid "정방향 감지창"
+msgstr "Forward detection window"
+
+msgid "역방향 감지창 (ms)"
+msgstr "Reverse Detection Window (ms)"
+
+msgid "입력 후 이 시간 안에 역방향 교정을 판정합니다."
+msgstr "Reverse correction is decided within this time after input."
+
+msgid "역방향 감지창"
+msgstr "Reverse detection window"
+
+msgid "임시 항목 만료 (시간)"
+msgstr "Tentative Entry Expiry (hours)"
+
+msgid "임시 학습 항목을 이 시간 후 정리합니다."
+msgstr "Tentative learned entries are cleaned up after this time."
+
+msgid "임시 항목 만료"
+msgstr "Tentative entry expiry"
+
+msgid "관찰 타임아웃 (초)"
+msgstr "Observation Timeout (sec)"
+
+msgid "판정 전 입력을 관찰하는 최대 시간입니다."
+msgstr "Maximum time to observe input before deciding."
+
+msgid "관찰 타임아웃"
+msgstr "Observation timeout"
+
+msgid "옵션"
+msgstr "Options"
+
+msgid "영어 단어는 교정 건너뛰기"
+msgstr "Skip correction for English words"
+
+msgid "사전에 있는 영어 단어는 교정하지 않습니다."
+msgstr "English words found in the dictionary are not corrected."
+
+msgid "완성된 음절은 교정 건너뛰기"
+msgstr "Skip correction for complete syllables"
+
+msgid "이미 완성된 한글 음절은 교정 대상에서 제외합니다."
+msgstr "Already-complete Hangul syllables are excluded from correction."
+
+msgid "되돌리기(롤백) 감지"
+msgstr "Rollback Detection"
+
+msgid "사용자가 교정을 되돌리면 학습해 재교정을 막습니다."
+msgstr "Learns when you undo a correction to avoid re-correcting it."
+
+msgid "되돌리기 감지"
+msgstr "Rollback detection"
+
+msgid "사용자 사전 사용"
+msgstr "Use User Dictionary"
+
+msgid "사용자 사전에 등록한 단어를 교정에 반영합니다."
+msgstr "Applies words registered in the user dictionary to correction."
+
+msgid "기본값으로 복원"
+msgstr "Restore Defaults"
+
+msgid "오타 교정 관련 설정을 처음 상태로 되돌립니다. 되돌린 뒤 5초 안에 다시 취소할 수 있습니다."
+msgstr "Restores typo-correction settings to their initial state. You can cancel again within 5 seconds after restoring."
+
+msgid "오타 교정 기본값으로 복원"
+msgstr "Restore typo-correction defaults"
+
+msgid "자동 교정에서 제외할(억제) 단어 목록입니다. 변경 즉시 적용됩니다."
+msgstr "List of words excluded (suppressed) from auto-correction. Changes apply immediately."
+
+msgid "선택 삭제"
+msgstr "Delete Selected"
+
+msgid "모두 삭제"
+msgstr "Delete All"
+
+msgid "억제 단어를 모두 삭제합니다. 삭제 후 5초 안에 되돌릴 수 있습니다."
+msgstr "Delete all suppressed words. You can undo within 5 seconds after deleting."
+
+msgid "역방향 교정에서 영문으로 보존할 단어입니다. 변경 즉시 적용됩니다."
+msgstr "Words to keep as English during reverse correction. Changes apply immediately."
+
+msgid "단어 추가"
+msgstr "Add Word"
+
+msgid "단어"
+msgstr "Word"
+
+msgid "역방향 교정에서 영문으로 보존할 단어입니다."
+msgstr "A word to keep as English during reverse correction."
+
+msgid "추가할 단어"
+msgstr "Word to add"
+
+msgid "메모"
+msgstr "Note"
+
+msgid "단어를 구분하기 위한 선택 사항입니다."
+msgstr "Optional, to help you tell words apart."
+
+msgid "메모(선택)"
+msgstr "Note (optional)"
+
+msgid "추가"
+msgstr "Add"
+
+msgid "삭제 확인"
+msgstr "Confirm Deletion"
+
+msgid "취소"
+msgstr "Cancel"
+
+msgid "삭제 취소"
+msgstr "Cancel deletion"
+
+msgid "삭제"
+msgstr "Delete"
+
+msgid "모두 삭제 확인"
+msgstr "Confirm delete all"
+
+msgid "되돌리기"
+msgstr "Undo"
+
+msgid "삭제 되돌리기"
+msgstr "Undo deletion"
+
+msgid "설정 검색"
+msgstr "Search settings"
+
+msgid "시간"
+msgstr "h"
+
+msgid "초"
+msgstr "s"
+
+# ── 설치 마법사(--first-run / --whats-new) ──
+
+msgid "새로운 기능"
+msgstr "What's New"
+
+msgid "설치 마법사"
+msgstr "Setup Wizard"
+
+msgid "UNIM 이 업데이트되었습니다"
+msgstr "UNIM has been updated"
+
+msgid "UNIM 을 시작합니다"
+msgstr "Getting started with UNIM"
+
+msgid "이번 업데이트로 달라진 점과 확인이 필요한 설정을 안내합니다. 몇 단계만 거치면 됩니다."
+msgstr "This will walk you through what changed in this update and any settings worth reviewing. Just a few steps."
+
+msgid "UNIM 은 가볍고 빠른 한국어 입력기입니다. 처음 사용을 위해 몇 가지만 함께 확인하겠습니다. 언제든 [이전]으로 돌아갈 수 있고, 설정은 [마침]을 눌러야 저장됩니다."
+msgstr "UNIM is a light, fast Korean input method. Let's set up a few things for first use. You can go [Back] anytime, and nothing is saved until you press [Finish]."
+
+msgid "라이선스"
+msgstr "License"
+
+msgid "UNIM 은 MIT 라이선스로 배포되는 자유·오픈소스 소프트웨어입니다. 누구나 자유롭게 사용·복사·수정·배포할 수 있으며, 별도의 동의 절차는 필요하지 않습니다."
+msgstr "UNIM is free and open-source software released under the MIT License. Anyone may freely use, copy, modify, and distribute it; no separate acceptance step is required."
+
+msgid "본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 설치 폴더의 LICENSE 파일에서 확인할 수 있습니다."
+msgstr "The software is provided 'as is', without warranty of any kind. The full license text is available in the LICENSE file in the install folder."
+
+msgid "한국어 언어팩"
+msgstr "Korean Language Pack"
+
+msgid "이 컴퓨터에 한국어 입력이 아직 준비되지 않은 것 같습니다. UNIM 이 목록에 표시되려면 Windows 에 한국어를 추가하는 것을 권장합니다."
+msgstr "Korean input does not appear to be set up on this PC yet. To make UNIM show up in the list, we recommend adding Korean to Windows."
+
+msgid "방법: 설정 → 시간 및 언어 → 언어 및 지역 → 언어 추가에서 '한국어'를 선택합니다."
+msgstr "How to: Settings -> Time & language -> Language & region -> Add a language, then choose 'Korean'."
+
+msgid "언어 설정 열기"
+msgstr "Open Language Settings"
+
+msgid "Windows 언어 설정 열기"
+msgstr "Open Windows language settings"
+
+msgid "기본 입력기"
+msgstr "Default Input Method"
+
+msgid "UNIM 을 한국어의 기본 입력기로 설정하면 로그인 후 바로 한국어 입력을 사용할 수 있습니다."
+msgstr "Setting UNIM as the default Korean input method lets you type Korean right after signing in."
+
+msgid "UNIM 을 기본 입력기로 설정"
+msgstr "Set UNIM as the default input method"
+
+msgid "마침을 누를 때 한국어 기본 입력기로 지정하고, 시작 시에도 유지합니다."
+msgstr "On Finish, sets UNIM as the default Korean input method and keeps it on startup."
+
+# (S6) Linux 전용 문구(wiz-platform-linux ternary / 적용 시점 카드)
+msgid "본 소프트웨어는 어떠한 보증도 없이 '있는 그대로' 제공됩니다. 전체 라이선스 전문은 /usr/share/doc/unim-common/copyright 파일에서 확인할 수 있습니다."
+msgstr "The software is provided 'as is', without warranty of any kind. The full license text is available at /usr/share/doc/unim-common/copyright."
+
+msgid "마침을 누르면 im-config 로 한국어 기본 입력기로 지정됩니다. 다음 로그인부터 적용됩니다."
+msgstr "On Finish, im-config sets UNIM as the default Korean input method. It takes effect from your next login."
+
+msgid "적용 시점"
+msgstr "When it takes effect"
+
+msgid "지금 바로"
+msgstr "Right now"
+
+msgid "마침을 누르면 설정과 오타 교정 규칙이 저장됩니다."
+msgstr "Your settings and typo-correction rules are saved when you press Finish."
+
+msgid "UNIM 데몬: 실행 중 ✓"
+msgstr "UNIM daemon: running ✓"
+
+msgid "UNIM 데몬: 자동 시작 대기 중 — 재로그인 시 시작됩니다."
+msgstr "UNIM daemon: waiting to auto-start — it will start when you sign in again."
+
+msgid "UNIM 데몬: 확인 중…"
+msgstr "UNIM daemon: checking…"
+
+msgid "기본 입력기 지정 실패"
+msgstr "Could not set the default input method"
+
+msgid "기본 입력기를 자동으로 지정하지 못했습니다. [마침]을 다시 눌러 재시도하거나, 나중에 터미널에서 'im-config -n unim' 으로 직접 지정할 수 있습니다. 지정 전까지는 다음 로그인에도 이 마법사가 다시 안내합니다."
+msgstr "UNIM could not set itself as the default input method automatically. Press Finish again to retry, or set it manually later in a terminal with 'im-config -n unim'. Until it is set, this wizard will guide you again on your next login."
+
+msgid "UNIM 데몬 실행 중"
+msgstr "UNIM daemon running"
+
+msgid "UNIM 데몬 자동 시작 대기 중, 재로그인 시 시작됩니다"
+msgstr "UNIM daemon waiting to auto-start, will start when you sign in again"
+
+msgid "UNIM 데몬 상태 확인 중"
+msgstr "Checking UNIM daemon status"
+
+msgid "재로그인 후"
+msgstr "After signing in again"
+
+msgid "앱 입력창에서 한글 입력이 켜지고(입력기 환경변수 적용), 기본 입력기 지정이 반영됩니다."
+msgstr "Korean input turns on in app text fields (input-method environment variables apply), and the default input method takes effect."
+
+msgid "자동 오타 교정"
+msgstr "Auto Typo Correction"
+
+msgid "한/영 전환을 깜빡한 오타를 자동으로 교정하는 기능입니다. 사용할 방향을 선택하세요(나중에 설정에서 바꿀 수 있습니다)."
+msgstr "Automatically fixes typos caused by forgetting to switch Korean/English. Choose which directions to use (you can change this later in Settings)."
+
+msgid "정방향 교정 (영문→한글)"
+msgstr "Forward correction (English->Korean)"
+
+msgid "역방향 교정 (한글→영문)"
+msgstr "Reverse correction (Korean->English)"
+
+msgid "오교정이 생기면"
+msgstr "If a mis-correction happens"
+
+msgid "• 오타를 백스페이스로 지우고 다시 입력하면, 그 단어는 자동으로 교정에서 억제되도록 학습됩니다.\n• 설정의 '억제 단어' 탭에서 억제할 단어를 확정하거나 삭제할 수 있으며, 되돌리기를 지원합니다.\n• 역방향 교정에서 영문으로 보존할 단어는 '사용자 사전'에 등록할 수 있습니다."
+msgstr "• Delete the typo with Backspace and retype it: that word is learned and suppressed from correction.\n• In the 'Suppressed Words' tab you can confirm or remove suppressed words, with undo support.\n• Words to keep as English during reverse correction can be registered in the 'User Dictionary'."
+
+msgid "업데이트를 마쳤습니다"
+msgstr "Update complete"
+
+msgid "설정을 마쳤습니다"
+msgstr "Setup complete"
+
+msgid "이제 UNIM 을 사용할 준비가 되었습니다. 주요 기능을 요약합니다:"
+msgstr "UNIM is ready to use. Here's a quick summary of what it offers:"
+
+msgid "• 한/영 토글 키로 손쉽게 전환\n• 자동 오타 교정으로 한/영 전환 실수 자동 복구\n• 세벌식·모아치기 등 다양한 자판과 접근성 프리셋\n• 한자 변환과 사용자 사전\n• 변경 즉시 저장되는 설정 GUI"
+msgstr "• Easy Korean/English switching with the toggle key\n• Auto typo correction recovers switch mistakes\n• Many layouts (Sebeolsik, Moachigi) and accessibility presets\n• Hanja conversion and a user dictionary\n• A settings GUI that saves changes instantly"
+
+msgid "설정 열기"
+msgstr "Open Settings"
+
+msgid "마침 후 UNIM 설정 창을 이어서 엽니다."
+msgstr "Opens the UNIM settings window after finishing."
+
+msgid "마침 후 설정 열기"
+msgstr "Open settings after finishing"
+
+msgid "이전"
+msgstr "Back"
+
+msgid "이전 단계"
+msgstr "Previous step"
+
+msgid "마침"
+msgstr "Finish"
+
+msgid "다음"
+msgstr "Next"
+
+msgid "마법사 마침"
+msgstr "Finish the wizard"
+
+msgid "다음 단계"
+msgstr "Next step"
+
+msgid "선택 영구 활성"
+msgstr "Activate Permanently"
+
+msgid "억제 단어를 영구 활성했습니다."
+msgstr "Suppressed word permanently activated."
+
+msgid "토글 단축키"
+msgstr "Toggle Shortcuts"
+
+msgid "지정한 키를 누르면 오타 교정을 즉시 켜거나 끕니다. 비워 두면 사용하지 않습니다. Shift+F9 처럼 수정자 조합도 쓸 수 있습니다."
+msgstr "Pressing the assigned key toggles typo correction on or off. Leave empty to disable. Modifier combos such as Shift+F9 are supported."
+
+msgid "전체 켜기·끄기"
+msgstr "Overall on/off"
+
+msgid "자동 오타 교정 전체를 토글합니다."
+msgstr "Toggles Auto TypeFix as a whole."
+
+msgid "예: F10, Shift+F9"
+msgstr "e.g. F10, Shift+F9"
+
+msgid "전체 토글 단축키"
+msgstr "Overall toggle shortcut"
+
+msgid "정방향 켜기·끄기"
+msgstr "Forward on/off"
+
+msgid "정방향(영→한) 교정만 토글합니다."
+msgstr "Toggles forward (EN→KO) correction only."
+
+msgid "정방향 토글 단축키"
+msgstr "Forward toggle shortcut"
+
+msgid "역방향 켜기·끄기"
+msgstr "Reverse on/off"
+
+msgid "역방향(한→영) 교정만 토글합니다."
+msgstr "Toggles reverse (KO→EN) correction only."
+
+msgid "역방향 토글 단축키"
+msgstr "Reverse toggle shortcut"
+
+# ── 앱별 강제 모드 (F1) ──
+
+msgid "영문"
+msgstr "English"
+
+msgid "한글"
+msgstr "Korean"
+
+msgid "앱별 강제 모드"
+msgstr "Per-app Forced Mode"
+
+msgid "특정 앱에서 항상 지정한 모드로 시작하도록 규칙을 정합니다. 앱 패턴은 창 식별자(window_id)나 클라이언트 이름에 대한 부분 일치입니다. 예: firefox, org.gnome. '모드 공유'가 '앱별 분리'일 때 효과가 큽니다."
+msgstr "Define rules so certain apps always start in the mode you choose. The app pattern is a substring match against the window ID (window_id) or client name — e.g. firefox, org.gnome. It has the most effect when 'Mode Sharing' is set to 'Separate per app'."
+
+msgid "앱 패턴 (예: firefox)"
+msgstr "App pattern (e.g. firefox)"
+
+msgid "앱 패턴"
+msgstr "App pattern"
+
+msgid "강제 모드"
+msgstr "Forced mode"
+
+msgid "이 규칙 삭제"
+msgstr "Delete this rule"
+
+msgid "규칙 추가"
+msgstr "Add rule"
+
+msgid "앱별 강제 모드 규칙 추가"
+msgstr "Add a per-app forced mode rule"
+
+msgid "도움말"
+msgstr "Help"
+
+msgid "사용 설명서 열기"
+msgstr "Open the user manual"
+
+# UX-SHARED-V02: Windows 는 조합 트리거(key:Ctrl+B) 미지원 — 조합 없는 예시 변형.
+msgid "잘못된 자동 영문 트리거 키(무시됨): {} — 예: key:Escape, char:/"
+msgstr "Invalid auto-English trigger key(s) (ignored): {} — e.g. key:Escape, char:/"
+
+msgid "자동 영문 전환을 발동할 키입니다."
+msgstr "The key that triggers the auto English switch."
+
+msgid "예: key:Escape, char:/"
+msgstr "e.g. key:Escape, char:/"
+
+# BLOCKER-1(GAP-first-run-lifecycle-01): im-config 부재 배포판(Fedora 등) 안내 카드.
+msgid "수동 설정 필요"
+msgstr "Manual setup required"
+
+msgid "이 배포판에는 im-config 가 없어 기본 입력기를 자동으로 지정할 수 없습니다. 데스크톱 환경의 입력기 설정에서 UNIM 을 직접 선택하세요. 이 안내는 이번 1회만 표시됩니다."
+msgstr "This distribution doesn't have im-config, so UNIM can't set itself as the default input method automatically. Select UNIM directly in your desktop environment's input method settings. This notice is shown only this once."
+
+msgid "[마침]을 다시 누르면 이 단계를 건너뛰고 마칩니다."
+msgstr "Click Finish again to skip this step and complete the wizard."
+
+# BLOCKER-2(GAP-first-run-lifecycle-02): GNOME Shell(Wayland) 확장 활성화 안내 카드.
+msgid "GNOME 확장 활성화 필요"
+msgstr "GNOME extension needs to be enabled"
+
+msgid "GNOME(Wayland) 세션에서는 한/영 조합과 한자 팝업을 위해 확장을 한 번 활성화해야 합니다."
+msgstr "On a GNOME (Wayland) session, the extension must be enabled once for Korean/English composition and the Hanja popup to work."
+
+msgid "재로그인 후 한 번만 실행하세요:"
+msgstr "After logging back in, run this once:"
+
+# GAP-first-run-and-uninstall-lifecycle-02: 51자 명령을 직접 타이핑하지 않도록
+# 읽기 전용 LineEdit + 복사 버튼 제공.
+msgid "GNOME 확장 활성화 명령"
+msgstr "GNOME extension enable command"
+
+msgid "GNOME 확장 활성화 명령 클립보드에 복사"
+msgstr "Copy GNOME extension enable command to clipboard"
+
+msgid "명령 복사"
+msgstr "Copy command"
+
+msgid "명령을 클립보드에 복사했습니다."
+msgstr "Copied the command to the clipboard."
+
+# GAP-first-06: ibus/fcitx 공존 감지 경고 카드.
+msgid "다른 입력기 프레임워크 감지됨"
+msgstr "Another input method framework detected"
+
+msgid "ibus 또는 fcitx 가 현재 실행 중입니다. 재로그인하면 UNIM 이 기본 입력기가 되며, 대개 자동으로 정리됩니다. 재로그인 후에도 한/영 전환이 되지 않으면 두 프레임워크 중 하나만 남기고 다시 재로그인하세요."
+msgstr "ibus or fcitx is currently running. Logging back in will make UNIM the default input method, and this usually clears up on its own. If Korean/English switching still doesn't work after logging back in, keep only one of the frameworks and log back in again."

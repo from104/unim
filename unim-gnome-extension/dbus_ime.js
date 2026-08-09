@@ -9,7 +9,6 @@
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
-import Meta from 'gi://Meta';
 import { unimLog, unimError } from './logging.js';
 
 /** DBus 서비스 상수 */
@@ -17,6 +16,12 @@ const UNIM_BUS_NAME = 'org.atit.unim.InputMethod';
 const UNIM_OBJECT_PATH = '/org/atit/unim/InputMethod';
 const UNIM_IM_INTERFACE = 'org.atit.unim.InputMethod';
 const UNIM_IC_INTERFACE = 'org.atit.unim.InputContext';
+
+// popup-service Popup interface — ShowEmojiPopupV2 / HidePopup signal 구독 대상.
+// daemon InputContext 의 popup signal 표면은 popup-service 가 mediator 로 격리.
+const POPUP_SERVICE_BUS = 'org.atit.unim.PopupService';
+const POPUP_OBJECT_PATH = '/org/atit/unim/popup';
+const POPUP_INTERFACE = 'org.atit.unim.Popup';
 
 /** DBus 호출 타임아웃 (밀리초). 입력 지연을 최소화하기 위해 짧게 설정. */
 const DBUS_TIMEOUT_MS = 500;
@@ -63,6 +68,10 @@ export class UnimDbusIME {
         this._onHanjaCandidatesReordered = null;
         /** @type {Function|null} AutoTypeFix 교정 콜백 */
         this._onAutoTypeFix = null;
+        /** @type {Function|null} CommitText 시그널 콜백 (chord idle flush 등 비동기 commit 경로) */
+        this._onCommitText = null;
+        /** @type {Function|null} UpdatePreeditText 시그널 콜백 (chord idle flush preedit 갱신 등) */
+        this._onUpdatePreedit = null;
         /** @type {Function|null} Config 갱신 콜백 (parsed JSON object) */
         this._onConfigChanged = null;
         /** @type {object|null} 캐시된 Config (GetConfigJson / ConfigChangedJson payload) */
@@ -180,6 +189,8 @@ export class UnimDbusIME {
         this._onHanjaBookmarkChanged = callbacks.onHanjaBookmarkChanged || null;
         this._onHanjaCandidatesReordered = callbacks.onHanjaCandidatesReordered || null;
         this._onPopupRender = callbacks.onPopupRender || null;
+        this._onCommitText = callbacks.onCommitText || null;
+        this._onUpdatePreedit = callbacks.onUpdatePreedit || null;
     }
 
     /**
@@ -258,32 +269,101 @@ export class UnimDbusIME {
             }
         );
 
-        // 모든 InputContext의 팝업 시그널을 글로벌 구독
-        // Wayland에서만 활성: 다른 프론트엔드(XIM/GTK/Qt)의 팝업을 GNOME extension이 표시
-        // X11에서는 gui-gtk가 팝업을 처리하므로 글로벌 구독 불필요 (중복 팝업 방지)
+        // AutoTypefixApply 글로벌 구독 — 자기 context 의 g-signal proxy 가 introspection
+        // 미등록 signal 을 누락할 수 있어 별도 구독.
         const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
         this._popupSignalId = bus.signal_subscribe(
             UNIM_BUS_NAME,
             UNIM_IC_INTERFACE,
-            null,   // 모든 시그널
-            null,   // 모든 object path
+            'AutoTypefixApply',
+            null,
             null,
             Gio.DBusSignalFlags.NONE,
             (_conn, _sender, path, _iface, signalName, parameters) => {
                 const isOwn = (path === this._contextPath);
-                // AutoTypefixApply는 자기 context도 글로벌 구독에서 처리
-                // (g-signal proxy가 introspection 미등록 시그널을 전달하지 않을 수 있음)
-                if (signalName === 'AutoTypefixApply' && isOwn) {
+                if (isOwn) {
                     this._handleContextSignal(signalName, parameters, true);
-                    return;
                 }
-                // 자기 context의 다른 시그널은 _icProxy g-signal에서 이미 처리
-                if (isOwn) return;
-                // X11에서는 gui-gtk가 팝업을 담당하므로 스킵 (중복 팝업 방지)
-                if (!Meta.is_wayland_compositor()) return;
-                this._handleContextSignal(signalName, parameters, false);
             }
         );
+
+        // popup-service Popup interface signal 구독 — ShowEmojiPopupV2 / HidePopup 만
+        // 활용 (Wayland text-input v3 IM 세션 engage 용 ZWSP preedit 트릭). 한자/특수
+        // popup signal 은 popup-service 가 자체 GTK4 popup 으로 표시하므로 GNOME ext
+        // 는 처리 불요.
+        this._popupServiceSignalId = bus.signal_subscribe(
+            POPUP_SERVICE_BUS,
+            POPUP_INTERFACE,
+            null,                  // ShowEmojiPopupV2 / HidePopup 모두 받음 (signal 명 분기는 핸들러)
+            POPUP_OBJECT_PATH,
+            null,
+            Gio.DBusSignalFlags.NONE,
+            (_conn, _sender, _path, _iface, signalName, parameters) => {
+                this._handlePopupServiceSignal(signalName, parameters);
+            }
+        );
+    }
+
+    /**
+     * popup-service `org.atit.unim.Popup` signal 처리.
+     *
+     * GNOME Wayland 환경에서는 Mutter 가 wlr-layer-shell·xdg_popup·input_popup_v2 모두
+     * 지원 안 해서 popup-service GTK4 popup 이 화면에 표시되지 않는다. 따라서
+     * extension 이 popup-service signal 을 받아 St 위젯으로 직접 렌더한다 — 단,
+     * popup-service 는 여전히 origin (signal 발행 + RPC 수신) 이며 SoT 는 daemon
+     * 의 PopupRenderPayload 1개. extension 은 평면 payload 를 그대로 그리는
+     * thin renderer 일 뿐 자체 상태 절대 보유 안 함.
+     *
+     * 처리 대상:
+     *   ShowHanjaPopup / ShowSpecialPopup / ShowEmojiPopupV2 → cursor 좌표로 popup show
+     *   HidePopup                                           → hide
+     *   PopupRender                                         → grid/header/footer/tabs 갱신
+     *   PopupNavigate                                       → 무시 (PopupRender 가 동반 발행됨)
+     *   HanjaBookmarkChanged / HanjaCandidatesReordered     → 무시 (동일)
+     * @private
+     */
+    _handlePopupServiceSignal(signalName, parameters) {
+        try {
+            if (signalName === 'ShowHanjaPopup' && this._onShowHanja) {
+                // (target, candidates, top_row, x, y, w, h)
+                this._onShowHanja(this._extractCursor(parameters, 3));
+            } else if (signalName === 'ShowSpecialPopup' && this._onShowSpecial) {
+                this._onShowSpecial(this._extractCursor(parameters, 3));
+            } else if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
+                // (target, items, top_row, recent, categories, x, y, w, h, home_row)
+                this._onShowEmoji(this._extractCursor(parameters, 5));
+            } else if (signalName === 'HidePopup' && this._onHidePopup) {
+                this._onHidePopup();
+            } else if (signalName === 'PopupRender' && this._onPopupRender) {
+                this._onPopupRender(parameters);
+            }
+            // PopupNavigate / HanjaBookmarkChanged / HanjaCandidatesReordered 는
+            // PopupRender 가 동반 발행되므로 별도 처리 불요.
+        } catch (e) {
+            unimError('DBUS_IME', `popup-service signal 처리 오류 (${signalName}): ${e.message}`);
+        }
+    }
+
+    /**
+     * Show*Popup tuple 에서 cursor (x, y, w, h) 추출.
+     * @param {GLib.Variant} parameters
+     * @param {number} base - cursor.x 시작 인덱스 (Hanja/Special=3, Emoji=5)
+     * @returns {{x:number,y:number,width:number,height:number}|null}
+     * @private
+     */
+    _extractCursor(parameters, base) {
+        try {
+            const arr = parameters.deep_unpack();
+            return {
+                x: arr[base],
+                y: arr[base + 1],
+                width: arr[base + 2],
+                height: arr[base + 3],
+            };
+        } catch (e) {
+            unimError('DBUS_IME', `cursor 추출 실패: ${e.message}`);
+            return null;
+        }
     }
 
     /**
@@ -293,103 +373,28 @@ export class UnimDbusIME {
      * @private
      */
     _handleContextSignal(signalName, parameters, isOwnContext = false) {
+        // popup 관련 signal (ShowHanjaPopup / ShowSpecialPopup / ShowEmojiPopupV2 /
+        // HidePopup / PopupNavigate / PopupRender / HanjaBookmarkChanged /
+        // HanjaCandidatesReordered) 은 popup-service `org.atit.unim.Popup` interface
+        // 가 단일 SoT. GNOME ext 는 popup-service 측 구독 핸들러
+        // _handlePopupServiceSignal 에서 ZWSP preedit 트릭만 처리.
         try {
-            if (signalName === 'ShowHanjaPopup' && this._onShowHanja) {
-                // 7-tuple: 활성 영문 키맵의 top_row를 5번째 인자로 받아 9x9 컬럼 헤더 동기화
-                const [target, candidatesRaw, topRow, cx, cy, cw, ch] = parameters.deep_unpack();
-                const candidates = candidatesRaw.map(([hanja, meaning]) => ({
-                    hanja, meaning,
-                }));
-                const cursorRect = isOwnContext
-                    ? { x: cx, y: cy, width: cw, height: ch }
-                    : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowHanja(target, candidates, topRow, cursorRect);
-            } else if (signalName === 'ShowSpecialPopup' && this._onShowSpecial) {
-                const [target, characters, topRow, cx, cy, cw, ch] = parameters.deep_unpack();
-                const cursorRect = isOwnContext
-                    ? { x: cx, y: cy, width: cw, height: ch }
-                    : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowSpecial(target, characters, topRow, cursorRect);
-            } else if (signalName === 'ShowEmojiPopupV2' && this._onShowEmoji) {
-                // payload: (target_cat_id, items, top_row, recent, categories, x, y, w, h, home_row)
-                // categories 는 (id, ko, en, count) 튜플 9개.
-                // home_row 는 카테고리 단축키 표시용 9 문자 (영문 키맵별 변환).
-                const [
-                    targetCatId,
-                    items,
-                    topRow,
-                    recent,
-                    categoriesRaw,
-                    cx, cy, cw, ch,
-                    homeRow,
-                ] = parameters.deep_unpack();
-                const cursorRect = isOwnContext
-                    ? { x: cx, y: cy, width: cw, height: ch }
-                    : this._adjustCursorRect(cx, cy, cw, ch);
-                this._onShowEmoji(
-                    targetCatId,
-                    items,
-                    topRow,
-                    recent,
-                    categoriesRaw,
-                    cursorRect,
-                    homeRow || ''
-                );
-            } else if (signalName === 'HidePopup' && this._onHidePopup) {
-                this._onHidePopup();
-            } else if (signalName === 'PopupNavigate' && this._onPopupNavigate) {
-                const [page, totalPages, selected, rows, cols, selRow, selCol] = parameters.deep_unpack();
-                this._onPopupNavigate(page, totalPages, selected, rows, cols, selRow, selCol);
-            } else if (signalName === 'HanjaBookmarkChanged' && this._onHanjaBookmarkChanged) {
-                const [index, bookmarked] = parameters.deep_unpack();
-                this._onHanjaBookmarkChanged(index, bookmarked);
-            } else if (signalName === 'HanjaCandidatesReordered' && this._onHanjaCandidatesReordered) {
-                // Phase 1 (mouse-paginate UX): wasBookmarked (직전 상태) 추가됨.
-                // 콜백이 9-arity 이면 무시되고, 10-arity 면 활용된다 (Phase 7 visual flash).
-                const [target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked] = parameters.deep_unpack();
-                this._onHanjaCandidatesReordered(target, hanjas, meanings, bookmarks, newCursor, page, selRow, selCol, bookmarked, wasBookmarked);
-            } else if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
+            if (signalName === 'AutoTypefixApply' && isOwnContext && this._onAutoTypeFix) {
                 const [deleteChars, commitText, preeditText] = parameters.deep_unpack();
                 unimLog('DBUS_IME', `AutoTypefixApply: delete=${deleteChars}, commit='${commitText}', preedit='${preeditText}'`);
                 this._onAutoTypeFix(deleteChars, commitText, preeditText);
-            } else if (signalName === 'PopupRender' && this._onPopupRender) {
-                // 통합 popup render state — daemon 산출 view_model. 헤더/푸터/셀/탭/확장 아이콘
-                // 모두 즉시 렌더 가능. tuple 묶음:
-                //   kind, (target,header,footer,expand_text), (rows,cols,selR,selC,page,totalPages),
-                //   (showFooter, expandVisible), cells[(text,meaning,flags)],
-                //   col_headers[(text,active)], row_headers[(text,active)], tab_labels[],
-                //   active_tab_index
-                const [
-                    kind,
-                    [target, headerText, footerText, expandText],
-                    [rows, cols, selRow, selCol, currentPage, totalPages],
-                    [showFooter, expandVisible],
-                    cells,
-                    colHeaders,
-                    rowHeaders,
-                    tabLabels,
-                    activeTabIndex,
-                ] = parameters.deep_unpack();
-                this._onPopupRender({
-                    kind,
-                    target,
-                    headerText,
-                    footerText,
-                    showFooter,
-                    rows,
-                    cols,
-                    selRow,
-                    selCol,
-                    currentPage,
-                    totalPages,
-                    cells, // [[text, meaning, flags], ...] column-major, length = rows*cols
-                    colHeaders, // [[text, isActive], ...]
-                    rowHeaders, // [[text, isActive], ...]
-                    expandVisible,
-                    expandText,
-                    tabLabels,
-                    activeTabIndex,
-                });
+            } else if (signalName === 'CommitText' && isOwnContext && this._onCommitText) {
+                // 비동기 commit 경로 (예: chord idle flush). ProcessKeyEvent return 의 commit
+                // 필드와 별개로 daemon 이 InputContext path 로 emit 한 CommitText 시그널.
+                const [text] = parameters.deep_unpack();
+                unimLog('DBUS_IME', `CommitText: text='${text}'`);
+                this._onCommitText(text);
+            } else if (signalName === 'UpdatePreeditText' && isOwnContext && this._onUpdatePreedit) {
+                // 비동기 preedit 갱신 (예: chord idle flush preedit 유지 모드).
+                // payload: (text, cursor_pos, visible).
+                const [text, cursorPos, visible] = parameters.deep_unpack();
+                unimLog('DBUS_IME', `UpdatePreeditText: text='${text}', cursor=${cursorPos}, visible=${visible}`);
+                this._onUpdatePreedit(text, cursorPos, visible);
             }
         } catch (e) {
             unimError('DBUS_IME', `시그널 처리 오류 (${signalName}): ${e.message}`);
@@ -454,6 +459,34 @@ export class UnimDbusIME {
         }
     }
 
+    /**
+     * 키 이벤트를 엔진으로 fire-and-forget 통지 (결과 무시)
+     *
+     * bare 토글 후보 수정자(Alt_R)용. 결과 무시(모드 변경은 GlobalModeChanged
+     * 시그널로 인디케이터에 반영됨). vfunc 경로 블로킹/재진입 방지 — call_sync 금지.
+     *
+     * @param {number} keyval - 키 심볼 (GDK keyval)
+     * @param {number} keycode - evdev 키코드
+     * @param {number} state - 수정자 비트필드
+     */
+    processKeyAsync(keyval, keycode, state) {
+        if (!this._icProxy) return;
+        this._icProxy.call(
+            'ProcessKeyEvent',
+            new GLib.Variant('(uuu)', [keyval >>> 0, keycode >>> 0, state >>> 0]),
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (proxy, res) => {
+                try {
+                    proxy.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `ProcessKeyAsync 실패: ${e.message}`);
+                }
+            }
+        );
+    }
+
     // ===========================================
     // 포커스 관리
     // ===========================================
@@ -500,6 +533,36 @@ export class UnimDbusIME {
         } catch (e) {
             unimError('DBUS_IME', `FocusOut 실패: ${e.message}`);
             return '';
+        }
+    }
+
+    /**
+     * 필드의 content purpose(UNIM ContentPurpose 번호 체계)를 데몬에 통지.
+     *
+     * 인자는 UNIM 번호 체계(0 Normal,1 Password,2 Pin,3 Email,4 Number,5 Url,
+     * 6 Terminal)이며, Clutter→UNIM 변환은 unim_input_method.js
+     * CLUTTER_PURPOSE_TO_UNIM 이 이미 마쳤다 — 여기서는 raw 전달만 한다.
+     * 시그니처 (u)는 unim-dbus/src/service.rs:2625 set_content_type(purpose: u32)
+     * 계약과 일치. call_sync 사용은 FocusIn/FocusOut/Reset 과 동일 패턴 — 핵심 이유는
+     * **호출 순서 보장**이다: 비동기로 보내면 FocusIn/FocusOut 과 SetContentType 의
+     * 데몬 도착 순서가 뒤집혀 purpose 가 엉뚱한 포커스 구간에 적용될 수 있다.
+     * (실패 로그는 unimError 라 UNIM_DEVELOP 세션에서만 남는다 — 일반 세션에서
+     * 실패를 관찰하려면 개발 모드 필요.)
+     * @param {number} purpose - UNIM ContentPurpose 원시값
+     */
+    setContentType(purpose) {
+        if (!this._icProxy) return;
+
+        try {
+            this._icProxy.call_sync(
+                'SetContentType',
+                new GLib.Variant('(u)', [purpose >>> 0]),
+                Gio.DBusCallFlags.NONE,
+                DBUS_TIMEOUT_MS,
+                null
+            );
+        } catch (e) {
+            unimError('DBUS_IME', `SetContentType 실패: ${e.message}`);
         }
     }
 
@@ -567,378 +630,154 @@ export class UnimDbusIME {
         }
     }
 
-    /**
-     * 외부 프론트엔드(GTK/Qt/XIM)의 커서 좌표를 compositor 절대좌표로 변환
-     *
-     * - GNOME extension 자체 context: compositor 좌표이므로 변환 불필요
-     * - Native Wayland 앱 (GTK3/GTK4): 윈도우 상대좌표 → focused window 위치 더함
-     * - XWayland 앱 (XIM/Qt): X11 절대좌표 → compositor 좌표와 동일 (scale=1)
-     *
-     * @param {number} cx - 커서 X
-     * @param {number} cy - 커서 Y
-     * @param {number} cw - 커서 너비
-     * @param {number} ch - 커서 높이
-     * @returns {{x: number, y: number, width: number, height: number}}
-     * @private
-     */
-    _adjustCursorRect(cx, cy, cw, ch) {
-        const focusWindow = global.display?.focus_window;
-        if (!focusWindow) {
-            return { x: cx, y: cy, width: cw, height: ch };
+    // _adjustCursorRect 제거됨 (Phase 5): popup signal 핸들러 가 GNOME ext 에서
+    // 제거되면서 좌표 변환 호출자 부재. popup-service GTK4 popup 은 자체 좌표
+    // 계산을 수행한다.
+
+    // ===========================================
+    // popup-service `org.atit.unim.Popup` interface RPC 호출 헬퍼.
+    //
+    // GNOME Wayland 환경에서는 extension 이 popup 을 직접 렌더하므로 마우스 클릭·
+    // 페이지 이동·확장 토글·북마크 토글·이모지 커밋 등을 popup-service 로 보내야 한다.
+    // popup-service 가 daemon InputContext 로 forward 하므로 popup-owner routing 일관성
+    // 유지. extension 은 인자만 wrap 해서 fire-and-forget 비동기 호출.
+    // ===========================================
+
+    /** popup-service Popup interface 의 method 를 fire-and-forget 으로 호출. @private */
+    _callPopupService(method, variant) {
+        const conn = this._imProxy ? this._imProxy.get_connection() : null;
+        if (!conn) {
+            unimError('DBUS_IME', `${method}: DBus 연결 없음`);
+            return;
         }
-
-        const isX11 = focusWindow.get_client_type() === Meta.WindowClientType.X11;
-
-        if (isX11) {
-            // XWayland 앱: X11 절대좌표 → compositor 좌표와 동일 (scale=1 기준)
-            return { x: cx, y: cy, width: cw, height: ch };
-        }
-
-        // Native Wayland 앱 (GTK3/GTK4 등): 윈도우 상대좌표
-        // focused window의 buffer_rect (surface 원점 포함)을 더해 절대좌표로 변환
-        const bufferRect = focusWindow.get_buffer_rect();
-        const adjusted = {
-            x: bufferRect.x + cx,
-            y: bufferRect.y + cy,
-            width: cw,
-            height: ch,
-        };
-
-        unimLog('DBUS_IME',
-            `좌표 변환 (Wayland): raw=(${cx},${cy}) + window=(${bufferRect.x},${bufferRect.y}) → (${adjusted.x},${adjusted.y})`);
-
-        return adjusted;
+        conn.call(
+            POPUP_SERVICE_BUS,
+            POPUP_OBJECT_PATH,
+            POPUP_INTERFACE,
+            method,
+            variant,
+            null,
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (src, res) => {
+                try {
+                    src.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `${method} 실패: ${e.message}`);
+                }
+            }
+        );
     }
 
-    // ===========================================
-    // 한자 변환
-    // ===========================================
+    /** PopupRender 평면 payload 의 셀 클릭 → 한자 선택 */
+    popupSelectHanja(index) {
+        this._callPopupService('SelectHanja', new GLib.Variant('(u)', [index]));
+    }
+
+    /** PopupRender 평면 payload 의 셀 클릭 → 특수문자 선택 */
+    popupSelectSpecial(index) {
+        this._callPopupService('SelectSpecialChar', new GLib.Variant('(u)', [index]));
+    }
+
+    /** PopupRender 평면 payload 의 셀 클릭 → 이모지 commit (str 그대로) */
+    popupCommitEmoji(emojiStr) {
+        if (!emojiStr) return;
+        this._callPopupService('CommitEmoji', new GLib.Variant('(s)', [emojiStr]));
+    }
+
+    /** 한자 셀 우클릭 → 북마크 토글 */
+    popupToggleHanjaBookmark(index) {
+        this._callPopupService('ToggleHanjaBookmark', new GLib.Variant('(u)', [index]));
+    }
+
+    /** ◀/▶ 클릭 → 페이지 이동 (direction: 0=prev, 1=next) */
+    popupChangePage(direction) {
+        this._callPopupService('PopupChangePage', new GLib.Variant('(i)', [direction]));
+    }
+
+    /** ⊞/⊟ 클릭 → 한자 popup 확장 모드 토글 */
+    popupToggleExpand() {
+        this._callPopupService('TogglePopupExpand', null);
+    }
+
+    /** 이모지 좌측 카테고리 탭 클릭 → 카테고리 전환 */
+    popupSetEmojiCategory(idx) {
+        this._callPopupService('SetEmojiCategory', new GLib.Variant('(u)', [idx]));
+    }
+
+    /** popup 영역 밖 클릭 등으로 popup hide 시 한자 상태 정리 */
+    popupCancelHanja() {
+        this._callPopupService('CancelHanja', null);
+    }
+
+    /** popup 영역 밖 클릭 등으로 popup hide 시 특수문자 상태 정리 */
+    popupCancelSpecial() {
+        this._callPopupService('CancelSpecialChar', null);
+    }
 
     /**
-     * 한자 후보 목록 조회
-     *
-     * @returns {{target: string, candidates: Array<{hanja: string, meaning: string}>}|null}
+     * 프런트엔드 등록 (멱등; 재호출 no-op)
+     * @param {string} name - 프런트엔드 식별자 (예: 'gnome-shell')
      */
-    getHanjaCandidates() {
-        if (!this._icProxy) return null;
-
+    registerFrontend(name) {
+        if (!this._imProxy) return;
         try {
-            const result = this._icProxy.call_sync(
-                'GetHanjaCandidates',
-                null,
+            this._imProxy.call_sync(
+                'RegisterFrontend',
+                new GLib.Variant('(s)', [name]),
                 Gio.DBusCallFlags.NONE,
                 DBUS_TIMEOUT_MS,
                 null
             );
-
-            if (!result) return null;
-
-            const [target, candidatesRaw] = result.deep_unpack();
-            const candidates = candidatesRaw.map(([hanja, meaning]) => ({
-                hanja, meaning,
-            }));
-
-            return { target, candidates };
+            unimLog('DBUS_IME', `RegisterFrontend('${name}') 완료`);
         } catch (e) {
-            unimError('DBUS_IME', `GetHanjaCandidates 실패: ${e.message}`);
-            return null;
+            unimError('DBUS_IME', `RegisterFrontend('${name}') 실패: ${e.message}`);
         }
     }
 
     /**
-     * 한자 선택
-     * @param {number} index - 후보 인덱스
-     * @returns {string} 선택된 한자 (실패 시 빈 문자열)
+     * 프런트엔드 등록 해제 (없으면 no-op)
+     * @param {string} name - 프런트엔드 식별자
      */
-    selectHanja(index) {
-        if (!this._icProxy) return '';
-
+    unregisterFrontend(name) {
+        if (!this._imProxy) return;
         try {
-            const result = this._icProxy.call_sync(
-                'SelectHanja',
-                new GLib.Variant('(u)', [index]),
+            this._imProxy.call_sync(
+                'UnregisterFrontend',
+                new GLib.Variant('(s)', [name]),
                 Gio.DBusCallFlags.NONE,
                 DBUS_TIMEOUT_MS,
                 null
             );
-
-            if (!result) return '';
-            const [hanja] = result.deep_unpack();
-            return hanja || '';
+            unimLog('DBUS_IME', `UnregisterFrontend('${name}') 완료`);
         } catch (e) {
-            unimError('DBUS_IME', `SelectHanja 실패: ${e.message}`);
-            return '';
+            unimError('DBUS_IME', `UnregisterFrontend('${name}') 실패: ${e.message}`);
         }
     }
 
     /**
-     * 현재 한자 후보들의 즐겨찾기 상태 조회
-     *
-     * @returns {boolean[]} candidates와 동일한 순서의 즐겨찾기 플래그 (실패 시 빈 배열)
+     * 현재 등록된 프런트엔드 목록 조회
+     * @returns {string[]} 프런트엔드 이름 배열 (정렬됨), 실패 시 빈 배열
      */
-    getHanjaBookmarkStates() {
-        if (!this._icProxy) return [];
-
+    getActiveFrontends() {
+        if (!this._imProxy) return [];
         try {
-            const result = this._icProxy.call_sync(
-                'GetHanjaBookmarkStates',
+            const result = this._imProxy.call_sync(
+                'GetActiveFrontends',
                 null,
                 Gio.DBusCallFlags.NONE,
                 DBUS_TIMEOUT_MS,
                 null
             );
             if (!result) return [];
-            const [flags] = result.deep_unpack();
-            return Array.isArray(flags) ? flags : [];
+            const [names] = result.deep_unpack();
+            return names;
         } catch (e) {
-            unimError('DBUS_IME', `GetHanjaBookmarkStates 실패: ${e.message}`);
+            unimError('DBUS_IME', `GetActiveFrontends 실패: ${e.message}`);
             return [];
         }
     }
-
-    /**
-     * 한자 즐겨찾기 토글
-     *
-     * @param {number} index - 후보 인덱스
-     * @returns {{index: number, bookmarked: boolean}|null}
-     */
-    toggleHanjaBookmark(index) {
-        if (!this._icProxy) return null;
-
-        try {
-            const result = this._icProxy.call_sync(
-                'ToggleHanjaBookmark',
-                new GLib.Variant('(u)', [index]),
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-            if (!result) return null;
-            const [idx, bookmarked] = result.deep_unpack();
-            return { index: idx, bookmarked };
-        } catch (e) {
-            unimError('DBUS_IME', `ToggleHanjaBookmark 실패: ${e.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * 팝업 페이지 이동 (마우스 ◀/▶ 버튼 클릭용).
-     *
-     * 한자/특수문자/이모지 모든 popup 종류에 동작. popup 이 활성 아니거나
-     * 단일 페이지면 데몬에서 no-op. 페이지 변경 시 PopupNavigate 시그널이
-     * 발행돼 frontend 가 일괄 갱신한다 (cursor sel_row/sel_col 보존).
-     *
-     * @param {number} direction - 0(또는 음수) = 이전 페이지, 1(이상) = 다음 페이지
-     */
-    popupChangePage(direction) {
-        if (!this._icProxy) return;
-
-        try {
-            this._icProxy.call_sync(
-                'PopupChangePage',
-                new GLib.Variant('(i)', [direction | 0]),
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-        } catch (e) {
-            unimError('DBUS_IME', `PopupChangePage 실패: ${e.message}`);
-        }
-    }
-
-    /**
-     * 한자 popup 확장 모드 토글 (마우스 ⊞/⊟ 아이콘 클릭).
-     *
-     * 호출 context (extension 자체) 와 popup-owner context 가 다를 수 있어
-     * 데몬이 resolve_popup_owner 로 라우팅 보정한다 — Period 키 처리(processKey)는
-     * 호출 context 에 한정되어 popup-owner 의 popup_state 에 닿지 않는 회귀가
-     * 있었으므로 본 전용 RPC 사용. 활성 한자 popup 이 없으면 데몬에서 no-op.
-     */
-    togglePopupExpand() {
-        if (!this._icProxy) return;
-
-        try {
-            this._icProxy.call_sync(
-                'TogglePopupExpand',
-                null,
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-        } catch (e) {
-            unimError('DBUS_IME', `TogglePopupExpand 실패: ${e.message}`);
-        }
-    }
-
-    /**
-     * 한자 모드 취소
-     */
-    cancelHanja() {
-        if (!this._icProxy) return '';
-
-        try {
-            const result = this._icProxy.call_sync(
-                'CancelHanja',
-                null,
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-            if (result) {
-                const [text] = result.deep_unpack();
-                return text || '';
-            }
-        } catch (e) {
-            unimError('DBUS_IME', `CancelHanja 실패: ${e.message}`);
-        }
-        return '';
-    }
-
-    // ===========================================
-    // 특수문자 변환
-    // ===========================================
-
-    /**
-     * 특수문자 후보 목록 조회
-     *
-     * @returns {{target: string, characters: string[], topRow: string}|null}
-     */
-    getSpecialCharCandidates() {
-        if (!this._icProxy) return null;
-
-        try {
-            const result = this._icProxy.call_sync(
-                'GetSpecialCharCandidates',
-                null,
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-
-            if (!result) return null;
-
-            const [target, characters, topRow] = result.deep_unpack();
-            return { target, characters, topRow };
-        } catch (e) {
-            unimError('DBUS_IME', `GetSpecialCharCandidates 실패: ${e.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * 특수문자 선택
-     * @param {number} index - 후보 인덱스
-     * @returns {string} 선택된 특수문자 (실패 시 빈 문자열)
-     */
-    selectSpecialChar(index) {
-        if (!this._icProxy) return '';
-
-        try {
-            const result = this._icProxy.call_sync(
-                'SelectSpecialChar',
-                new GLib.Variant('(u)', [index]),
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-
-            if (!result) return '';
-            const [ch] = result.deep_unpack();
-            return ch || '';
-        } catch (e) {
-            unimError('DBUS_IME', `SelectSpecialChar 실패: ${e.message}`);
-            return '';
-        }
-    }
-
-    // ===========================================
-    // 이모지 팝업 (Super+. 트리거)
-    // ===========================================
-
-    /**
-     * 선택한 이모지를 **마지막으로 포커스를 받은 실제 입력 컨텍스트**에 커밋.
-     *
-     * GTK4_IM_MODULE=unim 환경에서는 extension 자체의 `_icProxy`로 commit하면
-     * GTK4_IM 모듈을 우회해 사용자 앱에 도달하지 못한다. 따라서 InputMethod-level
-     * `CommitEmoji(s)` RPC(`_imProxy`)를 호출해, 데몬이 캐시한 last-active
-     * InputContext path로 `CommitText` + `HidePopup` 시그널을 redirect하게 한다.
-     * 즐겨찾기 MRU 갱신도 데몬 측에서 함께 수행.
-     *
-     * @param {string} emoji
-     */
-    commitEmoji(emoji) {
-        if (!this._imProxy || !emoji) return;
-        try {
-            this._imProxy.call_sync(
-                'CommitEmoji',
-                new GLib.Variant('(s)', [emoji]),
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-        } catch (e) {
-            unimError('DBUS_IME', `CommitEmoji 실패: ${e.message}`);
-        }
-    }
-
-    /**
-     * 이모지 팝업 카테고리 변경 — 마우스 클릭으로 좌측 탭을 직접 전환할 때 호출.
-     *
-     * `_imProxy.SetEmojiCategory(idx)` RPC 를 호출하면 데몬이 마지막 포커스
-     * 컨텍스트의 popup_state 를 갱신하고 `ShowEmojiPopupV2` 시그널을 재발행한다.
-     * 본 extension 의 `_onShowEmoji` 핸들러가 그 시그널을 받아 동일 인스턴스를
-     * 재구성하므로, 키보드 Tab/ShiftTab 과 동일한 화면 효과가 된다.
-     *
-     * @param {number} idx - 0..=8 카테고리 인덱스 (0=Recent, 1..=8=Smileys..Flags)
-     */
-    setEmojiCategory(idx) {
-        if (!this._imProxy) return;
-        if (typeof idx !== 'number' || idx < 0 || !Number.isInteger(idx)) {
-            unimError('DBUS_IME', `setEmojiCategory: 잘못된 idx=${idx}`);
-            return;
-        }
-        try {
-            this._imProxy.call_sync(
-                'SetEmojiCategory',
-                new GLib.Variant('(u)', [idx]),
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-            unimLog('DBUS_IME', `SetEmojiCategory(${idx}) 호출 완료`);
-        } catch (e) {
-            unimError('DBUS_IME', `SetEmojiCategory(${idx}) 실패: ${e.message}`);
-        }
-    }
-
-    /**
-     * 특수문자 모드 취소
-     */
-    cancelSpecialChar() {
-        if (!this._icProxy) return '';
-
-        try {
-            const result = this._icProxy.call_sync(
-                'CancelSpecialChar',
-                null,
-                Gio.DBusCallFlags.NONE,
-                DBUS_TIMEOUT_MS,
-                null
-            );
-            if (result) {
-                const [text] = result.deep_unpack();
-                return text || '';
-            }
-        } catch (e) {
-            unimError('DBUS_IME', `CancelSpecialChar 실패: ${e.message}`);
-        }
-        return '';
-    }
-
-    // ===========================================
-    // 설정 조회
-    // ===========================================
 
     // ===========================================
     // 글로벌 액션 트리거 (compositor-only 단축키 우회)
@@ -1022,7 +861,7 @@ export class UnimDbusIME {
      * InputContext 파괴 → 프록시 해제 → 시그널 해제
      */
     destroy() {
-        // 글로벌 팝업 시그널 구독 해제
+        // AutoTypefixApply 글로벌 시그널 구독 해제
         if (this._popupSignalId > 0) {
             try {
                 const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
@@ -1031,6 +870,17 @@ export class UnimDbusIME {
                 // 버스 접근 실패 무시
             }
             this._popupSignalId = 0;
+        }
+
+        // popup-service Popup interface 시그널 구독 해제
+        if (this._popupServiceSignalId > 0) {
+            try {
+                const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
+                bus.signal_unsubscribe(this._popupServiceSignalId);
+            } catch (_e) {
+                // 버스 접근 실패 무시
+            }
+            this._popupServiceSignalId = 0;
         }
 
         // InputContext 시그널 해제 + 파괴

@@ -69,6 +69,7 @@ libinput → Mutter
 |---------|------|
 | 문자 키 | DBus `ProcessKeyEvent` → commit/preedit 처리 |
 | 수정자 키 (Shift, Ctrl 등) | `vfunc`에서 `false` 반환 → Mutter가 직접 처리 (고정키 접근성 유지) |
+| 오른쪽 Alt (bare Alt_R) | 절대 비소비(`EVENT_PROPAGATE` 유지 → Sticky Keys 불변) + `processKey` fire-and-forget 통지 → 데몬 `toggle_keys` 판정 |
 | Ctrl/Alt/Super 조합 | 조합 flush → 바이패스 (시스템 단축키) |
 | 네비게이션 (←→↑↓, Home, End, PgUp/Dn) | 조합 flush → 바이패스 |
 | Enter / KP_Enter, Escape, Tab | 조합 flush → 바이패스 |
@@ -79,6 +80,7 @@ libinput → Mutter
 - **`_flushCompose()`**: DBus `FocusOut` 호출 → 조합 중 텍스트 커밋 + preedit 클리어
 - **Key Queue 패턴**: `ProcessKeyEvent`가 `call_sync()`이므로 GLib 메인 루프 재진입이 발생할 수 있음. `_processingKey` 플래그로 재진입을 감지하여 후속 키를 `_keyQueue`에 저장하고, 현재 호출 완료 후 `_drainKeyQueue()`가 FIFO 순서로 처리하여 키 누락을 방지.
 - **이중 처리 방지**: Backend IM 등록 시 `captured-event` 핸들러에서 `EVENT_PROPAGATE` 반환
+- **repeat 태깅(접근성)**: Clutter `REPEATED` 플래그를 `state` 상위 비트의 `UNIM_KEY_REPEAT_MASK`(1<<29)로, 그리고 항상 `UNIM_REPEAT_AWARE_MASK`(1<<31)로 실어 보낸다(vfunc·드레인·X11 divert 경로 공통, `>>>0` unsigned 정규화). 데몬은 `ignore_key_repeat` on 일 때 이 비트로 반복을 정확 판정한다. 확장 비활성화 시 통지 콜백(`setToggleKeyNotifier`)은 해제되며, GNOME 확장 변경분은 재로그인 후 적용된다.
 
 ### 2.3 포커스 처리
 
@@ -122,6 +124,81 @@ GNOME extension 고유 사항:
   3. 50ms 후 `commitText(commitText)`, 다시 10ms 후 `updatePreedit(preeditText)`
 - **Self-feedback 차단 (af8b563)**: vkbd가 보낸 BackSpace는 Mutter를 거쳐 `vfunc_filter_key_event`에 재진입한다. 한글 엔진이 이를 실제 backspace로 오인해 복원된 preedit 음절을 다시 깎는 self-feedback을 막기 위해 `_selfBackspaceCount`를 PRESS+RELEASE = 2×N으로 등록하고, 매칭되는 BackSpace 이벤트는 IM 처리 없이 `false` 반환으로 mutter에 통과시킨다.
 
+### 2.7 콘텐츠 목적(Content Purpose) 억제 — 비밀번호/PIN 필드 자동 영문 전환
+
+비밀번호·PIN 등 입력 필드에 포커스가 있으면 ATF(자동 오타 교정)·한영 자동전환을
+데몬에 억제시켜야 한다(억제 체인: extension → `SetContentType(u)` DBus →
+`unim::config::ContentPurpose` → `should_block_hangul()`).
+
+**Clutter → UNIM 매핑표** (`unim_input_method.js` `CLUTTER_PURPOSE_TO_UNIM`,
+로컬 `/usr/lib/x86_64-linux-gnu/mutter-14/Clutter-14.gir` 실측):
+
+| Clutter InputContentPurpose | 값 | UNIM ContentPurpose |
+|---|---|---|
+| normal | 0 | Normal(0) |
+| alpha | 1 | Normal(0) — GTK 표와 의도적 일치 |
+| digits | 2 | Normal(0) |
+| number | 3 | Number(4) |
+| phone | 4 | Normal(0) |
+| url | 5 | Url(5) |
+| email | 6 | Email(3) |
+| name | 7 | Normal(0) |
+| password | 8 | **Password(1)** |
+| date | 9 | Normal(0) — GTK/IBus 의 9=PIN 과 무관, passthrough 금지 |
+| time | 10 | Normal(0) — GTK/IBus 의 10=TERMINAL 과 무관 |
+| datetime | 11 | Normal(0) |
+| terminal | 12 | Terminal(6) |
+
+GTK(`GtkInputPurpose`)·IBus(`IBusInputPurpose`) enum 과 9·10 자리의 의미가
+다르므로 그 표를 재사용하는 passthrough 는 절대 금지 — 위 Map 만 사용한다.
+
+**PIN 구조적 미구분**: Clutter enum 에는 PIN 값이 없다. 이를 보완하기 위해
+`Clutter.InputContentHintFlags.HIDDEN_TEXT`(64) 힌트가 서 있으면 purpose 가
+Normal 로 떨어졌어도 Password(1)로 승격한다(`_effectivePurpose()`). `SENSITIVE_DATA`
+(128)는 의도적으로 미사용 — Qt 선례(`unim-frontends/qt5/src/input_context.cpp:499-509`)와
+동일하게 "화면에 보이는 민감 필드"(카드번호 등)까지 차단하면 오차단이 된다.
+
+**리셋 지점은 `vfunc_focus_out`** — Normal(0) 복귀는 focus_out 에서만 송신한다.
+`vfunc_focus_in`에서 무조건 Normal 을 보내지 않는 이유: Mutter 가
+`vfunc_update_content_purpose` 를 `vfunc_focus_in` 보다 먼저 호출하는 순서일 경우
+(호출 순서 미확정 — Clutter-14.gir 의 InputMethod vtable 선언 순서는 호출 순서를
+보장하지 않음), focus_in 무조건 리셋이 방금 도착한 Password 를 즉시 덮어써 차단을
+영구 무력화한다. 대신 포커스 없는 동안 도착한 purpose 는 `_pendingPurpose` 에
+버퍼링해 두었다가 다음 `vfunc_focus_in` 이 flush 한다(포커스 중 도착분은 그 자리에서
+즉시 송신). `vfunc_reset` 은 purpose 를 건드리지 않는다 — reset 은 필드 **내부**
+조합 취소(Escape 등) 이벤트라, 여기서 Normal 로 되돌리면 비밀번호 필드 안에서
+Escape 한 번에 차단이 풀리는 회귀가 된다.
+
+**호출 순서 실측 상태(2026-07-26)**: `vfunc_update_content_purpose`/
+`vfunc_update_content_hints` 에 계측 로그(`unimLog('IME', 'update_content_purpose:
+clutter=...')`)를 추가했으나, 확장 재로그인 없이는 실제 gnome-shell 세션에서
+Mutter 가 이 vfunc 을 호출하는지·focus_in 과의 순서가 무엇인지 관측할 수 없어
+**실측은 아직 미완료**(정적 구현 + 코드 스타일 검증만 완료). 다음 실제 재로그인
+QA 세션에서 `~/.unim-log` 의 `[GNOME_EXT] ... update_content_purpose` 라인 유무와
+`vfunc_focus_in` 대비 순서를 확인하고 본 절을 갱신할 것. `_pendingPurpose` 더블버퍼는
+이 불확실성에 대한 안전망이므로 실측 후에도 제거하지 않는다(Mutter 버전 차이 방어).
+
+**알려진 단방향 한계(실측 TODO)**: 현재 안전망은 "포커스 없는 동안 도착한 purpose"
+만 버퍼링한다. 만약 Mutter 가 **다음 필드의 purpose 를 직전 필드의 focus_out 보다
+먼저**(포커스가 아직 살아있는 동안) 전달하는 순서라면, 그 값은 즉시 송신된 뒤
+focus_out 의 Normal 복귀·상태 초기화(`_sentPurpose`/`_contentPurposeRaw`)에 지워져
+다음 focus_in 에 flush 할 pending 이 없다 — 비밀번호 필드가 Normal 로 동작하는
+under-block. 반대로 이를 막으려고 pending 을 무조건 보존하면 purpose 를 안 보내는
+앱으로 이동 시 직전 Password 가 재적용되는 over-block 이 된다. 어느 쪽 순서인지는
+위 계측 로그 실측으로만 확정 가능하므로, 실측에서 "focus_out 이전 도착" 순서가
+관측되면 그때 pending 보존 + focus_out 시점 구분 방식으로 전환한다(오늘자 로그
+실측상 focus_in/out 은 IN 221/OUT 221 엄격 교대 — 현 설계가 우선).
+
+현재 코드는 pending 보존 쪽(over-block 분기)을 택하되 **TTL 2초**
+(`PENDING_PURPOSE_TTL_US`, 단조 시각 기준)로 창을 봉쇄한다: 정상 순서(purpose 도착
+직후 focus_in)는 ms 단위라 영향이 없고, 대상 필드가 포커스를 끝내 못 받고 사라진
+stale pending 은 flush 시점에 폐기된다. 잔여 위험은 "pending 도착 후 2초 안에
+무관한 필드가 포커스를 얻는" 좁은 창뿐이며 실측 후 재평가한다.
+
+extension.js `_onFocusWindowChanged` 의 창 전환 fail-safe(Clutter vfunc 를 우회하는
+별도 DBus focusOut/focusIn 경로에서 `!hasFocus()` 게이트로 `SetContentType(0)` 강제)는
+위 실측이 끝난 뒤 2단계로 미룬다 — `hasFocus()` 접근자만 선행 추가해 두었다.
+
 ---
 
 ## 3. DBus 통신 (`dbus_ime.js`)
@@ -146,6 +223,7 @@ GNOME extension 고유 사항:
 | `ProcessKeyEvent(keyval, keycode, state)` | InputContext | `(consumed, preedit, commit)` 반환 |
 | `FocusIn(windowId)` / `FocusOut` | InputContext | 포커스 알림. FocusOut은 조합 중 텍스트 반환 |
 | `Reset` | InputContext | 입력 상태 초기화 |
+| `SetContentType(purpose)` | InputContext | UNIM ContentPurpose 원시값 통지 → ATF·한영전환 억제(§2.7). `vfunc_focus_out` 에서만 Normal(0) 복귀 |
 | `ReportCursorRect(x,y,w,h)` | InputContext | 커서 좌표 보고 |
 | `SetSurroundingText(text, cursor, anchor)` | InputContext | 주변 텍스트 전달 |
 | `GetHanjaCandidates` / `SelectHanja(idx)` / `CancelHanja` | InputContext | 한자 변환 |
@@ -187,12 +265,14 @@ GNOME extension 고유 사항:
 | `vfunc_reset()` | 입력 상태 리셋 |
 | `vfunc_set_cursor_location(rect)` | 커서 위치 저장 (팝업 배치용) |
 | `vfunc_set_surrounding(text, cursor, anchor)` | 주변 텍스트 수신 (TypeFIX용) |
-| `vfunc_update_content_hints/purpose` | 힌트 저장 |
+| `vfunc_update_content_hints(hints)` | 힌트 저장 → `_applyContentPurpose()` 재판정(§2.7) |
+| `vfunc_update_content_purpose(purpose)` | Clutter 원시값 저장 → `CLUTTER_PURPOSE_TO_UNIM` 매핑 → `_applyContentPurpose()`(§2.7) |
 
 **공개 API:**
 - `commitText(text)`, `updatePreedit(text)`, `clearPreedit()`
-- `setActive(active)`, `cursorRect` (getter)
+- `setActive(active)`, `cursorRect` (getter), `hasFocus()`
 - `setKeyHandler(handler)`, `setFocusOutHandler(handler)`, `setResetHandler(handler)`
+- **`setContentTypeHandler(handler)`** — content purpose 변경 시 `(unimPurpose) => void` 호출(§2.7)
 - **`expectSelfBackspaces(n)`** — AutoTypeFix self-feedback 차단용 카운터 (`n*2`)
 
 ### 4.2 플랫폼별 IM 모듈과의 관계

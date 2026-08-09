@@ -2,27 +2,21 @@
 name = "unim-test-wayland"
 version.workspace = true
 edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
+# 화면 스펙·필드 엔진·JSONL 로거·데몬 상태 — tests/common 의 C 를 그대로 링크
+unim-test-common = { path = "../common-rs", features = ["dbus"] }
+
 # Wayland
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
-
-# Event Loop
 calloop = "0.13"
-
-# Keyboard handling
+calloop-wayland-source = "0.3.0"
 xkbcommon = { version = "0.7", features = ["wayland"] }
 
-# Rendering
-tiny-skia = "0.11"
+# 글자 모양내기 — 픽셀은 wl_shm 버퍼에 직접 쓴다(아래 Canvas)
 cosmic-text = { version = "0.12", default-features = false, features = ["std", "swash"] }
-
-# Logging
-unim = { path = "../.." }
-
-# Auto test
-unim-dbus = { path = "../../unim-dbus" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-calloop-wayland-source = "0.3.0"

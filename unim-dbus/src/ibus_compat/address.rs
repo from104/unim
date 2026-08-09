@@ -56,20 +56,75 @@ pub fn write_address_file() -> io::Result<PathBuf> {
     Ok(path)
 }
 
-/// IBus 주소 파일 삭제
+/// 주소 파일 내용에서 `IBUS_DAEMON_PID` 값을 파싱한다.
+fn parse_address_file_pid(content: &str) -> Option<u32> {
+    content.lines().find_map(|line| {
+        line.strip_prefix("IBUS_DAEMON_PID=")
+            .and_then(|v| v.trim().parse().ok())
+    })
+}
+
+/// IBus 주소 파일 삭제 — 자기 자신이 쓴 파일일 때만 지운다.
+///
+/// SIGTERM 종료 경로가 `--replace`/D-Bus 재활성화 시에도 실행되게 되면서,
+/// `kill_existing_daemon` 이 구 인스턴스에 SIGTERM 을 보낸 뒤 200~500ms 만
+/// 대기하는 사이 새 인스턴스가 먼저 [`write_address_file`] 로 자신의 주소 파일을
+/// 써버릴 수 있다. 이 상태에서 구 인스턴스가 조건 없이 파일을 지우면 방금 시작된
+/// 새 인스턴스를 ibus 호환 클라이언트가 찾지 못하게 된다. [`remove_own_pid_file`]
+/// (unim-daemon/src/main.rs) 과 동일하게, 파일에 기록된 `IBUS_DAEMON_PID` 가
+/// 자신의 PID 와 일치할 때만 삭제한다.
 pub fn remove_address_file() {
     match ibus_address_file_path() {
         Ok(path) => {
-            if path.exists() {
-                if let Err(e) = fs::remove_file(&path) {
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+                Err(e) => {
                     unim_log!(
                         "DAEMON",
-                        "[IBus Compat] 주소 파일 삭제 실패: {} - {}",
+                        "[IBus Compat] 주소 파일 읽기 실패: {} - {}",
                         path.display(),
                         e
                     );
-                } else {
-                    unim_log!("DAEMON", "[IBus Compat] 주소 파일 삭제: {}", path.display());
+                    return;
+                }
+            };
+
+            match parse_address_file_pid(&content) {
+                Some(pid) if pid == std::process::id() => {
+                    if let Err(e) = fs::remove_file(&path) {
+                        unim_log!(
+                            "DAEMON",
+                            "[IBus Compat] 주소 파일 삭제 실패: {} - {}",
+                            path.display(),
+                            e
+                        );
+                    } else {
+                        unim_log!("DAEMON", "[IBus Compat] 주소 파일 삭제: {}", path.display());
+                    }
+                }
+                Some(other_pid) => {
+                    // 다른(새) 인스턴스가 이미 자신의 주소로 덮어썼다 — 건드리지 않는다.
+                    unim_log!(
+                        "DAEMON",
+                        "[IBus Compat] 주소 파일이 다른 PID({}) 소유 — 삭제 건너뜀: {}",
+                        other_pid,
+                        path.display()
+                    );
+                }
+                None => {
+                    // PID 를 파싱할 수 없음 — 우리가 쓴 흔적을 확인할 수 없으므로
+                    // best-effort 로 정리(구 버전 포맷 등 예외적인 경우 대비).
+                    if let Err(e) = fs::remove_file(&path) {
+                        unim_log!(
+                            "DAEMON",
+                            "[IBus Compat] 주소 파일 삭제 실패: {} - {}",
+                            path.display(),
+                            e
+                        );
+                    } else {
+                        unim_log!("DAEMON", "[IBus Compat] 주소 파일 삭제: {}", path.display());
+                    }
                 }
             }
         }

@@ -1,0 +1,118 @@
+# UNIM 타자 연습 (한국어)
+app_title: UNIM 타자 연습
+practice_corpus: 연습 지문
+corpus_short: 짧은 글
+corpus_medium: 중간 글
+corpus_long: 긴 글
+stat_wpm: WPM
+stat_cpm: CPM
+stat_accuracy: 정확도
+stat_error_rate: 오타율
+# StatCell 라벨 (값 옆 unit + 아래 한국어 라벨).
+# CPM 은 분당 키스트로크 (한국 표준 측정) — 한글 음절은 자모 수만큼 가산.
+stat_wpm_label: 분당 단어
+stat_cpm_label: 분당 타수
+btn_restart: 다시 시작
+btn_other_corpus: 다른 지문
+btn_copy_result: 결과 복사
+toast_practice_done: 연습 완료 — WPM %{wpm}, 정확도 %{acc}%
+toast_copied: 결과 복사됨
+hint_ime_warning: IME 가 켜져 있어도 키맵에는 영문 키만 표시됩니다.
+hint_select_profile: 좌측에서 자판을 선택하세요
+heatmap_title: 키 오타 히트맵
+progress_label: 진행률
+# 우 컬럼 줄 위치 카드 캡션.
+line_position_caption: 줄 위치
+# 현재 활성 자판 표시 — UNIM 데몬의 korean.layout 을 그대로 사용.
+practice_active_layout: 현재 자판
+# 데몬 비활성화 다이얼로그.
+dialog_unim_inactive_title: UNIM 이 실행 중이 아닙니다
+dialog_unim_inactive_body: 타자 연습은 UNIM 입력기가 실행 중일 때만 동작합니다. 아래 단계를 따라 주세요.
+dialog_btn_close: 닫고 종료
+dialog_btn_help: 도움말
+dialog_step_1_title: 시스템 트레이에서 UNIM 켜기
+dialog_step_1_body: 패널의 UNIM 아이콘을 클릭해 활성화합니다.
+dialog_step_2_title: 이 앱을 다시 열기
+dialog_step_2_body: UNIM 이 켜진 뒤 본 창을 다시 실행합니다.
+dialog_step_3_title: 자판이 자동 인식되는지 확인
+dialog_step_3_body: 헤더에 자판 이름이 표시되면 준비 완료입니다.
+# CorpusDropdown meta.
+corpus_meta_short: 3줄
+corpus_meta_medium: 8줄
+corpus_meta_long: 20줄
+# Result page.
+result_session_label: 이번 세션
+result_label_typed: 입력한 글자
+result_label_errors: 오타
+result_label_backspace: 백스페이스
+result_label_time: 소요 시간
+result_label_per_line_wpm: 줄별 WPM
+result_label_key_stats: 입력 통계
+result_label_heatmap_subtitle: 이 자판에서 가장 자주 틀린 키
+result_legend_low: 적음
+result_legend_high: 많음
+result_btn_back: 연습으로 가기
+btn_copy: 결과 복사
+# IME chip in InputField.
+ime_chip_hangul: 한글
+ime_chip_en: EN
+# Subtitle (stat 라벨 보조).
+stat_caption_wpm: 분당 단어
+stat_caption_cpm: 분당 타수
+# 하단 키보드 모양 위젯.
+keyboard_view_title: 키보드 미리보기
+# 헤더 / 결과 화면 / 보조.
+header_corpus_label: 지문
+header_restart_tooltip: 처음부터 다시
+header_menu_tooltip: 메뉴
+header_settings_tooltip: UNIM 설정 열기
+toast_layout_changed: '자판 변경 감지 — %{label} 으로 재시작'
+menu_copy_result: 결과 복사
+menu_view_heatmap: 오타 히트맵 보기
+menu_back_to_practice: 연습으로 돌아가기
+view_practice: 연습
+view_result: 결과
+result_summary: 이번 세션
+result_no_data: 아직 완료된 세션이 없습니다. 한 회 끝내면 여기에 결과가 표시됩니다.
+ime_warning_short: ASCII 키만 수집
+# 입력 필드 placeholder — 5차: gtk::Entry 로 단순화.
+input_placeholder: 여기에 그대로 따라 쳐 보세요
+# 헤더 도움말 버튼 + 도움말 다이얼로그.
+header_help_tooltip: 사용법과 단축키
+help_dialog_title: 사용법과 단축키
+help_dialog_intro: |-
+  한 줄씩 입력하면 자동으로 다음 줄로 넘어갑니다.
+  ・ Space / Enter / Tab — 다음 줄로 강제 이동
+  ・ 오타가 있어도 단어 수만 채우면 진행됩니다
+  ・ CPM 은 분당 타수, WPM 은 5타=1단어 환산
+help_dialog_shortcuts: 단축키
+help_shortcut_help: 이 도움말 열기
+help_shortcut_restart: 처음부터 다시 시작
+help_shortcut_copy: 결과 복사
+help_shortcut_practice: 연습 화면
+help_shortcut_result: 결과 화면
+help_shortcut_import_file: 지문 파일 가져오기
+help_shortcut_import_clip: 클립보드에서 지문 가져오기
+help_dialog_close: 닫기
+# 사용자 정의 지문 가져오기 (메뉴 + toast + 파일 선택기).
+menu_import_file: 지문 파일 가져오기…
+menu_import_clipboard: 클립보드에서 가져오기
+dialog_pick_corpus_title: 가져올 지문 파일 선택 (최대 2000 byte)
+toast_corpus_imported: '"%{name}" 지문을 추가했습니다'
+toast_corpus_import_failed: '지문 가져오기 실패 — %{reason}'
+# 사용자 정의 지문 — 이름 변경 / 삭제.
+menu_rename_corpus: 현재 지문 이름 변경…
+menu_delete_corpus: 현재 지문 삭제…
+dialog_rename_title: 지문 이름 변경
+dialog_rename_body: 새 이름을 입력하세요. 영숫자·한글·`_`·`-` 만 허용됩니다.
+dialog_rename_placeholder: 새 이름
+dialog_rename_btn: 이름 변경
+dialog_cancel: 취소
+dialog_delete_title: 지문 삭제
+dialog_delete_body: '"%{name}" 지문을 정말 삭제하시겠습니까? 되돌릴 수 없습니다.'
+dialog_delete_btn: 삭제
+toast_corpus_renamed: '"%{old}" → "%{new}" 로 변경했습니다'
+toast_corpus_deleted: '"%{name}" 지문을 삭제했습니다'
+toast_not_user_corpus: 빌트인 지문은 변경할 수 없습니다 — 사용자 지문을 선택하세요
+toast_corpus_rename_failed: '이름 변경 실패 — %{reason}'
+toast_corpus_delete_failed: '삭제 실패 — %{reason}'

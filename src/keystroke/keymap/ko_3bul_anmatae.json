@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "language": "korean",
+  "name": "ko_3bul_anmatae",
+  "type": "3bul",
+  "metadata": {
+    "display_name": {
+      "ko": "안마태 자판 (2003)",
+      "en": "Ahnmatae Keyboard (2003)"
+    },
+    "author": "안마태·김진형 (2003)",
+    "description": {
+      "ko": "안마태 신부와 KAIST 김진형 교수가 2003년 발표한 모아치기 세벌식 자판. cho/jung/jong 영역이 고정된다. 모아치기 옵션(`korean.bidirectional_combine` / `korean.chord_window_ms`)은 사용자 config에 보관되며 디폴트 OFF(opt-in)이다. 옵션이 켜지면 양방향 결합과 동시 입력 윈도우가 활성화되어 겹받침 순서·자모 동시 타건이 가능해진다. upper 24칸(원본 옛한글 자리 + lower 중복 자리)을 모두 lower와 다른 의미로 채워 Shift 입력 효율을 극대화: 쌍자음 5(ㄲ/ㄸ/ㅃ/ㅆ/ㅉ)·결합 모음 5(ㅒ/ㅖ/ㅢ/ㅘ/ㅞ)·거센소리 종성 4(ᆾ/ᇀ/ᇁ/ᆿ)·결합/쌍 종성 4(ᆻ/ᆬ/ᆱ/ᆰ)·한국어 조판 기호 6(「/」/※/·/“/”).",
+      "en": "Three-beol moachigi keyboard developed by Father Ahnmatae and Prof. Kim Jin-hyung of KAIST, published 2003. Fixed cho/jung/jong regions. Moachigi options (`korean.bidirectional_combine` / `korean.chord_window_ms`) live in the user config and default to OFF (opt-in); enabling them activates bidirectional combine and the chord window. All 24 upper-layer positions (original archaic-jamo slots + slots that previously duplicated lower jamo) are filled with distinct, useful values: 5 double consonants (ㄲ/ㄸ/ㅃ/ㅆ/ㅉ), 5 combined vowels (ㅒ/ㅖ/ㅢ/ㅘ/ㅞ), 4 aspirated jongseong (ᆾ/ᇀ/ᇁ/ᆿ), 4 compound/double jongseong (ᆻ/ᆬ/ᆱ/ᆰ), and 6 Korean typography marks (「/」/※/·/“/”) — maximising Shift-row efficiency."
+    },
+    "version": "2.2",
+    "tags": [
+      "korean",
+      "anmatae",
+      "moachigi",
+      "3bul",
+      "phonetic"
+    ]
+  },
+  "supports_moachigi": true,
+  "layout": {
+    "upper": {
+      "1st": ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|"],
+      "2nd": ["「", "ㅆ", "」", "※", "·", ";", "'", "/", "[", "]", "{", "}"],
+      "3rd": ["ㅃ", "ㅉ", "ㄸ", "ㄲ", "“", "ㅖ", "ㅒ", "ㅢ", "ㅘ", "ㅞ", "\""],
+      "4th": ["ᆾ", "ᇀ", "ᇁ", "ᆿ", "”", "ᆻ", "ᆬ", "ᆱ", "ᆰ", "?"]
+    },
+    "lower": {
+      "1st": ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "\\"],
+      "2nd": ["ㅁ", "ㅅ", "ㄴ", "ㄹ", "ㅎ", "ㅕ", "ㅑ", "ㅡ", "ㅛ", "ㅠ", "[", "]"],
+      "3rd": ["ㅂ", "ㅈ", "ㄷ", "ㄱ", "ㅇ", "ㅓ", "ㅏ", "ㅣ", "ㅗ", "ㅜ", "'"],
+      "4th": ["ᆽ", "ᆮ", "ᆸ", "ᆨ", "ᆼ", "ᆺ", "ᆫ", "ᆷ", "ᆯ", "ᇂ"]
+    }
+  },
+  "combinations": {
+    "cho": [
+      { "first": "ㄱ", "second": "ㅇ", "result": "ㄲ" },
+      { "first": "ㄷ", "second": "ㄱ", "result": "ㄸ" },
+      { "first": "ㅂ", "second": "ㅈ", "result": "ㅃ" },
+      { "first": "ㅅ", "second": "ㄴ", "result": "ㅆ" },
+      { "first": "ㅈ", "second": "ㄷ", "result": "ㅉ" },
+      { "first": "ㄱ", "second": "ㅎ", "result": "ㅋ" },
+      { "first": "ㄷ", "second": "ㅎ", "result": "ㅌ" },
+      { "first": "ㅂ", "second": "ㅎ", "result": "ㅍ" },
+      { "first": "ㅈ", "second": "ㅎ", "result": "ㅊ" }
+    ],
+    "jung": [
+      { "first": "ㅏ", "second": "ㅣ", "result": "ㅐ" },
+      { "first": "ㅑ", "second": "ㅣ", "result": "ㅒ" },
+      { "first": "ㅓ", "second": "ㅣ", "result": "ㅔ" },
+      { "first": "ㅕ", "second": "ㅣ", "result": "ㅖ" },
+      { "first": "ㅗ", "second": "ㅏ", "result": "ㅘ" },
+      { "first": "ㅗ", "second": "ㅐ", "result": "ㅙ" },
+      { "first": "ㅗ", "second": "ㅣ", "result": "ㅚ" },
+      { "first": "ㅜ", "second": "ㅓ", "result": "ㅝ" },
+      { "first": "ㅜ", "second": "ㅔ", "result": "ㅞ" },
+      { "first": "ㅜ", "second": "ㅣ", "result": "ㅟ" },
+      { "first": "ㅡ", "second": "ㅣ", "result": "ㅢ" },
+      { "first": "ㅘ", "second": "ㅣ", "result": "ㅙ" },
+      { "first": "ㅚ", "second": "ㅏ", "result": "ㅙ" },
+      { "first": "ㅝ", "second": "ㅣ", "result": "ㅞ" },
+      { "first": "ㅟ", "second": "ㅓ", "result": "ㅞ" }
+    ],
+    "jong": [
+      { "first": "ᆨ", "second": "ᆼ", "result": "ᆩ" },
+      { "first": "ᆺ", "second": "ᆫ", "result": "ᆻ" },
+      { "first": "ᆨ", "second": "ᇂ", "result": "ᆿ" },
+      { "first": "ᆮ", "second": "ᇂ", "result": "ᇀ" },
+      { "first": "ᆸ", "second": "ᇂ", "result": "ᇁ" },
+      { "first": "ᆽ", "second": "ᇂ", "result": "ᆾ" },
+      { "first": "ᆨ", "second": "ᆯ", "result": "ᆰ" },
+      { "first": "ᆨ", "second": "ᆺ", "result": "ᆪ" },
+      { "first": "ᆫ", "second": "ᆽ", "result": "ᆬ" },
+      { "first": "ᆫ", "second": "ᇂ", "result": "ᆭ" },
+      { "first": "ᆯ", "second": "ᆷ", "result": "ᆱ" },
+      { "first": "ᆯ", "second": "ᆸ", "result": "ᆲ" },
+      { "first": "ᆯ", "second": "ᆺ", "result": "ᆳ" },
+      { "first": "ᆯ", "second": "ᇀ", "result": "ᆴ" },
+      { "first": "ᆯ", "second": "ᇁ", "result": "ᆵ" },
+      { "first": "ᆯ", "second": "ᇂ", "result": "ᆶ" },
+      { "first": "ᆲ", "second": "ᇂ", "result": "ᆵ" },
+      { "first": "ᆶ", "second": "ᆮ", "result": "ᆴ" },
+      { "first": "ᆶ", "second": "ᆸ", "result": "ᆵ" },
+      { "first": "ᆸ", "second": "ᆺ", "result": "ᆹ" }
+    ]
+  }
+}

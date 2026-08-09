@@ -13,6 +13,7 @@ import Clutter from 'gi://Clutter';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { unimLog, unimError } from './logging.js';
 
 /** DBus 서비스 정보 */
@@ -94,26 +95,31 @@ class UnimIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         
         // === 입력 모드 선택 ===
-        this._koreanItem = new PopupMenu.PopupMenuItem('한국어 모드 (Korean)');
+        this._koreanItem = new PopupMenu.PopupMenuItem(_('한국어 모드 (Korean)'));
         this._koreanItem.connect('activate', () => this._setMode(true));
         this.menu.addMenuItem(this._koreanItem);
-        
-        this._englishItem = new PopupMenu.PopupMenuItem('영어 모드 (English)');
+
+        this._englishItem = new PopupMenu.PopupMenuItem(_('영어 모드 (English)'));
         this._englishItem.connect('activate', () => this._setMode(false));
         this.menu.addMenuItem(this._englishItem);
-        
+
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        
-        // === UNIM 설정 앱 (unim-gui-gtk --settings) ===
-        const unimSettingsItem = new PopupMenu.PopupMenuItem('UNIM 설정 (Settings)...');
+
+        // === UNIM 설정 앱 (unim-settings) ===
+        const unimSettingsItem = new PopupMenu.PopupMenuItem(_('UNIM 설정 (Settings)...'));
         unimSettingsItem.connect('activate', () => this._openUnimSettings());
         this.menu.addMenuItem(unimSettingsItem);
 
         // === GNOME 확장 설정 ===
-        const extSettingsItem = new PopupMenu.PopupMenuItem('GNOME 확장 설정 (Extension)...');
+        const extSettingsItem = new PopupMenu.PopupMenuItem(_('GNOME 확장 설정 (Extension)...'));
         extSettingsItem.connect('activate', () => this._openExtensionSettings());
         this.menu.addMenuItem(extSettingsItem);
-        
+
+        // === 오프라인 사용자 매뉴얼 ===
+        const helpItem = new PopupMenu.PopupMenuItem(_('도움말 (Help)'));
+        helpItem.connect('activate', () => this._openHelp());
+        this.menu.addMenuItem(helpItem);
+
         // 초기 메뉴 상태 업데이트
         this._updateMenuItems();
     }
@@ -121,11 +127,11 @@ class UnimIndicator extends PanelMenu.Button {
     _updateMenuItems() {
         // 헤더 업데이트
         if (!this._connected) {
-            this._headerItem.label.set_text('⚠️ UNIM 데몬 연결 안됨');
+            this._headerItem.label.set_text(_('⚠️ UNIM 데몬 연결 안됨'));
         } else if (!this._inputActive) {
-            this._headerItem.label.set_text('💤 입력 대기 중');
+            this._headerItem.label.set_text(_('💤 입력 대기 중'));
         } else {
-            this._headerItem.label.set_text(this._isKorean ? '🇰🇷 한국어 입력 중' : '🔤 영어 입력 중');
+            this._headerItem.label.set_text(this._isKorean ? _('🇰🇷 한국어 입력 중') : _('🔤 영어 입력 중'));
         }
         
         // 체크마크 표시
@@ -153,8 +159,8 @@ class UnimIndicator extends PanelMenu.Button {
             iconName = this._isKorean ? 'unim-korean' : 'unim-english';
             styleClass += this._isKorean ? ' hangul-mode' : ' english-mode';
         } else {
-            // 연결 안됨 또는 입력 포커스 없음 → 비활성 상태
-            iconName = 'dialog-question-symbolic';
+            // 연결 안됨 또는 입력 포커스 없음 → 비활성(금지) 상태
+            iconName = 'unim-disabled';
             styleClass += ' disconnected-mode';
         }
         
@@ -323,7 +329,7 @@ class UnimIndicator extends PanelMenu.Button {
     
     _setMode(isKorean) {
         if (!this._dbusProxy || !this._connected) {
-            Main.notify('UNIM', 'UNIM 데몬이 실행 중이지 않습니다.');
+            Main.notify('UNIM', _('UNIM 데몬이 실행 중이지 않습니다.'));
             return;
         }
         
@@ -352,23 +358,143 @@ class UnimIndicator extends PanelMenu.Button {
     }
 
     /**
-     * UNIM 메인 설정 앱(unim-gui-gtk --settings) 실행.
+     * UNIM 메인 설정 앱(unim-settings) 실행.
      * GNOME 확장 설정창과는 별도로, config.yaml을 편집하는 단일 창구.
      */
     _openUnimSettings() {
         try {
             GLib.spawn_async(
                 null,
-                ['unim-gui-gtk', '--settings'],
+                ['unim-settings'],
                 null,
                 GLib.SpawnFlags.SEARCH_PATH,
                 null
             );
         } catch (e) {
-            unimError('INDICATOR', ` Failed to launch unim-gui-gtk: ${e.message}`);
+            unimError('INDICATOR', ` Failed to launch unim-settings: ${e.message}`);
         }
     }
     
+    /**
+     * OS UI 언어가 한국어인지 — 로케일 환경변수로 판정.
+     * `LC_ALL` → `LC_MESSAGES` → `LANG` 순서로 첫 비어있지 않은 값을 채택하고,
+     * `ko` 프리픽스면 한국어로 본다.
+     *
+     * ⚠️ Rust `unim_gui_common::help::ui_language_is_korean()` 과 **동일 계약**이다.
+     * 한쪽만 고치면 같은 데스크톱에서 트레이와 확장이 서로 다른 언어의 매뉴얼을 연다.
+     */
+    _uiLanguageIsKorean() {
+        for (const key of ['LC_ALL', 'LC_MESSAGES', 'LANG']) {
+            const val = GLib.getenv(key);
+            if (val) return val.startsWith('ko');
+        }
+        return false;
+    }
+
+    /**
+     * 매뉴얼 HTML 후보 디렉터리 (우선순위 순).
+     *
+     * ⚠️ Rust `unim_gui_common::help::help_dir_candidates()` 의 순서를 복제한다.
+     * 확장은 JS 라 해석기를 공유할 수 없으므로 **순서가 계약**이며, 한쪽만 바뀌면
+     * 세 진입점(설정앱·트레이·확장)이 서로 다른 매뉴얼을 연다. 대응:
+     *   Rust ①② `UNIM_DATADIR`(컴파일 타임 주입) → 아래 _installDataDir() (런타임 역산)
+     *   Rust ③   /usr/share/unim/help
+     *   Rust ④   /usr/local/share/unim/help
+     *   Rust ⑤   개발 폴백 — Rust 는 실행 파일, 여기서는 확장 디렉터리의 조상에서 help/
+     *
+     * Rust 와 동일하게 첫 등장 위치만 남긴다(우선순위 보존 + 중복 stat 제거).
+     */
+    _helpDirCandidates() {
+        const dirs = [];
+        const push = d => { if (!dirs.includes(d)) dirs.push(d); };
+
+        const datadir = this._installDataDir();
+        if (datadir) push(GLib.build_filenamev([datadir, 'unim', 'help']));
+        push('/usr/share/unim/help');
+        push('/usr/local/share/unim/help');
+
+        let dir = this._extension?.path ?? null;
+        while (dir && dir !== '/') {
+            push(GLib.build_filenamev([dir, 'help']));
+            dir = GLib.path_get_dirname(dir);
+        }
+        return dirs;
+    }
+
+    /**
+     * 이 확장이 설치된 위치에서 $(DATADIR) 를 역산한다.
+     *
+     * Rust 쪽은 build.rs 가 `UNIM_DATADIR` 을 컴파일 타임에 주입받지만 JS 에는 그런
+     * 통로가 없다. 대신 Makefile 이 확장을
+     * `$(DATADIR)/gnome-shell/extensions/$(UUID)` 에 설치하므로, 확장 경로에서 세 단계
+     * 위가 곧 $(DATADIR) 다 — 비표준 PREFIX(`PREFIX=/opt`)에서도, 사용자 로컬 설치
+     * (`~/.local/share/gnome-shell/extensions/...`)에서도 성립한다. 이게 없으면
+     * Rust 진입점은 `/opt/share/unim/help` 를 여는데 확장만 매뉴얼을 못 찾는다.
+     */
+    _installDataDir() {
+        let dir = this._extension?.path ?? null;
+        // uuid → extensions → gnome-shell → DATADIR
+        for (let i = 0; i < 3 && dir && dir !== '/'; i++) {
+            dir = GLib.path_get_dirname(dir);
+        }
+        return dir && dir !== '/' ? dir : null;
+    }
+
+    /**
+     * 오프라인 사용자 매뉴얼을 기본 브라우저로 연다.
+     * 파일이 존재하는 첫 후보를 채택하고, 실패는 조용히 삼키지 않는다 —
+     * 눌렀는데 아무 일도 안 일어나는 것이 사용자에게 가장 나쁜 결과다.
+     */
+    _openHelp() {
+        const korean = this._uiLanguageIsKorean();
+        // 파일명은 Makefile·MSI·도움말 생성기와 공유하는 고정 계약.
+        const name = korean ? 'unim-help-ko.html' : 'unim-help-en.html';
+        const path = this._helpDirCandidates()
+            .map(d => GLib.build_filenamev([d, name]))
+            .find(p => GLib.file_test(p, GLib.FileTest.IS_REGULAR));
+
+        if (!path) {
+            unimError('INDICATOR', ` Help file not found: ${name}`);
+            Main.notify('UNIM', korean
+                ? '도움말 파일을 찾지 못했습니다. unim-common 패키지가 설치되어 있는지 확인해 주세요.'
+                : 'Could not find the help file. Check that the unim-common package is installed.');
+            return;
+        }
+
+        const uri = Gio.File.new_for_path(path).get_uri();
+
+        // 1순위: 사용자의 기본 웹 브라우저(x-scheme-handler/https 핸들러).
+        // launch_default_for_uri/xdg-open 은 file URI 를 text/html MIME 기본
+        // 핸들러로 라우팅하는데, VS Code 계열 IDE(antigravity 등)가 text/html 을
+        // 등록해 도움말이 IDE 로 열리는 사례가 실재한다(실사용 보고). 도움말은
+        // "브라우저에서 보는 문서"이므로 기본 브라우저를 명시적으로 우선한다.
+        // (Rust 공용 로직 unim_gui_common::help::open_in_default_browser 와 동일 계약)
+        try {
+            const browser = Gio.AppInfo.get_default_for_uri_scheme('https');
+            if (browser && browser.launch_uris([uri], null)) return;
+        } catch (e) {
+            unimError('INDICATOR', ` default browser launch failed: ${e.message}`);
+        }
+
+        // 2순위: 종전 경로 — MIME 기본 핸들러 (브라우저 미설정 환경에서도 열리게).
+        try {
+            if (Gio.AppInfo.launch_default_for_uri(uri, null)) return;
+            unimError('INDICATOR', ' launch_default_for_uri returned false; falling back to xdg-open');
+        } catch (e) {
+            unimError('INDICATOR', ` launch_default_for_uri failed: ${e.message}`);
+        }
+
+        // 기본 핸들러가 없거나 실패한 환경(포터블·최소 설치)을 위한 폴백.
+        try {
+            GLib.spawn_async(null, ['xdg-open', path], null, GLib.SpawnFlags.SEARCH_PATH, null);
+        } catch (e) {
+            unimError('INDICATOR', ` Failed to open help: ${e.message}`);
+            Main.notify('UNIM', korean
+                ? '도움말을 열지 못했습니다.'
+                : 'Could not open the help file.');
+        }
+    }
+
     destroy() {
         // DBus 이름 감시 정리
         if (this._nameWatcherId > 0) {

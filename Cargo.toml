@@ -3,6 +3,9 @@ name = "unim"
 version.workspace = true
 edition = "2021"
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 once_cell = "1.19"
@@ -21,10 +24,13 @@ name = "unim"
 path = "src/lib.rs"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.4.0"
 # Cargo.lock v4 (used by this workspace) requires Rust 1.78+.
 # Older toolchains will fail with "lock file version 4 requires a newer Cargo".
 rust-version = "1.78"
+license = "MIT"
+repository = "https://github.com/from104/unim"
+authors = ["from104 <from104@github.com>"]
 
 [workspace]
 members = [
@@ -34,12 +40,47 @@ members = [
     "unim-frontends/wayland",
     "unim-daemon",
     "unim-gui-common",
-    "unim-gui-gtk",
-    "unim-gui-qt",
+    "unim-popup-types",
+    "unim-indicator",
+    "unim-settings-gtk",
+    "unim-popup-service",
+    "unim-keymap-common",
+    "unim-keymap-studio",
+    "unim-typing-practice",
     "unim-dbus",
-    "unim-windows",
     "unim-tsf",
+    "unim-imm32",
+    "unim-settings",
+    "unim-popup-win",
+    "unim-windows-common",
+    "tests/common-rs",
     "tests/unim-test-wayland",
     "tests/unim-test-dbus",
+    # 개발 도구 — 배포 바이너리가 아니다 (install/deb/rpm/MSI 어디에도 담기지 않는다).
+    "tools/gen-help",
 ]
 resolver = "2"
+
+# ── xim 크레이트 포크 (일시적) ────────────────────────────────────────────
+# xim 0.5.0 은 XIM_PREEDIT_START 를 동기 요청으로 다루지 않는다 — 응답
+# (XIM_PREEDIT_START_REPLY)을 `// Ignore start reply` 로 버리고 곧바로
+# PreeditDraw 를 보내서, ON-THE-SPOT(PREEDIT_CALLBACKS) 클라이언트가 그
+# PreeditDraw 를 유실한다. 상류에 그대로 낼 수 있는 최소 패치를
+# third_party/xim 에 적용해 두었다.
+#
+# **상류 복귀 방법: 이 [patch.crates-io] 블록 3줄을 지우면 끝난다.**
+# 배경·델타·검증 절차는 third_party/xim/UNIM-FORK.md 참조.
+# 포크와 원본의 차이 확인: `make xim-fork-diff`
+[patch.crates-io]
+xim = { path = "third_party/xim" }
+
+# UB on Windows TSF: Rust panic unwinding across the C ABI / COM boundary
+# (msctf.dll calls into unim_tsf.dll's DllRegisterServer / IUnknown vtable)
+# is undefined behavior and was crashing msctf with 0xC0000005. `abort` is the
+# only safe choice for cdylib targets exposed via COM. Applied to all release
+# binaries for consistency (Linux IM components also benefit from clean abort).
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

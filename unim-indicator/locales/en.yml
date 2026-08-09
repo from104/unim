@@ -1,0 +1,221 @@
+# UNIM GUI GTK locale (English)
+# Settings dialog, popups, mode window
+
+# Window/dialog
+settings_window_title: "UNIM Settings"
+settings_toast_saved: "Saved"
+settings_toast_save_failed: "Save failed: %{err}"
+settings_toast_added: "Added"
+settings_toast_deleted: "Deleted"
+
+# Pages
+page_general_title: "General"
+page_typefix_title: "Auto TypeFix"
+page_blacklist_title: "Suppression List"
+page_userdict_title: "User Dictionary"
+
+# General > Layouts and keymap
+group_layouts_keymap: "Layouts & Keymap"
+row_korean_layout: "Korean Layout"
+row_korean_layout_subtitle: "10 built-in layouts + user layouts (~/.config/unim/layouts/*.json)"
+row_english_layout: "English Layout"
+row_toggle_keys: "Korean/English Toggle Keys"
+row_toggle_keys_subtitle: "Comma separated (e.g. Korean, RightAlt)"
+row_hanja_keys: "Hanja Keys"
+row_hanja_keys_subtitle: "Comma separated (e.g. Hanja, F9) — also opens emoji popup when idle"
+
+# General > Input mode
+group_input_mode: "Input Mode"
+row_initial_mode: "Initial Input Mode"
+mode_english: "English"
+mode_korean: "Korean"
+row_mode_sharing: "Mode Sharing"
+mode_share_global: "Global (shared)"
+mode_share_perapp: "Per-window (independent)"
+
+# General > Auto English mode
+group_auto_english: "Auto English Mode"
+row_auto_english_enable: "Enable Auto English Mode"
+row_auto_english_triggers: "Trigger Keys"
+row_auto_english_triggers_subtitle: "Comma separated. Use key:<Name> for keycode match or char:<chr> for layout-aware character match (e.g. key:Escape, char:/, char:,)"
+
+# Layout options page
+group_layout_options_empty: "This layout has no option rules."
+group_layout_options_title: "Option rules for selected layout"
+row_rule_sets_label: "Rule sets"
+row_layout_pending: "Shown after layout profile loads"
+group_moachigi_title: "Moachigi (Chord) Settings"
+row_moachigi_bidirectional_label: "Bidirectional jamo combine"
+row_moachigi_bidirectional_subtitle: "Combines ㅎ→ㄱ into ㅋ (both sequential and chord input)"
+row_moachigi_bidirectional_tooltip: "When combining jamo, tries reverse order (ㅎ,ㄱ→ㅋ) in addition to forward order (ㄱ,ㅎ→ㅋ). Applies to slow sequential typing as well, so intended combinations work even with a delay between keystrokes. Independent of chord_window_ms — can be enabled even without chord mode."
+row_moachigi_chord_label: "Chord window (ms)"
+row_moachigi_chord_subtitle: "0=OFF, 50/100/150/200ms (beginners 100-150ms, fine values via CLI)"
+row_moachigi_chord_tooltip: "Treat keys pressed within N ms of the first keystroke as a chord. 60ms is the standard value; beginners should start with 80-100ms. 0 disables chord mode. Independent of bidirectional combine — chord-bundled jamo are auto-sorted by region and combined via permutation."
+
+# TypeFix > Forward
+group_typefix_forward: "Auto Forward Correction (EN→KO)"
+row_typefix_enable: "Enable"
+row_typefix_kor_threshold: "Korean syllable threshold"
+row_typefix_kor_threshold_subtitle: "Run check when at least this many complete Korean syllables are detected"
+row_typefix_forward_window: "Trigger window (sec)"
+row_typefix_forward_window_subtitle: "Recent input window considered valid for forward correction"
+row_typefix_skip_engword: "Skip when matching English word"
+row_typefix_skip_engword_subtitle: "Do not correct if input matches a known English word"
+
+# TypeFix > Reverse
+group_typefix_reverse: "Auto Reverse Correction (KO→EN)"
+row_typefix_eng_threshold: "Character threshold"
+row_typefix_eng_threshold_subtitle: "Run check when at least this many Hangul characters are detected"
+row_typefix_reverse_window: "Trigger window (sec)"
+row_typefix_reverse_window_subtitle: "Recent input window considered valid for reverse correction"
+row_typefix_skip_complete: "Skip when all syllables complete"
+row_typefix_skip_complete_subtitle: "Do not correct if buffered Hangul are all complete syllables"
+row_typefix_userdict: "Use user dictionary"
+row_typefix_userdict_subtitle: "Registered CLI commands etc. bypass length/dictionary checks for instant correction — manage on the 'User Dictionary' page"
+
+# TypeFix > Master
+group_typefix_master: "Master Toggle"
+row_typefix_master: "Enable Auto TypeFix"
+row_typefix_master_subtitle: "AutoTypeFix master switch — OFF stops both forward and reverse"
+
+# TypeFix > Retrigger
+group_typefix_retrigger: "Retrigger Detection"
+row_typefix_retrigger_subtitle: "Re-correction within the window → logs as false-positive candidate and adds to Suppression List"
+row_typefix_observe_window: "Observation window (sec)"
+row_typefix_observe_window_subtitle: "If same input retriggers within this window, mark as false positive (rec: 5–15s)"
+row_typefix_tentative_expiry: "Tentative expiry (hours)"
+row_typefix_tentative_expiry_subtitle: "Auto-deactivated if not manually confirmed within this period (rec: 1–12h)"
+
+# General > Display
+group_display: "Display"
+row_panel_indicator: "Top panel indicator"
+row_show_notification: "Show conversion notification"
+
+# General > IME
+group_ime: "Realtime IME (Input Method)"
+group_ime_subtitle: "Available only on Wayland sessions. No effect on X11."
+row_ime_enable: "Enable IME mode"
+
+# Blacklist page
+blacklist_group_tentative: "Pending"
+blacklist_group_confirmed: "Confirmed"
+blacklist_group_inactive: "Inactive"
+blacklist_empty: "No entries"
+blacklist_tentative_desc: "Suspicious words auto-detected via BS+mode-switch — confirming makes the suppression permanent (%{count})"
+blacklist_confirmed_desc: "Permanently suppressed (%{count})"
+blacklist_inactive_desc: "Expired, no longer suppressed (%{count})"
+blacklist_row_summary: "%{kind} · %{ts} · KO:%{ko} · EN:%{en} · hits:%{hits}"
+blacklist_btn_disable: "Disable"
+blacklist_btn_delete: "Delete"
+blacklist_btn_reactivate: "Reactivate (confirm)"
+blacklist_btn_confirm: "Confirm"
+blacklist_kind_forward: "Forward (EN→KO)"
+blacklist_kind_reverse: "Reverse (KO→EN)"
+
+# Userdict page
+userdict_group_title: "Reverse user dictionary"
+userdict_group_desc: "Inputting these words in Korean mode auto-corrects to English. Register CLI commands (git, ls, kubectl) or short proper nouns."
+userdict_group_desc_count: "Inputting these words in Korean mode auto-corrects to English. Register CLI commands or short proper nouns. (%{count} registered)"
+userdict_btn_add_tooltip: "Add word"
+userdict_empty: "No registered words"
+userdict_empty_subtitle: "Use the + button at top-right, or press Super+E with Korean text selected, to register a word."
+userdict_btn_edit: "Edit"
+userdict_dialog_edit_title: "Edit word"
+userdict_dialog_field_word: "Word (English alphabet only)"
+userdict_dialog_field_desc: "Description (optional)"
+common_cancel: "Cancel"
+common_save: "Save"
+common_add: "Add"
+userdict_add_failed: "Failed: only English alphabet allowed and duplicates are rejected."
+
+# ─────────────────────────────────────────────────────────────
+# Live help — new subtitle keys (added in 0.2.0)
+# Text source: _workspace/release/03_live_help_keys.yml (doc-writer spec)
+# ─────────────────────────────────────────────────────────────
+
+# General > Layouts and keymap (NEW subtitle)
+row_english_layout_subtitle: "QWERTY is the default. Change only if you use Dvorak / Colemak / Colemak-DH / Workman."
+
+# General > Input mode (NEW subtitle)
+row_initial_mode_subtitle: "Whether the daemon starts in Korean or English mode."
+row_mode_sharing_subtitle: "Per-window: each window keeps its own mode. Global: switching once syncs everywhere."
+
+# General > Auto English (NEW subtitle)
+row_auto_english_enable_subtitle: "Forces English mode when a trigger key is pressed in Korean mode."
+
+# TypeFix > forward / reverse (NEW subtitle for enable rows)
+row_typefix_forward_enable_subtitle: "EN→KO auto-correction at word boundaries. Recommended for everyday writing."
+row_typefix_reverse_enable_subtitle: "KO→EN auto-correction for English identifiers. Useful for developers."
+
+# TypeFix > Master (NEW row subtitle, distinct from group description)
+row_typefix_master_row_subtitle: "When OFF, both forward (EN→KO) and reverse (KO→EN) corrections stop."
+
+# GNOME / Display / IME (NEW subtitle)
+row_panel_indicator_subtitle: "Shows the Korean/English status icon in the top panel (GNOME Wayland/X11)"
+row_show_notification_subtitle: "Shows a brief notification when correction or popup events fire"
+row_ime_enable_subtitle: "Wayland only: GNOME extension intercepts keys and forwards to unim-daemon"
+
+# ─────────────────────────────────────────────────────────────
+# Live help — new tooltip keys (added in 0.2.0, all widgets)
+# ─────────────────────────────────────────────────────────────
+
+# General > Layouts and keymap
+row_korean_layout_tooltip: "Lists 10 built-in layouts plus any v1 JSON profile under ~/.config/unim/layouts/. Selecting a layout rebuilds the option group below. AutoTypeFix forward correction also uses this layout as reference."
+row_english_layout_tooltip: "AutoTypeFix uses this layout to infer English words from key sequences. Mismatched layout causes forward corrections to misfire. Default: QWERTY."
+row_toggle_keys_tooltip: "Comma-separated XKB keysym names for Korean/English toggle. Examples: Korean, RightAlt. First key wins on collision."
+row_hanja_keys_tooltip: "Comma-separated keys that open the Hanja/special-char popup. Examples: Hanja, F9. While composing Hangul: Hanja picker. When idle: emoji or special-char popup."
+
+# General > Input mode
+row_initial_mode_tooltip: "Mode right after daemon starts. English is the safe default — prevents Hangul in password fields at login. Switch to Korean if that's your primary typing mode."
+row_mode_sharing_tooltip: "Per-window (recommended): each window keeps its own mode — terminal stays English, editor stays Korean. Global: one toggle switches all windows simultaneously."
+
+# General > Auto English
+row_auto_english_enable_tooltip: "Pressing Esc or '/' in Korean mode auto-switches to English — prevents accidental Hangul in vim normal mode or terminal commands. Recommended for vim/Emacs/terminal users. Password fields are unaffected."
+row_auto_english_triggers_tooltip: "key:<Name>: matches XKB keysym code (e.g. key:Escape, key:F1). char:<chr>: matches the produced character — fires correctly on non-QWERTY layouts like Sebeolsik 390. Shift is ignored for char: — register both '/' and '?' separately if needed. Toggle key collision: toggle wins."
+
+# TypeFix > Forward
+row_typefix_forward_enable_tooltip: "Auto-replaces Korean-track Hangul with the intended Korean word at word boundaries while in English mode. Turn OFF for heavy English code writing (noisy). Keep ON for everyday writing and chat."
+row_typefix_kor_threshold_tooltip: "Forward correction only runs after this many Hangul syllables accumulate. Default 2 recommended — lowering to 1 increases false positives; raising to 3+ misses short words."
+row_typefix_forward_window_tooltip: "Only jamo entered within this recent window count as correction candidates. Too short misses slow typists; too long corrects stale input. 3–5s recommended."
+row_typefix_skip_engword_tooltip: "Strongly recommended ON. Prevents intentional English words (e.g. 'for', 'git') from being flipped to Hangul. Turn OFF only for special layouts without an English dictionary."
+
+# TypeFix > Reverse
+row_typefix_reverse_enable_tooltip: "Auto-replaces Hangul jamo sequences that spell out an English word (e.g. git, kubectl). Useful for developers and researchers. Turn OFF for pure prose writing."
+row_typefix_eng_threshold_tooltip: "Reverse only runs after this many Hangul characters accumulate. Default 3 recommended — values of 1–2 increase false positives on short inputs like 'ㅎ'."
+row_typefix_reverse_window_tooltip: "Only jamo entered within this recent window count as reverse correction candidates. 3–5s recommended."
+row_typefix_skip_complete_tooltip: "Strongly recommended ON. Prevents complete Hangul syllables ('가', '나') from being misread as English words. Turn OFF only for testing Sebeolsik uncomposed jamo correction."
+row_typefix_userdict_tooltip: "ON: registered CLI commands (git, ls, kubectl) bypass length/dictionary checks for instant correction. OFF: auto-discovery mode. Manage entries on the 'User Dictionary' page."
+
+# TypeFix > Master
+row_typefix_master_tooltip: "E.g. typing 'gksrmf' in English mode by mistake → forward replaces with '한글'. ON enables both forward and reverse. OFF stops all auto-correction on this page."
+row_typefix_retrigger_tooltip: "Recommended ON. Automatically adds re-triggered false positives to the Suppression List page. With OFF, you must add suppression words manually every time."
+row_typefix_observe_window_tooltip: "If the same input is corrected again within this window, it is flagged as a false positive. Range 5–15s — fast typists: 5–7s; slow typists: 10–15s."
+row_typefix_tentative_expiry_tooltip: "False-positive candidates not manually confirmed within this period are auto-deactivated. Range 1–12h — 1h balances learning accuracy and stale-entry cleanup."
+
+# General > Display / IME
+row_panel_indicator_tooltip: "Shows a Korean/English status icon (e.g. 'K'/'E') in the GNOME top panel. Turn OFF for a cleaner panel — check mode via the mode popup window instead."
+row_show_notification_tooltip: "When ON, correction events and popup appearances briefly appear in the notification centre. Turn OFF if corrections are frequent and notifications become disruptive."
+row_ime_enable_tooltip: "On Wayland, the GNOME Shell extension (unim-gnome-extension) intercepts key events and forwards them to unim-daemon. On X11, XIM handles this automatically — no effect."
+
+# Mode popup window
+modepopup_status_korean: "Typing Korean"
+modepopup_status_english: "Typing English"
+modepopup_btn_korean_tooltip: "Switch to Korean mode"
+modepopup_btn_english_tooltip: "Switch to English mode"
+modepopup_btn_open_settings: "Open Settings"
+
+# Emoji popup — left vertical 9 tabs (PR #2 emoji overhaul)
+emoji_popup_title: "Pick emoji"
+emoji_tab_recent: "Recent"
+emoji_tab_smileys_people: "Smileys & People"
+emoji_tab_animals_nature: "Animals & Nature"
+emoji_tab_food_drink: "Food & Drink"
+emoji_tab_activities: "Activities"
+emoji_tab_travel_places: "Travel & Places"
+emoji_tab_objects: "Objects"
+emoji_tab_symbols: "Symbols"
+emoji_tab_flags: "Flags"
+
+# Popup page navigation (shared by hanja/special/emoji popups)
+popup_previous_page: "Previous page"
+popup_next_page: "Next page"

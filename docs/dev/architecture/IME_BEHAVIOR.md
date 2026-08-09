@@ -124,15 +124,65 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
     자동 전환으로 발생한 모드 변경은 `engine_worker`가 `is_mode_switch=true`로 관측하므로
     pending Blacklist 엔트리가 있으면 §9.2의 규칙대로 관측된다. 실무상 영향은 미미.
 
+### 3.12 AutoTypeFix 토글 단축키 (opt-in)
+
+지정한 단일 키로 자동 오타 교정을 즉시 켜고 끄는 **opt-in** 기능. 설정
+`engine.auto_typefix.{toggle_enabled_keys, toggle_forward_keys, toggle_reverse_keys}`
+(각각 `Vec<String>`, 기본 빈 목록). `toggle_keys`와 동일하게 **수정자 조합 없는
+단일 비수정자 키 이름**만 지원한다.
+
+- **매칭 위치**: `press_key`의 toggle 분기 직후, 한자 분기 이전. toggle 분기와
+  동일한 shortcut_combo 가드(Ctrl/Super/비자기 Alt 동반 시 미소비)를 적용한다.
+- **드레인 패턴 (ABI 보존)**: `InputResult`는 `#[repr(C)]`로 C-API에 노출되므로
+  필드를 추가하면 ABI가 깨진다. 대신 매칭 시 엔진 내부 `pending_atf_toggle`에
+  `AtfToggleKind`를 세팅하고 `consumed()`만 반환한다. 호스트(Linux=`engine_worker`,
+  Windows=`text_service`)가 `press_key` 직후 `take_atf_toggle()`로 1회 드레인하여
+  config 플래그를 반전하고 `save_to_default_path()` 한다. 팝업 통지의
+  `popup_pending_action` 드레인 패턴과 동형이다.
+- **소비 정렬 (Windows 필수)**: TSF `OnTestKeyDown`/IMM32 `should_consume`는
+  `is_toggle_key` 선례대로 `is_atf_hotkey()`도 소비로 판정해야 한다. 누락하면 프런트가
+  키를 소비하지 않아 `press_key`가 호출조차 되지 않고 핫키가 죽는다.
+- **통지**: Linux는 `EngineResponse`에 실은 토글 결과로 `service`가 `config_changed`
+  시그널을 방출(GUI/확장 동기). Windows는 mtime 폴링(`maybe_reload_config`)으로 타 앱
+  전파 + `lang_bar` 차등 비프(`toggle_announce_beep` 존중).
+- **의미론**: `enabled`가 마스터 게이트. forward/reverse 토글은 각 방향 플래그만
+  반전하며, 실제 교정은 `enabled`가 켜졌을 때만 발동한다(현행 시멘틱 유지).
+
 ---
 
 ## 4. 팝업 동작
+
+### 4.0 팝업 렌더링 아키텍처 (0.3.0+)
+
+0.3.0부터 팝업 렌더링은 daemon에서 분리되어 별도 사이드카 프로세스 `unim-popup-service`
+또는 GNOME extension의 `popup_view.js`가 담당한다. Daemon은 view-model을
+`PopupRender` payload로 생성하고, `org.atit.unim.Popup` 인터페이스로 forward만 한다.
+
+```
+엔진 → daemon (view-model 생성) → org.atit.unim.Popup 인터페이스 forward
+                                         ↓                         ↓
+                              unim-popup-service (GTK4)   GNOME extension popup_view.js (St 위젯)
+```
+
+| 환경 | 렌더러 | 조건 |
+| ---- | ------ | ---- |
+| GNOME Wayland | `popup_view.js` (St 위젯) | `Meta.is_wayland_compositor() == true` |
+| GNOME X11 | `unim-popup-service` GTK4 윈도우 | D-Bus auto-activation |
+| KDE / Xfce / X11 WM | `unim-popup-service` GTK4 윈도우 | D-Bus auto-activation |
+| Wayland WM (Sway/Hyprland) | `unim-popup-service` GTK4 | `libgtk4-layer-shell` 필요 |
+
+`PopupRender` payload는 셀·헤더·푸터·탭·하이라이트를 포함하는 단일 view-model SoT이다.
+렌더러는 이 payload만 소비하며 자체 상태를 관리하지 않는다.
+
+**외부 좌클릭 dismiss**: 팝업 영역 밖을 좌클릭하면 팝업이 닫히고
+클릭 이벤트는 아래 창에 그대로 pass-through된다.
 
 ### 4.1 한자 팝업
 - **위치**: 커서(caret) 바로 아래
 - **화면 경계 처리**: 오른쪽/아래 넘침 시 왼쪽/위로 조정
 - **선택**: 숫자 1-9 직접 선택, ↑↓ 네비게이션, Enter 확정
-- **페이지**: ← → PgUp PgDn Space로 이동
+- **페이지**: ← → PgUp PgDn Space로 이동; ◀/▶ 마우스 버튼 (총 페이지 1일 때 자동 숨김)
+- **그리드 토글**: Period(`.`) 키로 9-셀 컴팩트 ↔ 81-셀 확장 그리드 전환
 - **선택 시 커밋 플로우**: SelectHanja → CancelHanja(엔진 preedit 리셋) → clearPreedit → commit
 - **취소**: Escape 또는 미등록 키 입력 시 닫기 + 원래 문자 유지
 - **포커스 이동 시 자동 닫기**
@@ -151,6 +201,21 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
   1. 팝업 닫기 + 해당 모드 취소 (CancelHanja / CancelSpecialChar)
   2. **나머지 IME 키 처리 로직으로 fall-through** (네비게이션 키 → commit+바이패스, 문자 키 → ProcessKey)
   3. 즉시 return하지 않음 — GTK3 immodule.c의 "미지원 키 → 닫기 → fall-through" 패턴을 따름
+
+### 4.4 팝업 forward 흐름 (0.3.0+)
+
+프런트엔드 → 데몬으로의 팝업 관련 신호 경로:
+
+```
+프런트엔드 (ProcessKeyEvent) → daemon 엔진 처리
+    → PopupAction (Select/Cancel/Navigate) → view-model 생성
+    → org.atit.unim.InputContext 시그널 발행
+    → daemon popup_dispatch → org.atit.unim.Popup 인터페이스로 forward
+    → unim-popup-service 또는 GNOME extension popup_view.js 수신 → 렌더링
+```
+
+팝업 관련 시그널/메서드를 daemon에 직접 추가하지 말 것.
+`org.atit.unim.Popup` 인터페이스를 통해 forward한다.
 
 ---
 
@@ -206,12 +271,14 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
 - [ ] Enter 커밋+바이패스 (이중 커밋 없음)
 - [ ] Ctrl/Alt 조합 바이패스
 - [ ] 한영전환 동작
-- [ ] 한자/특수문자 팝업 표시/선택/취소
-- [ ] 팝업 커서 위치 배치 + 경계 조정
-- [ ] 포커스 이동 시 팝업 자동 닫기
+- [ ] 한자/특수문자 팝업 선택/취소 (팝업 *렌더링* 자체는 0.3.0+ `unim-popup-service`
+      또는 GNOME extension `popup_view.js`가 담당 — 프런트엔드는 키를 데몬에 forward할 뿐
+      자체 팝업 위젯을 그리지 않는다. §4.0 참조)
+- [ ] caret 좌표(`caret_rect`)를 데몬에 보고 (popup-service가 이 좌표로 위치 배치)
+- [ ] 포커스 이동 시 팝업 취소(CancelHanja/CancelSpecialChar) 호출
 - [ ] BackSpace 자모 삭제
-- [ ] 팝업 키 처리: PopupState 위임 (C-API 또는 직접 사용)
-- [ ] PopupNavigate 시그널 수신 → 팝업 UI 업데이트
+- [ ] 팝업 활성 시 키 처리 위임 (Rust 프런트엔드는 `PopupState` 직접, GTK/Qt는 capi 경유 —
+      §8.6. 단 *그리기*가 아니라 키→PopupKeyResult 변환·forward 목적)
 
 ---
 
@@ -236,9 +303,34 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
    - false → 키 통과 (앱에 전달)
 ```
 
-**주의 (XIM)**: commit 전에 `clear_preedit()`를 호출하면 안 됨. PreeditDone이 먼저 전송되어 일부 클라이언트에서 세션이 닫힘.
-
 **순서가 중요한 이유**: commit → preedit 순서를 지키지 않으면 조합 중 문자가 이중 커밋되거나 누락됨.
+
+#### 예외 — XIM 은 preedit 을 먼저 보낸다 (2026-08-07)
+
+XIM 프런트엔드만 2·3단계가 **뒤바뀐다**: `preedit 갱신 → commit`.
+
+ON-THE-SPOT(`PREEDIT_CALLBACKS`) 클라이언트는 한 키에 대한 응답을 처리하다가
+**`Commit` 을 만나면 그 뒤에 온 메시지를 더 이상 처리하지 않는다.** 실측에서
+서버가 한 배치로 내보낸
+`PreeditDraw(empty) → PreeditDone → Commit → PreeditStart → PreeditDraw` 중
+클라이언트가 소화한 것은 앞의 `PreeditDraw(empty)` 와 `Commit` 뿐이었고,
+뒤따르는 `PreeditStart`/`PreeditDraw` 는 `PreeditStartReply` 조차 오지 않은 채
+사라졌다(자체 Xlib 클라이언트·GTK3 XIM 모듈 양쪽 동일). 그래서 커밋 직후의 첫
+자모가 안 보이고 다음 자모가 들어와야 나타나던 것이다 — 0.3.0 부터 미해결로
+적혀 있던 증상의 정체.
+
+- 조합이 계속되면: 새 preedit `PreeditDraw` → `Commit`
+- 조합이 끝나면: **내용만 비우는** `PreeditDraw(empty)` → `Commit`.
+  이때 `PreeditDone` 은 보내지 않는다 — commit 보다 먼저 나가면 일부
+  클라이언트가 세션을 닫는다(그래서 **commit 전 `clear_preedit()` 호출 금지**는
+  여전히 유효하다). 사이클은 focus-out / reset 에서 닫는다.
+
+구현: `unim-frontends/xim/src/handler.rs` 의 `commit_then_preedit()` 와,
+`third_party/xim` 포크가 추가한 `preedit_clear_keep_session()`.
+검증: `tests/unim-test-xim`(ON-THE-SPOT) · `tests/unim-test-gtk3`(GTK XIM,
+Obsidian 과 같은 경로) · `xterm`(OVER-THE-SPOT 회귀 없음).
+
+다른 프런트엔드(GTK/Qt/Wayland/GNOME)는 위 8.1 순서를 그대로 따른다.
 
 ### 8.2 포커스 획득 (Focus In) 시퀀스
 
@@ -303,7 +395,10 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
 
 ### 8.6 팝업 키 처리 위임 (PopupState 통합)
 
-팝업이 활성화된 상태에서의 키 처리는 `PopupState`(Rust `src/popup/`)에 위임:
+팝업이 활성화된 상태에서의 **키 처리**(렌더링 아님)는 `PopupState`(Rust `src/popup/`)에 위임.
+0.3.0+ 에서 팝업의 **시각적 렌더링**은 프런트엔드가 아니라 `unim-popup-service`(또는 GNOME
+extension `popup_view.js`)가 전담한다(§4.0). 아래 위임은 어디까지나 keysym → PopupKeyResult
+변환·라우팅 책임이며, 프런트엔드가 PopupState로 픽셀을 그리지는 않는다:
 
 ```
 ■ Rust 프런트엔드 (XIM, Wayland):
@@ -345,11 +440,25 @@ vi/vim 명령 모드 진입(`Esc`), CLI 도구의 슬래시 명령(`/`) 등을
 
 | 시그널 | 파라미터 | 용도 |
 |-------|---------|------|
-| `ShowHanjaPopup` | (target, candidates, cursor_rect) | 한자 팝업 표시 |
-| `ShowSpecialPopup` | (target, characters, top_row, cursor_rect) | 특수문자 팝업 표시 |
-| `HidePopup` | - | 팝업 닫기 |
-| `PopupNavigate` | (page, totalPages, selected, rows, cols, selRow, selCol) | 팝업 상태 업데이트 |
 | `GlobalModeChanged` | (is_korean) | 한/영 모드 변경 알림 |
+
+> **주의 (0.3.0+)**: 팝업 관련 시그널은 `org.atit.unim.InputContext`에서 발행되지만
+> 프런트엔드가 직접 구독하지 않는다. 대신 daemon이 `org.atit.unim.Popup` 인터페이스로
+> forward하고, 렌더러(popup-service 또는 GNOME extension)가 해당 인터페이스를 구독한다.
+
+`org.atit.unim.Popup` 인터페이스 시그널 (렌더러 전용):
+
+| 시그널 | 파라미터 | 용도 |
+|-------|---------|------|
+| `PopupRender` | (payload: PopupRenderPayload) | 단일 view-model — 셀·헤더·푸터·탭·하이라이트 |
+| `ShowHanjaPopup` | (cursor_rect) | 한자 팝업 위치 지정 + 표시 트리거 |
+| `ShowSpecialCharPopup` | (cursor_rect) | 특수문자 팝업 위치 지정 + 표시 트리거 |
+| `ShowEmojiPopupV2` | (cursor_rect) | 이모지 팝업 위치 지정 + 표시 트리거 |
+| `HidePopup` | - | 팝업 닫기 |
+| `CancelHanja` | - | 한자 모드 취소 |
+| `CancelSpecialChar` | - | 특수문자 모드 취소 |
+| `HanjaBookmarkChanged` | - | 북마크 변경 알림 |
+| `PopupNavigate` | (page, totalPages, selected, rows, cols, selRow, selCol) | 팝업 네비게이션 상태 (PopupRender 동반 발행) |
 
 ---
 
@@ -396,3 +505,25 @@ Blacklist에 Tentative로 추가되며 **그 재시도도 함께 억제**된다.
 - 설정 필드 범위: `src/SPEC.md §3.1.1 AutoTypeFixConfig`
 - CLI 설정 키: `unim-cli/SPEC.md §2.3` (`unim-cli config` 서브커맨드)
 - DBus 설정 키 매핑: `unim-dbus/SPEC.md §5.4`
+
+### 9.4 비밀번호 필드 AND-게이트
+
+비밀번호·PIN 필드(`ContentPurpose::{Password, Pin}`, `should_block_hangul() == true`)
+에서는 AutoTypeFix 전 경로가 런타임에서 차단된다. config를 건드리지 않는
+**AND-게이트** — 관측/롤백/undo/재트리거 학습의 진입 조건에
+`&& !content_purpose().should_block_hangul()`를 더한 것뿐이다.
+
+- **런타임 게이트**: 실효 조건은 `atf_config.enabled && !password`. `enabled`나 토글
+  상태를 저장·복원하지 않으므로 사용자의 수동 토글 상태(§3.12)는 구조적으로 보존된다.
+  필드 이탈 시 프런트가 보내는 `SetContentType(Normal)`로 즉시 자동 복원된다(별도
+  복원 코드 없음, `set_content_purpose` 멱등 상태머신 재사용).
+- **잔류 제거**: 비번 진입(`SetContentType(Password|Pin)`) 시 해당 컨텍스트의
+  `keystroke_buffers`/`undo_states`(원문 보관)/`recent_corrections`를 클리어한다
+  (FocusIn 초기화 선례). 코어 `set_surrounding_text`도 `should_block_hangul()`이면
+  빈 값 저장 → GlobalTypeFix/SmartBackspace가 자연 무력화된다. blacklist/userdict 학습은
+  버퍼 게이트의 다운스트림이라 원천 차단된다.
+- **fail-closed**: 이탈 신호가 유실되는 엣지(포커스 소실 등)에서는 password가 잔존해
+  교정이 계속 억제된다 — 안전 측 실패.
+- **감지 매트릭스**: GTK3/4·Qt5/6·GNOME 확장·Windows TSF(InputScope IS_PASSWORD)는 전달.
+  XIM(프로토콜 신호 없음)·IMM32 폴백(InputScope 조회 경로 없음)·content-purpose 미전달
+  Wayland는 미감지 → 사용자 문서(troubleshooting §8-1)에 한계를 명시.

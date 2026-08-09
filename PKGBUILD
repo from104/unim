@@ -1,6 +1,6 @@
 # Maintainer: Seo Gihyeon <from104@gmail.com>
 pkgname=unim
-pkgver=0.1.0
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="Universal Next-generation Input Method for Korean"
 arch=('x86_64')
@@ -29,8 +29,14 @@ makedepends=(
 optdepends=(
     'gnome-shell: GNOME Shell extension support'
 )
-source=()
-sha256sums=()
+# DOCS-V4: source=() 이던 채로 build()/package() 가 "$srcdir/$pkgname-$pkgver"
+# 로 cd 하면 makepkg 가 그 디렉터리를 채운 적이 없어 즉시 실패한다. rpm/unim.spec
+# Source0 과 동일하게 GitHub 릴리스 태그 tarball 을 받는다(태그 v$pkgver → 압축
+# 해제 디렉터리는 $pkgname-$pkgver 로 rpm 쪽에서 이미 확인된 규칙과 동일).
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+# 태깅 전에는 실제 릴리스 tarball 이 없어 해시를 미리 계산할 수 없다 —
+# 태깅 직후 `updpkgsums` 로 실값을 채울 것.
+sha256sums=('SKIP')
 
 build() {
     cd "$srcdir/$pkgname-$pkgver"
@@ -41,11 +47,11 @@ package() {
     cd "$srcdir/$pkgname-$pkgver"
     make install DESTDIR="$pkgdir" PREFIX=/usr
 
-    # Man pages
-    install -Dm644 docs/man/unim.1 "$pkgdir/usr/share/man/man1/unim.1"
-    install -Dm644 docs/man/unim-cli.1 "$pkgdir/usr/share/man/man1/unim-cli.1"
-    install -Dm644 docs/man/unim-gui-gtk.1 "$pkgdir/usr/share/man/man1/unim-gui-gtk.1"
-    install -Dm644 docs/man/unim-gui-qt.1 "$pkgdir/usr/share/man/man1/unim-gui-qt.1"
+    # Man pages — docs/man/ 에 실제로 존재하는 것만. 목록이 어긋나면 install 이
+    # 실패해 package() 가 통째로 죽으므로, man page 추가·제거 시 함께 갱신할 것.
+    for _page in docs/man/*.1; do
+        install -Dm644 "$_page" "$pkgdir/usr/share/man/man1/$(basename "$_page")"
+    done
 
     # License
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

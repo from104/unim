@@ -157,6 +157,62 @@ def main():
         test_result("ProcessKeyEvent (한/영 전환)", False, str(e))
         failed += 1
 
+    # --- 8b. SetContentType(Password) → 한글 조합 차단 확인 ---
+    # IBus PASSWORD=8 (IBusInputPurpose). ibus_context.rs의 ibus_purpose_to_unim이
+    # 이를 UNIM ContentPurpose::Password(1)로 변환해야 한글 입력이 차단된다.
+    # 변환 없이 raw 8이 그대로 넘어가던 구 결함(2026-07-26 감사)에서는 8이
+    # from_u32의 정의역(0..=6) 밖이라 Normal로 소실되어 이 테스트가 실패했다.
+    print("\n[3b] SetContentType — 비밀번호 필드 억제")
+    total += 1
+    try:
+        ic.SetContentType(dbus.UInt32(8), dbus.UInt32(0))
+        if test_result("SetContentType(PASSWORD=8)", True):
+            passed += 1
+    except dbus.exceptions.DBusException as e:
+        test_result("SetContentType(PASSWORD=8)", False, str(e))
+        failed += 1
+
+    total += 1
+    try:
+        # 두벌식 'ㅎ'(r) 키 — 정상 상태라면 한글 조합을 시작해 consumed=True.
+        # Password 필드에서는 영문 강제라 조합이 시작되지 않아 consumed=False.
+        consumed = ic.ProcessKeyEvent(dbus.UInt32(KEY_R), dbus.UInt32(XK_R), dbus.UInt32(0))
+        ok = not consumed
+        if test_result("Password 중 한글 'ㅎ' 차단", ok, f"consumed={consumed}"):
+            passed += 1
+        else:
+            failed += 1
+    except dbus.exceptions.DBusException as e:
+        test_result("Password 중 한글 'ㅎ' 차단", False, str(e))
+        failed += 1
+
+    # --- 8c. SetContentType(Normal) 복귀 → 한글 조합 재개 확인 ---
+    total += 1
+    try:
+        ic.SetContentType(dbus.UInt32(0), dbus.UInt32(0))
+        if test_result("SetContentType(FREE_FORM=0) 복귀", True):
+            passed += 1
+    except dbus.exceptions.DBusException as e:
+        test_result("SetContentType(FREE_FORM=0) 복귀", False, str(e))
+        failed += 1
+
+    total += 1
+    try:
+        consumed = ic.ProcessKeyEvent(dbus.UInt32(KEY_R), dbus.UInt32(XK_R), dbus.UInt32(0))
+        if test_result("복귀 후 한글 'ㅎ' 재개", consumed, f"consumed={consumed}"):
+            passed += 1
+        else:
+            failed += 1
+    except dbus.exceptions.DBusException as e:
+        test_result("복귀 후 한글 'ㅎ' 재개", False, str(e))
+        failed += 1
+    finally:
+        # 남은 조합 상태를 다음 테스트(9번 이하)에 넘기지 않도록 리셋.
+        try:
+            ic.Reset()
+        except dbus.exceptions.DBusException:
+            pass
+
     # --- 9. ProcessKeyEvent (한글 ㅎ → 'r' key) ---
     total += 1
     try:

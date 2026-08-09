@@ -11,21 +11,45 @@ impl InputEngine {
 
     /// 입력 필드의 목적을 설정합니다.
     ///
-    /// 비밀번호/PIN 필드에서는 한글 모드가 자동으로 차단됩니다.
+    /// 비밀번호/PIN 필드에 진입하면 직전 입력 카테고리를 저장하고 영문으로 강제
+    /// 전환하며, 필드를 벗어나면(비-비밀번호 목적으로 전환) 저장한 직전 카테고리를
+    /// 복구한다. 이로써 "비밀번호 칸 임시 영문 → 벗어나면 직전 한/영 복구"가 양
+    /// 플랫폼(Linux immodule focus_in / Windows TSF InputScope)에서 동작한다.
+    ///
+    /// 상태머신(멱등 — 동일 목적 반복 호출은 무시):
+    /// - 비밀번호/PIN 진입(`should_block_hangul`) && 저장 없음: 현재 카테고리를
+    ///   저장한 뒤 영문 강제. 이미 저장돼 있으면(Password→Pin 연쇄) 재저장하지 않아
+    ///   최초 진입 직전 상태를 보존한다.
+    /// - 비-비밀번호 진입 && 저장 있음: 저장값을 복구한 뒤 클리어. 이미 영문이었으면
+    ///   복구도 영문이라 변화가 없다(자연).
     pub fn set_content_purpose(&mut self, purpose: ContentPurpose) {
-        if self.content_purpose != purpose {
-            unim_log!(
-                "ENGINE",
-                "content_purpose 변경: {:?} -> {:?}",
-                self.content_purpose,
-                purpose
-            );
-            self.content_purpose = purpose;
+        // 멱등: 동일 목적 반복 호출은 무시 (이중 저장/복구 방지, 평소 경로 무회귀).
+        if self.content_purpose == purpose {
+            return;
+        }
+        unim_log!(
+            "ENGINE",
+            "content_purpose 변경: {:?} -> {:?}",
+            self.content_purpose,
+            purpose
+        );
+        self.content_purpose = purpose;
 
-            // 비밀번호 필드로 전환 시 한글 모드면 즉시 영문 전환
-            if purpose.should_block_hangul() && self.input_category == InputCategory::Korean {
+        if purpose.should_block_hangul() {
+            // 비밀번호/PIN 진입: 직전 카테고리 저장(최초 1회) + 영문 강제.
+            if self.saved_category.is_none() {
+                self.saved_category = Some(self.input_category);
+            }
+            if self.input_category != InputCategory::English {
                 self.flush_preedit();
                 self.input_category = InputCategory::English;
+                self.update_status_file();
+            }
+        } else if let Some(saved) = self.saved_category.take() {
+            // 비-비밀번호 진입(필드 벗어남): 저장한 직전 카테고리 복구 + 클리어.
+            if self.input_category != saved {
+                self.flush_preedit();
+                self.input_category = saved;
                 self.update_status_file();
             }
         }
@@ -37,7 +61,19 @@ impl InputEngine {
     }
 
     /// Surrounding text를 설정합니다.
+    ///
+    /// 비밀번호/PIN 필드(`should_block_hangul`)에서는 surrounding text(평문일 수
+    /// 있음)를 엔진 메모리에 보관하지 않는다. 빈 값으로 덮어 **기존 잔류까지 제거**하며,
+    /// 이로써 이를 소비하는 `GlobalTypeFix`/`smart_backspace`/`typefix_convert` 경로가
+    /// 자연히 무력화된다. 필드를 벗어나면(비-비밀번호 목적) 이후 호출부터 정상 저장이
+    /// 재개된다(fail-closed — 이탈 신호가 늦어도 비번 평문은 잔류하지 않는다).
     pub fn set_surrounding_text(&mut self, text: String, cursor_pos: u32, anchor_pos: u32) {
+        if self.content_purpose.should_block_hangul() {
+            self.surrounding_text.clear();
+            self.surrounding_cursor = 0;
+            self.surrounding_anchor = 0;
+            return;
+        }
         self.surrounding_text = text;
         self.surrounding_cursor = cursor_pos;
         self.surrounding_anchor = anchor_pos;
@@ -64,6 +100,8 @@ impl InputEngine {
     /// # Returns
     /// * `Some((1, replacement))` - 1글자 삭제 후 대체 텍스트
     /// * `None` - surrounding text가 없거나 한글이 아님
+    ///
+    /// **미배선(실험적)** — 현재 호출자는 테스트뿐. 전 배선은 v0.4.x 이후 (FUNC-LINUX-05).
     pub fn smart_backspace(&self) -> Option<(u32, String)> {
         if self.surrounding_text.is_empty() || self.surrounding_cursor == 0 {
             return None;
@@ -231,5 +269,57 @@ impl InputEngine {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_helpers::create_test_engine;
+    use crate::config::ContentPurpose;
+
+    /// 비밀번호 필드에서는 surrounding text 를 저장하지 않고(빈 값), 기존 잔류도 즉시
+    /// 제거한다 — 비번 평문이 엔진 메모리에 남아 GlobalTypeFix/SmartBackspace 로 새어
+    /// 나가지 않게 한다.
+    #[test]
+    fn password_field_ignores_and_clears_surrounding_text() {
+        let mut engine = create_test_engine();
+
+        // 일반 필드에서 저장된 기존 surrounding.
+        engine.set_surrounding_text("secret".to_string(), 6, 0);
+        assert_eq!(engine.surrounding_text().0, "secret");
+
+        // 비밀번호 진입: 저장 시도 무시 + 기존 잔류 제거.
+        engine.set_content_purpose(ContentPurpose::Password);
+        engine.set_surrounding_text("dkssud".to_string(), 6, 0);
+        let (text, cursor, anchor) = engine.surrounding_text();
+        assert!(text.is_empty(), "비번 필드 surrounding text 는 저장되지 않아야 함");
+        assert_eq!(cursor, 0);
+        assert_eq!(anchor, 0);
+    }
+
+    /// PIN 필드도 동일하게 차단한다(`should_block_hangul` 계열 전체).
+    #[test]
+    fn pin_field_ignores_surrounding_text() {
+        let mut engine = create_test_engine();
+        engine.set_content_purpose(ContentPurpose::Pin);
+        engine.set_surrounding_text("1234".to_string(), 4, 0);
+        assert!(engine.surrounding_text().0.is_empty());
+    }
+
+    /// 필드를 벗어나면(Normal) 이후 호출부터 정상 저장이 재개된다.
+    #[test]
+    fn normal_field_after_password_stores_surrounding_text() {
+        let mut engine = create_test_engine();
+        engine.set_content_purpose(ContentPurpose::Password);
+        engine.set_surrounding_text("dkssud".to_string(), 6, 0);
+        assert!(engine.surrounding_text().0.is_empty());
+
+        // 필드 벗어남 → 정상 저장 재개.
+        engine.set_content_purpose(ContentPurpose::Normal);
+        engine.set_surrounding_text("hello".to_string(), 5, 0);
+        let (text, cursor, anchor) = engine.surrounding_text();
+        assert_eq!(text, "hello");
+        assert_eq!(cursor, 5);
+        assert_eq!(anchor, 0);
     }
 }

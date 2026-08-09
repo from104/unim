@@ -1,0 +1,70 @@
+.TH UNIM-SETTINGS-GTK 1 "August 2026" "UNIM 0.4.0" "User Commands"
+.SH NAME
+unim\-settings\-gtk \- UNIM GTK4 settings dialog (GTK4 + libadwaita)
+.SH SYNOPSIS
+.B unim\-settings\-gtk
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+\fBunim\-settings\-gtk\fR is the GTK4 settings dialog for UNIM (Universal
+Next\-generation Input Method). It is a GTK4 + libadwaita window
+(\fBAdw.PreferencesWindow\fR) that edits the same configuration file the
+daemon reads (\fI~/.config/unim/config.yaml\fR), with every change synced
+live to the running daemon over D\-Bus.
+.PP
+This binary was previously named \fBunim\-settings\fR. That name now belongs
+to the cross\-platform Slint settings application and first\-run wizard
+(see \fBunim\-settings\fR(1)); the GTK4 dialog described here is
+\fBunim\-settings\-gtk\fR. Both edit the same configuration and either may be
+used on desktops where GTK4 + libadwaita are available.
+.PP
+The dialog is normally launched from the tray indicator (\fBunim\-indicator\fR)
+or by typing its name in a launcher.
+.SH OPTIONS
+.TP
+.B \-\-help
+Print usage and exit.
+.SH SETTINGS GROUPS
+.TP
+.B Layouts and Keymap
+Korean layout selection (10 built\-ins + user layouts under
+\fI~/.config/unim/layouts/*.json\fR), keystroke profile editor.
+.TP
+.B Moachigi (Chord input)
+\fBchord_window_ms\fR slider (0\(en200 ms, default 60 ms), bidirectional
+combine toggle. See FAQ Q18 for recommended values.
+.TP
+.B AutoTypeFix
+Forward/reverse Korean\-English typo correction, learning blacklist
+management, per\-application mode share.
+.TP
+.B Popup behaviour
+Hanja popup compact/expanded toggle, special character popup, emoji
+popup. Popup rendering itself is owned by \fBunim\-popup\-service\fR.
+.SH D\-BUS INTERFACE
+.TP
+.B Daemon service
+org.atit.unim.Daemon
+.PP
+The dialog reads and writes configuration via \fBGetConfig\fR / \fBSetConfig\fR
+methods on the daemon. It does not expose its own D\-Bus service \(em it is
+a pure client.
+.SH ENVIRONMENT
+.TP
+.B UNIM_DEVELOP
+Set to "1" to enable verbose debug logging.
+.SH FILES
+.TP
+.B ~/.config/unim/config.yaml
+User configuration file (single source of truth).
+.TP
+.B ~/.config/unim/layouts/*.json
+User\-defined layout profiles (loaded automatically by the daemon).
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-settings (1),
+.BR unim\-daemon (1),
+.BR unim\-cli (1),
+.BR unim\-indicator (1),
+.BR unim\-popup\-service (1)
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>

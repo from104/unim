@@ -18,7 +18,7 @@ impl UnimClassFactory {
 impl IClassFactory_Impl for UnimClassFactory_Impl {
     fn CreateInstance(
         &self,
-        punkouter: Option<&IUnknown>,
+        punkouter: Ref<'_, IUnknown>,
         riid: *const GUID,
         ppvobject: *mut *mut core::ffi::c_void,
     ) -> Result<()> {
@@ -28,7 +28,7 @@ impl IClassFactory_Impl for UnimClassFactory_Impl {
             }
             *ppvobject = std::ptr::null_mut();
 
-            if punkouter.is_some() {
+            if !punkouter.is_null() {
                 return Err(CLASS_E_NOAGGREGATION.into());
             }
 

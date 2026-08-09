@@ -1,0 +1,20 @@
+[package]
+name = "unim-test-common"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "테스트 앱 공용 C 코드(tests/common)를 Rust 에서 그대로 쓰기 위한 FFI 껍데기"
+
+[dependencies]
+
+[features]
+default = []
+# `unim_test_dbus.c` 를 함께 컴파일해 데몬 연결·상태 패널 문구까지 C 앱과
+# **같은 함수**로 만든다. gio 의존이 생기므로 필요한 앱만 켠다.
+dbus = ["dep:pkg-config"]
+
+[build-dependencies]
+cc = "1"
+pkg-config = { version = "0.3", optional = true }

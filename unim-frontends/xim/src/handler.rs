@@ -114,10 +114,32 @@ pub struct UnimHandler {
     deferred_autofix: Option<(String, String)>,
     /// AutoTypeFix 시그널 수신 시점의 DBus 컨텍스트 경로
     autofix_context_path: Option<String>,
+    /// 확정과 함께 앱으로도 가야 하는 키(대표적으로 조합 중 Enter)를 XTest 로
+    /// 재주입할 때, 되돌아온 그 키를 알아보기 위한 1회용 표시.
+    /// 없으면 재주입 → 또 확정 판정 → 재주입 … 으로 돌 수 있다.
+    replayed_key: Option<u8>,
     /// AutoTypeFix commit/preedit 처리 중 재진입 방지 플래그.
     /// XIM crate가 server.commit()/preedit_draw() 시 keycode=0 가상 이벤트를
     /// handle_forward_event로 재진입시키므로, 이를 무시하기 위한 가드.
     autofix_commit_guard: bool,
+    /// dedupe: `handle_reset_ic` 가 `ResetIcReply` 로 커밋 문자열을 동기 반환한
+    /// 직후 데몬이 같은 값을 `CommitText` 시그널로 또 발행하므로, 그 값을
+    /// 기억해 두었다가 1회만 skip 한다.
+    ///
+    /// 배경: `handle_reset_ic` 는 XIM 계약대로 preedit 을 동기 반환하고,
+    /// 클라이언트는 그 문자열을 **조합이 시작된 자리**에 커밋한다. 그런데 같은
+    /// 경로에서 보낸 `DbusRequest::Reset` 때문에 데몬이
+    /// (`unim-dbus/src/service.rs` 의 `reset()`) 비운 조합을 `CommitText`
+    /// 시그널로도 발행하고, 이게 팝업 커밋용 구독을 타고 들어와
+    /// `server.commit()` 으로 한 번 더 들어간다. 시그널은 비동기라 앱이 이미
+    /// 캐럿을 옮긴 뒤에 도착하므로 두 번째 글자가 클릭한 자리에 박힌다.
+    ///
+    /// GTK 모듈의 `pending_skip_commit`
+    /// (`unim-frontends/gtk-common/src/unim_dbus_client.c`) 과 같은 방식이다.
+    /// 만료 시각을 두지 않는 것도 의도적이다 — XIM 은 `dbus_tx` 채널 →
+    /// `proxy.reset().await` → 데몬 → 시그널로 돌아오느라 왕복이 길어서
+    /// (실측 로그에서 1초 가까이) 시한을 두면 늦은 메아리를 놓친다.
+    pending_skip_commit: Option<String>,
 }
 
 impl UnimHandler {
@@ -157,8 +179,19 @@ impl UnimHandler {
             self_backspace_pending: 0,
             deferred_autofix: None,
             autofix_context_path: None,
+            replayed_key: None,
             autofix_commit_guard: false,
+            pending_skip_commit: None,
         })
+    }
+
+    /// `CommitText` 시그널이 방금 동기 반환한 커밋의 메아리인지 판정하고 소비한다.
+    fn take_pending_skip_commit(&mut self, text: &str) -> bool {
+        if self.pending_skip_commit.as_deref() == Some(text) {
+            self.pending_skip_commit = None; // 1회용
+            return true;
+        }
+        false
     }
 
     /// DBus 요청 전송 (동기적 - 블로킹)
@@ -271,7 +304,7 @@ impl UnimHandler {
                     event.width,
                     event.height
                 );
-                pe.configure_notify(event.clone(), self.display);
+                pe.configure_notify(*event, self.display);
             }
         }
     }
@@ -339,6 +372,16 @@ impl UnimHandler {
         Ok(())
     }
 
+    /// Over-The-Spot preedit 윈도우 정리 (PREEDIT_CALLBACKS 에서는 없으므로 noop).
+    fn drop_pe_window(&mut self, user_ic: &mut UserInputContext<UnimInputContext>) {
+        if let Some(pe_id) = user_ic.user_data.pe_window.take() {
+            if let Some(pe) = self.preedit_windows.remove(&pe_id) {
+                unim_log!("XIM_HANDLER", "PeWindow 삭제: id={}", pe_id);
+                pe.clean(self.display, self.screen);
+            }
+        }
+    }
+
     fn clear_preedit<C: Connection + xim::x11rb::HasConnection>(
         &mut self,
         server: &mut X11rbServer<C>,
@@ -362,19 +405,32 @@ impl UnimHandler {
 
     /// commit + preedit 송출 SSOT 헬퍼.
     ///
-    /// 동일 frame에 commit과 preedit_draw를 함께 발사하면 일부 XIM 클라이언트
-    /// (Chrome, ibus 호환 GTK 등)가 commit 처리 도중 preedit을 초기화하면서
-    /// 새 preedit을 놓치는 race가 발생한다. (예: 두벌식 ㄹㄹㄹ 5연타 시
-    /// 두 번째 ㄹ 입력에서 daemon이 commit='ㄹ', preedit='ㄹ' 둘 다 반환 →
-    /// 클라이언트가 commit 처리하며 preedit을 비워버림.)
+    /// **XIM 은 다른 프런트엔드와 순서가 반대다** — 새 preedit 을 commit **보다
+    /// 먼저** 보낸다. IME_BEHAVIOR.md §8.1 의 commit→preedit 순서에 대한 XIM
+    /// 전용 예외이며, 근거는 아래 실측이다.
     ///
-    /// 회피책: commit 후 flush → 10ms sleep → preedit + flush 분리 송출.
-    /// commit이 비어있으면 sleep을 건너뛰고, preedit이 비어있으면
-    /// `clear_preedit()`을 호출한다.
+    /// ON-THE-SPOT(`PREEDIT_CALLBACKS`) 클라이언트는 하나의 키에 대한 응답을
+    /// 처리하다가 **`Commit` 을 만나면 그 뒤에 온 메시지를 더 이상 처리하지
+    /// 않는다.** 서버가 한 배치로 내보낸
+    /// `PreeditDraw(empty) → PreeditDone → Commit → PreeditStart → PreeditDraw`
+    /// 중 클라이언트가 실제로 소화한 것은 앞의 `PreeditDraw(empty)` 와 `Commit`
+    /// 뿐이었고, 뒤따르는 `PreeditStart`/`PreeditDraw` 는 `PreeditStartReply`
+    /// 조차 오지 않은 채 사라졌다(자체 Xlib 클라이언트·GTK3 XIM 모듈 양쪽에서
+    /// 동일). 그래서 커밋 직후의 첫 자모가 화면에 안 나타나고 다음 자모가
+    /// 들어와야 보이던 것이다 — 0.3.0 부터 "미해결" 로 적혀 있던 그 증상이다.
     ///
-    /// AutoTypeFix N+1 BS 분기(handle_xevent 내 deferred_autofix 처리)도
-    /// 동일 패턴을 사용하나, autofix_commit_guard/전용 로깅 때문에
-    /// 인라인으로 유지한다. 패턴 변경 시 두 곳을 함께 수정할 것.
+    /// 이 순서로 바꾸면 preedit 이 `Commit` 앞에 있으므로 반드시 처리된다.
+    /// 실측: 키마다 `Preedit "ㄹ"` → `입력 "ㄹ"` 이 같은 키 안에서 순서대로
+    /// 찍히고, 커밋 수도 정확하다(4타 → 커밋 3 + preedit 1).
+    ///
+    /// 이전 구현은 commit 직전에 `clear_preedit()` 을 강제 호출했는데,
+    /// IME_BEHAVIOR.md §8.1 의 주의사항("commit 전에 `clear_preedit()` 를
+    /// 호출하면 안 됨 — PreeditDone 이 먼저 전송되어 일부 클라이언트에서
+    /// 세션이 닫힘")을 정면으로 어기는 코드였다. 함께 제거했다.
+    ///
+    /// AutoTypeFix N+1 BS 분기(handle_forward_event 내 deferred_autofix 처리)는
+    /// XTest 가짜 이벤트 주입 + per-key sleep 컨텍스트라 별개 동작 — 본
+    /// 함수 변경의 영향 범위 밖.
     fn commit_then_preedit<C: Connection + xim::x11rb::HasConnection>(
         &mut self,
         server: &mut X11rbServer<C>,
@@ -385,25 +441,23 @@ impl UnimHandler {
         let has_commit = !commit_text.is_empty();
         let has_preedit = !preedit_text.is_empty();
 
-        // [1단계] commit 전송 + flush
+        // [1단계] preedit 갱신을 먼저. Commit 뒤로 밀면 클라이언트가 버린다.
+        if has_preedit {
+            self.preedit(server, user_ic, preedit_text)?;
+        } else {
+            // 조합 종료 — 내용만 비우고 PreeditStart/Done 사이클은 유지한다.
+            // 여기서 PreeditDone 까지 보내면 commit 보다 먼저 나가게 되어 일부
+            // 클라이언트가 세션을 닫는다(IME_BEHAVIOR.md §8.1 주의사항).
+            // 사이클은 focus-out / reset 에서 정상적으로 닫힌다.
+            user_ic.user_data.preedit_cache.clear();
+            server.preedit_clear_keep_session(&mut user_ic.ic)?;
+            self.drop_pe_window(user_ic);
+        }
+        server.conn().flush().ok();
+
+        // [2단계] commit
         if has_commit {
             server.commit(&user_ic.ic, commit_text)?;
-            server.conn().flush().ok();
-        }
-
-        // [2단계] preedit 전송. commit이 있었으면 클라이언트가 commit을 완전히
-        // 처리한 뒤 새 preedit을 수신하도록 10ms 간격을 둔다.
-        if has_preedit {
-            if has_commit {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            self.preedit(server, user_ic, preedit_text)?;
-            server.conn().flush().ok();
-        } else {
-            // preedit이 비어있을 때는 clear_preedit으로 ibus 호환 처리
-            // (preedit_draw("") + PeWindow 정리). commit-only인 경우에도
-            // 기존 동작 유지 — sleep 없음.
-            self.clear_preedit(server, user_ic)?;
             server.conn().flush().ok();
         }
 
@@ -493,6 +547,13 @@ impl UnimHandler {
                 }
             }
             PopupEvent::CommitText { text } => {
+                // 우리가 보낸 Reset 이 되쏘는 메아리는 여기서 걸러낸다. 이미
+                // ResetIcReply 로 같은 글자를 제자리에 커밋했으므로, 이걸 통과시키면
+                // 캐럿이 옮겨간 자리에 한 번 더 박힌다. (pending_skip_commit 주석 참조)
+                if self.take_pending_skip_commit(&text) {
+                    unim_log!("XIM_HANDLER", "CommitText 시그널 dedupe skip: '{}'", text);
+                    return Ok(());
+                }
                 // Standalone popup 마우스 클릭 시 커밋. last_focused_ic_info에 캐시된
                 // (client_win, im_id, ic_id)로 InputContext를 재구성해서 server.commit
                 // 호출. server.commit 내부는 client_win + im_id + ic_id만 사용하므로
@@ -698,6 +759,13 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         unim_log!("XIM_HANDLER", "reset 호출");
 
         let preedit = user_ic.user_data.preedit_cache.clone();
+
+        // 이 문자열은 아래에서 ResetIcReply 로 동기 반환되고, 클라이언트가 조합이
+        // 시작된 자리에 커밋한다. 곧이어 보내는 Reset 때문에 데몬이 같은 글자를
+        // CommitText 시그널로 되쏘므로, 그 메아리를 1회 skip 하도록 표시해 둔다.
+        if !preedit.is_empty() {
+            self.pending_skip_commit = Some(preedit.clone());
+        }
 
         // DBus Reset 호출
         let _ = self.dbus_tx.blocking_send(DbusRequest::Reset {
@@ -955,7 +1023,7 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
             return Ok(true); // 소비된 것으로 처리
         }
 
-        let evdev_code = if xev.detail > 8 { xev.detail - 8 } else { 0 };
+        let evdev_code = xev.detail.saturating_sub(8);
 
         unim_log!(
             "XIM_HANDLER",
@@ -1095,6 +1163,45 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         }
 
         self.commit_then_preedit(server, user_ic, &commit_text, &preedit_text)?;
+
+        // ── 확정과 키 전달이 한 키에서 겹칠 때 ──
+        //
+        // 조합 중 Enter 처럼 "조합을 확정하면서 그 키는 앱으로도 가야 하는"
+        // 경우, crate 에 forward 를 맡기면 클라이언트가 그 키를 commit 보다
+        // **먼저** 처리한다. Xlib XIM 이 forward 받은 이벤트를 자기 이벤트 큐
+        // 앞으로 되돌리기 때문이라, 서버가 commit 을 먼저 보내도 순서로는
+        // 이길 수 없다(2026-08-08 실측: 조합 중 Enter → "한\n" 이 아니라
+        // "\n한"). 지연을 넣어도 소용없다 — 도착 순서가 아니라 처리 순서다.
+        //
+        // 그래서 키를 여기서 삼키고(Ok(true)), commit 이 나간 뒤 XTest 로 같은
+        // 키를 다시 쏜다. 재주입된 키는 Xlib XIM 을 그대로 통과해 앱이 직접
+        // 처리하므로(실측: 앱이 `X 수신 keycode=36` 을 받는다) 확정 뒤에
+        // 놓인다.
+        //
+        // 한계: modifier 는 재현하지 않는다. Shift+Enter 처럼 수식키가 붙은
+        // 채 확정하는 조합은 수식키 없이 전달된다 — 빈도가 낮아 단순함을 택했다.
+        let keycode = xev.detail;
+        if !commit_text.is_empty() && !consumed && self.replayed_key != Some(keycode) {
+            server.conn().flush().ok();
+            self.replayed_key = Some(keycode);
+            unsafe {
+                // release 를 먼저 쏴서 눌림 상태를 정리한다. 원본 키가 아직
+                // 물리적으로 눌려 있으면 X 서버가 중복 KeyPress 를 버려서
+                // 재주입한 press 가 사라지고 release 만 앱에 도착한다
+                // (2026-08-09 실측: 앱 로그에 type=3 만 찍혔다).
+                x11::xtest::XTestFakeKeyEvent(self.display, keycode as u32, 0, 0);
+                x11::xtest::XTestFakeKeyEvent(self.display, keycode as u32, 1, 0);
+                x11::xtest::XTestFakeKeyEvent(self.display, keycode as u32, 0, 0);
+                x11::xlib::XSync(self.display, 0);
+            }
+            unim_log!(
+                "XIM_HANDLER",
+                "확정과 키 전달이 겹침 → 키를 삼키고 XTest 로 재주입 (keycode={})",
+                keycode
+            );
+            return Ok(true);
+        }
+        self.replayed_key = None;
 
         Ok(consumed)
     }

@@ -1,0 +1,64 @@
+.TH UNIM-SETTINGS 1 "August 2026" "UNIM 0.4.0" "User Commands"
+.SH NAME
+unim\-settings \- UNIM settings app and first\-run wizard (Slint)
+.SH SYNOPSIS
+.B unim\-settings
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+\fBunim\-settings\fR is the cross\-platform settings application for UNIM
+(Universal Next\-generation Input Method), built with Slint (winit + Skia)
+from a single codebase shared with the Windows build. It edits the same
+configuration file the daemon reads (\fI~/.config/unim/config.yaml\fR), with
+every change synced live to the running daemon over D\-Bus, and it hosts the
+first\-run installation wizard.
+.PP
+On Linux the GTK4 + libadwaita settings dialog is a separate binary,
+\fBunim\-settings\-gtk\fR(1); the two edit the same configuration and may
+coexist. System launchers (tray indicator, GNOME extension) currently open
+the GTK dialog, so this Slint entry is installed with \fBNoDisplay=true\fR.
+.SH OPTIONS
+.TP
+.B \-\-first\-run
+Launch the full first\-run wizard unconditionally (WELCOME, LICENSE,
+default\-IME, TypeFix, FINISH). Use this to re\-run the wizard by hand at
+any time, even after it has already been completed once.
+.TP
+.B \-\-first\-run\-if\-needed
+Autostart\-only gate. If the wizard has already been completed (its
+seen\-version file exists), exit immediately and silently with status 0 —
+no window, no singleton lock, no notification. Otherwise behaves like
+\fB\-\-first\-run\fR. This flag is used by the per\-login autostart entry
+\fIio.github.from104.unim.FirstRun.desktop\fR and is not meant to be run
+manually.
+.TP
+.B \-\-whats\-new
+Show only the pages introduced since the last completed version — an
+update\-notes channel for package upgrades.
+.SH DEFAULT INPUT METHOD
+On the default\-IME page the wizard sets UNIM as the default input method
+in\-process via \fBim\-config \-n unim\fR(8). The change is written to
+\fI~/.xinputrc\fR and takes effect from the next login. If \fBim\-config\fR is
+not installed, the wizard writes \fBrun_im unim\fR to \fI~/.xinputrc\fR
+directly (same format im\-config uses).
+.SH FILES
+.TP
+.B ~/.config/unim/config.yaml
+User configuration file (single source of truth).
+.TP
+.B ~/.local/state/unim/wizard\-seen\-version
+Records the version at which the wizard was last completed; the
+\fB\-\-first\-run\-if\-needed\fR gate reads it to decide whether to stay silent.
+.TP
+.B /etc/xdg/autostart/io.github.from104.unim.FirstRun.desktop
+Per\-login autostart entry that runs \fBunim\-settings \-\-first\-run\-if\-needed\fR.
+.TP
+.B ~/.xinputrc
+Input\-method selection written by \fBim\-config\fR (or the wizard fallback).
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-settings\-gtk (1),
+.BR unim\-daemon (1),
+.BR unim\-cli (1),
+.BR im\-config (8)
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>

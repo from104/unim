@@ -148,20 +148,22 @@ fn test_scenario_content_purpose_password() {
 
 #[test]
 fn test_scenario_content_purpose_normal_after_password() {
-    // 비밀번호 → Normal 전환 시 한글 모드 복구 가능
+    // 비밀번호 필드 진입 시 직전 한/영 상태 저장 → 벗어나면 직전 상태 자동 복구.
     let mut engine = create_test_engine();
-    let config = Config::default();
-    let modifier = ModifierState::default();
 
+    // 직전 상태: 한글
     engine.set_input_category(InputCategory::Korean);
+
+    // 비밀번호 진입 → 임시 영문 (직전 한글 저장)
     engine.set_content_purpose(ContentPurpose::Password);
     assert_eq!(engine.input_category(), InputCategory::English);
 
-    // Normal로 복원
+    // 필드 벗어남(Normal) → 직전 한글 자동 복구 (토글 키 불필요)
     engine.set_content_purpose(ContentPurpose::Normal);
+    assert_eq!(engine.input_category(), InputCategory::Korean);
 
-    // 이제 한/영 전환 가능
-    engine.press_key(KeyCode::Korean, modifier, &config);
+    // 멱등: 다시 Normal 호출해도 한글 유지 (이중 복구 없음)
+    engine.set_content_purpose(ContentPurpose::Normal);
     assert_eq!(engine.input_category(), InputCategory::Korean);
 }
 
@@ -415,4 +417,146 @@ fn test_scenario_caps_lock_english() {
 
     engine.press_key(KeyCode::A, caps, &config);
     assert_eq!(engine.commit_str(), "A");
+}
+
+// ============================================================================
+// I-AM 통합 테스트 — 안마태 자판 (Phase 3 Final)
+// ============================================================================
+
+/// 안마태 레이아웃으로 엔진을 초기화하는 헬퍼.
+fn create_anmatae_engine() -> (InputEngine, Config) {
+    let mut config = Config::default();
+    config.engine.korean.layout = "ko_anmatae".to_string();
+    let engine = InputEngine::new(&config);
+    (engine, config)
+}
+
+/// I-AM4: 안마태 자판에서 Shift+B → `"` (U+201D, 닫는 큰따옴표) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.4th[4] 위치).
+#[test]
+fn i_am4_shift_b_commits_right_double_quote() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::B, shift, &config);
+    assert!(result.commit_changed, "Shift+B should produce commit");
+    assert_eq!(engine.commit_str(), "\u{201D}", "Shift+B → 닫는 큰따옴표 \u{201D}");
+    assert!(engine.preedit_str().is_empty(), "preedit은 비어있어야 함");
+}
+
+/// I-AM4b: 안마태 자판에서 Shift+G → `"` (U+201C, 여는 큰따옴표) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.3rd[4] 위치).
+#[test]
+fn i_am4b_shift_g_commits_left_double_quote() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::G, shift, &config);
+    assert!(result.commit_changed, "Shift+G should produce commit");
+    assert_eq!(engine.commit_str(), "\u{201C}", "Shift+G → 여는 큰따옴표 \u{201C}");
+}
+
+/// I-AM4c: 안마태 자판에서 Shift+T → `·` (U+00B7, 가운뎃점) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.2nd[4] 위치).
+#[test]
+fn i_am4c_shift_t_commits_middle_dot() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::T, shift, &config);
+    assert!(result.commit_changed, "Shift+T should produce commit");
+    assert_eq!(engine.commit_str(), "\u{00B7}", "Shift+T → 가운뎃점 ·");
+}
+
+/// I-AM4d: 안마태 자판에서 Shift+R → `※` (U+203B, 참조표) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.2nd[3] 위치).
+#[test]
+fn i_am4d_shift_r_commits_reference_mark() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::R, shift, &config);
+    assert!(result.commit_changed, "Shift+R should produce commit");
+    assert_eq!(engine.commit_str(), "\u{203B}", "Shift+R → 참조표 ※");
+}
+
+/// I-AM4e: 안마태 자판에서 Shift+Q → `「` (U+300C, 한국어 낫표 시작) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.2nd[0] 위치).
+#[test]
+fn i_am4e_shift_q_commits_left_corner_bracket() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::Q, shift, &config);
+    assert!(result.commit_changed, "Shift+Q should produce commit");
+    assert_eq!(engine.commit_str(), "\u{300C}", "Shift+Q → 한국어 낫표 시작 「");
+}
+
+/// I-AM4f: 안마태 자판에서 Shift+E → `」` (U+300D, 한국어 낫표 끝) 즉시 commit.
+/// keyboard_map JamoEnum::Special 경로 (upper.2nd[2] 위치).
+#[test]
+fn i_am4f_shift_e_commits_right_corner_bracket() {
+    let (mut engine, config) = create_anmatae_engine();
+    let shift = ModifierState {
+        shift: true,
+        ..Default::default()
+    };
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::E, shift, &config);
+    assert!(result.commit_changed, "Shift+E should produce commit");
+    assert_eq!(engine.commit_str(), "\u{300D}", "Shift+E → 한국어 낫표 끝 」");
+}
+
+/// I-AM5: 안마태 자판에서 ESC 입력 → 조합 없으면 not_consumed (기존 동작 회귀).
+#[test]
+fn i_am5_escape_reset_no_composition() {
+    let (mut engine, config) = create_anmatae_engine();
+    engine.set_input_category(InputCategory::Korean);
+
+    let result = engine.press_key(KeyCode::Escape, ModifierState::default(), &config);
+    assert!(!result.commit_changed, "ESC with no composition → not_consumed");
+    assert!(engine.preedit_str().is_empty(), "preedit 없음");
+}
+
+/// I-AM-LOAD: 안마태 자판 로드 시 한국어 조판 기호 6개가 keyboard_map에 Special로 등록됨.
+/// 위치별 실제 매핑 확인 (upper.Xth[pos] → English Shift+Key).
+/// 자모로 매핑된 자리(W=ㅆ / J=ㅒ / N=ᆻ 등)는 본 테스트의 검증 대상이 아님 — 별도 자모 테스트에서 다룸.
+#[test]
+fn i_am_load_upper_symbols_in_keyboard_map() {
+    use crate::hangul::jamo::JamoEnum;
+    let (engine, _config) = create_anmatae_engine();
+    let km = engine.keyboard_map.as_ref().expect("keyboard_map 있어야 함");
+    // upper.2nd[0] → Shift+Q → U+300C (한국어 낫표 시작)
+    assert_eq!(km.get(&'Q'), Some(&JamoEnum::Special('\u{300C}')), "Q → 「");
+    // upper.2nd[2] → Shift+E → U+300D (한국어 낫표 끝)
+    assert_eq!(km.get(&'E'), Some(&JamoEnum::Special('\u{300D}')), "E → 」");
+    // upper.2nd[3] → Shift+R → U+203B (참조표)
+    assert_eq!(km.get(&'R'), Some(&JamoEnum::Special('\u{203B}')), "R → ※");
+    // upper.2nd[4] → Shift+T → U+00B7 (가운뎃점)
+    assert_eq!(km.get(&'T'), Some(&JamoEnum::Special('\u{00B7}')), "T → ·");
+    // upper.3rd[4] → Shift+G → U+201C (여는 큰따옴표)
+    assert_eq!(km.get(&'G'), Some(&JamoEnum::Special('\u{201C}')), "G → \u{201C}");
+    // upper.4th[4] → Shift+B → U+201D (닫는 큰따옴표)
+    assert_eq!(km.get(&'B'), Some(&JamoEnum::Special('\u{201D}')), "B → \u{201D}");
 }

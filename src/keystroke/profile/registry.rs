@@ -1,6 +1,6 @@
 //! 프로필 네임스페이스 레지스트리 — 내장 9종 + 사용자 디렉토리 통합.
 //!
-//! 스펙: `docs/plans/LAYOUT_PROFILE_V1.md` §4.3 해석 범위.
+//! 스펙: `docs/archive/plans/LAYOUT_PROFILE_V1.md` §4.3 해석 범위.
 //!
 //! - 같은 `name`이 겹치면 **사용자 디렉토리 우선**(override 가능).
 //! - `inherits`는 같은 네임스페이스에서만 조회.
@@ -221,7 +221,7 @@ pub struct ScanReport {
 }
 
 fn default_user_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|p| p.join("unim").join("layouts"))
+    crate::paths::config_dir().map(|p| p.join("unim").join("layouts"))
 }
 
 fn dir_mtime(dir: &Path) -> Option<SystemTime> {

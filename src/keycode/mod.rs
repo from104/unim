@@ -20,7 +20,7 @@ mod modifiers;
 #[cfg(test)]
 mod tests;
 
-pub use modifiers::ModifierState;
+pub use modifiers::{ModifierState, UNIM_KEY_REPEAT_MASK, UNIM_REPEAT_AWARE_MASK};
 
 /// 키보드 키코드 열거형
 ///

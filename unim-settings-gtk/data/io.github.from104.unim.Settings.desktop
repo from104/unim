@@ -1,0 +1,19 @@
+[Desktop Entry]
+Name=UNIM Settings
+Name[ko]=UNIM 설정
+Comment=Korean Input Method settings — UNIM
+Comment[ko]=UNIM 한글 입력기 설정
+Exec=unim-settings-gtk
+Icon=io.github.from104.unim.Settings
+Terminal=false
+Type=Application
+# 크레이트 개명(f9aabd8) 이후 GTK 설정앱은 레거시 fallback. 앱 메뉴/Activities 에는
+# Slint 설정앱(io.github.from104.unim.SettingsSlint 등)만 노출하고 이 GTK 항목은 숨긴다.
+# 파일 자체는 unim-desktop 패키징이 파일명으로 참조하므로 삭제·개명하지 않고
+# NoDisplay 로만 강등한다(Exec/StartupWMClass 유지 → 다른 컴포넌트가 계속 실행 가능).
+NoDisplay=true
+Categories=Settings;
+StartupWMClass=io.github.from104.unim.Settings
+StartupNotify=false
+Keywords=korean;hangul;input;ime;keyboard;unim;
+NotShowIn=KDE;

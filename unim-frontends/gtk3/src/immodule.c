@@ -44,6 +44,14 @@
 typedef struct _UnimIMContext UnimIMContext;
 typedef struct _UnimIMContextClass UnimIMContextClass;
 
+/* AutoTypeFix 토글 핫키 1개 — keysym 과 요구 수정자 마스크 쌍.
+ * 엔진의 `[수정자+]*KeyName` 정확-일치 문법과 판정을 맞춘다 (지정하지 않은
+ * 수정자가 눌리면 불일치). mods 는 UNIM_HOTKEY_MOD_* 비트. */
+typedef struct {
+    guint keyval;
+    guint mods;
+} UnimAtfHotkey;
+
 struct _UnimIMContext {
     GtkIMContext parent;
     UnimDbusContext *dbus_ctx;  /* DBus 클라이언트 컨텍스트 */
@@ -55,12 +63,22 @@ struct _UnimIMContext {
     gchar *surrounding_text;
     gint cursor_index;    /* 바이트 오프셋 */
     gint selection_index; /* 바이트 오프셋 */
-    
+
+    /* 현재 입력 필드 목적 (focus 시 갱신). 1=Password, 2=Pin 이면 dev 로그의
+     * 내용 필드(keyval·commit·preedit·surrounding)를 "***"로 마스킹해 평문 잔류 방지. */
+    guint content_purpose;
+
     GdkRectangle cursor_area;           /* 커서 위치 */
 
     /* 한자/특수문자 키 설정 캐시 */
     guint *hanja_keysyms;              /* 설정 기반 한자키 keysym 배열 */
     gsize n_hanja_keysyms;             /* 배열 크기 */
+
+    /* AutoTypeFix 토글 핫키 캐시 (enabled/forward/reverse 3목록 합집합).
+     * 프런트는 "데몬으로 보낼지" 만 판정하고 실제 토글은 데몬이 수행하므로
+     * 종류별로 나눌 필요가 없다. */
+    UnimAtfHotkey *atf_hotkeys;
+    gsize n_atf_hotkeys;
 
     /* 마지막으로 emit한 preedit (preedit-start/end 자동 발사용).
      * GTK4와 동일 패턴 — preedit-end 누락 시 ghostty 등에서 키 잠금 발생 */
@@ -97,6 +115,13 @@ static void unim_im_context_set_cursor_location(GtkIMContext *context, GdkRectan
 static void unim_im_context_set_surrounding(GtkIMContext *context, const gchar *text,
                                              gint len, gint cursor_index);
 
+/* content_purpose(GtkInputPurpose→UNIM 변환) 판정·전송 헬퍼 — focus_in 과
+ * notify::input-purpose/input-hints 핸들러가 공유한다(mid-focus 갱신, 감사 결함3). */
+static GtkInputPurpose unim_resolve_input_purpose(UnimIMContext *unim);
+static void unim_update_content_purpose(UnimIMContext *unim, GtkInputPurpose gtk_purpose,
+                                        gboolean force);
+static void on_notify_input_purpose(GObject *object, GParamSpec *pspec, gpointer user_data);
+
 /* Standalone popup 시그널 핸들러 */
 static void on_show_emoji_popup(const gchar *target_cat_id,
                                 const gchar * const *items, gsize item_count,
@@ -115,6 +140,81 @@ static gboolean unim_debug_checked = FALSE;
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
+#include <unistd.h>
+#include <glib/gstdio.h>
+
+/* 호스트 프로세스 이름을 sanitize 한 형태로 반환. 실패 시 "unknown".
+ * 반환값은 g_free 로 해제. */
+static gchar *
+unim_log_process_name(void)
+{
+    gchar *contents = NULL;
+    gchar *name = NULL;
+    if (g_file_get_contents("/proc/self/comm", &contents, NULL, NULL) && contents) {
+        name = g_strstrip(contents);
+    }
+    if (!name || !*name) {
+        g_free(contents);
+        return g_strdup("unknown");
+    }
+    gchar *out = g_strdup(name);
+    g_free(contents);
+    for (gchar *p = out; *p; p++) {
+        if (!(g_ascii_isalnum(*p) || *p == '-' || *p == '_')) *p = '-';
+    }
+    return out;
+}
+
+/* 윈도우 세션·앱(프로세스)별 로그 파일 경로 계산.
+ *   ~/.unim-log/{session-tag}_{YYYY-MM-DD}_{progname}-{pid}.log
+ *   session-tag 우선순위: XDG_SESSION_ID > WAYLAND_DISPLAY > DISPLAY.
+ *   progname/pid 는 호스트 프로세스 (GTK IM 모듈은 호스트 앱 안에서 동작).
+ * 반환값은 g_free 로 해제해야 한다. 실패 시 NULL.
+ */
+static gchar *
+unim_log_resolve_path(void)
+{
+    const gchar *home = g_get_home_dir();
+    if (!home) return NULL;
+
+    gchar *log_dir = g_build_filename(home, ".unim-log", NULL);
+    g_mkdir_with_parents(log_dir, 0700);
+
+    const gchar *xdg = g_getenv("XDG_SESSION_ID");
+    const gchar *wl = g_getenv("WAYLAND_DISPLAY");
+    const gchar *x11 = g_getenv("DISPLAY");
+    gchar *raw_tag = NULL;
+    if (xdg && *xdg) {
+        raw_tag = g_strdup_printf("xdg-%s", xdg);
+    } else if (wl && *wl) {
+        raw_tag = g_strdup_printf("wl-%s", wl);
+    } else if (x11 && *x11) {
+        raw_tag = g_strdup_printf("x11-%s", x11);
+    } else {
+        raw_tag = g_strdup("unknown");
+    }
+    for (gchar *p = raw_tag; *p; p++) {
+        if (!(g_ascii_isalnum(*p) || *p == '-' || *p == '_')) *p = '-';
+    }
+
+    time_t now;
+    time(&now);
+    struct tm *tm_info = localtime(&now);
+    char date[16];
+    strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
+
+    gchar *progname = unim_log_process_name();
+    pid_t pid = getpid();
+
+    gchar *fname = g_strdup_printf("%s_%s_%s-%d.log", raw_tag, date, progname, (int)pid);
+    gchar *path = g_build_filename(log_dir, fname, NULL);
+
+    g_free(raw_tag);
+    g_free(progname);
+    g_free(fname);
+    g_free(log_dir);
+    return path;
+}
 
 /* 중앙 로깅 함수 - 콘솔과 파일에 동시 출력 */
 static void
@@ -146,9 +246,8 @@ unim_log_message(const char *module, const char *format, ...)
     g_print("%s\n", log_line);
 
     /* 파일 출력 */
-    const gchar *home = g_get_home_dir();
-    if (home) {
-        gchar *log_path = g_build_filename(home, ".unim-errors.log", NULL);
+    gchar *log_path = unim_log_resolve_path();
+    if (log_path) {
         FILE *f = fopen(log_path, "a");
         if (f) {
             fprintf(f, "%s\n", log_line);
@@ -160,6 +259,24 @@ unim_log_message(const char *module, const char *format, ...)
 
 #define UNIM_DEBUG(fmt, ...) \
     unim_log_message("GTK3_IM", fmt, ##__VA_ARGS__)
+
+/* 민감 필드(비밀번호/PIN) 여부 — content_purpose 1=Password, 2=Pin(ContentPurpose). */
+static inline gboolean
+unim_is_sensitive(UnimIMContext *unim)
+{
+    return unim && (unim->content_purpose == 1 || unim->content_purpose == 2);
+}
+
+/* 민감 필드에서 dev 로그의 내용 문자열을 "***"로 마스킹(평문 잔류 방지).
+ * 평상시(Normal)엔 원문 그대로 — 무회귀. NULL 은 빈 문자열로. */
+static inline const char *
+unim_mask(UnimIMContext *unim, const char *text)
+{
+    if (unim_is_sensitive(unim)) {
+        return "***";
+    }
+    return text ? text : "";
+}
 
 static void
 unim_check_debug_env(void)
@@ -244,8 +361,8 @@ autofix_deferred_commit_cb(gpointer user_data)
     GtkIMContext *context = GTK_IM_CONTEXT(unim);
 
     UNIM_DEBUG("AutoTypeFix 지연 commit: '%s', preedit='%s'",
-               unim->autofix_commit_text ? unim->autofix_commit_text : "",
-               unim->autofix_preedit_text ? unim->autofix_preedit_text : "");
+               unim_mask(unim, unim->autofix_commit_text),
+               unim_mask(unim, unim->autofix_preedit_text));
 
     if (unim->autofix_commit_text && unim->autofix_commit_text[0] != '\0') {
         g_signal_emit_by_name(context, "commit", unim->autofix_commit_text);
@@ -268,9 +385,10 @@ autofix_deferred_commit_cb(gpointer user_data)
 static void
 on_commit_text(const gchar *text, gpointer user_data)
 {
+    UnimIMContext *unim = (UnimIMContext *)user_data;
     GtkIMContext *context = GTK_IM_CONTEXT(user_data);
     if (text && text[0] != '\0') {
-        UNIM_DEBUG("CommitText 시그널 수신: '%s'", text);
+        UNIM_DEBUG("CommitText 시그널 수신: '%s'", unim_mask(unim, text));
         g_signal_emit_by_name(context, "commit", text);
     }
 }
@@ -284,7 +402,7 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
     GtkIMContext *context = GTK_IM_CONTEXT(unim);
 
     UNIM_DEBUG("AutoTypeFix 적용: delete=%u, commit='%s', preedit='%s'",
-               delete_chars, commit_text, preedit_text);
+               delete_chars, unim_mask(unim, commit_text), unim_mask(unim, preedit_text));
 
     /* 포커스가 없으면 무시 (다른 프론트엔드가 처리 중) */
     if (!unim->is_focused) {
@@ -346,6 +464,70 @@ on_auto_typefix(guint delete_chars, const gchar *commit_text,
 }
 
 
+/* AutoTypeFix 토글 핫키 3목록을 DBus 설정에서 읽어 캐시에 채운다.
+ *
+ * 프런트가 이 목록을 아는 이유는 오직 하나 — idle 상태의 F키 바이패스에
+ * 걸려 데몬까지 가지 못하는 것을 막기 위해서다. 실제 토글 처리는 데몬이 한다.
+ *
+ * 한계: 한자키 캐시와 마찬가지로 컨텍스트 생성 시 1회만 로드한다. 설정 변경은
+ * 새 IM 컨텍스트(=새 입력 위젯/앱)부터 반영된다. 엔진 쪽은 set_atf_hotkeys()
+ * 로 hot-reload 되지만 GTK IM 모듈에는 설정 변경 시그널 구독 경로가 없다. */
+static void
+unim_load_atf_hotkeys(UnimIMContext *context)
+{
+    static const gchar * const keys[] = {
+        "auto_typefix_toggle_enabled_keys",
+        "auto_typefix_toggle_forward_keys",
+        "auto_typefix_toggle_reverse_keys",
+    };
+
+    context->atf_hotkeys = NULL;
+    context->n_atf_hotkeys = 0;
+    if (!context->dbus_ctx) return;
+
+    GArray *acc = g_array_new(FALSE, FALSE, sizeof(UnimAtfHotkey));
+
+    for (gsize k = 0; k < G_N_ELEMENTS(keys); k++) {
+        gchar *value = unim_dbus_get_config(context->dbus_ctx, keys[k]);
+        if (value && value[0]) {
+            gchar **specs = g_strsplit(value, ",", -1);
+            for (gsize i = 0; specs[i] != NULL; i++) {
+                g_strstrip(specs[i]);
+                if (specs[i][0] == '\0') continue;
+
+                UnimAtfHotkey hk;
+                if (unim_parse_hotkey_spec(specs[i], &hk.keyval, &hk.mods)) {
+                    g_array_append_val(acc, hk);
+                } else {
+                    UNIM_DEBUG("ATF 핫키 파싱 실패 (무시): '%s'", specs[i]);
+                }
+            }
+            g_strfreev(specs);
+        }
+        g_free(value);
+    }
+
+    /* 항목이 있으면 segment 를 그대로 넘겨받고, 비었으면 해제하고 NULL 을 받는다 */
+    context->n_atf_hotkeys = acc->len;
+    context->atf_hotkeys = (UnimAtfHotkey *)g_array_free(acc, acc->len == 0);
+
+    UNIM_DEBUG("ATF 토글 핫키 %zu개 로드", context->n_atf_hotkeys);
+}
+
+/* 현재 키 이벤트가 캐시된 ATF 토글 핫키와 일치하는가 (정확-일치).
+ * mod_bits 는 UNIM_HOTKEY_MOD_* 레이아웃이며 Lock 류는 이미 제외돼 있어야 한다. */
+static gboolean
+unim_is_atf_hotkey(UnimIMContext *context, guint keyval, guint mod_bits)
+{
+    for (gsize i = 0; i < context->n_atf_hotkeys; i++) {
+        if (context->atf_hotkeys[i].keyval == keyval &&
+            context->atf_hotkeys[i].mods == mod_bits) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 static void
 unim_im_context_init(UnimIMContext *context)
 {
@@ -371,6 +553,15 @@ unim_im_context_init(UnimIMContext *context)
     context->selection_index = 0;
     context->last_preedit = g_strdup("");
     memset(&context->cursor_area, 0, sizeof(GdkRectangle));
+
+    /* mid-focus content_purpose 갱신 (감사 결함3) — 포커스를 유지한 채 위젯이
+     * input-purpose/input-hints 를 바꾸는 경우(예: 회원가입 폼에서 이메일→비밀번호
+     * 필드로 위젯 재활용, EchoMode 런타임 전환 등) focus_in 만으로는 못 잡는다.
+     * GtkIMContext 자신의 프로퍼티 변경 알림을 구독해 재판정한다. */
+    g_signal_connect(context, "notify::input-purpose",
+                      G_CALLBACK(on_notify_input_purpose), context);
+    g_signal_connect(context, "notify::input-hints",
+                      G_CALLBACK(on_notify_input_purpose), context);
 
     /* Standalone popup 시그널 핸들러 — popup_active 플래그 관리용 */
     if (context->dbus_ctx) {
@@ -409,7 +600,10 @@ unim_im_context_init(UnimIMContext *context)
         context->hanja_keysyms[1] = GDK_KEY_F9;
         context->n_hanja_keysyms = 2;
     }
-    
+
+    /* AutoTypeFix 토글 핫키 로드 */
+    unim_load_atf_hotkeys(context);
+
     if (context->dbus_ctx) {
         UNIM_DEBUG("IMContext 초기화 완료 (window_id: %s)", context->window_id);
     } else {
@@ -471,6 +665,10 @@ unim_im_context_finalize(GObject *obj)
     context->hanja_keysyms = NULL;
     context->n_hanja_keysyms = 0;
 
+    g_free(context->atf_hotkeys);
+    context->atf_hotkeys = NULL;
+    context->n_atf_hotkeys = 0;
+
     g_free(context->surrounding_text);
     context->surrounding_text = NULL;
 
@@ -519,9 +717,10 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     }
 
     /* 수정자 키만 눌린 경우 바이패스 (preedit에 영향 없이 앱으로 전달) */
+    /* bare Alt_R 은 스킵하지 않는다 — 토글 여부는 데몬 toggle_keys 가 판정(§3.4). ISO_Level3_Shift(AltGr)는 유지. */
     if (event->keyval == GDK_KEY_Shift_L || event->keyval == GDK_KEY_Shift_R ||
         event->keyval == GDK_KEY_Control_L || event->keyval == GDK_KEY_Control_R ||
-        event->keyval == GDK_KEY_Alt_L || event->keyval == GDK_KEY_Alt_R ||
+        event->keyval == GDK_KEY_Alt_L ||
         event->keyval == GDK_KEY_Super_L || event->keyval == GDK_KEY_Super_R ||
         event->keyval == GDK_KEY_Meta_L || event->keyval == GDK_KEY_Meta_R ||
         event->keyval == GDK_KEY_Hyper_L || event->keyval == GDK_KEY_Hyper_R ||
@@ -531,9 +730,34 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         return FALSE;
     }
 
+    /* 수정자 상태 변환 - DBus 호출용 비트필드.
+     * ATF 핫키 판정에서도 쓰므로 한자/바이패스 분기보다 앞에서 계산한다. */
+    guint mod_state = 0;
+    if (event->state & GDK_SHIFT_MASK) mod_state |= (1 << 0);
+    if (event->state & GDK_CONTROL_MASK) mod_state |= (1 << 2);
+    if (event->state & GDK_MOD1_MASK) mod_state |= (1 << 3);  /* Alt */
+    if (event->state & GDK_SUPER_MASK) mod_state |= (1 << 6);  /* Super = Mod4 — 엔진 from_x11_mask 비트 정렬 */
+    if (event->state & GDK_LOCK_MASK) mod_state |= (1 << 1);  /* CapsLock */
+
+    /* AutoTypeFix 토글 핫키 — 데몬으로 반드시 전달한다.
+     *
+     * 한자 키 검사와 아래 F키 바이패스보다 **앞**에 있어야 한다:
+     *   - 한자 검사는 keyval 만 보고 수정자를 무시하므로, 기본 hanja_keys 에
+     *     F9 가 있으면 Shift+F9 를 한자 분기가 가로챈다.
+     *   - ATF 토글은 idle(비조합) 상태에서 누르는 것이 정상 사용이라, F키
+     *     바이패스에 걸리면 영영 데몬에 도달하지 못한다.
+     * 엔진 press_key 도 ATF 핫키를 한자키보다 먼저 검사하므로 순서가 일치한다.
+     *
+     * 여기서는 매칭 판정만 하고 실제 토글은 데몬이 수행한다 (프런트는 전달만). */
+    gboolean is_atf_hotkey =
+        unim_is_atf_hotkey(unim, event->keyval, mod_state & UNIM_HOTKEY_MOD_MASK);
+    if (is_atf_hotkey) {
+        UNIM_DEBUG("ATF 토글 핫키 일치 — 바이패스 없이 데몬 전달");
+    }
+
     /* 한자 키 처리 (설정 기반) */
     gboolean is_hanja = FALSE;
-    for (gsize i = 0; i < unim->n_hanja_keysyms; i++) {
+    for (gsize i = 0; !is_atf_hotkey && i < unim->n_hanja_keysyms; i++) {
         if (event->keyval == unim->hanja_keysyms[i]) {
             is_hanja = TRUE;
             break;
@@ -640,8 +864,10 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     /* 조합 중이 아닌 경우, 특수키는 IM에서 처리하지 않고 앱으로 직접 전달 */
     /* (터미널에서 방향키, Backspace 등이 동작하도록 함)
      * 단 emoji popup 등 idle 트리거 popup 가시 중엔 우회 차단 — 그렇지 않으면
-     * 화살표/Esc/Home/End/PgUp/PgDn 이 popup 으로 가지 않고 앱에 전달된다. */
-    if (!unim_dbus_is_composing(unim->dbus_ctx) && !unim->popup_active) {
+     * 화살표/Esc/Home/End/PgUp/PgDn 이 popup 으로 가지 않고 앱에 전달된다.
+     * ATF 토글 핫키(Shift+F9 등)도 우회 대상에서 제외 — idle 에서 누르는 것이
+     * 정상 사용이라 여기서 걸리면 데몬에 영영 도달하지 못한다. */
+    if (!is_atf_hotkey && !unim_dbus_is_composing(unim->dbus_ctx) && !unim->popup_active) {
         /* 기능키 (F1~F12, 단 F9은 한자키로 위에서 처리됨) */
         if (event->keyval >= GDK_KEY_F1 && event->keyval <= GDK_KEY_F12) {
             return FALSE;
@@ -662,19 +888,19 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
         }
     }
 
-    /* 수정자 상태 변환 - DBus 호출용 비트필드 */
-    guint mod_state = 0;
-    if (event->state & GDK_SHIFT_MASK) mod_state |= (1 << 0);
-    if (event->state & GDK_CONTROL_MASK) mod_state |= (1 << 2);
-    if (event->state & GDK_MOD1_MASK) mod_state |= (1 << 3);  /* Alt */
-    if (event->state & GDK_SUPER_MASK) mod_state |= (1 << 26);
-    if (event->state & GDK_LOCK_MASK) mod_state |= (1 << 1);  /* CapsLock */
+    /* mod_state 는 ATF 핫키 판정 때문에 위(한자 분기 앞)에서 이미 계산했다 */
 
     /* GDK hardware_keycode = X11 keycode = evdev + 8 */
     guint evdev_code = (event->hardware_keycode > 8) ? (event->hardware_keycode - 8) : 0;
     
-    UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, state=0x%x",
-               event->keyval, event->hardware_keycode, evdev_code, mod_state);
+    /* 민감 필드에선 keyval(해석된 키심) 마스킹으로 평문 잔류 방지. */
+    if (unim_is_sensitive(unim)) {
+        UNIM_DEBUG("키 입력: keyval=***, keycode=%u, evdev=%u, state=0x%x",
+                   event->hardware_keycode, evdev_code, mod_state);
+    } else {
+        UNIM_DEBUG("키 입력: keyval=%u, keycode=%u, evdev=%u, state=0x%x",
+                   event->keyval, event->hardware_keycode, evdev_code, mod_state);
+    }
 
     /* DBus를 통해 키 처리 */
     UnimDbusKeyResult result;
@@ -684,8 +910,9 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
     }
 
     UNIM_DEBUG("엔진 결과: consumed=%d, preedit=\"%s\", commit=\"%s\"",
-               result.consumed, result.preedit ? result.preedit : "(null)",
-               result.commit ? result.commit : "(null)");
+               result.consumed,
+               unim_is_sensitive(unim) ? "***" : (result.preedit ? result.preedit : "(null)"),
+               unim_is_sensitive(unim) ? "***" : (result.commit ? result.commit : "(null)"));
 
     /* 선택 영역 삭제 처리 */
     if (result.consumed) {
@@ -717,7 +944,7 @@ unim_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
 
     /* 커밋 처리 */
     if (result.commit && strlen(result.commit) > 0) {
-        UNIM_DEBUG("커밋: \"%s\"", result.commit);
+        UNIM_DEBUG("커밋: \"%s\"", unim_mask(unim, result.commit));
         g_signal_emit_by_name(context, "commit", result.commit);
     }
 
@@ -746,6 +973,81 @@ gtk3_input_purpose_to_unim(GtkInputPurpose purpose)
     }
 }
 
+/* 현재 input-purpose 판정 — 1차: GtkIMContext(context 자신)의 "input-purpose"
+ * 프로퍼티(업스트림 im-ibus.so 와 동일 소스, strings 로 문자열 확인됨). GtkEntry/
+ * GtkTextView 는 gtk_im_context_set_client_window 전후로 g_object_set 을 통해 이
+ * 프로퍼티를 컨텍스트에 전파하는 것이 GTK3 의 정석 경로다(Gtk-3.0.gir InputPurpose,
+ * writable=1, 기본값 FREE_FORM).
+ * 2차(보조, 1차가 FREE_FORM 일 때만 강등 적용): client_window → 위젯 역추적으로 얻은
+ * input-purpose. 컨텍스트 프로퍼티를 채우지 않는 비표준/구형 위젯을 위한 폴백이며,
+ * 이 폴백마저 실패하면(이중 관문 실패) 조용히 드랍하지 않고 경고 로그만 남긴 채
+ * FREE_FORM(Normal) 을 반환한다 — 이후 unim_update_content_purpose 가 그 값을 그대로
+ * 전송하므로 "무송신" 케이스가 사라진다(감사 결함3 재현 경로 차단). */
+static GtkInputPurpose
+unim_resolve_input_purpose(UnimIMContext *unim)
+{
+    GtkInputPurpose purpose = GTK_INPUT_PURPOSE_FREE_FORM;
+    g_object_get(unim, "input-purpose", &purpose, NULL);
+
+    if (purpose == GTK_INPUT_PURPOSE_FREE_FORM && unim->client_window) {
+        GtkWidget *widget = NULL;
+        gdk_window_get_user_data(unim->client_window, (gpointer*)&widget);
+        if (widget && GTK_IS_WIDGET(widget)) {
+            GParamSpec *pspec = g_object_class_find_property(
+                G_OBJECT_GET_CLASS(widget), "input-purpose");
+            if (pspec) {
+                g_object_get(widget, "input-purpose", &purpose, NULL);
+            }
+        } else {
+            UNIM_DEBUG("input-purpose 위젯 역추적 실패 (client_window 위젯 없음) "
+                       "— Normal 로 판정하여 계속 진행");
+        }
+    }
+
+    return purpose;
+}
+
+/* purpose 를 UNIM 값으로 변환해 캐시 비교 후(dedupe) 변경 시에만 데몬에 전송.
+ * unim->content_purpose(로그 마스킹 판정용 캐시)는 무변화 시에도 최신값을 이미
+ * 담고 있으므로 별도 갱신이 필요 없다 — 여기서만 갱신하는 단일 소스.
+ * force: focus_in 전용(GTK4 와 동일 규약) — 캐시는 로컬 상태일 뿐 데몬 도달을
+ * 보장하지 않으므로(dbus_ctx 부재 구간 등) 포커스 진입 시엔 dedupe 를 건너뛰고
+ * 반드시 재전송해 데몬 상태를 재동기화한다. */
+static void
+unim_update_content_purpose(UnimIMContext *unim, GtkInputPurpose gtk_purpose,
+                            gboolean force)
+{
+    guint unim_purpose = gtk3_input_purpose_to_unim(gtk_purpose);
+
+    if (!force && unim->content_purpose == unim_purpose) {
+        return; /* 무변화 — SetContentType 호출 폭주 억제 */
+    }
+    unim->content_purpose = unim_purpose;
+
+    if (unim->dbus_ctx) {
+        unim_dbus_set_content_type(unim->dbus_ctx, unim_purpose);
+        UNIM_DEBUG("content_type 전송: gtk_purpose=%d, unim_purpose=%u",
+                   (int)gtk_purpose, unim_purpose);
+    }
+}
+
+/* GtkIMContext 자신의 input-purpose/input-hints 프로퍼티 변경 알림 (mid-focus 갱신,
+ * 감사 결함3). 힌트 값 자체는 판정에 쓰지 않는다 — GTK3 GtkInputPurpose 는 Clutter 와
+ * 달리 PASSWORD/PIN 을 이미 별도 enum 값으로 직접 제공하므로 hidden-text 류 힌트
+ * 보조판정이 필요 없다(T1 GNOME 확장의 Clutter 폴백과 다른 지점). 두 시그널 모두
+ * 동일하게 "재판정"만 트리거하고 실제 전송 여부는 unim_update_content_purpose 의
+ * dedupe 가 결정한다. */
+static void
+on_notify_input_purpose(GObject *object, GParamSpec *pspec, gpointer user_data)
+{
+    (void)object;
+    (void)pspec;
+    UnimIMContext *unim = UNIM_IM_CONTEXT(user_data);
+
+    GtkInputPurpose purpose = unim_resolve_input_purpose(unim);
+    unim_update_content_purpose(unim, purpose, FALSE);
+}
+
 static void
 unim_im_context_focus_in(GtkIMContext *context)
 {
@@ -756,23 +1058,11 @@ unim_im_context_focus_in(GtkIMContext *context)
     if (unim->dbus_ctx) {
         unim_dbus_focus_in(unim->dbus_ctx, unim->window_id);
 
-        /* GTK3: GtkEntry에서 input-purpose 속성 감지 */
-        if (unim->client_window) {
-            GtkWidget *widget = NULL;
-            gdk_window_get_user_data(unim->client_window, (gpointer*)&widget);
-            if (widget && GTK_IS_WIDGET(widget)) {
-                GtkInputPurpose purpose = GTK_INPUT_PURPOSE_FREE_FORM;
-                GParamSpec *pspec = g_object_class_find_property(
-                    G_OBJECT_GET_CLASS(widget), "input-purpose");
-                if (pspec) {
-                    g_object_get(widget, "input-purpose", &purpose, NULL);
-                }
-                guint unim_purpose = gtk3_input_purpose_to_unim(purpose);
-                unim_dbus_set_content_type(unim->dbus_ctx, unim_purpose);
-                UNIM_DEBUG("content_type 전달: gtk_purpose=%d, unim_purpose=%u",
-                           (int)purpose, unim_purpose);
-            }
-        }
+        /* client_window/위젯 유무와 무관하게 항상 판정하고, force=TRUE 로 dedupe 를
+         * 건너뛰어 항상 전송한다(감사 결함3 — 이전에는 client_window 관문 안에서만
+         * 전송해 위젯 역추적 실패 시 stale purpose 가 잔존했다). */
+        GtkInputPurpose purpose = unim_resolve_input_purpose(unim);
+        unim_update_content_purpose(unim, purpose, TRUE);
     }
 
     unim->is_focused = TRUE;
@@ -792,13 +1082,20 @@ unim_im_context_focus_out(GtkIMContext *context)
         
         /* 조합 중이던 문자 커밋 */
         if (commit && strlen(commit) > 0) {
-            UNIM_DEBUG("focus_out 커밋: \"%s\"", commit);
+            UNIM_DEBUG("focus_out 커밋: \"%s\"", unim_mask(unim, commit));
             g_signal_emit_by_name(context, "commit", commit);
         }
         g_free(commit);
 
         /* preedit 클리어 (preedit-end까지 발사) */
         unim_emit_preedit(unim, "");
+
+        /* 이탈 시 Normal 복귀(감사 결함3) — 다음에 포커스를 받는 다른 필드/앱에
+         * Password/Pin 등이 잔존해 한글 입력이 계속 차단되는 크로스 필드 누출을
+         * 막는다. T1 GNOME 확장과 동일 규약: 리셋 지점은 reset 이 아니라 focus_out
+         * (reset 은 필드 내부 조합 취소일 뿐이라 그 안에서 풀리면 안 됨 — 아래 참조).
+         * 이미 Normal 이면 unim_update_content_purpose 의 dedupe 로 재전송 생략. */
+        unim_update_content_purpose(unim, GTK_INPUT_PURPOSE_FREE_FORM, FALSE);
     }
 
     unim->is_focused = FALSE;
@@ -812,12 +1109,17 @@ unim_im_context_reset(GtkIMContext *context)
 
     UNIM_DEBUG("reset 호출");
 
+    /* content_purpose 는 여기서 건드리지 않는다 — reset 은 필드 "내부" 조합 취소
+     * 이벤트(예: 비밀번호 필드 안에서 Escape 한 번)라, 여기서 Normal 로 되돌리면
+     * 그 즉시 같은 필드 안에서 차단이 풀리는 회귀가 된다. 위 focus_out 이 유일한
+     * 리셋 지점이다. */
+
     /* 1. 조합 중인 글자를 먼저 커밋 */
     if (unim->dbus_ctx) {
         unim_dbus_reset(unim->dbus_ctx, &commit);
         
         if (commit && strlen(commit) > 0) {
-            UNIM_DEBUG("reset 커밋: \"%s\"", commit);
+            UNIM_DEBUG("reset 커밋: \"%s\"", unim_mask(unim, commit));
             g_signal_emit_by_name(context, "commit", commit);
         }
         g_free(commit);
@@ -920,7 +1222,7 @@ unim_im_context_set_surrounding(GtkIMContext *context, const gchar *text,
     unim->selection_index = cursor_index;
 
     UNIM_DEBUG("surrounding 업데이트: cursor=%d, text=\"%s\"",
-               cursor_index, unim->surrounding_text);
+               cursor_index, unim_mask(unim, unim->surrounding_text));
 
     /* Surrounding text를 DBus로 전달 */
     if (unim->dbus_ctx && unim->surrounding_text) {

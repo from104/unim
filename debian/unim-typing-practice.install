@@ -1,0 +1,4 @@
+debian/tmp/usr/bin/unim-typing-practice
+debian/tmp/usr/share/applications/io.github.from104.unim.TypingPractice.desktop
+debian/tmp/usr/share/icons/hicolor/scalable/apps/io.github.from104.unim.TypingPractice.svg
+debian/tmp/usr/share/man/man1/unim-typing-practice.1

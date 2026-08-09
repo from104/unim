@@ -1,0 +1,221 @@
+# UNIM GUI GTK locale (Korean)
+# 설정 다이얼로그, 팝업, 모드 창
+
+# 윈도우/다이얼로그
+settings_window_title: "UNIM 설정"
+settings_toast_saved: "저장됨 ✓"
+settings_toast_save_failed: "저장 실패: %{err}"
+settings_toast_added: "추가됨 ✓"
+settings_toast_deleted: "삭제됨 ✓"
+
+# 페이지
+page_general_title: "일반"
+page_typefix_title: "오타 교정"
+page_blacklist_title: "교정 억제 단어"
+page_userdict_title: "사용자 사전"
+
+# 일반 > 자판 및 키맵
+group_layouts_keymap: "자판 및 키맵"
+row_korean_layout: "한국어 자판"
+row_korean_layout_subtitle: "내장 자판 10종 + 사용자 자판 (~/.config/unim/layouts/*.json)"
+row_english_layout: "영어 자판"
+row_toggle_keys: "한/영 전환 키"
+row_toggle_keys_subtitle: "쉼표로 구분 (예: Korean, RightAlt)"
+row_hanja_keys: "한자 키"
+row_hanja_keys_subtitle: "쉼표로 구분 (예: Hanja, F9) — 조합 없을 때는 이모지 팝업으로 동작"
+
+# 일반 > 입력 모드
+group_input_mode: "입력 모드"
+row_initial_mode: "초기 입력 모드"
+mode_english: "영문"
+mode_korean: "한글"
+row_mode_sharing: "모드 공유 방식"
+mode_share_global: "전역 공유 (Global)"
+mode_share_perapp: "창별 독립 (PerApp)"
+
+# 일반 > 자동 영문 전환
+group_auto_english: "자동 영문 전환"
+row_auto_english_enable: "자동 영문 전환 사용"
+row_auto_english_triggers: "트리거 키"
+row_auto_english_triggers_subtitle: "쉼표 구분. key:<이름> 은 KeyCode 비교, char:<문자> 는 키맵 산출 문자 비교 (비-QWERTY 안전). 예: key:Escape, char:/, char:,"
+
+# 자판 옵션 페이지
+group_layout_options_empty: "이 자판은 옵션 규칙이 없습니다."
+group_layout_options_title: "선택된 자판의 옵션 규칙"
+row_rule_sets_label: "규칙 세트"
+row_layout_pending: "자판 프로필 로드 후 표시"
+group_moachigi_title: "모아치기 설정"
+row_moachigi_bidirectional_label: "양방향 자모 결합"
+row_moachigi_bidirectional_subtitle: "ㅎ→ㄱ을 ㅋ로 결합 (풀어쓰기·모아쓰기 모두 적용)"
+row_moachigi_bidirectional_tooltip: "자모 결합 시 정순(ㄱ,ㅎ→ㅋ) 외에 역순(ㅎ,ㄱ→ㅋ)도 시도합니다. 풀어쓰기 시간차 입력에도 적용되어 천천히 타이핑해도 의도된 결합이 가능합니다. 동시 입력 시간(chord_window_ms)과 독립된 옵션으로, 모아치기 없이 순차 입력만 쓰는 경우에도 활성화할 수 있습니다."
+row_moachigi_chord_label: "동시 입력 시간 (ms)"
+row_moachigi_chord_subtitle: "0=OFF, 50/100/150/200ms (입문자 100-150ms, 미세값은 CLI)"
+row_moachigi_chord_tooltip: "첫 타건부터 N ms 안에 들어온 키들을 한 묶음(chord, 모아치기 단위)으로 처리합니다. 60ms가 표준 권장값이며, 입문자는 80-100ms로 시작하기를 권장합니다. 0=비활성. 양방향 자모 결합 옵션과 독립 — 묶음 안 자모는 초/중/종 영역으로 자동 분류한 뒤 모든 순서 조합을 시도해 결합합니다."
+
+# 오타 교정 > 순방향
+group_typefix_forward: "자동 순방향 교정 (영→한)"
+row_typefix_enable: "사용"
+row_typefix_kor_threshold: "임계 음절 수"
+row_typefix_kor_threshold_subtitle: "이 개수 이상의 완성 한글이 감지되면 교정 검사"
+row_typefix_forward_window: "트리거 윈도우 (초)"
+row_typefix_forward_window_subtitle: "순방향 교정이 유효로 간주하는 최근 입력 시간"
+row_typefix_skip_engword: "영단어 매칭 시 억제"
+row_typefix_skip_engword_subtitle: "사전에 일치하는 영단어이면 교정하지 않음"
+
+# 오타 교정 > 역방향
+group_typefix_reverse: "자동 역방향 교정 (한→영)"
+row_typefix_eng_threshold: "임계 글자 수"
+row_typefix_eng_threshold_subtitle: "이 개수 이상의 한글이 감지되면 교정 검사"
+row_typefix_reverse_window: "트리거 윈도우 (초)"
+row_typefix_reverse_window_subtitle: "역방향 교정이 유효로 간주하는 최근 입력 시간"
+row_typefix_skip_complete: "온전한 음절 매칭 시 억제"
+row_typefix_skip_complete_subtitle: "버퍼의 한글이 모두 완성 음절이면 교정하지 않음"
+row_typefix_userdict: "사용자 사전 사용"
+row_typefix_userdict_subtitle: "등록된 CLI 명령 등은 길이·사전 검사를 우회하여 즉시 교정 — '사용자 사전' 페이지에서 관리"
+
+# 오타 교정 > 마스터
+group_typefix_master: "전체 기능"
+row_typefix_master: "자동 오타 교정 사용"
+row_typefix_master_subtitle: "AutoTypeFix 마스터 스위치 — OFF면 순방향·역방향이 함께 멈춤"
+
+# 오타 교정 > 재트리거
+group_typefix_retrigger: "재트리거 자동 감지"
+row_typefix_retrigger_subtitle: "교정 후 같은 입력이 재발하면 오탐 후보로 기록 → 교정 억제 단어 페이지에 추가"
+row_typefix_observe_window: "관찰 창 (초)"
+row_typefix_observe_window_subtitle: "첫 교정 후 이 시간 내 동일 입력이 재발하면 오탐으로 판정 (권장: 5~15초)"
+row_typefix_tentative_expiry: "임시 억제 만료 (시간)"
+row_typefix_tentative_expiry_subtitle: "이 기간 내 수동 확정 없으면 자동 비활성화 (권장: 1~12시간)"
+
+# 일반 > 표시
+group_display: "표시"
+row_panel_indicator: "상단 패널 인디케이터"
+row_show_notification: "변환 알림 표시"
+
+# 일반 > IME
+group_ime: "실시간 입력기 (IME)"
+group_ime_subtitle: "Wayland 세션에서만 활성화됩니다. X11에서는 영향 없음."
+row_ime_enable: "IME 모드 활성화"
+
+# 블랙리스트 페이지
+blacklist_group_tentative: "승인 대기"
+blacklist_group_confirmed: "확정"
+blacklist_group_inactive: "비활성"
+blacklist_empty: "기록 없음"
+blacklist_tentative_desc: "BS + 모드 전환으로 자동 감지된 의심 단어 — 확정하면 영구 억제 (%{count}개)"
+blacklist_confirmed_desc: "영구 억제 대상 (%{count}개)"
+blacklist_inactive_desc: "만료되어 억제 효과 없음 (%{count}개)"
+blacklist_row_summary: "%{kind} · %{ts} · 한글:%{ko} · 영문:%{en} · 히트:%{hits}"
+blacklist_btn_disable: "비활성화"
+blacklist_btn_delete: "삭제"
+blacklist_btn_reactivate: "재활성화(확정)"
+blacklist_btn_confirm: "확정"
+blacklist_kind_forward: "순방향(영→한)"
+blacklist_kind_reverse: "역방향(한→영)"
+
+# 사용자 사전 페이지
+userdict_group_title: "역방향 사용자 사전"
+userdict_group_desc: "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. CLI 명령어(예: git, ls, kubectl)나 짧은 고유명사를 등록하세요."
+userdict_group_desc_count: "한글 모드에서 이 단어들을 입력하면 자동으로 영문으로 교정됩니다. CLI 명령어나 짧은 고유명사를 등록하세요. (%{count}개 등록)"
+userdict_btn_add_tooltip: "단어 추가"
+userdict_empty: "등록된 단어 없음"
+userdict_empty_subtitle: "우측 상단 + 버튼으로 단어를 추가하거나, Super+E로 선택한 한글을 등록할 수 있습니다."
+userdict_btn_edit: "편집"
+userdict_dialog_edit_title: "단어 편집"
+userdict_dialog_field_word: "단어 (영문 알파벳만)"
+userdict_dialog_field_desc: "설명 (선택)"
+common_cancel: "취소"
+common_save: "저장"
+common_add: "추가"
+userdict_add_failed: "실패: 영문 알파벳만 허용되며 중복은 등록되지 않습니다."
+
+# ─────────────────────────────────────────────────────────────
+# 라이브 도움말 — subtitle 신규 키 (0.2.0 추가)
+# 텍스트 출처: _workspace/release/03_live_help_keys.yml (doc-writer 명세)
+# ─────────────────────────────────────────────────────────────
+
+# 일반 > 자판 및 키맵 (NEW subtitle)
+row_english_layout_subtitle: "QWERTY가 기본. Dvorak/Colemak/Colemak-DH/Workman 사용자만 변경."
+
+# 일반 > 입력 모드 (NEW subtitle)
+row_initial_mode_subtitle: "데몬을 시작했을 때 한글/영문 중 어느 쪽으로 둘지."
+row_mode_sharing_subtitle: "「창별 독립」: 창마다 한/영 모드 따로 유지. 「전역 공유」: 한 번 바꾸면 모든 창 동기화."
+
+# 일반 > 자동 영문 전환 (NEW subtitle)
+row_auto_english_enable_subtitle: "트리거 키를 만나면 한글 모드여도 강제로 영문 모드로 전환합니다."
+
+# 오타 교정 > 순방향 / 역방향 (NEW subtitle for enable rows)
+row_typefix_forward_enable_subtitle: "영문 모드에서 한글 오타(영→한) 자동 감지·교체. 일상 글쓰기에 추천."
+row_typefix_reverse_enable_subtitle: "한글 모드에서 영어 식별자(한→영) 자동 교체. 개발자·연구자에게 유용."
+
+# 오타 교정 > 마스터 (NEW row subtitle, 그룹 desc와 별개)
+row_typefix_master_row_subtitle: "OFF로 두면 순방향(forward)·역방향(reverse) 교정이 모두 멈춥니다."
+
+# GNOME / 표시 / IME (NEW subtitle)
+row_panel_indicator_subtitle: "상단 패널에 한/영 상태 아이콘 표시 (GNOME Wayland/X11 공통)"
+row_show_notification_subtitle: "교정·팝업 이벤트 발생 시 알림 센터에 짧게 표시"
+row_ime_enable_subtitle: "Wayland 전용: GNOME 확장이 키를 가로채 unim-daemon으로 전달"
+
+# ─────────────────────────────────────────────────────────────
+# 라이브 도움말 — tooltip 신규 키 (0.2.0 추가, 모든 위젯)
+# ─────────────────────────────────────────────────────────────
+
+# 일반 > 자판 및 키맵
+row_korean_layout_tooltip: "내장 자판 10종 + ~/.config/unim/layouts/*.json 의 사용자 자판이 표시됩니다. 선택 시 아래 옵션 그룹이 해당 자판 규칙으로 재구성됩니다. AutoTypeFix 순방향 교정도 이 자판 기준."
+row_english_layout_tooltip: "AutoTypeFix가 영문 단어를 추론할 때 기준이 되는 자판. 실제 사용 중인 영어 자판과 다르면 순방향 교정이 오작동합니다. 기본값: QWERTY."
+row_toggle_keys_tooltip: "한/영 전환 키를 쉼표로 구분해 입력합니다. 예: Korean, RightAlt. 키 이름은 xkb 키심(keysym) 기준. 충돌 시 첫 번째 키 우선."
+row_hanja_keys_tooltip: "한자/특수문자 팝업을 띄울 키를 쉼표로 구분해 입력합니다. 예: Hanja, F9. 한글 조합 중이면 한자 변환, 조합이 없으면 이모지 팝업 또는 특수문자 팝업."
+
+# 일반 > 입력 모드
+row_initial_mode_tooltip: "데몬 시작 직후 모드. 「영문」이 안전한 기본값 — 로그인 시 비밀번호 필드 등에서 한글 입력 방지. 한글 작업이 주된 경우 「한글」로 변경 가능."
+row_mode_sharing_tooltip: "창별 독립(PerApp) 권장: 터미널은 영문 유지, 에디터·메신저는 한글 유지. 전역 공유(Global)는 모든 창이 한 번에 같이 전환 — 모드 혼란이 잦으면 PerApp으로."
+
+# 일반 > 자동 영문 전환
+row_auto_english_enable_tooltip: "vim/Emacs/터미널에서 Esc나 '/'를 눌렀을 때 한글 모드가 자동으로 영문으로 전환됩니다. 한글 입력 중 명령어를 치다 실수하는 패턴을 방지. 비밀번호 필드는 이미 강제 영문이라 영향 없음."
+row_auto_english_triggers_tooltip: "key:<이름>: XKB keysym 코드 비교 (예: key:Escape, key:F1). char:<문자>: 실제 산출 문자 비교 — 세벌식390 등 비-QWERTY 자판에서도 '/'가 정상 발동. Shift 무관이므로 '/'와 '?'를 구분하려면 둘 다 등록. 한/영 토글 키와 겹치면 토글이 우선."
+
+# 오타 교정 > 순방향
+row_typefix_forward_enable_tooltip: "영문 모드에서 한글 자모가 누적되면 단어 경계 시점에 한글로 자동 교체. 영문 코드 작성 중 노이즈가 많으면 OFF 권장. 일상 글쓰기·채팅은 ON이 편합니다."
+row_typefix_kor_threshold_tooltip: "이 개수 이상의 한글 음절이 쌓여야 순방향 교정 검사를 시작합니다. 기본값 2 권장 — 1로 줄이면 오탐 증가, 3 이상이면 짧은 단어 미감지."
+row_typefix_forward_window_tooltip: "입력 후 이 시간 내에 들어온 자모만 교정 후보로 삼습니다. 너무 짧으면 느린 타이핑이 누락, 너무 길면 오래된 입력이 교정됨. 3~5초 권장."
+row_typefix_skip_engword_tooltip: "ON 강력 권장. 영문 단어(예: 'for', 'git')를 의도적으로 쳤는데 한글로 교체되는 사고를 막습니다. OFF는 영문 사전 없는 특수 자판용."
+
+# 오타 교정 > 역방향
+row_typefix_reverse_enable_tooltip: "한글 모드에서 영어 식별자(예: git, kubectl)나 영단어가 자동으로 영문으로 교체됩니다. 개발자·연구자에게 유용. 일반 문서 작성만 하면 OFF 권장."
+row_typefix_eng_threshold_tooltip: "이 개수 이상의 한글 글자가 쌓여야 역방향 교정 검사를 시작합니다. 기본값 3 권장 — 1~2이면 짧은 단어(예: 'ㅎ') 오탐 증가."
+row_typefix_reverse_window_tooltip: "입력 후 이 시간 내에 들어온 자모만 역방향 교정 후보로 삼습니다. 3~5초 권장."
+row_typefix_skip_complete_tooltip: "ON 강력 권장. 완성된 한글 음절('가', '나')이 우연히 영어 단어로 해석되는 오탐을 방지합니다. OFF는 세벌식 미조합 자모 교정 테스트용."
+row_typefix_userdict_tooltip: "ON: 등록된 CLI 명령어(git, ls, kubectl 등)는 길이·사전 검사를 건너뛰고 즉시 교정. OFF: 사전 자동 발견 우선. '사용자 사전' 페이지에서 단어 관리."
+
+# 오타 교정 > 마스터
+row_typefix_master_tooltip: "예: 영문 모드인 줄 모르고 'gksrmf'를 친 경우 → 순방향(forward)이 '한글'로 자동 교체. ON이면 순방향·역방향 모두 활성. OFF면 이 페이지의 모든 교정이 멈춥니다."
+row_typefix_retrigger_tooltip: "ON 권장. 오탐이 자주 발생하는 단어를 자동으로 '교정 억제 단어' 페이지에 추가합니다. OFF면 매번 수동으로 단어를 등록해야 합니다."
+row_typefix_observe_window_tooltip: "교정 직후 이 시간 내에 동일 입력이 다시 교정되면 오탐으로 판정합니다. 5~15초 범위 — 빠른 타자는 5~7초, 느린 타자는 10~15초 권장."
+row_typefix_tentative_expiry_tooltip: "오탐 후보로 기록된 단어는 이 시간 내 수동 확정하지 않으면 자동 비활성화됩니다. 1~12시간 범위 — 1시간이 학습 정확도와 만료 속도의 균형점."
+
+# 일반 > 표시 / IME
+row_panel_indicator_tooltip: "GNOME 상단 패널에 한/영 상태 아이콘(예: 'K'/'E')이 표시됩니다. OFF로 두면 패널이 깔끔해지며, 한/영 상태는 모드 팝업 창으로 확인 가능."
+row_show_notification_tooltip: "교정 발생·팝업 출현 등 주요 이벤트 시 알림 센터에 짧게 떠오릅니다. 잦은 교정이 발생하면 알림이 번거로울 수 있으니 OFF 권장."
+row_ime_enable_tooltip: "Wayland 세션에서 GNOME Shell 확장(unim-gnome-extension)이 키 이벤트를 가로채 unim-daemon에 전달합니다. X11 세션에서는 XIM이 자동으로 동작하므로 영향 없음."
+
+# 모드 팝업 윈도우
+modepopup_status_korean: "한국어 입력 중"
+modepopup_status_english: "영어 입력 중"
+modepopup_btn_korean_tooltip: "한국어 모드로 전환"
+modepopup_btn_english_tooltip: "영어 모드로 전환"
+modepopup_btn_open_settings: "설정 도구 열기"
+
+# 이모지 팝업 — 좌측 세로 9 탭 (PR #2 emoji overhaul)
+emoji_popup_title: "이모지 선택"
+emoji_tab_recent: "최근 사용"
+emoji_tab_smileys_people: "표정·인물"
+emoji_tab_animals_nature: "동물·자연"
+emoji_tab_food_drink: "음식·음료"
+emoji_tab_activities: "활동"
+emoji_tab_travel_places: "여행·장소"
+emoji_tab_objects: "사물"
+emoji_tab_symbols: "기호"
+emoji_tab_flags: "국기"
+
+# 팝업 페이지 이동 (한자/특수문자/이모지 공통)
+popup_previous_page: "이전 페이지"
+popup_next_page: "다음 페이지"

@@ -21,15 +21,7 @@ set(GTK_COMMON_DIR "${CMAKE_SOURCE_DIR}/../gtk-common")
 add_library(im-unim MODULE
     src/immodule.c
     ${GTK_COMMON_DIR}/src/unim_dbus_client.c
-    ${GTK_COMMON_DIR}/src/unim_hanja_popup.c
-    ${GTK_COMMON_DIR}/src/unim_special_popup.c
-    ${GTK_COMMON_DIR}/src/unim_emoji_popup.c
 )
-
-# UNIM C-API (PopupState)
-set(UNIM_ROOT "${CMAKE_SOURCE_DIR}/../..")
-set(UNIM_CAPI_INCLUDE "${UNIM_ROOT}/unim-capi/include")
-set(UNIM_CAPI_LIB_DIR "${UNIM_ROOT}/target/release")
 
 target_include_directories(im-unim PRIVATE
     ${GTK3_INCLUDE_DIRS}
@@ -37,17 +29,13 @@ target_include_directories(im-unim PRIVATE
     ${GTK_COMMON_DIR}/include
     ${X11_INCLUDE_DIRS}
     ${XTST_INCLUDE_DIRS}
-    ${UNIM_CAPI_INCLUDE}
 )
-
-target_link_directories(im-unim PRIVATE ${UNIM_CAPI_LIB_DIR})
 
 target_link_libraries(im-unim
     ${GTK3_LIBRARIES}
     ${GIO_LIBRARIES}
     ${X11_LIBRARIES}
     ${XTST_LIBRARIES}
-    unim_capi
 )
 
 target_compile_options(im-unim PRIVATE 

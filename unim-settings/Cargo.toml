@@ -1,0 +1,73 @@
+[package]
+name = "unim-settings"
+version.workspace = true
+edition = "2021"
+description = "UNIM settings GUI (Slint) for Windows/Linux"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "unim-settings"
+path = "src/main.rs"
+
+[dependencies]
+unim = { path = ".." }
+# default-features 해제 + winit/skia 명시: 기본 feature 는 Qt 백엔드를 포함하는데,
+# Slint 의 Qt 의존은 dlopen 이 아닌 하드 링크라 빌드 머신에 Qt 가 있으면 바이너리가
+# libQt6 에 묶인다 → GTK 데스크톱 사용자에게 Qt 런타임을 강제하게 돼 UNIM 컨셉과
+# 상충(Linux 실기동으로 Qt 폴백 확인 후 결정). winit-skia 전용으로 고정한다.
+# - renderer-skia: 기본 FemtoVG 는 힌팅이 없어 작은 한글(14px) 획 굵기가 불균일.
+#   Skia 는 OS/FreeType 네이티브 글리프 파이프라인을 타 힌팅이 적용된다.
+# - 설정앱 내 한글 입력은 X11=XIM / Wayland=text-input-v3 경로를 탄다(Qt IM 미사용).
+# - accessibility(AccessKit)는 스크린리더 노출용으로 유지한다.
+slint = { version = "1", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-skia",
+    "accessibility",
+    "compat-1-2",
+] }
+
+# 설치 마법사(--first-run/--whats-new) 의 기본 입력기/언어팩 감지·설정 헬퍼.
+# 크레이트 전체가 #![cfg(windows)] 라 비Windows 빌드엔 심볼이 없어 windows 타깃에만 링크한다
+# (main.rs 는 cfg(not(windows)) 폴백으로 크로스 체크 가능).
+[target.'cfg(windows)'.dependencies]
+unim-windows-common = { path = "../unim-windows-common" }
+
+# Windows 작업표시줄·탐색기 아이콘: exe 의 **아이콘 리소스**에서 온다. Slint 의
+# `Window { icon: ... }` 은 창 좌상단·Alt+Tab 만 바꾸므로 리소스가 없으면 작업표시줄은
+# 기본 exe 아이콘이 뜬다. unim.rc 로 installer/assets/unim.ico 를 임베드한다
+# (unim-tsf 가 언어바 아이콘에 쓰는 것과 같은 방식).
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "2"
+
+# Linux 실동작: 저장 후 데몬 통지(settings_dbus::save_config_via_dbus — GTK 앱과 동일
+# 메커니즘)와 flock 단일 인스턴스 가드. unim-gui-common 은 워크스페이스에서 이미
+# 빌드 중이라 신규 시스템 deps 가 없고, rustix 0.38 은 락파일 트리에 이미 존재한다.
+# default-features = false: tray(ksni) 제외 — ksni 가 zbus 5 의 tokio feature 를
+# 켜면 AccessKit(AT-SPI) 의 zbus 까지 tokio 실행기를 요구해 시작 패닉이 난다.
+[target.'cfg(target_os = "linux")'.dependencies]
+unim-gui-common = { path = "../unim-gui-common", default-features = false }
+rustix = { version = "0.38", features = ["fs"] }
+# Wayland 창 아이콘은 셸이 **app_id 로 .desktop 을 찾아** Icon= 을 읽어 결정한다 —
+# 창에 아이콘 픽셀을 붙이는 개념이 없어 winit 의 Wayland set_window_icon 은 빈 함수다.
+# Slint 에는 GTK 의 application_id 같은 API 가 없어 app_id 가 winit 기본값(실행 파일명
+# "unim-settings")이 되고, 설치된 io.github.from104.unim.SettingsSlint.desktop 과 어긋나
+# 기본 아이콘이 떴다. winit 백엔드를 직접 만들어 hook 으로 app_id 를 지정한다.
+# 버전은 slint 와 반드시 동일해야 한다(같은 crate 의 두 사본이 되면 타입이 갈린다).
+i-slint-backend-winit = { version = "1.12", default-features = false, features = [
+    "renderer-skia",
+    "wayland",
+    "x11",
+] }
+# (S6) 마법사 완료 페이지의 UNIM 데몬 감지: NameHasOwner(비활성 조회) + Peer.Ping(자동활성).
+# zbus 4 는 이미 unim-gui-common 을 통해 그래프에 존재(동일 버전). tokio feature 를 여기서
+# 새로 켜지 않는다(default-features = false) — feature 통일은 gui-common 이 이미 한 상태라
+# AccessKit 의 zbus 5(async-io)에는 영향이 없다(main.rs 의 zbus 5 tokio 금지 주석 근거).
+# 런타임 생성용 tokio 는 settings_dbus 의 current-thread 패턴을 그대로 복제한다.
+zbus = { version = "4", default-features = false }
+tokio = { version = "1", features = ["rt"] }
+
+[build-dependencies]
+slint-build = "1"

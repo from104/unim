@@ -8,7 +8,8 @@
 //! 트리거 시: 화면의 기존 문자를 삭제하고 교정 결과를 commit.
 
 use std::collections::HashSet;
-use std::sync::LazyLock;
+
+use once_cell::sync::Lazy;
 
 use crate::keycode::{KeyCode, ModifierState};
 
@@ -29,7 +30,7 @@ pub use reverse::check_reverse;
 static ENGLISH_WORDS: &str = include_str!("../data/english_words.txt");
 
 /// 영어 사전 HashSet (lazy 초기화)
-pub(crate) static DICTIONARY: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+pub(crate) static DICTIONARY: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     ENGLISH_WORDS
         .lines()
         .filter(|line| !line.is_empty())
@@ -51,4 +52,13 @@ pub struct AutoTypeFixResult {
     pub clear_preedit: bool,
     /// 마지막 음절을 replay할 키스트로크 (순방향: 엔진에 다시 입력하여 preedit 생성)
     pub replay_keys: Vec<(KeyCode, ModifierState)>,
+    /// 진행 중 조합(preedit/보유 영문) 자체를 교정 결과로 치환해야 하는지.
+    ///
+    /// `KeystrokeBuffer::word_mode`(호출자가 `engine.is_word_mode()` 로 설정)가 켜진
+    /// 라이브 조합에서만 `true`. 순방향은 word 모드면 `true`(보유 영문 라이브 조합),
+    /// 역방향은 `word_mode && committed_chars == 0`(committed=0 단일 라이브 조합)일 때만
+    /// `true`. 이때 프런트(Windows TSF)는 surrounding-text 삭제(비협조앱 차단·synth 강등)
+    /// 대신 조합 SetText(`update_composition`/`end_composition_with_text`)로 치환한다.
+    /// `false`(음절 모드/committed 섞임)면 기존 삭제 경로와 바이트 동일 — 무회귀 불변식.
+    pub replace_composition: bool,
 }

@@ -14,6 +14,7 @@ const KO_2BULSTD: &str = include_str!("keymap/ko_2bulstd.json");
 const KO_3BUL390: &str = include_str!("keymap/ko_3bul390.json");
 const KO_3BUL391: &str = include_str!("keymap/ko_3bul391.json");
 const KO_3BUL_NOSHIFT: &str = include_str!("keymap/ko_3bul_noshift.json");
+const KO_ANMATAE: &str = include_str!("keymap/ko_3bul_anmatae.json");
 
 pub fn get_keymap_json(name: &str) -> &'static str {
     match name {
@@ -26,6 +27,7 @@ pub fn get_keymap_json(name: &str) -> &'static str {
         "ko_3bul390" | "390" | "3bul390" => KO_3BUL390,
         "ko_3bul391" | "391" | "3bul391" => KO_3BUL391,
         "ko_3bul_noshift" | "noshift" | "3bul_noshift" => KO_3BUL_NOSHIFT,
+        "ko_3bul_anmatae" | "ko_anmatae" | "anmatae" | "anmatae_2003" => KO_ANMATAE,
         _ => KO_2BULSTD,
     }
 }
@@ -110,7 +112,7 @@ mod tests {
         }
     }
 
-    /// T1-D: 4축 정합성 — BUILTIN_NAMES 9종 전수에 대해
+    /// T1-D: 4축 정합성 — BUILTIN_NAMES 전수에 대해
     /// (a) `get_keymap_json(name) != KO_2BULSTD` (영문/한글 모두 fallback 미발생)
     /// (b) `profile::get_builtin_json(name).is_some()`
     /// (c) v1 프로필 JSON parse 가능 + `schema_version == 1`
@@ -150,8 +152,8 @@ mod tests {
             let profile = parse_profile_str(profile_json)
                 .unwrap_or_else(|e| panic!("builtin '{name}' profile parse failed: {e}"));
             assert!(
-                matches!(profile.schema_version, 1 | 2),
-                "{name}: profile must declare schema_version 1 or 2 (was {}, v0 schema is rejected)",
+                matches!(profile.schema_version, 1..=3),
+                "{name}: profile must declare schema_version 1, 2, or 3 (was {}, v0 schema is rejected)",
                 profile.schema_version
             );
 

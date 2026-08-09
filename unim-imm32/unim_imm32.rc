@@ -1,0 +1,50 @@
+// UNIM IMM32 IME — resource script.
+//
+// 1) STRINGTABLE id 1: layout display-name referenced INDIRECTLY by the keyboard
+//    layout registry value "Layout Display Name" = "@…\unim_imm32.ime,-1".
+//    SHLoadIndirectString resolves "@<module>,-<id>" via LoadString(module, id);
+//    the negative number's absolute value is the STRINGTABLE id (,-1 -> id 1).
+//
+// 2) VERSIONINFO (VS_VERSION_INFO): **required by ImmInstallIME**. Without a version
+//    resource, ImmInstallIMEW fails with 1813 (ERROR_RESOURCE_TYPE_NOT_FOUND) and the
+//    IME can never be registered/loaded (root cause of the .ime never loading into
+//    KakaoTalk — see docs/dev/windows/imm32-load-research.md §A/§E).
+//
+// Embedded into BOTH x64 and i686 .ime builds via build.rs (embed-resource).
+// Keep id 1 in sync with register.rs / globals.rs / installer/wix/unim.wxs (",-1").
+
+#include <winuser.h>
+#include <winver.h>
+
+STRINGTABLE
+BEGIN
+    1   "UNIM Korean (IMM32)"
+END
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,4,0,0
+ PRODUCTVERSION 0,4,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_DLL
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "atit.org"
+            VALUE "FileDescription",  "UNIM Korean IMM32 IME"
+            VALUE "FileVersion",      "0.4.0.0"
+            VALUE "InternalName",     "unim_imm32.ime"
+            VALUE "OriginalFilename", "unim_imm32.ime"
+            VALUE "ProductName",      "UNIM"
+            VALUE "ProductVersion",   "0.4.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -114,6 +114,8 @@ fn merge(base: LayoutProfile, child: LayoutProfile) -> LayoutProfile {
             merged
         },
         active_rule_sets: child.active_rule_sets.or(base.active_rule_sets),
+        // v3 필드: child 우선, base fallback
+        moachigi: child.moachigi.or(base.moachigi),
         key_meta: match (base.key_meta, child.key_meta) {
             (None, None) => None,
             (Some(b), None) => Some(b),

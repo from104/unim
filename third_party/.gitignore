@@ -1,0 +1,3 @@
+# 원본 사본 — `make xim-fork-diff` 비교용. 커밋하지 않는다.
+# 없으면 `cargo vendor` 또는 crates.io 소스에서 다시 받으면 된다.
+.xim-pristine/

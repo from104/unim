@@ -7,6 +7,7 @@
 //! `InputEngine`은 `Send + Sync`를 구현하지 않으므로 (HangulComposer trait object),
 //! 엔진은 별도의 전용 스레드에서 실행하고 채널을 통해 통신합니다.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -14,8 +15,8 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use zbus::{interface, Connection, SignalContext};
 
 use crate::interfaces::InputMode;
-use unim::config::{Config, InputCategory};
-use unim::input_engine::PopupAction;
+use unim::config::{Config, InputCategory, KoreanConfig};
+use unim::input_engine::{AtfToggleKind, InputEngine, PopupAction};
 use unim::unim_log;
 
 // PopupAction은 unim::input_engine에서 정의됨 (re-export)
@@ -86,9 +87,7 @@ pub enum EngineRequest {
     ToggleHanjaBookmark {
         context_id: u32,
         index: usize,
-        response: oneshot::Sender<
-            Option<(usize, bool, Option<PopupAction>, Option<PopupRenderPayload>)>,
-        >,
+        response: oneshot::Sender<Option<ToggleHanjaBookmarkResult>>,
     },
     /// 특수문자 후보 조회
     GetSpecialCharCandidates {
@@ -163,12 +162,14 @@ pub enum EngineRequest {
     /// 이모지 팝업 카테고리 변경 (마우스 클릭 → 직접 카테고리 전환).
     ///
     /// 워커는 마지막 포커스 컨텍스트의 popup_state 가 emoji 인 경우에만 처리한다.
-    /// 응답으로 갱신된 카테고리 메타·페이지 풀을 돌려주어 service.rs 가
-    /// `ShowEmojiPopupV2` 시그널을 재발행할 수 있게 한다.
+    /// 응답으로 갱신된 카테고리 메타·페이지 풀(EmojiShowPayload)과 함께 통합
+    /// view-model(PopupRenderPayload) 도 돌려주어 service.rs 가 `ShowEmojiPopupV2`
+    /// 와 `PopupRender` 두 시그널을 재발행한다. PopupRender 가 함께 발행돼야
+    /// extension/GUI 가 평면 cells 갱신을 적용한다.
     /// 응답이 `None` 이면 emoji popup 이 활성화되지 않았거나 idx 가 범위 밖이라 무시됨.
     SetEmojiCategory {
         idx: u32,
-        response: oneshot::Sender<Option<EmojiShowPayload>>,
+        response: oneshot::Sender<Option<(EmojiShowPayload, Option<PopupRenderPayload>)>>,
     },
     /// 팝업 페이지 이동 (마우스 ◀/▶ 버튼 등 외부 RPC).
     ///
@@ -204,111 +205,50 @@ pub enum EngineRequest {
         context_id: u32,
         response: oneshot::Sender<Option<u32>>,
     },
+
+    /// chord idle flush — 윈도우 만료 시 자동 flush (preedit 유지 모드).
+    ///
+    /// `process_key_event` 에서 chord 진행 중 tokio::spawn + tokio::time::sleep 으로
+    /// 지연 발사. epoch 불일치(reset/layout-change/clear 등으로 이미 폐기) 시 무시.
+    ///
+    /// 응답: `Option<(commit_opt, preedit)>` —
+    /// - `None` → stale (epoch 불일치) 또는 buffer empty → 시그널 발사 안 함.
+    /// - `Some((commit_opt, preedit))` → 정상 flush 결과.
+    ///   - `commit_opt` 는 composer 가 종결한 음절/비자모만 (없으면 None).
+    ///   - `preedit` 은 composer 가 들고 있는 진행 중 음절 (풀어쓰기/모아쓰기 결과).
+    ///
+    /// service.rs 가 commit 있으면 `CommitText`, 정상 flush면 `UpdatePreeditText`
+    /// 시그널 발행. stale 응답은 시그널 발사 skip — race condition (선행 timer 가
+    /// 이미 처리 후 후속 timer 발화 시) 으로 인한 빈 preedit clear 방지.
+    ChordIdleFlush {
+        context_id: u32,
+        epoch: u64,
+        response: oneshot::Sender<Option<(Option<String>, String)>>,
+    },
 }
 
-/// 팝업 페이지 이동 응답 — service.rs 가 `PopupNavigate` 시그널 페이로드로 변환.
-#[derive(Debug, Clone, Copy)]
-pub struct PopupNavigatePayload {
-    pub page: u32,
-    pub total_pages: u32,
-    pub selected: u32,
-    pub rows: u32,
-    pub cols: u32,
-    pub sel_row: u32,
-    pub sel_col: u32,
-}
+// Popup DBus payload 타입은 `unim-popup-types` crate 가 단일 SoT 로 소유한다.
+// daemon · popup-service · 추후 GNOME ext 가 동일하게 import.
+pub use unim_popup_types::{
+    popup_render_flags, EmojiShowPayload, HanjaCandidateResponse, PopupNavigatePayload,
+    PopupRenderPayload, SpecialCharResponse,
+};
 
-/// 이모지 카테고리 전환 응답 — `ShowEmojiPopupV2` 시그널 재발행용 payload.
-#[derive(Debug, Clone)]
-pub struct EmojiShowPayload {
-    /// 새 활성 카테고리 id (예: "SmileysPeople").
-    pub target_cat_id: String,
-    /// 해당 카테고리 emoji 풀 전체 (페이지 슬라이싱은 GUI 측 책임).
-    pub items: Vec<String>,
-    /// 현재 활성 영문 키맵의 상단 행 9 문자.
-    pub top_row: String,
-    /// MRU Recent 캐시 (popup payload 호환용).
-    pub recent: Vec<String>,
-    /// 카테고리 메타 9 튜플 (id, ko, en, total).
-    pub categories: Vec<(String, String, String, u32)>,
-    /// 현재 활성 영문 키맵의 홈 행 9 문자 (이모지 카테고리 단축키 표시용).
-    pub home_row: String,
-}
+/// `ToggleHanjaBookmark` 응답 — `(new_index, bookmarked, popup_action, render_state)`.
+/// type alias 로 추출해 EngineRequest 의 very_complex_type 경고를 회피.
+pub type ToggleHanjaBookmarkResult =
+    (usize, bool, Option<PopupAction>, Option<PopupRenderPayload>);
 
-/// `PopupRender` 시그널 페이로드 — engine `PopupViewModel` 의 DBus-friendly 평면 표현.
-///
-/// daemon = SoT. 두 frontend (GNOME extension / unim-gui-gtk) 가 본 페이로드를 그대로
-/// 렌더링하여 헤더·푸터·셀·탭·확장 아이콘 등을 표시한다. 서식 문자열·visibility 조건이
-/// 모두 daemon 산출이라 frontend 간 표시 일관성 자동 보장.
-#[derive(Debug, Clone)]
-pub struct PopupRenderPayload {
-    /// 0=Hanja, 1=SpecialChar, 2=Emoji
-    pub kind: u32,
-    pub target: String,
-    pub header_text: String,
-    pub footer_text: String,
-    pub show_footer: bool,
-    pub rows: u32,
-    pub cols: u32,
-    pub sel_row: u32,
-    pub sel_col: u32,
-    pub current_page: u32,
-    pub total_pages: u32,
-    /// 셀 데이터 — column-major, 길이 = rows * cols. 각 (text, meaning, flags).
-    /// flags 비트: 0x01=has_data, 0x02=selected, 0x04=col_highlight,
-    ///            0x08=row_highlight, 0x10=bookmarked.
-    /// has_data=0 이면 빈 셀 (text/meaning 무시).
-    pub cells: Vec<(String, String, u32)>,
-    /// 컬럼 헤더 (text, is_active) — 한자 compact 는 빈 벡터.
-    pub col_headers: Vec<(String, bool)>,
-    /// 행 헤더 (text, is_active).
-    pub row_headers: Vec<(String, bool)>,
-    /// 한자 expand 토글 아이콘 가시성 (한자 popup 만 true).
-    pub expand_visible: bool,
-    /// 한자 expand 토글 텍스트 ("⊞" / "⊟").
-    pub expand_text: String,
-    /// 이모지 좌측 9 카테고리 탭 라벨 (단축키 prefix 포함). 그 외 popup 은 빈 벡터.
-    pub tab_labels: Vec<String>,
-    /// 이모지 활성 탭 인덱스 (0..9).
-    pub active_tab_index: u32,
-}
-
-/// PopupRenderPayload 의 cell flag 비트 정의.
-pub mod popup_render_flags {
-    pub const HAS_DATA: u32 = 0x01;
-    pub const SELECTED: u32 = 0x02;
-    pub const COL_HIGHLIGHT: u32 = 0x04;
-    pub const ROW_HIGHLIGHT: u32 = 0x08;
-    pub const BOOKMARKED: u32 = 0x10;
-}
-
-/// 한자 후보 응답
-#[derive(Debug)]
-pub struct HanjaCandidateResponse {
-    /// 변환 대상 문자열
-    pub target: String,
-    /// 후보 목록 (한자, 뜻풀이)
-    pub candidates: Vec<(String, String)>,
-    /// 영문 키맵의 상단 행 레이블 (expanded 9x9 컬럼 헤더용; 특수문자와 동일 source).
-    pub top_row: String,
-    /// PopupRender 페이로드 — Standalone 모드에서 ShowHanjaPopup 직후 popup_render
-    /// 시그널 발행에 사용. popup 비활성이면 None.
-    pub render_state: Option<PopupRenderPayload>,
-}
-
-/// 특수문자 후보 응답
-#[derive(Debug)]
-pub struct SpecialCharResponse {
-    /// 변환 대상 초성
-    pub target: String,
-    /// 특수문자 목록
-    pub characters: Vec<String>,
-    /// 영문 키맵의 상단 행 레이블 (예: "QWERTYUIO")
-    pub top_row: String,
-    /// PopupRender 페이로드 — Standalone 모드에서 ShowSpecialPopup 직후 popup_render
-    /// 시그널 발행에 사용. popup 비활성이면 None.
-    pub render_state: Option<PopupRenderPayload>,
-}
+/// `build_emoji_show_payload` 반환 — `(target_cat_id, items, top_row, recent, categories, home_row)`.
+/// type alias 로 추출해 very_complex_type 경고를 회피.
+pub type EmojiShowPayloadTuple = (
+    String,
+    Vec<String>,
+    String,
+    Vec<String>,
+    Vec<(String, String, String, u32)>,
+    String,
+);
 
 /// 엔진 응답
 #[derive(Debug)]
@@ -328,6 +268,28 @@ pub struct EngineResponse {
     /// PopupRender 페이로드 — popup 활성 상태일 때 매 키 처리 후 산출되어 frontend
     /// 가 시각 갱신에 사용. popup 비활성이면 None.
     pub render_state: Option<PopupRenderPayload>,
+    /// chord idle flush 타이머 정보 — chord 진행 중일 때 Some((epoch, window_ms)).
+    ///
+    /// service.rs 가 tokio::spawn 으로 window_ms 후 ChordIdleFlush 를 engine_tx 에 전송.
+    /// epoch 는 취소 판별용 (reset/layout-change 등이 epoch 를 증가시켜 타이머 무효화).
+    /// None 이면 chord 진행 중 아님 — 타이머 불필요.
+    pub chord_pending: Option<(u64, u16)>,
+    /// AutoTypeFix 토글 단축키가 매칭된 경우 `Some((대상 플래그, 새 값))`.
+    ///
+    /// `engine_worker` 가 `press_key` 후 `take_atf_toggle()` 로 드레인하고 config 를
+    /// 반전·persist 한 뒤 새 값을 실어 보낸다. service.rs 가 이를 받아 GUI/확장 동기화용
+    /// `config_changed(key, value)` 시그널을 방출한다(`auto_typefix_apply` 선례).
+    /// None 이면 이 키 이벤트에서 토글이 발생하지 않았음.
+    pub atf_toggled: Option<(AtfToggleKind, bool)>,
+    /// ATF 토글 발생 시 반전·persist 직후의 **전체 config JSON** 직렬화.
+    ///
+    /// `config_changed(key,value)` 만으로는 GNOME 확장에 피드백이 닿지 않는다 — 확장은
+    /// `ConfigChangedJson`(전체 config 페이로드)만 구독하고 수신 시 캐시를 통째로 교체한다.
+    /// 그래서 SetConfigYaml 선례처럼 전체 config JSON 을 동반 방출해야 확장 메뉴 체크가
+    /// 즉시 갱신된다. InputContextHandler 는 공유 config 에 접근하지 못하므로, 그 config 를
+    /// 소유하고 토글을 실측한 `engine_worker` 가 직렬화해 실어 보낸다(stale 위험 0).
+    /// `atf_toggled` 가 Some 일 때만 Some.
+    pub atf_config_json: Option<String>,
 }
 
 /// InputMethod 서비스 (팩토리 역할)
@@ -360,6 +322,8 @@ pub struct InputMethodService {
     /// 일치시켜, 단축키 캡처 주체(GNOME extension)와 입력 주체(GTK4_IM)가 분리된
     /// 환경에서도 emoji가 사용자 앱에 정확히 들어가게 한다.
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
+    /// 현재 등록된 프런트엔드 이름 집합 (ephemeral; 데몬 재시작 시 초기화)
+    active_frontends: Arc<RwLock<HashSet<String>>>,
 }
 
 impl InputMethodService {
@@ -381,6 +345,7 @@ impl InputMethodService {
             connection,
             last_cursor_rect: Arc::new(std::sync::Mutex::new((0, 0, 0, 0))),
             last_active_input_context_path: Arc::new(std::sync::Mutex::new(None)),
+            active_frontends: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -514,6 +479,71 @@ impl InputMethodService {
         let mode = self.global_mode.read().await;
         Ok(*mode == InputMode::Korean)
     }
+
+    /// 프런트엔드 등록 (멱등; 이미 등록된 이름 재호출은 no-op, signal 미발산)
+    async fn register_frontend(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        name: String,
+    ) -> zbus::fdo::Result<()> {
+        let inserted = {
+            let mut set = self.active_frontends.write().await;
+            set.insert(name.clone())
+        };
+        if inserted {
+            let names = {
+                let set = self.active_frontends.read().await;
+                let mut v: Vec<String> = set.iter().cloned().collect();
+                v.sort();
+                v
+            };
+            unim_log!("DBUS", "[DBus] RegisterFrontend: '{}' 등록됨, 활성 목록={:?}", name, names);
+            Self::active_frontends_changed(&signal_ctx, names).await?;
+        } else {
+            unim_log!("DBUS", "[DBus] RegisterFrontend: '{}' 이미 등록됨 (no-op)", name);
+        }
+        Ok(())
+    }
+
+    /// 프런트엔드 등록 해제 (없으면 no-op, signal 미발산)
+    async fn unregister_frontend(
+        &self,
+        #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
+        name: String,
+    ) -> zbus::fdo::Result<()> {
+        let removed = {
+            let mut set = self.active_frontends.write().await;
+            set.remove(&name)
+        };
+        if removed {
+            let names = {
+                let set = self.active_frontends.read().await;
+                let mut v: Vec<String> = set.iter().cloned().collect();
+                v.sort();
+                v
+            };
+            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 해제됨, 활성 목록={:?}", name, names);
+            Self::active_frontends_changed(&signal_ctx, names).await?;
+        } else {
+            unim_log!("DBUS", "[DBus] UnregisterFrontend: '{}' 미등록 (no-op)", name);
+        }
+        Ok(())
+    }
+
+    /// 현재 등록된 프런트엔드 목록 조회 (정렬된 Vec<String>)
+    async fn get_active_frontends(&self) -> Vec<String> {
+        let set = self.active_frontends.read().await;
+        let mut v: Vec<String> = set.iter().cloned().collect();
+        v.sort();
+        v
+    }
+
+    /// 활성 프런트엔드 목록 변경 시그널
+    #[zbus(signal)]
+    async fn active_frontends_changed(
+        signal_ctx: &SignalContext<'_>,
+        names: Vec<String>,
+    ) -> zbus::Result<()>;
 
     /// 전역 모드 변경 시그널
     #[zbus(signal)]
@@ -674,6 +704,9 @@ impl InputMethodService {
 
     /// 이모지 최근 사용(MRU) 조회 (PR #1 신규 RPC).
     ///
+    /// **internal-only**: 외부 frontend 는 popup-service `org.atit.unim.Popup`
+    /// interface 의 `GetEmojiRecent` 를 호출. 본 method 는 popup-service forward 전용.
+    ///
     /// `~/.config/unim/emoji-recent.yaml` 에서 사용자별 MRU (최대 81개) 를 읽어
     /// 반환한다. 일반적으로는 `ShowEmojiPopupV2` 시그널의 `recent` payload 가
     /// frontend 에 푸시되므로 이 RPC 를 호출할 필요가 없지만, GUI 가 명시적
@@ -741,10 +774,30 @@ impl InputMethodService {
             "auto_typefix_user_dict_enabled" => {
                 config.engine.auto_typefix.user_dict_enabled.to_string()
             }
+            // ATF 토글 단축키 3종 (옵트인, 쉼표 구분 KeyCode 이름 — toggle_keys 규약).
+            "auto_typefix_toggle_enabled_keys" => {
+                config.engine.auto_typefix.toggle_enabled_keys.join(",")
+            }
+            "auto_typefix_toggle_forward_keys" => {
+                config.engine.auto_typefix.toggle_forward_keys.join(",")
+            }
+            "auto_typefix_toggle_reverse_keys" => {
+                config.engine.auto_typefix.toggle_reverse_keys.join(",")
+            }
             "auto_english" => config.engine.auto_english.enabled.to_string(),
             "auto_english_keys" => config.engine.auto_english.trigger_keys.join(","),
-            "emoji_popup" => config.engine.emoji_popup.enabled.to_string(),
+            "toggle_announce_beep" => config.engine.toggle_announce_beep.to_string(),
+            "ignore_key_repeat" => config.engine.ignore_key_repeat.to_string(),
             "app_rules" => serde_json::to_string(&config.engine.app_rules).unwrap_or_default(),
+            // 모아치기 설정 (supports_moachigi 자판 전용)
+            "korean_bidirectional_combine" => match config.engine.korean.bidirectional_combine {
+                None => "default".to_string(),
+                Some(v) => v.to_string(),
+            },
+            "korean_chord_window_ms" => match config.engine.korean.chord_window_ms {
+                None => "default".to_string(),
+                Some(v) => v.to_string(),
+            },
             _ => {
                 return Err(zbus::fdo::Error::InvalidArgs(format!(
                     "Unknown key: {}",
@@ -825,6 +878,14 @@ impl InputMethodService {
                             "At least one key required".to_string(),
                         ));
                     }
+                    if all_keys_invalid(&keys, |k| InputEngine::parse_switch_key(k).is_some()) {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one valid key required".to_string(),
+                        ));
+                    }
+                    warn_invalid_keys("toggle_keys", &keys, |k| {
+                        InputEngine::parse_switch_key(k).is_some()
+                    });
                     config.engine.toggle_keys = keys;
                 }
                 "hanja_keys" => {
@@ -838,6 +899,14 @@ impl InputMethodService {
                             "At least one key required".to_string(),
                         ));
                     }
+                    if all_keys_invalid(&keys, |k| InputEngine::parse_switch_key(k).is_some()) {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one valid key required".to_string(),
+                        ));
+                    }
+                    warn_invalid_keys("hanja_keys", &keys, |k| {
+                        InputEngine::parse_switch_key(k).is_some()
+                    });
                     config.engine.hanja_keys = keys;
                 }
                 "korean_active_rule_sets" => {
@@ -949,6 +1018,41 @@ impl InputMethodService {
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
                 }
+                // ATF 토글 단축키 3종: 빈 값이 유효하다(옵트인 해제 = 아무 키도 소비 안 함).
+                // toggle_keys 와 달리 "최소 1개" 검증을 두지 않아 사용자가 키를 비울 수 있다.
+                "auto_typefix_toggle_enabled_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    warn_invalid_keys("auto_typefix_toggle_enabled_keys", &keys, |k| {
+                        InputEngine::parse_atf_hotkey(k).is_some()
+                    });
+                    config.engine.auto_typefix.toggle_enabled_keys = keys;
+                }
+                "auto_typefix_toggle_forward_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    warn_invalid_keys("auto_typefix_toggle_forward_keys", &keys, |k| {
+                        InputEngine::parse_atf_hotkey(k).is_some()
+                    });
+                    config.engine.auto_typefix.toggle_forward_keys = keys;
+                }
+                "auto_typefix_toggle_reverse_keys" => {
+                    let keys: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    warn_invalid_keys("auto_typefix_toggle_reverse_keys", &keys, |k| {
+                        InputEngine::parse_atf_hotkey(k).is_some()
+                    });
+                    config.engine.auto_typefix.toggle_reverse_keys = keys;
+                }
                 "auto_english" => {
                     config.engine.auto_english.enabled = value
                         .parse()
@@ -965,10 +1069,23 @@ impl InputMethodService {
                             "At least one key required".to_string(),
                         ));
                     }
+                    if all_keys_invalid(&keys, InputEngine::is_valid_auto_english_key) {
+                        return Err(zbus::fdo::Error::InvalidArgs(
+                            "At least one valid key required".to_string(),
+                        ));
+                    }
+                    warn_invalid_keys("auto_english_keys", &keys, |k| {
+                        InputEngine::is_valid_auto_english_key(k)
+                    });
                     config.engine.auto_english.trigger_keys = keys;
                 }
-                "emoji_popup" => {
-                    config.engine.emoji_popup.enabled = value
+                "toggle_announce_beep" => {
+                    config.engine.toggle_announce_beep = value
+                        .parse()
+                        .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
+                }
+                "ignore_key_repeat" => {
+                    config.engine.ignore_key_repeat = value
                         .parse()
                         .map_err(|_| zbus::fdo::Error::InvalidArgs("Invalid bool".to_string()))?;
                 }
@@ -978,6 +1095,30 @@ impl InputMethodService {
                             zbus::fdo::Error::InvalidArgs(format!("Invalid JSON: {}", e))
                         })?;
                     config.engine.app_rules = rules;
+                }
+                // 모아치기 설정
+                "korean_bidirectional_combine" => {
+                    if value.is_empty() || value == "default" {
+                        config.engine.korean.bidirectional_combine = None;
+                    } else {
+                        let v: bool = value.parse().map_err(|_| {
+                            zbus::fdo::Error::InvalidArgs("Invalid bool".to_string())
+                        })?;
+                        config.engine.korean.bidirectional_combine = Some(v);
+                    }
+                }
+                "korean_chord_window_ms" => {
+                    if value.is_empty() || value == "default" {
+                        config.engine.korean.chord_window_ms = None;
+                    } else {
+                        let v: u16 = value.parse().map_err(|_| {
+                            zbus::fdo::Error::InvalidArgs(format!("Invalid number: {}", value))
+                        })?;
+                        KoreanConfig::validate_chord_window_ms(Some(v)).map_err(|e| {
+                            zbus::fdo::Error::InvalidArgs(e)
+                        })?;
+                        config.engine.korean.chord_window_ms = Some(v);
+                    }
                 }
                 _ => {
                     return Err(zbus::fdo::Error::InvalidArgs(format!(
@@ -1038,6 +1179,44 @@ impl InputMethodService {
 
         // 2. 범위 방어
         new_config.engine.auto_typefix.clamp_ranges();
+
+        // 2.5. 키 목록 진단 — 설정앱(GTK 레거시·Slint 공통)의 실제 쓰기 경로는 legacy
+        // SetConfig 가 아니라 이 메서드다. 전 항목 무효인 필수 키 목록은 SetConfig 와
+        // 동일 정책으로 반려하고(엔진 파서가 전부 걸러 빈 목록 저장과 동일해짐),
+        // 부분 무효는 경고 로그만 남기고 저장한다(warn-not-block).
+        {
+            use unim::input_engine::InputEngine;
+            let eng = &new_config.engine;
+            type KeyCheckEntry<'a> = (&'a str, &'a [String], fn(&str) -> bool);
+            let required: [KeyCheckEntry; 3] = [
+                ("toggle_keys", &eng.toggle_keys, |k| {
+                    InputEngine::parse_switch_key(k).is_some()
+                }),
+                ("hanja_keys", &eng.hanja_keys, |k| {
+                    InputEngine::parse_switch_key(k).is_some()
+                }),
+                (
+                    "auto_english_keys",
+                    &eng.auto_english.trigger_keys,
+                    InputEngine::is_valid_auto_english_key,
+                ),
+            ];
+            for (field, keys, is_valid) in required {
+                if all_keys_invalid(keys, is_valid) {
+                    return Err(zbus::fdo::Error::InvalidArgs(format!(
+                        "At least one valid key required ({})",
+                        field
+                    )));
+                }
+                warn_invalid_keys(field, keys, is_valid);
+            }
+            // ATF 토글 3종은 빈 목록이 정상 옵트아웃 — 경고만.
+            let atf = &eng.auto_typefix;
+            let is_atf = |k: &str| InputEngine::parse_atf_hotkey(k).is_some();
+            warn_invalid_keys("auto_typefix_toggle_enabled_keys", &atf.toggle_enabled_keys, is_atf);
+            warn_invalid_keys("auto_typefix_toggle_forward_keys", &atf.toggle_forward_keys, is_atf);
+            warn_invalid_keys("auto_typefix_toggle_reverse_keys", &atf.toggle_reverse_keys, is_atf);
+        }
 
         // 3. 파일 저장
         if let Err(e) = new_config.save_to_default_path() {
@@ -1162,8 +1341,8 @@ impl InputMethodService {
         Ok(())
     }
 
-    /// 이모지 팝업 카테고리 변경 — GNOME extension 등 GUI 가 마우스 클릭으로
-    /// 좌측 탭을 직접 전환할 때 호출하는 RPC.
+    /// 이모지 팝업 카테고리 변경 — **internal-only** (popup-service forward 전용).
+    /// 외부 frontend 는 popup-service `org.atit.unim.Popup::SetEmojiCategory` 호출.
     ///
     /// 동작:
     /// 1. 워커에 `SetEmojiCategory { idx }` 보내 마지막 포커스 컨텍스트의 popup_state
@@ -1190,8 +1369,8 @@ impl InputMethodService {
             );
             return Ok(());
         }
-        let payload = match rx.await {
-            Ok(Some(p)) => p,
+        let (payload, render) = match rx.await {
+            Ok(Some(t)) => t,
             Ok(None) => {
                 unim_log!(
                     "DBUS",
@@ -1268,10 +1447,66 @@ impl InputMethodService {
                 payload.categories.len()
             );
         }
+
+        // PopupRender 도 동반 발행 — 평면 cells 기반으로 동작하는 frontend
+        // (GNOME extension PopupView 등) 가 grid 를 즉시 갱신할 수 있도록.
+        // 누락 시 카테고리 탭을 클릭해도 셀이 안 바뀌는 버그가 발생.
+        if let Some(rs) = render {
+            let render_result = self
+                .connection
+                .emit_signal(
+                    None::<&str>,
+                    &path,
+                    "org.atit.unim.InputContext",
+                    "PopupRender",
+                    &(
+                        rs.kind,
+                        (
+                            rs.target.clone(),
+                            rs.header_text.clone(),
+                            rs.footer_text.clone(),
+                            rs.expand_text.clone(),
+                        ),
+                        (
+                            rs.rows,
+                            rs.cols,
+                            rs.sel_row,
+                            rs.sel_col,
+                            rs.current_page,
+                            rs.total_pages,
+                        ),
+                        (rs.show_footer, rs.expand_visible),
+                        rs.cells.clone(),
+                        rs.col_headers.clone(),
+                        rs.row_headers.clone(),
+                        rs.tab_labels.clone(),
+                        rs.active_tab_index,
+                    ),
+                )
+                .await;
+            if let Err(e) = render_result {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory PopupRender 발행 실패: {}",
+                    e
+                );
+            } else {
+                unim_log!(
+                    "DBUS",
+                    "[DBus] SetEmojiCategory(idx={}) PopupRender 재발행: cells={}, page={}/{}",
+                    idx,
+                    rs.cells.len(),
+                    rs.current_page + 1,
+                    rs.total_pages
+                );
+            }
+        }
+
         Ok(())
     }
 
-    /// 글로벌 이모지 커밋 — InputContext 비보유 클라이언트(GNOME extension의 emoji 팝업)용.
+    /// 글로벌 이모지 커밋 — **internal-only** (popup-service forward 전용).
+    /// 외부 frontend 는 popup-service `org.atit.unim.Popup::CommitEmoji` 호출.
     ///
     /// GNOME extension은 자체 InputContext를 가지나, GTK4_IM_MODULE=unim 환경에서는
     /// extension의 context로 commit하면 GTK4_IM 모듈을 우회하여 사용자 앱에 도달하지 못한다.
@@ -1435,6 +1670,40 @@ pub struct InputContextHandler {
     last_active_input_context_path: Arc<std::sync::Mutex<Option<String>>>,
 }
 
+/// `SetConfig` 로 들어온 키 목록 중 엔진이 버릴 표기를 데몬 로그에 남긴다.
+///
+/// 반환값을 바꾸지 않는다(D-Bus API 호환 유지) — 차단이 아니라 진단이 목적이며,
+/// 정책은 CLI·설정앱과 동일한 "저장은 하되 경고" 다. 엔진 쪽 파싱 로그
+/// (`InputEngine::parse_switch_keys` 등)는 살아있는 컨텍스트가 리로드될 때만 찍히므로
+/// (컨텍스트 0개면 로그가 전혀 안 남는다) 이 지점이 유일한 즉시 진단 창구가 되는
+/// 경우가 있다. GNOME 확장·레거시 GTK 설정앱의 유일한 쓰기 창구이기도 하다.
+///
+/// 판정 술어(`is_valid`)는 반드시 **엔진이 그 필드를 실제로 파싱하는 함수**를 넘긴다 —
+/// 전환키/한자키는 `InputEngine::parse_switch_key`, ATF 3종은
+/// `InputEngine::parse_atf_hotkey`, 자동 영문은 `InputEngine::is_valid_auto_english_key`.
+fn warn_invalid_keys(field: &str, keys: &[String], is_valid: impl Fn(&str) -> bool) {
+    for name in keys {
+        if !is_valid(name) {
+            unim_log!(
+                "DBUS",
+                "[DBus] SetConfig {}: '{}' 은 엔진이 버리는 표기 — 무시됨",
+                field,
+                name
+            );
+        }
+    }
+}
+
+/// 목록의 **모든** 항목이 파서에서 거부되는지 — 필수 키 목록이 통째로 비는 저장을 차단.
+///
+/// CLI `all_keys_invalid` 와 동일 정책: 부분 무효는 `warn_invalid_keys` 경고 후 저장,
+/// 전 항목 무효는 엔진 파서가 전부 걸러 빈 목록 저장과 결과가 같아지므로(예:
+/// toggle_keys 전무효 → 한/영 전환 불능) 명시적 빈 목록과 동일하게 `InvalidArgs` 반려.
+/// ATF 토글 3종은 빈 목록이 정상 옵트아웃이므로 적용하지 않는다.
+fn all_keys_invalid(keys: &[String], is_valid: impl Fn(&str) -> bool) -> bool {
+    !keys.is_empty() && keys.iter().all(|k| !is_valid(k))
+}
+
 /// client_name으로부터 프론트엔드 종류를 식별
 fn detect_frontend_type(client_name: &str) -> &'static str {
     match client_name {
@@ -1456,16 +1725,7 @@ fn detect_frontend_type(client_name: &str) -> &'static str {
 /// 리스트를 그대로 담는다 (popup_state cat_index=0 의 동작과 일치).
 ///
 /// 반환: `(target_cat_id, items, top_row, recent, categories, home_row)`.
-fn build_emoji_show_payload(
-    english_layout: &str,
-) -> (
-    String,
-    Vec<String>,
-    String,
-    Vec<String>,
-    Vec<(String, String, String, u32)>,
-    String,
-) {
+fn build_emoji_show_payload(english_layout: &str) -> EmojiShowPayloadTuple {
     let recent = unim::emoji::load_recent();
     let mut categories: Vec<(String, String, String, u32)> = Vec::with_capacity(9);
     categories.push((
@@ -1625,6 +1885,10 @@ impl InputContextHandler {
     }
 }
 
+// zbus `#[interface]` 매크로가 자동 생성하는 trampoline 메서드는 시그널 컨텍스트 등을
+// 위해 인자가 7개를 초과하기 쉽다. 매크로 외부에서 조정 불가하므로 impl 블록 전체에
+// `too_many_arguments` 를 silence (실제 사용자 facing API 는 DBus 시그니처로 제한됨).
+#[allow(clippy::too_many_arguments)]
 #[interface(name = "org.atit.unim.InputContext")]
 impl InputContextHandler {
     /// 키 이벤트 처리
@@ -1883,6 +2147,102 @@ impl InputContextHandler {
                 .ok();
         }
 
+        // AutoTypeFix 토글 단축키: engine_worker 가 config 를 반전·persist 한 뒤 새 값을
+        // 실어 보냈으면, GUI/GNOME 확장이 토글 상태를 즉시 반영하도록 config_changed 를
+        // 방출한다. 이 시그널은 팩토리(InputMethodService) 인터페이스 소속이라 per-context
+        // signal_ctx 로는 못 보낸다 — global_mode_changed 선례대로 INPUT_METHOD_PATH 에
+        // 바인딩한 SignalContext 로 방출해 set_config 경로와 같은 오브젝트 경로로 도달시킨다.
+        // 키명은 config_get/set 규약과 일치(auto_typefix[_forward|_reverse])시켜 리스너가
+        // 별도 매핑 없이 인식한다.
+        if let Some((kind, new_value)) = response.atf_toggled {
+            let key = match kind {
+                AtfToggleKind::Enabled => "auto_typefix",
+                AtfToggleKind::Forward => "auto_typefix_forward",
+                AtfToggleKind::Reverse => "auto_typefix_reverse",
+            };
+            let value = new_value.to_string();
+            unim_log!(
+                "DBUS",
+                "[DBus] AutoTypeFix 토글 단축키: {} = {}",
+                key,
+                value
+            );
+            let im_signal_ctx =
+                zbus::SignalContext::new(&self.connection, crate::INPUT_METHOD_PATH).map_err(
+                    |e| zbus::fdo::Error::Failed(format!("Signal context error: {}", e)),
+                )?;
+            InputMethodService::config_changed(&im_signal_ctx, key, &value)
+                .await
+                .ok();
+            // config_changed 는 (key,value) 구독자(인디케이터 등)용. GNOME 확장은
+            // ConfigChangedJson(전체 config) 만 구독하므로 동반 방출해야 메뉴 체크가
+            // 즉시 갱신된다(SetConfigYaml 선례). 페이로드는 engine_worker 가 토글·persist
+            // 직후 직렬화해 실어 보낸 전체 config JSON.
+            if let Some(ref json) = response.atf_config_json {
+                InputMethodService::config_changed_json(&im_signal_ctx, json)
+                    .await
+                    .ok();
+            }
+        }
+
+        // chord idle flush 타이머: chord 진행 중이면 window_ms 후 자동 flush.
+        // tokio::spawn 으로 비동기 타이머를 시작하고, 만료 시 ChordIdleFlush 를 engine_tx 로 전송.
+        // engine_worker 는 epoch 검증 후 flush/commit 처리 → response 로 commit 텍스트 반환.
+        // service.rs 가 CommitText 시그널 발행.
+        if let Some((epoch, window_ms)) = response.chord_pending {
+            let engine_tx_clone = self.engine_tx.clone();
+            let connection_clone = self.connection.clone();
+            let path_clone = self.path.clone();
+            let context_id = self.id;
+            let sleep_ms = u64::from(window_ms);
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(sleep_ms)).await;
+                let (resp_tx, resp_rx) = oneshot::channel();
+                let sent = engine_tx_clone
+                    .send(EngineRequest::ChordIdleFlush {
+                        context_id,
+                        epoch,
+                        response: resp_tx,
+                    })
+                    .await;
+                if sent.is_err() {
+                    return;
+                }
+                let Ok(Some((commit_opt, preedit))) = resp_rx.await else {
+                    // None = stale/empty (race or 이미 처리됨) → 시그널 발사 skip.
+                    return;
+                };
+                // CommitText (자모/비자모 종결분) + UpdatePreeditText (진행 중 음절) 발행
+                if let Ok(ctx) =
+                    zbus::SignalContext::new(&connection_clone, path_clone.as_str())
+                {
+                    if let Some(commit_text) = commit_opt {
+                        unim_log!(
+                            "DBUS",
+                            "[DBus] ChordIdleFlush CommitText: context_id={}, epoch={}, text='{}'",
+                            context_id,
+                            epoch,
+                            commit_text
+                        );
+                        InputContextHandler::commit_text(&ctx, &commit_text).await.ok();
+                    }
+                    let visible = !preedit.is_empty();
+                    let cursor_pos = preedit.chars().count() as u32;
+                    unim_log!(
+                        "DBUS",
+                        "[DBus] ChordIdleFlush UpdatePreedit: context_id={}, epoch={}, preedit='{}', visible={}",
+                        context_id,
+                        epoch,
+                        preedit,
+                        visible
+                    );
+                    InputContextHandler::update_preedit_text(&ctx, &preedit, cursor_pos, visible)
+                        .await
+                        .ok();
+                }
+            });
+        }
+
         unim_log!(
             "DBUS",
             "[DBus] ProcessKeyEvent: keyval={}, consumed={}, preedit='{}', commit='{}'",
@@ -2067,8 +2427,20 @@ impl InputContextHandler {
     async fn commit_text(signal_ctx: &SignalContext<'_>, text: &str) -> zbus::Result<()>;
 
     // =========================================
-    // 팝업 관련 시그널 (unim-gui-gtk/unim-gui-qt가 구독)
+    // 팝업 관련 시그널 — **internal-only** (popup-service forwarding 전용)
     // =========================================
+    //
+    // 외부 frontend(GNOME extension / popup-service GTK4 popup window) 는 본
+    // `org.atit.unim.InputContext` 인터페이스의 popup signal 을 직접 구독하지
+    // 않는다. popup-service 의 `org.atit.unim.Popup` interface (path
+    // `/org/atit/unim/popup`) 가 단일 SoT 로 popup signal 을 발행한다.
+    //
+    // daemon 측 popup signal 은 popup-service 의 forward_daemon_popup_signals
+    // task 가 구독하여 `org.atit.unim.Popup` signal 로 1:1 재발행하는 internal
+    // 통신 표면으로만 사용된다. 직접 구독은 deprecated — popup-service Popup
+    // interface 를 사용할 것.
+    //
+    // 참고: docs/architecture/dbus-popup-migration-plan.md Phase 2 (signal re-emit).
 
     /// 한자 팝업 표시 시그널
     ///
@@ -2359,6 +2731,8 @@ impl InputContextHandler {
 
     /// Smart Backspace (자모 단위 삭제)
     /// 반환값: (삭제할 문자 수, 대체 텍스트) 또는 (0, "")
+    ///
+    /// **미배선(실험적)** — 현재 호출자는 테스트뿐. 전 배선은 v0.4.x 이후 (FUNC-LINUX-05).
     async fn smart_backspace(
         &self,
         #[zbus(signal_context)] signal_ctx: SignalContext<'_>,
@@ -2417,8 +2791,20 @@ impl InputContextHandler {
     ) -> zbus::Result<()>;
 
     // =========================================
-    // 한자 변환 관련 메서드
+    // 한자 / 특수문자 / 이모지 popup 관련 메서드 — **internal-only**
     // =========================================
+    //
+    // 외부 frontend 는 본 `org.atit.unim.InputContext` 인터페이스의 popup method
+    // (GetHanjaCandidates / SelectHanja / GetHanjaBookmarkStates /
+    // ToggleHanjaBookmark / PopupChangePage / TogglePopupExpand / CancelHanja /
+    // GetSpecialCharCandidates / SelectSpecialChar / CancelSpecialChar) 를
+    // 직접 호출하지 않는다.
+    //
+    // popup-service 의 `org.atit.unim.Popup` interface 가 단일 외부 표면이며,
+    // 본 method 들은 popup-service `PopupServer` 가 popup-owner context 에
+    // forward 하는 internal-only 호출 표면으로만 사용된다.
+    //
+    // 참고: docs/architecture/dbus-popup-migration-plan.md Phase 3 (method forward).
 
     /// 한자 후보 목록 조회
     /// 반환값: (변환 대상, [(한자, 뜻풀이), ...])
@@ -2948,5 +3334,94 @@ impl InputContextHandler {
             emoji
         );
         Ok(())
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// active_frontends 단위 테스트 (daemon 없이 순수 메모리 상태 검증)
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    /// 헬퍼: 테스트용 active_frontends Arc 생성
+    fn make_set() -> Arc<RwLock<HashSet<String>>> {
+        Arc::new(RwLock::new(HashSet::new()))
+    }
+
+    /// 멱등성: 동일 이름을 두 번 insert해도 set 크기 1
+    #[tokio::test]
+    async fn test_register_frontend_idempotent() {
+        let set = make_set();
+        {
+            let mut s = set.write().await;
+            let first = s.insert("gnome-shell".to_string());
+            let second = s.insert("gnome-shell".to_string());
+            assert!(first, "첫 등록은 true");
+            assert!(!second, "재등록은 false (no-op)");
+            assert_eq!(s.len(), 1);
+        }
+    }
+
+    /// 등록 후 조회: 정렬된 Vec 반환
+    #[tokio::test]
+    async fn test_get_active_frontends_sorted() {
+        let set = make_set();
+        {
+            let mut s = set.write().await;
+            s.insert("unim-xim".to_string());
+            s.insert("gnome-shell".to_string());
+            s.insert("unim-wayland".to_string());
+        }
+        let names = {
+            let s = set.read().await;
+            let mut v: Vec<String> = s.iter().cloned().collect();
+            v.sort();
+            v
+        };
+        assert_eq!(names, vec!["gnome-shell", "unim-wayland", "unim-xim"]);
+    }
+
+    /// unregister: 제거 후 set 비어 있음, 없는 이름 제거는 false
+    #[tokio::test]
+    async fn test_unregister_frontend_idempotent() {
+        let set = make_set();
+        {
+            let mut s = set.write().await;
+            s.insert("gnome-shell".to_string());
+        }
+        let removed = {
+            let mut s = set.write().await;
+            s.remove("gnome-shell")
+        };
+        assert!(removed, "존재하는 이름 제거 true");
+        let removed_again = {
+            let mut s = set.write().await;
+            s.remove("gnome-shell")
+        };
+        assert!(!removed_again, "이미 없는 이름 제거 false (no-op)");
+        let s = set.read().await;
+        assert!(s.is_empty());
+    }
+
+    /// signal 발산 조건: insert 결과 true일 때만 signal emit 필요
+    #[tokio::test]
+    async fn test_signal_emit_condition() {
+        let set = make_set();
+        let inserted = {
+            let mut s = set.write().await;
+            s.insert("unim-gui-gtk".to_string())
+        };
+        // 변경 있을 때만 signal 발산 (inserted == true)
+        assert!(inserted, "signal emit 해야 함");
+
+        let inserted_dup = {
+            let mut s = set.write().await;
+            s.insert("unim-gui-gtk".to_string())
+        };
+        // 중복 등록 — signal 발산 불필요
+        assert!(!inserted_dup, "signal emit 불필요");
     }
 }

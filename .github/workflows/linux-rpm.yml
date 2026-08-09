@@ -1,0 +1,263 @@
+name: Linux rpm Release
+
+# 릴리스는 태그에서만 — linux-deb.yml 과 동일 정책 (그 파일은 무수정).
+#  - v* 태그 push → 같은 태그의 릴리스에 .rpm 자산 append (softprops upsert)
+#  - workflow_dispatch(tag 입력) → 해당 태그로 릴리스
+#  - workflow_dispatch(tag 미입력) → 빌드/검증 리허설만 (릴리스 미생성)
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '릴리스할 태그 (예: v0.4.0). 비우면 현재 ref 를 빌드+검증만 하고 릴리스는 만들지 않습니다.'
+        required: false
+        type: string
+
+# 같은 ref 의 중복 실행은 취소하지 않는다 (릴리스 파이프라인은 끝까지 완주).
+concurrency:
+  group: linux-rpm-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # RUSTFLAGS: -Dwarnings 는 의도적으로 넣지 않는다 (linux-deb.yml:24-28 동일 사유).
+
+jobs:
+  build-rpm:
+    name: Build RPM packages + release
+    runs-on: ubuntu-24.04
+    # D1: 네이티브 Fedora ABI 로 빌드 (Ubuntu 호스트 rpmbuild 는 soname/libdir
+    # 불일치로 기각). fedora:41 은 EOL(2025-12) → 지원 중 최구 릴리스 43 고정.
+    # 태그를 올릴 때는 dist(.fc43) 검증부·계획서 §1 계약도 함께 갱신할 것.
+    container: fedora:43
+    timeout-minutes: 60
+    permissions:
+      contents: write  # softprops/action-gh-release 자산 첨부에 필요
+
+    steps:
+      # checkout 이 git 를 쓰므로 컨테이너 부트스트랩이 먼저다.
+      - name: Bootstrap container
+        shell: bash
+        run: |
+          set -euo pipefail
+          dnf -y install git-core rpm-build rpmdevtools rpmlint \
+                         gawk findutils util-linux
+          # F41+ 는 dnf5(builddep 은 dnf5-plugins), 구형 dnf4 는 dnf-command(builddep).
+          dnf -y install dnf5-plugins || dnf -y install 'dnf-command(builddep)'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Verify version sync (Cargo.toml / rpm spec / tag)
+        id: guard
+        shell: bash
+        # dispatch 입력값은 셸 보간 대신 env 간접 전달 (linux-deb.yml:47 동일 하드닝).
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          # 컨테이너 uid 불일치로 git 이 워크스페이스를 거부하지 않도록.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          # workspace version (linux-deb.yml:56 과 동일 패턴).
+          CARGO_VER=$(grep -E '^version *= *"' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
+
+          SPEC_VER=$(grep -E '^Version:' rpm/unim.spec | head -1 | awk '{print $2}')
+          SPEC_REL=$(grep -E '^Release:' rpm/unim.spec | head -1 | awk '{print $2}' | sed 's/%{?dist}//')
+
+          echo "Cargo.toml version : $CARGO_VER"
+          echo "rpm/unim.spec      : $SPEC_VER-$SPEC_REL(%{?dist})"
+
+          if [[ "$CARGO_VER" != "$SPEC_VER" ]]; then
+            echo "::error::Cargo.toml($CARGO_VER) 와 rpm/unim.spec($SPEC_VER) 버전 불일치. 두 파일을 함께 범프하세요."
+            exit 1
+          fi
+
+          # 릴리스 태그 결정: push=태그, dispatch=입력값, 그 외=없음(리허설).
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="$INPUT_TAG"
+          fi
+
+          if [[ -n "$TAG" ]]; then
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::태그 형식이 올바르지 않습니다: '$TAG' (예: v0.4.0)"
+              exit 1
+            fi
+            if [[ "${TAG#v}" != "$CARGO_VER" ]]; then
+              echo "::error::태그($TAG) 와 Cargo.toml 버전($CARGO_VER) 불일치. 같은 버전 재릴리스는 spec Release 만 올리지 말고 버전을 범프하세요."
+              exit 1
+            fi
+            echo "Release tag        : $TAG (matches)"
+          else
+            echo "Release tag        : (none — dispatch rehearsal, no release will be created)"
+          fi
+
+          echo "version=$CARGO_VER" >> "$GITHUB_OUTPUT"
+          echo "rpmrel=$SPEC_REL" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies (rpm/unim.spec BuildRequires)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # spec 의 BuildRequires 를 그대로 해석 — 감사4 '요검증' Fedora 패키지명
+          # (pkgconf-pkg-config, qt*-private-devel 등)은 이 스텝이 해석 실패로
+          # 즉시 검증한다.
+          dnf builddep -y rpm/unim.spec
+
+      - name: Cargo cache
+        # builddep 뒤에 두어야 rustc 존재(캐시 키 계산) 조건이 충족된다.
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-rpm   # linux-deb/windows-msvc 캐시와 분리
+          cache-targets: true     # skia-bindings 프리빌트 Skia 아카이브 등 캐시
+          cache-on-failure: true
+
+      - name: Build .rpm packages (rpmbuild)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.guard.outputs.version }}"
+          # Makefile:375-383 'rpm' 타깃의 인라인 복제 — 단 _check-build
+          # (Makefile:135-139, 호스트 선빌드 산출물 요구)는 rpmbuild 내부 빌드와
+          # 무관하므로 제외한다 (Makefile 은 이번 범위 무접촉).
+          TOPDIR="$PWD/rpm/build"
+          mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          git archive --format=tar.gz --prefix="unim-${VER}/" HEAD \
+              -o "$TOPDIR/SOURCES/unim-${VER}.tar.gz"
+          cp rpm/unim.spec "$TOPDIR/SPECS/unim.spec"
+          # -bb: 바이너리만 (SRPM 은 릴리스에 게시하지 않으므로 -ba 대신 축소).
+          rpmbuild --define "_topdir $TOPDIR" -bb "$TOPDIR/SPECS/unim.spec"
+          mkdir -p rpms
+          find "$TOPDIR/RPMS" -name '*.rpm' -exec cp -f {} rpms/ \;
+          ls -la rpms/
+
+      - name: Verify build artifacts (exactly 11 .rpm + content gates)
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.guard.outputs.version }}"
+          REL="${{ steps.guard.outputs.rpmrel }}"
+
+          shopt -s nullglob
+          rpms=(rpms/*.rpm)
+          shopt -u nullglob
+
+          count=${#rpms[@]}
+          echo "발견된 .rpm: $count 개"
+          for f in "${rpms[@]}"; do
+            size=$(stat -c%s "$f")
+            if [[ "$size" -eq 0 ]]; then
+              echo "::error::0바이트 패키지: $f"
+              exit 1
+            fi
+            base=$(basename "$f")
+            # 파일명에 version-release 포함 확인 (버전 누락/오염 방어).
+            if [[ "$base" != *"${VER}-${REL}"* ]]; then
+              echo "::error::패키지 파일명에 버전(${VER}-${REL})이 없습니다: $base"
+              exit 1
+            fi
+            echo "  ok  $base ($size bytes)"
+          done
+
+          # 10 x86_64 + 1 noarch = 11 (debuginfo 는 spec 에서 비활성).
+          # 패키지 구성 변경 시 이 숫자·계획서 §1 계약·install.sh 안내를 함께 갱신.
+          if [[ "$count" -ne 11 ]]; then
+            echo "::error::.rpm 개수가 11개가 아닙니다 (실제 $count). 패키지 구성 변경 또는 debuginfo 누출 의심."
+            exit 1
+          fi
+
+          # %{_libdir} 게이트 — REAL_LIBDIR 오판(멀티아치 경로 오염) 방어.
+          rpm -qlp rpms/unim-im-gtk-*.rpm | grep -qx '/usr/lib64/gtk-3.0/3.0.0/immodules/im-unim.so'
+          rpm -qlp rpms/unim-im-gtk-*.rpm | grep -qx '/usr/lib64/gtk-4.0/4.0.0/immodules/libim-unim.so'
+          rpm -qlp rpms/unim-im-qt-*.rpm  | grep -qx '/usr/lib64/qt5/plugins/platforminputcontexts/libunim.so'
+          rpm -qlp rpms/unim-im-qt-*.rpm  | grep -qx '/usr/lib64/qt6/plugins/platforminputcontexts/libunim.so'
+          echo "  ok  %{_libdir}=/usr/lib64 immodule/plugin 경로"
+
+          # GNOME 확장 번역(.mo) 게이트 — msgfmt 무음 스킵(Makefile:319-329) 방어.
+          for l in ko en; do
+            if ! rpm -qlp rpms/unim-gnome-*.rpm | grep -q "locale/${l}/LC_MESSAGES/unim-gnome@from104.github.io.mo"; then
+              echo "::error::unim-gnome rpm 에 ${l} 번역(.mo)이 없습니다 — gettext BuildRequires/msgfmt 확인."
+              exit 1
+            fi
+          done
+          echo "  ok  GNOME 확장 번역 ko/en .mo 포함"
+
+      - name: Smoke install (dnf install all built rpms)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 런타임 Requires 해석 + %post/파일트리거 실행성 검증 (실설치).
+          # %preun 은 신규 install 에서 실행되지 않으므로 아래 Smoke remove 가 담당.
+          dnf -y install ./rpms/*.rpm
+          rpm -q unim unim-common unim-desktop unim-settings unim-gnome
+          # GTK3 immodule 파일트리거 존재 확인 (없으면 %post 추가 검토 신호).
+          if ! rpm -q --filetriggers gtk3 | grep -qi immodules; then
+            echo "::warning::gtk3 immodules 파일트리거 미확인 — unim-im-gtk %post/%postun 추가 검토 필요"
+          fi
+          # Recommends(약한 의존)는 설치 실패를 일으키지 않으므로 이름 실재를
+          # repoquery 로 별도 게이트 (요검증 Fedora 패키지명 확정 장치).
+          for p in google-noto-sans-cjk-fonts pulseaudio-utils alsa-utils fontconfig gnome-shell; do
+            if ! dnf repoquery --whatprovides "$p" | grep -q .; then
+              echo "::error::의존 대상 '$p' 를 Fedora 저장소에서 찾지 못했습니다."
+              exit 1
+            fi
+          done
+
+      - name: Smoke remove (%preun scriptlets execute)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # erase 트랜잭션으로 %preun 5개 블록(pkill 미러)을 실제 실행시킨다 —
+          # RPM 은 신규 install 시 %preun 을 돌리지 않아 위 스텝만으론 미검증.
+          # 컨테이너에 unim 프로세스가 없어도 spec 의 '|| :' 가드로 무해.
+          dnf -y remove 'unim*'
+          if rpm -qa 'unim*' | grep -q .; then
+            echo "::error::제거 후 unim 패키지 잔존:"; rpm -qa 'unim*'
+            exit 1
+          fi
+
+      - name: rpmlint (informational)
+        shell: bash
+        run: rpmlint rpms/*.rpm || true
+
+      - name: Generate SHA256SUMS-rpm manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 파일명만 기록(경로 없음) → install.sh 의 flat tmpdir 에서
+          # 'sha256sum -c' 가 그대로 동작 (linux-deb.yml:161-169 계약 미러).
+          # 이름을 SHA256SUMS-rpm 으로 분리해 deb 매니페스트와의 자산 충돌 회피.
+          ( cd rpms && sha256sum *.rpm > SHA256SUMS-rpm )
+          echo "── SHA256SUMS-rpm ──"
+          cat rpms/SHA256SUMS-rpm
+
+      - name: Upload build artifacts
+        # 릴리스 여부와 무관하게 항상 업로드 (dispatch 리허설 검증용).
+        uses: actions/upload-artifact@v4
+        with:
+          name: unim-rpm-${{ steps.guard.outputs.version }}
+          path: |
+            rpms/*.rpm
+            rpms/SHA256SUMS-rpm
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach RPMs to GitHub Release
+        # 태그 push 또는 dispatch(tag 입력) 일 때만. 리허설(tag 미입력)은 스킵.
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          # body / name / make_latest 는 의도적으로 미지정 — 릴리스 본문·이름의
+          # 단일 저자는 linux-deb.yml 이다 (softprops 는 upsert 시 미지정 필드를
+          # 보존 — body 전체 치환 함정 회피, 감사3 §3). 자산은 파일명 단위
+          # append 이며 .rpm / SHA256SUMS-rpm 은 deb 자산과 이름이 겹치지 않는다.
+          files: |
+            rpms/*.rpm
+            rpms/SHA256SUMS-rpm

@@ -1,8 +1,11 @@
 #!/bin/sh
 set -e
 
+# remove 로만 한정 — upgrade|deconfigure 에서까지 죽이면 (M-30) 어떤
+# 프런트엔드도 데몬 재연결을 하지 않아 apt upgrade 마다 한글 입력이
+# 결정론적으로 정지한다. 삭제 시에만 정리한다.
 case "$1" in
-    remove|upgrade|deconfigure)
+    remove)
         _user="$(logname 2>/dev/null || echo root)"
         pkill -u "$_user" -x unim-daemon 2>/dev/null || true
         ;;

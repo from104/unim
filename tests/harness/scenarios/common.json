@@ -1,0 +1,25 @@
+[
+  {
+    "name": "english-passthrough",
+    "desc": "영문 모드에서 IM 이 개입하지 않고 글자가 그대로 들어가는가 (레이아웃 무관)",
+    "korean": false,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["a", "b", "c"],
+        "expect": { "preedit": "", "committed": "abc", "rendered": "abc" } }
+    ]
+  },
+  {
+    "name": "caret-move-after-commit",
+    "desc": "확정 뒤 캐럿 이동·백스페이스가 정상인가 (레이아웃 무관)",
+    "korean": false,
+    "field": "core.plain",
+    "steps": [
+      { "keys": ["a", "b", "c"], "expect": { "committed": "abc" } },
+      { "key": "Left" },
+      { "key": "BackSpace", "expect": { "committed": "ac", "rendered": "ac" } },
+      { "key": "Home" },
+      { "key": "Delete", "expect": { "committed": "c", "rendered": "c" } }
+    ]
+  }
+]

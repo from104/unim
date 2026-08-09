@@ -1,0 +1,6 @@
+# unim-keymap-studio — lintian overrides (justified)
+
+# No embedded-library libyaml override: unlike the other UNIM binaries this
+# tool does not link unsafe-libyaml (verified: zero yaml_* symbols in the
+# release binary), so lintian emits no such tag here.
+unim-keymap-studio: initial-upload-closes-no-bugs *

@@ -1,3 +1,72 @@
+unim (0.4.0-1) unstable; urgency=medium
+
+  * First public GitHub release: one-liner installer (install.sh) and
+    release CI publishing 11 .deb packages + SHA256SUMS.
+  * Auto-English triggers accept Ctrl/Alt/Super combos (e.g. key:Ctrl+B);
+    matched keys still pass through to the app (tmux prefix safe).
+  * Korean/English toggle beep on Linux (880/440 Hz).
+  * Slint settings app (unim-settings) is now the default settings UI on
+    Linux; all launchers unified; layouts enumerated from ProfileRegistry.
+  * Word-unit input gate: terminals and non-word frontends auto-demote,
+    with [WordGate] verdict logging.
+  * Super/Meta modifier bit alignment fixed in GTK3/4 and Qt5/6 IMs.
+  * Composition fixes on the XIM, Qt and GNOME Wayland paths: clicking while
+    composing no longer commits at the click position, the character after a
+    commit is no longer one keystroke late, and Enter during composition no
+    longer puts the line break before the character.
+  * Password-field protection is no longer inert on GNOME Wayland.
+
+ -- Seo Kihyun <from104@gmail.com>  Mon, 10 Aug 2026 00:30:00 +0900
+
+unim (0.3.63-1) unstable; urgency=medium
+
+  * GTK4 settings dialog renamed: unim-settings -> unim-settings-gtk.
+  * New package unim-settings: cross-platform Slint settings app with
+    first-run wizard; per-login autostart gate (--first-run-if-needed)
+    via /etc/xdg/autostart. Re-run manually: unim-settings --first-run.
+  * unim-keymap-studio / unim-typing-practice now actually ship their
+    binaries, desktop entries, icons and man pages.
+  * unim-common now recommends fonts-noto-cjk.
+  * Wizard sets the default input method in-process via im-config -n.
+
+ -- Seo Kihyun <from104@gmail.com>  Sat, 11 Jul 2026 00:17:53 +0900
+
+unim (0.3.0-1) unstable; urgency=medium
+
+  * Release 0.3.0.
+  * Ahnmatae (안마태 2003) keyboard built-in (`ko_3bul_anmatae`): first
+    moachigi (chord-based) Korean layout in UNIM. Three-beol layout with
+    fixed cho/jung/jong regions, 9 cho / 15 jung / 20 jong combinations.
+    Archaic jamo positions (W/T/G/J/B/N upper) remapped to Korean
+    typography symbols (`"` `"` `'` `'` `·` `…`); archaic codepoints
+    anywhere in the profile trigger LoadError::ArchaicJamoNotSupported.
+  * Layout profile v3 schema (schema_version: 3): single new top-level
+    field `supports_moachigi: bool` marks the layout as chord-capable.
+    Bidirectional combine and chord window settings live in the user
+    config (`~/.config/unim/config.yaml`), not in the keymap JSON.
+  * Moachigi chord engine (`src/input_engine/chord_buffer.rs`):
+    single-window chord accumulator. First jamo starts an N-ms tokio
+    timer; jamo arriving within the window are buffered. On expiry:
+    1 jamo → normal sequential processing; 2+ jamo → region-classified
+    chord compose with bidirectional combine. Default OFF (opt-in).
+  * GTK settings dialog — Moachigi group: toggle row ("동시 입력 자모
+    역순 결합") and slider row ("동시 입력 시간 (ms)", 10–100 ms).
+    Group is shown only when the selected layout has
+    supports_moachigi=true.
+  * `HangulComposer3BulMoachigi` separate composer removed; moachigi
+    logic is now handled entirely within `HangulComposer3Bul` via the
+    `chord_buffer` layer in `InputEngine`. No user-visible behavior
+    change.
+  * Layout profile v0 schema is no longer supported (legacy JSON files
+    without v1 markers are rejected with LoadError::UnsupportedSchema).
+  * Packaging: consolidate unim-indicator, unim-settings and
+    unim-popup-service into a single unim-desktop bundle (the three
+    GTK4 UI processes always ship together on non-GNOME desktops);
+    unim-gnome now depends on unim-desktop. Add unim-keymap-studio and
+    unim-typing-practice to the `unim` meta-package.
+
+ -- Seo Kihyun <from104@gmail.com>  Tue, 05 May 2026 16:30:00 +0900
+
 unim (0.2.0-1) unstable; urgency=medium
 
   * Release 0.2.0.

@@ -1,0 +1,57 @@
+.TH UNIM-INDICATOR 1 "August 2026" "UNIM 0.4.0" "User Commands"
+.SH NAME
+unim\-indicator \- UNIM tray indicator
+.SH SYNOPSIS
+.B unim\-indicator
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+\fBunim\-indicator\fR is the dedicated system\-tray (StatusNotifier) process
+for UNIM (Universal Next\-generation Input Method). It displays the current
+input mode (KO/EN), exposes a context menu for mode switching and quick
+settings, and follows the desktop dark/light theme automatically.
+.PP
+In UNIM 0.3.0 the previous monolithic \fBunim-gui\fR GUI binary was split
+into three single\-responsibility processes: \fBunim\-indicator\fR (this tray
+process), \fBunim\-settings\fR (the libadwaita settings dialog), and
+\fBunim\-popup\-service\fR (the popup renderer). All three communicate with
+the daemon over the \fBorg.atit.unim.*\fR D\-Bus interfaces.
+.PP
+The indicator is normally launched on session start via
+\fIunim\-indicator.desktop\fR, but it can also be started manually for
+debugging.
+.SH OPTIONS
+.TP
+.B \-\-no\-daemon
+Run in the foreground without daemonizing.
+.TP
+.B \-\-help
+Print usage and exit.
+.SH D\-BUS INTERFACE
+.TP
+.B Daemon service
+org.atit.unim.Daemon
+.TP
+.B Object path
+/org/atit/unim/Daemon
+.PP
+The indicator subscribes to mode\-change signals and invokes config and
+mode\-switch methods on the daemon. It does not expose its own D\-Bus
+service \(em it is a pure client.
+.SH ENVIRONMENT
+.TP
+.B UNIM_DEVELOP
+Set to "1" to enable verbose debug logging.
+.SH FILES
+.TP
+.B ~/.config/autostart/unim\-indicator.desktop
+Per\-user autostart entry (installed by the desktop integration step).
+.TP
+.B /usr/share/applications/unim\-indicator.desktop
+System\-wide desktop entry.
+.SH SEE ALSO
+.BR unim (1),
+.BR unim\-daemon (1),
+.BR unim\-settings (1),
+.BR unim\-popup\-service (1)
+.SH AUTHOR
+서기현 (Seo Gihyeon) <from104@gmail.com>

@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use unim::config::{
-    Config, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode,
+    Config, ConfigLoadStatus, EnglishLayout, InputCategory, KoreanLayout, ModeSharingMode,
 };
 use unim::unim_log;
 
@@ -104,8 +104,18 @@ pub fn migrate_v2() {
         return;
     }
 
-    // 현재 config 로드 (없으면 default)
-    let mut config = Config::load_from_default_path();
+    // 현재 config 로드 (없으면 default). 손상 복구가 있었다면 마이그레이션의
+    // "정상 완료" 로그가 그 사실을 삼키기 전에 먼저 남긴다(GAP-config-06/M-11) —
+    // 그렇지 않으면 손상→기본값 대체→dconf 값 얹어 저장→가드 생성 이후 로그엔
+    // "정상 마이그레이션"만 남아 초기화 이력이 사라진다.
+    let (mut config, load_status) = Config::load_from_default_path_with_status();
+    if let ConfigLoadStatus::Recovered { reason } = &load_status {
+        unim_log!(
+            "DAEMON",
+            "마이그레이션 v2: config.yaml 손상 복구 감지(사유: {}) — 기본값으로 초기화된 뒤 진행합니다",
+            reason
+        );
+    }
     let default_config = Config::default();
     let reader = DconfReader;
 

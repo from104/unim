@@ -4,47 +4,160 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
-## [Unreleased]
+## [0.4.0] 2026-08-10
 
-### Breaking changes
+The release where an input method that only ran on Linux started running on Windows off the same core, installation became a single line, and both platforms got the same settings window.
 
-- **DBus signal `HanjaCandidatesReordered` is now a 10-tuple** (was 9). The new trailing field `was_bookmarked: bool` holds the pre-toggle bookmark state so frontends can render the cursor flash only on un-bookmark (`was_bookmarked && !bookmarked`). External subscribers of `org.atit.unim.InputContext` must upgrade their unpacking — the 9-tuple shape is rejected.
-- **Layout profile v0 schema is no longer supported.** v0 (legacy) JSON files
-  without any v1 marker (`schema_version`, `metadata`, `inherits`,
-  `combinations`, `rule_sets`, `active_rule_sets`) are now rejected by the
-  loader with `LoadError::UnsupportedSchema` and a console warning. Convert
-  user profiles in `~/.config/unim/layouts/*.json` to v1 by adding
-  `"schema_version": 1` and an explicit `combinations` block (see
-  [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md)).
-  Built-in profiles were already migrated to v1 in 0.2.0.
-
-### Removed
-
-- **Rust const jamo combination tables** (`JUNG_COMBINATIONS`,
-  `JONG_COMBINATIONS`, `CHO_COMBINATIONS`, `COMBINED_JAMO_2BUL`,
-  `COMBINED_JAMO_3BUL` Lazy statics) deleted from
-  `src/hangul/composer_with_2bul.rs` and `composer_with_3bul.rs`.
-  `HangulComposer{2,3}Bul::new()` now delegates to
-  `new_with_profile(load_builtin_profile("ko_2bulstd"|"ko_3bul390"))`. Single
-  source of truth for jamo combinations is the v1 builtin profile JSON.
-- **`SchemaKind` enum + `detect()`** removed from
-  `src/keystroke/profile/schema.rs`. `RawProfile::has_v1_markers()` replaces
-  the v0/v1 detection role. Builder's `fallback_for(layout_type)` v0
-  compatibility path also deleted.
+> The v0.4.0 tag published on 2026-07-19 was withdrawn — the MSI release gate was broken by a `guids.wxi` version mismatch (fixed in `65c66f8`). This entry is the valid v0.4.0.
 
 ### Added
 
-- **Mouse paginate buttons (◀/▶) on every popup, every frontend**: hanja, special-character, and emoji popups gain ◀ (previous) / ▶ (next) footer buttons across GNOME Shell extension, GTK Standalone (`unim-gui-gtk`), GTK3/4 IM modules, Qt5/6 IM modules, XIM, Wayland (`unim-frontends/wayland`), and Windows egui (`unim-windows/`). Behavior matches keyboard `←`/`→` and `Page Up`/`Page Down` with wrap-around; buttons are hidden when `total_pages == 1`. New unified DBus RPC `popup_change_page(direction: i32)` (0=Prev, 1=Next) is the shared entry point.
-- **Hanja un-bookmark cursor flash** (Catppuccin yellow `#f9e2af`, 140 ms): when the user unstars (☆) a candidate, the popup reorders and the cursor jumps to the candidate's lexicographic home — possibly on a different page. The destination cell briefly flashes so the user perceives the auto page jump. Bookmarking (★ on) does not flash since the cursor lands predictably at page 1 row 1. Hanja popup only — special-character / emoji popups have no bookmark concept.
-- **Wayland popup pointer input infrastructure** (`unim-frontends/wayland`): `WlPointer` event handling lets popup ◀/▶ receive clicks. Compositor support for `zwp_input_popup_surface_v2` pointer routing is required; keyboard `←`/`→` is the universal fallback (see troubleshooting §7-1).
-- **i18n keys**: `popup_previous_page`, `popup_next_page` added to ko/en (`yml` and `po` files, 4 sync points).
-- **BUILTIN_NAMES × 4-axis integrity test** (`src/keystroke/mod.rs`):
-  for each builtin, asserts (a) `get_keymap_json` does not fall back to
-  `KO_2BULSTD`, (b) `get_builtin_json` returns the v1 JSON, (c) it parses
-  with `schema_version == 1`, (d) Korean builtins have a non-empty
-  `combinations` block. Closes the previous English-side coverage gap that
-  could re-introduce silent fallback regressions like the early `en_workman`
-  miss.
+- **One-line install**: `curl … | bash` on Linux, `irm … | iex` on Windows. The script detects your distribution, downloads the deb or rpm packages, verifies them against SHA256, and installs — and if verification fails it installs nothing and stops. `UNIM_VERSION` pins a specific version.
+
+- **First-run wizard**: Runs automatically the first time you log in after installing and walks you through setting UNIM as the default input method. It does not come back once finished.
+
+- **Settings app rewritten (`unim-settings`)**: Moved from GTK4 to Slint, so Linux and Windows share one settings window.
+
+- **Word-unit input**: The commit unit can be a word instead of a syllable. Terminals, XIM, and chord layouts fall back to syllable units automatically to avoid misbehavior.
+
+- **AutoTypeFix toggle shortcuts**: Toggle all / forward / reverse independently. The all-toggle defaults to `Shift+F8`; the per-direction toggles are left empty for those who want them. Modifier combinations such as `Shift+F8` and `Ctrl+Left` work, and combinations you did not configure pass straight through to the application.
+
+- **Automatic password-field protection**: Entering a password field switches to English mode and keeps the keys you type out of buffers, undo, and the learning dictionary. Leaving the field restores the previous state. It relies on the app reporting "this field is a password", so apps that do not report it are not detected (see user manual 4.4).
+
+- **Modifier combinations for auto-English switching**: Triggers like `key:Ctrl+B` are now accepted. For environments that need a combo key, such as the tmux prefix, the key is passed through to the application as the mode switches.
+
+- **Mode-switch beep**: A short beep when the Korean/English mode changes (880 Hz Korean, 440 Hz English). No external library, no added input latency. Can be turned off in settings.
+
+- **Key auto-repeat suppression**: Ignores the auto-repeat from holding a key down. It covers the Korean/English toggle key and character keys in Korean mode, leaving Backspace and arrow keys alone. Meant for users who cannot release keys quickly; **off by default**.
+
+- **Keymap Studio and Typing Practice**: A tool for viewing and editing layouts, and one for measuring speed and accuracy per layout (Linux).
+
+- **Distinct app icons**: The indicator, settings, Keymap Studio, and Typing Practice each have their own icon, and app IDs follow reverse-DNS naming so they display correctly in the GNOME taskbar and Overview. The settings app is Slint-based and has no equivalent of GTK's `application_id`, so its window carried no app_id; it is now set explicitly on the winit backend. On Windows the executable embeds an icon resource, so the taskbar, Explorer, and Start menu show the real icon too.
+
+### Changed
+
+- **The settings app is now two apps**: The new Slint app takes over the `unim-settings` name and the previous GTK4 app is renamed `unim-settings-gtk`, shipped alongside for now (to be retired later). Only the Slint app appears in the desktop menu, and every component's "Open settings" points at it.
+
+- **Reorganized into 11 deb packages**: The Slint settings app becomes its own `unim-settings` package, and Keymap Studio and Typing Practice are added as new packages. The indicator, popup service, and legacy GTK dialog are bundled into `unim-desktop`.
+
+- **Keymap Studio redesigned**: The left sidebar + two tabs became a three-step header dropdown (Language › Source › Layout) plus four tabs. Built-in layouts allow only "Save As"; your own layouts save in place.
+
+- **Layout list enumerated from registered profiles**: Instead of a fixed set of four, the actually registered profiles are enumerated — so Ahnmatae and user layouts appear by name and the chord-related UI turns on with them.
+
+- **GNOME extension icons refreshed**: Tray and panel icons replaced with a monochrome SVG set, with a separate icon for the disabled state.
+
+- **Invalid-shortcut warnings extended to every key field**: The save-time validation that only covered AutoTypeFix toggles now also covers the Korean/English toggle key, the Hanja key, and auto-English triggers. Specs the engine cannot parse are reported in the settings app, the CLI, and the daemon log. Partially invalid lists save with a warning; **a list where every entry is invalid is rejected** — otherwise the engine would drop them all and leave no way to switch languages. Verdicts come from one place in the engine, so Linux and Windows apply the same rules.
+
+### Fixed
+
+- **Help opened in an IDE instead of the browser**: The Help entries followed the text/html default handler, so on systems where a VS Code-family editor had claimed text/html the manual opened there. It now prefers your default web browser.
+
+- **Right Alt Korean/English toggle did not work**: In the engine the modifier check ran before the toggle check, and GTK, Qt, and the GNOME extension filtered Right Alt themselves so it never reached the daemon. The toggle decision is now made solely by the daemon and behaves the same everywhere. AltGr layouts are unaffected. Note that the application may also receive the Alt press at the moment of toggling; remove it from `toggle_keys` if you don't want that.
+
+- **Super/Meta combinations unrecognized in the GTK/Qt input modules**: A misaligned modifier mask bit left triggers like `key:Super+X` dead on that path.
+
+- **Every key misread on pure Wayland**: On Sway, standalone Hyprland, and similar, the frontend sent X11-style keycodes (raw evdev + 8) while the daemon expected raw evdev, so every key lookup was off by 8. GNOME sessions were unaffected, as they use the extension path.
+
+- **Password-field suppression did nothing on GNOME Wayland**: The GNOME extension's content-purpose handling was an empty stub, so suppression was silently inert on GNOME Wayland — where GTK3/4 and Chrome all funnel through that path. It is now wired up and tracks a field's purpose changing while it stays focused (a "show password" toggle, for instance).
+
+- **In XIM apps, the character after a commit showed up one keystroke late**: In apps that go through XIM (Obsidian and others), once a syllable was committed the next jamo you typed did not appear until you typed another one. Open since 0.3.0; it now appears as you type. (Terminals and other OVER-THE-SPOT clients were already correct and stay that way.)
+
+- **Clicking elsewhere while composing committed the text at the click position**: In Chrome, Obsidian, and other apps, clicking elsewhere in the same input field mid-composition placed the in-progress syllable at the click position instead of where it was being typed. Fixed on the GNOME Wayland, XIM, and Qt paths.
+
+- **In XIM apps, pressing Enter while composing put the line break before the character**: In Obsidian and other apps that go through XIM, composing a syllable and pressing Enter broke the line first and left the character below it, instead of committing the character and then breaking. The GTK and Qt paths were already correct. Note that the Enter delivered afterwards does not carry modifiers, so `Shift+Enter` arrives as a plain Enter.
+
+- **Shortcut fields suggested keys that do not exist**: Following the hints and entering `ScrollLock` or `Hangul` left the shortcut silently dead. The examples now use specs that actually work (`F10`, `Korean`, `Hanja`), and the stale "modifier combinations are not supported" note was corrected.
+
+- **Word-mode syllable-downgrade guidance**: So the automatic fallback to syllable units in terminals is not mistaken for broken settings, it is now logged (`[WordGate]`) and spelled out in the settings descriptions.
+
+### Windows
+
+- **A single TSF DLL**: The language bar, composition and candidate popups (hanja, special characters, emoji), and the AutoTypeFix UI are consolidated into `unim_tsf.dll`, replacing the previous separate helper executable. The shared core and the Linux frontends were not touched.
+
+- **Hangul composition in console/IMM32 apps**: Restored for apps that use inline composition, such as WezTerm and Telegram (CUAS-compliant).
+
+- **32-bit apps**: A 32-bit TSF TIP (`unim_tsf32.dll`) is registered alongside, so KakaoTalk, Hancom, and similar work. The pointless IMM32 `.ime` registration on Win11 was dropped.
+
+- **Accessibility**: Composition and candidate windows are exposed via TSF UIA/UILess, and auto-repeat suppression plus screen-reader notification of mode switches were added.
+
+- **MSI distribution**: The WiX 3.x build chain was tidied up. The MSI is built by a separate CI workflow, so it may reach the release a few minutes after the deb and rpm packages — if the installer reports a missing checksum, wait a moment and retry.
+
+### Internal
+
+- The public C header (`unim.h`) is kept in sync with the Rust surface, with a build-time guard that warns on drift.
+- Keymap Studio and Typing Practice now share a single keyboard widget (three duplicate copies merged into one).
+- Unused embedded popup widgets were removed from the GTK/Qt IM modules; popups are drawn solely by the popup service.
+- `.gitattributes` (eol=lf) and `.editorconfig` normalize line endings.
+
+---
+
+## [0.3.0] 2026-05-19
+
+This release brings chord (simultaneous keystroke) input, a major popup overhaul with mouse navigation and bookmarks, a unified settings dialog, and the Ahnmatae keyboard as UNIM's first built-in chord layout.
+
+### ✨ Added
+
+- **Ahnmatae (안마태 2003) keyboard built-in**: The keyboard designed by Matthew Y. Ahn in 2003 is now available out of the box. It is a three-beol chord layout — you press multiple jamo simultaneously to form one syllable. Select it in Settings → Keyboard.
+
+- **Chord (simultaneous keystroke) input engine v4**: When using a chord-capable layout such as Ahnmatae, you can now press several jamo at the same time and UNIM assembles the syllable once the chord window closes. The chord window is set to 60 ms by default; 100–150 ms is recommended for newcomers. Settings → Keyboard → Chord Window (ms) lets you adjust it with a slider. Setting it to 0 disables chord mode entirely.
+  - **Bidirectional jamo combine** (off by default): when enabled, cho/jung/jong combinations are tried in both key-press orders, so the syllable assembles correctly regardless of which finger lands first. This option also applies to sequential (non-chord) input.
+  - Pressing Backspace during or after a chord removes one jamo at a time and recomposes the remaining syllable, just as expected in sequential three-beol.
+  - Punctuation and symbols typed within the chord window are always treated as separate characters — they do not interfere with jamo combinations.
+
+- **Hanja popup — click outside to close**: In GNOME, clicking anywhere outside the hanja, special-character, or emoji popup closes it immediately. The click is passed through to the window underneath, so it works as a normal click on the target application. Previously ESC was the only way to dismiss.
+
+- **Hanja popup — mouse page navigation (◀/▶)**: All popups (hanja, special character, emoji) now have ◀ and ▶ buttons in the footer. Click them to move between pages, or right-click anywhere in the popup to go to the next page. These buttons are hidden when there is only one page.
+
+- **Hanja candidate bookmarks (★/☆)**: You can now star a frequently used hanja candidate. The next time you convert the same syllable, starred candidates appear at the top of the list. Toggle the star with Space (in GTK/Qt) or right-click (in GNOME). When you remove a star, the candidate moves back to its alphabetical position and the cell flashes briefly (yellow, 140 ms) so you can see where it landed.
+
+- **Hanja popup 9×9 expanded grid mode**: The hanja popup normally shows 9 candidates at a time. Press the ⊞ icon in the bottom-right corner to switch to an 81-candidate grid view, letting you scan a full page at a glance. Press ⊟ to return to compact mode.
+
+- **Emoji popup — category tabs with keyboard shortcuts**: The emoji popup now has a vertical tab bar on the left side with 9 categories (Smileys, Animals, Food, …). Press A / S / D / F / … to jump directly to each category without touching the mouse.
+
+- **AutoTypeFix learning blacklist**: When AutoTypeFix (automatic Korean↔English typo correction) makes a wrong correction, you can right-click the corrected word and select "Do not auto-correct" to add it to a personal blacklist. UNIM will not correct that word automatically again. You can review and manage blacklist entries in Settings → Suppression Words.
+
+- **RPM package support**: `.rpm` packages for Fedora, openSUSE, and RHEL-based distributions are now provided. Note: the spec file is newly written and has not been fully validated on all target distributions — please report any packaging issues via [GitHub Issues](https://github.com/from104/unim/issues).
+
+### 🔄 Changed
+
+- **Single unified settings dialog (`unim-settings`)**: The separate GTK and Qt settings windows have been merged into one GTK4 + libadwaita dialog (`unim-settings`). All settings are in the same place regardless of your desktop environment.
+
+- **Tray indicator is now a separate process (`unim-indicator`)**: The tray icon runs independently from the settings window. Closing the settings window no longer kills the tray icon, and vice versa.
+
+- **Popup rendering is now a separate background service (`unim-popup-service`)**: The hanja/special-character/emoji popup is handled by a dedicated background process. It starts automatically the first time you trigger a hanja conversion. You do not need to start it manually.
+
+- **Settings sliders instead of number spinners**: Numeric options in the settings dialog (such as Chord Window) are now adjusted with a slider with tick marks, making single-click adjustments easier with a mouse.
+
+- **Settings dialog help text improved**: Every option in the settings dialog now has a clearer subtitle and tooltip explaining what the option does, when to turn it on, and what value to start with. Concrete examples and recommended values are included throughout.
+
+- **Emoji popup is always available**: The dedicated "emoji popup enabled" toggle has been removed. The emoji popup is now always accessible — press the Hanja key while not composing Hangul to open it. Existing config files that contain `engine.emoji_popup` entries will have those entries silently ignored and removed on next save.
+
+- **Chord window range and default updated**: The chord window now goes up to 200 ms (previously 100 ms), and the default is 60 ms (previously 50 ms). The extended range accommodates users who need more time between simultaneous keystrokes.
+
+### 🐛 Fixed
+
+- **XIM: next jamo was invisible for one frame after committing a syllable** (XTerm, WezTerm and other OVER-THE-SPOT XIM terminals): After you finish a Hangul syllable and start the next jamo, the preedit indicator now appears immediately. Previously it was missing for one keystroke. Note: a small number of rare ON-THE-SPOT XIM applications may still show this behavior — see Known Issues.
+
+- **Compiler warnings eliminated**: Zero build warnings in this release. This does not directly affect user experience, but it reduces the likelihood of latent bugs in future releases.
+
+### 🗑️ Removed
+
+- **Qwerty Sebeolsik (`ko_3bul_qwerty`) removed from built-ins**: This layout has been dropped from the default keyboard list. If you were using it, your layout selection will not fall back automatically — go to Settings → Keyboard and choose a different layout. If you want to continue using it, copy the reference JSON from `docs/references/keymaps/ko_3bul_qwerty_v2.json` to `~/.config/unim/layouts/ko_3bul_qwerty.json` and it will appear as a user layout.
+
+- **Qt settings dialog (`unim-gui-qt`) removed**: The Qt6-based alternative settings window has been removed. The GTK4 `unim-settings` dialog is now the single settings interface for all environments including KDE Plasma.
+
+### ⚠️ Migration notes
+
+- **Upgrading from 0.2.0**: Your settings file (`~/.config/unim/config.yaml`) and custom keyboard layouts (`~/.config/unim/layouts/*.json`) are preserved as-is. No manual migration is needed for these files.
+- **`unim-gui-qt` users**: Run `apt remove unim-gui-qt && apt install unim-settings unim-popup-service` to switch to the new unified packages.
+- **`ko_3bul_qwerty` users**: Your layout selection will not migrate automatically. After upgrading, open Settings → Keyboard and reselect your layout, or follow the workaround above to keep using the layout as a user profile.
+- **Custom layout profiles from 0.1.x (v0 format)**: If you have hand-written layout JSON files in `~/.config/unim/layouts/` that were created for UNIM 0.1.x, they must be updated to the v1 format (add `"schema_version": 1` and a `combinations` block). See the migration guide in `docs/archive/plans/LAYOUT_PROFILE_V1.md`.
+
+### 🚧 Known issues
+
+- **KDE Plasma 5.x Wayland**: Hanja, special-character, and emoji popups do not appear. The required system library (`gtk4-layer-shell`) is not available in Ubuntu 24.04 standard repositories. Use an X11 session or switch to GNOME as a workaround.
+- **KDE Plasma 6 Wayland / Sway / Hyprland / river and other standalone Wayland compositors**: This release has not been fully tested on these environments. Popup placement, IME focus handover, or input focus switching may have minor regressions. Please report issues via [GitHub Issues](https://github.com/from104/unim/issues).
+- **Some rare ON-THE-SPOT XIM applications**: After committing a Hangul syllable, the preedit for the next jamo may be missing for one frame. XTerm, WezTerm, GTK, Qt, Wayland, and GNOME are not affected.
 
 ## [0.2.0] 2026-04-26
 
@@ -58,7 +171,7 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
   - **`unim-cli config layout` subcommand**: `list` / `describe <name>` / `validate <file.json>` (exit codes 0=pass, 1=warnings, 2=errors).
   - **GUI — Adw.ComboRow + dynamic SwitchRows**: Settings dialog lists all Korean profiles (10 built-in + user) and shows the selected profile's rule sets as live toggleable SwitchRows.
   - **New built-in profile — `ko_3bul_qwerty`** (쿼티형 세벌식): Shift-free 26-seat alphabet saturation layout (14 초성 / 15 중성 / 19 종성). Built-in count 9 → 10.
-  - Spec: [`docs/dev/plans/LAYOUT_PROFILE_V1.md`](docs/dev/plans/LAYOUT_PROFILE_V1.md).
+  - Spec: [`docs/archive/plans/LAYOUT_PROFILE_V1.md`](docs/archive/plans/LAYOUT_PROFILE_V1.md).
 - **AutoTypeFix rollback-learned blacklist suppression** (`src/typefix_blacklist.rs`, `~/.config/unim/typefix-blacklist.yaml`): Observes the rollback pattern (backspace + input-mode switch on top of the last correction). On a second AutoTypeFix attempt with the same ASCII (retrigger), registers a tentative suppression entry and suppresses that very attempt in one step. Manual GUI "Confirm" promotes Tentative → Confirmed; tentatives flip to Inactive after `tentative_expiry_hours` (default 1, range 1..=12). Daemon auto-reloads on mtime change.
 - **AutoTypeFix settings**: three new keys under `auto_typefix.*` — `rollback_detection` (bool, default true), `tentative_expiry_hours` (u16, default 1, range 1..=12), `observation_timeout_secs` (u8, default 10, range 5..=15). All three wired through the 3-point sync.
 - **Settings GUI "Suppression Words" page** (`unim-gui-gtk`): New `Adw.PreferencesPage` with three groups (Tentative / Confirmed / Inactive) and Confirm / Deactivate / Remove / Reactivate row actions.

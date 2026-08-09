@@ -3,7 +3,7 @@
 //! PopupState로부터 렌더링에 필요한 모든 데이터를 구조화하여 제공합니다.
 //! 프런트엔드는 이 뷰 모델만으로 화면을 그릴 수 있습니다.
 
-use super::popup_keys::PopupKind;
+use super::popup_keys::{PopupKind, MAX_COLS};
 use super::popup_state::PopupState;
 
 /// 개별 셀 데이터
@@ -90,7 +90,10 @@ impl PopupState {
     /// 이모지 팝업 뷰 모델 — 9×9 그리드 (rows 고정 정책), 좌측 9 카테고리 탭, 푸터에 카테고리 라벨.
     fn emoji_view_model(&self, home_row: &str) -> PopupViewModel {
         let top_row_chars: Vec<char> = self.top_row().chars().collect();
-        let col_headers: Vec<String> = (0..self.cols())
+        // col_headers 는 항상 MAX_COLS(9) 개 — page item 수가 9 미만이어도 popup 폭
+        // 고정을 위해 가로축 레이블 9개 전부 출력. cells 의 실제 col 수(self.cols())
+        // 는 그대로 — 키 처리·인덱싱 정합 보존.
+        let col_headers: Vec<String> = (0..MAX_COLS)
             .map(|c| {
                 if c < top_row_chars.len() {
                     top_row_chars[c].to_string()
@@ -99,7 +102,8 @@ impl PopupState {
                 }
             })
             .collect();
-        let col_header_active: Vec<bool> = (0..self.cols()).map(|c| c == self.sel_col()).collect();
+        let col_header_active: Vec<bool> =
+            (0..MAX_COLS).map(|c| c == self.sel_col()).collect();
         let row_headers: Vec<String> = (1..=self.rows()).map(|r| format!("{}", r)).collect();
         let row_header_active: Vec<bool> = (0..self.rows()).map(|r| r == self.sel_row()).collect();
 
@@ -182,7 +186,8 @@ impl PopupState {
     fn special_view_model(&self) -> PopupViewModel {
         let top_row_chars: Vec<char> = self.top_row().chars().collect();
 
-        let col_headers: Vec<String> = (0..self.cols())
+        // col_headers 항상 9개 (popup 폭 고정). cells 의 실제 col 수는 self.cols() 유지.
+        let col_headers: Vec<String> = (0..MAX_COLS)
             .map(|c| {
                 if c < top_row_chars.len() {
                     top_row_chars[c].to_string()
@@ -191,7 +196,8 @@ impl PopupState {
                 }
             })
             .collect();
-        let col_header_active: Vec<bool> = (0..self.cols()).map(|c| c == self.sel_col()).collect();
+        let col_header_active: Vec<bool> =
+            (0..MAX_COLS).map(|c| c == self.sel_col()).collect();
 
         let row_headers: Vec<String> = (1..=self.rows()).map(|r| format!("{}", r)).collect();
         let row_header_active: Vec<bool> = (0..self.rows()).map(|r| r == self.sel_row()).collect();
@@ -261,7 +267,8 @@ impl PopupState {
         if self.is_hanja_expanded() {
             // expanded 9×9 그리드 — special 과 거의 동일하되 각 셀에 bookmarked 플래그.
             let top_row_chars: Vec<char> = self.top_row().chars().collect();
-            let col_headers: Vec<String> = (0..self.cols())
+            // col_headers 항상 9개 (popup 폭 고정). cells col 수는 self.cols() 유지.
+            let col_headers: Vec<String> = (0..MAX_COLS)
                 .map(|c| {
                     if c < top_row_chars.len() {
                         top_row_chars[c].to_string()
@@ -271,7 +278,7 @@ impl PopupState {
                 })
                 .collect();
             let col_header_active: Vec<bool> =
-                (0..self.cols()).map(|c| c == self.sel_col()).collect();
+                (0..MAX_COLS).map(|c| c == self.sel_col()).collect();
             let row_headers: Vec<String> = (1..=self.rows()).map(|r| format!("{}", r)).collect();
             let row_header_active: Vec<bool> =
                 (0..self.rows()).map(|r| r == self.sel_row()).collect();
@@ -408,11 +415,12 @@ mod tests {
         let vm = state.view_model("");
         assert_eq!(vm.kind, PopupKind::SpecialChar);
         assert_eq!(vm.target, "ㄱ");
-        assert_eq!(vm.col_headers.len(), 3); // 3열
+        assert_eq!(vm.col_headers.len(), 9); // popup 폭 고정 정책 — 항상 9
         assert_eq!(vm.row_headers.len(), 9); // 9행 (고정)
         assert_eq!(vm.col_headers[0], "Q");
         assert_eq!(vm.col_headers[1], "W");
         assert_eq!(vm.col_headers[2], "E");
+        assert_eq!(vm.col_headers[8], "O"); // top_row(QWERTYUIO) 의 9번째
         assert_eq!(vm.row_headers[0], "1");
         assert_eq!(vm.cells.len(), 9); // 9행 (고정)
         assert!(vm.cells[0][0].is_some());

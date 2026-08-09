@@ -38,7 +38,7 @@ impl std::str::FromStr for InputCategory {
 
 /// 상태 파일 경로 반환
 pub fn status_file_path() -> PathBuf {
-    dirs::cache_dir()
+    crate::paths::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("unim")
         .join("status")

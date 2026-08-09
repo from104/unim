@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+# remove 로만 한정 (M-30) — upgrade|deconfigure 에서 죽이면 재연결 수단이
+# 없는 프런트엔드가 그대로 남아 upgrade 시마다 UI 가 정지한다.
+case "$1" in
+    remove)
+        _user="$(logname 2>/dev/null || echo root)"
+        pkill -u "$_user" -x unim-indicator 2>/dev/null || true
+        pkill -u "$_user" -f '(^|/)unim-settings-gtk( |$)' 2>/dev/null || true
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

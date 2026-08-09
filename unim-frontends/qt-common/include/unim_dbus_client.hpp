@@ -298,6 +298,11 @@ private:
     QString m_preeditCache;
     bool m_isComposing;
     bool m_connected;
+    /// dedupe: reset()/focusOut() 이 커밋 문자열을 동기 반환한 직후 데몬이 같은
+    /// 값을 CommitText 시그널로 또 발행하므로, 그 값을 기억했다가 1회만 skip 한다.
+    /// 이걸 통과시키면 앱이 이미 캐럿을 옮긴 뒤라 같은 글자가 한 번 더 박힌다.
+    /// GTK 모듈의 pending_skip_commit 과 같은 방식.
+    QString m_pendingSkipCommit;
     AutoTypeFixCallback m_autoTypeFixCallback;
     CommitTextCallback m_commitTextCallback;
     HanjaBookmarkChangedCallback m_hanjaBookmarkCallback;
