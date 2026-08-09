@@ -548,19 +548,37 @@ static void on_map_event_done(GtkWidget *w, gpointer u) {
     if (top)
         gtk_widget_translate_coordinates(A.canvas, top, 0, 0, &rx, &ry);
 
-    gint sx = -1, sy = -1;     /* canvas 의 화면 절대 좌표 (X11 에서만) */
+    /*
+     * canvas 의 화면 절대 좌표 (X11 에서만).
+     *
+     * `gdk_window_get_origin` 은 **논리 좌표**를 돌려주는데 `xdotool` 은
+     * **물리 픽셀**을 받는다. HiDPI(scale 2)에서 이 둘을 섞으면 클릭이 정확히
+     * 절반 지점에 떨어진다 — 2026-08-09 에 4096x2304 화면에서 실측으로 확인.
+     * 그래서 scale 을 곱해 물리 픽셀로 맞춘다(scale 1 이면 무해).
+     */
+    gint sx = -1, sy = -1;
+    int scale = 1;
     GdkWindow *gw = gtk_widget_get_window(A.canvas);
-    if (gw) gdk_window_get_origin(gw, &sx, &sy);
+    if (gw) {
+        gdk_window_get_origin(gw, &sx, &sy);
+        scale = gdk_window_get_scale_factor(gw);
+        if (scale < 1) scale = 1;
+        sx *= scale;
+        sy *= scale;
+    }
 
     for (int i = 0; i < UNIM_SPEC_N_CORE_FIELDS; i++) {
         const UnimTestField *f = &A.fields[i];
+        int lcx = f->x + f->w / 2;     /* canvas 기준 중앙 (논리) */
+        int lcy = f->y + f->h / 2;
         char kv[640];
         g_snprintf(kv, sizeof kv,
                    "\"field\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
                    "\"cx\":%d,\"cy\":%d,\"screen_cx\":%d,\"screen_cy\":%d",
                    f->id, rx + f->x, ry + f->y, f->w, f->h,
-                   rx + f->x + f->w / 2, ry + f->y + f->h / 2,
-                   sx + f->x + f->w / 2, sy + f->y + f->h / 2);
+                   rx + lcx, ry + lcy,
+                   sx >= 0 ? sx + lcx * scale : -1,
+                   sy >= 0 ? sy + lcy * scale : -1);
         unim_log_raw("geometry", kv);
     }
     unim_log_ready();

@@ -15,6 +15,11 @@
 #include <gtk/gtk.h>
 #include <string.h>
 
+#ifdef GDK_WINDOWING_X11
+#include <X11/Xlib.h>
+#include <gdk/x11/gdkx.h>
+#endif
+
 #include "unim_test.h"
 #include "unim_test_dbus.h"
 #include "unim_test_field.h"
@@ -489,26 +494,62 @@ static GtkWidget *build_status_panel(void) {
 }
 
 /**
- * 필드 좌표를 창 내부 상대 좌표로 남긴다. GTK4 는 클라이언트에게 창의 화면
- * 위치를 알려주지 않으므로 절대 좌표는 내지 않는다 — 하네스가 `xwininfo` 로
- * 창 원점을 구해 더한다(TEST_APPS.md §5).
+ * 필드 좌표를 남긴다 — 하네스가 이 값으로 클릭한다.
+ *
+ * 두 벌을 낸다: 창 내부 상대(`x`,`y`,`cx`,`cy`)와 화면 절대
+ * (`screen_cx`,`screen_cy`). GTK4 에는 창의 화면 위치를 알려주는 API 가
+ * 의도적으로 없으므로 X11 에서는 `XTranslateCoordinates` 로 직접 구한다.
+ * Wayland 클라이언트는 원리상 자기 창 위치를 알 수 없어 `-1` 을 낸다.
+ *
+ * 절대 좌표는 **물리 픽셀**로 낸다 — `xdotool` 이 물리 픽셀을 받기 때문이다.
+ * 위젯 좌표는 논리 단위라 `scale` 을 곱해 단위를 맞춘다(스케일 1 이면 무해).
+ *
+ * 하네스는 절대가 있으면 그걸 쓰고, 없으면 창 원점을 스스로 구해 상대에
+ * 더한다(TEST_APPS.md §5). 그 폴백은 창 장식·스케일에 흔들리므로 낼 수 있으면
+ * 반드시 절대를 내야 한다.
  */
 static gboolean emit_geometry(gpointer u) {
     (void)u;
-    double rx = 0, ry = 0;
+    double rx = 0, ry = 0;       /* canvas → toplevel 오프셋 (논리) */
     graphene_point_t out;
     if (gtk_widget_compute_point(A.canvas, GTK_WIDGET(A.window),
                                  &GRAPHENE_POINT_INIT(0, 0), &out)) {
         rx = out.x; ry = out.y;
     }
+
+    gint sx = -1, sy = -1;       /* toplevel 콘텐츠 원점의 화면 좌표 (물리) */
+    int scale = 1;
+#ifdef GDK_WINDOWING_X11
+    {
+        GdkSurface *surf = gtk_native_get_surface(GTK_NATIVE(A.window));
+        if (surf && GDK_IS_X11_SURFACE(surf)) {
+            Display *dpy  = GDK_SURFACE_XDISPLAY(surf);
+            Window   xid  = GDK_SURFACE_XID(surf);
+            Window   root = DefaultRootWindow(dpy);
+            int tx = 0, ty = 0;
+            Window child;
+            if (XTranslateCoordinates(dpy, xid, root, 0, 0, &tx, &ty, &child)) {
+                sx = tx;
+                sy = ty;
+                scale = gdk_surface_get_scale_factor(surf);
+                if (scale < 1) scale = 1;
+            }
+        }
+    }
+#endif
+
     for (int i = 0; i < UNIM_SPEC_N_CORE_FIELDS; i++) {
         const UnimTestField *f = &A.fields[i];
+        int lcx = (int)rx + f->x + f->w / 2;   /* 창 기준 중앙 (논리) */
+        int lcy = (int)ry + f->y + f->h / 2;
         char kv[640];
         g_snprintf(kv, sizeof kv,
                    "\"field\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
-                   "\"cx\":%d,\"cy\":%d,\"screen_cx\":-1,\"screen_cy\":-1",
+                   "\"cx\":%d,\"cy\":%d,\"screen_cx\":%d,\"screen_cy\":%d",
                    f->id, (int)rx + f->x, (int)ry + f->y, f->w, f->h,
-                   (int)rx + f->x + f->w / 2, (int)ry + f->y + f->h / 2);
+                   lcx, lcy,
+                   sx >= 0 ? sx + lcx * scale : -1,
+                   sy >= 0 ? sy + lcy * scale : -1);
         unim_log_raw("geometry", kv);
     }
     unim_log_ready();

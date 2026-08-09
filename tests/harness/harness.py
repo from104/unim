@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
@@ -377,8 +378,17 @@ def run_scenario(app_name: str, sc: dict, *,
             # 앱이 화면 절대 좌표를 알면 그걸 쓴다 — 창 장식 두께에 안 흔들린다.
             if g.get("screen_cx", -1) >= 0:
                 inj.click(g["screen_cx"], g["screen_cy"])
-            else:
-                inj.click(ox + g["cx"], oy + g["cy"])
+                return
+            # 폴백: 창 원점 + 창 내부 상대. 창 장식·스케일·좌표계 차이에
+            # 흔들리므로 신뢰도가 낮다. 2026-08-09 에 gtk4 가 절대 좌표를
+            # -1 로 내는 바람에 이 경로를 타서 빈 곳을 클릭했고, 캔버스가
+            # 포커스를 잃어 키가 한 개도 안 들어갔다. 조용히 빗나가면
+            # 15 초 타임아웃까지 원인을 알 수 없으므로 쓰인 사실을 남긴다.
+            x, y = ox + g["cx"], oy + g["cy"]
+            print(f"    ⚠ {app_name}: {fid} 절대 좌표 없음 — 폴백 클릭 "
+                  f"({x},{y}) = 창원점({ox},{oy}) + 상대({g['cx']},{g['cy']})",
+                  file=sys.stderr)
+            inj.click(x, y)
 
         set_mode(bool(sc.get("korean", True)))
         time.sleep(0.4)
@@ -386,8 +396,36 @@ def run_scenario(app_name: str, sc: dict, *,
         field = sc.get("field", "core.plain")
         # 대상 필드를 클릭해 포커스를 확실히 잡는다.
         if field in running.geometry:
+            running.events()          # 이전 사건을 흘려보내고 클릭 결과만 본다
             click_field(field)
             time.sleep(0.25)
+            #
+            # 클릭이 빗나가면 캔버스가 포커스를 잃어 키가 한 개도 안 들어가고,
+            # 15 초 뒤 "preedit 기대 'ㅎ' 실제 ''" 라는 애매한 실패로 끝난다.
+            # 그래서 여기서 바로 끊되, **판정 기준은 대상 필드가 포커스를
+            # 받았는가**다.
+            #
+            # ⚠️ `focus.out` 을 실패로 보면 안 된다 — 다른 필드에서 옮겨오면
+            # 이전 필드의 focus.out 은 당연히 난다(2026-08-09, 이 판정을 잘못
+            # 걸어 password/multiline 시나리오가 5개 앱에서 전부 걸렸다).
+            #
+            # 판정: **대상 필드가 포커스를 잃었는데 되찾지도 못했는가**.
+            #   · 다른 필드에서 옮겨옴 → 대상의 focus.in 이 온다 (정상)
+            #   · 같은 필드 재클릭    → focus 사건이 아예 없다 (정상)
+            #   · 클릭이 빗나감       → 대상이 focus.out / canvas-focus-out (실패)
+            evs = running.events()
+            got = any(e.get("ev") == "focus.in" and e.get("field") == field
+                      for e in evs)
+            lost = any(
+                (e.get("ev") == "focus.out" and e.get("field") == field)
+                or (e.get("ev") == "reset" and e.get("field") == field
+                    and "focus-out" in str(e.get("reason", "")))
+                for e in evs)
+            if lost and not got:
+                raise RuntimeError(
+                    f"{field} 클릭 직후 포커스를 잃었다 — 클릭 좌표가 필드를 "
+                    f"벗어났을 가능성이 크다. 앱이 screen_cx/cy 를 내는지 확인할 것 "
+                    f"(geometry={running.geometry.get(field)})")
 
         all_ok = True
         for i, step in enumerate(sc["steps"]):

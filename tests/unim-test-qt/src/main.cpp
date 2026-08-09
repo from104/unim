@@ -545,6 +545,20 @@ int main(int argc, char *argv[]) {
         return ret;
     }
 
+    /*
+     * HiDPI 배율을 Qt 에 맡긴다 — 켜야 위젯 좌표가 **논리 단위**가 되어
+     * GTK 판·스펙(760x960 @96dpi)과 같은 화면이 나온다.
+     *
+     * Qt6 는 이 동작이 기본이자 강제라 속성 자체가 폐지됐지만, Qt5 는 기본이
+     * **꺼져** 있어 폰트만 커지고 레이아웃은 물리 픽셀로 남는다. 그래서 같은
+     * 소스인데 qt5 창만 855px(≠760)로 어긋나 있었다 — 2026-08-09 실측.
+     * QApplication 생성 **전**에 설정해야 효력이 있다.
+     */
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
+
     QApplication app(argc, argv);
 
     /*

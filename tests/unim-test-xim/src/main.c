@@ -20,6 +20,7 @@
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xresource.h>
 #include <X11/keysym.h>
 #include <X11/Xft/Xft.h>
 
@@ -71,9 +72,46 @@ static struct {
     int             log_top;
     int             running;
     int             ready;
+
+    /*
+     * HiDPI 배율 (1.0 = 96dpi). GTK·Qt 는 툴킷이 논리 좌표계를 주지만 Xlib 은
+     * 물리 픽셀뿐이라 앱이 직접 곱해야 한다. 이걸 빼먹어서 xim 창만 다른 앱의
+     * 절반 크기로 떴다 — 2026-08-09 실측(760x960 요청 → 다른 앱은 1520x2208).
+     */
+    double          scale;
 } A;
 
 static UnimTestField *cur(void) { return &A.fields[A.active]; }
+
+/** 스펙 수치(96dpi 기준)를 현재 배율의 물리 픽셀로. GTK 판의 `S()` 와 같다. */
+static int S(int v) { return (int)(v * A.scale + 0.5); }
+
+/**
+ * 화면 DPI. GTK 의 `gdk_screen_get_resolution()` 과 같은 값을 얻으려면
+ * X 리소스의 `Xft.dpi` 를 봐야 한다 — 데스크톱 환경이 배율을 여기에 싣는다.
+ * 없으면 화면 물리 크기로 환산하고, 그것도 못 믿을 값이면 96 으로 둔다.
+ */
+static double screen_dpi(Display *dpy) {
+    double dpi = 0.0;
+    char *rms = XResourceManagerString(dpy);
+    if (rms) {
+        XrmDatabase db = XrmGetStringDatabase(rms);
+        if (db) {
+            char *type = NULL;
+            XrmValue val;
+            if (XrmGetResource(db, "Xft.dpi", "Xft.Dpi", &type, &val) && val.addr)
+                dpi = atof(val.addr);
+            XrmDestroyDatabase(db);
+        }
+    }
+    if (dpi <= 0.0) {
+        int scr = DefaultScreen(dpy);
+        int mm = DisplayHeightMM(dpy, scr);
+        if (mm > 0) dpi = DisplayHeight(dpy, scr) * 25.4 / mm;
+    }
+    if (dpi < 48.0 || dpi > 480.0) dpi = UNIM_SPEC_BASE_DPI;
+    return dpi;
+}
 
 /* ─── 색 ──────────────────────────────────────────────────────────────── */
 
@@ -143,9 +181,9 @@ static void update_spot(void) {
     unim_field_before_caret(f, before, sizeof before);
 
     XPoint spot = {
-        .x = (short)(f->x + UNIM_SPEC_FIELD_PAD_X +
+        .x = (short)(f->x + S(UNIM_SPEC_FIELD_PAD_X) +
                      text_width(A.font_field, before, strlen(before))),
-        .y = (short)(f->y + f->h - 10),
+        .y = (short)(f->y + f->h - S(10)),
     };
     XVaNestedList attr = XVaCreateNestedList(0, XNSpotLocation, &spot, NULL);
     XSetICValues(A.xic, XNPreeditAttributes, attr, NULL);
@@ -265,7 +303,7 @@ static int xim_init(void) {
             XNPreeditCaretCallback, &cb_caret,
             NULL);
     } else if (best & XIMPreeditPosition) {
-        XPoint spot = { (short)(A.fields[0].x + UNIM_SPEC_FIELD_PAD_X),
+        XPoint spot = { (short)(A.fields[0].x + S(UNIM_SPEC_FIELD_PAD_X)),
                         (short)(A.fields[0].y + A.fields[0].h - 10) };
         pattr = XVaCreateNestedList(0, XNSpotLocation, &spot, NULL);
     }
@@ -307,13 +345,13 @@ static void draw_status(void) {
     char vals[UNIM_STATUS_N][UNIM_STATUS_VALUE_MAX];
     unim_status_render(A.daemon, &in, vals);
 
-    int y = UNIM_SPEC_MARGIN + A.font_ui->ascent;
+    int y = S(UNIM_SPEC_MARGIN) + A.font_ui->ascent;
     int rowh = A.font_ui->height + 4;
     for (int i = 0; i < UNIM_STATUS_N; i++) {
-        draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, UNIM_SPEC_MARGIN, y,
+        draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, S(UNIM_SPEC_MARGIN), y,
                   UNIM_SPEC_STATUS_LABELS[i]);
         draw_text(A.font_ui, UNIM_SPEC_COL_TEXT,
-                  UNIM_SPEC_MARGIN + UNIM_SPEC_STATUS_LABEL_W, y, vals[i]);
+                  S(UNIM_SPEC_MARGIN) + S(UNIM_SPEC_STATUS_LABEL_W), y, vals[i]);
         y += rowh;
     }
 }
@@ -321,7 +359,7 @@ static void draw_status(void) {
 static void draw_field(const UnimTestField *f) {
     int focused = A.focused && f->focused;
 
-    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, UNIM_SPEC_MARGIN,
+    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, S(UNIM_SPEC_MARGIN),
               f->y + A.font_ui->ascent + 8, f->label);
 
     fill_rect(focused ? UNIM_SPEC_COL_FIELD_FOCUS : UNIM_SPEC_COL_FIELD_BG,
@@ -332,7 +370,7 @@ static void draw_field(const UnimTestField *f) {
     char shown[UNIM_FIELD_TEXT_MAX + UNIM_FIELD_PREEDIT_MAX];
     unim_field_display(f, shown, sizeof shown);
 
-    int tx = f->x + UNIM_SPEC_FIELD_PAD_X;
+    int tx = f->x + S(UNIM_SPEC_FIELD_PAD_X);
     int ty = f->y + A.font_field->ascent + 8;
 
     /* 확정 부분과 조합 부분을 나눠 그린다 — 조합은 색과 밑줄로 구분한다. */
@@ -376,24 +414,24 @@ static void draw_field(const UnimTestField *f) {
         }
         snprintf(buf, sizeof buf, "%.*s", caret_bytes, shown);
         int cx = tx + text_width(A.font_field, buf, strlen(buf));
-        fill_rect(UNIM_SPEC_COL_CARET, cx, f->y + 6, 2, f->h - 12);
+        fill_rect(UNIM_SPEC_COL_CARET, cx, f->y + S(6), S(2), f->h - S(12));
     }
 }
 
 static void draw_log_panel(void) {
     int y = A.log_top;
-    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, UNIM_SPEC_MARGIN,
+    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, S(UNIM_SPEC_MARGIN),
               y + A.font_ui->ascent, "④ 로그");
     y += A.font_ui->height + 6;
 
-    fill_rect(UNIM_SPEC_COL_PANEL, UNIM_SPEC_MARGIN, y,
-              UNIM_SPEC_WIN_WIDTH - 2 * UNIM_SPEC_MARGIN,
+    fill_rect(UNIM_SPEC_COL_PANEL, S(UNIM_SPEC_MARGIN), y,
+              S(UNIM_SPEC_WIN_WIDTH) - 2 * S(UNIM_SPEC_MARGIN),
               LOG_VIEW_LINES * (A.font_log->height + 2) + 8);
 
     int start = (A.log_count > LOG_VIEW_LINES) ? A.log_count - LOG_VIEW_LINES : 0;
     int ly = y + 4 + A.font_log->ascent;
     for (int i = start; i < A.log_count; i++) {
-        draw_text(A.font_log, UNIM_SPEC_COL_TEXT, UNIM_SPEC_MARGIN + 6, ly,
+        draw_text(A.font_log, UNIM_SPEC_COL_TEXT, S(UNIM_SPEC_MARGIN) + S(6), ly,
                   A.loglines[i % LOG_VIEW_LINES]);
         ly += A.font_log->height + 2;
     }
@@ -401,13 +439,13 @@ static void draw_log_panel(void) {
 
 static void redraw(void) {
     if (!A.draw) return;
-    fill_rect(UNIM_SPEC_COL_BG, 0, 0, UNIM_SPEC_WIN_WIDTH, UNIM_SPEC_WIN_HEIGHT);
+    fill_rect(UNIM_SPEC_COL_BG, 0, 0, S(UNIM_SPEC_WIN_WIDTH), S(UNIM_SPEC_WIN_HEIGHT));
 
-    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, UNIM_SPEC_MARGIN,
-              UNIM_SPEC_MARGIN - 4, "① 상태");
+    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, S(UNIM_SPEC_MARGIN),
+              S(UNIM_SPEC_MARGIN) - S(4), "① 상태");
     draw_status();
 
-    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, UNIM_SPEC_MARGIN,
+    draw_text(A.font_ui, UNIM_SPEC_COL_LABEL, S(UNIM_SPEC_MARGIN),
               A.fields_top - 8, "② 코어 필드 (IM 직결 · 직접 그리기)");
     for (int i = 0; i < UNIM_SPEC_N_CORE_FIELDS; i++)
         draw_field(&A.fields[i]);
@@ -683,8 +721,14 @@ int main(int argc, char *argv[]) {
     A.screen = DefaultScreen(A.dpy);
     unim_log_set_sink(log_sink, NULL);
 
+    /* 배율은 창을 만들기 **전**에 정해야 한다 — S() 가 이 값을 쓴다. */
+    A.scale = screen_dpi(A.dpy) / UNIM_SPEC_BASE_DPI;
+    if (A.scale <= 0.0) A.scale = 1.0;
+    unim_log_note("HiDPI 배율 %.2f (스펙 수치는 %g dpi 기준)",
+                  A.scale, UNIM_SPEC_BASE_DPI);
+
     A.win = XCreateSimpleWindow(A.dpy, RootWindow(A.dpy, A.screen), 0, 0,
-                                UNIM_SPEC_WIN_WIDTH, UNIM_SPEC_WIN_HEIGHT, 0,
+                                S(UNIM_SPEC_WIN_WIDTH), S(UNIM_SPEC_WIN_HEIGHT), 0,
                                 UNIM_SPEC_COL_BORDER, UNIM_SPEC_COL_BG);
 
     char title[128];
@@ -704,6 +748,15 @@ int main(int argc, char *argv[]) {
                  ExposureMask | KeyPressMask | FocusChangeMask |
                  StructureNotifyMask | ButtonPressMask);
 
+    /*
+     * ⚠️ 폰트 크기에는 배율을 **곱하지 않는다.**
+     *
+     * `XftFontOpenName` 의 `이름-N` 에서 N 은 픽셀이 아니라 **포인트**이고,
+     * Xft 가 화면 DPI 로 픽셀 크기를 환산한다 — 즉 배율이 이미 반영돼 있다.
+     * 여기서 S() 를 또 곱하면 192dpi 화면에서 글자가 4배로 나온다
+     * (2026-08-09 실측·육안 확인). 창 크기와 좌표는 픽셀이라 곱해야 맞지만
+     * 폰트는 단위가 달라 그대로 둔다.
+     */
     char fname[128];
     snprintf(fname, sizeof fname, "%s-%d", UNIM_SPEC_FONT_UI,
              UNIM_SPEC_FONT_SIZE_FIELD);
@@ -728,11 +781,11 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < UNIM_SPEC_N_CORE_FIELDS; i++)
         unim_field_init(&A.fields[i], &UNIM_SPEC_CORE_FIELDS[i]);
 
-    A.fields_top = UNIM_SPEC_MARGIN + UNIM_STATUS_N * (A.font_ui->height + 4)
-                   + UNIM_SPEC_SECTION_GAP + 12;
+    A.fields_top = S(UNIM_SPEC_MARGIN) + UNIM_STATUS_N * (A.font_ui->height + S(4))
+                   + S(UNIM_SPEC_SECTION_GAP) + S(12);
     int bottom = unim_field_layout(A.fields, UNIM_SPEC_N_CORE_FIELDS,
-                                   A.fields_top, UNIM_SPEC_WIN_WIDTH, 1.0);
-    A.log_top = bottom + UNIM_SPEC_SECTION_GAP;
+                                   A.fields_top, S(UNIM_SPEC_WIN_WIDTH), A.scale);
+    A.log_top = bottom + S(UNIM_SPEC_SECTION_GAP);
 
     XMapWindow(A.dpy, A.win);
 
