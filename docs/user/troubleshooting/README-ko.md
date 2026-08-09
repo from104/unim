@@ -909,13 +909,19 @@ ls ~/.local/share/dbus-1/services/org.atit.unim.PopupService.service \
 
 `Meta.is_wayland_compositor()` 감지가 실패해 extension PopupView와 popup-service GTK4 팝업이 동시에 열리는 경우다. GNOME Shell 버전을 확인하고, 확장(`unim-gnome@from104.github.io`)을 비활성화 후 재활성화해 본다.
 
-### 증상: XIM ON-THE-SPOT commit 직후 preedit 누락
+### 증상: XIM commit 직후 다음 글자가 안 보인다 (일부 해결, 일부 미해결)
 
-**2026-08-07 해결됨.** 0.3.0~0.4.0 동안 미해결로 남아 있던 증상이다. 조합 중이던 음절이 확정된 직후 새로 누른 자모가 화면에 안 나타나고, 자모를 하나 더 눌러 음절이 만들어져야 보이기 시작했다.
+조합 중이던 음절이 확정된 직후 새로 누른 자모가 화면에 안 나타나는 증상이다. 0.3.0부터 있었고, **경로에 따라 상태가 다르다.**
 
-원인은 그동안 이 문서가 지목하던 "xim crate의 `commit()`이 `preedit_started`를 갱신하지 않음"이 **아니었다**(그 우회책을 통째로 제거해도 증상이 그대로였다). 실제로는 **ON-THE-SPOT 클라이언트가 한 키를 처리하다 `Commit`을 만나면 그 뒤에 온 메시지를 버리기 때문**이었다 — 새 preedit이 `Commit` 뒤에 실려 나가서 사라진 것이다. 그래서 XIM만 preedit을 commit보다 **먼저** 보내도록 바꿨다. 자세한 계약은 `docs/dev/architecture/IME_BEHAVIOR.md` §8.1 예외 항목.
+**해결된 범위 (2026-08-07)** — 자체 XIM 클라이언트와 OVER-THE-SPOT(XTerm·WezTerm 등)에서는 고쳐졌다. 원인은 그동안 이 문서가 지목하던 "xim crate의 `commit()`이 `preedit_started`를 갱신하지 않음"이 **아니었다**(그 우회책을 통째로 제거해도 증상이 그대로였다). 실제로는 **ON-THE-SPOT 클라이언트가 한 키를 처리하다 `Commit`을 만나면 그 뒤에 온 메시지를 버리기 때문**이었고, XIM만 preedit을 commit보다 **먼저** 보내도록 바꿔 해결했다. 계약은 `docs/dev/architecture/IME_BEHAVIOR.md` §8.1 예외 항목.
 
-XTerm·WezTerm 등 OVER-THE-SPOT 환경은 이전에도 정상이었고 이번 변경으로도 회귀가 없음을 확인했다.
+**아직 미해결 (2026-08-10 확인)** — **GTK가 XIM 모듈(`im-xim`)로 붙는 경로**에서는 여전히 증상이 남아 있고, 원인도 위와 다르다. 이 경우 확정 직후 입력기가 잠시 멎어 **다음 글자가 몇 초 동안 통째로 씹힌다**(libX11이 시간이 지나면 스스로 풀린다). 서버가 `PreeditDraw`를 보내는 순간 그 입력 문맥이 다음 키를 받지 못하는 것이 원인으로, 3/3 재현된다.
+
+- **누가 겪나**: 주로 **Flatpak·Snap 앱**이다. 샌드박스 안에는 호스트의 `im-unim.so`가 보이지 않아 GTK가 XIM으로 폴백한다. 옵시디언(Electron)이 대표적이다.
+- **영향 없는 환경**: 일반 설치된 GTK/Qt 앱(네이티브 IM 모듈 사용), XTerm·WezTerm 등 OVER-THE-SPOT 클라이언트.
+- **현재 우회책**: 없다. 같은 앱을 deb·AppImage 등 **샌드박스 밖 배포판으로 설치**하면 네이티브 IM 모듈을 타서 증상이 사라진다. IBus 호환 경로는 0.4.0에서 크게 고쳤지만 아직 조합 중 글자가 표시되지 않아 대안이 되지 못한다.
+
+진행 상황은 ROADMAP 3단계 "샌드박스 앱(Flatpak·Snap) 입력 경로" 항목에서 추적한다.
 
 ---
 
@@ -938,7 +944,7 @@ XTerm·WezTerm 등 OVER-THE-SPOT 환경은 이전에도 정상이었고 이번 �
 - **영문 모드 Space 누락 (gedit)**: 0.2.0에서 `consumed=true commit=" "` 경로로 수정. 회귀 시 `engine_worker.rs` Space 처리 분기 점검.
 - **AutoTypeFix 잔존 BS (XIM)**: 0.2.0 N+1 BS 모델로 수정됨. Chrome preedit edge case는 알려진 SKIP.
 - **`tentative_expiry_hours` 단위**: 0.2.0부터 days→hours로 변경 (1..=12). 기존 config는 자동 마이그레이션.
-- **XIM ON-THE-SPOT(PREEDIT_CALLBACKS) 모드 commit 직후 preedit 누락 (2026-08-07 해결)**: 한글 음절 commit 직후 새 자모가 화면에 안 나타나고 자모가 하나 더 들어와야 보이던 문제. 원인은 ON-THE-SPOT 클라이언트가 한 키를 처리하다 `Commit` 을 만나면 그 뒤 메시지를 버리는 것이었다 (오래 적혀 있던 "xim crate 의 `commit()` 이 `preedit_started` 를 갱신하지 않음" 은 오진). XIM 만 preedit 을 commit 보다 먼저 보내도록 바꿔 해결했다 — `IME_BEHAVIOR.md` §8.1 예외 항목. 회귀 감시: `tests/unim-test-xim`·`tests/unim-test-gtk3`(ON-THE-SPOT)와 `xterm`(OVER-THE-SPOT).
+- **XIM commit 직후 다음 글자 누락 (부분 해결)**: 자체 XIM 클라이언트·OVER-THE-SPOT 은 2026-08-07 에 해결했다 — ON-THE-SPOT 클라이언트가 한 키를 처리하다 `Commit` 을 만나면 그 뒤 메시지를 버리는 것이 원인이었고(오래 적혀 있던 "xim crate 의 `commit()` 이 `preedit_started` 를 갱신하지 않음" 은 오진), XIM 만 preedit 을 commit 보다 먼저 보내도록 바꿨다(`IME_BEHAVIOR.md` §8.1). **그러나 GTK 가 `im-xim` 으로 붙는 경로는 2026-08-10 확인 결과 여전히 미해결이며 원인도 다르다** — `PreeditDraw` 를 보내는 순간 그 IC 가 다음 키를 받지 못한다(3/3 재현). 주 피해자는 Flatpak·Snap 앱이다. 회귀 감시: `tests/unim-test-xim`·`tests/unim-test-gtk3`(ON-THE-SPOT)와 `xterm`(OVER-THE-SPOT), 그리고 `GTK_IM_MODULE=xim` 으로 띄운 `tests/unim-test-gtk3`.
 
 ### C. 데몬 다중 인스턴스
 
