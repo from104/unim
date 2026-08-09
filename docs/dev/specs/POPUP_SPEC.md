@@ -27,18 +27,21 @@
 
 ### 1.2 프론트엔드별 렌더링 방식
 
-| 프론트엔드 | 렌더링 방식 | 팝업 위치 | 비고 |
+Phase 7(팝업 중앙화) 이후 **렌더 주체는 두 곳뿐**이다 — `unim-popup-service`(GTK4)와
+GNOME Shell 확장(St 위젯). 프런트엔드는 커서 좌표를 올려 보내기만 한다.
+
+| 프론트엔드 | 렌더 주체 | 팝업 위치 전달 | 비고 |
 |-----------|-----------|----------|------|
-| **GTK3/GTK4** | GtkWindow (override-redirect) | `set_cursor_location` 절대좌표 | C 코드, gtk-common 공유 |
-| **Qt5/Qt6** | QWidget (frameless, popup) | `cursorRectangle` 절대좌표 | C++ 코드, qt-common 공유 |
-| **XIM** | Xlib Window (override-redirect) | XIC spot location | Rust, Xft 렌더링 |
-| **Wayland** | wl_subsurface + tiny-skia | 팝업 서피스 위치 | Rust, 소프트웨어 렌더링 |
-| **GNOME Shell** | St.BoxLayout + Clutter.Actor | `set_position(x, y)` | JavaScript |
+| **GTK3/GTK4** | popup-service | `set_cursor_location` 절대좌표 | 자체 팝업 위젯 없음 (gtk-common 은 DBus 클라이언트만) |
+| **Qt5/Qt6** | popup-service | `cursorRectangle` 절대좌표 | 자체 팝업 클래스 없음 (qt-common 은 DBus 클라이언트만) |
+| **XIM** | popup-service | XIC spot location | `pe_window.rs` 는 preedit 전용 |
+| **Wayland** | popup-service | 커서 좌표 (DBus) | 백엔드 3종 자동 검출 (§8.4) |
+| **GNOME Shell** | **확장 자체** (St.BoxLayout + Clutter.Actor) | `set_position(x, y)` | Mutter 가 layer-shell·input_popup 모두 미지원이라 유일한 예외 (§8.5) |
 
 ### 1.3 데이터 소스 (코어 공유)
 
 - **한자 데이터**: `src/hangul/hanja.rs` — `include_str!("../data/hanja.txt")` 빌드 시 임베드
-- **특수문자 데이터**: `src/hangul/special_chars.rs` — 초성(ㄱ~ㅎ) → 특수문자 정적 매핑
+- **특수문자 데이터**: `src/special_chars/` (`mod.rs` + `data.rs`) — 초성(ㄱ~ㅎ) → 특수문자 정적 매핑
 
 ---
 
@@ -476,75 +479,55 @@ if (popup_x + popup_width > screen_width):
 
 ## 8. 프론트엔드 통합 가이드
 
+> **⚠️ 전제 — 프런트엔드는 팝업을 그리지 않는다.** Phase 7(팝업 중앙화) 이후
+> GTK·Qt·XIM·Wayland 프런트엔드에서 자체 팝업 렌더 코드는 **전부 제거**되었다.
+> 이들은 키를 엔진으로 보내고 DBus 팝업 시그널을 수신할 뿐이며, 실제 렌더는
+> `unim-popup-service` 가 전담한다(GNOME Wayland 만 예외 — §8.5).
+> 따라서 아래 §8.1–8.4 는 "팝업을 어떻게 그리나"가 아니라 "시그널을 어떻게
+> 받아 넘기나"의 기술이다.
+
 ### 8.1 GTK (C, gtk-common 공유)
 
 **파일 구조:**
 ```
 unim-frontends/gtk-common/
-├── include/
-│   ├── unim_dbus_client.h       (DBus API)
-│   ├── unim_hanja_popup.h       (한자 팝업)
-│   └── unim_special_popup.h     (특수문자 팝업)
-└── src/
-    ├── unim_dbus_client.c       (DBus API 구현)
-    ├── unim_hanja_popup.c       (한자 팝업 구현)
-    └── unim_special_popup.c     (특수문자 팝업 구현)
+├── include/unim_dbus_client.h    (DBus API)
+└── src/unim_dbus_client.c        (DBus API 구현)
 ```
 
-**immodule 통합 패턴:**
-```c
-// 1. 구조체에 팝업 멤버 추가
-struct _UnimIMContext {
-    // ...
-    UnimHanjaPopup *hanja_popup;
-    UnimSpecialPopup *special_popup;
-};
-
-// 2. filter_keypress에서 팝업 우선 처리
-if (unim_hanja_popup_is_visible(ctx->hanja_popup)) {
-    return unim_hanja_popup_handle_key(ctx->hanja_popup, keyval);
-}
-
-// 3. ProcessKey 결과 확인 후 팝업 표시
-if (result.hanja_candidates_available) {
-    // GetHanjaCandidates → popup_show
-}
-
-// 4. 선택 콜백에서 커밋
-static void on_hanja_select(const gchar *hanja, gpointer data) {
-    // SelectHanja → commit → emit "commit" signal
-}
-```
+팝업 위젯 헤더·구현은 없다. immodule 은 키를 `ProcessKeyEvent` 로 넘기고,
+엔진이 팝업 상태를 판단해 popup-service 에 렌더를 지시한다. 팝업이 떠 있는
+동안의 키(숫자 선택·화살표·Enter·Esc)도 프런트엔드가 가로채지 않고 그대로
+엔진으로 보낸다 — 판정이 엔진 한 곳에 모여야 프런트엔드 간 동작이 갈리지 않는다.
 
 ### 8.2 Qt (C++, qt-common 공유)
 
-**통합 패턴:**
-```cpp
-// 1. InputContext 멤버
-UnimHanjaPopup *m_hanjaPopup;
-UnimSpecialPopup *m_specialPopup;
-
-// 2. filterEvent에서 팝업 우선
-if (m_hanjaPopup->isVisible()) {
-    return m_hanjaPopup->handleKey(keyval);
-}
-
-// 3. 선택 시그널 연결
-connect(m_hanjaPopup, &UnimHanjaPopup::selected,
-        this, &InputContext::onHanjaSelected);
+```
+unim-frontends/qt-common/
+├── include/unim_dbus_client.hpp
+└── src/unim_dbus_client.cpp
 ```
 
-### 8.3 XIM (Rust, 자체 X11 렌더링)
+GTK 와 동일한 원칙이다. `QPlatformInputContext` 구현은 DBus 클라이언트만 들고
+있으며 팝업 클래스는 존재하지 않는다.
 
-- `hanja_window.rs` / `special_window.rs`
-- Xlib override-redirect 윈도우 + Xft 텍스트 렌더링
-- 이벤트 루프에서 팝업 X 이벤트 직접 처리
+### 8.3 XIM (Rust)
 
-### 8.4 Wayland (Rust, 소프트웨어 렌더링)
+- `pe_window.rs` — **preedit 전용** Over-The-Spot 윈도우(Xlib + Xft). 팝업용이 아니다
+- 팝업은 `dbus_client.rs` 의 `PopupEvent` 로 수신만 하고 렌더는 popup-service 담당
+- XIM 은 팝업 키를 로컬 처리하지 않고 모든 키를 엔진으로 전달한다
 
-- `popup_renderer.rs` + `popup_surface.rs`
-- tiny-skia + cosmic-text로 RGBA 버퍼 렌더링
-- wl_subsurface로 팝업 표시
+### 8.4 Wayland (Rust)
+
+- 팝업 렌더 코드 없음. `dbus_client.rs` 가 `PopupEvent` 를 수신해 중계할 뿐이다
+- 렌더는 popup-service 가 환경에 따라 세 백엔드 중 하나로 수행한다
+  (`backend::detect()`):
+
+  | 조건 | 백엔드 | 방식 |
+  |------|--------|------|
+  | `WAYLAND_DISPLAY` + `zwp_input_popup_surface_v2` 지원 | `wayland_input_popup` | IME 팝업 서피스 (Phase 5) |
+  | `WAYLAND_DISPLAY` (그 외) | `wayland_standalone` | GTK4 + gtk4-layer-shell |
+  | `DISPLAY` | `x11` | GTK4 |
 
 ### 8.5 GNOME Shell (JavaScript, St 위젯)
 

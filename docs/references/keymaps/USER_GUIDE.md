@@ -53,7 +53,7 @@ UNIM은 둘 다 같은 이름공간에 합쳐 인식합니다. 빌트인과 같�
 자판을 만들었으면 unim-cli 또는 GUI 설정에서 한국어 레이아웃 이름을 바꿉니다:
 
 ```bash
-unim-cli config set engine.korean.layout my_first
+unim-cli config set korean-layout my_first
 ```
 
 UNIM 데몬이 새 자판을 즉시 로드하거나, 변경이 안 되면 데몬을 재시작:
@@ -200,22 +200,22 @@ UNIM이 시스템 언어에 맞춰 적절한 쪽을 골라 보여줍니다.
 
 #### 5.2.1 GUI 설정 다이얼로그
 
-UNIM 설정 다이얼로그(`unim-gui-gtk --settings`)의 "일반" 페이지에서 한국어 자판을 선택하면 그 자판의 rule_sets 그룹이 자동으로 나타납니다. 각 옵션마다 토글 스위치 + `description` 툴팁이 보이며, 켜고 끌 때 즉시 데몬에 반영됩니다.
+설정 앱(`unim-settings`)의 "일반" 페이지에서 한국어 자판을 선택하면 그 자판의 rule_sets 그룹이 자동으로 나타납니다. 각 옵션마다 토글 스위치 + `description` 툴팁이 보이며, 켜고 끌 때 즉시 데몬에 반영됩니다.
 
 #### 5.2.2 CLI 명령
 
 ```bash
-# 현재 활성 목록 보기
-unim-cli config get korean_active_rule_sets
+# 현재 활성 목록 보기 (config show 의 해당 항목)
+unim-cli config show
 
 # 특정 옵션만 활성으로 만들기 (다른 건 꺼짐)
-unim-cli config set korean_active_rule_sets vowel_strict,slash_context_alt
+unim-cli config set korean-active-rule-sets vowel_strict,slash_context_alt
 
-# 모든 rule_set 끄기 (빈 배열)
-unim-cli config set korean_active_rule_sets ""
+# 모든 rule_set 끄기 (빈 목록 = 사용자가 명시적으로 전부 off)
+unim-cli config set korean-active-rule-sets ""
 
 # 자판 기본값으로 되돌리기 (각 rule_set의 active 그대로 사용)
-unim-cli config unset korean_active_rule_sets
+unim-cli config set korean-active-rule-sets default
 ```
 
 #### 5.2.3 자판 JSON 직접 편집
@@ -493,7 +493,7 @@ rule_sets:
 
 **Q. 사용자가 자판 옵션을 GUI로 켜고 끌 수 있나요?**
 
-네. UNIM 설정 다이얼로그(`unim-gui-gtk --settings`)의 "일반" 페이지에서 자판을 선택하면 그 자판이 정의한 rule_sets가 토글 스위치로 자동 노출됩니다. CLI(`unim-cli config set korean_active_rule_sets ...`)로도 가능합니다. 자세한 내용은 §5.2 참고.
+네. 설정 앱(`unim-settings`)의 "일반" 페이지에서 자판을 선택하면 그 자판이 정의한 rule_sets가 토글 스위치로 자동 노출됩니다. CLI(`unim-cli config set korean-active-rule-sets ...`)로도 가능합니다. 자세한 내용은 §5.2 참고.
 
 ---
 
