@@ -420,7 +420,7 @@ fi
 # ─── Changelog ───────────────────────────────────────────────────────────────
 
 %changelog
-* Sun Aug 09 2026 from104 <from104@gmail.com> - 0.4.0-1
+* Mon Aug 10 2026 from104 <from104@gmail.com> - 0.4.0-1
 - Restructure to mirror the Debian 11-package layout: new unim-desktop bundle
   (replaces the indicator/settings-gtk/popup-service split), new Slint
   unim-settings (settings app + first-run wizard), new unim-keymap-studio and

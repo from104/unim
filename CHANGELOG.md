@@ -4,7 +4,7 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
-## [0.4.0] 2026-08-09
+## [0.4.0] 2026-08-10
 
 The release where an input method that only ran on Linux started running on Windows off the same core, installation became a single line, and both platforms got the same settings window.
 

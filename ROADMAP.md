@@ -2,7 +2,7 @@
 
 이 문서는 **UNIM** 프로젝트의 장기 목표와 개발 단계별 계획을 설명합니다.
 
-> 기준 버전: **0.4.0** (2026-08-09)
+> 기준 버전: **0.4.0** (2026-08-10)
 
 ## 🎯 핵심 목표
 
@@ -13,7 +13,7 @@
 | 구분 | 내용 |
 |------|------|
 | **완료** | Rust 코어(2벌식·3벌식 계열·안마태), 3계층 아키텍처(Core → D-Bus → Frontend), 전 프론트엔드(GTK3/4·Qt5/6·XIM·Wayland·GNOME Shell·Windows TSF/IMM32), 자판 프로필 v1, 자동 오타 교정 + 억제 사전, 비밀번호 필드 보호, 배포 채널(deb 11종·rpm·MSI·설치 스크립트), 툴킷 실화면 자동시험 하네스 |
-| **진행 중** | Windows 완성도 다듬기, 단독 Wayland 컴포지터(KDE 6·Sway·Hyprland) 실측, 문서 정비 |
+| **진행 중** | Windows 완성도 다듬기, 단독 Wayland 컴포지터(KDE 6·Sway·Hyprland) 실측, 샌드박스 앱(Flatpak·Snap) 입력 경로 복구, 문서 정비 |
 | **다음** | 4단계 문맥 감지(한/영 자동 전환) — 이 프로젝트의 원래 목표입니다 |
 | **그 뒤** | 6단계 엔진 재설계 → 7단계 입력 방식·플랫폼 확장 |
 
@@ -50,6 +50,10 @@
 - [x] **패키지 안정화**: deb 11종 + rpm + MSI 빌드·설치 검증. 한 줄 설치 스크립트(리눅스 `install.sh` / Windows `install.ps1`)에 SHA256 검증과 `--update` / `--check` 경로 포함.
 - [x] **툴킷 실화면 자동시험 하네스**: 6개 툴킷 테스트 앱이 코어 필드를 캔버스에 **직접 그려** preedit 을 100% 관측하고, `xdotool`(XTEST)로 실제 키를 주입해 툴킷 → IM 모듈 → 데몬 전 구간을 검사합니다. 판정 기준은 `field.render` 사건 하나로 통일했습니다. 명세는 [`docs/dev/testing/TEST_APPS.md`](docs/dev/testing/TEST_APPS.md), 실행은 `make test-apps`.
 - [ ] **단독 Wayland 컴포지터 실측**: KDE 6 Wayland·Sway·Hyprland 에서 팝업 위치·IME 포커스 전환·좌표 변환 확인. 코드 경로는 있으나 실기기 검증 전입니다.
+- [ ] **샌드박스 앱(Flatpak·Snap) 입력 경로**: 샌드박스 안에는 호스트의 `im-unim.so` 가 보이지 않아 GTK 가 **XIM 으로 폴백**합니다. 옵시디언(Electron)이 대표 사례입니다. 두 경로 모두 결함이 남아 있어, 현재 이런 앱에서는 한글 입력이 온전하지 않습니다.
+  - [x] **IBus 호환 레이어 복구** (`fbffe56`): Flatpak 런타임에는 `im-ibus.so` 가 있고 UNIM 은 `org.freedesktop.IBus` 와 `org.freedesktop.portal.IBus` 를 이미 등록하므로 이 길이 정공법입니다. 그런데 경로 자체가 처음부터 동작하지 않았습니다 — ① GVariant 직렬화가 모든 필드를 `v` 로 내보내 클라이언트가 거부(IBusText 는 `(sa{sv}sv)` 계약), ② keycode 이중 차감(GTK `im-ibus` 가 이미 `hardware_keycode - 8` 을 보냄), ③ attribute 인덱스에 문자 대신 바이트 길이. 셋을 고쳐 **한글 커밋과 연속 입력이 정상 동작**합니다. 값이 아니라 **wire 시그니처를 단언하는 테스트**도 함께 넣었습니다(기존 테스트는 variant 껍질을 벗겨 내서 형식 오류를 통과시켰습니다).
+  - [ ] **IBus `UpdatePreeditText` 미도달**: `CommitText` 는 도달하는데 preedit 만 화면에 나오지 않습니다(밑줄 속성 유무와 무관). 이 하나를 풀면 샌드박스 앱 지원이 완성됩니다.
+  - [ ] **XIM `PreeditDraw` 정지**: `PreeditDraw` 를 보내면 그 IC 가 **다음 키를 받지 못합니다**(3/3 재현). 확정 직후 다음 글자가 통째로 씹히는 증상의 정체입니다. 배제된 가설 8건은 조사 기록에 있으며, 다음 후보는 Property 전송 경로(`send_req_impl`)입니다.
 
 ### 3.5단계: UI 프런트엔드 분리 (Fcitx5 스타일) — 완료
 

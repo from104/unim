@@ -6,7 +6,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 형식은 [Keep a Changelog (korean)]를 기반으로 하며 이 프로젝트는 [Semantic Versioning (korean)]을 따릅니다.
 
-## [0.4.0] 2026-08-09
+## [0.4.0] 2026-08-10
 
 리눅스에서만 돌던 입력기가 Windows에서도 같은 코어로 동작하고, 설치가 한 줄로 끝나며, 설정 창이 두 플랫폼에서 같아진 릴리스입니다.
 

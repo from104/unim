@@ -1,6 +1,6 @@
 # UNIM 0.4.0 Release Notes (English)
 
-**Release date**: 2026-08-09
+**Release date**: 2026-08-10
 **Branch**: develop → main
 
 > One-line summary: one-click install (`curl … | bash`), a first-run setup wizard, a Slint-based cross-platform settings app, new Keymap Studio and Typing Practice tools, word-unit input, and a large Windows (TSF) port.
