@@ -497,9 +497,9 @@ fn x11_set_popup_type(display: &gtk4::gdk::Display, x11_surface: &gdk4_x11::X11S
 fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, cursor_h: i32) {
     #[cfg(feature = "wayland-backend")]
     {
-        use gtk4_layer_shell::{Edge, KeyboardInteractivity, Layer, LayerShell};
+        use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-        if !LayerShell::is_supported() {
+        if !gtk4_layer_shell::is_supported() {
             unim_log!(
                 "INDICATOR",
                 "[Popup] gtk4-layer-shell 미지원, 팝업 표시 불가"
@@ -509,7 +509,7 @@ fn position_popup_wayland(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, c
 
         window.init_layer_shell();
         window.set_layer(Layer::Overlay);
-        window.set_keyboard_interactivity(KeyboardInteractivity::None);
+        window.set_keyboard_mode(KeyboardMode::None);
 
         window.set_anchor(Edge::Top, true);
         window.set_anchor(Edge::Left, true);

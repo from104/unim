@@ -18,8 +18,7 @@ use unim::unim_log;
 
 /// gtk4-layer-shell이 supported 환경(=wlr/KWin layer-shell-v1)인지 확인.
 pub fn layer_shell_supported() -> bool {
-    use gtk4_layer_shell::LayerShell;
-    LayerShell::is_supported()
+    gtk4_layer_shell::is_supported()
 }
 
 /// popup window를 Wayland 환경에서 표시할 좌표로 이동.
@@ -27,10 +26,9 @@ pub fn layer_shell_supported() -> bool {
 /// 현재 GTK4-Wayland는 `gtk4::Window::set_position` 미지원이므로 layer-shell 사용 가능 시
 /// margin으로 anchor 위치 조절, 그 외엔 default size만 설정.
 pub fn position_popup(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, cursor_h: i32) {
-    use gtk4::prelude::*;
-    use gtk4_layer_shell::{Edge, KeyboardInteractivity, Layer, LayerShell};
+    use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-    if !LayerShell::is_supported() {
+    if !gtk4_layer_shell::is_supported() {
         unim_log!(
             "INDICATOR",
             "[Popup-Wayland] layer-shell 미지원 — 정확 위치 불가, 기본 위치로 표시"
@@ -43,7 +41,7 @@ pub fn position_popup(window: &gtk4::Window, cursor_x: i32, cursor_y: i32, curso
         window.init_layer_shell();
     }
     window.set_layer(Layer::Overlay);
-    window.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+    window.set_keyboard_mode(KeyboardMode::OnDemand);
 
     // anchor 좌상단 + margin 으로 cursor 위치 근접
     window.set_anchor(Edge::Top, true);
