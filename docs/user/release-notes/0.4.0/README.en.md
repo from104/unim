@@ -1,6 +1,6 @@
 # UNIM 0.4.0 Release Notes (English)
 
-**Release date**: 2026-08-01
+**Release date**: 2026-08-09
 **Branch**: develop → main
 
 > One-line summary: one-click install (`curl … | bash`), a first-run setup wizard, a Slint-based cross-platform settings app, new Keymap Studio and Typing Practice tools, word-unit input, and a large Windows (TSF) port.
@@ -88,12 +88,22 @@ The Windows port advanced substantially this cycle. It has been refined through 
 
 ## Fixed
 
+**Text that went wrong in front of you** — the symptoms you hit while composing come first.
+
+- **Clicking elsewhere while composing committed the text at the click position**: In Chrome, Obsidian, and other apps, clicking elsewhere in the same input field mid-composition placed the in-progress syllable at the click position instead of where it was being typed. Fixed on the GNOME Wayland, XIM, and Qt paths.
+- **In XIM apps, the character after a commit showed up one keystroke late**: In Obsidian and similar apps, once a syllable was committed the next jamo did not appear until you typed another one. Open since 0.3.0.
+- **In XIM apps, pressing Enter while composing put the line break before the character**: The line broke first and the character landed below it, instead of committing the character and then breaking. Note that the Enter delivered afterwards does not carry modifiers, so `Shift+Enter` arrives as a plain Enter.
+- **Password-field protection did nothing on GNOME Wayland**: The GNOME extension's content-purpose handling was an empty stub, so suppression was silently inert on the path GTK3/4 and Chrome all funnel through. It now also tracks a field's purpose changing while it stays focused (a "show password" toggle, for instance).
+
+**Also**
+
 - Help no longer opens in the wrong app (e.g. a VS Code-family IDE) instead of the browser.
 - **Right Alt (RightAlt) Korean/English toggle now works everywhere** (previously filtered out by GTK3/4, Qt5/6, and the GNOME extension before reaching the daemon).
 - Corrected the Super/Meta modifier mask in the GTK/Qt input modules.
-- Replaced unrecognized shortcut examples (`ScrollLock`, `Hangul`, …) with ones that actually work (`F10`, `Korean`, `RightAlt`, …).
+- Replaced unrecognized shortcut examples (`ScrollLock`, `Hangul`, …) with ones that actually work (`F10`, `Korean`, `Hanja`, …), and corrected the stale note claiming modifier combinations were unsupported.
 - Fixed an off-by-8 keycode misread on pure Wayland (non-GNOME) compositors.
 - Accessibility presets (one-handed use / relaxed timing) now actually enforce key auto-repeat suppression on Linux too.
+- When word-unit input falls back to syllable units in terminals and similar, it is now logged (`[WordGate]`) and spelled out in the settings descriptions, so it is not mistaken for broken settings.
 
 ---
 

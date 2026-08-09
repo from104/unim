@@ -4,7 +4,7 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
-## [0.4.0] 2026-08-01
+## [0.4.0] 2026-08-09
 
 The release where an input method that only ran on Linux started running on Windows off the same core, installation became a single line, and both platforms got the same settings window.
 
@@ -63,6 +63,8 @@ The release where an input method that only ran on Linux started running on Wind
 - **In XIM apps, the character after a commit showed up one keystroke late**: In apps that go through XIM (Obsidian and others), once a syllable was committed the next jamo you typed did not appear until you typed another one. Open since 0.3.0; it now appears as you type. (Terminals and other OVER-THE-SPOT clients were already correct and stay that way.)
 
 - **Clicking elsewhere while composing committed the text at the click position**: In Chrome, Obsidian, and other apps, clicking elsewhere in the same input field mid-composition placed the in-progress syllable at the click position instead of where it was being typed. Fixed on the GNOME Wayland, XIM, and Qt paths.
+
+- **In XIM apps, pressing Enter while composing put the line break before the character**: In Obsidian and other apps that go through XIM, composing a syllable and pressing Enter broke the line first and left the character below it, instead of committing the character and then breaking. The GTK and Qt paths were already correct. Note that the Enter delivered afterwards does not carry modifiers, so `Shift+Enter` arrives as a plain Enter.
 
 - **Shortcut fields suggested keys that do not exist**: Following the hints and entering `ScrollLock` or `Hangul` left the shortcut silently dead. The examples now use specs that actually work (`F10`, `Korean`, `Hanja`), and the stale "modifier combinations are not supported" note was corrected.
 

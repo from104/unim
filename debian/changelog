@@ -10,8 +10,13 @@ unim (0.4.0-1) unstable; urgency=medium
   * Word-unit input gate: terminals and non-word frontends auto-demote,
     with [WordGate] verdict logging.
   * Super/Meta modifier bit alignment fixed in GTK3/4 and Qt5/6 IMs.
+  * Composition fixes on the XIM, Qt and GNOME Wayland paths: clicking while
+    composing no longer commits at the click position, the character after a
+    commit is no longer one keystroke late, and Enter during composition no
+    longer puts the line break before the character.
+  * Password-field protection is no longer inert on GNOME Wayland.
 
- -- Seo Kihyun <from104@gmail.com>  Sun, 19 Jul 2026 18:27:25 +0900
+ -- Seo Kihyun <from104@gmail.com>  Sun, 09 Aug 2026 02:40:00 +0900
 
 unim (0.3.63-1) unstable; urgency=medium
 

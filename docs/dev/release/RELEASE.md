@@ -104,13 +104,34 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/Popup
 
 ## 3. 문서 최종 확인
 
-- [ ] `README.md` / `README-ko.md` — 버전 배지, 주요 신기능 표 갱신
+- [ ] `README.md` — 버전 배지(`현재 X.Y.Z`), 주요 신기능 표, 릴리스 노트 링크 갱신
+      (최상위 README 는 한국어 1벌이다. 영문판은 `docs/user/release-notes/<version>/README.en.md`
+      와 `help/unim-help-en.html` 이 담당한다)
 - [ ] `docs/user/user-guide/` — 신기능 반영 완료
 - [ ] `docs/user/troubleshooting/` — 신규 Known Issue 반영
 - [ ] `docs/user/faq/` — 버전별 신규 Q&A 추가
-- [ ] `docs/man/` man 8종 전부 `.TH` 버전 업데이트 — `unim.1`, `unim-cli.1`, `unim-indicator.1`, `unim-settings.1`, `unim-settings-gtk.1`, `unim-keymap-studio.1`, `unim-typing-practice.1`, `unim-popup-service.1`
-- [ ] 깨진 링크 0: `grep -rEn '\]\(\.[^)]*\.md\)' docs/` 후 경로 존재 확인
-- [ ] 한/영 짝 누락 0 (README.md + README-ko.md / README.en.md + README.md)
+- [ ] `docs/man/` man 8종 전부 `.TH` **버전과 날짜(월)** 업데이트 — `unim.1`, `unim-cli.1`, `unim-indicator.1`, `unim-settings.1`, `unim-settings-gtk.1`, `unim-keymap-studio.1`, `unim-typing-practice.1`, `unim-popup-service.1`
+- [ ] **날짜 정합**: CHANGELOG 두 벌 · 릴리스 노트 두 벌 · `debian/changelog` 의 `--` 줄 ·
+      `rpm/unim.spec` 의 `%changelog` 날짜(요일 일치) · man `.TH` 가 모두 같은 릴리스 날짜
+- [ ] 깨진 링크 0 — 아래 한 줄로 전수 검사(`%20` 인코딩과 `debian/` 빌드 산출물은 오탐)
+      ```bash
+      python3 - <<'PY'
+      import os,re,urllib.parse
+      pat=re.compile(r'\[[^\]]*\]\(([^)#][^)]*?)\)')
+      bad=[]
+      for root,_,fs in os.walk('.'):
+          if any(x in root for x in ('/target','/.git','/node_modules','/build','/debian/tmp','/debian/unim-')): continue
+          for f in fs:
+              if not f.endswith('.md'): continue
+              p=os.path.join(root,f)
+              for m in pat.finditer(open(p,encoding='utf-8',errors='ignore').read()):
+                  l=urllib.parse.unquote(m.group(1).split('#')[0].strip())
+                  if not l or l.startswith(('http','mailto:','tel:')): continue
+                  if not os.path.exists(os.path.normpath(os.path.join(root,l))): bad.append((p,l))
+      print(len(bad)); [print(*b) for b in bad]
+      PY
+      ```
+- [ ] 문서 한/영 짝 누락 0 (`docs/` 아래 `*.en.md`·`*-ko.md` 는 짝이 되는 `*.md` 가 있어야 한다)
 
 ---
 
