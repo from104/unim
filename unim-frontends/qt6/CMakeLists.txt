@@ -8,6 +8,19 @@ set(CMAKE_AUTOMOC ON)
 # Qt6 찾기 (Core, Gui, DBus, Widgets)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui DBus Widgets)
 
+# `Qt6::GuiPrivate` 는 아래에서 링크하는데, 이 타겟을 얻는 방법이 Qt 판마다 다르다.
+#   · Qt 6.4 (Ubuntu 24.04): Gui 를 찾을 때 함께 정의된다. 컴포넌트로 요청하면
+#     오히려 실패한다 — Qt6GuiPrivateConfig.cmake 가 없기 때문이다.
+#   · Qt 6.8+ (Fedora 43): private 모듈이 별도 config 로 분리돼 명시해야 생긴다.
+# 그래서 "없을 때만 따로 찾는" 형태로 둔다. 어느 쪽에서도 깨지지 않는다.
+#
+# 2026-08-10 v0.4.0 의 linux-rpm 잡이 이것으로 깨졌다("Target unim links to
+# Qt6::GuiPrivate but the target was not found"). deb 는 Qt 6.4 라 무사했다.
+# qt5 쪽은 처음부터 `find_package(Qt5Gui ... REQUIRED Private)` 로 명시해 왔다.
+if(NOT TARGET Qt6::GuiPrivate)
+    find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+endif()
+
 # 공통 DBus 클라이언트 경로
 set(QT_COMMON_DIR "${CMAKE_SOURCE_DIR}/../qt-common")
 
