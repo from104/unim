@@ -586,6 +586,35 @@ export class UnimDbusIME {
     }
 
     /**
+     * 입력 상태 초기화 (비동기, fire-and-forget)
+     *
+     * 키 hot path 에서 쓴다. `reset()` 의 call_sync 는 셸 메인 스레드를 붙잡는데,
+     * 그 사이 mutter 의 고정키 래치 해제 콜백이 끼어들어 수정자가 사라지는
+     * 경로가 있다(key_handler.js `_bypassCombo` 주석 참조).
+     *
+     * 응답을 기다리지 않아도 **순서는 보장된다** — D-Bus 는 같은 연결에서 보낸
+     * 메시지의 처리 순서를 보존하므로, 여기서 보낸 Reset 은 다음 키의
+     * ProcessKeyEvent 보다 반드시 먼저 데몬에 도달한다.
+     */
+    resetAsync() {
+        if (!this._icProxy) return;
+        this._icProxy.call(
+            'Reset',
+            null,
+            Gio.DBusCallFlags.NONE,
+            DBUS_TIMEOUT_MS,
+            null,
+            (proxy, res) => {
+                try {
+                    proxy.call_finish(res);
+                } catch (e) {
+                    unimError('DBUS_IME', `ResetAsync 실패: ${e.message}`);
+                }
+            }
+        );
+    }
+
+    /**
      * 커서 위치 보고
      * @param {number} x
      * @param {number} y
