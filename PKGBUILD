@@ -1,6 +1,6 @@
 # Maintainer: Seo Gihyeon <from104@gmail.com>
 pkgname=unim
-pkgver=0.4.0
+pkgver=0.4.1
 pkgrel=1
 pkgdesc="Universal Next-generation Input Method for Korean"
 arch=('x86_64')
