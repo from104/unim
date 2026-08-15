@@ -343,8 +343,17 @@ export class KeyHandler {
         //    ProcessKeyEvent 경로로 — engine 정확-일치(atf_hotkey_kind)가 소비를
         //    판정하고, 불일치면 consumed=false 로 종전처럼 앱에 전달된다.
         if ((state & BYPASS_MODIFIER_MASK) && !this._matchesAtfHotkey(keycode, state)) {
-            this._bypassCombo(keyval, keycode, this._tagRepeatBits(state, event),
-                              this._matchesAutoEnglishCombo(keycode, state));
+            const committed = this._bypassCombo(keyval, keycode, this._tagRepeatBits(state, event),
+                                                this._matchesAutoEnglishCombo(keycode, state));
+            if (committed) {
+                // 조합을 확정했다면 키를 한 회차 미룬다 — 6번의 hasCommit 분기와
+                // 같은 이유(커밋이 앱에 먼저 적용돼야 한다). 조합 중이 아닐 때는
+                // 여기 안 걸리므로 Ctrl+A·Shift+Home 등 일상 조합은 그대로
+                // return false 로 빠져 고정키 래치가 살아 있다.
+                this._inputMethod.notify_key_event(event, false);
+                this._drainKeyQueue();
+                return;
+            }
             return false;
         }
 
@@ -379,16 +388,25 @@ export class KeyHandler {
         //   특히 commit과 preedit이 같은 글자(예: ㄹ→ㄹ 분리)일 때
         //   mutter가 갱신을 dedup/유실해 사용자에게 보이지 않는다.
         //   commit이 있을 때만 preedit을 다음 main loop iteration으로 분리.
+        const hasCommit = !!(commit && commit.length > 0);
         this._commitAndPreedit(commit, preedit);
 
-        if (!consumed) {
-            // 엔진이 소비하지 않은 키도 사본을 만들지 않는다 — 3번 주석과 같은 이유.
+        if (!consumed && !hasCommit) {
+            // 소비도 커밋도 없는 키는 사본을 만들지 않는다 — 3번 주석과 같은 이유.
             // **Shift 고정키가 이 경로를 탄다**: Shift 는 BYPASS_MODIFIER_MASK 에
             // 없어 3번으로 안 빠지므로, Shift+Home·Shift+방향키(선택) 같은 조합이
             // 여기까지 내려온다. 사본으로 미루면 래치가 먼저 풀려 선택이 안 된다.
             this._drainKeyQueue();
             return false;
         }
+        // 커밋이 딸린 미소비 키(조합 중 Enter·Home·End 등)는 **반드시 미룬다.**
+        // return false 로 넘기면 커밋과 키가 같은 dispatch 에 묶여 나가는데,
+        // 앱이 그 둘을 같은 순서로 적용한다는 보장이 없다 — 렌더러가 별도
+        // 프로세스인 Chrome 계열은 키를 먼저 처리해 "Enter 먼저, 글자 나중"이
+        // 된다(2026-08-15 실측 회귀). notify_key_event 로 한 회차 미루면 그 사이
+        // 커밋의 done 아이들이 먼저 발사돼 순서가 지켜진다.
+        // 대신 이 키에서는 고정키 래치를 보장하지 못한다 — 조합 중 Shift+Home
+        // 같은 드문 조합이 해당된다. 글자 순서가 어긋나는 쪽이 훨씬 나쁘다.
         this._inputMethod.notify_key_event(event, consumed);
 
         // 8. 재진입으로 큐에 쌓인 키 순차 처리
@@ -503,17 +521,19 @@ export class KeyHandler {
      * @param {number} evdevKeycode
      * @param {number} taggedState - _tagRepeatBits 를 거친 state
      * @param {boolean} isAutoEnglishTrigger - auto_english 조합 트리거 여부
+     * @returns {boolean} 조합을 확정했는지 — true 면 호출부가 키를 한 회차 미뤄야 한다
      * @private
      */
     _bypassCombo(keyval, evdevKeycode, taggedState, isAutoEnglishTrigger) {
         const preedit = this._inputMethod._preeditText || '';
-        if (preedit.length > 0) {
+        const committed = preedit.length > 0;
+        if (committed) {
             this._inputMethod.clearPreedit();
             this._inputMethod.commitText(preedit);
             this._inputMethod._armCommitEchoGuard(preedit);
         }
 
-        if (!this._dbusIME?.isConnected) return;
+        if (!this._dbusIME?.isConnected) return committed;
 
         if (isAutoEnglishTrigger) {
             // 조합 트리거(예: `key:Ctrl+B`) — 키 자체는 앱으로 가고, 엔진은 이
@@ -523,6 +543,7 @@ export class KeyHandler {
         } else {
             this._dbusIME.resetAsync();
         }
+        return committed;
     }
 
     /**

@@ -4,6 +4,12 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
+## [Unreleased]
+
+### Fixed
+
+- **Sticky Keys combinations intermittently did nothing** (GNOME Wayland): Inside text fields, combinations such as `Ctrl`→`A` or `Alt`→`F` were sometimes delivered without the modifier, so a plain character was typed instead. When the input method intercepted a key and handed it back, GNOME skipped the point where it re-applies the Sticky Keys latch, and the returned key arrived a beat later — by which time the latch had already been released. Keys the input method will not consume are now passed straight through, so the latch survives. Selection commands like `Shift`+`Home` and `Shift`+arrow had the same defect and are fixed as well. For people who can only press one key at a time, this is the difference between being able to use combination keys and not.
+
 ## [0.4.0] 2026-08-10
 
 The release where an input method that only ran on Linux started running on Windows off the same core, installation became a single line, and both platforms got the same settings window.
