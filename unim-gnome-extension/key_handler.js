@@ -268,9 +268,11 @@ export class KeyHandler {
 
             // 키 핸들러 콜백 등록 (vfunc_filter_key_event에서 호출됨)
             // event를 전달받아 직접 notify_key_event를 호출 (비동기 키 큐 지원)
-            this._inputMethod.setKeyHandler((keyval, keycode, state, event) => {
-                this._handleVfuncKey(keyval, keycode, state, event);
-            });
+            // 반환값을 **그대로 흘려보내야** 한다 — false 면 vfunc 이 이벤트를
+            // 가로채지 않는다(고정키 보존). 중괄호 본문으로 감싸면 undefined 가
+            // 돌아가 이 경로가 통째로 무력화되므로 표현식 형태를 유지할 것.
+            this._inputMethod.setKeyHandler((keyval, keycode, state, event) =>
+                this._handleVfuncKey(keyval, keycode, state, event));
 
             // bare Alt_R(토글 후보) 비소비 통지 — vfunc 경로에서 return false 로
             // Mutter 네이티브 처리를 보존하되 데몬에 fire-and-forget 으로 통지한다.
@@ -295,13 +297,20 @@ export class KeyHandler {
     /**
      * vfunc_filter_key_event에서 호출되는 키 처리 콜백
      *
-     * 키 핸들러가 직접 notify_key_event를 호출합니다.
      * call_sync() 중 GLib 재진입으로 도착한 키는 큐에 저장 후 순차 처리합니다.
+     *
+     * **반환값 규약** — 이 값이 vfunc_filter_key_event 의 반환값이 된다:
+     *  - `false`: 이 키를 가로채지 않는다. notify_key_event 를 부르면 **안 된다**
+     *    (mutter 가 직접 전달하므로 중복이 된다). 소비하지 않을 키는 전부 이쪽으로
+     *    보내야 고정키 래치가 살아남는다 — 근거는 unim_input_method.js 주석.
+     *  - 그 외(undefined 포함): 가로챘다. 키 전달 여부는 이 함수가 이미 호출한
+     *    notify_key_event(event, consumed) 가 정한다.
      *
      * @param {number} keyval - X11 keysym
      * @param {number} keycode - evdev keycode
      * @param {number} state - modifier state
      * @param {Clutter.Event} event - 원본 키 이벤트 (notify_key_event용)
+     * @returns {boolean|undefined} false 면 미가로챔
      * @private
      */
     _handleVfuncKey(keyval, keycode, state, event) {
@@ -318,41 +327,41 @@ export class KeyHandler {
             return;
         }
 
-        // 1. 수정자 키 단독 → 미소비
+        // 1. 수정자 키 단독 → 가로채지 않음 (vfunc 이 이미 걸러내므로 방어적 분기)
         if (MODIFIER_KEYSYMS.has(keyval)) {
-            this._inputMethod.notify_key_event(event, false);
-            return;
+            return false;
         }
 
         // 2. 팝업 활성 시에도 ProcessKeyEvent로 fall-through
         //    engine이 팝업 키를 처리하고 시그널(PopupNavigate, HidePopup)로 UI 갱신
 
-        // 3. Ctrl/Alt/Super 조합 → 키를 먼저 전달한 후 조합 flush
-        //    (고정키 사용 시 _flushCompose의 call_sync 중 modifier가 해제되는 것을 방지)
+        // 3. Ctrl/Alt/Super 조합 → **가로채지 않는다**(return false).
+        //    소비할 생각이 없는 키를 notify_key_event 로 되돌려 보내면 mutter 가
+        //    고정키 래치를 다시 입히는 지점을 건너뛰게 된다 — 자세한 근거는
+        //    unim_input_method.js vfunc_filter_key_event 의 "왜 false 가 중요한가".
         //    예외: ATF 토글 조합(예: Ctrl+Left)은 bypass 를 건너뛰고 6번 일반
         //    ProcessKeyEvent 경로로 — engine 정확-일치(atf_hotkey_kind)가 소비를
         //    판정하고, 불일치면 consumed=false 로 종전처럼 앱에 전달된다.
         if ((state & BYPASS_MODIFIER_MASK) && !this._matchesAtfHotkey(keycode, state)) {
-            // 3a. auto_english 조합 트리거(예: `key:Ctrl+B`)면 키를 먼저 앱으로 전달
-            //     (고정키 순서 보존)한 뒤 engine 으로 divert 해 한→영 전환.
-            if (this._matchesAutoEnglishCombo(keycode, state)) {
+            const committed = this._bypassCombo(keyval, keycode, this._tagRepeatBits(state, event),
+                                                this._matchesAutoEnglishCombo(keycode, state));
+            if (committed) {
+                // 조합을 확정했다면 키를 한 회차 미룬다 — 6번의 hasCommit 분기와
+                // 같은 이유(커밋이 앱에 먼저 적용돼야 한다). 조합 중이 아닐 때는
+                // 여기 안 걸리므로 Ctrl+A·Shift+Home 등 일상 조합은 그대로
+                // return false 로 빠져 고정키 래치가 살아 있다.
                 this._inputMethod.notify_key_event(event, false);
-                this._divertComboToEngine(keyval, keycode, this._tagRepeatBits(state, event));
                 this._drainKeyQueue();
                 return;
             }
-            // 3b. 비트리거 조합 → 기존 동작(전달 후 조합 flush).
-            this._inputMethod.notify_key_event(event, false);
-            this._flushCompose();
-            return;
+            return false;
         }
 
         // 4. 한자키는 엔진에 위임 (ProcessKeyEvent를 통해 처리)
 
         // 5. DBus 연결 확인
         if (!this._dbusIME.isConnected) {
-            this._inputMethod.notify_key_event(event, false);
-            return;
+            return false;
         }
 
         // 6. ProcessKeyEvent 호출 (재진입 가드)
@@ -365,9 +374,10 @@ export class KeyHandler {
         }
 
         if (!result) {
-            this._inputMethod.notify_key_event(event, false);
+            // D-Bus 실패 → 소비하지 않는다. 사본을 만드는 대신 mutter 에게 그대로
+            // 넘겨야 고정키 래치가 살아 있다(3번 주석과 같은 이유).
             this._drainKeyQueue();
-            return;
+            return false;
         }
 
         // 7. 결과 처리
@@ -378,7 +388,25 @@ export class KeyHandler {
         //   특히 commit과 preedit이 같은 글자(예: ㄹ→ㄹ 분리)일 때
         //   mutter가 갱신을 dedup/유실해 사용자에게 보이지 않는다.
         //   commit이 있을 때만 preedit을 다음 main loop iteration으로 분리.
+        const hasCommit = !!(commit && commit.length > 0);
         this._commitAndPreedit(commit, preedit);
+
+        if (!consumed && !hasCommit) {
+            // 소비도 커밋도 없는 키는 사본을 만들지 않는다 — 3번 주석과 같은 이유.
+            // **Shift 고정키가 이 경로를 탄다**: Shift 는 BYPASS_MODIFIER_MASK 에
+            // 없어 3번으로 안 빠지므로, Shift+Home·Shift+방향키(선택) 같은 조합이
+            // 여기까지 내려온다. 사본으로 미루면 래치가 먼저 풀려 선택이 안 된다.
+            this._drainKeyQueue();
+            return false;
+        }
+        // 커밋이 딸린 미소비 키(조합 중 Enter·Home·End 등)는 **반드시 미룬다.**
+        // return false 로 넘기면 커밋과 키가 같은 dispatch 에 묶여 나가는데,
+        // 앱이 그 둘을 같은 순서로 적용한다는 보장이 없다 — 렌더러가 별도
+        // 프로세스인 Chrome 계열은 키를 먼저 처리해 "Enter 먼저, 글자 나중"이
+        // 된다(2026-08-15 실측 회귀). notify_key_event 로 한 회차 미루면 그 사이
+        // 커밋의 done 아이들이 먼저 발사돼 순서가 지켜진다.
+        // 대신 이 키에서는 고정키 래치를 보장하지 못한다 — 조합 중 Shift+Home
+        // 같은 드문 조합이 해당된다. 글자 순서가 어긋나는 쪽이 훨씬 나쁘다.
         this._inputMethod.notify_key_event(event, consumed);
 
         // 8. 재진입으로 큐에 쌓인 키 순차 처리
@@ -436,13 +464,12 @@ export class KeyHandler {
 
             if ((entry.state & BYPASS_MODIFIER_MASK)
                 && !this._matchesAtfHotkey(entry.keycode, entry.state)) {
-                // auto_english 조합 트리거면 divert (키는 앱으로 통과).
-                if (this._matchesAutoEnglishCombo(entry.keycode, entry.state)) {
-                    this._inputMethod.notify_key_event(entry.event, false);
-                    this._divertComboToEngine(entry.keyval, entry.keycode, this._tagRepeatBits(entry.state, entry.event));
-                    continue;
-                }
-                this._flushCompose();
+                // 큐에 들어온 시점에 이미 vfunc 스택을 벗어났으므로 여기서는
+                // return false 를 쓸 수 없다 — notify_key_event 로 되돌려 보낸다.
+                // 뒷정리는 hot path 와 같은 비동기 경로를 쓴다.
+                this._bypassCombo(entry.keyval, entry.keycode,
+                                  this._tagRepeatBits(entry.state, entry.event),
+                                  this._matchesAutoEnglishCombo(entry.keycode, entry.state));
                 this._inputMethod.notify_key_event(entry.event, false);
                 continue;
             }
@@ -473,27 +500,50 @@ export class KeyHandler {
     }
 
     /**
-     * 조합 중인 텍스트 flush (Ctrl/Alt 조합 시)
+     * Ctrl/Alt/Super 조합 키를 앱에 그대로 넘기기 직전에 할 뒷정리.
      *
-     * 로컬 preedit을 커밋하고 엔진 상태를 초기화합니다.
-     * notify_key_event 패턴에서는 키 전달을 Mutter가 처리하므로
-     * forward_key 호출이 불필요합니다.
+     * **동기 D-Bus 호출을 하지 않는다.** 이 함수가 도는 동안 셸 메인 스레드가
+     * 멈추면, 그 틈에 mutter 의 고정키 래치 해제 콜백이 먼저 실행돼 뒤이어
+     * 전달되는 키에서 Ctrl/Alt 가 빠진다. 래치 해제는 mutter 입력 스레드가
+     * 물리적 키 뗌 시점에 곧바로 통지하므로 이쪽이 늦으면 그대로 진다.
+     * (근거: unim_input_method.js vfunc_filter_key_event 주석)
+     *
+     * 그래서 두 가지로 나눈다:
+     *  1. 조합 중이던 글자 확정 — D-Bus 를 타지 않는 **로컬** 커밋이라 즉시 끝난다.
+     *     mutter 가 이어서 보낼 키보다 먼저 앱에 닿아야 하므로 여기서 동기로 한다.
+     *  2. 엔진 통지 — 전부 비동기. 응답이 필요 없고, D-Bus 가 연결 단위로 메시지
+     *     순서를 보존하므로 다음 키의 ProcessKeyEvent 보다 먼저 도달한다.
+     *
+     * 데몬은 Reset·조합 트리거 처리 중 비운 조합을 CommitText 로 되쏘는데, 위 1
+     * 에서 이미 같은 글자를 커밋했으므로 메아리 가드를 무장해 흘려보낸다.
+     *
+     * @param {number} keyval
+     * @param {number} evdevKeycode
+     * @param {number} taggedState - _tagRepeatBits 를 거친 state
+     * @param {boolean} isAutoEnglishTrigger - auto_english 조합 트리거 여부
+     * @returns {boolean} 조합을 확정했는지 — true 면 호출부가 키를 한 회차 미뤄야 한다
      * @private
      */
-    _flushCompose() {
-        // 로컬 preedit에서 커밋 텍스트 획득
+    _bypassCombo(keyval, evdevKeycode, taggedState, isAutoEnglishTrigger) {
         const preedit = this._inputMethod._preeditText || '';
-        if (preedit.length > 0) {
+        const committed = preedit.length > 0;
+        if (committed) {
             this._inputMethod.clearPreedit();
             this._inputMethod.commitText(preedit);
-            // 아래 reset() 이 같은 글자를 CommitText 로 되쏘므로 미리 막는다
-            // (unim_input_method.js vfunc_reset 주석 참조).
             this._inputMethod._armCommitEchoGuard(preedit);
         }
-        // 엔진 상태 초기화 (포커스 변경 없이)
-        if (this._dbusIME?.isConnected) {
-            this._dbusIME.reset();
+
+        if (!this._dbusIME?.isConnected) return committed;
+
+        if (isAutoEnglishTrigger) {
+            // 조합 트리거(예: `key:Ctrl+B`) — 키 자체는 앱으로 가고, 엔진은 이
+            // 통지를 받아 한→영 모드 전환만 한다. 반환값(consumed)은 어차피
+            // 무시하는 값이라 응답을 기다릴 이유가 없다.
+            this._dbusIME.processKeyAsync(keyval, evdevKeycode, taggedState);
+        } else {
+            this._dbusIME.resetAsync();
         }
+        return committed;
     }
 
     /**
@@ -564,40 +614,6 @@ export class KeyHandler {
         } catch (e) {
             unimError('KEY', `auto_english 조합 매칭 오류(무시): ${e.message}`);
             return false;
-        }
-    }
-
-    /**
-     * 조합 트리거를 engine 으로 divert 해 한→영 모드 전환을 수행하고 결과(commit/
-     * preedit)를 반영한다. 키는 **소비하지 않는다** — 호출부가 이미 notify_key_event
-     * (false)/EVENT_PROPAGATE 로 앱에 전달했다(tmux prefix Ctrl+B 등이 앱행이어야 함).
-     * ProcessKeyEvent 는 조합 트리거에 대해 consumed=false(idle=not_consumed,
-     * 조합중=committed_passthrough)만 돌려주므로 consumed 는 무시한다. D-Bus 실패
-     * 시 기존 로컬 flush 로 폴백.
-     *
-     * @param {number} keyval
-     * @param {number} evdevKeycode
-     * @param {number} state
-     * @private
-     */
-    _divertComboToEngine(keyval, evdevKeycode, state) {
-        if (!this._dbusIME.isConnected) {
-            this._flushCompose();
-            return;
-        }
-        this._processingKey = true;
-        let result;
-        try {
-            result = this._dbusIME.processKey(keyval, evdevKeycode, state);
-        } finally {
-            this._processingKey = false;
-        }
-        if (result) {
-            // commit(직전 조합 flush)/preedit(빈 문자열) 만 반영 — 일반 키 경로와 동일.
-            this._commitAndPreedit(result.commit, result.preedit);
-        } else {
-            // D-Bus 실패 → 로컬 preedit flush + engine reset (기존 blanket 폴백).
-            this._flushCompose();
         }
     }
 
@@ -764,21 +780,11 @@ export class KeyHandler {
         //    예외: ATF 토글 조합은 bypass 를 건너뛰고 6번 ProcessKeyEvent 경로로
         //    (engine 정확-일치가 소비 판정 — consumed 면 EVENT_STOP).
         if ((state & BYPASS_MODIFIER_MASK) && !this._matchesAtfHotkey(evdevKeycode, state)) {
-            // 3a. auto_english 조합 트리거면 engine 으로 divert(모드 전환). 키는
-            //     PROPAGATE 로 앱에 전달되므로 별도 forward 불필요.
-            if (this._matchesAutoEnglishCombo(evdevKeycode, state)) {
-                this._divertComboToEngine(keyval, evdevKeycode, this._tagRepeatBits(state, event));
-                return Clutter.EVENT_PROPAGATE;
-            }
-            // 3b. captured-event 폴백이므로 forward_key 불필요, PROPAGATE로 키 전달
-            const preedit = this._inputMethod._preeditText || '';
-            if (preedit.length > 0) {
-                this._inputMethod.clearPreedit();
-                this._inputMethod.commitText(preedit);
-                // reset() 의 CommitText 메아리 차단 (_flushCompose 와 동일 사유).
-                this._inputMethod._armCommitEchoGuard(preedit);
-                if (this._dbusIME?.isConnected) this._dbusIME.reset();
-            }
+            // captured-event 폴백이므로 forward_key 불필요, PROPAGATE 로 키 전달.
+            // 뒷정리는 vfunc 경로와 같은 비동기 헬퍼 — 여기서도 동기 D-Bus 로
+            // 메인 스레드를 잡으면 고정키 래치 해제와 경합한다.
+            this._bypassCombo(keyval, evdevKeycode, this._tagRepeatBits(state, event),
+                              this._matchesAutoEnglishCombo(evdevKeycode, state));
             return Clutter.EVENT_PROPAGATE;
         }
 

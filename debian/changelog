@@ -1,3 +1,15 @@
+unim (0.4.1-1) unstable; urgency=medium
+
+  * Fix Sticky Keys combinations (Ctrl/Alt/Shift + key) intermittently losing
+    the modifier on GNOME Wayland: keys the input method will not consume are
+    now passed straight through instead of being re-injected, so GNOME's
+    Sticky Keys latch survives. Shift+Home / Shift+arrow selection included.
+  * Restore rpm packaging: stop rpmbuild's MAKEFLAGS separator from breaking
+    the jemalloc build, and request Qt6::GuiPrivate explicitly so Qt 6.8+
+    (Fedora 43) configures. 0.4.0 shipped without any rpm.
+
+ -- Seo Kihyun <from104@gmail.com>  Sun, 16 Aug 2026 09:00:00 +0900
+
 unim (0.4.0-1) unstable; urgency=medium
 
   * First public GitHub release: one-liner installer (install.sh) and

@@ -154,7 +154,12 @@ class UnimInputMethod extends Clutter.InputMethod {
 
     /**
      * KeyHandler의 키 처리 콜백 등록
-     * @param {Function|null} handler - (keyval, keycode, state) => boolean
+     *
+     * 콜백이 **false 를 돌려주면 이 이벤트를 가로채지 않는다**(vfunc_filter_key_event
+     * 가 그대로 false 를 반환). 그 밖의 값은 "가로챘음"으로 보고, 키 전달 여부는
+     * 콜백이 부른 notify_key_event 가 정한다.
+     *
+     * @param {Function|null} handler - (keyval, evdevKeycode, state, event) => boolean|undefined
      */
     setKeyHandler(handler) {
         this._keyHandler = handler;
@@ -275,10 +280,38 @@ class UnimInputMethod extends Clutter.InputMethod {
 
         // 키 핸들러가 직접 notify_key_event를 호출
         // (키 큐 패턴: call_sync 중 재진입 키를 큐에 저장 후 순차 처리)
+        //
+        // 반환값 규약: 핸들러가 **명시적으로 false** 를 돌려주면 이 이벤트를
+        // 가로채지 않는다(아래 "왜 false 가 중요한가" 참조). 그 밖의 값
+        // (undefined 포함)은 종전대로 "가로챘음"(true)으로 본다 — 이때 키 전달
+        // 여부는 핸들러가 이미 호출한 notify_key_event 가 정한다.
+        //
+        // ── 왜 false 가 중요한가 (mutter 46 소스 확인) ──────────────────────
+        // src/core/events.c:meta_display_handle_event 의 순서가 이렇다:
+        //
+        //   if (meta_wayland_text_input_update (...))   // ← 여기서 이 vfunc 이 불린다
+        //     return CLUTTER_EVENT_STOP;               // ← true 면 즉시 반환
+        //   meta_wayland_compositor_update (...);      // ← 그래서 이 줄을 건너뛴다
+        //
+        // `meta_wayland_compositor_update` 는 wayland 키보드의 xkb 상태를 갱신하고
+        // **고정키 래치 마스크를 다시 입히는**(kbd_a11y_apply_mask) 지점이다.
+        // true 를 돌려주면 원본 이벤트가 이 지점을 못 지나가고, notify_key_event 가
+        // 새로 큐에 넣은 사본이 **다음 메인 루프 회차에** 대신 지나간다.
+        //
+        // 그런데 고정키 래치 해제는 mutter 의 **입력 스레드**가 물리적 키 뗌 시점에
+        // 곧바로 통지한다(meta-input-device-native.c:handle_stickykeys_release →
+        // notify_stickykeys_mask). 즉 "래치를 지우는 콜백"과 "미뤄진 키 사본"이
+        // 메인 루프에서 경합하고, 전자가 이기면 사본은 수정자가 빠진 채 앱에 닿는다.
+        // 이것이 Ctrl/Alt 고정키가 '가끔' 안 먹던 원인이다.
+        //
+        // 수정자 키 단독을 위에서 return false 로 빼둔 것도 같은 이유다(위 주석).
+        // 소비하지 않을 키라면 가로채지 말고 mutter 에게 그대로 넘기는 편이
+        // 언제나 옳다 — 사본도, 경합도, FLAG_INPUT_METHOD 도 생기지 않는다.
         if (this._keyHandler) {
             const evdevKeycode = keycode > 8 ? keycode - 8 : 0;
             try {
-                this._keyHandler(keyval, evdevKeycode, state, event);
+                if (this._keyHandler(keyval, evdevKeycode, state, event) === false)
+                    return false;
             } catch (e) {
                 unimError('IME', `vfunc_filter_key_event 오류: ${e.message}`);
                 this.notify_key_event(event, false);

@@ -4,6 +4,16 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
+## [0.4.1] 2026-08-16
+
+A fix for Sticky Keys users, plus the rpm packages that were missing for Fedora-family distributions.
+
+### Fixed
+
+- **rpm packages never reached the release**: 0.4.0 shipped only .deb and the Windows MSI, so one-line installation was simply unavailable on Fedora and RHEL-family systems. The build was broken in two places — ① the `--` separator that `rpmbuild` puts into `MAKEFLAGS` was swallowed by the jemalloc build script, and ② `Qt6::GuiPrivate` must be requested explicitly on Qt 6.8 and later, which we did not do (the .deb side uses Qt 6.4, where it comes along for free, so this never surfaced there). Verified with a real build on Fedora 43.
+
+- **Sticky Keys combinations intermittently did nothing** (GNOME Wayland): Inside text fields, combinations such as `Ctrl`→`A` or `Alt`→`F` were sometimes delivered without the modifier, so a plain character was typed instead. When the input method intercepted a key and handed it back, GNOME skipped the point where it re-applies the Sticky Keys latch, and the returned key arrived a beat later — by which time the latch had already been released. Keys the input method will not consume are now passed straight through, so the latch survives. Selection commands like `Shift`+`Home` and `Shift`+arrow had the same defect and are fixed as well. For people who can only press one key at a time, this is the difference between being able to use combination keys and not.
+
 ## [0.4.0] 2026-08-10
 
 The release where an input method that only ran on Linux started running on Windows off the same core, installation became a single line, and both platforms got the same settings window.

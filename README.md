@@ -2,7 +2,7 @@
 
 Rust로 만든 한국어 입력기입니다. **리눅스와 Windows에서 완전히 같은 엔진**이 돌아갑니다.
 
-MIT · Rust 1.78+ · Linux (deb/rpm) · Windows 10/11 (MSI) · 현재 0.4.0
+MIT · Rust 1.78+ · Linux (deb/rpm) · Windows 10/11 (MSI) · 현재 0.4.1
 
 ---
 
@@ -78,7 +78,7 @@ curl -fsSL .../install.sh | bash -s -- --update
 curl -fsSL .../install.sh | bash -s -- --check
 
 # 버전 고정
-UNIM_VERSION=v0.4.0 curl -fsSL .../install.sh | bash
+UNIM_VERSION=v0.4.1 curl -fsSL .../install.sh | bash
 ```
 
 `curl | bash`가 내키지 않으시면 받아서 읽어 보신 뒤 실행하셔도 됩니다.
@@ -116,7 +116,7 @@ MSI는 SHA256(`SHA256SUMS-msi`)으로 검증하며, 관리자로 승격된 프�
 & ([scriptblock]::Create((irm .../install.ps1))) -Check
 
 # 버전 고정 (해당 릴리스에 SHA256SUMS-msi가 있어야 합니다)
-$env:UNIM_VERSION='v0.4.0'; irm .../install.ps1 | iex
+$env:UNIM_VERSION='v0.4.1'; irm .../install.ps1 | iex
 ```
 
 받아서 읽어 보신 뒤 실행하시려면 이렇게 하시면 됩니다.
@@ -343,6 +343,7 @@ Wayland surrounding-text / content-type 활용, 문서 정비.
 - [트러블슈팅](docs/user/troubleshooting/README-ko.md) · [Troubleshooting](docs/user/troubleshooting/README.md)
 - [FAQ](docs/user/faq/README-ko.md) · [FAQ (EN)](docs/user/faq/README.md)
 - [단축키 정리](docs/user/keyboard-shortcuts/README-ko.md) · [Shortcuts](docs/user/keyboard-shortcuts/README.md)
+- [0.4.1 릴리스 노트](docs/user/release-notes/0.4.1/README.md) · [Release Notes](docs/user/release-notes/0.4.1/README.en.md)
 - [0.4.0 릴리스 노트](docs/user/release-notes/0.4.0/README.md) · [Release Notes](docs/user/release-notes/0.4.0/README.en.md)
 - [변경 이력](CHANGELOG-ko.md) · [Changelog](CHANGELOG.md)
 

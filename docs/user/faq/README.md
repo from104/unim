@@ -1,6 +1,6 @@
 # UNIM FAQ (English)
 
-> The questions people actually ask about UNIM 0.4.0.
+> The questions people actually ask about UNIM 0.4.1.
 > Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.
 
 ---
@@ -609,7 +609,7 @@ If it is still missing after signing back in, work down this list.
 - Until then, verify integrity by **comparing the SHA256 hash** against `SHA256SUMS-msi`, which is published alongside the MSI in the release.
 
   ```powershell
-  Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
+  Get-FileHash .\unim-0.4.1-x64.msi -Algorithm SHA256
   ```
 
 - If you install with `install.ps1`, the script does this comparison for you — twice (Q26).
@@ -629,7 +629,7 @@ If it is still missing after signing back in, work down this list.
    # Inspect first, then run
    powershell -ExecutionPolicy Bypass -File .\install.ps1 -Check
    # Pin a specific version
-   $env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+   $env:UNIM_VERSION='v0.4.1'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
    ```
 
 `-Check` (report installed vs latest version, change nothing), `-Update`, and `-Force` are available.
@@ -713,6 +713,7 @@ If it fails in one specific app, include the **app name and whether it is 32- or
 
 - [User manual](../user-guide/README.md)
 - [Troubleshooting](../troubleshooting/README.md)
+- [Release notes 0.4.1](../release-notes/0.4.1/README.en.md)
 - [Release notes 0.4.0](../release-notes/0.4.0/README.en.md)
 - [Release notes 0.3.0](../release-notes/0.3.0/README.en.md)
 - [Release notes 0.2.0](../release-notes/0.2.0/RELEASE_NOTES.md)

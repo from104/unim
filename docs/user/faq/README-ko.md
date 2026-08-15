@@ -1,6 +1,6 @@
 # UNIM FAQ (한국어)
 
-> UNIM 0.4.0에 대해 사람들이 정말 자주 묻는 질문 모음.
+> UNIM 0.4.1에 대해 사람들이 정말 자주 묻는 질문 모음.
 > 답에는 항상 「왜 그렇게 동작하는지」를 한 줄 이상 곁들여, 단순 사실 전달이 아니라 다음 결정에 도움이 되도록 했다.
 
 ---
@@ -605,7 +605,7 @@ sudo apt remove 'unim*'
 - 그때까지 무결성 확인은 **SHA256 대조**로 한다. 릴리스에 함께 올라오는 `SHA256SUMS-msi` 의 값과 비교하면 된다.
 
   ```powershell
-  Get-FileHash .\unim-0.4.0-x64.msi -Algorithm SHA256
+  Get-FileHash .\unim-0.4.1-x64.msi -Algorithm SHA256
   ```
 
 - `install.ps1` 로 설치하면 이 대조를 스크립트가 자동으로, 그것도 두 번 해 준다(Q26).
@@ -625,7 +625,7 @@ sudo apt remove 'unim*'
    # 먼저 내려받아 읽어 본 뒤 실행
    powershell -ExecutionPolicy Bypass -File .\install.ps1 -Check
    # 특정 버전 고정
-   $env:UNIM_VERSION='v0.4.0'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+   $env:UNIM_VERSION='v0.4.1'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
    ```
 
 `-Check`(설치 버전과 최신 버전만 보고, 아무것도 안 바꿈) · `-Update`(최신으로 갱신) · `-Force` 옵션이 있다.
@@ -709,6 +709,7 @@ sudo apt remove 'unim*'
 
 - [사용자 매뉴얼](../user-guide/README-ko.md)
 - [트러블슈팅](../troubleshooting/README-ko.md)
+- [릴리즈 노트 0.4.1](../release-notes/0.4.1/README.md)
 - [릴리즈 노트 0.4.0](../release-notes/0.4.0/README.md)
 - [릴리즈 노트 0.3.0](../release-notes/0.3.0/README.md)
 - [릴리즈 노트 0.2.0](../release-notes/0.2.0/RELEASE_NOTES-ko.md)

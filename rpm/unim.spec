@@ -1,5 +1,5 @@
 Name:           unim
-Version:        0.4.0
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        Universal Next-generation Input Method Engine (Korean IME)
 Summary(ko):    범용 차세대 한글 입력기 엔진
@@ -420,6 +420,16 @@ fi
 # ─── Changelog ───────────────────────────────────────────────────────────────
 
 %changelog
+* Sun Aug 16 2026 from104 <from104@gmail.com> - 0.4.1-1
+- Restore rpm packaging. Two defects kept 0.4.0 from producing any rpm:
+  rpmbuild injects a "--" separator into MAKEFLAGS that the jemalloc build
+  script swallowed, and Qt6::GuiPrivate must be requested explicitly on
+  Qt 6.8+ (Fedora 43). Verified with a real Fedora 43 build.
+- Fix Sticky Keys combinations (Ctrl/Alt/Shift + key) intermittently losing
+  the modifier on GNOME Wayland. Keys the input method will not consume are
+  passed straight through instead of being re-injected, so the latch
+  survives. Shift+Home and Shift+arrow selection are fixed as well.
+
 * Mon Aug 10 2026 from104 <from104@gmail.com> - 0.4.0-1
 - Restructure to mirror the Debian 11-package layout: new unim-desktop bundle
   (replaces the indicator/settings-gtk/popup-service split), new Slint
