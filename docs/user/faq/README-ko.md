@@ -325,7 +325,7 @@ explorer "$env:APPDATA\unim\layouts"
 
 C-API: `UnimEnglishLayout`/`UnimKoreanLayout` enum 제거 → C 문자열 setter/getter로 변경. C/C++ 클라이언트 사용자만 영향.
 
-자세한 마이그레이션은 [릴리즈 노트](../release-notes/0.2.0/RELEASE_NOTES-ko.md).
+자세한 마이그레이션은 [변경 이력 0.2.0](../../../CHANGELOG-ko.md#020-2026-04-26).
 
 ---
 <!-- @endplatform -->
@@ -709,9 +709,7 @@ sudo apt remove 'unim*'
 
 - [사용자 매뉴얼](../user-guide/README-ko.md)
 - [트러블슈팅](../troubleshooting/README-ko.md)
-- [릴리즈 노트 0.4.1](../release-notes/0.4.1/README.md)
-- [릴리즈 노트 0.4.0](../release-notes/0.4.0/README.md)
-- [릴리즈 노트 0.3.0](../release-notes/0.3.0/README.md)
-- [릴리즈 노트 0.2.0](../release-notes/0.2.0/RELEASE_NOTES-ko.md)
+- [변경 이력](../../../CHANGELOG-ko.md) — 모든 판의 상세 내역
+- [릴리스 페이지](https://github.com/from104/unim/releases)
 - [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)
 - [`docs/dev/specs/POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)

@@ -15,7 +15,6 @@ on:
     paths-ignore:
       - 'docs/dev/**'
       - 'docs/archive/**'
-      - 'docs/user/release-notes/**'
       - 'docs/user/keymaps/**'
       - '*.md'
   pull_request:
@@ -23,7 +22,6 @@ on:
     paths-ignore:
       - 'docs/dev/**'
       - 'docs/archive/**'
-      - 'docs/user/release-notes/**'
       - 'docs/user/keymaps/**'
       - '*.md'
 

@@ -4,15 +4,22 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
-## [0.4.1] 2026-08-16
+## [Unreleased]
 
-A fix for Sticky Keys users, plus the rpm packages that were missing for Fedora-family distributions.
+## [0.4.1] 2026-08-16
 
 ### Fixed
 
-- **rpm packages never reached the release**: 0.4.0 shipped only .deb and the Windows MSI, so one-line installation was simply unavailable on Fedora and RHEL-family systems. The build was broken in two places — ① the `--` separator that `rpmbuild` puts into `MAKEFLAGS` was swallowed by the jemalloc build script, and ② `Qt6::GuiPrivate` must be requested explicitly on Qt 6.8 and later, which we did not do (the .deb side uses Qt 6.4, where it comes along for free, so this never surfaced there). Verified with a real build on Fedora 43.
+- **The rpm packages are back.** 0.4.0 shipped only .deb and the Windows MSI, so one-line installation was simply unavailable on Fedora and RHEL-family systems. The build was broken in two places — the `--` separator that `rpmbuild` puts into `MAKEFLAGS` was swallowed by the jemalloc build script, and `Qt6::GuiPrivate` must be requested explicitly on Qt 6.8 and later, which we did not do. The .deb side uses Qt 6.4, where it comes along for free, so this never surfaced there. Verified with a real build on Fedora 43.
+- **Sticky Keys combinations no longer fail intermittently (GNOME Wayland).** Inside text fields, combinations such as `Ctrl`→`A` or `Alt`→`F` were sometimes delivered without the modifier, so a plain character was typed instead. When the input method intercepted a key and handed it back, GNOME skipped the point where it re-applies the Sticky Keys latch, and the returned key arrived a beat later — by which time the latch had already been released. Keys the input method will not consume are now passed straight through, so the latch survives. Selection commands like `Shift`+`Home` and `Shift`+arrow had the same defect and are fixed as well. For people who can only press one key at a time, this is the difference between being able to use combination keys and not.
+  - The fix lives in the GNOME Shell extension, and GNOME does not reload extension code during a session. Log out and back in after upgrading.
 
-- **Sticky Keys combinations intermittently did nothing** (GNOME Wayland): Inside text fields, combinations such as `Ctrl`→`A` or `Alt`→`F` were sometimes delivered without the modifier, so a plain character was typed instead. When the input method intercepted a key and handed it back, GNOME skipped the point where it re-applies the Sticky Keys latch, and the returned key arrived a beat later — by which time the latch had already been released. Keys the input method will not consume are now passed straight through, so the latch survives. Selection commands like `Shift`+`Home` and `Shift`+arrow had the same defect and are fixed as well. For people who can only press one key at a time, this is the difference between being able to use combination keys and not.
+### Known issues
+
+- **A modifier combination pressed in the middle of composing does not hold the latch.** Pressing `Shift`→`Home` while a Hangul syllable is still being composed is the case in point. The composed text is committed to the application first, because characters arriving out of order is the worse failure. Finish the syllable and the combination behaves normally.
+- Hangul is invisible while being composed in sandboxed apps (Flatpak, Snap). Committing and continuous typing were restored in 0.4.0 over the IBus path, but the in-progress text still does not appear.
+- Composition stalls in environments that go through GTK's `im-xim`.
+- Windows: composite keys such as `Ctrl`+`B` do not fire while auto-English switching is active, and the tray context menu does not appear after a fresh install or an update.
 
 ## [0.4.0] 2026-08-10
 
@@ -100,6 +107,10 @@ The release where an input method that only ran on Linux started running on Wind
 - `.gitattributes` (eol=lf) and `.editorconfig` normalize line endings.
 
 ---
+
+### Known issues
+
+- **This release carries no rpm packages.** The build was broken, so only the 11 .deb packages and the Windows MSI were published, and one-line installation is unavailable on Fedora and RHEL-family systems. Fixed in [0.4.1](https://github.com/from104/unim/releases/tag/v0.4.1).
 
 ## [0.3.0] 2026-05-19
 

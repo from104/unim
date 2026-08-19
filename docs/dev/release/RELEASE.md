@@ -15,7 +15,9 @@ UNIM 정식 릴리스(`develop` → `main` 머지 + 태그 생성) 시 수행해
 - [ ] `cargo test --workspace` — 전체 통과
 - [ ] `cargo clippy --workspace -- -D warnings` — 에러 0
 - [ ] `CHANGELOG.md` / `CHANGELOG-ko.md` — `[Unreleased]` 항목이 해당 버전으로 확정
-- [ ] `docs/user/release-notes/<version>/README.md` + `README.en.md` 존재
+- [ ] `CHANGELOG` 해당 버전 절에 `### 알려진 문제` / `### Known issues` 가 있다
+      (릴리스 본문 맨 위로 올라가는 절이다 — 남은 제약이 없으면 절 자체를 뺀다)
+- [ ] `scripts/release-body.sh vX.Y.Z` 가 오류 없이 본문을 뽑는다
 - [ ] 버전 번호 일관성 확인: `Cargo.toml` workspace version = CHANGELOG 최신 버전
 
 ---
@@ -104,14 +106,13 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/Popup
 
 ## 3. 문서 최종 확인
 
-- [ ] `README.md` — 버전 배지(`현재 X.Y.Z`), 주요 신기능 표, 릴리스 노트 링크 갱신
-      (최상위 README 는 한국어 1벌이다. 영문판은 `docs/user/release-notes/<version>/README.en.md`
-      와 `help/unim-help-en.html` 이 담당한다)
+- [ ] `README.md` — 버전 배지(`현재 X.Y.Z`), 주요 신기능 표 갱신
+      (최상위 README 는 한국어 1벌이다. 영문판은 `help/unim-help-en.html` 이 담당한다)
 - [ ] `docs/user/user-guide/` — 신기능 반영 완료
 - [ ] `docs/user/troubleshooting/` — 신규 Known Issue 반영
 - [ ] `docs/user/faq/` — 버전별 신규 Q&A 추가
 - [ ] `docs/man/` man 8종 전부 `.TH` **버전과 날짜(월)** 업데이트 — `unim.1`, `unim-cli.1`, `unim-indicator.1`, `unim-settings.1`, `unim-settings-gtk.1`, `unim-keymap-studio.1`, `unim-typing-practice.1`, `unim-popup-service.1`
-- [ ] **날짜 정합**: CHANGELOG 두 벌 · 릴리스 노트 두 벌 · `debian/changelog` 의 `--` 줄 ·
+- [ ] **날짜 정합**: CHANGELOG 두 벌 · `debian/changelog` 의 `--` 줄 ·
       `rpm/unim.spec` 의 `%changelog` 날짜(요일 일치) · man `.TH` 가 모두 같은 릴리스 날짜
 - [ ] 깨진 링크 0 — 아래 한 줄로 전수 검사(`%20` 인코딩과 `debian/` 빌드 산출물은 오탐)
       ```bash
@@ -166,12 +167,24 @@ git push origin main --tags
 
 ## 6. GitHub Release 생성
 
-**GitHub Release 자체는 태그 push 시 `linux-deb.yml`(`Create GitHub Release` 스텝)이 자동 생성한다.** 제목·설치 안내·CHANGELOG 링크가 포함된 고정 템플릿 본문과 deb 11종 + `SHA256SUMS`를 자동 첨부하므로, **이 단계에서 수동으로 릴리스를 만들거나 본문을 붙여넣지 않는다.**
+**GitHub Release 자체는 태그 push 시 `linux-deb.yml`(`Create GitHub Release` 스텝)이 자동 생성한다.** deb 11종 + `SHA256SUMS`를 첨부하므로, **이 단계에서 수동으로 릴리스를 만들거나 본문을 붙여넣지 않는다.**
 
-`docs/user/release-notes/<version>/README.md` + `README.en.md`는 GitHub Release 본문과는 별개의, 저장소에 커밋되는 사용자용 상세 릴리스 노트다(마이그레이션 안내·알려진 문제 등 CI 템플릿보다 상세한 내용). CHANGELOG와 함께 이 문서가 존재하는지가 §사전 조건에서 확인된다.
+본문은 `scripts/release-body.sh <태그>` 가 **CHANGELOG 에서 직접 뽑는다.** 별도의 릴리스 노트 문서는 두지 않는다 — 원본이 하나여야 릴리스 페이지와 저장소의 이력이 어긋나지 않는다. 본문 구성은 다음과 같고, `알려진 문제` 절은 읽는 사람이 먼저 봐야 하므로 **맨 위로 끌어올린다.**
+
+```
+## [X.Y.Z] YYYY-MM-DD
+### 알려진 문제 → ### 수정됨 / 추가됨 / 변경됨
+<details>English (CHANGELOG.md 의 같은 절)</details>
+---
+설치 안내 (Linux · Windows)
+**전체 변경 이력 / Full Changelog**: compare/<이전태그>...<태그>
+```
+
+compare 링크가 이전 태그를 찾아야 하므로 `linux-deb.yml` 의 checkout 은 `fetch-depth: 0` 이다. 얕게 받으면 태그가 없어 **오류 없이 그 줄만 빠진다** — 릴리스 후 본문에 그 줄이 있는지 눈으로 볼 것.
 
 - [ ] 태그 push 후 Actions에서 `linux-deb.yml`의 릴리스 생성 성공 확인
-- [ ] (Windows MSI가 별도 워크플로에서 첨부되는 동안 시간차가 있을 수 있음 — `docs/user/release-notes/<version>/`에 고지)
+- [ ] 릴리스 본문에 CHANGELOG 절과 `Full Changelog` compare 링크가 다 들어갔는지 확인
+- [ ] (Windows MSI가 별도 워크플로에서 첨부되는 동안 시간차가 있을 수 있음 — 본문의 ⏳ 안내가 이를 고지한다)
 
 ---
 

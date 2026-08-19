@@ -343,9 +343,8 @@ Wayland surrounding-text / content-type 활용, 문서 정비.
 - [트러블슈팅](docs/user/troubleshooting/README-ko.md) · [Troubleshooting](docs/user/troubleshooting/README.md)
 - [FAQ](docs/user/faq/README-ko.md) · [FAQ (EN)](docs/user/faq/README.md)
 - [단축키 정리](docs/user/keyboard-shortcuts/README-ko.md) · [Shortcuts](docs/user/keyboard-shortcuts/README.md)
-- [0.4.1 릴리스 노트](docs/user/release-notes/0.4.1/README.md) · [Release Notes](docs/user/release-notes/0.4.1/README.en.md)
-- [0.4.0 릴리스 노트](docs/user/release-notes/0.4.0/README.md) · [Release Notes](docs/user/release-notes/0.4.0/README.en.md)
-- [변경 이력](CHANGELOG-ko.md) · [Changelog](CHANGELOG.md)
+- [변경 이력](CHANGELOG-ko.md) · [Changelog](CHANGELOG.md) — 판별 상세 내역은 여기 한 곳에 모읍니다
+- [릴리스 페이지](https://github.com/from104/unim/releases) — 내려받기와 판별 요약
 
 같은 내용을 오프라인 도움말로도 설치해 드립니다. 리눅스·Windows 판이 각각 따로 생성되므로,
 쓰시는 플랫폼에 해당하는 내용만 보이게 됩니다.

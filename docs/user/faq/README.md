@@ -323,7 +323,7 @@ Mostly automatic. Two normalizations:
 
 C API: `UnimEnglishLayout` / `UnimKoreanLayout` enums removed → setters/getters now take/return C strings. Affects only C/C++ clients.
 
-Full migration: [release notes](../release-notes/0.2.0/RELEASE_NOTES.md).
+Full migration: [changelog 0.2.0](../../../CHANGELOG.md#020-2026-04-26).
 
 ---
 <!-- @endplatform -->
@@ -713,9 +713,7 @@ If it fails in one specific app, include the **app name and whether it is 32- or
 
 - [User manual](../user-guide/README.md)
 - [Troubleshooting](../troubleshooting/README.md)
-- [Release notes 0.4.1](../release-notes/0.4.1/README.en.md)
-- [Release notes 0.4.0](../release-notes/0.4.0/README.en.md)
-- [Release notes 0.3.0](../release-notes/0.3.0/README.en.md)
-- [Release notes 0.2.0](../release-notes/0.2.0/RELEASE_NOTES.md)
+- [Changelog](../../../CHANGELOG.md) — every release in detail
+- [Releases](https://github.com/from104/unim/releases)
 - [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md)
 - [`POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)

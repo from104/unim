@@ -983,8 +983,7 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 
 - 동작이 이상하다 → [트러블슈팅](../troubleshooting/README-ko.md)
 - 다른 IME와 비교 / 안정성 / 마이그레이션 → [FAQ](../faq/README-ko.md)
-- 0.4.0 변경 내역 → [릴리즈 노트 0.4.0](../release-notes/0.4.0/README.md)
-- 과거 버전 변경 내역 → [0.3.0](../release-notes/0.3.0/README.md) / [0.2.0](../release-notes/0.2.0/RELEASE_NOTES-ko.md)
+- 판별 변경 내역 → [변경 이력](../../../CHANGELOG-ko.md)
 - 기여하고 싶다 → [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)
 - 핵심 동작 명세 → [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md), [`docs/dev/specs/POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)
 

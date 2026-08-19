@@ -40,6 +40,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
+          # 릴리스 본문의 compare 링크가 '바로 앞 태그'를 알아야 해서 전체 이력을 받는다.
+          fetch-depth: 0
 
       - name: Verify version sync (Cargo.toml / debian/changelog / tag)
         id: guard
@@ -179,6 +181,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Build release body from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: scripts/release-body.sh "$RELEASE_TAG" > /tmp/release-body.md
+
       - name: Create GitHub Release
         # 태그 push 또는 dispatch(tag 입력) 일 때만. 리허설(tag 미입력)은 스킵.
         if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
@@ -190,42 +199,7 @@ jobs:
           files: |
             debs/*.deb
             debs/SHA256SUMS
-          body: |
-            ## UNIM ${{ steps.guard.outputs.version }}
-
-            ### 설치 / Install (Ubuntu 24.04+ / Debian, amd64)
-
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
-            ```
-
-            버전 고정 / pin a version:
-
-            ```bash
-            UNIM_VERSION=${{ github.event.inputs.tag || github.ref_name }} curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
-            ```
-
-            수동 설치 / manual: [SHA256SUMS](https://github.com/from104/unim/releases/download/${{ github.event.inputs.tag || github.ref_name }}/SHA256SUMS) 로 검증 후 `sudo apt install ./unim*.deb`.
-
-            ### 설치 / Install (Windows 10/11, x64)
-
-            PowerShell 에서 실행하시고, 설치할 때 UAC 승인이 한 번 필요합니다.
-
-            ```powershell
-            irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
-            ```
-
-            버전 고정 / pin a version:
-
-            ```powershell
-            $env:UNIM_VERSION='${{ github.event.inputs.tag || github.ref_name }}'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
-            ```
-
-            > ⏳ **MSI 는 별도 워크플로에서 빌드되어 잠시 뒤 이 릴리스에 첨부됩니다.**
-            > 아직 안 보이면 몇 분 뒤 다시 시도해 주세요 — 설치 스크립트가 릴리스에서 MSI 를 내려받습니다.
-            > 아직 코드 서명이 없어 SmartScreen 경고가 뜹니다. "추가 정보 → 실행" 으로 넘어가 주세요.
-
-            변경 이력 / Changelog: [CHANGELOG-ko.md](https://github.com/from104/unim/blob/main/CHANGELOG-ko.md) · [CHANGELOG.md](https://github.com/from104/unim/blob/main/CHANGELOG.md)
+          body_path: /tmp/release-body.md
           draft: false
           make_latest: true
 
