@@ -292,7 +292,7 @@ unim-cli config set auto-typefix-skip-english-word true
 
 ## 지원 환경
 
-**실사용으로 검증한 환경**은 다음과 같습니다 — GNOME Shell 45–49 (X11 / Wayland),
+**실사용으로 검증한 환경**은 다음과 같습니다 — GNOME Shell 45–50 (X11 / Wayland),
 X11 데스크톱 전반(KDE Plasma 5.x, XFCE, MATE, Cinnamon, LXDE), Windows 10/11 (TSF).
 
 | 환경 | 자동 시작 | 팝업 렌더러 | 설정 |

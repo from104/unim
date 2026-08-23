@@ -25,6 +25,28 @@ import { PreeditOverlay } from './preedit_overlay.js';
 // commit/cancel 결과는 daemon CommitText 시그널로 InputMethod 에 반영된다.
 import { unimLog, unimError } from './logging.js';
 
+/**
+ * Wayland 컴포지터 위에서 도는지 판별한다.
+ *
+ * GNOME 50 (mutter 18) 에서 전역 `Meta.is_wayland_compositor()` 가 제거되고
+ * 판별이 `MetaContext.get_wayland_compositor()` 로 옮겨갔다 — X11 이면 null 을
+ * 준다. 이 함수가 없어진 줄 모르고 부르면 enable() 이 통째로 예외로 끝나
+ * 확장은 "활성화됨" 으로 보이는데 한글이 한 글자도 안 들어간다.
+ *
+ * 45~49 도 계속 받쳐야 하므로 새 경로를 먼저 보고, 없으면 옛 함수로 떨어진다.
+ * 둘 다 못 찾는 미래 버전에서는 세션 타입을 마지막 보루로 쓴다 — 판별에
+ * 실패해 X11 로 오인하면 GNOME Wayland 에서 팝업이 아예 안 뜨고, 반대로
+ * 오인하면 팝업이 두 번 그려진다.
+ */
+function isWaylandCompositor() {
+    const context = global.backend?.get_context?.();
+    if (context?.get_wayland_compositor)
+        return context.get_wayland_compositor() !== null;
+    if (Meta.is_wayland_compositor)                  // api-check: allow — 존재 확인
+        return Meta.is_wayland_compositor();         // api-check: allow — 폴백 경로
+    return GLib.getenv('XDG_SESSION_TYPE') === 'wayland';
+}
+
 export default class UnimExtension extends Extension {
     constructor(metadata) {
         super(metadata);
@@ -184,7 +206,7 @@ export default class UnimExtension extends Extension {
             //    표시되므로 PopupView 활성 시 popup 이 두 번 그려진다 — 따라서 X11 에서는
             //    PopupView 를 띄우지 않고 popup-service 에 위임.
             //    popup-service 는 양 환경 모두에서 origin (RPC 수신 + signal 발행).
-            const isWayland = Meta.is_wayland_compositor();
+            const isWayland = isWaylandCompositor();
             if (isWayland) {
                 this._popupView = new PopupView({
                     selectHanja:         (i) => this._dbusIME.popupSelectHanja(i),
