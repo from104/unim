@@ -59,6 +59,7 @@ endef
         test-apps test-app test-apps-list \
         gen-popup-css gen-popup-css-check \
         help-html check-help-html \
+        check-gnome-api smoke-gnome-extension check-compat \
         _check-build \
         install install-core install-frontends install-icons \
         install-indicator install-settings-gtk install-settings install-popup-service \
@@ -561,6 +562,26 @@ msi:
 	@exit 0
 
 # ─── Test & Verification ─────────────────────────────────────────────────────
+
+# GNOME 확장은 컴파일 검사를 받지 않는다 — 셸이 API 를 하나 없애면 빌드도
+# 테스트도 다 통과한 채 사용자 기계에서만 터진다. 아래 둘이 그 구멍을 막는다.
+# 어느 쪽도 로그아웃을 요구하지 않으므로 개발 중에 부담 없이 돌릴 수 있다.
+
+# 정적 — 확장이 쓰는 GI 심볼이 이 기계의 GNOME 에 실재하는지 대조.
+check-gnome-api:
+	@scripts/check-gnome-api.sh
+
+# 동적 — headless 셸에 실제로 올려 활성화가 끝까지 가는지 로그로 확인.
+# enable() 이 중간에 죽어도 GNOME 은 확장을 '사용 중' 으로 표시하기 때문에
+# 정적 검사만으로는 "켜졌는데 안 되는" 상태를 못 가려낸다.
+smoke-gnome-extension:
+	@scripts/smoke-gnome-extension.sh
+
+# 이 기계의 데스크톱 환경에서 확장이 살아 있는지 한 번에 본다.
+# GNOME 이 없는 기계에서는 두 스크립트가 스스로 건너뛰므로 그냥 통과한다.
+check-compat: check-gnome-api smoke-gnome-extension
+	@echo "✅ 이 기계의 GNOME 에서 확장 호환성 확인 완료."
+
 
 test:
 	@echo "UNIM 설치 상태 확인"

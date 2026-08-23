@@ -109,3 +109,6 @@ _workspace/
 .claude/scheduled_tasks.lock
 compile_commands.json
 .clangd
+
+# 확장 런타임 스모크 실패 시 남는 로그
+gnome-smoke-fail.log

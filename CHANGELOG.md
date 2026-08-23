@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 
 ## [Unreleased]
 
+### Added
+
+- **Build-time detection of extension breakage on a new Shell.** Extension JS gets no compile check, so when GNOME Shell drops an API the build and the tests stay green and the failure surfaces only on a user's machine. `make check-compat` closes that gap with two overlapping checks: a static one that matches every GI symbol the extension uses against this Shell's introspection, and a dynamic one that loads the extension into a headless Shell and reads the log to confirm activation runs to completion. Neither requires a logout, and both skip themselves on machines without GNOME.
+- **CI now builds on the next LTS ahead of time.** A `build-next-lts` job builds and tests inside the next Ubuntu LTS container. Using a container rather than a runner image means the check works before GitHub ships a runner for that release. The distro and desktop compatibility rules are written up in `docs/dev/linux/os-compatibility.md`.
+
+### Fixed
+
+- **Hangul input works on GNOME Shell 50 (Ubuntu 26.04).** Two things blocked it. The extension's `metadata.json` declared support only through Shell 49, so Shell 50 refused to load it as `OUT OF DATE`; and even once loaded, GNOME 50 removed the global `Meta.is_wayland_compositor()`, so enabling the extension ended in an exception. The second failure was the nastier one — the extension still showed as enabled while its IME registration had been rolled back entirely, so not a single character went through. Detection now tries `MetaContext.get_wayland_compositor()` first and falls back to the old function and then the session type, so one code path covers Shell 45 through 50.
+
 ## [0.4.1] 2026-08-16
 
 ### Fixed
