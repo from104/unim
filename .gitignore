@@ -112,3 +112,7 @@ compile_commands.json
 
 # 확장 런타임 스모크 실패 시 남는 로그
 gnome-smoke-fail.log
+
+# 배포판 매트릭스 빌드 산출물 (scripts/build-linux-matrix.sh)
+rpms/
+dist/

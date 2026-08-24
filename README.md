@@ -61,6 +61,11 @@ UNIM은 바로 거기에서 출발했습니다. 잘못 친 것을 알아서 되�
 | Ubuntu | 24.04 (noble) | `.deb` |
 | Debian | 13 (trixie) | `.deb` |
 | Fedora | 43 | `.rpm` |
+| RHEL 10 계열 (Rocky·Alma) | 10 — EPEL 필요 | `.rpm` |
+
+릴리스에는 배포판별 빌드가 각각 올라오며, 설치 스크립트가 감지된 배포판에 맞는
+빌드를 자동으로 고릅니다. 파생 배포판(Mint 등)은 상위 배포판 기준으로, 비 LTS
+우분투(25.x 등)는 한 단계 아래 LTS 빌드로 매핑됩니다.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
@@ -89,8 +94,8 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh -o ins
 less install.sh && bash install.sh
 ```
 
-Debian 12(bookworm)는 시스템 라이브러리가 오래되어 패키지를 쓰실 수 없습니다.
-그 밖의 배포판(openSUSE·Arch·RHEL 계열 등)에서는 소스 빌드를 이용해 주세요 —
+Debian 12(bookworm)와 RHEL 9 이하는 시스템 라이브러리가 오래되어 패키지를 쓰실 수 없습니다.
+그 밖의 배포판(openSUSE·Arch 등)에서는 소스 빌드를 이용해 주세요 —
 [사용자 매뉴얼](docs/user/user-guide/README-ko.md)의 소스 빌드 절에 안내가 있습니다.
 
 ### Windows

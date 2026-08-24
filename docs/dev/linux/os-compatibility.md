@@ -125,3 +125,52 @@ LTS 가 바뀌면 그 잡의 이미지 태그를 올리고, 기존 러너 잡은
   경고가 난다. 대체 API 가 X11 창 ID 취득과 얽혀 있어 조사가 필요하다.
 - **`tests/common` 의 CMake 구성 실패** — clangd 컴파일 데이터베이스에서만
   빠지고 본 빌드에는 영향이 없다.
+
+## 배포판 매트릭스 빌드 (2026-08-24 도입)
+
+릴리스는 배포판별 컨테이너에서 각각 빌드된다. 한 빌드로 여러 배포판을 덮을 수
+없는 이유가 두 가지다: glibc 는 하위호환만 보장하고(오래된 곳에서 빌드해야
+앞으로 호환), **Qt IM 플러그인은 Qt GuiPrivate 에 링크**해 Qt 마이너 간 ABI
+보장이 없다. GTK 모듈은 공개 ABI 만 쓰지만 Qt 쪽이 전체의 하한을 정한다.
+
+### 기준선과 glibc
+
+| 레그 | 컨테이너 | glibc | 자산 식별 |
+|---|---|---|---|
+| ubuntu24.04 | ubuntu:24.04 | **2.39** | 버전 접미사 `~ubuntu24.04` |
+| ubuntu26.04 | ubuntu:26.04 | 2.42+ | `~ubuntu26.04` |
+| debian13 | debian:13 | 2.41 | `~debian13` |
+| fedora43 | fedora:43 | 2.42 | `%{?dist}` = `.fc43` |
+| fedora44 | fedora:44 | 2.43+ | `.fc44` |
+| el10 | almalinux:10 | **2.39** | `.el10` |
+
+- deb 접미사는 PPA 관용 — `~` 는 dpkg 정렬상 무접미사보다 낮아, 훗날 저장소
+  배포로 전환해도 업그레이드 경로가 보존된다. 빌드 시점에
+  `scripts/ci/build-deb.sh` 가 changelog 에 주입하며 **커밋되지 않는다.**
+- **EOL 된 Fedora(40~42)용 빌드는 만들지 않는다.** 보안 업데이트가 끊긴
+  배포판에 빌드를 대 주는 것은 사용을 부추길 뿐이다. 그 사용자층의
+  "24.04 수준(glibc 2.39)" 요구는 el10 레그가 정확히 충족한다.
+- el10 은 CRB(qt6 private·libadwaita devel)와 EPEL(Qt5 — RHEL 10 본체가
+  제거했으나 EPEL 이 패키징)을 쓴다. 그래서 spec 조건 분기 없이 여섯 레그
+  전부 같은 11개 패키지 구성이다. 사용자 기계에도 EPEL 이 필요하다
+  (install.sh 가 안내).
+
+### 어디를 고치나
+
+로직은 전부 `scripts/ci/` 에 있고 워크플로 YAML 은 얇은 호출자다:
+
+- `scripts/ci/bootstrap-{deb,rpm}.sh` — 컨테이너 의존성 (+rustup/CRB·EPEL 분기)
+- `scripts/ci/build-{deb,rpm}.sh` — 빌드 + 게이트(개수 11·경로·번역) + 매니페스트
+- `scripts/build-linux-matrix.sh` — 로컬에서 같은 스크립트를 6개 컨테이너로 순회
+
+레그를 추가/제거할 때 함께 갱신할 곳: 두 워크플로의 matrix + publish 팬인
+검증 수(33), `scripts/build-linux-matrix.sh` 의 표, install.sh 의
+`*_BASELINES`, README 지원표.
+
+### install.sh 라우팅
+
+매니페스트가 자산 목록의 단일 출처다. 레그별 `SHA256SUMS-<tag>` 를 게시하고
+install.sh 가 "감지 버전 이하의 최대 기준선" 규칙으로 고른다 (ubuntu 25.04 →
+ubuntu24.04 + 베스트 에포트 고지). 구버전 install.sh 를 위해 레거시 별칭
+`SHA256SUMS`(=ubuntu24.04)·`SHA256SUMS-rpm`(=fedora43)을 병행 게시한다 —
+2~3 릴리스 후 제거 검토.

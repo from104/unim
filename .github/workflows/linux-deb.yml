@@ -3,7 +3,14 @@ name: Linux deb Release
 # 릴리스는 태그에서만. develop/main push 로는 트리거되지 않는다.
 #  - v* 태그 push → 릴리스 생성 + 자산 첨부
 #  - workflow_dispatch(tag 입력) → 해당 태그로 릴리스
-#  - workflow_dispatch(tag 미입력) → 빌드/검증 리허설만 (릴리스·아티팩트만, GitHub Release 생성 안 함)
+#  - workflow_dispatch(tag 미입력) → 빌드/검증 리허설만 (아티팩트만, GitHub Release 생성 안 함)
+#
+# 배포판 매트릭스: 같은 소스를 배포판별 컨테이너에서 다시 빌드한다.
+# glibc 는 하위호환만 보장하고 Qt IM 플러그인은 GuiPrivate ABI 에 묶여 있어
+# 한 빌드로 여러 배포판을 덮을 수 없다 (docs/dev/linux/os-compatibility.md).
+# 빌드·게이트 로직은 scripts/ci/ 에 있다 — 로컬 매트릭스
+# (scripts/build-linux-matrix.sh)와 같은 스크립트를 쓰므로 여기 YAML 은
+# 얇은 호출자다. 로직 수정은 스크립트에서 할 것.
 on:
   push:
     tags: ['v*']
@@ -29,13 +36,34 @@ env:
 
 jobs:
   build-deb:
-    name: Build Debian packages + release
+    name: Build .deb (${{ matrix.tag }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    permissions:
-      contents: write  # softprops/action-gh-release 가 릴리스 생성에 필요
+    # 24.04 레그도 러너 네이티브가 아니라 컨테이너다 — rpm 워크플로·로컬
+    # 매트릭스와 1:1 로 같은 환경이 되고, sudo 유무 분기가 사라진다.
+    container: ${{ matrix.image }}
+    timeout-minutes: 60
+    strategy:
+      # 한 배포판의 실패가 다른 배포판 빌드를 중단시키지 않는다.
+      # 단 publish-deb 는 전 레그 성공을 요구한다 — 부분 릴리스 금지.
+      fail-fast: false
+      matrix:
+        include:
+          - { image: 'ubuntu:24.04', tag: ubuntu24.04 }
+          - { image: 'ubuntu:26.04', tag: ubuntu26.04 }
+          - { image: 'debian:13',    tag: debian13 }
 
     steps:
+      # checkout 액션이 git 를 쓰므로 최소 부트스트랩이 먼저다.
+      # 나머지 의존성은 저장소의 scripts/ci/bootstrap-deb.sh 가 맡는다
+      # (체크아웃 전에는 그 스크립트가 없다 — 닭과 달걀).
+      - name: Minimal bootstrap (git for checkout)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git ca-certificates >/dev/null
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -51,19 +79,12 @@ jobs:
           INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
+          # 컨테이너 uid 불일치로 git 이 워크스페이스를 거부하지 않도록.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          # workspace version (windows-msi.yml 143행과 동일 패턴).
-          # 'version.workspace = true' 는 '= "' 가 없어 매칭되지 않으므로
-          # [workspace.package] 의 실제 버전 줄만 잡힌다.
           CARGO_VER=$(grep -E '^version *= *"' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
-
-          # debian/changelog 첫 줄: unim (X.Y.Z-R) ...
           DEB_FULL=$(head -1 debian/changelog | sed -E 's/^unim \(([^)]+)\).*/\1/')
           DEB_VER=${DEB_FULL%-*}
-          DEB_REV=${DEB_FULL##*-}
-
-          echo "Cargo.toml version : $CARGO_VER"
-          echo "debian/changelog   : $DEB_VER-$DEB_REV"
 
           if [[ "$CARGO_VER" != "$DEB_VER" ]]; then
             echo "::error::Cargo.toml($CARGO_VER) 와 debian/changelog($DEB_VER) 버전 불일치. 두 파일을 함께 범프하세요."
@@ -76,7 +97,6 @@ jobs:
           else
             TAG="$INPUT_TAG"
           fi
-
           if [[ -n "$TAG" ]]; then
             if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::태그 형식이 올바르지 않습니다: '$TAG' (예: v0.4.0)"
@@ -86,123 +106,115 @@ jobs:
               echo "::error::태그($TAG) 와 Cargo.toml 버전($CARGO_VER) 불일치. 같은 버전 재릴리스는 debian/changelog 리비전만 올리지 말고 버전을 범프하세요."
               exit 1
             fi
-            echo "Release tag        : $TAG (matches)"
-          else
-            echo "Release tag        : (none — dispatch rehearsal, no release will be created)"
           fi
-
           echo "version=$CARGO_VER" >> "$GITHUB_OUTPUT"
-          echo "debrev=$DEB_REV" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Install build dependencies (debian/control Build-Depends)
+      - name: Bootstrap build dependencies (scripts/ci/bootstrap-deb.sh)
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          # repo 루트 debian/control 의 Build-Depends 를 그대로 설치한다.
-          # native 소스 포맷 + repo 루트 debian/ 이므로 'build-dep .' 이 동작하며,
-          # 향후 Build-Depends 추가 시 자동으로 따라온다.
-          # (libqt6dbus6 는 noble 에서 libqt6dbus6t64 의 Provides 로 자동 해결됨.)
-          sudo apt-get build-dep -y .
-
-      - name: Install Rust toolchain (stable)
-        # MSRV(1.78)는 debian/rules 가 런타임에 재확인. windows-msi.yml 관례와 일치.
-        uses: dtolnay/rust-toolchain@stable
+          scripts/ci/bootstrap-deb.sh
+          # rustup 이 설치됐다면 이후 스텝(rust-cache 의 키 계산)에서 보이게 한다.
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: linux-deb  # windows-msvc 캐시와 분리
-          cache-targets: true    # skia-bindings 프리빌트 Skia 아카이브 등 캐시
+          # skia 프리빌트 아카이브 등이 배포판별 glibc/clang 에 묶이므로 레그별 분리.
+          shared-key: linux-deb-${{ matrix.tag }}
+          cache-targets: true
           cache-on-failure: true
 
-      - name: Build .deb packages (make deb)
+      - name: Build + verify + smoke (scripts/ci/build-deb.sh)
         shell: bash
-        run: |
-          set -euo pipefail
-          # Makefile:360 그대로: dpkg-buildpackage -us -uc -b -jauto.
-          # Rules-Requires-Root: no 라 fakeroot 불필요. 산출물은 debs/ 로 이동됨.
-          make deb
-
-      - name: Verify build artifacts (exactly 11 .deb)
-        id: verify
-        shell: bash
-        run: |
-          set -euo pipefail
-          VER="${{ steps.guard.outputs.version }}"
-          REV="${{ steps.guard.outputs.debrev }}"
-
-          shopt -s nullglob
-          debs=(debs/*.deb)
-          shopt -u nullglob
-
-          count=${#debs[@]}
-          echo "발견된 .deb: $count 개"
-          for f in "${debs[@]}"; do
-            size=$(stat -c%s "$f")
-            if [[ "$size" -eq 0 ]]; then
-              echo "::error::0바이트 패키지: $f"
-              exit 1
-            fi
-            base=$(basename "$f")
-            # 파일명에 version-revision 이 포함되는지 확인 (버전 누락/오염 방어).
-            if [[ "$base" != *"${VER}-${REV}"* ]]; then
-              echo "::error::패키지 파일명에 버전(${VER}-${REV})이 없습니다: $base"
-              exit 1
-            fi
-            echo "  ok  $base ($size bytes)"
-          done
-
-          # 9 amd64 + 2 all = 11. dbgsym 이 .deb 로 새는 회귀도 이 카운트가 잡는다.
-          # 패키지 수가 바뀌는 정당한 개편 시 이 숫자와 문서/install.sh 안내를 함께 갱신.
-          if [[ "$count" -ne 11 ]]; then
-            echo "::error::.deb 개수가 11개가 아닙니다 (실제 $count). 패키지 구성 변경 또는 dbgsym 누출 의심."
-            exit 1
-          fi
-
-      - name: Generate SHA256SUMS manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          # 파일명만 기록(경로 없음) → install.sh 의 flat tmpdir 에서
-          # 'sha256sum -c' 가 그대로 동작. .ddeb/.buildinfo/.changes 는 글롭상 제외.
-          ( cd debs && sha256sum *.deb > SHA256SUMS )
-          echo "── SHA256SUMS ──"
-          cat debs/SHA256SUMS
+        env:
+          RELEASE_TAG: ${{ steps.guard.outputs.release_tag }}
+        run: scripts/ci/build-deb.sh ${{ matrix.tag }} --smoke
 
       - name: Upload build artifacts
         # 릴리스 여부와 무관하게 항상 업로드 (dispatch 리허설 검증용).
         uses: actions/upload-artifact@v4
         with:
-          name: unim-deb-${{ steps.guard.outputs.version }}
+          name: unim-deb-${{ steps.guard.outputs.version }}-${{ matrix.tag }}
           path: |
             debs/*.deb
-            debs/SHA256SUMS
+            debs/SHA256SUMS-${{ matrix.tag }}
           if-no-files-found: error
           retention-days: 30
 
+  # 릴리스 생성은 이 잡 하나만 한다. 매트릭스 레그가 각자 릴리스를 upsert 하면
+  # softprops 동시 쓰기 경합으로 본문·자산이 유실될 수 있어, 레그는 아티팩트만
+  # 올리고 여기서 팬인한다. 전 레그 성공(needs)이 조건 — 부분 릴리스 금지.
+  publish-deb:
+    name: Publish release (fan-in)
+    runs-on: ubuntu-24.04
+    needs: build-deb
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+    timeout-minutes: 15
+    permissions:
+      contents: write  # softprops/action-gh-release 가 릴리스 생성에 필요
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0   # release-body.sh 의 compare 링크용 전체 이력
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          CARGO_VER=$(grep -E '^version *= *"' Cargo.toml | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
+          echo "version=$CARGO_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Download all distro artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: unim-deb-${{ steps.ver.outputs.version }}-*
+          path: debs
+          merge-multiple: true   # 파일명이 ~<tag> 접미사로 갈려 충돌 없음
+
+      - name: Verify fan-in completeness + legacy manifest alias
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la debs/
+          # 레그당 11개 × 3 레그 = 33. 매트릭스 구성 변경 시 이 수와
+          # scripts/build-linux-matrix.sh 의 표를 함께 갱신할 것.
+          count=$(ls debs/*.deb | wc -l)
+          if [[ "$count" -ne 33 ]]; then
+            echo "::error::팬인된 .deb 가 33개가 아닙니다 (실제 $count) — 누락 레그 의심"
+            exit 1
+          fi
+          for t in ubuntu24.04 ubuntu26.04 debian13; do
+            [[ -f "debs/SHA256SUMS-$t" ]] || { echo "::error::SHA256SUMS-$t 누락"; exit 1; }
+          done
+          # 구버전 install.sh(UNIM_VERSION 핀)와 외부 스크립트 보호용 별칭.
+          # 새 install.sh 가 충분히 보급된 뒤(2~3 릴리스) 제거를 검토한다.
+          cp debs/SHA256SUMS-ubuntu24.04 debs/SHA256SUMS
+
       - name: Build release body from CHANGELOG
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
         shell: bash
         env:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: scripts/release-body.sh "$RELEASE_TAG" > /tmp/release-body.md
 
       - name: Create GitHub Release
-        # 태그 push 또는 dispatch(tag 입력) 일 때만. 리허설(tag 미입력)은 스킵.
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: UNIM ${{ steps.guard.outputs.version }}
-          # 11개 .deb + 매니페스트만 공개. ddeb/buildinfo/changes 는 첨부하지 않음.
+          name: UNIM ${{ steps.ver.outputs.version }}
+          # 33개 .deb + 배포판별 매니페스트 3종 + 레거시 별칭 1종.
+          # ddeb/buildinfo/changes 는 첨부하지 않음.
           files: |
             debs/*.deb
+            debs/SHA256SUMS-ubuntu24.04
+            debs/SHA256SUMS-ubuntu26.04
+            debs/SHA256SUMS-debian13
             debs/SHA256SUMS
           body_path: /tmp/release-body.md
           draft: false
           make_latest: true
-
-      # TODO: Windows MSI 합류 — windows-msi.yml 에 `push: tags: ['v*']` 트리거와
-      # 이 릴리스에 대한 softprops 업로드 스텝을 추가하면 같은 릴리스 페이지에
-      # .msi 를 함께 게시할 수 있다 (이번 범위 밖).

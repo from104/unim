@@ -167,7 +167,9 @@ git push origin main --tags
 
 ## 6. GitHub Release 생성
 
-**GitHub Release 자체는 태그 push 시 `linux-deb.yml`(`Create GitHub Release` 스텝)이 자동 생성한다.** deb 11종 + `SHA256SUMS`를 첨부하므로, **이 단계에서 수동으로 릴리스를 만들거나 본문을 붙여넣지 않는다.**
+**GitHub Release 자체는 태그 push 시 `linux-deb.yml` 의 `publish-deb` 잡이 자동 생성한다.** 두 워크플로가 배포판 매트릭스로 돈다 — deb 는 ubuntu24.04·ubuntu26.04·debian13, rpm 은 fedora43·fedora44·el10 컨테이너에서 각각 빌드된다(사유와 구조는 `docs/dev/linux/os-compatibility.md` 의 "배포판 매트릭스 빌드" 절). 매트릭스 레그는 아티팩트만 올리고, 릴리스 생성·자산 첨부는 팬인 잡(`publish-deb`/`publish-rpm`)이 전 레그 성공 후에만 한다 — **부분 릴리스는 없다.** 첨부물은 deb 33종(11×3) + 매니페스트 4종, rpm 33종 + 매니페스트 4종. **이 단계에서 수동으로 릴리스를 만들거나 본문을 붙여넣지 않는다.**
+
+deb 파일명에는 배포판 접미사가 붙는다(`unim-common_X.Y.Z-1~ubuntu24.04_amd64.deb`) — `scripts/ci/build-deb.sh` 가 빌드 시점에 changelog 에 주입하며 저장소에는 커밋되지 않는다. rpm 은 `%{?dist}`(`.fc43`/`.el10`)가 같은 역할을 한다.
 
 본문은 `scripts/release-body.sh <태그>` 가 **CHANGELOG 에서 직접 뽑는다.** 별도의 릴리스 노트 문서는 두지 않는다 — 원본이 하나여야 릴리스 페이지와 저장소의 이력이 어긋나지 않는다. 본문 구성은 다음과 같고, `알려진 문제` 절은 읽는 사람이 먼저 봐야 하므로 **맨 위로 끌어올린다.**
 
@@ -182,8 +184,9 @@ git push origin main --tags
 
 compare 링크가 이전 태그를 찾아야 하므로 `linux-deb.yml` 의 checkout 은 `fetch-depth: 0` 이다. 얕게 받으면 태그가 없어 **오류 없이 그 줄만 빠진다** — 릴리스 후 본문에 그 줄이 있는지 눈으로 볼 것.
 
-- [ ] 태그 push 후 Actions에서 `linux-deb.yml`의 릴리스 생성 성공 확인
+- [ ] 태그 push 후 Actions 에서 두 워크플로의 **전 매트릭스 레그 + publish 잡** 성공 확인 (한 레그라도 실패하면 릴리스가 만들어지지 않는다)
 - [ ] 릴리스 본문에 CHANGELOG 절과 `Full Changelog` compare 링크가 다 들어갔는지 확인
+- [ ] 릴리스 전 리허설: `workflow_dispatch`(tag 미입력) 또는 로컬 `scripts/build-linux-matrix.sh` 로 6레그 그린 확인
 - [ ] (Windows MSI가 별도 워크플로에서 첨부되는 동안 시간차가 있을 수 있음 — 본문의 ⏳ 안내가 이를 고지한다)
 
 ---
