@@ -66,8 +66,13 @@ pub struct UnimInputContext {
 
 impl UnimInputContext {
     fn new(context_path: String, input_style: InputStyle) -> Self {
-        let show_preedit_window = !input_style.contains(InputStyle::PREEDIT_CALLBACKS)
-            && !input_style.contains(InputStyle::PREEDIT_NOTHING);
+        // CALLBACKS(ON-THE-SPOT) 를 광고하지 않으므로(input_styles() 참조) GTK3 는
+        // PREEDIT_NOTHING 으로 협상해 온다 — GTK 의 ALLOWED_MASK(gtkimcontextxim.c:
+        // 183-184) 에 PREEDIT_POSITION 이 없기 때문이다. 그런 NOTHING 클라이언트도
+        // preedit 을 볼 수 있어야 하므로 서버 자체 PeWindow 렌더링을 켠다 — GTK 는
+        // 협상된 스타일과 무관하게 spot 좌표를 XSetICValues 로 계속 보내 온다
+        // (gtkimcontextxim.c:771-796), 그 좌표로 PeWindow 를 띄울 수 있다.
+        let show_preedit_window = !input_style.contains(InputStyle::PREEDIT_CALLBACKS);
 
         Self {
             context_path,
@@ -319,15 +324,21 @@ impl UnimHandler {
         // preedit 캐시 업데이트
         user_ic.user_data.preedit_cache = preedit_str.to_string();
 
-        // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw 호출
-        server.preedit_draw(&mut user_ic.ic, preedit_str)?;
-
-        // PREEDIT_CALLBACKS가 아니면 Over-The-Spot 렌더링도 수행
-        if !user_ic
+        let is_callbacks = user_ic
             .ic
             .input_style()
-            .contains(InputStyle::PREEDIT_CALLBACKS)
-        {
+            .contains(InputStyle::PREEDIT_CALLBACKS);
+
+        // ON-THE-SPOT(PREEDIT_CALLBACKS) 로 명시 협상된 IC 에만 XIM 프로토콜
+        // preedit 콜백을 보낸다. CALLBACKS 를 협상 목록에서 뺀 이유는
+        // input_styles() 주석 참조 — NOTHING/POSITION IC 는 이 경로 대신 아래
+        // PeWindow 자체 렌더링으로 preedit 을 받는다.
+        if is_callbacks {
+            server.preedit_draw(&mut user_ic.ic, preedit_str)?;
+        }
+
+        // PREEDIT_CALLBACKS가 아니면 Over-The-Spot 렌더링도 수행
+        if !is_callbacks {
             if !user_ic.user_data.show_preedit_window {
                 return Ok(());
             }
@@ -389,8 +400,17 @@ impl UnimHandler {
     ) -> Result<(), ServerError> {
         user_ic.user_data.preedit_cache.clear();
 
-        // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw("") 호출
-        server.preedit_draw(&mut user_ic.ic, "")?;
+        // 그리기(send_preedit)와 대칭으로, ON-THE-SPOT 명시 협상 IC 에만 XIM
+        // 지우기 콜백을 보낸다. NOTHING/POSITION IC 는 아래 PeWindow 정리가 전부다.
+        // (xim 크레이트의 preedit_started 가드 덕에 게이트 없이도 오늘은 no-op 이지만,
+        // 그 내부 상태에 안전성을 위임하지 않도록 여기서 명시적으로 막는다.)
+        if user_ic
+            .ic
+            .input_style()
+            .contains(InputStyle::PREEDIT_CALLBACKS)
+        {
+            server.preedit_draw(&mut user_ic.ic, "")?;
+        }
 
         // PeWindow도 정리
         if let Some(pe_id) = user_ic.user_data.pe_window.take() {
@@ -450,7 +470,15 @@ impl UnimHandler {
             // 클라이언트가 세션을 닫는다(IME_BEHAVIOR.md §8.1 주의사항).
             // 사이클은 focus-out / reset 에서 정상적으로 닫힌다.
             user_ic.user_data.preedit_cache.clear();
-            server.preedit_clear_keep_session(&mut user_ic.ic)?;
+            // preedit() 과 대칭 게이트 — ON-THE-SPOT(PREEDIT_CALLBACKS) 로 명시
+            // 협상된 IC 에만 XIM 프로토콜 clear 콜백을 보낸다.
+            if user_ic
+                .ic
+                .input_style()
+                .contains(InputStyle::PREEDIT_CALLBACKS)
+            {
+                server.preedit_clear_keep_session(&mut user_ic.ic)?;
+            }
             self.drop_pe_window(user_ic);
         }
         server.conn().flush().ok();
@@ -633,7 +661,7 @@ impl Drop for UnimHandler {
 }
 
 impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> for UnimHandler {
-    type InputStyleArray = [InputStyle; 3];
+    type InputStyleArray = [InputStyle; 2];
     type InputContextData = UnimInputContext;
 
     fn new_ic_data(
@@ -696,8 +724,31 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     }
 
     fn input_styles(&self) -> Self::InputStyleArray {
+        // CALLBACKS(ON-THE-SPOT) 는 의도적으로 광고하지 않는다.
+        //
+        // GTK3 im-xim + libX11 조합은 서버가 보낸 PreeditStart/Draw 콜백 요청이
+        // 트리거하는 재진입 XSetICValues 중첩에서 응답 경합으로 영구 웨지된다.
+        // XIM 프로토콜에는 요청-응답 시퀀스 번호가 없어(libX11 imDefIc.c
+        // `_XimSetICValuesCheck` 는 imid/icid/opcode 만으로 매치하고, 중첩된
+        // `_XimRead` 안의 `_CheckCMEvent`(imTrX.c:477) 는 내용을 보지 않는다)
+        // 불일치한 응답 패킷이 `imTransR.c:243,302` 에서 BadProtocol 로 반사·
+        // 파괴되며 클라이언트가 그대로 멈춘다. 서버측 순서 조정(fire-and-forget,
+        // sync 협상)으로는 회피되지 않음이 실측 반증됐다 — 유일한 서버측 회피는
+        // CALLBACKS 스타일을 애초에 협상 목록에 올리지 않는 것뿐이다.
+        //
+        // GTK3 의 ALLOWED_MASK(gtkimcontextxim.c:183-184) 에는 PREEDIT_POSITION 이
+        // 없으므로 이 목록에서 GTK3 는 PREEDIT_NOTHING 으로 협상해 온다. GTK 는
+        // 협상된 스타일과 무관하게 spot 좌표를 XSetICValues 로 계속 보내므로
+        // (gtkimcontextxim.c:771-796) 서버가 그 좌표로 자체 PeWindow 를 그릴 수
+        // 있다 — `UnimInputContext::new` 의 `show_preedit_window` 참조. 이 조합은
+        // 4차 실험에서 웨지 0으로 실측 검증됐다.
+        //
+        // ON-THE-SPOT(PREEDIT_CALLBACKS) 를 협상 없이 명시적으로 요청하는
+        // 클라이언트(tests/unim-test-xim 등 자체 Xlib 클라이언트)는 XIM 프로토콜
+        // 상 이 목록에 없어도 CreateIc 로 그 스타일을 지정할 수 있고, 그 경우
+        // 기존 콜백 경로를 그대로 받는다 — `preedit()`/`commit_then_preedit()` 의
+        // 스타일 게이트 참조.
         [
-            InputStyle::PREEDIT_CALLBACKS | InputStyle::STATUS_NOTHING,
             InputStyle::PREEDIT_NOTHING | InputStyle::STATUS_NOTHING,
             InputStyle::PREEDIT_POSITION | InputStyle::STATUS_NOTHING,
         ]

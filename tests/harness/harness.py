@@ -41,6 +41,16 @@ APPS: dict[str, dict] = {
                 "XMODIFIERS": "@im=unim"},
         "xtest": True,
     },
+    # gtk3 바이너리를 GTK 의 xim 모듈로 띄운다 — GTK3 im-xim + libX11 경로
+    # (이슈 C: CALLBACKS 미광고 + PeWindow 커버리지). 바이너리·창 제목은
+    # gtk3 와 동일하므로 title 로 명시한다.
+    "gtk3-xim": {
+        "bin": "tests/unim-test-gtk3/build/unim-test-gtk3",
+        "env": {"GDK_BACKEND": "x11", "GTK_IM_MODULE": "xim",
+                "XMODIFIERS": "@im=unim"},
+        "xtest": True,
+        "title": "gtk3",
+    },
     "gtk4": {
         "bin": "tests/unim-test-gtk4/build/unim-test-gtk4",
         "env": {"GDK_BACKEND": "x11", "GTK_IM_MODULE": "unim",
@@ -78,8 +88,14 @@ APPS: dict[str, dict] = {
 
 
 def window_title(app: str) -> str:
-    """`UNIM_SPEC_WIN_TITLE_FMT` 와 같아야 한다 (unim_test_spec.h)."""
-    return f"UNIM {app} 테스트"
+    """`UNIM_SPEC_WIN_TITLE_FMT` 와 같아야 한다 (unim_test_spec.h).
+
+    창 제목은 바이너리에 컴파일타임으로 박혀 있다. 같은 바이너리를 다른
+    env 조합으로 띄우는 앱 엔트리(예: "gtk3-xim")는 APPS 의 선택 키
+    "title" 로 실제 바이너리 이름을 지정한다 — 없으면 앱 키를 그대로 쓴다.
+    """
+    name = APPS.get(app, {}).get("title", app)
+    return f"UNIM {name} 테스트"
 
 
 # ─── 데몬 ───────────────────────────────────────────────────────────────

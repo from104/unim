@@ -85,3 +85,44 @@ commit 보다 먼저 보내도록 바꿔 고쳤다(`IME_BEHAVIOR.md` §8.1 예�
 - `xterm` — OVER-THE-SPOT 회귀 감시. `xterm -e "cat > /tmp/out"` 로 확정 문자열만
   뽑아 비교
 - 키 주입은 `xdotool key`(XTEST). XWayland 클라이언트에는 먹는다
+
+## 계측 (2026-08-26, 이슈 C Phase 0)
+
+`src/x11rb.rs` 의 `send_req_impl` · `X11rbServer::handle_xim_protocol` ·
+`X11rbClient::handle_xim_protocol` 에 `UNIM_XIM_TRACE` 환경변수 게이트 `eprintln!`
+계측을 추가했다(기본 완전 무음, 동작 변경 없음) — 송신 분기(direct-ClientMessage
+vs Property)·opcode·atom·PropMode, XIM_ERROR 전문, PREEDIT_DRAW/FORWARD_EVENT/COMMIT
+의 property 경로 완주 여부를 opcode 별로 구분해 찍는다. 패치 파일은 만들지 않았다
+(동작 불변 로깅이라 PR 대상 델타가 아님). 상류 복귀 시 그대로 버려도 무방.
+
+## 결정 (2026-08-26, 이슈 C 종결) — CALLBACKS 를 광고하지 않는다
+
+Phase 0 계측으로 웨지 메커니즘이 확정됐다: GTK3 im-xim + libX11 은 서버가 보낸
+`PreeditStart`/`PreeditDraw` 콜백 요청이 트리거하는 재진입 `XSetICValues` 중첩에서
+응답 경합으로 영구 웨지된다. XIM 프로토콜에는 요청-응답 시퀀스 번호가 없다 —
+libX11 `imDefIc.c` 의 `_XimSetICValuesCheck` 는 imid/icid/opcode 만으로 매치하고,
+그 중첩 안에서 도는 `_XimRead` 의 `_CheckCMEvent`(`imTrX.c:477`) 는 내용을 보지
+않는다. 불일치한 응답 패킷은 `imTransR.c:243,302` 에서 `BadProtocol` 로 반사·
+파괴되고 클라이언트는 그대로 멈춘다.
+
+서버측 순서 조정으로는 회피되지 않음이 실측으로 반증됐다 — `UNIM_XIM_FIRE_AND_FORGET`
+(PreeditStart 응답 대기 없이 즉시 Draw) 와 동기 이벤트 마스크 협상 둘 다 웨지를
+없애지 못했다(후자는 오히려 `BadProtocol` 을 유발해 `UNIM-FORK.md` 위쪽 "현재
+상태" 절에 이미 기록돼 있다). 유일한 서버측 회피는 **CALLBACKS 스타일을 애초에
+협상 목록에 올리지 않는 것**이다.
+
+GTK3 의 `ALLOWED_MASK`(`gtkimcontextxim.c:183-184`)에는 `PREEDIT_POSITION` 이 없어
+CALLBACKS 를 빼면 GTK3 는 `PREEDIT_NOTHING` 으로 협상해 온다. GTK 는 협상된
+스타일과 무관하게 spot 좌표를 `XSetICValues` 로 계속 보내므로(`gtkimcontextxim.c:
+771-796`) 서버가 그 좌표로 자체 `PeWindow` 를 그릴 수 있다 — NOTHING 클라이언트도
+preedit 을 잃지 않는다. 4차 실험에서 `ㄹㄹㄹ␣한␣` 전 키 통과·PeWindow 정상·웨지
+0으로 실측 검증됐다.
+
+`unim-frontends/xim/src/handler.rs` 의 `input_styles()` 는 이제
+`[PREEDIT_NOTHING|STATUS_NOTHING, PREEDIT_POSITION|STATUS_NOTHING]` 두 개만
+광고한다. 이 크레이트(`src/server.rs`) 자체는 CALLBACKS 협상 여부를 모른다 —
+`preedit_start_pending`/`pending_preedit` 게이트는 CALLBACKS 로 명시 협상된 IC
+(예: `tests/unim-test-xim` 처럼 협상 없이 `CreateIc` 로 그 스타일을 직접 요청하는
+클라이언트)가 여전히 `PreeditStart`/`PreeditDraw` 콜백 경로를 타는 한 계속
+필요하므로 그대로 둔다. 어떤 IC 에 그 경로를 태울지 고르는 스타일 게이트는
+호출부인 `handler.rs` 의 `preedit()`·`commit_then_preedit()`·`clear_preedit()` 세 곳의 책임이다.

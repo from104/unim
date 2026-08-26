@@ -8,7 +8,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use std::{convert::TryInto, rc::Rc, sync::Arc};
+use std::{convert::TryInto, eprintln, rc::Rc, sync::Arc, sync::Mutex, sync::OnceLock};
 use x11rb::protocol::xproto::EventMask;
 
 #[cfg(feature = "x11rb-client")]
@@ -307,12 +307,20 @@ impl<C: HasConnection> X11rbServer<C> {
         }
     }
 
+    // UNIM trace: Phase 0 계측 (이슈 C). 이 함수는 UNIM 이 XIM 서버로서 GTK
+    // 클라이언트(im-xim)의 요청을 실제로 수신·역직렬화하는, 워크스페이스에서
+    // 실행되는 유일한 handle_xim_protocol 이다(X11rbClient 쪽은 unim-xim 크레이트가
+    // `x11rb-client` 피처를 켜지 않아 빌드되지 않는다). ②③ 항목은 여기서 찍는다.
     fn handle_xim_protocol<T>(
         &mut self,
         msg: &ClientMessageEvent,
         connection: &mut XimConnection<T>,
         handler: &mut impl ServerHandler<Self, InputContextData = T>,
     ) -> Result<(), ServerError> {
+        let trace_on = xim_trace_enabled();
+        // UNIM trace: ④ 클라이언트가 뭔가를 보내왔다 — 정지·타임아웃 뒤의 첫 수신
+        // 시점이 직전 property 소비 여부를 묻기에 가장 뜻있는 순간이다.
+        xim_trace_probe_prev_prop(&*self, "recv-from-client");
         if msg.format == 32 {
             let [length, atom, ..] = msg.data.as_data32();
             let data = self
@@ -320,10 +328,61 @@ impl<C: HasConnection> X11rbServer<C> {
                 .get_property(true, msg.window, atom, AtomEnum::ANY, 0, length)?
                 .reply()?
                 .value;
-            let req = xim_parser::read(&data)?;
+            if trace_on {
+                let opcode = data.first().copied().unwrap_or(0);
+                eprintln!(
+                    "[unim-xim-trace] recv role=server<-client route=property(>20B) window=0x{:x} atom={atom} requested_len={length} data.len={} opcode={}",
+                    msg.window,
+                    data.len(),
+                    xim_opcode_name(opcode),
+                );
+            }
+            let req: xim_parser::Request = xim_parser::read(&data)?;
+            if trace_on {
+                // UNIM trace: ③ 여기까지 왔으면 GetProperty + xim_parser::read 가
+                // 모두 성공한 것이므로, PREEDIT_DRAW 뿐 아니라 FORWARD_EVENT·COMMIT
+                // 도 이 지점 도달 여부로 "property 경로 완주" 를 opcode 별로 구분해
+                // 확인할 수 있다.
+                eprintln!(
+                    "[unim-xim-trace] recv route=property(>20B) COMPLETE req={} window=0x{:x}",
+                    req.name(),
+                    msg.window,
+                );
+                if let xim_parser::Request::Error { .. } = &req {
+                    // UNIM trace: ② XIM_ERROR 수신 — 전문 로깅.
+                    eprintln!(
+                        "[unim-xim-trace] recv XIM_ERROR route=property(>20B) window=0x{:x} full={:?}",
+                        msg.window, req,
+                    );
+                }
+            }
             connection.handle_request(self, req, handler)
         } else {
-            let req = xim_parser::read(&msg.data.as_data8())?;
+            let raw = msg.data.as_data8();
+            if trace_on {
+                let opcode = raw.first().copied().unwrap_or(0);
+                eprintln!(
+                    "[unim-xim-trace] recv role=server<-client route=direct-clientmessage(<=20B) window=0x{:x} data.len={} opcode={}",
+                    msg.window,
+                    raw.len(),
+                    xim_opcode_name(opcode),
+                );
+            }
+            let req: xim_parser::Request = xim_parser::read(&raw)?;
+            if trace_on {
+                eprintln!(
+                    "[unim-xim-trace] recv route=direct-clientmessage(<=20B) COMPLETE req={} window=0x{:x}",
+                    req.name(),
+                    msg.window,
+                );
+                if let xim_parser::Request::Error { .. } = &req {
+                    // UNIM trace: ② XIM_ERROR 수신 — 전문 로깅.
+                    eprintln!(
+                        "[unim-xim-trace] recv XIM_ERROR route=direct-clientmessage(<=20B) window=0x{:x} full={:?}",
+                        msg.window, req,
+                    );
+                }
+            }
             connection.handle_request(self, req, handler)
         }
     }
@@ -371,6 +430,7 @@ impl<C: HasConnection> ServerCore for X11rbServer<C> {
             &mut self.sequence,
             20,
             &req,
+            "server->client", // UNIM trace
         )
     }
 
@@ -571,11 +631,18 @@ impl<C: HasConnection> X11rbClient<C> {
         }
     }
 
+    // UNIM trace: Phase 0 계측 (이슈 C). 참고 — unim-xim 크레이트는 `x11rb-client`
+    // 피처를 켜지 않으므로(이 크레이트의 `examples/x11rb_client.rs` 전용) 이 함수는
+    // 실제 UNIM 데몬 빌드에는 포함되지 않는다. GTK 는 자체 C 구현 xim immodule 을
+    // 쓰므로 이 크레이트의 클라이언트 경로를 타지 않는다 — 실서비스 계측은
+    // X11rbServer::handle_xim_protocol 쪽(위)이 담당한다. 여기는 지시된 라인 범위에
+    // 맞춰 동일 패턴으로만 남겨 둔다(다른 x11rb-client 소비자가 생기면 바로 쓸 수 있게).
     fn handle_xim_protocol(
         &mut self,
         msg: &ClientMessageEvent,
         handler: &mut impl ClientHandler<Self>,
     ) -> Result<(), ClientError> {
+        let trace_on = xim_trace_enabled();
         if msg.format == 32 {
             let [length, atom, ..] = msg.data.as_data32();
             let reply = self
@@ -584,14 +651,68 @@ impl<C: HasConnection> X11rbClient<C> {
                 .reply()?;
             // handle fcitx4 occasionally sending empty reply
             if reply.value_len == 0 {
+                if trace_on {
+                    eprintln!(
+                        "[unim-xim-trace] recv role=client<-server route=property(>20B) FAILED(empty-reply) window=0x{:x} atom={atom} requested_len={length}",
+                        msg.window,
+                    );
+                }
                 return Err(ClientError::InvalidReply);
             }
             let data = reply.value;
-            let req = xim_parser::read(&data)?;
+            if trace_on {
+                let opcode = data.first().copied().unwrap_or(0);
+                eprintln!(
+                    "[unim-xim-trace] recv role=client<-server route=property(>20B) window=0x{:x} atom={atom} requested_len={length} data.len={} opcode={}",
+                    msg.window,
+                    data.len(),
+                    xim_opcode_name(opcode),
+                );
+            }
+            let req: xim_parser::Request = xim_parser::read(&data)?;
+            if trace_on {
+                // UNIM trace: ③ PREEDIT_DRAW 뿐 아니라 FORWARD_EVENT·COMMIT 도 여기
+                // 도달 여부로 property 경로 완주를 opcode 별로 구분해 확인한다.
+                eprintln!(
+                    "[unim-xim-trace] recv route=property(>20B) COMPLETE req={} window=0x{:x}",
+                    req.name(),
+                    msg.window,
+                );
+                if let xim_parser::Request::Error { .. } = &req {
+                    // UNIM trace: ② XIM_ERROR 수신 — 전문 로깅.
+                    eprintln!(
+                        "[unim-xim-trace] recv XIM_ERROR route=property(>20B) window=0x{:x} full={:?}",
+                        msg.window, req,
+                    );
+                }
+            }
             client_handle_request(self, handler, req)?;
         } else if msg.format == 8 {
             let data = msg.data.as_data8();
+            if trace_on {
+                let opcode = data.first().copied().unwrap_or(0);
+                eprintln!(
+                    "[unim-xim-trace] recv role=client<-server route=direct-clientmessage(<=20B) window=0x{:x} data.len={} opcode={}",
+                    msg.window,
+                    data.len(),
+                    xim_opcode_name(opcode),
+                );
+            }
             let req: xim_parser::Request = xim_parser::read(&data)?;
+            if trace_on {
+                eprintln!(
+                    "[unim-xim-trace] recv route=direct-clientmessage(<=20B) COMPLETE req={} window=0x{:x}",
+                    req.name(),
+                    msg.window,
+                );
+                if let xim_parser::Request::Error { .. } = &req {
+                    // UNIM trace: ② XIM_ERROR 수신 — 전문 로깅.
+                    eprintln!(
+                        "[unim-xim-trace] recv XIM_ERROR route=direct-clientmessage(<=20B) window=0x{:x} full={:?}",
+                        msg.window, req,
+                    );
+                }
+            }
             client_handle_request(self, handler, req)?;
         }
 
@@ -676,8 +797,115 @@ impl<C: HasConnection> ClientCore for X11rbClient<C> {
             &mut self.sequence,
             self.transport_max,
             &req,
+            "client->server", // UNIM trace
         )
     }
+}
+
+// UNIM trace: Phase 0 계측 (이슈 C — GTK im-xim 조합 정지 확진). 자세한 내용은
+// third_party/xim/UNIM-FORK.md 참고. `UNIM_XIM_TRACE` 환경변수가 설정된 경우에만
+// eprintln! 로 출력하고, 기본은 완전 무음이다. 로깅 전용 — 동작은 절대 바꾸지 않는다.
+#[inline]
+fn xim_trace_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("UNIM_XIM_TRACE").is_some())
+}
+
+// UNIM trace: ④ 직전 property 송신의 소비 프로브. 클라이언트(im-xim)는 property 를
+// delete=True 로 읽어가므로, 이후 시점에 같은 atom 을 delete=False 로 되물었을 때
+// 데이터가 남아 있으면 "클라이언트가 GetProperty 자체를 안 했다"(정지가 읽기 이전),
+// 비어 있으면 "읽고도 멎었다"(정지가 파싱/처리 이후)로 갈린다 — xtrace 없이 서버
+// 안에서 얻는 이슈 C 의 1차 판별자. 계측 전용, 프로토콜 동작 무변경.
+static XIM_TRACE_LAST_PROP: Mutex<Option<(u32, u32)>> = Mutex::new(None);
+
+fn xim_trace_probe_prev_prop<C: HasConnection>(c: &C, at: &str) {
+    if !xim_trace_enabled() {
+        return;
+    }
+    let Some((win, atom)) = XIM_TRACE_LAST_PROP.lock().unwrap().take() else {
+        return;
+    };
+    let reply = c
+        .conn()
+        .get_property(false, win, atom, AtomEnum::ANY, 0, 4)
+        .map_err(|e| format!("{e:?}"))
+        .and_then(|cookie| cookie.reply().map_err(|e| format!("{e:?}")));
+    match reply {
+        Ok(r) => eprintln!(
+            "[unim-xim-trace] probe at={at} window=0x{win:x} atom={atom} consumed={} value.len={} bytes_after={}",
+            r.value.is_empty() && r.bytes_after == 0,
+            r.value.len(),
+            r.bytes_after,
+        ),
+        Err(e) => eprintln!(
+            "[unim-xim-trace] probe at={at} window=0x{win:x} atom={atom} FAILED: {e}"
+        ),
+    }
+}
+
+// UNIM trace: 와이어 버퍼 선두 바이트(메이저 opcode)를 XIM 프로토콜 이름으로
+// 변환한다. 계측 전용 — xim-parser 0.2.2 `Request::read` 의 opcode 표와 동일하게
+// 맞춰 두었다(상류 표가 바뀌면 여기도 갱신 필요).
+fn xim_opcode_name(opcode: u8) -> String {
+    match opcode {
+        1 => "XIM_CONNECT",
+        2 => "XIM_CONNECT_REPLY",
+        3 => "XIM_DISCONNECT",
+        4 => "XIM_DISCONNECT_REPLY",
+        10 => "XIM_AUTH_REQUIRED",
+        11 => "XIM_AUTH_REPLY",
+        12 => "XIM_AUTH_NEXT",
+        13 => "XIM_AUTH_SETUP",
+        14 => "XIM_AUTH_NG",
+        20 => "XIM_ERROR",
+        30 => "XIM_OPEN",
+        31 => "XIM_OPEN_REPLY",
+        32 => "XIM_CLOSE",
+        33 => "XIM_CLOSE_REPLY",
+        34 => "XIM_REGISTER_TRIGGERKEYS",
+        35 => "XIM_TRIGGER_NOTIFY",
+        36 => "XIM_TRIGGER_NOTIFY_REPLY",
+        37 => "XIM_SET_EVENT_MASK",
+        38 => "XIM_ENCODING_NEGOTIATION",
+        39 => "XIM_ENCODING_NEGOTIATION_REPLY",
+        40 => "XIM_QUERY_EXTENSION",
+        41 => "XIM_QUERY_EXTENSION_REPLY",
+        42 => "XIM_SET_IM_VALUES",
+        43 => "XIM_SET_IM_VALUES_REPLY",
+        44 => "XIM_GET_IM_VALUES",
+        45 => "XIM_GET_IM_VALUES_REPLY",
+        50 => "XIM_CREATE_IC",
+        51 => "XIM_CREATE_IC_REPLY",
+        52 => "XIM_DESTROY_IC",
+        53 => "XIM_DESTROY_IC_REPLY",
+        54 => "XIM_SET_IC_VALUES",
+        55 => "XIM_SET_IC_VALUES_REPLY",
+        56 => "XIM_GET_IC_VALUES",
+        57 => "XIM_GET_IC_VALUES_REPLY",
+        58 => "XIM_SET_IC_FOCUS",
+        59 => "XIM_UNSET_IC_FOCUS",
+        60 => "XIM_FORWARD_EVENT",
+        61 => "XIM_SYNC",
+        62 => "XIM_SYNC_REPLY",
+        63 => "XIM_COMMIT",
+        64 => "XIM_RESET_IC",
+        65 => "XIM_RESET_IC_REPLY",
+        70 => "XIM_GEOMETRY",
+        71 => "XIM_STR_CONVERSION",
+        72 => "XIM_STR_CONVERSION_REPLY",
+        73 => "XIM_PREEDIT_START",
+        74 => "XIM_PREEDIT_START_REPLY",
+        75 => "XIM_PREEDIT_DRAW",
+        76 => "XIM_PREEDIT_CARET",
+        77 => "XIM_PREEDIT_CARET_REPLY",
+        78 => "XIM_PREEDIT_DONE",
+        79 => "XIM_STATUS_START",
+        80 => "XIM_STATUS_DRAW",
+        81 => "XIM_STATUS_DONE",
+        82 => "XIM_PREEDIT_STATE",
+        other => return format!("UNKNOWN({other})"),
+    }
+    .into()
 }
 
 fn send_req_impl<C: HasConnection, E: From<ConnectionError> + From<ReplyError>>(
@@ -688,6 +916,8 @@ fn send_req_impl<C: HasConnection, E: From<ConnectionError> + From<ReplyError>>(
     sequence: &mut u16,
     transport_max: usize,
     req: &Request,
+    // UNIM trace: 호출부(서버/클라이언트) 구분용 라벨. 계측 로그 전용, 프로토콜에는 무영향.
+    role: &'static str,
 ) -> Result<(), E> {
     if log::log_enabled!(log::Level::Trace) {
         log::trace!("->: {:?}", req);
@@ -697,9 +927,25 @@ fn send_req_impl<C: HasConnection, E: From<ConnectionError> + From<ReplyError>>(
     buf.resize(req.size(), 0);
     xim_parser::write(req, buf);
 
+    // UNIM trace: ① 분기 판정 전 와이어 opcode를 buf 선두 바이트에서 직접 뽑는다
+    // (req.name() 이 아니라 실제 시리얼라이즈드 바이트 기준 — 파서 라벨과 와이어가
+    // 어긋나는지도 같이 검증하기 위함).
+    let trace_on = xim_trace_enabled();
+    let trace_opcode = buf.first().copied().unwrap_or(0);
+    // UNIM trace: ④ 새 송신에 앞서 직전 property 송신의 소비 여부를 되묻는다.
+    xim_trace_probe_prev_prop(c, "before-send");
+
     if buf.len() < transport_max {
         if buf.len() > 20 {
             todo!("multi-CM");
+        }
+        if trace_on {
+            eprintln!(
+                "[unim-xim-trace] send role={role} route=direct-clientmessage(<=20B) opcode={} req={} target=0x{target:x} buf.len={} transport_max={transport_max} atom=none PropMode=none",
+                xim_opcode_name(trace_opcode),
+                req.name(),
+                buf.len(),
+            );
         }
         buf.resize(20, 0);
         let buf: [u8; 20] = buf.as_slice().try_into().unwrap();
@@ -722,6 +968,14 @@ fn send_req_impl<C: HasConnection, E: From<ConnectionError> + From<ReplyError>>(
             .intern_atom(false, format!("_XIM_DATA_{}", sequence).as_bytes())?
             .reply()?
             .atom;
+        if trace_on {
+            eprintln!(
+                "[unim-xim-trace] send role={role} route=property(>20B) opcode={} req={} target=0x{target:x} buf.len={} transport_max={transport_max} atom={prop} PropMode=APPEND",
+                xim_opcode_name(trace_opcode),
+                req.name(),
+                buf.len(),
+            );
+        }
         *sequence = sequence.wrapping_add(1);
         c.conn().change_property(
             PropMode::APPEND,
@@ -745,6 +999,10 @@ fn send_req_impl<C: HasConnection, E: From<ConnectionError> + From<ReplyError>>(
                 window: target,
             },
         )?;
+        if trace_on {
+            // UNIM trace: ④ 이 property 를 클라이언트가 읽어갔는지 다음 송수신 시점에 되묻는다.
+            *XIM_TRACE_LAST_PROP.lock().unwrap() = Some((target, prop));
+        }
     }
     buf.clear();
     c.conn().flush()?;

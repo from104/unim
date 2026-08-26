@@ -8,8 +8,11 @@
  * 관측이 원래부터 100% 다. 다른 앱들이 캔버스 직접 그리기로 맞춘 그 지점에
  * 이 앱은 처음부터 있었다(TEST_APPS.md §2).
  *
- * 스타일은 ON-THE-SPOT(`XIMPreeditCallbacks`)을 최우선으로 잡는다 — Obsidian
- * 등 실제 앱이 타는 경로이자 2026-08-07 회귀가 났던 자리다.
+ * 스타일은 ON-THE-SPOT(`XIMPreeditCallbacks`)을 협상 없이 하드코딩 요청한다.
+ * UNIM 서버는 GTK3+libX11 웨지 회피를 위해 이 스타일을 더 이상 광고하지
+ * 않지만(third_party/xim/UNIM-FORK.md, 이슈 C), CALLBACKS 콜백 경로 자체는
+ * 명시 요청 클라이언트를 위해 서버에 그대로 남아 있다 — 2026-08-07 회귀가
+ * 났던 그 경로의 회귀 커버리지를 이 앱이 유지한다.
  *
  * 실행:
  *   XMODIFIERS=@im=unim unim-test-xim
@@ -269,20 +272,14 @@ static int xim_init(void) {
         unim_log_note("IM 지원 스타일 [%lu] 0x%lx", i,
                       (unsigned long)styles->supported_styles[i]);
 
-    /* ON-THE-SPOT 을 최우선으로 — 실제 앱(Obsidian 등)이 타는 경로다. */
-    XIMStyle wanted[] = {
-        XIMPreeditCallbacks | XIMStatusNothing,
-        XIMPreeditPosition  | XIMStatusNothing,
-        XIMPreeditNothing   | XIMStatusNothing,
-        0
-    };
-    XIMStyle best = 0;
-    for (int w = 0; wanted[w] && !best; w++)
-        for (unsigned long i = 0; i < styles->count_styles; i++)
-            if (styles->supported_styles[i] == wanted[w]) { best = wanted[w]; break; }
+    /* ON-THE-SPOT(XIMPreeditCallbacks)을 하드코딩해 명시 요청한다 — 협상이
+     * 아니다. UNIM 서버는 GTK3+libX11 웨지 회피를 위해 이 스타일을
+     * QueryInputStyle 목록에서 뺐지만(third_party/xim/UNIM-FORK.md 참고),
+     * XCreateIC 는 목록에 없는 스타일도 그대로 받아 준다. 이 앱은 그 콜백
+     * 경로(Obsidian 등 실제 앱이 타는 경로)의 회귀 커버리지를 지키는 것이
+     * 목적이므로 협상 대신 항상 CALLBACKS 를 요청한다. */
     XFree(styles);
-
-    if (!best) { unim_log_error("적합한 입력 스타일 없음"); return 0; }
+    XIMStyle best = XIMPreeditCallbacks | XIMStatusNothing;
     A.style = best;
     unim_log_note("선택한 스타일 0x%lx (%s)", (unsigned long)best,
                   (best & XIMPreeditCallbacks) ? "ON-THE-SPOT"
