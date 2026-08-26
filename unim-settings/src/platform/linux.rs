@@ -295,6 +295,14 @@ pub fn gnome_extension_needs_enable() -> bool {
 /// 재고정 개념 없음). 함수 표면 대칭을 위한 no-op.
 pub fn wizard_set_default_on_startup(_v: bool) {}
 
+/// D-2: Windows explorer.exe 재기동 개념이 없다(Linux 는 언어바 호스트가 별도 프로세스가
+/// 아니라 데몬 재시작이 아예 다른 경로). 호출부는 `wiz-platform-windows` UI 게이트로
+/// 걸러지므로 사실상 미호출 — 함수 표면 대칭 유지 목적의 no-op.
+#[allow(dead_code)]
+pub fn wizard_restart_explorer() -> bool {
+    false
+}
+
 /// Windows 전용 페이지 — Linux 는 한국어 폰트/입력을 unim-common 의
 /// `Recommends: fonts-noto-cjk` 로 대체하므로 항상 설치된 것으로 본다(true 면
 /// build_wizard_pages 가 LANGPACK 페이지를 스킵).

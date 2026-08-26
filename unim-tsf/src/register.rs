@@ -187,6 +187,27 @@ pub(crate) fn dbg_log(msg: &str) {
     unim_windows_common::debug::dbg_log("unim-tsf", "unim-tsf.log", msg, false);
 }
 
+/// D-3 — 프로세스당 1회, 버전·빌드 타임스탬프·로드된 DLL 경로+mtime 을 남기는 진단
+/// 배너. `UnimTextService::ActivateEx`(TIP 활성화 — 프로세스 최초 로드 시점)에서
+/// 호출한다. `dbg_log`/`dbg_log_ev!` 와 동일하게 `UNIM_DEBUG_LOG` 게이트를 따른다
+/// (미설정 시 완전 무음, 파일 stat/open 도 하지 않음). 실제 "프로세스당 1회" 보장은
+/// `unim_windows_common::debug::log_startup_banner` 내부 `OnceLock` 이 한다 — 여러
+/// 스레드/여러 문서가 동시에 Activate 해도 배너는 딱 한 줄만 남는다.
+pub(crate) fn log_startup_banner() {
+    if !logging_enabled() {
+        return;
+    }
+    let dll_path = unim_windows_common::registry::get_module_path(crate::dll_instance())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    unim_windows_common::debug::log_startup_banner(
+        "unim-tsf",
+        "unim-tsf.log",
+        env!("CARGO_PKG_VERSION"),
+        env!("UNIM_BUILD_TIMESTAMP"),
+        &dll_path,
+    );
+}
+
 /// 구조 이벤트는 로그 ON 시 항상 남기고, 민감 콘텐츠(vk 원값·타이핑 텍스트)는
 /// UNIM_DEBUG_CONTENT=1 일 때만 덧붙이는 로깅 매크로.
 ///

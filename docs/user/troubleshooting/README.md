@@ -43,6 +43,7 @@ setx UNIM_DEBUG_LOG 1
 - Log file: `%TEMP%\unim-tsf.log`. Several apps append to the same file; each line is tagged `[unim-tsf <PID>]` so you can tell them apart. Paste `%TEMP%` into the Explorer address bar to open the folder.
 - Clear the log before reproducing so it is easier to read: `del "%TEMP%\unim-tsf.log"`
 - Other components write their own files in `%TEMP%` — `unim-popup-win.log` for the popup renderer, `unim-settings.log` for the settings app.
+- The first line after each app relaunch is a one-time banner (`===== UNIM startup banner =====`) with the version, build timestamp, and the loaded DLL's path and modified time — check it first to confirm which build actually produced the log. Each log file caps at 5MB and rotates to `<file>.1` (e.g. `unim-tsf.log.1`) — if the banner is missing from `unim-tsf.log`, it scrolled into the `.1` file; grab both when collecting a report.
 
 > ⚠️ **Do not turn on `UNIM_DEBUG_CONTENT` unless you were asked to.** With that variable also set, the actual keys you press and the text being composed and committed are written to the log verbatim. Passwords can end up in plain text. When you are done, turn both off with `setx UNIM_DEBUG_LOG ""` / `setx UNIM_DEBUG_CONTENT ""` and delete `%TEMP%\unim-tsf.log`.
 

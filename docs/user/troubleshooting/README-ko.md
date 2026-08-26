@@ -43,6 +43,7 @@ setx UNIM_DEBUG_LOG 1
 - 로그 파일: `%TEMP%\unim-tsf.log`. 여러 앱이 같은 파일에 이어 쓰며 `[unim-tsf <PID>]` 태그로 구분된다. 탐색기 주소창에 `%TEMP%`를 붙여넣으면 폴더가 열린다.
 - 재현 전에 로그를 비우면 읽기 쉽다: `del "%TEMP%\unim-tsf.log"`
 - 다른 구성 요소도 각자 `%TEMP%`에 남긴다 — 팝업 렌더러는 `unim-popup-win.log`, 설정 앱은 `unim-settings.log`.
+- 앱을 다시 열 때마다 맨 첫 줄에 배너(`===== UNIM startup banner =====`)가 한 번 찍힌다 — 버전·빌드 타임스탬프·로드된 DLL 경로와 수정 시각이 담겨 있으니, 로그를 보내기 전에 먼저 확인해 어느 빌드가 남긴 로그인지 확인한다. 로그 파일은 5MB가 되면 `<파일명>.1`(예: `unim-tsf.log.1`)로 회전한다 — `unim-tsf.log`에 배너가 안 보이면 `.1` 파일로 밀려난 것이니, 진단 요청 시 둘 다 첨부한다.
 
 > ⚠️ **`UNIM_DEBUG_CONTENT`는 켜지 마라 (진단 요청을 받은 경우 제외).** 이 변수를 함께 켜면 실제로 누른 키와 조합·확정된 문자열까지 로그에 그대로 남는다. 비밀번호가 평문으로 기록될 수 있다. 진단이 끝나면 `setx UNIM_DEBUG_LOG ""` / `setx UNIM_DEBUG_CONTENT ""`로 끄고 `%TEMP%\unim-tsf.log`를 지운다.
 

@@ -136,6 +136,10 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
         // Slint 문구·카드 분기용 플랫폼 플래그. cfg! 라 Windows 바이너리에선 상수 false →
         // ternary/적용시점 카드가 전부 Windows 경로로 렌더(렌더 트리 불변).
         ui.set_wiz_platform_linux(cfg!(target_os = "linux"));
+        // D-2: 완료 페이지의 explorer.exe 갱신 안내 카드 게이트(Windows 전용, wiz-whats-new
+        // 와 함께 걸림 — §계약 2 "갱신 케이스" 범위 한정). wiz-platform-linux 와 동일 패턴
+        // 이라 Linux/제3플랫폼은 기본 false 로 렌더 트리 불변(회귀 0).
+        ui.set_wiz_platform_windows(cfg!(target_os = "windows"));
         // BLOCKER-2(GAP-first-run-lifecycle-02): GNOME Shell(Wayland) 세션(우분투 기본
         // 세션)이면 완료 페이지에 확장 활성화 안내 카드를 띄운다. Windows/fallback 은
         // 항상 false 라 렌더 트리 불변(회귀 0).
@@ -207,6 +211,11 @@ pub fn wire(ui: &SettingsWindow, config: &Rc<RefCell<Config>>) {
         }
         // 한국어 언어팩: [언어 설정 열기] → ms-settings:regionlanguage.
         ui.on_wizard_open_langpack(platform::wizard_open_language_settings);
+        // D-2: "지금 탐색기 재시작" — 사용자가 직접 누른 클릭에서만 발화(강제 재시작 금지).
+        // 반환값은 안내용 힌트일 뿐이라 무시한다(실패해도 재로그인하면 결국 반영됨).
+        ui.on_wizard_restart_explorer(|| {
+            let _ = platform::wizard_restart_explorer();
+        });
 
         // 마침: config load(공유본)→체크박스값 반영→save. 그 후 기본입력기 지정(체크 시)
         // + seen 버전 기록. '설정 열기' 체크면 그 자리에서 설정 모드로 전환, 아니면 닫기.

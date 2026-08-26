@@ -63,7 +63,7 @@ fn is_own_gui_host() -> bool {
 
 /// OnTestKeyDown: 이 키를 소비할지 판단합니다.
 pub fn test_key_down(
-    engine: &InputEngine,
+    engine: &mut InputEngine,
     config: &Config,
     wparam: WPARAM,
     _context: Option<&ITfContext>,
@@ -136,6 +136,15 @@ pub fn test_key_down(
     if engine.is_atf_hotkey(keycode, modifiers) {
         return true;
     }
+
+    // D-1: 자동 영문 전환 "조합" 트리거(`key:Ctrl+B` 등) 판정 — 매칭 시 엔진
+    // 입력 카테고리만 영문으로 전환한다(멱등, 커밋 부작용 없음 — 헬퍼 문서 참조).
+    // eaten 은 그대로 false 로 둔다: 이 키는 앱이 받아야 한다(tmux prefix Ctrl+B 등).
+    // 이 호출이 없으면 — 대부분의 호스트가 eaten=false 인 키에 대해 OnKeyDown 을
+    // 아예 부르지 않으므로 — 엔진이 조합 트리거를 영영 관찰 못 해 자동 영문 전환이
+    // 조용히 무시된다(CHANGELOG 결함). Word 류처럼 OnTestKeyDown 이 같은 키에 대해
+    // 투기적으로 여러 번 불려도 헬퍼가 멱등이라 안전하다.
+    engine.try_auto_english_combo(keycode, modifiers);
 
     // Ctrl/Alt/Super 조합은 통과 (단축키)
     if modifiers.control || modifiers.alt || modifiers.super_key {

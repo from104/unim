@@ -727,6 +727,9 @@ impl UnimTextService_Impl {
 
 impl ITfTextInputProcessorEx_Impl for UnimTextService_Impl {
     fn ActivateEx(&self, ptim: Ref<'_, ITfThreadMgr>, tid: u32, _dwflags: u32) -> Result<()> {
+        // D-3: 프로세스당 1회 진단 배너(버전·빌드 타임스탬프·로드된 DLL 경로+mtime).
+        // UNIM_DEBUG_LOG 미설정이면 무음(기존 게이트 그대로) — register::dbg_log 참조.
+        crate::register::log_startup_banner();
         let thread_mgr = ptim.as_ref().ok_or(E_INVALIDARG)?;
         self.client_id.store(tid, Ordering::SeqCst);
         *self.thread_mgr.lock().unwrap() = Some(thread_mgr.clone());
@@ -1029,6 +1032,14 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         }
         if !popup_active && (engine.is_composing() || has_english_hold) && is_combo {
             if let Some(context) = pic.as_ref() {
+                // D-1: 이 분기는 test_key_down(key_handler.rs) 보다 먼저 반환하므로
+                // (조합 중 수정자 조합은 여기서 커밋+패스쓰루로 끝남) 거기 심어둔
+                // try_auto_english_combo 호출이 이 케이스엔 도달하지 않는다. 조합
+                // 중(정확히 CHANGELOG 결함이 지목한 시나리오) Ctrl+B 같은 자동 영문
+                // 전환 조합이 무시되지 않도록 여기서도 같은 멱등 헬퍼를 불러 입력
+                // 카테고리만 미리 전환해 둔다 — commit_for_passthrough 의 preedit
+                // flush 와는 독립적(헬퍼는 카테고리 필드만 건드림)이라 순서 무관.
+                engine.try_auto_english_combo(kc, m);
                 self.commit_for_passthrough(&mut engine, context);
                 crate::register::dbg_log_ev!(
                     "OnTestKeyDown: commit+passthrough modifier-combo",
@@ -1104,7 +1115,7 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         }
 
         let eaten =
-            key_handler::test_key_down(&engine, &config, wparam, pic.as_ref(), popup_active);
+            key_handler::test_key_down(&mut engine, &config, wparam, pic.as_ref(), popup_active);
         Ok(BOOL::from(eaten))
     }
 

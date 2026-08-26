@@ -470,11 +470,22 @@ export component SettingsWindow inherits Window {
     // GAP-first-06: ibus/fcitx 데몬 공존 감지 시 Rust 가 true 로 설정(완료 페이지 1회
     // 진입 시 감지) → 경고 카드 노출(Linux). 자동 종료·비활성화는 하지 않는다.
     in-out property <bool> wiz-conflicting-ime: false;
+    // D-2: Windows 빌드에서만 Rust 가 true 로 설정(wiz-platform-linux 와 동일 패턴) —
+    // 완료 페이지의 explorer.exe 갱신 안내 카드(아래) 게이트. 기본 false 라 Linux·
+    // 신규설치는 렌더 트리 불변(회귀 0).
+    in property <bool> wiz-platform-windows: false;
+    // D-2: 옵트인 "지금 탐색기 재시작" 버튼을 누른 뒤 true — 버튼을 안내 문구로 치환한다.
+    // 마법사 재진입/페이지 이동에 값이 남아 있어도 무해(같은 세션에서 다시 누를 필요만 없어짐).
+    property <bool> wiz-explorer-restarted: false;
     // 마법사 네비게이션(다음/이전) 및 마침 — 인덱스 관리·저장은 Rust 가 수행.
     callback wizard-next();
     callback wizard-back();
     // 한국어 언어팩 페이지 [언어 설정 열기] → ms-settings:regionlanguage.
     callback wizard-open-langpack();
+    // D-2: 완료 페이지(--whats-new) "지금 탐색기 재시작" 버튼 — **사용자가 직접 눌러야만**
+    // 발화한다(강제/자동 재시작 절대 금지, §계약 2). Windows 전용, Linux 는 카드 자체가
+    // 렌더되지 않아 버튼도 없다.
+    callback wizard-restart-explorer();
     // 마침: config load→체크박스 반영→save + (선택)기본입력기 지정 + seen 버전 기록.
     callback wizard-finish();
 
@@ -1579,6 +1590,41 @@ export component SettingsWindow inherits Window {
                             text: @tr("앱 입력창에서 한글 입력이 켜지고(입력기 환경변수 적용), 기본 입력기 지정이 반영됩니다.");
                             font-size: Tokens.font-caption;
                             wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                    }
+                    // D-2: Windows 갱신(--whats-new) 전용 — 이미 실행 중인 explorer.exe 가
+                    // 새로 등록된 UNIM 을 자동으로 다시 읽지 않아 언어바/트레이에 바로
+                    // 나타나지 않을 수 있다는 안내 + 옵트인 탐색기 재시작. 신규 설치는
+                    // 대상 밖(§계약 2 — "갱신 케이스"로 범위 한정)이라 wiz-whats-new 도 함께 건다.
+                    if root.wiz-current-kind == 5 && root.wiz-platform-windows && root.wiz-whats-new: Card {
+                        title: @tr("언어바·트레이 갱신 안내");
+                        Text {
+                            text: @tr("이미 실행 중인 탐색기(explorer.exe)는 새로 등록된 UNIM 을 자동으로 다시 읽지 않아, 언어바나 트레이에 바로 나타나지 않을 수 있습니다.");
+                            font-size: Tokens.font-body;
+                            wrap: word-wrap;
+                            color: Palette.foreground;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        Text {
+                            text: @tr("재로그인하면 항상 반영됩니다. 지금 바로 반영하려면 아래 버튼으로 탐색기를 재시작할 수 있습니다 — 열려 있는 탐색기 창이 모두 닫힙니다.");
+                            font-size: Tokens.font-caption;
+                            wrap: word-wrap;
+                            color: Tokens.caption-color;
+                        }
+                        Rectangle { height: Tokens.space-2; }
+                        if !root.wiz-explorer-restarted: Button {
+                            text: @tr("지금 탐색기 재시작");
+                            accessible-label: @tr("탐색기를 재시작해 언어바를 갱신합니다");
+                            clicked => {
+                                root.wizard-restart-explorer();
+                                root.wiz-explorer-restarted = true;
+                            }
+                        }
+                        if root.wiz-explorer-restarted: Text {
+                            text: @tr("탐색기를 재시작했습니다 — 언어바를 확인해 보세요.");
+                            font-size: Tokens.font-caption;
+                            font-weight: 700;
                             color: Tokens.caption-color;
                         }
                     }

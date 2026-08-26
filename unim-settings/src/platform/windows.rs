@@ -108,6 +108,11 @@ pub fn wizard_set_as_default() -> super::DefaultImeOutcome {
 pub fn wizard_set_default_on_startup(v: bool) {
     let _ = ime::set_default_on_startup(v);
 }
+/// D-2: 완료 페이지(--whats-new)의 옵트인 "지금 탐색기 재시작" 버튼 전용.
+/// 사용자가 직접 누른 클릭에서만 호출된다(wizard.rs 콜백 배선 참조) — 강제 호출 없음.
+pub fn wizard_restart_explorer() -> bool {
+    ime::restart_explorer()
+}
 pub fn wizard_is_korean_language_installed() -> bool {
     ime::is_korean_language_installed()
 }

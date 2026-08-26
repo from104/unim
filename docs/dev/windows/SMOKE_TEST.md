@@ -124,6 +124,10 @@ GUI 경로: `설정 → 시간 및 언어 → 한국어 → 키보드 → 키보
 별도 트레이 앱(unim-windows)은 제거됐다. 모든 UI 는 `unim_tsf.dll` 내부 네이티브 Win32.
 설정 저장소는 `%APPDATA%\unim\config.yaml`. UNIM TIP 가 활성(입력 가능)인 상태에서 검증.
 
+> 언어바에 UNIM 이 아예 노출되지 않는 경우(설치/갱신 직후 D-2)는 5.1 이전에
+> **[D2-tray-after-install-checklist.md](D2-tray-after-install-checklist.md)** 의
+> 재현 매트릭스·D-3 스테일 DLL 확정 절차부터 수행한다.
+
 | # | 동작 | 기대 결과 | 결과 |
 |---|------|-----------|------|
 | 5.1 | 랭귀지바 버튼 노출 | 시스템 언어바에 UNIM 한/영 상태 버튼(아이콘/텍스트) | ☐ |
