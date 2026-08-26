@@ -55,6 +55,22 @@ pub mod caps {
     pub const SURROUNDING_TEXT: u32 = 1 << 5;
 }
 
+/// IBusEngine Preedit 커밋 모드 (UpdatePreeditTextWithMode 4번째 인자)
+///
+/// 클라이언트가 로컬로 잔여 preedit 을 정리할 때(포커스 아웃·클릭 등) 그
+/// 문자열을 어떻게 처리할지 지시하는 값이다. COMMIT 을 보내면 클라이언트가
+/// 남은 preedit 을 자체적으로 커밋해 버리므로, 데몬이 이미 CommitText 를
+/// 쏜 경로(FocusOut/Reset)와 겹치면 이중 커밋이 된다 — UNIM 은 항상
+/// CLEAR 만 사용한다 (ibus_context.rs::emit_update_preedit 참고).
+#[allow(dead_code)]
+pub mod preedit_mode {
+    /// 클라이언트 로컬 preedit 을 버림 — UNIM 이 항상 쓰는 값.
+    pub const IBUS_ENGINE_PREEDIT_CLEAR: u32 = 0;
+    /// 클라이언트 로컬 preedit 을 그대로 커밋 — UNIM 은 이중 커밋 위험 때문에
+    /// 절대 쓰지 않는다 (fcitx5 는 쓰지만 커밋 순서 전제가 달라서다).
+    pub const IBUS_ENGINE_PREEDIT_COMMIT: u32 = 1;
+}
+
 /// 빈 attachments dict `a{sv}` 생성
 ///
 /// ⚠️ `Value::new(..)` 로 감싸지 **않는다**. 구조체 필드를 `Value` 로 넣으면
@@ -206,6 +222,17 @@ mod tests {
             Value::Value(inner) => inner.value_signature().to_string(),
             other => other.value_signature().to_string(),
         }
+    }
+
+    /// `ClientCommitPreedit` 속성의 와이어 타입 계약 — 값은 `(b)` 튜플이지
+    /// bool 단일 `b` 가 아니다. zbus 4 property 는 러스트 타입을 그대로
+    /// GVariant 로 직렬화하므로, 게터/세터를 `(bool,)` 로 선언하지 않고
+    /// `bool` 로 선언하면 클라이언트가 기대하는 `(b)` 대신 `b` 가 나가
+    /// GTK im-ibus 의 Get 응답 파싱이 깨진다.
+    #[test]
+    fn test_client_commit_preedit_property_wire_signature() {
+        use zbus::zvariant::Type;
+        assert_eq!(<(bool,)>::signature(), "(b)");
     }
 
     #[test]

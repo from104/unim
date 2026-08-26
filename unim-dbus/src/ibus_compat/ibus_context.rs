@@ -55,6 +55,20 @@ pub struct IBusInputContextHandler {
     cursor_y: i32,
     /// 윈도우 ID (FocusIn용)
     window_id: String,
+    /// 클라이언트가 `ClientCommitPreedit` 속성으로 알려온 값. true 면
+    /// GTK im-ibus(libibus >= 1.5.20) 계열로 판단해 UpdatePreeditTextWithMode
+    /// 4-인자 시그널만 발신한다 — emit_update_preedit 참고.
+    ///
+    /// 이 구조체 인스턴스는 zbus ObjectServer 가 `Arc<RwLock<dyn Interface>>`
+    /// 로 감싸 보관하고, `&self`/`&mut self` 메서드 호출이 전부 그 락을 거쳐
+    /// 들어온다. 발신 지점(emit_update_preedit, emit_engine_response,
+    /// FocusOut, Reset)이 전부 이 객체의 `&self` 메서드 안이라 락 밖의
+    /// 스폰된 태스크가 따로 접근하지 않으므로, Arc<AtomicBool> 없이 평범한
+    /// 필드로 충분하다.
+    client_commit_preedit: bool,
+    /// SetCapabilities 로 클라이언트가 보고한 기능 비트마스크. 위와 같은
+    /// 이유로 평범한 필드 — 아직 동작 분기에는 쓰지 않고 저장만 한다.
+    caps: u32,
 }
 
 impl IBusInputContextHandler {
@@ -72,6 +86,8 @@ impl IBusInputContextHandler {
             cursor_x: 0,
             cursor_y: 0,
             window_id: format!("ibus-ctx-{}", context_id),
+            client_commit_preedit: false,
+            caps: 0,
         }
     }
 
@@ -96,14 +112,15 @@ impl IBusInputContextHandler {
             Some(preedit) if !preedit.is_empty() => {
                 let text = ibus_types::serialize_preedit_text(preedit);
                 let cursor_pos = preedit.chars().count() as u32;
-                let _ = Self::update_preedit_text(signal_ctx, text, cursor_pos, true).await;
+                self.emit_update_preedit(signal_ctx, text, cursor_pos, true)
+                    .await;
                 let _ = Self::show_preedit_text(signal_ctx).await;
             }
             _ => {
                 // preedit 비어있으면 숨김
                 if response.preedit.is_some() {
                     let text = ibus_types::serialize_ibus_text("");
-                    let _ = Self::update_preedit_text(signal_ctx, text, 0, false).await;
+                    self.emit_update_preedit(signal_ctx, text, 0, false).await;
                     let _ = Self::hide_preedit_text(signal_ctx).await;
                 }
             }
@@ -111,6 +128,59 @@ impl IBusInputContextHandler {
 
         // ForwardKeyEvent (consumed=false인 경우 클라이언트에서 처리)
         // IBus에서는 ProcessKeyEvent의 반환값으로 처리하므로 별도 시그널 불필요
+    }
+
+    /// UpdatePreeditText 발신 분기: `ClientCommitPreedit` 속성값에 따라
+    /// 3-인자(UpdatePreeditText)/4-인자(UpdatePreeditTextWithMode) 중 하나만
+    /// 보낸다 — 최신 GTK im-ibus(libibus >= 1.5.20)는 4-인자만 구독하고
+    /// 3-인자는 무시하므로 둘 다 보내면 그쪽이 화면에 안 보인다(이 수정의
+    /// 발단이 된 근본 원인).
+    ///
+    /// mode 는 항상 CLEAR(0) 로 고정한다. IBusEngine 의 COMMIT(1)은
+    /// 클라이언트측 `ibus_im_context_clear_preedit_text` 가 포커스 아웃·클릭
+    /// 시 데몬 RPC 응답보다 먼저 로컬로 실행되며, mode==COMMIT 이면 화면에
+    /// 남아있던 preedit 문자열을 클라이언트가 자체적으로 다시 커밋해
+    /// 버린다. 우리 데몬은 FocusOut/Reset 에서 이미 CommitText 로 같은
+    /// 문자열을 커밋하므로 COMMIT 을 쓰면 이중 커밋이 된다. fcitx5 는
+    /// COMMIT 을 쓰지만 그건 fcitx5 프레임워크의 커밋 순서 전제가 우리와
+    /// 달라서다 — 여기서 베끼면 회귀다.
+    async fn emit_update_preedit(
+        &self,
+        signal_ctx: &zbus::SignalContext<'_>,
+        text: Value<'_>,
+        cursor_pos: u32,
+        visible: bool,
+    ) {
+        if self.client_commit_preedit {
+            if let Err(e) = Self::update_preedit_text_with_mode(
+                signal_ctx,
+                text,
+                cursor_pos,
+                visible,
+                ibus_types::preedit_mode::IBUS_ENGINE_PREEDIT_CLEAR,
+            )
+            .await
+            {
+                unim_log!(
+                    "DAEMON",
+                    "[IBus Compat] UpdatePreeditTextWithMode 시그널 실패: {}",
+                    e
+                );
+            }
+        } else {
+            // 이 환경에 libibus < 1.5.20 클라이언트 실물이 없어 실제로는 타지
+            // 않는 방어적 경로다 — ClientCommitPreedit 를 세팅하지 않는
+            // 구버전 im-ibus 대비 3-인자 UpdatePreeditText 를 그대로
+            // 유지한다.
+            if let Err(e) = Self::update_preedit_text(signal_ctx, text, cursor_pos, visible).await
+            {
+                unim_log!(
+                    "DAEMON",
+                    "[IBus Compat] UpdatePreeditText 시그널 실패: {}",
+                    e
+                );
+            }
+        }
     }
 }
 
@@ -198,7 +268,7 @@ impl IBusInputContextHandler {
                 let text = ibus_types::serialize_ibus_text(&commit);
                 let _ = Self::commit_text(&signal_ctx, text).await;
                 let empty = ibus_types::serialize_ibus_text("");
-                let _ = Self::update_preedit_text(&signal_ctx, empty, 0, false).await;
+                self.emit_update_preedit(&signal_ctx, empty, 0, false).await;
                 let _ = Self::hide_preedit_text(&signal_ctx).await;
             }
         }
@@ -239,7 +309,7 @@ impl IBusInputContextHandler {
                 let text = ibus_types::serialize_ibus_text(&commit);
                 let _ = Self::commit_text(&signal_ctx, text).await;
                 let empty = ibus_types::serialize_ibus_text("");
-                let _ = Self::update_preedit_text(&signal_ctx, empty, 0, false).await;
+                self.emit_update_preedit(&signal_ctx, empty, 0, false).await;
                 let _ = Self::hide_preedit_text(&signal_ctx).await;
             }
         }
@@ -247,8 +317,13 @@ impl IBusInputContextHandler {
     }
 
     /// 클라이언트 기능 플래그 설정
+    ///
+    /// 아직 동작 분기(예: SURROUNDING_TEXT 유무에 따른 처리 변경)에는 쓰지
+    /// 않고 저장만 한다.
     #[zbus(name = "SetCapabilities")]
-    async fn set_capabilities(&self, _caps: u32) -> zbus::fdo::Result<()> {
+    async fn set_capabilities(&mut self, caps: u32) -> zbus::fdo::Result<()> {
+        self.caps = caps;
+        unim_log!("DAEMON", "[IBus Compat] SetCapabilities: caps={:#x}", caps);
         Ok(())
     }
 
@@ -405,19 +480,56 @@ impl IBusInputContextHandler {
         Ok(())
     }
 
+    // ─── 속성 ───
+
+    /// GTK im-ibus(libibus >= 1.5.20)가 세팅하는 클라이언트 기능 속성.
+    ///
+    /// 러스트 타입은 `bool` 이 아니라 `(bool,)` 튜플이다 — IBus 클라이언트가
+    /// 실제로 기대하는 GVariant 와이어 타입이 `(b)`(단일원소 구조체)이지
+    /// bool 그대로의 `b` 가 아니기 때문이다(ibus_types.rs 의
+    /// test_client_commit_preedit_property_wire_signature 참고).
+    #[zbus(property, name = "ClientCommitPreedit")]
+    async fn client_commit_preedit(&self) -> (bool,) {
+        (self.client_commit_preedit,)
+    }
+
+    #[zbus(property, name = "ClientCommitPreedit")]
+    async fn set_client_commit_preedit(&mut self, value: (bool,)) -> zbus::fdo::Result<()> {
+        self.client_commit_preedit = value.0;
+        unim_log!("DAEMON", "[IBus Compat] ClientCommitPreedit 설정: {}", value.0);
+        Ok(())
+    }
+
     // ─── 시그널 ───
 
     /// 확정 텍스트 시그널
     #[zbus(signal, name = "CommitText")]
     async fn commit_text(ctx: &zbus::SignalContext<'_>, text: Value<'_>) -> zbus::Result<()>;
 
-    /// Preedit 업데이트 시그널
+    /// Preedit 업데이트 시그널 (3-인자, 구버전 폴백)
+    ///
+    /// libibus < 1.5.20(ClientCommitPreedit 속성을 세팅하지 않는 클라이언트)
+    /// 대비 방어적으로 유지하는 경로다 — 이 환경에는 그런 클라이언트 실물이
+    /// 없다. 실제 발신 분기는 emit_update_preedit 참고.
     #[zbus(signal, name = "UpdatePreeditText")]
     async fn update_preedit_text(
         ctx: &zbus::SignalContext<'_>,
         text: Value<'_>,
         cursor_pos: u32,
         visible: bool,
+    ) -> zbus::Result<()>;
+
+    /// Preedit 업데이트 시그널 (4-인자, WithMode)
+    ///
+    /// GTK im-ibus(libibus >= 1.5.20)가 실제로 구독하는 경로 — `mode` 는
+    /// 항상 CLEAR(0) 고정(emit_update_preedit 의 주석 참고).
+    #[zbus(signal, name = "UpdatePreeditTextWithMode")]
+    async fn update_preedit_text_with_mode(
+        ctx: &zbus::SignalContext<'_>,
+        text: Value<'_>,
+        cursor_pos: u32,
+        visible: bool,
+        mode: u32,
     ) -> zbus::Result<()>;
 
     /// Preedit 표시 시그널

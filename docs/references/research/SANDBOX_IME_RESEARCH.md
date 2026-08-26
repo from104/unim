@@ -80,15 +80,26 @@ org.freedesktop.IBus (메인 인터페이스):
   - SetGlobalEngine(engine_name)
 
 org.freedesktop.IBus.InputContext (입력 컨텍스트):
+  Properties:
+    - ClientCommitPreedit (bool, 쓰기 가능) — libibus >= 1.5.20의 GTK
+      im-ibus가 세팅. true면 클라이언트가 UpdatePreeditTextWithMode(4-인자)
+      만 구독하고 3-인자 UpdatePreeditText는 무시한다.
   Methods:
     - ProcessKeyEvent(keyval, keycode, state) → handled
     - SetCapabilities(caps)
     - FocusIn() / FocusOut()
     - Reset()
     - SetCursorLocation(x, y, w, h)
-  Signals:
+  Signals (Preedit 갱신은 WithMode 이원 모델):
     - CommitText(text)
-    - UpdatePreeditText(text, cursor_pos, visible)
+    - UpdatePreeditText(text, cursor_pos, visible) — 3-인자. libibus < 1.5.20
+      (ClientCommitPreedit 미세팅) 전용 폴백이며, 이 환경엔 그런 클라이언트
+      실물이 없어 방어적 코드 경로로만 유지된다.
+    - UpdatePreeditTextWithMode(text, cursor_pos, visible, mode) — 4-인자.
+      최신 GTK im-ibus가 실제로 구독하는 경로. mode는 IBusEngine의
+      PREEDIT_CLEAR(0)/PREEDIT_COMMIT(1)이며, UNIM은 데몬이 FocusOut/Reset
+      에서 이미 CommitText로 커밋을 마치므로 이중 커밋을 피하려 항상
+      CLEAR만 보낸다.
     - ShowPreeditText() / HidePreeditText()
     - UpdateAuxiliaryText(text, visible)
     - UpdateLookupTable(table, visible)
