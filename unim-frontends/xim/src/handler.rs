@@ -5,6 +5,7 @@
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::os::raw::c_int;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ahash::AHashMap;
 use tokio::sync::mpsc;
@@ -917,12 +918,38 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         // spot_location 변경 시 커서 위치를 데몬에 보고
         let spot = user_ic.ic.preedit_spot();
         let app_win = user_ic.ic.app_win();
+        // ⚠️ 죽은 창에 대고 물으면 서버가 통째로 죽는다.
+        //
+        // 앱이 닫히는 순간에도 마지막 SetIcValues(spot) 가 큐에 남아 들어온다.
+        // 그때 `app_win` 은 이미 파괴된 창이고, `XTranslateCoordinates` 는
+        // 왕복 요청이라 BadWindow 가 즉시 돌아온다 — Xlib 기본 에러 핸들러는
+        // 프로세스를 그대로 종료시키므로, **클라이언트 하나가 닫히는 타이밍에
+        // XIM 서버 전체가 죽고** 그 뒤로 뜨는 모든 앱이 XOpenIM 에 실패한다
+        // (2026-09-03 실측: 하네스 5앱 연속 실행 중 unim-xim 이
+        // "BadWindow ... X_TranslateCoords" 로 종료 → 뒤따르는 세 시나리오가
+        // 연쇄 실패). pe_window.rs 의 정리 경로와 같은 요령으로, 이 왕복
+        // 동안만 에러를 삼키는 핸들러를 끼운다.
+        //
+        // 다만 반환값 0 을 전부 '창 없음' 으로 단정하면 안 된다 —
+        // `XTranslateCoordinates` 는 두 창이 **다른 스크린**에 있을 때도(에러가
+        // 아니다) 0 을 돌려준다. 그 경우 좌표는 못 구해도 spot 보고 자체는
+        // 유효하므로 (0,0) 폴백으로 계속 간다. 진짜 X 에러(BadWindow 등)가
+        // 왔는지는 삼킴 핸들러가 세우는 `X_ERROR_SEEN` 플래그로만 판정한다.
+        //
+        // ⚠️ 에러를 봤을 때도 **이 핸들러에서 조기 return 하지 않는다.** 플래그는
+        // 이 왕복 중에 배달된 앞선 비동기 에러로도 설 수 있어(거짓 양성) 조기
+        // return 하면 아래 pe_window 재배치까지 함께 건너뛰어 preedit 창이 옛 자리에
+        // 남는다. 그래서 좌표는 (0,0) 으로 폴백하고 **`ReportCursorRect` 한 건만**
+        // 건너뛴다 — 죽은 창의 좌표로 팝업을 엉뚱한 자리에 띄우는 것만 막으면 된다.
+        let mut report_cursor_rect = true;
         let (abs_x, abs_y) = if let Some(win) = app_win {
             unsafe {
                 let mut child_return: x11::xlib::Window = 0;
                 let mut rx = 0i32;
                 let mut ry = 0i32;
-                x11::xlib::XTranslateCoordinates(
+                X_ERROR_SEEN.store(false, Ordering::SeqCst);
+                let old_handler = x11::xlib::XSetErrorHandler(Some(ignore_x_error));
+                let ok = x11::xlib::XTranslateCoordinates(
                     self.display,
                     win.get() as x11::xlib::Window,
                     x11::xlib::XRootWindow(self.display, self.screen),
@@ -932,20 +959,44 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     &mut ry,
                     &mut child_return,
                 );
-                (rx, ry)
+                x11::xlib::XSetErrorHandler(old_handler);
+                if X_ERROR_SEEN.swap(false, Ordering::SeqCst) {
+                    // 진짜 X 에러 — 창이 이미 없다. 좌표 보고만 버리고 나머지 흐름
+                    // (pe_window 재배치)은 그대로 간다.
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "spot 좌표 변환 실패(창이 이미 없음) — 커서 보고만 생략: win={:#x}",
+                        win.get()
+                    );
+                    report_cursor_rect = false;
+                    (0, 0)
+                } else if ok == 0 {
+                    // 에러는 없었는데 0 — 두 창이 다른 스크린이다(멀티 스크린 X 서버).
+                    // 절대 좌표는 못 구하지만 spot 보고는 계속한다.
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "spot 좌표 변환: 다른 스크린(sameScreen=0) — (0,0) 폴백: win={:#x}",
+                        win.get()
+                    );
+                    (0, 0)
+                } else {
+                    (rx, ry)
+                }
             }
         } else {
             (0, 0)
         };
-        let cursor_x = abs_x + spot.x as i32;
-        let cursor_y = abs_y + spot.y as i32;
-        let _ = self.dbus_tx.blocking_send(DbusRequest::ReportCursorRect {
-            context_path: user_ic.user_data.context_path.clone(),
-            x: cursor_x,
-            y: cursor_y,
-            width: 0,
-            height: 20,
-        });
+        if report_cursor_rect {
+            let cursor_x = abs_x + spot.x as i32;
+            let cursor_y = abs_y + spot.y as i32;
+            let _ = self.dbus_tx.blocking_send(DbusRequest::ReportCursorRect {
+                context_path: user_ic.user_data.context_path.clone(),
+                x: cursor_x,
+                y: cursor_y,
+                width: 0,
+                height: 20,
+            });
+        }
 
         // spot_location 변경 시 preedit 윈도우 재생성
         // 단, preedit이 활성 상태일 때만 (preedit_cache가 비어있지 않을 때)
@@ -1256,4 +1307,28 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
 
         Ok(consumed)
     }
+}
+
+/// 삼킴 핸들러가 실제로 X 에러를 한 번이라도 받았는지 알리는 플래그.
+///
+/// 호출자는 왕복 직전에 `false` 로 내리고, 왕복 직후 `swap(false)` 로 읽는다.
+/// XIM 서버의 X 왕복은 전부 이 한 스레드(handler 루프)에서만 일어나므로
+/// 전역 플래그로 충분하다.
+static X_ERROR_SEEN: AtomicBool = AtomicBool::new(false);
+
+/// X11 에러 삼킴용 핸들러 (일시 설치 전용).
+///
+/// Xlib 기본 핸들러는 에러를 만나면 프로세스를 종료한다. XIM 서버는 이미
+/// 사라진 클라이언트 창을 상대로 요청을 보낼 수밖에 없는 자리가 있어
+/// (`handle_set_ic_values` 의 좌표 변환), 그 왕복 동안만 이 핸들러를 끼워
+/// 에러를 무시한다. `pe_window.rs` 의 정리 경로와 같은 방식이다.
+///
+/// 에러를 삼키되 **삼켰다는 사실은 남긴다** — 호출자가 '진짜 에러' 와
+/// '에러 아닌 0 반환(다른 스크린)' 을 구별해야 하기 때문이다.
+unsafe extern "C" fn ignore_x_error(
+    _display: *mut x11::xlib::Display,
+    _event: *mut x11::xlib::XErrorEvent,
+) -> c_int {
+    X_ERROR_SEEN.store(true, Ordering::SeqCst);
+    0
 }
