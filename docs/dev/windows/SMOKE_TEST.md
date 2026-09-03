@@ -22,6 +22,7 @@ GitHub Actions artifact `unim-<version>-x64-msi` 를 받은 다음, Windows 11 x
 | — | `HKLM…\Run\UnimPopupRenderer`, `HKLM\SOFTWARE\atit.org\UNIM\InstallDir` 토큰 치환(M-31 회귀) | ✅ | |
 | 3 | `Get-WinUserLanguageList` 에 UNIM TIP 등록 + `ActivateLanguageProfile` | ⚠️ | typing 단계(승격 대기) |
 | 4.1 | 메모장에 `gks` → `한` 실입력 | ⚠️ | typing 단계(승격 대기). 스크린샷·읽은 텍스트가 아티팩트로 남는다 |
+| — | Windows Defender 능동 스캔 (MSI + DLL/EXE 오탐 조기 발견) | ⚠️ | `-Phase scan`, 승격 대기. `MpCmdRun -Scan` + `Get-MpThreatDetection`/이벤트 1116·1117 로 판정, 탐지 시 exit=2. install 단계보다 먼저 돌아 exclusion 등록 이전 상태로 스캔한다 |
 | 6 | `msiexec /x` 제거, 레지스트리·설치 디렉터리·ARP 항목 소멸 | ✅ | |
 
 **⚠️ = "승격 대기"**: 호스티드 러너가 대화형 데스크톱 세션(ctfmon/TSF 활성)을
@@ -40,6 +41,22 @@ GitHub Actions artifact `unim-<version>-x64-msi` 를 받은 다음, Windows 11 x
 powershell -ExecutionPolicy Bypass -File scripts\ci\verify-msi.ps1 `
     -MsiPath dist\unim-0.4.1-x64.msi -Phase all -ArtifactDir msi-verify
 ```
+
+`-Phase all` 은 install/typing/uninstall 만 돈다 — Defender 스캔은 별도다
+(스캔 자체가 실시간 검사를 강제로 트리거해 install 단계의 exclusion 등록과
+순서가 섞이면 판정이 흔들린다). 따로 돌리려면:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ci\verify-msi.ps1 `
+    -MsiPath dist\unim-0.4.1-x64.msi -Phase scan -ArtifactDir msi-verify `
+    -ScanPaths target\x86_64-pc-windows-msvc\release, target\i686-pc-windows-msvc\release
+```
+
+> 2026-09-03 회사컴에서 Defender 가 `unim_tsf.dll`(0.4.1) 을
+> `Trojan:Win32/Bearfoos.B!ml` 로 오판해 하루 4회 격리한 사고가 있었다(무서명 +
+> VERSIONINFO 공란 + low prevalence 조합). 사용자 대응은
+> [troubleshooting §4-W](../../user/troubleshooting/README-ko.md#4-w-windows-defender가-unim_tsfdll을-트로이목마로-격리한다)
+> 참조.
 
 ## 0. 사전 준비
 

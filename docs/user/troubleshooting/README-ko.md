@@ -210,6 +210,52 @@ Windows에는 앱이 조합 문자열을 직접 그리지 않을 때 OS가 대�
 - 제보해 주면 도움이 된다 — 아래 「진단 데이터 수집」의 로그와 함께 **앱 이름·버전**을 [GitHub Issues](https://github.com/from104/unim/issues)에 적어 주면 해당 앱을 대응 목록에 넣을 수 있다.
 
 > 관찰된 사례: 일부 터미널 에뮬레이터와 채팅 앱. 카카오톡·한글(한컴)에서의 이 증상은 **아직 확인되지 않았다** — 겪는다면 그것도 제보 대상이다.
+
+## 4-W. "Windows Defender가 unim_tsf.dll을 트로이목마로 격리한다"
+
+### 증상
+
+- UNIM이 갑자기 죽는다 — 한글이 안 들어가거나, 언어 목록에서 UNIM 자체가 사라진다. 설정을 건드린 적이 없는데 그렇다.
+- Windows Defender 운영 이벤트 로그에 **이벤트 ID 1116**(탐지)에 이어 **1117**(조치 — 격리)이 찍힌다. `C:\Program Files\UNIM\` 아래 파일과 UNIM CLSID 레지스트리 키가 대상으로 나온다. `eventvwr.msc` → **응용 프로그램 및 서비스 로그 → Microsoft → Windows → Windows Defender → Operational** 에서 확인.
+- 위협 이름은 `Trojan:Win32/Bearfoos.B!ml` 같은 **ML 휴리스틱 분류**다(`!ml` 접미사는 마이크로소프트 클라우드 ML 탐지기라는 표시 — 알려진 악성코드와 시그니처가 일치한 게 아니다).
+
+### 이것이 오탐인 근거
+
+- 바이너리 자체에 후킹 API(`SetWindowsHookEx`, `GetAsyncKeyState`)도, 인젝션 API(`VirtualAllocEx`, `CreateRemoteThread`, `WriteProcessMemory`)도 없고, 엔트로피도 정상(~6.6 bits/byte — 패킹 아님)이다.
+- 실제로 탐지기를 건드리는 건 **행위가 아니라 배포 위생**이다: 이 DLL은 현재 **Authenticode 서명이 없고**, `VERSIONINFO` 리소스 블록이 **전부 공란**이다(CompanyName·ProductName·FileDescription·FileVersion·OriginalFilename 없음). 여기에 low prevalence(전 세계 설치 대수가 적음)와 "Program Files 아래 DLL이 나타나고 `regsvr32`로 등록된다"는 설치 패턴이 겹치면, 실제 악성 행위 없이도 그 조합만으로 키보드와 맞닿은 DLL에 대한 ML 탐지기 임계치를 넘는다.
+- `unim_tsf.dll`/`unim_tsf32.dll`에 `VERSIONINFO` 메타데이터를 채우고 Authenticode 서명을 붙이는 작업을 다음 릴리스에서 진행할 예정이다 — 탐지기가 반응하는 "익명의 무서명 DLL" 프로필 자체를 없앤다.
+
+### 처방 (관리자 권한 필수 — **아래 순서가 핵심이다**, 순서를 뒤집으면 곧바로 재격리된다)
+
+PowerShell을 **관리자 권한**으로 열고 다음을 정확히 이 순서로 실행한다.
+
+```powershell
+# ① 제외 경로를 먼저 등록한다. 이 단계를 건너뛰거나 복원보다 뒤에 하면
+#    실시간 검사가 복원한 파일을 곧바로 다시 격리한다.
+Add-MpPreference -ExclusionPath "C:\Program Files\UNIM"
+
+# ② 격리소에서 파일·CLSID 레지스트리 키를 전부 복원한다.
+& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Restore -All
+# 이벤트 뷰어에서 정확한 위협 이름을 확인했다면, 공용 PC에서는 이름을 지정해
+# 좁히는 편이 더 안전하다:
+# & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Restore -Name "Trojan:Win32/Bearfoos.B!ml" -All
+
+# ③ TSF COM/CLSID 등록을 다시 한다(64비트·32비트 모두 처리 — §2-W 참조).
+"C:\Program Files\UNIM\register-tsf.bat"
+
+# ④ 텍스트 서비스 호스트를 재시작해 이미 실행 중인 앱도 복원된 등록을 인식하게 한다.
+taskkill /f /im ctfmon.exe
+```
+
+`ctfmon.exe`는 강제 종료되면 자동으로 다시 뜬다. 그래도 UNIM이 입력기 목록에 안 보이면 로그아웃 후 재로그인한다.
+
+> ① 직후에 1116/1117이 한 번 더 찍혀도 그 자체가 실패 신호는 아니다 — 제외 규칙 전파에 시간이 걸릴 수 있다. 약 30초 기다렸다가 ②로 진행하고, 이벤트 로그만 믿지 말고 파일이 실제로 살아있는지로 판정한다.
+
+### 마이크로소프트에 오탐 신고
+
+신고하면 나만이 아니라 이 문제를 겪는 **모든** UNIM 사용자에게 도움이 된다 — 검증된 제출은 보통 1~3영업일 내에 정의 갱신에 반영된다.
+
+- <https://www.microsoft.com/en-us/wdsi/filesubmission> 에서 제출 — 역할은 "Software developer", 사유는 "I believe this file is incorrectly detected as malware". `unim_tsf.dll`(같이 잡혔다면 `unim_tsf32.dll`도)을 첨부한다.
 <!-- @endplatform -->
 
 ---
@@ -1004,6 +1050,7 @@ Windows 지원은 v0.4.0에서 새로 추가됐다. 아래는 릴리스 시점�
 | 항목 | 상태 | 설명 |
 |------|------|------|
 | 일부 앱에서 조합 끊김·직전 글자 삭제 | ⚠️ 알려진 제한 | 앱이 조합 문자열을 직접 그리지 않을 때 쓰이는 Windows 호환 계층(CUAS)의 동작 차이. UNIM이 폴백으로 대응하지만 모든 앱에서 완전하지는 않다. §3-W 참고 |
+| Windows Defender가 `unim_tsf.dll`을 트로이목마로 오판 (`*.B!ml` ML 휴리스틱) | ⚠️ 알려진 오탐 | 바이너리에 후킹·인젝션 API 없음 — 원인은 실제 행위가 아니라 무서명 DLL + 공란 `VERSIONINFO`. 서명·메타데이터 정비는 다음 릴리스 예정. §4-W 참고 |
 | 콘솔·터미널 계열 앱 | ⚠️ 앱마다 다름 | 앱이 어떤 입력 방식을 쓰느냐에 따라 동작이 갈린다. 표준 텍스트 앱(메모장·Edge)이 기준 동작이다 |
 | 카카오톡·한글(한컴) 등 32비트 앱 | ✅ 지원 (제한적 검증) | 32비트 입력기(`unim_tsf32.dll`)를 함께 설치해 대응한다. 안 보이면 §2-W |
 | 32비트 앱에서의 개별 증상 | ❓ 미확인 | 한글 입력 자체는 확인됐으나, 앱별 세부 증상은 검증 범위 밖이다 |

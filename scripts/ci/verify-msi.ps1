@@ -24,7 +24,11 @@
     install  : 설치 + 파일 + 레지스트리 + DLL 로드 + 설정 exe (필수 게이트)
     typing   : 한글 실입력 (설치된 상태에서 실행. 승격 대기 — 실패 허용)
     uninstall: 제거 + 잔존물 확인 (필수 게이트)
-    all      : 위 셋을 순서대로 (로컬/수동 실행용)
+    scan     : Windows Defender 오탐 능동 스캔 — MSI + -ScanPaths (승격 대기)
+    all      : install·typing·uninstall 을 순서대로 (로컬/수동 실행용, scan 불포함)
+
+.PARAMETER ScanPaths
+    -Phase scan 전용. MSI 외에 추가로 스캔할 파일/디렉터리(빌드 산출물 등).
 
 .PARAMETER ArtifactDir
     install.log·uninstall.log·스크린샷·프로브 로그를 남길 디렉터리.
@@ -44,14 +48,19 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $MsiPath,
 
-    [ValidateSet('install', 'typing', 'uninstall', 'all')]
+    [ValidateSet('install', 'typing', 'uninstall', 'scan', 'all')]
     [string] $Phase = 'all',
 
     [string] $ArtifactDir = 'msi-verify',
 
     [switch] $SkipTyping,
 
-    [string] $RepoRoot
+    [string] $RepoRoot,
+
+    # -Phase scan 전용: MSI 외에 Defender 로 스캔할 경로(빌드 산출물 디렉터리 등).
+    # 워크플로는 windows-msi.yml 이 'Upload raw binaries' 로 모으는 것과 같은
+    # release 출력 디렉터리를 넘긴다. 생략 시 MSI 파일만 스캔한다.
+    [string[]] $ScanPaths = @()
 )
 
 Set-StrictMode -Version Latest
@@ -261,6 +270,78 @@ function Resolve-InstallDir {
     return (Join-Path $env:ProgramFiles 'UNIM')
 }
 
+# ── Defender 오탐 대응 헬퍼 ──────────────────────────────────────────────────
+# 2026-09-03 회사컴에서 Windows Defender 가 unim_tsf.dll(0.4.1) 을
+# Trojan:Win32/Bearfoos.B!ml 로 오판해 하루 4회 격리한 사고 대응. 실측상 후킹·
+# 인젝션 API 없음·엔트로피 정상 — 원인은 무서명 + VERSIONINFO 공란 + low
+# prevalence 다. 서명·메타데이터 정비 전까지는 재발 가능성이 있어 CI 에서
+# 조기 발견하고(scan phase), install/typing/uninstall 검증이 실시간 검사로
+# 오염되지 않도록 제외 경로를 쓴다.
+
+# Defender 이벤트 로그(1116=탐지, 1117=조치)에서 $Paths 의 아무 경로나 메시지에
+# 부분일치하면 히트로 본다. 로그 자체가 없거나 조회 실패면 $null(= 판정 불가,
+# 없음과 구분)을 반환한다.
+function Get-DefenderPathEvents {
+    param(
+        [Parameter(Mandatory = $true)][string[]] $Paths,
+        [int] $SinceMinutes = 30
+    )
+    try {
+        $events = @(Get-WinEvent -FilterHashtable @{
+            LogName   = 'Microsoft-Windows-Windows Defender/Operational'
+            Id        = 1116, 1117
+            StartTime = (Get-Date).AddMinutes(-$SinceMinutes)
+        } -ErrorAction Stop)
+    } catch {
+        return $null
+    }
+    return @($events | Where-Object {
+        $msg = $_.Message
+        $hit = $false
+        foreach ($p in $Paths) {
+            if (-not [string]::IsNullOrEmpty($p) -and $msg -like ('*' + $p + '*')) { $hit = $true; break }
+        }
+        $hit
+    })
+}
+
+# MpCmdRun.exe 경로 — 표준 위치(ProgramFiles 심볼릭 링크)를 우선 시도하고,
+# 없으면 ProgramData\...\Platform\<최신 버전>\ 을 뒤진다.
+function Resolve-MpCmdRunPath {
+    $direct = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+    if (Test-Path -LiteralPath $direct) { return $direct }
+    $platformRoot = Join-Path $env:ProgramData 'Microsoft\Windows Defender\Platform'
+    if (Test-Path -LiteralPath $platformRoot) {
+        $latest = Get-ChildItem -LiteralPath $platformRoot -Directory -ErrorAction SilentlyContinue |
+                  Sort-Object Name -Descending | Select-Object -First 1
+        if ($null -ne $latest) {
+            $p = Join-Path $latest.FullName 'MpCmdRun.exe'
+            if (Test-Path -LiteralPath $p) { return $p }
+        }
+    }
+    return $null
+}
+
+# MpCmdRun.exe 를 실행하고 exit code + stdout/stderr 합본을 돌려준다.
+function Invoke-MpCmdRunProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]   $MpCmdRunPath,
+        [Parameter(Mandatory = $true)][string[]] $ArgList
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $MpCmdRunPath
+    # 공백 포함 원소(경로 등)를 인용 — Invoke-Msiexec 와 동일한 이유.
+    $psi.Arguments = (($ArgList | ForEach-Object { if ($_ -match '\s') { '"{0}"' -f $_ } else { $_ } }) -join ' ')
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute = $false
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $p.StandardOutput.ReadToEnd()
+    $stderr = $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
+    return [pscustomobject]@{ ExitCode = $p.ExitCode; Output = ($stdout + "`n" + $stderr) }
+}
+
 function New-ArtifactDir {
     if (-not (Test-Path -LiteralPath $ArtifactDir)) {
         New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null
@@ -287,16 +368,36 @@ function Invoke-Msiexec {
     # 신규 설치마다 msiexec 의 자손으로 unim-popup-win.exe 를 띄우는데, 그 exe 는
     # GetMessageW 무한 루프를 도는 상주 프로세스라 절대 끝나지 않는다 — 그래서
     # msiexec 프로세스 자신의 종료만 기다리고, 타임아웃이면 강제 종료한다.
-    $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $all -PassThru -NoNewWindow
+    #
+    # 2026-09-03 windows-2022 러너 첫 실측: exit= 가 공란으로 나와 항상 FAIL.
+    # 원인은 Start-Process -PassThru 였다 — 그 커맨드릿이 돌려주는
+    # System.Diagnostics.Process 는 -Wait 없이 쓰면 ExitCode 접근에 필요한
+    # 핸들/캐시가 갖춰지지 않을 때가 있다(.NET 문서가 권장하는 우회는 시간제한
+    # WaitForExit(ms) 뒤 무인자 WaitForExit() 을 한 번 더 불러 종료 정보를
+    # 확정하는 것인데, Start-Process 의 PassThru 객체는 이 경로를 태워도
+    # ExitCode 가 계속 비어 있었다 — install.log 상 설치는 실제로 성공(0)
+    # 했는데도 스크립트만 실패로 오판). Start-Process 커맨드릿을 거치지 않고
+    # System.Diagnostics.Process 를 직접 Start 하는 것으로 우회한다 —
+    # Invoke-MpCmdRunProcess(아래, Defender 스캔 단계) 가 이미 쓰는 것과 같은
+    # 패턴이며 그쪽은 이 문제가 없었다.
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'msiexec.exe'
+    $psi.Arguments = ($all -join ' ')
+    $psi.UseShellExecute = $false
+    $p = [System.Diagnostics.Process]::Start($psi)
     if (-not $p.WaitForExit($TimeoutMs)) {
         try { $p.Kill() } catch { }
         throw ("msiexec 이 {0}ms 안에 끝나지 않아 강제 종료했다 (자손 프로세스 대기 의심)" -f $TimeoutMs)
     }
+    # 무인자 WaitForExit() 을 한번 더 — ExitCode 가 확실히 채워지게(MSDN 권장
+    # 패턴: 표준 출력을 리다이렉션했을 때뿐 아니라 이 케이스에서도 안전망).
+    $p.WaitForExit()
+    $exitCode = $p.ExitCode
     # CA 가 띄운 렌더러는 msiexec 종료와 무관하게 계속 산다 — 다음 단계(특히
     # uninstall 의 파일 삭제)를 방해하지 않도록 잔존 인스턴스를 정리한다.
     Get-Process -Name 'unim-popup-win' -ErrorAction SilentlyContinue |
         Stop-Process -Force -ErrorAction SilentlyContinue
-    return $p.ExitCode
+    return $exitCode
 }
 
 # install.log 꼬리를 CI 로그에 남긴다(아티팩트를 못 받는 상황 대비).
@@ -443,6 +544,21 @@ function Invoke-InstallPhase {
     }
 
     Test-WxsFileCoverage
+
+    # Defender 실시간 검사가 기능 검증 중 DLL 을 격리하면 install/typing/
+    # uninstall 판정이 오염된다 — 오탐 탐지 자체는 -Phase scan 이 능동으로
+    # 전담하므로, 여기서는 설치 디렉터리를 제외 경로로 등록해 실시간 검사가
+    # 끼어들지 않게만 한다. 이 시점엔 아직 설치 전이라 InstallDir 힌트 키가
+    # 없으므로 Resolve-InstallDir 의 wxs 기본값 폴백(ProgramFiles64Folder\UNIM)을
+    # 그대로 쓴다 — Invoke-Msiexec 가 INSTALLDIR 오버라이드 없이 /i 만 호출하므로
+    # 실제 설치 경로와 일치한다.
+    $exclusionDir = Resolve-InstallDir
+    try {
+        Add-MpPreference -ExclusionPath $exclusionDir -ErrorAction Stop
+        Add-Result -Name 'Defender 제외 경로 등록' -Status PASS -Detail $exclusionDir
+    } catch {
+        Add-Result -Name 'Defender 제외 경로 등록' -Status SKIP -Detail $_.Exception.Message
+    }
 
     # (a) 설치
     $code = Invoke-Msiexec -ArgList @('/i', $msi) -LogPath $installLog
@@ -678,6 +794,22 @@ function Invoke-InstallPhase {
             } catch { }
         }
     }
+
+    # (f) Defender 실시간 검사 격리 여부 — 위에서 등록한 제외 경로가 늦게
+    # 전파돼(또는 등록 자체가 실패해) 설치 직후 실시간 검사가 먼저 격리했을
+    # 가능성을 이벤트 1116(탐지)/1117(조치)로 확인한다. -Phase scan 의 능동
+    # 스캔과는 다른 질문 — 이건 "방금 설치가 실시간 검사에 걸렸는가" 다.
+    $defenderHits = Get-DefenderPathEvents -Paths @($installDir, $dll64, $dll32)
+    if ($null -eq $defenderHits) {
+        Add-Result -Name 'Defender 실시간 검사 격리 여부 (이벤트 1116/1117)' -Status SKIP `
+                   -Detail 'Defender 이벤트 로그 조회 불가 (로그 비활성 또는 권한)'
+    } elseif ($defenderHits.Count -eq 0) {
+        Add-Result -Name 'Defender 실시간 검사 격리 여부 (이벤트 1116/1117)' -Status PASS
+    } else {
+        $first = ($defenderHits | Select-Object -First 3 | ForEach-Object { ($_.Message -split "`n")[0] }) -join ' | '
+        Add-Result -Name 'Defender 실시간 검사 격리 여부 (이벤트 1116/1117)' -Status FAIL `
+                   -Detail ("{0}건 — 제외 경로 등록이 늦게 전파됐거나 실패: {1}" -f $defenderHits.Count, $first)
+    }
 }
 
 # ── Phase: typing (기능 실측 — 승격 대기) ────────────────────────────────────
@@ -825,6 +957,25 @@ public interface ITfInputProcessorProfiles {
     void ActivateLanguageProfile(ref Guid rclsid, ushort langid, ref Guid guidProfiles);
 }
 
+// unim-tsf/src/register.rs::set_as_default() 가 실제로 쓰는 인터페이스.
+// ITfInputProcessorProfiles::ActivateLanguageProfile(레거시, Vista 이전 호환용)
+// 은 langid 가 이미 사용자 언어 목록에 '설치'돼 있어야 통과하는 전제조건이
+// 있다 — 그게 없으면 E_INVALIDARG(0x80070057, "Value does not fall within the
+// expected range")를 낸다. 한국어 언어팩이 없는 CI 러너에서 Add-UnimInputMethodTip
+// 이 ko-KR 을 언어 목록에 못 넣으면 이 레거시 경로는 구조적으로 막힌다.
+// ITfInputProcessorProfileMgr::ActivateProfile 은 그 전제조건이 없고(TF_IPPMF_
+// ENABLEPROFILE 플래그 자체가 "아직 활성화 안 된 프로필을 활성화" 용도) 실제
+// 제품 코드가 쓰는 경로이므로 검증도 이걸 그대로 재현한다. IID·vtable 순서는
+// windows crate(windows-0.62.2) Win32::UI::TextServices 바인딩에서 대조:
+// ActivateProfile 이 IUnknown 바로 다음(0번째) 메서드라 그 하나만 선언하면
+// QueryInterface 캐스팅이 정확히 맞아떨어진다.
+[ComImport, Guid("71C6E74C-0F28-11D8-A82A-00065B84435C"),
+ InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ITfInputProcessorProfileMgr {
+    void ActivateProfile(uint dwProfileType, ushort langid, ref Guid clsid, ref Guid guidProfile,
+        IntPtr hkl, uint dwFlags);
+}
+
 public static class UnimCiTsf {
     [DllImport("ole32.dll")]
     static extern int CoCreateInstance(ref Guid clsid, IntPtr outer, uint ctx, ref Guid iid, out IntPtr obj);
@@ -843,7 +994,15 @@ public static class UnimCiTsf {
         string log = "";
         try { profiles.SetDefaultLanguageProfile(langid, ref unim, ref prof); log += "SetDefault=ok; "; }
         catch (Exception e) { log += "SetDefault=" + e.Message + "; "; }
-        try { profiles.ActivateLanguageProfile(ref unim, langid, ref prof); log += "Activate=ok"; }
+        // register.rs::set_as_default() 와 동일하게 Mgr::ActivateProfile 을 쓴다
+        // (TF_PROFILETYPE_INPUTPROCESSOR=1, TF_IPPMF_ENABLEPROFILE=1 |
+        // TF_IPPMF_FORSESSION=0x20000000 = 0x20000001). 레거시
+        // ActivateLanguageProfile 은 쓰지 않는다 — 위 인터페이스 선언 주석 참조.
+        try {
+            var mgr = (ITfInputProcessorProfileMgr)profiles;
+            mgr.ActivateProfile(1u, langid, ref unim, ref prof, IntPtr.Zero, 0x20000001u);
+            log += "Activate=ok";
+        }
         catch (Exception e) { log += "Activate=" + e.Message; }
         return log;
     }
@@ -860,32 +1019,55 @@ public static class UnimCiTsf {
 
 # ko-KR 과 UNIM TIP 을 현재 사용자 언어 목록에 넣는다.
 # InputMethodTips 형식: 'LLLL:{CLSID}{PROFILE}' (SMOKE_TEST.md §3 과 동일).
+#
+# 2026-09-03 windows-2022 러너 첫 실측: Set-WinUserLanguageList 가 예외 없이
+# 조용히 끝나는데도(캐치할 오류가 없다) 직후 Get-WinUserLanguageList 에
+# ko-KR 이 반영돼 있지 않았다 — throw 가 아니라 '등록했는데도 없음' 분기로
+# FAIL. Server Core 계열 CI 이미지는 한국어 디스플레이 언어팩이 없고,
+# WinUserLanguageList 커밋이 비동기(WM_SETTINGCHANGE 류)라 즉시 재조회하면
+# 반영 전일 수 있다는 게 유력 가설(사용자 지시 메모). 원인이 그거라면
+# 짧은 재시도로 통과할 수 있고, 그게 아니라면(언어팩 자체 부재로 구조적 불가)
+# 매 시도의 실제 상태를 detail 에 그대로 남겨 원인 규명이 가능하게 한다.
 function Add-UnimInputMethodTip {
     $tip = ('{0}:{1}{2}' -f $UNIM_LANGID_HEX.Substring(2), $UNIM_CLSID, $UNIM_PROFILE_GUID)
     Write-Host ('  InputMethodTip: {0}' -f $tip)
+    $attempts = @()
     try {
         Import-Module International -ErrorAction Stop
-        $list = Get-WinUserLanguageList
-        $ko = @($list | Where-Object { $_.LanguageTag -eq 'ko-KR' })
-        if ($ko.Count -eq 0) {
-            $list.Add('ko-KR')
-            Set-WinUserLanguageList $list -Force
+
+        for ($i = 1; $i -le 3; $i++) {
             $list = Get-WinUserLanguageList
             $ko = @($list | Where-Object { $_.LanguageTag -eq 'ko-KR' })
+            if ($ko.Count -eq 0) {
+                $list.Add('ko-KR')
+                Set-WinUserLanguageList $list -Force
+                # Set-WinUserLanguageList 의 커밋은 비동기일 수 있다 — 재조회
+                # 전에 짧게 대기(1차는 즉시, 이후 시도만 대기해 헛수고를 줄인다).
+                if ($i -gt 1) { Start-Sleep -Milliseconds ([Math]::Min(500 * $i, 2000)) }
+                $list = Get-WinUserLanguageList
+                $ko = @($list | Where-Object { $_.LanguageTag -eq 'ko-KR' })
+            }
+            if ($ko.Count -eq 0) {
+                $attempts += "시도$i`: ko-KR 미반영"
+                continue
+            }
+            if ($ko[0].InputMethodTips -notcontains $tip) {
+                $ko[0].InputMethodTips.Add($tip)
+                Set-WinUserLanguageList $list -Force
+            }
+            $after = @(Get-WinUserLanguageList | Where-Object { $_.LanguageTag -eq 'ko-KR' })
+            if ($after.Count -gt 0 -and ($after[0].InputMethodTips -contains $tip)) {
+                return @{ Ok = $true; Detail = $tip }
+            }
+            $seen = if ($after.Count -gt 0) { ($after[0].InputMethodTips -join ', ') } else { '(ko-KR 없음)' }
+            $attempts += "시도$i`: TIP 미반영. 현재=$seen"
         }
-        if ($ko.Count -eq 0) { return @{ Ok = $false; Detail = 'ko-KR 을 언어 목록에 추가하지 못했다' } }
-        if ($ko[0].InputMethodTips -notcontains $tip) {
-            $ko[0].InputMethodTips.Add($tip)
-            Set-WinUserLanguageList $list -Force
-        }
-        $after = @(Get-WinUserLanguageList | Where-Object { $_.LanguageTag -eq 'ko-KR' })
-        if ($after.Count -gt 0 -and ($after[0].InputMethodTips -contains $tip)) {
-            return @{ Ok = $true; Detail = $tip }
-        }
-        $seen = if ($after.Count -gt 0) { ($after[0].InputMethodTips -join ', ') } else { '(ko-KR 없음)' }
-        return @{ Ok = $false; Detail = "등록 후에도 목록에 없음. 현재: $seen" }
+        $detail = 'ko-KR 을 언어 목록에 추가하지 못했다 (' + ($attempts -join ' / ') + ')'
+        return @{ Ok = $false; Detail = $detail }
     } catch {
-        return @{ Ok = $false; Detail = $_.Exception.Message }
+        $detail = $_.Exception.Message
+        if ($attempts.Count -gt 0) { $detail = $detail + ' [' + ($attempts -join ' / ') + ']' }
+        return @{ Ok = $false; Detail = $detail }
     }
 }
 
@@ -1179,6 +1361,146 @@ function Invoke-UninstallPhase {
     } else {
         Add-Result -Name '프로그램 추가/제거 항목 소멸' -Status FAIL -Detail ($arp -join ', ')
     }
+
+    # install 단계에서 등록한 Defender 제외 경로를 정리한다 — 러너는 매 잡마다
+    # 새로 뜨니 잔존해도 다음 실행에 영향은 없지만, 검증 스크립트가 만든
+    # 예외를 스크립트 스스로 치우는 게 원칙이다. 실패해도 비치명(SKIP).
+    try {
+        Remove-MpPreference -ExclusionPath $installDir -ErrorAction Stop
+        Add-Result -Name 'Defender 제외 경로 해제' -Status PASS -Detail $installDir
+    } catch {
+        Add-Result -Name 'Defender 제외 경로 해제' -Status SKIP -Detail $_.Exception.Message
+    }
+}
+
+# ── Phase: scan (Windows Defender 오탐 능동 스캔 — 승격 대기) ───────────────
+#
+# install/typing/uninstall 은 "우리 기능이 실시간 검사에 걸리지 않게" 회피만
+# 한다(제외 경로 등록). 이 단계는 반대로 Defender 를 직접 돌려 MSI 와 빌드
+# 산출물이 실제로 위협 판정을 받는지 능동으로 확인한다 — 2026-09-03 회사컴
+# Trojan:Win32/Bearfoos.B!ml 오판 사고의 조기 발견 게이트.
+#
+# 탐지 시 이 phase 의 최종 종료코드는 2 다(다른 검증 실패의 1 과 구분) —
+# 진입점의 'scan' 분기에서 $script:ScanDetected 를 보고 덮어쓴다.
+$script:ScanDetected = $false
+
+function Invoke-ScanPhase {
+    $art = New-ArtifactDir
+
+    $mpCmdRun = Resolve-MpCmdRunPath
+    if ($null -eq $mpCmdRun) {
+        Add-Result -Name 'MpCmdRun.exe 존재' -Status FAIL -Detail 'Windows Defender 플랫폼을 찾지 못했다 (호스티드 러너 전제 위반)'
+        return
+    }
+    Add-Result -Name 'MpCmdRun.exe 존재' -Status PASS -Detail $mpCmdRun
+
+    # (a) 시그니처 업데이트 — 네트워크 의존. 실패해도 러너 내장 시그니처로
+    # 계속 진행하므로 게이트가 아니라 SKIP 로만 기록한다.
+    $sig = Invoke-MpCmdRunProcess -MpCmdRunPath $mpCmdRun -ArgList @('-SignatureUpdate')
+    Set-Content -LiteralPath (Join-Path $art 'defender-sigupdate.log') -Value $sig.Output -Encoding UTF8
+    if ($sig.ExitCode -eq 0) {
+        Add-Result -Name 'Defender 시그니처 업데이트' -Status PASS
+    } else {
+        Add-Result -Name 'Defender 시그니처 업데이트' -Status SKIP `
+                   -Detail "exit=$($sig.ExitCode) (네트워크 의존, 비치명 — 로그: defender-sigupdate.log)"
+    }
+
+    # (b) 스캔 대상 — MSI + 호출자가 넘긴 원시 빌드 산출물 경로(디렉터리/파일).
+    $targets = @()
+    if (Test-Path -LiteralPath $MsiPath) {
+        $targets += (Resolve-Path -LiteralPath $MsiPath).ProviderPath
+    } else {
+        Add-Result -Name 'Defender 스캔 대상: MSI' -Status FAIL -Detail "없음: $MsiPath"
+    }
+    foreach ($d in $ScanPaths) {
+        if (Test-Path -LiteralPath $d) {
+            $targets += (Resolve-Path -LiteralPath $d).ProviderPath
+        } else {
+            Add-Result -Name "Defender 스캔 대상: $d" -Status SKIP -Detail '경로 없음(이 빌드에서 생략됐을 수 있음)'
+        }
+    }
+    if ($targets.Count -eq 0) {
+        Add-Result -Name 'Defender 스캔' -Status FAIL -Detail '스캔할 경로가 하나도 없다'
+        return
+    }
+
+    $detections = @()
+    foreach ($t in $targets) {
+        $safeName = ((Split-Path -Leaf $t.TrimEnd('\'))) -replace '[^\w.\-]', '_'
+        $log = Join-Path $art ('defender-scan-' + $safeName + '.log')
+        # -ScanType 3 = custom scan (단일 파일/디렉터리 지정).
+        $r = Invoke-MpCmdRunProcess -MpCmdRunPath $mpCmdRun -ArgList @('-Scan', '-ScanType', '3', '-File', $t)
+        Set-Content -LiteralPath $log -Value $r.Output -Encoding UTF8
+
+        # MpCmdRun 버전마다 위협 발견 시 종료코드·출력 형식이 다르다(즉시 격리
+        # 후 0 을 돌려주는 빌드도 있다) — 출력 텍스트에서 "Threat : <name>"
+        # 패턴과 일반 탐지 문구를 함께 보고, 종료코드 비정상은 보조 신호로만 쓴다.
+        $threatNames = [regex]::Matches($r.Output, '(?im)^\s*Threat\s*:\s*(.+)$') |
+                       ForEach-Object { $_.Groups[1].Value.Trim() }
+        $hasThreatText = ($r.Output -match '(?i)threat found|malicious|Win32/|MSIL/|!ml\b')
+        if ($threatNames.Count -gt 0 -or $hasThreatText) {
+            $names = if ($threatNames.Count -gt 0) { ($threatNames | Select-Object -Unique) -join ', ' } else { '(이름 미상 — 로그 참조)' }
+            $detections += [pscustomobject]@{ Path = $t; Names = $names }
+            Add-Result -Name "Defender 스캔: $(Split-Path -Leaf $t)" -Status FAIL `
+                       -Detail ("탐지: {0} (exit={1}, 로그: {2})" -f $names, $r.ExitCode, $log)
+        } elseif ($r.ExitCode -eq 0) {
+            Add-Result -Name "Defender 스캔: $(Split-Path -Leaf $t)" -Status PASS -Detail 'exit=0, 위협 없음'
+        } else {
+            # 위협 텍스트는 없는데 종료코드가 비정상 — 스캔 자체 실패(파일 잠김 등)로
+            # 보고 FAIL 하되 $detections 에는 넣지 않는다(위협 확정이 아니므로
+            # exit 2 승격 대상이 아니라 일반 FAIL=exit 1 로 낮춘다).
+            Add-Result -Name "Defender 스캔: $(Split-Path -Leaf $t)" -Status FAIL `
+                       -Detail ("exit={0} (위협 텍스트 없음 — 로그: {1} 확인)" -f $r.ExitCode, $log)
+        }
+    }
+
+    # (c) 보조 확인 1 — Get-MpThreatDetection. 최근 탐지 이력 중 우리 대상
+    # 경로를 가리키는 게 있으면 (b) 의 능동 스캔과 무관하게도 잡는다.
+    try {
+        $recent = @(Get-MpThreatDetection -ErrorAction Stop |
+                    Where-Object { $_.InitialDetectionTime -gt (Get-Date).AddMinutes(-30) })
+        $ourHits = @()
+        foreach ($d in $recent) {
+            foreach ($res in @($d.Resources)) {
+                foreach ($t in $targets) {
+                    if ($res -and ($res -like ('*' + $t + '*'))) {
+                        $ourHits += ('{0} — {1}' -f $d.ThreatName, $res)
+                    }
+                }
+            }
+        }
+        if ($ourHits.Count -gt 0) {
+            $ourHits = $ourHits | Select-Object -Unique
+            $detections += [pscustomobject]@{ Path = '(Get-MpThreatDetection)'; Names = ($ourHits -join '; ') }
+            Add-Result -Name 'Get-MpThreatDetection 보조 확인' -Status FAIL -Detail ($ourHits -join '; ')
+        } else {
+            Add-Result -Name 'Get-MpThreatDetection 보조 확인' -Status PASS `
+                       -Detail ("최근 30분 탐지 이력 {0}건, 우리 대상 경로와 무관" -f $recent.Count)
+        }
+    } catch {
+        Add-Result -Name 'Get-MpThreatDetection 보조 확인' -Status SKIP -Detail $_.Exception.Message
+    }
+
+    # (c) 보조 확인 2 — 이벤트 로그 1116(탐지)/1117(조치).
+    $eventLog = Join-Path $art 'defender-events-1116-1117.log'
+    $events = Get-DefenderPathEvents -Paths $targets -SinceMinutes 30
+    if ($null -eq $events) {
+        Add-Result -Name '이벤트 로그 1116/1117 보조 확인' -Status SKIP -Detail '로그 조회 불가 (비활성 또는 권한)'
+    } else {
+        $events | ForEach-Object { $_.Message } | Set-Content -LiteralPath $eventLog -Encoding UTF8
+        if ($events.Count -gt 0) {
+            $detections += [pscustomobject]@{ Path = '(이벤트 1116/1117)'; Names = "$($events.Count)건 — 로그: $eventLog" }
+            Add-Result -Name '이벤트 로그 1116/1117 보조 확인' -Status FAIL -Detail ("{0}건 — 로그: {1}" -f $events.Count, $eventLog)
+        } else {
+            Add-Result -Name '이벤트 로그 1116/1117 보조 확인' -Status PASS -Detail '최근 30분 내 우리 경로 관련 이벤트 없음'
+        }
+    }
+
+    if ($detections.Count -gt 0) {
+        $script:ScanDetected = $true
+        Write-Host ''
+        Write-Host ("{0} Defender 탐지 {1}건 — 위협명은 위 표 참조" -f [char]0x274C, $detections.Count)
+    }
 }
 
 # ── 진입점 ───────────────────────────────────────────────────────────────────
@@ -1216,6 +1538,15 @@ switch ($Phase) {
     'uninstall' {
         Invoke-PhaseSafely -Phase { Invoke-UninstallPhase } -Name 'uninstall'
         $rc = Write-Summary -PhaseName 'uninstall'
+    }
+    'scan' {
+        $script:ScanDetected = $false
+        Invoke-PhaseSafely -Phase { Invoke-ScanPhase } -Name 'scan'
+        $rc = Write-Summary -PhaseName 'scan'
+        if ($script:ScanDetected) {
+            # 위협 확정 탐지는 종료코드 2 로 다른 검증 실패(1)와 구분한다.
+            $rc = 2
+        }
     }
     'all' {
         Invoke-PhaseSafely -Phase { Invoke-InstallPhase } -Name 'install'

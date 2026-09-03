@@ -208,6 +208,52 @@ Windows has a compatibility layer (CUAS) that draws the composition string on be
 - Reports genuinely help. File the **app name and version** together with the logs from "Diagnostic bundle" below at [GitHub Issues](https://github.com/from104/unim/issues) so the app can be added to the handled list.
 
 > Observed so far in some terminal emulators and chat clients. This symptom has **not been confirmed** in KakaoTalk or Hancom Office — if you hit it there, that is worth reporting too.
+
+## 4-W. "Windows Defender quarantines unim_tsf.dll as a trojan"
+
+### Symptom
+
+- UNIM suddenly stops working — Korean input stops going in, or UNIM disappears from the input-method list, with no config change on your part.
+- Windows Defender's operational event log records **Event ID 1116** (threat detected) followed by **1117** (action taken — quarantined), naming a file under `C:\Program Files\UNIM\` and the UNIM CLSID registry key. Open it via `eventvwr.msc` → **Applications and Services Logs → Microsoft → Windows → Windows Defender → Operational**.
+- The threat name is an **ML-heuristic classification**, e.g. `Trojan:Win32/Bearfoos.B!ml` (the `!ml` suffix marks Microsoft's cloud ML detector — this is not a signature match against known malware).
+
+### Why this is a false positive
+
+- The binary itself has no hooking APIs (`SetWindowsHookEx`, `GetAsyncKeyState`), no process-injection APIs (`VirtualAllocEx`, `CreateRemoteThread`, `WriteProcessMemory`), and ordinary entropy (~6.6 bits/byte — not packed or obfuscated).
+- What actually trips the detector is **distribution hygiene, not behavior**: the DLL currently ships **without an Authenticode signature**, and its `VERSIONINFO` resource block is **empty** (no CompanyName / ProductName / FileDescription / FileVersion / OriginalFilename). Combined with low prevalence (few installs worldwide) and the "a DLL appears under Program Files and gets `regsvr32`'d" installation pattern, that combination alone is enough to cross an ML detector's threshold for a keyboard-adjacent DLL — no actual malicious behavior is required.
+- This is planned to be resolved in an upcoming release by embedding `VERSIONINFO` metadata and adding an Authenticode signature to `unim_tsf.dll` / `unim_tsf32.dll`, which removes the "anonymous unsigned DLL" fingerprint the detector reacts to.
+
+### Fix (Administrator required — **the order below matters**; reversing it causes immediate re-quarantine)
+
+Open PowerShell **as Administrator** and run, in this exact order:
+
+```powershell
+# ① Register the exclusion FIRST. Skipping this — or restoring before this step —
+#    means Defender's real-time scanner just quarantines the file again right away.
+Add-MpPreference -ExclusionPath "C:\Program Files\UNIM"
+
+# ② Restore everything Defender took (the DLL and the CLSID registry key) from quarantine.
+& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Restore -All
+# If Event Viewer shows the exact threat name, restoring only that name is safer
+# on a shared machine:
+# & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Restore -Name "Trojan:Win32/Bearfoos.B!ml" -All
+
+# ③ Re-register the TSF COM/CLSID entries (covers both 64-bit and 32-bit — see §2-W).
+"C:\Program Files\UNIM\register-tsf.bat"
+
+# ④ Restart the text-services host so already-running apps pick up the restored registration.
+taskkill /f /im ctfmon.exe
+```
+
+`ctfmon.exe` restarts itself automatically once killed. If UNIM is still missing from the input-method list afterward, sign out and back in.
+
+> If you see another 1116/1117 pair immediately after step ①, the exclusion has not finished propagating yet — that alone is not proof the fix failed. Wait about 30 seconds and continue with step ②; check whether the file still exists afterward rather than trusting the event log alone.
+
+### Report the false positive to Microsoft
+
+Reporting helps every UNIM user hitting this, not just you — a verified submission is usually reflected in updated definitions within 1–3 business days.
+
+- Submit at <https://www.microsoft.com/en-us/wdsi/filesubmission> — role "Software developer", reason "I believe this file is incorrectly detected as malware". Submit `unim_tsf.dll` (and `unim_tsf32.dll` if it was also flagged).
 <!-- @endplatform -->
 
 ---
@@ -1007,6 +1053,7 @@ Windows support was newly added in v0.4.0. Below are the limitations known at re
 | Item | Status | Notes |
 |------|--------|-------|
 | Composition breaks / previous character lost in some apps | ⚠️ Known limitation | Behavioral differences in the Windows compatibility layer (CUAS) used when an app does not draw the composition string itself. UNIM falls back, but not perfectly in every app. See §3-W |
+| Windows Defender flags `unim_tsf.dll` as a trojan (`*.B!ml` ML heuristic) | ⚠️ Known false positive | No hooking/injection APIs in the binary — the trigger is an unsigned DLL with an empty `VERSIONINFO` block, not actual behavior. Signing + metadata planned for an upcoming release. See §4-W |
 | Console / terminal-style apps | ⚠️ Varies by app | Depends on which input mechanism the app uses. Standard text apps (Notepad, Edge) are the reference behavior |
 | 32-bit apps such as KakaoTalk and Hancom Office | ✅ Supported (limited verification) | Covered by also installing the 32-bit input method (`unim_tsf32.dll`). If it does not appear, see §2-W |
 | Individual symptoms inside 32-bit apps | ❓ Unverified | Hangul input itself is confirmed, but per-app details are outside what has been tested |
