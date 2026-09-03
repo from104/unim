@@ -1308,6 +1308,24 @@ impl Config {
         crate::atomic_io::atomic_write(path, content).map_err(|e| ConfigError::IoError(e.to_string()))
     }
 
+    /// 방금 저장한 파일의 mtime 을 `last_modified` 스냅샷에 반영합니다.
+    ///
+    /// `save_to_path`/`save_to_default_path` 는 `last_modified` 를 갱신하지 않는다.
+    /// 그래서 저장 직후 `reload_if_changed()` 를 걸면 **자기 자신이 쓴 저장**이
+    /// 외부 변경으로 보여 불필요한 리로드가 돈다(설정을 소유한 쪽에서는 이미
+    /// 인메모리로 반영이 끝난 상태다). 저장에 성공한 호출부는 이 함수로 스냅샷을
+    /// 맞춰 그 자기 메아리를 없앤다.
+    ///
+    /// 파일 mtime 을 못 읽으면 아무것도 하지 않는다 — 그 경우 다음 리로드가
+    /// 한 번 더 도는 것뿐이라 안전한 쪽으로 실패한다.
+    pub fn sync_last_modified(&mut self) {
+        if let Some(path) = Self::default_config_path() {
+            if let Some(mtime) = Self::get_config_mtime(&path) {
+                self.last_modified = Some(mtime);
+            }
+        }
+    }
+
     /// 설정 파일이 변경되어 다시 로드가 필요한지 확인합니다.
     ///
     /// # Returns
@@ -1348,7 +1366,20 @@ impl Config {
         }
 
         self.last_checked = Some(now);
+        self.reload_now()
+    }
 
+    /// 2초 throttling을 **우회해** 즉시 변경 여부를 확인하고 재로드합니다.
+    ///
+    /// `reload_if_changed()` 의 알맹이. 파일을 통째로 덮어쓰기 직전처럼
+    /// "지금 이 순간의 디스크 상태" 가 필요한 자리에서 쓴다 — 스로틀 창(최대 2초)
+    /// 안에 다른 프로세스가 쓴 변경을 못 본 채 저장하면 그 변경이 통째로 사라진다
+    /// (lost update). 실제 예: 엔진 워커의 ATF 토글 persist 경로.
+    ///
+    /// # Returns
+    ///
+    /// 재로드가 실제로 일어났으면 true
+    pub fn reload_now(&mut self) -> bool {
         if !self.needs_reload() {
             return false;
         }

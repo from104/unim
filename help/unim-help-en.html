@@ -678,7 +678,9 @@ Korean layouts</strong> (English layouts have no jamo-combination concept).</li>
 <li><strong>Save policy</strong>: built-in layouts are read-only, so only "Save As" is offered. User layouts
 support both "Save" and "Save As". A new user layout is written as JSON under
 <code>~/.config/unim/layouts/</code>, which the daemon auto-scans so it shows up in the settings GUI's
-layout list.</li>
+layout list.
+If you edit one of those JSON files by hand, the daemon picks the change up the next time the
+settings file is saved (any setting) or at the next login — it does not watch the layout files themselves.</li>
 </ul>
 <h5 id="user-guide--shortcuts">Shortcuts</h5>
 <div class="tablewrap"><table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody>

@@ -228,10 +228,55 @@ fn dir_mtime(dir: &Path) -> Option<SystemTime> {
     fs::metadata(dir).and_then(|m| m.modified()).ok()
 }
 
+/// `SystemTime` → UNIX epoch 기준 나노초. 지문 문자열용(못 읽으면 0).
+fn mtime_nanos(t: Option<SystemTime>) -> u128 {
+    t.and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+/// 사용자 프로필 디렉토리의 변경 지문 — "프로필을 다시 지어야 하나" 판정용.
+///
+/// `reload_if_changed()` 가 쓰는 **디렉토리 mtime**(파일 추가·삭제·이름 변경)에
+/// 더해 각 `*.json` 파일의 mtime(**제자리 내용 편집**)까지 합친다. 디렉토리
+/// mtime 만 보면 에디터가 기존 파일을 제자리에서 고친 경우를 놓치기 때문이다.
+///
+/// `read_dir` 의 반환 순서는 보장되지 않으므로 항목을 정렬해 결정적인 문자열을
+/// 만든다. 디렉토리가 없으면 `None`(= 사용자 프로필 없음).
+pub fn user_dir_fingerprint_in(dir: &Path) -> Option<String> {
+    let dm = dir_mtime(dir)?;
+    let mut items: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let m = fs::metadata(&path).and_then(|m| m.modified()).ok();
+            items.push(format!("{}:{}", name, mtime_nanos(m)));
+        }
+    }
+    items.sort();
+    Some(format!("{}|{}", mtime_nanos(Some(dm)), items.join(",")))
+}
+
+/// 기본 사용자 프로필 디렉토리(`~/.config/unim/layouts/`)의 변경 지문.
+///
+/// 디렉토리가 없으면 `None`. 호출부는 `None` 도 하나의 상태로 지문에 실어야
+/// 한다(디렉토리가 생기거나 사라지는 것도 변화다).
+pub fn user_dir_fingerprint() -> Option<String> {
+    user_dir_fingerprint_in(&default_user_dir()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::time::Duration;
 
     fn temp_subdir(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -266,6 +311,45 @@ mod tests {
                 }}
             }}"#
         )
+    }
+
+    /// 프로필 디렉토리 지문이 **파일 추가**와 **제자리 내용 편집**을 모두 잡는가.
+    ///
+    /// 엔진 워커의 `korean_context_fingerprint` 가 이 값을 한 항목으로 물고 있어,
+    /// 여기서 변화를 놓치면 사용자가 자판 프로필을 고쳐도 한국어 컨텍스트가
+    /// 다시 지어지지 않는다(설정 리로드가 지문 게이트를 타기 때문).
+    #[test]
+    fn fingerprint_tracks_profile_file_add_and_edit() {
+        let dir = temp_subdir("fingerprint");
+        let fp_empty = user_dir_fingerprint_in(&dir).expect("디렉토리가 있으면 Some");
+
+        // (1) 파일 추가 → 지문 변화
+        write_profile(&dir, "my.json", &minimal_v1_profile_json("my"));
+        let fp_added = user_dir_fingerprint_in(&dir).unwrap();
+        assert_ne!(fp_added, fp_empty, "프로필 파일 추가");
+
+        // (2) 상태가 그대로면 지문도 그대로 (헛된 재구성 방지)
+        assert_eq!(user_dir_fingerprint_in(&dir).unwrap(), fp_added, "무변화");
+
+        // (3) 제자리 내용 편집 → 지문 변화.
+        //     디렉토리 mtime 은 안 바뀌는 경로라 파일 mtime 을 봐야만 잡힌다.
+        //     시계 해상도에 기대지 않도록 mtime 을 명시적으로 미래로 옮긴다.
+        write_profile(&dir, "my.json", &minimal_v1_profile_json("my-edited"));
+        let f = fs::File::options()
+            .write(true)
+            .open(dir.join("my.json"))
+            .unwrap();
+        f.set_modified(SystemTime::now() + Duration::from_secs(5))
+            .unwrap();
+        assert_ne!(
+            user_dir_fingerprint_in(&dir).unwrap(),
+            fp_added,
+            "프로필 파일 제자리 편집"
+        );
+
+        // (4) 디렉토리가 없으면 None — '사용자 프로필 없음' 도 하나의 상태다.
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(user_dir_fingerprint_in(&dir).is_none());
     }
 
     #[test]

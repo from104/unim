@@ -241,3 +241,39 @@ fn test_toggle_while_composing() {
     assert_eq!(engine.commit_str(), "가");
     assert_eq!(engine.input_category(), InputCategory::English);
 }
+
+// === 설정 리로드가 조합 중에 끼어들 때 ===
+
+/// 설정 파일이 바뀌면 엔진 워커가 `rebuild_korean_context()` 를 돌리는데, 그
+/// 함수는 조합 중이던 글자를 `flush_preedit()` 로 **commit_buffer 에 밀어 넣고**
+/// 한국어 컨텍스트를 새로 만든다. 그러면 바로 다음 키(예: Enter)는 조합이 없어
+/// `not_consumed`(commit_changed=false)로 끝난다 — 응답 배출을 `commit_changed`
+/// 로만 게이트하면 그 글자가 통째로 사라진다.
+///
+/// 2026-09-03 실측: 하네스가 시나리오마다 SetConfig 로 설정을 쓰는 탓에 리로드가
+/// 조합 중에 끼어들어 `multiline-compose` 의 '한' 이 Enter 와 함께 유실됐다.
+/// 배출 책임은 호출자(`unim-dbus/src/engine_worker.rs`)에 있고, 이 시험은 그
+/// 호출자가 반드시 마주치는 상태(= 커밋은 버퍼에, 결과는 not_consumed)를 못박는다.
+#[test]
+fn test_config_reload_while_composing_leaves_commit_in_buffer() {
+    let mut engine = create_test_engine();
+    let config = Config::default();
+    let modifier = ModifierState::default();
+
+    engine.set_input_category(InputCategory::Korean);
+    engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+    engine.press_key(KeyCode::K, modifier, &config); // 가
+    assert_eq!(engine.preedit_str(), "가");
+
+    // 설정 리로드 경로 — 조합이 commit_buffer 로 flush 된다.
+    engine.rebuild_korean_context(&config);
+    assert!(!engine.is_composing(), "리로드 후에는 조합이 남지 않는다");
+    assert_eq!(engine.commit_str(), "가", "flush 된 글자는 commit_buffer 에 있다");
+
+    // 그 다음 Enter — 조합이 없으니 소비되지 않고 commit_changed 도 서지 않는다.
+    let result = engine.press_key(KeyCode::Enter, modifier, &config);
+    assert!(!result.consumed);
+    assert!(!result.commit_changed);
+    // 그래도 확정 텍스트는 버퍼에 그대로 있다 — 호출자가 이걸 흘려보내야 한다.
+    assert_eq!(engine.commit_str(), "가", "버퍼의 확정 텍스트가 유실되면 안 된다");
+}
