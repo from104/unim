@@ -374,9 +374,19 @@ jobs:
         run: |
           $msi = "dist\unim-${{ steps.version.outputs.version }}-x64.msi"
           $ps  = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+          # 2026-09-03 2차 실측: -ScanPaths 두 값을 콤마로 이었더니(공백 없이
+          # "a","b") verify-msi.ps1 이 'target\...release,target\...release' 한
+          # 덩어리(콤마 포함 리터럴)로 받아 '경로 없음'으로 SKIP 됐다 — $ps 호출은
+          # 네이티브 프로세스 호출(argument mode)이라 인접 토큰의 콤마는 배열
+          # 연산자가 아니라 문자 그대로 이어붙는다(cmdlet 파라미터 바인딩과 다른
+          # 규칙). -File 로 넘겨받는 verify-msi.ps1 은 [string[]] 파라미터를
+          # 공백으로 구분된 별개 위치 인자로 정상 바인딩하므로, 콤마 대신 공백으로
+          # 나눠 진짜 2-원소 배열이 되게 한다. 산출 경로 자체는 위 cargo build
+          # 단계(--target-dir 미지정, WIN_TARGET/i686 그대로)와 일치 — 경로
+          # 불일치가 아니라 이 인자 전달 버그였다.
           & $ps -NoProfile -ExecutionPolicy Bypass -File "scripts\ci\verify-msi.ps1" `
                 -MsiPath $msi -Phase scan -ArtifactDir "msi-verify" `
-                -ScanPaths "target\${env:WIN_TARGET}\release","target\i686-pc-windows-msvc\release"
+                -ScanPaths "target\${env:WIN_TARGET}\release" "target\i686-pc-windows-msvc\release"
           exit $LASTEXITCODE
 
       # ── 설치·등록·DLL 로드·기능·제거 실측 (scripts/ci/verify-msi.ps1) ──────

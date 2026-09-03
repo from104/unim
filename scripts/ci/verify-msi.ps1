@@ -102,7 +102,12 @@ $script:Results = New-Object System.Collections.ArrayList
 function Add-Result {
     param(
         [Parameter(Mandatory = $true)][string] $Name,
-        [Parameter(Mandatory = $true)][ValidateSet('PASS', 'FAIL', 'SKIP')][string] $Status,
+        # WARN: 2026-09-04 2차 실측 후 추가 — 정보성 경고. FAIL 과 달리 게이트를
+        # 막지 않는다(Write-Summary 의 합계 실패 판정에서 제외) — '알고 있고
+        # 제품 경로엔 영향 없음'을 표로는 남기되 exit code 는 오염시키지 않는
+        # 상태. ko-KR 언어 목록 등록처럼 "안 되면 이유가 있고 정상 경로는
+        # 그걸 안 탄다"가 확인된 항목에 쓴다.
+        [Parameter(Mandatory = $true)][ValidateSet('PASS', 'FAIL', 'SKIP', 'WARN')][string] $Status,
         [string] $Detail = ''
     )
     [void] $script:Results.Add([pscustomobject]@{ Name = $Name; Status = $Status; Detail = $Detail })
@@ -110,6 +115,7 @@ function Add-Result {
         'PASS' { $icon = [char]0x2705 }   # ✅
         'FAIL' { $icon = [char]0x274C }   # ❌
         'SKIP' { $icon = [char]0x23ED }   # ⏭
+        'WARN' { $icon = [char]0x26A0 }   # ⚠
     }
     if ([string]::IsNullOrEmpty($Detail)) {
         Write-Host ("{0} {1}" -f $icon, $Name)
@@ -134,7 +140,10 @@ function Write-Summary {
     $failed  = @($script:Results | Where-Object { $_.Status -eq 'FAIL' })
     $skipped = @($script:Results | Where-Object { $_.Status -eq 'SKIP' })
     $passed  = @($script:Results | Where-Object { $_.Status -eq 'PASS' })
-    Write-Host ('  합계: PASS {0} / FAIL {1} / SKIP {2}' -f $passed.Count, $failed.Count, $skipped.Count)
+    # WARN 은 합계엔 찍되(가시성) FAIL 판정에는 관여하지 않는다 — 아래 exit
+    # 코드 분기는 여전히 $failed.Count 만 본다.
+    $warned  = @($script:Results | Where-Object { $_.Status -eq 'WARN' })
+    Write-Host ('  합계: PASS {0} / FAIL {1} / SKIP {2} / WARN {3}' -f $passed.Count, $failed.Count, $skipped.Count, $warned.Count)
 
     if ($failed.Count -gt 0) {
         foreach ($f in $failed) {
@@ -293,6 +302,16 @@ function Get-DefenderPathEvents {
             StartTime = (Get-Date).AddMinutes(-$SinceMinutes)
         } -ErrorAction Stop)
     } catch {
+        # Get-WinEvent 는 '조건에 맞는 이벤트가 0건'인 정상 상황에서도 예외를
+        # 던진다(FullyQualifiedErrorId=NoMatchesFound,...) — 이걸 '로그 조회
+        # 불가'와 뭉뚱그려 $null 로 반환하면, 실제로는 로그가 살아 있고 그냥
+        # 격리 이벤트가 없었을 뿐인데도 SKIP('이벤트 로그 조회 불가')으로
+        # 오분류된다(2026-09-03 2차 실측에서 관찰된 SKIP 사유). 0건은 판정
+        # 가능한 결과이므로 빈 배열(=PASS 분기)로 돌려주고, 그 외(로그 자체
+        # 비활성·Provider 부재·권한 부족 등 진짜 조회 불가)만 $null 로 남긴다.
+        if ($_.FullyQualifiedErrorId -match '^NoMatchesFound') {
+            return @()
+        }
         return $null
     }
     return @($events | Where-Object {
@@ -801,14 +820,69 @@ function Invoke-InstallPhase {
     # 스캔과는 다른 질문 — 이건 "방금 설치가 실시간 검사에 걸렸는가" 다.
     $defenderHits = Get-DefenderPathEvents -Paths @($installDir, $dll64, $dll32)
     if ($null -eq $defenderHits) {
+        # 0건(정상 조회, 격리 없음)은 위 Get-DefenderPathEvents 가 이미 빈 배열로
+        # 걸러내므로, 이 SKIP 분기는 이제 진짜 '조회 자체가 안 됨'만 의미한다
+        # (Microsoft-Windows-Windows Defender/Operational 로그·Provider 부재
+        # 또는 권한 부족 — Get-WinEvent -FilterHashtable 예외의 FullyQualifiedErrorId
+        # 가 NoMatchesFound 가 아닌 경우).
         Add-Result -Name 'Defender 실시간 검사 격리 여부 (이벤트 1116/1117)' -Status SKIP `
-                   -Detail 'Defender 이벤트 로그 조회 불가 (로그 비활성 또는 권한)'
+                   -Detail 'Defender 이벤트 로그(Microsoft-Windows-Windows Defender/Operational) 조회 실패 — 로그/Provider 부재 또는 권한 부족'
     } elseif ($defenderHits.Count -eq 0) {
         Add-Result -Name 'Defender 실시간 검사 격리 여부 (이벤트 1116/1117)' -Status PASS
     } else {
         $first = ($defenderHits | Select-Object -First 3 | ForEach-Object { ($_.Message -split "`n")[0] }) -join ' | '
         Add-Result -Name 'Defender 실시간 검사 격리 여부 (이벤트 1116/1117)' -Status FAIL `
                    -Detail ("{0}건 — 제외 경로 등록이 늦게 전파됐거나 실패: {1}" -f $defenderHits.Count, $first)
+    }
+
+    # (g) VERSIONINFO — build-support/version_rc.rs(626d06a)가 임베드한 메타데이터가
+    # 실제로 설치된 PE 에 실렸는지 증명한다(2026-09-03 Defender 오탐 대응의 한
+    # 축: 무서명 + VERSIONINFO 공란 + low prevalence 중 VERSIONINFO 공백을 메운
+    # 조치). CompanyName='atit.org' / ProductName='UNIM' / FileVersion=워크스페이스
+    # 버전(Cargo.toml [workspace.package] version, 4자리 "x.y.z.0" — version_rc.rs
+    # 의 ver_str 과 동일 포맷) 을 단언한다.
+    #
+    # OriginalFilename 주의: unim_tsf32.dll 은 설치 시점에만 WiX 가 붙인 이름이다
+    # — 원본 cargo build 산출물은 i686/x64 두 타깃 모두 파일명이 'unim_tsf.dll'
+    # 이고, unim-tsf/build.rs 가 embed_version_rc() 에 넘기는 original_filename
+    # 도 두 타깃 동일하게 하드코딩된 "unim_tsf.dll" 이다(version_rc.rs 26-29행
+    # 주석: "MSI 가 설치 시 다른 이름으로 복사해도 원래 파일명은 안 바뀌는 게
+    # 맞다" — 의도된 설계, 회귀 아님). 그래서 unim_tsf32.dll 의 기대
+    # OriginalFilename 은 실제 설치 파일명이 아니라 'unim_tsf.dll' 로 매핑한다.
+    $expectedVersion     = Get-WorkspaceVersion
+    $expectedFileVersion = "$expectedVersion.0"
+    $versionInfoTargets = @(
+        @{ Rel = 'unim_tsf.dll';       ExpectedOriginal = 'unim_tsf.dll' },
+        @{ Rel = 'unim_tsf32.dll';     ExpectedOriginal = 'unim_tsf.dll' },  # 위 주석 — 설계 의도
+        @{ Rel = 'unim-settings.exe';  ExpectedOriginal = 'unim-settings.exe' },
+        @{ Rel = 'unim-popup-win.exe'; ExpectedOriginal = 'unim-popup-win.exe' }
+    )
+    foreach ($vt in $versionInfoTargets) {
+        $p = Join-Path $installDir $vt.Rel
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+            Add-Result -Name "VERSIONINFO: $($vt.Rel)" -Status FAIL -Detail "파일 없음: $p (위 파일 존재 검사에서 이미 FAIL 됐을 것)"
+            continue
+        }
+        $vi = (Get-Item -LiteralPath $p).VersionInfo
+        $bad = @()
+        if ($vi.CompanyName -ne 'atit.org') {
+            $bad += "CompanyName='$($vi.CompanyName)' (기대 atit.org)"
+        }
+        if ($vi.ProductName -ne 'UNIM') {
+            $bad += "ProductName='$($vi.ProductName)' (기대 UNIM)"
+        }
+        if ($vi.FileVersion -ne $expectedFileVersion) {
+            $bad += "FileVersion='$($vi.FileVersion)' (기대 $expectedFileVersion)"
+        }
+        if ($vi.OriginalFilename -ne $vt.ExpectedOriginal) {
+            $bad += "OriginalFilename='$($vi.OriginalFilename)' (기대 $($vt.ExpectedOriginal))"
+        }
+        if ($bad.Count -eq 0) {
+            Add-Result -Name "VERSIONINFO: $($vt.Rel)" -Status PASS `
+                       -Detail ("CompanyName=atit.org, ProductName=UNIM, FileVersion={0}, OriginalFilename={1}" -f $expectedFileVersion, $vt.ExpectedOriginal)
+        } else {
+            Add-Result -Name "VERSIONINFO: $($vt.Rel)" -Status FAIL -Detail ($bad -join ' / ')
+        }
     }
 }
 
@@ -1238,11 +1312,22 @@ function Invoke-TypingPhase {
     }
     Add-Result -Name '타이핑 전제: Win32 P/Invoke 컴파일' -Status PASS
 
+    # 2026-09-03/04 windows-2022 러너 2차 실측: 3회 재시도 후에도 ko-KR 이
+    # 언어 목록에 반영되지 않았다(유력 가설: 러너에 한국어 표시 언어팩이 없어
+    # Set-WinUserLanguageList 가 조용히 무시 — 위 ITfInputProcessorProfileMgr
+    # 인터페이스 선언부 주석(§ko-KR 언어팩 없는 CI 러너) 참조). 그런데도 아래
+    # Enable-UnimProfile(ITfInputProcessorProfileMgr::ActivateProfile, 제품이
+    # 실제로 쓰는 register.rs::set_as_default() 경로)와 실입력은 같은 실행에서
+    # PASS 했다 — 즉 제품 경로는 언어 목록 등록에 의존하지 않는다(ActivateProfile
+    # 은 ActivateLanguageProfile 레거시 경로와 달리 사용자 언어 목록 사전 등록을
+    # 전제조건으로 두지 않는다). 그래서 이 항목은 필수 게이트(FAIL)가 아니라
+    # 정보성 경고(WARN)로 낮춘다 — 실패는 표에 그대로 남기되 exit code 는
+    # 오염시키지 않는다.
     $tipRes = Add-UnimInputMethodTip
     if ($tipRes.Ok) {
         Add-Result -Name 'ko-KR + UNIM TIP 언어 목록 등록' -Status PASS -Detail $tipRes.Detail
     } else {
-        Add-Result -Name 'ko-KR + UNIM TIP 언어 목록 등록' -Status FAIL -Detail $tipRes.Detail
+        Add-Result -Name 'ko-KR + UNIM TIP 언어 목록 등록' -Status WARN -Detail $tipRes.Detail
     }
 
     $act = Enable-UnimProfile
@@ -1435,8 +1520,14 @@ function Invoke-ScanPhase {
         # MpCmdRun 버전마다 위협 발견 시 종료코드·출력 형식이 다르다(즉시 격리
         # 후 0 을 돌려주는 빌드도 있다) — 출력 텍스트에서 "Threat : <name>"
         # 패턴과 일반 탐지 문구를 함께 보고, 종료코드 비정상은 보조 신호로만 쓴다.
-        $threatNames = [regex]::Matches($r.Output, '(?im)^\s*Threat\s*:\s*(.+)$') |
-                       ForEach-Object { $_.Groups[1].Value.Trim() }
+        # 2026-09-03 2차 실측: 매치 0건이면 ForEach-Object 가 $null 을 내놓는데,
+        # 아래에서 바로 .Count 를 읽어 Set-StrictMode -Version Latest 아래서
+        # "The property 'Count' cannot be found on this object" 로 scan 단계
+        # 전체가 죽었다(위협 유무와 무관하게 매번). @() 로 감싸 항상 배열을
+        # 보장한다 — 이 파일의 다른 pipeline 결과들(@($x | Where-Object ...) 류)
+        # 과 동일한 방어 패턴.
+        $threatNames = @([regex]::Matches($r.Output, '(?im)^\s*Threat\s*:\s*(.+)$') |
+                       ForEach-Object { $_.Groups[1].Value.Trim() })
         $hasThreatText = ($r.Output -match '(?i)threat found|malicious|Win32/|MSIL/|!ml\b')
         if ($threatNames.Count -gt 0 -or $hasThreatText) {
             $names = if ($threatNames.Count -gt 0) { ($threatNames | Select-Object -Unique) -join ', ' } else { '(이름 미상 — 로그 참조)' }
@@ -1485,7 +1576,8 @@ function Invoke-ScanPhase {
     $eventLog = Join-Path $art 'defender-events-1116-1117.log'
     $events = Get-DefenderPathEvents -Paths $targets -SinceMinutes 30
     if ($null -eq $events) {
-        Add-Result -Name '이벤트 로그 1116/1117 보조 확인' -Status SKIP -Detail '로그 조회 불가 (비활성 또는 권한)'
+        Add-Result -Name '이벤트 로그 1116/1117 보조 확인' -Status SKIP `
+                   -Detail 'Defender 이벤트 로그(Microsoft-Windows-Windows Defender/Operational) 조회 실패 — 로그/Provider 부재 또는 권한 부족'
     } else {
         $events | ForEach-Object { $_.Message } | Set-Content -LiteralPath $eventLog -Encoding UTF8
         if ($events.Count -gt 0) {
