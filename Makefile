@@ -56,7 +56,7 @@ endef
 # ─── Phony ───────────────────────────────────────────────────────────────────
 
 .PHONY: all help build build-rust build-frontends build-tests clean clean-all xim-fork-diff \
-        test-apps test-app test-apps-list \
+        test-apps test-app test-apps-list check-runtime-x11 \
         gen-popup-css gen-popup-css-check \
         help-html check-help-html \
         check-gnome-api smoke-gnome-extension check-compat \
@@ -645,6 +645,26 @@ test-app: build-tests
 
 test-apps-list:
 	@./tests/harness/run.py --list
+
+# ─── 기능 타이핑(L3) — Xvfb 격리 시험 ─────────────────────────────────────────
+#
+# scripts/ci/functional-test.sh 를 로컬에서 target/release 빌드본으로 돌린다.
+# CI 매트릭스 레그(scripts/ci/build-{deb,rpm}.sh --smoke)는 같은 스크립트를
+# *설치된 패키지*(/usr/libexec/unim-daemon 등 기본 경로)에 대해 돌린다 — 여기는
+# UNIM_DAEMON_BIN/UNIM_XIM_BIN 으로 target/release 를 가리켜 그 대체 경로다.
+#
+# ⚠️ 격리 설계: 스크립트가 HOME/XDG_*/UNIM_*_DIR 전부를 자체 스크래치 디렉터리로
+# 바꾸고 Xvfb 를 별도 :99 에 새로 띄운 뒤 그 안에서만 데몬을 기동한다 — 실행 중인
+# 실세션 unim 데몬·~/.config/unim·실 세션 D-Bus 버스는 건드리지 않는다(닿을 방법이
+# 없다: dbus-run-session 이 매번 새 세션 버스를 만든다). 그래도 로그인 중인
+# 그래픽 세션에서 실행하면 Xvfb·xdotool·데몬 프로세스가 잠깐 떠 있는 동안 CPU를
+# 나눠 쓴다 — CI 컨테이너 전용으로 두고 이 기계(호스트)에서는 실행하지 않는다.
+check-runtime-x11:
+	@echo "🚫 이 타깃은 문서화 전용이다 — 호스트 실세션 보호를 위해 자동 실행하지 않는다."
+	@echo "   CI 컨테이너 등 격리된 환경에서 직접 돌리려면:"
+	@echo "   UNIM_DAEMON_BIN=$(CURDIR)/target/release/unim-daemon \\"
+	@echo "   UNIM_XIM_BIN=$(CURDIR)/target/release/unim-xim \\"
+	@echo "   scripts/ci/functional-test.sh local"
 
 # ─── Sandbox (Xephyr) ────────────────────────────────────────────────────────
 

@@ -167,6 +167,46 @@ LTS 가 바뀌면 그 잡의 이미지 태그를 올리고, 기존 러너 잡은
 검증 수(33), `scripts/build-linux-matrix.sh` 의 표, install.sh 의
 `*_BASELINES`, README 지원표.
 
+### 설치 후 검증은 두 층이다 — 개수·경로 vs 실제 로드
+
+`build-{deb,rpm}.sh --smoke` 가 보는 것과 `scripts/ci/verify-installed.sh`
+(같은 `--smoke` 블록이 설치 직후·제거 직전에 부른다)가 보는 것은 다르다.
+
+| 층 | 확인하는 것 | 못 잡는 것 |
+|---|---|---|
+| 스모크(패키지) | 개수(11) 딱 맞는지, `%{_libdir}` 경로, dpkg/rpm 등록, 제거(`purge`/`%preun`) 후 잔존 0 | 그 안의 `.so` 를 GTK/Qt 가 **실제로 로드하는지**는 무관 — 파일만 제자리에 있으면 통과한다 |
+| 런타임(verify-installed.sh) | GTK3 immodules.cache 트리거 등록 + 모듈 자체 로드, GTK4/Qt5/Qt6 를 `RTLD_NOW` 로 dlopen 해 심볼 존재 확인, 데몬 직접 기동·auto-activation 둘 다 D-Bus 응답 | 패키지 메타데이터는 안 본다 — 그건 위층 몫 |
+
+`RTLD_NOW` 가 핵심이다. `RTLD_LAZY`(기본 동작)는 실제로 쓰일 때까지 심볼
+결정을 미뤄서, Qt 플러그인이 **그 배포판의 QtGuiPrivate ABI 와 어긋나 있어도**
+dlopen 자체는 조용히 성공한다 — "배포판별로 다시 빌드해야 하는 이유"가
+검사에서 빠지는 셈이다. `RTLD_NOW` 로 모든 심볼을 그 자리에서 즉시 해석시켜야
+ABI 불일치가 dlopen 시점에 바로 터진다.
+
+둘이 겹쳐야 덮인다 — 위 절 "두 검사를 통과시킨다"와 같은 이유다. 패키지
+검증만으론 로드 실패가 조용히 지나가고, 런타임 검증만으론 개수 누락(예:
+dbgsym 누출)이나 잘못된 설치 경로가 안 걸린다.
+
+#### 세 번째 층 — L3(기능 타이핑)과 트리거 빈도 차이
+
+위 두 층(패키지 개수·경로 = **L1**, GTK/Qt dlopen·D-Bus 응답 = **L2**)에 더해
+`scripts/ci/functional-test.sh`(**L3**)가 Xvfb 헤드리스 X 서버에서 실제로 키를
+때려 한글이 조합·확정되는지까지 본다(`tests/harness/` 시나리오). L1/L2 로는
+"모듈이 로드된다"까지만 알 수 있고 "그 안의 조합 로직이 맞다"는 별개다.
+
+세 층의 **트리거 빈도는 다르다** — 상시 보장으로 오독하지 않게 명시한다:
+
+| 층 | 상시(push/PR) | 릴리스(태그) |
+|---|---|---|
+| L1(패키지) | ✗ | `linux-deb.yml`/`linux-rpm.yml` 매트릭스 레그 |
+| L2(런타임 로드) | ✗ | 위와 동일 레그의 `--smoke` |
+| L3(기능 타이핑) | ✅ `linux-ci.yml` 의 `functional-x11` 잡 (ubuntu24.04 고정) | 위 레그들의 `--smoke` 가 `verify-installed.sh` 다음에 `functional-test.sh` 도 돈다 |
+
+즉 push/PR 마다 회귀를 잡는 상시 게이트는 L3 하나뿐이고, L1/L2 는 태그 릴리스
+시점에만(그것도 배포판 6종 각각에서) 검증된다. `tests/harness/scenarios/*.json`
+의 `known_fail`(앱별)로 등록된 시나리오는 L3 종료 코드를 더럽히지 않는다 —
+신규 회귀만 CI 를 빨갛게 한다(`tests/harness/harness.py` 참조).
+
 ### install.sh 라우팅
 
 매니페스트가 자산 목록의 단일 출처다. 레그별 `SHA256SUMS-<tag>` 를 게시하고

@@ -132,6 +132,15 @@ jobs:
           RELEASE_TAG: ${{ steps.guard.outputs.release_tag }}
         run: scripts/ci/build-deb.sh ${{ matrix.tag }} --smoke
 
+      - name: Upload functional-test logs (실패 진단용, always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: functional-test-${{ matrix.tag }}
+          path: functional-logs/functional-${{ matrix.tag }}/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload build artifacts
         # 릴리스 여부와 무관하게 항상 업로드 (dispatch 리허설 검증용).
         uses: actions/upload-artifact@v4

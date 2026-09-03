@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -149,7 +150,15 @@ class Injector:
             raise RuntimeError(f"xdotool {' '.join(args)}: {r.stderr.strip()}")
 
     def activate(self) -> None:
-        self._run("windowactivate", "--sync", self.wid)
+        # `windowactivate` 는 창 관리자에게 "이 창을 최상단으로 올리고
+        # 포커스를 줘라" 라고 요청한다 — WM 이 없는 환경(Xvfb 단독 CI
+        # 컨테이너)에서는 요청을 받아줄 WM 자체가 없어 조용히 아무 일도
+        # 안 하고, mutter 등 일부 WM 은 포커스 탈취(focus stealing) 방지
+        # 정책으로 거부한다. `windowfocus` 는 X 서버에 직접
+        # XSetInputFocus 를 거는 XTEST 수준 동작이라 WM 유무와 무관하게
+        # 먹힌다 — 실세션(WM 있음)에서도 결과는 동일(포커스 이동)하므로
+        # 안전한 대체다.
+        self._run("windowfocus", "--sync", self.wid)
         time.sleep(0.2)
 
     def origin(self) -> tuple[int, int]:
@@ -239,7 +248,8 @@ class RunningApp:
                     pass
         return out
 
-    def wait_ready(self, timeout: float = 15.0) -> bool:
+    def wait_ready(self, timeout: float = float(os.environ.get(
+            "UNIM_HARNESS_READY_TIMEOUT", "15.0"))) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
@@ -292,17 +302,28 @@ def launch(app: str, tag: str) -> RunningApp:
                       stdout_path=out_path)
 
 
-def find_window(app: str, timeout: float = 8.0) -> str:
+def find_window(app: str,
+                timeout: float = float(os.environ.get(
+                    "UNIM_HARNESS_WINDOW_TIMEOUT", "8.0"))) -> str:
     title = window_title(app)
+    # ⚠️ CI 컨테이너(Xvfb, 로케일 미설치)에서 실측: `xdotool getwindowname` 은
+    # "UNIM xim 테스트" 를 정확히 돌려주는데 `xdotool search --name` 으로
+    # 그 *전체* 문자열(한글 포함)을 찾으면 LANG=C.utf8 을 줘도 항상 rc=1 —
+    # xdotool 의 정규식 매칭기가 다중바이트 패턴을 못 삼키는 한계로 보인다
+    # (2026-09 실측, gtk3/gtk4/qt5/qt6/xim 전 앱에서 재현 — 이 함수 자체의
+    # 문제이지 특정 앱 회귀가 아니다). 제목 앞부분 "UNIM {app} " 는 항상
+    # ASCII 이고 앱마다 유일하므로, 검색 패턴에서 첫 비 ASCII 문자 이후를
+    # 잘라내 그 접두어만으로 찾는다 — 표시되는 실제 창 제목은 그대로 둔다.
+    search_pattern = re.split(r"[^\x00-\x7f]", title, maxsplit=1)[0].rstrip()
     deadline = time.time() + timeout
     while time.time() < deadline:
-        r = subprocess.run(["xdotool", "search", "--name", title],
+        r = subprocess.run(["xdotool", "search", "--name", search_pattern],
                            capture_output=True, text=True)
         ids = [w for w in r.stdout.split() if w]
         if ids:
             return ids[-1]
         time.sleep(0.15)
-    raise RuntimeError(f"{app}: 창을 못 찾았다 (제목 \"{title}\")")
+    raise RuntimeError(f"{app}: 창을 못 찾았다 (제목 \"{title}\", 검색패턴 \"{search_pattern}\")")
 
 
 # ─── 시나리오 ───────────────────────────────────────────────────────────

@@ -24,6 +24,8 @@ on:
       - 'docs/archive/**'
       - 'docs/user/keymaps/**'
       - '*.md'
+  # 필요할 때 수동으로 돌린다 (입력 없음).
+  workflow_dispatch:
 
 # 같은 ref 에 새 push 가 오면 이전 실행은 취소 (게이트는 최신 커밋만 의미 있음).
 concurrency:
@@ -124,3 +126,95 @@ jobs:
 
       - name: Unit tests (cargo test --workspace)
         run: cargo test --workspace
+
+  # GNOME 확장 호환성 — 정적(check-gnome-api) + 동적(smoke-gnome-extension) 검사.
+  # 둘 다 headless 로 설계돼 로그아웃 없이 CI 러너에서 그대로 돈다.
+  # build-test 와 무관하게 필요한 시스템 패키지만 있으면 되므로 독립 job 으로 병렬 실행.
+  check-compat:
+    name: GNOME extension compatibility (static + smoke)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GNOME Shell / gjs / dbus (smoke-gnome-extension.sh 요구 패키지)
+        # gjs           — check-gnome-api.js 실행기(정적 검사).
+        # gnome-shell    — smoke-gnome-extension.sh 가 headless 로 띄우는 셸 자체.
+        # dbus           — dbus-run-session 제공(세션 버스 격리, 실세션 버스와 무관).
+        # gettext        — make gnome-extension 이 po/*.po 를 .mo 로 컴파일(msgfmt).
+        # libglib2.0-bin — glib-compile-schemas(gschemas.compiled 생성).
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gjs gnome-shell dbus gettext libglib2.0-bin
+
+      - name: 확장 설치 (사용자 홈 아래, sudo 불요 — smoke 스크립트가 찾는 경로)
+        run: |
+          set -euo pipefail
+          make install-gnome-extension \
+            GNOME_EXTENSION_DIR="$HOME/.local/share/gnome-shell/extensions/unim-gnome@from104.github.io"
+
+      - name: make check-compat (check-gnome-api + smoke-gnome-extension)
+        run: make check-compat
+
+  # 기능 타이핑(L3) — 실제 GTK/Qt/XIM 경로로 XTEST 키를 넣어 한글이 조합·확정
+  # 되는지 확인한다. 릴리스 매트릭스(linux-deb.yml/linux-rpm.yml)의 --smoke
+  # 는 각 배포판 *컨테이너*에 설치된 .deb/.rpm 을 이 스크립트로 검증하고,
+  # 여기는 사용자가 가장 흔히 만나는 조합 — 우분투 24.04 네이티브 러너 — 를
+  # push/PR 마다 상시 검증한다. 패키지 빌드를 거치지 않고 `make install` 로
+  # 더 빠르게 돈다. build-test 와 별개로 처음부터 다시 빌드한다 — 아티팩트를
+  # 주고받는 복잡도보다 단순 병렬이 낫다.
+  functional-x11:
+    name: Functional typing (Xvfb, ubuntu-24.04 native)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (debian/control Build-Depends)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get build-dep -y .
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-ci-functional
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Build (make build)
+        run: make build
+
+      - name: Install (PREFIX=/usr — GTK/Qt 가 보는 실제 배포 경로)
+        run: sudo make install PREFIX=/usr
+
+      - name: GTK3 immodules 캐시 갱신 (debian/unim-im-gtk.postinst 와 동일 — make install 은 트리거를 안 돈다)
+        run: |
+          set -euo pipefail
+          command -v gtk-query-immodules-3.0 >/dev/null 2>&1 && sudo gtk-query-immodules-3.0 --update-cache || true
+
+      - name: Install functional-test 런타임 도구 + XIM 테스트 앱 dev 헤더
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq --no-install-recommends \
+            xvfb x11-utils xdotool imagemagick dbus-x11 libxft-dev libfontconfig-dev
+
+      - name: scripts/ci/functional-test.sh ubuntu24.04-native
+        run: scripts/ci/functional-test.sh ubuntu24.04-native
+
+      - name: Upload functional-test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: functional-test-ubuntu24.04-native
+          path: functional-logs/functional-ubuntu24.04-native/
+          if-no-files-found: warn
+          retention-days: 14

@@ -101,6 +101,36 @@ if [ "$SMOKE" = "--smoke" ]; then
         exit 1
     fi
     echo "✅ 스모크 설치 11/11"
+
+    # 설치 후 런타임 로드 검증 (L1+L2) — GTK/Qt 가 모듈을 실제로 로드하는지,
+    # 데몬이 기동해 D-Bus 에 응답하는지. 패키지 개수·경로만으론 못 잡는다.
+    "$(dirname "${BASH_SOURCE[0]}")/verify-installed.sh" "$TAG"
+
+    # 기능 타이핑(L3) — 설치된 IM 모듈·데몬으로 실제 GTK/Qt/XIM 경로를 XTEST 로
+    # 통과시켜 tests/harness/ 의 회귀 시나리오를 검증한다. verify-installed.sh
+    # 는 "로드되는가"만 보고, 이건 "실제로 한글이 조합·확정되는가"를 본다.
+    # purge 전에 돈다 — 지운 뒤엔 검증할 모듈이 없다.
+    "$(dirname "${BASH_SOURCE[0]}")/functional-test.sh" "$TAG"
+
+    # ── purge 검증 — rpm 쪽 %preun 검증과 대칭. 신규 install 만으론 postrm/
+    # 트리거 제거 경로가 안 지나가므로 실제로 지워 봐야 한다.
+    $SUDO apt-get purge -y -qq 'unim*' >/dev/null
+    remaining=$(dpkg -l 'unim*' 2>/dev/null | grep -c '^ii' || true)
+    if [ "$remaining" -ne 0 ]; then
+        echo "❌ purge 후 unim 패키지 잔존(설치 상태 'ii'):"; dpkg -l 'unim*'; exit 1
+    fi
+    for f in /usr/libexec/unim-daemon \
+             /usr/lib/*/gtk-3.0/3.0.0/immodules/im-unim.so; do
+        [ -e "$f" ] && { echo "❌ purge 후에도 남은 파일: $f"; exit 1; }
+    done
+    # 트리거 대칭 — 설치 때 캐시에 등록됐다면, 제거 때도 캐시에서 빠져야 한다.
+    for cache in /usr/lib/*/gtk-3.0/3.0.0/immodules.cache \
+                 /usr/lib64/gtk-3.0/3.0.0/immodules.cache; do
+        if [ -f "$cache" ] && grep -q 'im-unim\.so' "$cache" 2>/dev/null; then
+            echo "❌ purge 후에도 immodules.cache 에 unim 잔존: $cache"; exit 1
+        fi
+    done
+    echo "✅ 스모크 purge — 패키지·대표 파일·immodules.cache 등록 모두 정리됨"
 fi
 
 echo "✅ build-deb ${TAG}: ${FULL} — 11개 .deb + SHA256SUMS-${TAG}"

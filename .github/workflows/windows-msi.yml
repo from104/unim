@@ -26,6 +26,9 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/windows-msi.yml'
+      # 설치·등록·기능 실측 스크립트 — 이 파일만 고쳐도 잡이 돌아야 한다.
+      # (push 쪽에는 paths 필터가 없다 — 위 주석의 태그 스킵 방지 정책 그대로.)
+      - 'scripts/ci/verify-msi.ps1'
   workflow_dispatch:
 
 env:
@@ -46,7 +49,7 @@ jobs:
   build-msi:
     name: Build MSVC + WiX MSI
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: write  # 태그 빌드에서 softprops/action-gh-release 가 자산 첨부에 사용
 
@@ -249,6 +252,75 @@ jobs:
             Write-Error "MSI suspiciously small: $size bytes"; exit 1
           }
           Write-Host "MSI size OK: $size bytes"
+
+      # ── 설치·등록·DLL 로드·기능·제거 실측 (scripts/ci/verify-msi.ps1) ──────
+      #
+      # 위 sanity check 는 "파일이 있고 100KB 를 넘는다" 까지다. 아래 3단계가
+      # 실제로 설치되는지 / TSF 가 등록되는지 / DLL 이 로드되는지 / 한글이
+      # 입력되는지 / 제거가 깨끗한지를 러너에서 직접 확인한다.
+      #
+      # 실행 호스트를 명시적으로 System32(64-bit) Windows PowerShell 5.1 로
+      # 고정한다 — (1) 레지스트리 64-bit 뷰가 필요하고, (2) 기본 STA 아파트먼트라
+      # Get-Clipboard·UIAutomation 이 동작하며, (3) ExecutionPolicy Bypass 를
+      # 스텝 설정에 의존하지 않고 스스로 건다.
+      # 승격 대기: 2회 연속 통과 후 필수화(continue-on-error 제거).
+      # 이 스텝들이 이번 diff 로 처음 실제 windows-2022 호스티드 러너에서
+      # 도는 것이라 verify-msi.ps1 자체의 미검증 실패(예: msiexec 대기 로직)가
+      # 뒤따르는 Uninstall/아티팩트 업로드/릴리스 첨부까지 통째로 막지 않도록
+      # 한시적으로 실패를 허용한다. 스크린샷·로그는 아래 'Upload verification
+      # artifacts' 로 항상 올라간다.
+      - name: 'Install + verify (scripts/ci/verify-msi.ps1) (승격 대기: 2회 연속 통과 후 필수화)'
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: powershell
+        run: |
+          $msi = "dist\unim-${{ steps.version.outputs.version }}-x64.msi"
+          $ps  = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+          & $ps -NoProfile -ExecutionPolicy Bypass -File "scripts\ci\verify-msi.ps1" `
+                -MsiPath $msi -Phase install -ArtifactDir "msi-verify"
+          exit $LASTEXITCODE
+
+      # 승격 대기: 2회 연속 통과 후 필수화.
+      # 호스티드 러너의 데스크톱 대화형 여부(ctfmon/TSF 활성 세션)가 문서로
+      # 보장돼 있지 않아 첫 도입은 실패를 허용한다. 스크린샷·타이핑 로그는
+      # 아래 'Upload verification artifacts' 로 항상 올라간다.
+      - name: 'Functional typing check (승격 대기: 2회 연속 통과 후 필수화)'
+        continue-on-error: true
+        timeout-minutes: 8
+        shell: powershell
+        run: |
+          $msi = "dist\unim-${{ steps.version.outputs.version }}-x64.msi"
+          $ps  = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+          & $ps -NoProfile -ExecutionPolicy Bypass -File "scripts\ci\verify-msi.ps1" `
+                -MsiPath $msi -Phase typing -ArtifactDir "msi-verify"
+          exit $LASTEXITCODE
+
+      # 제거는 필수 게이트가 되어야 하지만(설치된 상태를 러너에 남기지 않고
+      # ForceDeleteOnUninstall 계약도 확인), Install 이 continue-on-error 로
+      # 승격 대기인 동안엔 이 스텝도 함께 승격 대기로 둔다 — 그래야 Install
+      # 실패 시에도 always() 로 반드시 돌아 제거를 시도하고, 뒤따르는 아티팩트
+      # 업로드·릴리스 첨부가 스킵되지 않는다.
+      - name: 'Uninstall + verify (scripts/ci/verify-msi.ps1) (승격 대기: 2회 연속 통과 후 필수화)'
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        shell: powershell
+        run: |
+          $msi = "dist\unim-${{ steps.version.outputs.version }}-x64.msi"
+          $ps  = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+          & $ps -NoProfile -ExecutionPolicy Bypass -File "scripts\ci\verify-msi.ps1" `
+                -MsiPath $msi -Phase uninstall -ArtifactDir "msi-verify"
+          exit $LASTEXITCODE
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unim-${{ steps.version.outputs.version }}-msi-verification
+          path: msi-verify/**
+          # 설치 자체가 시작조차 못 한 경우엔 비어 있을 수 있다 — 경고만.
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Generate SHA256SUMS-msi
         shell: bash

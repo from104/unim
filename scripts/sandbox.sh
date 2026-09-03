@@ -92,8 +92,11 @@ setup_local_modules() {
     # GTK3 모듈 디렉터리 구조 (GTK_PATH용)
     local gtk3_mod_dir="$SANDBOX_DIR/gtk-3.0/3.0.0/immodules"
     mkdir -p "$gtk3_mod_dir"
-    if [ -f "$PROJECT_ROOT/unim-frontends/gtk3/build/libim-unim.so" ]; then
-        ln -sf "$PROJECT_ROOT/unim-frontends/gtk3/build/libim-unim.so" "$gtk3_mod_dir/libim-unim.so"
+    # GTK3 는 CMakeLists.txt 에서 PREFIX "" 를 지정해 lib 접두사 없이
+    # im-unim.so 로 빌드된다(GTK4/Qt5/Qt6 는 기본 lib 접두사가 붙는다) —
+    # libim-unim.so 로 찾으면 조건이 항상 거짓이라 링크가 조용히 빠졌었다.
+    if [ -f "$PROJECT_ROOT/unim-frontends/gtk3/build/im-unim.so" ]; then
+        ln -sf "$PROJECT_ROOT/unim-frontends/gtk3/build/im-unim.so" "$gtk3_mod_dir/im-unim.so"
         log_success "  GTK3 모듈 → 로컬 빌드 연결"
     fi
     

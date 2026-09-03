@@ -104,13 +104,31 @@ if [ "$SMOKE" = "--smoke" ]; then
             exit 1
         fi
     done
+
+    # 설치 후 런타임 로드 검증 (L1+L2) — GTK/Qt 가 모듈을 실제로 로드하는지,
+    # 데몬이 기동해 D-Bus 에 응답하는지. rpm -q 만으론 못 잡는다. dnf remove
+    # 전에 돈다 — 그 다음이 %preun 검증이라 모듈이 아직 설치돼 있어야 한다.
+    "$(dirname "${BASH_SOURCE[0]}")/verify-installed.sh" "$TAG"
+
+    # 기능 타이핑(L3) — 설치된 IM 모듈·데몬으로 실제 GTK/Qt/XIM 경로를 XTEST 로
+    # 통과시켜 tests/harness/ 의 회귀 시나리오를 검증한다(build-deb.sh 와 동일
+    # 사유). dnf remove(%preun 검증) 전에 돈다.
+    "$(dirname "${BASH_SOURCE[0]}")/functional-test.sh" "$TAG"
+
     # erase 트랜잭션으로 %preun 스크립틀릿을 실제로 실행시킨다 —
     # 신규 install 은 %preun 을 돌리지 않아 설치 스모크만으론 미검증.
     dnf -y remove 'unim*'
     if rpm -qa 'unim*' | grep -q .; then
         echo "❌ 제거 후 unim 패키지 잔존:"; rpm -qa 'unim*'; exit 1
     fi
-    echo "✅ 스모크 설치·제거(%preun) 통과"
+    # 트리거 대칭 — 설치 때 캐시에 등록됐다면, 제거 때도 캐시에서 빠져야 한다.
+    for cache in /usr/lib64/gtk-3.0/3.0.0/immodules.cache \
+                 /usr/lib/*/gtk-3.0/3.0.0/immodules.cache; do
+        if [ -f "$cache" ] && grep -q 'im-unim\.so' "$cache" 2>/dev/null; then
+            echo "❌ 제거 후에도 immodules.cache 에 unim 잔존: $cache"; exit 1
+        fi
+    done
+    echo "✅ 스모크 설치·제거(%preun)·immodules.cache 정리 통과"
 fi
 
 rpmlint rpms/*.rpm || true

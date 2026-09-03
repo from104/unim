@@ -217,6 +217,45 @@ tests/harness/run.py --list
 | `english-passthrough` | 영문 모드 무간섭 |
 | `mode-toggle` | 한/영 전환 중 조합 플러시 |
 
+### CI 기능 타이핑 (`scripts/ci/functional-test.sh`)
+
+이 하네스는 실세션(로그인한 데스크톱, 실 D-Bus 세션 버스, 실 unim 데몬)을
+전제한다 — CI 러너·배포판 컨테이너에는 그런 세션이 없다. `scripts/ci/
+functional-test.sh <tag>` 가 그 간극을 메운다: `Xvfb`(헤드리스 X 서버) +
+`dbus-run-session`(격리된 세션 버스) 안에서 데몬(과 필요하면 `unim-xim`)을
+새로 기동하고, `tests/harness/run.py` 를 그대로 돌린다. `HOME`/`XDG_*`/
+`UNIM_{CONFIG,DATA,CACHE}_DIR` 을 전부 스크래치 디렉터리로 격리하므로 실행
+중인 실세션 설정·데몬에는 닿지 않는다.
+
+```sh
+scripts/ci/functional-test.sh ubuntu24.04                       # 기본 5앱(gtk3/gtk4/qt5/qt6/xim) × 전 시나리오
+scripts/ci/functional-test.sh ubuntu24.04 --apps gtk3,xim
+scripts/ci/functional-test.sh ubuntu24.04 --scenarios basic-compose,click-commit
+```
+
+전제는 두 가지 중 하나다: **설치된 패키지**(기본 — 데몬은 `/usr/libexec/
+unim-daemon`, IM 모듈은 시스템 GTK_PATH/QT_PLUGIN_PATH 가 이미 안다 —
+`scripts/ci/build-{deb,rpm}.sh --smoke` 가 `verify-installed.sh` 직후, 제거
+검증 전에 이 스크립트를 부른다), 또는 **로컬 `target/release` 빌드본**
+(`UNIM_DAEMON_BIN`/`UNIM_XIM_BIN` 환경변수로 오버라이드 — `make
+check-runtime-x11` 이 문서화하는 경로. 이 타깃은 호스트 실세션 보호를 위해
+자동 실행하지 않는다). 테스트 앱(`tests/unim-test-*`)은 `tests/common`(C) +
+GTK/Qt/X11 헤더만으로 매번 그 자리에서 직접 컴파일한다 — `make build-tests`
+가 끌어오는 전체 cargo 워크스페이스 빌드는 필요 없다.
+
+CI 배선: push/PR 마다 `linux-ci.yml` 의 `functional-x11` 잡이 우분투 24.04
+러너 네이티브에서(`make install` 로, 패키지 빌드 없이) 상시 검증하고,
+릴리스 매트릭스(`linux-deb.yml`/`linux-rpm.yml`)는 배포판별 실제 설치 패키지
+로 검증한다. 실패하면 앱별 JSONL 로그·실패 스텝 스크린샷이 두 워크플로 모두
+CI 아티팩트로 올라온다.
+
+> [!note] el10(AlmaLinux/RHEL 10 계열)은 이 시험을 건너뛴다(SKIP, 빌드는
+> 안 막는다) — 2026-09 실측 기준 EPEL10 이 아직 `xorg-x11-server-Xvfb`·
+> `xdotool`·`xwininfo` 를 패키징하지 않는다(Xwayland 만 있다). 코드 회귀가
+> 아니라 배포판 패키지 생태계가 못 따라온 것이라, `functional-test.sh` 가
+> 이 도구들의 부재를 감지하면 스킵하고 빠져나온다 — `verify-installed.sh`
+> (L1+L2)는 이미 통과한 뒤다. EPEL10 이 채워지면 자동으로 다시 돈다.
+
 ## 6. 디렉토리
 
 ```

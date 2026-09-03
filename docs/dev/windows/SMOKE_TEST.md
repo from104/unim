@@ -4,6 +4,43 @@ GitHub Actions artifact `unim-<version>-x64-msi` 를 받은 다음, Windows 11 x
 
 스냅샷 권장: 깨끗한 Windows 11 22H2 또는 24H2 한국어 옵션 사전 설치 상태.
 
+## CI 자동 검증 (2026-09 도입)
+
+아래 절차 중 **기계가 판정할 수 있는 부분은 CI 가 매 빌드마다 이미 돌린다.**
+`windows-msi.yml` 의 `Install + verify` / `Functional typing check` /
+`Uninstall + verify` 세 단계가 `scripts/ci/verify-msi.ps1` 을 phase 별로 호출하고,
+`install.log`·`uninstall.log`·스크린샷·타이핑 로그를 `unim-<version>-msi-verification`
+아티팩트로 항상 올린다. 그러니 VM 스모크는 **자동화가 못 보는 것만** 하면 된다.
+
+| 절 | 항목 | CI 자동 | 비고 |
+|----|------|---------|------|
+| 1 | `msiexec /i /qn` 설치 성공 (0 또는 3010) | ✅ | 로그 아티팩트 첨부 |
+| 2 | 설치 파일 12개 존재·0바이트 아님 | ✅ | 목록은 `unim.wxs` 의 `<File>` 전량과 자동 대조 — wxs 가 바뀌면 CI 가 먼저 깨진다 |
+| 2 (1)(2)(6) | `InProcServer32` 64/32 뷰 경로·`ThreadingModel`, `[#…]` 토큰 미치환 회귀 | ✅ | GUID 는 `installer/wix/generated/guids.wxi` 에서 런타임에 읽는다(하드코딩 없음) |
+| 2 (3)(4)(5) | CTF TIP 엔트리, `LanguageProfile\0x00000412\{PROFILE}` 의 `Enable`/`SubstituteLayout`/`Description`/`IconFile`, 카테고리 8종 | ✅ | 카테고리 GUID 도 `unim.wxs` 에서 파싱 |
+| — | `unim_tsf.dll`(x64)·`unim_tsf32.dll`(x86) `LoadLibraryW` + `DllGetClassObject` 노출 | ✅ | 비트니스별 별도 powershell.exe 로 프로브 |
+| — | `HKLM…\Run\UnimPopupRenderer`, `HKLM\SOFTWARE\atit.org\UNIM\InstallDir` 토큰 치환(M-31 회귀) | ✅ | |
+| 3 | `Get-WinUserLanguageList` 에 UNIM TIP 등록 + `ActivateLanguageProfile` | ⚠️ | typing 단계(승격 대기) |
+| 4.1 | 메모장에 `gks` → `한` 실입력 | ⚠️ | typing 단계(승격 대기). 스크린샷·읽은 텍스트가 아티팩트로 남는다 |
+| 6 | `msiexec /x` 제거, 레지스트리·설치 디렉터리·ARP 항목 소멸 | ✅ | |
+
+**⚠️ = "승격 대기"**: 호스티드 러너가 대화형 데스크톱 세션(ctfmon/TSF 활성)을
+보장한다는 문서가 없어, 타이핑 단계는 `continue-on-error: true` 로 도입했다.
+2회 연속 통과가 확인되면 `continue-on-error` 를 떼어 필수 게이트로 승격한다.
+
+**아직 사람만 할 수 있는 것** (아래 절이 여전히 유효한 범위):
+4.3 한자 변환 팝업, 4.5~4.8 32-bit/UWP/KakaoTalk 실앱, 4.9 낭독기 통지,
+4b 팝업 전 항목, 4c AutoTypeFix, 5 랭귀지바·설정 다이얼로그·config reload,
+그리고 설정 GUI 자체(`unim-settings.exe` 에 `--version` 같은 헤드리스 플래그가
+없어 CI 는 존재·크기까지만 본다).
+
+로컬에서 한 번에 돌리려면 (Windows VM 관리자 PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ci\verify-msi.ps1 `
+    -MsiPath dist\unim-0.4.1-x64.msi -Phase all -ArtifactDir msi-verify
+```
+
 ## 0. 사전 준비
 
 - VM / 실기: Windows 11 x64, 관리자 권한 사용자 로그인.

@@ -18,6 +18,23 @@ $SUDO apt-get update -qq
 $SUDO apt-get install -y -qq --no-install-recommends \
     git ca-certificates build-essential devscripts equivs >/dev/null
 
+# scripts/ci/verify-installed.sh (--smoke 가 부르는 설치 후 런타임 검증)가
+# 요구하는 런타임 도구. Build-Depends 에는 없다 — 빌드가 아니라 검증용.
+$SUDO apt-get install -y -qq --no-install-recommends \
+    python3 dbus dbus-daemon libglib2.0-bin >/dev/null
+
+# scripts/ci/functional-test.sh (--smoke 가 verify-installed.sh 다음에 부르는
+# Xvfb 기반 기능 타이핑 검증)가 요구하는 도구.
+#   xvfb            — 헤드리스 X 서버(WM 없이 Xvfb 단독으로 충분함을 실측 확인)
+#   x11-utils       — xwininfo(창 좌표)·xdpyinfo(서버 대기)·xwd(실패 진단 스샷)
+#   xdotool         — XTEST 키 입력·창 포커스
+#   imagemagick     — harness.py 의 실패 스크린샷(import -window, 없으면 생략)
+# tests/unim-test-xim 컴파일에 필요한 dev 헤더(control 의 Build-Depends 는
+# GTK/Qt/glib/X11 은 이미 있으나 Xft/fontconfig 는 없다 — XIM 앱 전용).
+$SUDO apt-get install -y -qq --no-install-recommends \
+    xvfb x11-utils xdotool imagemagick libxft-dev libfontconfig-dev >/dev/null || \
+    echo "⚠️  xvfb/x11-utils/xdotool 중 일부가 이 배포판에 없다 — functional-test.sh 가 감지해 스킵한다"
+
 # 'apt build-dep .' 은 소스 저장소(deb-src)를 요구한다. 24.04+/데비안13 은
 # deb822(*.sources) 형식이라 옛 one-line sources.list 용 sed 로는 안 잡힌다 —
 # 두 형식 모두 처리한다.
