@@ -37,8 +37,9 @@ unim-windows-common = { path = "../unim-windows-common" }
 
 # Windows 작업표시줄·탐색기 아이콘: exe 의 **아이콘 리소스**에서 온다. Slint 의
 # `Window { icon: ... }` 은 창 좌상단·Alt+Tab 만 바꾸므로 리소스가 없으면 작업표시줄은
-# 기본 exe 아이콘이 뜬다. unim.rc 로 installer/assets/unim.ico 를 임베드한다
-# (unim-tsf 가 언어바 아이콘에 쓰는 것과 같은 방식).
+# 기본 exe 아이콘이 뜬다. build.rs 가 build-support/version_rc.rs 의
+# embed_version_rc() 로 installer/assets/unim.ico + VERSIONINFO 를 매 빌드
+# 생성해 임베드한다 (unim-tsf 가 언어바 아이콘에 쓰는 것과 같은 방식).
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "2"
 

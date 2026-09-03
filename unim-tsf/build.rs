@@ -1,13 +1,29 @@
-//! unim-tsf 빌드 스크립트 — DLL 에 시그니처 아이콘(unim.rc)을 임베드한다.
+//! unim-tsf 빌드 스크립트 — DLL 에 시그니처 아이콘 + VERSIONINFO 를 임베드한다.
 //!
 //! 임베드된 RT_GROUP_ICON(ID 1)으로 LanguageProfile IconFile=DLL, IconIndex=0
 //! 이 UNIM 'UN' 아이콘을 가리킨다(IME 선택기·설치 목록 표시). rc.exe 는 빌드
 //! 래퍼(scripts/cargo-msvc.bat 의 vcvars)에서 PATH 에 잡힌다.
+//!
+//! VERSIONINFO: Windows Defender 오탐(Bearfoos.B!ml, 2026-09-03) 대응 — 배포
+//! 위생 3종(서명·버전정보·평판) 중 버전정보 공백을 메운다. unim.rc 는 아이콘만
+//! 담고 있었고 VS_VERSION_INFO 블록이 아예 없었다. 정적 unim.rc 를 고치는 대신
+//! OUT_DIR 에 아이콘+VERSIONINFO 를 합친 .rc 를 매 빌드 생성해 CARGO_PKG_VERSION
+//! 을 그대로 굽는다(하드코딩 금지 — Cargo.toml 버전이 바뀌면 자동 추종).
+
+// 공유 헬퍼: build-support/version_rc.rs 의 embed_version_rc() (VERSIONINFO
+// 임베드, 버전은 CARGO_PKG_VERSION 자동 추종 — 하드코딩 금지).
+#[cfg(windows)]
+include!("../build-support/version_rc.rs");
 
 fn main() {
     #[cfg(windows)]
     {
-        embed_resource::compile("unim.rc", embed_resource::NONE);
+        embed_version_rc(
+            Some("icons/unim-signature.ico"),
+            "UNIM Korean IME — TSF text service",
+            "unim_tsf.dll",
+            "VFT_DLL",
+        );
     }
 
     // D-3(진단): 컴파일 타임에 빌드 타임스탬프를 env 로 굽는다 — 런타임 진단 배너
