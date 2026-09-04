@@ -1540,6 +1540,16 @@ function Invoke-ScanPhase {
                        -Detail ("탐지: {0} (exit={1}, 로그: {2})" -f $names, $r.ExitCode, $log)
         } elseif ($r.ExitCode -eq 0) {
             Add-Result -Name "Defender 스캔: $(Split-Path -Leaf $t)" -Status PASS -Detail 'exit=0, 위협 없음'
+        } elseif ($r.Output -match '(?i)hr\s*=\s*0x800106ba') {
+            # 2026-09-04 4차 실측: GitHub 호스티드 windows-2022 러너는 Defender
+            # 서비스(WinDefend)가 꺼져 있어 MpCmdRun 이 스캔 대상마다
+            # "CmdTool: Failed with hr = 0x800106ba"(서비스 미가동) 로 exit 2 를
+            # 돌려준다 — 시그니처 업데이트는 되는데 스캔만 안 된다. 이건 산출물의
+            # 문제가 아니라 러너의 문제이므로 FAIL 이 아닌 SKIP 으로 명시한다.
+            # 이 게이트가 실제로 검사하려면 self-hosted 러너(Defender 가동) 또는
+            # VirusTotal 류 외부 스캐너로 대체해야 한다(docs/dev/windows/SMOKE_TEST.md).
+            Add-Result -Name "Defender 스캔: $(Split-Path -Leaf $t)" -Status SKIP `
+                       -Detail ("Defender 서비스 미가동(hr=0x800106ba) — 호스티드 러너에서는 스캔 불가, exit={0}, 로그: {1}" -f $r.ExitCode, $log)
         } else {
             # 위협 텍스트는 없는데 종료코드가 비정상 — 스캔 자체 실패(파일 잠김 등)로
             # 보고 FAIL 하되 $detections 에는 넣지 않는다(위협 확정이 아니므로

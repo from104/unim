@@ -22,7 +22,7 @@ GitHub Actions artifact `unim-<version>-x64-msi` 를 받은 다음, Windows 11 x
 | — | `HKLM…\Run\UnimPopupRenderer`, `HKLM\SOFTWARE\atit.org\UNIM\InstallDir` 토큰 치환(M-31 회귀) | ✅ | |
 | 3 | `Get-WinUserLanguageList` 에 UNIM TIP 등록 + `ActivateLanguageProfile` | ⚠️ | typing 단계(승격 대기) |
 | 4.1 | 메모장에 `gks` → `한` 실입력 | ⚠️ | typing 단계(승격 대기). 스크린샷·읽은 텍스트가 아티팩트로 남는다 |
-| — | Windows Defender 능동 스캔 (MSI + DLL/EXE 오탐 조기 발견) | ⚠️ | `-Phase scan`, 승격 대기. `MpCmdRun -Scan` + `Get-MpThreatDetection`/이벤트 1116·1117 로 판정, 탐지 시 exit=2. install 단계보다 먼저 돌아 exclusion 등록 이전 상태로 스캔한다 |
+| — | Windows Defender 능동 스캔 (MSI + DLL/EXE 오탐 조기 발견) | ⏭ | `-Phase scan`. **GitHub 호스티드 러너에서는 동작하지 않는다** — 2026-09-04 4차 실측: WinDefend 서비스가 꺼져 있어 `MpCmdRun -Scan` 이 `hr=0x800106ba` 로 실패(시그니처 갱신만 됨). 스크립트는 이 경우를 SKIP 으로 명시한다. 실제 게이트로 쓰려면 Defender 가 도는 self-hosted 러너나 외부 스캐너(VirusTotal API)가 필요하다. `MpCmdRun -Scan` + `Get-MpThreatDetection`/이벤트 1116·1117 로 판정, 탐지 시 exit=2. install 단계보다 먼저 돌아 exclusion 등록 이전 상태로 스캔한다 |
 | 6 | `msiexec /x` 제거, 레지스트리·설치 디렉터리·ARP 항목 소멸 | ✅ | |
 
 **⚠️ = "승격 대기"**: 호스티드 러너가 대화형 데스크톱 세션(ctfmon/TSF 활성)을
@@ -49,7 +49,7 @@ powershell -ExecutionPolicy Bypass -File scripts\ci\verify-msi.ps1 `
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\ci\verify-msi.ps1 `
     -MsiPath dist\unim-0.4.1-x64.msi -Phase scan -ArtifactDir msi-verify `
-    -ScanPaths target\x86_64-pc-windows-msvc\release, target\i686-pc-windows-msvc\release
+    -ScanPaths "target\x86_64-pc-windows-msvc\release;target\i686-pc-windows-msvc\release"
 ```
 
 > 2026-09-03 회사컴에서 Defender 가 `unim_tsf.dll`(0.4.1) 을
