@@ -357,8 +357,15 @@ def _match(expect: dict, render: dict | None) -> bool:
 
 
 def _wait_for(app: RunningApp, field: str, expect: dict,
-              timeout_ms: int = 2500) -> tuple[bool, dict, int]:
-    """기대값에 도달할 때까지 폴링한다 — 도달 즉시 통과라 빠르다."""
+              timeout_ms: int | None = None) -> tuple[bool, dict, int]:
+    """기대값에 도달할 때까지 폴링한다 — 도달 즉시 통과라 빠르다.
+
+    `timeout_ms` 미지정 시 `UNIM_HARNESS_STEP_TIMEOUT_MS`(기본 2500) 를 쓴다 —
+    CI 전용 상향 값은 scripts/ci/functional-test.sh 가 CI=true 일 때만 심는다.
+    실세션(그 변수가 없는 일반 실행)은 항상 2500ms 그대로다.
+    """
+    if timeout_ms is None:
+        timeout_ms = int(os.environ.get("UNIM_HARNESS_STEP_TIMEOUT_MS", "2500"))
     deadline = time.time() + timeout_ms / 1000.0
     last: dict = {}
     while time.time() < deadline:
@@ -470,6 +477,16 @@ def run_scenario(app_name: str, sc: dict, *,
                     f"{field} 클릭 직후 포커스를 잃었다 — 클릭 좌표가 필드를 "
                     f"벗어났을 가능성이 크다. 앱이 screen_cx/cy 를 내는지 확인할 것 "
                     f"(geometry={running.geometry.get(field)})")
+
+        # 포커스 획득과 IM 컨텍스트 등록(XIM 연결·Qt 플랫폼 컨텍스트·데몬 D-Bus
+        # 왕복)은 별개 비동기 경로다 — 공유 CI 러너에서 CPU 경합이 있으면 포커스는
+        # 잡혔는데 IM 컨텍스트가 아직 등록 전이라 첫 키가 IM 을 거치지 않고
+        # 그대로 리터럴 문자로 커밋되는 사례가 있다(2026-09 실측, 로컬 docker
+        # 에서는 재현 안 됨 — CPU 여유 차이로 추정). 기본값 0 이라 실세션은
+        # 영향 없고, CI 는 functional-test.sh 가 UNIM_HARNESS_SETTLE_MS 를 심는다.
+        settle_ms = int(os.environ.get("UNIM_HARNESS_SETTLE_MS", "0"))
+        if settle_ms > 0:
+            time.sleep(settle_ms / 1000.0)
 
         all_ok = True
         for i, step in enumerate(sc["steps"]):

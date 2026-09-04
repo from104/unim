@@ -25,6 +25,26 @@
 #   UNIM_HARNESS_READY_TIMEOUT / UNIM_HARNESS_WINDOW_TIMEOUT
 #                              앱 기동·창 탐색 대기(초) — 느린 CI 컨테이너용
 #                              (tests/harness/harness.py 가 읽는다)
+#   UNIM_HARNESS_STEP_TIMEOUT_MS / UNIM_HARNESS_SETTLE_MS / UNIM_HARNESS_SCENARIO_RETRIES
+#                              스텝 판정 대기(ms)·클릭 직후 안정화 대기(ms)·
+#                              시나리오 전체 재시도 횟수 — CI 전용 튜닝
+#                              (아래 §CI 기본값 참고, harness.py/run.py 가 읽는다)
+#
+# ── CI 기본값 (2026-09 실측) ────────────────────────────────────────────────
+# GitHub Actions 는 러너/컨테이너 모두에 CI=true 를 자동으로 심는다. 공유
+# 러너는 CPU 경합이 있어 XIM/Qt 의 IM 컨텍스트 등록(비동기 D-Bus 왕복)이
+# 로컬 docker 보다 늦게 끝날 수 있다 — 클릭 직후 첫 키를 IM 이 아직 못 받아
+# 그대로 리터럴 문자가 커밋되는 실패(2026-09 실측: linux-deb.yml ubuntu24.04
+# 레그의 xim basic-compose/focus-switch, linux-rpm.yml fedora43 의 qt6
+# basic-compose-2bul — 매번 다른 시나리오에서 산발적으로 재현, 로컬 재현
+# 안 됨)로 이어진다. 실세션(GUI 사용자가 직접 돌리는 make check-runtime-x11
+# 등, CI=true 없음)의 기본 동작은 절대 바꾸지 않는다 — CI 에서만 값을 올린다.
+if [ -n "${CI:-}" ]; then
+    : "${UNIM_HARNESS_STEP_TIMEOUT_MS:=4000}"   # 기본 2500ms → 4000ms
+    : "${UNIM_HARNESS_SETTLE_MS:=300}"          # 포커스 클릭 뒤 추가 안정화 (기본 0)
+    : "${UNIM_HARNESS_SCENARIO_RETRIES:=1}"     # 실패 시나리오 1회 전체 재시도 (기본 0)
+    export UNIM_HARNESS_STEP_TIMEOUT_MS UNIM_HARNESS_SETTLE_MS UNIM_HARNESS_SCENARIO_RETRIES
+fi
 #
 # ⚠️ `set -e` 를 쓰지 않는다 — 한 앱의 빌드/실행 실패가 나머지 앱 판정을
 #    가로막으면 안 된다(verify-installed.sh 와 같은 정책). 대신 앱별 종료
