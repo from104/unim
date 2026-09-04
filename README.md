@@ -295,6 +295,16 @@ unim-cli config set auto-typefix-skip-english-word true
 전체 목록과 설정 창 화면 설명은
 [사용자 매뉴얼 §4.4·§5.3·§5.4](docs/user/user-guide/README-ko.md)에 있습니다.
 
+## 코드 서명 정책 (Code signing policy)
+
+Windows 설치 파일(MSI)과 그 안의 실행 파일은 [SignPath.io](https://signpath.io) 가 제공하는 무료 코드 서명으로, [SignPath Foundation](https://signpath.org) 이 발급한 인증서로 서명합니다.
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **팀 역할 (Team roles)** — 1인 프로젝트로, 커밋 권한(Committers/Authors)·리뷰(Reviewers)·서명 승인(Approvers) 을 모두 저장소 소유자 [@from104](https://github.com/from104) 가 맡습니다. GitHub 와 SignPath 계정 모두 2단계 인증을 씁니다.
+- **개인정보 처리 (Privacy policy)** — 이 프로그램은 사용자나 설치·운영자가 명시적으로 요청하지 않는 한 어떤 정보도 다른 네트워크 시스템으로 전송하지 않습니다. This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+- **서명 파이프라인** — 릴리스 태그 빌드가 GitHub Actions 에서 MSI 를 만들고 SignPath 에 서명을 요청하며, 승인자가 매 릴리스마다 요청을 수동 승인합니다. 자세한 절차는 [`docs/dev/windows/CODE_SIGNING.md`](docs/dev/windows/CODE_SIGNING.md).
+
 ## 지원 환경
 
 **실사용으로 검증한 환경**은 다음과 같습니다 — GNOME Shell 45–50 (X11 / Wayland),
