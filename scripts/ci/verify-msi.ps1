@@ -1497,7 +1497,11 @@ function Invoke-ScanPhase {
     } else {
         Add-Result -Name 'Defender 스캔 대상: MSI' -Status FAIL -Detail "없음: $MsiPath"
     }
-    foreach ($d in $ScanPaths) {
+    # -File 로 호출되면 배열 인자를 못 받는다 — 공백으로 나누면 두 번째 값이
+    # 위치 인자(-RepoRoot)로 묶이고(3차 실측), 콤마는 리터럴로 붙는다(2차 실측).
+    # 그래서 한 문자열을 받아 여기서 ';' 또는 ',' 로 나눈다.
+    $scanDirs = @($ScanPaths | ForEach-Object { $_ -split '[;,]' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    foreach ($d in $scanDirs) {
         if (Test-Path -LiteralPath $d) {
             $targets += (Resolve-Path -LiteralPath $d).ProviderPath
         } else {
