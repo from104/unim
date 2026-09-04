@@ -144,11 +144,31 @@ jobs:
         # dbus           — dbus-run-session 제공(세션 버스 격리, 실세션 버스와 무관).
         # gettext        — make gnome-extension 이 po/*.po 를 .mo 로 컴파일(msgfmt).
         # libglib2.0-bin — glib-compile-schemas(gschemas.compiled 생성).
+        # dconf-cli      — smoke 스크립트가 확장의 enable-ime 키를 dconf write 로 켠다
+        #                  (확장 스키마는 표준 검색경로 밖이라 gsettings 로는 못 씀).
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            gjs gnome-shell dbus gettext libglib2.0-bin
+            gjs gnome-shell dbus gettext libglib2.0-bin dconf-cli
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-ci-check-compat
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Build unim-daemon (release — smoke 스크립트가 실제 DBus 로 붙여본다)
+        # 확장의 enable()→_enableIME() 은 org.atit.unim.InputMethod 연결이
+        # 돼야 [unim-ime] 마커까지 간다. 데몬 없이는 "DBus 미연결" 로 조용히
+        # 되돌아가서 정적/설치 검사만으로는 못 잡는 이 스모크의 존재 이유
+        # (2026-08-23 셸 50 사고) 자체를 못 본다 — 그래서 여기서 데몬을 붙여
+        # 진짜 활성화 경로를 태운다. 프런트엔드·CSS 는 필요 없어 daemon 만.
+        run: cargo build --release -p unim-daemon
 
       - name: 확장 설치 (사용자 홈 아래, sudo 불요 — smoke 스크립트가 찾는 경로)
         run: |
@@ -197,9 +217,33 @@ jobs:
         run: sudo make install PREFIX=/usr
 
       - name: GTK3 immodules 캐시 갱신 (debian/unim-im-gtk.postinst 와 동일 — make install 은 트리거를 안 돈다)
+        # ⚠️ 2026-09 실측 원인: 이 러너(ubuntu-24.04 네이티브)에는
+        #    gtk-query-immodules-3.0 이 PATH 에 없다 — Ubuntu 24.04+ 의 t64
+        #    패키징은 이 도구를 /usr/bin 이 아니라
+        #    /usr/lib/<triplet>/libgtk-3-0t64/ 밑에 둔다. `command -v` 기반
+        #    가드가 늘 실패해 `|| true` 로 조용히 넘어갔고, 캐시가 갱신되지
+        #    않아 GTK3 가 새로 설치된 im-unim.so 를 못 찾았다 — GTK_IM_MODULE=unim
+        #    이 조용히 무시되고 키가 리터럴로 그대로 커밋돼 gtk3 한글 조합
+        #    시나리오 11/13 이 전부 실패했다(.deb/.rpm 컨테이너 레그는 dpkg/rpm
+        #    트리거가 별도로 캐시를 갱신해 이 문제를 안 겪는다 — 그래서 로컬
+        #    docker 재현이 안 됐다). scripts/ci/verify-installed.sh 의
+        #    GTK3_QUERY 후보 경로와 동일하게 파일시스템을 직접 뒤진다 — PATH 에
+        #    의존하지 않는다. 못 찾으면 이후 기능 타이핑이 통째로 깨지므로
+        #    조용히 넘어가지 않고 여기서 바로 실패시킨다.
         run: |
           set -euo pipefail
-          command -v gtk-query-immodules-3.0 >/dev/null 2>&1 && sudo gtk-query-immodules-3.0 --update-cache || true
+          shopt -s nullglob
+          candidates=(/usr/lib/*/libgtk-3-0*/gtk-query-immodules-3.0 \
+                      /usr/bin/gtk-query-immodules-3.0-64 \
+                      /usr/bin/gtk-query-immodules-3.0 \
+                      /usr/libexec/gtk-3.0/gtk-query-immodules-3.0 \
+                      /usr/lib64/gtk-3.0/gtk-query-immodules-3.0)
+          if [ "${#candidates[@]}" -eq 0 ]; then
+              echo "❌ gtk-query-immodules-3.0 를 못 찾았다 — GTK3 가 im-unim.so 를 등록 못 한다"
+              exit 1
+          fi
+          sudo "${candidates[0]}" --update-cache
+          echo "✅ GTK3 immodules 캐시 갱신: ${candidates[0]}"
 
       - name: Install functional-test 런타임 도구 + XIM 테스트 앱 dev 헤더
         run: |
