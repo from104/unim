@@ -77,6 +77,8 @@ jobs:
         run: make build
 
       - name: Unit tests (cargo test --workspace)
+        # 평소 1분. 비결정적 정지가 나면 잡 타임아웃(50분) 대신 여기서 끊어 단계 이름으로 실패를 남긴다 (2026-09-04 c9ce139 실측).
+        timeout-minutes: 15
         run: cargo test --workspace
 
   # 다음 LTS 를 미리 밟아 둔다. 24.04 에서 개발하고 26.04 에서 처음 돌려 보면
@@ -125,6 +127,8 @@ jobs:
         run: make build
 
       - name: Unit tests (cargo test --workspace)
+        # 평소 1분. 비결정적 정지가 나면 잡 타임아웃(50분) 대신 여기서 끊어 단계 이름으로 실패를 남긴다 (2026-09-04 c9ce139 실측).
+        timeout-minutes: 15
         run: cargo test --workspace
 
   # GNOME 확장 호환성 — 정적(check-gnome-api) + 동적(smoke-gnome-extension) 검사.

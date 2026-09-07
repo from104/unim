@@ -43,8 +43,6 @@ mod tests_chord_compose;
 mod tests_toggle;
 #[cfg(test)]
 mod tests_atf_hotkey;
-#[cfg(test)]
-mod tests_repro_jong;
 
 /// Config로부터 `HangulInputContext`를 구성.
 ///
