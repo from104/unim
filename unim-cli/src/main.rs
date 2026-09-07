@@ -166,6 +166,15 @@ enum Commands {
         #[command(subcommand)]
         command: DaemonCommands,
     },
+    /// Manage word dictionaries (placeholder; overridden)
+    #[command(
+        about = h("help_cmd_dict_about"),
+        long_about = h("help_cmd_dict_long"),
+    )]
+    Dict {
+        #[command(subcommand)]
+        command: Option<DictCommands>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -228,6 +237,32 @@ enum ConfigCommands {
         #[command(subcommand)]
         action: LayoutAction,
     },
+    /// 이동됨: `unim-cli dict user-dict` 사용 (하위 호환용 숨김 별칭)
+    #[command(
+        hide = true,
+        about = h("help_cfg_userdict_about"),
+        long_about = h("help_cfg_userdict_long"),
+    )]
+    UserDict {
+        #[command(subcommand)]
+        action: UserDictCommand,
+    },
+    /// 이동됨: `unim-cli dict blacklist` 사용 (하위 호환용 숨김 별칭)
+    #[command(
+        hide = true,
+        about = h("help_cmd_blacklist_about"),
+        long_about = h("help_cmd_blacklist_long"),
+    )]
+    Blacklist {
+        #[command(subcommand)]
+        action: BlacklistCommand,
+    },
+}
+
+/// 사전(단어 목록) 관리 서브커맨드. 원래 `config` 아래 있던 `user-dict`·
+/// `blacklist` 를 최상위로 옮긴 신설 그룹 (2026-09-07, 기현님 지시).
+#[derive(Subcommand, Debug)]
+enum DictCommands {
     /// Manage reverse user dictionary (placeholder)
     #[command(
         about = h("help_cfg_userdict_about"),
@@ -264,10 +299,12 @@ enum UserDictCommand {
     )]
     Add {
         #[arg(
+            required = true,
+            num_args = 1..,
             help = h("help_ud_add_word_short"),
             long_help = h("help_ud_add_word_long"),
         )]
-        word: String,
+        words: Vec<String>,
         #[arg(
             long,
             help = h("help_ud_add_note_short"),
@@ -282,10 +319,19 @@ enum UserDictCommand {
     )]
     Remove {
         #[arg(
+            required = true,
+            num_args = 1..,
             help = h("help_ud_remove_word_short"),
             long_help = h("help_ud_remove_word_long"),
         )]
-        word: String,
+        words: Vec<String>,
+        #[arg(
+            short = 'y',
+            long = "yes",
+            help = h("help_dict_yes_short"),
+            long_help = h("help_dict_yes_long"),
+        )]
+        yes: bool,
     },
     /// Clear the dictionary (placeholder)
     #[command(
@@ -317,10 +363,19 @@ enum BlacklistCommand {
     )]
     Remove {
         #[arg(
+            required = true,
+            num_args = 1..,
             help = h("help_bl_remove_idx_short"),
             long_help = h("help_bl_remove_idx_long"),
         )]
-        index: usize,
+        indices: Vec<usize>,
+        #[arg(
+            short = 'y',
+            long = "yes",
+            help = h("help_dict_yes_short"),
+            long_help = h("help_dict_yes_long"),
+        )]
+        yes: bool,
     },
     /// Clear all blacklist entries (placeholder)
     #[command(
@@ -1939,33 +1994,103 @@ fn handle_config(command: Option<ConfigCommands>) {
                 process::exit(code);
             }
         },
-        Some(ConfigCommands::UserDict { action }) => match action {
-            UserDictCommand::List => user_dict_list(),
-            UserDictCommand::Add { word, note } => {
-                if let Err(e) = user_dict_add(&word, note) {
-                    eprintln!("{}: {}", t!("error_label"), e);
-                    process::exit(1);
-                }
-            }
-            UserDictCommand::Remove { word } => {
-                if let Err(e) = user_dict_remove(&word) {
-                    eprintln!("{}: {}", t!("error_label"), e);
-                    process::exit(1);
-                }
-            }
-            UserDictCommand::Clear => {
-                if let Err(e) = user_dict_clear() {
-                    eprintln!("{}: {}", t!("error_label"), e);
-                    process::exit(1);
-                }
-            }
-            UserDictCommand::Path => user_dict_path(),
-        },
-        Some(ConfigCommands::Blacklist { action }) => handle_blacklist(action),
+        // 이동됨(하위 호환 숨김 별칭) — `unim-cli dict` 로 옮긴 서브커맨드.
+        // 동작은 그대로 유지하되 stderr 에 새 경로 안내를 낸다.
+        Some(ConfigCommands::UserDict { action }) => {
+            eprintln!(
+                "{}",
+                t!("moved_subcommand_warning", new = "dict user-dict")
+            );
+            dispatch_user_dict(action);
+        }
+        Some(ConfigCommands::Blacklist { action }) => {
+            eprintln!("{}", t!("moved_subcommand_warning", new = "dict blacklist"));
+            handle_blacklist(action);
+        }
         None => {
             config_show();
             println!("\n{}", t!("help_hint"));
         }
+    }
+}
+
+fn handle_dict(command: Option<DictCommands>) {
+    match command {
+        Some(DictCommands::UserDict { action }) => dispatch_user_dict(action),
+        Some(DictCommands::Blacklist { action }) => handle_blacklist(action),
+        None => {
+            println!("{}", t!("dict_no_subcommand_hint"));
+        }
+    }
+}
+
+fn dispatch_user_dict(action: UserDictCommand) {
+    match action {
+        UserDictCommand::List => user_dict_list(),
+        UserDictCommand::Add { words, note } => {
+            if !user_dict_add_many(&words, note) {
+                process::exit(1);
+            }
+        }
+        UserDictCommand::Remove { words, yes } => match confirm_multi_removal(&words, yes) {
+            MultiRemoveGate::Proceed => {
+                if !user_dict_remove_many(&words) {
+                    process::exit(1);
+                }
+            }
+            MultiRemoveGate::Cancelled => process::exit(1),
+            MultiRemoveGate::NeedsYes => {
+                eprintln!("{}: {}", t!("error_label"), t!("dict_multi_remove_needs_yes"));
+                process::exit(1);
+            }
+        },
+        UserDictCommand::Clear => {
+            if let Err(e) = user_dict_clear() {
+                eprintln!("{}: {}", t!("error_label"), e);
+                process::exit(1);
+            }
+        }
+        UserDictCommand::Path => user_dict_path(),
+    }
+}
+
+/// 여러 개(2개 이상) 제거 시 확인 게이트 결과.
+enum MultiRemoveGate {
+    /// 1개 제거(확인 불필요) 또는 확인 통과 — 진행.
+    Proceed,
+    /// 사용자가 확인 프롬프트에서 y/Y 이외 응답 — 아무것도 지우지 않고 중단.
+    Cancelled,
+    /// stdin 이 TTY 가 아니고 -y 도 없어 프롬프트를 낼 수 없음 — 에러로 중단.
+    NeedsYes,
+}
+
+/// 2개 이상 대상을 제거하기 전 확인을 받는다. `--yes` 가 있으면 즉시 통과.
+/// 대상이 1개면 애초에 호출부에서 확인 없이 진행하도록 `Proceed`.
+/// stdin 이 TTY 가 아니면(파이프 등) 조용히 삭제되는 사고를 막기 위해
+/// 프롬프트 대신 에러로 중단한다.
+fn confirm_multi_removal(targets: &[impl std::fmt::Display], yes: bool) -> MultiRemoveGate {
+    if targets.len() < 2 || yes {
+        return MultiRemoveGate::Proceed;
+    }
+    use std::io::IsTerminal;
+    if !io::stdin().is_terminal() {
+        return MultiRemoveGate::NeedsYes;
+    }
+    println!("{}", t!("dict_multi_remove_list_title"));
+    for target in targets {
+        println!("  - {}", target);
+    }
+    let theme = ColorfulTheme::default();
+    let ok = Confirm::with_theme(&theme)
+        .with_prompt(t!("dict_multi_remove_confirm").to_string())
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if ok {
+        MultiRemoveGate::Proceed
+    } else {
+        println!("{}", t!("exit_canceled"));
+        MultiRemoveGate::Cancelled
     }
 }
 
@@ -1994,26 +2119,69 @@ fn user_dict_list() {
     }
 }
 
-fn user_dict_add(word: &str, note: Option<String>) -> Result<(), String> {
+/// 여러 단어를 한 번에 추가. 단어별로 한 줄씩 결과를 출력하고, 저장은
+/// 하나라도 성공했을 때 한 번만 수행한다. 반환값은 전부 성공했는지 여부
+/// (하나라도 실패 — 형식 오류·중복 — 하면 false, 호출부는 이때 비영 종료).
+fn user_dict_add_many(words: &[String], note: Option<String>) -> bool {
     let mut ud = UserDictionary::load_from_default_path();
-    if !ud.add(word, note) {
-        return Err(t!("user_dict_add_failed", word = word.to_string()).to_string());
+    let mut changed = false;
+    let mut all_ok = true;
+    for word in words {
+        let trimmed = word.trim();
+        let is_valid = !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_alphabetic());
+        if !is_valid {
+            println!("{}", t!("user_dict_add_invalid", word = word.clone()));
+            all_ok = false;
+            continue;
+        }
+        if ud.contains_reverse(&trimmed.to_lowercase()) {
+            println!("{}", t!("user_dict_add_duplicate", word = word.clone()));
+            all_ok = false;
+            continue;
+        }
+        ud.add(word, note.clone());
+        println!("{}", t!("user_dict_added", word = word.clone()));
+        changed = true;
     }
-    ud.save_to_default_path()
-        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
-    println!("{}", t!("user_dict_added", word = word.to_string()));
-    Ok(())
+    if changed {
+        if let Err(e) = ud.save_to_default_path() {
+            eprintln!(
+                "{}: {}",
+                t!("error_label"),
+                t!("error_save_failed", error = e.to_string())
+            );
+            return false;
+        }
+    }
+    all_ok
 }
 
-fn user_dict_remove(word: &str) -> Result<(), String> {
+/// 여러 단어를 한 번에 제거. 단어별로 한 줄씩 결과를 출력하고, 저장은
+/// 하나라도 성공했을 때 한 번만 수행한다. 반환값은 전부 성공했는지 여부.
+fn user_dict_remove_many(words: &[String]) -> bool {
     let mut ud = UserDictionary::load_from_default_path();
-    if !ud.remove_by_word(word) {
-        return Err(t!("user_dict_not_found", word = word.to_string()).to_string());
+    let mut changed = false;
+    let mut all_ok = true;
+    for word in words {
+        if ud.remove_by_word(word) {
+            println!("{}", t!("user_dict_removed", word = word.clone()));
+            changed = true;
+        } else {
+            println!("{}", t!("user_dict_not_found", word = word.clone()));
+            all_ok = false;
+        }
     }
-    ud.save_to_default_path()
-        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
-    println!("{}", t!("user_dict_removed", word = word.to_string()));
-    Ok(())
+    if changed {
+        if let Err(e) = ud.save_to_default_path() {
+            eprintln!(
+                "{}: {}",
+                t!("error_label"),
+                t!("error_save_failed", error = e.to_string())
+            );
+            return false;
+        }
+    }
+    all_ok
 }
 
 fn user_dict_clear() -> Result<(), String> {
@@ -2055,10 +2223,23 @@ fn user_dict_path() {
 fn handle_blacklist(action: BlacklistCommand) {
     match action {
         BlacklistCommand::List => blacklist_list(),
-        BlacklistCommand::Remove { index } => {
-            if let Err(e) = blacklist_remove(index) {
-                eprintln!("{}: {}", t!("error_label"), e);
-                process::exit(1);
+        BlacklistCommand::Remove { indices, yes } => {
+            let labels: Vec<String> = indices.iter().map(|i| format!("#{i}")).collect();
+            match confirm_multi_removal(&labels, yes) {
+                MultiRemoveGate::Proceed => {
+                    if !blacklist_remove_many(&indices) {
+                        process::exit(1);
+                    }
+                }
+                MultiRemoveGate::Cancelled => process::exit(1),
+                MultiRemoveGate::NeedsYes => {
+                    eprintln!(
+                        "{}: {}",
+                        t!("error_label"),
+                        t!("dict_multi_remove_needs_yes")
+                    );
+                    process::exit(1);
+                }
             }
         }
         BlacklistCommand::Clear => {
@@ -2096,24 +2277,61 @@ fn blacklist_list() {
     }
 }
 
-fn blacklist_remove(index: usize) -> Result<(), String> {
-    if index == 0 {
-        return Err(t!("blacklist_index_one_based").to_string());
-    }
+/// 여러 1-based 인덱스를 한 번에 제거. 인덱스별로 한 줄씩 결과를 출력하고,
+/// 저장은 하나라도 성공했을 때 한 번만 수행한다. 같은 배치 안의 인덱스는
+/// 삭제로 인한 뒤 인덱스 밀림을 피하기 위해 내부적으로 내림차순 처리한다.
+/// 반환값은 전부 성공했는지 여부.
+fn blacklist_remove_many(indices: &[usize]) -> bool {
     let mut bl = Blacklist::load_from_default_path();
-    let idx = index - 1;
-    if idx >= bl.entries.len() {
-        return Err(t!(
-            "blacklist_index_out_of_range",
-            max = bl.entries.len().to_string()
-        )
-        .to_string());
+    let original_len = bl.entries.len();
+    let mut all_ok = true;
+    let mut to_remove: Vec<usize> = Vec::new();
+    for &index in indices {
+        if index == 0 {
+            println!(
+                "{}: {}",
+                t!("error_label"),
+                t!("blacklist_index_one_based", index = index.to_string())
+            );
+            all_ok = false;
+            continue;
+        }
+        let idx0 = index - 1;
+        if idx0 >= original_len {
+            println!(
+                "{}",
+                t!(
+                    "blacklist_index_out_of_range",
+                    index = index.to_string(),
+                    max = original_len.to_string()
+                )
+            );
+            all_ok = false;
+            continue;
+        }
+        if to_remove.contains(&idx0) {
+            // 같은 배치에서 중복 요청된 인덱스 — 이미 처리 예정이므로 건너뜀.
+            continue;
+        }
+        to_remove.push(idx0);
+        println!("{}", t!("blacklist_removed", index = index.to_string()));
     }
-    bl.remove(idx);
-    bl.save_to_default_path()
-        .map_err(|e| t!("error_save_failed", error = e.to_string()).to_string())?;
-    println!("{}", t!("blacklist_removed", index = index.to_string()));
-    Ok(())
+    let changed = !to_remove.is_empty();
+    if changed {
+        to_remove.sort_unstable_by(|a, b| b.cmp(a));
+        for idx0 in to_remove {
+            bl.remove(idx0);
+        }
+        if let Err(e) = bl.save_to_default_path() {
+            eprintln!(
+                "{}: {}",
+                t!("error_label"),
+                t!("error_save_failed", error = e.to_string())
+            );
+            return false;
+        }
+    }
+    all_ok
 }
 
 fn blacklist_clear() -> Result<(), String> {
@@ -2489,6 +2707,10 @@ fn main() -> io::Result<()> {
             }
             Ok(())
         }
+        Some(Commands::Dict { command }) => {
+            handle_dict(command);
+            Ok(())
+        }
         None => {
             let config = ConvertConfig::from_cli(&cli);
 
@@ -2673,5 +2895,111 @@ mod tests {
         let (w, unknown) = atf_hotkey_warnings(&keys(&["ScrollLock"]), &config);
         assert_eq!(w.len(), 1, "존재하지 않는 키 이름은 미지 경고: {w:?}");
         assert!(unknown);
+    }
+
+    // ── dict user-dict / dict blacklist 다건 add/remove 파싱 (2026-09-07) ──────
+
+    fn parse_dict(args: &[&str]) -> Option<DictCommands> {
+        let mut full = vec!["unim-cli", "dict"];
+        full.extend_from_slice(args);
+        let cli = Cli::try_parse_from(full).expect("파싱 성공해야 함");
+        match cli.command {
+            Some(Commands::Dict { command }) => command,
+            other => panic!("dict 서브커맨드 기대, 실제: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn user_dict_add_accepts_multiple_words() {
+        match parse_dict(&["user-dict", "add", "git", "rust", "python"]) {
+            Some(DictCommands::UserDict {
+                action: UserDictCommand::Add { words, note },
+            }) => {
+                assert_eq!(words, vec!["git", "rust", "python"]);
+                assert_eq!(note, None);
+            }
+            other => panic!("UserDict Add 기대, 실제: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn user_dict_add_requires_at_least_one_word() {
+        let err = Cli::try_parse_from(["unim-cli", "dict", "user-dict", "add"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn user_dict_remove_accepts_multiple_words_and_yes_flag() {
+        match parse_dict(&["user-dict", "remove", "git", "rust", "-y"]) {
+            Some(DictCommands::UserDict {
+                action: UserDictCommand::Remove { words, yes },
+            }) => {
+                assert_eq!(words, vec!["git", "rust"]);
+                assert!(yes);
+            }
+            other => panic!("UserDict Remove 기대, 실제: {other:?}"),
+        }
+
+        // --yes 장형도 동일하게 동작해야 한다.
+        match parse_dict(&["user-dict", "remove", "git", "--yes"]) {
+            Some(DictCommands::UserDict {
+                action: UserDictCommand::Remove { words, yes },
+            }) => {
+                assert_eq!(words, vec!["git"]);
+                assert!(yes);
+            }
+            other => panic!("UserDict Remove(--yes) 기대, 실제: {other:?}"),
+        }
+
+        // 기본값은 false — 확인 프롬프트를 생략하지 않는다.
+        match parse_dict(&["user-dict", "remove", "git"]) {
+            Some(DictCommands::UserDict {
+                action: UserDictCommand::Remove { yes, .. },
+            }) => assert!(!yes, "플래그 없으면 기본 false"),
+            other => panic!("UserDict Remove 기대, 실제: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn blacklist_remove_accepts_multiple_indices_and_yes_flag() {
+        match parse_dict(&["blacklist", "remove", "1", "3", "5", "-y"]) {
+            Some(DictCommands::Blacklist {
+                action: BlacklistCommand::Remove { indices, yes },
+            }) => {
+                assert_eq!(indices, vec![1, 3, 5]);
+                assert!(yes);
+            }
+            other => panic!("Blacklist Remove 기대, 실제: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn blacklist_remove_requires_at_least_one_index() {
+        let err = Cli::try_parse_from(["unim-cli", "dict", "blacklist", "remove"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn legacy_config_alias_shares_same_multi_word_definition() {
+        // `config user-dict` 는 숨김 별칭이지만 동일한 UserDictCommand 정의를 공유해야
+        // 다건 add/remove 가 자동으로 따라온다.
+        let cli = Cli::try_parse_from([
+            "unim-cli",
+            "config",
+            "user-dict",
+            "add",
+            "alpha",
+            "beta",
+        ])
+        .expect("숨김 별칭도 파싱 성공해야 함");
+        match cli.command {
+            Some(Commands::Config { command }) => match command {
+                Some(ConfigCommands::UserDict {
+                    action: UserDictCommand::Add { words, .. },
+                }) => assert_eq!(words, vec!["alpha", "beta"]),
+                other => panic!("ConfigCommands::UserDict Add 기대, 실제: {other:?}"),
+            },
+            other => panic!("Config 서브커맨드 기대, 실제: {other:?}"),
+        }
     }
 }
