@@ -14,6 +14,7 @@ use unim::config::{CommitUnit, Config, InputCategory};
 use unim::input_engine::{AtfToggleKind, InputEngine};
 
 use crate::auto_typefix::AutoTypeFixState;
+use crate::compartment;
 use crate::composition::CompositionManager;
 use crate::key_handler;
 use crate::lang_bar::{LangBarState, UnimLangBarButton};
@@ -957,6 +958,42 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
 
         let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
 
+        // ── TSF keyboard-disabled 컨텍스트 게이트 ──────────────────────────────
+        //
+        // 호스트가 `GUID_COMPARTMENT_KEYBOARD_DISABLED` / `GUID_COMPARTMENT_EMPTYCONTEXT`
+        // 로 "이 문서는 입력을 받지 않는다"고 표시한 컨텍스트에서는 키를 소비하지
+        // 않는다. Chromium 은 편집 요소 미포커스(TEXT_INPUT_TYPE_NONE)·비밀번호 칸에서
+        // 이 두 값을 세팅하므로, 소비하면 스페이스 스크롤·`/` 검색·j/k 이동 등
+        // 브라우저 단축키가 전부 죽는다.
+        //
+        // 위치: 자동반복 억제 블록보다 **앞**. 그 블록은 반복 이벤트에서 토글키/한글
+        // 문자키를 소비(TRUE)하므로, 비활성 컨텍스트에서 키를 홀드하면 반복분이 먹혀
+        // 스크롤이 끊긴다. 게이트를 먼저 통과시켜야 홀드 스크롤이 살아난다.
+        //
+        // 조합 중·보유 영문·팝업 활성일 때는 적용하지 않는다 — 그 상태는 컨텍스트가
+        // 직전까지 활성이었다는 뜻이므로, 아래의 기존 커밋/패스쓰루 경로가 조합을
+        // 정리하도록 둔다(조합 잔류 방지).
+        if !popup_active
+            && !engine.is_composing()
+            && !has_english_hold
+            && compartment::context_keyboard_disabled(pic.as_ref())
+        {
+            let gate_mods = key_handler::get_modifier_state();
+            let allow = crate::key_gate::keyboard_disabled_allows(
+                engine.is_toggle_key(kc),
+                kc.is_modifier(),
+                engine.is_atf_hotkey(kc, gate_mods),
+                gate_mods,
+            );
+            crate::register::dbg_log_ev!(
+                "OnTestKeyDown: keyboard-disabled 컨텍스트 통과",
+                "OnTestKeyDown: keyboard-disabled 컨텍스트 vk=0x{:02X} eaten={}",
+                wparam.0 as u16,
+                allow
+            );
+            return Ok(BOOL::from(allow));
+        }
+
         // ── 접근성: 조합키 자동반복 억제 (ignore_key_repeat, 지체장애) ──
         //
         // 옵션이 켜졌고 이 이벤트가 OS 자동반복(lParam bit30)이며, 대상 키가
@@ -1254,6 +1291,38 @@ impl ITfKeyEventSink_Impl for UnimTextService_Impl {
         if !engine.is_composing() && !comp_mgr.is_active() {
             self.composition_unsupported.store(false, Ordering::SeqCst);
             self.fallback_pending.store(0, Ordering::SeqCst);
+        }
+
+        // ── TSF keyboard-disabled 컨텍스트 게이트 (OnTestKeyDown 과 대칭) ──────
+        //
+        // QQ 류처럼 `OnTestKeyDown` 없이 `OnKeyDown` 만 호출하는 호스트에서도 동일하게
+        // 키를 통과시킨다. 여기서는 소비하지 않을 키에 대해서만 조기 반환(FALSE)하고,
+        // 소비 대상(한/영 전환키·ATF 토글 핫키)은 그대로 아래 `handle_key_down` 으로
+        // 내려보내 실제 토글이 수행되게 한다.
+        //
+        // 조합 중·보유 영문·팝업 활성일 때는 적용하지 않는다(조합 잔류 방지 — 기존
+        // 커밋/리셋 경로가 정리하도록 둔다).
+        if !popup_ipc.is_active()
+            && !engine.is_composing()
+            && !comp_mgr.english_hold_active()
+            && compartment::context_keyboard_disabled(Some(context))
+        {
+            let kc = unim::keycode::KeyCode::from_win32_vk(wparam.0 as u16);
+            let gate_mods = key_handler::get_modifier_state();
+            let allow = crate::key_gate::keyboard_disabled_allows(
+                engine.is_toggle_key(kc),
+                kc.is_modifier(),
+                engine.is_atf_hotkey(kc, gate_mods),
+                gate_mods,
+            );
+            if !allow {
+                crate::register::dbg_log_ev!(
+                    "OnKeyDown: keyboard-disabled 컨텍스트 통과",
+                    "OnKeyDown: keyboard-disabled 컨텍스트 통과 vk=0x{:02X}",
+                    wparam.0 as u16
+                );
+                return Ok(FALSE);
+            }
         }
 
         // 갭1: 키 처리 전후 모드 비교를 위해 이전 카테고리 저장.

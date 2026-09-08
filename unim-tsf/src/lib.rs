@@ -4,6 +4,8 @@
 //! regsvr32로 등록하면 모든 앱에서 한글 입력 가능.
 
 pub mod globals;
+/// 플랫폼 중립 키 소비 판정(순수 로직) — Linux 에서도 단위 테스트 가능하도록 cfg 미게이트.
+pub mod key_gate;
 
 #[cfg(windows)]
 mod app_tiers;

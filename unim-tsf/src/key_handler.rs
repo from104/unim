@@ -11,6 +11,7 @@ use unim::input_engine::InputEngine;
 use unim::keycode::{KeyCode, ModifierState};
 
 use crate::auto_typefix::{self, AutoTypeFixState};
+use crate::compartment;
 use crate::composition::{self, CompositionManager, ReplaceOutcome};
 use crate::popup_ipc::{to_render_state, PopupClient, RevEnvelope, RevEvent};
 use crate::preedit_window::PreeditWindow;
@@ -66,7 +67,7 @@ pub fn test_key_down(
     engine: &mut InputEngine,
     config: &Config,
     wparam: WPARAM,
-    _context: Option<&ITfContext>,
+    context: Option<&ITfContext>,
     popup_active: bool,
 ) -> bool {
     let vk = wparam.0 as u16;
@@ -94,6 +95,34 @@ pub fn test_key_down(
     // 수정자 키만 누른 경우 통과 — 단, 토글키(RightAlt 등)는 아래에서 소비 판정.
     if keycode.is_modifier() && !is_toggle {
         return false;
+    }
+
+    // ── TSF keyboard-disabled 컨텍스트 게이트 ──────────────────────────────
+    //
+    // 호스트가 "이 문서는 입력을 받지 않는다"고 표시한 컨텍스트
+    // (Chromium `InitializeDisabledContext`: 편집 요소 미포커스 · 비밀번호 칸)에서는
+    // 아래의 모든 소비 판정을 건너뛰고 키를 앱으로 흘려보낸다. 이 게이트가 없으면
+    // 한글 모드일 때 문자키를 무조건 소비해 Chrome 의 스페이스 스크롤 · `/` 검색 ·
+    // j/k 이동 같은 단축키가 전부 죽는다(MS 입력기에는 없는 현상).
+    //
+    // 예외(keyboard_disabled_allows): 한/영 전환키와 ATF 토글 핫키는 종전대로 소비한다.
+    // 통과시키면 대부분의 호스트가 `OnKeyDown` 을 부르지 않아 토글/핫키 자체가 죽는다
+    // (아래 is_toggle · is_atf_hotkey 분기의 주석과 같은 논리).
+    //
+    // 팝업 활성 중에는 게이트를 적용하지 않는다 — 비활성 컨텍스트에서 후보 팝업이
+    // 열려 있을 일은 없지만, 만약 열려 있다면 내비게이션 키를 계속 소비해야 팝업이
+    // 조작 불능이 되지 않는다(안전측 폴백, 종전 동작 유지).
+    //
+    // 참고: `text_service` 의 `OnTestKeyDown` 이 더 앞에서 같은 게이트를 적용하므로
+    // 실사용 경로에서는 여기 도달하기 전에 결정된다. 이 블록은 해당 선행 게이트를
+    // 타지 않는 직접 호출 경로에 대한 방어선이다.
+    if !popup_active && compartment::context_keyboard_disabled(context) {
+        return crate::key_gate::keyboard_disabled_allows(
+            is_toggle,
+            keycode.is_modifier(),
+            engine.is_atf_hotkey(keycode, modifiers),
+            modifiers,
+        );
     }
 
     // Ctrl+Shift+Space: 수동 AutoTypeFix 소비

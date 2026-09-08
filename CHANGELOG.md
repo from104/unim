@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog] and this project follows [Semantic Ver
 - Fixed the XIM server dying when an app closes, which used to block XIM input in every app afterward
 - Windows: fixed composite keys such as `Ctrl`+`B` not working while auto-English switching is active
 - Windows: added a one-click Explorer-restart fix for a missing tray menu after an update
+- Windows: fixed character keys not reaching browser shortcuts in Chrome and others when no editable field has focus
 
 ### Known issues
 
