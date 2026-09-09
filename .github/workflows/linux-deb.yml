@@ -227,3 +227,18 @@ jobs:
           body_path: /tmp/release-body.md
           draft: false
           make_latest: true
+
+      - name: Verify release asset names match manifests
+        # 릴리스 생성 직후 대조 — 빌드·업로드가 그린이어도 "올라간 이름"이
+        # 매니페스트와 다르면 install.sh 가 404 를 맞는다 (v0.4.2 실측).
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          scripts/ci/verify-release-assets.sh "$RELEASE_TAG" \
+            debs/SHA256SUMS-ubuntu24.04 \
+            debs/SHA256SUMS-ubuntu26.04 \
+            debs/SHA256SUMS-debian13 \
+            debs/SHA256SUMS
+
