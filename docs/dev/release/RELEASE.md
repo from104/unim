@@ -107,7 +107,8 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/Popup
 ## 3. 문서 최종 확인
 
 - [ ] `README.md` — 버전 배지(`현재 X.Y.Z`), 주요 신기능 표 갱신
-      (최상위 README 는 한국어 1벌이다. 영문판은 `help/unim-help-en.html` 이 담당한다)
+      (최상위 README 는 한국어 본문에 짧은 영문 요약 블록을 상단에 둔다. 전체 영문 문서는
+      `help/unim-help-en.html` 이 담당한다)
 - [ ] `docs/user/user-guide/` — 신기능 반영 완료
 - [ ] `docs/user/troubleshooting/` — 신규 Known Issue 반영
 - [ ] `docs/user/faq/` — 버전별 신규 Q&A 추가
