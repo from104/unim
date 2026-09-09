@@ -1,13 +1,30 @@
-# UNIM
+<p align="center">
+  <img src="assets/unim-logo%20v2.svg" alt="" width="96" height="96">
+</p>
 
-Rust로 만든 한국어 입력기입니다. **리눅스와 Windows에서 완전히 같은 엔진**이 돌아갑니다.
+<h1 align="center">UNIM</h1>
 
-MIT · Rust 1.78+ · Linux (deb/rpm) · Windows 10/11 (MSI) · 현재 0.4.2
+<p align="center">
+  <strong>한국어 입력기</strong> — 자동 한/영 오타 교정 · 한자 · 특수문자 · 이모지<br>
+  Rust로 만들었고, <strong>리눅스와 Windows에서 완전히 같은 엔진</strong>이 돕니다.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="version 0.4.2" src="https://img.shields.io/badge/version-0.4.2-informational">
+  <img alt="Rust 1.78+" src="https://img.shields.io/badge/rust-1.78%2B-orange">
+  <img alt="Linux · Windows" src="https://img.shields.io/badge/platform-Linux%20(deb%2Frpm)%20%C2%B7%20Windows%20(MSI)-success">
+  <a href="CONTRIBUTING.md"><img alt="contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen"></a>
+</p>
+
+<p align="center"><a href="#unim-in-english">English</a></p>
 
 ---
 
-**UNIM in English:** a Korean input method (IME) written in Rust, with one identical
-engine on Linux (GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell) and Windows 10/11 (TSF).
+## UNIM in English
+
+A Korean input method (IME) written in Rust, with one identical engine on
+Linux (GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell) and Windows 10/11 (TSF).
 
 - **Automatic Hangul↔English typo correction** — a mistyped `dkssud` becomes `안녕`,
   a mistyped `ㅈㅐㅍㅁ` becomes `wave`. Both directions are corrected, no retyping needed.
