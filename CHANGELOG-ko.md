@@ -6,7 +6,7 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 형식은 [Keep a Changelog (korean)]를 기반으로 하며 이 프로젝트는 [Semantic Versioning (korean)]을 따릅니다.
 
-## [Unreleased]
+## [0.4.2] 2026-09-09
 
 ### 추가됨
 
