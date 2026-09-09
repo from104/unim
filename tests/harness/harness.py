@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,16 @@ APPS: dict[str, dict] = {
         "env": {"GDK_BACKEND": "x11", "GTK_IM_MODULE": "unim",
                 "XMODIFIERS": "@im=unim"},
         "xtest": True,
+    },
+    # gtk3 바이너리를 GTK 의 xim 모듈로 띄운다 — GTK3 im-xim + libX11 경로
+    # (이슈 C: CALLBACKS 미광고 + PeWindow 커버리지). 바이너리·창 제목은
+    # gtk3 와 동일하므로 title 로 명시한다.
+    "gtk3-xim": {
+        "bin": "tests/unim-test-gtk3/build/unim-test-gtk3",
+        "env": {"GDK_BACKEND": "x11", "GTK_IM_MODULE": "xim",
+                "XMODIFIERS": "@im=unim"},
+        "xtest": True,
+        "title": "gtk3",
     },
     "gtk4": {
         "bin": "tests/unim-test-gtk4/build/unim-test-gtk4",
@@ -78,8 +89,14 @@ APPS: dict[str, dict] = {
 
 
 def window_title(app: str) -> str:
-    """`UNIM_SPEC_WIN_TITLE_FMT` 와 같아야 한다 (unim_test_spec.h)."""
-    return f"UNIM {app} 테스트"
+    """`UNIM_SPEC_WIN_TITLE_FMT` 와 같아야 한다 (unim_test_spec.h).
+
+    창 제목은 바이너리에 컴파일타임으로 박혀 있다. 같은 바이너리를 다른
+    env 조합으로 띄우는 앱 엔트리(예: "gtk3-xim")는 APPS 의 선택 키
+    "title" 로 실제 바이너리 이름을 지정한다 — 없으면 앱 키를 그대로 쓴다.
+    """
+    name = APPS.get(app, {}).get("title", app)
+    return f"UNIM {name} 테스트"
 
 
 # ─── 데몬 ───────────────────────────────────────────────────────────────
@@ -133,7 +150,15 @@ class Injector:
             raise RuntimeError(f"xdotool {' '.join(args)}: {r.stderr.strip()}")
 
     def activate(self) -> None:
-        self._run("windowactivate", "--sync", self.wid)
+        # `windowactivate` 는 창 관리자에게 "이 창을 최상단으로 올리고
+        # 포커스를 줘라" 라고 요청한다 — WM 이 없는 환경(Xvfb 단독 CI
+        # 컨테이너)에서는 요청을 받아줄 WM 자체가 없어 조용히 아무 일도
+        # 안 하고, mutter 등 일부 WM 은 포커스 탈취(focus stealing) 방지
+        # 정책으로 거부한다. `windowfocus` 는 X 서버에 직접
+        # XSetInputFocus 를 거는 XTEST 수준 동작이라 WM 유무와 무관하게
+        # 먹힌다 — 실세션(WM 있음)에서도 결과는 동일(포커스 이동)하므로
+        # 안전한 대체다.
+        self._run("windowfocus", "--sync", self.wid)
         time.sleep(0.2)
 
     def origin(self) -> tuple[int, int]:
@@ -223,7 +248,8 @@ class RunningApp:
                     pass
         return out
 
-    def wait_ready(self, timeout: float = 15.0) -> bool:
+    def wait_ready(self, timeout: float = float(os.environ.get(
+            "UNIM_HARNESS_READY_TIMEOUT", "15.0"))) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
@@ -276,17 +302,28 @@ def launch(app: str, tag: str) -> RunningApp:
                       stdout_path=out_path)
 
 
-def find_window(app: str, timeout: float = 8.0) -> str:
+def find_window(app: str,
+                timeout: float = float(os.environ.get(
+                    "UNIM_HARNESS_WINDOW_TIMEOUT", "8.0"))) -> str:
     title = window_title(app)
+    # ⚠️ CI 컨테이너(Xvfb, 로케일 미설치)에서 실측: `xdotool getwindowname` 은
+    # "UNIM xim 테스트" 를 정확히 돌려주는데 `xdotool search --name` 으로
+    # 그 *전체* 문자열(한글 포함)을 찾으면 LANG=C.utf8 을 줘도 항상 rc=1 —
+    # xdotool 의 정규식 매칭기가 다중바이트 패턴을 못 삼키는 한계로 보인다
+    # (2026-09 실측, gtk3/gtk4/qt5/qt6/xim 전 앱에서 재현 — 이 함수 자체의
+    # 문제이지 특정 앱 회귀가 아니다). 제목 앞부분 "UNIM {app} " 는 항상
+    # ASCII 이고 앱마다 유일하므로, 검색 패턴에서 첫 비 ASCII 문자 이후를
+    # 잘라내 그 접두어만으로 찾는다 — 표시되는 실제 창 제목은 그대로 둔다.
+    search_pattern = re.split(r"[^\x00-\x7f]", title, maxsplit=1)[0].rstrip()
     deadline = time.time() + timeout
     while time.time() < deadline:
-        r = subprocess.run(["xdotool", "search", "--name", title],
+        r = subprocess.run(["xdotool", "search", "--name", search_pattern],
                            capture_output=True, text=True)
         ids = [w for w in r.stdout.split() if w]
         if ids:
             return ids[-1]
         time.sleep(0.15)
-    raise RuntimeError(f"{app}: 창을 못 찾았다 (제목 \"{title}\")")
+    raise RuntimeError(f"{app}: 창을 못 찾았다 (제목 \"{title}\", 검색패턴 \"{search_pattern}\")")
 
 
 # ─── 시나리오 ───────────────────────────────────────────────────────────
@@ -320,8 +357,15 @@ def _match(expect: dict, render: dict | None) -> bool:
 
 
 def _wait_for(app: RunningApp, field: str, expect: dict,
-              timeout_ms: int = 2500) -> tuple[bool, dict, int]:
-    """기대값에 도달할 때까지 폴링한다 — 도달 즉시 통과라 빠르다."""
+              timeout_ms: int | None = None) -> tuple[bool, dict, int]:
+    """기대값에 도달할 때까지 폴링한다 — 도달 즉시 통과라 빠르다.
+
+    `timeout_ms` 미지정 시 `UNIM_HARNESS_STEP_TIMEOUT_MS`(기본 2500) 를 쓴다 —
+    CI 전용 상향 값은 scripts/ci/functional-test.sh 가 CI=true 일 때만 심는다.
+    실세션(그 변수가 없는 일반 실행)은 항상 2500ms 그대로다.
+    """
+    if timeout_ms is None:
+        timeout_ms = int(os.environ.get("UNIM_HARNESS_STEP_TIMEOUT_MS", "2500"))
     deadline = time.time() + timeout_ms / 1000.0
     last: dict = {}
     while time.time() < deadline:
@@ -433,6 +477,16 @@ def run_scenario(app_name: str, sc: dict, *,
                     f"{field} 클릭 직후 포커스를 잃었다 — 클릭 좌표가 필드를 "
                     f"벗어났을 가능성이 크다. 앱이 screen_cx/cy 를 내는지 확인할 것 "
                     f"(geometry={running.geometry.get(field)})")
+
+        # 포커스 획득과 IM 컨텍스트 등록(XIM 연결·Qt 플랫폼 컨텍스트·데몬 D-Bus
+        # 왕복)은 별개 비동기 경로다 — 공유 CI 러너에서 CPU 경합이 있으면 포커스는
+        # 잡혔는데 IM 컨텍스트가 아직 등록 전이라 첫 키가 IM 을 거치지 않고
+        # 그대로 리터럴 문자로 커밋되는 사례가 있다(2026-09 실측, 로컬 docker
+        # 에서는 재현 안 됨 — CPU 여유 차이로 추정). 기본값 0 이라 실세션은
+        # 영향 없고, CI 는 functional-test.sh 가 UNIM_HARNESS_SETTLE_MS 를 심는다.
+        settle_ms = int(os.environ.get("UNIM_HARNESS_SETTLE_MS", "0"))
+        if settle_ms > 0:
+            time.sleep(settle_ms / 1000.0)
 
         all_ok = True
         for i, step in enumerate(sc["steps"]):

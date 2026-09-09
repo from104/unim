@@ -191,7 +191,7 @@ li { margin: 0.35rem 0; }
 <body>
 <div class="wrap">
 <header class="topbar">
-  <span class="brand">UNIM Help <span class="ver">v0.4.1</span></span>
+  <span class="brand">UNIM Help <span class="ver">v0.4.2</span></span>
   <a class="langswitch" href="unim-help-ko.html">한국어</a>
 </header>
 
@@ -259,6 +259,7 @@ li { margin: 0.35rem 0; }
 <li><a href="#troubleshooting--1-korean-never-types--fresh-install">1. &quot;Korean never types&quot; — fresh install</a></li>
 <li><a href="#troubleshooting--2-w-unim-missing-only-in-32-bit-apps-kakaotalk-hancom-">2-W. &quot;UNIM missing only in 32-bit apps (KakaoTalk, Hancom, …)&quot;</a></li>
 <li><a href="#troubleshooting--3-w-composition-breaks-up-or-the-previous-character-disappears-in-a-specific-app">3-W. &quot;Composition breaks up or the previous character disappears in a specific app&quot;</a></li>
+<li><a href="#troubleshooting--4-w-windows-defender-quarantines-unim_tsfdll-as-a-trojan">4-W. &quot;Windows Defender quarantines unim_tsf.dll as a trojan&quot;</a></li>
 <li><a href="#troubleshooting--5-hanja-popup-never-appears">5. &quot;Hanja popup never appears&quot;</a></li>
 <li><a href="#troubleshooting--6-special-character-popup-never-appears">6. &quot;Special-character popup never appears&quot;</a></li>
 <li><a href="#troubleshooting--7-hanja-popup-shows-only-9-cells-period-toggle-does-nothing">7. &quot;Hanja popup shows only 9 cells, period toggle does nothing&quot;</a></li>
@@ -614,6 +615,7 @@ korean:
 </blockquote>
 <blockquote>
 <p><strong>There is no Save button</strong>: changes apply and are written to disk immediately. Just close the window when you're done.</p>
+<p><strong>One exception — if you are in the middle of composing a syllable when you switch layouts</strong>: the new layout applies <strong>after the current composition ends</strong> (not one syllable but until the underline disappears — up to the word boundary in word-commit mode). This is deliberate, so the switch never breaks the character you are typing. To see the change right away, end the composition with Space or <code>Esc</code> first.</p>
 <p>The <strong>[Help]</strong> button at the bottom of the sidebar opens this manual in your default browser.</p>
 </blockquote>
 <p>Four pages (left-hand navigation):</p>
@@ -733,8 +735,7 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 <ul>
 <li>Something off → <a href="#troubleshooting">troubleshooting</a></li>
 <li>Compare with other IMEs / migration → <a href="#faq">FAQ</a></li>
-<li>0.4.0 changes → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.en.md">release notes 0.4.0</a></li>
-<li>Older release notes → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.en.md">0.3.0</a> / <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">0.2.0</a></li>
+<li>Per-release changes → <a href="https://github.com/from104/unim/blob/main/CHANGELOG.md">changelog</a></li>
 <li>Want to contribute → <a href="https://github.com/from104/unim/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a></li>
 <li>Behavior spec → <a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a>, <a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>POPUP_SPEC.md</code></a></li>
 </ul>
@@ -816,7 +817,7 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 <section class="doc" id="faq">
 <h2 id="faq--unim-faq-english">UNIM FAQ (English)</h2>
 <blockquote>
-<p>The questions people actually ask about UNIM 0.4.1.
+<p>The questions people actually ask about UNIM 0.4.2.
 Each answer carries at least one line of "why it works that way" so you can use it for your next decision, not just as a fact lookup.</p>
 </blockquote>
 <hr />
@@ -1025,7 +1026,7 @@ cargo --version              # 1.95.0+
 </li>
 <li>
 <p>Until then, verify integrity by <strong>comparing the SHA256 hash</strong> against <code>SHA256SUMS-msi</code>, which is published alongside the MSI in the release.</p>
-<pre><code class="language-powershell">Get-FileHash .\unim-0.4.1-x64.msi -Algorithm SHA256
+<pre><code class="language-powershell">Get-FileHash .\unim-0.4.2-x64.msi -Algorithm SHA256
 </code></pre>
 </li>
 <li>
@@ -1050,7 +1051,7 @@ cargo --version              # 1.95.0+
 <pre><code class="language-powershell"># Inspect first, then run
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Check
 # Pin a specific version
-$env:UNIM_VERSION='v0.4.1'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
+$env:UNIM_VERSION='v0.4.2'; irm https://raw.githubusercontent.com/from104/unim/main/install.ps1 | iex
 </code></pre>
 </li>
 </ol>
@@ -1125,10 +1126,8 @@ $env:UNIM_VERSION='v0.4.1'; irm https://raw.githubusercontent.com/from104/unim/m
 <ul>
 <li><a href="#user-guide">User manual</a></li>
 <li><a href="#troubleshooting">Troubleshooting</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.1/README.en.md">Release notes 0.4.1</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.en.md">Release notes 0.4.0</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.en.md">Release notes 0.3.0</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES.md">Release notes 0.2.0</a></li>
+<li><a href="https://github.com/from104/unim/blob/main/CHANGELOG.md">Changelog</a> — every release in detail</li>
+<li><a href="https://github.com/from104/unim/releases">Releases</a></li>
 <li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a></li>
 <li><a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>POPUP_SPEC.md</code></a></li>
 </ul>
@@ -1158,6 +1157,7 @@ setx UNIM_DEBUG_LOG 1
 <li>Log file: <code>%TEMP%\unim-tsf.log</code>. Several apps append to the same file; each line is tagged <code>[unim-tsf &lt;PID&gt;]</code> so you can tell them apart. Paste <code>%TEMP%</code> into the Explorer address bar to open the folder.</li>
 <li>Clear the log before reproducing so it is easier to read: <code>del "%TEMP%\unim-tsf.log"</code></li>
 <li>Other components write their own files in <code>%TEMP%</code> — <code>unim-popup-win.log</code> for the popup renderer, <code>unim-settings.log</code> for the settings app.</li>
+<li>The first line after each app relaunch is a one-time banner (<code>===== UNIM startup banner =====</code>) with the version, build timestamp, and the loaded DLL's path and modified time — check it first to confirm which build actually produced the log. Each log file caps at 5MB and rotates to <code>&lt;file&gt;.1</code> (e.g. <code>unim-tsf.log.1</code>) — if the banner is missing from <code>unim-tsf.log</code>, it scrolled into the <code>.1</code> file; grab both when collecting a report.</li>
 </ul>
 <blockquote>
 <p>⚠️ <strong>Do not turn on <code>UNIM_DEBUG_CONTENT</code> unless you were asked to.</strong> With that variable also set, the actual keys you press and the text being composed and committed are written to the log verbatim. Passwords can end up in plain text. When you are done, turn both off with <code>setx UNIM_DEBUG_LOG ""</code> / <code>setx UNIM_DEBUG_CONTENT ""</code> and delete <code>%TEMP%\unim-tsf.log</code>.</p>
@@ -1224,6 +1224,46 @@ setx UNIM_DEBUG_LOG 1
 <blockquote>
 <p>Observed so far in some terminal emulators and chat clients. This symptom has <strong>not been confirmed</strong> in KakaoTalk or Hancom Office — if you hit it there, that is worth reporting too.</p>
 </blockquote>
+<h3 id="troubleshooting--4-w-windows-defender-quarantines-unim_tsfdll-as-a-trojan">4-W. "Windows Defender quarantines unim_tsf.dll as a trojan"</h3>
+<h4 id="troubleshooting--symptom-1">Symptom</h4>
+<ul>
+<li>UNIM suddenly stops working — Korean input stops going in, or UNIM disappears from the input-method list, with no config change on your part.</li>
+<li>Windows Defender's operational event log records <strong>Event ID 1116</strong> (threat detected) followed by <strong>1117</strong> (action taken — quarantined), naming a file under <code>C:\Program Files\UNIM\</code> and the UNIM CLSID registry key. Open it via <code>eventvwr.msc</code> → <strong>Applications and Services Logs → Microsoft → Windows → Windows Defender → Operational</strong>.</li>
+<li>The threat name is an <strong>ML-heuristic classification</strong>, e.g. <code>Trojan:Win32/Bearfoos.B!ml</code> (the <code>!ml</code> suffix marks Microsoft's cloud ML detector — this is not a signature match against known malware).</li>
+</ul>
+<h4 id="troubleshooting--why-this-is-a-false-positive">Why this is a false positive</h4>
+<ul>
+<li>The binary itself has no hooking APIs (<code>SetWindowsHookEx</code>, <code>GetAsyncKeyState</code>), no process-injection APIs (<code>VirtualAllocEx</code>, <code>CreateRemoteThread</code>, <code>WriteProcessMemory</code>), and ordinary entropy (~6.6 bits/byte — not packed or obfuscated).</li>
+<li>What actually trips the detector is <strong>distribution hygiene, not behavior</strong>: the DLL currently ships <strong>without an Authenticode signature</strong>, and its <code>VERSIONINFO</code> resource block is <strong>empty</strong> (no CompanyName / ProductName / FileDescription / FileVersion / OriginalFilename). Combined with low prevalence (few installs worldwide) and the "a DLL appears under Program Files and gets <code>regsvr32</code>'d" installation pattern, that combination alone is enough to cross an ML detector's threshold for a keyboard-adjacent DLL — no actual malicious behavior is required.</li>
+<li>This is planned to be resolved in an upcoming release by embedding <code>VERSIONINFO</code> metadata and adding an Authenticode signature to <code>unim_tsf.dll</code> / <code>unim_tsf32.dll</code>, which removes the "anonymous unsigned DLL" fingerprint the detector reacts to.</li>
+</ul>
+<h4 id="troubleshooting--fix-administrator-required--the-order-below-matters-reversing-it-causes-immediate-re-quarantine">Fix (Administrator required — <strong>the order below matters</strong>; reversing it causes immediate re-quarantine)</h4>
+<p>Open PowerShell <strong>as Administrator</strong> and run, in this exact order:</p>
+<pre><code class="language-powershell"># ① Register the exclusion FIRST. Skipping this — or restoring before this step —
+#    means Defender's real-time scanner just quarantines the file again right away.
+Add-MpPreference -ExclusionPath "C:\Program Files\UNIM"
+
+# ② Restore everything Defender took (the DLL and the CLSID registry key) from quarantine.
+&amp; "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Restore -All
+# If Event Viewer shows the exact threat name, restoring only that name is safer
+# on a shared machine:
+# &amp; "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Restore -Name "Trojan:Win32/Bearfoos.B!ml" -All
+
+# ③ Re-register the TSF COM/CLSID entries (covers both 64-bit and 32-bit — see §2-W).
+"C:\Program Files\UNIM\register-tsf.bat"
+
+# ④ Restart the text-services host so already-running apps pick up the restored registration.
+taskkill /f /im ctfmon.exe
+</code></pre>
+<p><code>ctfmon.exe</code> restarts itself automatically once killed. If UNIM is still missing from the input-method list afterward, sign out and back in.</p>
+<blockquote>
+<p>If you see another 1116/1117 pair immediately after step ①, the exclusion has not finished propagating yet — that alone is not proof the fix failed. Wait about 30 seconds and continue with step ②; check whether the file still exists afterward rather than trusting the event log alone.</p>
+</blockquote>
+<h4 id="troubleshooting--report-the-false-positive-to-microsoft">Report the false positive to Microsoft</h4>
+<p>Reporting helps every UNIM user hitting this, not just you — a verified submission is usually reflected in updated definitions within 1–3 business days.</p>
+<ul>
+<li>Submit at <a href="https://www.microsoft.com/en-us/wdsi/filesubmission">https://www.microsoft.com/en-us/wdsi/filesubmission</a> — role "Software developer", reason "I believe this file is incorrectly detected as malware". Submit <code>unim_tsf.dll</code> (and <code>unim_tsf32.dll</code> if it was also flagged).</li>
+</ul>
 <hr />
 <h3 id="troubleshooting--5-hanja-popup-never-appears">5. "Hanja popup never appears"</h3>
 <p><strong>🪟 Windows</strong></p>
@@ -1433,6 +1473,7 @@ copy "%APPDATA%\unim\config.yaml" "%USERPROFILE%\Desktop\unim-report-config.yaml
 <p>Windows support was newly added in v0.4.0. Below are the limitations known at release time. <strong>Anything not listed here has simply not been verified yet</strong> — if you run into it, please report it.</p>
 <div class="tablewrap"><table><thead><tr><th>Item</th><th>Status</th><th>Notes</th></tr></thead><tbody>
 <tr><td>Composition breaks / previous character lost in some apps</td><td>⚠️ Known limitation</td><td>Behavioral differences in the Windows compatibility layer (CUAS) used when an app does not draw the composition string itself. UNIM falls back, but not perfectly in every app. See §3-W</td></tr>
+<tr><td>Windows Defender flags <code>unim_tsf.dll</code> as a trojan (<code>*.B!ml</code> ML heuristic)</td><td>⚠️ Known false positive</td><td>No hooking/injection APIs in the binary — the trigger is an unsigned DLL with an empty <code>VERSIONINFO</code> block, not actual behavior. Signing + metadata planned for an upcoming release. See §4-W</td></tr>
 <tr><td>Console / terminal-style apps</td><td>⚠️ Varies by app</td><td>Depends on which input mechanism the app uses. Standard text apps (Notepad, Edge) are the reference behavior</td></tr>
 <tr><td>32-bit apps such as KakaoTalk and Hancom Office</td><td>✅ Supported (limited verification)</td><td>Covered by also installing the 32-bit input method (<code>unim_tsf32.dll</code>). If it does not appear, see §2-W</td></tr>
 <tr><td>Individual symptoms inside 32-bit apps</td><td>❓ Unverified</td><td>Hangul input itself is confirmed, but per-app details are outside what has been tested</td></tr>

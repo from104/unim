@@ -4,7 +4,7 @@
 //! 별도의 전용 스레드에서 실행되어야 합니다.
 //! 이 모듈은 엔진 스레드 실행 및 요청 처리를 담당합니다.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -313,6 +313,122 @@ fn apply_word_gate(engine: &mut InputEngine, desired: bool) {
     if engine.is_word_mode() != desired {
         engine.set_word_mode(desired);
     }
+}
+
+/// 엔진의 확정 버퍼를 배출한다 — 비어 있지 않으면 문자열을 돌려주고 버퍼를 비운다.
+///
+/// 게이트를 `KeyResult::commit_changed` 로만 두면 안 된다 — 버퍼에 남아 있는 확정
+/// 텍스트가 통째로 사라지는 경로가 있다. 설정 리로드가 조합 중에 끼어들면
+/// `rebuild_korean_context()` 가 조합 글자를 `flush_preedit()` 로 commit_buffer 에
+/// 밀어 넣는데, 그 **직후의 키**는 조합이 없으니 `not_consumed`(commit_changed=false)
+/// 로 끝난다. 옛 게이트에서는 그 글자가 응답에 실리지 않아 화면에서 사라졌다
+/// (2026-09-03 실측: `multiline-compose` 의 '한' 이 Enter 와 함께 유실).
+///
+/// 그래서 판정을 버퍼 자체로 바꾼다 — 비어 있지 않으면 무조건 배출하고 비운다.
+/// Windows TSF 프런트(`unim-tsf/src/key_handler.rs`)도 이미 같은 방식이다.
+///
+/// 리로드 시점의 조합 단절 자체는 `pending_korean_rebuild` 지연으로 따로 막지만
+/// (근본 수정), 이 배출 규칙은 그와 **독립적인 안전망**이다 — 외부 편집·프로필
+/// 갱신 등 다른 경로로 flush 가 일어나도 확정 텍스트는 반드시 흘러나가야 한다.
+fn drain_commit(engine: &mut InputEngine) -> Option<String> {
+    let s = engine.commit_str().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        engine.clear_commit();
+        Some(s)
+    }
+}
+
+/// 이 컨텍스트가 '조합 중' 인가 — 파괴적 재구성을 미뤄야 하는지의 판정.
+///
+/// `is_composing()` 은 한국어 컨텍스트(조합기) 상태만 본다. 그런데 화면에 떠 있는
+/// preedit 은 `preedit_cache` 이고, 모아치기 chord 대기·단어 모드 누적처럼 조합기가
+/// '조합 중' 이라 답하지 않는 중간 상태에서도 캐시가 남아 있을 수 있다. 화면에 글자가
+/// 떠 있는 동안에는 어느 쪽이든 끊으면 안 되므로 **둘 중 하나라도 참이면 미룬다**.
+///
+/// ⚠️ 지연의 상한은 음절 하나가 아니라 **현재 조합 런 전체**다. 이 판정이 false 로
+/// 떨어지는 시점은 preedit 이 비는 때 — 즉 음절 단위 모드에서도 자모를 계속 이어
+/// 치는 동안에는 계속 참이고, 단어 모드에서는 단어 경계(스페이스·마침표 등)까지
+/// 참이다(2026-09-03 실측: 조합 중 자판 변경 후 `g` 5연타가 모두 옛 자판, Space 뒤
+/// 첫 키부터 새 자판).
+fn is_mid_composition(engine: &InputEngine) -> bool {
+    engine.is_composing() || !engine.preedit_str().is_empty()
+}
+
+/// 한국어 컨텍스트 재구성이 **실제로 필요한지** 판정하기 위한 지문.
+///
+/// `rebuild_korean_context()` + `build_korean_context()` 가 읽는 config 필드만 모은다
+/// (`src/input_engine/engine.rs::rebuild_korean_context`,
+///  `src/input_engine/mod.rs::build_korean_context`, `compute_chord_window_ms`).
+/// 값이 그대로면 재구성은 순수한 낭비인 데다 `flush_preedit()` 로 조합을 끊으므로,
+/// 이 지문이 바뀔 때만 재구성한다.
+///
+/// `KoreanConfig` 에 `PartialEq` 를 새로 달지 않고 `Debug` 문자열로 비교하는 이유:
+/// 이 함수는 리로드가 실제로 일어난 순간에만 도는 저빈도 경로이고, config 타입에
+/// derive 를 추가하면 3지점 싱크(엔진/GUI/CLI) 밖의 타입까지 파급되기 때문이다.
+///
+/// ⚠️ `korean.layout_rule_sets`(GUI 전용 캐시)와 ATF·전환키 설정은 일부러 뺐다 —
+/// 전자는 데몬이 읽지 않고, 후자는 비파괴 재적용(`set_atf_hotkeys`/`set_switch_keys`)
+/// 이라 조합을 끊지 않는다.
+///
+/// ⚠️ config.yaml **밖의** 입력도 한 항목 들어간다 — 사용자 자판 프로필 디렉토리
+/// (`~/.config/unim/layouts/`). `build_korean_context`(`src/input_engine/mod.rs`)와
+/// `compute_chord_window_ms`(`src/input_engine/engine.rs`)는 재구성 때마다
+/// `ProfileRegistry::new()` 로 이 디렉토리를 새로 스캔한다. 종전에는 config.yaml 의
+/// 아무 값이나 바뀌면 재구성이 돌아 프로필 편집이 딸려 반영됐는데, 지문 게이트를
+/// 달면 한국어 필드가 바뀌어야만 돈다. 그래서 디렉토리·파일 mtime 지문
+/// (`user_dir_fingerprint`)을 넣어 그 경로를 되살린다.
+fn korean_context_fingerprint(config: &Config) -> String {
+    let k = &config.engine.korean;
+    format!(
+        "{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:?}",
+        k.effective_layout_name(),
+        k.active_rule_sets,
+        k.bidirectional_combine,
+        k.chord_window_ms,
+        k.commit_unit,
+        k.word_mode_apps,
+        // 영어 자판은 한국어 키맵 생성(`create_keyboard_map`)의 짝이므로 함께 본다.
+        config.engine.english.layout,
+        // 사용자 자판 프로필 디렉토리의 변화(파일 추가·삭제·제자리 편집).
+        unim::keystroke::profile::user_dir_fingerprint(),
+    )
+}
+
+/// 리로드된 설정을 한 컨텍스트에 **파괴적으로** 재적용한다.
+///
+/// `rebuild_korean_context()` 는 조합 중이던 글자를 `flush_preedit()` 로 밀어내므로
+/// 호출부는 `engine.is_composing()` 이 false 임을 보장해야 한다(그래서 이름에 파괴적
+/// 이라 적는다). 조합 중이면 호출을 미루는 것이 호출부의 책임이다.
+fn apply_korean_rebuild(
+    engine: &mut InputEngine,
+    config: &Config,
+    context_id: u32,
+    context_windows: &HashMap<u32, String>,
+    phase: &str,
+) {
+    engine.rebuild_korean_context(config);
+    engine.set_english_layout(config.engine.english.layout.clone());
+
+    // word 모드 게이트 재적용: rebuild_korean_context 가 Word 면 전 컨텍스트
+    // accumulate 를 켜므로, 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기
+    // 강등)로 재판정한다.
+    let verdict = context_word_gate_verdict(config, context_windows, context_id);
+    let desired = matches!(verdict, Some(WordGateVerdict::Allowed));
+    // 게이트가 실제로 뒤집힐 때만 로깅 — 리로드는 열려 있는 모든 컨텍스트를 순회하므로
+    // 무조건 로깅하면 다중 컨텍스트 스팸이 된다. word 모드 flip(=사용자가 체감하는
+    // 변화) 시점만 남긴다.
+    if engine.is_word_mode() != desired {
+        log_word_gate(
+            phase,
+            context_id,
+            context_windows,
+            config.engine.korean.commit_unit,
+            verdict,
+        );
+    }
+    apply_word_gate(engine, desired);
 }
 
 /// 활성 popup 의 view_model 을 DBus payload 로 변환. popup 비활성이면 None.
@@ -808,55 +924,112 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
     let mut blacklist = Blacklist::load_from_default_path();
     // AutoTypeFix: 역방향 사용자 사전 (파일 기반, mtime 감지 reload)
     let mut user_dict = UserDictionary::load_from_default_path();
+    // 설정 리로드 시 한국어 컨텍스트를 정말 다시 지어야 하는지 판정하는 지문.
+    // (필드 목록·제외 근거는 `korean_context_fingerprint` 문서 주석)
+    let mut korean_fp = korean_context_fingerprint(&config);
+    // 조합 중이라 재구성을 미뤄둔 컨텍스트. 조합이 끝나는 즉시(다음 요청 진입 시)
+    // 적용한다 — 자세한 근거는 리로드 블록 주석 참조.
+    let mut pending_korean_rebuild: HashSet<u32> = HashSet::new();
 
     unim_log!("ENGINE_WORKER", "[Engine Worker] 시작됨");
 
     // 블로킹으로 요청 수신 (tokio 런타임 밖에서 실행)
     while let Some(request) = rx.blocking_recv() {
-        // 설정 파일 변경 여부 확인 및 리로드 (Throttling 적용됨)
+        // ===== 설정 파일 변경 감지·리로드 (2초 throttling) =====
+        //
+        // ⚠️ 이 블록은 **조합 중인 글자를 죽일 수 있는 자리**다. 리로드 자체는
+        // 무해하지만 `rebuild_korean_context()` 가 `flush_preedit()` 로 조합을
+        // 강제 확정하고 컨텍스트를 새로 만들기 때문이다. 실사용에서는
+        // "설정 GUI/CLI 로 저장하는 순간 조합 중이던 글자가 끊긴다" 로 나타난다
+        // (2026-09-03 실측: 하네스의 시나리오별 SetConfig 때문에
+        //  `backspace-decompose` 의 preedit 이 '한' 대신 'ㅏㄴ' 으로 관측).
+        //
+        // 설계 판정 — 세 후보 중 (b)+(c) 를 택했다:
+        //   (a) SetConfig 가 쓴 mtime 을 기록해 '자기 메아리' 리로드를 건너뛴다
+        //       → **이 워커에는 쓸 수 없다.** `run_engine_worker` 는 자기 소유의
+        //         `Config` 를 들고 있고(spawn 시 move), DBus service 의
+        //         `Arc<RwLock<Config>>` 와 별개다. 워커가 SetConfig 결과를 아는
+        //         유일한 통로가 이 파일 mtime 폴링이므로, 메아리를 막으면 설정이
+        //         영영 반영되지 않는다. (service 쪽 자기 메아리 방지는
+        //         `service.rs` 의 저장 직후 `last_modified` 동기화로 따로 처리.)
+        //   (b) 한국어 컨텍스트에 실제로 영향을 주는 필드가 바뀐 경우에만 재구성
+        //       → 지문(`korean_context_fingerprint`) 비교. ATF 토글·블랙리스트
+        //         갱신·GUI 캐시 필드처럼 무관한 저장은 조합을 건드리지 않는다.
+        //   (c) 그래도 바뀌었으면, **조합 중인 컨텍스트만** 재구성을 미룬다
+        //       → `pending_korean_rebuild` 에 넣고 조합이 끝난 뒤 첫 요청에서 적용.
+        //         미루는 동안 그 컨텍스트는 옛 자판으로 조합을 마저 끝내는데, 이는
+        //         다른 IME 들과 같은 동작이자 사용자가 기대하는 결과다.
+        //         ⚠️ 지연 범위는 음절 하나가 아니라 **현재 조합 런**(preedit 이 빌
+        //         때까지 = 단어 모드면 단어 경계까지)이다. 자판 변경이 "다음 한 글자"
+        //         가 아니라 "다음 조합"부터 보이는 것이 정상이다.
+        //
+        // 사용자가 config.yaml 을 직접 편집하는 외부 경로도 그대로 살아 있다 —
+        // (b) 는 '값이 진짜 바뀌었나' 만 보고 '누가 썼나' 는 보지 않기 때문이다.
         if config.reload_if_changed() {
+            let new_fp = korean_context_fingerprint(&config);
+            let korean_changed = new_fp != korean_fp;
+            korean_fp = new_fp;
             unim_log!(
                 "ENGINE_WORKER",
-                "[Engine Worker] 설정 파일 변경 감지 - 리로드 완료"
+                "[Engine Worker] 설정 파일 변경 감지 - 리로드 완료 (한국어 컨텍스트 재구성 {})",
+                if korean_changed { "필요" } else { "불필요" }
             );
-            // 기존 엔진들의 레이아웃·v1 프로필을 갱신.
-            //
-            // `rebuild_korean_context`는 layout 동일·active_rule_sets만 변경된 경우에도
-            // v1 builder 경로로 한국어 컨텍스트를 다시 만든다. 이전 코드는
-            // `set_korean_layout`만 호출해 layout 동일이면 no-op이라 GUI/CLI에서
-            // active_rule_sets 토글이 즉시 반영되지 않는 회귀가 있었음.
+
             for (id, engine) in contexts.iter_mut() {
-                engine.rebuild_korean_context(&config);
-                engine.set_english_layout(config.engine.english.layout.clone());
+                // --- 비파괴 재적용: 조합 중이어도 항상 즉시 반영 ---
                 // ATF 토글 핫키 재적용: GUI/CLI 로 키를 편집한 뒤 재로그인 없이 살아있는
                 // 컨텍스트에 즉시 반영한다.
-                // (로그 중복 억제는 엔진 파서 쪽 `log_state_changed` 게이트가 담당 — 아래 word_gate 와 같은 결.)
+                // (로그 중복 억제는 엔진 파서 쪽 `log_state_changed` 게이트가 담당 — word_gate 와 같은 결.)
                 engine.set_atf_hotkeys(&config);
                 // 한/영 전환키·한자키 재적용: 종전엔 toggle_keys/hanja_keys 가 이 리로드
                 // 루프에서 재파싱되지 않아, GUI/CLI 로 전환·한자 키를 편집해도 재로그인
                 // 전까지 옛 키가 살아있는 live-reload 갭이 있었다(F4). set_switch_keys 로
                 // ATF 핫키와 동일하게 즉시 재적용해 갭을 해소한다.
-                // (로그 중복 억제는 엔진 파서 쪽 `log_state_changed` 게이트가 담당 — 아래 word_gate 와 같은 결.)
                 engine.set_switch_keys(&config);
-                // word 모드 게이트 재적용: rebuild_korean_context 가 Word 면 전 컨텍스트
-                // accumulate 를 켜므로, 컨텍스트별 게이트(터미널/XIM/Smart 앱판정·모아치기
-                // 강등)로 재판정한다.
-                let verdict = context_word_gate_verdict(&config, &context_windows, *id);
-                let desired = matches!(verdict, Some(WordGateVerdict::Allowed));
-                // 게이트가 실제로 뒤집힐 때만 로깅 — 리로드는 열려 있는 모든 컨텍스트를 순회하므로
-                // 무조건 로깅하면 다중 컨텍스트 스팸이 된다. word 모드 flip(=사용자가 체감하는
-                // 변화) 시점만 남긴다.
-                if engine.is_word_mode() != desired {
-                    log_word_gate(
-                        "reload",
-                        *id,
-                        &context_windows,
-                        config.engine.korean.commit_unit,
-                        verdict,
-                    );
+
+                if !korean_changed {
+                    continue;
                 }
-                apply_word_gate(engine, desired);
+
+                // --- 파괴적 재구성: 조합 중이면 미룬다 ---
+                //
+                // `rebuild_korean_context` 는 layout 동일·active_rule_sets 만 변경된
+                // 경우에도 v1 builder 경로로 한국어 컨텍스트를 다시 만든다(옛 코드가
+                // `set_korean_layout` 만 불러 layout 동일이면 no-op 이던 회귀의 수정).
+                if is_mid_composition(engine) {
+                    pending_korean_rebuild.insert(*id);
+                    unim_log!(
+                        "ENGINE_WORKER",
+                        "[Engine Worker] ctx={} 조합 중 — 한국어 컨텍스트 재구성을 조합 종료까지 지연",
+                        id
+                    );
+                    continue;
+                }
+                apply_korean_rebuild(engine, &config, *id, &context_windows, "reload");
             }
+        }
+
+        // 조합이 끝난 컨텍스트에 미뤄둔 재구성을 적용한다.
+        //
+        // 이 자리는 **요청을 처리하기 전**이다. 그래서 조합을 끝낸 다음 키는
+        // 이미 새 자판으로 처리된다(한 키 지연이 생기지 않는다). 반대로 아직
+        // 조합 중이면 그 키는 옛 자판으로 처리돼 **조합 런이 온전히 끝난다**
+        // (음절 하나가 아니라 preedit 이 빌 때까지 — `is_mid_composition` 주석 참조).
+        if !pending_korean_rebuild.is_empty() {
+            let cfg = &config;
+            let wins = &context_windows;
+            pending_korean_rebuild.retain(|id| match contexts.get_mut(id) {
+                // 컨텍스트가 사라졌으면 폐기 (DestroyContext)
+                None => false,
+                Some(engine) => {
+                    if is_mid_composition(engine) {
+                        true // 아직 조합 중 — 계속 보류
+                    } else {
+                        apply_korean_rebuild(engine, cfg, *id, wins, "reload-deferred");
+                        false
+                    }
+                }
+            });
         }
 
         // 학습형 억제 단어 목록: GUI가 파일을 직접 수정할 수 있으므로
@@ -1153,17 +1326,9 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                         None
                     };
 
-                    let commit = if result.commit_changed {
-                        let s = engine.commit_str().to_string();
-                        engine.clear_commit();
-                        if !s.is_empty() {
-                            Some(s)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
+                    // 확정 버퍼 배출 — 규칙과 근거는 `drain_commit` 문서 주석 참조
+                    // (`commit_changed` 가 아니라 버퍼 자체로 판정한다).
+                    let commit = drain_commit(engine);
 
                     // 팝업 동작 감지
                     let popup_action = engine.take_popup_action();
@@ -1195,6 +1360,22 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             buf.expire(window_ms);
 
                             // commit/preedit 추적 (역방향용)
+                            //
+                            // ⚠️ 리로드 flush 와의 상호작용: 설정 리로드가 조합 중에
+                            // 끼어들면 `rebuild_korean_context()` 가 조합 글자를
+                            // commit_buffer 로 밀어내고, 그 확정 텍스트가 바로 이
+                            // 줄에서 ATF 추적기로 들어간다. 즉 "사용자가 그 키로 확정한
+                            // 것" 이 아닌 글자가 역방향 후보 문자열에 섞일 수 있다.
+                            //
+                            // 지금은 **의도적으로 건너뛰지 않는다**:
+                            //  1) 근본 수정(`pending_korean_rebuild` 지연)으로 조합 중
+                            //     flush 자체가 거의 일어나지 않게 됐다.
+                            //  2) 남는 경우(외부 편집 등)에도 flush 된 글자는 사용자가
+                            //     실제로 친 자모의 확정형이라 추적기에 넣는 편이 맞다 —
+                            //     건너뛰면 오히려 buf 의 한글 문자열과 키스트로크 열이
+                            //     어긋나 역방향 교정이 엉뚱한 결과를 낸다.
+                            // 리로드 직후 한 번 ATF 갱신을 건너뛰는 플래그는 이 어긋남
+                            // 위험 때문에 채택하지 않았다.
                             if let Some(ref c) = commit {
                                 buf.update_on_commit(c);
                             }
@@ -1592,6 +1773,18 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                 // forward/reverse 는 독립 플래그(현행 시멘틱 유지). 반전 결과를 응답에 실어
                 // service.rs 가 config_changed 시그널로 GUI/확장에 통지한다.
                 if let Some(kind) = atf_toggle_pending {
+                    // ⚠️ persist 는 워커가 들고 있는 config 를 **통째로** 파일에 덮어쓴다.
+                    // 마지막 리로드 이후(스로틀 때문에 최대 2초) GUI/CLI 의 SetConfig 가
+                    // 파일을 고쳤다면 그 변경이 통째로 되돌아간다(lost update — 실측:
+                    // `SetConfig korean_layout=ko_3bul390` 직후 2초 내 Shift+F8 → 파일이
+                    // ko_2bulstd 로 복귀). 그래서 스로틀을 우회해 디스크 최신 상태를 먼저
+                    // 읽고, 그 위에 토글 필드만 얹어 저장한다.
+                    if config.reload_now() {
+                        unim_log!(
+                            "ENGINE_WORKER",
+                            "[Engine Worker] ATF 토글 persist 직전 최신 설정 재로드 (덮어쓰기 유실 방지)"
+                        );
+                    }
                     let new_value = match kind {
                         AtfToggleKind::Enabled => {
                             config.engine.auto_typefix.enabled = !config.engine.auto_typefix.enabled;
@@ -1606,21 +1799,26 @@ fn run_engine_worker(mut rx: mpsc::Receiver<EngineRequest>, mut config: Config) 
                             config.engine.auto_typefix.reverse
                         }
                     };
-                    // persist. 저장 성공 시 mtime 스냅샷을 방금 쓴 파일 시간으로 갱신해,
-                    // 다음 reload_if_changed 가 '자기 저장'을 외부 변경으로 오인해 전 컨텍스트를
-                    // rebuild(조합 flush)하는 것을 막는다(Risk 2 — save_to_path 는
-                    // last_modified 를 갱신하지 않으므로 여기서 수동 동기화).
+                    // persist.
                     if let Err(e) = config.save_to_default_path() {
                         unim_log!(
                             "ENGINE_WORKER",
                             "[Engine Worker] ATF 토글 config 저장 실패: {:?}",
                             e
                         );
-                    } else if let Some(path) = Config::default_config_path() {
-                        if let Ok(mtime) = std::fs::metadata(&path).and_then(|m| m.modified()) {
-                            config.last_modified = Some(mtime);
-                        }
                     }
+                    // mtime 스냅샷을 **무효화**해 다음 리로드가 반드시 파일을 다시 읽게 한다.
+                    //
+                    // 종전에는 여기서 `sync_last_modified()` 로 스냅샷을 방금 쓴 파일
+                    // 시간에 맞춰 '자기 메아리 리로드' 를 없앴다. 그런데 그러면 위
+                    // `reload_now()` 로 방금 주워 온 남의 변경(예: korean_layout)이
+                    // 엔진에 적용되지 않은 채 스냅샷만 앞으로 밀려 **영영 반영되지 않는다**.
+                    // 지금은 지문 게이트가 있어 자기 메아리는 무해하다 — ATF 필드만
+                    // 달라졌으면 `korean_context_fingerprint` 가 그대로라 재구성이 돌지
+                    // 않고(조합도 안 끊기고), 남의 변경이 섞여 있으면 정규 리로드 경로가
+                    // 지연 재구성까지 포함해 제대로 처리한다. 저장 실패 시에도 스냅샷을
+                    // 비워 두는 편이 안전하다(메모리와 파일이 어긋난 채 굳지 않는다).
+                    config.last_modified = None;
                     unim_log!(
                         "ENGINE_WORKER",
                         "[Engine Worker] ATF 토글 단축키: {:?} → {}",
@@ -2476,6 +2674,130 @@ mod tests {
     ) -> WordGateVerdict {
         let apps: Vec<String> = apps.iter().map(|s| s.to_string()).collect();
         word_gate_verdict(cu, window_id, window_id, app_id, &apps, chord)
+    }
+
+    // === drain_commit: 응답 배출 규칙 ===
+    //
+    // 설정 리로드가 조합 중에 끼어들면 조합 글자가 commit_buffer 로 flush 되고
+    // 그 **다음 키**는 `commit_changed=false` 로 끝난다. 배출을 `commit_changed`
+    // 로 게이트하면 그 글자가 통째로 사라진다(2026-09-03 실측). 그래서 판정은
+    // 버퍼 자체다 — 아래 시험이 그 계약을 직접 못박는다.
+    // (`src/input_engine/tests_composition.rs` 의 시험은 엔진 상태만 못박는다.)
+
+    /// 버퍼가 비어 있으면 `None` 을 돌려주고 아무것도 건드리지 않는다.
+    #[test]
+    fn drain_commit_empty_buffer_returns_none() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        assert_eq!(drain_commit(&mut engine), None);
+        assert_eq!(engine.commit_str(), "");
+    }
+
+    /// 버퍼가 비어 있지 않으면 **`commit_changed` 와 무관하게** 배출하고 비운다.
+    ///
+    /// 리로드 flush 를 `rebuild_korean_context()` 로 그대로 재현한 뒤, 그 다음 키
+    /// (Enter — 조합이 없으니 not_consumed)를 처리하고 배출을 확인한다.
+    #[test]
+    fn drain_commit_after_reload_flush_emits_and_clears() {
+        let config = Config::default();
+        let mut engine = InputEngine::new(&config);
+        let modifier = ModifierState::default();
+        engine.set_input_category(unim::config::InputCategory::Korean);
+        engine.press_key(KeyCode::R, modifier, &config); // ㄱ
+        engine.press_key(KeyCode::K, modifier, &config); // 가
+        assert_eq!(engine.preedit_str(), "가");
+
+        // 설정 리로드 경로 — 조합이 commit_buffer 로 flush 된다.
+        engine.rebuild_korean_context(&config);
+        assert_eq!(engine.commit_str(), "가");
+
+        // 그 다음 키는 commit_changed 가 서지 않는다.
+        let result = engine.press_key(KeyCode::Enter, modifier, &config);
+        assert!(!result.commit_changed, "이 경로에서는 commit_changed 가 서지 않는다");
+
+        // 그래도 배출된다 — 이것이 이 헬퍼의 존재 이유다.
+        assert_eq!(drain_commit(&mut engine).as_deref(), Some("가"));
+        // 그리고 비워진다 — 두 번 배출되면 글자가 중복 입력된다.
+        assert_eq!(engine.commit_str(), "");
+        assert_eq!(drain_commit(&mut engine), None);
+    }
+
+    // === korean_context_fingerprint: 재구성 필요 판정 ===
+
+    /// 한국어 컨텍스트와 무관한 설정 변경은 지문을 바꾸지 않는다
+    /// (= 리로드가 조합을 끊지 않는다).
+    #[test]
+    fn fingerprint_ignores_unrelated_config_changes() {
+        let base = Config::default();
+        let fp = korean_context_fingerprint(&base);
+
+        let mut c = base.clone();
+        c.engine.auto_typefix.enabled = !c.engine.auto_typefix.enabled;
+        c.engine.toggle_keys = vec!["Hangul".to_string()];
+        c.engine.mode_sharing = unim::config::ModeSharingMode::PerApp;
+        // GUI 전용 캐시 — 데몬은 읽지 않는다.
+        c.engine
+            .korean
+            .layout_rule_sets
+            .insert("ko_2bulstd".to_string(), vec!["x".to_string()]);
+        assert_eq!(korean_context_fingerprint(&c), fp);
+    }
+
+    /// 한국어 컨텍스트를 실제로 바꾸는 필드는 전부 지문을 바꾼다.
+    #[test]
+    fn fingerprint_tracks_korean_context_fields() {
+        let base = Config::default();
+        let fp = korean_context_fingerprint(&base);
+
+        let mut layout = base.clone();
+        layout.engine.korean.layout = "ko_3bul390".to_string();
+        assert_ne!(korean_context_fingerprint(&layout), fp, "자판");
+
+        let mut rules = base.clone();
+        rules.engine.korean.active_rule_sets = Some(vec![]);
+        assert_ne!(korean_context_fingerprint(&rules), fp, "active_rule_sets");
+
+        let mut bidir = base.clone();
+        bidir.engine.korean.bidirectional_combine = Some(true);
+        assert_ne!(korean_context_fingerprint(&bidir), fp, "모아치기");
+
+        let mut chord = base.clone();
+        chord.engine.korean.chord_window_ms = Some(60);
+        assert_ne!(korean_context_fingerprint(&chord), fp, "chord_window_ms");
+
+        let mut unit = base.clone();
+        unit.engine.korean.commit_unit = CommitUnit::Word;
+        assert_ne!(korean_context_fingerprint(&unit), fp, "commit_unit");
+
+        let mut apps = base.clone();
+        apps.engine.korean.word_mode_apps = vec!["gedit".to_string()];
+        assert_ne!(korean_context_fingerprint(&apps), fp, "word_mode_apps");
+
+        let mut eng = base.clone();
+        eng.engine.english.layout = "dvorak".to_string();
+        assert_ne!(korean_context_fingerprint(&eng), fp, "영어 자판");
+    }
+
+    /// config.yaml 밖의 입력 — 사용자 자판 프로필 디렉토리 — 도 지문에 실린다.
+    ///
+    /// 이 항목이 빠지면 프로필 파일을 고쳐도(= `ProfileRegistry` 가 다시 스캔해야
+    /// 하는데) 한국어 필드가 그대로인 한 재구성이 돌지 않는다. 디렉토리 지문이
+    /// 실제로 파일 추가·편집을 잡는지는
+    /// `src/keystroke/profile/registry.rs::fingerprint_tracks_profile_file_add_and_edit`
+    /// 가 못박고, 여기서는 **그 값이 지문에 연결돼 있는지**만 본다.
+    #[test]
+    fn fingerprint_embeds_profile_dir_component() {
+        // 실제 홈의 layouts/ 를 두 번 읽어 값 일치를 요구하면 시험 도중 설정 GUI 가
+        // 프로필을 저장할 때 플레이키해진다 — 구조(마지막 '|' 뒤에 프로필 항목이
+        // 존재)만 단언하고, 값 추적은 registry 의 임시 디렉터리 시험이 맡는다.
+        let fp = korean_context_fingerprint(&Config::default());
+        let (_, tail) = fp
+            .rsplit_once('|')
+            .expect("지문은 '|' 로 구분된 항목 열이어야 한다");
+        assert!(
+            tail.starts_with("Some(") || tail == "None",
+            "지문 끝에 프로필 디렉토리 지문(Option<String> 의 Debug 표기)이 붙어야 한다: fp={fp}"
+        );
     }
 
     fn mk_rc(direction: Direction, erasure: bool, switch: bool) -> RecentCorrection {

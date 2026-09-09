@@ -15,7 +15,7 @@ UNIM의 외부 가시면(문서·홍보·패키지 설명·홈페이지)을 책�
 - `docs/user/user-guide/{README,README-ko}.md` — 사용자 매뉴얼
 - `docs/user/troubleshooting/{README,README-ko}.md` — 증상별 진단·해결
 - `docs/user/faq/{README,README-ko}.md` — 자주 묻는 질문
-- `docs/user/release-notes/<version>/RELEASE_NOTES{,-ko}.md` — 릴리즈별 노트
+- `CHANGELOG{,-ko}.md` — 판별 변경 이력. **릴리즈 노트를 따로 쓰지 않는다** — GitHub 릴리스 본문은 `scripts/release-body.sh` 가 여기서 뽑는다
 
 ### 2. 개발자/기여자 문서
 - `AGENTS.md` (프로젝트 컨텍스트), `docs/dev/architecture/GEMINI.md` (Gemini 컨벤션)

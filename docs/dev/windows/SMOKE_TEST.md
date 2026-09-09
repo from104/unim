@@ -4,6 +4,60 @@ GitHub Actions artifact `unim-<version>-x64-msi` 를 받은 다음, Windows 11 x
 
 스냅샷 권장: 깨끗한 Windows 11 22H2 또는 24H2 한국어 옵션 사전 설치 상태.
 
+## CI 자동 검증 (2026-09 도입)
+
+아래 절차 중 **기계가 판정할 수 있는 부분은 CI 가 매 빌드마다 이미 돌린다.**
+`windows-msi.yml` 의 `Install + verify` / `Functional typing check` /
+`Uninstall + verify` 세 단계가 `scripts/ci/verify-msi.ps1` 을 phase 별로 호출하고,
+`install.log`·`uninstall.log`·스크린샷·타이핑 로그를 `unim-<version>-msi-verification`
+아티팩트로 항상 올린다. 그러니 VM 스모크는 **자동화가 못 보는 것만** 하면 된다.
+
+| 절 | 항목 | CI 자동 | 비고 |
+|----|------|---------|------|
+| 1 | `msiexec /i /qn` 설치 성공 (0 또는 3010) | ✅ | 로그 아티팩트 첨부 |
+| 2 | 설치 파일 12개 존재·0바이트 아님 | ✅ | 목록은 `unim.wxs` 의 `<File>` 전량과 자동 대조 — wxs 가 바뀌면 CI 가 먼저 깨진다 |
+| 2 (1)(2)(6) | `InProcServer32` 64/32 뷰 경로·`ThreadingModel`, `[#…]` 토큰 미치환 회귀 | ✅ | GUID 는 `installer/wix/generated/guids.wxi` 에서 런타임에 읽는다(하드코딩 없음) |
+| 2 (3)(4)(5) | CTF TIP 엔트리, `LanguageProfile\0x00000412\{PROFILE}` 의 `Enable`/`SubstituteLayout`/`Description`/`IconFile`, 카테고리 8종 | ✅ | 카테고리 GUID 도 `unim.wxs` 에서 파싱 |
+| — | `unim_tsf.dll`(x64)·`unim_tsf32.dll`(x86) `LoadLibraryW` + `DllGetClassObject` 노출 | ✅ | 비트니스별 별도 powershell.exe 로 프로브 |
+| — | `HKLM…\Run\UnimPopupRenderer`, `HKLM\SOFTWARE\atit.org\UNIM\InstallDir` 토큰 치환(M-31 회귀) | ✅ | |
+| 3 | `Get-WinUserLanguageList` 에 UNIM TIP 등록 + `ActivateLanguageProfile` | ⚠️ | typing 단계(승격 대기) |
+| 4.1 | 메모장에 `gks` → `한` 실입력 | ⚠️ | typing 단계(승격 대기). 스크린샷·읽은 텍스트가 아티팩트로 남는다 |
+| — | Windows Defender 능동 스캔 (MSI + DLL/EXE 오탐 조기 발견) | ⏭ | `-Phase scan`. **GitHub 호스티드 러너에서는 동작하지 않는다** — 2026-09-04 4차 실측: WinDefend 서비스가 꺼져 있어 `MpCmdRun -Scan` 이 `hr=0x800106ba` 로 실패(시그니처 갱신만 됨). 스크립트는 이 경우를 SKIP 으로 명시한다. 실제 게이트로 쓰려면 Defender 가 도는 self-hosted 러너나 외부 스캐너(VirusTotal API)가 필요하다. `MpCmdRun -Scan` + `Get-MpThreatDetection`/이벤트 1116·1117 로 판정, 탐지 시 exit=2. install 단계보다 먼저 돌아 exclusion 등록 이전 상태로 스캔한다 |
+| 6 | `msiexec /x` 제거, 레지스트리·설치 디렉터리·ARP 항목 소멸 | ✅ | |
+
+**⚠️ = "승격 대기"**: 호스티드 러너가 대화형 데스크톱 세션(ctfmon/TSF 활성)을
+보장한다는 문서가 없어, 타이핑 단계는 `continue-on-error: true` 로 도입했다.
+2회 연속 통과가 확인되면 `continue-on-error` 를 떼어 필수 게이트로 승격한다.
+
+**아직 사람만 할 수 있는 것** (아래 절이 여전히 유효한 범위):
+4.3 한자 변환 팝업, 4.5~4.8 32-bit/UWP/KakaoTalk 실앱, 4.9 낭독기 통지,
+4b 팝업 전 항목, 4c AutoTypeFix, 5 랭귀지바·설정 다이얼로그·config reload,
+그리고 설정 GUI 자체(`unim-settings.exe` 에 `--version` 같은 헤드리스 플래그가
+없어 CI 는 존재·크기까지만 본다).
+
+로컬에서 한 번에 돌리려면 (Windows VM 관리자 PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ci\verify-msi.ps1 `
+    -MsiPath dist\unim-0.4.1-x64.msi -Phase all -ArtifactDir msi-verify
+```
+
+`-Phase all` 은 install/typing/uninstall 만 돈다 — Defender 스캔은 별도다
+(스캔 자체가 실시간 검사를 강제로 트리거해 install 단계의 exclusion 등록과
+순서가 섞이면 판정이 흔들린다). 따로 돌리려면:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ci\verify-msi.ps1 `
+    -MsiPath dist\unim-0.4.1-x64.msi -Phase scan -ArtifactDir msi-verify `
+    -ScanPaths "target\x86_64-pc-windows-msvc\release;target\i686-pc-windows-msvc\release"
+```
+
+> 2026-09-03 회사컴에서 Defender 가 `unim_tsf.dll`(0.4.1) 을
+> `Trojan:Win32/Bearfoos.B!ml` 로 오판해 하루 4회 격리한 사고가 있었다(무서명 +
+> VERSIONINFO 공란 + low prevalence 조합). 사용자 대응은
+> [troubleshooting §4-W](../../user/troubleshooting/README-ko.md#4-w-windows-defender가-unim_tsfdll을-트로이목마로-격리한다)
+> 참조.
+
 ## 0. 사전 준비
 
 - VM / 실기: Windows 11 x64, 관리자 권한 사용자 로그인.
@@ -123,6 +177,10 @@ GUI 경로: `설정 → 시간 및 언어 → 한국어 → 키보드 → 키보
 
 별도 트레이 앱(unim-windows)은 제거됐다. 모든 UI 는 `unim_tsf.dll` 내부 네이티브 Win32.
 설정 저장소는 `%APPDATA%\unim\config.yaml`. UNIM TIP 가 활성(입력 가능)인 상태에서 검증.
+
+> 언어바에 UNIM 이 아예 노출되지 않는 경우(설치/갱신 직후 D-2)는 5.1 이전에
+> **[D2-tray-after-install-checklist.md](D2-tray-after-install-checklist.md)** 의
+> 재현 매트릭스·D-3 스테일 DLL 확정 절차부터 수행한다.
 
 | # | 동작 | 기대 결과 | 결과 |
 |---|------|-----------|------|

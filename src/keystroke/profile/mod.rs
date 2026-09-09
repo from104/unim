@@ -30,7 +30,7 @@ pub use builder::{
 pub use inherit::{resolve as resolve_inherits, InheritError};
 pub use loader::{load_builtin_profile, parse_profile_str, LoadError};
 pub use localized::LocalizedText;
-pub use registry::{ProfileRegistry, ScanReport};
+pub use registry::{user_dir_fingerprint, user_dir_fingerprint_in, ProfileRegistry, ScanReport};
 pub use schema::{
     CombinationsBlock, ContextAlt, ContextCondition, KeyLayout, KeyMeta, LayoutMetadata,
     LayoutProfile, LayoutRows, MoachigiSpec, RawTriple, ReinterpretTriple, RuleSet,

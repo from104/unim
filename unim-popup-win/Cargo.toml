@@ -11,6 +11,12 @@ authors.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# VERSIONINFO 임베드(build.rs) — unim-tsf/unim-settings 와 같은 방식·같은
+# embed-resource 버전(워크스페이스 일관성). 이 크레이트는 기존 아이콘 리소스가
+# 없었으므로 VERSIONINFO 만 담는다(build-support/version_rc.rs).
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "2"
+
 [target.'cfg(windows)'.dependencies]
 # IMM32 IME 사용자 활성화(ensure_imm32_active) — 진단 보고서 §2-A 대응.
 unim-windows-common = { path = "../unim-windows-common" }

@@ -1,5 +1,5 @@
 Name:           unim
-Version:        0.4.1
+Version:        0.4.2
 Release:        1%{?dist}
 Summary:        Universal Next-generation Input Method Engine (Korean IME)
 Summary(ko):    범용 차세대 한글 입력기 엔진
@@ -420,6 +420,25 @@ fi
 # ─── Changelog ───────────────────────────────────────────────────────────────
 
 %changelog
+* Wed Sep 09 2026 from104 <from104@gmail.com> - 0.4.2-1
+- Fix Hangul input on GNOME Shell 50 (Ubuntu 26.04).
+- Show in-progress Hangul in sandboxed apps (Flatpak, Snap).
+- Fix composition stalling where GTK falls back to im-xim; in-progress text
+  is drawn in a small window next to the caret.
+- Keep the composing syllable when settings are saved.
+- Stop the XIM server from dying with the app that closes, which used to
+  block XIM input in every app afterwards.
+- Windows: composite keys such as Ctrl+B work while auto-English switching
+  is active; character keys reach browser shortcuts in Chrome when no
+  editable field has focus; one-click Explorer restart for a missing tray
+  menu after an update.
+- Per-distribution release builds for six distributions, newly including
+  the RHEL 10 family (requires EPEL).
+- unim-cli: dictionary subcommands moved to the top-level "dict" group and
+  accept several words at once, with confirmation for multiple removals.
+- Embed file version information in the Windows binaries to reduce
+  antivirus false positives.
+
 * Sun Aug 16 2026 from104 <from104@gmail.com> - 0.4.1-1
 - Restore rpm packaging. Two defects kept 0.4.0 from producing any rpm:
   rpmbuild injects a "--" separator into MAKEFLAGS that the jemalloc build

@@ -939,6 +939,133 @@ fn test_auto_english_super_space_and_alt_f1() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// `try_auto_english_combo` — TSF `OnTestKeyDown` 투기적 호출용 멱등 헬퍼 (D-1)
+//
+// (조합 트리거 매칭/비매칭) × (조합 중/유휴) 4조합. 실 press flow(`press_key`)와
+// 달리 이 헬퍼는 preedit/commit_buffer 를 절대 건드리지 않는다 — "멱등"은 반환값이
+// 아니라 **관측 가능한 엔진 상태**(input_category, preedit, commit_buffer) 기준으로
+// 검증한다: `match_auto_english_trigger` 자체가 input_category==Korean 에서만
+// 매칭하므로, 카테고리가 이미 English 로 바뀐 뒤의 2번째 호출은 반환값이 false 로
+// 바뀌는 게 정상이다(더 옮길 카테고리가 없다는 뜻) — 그래도 상태는 1번 호출 후와
+// 완전히 동일해야 진짜 멱등이다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn ctrl_b() -> (KeyCode, ModifierState) {
+    (
+        KeyCode::B,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+    )
+}
+
+/// 등록되지 않은 조합 (Ctrl+Z) — 매칭 실패 판정용.
+fn ctrl_z() -> (KeyCode, ModifierState) {
+    (
+        KeyCode::Z,
+        ModifierState {
+            control: true,
+            ..Default::default()
+        },
+    )
+}
+
+/// 매칭 + 유휴: 카테고리가 English 로 전환되고, 연속 2회 호출해도 상태가 동일하다
+/// (2회차는 반환값만 false — 이미 English 라 `match_auto_english_trigger` 가
+/// Korean 전용 가드에 걸려 재매칭하지 않기 때문. 상태 자체는 불변).
+#[test]
+fn test_try_auto_english_combo_matched_idle() {
+    let (mut engine, _config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let (kc, m) = ctrl_b();
+
+    let first = engine.try_auto_english_combo(kc, m);
+    assert!(first, "등록된 조합은 1회차에 매칭돼야 함");
+    assert_eq!(engine.input_category(), InputCategory::English);
+    assert!(engine.preedit_str().is_empty(), "유휴라 preedit 없음");
+    assert!(engine.commit_str().is_empty(), "커밋 부작용 없어야 함");
+
+    let second = engine.try_auto_english_combo(kc, m);
+    assert!(!second, "이미 English 라 2회차는 더 옮길 카테고리가 없음");
+    assert_eq!(
+        engine.input_category(),
+        InputCategory::English,
+        "멱등: 상태는 1회차 이후와 동일해야 함"
+    );
+    assert!(engine.preedit_str().is_empty());
+    assert!(engine.commit_str().is_empty(), "2회차도 커밋 부작용 없어야 함");
+}
+
+/// 매칭 + 조합 중: 카테고리는 전환되지만, **조합 중이던 preedit 는 그대로 남는다**
+/// (flush/commit 은 이 헬퍼의 책임이 아니라 실 경로(press_key)로 미룸이 D-1 계약).
+/// 연속 2회 호출해도 preedit·commit_buffer 가 추가로 건드려지지 않아야 진짜 멱등.
+#[test]
+fn test_try_auto_english_combo_matched_composing() {
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let none = ModifierState::default();
+    engine.press_key(KeyCode::R, none, &config); // ㄱ
+    engine.press_key(KeyCode::K, none, &config); // 가
+    assert_eq!(engine.preedit_str(), "가", "조합 중 상태 고정");
+
+    let (kc, m) = ctrl_b();
+    let first = engine.try_auto_english_combo(kc, m);
+    assert!(first, "조합 중이어도 등록된 조합은 매칭돼야 함");
+    assert_eq!(engine.input_category(), InputCategory::English);
+    assert_eq!(
+        engine.preedit_str(),
+        "가",
+        "커밋 부작용 없음 — flush 는 실 경로 몫"
+    );
+    assert!(
+        engine.commit_str().is_empty(),
+        "commit_buffer 에 아무 것도 쌓이면 안 됨(투기적 호출이 drain 안 됨)"
+    );
+
+    let second = engine.try_auto_english_combo(kc, m);
+    assert!(!second, "이미 English 라 2회차는 더 옮길 카테고리가 없음");
+    assert_eq!(engine.input_category(), InputCategory::English);
+    assert_eq!(engine.preedit_str(), "가", "멱등: 2회차도 조합 그대로 보존");
+    assert!(engine.commit_str().is_empty());
+}
+
+/// 비매칭 + 유휴: 등록 안 된 조합(Ctrl+Z)은 카테고리를 건드리지 않는다. 2회 호출해도
+/// 상태 불변(반환값도 매번 false — 매칭 자체가 안 되니 상태 변화가 있을 수 없음).
+#[test]
+fn test_try_auto_english_combo_unmatched_idle() {
+    let (mut engine, _config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let (kc, m) = ctrl_z();
+
+    assert!(!engine.try_auto_english_combo(kc, m));
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+    assert!(!engine.try_auto_english_combo(kc, m), "멱등: 2회차도 false");
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+}
+
+/// 비매칭 + 조합 중: 등록 안 된 조합은 진행 중인 한글 조합도, 카테고리도 건드리지
+/// 않는다(앱 단축키 보호 — tmux 등 무관 조합이 한글 조합을 깨면 안 됨).
+#[test]
+fn test_try_auto_english_combo_unmatched_composing() {
+    let (mut engine, config) = make_engine_with_auto_english(vec!["key:Ctrl+B"]);
+    engine.set_input_category(InputCategory::Korean);
+    let none = ModifierState::default();
+    engine.press_key(KeyCode::R, none, &config); // ㄱ
+    engine.press_key(KeyCode::K, none, &config); // 가
+    assert_eq!(engine.preedit_str(), "가");
+
+    let (kc, m) = ctrl_z();
+    assert!(!engine.try_auto_english_combo(kc, m));
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+    assert_eq!(engine.preedit_str(), "가", "무관 조합이 조합 중 상태를 깨면 안 됨");
+
+    assert!(!engine.try_auto_english_combo(kc, m), "멱등: 2회차도 false");
+    assert_eq!(engine.input_category(), InputCategory::Korean);
+    assert_eq!(engine.preedit_str(), "가");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // `is_valid_auto_english_key` — 트리거 표기 검증 술어 (CLI·설정앱·D-Bus 공용 SoT)
 // ─────────────────────────────────────────────────────────────────────────────
 

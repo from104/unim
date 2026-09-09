@@ -1,3 +1,9 @@
+// 공유 헬퍼: build-support/version_rc.rs 의 embed_version_rc() (VERSIONINFO
+// 임베드, 버전은 CARGO_PKG_VERSION 자동 추종 — 하드코딩 금지). unim-tsf/build.rs
+// 와 동일 패턴.
+#[cfg(windows)]
+include!("../build-support/version_rc.rs");
+
 fn main() {
     // ko/en 번들 번역: translations/<lang>/LC_MESSAGES/unim-settings.po 를
     // 컴파일 타임에 바이너리에 포함한다. 소스 msgid 는 한국어이므로 index 0(원문)
@@ -27,10 +33,16 @@ fn main() {
     // Windows 셸 아이콘(작업표시줄·탐색기·바로가기)은 exe 의 아이콘 리소스에서 온다.
     // Slint 의 `Window { icon: ... }` 은 창 좌상단만 바꾸므로 이것 없이는 기본 아이콘이
     // 뜬다. unim-tsf 가 언어바 아이콘에 쓰는 것과 같은 방식이다.
+    //
+    // VERSIONINFO 도 같은 자리에서 함께 임베드한다(Windows Defender 오탐,
+    // 2026-09-03 — 배포 위생 대응. build-support/version_rc.rs 참고).
     #[cfg(windows)]
     {
-        println!("cargo:rerun-if-changed=unim.rc");
-        println!("cargo:rerun-if-changed=../installer/assets/unim.ico");
-        embed_resource::compile("unim.rc", embed_resource::NONE);
+        embed_version_rc(
+            Some("../installer/assets/unim.ico"),
+            "UNIM Korean IME — Settings",
+            "unim-settings.exe",
+            "VFT_APP",
+        );
     }
 }

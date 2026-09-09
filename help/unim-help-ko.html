@@ -191,7 +191,7 @@ li { margin: 0.35rem 0; }
 <body>
 <div class="wrap">
 <header class="topbar">
-  <span class="brand">UNIM 도움말 <span class="ver">v0.4.1</span></span>
+  <span class="brand">UNIM 도움말 <span class="ver">v0.4.2</span></span>
   <a class="langswitch" href="unim-help-en.html">English</a>
 </header>
 
@@ -679,7 +679,9 @@ unim-typing-practice &amp;    # 타자 연습
 <li><strong>헤더 우측 버튼</strong>: [도움말] (F1) · [설정] · [메뉴].</li>
 <li><strong>저장 정책</strong>: 빌트인 자판은 읽기 전용이라 「다른 이름으로 저장」만 가능. 사용자 자판은
 「저장」 + 「다른 이름으로 저장」 둘 다 된다. 새로 만든 사용자 자판은
-<code>~/.config/unim/layouts/</code> 에 JSON으로 떨어지고, 데몬이 자동 스캔해 설정 GUI 자판 목록에 나타난다.</li>
+<code>~/.config/unim/layouts/</code> 에 JSON으로 떨어지고, 데몬이 자동 스캔해 설정 GUI 자판 목록에 나타난다.
+이 JSON 파일을 손으로 고친 경우에는 다음번 설정 저장(어떤 항목이든) 또는 재로그인 때 반영된다 —
+데몬이 자판 파일 자체를 감시하지는 않는다.</li>
 </ul>
 <h5 id="user-guide--단축키">단축키</h5>
 <div class="tablewrap"><table><thead><tr><th>키</th><th>동작</th></tr></thead><tbody>
@@ -781,6 +783,7 @@ unim-cli config layout validate my.json        # 사용자 정의 자판 검증
 </code></pre>
 <blockquote>
 <p>설정 변경은 데몬에 즉시 반영된다. config.yaml ↔ unim-cli ↔ 설정 GUI(<code>unim-settings</code>) 3지점이 항상 싱크되도록 설계됐다.</p>
+<p><strong>한 가지 예외 — 자판을 바꾸는 순간 글자를 조합 중이라면</strong>: 새 자판은 <strong>지금 조합 중인 글자가 끝난 뒤부터</strong> 적용된다(음절 하나가 아니라 밑줄이 사라질 때까지 = 단어 단위 확정을 쓰면 단어 경계까지). 조합을 중간에 끊어 글자를 망가뜨리지 않으려는 의도된 동작이다. 바로 확인하고 싶으면 스페이스나 <code>Esc</code>로 조합을 끝낸 뒤 입력하면 된다.</p>
 </blockquote>
 <hr />
 <h3 id="user-guide--8-설정-파일-위치--백업">8. 설정 파일 위치 / 백업</h3>
@@ -803,8 +806,7 @@ systemctl --user restart unim-daemon
 <ul>
 <li>동작이 이상하다 → <a href="#troubleshooting">트러블슈팅</a></li>
 <li>다른 IME와 비교 / 안정성 / 마이그레이션 → <a href="#faq">FAQ</a></li>
-<li>0.4.0 변경 내역 → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.md">릴리즈 노트 0.4.0</a></li>
-<li>과거 버전 변경 내역 → <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.md">0.3.0</a> / <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES-ko.md">0.2.0</a></li>
+<li>판별 변경 내역 → <a href="https://github.com/from104/unim/blob/main/CHANGELOG-ko.md">변경 이력</a></li>
 <li>기여하고 싶다 → <a href="https://github.com/from104/unim/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a></li>
 <li>핵심 동작 명세 → <a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a>, <a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>docs/dev/specs/POPUP_SPEC.md</code></a></li>
 </ul>
@@ -971,7 +973,7 @@ xbindkeys      # 다시 시작
 <section class="doc" id="faq">
 <h2 id="faq--unim-faq-한국어">UNIM FAQ (한국어)</h2>
 <blockquote>
-<p>UNIM 0.4.1에 대해 사람들이 정말 자주 묻는 질문 모음.
+<p>UNIM 0.4.2에 대해 사람들이 정말 자주 묻는 질문 모음.
 답에는 항상 「왜 그렇게 동작하는지」를 한 줄 이상 곁들여, 단순 사실 전달이 아니라 다음 결정에 도움이 되도록 했다.</p>
 </blockquote>
 <hr />
@@ -1151,7 +1153,7 @@ unim-cli config set korean-layout my
 <li><code>typefix-blacklist.yaml</code>의 옛 키도 serde compat 레이어로 자동 정규화.</li>
 </ul>
 <p>C-API: <code>UnimEnglishLayout</code>/<code>UnimKoreanLayout</code> enum 제거 → C 문자열 setter/getter로 변경. C/C++ 클라이언트 사용자만 영향.</p>
-<p>자세한 마이그레이션은 <a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES-ko.md">릴리즈 노트</a>.</p>
+<p>자세한 마이그레이션은 <a href="https://github.com/from104/unim/blob/main/CHANGELOG-ko.md#020-2026-04-26">변경 이력 0.2.0</a>.</p>
 <hr />
 <h3 id="faq--q11-unim은-macoswindows에서도-되나">Q11. UNIM은 macOS/Windows에서도 되나?</h3>
 <p><strong>Windows는 된다. macOS는 아직 안 된다.</strong></p>
@@ -1313,10 +1315,8 @@ sudo apt remove 'unim*'
 <ul>
 <li><a href="#user-guide">사용자 매뉴얼</a></li>
 <li><a href="#troubleshooting">트러블슈팅</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.1/README.md">릴리즈 노트 0.4.1</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.4.0/README.md">릴리즈 노트 0.4.0</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.3.0/README.md">릴리즈 노트 0.3.0</a></li>
-<li><a href="https://github.com/from104/unim/blob/main/docs/user/release-notes/0.2.0/RELEASE_NOTES-ko.md">릴리즈 노트 0.2.0</a></li>
+<li><a href="https://github.com/from104/unim/blob/main/CHANGELOG-ko.md">변경 이력</a> — 모든 판의 상세 내역</li>
+<li><a href="https://github.com/from104/unim/releases">릴리스 페이지</a></li>
 <li><a href="https://github.com/from104/unim/blob/main/docs/dev/architecture/IME_BEHAVIOR.md"><code>IME_BEHAVIOR.md</code></a></li>
 <li><a href="https://github.com/from104/unim/blob/main/docs/dev/specs/POPUP_SPEC.md"><code>docs/dev/specs/POPUP_SPEC.md</code></a></li>
 </ul>

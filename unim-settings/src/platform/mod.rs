@@ -18,6 +18,8 @@
 //! - `wizard_is_default_ime() -> bool`
 //! - `wizard_set_as_default() -> DefaultImeOutcome` — 기본 입력기 지정 결과(3치, 아래 참조)
 //! - `wizard_set_default_on_startup(v: bool)`
+//! - `wizard_restart_explorer() -> bool` — D-2: 완료 페이지 옵트인 "탐색기 재시작" 버튼 전용
+//!   (Windows = `taskkill`+재기동으로 언어바 갱신, Linux·fallback = 개념 없음/no-op)
 //! - `wizard_is_korean_language_installed() -> bool`
 //! - `wizard_open_language_settings()`
 //! - `wizard_seen_version() -> Option<String>`
@@ -83,6 +85,12 @@ mod fallback {
         super::DefaultImeOutcome::Success
     }
     pub fn wizard_set_default_on_startup(_v: bool) {}
+    // D-2: Windows explorer.exe 재기동 개념이 없다 — 호출부는 `wiz-platform-windows` UI
+    // 게이트로 이미 걸러지므로 사실상 미호출(표면 대칭 유지 목적, windows.rs 와 동일 반환형).
+    #[allow(dead_code)]
+    pub fn wizard_restart_explorer() -> bool {
+        false
+    }
     pub fn wizard_is_korean_language_installed() -> bool {
         true
     }

@@ -15,7 +15,9 @@ UNIM 정식 릴리스(`develop` → `main` 머지 + 태그 생성) 시 수행해
 - [ ] `cargo test --workspace` — 전체 통과
 - [ ] `cargo clippy --workspace -- -D warnings` — 에러 0
 - [ ] `CHANGELOG.md` / `CHANGELOG-ko.md` — `[Unreleased]` 항목이 해당 버전으로 확정
-- [ ] `docs/user/release-notes/<version>/README.md` + `README.en.md` 존재
+- [ ] `CHANGELOG` 해당 버전 절에 `### 알려진 문제` / `### Known issues` 가 있다
+      (릴리스 본문 맨 위로 올라가는 절이다 — 남은 제약이 없으면 절 자체를 뺀다)
+- [ ] `scripts/release-body.sh vX.Y.Z` 가 오류 없이 본문을 뽑는다
 - [ ] 버전 번호 일관성 확인: `Cargo.toml` workspace version = CHANGELOG 최신 버전
 
 ---
@@ -104,14 +106,14 @@ busctl --user introspect org.atit.unim.PopupService /org/atit/unim/Popup
 
 ## 3. 문서 최종 확인
 
-- [ ] `README.md` — 버전 배지(`현재 X.Y.Z`), 주요 신기능 표, 릴리스 노트 링크 갱신
-      (최상위 README 는 한국어 1벌이다. 영문판은 `docs/user/release-notes/<version>/README.en.md`
-      와 `help/unim-help-en.html` 이 담당한다)
+- [ ] `README.md` — 버전 배지(`현재 X.Y.Z`), 주요 신기능 표 갱신
+      (최상위 README 는 한국어 본문에 짧은 영문 요약 블록을 상단에 둔다. 전체 영문 문서는
+      `help/unim-help-en.html` 이 담당한다)
 - [ ] `docs/user/user-guide/` — 신기능 반영 완료
 - [ ] `docs/user/troubleshooting/` — 신규 Known Issue 반영
 - [ ] `docs/user/faq/` — 버전별 신규 Q&A 추가
 - [ ] `docs/man/` man 8종 전부 `.TH` **버전과 날짜(월)** 업데이트 — `unim.1`, `unim-cli.1`, `unim-indicator.1`, `unim-settings.1`, `unim-settings-gtk.1`, `unim-keymap-studio.1`, `unim-typing-practice.1`, `unim-popup-service.1`
-- [ ] **날짜 정합**: CHANGELOG 두 벌 · 릴리스 노트 두 벌 · `debian/changelog` 의 `--` 줄 ·
+- [ ] **날짜 정합**: CHANGELOG 두 벌 · `debian/changelog` 의 `--` 줄 ·
       `rpm/unim.spec` 의 `%changelog` 날짜(요일 일치) · man `.TH` 가 모두 같은 릴리스 날짜
 - [ ] 깨진 링크 0 — 아래 한 줄로 전수 검사(`%20` 인코딩과 `debian/` 빌드 산출물은 오탐)
       ```bash
@@ -166,12 +168,27 @@ git push origin main --tags
 
 ## 6. GitHub Release 생성
 
-**GitHub Release 자체는 태그 push 시 `linux-deb.yml`(`Create GitHub Release` 스텝)이 자동 생성한다.** 제목·설치 안내·CHANGELOG 링크가 포함된 고정 템플릿 본문과 deb 11종 + `SHA256SUMS`를 자동 첨부하므로, **이 단계에서 수동으로 릴리스를 만들거나 본문을 붙여넣지 않는다.**
+**GitHub Release 자체는 태그 push 시 `linux-deb.yml` 의 `publish-deb` 잡이 자동 생성한다.** 두 워크플로가 배포판 매트릭스로 돈다 — deb 는 ubuntu24.04·ubuntu26.04·debian13, rpm 은 fedora43·fedora44·el10 컨테이너에서 각각 빌드된다(사유와 구조는 `docs/dev/linux/os-compatibility.md` 의 "배포판 매트릭스 빌드" 절). 매트릭스 레그는 아티팩트만 올리고, 릴리스 생성·자산 첨부는 팬인 잡(`publish-deb`/`publish-rpm`)이 전 레그 성공 후에만 한다 — **부분 릴리스는 없다.** 첨부물은 deb 33종(11×3) + 매니페스트 4종, rpm 33종 + 매니페스트 4종. **이 단계에서 수동으로 릴리스를 만들거나 본문을 붙여넣지 않는다.**
 
-`docs/user/release-notes/<version>/README.md` + `README.en.md`는 GitHub Release 본문과는 별개의, 저장소에 커밋되는 사용자용 상세 릴리스 노트다(마이그레이션 안내·알려진 문제 등 CI 템플릿보다 상세한 내용). CHANGELOG와 함께 이 문서가 존재하는지가 §사전 조건에서 확인된다.
+deb 파일명에는 배포판 접미사가 붙는다(`unim-common_X.Y.Z-1~ubuntu24.04_amd64.deb`) — `scripts/ci/build-deb.sh` 가 빌드 시점에 changelog 에 주입하며 저장소에는 커밋되지 않는다. rpm 은 `%{?dist}`(`.fc43`/`.el10`)가 같은 역할을 한다.
 
-- [ ] 태그 push 후 Actions에서 `linux-deb.yml`의 릴리스 생성 성공 확인
-- [ ] (Windows MSI가 별도 워크플로에서 첨부되는 동안 시간차가 있을 수 있음 — `docs/user/release-notes/<version>/`에 고지)
+본문은 `scripts/release-body.sh <태그>` 가 **CHANGELOG 에서 직접 뽑는다.** 별도의 릴리스 노트 문서는 두지 않는다 — 원본이 하나여야 릴리스 페이지와 저장소의 이력이 어긋나지 않는다. 본문 구성은 다음과 같고, `알려진 문제` 절은 읽는 사람이 먼저 봐야 하므로 **맨 위로 끌어올린다.**
+
+```
+## [X.Y.Z] YYYY-MM-DD
+### 알려진 문제 → ### 수정됨 / 추가됨 / 변경됨
+<details>English (CHANGELOG.md 의 같은 절)</details>
+---
+설치 안내 (Linux · Windows)
+**전체 변경 이력 / Full Changelog**: compare/<이전태그>...<태그>
+```
+
+compare 링크가 이전 태그를 찾아야 하므로 `linux-deb.yml` 의 checkout 은 `fetch-depth: 0` 이다. 얕게 받으면 태그가 없어 **오류 없이 그 줄만 빠진다** — 릴리스 후 본문에 그 줄이 있는지 눈으로 볼 것.
+
+- [ ] 태그 push 후 Actions 에서 두 워크플로의 **전 매트릭스 레그 + publish 잡** 성공 확인 (한 레그라도 실패하면 릴리스가 만들어지지 않는다)
+- [ ] 릴리스 본문에 CHANGELOG 절과 `Full Changelog` compare 링크가 다 들어갔는지 확인
+- [ ] 릴리스 전 리허설: `workflow_dispatch`(tag 미입력) 또는 로컬 `scripts/build-linux-matrix.sh` 로 6레그 그린 확인
+- [ ] (Windows MSI가 별도 워크플로에서 첨부되는 동안 시간차가 있을 수 있음 — 본문의 ⏳ 안내가 이를 고지한다)
 
 ---
 

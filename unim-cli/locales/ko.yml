@@ -24,6 +24,7 @@ english_keyboard_layout_desc: "영어 자판 레이아웃 (기본 qwerty)"
 warning_multiple_stdin: "표준 입력('-')이 여러 번 지정되었습니다. 중복된 항목은 무시됩니다."
 warning_label: "경고: %{warning}"
 execution_error: "실행 오류: %{error}"
+moved_subcommand_warning: "이동됨: unim-cli %{new} 를 쓰세요."
 
 # 설정 관련
 config_subcommand_desc: "설정 관리"
@@ -99,6 +100,7 @@ save_and_exit: "저장 및 종료"
 exit_without_save: "저장하지 않고 종료"
 exit_canceled: "설정이 취소되었습니다."
 help_hint: "(도움말을 보려면 --help 옵션을 사용하세요)"
+dict_no_subcommand_hint: "서브커맨드가 필요합니다: user-dict, blacklist\n(도움말을 보려면 --help 옵션을 사용하세요)"
 default_category_changed: "초기 입력 모드를 %{category}(으)로 변경했습니다."
 mode_sharing_changed: "모드 공유 방식을 '%{mode}'(으)로 변경했습니다."
 commit_unit_changed: "조합 확정 단위를 '%{unit}'(으)로 변경했습니다."
@@ -163,7 +165,14 @@ user_dict_removed: "'%{word}'을(를) 사전에서 제거했습니다."
 user_dict_cleared: "사전을 비웠습니다. (%{count}개 삭제)"
 user_dict_not_found: "'%{word}'은(는) 사전에 없습니다."
 user_dict_add_failed: "'%{word}' 추가 실패: 영문 알파벳만 허용되며 중복은 등록되지 않습니다."
+user_dict_add_invalid: "'%{word}': 영문 알파벳만 허용됩니다."
+user_dict_add_duplicate: "'%{word}'은(는) 이미 사전에 있습니다."
 user_dict_clear_confirm: "사전 %{count}개 항목을 모두 삭제하시겠습니까?"
+
+# 여러 단어/항목 제거 확인 (dict user-dict remove, dict blacklist remove 공용)
+dict_multi_remove_list_title: "다음 항목을 제거합니다:"
+dict_multi_remove_confirm: "정말 제거할까요?"
+dict_multi_remove_needs_yes: "여러 단어 제거에는 -y 가 필요합니다 (파이프/비대화형 환경)."
 
 # 자동 영문 모드 전환 (PR #5)
 auto_english_label: "자동 영문 전환"
@@ -195,9 +204,13 @@ trigger_error_action_failed: "'%{action}' 트리거 실패: %{err}"
 #   help_cli_*       : 최상위 unim-cli (변환 모드 + 공통 옵션)
 #   help_cmd_*       : 1차 서브커맨드 (config, trigger)
 #   help_cfg_*       : config 의 자식 서브커맨드 (show/set/path/reset/...)
-#   help_ud_*        : config user-dict 자식 서브커맨드
+#   help_ud_*        : dict user-dict 자식 서브커맨드 (키 이름은 하위 호환을 위해 유지 — 예전엔 config user-dict 자식)
 #   help_layout_*    : config layout 자식 서브커맨드
 #   help_arg_*       : 인자/옵션 도움말 (about 키와 페어로 짧고 길게)
+#
+# 참고: help_cfg_userdict_*, help_cmd_blacklist_* 는 2026-09-07 `config` →
+# `dict` 최상위 서브커맨드로 이동했지만, 하위 호환 별칭(config user-dict/
+# blacklist, hide=true)에서도 그대로 재사용하므로 키 이름은 바꾸지 않았다.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── 최상위 unim-cli ──────────────────────────────────────────────────────────
@@ -224,10 +237,13 @@ help_cli_english_keyboard_long: "변환에 사용할 영어 자판 종류.\n  qw
 
 # ── 1차 서브커맨드 ───────────────────────────────────────────────────────────
 help_cmd_config_about: "데몬 설정 조회·변경·초기화"
-help_cmd_config_long: "UNIM 데몬의 설정(~/.config/unim/config.yaml)을 다룹니다.\n\n자식 서브커맨드:\n  show         현재 설정 요약 출력\n  set          설정 항목 변경 후 저장\n  path         설정 파일 절대 경로 출력\n  reset        설정을 기본값으로 초기화\n  interactive  대화형 편집 세션\n  layout       자판 프로필 조회·검증 (Layout Profile v1)\n  user-dict    역방향 사용자 사전 관리 (한→영 교정 whitelist)\n\n자세히는 'unim-cli help config <SUB>' 사용."
+help_cmd_config_long: "UNIM 데몬의 설정(~/.config/unim/config.yaml)을 다룹니다.\n\n자식 서브커맨드:\n  show         현재 설정 요약 출력\n  set          설정 항목 변경 후 저장\n  path         설정 파일 절대 경로 출력\n  reset        설정을 기본값으로 초기화\n  interactive  대화형 편집 세션\n  layout       자판 프로필 조회·검증 (Layout Profile v1)\n\n사전(단어 목록) 관리는 'unim-cli dict' 참고 (역방향 사용자 사전·AutoTypeFix 블랙리스트).\n\n자세히는 'unim-cli help config <SUB>' 사용."
 
 help_cmd_blacklist_about: "AutoTypeFix 학습형 억제 목록 (블랙리스트) 관리"
-help_cmd_blacklist_long: "AutoTypeFix 블랙리스트 파일(~/.config/unim/typefix-blacklist.yaml)을 조회·관리합니다.\n\n블랙리스트는 자동 교정 후 사용자가 롤백한 단어를 기록해\n반복 오교정을 억제합니다.\n\n자식 서브커맨드:\n  list             모든 항목 표시 (상태·방향·ASCII·레이아웃)\n  remove <index>   1-based 인덱스로 항목 제거\n  clear            전체 삭제 (확인 필요)\n  path             블랙리스트 파일 경로 출력"
+help_cmd_blacklist_long: "AutoTypeFix 블랙리스트 파일(~/.config/unim/typefix-blacklist.yaml)을 조회·관리합니다.\n\n블랙리스트는 자동 교정 후 사용자가 롤백한 단어를 기록해\n반복 오교정을 억제합니다.\n\n자식 서브커맨드:\n  list                    모든 항목 표시 (상태·방향·ASCII·레이아웃)\n  remove <index>... [-y]  1-based 인덱스로 항목 제거 (여러 개 가능, 2개 이상은 확인 필요)\n  clear                   전체 삭제 (확인 필요)\n  path                    블랙리스트 파일 경로 출력"
+
+help_cmd_dict_about: "사전(단어 목록) 관리: 역방향 사용자 사전·AutoTypeFix 블랙리스트"
+help_cmd_dict_long: "AutoTypeFix 관련 사전(단어 목록) 파일을 다룹니다.\n(구버전과의 호환을 위해 'unim-cli config user-dict'/'config blacklist' 로도\n계속 동작하지만, 앞으로는 여기를 사용하세요.)\n\n자식 서브커맨드:\n  user-dict    역방향 사용자 사전 관리 (한→영 교정 whitelist)\n  blacklist    AutoTypeFix 학습형 억제 목록 관리\n\n자세히는 'unim-cli help dict <SUB>' 사용."
 
 help_cmd_trigger_about: "데몬에 액션 트리거 (외부 단축키 도구용 universal entry point)"
 help_cmd_trigger_long: "OS 단축키 도구(KDE 글로벌 단축키, Hyprland binds, Sway, xbindkeys, AutoHotkey 등)에서\n호출하기 위한 진입점입니다. 데몬의 org.atit.unim.InputMethod.TriggerAction RPC를\n호출해 현재 활성 InputContext에 액션을 발사시킵니다.\n\n지원 액션:\n  emoji_popup    이모지 팝업 표시 (현재 커서 위치)\n  (향후 hanja_popup, special_char_popup 등 확장 예정)\n\n예시:\n  unim-cli trigger emoji_popup\n\n환경별 설정 예시는 docs/user/keyboard-shortcuts/README-ko.md 참고\n(KDE/Hyprland/Sway/X11 xbindkeys 모두 정리되어 있음)."
@@ -263,23 +279,23 @@ help_cfg_layout_about: "자판 프로필 조회·검증 (Layout Profile v1)"
 help_cfg_layout_long: "내장 자판 프로필과 사용자 정의 프로필(~/.config/unim/layouts/*.json)을 다룹니다.\n\n자식 서브커맨드:\n  list             내장 + 사용자 디렉토리의 프로필 이름 목록 표시\n  describe <name>  특정 프로필의 metadata·조합 규칙·rule_set 개요 표시\n  validate <file>  프로필 파일 스키마·자모 해석·rule_set 일관성 검사\n\nexit code:\n  validate 0=통과 / 1=경고만 / 2=오류"
 
 help_cfg_userdict_about: "역방향 사용자 사전 관리 (한→영 교정 whitelist)"
-help_cfg_userdict_long: "AutoTypeFix 역방향(한→영) 교정에서 '교정하지 말 것' whitelist를 관리합니다.\nauto-typefix-user-dict 가 활성일 때만 적용됩니다.\n\n자식 서브커맨드:\n  list             등록된 단어 목록 출력\n  add <word>       단어 추가 (영문 알파벳만, 중복은 거부)\n  remove <word>    단어 제거 (대소문자 무시)\n  clear            전체 삭제 (확인 필요)\n  path             사전 파일 경로 출력"
+help_cfg_userdict_long: "AutoTypeFix 역방향(한→영) 교정에서 '교정하지 말 것' whitelist를 관리합니다.\nauto-typefix-user-dict 가 활성일 때만 적용됩니다.\n\n자식 서브커맨드:\n  list                  등록된 단어 목록 출력\n  add <word>...         단어 추가 (여러 개 가능, 영문 알파벳만, 중복은 거부)\n  remove <word>... [-y] 단어 제거 (여러 개 가능, 대소문자 무시, 2개 이상은 확인 필요)\n  clear                 전체 삭제 (확인 필요)\n  path                  사전 파일 경로 출력"
 
 # ── user-dict 자식 서브커맨드 ────────────────────────────────────────────────
 help_ud_list_about: "등록된 단어 목록 출력"
 help_ud_list_long: "역방향 사용자 사전에 등록된 모든 단어를 표시합니다.\n각 항목에는 단어와 등록 시 추가한 메모(있는 경우)가 함께 출력됩니다."
 
-help_ud_add_about: "사전에 단어 추가 (영문 알파벳만)"
-help_ud_add_long: "역방향(한→영) 교정에서 제외할 영단어를 추가합니다.\n• 알파벳(a–z, A–Z) 만 허용 — 숫자·기호·공백·한글은 거부됩니다.\n• 대소문자 구분 없이 저장됩니다.\n• 중복 등록은 거부되며, 추가된 단어 수만 늘어나지 않습니다.\n\n예시:\n  unim-cli config user-dict add git --note '명령어'"
-help_ud_add_word_short: "추가할 영단어 (예: git)"
-help_ud_add_word_long: "사전에 등록할 영단어. 알파벳만 허용되며 대소문자는 무시됩니다."
+help_ud_add_about: "사전에 단어 추가 (여러 개 가능, 영문 알파벳만)"
+help_ud_add_long: "역방향(한→영) 교정에서 제외할 영단어를 추가합니다. 공백으로 구분해 여러 단어를\n한 번에 추가할 수 있으며, 단어마다 결과를 한 줄씩 출력합니다.\n• 알파벳(a–z, A–Z) 만 허용 — 숫자·기호·공백·한글은 거부됩니다.\n• 대소문자 구분 없이 저장됩니다.\n• 중복 등록은 거부되며, 추가된 단어 수만 늘어나지 않습니다.\n• 하나라도 실패(형식 오류·중복)하면 비-0 종료 코드를 반환합니다.\n\n예시:\n  unim-cli dict user-dict add git --note '명령어'\n  unim-cli dict user-dict add git rust python"
+help_ud_add_word_short: "추가할 영단어 1개 이상 (예: git rust)"
+help_ud_add_word_long: "사전에 등록할 영단어. 공백으로 구분해 여러 개를 한 번에 줄 수 있다.\n알파벳만 허용되며 대소문자는 무시됩니다."
 help_ud_add_note_short: "단어에 붙일 메모 (선택)"
-help_ud_add_note_long: "단어와 함께 저장될 자유 형식 메모. 'list' 출력 시 함께 표시됩니다.\n생략하면 빈 메모로 등록됩니다."
+help_ud_add_note_long: "단어와 함께 저장될 자유 형식 메모. 'list' 출력 시 함께 표시됩니다.\n여러 단어를 동시에 추가하면 모든 단어에 같은 메모가 붙습니다.\n생략하면 빈 메모로 등록됩니다."
 
-help_ud_remove_about: "사전에서 단어 제거 (대소문자 무시)"
-help_ud_remove_long: "이미 등록된 단어를 제거합니다. 대소문자는 구분하지 않습니다.\n사전에 없는 단어를 제거하려 하면 안내 메시지를 출력하고 비-0 종료 코드를 반환합니다."
-help_ud_remove_word_short: "제거할 단어"
-help_ud_remove_word_long: "사전에서 제거할 단어. 등록 시 대소문자와 다르게 입력해도 매칭됩니다."
+help_ud_remove_about: "사전에서 단어 제거 (여러 개 가능, 대소문자 무시)"
+help_ud_remove_long: "이미 등록된 단어를 제거합니다. 대소문자는 구분하지 않습니다.\n공백으로 구분해 여러 단어를 한 번에 제거할 수 있습니다.\n사전에 없는 단어를 제거하려 하면 안내 메시지를 출력하고 비-0 종료 코드를 반환합니다.\n\n대상이 2개 이상이면 삭제 전 목록을 보여주고 확인을 받습니다(y/N).\n`-y`/`--yes` 로 확인을 생략할 수 있으며(스크립트용), stdin 이 터미널이 아니고\n`-y` 도 없으면 조용히 지워지는 사고를 막기 위해 에러로 중단합니다."
+help_ud_remove_word_short: "제거할 단어 1개 이상 (예: git rust)"
+help_ud_remove_word_long: "사전에서 제거할 단어. 공백으로 구분해 여러 개를 한 번에 줄 수 있다.\n등록 시 대소문자와 다르게 입력해도 매칭됩니다."
 
 help_ud_clear_about: "사전 전체 삭제 (확인 필요)"
 help_ud_clear_long: "사전의 모든 항목을 삭제합니다. 실행 전 확인 프롬프트가 표시되며,\n삭제된 항목 개수가 출력됩니다. 되돌릴 수 없으니 신중히 사용하세요."
@@ -308,23 +324,27 @@ blacklist_path_label: "경로"
 blacklist_removed: "#%{index} 항목을 제거했습니다."
 blacklist_cleared: "블랙리스트를 비웠습니다. (%{count}개 삭제)"
 blacklist_clear_confirm: "블랙리스트 %{count}개 항목을 모두 삭제하시겠습니까?"
-blacklist_index_one_based: "인덱스는 1 이상이어야 합니다."
-blacklist_index_out_of_range: "인덱스가 범위를 벗어났습니다 (최대 %{max})."
+blacklist_index_one_based: "%{index}: 인덱스는 1 이상이어야 합니다."
+blacklist_index_out_of_range: "%{index}: 인덱스가 범위를 벗어났습니다 (최대 %{max})."
 
 # ── blacklist 자식 서브커맨드 ────────────────────────────────────────────────
 help_bl_list_about: "블랙리스트 항목 목록 표시"
 help_bl_list_long: "AutoTypeFix 블랙리스트의 모든 항목을 상태·방향·ASCII 시퀀스·레이아웃 쌍과 함께 출력합니다."
 
-help_bl_remove_about: "1-based 인덱스로 항목 제거"
-help_bl_remove_long: "list 에서 보여준 1-based 인덱스로 항목을 제거합니다. 즉시 파일에 저장됩니다."
-help_bl_remove_idx_short: "1-based 인덱스 (list 출력 기준)"
-help_bl_remove_idx_long: "제거할 항목의 1-based 인덱스. 먼저 'blacklist list' 로 인덱스를 확인하세요."
+help_bl_remove_about: "1-based 인덱스로 항목 제거 (여러 개 가능)"
+help_bl_remove_long: "list 에서 보여준 1-based 인덱스로 항목을 제거합니다. 공백으로 구분해 여러\n인덱스를 한 번에 줄 수 있습니다. 즉시 파일에 저장됩니다.\n\n대상이 2개 이상이면 삭제 전 목록을 보여주고 확인을 받습니다(y/N).\n`-y`/`--yes` 로 확인을 생략할 수 있으며(스크립트용), stdin 이 터미널이 아니고\n`-y` 도 없으면 조용히 지워지는 사고를 막기 위해 에러로 중단합니다."
+help_bl_remove_idx_short: "1-based 인덱스 1개 이상 (list 출력 기준)"
+help_bl_remove_idx_long: "제거할 항목의 1-based 인덱스. 공백으로 구분해 여러 개를 한 번에 줄 수 있다.\n먼저 'blacklist list' 로 인덱스를 확인하세요."
 
 help_bl_clear_about: "모든 블랙리스트 항목 삭제 (확인 필요)"
 help_bl_clear_long: "블랙리스트 전체를 삭제합니다. 실행 전 확인 프롬프트가 표시됩니다. 되돌릴 수 없습니다."
 
 help_bl_path_about: "블랙리스트 파일 경로 출력"
 help_bl_path_long: "블랙리스트 파일의 절대 경로를 출력합니다.\n기본 경로: $XDG_CONFIG_HOME/unim/typefix-blacklist.yaml (보통 ~/.config/unim/typefix-blacklist.yaml)."
+
+# -y/--yes 공용 플래그 (dict user-dict remove, dict blacklist remove)
+help_dict_yes_short: "확인 프롬프트 생략 (스크립트용)"
+help_dict_yes_long: "2개 이상 제거 시 나오는 확인 프롬프트를 생략하고 즉시 진행합니다.\nstdin 이 터미널이 아닌 파이프/스크립트 환경에서 여러 개를 제거하려면 필수입니다."
 
 # ── config set 키 도움말 (ConfigKey ValueEnum, `config set --help`) ─────────
 help_ck_korean_layout: "한국어 레이아웃 (2bul, 3bul390, 3bul391, 3bul_noshift, 3bul_qwerty)"

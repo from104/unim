@@ -1,3 +1,28 @@
+unim (0.4.2-1) unstable; urgency=medium
+
+  * Fix Hangul input on GNOME Shell 50 (Ubuntu 26.04).
+  * Show in-progress Hangul in sandboxed apps (Flatpak, Snap), which
+    previously displayed nothing while composing.
+  * Fix composition stalling where GTK falls back to im-xim; in-progress
+    text is now drawn in a small window next to the caret.
+  * Keep the composing syllable when settings are saved, instead of losing
+    it or breaking the composition.
+  * Stop the XIM server from dying with the app that closes, which used to
+    block XIM input in every app afterwards.
+  * Windows: composite keys such as Ctrl+B now work while auto-English
+    switching is active; character keys reach browser shortcuts in Chrome
+    when no editable field has focus; added a one-click Explorer restart
+    for a missing tray menu after an update.
+  * Add per-distribution release builds for six distributions, newly
+    including the RHEL 10 family (requires EPEL).
+  * unim-cli: dictionary subcommands moved to the top-level "dict" group
+    (old paths still work with a notice) and now accept several words at
+    once, asking for confirmation when removing more than one.
+  * Embed file version information in the Windows binaries to reduce
+    antivirus false positives.
+
+ -- Seo Kihyun <from104@gmail.com>  Wed, 09 Sep 2026 20:00:00 +0900
+
 unim (0.4.1-1) unstable; urgency=medium
 
   * Fix Sticky Keys combinations (Ctrl/Alt/Shift + key) intermittently losing

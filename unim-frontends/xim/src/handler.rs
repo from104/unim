@@ -5,6 +5,7 @@
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::os::raw::c_int;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ahash::AHashMap;
 use tokio::sync::mpsc;
@@ -66,8 +67,13 @@ pub struct UnimInputContext {
 
 impl UnimInputContext {
     fn new(context_path: String, input_style: InputStyle) -> Self {
-        let show_preedit_window = !input_style.contains(InputStyle::PREEDIT_CALLBACKS)
-            && !input_style.contains(InputStyle::PREEDIT_NOTHING);
+        // CALLBACKS(ON-THE-SPOT) 를 광고하지 않으므로(input_styles() 참조) GTK3 는
+        // PREEDIT_NOTHING 으로 협상해 온다 — GTK 의 ALLOWED_MASK(gtkimcontextxim.c:
+        // 183-184) 에 PREEDIT_POSITION 이 없기 때문이다. 그런 NOTHING 클라이언트도
+        // preedit 을 볼 수 있어야 하므로 서버 자체 PeWindow 렌더링을 켠다 — GTK 는
+        // 협상된 스타일과 무관하게 spot 좌표를 XSetICValues 로 계속 보내 온다
+        // (gtkimcontextxim.c:771-796), 그 좌표로 PeWindow 를 띄울 수 있다.
+        let show_preedit_window = !input_style.contains(InputStyle::PREEDIT_CALLBACKS);
 
         Self {
             context_path,
@@ -319,15 +325,21 @@ impl UnimHandler {
         // preedit 캐시 업데이트
         user_ic.user_data.preedit_cache = preedit_str.to_string();
 
-        // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw 호출
-        server.preedit_draw(&mut user_ic.ic, preedit_str)?;
-
-        // PREEDIT_CALLBACKS가 아니면 Over-The-Spot 렌더링도 수행
-        if !user_ic
+        let is_callbacks = user_ic
             .ic
             .input_style()
-            .contains(InputStyle::PREEDIT_CALLBACKS)
-        {
+            .contains(InputStyle::PREEDIT_CALLBACKS);
+
+        // ON-THE-SPOT(PREEDIT_CALLBACKS) 로 명시 협상된 IC 에만 XIM 프로토콜
+        // preedit 콜백을 보낸다. CALLBACKS 를 협상 목록에서 뺀 이유는
+        // input_styles() 주석 참조 — NOTHING/POSITION IC 는 이 경로 대신 아래
+        // PeWindow 자체 렌더링으로 preedit 을 받는다.
+        if is_callbacks {
+            server.preedit_draw(&mut user_ic.ic, preedit_str)?;
+        }
+
+        // PREEDIT_CALLBACKS가 아니면 Over-The-Spot 렌더링도 수행
+        if !is_callbacks {
             if !user_ic.user_data.show_preedit_window {
                 return Ok(());
             }
@@ -389,8 +401,17 @@ impl UnimHandler {
     ) -> Result<(), ServerError> {
         user_ic.user_data.preedit_cache.clear();
 
-        // ibus 호환: 입력 스타일과 무관하게 항상 preedit_draw("") 호출
-        server.preedit_draw(&mut user_ic.ic, "")?;
+        // 그리기(send_preedit)와 대칭으로, ON-THE-SPOT 명시 협상 IC 에만 XIM
+        // 지우기 콜백을 보낸다. NOTHING/POSITION IC 는 아래 PeWindow 정리가 전부다.
+        // (xim 크레이트의 preedit_started 가드 덕에 게이트 없이도 오늘은 no-op 이지만,
+        // 그 내부 상태에 안전성을 위임하지 않도록 여기서 명시적으로 막는다.)
+        if user_ic
+            .ic
+            .input_style()
+            .contains(InputStyle::PREEDIT_CALLBACKS)
+        {
+            server.preedit_draw(&mut user_ic.ic, "")?;
+        }
 
         // PeWindow도 정리
         if let Some(pe_id) = user_ic.user_data.pe_window.take() {
@@ -450,7 +471,15 @@ impl UnimHandler {
             // 클라이언트가 세션을 닫는다(IME_BEHAVIOR.md §8.1 주의사항).
             // 사이클은 focus-out / reset 에서 정상적으로 닫힌다.
             user_ic.user_data.preedit_cache.clear();
-            server.preedit_clear_keep_session(&mut user_ic.ic)?;
+            // preedit() 과 대칭 게이트 — ON-THE-SPOT(PREEDIT_CALLBACKS) 로 명시
+            // 협상된 IC 에만 XIM 프로토콜 clear 콜백을 보낸다.
+            if user_ic
+                .ic
+                .input_style()
+                .contains(InputStyle::PREEDIT_CALLBACKS)
+            {
+                server.preedit_clear_keep_session(&mut user_ic.ic)?;
+            }
             self.drop_pe_window(user_ic);
         }
         server.conn().flush().ok();
@@ -633,7 +662,7 @@ impl Drop for UnimHandler {
 }
 
 impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> for UnimHandler {
-    type InputStyleArray = [InputStyle; 3];
+    type InputStyleArray = [InputStyle; 2];
     type InputContextData = UnimInputContext;
 
     fn new_ic_data(
@@ -696,8 +725,31 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
     }
 
     fn input_styles(&self) -> Self::InputStyleArray {
+        // CALLBACKS(ON-THE-SPOT) 는 의도적으로 광고하지 않는다.
+        //
+        // GTK3 im-xim + libX11 조합은 서버가 보낸 PreeditStart/Draw 콜백 요청이
+        // 트리거하는 재진입 XSetICValues 중첩에서 응답 경합으로 영구 웨지된다.
+        // XIM 프로토콜에는 요청-응답 시퀀스 번호가 없어(libX11 imDefIc.c
+        // `_XimSetICValuesCheck` 는 imid/icid/opcode 만으로 매치하고, 중첩된
+        // `_XimRead` 안의 `_CheckCMEvent`(imTrX.c:477) 는 내용을 보지 않는다)
+        // 불일치한 응답 패킷이 `imTransR.c:243,302` 에서 BadProtocol 로 반사·
+        // 파괴되며 클라이언트가 그대로 멈춘다. 서버측 순서 조정(fire-and-forget,
+        // sync 협상)으로는 회피되지 않음이 실측 반증됐다 — 유일한 서버측 회피는
+        // CALLBACKS 스타일을 애초에 협상 목록에 올리지 않는 것뿐이다.
+        //
+        // GTK3 의 ALLOWED_MASK(gtkimcontextxim.c:183-184) 에는 PREEDIT_POSITION 이
+        // 없으므로 이 목록에서 GTK3 는 PREEDIT_NOTHING 으로 협상해 온다. GTK 는
+        // 협상된 스타일과 무관하게 spot 좌표를 XSetICValues 로 계속 보내므로
+        // (gtkimcontextxim.c:771-796) 서버가 그 좌표로 자체 PeWindow 를 그릴 수
+        // 있다 — `UnimInputContext::new` 의 `show_preedit_window` 참조. 이 조합은
+        // 4차 실험에서 웨지 0으로 실측 검증됐다.
+        //
+        // ON-THE-SPOT(PREEDIT_CALLBACKS) 를 협상 없이 명시적으로 요청하는
+        // 클라이언트(tests/unim-test-xim 등 자체 Xlib 클라이언트)는 XIM 프로토콜
+        // 상 이 목록에 없어도 CreateIc 로 그 스타일을 지정할 수 있고, 그 경우
+        // 기존 콜백 경로를 그대로 받는다 — `preedit()`/`commit_then_preedit()` 의
+        // 스타일 게이트 참조.
         [
-            InputStyle::PREEDIT_CALLBACKS | InputStyle::STATUS_NOTHING,
             InputStyle::PREEDIT_NOTHING | InputStyle::STATUS_NOTHING,
             InputStyle::PREEDIT_POSITION | InputStyle::STATUS_NOTHING,
         ]
@@ -866,12 +918,38 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
         // spot_location 변경 시 커서 위치를 데몬에 보고
         let spot = user_ic.ic.preedit_spot();
         let app_win = user_ic.ic.app_win();
+        // ⚠️ 죽은 창에 대고 물으면 서버가 통째로 죽는다.
+        //
+        // 앱이 닫히는 순간에도 마지막 SetIcValues(spot) 가 큐에 남아 들어온다.
+        // 그때 `app_win` 은 이미 파괴된 창이고, `XTranslateCoordinates` 는
+        // 왕복 요청이라 BadWindow 가 즉시 돌아온다 — Xlib 기본 에러 핸들러는
+        // 프로세스를 그대로 종료시키므로, **클라이언트 하나가 닫히는 타이밍에
+        // XIM 서버 전체가 죽고** 그 뒤로 뜨는 모든 앱이 XOpenIM 에 실패한다
+        // (2026-09-03 실측: 하네스 5앱 연속 실행 중 unim-xim 이
+        // "BadWindow ... X_TranslateCoords" 로 종료 → 뒤따르는 세 시나리오가
+        // 연쇄 실패). pe_window.rs 의 정리 경로와 같은 요령으로, 이 왕복
+        // 동안만 에러를 삼키는 핸들러를 끼운다.
+        //
+        // 다만 반환값 0 을 전부 '창 없음' 으로 단정하면 안 된다 —
+        // `XTranslateCoordinates` 는 두 창이 **다른 스크린**에 있을 때도(에러가
+        // 아니다) 0 을 돌려준다. 그 경우 좌표는 못 구해도 spot 보고 자체는
+        // 유효하므로 (0,0) 폴백으로 계속 간다. 진짜 X 에러(BadWindow 등)가
+        // 왔는지는 삼킴 핸들러가 세우는 `X_ERROR_SEEN` 플래그로만 판정한다.
+        //
+        // ⚠️ 에러를 봤을 때도 **이 핸들러에서 조기 return 하지 않는다.** 플래그는
+        // 이 왕복 중에 배달된 앞선 비동기 에러로도 설 수 있어(거짓 양성) 조기
+        // return 하면 아래 pe_window 재배치까지 함께 건너뛰어 preedit 창이 옛 자리에
+        // 남는다. 그래서 좌표는 (0,0) 으로 폴백하고 **`ReportCursorRect` 한 건만**
+        // 건너뛴다 — 죽은 창의 좌표로 팝업을 엉뚱한 자리에 띄우는 것만 막으면 된다.
+        let mut report_cursor_rect = true;
         let (abs_x, abs_y) = if let Some(win) = app_win {
             unsafe {
                 let mut child_return: x11::xlib::Window = 0;
                 let mut rx = 0i32;
                 let mut ry = 0i32;
-                x11::xlib::XTranslateCoordinates(
+                X_ERROR_SEEN.store(false, Ordering::SeqCst);
+                let old_handler = x11::xlib::XSetErrorHandler(Some(ignore_x_error));
+                let ok = x11::xlib::XTranslateCoordinates(
                     self.display,
                     win.get() as x11::xlib::Window,
                     x11::xlib::XRootWindow(self.display, self.screen),
@@ -881,20 +959,44 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
                     &mut ry,
                     &mut child_return,
                 );
-                (rx, ry)
+                x11::xlib::XSetErrorHandler(old_handler);
+                if X_ERROR_SEEN.swap(false, Ordering::SeqCst) {
+                    // 진짜 X 에러 — 창이 이미 없다. 좌표 보고만 버리고 나머지 흐름
+                    // (pe_window 재배치)은 그대로 간다.
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "spot 좌표 변환 실패(창이 이미 없음) — 커서 보고만 생략: win={:#x}",
+                        win.get()
+                    );
+                    report_cursor_rect = false;
+                    (0, 0)
+                } else if ok == 0 {
+                    // 에러는 없었는데 0 — 두 창이 다른 스크린이다(멀티 스크린 X 서버).
+                    // 절대 좌표는 못 구하지만 spot 보고는 계속한다.
+                    unim_log!(
+                        "XIM_HANDLER",
+                        "spot 좌표 변환: 다른 스크린(sameScreen=0) — (0,0) 폴백: win={:#x}",
+                        win.get()
+                    );
+                    (0, 0)
+                } else {
+                    (rx, ry)
+                }
             }
         } else {
             (0, 0)
         };
-        let cursor_x = abs_x + spot.x as i32;
-        let cursor_y = abs_y + spot.y as i32;
-        let _ = self.dbus_tx.blocking_send(DbusRequest::ReportCursorRect {
-            context_path: user_ic.user_data.context_path.clone(),
-            x: cursor_x,
-            y: cursor_y,
-            width: 0,
-            height: 20,
-        });
+        if report_cursor_rect {
+            let cursor_x = abs_x + spot.x as i32;
+            let cursor_y = abs_y + spot.y as i32;
+            let _ = self.dbus_tx.blocking_send(DbusRequest::ReportCursorRect {
+                context_path: user_ic.user_data.context_path.clone(),
+                x: cursor_x,
+                y: cursor_y,
+                width: 0,
+                height: 20,
+            });
+        }
 
         // spot_location 변경 시 preedit 윈도우 재생성
         // 단, preedit이 활성 상태일 때만 (preedit_cache가 비어있지 않을 때)
@@ -1205,4 +1307,28 @@ impl<C: Connection + xim::x11rb::HasConnection> ServerHandler<X11rbServer<C>> fo
 
         Ok(consumed)
     }
+}
+
+/// 삼킴 핸들러가 실제로 X 에러를 한 번이라도 받았는지 알리는 플래그.
+///
+/// 호출자는 왕복 직전에 `false` 로 내리고, 왕복 직후 `swap(false)` 로 읽는다.
+/// XIM 서버의 X 왕복은 전부 이 한 스레드(handler 루프)에서만 일어나므로
+/// 전역 플래그로 충분하다.
+static X_ERROR_SEEN: AtomicBool = AtomicBool::new(false);
+
+/// X11 에러 삼킴용 핸들러 (일시 설치 전용).
+///
+/// Xlib 기본 핸들러는 에러를 만나면 프로세스를 종료한다. XIM 서버는 이미
+/// 사라진 클라이언트 창을 상대로 요청을 보낼 수밖에 없는 자리가 있어
+/// (`handle_set_ic_values` 의 좌표 변환), 그 왕복 동안만 이 핸들러를 끼워
+/// 에러를 무시한다. `pe_window.rs` 의 정리 경로와 같은 방식이다.
+///
+/// 에러를 삼키되 **삼켰다는 사실은 남긴다** — 호출자가 '진짜 에러' 와
+/// '에러 아닌 0 반환(다른 스크린)' 을 구별해야 하기 때문이다.
+unsafe extern "C" fn ignore_x_error(
+    _display: *mut x11::xlib::Display,
+    _event: *mut x11::xlib::XErrorEvent,
+) -> c_int {
+    X_ERROR_SEEN.store(true, Ordering::SeqCst);
+    0
 }

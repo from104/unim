@@ -44,7 +44,9 @@
 #
 # 대상 / Target (amd64/x86_64):
 #   .deb — Ubuntu 24.04 (noble) 이상 / Debian 13 (trixie) 이상
-#   .rpm — Fedora 43 이상
+#   .rpm — Fedora 43 이상 / RHEL 10 계열 (Rocky·Alma — EPEL 필요)
+#   릴리스에는 배포판별 빌드가 각각 올라온다 — 감지된 배포판 이하의 최대
+#   기준선(SHA256SUMS-<배포판><버전>)이 자동 선택된다.
 #   그 외 배포판은 소스 빌드를 사용한다 (README 참고).
 #   Other distributions: build from source (see README).
 # ============================================================================
@@ -103,17 +105,44 @@ FORCE=0
 # guard_environment 가 설정 (root 면 빈 문자열). 기본값은 set -u 대비.
 SUDO=""
 
-# ── 배포판 최소 버전 (바이너리 호환 하한) ────────────────────────────────────
-# .deb 는 Ubuntu 24.04(noble)에서 빌드된다 — glibc 2.39, time64 전환 이후의
-# 패키지명(libglib2.0-0t64·libgtk-3-0t64·libqt6core6t64 …), libadwaita 1.4+,
-# Qt6 6.4+ 를 요구한다. Debian 12(bookworm)는 glibc 2.36 이고 t64 이전 이름을
-# 쓰므로 의존 해석 단계에서 실패한다 → Debian 은 13(trixie)부터.
-# .rpm 은 fedora:43 컨테이너에서 빌드된다. Qt IM 플러그인이 Qt private API 를
-# 쓰기 때문에 빌드 당시보다 낮은 Qt 마이너에서는 로드되지 않는다 → 같은
-# 릴리스(43) 이상.
-MIN_UBUNTU="24.04"
-MIN_DEBIAN="13"
-MIN_FEDORA="43"
+# ── 배포판 기준선 (배포판별 빌드 목록) ──────────────────────────────────────
+# 릴리스마다 아래 기준선 각각의 컨테이너에서 다시 빌드해 배포판별 자산을
+# 게시한다. 한 빌드로 여러 배포판을 덮을 수 없기 때문이다 — glibc 는
+# 하위호환만 보장하고, Qt IM 플러그인은 Qt GuiPrivate ABI 에 묶여 있다.
+# Debian 12(bookworm)는 glibc 2.36 + time64 전환 이전 패키지명이라 제외.
+# EL(RHEL 계열) 10 은 glibc 2.39 로 Ubuntu 24.04 와 같은 기준선이다.
+#
+# 목록은 오름차순. CI 매트릭스(.github/workflows/linux-{deb,rpm}.yml)와
+# scripts/build-linux-matrix.sh 의 표와 항상 함께 갱신할 것.
+UBUNTU_BASELINES="24.04 26.04"
+DEBIAN_BASELINES="13"
+FEDORA_BASELINES="43 44"
+EL_BASELINES="10"
+
+# 안내 문구용 최소값 (각 목록의 첫 항목).
+MIN_UBUNTU="${UBUNTU_BASELINES%% *}"
+MIN_DEBIAN="${DEBIAN_BASELINES%% *}"
+MIN_FEDORA="${FEDORA_BASELINES%% *}"
+MIN_EL="${EL_BASELINES%% *}"
+
+# 감지된 배포판(base, ver)에 맞는 매니페스트 이름을 고른다.
+# 규칙: "감지 버전 이하의 최대 기준선" — ubuntu 25.04 → 24.04 빌드,
+# fedora 45 → 44 빌드(경고는 호출부가). 기준선 미달이면 실패(반환 1).
+pick_manifest() {
+	local base="$1" ver="$2" list="" b best=""
+	case "$base" in
+		ubuntu) list="$UBUNTU_BASELINES" ;;
+		debian) list="$DEBIAN_BASELINES" ;;
+		fedora) list="$FEDORA_BASELINES" ;;
+		el)     list="$EL_BASELINES" ;;
+		*) return 1 ;;
+	esac
+	for b in $list; do
+		version_lt "$ver" "$b" || best="$b"   # ver >= b 인 마지막 항목
+	done
+	[[ -n $best ]] || return 1
+	echo "SHA256SUMS-${base}${best}"
+}
 
 # $1 < $2 (버전 비교, sort -V 기준)
 version_lt() {
@@ -210,8 +239,8 @@ detect_package_manager() {
 		why_ko="지원하는 패키지 매니저(apt-get+dpkg 또는 dnf+rpm)를 찾지 못했습니다."
 		why_en="No supported package manager found (needs apt-get+dpkg or dnf+rpm)."
 	fi
-	err "${why_ko} 현재 바이너리 제공 대상: Ubuntu ${MIN_UBUNTU}+ / Debian ${MIN_DEBIAN}+ (.deb), Fedora ${MIN_FEDORA}+ (.rpm). 소스 빌드는 모든 배포판에서 가능합니다: https://github.com/${REPO}#설치" \
-	    "${why_en} Binaries are currently provided for: Ubuntu ${MIN_UBUNTU}+ / Debian ${MIN_DEBIAN}+ (.deb) and Fedora ${MIN_FEDORA}+ (.rpm). Building from source works on any distribution: https://github.com/${REPO}#installation"
+	err "${why_ko} 현재 바이너리 제공 대상: Ubuntu ${MIN_UBUNTU}+ / Debian ${MIN_DEBIAN}+ (.deb), Fedora ${MIN_FEDORA}+ / RHEL ${MIN_EL} 계열 (.rpm). 소스 빌드는 모든 배포판에서 가능합니다: https://github.com/${REPO}#설치" \
+	    "${why_en} Binaries are currently provided for: Ubuntu ${MIN_UBUNTU}+ / Debian ${MIN_DEBIAN}+ (.deb), Fedora ${MIN_FEDORA}+ / RHEL ${MIN_EL} family (.rpm). Building from source works on any distribution: https://github.com/${REPO}#installation"
 }
 
 # ── 배포판 버전 게이트 ───────────────────────────────────────────────────────
@@ -222,16 +251,12 @@ check_distro_version() {
 
 	local base="" ver="" pretty="" min=""
 
-	# EL 계열은 별도 취급 — dnf 는 있지만 게시 .rpm(Fedora 빌드)과 호환되지 않는다.
+	# 베이스 판정: 정식 배포판 → 그대로, 파생 → 코드명으로 upstream 버전 역산.
+	# EL 계열(RHEL·Rocky·Alma·CentOS Stream·Oracle)은 el10 전용 빌드가 있다 —
+	# 10 미만은 아래 최소 버전 게이트가 소스 빌드로 안내한다.
 	case "${ID:-}" in
 		rhel|centos|almalinux|rocky|ol)
-			err "RHEL 계열(${PRETTY_NAME:-${ID}})은 아직 지원하지 않습니다 — 게시된 .rpm 은 Fedora ${MIN_FEDORA} 에서 빌드되어 더 새로운 시스템 라이브러리를 요구합니다. 소스 빌드를 사용하세요: https://github.com/${REPO}#설치" \
-			    "RHEL-family (${PRETTY_NAME:-${ID}}) is not supported yet — the published .rpm is built on Fedora ${MIN_FEDORA} and needs newer system libraries. Please build from source: https://github.com/${REPO}#installation"
-			;;
-	esac
-
-	# 베이스 판정: 정식 배포판 → 그대로, 파생 → 코드명으로 upstream 버전 역산.
-	case "${ID:-}" in
+			base="el"; ver="${VERSION_ID%%.*}" ;;
 		ubuntu) base="ubuntu"; ver="${VERSION_ID:-}" ;;
 		debian) base="debian"; ver="${VERSION_ID:-}" ;;
 		fedora) base="fedora"; ver="${VERSION_ID:-}" ;;
@@ -242,6 +267,9 @@ check_distro_version() {
 				base="ubuntu"; ver="$(ubuntu_version_of "$VERSION_CODENAME")"
 			elif [[ ${ID_LIKE:-} == *debian* && -n ${VERSION_CODENAME:-} ]]; then
 				base="debian"; ver="$(debian_version_of "$VERSION_CODENAME")"
+			elif [[ ${ID_LIKE:-} == *rhel* || ${ID_LIKE:-} == *centos* ]]; then
+				# EL 파생(EuroLinux 등)은 메이저 번호만 쓴다.
+				base="el"; ver="${VERSION_ID%%.*}"
 			elif [[ ${ID_LIKE:-} == *fedora* ]]; then
 				# Nobara·Ultramarine 등은 Fedora 릴리스 번호를 그대로 쓴다.
 				base="fedora"; ver="${VERSION_ID:-}"
@@ -253,6 +281,7 @@ check_distro_version() {
 		ubuntu) pretty="Ubuntu"; min="$MIN_UBUNTU" ;;
 		debian) pretty="Debian"; min="$MIN_DEBIAN" ;;
 		fedora) pretty="Fedora"; min="$MIN_FEDORA" ;;
+		el)     pretty="RHEL/EL"; min="$MIN_EL" ;;
 		*)
 			info "베이스 배포판을 특정하지 못했습니다 (ID=${ID:-?}). 계속 진행하며, 호환되지 않으면 패키지 매니저가 의존성 단계에서 알려줍니다." \
 			     "Could not determine the base distribution (ID=${ID:-?}). Continuing; if it is incompatible, the package manager will report it at the dependency stage."
@@ -261,7 +290,8 @@ check_distro_version() {
 	esac
 
 	# 패키지 종류와 베이스 계열이 어긋나는 경우(예: apt 를 얹은 Fedora)는 안내만.
-	if [[ ($PKG_KIND == "deb" && $base == "fedora") || ($PKG_KIND == "rpm" && $base != "fedora") ]]; then
+	if [[ ($PKG_KIND == "deb" && ($base == "fedora" || $base == "el")) ||
+	      ($PKG_KIND == "rpm" && $base != "fedora" && $base != "el") ]]; then
 		info "패키지 매니저(${INSTALL_MODE})와 배포판(${pretty})의 조합이 이례적입니다. 계속 진행합니다." \
 		     "Unusual combination of package manager (${INSTALL_MODE}) and distribution (${pretty}). Continuing anyway."
 		return 0
@@ -281,6 +311,38 @@ check_distro_version() {
 		fi
 		err "${pretty} ${ver}${base_note_ko} 는 지원 범위 밖입니다 — ${pretty} ${min} 이상이 필요합니다. 배포 패키지가 더 새로운 시스템 라이브러리(glibc·GTK·Qt)를 요구해 설치가 실패합니다. 소스 빌드를 사용하세요: https://github.com/${REPO}#설치" \
 		    "${pretty} ${ver}${base_note_en} is not supported — ${pretty} ${min} or newer is required. The published packages need newer system libraries (glibc/GTK/Qt) than this release provides. Please build from source instead: https://github.com/${REPO}#installation"
+	fi
+
+	# ── 배포판별 매니페스트 선택 ────────────────────────────────────────────
+	# 여기까지 왔으면 기준선 이상이다. "감지 버전 이하의 최대 기준선" 빌드를
+	# 고른다. 실패하면(이례적 조합 등) detect_package_manager 가 넣어 둔
+	# 레거시 매니페스트를 그대로 쓴다 — 구 릴리스 핀과의 호환 경로.
+	local picked=""
+	if picked=$(pick_manifest "$base" "$ver"); then
+		MANIFEST="$picked"
+		info "배포판 빌드 선택: ${pretty} ${ver} → ${MANIFEST#SHA256SUMS-}" \
+		     "Selected distro build: ${pretty} ${ver} → ${MANIFEST#SHA256SUMS-}"
+		# 기준선 목록에 정확히 없는 버전(비 LTS 우분투 25.x, 최신 Fedora 등)은
+		# 한 단계 낮은 기준선 빌드가 설치된다 — 베스트 에포트임을 알린다.
+		local exact=0 b list=""
+		case "$base" in
+			ubuntu) list="$UBUNTU_BASELINES" ;;
+			debian) list="$DEBIAN_BASELINES" ;;
+			fedora) list="$FEDORA_BASELINES" ;;
+			el)     list="$EL_BASELINES" ;;
+		esac
+		for b in $list; do [[ "$ver" == "$b" || "$ver" == "$b".* ]] && exact=1; done
+		if [[ $exact -eq 0 ]]; then
+			info "${pretty} ${ver} 전용 빌드는 없어 가장 가까운 하위 기준선 빌드를 설치합니다. Qt 앱 입력에 문제가 있으면 소스 빌드를 권합니다." \
+			     "There is no build for ${pretty} ${ver} exactly; installing the nearest lower baseline build. If Qt app input misbehaves, consider building from source."
+		fi
+	fi
+
+	# EL 계열은 Qt5 런타임이 EPEL 에 있다 (RHEL 10 본체는 Qt5 를 제거).
+	# 저장소 활성화는 시스템 변경이므로 여기서 하지 않고 안내만 한다.
+	if [[ $base == "el" ]]; then
+		info "EL 계열은 EPEL 저장소가 필요합니다 (Qt5 지원). 미리 활성화하세요: sudo dnf install epel-release" \
+		     "EL systems need the EPEL repository (for Qt5 support). Enable it first: sudo dnf install epel-release"
 	fi
 }
 
@@ -402,8 +464,24 @@ download_assets() {
 	     "Downloading the ${MANIFEST} manifest (${tag})..."
 	if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 15 \
 	          -o "${workdir}/${MANIFEST}" "${base}/${MANIFEST}"; then
-		err "${MANIFEST} 다운로드 실패 — 태그 '${tag}' 에 해당하는 릴리스 자산을 찾을 수 없습니다." \
-		    "Failed to download ${MANIFEST} — no matching release asset for tag '${tag}'."
+		# 배포판별 매니페스트가 없는 릴리스(매트릭스 도입 이전의 구 태그 핀)는
+		# 레거시 공통 매니페스트로 폴백한다. 신 릴리스에도 별칭이 게시되므로
+		# 이 경로는 구 릴리스에서만 실제로 탄다.
+		local legacy=""
+		case "$PKG_KIND" in
+			deb) legacy="SHA256SUMS" ;;
+			rpm) legacy="SHA256SUMS-rpm" ;;
+		esac
+		if [[ -n $legacy && $legacy != "$MANIFEST" ]] &&
+		   curl -fL --retry 3 --retry-delay 2 --connect-timeout 15 \
+		        -o "${workdir}/${legacy}" "${base}/${legacy}"; then
+			info "이 릴리스에는 배포판별 매니페스트(${MANIFEST})가 없어 공통 매니페스트로 대체합니다 (구 릴리스)." \
+			     "This release has no per-distro manifest (${MANIFEST}); falling back to the common manifest (older release)."
+			MANIFEST="$legacy"
+		else
+			err "${MANIFEST} 다운로드 실패 — 태그 '${tag}' 에 해당하는 릴리스 자산을 찾을 수 없습니다." \
+			    "Failed to download ${MANIFEST} — no matching release asset for tag '${tag}'."
+		fi
 	fi
 
 	# 매니페스트에서 자산 목록 추출 + 파일명 검증 (경로 탈출 가드).

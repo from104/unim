@@ -15,7 +15,6 @@ on:
     paths-ignore:
       - 'docs/dev/**'
       - 'docs/archive/**'
-      - 'docs/user/release-notes/**'
       - 'docs/user/keymaps/**'
       - '*.md'
   pull_request:
@@ -23,9 +22,10 @@ on:
     paths-ignore:
       - 'docs/dev/**'
       - 'docs/archive/**'
-      - 'docs/user/release-notes/**'
       - 'docs/user/keymaps/**'
       - '*.md'
+  # 필요할 때 수동으로 돌린다 (입력 없음).
+  workflow_dispatch:
 
 # 같은 ref 에 새 push 가 오면 이전 실행은 취소 (게이트는 최신 커밋만 의미 있음).
 concurrency:
@@ -77,4 +77,192 @@ jobs:
         run: make build
 
       - name: Unit tests (cargo test --workspace)
+        # 평소 1분. 비결정적 정지가 나면 잡 타임아웃(50분) 대신 여기서 끊어 단계 이름으로 실패를 남긴다 (2026-09-04 c9ce139 실측).
+        timeout-minutes: 15
         run: cargo test --workspace
+
+  # 다음 LTS 를 미리 밟아 둔다. 24.04 에서 개발하고 26.04 에서 처음 돌려 보면
+  # 시스템 라이브러리가 조용히 갈라진 것을 사용자 기계에서 알게 된다 —
+  # 2026-08 에 GNOME 이 `Meta.is_wayland_compositor()` 를 없앴을 때가 그랬다.
+  # 러너 이미지가 아니라 컨테이너를 쓰는 이유는, GitHub 이 새 LTS 러너를
+  # 내주기 전부터 검사할 수 있어야 하기 때문이다.
+  build-next-lts:
+    name: Build on next LTS (ubuntu 26.04 container)
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 50
+    steps:
+      - name: Prepare container
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          # checkout 액션이 쓸 최소 도구. 컨테이너 이미지에는 없다.
+          apt-get install -y --no-install-recommends git ca-certificates curl build-essential
+          # build-dep 은 소스 저장소를 요구한다. 26.04 의 sources 는 deb822
+          # 형식이라 옛 one-line 형식을 고치던 sed 로는 안 잡힌다.
+          sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          apt-get update -qq
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (debian/control Build-Depends)
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get build-dep -y .
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-ci-next
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Build (make build)
+        run: make build
+
+      - name: Unit tests (cargo test --workspace)
+        # 평소 1분. 비결정적 정지가 나면 잡 타임아웃(50분) 대신 여기서 끊어 단계 이름으로 실패를 남긴다 (2026-09-04 c9ce139 실측).
+        timeout-minutes: 15
+        run: cargo test --workspace
+
+  # GNOME 확장 호환성 — 정적(check-gnome-api) + 동적(smoke-gnome-extension) 검사.
+  # 둘 다 headless 로 설계돼 로그아웃 없이 CI 러너에서 그대로 돈다.
+  # build-test 와 무관하게 필요한 시스템 패키지만 있으면 되므로 독립 job 으로 병렬 실행.
+  check-compat:
+    name: GNOME extension compatibility (static + smoke)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GNOME Shell / gjs / dbus (smoke-gnome-extension.sh 요구 패키지)
+        # gjs           — check-gnome-api.js 실행기(정적 검사).
+        # gnome-shell    — smoke-gnome-extension.sh 가 headless 로 띄우는 셸 자체.
+        # dbus           — dbus-run-session 제공(세션 버스 격리, 실세션 버스와 무관).
+        # gettext        — make gnome-extension 이 po/*.po 를 .mo 로 컴파일(msgfmt).
+        # libglib2.0-bin — glib-compile-schemas(gschemas.compiled 생성).
+        # dconf-cli      — smoke 스크립트가 확장의 enable-ime 키를 dconf write 로 켠다
+        #                  (확장 스키마는 표준 검색경로 밖이라 gsettings 로는 못 씀).
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gjs gnome-shell dbus gettext libglib2.0-bin dconf-cli
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-ci-check-compat
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Build unim-daemon (release — smoke 스크립트가 실제 DBus 로 붙여본다)
+        # 확장의 enable()→_enableIME() 은 org.atit.unim.InputMethod 연결이
+        # 돼야 [unim-ime] 마커까지 간다. 데몬 없이는 "DBus 미연결" 로 조용히
+        # 되돌아가서 정적/설치 검사만으로는 못 잡는 이 스모크의 존재 이유
+        # (2026-08-23 셸 50 사고) 자체를 못 본다 — 그래서 여기서 데몬을 붙여
+        # 진짜 활성화 경로를 태운다. 프런트엔드·CSS 는 필요 없어 daemon 만.
+        run: cargo build --release -p unim-daemon
+
+      - name: 확장 설치 (사용자 홈 아래, sudo 불요 — smoke 스크립트가 찾는 경로)
+        run: |
+          set -euo pipefail
+          make install-gnome-extension \
+            GNOME_EXTENSION_DIR="$HOME/.local/share/gnome-shell/extensions/unim-gnome@from104.github.io"
+
+      - name: make check-compat (check-gnome-api + smoke-gnome-extension)
+        run: make check-compat
+
+  # 기능 타이핑(L3) — 실제 GTK/Qt/XIM 경로로 XTEST 키를 넣어 한글이 조합·확정
+  # 되는지 확인한다. 릴리스 매트릭스(linux-deb.yml/linux-rpm.yml)의 --smoke
+  # 는 각 배포판 *컨테이너*에 설치된 .deb/.rpm 을 이 스크립트로 검증하고,
+  # 여기는 사용자가 가장 흔히 만나는 조합 — 우분투 24.04 네이티브 러너 — 를
+  # push/PR 마다 상시 검증한다. 패키지 빌드를 거치지 않고 `make install` 로
+  # 더 빠르게 돈다. build-test 와 별개로 처음부터 다시 빌드한다 — 아티팩트를
+  # 주고받는 복잡도보다 단순 병렬이 낫다.
+  functional-x11:
+    name: Functional typing (Xvfb, ubuntu-24.04 native)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (debian/control Build-Depends)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get build-dep -y .
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-ci-functional
+          cache-targets: true
+          cache-on-failure: true
+
+      - name: Build (make build)
+        run: make build
+
+      - name: Install (PREFIX=/usr — GTK/Qt 가 보는 실제 배포 경로)
+        run: sudo make install PREFIX=/usr
+
+      - name: GTK3 immodules 캐시 갱신 (debian/unim-im-gtk.postinst 와 동일 — make install 은 트리거를 안 돈다)
+        # ⚠️ 2026-09 실측 원인: 이 러너(ubuntu-24.04 네이티브)에는
+        #    gtk-query-immodules-3.0 이 PATH 에 없다 — Ubuntu 24.04+ 의 t64
+        #    패키징은 이 도구를 /usr/bin 이 아니라
+        #    /usr/lib/<triplet>/libgtk-3-0t64/ 밑에 둔다. `command -v` 기반
+        #    가드가 늘 실패해 `|| true` 로 조용히 넘어갔고, 캐시가 갱신되지
+        #    않아 GTK3 가 새로 설치된 im-unim.so 를 못 찾았다 — GTK_IM_MODULE=unim
+        #    이 조용히 무시되고 키가 리터럴로 그대로 커밋돼 gtk3 한글 조합
+        #    시나리오 11/13 이 전부 실패했다(.deb/.rpm 컨테이너 레그는 dpkg/rpm
+        #    트리거가 별도로 캐시를 갱신해 이 문제를 안 겪는다 — 그래서 로컬
+        #    docker 재현이 안 됐다). scripts/ci/verify-installed.sh 의
+        #    GTK3_QUERY 후보 경로와 동일하게 파일시스템을 직접 뒤진다 — PATH 에
+        #    의존하지 않는다. 못 찾으면 이후 기능 타이핑이 통째로 깨지므로
+        #    조용히 넘어가지 않고 여기서 바로 실패시킨다.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          candidates=(/usr/lib/*/libgtk-3-0*/gtk-query-immodules-3.0 \
+                      /usr/bin/gtk-query-immodules-3.0-64 \
+                      /usr/bin/gtk-query-immodules-3.0 \
+                      /usr/libexec/gtk-3.0/gtk-query-immodules-3.0 \
+                      /usr/lib64/gtk-3.0/gtk-query-immodules-3.0)
+          if [ "${#candidates[@]}" -eq 0 ]; then
+              echo "❌ gtk-query-immodules-3.0 를 못 찾았다 — GTK3 가 im-unim.so 를 등록 못 한다"
+              exit 1
+          fi
+          sudo "${candidates[0]}" --update-cache
+          echo "✅ GTK3 immodules 캐시 갱신: ${candidates[0]}"
+
+      - name: Install functional-test 런타임 도구 + XIM 테스트 앱 dev 헤더
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq --no-install-recommends \
+            xvfb x11-utils xdotool imagemagick dbus-x11 libxft-dev libfontconfig-dev
+
+      - name: scripts/ci/functional-test.sh ubuntu24.04-native
+        run: scripts/ci/functional-test.sh ubuntu24.04-native
+
+      - name: Upload functional-test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: functional-test-ubuntu24.04-native
+          path: functional-logs/functional-ubuntu24.04-native/
+          if-no-files-found: warn
+          retention-days: 14

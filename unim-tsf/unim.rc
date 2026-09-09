@@ -1,7 +1,0 @@
-// UNIM TSF DLL 리소스 — IME 선택기/설치 목록 시그니처 아이콘.
-//
-// 리소스 ID 1 = 'UN' 시그니처. LanguageProfile 의 IconFile=unim_tsf.dll,
-// IconIndex=0 이 "0번째 아이콘 = 가장 낮은 ID = 1" 을 가리킨다.
-// (한/영 상태 표시기 '가/A' 는 langbar GetIcon 이 GDI 로 런타임 렌더하므로
-//  이 리소스와 무관하다.)
-1 ICON "icons/unim-signature.ico"

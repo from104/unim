@@ -56,10 +56,12 @@ row.set_tooltip_text(Some(&t!("settings_autotypefix_tooltip")));
 - 설정 백업/복원
 
 ### 5. 릴리즈 노트
-`docs/user/release-notes/0.2.0/{RELEASE_NOTES.md, RELEASE_NOTES-ko.md}`
-- 사용자 가시 변경 highlight
+`CHANGELOG.md` / `CHANGELOG-ko.md` — 별도 릴리즈 노트 문서는 두지 않는다.
+GitHub 릴리스 본문은 `scripts/release-body.sh` 가 이 두 파일에서 뽑는다.
+- 사용자 가시 변경 highlight (`### 수정됨` / `### 추가됨` / `### 변경됨`)
 - Breaking changes (없으면 명시)
-- 마이그레이션 가이드
+- 마이그레이션 안내는 해당 항목의 하위 불릿으로
+- 남은 제약은 `### 알려진 문제` 절에 — 릴리스 본문 맨 위로 올라간다
 - 알려진 이슈
 
 ### 6. 루트 README 정리

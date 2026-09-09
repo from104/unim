@@ -121,6 +121,27 @@ fn user_profile_has_korean() -> bool {
     }
 }
 
+/// 탐색기(explorer.exe)를 재시작한다 — **옵트인 전용**, 마법사가 스스로 호출하지 않는다.
+///
+/// [`set_as_default`]의 `ActivateProfile(..., TF_IPPMF_FORSESSION)`은 호출한 프로세스
+/// (마법사 exe)의 세션에 즉시 반영되지만, **이미 실행 중이던 explorer.exe(언어바/트레이
+/// 호스트)는 새로 등록된 TIP·프로필을 자동으로 다시 읽지 않는다** — 그 세션의 언어바에
+/// UNIM 이 나타나려면 탐색기 재시작 또는 재로그인이 필요하다(D-2, `unim-tsf/src/register.rs`
+/// 214-218행 주석과 동일 근거). `taskkill /F /IM explorer.exe` 로 종료 후 `explorer.exe`
+/// 를 새로 기동한다 — 이미 죽어 있어도(taskkill 실패) 재기동은 항상 시도한다.
+///
+/// ⚠ 열려 있는 파일 탐색기 창이 전부 닫힌다. 그래서 마법사(`wizard.rs`)는 사용자가 직접
+/// 누른 버튼에서만 이 함수를 호출해야 한다 — 강제/자동 호출 금지.
+/// 반환값은 안내용 힌트일 뿐이다(`false`여도 재로그인하면 결국 반영되므로 치명적이지 않음).
+pub fn restart_explorer() -> bool {
+    let _ = std::process::Command::new("taskkill.exe")
+        .args(["/F", "/IM", "explorer.exe"])
+        .status();
+    // explorer.exe 는 이미 살아 있어도(위 taskkill 이 실패했거나 자체 재기동한 경우)
+    // 다시 실행하면 새 탐색기 창을 여는 것으로 그친다(셸 인스턴스 중복 없음) — 안전.
+    std::process::Command::new("explorer.exe").spawn().is_ok()
+}
+
 /// Windows "언어 및 지역" 설정을 연다(한국어 언어팩 추가 안내용 딥링크).
 /// 실패해도 무해(마법사가 텍스트 안내를 함께 제공).
 pub fn open_language_settings() {

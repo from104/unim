@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SignPath Foundation(OSS) 아티팩트 구성 — UNIM Windows MSI 딥사인.
+
+  이 파일은 SignPath 프로젝트(app.signpath.io)의 Artifact Configuration 으로
+  그대로 업로드한다(웹 UI → Project → Artifact Configurations → 새로 만들기
+  → 이 XML 붙여넣기, 또는 CI 제출 시 -F "artifactConfigurationSlug=..." 로
+  선택). Schema: http://signpath.io/artifact-configuration/v1
+  (docs: https://about.signpath.io/documentation/artifact-configuration)
+
+  구조 = installer/wix/unim.wxs 가 패키징하는 PE(실행가능 바이너리) 전수와
+  1:1 대응한다. wxs 의 <File> 목록 중 아래 4개만 PE 다(나머지는 .bat/.txt/
+  .html — Authenticode 서명 대상 아님):
+    - unim_tsf.dll     (x64 TSF DLL,  wxs Component UnimTsfDll,   File Id unim_tsf.dll)
+    - unim_tsf32.dll   (x86 TSF DLL,  wxs Component UnimTsfDll32, File Id unim_tsf32.dll)
+    - unim-settings.exe(설정 GUI,     wxs Component UnimTsfSettingsExe)
+    - unim-popup-win.exe(팝업 렌더러, wxs Component UnimPopupWinExe)
+  (register-tsf.bat/unregister-tsf.bat 는 배치 스크립트라 Authenticode PE
+  서명 대상이 아니다 — signtool 이 서명할 수 있는 대상이 아니므로 여기 포함하지
+  않는다. .ps1 이었다면 <powershell-file> 로 서명 가능하지만 우리는 .bat 다.)
+
+  wxs 상 이 4개 파일은 모두 INSTALLDIR(= [ProgramFiles64Folder]\UNIM) 바로
+  아래 평평하게 설치되고 하위 디렉터리가 없으므로, <msi-file> 안의 <pe-file
+  path="..."> 는 파일명만으로 매칭한다(SignPath 문서 예제 "Deep-signing an MSI
+  installer with nested executables" 의 패턴과 동일:
+  https://about.signpath.io/documentation/artifact-configuration/examples#msi-sample).
+
+  최상위가 <zip-file> 인 이유: GitHub Actions 의 actions/upload-artifact@v4
+  는 (archive 입력이 없는 버전이라) 단일 파일을 올려도 서버에서 항상 zip 으로
+  감싼다. SignPath 커넥터는 GitHub 아티팩트를 그 원본 zip 그대로 받으므로
+  루트 타입이 zip-file 이어야 한다(문서: "By default, the upload-artifact
+  action creates a ZIP archive, which requires the root element of your
+  Artifact Configurations to be of type <zip-file>." — build-system-integration
+  문서의 GitHub 절). MSI 파일명은 unim-<version>-x64.msi 형태로 버전마다
+  바뀌므로 와일드카드로 매칭한다.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <msi-file path="unim-*-x64.msi">
+
+      <!-- TSF DLL (x64) — 모든 텍스트 입력 프로세스에 로드되는 1순위 서명 대상.
+           2026-09-03 Windows Defender 오탐(Trojan:Win32/Bearfoos.B!ml) 사고의
+           직접 대상. -->
+      <pe-file path="unim_tsf.dll">
+        <authenticode-sign/>
+      </pe-file>
+
+      <!-- TSF DLL (x86/WOW64) — 32비트 호스트 프로세스(카톡·한컴 등)용 사본. -->
+      <pe-file path="unim_tsf32.dll">
+        <authenticode-sign/>
+      </pe-file>
+
+      <!-- 설정 GUI (Slint). -->
+      <pe-file path="unim-settings.exe">
+        <authenticode-sign/>
+      </pe-file>
+
+      <!-- 팝업 렌더러 (out-of-process, HKLM Run 상주) — SmartScreen/AV 오탐
+           표면이 가장 큰 상주 exe. -->
+      <pe-file path="unim-popup-win.exe">
+        <authenticode-sign/>
+      </pe-file>
+
+      <!-- 내부 PE 4개를 먼저 서명한 뒤 MSI 를 재패키징하고 MSI 자체도 서명한다
+           (SignPath 의 딥사인 1-pass 동작 — 순서를 CI 에서 따로 조립할 필요 없음). -->
+      <authenticode-sign/>
+    </msi-file>
+  </zip-file>
+</artifact-configuration>

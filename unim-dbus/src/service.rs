@@ -1128,8 +1128,24 @@ impl InputMethodService {
                 }
             }
             // 파일에도 저장
+            //
+            // 저장 성공 시 mtime 스냅샷을 방금 쓴 파일 시간으로 동기화한다
+            // (`save_to_path` 는 `last_modified` 를 갱신하지 않는다).
+            //
+            // ⚠️ **지금은 동작 변화가 없는 예방적 조치다.** 이 크레이트의
+            // `Arc<RwLock<Config>>` 는 `reload_if_changed()` 를 한 번도 타지 않으므로
+            // (프로덕션 호출자는 `engine_worker.rs` 와 `unim-capi/src/lib.rs` 뿐)
+            // 자기 메아리 리로드가 애초에 일어나지 않고, `last_modified` 는
+            // `#[serde(skip)]` 이라 직렬화 결과에도 영향이 없다. 훗날 이 Config 에
+            // mtime 폴링을 붙였을 때 낡은 스냅샷이 자기 저장을 외부 변경으로
+            // 오인하는 함정을 미리 막아 둔다.
+            // (엔진 워커는 자기 소유 Config 를 따로 들고 파일 mtime 으로만
+            //  SetConfig 를 알아채므로, 그쪽 리로드는 이 동기화의 영향을 받지
+            //  않는다 — 조합 단절 방지는 engine_worker 의 지연 재구성이 담당.)
             if let Err(e) = config.save_to_default_path() {
                 unim_log!("DBUS", "[DBus] Config save failed: {}", e);
+            } else {
+                config.sync_last_modified();
             }
         }
 
@@ -1231,6 +1247,9 @@ impl InputMethodService {
         let json = {
             let mut cfg = self.config.write().await;
             *cfg = new_config;
+            // 방금 쓴 파일의 mtime 을 스냅샷에 반영 — 예방적 조치이며 현재는
+            // 동작 변화가 없다(근거는 set_config 쪽 주석).
+            cfg.sync_last_modified();
             // JSON 직렬화도 lock 안에서 (Config 복제 비용 회피)
             serde_json::to_string(&*cfg)
                 .map_err(|e| zbus::fdo::Error::Failed(format!("Config JSON 직렬화 실패: {}", e)))?

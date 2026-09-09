@@ -530,6 +530,37 @@ impl InputEngine {
         self.atf_hotkey_kind(keycode, modifier).is_some()
     }
 
+    /// 자동 영문 전환 **조합** 트리거(`key:Ctrl+B` 등)의 판정 + 축소 반응.
+    ///
+    /// TSF `OnTestKeyDown` 처럼 실 처리(`press_key`) 전에, 그것도 Word 류 호스트에선
+    /// **같은 키에 대해 투기적으로 여러 번** 불릴 수 있는 경로용 헬퍼다. `press_key()`
+    /// 의 단축키 가드(조합 트리거 매칭 시 `flush_preedit()` 로 preedit 를
+    /// `commit_buffer` 에 밀어 넣고 `InputResult::committed_passthrough` 를 반환하는
+    /// 실 경로)와 달리, 이 헬퍼는 **입력 카테고리 전환만** 하고 `commit_buffer`/preedit
+    /// 에는 손대지 않는다 — 투기적으로 쌓인 `commit_buffer` 를 draining 하는 호출자가
+    /// 없으므로, 여기서 `flush_preedit()`(≒ `set_input_category`)를 그대로 타면 조합
+    /// 중이던 텍스트가 아무도 못 읽는 채 유실된다.
+    ///
+    /// 멱등: 이미 목표 카테고리(English)면 판정만 하고 아무 것도 쓰지 않으므로, 동일
+    /// 입력으로 연속 호출해도 두 번째 호출부터는 완전한 no-op 이다(필드 쓰기 0회).
+    /// 실제 preedit flush/commit 텍스트 반영은 `press_key()` 실 경로가 담당한다 —
+    /// 이 헬퍼가 이미 카테고리를 옮겨 놨더라도 `match_auto_english_trigger` 가 Korean
+    /// 전용이라 재매칭하지 않고, 대신 기존 "조합 중 단축키는 먼저 커밋" 일반 경로로
+    /// 자연히 흡수된다.
+    ///
+    /// Ctrl/Alt/Super 중 하나도 안 눌렸으면(조합이 아니면) 즉시 `false`.
+    pub fn try_auto_english_combo(&mut self, keycode: KeyCode, modifier: ModifierState) -> bool {
+        if !(modifier.control || modifier.alt || modifier.super_key) {
+            return false;
+        }
+        let matched = self.match_auto_english_trigger(keycode, modifier).is_some();
+        if matched && self.input_category != InputCategory::English {
+            self.input_category = InputCategory::English;
+            self.update_status_file();
+        }
+        matched
+    }
+
     /// ATF 토글 핫키 매칭 — 매칭된 대상 플래그를 돌려준다(비매칭 시 `None`).
     ///
     /// keycode 와 **네 수정자 전부**를 정확 일치로 비교한다(`AtfHotkey` 규약): 표기에

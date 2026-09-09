@@ -2,7 +2,25 @@
 
 Rust로 만든 한국어 입력기입니다. **리눅스와 Windows에서 완전히 같은 엔진**이 돌아갑니다.
 
-MIT · Rust 1.78+ · Linux (deb/rpm) · Windows 10/11 (MSI) · 현재 0.4.1
+MIT · Rust 1.78+ · Linux (deb/rpm) · Windows 10/11 (MSI) · 현재 0.4.2
+
+---
+
+**UNIM in English:** a Korean input method (IME) written in Rust, with one identical
+engine on Linux (GTK3/4, Qt5/6, XIM, Wayland, GNOME Shell) and Windows 10/11 (TSF).
+
+- **Automatic Hangul↔English typo correction** — a mistyped `dkssud` becomes `안녕`,
+  a mistyped `ㅈㅐㅍㅁ` becomes `wave`. Both directions are corrected, no retyping needed.
+- **One engine, one set of settings, two platforms** — composition rules, keyboard
+  layouts, and typo-correction behavior are identical on Linux and Windows.
+- **Hanja, symbols, and emoji from a single key** — one key (the Hanja key or `F9`)
+  switches mode automatically and picks a candidate in as few as two extra keystrokes,
+  with no separate character-map app or search box.
+- Designed around minimizing keystrokes and letting the software fix mistakes
+  instead of the user.
+
+Full English documentation: [`help/unim-help-en.html`](help/unim-help-en.html).
+Korean documentation follows below.
 
 ---
 
@@ -61,6 +79,11 @@ UNIM은 바로 거기에서 출발했습니다. 잘못 친 것을 알아서 되�
 | Ubuntu | 24.04 (noble) | `.deb` |
 | Debian | 13 (trixie) | `.deb` |
 | Fedora | 43 | `.rpm` |
+| RHEL 10 계열 (Rocky·Alma) | 10 — EPEL 필요 | `.rpm` |
+
+릴리스에는 배포판별 빌드가 각각 올라오며, 설치 스크립트가 감지된 배포판에 맞는
+빌드를 자동으로 고릅니다. 파생 배포판(Mint 등)은 상위 배포판 기준으로, 비 LTS
+우분투(25.x 등)는 한 단계 아래 LTS 빌드로 매핑됩니다.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh | bash
@@ -78,7 +101,7 @@ curl -fsSL .../install.sh | bash -s -- --update
 curl -fsSL .../install.sh | bash -s -- --check
 
 # 버전 고정
-UNIM_VERSION=v0.4.1 curl -fsSL .../install.sh | bash
+UNIM_VERSION=v0.4.2 curl -fsSL .../install.sh | bash
 ```
 
 `curl | bash`가 내키지 않으시면 받아서 읽어 보신 뒤 실행하셔도 됩니다.
@@ -89,8 +112,8 @@ curl -fsSL https://raw.githubusercontent.com/from104/unim/main/install.sh -o ins
 less install.sh && bash install.sh
 ```
 
-Debian 12(bookworm)는 시스템 라이브러리가 오래되어 패키지를 쓰실 수 없습니다.
-그 밖의 배포판(openSUSE·Arch·RHEL 계열 등)에서는 소스 빌드를 이용해 주세요 —
+Debian 12(bookworm)와 RHEL 9 이하는 시스템 라이브러리가 오래되어 패키지를 쓰실 수 없습니다.
+그 밖의 배포판(openSUSE·Arch 등)에서는 소스 빌드를 이용해 주세요 —
 [사용자 매뉴얼](docs/user/user-guide/README-ko.md)의 소스 빌드 절에 안내가 있습니다.
 
 ### Windows
@@ -116,7 +139,7 @@ MSI는 SHA256(`SHA256SUMS-msi`)으로 검증하며, 관리자로 승격된 프�
 & ([scriptblock]::Create((irm .../install.ps1))) -Check
 
 # 버전 고정 (해당 릴리스에 SHA256SUMS-msi가 있어야 합니다)
-$env:UNIM_VERSION='v0.4.1'; irm .../install.ps1 | iex
+$env:UNIM_VERSION='v0.4.2'; irm .../install.ps1 | iex
 ```
 
 받아서 읽어 보신 뒤 실행하시려면 이렇게 하시면 됩니다.
@@ -290,9 +313,40 @@ unim-cli config set auto-typefix-skip-english-word true
 전체 목록과 설정 창 화면 설명은
 [사용자 매뉴얼 §4.4·§5.3·§5.4](docs/user/user-guide/README-ko.md)에 있습니다.
 
+## 코드 서명 정책 (Code signing policy)
+
+현재 배포되는 Windows 설치 파일(MSI)과 그 안의 실행 파일은 **코드 서명이 되어 있지 않습니다.**
+그래서 설치 시 SmartScreen 경고가 뜨거나 일부 백신이 오탐할 수 있습니다 — 알려진 현상이니
+"추가 정보 → 실행"으로 넘어가 주시면 됩니다.
+
+Windows binaries in this release are **not code-signed.** You may see a SmartScreen
+warning or an antivirus false positive on install — this is expected; choose
+"More info → Run anyway".
+
+서명 대신 다음으로 신뢰를 보증합니다.
+
+- **빌드 출처 공개** — 모든 릴리스는 GitHub Actions 의 공개 워크플로
+  ([`windows-msi.yml`](.github/workflows/windows-msi.yml), [`linux-deb.yml`](.github/workflows/linux-deb.yml))에서
+  빌드되며, 빌드 로그를 누구나 열람할 수 있습니다.
+- **체크섬 검증** — 각 릴리스에는 `SHA256SUMS-msi`(Windows) · `SHA256SUMS`(Linux) 가 함께
+  첨부되며, 설치 스크립트(`install.ps1`/`install.sh`)가 설치 전 해시를 자동으로 대조합니다.
+- **소스 전체 공개** — MIT 라이선스로 소스 전부를 공개합니다. [LICENSE](LICENSE).
+
+**서명은 계획 중입니다.** [SignPath Foundation](https://signpath.org) 의 무료 OSS 코드 서명을
+목표로 CI 파이프라인은 이미 배선해 두었습니다. 자세한 절차는
+[`docs/dev/windows/CODE_SIGNING.md`](docs/dev/windows/CODE_SIGNING.md). 서명이 활성화되면 이 절을
+갱신합니다.
+
+Code signing is planned via [SignPath Foundation](https://signpath.org)'s free OSS
+signing program; the CI pipeline is already wired for it. This section will be
+updated once signing goes live.
+
+- **개인정보 처리 (Privacy policy)** — 이 프로그램은 사용자나 설치·운영자가 명시적으로 요청하지 않는 한 어떤 정보도 다른 네트워크 시스템으로 전송하지 않습니다. This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+- **팀 역할 (Team roles, 서명 도입 시 적용)** — 1인 프로젝트로, 커밋 권한(Committers/Authors)·리뷰(Reviewers)·서명 승인(Approvers) 을 모두 저장소 소유자 [@from104](https://github.com/from104) 가 맡습니다. GitHub 와 SignPath 계정 모두 2단계 인증을 씁니다.
+
 ## 지원 환경
 
-**실사용으로 검증한 환경**은 다음과 같습니다 — GNOME Shell 45–49 (X11 / Wayland),
+**실사용으로 검증한 환경**은 다음과 같습니다 — GNOME Shell 45–50 (X11 / Wayland),
 X11 데스크톱 전반(KDE Plasma 5.x, XFCE, MATE, Cinnamon, LXDE), Windows 10/11 (TSF).
 
 | 환경 | 자동 시작 | 팝업 렌더러 | 설정 |
@@ -343,9 +397,8 @@ Wayland surrounding-text / content-type 활용, 문서 정비.
 - [트러블슈팅](docs/user/troubleshooting/README-ko.md) · [Troubleshooting](docs/user/troubleshooting/README.md)
 - [FAQ](docs/user/faq/README-ko.md) · [FAQ (EN)](docs/user/faq/README.md)
 - [단축키 정리](docs/user/keyboard-shortcuts/README-ko.md) · [Shortcuts](docs/user/keyboard-shortcuts/README.md)
-- [0.4.1 릴리스 노트](docs/user/release-notes/0.4.1/README.md) · [Release Notes](docs/user/release-notes/0.4.1/README.en.md)
-- [0.4.0 릴리스 노트](docs/user/release-notes/0.4.0/README.md) · [Release Notes](docs/user/release-notes/0.4.0/README.en.md)
-- [변경 이력](CHANGELOG-ko.md) · [Changelog](CHANGELOG.md)
+- [변경 이력](CHANGELOG-ko.md) · [Changelog](CHANGELOG.md) — 판별 상세 내역은 여기 한 곳에 모읍니다
+- [릴리스 페이지](https://github.com/from104/unim/releases) — 내려받기와 판별 요약
 
 같은 내용을 오프라인 도움말로도 설치해 드립니다. 리눅스·Windows 판이 각각 따로 생성되므로,
 쓰시는 플랫폼에 해당하는 내용만 보이게 됩니다.

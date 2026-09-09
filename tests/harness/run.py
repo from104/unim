@@ -15,9 +15,19 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import time
 
 import harness as H
+
+# CI 전용 시나리오 전체 재시도 횟수 — scripts/ci/functional-test.sh 가
+# CI=true 일 때만 UNIM_HARNESS_SCENARIO_RETRIES 를 심는다. 미지정(실세션)이면
+# 0 이라 재시도 없이 기존과 동일하게 동작한다. 스텝 단위가 아니라 시나리오
+# 전체(앱 재기동부터)를 다시 돈다 — 실패한 스텝만 재시도하면 이미 어긋난
+# 앱 내부 상태(예: 리터럴 문자가 이미 커밋된 필드) 위에서 다시 돌게 되어
+# 판정이 더 꼬인다.
+SCENARIO_RETRIES = int(os.environ.get("UNIM_HARNESS_SCENARIO_RETRIES", "0"))
 
 G, R, Y, D, B, Z = ("\x1b[32m", "\x1b[31m", "\x1b[33m",
                     "\x1b[2m", "\x1b[1m", "\x1b[0m")
@@ -102,9 +112,16 @@ def main() -> int:
             return 2
         print(f"{B}▶ {app}{Z}")
         for sc in scenarios:
-            res = H.run_scenario(app, sc,
-                                 allow_layout_change=args.allow_layout_change,
-                                 keep_open=args.keep_open)
+            attempt = 0
+            while True:
+                res = H.run_scenario(app, sc,
+                                     allow_layout_change=args.allow_layout_change,
+                                     keep_open=args.keep_open)
+                if res.ok or res.skipped or res.known_issue or attempt >= SCENARIO_RETRIES:
+                    break
+                attempt += 1
+                print(f"  {Y}↻ 재시도 {attempt}/{SCENARIO_RETRIES}{Z} {sc['name']}")
+                time.sleep(0.5)
             print_result(res)
             total += 1
             if res.skipped:

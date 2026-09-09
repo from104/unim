@@ -654,6 +654,8 @@ unim-settings &
 
 > **There is no Save button**: changes apply and are written to disk immediately. Just close the window when you're done.
 >
+> **One exception — if you are in the middle of composing a syllable when you switch layouts**: the new layout applies **after the current composition ends** (not one syllable but until the underline disappears — up to the word boundary in word-commit mode). This is deliberate, so the switch never breaks the character you are typing. To see the change right away, end the composition with Space or `Esc` first.
+>
 > The **[Help]** button at the bottom of the sidebar opens this manual in your default browser.
 <!-- @endplatform -->
 
@@ -756,6 +758,8 @@ See which jamo/characters each key produces for Korean/English layouts, and buil
   support both "Save" and "Save As". A new user layout is written as JSON under
   `~/.config/unim/layouts/`, which the daemon auto-scans so it shows up in the settings GUI's
   layout list.
+  If you edit one of those JSON files by hand, the daemon picks the change up the next time the
+  settings file is saved (any setting) or at the next login — it does not watch the layout files themselves.
 
 #### Shortcuts
 
@@ -974,8 +978,7 @@ Expand-Archive -Path "$env:USERPROFILE\Desktop\unim-backup-2026-07-27.zip" `
 
 - Something off → [troubleshooting](../troubleshooting/README.md)
 - Compare with other IMEs / migration → [FAQ](../faq/README.md)
-- 0.4.0 changes → [release notes 0.4.0](../release-notes/0.4.0/README.en.md)
-- Older release notes → [0.3.0](../release-notes/0.3.0/README.en.md) / [0.2.0](../release-notes/0.2.0/RELEASE_NOTES.md)
+- Per-release changes → [changelog](../../../CHANGELOG.md)
 - Want to contribute → [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)
 - Behavior spec → [`IME_BEHAVIOR.md`](../../dev/architecture/IME_BEHAVIOR.md), [`POPUP_SPEC.md`](../../dev/specs/POPUP_SPEC.md)
 

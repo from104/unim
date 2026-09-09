@@ -286,4 +286,4 @@ forward만 담당한다. 이로써 렌더러 교체/추가가 daemon 코드 변�
 
 - [POPUP_SPEC.md](../../dev/specs/POPUP_SPEC.md)
 - [IME_BEHAVIOR.md §4](../../dev/architecture/IME_BEHAVIOR.md)
-- [0.3.0 릴리즈 노트](../../user/release-notes/0.3.0/README.md)
+- [변경 이력 0.3.0](../../../CHANGELOG-ko.md#030-2026-05-19)
