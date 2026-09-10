@@ -189,6 +189,31 @@ function Get-InstalledUnim {
     return [pscustomobject]@{ Present = $false; Version = $null; InstallLocation = $null }
 }
 
+# ── 3a. 팝업 렌더러 즉시 기동 ────────────────────────────────────────────────
+#   unim.wxs 의 LaunchPopupRenderer CA 는 무인 설치(UILevel<4, 이 스크립트의 /qn
+#   포함)에서 돌지 않는다 — winget 동적 검증이 설치 뒤 새로 뜬 상주 프로세스를
+#   Validation-Shell-Execute 로 실패시키기 때문(2026-09-10). 종전 체감(재로그인
+#   없이 한자/특수문자 팝업)을 지키려고 마법사와 같은 방식으로 스크립트가 직접,
+#   비승격 사용자 컨텍스트에서 띄운다. 렌더러는 싱글턴 뮤텍스라 Run 키로 이미
+#   떠 있어도 무해하고, 실패해도 다음 로그인에 Run 키가 띄우므로 안내만 하고 계속.
+function Invoke-PostInstallRenderer {
+    $inst = Get-InstalledUnim
+    $loc = $inst.InstallLocation
+    if ([string]::IsNullOrWhiteSpace($loc) -or $loc.StartsWith('[')) {
+        $fallback = Join-Path $env:ProgramFiles 'UNIM'
+        if (Test-Path -LiteralPath (Join-Path $fallback 'unim-popup-win.exe')) { $loc = $fallback }
+    }
+    if ([string]::IsNullOrWhiteSpace($loc) -or $loc.StartsWith('[')) { return }
+    $exe = Join-Path $loc 'unim-popup-win.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { return }
+    try {
+        Start-Process -FilePath $exe -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Host (Msg "[unim-install] 팝업 렌더러를 바로 띄우지 못했습니다: $($_.Exception.Message). 다음 로그인 때 자동으로 시작됩니다." `
+                        "[unim-install] Could not start the popup renderer now: $($_.Exception.Message). It starts automatically at your next sign-in.")
+    }
+}
+
 # ── 3b. 첫 실행/업데이트 마법사 실행 (M-31) ───────────────────────────────────
 #   irm|iex 홍보 경로는 msiexec /qn(UILevel=2) 고정이라 unim.wxs 의
 #   LaunchSetupWizardFresh/Upgrade CA(UILevel>=4 게이트)가 절대 돌지 않는다 →
@@ -503,11 +528,13 @@ function Main {
             0 {
                 if ($isUpdate) { Show-UpdateSuccess $inst.Version $latest $false }
                 else           { Show-Success $tag $false }
+                Invoke-PostInstallRenderer
                 Invoke-PostInstallWizard $isUpdate
             }
             3010 {   # 성공 + 재부팅 필요 (실패 아님)
                 if ($isUpdate) { Show-UpdateSuccess $inst.Version $latest $true }
                 else           { Show-Success $tag $true }
+                Invoke-PostInstallRenderer
                 Invoke-PostInstallWizard $isUpdate
             }
             100 {

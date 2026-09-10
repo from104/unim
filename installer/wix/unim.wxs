@@ -418,6 +418,13 @@
       asyncNoWait + impersonate 로 사용자 컨텍스트에서 비동기 실행한다.
       렌더러 싱글턴 뮤텍스가 중복 기동을 자체 차단하므로 Run 키로 이미
       떠 있어도 무해(ERROR_ALREADY_EXISTS → exit 0).
+
+      무인 설치(UILevel<4: /qn, /qb, winget)에서는 띄우지 않는다 — 마법사 CA 와
+      같은 게이트. winget-pkgs 의 동적 검증은 무인 설치 뒤에 프로세스가 새로 뜨면
+      Validation-Shell-Execute 로 실패시킨다(2026-09-10 PR #432087, 세 번 실측 —
+      ElevationRequirement·VCRedist 의존성으로는 안 풀렸다). 무인 설치 사용자는
+      다음 로그인에 Run 키가 렌더러를 띄우고, install.ps1 은 마법사처럼 스크립트가
+      직접 비승격으로 띄워 종전 체감을 유지한다(Invoke-PostInstallRenderer).
     -->
     <CustomAction Id="LaunchPopupRenderer"
                   FileKey="unim_popup_win_exe"
@@ -450,7 +457,7 @@
 
     <InstallExecuteSequence>
       <Custom Action="LaunchPopupRenderer" After="InstallFinalize">
-        <![CDATA[NOT Installed OR REINSTALL]]>
+        <![CDATA[(NOT Installed OR REINSTALL) AND UILevel>=4]]>
       </Custom>
       <Custom Action="LaunchSetupWizardFresh" After="LaunchPopupRenderer">
         <![CDATA[NOT Installed AND NOT WIX_UPGRADE_DETECTED AND UILevel>=4]]>

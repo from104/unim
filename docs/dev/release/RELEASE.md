@@ -187,6 +187,10 @@ compare 링크가 이전 태그를 찾아야 하므로 `linux-deb.yml` 의 check
 
 - [ ] 태그 push 후 Actions 에서 두 워크플로의 **전 매트릭스 레그 + publish 잡** 성공 확인 (한 레그라도 실패하면 릴리스가 만들어지지 않는다)
 - [ ] 릴리스 본문에 CHANGELOG 절과 `Full Changelog` compare 링크가 다 들어갔는지 확인
+- [ ] 자산 이름 대조는 `scripts/ci/verify-release-assets.sh` 가 두 publish 잡에서 자동으로 한다 —
+      매니페스트가 가리키는 이름이 릴리스에 없으면 거기서 실패한다. GitHub 이 자산 이름의
+      `~` 를 `.` 로 바꾸는 탓에 v0.4.2 deb 3배포판이 전부 404 였다(빌드는 그린이었다).
+      `scripts/ci/build-deb.sh` 가 업로드 전에 파일명을 미리 정규화한다.
 - [ ] 릴리스 전 리허설: `workflow_dispatch`(tag 미입력) 또는 로컬 `scripts/build-linux-matrix.sh` 로 6레그 그린 확인
 - [ ] (Windows MSI가 별도 워크플로에서 첨부되는 동안 시간차가 있을 수 있음 — 본문의 ⏳ 안내가 이를 고지한다)
 

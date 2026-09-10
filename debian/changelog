@@ -1,3 +1,12 @@
+unim (0.4.3-1) unstable; urgency=medium
+
+  * Windows: the installer no longer launches the popup renderer during
+    silent installs (/qn, winget). Required for winget automated validation;
+    the install script still starts the renderer itself, so the irm|iex path
+    behaves as before.
+
+ -- Seo Kihyun <from104@gmail.com>  Thu, 10 Sep 2026 09:40:00 +0900
+
 unim (0.4.2-1) unstable; urgency=medium
 
   * Fix Hangul input on GNOME Shell 50 (Ubuntu 26.04).
