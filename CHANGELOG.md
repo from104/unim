@@ -4,7 +4,7 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
-## [Unreleased]
+## [0.4.3] 2026-09-10
 
 ### Fixed
 

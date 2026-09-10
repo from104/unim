@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <img alt="version 0.4.2" src="https://img.shields.io/badge/version-0.4.2-informational">
+  <img alt="version 0.4.3" src="https://img.shields.io/badge/version-0.4.3-informational">
   <img alt="Rust 1.78+" src="https://img.shields.io/badge/rust-1.78%2B-orange">
   <img alt="Linux · Windows" src="https://img.shields.io/badge/platform-Linux%20(deb%2Frpm)%20%C2%B7%20Windows%20(MSI)-success">
   <a href="CONTRIBUTING.md"><img alt="contributions welcome" src="https://img.shields.io/badge/contributions-welcome-brightgreen"></a>
@@ -118,7 +118,7 @@ curl -fsSL .../install.sh | bash -s -- --update
 curl -fsSL .../install.sh | bash -s -- --check
 
 # 버전 고정
-UNIM_VERSION=v0.4.2 curl -fsSL .../install.sh | bash
+UNIM_VERSION=v0.4.3 curl -fsSL .../install.sh | bash
 ```
 
 `curl | bash`가 내키지 않으시면 받아서 읽어 보신 뒤 실행하셔도 됩니다.
@@ -156,7 +156,7 @@ MSI는 SHA256(`SHA256SUMS-msi`)으로 검증하며, 관리자로 승격된 프�
 & ([scriptblock]::Create((irm .../install.ps1))) -Check
 
 # 버전 고정 (해당 릴리스에 SHA256SUMS-msi가 있어야 합니다)
-$env:UNIM_VERSION='v0.4.2'; irm .../install.ps1 | iex
+$env:UNIM_VERSION='v0.4.3'; irm .../install.ps1 | iex
 ```
 
 받아서 읽어 보신 뒤 실행하시려면 이렇게 하시면 됩니다.
