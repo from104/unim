@@ -384,9 +384,12 @@ function Invoke-Msiexec {
     # -Wait 를 쓰지 않는다: PowerShell 의 -Wait 는 대상 프로세스를 Job Object 에
     # 넣고 '자손 프로세스까지' 활성 프로세스 0 을 기다린다. unim.wxs 의
     # LaunchPopupRenderer 커스텀 액션(Execute=immediate, Return=asyncNoWait)이
-    # 신규 설치마다 msiexec 의 자손으로 unim-popup-win.exe 를 띄우는데, 그 exe 는
+    # 대화형 설치마다 msiexec 의 자손으로 unim-popup-win.exe 를 띄우는데, 그 exe 는
     # GetMessageW 무한 루프를 도는 상주 프로세스라 절대 끝나지 않는다 — 그래서
     # msiexec 프로세스 자신의 종료만 기다리고, 타임아웃이면 강제 종료한다.
+    # (0.4.3 부터 이 CA 는 UILevel>=4 게이트라 여기의 /qn 설치에서는 돌지 않는다 —
+    #  winget 동적 검증이 바로 이 '자손 대기' 방식이라 Validation-Shell-Execute 로
+    #  실패했던 것. 아래 정리 코드는 옛 MSI·수동 실행 대비로 남긴다.)
     #
     # 2026-09-03 windows-2022 러너 첫 실측: exit= 가 공란으로 나와 항상 FAIL.
     # 원인은 Start-Process -PassThru 였다 — 그 커맨드릿이 돌려주는

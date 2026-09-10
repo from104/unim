@@ -4,6 +4,12 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
+## [Unreleased]
+
+### Fixed
+
+- Windows: the installer no longer launches the popup renderer during silent installs (`/qn`, winget), as required by winget automated validation; the install script still starts it itself
+
 ## [0.4.2] 2026-09-09
 
 ### Added
