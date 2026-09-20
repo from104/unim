@@ -6,6 +6,12 @@ UNIM(Universal Next-generation Input Method) 프로젝트에 대한 모든 주�
 
 형식은 [Keep a Changelog (korean)]를 기반으로 하며 이 프로젝트는 [Semantic Versioning (korean)]을 따릅니다.
 
+## [0.4.4] 2026-09-21
+
+### 수정됨
+
+- GNOME: 데몬이 다시 시작되면(패키지 업데이트, `unim-daemon --replace`) 한글 입력이 멈춰 확장을 껐다 켜야 하던 문제 수정
+
 ## [0.4.3] 2026-09-10
 
 ### 수정됨

@@ -1,3 +1,11 @@
+unim (0.4.4-1) unstable; urgency=medium
+
+  * GNOME: the extension now follows the daemon across restarts. After a
+    package update or `unim-daemon --replace`, Hangul input stopped working
+    until the extension was toggled off and on.
+
+ -- Seo Kihyun <from104@gmail.com>  Mon, 21 Sep 2026 09:00:00 +0900
+
 unim (0.4.3-1) unstable; urgency=medium
 
   * Windows: the installer no longer launches the popup renderer during

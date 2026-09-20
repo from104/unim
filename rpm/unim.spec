@@ -1,5 +1,5 @@
 Name:           unim
-Version:        0.4.3
+Version:        0.4.4
 Release:        1%{?dist}
 Summary:        Universal Next-generation Input Method Engine (Korean IME)
 Summary(ko):    범용 차세대 한글 입력기 엔진
@@ -420,6 +420,10 @@ fi
 # ─── Changelog ───────────────────────────────────────────────────────────────
 
 %changelog
+* Mon Sep 21 2026 from104 <from104@gmail.com> - 0.4.4-1
+- GNOME: the extension now follows the daemon across restarts; after a package
+  update or `unim-daemon --replace`, Hangul input stopped working until the
+  extension was toggled off and on.
 * Thu Sep 10 2026 from104 <from104@gmail.com> - 0.4.3-1
 - Windows: the installer no longer launches the popup renderer during silent
   installs (/qn, winget), as required by winget automated validation; the
