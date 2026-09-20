@@ -18,25 +18,43 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TIMEOUT="${1:-25}"
 UUID="unim-gnome@from104.github.io"
 
-for cmd in gnome-shell dbus-run-session dconf; do
+for cmd in gnome-shell dbus-run-session dconf glib-compile-schemas; do
     command -v "$cmd" >/dev/null || {
         echo "⏭️  $cmd 가 없어 런타임 스모크를 건너뛴다."
         exit 0
     }
 done
 
-# 확장이 어디에도 안 깔려 있으면 셸이 로드할 것 자체가 없다.
-if [ ! -d "$HOME/.local/share/gnome-shell/extensions/$UUID" ] &&
-   [ ! -d "/usr/share/gnome-shell/extensions/$UUID" ]; then
-    echo "⏭️  확장이 설치돼 있지 않아 건너뛴다 —"
-    echo "    make install-gnome-extension GNOME_EXTENSION_DIR=\"\$HOME/.local/share/gnome-shell/extensions/$UUID\""
+# 검사 대상은 설치본이 아니라 이 워크트리다.
+# 예전에는 $HOME/.local/share 의 설치본을 로드했는데, 그건 마지막으로
+# `make install-gnome-extension` 한 시점의 사본이라 방금 고친 코드를 검사하지
+# 않는다(2026-09-20 실측: 한 달 가까이 묵은 사본을 통과시키고 있었다).
+if [ ! -d "$ROOT/unim-gnome-extension" ]; then
+    echo "⏭️  unim-gnome-extension 디렉터리가 없어 건너뛴다."
     exit 0
 fi
 
 LOG="$(mktemp -t unim-smoke-XXXXXX.log)"
 DAEMON_BIN="$ROOT/target/release/unim-daemon"
 INNER="$(mktemp -t unim-smoke-inner-XXXXXX.sh)"
-trap 'rm -f "$LOG" "$LOG.daemon" "$INNER"' EXIT
+# dconf 는 세션 버스와 무관하게 $XDG_CONFIG_HOME/dconf/user 하나를 공유한다.
+# 아래 INNER 가 쓰는 gsettings/dconf 값(enabled-extensions·enable-ime)은 스모크
+# 전용인데, 격리하지 않으면 그 값이 로그인해 있는 실제 데스크톱에 그대로 반영된다
+# (2026-09-20 실측: enabled-extensions 가 확장 하나만 남기고 덮여 실행 중 셸이
+#  나머지 확장을 즉시 비활성화했다). 임시 XDG_CONFIG_HOME 으로 dconf DB 를 갈라
+# 스모크의 쓰기가 실세션에 닿지 않게 한다.
+SMOKE_CFG="$(mktemp -d -t unim-smoke-cfg-XXXXXX)"
+# 워크트리 확장을 임시 XDG_DATA_HOME 에 올린다 — 실사용 설치본을 건드리지 않고
+# 지금 소스를 검사하기 위해서다. 구성은 install-gnome-extension 과 같다.
+SMOKE_DATA="$(mktemp -d -t unim-smoke-data-XXXXXX)"
+trap 'rm -f "$LOG" "$LOG.daemon" "$INNER"; rm -rf "$SMOKE_CFG" "$SMOKE_DATA"' EXIT
+
+EXT_STAGE="$SMOKE_DATA/gnome-shell/extensions/$UUID"
+mkdir -p "$EXT_STAGE"
+cp -rf "$ROOT/unim-gnome-extension/." "$EXT_STAGE/"
+rm -rf "$EXT_STAGE/bin" "$EXT_STAGE/po" "$EXT_STAGE/SPEC.md"
+glib-compile-schemas "$EXT_STAGE/schemas"
+echo "워크트리 확장 스테이징: $EXT_STAGE"
 
 # --wayland-display 를 고유하게 줘서 실제 세션의 소켓 이름과 부딪히지 않게 한다.
 # GNOME 50 부터 --nested 는 없어졌고 --display-server 를 안 주면 기본이 중첩이다.
@@ -88,6 +106,7 @@ INNER_EOF
 chmod +x "$INNER"
 
 timeout -s TERM "$TIMEOUT" env UNIM_DEVELOP=1 LANG=C.UTF-8 \
+    XDG_CONFIG_HOME="$SMOKE_CFG" XDG_DATA_HOME="$SMOKE_DATA" \
     UNIM_SMOKE_UUID="$UUID" UNIM_SMOKE_WL_DISPLAY="$DISPLAY_NAME" \
     UNIM_SMOKE_DAEMON_BIN="$DAEMON_BIN" UNIM_SMOKE_DAEMON_LOG="$LOG.daemon" \
     dbus-run-session -- "$INNER" >"$LOG" 2>&1

@@ -27,6 +27,24 @@ const POPUP_INTERFACE = 'org.atit.unim.Popup';
 const DBUS_TIMEOUT_MS = 500;
 
 /**
+ * 연결 수립용 타임아웃 (밀리초).
+ *
+ * CreateInputContext 는 데몬이 엔진을 새로 만드는 호출이라(사전 로드 포함)
+ * 갓 기동한 데몬에서는 입력용 500ms 를 넘긴다 — 실측에서 재연결이 여기서
+ * 깨졌다. 연결당 한 번만 부르는 호출이므로 넉넉히 준다.
+ */
+const DBUS_SETUP_TIMEOUT_MS = 2000;
+
+/**
+ * 재연결 재시도 간격 (밀리초).
+ *
+ * 버스 이름을 잡은 직후의 데몬은 아직 요청을 받을 준비가 안 됐을 수 있다.
+ * NameOwnerChanged 는 한 번뿐이라 첫 시도가 실패하면 다시 부를 계기가 없으므로
+ * 직접 물러섰다 다시 붙는다.
+ */
+const RECONNECT_RETRY_MS = [300, 800, 2000, 4000];
+
+/**
  * UNIM DBus IME 클라이언트
  *
  * InputMethod 팩토리로 InputContext를 생성하고,
@@ -46,8 +64,24 @@ export class UnimDbusIME {
         this._icSignalId = 0;
         /** @type {number} 글로벌 팝업 시그널 구독 ID */
         this._popupSignalId = 0;
+        /** @type {number} popup-service Popup 시그널 구독 ID */
+        this._popupServiceSignalId = 0;
         /** @type {boolean} 데몬 연결 상태 */
         this._connected = false;
+        /** @type {number} 데몬 버스 이름 감시 ID (NameOwnerChanged) */
+        this._nameWatcherId = 0;
+        /** @type {string} 마지막 창 식별자 — 재연결 때 그대로 다시 쓴다 */
+        this._windowId = '';
+        /** @type {boolean} 재연결 처리 중 재진입 가드 */
+        this._rebuilding = false;
+        /** @type {number} 재연결 재시도 타이머 소스 ID */
+        this._retrySourceId = 0;
+        /** @type {number} 연속 재시도 횟수 */
+        this._retryCount = 0;
+        /** @type {Function|null} 재연결 완료 콜백 */
+        this._onDaemonReady = null;
+        /** @type {Function|null} 데몬 소멸 콜백 */
+        this._onDaemonLost = null;
         /** @type {Function|null} 모드 변경 콜백 */
         this._onModeChanged = null;
         /** @type {Function|null} 한자 팝업 표시 콜백 */
@@ -110,7 +144,28 @@ export class UnimDbusIME {
      */
     connect(windowId, onModeChanged) {
         this._onModeChanged = onModeChanged || null;
+        this._windowId = windowId || '';
 
+        // 데몬 버스 이름을 먼저 감시한다. `unim-daemon --replace` 는 버스 이름의
+        // 소유자만 바꾸므로, 한 번 만든 프록시는 죽은 고유 이름을 가리킨 채 남고
+        // 이후 호출이 조용히 실패한다 — 확장을 껐다 켜기 전에는 입력이 돌아오지
+        // 않는다. NameOwnerChanged 를 듣고 프록시와 InputContext 를 다시 만들어야
+        // 사람 손이 필요 없다.
+        this._startNameWatch();
+
+        return this._buildDaemonSession(windowId);
+    }
+
+    /**
+     * InputMethod 프록시와 InputContext 를 실제로 만든다.
+     *
+     * 최초 connect() 와 데몬 재등장 시 재연결이 이 경로 하나를 공유한다.
+     *
+     * @param {string} windowId - 창 식별자
+     * @returns {boolean} 성공 여부
+     * @private
+     */
+    _buildDaemonSession(windowId) {
         try {
             // 1. InputMethod 팩토리 프록시 생성
             this._imProxy = Gio.DBusProxy.new_for_bus_sync(
@@ -164,6 +219,182 @@ export class UnimDbusIME {
             this._connected = false;
             return false;
         }
+    }
+
+    /**
+     * 데몬 생명주기 콜백 등록
+     *
+     * @param {object} callbacks
+     * @param {Function} [callbacks.onReady] - 재연결이 끝나 호출이 다시 먹을 때.
+     *        InputContext 가 새로 만들어지므로 데몬 쪽에만 있던 상태
+     *        (프런트엔드 등록·포커스 창)는 호출자가 다시 심어야 한다.
+     * @param {Function} [callbacks.onLost] - 데몬이 사라졌을 때
+     */
+    setDaemonLifecycleCallbacks(callbacks) {
+        this._onDaemonReady = callbacks.onReady || null;
+        this._onDaemonLost = callbacks.onLost || null;
+    }
+
+    /**
+     * 데몬 버스 이름 감시 시작 (NameOwnerChanged)
+     * @private
+     */
+    _startNameWatch() {
+        if (this._nameWatcherId > 0) return;
+        this._nameWatcherId = Gio.DBus.watch_name(
+            Gio.BusType.SESSION,
+            UNIM_BUS_NAME,
+            Gio.BusNameWatcherFlags.NONE,
+            (_conn, _name, owner) => this._onDaemonAppeared(owner),
+            () => this._onDaemonVanished()
+        );
+        unimLog('DBUS_IME', `데몬 이름 감시 시작 (${UNIM_BUS_NAME})`);
+    }
+
+    /**
+     * 데몬 등장·교체 — 세션을 다시 만든다.
+     *
+     * @param {string} owner - 새 고유 버스 이름
+     * @private
+     */
+    _onDaemonAppeared(owner) {
+        this._cancelRetry();
+        this._retryCount = 0;
+        this._attemptRebuild(owner);
+    }
+
+    /**
+     * 세션 재구축 1회 시도. 실패하면 물러섰다 다시 부른다.
+     *
+     * @param {string} owner - 새 고유 버스 이름 (로그용)
+     * @private
+     */
+    _attemptRebuild(owner) {
+        if (this._rebuilding) return;
+        this._rebuilding = true;
+        let ok = false;
+        try {
+            // --replace 는 vanished 없이 소유자만 바뀌어 오기도 한다.
+            // 순서에 기대지 않도록 항상 헐고 짓는다.
+            this._teardownDaemonSession(false);
+            ok = this._buildDaemonSession(this._windowId);
+        } catch (e) {
+            unimError('DBUS_IME', `재연결 시도 중 오류: ${e.message}`);
+        } finally {
+            this._rebuilding = false;
+        }
+
+        if (ok) {
+            this._retryCount = 0;
+            unimLog('DBUS_IME',
+                `데몬 ${owner} 연결 복구 (context: ${this._contextPath})`);
+            if (this._onDaemonReady) this._onDaemonReady();
+            return;
+        }
+
+        if (this._retryCount >= RECONNECT_RETRY_MS.length) {
+            unimError('DBUS_IME',
+                `데몬 ${owner} 재연결 포기 (${this._retryCount}회 실패) — 다음 소유자 변경을 기다린다`);
+            return;
+        }
+        const delay = RECONNECT_RETRY_MS[this._retryCount];
+        this._retryCount++;
+        unimLog('DBUS_IME',
+            `데몬 ${owner} 재연결 실패 — ${delay}ms 뒤 ${this._retryCount}차 재시도`);
+        this._retrySourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+            this._retrySourceId = 0;
+            this._attemptRebuild(owner);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /**
+     * 예약된 재시도를 취소한다.
+     * @private
+     */
+    _cancelRetry() {
+        if (this._retrySourceId > 0) {
+            GLib.source_remove(this._retrySourceId);
+            this._retrySourceId = 0;
+        }
+    }
+
+    /**
+     * 데몬 소멸 — 죽은 프록시를 버리고 재등장을 기다린다.
+     * @private
+     */
+    _onDaemonVanished() {
+        // 사라진 데몬에 붙으려던 재시도는 의미가 없다.
+        this._cancelRetry();
+        this._retryCount = 0;
+        if (!this._imProxy && !this._icProxy) return;
+        unimLog('DBUS_IME', '데몬 소멸 — 프록시 정리 후 재등장 대기');
+        this._teardownDaemonSession(false);
+        // 데몬이 죽으면 HidePopup 을 보낼 주체가 사라져 팝업이 화면에 남는다.
+        // 렌더러만 접는다 — 확장은 여전히 팝업 상태를 보유하지 않는다.
+        if (this._onHidePopup) {
+            try {
+                this._onHidePopup();
+            } catch (_e) {
+                // 렌더러 정리 실패는 재연결을 막지 않는다
+            }
+        }
+        if (this._onDaemonLost) this._onDaemonLost();
+    }
+
+    /**
+     * 데몬 쪽 프록시·구독만 해제한다.
+     *
+     * 이름 감시·콜백·popup-service 구독(별도 서비스)은 그대로 둔다 —
+     * 재연결 후에도 같은 인스턴스를 계속 쓰기 때문이다.
+     *
+     * @param {boolean} notifyDaemon - InputContext.Destroy 를 보낼지 여부.
+     *        데몬이 살아 있는 확장 disable 때만 true. 소멸·교체 때는 받을 상대가
+     *        없거나 경로가 이미 무효라 false.
+     * @private
+     */
+    _teardownDaemonSession(notifyDaemon) {
+        if (this._popupSignalId > 0) {
+            try {
+                const bus = Gio.bus_get_sync(Gio.BusType.SESSION, null);
+                bus.signal_unsubscribe(this._popupSignalId);
+            } catch (_e) {
+                // 버스 접근 실패 무시
+            }
+            this._popupSignalId = 0;
+        }
+
+        if (this._icProxy) {
+            if (this._icSignalId > 0) {
+                this._icProxy.disconnect(this._icSignalId);
+                this._icSignalId = 0;
+            }
+            if (notifyDaemon) {
+                try {
+                    this._icProxy.call_sync(
+                        'Destroy',
+                        null,
+                        Gio.DBusCallFlags.NONE,
+                        DBUS_TIMEOUT_MS,
+                        null
+                    );
+                } catch (_e) {
+                    // 데몬이 이미 종료된 경우 무시
+                }
+            }
+            this._icProxy = null;
+        }
+        this._contextPath = null;
+
+        if (this._imProxy) {
+            if (this._imSignalId > 0) {
+                this._imProxy.disconnect(this._imSignalId);
+                this._imSignalId = 0;
+            }
+            this._imProxy = null;
+        }
+
+        this._connected = false;
     }
 
     /**
@@ -234,7 +465,7 @@ export class UnimDbusIME {
             'CreateInputContext',
             new GLib.Variant('(ss)', ['gnome-extension', windowId || '']),
             Gio.DBusCallFlags.NONE,
-            DBUS_TIMEOUT_MS,
+            DBUS_SETUP_TIMEOUT_MS,
             null
         );
 
@@ -291,7 +522,7 @@ export class UnimDbusIME {
         // 활용 (Wayland text-input v3 IM 세션 engage 용 ZWSP preedit 트릭). 한자/특수
         // popup signal 은 popup-service 가 자체 GTK4 popup 으로 표시하므로 GNOME ext
         // 는 처리 불요.
-        this._popupServiceSignalId = bus.signal_subscribe(
+        this._popupServiceSignalId = this._popupServiceSignalId || bus.signal_subscribe(
             POPUP_SERVICE_BUS,
             POPUP_INTERFACE,
             null,                  // ShowEmojiPopupV2 / HidePopup 모두 받음 (signal 명 분기는 핸들러)
@@ -890,6 +1121,15 @@ export class UnimDbusIME {
      * InputContext 파괴 → 프록시 해제 → 시그널 해제
      */
     destroy() {
+        // 이름 감시 해제 — 이걸 먼저 끊어야 아래 정리가 재연결을 되부르지 않는다.
+        if (this._nameWatcherId > 0) {
+            Gio.DBus.unwatch_name(this._nameWatcherId);
+            this._nameWatcherId = 0;
+        }
+        this._cancelRetry();
+        this._onDaemonReady = null;
+        this._onDaemonLost = null;
+
         // AutoTypefixApply 글로벌 시그널 구독 해제
         if (this._popupSignalId > 0) {
             try {
