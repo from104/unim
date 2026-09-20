@@ -203,7 +203,9 @@ extension.js `_onFocusWindowChanged` 의 창 전환 fail-safe(Clutter vfunc 를 
 
 ## 3. DBus 통신 (`dbus_ime.js`)
 
-`Gio.DBusProxy`를 사용하여 동기(Sync) 호출 위주로 구현. 타임아웃 500ms.
+`Gio.DBusProxy`를 사용하여 동기(Sync) 호출 위주로 구현. 입력 경로 호출은 타임아웃
+500ms(`DBUS_TIMEOUT_MS`), 연결 수립용 `CreateInputContext` 만 2000ms
+(`DBUS_SETUP_TIMEOUT_MS`) — 갓 기동한 데몬은 엔진을 새로 만드느라 500ms 를 넘긴다.
 
 ### 3.1 Config 캐시
 
@@ -248,6 +250,33 @@ extension.js `_onFocusWindowChanged` 의 창 전환 fail-safe(Clutter vfunc 를 
 
 - InputContext 시그널은 `_icProxy` g-signal과 **세션 버스 글로벌 구독(`signal_subscribe`)** 두 경로를 병용. 자기 context는 proxy 경로, 외부 context(Wayland 전용)는 글로벌 경로로 처리하여 중복 방지.
 - `AutoTypefixApply`는 proxy introspection 미등록 가능성 때문에 자기 context도 글로벌 경로에서 dispatch.
+
+### 3.x 데몬 교체·재시작 추종 (NameOwnerChanged)
+
+`unim-daemon --replace` 는 버스 이름 `org.atit.unim.InputMethod` 의 **소유자만**
+바꾼다. 한 번 만든 `Gio.DBusProxy` 는 옛 소유자의 고유 이름(`:1.2` 등)에 묶여
+있어, 교체 뒤에는 살아 있는 객체처럼 보이면서 호출만 조용히 실패한다. 예전에는
+이 상태에서 벗어나는 길이 확장을 껐다 켜는 것뿐이었다.
+
+`dbus_ime.js` 가 `Gio.DBus.watch_name()` 으로 이름을 감시해 스스로 따라간다.
+
+| 사건 | 동작 |
+|---|---|
+| vanished | 데몬 쪽 프록시·시그널 구독 해제, `isConnected=false`, `onHidePopup` 1회 발행 후 `onLost` |
+| appeared | 헐고 다시 짓는다 — IM 프록시 → Config 로드 → `CreateInputContext` → 시그널 재구독, 성공하면 `onReady` |
+
+- **항상 헐고 짓는다**: `--replace` 는 vanished 없이 소유자만 바뀌어 오기도 해서
+  이벤트 순서에 기대지 않는다.
+- **재시도 백오프** 300·800·2000·4000ms: 이름을 잡은 직후의 데몬은 아직 요청을
+  받을 준비가 안 됐을 수 있는데, `NameOwnerChanged` 는 한 번뿐이라 첫 시도가
+  실패하면 다시 부를 계기가 없다. 4회 실패하면 다음 소유자 변경까지 기다린다.
+- **팝업 정리**: 데몬이 죽으면 `HidePopup` 을 보낼 주체가 없어 팝업이 화면에
+  남는다. 렌더러만 접으며 확장은 여전히 팝업 상태를 보유하지 않는다.
+- **호출자 몫**: `InputContext` 가 새로 만들어지므로 데몬 쪽에만 있던 상태는
+  `setDaemonLifecycleCallbacks({onReady})` 에서 다시 심는다 —
+  `extension.js` 가 `RegisterFrontend` 와 (IME 사용 중이면) `FocusIn` 을 재전송한다.
+- popup-service 구독은 **별도 서비스**라 데몬 교체 때 건드리지 않는다
+  (재구축 시 중복 구독 방지 가드 있음).
 
 ---
 

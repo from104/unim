@@ -4,6 +4,12 @@ All notable changes to the UNIM (Universal Next-generation Input Method) project
 
 The format is based on [Keep a Changelog] and this project follows [Semantic Versioning].
 
+## [0.4.4] 2026-09-21
+
+### Fixed
+
+- GNOME: fixed Hangul input stopping after the daemon restarts (package update, `unim-daemon --replace`), which previously required toggling the extension off and on
+
 ## [0.4.3] 2026-09-10
 
 ### Fixed

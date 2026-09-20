@@ -90,12 +90,20 @@ export default class UnimExtension extends Extension {
             // DBus 연결 (IME 모드 무관 — 인디케이터 모드 동기화 공용)
             // PR #3 부터 emoji 트리거 키바인딩은 제거됨 (engine 이 직접 키 받음).
             this._dbusIME = new UnimDbusIME();
+            // 데몬 교체(`--replace`)·재시작을 확장이 스스로 따라가게 한다.
+            this._dbusIME.setDaemonLifecycleCallbacks({
+                onReady: () => this._onDaemonReady(),
+                onLost: () => this._onDaemonLost(),
+            });
             const windowId = this._getActiveWindowId();
             const connected = this._dbusIME.connect(windowId, (isKorean) => {
                 if (this._indicator) this._indicator._onModeChanged(isKorean);
             });
             if (!connected) {
                 unimError('EXTENSION', 'unim-daemon DBus 연결 실패 — 모드 동기화 비활성');
+                // 인스턴스를 버리기 전에 이름 감시를 걷는다 — 안 그러면 주인 없는
+                // 감시가 남아 데몬이 떠도 아무도 받지 못하는 콜백을 부른다.
+                this._dbusIME.destroy();
                 this._dbusIME = null;
             } else {
                 // 데몬에 프런트엔드 등록
@@ -475,6 +483,41 @@ export default class UnimExtension extends Extension {
      * @returns {string}
      * @private
      */
+    /**
+     * 데몬이 다시 떠서 프록시가 복구됐을 때.
+     *
+     * InputContext 는 데몬과 함께 사라졌다가 새로 만들어진다. 확장 쪽 배선
+     * (콜백·KeyHandler·InputMethod)은 같은 UnimDbusIME 인스턴스를 붙들고 있어
+     * 그대로 살아 있지만, 데몬 쪽에만 있던 상태는 다시 심어야 한다.
+     * @private
+     */
+    _onDaemonReady() {
+        if (!this._dbusIME) return;
+        try {
+            this._dbusIME.registerFrontend('gnome-shell');
+        } catch (e) {
+            console.warn(`[unim] 재연결 후 RegisterFrontend 실패: ${e.message}`);
+        }
+        // IME 를 쓰고 있을 때만 포커스를 되살린다 — 꺼둔 상태에서 포커스를
+        // 심으면 데몬이 쓰지도 않을 컨텍스트를 활성으로 본다.
+        if (this._inputMethod) {
+            try {
+                this._dbusIME.focusIn(this._getActiveWindowId());
+            } catch (e) {
+                console.warn(`[unim] 재연결 후 FocusIn 실패: ${e.message}`);
+            }
+        }
+        unimLog('EXTENSION', 'unim-daemon 재연결 — 프런트엔드 등록·포커스 복원');
+    }
+
+    /**
+     * 데몬이 사라졌을 때. 팝업 정리는 dbus_ime 가 HidePopup 경로로 이미 했다.
+     * @private
+     */
+    _onDaemonLost() {
+        unimLog('EXTENSION', 'unim-daemon 소멸 — 재등장 대기');
+    }
+
     _getActiveWindowId() {
         const focusWindow = global.display.focus_window;
         return focusWindow ? this._getWindowId(focusWindow) : '';
